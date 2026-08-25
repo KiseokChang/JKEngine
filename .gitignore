@@ -1,15 +1,38 @@
 # Build outputs
 build/
+Build/
+build-*/
 out/
 *.exe
+*.out
+*.app
 *.dll
 *.obj
+*.o
+*.slo
+*.lo
 *.pdb
 *.ilk
 *.lib
 *.a
-*.so
+*.lai
+*.la
 *.exp
+*.so
+*.so.*
+*.dylib
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Fortran module files
+*.mod
+*.smod
+
+# Prerequisites
+*.d
+*.dwo
 
 # CMake generated files
 CMakeCache.txt
@@ -20,6 +43,12 @@ build.ninja
 .ninja_deps
 Makefile
 CMakeUserPresets.json
+install_manifest.txt
+compile_commands.json
+Testing/
+
+# vcpkg
+vcpkg_installed/
 
 # IDE / editor
 .vs/
@@ -29,13 +58,15 @@ CMakeUserPresets.json
 *.userosscache
 *.sln.docstates
 *.filters
+*.swp
+.cache/
 
 # Logs and temp files
 *.log
+*.tmp
+*.bak
 err.txt
 compile_err.txt
-*.tmp
-*.temp
 tmp_*.py
 tmp_*.bat
 tmp_*.sh
@@ -45,7 +76,6 @@ typescript
 *~
 *.~de
 *.~DE
-*.bak
 
 # OS files
 Thumbs.db
