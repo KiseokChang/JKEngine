@@ -1,0 +1,53 @@
+# Build outputs
+build/
+out/
+*.exe
+*.dll
+*.obj
+*.pdb
+*.ilk
+*.lib
+*.a
+*.so
+*.exp
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+build.ninja
+.ninja_log
+.ninja_deps
+Makefile
+CMakeUserPresets.json
+
+# IDE / editor
+.vs/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.filters
+
+# Logs and temp files
+*.log
+err.txt
+compile_err.txt
+*.tmp
+*.temp
+tmp_*.py
+tmp_*.bat
+tmp_*.sh
+typescript
+
+# Backup files
+*~
+*.~de
+*.~DE
+*.bak
+
+# OS files
+Thumbs.db
+.DS_Store
+desktop.ini

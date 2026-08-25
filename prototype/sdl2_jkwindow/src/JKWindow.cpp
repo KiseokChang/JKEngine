@@ -1,0 +1,197 @@
+#include <JKWindow.h>
+#include <cstdio>
+
+namespace jk {
+
+JKWindow::JKWindow() = default;
+
+JKWindow::JKWindow(const std::string& title) : title_(title) {
+}
+
+void JKWindow::SetTitle(const std::string& title) {
+    title_ = title;
+}
+
+const std::string& JKWindow::GetTitle() const {
+    return title_;
+}
+
+void JKWindow::SetRect(const JKRect& rect) {
+    // JKControl::SetRect은 clientRect_를 rect와 동일하게 덮어쓰므로,
+    // JKWindow는 테두리/타이틀 크기를 유지한 클라이언트 영역을 다시 계산한다.
+    JKControl::SetRect(rect);
+
+    constexpr int32_t kBorder = 2;
+    constexpr int32_t kTitle  = 24;
+    JKRect client;
+    client.x = kBorder;
+    client.y = kTitle;
+    client.w = rect.w - kBorder * 2;
+    if (client.w < 0) client.w = 0;
+    client.h = rect.h - kTitle - kBorder;
+    if (client.h < 0) client.h = 0;
+    SetClientRect(client);
+}
+
+void JKWindow::SetWindowRect(const JKRect& rect) {
+    // SDL 논리 좌표를 그대로 사용: 테두리 2pt, 타이틀 24pt를 고정한다.
+    // SDL_RenderSetScale()이 물리 픽셀로 확대/축소한다.
+    SetRect(rect);
+
+#ifdef DEBUG
+    const JKRect& client = GetClientRect();
+    std::printf("[SetWindowRect] title='%s' border=%d titleH=%d "
+                "rect=(%d,%d %dx%d) client=(%d,%d %dx%d)\n",
+                title_.c_str(), 2, 24,
+                rect.x, rect.y, rect.w, rect.h,
+                client.x, client.y, client.w, client.h);
+#endif
+}
+
+void JKWindow::MoveWindow(int32_t dx, int32_t dy) {
+    JKRect r = GetRect();
+    r.x += dx;
+    r.y += dy;
+    SetRect(r);  // JKWindow::SetRect이 clientRect_를 재계산한다.
+}
+
+void JKWindow::MoveTo(int32_t x, int32_t y) {
+    JKRect r = GetRect();
+    r.x = x;
+    r.y = y;
+    SetRect(r);  // JKWindow::SetRect이 clientRect_를 재계산한다.
+}
+
+void JKWindow::ResizeWindow(int32_t dx, int32_t dy) {
+    JKRect r = GetRect();
+    r.w += dx;
+    r.h += dy;
+    if (r.w < 64) r.w = 64;
+    if (r.h < 48) r.h = 48;
+    SetWindowRect(r);
+}
+
+JKWindow::WindowRegion JKWindow::HitTestRegion(int32_t screenX, int32_t screenY) const {
+    const JKRect screenRect = GetScreenRect();
+    if (!screenRect.Contains(screenX, screenY)) {
+        return WindowRegion::None;
+    }
+    const JKRect screenClient = GetScreenClientRect();
+    if (screenClient.Contains(screenX, screenY)) {
+        return WindowRegion::Client;
+    }
+    if (screenY < screenRect.y + clientRect_.y) {
+        return WindowRegion::TitleBar;
+    }
+    return WindowRegion::Border;
+}
+
+JKControl* JKWindow::HitTest(int32_t x, int32_t y) {
+    const JKRect screenClient = GetScreenClientRect();
+    if (screenClient.Contains(x, y)) {
+        for (auto it = children_.rbegin(); it != children_.rend(); ++it) {
+            if (!(*it)->IsVisible()) continue;
+            const JKRect childScreen = (*it)->GetScreenRect();
+            if (!childScreen.Contains(x, y)) continue;
+
+            JKWindow* childWin = dynamic_cast<JKWindow*>(it->get());
+            if (childWin) {
+                return childWin->HitTest(x, y);
+            }
+            return it->get();
+        }
+    }
+    return this;
+}
+
+JKRect JKWindow::GetScreenClientRect() const {
+    const JKRect screen = GetScreenRect();
+    return JKRect{ screen.x + clientRect_.x, screen.y + clientRect_.y,
+                   clientRect_.w, clientRect_.h };
+}
+
+void JKWindow::PaintWindow(JKDC& dc) {
+    const JKRect screenRect = GetScreenRect();
+
+    // 윈도우 프레임(타이틀 바, 테두리)은 윈도우 화면 영역으로 클립한다.
+    dc.PushClipRect(screenRect);
+
+    // 타이틀 바 (classic blue). SDL 논리 높이 clientRect_.y를 사용하며,
+    // SDL_RenderSetScale()이 HiDPI 물리 픽셀로 변환한다.
+    JKRect titleBar = screenRect;
+    titleBar.h = clientRect_.y;
+    dc.SetColor(0, 0, 128, 255);
+    dc.FillRect(titleBar);
+
+    // 타이틀 텍스트 (bitmap font).
+    if (!title_.empty()) {
+        dc.SetTextColor(255, 255, 255);
+        dc.SetBackColor(0, 0, 128);
+        JKRect textRect = titleBar;
+        // 안쪽 여백 4px.
+        textRect.x += 4;
+        textRect.w -= 8;
+        dc.TextOutX(textRect, title_.c_str(), ADJ_YCENTER | ADJ_LEFT, false);
+    }
+
+    // 테두리
+    dc.SetColor(192, 192, 192, 255);
+    dc.DrawRect(screenRect);
+
+    dc.PopClipRect();
+}
+
+void JKWindow::OnPaintClient(JKDC& dc) {
+    const JKRect client = GetScreenClientRect();
+
+    // 클라이언트 배경
+    dc.SetColor(240, 240, 240, 255);
+    dc.FillRect(client);
+
+    // 자식 컨트롤 그리기. 자식이 JKWindow이면 프레임(PaintWindow)도 함께 그립니다.
+    for (auto& child : children_) {
+        if (!child->IsVisible()) continue;
+        JKWindow* childWin = dynamic_cast<JKWindow*>(child.get());
+        if (childWin) {
+            childWin->PaintWindow(dc);
+        }
+        child->PaintClient(dc);
+    }
+}
+
+void JKWindow::RespondMessage(const JKEvent& ev) {
+    if (ev.type == JKEventType::MouseDown) {
+        WindowRegion region = HitTestRegion(ev.x, ev.y);
+        const JKRect sr = GetScreenRect();
+#ifdef DEBUG
+        std::printf("[MouseDown] target='%s' ev=(%d,%d) screen=(%d,%d %dx%d) region=%d\n",
+                    title_.c_str(), ev.x, ev.y, sr.x, sr.y, sr.w, sr.h,
+                    static_cast<int>(region));
+#endif
+        if (region == WindowRegion::TitleBar && HasAttrFlag(WA_TITLEMOVEABLE)) {
+            dragging_ = true;
+            dragStartMouse_ = JKPoint{ ev.x, ev.y };
+            dragStartRect_ = GetRect();
+        } else if (region == WindowRegion::Border && HasAttrFlag(WA_BORDERRESIZABLE)) {
+            // 단순화: 우측 하단 모서리에서만 크기 조정 (물리 픽셀 10px 핫스팟).
+            const int32_t hotX = 10;
+            const int32_t hotY = 10;
+            if (ev.x >= sr.x + sr.w - hotX && ev.y >= sr.y + sr.h - hotY) {
+                resizing_ = true;
+                resizeStartMouse_ = JKPoint{ ev.x, ev.y };
+                resizeStartRect_ = GetRect();
+            }
+        }
+    } else if (ev.type == JKEventType::MouseMove) {
+        if (dragging_) {
+            MoveWindow(ev.dx, ev.dy);
+        } else if (resizing_) {
+            ResizeWindow(ev.dx, ev.dy);
+        }
+    } else if (ev.type == JKEventType::MouseUp) {
+        dragging_ = false;
+        resizing_ = false;
+    }
+}
+
+} // namespace jk
