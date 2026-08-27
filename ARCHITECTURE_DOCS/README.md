@@ -16,6 +16,7 @@
 | `06_web_port_roadmap.md` | 웹 포팅 로드맵 및 기술 스택 제안 | ★★★ |
 | `10_sdl2_windows_setup.md` | Windows + VS Code + MSYS2 + SDL2 개발 환경 세팅 | ★★★ |
 | `11_jkwindow_sdl_mapping.md` | JKWINDOW → SDL2 클래스 매핑 설계 | ★★★ |
+| `12_sdl2_prototype_roadmap.md` | SDL2 JKWindow 프로토타입 로드맵 | ★★★ |
 | `99_file_inventory.md` | 주요 소스/헤더/리소스 파일 인벤토리 | ★★☆ |
 | `README.md` | 본 문서 | ★★★ |
 
@@ -67,6 +68,9 @@
 - [x] SDL2 기반 Windows 개발 환경 설계 (MSYS2/UCRT64 + CMake)
 - [x] JKWINDOW → SDL2 클래스 매핑 설계
 - [x] SDL2 JKWINDOW 프로토타입 코드 작성 (`prototype/sdl2_jkwindow/`)
+- [x] SDL2 JKWindow 프로토타입 로드맵 작성 (`12_sdl2_prototype_roadmap.md`)
+- [x] Phase 2~4 (Layout/Rendering/Resource) 브랜치 구현 확인 (`phase2-full-stack`)
+- [ ] Phase 1 Input/Focus System 마무리 — `phase1_input_focus.md` 기준 진행 중
 - [ ] MSYS2 설치 및 SDL2 툴체인 구축 — 환경 준비 후 진행
 - [ ] Prototype 빌드/실행 검증 — MSYS2 설치 후 진행
 - [ ] 2CAOCC 세부 모듈(Coord, POS, Meta, BATT 등) 심층 분석 — 추가 요청 시 진행
