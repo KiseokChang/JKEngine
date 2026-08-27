@@ -4,11 +4,15 @@
 
 namespace jk {
 
+JKApplication* g_currentJKApp = nullptr;
+
 JKApplication::JKApplication() : dc_(nullptr) {
+    g_currentJKApp = this;
 }
 
 JKApplication::~JKApplication() {
     Close();
+    if (g_currentJKApp == this) g_currentJKApp = nullptr;
 }
 
 bool JKApplication::Init(const std::string& title, int width, int height) {
@@ -50,6 +54,9 @@ bool JKApplication::Init(const std::string& title, int width, int height) {
     }
 
     dc_ = JKDC(renderer_);
+
+    // 텍스트 입력 이벤트(SDL_TEXTINPUT, SDL_TEXTEDITING)를 활성화한다.
+    SDL_StartTextInput();
 
     hangulManager_ = std::make_unique<HangulManager>();
     if (hangulManager_->CreationError) {
@@ -107,9 +114,20 @@ int JKApplication::Run() {
         return 1;
     }
 
+    lastTimerTick_ = SDL_GetTicks();
     SDL_Event sdlEvent;
     while (running_) {
-        // 1. SDL 이벤트 수집 → JKEvent 변환 → MessageQue
+        // 1. 주기적 타이머 이벤트 생성
+        uint32_t now = SDL_GetTicks();
+        if (now - lastTimerTick_ >= timerInterval_) {
+            lastTimerTick_ = now;
+            JKEvent timerEv;
+            timerEv.type = JKEventType::Timer;
+            timerEv.targetId = mainWindow_->GetWinId();
+            msgQue_.Push(timerEv);
+        }
+
+        // 2. SDL 이벤트 수집 → JKEvent 변환 → MessageQue
         while (SDL_PollEvent(&sdlEvent)) {
             if (sdlEvent.type == SDL_WINDOWEVENT &&
                 sdlEvent.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
@@ -122,7 +140,7 @@ int JKApplication::Run() {
             }
         }
 
-        // 2. 메시지 처리
+        // 3. 메시지 처리
         JKEvent ev;
         while (msgQue_.Pop(ev)) {
             if (!PreProcessMessage(ev)) {
@@ -134,10 +152,15 @@ int JKApplication::Run() {
 
         if (!running_) break;
 
-        // 3. 그리기
+        // 4. 닫기 요청된 자식 윈도우를 정리한다.
+        if (mainWindow_) {
+            mainWindow_->RemoveClosedChildren();
+        }
+
+        // 5. 그리기
         Render();
 
-        // 4. ~60 FPS
+        // 6. ~60 FPS
         SDL_Delay(16);
     }
 
@@ -150,6 +173,10 @@ void JKApplication::SetMainWindow(std::unique_ptr<JKWindow> window) {
 
 JKWindow* JKApplication::GetMainWindow() const {
     return mainWindow_.get();
+}
+
+void JKApplication::SetModalWindow(JKWindow* window) {
+    modalWindow_ = window;
 }
 
 JKControl* JKApplication::FindControlById(uint32_t winId) {
@@ -176,6 +203,13 @@ bool JKApplication::PreProcessMessage(const JKEvent& ev) {
 }
 
 void JKApplication::RouteMessage(const JKEvent& ev) {
+    if (modalWindow_) {
+        JKEvent modalEv = ev;
+        modalEv.targetId = modalWindow_->GetWinId();
+        modalWindow_->RespondMessage(modalEv);
+        return;
+    }
+
     JKControl* target = FindControlById(ev.targetId);
     if (!target) target = mainWindow_.get();
     target->RespondMessage(ev);
@@ -196,6 +230,10 @@ void JKApplication::Render() {
         mainWindow_->PaintWindow(dc_);
         mainWindow_->PaintClient(dc_);
     }
+    if (modalWindow_) {
+        modalWindow_->PaintWindow(dc_);
+        modalWindow_->PaintClient(dc_);
+    }
 
     dc_.Present();
 }
@@ -214,21 +252,9 @@ JKEvent JKApplication::TranslateSDLEvent(const SDL_Event& sdl) {
         // 논리 좌표이며, 내부 좌표계도 논리 좌표를 그대로 사용하므로
         // 별도 변환은 필요 없다. SDL_RenderSetScale()이 그리기만 물리 픽셀로 변환.
 
-        // 마우스 캡처 중이면 캡처한 컨트롤로 계속 라우팅 (드래그/리사이즈 지원)
-        if (captureControl_ &&
-            (ev.type == JKEventType::MouseMove || ev.type == JKEventType::MouseUp)) {
-            ev.targetId = captureControl_->GetWinId();
-        } else {
-            JKControl* target = mainWindow_->HitTest(ev.x, ev.y);
-            ev.targetId = target ? target->GetWinId() : mainWindow_->GetWinId();
-            if (ev.type == JKEventType::MouseDown) {
-                captureControl_ = target;
-            }
-        }
-
-        if (ev.type == JKEventType::MouseUp) {
-            captureControl_ = nullptr;
-        }
+        // 내부 좌표계는 SDL 논리 좌표를 그대로 사용한다.
+        JKControl* target = mainWindow_->HitTest(ev.x, ev.y);
+        ev.targetId = target ? target->GetWinId() : mainWindow_->GetWinId();
     } else if (ev.type == JKEventType::KeyDown ||
                ev.type == JKEventType::KeyUp ||
                ev.type == JKEventType::Char) {

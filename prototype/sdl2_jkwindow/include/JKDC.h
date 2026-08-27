@@ -30,6 +30,24 @@ public:
     void DrawLine(int32_t x1, int32_t y1, int32_t x2, int32_t y2);
     void DrawPixel(int32_t x, int32_t y);
 
+    // Primitive shapes (use the current draw color set by SetColor()).
+    void Circle(JKPoint center, int32_t radius);
+    void Ellipse(JKPoint center, int32_t rx, int32_t ry);
+    void Arc(JKPoint center, double startAngle, double endAngle, int32_t radius);
+    void Pieslice(JKPoint center, double startAngle, double endAngle, int32_t radius);
+    void DrawPolygon(const std::vector<JKPoint>& points);
+    void FillPolygon(const std::vector<JKPoint>& points);
+    void SolidBar(const JKRect& rect);
+
+    // 3D-styled rectangles (colors are explicit, independent of SetColor).
+    void Rectangle3D(const JKRect& rect, int32_t depth,
+                       uint8_t lightR = 255, uint8_t lightG = 255, uint8_t lightB = 255,
+                       uint8_t darkR = 0,   uint8_t darkG = 0,   uint8_t darkB = 0);
+    void Box3D(const JKRect& rect, int32_t depth,
+               uint8_t faceR = 192,  uint8_t faceG = 192,  uint8_t faceB = 192,
+               uint8_t lightR = 255, uint8_t lightG = 255, uint8_t lightB = 255,
+               uint8_t darkR = 0,    uint8_t darkG = 0,    uint8_t darkB = 0);
+
     // Bitmap-font text output. Strings are interpreted as byte sequences:
     //   - bytes < 0x80        -> 8-pixel wide ASCII glyph
     //   - 0x80 byte pairs     -> 16-pixel wide Hangul glyph (EUC-KR style)

@@ -1,4 +1,6 @@
 #include <JKControl.h>
+#include <JKWindow.h>
+#include <algorithm>
 
 namespace jk {
 
@@ -72,7 +74,14 @@ void JKControl::OnPaintClient(JKDC& dc) {
 }
 
 void JKControl::RespondMessage(const JKEvent& ev) {
-    (void)ev;
+    // Timer 이벤트는 모든 자식 컨트롤로 전파한다.
+    if (ev.type == JKEventType::Timer) {
+        for (auto& child : children_) {
+            if (child->IsVisible()) {
+                child->RespondMessage(ev);
+            }
+        }
+    }
 }
 
 void JKControl::SetText(const std::string& text) {
@@ -81,6 +90,30 @@ void JKControl::SetText(const std::string& text) {
 
 const std::string& JKControl::GetText() const {
     return text_;
+}
+
+void JKControl::SetTextColor(uint8_t r, uint8_t g, uint8_t b) {
+    textR_ = r;
+    textG_ = g;
+    textB_ = b;
+}
+
+void JKControl::GetTextColor(uint8_t& r, uint8_t& g, uint8_t& b) const {
+    r = textR_;
+    g = textG_;
+    b = textB_;
+}
+
+void JKControl::SetBackColor(uint8_t r, uint8_t g, uint8_t b) {
+    backR_ = r;
+    backG_ = g;
+    backB_ = b;
+}
+
+void JKControl::GetBackColor(uint8_t& r, uint8_t& g, uint8_t& b) const {
+    r = backR_;
+    g = backG_;
+    b = backB_;
 }
 
 void JKControl::SetRect(const JKRect& rect) {
@@ -124,12 +157,38 @@ JKRect JKControl::GetScreenClientRect() const {
     return GetScreenRect();
 }
 
+JKControl* JKControl::HitTest(int32_t x, int32_t y) {
+    const JKRect screen = GetScreenRect();
+    if (!screen.Contains(x, y)) return nullptr;
+    const JKRect client = GetScreenClientRect();
+    if (client.Contains(x, y)) {
+        for (auto it = children_.rbegin(); it != children_.rend(); ++it) {
+            if (!(*it)->IsVisible()) continue;
+            JKControl* found = (*it)->HitTest(x, y);
+            if (found) return found;
+        }
+    }
+    return this;
+}
+
 void JKControl::SetParent(JKControl* parent) {
     parent_ = parent;
 }
 
 JKControl* JKControl::GetParent() const {
     return parent_;
+}
+
+void JKControl::SetFocus() {
+    JKControl* p = parent_;
+    while (p) {
+        JKWindow* win = dynamic_cast<JKWindow*>(p);
+        if (win) {
+            win->SetFocusChild(this);
+            return;
+        }
+        p = p->GetParent();
+    }
 }
 
 void JKControl::AddControl(std::unique_ptr<JKControl> child) {
@@ -163,6 +222,26 @@ JKControl* JKControl::FindControlByControlId(uint16_t controlId) {
 
 const std::vector<std::unique_ptr<JKControl>>& JKControl::GetChildren() const {
     return children_;
+}
+
+void JKControl::RequestClose() {
+    closeRequested_ = true;
+    Hide();
+}
+
+bool JKControl::IsCloseRequested() const {
+    return closeRequested_;
+}
+
+void JKControl::RemoveClosedChildren() {
+    for (auto& child : children_) {
+        child->RemoveClosedChildren();
+    }
+    auto it = std::remove_if(children_.begin(), children_.end(),
+        [](const std::unique_ptr<JKControl>& child) {
+            return child->IsCloseRequested();
+        });
+    children_.erase(it, children_.end());
 }
 
 } // namespace jk

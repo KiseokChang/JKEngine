@@ -91,14 +91,8 @@ JKControl* JKWindow::HitTest(int32_t x, int32_t y) {
     if (screenClient.Contains(x, y)) {
         for (auto it = children_.rbegin(); it != children_.rend(); ++it) {
             if (!(*it)->IsVisible()) continue;
-            const JKRect childScreen = (*it)->GetScreenRect();
-            if (!childScreen.Contains(x, y)) continue;
-
-            JKWindow* childWin = dynamic_cast<JKWindow*>(it->get());
-            if (childWin) {
-                return childWin->HitTest(x, y);
-            }
-            return it->get();
+            JKControl* found = (*it)->HitTest(x, y);
+            if (found) return found;
         }
     }
     return this;
@@ -108,6 +102,21 @@ JKRect JKWindow::GetScreenClientRect() const {
     const JKRect screen = GetScreenRect();
     return JKRect{ screen.x + clientRect_.x, screen.y + clientRect_.y,
                    clientRect_.w, clientRect_.h };
+}
+
+JKRect JKWindow::GetCloseButtonRect() const {
+    if (!parent_) {
+        return JKRect{ 0, 0, 0, 0 };
+    }
+    const JKRect screenRect = GetScreenRect();
+    constexpr int32_t kButtonSize = 20;
+    constexpr int32_t kMargin = 2;
+    return JKRect{
+        screenRect.x + screenRect.w - kButtonSize - kMargin,
+        screenRect.y + kMargin,
+        kButtonSize,
+        kButtonSize
+    };
 }
 
 void JKWindow::PaintWindow(JKDC& dc) {
@@ -123,15 +132,36 @@ void JKWindow::PaintWindow(JKDC& dc) {
     dc.SetColor(0, 0, 128, 255);
     dc.FillRect(titleBar);
 
+    // 닫기 버튼은 부모가 있는 떠 있는 윈도우에만 표시한다.
+    const JKRect closeBtn = GetCloseButtonRect();
+    const int32_t closeReserve = closeBtn.IsEmpty() ? 0 : closeBtn.w + 4;
+
     // 타이틀 텍스트 (bitmap font).
     if (!title_.empty()) {
         dc.SetTextColor(255, 255, 255);
         dc.SetBackColor(0, 0, 128);
         JKRect textRect = titleBar;
-        // 안쪽 여백 4px.
+        // 안쪽 여백 4px, 닫기 버튼이 있으면 우측 여유를 추가한다.
         textRect.x += 4;
-        textRect.w -= 8;
+        textRect.w -= 8 + closeReserve;
         dc.TextOutX(textRect, title_.c_str(), ADJ_YCENTER | ADJ_LEFT, false);
+    }
+
+    // 닫기 버튼: 회색 배경에 흰색 ×.
+    if (!closeBtn.IsEmpty()) {
+        dc.SetColor(192, 192, 192, 255);
+        dc.FillRect(closeBtn);
+        dc.SetColor(0, 0, 0, 255);
+        dc.DrawRect(closeBtn);
+
+        constexpr int32_t kPad = 5;
+        dc.SetColor(255, 255, 255, 255);
+        dc.DrawLine(closeBtn.x + kPad, closeBtn.y + kPad,
+                    closeBtn.x + closeBtn.w - kPad - 1,
+                    closeBtn.y + closeBtn.h - kPad - 1);
+        dc.DrawLine(closeBtn.x + closeBtn.w - kPad - 1, closeBtn.y + kPad,
+                    closeBtn.x + kPad,
+                    closeBtn.y + closeBtn.h - kPad - 1);
     }
 
     // 테두리
@@ -159,38 +189,79 @@ void JKWindow::OnPaintClient(JKDC& dc) {
     }
 }
 
+void JKWindow::SetFocusChild(JKControl* child) {
+    focusChild_ = child;
+}
+
 void JKWindow::RespondMessage(const JKEvent& ev) {
-    if (ev.type == JKEventType::MouseDown) {
-        WindowRegion region = HitTestRegion(ev.x, ev.y);
-        const JKRect sr = GetScreenRect();
+    // 키/문자 입력은 포커스를 가진 자식 컨트롤로 전달한다.
+    if (ev.type == JKEventType::KeyDown ||
+        ev.type == JKEventType::KeyUp ||
+        ev.type == JKEventType::Char) {
+        if (focusChild_) {
+            focusChild_->RespondMessage(ev);
+            return;
+        }
+    }
+
+    if (ev.type == JKEventType::MouseDown ||
+        ev.type == JKEventType::MouseUp ||
+        ev.type == JKEventType::MouseMove) {
+        if (ev.type == JKEventType::MouseDown) {
+            const JKRect closeBtn = GetCloseButtonRect();
+            if (!closeBtn.IsEmpty() && closeBtn.Contains(ev.x, ev.y)) {
+                RequestClose();
+                return;
+            }
+
+            WindowRegion region = HitTestRegion(ev.x, ev.y);
+            const JKRect sr = GetScreenRect();
 #ifdef DEBUG
-        std::printf("[MouseDown] target='%s' ev=(%d,%d) screen=(%d,%d %dx%d) region=%d\n",
-                    title_.c_str(), ev.x, ev.y, sr.x, sr.y, sr.w, sr.h,
-                    static_cast<int>(region));
+            std::printf("[MouseDown] target='%s' ev=(%d,%d) screen=(%d,%d %dx%d) region=%d\n",
+                        title_.c_str(), ev.x, ev.y, sr.x, sr.y, sr.w, sr.h,
+                        static_cast<int>(region));
 #endif
-        if (region == WindowRegion::TitleBar && HasAttrFlag(WA_TITLEMOVEABLE)) {
-            dragging_ = true;
-            dragStartMouse_ = JKPoint{ ev.x, ev.y };
-            dragStartRect_ = GetRect();
-        } else if (region == WindowRegion::Border && HasAttrFlag(WA_BORDERRESIZABLE)) {
-            // 단순화: 우측 하단 모서리에서만 크기 조정 (물리 픽셀 10px 핫스팟).
-            const int32_t hotX = 10;
-            const int32_t hotY = 10;
-            if (ev.x >= sr.x + sr.w - hotX && ev.y >= sr.y + sr.h - hotY) {
-                resizing_ = true;
-                resizeStartMouse_ = JKPoint{ ev.x, ev.y };
-                resizeStartRect_ = GetRect();
+            if (region == WindowRegion::TitleBar && HasAttrFlag(WA_TITLEMOVEABLE)) {
+                dragging_ = true;
+                dragStartMouse_ = JKPoint{ ev.x, ev.y };
+                dragStartRect_ = GetRect();
+                return;
+            } else if (region == WindowRegion::Border && HasAttrFlag(WA_BORDERRESIZABLE)) {
+                // 단순화: 우측 하단 모서리에서만 크기 조정 (물리 픽셀 10px 핫스팟).
+                const int32_t hotX = 10;
+                const int32_t hotY = 10;
+                if (ev.x >= sr.x + sr.w - hotX && ev.y >= sr.y + sr.h - hotY) {
+                    resizing_ = true;
+                    resizeStartMouse_ = JKPoint{ ev.x, ev.y };
+                    resizeStartRect_ = GetRect();
+                    return;
+                }
             }
         }
-    } else if (ev.type == JKEventType::MouseMove) {
-        if (dragging_) {
-            MoveWindow(ev.dx, ev.dy);
-        } else if (resizing_) {
-            ResizeWindow(ev.dx, ev.dy);
+
+        // 드래그/리사이즈 중인 동안은 이 윈도우가 직접 처리하고 자식에게 전달하지 않는다.
+        if (dragging_ || resizing_) {
+            if (ev.type == JKEventType::MouseMove) {
+                if (dragging_) {
+                    MoveWindow(ev.dx, ev.dy);
+                } else if (resizing_) {
+                    ResizeWindow(ev.dx, ev.dy);
+                }
+            } else if (ev.type == JKEventType::MouseUp) {
+                dragging_ = false;
+                resizing_ = false;
+            }
+            return;
         }
-    } else if (ev.type == JKEventType::MouseUp) {
-        dragging_ = false;
-        resizing_ = false;
+
+        // 클라이언트 영역의 자식 컨트롤로 이벤트를 전달한다.
+        JKControl* target = HitTest(ev.x, ev.y);
+        if (target && target != this) {
+            if (ev.type == JKEventType::MouseDown) {
+                target->SetFocus();
+            }
+            target->RespondMessage(ev);
+        }
     }
 }
 

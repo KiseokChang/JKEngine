@@ -32,6 +32,18 @@ add_executable(jkproto_sdl2_jkwindow
     src/JKMessageQue.cpp
     src/JKDC.cpp
     src/JKControl.cpp
+    src/JKStatic.cpp
+    src/JKButton.cpp
+    src/JKCheckBox.cpp
+    src/JOClock.cpp
+    src/JKEdit.cpp
+    src/JKHangulAutomata.cpp
+    src/JKScrollBar.cpp
+    src/JKListBox.cpp
+    src/JKComboBox.cpp
+    src/JKFileDialog.cpp
+    src/JKMenu.cpp
+    src/JKMessageBox.cpp
     src/JKWindow.cpp
     src/JKApplication.cpp
     src/JKHangulManager.cpp

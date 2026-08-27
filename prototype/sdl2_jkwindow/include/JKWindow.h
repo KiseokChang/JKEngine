@@ -24,7 +24,10 @@ public:
     void ResizeWindow(int32_t dx, int32_t dy);
 
     WindowRegion HitTestRegion(int32_t screenX, int32_t screenY) const;
-    JKControl* HitTest(int32_t screenX, int32_t screenY);
+    JKControl* HitTest(int32_t screenX, int32_t screenY) override;
+
+    void SetFocusChild(JKControl* child);
+    JKControl* GetFocusChild() const { return focusChild_; }
 
     void PaintWindow(JKDC& dc) override;
     void OnPaintClient(JKDC& dc) override;
@@ -32,6 +35,7 @@ public:
 
 protected:
     std::string title_;
+    JKControl* focusChild_ = nullptr;
 
     bool dragging_ = false;
     JKPoint dragStartMouse_;
@@ -40,6 +44,8 @@ protected:
     bool resizing_ = false;
     JKPoint resizeStartMouse_;
     JKRect resizeStartRect_;
+
+    JKRect GetCloseButtonRect() const;
 
     JKRect GetScreenClientRect() const override;
 };

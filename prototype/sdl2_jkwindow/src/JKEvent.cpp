@@ -1,4 +1,5 @@
 #include <JKEvent.h>
+#include <cstring>
 
 namespace jk {
 
@@ -45,8 +46,10 @@ JKEvent TranslateSDLEvent(const SDL_Event& sdl) {
 
         case SDL_TEXTINPUT:
             ev.type = JKEventType::Char;
-            if (sdl.text.text[0]) {
-                ev.keyCode = static_cast<uint32_t>(static_cast<unsigned char>(sdl.text.text[0]));
+            std::strncpy(ev.text, sdl.text.text, sizeof(ev.text) - 1);
+            ev.text[sizeof(ev.text) - 1] = '\0';
+            if (ev.text[0]) {
+                ev.keyCode = static_cast<uint32_t>(static_cast<unsigned char>(ev.text[0]));
             }
             break;
 

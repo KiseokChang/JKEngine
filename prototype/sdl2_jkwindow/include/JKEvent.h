@@ -31,6 +31,7 @@ struct JKEvent {
     uint32_t    keyCode = 0;
     uint32_t    detail = 0;
     uint32_t    option = 0;
+    char        text[16] = {};
 };
 
 JKEvent TranslateSDLEvent(const SDL_Event& sdl);

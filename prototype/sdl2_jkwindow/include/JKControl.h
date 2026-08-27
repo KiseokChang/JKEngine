@@ -36,8 +36,13 @@ public:
     void SetControlId(uint16_t id) { controlId_ = id; }
     uint16_t GetControlId() const { return controlId_; }
 
-    void SetText(const std::string& text);
-    const std::string& GetText() const;
+    virtual void SetText(const std::string& text);
+    virtual const std::string& GetText() const;
+
+    void SetTextColor(uint8_t r, uint8_t g, uint8_t b);
+    void GetTextColor(uint8_t& r, uint8_t& g, uint8_t& b) const;
+    void SetBackColor(uint8_t r, uint8_t g, uint8_t b);
+    void GetBackColor(uint8_t& r, uint8_t& g, uint8_t& b) const;
 
     virtual void SetRect(const JKRect& rect);
     const JKRect& GetRect() const;
@@ -52,14 +57,22 @@ public:
     JKRect GetScreenRect() const;
     virtual JKRect GetScreenClientRect() const;
 
+    virtual JKControl* HitTest(int32_t screenX, int32_t screenY);
+
     void SetParent(JKControl* parent);
     JKControl* GetParent() const;
+
+    void SetFocus();
 
     void AddControl(std::unique_ptr<JKControl> child);
     JKControl* FindControlById(uint32_t winId);
     JKControl* FindControlByControlId(uint16_t controlId);
 
     const std::vector<std::unique_ptr<JKControl>>& GetChildren() const;
+
+    void RequestClose();
+    bool IsCloseRequested() const;
+    void RemoveClosedChildren();
 
 protected:
     uint32_t winId_ = 0;
@@ -68,9 +81,17 @@ protected:
     JKRect rect_;
     JKRect clientRect_;
     bool visible_ = true;
+    bool closeRequested_ = false;
     uint32_t attrFlags_ = 0;
     std::string text_;
     std::vector<std::unique_ptr<JKControl>> children_;
+
+    uint8_t textR_ = 0;
+    uint8_t textG_ = 0;
+    uint8_t textB_ = 0;
+    uint8_t backR_ = 240;
+    uint8_t backG_ = 240;
+    uint8_t backB_ = 240;
 };
 
 } // namespace jk

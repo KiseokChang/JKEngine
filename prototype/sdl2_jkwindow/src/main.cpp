@@ -1,11 +1,26 @@
 #include <JKApplication.h>
 #include <JKWindow.h>
 #include <JKControl.h>
+#include <JKStatic.h>
+#include <JKButton.h>
+#include <JKCheckBox.h>
+#include <JOClock.h>
+#include <JKEdit.h>
+#include <JKScrollBar.h>
+#include <JKListBox.h>
+#include <JKComboBox.h>
+#include <JKFileDialog.h>
+#include <JKMenu.h>
+#include <JKMessageBox.h>
 #include <JKDC.h>
 #include <JKEvent.h>
 #include <SDL.h>
 #include "wancode.h"
 #include <cstdint>
+#include <cmath>
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 #include <cstdio>
 #include <cstring>
 #include <memory>
@@ -139,6 +154,44 @@ class TestWindow : public jk::JKWindow {
 public:
     TestWindow() : jk::JKWindow("Multi Test Window") {
         SetAttrFlags(jk::WA_TITLEMOVEABLE | jk::WA_BORDERRESIZABLE);
+        SetBackColor(255, 255, 0);   // ClientColor[0]
+    }
+
+    void AddDemoControls() {
+        // 원본 TESTWIN의 버튼 / 시계 / 체크박스를 재현.
+        auto button = std::make_unique<jk::JKButton>(jk::JKRect{ 10, 10, 90, 30 }, 101);
+        button->SetText("Click Me");
+        button->SetOnClick([]() { std::printf("Button clicked!\n"); });
+        AddControl(std::move(button));
+
+        auto clock = std::make_unique<jk::JOClock>(jk::JKRect{ 10, 48, 90, 22 }, 0);
+        AddControl(std::move(clock));
+
+        auto checkbox = std::make_unique<jk::JKCheckBox>(jk::JKRect{ 10, 80, 120, 24 }, 102);
+        checkbox->SetText("Option");
+        AddControl(std::move(checkbox));
+
+        auto edit = std::make_unique<jk::JKEdit>(jk::JKRect{ 10, 112, 220, 26 }, 103, 100, false);
+        edit->SetText("Type here");
+        AddControl(std::move(edit));
+
+        auto memo = std::make_unique<jk::JKEdit>(jk::JKRect{ 10, 146, 220, 90 }, 104, 1000, true);
+        memo->SetText("Line 1\nLine 2\nLine 3");
+        AddControl(std::move(memo));
+
+        auto list = std::make_unique<jk::JKListBox>(jk::JKRect{ 10, 242, 120, 80 }, 105);
+        list->AddString("Apple");
+        list->AddString("Banana");
+        list->AddString("Cherry");
+        list->AddString("Date");
+        list->AddString("Elderberry");
+        AddControl(std::move(list));
+
+        auto combo = std::make_unique<jk::JKComboBox>(jk::JKRect{ 140, 242, 90, 24 }, 106);
+        combo->AddString("Red");
+        combo->AddString("Green");
+        combo->AddString("Blue");
+        AddControl(std::move(combo));
     }
 
     void OnPaintClient(jk::JKDC& dc) override {
@@ -169,6 +222,14 @@ public:
                       + KssmSpecial(0x10) + KssmSpecial(0x11) + KssmSpecial(0x12)
                       + KssmSpecial(0x20) + KssmSpecial(0x21) + KssmSpecial(0x22);
         dc.TextOut(jk::JKPoint{ client.x + 10, client.y + 80 }, specialLine.c_str());
+
+        // 원본 TESTWIN의 Pieslice 그리기 테스트.
+        dc.SetColor(0, 0, 255, 255);
+        dc.Pieslice(jk::JKPoint{ client.x + 150, client.y + 150 },
+                    M_PI / 3.0, M_PI * 5.0 / 6.0, 60);
+        dc.SetColor(255, 0, 0, 255);
+        dc.Pieslice(jk::JKPoint{ client.x + 146, client.y + 148 },
+                    M_PI * 5.0 / 6.0, M_PI / 3.0, 60);
     }
 };
 
@@ -182,9 +243,10 @@ public:
         if (ev.type == jk::JKEventType::MouseDown && ev.detail == SDL_BUTTON_RIGHT) {
             auto newWin = std::make_unique<TestWindow>();
             newWin->SetWindowRect(jk::JKRect{ ev.x, ev.y, 250, 250 });
+            newWin->AddDemoControls();
 
             auto innerBox = std::make_unique<ColorBox>(255, 165, 0);
-            innerBox->SetRect(jk::JKRect{ 10, 10, 80, 80 });
+            innerBox->SetRect(jk::JKRect{ 110, 10, 80, 80 });
             innerBox->SetControlId(100 + windowCounter_);
             newWin->AddControl(std::move(innerBox));
 
@@ -224,27 +286,73 @@ public:
         // 떠 있는 TestWindow: 원본 testwin과 동일한 초기 위치/크기
         auto testWin = std::make_unique<TestWindow>();
         testWin->SetWindowRect(jk::JKRect{ 50, 50, 250, 250 });
+        testWin->AddDemoControls();
 
         // TestWindow 클라이언트 영역에 배치된 자식 컨트롤
         auto innerBox = std::make_unique<ColorBox>(255, 165, 0);
-        innerBox->SetRect(jk::JKRect{ 10, 10, 80, 80 });
+        innerBox->SetRect(jk::JKRect{ 110, 10, 80, 80 });
         innerBox->SetControlId(10);
         testWin->AddControl(std::move(innerBox));
 
         main->AddControl(std::move(testWin));
 
         SetMainWindow(std::move(main));
+
+        fileDialog_ = std::make_unique<jk::JKFileDialog>();
+        fileDialog_->SetFilter("*.*");
+        fileDialog_->SetOnOk([](const std::string& path) {
+            std::printf("JKFileDialog OK: %s\n", path.c_str());
+        });
+        fileDialog_->SetOnCancel([]() {
+            std::printf("JKFileDialog Cancel\n");
+        });
+
+        aboutBox_ = std::make_unique<jk::JKMessageBox>(
+            "About", "JKENGINE SDL2 Prototype - Phase 0 UI Controls",
+            jk::JKMessageBox::Buttons::Ok,
+            [](int) { std::printf("About box closed\n"); });
+
+        auto menu = std::make_unique<jk::JKMenu>(jk::JKRect{ 0, 0, 640, 20 }, 200);
+        menu->AddMenu("File", {
+            jk::JKMenuItem{ "Open", 201, [this]() {
+                if (fileDialog_ && !GetModalWindow()) fileDialog_->Show();
+            }},
+            jk::JKMenuItem{ "Save", 202, []() { std::printf("Save clicked\n"); }},
+            jk::JKMenuItem{ "Exit", 203, []() { std::printf("Exit clicked\n"); }}
+        });
+        menu->AddMenu("Help", {
+            jk::JKMenuItem{ "About", 204, [this]() {
+                if (aboutBox_ && !GetModalWindow()) aboutBox_->Show();
+            }}
+        });
+        GetMainWindow()->AddControl(std::move(menu));
     }
 
     bool PreProcessMessage(const jk::JKEvent& ev) override {
         if (ev.type == jk::JKEventType::KeyDown) {
             std::printf("KeyDown: %u\n", ev.keyCode);
             if (ev.keyCode == SDLK_ESCAPE) {
+                if (GetModalWindow()) {
+                    // 모달이 열려 있으면 먼저 닫고 앱은 종료하지 않는다.
+                    GetModalWindow()->RequestClose();
+                    SetModalWindow(nullptr);
+                    return true;
+                }
                 return false; // 루프 종료
+            }
+            if (ev.keyCode == SDLK_f && fileDialog_ && !GetModalWindow()) {
+                fileDialog_->Show();
+            }
+            if (ev.keyCode == SDLK_m && aboutBox_ && !GetModalWindow()) {
+                aboutBox_->Show();
             }
         }
         return jk::JKApplication::PreProcessMessage(ev);
     }
+
+private:
+    std::unique_ptr<jk::JKFileDialog> fileDialog_;
+    std::unique_ptr<jk::JKMessageBox> aboutBox_;
 };
 
 int main(int argc, char* argv[]) {
