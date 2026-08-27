@@ -64,6 +64,15 @@ public:
 
     void SetFocus();
 
+    void SetFocusable(bool focusable) { focusable_ = focusable; }
+    bool IsFocusable() const { return focusable_; }
+    bool IsFocused() const;
+
+    virtual void OnSetFocus() {}
+    virtual void OnKillFocus() {}
+
+    void PaintFocus(JKDC& dc) const;
+
     void AddControl(std::unique_ptr<JKControl> child);
     JKControl* FindControlById(uint32_t winId);
     JKControl* FindControlByControlId(uint16_t controlId);
@@ -85,6 +94,8 @@ protected:
     uint32_t attrFlags_ = 0;
     std::string text_;
     std::vector<std::unique_ptr<JKControl>> children_;
+
+    bool focusable_ = false;
 
     uint8_t textR_ = 0;
     uint8_t textG_ = 0;

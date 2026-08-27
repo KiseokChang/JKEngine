@@ -29,6 +29,9 @@ public:
     void OnPaintClient(JKDC& dc) override;
     void RespondMessage(const JKEvent& ev) override;
 
+    void OnSetFocus() override;
+    void OnKillFocus() override;
+
     // 선택 영역
     void SetSelection(size_t start, size_t end);
     void ClearSelection();

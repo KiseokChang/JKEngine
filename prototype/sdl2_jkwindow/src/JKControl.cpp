@@ -1,5 +1,6 @@
 #include <JKControl.h>
 #include <JKWindow.h>
+#include <JKApplication.h>
 #include <algorithm>
 
 namespace jk {
@@ -59,9 +60,11 @@ void JKControl::PaintClient(JKDC& dc) {
     if (!client.IsEmpty()) {
         dc.PushClipRect(client);
         OnPaintClient(dc);
+        PaintFocus(dc);
         dc.PopClipRect();
     } else {
         OnPaintClient(dc);
+        PaintFocus(dc);
     }
 }
 
@@ -184,11 +187,45 @@ void JKControl::SetFocus() {
     while (p) {
         JKWindow* win = dynamic_cast<JKWindow*>(p);
         if (win) {
+            if (win->GetFocusChild() == this) {
+                if (g_currentJKApp) g_currentJKApp->SetInputWindow(win);
+                return;
+            }
+            JKControl* old = win->GetFocusChild();
+            if (old) old->OnKillFocus();
             win->SetFocusChild(this);
+            OnSetFocus();
+            if (g_currentJKApp) g_currentJKApp->SetInputWindow(win);
             return;
         }
         p = p->GetParent();
     }
+}
+
+bool JKControl::IsFocused() const {
+    const JKControl* p = this;
+    while (p) {
+        const JKWindow* win = dynamic_cast<const JKWindow*>(p);
+        if (win) {
+            return win->GetFocusChild() == this;
+        }
+        p = p->GetParent();
+    }
+    return false;
+}
+
+void JKControl::PaintFocus(JKDC& dc) const {
+    if (!focusable_ || !IsFocused()) return;
+    const JKRect client = GetScreenClientRect();
+    if (client.IsEmpty()) return;
+    JKRect r = client;
+    r.x += 2;
+    r.y += 2;
+    r.w -= 4;
+    r.h -= 4;
+    if (r.IsEmpty()) return;
+    dc.SetColor(0, 0, 255, 255);
+    dc.DrawRect(r);
 }
 
 void JKControl::AddControl(std::unique_ptr<JKControl> child) {

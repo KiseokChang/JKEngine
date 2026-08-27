@@ -1,6 +1,7 @@
 #include <JKEdit.h>
 #include <JKEvent.h>
 #include <JKWindow.h>
+#include <JKApplication.h>
 #include <SDL.h>
 #include <algorithm>
 #include <cstring>
@@ -15,6 +16,7 @@ JKEdit::JKEdit(const JKRect& rect, uint16_t controlId, size_t maxLength, bool mu
     SetControlId(controlId);
     SetBackColor(255, 255, 255);
     SetTextColor(0, 0, 0);
+    SetFocusable(true);
 }
 
 void JKEdit::SetText(const std::string& text) {
@@ -181,6 +183,16 @@ void JKEdit::OnPaintClient(JKDC& dc) {
     JKControl::OnPaintClient(dc);
 }
 
+void JKEdit::OnSetFocus() {
+    focused_ = true;
+    showCaret_ = true;
+}
+
+void JKEdit::OnKillFocus() {
+    focused_ = false;
+    showCaret_ = false;
+}
+
 void JKEdit::RespondMessage(const JKEvent& ev) {
     if (ev.type == JKEventType::MouseDown) {
         SetFocus();
@@ -200,6 +212,7 @@ void JKEdit::RespondMessage(const JKEvent& ev) {
         mouseAnchor_ = selAnchor_;
         mouseSelecting_ = true;
         ScrollToCursor();
+        if (g_currentJKApp) g_currentJKApp->SetCapture(this);
     } else if (ev.type == JKEventType::MouseMove) {
         if (mouseSelecting_) {
             cursorPos_ = PixelToPos(ev.x, ev.y);
@@ -209,6 +222,9 @@ void JKEdit::RespondMessage(const JKEvent& ev) {
         }
     } else if (ev.type == JKEventType::MouseUp) {
         mouseSelecting_ = false;
+        if (g_currentJKApp && g_currentJKApp->GetCapture() == this) {
+            g_currentJKApp->ReleaseCapture();
+        }
     } else if (ev.type == JKEventType::Timer) {
         if (focused_) showCaret_ = !showCaret_;
     } else if (ev.type == JKEventType::KeyDown) {

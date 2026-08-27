@@ -11,6 +11,7 @@ JKListBox::JKListBox(const JKRect& rect, uint16_t controlId) {
     SetControlId(controlId);
     SetBackColor(255, 255, 255);
     SetTextColor(0, 0, 0);
+    SetFocusable(true);
 
     JKRect sbRect{ rect.x + rect.w - 16, rect.y, 16, rect.h };
     auto sb = std::make_unique<JKScrollBar>(sbRect, 0, ScrollBarDir::Vertical);

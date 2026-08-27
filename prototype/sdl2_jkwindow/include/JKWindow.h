@@ -27,7 +27,12 @@ public:
     JKControl* HitTest(int32_t screenX, int32_t screenY) override;
 
     void SetFocusChild(JKControl* child);
-    JKControl* GetFocusChild() const { return focusChild_; }
+    JKControl* GetFocusChild() { return focusChild_; }
+    const JKControl* GetFocusChild() const { return focusChild_; }
+
+    void FocusFirstChild();
+    void FocusNextChild();
+    void FocusPrevChild();
 
     void PaintWindow(JKDC& dc) override;
     void OnPaintClient(JKDC& dc) override;

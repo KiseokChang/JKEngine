@@ -1,7 +1,21 @@
 #include <JKWindow.h>
+#include <JKApplication.h>
+#include <algorithm>
 #include <cstdio>
 
 namespace jk {
+
+namespace {
+
+void CollectFocusableControls(JKControl* root, std::vector<JKControl*>& out) {
+    if (!root || !root->IsVisible()) return;
+    if (root->IsFocusable()) out.push_back(root);
+    for (const auto& child : root->GetChildren()) {
+        CollectFocusableControls(child.get(), out);
+    }
+}
+
+} // anonymous namespace
 
 JKWindow::JKWindow() = default;
 
@@ -189,6 +203,40 @@ void JKWindow::OnPaintClient(JKDC& dc) {
     }
 }
 
+void JKWindow::FocusFirstChild() {
+    std::vector<JKControl*> candidates;
+    CollectFocusableControls(this, candidates);
+    if (!candidates.empty()) {
+        candidates[0]->SetFocus();
+    }
+}
+
+void JKWindow::FocusNextChild() {
+    std::vector<JKControl*> candidates;
+    CollectFocusableControls(this, candidates);
+    if (candidates.empty()) return;
+    size_t idx = 0;
+    if (focusChild_) {
+        auto it = std::find(candidates.begin(), candidates.end(), focusChild_);
+        if (it != candidates.end()) idx = static_cast<size_t>(it - candidates.begin());
+    }
+    idx = (idx + 1) % candidates.size();
+    candidates[idx]->SetFocus();
+}
+
+void JKWindow::FocusPrevChild() {
+    std::vector<JKControl*> candidates;
+    CollectFocusableControls(this, candidates);
+    if (candidates.empty()) return;
+    size_t idx = 0;
+    if (focusChild_) {
+        auto it = std::find(candidates.begin(), candidates.end(), focusChild_);
+        if (it != candidates.end()) idx = static_cast<size_t>(it - candidates.begin());
+    }
+    idx = (idx + candidates.size() - 1) % candidates.size();
+    candidates[idx]->SetFocus();
+}
+
 void JKWindow::SetFocusChild(JKControl* child) {
     focusChild_ = child;
 }
@@ -259,6 +307,7 @@ void JKWindow::RespondMessage(const JKEvent& ev) {
         if (target && target != this) {
             if (ev.type == JKEventType::MouseDown) {
                 target->SetFocus();
+                if (g_currentJKApp) g_currentJKApp->SetInputWindow(this);
             }
             target->RespondMessage(ev);
         }

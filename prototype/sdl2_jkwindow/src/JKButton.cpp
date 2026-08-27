@@ -1,4 +1,5 @@
 #include <JKButton.h>
+#include <JKApplication.h>
 
 namespace jk {
 
@@ -10,6 +11,7 @@ JKButton::JKButton(const JKRect& rect, uint16_t controlId) {
     SetAdjustFlag(ADJ_XYCENTER);
     SetBackColor(192, 192, 192);
     SetTextColor(0, 0, 0);
+    SetFocusable(true);
 }
 
 void JKButton::OnPaintClient(JKDC& dc) {
@@ -47,16 +49,38 @@ void JKButton::RespondMessage(const JKEvent& ev) {
     }
 
     if (ev.type == JKEventType::MouseDown) {
+        SetFocus();
         status_ = true;
         selecting_ = true;
+        if (g_currentJKApp) g_currentJKApp->SetCapture(this);
     } else if (ev.type == JKEventType::MouseUp) {
+        if (g_currentJKApp) g_currentJKApp->ReleaseCapture();
         if (selecting_) {
-            status_ = false;
             selecting_ = false;
-            OnClick();
+            const JKRect client = GetScreenClientRect();
+            status_ = false;
+            if (client.Contains(ev.x, ev.y)) {
+                OnClick();
+            }
         }
     } else if (ev.type == JKEventType::MouseMove) {
-        // TODO: 마우스가 버튼 영역 밖으로 나가면 눌림 상태를 해제한다.
+        if (selecting_ && g_currentJKApp && g_currentJKApp->GetCapture() == this) {
+            const JKRect client = GetScreenClientRect();
+            status_ = client.Contains(ev.x, ev.y);
+        }
+    } else if (ev.type == JKEventType::KeyDown) {
+        if (ev.keyCode == SDLK_RETURN || ev.keyCode == SDLK_SPACE) {
+            status_ = true;
+        } else {
+            JKStatic::RespondMessage(ev);
+        }
+    } else if (ev.type == JKEventType::KeyUp) {
+        if ((ev.keyCode == SDLK_RETURN || ev.keyCode == SDLK_SPACE) && status_) {
+            status_ = false;
+            OnClick();
+        } else {
+            JKStatic::RespondMessage(ev);
+        }
     } else {
         JKStatic::RespondMessage(ev);
     }

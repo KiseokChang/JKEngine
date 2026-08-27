@@ -147,6 +147,17 @@ int JKApplication::Run() {
                 running_ = false;
                 break;
             }
+
+            // Tab / Shift+Tab은 활성 윈도우 내에서 포커스를 이동시킨다.
+            if (ev.type == JKEventType::KeyDown && ev.keyCode == SDLK_TAB) {
+                JKWindow* active = modalWindow_ ? modalWindow_
+                                                : (inputWindow_ ? inputWindow_ : mainWindow_.get());
+                bool shift = (SDL_GetModState() & KMOD_SHIFT) != 0;
+                if (shift) active->FocusPrevChild();
+                else       active->FocusNextChild();
+                continue;
+            }
+
             RouteMessage(ev);
         }
 
@@ -176,7 +187,27 @@ JKWindow* JKApplication::GetMainWindow() const {
 }
 
 void JKApplication::SetModalWindow(JKWindow* window) {
+    if (modalWindow_ == window) return;
+    ReleaseCapture();
     modalWindow_ = window;
+    if (modalWindow_) {
+        inputWindow_ = modalWindow_;
+        modalWindow_->FocusFirstChild();
+    } else {
+        inputWindow_ = mainWindow_.get();
+    }
+}
+
+void JKApplication::SetCapture(JKControl* control) {
+    captureControl_ = control;
+}
+
+void JKApplication::ReleaseCapture() {
+    captureControl_ = nullptr;
+}
+
+void JKApplication::SetInputWindow(JKWindow* window) {
+    inputWindow_ = window;
 }
 
 JKControl* JKApplication::FindControlById(uint32_t winId) {
@@ -245,6 +276,13 @@ JKEvent JKApplication::TranslateSDLEvent(const SDL_Event& sdl) {
         return ev;
     }
 
+    // 마우스 캡처 중이면 캡처한 컨트롤로 이동/뗌 이벤트를 계속 전달한다.
+    if (captureControl_ &&
+        (ev.type == JKEventType::MouseMove || ev.type == JKEventType::MouseUp)) {
+        ev.targetId = captureControl_->GetWinId();
+        return ev;
+    }
+
     if (ev.type == JKEventType::MouseMove ||
         ev.type == JKEventType::MouseDown ||
         ev.type == JKEventType::MouseUp) {
@@ -253,13 +291,17 @@ JKEvent JKApplication::TranslateSDLEvent(const SDL_Event& sdl) {
         // 별도 변환은 필요 없다. SDL_RenderSetScale()이 그리기만 물리 픽셀로 변환.
 
         // 내부 좌표계는 SDL 논리 좌표를 그대로 사용한다.
-        JKControl* target = mainWindow_->HitTest(ev.x, ev.y);
-        ev.targetId = target ? target->GetWinId() : mainWindow_->GetWinId();
+        JKWindow* active = modalWindow_ ? modalWindow_ : mainWindow_.get();
+        if (ev.type == JKEventType::MouseDown && captureControl_) {
+            ReleaseCapture();
+        }
+        JKControl* target = active->HitTest(ev.x, ev.y);
+        ev.targetId = target ? target->GetWinId() : active->GetWinId();
     } else if (ev.type == JKEventType::KeyDown ||
                ev.type == JKEventType::KeyUp ||
                ev.type == JKEventType::Char) {
-        // Focus 관리 없이 메인 윈도우로 라우팅
-        ev.targetId = mainWindow_->GetWinId();
+        JKWindow* active = modalWindow_ ? modalWindow_ : (inputWindow_ ? inputWindow_ : mainWindow_.get());
+        ev.targetId = active->GetWinId();
     }
 
     return ev;

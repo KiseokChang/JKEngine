@@ -26,6 +26,13 @@ public:
     void SetModalWindow(JKWindow* window);
     JKWindow* GetModalWindow() const { return modalWindow_; }
 
+    void SetCapture(JKControl* control);
+    void ReleaseCapture();
+    JKControl* GetCapture() const { return captureControl_; }
+
+    void SetInputWindow(JKWindow* window);
+    JKWindow* GetInputWindow() const { return inputWindow_; }
+
     JKControl* FindControlById(uint32_t winId);
     JKControl* FindControlByControlId(uint16_t controlId);
 
@@ -58,6 +65,10 @@ private:
 
     // Modal dialog support.
     JKWindow* modalWindow_ = nullptr;
+
+    // Mouse capture and the window that owns the current keyboard focus.
+    JKControl* captureControl_ = nullptr;
+    JKWindow* inputWindow_ = nullptr;
 };
 
 extern JKApplication* g_currentJKApp;

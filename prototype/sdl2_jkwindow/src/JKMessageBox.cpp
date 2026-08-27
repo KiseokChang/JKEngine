@@ -72,6 +72,7 @@ void JKMessageBox::OnInitControls() {
 
 void JKMessageBox::Show() {
     Open();
+    FocusFirstChild();
     if (g_currentJKApp) {
         g_currentJKApp->SetModalWindow(this);
     }

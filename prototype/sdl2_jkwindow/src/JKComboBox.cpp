@@ -11,6 +11,7 @@ JKComboBox::JKComboBox(const JKRect& rect, uint16_t controlId) {
     SetControlId(controlId);
     SetBackColor(255, 255, 255);
     SetTextColor(0, 0, 0);
+    SetFocusable(true);
 }
 
 void JKComboBox::AddString(const std::string& str) {
@@ -100,6 +101,13 @@ void JKComboBox::RespondMessage(const JKEvent& ev) {
         SetFocus();
         const JKRect client = GetScreenClientRect();
         if (ev.x >= client.x + client.w - 18) ToggleDropDown();
+    } else if (ev.type == JKEventType::KeyDown) {
+        if (ev.keyCode == SDLK_RETURN || ev.keyCode == SDLK_SPACE) {
+            ToggleDropDown();
+        } else {
+            JKControl::RespondMessage(ev);
+        }
+        return;
     }
     JKControl::RespondMessage(ev);
 }
