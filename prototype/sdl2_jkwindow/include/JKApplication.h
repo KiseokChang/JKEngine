@@ -5,6 +5,8 @@
 #include <JKMessageQue.h>
 #include <JKHangulManager.h>
 #include <JKDC.h>
+#include <JKRenderBackend.h>
+#include <JKResourceCache.h>
 #include <SDL.h>
 #include <memory>
 #include <string>
@@ -36,6 +38,8 @@ public:
     JKControl* FindControlById(uint32_t winId);
     JKControl* FindControlByControlId(uint16_t controlId);
 
+    JKResourceCache* GetResourceCache() const { return resourceCache_.get(); }
+
 protected:
     virtual void OnInit();
     virtual void OnClose();
@@ -48,11 +52,17 @@ protected:
 
 private:
     SDL_Window* window_ = nullptr;
-    SDL_Renderer* renderer_ = nullptr;
+    SDL_Renderer* sdlRenderer_ = nullptr;
+    std::unique_ptr<JKRenderBackend> renderBackend_;
+    JKRenderBackend::TextureHandle backBuffer_ = JKRenderBackend::InvalidTexture;
+    int backBufferW_ = 0;
+    int backBufferH_ = 0;
+
     std::unique_ptr<JKWindow> mainWindow_;
     JKMessageQue msgQue_;
     JKDC dc_;
     std::unique_ptr<HangulManager> hangulManager_;
+    std::unique_ptr<JKResourceCache> resourceCache_;
     bool running_ = false;
 
     // SDL 논리 좌표 -> 물리 픽셀 변환 배율 (SDL_RenderSetScale()으로 렌더링만 변환).
@@ -69,6 +79,9 @@ private:
     // Mouse capture and the window that owns the current keyboard focus.
     JKControl* captureControl_ = nullptr;
     JKWindow* inputWindow_ = nullptr;
+
+    void CreateOrResizeBackBuffer();
+    void DestroyBackBuffer();
 };
 
 extern JKApplication* g_currentJKApp;

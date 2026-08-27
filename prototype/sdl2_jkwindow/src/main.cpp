@@ -12,6 +12,7 @@
 #include <JKFileDialog.h>
 #include <JKMenu.h>
 #include <JKMessageBox.h>
+#include <JKDataFile.h>
 #include <JKDC.h>
 #include <JKEvent.h>
 #include <SDL.h>
@@ -297,6 +298,28 @@ public:
         main->AddControl(std::move(testWin));
 
         SetMainWindow(std::move(main));
+
+        // Phase 2 layout demonstration: a box anchored to the bottom-right corner.
+        {
+            auto anchorBox = std::make_unique<ColorBox>(200, 50, 50);
+            (*anchorBox).SetRect(jk::JKRect{ 0, 0, 80, 80 });
+            (*anchorBox).SetAnchor(jk::ANCHOR_RIGHT | jk::ANCHOR_BOTTOM);
+            (*anchorBox).SetMargins(20, 20, 20, 20);
+            (*anchorBox).SetControlId(100);
+            (*GetMainWindow()).AddControl(std::move(anchorBox));
+        }
+
+        // Phase 4 data demonstration: create a JKDBASE-compatible file and read it back.
+        {
+            jk::JKDataFile db;
+            if (db.Create("prototest", 0x1234, 0, 32)) {
+                std::vector<uint8_t> rec(32, 'A');
+                int16_t idx = db.AddRecord(rec);
+                std::vector<uint8_t> read = db.ReadRecord(static_cast<uint16_t>(idx));
+                std::printf("JKDataFile test: added record %d, read back %zu bytes\n",
+                            idx, read.size());
+            }
+        }
 
         fileDialog_ = std::make_unique<jk::JKFileDialog>();
         fileDialog_->SetFilter("*.*");

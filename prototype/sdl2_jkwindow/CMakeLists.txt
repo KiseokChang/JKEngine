@@ -31,6 +31,8 @@ add_executable(jkproto_sdl2_jkwindow
     src/JKEvent.cpp
     src/JKMessageQue.cpp
     src/JKDC.cpp
+    src/JKSDLRenderBackend.cpp
+    src/JKOffscreenSurface.cpp
     src/JKControl.cpp
     src/JKStatic.cpp
     src/JKButton.cpp
@@ -47,6 +49,8 @@ add_executable(jkproto_sdl2_jkwindow
     src/JKWindow.cpp
     src/JKApplication.cpp
     src/JKHangulManager.cpp
+    src/JKResourceCache.cpp
+    src/JKDataFile.cpp
     "${JKENGINE_ROOT}/JKWINDOW/WANCODE.CPP"
 )
 

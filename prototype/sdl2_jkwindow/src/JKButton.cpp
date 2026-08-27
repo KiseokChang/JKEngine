@@ -86,4 +86,11 @@ void JKButton::RespondMessage(const JKEvent& ev) {
     }
 }
 
+JKPoint JKButton::MeasureContent() const {
+    JKPoint size = JKStatic::MeasureContent();
+    size.x += 2 * depth_;
+    size.y += 2 * depth_;
+    return size;
+}
+
 } // namespace jk

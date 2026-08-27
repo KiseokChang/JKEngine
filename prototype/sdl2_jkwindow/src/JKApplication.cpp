@@ -1,5 +1,6 @@
 #include <JKApplication.h>
 #include <JKEvent.h>
+#include <JKSDLRenderBackend.h>
 #include <cstdio>
 
 namespace jk {
@@ -44,8 +45,8 @@ bool JKApplication::Init(const std::string& title, int width, int height) {
         return false;
     }
 
-    renderer_ = SDL_CreateRenderer(window_, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-    if (!renderer_) {
+    sdlRenderer_ = SDL_CreateRenderer(window_, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    if (!sdlRenderer_) {
         std::fprintf(stderr, "SDL_CreateRenderer failed: %s\n", SDL_GetError());
         SDL_DestroyWindow(window_);
         window_ = nullptr;
@@ -53,7 +54,9 @@ bool JKApplication::Init(const std::string& title, int width, int height) {
         return false;
     }
 
-    dc_ = JKDC(renderer_);
+    renderBackend_ = std::make_unique<jk::JKSDLRenderBackend>(sdlRenderer_);
+    dc_ = JKDC(renderBackend_.get());
+    resourceCache_ = std::make_unique<jk::JKResourceCache>(renderBackend_.get());
 
     // 텍스트 입력 이벤트(SDL_TEXTINPUT, SDL_TEXTEDITING)를 활성화한다.
     SDL_StartTextInput();
@@ -65,6 +68,7 @@ bool JKApplication::Init(const std::string& title, int width, int height) {
     }
     dc_.SetHangulManager(hangulManager_.get());
     HanMan = hangulManager_.get();
+    resourceCache_->RegisterFont("default", hangulManager_.get());
 
     if (!mainWindow_) {
         mainWindow_ = std::make_unique<JKWindow>(title);
@@ -77,6 +81,7 @@ bool JKApplication::Init(const std::string& title, int width, int height) {
     // 내부 좌표계(hit-test, layout, 드래그/리사이즈)는 모두 SDL 논리 좌표를 그대로 사용.
     // OnInit에서 교체된 mainWindow_라도 SDL 논리 크기(window size)로 맞춘다.
     UpdateScale();
+    CreateOrResizeBackBuffer();
 
     mainWindow_->Init();
     mainWindow_->Setup();
@@ -97,9 +102,11 @@ void JKApplication::Close() {
     hangulManager_.reset();
     HanMan = nullptr;
 
-    if (renderer_) {
-        SDL_DestroyRenderer(renderer_);
-        renderer_ = nullptr;
+    DestroyBackBuffer();
+    renderBackend_.reset();
+    if (sdlRenderer_) {
+        SDL_DestroyRenderer(sdlRenderer_);
+        sdlRenderer_ = nullptr;
     }
     if (window_) {
         SDL_DestroyWindow(window_);
@@ -247,11 +254,11 @@ void JKApplication::RouteMessage(const JKEvent& ev) {
 }
 
 void JKApplication::Render() {
-    // SDL 논리 좌표 -> 물리 픽셀 변환. 이후 모든 그리기 명령은 논리 좌표로
-    // 전달되며 SDL_Renderer가 자동으로 HiDPI 스케일을 적용한다.
-    if (renderer_) {
-        SDL_RenderSetScale(renderer_, scaleX_, scaleY_);
-    }
+    if (!renderBackend_) return;
+
+    // Render everything into the backbuffer at scaled logical coordinates.
+    renderBackend_->SetScale(scaleX_, scaleY_);
+    renderBackend_->SetRenderTarget(backBuffer_);
 
     // desktop background
     dc_.SetColor(192, 192, 192, 255);
@@ -266,7 +273,13 @@ void JKApplication::Render() {
         modalWindow_->PaintClient(dc_);
     }
 
-    dc_.Present();
+    // Blit the backbuffer to the default render target in unscaled pixel coords.
+    renderBackend_->SetRenderTarget(nullptr);
+    renderBackend_->SetScale(1.0f, 1.0f);
+    int outW = 0, outH = 0;
+    renderBackend_->GetOutputSize(outW, outH);
+    renderBackend_->BlitTexture(backBuffer_, nullptr, jk::JKRect{ 0, 0, outW, outH });
+    renderBackend_->Present();
 }
 
 JKEvent JKApplication::TranslateSDLEvent(const SDL_Event& sdl) {
@@ -308,14 +321,14 @@ JKEvent JKApplication::TranslateSDLEvent(const SDL_Event& sdl) {
 }
 
 void JKApplication::UpdateScale() {
-    if (!window_ || !renderer_ || !mainWindow_) {
+    if (!window_ || !sdlRenderer_ || !renderBackend_ || !mainWindow_) {
         return;
     }
 
     int windowW = 0, windowH = 0;
     SDL_GetWindowSize(window_, &windowW, &windowH);
     int renderW = 0, renderH = 0;
-    SDL_GetRendererOutputSize(renderer_, &renderW, &renderH);
+    renderBackend_->GetOutputSize(renderW, renderH);
 
     if (windowW > 0 && windowH > 0) {
         scaleX_ = static_cast<float>(renderW) / windowW;
@@ -326,6 +339,7 @@ void JKApplication::UpdateScale() {
     }
 
     mainWindow_->SetWindowRect(JKRect{ 0, 0, windowW, windowH });
+    CreateOrResizeBackBuffer();
 
 #ifdef DEBUG
     SDL_version compiled, linked;
@@ -334,9 +348,33 @@ void JKApplication::UpdateScale() {
     std::printf("[DPI] windowSize=%dx%d renderSize=%dx%d scale=(%.3f,%.3f) "
                 "SDL compiled=%d.%d.%d linked=%d.%d.%d\n",
                 windowW, windowH, renderW, renderH, scaleX_, scaleY_,
+
                 compiled.major, compiled.minor, compiled.patch,
                 linked.major, linked.minor, linked.patch);
 #endif
 }
 
+
+void JKApplication::CreateOrResizeBackBuffer() {
+    if (!renderBackend_) return;
+    int w = 0, h = 0;
+    (*renderBackend_).GetOutputSize(w, h);
+    if (backBuffer_ != JKRenderBackend::InvalidTexture &&
+        w == backBufferW_ && h == backBufferH_) {
+        return;
+    }
+    DestroyBackBuffer();
+    backBuffer_ = (*renderBackend_).CreateTargetTexture(w, h);
+    backBufferW_ = w;
+    backBufferH_ = h;
+}
+
+void JKApplication::DestroyBackBuffer() {
+    if (backBuffer_ != JKRenderBackend::InvalidTexture && renderBackend_) {
+        (*renderBackend_).DestroyTexture(backBuffer_);
+        backBuffer_ = JKRenderBackend::InvalidTexture;
+        backBufferW_ = 0;
+        backBufferH_ = 0;
+    }
+}
 } // namespace jk

@@ -31,8 +31,8 @@ const std::string& JKWindow::GetTitle() const {
 }
 
 void JKWindow::SetRect(const JKRect& rect) {
-    // JKControl::SetRect은 clientRect_를 rect와 동일하게 덮어쓰므로,
-    // JKWindow는 테두리/타이틀 크기를 유지한 클라이언트 영역을 다시 계산한다.
+    // JKControl::SetRect은 padding을 기반으로 clientRect_를 계산하지만,
+    // JKWindow는 테두리/타이틀 크기를 유지한 클라이언트 영역을 직접 계산한다.
     JKControl::SetRect(rect);
 
     constexpr int32_t kBorder = 2;
@@ -45,6 +45,9 @@ void JKWindow::SetRect(const JKRect& rect) {
     client.h = rect.h - kTitle - kBorder;
     if (client.h < 0) client.h = 0;
     SetClientRect(client);
+
+    // Anchored / autosized children are relaid out when the window resizes.
+    PerformLayout(GetClientRect());
 }
 
 void JKWindow::SetWindowRect(const JKRect& rect) {

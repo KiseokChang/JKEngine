@@ -18,6 +18,7 @@ public:
 
     void OnPaintClient(JKDC& dc) override;
     void RespondMessage(const JKEvent& ev) override;
+    JKPoint MeasureContent() const override;
 
     virtual void OnClick() {
         if (onClick_) {
