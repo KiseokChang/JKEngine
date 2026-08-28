@@ -47,7 +47,13 @@ void JKWindow::SetRect(const JKRect& rect) {
     SetClientRect(client);
 
     // Anchored / autosized children are relaid out when the window resizes.
-    PerformLayout(GetClientRect());
+    // JKWindow는 자기 자신을 PerformLayout() 대상으로 삼으면
+    // JKControl::PerformLayout -> SetRect -> PerformLayout 무한 재귀에 빠진다.
+    // 직접 자식들만 재배치한다.
+    const JKRect& clientRect = GetClientRect();
+    for (auto& child : children_) {
+        child->PerformLayout(clientRect);
+    }
 }
 
 void JKWindow::SetWindowRect(const JKRect& rect) {
