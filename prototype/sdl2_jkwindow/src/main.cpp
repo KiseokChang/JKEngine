@@ -16,6 +16,7 @@
 #include <JKDC.h>
 #include <JKEvent.h>
 #include <SDL.h>
+#include <apps/JangoApp.h>
 #include "wancode.h"
 #include <cstdint>
 #include <cmath>
@@ -379,8 +380,15 @@ private:
 };
 
 int main(int argc, char* argv[]) {
-    (void)argc;
-    (void)argv;
+    bool runJango = (argc > 1 && std::strcmp(argv[1], "jango") == 0);
+
+    if (runJango) {
+        jk::JangoApp app;
+        if (!app.Init("JANGO - SDL2 Port", 1024, 768)) {
+            return 1;
+        }
+        return app.Run();
+    }
 
     MyApp app;
     if (!app.Init("JKENGINE SDL2 Prototype", 640, 480)) {

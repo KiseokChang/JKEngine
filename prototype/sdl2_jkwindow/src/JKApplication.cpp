@@ -92,7 +92,8 @@ bool JKApplication::Init(const std::string& title, int width, int height) {
 }
 
 void JKApplication::Close() {
-    if (!running_ && !window_) return;
+    running_ = false;
+    if (!window_) return;
 
     OnClose();
     if (mainWindow_) {

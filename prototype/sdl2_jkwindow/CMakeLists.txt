@@ -46,11 +46,13 @@ add_executable(jkproto_sdl2_jkwindow
     src/JKFileDialog.cpp
     src/JKMenu.cpp
     src/JKMessageBox.cpp
+    src/JKDialog.cpp
     src/JKWindow.cpp
     src/JKApplication.cpp
     src/JKHangulManager.cpp
     src/JKResourceCache.cpp
     src/JKDataFile.cpp
+    src/apps/JangoApp.cpp
     "${JKENGINE_ROOT}/JKWINDOW/WANCODE.CPP"
 )
 
