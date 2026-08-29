@@ -1,0 +1,3 @@
+// Windows manifest embed: RT_MANIFEST(type 24), id 1 = app.manifest
+// PMv2 DPI awareness declaration (see app.manifest / 14_sdl2_window_dpi.md).
+1 24 "app.manifest"

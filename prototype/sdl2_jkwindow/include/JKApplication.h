@@ -86,6 +86,12 @@ private:
     float ptToPhysX_ = 1.0f;
     float ptToPhysY_ = 1.0f;
 
+    // "안정 pt": Init 직후의 창(논리 포인트) 크기. 모니터 전이 시 SDL의
+    // WM_DPICHANGED 제안 rect 재해석(stale dpiScale)으로 pt가 x0.8/x0.64로
+    // 튀는 것을 되돌리는 기준값으로 쓴다(불변값이라 연쇄 축소 없음).
+    int stablePtW_ = 0;
+    int stablePtH_ = 0;
+
     // Periodic timer tick generation (milliseconds).
     uint32_t timerInterval_ = 1000;
     uint32_t lastTimerTick_ = 0;

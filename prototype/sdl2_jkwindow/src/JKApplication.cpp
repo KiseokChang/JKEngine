@@ -143,6 +143,10 @@ bool JKApplication::Init(const std::string& title, int width, int height) {
     UpdateScale();
     CreateOrResizeBackBuffer();
 
+    // 안정 pt 시드: 모니터 전이 후 SDL이 제안 rect를 잘못 pt 환산해 창이
+    // 축소되는 것을 복구할 때의 기준이 된다(SynchronizeWindowOnDisplayChanged).
+    SDL_GetWindowSize(window_, &stablePtW_, &stablePtH_);
+
     mainWindow_->Init();
     mainWindow_->Setup();
     mainWindow_->Open();
@@ -544,8 +548,12 @@ void JKApplication::ReapplyPlacement() {
             // 가상화" 가설은 Screen.AllScreens의 ×1.25 가상화 값을 참으로 오신 것 — 폐기.
             // pt 환산은 GetDpiForWindow(실측 창 DPI)로만 한다.
             const UINT winDpiMon = GetDpiForWindow(hwnd);
-            const bool pmv2 =
-                (reinterpret_cast<intptr_t>(GetThreadDpiAwarenessContext()) == -4);
+            // 스레드 컨텍스트는 SDL 내부 초기화가 조작할 수 있어 실측상 신뢰가
+            // 없다(PMv2 매니페스트 앱에서도 -4가 아닌 값을 반환 — 2026-08 실측).
+            // PMv2 판정은 외부 관찰과 교차 검증된 아래 API 조합을 쓴다.
+            const bool pmv2 = AreDpiAwarenessContextsEqual(
+                GetWindowDpiAwarenessContext(hwnd),
+                (DPI_AWARENESS_CONTEXT)(void*)(intptr_t)-4) != FALSE;
             const int workLeft = mi.rcWork.left;
             const int workTop = mi.rcWork.top;
             const int workW = mi.rcWork.right - mi.rcWork.left;
@@ -656,6 +664,22 @@ void JKApplication::SynchronizeWindowOnDisplayChanged(int displayIndex) {
         displayIndex, renderW, renderH, ptW, ptH);
 
     UpdateScale();
+
+    // SDL의 WM_DPICHANGED 처리는 제안 rect를 stale dpiScale로 pt 환산하는 탓에
+    // 창 pt를 x0.8(연쇄 시 x0.64)로 잘못 줄인다(PMv1/PMv2 매니페스트 모두 실측
+    // 재현: 1916x1011 -> 1228x654). 안정 pt(Init 직후 창 크기)로 되돌린다.
+    // 목표가 불변값이므로 반복 DISPLAY_CHANGED 잔향 이벤트에도 수렴하며,
+    // 이전 세션처럼 expPt를 누적 재적용하는 연쇄 축소 사고는 재현되지 않는다.
+    int curPtW = 0, curPtH = 0;
+    SDL_GetWindowSize(window_, &curPtW, &curPtH);
+    if (stablePtW_ > 0 && stablePtH_ > 0 &&
+        (curPtW != stablePtW_ || curPtH != stablePtH_)) {
+        std::fprintf(stderr,
+            "[DPISYNC] Resync pt: cur=%dx%d -> stable=%dx%d\n",
+            curPtW, curPtH, stablePtW_, stablePtH_);
+        SDL_SetWindowSize(window_, stablePtW_, stablePtH_);
+    }
+
     ReapplyPlacement();
 }
 

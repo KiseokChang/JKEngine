@@ -635,11 +635,11 @@ static int RunAppSelfTest() {
 int main(int argc, char* argv[]) {
 #ifdef _WIN32
     // 다중 모니터·혼합 배율 환경(주 모니터 125% + 보조 100%)에서 Win32 좌표를
-    // 모니터별 물리 픽셀로 고정한다. 기본(시스템 인식) 상태로는 비-주 모니터의
-    // 좌표가 배율 가상화될 수 있다. SDL이 자체 인식을 설정하기 전(SDL_Init 전)에
-    // 호출해야 효력이 있다. 단, 링커 기본 매니페스트가 PMv1을 선언하면 이 호출은
-    // 실패하고 v1에 머무른다 — 실측상 PMv1에서도 Win32 창/모니터 좌표는 물리 px로
-    // 반환되므로 ReapplyPlacement는 정상 동작한다.
+    // 모니터별 물리 픽셀로 고정한다.
+    // 2026-08: jkproto.rc로 PerMonitorV2 매니페스트를 exe에 내장했다. 이제 프로세스는
+    // 시작부터 PMv2이므로 아래 호출은 안전망일 뿐이다(이미 설정된 값이면 S_OK).
+    // PMv2가 되기 전에는 SDL의 DPI 체계가 PMv1에서 어긋나 모니터 이동 시 창이
+    // x0.8/x0.64로 축소되고 마우스 좌표 변환 배율도 틀어져 밀렸었다.
     SetProcessDpiAwarenessContext((void*)(intptr_t)-4);
     SetProcessDPIAware();
 #endif

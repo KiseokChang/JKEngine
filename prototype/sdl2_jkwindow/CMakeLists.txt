@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(jkproto_sdl2_jkwindow LANGUAGES CXX)
+project(jkproto_sdl2_jkwindow LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -28,6 +28,7 @@ endif()
 
 add_executable(jkproto_sdl2_jkwindow
     src/main.cpp
+    src/jkproto.rc
     src/JKEvent.cpp
     src/JKMessageQue.cpp
     src/JKDC.cpp
