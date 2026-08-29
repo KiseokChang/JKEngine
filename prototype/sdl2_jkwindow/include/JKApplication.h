@@ -50,6 +50,10 @@ protected:
     JKEvent TranslateSDLEvent(const SDL_Event& sdl);
     void UpdateScale();
 
+    // 모니터 이동/DPI 전환 대응 헬퍼 (14_sdl2_window_dpi.md 참조)
+    void ReapplyPlacement();
+    void SynchronizeWindowOnDisplayChanged(int displayIndex);
+
 private:
     SDL_Window* window_ = nullptr;
     SDL_Renderer* sdlRenderer_ = nullptr;
@@ -68,6 +72,19 @@ private:
     // SDL 논리 좌표 -> 물리 픽셀 변환 배율 (SDL_RenderSetScale()으로 렌더링만 변환).
     float scaleX_ = 1.0f;
     float scaleY_ = 1.0f;
+
+    // 앱 논리 좌표계(Init에 요청한 크기). 창이 화면 작업 영역에 맞춰 줄어들어도
+    // 앱 레이아웃 좌표계는 이 크기로 고정되고, 렌더링/입력만 스케일된다.
+    int logicalWidth_ = 0;
+    int logicalHeight_ = 0;
+
+    // 등비(레터박스) 배율에서 앱 내용 주변의 물리 픽셀 여백(좌상단 오프셋).
+    int letterboxX_ = 0;
+    int letterboxY_ = 0;
+
+    // 창 좌표(SDL 논리 포인트) -> 물리 픽셀 배율(DPI). 마우스 좌표 변환에 사용.
+    float ptToPhysX_ = 1.0f;
+    float ptToPhysY_ = 1.0f;
 
     // Periodic timer tick generation (milliseconds).
     uint32_t timerInterval_ = 1000;
