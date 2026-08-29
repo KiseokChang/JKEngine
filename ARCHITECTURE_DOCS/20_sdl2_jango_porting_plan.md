@@ -92,16 +92,49 @@ prototype/sdl2_jkwindow/
 
 ## 6. 검증 기준
 
-- [ ] `build_sdl2_jkwindow.bat`로 빌드 성공
-- [ ] `jkproto_sdl2_jkwindow.exe jango` 실행 시 JANGO 메인 메뉴 표시
-- [ ] 6개 버튼 클릭 시 각각 비밀번호/스텁/파일선택/부대변경/종료 동작
-- [ ] 모달 다이얼로그가 메인 윈도우 위에 표시되고, 닫기 전 메인 윈도우 입력 차단
-- [ ] 종료 버튼 또는 창 닫기로 앱 종료
+- [x] `build_with_temp.sh`(bash) / `build_sdl2_jkwindow.bat`로 빌드 성공
+- [x] `jkproto_sdl2_jkwindow.exe jango` 실행 시 JANGO 메인 메뉴 표시 (FHD 1920×1080)
+- [x] 6개 버튼 클릭 시 각각 비밀번호/**InsaWindow**/**Equip24Window**/**EquipWindow**/파일선택/부대변경/종료 동작 (하위 윈도우 스텁 해제 완료)
+- [x] 모달 다이얼로그가 메인 윈도우 위에 표시되고, 닫기 전 메인 윈도우 입력 차단
+- [x] 종료 버튼 또는 창 닫기로 앱 종료
+- [x] `jkproto_sdl2_jkwindow.exe test` — 데이터 매니저 자기 테스트 28건 PASS (장비/폭탄/인사 13 + OCC 목표 5 + OCC 유닛 5 + OCC 사격 5)
 
 ---
 
 ## 7. 다음 단계
 
-1. 본 문서에 기술한 호환 레이어 및 JANGO 런처 구현.
-2. `Equip24Window` 포팅 시작 (데이터 매니저, 리스트 박스, 입력 다이얼로그).
-3. `EquipWindow`, `OCCApplication` 순으로 확장.
+1. 본 문서에 기술한 호환 레이어 및 JANGO 런처 구현. **(완료)**
+2. `Equip24Window` 포팅 시작 (데이터 매니저, 리스트 박스, 입력 다이얼로그). **(완료)**
+3. `EquipWindow`, `OCCApplication` 순으로 확장. **(EquipWindow 완료 / OCC 1~2단계 완료)**
+
+---
+
+## 8. 진행 현황 (2026-08-28 업데이트)
+
+### 8.1 포팅 완료된 앱 (모두 빌드 + 스모크 테스트 통과)
+
+| 앱 | 원본 | SDL2 포팅 | 상태 |
+|---|---|---|---|
+| JANGO 런처 | `JANGO.CPP`/`JANGOAPP.CPP` | `src/apps/JangoApp.cpp` | 완료 (버튼 3개가 실제 윈도우를 띄움) |
+| 인사 관리 | `INSAWIN.CPP` + `PERSNMAN`/`PERSNREC` | `src/apps/InsaApp.cpp` (`InsaDialog` + `PersonManager`) | 완료: 추가/삭제/수정/검색/통계, `INSA.DAT` 영속화 |
+| 2.4G 장비 | `EQP24WIN.CPP` + `EQ24DMAN`/`EQ24DEF`/`EQ24IDLG` | `src/apps/Equip24App.cpp` (`Equip24Dialog` + `Equip24DataManager`, `Name24`/`Kind24`) | 완료: 명칭 목록 + 장비 목록 마스터-디테일, A/B/C 수량, 통계, `EQP24.DAT` 영속화 |
+| 구 장비 | `EQUIPWIN.CPP` + `BOMBMAN` | `src/apps/EquipApp.cpp` (`EquipDialog` + `BombManager`, `BombStock`) | 완료: 종류×4부대(본부/1/2/3중대) 재고 CRUD, 부대별 합계, `EQBOMB.DAT` 영속화 |
+| 2CAOCC C2 | `OCCMAIN.CPP` 외 ~260파일 | `src/apps/OccApp.cpp` (`OccApp` + `OccDataManager`/`OccUnitManager`/`OccFireManager`, `OccTarget`/`OccUnit`/`OccFireOrder`, 지도 스케치 패널) | **2단계 완료**: `occ` 모드 진입, 목표/유닛 CRUD, 유형별 전술 심볼/좌표 라벨/범례/십자선 지도 + 지도↔목록/유닛 클릭 연동, 사격명령(유닛×목표) 다이얼로그, 30초 주기 타이머 상태 메시지, `OCCDATA.DAT`/`OCCUNIT.DAT`/`OCCFIRE.DAT` 영속화, `AppSelfTest` 매니저 검증 |
+
+### 8.2 프레임워크 수정
+
+- `JKControl::Open()`이 `closeRequested_`를 해제하도록 수정 — 닫힌 모달 다이얼로그의 재오픈(비밀번호/업무 윈도우 재진입)이 가능해짐.
+- `apputil::ShowModalMessage()`(`include/apps/AppUtil.h`) — 모달 위 메시지 박스가 닫힐 때 소유 다이얼로그로 모달 포커스를 복원.
+
+### 8.3 데이터 영속화
+
+원본은 DOS `DataFileManager`(레코드 기반 .DAT)를 사용했으나, 포팅에서는 실행 디렉터리의 텍스트 파일(`EQP24.DAT`, `EQBOMB.DAT`, `INSA.DAT`, `OCCDATA.DAT`, `OCCUNIT.DAT`, `OCCFIRE.DAT`)로 동일한 CRUD를 제공한다. 추후 `JKDataFile`(이미 포팅됨)로 교체 가능.
+
+### 8.4 남은 작업
+
+- [ ] `JKEdit`/`JKComboBox` 읽기전용(비활성) 지원 → 수정 다이얼로그의 키 필드 고정 UI
+- [ ] Equip24: 원본의 소모(+/-) 흐름(`Eqp24InputSomoDialog`), 파일 백업/복구(`Eqp24OtherDialog`), 인쇄
+- [ ] Insa: 원본 다면 검색 조건(생일/제대 등), 백업(퇴직) 흐름
+- [x] 2CAOCC: `occ` 진입 모드 + 메뉴바/좌표 엔티티 단계적 포팅 (8.1 표 참조) — 1~2단계 완료(진입/메뉴바/목표 CRUD/유닛 CRUD/사격명령/30초 타이머)
+- [ ] 2CAOCC 3단계: 사격 절차·결과(`FIRESTEP`/`FIRERSLT.DAT`), 계획목표(`PLNTG*`), 대대·곡사포·항공 상세(`BATT*`/`HOWIZ*`/`AIR*`), 상황 통계 뷰(`STAT*`), 실좌표 변환(`REALPOS`) 등 잔여 업무
+- [ ] 원본 한글 라벨(KSSM) `Utf8ToKssm` 경유 복원

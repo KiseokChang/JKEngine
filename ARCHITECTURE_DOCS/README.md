@@ -18,6 +18,8 @@
 | `11_jkwindow_sdl_mapping.md` | JKWINDOW → SDL2 클래스 매핑 설계 | ★★★ |
 | `12_sdl2_prototype_roadmap.md` | SDL2 JKWindow 프로토타입 로드맵 | ★★★ |
 | `13_sdl2_top_level_apps.md` | SDL2 기반 최상위 앱/기능 후보 | ★★☆ |
+| `14_sdl2_window_dpi.md` | SDL2 윈도우 배치·DPI/좌표계/렌더링 파이프라인 | ★★☆ |
+| `15_verification_playbook.md` | 창/DPI 화면 검증 방법론·14항목 자동 검증 플레이북 | ★★☆ |
 | `99_file_inventory.md` | 주요 소스/헤더/리소스 파일 인벤토리 | ★★☆ |
 | `README.md` | 본 문서 | ★★★ |
 
@@ -72,9 +74,12 @@
 - [x] SDL2 JKWindow 프로토타입 로드맵 작성 (`12_sdl2_prototype_roadmap.md`)
 - [x] Phase 2~4 (Layout/Rendering/Resource) 브랜치 구현 확인 (`phase2-full-stack`)
 - [x] SDL2 기반 최상위 앱/기능 후보 검토 (`13_sdl2_top_level_apps.md`)
+- [x] 창 상단 잘림(DPI 스케일링) 수정 — 프레임 중앙 배치 + 클라이언트 원점 보정 (`phase2-full-stack` 작업 트리)
+- [x] 윈도우 배치/DPI/좌표계 아키텍처 문서화 (`14_sdl2_window_dpi.md`)
+- [x] 화면 검증 방법론 정리 + 검증 스크립트 레포 편입 (`15_verification_playbook.md`, `tools/verify_fixwin3.ps1`)
 - [ ] Phase 1 Input/Focus System 마무리 — `phase1_input_focus.md` 기준 진행 중
-- [ ] MSYS2 설치 및 SDL2 툴체인 구축 — 환경 준비 후 진행
-- [ ] Prototype 빌드/실행 검증 — MSYS2 설치 후 진행
+- [x] MSYS2 설치 및 SDL2 툴체인 구축 (UCRT64 + CMake/Ninja — `build_sdl2_jkwindow.bat` 동작)
+- [x] Prototype 빌드/실행 검증 (2026-08 창 수정 작업 시 메인/jango/occ/test 모드 실행·셀프테스트 통과)
 - [ ] 2CAOCC 세부 모듈(Coord, POS, Meta, BATT 등) 심층 분석 — 추가 요청 시 진행
 - [ ] 기존 `.dat`/`.tbl`/`.res` 파일 해독 및 데이터 추출 — 추가 요청 시 진행
 
