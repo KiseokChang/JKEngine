@@ -31,6 +31,7 @@ public:
     void DrawRect(const JKRect& rect);
     void FillRect(const JKRect& rect);
     void DrawLine(int32_t x1, int32_t y1, int32_t x2, int32_t y2);
+    void HLine(int32_t x, int32_t y, int32_t width);
     void DrawPixel(int32_t x, int32_t y);
 
     // Primitive shapes (use the current draw color set by SetColor()).
@@ -41,6 +42,10 @@ public:
     void DrawPolygon(const std::vector<JKPoint>& points);
     void FillPolygon(const std::vector<JKPoint>& points);
     void SolidBar(const JKRect& rect);
+
+    // Approximate a cubic Bezier (or K-Bezier) curve through the four control
+    // points using line segments. The draw color is set via SetColor().
+    void Bezier(const JKPoint ps[4], bool iskbez = false, double delta = 0.05);
 
     // 3D-styled rectangles (colors are explicit, independent of SetColor).
     void Rectangle3D(const JKRect& rect, int32_t depth,
@@ -66,6 +71,10 @@ public:
     HangulManager* GetHangulManager() const { return fontMan_; }
 
     JKRenderBackend* GetBackend() const { return backend_; }
+
+    uint8_t GetTextColorR() const { return textR_; }
+    uint8_t GetTextColorG() const { return textG_; }
+    uint8_t GetTextColorB() const { return textB_; }
 
 private:
     JKRenderBackend* backend_ = nullptr;

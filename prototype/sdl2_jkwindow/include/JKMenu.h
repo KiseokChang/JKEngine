@@ -50,6 +50,7 @@ private:
         std::vector<JKMenuItem> items_;
         std::function<void()> onClose_;
         JKListBox* list_ = nullptr;
+        int32_t selectedIndex_ = -1;
     };
 
     std::unique_ptr<Popup> popup_;

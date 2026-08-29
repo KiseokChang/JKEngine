@@ -1,5 +1,6 @@
 #include <JKButton.h>
 #include <JKApplication.h>
+#include <cstdio>
 
 namespace jk {
 
@@ -52,14 +53,34 @@ void JKButton::RespondMessage(const JKEvent& ev) {
         SetFocus();
         status_ = true;
         selecting_ = true;
-        if (g_currentJKApp) g_currentJKApp->SetCapture(this);
+        if (g_currentJKApp) {
+            FILE* log = g_currentJKApp->GetMouseLog();
+            if (log) {
+                const JKRect client = GetScreenClientRect();
+                std::fprintf(log,
+                    "[BTN-DN] id=%u ev=(%d,%d) client=(%d,%d %dx%d)\n",
+                    winId_, ev.x, ev.y, client.x, client.y, client.w, client.h);
+                std::fflush(log);
+            }
+            g_currentJKApp->SetCapture(this);
+        }
     } else if (ev.type == JKEventType::MouseUp) {
         if (g_currentJKApp) g_currentJKApp->ReleaseCapture();
         if (selecting_) {
             selecting_ = false;
             const JKRect client = GetScreenClientRect();
             status_ = false;
-            if (client.Contains(ev.x, ev.y)) {
+            const bool contains = client.Contains(ev.x, ev.y);
+            if (g_currentJKApp) {
+                FILE* log = g_currentJKApp->GetMouseLog();
+                if (log) {
+                    std::fprintf(log,
+                        "[BTN-UP] id=%u ev=(%d,%d) client=(%d,%d %dx%d) contains=%d\n",
+                        winId_, ev.x, ev.y, client.x, client.y, client.w, client.h, contains ? 1 : 0);
+                    std::fflush(log);
+                }
+            }
+            if (contains) {
                 OnClick();
             }
         }

@@ -49,18 +49,15 @@ if (-not (Test-Path $exe)) { Write-Output "FAIL exe missing: $exe"; exit 1 }
 
 Get-Process -Name "jkproto_sdl2_jkwindow" -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Milliseconds 400
-Start-Process -FilePath $exe -ArgumentList "jango" -WorkingDirectory $build -WindowStyle Hidden
+$proc = Start-Process -FilePath $exe -ArgumentList "jango" -WorkingDirectory $build -WindowStyle Normal -PassThru
 
 $h = [IntPtr]::Zero
 for ($i = 0; $i -lt 40; $i++) {
   Start-Sleep -Milliseconds 250
-  $pl = @(Get-Process -Name "jkproto_sdl2_jkwindow" -ErrorAction SilentlyContinue)
-  if ($pl.Count -gt 0) {
-    [Wcj]::TargetPid = [uint32]($pl[0].Id)
-    $cb = [Wcj+EnumProc]{ param($hh, $l) [Wcj]::Callback($hh, $l) }
-    [Wcj]::EnumWindows($cb, [IntPtr]::Zero) | Out-Null
-    if ([Wcj]::Found -ne [IntPtr]::Zero) { $h = [Wcj]::Found; break }
-  }
+  [Wcj]::TargetPid = [uint32]($proc.Id)
+  $cb = [Wcj+EnumProc]{ param($hh, $l) [Wcj]::Callback($hh, $l) }
+  [Wcj]::EnumWindows($cb, [IntPtr]::Zero) | Out-Null
+  if ([Wcj]::Found -ne [IntPtr]::Zero) { $h = [Wcj]::Found; break }
 }
 if ($h -eq [IntPtr]::Zero) { Write-Output "FAIL app window not found"; exit 1 }
 if (-not [Wcj]::IsWindowVisible($h)) { [Wcj]::ShowWindow($h, 5) | Out-Null; Start-Sleep -Milliseconds 800 }
@@ -109,9 +106,9 @@ Write-Output ("ANCHOR-COL x={0}" -f $anchorX)
 $bandBefore = Find-BlueBandRow $anchorX
 Write-Output ("BEFORE bandRow={0}" -f $bandBefore)
 
-# Equipment 버튼 클릭 (버튼 app rect=(50,260)-(300,330), 창 클라이언트 오프셋(2,24) => 센터 ~(177,319))
-$btn = AppPxToScreen 177 319
-Write-Output ("CLICK Equipment app=(177,319) -> screen=({0},{1})" -f $btn[0], $btn[1])
+# Equipment 버튼 클릭 (JangoApp: ID_BTN_EQUIP, rect app=(50,260)-(300,330) => center ~(175,295))
+$btn = AppPxToScreen 175 295
+Write-Output ("CLICK Equipment app=(175,295) -> screen=({0},{1})" -f $btn[0], $btn[1])
 [Wcj]::SetCursorPos($btn[0], $btn[1]) | Out-Null
 Start-Sleep -Milliseconds 500
 [Wcj]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero) | Out-Null
@@ -124,9 +121,9 @@ $openOk = ($bandBefore -lt 0 -and $bandAfter -ge 0)
 $verdict1 = $(if($openOk){"OPEN-OK"}else{"OPEN-FAIL"})
 Write-Output ("AFTER-OPEN bandRow={0} -> {1}" -f $bandAfter, $verdict1)
 
-# 모달 다이얼로그 Close 버튼 클릭 (다이얼로그 rect(240,120)-(1680,960), 버튼 local(1290,715)-(1426,755))
-$close = AppPxToScreen 1600 880
-Write-Output ("CLICK Close app=(1600,880) -> screen=({0},{1})" -f $close[0], $close[1])
+# 모달 다이얼로그 Close 버튼 클릭 (EquipDialog: window=(240,120)-(1680,960), Close rect local=(1290,715)-(1426,755), client offset (2,24) => global app center ~(1600,879))
+$close = AppPxToScreen 1600 879
+Write-Output ("CLICK Close app=(1600,879) -> screen=({0},{1})" -f $close[0], $close[1])
 [Wcj]::SetCursorPos($close[0], $close[1]) | Out-Null
 Start-Sleep -Milliseconds 500
 [Wcj]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero) | Out-Null

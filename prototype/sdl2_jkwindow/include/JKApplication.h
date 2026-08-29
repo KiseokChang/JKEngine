@@ -40,6 +40,14 @@ public:
 
     JKResourceCache* GetResourceCache() const { return resourceCache_.get(); }
 
+    // Change the periodic timer tick interval (milliseconds). Default is 1000.
+    void SetTimerInterval(uint32_t ms) { timerInterval_ = ms; }
+
+#ifdef _WIN32
+    // 디버깅용: 마우스 이벤트 로그 핸들(JKButton 등에서 사용).
+    FILE* GetMouseLog() const { return mouseLog_; }
+#endif
+
 protected:
     virtual void OnInit();
     virtual void OnClose();
@@ -102,6 +110,16 @@ private:
     // Mouse capture and the window that owns the current keyboard focus.
     JKControl* captureControl_ = nullptr;
     JKWindow* inputWindow_ = nullptr;
+
+#ifdef _WIN32
+    // Win32 물리 픽셀 마우스 좌표 추적 (MouseMove delta 계산용).
+    int lastMousePhysX_ = 0;
+    int lastMousePhysY_ = 0;
+    bool hasLastMousePhys_ = false;
+
+    // 디버깅용 마우스 이벤트 로그 파일 핸들.
+    FILE* mouseLog_ = nullptr;
+#endif
 
     void CreateOrResizeBackBuffer();
     void DestroyBackBuffer();

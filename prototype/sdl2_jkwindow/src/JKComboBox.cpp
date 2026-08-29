@@ -44,9 +44,10 @@ void JKComboBox::ToggleDropDown() {
     if (dropped_) { CloseDropDown(); return; }
     if (items_.empty()) return;
 
-    const JKRect rc = GetScreenRect();
+    const JKRect rc = GetRect();
     int32_t h = static_cast<int32_t>(items_.size()) * 16 + 4;
     h = std::min(h, 120);
+    // Child coordinates are relative to the combobox's client area.
     JKRect popupRect{ rc.x, rc.y + rc.h, rc.w, h };
     auto list = std::make_unique<JKListBox>(popupRect, 0);
     for (const auto& s : items_) list->AddString(s);

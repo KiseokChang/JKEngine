@@ -24,6 +24,9 @@ bool JKApplication::Init(const std::string& title, int width, int height) {
     // logical points, and makes SDL_GetRendererOutputSize() report physical pixels.
     SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitorv2");
     SDL_SetHint(SDL_HINT_WINDOWS_DPI_SCALING, "1");
+
+    // 디버깅/검증용 마우스 이벤트 로그.
+    mouseLog_ = std::fopen("C:\\temp_jkwin_verify\\mouse.log", "w");
 #endif
 
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
@@ -201,6 +204,10 @@ int JKApplication::Run() {
 
         // 2. SDL 이벤트 수집 → JKEvent 변환 → MessageQue
         while (SDL_PollEvent(&sdlEvent)) {
+            if (mouseLog_) {
+                std::fprintf(mouseLog_, "[SDL-EV] type=%d\n", sdlEvent.type);
+                std::fflush(mouseLog_);
+            }
             if (sdlEvent.type == SDL_WINDOWEVENT) {
                 const Uint8 winEv = sdlEvent.window.event;
                 if (winEv == SDL_WINDOWEVENT_SIZE_CHANGED ||
@@ -383,36 +390,96 @@ JKEvent JKApplication::TranslateSDLEvent(const SDL_Event& sdl) {
     if (ev.type == JKEventType::MouseMove ||
         ev.type == JKEventType::MouseDown ||
         ev.type == JKEventType::MouseUp) {
-        // SDL_HINT_WINDOWS_DPI_SCALING=1 상태에서는 SDL 마우스 좌표가 이미
-        // 논리 좌표이며, 내부 좌표계도 논리 좌표를 그대로 사용하므로
-        // 별도 변환은 필요 없다. SDL_RenderSetScale()이 그리기만 물리 픽셀로 변환.
+        // Windows에서는 SDL 마우스 이벤트의 x/y가 논리 포인트인지 물리 픽셀인지가
+        // SDL 버전/드라이버/입력 장치에 따라 달라질 수 있다(사용자 보고: 실제
+        // 마우스가 ×DPI 만큼 밀려 보임). 실제 마우스 커서 위치를 Win32 API로 직접
+        // 읽어 물리 픽셀 기준으로 통일하면, synthetic 클릭과 실제 마우스가 동일한
+        // 좌표계를 사용한다. Non-Windows 폴백은 SDL 논리 포인트를 ptToPhys로
+        // 물리 픽셀로 환산한 뒤 같은 공식을 적용한다.
+        int physX = ev.x;
+        int physY = ev.y;
+        bool usedWin32Phys = false;
+#ifdef _WIN32
+        if (window_) {
+            SDL_SysWMinfo wmInfo;
+            SDL_VERSION(&wmInfo.version);
+            if (SDL_GetWindowWMInfo(window_, &wmInfo) &&
+                wmInfo.subsystem == SDL_SYSWM_WINDOWS &&
+                wmInfo.info.win.window) {
+                HWND hwnd = wmInfo.info.win.window;
+                POINT pt;
+                if (GetCursorPos(&pt) && ScreenToClient(hwnd, &pt)) {
+                    physX = static_cast<int>(pt.x);
+                    physY = static_cast<int>(pt.y);
+                    usedWin32Phys = true;
+                }
+            }
+        }
+#endif
 
-        // 내부 좌표계는 SDL 논리 좌표를 그대로 사용한다.
-        // SDL 마우스 좌표는 창 좌표(SDL 논리 포인트)로 들어온다. 물리 픽셀로
-        // 바꾼 뒤 레터박스 여백을 빼고 등비 배율로 나눠서 앱 논리 좌표로 변환한다.
-        // 창이 화면 작업 영역에 맞춰 줄어들어도 HitTest/드래그가 레이아웃
-        // 좌표와 정확히 일치하도록 한다.
-        if (scaleX_ > 0.0f && scaleY_ > 0.0f &&
-            ptToPhysX_ > 0.0f && ptToPhysY_ > 0.0f) {
-            const float physX = ev.x * ptToPhysX_ - letterboxX_;
-            const float physY = ev.y * ptToPhysY_ - letterboxY_;
-            ev.x = static_cast<int32_t>(physX / scaleX_ + (physX >= 0.0f ? 0.5f : -0.5f));
-            ev.y = static_cast<int32_t>(physY / scaleY_ + (physY >= 0.0f ? 0.5f : -0.5f));
-            if (ev.type == JKEventType::MouseMove) {
-                // 창 이동/리사이즈에 쓰이는 상대 이동량도 같은 비율로 변환한다.
-                ev.dx = static_cast<int32_t>(
-                    ev.dx * ptToPhysX_ / scaleX_ + (ev.dx >= 0 ? 0.5f : -0.5f));
-                ev.dy = static_cast<int32_t>(
-                    ev.dy * ptToPhysY_ / scaleY_ + (ev.dy >= 0 ? 0.5f : -0.5f));
+        // SDL 폴백: 논리 포인트 좌표를 물리 픽셀로 변환한다.
+        // (Win32 경로는 GetCursorPos+ScreenToClient로 이미 물리 픽셀을 얻는다.)
+        if (!usedWin32Phys) {
+            if (ptToPhysX_ > 0.0f && ptToPhysY_ > 0.0f) {
+                const float tmpPhysX = ev.x * ptToPhysX_;
+                const float tmpPhysY = ev.y * ptToPhysY_;
+                physX = static_cast<int>(tmpPhysX + (tmpPhysX >= 0.0f ? 0.5f : -0.5f));
+                physY = static_cast<int>(tmpPhysY + (tmpPhysY >= 0.0f ? 0.5f : -0.5f));
             }
         }
 
+        // 공통 변환: 물리 픽셀 -> 앱 논리 좌표 (레터박스 여백 제거 후 등비 배율로 나눔).
+        if (scaleX_ > 0.0f && scaleY_ > 0.0f) {
+            const float appX = (static_cast<float>(physX) - letterboxX_) / scaleX_;
+            const float appY = (static_cast<float>(physY) - letterboxY_) / scaleY_;
+            ev.x = static_cast<int32_t>(appX + (appX >= 0.0f ? 0.5f : -0.5f));
+            ev.y = static_cast<int32_t>(appY + (appY >= 0.0f ? 0.5f : -0.5f));
+
+            if (mouseLog_) {
+                std::fprintf(mouseLog_,
+                    "[TRSDL] type=%d phys=(%d,%d) usedWin32=%d scale=(%.3f,%.3f) lb=(%d,%d) -> app=(%d,%d)\n",
+                    static_cast<int>(ev.type), physX, physY, usedWin32Phys ? 1 : 0,
+                    scaleX_, scaleY_, letterboxX_, letterboxY_, ev.x, ev.y);
+                std::fflush(mouseLog_);
+            }
+
+            if (ev.type == JKEventType::MouseMove) {
+                // 상대 이동량: Win32 경로는 이전 물리 좌표와의 차이를,
+                // 폴백 경로는 SDL relative motion을 물리 픽셀로 환산 후 앱 좌표로 변환.
+                int physDx = ev.dx;
+                int physDy = ev.dy;
+                if (usedWin32Phys) {
+#ifdef _WIN32
+                    if (hasLastMousePhys_) {
+                        physDx = physX - lastMousePhysX_;
+                        physDy = physY - lastMousePhysY_;
+                    } else {
+                        physDx = 0;
+                        physDy = 0;
+                    }
+#endif
+                } else {
+                    if (ptToPhysX_ > 0.0f && ptToPhysY_ > 0.0f) {
+                        physDx = static_cast<int>(ev.dx * ptToPhysX_);
+                        physDy = static_cast<int>(ev.dy * ptToPhysY_);
+                    }
+                }
+                ev.dx = static_cast<int32_t>(
+                    physDx / scaleX_ + (physDx >= 0 ? 0.5f : -0.5f));
+                ev.dy = static_cast<int32_t>(
+                    physDy / scaleY_ + (physDy >= 0 ? 0.5f : -0.5f));
+            }
+        }
+
+#ifdef _WIN32
+        if (usedWin32Phys) {
+            lastMousePhysX_ = physX;
+            lastMousePhysY_ = physY;
+            hasLastMousePhys_ = true;
+        }
+#endif
+
         // 캡처 중이면 캡처한 컨트롤로 이동/뗌 이벤트를 계속 전달한다.
-        // 주의: 좌표는 이미 위 공통 변환 블록에서 앱 논리 좌표로 변환된 상태
-        // (2026-08-29 수정 — 캡처 경로가 raw pt를 그대로 넘겨 버튼의 MouseUp
-        //  Contains 판정·JKEdit 선택 경로가 raw pt↔앱 rect 불일치로 어긋나,
-        //  버튼 클릭이 우하단으로 갈수록 x0.72 비례 배율처럼 밀리는 버그가
-        //  재현됐었다).
         if (captureControl_ &&
             (ev.type == JKEventType::MouseMove || ev.type == JKEventType::MouseUp)) {
             ev.targetId = captureControl_->GetWinId();

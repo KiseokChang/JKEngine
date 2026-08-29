@@ -21,6 +21,12 @@
 #include <apps/EquipApp.h>
 #include <apps/InsaApp.h>
 #include <apps/OccApp.h>
+#include <apps/PcxApp.h>
+#include <apps/VectorApp.h>
+#include <apps/IconEditApp.h>
+#include <apps/RecogApp.h>
+#include <apps/VectorFontApp.h>
+#include <apps/VectorPresApp.h>
 #include "wancode.h"
 #include <cstdint>
 #include <cmath>
@@ -650,6 +656,60 @@ int main(int argc, char* argv[]) {
 
     bool runJango = (argc > 1 && std::strcmp(argv[1], "jango") == 0);
     bool runOcc = (argc > 1 && std::strcmp(argv[1], "occ") == 0);
+    bool runPcx = (argc > 1 && std::strcmp(argv[1], "pcx") == 0);
+    bool runVector = (argc > 1 && std::strcmp(argv[1], "vector") == 0);
+    bool runIconEdit = (argc > 1 && std::strcmp(argv[1], "iconedit") == 0);
+    bool runRecog = (argc > 1 && std::strcmp(argv[1], "recog") == 0);
+    bool runVectorFont = (argc > 1 && std::strcmp(argv[1], "vfont") == 0);
+    bool runVectorPres = (argc > 1 && std::strcmp(argv[1], "vpres") == 0);
+
+    if (runPcx) {
+        jk::PcxApp app((argc > 2) ? argv[2] : "");
+        if (!app.Init("PCX Viewer - SDL2 Port", 1920, 1080)) {
+            return 1;
+        }
+        return app.Run();
+    }
+
+    if (runVector) {
+        jk::VectorApp app;
+        if (!app.Init("Vector Bezier Editor - SDL2 Port", 1920, 1080)) {
+            return 1;
+        }
+        return app.Run();
+    }
+
+    if (runIconEdit) {
+        jk::IconEditApp app;
+        if (!app.Init("Icon Editor - SDL2 Port", 1920, 1080)) {
+            return 1;
+        }
+        return app.Run();
+    }
+
+    if (runRecog) {
+        jk::RecogApp app;
+        if (!app.Init("Stroke Recognition - SDL2 Port", 1920, 1080)) {
+            return 1;
+        }
+        return app.Run();
+    }
+
+    if (runVectorFont) {
+        jk::VectorFontApp app;
+        if (!app.Init("Vector Font Window - SDL2 Port", 1920, 1080)) {
+            return 1;
+        }
+        return app.Run();
+    }
+
+    if (runVectorPres) {
+        jk::VectorPresApp app;
+        if (!app.Init("Vector Presentation - SDL2 Port", 1920, 1080)) {
+            return 1;
+        }
+        return app.Run();
+    }
 
     if (runOcc) {
         jk::OccApp app;

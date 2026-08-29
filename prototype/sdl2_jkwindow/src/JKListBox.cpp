@@ -13,7 +13,9 @@ JKListBox::JKListBox(const JKRect& rect, uint16_t controlId) {
     SetTextColor(0, 0, 0);
     SetFocusable(true);
 
-    JKRect sbRect{ rect.x + rect.w - 16, rect.y, 16, rect.h };
+    // Scrollbar is a child of the listbox: coordinates are relative to the
+    // listbox rect (parent client area), not screen coordinates.
+    JKRect sbRect{ rect.w - 16, 0, 16, rect.h };
     auto sb = std::make_unique<JKScrollBar>(sbRect, 0, ScrollBarDir::Vertical);
     sb->SetRange(0, 0, 1);
     sb->SetOnScroll([this](int32_t pos) { topIndex_ = pos; });
@@ -59,7 +61,7 @@ void JKListBox::SetSelectedIndex(int32_t index) {
 }
 
 void JKListBox::UpdateScrollRange() {
-    const JKRect client = GetScreenClientRect();
+    const JKRect client = GetClientRect();
     int32_t visible = std::max(1, client.h / itemHeight_);
     int32_t maxPos = std::max(0, static_cast<int32_t>(items_.size()) - visible);
     if (vScroll_) vScroll_->SetRange(0, maxPos, visible);

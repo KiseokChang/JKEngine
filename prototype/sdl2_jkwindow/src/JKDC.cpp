@@ -111,6 +111,11 @@ void JKDC::DrawLine(int32_t x1, int32_t y1, int32_t x2, int32_t y2) {
     backend_->DrawLine(x1, y1, x2, y2);
 }
 
+void JKDC::HLine(int32_t x, int32_t y, int32_t width) {
+    if (!backend_ || width <= 0) return;
+    backend_->DrawLine(x, y, x + width - 1, y);
+}
+
 void JKDC::DrawPixel(int32_t x, int32_t y) {
     if (!backend_) return;
     backend_->DrawPixel(x, y);
@@ -283,6 +288,40 @@ void JKDC::TextOutX(const JKRect& rect, const char* str, uint8_t adjflag, bool w
 
 void JKDC::SolidBar(const JKRect& rect) {
     FillRect(rect);
+}
+
+void JKDC::Bezier(const JKPoint ps[4], bool iskbez, double delta) {
+    if (!backend_ || !ps) return;
+    if (delta <= 0.0) delta = 0.05;
+
+    int32_t prevX = ps[0].x;
+    int32_t prevY = ps[0].y;
+    for (double u = 0.0; u < 1.0; u += delta) {
+        double t[4];
+        if (iskbez) {
+            t[0] = 0.5 * (1.0 - 3.0 * u) * (2.0 - 3.0 * u) * (1.0 - u);
+            t[1] = 4.5 * (2.0 - 3.0 * u) * (1.0 - u) * u;
+            t[2] = -4.5 * (1.0 - u) * u * (1.0 - 3.0 * u);
+            t[3] = 0.5 * u * (1.0 - 3.0 * u) * (2.0 - 3.0 * u);
+        } else {
+            t[0] = (1.0 - u) * (1.0 - u) * (1.0 - u);
+            t[1] = 3.0 * u * (1.0 - u) * (1.0 - u);
+            t[2] = 3.0 * u * u * (1.0 - u);
+            t[3] = u * u * u;
+        }
+        double dx = 0.0;
+        double dy = 0.0;
+        for (int i = 0; i < 4; ++i) {
+            dx += t[i] * ps[i].x;
+            dy += t[i] * ps[i].y;
+        }
+        int32_t x = static_cast<int32_t>(dx + 0.5);
+        int32_t y = static_cast<int32_t>(dy + 0.5);
+        DrawLine(prevX, prevY, x, y);
+        prevX = x;
+        prevY = y;
+    }
+    DrawLine(prevX, prevY, ps[3].x, ps[3].y);
 }
 
 void JKDC::Circle(JKPoint center, int32_t radius) {
