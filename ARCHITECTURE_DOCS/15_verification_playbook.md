@@ -159,9 +159,28 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\verify_fixwin3.ps1 -mo
 - 캡처/스캔 임시 파일과 스크린샷은 `C:\temp_jkwin_verify\` 작업장에 둔다.
 - read_files 캐시로 방금 편집한 파일이 빈 내용으로 보일 수 있음 → 새 이름으로 복사한 뒤 읽고, 빈 출력을 실패로 단정하지 않는다. 상세는 `.clinerules\30_tool-workarounds.md`.
 
-## 9. 관련 문서
+## 9. 마우스 좌표 스케일 검증 — `tools\probe_mouse_scaling.ps1` (2026-08-29)
 
-- `ARCHITECTURE_DOCS\14_sdl2_window_dpi.md` — 구현 내용 (좌표계 계층·재배치 알고리즘·렌더링 파이프라인·기준값 원본 표 §9)
+"클릭이 ×배율만큼 밀린다" 계열 증상은 화면 픽셀 스캔만으로는 잡히지 않는다 — **SDL이 주는
+이벤트 좌표의 단위**를 직접 실측해야 한다. 방법:
+
+1. 앱에 임시 계측([MOUSEPROBE])을 넣어 250ms 스로틀로 한 줄에 기록한다: SDL 이벤트 원본 좌표
+   (sdlRaw), 변환 후 앱 좌표, 창 pt/렌더 px 크기, ptToPhys/fit/letterbox, 그리고 Win32
+   `GetCursorPos − 클라이언트 원점`(물리 px, w32c).
+2. PMv2 드라이버가 커서를 창 위 알려진 물리 px 격자로 스윕한다(스텝당 450ms > 스로틀 = 스텝마다 최소 1행).
+3. 독립 판정식: `sdlRaw == w32c × ptToPhys⁻¹`, `app == (w32c − letterbox) / fit`(±1px).
+   - 125% 주 모니터 실측: 611×1.25≈w32c(764), (764−87)/0.9037=749 ✓ — 사슬 정합.
+   - 모니터 전이 후 SDL이 창 pt를 뭉개면(1222×625) 이 식이 깨져 배율 오차가 즉시 드러난다.
+4. 재사용 도구: `tools\probe_mouse_scaling.ps1 -Phase both|move2nd|stay` — 앱 스폰(ShowWindow 복원
+   포함) → 그리드 스윕 → 보조 모니터 이동(SetWindowPos) → MOVED/GRID 출력 + `$TEMP\jk_probe_mouse_app.log`
+   의 [DPISYNC](`Resync pt`/`UpdateScale` 수렴) 관찰. 14번 문서 §12 참조.
+
+교훈: **이벤트 단위 의심은 픽셀 검증과 별개의 "인공 커서 격자 + 좌표 이중 로깅"으로 증명한다.**
+체감(→클릭이 밀렸다)을 근거로 삼아 배율을 곱하는 보정은 절대 금지(14 문서 §11.2의 재해 반복).
+
+## 10. 관련 문서
+
+- `ARCHITECTURE_DOCS\14_sdl2_window_dpi.md` — 구현 내용 (좌표계 계층·재배치 알고리즘·렌더링 파이프라인·기준값 원본 표 §9, 마우스 배율 버그 §12)
 - `.clinerules\10_build-run-test.md` — 변경 후 필수 검증 절차 (셀프테스트 → 모드 실행 → verify_fixwin3)
 - `.clinerules\20_dpi-coordinates.md` — SDL2 API 단위·원점 함정 요약
 - `.clinerules\30_tool-workarounds.md` — 에이전트 도구 워크어라운드 전반

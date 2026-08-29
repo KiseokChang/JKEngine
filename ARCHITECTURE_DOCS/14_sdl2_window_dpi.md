@@ -2,6 +2,7 @@
 
 > `prototype/sdl2_jkwindow`의 창 생성/배치, DPI 스케일링, 좌표계, 렌더링 파이프라인의 실제 구현을 정리한 문서.
 > 2026-08 창 상단 잘림(title bar clipping) 수정 작업에서 확정된 내용을 반영한다.
+> 2026-08-29 마우스 좌표 배율 어긋남(모니터 전이) 원인·해결을 추가 반영한다 (§11.6·§12).
 
 ---
 
@@ -266,8 +267,88 @@ appX  = round(physX / fit)                 // → 앱 논리 좌표
 - 해결: 드라이버 시작 시 `SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)` (+ `SetProcessDPIAware()`/`SetProcessDpiAwareness(2)` 폴백).
 - PowerShell 함정: `Write-Output`은 `$var = Func-Call` 형태 호출 시 변수에 흡수되어 콘솔에 안 찍힌다 → 로그용은 `Write-Host`.
 
-### 11.6 앱의 DPI 인식 선언 현실
+### 11.6 앱의 DPI 인식 선언 현실 (2026-08-29 갱신 — 매니페스트 내장)
 
-- mingw 링커 기본 매니페스트는 PMv1을 선언하고 런타임 PMv2 승격은 실패하지만(`GetThreadDpiAwarenessContext`로 확인 가능),
-  **Win32 창/모니터 좌표는 어차피 모두 물리 px로 반환**되므로 `ReapplyPlacement`는 정상 동작한다(실측).
-- "PMv1이라 보정이 필요하다"는 가설로 배율을 곱하면 창이 모니터 밖으로 나간다. 보정 금지.
+- 2026-08-29: `src/jkproto.rc`(+`src/app.manifest`)로 **PerMonitorV2 매니페스트를 exe에 내장**했다.
+  mingw 기본(선언 없음) 상태에서는 SDL 런타임 힌트와 `SetProcessDpiAwarenessContext` 승격이
+  실질 효력이 없었고, 이것이 §12의 창 크기/배율 붕괴의 근본 조건이었다.
+- 판정 API 실측: `GetThreadDpiAwarenessContext()`는 SDL 내부 초기화가 스레드 컨텍스트를 건드리는지
+  PMv2 매니페스트 앱에서도 -4가 아닌 값을 반환해 신뢰가 없다. **`GetWindowDpiAwarenessContext` +
+  `AreDpiAwarenessContextsEqual`** 조합이 외부 관찰(check_ctx 쿼리)과 일치한다 — `pmv2` 진단 플래그가
+  이제 항상 1을 출력한다.
+- Win32 창/모니터 좌표는 PMv1/PMv2 모두 물리 px로 반환됨은 동일하게 유효(11.2 표). 배율 보정 금지.
+
+---
+
+## 12. 마우스 좌표 배율 어긋남 — "(x,y)×배율 증상" (2026-08-29 실험·확정·수정)
+
+### 12.1 증상
+
+사용자 체감: 마우스 위치/클릭이 `x,y 둘 다 ×배율`만큼 밀린다(원점 근처는 정확, 하단·우측으로 갈수록
+비례 확대되는 오차 = 순수 스케일 오류). 다중 모니터 전이 후 심해진다.
+
+### 12.2 계측 방법 (해결에 결정적인 한 발)
+
+앱의 `TranslateSDLEvent`에 임시 `[MOUSEPROBE]` 로그(250ms 스로틀)를 넣어 한 줄에 세 값을 찍고,
+PMv2 드라이버가 커서를 **알려진 물리 px 격자**로 스윕시켜 비교했다:
+
+```
+[MOUSEPROBE] sdlRaw=(611,205) app=(749,283) pt=1528x781 render=1910x976 p2p=(1.25,1.25) fit=0.9037 lb=(87,0) w32c=(764,256)
+             ^SDL이 준 pt 좌표 ^앱 좌표                                                              ^GetCursorPos−클라이언트원점(물리 px)
+```
+
+판정식(독립 재계산): `sdlRaw == w32c × ptToPhys⁻¹`, `app == (w32c − letterbox) / fit`.
+
+- 주 모니터(125%) 실측: **완전 정합**(예: 611×1.25=763.75≈764 ✓, (764−87)/0.9037=749.1 ✓) —
+  즉 좌표 사슬(§7) 자체는 원래 맞았고, 증상은 모니터 전이 상태에서 발생했다.
+- 보조 모니터 이동(SetWindowPos) 직후 로그: `Synchronize: pt=1222x625 render=1528x781` —
+  **SDL이 창 pt를 ×0.8로 뭉갠 상태**에서 render는 옛 크기 → `ptToPhys=1.25` 유지(가짜) →
+  최종 SIZE_CHANGED까지의 구간에 마우스 매핑이 새 좌표계와 어긋난다. 게다가 창·스왑체인은
+  물리 크기까지 축소(outer 1916×1011 → 1228×654 = ×0.64) — 타이핑하는 UI 전체가 작아진다.
+
+### 12.3 원인 (2계층)
+
+1. **프로세스가 PMv2가 아니었다**: mingw 기본(매니페스트 무선언)이라 SDL의 DPI 체계
+   (`SDL_HINT_WINDOWS_DPI_*`, WM_GETDPISCALEDSIZE 전제 설계)가 제대로 발 못 박았다.
+2. **SDL의 `WM_DPICHANGED` 처리 결함**: 제안 rect(물리)를 바꾸기 **전의 stale dpiScale로 pt 환산**해
+   `SDL_SetWindowSize`를 부른다. 125%→100% 전이 시 pt가 1528→1222로 축소 · 이어지는
+   SIZE_CHANGED가 렌더 해상도까지 축소. 매니페스트로 true PMv2가 되어도 이 문제는 그대로 재현됨(실측).
+
+### 12.4 해결 (`JKApplication`)
+
+1. **PMv2 매니페스트 내장** — `src/jkproto.rc`(`1 24 "app.manifest"`) + `src/app.manifest`
+   (`dpiAware true/pm` + `dpiAwareness PerMonitorV2`, CMake `LANGUAGES CXX RC`).
+   SDL의 DPI 기계장치가 전제하는 awareness를 시작부터 갖는다.
+2. **안정 pt 복구(Resync)** — `SynchronizeWindowOnDisplayChanged()`에서 `UpdateScale()` 후
+   `stablePtW_/stablePtH_`(Init 직후 창 pt 크기, 불변값)와 다르면 `SDL_SetWindowSize(stable)`로 되돌린다.
+   목표가 불변값이라 DISPLAY_CHANGED 잔향 이벤트 멱등 수렴 — 과거 "expPt 누적 재적용" 방식의 ×0.8
+   연쇄 축소 사고(11.4 주석의 교훈)와 달리 안전하다. 이후 `ReapplyPlacement()`로 중앙 배치.
+3. **PMv2 판정 교체** — `GetThreadDpiAwarenessContext()`(SDL이 건드려 신뢰 불가) →
+   `GetWindowDpiAwarenessContext` + `AreDpiAwarenessContextsEqual`.
+
+### 12.5 회귀 기준값 (다중 모니터 마우스·크기 검증, 2026-08-29 실측)
+
+| 항목 | 주 모니터(125%) | 보조 (1600×900@100%) 착지 후 |
+|------|-----------------|------------------------------|
+| 프레임 rect | (2,4) 1916×1011 | **(1953,21) 1534×810** — ×0.8 축소 없음(§11.4와 동일) |
+| 창 pt | 1528×781 | **1528×781 (보존)** |
+| render(px) | 1910×976 | 1528×781 (pt==px) |
+| ptToPhys / fit | 1.250 / 0.9037 | **1.000 / 0.7231** |
+| 마우스 사슬 | sdlRaw==w32c/1.25, app=(w32c−87)/0.9037 ±1px | sdlRaw==w32c, app=(w32c−70)/0.7231 ±1px |
+
+로그 서식: `Synchronize` 뒤 `Resync pt: cur=1222x625 -> stable=1528x781`가 찍히고
+이어지는 `SIZE_CHANGED`+`UpdateScale`에서 ptToPhys=1.000/fit=0.723으로 수렴해야 정상.
+
+### 12.6 검증 도구 — `tools/probe_mouse_scaling.ps1`
+
+- 발신 PMv2 드라이버가 jango를 띄우고(필요시 ShowWindow 복원) 커서를 창 위 15점 그리드로
+  스윕한 뒤, `SetWindowPos`로 보조 모니터로 옮겨 다시 스윕한다.
+- 확인 포인트: `MOVED winRect=(1953,21) 1534x810`(크기 보존) + 앱 로그의 `Resync pt`/`UpdateScale`
+  수렴 위 표. 마우스 좌표 단위 의심 시 클릭/호버 체감만 믿지 말고 이 프로브로 단계별 실측할 것.
+- 방법론 기록: `15_verification_playbook.md` §10.
+
+### 12.7 잔여 한계 (기록)
+
+- 타이틀바 드래그 중 `captureControl_` 경로는 early-return이라 `ev.dx/dy`가 fit 변환을 거치지 않는
+  raw SDL 단위다(§7 회색지대). 현재 사용처(SD_SetWindowPosition pt 이동)에서 동작이 맞아
+  실측 1:1이지만, capture 중 위치값(ev.x/y)을 앱 좌표로 해석하는 컨트롤을 추가하려면 §7 변환 적용이 필요하다.
