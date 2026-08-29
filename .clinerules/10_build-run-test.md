@@ -19,3 +19,4 @@
 1. `jkproto_sdl2_jkwindow.exe test` 실행 → `AppSelfTest: 0 failure(s)` (28 체크) 확인
 2. UI/윈도우 변경 시 `run_sdl2_jkwindow.bat jango`와 `occ`를 각각 실행, 화면 뜨는지 확인
 3. 화면 좌표·레이아웃·스케일 변경 시: `tools\verify_fixwin3.ps1` (DPI-aware 캡처, `-mode occ|jango`, 모드당 14항목) 실행 — 방법론/체크 상세: `ARCHITECTURE_DOCS\15_verification_playbook.md`
+4. 마우스 히트테스트·배율 의심 시(모니터 전이 포함): `tools\probe_mouse_scaling.ps1 -Phase both` — 그리드 스윕 + MOVED 창 크기 보존(1534×810) + [DPISYNC] `Resync pt` 수렴 확인 (방법론: 15 문서 §9, 원인/기준값: 14 문서 §12)

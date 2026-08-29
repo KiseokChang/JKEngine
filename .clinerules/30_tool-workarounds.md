@@ -33,3 +33,12 @@
 
 - MSYS2 bash는 `C:\msys64\usr\bin\bash.exe -l`(로그인 셸)로 호출할 것 — PATH에 `/c/msys64/ucrt64/bin`이 잡히지 않으면 cmake/ninja/g++을 못 찾음
 - `build_with_temp.sh`, `smoke_*.sh` 등 기존 셸 스크립트를 우선 재사용
+
+## 마우스 배율 세션(2026-08-29) 신규 함정
+
+- **cmd.exe `%ERRORLEVEL%`은 같은 행 파싱 시점에 확장**된다 — `build.bat & echo BUILD_EXIT=%ERRORLEVEL%`은 실패여도 0을 찍는다. 판정은 래퍼 cmd가 `%ERRORLEVEL%`을 **별도 행으로 로그에 append**(`echo BAT-EXIT=%%ERRORLEVEL%>> log`)한 뒤 그 행을 읽어 판별.
+- **findstr 다중 검색어/`/C:"a" /C:"b"`는 cp949 콘솔에서 인용 코드가 깨져** "찾을 수 없습니다" 오류를 뱉는다. 단일 토큰 검색 또는 문서 직접 읽기로 대체. 빈 출력·exit 1을 "결과 없음"으로 단정 금지.
+- **run_commands는 30초 무응답 시 작업 트리째 kill**한다 — 풀빌드(33스텝)·프로브 드라이버(~50초)가 링크 직전에 죽는다. 오래 도는 것은 **WMI 분리 스폰**(`wmic process call create 'cmd /c C:\temp_jkwin_verify\wrapper.cmd'`) 후 로그 폴링. `start "" /min`·PowerShell `Start-Process`는 작업 트리 회수에 걸려 콜이 계속 블록될 수 있다.
+- **`Start-Process -WindowStyle Hidden`은 SDL 첫 창에 SW_HIDE를 적용**한다 → MainWindowHandle=0, 보이지 않아 마우스 이벤트가 안 와서 앱이 "응답 없는 것"처럼 보인다. 해결: `EnumWindows`(클래스 `SDL_app`, PID 필터)로 HWND를 구해 `ShowWindow(5)` 복원 후 스윕.
+- 에디터의 방금 파일 저장이 빌드 스크립트의 소스 복사와 **경합**할 수 있다 — 이유 없이 다수 TU가 FAIL(컴파일러 메시지 없음)이면 단일 TU 명령컴파일로 재확인 후 재빌드(대부분 통과).
+- exe 문자열 존재 확인(계측 코드 반영 여부)은 `findstr /m MOUSEPROBE <exe>` 바이너리 검색으로 가능 — 단, `%ERRORLEVEL%` 파싱 확장 함정으로 별도 행에서 판정할 것.

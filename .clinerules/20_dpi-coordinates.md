@@ -14,7 +14,8 @@
 ## 다중 모니터·혼합 배율 함정 (2026-08 다중 스케일 검증)
 
 - 드래그 테스트 드라이버(테스트 스크립트)와 앱 모두 **PMv2 이상 인식**이어야 좌표 비교가 성립한다. 시스템 인식 프로세스는 비-주 모니터 좌표가 배율 가상화됨(주 125%/보조 100% 환경에서 드라이버의 GetWindowRect가 ×1.25 부풀려짐 → 캡처 영역이 어긋나 "화면 밖" 오판). 드라이버 템플릿: `tools/app_mouse_test3.ps1` 패턴(`SetProcessDpiAwarenessContext(-4)` + 폴백)
-- 앱(mingw 링커 기본 매니페스트가 PMv1 선언 → 런타임 PMv2 승격 실패)에서도 Win32 창/모니터 좌표는 **모두 물리 px**로 반환됨(실측 확인) — PMv1 가상화 가설로 배율 보정을 곱하면 창이 모니터 밖으로 나간다(실제 재해 발생). 보정 금지
+- **exe에는 PMv2 매니페스트를 내장했다**(`src/jkproto.rc` + `src/app.manifest`, 2026-08-29). mingw 기본(선언 없음)이면 SDL의 DPI 체계가 제대로 발 못 박는다. 매니페스트 제거 금지
+- 앱에서도 Win32 창/모니터 좌표는 **모두 물리 px**로 반환됨(실측 확인) — PMv1 가상화 가설로 배율 보정을 곱하면 창이 모니터 밖으로 나간다(실제 재해 발생). 보정 금지
 - `MapWindowPoints(hwnd, nullptr, ...)` 반환값은 **장식 두께가 아니라 클라이언트 원점의 절대 화면 좌표**다. 두께 = 반환값 − 현재 프레임 원점. 절대값을 그대로 더하면 모니터 이동 시 배치가 매번 에스컬레이션한다(실제로 겪은 함정)
 - 모니터 이동 후 배치는 `JKApplication::ReapplyPlacement()`가 담당: Win32 작업영역 중앙에 프레임 배치 → 장식 두께만큼 클라이언트 원점으로 환산 → `GetDpiForWindow()` 실측값으로 pt 환산 → `SDL_SetWindowPosition(pt)`. 멱등해야 하며(재적용 시 드리프트 제로) SDL의 stale dpiScale 대신 GetDpiForWindow를 쓸 것
 
@@ -32,6 +33,21 @@
 - dpiScale은 렌더러 생성 후에만 계산 가능 (`SDL_GetRendererOutputSize`)
 - 창 배치 올바른 패턴: `JKApplication.cpp` `Init()`의 재배치 블록 참고 — 프레임 전체 크기를 작업영역에 중앙 정렬 계산 후, 클라이언트 원점 보정을 위해 장식 left/top을 더해 SetWindowPosition
 - 창 배치 코드는 **렌더러 생성 뒤**에 둘 것
+
+## 모니터 전이(DPI) 시 창 축소·마우스 배율 어긋남 (2026-08-29 확정·수정 — 14 문서 §12)
+
+- 증상: 클릭/호버가 원점 기준 비례로 밀린다(마우스 위치 x,y 둘 다 ×배율 체감). 주 모니터는 실측상
+  원래 사슬이 정확(611×1.25=764 ✓)이고, **모니터 전이 후 SDL이 WM_DPICHANGED 제안 rect를
+  stale dpiScale로 pt 환산**해 창 pt를 ×0.8(연쇄 ×0.64)로 뭉갠 데서 온다(render까지 축소됨).
+- 치료: `SynchronizeWindowOnDisplayChanged()`의 **"Resync pt"(안정 pt 복구)** — stablePtW_/H_(Init
+  직후 창 pt, 불변값)로 되돌려 잔향 이벤트에 멱등 수렴시킨다. 제거 금지. 과거 expPt 누적 재적용식
+  ×0.8 연쇄 축소 사고와 달리 안전.
+- PMv2 판정은 `GetThreadDpiAwarenessContext()` **금지**(SDL이 건드려 -4 미반환 — 실측).
+  `GetWindowDpiAwarenessContext` + `AreDpiAwarenessContextsEqual` 사용. 배치 pt 환산은
+  GetDpiForWindow 실측값만 믿을 것.
+- 실측 도구: `tools/probe_mouse_scaling.ps1` (both 페이즈) — 그리드 스윕 + MOVED 1534×810
+  크기 보존 감시 + [$TEMP]jk_probe_mouse_app.log의 [DPISYNC](`Resync pt`/`UpdateScale`) 수렴 확인.
+  배율 보정(×1.25 곱하기)으로 응급복구하지 말 것 — 재해 반복.
 
 ## 앱 내부 좌표계 (렌더링 모델)
 
