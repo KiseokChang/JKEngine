@@ -378,12 +378,7 @@ JKEvent JKApplication::TranslateSDLEvent(const SDL_Event& sdl) {
         return ev;
     }
 
-    // 마우스 캡처 중이면 캡처한 컨트롤로 이동/뗌 이벤트를 계속 전달한다.
-    if (captureControl_ &&
-        (ev.type == JKEventType::MouseMove || ev.type == JKEventType::MouseUp)) {
-        ev.targetId = captureControl_->GetWinId();
-        return ev;
-    }
+    // 마우스 캡처 라우팅은 좌표 변환(아래 공통 변환 블록) 이후에 수행한다.
 
     if (ev.type == JKEventType::MouseMove ||
         ev.type == JKEventType::MouseDown ||
@@ -410,6 +405,18 @@ JKEvent JKApplication::TranslateSDLEvent(const SDL_Event& sdl) {
                 ev.dy = static_cast<int32_t>(
                     ev.dy * ptToPhysY_ / scaleY_ + (ev.dy >= 0 ? 0.5f : -0.5f));
             }
+        }
+
+        // 캡처 중이면 캡처한 컨트롤로 이동/뗌 이벤트를 계속 전달한다.
+        // 주의: 좌표는 이미 위 공통 변환 블록에서 앱 논리 좌표로 변환된 상태
+        // (2026-08-29 수정 — 캡처 경로가 raw pt를 그대로 넘겨 버튼의 MouseUp
+        //  Contains 판정·JKEdit 선택 경로가 raw pt↔앱 rect 불일치로 어긋나,
+        //  버튼 클릭이 우하단으로 갈수록 x0.72 비례 배율처럼 밀리는 버그가
+        //  재현됐었다).
+        if (captureControl_ &&
+            (ev.type == JKEventType::MouseMove || ev.type == JKEventType::MouseUp)) {
+            ev.targetId = captureControl_->GetWinId();
+            return ev;
         }
 
         JKWindow* active = modalWindow_ ? modalWindow_ : mainWindow_.get();
