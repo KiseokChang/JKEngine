@@ -650,6 +650,28 @@ int main(int argc, char* argv[]) {
     SetProcessDPIAware();
 #endif
 
+    if (argc > 1 && (std::strcmp(argv[1], "--help") == 0 ||
+                     std::strcmp(argv[1], "-h") == 0 ||
+                     std::strcmp(argv[1], "/?") == 0)) {
+        std::printf("jkproto_sdl2_jkwindow - JKENGINE SDL2 prototype\n");
+        std::printf("\n");
+        std::printf("Usage: jkproto_sdl2_jkwindow.exe [COMMAND]\n");
+        std::printf("\n");
+        std::printf("Commands:\n");
+        std::printf("  (none)      Default demo app\n");
+        std::printf("  test        Built-in self-test mode\n");
+        std::printf("  jango       JANGO launcher\n");
+        std::printf("  occ         OCC / fire control demo\n");
+        std::printf("  pcx FILE    256-color PCX viewer\n");
+        std::printf("  vector      Bezier vector editor\n");
+        std::printf("  iconedit    Icon/sprite editor\n");
+        std::printf("  recog       Stroke recognition demo\n");
+        std::printf("  vfont       Vector font window\n");
+        std::printf("  vpres       Vector font presentation\n");
+        std::printf("  -h, --help, /?  Show this help message\n");
+        return 0;
+    }
+
     if (argc > 1 && std::strcmp(argv[1], "test") == 0) {
         return RunAppSelfTest();
     }
