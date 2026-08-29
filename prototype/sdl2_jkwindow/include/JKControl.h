@@ -135,6 +135,10 @@ protected:
     int32_t paddingBottom_ = 0;
     bool autoSize_ = false;
 
+    // Hook called after SetRect updates rect_/clientRect_. Subclasses may
+    // override to recompute their client area or relayout children.
+    virtual void OnRectChanged(const JKRect& rect);
+
     uint8_t textR_ = 0;
     uint8_t textG_ = 0;
     uint8_t textB_ = 0;

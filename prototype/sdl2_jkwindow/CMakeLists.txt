@@ -53,6 +53,10 @@ add_executable(jkproto_sdl2_jkwindow
     src/JKResourceCache.cpp
     src/JKDataFile.cpp
     src/apps/JangoApp.cpp
+    src/apps/Equip24App.cpp
+    src/apps/EquipApp.cpp
+    src/apps/InsaApp.cpp
+    src/apps/OccApp.cpp
     "${JKENGINE_ROOT}/JKWINDOW/WANCODE.CPP"
 )
 

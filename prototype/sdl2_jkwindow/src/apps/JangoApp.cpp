@@ -12,6 +12,10 @@
 #include <JKDC.h>
 #include <JKTypes.h>
 
+#include <apps/Equip24App.h>
+#include <apps/EquipApp.h>
+#include <apps/InsaApp.h>
+
 #include <SDL.h>
 #include <cstdio>
 #include <functional>
@@ -65,7 +69,7 @@ public:
         dc.SetColor(COL_BLUE_R, COL_BLUE_G, COL_BLUE_B, 255);
         dc.DrawRect(rc);
         dc.SetTextColor(0, 0, 0);
-        dc.TextOutX(rc.Expand(4), "JANGO Launcher\nSDL2 port prototype\n\nInsa / Equip24 / Equip stubs", ADJ_XYCENTER, false);
+        dc.TextOutX(rc.Expand(4), "JANGO Launcher\nSDL2 port prototype\n\nPersonnel / 2.4G Equip / Equipment\nported from WINDBASE originals", ADJ_XYCENTER, false);
     }
 };
 
@@ -185,6 +189,11 @@ public:
     std::unique_ptr<JKFileDialog> fileDialog;
     std::unique_ptr<JKMessageBox> msgBox;
 
+    // 포팅된 원본 JANGO 앱들 (재사용을 위해 닫힌 후에도 유지)
+    std::unique_ptr<Equip24Dialog> equip24Dlg;
+    std::unique_ptr<EquipDialog> equipDlg;
+    std::unique_ptr<InsaDialog> insaDlg;
+
     std::string budaeName = "HQ";
 
     void BuildMainWindow() {
@@ -202,7 +211,8 @@ public:
         AddMenuButton(ID_BTN_BUDAE,   "Change Unit",  MakeRect(50, y, 300, y + 70)); y += h;
         AddMenuButton(ID_BTN_EXIT,    "Exit",         MakeRect(50, y, 300, y + 70));
 
-        auto about = std::make_unique<AboutPanel>(MakeRect(360, 50, 974, 649), 0);
+        // FHD(1920x1080) 클라이언트 영역(1916x1054)에서 우측 정보 영역을 채운다.
+        auto about = std::make_unique<AboutPanel>(MakeRect(360, 50, 1896, 1030), 0);
         mainWindow->AddControl(std::move(about));
     }
 
@@ -231,10 +241,18 @@ public:
                 }
                 break;
             case ID_BTN_EQUIP24:
-                ShowMessage("2.4G Equipment", "Equip24Window port stub.");
+                if (!equip24Dlg) {
+                    equip24Dlg = std::make_unique<Equip24Dialog>(budaeName);
+                }
+                equip24Dlg->RefreshAll();
+                equip24Dlg->Show();
                 break;
             case ID_BTN_EQUIP:
-                ShowMessage("Equipment", "EquipWindow port stub.");
+                if (!equipDlg) {
+                    equipDlg = std::make_unique<EquipDialog>(budaeName);
+                }
+                equipDlg->RefreshAll();
+                equipDlg->Show();
                 break;
             case ID_BTN_FILE:
                 if (fileDialog) {
@@ -261,7 +279,12 @@ public:
     void OnPasswordDone(int result, const std::string& entered) {
         if (result != JKDialog::ResultOk) return;
         if (entered == StubPassword) {
-            ShowMessage("Personnel", "InsaWindow port stub.");
+            // 원본과 동일: 인사 관리는 비밀번호 확인 후 진입한다.
+            if (!insaDlg) {
+                insaDlg = std::make_unique<InsaDialog>(budaeName);
+            }
+            insaDlg->RefreshAll();
+            insaDlg->Show();
         } else {
             ShowMessage("Error", "Incorrect password.");
         }

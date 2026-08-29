@@ -17,7 +17,6 @@ public:
     void SetTitle(const std::string& title);
     const std::string& GetTitle() const;
 
-    void SetRect(const JKRect& rect) override;
     void SetWindowRect(const JKRect& rect);
     void MoveWindow(int32_t dx, int32_t dy);
     void MoveTo(int32_t x, int32_t y);
@@ -49,6 +48,9 @@ protected:
     bool resizing_ = false;
     JKPoint resizeStartMouse_;
     JKRect resizeStartRect_;
+
+    // Recompute the client area for border/title and relayout children.
+    void OnRectChanged(const JKRect& rect) override;
 
     JKRect GetCloseButtonRect() const;
 

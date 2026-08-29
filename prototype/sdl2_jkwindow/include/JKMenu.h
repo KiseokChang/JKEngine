@@ -41,12 +41,12 @@ private:
         Popup(const JKRect& rect, const std::vector<JKMenuItem>& items,
               std::function<void()> onClose);
 
-        void SetRect(const JKRect& rect) override;
         void PaintWindow(JKDC& dc) override;
         void OnPaintClient(JKDC& dc) override;
         void RespondMessage(const JKEvent& ev) override;
 
     private:
+        void OnRectChanged(const JKRect& rect) override;
         std::vector<JKMenuItem> items_;
         std::function<void()> onClose_;
         JKListBox* list_ = nullptr;

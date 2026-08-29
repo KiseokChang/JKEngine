@@ -129,8 +129,7 @@ JKMenu::Popup::Popup(const JKRect& rect, const std::vector<JKMenuItem>& items,
     SetWindowRect(rect);
 }
 
-void JKMenu::Popup::SetRect(const JKRect& rect) {
-    JKControl::SetRect(rect);
+void JKMenu::Popup::OnRectChanged(const JKRect& rect) {
     SetClientRect(rect);
 }
 

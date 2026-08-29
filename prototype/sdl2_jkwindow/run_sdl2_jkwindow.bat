@@ -11,5 +11,14 @@ if not exist "%EXE%" (
     exit /b 1
 )
 
-"%EXE%"
+REM Usage: run_sdl2_jkwindow.bat [mode]
+REM   (no args) : JKENGINE SDL2 prototype main demo
+REM   jango     : WINDBASE/JANGO launcher port
+REM   occ       : WINDBASE/2CAOCC C2 port (Phase 2: units + fire orders + timer)
+REM   test      : data manager self test (includes OccUnit/OccFire managers)
+if "%~1"=="" (
+    "%EXE%"
+) else (
+    "%EXE%" %*
+)
 endlocal

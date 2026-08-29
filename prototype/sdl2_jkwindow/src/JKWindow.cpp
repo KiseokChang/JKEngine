@@ -30,11 +30,9 @@ const std::string& JKWindow::GetTitle() const {
     return title_;
 }
 
-void JKWindow::SetRect(const JKRect& rect) {
+void JKWindow::OnRectChanged(const JKRect& rect) {
     // JKControl::SetRect은 padding을 기반으로 clientRect_를 계산하지만,
     // JKWindow는 테두리/타이틀 크기를 유지한 클라이언트 영역을 직접 계산한다.
-    JKControl::SetRect(rect);
-
     constexpr int32_t kBorder = 2;
     constexpr int32_t kTitle  = 24;
     JKRect client;
@@ -75,14 +73,14 @@ void JKWindow::MoveWindow(int32_t dx, int32_t dy) {
     JKRect r = GetRect();
     r.x += dx;
     r.y += dy;
-    SetRect(r);  // JKWindow::SetRect이 clientRect_를 재계산한다.
+    SetRect(r);  // OnRectChanged hook이 clientRect_를 재계산한다.
 }
 
 void JKWindow::MoveTo(int32_t x, int32_t y) {
     JKRect r = GetRect();
     r.x = x;
     r.y = y;
-    SetRect(r);  // JKWindow::SetRect이 clientRect_를 재계산한다.
+    SetRect(r);  // OnRectChanged hook이 clientRect_를 재계산한다.
 }
 
 void JKWindow::ResizeWindow(int32_t dx, int32_t dy) {

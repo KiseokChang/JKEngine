@@ -27,6 +27,8 @@ void JKControl::Setup() {
 
 void JKControl::Open() {
     visible_ = true;
+    // 재오픈(다이얼로그 재사용) 시 이전 종료 요청을 해제한다.
+    closeRequested_ = false;
     for (auto& child : children_) {
         child->Open();
     }
@@ -126,6 +128,11 @@ void JKControl::SetRect(const JKRect& rect) {
     if (innerW < 0) innerW = 0;
     if (innerH < 0) innerH = 0;
     clientRect_ = JKRect{ paddingLeft_, paddingTop_, innerW, innerH };
+    OnRectChanged(rect);
+}
+
+void JKControl::OnRectChanged(const JKRect& rect) {
+    // Default implementation: nothing extra.
 }
 
 const JKRect& JKControl::GetRect() const {
