@@ -174,6 +174,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\verify_fixwin3.ps1 -mo
 4. 재사용 도구: `tools\probe_mouse_scaling.ps1 -Phase both|move2nd|stay` — 앱 스폰(ShowWindow 복원
    포함) → 그리드 스윕 → 보조 모니터 이동(SetWindowPos) → MOVED/GRID 출력 + `$TEMP\jk_probe_mouse_app.log`
    의 [DPISYNC](`Resync pt`/`UpdateScale` 수렴) 관찰. 14번 문서 §12 참조.
+5. **버튼 클릭(캡처 경로) 회귀**: `tools\click_jango_probe.ps1` — 런처 버튼 클릭→모달 오픈(타이틀 밴드
+   검출), 모달 Close 클릭→닫힘 판정(14 문서 §12.7). RESULT: PASS/FAIL로 종료.
 
 교훈: **이벤트 단위 의심은 픽셀 검증과 별개의 "인공 커서 격자 + 좌표 이중 로깅"으로 증명한다.**
 체감(→클릭이 밀렸다)을 근거로 삼아 배율을 곱하는 보정은 절대 금지(14 문서 §11.2의 재해 반복).

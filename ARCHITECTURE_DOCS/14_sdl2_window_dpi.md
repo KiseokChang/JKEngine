@@ -325,6 +325,8 @@ PMv2 드라이버가 커서를 **알려진 물리 px 격자**로 스윕시켜 �
    연쇄 축소 사고(11.4 주석의 교훈)와 달리 안전하다. 이후 `ReapplyPlacement()`로 중앙 배치.
 3. **PMv2 판정 교체** — `GetThreadDpiAwarenessContext()`(SDL이 건드려 신뢰 불가) →
    `GetWindowDpiAwarenessContext` + `AreDpiAwarenessContextsEqual`.
+4. **캡처 경로 좌표 변환 통일** — 캡처 early-return이 raw SDL pt를 그대로 전달하던 것을
+   변환 뒤 라우팅으로 이동 (버튼/편집 클릭 밀림의 직접 원인 — §12.7).
 
 ### 12.5 회귀 기준값 (다중 모니터 마우스·크기 검증, 2026-08-29 실측)
 
@@ -347,8 +349,15 @@ PMv2 드라이버가 커서를 **알려진 물리 px 격자**로 스윕시켜 �
   수렴 위 표. 마우스 좌표 단위 의심 시 클릭/호버 체감만 믿지 말고 이 프로브로 단계별 실측할 것.
 - 방법론 기록: `15_verification_playbook.md` §10.
 
-### 12.7 잔여 한계 (기록)
+### 12.7 캡처 경로 좌표 변환 통일 (2026-08-29 추가 실험·수정)
 
-- 타이틀바 드래그 중 `captureControl_` 경로는 early-return이라 `ev.dx/dy`가 fit 변환을 거치지 않는
-  raw SDL 단위다(§7 회색지대). 현재 사용처(SD_SetWindowPosition pt 이동)에서 동작이 맞아
-  실측 1:1이지만, capture 중 위치값(ev.x/y)을 앱 좌표로 해석하는 컨트롤을 추가하려면 §7 변환 적용이 필요하다.
+- 증상(사용자 2차 보고로 추가 발견): 버튼 클릭이 우하단으로 갈수록 무시되거나 어긋남.
+- 정적 감사로 확정: `JKButton::MouseDown`이 `SetCapture`를 받으면 이후 MouseMove/MouseUp이
+  캡처 early-return 경로로 **raw SDL pt 그대로** 전달됐다. `MouseUp`의 `client.Contains(ev.x, ev.y)`
+  (앱 좌표 rect)와 pt 좌표가 불일치 → 클릭 활성 영역이 pt ≈ app×fit/ptToPhys(+letterbox) 위치로 밀린다.
+- 영향 범위: `JKButton`(MouseUp Contains/눌림 표시)와 `JKEdit`(드래그 선택 `PixelToPos`) 2곳만
+  캡처를 사용. 그 외 경로(지도 클릭, 타이틀 드래그, `dragging_` 경로)는 비캡처라 본 버그와 무관.
+- 수정: `TranslateSDLEvent`에서 마우스 좌표 변환을 캡처 라우팅 **앞**으로 이동 — 자유/캡처 경로
+  공통으로 앱 논리 좌표가 된다. dx/dy도 같은 변환을 탄다.
+- 검증: `tools/click_jango_probe.ps1` — 런처 "Equipment" 클릭 → Equip 모달 타이틀 밴드 검출(OPEN-OK),
+  모달 "Close" 클릭 → 밴드 소멸(CLOSE-OK). 화면 스냅으로도 이중 확인.
