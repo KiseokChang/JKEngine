@@ -91,3 +91,7 @@ verify_fixwin*.png
 # Runtime-generated data files
 *.dat
 *.DAT
+*.tbl
+prototest.tbl
+/tools/prototest.tbl
+/tools/tempp/
