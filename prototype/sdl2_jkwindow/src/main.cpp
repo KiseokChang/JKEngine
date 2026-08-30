@@ -18,6 +18,8 @@
 #include <JKHangulUtil.h>
 #include <JKPlatform.h>
 #include <SDL.h>
+#include <filesystem>
+#include <fstream>
 
 using jk::Utf8ToKssm;
 #include <apps/JangoApp.h>
@@ -546,6 +548,52 @@ static int RunAppSelfTest() {
         std::remove("test_occfire.dat");
     }
 
+    // JKFileDialog file browsing test (headless: direct filesystem calls).
+    {
+        namespace fs = std::filesystem;
+        fs::path testDir = fs::temp_directory_path() / "jkfiledialog_test";
+        fs::create_directories(testDir / "subfolder");
+        fs::path fileA = testDir / "alpha.txt";
+        fs::path fileB = testDir / "beta.dat";
+        {
+            std::ofstream(fileA) << "alpha";
+            std::ofstream(fileB) << "beta";
+        }
+
+        auto dlg = std::make_unique<jk::JKFileDialog>("Test Open");
+        dlg->SetInitialDir(testDir.string());
+        dlg->SetFilter("*.txt");
+        dlg->Show(); // registers modal, but g_currentJKApp is null in test mode
+
+        // Show() already calls RefreshList. Verify filter is applied.
+        check(dlg->FindControlByControlId(101) != nullptr,
+              "file dialog listbox exists");
+        auto* list = static_cast<jk::JKListBox*>(dlg->FindControlByControlId(101));
+        bool hasAlpha = false, hasBeta = false;
+        for (size_t i = 0; i < list->GetCount(); ++i) {
+            std::string s = list->GetString(i);
+            if (s == "alpha.txt") hasAlpha = true;
+            if (s == "beta.dat") hasBeta = true;
+        }
+        check(hasAlpha, "file dialog shows matching file");
+        check(!hasBeta, "file dialog filters out non-matching file");
+
+        // Select alpha.txt and confirm.
+        list->SetSelectedIndex(static_cast<int32_t>(list->GetCount()) - 1);
+        while (list->GetSelectedIndex() >= 0 &&
+               list->GetString(list->GetSelectedIndex()) != "alpha.txt") {
+            list->SetSelectedIndex(list->GetSelectedIndex() - 1);
+        }
+        check(list->GetString(list->GetSelectedIndex()) == "alpha.txt",
+              "file dialog selected alpha.txt");
+        dlg->ActivateSelected();
+        check(dlg->GetFileName() == fileA.string(),
+              "file dialog returns selected full path");
+
+        // Cleanup.
+        fs::remove_all(testDir);
+    }
+
     // JKEdit IME routing test (headless: no SDL window is required).
     {
         auto edit = std::make_unique<jk::JKEdit>(jk::JKRect{ 0, 0, 200, 24 }, 0, 256, false);
@@ -601,6 +649,50 @@ static int RunAppSelfTest() {
         }
         check(edit->GetText().size() >= 4,
               "internal automata produces multi-byte KSSM");
+    }
+
+    // JKEdit read-only: navigation works, editing is blocked.
+    {
+        auto edit = std::make_unique<jk::JKEdit>(jk::JKRect{ 0, 0, 200, 24 }, 0, 256, false);
+        edit->SetText("readonly");
+        edit->SetReadOnly(true);
+        edit->SetFocus();
+
+        jk::JKEvent ev;
+        ev.type = jk::JKEventType::Char;
+        std::strncpy(ev.text, "X", sizeof(ev.text) - 1);
+        edit->RespondMessage(ev);
+        check(edit->GetText() == "readonly",
+              "read-only edit rejects char input");
+
+        ev.type = jk::JKEventType::KeyDown;
+        ev.keyCode = SDLK_RIGHT;
+        edit->RespondMessage(ev);
+        check(edit->GetText() == "readonly",
+              "read-only edit still allows cursor movement");
+
+        ev.keyCode = SDLK_DELETE;
+        edit->RespondMessage(ev);
+        check(edit->GetText() == "readonly",
+              "read-only edit rejects delete key");
+    }
+
+    // JKComboBox read-only: selection cannot be changed by keyboard.
+    {
+        auto combo = std::make_unique<jk::JKComboBox>(jk::JKRect{ 0, 0, 120, 24 });
+        combo->AddString("A");
+        combo->AddString("B");
+        combo->AddString("C");
+        combo->SetSelectedIndex(1);
+        combo->SetReadOnly(true);
+        combo->SetFocus();
+
+        jk::JKEvent ev;
+        ev.type = jk::JKEventType::KeyDown;
+        ev.keyCode = SDLK_DOWN;
+        combo->RespondMessage(ev);
+        check(combo->GetSelectedIndex() == 1,
+              "read-only combo rejects keyboard selection change");
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);
