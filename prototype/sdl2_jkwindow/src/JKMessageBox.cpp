@@ -101,11 +101,13 @@ int JKMessageBox::DefaultResult() const {
 }
 
 void JKMessageBox::Close(int result) {
-    if (onResult_) onResult_(result);
+    // Close the modal and restore focus before invoking the result callback,
+    // so the callback can safely start a new game or open another dialog.
     RequestClose();
     if (g_currentJKApp && g_currentJKApp->GetModalWindow() == this) {
         g_currentJKApp->SetModalWindow(nullptr);
     }
+    if (onResult_) onResult_(result);
 }
 
 void JKMessageBox::RespondMessage(const JKEvent& ev) {

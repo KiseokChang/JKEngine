@@ -1045,7 +1045,7 @@ int main(int argc, char* argv[]) {
 
     if (runMineSweeper) {
         jk::MineSweeperApp app;
-        if (!app.Init("Minesweeper - SDL2 Port", 320, 380)) {
+        if (!app.Init("Minesweeper - SDL2 Port", 1920, 1080)) {
             return 1;
         }
         return app.Run();

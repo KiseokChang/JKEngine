@@ -21,7 +21,7 @@ namespace {
 constexpr int kButtonAreaHeight = 44;
 constexpr int kMargin = 10;
 constexpr int kCellSize = 24;
-constexpr int kMinWindowWidth = 320;
+constexpr int kMinWindowWidth = 200;
 
 struct NumberColor {
     uint8_t r;
@@ -490,18 +490,34 @@ void MineGrid::RespondMessage(const JKEvent& ev) {
 }
 
 // ---------------------------------------------------------------------------
+// MineWindow: floating game window
+// ---------------------------------------------------------------------------
+
+class MineWindow : public JKWindow {
+public:
+    MineWindow() : JKWindow("Minesweeper") {
+        SetAttrFlags(WA_TITLEMOVEABLE | WA_BORDERRESIZABLE);
+    }
+
+    void OnPaintClient(JKDC& dc) override {
+        const JKRect client = GetScreenClientRect();
+        dc.SetColor(192, 192, 192, 255);
+        dc.FillRect(client);
+        JKWindow::OnPaintClient(dc);
+    }
+};
+
+// ---------------------------------------------------------------------------
 // MineSweeperApp
 // ---------------------------------------------------------------------------
 
 class MineSweeperApp::Impl {
 public:
     MineSweeperGame game;
+    MineWindow* mineWindow = nullptr;
     MineGrid* grid = nullptr;
     JKStatic* mineLabel = nullptr;
     JKStatic* timeLabel = nullptr;
-    JKButton* beginnerBtn = nullptr;
-    JKButton* intermediateBtn = nullptr;
-    JKButton* expertBtn = nullptr;
     MineSweeperApp* app = nullptr;
     std::unique_ptr<JKMessageBox> gameOverBox;
 
@@ -520,21 +536,22 @@ public:
 
     void SetDifficulty(MineSweeperGame::Difficulty diff) {
         game.SetDifficulty(diff);
-        ResizeWindowForDifficulty();
+        ResizeMineWindow();
         NewGame();
     }
 
-    void ResizeWindowForDifficulty() {
-        if (!app) return;
-        JKWindow* main = app->GetMainWindow();
-        if (!main) return;
-
+    void ResizeMineWindow() {
+        if (!mineWindow) return;
         int w = std::max(kMinWindowWidth, kMargin * 2 + game.GetCols() * kCellSize);
         int h = kButtonAreaHeight + kMargin + game.GetRows() * kCellSize + kMargin;
-        main->SetWindowRect(JKRect{ 0, 0, w, h });
+        // Keep the window top-left corner, only resize width/height.
+        JKRect r = mineWindow->GetRect();
+        r.w = w;
+        r.h = h;
+        mineWindow->SetWindowRect(r);
 
         // The grid rect must fill the new client area below the button area.
-        const JKRect& client = main->GetClientRect();
+        const JKRect& client = mineWindow->GetClientRect();
         if (grid) {
             grid->SetRect(JKRect{ kMargin, kButtonAreaHeight,
                                   client.w - kMargin * 2,
@@ -563,7 +580,7 @@ public:
 
         // Discard the previous (already closed) message box before opening a new one.
         gameOverBox.reset();
-        apputil::ShowModalMessage(nullptr, gameOverBox, title, message,
+        apputil::ShowModalMessage(mineWindow, gameOverBox, title, message,
                                   JKMessageBox::Buttons::Ok,
                                   [this](int) { NewGame(); });
     }
@@ -579,13 +596,6 @@ public:
             timeLabel->SetText(buf);
         }
     }
-
-    void UpdateDifficultyButtonState() {
-        if (!beginnerBtn || !intermediateBtn || !expertBtn) return;
-        auto diff = game.GetDifficulty();
-        // Visual feedback only; disabled/pressed states are not supported yet.
-        (void)diff;
-    }
 };
 
 MineSweeperApp::MineSweeperApp() : impl_(std::make_unique<Impl>()) {}
@@ -595,47 +605,49 @@ MineSweeperApp::~MineSweeperApp() = default;
 void MineSweeperApp::OnInit() {
     impl_->app = this;
 
-    auto main = std::make_unique<JKWindow>("Minesweeper");
-    main->SetWindowRect(JKRect{ 0, 0, 320, 380 });
-    main->SetAttrFlags(WA_TITLEMOVEABLE | WA_BORDERRESIZABLE);
+    // Main desktop surface at FHD resolution.
+    auto main = std::make_unique<JKWindow>("Minesweeper Desktop");
+    main->SetWindowRect(JKRect{ 0, 0, 1920, 1080 });
 
-    // Top bar controls.
+    // Floating game window inside the desktop.
+    auto mineWindow = std::make_unique<MineWindow>();
+    mineWindow->SetWindowRect(JKRect{ 100, 100, 320, 380 });
+    impl_->mineWindow = mineWindow.get();
+
+    // Top bar controls inside the floating window.
     auto newGameBtn = std::make_unique<JKButton>(JKRect{ 10, 8, 50, 28 }, 101);
     newGameBtn->SetText("New");
     newGameBtn->SetOnClick([this]() { impl_->NewGame(); });
-    main->AddControl(std::move(newGameBtn));
+    mineWindow->AddControl(std::move(newGameBtn));
 
     auto beginnerBtn = std::make_unique<JKButton>(JKRect{ 70, 8, 28, 28 }, 102);
     beginnerBtn->SetText("B");
     beginnerBtn->SetOnClick([this]() { impl_->SetDifficulty(MineSweeperGame::Difficulty::Beginner); });
-    impl_->beginnerBtn = beginnerBtn.get();
-    main->AddControl(std::move(beginnerBtn));
+    mineWindow->AddControl(std::move(beginnerBtn));
 
     auto intermediateBtn = std::make_unique<JKButton>(JKRect{ 102, 8, 28, 28 }, 103);
     intermediateBtn->SetText("I");
     intermediateBtn->SetOnClick([this]() { impl_->SetDifficulty(MineSweeperGame::Difficulty::Intermediate); });
-    impl_->intermediateBtn = intermediateBtn.get();
-    main->AddControl(std::move(intermediateBtn));
+    mineWindow->AddControl(std::move(intermediateBtn));
 
     auto expertBtn = std::make_unique<JKButton>(JKRect{ 134, 8, 28, 28 }, 104);
     expertBtn->SetText("E");
     expertBtn->SetOnClick([this]() { impl_->SetDifficulty(MineSweeperGame::Difficulty::Expert); });
-    impl_->expertBtn = expertBtn.get();
-    main->AddControl(std::move(expertBtn));
+    mineWindow->AddControl(std::move(expertBtn));
 
     auto mineLabel = std::make_unique<JKStatic>(JKRect{ 170, 10, 70, 24 }, 105);
     mineLabel->SetText("Mines: 10");
     mineLabel->SetTextColor(0, 0, 0);
     impl_->mineLabel = mineLabel.get();
-    main->AddControl(std::move(mineLabel));
+    mineWindow->AddControl(std::move(mineLabel));
 
     auto timeLabel = std::make_unique<JKStatic>(JKRect{ 170, 32, 70, 24 }, 106);
     timeLabel->SetText("Time: 0");
     timeLabel->SetTextColor(0, 0, 0);
     impl_->timeLabel = timeLabel.get();
-    main->AddControl(std::move(timeLabel));
+    mineWindow->AddControl(std::move(timeLabel));
 
-    // The mine grid occupies the rest of the client area.
+    // The mine grid occupies the rest of the floating window client area.
     JKRect gridRect{ kMargin, kButtonAreaHeight,
                      320 - kMargin * 2,
                      380 - kButtonAreaHeight - kMargin };
@@ -645,9 +657,11 @@ void MineSweeperApp::OnInit() {
         [this](bool won) { impl_->OnGameOver(won); },
         [this]() { impl_->OnFirstOpen(); });
     impl_->grid = grid.get();
-    main->AddControl(std::move(grid));
+    mineWindow->AddControl(std::move(grid));
 
+    main->AddControl(std::move(mineWindow));
     SetMainWindow(std::move(main));
+
     SetTimerInterval(1000);
     impl_->NewGame();
 }
