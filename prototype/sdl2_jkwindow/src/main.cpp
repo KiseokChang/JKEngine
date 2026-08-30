@@ -877,7 +877,7 @@ static int RunAppSelfTest() {
         check(!game.IsMine(4, 4), "first clicked cell is never a mine");
         check(game.IsRevealed(4, 4), "first clicked cell is revealed");
 
-        game.NewGameWithMines({{0, 0}});
+        game.NewGameWithMines(9, 9, {{0, 0}});
         check(game.OpenCell(0, 0), "clicking a known mine opens it");
         check(game.IsGameOver() && !game.IsWon(),
               "clicking a mine ends game without win");
@@ -886,15 +886,52 @@ static int RunAppSelfTest() {
         check(!game.IsGameOver(), "restart clears game-over flag");
         check(!game.IsRevealed(0, 0), "restart clears revealed cells");
 
-        game.NewGameWithMines({{0, 0}});
-        for (int r = 0; r < game.kRows; ++r) {
-            for (int c = 0; c < game.kCols; ++c) {
+        game.NewGameWithMines(9, 9, {{0, 0}});
+        for (int r = 0; r < game.GetRows(); ++r) {
+            for (int c = 0; c < game.GetCols(); ++c) {
                 if (r == 0 && c == 0) continue;
                 game.OpenCell(r, c);
             }
         }
         check(game.IsWon(), "opened all safe cells on tiny board");
         check(game.IsGameOver(), "opening all safe cells ends the game");
+
+        // Difficulty settings.
+        auto beginner = jk::MineSweeperGame::GetSettings(
+            jk::MineSweeperGame::Difficulty::Beginner);
+        check(beginner.rows == 9 && beginner.cols == 9 && beginner.mines == 10,
+              "beginner difficulty is 9x9 with 10 mines");
+
+        auto intermediate = jk::MineSweeperGame::GetSettings(
+            jk::MineSweeperGame::Difficulty::Intermediate);
+        check(intermediate.rows == 16 && intermediate.cols == 16 && intermediate.mines == 40,
+              "intermediate difficulty is 16x16 with 40 mines");
+
+        auto expert = jk::MineSweeperGame::GetSettings(
+            jk::MineSweeperGame::Difficulty::Expert);
+        check(expert.rows == 16 && expert.cols == 30 && expert.mines == 99,
+              "expert difficulty is 16x30 with 99 mines");
+
+        // Intermediate first-click safety.
+        game.SetDifficulty(jk::MineSweeperGame::Difficulty::Intermediate);
+        game.NewGame(8, 8);
+        check(game.OpenCell(8, 8), "intermediate first open succeeds");
+        check(!game.IsMine(8, 8), "intermediate first clicked cell is never a mine");
+        check(game.GetRows() == 16 && game.GetCols() == 16,
+              "intermediate board has correct dimensions");
+
+        // Chord reveal test: 3x3 board with one mine at (0,0) and the center
+        // revealed showing count 1. Flag the mine, then chord the center to
+        // reveal the rest.
+        game.NewGameWithMines(3, 3, {{0, 0}});
+        game.OpenCell(1, 1);
+        check(game.GetAdjacent(1, 1) == 1, "center sees one adjacent mine");
+        game.CycleMark(0, 0);
+        check(game.GetMark(0, 0) == jk::MineSweeperGame::Mark::Flag,
+              "mine is flagged for chord test");
+        check(game.ChordReveal(1, 1), "chord reveal opens neighbors");
+        check(game.IsRevealed(0, 2), "chord reveals top-right safe cell");
+        check(game.IsWon(), "chord reveals all safe cells and wins");
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);

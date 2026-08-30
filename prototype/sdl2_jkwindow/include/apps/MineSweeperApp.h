@@ -18,19 +18,29 @@ namespace jk {
 class MineSweeperGame {
 public:
     enum class Mark { None, Flag, Question };
+    enum class Difficulty { Beginner, Intermediate, Expert };
 
-    static constexpr int kRows = 9;
-    static constexpr int kCols = 9;
-    static constexpr int kMineCount = 10;
+    struct Settings {
+        int rows = 0;
+        int cols = 0;
+        int mines = 0;
+    };
 
     MineSweeperGame();
+
+    static Settings GetSettings(Difficulty diff);
+
+    void SetDifficulty(Difficulty diff);
+    Difficulty GetDifficulty() const { return difficulty_; }
 
     // Start a new game. If firstRow/firstCol are valid, generate mines so that
     // cell and its immediate neighbors are guaranteed safe.
     void NewGame(int firstRow = -1, int firstCol = -1);
 
     // Test helper: place mines at the given deterministic positions.
-    void NewGameWithMines(const std::vector<std::pair<int, int>>& mines);
+    // Clears any existing difficulty-based board size; resizes to rows x cols.
+    void NewGameWithMines(int rows, int cols,
+                          const std::vector<std::pair<int, int>>& mines);
 
     // Open a cell. Returns true if the cell was opened. On the first open with
     // an ungenerated board, mines are generated around the excluded cell.
@@ -44,6 +54,10 @@ public:
     // neighbor was opened.
     bool ChordReveal(int row, int col);
 
+    int GetRows() const { return rows_; }
+    int GetCols() const { return cols_; }
+    int GetMineCount() const { return mineCount_; }
+
     bool IsValid(int row, int col) const;
     bool IsMine(int row, int col) const;
     bool IsRevealed(int row, int col) const;
@@ -52,15 +66,21 @@ public:
 
     bool IsGameOver() const { return gameOver_; }
     bool IsWon() const { return won_; }
+    bool IsStarted() const { return minesGenerated_; }
     int GetRevealedCount() const { return revealedCount_; }
     int GetFlagCount() const { return flagCount_; }
-    int GetRemainingMines() const { return kMineCount - flagCount_; }
+    int GetRemainingMines() const { return mineCount_ - flagCount_; }
 
 private:
-    std::array<std::array<bool, kCols>, kRows> mines_ = {};
-    std::array<std::array<bool, kCols>, kRows> revealed_ = {};
-    std::array<std::array<Mark, kCols>, kRows> marks_ = {};
-    std::array<std::array<uint8_t, kCols>, kRows> adjacent_ = {};
+    int rows_ = 9;
+    int cols_ = 9;
+    int mineCount_ = 10;
+    Difficulty difficulty_ = Difficulty::Beginner;
+
+    std::vector<std::vector<bool>> mines_;
+    std::vector<std::vector<bool>> revealed_;
+    std::vector<std::vector<Mark>> marks_;
+    std::vector<std::vector<uint8_t>> adjacent_;
 
     bool gameOver_ = false;
     bool won_ = false;
@@ -68,10 +88,10 @@ private:
     int revealedCount_ = 0;
     int flagCount_ = 0;
 
+    void Resize(int rows, int cols);
     void Clear();
     void GenerateMines(int excludeRow, int excludeCol);
     void ComputeAdjacent();
-    void RevealCell(int row, int col);
     void CheckWin();
 };
 
@@ -79,7 +99,8 @@ class MineGrid : public JKControl {
 public:
     MineGrid(const JKRect& rect, MineSweeperGame& game,
              std::function<void()> onChanged,
-             std::function<void(bool)> onGameOver);
+             std::function<void(bool)> onGameOver,
+             std::function<void()> onFirstOpen);
 
     void OnPaintClient(JKDC& dc) override;
     void RespondMessage(const JKEvent& ev) override;
@@ -88,10 +109,18 @@ private:
     MineSweeperGame& game_;
     std::function<void()> onChanged_;
     std::function<void(bool)> onGameOver_;
+    std::function<void()> onFirstOpen_;
     int cellSize_ = 20;
+
+    bool leftDown_ = false;
+    bool rightDown_ = false;
+    int chordRow_ = -1;
+    int chordCol_ = -1;
 
     bool HitTestCell(int x, int y, int& row, int& col) const;
     void DrawCell(JKDC& dc, int row, int col, const JKRect& cell) const;
+
+    bool TryChordAt(int x, int y);
 };
 
 class MineSweeperApp : public JKApplication {

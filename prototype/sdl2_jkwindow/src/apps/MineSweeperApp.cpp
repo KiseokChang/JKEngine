@@ -20,7 +20,8 @@ namespace {
 
 constexpr int kButtonAreaHeight = 44;
 constexpr int kMargin = 10;
-constexpr int kMineCount = MineSweeperGame::kMineCount;
+constexpr int kCellSize = 24;
+constexpr int kMinWindowWidth = 320;
 
 struct NumberColor {
     uint8_t r;
@@ -47,12 +48,39 @@ constexpr NumberColor kNumberColors[9] = {
 // ---------------------------------------------------------------------------
 
 MineSweeperGame::MineSweeperGame() {
-    Clear();
+    Resize(rows_, cols_);
+}
+
+MineSweeperGame::Settings MineSweeperGame::GetSettings(Difficulty diff) {
+    switch (diff) {
+        case Difficulty::Beginner:      return { 9,  9, 10};
+        case Difficulty::Intermediate:  return {16, 16, 40};
+        case Difficulty::Expert:        return {16, 30, 99};
+    }
+    return {9, 9, 10};
+}
+
+void MineSweeperGame::SetDifficulty(Difficulty diff) {
+    difficulty_ = diff;
+    Settings s = GetSettings(diff);
+    rows_ = s.rows;
+    cols_ = s.cols;
+    mineCount_ = s.mines;
+    Resize(rows_, cols_);
+}
+
+void MineSweeperGame::Resize(int rows, int cols) {
+    rows_ = rows;
+    cols_ = cols;
+    mines_.assign(rows_, std::vector<bool>(cols_, false));
+    revealed_.assign(rows_, std::vector<bool>(cols_, false));
+    marks_.assign(rows_, std::vector<Mark>(cols_, Mark::None));
+    adjacent_.assign(rows_, std::vector<uint8_t>(cols_, 0));
 }
 
 void MineSweeperGame::Clear() {
-    for (int r = 0; r < kRows; ++r) {
-        for (int c = 0; c < kCols; ++c) {
+    for (int r = 0; r < rows_; ++r) {
+        for (int c = 0; c < cols_; ++c) {
             mines_[r][c] = false;
             revealed_[r][c] = false;
             marks_[r][c] = Mark::None;
@@ -67,7 +95,7 @@ void MineSweeperGame::Clear() {
 }
 
 bool MineSweeperGame::IsValid(int row, int col) const {
-    return row >= 0 && row < kRows && col >= 0 && col < kCols;
+    return row >= 0 && row < rows_ && col >= 0 && col < cols_;
 }
 
 void MineSweeperGame::NewGame(int firstRow, int firstCol) {
@@ -77,7 +105,13 @@ void MineSweeperGame::NewGame(int firstRow, int firstCol) {
     }
 }
 
-void MineSweeperGame::NewGameWithMines(const std::vector<std::pair<int, int>>& mines) {
+void MineSweeperGame::NewGameWithMines(int rows, int cols,
+                                       const std::vector<std::pair<int, int>>& mines) {
+    SetDifficulty(Difficulty::Beginner);
+    Resize(rows, cols);
+    rows_ = rows;
+    cols_ = cols;
+    mineCount_ = static_cast<int>(mines.size());
     Clear();
     for (const auto& m : mines) {
         if (IsValid(m.first, m.second)) {
@@ -90,9 +124,9 @@ void MineSweeperGame::NewGameWithMines(const std::vector<std::pair<int, int>>& m
 
 void MineSweeperGame::GenerateMines(int excludeRow, int excludeCol) {
     std::vector<std::pair<int, int>> candidates;
-    candidates.reserve(kRows * kCols);
-    for (int r = 0; r < kRows; ++r) {
-        for (int c = 0; c < kCols; ++c) {
+    candidates.reserve(rows_ * cols_);
+    for (int r = 0; r < rows_; ++r) {
+        for (int c = 0; c < cols_; ++c) {
             // Exclude the first-clicked cell and its 8 neighbors.
             if (std::abs(r - excludeRow) <= 1 && std::abs(c - excludeCol) <= 1) {
                 continue;
@@ -101,11 +135,11 @@ void MineSweeperGame::GenerateMines(int excludeRow, int excludeCol) {
         }
     }
 
+    int count = std::min(mineCount_, static_cast<int>(candidates.size()));
     std::random_device rd;
     std::mt19937 gen(rd());
     std::shuffle(candidates.begin(), candidates.end(), gen);
 
-    int count = std::min(kMineCount, static_cast<int>(candidates.size()));
     for (int i = 0; i < count; ++i) {
         mines_[candidates[i].first][candidates[i].second] = true;
     }
@@ -114,8 +148,8 @@ void MineSweeperGame::GenerateMines(int excludeRow, int excludeCol) {
 }
 
 void MineSweeperGame::ComputeAdjacent() {
-    for (int r = 0; r < kRows; ++r) {
-        for (int c = 0; c < kCols; ++c) {
+    for (int r = 0; r < rows_; ++r) {
+        for (int c = 0; c < cols_; ++c) {
             if (mines_[r][c]) {
                 adjacent_[r][c] = 0;
                 continue;
@@ -223,7 +257,7 @@ bool MineSweeperGame::ChordReveal(int row, int col) {
 
 void MineSweeperGame::CheckWin() {
     if (gameOver_) return;
-    int safeCells = kRows * kCols - kMineCount;
+    int safeCells = rows_ * cols_ - mineCount_;
     if (revealedCount_ >= safeCells) {
         gameOver_ = true;
         won_ = true;
@@ -254,20 +288,25 @@ int MineSweeperGame::GetAdjacent(int row, int col) const {
 
 MineGrid::MineGrid(const JKRect& rect, MineSweeperGame& game,
                    std::function<void()> onChanged,
-                   std::function<void(bool)> onGameOver)
+                   std::function<void(bool)> onGameOver,
+                   std::function<void()> onFirstOpen)
     : game_(game), onChanged_(std::move(onChanged)),
-      onGameOver_(std::move(onGameOver)) {
+      onGameOver_(std::move(onGameOver)),
+      onFirstOpen_(std::move(onFirstOpen)) {
     SetRect(rect);
     SetFocusable(true);
 }
 
 bool MineGrid::HitTestCell(int x, int y, int& row, int& col) const {
     const JKRect client = GetScreenClientRect();
-    int cellSize = std::min(client.w, client.h) / MineSweeperGame::kCols;
+    int cols = game_.GetCols();
+    int rows = game_.GetRows();
+    int cellSize = std::min(client.w / cols, client.h / rows);
     if (cellSize <= 0) return false;
-    int boardSize = cellSize * MineSweeperGame::kCols;
-    int offsetX = (client.w - boardSize) / 2;
-    int offsetY = (client.h - boardSize) / 2;
+    int boardW = cellSize * cols;
+    int boardH = cellSize * rows;
+    int offsetX = (client.w - boardW) / 2;
+    int offsetY = (client.h - boardH) / 2;
 
     int lx = x - (client.x + offsetX);
     int ly = y - (client.y + offsetY);
@@ -275,7 +314,7 @@ bool MineGrid::HitTestCell(int x, int y, int& row, int& col) const {
 
     col = lx / cellSize;
     row = ly / cellSize;
-    return col < MineSweeperGame::kCols && row < MineSweeperGame::kRows;
+    return col < cols && row < rows;
 }
 
 void MineGrid::OnPaintClient(JKDC& dc) {
@@ -283,14 +322,17 @@ void MineGrid::OnPaintClient(JKDC& dc) {
     dc.SetColor(192, 192, 192, 255);
     dc.FillRect(client);
 
-    int cellSize = std::min(client.w, client.h) / MineSweeperGame::kCols;
+    int cols = game_.GetCols();
+    int rows = game_.GetRows();
+    int cellSize = std::min(client.w / cols, client.h / rows);
     if (cellSize <= 0) return;
-    int boardSize = cellSize * MineSweeperGame::kCols;
-    int offsetX = (client.w - boardSize) / 2;
-    int offsetY = (client.h - boardSize) / 2;
+    int boardW = cellSize * cols;
+    int boardH = cellSize * rows;
+    int offsetX = (client.w - boardW) / 2;
+    int offsetY = (client.h - boardH) / 2;
 
-    for (int r = 0; r < MineSweeperGame::kRows; ++r) {
-        for (int c = 0; c < MineSweeperGame::kCols; ++c) {
+    for (int r = 0; r < rows; ++r) {
+        for (int c = 0; c < cols; ++c) {
             JKRect cell{
                 client.x + offsetX + c * cellSize,
                 client.y + offsetY + r * cellSize,
@@ -353,30 +395,93 @@ void MineGrid::DrawCell(JKDC& dc, int row, int col, const JKRect& cell) const {
     }
 }
 
+bool MineGrid::TryChordAt(int x, int y) {
+    int row = 0, col = 0;
+    if (!HitTestCell(x, y, row, col)) return false;
+
+    bool wasStarted = game_.IsStarted();
+    bool changed = game_.ChordReveal(row, col);
+    if (changed) {
+        if (!wasStarted && game_.IsStarted()) {
+            onFirstOpen_();
+        }
+        onChanged_();
+        if (game_.IsGameOver()) {
+            onGameOver_(game_.IsWon());
+        }
+    }
+    return changed;
+}
+
 void MineGrid::RespondMessage(const JKEvent& ev) {
     if (ev.type == JKEventType::MouseDown) {
         SetFocus();
         int row = 0, col = 0;
-        if (!HitTestCell(ev.x, ev.y, row, col)) {
-            JKControl::RespondMessage(ev);
+        bool inside = HitTestCell(ev.x, ev.y, row, col);
+
+        if (ev.detail == SDL_BUTTON_LEFT) {
+            leftDown_ = true;
+            // If right button is already held, trigger chord on this cell.
+            if (rightDown_ && inside) {
+                chordRow_ = row;
+                chordCol_ = col;
+                TryChordAt(ev.x, ev.y);
+                return;
+            }
+            // Normal left-click open.
+            if (inside) {
+                bool wasStarted = game_.IsStarted();
+                bool changed = game_.OpenCell(row, col);
+                if (changed) {
+                    if (!wasStarted && game_.IsStarted()) {
+                        onFirstOpen_();
+                    }
+                    onChanged_();
+                    if (game_.IsGameOver()) {
+                        onGameOver_(game_.IsWon());
+                    }
+                }
+            }
             return;
         }
 
-        bool changed = false;
-        if (ev.detail == SDL_BUTTON_LEFT) {
-            changed = game_.OpenCell(row, col);
-        } else if (ev.detail == SDL_BUTTON_RIGHT) {
-            game_.CycleMark(row, col);
-            changed = true;
-        } else if (ev.detail == SDL_BUTTON_MIDDLE) {
-            changed = game_.ChordReveal(row, col);
+        if (ev.detail == SDL_BUTTON_RIGHT) {
+            rightDown_ = true;
+            // If left button is already held, trigger chord on this cell.
+            if (leftDown_ && inside) {
+                chordRow_ = row;
+                chordCol_ = col;
+                TryChordAt(ev.x, ev.y);
+                return;
+            }
+            // Normal right-click mark cycle.
+            if (inside) {
+                game_.CycleMark(row, col);
+                onChanged_();
+            }
+            return;
         }
 
-        if (changed) {
-            onChanged_();
-            if (game_.IsGameOver()) {
-                onGameOver_(game_.IsWon());
+        if (ev.detail == SDL_BUTTON_MIDDLE) {
+            if (inside) {
+                TryChordAt(ev.x, ev.y);
             }
+            return;
+        }
+
+        JKControl::RespondMessage(ev);
+        return;
+    }
+
+    if (ev.type == JKEventType::MouseUp) {
+        if (ev.detail == SDL_BUTTON_LEFT) {
+            leftDown_ = false;
+            chordRow_ = -1;
+            chordCol_ = -1;
+        } else if (ev.detail == SDL_BUTTON_RIGHT) {
+            rightDown_ = false;
+            chordRow_ = -1;
+            chordCol_ = -1;
         }
         return;
     }
@@ -394,6 +499,9 @@ public:
     MineGrid* grid = nullptr;
     JKStatic* mineLabel = nullptr;
     JKStatic* timeLabel = nullptr;
+    JKButton* beginnerBtn = nullptr;
+    JKButton* intermediateBtn = nullptr;
+    JKButton* expertBtn = nullptr;
     MineSweeperApp* app = nullptr;
     std::unique_ptr<JKMessageBox> gameOverBox;
 
@@ -404,9 +512,31 @@ public:
     void NewGame() {
         game.NewGame();
         elapsedSeconds = 0;
-        timerRunning = true;
+        timerRunning = false;
         gameOverShown = false;
         UpdateLabels();
+        if (grid) grid->SetFocus();
+    }
+
+    void SetDifficulty(MineSweeperGame::Difficulty diff) {
+        game.SetDifficulty(diff);
+        ResizeWindowForDifficulty();
+        NewGame();
+    }
+
+    void ResizeWindowForDifficulty() {
+        if (!app) return;
+        int w = std::max(kMinWindowWidth, kMargin * 2 + game.GetCols() * kCellSize);
+        int h = kButtonAreaHeight + kMargin + game.GetRows() * kCellSize + kMargin;
+        if (JKWindow* main = app->GetMainWindow()) {
+            main->SetWindowRect(JKRect{ 0, 0, w, h });
+        }
+    }
+
+    void OnFirstOpen() {
+        if (!timerRunning) {
+            timerRunning = true;
+        }
     }
 
     void OnChanged() {
@@ -440,6 +570,13 @@ public:
             timeLabel->SetText(buf);
         }
     }
+
+    void UpdateDifficultyButtonState() {
+        if (!beginnerBtn || !intermediateBtn || !expertBtn) return;
+        auto diff = game.GetDifficulty();
+        // Visual feedback only; disabled/pressed states are not supported yet.
+        (void)diff;
+    }
 };
 
 MineSweeperApp::MineSweeperApp() : impl_(std::make_unique<Impl>()) {}
@@ -453,19 +590,37 @@ void MineSweeperApp::OnInit() {
     main->SetWindowRect(JKRect{ 0, 0, 320, 380 });
     main->SetAttrFlags(WA_TITLEMOVEABLE | WA_BORDERRESIZABLE);
 
-    // Top bar: new-game button and counters.
-    auto newGameBtn = std::make_unique<JKButton>(JKRect{ 10, 8, 80, 28 }, 101);
-    newGameBtn->SetText("New Game");
+    // Top bar controls.
+    auto newGameBtn = std::make_unique<JKButton>(JKRect{ 10, 8, 70, 28 }, 101);
+    newGameBtn->SetText("New");
     newGameBtn->SetOnClick([this]() { impl_->NewGame(); });
     main->AddControl(std::move(newGameBtn));
 
-    auto mineLabel = std::make_unique<JKStatic>(JKRect{ 100, 10, 80, 24 }, 102);
+    auto beginnerBtn = std::make_unique<JKButton>(JKRect{ 90, 8, 40, 28 }, 102);
+    beginnerBtn->SetText("B");
+    beginnerBtn->SetOnClick([this]() { impl_->SetDifficulty(MineSweeperGame::Difficulty::Beginner); });
+    impl_->beginnerBtn = beginnerBtn.get();
+    main->AddControl(std::move(beginnerBtn));
+
+    auto intermediateBtn = std::make_unique<JKButton>(JKRect{ 135, 8, 40, 28 }, 103);
+    intermediateBtn->SetText("I");
+    intermediateBtn->SetOnClick([this]() { impl_->SetDifficulty(MineSweeperGame::Difficulty::Intermediate); });
+    impl_->intermediateBtn = intermediateBtn.get();
+    main->AddControl(std::move(intermediateBtn));
+
+    auto expertBtn = std::make_unique<JKButton>(JKRect{ 180, 8, 40, 28 }, 104);
+    expertBtn->SetText("E");
+    expertBtn->SetOnClick([this]() { impl_->SetDifficulty(MineSweeperGame::Difficulty::Expert); });
+    impl_->expertBtn = expertBtn.get();
+    main->AddControl(std::move(expertBtn));
+
+    auto mineLabel = std::make_unique<JKStatic>(JKRect{ 230, 10, 70, 24 }, 105);
     mineLabel->SetText("Mines: 10");
     mineLabel->SetTextColor(0, 0, 0);
     impl_->mineLabel = mineLabel.get();
     main->AddControl(std::move(mineLabel));
 
-    auto timeLabel = std::make_unique<JKStatic>(JKRect{ 200, 10, 80, 24 }, 103);
+    auto timeLabel = std::make_unique<JKStatic>(JKRect{ 230, 32, 70, 24 }, 106);
     timeLabel->SetText("Time: 0");
     timeLabel->SetTextColor(0, 0, 0);
     impl_->timeLabel = timeLabel.get();
@@ -478,7 +633,8 @@ void MineSweeperApp::OnInit() {
     auto grid = std::make_unique<MineGrid>(
         gridRect, impl_->game,
         [this]() { impl_->OnChanged(); },
-        [this](bool won) { impl_->OnGameOver(won); });
+        [this](bool won) { impl_->OnGameOver(won); },
+        [this]() { impl_->OnFirstOpen(); });
     impl_->grid = grid.get();
     main->AddControl(std::move(grid));
 
