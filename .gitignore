@@ -53,6 +53,7 @@ vcpkg_installed/
 # IDE / editor
 .vs/
 .vscode/
+.claude/
 *.suo
 *.user
 *.userosscache

@@ -343,8 +343,11 @@ void JKApplication::Render() {
     if (!renderBackend_) return;
 
     // Render everything into the backbuffer at scaled logical coordinates.
-    renderBackend_->SetScale(scaleX_, scaleY_);
+    // Set the target first so the scale is applied to the backbuffer rather
+    // than the previous/default target (some SDL drivers reset scale on
+    // target changes).
     renderBackend_->SetRenderTarget(backBuffer_);
+    renderBackend_->SetScale(scaleX_, scaleY_);
 
     // desktop background
     dc_.SetColor(192, 192, 192, 255);

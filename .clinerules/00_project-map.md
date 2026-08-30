@@ -10,11 +10,11 @@
 - **WINDBASE/**: 애플리케이션 계층 원본. `WINDBASE/JANGO` = 장고 런처, `WINDBASE/2CAOCC` = 2차 포병 지휘(C2)
 - **RESOUCES/**: 리소스
 - **prototype/sdl2_jkwindow/**: SDL2 + C++17 JKWindow 프로토타입 — **활성 개발 대상**
-  - `src/`: JKApplication/JKWindow/JKControl/JKDC 등 프레임워크 + `src/apps/` (Jango, Occ, Equip, Equip24, Insa)
+  - `src/`: JKApplication/JKWindow/JKControl/JKDC 등 프레임워크 + `src/apps/` (Jango, Occ, Equip, Equip24, Insa, Pcx, Vector, IconEdit, Recog, VectorFont, VectorPres)
   - `include/`: 헤더
   - `build_sdl2_jkwindow.bat` / `run_sdl2_jkwindow.bat`: 빌드/실행 진입점
 - **ARCHITECTURE_DOCS/**: 번호 순서 문서. 주요 문서: `10_sdl2_windows_setup.md`(개발환경), `11_jkwindow_sdl_mapping.md`(API 매핑), `12_sdl2_prototype_roadmap.md`(로드맵), `20_sdl2_jango_porting_plan.md`(JANGO 포팅 계획). **구조/계획 변경 시 해당 문서도 갱신**
-- **tools/**: `install_sdl2_toolchain.sh`(MSYS2 환경 구축), 빌드/런 bat, `verify_fixwin3.ps1`(DPI-aware 화면 검증 — `ARCHITECTURE_DOCS/15_verification_playbook.md`), `app_mouse_test3.ps1`(드래그 테스트 드라이버), `probe_mouse_scaling.ps1`(마우스/DPI 배율 실측 — 15 문서 §9), `click_jango_probe.ps1`(런처 버튼 클릭 E2E — 캡처 경로 회귀 검증), `fix_bom.ps1`(ps1 BOM 복구)
+- **tools/**: `install_sdl2_toolchain.sh`(MSYS2 환경 구축), 빌드/런 bat, `verify_fixwin3.ps1`(DPI-aware 화면 검증 — `ARCHITECTURE_DOCS/15_verification_playbook.md`), `app_mouse_test3.ps1`(드래그 테스트 드라이버), `probe_mouse_scaling.ps1`(마우스/DPI 배율 실측 — 15 문서 §9), `click_jango_probe.ps1`(런처 버튼 클릭 E2E — 캡처 경로 회귀 검증), `verify_iconedit_mouse.ps1`(iconedit 그리드 셀 클릭 E2E — 마우스/화면 좌표 불일치 탐지), `fix_bom.ps1`(ps1 BOM 복구)
 
 ## 임시 디렉터리 (레포 외부)
 
