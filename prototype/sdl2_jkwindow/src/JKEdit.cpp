@@ -534,11 +534,32 @@ bool JKEdit::DeleteSelection() {
     return true;
 }
 
+// KSSM characters are stored as 2-byte pairs where the first byte is >= 0x80.
+// ASCII bytes (< 0x80) are single-byte units. The second byte of a KSSM pair
+// may be anywhere in 0x00..0xFF, so deletion and cursor movement must look at
+// the previous byte to decide whether it is a KSSM first byte.
 void JKEdit::DeleteBackward() {
     if (DeleteSelection()) return;
     if (cursorPos_ == 0) return;
+    // If the internal automata is mid-composition, cancel it first so that a
+    // single Backspace removes the whole in-progress Hangul character.
+    if (composing_) {
+        composing_ = false;
+        if (cursorPos_ >= 2) {
+            buffer_.erase(cursorPos_ - 2, 2);
+            cursorPos_ -= 2;
+            automata_.InitAutomata();
+        }
+        ScrollToCursor();
+        showCaret_ = true;
+        return;
+    }
     size_t prev = cursorPos_ - 1;
-    while (prev > 0 && (static_cast<uint8_t>(buffer_[prev]) & 0xC0) == 0x80) --prev;
+    // If the byte before the cursor is preceded by a KSSM first byte, the pair
+    // ends right before the cursor; delete both bytes.
+    if (prev >= 1 && static_cast<uint8_t>(buffer_[prev - 1]) >= 0x80) {
+        prev = prev - 1;
+    }
     buffer_.erase(prev, cursorPos_ - prev);
     cursorPos_ = prev;
     ScrollToCursor();
@@ -548,27 +569,29 @@ void JKEdit::DeleteBackward() {
 void JKEdit::DeleteForward() {
     if (DeleteSelection()) return;
     if (cursorPos_ >= buffer_.size()) return;
-    size_t next = cursorPos_ + 1;
-    while (next < buffer_.size() &&
-           (static_cast<uint8_t>(buffer_[next]) & 0xC0) == 0x80) ++next;
-    buffer_.erase(cursorPos_, next - cursorPos_);
+    // If the byte at the cursor is a KSSM first byte, delete the whole pair.
+    size_t len = (static_cast<uint8_t>(buffer_[cursorPos_]) >= 0x80) ? 2 : 1;
+    buffer_.erase(cursorPos_, len);
     showCaret_ = true;
 }
 
 void JKEdit::MoveCursorLeft() {
     if (cursorPos_ == 0) return;
-    --cursorPos_;
-    while (cursorPos_ > 0 &&
-           (static_cast<uint8_t>(buffer_[cursorPos_]) & 0xC0) == 0x80) --cursorPos_;
+    // If the byte two positions back is a KSSM first byte, we are at the end
+    // of a KSSM pair; jump over the whole pair.
+    if (cursorPos_ >= 2 && static_cast<uint8_t>(buffer_[cursorPos_ - 2]) >= 0x80) {
+        cursorPos_ -= 2;
+    } else {
+        --cursorPos_;
+    }
     ScrollToCursor();
     showCaret_ = true;
 }
 
 void JKEdit::MoveCursorRight() {
     if (cursorPos_ >= buffer_.size()) return;
-    ++cursorPos_;
-    while (cursorPos_ < buffer_.size() &&
-           (static_cast<uint8_t>(buffer_[cursorPos_]) & 0xC0) == 0x80) ++cursorPos_;
+    // If the byte at the cursor is a KSSM first byte, jump over the pair.
+    cursorPos_ += (static_cast<uint8_t>(buffer_[cursorPos_]) >= 0x80) ? 2 : 1;
     ScrollToCursor();
     showCaret_ = true;
 }
@@ -642,6 +665,7 @@ size_t JKEdit::PixelToPos(int32_t x, int32_t y) const {
     JKRect inner = client;
     inner.x += 2; inner.y += 2;
     inner.w -= 4; inner.h -= 4;
+    size_t pos;
     if (multiLine_) {
         int32_t relX = x - inner.x;
         int32_t relY = y - inner.y;
@@ -651,17 +675,24 @@ size_t JKEdit::PixelToPos(int32_t x, int32_t y) const {
         size_t start = GetLineStart(line);
         size_t end = GetLineEnd(line);
         int32_t col = std::max(0, relX / charWidth_);
-        size_t pos = start + static_cast<size_t>(col);
+        pos = start + static_cast<size_t>(col);
         if (pos > end) pos = end;
-        return pos;
     } else {
         int32_t relX = x - inner.x;
         int32_t col = relX / charWidth_;
         if (col < 0) col = 0;
-        size_t pos = static_cast<size_t>(col);
+        pos = static_cast<size_t>(col);
         if (pos > buffer_.size()) pos = buffer_.size();
-        return pos;
     }
+    // Snap to a valid character boundary: if the cursor landed between the two
+    // bytes of a KSSM pair, move it to the start of the pair. This prevents
+    // later DeleteBackward/DeleteForward from removing only half a Hangul
+    // character and corrupting the buffer.
+    if (pos > 0 && pos < buffer_.size() &&
+        static_cast<uint8_t>(buffer_[pos - 1]) >= 0x80) {
+        --pos;
+    }
+    return pos;
 }
 
 void JKEdit::UpdateSelection(size_t oldPos, bool shift) {
