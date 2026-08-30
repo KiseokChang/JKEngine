@@ -526,10 +526,19 @@ public:
 
     void ResizeWindowForDifficulty() {
         if (!app) return;
+        JKWindow* main = app->GetMainWindow();
+        if (!main) return;
+
         int w = std::max(kMinWindowWidth, kMargin * 2 + game.GetCols() * kCellSize);
         int h = kButtonAreaHeight + kMargin + game.GetRows() * kCellSize + kMargin;
-        if (JKWindow* main = app->GetMainWindow()) {
-            main->SetWindowRect(JKRect{ 0, 0, w, h });
+        main->SetWindowRect(JKRect{ 0, 0, w, h });
+
+        // The grid rect must fill the new client area below the button area.
+        const JKRect& client = main->GetClientRect();
+        if (grid) {
+            grid->SetRect(JKRect{ kMargin, kButtonAreaHeight,
+                                  client.w - kMargin * 2,
+                                  client.h - kButtonAreaHeight - kMargin });
         }
     }
 
@@ -591,36 +600,36 @@ void MineSweeperApp::OnInit() {
     main->SetAttrFlags(WA_TITLEMOVEABLE | WA_BORDERRESIZABLE);
 
     // Top bar controls.
-    auto newGameBtn = std::make_unique<JKButton>(JKRect{ 10, 8, 70, 28 }, 101);
+    auto newGameBtn = std::make_unique<JKButton>(JKRect{ 10, 8, 50, 28 }, 101);
     newGameBtn->SetText("New");
     newGameBtn->SetOnClick([this]() { impl_->NewGame(); });
     main->AddControl(std::move(newGameBtn));
 
-    auto beginnerBtn = std::make_unique<JKButton>(JKRect{ 90, 8, 40, 28 }, 102);
+    auto beginnerBtn = std::make_unique<JKButton>(JKRect{ 70, 8, 28, 28 }, 102);
     beginnerBtn->SetText("B");
     beginnerBtn->SetOnClick([this]() { impl_->SetDifficulty(MineSweeperGame::Difficulty::Beginner); });
     impl_->beginnerBtn = beginnerBtn.get();
     main->AddControl(std::move(beginnerBtn));
 
-    auto intermediateBtn = std::make_unique<JKButton>(JKRect{ 135, 8, 40, 28 }, 103);
+    auto intermediateBtn = std::make_unique<JKButton>(JKRect{ 102, 8, 28, 28 }, 103);
     intermediateBtn->SetText("I");
     intermediateBtn->SetOnClick([this]() { impl_->SetDifficulty(MineSweeperGame::Difficulty::Intermediate); });
     impl_->intermediateBtn = intermediateBtn.get();
     main->AddControl(std::move(intermediateBtn));
 
-    auto expertBtn = std::make_unique<JKButton>(JKRect{ 180, 8, 40, 28 }, 104);
+    auto expertBtn = std::make_unique<JKButton>(JKRect{ 134, 8, 28, 28 }, 104);
     expertBtn->SetText("E");
     expertBtn->SetOnClick([this]() { impl_->SetDifficulty(MineSweeperGame::Difficulty::Expert); });
     impl_->expertBtn = expertBtn.get();
     main->AddControl(std::move(expertBtn));
 
-    auto mineLabel = std::make_unique<JKStatic>(JKRect{ 230, 10, 70, 24 }, 105);
+    auto mineLabel = std::make_unique<JKStatic>(JKRect{ 170, 10, 70, 24 }, 105);
     mineLabel->SetText("Mines: 10");
     mineLabel->SetTextColor(0, 0, 0);
     impl_->mineLabel = mineLabel.get();
     main->AddControl(std::move(mineLabel));
 
-    auto timeLabel = std::make_unique<JKStatic>(JKRect{ 230, 32, 70, 24 }, 106);
+    auto timeLabel = std::make_unique<JKStatic>(JKRect{ 170, 32, 70, 24 }, 106);
     timeLabel->SetText("Time: 0");
     timeLabel->SetTextColor(0, 0, 0);
     impl_->timeLabel = timeLabel.get();
