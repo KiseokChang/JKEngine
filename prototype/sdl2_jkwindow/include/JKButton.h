@@ -14,10 +14,14 @@ public:
     void SetEnable(bool enable) { enabled_ = enable; }
     bool IsEnabled() const { return enabled_; }
 
+    void SetDepth(int32_t depth) { depth_ = depth; }
+    int32_t GetDepth() const { return depth_; }
+
     void SetOnClick(std::function<void()> callback) { onClick_ = std::move(callback); }
 
     void OnPaintClient(JKDC& dc) override;
     void RespondMessage(const JKEvent& ev) override;
+    JKPoint MeasureContent() const override;
 
     virtual void OnClick() {
         if (onClick_) {

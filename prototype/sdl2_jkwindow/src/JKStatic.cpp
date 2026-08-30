@@ -24,4 +24,14 @@ void JKStatic::OnPaintClient(JKDC& dc) {
     JKControl::OnPaintClient(dc);
 }
 
+JKPoint JKStatic::MeasureContent() const {
+    const std::string& txt = GetText();
+    if (txt.empty()) {
+        return JKPoint{ 0, 16 };
+    }
+    JKPoint size = JKDC::MeasureText(txt.c_str());
+    if (size.y == 0) size.y = 16;
+    return size;
+}
+
 } // namespace jk

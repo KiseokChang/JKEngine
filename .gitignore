@@ -53,6 +53,7 @@ vcpkg_installed/
 # IDE / editor
 .vs/
 .vscode/
+.claude/
 *.suo
 *.user
 *.userosscache
@@ -81,3 +82,11 @@ typescript
 Thumbs.db
 .DS_Store
 desktop.ini
+
+# Scratch analysis dumps and screenshot artifacts (작업 중 덤프)
+/prototype/sdl2_jkwindow/_*.txt
+verify_fixwin*.png
+
+# Runtime-generated data files
+*.dat
+*.DAT

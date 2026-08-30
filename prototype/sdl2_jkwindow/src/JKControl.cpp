@@ -1,5 +1,6 @@
 #include <JKControl.h>
 #include <JKWindow.h>
+#include <JKApplication.h>
 #include <algorithm>
 
 namespace jk {
@@ -26,6 +27,8 @@ void JKControl::Setup() {
 
 void JKControl::Open() {
     visible_ = true;
+    // 재오픈(다이얼로그 재사용) 시 이전 종료 요청을 해제한다.
+    closeRequested_ = false;
     for (auto& child : children_) {
         child->Open();
     }
@@ -59,9 +62,11 @@ void JKControl::PaintClient(JKDC& dc) {
     if (!client.IsEmpty()) {
         dc.PushClipRect(client);
         OnPaintClient(dc);
+        PaintFocus(dc);
         dc.PopClipRect();
     } else {
         OnPaintClient(dc);
+        PaintFocus(dc);
     }
 }
 
@@ -118,7 +123,16 @@ void JKControl::GetBackColor(uint8_t& r, uint8_t& g, uint8_t& b) const {
 
 void JKControl::SetRect(const JKRect& rect) {
     rect_ = rect;
-    clientRect_ = rect;
+    int32_t innerW = rect.w - paddingLeft_ - paddingRight_;
+    int32_t innerH = rect.h - paddingTop_ - paddingBottom_;
+    if (innerW < 0) innerW = 0;
+    if (innerH < 0) innerH = 0;
+    clientRect_ = JKRect{ paddingLeft_, paddingTop_, innerW, innerH };
+    OnRectChanged(rect);
+}
+
+void JKControl::OnRectChanged(const JKRect& rect) {
+    // Default implementation: nothing extra.
 }
 
 const JKRect& JKControl::GetRect() const {
@@ -132,6 +146,100 @@ void JKControl::SetClientRect(const JKRect& rect) {
 const JKRect& JKControl::GetClientRect() const {
     return clientRect_;
 }
+
+void JKControl::SetAnchor(uint32_t anchors) {
+    anchors_ = anchors;
+}
+
+uint32_t JKControl::GetAnchor() const {
+    return anchors_;
+}
+
+void JKControl::SetMargins(int32_t left, int32_t top, int32_t right, int32_t bottom) {
+    marginLeft_ = left;
+    marginTop_ = top;
+    marginRight_ = right;
+    marginBottom_ = bottom;
+}
+
+void JKControl::GetMargins(int32_t& left, int32_t& top, int32_t& right, int32_t& bottom) const {
+    left = marginLeft_;
+    top = marginTop_;
+    right = marginRight_;
+    bottom = marginBottom_;
+}
+
+void JKControl::SetPadding(int32_t left, int32_t top, int32_t right, int32_t bottom) {
+    paddingLeft_ = left;
+    paddingTop_ = top;
+    paddingRight_ = right;
+    paddingBottom_ = bottom;
+    SetRect(rect_);
+}
+
+void JKControl::GetPadding(int32_t& left, int32_t& top, int32_t& right, int32_t& bottom) const {
+    left = paddingLeft_;
+    top = paddingTop_;
+    right = paddingRight_;
+    bottom = paddingBottom_;
+}
+
+void JKControl::SetAutoSize(bool autoSize) {
+    autoSize_ = autoSize;
+}
+
+bool JKControl::IsAutoSize() const {
+    return autoSize_;
+}
+
+JKPoint JKControl::MeasureContent() const {
+    return JKPoint{ 0, 0 };
+}
+
+void JKControl::PerformLayout(const JKRect& parentClient) {
+    JKRect desired = rect_;
+
+    if (autoSize_) {
+        JKPoint content = MeasureContent();
+        desired.w = content.x + paddingLeft_ + paddingRight_;
+        desired.h = content.y + paddingTop_ + paddingBottom_;
+    }
+
+    // Apply anchors relative to the parent client area.
+    if (anchors_ & ANCHOR_LEFT) {
+        desired.x = parentClient.x + marginLeft_;
+    }
+    if (anchors_ & ANCHOR_TOP) {
+        desired.y = parentClient.y + marginTop_;
+    }
+    if (anchors_ & ANCHOR_RIGHT) {
+        int32_t rightEdge = parentClient.x + parentClient.w - marginRight_;
+        if (anchors_ & ANCHOR_LEFT) {
+            desired.w = rightEdge - desired.x;
+        } else {
+            desired.x = rightEdge - desired.w;
+        }
+    }
+    if (anchors_ & ANCHOR_BOTTOM) {
+        int32_t bottomEdge = parentClient.y + parentClient.h - marginBottom_;
+        if (anchors_ & ANCHOR_TOP) {
+            desired.h = bottomEdge - desired.y;
+        } else {
+            desired.y = bottomEdge - desired.h;
+        }
+    }
+
+    if (desired.w < 0) desired.w = 0;
+    if (desired.h < 0) desired.h = 0;
+
+    SetRect(desired);
+
+    for (auto& child : children_) {
+        child->PerformLayout(GetClientRect());
+    }
+}
+
+
 
 void JKControl::SetAttrFlags(uint32_t flags) {
     attrFlags_ = flags;
@@ -184,17 +292,52 @@ void JKControl::SetFocus() {
     while (p) {
         JKWindow* win = dynamic_cast<JKWindow*>(p);
         if (win) {
+            if (win->GetFocusChild() == this) {
+                if (g_currentJKApp) g_currentJKApp->SetInputWindow(win);
+                return;
+            }
+            JKControl* old = win->GetFocusChild();
+            if (old) old->OnKillFocus();
             win->SetFocusChild(this);
+            OnSetFocus();
+            if (g_currentJKApp) g_currentJKApp->SetInputWindow(win);
             return;
         }
         p = p->GetParent();
     }
 }
 
+bool JKControl::IsFocused() const {
+    const JKControl* p = this;
+    while (p) {
+        const JKWindow* win = dynamic_cast<const JKWindow*>(p);
+        if (win) {
+            return win->GetFocusChild() == this;
+        }
+        p = p->GetParent();
+    }
+    return false;
+}
+
+void JKControl::PaintFocus(JKDC& dc) const {
+    if (!focusable_ || !IsFocused()) return;
+    const JKRect client = GetScreenClientRect();
+    if (client.IsEmpty()) return;
+    JKRect r = client;
+    r.x += 2;
+    r.y += 2;
+    r.w -= 4;
+    r.h -= 4;
+    if (r.IsEmpty()) return;
+    dc.SetColor(0, 0, 255, 255);
+    dc.DrawRect(r);
+}
+
 void JKControl::AddControl(std::unique_ptr<JKControl> child) {
     if (child) {
         child->SetParent(this);
         children_.push_back(std::move(child));
+        children_.back()->PerformLayout(GetClientRect());
     }
 }
 

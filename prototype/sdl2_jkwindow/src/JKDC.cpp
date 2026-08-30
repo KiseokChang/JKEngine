@@ -7,12 +7,12 @@
 
 namespace jk {
 
-JKDC::JKDC(SDL_Renderer* renderer) : renderer_(renderer) {
+JKDC::JKDC(JKRenderBackend* backend) : backend_(backend) {
 }
 
 void JKDC::SetColor(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
-    if (renderer_) {
-        SDL_SetRenderDrawColor(renderer_, r, g, b, a);
+    if (backend_) {
+        backend_->SetDrawColor(r, g, b, a);
     }
 }
 
@@ -25,84 +25,104 @@ void JKDC::SetBackColor(uint8_t r, uint8_t g, uint8_t b) {
 }
 
 void JKDC::Clear() {
-    if (renderer_) {
-        SDL_RenderClear(renderer_);
+    if (backend_) {
+        backend_->Clear();
     }
 }
 
 void JKDC::Present() {
-    if (renderer_) {
-        SDL_RenderPresent(renderer_);
+    if (backend_) {
+        backend_->Present();
     }
 }
 
-void JKDC::PushClipRect(const JKRect& rect) {
-    if (!renderer_) return;
-    SavedClip saved;
-    saved.enabled = SDL_RenderIsClipEnabled(renderer_) == SDL_TRUE;
-    if (saved.enabled) {
-        SDL_RenderGetClipRect(renderer_, &saved.rect);
+JKPoint JKDC::MeasureText(const char* str) {
+    if (!str || !str[0]) return JKPoint{ 0, 16 };
+    int32_t width = 0;
+    int32_t height = 16;
+    int32_t lineWidth = 0;
+    for (const char* p = str; *p; ++p) {
+        uint8_t c = static_cast<uint8_t>(*p);
+        if (c == '\n') {
+            if (lineWidth > width) width = lineWidth;
+            lineWidth = 0;
+            height += 16;
+        } else if (c < 0x80) {
+            lineWidth += 8;
+        } else {
+            // KSSM/Johab Hangul byte pair.
+            if (*(p + 1)) {
+                ++p;
+            }
+            lineWidth += 16;
+        }
     }
-    clipStack_.push_back(saved);
+    if (lineWidth > width) width = lineWidth;
+    return JKPoint{ width, height };
+}
 
-    // 새 클립은 기존 클립과 교차해야 자식 컨트롤이 부모 클라이언트 영역을
-    // 벗어나서 그려지지 않는다.
-    SDL_Rect r = rect.ToSDL();
-    if (saved.enabled) {
-        const SDL_Rect& cur = saved.rect;
-        const int x1 = std::max(cur.x, r.x);
-        const int y1 = std::max(cur.y, r.y);
-        const int x2 = std::min(cur.x + cur.w, r.x + r.w);
-        const int y2 = std::min(cur.y + cur.h, r.y + r.h);
+void JKDC::PushClipRect(const JKRect& rect) {
+    if (!backend_) return;
+
+    JKRect r = rect;
+    if (!clipStack_.empty()) {
+        const JKRect& cur = clipStack_.back();
+        const int32_t x1 = std::max(cur.x, r.x);
+        const int32_t y1 = std::max(cur.y, r.y);
+        const int32_t x2 = std::min(cur.x + cur.w, r.x + r.w);
+        const int32_t y2 = std::min(cur.y + cur.h, r.y + r.h);
         if (x2 > x1 && y2 > y1) {
             r.x = x1;
             r.y = y1;
             r.w = x2 - x1;
             r.h = y2 - y1;
         } else {
-            // 교차 결과가 없으면 드로잉이 아무것도 안 되도록 0 크기 클립을 설정한다.
+            // No intersection: use a zero-area clip to disable drawing.
             r.w = 0;
             r.h = 0;
         }
     }
-    SDL_RenderSetClipRect(renderer_, &r);
+    clipStack_.push_back(r);
+    backend_->SetClipRect(&r);
 }
 
 void JKDC::PopClipRect() {
-    if (!renderer_ || clipStack_.empty()) return;
-    const SavedClip saved = clipStack_.back();
+    if (!backend_ || clipStack_.empty()) return;
     clipStack_.pop_back();
-    if (saved.enabled) {
-        SDL_RenderSetClipRect(renderer_, &saved.rect);
+    if (!clipStack_.empty()) {
+        backend_->SetClipRect(&clipStack_.back());
     } else {
-        SDL_RenderSetClipRect(renderer_, nullptr);
+        backend_->SetClipRect(nullptr);
     }
 }
 
 void JKDC::DrawRect(const JKRect& rect) {
-    if (!renderer_ || rect.IsEmpty()) return;
-    SDL_Rect r = rect.ToSDL();
-    SDL_RenderDrawRect(renderer_, &r);
+    if (!backend_ || rect.IsEmpty()) return;
+    backend_->DrawRect(rect);
 }
 
 void JKDC::FillRect(const JKRect& rect) {
-    if (!renderer_ || rect.IsEmpty()) return;
-    SDL_Rect r = rect.ToSDL();
-    SDL_RenderFillRect(renderer_, &r);
+    if (!backend_ || rect.IsEmpty()) return;
+    backend_->FillRect(rect);
 }
 
 void JKDC::DrawLine(int32_t x1, int32_t y1, int32_t x2, int32_t y2) {
-    if (!renderer_) return;
-    SDL_RenderDrawLine(renderer_, x1, y1, x2, y2);
+    if (!backend_) return;
+    backend_->DrawLine(x1, y1, x2, y2);
+}
+
+void JKDC::HLine(int32_t x, int32_t y, int32_t width) {
+    if (!backend_ || width <= 0) return;
+    backend_->DrawLine(x, y, x + width - 1, y);
 }
 
 void JKDC::DrawPixel(int32_t x, int32_t y) {
-    if (!renderer_) return;
-    SDL_RenderDrawPoint(renderer_, x, y);
+    if (!backend_) return;
+    backend_->DrawPixel(x, y);
 }
 
 void JKDC::PutEngGlyph8x8(JKPoint p, uint8_t ch) {
-    if (!renderer_) return;
+    if (!backend_) return;
     const uint8_t* glyph = FONT_8X8[ch & 0x7f];
     SetColor(textR_, textG_, textB_, 255);
     for (int32_t row = 0; row < 8; ++row) {
@@ -117,7 +137,7 @@ void JKDC::PutEngGlyph8x8(JKPoint p, uint8_t ch) {
 }
 
 void JKDC::PutEngGlyph8x16(JKPoint p, const uint8_t* image) {
-    if (!renderer_) return;
+    if (!backend_) return;
     SetColor(textR_, textG_, textB_, 255);
     for (int32_t row = 0; row < 16; ++row) {
         uint8_t bits = image[row];
@@ -131,7 +151,7 @@ void JKDC::PutEngGlyph8x16(JKPoint p, const uint8_t* image) {
 }
 
 void JKDC::PutHanGlyph16x16(JKPoint p, const uint8_t* buffer) {
-    if (!renderer_) return;
+    if (!backend_) return;
     SetColor(textR_, textG_, textB_, 255);
     for (int32_t row = 0; row < 16; ++row) {
         uint8_t left  = buffer[row * 2];
@@ -270,8 +290,42 @@ void JKDC::SolidBar(const JKRect& rect) {
     FillRect(rect);
 }
 
+void JKDC::Bezier(const JKPoint ps[4], bool iskbez, double delta) {
+    if (!backend_ || !ps) return;
+    if (delta <= 0.0) delta = 0.05;
+
+    int32_t prevX = ps[0].x;
+    int32_t prevY = ps[0].y;
+    for (double u = 0.0; u < 1.0; u += delta) {
+        double t[4];
+        if (iskbez) {
+            t[0] = 0.5 * (1.0 - 3.0 * u) * (2.0 - 3.0 * u) * (1.0 - u);
+            t[1] = 4.5 * (2.0 - 3.0 * u) * (1.0 - u) * u;
+            t[2] = -4.5 * (1.0 - u) * u * (1.0 - 3.0 * u);
+            t[3] = 0.5 * u * (1.0 - 3.0 * u) * (2.0 - 3.0 * u);
+        } else {
+            t[0] = (1.0 - u) * (1.0 - u) * (1.0 - u);
+            t[1] = 3.0 * u * (1.0 - u) * (1.0 - u);
+            t[2] = 3.0 * u * u * (1.0 - u);
+            t[3] = u * u * u;
+        }
+        double dx = 0.0;
+        double dy = 0.0;
+        for (int i = 0; i < 4; ++i) {
+            dx += t[i] * ps[i].x;
+            dy += t[i] * ps[i].y;
+        }
+        int32_t x = static_cast<int32_t>(dx + 0.5);
+        int32_t y = static_cast<int32_t>(dy + 0.5);
+        DrawLine(prevX, prevY, x, y);
+        prevX = x;
+        prevY = y;
+    }
+    DrawLine(prevX, prevY, ps[3].x, ps[3].y);
+}
+
 void JKDC::Circle(JKPoint center, int32_t radius) {
-    if (!renderer_ || radius < 0) return;
+    if (!backend_ || radius < 0) return;
     int32_t x = 0;
     int32_t y = radius;
     int32_t d = 3 - 2 * radius;
@@ -295,7 +349,7 @@ void JKDC::Circle(JKPoint center, int32_t radius) {
 }
 
 void JKDC::Ellipse(JKPoint center, int32_t rx, int32_t ry) {
-    if (!renderer_ || rx < 0 || ry < 0) return;
+    if (!backend_ || rx < 0 || ry < 0) return;
     if (rx == ry) {
         Circle(center, rx);
         return;
@@ -352,7 +406,7 @@ void JKDC::Ellipse(JKPoint center, int32_t rx, int32_t ry) {
 }
 
 void JKDC::Arc(JKPoint center, double startAngle, double endAngle, int32_t radius) {
-    if (!renderer_ || radius < 0) return;
+    if (!backend_ || radius < 0) return;
     if (startAngle == endAngle) return;
     const int32_t steps = std::max(16, static_cast<int32_t>(radius * 2));
     const double delta = (endAngle - startAngle) / steps;
@@ -370,7 +424,7 @@ void JKDC::Arc(JKPoint center, double startAngle, double endAngle, int32_t radiu
 }
 
 void JKDC::Pieslice(JKPoint center, double startAngle, double endAngle, int32_t radius) {
-    if (!renderer_ || radius <= 0) return;
+    if (!backend_ || radius <= 0) return;
 
     // Draw the arc.
     Arc(center, startAngle, endAngle, radius);
@@ -400,18 +454,12 @@ void JKDC::Pieslice(JKPoint center, double startAngle, double endAngle, int32_t 
 }
 
 void JKDC::DrawPolygon(const std::vector<JKPoint>& points) {
-    if (!renderer_ || points.size() < 2) return;
-    std::vector<SDL_Point> sdlPoints;
-    sdlPoints.reserve(points.size() + 1);
-    for (const auto& p : points) {
-        sdlPoints.push_back(SDL_Point{ p.x, p.y });
-    }
-    sdlPoints.push_back(sdlPoints.front());
-    SDL_RenderDrawLines(renderer_, sdlPoints.data(), static_cast<int>(sdlPoints.size()));
+    if (!backend_ || points.size() < 2) return;
+    (*backend_).DrawPolygon(points);
 }
 
 void JKDC::FillPolygon(const std::vector<JKPoint>& points) {
-    if (!renderer_ || points.size() < 3) return;
+    if (!backend_ || points.size() < 3) return;
 
     int32_t minY = points[0].y;
     int32_t maxY = points[0].y;
@@ -445,7 +493,7 @@ void JKDC::FillPolygon(const std::vector<JKPoint>& points) {
 void JKDC::Rectangle3D(const JKRect& rect, int32_t depth,
                        uint8_t lightR, uint8_t lightG, uint8_t lightB,
                        uint8_t darkR, uint8_t darkG, uint8_t darkB) {
-    if (!renderer_ || rect.IsEmpty() || depth <= 0) return;
+    if (!backend_ || rect.IsEmpty() || depth <= 0) return;
 
     // Highlight: top and left outer edges.
     SetColor(lightR, lightG, lightB, 255);
@@ -479,7 +527,7 @@ void JKDC::Box3D(const JKRect& rect, int32_t depth,
                  uint8_t faceR, uint8_t faceG, uint8_t faceB,
                  uint8_t lightR, uint8_t lightG, uint8_t lightB,
                  uint8_t darkR, uint8_t darkG, uint8_t darkB) {
-    if (!renderer_ || rect.IsEmpty()) return;
+    if (!backend_ || rect.IsEmpty()) return;
 
     int32_t d = std::max<int32_t>(0, depth);
     d = std::min<int32_t>(d, std::min(rect.w, rect.h) / 2);

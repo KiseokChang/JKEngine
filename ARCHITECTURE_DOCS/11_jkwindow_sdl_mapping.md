@@ -245,6 +245,8 @@ JKControl* JKWindow::HitTest(int32_t x, int32_t y) {
 }
 ```
 
+> DPI 스케일링(논리 pt ↔ 물리 px), 레터박스, 마우스 좌표 변환의 실제 구현은 `14_sdl2_window_dpi.md`를 참고한다.
+
 ---
 
 ## 8. JKRect / JKPoint 타입

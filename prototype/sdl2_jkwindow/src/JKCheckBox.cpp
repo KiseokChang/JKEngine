@@ -9,6 +9,7 @@ JKCheckBox::JKCheckBox(const JKRect& rect, uint16_t controlId) {
     SetControlId(controlId);
     SetBackColor(240, 240, 240);
     SetTextColor(0, 0, 0);
+    SetFocusable(true);
 }
 
 void JKCheckBox::OnPaintClient(JKDC& dc) {
@@ -42,8 +43,15 @@ void JKCheckBox::OnPaintClient(JKDC& dc) {
 
 void JKCheckBox::RespondMessage(const JKEvent& ev) {
     if (ev.type == JKEventType::MouseDown) {
+        SetFocus();
         if (autoControl_) {
             status_ = !status_;
+        }
+    } else if (ev.type == JKEventType::KeyDown) {
+        if (ev.keyCode == SDLK_SPACE) {
+            if (autoControl_) status_ = !status_;
+        } else {
+            JKControl::RespondMessage(ev);
         }
     } else {
         JKControl::RespondMessage(ev);

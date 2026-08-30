@@ -129,9 +129,10 @@ JKMenu::Popup::Popup(const JKRect& rect, const std::vector<JKMenuItem>& items,
     SetWindowRect(rect);
 }
 
-void JKMenu::Popup::SetRect(const JKRect& rect) {
-    JKControl::SetRect(rect);
-    SetClientRect(rect);
+void JKMenu::Popup::OnRectChanged(const JKRect& rect) {
+    // Popup has no border/title bar: client area occupies the whole window rect.
+    // clientRect_ is relative to the window rect, so use (0,0) origin.
+    SetClientRect(JKRect{ 0, 0, rect.w, rect.h });
 }
 
 void JKMenu::Popup::PaintWindow(JKDC& dc) {
@@ -139,17 +140,49 @@ void JKMenu::Popup::PaintWindow(JKDC& dc) {
 }
 
 void JKMenu::Popup::OnPaintClient(JKDC& dc) {
-    const JKRect screen = GetScreenRect();
-    dc.SetColor(240, 240, 240, 255);
-    dc.FillRect(screen);
-    dc.Rectangle3D(screen, 2);
-    JKWindow::OnPaintClient(dc);
+    const JKRect client = GetScreenClientRect();
+    if (client.IsEmpty()) return;
+
+    // Menu popup background and raised border.
+    dc.SetColor(192, 192, 192, 255);
+    dc.FillRect(client);
+    dc.Rectangle3D(client, 2);
+
+    // Menu item text rows (16 px each, 2 px inset).
+    constexpr int32_t kItemH = 16;
+    for (size_t i = 0; i < items_.size(); ++i) {
+        int32_t y = client.y + 2 + static_cast<int32_t>(i) * kItemH;
+        if (static_cast<int32_t>(i) == selectedIndex_) {
+            dc.SetColor(0, 0, 128, 255);
+            dc.FillRect(JKRect{ client.x + 2, y, client.w - 4, kItemH });
+            dc.SetTextColor(255, 255, 255);
+        } else {
+            dc.SetTextColor(0, 0, 0);
+        }
+        dc.TextOut(JKPoint{ client.x + 4, y }, items_[i].label.c_str());
+    }
 }
 
 void JKMenu::Popup::RespondMessage(const JKEvent& ev) {
-    if (ev.type == JKEventType::MouseDown) {
-        const JKRect screen = GetScreenRect();
+    const JKRect screen = GetScreenRect();
+    if (ev.type == JKEventType::MouseMove) {
+        const JKRect client = GetScreenClientRect();
+        if (client.Contains(ev.x, ev.y)) {
+            constexpr int32_t kItemH = 16;
+            int32_t idx = (ev.y - client.y - 2) / kItemH;
+            if (idx < 0 || idx >= static_cast<int32_t>(items_.size())) idx = -1;
+            selectedIndex_ = idx;
+        }
+    } else if (ev.type == JKEventType::MouseDown) {
         if (!screen.Contains(ev.x, ev.y)) {
+            if (onClose_) onClose_();
+            return;
+        }
+        const JKRect client = GetScreenClientRect();
+        if (client.Contains(ev.x, ev.y) && selectedIndex_ >= 0 &&
+            selectedIndex_ < static_cast<int32_t>(items_.size())) {
+            const auto& item = items_[selectedIndex_];
+            if (item.onClick) item.onClick();
             if (onClose_) onClose_();
             return;
         }

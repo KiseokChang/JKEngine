@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(jkproto_sdl2_jkwindow LANGUAGES CXX)
+project(jkproto_sdl2_jkwindow LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -23,14 +23,18 @@ endif()
 # (or any out-of-tree configure) to point back at the real JKENGINE root so
 # we can share the legacy WANCODE conversion table.
 if(NOT DEFINED JKENGINE_ROOT)
-    get_filename_component(JKENGINE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../.." ABSOLUTE)
+    # Source tree is JKENGINE/prototype/sdl2_jkwindow; the JKENGINE root is two levels up.
+    get_filename_component(JKENGINE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
 endif()
 
 add_executable(jkproto_sdl2_jkwindow
     src/main.cpp
+    src/jkproto.rc
     src/JKEvent.cpp
     src/JKMessageQue.cpp
     src/JKDC.cpp
+    src/JKSDLRenderBackend.cpp
+    src/JKOffscreenSurface.cpp
     src/JKControl.cpp
     src/JKStatic.cpp
     src/JKButton.cpp
@@ -44,9 +48,24 @@ add_executable(jkproto_sdl2_jkwindow
     src/JKFileDialog.cpp
     src/JKMenu.cpp
     src/JKMessageBox.cpp
+    src/JKDialog.cpp
     src/JKWindow.cpp
     src/JKApplication.cpp
     src/JKHangulManager.cpp
+    src/JKResourceCache.cpp
+    src/JKDataFile.cpp
+    src/JKVectorFont.cpp
+    src/apps/JangoApp.cpp
+    src/apps/Equip24App.cpp
+    src/apps/EquipApp.cpp
+    src/apps/InsaApp.cpp
+    src/apps/OccApp.cpp
+    src/apps/PcxApp.cpp
+    src/apps/VectorApp.cpp
+    src/apps/IconEditApp.cpp
+    src/apps/RecogApp.cpp
+    src/apps/VectorFontApp.cpp
+    src/apps/VectorPresApp.cpp
     "${JKENGINE_ROOT}/JKWINDOW/WANCODE.CPP"
 )
 
@@ -54,6 +73,11 @@ target_include_directories(jkproto_sdl2_jkwindow PRIVATE
     include
     "${JKENGINE_ROOT}/JKWINDOW"
     "${JKENGINE_ROOT}"
+)
+
+# Default font directory for the vector font demos.
+target_compile_definitions(jkproto_sdl2_jkwindow PRIVATE
+    JKENGINE_FONT_DIR="${JKENGINE_ROOT}/WINDBASE/2CAOCC"
 )
 
 if(TARGET SDL2::SDL2main)

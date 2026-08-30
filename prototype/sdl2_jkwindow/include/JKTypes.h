@@ -67,6 +67,38 @@ struct JKRect {
         return JKRect{ x + dx, y + dy, w, h };
     }
 
+    // Legacy-style helpers (original JKENGINE used left/top/right/bottom).
+    int32_t Left() const { return x; }
+    int32_t Top() const { return y; }
+    int32_t Right() const { return x + w; }
+    int32_t Bottom() const { return y + h; }
+    int32_t Width() const { return w; }
+    int32_t Height() const { return h; }
+
+    JKRect SetLeftTopBy(int32_t left = 0, int32_t top = 0) const {
+        return JKRect{ left, top, w, h };
+    }
+    JKRect SetLeftTopBy(const JKPoint& p) const {
+        return JKRect{ p.x, p.y, w, h };
+    }
+
+    // Expand/contract all edges by the same amount.
+    JKRect Expand(int32_t amount) const {
+        return JKRect{ x - amount, y - amount, w + amount * 2, h + amount * 2 };
+    }
+
+    // Expand/contract each edge independently.
+    JKRect Expand(int32_t left, int32_t top, int32_t right, int32_t bottom) const {
+        return JKRect{ x - left, y - top, w + left + right, h + top + bottom };
+    }
+
+    // Legacy alias used by original code (e.g. rect.ExpandBy(2)).
+    JKRect ExpandBy(int32_t amount) const {
+        return Expand(amount);
+    }
+
+    JKPoint LeftTop() const { return JKPoint{ x, y }; }
+
     JKPoint Adjust(uint8_t setting, JKPoint size) const {
         JKPoint p;
         JKPoint tx{x, x + w};
@@ -76,6 +108,10 @@ struct JKRect {
         return p;
     }
 };
+
+inline JKRect MakeRect(int32_t left, int32_t top, int32_t right, int32_t bottom) {
+    return JKRect{ left, top, right - left, bottom - top };
+}
 
 } // namespace jk
 

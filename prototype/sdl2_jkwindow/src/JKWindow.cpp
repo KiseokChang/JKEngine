@@ -1,7 +1,21 @@
 #include <JKWindow.h>
+#include <JKApplication.h>
+#include <algorithm>
 #include <cstdio>
 
 namespace jk {
+
+namespace {
+
+void CollectFocusableControls(JKControl* root, std::vector<JKControl*>& out) {
+    if (!root || !root->IsVisible()) return;
+    if (root->IsFocusable()) out.push_back(root);
+    for (const auto& child : root->GetChildren()) {
+        CollectFocusableControls(child.get(), out);
+    }
+}
+
+} // anonymous namespace
 
 JKWindow::JKWindow() = default;
 
@@ -16,11 +30,9 @@ const std::string& JKWindow::GetTitle() const {
     return title_;
 }
 
-void JKWindow::SetRect(const JKRect& rect) {
-    // JKControl::SetRect은 clientRect_를 rect와 동일하게 덮어쓰므로,
-    // JKWindow는 테두리/타이틀 크기를 유지한 클라이언트 영역을 다시 계산한다.
-    JKControl::SetRect(rect);
-
+void JKWindow::OnRectChanged(const JKRect& rect) {
+    // JKControl::SetRect은 padding을 기반으로 clientRect_를 계산하지만,
+    // JKWindow는 테두리/타이틀 크기를 유지한 클라이언트 영역을 직접 계산한다.
     constexpr int32_t kBorder = 2;
     constexpr int32_t kTitle  = 24;
     JKRect client;
@@ -31,6 +43,15 @@ void JKWindow::SetRect(const JKRect& rect) {
     client.h = rect.h - kTitle - kBorder;
     if (client.h < 0) client.h = 0;
     SetClientRect(client);
+
+    // Anchored / autosized children are relaid out when the window resizes.
+    // JKWindow는 자기 자신을 PerformLayout() 대상으로 삼으면
+    // JKControl::PerformLayout -> SetRect -> PerformLayout 무한 재귀에 빠진다.
+    // 직접 자식들만 재배치한다.
+    const JKRect& clientRect = GetClientRect();
+    for (auto& child : children_) {
+        child->PerformLayout(clientRect);
+    }
 }
 
 void JKWindow::SetWindowRect(const JKRect& rect) {
@@ -52,14 +73,14 @@ void JKWindow::MoveWindow(int32_t dx, int32_t dy) {
     JKRect r = GetRect();
     r.x += dx;
     r.y += dy;
-    SetRect(r);  // JKWindow::SetRect이 clientRect_를 재계산한다.
+    SetRect(r);  // OnRectChanged hook이 clientRect_를 재계산한다.
 }
 
 void JKWindow::MoveTo(int32_t x, int32_t y) {
     JKRect r = GetRect();
     r.x = x;
     r.y = y;
-    SetRect(r);  // JKWindow::SetRect이 clientRect_를 재계산한다.
+    SetRect(r);  // OnRectChanged hook이 clientRect_를 재계산한다.
 }
 
 void JKWindow::ResizeWindow(int32_t dx, int32_t dy) {
@@ -189,6 +210,40 @@ void JKWindow::OnPaintClient(JKDC& dc) {
     }
 }
 
+void JKWindow::FocusFirstChild() {
+    std::vector<JKControl*> candidates;
+    CollectFocusableControls(this, candidates);
+    if (!candidates.empty()) {
+        candidates[0]->SetFocus();
+    }
+}
+
+void JKWindow::FocusNextChild() {
+    std::vector<JKControl*> candidates;
+    CollectFocusableControls(this, candidates);
+    if (candidates.empty()) return;
+    size_t idx = 0;
+    if (focusChild_) {
+        auto it = std::find(candidates.begin(), candidates.end(), focusChild_);
+        if (it != candidates.end()) idx = static_cast<size_t>(it - candidates.begin());
+    }
+    idx = (idx + 1) % candidates.size();
+    candidates[idx]->SetFocus();
+}
+
+void JKWindow::FocusPrevChild() {
+    std::vector<JKControl*> candidates;
+    CollectFocusableControls(this, candidates);
+    if (candidates.empty()) return;
+    size_t idx = 0;
+    if (focusChild_) {
+        auto it = std::find(candidates.begin(), candidates.end(), focusChild_);
+        if (it != candidates.end()) idx = static_cast<size_t>(it - candidates.begin());
+    }
+    idx = (idx + candidates.size() - 1) % candidates.size();
+    candidates[idx]->SetFocus();
+}
+
 void JKWindow::SetFocusChild(JKControl* child) {
     focusChild_ = child;
 }
@@ -259,6 +314,7 @@ void JKWindow::RespondMessage(const JKEvent& ev) {
         if (target && target != this) {
             if (ev.type == JKEventType::MouseDown) {
                 target->SetFocus();
+                if (g_currentJKApp) g_currentJKApp->SetInputWindow(this);
             }
             target->RespondMessage(ev);
         }

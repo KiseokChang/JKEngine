@@ -11,6 +11,7 @@ JKComboBox::JKComboBox(const JKRect& rect, uint16_t controlId) {
     SetControlId(controlId);
     SetBackColor(255, 255, 255);
     SetTextColor(0, 0, 0);
+    SetFocusable(true);
 }
 
 void JKComboBox::AddString(const std::string& str) {
@@ -43,9 +44,10 @@ void JKComboBox::ToggleDropDown() {
     if (dropped_) { CloseDropDown(); return; }
     if (items_.empty()) return;
 
-    const JKRect rc = GetScreenRect();
+    const JKRect rc = GetRect();
     int32_t h = static_cast<int32_t>(items_.size()) * 16 + 4;
     h = std::min(h, 120);
+    // Child coordinates are relative to the combobox's client area.
     JKRect popupRect{ rc.x, rc.y + rc.h, rc.w, h };
     auto list = std::make_unique<JKListBox>(popupRect, 0);
     for (const auto& s : items_) list->AddString(s);
@@ -100,6 +102,13 @@ void JKComboBox::RespondMessage(const JKEvent& ev) {
         SetFocus();
         const JKRect client = GetScreenClientRect();
         if (ev.x >= client.x + client.w - 18) ToggleDropDown();
+    } else if (ev.type == JKEventType::KeyDown) {
+        if (ev.keyCode == SDLK_RETURN || ev.keyCode == SDLK_SPACE) {
+            ToggleDropDown();
+        } else {
+            JKControl::RespondMessage(ev);
+        }
+        return;
     }
     JKControl::RespondMessage(ev);
 }

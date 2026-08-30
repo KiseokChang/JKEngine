@@ -14,6 +14,7 @@ public:
     uint8_t GetAdjustFlag() const { return adjustFlag_; }
 
     void OnPaintClient(JKDC& dc) override;
+    JKPoint MeasureContent() const override;
 
 protected:
     uint8_t adjustFlag_ = 0;
