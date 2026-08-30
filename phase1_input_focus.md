@@ -26,11 +26,26 @@ Strengthen the low-level input layer so controls behave predictably across mouse
 
 ## Verification
 - Build `prototype/sdl2_jkwindow`.
-- Run `jkproto_sdl2_jkwindow` and confirm:
-  - Tab cycles through edit, button, checkbox, list, combo in the demo window.
+- Run automated probes:
+  - `tools\verify_tab_navigation.ps1` — Tab/Shift+Tab cycles through focusable controls.
+  - `tools\verify_dialog_keyboard.ps1` — Enter confirms `JKMessageBox`, Escape cancels `JKFileDialog`, focus restores to the previous control.
+- Manual checks:
   - Drag-select in the multi-line edit works even when the mouse leaves the edit box.
   - Button pressed state is cancelled when the mouse leaves and restored when it re-enters while the button is held.
-  - MessageBox/FileDialog modals block clicks on the main window and close with Escape.
+  - MessageBox/FileDialog modals block clicks on the main window.
+
+## 5. IME 한글 입력 (Windows IME 우선, F2 내부 오토마타 폴백)
+
+`JKEdit`에 OS IME를 지원하는 작업도 Phase 1 후반에 함께 완료했다. 자세한 설계는
+`ARCHITECTURE_DOCS/16_sdl2_jkwindow_ime.md`를 참고한다.
+
+- `JKEventType::TextEditing` 추가 — SDL `SDL_TEXTEDITING`(조합 중 문자열) 라우팅
+- `JKHangulUtil`로 UTF-8 → CP949 → KSSM 2바이트 변환 공용화
+- `JKEdit` 조합 상태(`compText_`, `compCursor_`, `imeComposing_`)와 시각적 표시
+- `JKPlatformIme` PAL로 Win32 IMM32 API 격리
+- 조합 중 백스페이스/딜리트/방향키/엔터를 OS IME에 양보
+- `F2`로 내부 오토마타 전환 시 OS IME를 ASCII로 강제 전환
+- 포커스 아웃/마우스 클릭 시 `CompleteComposition`으로 조합 문자 강제 확정
 
 ## Task state
-- In progress.
+- Completed on `phase2-full-stack` branch (2026-08-30).

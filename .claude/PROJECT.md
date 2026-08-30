@@ -10,10 +10,10 @@
 - **JKWINDOW/**: Original windowing/GWES layer (JKAPP.CPP, etc.). WANCODE.CPP is shared with the SDL2 prototype.
 - **WINDBASE/**: Original application layer. `WINDBASE/JANGO` = launcher, `WINDBASE/2CAOCC` = fire-control C2.
 - **prototype/sdl2_jkwindow/**: Active SDL2 + C++17 JKWindow prototype.
-  - `src/`: framework (JKApplication, JKWindow, JKControl, JKDC, ...) + `src/apps/` (Jango, Occ, Equip, Equip24, Insa, Pcx, Vector, IconEdit, Recog, VectorFont, VectorPres).
-  - `include/`: headers.
+  - `src/`: framework (JKApplication, JKWindow, JKControl, JKDC, JKPlatform_win32, ...) + `src/apps/` (Jango, Occ, Equip, Equip24, Insa, Pcx, Vector, IconEdit, Recog, VectorFont, VectorPres).
+  - `include/`: headers, including `JKHangulUtil.h` and `JKPlatform.h`.
   - `build_sdl2_jkwindow.bat` / `run_sdl2_jkwindow.bat`: build/run entry points.
-- **ARCHITECTURE_DOCS/**: numbered architecture docs. Key: `10_sdl2_windows_setup.md`, `11_jkwindow_sdl_mapping.md`, `12_sdl2_prototype_roadmap.md`, `14_sdl2_window_dpi.md`, `15_verification_playbook.md`, `20_sdl2_jango_porting_plan.md`.
+- **ARCHITECTURE_DOCS/**: numbered architecture docs. Key: `10_sdl2_windows_setup.md`, `11_jkwindow_sdl_mapping.md`, `12_sdl2_prototype_roadmap.md`, `14_sdl2_window_dpi.md`, `15_verification_playbook.md`, `16_sdl2_jkwindow_ime.md`, `20_sdl2_jango_porting_plan.md`.
 - **tools/**: build helpers, screen-verification probes, mouse/DPI probes, BOM fixer.
 
 ## 2. Conventions
@@ -32,13 +32,15 @@
 
 ## 4. Verification Checklist
 
-After any framework, UI, layout, or mouse change:
+After any framework, UI, layout, focus, or mouse change:
 
 1. `jkproto_sdl2_jkwindow.exe test` → `AppSelfTest: 0 failure(s)`
 2. `tools\verify_fixwin3.ps1` → 14 pass
 3. `tools\click_jango_probe.ps1` → PASS
 4. `tools\verify_iconedit_mouse.ps1` → 2 pass
-5. If mouse/scale suspected: `tools\probe_mouse_scaling.ps1 -Phase both`
+5. `tools\verify_tab_navigation.ps1` → Tab/Shift+Tab cycles through focusable controls
+6. `tools\verify_dialog_keyboard.ps1` → Enter confirms message box, Escape cancels file dialog, focus restores
+7. If mouse/scale suspected: `tools\probe_mouse_scaling.ps1 -Phase both`
 
 ## 5. Critical Pitfalls (TL;DR)
 
