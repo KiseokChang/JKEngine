@@ -68,6 +68,7 @@ add_executable(jkproto_sdl2_jkwindow
     src/apps/RecogApp.cpp
     src/apps/VectorFontApp.cpp
     src/apps/VectorPresApp.cpp
+    src/apps/MineSweeperApp.cpp
     "${JKENGINE_ROOT}/JKWINDOW/WANCODE.CPP"
 )
 
