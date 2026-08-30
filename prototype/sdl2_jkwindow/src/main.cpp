@@ -33,6 +33,7 @@ using jk::Utf8ToKssm;
 #include <apps/RecogApp.h>
 #include <apps/VectorFontApp.h>
 #include <apps/VectorPresApp.h>
+#include <apps/MineSweeperApp.h>
 #include "wancode.h"
 #include <cstdint>
 #include <cmath>
@@ -855,6 +856,47 @@ static int RunAppSelfTest() {
               "caret appears in newly focused edit");
     }
 
+    // Minesweeper game logic tests.
+    {
+        jk::MineSweeperGame game;
+
+        game.NewGame(-1, -1);
+        game.CycleMark(0, 0);
+        check(game.GetMark(0, 0) == jk::MineSweeperGame::Mark::Flag,
+              "flag mark toggles on");
+        game.CycleMark(0, 0);
+        check(game.GetMark(0, 0) == jk::MineSweeperGame::Mark::Question,
+              "flag mark cycles to question");
+        game.CycleMark(0, 0);
+        check(game.GetMark(0, 0) == jk::MineSweeperGame::Mark::None,
+              "flag mark cycles back to none");
+
+        game.NewGame(4, 4);
+        check(!game.IsGameOver(), "new minesweeper game is not over");
+        check(game.OpenCell(4, 4), "first open succeeds");
+        check(!game.IsMine(4, 4), "first clicked cell is never a mine");
+        check(game.IsRevealed(4, 4), "first clicked cell is revealed");
+
+        game.NewGameWithMines({{0, 0}});
+        check(game.OpenCell(0, 0), "clicking a known mine opens it");
+        check(game.IsGameOver() && !game.IsWon(),
+              "clicking a mine ends game without win");
+
+        game.NewGame(-1, -1);
+        check(!game.IsGameOver(), "restart clears game-over flag");
+        check(!game.IsRevealed(0, 0), "restart clears revealed cells");
+
+        game.NewGameWithMines({{0, 0}});
+        for (int r = 0; r < game.kRows; ++r) {
+            for (int c = 0; c < game.kCols; ++c) {
+                if (r == 0 && c == 0) continue;
+                game.OpenCell(r, c);
+            }
+        }
+        check(game.IsWon(), "opened all safe cells on tiny board");
+        check(game.IsGameOver(), "opening all safe cells ends the game");
+    }
+
     std::printf("AppSelfTest: %d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;
 }
@@ -881,6 +923,7 @@ int main(int argc, char* argv[]) {
         std::printf("  recog       Stroke recognition demo\n");
         std::printf("  vfont       Vector font window\n");
         std::printf("  vpres       Vector font presentation\n");
+        std::printf("  minesweeper Minesweeper game\n");
         std::printf("  -h, --help, /?  Show this help message\n");
         return 0;
     }
@@ -897,6 +940,7 @@ int main(int argc, char* argv[]) {
     bool runRecog = (argc > 1 && std::strcmp(argv[1], "recog") == 0);
     bool runVectorFont = (argc > 1 && std::strcmp(argv[1], "vfont") == 0);
     bool runVectorPres = (argc > 1 && std::strcmp(argv[1], "vpres") == 0);
+    bool runMineSweeper = (argc > 1 && std::strcmp(argv[1], "minesweeper") == 0);
 
     if (runPcx) {
         jk::PcxApp app((argc > 2) ? argv[2] : "");
@@ -957,6 +1001,14 @@ int main(int argc, char* argv[]) {
     if (runJango) {
         jk::JangoApp app;
         if (!app.Init("JANGO - SDL2 Port", 1920, 1080)) {
+            return 1;
+        }
+        return app.Run();
+    }
+
+    if (runMineSweeper) {
+        jk::MineSweeperApp app;
+        if (!app.Init("Minesweeper - SDL2 Port", 320, 380)) {
             return 1;
         }
         return app.Run();
