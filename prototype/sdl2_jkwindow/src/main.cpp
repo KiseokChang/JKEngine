@@ -820,6 +820,41 @@ static int RunAppSelfTest() {
               "left arrow crosses KSSM pair boundary before backspace deletes atomically");
     }
 
+    // JKEdit caret routing and focus visibility.
+    {
+        auto window = std::make_unique<jk::JKWindow>("Caret Test");
+        window->SetWindowRect(jk::JKRect{ 0, 0, 200, 100 });
+
+        auto edit1 = std::make_unique<jk::JKEdit>(jk::JKRect{ 10, 10, 80, 24 }, 1);
+        auto edit1Raw = edit1.get();
+        window->AddControl(std::move(edit1));
+
+        auto edit2 = std::make_unique<jk::JKEdit>(jk::JKRect{ 10, 40, 80, 24 }, 2);
+        auto edit2Raw = edit2.get();
+        window->AddControl(std::move(edit2));
+
+        window->FocusFirstChild();
+        check(edit1Raw->IsFocused() && edit1Raw->IsCaretVisible(),
+              "focused edit shows caret initially");
+
+        // Timer event routed through JKWindow should toggle the focused edit's caret.
+        {
+            jk::JKEvent ev;
+            ev.type = jk::JKEventType::Timer;
+            ev.targetId = window->GetWinId();
+            window->RespondMessage(ev);
+        }
+        check(!edit1Raw->IsCaretVisible(),
+              "timer event through JKWindow toggles focused edit caret off");
+
+        // Move focus to the second edit: first caret hides, second caret shows.
+        window->FocusNextChild();
+        check(!edit1Raw->IsFocused() && !edit1Raw->IsCaretVisible(),
+              "caret disappears when edit loses focus");
+        check(edit2Raw->IsFocused() && edit2Raw->IsCaretVisible(),
+              "caret appears in newly focused edit");
+    }
+
     std::printf("AppSelfTest: %d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;
 }

@@ -40,6 +40,8 @@ public:
     void OnSetFocus() override;
     void OnKillFocus() override;
 
+    bool IsCaretVisible() const { return focused_ && showCaret_; }
+
     // 선택 영역
     void SetSelection(size_t start, size_t end);
     void ClearSelection();
