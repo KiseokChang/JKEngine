@@ -4,6 +4,7 @@
 #include <JKWindow.h>
 #include <JKListBox.h>
 #include <JKEdit.h>
+#include <JKStatic.h>
 #include <functional>
 #include <string>
 
@@ -25,11 +26,16 @@ public:
 
     void RespondMessage(const JKEvent& ev) override;
 
+    // Programmatically choose the current entry (file or folder) without
+    // dismissing the dialog. Folders open, files populate the file edit.
+    void ActivateSelected();
+
 protected:
     void OnInitControls();
     void RefreshList();
     void OnOk();
     void OnCancel();
+    void NavigateUp();
 
 private:
     std::string currentDir_;
@@ -40,6 +46,7 @@ private:
 
     JKListBox* listBox_ = nullptr;
     JKEdit* fileEdit_ = nullptr;
+    JKStatic* pathStatic_ = nullptr;
 };
 
 } // namespace jk

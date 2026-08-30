@@ -78,7 +78,11 @@ JKFileDialog::JKFileDialog(const std::string& title) : JKWindow(title) {
 void JKFileDialog::OnInitControls() {
     const JKRect client = GetClientRect();
 
-    auto listBox = std::make_unique<JKListBox>(JKRect{ 10, 10, client.w - 20, client.h - 80 }, 101);
+    auto pathStatic = std::make_unique<JKStatic>(JKRect{ 10, 5, client.w - 20, 16 }, 100);
+    pathStatic_ = pathStatic.get();
+    AddControl(std::move(pathStatic));
+
+    auto listBox = std::make_unique<JKListBox>(JKRect{ 10, 24, client.w - 20, client.h - 94 }, 101);
     listBox_ = listBox.get();
     listBox_->SetOnSelect([this](int32_t index) {
         if (index < 0 || index >= static_cast<int32_t>(listBox_->GetCount())) return;
@@ -86,8 +90,29 @@ void JKFileDialog::OnInitControls() {
         if (!name.empty() && name.back() == '/') {
             name.pop_back();
         }
-        fileEdit_->SetText(name);
+        if (name != "..") fileEdit_->SetText(name);
     });
+    listBox_->SetOnDoubleClick([this](int32_t index) {
+        if (index < 0 || index >= static_cast<int32_t>(listBox_->GetCount())) return;
+        std::string name = listBox_->GetString(index);
+        if (!name.empty() && name.back() == '/') {
+            name.pop_back();
+        }
+        if (name == "..") {
+            NavigateUp();
+        } else {
+            fs::path target = fs::path(currentDir_) / name;
+            if (fs::is_directory(target)) {
+                currentDir_ = target.string();
+                fileEdit_->SetText("");
+                RefreshList();
+            } else {
+                fileEdit_->SetText(name);
+                OnOk();
+            }
+        }
+    });
+    listBox_->SetOnActivate([this](int32_t) { OnOk(); });
     AddControl(std::move(listBox));
 
     auto fileEdit = std::make_unique<JKEdit>(JKRect{ 10, client.h - 60, client.w - 120, 22 }, 102, 256);
@@ -103,11 +128,16 @@ void JKFileDialog::OnInitControls() {
     cancelBtn->SetText("Cancel");
     cancelBtn->SetOnClick([this]() { OnCancel(); });
     AddControl(std::move(cancelBtn));
+
+    if (filter_.empty()) filter_ = "*.*";
 }
 
 void JKFileDialog::RefreshList() {
     if (!listBox_) return;
     listBox_->Clear();
+    if (pathStatic_) {
+        pathStatic_->SetText(currentDir_);
+    }
 
     try {
         fs::path dir(currentDir_);
@@ -155,12 +185,7 @@ void JKFileDialog::OnOk() {
     fs::path selected = fs::path(currentDir_) / name;
 
     if (name == "..") {
-        fs::path dir(currentDir_);
-        if (dir.has_parent_path() && dir.parent_path() != dir) {
-            currentDir_ = dir.parent_path().string();
-            fileEdit_->SetText("");
-            RefreshList();
-        }
+        NavigateUp();
         return;
     }
 
@@ -182,6 +207,35 @@ void JKFileDialog::OnCancel() {
     if (onCancel_) onCancel_();
     RequestClose();
     if (g_currentJKApp) g_currentJKApp->SetModalWindow(nullptr);
+}
+
+void JKFileDialog::NavigateUp() {
+    fs::path dir(currentDir_);
+    if (dir.has_parent_path() && dir.parent_path() != dir) {
+        currentDir_ = dir.parent_path().string();
+        if (fileEdit_) fileEdit_->SetText("");
+        RefreshList();
+    }
+}
+
+void JKFileDialog::ActivateSelected() {
+    int32_t idx = listBox_ ? listBox_->GetSelectedIndex() : -1;
+    if (idx < 0 || idx >= static_cast<int32_t>(listBox_->GetCount())) return;
+    std::string name = listBox_->GetString(idx);
+    if (!name.empty() && name.back() == '/') name.pop_back();
+    if (name == "..") {
+        NavigateUp();
+    } else {
+        fs::path target = fs::path(currentDir_) / name;
+        if (fs::is_directory(target)) {
+            currentDir_ = target.string();
+            if (fileEdit_) fileEdit_->SetText("");
+            RefreshList();
+        } else {
+            if (fileEdit_) fileEdit_->SetText(name);
+            OnOk();
+        }
+    }
 }
 
 void JKFileDialog::Show() {
