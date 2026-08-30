@@ -113,7 +113,11 @@ void JKEdit::OnPaintClient(JKDC& dc) {
     JKRect inner = client;
     inner.x += 2; inner.y += 2;
     inner.w -= 4; inner.h -= 4;
-    dc.SetColor(backR_, backG_, backB_, 255);
+    if (readOnly_) {
+        dc.SetColor(240, 240, 240, 255);
+    } else {
+        dc.SetColor(backR_, backG_, backB_, 255);
+    }
     dc.FillRect(inner);
 
     dc.SetTextColor(textR_, textG_, textB_);
@@ -321,6 +325,31 @@ void JKEdit::RespondMessage(const JKEvent& ev) {
         bool ctrl = (mod & KMOD_CTRL) != 0;
         bool shift = (mod & KMOD_SHIFT) != 0;
 
+        if (readOnly_) {
+            // Read-only edits allow navigation and copy, but no modification.
+            if (ctrl && ev.keyCode == SDLK_a) {
+                SetSelection(0, buffer_.size());
+                showCaret_ = true;
+            } else if (ctrl && ev.keyCode == SDLK_c) {
+                CopyToClipboard();
+            } else {
+                size_t oldPos = cursorPos_;
+                switch (ev.keyCode) {
+                    case SDLK_LEFT:     MoveCursorLeft(); break;
+                    case SDLK_RIGHT:    MoveCursorRight(); break;
+                    case SDLK_UP:       if (multiLine_) MoveCursorUp(); break;
+                    case SDLK_DOWN:     if (multiLine_) MoveCursorDown(); break;
+                    case SDLK_HOME:     MoveCursorHome(); break;
+                    case SDLK_END:      MoveCursorEnd(); break;
+                    case SDLK_PAGEUP:   if (multiLine_) MoveCursorPageUp(); break;
+                    case SDLK_PAGEDOWN: if (multiLine_) MoveCursorPageDown(); break;
+                    default: break;
+                }
+                UpdateSelection(oldPos, shift);
+            }
+            return;
+        }
+
         if (ctrl && ev.keyCode == SDLK_a) {
             SetSelection(0, buffer_.size());
             showCaret_ = true;
@@ -386,6 +415,7 @@ void JKEdit::RespondMessage(const JKEvent& ev) {
             UpdateSelection(oldPos, shift);
         }
     } else if (ev.type == JKEventType::TextEditing) {
+        if (readOnly_) return;
         // SDL IME composition event. Convert the UTF-8 pre-edit string to KSSM
         // and store it for rendering. The actual commit happens on TEXTINPUT.
         compText_ = Utf8ToKssm(ev.text);
@@ -395,6 +425,7 @@ void JKEdit::RespondMessage(const JKEvent& ev) {
         showCaret_ = true;
         UpdateTextInputRect();
     } else if (ev.type == JKEventType::Char) {
+        if (readOnly_) return;
         // SDL_TEXTINPUT carries the IME's committed string. It replaces any
         // pending composition state, so clear the pre-edit visual state without
         // committing it locally; doing so would duplicate the composed text

@@ -19,6 +19,9 @@ public:
     void SetMultiLine(bool multiLine) { multiLine_ = multiLine; }
     bool IsMultiLine() const { return multiLine_; }
 
+    void SetReadOnly(bool readOnly) { readOnly_ = readOnly; }
+    bool IsReadOnly() const { return readOnly_; }
+
     enum class InputMode { Ascii, InternalHangul, ImeHangul };
 
     void SetHangulMode(bool hangul) { inputMode_ = hangul ? InputMode::InternalHangul : InputMode::Ascii; }
@@ -48,6 +51,7 @@ private:
     size_t cursorPos_ = 0; // 전체 버퍼 내 바이트 인덱스
     size_t maxLength_ = 256;
     bool multiLine_ = false;
+    bool readOnly_ = false;
     bool focused_ = false;
     bool showCaret_ = true;
 
