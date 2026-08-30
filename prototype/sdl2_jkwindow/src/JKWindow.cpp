@@ -259,6 +259,17 @@ void JKWindow::RespondMessage(const JKEvent& ev) {
         }
     }
 
+    // 타이머(캐럿 깜박임 등)은 포커스를 가진 자식 컨트롤로 전달한다.
+    // 포커스 컨트롤이 없으면 JKControl 기본 동작처럼 모든 자식에게 전파한다.
+    if (ev.type == JKEventType::Timer) {
+        if (focusChild_) {
+            focusChild_->RespondMessage(ev);
+        } else {
+            JKControl::RespondMessage(ev);
+        }
+        return;
+    }
+
     if (ev.type == JKEventType::MouseDown ||
         ev.type == JKEventType::MouseUp ||
         ev.type == JKEventType::MouseMove) {
