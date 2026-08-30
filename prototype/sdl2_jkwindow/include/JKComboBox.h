@@ -22,6 +22,9 @@ public:
     void SetSelectedIndex(int32_t index);
     const std::string& GetSelectedString() const;
 
+    void SetReadOnly(bool readOnly) { readOnly_ = readOnly; }
+    bool IsReadOnly() const { return readOnly_; }
+
     void OnPaintClient(JKDC& dc) override;
     void RespondMessage(const JKEvent& ev) override;
 
@@ -29,6 +32,7 @@ private:
     std::vector<std::string> items_;
     int32_t selectedIndex_ = -1;
     bool dropped_ = false;
+    bool readOnly_ = false;
     JKListBox* popup_ = nullptr;
 
     void ToggleDropDown();

@@ -41,6 +41,7 @@ const std::string& JKComboBox::GetSelectedString() const {
 }
 
 void JKComboBox::ToggleDropDown() {
+    if (readOnly_) return;
     if (dropped_) { CloseDropDown(); return; }
     if (items_.empty()) return;
 
@@ -101,13 +102,34 @@ void JKComboBox::RespondMessage(const JKEvent& ev) {
     if (ev.type == JKEventType::MouseDown) {
         SetFocus();
         const JKRect client = GetScreenClientRect();
-        if (ev.x >= client.x + client.w - 18) ToggleDropDown();
+        if (!readOnly_ && ev.x >= client.x + client.w - 18) ToggleDropDown();
     } else if (ev.type == JKEventType::KeyDown) {
-        if (ev.keyCode == SDLK_RETURN || ev.keyCode == SDLK_SPACE) {
-            ToggleDropDown();
-        } else {
+        if (readOnly_) {
+            // Read-only combo only allows copy-like inspection; ignore all nav.
             JKControl::RespondMessage(ev);
+            return;
         }
+        if (dropped_ && popup_) {
+            // Let the popup listbox handle Up/Down/Enter/Escape navigation.
+            popup_->RespondMessage(ev);
+            if (ev.keyCode == SDLK_ESCAPE) CloseDropDown();
+            return;
+        }
+        switch (ev.keyCode) {
+            case SDLK_UP:
+                if (selectedIndex_ > 0) SetSelectedIndex(selectedIndex_ - 1);
+                return;
+            case SDLK_DOWN:
+                if (selectedIndex_ + 1 < static_cast<int32_t>(items_.size()))
+                    SetSelectedIndex(selectedIndex_ + 1);
+                return;
+            case SDLK_RETURN:
+            case SDLK_SPACE:
+            case SDLK_F4:
+                ToggleDropDown();
+                return;
+        }
+        JKControl::RespondMessage(ev);
         return;
     }
     JKControl::RespondMessage(ev);
