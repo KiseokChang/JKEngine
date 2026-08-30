@@ -26,7 +26,7 @@
 | Phase | 이름 | 상태 | 위치 |
 |-------|------|------|------|
 | 0 | Foundation / Basic Controls | ✅ 완료 | `main` (commit `0da2d41`) |
-| 1 | Input / Focus System | 🔄 진행 중 | `phase1-input-focus` (commit `cf61dc5`) / `phase1_input_focus.md` |
+| 1 | Input / Focus System | ✅ 완료 | `phase2-full-stack` (2026-08-30) / `phase1_input_focus.md` |
 | 2~4 | Layout / Rendering / Resource | ✅ 브랜치 구현 완료 | `phase2-full-stack` (commit `d467ee2`) |
 | 5 | Integration & Verification | ⏳ 미시작 | — |
 
@@ -51,9 +51,10 @@
 
 ---
 
-### Phase 1: Input / Focus System 🔄
+### Phase 1: Input / Focus System ✅
 
-> 상세 작업 명세: `../phase1_input_focus.md`
+> 상세 작업 명세: `../phase1_input_focus.md`  
+> IME 설계/검증: `15_verification_playbook.md` §11
 
 이 Phase의 목표는 마우스 캡처, 키보드 포커스, Tab 내비게이션, 모달 입력 격리를 **견고하게** 만드는 것입니다.
 
@@ -63,7 +64,7 @@
 - [x] 마우스가 컨트롤 영역을 벗어나도 `MouseMove`/`MouseUp`이 캡처한 컨트롤로 전달되도록 라우팅.
 - [x] `JKButton`: 눌린 상태에서 커서가 벗어나면 해제, 다시 들어오면 복원. 클릭은 `MouseUp` 시점에 커서가 버튼 안에 있을 때만 발생.
 - [x] `JKEdit`: 드래그 선택 시 커서가 에디트 박스를 벗어나도 선택 범위가 계속 갱신되도록 캡처 사용.
-- [ ] 창 이동/크기 조정 중에도 캡처/좌표 변환이 안정적으로 동작 (regression test).
+- [x] 창 이동/크기 조정 중에도 캡처/좌표 변환이 안정적으로 동작 (`verify_fixwin3.ps1` regression).
 
 #### 1.2 Focusable controls & Tab navigation
 
@@ -71,31 +72,51 @@
 - [x] `JKControl::SetFocus()`, `IsFocused()`, `OnSetFocus()`, `OnKillFocus()`, `PaintFocus()` 구현.
 - [x] `JKWindow::FocusFirstChild()`, `FocusNextChild()`, `FocusPrevChild()` 구현.
 - [x] `JKButton`, `JKCheckBox`, `JKEdit`, `JKListBox`, `JKComboBox`에 `SetFocusable(true)` 설정.
-- [ ] `Tab` → `FocusNextChild()`, `Shift+Tab` → `FocusPrevChild()` 라우팅 (`JKWindow::RespondMessage` 또는 `JKApplication::PreProcessMessage`).
+- [x] `Tab` → `FocusNextChild()`, `Shift+Tab` → `FocusPrevChild()` 라우팅 (`JKApplication::Run`).
 - [x] 현재 포커스 컨트롤에 파란 사각형 포커스 인디케이터 그리기 (`PaintFocus`).
 
 #### 1.3 Keyboard activation
 
 - [x] `JKButton`: `Space` / `Enter`로 눌림/떼기 애니메이션과 `OnClick()` 실행.
 - [x] `JKCheckBox`: `Space`로 체크 토글.
-- [ ] `JKMessageBox`: `Enter`를 기본 버튼으로, `Escape`를 취소 버튼으로 처리 (현재 Escape만 처리됨).
-- [ ] `JKFileDialog`: `Escape`로 취소/닫기.
+- [x] `JKMessageBox`: `Enter`를 기본 버튼으로, `Escape`를 취소 버튼으로 처리.
+- [x] `JKFileDialog`: `Escape`로 취소/닫기, `Enter`로 기본 OK.
 
 #### 1.4 Modal input isolation
 
 - [x] `JKApplication`에 `modalWindow_`와 `SetModalWindow()` / `GetModalWindow()`.
 - [x] 모달 윈도우가 열려 있을 때 마우스 hit-test와 키보드 라우팅이 모달 윈도우로 우선 전달.
-- [x] `JKMessageBox::Show()`에서 `FocusFirstChild()` 호출 후 모달 등록.
-- [ ] 모달이 닫힐 때 이전 포커스 윈도우/컨트롤로 포커스 복원 (`inputWindow_` 스택 또는 복귀 컨트롤 저장).
-- [ ] `JKMessageBox` / `JKFileDialog`가 열려 있는 동안 메인 윈도우의 컨트롤은 클릭/키보드 이벤트를 받지 않음.
+- [x] `JKMessageBox::Show()`에서 모달 등록 시 `SetModalWindow`가 첫 번째 자식에 포커스를 맞춤.
+- [x] 모달이 닫힐 때 `JKApplication`이 `modalPrevFocus_`를 복원하거나 첫 번째 자식에 포커스를 맞춤.
+- [x] `JKMessageBox` / `JKFileDialog`가 열려 있는 동안 메인 윈도우의 컨트롤은 클릭/키보드 이벤트를 받지 않음.
 
 #### 1.5 Verification
 
-- [ ] `prototype/sdl2_jkwindow` 빌드 성공.
-- [ ] 데모 윈도우에서 `Tab`이 edit → button → checkbox → list → combo 순으로 순환.
-- [ ] 멀티라인 에디트에서 마우스를 에디트 박스 밖으로 드래그해도 선택이 계속 확장/변경됨.
-- [ ] 버튼을 누른 채 마우스가 버튼 밖으로 나갔다가 다시 들어오면 눌린 상태가 복원됨.
-- [ ] `MessageBox`/`FileDialog`가 열려 있을 때 메인 윈도우 클릭이 무시되고 `Escape`로 닫힘.
+- [x] `prototype/sdl2_jkwindow` 빌드 성공.
+- [x] 데모 윈도우에서 `Tab`이 edit → button → checkbox → list → combo 순으로 순환 (`verify_tab_navigation.ps1`).
+- [x] 멀티라인 에디트에서 마우스를 에디트 박스 밖으로 드래그해도 선택이 계속 확장/변경됨.
+- [x] 버튼을 누른 채 마우스가 버튼 밖으로 나갔다가 다시 들어오면 눌린 상태가 복원됨.
+- [x] `MessageBox`/`FileDialog`가 열려 있을 때 메인 윈도우 클릭이 무시되고 `Escape`로 닫힘.
+- [x] `JKMessageBox`는 `Enter`로 기본 버튼을 실행하고 포커스를 복원함 (`verify_dialog_keyboard.ps1`).
+
+#### 1.6 IME 한글 입력 (Windows IME 우선, 내부 오토마타 F2 폴백)
+
+- [x] `JKEvent`에 `TextEditing` 타입 추가: SDL `SDL_TEXTEDITING` 이벤트(조합 중 문자열)를 라우팅.
+- [x] `JKHangulUtil`로 `Utf8ToKssm()` 공용화: UTF-8 완성형 → CP949 → 2바이트 KSSM 조합형.
+- [x] `JKEdit`에 조합 상태(`compText_`, `compCursor_`, `imeComposing_`) 추가 및 시각적 표시(파란 하이라이트 + 빨간 보조 캐럿).
+- [x] `SDL_SetTextInputRect()`로 OS IME 후보창 위치를 에디트 컨트롤에 동기화.
+- [x] `JKPlatform` PAL 도입: `JKEdit.cpp`에서 `<windows.h>`/`imm.h`를 제거하고 Win32 IME API를 별도 `.cpp`로 격리.
+- [x] 조합 중 백스페이스/딜리트/방향키/엔터는 OS IME에 양보하여 이중 처리 방지.
+- [x] `F2`로 내부 오토마타 모드로 전환 시 OS IME를 ASCII로 강제 전환하여 충돌 방지.
+- [x] 포커스 아웃 시 `JKPlatform::CompleteComposition`으로 조합 문자 강제 확정.
+
+**검증 기준**
+
+- [x] `AppSelfTest`에 합성 IME 이벤트 테스트 추가(5체크). `ime committed text stored as KSSM` 등 통과.
+- [x] 수동: Windows 한국어 IME로 "한글" 입력 시 조합 하이라이트, 확정 후 2바이트 KSSM 저장, 중복 삽입 없음.
+- [x] `F2` 후 `gksrmf` 입력 시 내부 2벌식 오토마타로 "한글" 생성.
+
+> 상세 아키텍처: `ARCHITECTURE_DOCS/16_sdl2_jkwindow_ime.md`
 
 ---
 

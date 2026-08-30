@@ -133,6 +133,7 @@ enum class JKEventType : uint16_t {
     KeyDown,
     KeyUp,
     Char,
+    TextEditing,
     Paint,
     Timer,
     Command,
@@ -147,6 +148,9 @@ struct JKEvent {
     uint32_t    keyCode;  // SDL_Keycode 또는 char
     uint32_t    detail;
     uint32_t    option;
+    int32_t     editStart  = 0;   // SDL_TEXTEDITING 조합 문자열 내 커서 위치
+    int32_t     editLength = 0;   // SDL_TEXTEDITING 조합 범위 길이
+    char        text[64]   = {};  // SDL_TEXTINPUT/SDL_TEXTEDITING UTF-8 문자열
 };
 ```
 
@@ -252,7 +256,8 @@ JKControl* JKWindow::HitTest(int32_t x, int32_t y) {
 }
 ```
 
-> DPI 스케일링(논리 pt ↔ 물리 px), 레터박스, 마우스 좌표 변환의 실제 구현은 `14_sdl2_window_dpi.md`를 참고한다.
+> DPI 스케일링(논리 pt ↔ 물리 px), 레터박스, 마우스 좌표 변환의 실제 구현은 `14_sdl2_window_dpi.md`를 참고한다.  
+> 한글 IME 입력(`SDL_TEXTEDITING`/`SDL_TEXTINPUT`)의 상세 설계는 `16_sdl2_jkwindow_ime.md`를 참고한다.
 
 ---
 

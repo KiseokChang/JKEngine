@@ -24,7 +24,7 @@ DPI/좌표계 버그는 일반적인 디버깅 직관이 잘 작동하지 않았
 ## 2. 검증 프로세스 (5단계)
 
 ```
-[1 빌드·셀프테스트]   배치 통일 빌드 + AppSelfTest 28체크 (논리 레벨 선배제)
+[1 빌드·셀프테스트]   배치 통일 빌드 + AppSelfTest 33체크 (논리 레벨 선배제)
         |
 [2 지오메트리 측정]   Win32 API로 OS에게 직접 물어봄 (모두 물리 px)
         |
@@ -37,8 +37,8 @@ DPI/좌표계 버그는 일반적인 디버깅 직관이 잘 작동하지 않았
 
 ### ① 재현 가능한 빌드·실행
 
-- `prototype\sdl2_jkwindow\build_sdl2_jkwindow.bat`으로 빌드한다 (I: 드라이브 직접 빌드 금지 — 절차는 `.clinerules\10_build-run-test.md`).
-- `jkproto_sdl2_jkwindow.exe test` → `AppSelfTest: 0 failure(s)` (28 체크) — **좌표 문제와 무관한 논리 회귀를 먼저 배제**한다.
+- `prototype\sdl2_jkwindow\build_sdl2_jkwindow.bat`으로 빌드한다 (I: 드라이브 직접 빌드 금지 — 절차는 `.claude\PROJECT.md`).
+- `jkproto_sdl2_jkwindow.exe test` → `AppSelfTest: 0 failure(s)` (33 체크) — **좌표 문제와 무관한 논리 회귀를 먼저 배제**한다.
 - 빌드·실행 절차가 통일되어야 측정값의 회귀 비교가 유효하다.
 
 ### ② 창 지오메트리 독립 측정
@@ -157,7 +157,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\verify_fixwin3.ps1 -mo
 
 - `tools\fix_bom.ps1 -Path <파일>`: 한글 포함 .ps1의 UTF-8 BOM 확인/부착. editor 도구로 .ps1을 저장하면 BOM이 빠질 수 있고, BOM이 없으면 PowerShell 5.1이 cp949로 읽어 파싱이 깨진다.
 - 캡처/스캔 임시 파일과 스크린샷은 `C:\temp_jkwin_verify\` 작업장에 둔다.
-- read_files 캐시로 방금 편집한 파일이 빈 내용으로 보일 수 있음 → 새 이름으로 복사한 뒤 읽고, 빈 출력을 실패로 단정하지 않는다. 상세는 `.clinerules\30_tool-workarounds.md`.
 
 ## 9. 마우스 좌표 스케일 검증 — `tools\probe_mouse_scaling.ps1` (2026-08-29)
 
@@ -177,12 +176,78 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\verify_fixwin3.ps1 -mo
 5. **버튼 클릭(캡처 경로) 회귀**: `tools\click_jango_probe.ps1` — 런처 버튼 클릭→모달 오픈(타이틀 밴드
    검출), 모달 Close 클릭→닫힘 판정(14 문서 §12.7). RESULT: PASS/FAIL로 종료.
 
+## 10. 키보드 포커스/모달 검증 (2026-08-30)
+
+마우스 좌표와는 다른 회귀 차원이다. 합성 키 입력(`keybd_event`)을 SDL 창에 보내고
+stderr의 `[FOCUS]` 로그 + stdout의 콜백 메시지로 판정한다.
+
+| 스크립트 | 검증 내용 |
+|----------|-----------|
+| `tools\verify_tab_navigation.ps1` | Tab/Shift+Tab이 활성 윈도우의 focusable 컨트롤을 순환. 4개 이상 ID 확인 |
+| `tools\verify_dialog_keyboard.ps1` | `M` → `JKMessageBox` 열기 → `Enter`로 기본 버튼(OK) 실행/닫기 → `F` → `JKFileDialog` 열기 → `Escape`로 취소/닫기 → focus가 원래 컨트롤로 복원 |
+
+주의: 드라이버도 `SetProcessDpiAwarenessContext(-4)`/`SetProcessDPIAware()`로 PMv2를 선언해야
+Win32 좌표 비교가 성립한다. SDL 창에 키 입력이 가려면 창을 foreground로 만들고 클라이언트 중앙을
+클릭해 키보드 포커스를 줘야 한다.
+
 교훈: **이벤트 단위 의심은 픽셀 검증과 별개의 "인공 커서 격자 + 좌표 이중 로깅"으로 증명한다.**
 체감(→클릭이 밀렸다)을 근거로 삼아 배율을 곱하는 보정은 절대 금지(14 문서 §11.2의 재해 반복).
 
-## 10. 관련 문서
+## 11. IME 입력 검증 (2026-08-30)
+
+`JKEdit`의 한글 입력은 OS IME를 기본으로 사용하고, 내부 2벌식 오토마타는 `F2` 폴백으로 동작한다.
+SDL `TEXTEDITING`/`TEXTINPUT` 이벤트를 받아 KSSM 2바이트로 저장하며, 아래 두 단계로 검증한다.
+
+### 11.1 자동 단위 테스트
+
+`AppSelfTest`에 포함된 합성 이벤트 기반 테스트(5체크):
+
+| 체크 | 내용 |
+|------|------|
+| ime pre-edit does not commit to buffer | `TEXTEDITING`만으로는 버퍼가 변하지 않음 |
+| ime pre-edit update still not committed | 조합 중간 갱신도 버퍼에 반영되지 않음 |
+| ime committed text stored as KSSM | `TEXTINPUT`이 들어오면 `Utf8ToKssm`로 변환해 2바이트 삽입 |
+| f2 toggles internal hangul automata | `F2`로 내부 오토마타 모드 진입 |
+| internal automata produces multi-byte KSSM | 내부 오토마타로 생성된 글자가 멀티바이트 KSSM임 |
+
+이 테스트는 SDL 초기화 없이도 실행 가능하며, IME 이벤트 라우팅과 KSSM 변환 파이프라인의
+기본적인 회귀를 막는다.
+
+### 11.2 수동 통합 테스트
+
+OS 한국어 IME를 직접 켜고 타이핑해야 하는 부분은 자동화할 수 없다. 절차:
+
+1. `jkproto_sdl2_jkwindow.exe`를 실행해 메인 데모(장교/장비 관리 등)를 연다.
+2. 에디트 컨트롤을 클릭해 포커스를 준다.
+3. Windows 한국어 IME(기본 MS IME)를 켜고 "한글"을 입력한다.
+4. 기대 결과:
+   - 조합 중인 글자가 파란 하이라이트(반투명) 박스 안에 표시됨.
+   - 빨간 보조 캐럿이 조합 문자열 안에서 IME가 알려주는 위치에 표시됨.
+   - 스페이스/엔터로 확정하면 하이라이트가 사라지고 2바이트 KSSM 문자가 버퍼에 삽입됨.
+   - 동일한 글자가 두 번 삽입되지 않음.
+5. `F2`를 누르고 `gksrmf`를 입력하면 내부 오토마타가 "한글"을 생성해야 함.
+
+### 11.3 구현상 안정화 포인트
+
+외부 검토 의견을 반영해 다음과 같이 보강했다:
+
+- **Win32 API 격리**: `JKPlatform` PAL을 두고 `JKEdit.cpp`에서 `<windows.h>`/
+  `<imm.h>`를 완전히 제거. 헤더 오염과 호출 규약 리스크 차단.
+- **조합 중 키 양보**: `imeComposing_`일 때 백스페이스/딜리트/방향키/엔터를 프레임워크가
+  처리하지 않고 OS IME에 넘긴다. 이중 삭제/커서 꼬임 방지.
+- **F2 동기화**: `F2`로 내부 오토마타로 전환하면 `JKPlatform::SetConversionMode`
+  로 OS IME를 ASCII 모드로 강제 전환. OS IME와 내부 오토마타의 중복 조합 차단.
+- **포커스 아웃 강제 확정**: `OnKillFocus`에서 `JKPlatform::CompleteComposition`을
+  먼저 호출해 OS IME가 조합 문자를 `TEXTINPUT`으로내도록 유도한 뒤, 이벤트가 누락될
+  경우를 대비해 로컬 `CommitComposition` 폴백도 유지.
+
+> 개념·의도·구현·고려사항의 상세 설명은 `ARCHITECTURE_DOCS/16_sdl2_jkwindow_ime.md`를 참고.
+
+## 12. 관련 문서
+
 
 - `ARCHITECTURE_DOCS\14_sdl2_window_dpi.md` — 구현 내용 (좌표계 계층·재배치 알고리즘·렌더링 파이프라인·기준값 원본 표 §9, 마우스 배율 버그 §12)
-- `.clinerules\10_build-run-test.md` — 변경 후 필수 검증 절차 (셀프테스트 → 모드 실행 → verify_fixwin3)
-- `.clinerules\20_dpi-coordinates.md` — SDL2 API 단위·원점 함정 요약
-- `.clinerules\30_tool-workarounds.md` — 에이전트 도구 워크어라운드 전반
+- `ARCHITECTURE_DOCS\16_sdl2_jkwindow_ime.md` — `JKEdit` IME 입력 아키텍처 (데이터 파이프라인·입력 모드·PAL·안정화 설계)
+- `.claude\PROJECT.md` — 변경 후 필수 검증 절차 (셀프테스트 → 모드 실행 → verify_fixwin3 → tab/dialog probes)
+- `ARCHITECTURE_DOCS\12_sdl2_prototype_roadmap.md` — Phase 1 Input/Focus System 완료 상태
+- `phase1_input_focus.md` — Phase 1 상세 작업 명세
