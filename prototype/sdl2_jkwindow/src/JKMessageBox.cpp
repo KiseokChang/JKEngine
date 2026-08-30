@@ -72,7 +72,9 @@ void JKMessageBox::OnInitControls() {
 
 void JKMessageBox::Show() {
     Open();
-    FocusFirstChild();
+    // SetModalWindow saves the previously focused control and then focuses the
+    // first child of the modal; calling FocusFirstChild before this would
+    // overwrite the control whose focus should be restored on close.
     if (g_currentJKApp) {
         g_currentJKApp->SetModalWindow(this);
     }
@@ -88,6 +90,16 @@ int JKMessageBox::CancelResult() const {
     return ResultCancel;
 }
 
+int JKMessageBox::DefaultResult() const {
+    switch (buttons_) {
+        case Buttons::Ok:          return ResultOk;
+        case Buttons::OkCancel:    return ResultOk;
+        case Buttons::YesNo:       return ResultYes;
+        case Buttons::YesNoCancel: return ResultYes;
+    }
+    return ResultOk;
+}
+
 void JKMessageBox::Close(int result) {
     if (onResult_) onResult_(result);
     RequestClose();
@@ -100,6 +112,10 @@ void JKMessageBox::RespondMessage(const JKEvent& ev) {
     if (ev.type == JKEventType::KeyDown) {
         if (ev.keyCode == SDLK_ESCAPE) {
             Close(CancelResult());
+            return;
+        }
+        if (ev.keyCode == SDLK_RETURN || ev.keyCode == SDLK_KP_ENTER) {
+            Close(DefaultResult());
             return;
         }
     }

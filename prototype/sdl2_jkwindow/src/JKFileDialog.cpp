@@ -194,6 +194,16 @@ void JKFileDialog::Show() {
 }
 
 void JKFileDialog::RespondMessage(const JKEvent& ev) {
+    if (ev.type == JKEventType::KeyDown) {
+        if (ev.keyCode == SDLK_ESCAPE) {
+            OnCancel();
+            return;
+        }
+        if (ev.keyCode == SDLK_RETURN || ev.keyCode == SDLK_KP_ENTER) {
+            OnOk();
+            return;
+        }
+    }
     JKWindow::RespondMessage(ev);
     if (IsCloseRequested() && g_currentJKApp && g_currentJKApp->GetModalWindow() == this) {
         g_currentJKApp->SetModalWindow(nullptr);

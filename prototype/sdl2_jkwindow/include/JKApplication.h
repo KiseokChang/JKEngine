@@ -24,6 +24,7 @@ public:
 
     void SetMainWindow(std::unique_ptr<JKWindow> window);
     JKWindow* GetMainWindow() const;
+    SDL_Window* GetSdlWindow() const { return window_; }
 
     void SetModalWindow(JKWindow* window);
     JKWindow* GetModalWindow() const { return modalWindow_; }
@@ -110,6 +111,9 @@ private:
     // Mouse capture and the window that owns the current keyboard focus.
     JKControl* captureControl_ = nullptr;
     JKWindow* inputWindow_ = nullptr;
+
+    // Focus to restore when the modal dialog closes.
+    JKControl* modalPrevFocus_ = nullptr;
 
 #ifdef _WIN32
     // Win32 물리 픽셀 마우스 좌표 추적 (MouseMove delta 계산용).

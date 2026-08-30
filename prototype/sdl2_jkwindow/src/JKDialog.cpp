@@ -10,7 +10,9 @@ JKDialog::JKDialog(const std::string& title) : JKWindow(title) {
 
 void JKDialog::Show() {
     Open();
-    FocusFirstChild();
+    // SetModalWindow saves the previously focused control and then focuses the
+    // first child of the modal; calling FocusFirstChild before this would
+    // overwrite the control whose focus should be restored on close.
     if (g_currentJKApp) {
         g_currentJKApp->SetModalWindow(this);
     }

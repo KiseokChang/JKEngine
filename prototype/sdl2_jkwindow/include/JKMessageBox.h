@@ -36,6 +36,7 @@ private:
 
     void Close(int result);
     int CancelResult() const;
+    int DefaultResult() const;
 };
 
 } // namespace jk

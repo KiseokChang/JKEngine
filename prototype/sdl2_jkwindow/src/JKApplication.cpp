@@ -1,7 +1,7 @@
 #include <JKApplication.h>
 #include <JKEvent.h>
 #include <JKSDLRenderBackend.h>
-#include <SDL_syswm.h>
+#include <JKPlatform.h>
 #include <cstdio>
 
 namespace jk {
@@ -27,6 +27,9 @@ bool JKApplication::Init(const std::string& title, int width, int height) {
 
     // 디버깅/검증용 마우스 이벤트 로그.
     mouseLog_ = std::fopen("C:\\temp_jkwin_verify\\mouse.log", "w");
+
+    // Process-level DPI awareness is handled by JKPlatform::InitializeProcessDpiAwareness()
+    // at process start (see main.cpp). SDL hints here reinforce the behavior.
 #endif
 
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
@@ -153,6 +156,7 @@ bool JKApplication::Init(const std::string& title, int width, int height) {
     mainWindow_->Init();
     mainWindow_->Setup();
     mainWindow_->Open();
+    mainWindow_->FocusFirstChild();
 
     running_ = true;
     return true;
@@ -282,12 +286,29 @@ JKWindow* JKApplication::GetMainWindow() const {
 void JKApplication::SetModalWindow(JKWindow* window) {
     if (modalWindow_ == window) return;
     ReleaseCapture();
+    if (window && !modalWindow_) {
+        // Save the control that had focus before the modal takes over.
+        JKWindow* prevWindow = inputWindow_ ? inputWindow_ : mainWindow_.get();
+        modalPrevFocus_ = prevWindow ? prevWindow->GetFocusChild() : nullptr;
+    }
     modalWindow_ = window;
     if (modalWindow_) {
         inputWindow_ = modalWindow_;
         modalWindow_->FocusFirstChild();
     } else {
         inputWindow_ = mainWindow_.get();
+        // Restore focus to the previously focused control if it still exists.
+        if (modalPrevFocus_) {
+            if (FindControlById(modalPrevFocus_->GetWinId()) == modalPrevFocus_) {
+                modalPrevFocus_->SetFocus();
+            } else {
+                modalPrevFocus_ = nullptr;
+            }
+        }
+        if (!modalPrevFocus_ && inputWindow_) {
+            inputWindow_->FocusFirstChild();
+        }
+        modalPrevFocus_ = nullptr;
     }
 }
 
@@ -401,28 +422,11 @@ JKEvent JKApplication::TranslateSDLEvent(const SDL_Event& sdl) {
         // 물리 픽셀로 환산한 뒤 같은 공식을 적용한다.
         int physX = ev.x;
         int physY = ev.y;
-        bool usedWin32Phys = false;
-#ifdef _WIN32
-        if (window_) {
-            SDL_SysWMinfo wmInfo;
-            SDL_VERSION(&wmInfo.version);
-            if (SDL_GetWindowWMInfo(window_, &wmInfo) &&
-                wmInfo.subsystem == SDL_SYSWM_WINDOWS &&
-                wmInfo.info.win.window) {
-                HWND hwnd = wmInfo.info.win.window;
-                POINT pt;
-                if (GetCursorPos(&pt) && ScreenToClient(hwnd, &pt)) {
-                    physX = static_cast<int>(pt.x);
-                    physY = static_cast<int>(pt.y);
-                    usedWin32Phys = true;
-                }
-            }
-        }
-#endif
+        bool usedPlatformPhys = JKPlatform::GetPhysicalMousePos(window_, physX, physY);
 
         // SDL 폴백: 논리 포인트 좌표를 물리 픽셀로 변환한다.
-        // (Win32 경로는 GetCursorPos+ScreenToClient로 이미 물리 픽셀을 얻는다.)
-        if (!usedWin32Phys) {
+        // (PAL 경로는 GetCursorPos+ScreenToClient로 이미 물리 픽셀을 얻는다.)
+        if (!usedPlatformPhys) {
             if (ptToPhysX_ > 0.0f && ptToPhysY_ > 0.0f) {
                 const float tmpPhysX = ev.x * ptToPhysX_;
                 const float tmpPhysY = ev.y * ptToPhysY_;
@@ -440,18 +444,18 @@ JKEvent JKApplication::TranslateSDLEvent(const SDL_Event& sdl) {
 
             if (mouseLog_) {
                 std::fprintf(mouseLog_,
-                    "[TRSDL] type=%d phys=(%d,%d) usedWin32=%d scale=(%.3f,%.3f) lb=(%d,%d) -> app=(%d,%d)\n",
-                    static_cast<int>(ev.type), physX, physY, usedWin32Phys ? 1 : 0,
+                    "[TRSDL] type=%d phys=(%d,%d) usedPlatform=%d scale=(%.3f,%.3f) lb=(%d,%d) -> app=(%d,%d)\n",
+                    static_cast<int>(ev.type), physX, physY, usedPlatformPhys ? 1 : 0,
                     scaleX_, scaleY_, letterboxX_, letterboxY_, ev.x, ev.y);
                 std::fflush(mouseLog_);
             }
 
             if (ev.type == JKEventType::MouseMove) {
-                // 상대 이동량: Win32 경로는 이전 물리 좌표와의 차이를,
+                // 상대 이동량: PAL 경로는 이전 물리 좌표와의 차이를,
                 // 폴백 경로는 SDL relative motion을 물리 픽셀로 환산 후 앱 좌표로 변환.
                 int physDx = ev.dx;
                 int physDy = ev.dy;
-                if (usedWin32Phys) {
+                if (usedPlatformPhys) {
 #ifdef _WIN32
                     if (hasLastMousePhys_) {
                         physDx = physX - lastMousePhysX_;
@@ -475,7 +479,7 @@ JKEvent JKApplication::TranslateSDLEvent(const SDL_Event& sdl) {
         }
 
 #ifdef _WIN32
-        if (usedWin32Phys) {
+        if (usedPlatformPhys) {
             lastMousePhysX_ = physX;
             lastMousePhysY_ = physY;
             hasLastMousePhys_ = true;
@@ -497,7 +501,8 @@ JKEvent JKApplication::TranslateSDLEvent(const SDL_Event& sdl) {
         ev.targetId = target ? target->GetWinId() : active->GetWinId();
     } else if (ev.type == JKEventType::KeyDown ||
                ev.type == JKEventType::KeyUp ||
-               ev.type == JKEventType::Char) {
+               ev.type == JKEventType::Char ||
+               ev.type == JKEventType::TextEditing) {
         JKWindow* active = modalWindow_ ? modalWindow_ : (inputWindow_ ? inputWindow_ : mainWindow_.get());
         ev.targetId = active->GetWinId();
     }
@@ -592,97 +597,38 @@ void JKApplication::CreateOrResizeBackBuffer() {
 // Init()의 1회성 배치와 달리, 모니터 이동 후에는 장식 크기와 배율이 바뀌므로
 // 매번 새로 조회해서 계산해야 한다(클라이언트 원점 보정 유지).
 void JKApplication::ReapplyPlacement() {
-    if (!window_ || !renderBackend_) {
-        return;
-    }
+    if (!window_) return;
 
     int ptW = 0, ptH = 0;
     SDL_GetWindowSize(window_, &ptW, &ptH);
-    int renderW = 0, renderH = 0;
-    renderBackend_->GetOutputSize(renderW, renderH);
-    if (ptW <= 0 || ptH <= 0 || renderW <= 0 || renderH <= 0) {
+
+    JKPlatform::Placement placement{};
+    if (JKPlatform::ComputeCenteredPlacement(window_, ptW, ptH, placement)) {
+        // Windows PAL path already accounts for frame decorations, monitor work
+        // area, and per-window DPI. Diagnostic details are logged inside the PAL.
+        std::fprintf(stderr,
+            "[DPISYNC] ReapplyPlacement(pal): targetClientPx=(%d,%d) -> pt=(%d,%d)\n",
+            placement.targetClientPxX, placement.targetClientPxY,
+            placement.clientPtX, placement.clientPtY);
+        SDL_SetWindowPosition(window_, placement.clientPtX, placement.clientPtY);
         return;
     }
-    const float dpiScale = renderW / static_cast<float>(ptW);
 
-#ifdef _WIN32
-    // Win32 경로: 현재 모니터 작업 영역을 물리 픽셀로 직접 조회한다.
-    SDL_SysWMinfo wmInfo;
-    SDL_VERSION(&wmInfo.version);
-    if (SDL_GetWindowWMInfo(window_, &wmInfo) &&
-        wmInfo.subsystem == SDL_SYSWM_WINDOWS && wmInfo.info.win.window) {
-        HWND hwnd = wmInfo.info.win.window;
-        HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-        MONITORINFO mi{};
-        mi.cbSize = sizeof(mi);
-        RECT frame{};
-        if (monitor && GetMonitorInfoW(monitor, &mi) && GetWindowRect(hwnd, &frame)) {
-            const int frameW = frame.right - frame.left;
-            const int frameH = frame.bottom - frame.top;
-            // GetMonitorInfo/GetWindowRect는 PMv1/PMv2 모두 물리 px를 반환함을
-            // PMv2 드라이버 덤프와 교차 검증했다(2026-08: 보조 모니터 1600x900@100%,
-            // rcWork 높이 852 = 900-48 태스크바). 초기 세션의 "모니터 rect ×0.8
-            // 가상화" 가설은 Screen.AllScreens의 ×1.25 가상화 값을 참으로 오신 것 — 폐기.
-            // pt 환산은 GetDpiForWindow(실측 창 DPI)로만 한다.
-            const UINT winDpiMon = GetDpiForWindow(hwnd);
-            // 스레드 컨텍스트는 SDL 내부 초기화가 조작할 수 있어 실측상 신뢰가
-            // 없다(PMv2 매니페스트 앱에서도 -4가 아닌 값을 반환 — 2026-08 실측).
-            // PMv2 판정은 외부 관찰과 교차 검증된 아래 API 조합을 쓴다.
-            const bool pmv2 = AreDpiAwarenessContextsEqual(
-                GetWindowDpiAwarenessContext(hwnd),
-                (DPI_AWARENESS_CONTEXT)(void*)(intptr_t)-4) != FALSE;
-            const int workLeft = mi.rcWork.left;
-            const int workTop = mi.rcWork.top;
-            const int workW = mi.rcWork.right - mi.rcWork.left;
-            const int workH = mi.rcWork.bottom - mi.rcWork.top;
-            if (workW > 0 && workH > 0 && frameW > 0 && frameH > 0) {
-                // 프레임이 작업 영역보다 크면 중앙 정렬 시 좌표가 음수가 되어
-                // 타이틀 바가 화면 위로 잘리므로, 그 경우 작업 영역 원점에 맞춘다.
-                const int outerPxX = workLeft + ((workW > frameW) ? (workW - frameW) / 2 : 0);
-                const int outerPxY = workTop + ((workH > frameH) ? (workH - frameH) / 2 : 0);
-
-                // 프레임 좌상단(outer)에서 클라이언트 원점까지의 장식 두께(물리 px).
-                // MapWindowPoints의 반환값은 클라이언트 원점의 절대 화면 좌표이므로
-                // 현재 프레임 원점을 빼야 장식 두께가 된다(절대 좌표를 그대로
-                // 더하면 배치가 매번 틀어진다 — 2026-08 회귀 원인).
-                RECT clientRect{};
-                POINT clientOrigin{0, 0};
-                GetClientRect(hwnd, &clientRect);
-                MapWindowPoints(hwnd, nullptr, &clientOrigin, 1);
-                const int borderPxX = clientOrigin.x - frame.left;
-                const int borderPxY = clientOrigin.y - frame.top;
-                const int clientPxX = outerPxX + borderPxX;
-                const int clientPxY = outerPxY + borderPxY;
-
-                // SDL_SetWindowPosition은 창 pt(창 DPI 환산) 좌표를 받는다.
-                const float ptScale = (winDpiMon > 0) ? (winDpiMon / 96.0f) : dpiScale;
-                const int posPtX = static_cast<int>(clientPxX / ptScale + 0.5f);
-                const int posPtY = static_cast<int>(clientPxY / ptScale + 0.5f);
-
-                std::fprintf(stderr,
-                    "[DPISYNC] ReapplyPlacement(win32): frame=(%d,%d %dx%d) work=(%d,%d %dx%d) "
-                    "pmv2=%d border=(%d,%d) ptScale=%.3f -> pt=(%d,%d)\n",
-                    frame.left, frame.top, frameW, frameH, workLeft, workTop,
-                    workW, workH, pmv2 ? 1 : 0, borderPxX, borderPxY,
-                    ptScale, posPtX, posPtY);
-                SDL_SetWindowPosition(window_, posPtX, posPtY);
-                return;
-            }
-        }
-        // Win32 조회 실패 시 아래 SDL 폴백으로 진행.
-    }
-#endif
-
-    // 폴백: SDL 표시 경계 기반 계산(비-Windows / Win32 조회 실패).
+    // Non-Windows / PAL failure fallback: use SDL display bounds and estimated
+    // border sizes. This keeps the window on-screen but is less precise than the
+    // Win32 path.
     int displayIndex = SDL_GetWindowDisplayIndex(window_);
-    if (displayIndex < 0) {
-        displayIndex = 0;
-    }
+    if (displayIndex < 0) displayIndex = 0;
     SDL_Rect usable{};
     if (SDL_GetDisplayUsableBounds(displayIndex, &usable) != 0 ||
         usable.w <= 0 || usable.h <= 0) {
         return;
     }
+
+    int renderW = 0, renderH = 0;
+    if (renderBackend_) renderBackend_->GetOutputSize(renderW, renderH);
+    const float dpiScale = (renderW > 0 && ptW > 0)
+                         ? renderW / static_cast<float>(ptW) : 1.0f;
 
     int top = 0, left = 0, bottom = 0, right = 0;
     if (SDL_GetWindowBordersSize(window_, &top, &left, &bottom, &right) != 0 ||
@@ -690,17 +636,13 @@ void JKApplication::ReapplyPlacement() {
         top = 31; left = 4; bottom = 4; right = 4;
     }
 
-    // 장식을 포함한 프레임 전체 크기(논리 포인트)를 구해 작업 영역 중앙에
-    // 놓이는 프레임 좌상단 위치를 계산한다.
     const int frameW = ptW + static_cast<int>((left + right) / dpiScale + 0.5f);
     const int frameH = ptH + static_cast<int>((top + bottom) / dpiScale + 0.5f);
     const int outerX = usable.x + ((usable.w <= frameW) ? 0 : (usable.w - frameW) / 2);
     const int outerY = usable.y + ((usable.h <= frameH) ? 0 : (usable.h - frameH) / 2);
-
-    // 클라이언트 원점 기준 보정: 좌상단 장식 두께만큼 더한다.
     const int posX = outerX + static_cast<int>(left / dpiScale + 0.5f);
     const int posY = outerY + static_cast<int>(top / dpiScale + 0.5f);
-    // 진단 출력(Init/모니터 이동 시에만 호출되어 로그가 드물다).
+
     std::fprintf(stderr,
         "[DPISYNC] ReapplyPlacement(sdl-fallback): display=%d usable=(%d,%d %dx%d) pt=%dx%d "
         "render=%dx%d dpiScale=%.3f framePt=%dx%d -> pos=(%d,%d)\n",
