@@ -695,6 +695,131 @@ static int RunAppSelfTest() {
               "read-only combo rejects keyboard selection change");
     }
 
+    // Hangul deletion integrity: KSSM byte pairs must be deleted atomically.
+    {
+        auto edit = std::make_unique<jk::JKEdit>(jk::JKRect{ 0, 0, 200, 24 }, 0, 256, false);
+        edit->SetFocus();
+
+        // Insert "한글" as KSSM via TEXTINPUT.
+        {
+            jk::JKEvent ev;
+            ev.type = jk::JKEventType::Char;
+            std::strncpy(ev.text, "한글", sizeof(ev.text) - 1);
+            edit->RespondMessage(ev);
+        }
+        std::string kssm = edit->GetText();
+        check(kssm.size() == 4,
+              "hangul delete test starts with two KSSM pairs");
+
+        // Backspace once should remove the last Hangul character (2 bytes).
+        {
+            jk::JKEvent ev;
+            ev.type = jk::JKEventType::KeyDown;
+            ev.keyCode = SDLK_BACKSPACE;
+            edit->RespondMessage(ev);
+        }
+        check(edit->GetText().size() == 2,
+              "backspace removes one KSSM pair atomically");
+
+        // Insert "가나다" then delete forward from the front.
+        edit->SetText("");
+        {
+            jk::JKEvent ev;
+            ev.type = jk::JKEventType::Char;
+            std::strncpy(ev.text, "가나다", sizeof(ev.text) - 1);
+            edit->RespondMessage(ev);
+        }
+        check(edit->GetText().size() == 6,
+              "three KSSM pairs inserted for forward delete test");
+        {
+            jk::JKEvent ev;
+            ev.type = jk::JKEventType::KeyDown;
+            ev.keyCode = SDLK_HOME;
+            edit->RespondMessage(ev);
+            ev.keyCode = SDLK_DELETE;
+            edit->RespondMessage(ev);
+        }
+        check(edit->GetText().size() == 4,
+              "delete removes one KSSM pair atomically from front");
+
+        // Cursor movement across KSSM pairs should land on pair boundaries.
+        edit->SetText("");
+        {
+            jk::JKEvent ev;
+            ev.type = jk::JKEventType::Char;
+            std::strncpy(ev.text, "한글", sizeof(ev.text) - 1);
+            edit->RespondMessage(ev);
+        }
+        {
+            jk::JKEvent ev;
+            ev.type = jk::JKEventType::KeyDown;
+            ev.keyCode = SDLK_END;
+            edit->RespondMessage(ev);
+        }
+        check(edit->GetText().size() == 4,
+              "end key preserves KSSM buffer");
+        {
+            jk::JKEvent ev;
+            ev.type = jk::JKEventType::KeyDown;
+            ev.keyCode = SDLK_LEFT;
+            edit->RespondMessage(ev);
+        }
+        {
+            jk::JKEvent ev;
+            ev.type = jk::JKEventType::KeyDown;
+            ev.keyCode = SDLK_DELETE;
+            edit->RespondMessage(ev);
+        }
+        check(edit->GetText().size() == 2,
+              "delete after left arrow removes one KSSM pair");
+
+        // IME commit then backspace: committed KSSM pair must delete atomically.
+        edit->SetText("");
+        {
+            jk::JKEvent ev;
+            ev.type = jk::JKEventType::TextEditing;
+            std::strncpy(ev.text, "한", sizeof(ev.text) - 1);
+            edit->RespondMessage(ev);
+        }
+        {
+            jk::JKEvent ev;
+            ev.type = jk::JKEventType::Char;
+            std::strncpy(ev.text, "한", sizeof(ev.text) - 1);
+            edit->RespondMessage(ev);
+        }
+        check(edit->GetText().size() == 2,
+              "ime-committed hangul stored as one KSSM pair");
+        {
+            jk::JKEvent ev;
+            ev.type = jk::JKEventType::KeyDown;
+            ev.keyCode = SDLK_BACKSPACE;
+            edit->RespondMessage(ev);
+        }
+        check(edit->GetText().empty(),
+              "backspace after ime commit removes the KSSM pair cleanly");
+
+        // Left arrow must cross KSSM pair boundaries (2 bytes), not single bytes.
+        edit->SetText("");
+        {
+            jk::JKEvent ev;
+            ev.type = jk::JKEventType::Char;
+            std::strncpy(ev.text, "한글", sizeof(ev.text) - 1);
+            edit->RespondMessage(ev);
+        }
+        check(edit->GetText().size() == 4,
+              "two KSSM pairs ready for cursor boundary test");
+        {
+            jk::JKEvent ev;
+            ev.type = jk::JKEventType::KeyDown;
+            ev.keyCode = SDLK_LEFT;
+            edit->RespondMessage(ev);
+            ev.keyCode = SDLK_BACKSPACE;
+            edit->RespondMessage(ev);
+        }
+        check(edit->GetText().size() == 2,
+              "left arrow crosses KSSM pair boundary before backspace deletes atomically");
+    }
+
     std::printf("AppSelfTest: %d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;
 }
