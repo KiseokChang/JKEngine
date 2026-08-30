@@ -6,22 +6,30 @@
 
 ## 문서 목록
 
-| 파일 | 내용 | 우선순위 |
-|------|------|---------|
-| `01_overview.md` | JKENGINE 전체 구조, 레이어, 빌드 환경, 핵심 패턴 | ★★★ |
-| `02_jkdbase.md` | JKDBASE 데이터 관리 레이어 상세 | ★★★ |
-| `03_jkwindow.md` | JKWINDOW GUI/그래픽/이벤트 프레임워크 상세 | ★★★ |
-| `04_windbase_jango.md` | WINDBASE/JANGO 애플리케이션 프레임워크 | ★★☆ |
-| `05_2caocc_app.md` | WINDBASE/2CAOCC 애플리케이션 아키텍처 | ★★☆ |
-| `06_web_port_roadmap.md` | 웹 포팅 로드맵 및 기술 스택 제안 | ★★★ |
-| `10_sdl2_windows_setup.md` | Windows + VS Code + MSYS2 + SDL2 개발 환경 세팅 | ★★★ |
-| `11_jkwindow_sdl_mapping.md` | JKWINDOW → SDL2 클래스 매핑 설계 | ★★★ |
-| `12_sdl2_prototype_roadmap.md` | SDL2 JKWindow 프로토타입 로드맵 | ★★★ |
-| `13_sdl2_top_level_apps.md` | SDL2 기반 최상위 앱/기능 후보 | ★★☆ |
-| `14_sdl2_window_dpi.md` | SDL2 윈도우 배치·DPI/좌표계/렌더링 파이프라인 | ★★☆ |
-| `15_verification_playbook.md` | 창/DPI 화면 검증 방법론·14항목 자동 검증 플레이북 | ★★☆ |
-| `99_file_inventory.md` | 주요 소스/헤더/리소스 파일 인벤토리 | ★★☆ |
-| `README.md` | 본 문서 | ★★★ |
+| 파일 | 한 줄 요약 | 우선순위 | 길이(줄) |
+|------|-----------|---------|---------|
+| `01_overview.md` | JKENGINE 전체 구조, 레이어, 빌드 환경, 핵심 패턴 | ★★★ | 141 |
+| `02_jkdbase.md` | JKDBASE 데이터 관리 레이어 상세 | ★★★ | 306 |
+| `03_jkwindow.md` | JKWINDOW GUI/그래픽/이벤트 프레임워크 상세 | ★★★ | 449 |
+| `04_windbase_jango.md` | WINDBASE/JANGO 애플리케이션 프레임워크 | ★★☆ | 295 |
+| `05_2caocc_app.md` | WINDBASE/2CAOCC 애플리케이션 아키텍처 | ★★☆ | 235 |
+| `06_web_port_roadmap.md` | 웹 포팅 로드맵 및 기술 스택 제안 | ★★★ | 217 |
+| `10_sdl2_windows_setup.md` | Windows + VS Code + MSYS2 + SDL2 개발 환경 세팅 | ★★★ | 269 |
+| `11_jkwindow_sdl_mapping.md` | JKWINDOW → SDL2 클래스 매핑 설계 | ★★★ | 321 |
+| `12_sdl2_prototype_roadmap.md` | SDL2 JKWindow 프로토타입 로드맵 | ★★★ | 195 |
+| `13_sdl2_top_level_apps.md` | SDL2 기반 최상위 앱/기능 후보 | ★★☆ | 124 |
+| `14_sdl2_window_dpi.md` | SDL2 윈도우 배치·DPI/좌표계/렌더링 파이프라인 | ★★☆ | 362 |
+| `15_verification_playbook.md` | 창/DPI 화면 검증 방법론·14항목 자동 검증 플레이북 | ★★☆ | 187 |
+| `99_file_inventory.md` | 주요 소스/헤더/리소스 파일 인벤토리 | ★★☆ | 265 |
+| `README.md` | 본 문서 | ★★★ | 93 |
+
+### 빠른 참조: 어떤 문서를 먼저 볼까
+
+- **처음 접할 때**: `01_overview.md` → `03_jkwindow.md` → `02_jkdbase.md`
+- **SDL2 프로토타입 작업 중**: `.claude/PROJECT.md` → `11_jkwindow_sdl_mapping.md` → `14_sdl2_window_dpi.md` → `15_verification_playbook.md`
+- **화면 좌표/배율 버그**: `14_sdl2_window_dpi.md` §11-§12
+- **검증 방법/스크립트**: `15_verification_playbook.md`
+- **포팅 우선순위/로드맵**: `06_web_port_roadmap.md`, `12_sdl2_prototype_roadmap.md`
 
 ---
 

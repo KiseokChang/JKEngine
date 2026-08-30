@@ -3,6 +3,13 @@
 > JKENGINE의 자체 GUI 프레임워크(JKWINDOW)를 SDL2 위에 최소한으로 재현하기 위한 설계 문서.
 > 본 문서는 **Prototype 1단계**에서 구현할 핵심 클래스만 다룹니다.
 
+## TL;DR
+
+- **목표**: `JKControl` → `JKWindow`/`JKApplication` 트리, 메시지 루프, 기본 DC 그리기를 SDL2로 재현.
+- **핵심 매핑**: `SDL_PollEvent` → `JKEvent` → `JKMessageQue.Push()` → `JKApplication.Run()` → target `RespondMessage()`.
+- **Out of scope**: VESA256, 프린터/메타파일 DC, 복잡한 EntryControl/RecordViewBase.
+- **빠른 찾기**: 클래스 계층 §2, JKControl 매핑 §3.1, JKWindow 매핑 §3.2, 이벤트 매핑 §4.
+
 ---
 
 ## 1. 목표와 범위

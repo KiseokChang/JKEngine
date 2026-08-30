@@ -2,6 +2,13 @@
 
 JKWINDOW는 JKENGINE의 **자체 GUI 프레임워크**로, 1990년대 OWL(ObjectWindows Library)과 Windows API의 영향을 받아 설계되었습니다. DOS 32-bit 환경에서 직접 VESA 그래픽 모드를 제어하고, 메시지 기반 이벤트 루프를 구현합니다.
 
+## TL;DR
+
+- **핵심**: `JKApplication` → `EventHandler`/`MessageQue` → `JKWindow` → `JKControl` 트리.
+- **그리기**: `JKDC`(Device Context)가 Screen/Memory/Meta/Printer 4가지 백엔드를 추상화.
+- **SDL2 프로토타입에서 살아남은 부분**: 컨트롤 트리, 메시지 라우팅, DC 그리기 명령. VESA256/프린터/메타파일은 제거.
+- **빠른 찾기**: 파일 구성 §1, 클래스 계층 §2, 메시지 루프 §3, JKDC §4, 컨트롤 §5.
+
 ---
 
 ## 1. JKWINDOW 파일 구성
