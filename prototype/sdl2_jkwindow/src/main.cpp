@@ -15,7 +15,11 @@
 #include <JKDataFile.h>
 #include <JKDC.h>
 #include <JKEvent.h>
+#include <JKHangulUtil.h>
+#include <JKPlatform.h>
 #include <SDL.h>
+
+using jk::Utf8ToKssm;
 #include <apps/JangoApp.h>
 #include <apps/Equip24App.h>
 #include <apps/EquipApp.h>
@@ -65,97 +69,6 @@ private:
     SDL_Color color_ = { 0, 0, 0, 255 };
 };
 
-// UTF-8 -> KSSM (KS C 5601-1987 combination-form Hangul/Hanja) helper.
-// JKDC::TextOut expects 0x80-prefixed byte pairs in the KSSM/Johab encoding
-// used by the original JKENGINE font renderer. The engine stores a
-// completion-form -> KSSM conversion table in wCodeTable; we reverse it
-// after converting UTF-8 to EUC-KR completion form. Hanja characters are
-// mapped to the KSSM Hanja range using the inverse of the KSSM2KS formula.
-#ifdef _WIN32
-// Avoid including <windows.h> in this translation unit; it conflicts with the
-// legacy typedef.h (BOOL/BYTE/WORD/etc.) pulled in by wancode.h. The two APIs
-// below are in kernel32 and are linked implicitly on Windows.
-#ifndef CP_UTF8
-#define CP_UTF8 65001
-#endif
-#ifndef MB_ERR_INVALID_CHARS
-#define MB_ERR_INVALID_CHARS 0x00000008
-#endif
-
-extern "C" __stdcall int MultiByteToWideChar(unsigned int CodePage,
-                                             unsigned long dwFlags,
-                                             const char* lpMultiByteStr,
-                                             int cbMultiByte,
-                                             wchar_t* lpWideCharStr,
-                                             int cchWideChar);
-extern "C" __stdcall int WideCharToMultiByte(unsigned int CodePage,
-                                             unsigned long dwFlags,
-                                             const wchar_t* lpWideCharStr,
-                                             int cchWideChar,
-                                             char* lpMultiByteStr,
-                                             int cbMultiByte,
-                                             const char* lpDefaultChar,
-                                             int* lpUsedDefaultChar);
-// 다중 모니터 DPI 인식 승격용(user32, 묵시적 링크). windows.h 없이 직접 선언.
-extern "C" __stdcall int SetProcessDpiAwarenessContext(void* value);
-extern "C" __stdcall int SetProcessDPIAware(void);
-
-std::string Utf8ToKssm(const char* utf8) {
-    if (!utf8 || !utf8[0]) return {};
-
-    // 1. UTF-8 -> EUC-KR (CP949) byte stream.
-    int wlen = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8, -1, nullptr, 0);
-    if (wlen <= 0) return {};
-    std::vector<wchar_t> wbuf(static_cast<size_t>(wlen));
-    MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8, -1, wbuf.data(), wlen);
-    int elen = WideCharToMultiByte(949, 0, wbuf.data(), -1, nullptr, 0, nullptr, nullptr);
-    if (elen <= 0) return {};
-    std::string euc(static_cast<size_t>(elen) - 1, '\0');
-    WideCharToMultiByte(949, 0, wbuf.data(), -1, &euc[0], elen, nullptr, nullptr);
-
-    // 2. EUC-KR completion form -> KSSM combination form via wCodeTable.
-    std::string out;
-    out.reserve(euc.size());
-    for (size_t i = 0; i < euc.size(); ) {
-        unsigned char c1 = static_cast<unsigned char>(euc[i]);
-        if (c1 < 0x80) {
-            out.push_back(static_cast<char>(c1));
-            ++i;
-            continue;
-        }
-        if (i + 1 >= euc.size()) {
-            out.push_back('?');
-            ++i;
-            continue;
-        }
-        unsigned char c2 = static_cast<unsigned char>(euc[i + 1]);
-        uint16_t kssm = 0;
-        if (c1 >= 0xB0 && c1 <= 0xC8) {
-            int idx = (c1 - 0xB0) * 94 + (c2 - 0xA1);
-            if (idx >= 0 && idx < NUMHANGUL) kssm = wCodeTable[idx];
-        } else if (c1 == 0xA4 && c2 >= 0xA1 && c2 < 0xA1 + SINGLEHAN) {
-            kssm = SingleHan[c2 - 0xA1];
-        } else if (c1 >= 0xCA && c1 <= 0xFD && c2 >= 0xA1 && c2 <= 0xFE) {
-            // EUC-KR Hanja -> KSSM Hanja (inverse of KSSM2KS).
-            int tmp = (c1 - 0xCA) * 94 + (c2 - 0xA1);
-            uint8_t kc1 = static_cast<uint8_t>(0xE0 + tmp / 188);
-            uint8_t raw = static_cast<uint8_t>(0x31 + (tmp % 188));
-            uint8_t kc2 = raw + (raw > 0x7E ? 18 : 0);
-            kssm = static_cast<uint16_t>((kc1 << 8) | kc2);
-        }
-        if (kssm) {
-            out.push_back(static_cast<char>(kssm >> 8));
-            out.push_back(static_cast<char>(kssm & 0xFF));
-        } else {
-            out.push_back('?');
-        }
-        i += 2;
-    }
-    return out;
-}
-#else
-std::string Utf8ToKssm(const char* utf8) { return utf8 ? utf8 : ""; }
-#endif
 
 // Build a raw KSSM special-character byte pair. The original JKENGINE stores
 // special/glyph symbols in special.fnt and addresses them with first byte 0xD4
@@ -369,10 +282,9 @@ public:
         if (ev.type == jk::JKEventType::KeyDown) {
             std::printf("KeyDown: %u\n", ev.keyCode);
             if (ev.keyCode == SDLK_ESCAPE) {
+                // 모달 대화상자/팝업은 각자 RespondMessage에서 Escape를 처리한다.
+                // 모달이 열려 있을 때는 앱을 종료하지 않는다.
                 if (GetModalWindow()) {
-                    // 모달이 열려 있으면 먼저 닫고 앱은 종료하지 않는다.
-                    GetModalWindow()->RequestClose();
-                    SetModalWindow(nullptr);
                     return true;
                 }
                 return false; // 루프 종료
@@ -634,21 +546,70 @@ static int RunAppSelfTest() {
         std::remove("test_occfire.dat");
     }
 
+    // JKEdit IME routing test (headless: no SDL window is required).
+    {
+        auto edit = std::make_unique<jk::JKEdit>(jk::JKRect{ 0, 0, 200, 24 }, 0, 256, false);
+        edit->SetFocus();
+
+        // Simulate Korean IME pre-edit updates for "한글".
+        {
+            jk::JKEvent ev;
+            ev.type = jk::JKEventType::TextEditing;
+            std::strncpy(ev.text, "한그", sizeof(ev.text) - 1);
+            ev.editStart = 2;
+            edit->RespondMessage(ev);
+        }
+        check(edit->GetText().empty(),
+              "ime pre-edit does not commit to buffer");
+
+        {
+            jk::JKEvent ev;
+            ev.type = jk::JKEventType::TextEditing;
+            std::strncpy(ev.text, "한글", sizeof(ev.text) - 1);
+            ev.editStart = 2;
+            edit->RespondMessage(ev);
+        }
+        check(edit->GetText().empty(),
+              "ime pre-edit update still not committed");
+
+        // The IME commits the final string via SDL_TEXTINPUT (JKEventType::Char).
+        {
+            jk::JKEvent ev;
+            ev.type = jk::JKEventType::Char;
+            std::strncpy(ev.text, "한글", sizeof(ev.text) - 1);
+            edit->RespondMessage(ev);
+        }
+        std::string expectedKssm = jk::Utf8ToKssm("한글");
+        check(edit->GetText() == expectedKssm,
+              "ime committed text stored as KSSM");
+
+        // Internal automata fallback (F2) should still produce Hangul.
+        edit->SetText("");
+        {
+            jk::JKEvent ev;
+            ev.type = jk::JKEventType::KeyDown;
+            ev.keyCode = SDLK_F2;
+            edit->RespondMessage(ev);
+        }
+        check(edit->GetInputMode() == jk::JKEdit::InputMode::InternalHangul,
+              "f2 toggles internal hangul automata");
+        for (const char* p = "gksrmf"; *p; ++p) {
+            jk::JKEvent ev;
+            ev.type = jk::JKEventType::KeyDown;
+            ev.keyCode = SDLK_a + (*p - 'a');
+            edit->RespondMessage(ev);
+        }
+        check(edit->GetText().size() >= 4,
+              "internal automata produces multi-byte KSSM");
+    }
+
     std::printf("AppSelfTest: %d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;
 }
 
 int main(int argc, char* argv[]) {
-#ifdef _WIN32
-    // 다중 모니터·혼합 배율 환경(주 모니터 125% + 보조 100%)에서 Win32 좌표를
-    // 모니터별 물리 픽셀로 고정한다.
-    // 2026-08: jkproto.rc로 PerMonitorV2 매니페스트를 exe에 내장했다. 이제 프로세스는
-    // 시작부터 PMv2이므로 아래 호출은 안전망일 뿐이다(이미 설정된 값이면 S_OK).
-    // PMv2가 되기 전에는 SDL의 DPI 체계가 PMv1에서 어긋나 모니터 이동 시 창이
-    // x0.8/x0.64로 축소되고 마우스 좌표 변환 배율도 틀어져 밀렸었다.
-    SetProcessDpiAwarenessContext((void*)(intptr_t)-4);
-    SetProcessDPIAware();
-#endif
+    // Process-wide DPI awareness must be set before any window/SDL calls.
+    jk::JKPlatform::InitializeProcessDpiAwareness();
 
     if (argc > 1 && (std::strcmp(argv[1], "--help") == 0 ||
                      std::strcmp(argv[1], "-h") == 0 ||

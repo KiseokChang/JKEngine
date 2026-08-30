@@ -2,6 +2,8 @@
 #include <JKEvent.h>
 #include <JKWindow.h>
 #include <JKApplication.h>
+#include <JKHangulUtil.h>
+#include <JKPlatform.h>
 #include <SDL.h>
 #include <algorithm>
 #include <cstring>
@@ -153,11 +155,28 @@ void JKEdit::OnPaintClient(JKDC& dc) {
             dc.TextOut(jk::JKPoint{ inner.x, textY }, buffer_.c_str());
         }
 
+        // Draw IME composition string at the caret position.
+        if (focused_ && !compText_.empty()) {
+            int32_t compX = inner.x + static_cast<int32_t>(cursorPos_ * charWidth_);
+            int32_t compW = static_cast<int32_t>(compText_.size()) * charWidth_;
+            dc.SetColor(0, 0, 255, 64);
+            dc.FillRect(JKRect{ compX, textY, compW, 16 });
+            dc.SetTextColor(textR_, textG_, textB_);
+            dc.TextOut(jk::JKPoint{ compX, textY }, compText_.c_str());
+        }
+
         if (focused_ && showCaret_) {
             int32_t caretX = inner.x + static_cast<int32_t>(cursorPos_ * charWidth_);
             int32_t caretY = textY;
             dc.SetColor(0, 0, 0, 255);
             dc.DrawLine(caretX, caretY, caretX, caretY + 12);
+
+            // Additional caret inside the composition string.
+            if (!compText_.empty()) {
+                int32_t compCaretX = caretX + static_cast<int32_t>(compCursor_ * charWidth_);
+                dc.SetColor(255, 0, 0, 255);
+                dc.DrawLine(compCaretX, caretY, compCaretX, caretY + 12);
+            }
         }
     } else {
         int32_t visibleLines = std::max(1, inner.h / lineHeight_);
@@ -170,6 +189,19 @@ void JKEdit::OnPaintClient(JKDC& dc) {
             dc.TextOut(jk::JKPoint{ inner.x, inner.y + static_cast<int32_t>((line - firstVisibleLine_) * lineHeight_) },
                        std::string(view).c_str());
         }
+        // Draw IME composition string at the caret position.
+        if (focused_ && !compText_.empty()) {
+            size_t line = GetLineFromPos(cursorPos_);
+            size_t col = GetColFromPos(cursorPos_);
+            int32_t compX = inner.x + static_cast<int32_t>(col * charWidth_);
+            int32_t compY = inner.y + static_cast<int32_t>((line - firstVisibleLine_) * lineHeight_) + 2;
+            int32_t compW = static_cast<int32_t>(compText_.size()) * charWidth_;
+            dc.SetColor(0, 0, 255, 64);
+            dc.FillRect(JKRect{ compX, compY, compW, 16 });
+            dc.SetTextColor(textR_, textG_, textB_);
+            dc.TextOut(jk::JKPoint{ compX, compY }, compText_.c_str());
+        }
+
         if (focused_ && showCaret_) {
             size_t line = GetLineFromPos(cursorPos_);
             size_t col = GetColFromPos(cursorPos_);
@@ -177,6 +209,12 @@ void JKEdit::OnPaintClient(JKDC& dc) {
             int32_t caretY = inner.y + static_cast<int32_t>((line - firstVisibleLine_) * lineHeight_) + 2;
             dc.SetColor(0, 0, 0, 255);
             dc.DrawLine(caretX, caretY, caretX, caretY + 12);
+
+            if (!compText_.empty()) {
+                int32_t compCaretX = caretX + static_cast<int32_t>(compCursor_ * charWidth_);
+                dc.SetColor(255, 0, 0, 255);
+                dc.DrawLine(compCaretX, caretY, compCaretX, caretY + 12);
+            }
         }
     }
 
@@ -186,11 +224,55 @@ void JKEdit::OnPaintClient(JKDC& dc) {
 void JKEdit::OnSetFocus() {
     focused_ = true;
     showCaret_ = true;
+    DetectWindowsImeState();
+    UpdateTextInputRect();
 }
 
 void JKEdit::OnKillFocus() {
     focused_ = false;
     showCaret_ = false;
+    if (imeComposing_ && g_currentJKApp) {
+        // Ask the OS IME to flush the composed string first, then fall back to
+        // a local commit if the OS did not deliver a TEXTINPUT event in time.
+        SDL_Window* window = g_currentJKApp->GetSdlWindow();
+        if (window) JKPlatform::CompleteComposition(window);
+        CommitComposition();
+    }
+}
+
+void JKEdit::UpdateTextInputRect() {
+    if (!g_currentJKApp) return;
+    SDL_Window* window = g_currentJKApp->GetSdlWindow();
+    if (!window) return;
+    const JKRect client = GetScreenClientRect();
+    SDL_Rect rect{ client.x, client.y, client.w, client.h };
+    SDL_SetTextInputRect(&rect);
+}
+
+void JKEdit::DetectWindowsImeState() {
+#ifdef _WIN32
+    if (!g_currentJKApp) return;
+    SDL_Window* window = g_currentJKApp->GetSdlWindow();
+    if (!window) return;
+    JKPlatform::ImeMode mode = JKPlatform::GetCurrentConversionMode(window);
+    if (mode == JKPlatform::ImeMode::Hangul) {
+        inputMode_ = InputMode::ImeHangul;
+    } else if (mode == JKPlatform::ImeMode::Ascii) {
+        inputMode_ = InputMode::Ascii;
+    }
+    // JKPlatform::ImeMode::Unknown leaves the current mode unchanged (non-Windows or no IME).
+#else
+    // On non-Windows platforms, leave the mode as-is and let F2 toggle.
+    (void)0;
+#endif
+}
+
+void JKEdit::CommitComposition() {
+    if (!imeComposing_ || compText_.empty()) return;
+    InsertKssmText(compText_.c_str());
+    compText_.clear();
+    compCursor_ = 0;
+    imeComposing_ = false;
 }
 
 void JKEdit::RespondMessage(const JKEvent& ev) {
@@ -198,6 +280,13 @@ void JKEdit::RespondMessage(const JKEvent& ev) {
         SetFocus();
         focused_ = true;
         showCaret_ = true;
+
+        // If the IME was composing when the user clicked, ask the OS to commit
+        // the string before we move the caret or change selection.
+        if (imeComposing_ && g_currentJKApp) {
+            SDL_Window* window = g_currentJKApp->GetSdlWindow();
+            if (window) JKPlatform::CompleteComposition(window);
+        }
 
         size_t oldPos = cursorPos_;
         cursorPos_ = PixelToPos(ev.x, ev.y);
@@ -242,10 +331,42 @@ void JKEdit::RespondMessage(const JKEvent& ev) {
         } else if (ctrl && ev.keyCode == SDLK_v) {
             PasteFromClipboard();
         } else if (ev.keyCode == SDLK_F2) {
-            ToggleHangulMode();
-        } else if (hangulMode_ && ev.keyCode >= SDLK_a && ev.keyCode <= SDLK_z) {
+            if (!imeComposing_) {
+                ToggleHangulMode();
+                // When the user switches to the internal automata, force the OS
+                // IME into ASCII mode so both systems do not compose at the same
+                // time and create duplicate characters.
+                if (inputMode_ == InputMode::InternalHangul && g_currentJKApp) {
+                    SDL_Window* window = g_currentJKApp->GetSdlWindow();
+                    if (window) JKPlatform::SetConversionMode(window, JKPlatform::ImeMode::Ascii);
+                }
+            }
+        } else if (inputMode_ == InputMode::InternalHangul &&
+                   !imeComposing_ &&
+                   ev.keyCode >= SDLK_a && ev.keyCode <= SDLK_z) {
             ProcessHangulKey(static_cast<uint16_t>(ev.keyCode));
         } else {
+            // While the OS IME is composing, let the IME own navigation and
+            // editing keys. Handling them ourselves would delete or move the
+            // cursor underneath the active composition and corrupt the input.
+            if (imeComposing_) {
+                switch (ev.keyCode) {
+                    case SDLK_LEFT:
+                    case SDLK_RIGHT:
+                    case SDLK_UP:
+                    case SDLK_DOWN:
+                    case SDLK_HOME:
+                    case SDLK_END:
+                    case SDLK_PAGEUP:
+                    case SDLK_PAGEDOWN:
+                    case SDLK_BACKSPACE:
+                    case SDLK_DELETE:
+                    case SDLK_RETURN:
+                    case SDLK_KP_ENTER:
+                        return;
+                    default: break;
+                }
+            }
             size_t oldPos = cursorPos_;
             switch (ev.keyCode) {
                 case SDLK_LEFT:     MoveCursorLeft(); break;
@@ -264,8 +385,38 @@ void JKEdit::RespondMessage(const JKEvent& ev) {
             }
             UpdateSelection(oldPos, shift);
         }
+    } else if (ev.type == JKEventType::TextEditing) {
+        // SDL IME composition event. Convert the UTF-8 pre-edit string to KSSM
+        // and store it for rendering. The actual commit happens on TEXTINPUT.
+        compText_ = Utf8ToKssm(ev.text);
+        compCursor_ = static_cast<size_t>(ev.editStart);
+        if (compCursor_ > compText_.size()) compCursor_ = compText_.size();
+        imeComposing_ = !compText_.empty();
+        showCaret_ = true;
+        UpdateTextInputRect();
     } else if (ev.type == JKEventType::Char) {
-        if (!hangulMode_) InsertText(ev.text);
+        // SDL_TEXTINPUT carries the IME's committed string. It replaces any
+        // pending composition state, so clear the pre-edit visual state without
+        // committing it locally; doing so would duplicate the composed text
+        // when TEXTEDITING and TEXTINPUT arrive in opposite orders.
+        compText_.clear();
+        compCursor_ = 0;
+        imeComposing_ = false;
+        if (inputMode_ == InputMode::InternalHangul) {
+            // In internal automata mode ASCII letters are handled by KeyDown.
+            // Punctuation, digits, and space still come through TEXTINPUT.
+            // Non-ASCII text from an external IME is converted to KSSM so it
+            // is not silently dropped.
+            unsigned char c = static_cast<unsigned char>(ev.text[0]);
+            if (c < 0x80 && !std::isalpha(static_cast<int>(c))) {
+                InsertText(ev.text);
+            } else if (c >= 0x80) {
+                InsertKssmText(Utf8ToKssm(ev.text).c_str());
+            }
+        } else {
+            InsertKssmText(Utf8ToKssm(ev.text).c_str());
+        }
+        UpdateTextInputRect();
     } else {
         JKControl::RespondMessage(ev);
     }
@@ -291,6 +442,20 @@ void JKEdit::InsertKssmChar(uint16_t code) {
     char pair[2] = { static_cast<char>(code >> 8), static_cast<char>(code & 0xFF) };
     buffer_.insert(cursorPos_, pair, 2);
     cursorPos_ += 2;
+    ScrollToCursor();
+    showCaret_ = true;
+}
+
+void JKEdit::InsertKssmText(const char* text) {
+    if (!text || !text[0]) return;
+    size_t len = std::strlen(text);
+    if (buffer_.size() + len > maxLength_) {
+        len = maxLength_ - buffer_.size();
+    }
+    if (len == 0) return;
+    buffer_.insert(cursorPos_, text, len);
+    cursorPos_ += len;
+    ClearSelection();
     ScrollToCursor();
     showCaret_ = true;
 }

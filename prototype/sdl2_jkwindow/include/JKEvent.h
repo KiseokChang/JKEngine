@@ -15,6 +15,7 @@ enum class JKEventType : uint16_t {
     KeyDown,
     KeyUp,
     Char,
+    TextEditing,
     Paint,
     Timer,
     Command,
@@ -31,7 +32,9 @@ struct JKEvent {
     uint32_t    keyCode = 0;
     uint32_t    detail = 0;
     uint32_t    option = 0;
-    char        text[16] = {};
+    int32_t     editStart = 0;
+    int32_t     editLength = 0;
+    char        text[64] = {};
 };
 
 JKEvent TranslateSDLEvent(const SDL_Event& sdl);

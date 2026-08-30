@@ -19,9 +19,14 @@ public:
     void SetMultiLine(bool multiLine) { multiLine_ = multiLine; }
     bool IsMultiLine() const { return multiLine_; }
 
-    void SetHangulMode(bool hangul) { hangulMode_ = hangul; }
-    bool GetHangulMode() const { return hangulMode_; }
-    void ToggleHangulMode() { hangulMode_ = !hangulMode_; }
+    enum class InputMode { Ascii, InternalHangul, ImeHangul };
+
+    void SetHangulMode(bool hangul) { inputMode_ = hangul ? InputMode::InternalHangul : InputMode::Ascii; }
+    bool GetHangulMode() const { return inputMode_ == InputMode::InternalHangul; }
+    void ToggleHangulMode() { inputMode_ = (inputMode_ == InputMode::InternalHangul)
+                                            ? InputMode::Ascii : InputMode::InternalHangul; }
+    InputMode GetInputMode() const { return inputMode_; }
+    void SetInputMode(InputMode mode) { inputMode_ = mode; }
 
     void SetText(const std::string& text) override;
     const std::string& GetText() const override;
@@ -46,9 +51,14 @@ private:
     bool focused_ = false;
     bool showCaret_ = true;
 
-    bool hangulMode_ = false;
+    InputMode inputMode_ = InputMode::Ascii;
     HangulAutomata automata_;
     bool composing_ = false;
+
+    // IME composition state (SDL_TEXTEDITING).
+    std::string compText_;
+    size_t compCursor_ = 0;
+    bool imeComposing_ = false;
 
     // 멀티라인 / 스크롤 상태
     size_t firstVisibleLine_ = 0;
@@ -69,6 +79,12 @@ private:
 
     void InsertText(const char* text);
     void InsertKssmChar(uint16_t code);
+    void InsertKssmText(const char* text);
+
+    // IME / text-input helpers
+    void UpdateTextInputRect();
+    void DetectWindowsImeState();
+    void CommitComposition();
     void DeleteBackward();
     void DeleteForward();
     bool DeleteSelection();

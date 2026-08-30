@@ -42,6 +42,8 @@ add_executable(jkproto_sdl2_jkwindow
     src/JOClock.cpp
     src/JKEdit.cpp
     src/JKHangulAutomata.cpp
+    src/JKHangulUtil.cpp
+    src/JKPlatform_win32.cpp
     src/JKScrollBar.cpp
     src/JKListBox.cpp
     src/JKComboBox.cpp
@@ -85,3 +87,7 @@ if(TARGET SDL2::SDL2main)
 endif()
 
 target_link_libraries(jkproto_sdl2_jkwindow PRIVATE SDL2::SDL2)
+
+if(WIN32)
+    target_link_libraries(jkproto_sdl2_jkwindow PRIVATE imm32)
+endif()

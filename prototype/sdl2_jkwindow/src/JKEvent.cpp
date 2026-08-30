@@ -53,6 +53,14 @@ JKEvent TranslateSDLEvent(const SDL_Event& sdl) {
             }
             break;
 
+        case SDL_TEXTEDITING:
+            ev.type = JKEventType::TextEditing;
+            std::strncpy(ev.text, sdl.edit.text, sizeof(ev.text) - 1);
+            ev.text[sizeof(ev.text) - 1] = '\0';
+            ev.editStart = sdl.edit.start;
+            ev.editLength = sdl.edit.length;
+            break;
+
         default:
             ev.type = JKEventType::None;
             break;
