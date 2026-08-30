@@ -25,6 +25,8 @@ public:
     void SetSelectedIndex(int32_t index);
 
     void SetOnSelect(std::function<void(int32_t)> cb) { onSelect_ = std::move(cb); }
+    void SetOnDoubleClick(std::function<void(int32_t)> cb) { onDoubleClick_ = std::move(cb); }
+    void SetOnActivate(std::function<void(int32_t)> cb) { onActivate_ = std::move(cb); }
 
     void OnPaintClient(JKDC& dc) override;
     void RespondMessage(const JKEvent& ev) override;
@@ -37,8 +39,18 @@ private:
 
     JKScrollBar* vScroll_ = nullptr;
     std::function<void(int32_t)> onSelect_;
+    std::function<void(int32_t)> onDoubleClick_;
+    std::function<void(int32_t)> onActivate_;
+
+    int32_t lastClickIndex_ = -1;
+    uint32_t lastClickTime_ = 0;
+    int32_t lastClickX_ = 0;
+    int32_t lastClickY_ = 0;
 
     void UpdateScrollRange();
+    void EnsureVisible(int32_t index);
+    void MoveSelection(int32_t delta);
+    int32_t VisibleItemCount() const;
 };
 
 } // namespace jk

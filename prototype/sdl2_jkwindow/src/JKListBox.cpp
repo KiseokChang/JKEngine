@@ -1,8 +1,21 @@
 #include <JKListBox.h>
 #include <JKEvent.h>
+#include <JKApplication.h>
 #include <algorithm>
+#include <cmath>
 
 namespace jk {
+
+namespace {
+
+constexpr uint32_t kDoubleClickMs = 300;
+constexpr uint32_t kDoubleClickDistanceSq = 25; // 5px squared
+
+uint32_t GetEventTick() {
+    return SDL_GetTicks();
+}
+
+} // anonymous namespace
 
 JKListBox::JKListBox() = default;
 
@@ -60,9 +73,35 @@ void JKListBox::SetSelectedIndex(int32_t index) {
     if (onSelect_) onSelect_(selectedIndex_);
 }
 
-void JKListBox::UpdateScrollRange() {
+int32_t JKListBox::VisibleItemCount() const {
     const JKRect client = GetClientRect();
-    int32_t visible = std::max(1, client.h / itemHeight_);
+    return std::max(1, client.h / itemHeight_);
+}
+
+void JKListBox::EnsureVisible(int32_t index) {
+    if (index < 0 || index >= static_cast<int32_t>(items_.size())) return;
+    int32_t visible = VisibleItemCount();
+    if (index < topIndex_) {
+        topIndex_ = index;
+    } else if (index >= topIndex_ + visible) {
+        topIndex_ = index - visible + 1;
+    }
+    topIndex_ = std::max(0, std::min(topIndex_, static_cast<int32_t>(items_.size()) - visible));
+    if (vScroll_) vScroll_->SetPos(topIndex_);
+}
+
+void JKListBox::MoveSelection(int32_t delta) {
+    if (items_.empty()) return;
+    int32_t newIndex = selectedIndex_ + delta;
+    newIndex = std::max(0, std::min(newIndex, static_cast<int32_t>(items_.size()) - 1));
+    if (newIndex != selectedIndex_) {
+        SetSelectedIndex(newIndex);
+        EnsureVisible(newIndex);
+    }
+}
+
+void JKListBox::UpdateScrollRange() {
+    int32_t visible = VisibleItemCount();
     int32_t maxPos = std::max(0, static_cast<int32_t>(items_.size()) - visible);
     if (vScroll_) vScroll_->SetRange(0, maxPos, visible);
 }
@@ -102,6 +141,33 @@ void JKListBox::RespondMessage(const JKEvent& ev) {
         int32_t idx = topIndex_ + relY / itemHeight_;
         if (idx >= 0 && idx < static_cast<int32_t>(items_.size())) {
             SetSelectedIndex(idx);
+            uint32_t now = GetEventTick();
+            int32_t dx = ev.x - lastClickX_;
+            int32_t dy = ev.y - lastClickY_;
+            int32_t distSq = dx * dx + dy * dy;
+            bool isDouble = (idx == lastClickIndex_) &&
+                            (now - lastClickTime_ <= kDoubleClickMs) &&
+                            (distSq <= static_cast<int32_t>(kDoubleClickDistanceSq));
+            lastClickIndex_ = idx;
+            lastClickTime_ = now;
+            lastClickX_ = ev.x;
+            lastClickY_ = ev.y;
+            if (isDouble && onDoubleClick_) {
+                onDoubleClick_(idx);
+            }
+        }
+    } else if (ev.type == JKEventType::KeyDown) {
+        switch (ev.keyCode) {
+            case SDLK_UP:        MoveSelection(-1); return;
+            case SDLK_DOWN:      MoveSelection(1); return;
+            case SDLK_HOME:      MoveSelection(-static_cast<int32_t>(items_.size())); return;
+            case SDLK_END:       MoveSelection(static_cast<int32_t>(items_.size())); return;
+            case SDLK_PAGEUP:    MoveSelection(-VisibleItemCount()); return;
+            case SDLK_PAGEDOWN:  MoveSelection(VisibleItemCount()); return;
+            case SDLK_RETURN:
+            case SDLK_KP_ENTER:
+                if (selectedIndex_ >= 0 && onActivate_) onActivate_(selectedIndex_);
+                return;
         }
     }
     JKControl::RespondMessage(ev);
