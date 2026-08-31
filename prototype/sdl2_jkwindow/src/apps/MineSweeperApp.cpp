@@ -20,12 +20,26 @@ namespace jk {
 
 namespace {
 
-constexpr int kButtonAreaHeight = 56;
-constexpr int kButtonTopY = 30;
+constexpr int kButtonAreaHeight = 36;
+constexpr int kButtonTopY = 4;
 constexpr int kMargin = 10;
 constexpr int kCellSize = 24;
 constexpr int kMinWindowWidth = 200;
 constexpr int kIconSize = 16;
+
+// Simple container control that fills its client area with its back color.
+// Used as the Minesweeper toolbar so the docked top band is visually distinct.
+class JKPanel : public JKControl {
+public:
+    void OnPaintClient(JKDC& dc) override {
+        const JKRect client = GetScreenClientRect();
+        if (!client.IsEmpty()) {
+            dc.SetColor(backR_, backG_, backB_, 255);
+            dc.FillRect(client);
+        }
+        JKControl::OnPaintClient(dc);
+    }
+};
 
 // Simple 16x16 RGBA icon generators (no external files needed).
 std::vector<uint8_t> CreateMineIcon() {
@@ -802,38 +816,39 @@ void MineSweeperApp::OnInit() {
 
     // Top toolbar band spans the top of the floating window's client area.
     // It is added after the grid so it paints on top and covers the grid.
-    auto toolbar = std::make_unique<JKControl>();
+    auto toolbar = std::make_unique<JKPanel>();
     toolbar->SetRect(JKRect{ 0, 0, 320, kButtonAreaHeight });
     toolbar->SetDock(DOCK_TOP);
     toolbar->SetPadding(2, 2, 2, 2);
+    toolbar->SetBackColor(210, 210, 210);  // light gray to visually bound the toolbar
 
-    auto newGameBtn = std::make_unique<JKButton>(JKRect{ 10, 6, 50, 26 }, 101);
+    auto newGameBtn = std::make_unique<JKButton>(JKRect{ 10, kButtonTopY, 50, 26 }, 101);
     newGameBtn->SetText("New");
     newGameBtn->SetOnClick([this]() { impl_->NewGame(); });
     toolbar->AddControl(std::move(newGameBtn));
 
-    auto beginnerBtn = std::make_unique<JKButton>(JKRect{ 70, 6, 28, 26 }, 102);
+    auto beginnerBtn = std::make_unique<JKButton>(JKRect{ 70, kButtonTopY, 28, 26 }, 102);
     beginnerBtn->SetText("B");
     beginnerBtn->SetOnClick([this]() { impl_->SetDifficulty(MineSweeperGame::Difficulty::Beginner); });
     toolbar->AddControl(std::move(beginnerBtn));
 
-    auto intermediateBtn = std::make_unique<JKButton>(JKRect{ 102, 6, 28, 26 }, 103);
+    auto intermediateBtn = std::make_unique<JKButton>(JKRect{ 102, kButtonTopY, 28, 26 }, 103);
     intermediateBtn->SetText("I");
     intermediateBtn->SetOnClick([this]() { impl_->SetDifficulty(MineSweeperGame::Difficulty::Intermediate); });
     toolbar->AddControl(std::move(intermediateBtn));
 
-    auto expertBtn = std::make_unique<JKButton>(JKRect{ 134, 6, 28, 26 }, 104);
+    auto expertBtn = std::make_unique<JKButton>(JKRect{ 134, kButtonTopY, 28, 26 }, 104);
     expertBtn->SetText("E");
     expertBtn->SetOnClick([this]() { impl_->SetDifficulty(MineSweeperGame::Difficulty::Expert); });
     toolbar->AddControl(std::move(expertBtn));
 
-    auto mineLabel = std::make_unique<JKStatic>(JKRect{ 170, 6, 70, 24 }, 105);
+    auto mineLabel = std::make_unique<JKStatic>(JKRect{ 170, kButtonTopY, 70, 24 }, 105);
     mineLabel->SetText("Mines: 10");
     mineLabel->SetTextColor(0, 0, 0);
     impl_->mineLabel = mineLabel.get();
     toolbar->AddControl(std::move(mineLabel));
 
-    auto timeLabel = std::make_unique<JKStatic>(JKRect{ 240, 6, 70, 24 }, 106);
+    auto timeLabel = std::make_unique<JKStatic>(JKRect{ 240, kButtonTopY, 70, 24 }, 106);
     timeLabel->SetText("Time: 0");
     timeLabel->SetTextColor(0, 0, 0);
     impl_->timeLabel = timeLabel.get();
