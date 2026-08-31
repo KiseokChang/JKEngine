@@ -155,6 +155,14 @@ uint32_t JKControl::GetAnchor() const {
     return anchors_;
 }
 
+void JKControl::SetDock(uint32_t dock) {
+    dock_ = dock;
+}
+
+uint32_t JKControl::GetDock() const {
+    return dock_;
+}
+
 void JKControl::SetMargins(int32_t left, int32_t top, int32_t right, int32_t bottom) {
     marginLeft_ = left;
     marginTop_ = top;
@@ -205,27 +213,61 @@ void JKControl::PerformLayout(const JKRect& parentClient) {
         desired.h = content.y + paddingTop_ + paddingBottom_;
     }
 
-    // Apply anchors relative to the parent client area.
-    if (anchors_ & ANCHOR_LEFT) {
-        desired.x = parentClient.x + marginLeft_;
-    }
-    if (anchors_ & ANCHOR_TOP) {
-        desired.y = parentClient.y + marginTop_;
-    }
-    if (anchors_ & ANCHOR_RIGHT) {
-        int32_t rightEdge = parentClient.x + parentClient.w - marginRight_;
-        if (anchors_ & ANCHOR_LEFT) {
-            desired.w = rightEdge - desired.x;
+    // Dock/Fill layout takes precedence over anchors to avoid conflicting
+    // geometry. Docked controls pin one edge and fill the perpendicular
+    // dimension; DOCK_FILL occupies the entire parent client area minus margins.
+    if (dock_ != DOCK_NONE) {
+        if (dock_ == DOCK_FILL) {
+            desired.x = parentClient.x + marginLeft_;
+            desired.y = parentClient.y + marginTop_;
+            desired.w = parentClient.w - marginLeft_ - marginRight_;
+            desired.h = parentClient.h - marginTop_ - marginBottom_;
         } else {
-            desired.x = rightEdge - desired.w;
+            // Start with the full parent client area minus margins, then pin
+            // the requested edge to shrink the perpendicular dimension.
+            desired.x = parentClient.x + marginLeft_;
+            desired.y = parentClient.y + marginTop_;
+            desired.w = parentClient.w - marginLeft_ - marginRight_;
+            desired.h = parentClient.h - marginTop_ - marginBottom_;
+
+            if (dock_ & DOCK_LEFT) {
+                desired.w = rect_.w > 0 ? rect_.w : desired.w;
+            }
+            if (dock_ & DOCK_RIGHT) {
+                desired.x = desired.x + desired.w - (rect_.w > 0 ? rect_.w : desired.w);
+                desired.w = rect_.w > 0 ? rect_.w : desired.w;
+            }
+            if (dock_ & DOCK_TOP) {
+                desired.h = rect_.h > 0 ? rect_.h : desired.h;
+            }
+            if (dock_ & DOCK_BOTTOM) {
+                desired.y = desired.y + desired.h - (rect_.h > 0 ? rect_.h : desired.h);
+                desired.h = rect_.h > 0 ? rect_.h : desired.h;
+            }
         }
-    }
-    if (anchors_ & ANCHOR_BOTTOM) {
-        int32_t bottomEdge = parentClient.y + parentClient.h - marginBottom_;
+    } else {
+        // Apply anchors relative to the parent client area.
+        if (anchors_ & ANCHOR_LEFT) {
+            desired.x = parentClient.x + marginLeft_;
+        }
         if (anchors_ & ANCHOR_TOP) {
-            desired.h = bottomEdge - desired.y;
-        } else {
-            desired.y = bottomEdge - desired.h;
+            desired.y = parentClient.y + marginTop_;
+        }
+        if (anchors_ & ANCHOR_RIGHT) {
+            int32_t rightEdge = parentClient.x + parentClient.w - marginRight_;
+            if (anchors_ & ANCHOR_LEFT) {
+                desired.w = rightEdge - desired.x;
+            } else {
+                desired.x = rightEdge - desired.w;
+            }
+        }
+        if (anchors_ & ANCHOR_BOTTOM) {
+            int32_t bottomEdge = parentClient.y + parentClient.h - marginBottom_;
+            if (anchors_ & ANCHOR_TOP) {
+                desired.h = bottomEdge - desired.y;
+            } else {
+                desired.y = bottomEdge - desired.h;
+            }
         }
     }
 

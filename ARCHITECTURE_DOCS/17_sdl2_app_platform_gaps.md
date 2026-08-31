@@ -57,7 +57,7 @@
 
 ---
 
-### P1 — 레이아웃 도크/매니저 (Dock / Fill Layout)
+### ✅ P1 — 레이아웃 도크/매니저 (Dock / Fill Layout) — 2026-09-01 구현 완료
 
 **현재 상황**
 - `Anchor`/`Margin`/`Padding`은 있지만, "위쪽 툴바를 뺀 나머지를 그리드가 채운다"
@@ -65,19 +65,25 @@
 - 지뢰찾기 툴바/그리드, 메모장 메뉴/에디트, 그림판 툴바/캔버스를 모두 절대
   좌표로 배치해야 함.
 
-**개선 방향**
-1. `JKControl`에 `SetDock(uint32_t flags)` 추가:
-   - `DOCK_TOP`, `DOCK_BOTTOM`, `DOCK_LEFT`, `DOCK_RIGHT`, `DOCK_FILL`.
-2. `JKWindow::PerformLayout()`에서 도크 순서를 계산:
-   - 엣지(Edge) 컨트롤을 먼저 배치, 남은 공간을 `DOCK_FILL` 컨트롤이 차지.
-3. 앵커 기반 레이아웃과 조합: 도크가 설정되면 앵커 무시.
+**구현 내용**
+1. `JKControl`에 `DOCK_TOP`, `DOCK_BOTTOM`, `DOCK_LEFT`, `DOCK_RIGHT`, `DOCK_FILL`
+   상수와 `SetDock()`/`GetDock()` 추가 (`include/JKControl.h`, `src/JKControl.cpp`).
+2. `JKControl::PerformLayout()`에서 dock 플래그를 먼저 처리. `DOCK_FILL`은
+   부모 클라이언트 영역 전체에서 마진을 뺀 영역을 차지하고, `DOCK_TOP`/`BOTTOM`
+   등은 해당 가장자리에 고정된 한 변을 가진다.
+3. 도크가 설정되면 `anchors_`를 무시하여 충돌하지 않도록 함.
+4. `MineSweeperApp`의 플로팅 윈도우에 적용:
+   - 툴바 패널을 `DOCK_TOP`으로 배치.
+   - `MineGrid`를 `DOCK_FILL`로 배치, 마진만 남김.
+   - `ResizeMineWindow()`에서 그리드 rect 수동 재계산 제거.
 
 **수혜 앱**
 - 모든 새 앱(지뢰찾기, 메모장, 그림판)의 창 크기 조절 대응.
 
 **핵심 파일**
 - `include/JKControl.h`
-- `src/JKControl.cpp` (`PerformLayout`, `SetRect`)
+- `src/JKControl.cpp` (`PerformLayout`, `SetDock`)
+- `src/apps/MineSweeperApp.cpp`
 
 ---
 
@@ -320,11 +326,11 @@
 | 우선순위 | 항목 | 상태 | 다음 앱에서 자연스럽게 구현 | 영향 범위 |
 |----------|------|------|------------------------------|-----------|
 | **P1** | 강제 다시 그리기 (Invalidate) | ✅ 구현 완료 (2026-08-31) | 지뢰찾기 성능 개선, 그림판 | JKControl, JKWindow, JKApplication |
-| **P1** | 레이아웃 도크 (Dock/Fill) | 미구현 | 메모장, 지뢰찾기, 그림판 | JKControl, PerformLayout |
+| **P1** | 레이아웃 도크 (Dock/Fill) | ✅ 구현 완료 (2026-09-01) | 메모장, 지뢰찾기, 그림판 | JKControl, PerformLayout |
 | **P2** | 전역 단축키 (Accelerator) | 미구현 | 메모장, 지뢰찾기 | JKApplication |
 | **P2** | 모달 생명주기 정리 | 미구현 | 모든 메시지/확인 박스 | JKMessageBox, JKApplication |
 | **P2** | 비트맵 Blit/Sprite | ✅ 구현 완료 (2026-08-31) | 지뢰찾기, 그림판 | JKDC, JKResourceCache |
-| **P2** | Dirty Region Union 최적화 | 미구현 | 지뢰찾기 성능 심화 | JKWindow |
+| **P2** | Dirty Region Union 최적화 | ✅ 구현 완료 (2026-09-01) | 지뢰찾기 성능 심화 | JKWindow |
 | **P3** | 랜덤/유틸리티 API | 미구현 | 지뢰찾기(시드, 난이도) | JKRandom |
 | **P3** | 파일 I/O 추상 | 미구현 | 메모장 | JKTextFile |
 | **P4** | Undo/Redo 명령 스택 | 미구현 | 그림판, 메모장 | JKCommand |
@@ -341,16 +347,10 @@
 
 1. ✅ **Invalidate / Partial Redraw** — 2026-08-31 완료.
 2. ✅ **Bitmap Blit / Sprite** — 2026-08-31 완료.
+3. ✅ **Dirty Region Union 최적화 (R3)** — 2026-09-01 완료.
+4. ✅ **Dock/Fill Layout** — 2026-09-01 완료.
 
 ### 남은 항목
-
-3. **Dirty Region Union 최적화 (R3)**
-   - Invalidate가 많이 발생하는 지뢰찾기 E 모드(16×30)나 그림판에서 중복 blit 제거.
-   - 작업량이 적고 성능 향상이 큰 항목.
-
-4. **Dock/Fill Layout**
-   - 메모장이나 지뢰찾기를 리팩토링하면서 툴바/콘텐츠 자동 배치 구현.
-   - 레이아웃 반복 코드를 대폭 줄임.
 
 5. **Accelerator Table**
    - 메모장 단축키를 구현하면서 JKApplication 레벨 단축키 추가.

@@ -722,18 +722,12 @@ public:
         int clientH = kButtonAreaHeight + kMargin + game.GetRows() * kCellSize + kMargin;
         int h = clientH + 24 + 2;
         // Keep the window top-left corner, only resize width/height.
+        // The toolbar and grid use DOCK_TOP/DOCK_FILL, so child layout updates
+        // automatically inside JKWindow::OnRectChanged.
         JKRect r = mineWindow->GetRect();
         r.w = w;
         r.h = h;
         mineWindow->SetWindowRect(r);
-
-        // The grid rect must fill the new client area below the button area.
-        const JKRect& client = mineWindow->GetClientRect();
-        if (grid) {
-            grid->SetRect(JKRect{ kMargin, kButtonAreaHeight,
-                                  client.w - kMargin * 2,
-                                  client.h - kButtonAreaHeight - kMargin });
-        }
     }
 
     void OnFirstOpen() {
@@ -792,48 +786,55 @@ void MineSweeperApp::OnInit() {
     mineWindow->SetWindowRect(JKRect{ 100, 100, 320, 380 });
     impl_->mineWindow = mineWindow.get();
 
-    // Top bar controls inside the floating window, placed below the 24px title bar.
-    auto newGameBtn = std::make_unique<JKButton>(JKRect{ 10, kButtonTopY, 50, 26 }, 101);
+    // Top toolbar band spans the top of the floating window's client area.
+    auto toolbar = std::make_unique<JKControl>();
+    toolbar->SetRect(JKRect{ 0, 0, 320, kButtonAreaHeight });
+    toolbar->SetDock(DOCK_TOP);
+    toolbar->SetPadding(2, 2, 2, 2);
+
+    auto newGameBtn = std::make_unique<JKButton>(JKRect{ 10, 6, 50, 26 }, 101);
     newGameBtn->SetText("New");
     newGameBtn->SetOnClick([this]() { impl_->NewGame(); });
-    mineWindow->AddControl(std::move(newGameBtn));
+    toolbar->AddControl(std::move(newGameBtn));
 
-    auto beginnerBtn = std::make_unique<JKButton>(JKRect{ 70, kButtonTopY, 28, 26 }, 102);
+    auto beginnerBtn = std::make_unique<JKButton>(JKRect{ 70, 6, 28, 26 }, 102);
     beginnerBtn->SetText("B");
     beginnerBtn->SetOnClick([this]() { impl_->SetDifficulty(MineSweeperGame::Difficulty::Beginner); });
-    mineWindow->AddControl(std::move(beginnerBtn));
+    toolbar->AddControl(std::move(beginnerBtn));
 
-    auto intermediateBtn = std::make_unique<JKButton>(JKRect{ 102, kButtonTopY, 28, 26 }, 103);
+    auto intermediateBtn = std::make_unique<JKButton>(JKRect{ 102, 6, 28, 26 }, 103);
     intermediateBtn->SetText("I");
     intermediateBtn->SetOnClick([this]() { impl_->SetDifficulty(MineSweeperGame::Difficulty::Intermediate); });
-    mineWindow->AddControl(std::move(intermediateBtn));
+    toolbar->AddControl(std::move(intermediateBtn));
 
-    auto expertBtn = std::make_unique<JKButton>(JKRect{ 134, kButtonTopY, 28, 26 }, 104);
+    auto expertBtn = std::make_unique<JKButton>(JKRect{ 134, 6, 28, 26 }, 104);
     expertBtn->SetText("E");
     expertBtn->SetOnClick([this]() { impl_->SetDifficulty(MineSweeperGame::Difficulty::Expert); });
-    mineWindow->AddControl(std::move(expertBtn));
+    toolbar->AddControl(std::move(expertBtn));
 
-    auto mineLabel = std::make_unique<JKStatic>(JKRect{ 170, kButtonTopY, 70, 24 }, 105);
+    auto mineLabel = std::make_unique<JKStatic>(JKRect{ 170, 6, 70, 24 }, 105);
     mineLabel->SetText("Mines: 10");
     mineLabel->SetTextColor(0, 0, 0);
     impl_->mineLabel = mineLabel.get();
-    mineWindow->AddControl(std::move(mineLabel));
+    toolbar->AddControl(std::move(mineLabel));
 
-    auto timeLabel = std::make_unique<JKStatic>(JKRect{ 240, kButtonTopY, 70, 24 }, 106);
+    auto timeLabel = std::make_unique<JKStatic>(JKRect{ 240, 6, 70, 24 }, 106);
     timeLabel->SetText("Time: 0");
     timeLabel->SetTextColor(0, 0, 0);
     impl_->timeLabel = timeLabel.get();
-    mineWindow->AddControl(std::move(timeLabel));
+    toolbar->AddControl(std::move(timeLabel));
+
+    mineWindow->AddControl(std::move(toolbar));
 
     // The mine grid occupies the rest of the floating window client area.
-    JKRect gridRect{ kMargin, kButtonAreaHeight,
-                     320 - kMargin * 2,
-                     380 - kButtonAreaHeight - kMargin };
+    // Margins are applied by DOCK_FILL in PerformLayout.
     auto grid = std::make_unique<MineGrid>(
-        gridRect, impl_->game,
+        JKRect{ 0, 0, 100, 100 }, impl_->game,
         [this]() { impl_->OnChanged(); },
         [this](bool won) { impl_->OnGameOver(won); },
         [this]() { impl_->OnFirstOpen(); });
+    grid->SetDock(DOCK_FILL);
+    grid->SetMargins(kMargin, kMargin, kMargin, kMargin);
     impl_->grid = grid.get();
     mineWindow->AddControl(std::move(grid));
 

@@ -22,6 +22,14 @@ constexpr uint32_t ANCHOR_BOTTOM = 0x00000008;
 constexpr uint32_t ANCHOR_HMASK  = ANCHOR_LEFT | ANCHOR_RIGHT;
 constexpr uint32_t ANCHOR_VMASK  = ANCHOR_TOP  | ANCHOR_BOTTOM;
 
+// Dock flags for edge/fill layout. When a dock flag is set, anchors are ignored.
+constexpr uint32_t DOCK_NONE   = 0x00000000;
+constexpr uint32_t DOCK_LEFT   = 0x00000100;
+constexpr uint32_t DOCK_RIGHT  = 0x00000200;
+constexpr uint32_t DOCK_TOP    = 0x00000400;
+constexpr uint32_t DOCK_BOTTOM = 0x00000800;
+constexpr uint32_t DOCK_FILL   = 0x00001000;
+
 class JKControl {
 public:
     JKControl();
@@ -66,6 +74,9 @@ public:
     // Layout API
     void SetAnchor(uint32_t anchors);
     uint32_t GetAnchor() const;
+
+    void SetDock(uint32_t dock);
+    uint32_t GetDock() const;
 
     void SetMargins(int32_t left, int32_t top, int32_t right, int32_t bottom);
     void GetMargins(int32_t& left, int32_t& top, int32_t& right, int32_t& bottom) const;
@@ -131,6 +142,7 @@ protected:
     bool focusable_ = false;
 
     uint32_t anchors_ = ANCHOR_NONE;
+    uint32_t dock_ = DOCK_NONE;
     int32_t marginLeft_ = 0;
     int32_t marginTop_ = 0;
     int32_t marginRight_ = 0;
