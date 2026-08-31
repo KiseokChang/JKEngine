@@ -54,6 +54,55 @@ JKRenderBackend::TextureHandle JKResourceCache::GetImage(const std::string& key)
     return (it != images_.end()) ? it->second.texture : JKRenderBackend::InvalidTexture;
 }
 
+JKPoint JKResourceCache::GetImageSize(const std::string& key) const {
+    auto it = images_.find(key);
+    if (it != images_.end()) {
+        return JKPoint{ it->second.w, it->second.h };
+    }
+    return JKPoint{ 0, 0 };
+}
+
+bool JKResourceCache::CreateImageFromRGBA(const std::string& key,
+                                          int w, int h,
+                                          const std::vector<uint8_t>& rgba) {
+    if (!backend_ || w <= 0 || h <= 0 ||
+        static_cast<size_t>(w * h * 4) != rgba.size()) {
+        return false;
+    }
+    UnloadImage(key);
+
+    SDL_Surface* surface = SDL_CreateRGBSurfaceFrom(
+        const_cast<uint8_t*>(rgba.data()),
+        w, h, 32, w * 4,
+        0x000000ff, 0x0000ff00, 0x00ff0000, 0xff000000);
+    if (!surface) {
+        std::fprintf(stderr, "JKResourceCache: failed to create surface for '%s': %s\n",
+                     key.c_str(), SDL_GetError());
+        return false;
+    }
+
+    SDL_Renderer* renderer = static_cast<SDL_Renderer*>(backend_->GetNativeHandle());
+    if (!renderer) {
+        SDL_FreeSurface(surface);
+        return false;
+    }
+
+    SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
+    SDL_FreeSurface(surface);
+    if (!texture) {
+        std::fprintf(stderr, "JKResourceCache: failed to create texture for '%s': %s\n",
+                     key.c_str(), SDL_GetError());
+        return false;
+    }
+
+    CachedImage img;
+    img.texture = texture;
+    img.w = w;
+    img.h = h;
+    images_[key] = img;
+    return true;
+}
+
 void JKResourceCache::UnloadImage(const std::string& key) {
     auto it = images_.find(key);
     if (it != images_.end()) {

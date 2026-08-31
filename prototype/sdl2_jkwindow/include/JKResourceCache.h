@@ -22,6 +22,11 @@ public:
     bool LoadImageBMP(const std::string& key, const std::string& path);
     bool HasImage(const std::string& key) const;
     JKRenderBackend::TextureHandle GetImage(const std::string& key) const;
+    JKPoint GetImageSize(const std::string& key) const;
+    // Create a texture from an in-memory RGBA buffer and cache it.
+    bool CreateImageFromRGBA(const std::string& key,
+                             int w, int h,
+                             const std::vector<uint8_t>& rgba);
     void UnloadImage(const std::string& key);
     void UnloadAllImages();
 

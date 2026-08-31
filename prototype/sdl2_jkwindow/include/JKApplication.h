@@ -56,6 +56,7 @@ protected:
     virtual void RouteMessage(const JKEvent& ev);
 
     void Render();
+    void RenderDirtyRegions(JKWindow* dirtyWindow);
     JKEvent TranslateSDLEvent(const SDL_Event& sdl);
     void UpdateScale();
 
@@ -82,8 +83,10 @@ private:
     float scaleX_ = 1.0f;
     float scaleY_ = 1.0f;
 
-    // 앱 논리 좌표계(Init에 요청한 크기). 창이 화면 작업 영역에 맞춰 줄어들어도
-    // 앱 레이아웃 좌표계는 이 크기로 고정되고, 렌더링/입력만 스케일된다.
+    // 앱 논리 좌표계. Init 요청 크기로 시작하며, 창이 생성된 후에는
+    // SDL_GetWindowSize()가 보고하는 실제 창 논리 포인트 크기로 동기화한다.
+    // 내부 레이아웃/hit-test/드래그는 이 좌표계를 그대로 사용하고, 렌더링/입력만
+    // HiDPI 물리 픽셀에 맞춰 스케일한다.
     int logicalWidth_ = 0;
     int logicalHeight_ = 0;
 

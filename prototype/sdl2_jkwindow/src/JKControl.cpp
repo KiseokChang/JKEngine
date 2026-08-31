@@ -388,4 +388,32 @@ void JKControl::RemoveClosedChildren() {
     children_.erase(it, children_.end());
 }
 
+void JKControl::Invalidate() {
+    InvalidateRect(JKRect{ 0, 0, rect_.w, rect_.h });
+}
+
+void JKControl::InvalidateRect(const JKRect& rect) {
+    if (rect.IsEmpty()) return;
+
+    // Convert the local rectangle to screen coordinates.
+    const JKRect screen = GetScreenRect();
+    JKRect screenRect{
+        screen.x + rect.x,
+        screen.y + rect.y,
+        rect.w,
+        rect.h
+    };
+
+    // Walk up to the nearest JKWindow and register the dirty region.
+    JKControl* p = this;
+    while (p) {
+        JKWindow* win = dynamic_cast<JKWindow*>(p);
+        if (win) {
+            win->AddDirtyRect(screenRect);
+            return;
+        }
+        p = p->GetParent();
+    }
+}
+
 } // namespace jk

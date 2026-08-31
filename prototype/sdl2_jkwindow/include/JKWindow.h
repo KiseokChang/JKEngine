@@ -37,6 +37,12 @@ public:
     void OnPaintClient(JKDC& dc) override;
     void RespondMessage(const JKEvent& ev) override;
 
+    // Dirty-region management for partial redraw.
+    void AddDirtyRect(const JKRect& screenRect);
+    bool HasDirtyRects() const { return !dirtyRects_.empty(); }
+    const std::vector<JKRect>& GetDirtyRects() const { return dirtyRects_; }
+    void ClearDirtyRects();
+
 protected:
     std::string title_;
     JKControl* focusChild_ = nullptr;
@@ -55,6 +61,9 @@ protected:
     JKRect GetCloseButtonRect() const;
 
     JKRect GetScreenClientRect() const override;
+
+private:
+    std::vector<JKRect> dirtyRects_;
 };
 
 } // namespace jk

@@ -106,6 +106,12 @@ public:
 
     const std::vector<std::unique_ptr<JKControl>>& GetChildren() const;
 
+    // Partial redraw: mark this control (or a sub-rectangle in control-local
+    // coordinates) as needing repaint. The top-level JKWindow accumulates the
+    // screen-space dirty region and Render() clips to it.
+    void Invalidate();
+    void InvalidateRect(const JKRect& rect);
+
     void RequestClose();
     bool IsCloseRequested() const;
     void RemoveClosedChildren();

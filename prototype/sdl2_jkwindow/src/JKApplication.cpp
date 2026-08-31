@@ -53,11 +53,17 @@ bool JKApplication::Init(const std::string& title, int width, int height) {
         }
     }
 
-    // 앱 논리 좌표계는 Init에 요청한 크기로 고정한다. 창이 화면(작업 영역)보다
-    // 작아지더라도 앱 레이아웃은 이 좌표계를 그대로 사용하고, UpdateScale()이
-    // 렌더링/입력을 등비(레터박스)로 스케일한다.
+    // 앱 논리 좌표계는 Init에 요청한 크기로 시작한다. 실제 창이 생성된 뒤에는
+    // SDL_GetWindowSize()가 보고하는 논리 포인트 크기로 덮어쓴다. 그래야
+    // HiDPI 환경에서도 내용이 창에 꽉 차고, 레터박스(회색 여백) 없이 1:1로
+    // 렌더링된다. 요청 크기는 여전히 창 생성 시의 힌트로 사용된다.
     logicalWidth_ = width;
     logicalHeight_ = height;
+
+    // 임시로 요청한 크기의 창을 띄워 본 뒤, SDL이 보고하는 실제 논리 포인트
+    // 크기를 앱 좌표계로 삼는다. 이 값은 CreateWindow 직후 얻을 수 있다.
+    int actualW = width;
+    int actualH = height;
 
     // 창(타이틀 바/테두리 포함)이 화면 작업 영역(작업표시줄 제외)보다 크면
     // 생성 크기를 줄여서 전체 창이 화면 안에 들어오게 한다.
@@ -94,9 +100,15 @@ bool JKApplication::Init(const std::string& title, int width, int height) {
         return false;
     }
 
+    // SDL이 실제로 생성한 창의 논리 포인트 크기를 앱 좌표계로 채택한다.
+    // (HiDPI + Windows 작업 표시줄/장식 보정 후의 값)
+    SDL_GetWindowSize(window_, &actualW, &actualH);
+    logicalWidth_ = actualW;
+    logicalHeight_ = actualH;
+
     std::fprintf(stderr,
-        "[DPISYNC] window created at pt=%dx%d (requested %dx%d)\n",
-        createW, createH, width, height);
+        "[DPISYNC] window created at pt=%dx%d (requested %dx%d, logical %dx%d)\n",
+        createW, createH, width, height, actualW, actualH);
 
     sdlRenderer_ = SDL_CreateRenderer(window_, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!sdlRenderer_) {
@@ -361,16 +373,34 @@ void JKApplication::RouteMessage(const JKEvent& ev) {
 }
 
 void JKApplication::Render() {
-    if (!renderBackend_) return;
+    if (!renderBackend_ || backBuffer_ == JKRenderBackend::InvalidTexture) {
+        // Nothing to draw until the backbuffer is ready.
+        return;
+    }
 
-    // Render everything into the backbuffer at scaled logical coordinates.
-    // Set the target first so the scale is applied to the backbuffer rather
-    // than the previous/default target (some SDL drivers reset scale on
-    // target changes).
+    // Decide whether we can use partial redraw.
+    // If there are no dirty regions, fall back to the full-screen path so that
+    // the very first frame and resize events are handled correctly.
+    JKWindow* dirtyWindow = nullptr;
+    if (mainWindow_ && mainWindow_->HasDirtyRects()) {
+        dirtyWindow = mainWindow_.get();
+    } else if (modalWindow_ && modalWindow_->HasDirtyRects()) {
+        dirtyWindow = modalWindow_;
+    }
+
+    if (dirtyWindow) {
+        RenderDirtyRegions(dirtyWindow);
+        return;
+    }
+
+    // Full redraw path.
+    // 백버퍼는 물리 픽셀 크기이지만, 앱 좌표계(논리 포인트)로 그리기 위해
+    // SDL 렌더 스케일을 fit으로 설정한다. 그러면 24pt 타이틀 바가 125% DPI에서
+    // 30px로 렌더링되는 등 Windows GUI와 동일한 HiDPI 동작을 얻는다.
     renderBackend_->SetRenderTarget(backBuffer_);
     renderBackend_->SetScale(scaleX_, scaleY_);
 
-    // desktop background
+    // desktop background (논리 좌표, 스케일에 의해 물리 픽셀로 확대)
     dc_.SetColor(192, 192, 192, 255);
     dc_.Clear();
 
@@ -384,21 +414,67 @@ void JKApplication::Render() {
     }
 
     // Blit the backbuffer to the default render target in unscaled pixel coords.
-    // 화면 전체를 데스크톱 배경색으로 먼저 지운다(레터박스 여백).
+    // backbuffer는 이미 물리 픽셀 크기이므로 1:1로 화면에 복사한다.
     renderBackend_->SetRenderTarget(nullptr);
     renderBackend_->SetScale(1.0f, 1.0f);
     renderBackend_->SetDrawColor(192, 192, 192, 255);
     renderBackend_->Clear();
-    // 앱 좌표계 내용 영역(appW*scale x appH*scale)만 레터박스 여백 중앙에 배치한다.
-    const int appW = (logicalWidth_ > 0) ? logicalWidth_ : backBufferW_;
-    const int appH = (logicalHeight_ > 0) ? logicalHeight_ : backBufferH_;
-    const int contentW = static_cast<int>(appW * scaleX_ + 0.5f);
-    const int contentH = static_cast<int>(appH * scaleY_ + 0.5f);
-    const jk::JKRect srcRect{ 0, 0, contentW, contentH };
+    const jk::JKRect srcRect{ 0, 0, backBufferW_, backBufferH_ };
     renderBackend_->BlitTexture(
         backBuffer_,
         &srcRect,
-        jk::JKRect{ letterboxX_, letterboxY_, contentW, contentH });
+        jk::JKRect{ 0, 0, backBufferW_, backBufferH_ });
+    renderBackend_->Present();
+}
+
+void JKApplication::RenderDirtyRegions(JKWindow* dirtyWindow) {
+    const auto& dirtyRects = dirtyWindow->GetDirtyRects();
+    if (dirtyRects.empty()) return;
+
+    // Render into the backbuffer in app logical coordinates, scaled to physical
+    // pixels by SDL_RenderSetScale(fit). The dirty regions are registered in
+    // app logical coordinates by JKControl::InvalidateRect, so the clip rect
+    // and FillRect calls are consistent with the window hierarchy painting.
+    renderBackend_->SetRenderTarget(backBuffer_);
+    renderBackend_->SetScale(scaleX_, scaleY_);
+
+    for (const auto& dirty : dirtyRects) {
+        if (dirty.w <= 0 || dirty.h <= 0) continue;
+
+        // Clip to the dirty region (app logical coords).
+        dc_.PushClipRect(dirty);
+
+        // Clear the dirty area to the desktop background first, then redraw
+        // the window hierarchy over it. Because controls overlap and child
+        // windows are drawn on top, we repaint the relevant window branch.
+        dc_.SetColor(192, 192, 192, 255);
+        dc_.FillRect(dirty);
+
+        if (mainWindow_) {
+            mainWindow_->PaintWindow(dc_);
+            mainWindow_->PaintClient(dc_);
+        }
+        if (modalWindow_) {
+            modalWindow_->PaintWindow(dc_);
+            modalWindow_->PaintClient(dc_);
+        }
+
+        dc_.PopClipRect();
+    }
+
+    dirtyWindow->ClearDirtyRects();
+
+    // Backbuffer already contains the full scene updated for dirty regions;
+    // blit it 1:1 to the default render target (both are physical pixels).
+    renderBackend_->SetRenderTarget(nullptr);
+    renderBackend_->SetScale(1.0f, 1.0f);
+    renderBackend_->SetDrawColor(192, 192, 192, 255);
+    renderBackend_->Clear();
+    const jk::JKRect srcRect{ 0, 0, backBufferW_, backBufferH_ };
+    renderBackend_->BlitTexture(
+        backBuffer_,
+        &srcRect,
+        jk::JKRect{ 0, 0, backBufferW_, backBufferH_ });
     renderBackend_->Present();
 }
 
@@ -520,12 +596,19 @@ void JKApplication::UpdateScale() {
     int renderW = 0, renderH = 0;
     renderBackend_->GetOutputSize(renderW, renderH);
 
-    // 앱 좌표계는 Init에 요청한 논리 크기로 고정한다.
-    const int appW = (logicalWidth_ > 0) ? logicalWidth_ : windowW;
-    const int appH = (logicalHeight_ > 0) ? logicalHeight_ : windowH;
+    // 앱 논리 좌표계는 SDL이 보고하는 창 논리 포인트 크기와 동일하게 유지한다.
+    // HiDPI 환경에서도 UI 요소(버튼, 타이틀 바, 폰트)가 Windows GUI처럼 일관된
+    // 크기로 보이려면, 렌더링만 물리 픽셀에 맞춰 스케일하고 내부 좌표계는
+    // 논리 포인트를 그대로 사용해야 한다. 요청 크기에 강제 고정하지 않으며,
+    // 창이 화면 작업 영역에 맞춰 줄어들면 좌표계도 같이 줄어든다.
+    logicalWidth_ = windowW;
+    logicalHeight_ = windowH;
+    const int appW = logicalWidth_;
+    const int appH = logicalHeight_;
 
-    // 등비(레터박스) 스케일: 창 비율이 앱 좌표계 비율과 달라도 왜곡 없이
-    // 앱 내용 전체가 보이도록 x/y 배율을 통일하고 남는 영역은 여백으로 둔다.
+    // 등비(레터박스) 스케일: 창 논리 크기를 물리 출력 크기에 맞춘다.
+    // 창과 렌더러는 동일한 창의 다른 단위이므로 비율이 같고, 레터박스는 0에
+    // 가깝다. 추가 축소 없이 전체 내용을 1:1(물리 픽셀 기준)로 채운다.
     if (appW > 0 && appH > 0 && renderW > 0 && renderH > 0) {
         const float fitX = renderW / static_cast<float>(appW);
         const float fitY = renderH / static_cast<float>(appH);
@@ -552,8 +635,8 @@ void JKApplication::UpdateScale() {
         sLoggedW = windowW; sLoggedH = windowH;
         sLoggedRW = renderW; sLoggedRH = renderH;
         std::fprintf(stderr,
-            "[DPISYNC] UpdateScale: pt=%dx%d render=%dx%d ptToPhys=(%.3f,%.3f) fit=%.3f\n",
-            windowW, windowH, renderW, renderH, ptToPhysX_, ptToPhysY_, scaleX_);
+            "[DPISYNC] UpdateScale: pt=%dx%d render=%dx%d ptToPhys=(%.3f,%.3f) fit=%.3f lb=(%d,%d)\n",
+            windowW, windowH, renderW, renderH, ptToPhysX_, ptToPhysY_, scaleX_, letterboxX_, letterboxY_);
     }
 
     mainWindow_->SetWindowRect(JKRect{ 0, 0, appW, appH });
@@ -577,6 +660,11 @@ void JKApplication::CreateOrResizeBackBuffer() {
     if (!renderBackend_) return;
     int w = 0, h = 0;
     (*renderBackend_).GetOutputSize(w, h);
+    if (w <= 0 || h <= 0) {
+        // A zero-sized render target is invalid and will crash later draws.
+        // Keep the previous buffer if we have one; otherwise leave it invalid.
+        return;
+    }
     if (backBuffer_ != JKRenderBackend::InvalidTexture &&
         w == backBufferW_ && h == backBufferH_) {
         return;

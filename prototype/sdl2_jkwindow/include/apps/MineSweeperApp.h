@@ -104,6 +104,9 @@ public:
 
     void OnPaintClient(JKDC& dc) override;
     void RespondMessage(const JKEvent& ev) override;
+    void OnKillFocus() override;
+
+    void ResetChordState();
 
 private:
     MineSweeperGame& game_;
@@ -117,7 +120,8 @@ private:
     int chordRow_ = -1;
     int chordCol_ = -1;
 
-    bool HitTestCell(int x, int y, int& row, int& col) const;
+    bool HitTestCell(int x, int y, int& row, int& col,
+                     JKRect* outCellRect = nullptr) const;
     void DrawCell(JKDC& dc, int row, int col, const JKRect& cell) const;
 
     bool TryChordAt(int x, int y);

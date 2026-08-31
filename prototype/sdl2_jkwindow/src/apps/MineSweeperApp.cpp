@@ -4,6 +4,7 @@
 #include <JKApplication.h>
 #include <JKButton.h>
 #include <JKMessageBox.h>
+#include <JKResourceCache.h>
 #include <JKStatic.h>
 #include <JKWindow.h>
 #include <JKTypes.h>
@@ -13,15 +14,111 @@
 #include <queue>
 #include <random>
 #include <utility>
+#include <vector>
 
 namespace jk {
 
 namespace {
 
-constexpr int kButtonAreaHeight = 44;
+constexpr int kButtonAreaHeight = 56;
+constexpr int kButtonTopY = 30;
 constexpr int kMargin = 10;
 constexpr int kCellSize = 24;
 constexpr int kMinWindowWidth = 200;
+constexpr int kIconSize = 16;
+
+// Simple 16x16 RGBA icon generators (no external files needed).
+std::vector<uint8_t> CreateMineIcon() {
+    std::vector<uint8_t> data(kIconSize * kIconSize * 4, 0);
+    auto set = [&](int x, int y, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+        if (x < 0 || x >= kIconSize || y < 0 || y >= kIconSize) return;
+        int idx = (y * kIconSize + x) * 4;
+        data[idx + 0] = r;
+        data[idx + 1] = g;
+        data[idx + 2] = b;
+        data[idx + 3] = a;
+    };
+    auto drawCircle = [&](int cx, int cy, int radius, uint8_t r, uint8_t g, uint8_t b) {
+        for (int y = -radius; y <= radius; ++y) {
+            for (int x = -radius; x <= radius; ++x) {
+                if (x * x + y * y <= radius * radius + radius / 2) {
+                    set(cx + x, cy + y, r, g, b, 255);
+                }
+            }
+        }
+    };
+    auto drawLine = [&](int x1, int y1, int x2, int y2, uint8_t r, uint8_t g, uint8_t b) {
+        int dx = std::abs(x2 - x1), sx = x1 < x2 ? 1 : -1;
+        int dy = -std::abs(y2 - y1), sy = y1 < y2 ? 1 : -1;
+        int err = dx + dy;
+        while (true) {
+            set(x1, y1, r, g, b, 255);
+            if (x1 == x2 && y1 == y2) break;
+            int e2 = 2 * err;
+            if (e2 >= dy) { err += dy; x1 += sx; }
+            if (e2 <= dx) { err += dx; y1 += sy; }
+        }
+    };
+    // Black mine body with grey highlight.
+    drawCircle(8, 8, 5, 0, 0, 0);
+    drawCircle(6, 6, 1, 192, 192, 192);
+    // Spikes.
+    drawLine(8, 1, 8, 4, 0, 0, 0);
+    drawLine(8, 11, 8, 14, 0, 0, 0);
+    drawLine(1, 8, 4, 8, 0, 0, 0);
+    drawLine(11, 8, 14, 8, 0, 0, 0);
+    drawLine(3, 3, 5, 5, 0, 0, 0);
+    drawLine(11, 3, 13, 5, 0, 0, 0);
+    drawLine(3, 13, 5, 11, 0, 0, 0);
+    drawLine(11, 13, 13, 11, 0, 0, 0);
+    return data;
+}
+
+std::vector<uint8_t> CreateFlagIcon() {
+    std::vector<uint8_t> data(kIconSize * kIconSize * 4, 0);
+    auto set = [&](int x, int y, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+        if (x < 0 || x >= kIconSize || y < 0 || y >= kIconSize) return;
+        int idx = (y * kIconSize + x) * 4;
+        data[idx + 0] = r;
+        data[idx + 1] = g;
+        data[idx + 2] = b;
+        data[idx + 3] = a;
+    };
+    // Pole.
+    for (int y = 2; y < 14; ++y) set(5, y, 0, 0, 0, 255);
+    // Base.
+    for (int x = 3; x < 8; ++x) set(x, 13, 0, 0, 0, 255);
+    // Red flag.
+    for (int y = 2; y < 7; ++y) {
+        int width = 6 - (y - 2);
+        for (int x = 6; x < 6 + width; ++x) set(x, y, 255, 0, 0, 255);
+    }
+    return data;
+}
+
+std::vector<uint8_t> CreateQuestionIcon() {
+    std::vector<uint8_t> data(kIconSize * kIconSize * 4, 0);
+    auto set = [&](int x, int y, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+        if (x < 0 || x >= kIconSize || y < 0 || y >= kIconSize) return;
+        int idx = (y * kIconSize + x) * 4;
+        data[idx + 0] = r;
+        data[idx + 1] = g;
+        data[idx + 2] = b;
+        data[idx + 3] = a;
+    };
+    auto setRect = [&](int x, int y, int w, int h, uint8_t r, uint8_t g, uint8_t b) {
+        for (int yy = y; yy < y + h; ++yy)
+            for (int xx = x; xx < x + w; ++xx)
+                set(xx, yy, r, g, b, 255);
+    };
+    // Question mark shape (black).
+    setRect(5, 3, 6, 2, 0, 0, 0);   // top bar
+    setRect(9, 3, 2, 6, 0, 0, 0);   // right vertical
+    setRect(5, 7, 6, 2, 0, 0, 0);   // middle bar
+    setRect(5, 7, 2, 4, 0, 0, 0);   // left tail
+    setRect(6, 12, 3, 2, 0, 0, 0);  // dot
+    return data;
+}
 
 struct NumberColor {
     uint8_t r;
@@ -297,7 +394,7 @@ MineGrid::MineGrid(const JKRect& rect, MineSweeperGame& game,
     SetFocusable(true);
 }
 
-bool MineGrid::HitTestCell(int x, int y, int& row, int& col) const {
+bool MineGrid::HitTestCell(int x, int y, int& row, int& col, JKRect* outCellRect) const {
     const JKRect client = GetScreenClientRect();
     int cols = game_.GetCols();
     int rows = game_.GetRows();
@@ -314,7 +411,15 @@ bool MineGrid::HitTestCell(int x, int y, int& row, int& col) const {
 
     col = lx / cellSize;
     row = ly / cellSize;
-    return col < cols && row < rows;
+    if (col >= cols || row >= rows) return false;
+
+    if (outCellRect) {
+        outCellRect->x = client.x + offsetX + col * cellSize;
+        outCellRect->y = client.y + offsetY + row * cellSize;
+        outCellRect->w = cellSize;
+        outCellRect->h = cellSize;
+    }
+    return true;
 }
 
 void MineGrid::OnPaintClient(JKDC& dc) {
@@ -351,12 +456,19 @@ void MineGrid::DrawCell(JKDC& dc, int row, int col, const JKRect& cell) const {
     bool isMine = game_.IsMine(row, col);
     auto mark = game_.GetMark(row, col);
 
+    JKResourceCache* cache = g_currentJKApp ? g_currentJKApp->GetResourceCache() : nullptr;
+
     if (revealed && isMine) {
         // The mine that ended the game.
         dc.SetColor(255, 0, 0, 255);
         dc.FillRect(cell);
-        dc.SetTextColor(0, 0, 0);
-        dc.TextOutX(cell, "*", ADJ_XYCENTER, false);
+        if (cache) {
+            auto tex = cache->GetImage("mine");
+            dc.DrawSpriteX(cell, tex, kIconSize, kIconSize, ADJ_XYCENTER);
+        } else {
+            dc.SetTextColor(0, 0, 0);
+            dc.TextOutX(cell, "*", ADJ_XYCENTER, false);
+        }
         return;
     }
 
@@ -364,11 +476,21 @@ void MineGrid::DrawCell(JKDC& dc, int row, int col, const JKRect& cell) const {
         // Covered cell with raised border.
         dc.Box3D(cell, 2, 192, 192, 192, 255, 255, 255, 0, 0, 0);
         if (mark == MineSweeperGame::Mark::Flag) {
-            dc.SetTextColor(255, 0, 0);
-            dc.TextOutX(cell, "F", ADJ_XYCENTER, false);
+            if (cache) {
+                auto tex = cache->GetImage("flag");
+                dc.DrawSpriteX(cell, tex, kIconSize, kIconSize, ADJ_XYCENTER);
+            } else {
+                dc.SetTextColor(255, 0, 0);
+                dc.TextOutX(cell, "F", ADJ_XYCENTER, false);
+            }
         } else if (mark == MineSweeperGame::Mark::Question) {
-            dc.SetTextColor(0, 0, 0);
-            dc.TextOutX(cell, "?", ADJ_XYCENTER, false);
+            if (cache) {
+                auto tex = cache->GetImage("question");
+                dc.DrawSpriteX(cell, tex, kIconSize, kIconSize, ADJ_XYCENTER);
+            } else {
+                dc.SetTextColor(0, 0, 0);
+                dc.TextOutX(cell, "?", ADJ_XYCENTER, false);
+            }
         }
         return;
     }
@@ -381,8 +503,13 @@ void MineGrid::DrawCell(JKDC& dc, int row, int col, const JKRect& cell) const {
 
     if (game_.IsGameOver() && isMine) {
         // Reveal all mines when the game is over.
-        dc.SetTextColor(0, 0, 0);
-        dc.TextOutX(cell, "*", ADJ_XYCENTER, false);
+        if (cache) {
+            auto tex = cache->GetImage("mine");
+            dc.DrawSpriteX(cell, tex, kIconSize, kIconSize, ADJ_XYCENTER);
+        } else {
+            dc.SetTextColor(0, 0, 0);
+            dc.TextOutX(cell, "*", ADJ_XYCENTER, false);
+        }
         return;
     }
 
@@ -393,6 +520,17 @@ void MineGrid::DrawCell(JKDC& dc, int row, int col, const JKRect& cell) const {
         char buf[2] = { static_cast<char>('0' + adj), '\0' };
         dc.TextOutX(cell, buf, ADJ_XYCENTER, false);
     }
+}
+
+void MineGrid::ResetChordState() {
+    leftDown_ = false;
+    rightDown_ = false;
+    chordRow_ = -1;
+    chordCol_ = -1;
+}
+
+void MineGrid::OnKillFocus() {
+    ResetChordState();
 }
 
 bool MineGrid::TryChordAt(int x, int y) {
@@ -408,6 +546,9 @@ bool MineGrid::TryChordAt(int x, int y) {
         onChanged_();
         if (game_.IsGameOver()) {
             onGameOver_(game_.IsWon());
+        } else {
+            // Chord may open multiple cells; invalidate the entire board region.
+            Invalidate();
         }
     }
     return changed;
@@ -416,6 +557,13 @@ bool MineGrid::TryChordAt(int x, int y) {
 void MineGrid::RespondMessage(const JKEvent& ev) {
     if (ev.type == JKEventType::MouseDown) {
         SetFocus();
+
+        // If the game has ended, clear any stuck chord state and ignore input.
+        if (game_.IsGameOver()) {
+            ResetChordState();
+            return;
+        }
+
         int row = 0, col = 0;
         bool inside = HitTestCell(ev.x, ev.y, row, col);
 
@@ -439,6 +587,9 @@ void MineGrid::RespondMessage(const JKEvent& ev) {
                     onChanged_();
                     if (game_.IsGameOver()) {
                         onGameOver_(game_.IsWon());
+                    } else {
+                        // Opening a zero cell flood-fills a region; invalidate the board.
+                        Invalidate();
                     }
                 }
             }
@@ -458,6 +609,16 @@ void MineGrid::RespondMessage(const JKEvent& ev) {
             if (inside) {
                 game_.CycleMark(row, col);
                 onChanged_();
+                JKRect cell;
+                HitTestCell(ev.x, ev.y, row, col, &cell);
+                // The raised border of a cell touches its neighbours, so expand
+                // the invalidation rectangle by the border depth (2) to avoid
+                // leaving visual artifacts on adjacent cells.
+                cell.x -= 2;
+                cell.y -= 2;
+                cell.w += 4;
+                cell.h += 4;
+                InvalidateRect(cell);
             }
             return;
         }
@@ -525,11 +686,24 @@ public:
     bool timerRunning = false;
     bool gameOverShown = false;
 
+    bool iconsLoaded = false;
+
+    void LoadIcons() {
+        if (iconsLoaded) return;
+        JKResourceCache* cache = app ? app->GetResourceCache() : nullptr;
+        if (!cache) return;
+        cache->CreateImageFromRGBA("mine", kIconSize, kIconSize, CreateMineIcon());
+        cache->CreateImageFromRGBA("flag", kIconSize, kIconSize, CreateFlagIcon());
+        cache->CreateImageFromRGBA("question", kIconSize, kIconSize, CreateQuestionIcon());
+        iconsLoaded = true;
+    }
+
     void NewGame() {
         game.NewGame();
         elapsedSeconds = 0;
         timerRunning = false;
         gameOverShown = false;
+        if (grid) grid->ResetChordState();
         UpdateLabels();
         if (grid) grid->SetFocus();
     }
@@ -542,8 +716,11 @@ public:
 
     void ResizeMineWindow() {
         if (!mineWindow) return;
+        // The window rect must include the 24px title bar and 2px bottom border
+        // on top of the client area used by the toolbar, margins, and grid.
         int w = std::max(kMinWindowWidth, kMargin * 2 + game.GetCols() * kCellSize);
-        int h = kButtonAreaHeight + kMargin + game.GetRows() * kCellSize + kMargin;
+        int clientH = kButtonAreaHeight + kMargin + game.GetRows() * kCellSize + kMargin;
+        int h = clientH + 24 + 2;
         // Keep the window top-left corner, only resize width/height.
         JKRect r = mineWindow->GetRect();
         r.w = w;
@@ -575,6 +752,7 @@ public:
     void OnGameOver(bool won) {
         timerRunning = false;
         gameOverShown = true;
+        if (grid) grid->ResetChordState();
         std::string title = won ? "Victory" : "Game Over";
         std::string message = won ? "You cleared the minefield!" : "BOOM! You hit a mine.";
 
@@ -614,34 +792,34 @@ void MineSweeperApp::OnInit() {
     mineWindow->SetWindowRect(JKRect{ 100, 100, 320, 380 });
     impl_->mineWindow = mineWindow.get();
 
-    // Top bar controls inside the floating window.
-    auto newGameBtn = std::make_unique<JKButton>(JKRect{ 10, 8, 50, 28 }, 101);
+    // Top bar controls inside the floating window, placed below the 24px title bar.
+    auto newGameBtn = std::make_unique<JKButton>(JKRect{ 10, kButtonTopY, 50, 26 }, 101);
     newGameBtn->SetText("New");
     newGameBtn->SetOnClick([this]() { impl_->NewGame(); });
     mineWindow->AddControl(std::move(newGameBtn));
 
-    auto beginnerBtn = std::make_unique<JKButton>(JKRect{ 70, 8, 28, 28 }, 102);
+    auto beginnerBtn = std::make_unique<JKButton>(JKRect{ 70, kButtonTopY, 28, 26 }, 102);
     beginnerBtn->SetText("B");
     beginnerBtn->SetOnClick([this]() { impl_->SetDifficulty(MineSweeperGame::Difficulty::Beginner); });
     mineWindow->AddControl(std::move(beginnerBtn));
 
-    auto intermediateBtn = std::make_unique<JKButton>(JKRect{ 102, 8, 28, 28 }, 103);
+    auto intermediateBtn = std::make_unique<JKButton>(JKRect{ 102, kButtonTopY, 28, 26 }, 103);
     intermediateBtn->SetText("I");
     intermediateBtn->SetOnClick([this]() { impl_->SetDifficulty(MineSweeperGame::Difficulty::Intermediate); });
     mineWindow->AddControl(std::move(intermediateBtn));
 
-    auto expertBtn = std::make_unique<JKButton>(JKRect{ 134, 8, 28, 28 }, 104);
+    auto expertBtn = std::make_unique<JKButton>(JKRect{ 134, kButtonTopY, 28, 26 }, 104);
     expertBtn->SetText("E");
     expertBtn->SetOnClick([this]() { impl_->SetDifficulty(MineSweeperGame::Difficulty::Expert); });
     mineWindow->AddControl(std::move(expertBtn));
 
-    auto mineLabel = std::make_unique<JKStatic>(JKRect{ 170, 10, 70, 24 }, 105);
+    auto mineLabel = std::make_unique<JKStatic>(JKRect{ 170, kButtonTopY, 70, 24 }, 105);
     mineLabel->SetText("Mines: 10");
     mineLabel->SetTextColor(0, 0, 0);
     impl_->mineLabel = mineLabel.get();
     mineWindow->AddControl(std::move(mineLabel));
 
-    auto timeLabel = std::make_unique<JKStatic>(JKRect{ 170, 32, 70, 24 }, 106);
+    auto timeLabel = std::make_unique<JKStatic>(JKRect{ 240, kButtonTopY, 70, 24 }, 106);
     timeLabel->SetText("Time: 0");
     timeLabel->SetTextColor(0, 0, 0);
     impl_->timeLabel = timeLabel.get();
@@ -663,6 +841,7 @@ void MineSweeperApp::OnInit() {
     SetMainWindow(std::move(main));
 
     SetTimerInterval(1000);
+    impl_->LoadIcons();
     impl_->NewGame();
 }
 

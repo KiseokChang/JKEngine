@@ -21,26 +21,39 @@
 
 ## 2. 부족점 및 개선 방향
 
-### P1 — 강제 다시 그리기 (Invalidate / Partial Redraw)
+### ✅ P1 — 강제 다시 그리기 (Invalidate / Partial Redraw) — 2026-08-31 구현 완료
 
-**현재 상황**
+**문제**
 - `JKControl`은 매 프레임 전체 `OnPaintClient`를 다시 그림.
 - 지뢰찾기 셀 하나가 바뀌어도 전체 9×9 그리드를 다시 그려야 함.
 - 큰 보드나 복잡한 커스텀 컨트롤에서 성능/반응 문제가 생길 수 있음.
 
-**개선 방향**
-1. `JKControl::Invalidate()` 및 `JKControl::Invalidate(const JKRect&)` 추가.
-2. `JKWindow`가 누적된 무효 영역(dirty region)을 관리.
-3. `JKApplication::Render()` 시 무효 영역에 맞춰 `PushClipRect`로 부분 갱신.
-4. 기존 전체 다시 그리기는 fallback으로 유지(단순한 컨트롤은 이득 없음).
+**구현 내용**
+1. `JKControl::Invalidate()` 및 `JKControl::InvalidateRect(const JKRect&)` 추가 (`src/JKControl.cpp`).
+   - 로컬 좌표를 스크린 좌표로 변환 후 가장 가까운 `JKWindow`에 dirty region 등록.
+2. `JKWindow::AddDirtyRect()` / `HasDirtyRects()` / `ClearDirtyRects()` 추가 (`src/JKWindow.cpp`).
+3. `JKApplication::Render()`가 dirty region이 있으면 `RenderDirtyRegions()`로 부분 갱신, 없으면 기존 전체 그리기 fallback 유지.
+4. `RenderDirtyRegions()`는 각 dirty rect를 클립 후 배경 클리어 → 윈도우 계층 다시 그리기 → backbuffer에서 해당 영역만 blit.
 
-**수혜 앱**
-- 지뢰찾기(셀 상태 변경), 그림판(브러시 스트로크), 메모장(텍스트 편집),
-  IconEditApp(픽셀 업데이트).
+**적용 사례**
+- `MineGrid` 우클릭 시 변경된 셀 ±2px 무효화 (3D 테두리 겹침 고려).
+- `MineGrid` 좌클릭 Flood Fill이나 코드(Chord) 시 전체 보드 무효화.
+
+**교훈 / 발견된 다음 문제**
+- 부분 그리기를 할 때 **겹치는 시각적 요소**가 있으면 무효 영역을 약간 확장해야 한다.
+  지뢰찾기 셀의 `Box3D` 2px 테두리는 이웃 셀 위로 삐져나오므로, 한 셀만 깨끗이 그리면
+  이웃 테두리가 잘린 것처럼 보일 수 있다.
+- `JKWindow::OnPaintClient()`가 **전체 클라이언트 배경을 항상 `FillRect`로 지우므로**, 
+  부분 클립 상태에서도 안전하게 동작하지만, 배경을 먼저 지우는 비용이 있다.
+- 모달/자식 윈도우가 겹칠 때 dirty region은 **부모 기준**으로 누적되지만, 실제 그리기는
+  윈도우 전체 계층을 다시 그리므로 정확함. 다만 dirty rect를 좀 더 정교하게 합치거나
+  (union / minimize) 최적화하면 성능이 더 좋아진다.
 
 **핵심 파일**
-- `include/JKControl.h`, `include/JKWindow.h`
-- `src/JKApplication.cpp` (`Render()`)
+- `include/JKControl.h`, `src/JKControl.cpp`
+- `include/JKWindow.h`, `src/JKWindow.cpp`
+- `include/JKApplication.h`, `src/JKApplication.cpp` (`Render()`, `RenderDirtyRegions()`)
+- `src/apps/MineSweeperApp.cpp`
 
 ---
 
@@ -125,18 +138,25 @@
 
 ---
 
-### P2 — 비트맵 Blit / Sprite API
+### ✅ P2 — 비트맵 Blit / Sprite API — 2026-08-31 구현 완료
 
 **현재 상황**
 - `JKDC`는 도형(사각형, 원, 텍스트)만 지원. 비트맵 이미지를 화면에 붙이려면
   `JKOffscreenSurface`를 활용해야 하지만 공개 API가 불명확.
 - 지뢰찾기 bomb/flag 아이콘은 `"*"`, `"F"` 문자로 대체.
 
-**개선 방향**
-1. `JKBitmap` 또는 `JKSprite` 리소스 클래스 정의(파일 로딩 + 메모리 캐시).
-2. `JKDC`에 `DrawSprite(int x, int y, const JKBitmap&)` 추가.
-3. `JKResourceCache`에 스프라이트 등록/조회 (`GetSprite(name)`).
-4. `JKOffscreenSurface`를 `JKDC` 대상으로 Blit할 수 있는 API 노출.
+**구현 내용**
+1. `JKDC::DrawSprite(JKPoint, texture, texW, texH)` 및
+   `JKDC::DrawSpriteX(const JKRect&, texture, texW, texH, adjflag)` 추가 (`include/JKDC.h`, `src/JKDC.cpp`).
+   - 내부적으로 `JKRenderBackend::BlitTexture`를 사용.
+   - `DrawSpriteX`는 `ADJ_XYCENTER` 등 조정 플래그로 목적지 사각형 안에서 정렬 및 클리핑.
+2. `JKResourceCache`에 런타임 RGBA 버퍼에서 텍스처를 생성하는
+   `CreateImageFromRGBA(key, w, h, rgba)` 및 텍스처 크기를 반환하는 `GetImageSize(key)` 추가.
+3. `MineSweeperApp`에서 16×16 RGBA 아이콘을 런타임 생성하여 캐시에 등록:
+   - `CreateMineIcon()` (검은 원형 폭탄)
+   - `CreateFlagIcon()` (빨간 깃발)
+   - `CreateQuestionIcon()` (회색 물음표)
+4. `MineGrid::DrawCell`에서 캐시된 텍스처가 있으면 스프라이트로 그리고, 없으면 기존 ASCII 폴백 유지.
 
 **수혜 앱**
 - 지뢰찾기(폭탄/깃발 아이콘)
@@ -146,7 +166,7 @@
 **핵심 파일**
 - `include/JKDC.h`, `src/JKDC.cpp`
 - `include/JKResourceCache.h`, `src/JKResourceCache.cpp`
-- `include/JKOffscreenSurface.h`, `src/JKOffscreenSurface.cpp`
+- `src/apps/MineSweeperApp.cpp`
 
 ---
 
@@ -269,46 +289,77 @@
 
 ---
 
-## 3. 우선순위 요약
+## 3. 새로 발견된 문제점 / 다음 개선 후보
 
-| 우선순위 | 항목 | 다음 앱에서 자연스럽게 구현 | 영향 범위 |
-|----------|------|------------------------------|-----------|
-| **P1** | 강제 다시 그리기 (Invalidate) | 지뢰찾기 성능 개선, 그림판 | JKControl, JKWindow, JKApplication |
-| **P1** | 레이아웃 도크 (Dock/Fill) | 메모장, 지뢰찾기, 그림판 | JKControl, PerformLayout |
-| **P2** | 전역 단축키 (Accelerator) | 메모장, 지뢰찾기 | JKApplication |
-| **P2** | 모달 생명주기 정리 | 모든 메시지/확인 박스 | JKMessageBox, JKApplication |
-| **P2** | 비트맵 Blit/Sprite | 지뢰찾기, 그림판 | JKDC, JKResourceCache |
-| **P3** | 랜덤/유틸리티 API | 지뢰찾기(시드, 난이도) | JKRandom |
-| **P3** | 파일 I/O 추상 | 메모장 | JKTextFile |
-| **P4** | Undo/Redo 명령 스택 | 그림판, 메모장 | JKCommand |
-| **P4** | 사운드 | 게임 효과음 | JKAudio + CMake |
-| **P5** | 창 크기/좌표계 개선 | 모든 앱 | JKApplication |
+이번 Invalidate 구현을 통해 원래 목록에 없던 구체적인 문제들이 드러났습니다.
+
+### R1 — 겹치는 시각적 요소의 부분 무효화
+- `Box3D`, 테두리, 그림자 등이 이웃 픽셀에 그려지면 단순 셀 rect 무효화로는 잔상이 남는다.
+- 원본 JKWINDOW는 `RepaintRegion.MinimizeCount()`와 `NopaintRegion`으로 더 정교하게 처리.
+- SDL2 프로토타입에서는 우선 무효 영역을 수동 확장(지뢰찾기 셀 ±2px)으로 해결하지만,
+  일반적인 해결챠은 컨트롤이 자신의 "영향 반경"(visual padding)을 알려주는 것.
+
+### R2 — 배경 클리어 비용
+- `JKWindow::OnPaintClient()`가 항상 전체 클라이언트를 `FillRect`로 지운다.
+- 부분 클립 시에도 이 비용은 무시할 만하지만, `PaintClient`가 clip stack을 존중하도록
+  보장해야 한다. 현재 `PushClipRect`가 상위 클립과 교차하므로 안전.
+
+### R3 — Dirty Region 합치기(Union) 최적화
+- 현재는 `std::vector<JKRect>`에 그대로 쌓는다. 같은 셀을 여러 번 무효화하면 중복 blit 발생.
+- 원본의 `RectQue` / `MinimizeCount()`처럼 겹치는 rect를 합치는 최적화가 필요.
+
+### R4 — 모달/자식 윈도우의 독립적 dirty region
+- `MineWindow`(플로팅) 같은 자식 윈도우가 `AddDirtyRect`하면 부모 `JKWindow`로 올라간다.
+- 부모가 전체를 다시 그리므로 정확하지만, 최상위 `JKApplication`이 각 윈도우별 dirty를
+  따로 관리하면 더 효율적이다.
 
 ---
 
-## 4. 권장 진행 순서
+## 3. 우선순위 요약
+
+| 우선순위 | 항목 | 상태 | 다음 앱에서 자연스럽게 구현 | 영향 범위 |
+|----------|------|------|------------------------------|-----------|
+| **P1** | 강제 다시 그리기 (Invalidate) | ✅ 구현 완료 (2026-08-31) | 지뢰찾기 성능 개선, 그림판 | JKControl, JKWindow, JKApplication |
+| **P1** | 레이아웃 도크 (Dock/Fill) | 미구현 | 메모장, 지뢰찾기, 그림판 | JKControl, PerformLayout |
+| **P2** | 전역 단축키 (Accelerator) | 미구현 | 메모장, 지뢰찾기 | JKApplication |
+| **P2** | 모달 생명주기 정리 | 미구현 | 모든 메시지/확인 박스 | JKMessageBox, JKApplication |
+| **P2** | 비트맵 Blit/Sprite | ✅ 구현 완료 (2026-08-31) | 지뢰찾기, 그림판 | JKDC, JKResourceCache |
+| **P2** | Dirty Region Union 최적화 | 미구현 | 지뢰찾기 성능 심화 | JKWindow |
+| **P3** | 랜덤/유틸리티 API | 미구현 | 지뢰찾기(시드, 난이도) | JKRandom |
+| **P3** | 파일 I/O 추상 | 미구현 | 메모장 | JKTextFile |
+| **P4** | Undo/Redo 명령 스택 | 미구현 | 그림판, 메모장 | JKCommand |
+| **P4** | 사운드 | 미구현 | 게임 효과음 | JKAudio + CMake |
+| **P5** | 창 크기/좌표계 개선 | ✅ 일부 해결 (2026-08-31) | 모든 앱 | JKApplication |
+
+---
+
+## 4. 권장 진행 순서 (2026-08-31 갱신)
 
 사용자가 "하나씩 개선"하기로 했으므로, 다음과 같은 순서를 권장합니다.
 
-1. **Invalidate / Partial Redraw**
-   - 지뢰찾기에서 셀 하나 바뀔 때 전체 그리드를 다시 그리는 비효율을 해결.
-   - 가장 큰 성능/품질 향상을 주면서 다른 앱에도 즉시 적용 가능.
+### 완료된 항목
 
-2. **Dock/Fill Layout**
+1. ✅ **Invalidate / Partial Redraw** — 2026-08-31 완료.
+2. ✅ **Bitmap Blit / Sprite** — 2026-08-31 완료.
+
+### 남은 항목
+
+3. **Dirty Region Union 최적화 (R3)**
+   - Invalidate가 많이 발생하는 지뢰찾기 E 모드(16×30)나 그림판에서 중복 blit 제거.
+   - 작업량이 적고 성능 향상이 큰 항목.
+
+4. **Dock/Fill Layout**
    - 메모장이나 지뢰찾기를 리팩토링하면서 툴바/콘텐츠 자동 배치 구현.
    - 레이아웃 반복 코드를 대폭 줄임.
 
-3. **Accelerator Table**
+5. **Accelerator Table**
    - 메모장 단축키를 구현하면서 JKApplication 레벨 단축키 추가.
    - 지뢰찾기 F2 재시작도 함께 해결.
 
-4. **Modal Dialog Lifecycle**
+6. **Modal Dialog Lifecycle**
    - 메모장의 "저장하시겠습니까?" 확인 상자 구현하면서 메시지 박스 생명주기 정리.
 
-5. **Bitmap Blit / Sprite**
-   - 지뢰찾기 bomb/flag 아이콘 또는 그림판 스탬프 구현 시 추가.
-
-6. **Random / TextFile / Audio / Command**
+7. **Random / TextFile / Audio / Command**
    - 각 앱의 고급 기능을 추가하면서 순차적으로 도입.
 
 ---

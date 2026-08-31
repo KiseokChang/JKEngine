@@ -6,24 +6,24 @@
 
 ## TL;DR
 
-- **증상**: 125% DPI에서 타이틀바 잘리거나, 모니터 전이 후 마우스/화면 좌표가 어긋남.
-- **원인**: SDL2 API가 논리 pt/물리 px/클라이언트/프레임 단위를 섞어 쓰기 때문.
-- **해결**: `logicalWidth_/Height_` 1920×1080 고정 → `fit` 등비 스케일 + `letterbox` 중앙 배치 → `Render()`에서 백버퍼 스케일 후 기본 타겟으로 blit.
-- **핵심 공식**: `물리 px = 논리 pt × ptToPhys`; `앱 논리 = (물리 px − letterbox) / fit`.
-- **빠른 찾기**: SDL2 API 단위표 §3, 창 생성/배치 §4, 렌더링 파이프라인 §5, 모니터 전이 §12.
+- **증상**: 125% DPI에서 타이틀바 잘리거나, 모니터 전이 후 마우스/화면 좌표가 어긋남. 추가로 앱 창이 "강제로 축소된 스냅샷처럼" 작게 보이고 회색 여백(레터박스)이 생김.
+- **원인**: SDL2 API가 논리 pt/물리 px/클라이언트/프레임 단위를 섞어 쓰기 때문. 특히 앱 논리 좌표계를 `Init()` 요청 크기(예: 1920×1080)에 고정하면, 화면 작업 영역보다 작은 창에서 내용을 축소해 레터박스로 렌더링하게 된다.
+- **해결**: `logicalWidth_/Height_`를 **실제 SDL 창 논리 포인트 크기**와 동기화 → `fit`을 DPI 배율(`ptToPhys`)로 맞춤 → 추가 축소/레터박스 없이 창 전체를 채운다. 렌더링은 동일한 백버퍼→기본 타겟 blit 파이프라인을 유지.
+- **핵심 공식**: `물리 px = 논리 pt × ptToPhys`; `앱 논리 = (물리 px − letterbox) / fit`. 125% DPI라면 `fit = ptToPhys = 1.25`이며 `letterbox = 0`이다.
+- **빠른 찾기**: SDL2 API 단위표 §3, 창 생성/배치 §4, 렌더링 파이프라인 §5, 모니터 전이 §12, 2026-08-31 레터박스 수정 §13.
 
 ---
 
 ## 1. 문제와 해결 요약
 
-**증상**: Windows DPI 스케일링(예: 125%) 환경에서 창이 화면 상단으로 밀려나 타이틀 바가 잘리고, 창 크기에 따라 앱 내용이 왜곡됨.
+**증상**: Windows DPI 스케일링(예: 125%) 환경에서 창이 화면 상단으로 밀려나 타이틀 바가 잘리고, 창 크기에 따라 앱 내용이 왜곡됨. 추가로 2026-08-31에는 "창이 강제로 축소된 스냅샷처럼" 보이고 회색 레터박스 여백이 생기는 증상이 보고됨.
 
-**원인**: SDL2 API가 서로 다른 단위(논리 포인트 vs 물리 픽셀)와 기준점(클라이언트 영역 vs 프레임 전체)을 사용하는데, 이를 섞어 계산하면 배치 오차가 발생.
+**원인**: SDL2 API가 서로 다른 단위(논리 포인트 vs 물리 픽셀)와 기준점(클라이언트 영역 vs 프레임 전체)을 사용하는데, 이를 섞어 계산하면 배치 오차가 발생. 레터박스 문제는 추가로 `logicalWidth_/Height_`를 `Init()` 요청 크기에 고정해서, 실제 창보다 큰 앱 좌표계를 작은 창에 축소 렌더링하려 했기 때문.
 
 **해결** (`JKApplication`에 구현):
 
 1. **프레임 중앙 배치 + 클라이언트 원점 보정** — 장식(타이틀 바/테두리) 포함 창 전체가 작업 영역 중앙에 오도록 위치를 계산하고, `SDL_SetWindowPosition()`이 클라이언트 원점 기준임을 보정한다.
-2. **앱 논리 좌표계 고정 + 등비(레터박스) 스케일링** — 앱 레이아웃은 `Init(width, height)` 요청 크기(예: 1920×1080)로 고정하고, 렌더링/입력만 화면에 맞춰 스케일한다.
+2. **앱 논리 좌표계를 실제 창 크기와 동기화** — `Init()` 요청값은 창 생성 힌트로만 쓰고, `SDL_GetWindowSize()`가 보고한 실제 창 논리 포인트 크기를 `logicalWidth_/Height_`로 채택한다. `UpdateScale()`에서도 창 크기가 바뀔 때마다 갱신한다. 렌더링은 `fit = ptToPhys`(예: 125%에서 1.25)로, `letterbox≈0`이 되도록 창 전체를 추가 축소 없이 채운다.
 3. **좌표 변환 공식 단일화** — DPI 배율(`ptToPhys`), 등비 배율(`fit`), 레터박스 여백(`letterbox`) 세 값만으로 모든 계층 변환을 수행한다.
 
 ---
@@ -32,10 +32,12 @@
 
 | 계층 | 단위 | 획득 방법 | 사용처 |
 |------|------|-----------|--------|
-| 앱 논리 좌표계 | `Init()` 요청 크기 고정 (`logicalWidth_/logicalHeight_`, 예: 1920×1080) | `JKApplication` 멤버 | 컨트롤 레이아웃, hit-test, 드래그, 그리기 |
+| 앱 논리 좌표계 | 실제 SDL 창 논리 포인트 크기 (`logicalWidth_/logicalHeight_`, 예: 1528×781) | `SDL_GetWindowSize()` → `JKApplication` 멤버 동기화 | 컨트롤 레이아웃, hit-test, 드래그, 그리기 |
 | 창 클라이언트 좌표 | 논리 포인트(pt) | `SDL_GetWindowSize()` | 창 크기, SDL 마우스 이벤트 좌표 |
 | 렌더러 출력 좌표 | 물리 픽셀(px) | `renderBackend_->GetOutputSize()` (`SDL_GetRendererOutputSize()`) | 실제 출력 해상도, DPI 배율 계산 |
 | 화면·작업 영역 좌표 | 논리 포인트(pt) | `SDL_GetDisplayUsableBounds()` | 창 배치(작업표시줄 제외 영역) |
+
+> **변경 (2026-08-31)**: 앱 논리 좌표계는 더 이상 `Init()` 요청값(1920×1080)에 고정되지 않는다. 창이 화면 작업 영역에 맞춰 줄어들면 좌표계도 같이 줄어든다. 이것이 "축소된 스냅샷" 느낌을 없애는 핵심이다.
 
 변환 관계:
 
@@ -84,7 +86,7 @@ SDL_SetHint(SDL_HINT_WINDOWS_DPI_SCALING, "1");
 
 ### 4.2 생성 크기 클램핑
 
-창 생성 전에는 실제 장식 크기를 알 수 없으므로 추정치로 맞춘다: 좌/우 테두리 각 4pt, 상단(타이틀 바+테두리) 31pt, 하단 4pt. 클램프 하한 320×240pt.
+창 생성 전에는 실제 장식 크기를 알 수 없으므로 추정치로 맞춘다: 좌/우 테두리 각 4pt, 상단(타이틀 바+테두리) 31pt, 하단 4pt. 클램프 하한 320×240pt. 클램핑 후 `SDL_CreateWindow`가 반환한 실제 창 논리 포인트 크기를 `SDL_GetWindowSize()`로 읽어 `logicalWidth_/Height_`를 덮어쓴다(§13).
 
 ### 4.3 재배치 블록 (렌더러 생성 후에만 가능)
 
@@ -118,17 +120,22 @@ SDL_SetWindowPosition(window_,
 호출 시점: `Init()` 완료 시, 그리고 `SDL_WINDOWEVENT_SIZE_CHANGED`마다.
 
 ```
-appW×appH   = logicalWidth_×logicalHeight_      (Init 요청값, 고정)
-fit         = min(renderW/appW, renderH/appH)   (등비 배율)
+windowW×windowH = SDL_GetWindowSize()             (실제 창 논리 pt)
+logicalWidth_   = windowW                         (창 크기와 동기화)
+logicalHeight_  = windowH
+appW×appH       = logicalWidth_×logicalHeight_   (창 논리 크기, 고정 요청값이 아님)
+fit             = renderW / appW                  (1:1에 가까운 값)
 scaleX_ = scaleY_ = fit
-letterboxX  = round((renderW − appW·fit) / 2)    (좌측 여백)
-letterboxY  = round((renderH − appH·fit) / 2)    (상단 여백)
-ptToPhysX   = renderW / windowW                 (DPI 배율, 마우스 변환용)
+letterboxX      = round((renderW − appW·fit) / 2) (보통 0)
+letterboxY      = round((renderH − appH·fit) / 2) (보통 0)
+ptToPhysX       = renderW / windowW               (DPI 배율, 마우스 변환용)
 mainWindow_->SetWindowRect({0, 0, appW, appH})
 → CreateOrResizeBackBuffer() (출력 크기 텍스처 재생성)
 ```
 
-**설계 의도**: 창이 화면 작업 영역보다 작아져도 앱 좌표계·레이아웃은 고정하고 렌더링/입력만 스케일한다. 앱 코드(레이아웃, hit-test, 드래그)는 화면 크기와 무관하게 1920×1080 등 고정 좌표로 작성된다.
+**설계 변경 (2026-08-31)**: 이전에는 `logicalWidth_/Height_`를 `Init(width, height)` 요청값(예: 1920×1080)에 고정하고, 작은 창에서 내용을 축소해 레터박스로 렌더링했다. 이제는 **앱 논리 좌표계를 실제 SDL 창 크기와 동기화**한다. 창이 화면에 맞춰 줄어들면 앱 좌표계도 같이 줄어들고, 렌더링은 DPI 배율(`fit = ptToPhys`)만큼만 스케일하여 창 전체를 추가 축소 없이 채운다. 레터박스 회색 여백이 사라지고, UI 요소가 "억지로 축소된 사진"처럼 보이지 않는다.
+
+**교훈**: "앱 좌표계를 요청 해상도에 고정"은 고정 해상도 콘솔/전용 게임에는 맞지만, 윈도우 데스크톱 UI 시뮬레이션에서는 부자연스럽다. 창 크기가 바뀔 때마다 좌표계를 갱신하고 컨트롤을 재배치하는 것이 Windows GUI의 동작과 가깝다.
 
 ---
 
@@ -137,7 +144,7 @@ mainWindow_->SetWindowRect({0, 0, appW, appH})
 2단계 구성:
 
 1. **백버퍼에 앱 논리 좌표로 그리기** — 렌더 타깃을 백버퍼(출력 크기 텍스처)로 지정하고 `SetScale(fit)`을 적용한 뒤, 데스크톱 배경 `(192,192,192)` clear → `mainWindow_` PaintWindow/PaintClient → `modalWindow_`가 있으면 추가로 그린다.
-2. **기본 타깃에 blit** — scale을 1.0으로 되돌리고 전체 화면을 192 회색으로 clear(레터박스 여백)한 뒤, 백버퍼의 `(0, 0, appW·fit, appH·fit)` 영역을 `(letterboxX, letterboxY)` 위치에 blit → `Present()`.
+2. **기본 타깃에 blit** — scale을 1.0으로 되돌리고 전체 화면을 192 회색으로 clear한 뒤, 물리 픽셀 크기인 백버퍼 전체 `(0, 0, backBufferW, backBufferH)`를 `(0, 0)` 위치에 1:1로 blit → `Present()`. `letterbox`는 0에 가깝다.
 
 그리기 코드는 앱 논리 좌표를 그대로 사용하고, 물리 픽셀 정확도는 blit 단계가 담당한다.
 
@@ -193,17 +200,19 @@ appX  = round(physX / fit)                 // → 앱 논리 좌표
 3. 필요시 DPI-aware 스크린샷 캡처 후 픽셀 분석 — PowerShell 기본 캡처는 DPI 가상화가 적용되므로 `SetProcessDPIAware()`를 호출한 뒤 찍어야 물리 픽셀과 정합한다.
 4. 자동 검증: `tools\verify_fixwin3.ps1` (모드당 14항목) — 방법론 전체는 `15_verification_playbook.md` 참조.
 
-### 회귀 기준값 (125% DPI, 1920×1080 물리 화면, 앱 논리 1920×1080 요청 — 2026-08 측정/계산)
+### 회귀 기준값 (125% DPI, 1920×1080 물리 화면, 앱 논리 = 실제 창 크기 — 2026-08-31 측정/계산)
 
 | 항목 | 값 |
 |------|-----|
 | 작업 영역(논리) | 1536×816 pt |
 | 생성 클램프 크기 | 1528×781 pt |
 | 클라이언트 영역(물리) | 1910×976 px |
-| 등비 배율 fit | 0.9036~0.9046 |
-| 레터박스 밴드 | 좌·우 약 87/88 px (상·하 0 px — 세로 제한) |
+| 등비 배율 fit | **1.250** (이전 0.904 → 레터박스 제거) |
+| 레터박스 밴드 | **0 px** (좌·우·상·하 모두 없음) |
+| ptToPhys | 1.250 |
 
-> 모니터/작업표시줄 설정에 따라 ±수 px 변동 가능. 창이 화면 위로 밀려 타이틀 바가 잘리면 §4.3의 클라이언트 원점 보정이 깨진 것이므로 가장 먼저 확인할 것.
+> 모니터/작업표시줄 설정에 따라 ±수 px 변동 가능. `fit`이 1.0 미만이면 창보다 큰 앱 좌표계를 강제로 축소 중이거나, `letterboxX/Y`가 0이 아니면 레터박스가 남아있는 것이다.
+> 이전 기준값(`fit≈0.904`, 레터박스 87px)은 2026-08-31 이전 설계(`logicalWidth_/Height_` 고정)의 참고용이다.
 
 ---
 
@@ -369,3 +378,62 @@ PMv2 드라이버가 커서를 **알려진 물리 px 격자**로 스윕시켜 �
   공통으로 앱 논리 좌표가 된다. dx/dy도 같은 변환을 탄다.
 - 검증: `tools/click_jango_probe.ps1` — 런처 "Equipment" 클릭 → Equip 모달 타이틀 밴드 검출(OPEN-OK),
   모달 "Close" 클릭 → 밴드 소멸(CLOSE-OK). 화면 스냅으로도 이중 확인.
+
+---
+
+## 13. 창이 축소된 스냅샷처럼 보임 — 레터박스 제거 (2026-08-31)
+
+### 13.1 증상
+
+사용자 보고: "윈도우를 캡처하고 싶은데 이미지가 엄청 깨져요. 쪽 스냅샵 떠서 축소한 듯이".
+
+실제 현상:
+- 1920×1080을 요청했으나 125% DPI 모니터의 작업 영역이 1536×816 pt라 창이 1528×781 pt로 줄어듦.
+- `logicalWidth_/Height_`를 1920×1080에 고정한 채 렌더링 → `fit≈0.904`로 축소.
+- 좌우에 87px 정도의 회색 레터박스 여백이 생기고, UI 전체가 축소된 사진처럼 보임.
+- 캡처 이미지도 창 전체가 아닌 축소된 내용 영역만 선명하게 잡혀 보기에 더 깨짐.
+
+### 13.2 원인
+
+`logicalWidth_/Height_`를 `Init()` 요청 크기에 고정하면, **창은 화면에 맞춰졌지만 앱 좌표계는 그대로**인 상태가 된다. 렌더링 파이프라인이 큰 좌표계를 작은 물리 출력에 맞추려고 등비 축소하면 레터박스가 생긴다.
+
+### 13.3 해결
+
+`JKApplication::Init()`에서 `SDL_CreateWindow` 직후, 그리고 `UpdateScale()`에서 `SDL_GetWindowSize()`로 얻은 실제 창 논리 포인트 크기를 `logicalWidth_/Height_`에 반영한다.
+
+```cpp
+// Init()
+SDL_CreateWindow(..., createW, createH, ...);
+SDL_GetWindowSize(window_, &actualW, &actualH);
+logicalWidth_ = actualW;
+logicalHeight_ = actualH;
+
+// UpdateScale()
+int windowW = 0, windowH = 0;
+SDL_GetWindowSize(window_, &windowW, &windowH);
+logicalWidth_ = windowW;
+logicalHeight_ = windowH;
+```
+
+이후 `fit = renderW / appW`가 1.0에 가깝게 수렴하고 `letterboxX/Y`는 0이 된다. 백버퍼 크기도 실제 출력 크기와 같아져 1:1 렌더링된다.
+
+### 13.4 교훈
+
+1. **"고정 앱 좌표계 + 레터박스"는 데스크톱 UI 시뮬레이션에 맞지 않는다**. 전용 게임이나 비디오 플레이어는 고정 해상도로 등비 스케일이 자연스럽지만, 윈도우 GUI는 창 크기가 가변적이므로 좌표계도 가변적이어야 한다.
+2. **DPI 모니터에서 "요청 크기 ≠ 실제 보이는 크기"**. Windows 작업 영역과 장식이 요청보다 작게 만들면, 앱은 줄어든 좌표계를 받아들여야 한다. 무리하게 원래 크기를 유지하려면 축소/여백 문제가 생긴다.
+3. **캡처 품질 문제는 좌표계/스케일 문제의 표면 증상**. "이미지가 깨진다"는 느낌은 실제로 해상도가 축소되어 창 전체를 채우지 못하기 때문이다. 스크린샷을 찍기 전에 먼저 렌더링이 1:1인지 확인해야 한다.
+4. **변경 후에도 `UpdateScale()`의 `letterboxX/Y`가 0인지, `fit`이 `ptToPhys`와 동일한 DPI 배율인지 로그로 확인**해야 한다. 다중 모니터 전이 후에도 `SynchronizeWindowOnDisplayChanged()`가 `logicalWidth_/Height_`를 새 창 크기로 갱신하는지 점검한다.
+
+### 13.5 회귀 기준값 (변경 후, 2026-08-31)
+
+| 항목 | 주 모니터(125%, 1920×1080 물리) |
+|------|--------------------------------|
+| 요청 크기 | 1920×1080 |
+| 실제 창 pt | 1528×781 |
+| render px | 1910×976 |
+| logicalWidth/Height | 1528×781 |
+| fit | 1.250 |
+| letterboxX/Y | 0, 0 |
+| ptToPhys | 1.250 |
+
+`fit=1.250`이면 내용이 물리 픽셀에 맞춰 정확히 125% 배율로 렌더링된다. 레터박스가 없고 창 전체를 채운다. UI 요소가 여전히 작게 보인다면 그것은 좌표계/배율 문제가 아니라 폰트·비트맵 크기 디자인 문제다.

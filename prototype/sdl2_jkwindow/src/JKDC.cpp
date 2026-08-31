@@ -123,6 +123,8 @@ void JKDC::DrawPixel(int32_t x, int32_t y) {
 
 void JKDC::PutEngGlyph8x8(JKPoint p, uint8_t ch) {
     if (!backend_) return;
+    p.x = static_cast<int32_t>(std::llround(static_cast<double>(p.x)));
+    p.y = static_cast<int32_t>(std::llround(static_cast<double>(p.y)));
     const uint8_t* glyph = FONT_8X8[ch & 0x7f];
     SetColor(textR_, textG_, textB_, 255);
     for (int32_t row = 0; row < 8; ++row) {
@@ -138,6 +140,8 @@ void JKDC::PutEngGlyph8x8(JKPoint p, uint8_t ch) {
 
 void JKDC::PutEngGlyph8x16(JKPoint p, const uint8_t* image) {
     if (!backend_) return;
+    p.x = static_cast<int32_t>(std::llround(static_cast<double>(p.x)));
+    p.y = static_cast<int32_t>(std::llround(static_cast<double>(p.y)));
     SetColor(textR_, textG_, textB_, 255);
     for (int32_t row = 0; row < 16; ++row) {
         uint8_t bits = image[row];
@@ -152,6 +156,8 @@ void JKDC::PutEngGlyph8x16(JKPoint p, const uint8_t* image) {
 
 void JKDC::PutHanGlyph16x16(JKPoint p, const uint8_t* buffer) {
     if (!backend_) return;
+    p.x = static_cast<int32_t>(std::llround(static_cast<double>(p.x)));
+    p.y = static_cast<int32_t>(std::llround(static_cast<double>(p.y)));
     SetColor(textR_, textG_, textB_, 255);
     for (int32_t row = 0; row < 16; ++row) {
         uint8_t left  = buffer[row * 2];
@@ -539,6 +545,42 @@ void JKDC::Box3D(const JKRect& rect, int32_t depth,
     }
 
     Rectangle3D(rect, depth, lightR, lightG, lightB, darkR, darkG, darkB);
+}
+
+void JKDC::DrawSprite(JKPoint p, JKRenderBackend::TextureHandle texture,
+                    int texW, int texH) {
+    if (!backend_ || !texture || texW <= 0 || texH <= 0) return;
+    backend_->BlitTexture(texture, nullptr,
+                          JKRect{ p.x, p.y, texW, texH }, 255);
+}
+
+void JKDC::DrawSpriteX(const JKRect& dst, JKRenderBackend::TextureHandle texture,
+                       int texW, int texH, uint8_t adjflag) {
+    if (!backend_ || !texture || texW <= 0 || texH <= 0 || dst.IsEmpty()) return;
+
+    JKPoint size{ texW, texH };
+    JKPoint pos = dst.Adjust(adjflag, size);
+
+    JKRect drawRect{ pos.x, pos.y, texW, texH };
+    // Clip to destination rectangle if the sprite is larger than the cell.
+    JKRect clipped{
+        std::max(drawRect.x, dst.x),
+        std::max(drawRect.y, dst.y),
+        0, 0
+    };
+    int32_t right = std::min(drawRect.x + drawRect.w, dst.x + dst.w);
+    int32_t bottom = std::min(drawRect.y + drawRect.h, dst.y + dst.h);
+    clipped.w = right - clipped.x;
+    clipped.h = bottom - clipped.y;
+    if (clipped.w <= 0 || clipped.h <= 0) return;
+
+    JKRect src{
+        clipped.x - drawRect.x,
+        clipped.y - drawRect.y,
+        clipped.w,
+        clipped.h
+    };
+    backend_->BlitTexture(texture, &src, clipped, 255);
 }
 
 } // namespace jk

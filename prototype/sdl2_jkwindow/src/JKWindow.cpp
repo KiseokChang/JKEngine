@@ -210,6 +210,15 @@ void JKWindow::OnPaintClient(JKDC& dc) {
     }
 }
 
+void JKWindow::AddDirtyRect(const JKRect& screenRect) {
+    if (screenRect.IsEmpty()) return;
+    dirtyRects_.push_back(screenRect);
+}
+
+void JKWindow::ClearDirtyRects() {
+    dirtyRects_.clear();
+}
+
 void JKWindow::FocusFirstChild() {
     std::vector<JKControl*> candidates;
     CollectFocusableControls(this, candidates);

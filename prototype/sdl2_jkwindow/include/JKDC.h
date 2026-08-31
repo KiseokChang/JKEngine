@@ -67,6 +67,12 @@ public:
     void HanPutCh(JKPoint p, uint8_t first, uint8_t second);
     void PutCh(JKPoint p, uint16_t code);
 
+    // Sprite / bitmap blit helpers. The texture must come from JKResourceCache.
+    void DrawSprite(JKPoint p, JKRenderBackend::TextureHandle texture,
+                    int texW, int texH);
+    void DrawSpriteX(const JKRect& dst, JKRenderBackend::TextureHandle texture,
+                     int texW, int texH, uint8_t adjflag = ADJ_CENTER);
+
     void SetHangulManager(HangulManager* hm) { fontMan_ = hm; }
     HangulManager* GetHangulManager() const { return fontMan_; }
 
