@@ -44,13 +44,56 @@ void JKWindow::OnRectChanged(const JKRect& rect) {
     if (client.h < 0) client.h = 0;
     SetClientRect(client);
 
-    // Anchored / autosized children are relaid out when the window resizes.
+    // Dock/Fill layout is handled at the window level so that edge-docked
+    // siblings (toolbar, status bar, side panel) reserve space before the
+    // DOCK_FILL control claims the remaining area.
     // JKWindow는 자기 자신을 PerformLayout() 대상으로 삼으면
     // JKControl::PerformLayout -> SetRect -> PerformLayout 무한 재귀에 빠진다.
     // 직접 자식들만 재배치한다.
     const JKRect& clientRect = GetClientRect();
+    JKRect remaining = clientRect;
+
+    // Pass 1: place edge-docked children and subtract their occupied area.
     for (auto& child : children_) {
-        child->PerformLayout(clientRect);
+        if (!child->IsVisible()) continue;
+        const uint32_t dock = child->GetDock();
+        if (dock == DOCK_NONE || dock == DOCK_FILL) continue;
+
+        child->PerformLayout(remaining);
+        const JKRect& r = child->GetRect();
+
+        if (dock & DOCK_TOP) {
+            remaining.y += r.h;
+            remaining.h -= r.h;
+        }
+        if (dock & DOCK_BOTTOM) {
+            remaining.h -= r.h;
+        }
+        if (dock & DOCK_LEFT) {
+            remaining.x += r.w;
+            remaining.w -= r.w;
+        }
+        if (dock & DOCK_RIGHT) {
+            remaining.w -= r.w;
+        }
+        if (remaining.w < 0) remaining.w = 0;
+        if (remaining.h < 0) remaining.h = 0;
+    }
+
+    // Pass 2: fill the remaining area with DOCK_FILL children.
+    for (auto& child : children_) {
+        if (!child->IsVisible()) continue;
+        if (child->GetDock() == DOCK_FILL) {
+            child->PerformLayout(remaining);
+        }
+    }
+
+    // Pass 3: place non-docked children in the original client area.
+    for (auto& child : children_) {
+        if (!child->IsVisible()) continue;
+        if (child->GetDock() == DOCK_NONE) {
+            child->PerformLayout(clientRect);
+        }
     }
 }
 
