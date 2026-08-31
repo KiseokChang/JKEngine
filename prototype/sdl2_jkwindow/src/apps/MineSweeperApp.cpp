@@ -786,7 +786,22 @@ void MineSweeperApp::OnInit() {
     mineWindow->SetWindowRect(JKRect{ 100, 100, 320, 380 });
     impl_->mineWindow = mineWindow.get();
 
+    // The mine grid is created first so it is painted before the toolbar.
+    // JKWindow lays out DOCK_FILL children after edge-docked siblings, so the
+    // grid still receives the remaining client area below the toolbar.
+    // Margins are applied by DOCK_FILL in PerformLayout.
+    auto grid = std::make_unique<MineGrid>(
+        JKRect{ 0, 0, 100, 100 }, impl_->game,
+        [this]() { impl_->OnChanged(); },
+        [this](bool won) { impl_->OnGameOver(won); },
+        [this]() { impl_->OnFirstOpen(); });
+    grid->SetDock(DOCK_FILL);
+    grid->SetMargins(kMargin, kMargin, kMargin, kMargin);
+    impl_->grid = grid.get();
+    mineWindow->AddControl(std::move(grid));
+
     // Top toolbar band spans the top of the floating window's client area.
+    // It is added after the grid so it paints on top and covers the grid.
     auto toolbar = std::make_unique<JKControl>();
     toolbar->SetRect(JKRect{ 0, 0, 320, kButtonAreaHeight });
     toolbar->SetDock(DOCK_TOP);
@@ -825,18 +840,6 @@ void MineSweeperApp::OnInit() {
     toolbar->AddControl(std::move(timeLabel));
 
     mineWindow->AddControl(std::move(toolbar));
-
-    // The mine grid occupies the rest of the floating window client area.
-    // Margins are applied by DOCK_FILL in PerformLayout.
-    auto grid = std::make_unique<MineGrid>(
-        JKRect{ 0, 0, 100, 100 }, impl_->game,
-        [this]() { impl_->OnChanged(); },
-        [this](bool won) { impl_->OnGameOver(won); },
-        [this]() { impl_->OnFirstOpen(); });
-    grid->SetDock(DOCK_FILL);
-    grid->SetMargins(kMargin, kMargin, kMargin, kMargin);
-    impl_->grid = grid.get();
-    mineWindow->AddControl(std::move(grid));
 
     main->AddControl(std::move(mineWindow));
     SetMainWindow(std::move(main));
