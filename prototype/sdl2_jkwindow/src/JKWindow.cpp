@@ -210,9 +210,66 @@ void JKWindow::OnPaintClient(JKDC& dc) {
     }
 }
 
+namespace {
+
+bool RectContains(const JKRect& outer, const JKRect& inner) {
+    return inner.x >= outer.x && inner.y >= outer.y &&
+           inner.x + inner.w <= outer.x + outer.w &&
+           inner.y + inner.h <= outer.y + outer.h;
+}
+
+bool RectIntersects(const JKRect& a, const JKRect& b) {
+    return a.x < b.x + b.w && a.x + a.w > b.x &&
+           a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+JKRect RectUnion(const JKRect& a, const JKRect& b) {
+    const int32_t x1 = (a.x < b.x) ? a.x : b.x;
+    const int32_t y1 = (a.y < b.y) ? a.y : b.y;
+    const int32_t x2 = (a.x + a.w > b.x + b.w) ? a.x + a.w : b.x + b.w;
+    const int32_t y2 = (a.y + a.h > b.y + b.h) ? a.y + a.h : b.y + b.h;
+    return JKRect{ x1, y1, x2 - x1, y2 - y1 };
+}
+
+} // namespace
+
 void JKWindow::AddDirtyRect(const JKRect& screenRect) {
     if (screenRect.IsEmpty()) return;
-    dirtyRects_.push_back(screenRect);
+
+    JKRect r = screenRect;
+
+    // If the new rect is already covered by an existing dirty rect, nothing to do.
+    for (const auto& d : dirtyRects_) {
+        if (RectContains(d, r)) {
+            return;
+        }
+    }
+
+    // Remove existing rects that are completely contained by the new one.
+    for (auto it = dirtyRects_.begin(); it != dirtyRects_.end(); ) {
+        if (RectContains(r, *it)) {
+            it = dirtyRects_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
+    // Repeatedly union with any overlapping rects until no overlaps remain.
+    bool merged;
+    do {
+        merged = false;
+        for (auto it = dirtyRects_.begin(); it != dirtyRects_.end(); ) {
+            if (RectIntersects(r, *it)) {
+                r = RectUnion(r, *it);
+                it = dirtyRects_.erase(it);
+                merged = true;
+            } else {
+                ++it;
+            }
+        }
+    } while (merged);
+
+    dirtyRects_.push_back(r);
 }
 
 void JKWindow::ClearDirtyRects() {
