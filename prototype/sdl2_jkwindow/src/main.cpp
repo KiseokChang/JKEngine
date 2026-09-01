@@ -1106,7 +1106,8 @@ int main(int argc, char* argv[]) {
         if (!server.Init("JKENGINE Window Server", 1280, 720)) {
             return 1;
         }
-        server.RunSingleAccept("\\\\.\\pipe\\JKWindowServerPipe");
+        server.StartAcceptor("\\\\.\\pipe\\JKWindowServerPipe");
+        server.Run();
         return 0;
     }
 

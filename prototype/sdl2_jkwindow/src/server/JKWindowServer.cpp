@@ -3,6 +3,8 @@
 #include <cstdio>
 #include <cstring>
 #include <algorithm>
+#include <chrono>
+#include <thread>
 
 namespace jk {
 namespace server {
@@ -48,6 +50,115 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
     return true;
 }
 
+void JKWindowServer::StartAcceptor(const std::string& pipeName) {
+    pipeName_ = pipeName;
+    running_ = true;
+    acceptorThread_ = std::thread([this] { AcceptorLoop(); });
+}
+
+void JKWindowServer::AcceptorLoop() {
+    while (running_) {
+        auto transport = ipc::JKPipeTransport::CreateServer(pipeName_);
+        if (!transport) {
+            if (!running_) break;
+            std::fprintf(stderr, "JKWindowServer::AcceptorLoop: accept failed\n");
+            continue;
+        }
+        if (!running_) break;
+
+        // Expect Hello.
+        ipc::Message hello;
+        if (!ipc::ReadMessage(*transport, hello) || hello.type != ipc::MsgType::Hello) {
+            std::fprintf(stderr, "JKWindowServer::AcceptorLoop: expected Hello, got type=%u\n",
+                         static_cast<uint32_t>(hello.type));
+            continue;
+        }
+
+        // Expect CreateSurface.
+        ipc::Message createMsg;
+        if (!ipc::ReadMessage(*transport, createMsg) ||
+            createMsg.type != ipc::MsgType::CreateSurface ||
+            createMsg.payload.size() < sizeof(ipc::SurfaceCreatePayload)) {
+            std::fprintf(stderr, "JKWindowServer::AcceptorLoop: expected CreateSurface\n");
+            continue;
+        }
+
+        ipc::SurfaceCreatePayload create{};
+        std::memcpy(&create, createMsg.payload.data(), sizeof(create));
+
+        uint32_t id = nextSurfaceId_++;
+        auto client = std::make_unique<JKClientConnection>(id, std::move(transport));
+
+        if (!client->CreateSurface(create.width, create.height, create.title)) {
+            std::fprintf(stderr, "JKWindowServer::AcceptorLoop: failed to create surface\n");
+            continue;
+        }
+
+        ipc::SurfaceCreatedPayload created{};
+        created.surfaceId = id;
+        std::string shmName = std::string("Local\\JKSurfaceShm_") + std::to_string(id);
+        std::strncpy(created.shmName, shmName.c_str(), sizeof(created.shmName) - 1);
+        if (!client->Send(ipc::MsgType::SurfaceCreated, &created, sizeof(created))) {
+            std::fprintf(stderr, "JKWindowServer::AcceptorLoop: failed to send SurfaceCreated\n");
+            continue;
+        }
+
+        client->StartReadThread();
+
+        {
+            std::lock_guard<std::mutex> lock(pendingClientsMutex_);
+            pendingClients_.push_back(std::move(client));
+        }
+
+        std::fprintf(stderr, "JKWindowServer: client surface %u created (%dx%d)\n",
+                     id, create.width, create.height);
+    }
+}
+
+void JKWindowServer::ProcessPendingClients() {
+    std::vector<std::unique_ptr<JKClientConnection>> newClients;
+    {
+        std::lock_guard<std::mutex> lock(pendingClientsMutex_);
+        newClients = std::move(pendingClients_);
+        pendingClients_.clear();
+    }
+
+    int existingCount = 0;
+    {
+        std::lock_guard<std::mutex> lock(clientsMutex_);
+        existingCount = static_cast<int>(clients_.size());
+    }
+
+    for (auto& client : newClients) {
+        if (!client) continue;
+
+        SDL_Texture* texture = SDL_CreateTexture(renderer_,
+                                                 SDL_PIXELFORMAT_RGBA32,
+                                                 SDL_TEXTUREACCESS_STREAMING,
+                                                 client->Width(),
+                                                 client->Height());
+        if (!texture) {
+            std::fprintf(stderr, "JKWindowServer: failed to create texture: %s\n", SDL_GetError());
+            client->StopReadThread();
+            continue;
+        }
+        client->SetTexture(texture);
+
+        // Cascade new surfaces so they don't perfectly overlap.
+        int ww = 0, wh = 0;
+        SDL_GetWindowSize(window_, &ww, &wh);
+        int x = std::max(0, (ww - client->Width()) / 2) + existingCount * 20;
+        int y = std::max(0, (wh - client->Height()) / 2) + existingCount * 20;
+        client->SetPosition(x, y);
+        ++existingCount;
+
+        {
+            std::lock_guard<std::mutex> lock(clientsMutex_);
+            clients_.push_back(std::move(client));
+        }
+    }
+}
+
 void JKWindowServer::Run() {
     if (!renderer_) return;
     running_ = true;
@@ -66,6 +177,7 @@ void JKWindowServer::Run() {
         }
         if (!running_) break;
 
+        ProcessPendingClients();
         ProcessPendingMessages();
         Composite();
         CleanupDisconnectedClients();
@@ -76,6 +188,8 @@ void JKWindowServer::Run() {
 
 void JKWindowServer::Stop() {
     running_ = false;
+
+    UnblockAcceptor();
 
     if (acceptorThread_.joinable()) {
         acceptorThread_.join();
@@ -91,6 +205,14 @@ void JKWindowServer::Stop() {
             }
         }
         clients_.clear();
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(pendingClientsMutex_);
+        for (auto& client : pendingClients_) {
+            client->StopReadThread();
+        }
+        pendingClients_.clear();
     }
 
     for (auto& client : pendingCleanup_) {
@@ -113,92 +235,19 @@ void JKWindowServer::Stop() {
     SDL_Quit();
 }
 
-void JKWindowServer::RunSingleAccept(const std::string& pipeName) {
-    pipeName_ = pipeName;
-
-    std::fprintf(stderr, "JKWindowServer: waiting for client on '%s'\n", pipeName_.c_str());
-    auto transport = ipc::JKPipeTransport::CreateServer(pipeName_);
-    if (!transport) {
-        std::fprintf(stderr, "JKWindowServer: accept failed\n");
-        return;
-    }
-
-    // Expect Hello.
-    ipc::Message hello;
-    if (!ipc::ReadMessage(*transport, hello) || hello.type != ipc::MsgType::Hello) {
-        std::fprintf(stderr, "JKWindowServer: expected Hello, got type=%u\n",
-                     static_cast<uint32_t>(hello.type));
-        return;
-    }
-
-    // Expect CreateSurface.
-    ipc::Message createMsg;
-    if (!ipc::ReadMessage(*transport, createMsg) || createMsg.type != ipc::MsgType::CreateSurface ||
-        createMsg.payload.size() < sizeof(ipc::SurfaceCreatePayload)) {
-        std::fprintf(stderr, "JKWindowServer: expected CreateSurface\n");
-        return;
-    }
-
-    ipc::SurfaceCreatePayload create{};
-    std::memcpy(&create, createMsg.payload.data(), sizeof(create));
-
-    uint32_t id = nextSurfaceId_++;
-    auto client = std::make_unique<JKClientConnection>(id, std::move(transport));
-
-    if (!client->CreateSurface(create.width, create.height, create.title)) {
-        std::fprintf(stderr, "JKWindowServer: failed to create surface\n");
-        return;
-    }
-
-    ipc::SurfaceCreatedPayload created{};
-    created.surfaceId = id;
-    std::string shmName = std::string("Local\\JKSurfaceShm_") + std::to_string(id);
-    std::strncpy(created.shmName, shmName.c_str(), sizeof(created.shmName) - 1);
-    if (!client->Send(ipc::MsgType::SurfaceCreated, &created, sizeof(created))) {
-        std::fprintf(stderr, "JKWindowServer: failed to send SurfaceCreated\n");
-        return;
-    }
-
-    SDL_Texture* texture = SDL_CreateTexture(renderer_,
-                                             SDL_PIXELFORMAT_RGBA32,
-                                             SDL_TEXTUREACCESS_STREAMING,
-                                             client->Width(),
-                                             client->Height());
-    if (!texture) {
-        std::fprintf(stderr, "JKWindowServer: failed to create texture: %s\n", SDL_GetError());
-        return;
-    }
-    client->SetTexture(texture);
-
-    // Center the first client surface in the server window.
-    int ww = 0, wh = 0;
-    SDL_GetWindowSize(window_, &ww, &wh);
-    client->SetPosition(std::max(0, (ww - client->Width()) / 2),
-                        std::max(0, (wh - client->Height()) / 2));
-
-    client->StartReadThread();
-
-    {
-        std::lock_guard<std::mutex> lock(clientsMutex_);
-        clients_.push_back(std::move(client));
-    }
-
-    std::fprintf(stderr, "JKWindowServer: client surface %u created (%dx%d)\n",
-                 id, create.width, create.height);
-
-    Run();
-}
-
-void JKWindowServer::AcceptorLoop() {
-    // Future multi-client accept loop. Not used by RunSingleAccept.
-    while (running_) {
-        auto transport = ipc::JKPipeTransport::CreateServer(pipeName_);
-        if (!transport) {
-            std::fprintf(stderr, "JKWindowServer::AcceptorLoop: accept failed\n");
-            continue;
+void JKWindowServer::UnblockAcceptor() {
+    if (pipeName_.empty()) return;
+    // The acceptor thread blocks in ConnectNamedPipe. Open a short-lived
+    // client connection so it unblocks and notices running_ == false.
+    for (int i = 0; i < 50; ++i) {
+        auto poison = ipc::JKPipeTransport::ConnectClient(pipeName_);
+        if (poison) {
+            poison->Close();
+            return;
         }
-        // TODO: read Hello/CreateSurface, create shared memory, add client.
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
+    std::fprintf(stderr, "JKWindowServer::UnblockAcceptor: failed to unblock acceptor\n");
 }
 
 void JKWindowServer::ProcessPendingMessages() {
