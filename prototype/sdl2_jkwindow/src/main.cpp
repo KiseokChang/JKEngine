@@ -7,6 +7,9 @@ extern "C" __declspec(dllimport) int __stdcall AllocConsole(void);
 #include <JKApplication.h>
 #include <JKWindow.h>
 
+#include <client/JKClientSurface.h>
+#include <server/JKWindowServer.h>
+
 #include <JKControl.h>
 #include <JKStatic.h>
 #include <JKButton.h>
@@ -54,10 +57,12 @@ using jk::Utf8ToKssm;
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 class ColorBox : public jk::JKControl {
@@ -993,6 +998,8 @@ int main(int argc, char* argv[]) {
         std::printf("  vpres       Vector font presentation\n");
         std::printf("  minesweeper App launcher (Minesweeper + Tetris)\n");
         std::printf("  tetris      Tetris game\n");
+        std::printf("  --server    Run as the window server (Phase 2 scaffolding)\n");
+        std::printf("  --client    Run as a client of the window server\n");
         std::printf("  -h, --help, /?  Show this help message\n");
         return 0;
     }
@@ -1011,6 +1018,8 @@ int main(int argc, char* argv[]) {
     bool runVectorPres = (argc > 1 && std::strcmp(argv[1], "vpres") == 0);
     bool runMineSweeper = (argc > 1 && std::strcmp(argv[1], "minesweeper") == 0);
     bool runTetris = (argc > 1 && std::strcmp(argv[1], "tetris") == 0);
+    bool runServer = (argc > 1 && std::strcmp(argv[1], "--server") == 0);
+    bool runClient = (argc > 1 && std::strcmp(argv[1], "--client") == 0);
 
     if (runPcx) {
         jk::PcxApp app((argc > 2) ? argv[2] : "");
@@ -1090,6 +1099,54 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         return app.Run();
+    }
+
+    if (runServer) {
+        jk::server::JKWindowServer server;
+        if (!server.Init("JKENGINE Window Server", 1280, 720)) {
+            return 1;
+        }
+        server.RunSingleAccept("\\\\.\\pipe\\JKWindowServerPipe");
+        return 0;
+    }
+
+    if (runClient) {
+        constexpr int kW = 400;
+        constexpr int kH = 300;
+        constexpr const char* kPipe = "\\\\.\\pipe\\JKWindowServerPipe";
+
+        jk::client::JKClientSurface surface(kPipe, kW, kH, "Test Client");
+        if (!surface.Connect()) {
+            std::fprintf(stderr, "Failed to connect to window server\n");
+            return 1;
+        }
+
+        // Simple animation: fill the surface with a cycling color.
+        uint8_t phase = 0;
+        const auto start = std::chrono::steady_clock::now();
+        while (std::chrono::steady_clock::now() - start < std::chrono::seconds(10)) {
+            uint8_t* pixels = surface.Pixels();
+            if (!pixels) break;
+
+            uint8_t r = 128 + static_cast<uint8_t>(std::sin(phase * 0.05) * 127);
+            uint8_t g = 128 + static_cast<uint8_t>(std::sin(phase * 0.05 + 2.0) * 127);
+            uint8_t b = 128 + static_cast<uint8_t>(std::sin(phase * 0.05 + 4.0) * 127);
+
+            for (int y = 0; y < kH; ++y) {
+                for (int x = 0; x < kW; ++x) {
+                    uint8_t* p = pixels + (y * kW + x) * 4;
+                    p[0] = r;
+                    p[1] = g;
+                    p[2] = b;
+                    p[3] = 255;
+                }
+            }
+
+            surface.CommitFull();
+            ++phase;
+            std::this_thread::sleep_for(std::chrono::milliseconds(33));
+        }
+        return 0;
     }
 
     MyApp app;

@@ -69,6 +69,9 @@ add_executable(jkproto_sdl2_jkwindow
     src/JKHangulManager.cpp
     src/JKResourceCache.cpp
     src/JKSoundManager.cpp
+    src/client/JKClientSurface.cpp
+    src/server/JKClientConnection.cpp
+    src/server/JKWindowServer.cpp
     src/JKDataFile.cpp
     src/JKVectorFont.cpp
     src/apps/JangoApp.cpp

@@ -29,6 +29,45 @@ struct WireHeader {
     uint32_t type  = 0;
     uint32_t length = 0;
 };
+
+// Protocol payload structures shared by server and client.
+// All payloads are trivially-copyable and sent raw over the wire.
+
+struct HelloPayload {
+    uint32_t protocolVersion = 1;
+};
+
+struct SurfaceCreatePayload {
+    int32_t  width = 0;
+    int32_t  height = 0;
+    char     title[128] = {};
+};
+
+struct SurfaceCreatedPayload {
+    uint32_t surfaceId = 0;
+    char     shmName[256] = {};
+};
+
+struct DirtyRect {
+    int32_t x = 0;
+    int32_t y = 0;
+    int32_t w = 0;
+    int32_t h = 0;
+};
+
+struct CommitSurfaceHeader {
+    uint32_t surfaceId = 0;
+    uint32_t dirtyCount = 0;
+    // Followed by dirtyCount DirtyRect entries.
+};
+
+struct SurfaceMovePayload {
+    uint32_t surfaceId = 0;
+    int32_t  x = 0;
+    int32_t  y = 0;
+    int32_t  width = 0;
+    int32_t  height = 0;
+};
 #pragma pack(pop)
 
 struct Message {
