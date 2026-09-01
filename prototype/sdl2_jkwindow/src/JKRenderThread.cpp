@@ -1,6 +1,7 @@
 #include <JKRenderThread.h>
 #include <JKSDLRenderBackend.h>
 #include <JKRenderCommandList.h>
+#include <JKEvent.h>
 #include <JKPlatform.h>
 #include <cstdio>
 
@@ -103,32 +104,44 @@ void JKRenderThread::Stop() {
 }
 
 void JKRenderThread::Run() {
+    int lastPhysW = 0, lastPhysH = 0;
+    int lastLogW = 0, lastLogH = 0;
+
     while (running_) {
         JKMessageBus::Payload payload;
         bool hasPayload = bus_ && bus_->PopWait(JKMessageBus::Channel::Render, payload, 16);
 
-        // Handle window resize events on the render thread.
-        SDL_Event ev;
-        while (SDL_PollEvent(&ev)) {
-            // Discard here; input events are handled by the input thread.
-            // Window resize/DPI events are handled separately if needed.
-            if (ev.type == SDL_WINDOWEVENT) {
-                if (ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
-                    logicalWidth_ = ev.window.data1;
-                    logicalHeight_ = ev.window.data2;
-                }
-            }
-        }
-
         if (hasPayload && renderBackend_) {
-            // Scale logical-point drawing commands to physical pixels.
+            // Read the current logical point size from SDL (render-thread only).
+            int logW = 0, logH = 0;
+            SDL_GetWindowSize(window_, &logW, &logH);
+            logicalWidth_ = logW;
+            logicalHeight_ = logH;
+
             int physW = 0, physH = 0;
             renderBackend_->GetOutputSize(physW, physH);
+
+            // Notify the application thread whenever the DPI/physical size changes.
+            if (bus_ &&
+                (physW != lastPhysW || physH != lastPhysH ||
+                 logW != lastLogW || logH != lastLogH)) {
+                lastPhysW = physW;
+                lastPhysH = physH;
+                lastLogW = logW;
+                lastLogH = logH;
+
+                JKEvent dpiEv;
+                dpiEv.type = JKEventType::DpiChanged;
+                dpiEv.x = physW;
+                dpiEv.y = physH;
+                bus_->Push(JKMessageBus::Channel::Input, dpiEv);
+            }
+
+            // Scale logical-point drawing commands to physical pixels.
             float sx = 1.0f, sy = 1.0f;
-            if (logicalWidth_ > 0 && logicalHeight_ > 0 &&
-                physW > 0 && physH > 0) {
-                sx = physW / static_cast<float>(logicalWidth_);
-                sy = physH / static_cast<float>(logicalHeight_);
+            if (logW > 0 && logH > 0 && physW > 0 && physH > 0) {
+                sx = physW / static_cast<float>(logW);
+                sy = physH / static_cast<float>(logH);
             }
 
             renderBackend_->SetRenderTarget(nullptr);

@@ -141,6 +141,16 @@ void JKApplication::InputLoop() {
                 std::fflush(mouseLog_);
             }
 
+            if (sdlEvent.type == SDL_WINDOWEVENT &&
+                sdlEvent.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
+                JKEvent sizeEv;
+                sizeEv.type = JKEventType::SizeChanged;
+                sizeEv.x = sdlEvent.window.data1;
+                sizeEv.y = sdlEvent.window.data2;
+                messageBus_->Push(JKMessageBus::Channel::Input, sizeEv);
+                continue;
+            }
+
             JKEvent ev = TranslateSDLEvent(sdlEvent);
             if (ev.type != JKEventType::None) {
                 if (ev.type == JKEventType::Quit) {
@@ -211,6 +221,18 @@ bool JKApplication::ProcessOneEvent(const JKEvent& ev) {
         std::lock_guard<std::mutex> lock(stateMutex_);
         logicalWidth_ = ev.x;
         logicalHeight_ = ev.y;
+    }
+
+    if (ev.type == JKEventType::DpiChanged) {
+        // The render thread reports the physical output size. Recompute the
+        // logical-to-physical scale used by mouse coordinate translation.
+        std::lock_guard<std::mutex> lock(stateMutex_);
+        if (logicalWidth_ > 0 && logicalHeight_ > 0) {
+            scaleX_ = ev.x / static_cast<float>(logicalWidth_);
+            scaleY_ = ev.y / static_cast<float>(logicalHeight_);
+        }
+        letterboxX_ = 0;
+        letterboxY_ = 0;
     }
 
     if (!PreProcessMessage(ev)) {
@@ -418,18 +440,11 @@ JKEvent JKApplication::TranslateSDLEvent(const SDL_Event& sdl) {
         int physY = ev.y;
         bool usedPlatformPhys = JKPlatform::GetPhysicalMousePos(sdlWindow_, physX, physY);
 
-        float ptToPhysX = 1.0f, ptToPhysY = 1.0f;
-        {
-            std::lock_guard<std::mutex> lock(stateMutex_);
-            if (logicalWidth_ > 0) {
-                int renderW = 0, renderH = 0;
-                if (renderThread_ && renderThread_->GetBackend()) {
-                    renderThread_->GetBackend()->GetOutputSize(renderW, renderH);
-                }
-                if (renderW > 0) ptToPhysX = renderW / static_cast<float>(logicalWidth_);
-                if (renderH > 0) ptToPhysY = renderH / static_cast<float>(logicalHeight_);
-            }
-        }
+        // Shared scale is the physical-to-logical ratio reported by the render
+        // thread via DpiChanged events, so it doubles as the point-to-pixel
+        // conversion factor for SDL mouse coordinates.
+        float ptToPhysX = scaleX;
+        float ptToPhysY = scaleY;
 
         if (!usedPlatformPhys) {
             if (ptToPhysX > 0.0f && ptToPhysY > 0.0f) {
