@@ -2,7 +2,8 @@
 #define JKAPPLICATION_H
 
 #include <JKWindow.h>
-#include <JKMessageQue.h>
+#include <JKMessageBus.h>
+#include <JKAudioCommand.h>
 #include <JKHangulManager.h>
 #include <JKDC.h>
 #include <JKRenderBackend.h>
@@ -11,10 +12,13 @@
 #include <SDL.h>
 #include <memory>
 #include <string>
-#include <set>
-#include <vector>
+#include <mutex>
 
 namespace jk {
+
+class JKRenderThread;
+class JKTimerThread;
+class JKAudioThread;
 
 class JKApplication {
 public:
@@ -27,17 +31,17 @@ public:
 
     void SetMainWindow(std::unique_ptr<JKWindow> window);
     JKWindow* GetMainWindow() const;
-    SDL_Window* GetSdlWindow() const { return window_; }
+    SDL_Window* GetSdlWindow() const { return sdlWindow_; }
 
     void SetModalWindow(JKWindow* window);
-    JKWindow* GetModalWindow() const { return windowManager_ ? windowManager_->GetModalWindow() : nullptr; }
+    JKWindow* GetModalWindow() const;
 
     void SetCapture(JKControl* control);
     void ReleaseCapture();
-    JKControl* GetCapture() const { return windowManager_ ? windowManager_->GetCapture() : nullptr; }
+    JKControl* GetCapture() const;
 
     void SetInputWindow(JKWindow* window);
-    JKWindow* GetInputWindow() const { return windowManager_ ? windowManager_->GetInputWindow() : nullptr; }
+    JKWindow* GetInputWindow() const;
 
     JKControl* FindControlById(uint32_t winId);
     JKControl* FindControlByControlId(uint16_t controlId);
@@ -58,8 +62,16 @@ public:
     void RemoveTimer(uint64_t handle);
     void RemoveTimersForWindow(uint32_t winId);
 
+    // Post an audio command to the audio thread. Used by JKSoundManager.
+    void PostAudioCommand(const AudioCommand& cmd);
+
+    // Shared state accessors used by input thread / render thread.
+    void SetLogicalSize(int w, int h);
+    void GetLogicalSize(int& w, int& h) const;
+    void GetScale(float& sx, float& sy) const;
+    void GetLetterbox(int& x, int& y) const;
+
 #ifdef _WIN32
-    // 디버깅용: 마우스 이벤트 로그 핸들(JKButton 등에서 사용).
     FILE* GetMouseLog() const { return mouseLog_; }
 #endif
 
@@ -69,97 +81,50 @@ protected:
     virtual bool PreProcessMessage(const JKEvent& ev);
     virtual void RouteMessage(const JKEvent& ev);
 
-    void Render();
-    void RenderDirtyRegions(JKWindow* dirtyWindow);
+    // Called on the application thread when a scene should be produced and sent
+    // to the render thread. In Phase 1 this is a placeholder; Phase 1.5 adds
+    // serialized render commands.
+    virtual void ComposeScene();
+
     JKEvent TranslateSDLEvent(const SDL_Event& sdl);
-    void UpdateScale();
-
-    // 모니터 이동/DPI 전환 대응 헬퍼 (14_sdl2_window_dpi.md 참조)
-    void ReapplyPlacement();
-    void SynchronizeWindowOnDisplayChanged(int displayIndex);
-
-    // Debounced resize/DPI handling.
-    void OnSDLWindowEvent(const SDL_WindowEvent& winEv);
-    void ProcessPendingResize(uint32_t now);
 
 private:
-    SDL_Window* window_ = nullptr;
-    SDL_Renderer* sdlRenderer_ = nullptr;
-    std::unique_ptr<JKRenderBackend> renderBackend_;
-    JKRenderBackend::TextureHandle backBuffer_ = JKRenderBackend::InvalidTexture;
-    int backBufferW_ = 0;
-    int backBufferH_ = 0;
+    SDL_Window* sdlWindow_ = nullptr;
 
     std::unique_ptr<JKWindow> mainWindow_;
     std::unique_ptr<JKWindowManager> windowManager_;
-    JKMessageQue msgQue_;
+    std::unique_ptr<JKMessageBus> messageBus_;
     JKDC dc_;
     std::unique_ptr<HangulManager> hangulManager_;
     std::unique_ptr<JKResourceCache> resourceCache_;
     bool running_ = false;
 
-    // SDL 논리 좌표 -> 물리 픽셀 변환 배율 (SDL_RenderSetScale()으로 렌더링만 변환).
-    float scaleX_ = 1.0f;
-    float scaleY_ = 1.0f;
+    std::unique_ptr<JKRenderThread> renderThread_;
+    std::unique_ptr<JKTimerThread> timerThread_;
+    std::unique_ptr<JKAudioThread> audioThread_;
 
-    // 앱 논리 좌표계. Init 요청 크기로 시작하며, 창이 생성된 후에는
-    // SDL_GetWindowSize()가 보고하는 실제 창 논리 포인트 크기로 동기화한다.
-    // 내부 레이아웃/hit-test/드래그는 이 좌표계를 그대로 사용하고, 렌더링/입력만
-    // HiDPI 물리 픽셀에 맞춰 스케일한다.
+    // Shared mutable state protected by a single mutex.
+    mutable std::mutex stateMutex_;
     int logicalWidth_ = 0;
     int logicalHeight_ = 0;
-
-    // 등비(레터박스) 배율에서 앱 내용 주변의 물리 픽셀 여백(좌상단 오프셋).
+    float scaleX_ = 1.0f;
+    float scaleY_ = 1.0f;
     int letterboxX_ = 0;
     int letterboxY_ = 0;
 
-    // 창 좌표(SDL 논리 포인트) -> 물리 픽셀 배율(DPI). 마우스 좌표 변환에 사용.
-    float ptToPhysX_ = 1.0f;
-    float ptToPhysY_ = 1.0f;
-
-    // "안정 pt": Init 직후의 창(논리 포인트) 크기. 모니터 전이 시 SDL의
-    // WM_DPICHANGED 제안 rect 재해석(stale dpiScale)으로 pt가 x0.8/x0.64로
-    // 튀는 것을 되돌리는 기준값으로 쓴다(불변값이라 연쇄 축소 없음).
-    int stablePtW_ = 0;
-    int stablePtH_ = 0;
-
-    // Deadline-based timer scheduler.
-    struct DeadlineTimer {
-        uint64_t handle = 0;
-        uint32_t winId = 0;
-        uint32_t intervalMs = 0;
-        uint32_t deadline = 0;
-        bool repeat = false;
-
-        bool operator<(const DeadlineTimer& other) const {
-            return deadline < other.deadline;
-        }
-    };
-    std::multiset<DeadlineTimer> timers_;
-    uint64_t nextTimerHandle_ = 1;
-    uint32_t legacyTimerInterval_ = 1000;
-    uint32_t lastLegacyTimerTick_ = 0;
-
-    // Debounced resize/DPI change state.
-    static constexpr uint32_t kResizeDebounceMs = 200;
-    int pendingResizeW_ = 0;
-    int pendingResizeH_ = 0;
-    int pendingDpiDisplay_ = -1;
-    uint32_t pendingResizeDeadline_ = 0;
-    bool resizePending_ = false;
+    // Legacy timer state passed to the timer thread.
+    uint32_t legacyTimerWinId_ = 0;
+    uint32_t legacyTimerInterval_ = 0;
 
 #ifdef _WIN32
-    // Win32 물리 픽셀 마우스 좌표 추적 (MouseMove delta 계산용).
     int lastMousePhysX_ = 0;
     int lastMousePhysY_ = 0;
     bool hasLastMousePhys_ = false;
-
-    // 디버깅용 마우스 이벤트 로그 파일 핸들.
     FILE* mouseLog_ = nullptr;
 #endif
 
-    void CreateOrResizeBackBuffer();
-    void DestroyBackBuffer();
+    void InputLoop();
+    bool ProcessOneEvent(const JKEvent& ev);
 };
 
 extern JKApplication* g_currentJKApp;

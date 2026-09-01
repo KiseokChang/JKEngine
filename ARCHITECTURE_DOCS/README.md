@@ -20,6 +20,8 @@
 | `13_sdl2_top_level_apps.md` | SDL2 기반 최상위 앱/기능 후보 | ★★☆ | 124 |
 | `14_sdl2_window_dpi.md` | SDL2 윈도우 배치·DPI/좌표계/렌더링 파이프라인 | ★★☆ | 362 |
 | `15_verification_playbook.md` | 창/DPI 화면 검증 방법론·14항목 자동 검증 플레이북 | ★★☆ | 187 |
+| `20_sdl2_jango_porting_plan.md` | SDL2 JKWindow 기반 원본 비즈니스 앱 포팅 계획 | ★★★ | — |
+| `21_sdl2_audio_roadmap.md` | SDL2 JKWindow 오디오 시스템 장기 로드맵 | ★★★ | — |
 | `99_file_inventory.md` | 주요 소스/헤더/리소스 파일 인벤토리 | ★★☆ | 265 |
 | `README.md` | 본 문서 | ★★★ | 93 |
 

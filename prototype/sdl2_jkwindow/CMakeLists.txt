@@ -53,7 +53,12 @@ add_executable(jkproto_sdl2_jkwindow
     src/JKDialog.cpp
     src/JKWindow.cpp
     src/JKWindowManager.cpp
+    src/JKMessageBus.cpp
+    src/JKTimerThread.cpp
+    src/JKAudioThread.cpp
+    src/JKAudioCommand.cpp
     src/JKSDLAudioBackend.cpp
+    src/JKRenderThread.cpp
     src/JKApplication.cpp
     src/JKHangulManager.cpp
     src/JKResourceCache.cpp
