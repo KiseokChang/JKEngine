@@ -86,6 +86,12 @@ bool JKApplication::Init(const std::string& title, int width, int height) {
         mainWindow_ = std::make_unique<JKWindow>(title);
     }
 
+    // Start the timer thread before OnInit() so apps can configure timers
+    // during initialization. Events posted before the main loop starts are
+    // simply drained once Run() begins.
+    timerThread_ = std::make_unique<JKTimerThread>();
+    timerThread_->Start(messageBus_.get());
+
     OnInit();
 
     // In single-window mode mainWindow fills the logical window size.
@@ -100,9 +106,6 @@ bool JKApplication::Init(const std::string& title, int width, int height) {
     mainWindow_->Setup();
     mainWindow_->Open();
     mainWindow_->FocusFirstChild();
-
-    timerThread_ = std::make_unique<JKTimerThread>();
-    timerThread_->Start(messageBus_.get());
 
     renderThread_->Start(messageBus_.get());
 

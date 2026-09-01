@@ -116,6 +116,16 @@ void JKRenderThread::Run() {
         JKMessageBus::Payload payload;
         bool hasPayload = bus_ && bus_->PopWait(JKMessageBus::Channel::Render, payload, 16);
 
+        // The application thread may generate frames faster than the monitor
+        // refresh rate. Always render the most recent scene and drop stale ones
+        // to avoid an ever-growing queue.
+        if (hasPayload && bus_) {
+            JKMessageBus::Payload newer;
+            while (bus_->Pop(JKMessageBus::Channel::Render, newer)) {
+                payload = std::move(newer);
+            }
+        }
+
         if (hasPayload && renderBackend_) {
             // Upload any textures queued from the application thread before
             // replaying this frame. All SDL renderer access stays on this thread.

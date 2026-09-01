@@ -25,7 +25,7 @@ Add-Type -AssemblyName System.Windows.Forms
 
 if (-not (Test-Path $exe)) { throw "exe not found: $exe" }
 
-$proc = Start-Process -FilePath $exe -ArgumentList "tetris" -PassThru
+$proc = Start-Process -FilePath $exe -ArgumentList "tetris" -PassThru -RedirectStandardError "i:\progwork\JKENGINE\tools\tempp\tetris_stderr.log"
 try {
     Start-Sleep -Seconds 4
     $proc.Refresh()

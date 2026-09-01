@@ -25,7 +25,7 @@ Add-Type -AssemblyName System.Drawing
 
 if (-not (Test-Path $exe)) { throw "exe not found: $exe" }
 
-$proc = Start-Process -FilePath $exe -ArgumentList "minesweeper" -PassThru
+$proc = Start-Process -FilePath $exe -ArgumentList "minesweeper" -PassThru -RedirectStandardError "i:\progwork\JKENGINE\tools\tempp\click_mine_stderr.log"
 try {
     Start-Sleep -Seconds 4
     $proc.Refresh()

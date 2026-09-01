@@ -342,7 +342,6 @@ void JKControl::SetFocus() {
             if (old) old->OnKillFocus();
             win->SetFocusChild(this);
             OnSetFocus();
-            std::fprintf(stderr, "[FOCUS] winId=%u controlId=%u\n", winId_, controlId_);
             if (g_currentJKApp) g_currentJKApp->SetInputWindow(win);
             return;
         }

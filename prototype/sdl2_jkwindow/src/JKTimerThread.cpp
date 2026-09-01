@@ -1,5 +1,6 @@
 #include <JKTimerThread.h>
 #include <SDL.h>
+#include <cstdio>
 
 namespace jk {
 
