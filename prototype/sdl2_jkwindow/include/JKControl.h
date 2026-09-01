@@ -127,6 +127,10 @@ public:
     bool IsCloseRequested() const;
     void RemoveClosedChildren();
 
+    // Called when RequestClose() is invoked. Override to perform cleanup
+    // (e.g. stopping audio) before the control is removed from its parent.
+    virtual void OnClose();
+
 protected:
     uint32_t winId_ = 0;
     uint16_t controlId_ = 0;

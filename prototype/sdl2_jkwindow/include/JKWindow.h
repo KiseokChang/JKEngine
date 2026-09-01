@@ -35,6 +35,7 @@ public:
 
     void PaintWindow(JKDC& dc) override;
     void OnPaintClient(JKDC& dc) override;
+    void OnClose() override;
     void RespondMessage(const JKEvent& ev) override;
 
     // Dirty-region management for partial redraw.

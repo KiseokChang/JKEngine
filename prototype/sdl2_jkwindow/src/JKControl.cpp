@@ -411,8 +411,13 @@ const std::vector<std::unique_ptr<JKControl>>& JKControl::GetChildren() const {
 }
 
 void JKControl::RequestClose() {
+    OnClose();
     closeRequested_ = true;
     Hide();
+}
+
+void JKControl::OnClose() {
+    // Default: nothing to clean up.
 }
 
 bool JKControl::IsCloseRequested() const {

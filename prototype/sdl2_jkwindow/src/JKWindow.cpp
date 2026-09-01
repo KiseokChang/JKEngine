@@ -253,6 +253,13 @@ void JKWindow::OnPaintClient(JKDC& dc) {
     }
 }
 
+void JKWindow::OnClose() {
+    JKControl::OnClose();
+    if (g_currentJKApp && g_currentJKApp->GetWindowManager()) {
+        g_currentJKApp->GetWindowManager()->NotifyWindowClosing(this);
+    }
+}
+
 namespace {
 
 bool RectContains(const JKRect& outer, const JKRect& inner) {

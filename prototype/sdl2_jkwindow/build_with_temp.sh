@@ -23,4 +23,8 @@ ninja
 
 # 4. 결과물을 원래 build 디렉터리로 복사
 cp -f "$TEMP/build/jkproto_sdl2_jkwindow.exe" "$SRC/build/"
+# assets 폴더도 build 디렉터리에 동기화하여 실행 파일이 단독으로 리소스를 찾을 수 있게 한다.
+if [ -d "$SRC/assets" ]; then
+    cp -R "$SRC/assets" "$SRC/build/"
+fi
 echo "Build succeeded. Output copied to $SRC/build/jkproto_sdl2_jkwindow.exe"

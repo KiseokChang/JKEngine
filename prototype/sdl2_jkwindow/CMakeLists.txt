@@ -52,9 +52,12 @@ add_executable(jkproto_sdl2_jkwindow
     src/JKMessageBox.cpp
     src/JKDialog.cpp
     src/JKWindow.cpp
+    src/JKWindowManager.cpp
+    src/JKSDLAudioBackend.cpp
     src/JKApplication.cpp
     src/JKHangulManager.cpp
     src/JKResourceCache.cpp
+    src/JKSoundManager.cpp
     src/JKDataFile.cpp
     src/JKVectorFont.cpp
     src/apps/JangoApp.cpp
@@ -69,6 +72,8 @@ add_executable(jkproto_sdl2_jkwindow
     src/apps/VectorFontApp.cpp
     src/apps/VectorPresApp.cpp
     src/apps/MineSweeperApp.cpp
+    src/apps/AppLauncherItem.cpp
+    src/apps/TetrisApp.cpp
     "${JKENGINE_ROOT}/JKWINDOW/WANCODE.CPP"
 )
 
@@ -83,11 +88,25 @@ target_compile_definitions(jkproto_sdl2_jkwindow PRIVATE
     JKENGINE_FONT_DIR="${JKENGINE_ROOT}/WINDBASE/2CAOCC"
 )
 
-if(TARGET SDL2::SDL2main)
-    target_link_libraries(jkproto_sdl2_jkwindow PRIVATE SDL2::SDL2main)
+# Use a plain main() entry point instead of SDL2main's WinMain wrapper.
+# SDL2main caused silent launch failures on MinGW/Windows in this project.
+# SDL itself is initialized explicitly with SDL_Init in JKApplication.
+target_link_libraries(jkproto_sdl2_jkwindow PRIVATE SDL2::SDL2)
+
+# SDL2_mixer: CMake config가 있으면 사용, 없으면 pkg-config fallback.
+find_package(SDL2_mixer QUIET)
+if(NOT TARGET SDL2_mixer::SDL2_mixer)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(SDL2_MIXER REQUIRED SDL2_mixer)
+
+    add_library(SDL2_mixer::SDL2_mixer INTERFACE IMPORTED)
+    set_target_properties(SDL2_mixer::SDL2_mixer PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES "${SDL2_MIXER_INCLUDE_DIRS}"
+        INTERFACE_LINK_LIBRARIES "${SDL2_MIXER_LIBRARIES}"
+    )
 endif()
 
-target_link_libraries(jkproto_sdl2_jkwindow PRIVATE SDL2::SDL2)
+target_link_libraries(jkproto_sdl2_jkwindow PRIVATE SDL2_mixer::SDL2_mixer)
 
 if(WIN32)
     target_link_libraries(jkproto_sdl2_jkwindow PRIVATE imm32)

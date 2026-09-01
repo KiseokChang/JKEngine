@@ -7,9 +7,12 @@
 #include <JKDC.h>
 #include <JKRenderBackend.h>
 #include <JKResourceCache.h>
+#include <JKWindowManager.h>
 #include <SDL.h>
 #include <memory>
 #include <string>
+#include <set>
+#include <vector>
 
 namespace jk {
 
@@ -27,22 +30,33 @@ public:
     SDL_Window* GetSdlWindow() const { return window_; }
 
     void SetModalWindow(JKWindow* window);
-    JKWindow* GetModalWindow() const { return modalWindow_; }
+    JKWindow* GetModalWindow() const { return windowManager_ ? windowManager_->GetModalWindow() : nullptr; }
 
     void SetCapture(JKControl* control);
     void ReleaseCapture();
-    JKControl* GetCapture() const { return captureControl_; }
+    JKControl* GetCapture() const { return windowManager_ ? windowManager_->GetCapture() : nullptr; }
 
     void SetInputWindow(JKWindow* window);
-    JKWindow* GetInputWindow() const { return inputWindow_; }
+    JKWindow* GetInputWindow() const { return windowManager_ ? windowManager_->GetInputWindow() : nullptr; }
 
     JKControl* FindControlById(uint32_t winId);
     JKControl* FindControlByControlId(uint16_t controlId);
+    JKWindow*  FindWindowById(uint32_t winId);
 
     JKResourceCache* GetResourceCache() const { return resourceCache_.get(); }
+    JKWindowManager* GetWindowManager() const { return windowManager_.get(); }
 
-    // Change the periodic timer tick interval (milliseconds). Default is 1000.
-    void SetTimerInterval(uint32_t ms) { timerInterval_ = ms; }
+    // Legacy single timer interval. Prefer AddTimer/RemoveTimer for per-window
+    // or per-control timers. SetTimerInterval configures the implicit global
+    // timer (winId 0) for backward compatibility.
+    void SetTimerInterval(uint32_t ms);
+
+    // Register a repeating or one-shot timer. Returns a handle that can be passed
+    // to RemoveTimer. When fired, a JKEventType::Timer event is posted with the
+    // given winId as the target.
+    uint64_t AddTimer(uint32_t winId, uint32_t intervalMs, bool repeat);
+    void RemoveTimer(uint64_t handle);
+    void RemoveTimersForWindow(uint32_t winId);
 
 #ifdef _WIN32
     // 디버깅용: 마우스 이벤트 로그 핸들(JKButton 등에서 사용).
@@ -64,6 +78,10 @@ protected:
     void ReapplyPlacement();
     void SynchronizeWindowOnDisplayChanged(int displayIndex);
 
+    // Debounced resize/DPI handling.
+    void OnSDLWindowEvent(const SDL_WindowEvent& winEv);
+    void ProcessPendingResize(uint32_t now);
+
 private:
     SDL_Window* window_ = nullptr;
     SDL_Renderer* sdlRenderer_ = nullptr;
@@ -73,6 +91,7 @@ private:
     int backBufferH_ = 0;
 
     std::unique_ptr<JKWindow> mainWindow_;
+    std::unique_ptr<JKWindowManager> windowManager_;
     JKMessageQue msgQue_;
     JKDC dc_;
     std::unique_ptr<HangulManager> hangulManager_;
@@ -104,19 +123,30 @@ private:
     int stablePtW_ = 0;
     int stablePtH_ = 0;
 
-    // Periodic timer tick generation (milliseconds).
-    uint32_t timerInterval_ = 1000;
-    uint32_t lastTimerTick_ = 0;
+    // Deadline-based timer scheduler.
+    struct DeadlineTimer {
+        uint64_t handle = 0;
+        uint32_t winId = 0;
+        uint32_t intervalMs = 0;
+        uint32_t deadline = 0;
+        bool repeat = false;
 
-    // Modal dialog support.
-    JKWindow* modalWindow_ = nullptr;
+        bool operator<(const DeadlineTimer& other) const {
+            return deadline < other.deadline;
+        }
+    };
+    std::multiset<DeadlineTimer> timers_;
+    uint64_t nextTimerHandle_ = 1;
+    uint32_t legacyTimerInterval_ = 1000;
+    uint32_t lastLegacyTimerTick_ = 0;
 
-    // Mouse capture and the window that owns the current keyboard focus.
-    JKControl* captureControl_ = nullptr;
-    JKWindow* inputWindow_ = nullptr;
-
-    // Focus to restore when the modal dialog closes.
-    JKControl* modalPrevFocus_ = nullptr;
+    // Debounced resize/DPI change state.
+    static constexpr uint32_t kResizeDebounceMs = 200;
+    int pendingResizeW_ = 0;
+    int pendingResizeH_ = 0;
+    int pendingDpiDisplay_ = -1;
+    uint32_t pendingResizeDeadline_ = 0;
+    bool resizePending_ = false;
 
 #ifdef _WIN32
     // Win32 물리 픽셀 마우스 좌표 추적 (MouseMove delta 계산용).

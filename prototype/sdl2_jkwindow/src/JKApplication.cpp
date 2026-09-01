@@ -2,6 +2,7 @@
 #include <JKEvent.h>
 #include <JKSDLRenderBackend.h>
 #include <JKPlatform.h>
+#include <JKSoundManager.h>
 #include <cstdio>
 
 namespace jk {
@@ -10,6 +11,7 @@ JKApplication* g_currentJKApp = nullptr;
 
 JKApplication::JKApplication() : dc_(nullptr) {
     g_currentJKApp = this;
+    windowManager_ = std::make_unique<JKWindowManager>();
 }
 
 JKApplication::~JKApplication() {
@@ -32,10 +34,21 @@ bool JKApplication::Init(const std::string& title, int width, int height) {
     // at process start (see main.cpp). SDL hints here reinforce the behavior.
 #endif
 
+    // 비디오와 오디오 초기화를 분리한다. 오디오가 실패해도 GUI는 계속 실행.
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
-        std::fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "JKENGINE Error",
+            (std::string("SDL video init failed: ") + SDL_GetError()).c_str(), nullptr);
         return false;
     }
+
+    bool audioOk = true;
+    if (SDL_InitSubSystem(SDL_INIT_AUDIO) < 0) {
+        audioOk = false;
+    } else if (!JKSoundManager::GetInstance().Init()) {
+        audioOk = false;
+        SDL_QuitSubSystem(SDL_INIT_AUDIO);
+    }
+    // 오디오 실패는 조용히 넘어간다. GUI는 계속 실행.
 
     // 진단 출력: SDL 디스플레이 인덱스와 물리 배치/DPI 대응을 기록한다.
     // 모니터 간 이동 시 DISPLAY_CHANGED data1로 어떤 SDL 인덱스가 오고
@@ -165,6 +178,8 @@ bool JKApplication::Init(const std::string& title, int width, int height) {
     // 축소되는 것을 복구할 때의 기준이 된다(SynchronizeWindowOnDisplayChanged).
     SDL_GetWindowSize(window_, &stablePtW_, &stablePtH_);
 
+    windowManager_->SetMainWindow(mainWindow_.get());
+
     mainWindow_->Init();
     mainWindow_->Setup();
     mainWindow_->Open();
@@ -176,6 +191,9 @@ bool JKApplication::Init(const std::string& title, int width, int height) {
 
 void JKApplication::Close() {
     running_ = false;
+
+    JKSoundManager::GetInstance().Quit();
+
     if (!window_) return;
 
     OnClose();
@@ -205,17 +223,36 @@ int JKApplication::Run() {
         return 1;
     }
 
-    lastTimerTick_ = SDL_GetTicks();
+    lastLegacyTimerTick_ = SDL_GetTicks();
     SDL_Event sdlEvent;
     while (running_) {
         // 1. 주기적 타이머 이벤트 생성
-        uint32_t now = SDL_GetTicks();
-        if (now - lastTimerTick_ >= timerInterval_) {
-            lastTimerTick_ = now;
+        const uint32_t now = SDL_GetTicks();
+
+        // Legacy global timer (backward compatibility).
+        if (legacyTimerInterval_ > 0 &&
+            now - lastLegacyTimerTick_ >= legacyTimerInterval_) {
+            lastLegacyTimerTick_ = now;
             JKEvent timerEv;
             timerEv.type = JKEventType::Timer;
-            timerEv.targetId = mainWindow_->GetWinId();
+            timerEv.targetId = mainWindow_ ? mainWindow_->GetWinId() : 0;
+            timerEv.winId = timerEv.targetId;
             msgQue_.Push(timerEv);
+        }
+
+        // Deadline-based timers.
+        while (!timers_.empty() && timers_.begin()->deadline <= now) {
+            DeadlineTimer t = *timers_.begin();
+            timers_.erase(timers_.begin());
+            JKEvent timerEv;
+            timerEv.type = JKEventType::Timer;
+            timerEv.targetId = t.winId;
+            timerEv.winId = t.winId;
+            msgQue_.Push(timerEv);
+            if (t.repeat) {
+                t.deadline = now + t.intervalMs;
+                timers_.insert(t);
+            }
         }
 
         // 2. SDL 이벤트 수집 → JKEvent 변환 → MessageQue
@@ -225,22 +262,8 @@ int JKApplication::Run() {
                 std::fflush(mouseLog_);
             }
             if (sdlEvent.type == SDL_WINDOWEVENT) {
-                const Uint8 winEv = sdlEvent.window.event;
-                if (winEv == SDL_WINDOWEVENT_SIZE_CHANGED ||
-                    winEv == SDL_WINDOWEVENT_DISPLAY_CHANGED) {
-                    std::fprintf(stderr,
-                        "[DPISYNC] Run(): winEv=%s data1=%d data2=%d\n",
-                        (winEv == SDL_WINDOWEVENT_SIZE_CHANGED)
-                            ? "SIZE_CHANGED" : "DISPLAY_CHANGED",
-                        sdlEvent.window.data1, sdlEvent.window.data2);
-                }
-                if (winEv == SDL_WINDOWEVENT_SIZE_CHANGED) {
-                    UpdateScale();
-                } else if (winEv == SDL_WINDOWEVENT_DISPLAY_CHANGED) {
-                    // 모니터 이동(WM_DPICHANGED): 사이즈 이벤트만으로는 배율·창 pt
-                    // 크기·장식 배치가 새 모니터 기준과 어긋난 채 남을 수 있다.
-                    SynchronizeWindowOnDisplayChanged(sdlEvent.window.data1);
-                }
+                OnSDLWindowEvent(sdlEvent.window);
+                // Window events are either consumed by the debouncer or translated below.
             }
 
             JKEvent ev = TranslateSDLEvent(sdlEvent);
@@ -249,7 +272,10 @@ int JKApplication::Run() {
             }
         }
 
-        // 3. 메시지 처리
+        // 3. 디바운스된 resize/DPI 변경 처리
+        ProcessPendingResize(now);
+
+        // 4. 메시지 처리
         JKEvent ev;
         while (msgQue_.Pop(ev)) {
             if (!PreProcessMessage(ev)) {
@@ -259,11 +285,12 @@ int JKApplication::Run() {
 
             // Tab / Shift+Tab은 활성 윈도우 내에서 포커스를 이동시킨다.
             if (ev.type == JKEventType::KeyDown && ev.keyCode == SDLK_TAB) {
-                JKWindow* active = modalWindow_ ? modalWindow_
-                                                : (inputWindow_ ? inputWindow_ : mainWindow_.get());
+                JKWindow* active = windowManager_->GetKeyboardTargetWindow();
                 bool shift = (SDL_GetModState() & KMOD_SHIFT) != 0;
-                if (shift) active->FocusPrevChild();
-                else       active->FocusNextChild();
+                if (active) {
+                    if (shift) active->FocusPrevChild();
+                    else       active->FocusNextChild();
+                }
                 continue;
             }
 
@@ -272,15 +299,15 @@ int JKApplication::Run() {
 
         if (!running_) break;
 
-        // 4. 닫기 요청된 자식 윈도우를 정리한다.
+        // 5. 닫기 요청된 자식 윈도우를 정리한다.
         if (mainWindow_) {
             mainWindow_->RemoveClosedChildren();
         }
 
-        // 5. 그리기
+        // 6. 그리기
         Render();
 
-        // 6. ~60 FPS
+        // 7. ~60 FPS
         SDL_Delay(16);
     }
 
@@ -296,54 +323,66 @@ JKWindow* JKApplication::GetMainWindow() const {
 }
 
 void JKApplication::SetModalWindow(JKWindow* window) {
-    if (modalWindow_ == window) return;
-    ReleaseCapture();
-    if (window && !modalWindow_) {
-        // Save the control that had focus before the modal takes over.
-        JKWindow* prevWindow = inputWindow_ ? inputWindow_ : mainWindow_.get();
-        modalPrevFocus_ = prevWindow ? prevWindow->GetFocusChild() : nullptr;
-    }
-    modalWindow_ = window;
-    if (modalWindow_) {
-        inputWindow_ = modalWindow_;
-        modalWindow_->FocusFirstChild();
-    } else {
-        inputWindow_ = mainWindow_.get();
-        // Restore focus to the previously focused control if it still exists.
-        if (modalPrevFocus_) {
-            if (FindControlById(modalPrevFocus_->GetWinId()) == modalPrevFocus_) {
-                modalPrevFocus_->SetFocus();
-            } else {
-                modalPrevFocus_ = nullptr;
-            }
-        }
-        if (!modalPrevFocus_ && inputWindow_) {
-            inputWindow_->FocusFirstChild();
-        }
-        modalPrevFocus_ = nullptr;
-    }
+    windowManager_->SetModalWindow(window);
 }
 
 void JKApplication::SetCapture(JKControl* control) {
-    captureControl_ = control;
+    windowManager_->SetCapture(control);
 }
 
 void JKApplication::ReleaseCapture() {
-    captureControl_ = nullptr;
+    windowManager_->ReleaseCapture();
 }
 
 void JKApplication::SetInputWindow(JKWindow* window) {
-    inputWindow_ = window;
+    windowManager_->SetInputWindow(window);
+}
+
+void JKApplication::SetTimerInterval(uint32_t ms) {
+    legacyTimerInterval_ = ms;
+}
+
+uint64_t JKApplication::AddTimer(uint32_t winId, uint32_t intervalMs, bool repeat) {
+    if (intervalMs == 0) return 0;
+    DeadlineTimer t;
+    t.handle = nextTimerHandle_++;
+    t.winId = winId;
+    t.intervalMs = intervalMs;
+    t.deadline = SDL_GetTicks() + intervalMs;
+    t.repeat = repeat;
+    timers_.insert(t);
+    return t.handle;
+}
+
+void JKApplication::RemoveTimer(uint64_t handle) {
+    for (auto it = timers_.begin(); it != timers_.end(); ++it) {
+        if (it->handle == handle) {
+            timers_.erase(it);
+            return;
+        }
+    }
+}
+
+void JKApplication::RemoveTimersForWindow(uint32_t winId) {
+    for (auto it = timers_.begin(); it != timers_.end(); ) {
+        if (it->winId == winId) {
+            it = timers_.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 JKControl* JKApplication::FindControlById(uint32_t winId) {
-    if (!mainWindow_) return nullptr;
-    return mainWindow_->FindControlById(winId);
+    return windowManager_->FindControlById(winId);
 }
 
 JKControl* JKApplication::FindControlByControlId(uint16_t controlId) {
-    if (!mainWindow_) return nullptr;
-    return mainWindow_->FindControlByControlId(controlId);
+    return windowManager_->FindControlByControlId(controlId);
+}
+
+JKWindow* JKApplication::FindWindowById(uint32_t winId) {
+    return windowManager_->FindWindowById(winId);
 }
 
 void JKApplication::OnInit() {
@@ -360,16 +399,40 @@ bool JKApplication::PreProcessMessage(const JKEvent& ev) {
 }
 
 void JKApplication::RouteMessage(const JKEvent& ev) {
-    if (modalWindow_) {
-        JKEvent modalEv = ev;
-        modalEv.targetId = modalWindow_->GetWinId();
-        modalWindow_->RespondMessage(modalEv);
+    JKWindow* targetWindow = mainWindow_.get();
+    JKControl* targetControl = nullptr;
+
+    JKWindow* modal = windowManager_->GetModalWindow();
+    if (modal) {
+        targetWindow = modal;
+    } else if (ev.winId != 0) {
+        targetWindow = windowManager_->FindWindowById(ev.winId);
+        if (!targetWindow) targetWindow = mainWindow_.get();
+    } else if (ev.targetId != 0) {
+        // Legacy path: targetId may encode either a window or control id.
+        targetControl = windowManager_->FindControlById(ev.targetId);
+        if (!targetControl) {
+            targetWindow = windowManager_->FindWindowById(ev.targetId);
+            if (!targetWindow) targetWindow = mainWindow_.get();
+        }
+    }
+
+    if (targetControl) {
+        targetControl->RespondMessage(ev);
         return;
     }
 
-    JKControl* target = FindControlById(ev.targetId);
-    if (!target) target = mainWindow_.get();
-    target->RespondMessage(ev);
+    if (ev.controlId != 0 && targetWindow) {
+        targetControl = targetWindow->FindControlByControlId(ev.controlId);
+        if (targetControl) {
+            targetControl->RespondMessage(ev);
+            return;
+        }
+    }
+
+    if (targetWindow) {
+        targetWindow->RespondMessage(ev);
+    }
 }
 
 void JKApplication::Render() {
@@ -381,11 +444,12 @@ void JKApplication::Render() {
     // Decide whether we can use partial redraw.
     // If there are no dirty regions, fall back to the full-screen path so that
     // the very first frame and resize events are handled correctly.
+    JKWindow* modal = windowManager_->GetModalWindow();
     JKWindow* dirtyWindow = nullptr;
     if (mainWindow_ && mainWindow_->HasDirtyRects()) {
         dirtyWindow = mainWindow_.get();
-    } else if (modalWindow_ && modalWindow_->HasDirtyRects()) {
-        dirtyWindow = modalWindow_;
+    } else if (modal && modal->HasDirtyRects()) {
+        dirtyWindow = modal;
     }
 
     if (dirtyWindow) {
@@ -408,9 +472,9 @@ void JKApplication::Render() {
         mainWindow_->PaintWindow(dc_);
         mainWindow_->PaintClient(dc_);
     }
-    if (modalWindow_) {
-        modalWindow_->PaintWindow(dc_);
-        modalWindow_->PaintClient(dc_);
+    if (modal) {
+        modal->PaintWindow(dc_);
+        modal->PaintClient(dc_);
     }
 
     // Blit the backbuffer to the default render target in unscaled pixel coords.
@@ -430,6 +494,8 @@ void JKApplication::Render() {
 void JKApplication::RenderDirtyRegions(JKWindow* dirtyWindow) {
     const auto& dirtyRects = dirtyWindow->GetDirtyRects();
     if (dirtyRects.empty()) return;
+
+    JKWindow* modal = windowManager_->GetModalWindow();
 
     // Render into the backbuffer in app logical coordinates, scaled to physical
     // pixels by SDL_RenderSetScale(fit). The dirty regions are registered in
@@ -454,9 +520,9 @@ void JKApplication::RenderDirtyRegions(JKWindow* dirtyWindow) {
             mainWindow_->PaintWindow(dc_);
             mainWindow_->PaintClient(dc_);
         }
-        if (modalWindow_) {
-            modalWindow_->PaintWindow(dc_);
-            modalWindow_->PaintClient(dc_);
+        if (modal) {
+            modal->PaintWindow(dc_);
+            modal->PaintClient(dc_);
         }
 
         dc_.PopClipRect();
@@ -563,24 +629,36 @@ JKEvent JKApplication::TranslateSDLEvent(const SDL_Event& sdl) {
 #endif
 
         // 캡처 중이면 캡처한 컨트롤로 이동/뗌 이벤트를 계속 전달한다.
-        if (captureControl_ &&
+        JKControl* capture = windowManager_->GetCapture();
+        if (capture &&
             (ev.type == JKEventType::MouseMove || ev.type == JKEventType::MouseUp)) {
-            ev.targetId = captureControl_->GetWinId();
+            ev.targetId = capture->GetWinId();
+            ev.winId = ev.targetId;
+            ev.controlId = capture->GetControlId();
             return ev;
         }
 
-        JKWindow* active = modalWindow_ ? modalWindow_ : mainWindow_.get();
-        if (ev.type == JKEventType::MouseDown && captureControl_) {
-            ReleaseCapture();
+        JKWindow* active = windowManager_->GetMouseTargetWindow();
+        if (ev.type == JKEventType::MouseDown && capture) {
+            windowManager_->ReleaseCapture();
         }
-        JKControl* target = active->HitTest(ev.x, ev.y);
-        ev.targetId = target ? target->GetWinId() : active->GetWinId();
+        if (active) {
+            JKControl* target = active->HitTest(ev.x, ev.y);
+            ev.targetId = target ? target->GetWinId() : active->GetWinId();
+            ev.winId = ev.targetId;
+            if (target) {
+                ev.controlId = target->GetControlId();
+            }
+        }
     } else if (ev.type == JKEventType::KeyDown ||
                ev.type == JKEventType::KeyUp ||
                ev.type == JKEventType::Char ||
                ev.type == JKEventType::TextEditing) {
-        JKWindow* active = modalWindow_ ? modalWindow_ : (inputWindow_ ? inputWindow_ : mainWindow_.get());
-        ev.targetId = active->GetWinId();
+        JKWindow* active = windowManager_->GetKeyboardTargetWindow();
+        if (active) {
+            ev.targetId = active->GetWinId();
+            ev.winId = ev.targetId;
+        }
     }
 
     return ev;
@@ -798,4 +876,72 @@ void JKApplication::DestroyBackBuffer() {
         backBufferH_ = 0;
     }
 }
+
+void JKApplication::OnSDLWindowEvent(const SDL_WindowEvent& winEv) {
+    const Uint8 ev = winEv.event;
+    if (ev == SDL_WINDOWEVENT_SIZE_CHANGED ||
+        ev == SDL_WINDOWEVENT_DISPLAY_CHANGED) {
+        std::fprintf(stderr,
+            "[DPISYNC] Run(): winEv=%s data1=%d data2=%d\n",
+            (ev == SDL_WINDOWEVENT_SIZE_CHANGED) ? "SIZE_CHANGED" : "DISPLAY_CHANGED",
+            winEv.data1, winEv.data2);
+    }
+
+    if (ev == SDL_WINDOWEVENT_SIZE_CHANGED) {
+        // 디바운서에 기록. 실제 처리는 ProcessPendingResize에서 마감 시점에 한 번.
+        pendingResizeW_ = winEv.data1;
+        pendingResizeH_ = winEv.data2;
+        pendingResizeDeadline_ = SDL_GetTicks() + kResizeDebounceMs;
+        resizePending_ = true;
+    } else if (ev == SDL_WINDOWEVENT_DISPLAY_CHANGED) {
+        pendingDpiDisplay_ = winEv.data1;
+        pendingResizeDeadline_ = SDL_GetTicks() + kResizeDebounceMs;
+        resizePending_ = true;
+    }
+}
+
+void JKApplication::ProcessPendingResize(uint32_t now) {
+    if (!resizePending_) return;
+    if (now < pendingResizeDeadline_) return;
+
+    const bool hadDpiChange = pendingDpiDisplay_ >= 0;
+
+    // Display 변경이 있으면 SynchronizeWindowOnDisplayChanged 내부에서 UpdateScale()도
+    // 호출하므로, 별도의 UpdateScale() 호출은 불필요.
+    if (hadDpiChange) {
+        SynchronizeWindowOnDisplayChanged(pendingDpiDisplay_);
+    } else if (pendingResizeW_ > 0 && pendingResizeH_ > 0) {
+        UpdateScale();
+    }
+
+    // 앱에 하나의 SizeChanged 이벤트를 발행.
+    if (mainWindow_) {
+        const uint32_t mainId = mainWindow_->GetWinId();
+        JKEvent sizeEv;
+        sizeEv.type = JKEventType::SizeChanged;
+        sizeEv.targetId = mainId;
+        sizeEv.winId = mainId;
+        sizeEv.x = logicalWidth_;
+        sizeEv.y = logicalHeight_;
+        msgQue_.Push(sizeEv);
+
+        if (hadDpiChange) {
+            int displayIndex = SDL_GetWindowDisplayIndex(window_);
+            if (displayIndex < 0) displayIndex = 0;
+            JKEvent dpiEv;
+            dpiEv.type = JKEventType::DpiChanged;
+            dpiEv.targetId = mainId;
+            dpiEv.winId = mainId;
+            dpiEv.detail = static_cast<uint32_t>(displayIndex);
+            dpiEv.option = static_cast<uint32_t>(scaleX_ * 1000.0f + 0.5f);
+            msgQue_.Push(dpiEv);
+        }
+    }
+
+    pendingResizeW_ = 0;
+    pendingResizeH_ = 0;
+    pendingDpiDisplay_ = -1;
+    resizePending_ = false;
+}
+
 } // namespace jk

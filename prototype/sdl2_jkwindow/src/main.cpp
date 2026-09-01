@@ -1,5 +1,12 @@
+#ifdef _WIN32
+// Avoid pulling in the full Windows headers, which conflict with JKENGINE's
+// legacy typedef.h. We only need AllocConsole for the /? help path.
+extern "C" __declspec(dllimport) int __stdcall AllocConsole(void);
+#endif
+
 #include <JKApplication.h>
 #include <JKWindow.h>
+
 #include <JKControl.h>
 #include <JKStatic.h>
 #include <JKButton.h>
@@ -19,6 +26,12 @@
 #include <JKPlatform.h>
 #include <SDL.h>
 #include <filesystem>
+
+// Do not let SDL2 rename main() to SDL_main; we use a plain main() entry point
+// and initialize SDL explicitly in JKApplication.
+#ifdef main
+#undef main
+#endif
 #include <fstream>
 
 using jk::Utf8ToKssm;
@@ -34,6 +47,7 @@ using jk::Utf8ToKssm;
 #include <apps/VectorFontApp.h>
 #include <apps/VectorPresApp.h>
 #include <apps/MineSweeperApp.h>
+#include <apps/TetrisApp.h>
 #include "wancode.h"
 #include <cstdint>
 #include <cmath>
@@ -939,12 +953,29 @@ static int RunAppSelfTest() {
 }
 
 int main(int argc, char* argv[]) {
+    // GUI 앱이므로 콘솔 출력이 안 보인다. 디버깅용 파일 로그를 먼저 연다.
+    std::FILE* logFile = std::fopen("jkproto_launch.log", "w");
+    if (logFile) {
+        std::fprintf(logFile, "[main] entered argc=%d\n", argc);
+        std::fflush(logFile);
+    }
+
     // Process-wide DPI awareness must be set before any window/SDL calls.
+    if (logFile) std::fprintf(logFile, "[main] before InitializeProcessDpiAwareness\n"), std::fflush(logFile);
     jk::JKPlatform::InitializeProcessDpiAwareness();
+    if (logFile) std::fprintf(logFile, "[main] after InitializeProcessDpiAwareness\n"), std::fflush(logFile);
 
     if (argc > 1 && (std::strcmp(argv[1], "--help") == 0 ||
                      std::strcmp(argv[1], "-h") == 0 ||
                      std::strcmp(argv[1], "/?") == 0)) {
+#ifdef _WIN32
+        // Windows GUI 앱에서도 콘솔로 도움말이 보이도록 할당.
+        if (AllocConsole()) {
+            FILE* dummy = nullptr;
+            freopen_s(&dummy, "CONOUT$", "w", stdout);
+            freopen_s(&dummy, "CONOUT$", "w", stderr);
+        }
+#endif
         std::printf("jkproto_sdl2_jkwindow - JKENGINE SDL2 prototype\n");
         std::printf("\n");
         std::printf("Usage: jkproto_sdl2_jkwindow.exe [COMMAND]\n");
@@ -960,7 +991,8 @@ int main(int argc, char* argv[]) {
         std::printf("  recog       Stroke recognition demo\n");
         std::printf("  vfont       Vector font window\n");
         std::printf("  vpres       Vector font presentation\n");
-        std::printf("  minesweeper Minesweeper game\n");
+        std::printf("  minesweeper App launcher (Minesweeper + Tetris)\n");
+        std::printf("  tetris      Tetris game\n");
         std::printf("  -h, --help, /?  Show this help message\n");
         return 0;
     }
@@ -978,6 +1010,7 @@ int main(int argc, char* argv[]) {
     bool runVectorFont = (argc > 1 && std::strcmp(argv[1], "vfont") == 0);
     bool runVectorPres = (argc > 1 && std::strcmp(argv[1], "vpres") == 0);
     bool runMineSweeper = (argc > 1 && std::strcmp(argv[1], "minesweeper") == 0);
+    bool runTetris = (argc > 1 && std::strcmp(argv[1], "tetris") == 0);
 
     if (runPcx) {
         jk::PcxApp app((argc > 2) ? argv[2] : "");
@@ -1045,7 +1078,15 @@ int main(int argc, char* argv[]) {
 
     if (runMineSweeper) {
         jk::MineSweeperApp app;
-        if (!app.Init("Minesweeper - SDL2 Port", 1920, 1080)) {
+        if (!app.Init("App Launcher - SDL2 Port", 1920, 1080)) {
+            return 1;
+        }
+        return app.Run();
+    }
+
+    if (runTetris) {
+        jk::TetrisApp app;
+        if (!app.Init("Tetris - SDL2 Port", 1920, 1080)) {
             return 1;
         }
         return app.Run();

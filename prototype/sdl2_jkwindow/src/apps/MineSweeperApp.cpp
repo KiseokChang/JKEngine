@@ -1,10 +1,13 @@
 #include <apps/MineSweeperApp.h>
 
+#include <apps/AppLauncherItem.h>
 #include <apps/AppUtil.h>
+#include <apps/TetrisApp.h>
 #include <JKApplication.h>
 #include <JKButton.h>
 #include <JKMessageBox.h>
 #include <JKResourceCache.h>
+#include <JKSoundManager.h>
 #include <JKStatic.h>
 #include <JKWindow.h>
 #include <JKTypes.h>
@@ -292,6 +295,7 @@ bool MineSweeperGame::OpenCell(int row, int col) {
         ++revealedCount_;
         gameOver_ = true;
         won_ = false;
+        JKSoundManager::GetInstance().PlaySFX("mine_explosion", kAudioBusMine);
         return true;
     }
 
@@ -595,6 +599,9 @@ void MineGrid::RespondMessage(const JKEvent& ev) {
                 bool wasStarted = game_.IsStarted();
                 bool changed = game_.OpenCell(row, col);
                 if (changed) {
+                    if (!game_.IsGameOver()) {
+                        JKSoundManager::GetInstance().PlaySFX("mine_open", kAudioBusMine);
+                    }
                     if (!wasStarted && game_.IsStarted()) {
                         onFirstOpen_();
                     }
@@ -622,6 +629,7 @@ void MineGrid::RespondMessage(const JKEvent& ev) {
             // Normal right-click mark cycle.
             if (inside) {
                 game_.CycleMark(row, col);
+                JKSoundManager::GetInstance().PlaySFX("button_click", kAudioBusMine);
                 onChanged_();
                 JKRect cell;
                 HitTestCell(ev.x, ev.y, row, col, &cell);
@@ -696,11 +704,17 @@ public:
     MineSweeperApp* app = nullptr;
     std::unique_ptr<JKMessageBox> gameOverBox;
 
+    std::unique_ptr<TetrisGameWindow> tetrisWindow;
+
     int elapsedSeconds = 0;
     bool timerRunning = false;
     bool gameOverShown = false;
-
     bool iconsLoaded = false;
+
+    // The launcher drives a shared 100 ms timer. Count 10 ticks for the
+    // Minesweeper clock (1 second) while Tetris accumulates its own interval.
+    int mineTickCounter = 0;
+    static constexpr int kLauncherTimerMs = 100;
 
     void LoadIcons() {
         if (iconsLoaded) return;
@@ -709,12 +723,15 @@ public:
         cache->CreateImageFromRGBA("mine", kIconSize, kIconSize, CreateMineIcon());
         cache->CreateImageFromRGBA("flag", kIconSize, kIconSize, CreateFlagIcon());
         cache->CreateImageFromRGBA("question", kIconSize, kIconSize, CreateQuestionIcon());
+        cache->CreateImageFromRGBA("launcher_mine", 32, 32, CreateMineLauncherIcon());
+        cache->CreateImageFromRGBA("launcher_tetris", 32, 32, CreateTetrisLauncherIcon());
         iconsLoaded = true;
     }
 
     void NewGame() {
         game.NewGame();
         elapsedSeconds = 0;
+        mineTickCounter = 0;
         timerRunning = false;
         gameOverShown = false;
         if (grid) grid->ResetChordState();
@@ -730,14 +747,9 @@ public:
 
     void ResizeMineWindow() {
         if (!mineWindow) return;
-        // The window rect must include the 24px title bar and 2px bottom border
-        // on top of the client area used by the toolbar, margins, and grid.
         int w = std::max(kMinWindowWidth, kMargin * 2 + game.GetCols() * kCellSize);
         int clientH = kButtonAreaHeight + kMargin + game.GetRows() * kCellSize + kMargin;
         int h = clientH + 24 + 2;
-        // Keep the window top-left corner, only resize width/height.
-        // The toolbar and grid use DOCK_TOP/DOCK_FILL, so child layout updates
-        // automatically inside JKWindow::OnRectChanged.
         JKRect r = mineWindow->GetRect();
         r.w = w;
         r.h = h;
@@ -764,7 +776,6 @@ public:
         std::string title = won ? "Victory" : "Game Over";
         std::string message = won ? "You cleared the minefield!" : "BOOM! You hit a mine.";
 
-        // Discard the previous (already closed) message box before opening a new one.
         gameOverBox.reset();
         apputil::ShowModalMessage(mineWindow, gameOverBox, title, message,
                                   JKMessageBox::Buttons::Ok,
@@ -782,6 +793,112 @@ public:
             timeLabel->SetText(buf);
         }
     }
+
+    void OpenMineWindow(JKWindow* desktop) {
+        if (mineWindow && !mineWindow->IsCloseRequested()) {
+            if (grid) grid->SetFocus();
+            return;
+        }
+        if (mineWindow && mineWindow->IsCloseRequested()) {
+            // A close request is pending; clear stale pointers so a fresh
+            // window is created below.
+            mineWindow = nullptr;
+            grid = nullptr;
+            mineLabel = nullptr;
+            timeLabel = nullptr;
+            timerRunning = false;
+        }
+
+        auto win = std::make_unique<MineWindow>();
+        win->SetWindowRect(JKRect{ 100, 100, 320, 380 });
+        mineWindow = win.get();
+
+        auto g = std::make_unique<MineGrid>(
+            JKRect{ 0, 0, 100, 100 }, game,
+            [this]() { OnChanged(); },
+            [this](bool won) { OnGameOver(won); },
+            [this]() { OnFirstOpen(); });
+        g->SetDock(DOCK_FILL);
+        g->SetMargins(kMargin, kMargin, kMargin, kMargin);
+        grid = g.get();
+        win->AddControl(std::move(g));
+
+        auto toolbar = std::make_unique<JKPanel>();
+        toolbar->SetRect(JKRect{ 0, 0, 320, kButtonAreaHeight });
+        toolbar->SetDock(DOCK_TOP);
+        toolbar->SetPadding(2, 2, 2, 2);
+        toolbar->SetBackColor(210, 210, 210);
+
+        auto newGameBtn = std::make_unique<JKButton>(JKRect{ 10, kButtonTopY, 50, 26 }, 101);
+        newGameBtn->SetText("New");
+        newGameBtn->SetOnClick([this]() { NewGame(); });
+        toolbar->AddControl(std::move(newGameBtn));
+
+        auto beginnerBtn = std::make_unique<JKButton>(JKRect{ 70, kButtonTopY, 28, 26 }, 102);
+        beginnerBtn->SetText("B");
+        beginnerBtn->SetOnClick([this]() { SetDifficulty(MineSweeperGame::Difficulty::Beginner); });
+        toolbar->AddControl(std::move(beginnerBtn));
+
+        auto intermediateBtn = std::make_unique<JKButton>(JKRect{ 102, kButtonTopY, 28, 26 }, 103);
+        intermediateBtn->SetText("I");
+        intermediateBtn->SetOnClick([this]() { SetDifficulty(MineSweeperGame::Difficulty::Intermediate); });
+        toolbar->AddControl(std::move(intermediateBtn));
+
+        auto expertBtn = std::make_unique<JKButton>(JKRect{ 134, kButtonTopY, 28, 26 }, 104);
+        expertBtn->SetText("E");
+        expertBtn->SetOnClick([this]() { SetDifficulty(MineSweeperGame::Difficulty::Expert); });
+        toolbar->AddControl(std::move(expertBtn));
+
+        auto mineLabel = std::make_unique<JKStatic>(JKRect{ 170, kButtonTopY, 70, 24 }, 105);
+        mineLabel->SetText("Mines: 10");
+        mineLabel->SetTextColor(0, 0, 0);
+        this->mineLabel = mineLabel.get();
+        toolbar->AddControl(std::move(mineLabel));
+
+        auto timeLabel = std::make_unique<JKStatic>(JKRect{ 240, kButtonTopY, 70, 24 }, 106);
+        timeLabel->SetText("Time: 0");
+        timeLabel->SetTextColor(0, 0, 0);
+        this->timeLabel = timeLabel.get();
+        toolbar->AddControl(std::move(timeLabel));
+
+        win->AddControl(std::move(toolbar));
+
+        desktop->AddControl(std::move(win));
+        NewGame();
+    }
+
+    void OpenTetrisWindow(JKWindow* desktop) {
+        if (tetrisWindow) {
+            auto* w = tetrisWindow->GetWindow();
+            if (w && !w->IsCloseRequested()) {
+                // Move focus into the window so it comes to the front visually.
+                w->FocusFirstChild();
+                return;
+            }
+            // Window was closed; drop the stale helper and recreate below.
+            tetrisWindow.reset();
+        }
+
+        tetrisWindow = std::make_unique<TetrisGameWindow>();
+        tetrisWindow->Build(desktop, JKRect{ 140, 140, 320, 520 });
+        tetrisWindow->NewGame();
+    }
+
+    void CleanupClosedWindows() {
+        if (mineWindow && mineWindow->IsCloseRequested()) {
+            mineWindow = nullptr;
+            grid = nullptr;
+            mineLabel = nullptr;
+            timeLabel = nullptr;
+            timerRunning = false;
+        }
+        if (tetrisWindow) {
+            auto* w = tetrisWindow->GetWindow();
+            if (!w || w->IsCloseRequested()) {
+                tetrisWindow.reset();
+            }
+        }
+    }
 };
 
 MineSweeperApp::MineSweeperApp() : impl_(std::make_unique<Impl>()) {}
@@ -791,83 +908,44 @@ MineSweeperApp::~MineSweeperApp() = default;
 void MineSweeperApp::OnInit() {
     impl_->app = this;
 
-    // Main desktop surface at FHD resolution.
-    auto main = std::make_unique<JKWindow>("Minesweeper Desktop");
+    auto main = std::make_unique<JKWindow>("App Launcher");
     main->SetWindowRect(JKRect{ 0, 0, 1920, 1080 });
 
-    // Floating game window inside the desktop.
-    auto mineWindow = std::make_unique<MineWindow>();
-    mineWindow->SetWindowRect(JKRect{ 100, 100, 320, 380 });
-    impl_->mineWindow = mineWindow.get();
+    auto mineItem = std::make_unique<AppLauncherItem>(
+        JKRect{ 50, 50, 100, 90 }, "Minesweeper",
+        [this, mainRaw = main.get()]() { impl_->OpenMineWindow(mainRaw); });
+    mineItem->SetIconKey("launcher_mine");
+    main->AddControl(std::move(mineItem));
 
-    // The mine grid is created first so it is painted before the toolbar.
-    // JKWindow lays out DOCK_FILL children after edge-docked siblings, so the
-    // grid still receives the remaining client area below the toolbar.
-    // Margins are applied by DOCK_FILL in PerformLayout.
-    auto grid = std::make_unique<MineGrid>(
-        JKRect{ 0, 0, 100, 100 }, impl_->game,
-        [this]() { impl_->OnChanged(); },
-        [this](bool won) { impl_->OnGameOver(won); },
-        [this]() { impl_->OnFirstOpen(); });
-    grid->SetDock(DOCK_FILL);
-    grid->SetMargins(kMargin, kMargin, kMargin, kMargin);
-    impl_->grid = grid.get();
-    mineWindow->AddControl(std::move(grid));
+    auto tetrisItem = std::make_unique<AppLauncherItem>(
+        JKRect{ 170, 50, 100, 90 }, "Tetris",
+        [this, mainRaw = main.get()]() { impl_->OpenTetrisWindow(mainRaw); });
+    tetrisItem->SetIconKey("launcher_tetris");
+    main->AddControl(std::move(tetrisItem));
 
-    // Top toolbar band spans the top of the floating window's client area.
-    // It is added after the grid so it paints on top and covers the grid.
-    auto toolbar = std::make_unique<JKPanel>();
-    toolbar->SetRect(JKRect{ 0, 0, 320, kButtonAreaHeight });
-    toolbar->SetDock(DOCK_TOP);
-    toolbar->SetPadding(2, 2, 2, 2);
-    toolbar->SetBackColor(210, 210, 210);  // light gray to visually bound the toolbar
-
-    auto newGameBtn = std::make_unique<JKButton>(JKRect{ 10, kButtonTopY, 50, 26 }, 101);
-    newGameBtn->SetText("New");
-    newGameBtn->SetOnClick([this]() { impl_->NewGame(); });
-    toolbar->AddControl(std::move(newGameBtn));
-
-    auto beginnerBtn = std::make_unique<JKButton>(JKRect{ 70, kButtonTopY, 28, 26 }, 102);
-    beginnerBtn->SetText("B");
-    beginnerBtn->SetOnClick([this]() { impl_->SetDifficulty(MineSweeperGame::Difficulty::Beginner); });
-    toolbar->AddControl(std::move(beginnerBtn));
-
-    auto intermediateBtn = std::make_unique<JKButton>(JKRect{ 102, kButtonTopY, 28, 26 }, 103);
-    intermediateBtn->SetText("I");
-    intermediateBtn->SetOnClick([this]() { impl_->SetDifficulty(MineSweeperGame::Difficulty::Intermediate); });
-    toolbar->AddControl(std::move(intermediateBtn));
-
-    auto expertBtn = std::make_unique<JKButton>(JKRect{ 134, kButtonTopY, 28, 26 }, 104);
-    expertBtn->SetText("E");
-    expertBtn->SetOnClick([this]() { impl_->SetDifficulty(MineSweeperGame::Difficulty::Expert); });
-    toolbar->AddControl(std::move(expertBtn));
-
-    auto mineLabel = std::make_unique<JKStatic>(JKRect{ 170, kButtonTopY, 70, 24 }, 105);
-    mineLabel->SetText("Mines: 10");
-    mineLabel->SetTextColor(0, 0, 0);
-    impl_->mineLabel = mineLabel.get();
-    toolbar->AddControl(std::move(mineLabel));
-
-    auto timeLabel = std::make_unique<JKStatic>(JKRect{ 240, kButtonTopY, 70, 24 }, 106);
-    timeLabel->SetText("Time: 0");
-    timeLabel->SetTextColor(0, 0, 0);
-    impl_->timeLabel = timeLabel.get();
-    toolbar->AddControl(std::move(timeLabel));
-
-    mineWindow->AddControl(std::move(toolbar));
-
-    main->AddControl(std::move(mineWindow));
     SetMainWindow(std::move(main));
 
-    SetTimerInterval(1000);
+    SetTimerInterval(Impl::kLauncherTimerMs);
     impl_->LoadIcons();
-    impl_->NewGame();
 }
 
 bool MineSweeperApp::PreProcessMessage(const JKEvent& ev) {
-    if (ev.type == JKEventType::Timer && impl_->timerRunning) {
-        ++impl_->elapsedSeconds;
-        impl_->UpdateLabels();
+    impl_->CleanupClosedWindows();
+
+    if (ev.type == JKEventType::Timer) {
+        // Update the Minesweeper clock once per second.
+        if (impl_->timerRunning) {
+            ++impl_->mineTickCounter;
+            if (impl_->mineTickCounter >= 10) {
+                impl_->mineTickCounter = 0;
+                ++impl_->elapsedSeconds;
+                impl_->UpdateLabels();
+            }
+        }
+        // Advance Tetris independently; it accumulates time internally.
+        if (impl_->tetrisWindow) {
+            impl_->tetrisWindow->OnTimer(Impl::kLauncherTimerMs);
+        }
     }
     return JKApplication::PreProcessMessage(ev);
 }
