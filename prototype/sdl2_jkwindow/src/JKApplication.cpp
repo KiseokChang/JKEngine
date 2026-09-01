@@ -4,6 +4,7 @@
 #include <JKSDLAudioBackend.h>
 #include <JKRenderThread.h>
 #include <JKSDLRenderBackend.h>
+#include <JKRenderCommandList.h>
 #include <JKPlatform.h>
 #include <JKSoundManager.h>
 #include <JKTimerThread.h>
@@ -320,9 +321,41 @@ void JKApplication::OnClose() {
 }
 
 void JKApplication::ComposeScene() {
-    // Phase 1 placeholder: actual scene serialization for the render thread will
-    // be implemented in Phase 1.5. For now the render thread clears its own
-    // window so the application remains responsive.
+    if (!mainWindow_ || !renderThread_ || !messageBus_) {
+        return;
+    }
+
+    // Capture the window hierarchy into a serialized render command list on the
+    // application thread. The render thread will replay these commands on the
+    // real SDL backend.
+    auto cmdList = std::make_unique<JKRenderCommandList>();
+    JKDC dc(cmdList.get());
+    dc.SetHangulManager(hangulManager_.get());
+
+    // Desktop background.
+    dc.SetColor(192, 192, 192, 255);
+    dc.Clear();
+
+    // Paint the main window tree and any modal window on top.
+    mainWindow_->PaintWindow(dc);
+    mainWindow_->PaintClient(dc);
+
+    JKWindow* modal = GetModalWindow();
+    if (modal) {
+        modal->PaintWindow(dc);
+        modal->PaintClient(dc);
+    }
+
+    // We are doing a full-frame capture, so discard accumulated dirty regions
+    // to keep the vector from growing unbounded.
+    mainWindow_->ClearDirtyRects();
+    if (modal) {
+        modal->ClearDirtyRects();
+    }
+
+    auto sceneData = cmdList->Serialize();
+    messageBus_->Push(JKMessageBus::Channel::Render,
+        JKMessageBus::Payload(1, std::move(sceneData)));
 }
 
 bool JKApplication::PreProcessMessage(const JKEvent& ev) {

@@ -1,5 +1,6 @@
 #include <JKRenderThread.h>
 #include <JKSDLRenderBackend.h>
+#include <JKRenderCommandList.h>
 #include <JKPlatform.h>
 #include <cstdio>
 
@@ -119,17 +120,26 @@ void JKRenderThread::Run() {
             }
         }
 
-        if (hasPayload) {
-            // Scene rendering will be implemented by JKApplication posting
-            // serialized draw commands. For now we just clear the screen to
-            // show the thread is alive.
-            if (renderBackend_) {
-                renderBackend_->SetRenderTarget(nullptr);
-                renderBackend_->SetScale(1.0f, 1.0f);
-                renderBackend_->SetDrawColor(192, 192, 192, 255);
-                renderBackend_->Clear();
-                renderBackend_->Present();
+        if (hasPayload && renderBackend_) {
+            // Scale logical-point drawing commands to physical pixels.
+            int physW = 0, physH = 0;
+            renderBackend_->GetOutputSize(physW, physH);
+            float sx = 1.0f, sy = 1.0f;
+            if (logicalWidth_ > 0 && logicalHeight_ > 0 &&
+                physW > 0 && physH > 0) {
+                sx = physW / static_cast<float>(logicalWidth_);
+                sy = physH / static_cast<float>(logicalHeight_);
             }
+
+            renderBackend_->SetRenderTarget(nullptr);
+            renderBackend_->SetScale(sx, sy);
+
+            auto scene = JKRenderCommandList::Deserialize(payload.data);
+            if (scene) {
+                scene->Replay(renderBackend_.get());
+            }
+
+            renderBackend_->Present();
         }
     }
 }
