@@ -2,6 +2,7 @@
 #include <JKHangulManager.h>
 #include <SDL.h>
 #include <cstdio>
+#include <cstring>
 
 namespace jk {
 
@@ -9,14 +10,17 @@ JKResourceCache::JKResourceCache(JKRenderBackend* backend) : backend_(backend) {
 }
 
 JKResourceCache::~JKResourceCache() {
-    UnloadAllImages();
-    UnregisterAllFonts();
+    bool hasWork = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        hasWork = !images_.empty() || !pending_.empty() || !pendingDestroys_.empty();
+    }
+    if (hasWork) {
+        FlushUploads(backend_);
+    }
 }
 
 bool JKResourceCache::LoadImageBMP(const std::string& key, const std::string& path) {
-    if (!backend_) return false;
-    UnloadImage(key);
-
     SDL_Surface* surface = SDL_LoadBMP(path.c_str());
     if (!surface) {
         std::fprintf(stderr, "JKResourceCache: failed to load BMP '%s': %s\n",
@@ -24,42 +28,18 @@ bool JKResourceCache::LoadImageBMP(const std::string& key, const std::string& pa
         return false;
     }
 
-    SDL_Renderer* renderer = static_cast<SDL_Renderer*>(backend_->GetNativeHandle());
-    if (!renderer) {
-        SDL_FreeSurface(surface);
-        return false;
-    }
+    UnloadImage(key);
 
-    SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
-    SDL_FreeSurface(surface);
-    if (!texture) {
-        std::fprintf(stderr, "JKResourceCache: failed to create texture for '%s': %s\n",
-                     path.c_str(), SDL_GetError());
-        return false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        PendingUpload pending;
+        pending.surface = surface;
+        pending.w = surface->w;
+        pending.h = surface->h;
+        pending_[key] = std::move(pending);
+        images_[key] = CachedImage{ JKRenderBackend::InvalidTexture, surface->w, surface->h };
     }
-
-    CachedImage img;
-    img.texture = texture;
-    SDL_QueryTexture(texture, nullptr, nullptr, &img.w, &img.h);
-    images_[key] = img;
     return true;
-}
-
-bool JKResourceCache::HasImage(const std::string& key) const {
-    return images_.find(key) != images_.end();
-}
-
-JKRenderBackend::TextureHandle JKResourceCache::GetImage(const std::string& key) const {
-    auto it = images_.find(key);
-    return (it != images_.end()) ? it->second.texture : JKRenderBackend::InvalidTexture;
-}
-
-JKPoint JKResourceCache::GetImageSize(const std::string& key) const {
-    auto it = images_.find(key);
-    if (it != images_.end()) {
-        return JKPoint{ it->second.w, it->second.h };
-    }
-    return JKPoint{ 0, 0 };
 }
 
 bool JKResourceCache::CreateImageFromRGBA(const std::string& key,
@@ -69,79 +49,141 @@ bool JKResourceCache::CreateImageFromRGBA(const std::string& key,
         static_cast<size_t>(w * h * 4) != rgba.size()) {
         return false;
     }
+
     UnloadImage(key);
 
-    SDL_Surface* surface = SDL_CreateRGBSurfaceFrom(
-        const_cast<uint8_t*>(rgba.data()),
-        w, h, 32, w * 4,
-        0x000000ff, 0x0000ff00, 0x00ff0000, 0xff000000);
-    if (!surface) {
-        std::fprintf(stderr, "JKResourceCache: failed to create surface for '%s': %s\n",
-                     key.c_str(), SDL_GetError());
-        return false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        PendingUpload pending;
+        pending.rgba = rgba;
+        pending.w = w;
+        pending.h = h;
+        pending_[key] = std::move(pending);
+        images_[key] = CachedImage{ JKRenderBackend::InvalidTexture, w, h };
     }
-
-    SDL_Renderer* renderer = static_cast<SDL_Renderer*>(backend_->GetNativeHandle());
-    if (!renderer) {
-        SDL_FreeSurface(surface);
-        return false;
-    }
-
-    SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
-    SDL_FreeSurface(surface);
-    if (!texture) {
-        std::fprintf(stderr, "JKResourceCache: failed to create texture for '%s': %s\n",
-                     key.c_str(), SDL_GetError());
-        return false;
-    }
-
-    CachedImage img;
-    img.texture = texture;
-    img.w = w;
-    img.h = h;
-    images_[key] = img;
     return true;
 }
 
-void JKResourceCache::UnloadImage(const std::string& key) {
+bool JKResourceCache::HasImage(const std::string& key) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return images_.find(key) != images_.end();
+}
+
+JKRenderBackend::TextureHandle JKResourceCache::GetImage(const std::string& key) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = images_.find(key);
+    return (it != images_.end()) ? it->second.texture : JKRenderBackend::InvalidTexture;
+}
+
+JKPoint JKResourceCache::GetImageSize(const std::string& key) const {
+    std::lock_guard<std::mutex> lock(mutex_);
     auto it = images_.find(key);
     if (it != images_.end()) {
-        if (it->second.texture != JKRenderBackend::InvalidTexture && backend_) {
-            backend_->DestroyTexture(it->second.texture);
+        return JKPoint{ it->second.w, it->second.h };
+    }
+    return JKPoint{ 0, 0 };
+}
+
+void JKResourceCache::UnloadImage(const std::string& key) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = images_.find(key);
+    if (it != images_.end()) {
+        if (it->second.texture != JKRenderBackend::InvalidTexture) {
+            pendingDestroys_.push_back(it->second.texture);
         }
         images_.erase(it);
+    }
+    auto pit = pending_.find(key);
+    if (pit != pending_.end()) {
+        if (pit->second.surface) {
+            SDL_FreeSurface(pit->second.surface);
+        }
+        pending_.erase(pit);
     }
 }
 
 void JKResourceCache::UnloadAllImages() {
-    if (backend_) {
-        for (auto& kv : images_) {
-            if (kv.second.texture != JKRenderBackend::InvalidTexture) {
-                backend_->DestroyTexture(kv.second.texture);
-            }
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (auto& kv : images_) {
+        if (kv.second.texture != JKRenderBackend::InvalidTexture) {
+            pendingDestroys_.push_back(kv.second.texture);
         }
     }
     images_.clear();
+    for (auto& kv : pending_) {
+        if (kv.second.surface) {
+            SDL_FreeSurface(kv.second.surface);
+        }
+    }
+    pending_.clear();
+}
+
+void JKResourceCache::FlushUploads(JKRenderBackend* backend) {
+    if (!backend) return;
+
+    SDL_Renderer* renderer = static_cast<SDL_Renderer*>(backend->GetNativeHandle());
+    if (!renderer) return;
+
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    for (auto handle : pendingDestroys_) {
+        backend->DestroyTexture(handle);
+    }
+    pendingDestroys_.clear();
+
+    for (auto& kv : pending_) {
+        SDL_Texture* texture = nullptr;
+        if (kv.second.surface) {
+            texture = SDL_CreateTextureFromSurface(renderer, kv.second.surface);
+            SDL_FreeSurface(kv.second.surface);
+            kv.second.surface = nullptr;
+        } else if (!kv.second.rgba.empty()) {
+            SDL_Surface* surface = SDL_CreateRGBSurfaceFrom(
+                const_cast<uint8_t*>(kv.second.rgba.data()),
+                kv.second.w, kv.second.h, 32, kv.second.w * 4,
+                0x000000ff, 0x0000ff00, 0x00ff0000, 0xff000000);
+            if (surface) {
+                texture = SDL_CreateTextureFromSurface(renderer, surface);
+                SDL_FreeSurface(surface);
+            }
+        }
+
+        if (!texture) {
+            std::fprintf(stderr, "JKResourceCache: failed to upload '%s': %s\n",
+                         kv.first.c_str(), SDL_GetError());
+            continue;
+        }
+
+        CachedImage& img = images_[kv.first];
+        img.texture = texture;
+        SDL_QueryTexture(texture, nullptr, nullptr, &img.w, &img.h);
+    }
+    pending_.clear();
 }
 
 void JKResourceCache::RegisterFont(const std::string& key, HangulManager* manager) {
+    std::lock_guard<std::mutex> lock(mutex_);
     fonts_[key] = manager;
 }
 
 bool JKResourceCache::HasFont(const std::string& key) const {
+    std::lock_guard<std::mutex> lock(mutex_);
     return fonts_.find(key) != fonts_.end();
 }
 
 HangulManager* JKResourceCache::GetFont(const std::string& key) const {
+    std::lock_guard<std::mutex> lock(mutex_);
     auto it = fonts_.find(key);
     return (it != fonts_.end()) ? it->second : nullptr;
 }
 
 void JKResourceCache::UnregisterFont(const std::string& key) {
+    std::lock_guard<std::mutex> lock(mutex_);
     fonts_.erase(key);
 }
 
 void JKResourceCache::UnregisterAllFonts() {
+    std::lock_guard<std::mutex> lock(mutex_);
     fonts_.clear();
 }
 

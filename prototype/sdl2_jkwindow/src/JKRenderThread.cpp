@@ -1,6 +1,7 @@
 #include <JKRenderThread.h>
 #include <JKSDLRenderBackend.h>
 #include <JKRenderCommandList.h>
+#include <JKResourceCache.h>
 #include <JKEvent.h>
 #include <JKPlatform.h>
 #include <cstdio>
@@ -91,6 +92,10 @@ void JKRenderThread::Stop() {
     if (thread_.joinable()) {
         thread_.join();
     }
+    if (resourceCache_ && renderBackend_) {
+        resourceCache_->UnloadAllImages();
+        resourceCache_->FlushUploads(renderBackend_.get());
+    }
     renderBackend_.reset();
     if (sdlRenderer_) {
         SDL_DestroyRenderer(sdlRenderer_);
@@ -112,6 +117,12 @@ void JKRenderThread::Run() {
         bool hasPayload = bus_ && bus_->PopWait(JKMessageBus::Channel::Render, payload, 16);
 
         if (hasPayload && renderBackend_) {
+            // Upload any textures queued from the application thread before
+            // replaying this frame. All SDL renderer access stays on this thread.
+            if (resourceCache_) {
+                resourceCache_->FlushUploads(renderBackend_.get());
+            }
+
             // Read the current logical point size from SDL (render-thread only).
             int logW = 0, logH = 0;
             SDL_GetWindowSize(window_, &logW, &logH);

@@ -123,7 +123,7 @@ private:
     FILE* mouseLog_ = nullptr;
 #endif
 
-    void InputLoop();
+    void PumpInputEvents();
     bool ProcessOneEvent(const JKEvent& ev);
 };
 

@@ -11,6 +11,10 @@
 #include <cstdint>
 
 namespace jk {
+class JKResourceCache;
+}
+
+namespace jk {
 
 // Render thread owns the SDL window, SDL renderer, and JKRenderBackend.
 // It receives render scene payloads from the application thread via the
@@ -32,6 +36,9 @@ public:
     SDL_Renderer* GetRenderer() const { return sdlRenderer_; }
     JKRenderBackend* GetBackend() const { return renderBackend_.get(); }
 
+    // The resource cache uploads textures on this thread.
+    void SetResourceCache(JKResourceCache* cache) { resourceCache_ = cache; }
+
     // Thread-safe query of the current logical window size.
     void GetLogicalSize(int& w, int& h) const;
 
@@ -46,6 +53,8 @@ private:
 
     int logicalWidth_ = 0;
     int logicalHeight_ = 0;
+
+    JKResourceCache* resourceCache_ = nullptr;
 
     void Run();
 };

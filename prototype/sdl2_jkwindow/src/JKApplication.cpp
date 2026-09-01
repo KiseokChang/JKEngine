@@ -52,12 +52,24 @@ bool JKApplication::Init(const std::string& title, int width, int height) {
     audioThread_ = std::make_unique<JKAudioThread>();
     audioThread_->Start(messageBus_.get(), std::make_unique<SDLAudioBackend>());
 
+    // Route JKSoundManager calls through the audio thread.
+    {
+        AudioCommand initCmd;
+        initCmd.type = AudioCommand::Type::Init;
+        PostAudioCommand(initCmd);
+
+        auto& soundManager = JKSoundManager::GetInstance();
+        soundManager.SetCommandMode(true);
+        soundManager.Init();
+    }
+
     // Initial logical size comes from the render thread's created window.
     renderThread_->GetLogicalSize(logicalWidth_, logicalHeight_);
 
     // Resource cache needs a render backend; use the render thread's backend.
     dc_ = JKDC(renderThread_->GetBackend());
     resourceCache_ = std::make_unique<jk::JKResourceCache>(renderThread_->GetBackend());
+    renderThread_->SetResourceCache(resourceCache_.get());
 
     SDL_StartTextInput();
 
@@ -132,35 +144,32 @@ void JKApplication::Close() {
     running_ = false;
 }
 
-void JKApplication::InputLoop() {
+void JKApplication::PumpInputEvents() {
     SDL_Event sdlEvent;
-    while (running_) {
-        while (SDL_PollEvent(&sdlEvent)) {
-            if (mouseLog_) {
-                std::fprintf(mouseLog_, "[SDL-EV] type=%d\n", sdlEvent.type);
-                std::fflush(mouseLog_);
-            }
-
-            if (sdlEvent.type == SDL_WINDOWEVENT &&
-                sdlEvent.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
-                JKEvent sizeEv;
-                sizeEv.type = JKEventType::SizeChanged;
-                sizeEv.x = sdlEvent.window.data1;
-                sizeEv.y = sdlEvent.window.data2;
-                messageBus_->Push(JKMessageBus::Channel::Input, sizeEv);
-                continue;
-            }
-
-            JKEvent ev = TranslateSDLEvent(sdlEvent);
-            if (ev.type != JKEventType::None) {
-                if (ev.type == JKEventType::Quit) {
-                    running_ = false;
-                    break;
-                }
-                messageBus_->Push(JKMessageBus::Channel::Input, ev);
-            }
+    while (SDL_PollEvent(&sdlEvent)) {
+        if (mouseLog_) {
+            std::fprintf(mouseLog_, "[SDL-EV] type=%d\n", sdlEvent.type);
+            std::fflush(mouseLog_);
         }
-        SDL_Delay(1);
+
+        if (sdlEvent.type == SDL_WINDOWEVENT &&
+            sdlEvent.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
+            JKEvent sizeEv;
+            sizeEv.type = JKEventType::SizeChanged;
+            sizeEv.x = sdlEvent.window.data1;
+            sizeEv.y = sdlEvent.window.data2;
+            messageBus_->Push(JKMessageBus::Channel::Input, sizeEv);
+            continue;
+        }
+
+        JKEvent ev = TranslateSDLEvent(sdlEvent);
+        if (ev.type != JKEventType::None) {
+            if (ev.type == JKEventType::Quit) {
+                running_ = false;
+                break;
+            }
+            messageBus_->Push(JKMessageBus::Channel::Input, ev);
+        }
     }
 }
 
@@ -169,12 +178,11 @@ int JKApplication::Run() {
         return 1;
     }
 
-    // Run input collection on a dedicated thread. SDL events can be polled
-    // from any thread in SDL2, but keeping it separate simplifies future
-    // platform input backends.
-    std::thread inputThread(&JKApplication::InputLoop, this);
-
+    // SDL events must be pumped on the thread that created the SDL window.
+    // The main application thread is that thread, so input polling lives here.
     while (running_) {
+        PumpInputEvents();
+
         // Drain timer channel.
         JKMessageBus::Payload timerPayload;
         while (messageBus_->Pop(JKMessageBus::Channel::Timer, timerPayload)) {
@@ -200,14 +208,12 @@ int JKApplication::Run() {
             mainWindow_->RemoveClosedChildren();
         }
 
-        // Compose scene and send to render thread. In Phase 1 this is a no-op
-        // placeholder; the render thread currently clears the window itself.
+        // Compose scene and send to render thread.
         ComposeScene();
 
         SDL_Delay(1);
     }
 
-    inputThread.join();
     return 0;
 }
 

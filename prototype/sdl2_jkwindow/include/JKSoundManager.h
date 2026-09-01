@@ -28,6 +28,11 @@ public:
     // Replace the default SDL backend. Must be called before Init().
     void SetBackend(std::unique_ptr<IAudioBackend> backend);
 
+    // When true, all load/play/volume calls are forwarded to the application's
+    // audio thread via AudioCommand messages instead of touching a local SDL_mixer
+    // backend. This is set by JKApplication in the threaded build.
+    void SetCommandMode(bool enabled) { commandMode_ = enabled; }
+
     bool Init();
     void Quit();
 
@@ -59,6 +64,7 @@ private:
     ~JKSoundManager() { Quit(); }
 
     std::unique_ptr<IAudioBackend> backend_;
+    bool commandMode_ = false;
 
     std::unordered_map<std::string, uint64_t> sfxHandles_;
     std::unordered_map<std::string, uint64_t> bgmHandles_;
