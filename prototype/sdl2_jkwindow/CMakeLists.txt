@@ -62,6 +62,8 @@ add_executable(jkproto_sdl2_jkwindow
     src/JKRenderCommandList.cpp
     src/JKApplication.cpp
     src/ipc/JKWireProtocol.cpp
+    src/ipc/JKPipeTransport_win32.cpp
+    src/ipc/JKPipeTransport_posix.cpp
     src/ipc/JKSharedMemory_win32.cpp
     src/ipc/JKSharedMemory_posix.cpp
     src/JKHangulManager.cpp
