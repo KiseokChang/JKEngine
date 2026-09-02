@@ -42,6 +42,11 @@ private:
     void ProcessPendingClients();
     void ProcessPendingMessages();
     void ProcessClientMessage(JKClientConnection& client, const ipc::Message& msg);
+    void HandleSDLEvent(const SDL_Event& ev);
+    void SendInputEvent(JKClientConnection& client, const ipc::InputEventPayload& payload);
+    JKClientConnection* HitTestClient(int32_t x, int32_t y);
+    JKClientConnection* FindClientById(uint32_t surfaceId);
+    void SetFocusedClient(uint32_t surfaceId);
     void Composite();
     void CleanupDisconnectedClients();
     void UnblockAcceptor();
@@ -61,6 +66,7 @@ private:
     std::vector<std::unique_ptr<JKClientConnection>> pendingClients_;
 
     uint32_t nextSurfaceId_ = 1;
+    uint32_t focusedClientId_ = 0;
 };
 
 } // namespace server

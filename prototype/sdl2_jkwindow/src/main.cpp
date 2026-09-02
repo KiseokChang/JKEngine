@@ -1122,10 +1122,20 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        // Simple animation: fill the surface with a cycling color.
+        // Interactive test: click inside the surface to draw a white circle.
+        int clickX = -1;
+        int clickY = -1;
         uint8_t phase = 0;
         const auto start = std::chrono::steady_clock::now();
         while (std::chrono::steady_clock::now() - start < std::chrono::seconds(10)) {
+            jk::JKEvent ev;
+            while (surface.PollInputEvent(ev)) {
+                if (ev.type == jk::JKEventType::MouseDown) {
+                    clickX = ev.x;
+                    clickY = ev.y;
+                }
+            }
+
             uint8_t* pixels = surface.Pixels();
             if (!pixels) break;
 
@@ -1140,6 +1150,25 @@ int main(int argc, char* argv[]) {
                     p[1] = g;
                     p[2] = b;
                     p[3] = 255;
+                }
+            }
+
+            if (clickX >= 0 && clickY >= 0) {
+                const int radius = 16;
+                for (int y = -radius; y <= radius; ++y) {
+                    for (int x = -radius; x <= radius; ++x) {
+                        if (x * x + y * y <= radius * radius) {
+                            int px = clickX + x;
+                            int py = clickY + y;
+                            if (px >= 0 && px < kW && py >= 0 && py < kH) {
+                                uint8_t* p = pixels + (py * kW + px) * 4;
+                                p[0] = 255;
+                                p[1] = 255;
+                                p[2] = 255;
+                                p[3] = 255;
+                            }
+                        }
+                    }
                 }
             }
 

@@ -68,6 +68,30 @@ struct SurfaceMovePayload {
     int32_t  width = 0;
     int32_t  height = 0;
 };
+
+enum class InputEventType : uint32_t {
+    None       = 0,
+    MouseMove  = 1,
+    MouseDown  = 2,
+    MouseUp    = 3,
+    MouseWheel = 4,
+    KeyDown    = 5,
+    KeyUp      = 6,
+    Char       = 7
+};
+
+struct InputEventPayload {
+    uint32_t         surfaceId = 0;
+    InputEventType   type = InputEventType::None;
+    int32_t          x = 0;       // Surface-local coordinate or wheel delta.
+    int32_t          y = 0;
+    int32_t          dx = 0;      // Relative motion / wheel delta.
+    int32_t          dy = 0;
+    uint32_t         keyCode = 0; // SDL keycode or mouse button.
+    uint32_t         detail = 0;  // Click count / repeat / modifiers.
+    uint32_t         option = 0;
+    char             text[64] = {};
+};
 #pragma pack(pop)
 
 struct Message {

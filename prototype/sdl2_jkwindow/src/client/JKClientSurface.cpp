@@ -81,10 +81,13 @@ bool JKClientSurface::Connect() {
 
     std::fprintf(stderr, "JKClientSurface: connected surfaceId=%u size=%dx%d\n",
                  surfaceId_, width_, height_);
+
+    StartReadThread();
     return true;
 }
 
 void JKClientSurface::Close() {
+    StopReadThread();
     if (transport_ && transport_->IsConnected()) {
         ipc::WriteMessage(*transport_, ipc::MsgType::Close,
                           nullptr, 0);
@@ -135,6 +138,81 @@ bool JKClientSurface::Commit(const std::vector<ipc::DirtyRect>& dirty) {
     }
 
     return ipc::WriteMessage(*transport_, ipc::MsgType::CommitSurface, payload);
+}
+
+bool JKClientSurface::PollInputEvent(JKEvent& out) {
+    std::lock_guard<std::mutex> lock(inputMutex_);
+    if (inputEvents_.empty()) return false;
+    out = std::move(inputEvents_.front());
+    inputEvents_.pop_front();
+    return true;
+}
+
+void JKClientSurface::StartReadThread() {
+    if (readThread_.joinable()) return;
+    running_ = true;
+    readThread_ = std::thread([this] { ReadLoop(); });
+}
+
+void JKClientSurface::StopReadThread() {
+    running_ = false;
+    if (transport_) transport_->Close();
+    if (readThread_.joinable()) readThread_.join();
+}
+
+void JKClientSurface::ReadLoop() {
+    if (!transport_) return;
+
+    while (running_ && transport_->IsConnected()) {
+        ipc::Message msg;
+        if (!ipc::ReadMessage(*transport_, msg)) {
+            break;
+        }
+        if (msg.type == ipc::MsgType::Close) {
+            break;
+        }
+        if (msg.type == ipc::MsgType::InputEvent &&
+            msg.payload.size() >= sizeof(ipc::InputEventPayload)) {
+            ipc::InputEventPayload payload{};
+            std::memcpy(&payload, msg.payload.data(), sizeof(payload));
+
+            JKEvent ev{};
+            ev.winId = payload.surfaceId;
+            ev.x = payload.x;
+            ev.y = payload.y;
+            ev.dx = payload.dx;
+            ev.dy = payload.dy;
+            ev.keyCode = payload.keyCode;
+            ev.detail = payload.detail;
+            ev.option = payload.option;
+            std::strncpy(ev.text, payload.text, sizeof(ev.text) - 1);
+
+            switch (payload.type) {
+                case ipc::InputEventType::MouseMove:  ev.type = JKEventType::MouseMove; break;
+                case ipc::InputEventType::MouseDown:  ev.type = JKEventType::MouseDown; break;
+                case ipc::InputEventType::MouseUp:    ev.type = JKEventType::MouseUp; break;
+                case ipc::InputEventType::MouseWheel: ev.type = JKEventType::MouseMove; break;
+                case ipc::InputEventType::KeyDown:    ev.type = JKEventType::KeyDown; break;
+                case ipc::InputEventType::KeyUp:      ev.type = JKEventType::KeyUp; break;
+                case ipc::InputEventType::Char:       ev.type = JKEventType::Char; break;
+                default:                              ev.type = JKEventType::None; break;
+            }
+
+            QueueInputEvent(ev);
+        }
+    }
+
+    running_ = false;
+    if (transport_) transport_->Close();
+}
+
+void JKClientSurface::QueueInputEvent(const JKEvent& ev) {
+    std::lock_guard<std::mutex> lock(inputMutex_);
+    // Bound queue size to avoid unbounded growth under heavy input.
+    if (inputEvents_.size() >= 256) {
+        inputEvents_.pop_front();
+    }
+    inputEvents_.push_back(ev);
 }
 
 std::string JKClientSurface::ShmNameFromSurfaceId(uint32_t id) {

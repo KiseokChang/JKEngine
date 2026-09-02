@@ -174,6 +174,7 @@ void JKWindowServer::Run() {
                 running_ = false;
                 break;
             }
+            HandleSDLEvent(ev);
         }
         if (!running_) break;
 
@@ -250,6 +251,96 @@ void JKWindowServer::UnblockAcceptor() {
     std::fprintf(stderr, "JKWindowServer::UnblockAcceptor: failed to unblock acceptor\n");
 }
 
+void JKWindowServer::HandleSDLEvent(const SDL_Event& ev) {
+    if (ev.type == SDL_MOUSEMOTION || ev.type == SDL_MOUSEBUTTONDOWN ||
+        ev.type == SDL_MOUSEBUTTONUP) {
+        const int mx = ev.motion.x;
+        const int my = ev.motion.y;
+        JKClientConnection* client = HitTestClient(mx, my);
+        if (!client) return;
+
+        ipc::InputEventPayload payload{};
+        payload.surfaceId = client->Id();
+        payload.x = mx - client->X();
+        payload.y = my - client->Y();
+
+        if (ev.type == SDL_MOUSEMOTION) {
+            payload.type = ipc::InputEventType::MouseMove;
+            payload.dx = ev.motion.xrel;
+            payload.dy = ev.motion.yrel;
+        } else if (ev.type == SDL_MOUSEBUTTONDOWN) {
+            payload.type = ipc::InputEventType::MouseDown;
+            payload.keyCode = ev.button.button;
+            payload.detail = ev.button.clicks;
+            SetFocusedClient(client->Id());
+        } else if (ev.type == SDL_MOUSEBUTTONUP) {
+            payload.type = ipc::InputEventType::MouseUp;
+            payload.keyCode = ev.button.button;
+            payload.detail = ev.button.clicks;
+        }
+
+        SendInputEvent(*client, payload);
+    } else if (ev.type == SDL_MOUSEWHEEL) {
+        JKClientConnection* client = FindClientById(focusedClientId_);
+        if (!client) return;
+        ipc::InputEventPayload payload{};
+        payload.surfaceId = client->Id();
+        payload.type = ipc::InputEventType::MouseWheel;
+        payload.dx = ev.wheel.x;
+        payload.dy = ev.wheel.y;
+        SendInputEvent(*client, payload);
+    } else if (ev.type == SDL_KEYDOWN || ev.type == SDL_KEYUP) {
+        JKClientConnection* client = FindClientById(focusedClientId_);
+        if (!client) return;
+        ipc::InputEventPayload payload{};
+        payload.surfaceId = client->Id();
+        payload.type = (ev.type == SDL_KEYDOWN) ? ipc::InputEventType::KeyDown
+                                                : ipc::InputEventType::KeyUp;
+        payload.keyCode = ev.key.keysym.sym;
+        payload.detail = ev.key.repeat;
+        payload.option = ev.key.keysym.mod;
+        SendInputEvent(*client, payload);
+    } else if (ev.type == SDL_TEXTINPUT) {
+        JKClientConnection* client = FindClientById(focusedClientId_);
+        if (!client) return;
+        ipc::InputEventPayload payload{};
+        payload.surfaceId = client->Id();
+        payload.type = ipc::InputEventType::Char;
+        std::strncpy(payload.text, ev.text.text, sizeof(payload.text) - 1);
+        SendInputEvent(*client, payload);
+    }
+}
+
+void JKWindowServer::SendInputEvent(JKClientConnection& client, const ipc::InputEventPayload& payload) {
+    client.Send(ipc::MsgType::InputEvent, &payload, sizeof(payload));
+}
+
+JKClientConnection* JKWindowServer::HitTestClient(int32_t x, int32_t y) {
+    std::lock_guard<std::mutex> lock(clientsMutex_);
+    for (auto it = clients_.rbegin(); it != clients_.rend(); ++it) {
+        JKClientConnection* client = it->get();
+        if (client && x >= client->X() && x < client->X() + client->Width() &&
+            y >= client->Y() && y < client->Y() + client->Height()) {
+            return client;
+        }
+    }
+    return nullptr;
+}
+
+JKClientConnection* JKWindowServer::FindClientById(uint32_t surfaceId) {
+    std::lock_guard<std::mutex> lock(clientsMutex_);
+    for (auto& client : clients_) {
+        if (client && client->Id() == surfaceId) {
+            return client.get();
+        }
+    }
+    return nullptr;
+}
+
+void JKWindowServer::SetFocusedClient(uint32_t surfaceId) {
+    focusedClientId_ = surfaceId;
+}
+
 void JKWindowServer::ProcessPendingMessages() {
     std::lock_guard<std::mutex> lock(clientsMutex_);
     for (auto& client : clients_) {
@@ -313,6 +404,9 @@ void JKWindowServer::CleanupDisconnectedClients() {
     while (it != clients_.end()) {
         auto& client = *it;
         if (client && client->IsDisconnected()) {
+            if (focusedClientId_ == client->Id()) {
+                focusedClientId_ = 0;
+            }
             client->StopReadThread();
             pendingCleanup_.push_back(std::move(client));
             it = clients_.erase(it);

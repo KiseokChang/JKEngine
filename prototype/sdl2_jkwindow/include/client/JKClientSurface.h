@@ -4,10 +4,15 @@
 #include <ipc/JKPipeTransport.h>
 #include <ipc/JKSharedMemory.h>
 #include <ipc/JKWireProtocol.h>
+#include <JKEvent.h>
 #include <JKTypes.h>
+#include <atomic>
 #include <cstdint>
+#include <deque>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace jk {
@@ -49,7 +54,15 @@ public:
     // Send a CommitSurface message with the supplied dirty rectangles.
     bool Commit(const std::vector<ipc::DirtyRect>& dirty);
 
+    // Drain one server-forwarded input event. Returns false if none are queued.
+    bool PollInputEvent(JKEvent& out);
+
 private:
+    void StartReadThread();
+    void StopReadThread();
+    void ReadLoop();
+    void QueueInputEvent(const JKEvent& ev);
+
     std::string pipeName_;
     std::string title_;
     int width_ = 0;
@@ -58,6 +71,12 @@ private:
     std::unique_ptr<ipc::JKPipeTransport> transport_;
     std::unique_ptr<ipc::JKSharedMemory> sharedMemory_;
     uint32_t surfaceId_ = 0;
+
+    std::atomic<bool> running_{false};
+    std::thread readThread_;
+
+    std::mutex inputMutex_;
+    std::deque<JKEvent> inputEvents_;
 
     static std::string ShmNameFromSurfaceId(uint32_t id);
 };
