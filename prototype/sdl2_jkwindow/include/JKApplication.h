@@ -13,6 +13,7 @@
 #include <memory>
 #include <string>
 #include <mutex>
+#include <chrono>
 
 namespace jk {
 
@@ -116,6 +117,21 @@ private:
     uint32_t legacyTimerWinId_ = 0;
     uint32_t legacyTimerInterval_ = 0;
 
+    // Debounced resize/DPI handling. SDL fires many SIZE_CHANGED/MOVED/
+    // DISPLAY_CHANGED events when a window crosses monitor boundaries, and the
+    // render thread sends DpiChanged at the same time. We collect the latest
+    // values and emit a single SizeChanged/DpiChanged pair after a short quiet
+    // period to avoid re-layout storms.
+    struct PendingResize {
+        bool dirty = false;
+        int logicalW = 0;
+        int logicalH = 0;
+        int physicalW = 0;
+        int physicalH = 0;
+        std::chrono::steady_clock::time_point deadline;
+    } pendingResize_;
+    static constexpr int kResizeDebounceMs = 200;
+
 #ifdef _WIN32
     int lastMousePhysX_ = 0;
     int lastMousePhysY_ = 0;
@@ -125,6 +141,9 @@ private:
 
     void PumpInputEvents();
     bool ProcessOneEvent(const JKEvent& ev);
+    void MergePendingResizeFromSDL();
+    void MergePendingResizeFromDpiEvent(const JKEvent& ev);
+    void FlushPendingResizeIfStable();
 };
 
 extern JKApplication* g_currentJKApp;

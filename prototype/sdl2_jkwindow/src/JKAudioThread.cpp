@@ -48,7 +48,7 @@ void JKAudioThread::Stop() {
 void JKAudioThread::Run() {
     while (running_) {
         JKMessageBus::Payload payload;
-        if (bus_ && bus_->PopWait(JKMessageBus::Channel::Audio, payload, 100)) {
+        if (bus_ && bus_->PopWait(JKMessageBus::Channel::Audio, payload, 1)) {
             ProcessCommand(payload);
         }
     }
