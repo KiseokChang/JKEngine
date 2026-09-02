@@ -133,6 +133,9 @@ private:
     static constexpr int kResizeDebounceMs = 200;
 
 #ifdef _WIN32
+    int lastMousePhysX_ = 0;
+    int lastMousePhysY_ = 0;
+    bool hasLastMousePhys_ = false;
     FILE* mouseLog_ = nullptr;
 #endif
 
