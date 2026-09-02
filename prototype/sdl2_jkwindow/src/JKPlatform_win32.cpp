@@ -200,12 +200,13 @@ bool JKPlatform::IsPerMonitorDpiAware(SDL_Window* window) {
 // Mouse input
 // ---------------------------------------------------------------------------
 bool JKPlatform::GetPhysicalMousePos(SDL_Window* window, int& outX, int& outY) {
-    HWND hwnd = GetHwnd(window);
-    if (!hwnd) return false;
-    POINT pt{};
-    if (!GetCursorPos(&pt) || !ScreenToClient(hwnd, &pt)) return false;
-    outX = static_cast<int>(pt.x);
-    outY = static_cast<int>(pt.y);
+    if (!window) return false;
+    int gx = 0, gy = 0;
+    SDL_GetGlobalMouseState(&gx, &gy);
+    int wx = 0, wy = 0;
+    SDL_GetWindowPosition(window, &wx, &wy);
+    outX = gx - wx;
+    outY = gy - wy;
     return true;
 }
 
