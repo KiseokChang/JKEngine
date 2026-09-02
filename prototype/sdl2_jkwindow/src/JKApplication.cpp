@@ -178,6 +178,10 @@ void JKApplication::PumpInputEvents() {
              sdlEvent.window.event == SDL_WINDOWEVENT_FOCUS_GAINED)) {
             if (mainWindow_) {
                 mainWindow_->Invalidate();
+                // Ensure the window manager routes input to the main window when
+                // the SDL window regains focus after a move or activation.
+                windowManager_->SetInputWindow(mainWindow_.get());
+                mainWindow_->FocusFirstChild();
             }
         }
 
