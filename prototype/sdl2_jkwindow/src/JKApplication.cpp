@@ -167,6 +167,20 @@ void JKApplication::PumpInputEvents() {
             continue;
         }
 
+        // Force a full redraw when the OS exposes the window after a move,
+        // resize, or monitor change. SDL does not always re-issue mouse/keyboard
+        // events in these cases, and the renderer backbuffer may have been
+        // recreated.
+        if (sdlEvent.type == SDL_WINDOWEVENT &&
+            (sdlEvent.window.event == SDL_WINDOWEVENT_EXPOSED ||
+             sdlEvent.window.event == SDL_WINDOWEVENT_SHOWN ||
+             sdlEvent.window.event == SDL_WINDOWEVENT_RESTORED ||
+             sdlEvent.window.event == SDL_WINDOWEVENT_FOCUS_GAINED)) {
+            if (mainWindow_) {
+                mainWindow_->Invalidate();
+            }
+        }
+
         JKEvent ev = TranslateSDLEvent(sdlEvent);
         if (ev.type != JKEventType::None) {
             if (ev.type == JKEventType::Quit) {
@@ -239,9 +253,18 @@ bool JKApplication::ProcessOneEvent(const JKEvent& ev) {
 
     if (ev.type == JKEventType::SizeChanged) {
         // Update shared logical size used by input translation.
-        std::lock_guard<std::mutex> lock(stateMutex_);
-        logicalWidth_ = ev.x;
-        logicalHeight_ = ev.y;
+        {
+            std::lock_guard<std::mutex> lock(stateMutex_);
+            logicalWidth_ = ev.x;
+            logicalHeight_ = ev.y;
+        }
+        // Keep the main window aligned with the SDL window's logical size so
+        // the desktop background and child windows fill the output correctly
+        // after a cross-monitor move or resize.
+        if (mainWindow_) {
+            mainWindow_->SetWindowRect(JKRect{ 0, 0, ev.x, ev.y });
+            mainWindow_->Invalidate();
+        }
     }
 
     if (ev.type == JKEventType::DpiChanged) {
@@ -494,76 +517,22 @@ JKEvent JKApplication::TranslateSDLEvent(const SDL_Event& sdl) {
         return ev;
     }
 
-    float scaleX, scaleY;
-    int letterboxX, letterboxY;
-    GetScale(scaleX, scaleY);
-    GetLetterbox(letterboxX, letterboxY);
-
     if (ev.type == JKEventType::MouseMove ||
         ev.type == JKEventType::MouseDown ||
         ev.type == JKEventType::MouseUp) {
-        int physX = ev.x;
-        int physY = ev.y;
-        bool usedPlatformPhys = JKPlatform::GetPhysicalMousePos(sdlWindow_, physX, physY);
-
-        // Shared scale is the physical-to-logical ratio reported by the render
-        // thread via DpiChanged events, so it doubles as the point-to-pixel
-        // conversion factor for SDL mouse coordinates.
-        float ptToPhysX = scaleX;
-        float ptToPhysY = scaleY;
-
-        if (!usedPlatformPhys) {
-            if (ptToPhysX > 0.0f && ptToPhysY > 0.0f) {
-                physX = static_cast<int>(ev.x * ptToPhysX + 0.5f);
-                physY = static_cast<int>(ev.y * ptToPhysY + 0.5f);
-            }
+        // SDL mouse coordinates are already expressed in the window's logical
+        // coordinate space. With SDL_HINT_WINDOWS_DPI_SCALING enabled this is
+        // a DPI-scaled point space that matches SDL_GetWindowSize() and our
+        // drawing commands, so no physical-pixel conversion is needed.
+        // The previous platform-cursor path mixed the global desktop
+        // coordinate space with the window-frame origin and caused offsets
+        // after moving between monitors with different scale factors.
+        if (mouseLog_) {
+            std::fprintf(mouseLog_,
+                "[TRSDL] type=%d raw=(%d,%d) d=(%d,%d)\n",
+                static_cast<int>(ev.type), ev.x, ev.y, ev.dx, ev.dy);
+            std::fflush(mouseLog_);
         }
-
-        if (scaleX > 0.0f && scaleY > 0.0f) {
-            const float appX = (static_cast<float>(physX) - letterboxX) / scaleX;
-            const float appY = (static_cast<float>(physY) - letterboxY) / scaleY;
-            ev.x = static_cast<int32_t>(appX + (appX >= 0.0f ? 0.5f : -0.5f));
-            ev.y = static_cast<int32_t>(appY + (appY >= 0.0f ? 0.5f : -0.5f));
-
-            if (mouseLog_) {
-                std::fprintf(mouseLog_,
-                    "[TRSDL] type=%d phys=(%d,%d) usedPlatform=%d scale=(%.3f,%.3f) lb=(%d,%d) -> app=(%d,%d)\n",
-                    static_cast<int>(ev.type), physX, physY, usedPlatformPhys ? 1 : 0,
-                    scaleX, scaleY, letterboxX, letterboxY, ev.x, ev.y);
-                std::fflush(mouseLog_);
-            }
-
-            if (ev.type == JKEventType::MouseMove) {
-                int physDx = ev.dx;
-                int physDy = ev.dy;
-                if (usedPlatformPhys) {
-#ifdef _WIN32
-                    if (hasLastMousePhys_) {
-                        physDx = physX - lastMousePhysX_;
-                        physDy = physY - lastMousePhysY_;
-                    } else {
-                        physDx = 0;
-                        physDy = 0;
-                    }
-#endif
-                } else {
-                    if (ptToPhysX > 0.0f && ptToPhysY > 0.0f) {
-                        physDx = static_cast<int>(ev.dx * ptToPhysX);
-                        physDy = static_cast<int>(ev.dy * ptToPhysY);
-                    }
-                }
-                ev.dx = static_cast<int32_t>(physDx / scaleX + (physDx >= 0 ? 0.5f : -0.5f));
-                ev.dy = static_cast<int32_t>(physDy / scaleY + (physDy >= 0 ? 0.5f : -0.5f));
-            }
-        }
-
-#ifdef _WIN32
-        if (usedPlatformPhys) {
-            lastMousePhysX_ = physX;
-            lastMousePhysY_ = physY;
-            hasLastMousePhys_ = true;
-        }
-#endif
 
         JKControl* capture = windowManager_->GetCapture();
         if (capture &&
