@@ -1,5 +1,11 @@
 #include <server/JKWindowServer.h>
 
+#include <JKAudioCommand.h>
+#include <JKAudioThread.h>
+#include <JKMessageBus.h>
+#include <JKSDLAudioBackend.h>
+#include <JKSoundManager.h>
+
 #include <cstdio>
 #include <cstring>
 #include <algorithm>
@@ -21,7 +27,7 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
     SDL_SetHint(SDL_HINT_WINDOWS_DPI_SCALING, "1");
 #endif
 
-    if (SDL_Init(SDL_INIT_VIDEO) < 0) {
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) {
         std::fprintf(stderr, "JKWindowServer::Init: SDL_Init failed: %s\n", SDL_GetError());
         return false;
     }
@@ -52,6 +58,7 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
 
 void JKWindowServer::StartAcceptor(const std::string& pipeName) {
     pipeName_ = pipeName;
+    InitAudio();
     running_ = true;
     acceptorThread_ = std::thread([this] { AcceptorLoop(); });
 }
@@ -196,6 +203,15 @@ void JKWindowServer::Stop() {
         acceptorThread_.join();
     }
 
+    if (audioThread_) {
+        AudioCommand quitCmd{};
+        quitCmd.type = AudioCommand::Type::Quit;
+        PostAudioCommand(quitCmd);
+        (*audioThread_).Stop();
+        audioThread_.reset();
+    }
+    messageBus_.reset();
+
     {
         std::lock_guard<std::mutex> lock(clientsMutex_);
         for (auto& client : clients_) {
@@ -234,6 +250,33 @@ void JKWindowServer::Stop() {
         window_ = nullptr;
     }
     SDL_Quit();
+}
+
+void JKWindowServer::InitAudio() {
+    messageBus_ = std::make_unique<JKMessageBus>();
+    audioThread_ = std::make_unique<JKAudioThread>();
+    (*audioThread_).Start(messageBus_.get(), std::make_unique<SDLAudioBackend>());
+
+    AudioCommand initCmd{};
+    initCmd.type = AudioCommand::Type::Init;
+    PostAudioCommand(initCmd);
+}
+
+namespace {
+
+std::string ResolveAudioPath(const char* id, AudioCommand::Type type) {
+    const char* ext = (type == AudioCommand::Type::LoadBGM) ? ".wav" : ".wav";
+    return JKSoundManager::AssetPath(std::string(id) + ext);
+}
+
+} // anonymous namespace
+
+void JKWindowServer::PostAudioCommand(const AudioCommand& cmd) {
+    if (!messageBus_) return;
+    std::vector<uint8_t> data(sizeof(AudioCommand));
+    std::memcpy(data.data(), &cmd, sizeof(AudioCommand));
+    (*messageBus_).Push(JKMessageBus::Channel::Audio,
+        JKMessageBus::Payload(static_cast<uint32_t>(cmd.type), std::move(data)));
 }
 
 void JKWindowServer::UnblockAcceptor() {
@@ -354,6 +397,7 @@ void JKWindowServer::ProcessPendingMessages() {
 }
 
 void JKWindowServer::ProcessClientMessage(JKClientConnection& client, const ipc::Message& msg) {
+    (void)client;
     if (msg.type == ipc::MsgType::CommitSurface) {
         if (msg.payload.size() >= sizeof(ipc::CommitSurfaceHeader)) {
             const auto* header = reinterpret_cast<const ipc::CommitSurfaceHeader*>(
@@ -363,6 +407,18 @@ void JKWindowServer::ProcessClientMessage(JKClientConnection& client, const ipc:
             if (msg.payload.size() >= expected) {
                 client.MarkDirty();
             }
+        }
+    } else if (msg.type == ipc::MsgType::AudioCommand) {
+        if (msg.payload.size() >= sizeof(AudioCommand)) {
+            AudioCommand cmd{};
+            std::memcpy(&cmd, msg.payload.data(), sizeof(AudioCommand));
+            // Resolve asset paths on the server so clients only need the id.
+            if ((cmd.type == AudioCommand::Type::LoadSFX ||
+                 cmd.type == AudioCommand::Type::LoadBGM) && cmd.path[0] == '\0') {
+                std::string path = ResolveAudioPath(cmd.id, cmd.type);
+                std::strncpy(cmd.path, path.c_str(), sizeof(cmd.path) - 1);
+            }
+            PostAudioCommand(cmd);
         }
     } else if (msg.type == ipc::MsgType::Close) {
         // Client explicitly closed.

@@ -4,6 +4,7 @@
 #include <ipc/JKPipeTransport.h>
 #include <ipc/JKSharedMemory.h>
 #include <ipc/JKWireProtocol.h>
+#include <JKAudioCommand.h>
 #include <JKEvent.h>
 #include <JKTypes.h>
 #include <atomic>
@@ -53,6 +54,9 @@ public:
 
     // Send a CommitSurface message with the supplied dirty rectangles.
     bool Commit(const std::vector<ipc::DirtyRect>& dirty);
+
+    // Forward an audio command to the server, which routes it to the audio thread.
+    bool PostAudioCommand(const AudioCommand& cmd);
 
     // Drain one server-forwarded input event. Returns false if none are queued.
     bool PollInputEvent(JKEvent& out);

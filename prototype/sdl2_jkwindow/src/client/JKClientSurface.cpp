@@ -140,6 +140,11 @@ bool JKClientSurface::Commit(const std::vector<ipc::DirtyRect>& dirty) {
     return ipc::WriteMessage(*transport_, ipc::MsgType::CommitSurface, payload);
 }
 
+bool JKClientSurface::PostAudioCommand(const AudioCommand& cmd) {
+    if (!IsConnected()) return false;
+    return ipc::WriteMessage(*transport_, ipc::MsgType::AudioCommand, &cmd, sizeof(cmd));
+}
+
 bool JKClientSurface::PollInputEvent(JKEvent& out) {
     std::lock_guard<std::mutex> lock(inputMutex_);
     if (inputEvents_.empty()) return false;

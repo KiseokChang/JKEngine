@@ -2,6 +2,7 @@
 #define JKWINDOWSERVER_H
 
 #include <server/JKClientConnection.h>
+#include <JKAudioCommand.h>
 #include <JKTypes.h>
 #include <SDL.h>
 
@@ -14,6 +15,10 @@
 #include <vector>
 
 namespace jk {
+
+class JKMessageBus;
+class JKAudioThread;
+
 namespace server {
 
 // Single-display window server.
@@ -50,9 +55,14 @@ private:
     void Composite();
     void CleanupDisconnectedClients();
     void UnblockAcceptor();
+    void InitAudio();
+    void PostAudioCommand(const AudioCommand& cmd);
 
     SDL_Window* window_ = nullptr;
     SDL_Renderer* renderer_ = nullptr;
+
+    std::unique_ptr<JKMessageBus> messageBus_;
+    std::unique_ptr<JKAudioThread> audioThread_;
 
     std::string pipeName_;
     std::atomic<bool> running_{false};
