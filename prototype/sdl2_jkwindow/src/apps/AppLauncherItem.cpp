@@ -93,6 +93,15 @@ void AppLauncherItem::RespondMessage(const JKEvent& ev) {
         // No hover effect for now.
         return;
     }
+    if (ev.type == JKEventType::KeyDown) {
+        if (ev.keyCode == SDLK_RETURN || ev.keyCode == SDLK_SPACE) {
+            if (onClick_) {
+                JKSoundManager::GetInstance().PlaySFX("button_click", kAudioBusUI);
+                onClick_();
+            }
+            return;
+        }
+    }
     JKControl::RespondMessage(ev);
 }
 
