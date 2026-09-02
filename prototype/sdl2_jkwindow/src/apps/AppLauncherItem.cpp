@@ -23,6 +23,7 @@ AppLauncherItem::AppLauncherItem(const JKRect& rect, const std::string& label,
     SetRect(rect);
     SetBackColor(192, 192, 192);
     SetTextColor(0, 0, 0);
+    SetFocusable(true);
 }
 
 JKPoint AppLauncherItem::MeasureContent() const {
