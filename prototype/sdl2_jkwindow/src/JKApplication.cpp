@@ -258,19 +258,6 @@ void JKApplication::PumpInputEvents() {
 #endif
         }
 
-        // Handle renderer device reset / target reset events. These are sent by
-        // SDL when the D3D/GL context is lost, which can happen on cross-monitor
-        // moves. We currently log them; full recovery would require recreating the
-        // renderer, but in practice the D3D11 backend usually recovers on its own.
-        if (sdlEvent.type == SDL_RENDER_TARGETS_RESET ||
-            sdlEvent.type == SDL_RENDER_DEVICE_RESET) {
-            if (mouseLog_) {
-                std::fprintf(mouseLog_,
-                    "[SDL-EV] renderer reset type=%d (TARGETS=%d, DEVICE=%d)\n",
-                    sdlEvent.type, SDL_RENDER_TARGETS_RESET, SDL_RENDER_DEVICE_RESET);
-                std::fflush(mouseLog_);
-            }
-        }
 
         JKEvent ev = TranslateSDLEvent(sdlEvent);
         if (ev.type != JKEventType::None) {

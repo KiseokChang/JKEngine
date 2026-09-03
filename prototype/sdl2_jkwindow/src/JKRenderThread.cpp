@@ -18,6 +18,10 @@ bool JKRenderThread::Init(const std::string& title, int width, int height) {
 #ifdef _WIN32
     SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitorv2");
     SDL_SetHint(SDL_HINT_WINDOWS_DPI_SCALING, "1");
+    // Force the OpenGL render driver on Windows. The default D3D9/D3D11 backend
+    // throws "Reset(): INVALIDCALL" after cross-monitor DPI changes and cannot
+    // recover. OpenGL handles monitor moves and DPI changes robustly.
+    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "opengl");
 #endif
 
     int createW = width;
