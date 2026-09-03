@@ -145,7 +145,9 @@ void JKRenderThread::Run() {
             // Notify the application thread whenever the logical or physical
             // size changes. The application thread should not call SDL window
             // functions directly, so we ship both values from the render thread.
-            if (bus_ &&
+            // Skip bogus zero-size values that can appear during creation or
+            // monitor transitions.
+            if (bus_ && logW > 0 && logH > 0 && physW > 0 && physH > 0 &&
                 (physW != lastPhysW || physH != lastPhysH ||
                  logW != lastLogW || logH != lastLogH)) {
                 lastPhysW = physW;

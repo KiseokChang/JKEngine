@@ -10,7 +10,6 @@
 #include <JKTimerThread.h>
 #include <cstdio>
 #include <cstring>
-#include <chrono>
 #include <typeinfo>
 
 namespace {
@@ -219,15 +218,19 @@ void JKApplication::PumpInputEvents() {
         // Force a full redraw when the OS exposes the window after a move,
         // resize, or monitor change. SDL does not always re-issue mouse/keyboard
         // events in these cases, and the renderer backbuffer may have been
-        // recreated. Also respond to TAKE_FOCUS so Windows actually gives us
-        // input focus after cross-monitor moves.
+        // recreated. Also respond to TAKE_FOCUS/DISPLAY_CHANGED/MOVED so
+        // Windows actually gives us input focus after cross-monitor moves.
         if (sdlEvent.type == SDL_WINDOWEVENT &&
             (sdlEvent.window.event == SDL_WINDOWEVENT_EXPOSED ||
              sdlEvent.window.event == SDL_WINDOWEVENT_SHOWN ||
              sdlEvent.window.event == SDL_WINDOWEVENT_RESTORED ||
-             sdlEvent.window.event == SDL_WINDOWEVENT_FOCUS_GAINED
+             sdlEvent.window.event == SDL_WINDOWEVENT_FOCUS_GAINED ||
+             sdlEvent.window.event == SDL_WINDOWEVENT_MOVED
 #if SDL_VERSION_ATLEAST(2, 0, 5)
              || sdlEvent.window.event == SDL_WINDOWEVENT_TAKE_FOCUS
+#endif
+#if SDL_VERSION_ATLEAST(2, 0, 16)
+             || sdlEvent.window.event == SDL_WINDOWEVENT_DISPLAY_CHANGED
 #endif
              )) {
             if (mainWindow_) {
@@ -237,11 +240,12 @@ void JKApplication::PumpInputEvents() {
                 windowManager_->SetInputWindow(mainWindow_.get());
                 mainWindow_->FocusFirstChild();
             }
-#if SDL_VERSION_ATLEAST(2, 0, 5)
-            if (sdlEvent.window.event == SDL_WINDOWEVENT_TAKE_FOCUS) {
+            // Windows often leaves the SDL window without focus after a
+            // cross-monitor move. Explicitly reactivate only when focus is not
+            // already ours to avoid stealing focus during ordinary moves.
+            if (sdlWindow_ && !(SDL_GetWindowFlags(sdlWindow_) & SDL_WINDOW_INPUT_FOCUS)) {
                 EnsureSdlFocus();
             }
-#endif
         }
 
         JKEvent ev = TranslateSDLEvent(sdlEvent);
@@ -275,17 +279,20 @@ int JKApplication::Run() {
         }
         if (!running_) break;
 
-        // Drain input channel. DpiChanged events from the render thread are
-        // folded into the pending resize debouncer so rapid monitor moves do
-        // not trigger repeated re-scaling.
+        // Drain input channel. SizeChanged/DpiChanged come from the render
+        // thread and must be applied immediately: during a cross-monitor move
+        // the logical size and physical scale can change and hit-testing / the
+        // main-window rectangle must stay in sync with SDL. A 200ms debounce
+        // here left a stale rectangle that broke mouse input and redrawing.
         JKMessageBus::Payload inputPayload;
         while (messageBus_->Pop(JKMessageBus::Channel::Input, inputPayload)) {
-            if (inputPayload.event.type == JKEventType::SizeChanged) {
-                MergePendingResizeFromSizeEvent(inputPayload.event);
-                continue;
-            }
-            if (inputPayload.event.type == JKEventType::DpiChanged) {
-                MergePendingResizeFromDpiEvent(inputPayload.event);
+            const auto evType = inputPayload.event.type;
+            if (evType == JKEventType::SizeChanged || evType == JKEventType::DpiChanged) {
+                // Apply immediately; no debounce for the state used by input.
+                if (!ProcessOneEvent(inputPayload.event)) {
+                    running_ = false;
+                    break;
+                }
                 continue;
             }
             if (!ProcessOneEvent(inputPayload.event)) {
@@ -294,10 +301,6 @@ int JKApplication::Run() {
             }
         }
         if (!running_) break;
-
-        // Once the window has stayed the same size/DPI for the debounce
-        // window, emit a single synchronized SizeChanged + DpiChanged pair.
-        FlushPendingResizeIfStable();
 
         // Cleanup closed child windows.
         if (mainWindow_) {
@@ -319,6 +322,16 @@ bool JKApplication::ProcessOneEvent(const JKEvent& ev) {
     }
 
     if (ev.type == JKEventType::SizeChanged) {
+        // Ignore zero-size events; they occasionally appear during window
+        // creation or rapid monitor changes and would collapse hit-testing.
+        if (ev.x <= 0 || ev.y <= 0) {
+            if (mouseLog_) {
+                std::fprintf(mouseLog_,
+                    "[SizeChanged] ignored zero/bogus size %dx%d\n", ev.x, ev.y);
+                std::fflush(mouseLog_);
+            }
+            return true;
+        }
         // Update shared logical size used by input translation.
         {
             std::lock_guard<std::mutex> lock(stateMutex_);
@@ -378,47 +391,6 @@ bool JKApplication::ProcessOneEvent(const JKEvent& ev) {
 
     RouteMessage(ev);
     return true;
-}
-
-void JKApplication::MergePendingResizeFromSizeEvent(const JKEvent& ev) {
-    pendingResize_.dirty = true;
-    pendingResize_.logicalW = ev.x;
-    pendingResize_.logicalH = ev.y;
-    pendingResize_.deadline =
-        std::chrono::steady_clock::now() +
-        std::chrono::milliseconds(kResizeDebounceMs);
-}
-
-void JKApplication::MergePendingResizeFromDpiEvent(const JKEvent& ev) {
-    pendingResize_.dirty = true;
-    pendingResize_.physicalW = ev.x;
-    pendingResize_.physicalH = ev.y;
-    pendingResize_.deadline =
-        std::chrono::steady_clock::now() +
-        std::chrono::milliseconds(kResizeDebounceMs);
-}
-
-void JKApplication::FlushPendingResizeIfStable() {
-    if (!pendingResize_.dirty) return;
-    if (std::chrono::steady_clock::now() < pendingResize_.deadline) return;
-
-    JKEvent sizeEv;
-    sizeEv.type = JKEventType::SizeChanged;
-    sizeEv.x = pendingResize_.logicalW;
-    sizeEv.y = pendingResize_.logicalH;
-    messageBus_->Push(JKMessageBus::Channel::Input, sizeEv);
-
-    if (pendingResize_.physicalW > 0 && pendingResize_.physicalH > 0) {
-        JKEvent dpiEv;
-        dpiEv.type = JKEventType::DpiChanged;
-        dpiEv.x = pendingResize_.physicalW;
-        dpiEv.y = pendingResize_.physicalH;
-        messageBus_->Push(JKMessageBus::Channel::Input, dpiEv);
-    }
-
-    pendingResize_.dirty = false;
-    pendingResize_.physicalW = 0;
-    pendingResize_.physicalH = 0;
 }
 
 void JKApplication::SetMainWindow(std::unique_ptr<JKWindow> window) {
