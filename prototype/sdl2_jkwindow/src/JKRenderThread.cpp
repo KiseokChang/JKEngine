@@ -184,6 +184,15 @@ void JKRenderThread::Run() {
             }
 
             renderBackend_->Present();
+
+            // After Present, check whether SDL logged a renderer/D3D error.
+            // This helps diagnose "black screen / no updates" after cross-monitor
+            // moves where the D3D device can be lost.
+            const char* err = SDL_GetError();
+            if (err && err[0] != '\0') {
+                std::fprintf(stderr, "[RenderThread] SDL error after Present: %s\n", err);
+                SDL_ClearError();
+            }
         }
     }
 }
