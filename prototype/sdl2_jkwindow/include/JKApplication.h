@@ -126,6 +126,12 @@ private:
 
     // Force the OS/SDL to give the SDL window input focus.
     void EnsureSdlFocus();
+
+#ifdef _WIN32
+    // Update the main-window logical rectangle from the actual Win32 client
+    // rect and current monitor DPI. Called on SDL move/display events.
+    void UpdateMainWindowRectFromWin32();
+#endif
 };
 
 extern JKApplication* g_currentJKApp;

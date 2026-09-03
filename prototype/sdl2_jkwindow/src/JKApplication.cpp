@@ -246,6 +246,16 @@ void JKApplication::PumpInputEvents() {
             if (sdlWindow_ && !(SDL_GetWindowFlags(sdlWindow_) & SDL_WINDOW_INPUT_FOCUS)) {
                 EnsureSdlFocus();
             }
+
+            // Cross-monitor moves can leave SDL's cached logical size stale.
+            // Re-derive the main-window rectangle directly from the Win32
+            // client rect and current monitor DPI so hit-testing and redrawing
+            // stay in sync with reality.
+#ifdef _WIN32
+            if (sdlWindow_ && mainWindow_) {
+                UpdateMainWindowRectFromWin32();
+            }
+#endif
         }
 
         JKEvent ev = TranslateSDLEvent(sdlEvent);
@@ -693,5 +703,37 @@ void JKApplication::EnsureSdlFocus() {
     SDL_RaiseWindow(sdlWindow_);
     SDL_SetWindowInputFocus(sdlWindow_);
 }
+
+#ifdef _WIN32
+void JKApplication::UpdateMainWindowRectFromWin32() {
+    if (!sdlWindow_ || !mainWindow_) return;
+
+    // Query the actual client rectangle and current monitor DPI directly from
+    // Windows. This is independent of SDL's possibly stale logical size cache.
+    JKPlatform::FrameMetrics fm{};
+    if (!JKPlatform::GetWindowFrameMetrics(sdlWindow_, fm)) return;
+
+    const int logicalW = static_cast<int>(fm.clientW / fm.dpiScale + 0.5f);
+    const int logicalH = static_cast<int>(fm.clientH / fm.dpiScale + 0.5f);
+    if (logicalW <= 0 || logicalH <= 0) return;
+
+    {
+        std::lock_guard<std::mutex> lock(stateMutex_);
+        logicalWidth_ = logicalW;
+        logicalHeight_ = logicalH;
+    }
+    mainWindow_->SetWindowRect(JKRect{ 0, 0, logicalW, logicalH });
+    mainWindow_->Invalidate();
+
+    if (mouseLog_) {
+        std::fprintf(mouseLog_,
+            "[Win32Rect] clientPx=%dx%d dpiScale=%.3f logical=%dx%d mainRect=(%d,%d %dx%d)\n",
+            fm.clientW, fm.clientH, fm.dpiScale, logicalW, logicalH,
+            mainWindow_->GetRect().x, mainWindow_->GetRect().y,
+            mainWindow_->GetRect().w, mainWindow_->GetRect().h);
+        std::fflush(mouseLog_);
+    }
+}
+#endif
 
 } // namespace jk
