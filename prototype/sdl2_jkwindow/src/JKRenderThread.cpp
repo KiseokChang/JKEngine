@@ -18,10 +18,6 @@ bool JKRenderThread::Init(const std::string& title, int width, int height) {
 #ifdef _WIN32
     SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitorv2");
     SDL_SetHint(SDL_HINT_WINDOWS_DPI_SCALING, "1");
-    // Force the OpenGL render driver on Windows. The default D3D9/D3D11 backend
-    // throws "Reset(): INVALIDCALL" after cross-monitor DPI changes and cannot
-    // recover. OpenGL handles monitor moves and DPI changes robustly.
-    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "opengl");
 #endif
 
     int createW = width;
@@ -52,8 +48,12 @@ bool JKRenderThread::Init(const std::string& title, int width, int height) {
         return false;
     }
 
+    // Use the software renderer on Windows. The hardware D3D/OpenGL backends both
+    // fail on this machine after cross-monitor DPI changes (D3D: Reset
+    // INVALIDCALL, OpenGL: window not made current). The software renderer is
+    // slower but survives monitor moves and DPI changes without device loss.
     sdlRenderer_ = SDL_CreateRenderer(window_, -1,
-        SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+        SDL_RENDERER_SOFTWARE | SDL_RENDERER_PRESENTVSYNC);
     if (!sdlRenderer_) {
         std::fprintf(stderr, "JKRenderThread::Init: SDL_CreateRenderer failed: %s\n", SDL_GetError());
         SDL_DestroyWindow(window_);
