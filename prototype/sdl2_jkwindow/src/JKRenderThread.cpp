@@ -142,7 +142,9 @@ void JKRenderThread::Run() {
             int physW = 0, physH = 0;
             renderBackend_->GetOutputSize(physW, physH);
 
-            // Notify the application thread whenever the DPI/physical size changes.
+            // Notify the application thread whenever the logical or physical
+            // size changes. The application thread should not call SDL window
+            // functions directly, so we ship both values from the render thread.
             if (bus_ &&
                 (physW != lastPhysW || physH != lastPhysH ||
                  logW != lastLogW || logH != lastLogH)) {
@@ -150,6 +152,12 @@ void JKRenderThread::Run() {
                 lastPhysH = physH;
                 lastLogW = logW;
                 lastLogH = logH;
+
+                JKEvent sizeEv;
+                sizeEv.type = JKEventType::SizeChanged;
+                sizeEv.x = logW;
+                sizeEv.y = logH;
+                bus_->Push(JKMessageBus::Channel::Input, sizeEv);
 
                 JKEvent dpiEv;
                 dpiEv.type = JKEventType::DpiChanged;

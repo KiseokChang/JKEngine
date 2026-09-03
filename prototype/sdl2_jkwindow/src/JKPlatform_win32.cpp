@@ -196,6 +196,13 @@ bool JKPlatform::IsPerMonitorDpiAware(SDL_Window* window) {
     return AreDpiAwarenessContextsEqual(ctx, pmv2) != FALSE;
 }
 
+void JKPlatform::ActivateWindow(SDL_Window* window) {
+    HWND hwnd = GetHwnd(window);
+    if (hwnd) {
+        SetForegroundWindow(hwnd);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Mouse input
 // ---------------------------------------------------------------------------
@@ -342,6 +349,8 @@ PlatformWindow* JKPlatform::GetNativeWindow(SDL_Window*) { return nullptr; }
 bool JKPlatform::GetWindowFrameMetrics(SDL_Window*, FrameMetrics&) { return false; }
 bool JKPlatform::ComputeCenteredPlacement(SDL_Window*, int, int, Placement&) { return false; }
 bool JKPlatform::IsPerMonitorDpiAware(SDL_Window*) { return false; }
+
+void JKPlatform::ActivateWindow(SDL_Window*) {}
 
 bool JKPlatform::GetPhysicalMousePos(SDL_Window* window, int& outX, int& outY) {
     if (!window) return false;

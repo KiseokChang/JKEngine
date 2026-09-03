@@ -138,9 +138,13 @@ private:
 
     void PumpInputEvents();
     bool ProcessOneEvent(const JKEvent& ev);
-    void MergePendingResizeFromSDL();
+    void MergePendingResizeFromSizeEvent(const JKEvent& ev);
     void MergePendingResizeFromDpiEvent(const JKEvent& ev);
     void FlushPendingResizeIfStable();
+
+    // Force the OS/SDL to give the SDL window input focus. Used on startup and
+    // when SDL requests focus after a window-manager operation.
+    void EnsureSdlFocus();
 };
 
 extern JKApplication* g_currentJKApp;

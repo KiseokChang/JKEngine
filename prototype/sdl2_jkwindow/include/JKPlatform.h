@@ -87,6 +87,10 @@ public:
     // Mainly useful for diagnostic logging on Windows.
     static bool IsPerMonitorDpiAware(SDL_Window* window);
 
+    // Force the OS to activate the window and give it keyboard focus.
+    // On Windows this calls SetForegroundWindow; non-Windows: no-op.
+    static void ActivateWindow(SDL_Window* window);
+
     // ---------------------------------------------------------------------
     // Mouse input
     // ---------------------------------------------------------------------

@@ -11,6 +11,39 @@
 #include <cstdio>
 #include <cstring>
 #include <chrono>
+#include <typeinfo>
+
+namespace {
+
+const char* SdlWindowEventName(uint8_t e) {
+    switch (e) {
+        case SDL_WINDOWEVENT_NONE: return "NONE";
+        case SDL_WINDOWEVENT_SHOWN: return "SHOWN";
+        case SDL_WINDOWEVENT_HIDDEN: return "HIDDEN";
+        case SDL_WINDOWEVENT_EXPOSED: return "EXPOSED";
+        case SDL_WINDOWEVENT_MOVED: return "MOVED";
+        case SDL_WINDOWEVENT_RESIZED: return "RESIZED";
+        case SDL_WINDOWEVENT_SIZE_CHANGED: return "SIZE_CHANGED";
+        case SDL_WINDOWEVENT_MINIMIZED: return "MINIMIZED";
+        case SDL_WINDOWEVENT_MAXIMIZED: return "MAXIMIZED";
+        case SDL_WINDOWEVENT_RESTORED: return "RESTORED";
+        case SDL_WINDOWEVENT_ENTER: return "ENTER";
+        case SDL_WINDOWEVENT_LEAVE: return "LEAVE";
+        case SDL_WINDOWEVENT_FOCUS_GAINED: return "FOCUS_GAINED";
+        case SDL_WINDOWEVENT_FOCUS_LOST: return "FOCUS_LOST";
+        case SDL_WINDOWEVENT_CLOSE: return "CLOSE";
+#if SDL_VERSION_ATLEAST(2, 0, 5)
+        case SDL_WINDOWEVENT_TAKE_FOCUS: return "TAKE_FOCUS";
+#endif
+#if SDL_VERSION_ATLEAST(2, 0, 16)
+        case SDL_WINDOWEVENT_HIT_TEST: return "HIT_TEST";
+        case SDL_WINDOWEVENT_DISPLAY_CHANGED: return "DISPLAY_CHANGED";
+#endif
+        default: return "UNKNOWN";
+    }
+}
+
+} // anonymous namespace
 
 namespace jk {
 
@@ -67,6 +100,20 @@ bool JKApplication::Init(const std::string& title, int width, int height) {
     // Initial logical size comes from the render thread's created window.
     renderThread_->GetLogicalSize(logicalWidth_, logicalHeight_);
 
+    // Compute the initial DPI scale before the render thread starts so the
+    // first mouse events are translated with the correct scale factor.
+    {
+        int physW = 0, physH = 0;
+        if (renderThread_->GetBackend()) {
+            renderThread_->GetBackend()->GetOutputSize(physW, physH);
+        }
+        std::lock_guard<std::mutex> lock(stateMutex_);
+        if (logicalWidth_ > 0 && logicalHeight_ > 0 && physW > 0 && physH > 0) {
+            scaleX_ = physW / static_cast<float>(logicalWidth_);
+            scaleY_ = physH / static_cast<float>(logicalHeight_);
+        }
+    }
+
     // Resource cache needs a render backend; use the render thread's backend.
     dc_ = JKDC(renderThread_->GetBackend());
     resourceCache_ = std::make_unique<jk::JKResourceCache>(renderThread_->GetBackend());
@@ -103,6 +150,7 @@ bool JKApplication::Init(const std::string& title, int width, int height) {
 
     windowManager_->SetMainWindow(mainWindow_.get());
     windowManager_->SetInputWindow(mainWindow_.get());
+    EnsureSdlFocus();
 
     mainWindow_->Init();
     mainWindow_->Setup();
@@ -153,30 +201,35 @@ void JKApplication::PumpInputEvents() {
     SDL_Event sdlEvent;
     while (SDL_PollEvent(&sdlEvent)) {
         if (mouseLog_) {
-            std::fprintf(mouseLog_, "[SDL-EV] type=%d\n", sdlEvent.type);
+            std::fprintf(mouseLog_, "[SDL-EV] type=%d", sdlEvent.type);
+            if (sdlEvent.type == SDL_WINDOWEVENT && sdlWindow_) {
+                const Uint32 flags = SDL_GetWindowFlags(sdlWindow_);
+                std::fprintf(mouseLog_,
+                    " win=%s data1=%d data2=%d flags=0x%x mouseFocus=%d inputFocus=%d",
+                    SdlWindowEventName(sdlEvent.window.event),
+                    sdlEvent.window.data1, sdlEvent.window.data2,
+                    flags,
+                    (flags & SDL_WINDOW_MOUSE_FOCUS) ? 1 : 0,
+                    (flags & SDL_WINDOW_INPUT_FOCUS) ? 1 : 0);
+            }
+            std::fprintf(mouseLog_, "\n");
             std::fflush(mouseLog_);
-        }
-
-        if (sdlEvent.type == SDL_WINDOWEVENT &&
-            (sdlEvent.window.event == SDL_WINDOWEVENT_SIZE_CHANGED ||
-             sdlEvent.window.event == SDL_WINDOWEVENT_MOVED
-#if SDL_VERSION_ATLEAST(2, 0, 16)
-             || sdlEvent.window.event == SDL_WINDOWEVENT_DISPLAY_CHANGED
-#endif
-             )) {
-            MergePendingResizeFromSDL();
-            continue;
         }
 
         // Force a full redraw when the OS exposes the window after a move,
         // resize, or monitor change. SDL does not always re-issue mouse/keyboard
         // events in these cases, and the renderer backbuffer may have been
-        // recreated.
+        // recreated. Also respond to TAKE_FOCUS so Windows actually gives us
+        // input focus after cross-monitor moves.
         if (sdlEvent.type == SDL_WINDOWEVENT &&
             (sdlEvent.window.event == SDL_WINDOWEVENT_EXPOSED ||
              sdlEvent.window.event == SDL_WINDOWEVENT_SHOWN ||
              sdlEvent.window.event == SDL_WINDOWEVENT_RESTORED ||
-             sdlEvent.window.event == SDL_WINDOWEVENT_FOCUS_GAINED)) {
+             sdlEvent.window.event == SDL_WINDOWEVENT_FOCUS_GAINED
+#if SDL_VERSION_ATLEAST(2, 0, 5)
+             || sdlEvent.window.event == SDL_WINDOWEVENT_TAKE_FOCUS
+#endif
+             )) {
             if (mainWindow_) {
                 mainWindow_->Invalidate();
                 // Ensure the window manager routes input to the main window when
@@ -184,6 +237,11 @@ void JKApplication::PumpInputEvents() {
                 windowManager_->SetInputWindow(mainWindow_.get());
                 mainWindow_->FocusFirstChild();
             }
+#if SDL_VERSION_ATLEAST(2, 0, 5)
+            if (sdlEvent.window.event == SDL_WINDOWEVENT_TAKE_FOCUS) {
+                EnsureSdlFocus();
+            }
+#endif
         }
 
         JKEvent ev = TranslateSDLEvent(sdlEvent);
@@ -222,6 +280,10 @@ int JKApplication::Run() {
         // not trigger repeated re-scaling.
         JKMessageBus::Payload inputPayload;
         while (messageBus_->Pop(JKMessageBus::Channel::Input, inputPayload)) {
+            if (inputPayload.event.type == JKEventType::SizeChanged) {
+                MergePendingResizeFromSizeEvent(inputPayload.event);
+                continue;
+            }
             if (inputPayload.event.type == JKEventType::DpiChanged) {
                 MergePendingResizeFromDpiEvent(inputPayload.event);
                 continue;
@@ -270,6 +332,16 @@ bool JKApplication::ProcessOneEvent(const JKEvent& ev) {
             mainWindow_->SetWindowRect(JKRect{ 0, 0, ev.x, ev.y });
             mainWindow_->Invalidate();
         }
+        if (mouseLog_) {
+            std::fprintf(mouseLog_,
+                "[SizeChanged] logical=%dx%d mainRect=(%d,%d %dx%d)\n",
+                ev.x, ev.y,
+                mainWindow_ ? mainWindow_->GetRect().x : 0,
+                mainWindow_ ? mainWindow_->GetRect().y : 0,
+                mainWindow_ ? mainWindow_->GetRect().w : 0,
+                mainWindow_ ? mainWindow_->GetRect().h : 0);
+            std::fflush(mouseLog_);
+        }
     }
 
     if (ev.type == JKEventType::DpiChanged) {
@@ -282,6 +354,12 @@ bool JKApplication::ProcessOneEvent(const JKEvent& ev) {
         }
         letterboxX_ = 0;
         letterboxY_ = 0;
+        if (mouseLog_) {
+            std::fprintf(mouseLog_,
+                "[DpiChanged] physical=%dx%d logical=%dx%d scale=(%.3f,%.3f)\n",
+                ev.x, ev.y, logicalWidth_, logicalHeight_, scaleX_, scaleY_);
+            std::fflush(mouseLog_);
+        }
     }
 
     if (!PreProcessMessage(ev)) {
@@ -302,14 +380,10 @@ bool JKApplication::ProcessOneEvent(const JKEvent& ev) {
     return true;
 }
 
-void JKApplication::MergePendingResizeFromSDL() {
-    if (!sdlWindow_) return;
-    int w = 0, h = 0;
-    SDL_GetWindowSize(sdlWindow_, &w, &h);
-
+void JKApplication::MergePendingResizeFromSizeEvent(const JKEvent& ev) {
     pendingResize_.dirty = true;
-    pendingResize_.logicalW = w;
-    pendingResize_.logicalH = h;
+    pendingResize_.logicalW = ev.x;
+    pendingResize_.logicalH = ev.y;
     pendingResize_.deadline =
         std::chrono::steady_clock::now() +
         std::chrono::milliseconds(kResizeDebounceMs);
@@ -525,16 +599,27 @@ JKEvent JKApplication::TranslateSDLEvent(const SDL_Event& sdl) {
     if (ev.type == JKEventType::MouseMove ||
         ev.type == JKEventType::MouseDown ||
         ev.type == JKEventType::MouseUp) {
-        // SDL already reports mouse coordinates in the window's logical-point
-        // space. With SDL_HINT_WINDOWS_DPI_SCALING enabled this matches the
-        // coordinate space used by SDL_GetWindowSize() and our drawing commands,
-        // so no platform cursor query or physical-pixel conversion is needed.
-        // This also keeps coordinates correct across monitor moves where the
-        // global mouse/window position subtraction can desynchronise.
+        // SDL reports mouse coordinates in the window's logical-point space when
+        // SDL_HINT_WINDOWS_DPI_SCALING is enabled. We use the raw SDL event
+        // coordinates for hit-testing. Log the independently computed global-state
+        // coordinate as a diagnostic so we can detect divergence.
+        int globalX = 0, globalY = 0;
+        int winPosX = 0, winPosY = 0;
+        SDL_GetGlobalMouseState(&globalX, &globalY);
+        SDL_GetWindowPosition(sdlWindow_, &winPosX, &winPosY);
+        const int globalRelX = globalX - winPosX;
+        const int globalRelY = globalY - winPosY;
+
         if (mouseLog_) {
+            SDL_Window* mouseFocus = SDL_GetMouseFocus();
+            SDL_Window* keyFocus = SDL_GetKeyboardFocus();
             std::fprintf(mouseLog_,
-                "[TRSDL] type=%d raw=(%d,%d) d=(%d,%d)\n",
-                static_cast<int>(ev.type), ev.x, ev.y, ev.dx, ev.dy);
+                "[TRSDL] type=%d raw=(%d,%d) globalRel=(%d,%d) d=(%d,%d) "
+                "mouseFocus=%d keyFocus=%d\n",
+                static_cast<int>(ev.type), ev.x, ev.y,
+                globalRelX, globalRelY, ev.dx, ev.dy,
+                mouseFocus == sdlWindow_ ? 1 : 0,
+                keyFocus == sdlWindow_ ? 1 : 0);
             std::fflush(mouseLog_);
         }
 
@@ -557,6 +642,14 @@ JKEvent JKApplication::TranslateSDLEvent(const SDL_Event& sdl) {
             ev.winId = ev.targetId;
             if (target) {
                 ev.controlId = target->GetControlId();
+            }
+            if (mouseLog_) {
+                std::fprintf(mouseLog_,
+                    "[TRSDL] target=%s id=%u ctrl=%u active='%s'\n",
+                    target ? typeid(*target).name() : "(window)",
+                    ev.targetId, ev.controlId,
+                    active->GetTitle().c_str());
+                std::fflush(mouseLog_);
             }
         }
     } else if (ev.type == JKEventType::KeyDown ||
@@ -595,6 +688,17 @@ void JKApplication::GetLetterbox(int& x, int& y) const {
     std::lock_guard<std::mutex> lock(stateMutex_);
     x = letterboxX_;
     y = letterboxY_;
+}
+
+void JKApplication::EnsureSdlFocus() {
+    if (!sdlWindow_) return;
+    // Ask Windows to activate the SDL window, then tell SDL to take input focus.
+    // This is especially important on startup and after cross-monitor moves where
+    // Windows sometimes leaves the SDL window without focus even though it is
+    // visible.
+    JKPlatform::ActivateWindow(sdlWindow_);
+    SDL_RaiseWindow(sdlWindow_);
+    SDL_SetWindowInputFocus(sdlWindow_);
 }
 
 } // namespace jk
