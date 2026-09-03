@@ -217,6 +217,25 @@ bool JKPlatform::GetPhysicalMousePos(SDL_Window* window, int& outX, int& outY) {
     return true;
 }
 
+bool JKPlatform::GetLogicalMousePos(SDL_Window* window, int& outX, int& outY) {
+    if (!window) return false;
+    HWND hwnd = GetHwnd(window);
+    if (!hwnd) return false;
+
+    POINT pt;
+    if (!GetCursorPos(&pt)) return false;
+    if (!ScreenToClient(hwnd, &pt)) return false;
+
+    // Convert physical client pixels to SDL logical points using the monitor
+    // the window is currently on. This stays correct across cross-monitor moves
+    // where SDL's logical coordinate mapping can drift.
+    UINT dpi = GetDpiForWindow(hwnd);
+    const float scale = (dpi > 0) ? (dpi / 96.0f) : 1.0f;
+    outX = static_cast<int>(pt.x / scale + 0.5f);
+    outY = static_cast<int>(pt.y / scale + 0.5f);
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // Synthetic input
 // ---------------------------------------------------------------------------
@@ -361,6 +380,12 @@ bool JKPlatform::GetPhysicalMousePos(SDL_Window* window, int& outX, int& outY) {
     outX = gx - wx;
     outY = gy - wy;
     return true;
+}
+
+bool JKPlatform::GetLogicalMousePos(SDL_Window*, int& outX, int& outY) {
+    outX = 0;
+    outY = 0;
+    return false;
 }
 
 bool JKPlatform::SendSyntheticKey(uint32_t, bool, bool) { return false; }

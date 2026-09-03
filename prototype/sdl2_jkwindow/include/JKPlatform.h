@@ -98,6 +98,11 @@ public:
     // in physical pixels. Falls back to SDL_GetGlobalMouseState on non-Windows.
     static bool GetPhysicalMousePos(SDL_Window* window, int& outX, int& outY);
 
+    // Return the mouse cursor position relative to the SDL window client area
+    // in SDL logical points. On Windows this uses Win32 ScreenToClient with the
+    // monitor DPI scale factor; non-Windows falls back to SDL event coords.
+    static bool GetLogicalMousePos(SDL_Window* window, int& outX, int& outY);
+
     // ---------------------------------------------------------------------
     // Synthetic input (testing)
     // ---------------------------------------------------------------------

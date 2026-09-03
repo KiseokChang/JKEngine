@@ -571,10 +571,31 @@ JKEvent JKApplication::TranslateSDLEvent(const SDL_Event& sdl) {
     if (ev.type == JKEventType::MouseMove ||
         ev.type == JKEventType::MouseDown ||
         ev.type == JKEventType::MouseUp) {
-        // SDL reports mouse coordinates in the window's logical-point space when
-        // SDL_HINT_WINDOWS_DPI_SCALING is enabled. We use the raw SDL event
-        // coordinates for hit-testing. Log the independently computed global-state
-        // coordinate as a diagnostic so we can detect divergence.
+        // Remember SDL's raw logical coordinates before any override.
+        const int sdlRawX = ev.x;
+        const int sdlRawY = ev.y;
+
+        // On Windows, prefer the Win32 ScreenToClient + monitor DPI path for the
+        // logical client coordinate. SDL's logical-point mouse coordinates can
+        // drift after a cross-monitor move when the window's cached DPI scale
+        // has not yet converged. The Win32 path tracks the actual monitor the
+        // window is currently on.
+        int logicalX = sdlRawX;
+        int logicalY = sdlRawY;
+#ifdef _WIN32
+        int win32X = 0, win32Y = 0;
+        if (JKPlatform::GetLogicalMousePos(sdlWindow_, win32X, win32Y)) {
+            logicalX = win32X;
+            logicalY = win32Y;
+        }
+#endif
+        // Keep the SDL event delta values but snap the absolute position to the
+        // coordinate space used by hit-testing.
+        ev.x = logicalX;
+        ev.y = logicalY;
+
+        // Log SDL's raw value, the Win32-derived logical value, and the
+        // independently computed global-state coordinate for diagnostics.
         int globalX = 0, globalY = 0;
         int winPosX = 0, winPosY = 0;
         SDL_GetGlobalMouseState(&globalX, &globalY);
@@ -586,9 +607,9 @@ JKEvent JKApplication::TranslateSDLEvent(const SDL_Event& sdl) {
             SDL_Window* mouseFocus = SDL_GetMouseFocus();
             SDL_Window* keyFocus = SDL_GetKeyboardFocus();
             std::fprintf(mouseLog_,
-                "[TRSDL] type=%d raw=(%d,%d) globalRel=(%d,%d) d=(%d,%d) "
+                "[TRSDL] type=%d sdlRaw=(%d,%d) logical=(%d,%d) globalRel=(%d,%d) d=(%d,%d) "
                 "mouseFocus=%d keyFocus=%d\n",
-                static_cast<int>(ev.type), ev.x, ev.y,
+                static_cast<int>(ev.type), sdlRawX, sdlRawY, ev.x, ev.y,
                 globalRelX, globalRelY, ev.dx, ev.dy,
                 mouseFocus == sdlWindow_ ? 1 : 0,
                 keyFocus == sdlWindow_ ? 1 : 0);
