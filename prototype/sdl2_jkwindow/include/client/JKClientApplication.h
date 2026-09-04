@@ -1,5 +1,5 @@
-#ifndef JKAPPLICATION_H
-#define JKAPPLICATION_H
+#ifndef JKCLIENTAPPLICATION_H
+#define JKCLIENTAPPLICATION_H
 
 #include <JKWindow.h>
 #include <JKMessageBus.h>
@@ -7,8 +7,10 @@
 #include <JKHangulManager.h>
 #include <JKDC.h>
 #include <JKRenderBackend.h>
+#include <JKSDLRenderBackend.h>
 #include <JKResourceCache.h>
 #include <JKWindowManager.h>
+#include <client/JKClientSurface.h>
 #include <SDL.h>
 #include <memory>
 #include <string>
@@ -17,22 +19,29 @@
 
 namespace jk {
 
-class JKRenderThread;
 class JKTimerThread;
 class JKAudioThread;
 
-class JKApplication {
+// Client-side application that renders into a server-managed surface instead of
+// owning a visible SDL window. A hidden SDL window + renderer is used locally
+// so that JKDC and the resource cache can upload textures and render to an
+// off-screen target, whose pixels are then copied to shared memory and
+// committed to the window server.
+class JKClientApplication {
 public:
-    JKApplication();
-    virtual ~JKApplication();
+    JKClientApplication();
+    virtual ~JKClientApplication();
 
-    bool Init(const std::string& title, int width, int height);
+    // Connect to the server at `pipeName` and request a surface of the given
+    // logical size. Returns false if any step fails.
+    bool Init(const std::string& title, int width, int height,
+              const std::string& pipeName);
+
     void Close();
     int Run();
 
     void SetMainWindow(std::unique_ptr<JKWindow> window);
     JKWindow* GetMainWindow() const;
-    SDL_Window* GetSdlWindow() const { return sdlWindow_; }
 
     void SetModalWindow(JKWindow* window);
     JKWindow* GetModalWindow() const;
@@ -51,44 +60,31 @@ public:
     JKResourceCache* GetResourceCache() const { return resourceCache_.get(); }
     JKWindowManager* GetWindowManager() const { return windowManager_.get(); }
 
-    // Legacy single timer interval. Prefer AddTimer/RemoveTimer for per-window
-    // or per-control timers. SetTimerInterval configures the implicit global
-    // timer (winId 0) for backward compatibility.
     void SetTimerInterval(uint32_t ms);
-
-    // Register a repeating or one-shot timer. Returns a handle that can be passed
-    // to RemoveTimer. When fired, a JKEventType::Timer event is posted with the
-    // given winId as the target.
     uint64_t AddTimer(uint32_t winId, uint32_t intervalMs, bool repeat);
     void RemoveTimer(uint64_t handle);
     void RemoveTimersForWindow(uint32_t winId);
 
-    // Post an audio command to the audio thread. Used by JKSoundManager.
     void PostAudioCommand(const AudioCommand& cmd);
 
-    // Shared state accessors used by input thread / render thread.
     void SetLogicalSize(int w, int h);
     void GetLogicalSize(int& w, int& h) const;
     void GetScale(float& sx, float& sy) const;
     void GetLetterbox(int& x, int& y) const;
 
-#ifdef _WIN32
-    FILE* GetMouseLog() const { return mouseLog_; }
-#endif
-
 protected:
-    virtual void OnInit();
-    virtual void OnClose();
+    virtual void OnInit() {}
+    virtual void OnClose() {}
     virtual bool PreProcessMessage(const JKEvent& ev);
     virtual void RouteMessage(const JKEvent& ev);
-
-    // Called on the application thread when a scene should be produced and sent
-    // to the render thread. In Phase 1 this is a placeholder; Phase 1.5 adds
-    // serialized render commands.
     virtual void ComposeScene();
 
 private:
-    SDL_Window* sdlWindow_ = nullptr;
+    SDL_Window* hiddenWindow_ = nullptr;
+    SDL_Renderer* hiddenRenderer_ = nullptr;
+    std::unique_ptr<JKSDLRenderBackend> renderBackend_;
+
+    std::unique_ptr<jk::client::JKClientSurface> surface_;
 
     std::unique_ptr<JKWindow> mainWindow_;
     std::unique_ptr<JKWindowManager> windowManager_;
@@ -98,11 +94,9 @@ private:
     std::unique_ptr<JKResourceCache> resourceCache_;
     bool running_ = false;
 
-    std::unique_ptr<JKRenderThread> renderThread_;
     std::unique_ptr<JKTimerThread> timerThread_;
     std::unique_ptr<JKAudioThread> audioThread_;
 
-    // Shared mutable state protected by a single mutex.
     mutable std::mutex stateMutex_;
     int logicalWidth_ = 0;
     int logicalHeight_ = 0;
@@ -111,22 +105,25 @@ private:
     int letterboxX_ = 0;
     int letterboxY_ = 0;
 
-    // Legacy timer state passed to the timer thread.
     uint32_t legacyTimerWinId_ = 0;
     uint32_t legacyTimerInterval_ = 0;
 
-#ifdef _WIN32
-    FILE* mouseLog_ = nullptr;
-#endif
+    std::vector<uint8_t> pixelBuffer_;
+    std::vector<uint8_t> pendingScene_;
 
+    JKRenderBackend::TextureHandle targetTexture_ = JKRenderBackend::InvalidTexture;
+    int targetW_ = 0;
+    int targetH_ = 0;
+
+    bool CreateHiddenRenderer(const std::string& title, int width, int height);
+    void DestroyHiddenRenderer();
     bool ProcessOneEvent(const JKEvent& ev);
-
-    // Resolve mouse capture/hit-test and keyboard focus targets for an input event.
     void ApplyInputRouting(JKEvent& ev);
+    void DrainTimerChannel();
+    void DrainInputChannel();
+    void RenderAndCommit();
 };
-
-extern JKApplication* g_currentJKApp;
 
 } // namespace jk
 
-#endif // JKAPPLICATION_H
+#endif // JKCLIENTAPPLICATION_H

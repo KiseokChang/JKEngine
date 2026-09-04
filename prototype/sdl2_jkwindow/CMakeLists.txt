@@ -70,8 +70,11 @@ add_executable(jkproto_sdl2_jkwindow
     src/JKResourceCache.cpp
     src/JKSoundManager.cpp
     src/client/JKClientSurface.cpp
+    src/client/JKClientApplication.cpp
     src/server/JKClientConnection.cpp
     src/server/JKWindowServer.cpp
+    src/server/JKCompositor.cpp
+    src/server/JKCompositorOutput.cpp
     src/JKDataFile.cpp
     src/JKVectorFont.cpp
     src/apps/JangoApp.cpp
@@ -88,6 +91,8 @@ add_executable(jkproto_sdl2_jkwindow
     src/apps/MineSweeperApp.cpp
     src/apps/AppLauncherItem.cpp
     src/apps/TetrisApp.cpp
+    src/apps/ClientMineSweeperApp.cpp
+    src/apps/ClientTetrisApp.cpp
     "${JKENGINE_ROOT}/JKWINDOW/WANCODE.CPP"
 )
 

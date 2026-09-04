@@ -15,13 +15,26 @@ JKRenderThread::~JKRenderThread() {
 }
 
 bool JKRenderThread::Init(const std::string& title, int width, int height) {
+    initTitle_ = title;
+    initW_ = width;
+    initH_ = height;
+    return true;
+}
+
+bool JKRenderThread::WaitInit() {
+    std::unique_lock<std::mutex> lock(initMutex_);
+    initCond_.wait(lock, [this] { return initDone_; });
+    return initSuccess_;
+}
+
+bool JKRenderThread::CreateSdlWindowAndRenderer() {
 #ifdef _WIN32
     SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitorv2");
     SDL_SetHint(SDL_HINT_WINDOWS_DPI_SCALING, "1");
 #endif
 
-    int createW = width;
-    int createH = height;
+    int createW = initW_;
+    int createH = initH_;
     SDL_Rect usable{};
     const bool hasUsable =
         SDL_GetDisplayUsableBounds(0, &usable) == 0 && usable.w > 0 && usable.h > 0;
@@ -36,7 +49,7 @@ bool JKRenderThread::Init(const std::string& title, int width, int height) {
     }
 
     window_ = SDL_CreateWindow(
-        title.c_str(),
+        initTitle_.c_str(),
         SDL_WINDOWPOS_CENTERED,
         SDL_WINDOWPOS_CENTERED,
         createW,
@@ -44,18 +57,14 @@ bool JKRenderThread::Init(const std::string& title, int width, int height) {
         SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI
     );
     if (!window_) {
-        std::fprintf(stderr, "JKRenderThread::Init: SDL_CreateWindow failed: %s\n", SDL_GetError());
+        std::fprintf(stderr, "JKRenderThread::CreateSdlWindowAndRenderer: SDL_CreateWindow failed: %s\n", SDL_GetError());
         return false;
     }
 
-    // Use the software renderer on Windows. The hardware D3D/OpenGL backends both
-    // fail on this machine after cross-monitor DPI changes (D3D: Reset
-    // INVALIDCALL, OpenGL: window not made current). The software renderer is
-    // slower but survives monitor moves and DPI changes without device loss.
     sdlRenderer_ = SDL_CreateRenderer(window_, -1,
-        SDL_RENDERER_SOFTWARE | SDL_RENDERER_PRESENTVSYNC);
+        SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!sdlRenderer_) {
-        std::fprintf(stderr, "JKRenderThread::Init: SDL_CreateRenderer failed: %s\n", SDL_GetError());
+        std::fprintf(stderr, "JKRenderThread::CreateSdlWindowAndRenderer: SDL_CreateRenderer failed: %s\n", SDL_GetError());
         SDL_DestroyWindow(window_);
         window_ = nullptr;
         return false;
@@ -63,8 +72,8 @@ bool JKRenderThread::Init(const std::string& title, int width, int height) {
 
     renderBackend_ = std::make_unique<JKSDLRenderBackend>(sdlRenderer_);
 
-    int actualW = width;
-    int actualH = height;
+    int actualW = initW_;
+    int actualH = initH_;
     SDL_GetWindowSize(window_, &actualW, &actualH);
     logicalWidth_ = actualW;
     logicalHeight_ = actualH;
@@ -79,7 +88,6 @@ bool JKRenderThread::Init(const std::string& title, int width, int height) {
 }
 
 void JKRenderThread::GetLogicalSize(int& w, int& h) const {
-    // For now these values are written only from the render thread during Init.
     w = logicalWidth_;
     h = logicalHeight_;
 }
@@ -112,13 +120,96 @@ void JKRenderThread::Stop() {
     bus_ = nullptr;
 }
 
+void JKRenderThread::PollSdlEvents() {
+    SDL_Event sdl;
+    while (SDL_PollEvent(&sdl)) {
+        // Keep input focus after moves, monitor changes, or exposure events
+        // where Windows may not automatically restore focus.
+        if (sdl.type == SDL_WINDOWEVENT) {
+            const uint8_t e = sdl.window.event;
+            if (e == SDL_WINDOWEVENT_EXPOSED ||
+                e == SDL_WINDOWEVENT_SHOWN ||
+                e == SDL_WINDOWEVENT_RESTORED ||
+                e == SDL_WINDOWEVENT_FOCUS_GAINED ||
+                e == SDL_WINDOWEVENT_MOVED
+#if SDL_VERSION_ATLEAST(2, 0, 5)
+                || e == SDL_WINDOWEVENT_TAKE_FOCUS
+#endif
+#if SDL_VERSION_ATLEAST(2, 0, 16)
+                || e == SDL_WINDOWEVENT_DISPLAY_CHANGED
+#endif
+                ) {
+                EnsureWindowFocus();
+            }
+        }
+
+        JKEvent ev = jk::TranslateSDLEvent(sdl);
+        if (ev.type == JKEventType::None) {
+            continue;
+        }
+
+        // On Windows, replace SDL's logical mouse coordinates with the value
+        // derived from the actual monitor DPI. SDL's cached scale can drift
+        // during cross-monitor moves.
+        if ((ev.type == JKEventType::MouseMove ||
+             ev.type == JKEventType::MouseDown ||
+             ev.type == JKEventType::MouseUp) && window_) {
+#ifdef _WIN32
+            int logicalX = ev.x;
+            int logicalY = ev.y;
+            if (JKPlatform::GetLogicalMousePos(window_, logicalX, logicalY)) {
+                ev.x = logicalX;
+                ev.y = logicalY;
+            }
+#endif
+        }
+
+        if (bus_) {
+            bus_->Push(JKMessageBus::Channel::Input, ev);
+        }
+    }
+}
+
+void JKRenderThread::EnsureWindowFocus() {
+    if (!window_) {
+        return;
+    }
+    // Use only Win32 activate + SDL_RaiseWindow. SDL_SetWindowInputFocus
+    // can report "operation not supported" on some Windows/SDL builds.
+    JKPlatform::ActivateWindow(window_);
+    SDL_RaiseWindow(window_);
+}
+
 void JKRenderThread::Run() {
+    // Create the SDL window and renderer on the render thread so that every
+    // SDL_Window and SDL_Renderer call (including SDL_PollEvent) happens on
+    // the same thread. This satisfies SDL's thread-affinity requirements.
+    const bool created = CreateSdlWindowAndRenderer();
+    {
+        std::lock_guard<std::mutex> lock(initMutex_);
+        initSuccess_ = created;
+        initDone_ = true;
+    }
+    initCond_.notify_one();
+
+    if (!created) {
+        running_ = false;
+        return;
+    }
+
+    // Make sure the newly created window has focus.
+    EnsureWindowFocus();
+
     int lastPhysW = 0, lastPhysH = 0;
     int lastLogW = 0, lastLogH = 0;
 
     while (running_) {
+        // The render thread both pumps SDL events and performs rendering.
+        // SDL events must be pumped on the thread that owns the SDL window.
+        PollSdlEvents();
+
         JKMessageBus::Payload payload;
-        bool hasPayload = bus_ && bus_->PopWait(JKMessageBus::Channel::Render, payload, 16);
+        bool hasPayload = bus_ && bus_->PopWait(JKMessageBus::Channel::Render, payload, 5);
 
         // The application thread may generate frames faster than the monitor
         // refresh rate. Always render the most recent scene and drop stale ones

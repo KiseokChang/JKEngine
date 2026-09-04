@@ -1,5 +1,6 @@
 #include <server/JKWindowServer.h>
 
+#include <apps/AppLauncherItem.h>
 #include <JKAudioCommand.h>
 #include <JKAudioThread.h>
 #include <JKMessageBus.h>
@@ -11,6 +12,56 @@
 #include <algorithm>
 #include <chrono>
 #include <thread>
+
+#ifdef _WIN32
+// Minimal Windows API declarations for spawning client processes without
+// pulling in the full Windows headers (which conflict with legacy JKENGINE
+// typedefs in other translation units).
+struct LauncherStartupInfoA {
+    unsigned long cb = 0;
+    char* lpReserved = nullptr;
+    char* lpDesktop = nullptr;
+    char* lpTitle = nullptr;
+    unsigned long dwX = 0;
+    unsigned long dwY = 0;
+    unsigned long dwXSize = 0;
+    unsigned long dwYSize = 0;
+    unsigned long dwXCountChars = 0;
+    unsigned long dwYCountChars = 0;
+    unsigned long dwFillAttribute = 0;
+    unsigned long dwFlags = 0;
+    unsigned short wShowWindow = 0;
+    unsigned short cbReserved2 = 0;
+    unsigned char* lpReserved2 = nullptr;
+    void* hStdInput = nullptr;
+    void* hStdOutput = nullptr;
+    void* hStdError = nullptr;
+};
+
+struct LauncherProcessInformation {
+    void* hProcess = nullptr;
+    void* hThread = nullptr;
+    unsigned long dwProcessId = 0;
+    unsigned long dwThreadId = 0;
+};
+
+extern "C" __declspec(dllimport) int __stdcall CreateProcessA(
+    const char* lpApplicationName,
+    char* lpCommandLine,
+    void* lpProcessAttributes,
+    void* lpThreadAttributes,
+    int bInheritHandles,
+    unsigned long dwCreationFlags,
+    void* lpEnvironment,
+    const char* lpCurrentDirectory,
+    LauncherStartupInfoA* lpStartupInfo,
+    LauncherProcessInformation* lpProcessInformation);
+
+extern "C" __declspec(dllimport) int __stdcall CloseHandle(void* hObject);
+
+extern "C" __declspec(dllimport) unsigned long __stdcall GetModuleFileNameA(
+    void* hModule, char* lpFilename, unsigned long nSize);
+#endif // _WIN32
 
 namespace jk {
 namespace server {
@@ -52,6 +103,10 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
         window_ = nullptr;
         return false;
     }
+
+    compositor_ = std::make_unique<JKCompositor>(renderer_);
+    UpdateOutputBounds();
+    InitLauncher();
 
     return true;
 }
@@ -139,25 +194,30 @@ void JKWindowServer::ProcessPendingClients() {
     for (auto& client : newClients) {
         if (!client) continue;
 
-        SDL_Texture* texture = SDL_CreateTexture(renderer_,
-                                                 SDL_PIXELFORMAT_RGBA32,
-                                                 SDL_TEXTUREACCESS_STREAMING,
-                                                 client->Width(),
-                                                 client->Height());
-        if (!texture) {
-            std::fprintf(stderr, "JKWindowServer: failed to create texture: %s\n", SDL_GetError());
-            client->StopReadThread();
-            continue;
-        }
-        client->SetTexture(texture);
-
-        // Cascade new surfaces so they don't perfectly overlap.
         int ww = 0, wh = 0;
         SDL_GetWindowSize(window_, &ww, &wh);
         int x = std::max(0, (ww - client->Width()) / 2) + existingCount * 20;
         int y = std::max(0, (wh - client->Height()) / 2) + existingCount * 20;
         client->SetPosition(x, y);
         ++existingCount;
+
+        // Register the client surface with the compositor.
+        auto* layer = compositor_->AddLayer(
+            client->Id(),
+            client->Width(),
+            client->Height(),
+            client->Title(),
+            client->SurfaceData());
+        if (!layer) {
+            std::fprintf(stderr, "JKWindowServer: failed to add layer for surface %u\n",
+                         client->Id());
+            client->StopReadThread();
+            continue;
+        }
+        compositor_->SetLayerPosition(client->Id(), x, y);
+        if (client->Id() == focusedClientId_ || focusedClientId_ == 0) {
+            compositor_->FocusLayer(client->Id());
+        }
 
         {
             std::lock_guard<std::mutex> lock(clientsMutex_);
@@ -216,10 +276,6 @@ void JKWindowServer::Stop() {
         std::lock_guard<std::mutex> lock(clientsMutex_);
         for (auto& client : clients_) {
             client->StopReadThread();
-            if (client->GetTexture()) {
-                SDL_DestroyTexture(client->GetTexture());
-                client->SetTexture(nullptr);
-            }
         }
         clients_.clear();
     }
@@ -232,14 +288,10 @@ void JKWindowServer::Stop() {
         pendingClients_.clear();
     }
 
-    for (auto& client : pendingCleanup_) {
-        client->StopReadThread();
-        if (client->GetTexture()) {
-            SDL_DestroyTexture(client->GetTexture());
-            client->SetTexture(nullptr);
-        }
-    }
     pendingCleanup_.clear();
+
+    DestroyLauncher();
+    compositor_.reset();
 
     if (renderer_) {
         SDL_DestroyRenderer(renderer_);
@@ -295,11 +347,29 @@ void JKWindowServer::UnblockAcceptor() {
 }
 
 void JKWindowServer::HandleSDLEvent(const SDL_Event& ev) {
+    if (ev.type == SDL_WINDOWEVENT &&
+        (ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED ||
+         ev.window.event == SDL_WINDOWEVENT_MOVED ||
+         ev.window.event == SDL_WINDOWEVENT_DISPLAY_CHANGED)) {
+        UpdateOutputBounds();
+    }
+
     if (ev.type == SDL_MOUSEMOTION || ev.type == SDL_MOUSEBUTTONDOWN ||
         ev.type == SDL_MOUSEBUTTONUP) {
         const int mx = ev.motion.x;
         const int my = ev.motion.y;
+
+        // Client surfaces are rendered on top of the launcher, so they should
+        // receive input first. Only treat a click as a launcher icon click if
+        // it did not hit any client surface.
         JKClientConnection* client = HitTestClient(mx, my);
+        if (!client && ev.type == SDL_MOUSEBUTTONDOWN) {
+            int icon = HitTestLauncherIcon(mx, my);
+            if (icon >= 0) {
+                SpawnClient(launcherIcons_[icon].appName);
+                return;
+            }
+        }
         if (!client) return;
 
         ipc::InputEventPayload payload{};
@@ -315,7 +385,7 @@ void JKWindowServer::HandleSDLEvent(const SDL_Event& ev) {
             payload.type = ipc::InputEventType::MouseDown;
             payload.keyCode = ev.button.button;
             payload.detail = ev.button.clicks;
-            SetFocusedClient(client->Id());
+            FocusClient(client->Id());
         } else if (ev.type == SDL_MOUSEBUTTONUP) {
             payload.type = ipc::InputEventType::MouseUp;
             payload.keyCode = ev.button.button;
@@ -359,15 +429,10 @@ void JKWindowServer::SendInputEvent(JKClientConnection& client, const ipc::Input
 }
 
 JKClientConnection* JKWindowServer::HitTestClient(int32_t x, int32_t y) {
-    std::lock_guard<std::mutex> lock(clientsMutex_);
-    for (auto it = clients_.rbegin(); it != clients_.rend(); ++it) {
-        JKClientConnection* client = it->get();
-        if (client && x >= client->X() && x < client->X() + client->Width() &&
-            y >= client->Y() && y < client->Y() + client->Height()) {
-            return client;
-        }
-    }
-    return nullptr;
+    if (!compositor_) return nullptr;
+    auto* layer = compositor_->HitTest(x, y);
+    if (!layer) return nullptr;
+    return FindClientById(layer->Id());
 }
 
 JKClientConnection* JKWindowServer::FindClientById(uint32_t surfaceId) {
@@ -380,8 +445,18 @@ JKClientConnection* JKWindowServer::FindClientById(uint32_t surfaceId) {
     return nullptr;
 }
 
-void JKWindowServer::SetFocusedClient(uint32_t surfaceId) {
+void JKWindowServer::FocusClient(uint32_t surfaceId) {
     focusedClientId_ = surfaceId;
+    if (compositor_) {
+        compositor_->FocusLayer(surfaceId);
+    }
+}
+
+void JKWindowServer::UpdateOutputBounds() {
+    if (!window_ || !compositor_) return;
+    int w = 0, h = 0;
+    SDL_GetWindowSize(window_, &w, &h);
+    compositor_->SetOutput(JKCompositorOutput(0, JKRect{0, 0, w, h}, 1.0f));
 }
 
 void JKWindowServer::ProcessPendingMessages() {
@@ -397,7 +472,6 @@ void JKWindowServer::ProcessPendingMessages() {
 }
 
 void JKWindowServer::ProcessClientMessage(JKClientConnection& client, const ipc::Message& msg) {
-    (void)client;
     if (msg.type == ipc::MsgType::CommitSurface) {
         if (msg.payload.size() >= sizeof(ipc::CommitSurfaceHeader)) {
             const auto* header = reinterpret_cast<const ipc::CommitSurfaceHeader*>(
@@ -406,6 +480,9 @@ void JKWindowServer::ProcessClientMessage(JKClientConnection& client, const ipc:
                                     header->dirtyCount * sizeof(ipc::DirtyRect);
             if (msg.payload.size() >= expected) {
                 client.MarkDirty();
+                if (compositor_) {
+                    compositor_->MarkDirty(client.Id());
+                }
             }
         }
     } else if (msg.type == ipc::MsgType::AudioCommand) {
@@ -426,32 +503,14 @@ void JKWindowServer::ProcessClientMessage(JKClientConnection& client, const ipc:
 }
 
 void JKWindowServer::Composite() {
-    if (!renderer_) return;
-
-    SDL_SetRenderDrawColor(renderer_, 64, 64, 64, 255);
-    SDL_RenderClear(renderer_);
-
-    {
-        std::lock_guard<std::mutex> lock(clientsMutex_);
-        for (auto& client : clients_) {
-            if (!client || !client->GetTexture() || !client->SurfaceData()) {
-                continue;
-            }
-
-            if (client->IsDirty()) {
-                SDL_UpdateTexture(client->GetTexture(),
-                                  nullptr,
-                                  client->SurfaceData(),
-                                  client->Width() * 4);
-                client->ClearDirty();
-            }
-
-            SDL_Rect dst{ client->X(), client->Y(), client->Width(), client->Height() };
-            SDL_RenderCopy(renderer_, client->GetTexture(), nullptr, &dst);
-        }
+    if (!compositor_) {
+        return;
     }
 
-    SDL_RenderPresent(renderer_);
+    // Draw the launcher desktop into the renderer first; the compositor will
+    // layer client surfaces on top and then present once.
+    DrawLauncherBackground();
+    compositor_->Composite();
 }
 
 void JKWindowServer::CleanupDisconnectedClients() {
@@ -463,6 +522,9 @@ void JKWindowServer::CleanupDisconnectedClients() {
             if (focusedClientId_ == client->Id()) {
                 focusedClientId_ = 0;
             }
+            if (compositor_) {
+                compositor_->RemoveLayer(client->Id());
+            }
             client->StopReadThread();
             pendingCleanup_.push_back(std::move(client));
             it = clients_.erase(it);
@@ -471,15 +533,143 @@ void JKWindowServer::CleanupDisconnectedClients() {
         }
     }
 
-    auto pit = pendingCleanup_.begin();
-    while (pit != pendingCleanup_.end()) {
-        auto& client = *pit;
-        if (client->GetTexture()) {
-            SDL_DestroyTexture(client->GetTexture());
-            client->SetTexture(nullptr);
-        }
-        pit = pendingCleanup_.erase(pit);
+    pendingCleanup_.clear();
+}
+
+void JKWindowServer::InitLauncher() {
+    if (!renderer_) return;
+
+    // Server-side launcher: two desktop icons for Minesweeper and Tetris.
+    // These live as simple SDL textures drawn behind the composited surfaces.
+    launcherIcons_.clear();
+    {
+        LauncherIcon icon;
+        icon.rect = JKRect{ 50, 50, 64, 80 };
+        icon.appName = "minesweeper";
+        launcherIcons_.push_back(icon);
     }
+    {
+        LauncherIcon icon;
+        icon.rect = JKRect{ 150, 50, 64, 80 };
+        icon.appName = "tetris";
+        launcherIcons_.push_back(icon);
+    }
+
+    DrawLauncher();
+}
+
+void JKWindowServer::DrawLauncher() {
+    DrawLauncherBackground();
+}
+
+void JKWindowServer::DrawLauncherBackground() {
+    if (!renderer_ || launcherIcons_.empty()) return;
+
+    // For Phase 2 the launcher is a minimal placeholder: a grey desktop and
+    // two colored rectangles representing app icons. Full icons would need a
+    // server-side text renderer; for now labels are rendered by drawing colored
+    // squares and (on Windows) relying on the user knowing which is which.
+    // This only draws; the compositor calls SDL_RenderPresent once per frame.
+    SDL_SetRenderDrawColor(renderer_, 96, 96, 96, 255);
+    SDL_RenderClear(renderer_);
+
+    for (const auto& icon : launcherIcons_) {
+        SDL_Rect rc = icon.rect.ToSDL();
+        if (std::strcmp(icon.appName, "minesweeper") == 0) {
+            SDL_SetRenderDrawColor(renderer_, 128, 128, 128, 255);
+        } else {
+            SDL_SetRenderDrawColor(renderer_, 128, 0, 128, 255);
+        }
+        SDL_RenderFillRect(renderer_, &rc);
+        SDL_SetRenderDrawColor(renderer_, 255, 255, 255, 255);
+        SDL_RenderDrawRect(renderer_, &rc);
+    }
+}
+
+void JKWindowServer::DestroyLauncher() {
+    for (auto& icon : launcherIcons_) {
+        if (icon.texture) {
+            SDL_DestroyTexture(icon.texture);
+            icon.texture = nullptr;
+        }
+    }
+    launcherIcons_.clear();
+}
+
+int JKWindowServer::HitTestLauncherIcon(int x, int y) const {
+    for (size_t i = 0; i < launcherIcons_.size(); ++i) {
+        if (launcherIcons_[i].rect.Contains(x, y)) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+void JKWindowServer::SpawnClient(const char* appName) {
+#ifdef _WIN32
+    // Throttle repeated spawns for the same app to avoid launching many copies
+    // from a single double-click.
+    {
+        auto now = std::chrono::steady_clock::now();
+        auto it = lastSpawnTimes_.find(appName);
+        if (it != lastSpawnTimes_.end()) {
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                now - it->second);
+            if (elapsed.count() < 500) {
+                std::fprintf(stderr,
+                             "JKWindowServer: ignoring rapid spawn for %s (%lld ms)\n",
+                             appName, static_cast<long long>(elapsed.count()));
+                return;
+            }
+        }
+        lastSpawnTimes_[appName] = now;
+    }
+
+    // Assume the server executable is in the same directory as the client.
+    // Build a command line of the form: jkproto_sdl2_jkwindow.exe --client minesweeper
+    char modulePath[1024] = {};
+    const unsigned long len = GetModuleFileNameA(nullptr, modulePath, sizeof(modulePath));
+    if (len == 0 || len >= sizeof(modulePath)) {
+        std::fprintf(stderr, "JKWindowServer: GetModuleFileNameA failed\n");
+        return;
+    }
+
+    // Find the directory component.
+    char* lastSlash = modulePath;
+    for (char* p = modulePath; *p; ++p) {
+        if (*p == '\\' || *p == '/') lastSlash = p;
+    }
+    // Leave a NUL after the directory; exe name is appended below.
+    if (lastSlash != modulePath) {
+        *lastSlash = '\0';
+    } else {
+        modulePath[0] = '\0';
+    }
+
+    char cmdLine[2048] = {};
+    std::snprintf(cmdLine, sizeof(cmdLine),
+                  "\"%s\\jkproto_sdl2_jkwindow.exe\" --client %s",
+                  modulePath[0] ? modulePath : ".",
+                  appName);
+
+    LauncherStartupInfoA si{};
+    si.cb = sizeof(si);
+    LauncherProcessInformation pi{};
+
+    if (!CreateProcessA(nullptr, cmdLine, nullptr, nullptr, 0, 0,
+                        nullptr, nullptr, &si, &pi)) {
+        std::fprintf(stderr, "JKWindowServer: CreateProcessA failed for %s\n", appName);
+        return;
+    }
+
+    if (pi.hProcess) CloseHandle(pi.hProcess);
+    if (pi.hThread) CloseHandle(pi.hThread);
+
+    std::fprintf(stderr, "JKWindowServer: spawned client --client %s\n", appName);
+#else
+    (void)appName;
+    std::fprintf(stderr, "JKWindowServer: SpawnClient is Windows-only in this prototype\n");
+#endif // _WIN32
 }
 
 } // namespace server

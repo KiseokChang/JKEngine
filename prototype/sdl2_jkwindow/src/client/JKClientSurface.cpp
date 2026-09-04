@@ -174,6 +174,10 @@ void JKClientSurface::ReadLoop() {
             break;
         }
         if (msg.type == ipc::MsgType::Close) {
+            // Notify the client application so its main loop exits cleanly.
+            JKEvent quit{};
+            quit.type = JKEventType::Quit;
+            QueueInputEvent(quit);
             break;
         }
         if (msg.type == ipc::MsgType::InputEvent &&
@@ -196,7 +200,7 @@ void JKClientSurface::ReadLoop() {
                 case ipc::InputEventType::MouseMove:  ev.type = JKEventType::MouseMove; break;
                 case ipc::InputEventType::MouseDown:  ev.type = JKEventType::MouseDown; break;
                 case ipc::InputEventType::MouseUp:    ev.type = JKEventType::MouseUp; break;
-                case ipc::InputEventType::MouseWheel: ev.type = JKEventType::MouseMove; break;
+                case ipc::InputEventType::MouseWheel: ev.type = JKEventType::MouseWheel; break;
                 case ipc::InputEventType::KeyDown:    ev.type = JKEventType::KeyDown; break;
                 case ipc::InputEventType::KeyUp:      ev.type = JKEventType::KeyUp; break;
                 case ipc::InputEventType::Char:       ev.type = JKEventType::Char; break;

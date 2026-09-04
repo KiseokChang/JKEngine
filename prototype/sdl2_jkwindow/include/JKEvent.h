@@ -12,6 +12,7 @@ enum class JKEventType : uint16_t {
     MouseMove,
     MouseDown,
     MouseUp,
+    MouseWheel,
     KeyDown,
     KeyUp,
     Char,

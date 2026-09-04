@@ -127,6 +127,28 @@ private:
     bool TryChordAt(int x, int y);
 };
 
+// Reusable floating Minesweeper game window. Used by MineSweeperApp and by
+// the separate-process client application.
+class MineGameWindow {
+public:
+    MineGameWindow();
+    ~MineGameWindow();
+
+    // Build the window and add it as a child of `parent`. The window rect is in
+    // parent client coordinates.
+    void Build(JKControl* parent, const JKRect& rect);
+
+    void NewGame();
+    // Advance the clock by deltaMs. The caller should fire this on its timer.
+    void OnTimer(uint32_t deltaMs);
+    JKWindow* GetWindow() const;
+    MineSweeperGame& Game();
+
+private:
+    class Impl;
+    std::unique_ptr<Impl> impl_;
+};
+
 class MineSweeperApp : public JKApplication {
 public:
     MineSweeperApp();

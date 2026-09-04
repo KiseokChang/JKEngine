@@ -9,6 +9,8 @@
 #include <thread>
 #include <memory>
 #include <cstdint>
+#include <mutex>
+#include <condition_variable>
 
 namespace jk {
 class JKResourceCache;
@@ -24,13 +26,20 @@ public:
     JKRenderThread();
     ~JKRenderThread();
 
-    // Create the SDL window and renderer. Must be called from the render thread.
+    // Store the desired window title and size. Actual SDL window/renderer
+    // creation happens on the render thread inside Start()/Run().
     bool Init(const std::string& title, int width, int height);
 
-    // Start the render loop. The application thread posts scene payloads via
-    // the message bus.
+    // Start the render loop. This launches the render thread, which creates
+    // the SDL window and renderer and then begins pumping SDL events and
+    // rendering incoming scenes. WaitInit() must be called before accessing
+    // GetWindow()/GetRenderer()/GetBackend().
     void Start(JKMessageBus* bus);
     void Stop();
+
+    // Block until the render thread has finished creating the SDL window and
+    // renderer. Returns true on success. Safe to call from the application thread.
+    bool WaitInit();
 
     SDL_Window* GetWindow() const { return window_; }
     SDL_Renderer* GetRenderer() const { return sdlRenderer_; }
@@ -43,6 +52,10 @@ public:
     void GetLogicalSize(int& w, int& h) const;
 
 private:
+    std::string initTitle_;
+    int initW_ = 0;
+    int initH_ = 0;
+
     SDL_Window* window_ = nullptr;
     SDL_Renderer* sdlRenderer_ = nullptr;
     std::unique_ptr<JKRenderBackend> renderBackend_;
@@ -56,7 +69,16 @@ private:
 
     JKResourceCache* resourceCache_ = nullptr;
 
+    // Synchronization for creation on the render thread.
+    std::mutex initMutex_;
+    std::condition_variable initCond_;
+    bool initDone_ = false;
+    bool initSuccess_ = false;
+
     void Run();
+    bool CreateSdlWindowAndRenderer();
+    void PollSdlEvents();
+    void EnsureWindowFocus();
 };
 
 } // namespace jk

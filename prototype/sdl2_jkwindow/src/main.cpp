@@ -51,6 +51,8 @@ using jk::Utf8ToKssm;
 #include <apps/VectorPresApp.h>
 #include <apps/MineSweeperApp.h>
 #include <apps/TetrisApp.h>
+#include <apps/ClientMineSweeperApp.h>
+#include <apps/ClientTetrisApp.h>
 #include "wancode.h"
 #include <cstdint>
 #include <cmath>
@@ -999,7 +1001,8 @@ int main(int argc, char* argv[]) {
         std::printf("  minesweeper App launcher (Minesweeper + Tetris)\n");
         std::printf("  tetris      Tetris game\n");
         std::printf("  --server    Run as the window server (Phase 2 scaffolding)\n");
-        std::printf("  --client    Run as a client of the window server\n");
+        std::printf("  --client minesweeper  Run Minesweeper as a window-server client\n");
+        std::printf("  --client tetris     Run Tetris as a window-server client\n");
         std::printf("  -h, --help, /?  Show this help message\n");
         return 0;
     }
@@ -1112,71 +1115,31 @@ int main(int argc, char* argv[]) {
     }
 
     if (runClient) {
-        constexpr int kW = 400;
-        constexpr int kH = 300;
         constexpr const char* kPipe = "\\\\.\\pipe\\JKWindowServerPipe";
 
-        jk::client::JKClientSurface surface(kPipe, kW, kH, "Test Client");
-        if (!surface.Connect()) {
-            std::fprintf(stderr, "Failed to connect to window server\n");
-            return 1;
+        const char* clientApp = (argc > 2) ? argv[2] : "";
+        bool runClientMine = (std::strcmp(clientApp, "minesweeper") == 0);
+        bool runClientTetris = (std::strcmp(clientApp, "tetris") == 0);
+
+        if (runClientMine) {
+            jk::ClientMineSweeperApp app;
+            if (!app.Init("Minesweeper", 320, 380, kPipe)) {
+                return 1;
+            }
+            return app.Run();
         }
 
-        // Interactive test: click inside the surface to draw a white circle.
-        int clickX = -1;
-        int clickY = -1;
-        uint8_t phase = 0;
-        const auto start = std::chrono::steady_clock::now();
-        while (std::chrono::steady_clock::now() - start < std::chrono::seconds(10)) {
-            jk::JKEvent ev;
-            while (surface.PollInputEvent(ev)) {
-                if (ev.type == jk::JKEventType::MouseDown) {
-                    clickX = ev.x;
-                    clickY = ev.y;
-                }
+        if (runClientTetris) {
+            jk::ClientTetrisApp app;
+            if (!app.Init("Tetris", 320, 520, kPipe)) {
+                return 1;
             }
-
-            uint8_t* pixels = surface.Pixels();
-            if (!pixels) break;
-
-            uint8_t r = 128 + static_cast<uint8_t>(std::sin(phase * 0.05) * 127);
-            uint8_t g = 128 + static_cast<uint8_t>(std::sin(phase * 0.05 + 2.0) * 127);
-            uint8_t b = 128 + static_cast<uint8_t>(std::sin(phase * 0.05 + 4.0) * 127);
-
-            for (int y = 0; y < kH; ++y) {
-                for (int x = 0; x < kW; ++x) {
-                    uint8_t* p = pixels + (y * kW + x) * 4;
-                    p[0] = r;
-                    p[1] = g;
-                    p[2] = b;
-                    p[3] = 255;
-                }
-            }
-
-            if (clickX >= 0 && clickY >= 0) {
-                const int radius = 16;
-                for (int y = -radius; y <= radius; ++y) {
-                    for (int x = -radius; x <= radius; ++x) {
-                        if (x * x + y * y <= radius * radius) {
-                            int px = clickX + x;
-                            int py = clickY + y;
-                            if (px >= 0 && px < kW && py >= 0 && py < kH) {
-                                uint8_t* p = pixels + (py * kW + px) * 4;
-                                p[0] = 255;
-                                p[1] = 255;
-                                p[2] = 255;
-                                p[3] = 255;
-                            }
-                        }
-                    }
-                }
-            }
-
-            surface.CommitFull();
-            ++phase;
-            std::this_thread::sleep_for(std::chrono::milliseconds(33));
+            return app.Run();
         }
-        return 0;
+
+        std::fprintf(stderr, "Unknown client app '%s'. Use: --client minesweeper | tetris\n",
+                     clientApp);
+        return 1;
     }
 
     MyApp app;
