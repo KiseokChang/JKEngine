@@ -4,6 +4,7 @@
 #include <JKResourceCache.h>
 #include <JKEvent.h>
 #include <JKPlatform.h>
+#include <cmath>
 #include <cstdio>
 
 namespace jk {
@@ -155,11 +156,28 @@ void JKRenderThread::PollSdlEvents() {
              ev.type == JKEventType::MouseDown ||
              ev.type == JKEventType::MouseUp) && window_) {
 #ifdef _WIN32
-            int logicalX = ev.x;
-            int logicalY = ev.y;
-            if (JKPlatform::GetLogicalMousePos(window_, logicalX, logicalY)) {
-                ev.x = logicalX;
-                ev.y = logicalY;
+            // The scene coordinate space is SDL_GetWindowSize space, and the
+            // render loop scales it to the renderer output with
+            // sx = outputW / windowW. The mouse must use the exact same ratio:
+            // take raw physical client pixels from Win32 and multiply by
+            // windowW / outputW. Using the monitor DPI (GetDpiForWindow/96)
+            // here instead caused a mismatch whenever SDL's window size did
+            // not reflect DPI scaling (e.g. hints set after SDL_Init), which
+            // made the cursor drift proportionally on high-DPI monitors.
+            int physX = 0, physY = 0;
+            if (JKPlatform::GetPhysicalClientMousePos(window_, physX, physY)) {
+                int logW = 0, logH = 0;
+                SDL_GetWindowSize(window_, &logW, &logH);
+                int outW = 0, outH = 0;
+                if (renderBackend_) {
+                    renderBackend_->GetOutputSize(outW, outH);
+                }
+                if (logW > 0 && logH > 0 && outW > 0 && outH > 0) {
+                    ev.x = static_cast<int>(std::llround(
+                        physX * (static_cast<double>(logW) / outW)));
+                    ev.y = static_cast<int>(std::llround(
+                        physY * (static_cast<double>(logH) / outH)));
+                }
             }
 #endif
         }

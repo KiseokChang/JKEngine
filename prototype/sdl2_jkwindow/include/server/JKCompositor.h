@@ -36,6 +36,7 @@ public:
 
     // Update output bounds (for now a single output covering the SDL window).
     void SetOutput(const JKCompositorOutput& output);
+    float OutputScale() const { return output_.Scale(); }
 
     // Sort layers by a z-order policy. Phase 2: focused client on top.
     void FocusLayer(uint32_t id);

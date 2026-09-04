@@ -13,7 +13,7 @@
   - `src/`: framework (JKApplication, JKWindow, JKControl, JKDC, JKPlatform_win32, ...) + `src/apps/` (Jango, Occ, Equip, Equip24, Insa, Pcx, Vector, IconEdit, Recog, VectorFont, VectorPres).
   - `include/`: headers, including `JKHangulUtil.h` and `JKPlatform.h`.
   - `build_sdl2_jkwindow.bat` / `run_sdl2_jkwindow.bat`: build/run entry points.
-- **ARCHITECTURE_DOCS/**: numbered architecture docs. Key: `10_sdl2_windows_setup.md`, `11_jkwindow_sdl_mapping.md`, `12_sdl2_prototype_roadmap.md`, `14_sdl2_window_dpi.md`, `15_verification_playbook.md`, `16_sdl2_jkwindow_ime.md`, `20_sdl2_jango_porting_plan.md`.
+- **ARCHITECTURE_DOCS/**: numbered architecture docs. Key: `10_sdl2_windows_setup.md`, `11_jkwindow_sdl_mapping.md`, `12_sdl2_prototype_roadmap.md`, `14_sdl2_window_dpi.md`, `15_verification_playbook.md`, `16_sdl2_jkwindow_ime.md`, `19_sdl2_window_server.md`, `20_sdl2_jango_porting_plan.md`.
 - **tools/**: build helpers, screen-verification probes, mouse/DPI probes, BOM fixer.
 
 ## 2. Conventions
@@ -44,8 +44,10 @@ After any framework, UI, layout, focus, or mouse change:
 
 ## 5. Critical Pitfalls (TL;DR)
 
-- **DPI**: app logical coords are 1920×1080; render uses `fit = min(clientW/1920, clientH/1080)` with letterboxing.
-- **Mouse/screen mismatch** is usually `JKApplication::Render` target/scale order or stale `ptToPhys` use.
+- **DPI/coords**: two render paths exist (see `ARCHITECTURE_DOCS/14_sdl2_window_dpi.md`, `19_sdl2_window_server.md`).
+  - Single-process (`minesweeper` etc.): DPI hints are set *after* `SDL_Init`, so `SDL_GetWindowSize` returns **physical px** — the scene is physical px and the render ratio `logW/outW` is 1.0.
+  - Server mode (`--server`): all drawing/hit-test/mouse use one physical-pixel space; logical pt values are converted with `outputScale = physW/logW`.
+- **Mouse conversion rule**: always convert with the **renderer ratio** (`SDL_GetWindowSize` vs `SDL_GetRendererOutputSize`), never per-monitor DPI (`GetDpiForWindow/96`) — they diverge on mixed-DPI multi-monitor setups. `GetLogicalMousePos` was deleted for this reason; use `JKPlatform::GetPhysicalClientMousePos` (raw physical px) and scale by the renderer ratio.
 - **Never** scale Win32 window/monitor coordinates by hand — PMv2 returns physical pixels.
 - **PS1 scripts with Korean text must be UTF-8 with BOM**; use `tools\fix_bom.ps1` if saved via editor.
 - **.claude/** local working dir is ignored; old `.clinerules/` is removed.

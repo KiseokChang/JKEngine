@@ -3,6 +3,7 @@
 > `prototype/sdl2_jkwindow`의 창 생성/배치, DPI 스케일링, 좌표계, 렌더링 파이프라인의 실제 구현을 정리한 문서.
 > 2026-08 창 상단 잘림(title bar clipping) 수정 작업에서 확정된 내용을 반영한다.
 > 2026-08-29 마우스 좌표 배율 어긋남(모니터 전이) 원인·해결을 추가 반영한다 (§11.6·§12).
+> 2026-09-05 렌더 스레드 경로(JKRenderThread)의 마우스 원인 규명·수정을 추가 반영한다 (§14).
 
 ## TL;DR
 
@@ -10,7 +11,8 @@
 - **원인**: SDL2 API가 논리 pt/물리 px/클라이언트/프레임 단위를 섞어 쓰기 때문. 특히 앱 논리 좌표계를 `Init()` 요청 크기(예: 1920×1080)에 고정하면, 화면 작업 영역보다 작은 창에서 내용을 축소해 레터박스로 렌더링하게 된다.
 - **해결**: `logicalWidth_/Height_`를 **실제 SDL 창 논리 포인트 크기**와 동기화 → `fit`을 DPI 배율(`ptToPhys`)로 맞춤 → 추가 축소/레터박스 없이 창 전체를 채운다. 렌더링은 동일한 백버퍼→기본 타겟 blit 파이프라인을 유지.
 - **핵심 공식**: `물리 px = 논리 pt × ptToPhys`; `앱 논리 = (물리 px − letterbox) / fit`. 125% DPI라면 `fit = ptToPhys = 1.25`이며 `letterbox = 0`이다.
-- **빠른 찾기**: SDL2 API 단위표 §3, 창 생성/배치 §4, 렌더링 파이프라인 §5, 모니터 전이 §12, 2026-08-31 레터박스 수정 §13.
+- **빠른 찾기**: SDL2 API 단위표 §3, 창 생성/배치 §4, 렌더링 파이프라인 §5, 모니터 전이 §12, 2026-08-31 레터박스 수정 §13, 2026-09-05 렌더 스레드 마우스 수정 §14.
+- **마우스 변환 철칙**: 마우스 환산은 **렌더러 비율**(`logW/outW`)만 쓴다. `GetDpiForWindow/96` 같은 per-monitor DPI 기반 환산은 혼합 배율 모니터에서 렌더러 비율과 어긋난다(§14).
 
 ---
 
@@ -437,3 +439,79 @@ logicalHeight_ = windowH;
 | ptToPhys | 1.250 |
 
 `fit=1.250`이면 내용이 물리 픽셀에 맞춰 정확히 125% 배율로 렌더링된다. 레터박스가 없고 창 전체를 채운다. UI 요소가 여전히 작게 보인다면 그것은 좌표계/배율 문제가 아니라 폰트·비트맵 크기 디자인 문제다.
+
+---
+
+## 14. 렌더 스레드 경로의 마우스 좌표 — 렌더러 비율로 통일 (2026-09-05)
+
+### 14.1 증상
+
+단일 프로세스 모드(`jkproto_sdl2_jkwindow.exe minesweeper`, §12와 같은 JKApplication/JKRenderThread 경로)에서
+**모니터 1(125%)에서만** 전체 마우스 좌표가 어긋난다. 원점 근처는 맞고 멀어질수록 간격이 벌어지는
+순수 스케일 오류 — §12.1과 동일한 체감이지만 이번엔 앱 창 전체가 대상.
+
+### 14.2 실측으로 확인한 "물리 px 좌표계" 현실
+
+`JKRenderThread`에 `[diag-sp]` 로그를 넣어 창/출력/DPI를 실측했다:
+
+```
+[diag-sp] window=1912x985 output=1912x985 dpi=120.0
+```
+
+- `SDL_GetWindowSize`(window) == `SDL_GetRendererOutputSize`(output) — 즉 **창 pt가 곧 물리 px**다.
+- 원인: DPI 힌트(`SDL_HINT_WINDOWS_DPI_AWARENESS/SCALING`)가 `JKApplication::Init`에서
+  **`SDL_Init` 이후에** 설정되어 무효였다(§4.1의 전제가 깨진 상태). SDL은 logical-pt 좌표계를
+  구성하지 않고 Win32 물리 px를 그대로 노출한다.
+- 따라서 씬 좌표계 = 물리 px, `fit = renderW/appW = 1.000`(렌더 스케일 사실상 없음).
+- 그런데 구 마우스 변환 `GetLogicalMousePos`는 `GetDpiForWindow/96`(= 1.25)으로 **나눠서**
+  논리 pt로 환산했다 → 씬(물리 px)과 마우스(논리 pt)의 배율 불일치 → 원점에서 멀어질수록 ×1.25 드리프트.
+
+십자선 진단(커서 위치에 빨간 십자 렌더)으로 "원점 멀어질수록 간격 증가"를 시각 확인했고,
+수정 후에는 `rawPhys=(622,349) → scene=(622,349) ratio=1.000` — 커서와 십자선이 픽셀 단위로 일치했다.
+
+### 14.3 해결 — 마우스도 렌더러가 쓰는 비율로
+
+`JKRenderThread::PollSdlEvents`의 마우스 변환을 다음 원칙으로 교체했다:
+
+```
+씬 좌표 = 물리 px × (logW / outW)      // logW=SDL_GetWindowSize, outW=SDL_GetRendererOutputSize
+```
+
+```cpp
+int physX = 0, physY = 0;
+if (JKPlatform::GetPhysicalClientMousePos(window_, physX, physY)) {
+    int logW = 0, logH = 0;
+    SDL_GetWindowSize(window_, &logW, &logH);
+    int outW = 0, outH = 0;
+    renderBackend_->GetOutputSize(outW, outH);
+    ev.x = llround(physX * (double)logW / outW);   // 렌더러 비율 1회 환산
+    ev.y = llround(physY * (double)logH / outH);
+}
+```
+
+- `GetPhysicalClientMousePos`(Win32 `GetCursorPos`+`ScreenToClient`, 무변환 raw 물리 px)를 사용.
+- **`GetLogicalMousePos`(DPI 기반 변환)은 삭제**했다. 다시 도입하지 말 것 — 렌더러 비율과
+  어긋나는 유일한 원인이었다. `JKPlatform.h`의 계약 주석에도 명시됨.
+- 힌트 설정 시점(`SDL_Init` 전)은 그대로 둔다. 힌트가 언젠가 유효해져 pt/px가 갈라져도
+  `logW/outW` 비율이 자동으로 그 차이를 흡수하므로 이 변환식은 양쪽에서 모두 올바르다.
+
+### 14.4 왜 per-monitor DPI를 쓰면 안 되는가
+
+- `GetDpiForWindow/96`은 **대개** 렌더러 비율과 같지만 혼합 배율 모니터(2-1-3 배치, 모니터 1만 125%)에서
+  어긋날 수 있다. 렌더링과 입력은 **같은 소스의 배율**을 써야 하며, 그 소스는 렌더러(`SDL_GetWindowSize` vs
+  `SDL_GetRendererOutputSize`)뿐이다.
+- 서버 모드(`--server`)도 같은 철칙으로 통일했다 — `outputScale = physW/logW` 하나로 그리기·hit-test·
+  마우스를 환산한다. 상세는 `19_sdl2_window_server.md` §6 참조.
+
+### 14.5 회귀 기준값 (단일 프로세스 모드, 2026-09-05 실측)
+
+| 항목 | 모니터 1 (125%, DPI 120) | 모니터 2/3 (100%) |
+|------|--------------------------|-------------------|
+| `SDL_GetWindowSize` | 1912×985 (물리 px 그대로) | 1912×985 |
+| `SDL_GetRendererOutputSize` | 1912×985 | 1912×985 |
+| 씬 좌표계 | 물리 px (fit=1.000) | 물리 px (fit=1.000) |
+| 마우스 변환 | raw 물리 px × (logW/outW)=1.000 | 동일 |
+| 커서↔십자선 정합 | **픽셀 단위 일치** | 픽셀 단위 일치 |
+
+진단 시 참고: 화면 좌표 의심이 들면 십자선 오버레이(커서 위치에 렌더)가 가장 빠르다.
+"원점에서 정확/멀어질수록 벌어짐"이면 스케일 불일치, "일정 오프셋"이면 원점 불일치다.

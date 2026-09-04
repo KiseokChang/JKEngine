@@ -20,6 +20,7 @@
 | `13_sdl2_top_level_apps.md` | SDL2 기반 최상위 앱/기능 후보 | ★★☆ | 124 |
 | `14_sdl2_window_dpi.md` | SDL2 윈도우 배치·DPI/좌표계/렌더링 파이프라인 | ★★☆ | 362 |
 | `15_verification_playbook.md` | 창/DPI 화면 검증 방법론·14항목 자동 검증 플레이북 | ★★☆ | 187 |
+| `19_sdl2_window_server.md` | SDL2 윈도우 서버(Phase 2) — 프로세스 분리/IPC/컴포지터 아키텍처 | ★★☆ | 173 |
 | `20_sdl2_jango_porting_plan.md` | SDL2 JKWindow 기반 원본 비즈니스 앱 포팅 계획 | ★★★ | — |
 | `21_sdl2_audio_roadmap.md` | SDL2 JKWindow 오디오 시스템 장기 로드맵 | ★★★ | — |
 | `99_file_inventory.md` | 주요 소스/헤더/리소스 파일 인벤토리 | ★★☆ | 265 |
@@ -29,7 +30,8 @@
 
 - **처음 접할 때**: `01_overview.md` → `03_jkwindow.md` → `02_jkdbase.md`
 - **SDL2 프로토타입 작업 중**: `.claude/PROJECT.md` → `11_jkwindow_sdl_mapping.md` → `14_sdl2_window_dpi.md` → `15_verification_playbook.md`
-- **화면 좌표/배율 버그**: `14_sdl2_window_dpi.md` §11-§12
+- **윈도우 서버(Phase 2) 작업 중**: `19_sdl2_window_server.md` (IPC/컴포지터/좌표 모델)
+- **화면 좌표/배율 버그**: `14_sdl2_window_dpi.md` §11-§14, 서버 모드는 `19_sdl2_window_server.md` §6
 - **검증 방법/스크립트**: `15_verification_playbook.md`
 - **포팅 우선순위/로드맵**: `06_web_port_roadmap.md`, `12_sdl2_prototype_roadmap.md`
 
@@ -87,6 +89,8 @@
 - [x] 창 상단 잘림(DPI 스케일링) 수정 — 프레임 중앙 배치 + 클라이언트 원점 보정 (`phase2-full-stack` 작업 트리)
 - [x] 윈도우 배치/DPI/좌표계 아키텍처 문서화 (`14_sdl2_window_dpi.md`)
 - [x] 화면 검증 방법론 정리 + 검증 스크립트 레포 편입 (`15_verification_playbook.md`, `tools/verify_fixwin3.ps1`)
+- [x] 혼합 배율 모니터 마우스 좌표 수정 — 렌더러 비율 통일, DPI 기반 변환 제거 (`14_sdl2_window_dpi.md` §14)
+- [x] 윈도우 서버(Phase 2) 프로세스 분리 구현 + 아키텍처 문서화 (`19_sdl2_window_server.md`)
 - [ ] Phase 1 Input/Focus System 마무리 — `phase1_input_focus.md` 기준 진행 중
 - [x] MSYS2 설치 및 SDL2 툴체인 구축 (UCRT64 + CMake/Ninja — `build_sdl2_jkwindow.bat` 동작)
 - [x] Prototype 빌드/실행 검증 (2026-08 창 수정 작업 시 메인/jango/occ/test 모드 실행·셀프테스트 통과)

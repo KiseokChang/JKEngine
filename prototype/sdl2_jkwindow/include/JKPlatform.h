@@ -99,9 +99,13 @@ public:
     static bool GetPhysicalMousePos(SDL_Window* window, int& outX, int& outY);
 
     // Return the mouse cursor position relative to the SDL window client area
-    // in SDL logical points. On Windows this uses Win32 ScreenToClient with the
-    // monitor DPI scale factor; non-Windows falls back to SDL event coords.
-    static bool GetLogicalMousePos(SDL_Window* window, int& outX, int& outY);
+    // in raw physical pixels (no DPI division). On Windows this uses Win32
+    // GetCursorPos + ScreenToClient; non-Windows falls back to GetPhysicalMousePos.
+    // Callers must convert this to their scene coordinate space using the same
+    // scale the renderer uses (output size / window size) so that mouse and
+    // rendering always share one scale factor — never the per-monitor DPI,
+    // which can disagree with the renderer's actual ratio.
+    static bool GetPhysicalClientMousePos(SDL_Window* window, int& outX, int& outY);
 
     // ---------------------------------------------------------------------
     // Synthetic input (testing)

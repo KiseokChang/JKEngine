@@ -153,6 +153,13 @@ void JKCompositor::Composite() {
     // The caller is responsible for clearing the framebuffer (e.g. with the
     // launcher/desktop background) before calling Composite(). We only draw
     // client layers on top so the background is preserved.
+    //
+    // All drawing is in physical pixels. Layer positions/sizes are stored in
+    // SDL logical points, so we multiply by the output scale (physW/logW) to
+    // get the physical-pixel destination rect. The mouse hit-test uses the
+    // same physical-pixel space, so what you see is what you click.
+
+    const float outputScale = output_.Scale();
 
     {
         std::lock_guard<std::mutex> lock(layersMutex_);
@@ -168,10 +175,10 @@ void JKCompositor::Composite() {
             SDL_SetTextureAlphaMod(layer->Texture(), alpha);
 
             SDL_Rect dst{
-                layer->X(),
-                layer->Y(),
-                static_cast<int>(layer->Width() * layer->ScaleX()),
-                static_cast<int>(layer->Height() * layer->ScaleY())
+                static_cast<int>(layer->X() * outputScale),
+                static_cast<int>(layer->Y() * outputScale),
+                static_cast<int>(layer->Width() * layer->ScaleX() * outputScale),
+                static_cast<int>(layer->Height() * layer->ScaleY() * outputScale)
             };
             SDL_RenderCopy(renderer_, layer->Texture(), nullptr, &dst);
         }
@@ -181,16 +188,21 @@ void JKCompositor::Composite() {
 }
 
 JKCompositorLayer* JKCompositor::HitTest(int x, int y) {
+    // (x, y) are physical client pixels. Layer positions/sizes are stored in
+    // SDL logical points, so multiply by the output scale before comparing.
+    const float s = output_.Scale();
     std::lock_guard<std::mutex> lock(layersMutex_);
     for (auto it = layers_.rbegin(); it != layers_.rend(); ++it) {
         JKCompositorLayer* layer = it->get();
         if (!layer || !layer->IsVisible()) {
             continue;
         }
-        const int w = static_cast<int>(layer->Width() * layer->ScaleX());
-        const int h = static_cast<int>(layer->Height() * layer->ScaleY());
-        if (x >= layer->X() && x < layer->X() + w &&
-            y >= layer->Y() && y < layer->Y() + h) {
+        const int lx = static_cast<int>(layer->X() * s);
+        const int ly = static_cast<int>(layer->Y() * s);
+        const int w = static_cast<int>(layer->Width() * layer->ScaleX() * s);
+        const int h = static_cast<int>(layer->Height() * layer->ScaleY() * s);
+        if (x >= lx && x < lx + w &&
+            y >= ly && y < ly + h) {
             return layer;
         }
     }

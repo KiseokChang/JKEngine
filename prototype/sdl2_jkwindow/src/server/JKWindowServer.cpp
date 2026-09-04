@@ -10,6 +10,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <cmath>
 #include <algorithm>
 #include <chrono>
 #include <thread>
@@ -369,15 +370,25 @@ void JKWindowServer::HandleSDLEvent(const SDL_Event& ev) {
 
     if (ev.type == SDL_MOUSEMOTION || ev.type == SDL_MOUSEBUTTONDOWN ||
         ev.type == SDL_MOUSEBUTTONUP) {
-        int mx = ev.motion.x;
-        int my = ev.motion.y;
-
-        // On Windows, SDL's logical mouse coordinates can drift during cross-
-        // monitor moves. Convert to monitor-relative logical points the same way
-        // the single-process render thread does so hit-testing and forwarded
-        // surface-local coordinates stay correct on all displays.
-        if (window_) {
-            JKPlatform::GetLogicalMousePos(window_, mx, my);
+        // Everything in this server is in physical client pixels: the launcher
+        // icons and compositor layers are drawn at logical_pt * outputScale =
+        // physical px, and the hit-test compares against those same physical
+        // px. So we want the mouse in raw physical client px (no DPI division).
+        int mx = 0, my = 0;
+        const float outputScale = compositor_ ? compositor_->OutputScale() : 1.0f;
+        int physX = 0, physY = 0;
+        if (window_ &&
+            JKPlatform::GetPhysicalClientMousePos(window_, physX, physY)) {
+            mx = physX;
+            my = physY;
+        } else if (ev.type == SDL_MOUSEMOTION) {
+            // SDL coords are logical points; convert to physical to match the
+            // rest of the pipeline.
+            mx = static_cast<int>(std::llround(ev.motion.x * outputScale));
+            my = static_cast<int>(std::llround(ev.motion.y * outputScale));
+        } else {
+            mx = static_cast<int>(std::llround(ev.button.x * outputScale));
+            my = static_cast<int>(std::llround(ev.button.y * outputScale));
         }
 
         // Client surfaces are rendered on top of the launcher, so they should
@@ -393,10 +404,14 @@ void JKWindowServer::HandleSDLEvent(const SDL_Event& ev) {
         }
         if (!client) return;
 
+        // mx/my are physical client px. The client surface is client->Width() x
+        // client->Height() surface pixels, stretched by outputScale when drawn.
+        // Convert the physical mouse position back into the client's surface
+        // pixel space: (mx - client->X()*outputScale) / outputScale.
         ipc::InputEventPayload payload{};
         payload.surfaceId = client->Id();
-        payload.x = mx - client->X();
-        payload.y = my - client->Y();
+        payload.x = static_cast<int>(std::llround(mx / outputScale)) - client->X();
+        payload.y = static_cast<int>(std::llround(my / outputScale)) - client->Y();
 
         if (ev.type == SDL_MOUSEMOTION) {
             payload.type = ipc::InputEventType::MouseMove;
@@ -484,10 +499,20 @@ void JKWindowServer::FocusClient(uint32_t surfaceId) {
 }
 
 void JKWindowServer::UpdateOutputBounds() {
-    if (!window_ || !compositor_) return;
-    int w = 0, h = 0;
-    SDL_GetWindowSize(window_, &w, &h);
-    compositor_->SetOutput(JKCompositorOutput(0, JKRect{0, 0, w, h}, 1.0f));
+    if (!window_ || !compositor_ || !renderer_) return;
+    int logW = 0, logH = 0;
+    SDL_GetWindowSize(window_, &logW, &logH);
+    int physW = 0, physH = 0;
+    SDL_GetRendererOutputSize(renderer_, &physW, &physH);
+
+    // Match the single-process render thread: the renderer works in physical
+    // pixels, but all layer positions/sizes are stored in SDL logical points.
+    // Scale logical points to physical pixels when compositing.
+    float scale = 1.0f;
+    if (logW > 0 && logH > 0) {
+        scale = physW / static_cast<float>(logW);
+    }
+    compositor_->SetOutput(JKCompositorOutput(0, JKRect{0, 0, logW, logH}, scale));
 }
 
 void JKWindowServer::ProcessPendingMessages() {
@@ -534,9 +559,18 @@ void JKWindowServer::ProcessClientMessage(JKClientConnection& client, const ipc:
 }
 
 void JKWindowServer::Composite() {
-    if (!compositor_) {
+    if (!compositor_ || !renderer_) {
         return;
     }
+
+    // All drawing in this server is done in physical pixels: the launcher icons
+    // and compositor layers are scaled by outputScale manually, and the mouse
+    // hit-test uses raw physical client pixels. We deliberately do NOT call
+    // SDL_RenderSetScale here because its effect differs across SDL render
+    // backends (D3D vs OpenGL) and caused coordinate drift on the primary
+    // high-DPI monitor. Keeping everything in physical px removes that
+    // ambiguity.
+    SDL_RenderSetScale(renderer_, 1.0f, 1.0f);
 
     // Draw the launcher desktop into the renderer first; the compositor will
     // layer client surfaces on top and then present once.
@@ -602,6 +636,11 @@ void JKWindowServer::DrawLauncher() {
 void JKWindowServer::DrawLauncherBackground() {
     if (!renderer_ || launcherIcons_.empty()) return;
 
+    // All server drawing is in physical pixels. icon.rect is stored in SDL
+    // logical points, so multiply by the compositor output scale to get the
+    // physical-pixel rect. The mouse hit-test uses the same physical rect.
+    const float s = compositor_ ? compositor_->OutputScale() : 1.0f;
+
     // For Phase 2 the launcher is a minimal placeholder: a grey desktop and
     // two colored rectangles representing app icons. Full icons would need a
     // server-side text renderer; for now labels are rendered by drawing colored
@@ -611,7 +650,12 @@ void JKWindowServer::DrawLauncherBackground() {
     SDL_RenderClear(renderer_);
 
     for (const auto& icon : launcherIcons_) {
-        SDL_Rect rc = icon.rect.ToSDL();
+        SDL_Rect rc{
+            static_cast<int>(icon.rect.x * s),
+            static_cast<int>(icon.rect.y * s),
+            static_cast<int>(icon.rect.w * s),
+            static_cast<int>(icon.rect.h * s),
+        };
         if (std::strcmp(icon.appName, "minesweeper") == 0) {
             SDL_SetRenderDrawColor(renderer_, 128, 128, 128, 255);
         } else {
@@ -634,8 +678,15 @@ void JKWindowServer::DestroyLauncher() {
 }
 
 int JKWindowServer::HitTestLauncherIcon(int x, int y) const {
+    // (x, y) are physical client px. icon.rect is in logical points.
+    const float s = compositor_ ? compositor_->OutputScale() : 1.0f;
     for (size_t i = 0; i < launcherIcons_.size(); ++i) {
-        if (launcherIcons_[i].rect.Contains(x, y)) {
+        const auto& r = launcherIcons_[i].rect;
+        const int rx = static_cast<int>(r.x * s);
+        const int ry = static_cast<int>(r.y * s);
+        const int rw = static_cast<int>(r.w * s);
+        const int rh = static_cast<int>(r.h * s);
+        if (x >= rx && x < rx + rw && y >= ry && y < ry + rh) {
             return static_cast<int>(i);
         }
     }
