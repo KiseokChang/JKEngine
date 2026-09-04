@@ -10,13 +10,21 @@ namespace jk {
 
 namespace {
 
+std::function<void(const AudioCommand&)> g_commandPoster;
+
 void PostAudioCommand(const AudioCommand& cmd) {
     if (g_currentJKApp) {
         g_currentJKApp->PostAudioCommand(cmd);
+    } else if (g_commandPoster) {
+        g_commandPoster(cmd);
     }
 }
 
 } // anonymous namespace
+
+void JKSoundManager::SetCommandPoster(std::function<void(const AudioCommand&)> poster) {
+    g_commandPoster = std::move(poster);
+}
 
 void JKSoundManager::SetBackend(std::unique_ptr<IAudioBackend> backend) {
     Quit();

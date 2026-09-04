@@ -4,8 +4,6 @@
 #include <JKRenderCommandList.h>
 #include <JKOffscreenSurface.h>
 #include <JKTimerThread.h>
-#include <JKAudioThread.h>
-#include <JKSDLAudioBackend.h>
 #include <JKSoundManager.h>
 #include <JKPlatform.h>
 #include <cstdio>
@@ -82,16 +80,15 @@ bool JKClientApplication::Init(const std::string& title, int width, int height,
     dc_ = JKDC(renderBackend_.get());
     resourceCache_ = std::make_unique<JKResourceCache>(renderBackend_.get());
 
-    audioThread_ = std::make_unique<JKAudioThread>();
-    audioThread_->Start(messageBus_.get(), std::make_unique<SDLAudioBackend>());
-
     {
-        AudioCommand initCmd;
-        initCmd.type = AudioCommand::Type::Init;
-        PostAudioCommand(initCmd);
-
         auto& soundManager = JKSoundManager::GetInstance();
         soundManager.SetCommandMode(true);
+        soundManager.SetCommandPoster(
+            [this](const AudioCommand& cmd) {
+                if (surface_) {
+                    surface_->PostAudioCommand(cmd);
+                }
+            });
         soundManager.Init();
     }
 
@@ -149,14 +146,6 @@ void JKClientApplication::Close() {
     if (timerThread_) {
         timerThread_->Stop();
         timerThread_.reset();
-    }
-
-    if (audioThread_) {
-        AudioCommand cmd;
-        cmd.type = AudioCommand::Type::Quit;
-        PostAudioCommand(cmd);
-        audioThread_->Stop();
-        audioThread_.reset();
     }
 
     // Stop the surface read thread explicitly before destroying the surface so
@@ -395,11 +384,11 @@ void JKClientApplication::RemoveTimersForWindow(uint32_t winId) {
 }
 
 void JKClientApplication::PostAudioCommand(const AudioCommand& cmd) {
-    if (!messageBus_) return;
-    std::vector<uint8_t> data(sizeof(AudioCommand));
-    std::memcpy(data.data(), &cmd, sizeof(AudioCommand));
-    messageBus_->Push(JKMessageBus::Channel::Audio,
-        JKMessageBus::Payload(static_cast<uint32_t>(cmd.type), std::move(data)));
+    // As a window-server client, audio commands are forwarded to the server
+    // over IPC instead of being played locally.
+    if (surface_) {
+        surface_->PostAudioCommand(cmd);
+    }
 }
 
 void JKClientApplication::SetLogicalSize(int w, int h) {

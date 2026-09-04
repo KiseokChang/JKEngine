@@ -77,7 +77,8 @@ enum class InputEventType : uint32_t {
     MouseWheel = 4,
     KeyDown    = 5,
     KeyUp      = 6,
-    Char       = 7
+    Char       = 7,
+    TextEditing= 8
 };
 
 struct InputEventPayload {

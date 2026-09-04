@@ -204,6 +204,11 @@ void JKClientSurface::ReadLoop() {
                 case ipc::InputEventType::KeyDown:    ev.type = JKEventType::KeyDown; break;
                 case ipc::InputEventType::KeyUp:      ev.type = JKEventType::KeyUp; break;
                 case ipc::InputEventType::Char:       ev.type = JKEventType::Char; break;
+                case ipc::InputEventType::TextEditing:
+                    ev.type = JKEventType::TextEditing;
+                    ev.editStart = static_cast<int32_t>(payload.detail);
+                    ev.editLength = static_cast<int32_t>(payload.option);
+                    break;
                 default:                              ev.type = JKEventType::None; break;
             }
 

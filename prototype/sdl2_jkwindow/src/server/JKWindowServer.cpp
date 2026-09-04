@@ -6,6 +6,7 @@
 #include <JKMessageBus.h>
 #include <JKSDLAudioBackend.h>
 #include <JKSoundManager.h>
+#include <JKPlatform.h>
 
 #include <cstdio>
 #include <cstring>
@@ -272,20 +273,32 @@ void JKWindowServer::Stop() {
     }
     messageBus_.reset();
 
+    // Move clients out of the locked vectors before joining their read threads
+    // to avoid holding clientsMutex_/pendingClientsMutex_ during a potentially
+    // blocking join and to prevent deadlocks if a read thread tries to queue a
+    // message during shutdown.
     {
-        std::lock_guard<std::mutex> lock(clientsMutex_);
-        for (auto& client : clients_) {
-            client->StopReadThread();
+        std::vector<std::unique_ptr<JKClientConnection>> clientsToStop;
+        {
+            std::lock_guard<std::mutex> lock(clientsMutex_);
+            clientsToStop = std::move(clients_);
+            clients_.clear();
         }
-        clients_.clear();
+        for (auto& client : clientsToStop) {
+            if (client) client->StopReadThread();
+        }
     }
 
     {
-        std::lock_guard<std::mutex> lock(pendingClientsMutex_);
-        for (auto& client : pendingClients_) {
-            client->StopReadThread();
+        std::vector<std::unique_ptr<JKClientConnection>> pendingToStop;
+        {
+            std::lock_guard<std::mutex> lock(pendingClientsMutex_);
+            pendingToStop = std::move(pendingClients_);
+            pendingClients_.clear();
         }
-        pendingClients_.clear();
+        for (auto& client : pendingToStop) {
+            if (client) client->StopReadThread();
+        }
     }
 
     pendingCleanup_.clear();
@@ -356,8 +369,16 @@ void JKWindowServer::HandleSDLEvent(const SDL_Event& ev) {
 
     if (ev.type == SDL_MOUSEMOTION || ev.type == SDL_MOUSEBUTTONDOWN ||
         ev.type == SDL_MOUSEBUTTONUP) {
-        const int mx = ev.motion.x;
-        const int my = ev.motion.y;
+        int mx = ev.motion.x;
+        int my = ev.motion.y;
+
+        // On Windows, SDL's logical mouse coordinates can drift during cross-
+        // monitor moves. Convert to monitor-relative logical points the same way
+        // the single-process render thread does so hit-testing and forwarded
+        // surface-local coordinates stay correct on all displays.
+        if (window_) {
+            JKPlatform::GetLogicalMousePos(window_, mx, my);
+        }
 
         // Client surfaces are rendered on top of the launcher, so they should
         // receive input first. Only treat a click as a launcher icon click if
@@ -420,6 +441,16 @@ void JKWindowServer::HandleSDLEvent(const SDL_Event& ev) {
         payload.surfaceId = client->Id();
         payload.type = ipc::InputEventType::Char;
         std::strncpy(payload.text, ev.text.text, sizeof(payload.text) - 1);
+        SendInputEvent(*client, payload);
+    } else if (ev.type == SDL_TEXTEDITING) {
+        JKClientConnection* client = FindClientById(focusedClientId_);
+        if (!client) return;
+        ipc::InputEventPayload payload{};
+        payload.surfaceId = client->Id();
+        payload.type = ipc::InputEventType::TextEditing;
+        std::strncpy(payload.text, ev.edit.text, sizeof(payload.text) - 1);
+        payload.detail = ev.edit.start;
+        payload.option = ev.edit.length;
         SendInputEvent(*client, payload);
     }
 }
@@ -514,26 +545,32 @@ void JKWindowServer::Composite() {
 }
 
 void JKWindowServer::CleanupDisconnectedClients() {
-    std::lock_guard<std::mutex> lock(clientsMutex_);
-    auto it = clients_.begin();
-    while (it != clients_.end()) {
-        auto& client = *it;
-        if (client && client->IsDisconnected()) {
-            if (focusedClientId_ == client->Id()) {
-                focusedClientId_ = 0;
+    std::vector<std::unique_ptr<JKClientConnection>> disconnected;
+    {
+        std::lock_guard<std::mutex> lock(clientsMutex_);
+        auto it = clients_.begin();
+        while (it != clients_.end()) {
+            auto& client = *it;
+            if (client && client->IsDisconnected()) {
+                if (focusedClientId_ == client->Id()) {
+                    focusedClientId_ = 0;
+                }
+                if (compositor_) {
+                    compositor_->RemoveLayer(client->Id());
+                }
+                disconnected.push_back(std::move(client));
+                it = clients_.erase(it);
+            } else {
+                ++it;
             }
-            if (compositor_) {
-                compositor_->RemoveLayer(client->Id());
-            }
-            client->StopReadThread();
-            pendingCleanup_.push_back(std::move(client));
-            it = clients_.erase(it);
-        } else {
-            ++it;
         }
     }
 
-    pendingCleanup_.clear();
+    // Join read threads outside the lock to avoid blocking the server main loop
+    // and to prevent shutdown deadlocks.
+    for (auto& client : disconnected) {
+        if (client) client->StopReadThread();
+    }
 }
 
 void JKWindowServer::InitLauncher() {
@@ -656,8 +693,12 @@ void JKWindowServer::SpawnClient(const char* appName) {
     si.cb = sizeof(si);
     LauncherProcessInformation pi{};
 
+    // Set the child's working directory to the executable directory so it can
+    // locate the assets/ folder regardless of where the server was launched from.
+    const char* workDir = modulePath[0] ? modulePath : nullptr;
+
     if (!CreateProcessA(nullptr, cmdLine, nullptr, nullptr, 0, 0,
-                        nullptr, nullptr, &si, &pi)) {
+                        nullptr, workDir, &si, &pi)) {
         std::fprintf(stderr, "JKWindowServer: CreateProcessA failed for %s\n", appName);
         return;
     }

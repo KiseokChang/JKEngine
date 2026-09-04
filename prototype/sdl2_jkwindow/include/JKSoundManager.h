@@ -2,7 +2,9 @@
 #define JKSOUNDMANAGER_H
 
 #include <JKAudioBackend.h>
+#include <JKAudioCommand.h>
 #include <algorithm>
+#include <functional>
 #include <string>
 #include <unordered_map>
 #include <memory>
@@ -32,6 +34,10 @@ public:
     // audio thread via AudioCommand messages instead of touching a local SDL_mixer
     // backend. This is set by JKApplication in the threaded build.
     void SetCommandMode(bool enabled) { commandMode_ = enabled; }
+
+    // Optional fallback for command mode when g_currentJKApp is null. Used by
+    // window-server clients to forward audio commands over IPC to the server.
+    void SetCommandPoster(std::function<void(const AudioCommand&)> poster);
 
     bool Init();
     void Quit();

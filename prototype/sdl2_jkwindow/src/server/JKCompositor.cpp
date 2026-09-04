@@ -38,14 +38,17 @@ JKCompositorLayer* JKCompositor::AddLayer(uint32_t id,
         return nullptr;
     }
 
-    std::lock_guard<std::mutex> lock(layersMutex_);
-    auto layer = std::make_unique<JKCompositorLayer>(id, width, height, title);
-    layer->SetTexture(texture);
-    layer->SetPixels(pixels);
-    layer->MarkDirty();
-    auto* raw = layer.get();
-    layers_.push_back(std::move(layer));
-    FocusLayer(id);
+    JKCompositorLayer* raw = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(layersMutex_);
+        auto layer = std::make_unique<JKCompositorLayer>(id, width, height, title);
+        layer->SetTexture(texture);
+        layer->SetPixels(pixels);
+        layer->MarkDirty();
+        raw = layer.get();
+        layers_.push_back(std::move(layer));
+    }
+    // Focus is applied by the caller to avoid a nested layersMutex_ lock.
     return raw;
 }
 
@@ -126,15 +129,19 @@ void JKCompositor::UpdateLayerTexture(JKCompositorLayer& layer) {
 }
 
 void JKCompositor::SortLayers() {
-    // Stable sort: focused layer moved to the back (rendered last / on top).
+    // Stable sort: non-focused layers come before the focused layer so it is
+    // rendered last (on top). Null entries are sorted to the back.
     std::stable_sort(layers_.begin(), layers_.end(),
         [this](const std::unique_ptr<JKCompositorLayer>& a,
                const std::unique_ptr<JKCompositorLayer>& b) {
-            if (a && b) {
-                if (a->Id() == focusedId_) return false;
-                if (b->Id() == focusedId_) return true;
+            const bool aValid = a != nullptr;
+            const bool bValid = b != nullptr;
+            if (!aValid || !bValid) {
+                return !aValid < bValid;
             }
-            return false;
+            const bool aFocused = (a->Id() == focusedId_);
+            const bool bFocused = (b->Id() == focusedId_);
+            return !aFocused && bFocused;
         });
 }
 
@@ -143,8 +150,9 @@ void JKCompositor::Composite() {
         return;
     }
 
-    SDL_SetRenderDrawColor(renderer_, 64, 64, 64, 255);
-    SDL_RenderClear(renderer_);
+    // The caller is responsible for clearing the framebuffer (e.g. with the
+    // launcher/desktop background) before calling Composite(). We only draw
+    // client layers on top so the background is preserved.
 
     {
         std::lock_guard<std::mutex> lock(layersMutex_);

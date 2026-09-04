@@ -95,7 +95,6 @@ private:
     bool running_ = false;
 
     std::unique_ptr<JKTimerThread> timerThread_;
-    std::unique_ptr<JKAudioThread> audioThread_;
 
     mutable std::mutex stateMutex_;
     int logicalWidth_ = 0;
