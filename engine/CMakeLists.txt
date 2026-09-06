@@ -85,8 +85,26 @@ add_library(imgui STATIC
 target_include_directories(imgui PUBLIC
     ${IMGUI_DIR}
     ${CMAKE_SOURCE_DIR}/include
+    # imgui_club extras (imgui_memory_editor.h, docs/23 §11.2 Phase 3) —
+    # header-only, so only the include path is needed.
+    third_party/imgui_club
 )
 target_link_libraries(imgui PUBLIC SDL2::SDL2)
+
+# ---------------------------------------------------------------------------
+# implot (vendored master 7eeb916, 2026-08-06 — first line with Dear ImGui
+# 1.92 texture-API support, docs/23 §11.2 Phase 3): plotting extension on
+# top of the imgui target. Same rule as imgui itself: NOT inside jkcore,
+# only apps that plot link this.
+# ---------------------------------------------------------------------------
+set(IMPLOT_DIR third_party/implot)
+add_library(implot STATIC
+    ${IMPLOT_DIR}/implot.cpp
+    ${IMPLOT_DIR}/implot_items.cpp
+    ${IMPLOT_DIR}/implot_demo.cpp
+)
+target_include_directories(implot PUBLIC ${IMPLOT_DIR})
+target_link_libraries(implot PUBLIC imgui)
 
 # ---------------------------------------------------------------------------
 # jkcore: everything except main(), the RC file, and the apps. The exe and

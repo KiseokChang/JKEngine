@@ -1,10 +1,12 @@
 #include <apps/ClientImGuiDemoApp.h>
 
 #include <imgui_impl_jkwindow.h>
+#include <imgui_memory_editor.h>
 #include <JKWindow.h>
 #include <SDL.h>
 #include <math.h>
 #include <stdio.h>
+#include <cstring>
 #include <stdlib.h>
 #include <string.h>
 
@@ -22,6 +24,18 @@ public:
         dc.FillRect(client);
     }
 };
+
+// Phase 3 ecosystem fixture (docs/23 §11.7): a 256-byte scratch buffer the
+// in-app hex editor can read AND write — edits persist for the session so
+// the panel doubles as proof that keyboard focus flows into ImGui widgets.
+uint8_t g_memEditData[256];
+MemoryEditor g_memEdit;
+
+void SeedMemEditData() {
+    for (int i = 0; i < 256; ++i)
+        g_memEditData[i] = static_cast<uint8_t>(i);
+    std::memcpy(g_memEditData, "jkwindow memory editor", 22);
+}
 } // namespace
 
 ClientImGuiDemoApp::~ClientImGuiDemoApp() = default;
@@ -43,6 +57,8 @@ void ClientImGuiDemoApp::OnInit() {
     // Plot ring buffer seed so PlotLines has a waveform on frame 1.
     for (int i = 0; i < 90; ++i)
         plotValues_[i] = 0.5f + 0.4f * sinf(i * 0.23f);
+
+    SeedMemEditData();
 }
 
 void ClientImGuiDemoApp::OnClose() {
@@ -104,6 +120,9 @@ void ClientImGuiDemoApp::BuildUi(int w, int h) {
         ImGui::Checkbox("ShowDemoWindow", &showDemo_);
         ImGui::Checkbox("StyleEditor", &showStyle_);
         ImGui::Checkbox("IO dump", &showIo_);
+        // imgui_club hex editor — editing writes straight into the fixture
+        // buffer, so a keystroke here is visible in the same window.
+        ImGui::Checkbox("Memory editor", &g_memEdit.Open);
 
         // Rolling waveform: proves vertex output beyond flat rects.
         plotValues_[plotOffset_] = 0.5f + 0.4f * sinf((float)ImGui::GetTime() * 2.2f)
@@ -134,6 +153,12 @@ void ClientImGuiDemoApp::BuildUi(int w, int h) {
 
     if (showDemo_)
         ImGui::ShowDemoWindow(&showDemo_);
+
+    // DrawWindow owns its own window (Begin inside) and syncs g_memEdit.Open
+    // with its close button, so the panel checkbox above stays consistent.
+    if (g_memEdit.Open)
+        g_memEdit.DrawWindow("memory editor", g_memEditData,
+                             sizeof(g_memEditData));
 }
 
 } // namespace jk
