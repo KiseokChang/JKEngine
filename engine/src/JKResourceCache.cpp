@@ -1,4 +1,5 @@
 #include <JKResourceCache.h>
+#include <JKImageLoader.h>
 #include <JKHangulManager.h>
 #include <SDL.h>
 #include <cstdio>
@@ -40,6 +41,14 @@ bool JKResourceCache::LoadImageBMP(const std::string& key, const std::string& pa
         images_[key] = CachedImage{ JKRenderBackend::InvalidTexture, surface->w, surface->h };
     }
     return true;
+}
+
+bool JKResourceCache::LoadImagePNG(const std::string& key, const std::string& path) {
+    LoadedImage img;
+    if (!LoadImageFile(ResolveAssetPath(path), img)) {
+        return false;
+    }
+    return CreateImageFromRGBA(key, img.w, img.h, img.rgba);
 }
 
 bool JKResourceCache::CreateImageFromRGBA(const std::string& key,

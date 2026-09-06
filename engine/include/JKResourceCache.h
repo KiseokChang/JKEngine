@@ -26,6 +26,11 @@ public:
     // Images -----------------------------------------------------------------
     // Load a BMP file on the calling thread (no SDL renderer access).
     bool LoadImageBMP(const std::string& key, const std::string& path);
+    // Load a PNG file (see JKImageLoader) and register it under `key`.
+    // `path` is relative to the assets root, e.g. "assets/icons/mine@1x.png";
+    // it is resolved against the exe directory, then the working directory.
+    // Returns false (nothing registered) if the file is missing or undecodable.
+    bool LoadImagePNG(const std::string& key, const std::string& path);
     // Register a generated RGBA buffer for upload on the render thread.
     bool CreateImageFromRGBA(const std::string& key,
                              int w, int h,
