@@ -257,7 +257,7 @@ VectorApp::VectorApp() = default;
 
 void VectorApp::OnInit() {
     auto main = std::make_unique<JKWindow>("Vector Bezier Editor - SDL2 Port");
-    main->SetWindowRect(JKRect{ 0, 0, 1920, 1080 });
+    main->SetWindowRect(JKRect{ 0, 0, 960, 640 });
 
     BuildVectorEditorUi(main.get());
 

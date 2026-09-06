@@ -10,7 +10,7 @@ ClientVectorApp::~ClientVectorApp() = default;
 
 void ClientVectorApp::OnInit() {
     auto main = std::make_unique<JKWindow>("Vector Editor");
-    main->SetWindowRect(JKRect{ 0, 0, 1920, 1080 });
+    main->SetWindowRect(JKRect{ 0, 0, 960, 640 });
 
     // VectorView와 버튼 3개는 JKControl이므로 크롬 제거 대상이 아니다.
     // 단일 프로세스 VectorApp::Init와 동일한 빌더를 루트 클라이언트 영역에

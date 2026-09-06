@@ -5,7 +5,7 @@
 #include <apps/ClientVectorApp.h>
 
 JKAPP_EXPORT const jk::JKAppMeta* jk_app_meta() {
-    static const jk::JKAppMeta meta{ "vector", "Vector Editor", 1920, 1080 };
+    static const jk::JKAppMeta meta{ "vector", "Vector Editor", 960, 640 };
     return &meta;
 }
 
