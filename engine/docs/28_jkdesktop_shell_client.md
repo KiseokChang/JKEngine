@@ -42,6 +42,13 @@
 - `DockShellClient`(서버): 표면 폭 ≠ 데스크톱 폭이면 `CommitChromeResize` 3단계
   (BeginResizeSurface → ResizeLayer → ResizeSurface 송신)로 리사이즈 후 `(0, wh-h)` 배치.
   데스크톱 크기 변경(SIZE_CHANGED/MOVED/DISPLAY_CHANGED → `UpdateOutputBounds`)마다 재도킹.
+  - **주의(2026-09-06 스모크 버그)**: 도킹은 `compositor_->SetLayerPosition`만이 아니라
+    `client->SetPosition(0, wh-h)`도 함께 해야 한다. 마우스→surface 로컬 변환은 연결 객체의
+    `X()/Y()`(ProcessPendingClients 배치값)를 쓰고 그리기는 컴포지터 레이어를 쓰므로, 컴포지터만
+    갱신하면 바는 하단에 잘 그려지는데 버튼 클릭은 스폰 시점 센터 배치 좌표로 변환되어 전부
+    유실된다(40px 표면에 local y=361). `ProcessPendingClients` 쪽에서도 ShellRegister가
+    AddLayer보다 먼저 도착하는 레이스를 커버하도록 intake 시점에 `SetLayerShell`+`DockShellClient`를
+    재적용한다(셸은 센터 배치를 도킹으로 덮어쓴다).
 - **작업 영역 예약** (`ShellReserveHeight()` = 셸 레이어 표시 높이, 없으면 0):
   - 새 창 배치(ProcessPendingClients): fit-scale 분모 `wh - reserve`, y 클램프 `wh - reserve - dispH`.
   - 타이틀 드래그 y 클램프: `winH - reserve - 40`.

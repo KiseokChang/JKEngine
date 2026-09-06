@@ -315,7 +315,14 @@ void JKWindowServer::ProcessPendingClients() {
         // left focusedClientId_ at 0, so keys were silently dropped until the
         // first click on the surface (tetris arrows appeared dead at spawn).
         // The shell never takes focus (docs/28) — keys stay with app windows.
-        if (!client->IsShell()) {
+        if (client->IsShell()) {
+            // ShellRegister can beat this intake (client sends it right after
+            // the CreateSurface handshake) — SetLayerShell was a no-op then,
+            // so (re)apply the role here and dock for real; the centered
+            // placement above is overwritten by the bottom-edge dock.
+            compositor_->SetLayerShell(client->Id(), true);
+            DockShellClient(client.get());
+        } else {
             FocusClient(client->Id());
         }
 
@@ -1041,6 +1048,13 @@ void JKWindowServer::DockShellClient(JKClientConnection* shell) {
         CommitChromeResize(*shell, id, ww, barH, ww, barH);
     }
     compositor_->SetLayerPosition(id, 0, wh - barH);
+    // Keep the connection-side position in sync: the input mapping converts
+    // the mouse with client->X()/Y() (ProcessPendingClients stores the spawn
+    // placement there), while drawing reads the compositor layer. Updating
+    // only the layer left the input map at the centered spawn position, so
+    // taskbar button clicks landed at y=361 on a 40px-tall surface and were
+    // dropped — the bar rendered fine but every button was dead.
+    shell->SetPosition(0, wh - barH);
 }
 
 void JKWindowServer::Composite() {
