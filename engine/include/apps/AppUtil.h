@@ -79,13 +79,27 @@ inline void ShowModalMessage(JKWindow* owner,
     slot = std::make_unique<JKMessageBox>(
         title, message, buttons,
         [owner, &slot, onResult](int result) {
-            if (g_currentJKApp && g_currentJKApp->GetModalWindow() == slot.get()) {
-                g_currentJKApp->SetModalWindow(owner);
+            if (g_jkAppHost && g_jkAppHost->GetModalWindow() == slot.get()) {
+                g_jkAppHost->SetModalWindow(owner);
             }
             if (onResult) {
                 onResult(result);
             }
         });
+    // 기본 rect{160,120,320,140}은 넓은 단일 프로세스 데스크톱 기준. 서버 모드
+    // 클라 surface(예: 320x380, 게임 창 316px 폭)에 그대로 두면 절반 밖으로
+    // 나가므로 owner 중앙에 올린다. 박스가 owner보다 살짝 크면 대칭으로
+    // 넘치게 둔다(320 vs 316 → x=-2). 두 경로 모두 좌표 공간이 같아
+    // (tree/최상위) 동일하게 동작한다.
+    if (owner) {
+        const JKRect area = owner->GetRect();
+        JKRect r = slot->GetRect();
+        if (!area.IsEmpty()) {
+            r.x = area.x + (area.w - r.w) / 2;
+            r.y = area.y + (area.h - r.h) / 2;
+            slot->SetWindowRect(r);
+        }
+    }
     slot->Show();
 }
 
