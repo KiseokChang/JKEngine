@@ -3,6 +3,9 @@
 > `engine` 윈도우 서버 환경에 **Dear ImGui**를 통합하는 계획 문서.
 > 2026-09-05 기획 (구현 전). 터미널 트랙(별도 문서)에 이은 제2 트랙으로, "터미널 우선,
 > 이후 Dear ImGui" 순서가 사용자 승인되어 있다. 구현은 터미널 이후에 시작한다.
+> 2026-09-06 업데이트: 터미널 트랙 Phase 1 완료(docs/22). 사용자 리서치
+> (`temp/imgui 적용 검토.md`) 검토 결정을 **§11**에 기록 — §9 Phase 2 이후
+> 로드맵은 §11 기준으로 재편된다.
 > 기반이 되는 문서: `19_sdl2_window_server.md`(서버 모델), `21_jkx_container.md`(패키징),
 > `16_sdl2_jkwindow_ime.md`(IME), `20_png_assets.md`(아이콘 규약).
 
@@ -331,6 +334,9 @@ BlitTexture는 사각 blit뿐) **ImGui를 JKRenderCommandList로 직렬화하는
 
 ### Phase 2 — 실전 포팅 + 한글 + 고도화
 
+> (2026-09-06 §11에서 재편: Phase 2의 쇼케이스는 **taskmgr** 우선. 아래 항목들은
+> §11 로드맵의 Phase 3로 이동.)
+
 1. **실전 OSS 도구 1종 포팅**: 1차 후보 **ocornut/imgui_club의 메모리 에디터
    (`imgui_memory_editor.h`)** — 단일 헤더, MIT, 외부 의존 0, 데이터 집약 UI로 래스터
    성능 실증에 최적. 차후 후보: AirGuanZ/imgui-filebrowser(파일 매니저 트랙).
@@ -365,3 +371,51 @@ BlitTexture는 사각 blit뿐) **ImGui를 JKRenderCommandList로 직렬화하는
    doc 19 §8), imgui.ini 미생성 확인(§8-10).
 8. **종료**: 닫기 버튼 → 클라 exit=0 → 레이어 제거 → 재스폰(acceptor 재무장, doc 19 §9-7
    절차 준용).
+
+---
+
+## 11. 리서치 검토 결정 (2026-09-06)
+
+사용자 리서치(`temp/imgui 적용 검토.md` — 외부 AI 대화 로그)를 코드베이스 실정과
+대조해 본 계획에 반영한 결과. §1-§10의 기술 설계는 유지되고, 아래 결정이 추가된다.
+
+### 11.1 원칙 — 두 트랙 전략
+
+- **jkwindow 네이티브 UI**: 셸/작업표시줄처럼 포커스·크롬·최상위 특권이 필요한
+  시스템 UI 전용 (docs/28 = 작업표시줄 B안이 이 트랙).
+- **ImGui 트랙**(본 문서): 테스크매니저, 뷰어, 도구 등 유틸리티 앱 — 생산성이
+  결정 요건인 UI. 두 트랙의 경계는 "창 관리 특권의 필요 여부".
+
+### 11.2 로드맵 재편 (§9 Phase 2 대체)
+
+- **Phase 2 — taskmgr 쇼케이스**: 셸 프로토콜(docs/28) 재사용.
+  - 프로토콜 v2: `ShellWindowEntry`에 `pid` 추가 — 서버가 클라 스폰 시
+    CreateProcess 정보에서 기록. 테스크매니저 클라는 pid로 직접
+    `GetProcessMemoryInfo`/`GetProcessTimes` 조회 (서버 부담 0).
+  - UI: `ImGuiTable`(정렬 `ImGuiTableSortSpecs`) + `PlotLines`(CPU 이력) +
+    IO 덤프 패널은 Phase 1 데모에서 계승.
+  - 창 활성화/최소화: 기존 `WindowActivate`/`WindowMinimizeToggle` 재사용 —
+    작업표시줄보다 적은 노력으로 셸 기능을 확장하는 구조.
+- **Phase 3 — 생태계**: `imgui_memory_editor`(단일 헤더) → ImPlot →
+  (장기) CEF/Ultralight OSR, FFmpeg 비디오 플레이어. 리서치 문서의 OSR
+  5단계 파이프라인(CreateView → Update/Render → lockPixels →
+  SDL_UpdateTexture → ImGui::Image + 입력 주입)과 A/V 싱크(오디오 마스터
+  클럭, PTS 기반 프레임 드롭) 분석은 착수 시 재활용.
+- **한글 폰트**: §4.3 유지 — v1.92 동적 폰트라 TTF 로드만으로 on-demand
+  래스터(`HangulManager` TTF 경로 재사용). 리서치의
+  `GetGlyphRangesKorean`(선불 아틀라스)은 1.92 이전 방식이라 미채택.
+
+### 11.3 리서치 대비 정정 (코드베이스 실정)
+
+| 리서치 가정 | 실정 (근거) |
+|---|---|
+| 창 목록 동기화용 FAM 가변배열 + ADD/REMOVE/UPDATE 델타 이벤트 신설 | 불필요 — `WindowList` 고정 32개 스냅샷 전체 교체(push-on-change, idempotent 자가복구)가 이미 존재 (JKWireProtocol.h:113, docs/28) |
+| JKDC 백도어(`GetRawRenderer`)로 raw SDL_Renderer 노출 | protected 가상 `RenderOverlay` 훅 1개(§5.2-4)로 충분. "JKRenderCommandList에 삼각형 명령이 없어 JKDC 직렬화는 불가능"한 것은 동일 판단(§4.2 단서) |
+| 클라가 소프트웨어 렌더러/raw 픽셀을 다뤄 커스텀 래스터라이저 필요 | 클라는 이미 가속 렌더러 + 렌더 타깃 텍스처 → readback → shm 경로(§4.2 근거 1) — 공식 `imgui_impl_sdlrenderer2` 포팅이 정답 |
+| 알파 블렌딩/리사이즈 핸드셰이크/shm 이중버퍼 신설 | 기존 커밋 경로가 전부 제공 — 신규 작업 0 |
+| 단일 프로세스 모드도 ImGui 지원 | 미포함 — JKRenderThread 명령 리스트에 삼각형이 없어 별도 설계 필요(§4.2 단서). Phase 1은 클라 경로만 |
+
+### 11.4 유지 결정
+
+- **멀티뷰포트 영구 제외** — 창 소유는 서버에 있다(§2, §9-2-5와 동일).
+- 버전 핀 §3.1(v1.92.x)과 `io.IniFilename = nullptr`(§8-10) 유지.
