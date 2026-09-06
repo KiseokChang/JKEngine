@@ -61,6 +61,29 @@ set_target_properties(quickjs PROPERTIES
 )
 
 # ---------------------------------------------------------------------------
+# imgui (vendored Dear ImGui v1.92.9b, docs/23 §3): immediate-mode GUI core
+# for the utility-app track. Tag commit f1cc2ae15e53a861a874c3034aae6798fde194ab
+# (2026-07-31 hotfix release; also upstream latest as of 2026-09-06).
+# Deliberately NOT inside jkcore — jkcore is statically embedded into every
+# app module DLL, and ImGui would tax all the modules that never use it.
+# Only ImGui apps link this target. The custom backend
+# imgui_impl_jkwindow.cpp joins this target (docs/23 §3.2/§4) and needs the
+# JKEvent.h header path from jkcore's include tree.
+# ---------------------------------------------------------------------------
+set(IMGUI_DIR third_party/imgui)
+add_library(imgui STATIC
+    ${IMGUI_DIR}/imgui.cpp
+    ${IMGUI_DIR}/imgui_draw.cpp
+    ${IMGUI_DIR}/imgui_tables.cpp
+    ${IMGUI_DIR}/imgui_widgets.cpp
+    ${IMGUI_DIR}/imgui_demo.cpp
+)
+target_include_directories(imgui PUBLIC
+    ${IMGUI_DIR}
+    ${CMAKE_SOURCE_DIR}/include
+)
+
+# ---------------------------------------------------------------------------
 # jkcore: everything except main(), the RC file, and the apps. The exe and
 # each app module DLL link this statically — every module carries its own
 # copy of the core, and all cross-module calls go through the C ABI in
