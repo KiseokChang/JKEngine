@@ -58,7 +58,7 @@ void AppLauncherItem::OnPaintClient(JKDC& dc) {
     iconRect.w = kLauncherIconSize;
     iconRect.h = kLauncherIconSize;
 
-    JKResourceCache* cache = g_currentJKApp ? g_currentJKApp->GetResourceCache() : nullptr;
+    JKResourceCache* cache = g_jkAppHost ? g_jkAppHost->GetResourceCache() : nullptr;
     if (!iconKey_.empty() && cache && cache->HasImage(iconKey_)) {
         auto tex = cache->GetImage(iconKey_);
         dc.DrawSpriteX(iconRect, tex, kLauncherIconSize, kLauncherIconSize, ADJ_XYCENTER);

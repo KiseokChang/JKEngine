@@ -1,5 +1,6 @@
 #include <apps/PcxApp.h>
 
+#include <apps/PcxViews.h>
 #include <JKWindow.h>
 #include <JKStatic.h>
 #include <JKDC.h>
@@ -206,8 +207,15 @@ PcxApp::PcxApp(const std::string& filePath) : filePath_(filePath) {
 }
 
 void PcxApp::OnInit() {
+    SetMainWindow(CreatePcxViewerWindow(filePath_));
+}
+
+// Shared viewer construction (PcxViews.h). Used by PcxApp (single process)
+// and ClientPcxApp (module). An empty/missing file shows the same
+// placeholder as the single-process `pcx` invocation without an argument.
+std::unique_ptr<JKWindow> CreatePcxViewerWindow(const std::string& filePath) {
     static PcxImage sImage;
-    bool loaded = LoadPcx(filePath_, sImage);
+    bool loaded = LoadPcx(filePath, sImage);
 
     auto main = std::make_unique<JKWindow>("PCX Viewer - SDL2 Port");
     main->SetWindowRect(JKRect{ 0, 0, 1920, 1080 });
@@ -225,7 +233,7 @@ void PcxApp::OnInit() {
 
         char info[256];
         std::snprintf(info, sizeof(info), "%s  (%dx%d)",
-                      filePath_.c_str(), sImage.width, sImage.height);
+                      filePath.c_str(), sImage.width, sImage.height);
         auto label = std::make_unique<JKStatic>(JKRect{ 0, 0, 1920, 24 }, 0);
         label->SetText(info);
         label->SetBackColor(0, 0, 128);
@@ -233,7 +241,7 @@ void PcxApp::OnInit() {
         main->AddControl(std::move(label));
     }
 
-    SetMainWindow(std::move(main));
+    return main;
 }
 
 } // namespace jk

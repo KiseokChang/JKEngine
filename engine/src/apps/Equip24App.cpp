@@ -447,8 +447,8 @@ void Equip24Dialog::ShowInputDialog(bool modify) {
         });
     inputDlg_->SetOnClose([this](int) {
         dataMan_.Save();
-        if (g_currentJKApp) {
-            g_currentJKApp->SetModalWindow(this);
+        if (g_jkAppHost) {
+            g_jkAppHost->SetModalWindow(this);
         }
         RefreshAll();
     });

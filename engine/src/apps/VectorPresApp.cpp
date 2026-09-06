@@ -1,5 +1,7 @@
 #include <apps/VectorPresApp.h>
 
+#include <apps/VectorViews.h>
+
 #include <JKDC.h>
 #include <JKEvent.h>
 #include <JKWindow.h>
@@ -41,65 +43,62 @@ void ColorFromIndex(uint8_t idx, uint8_t& r, uint8_t& g, uint8_t& b) {
     b = pal[idx][2];
 }
 
-class PresentWindow : public JKWindow {
-public:
-    explicit PresentWindow(JKVectorFont* vfont) : vfont_(vfont) {
-        SetBackColor(255, 255, 255);
-        SetAttrFlags(WA_TITLEMOVEABLE | WA_BORDERRESIZABLE);
-    }
-
-    void OnPaintClient(JKDC& dc) override {
-        JKWindow::OnPaintClient(dc);
-        if (!vfont_) return;
-
-        const JKRect client = GetScreenClientRect();
-        const JKPoint center{ client.x + client.w / 2,
-                              client.y + client.h / 2 };
-
-        const int size = 4 + txtCount_ / 12;
-        const int radius = 4 + txtCount_ / 4;
-
-        vfont_->ResetCTM();
-        vfont_->SetFont(JKVectorFont::Hangul, 0);
-        vfont_->SetSize(size, size);
-        vfont_->Rotate(txtCount_);
-
-        uint8_t r, g, b;
-        ColorFromIndex(txtColor_, r, g, b);
-        dc.SetTextColor(r, g, b);
-
-        const double rad = txtCount_ * kPi / 180.0;
-        const JKPoint pos{
-            center.x + static_cast<int32_t>(radius * std::cos(rad)),
-            center.y + static_cast<int32_t>(radius * std::sin(rad))
-        };
-
-        vfont_->DrawString(dc, pos, kPresString);
-    }
-
-    void RespondMessage(const JKEvent& ev) override {
-        if (ev.type == JKEventType::Timer) {
-            txtCount_ += 10;
-            if (txtCount_ >= 720) {
-                txtCount_ = 0;
-            }
-            // Cycle through colors, skipping white (background color).
-            txtColor_ = (txtColor_ + 1) % 16;
-            if (txtColor_ == 15) {
-                txtColor_ = 0;
-            }
-            return;
-        }
-        JKWindow::RespondMessage(ev);
-    }
-
-private:
-    JKVectorFont* vfont_ = nullptr;
-    int txtCount_ = 0;
-    uint8_t txtColor_ = 14; // start with yellow
-};
+// PresentWindow는 서버 모드 ClientVectorPresApp에서도 재사용하므로
+// 클래스 선언이 include/apps/VectorViews.h로 옮겨갔다. 구현만 여기에 둔다.
 
 } // anonymous namespace
+
+// --- PresentWindow (선언: include/apps/VectorViews.h) ---
+
+PresentWindow::PresentWindow(JKVectorFont* vfont) : vfont_(vfont) {
+    SetBackColor(255, 255, 255);
+    SetAttrFlags(WA_TITLEMOVEABLE | WA_BORDERRESIZABLE);
+}
+
+void PresentWindow::OnPaintClient(JKDC& dc) {
+    JKWindow::OnPaintClient(dc);
+    if (!vfont_) return;
+
+    const JKRect client = GetScreenClientRect();
+    const JKPoint center{ client.x + client.w / 2,
+                          client.y + client.h / 2 };
+
+    const int size = 4 + txtCount_ / 12;
+    const int radius = 4 + txtCount_ / 4;
+
+    vfont_->ResetCTM();
+    vfont_->SetFont(JKVectorFont::Hangul, 0);
+    vfont_->SetSize(size, size);
+    vfont_->Rotate(txtCount_);
+
+    uint8_t r, g, b;
+    ColorFromIndex(txtColor_, r, g, b);
+    dc.SetTextColor(r, g, b);
+
+    const double rad = txtCount_ * kPi / 180.0;
+    const JKPoint pos{
+        center.x + static_cast<int32_t>(radius * std::cos(rad)),
+        center.y + static_cast<int32_t>(radius * std::sin(rad))
+    };
+
+    vfont_->DrawString(dc, pos, kPresString);
+}
+
+void PresentWindow::RespondMessage(const JKEvent& ev) {
+    if (ev.type == JKEventType::Timer) {
+        txtCount_ += 10;
+        if (txtCount_ >= 720) {
+            txtCount_ = 0;
+        }
+        // Cycle through colors, skipping white (background color).
+        txtColor_ = (txtColor_ + 1) % 16;
+        if (txtColor_ == 15) {
+            txtColor_ = 0;
+        }
+        return;
+    }
+    JKWindow::RespondMessage(ev);
+}
 
 class VectorPresApp::Impl {
 public:
@@ -113,18 +112,7 @@ VectorPresApp::VectorPresApp() : impl_(std::make_unique<Impl>()) {
 VectorPresApp::~VectorPresApp() = default;
 
 void VectorPresApp::OnInit() {
-    impl_->vfont = std::make_unique<JKVectorFont>(
-#ifdef JKENGINE_FONT_DIR
-        JKENGINE_FONT_DIR
-#else
-        "."
-#endif
-    );
-
-    if (!impl_->vfont->LoadFont("english.vft", JKVectorFont::English, 0) ||
-        !impl_->vfont->LoadFont("hanmoon.vft", JKVectorFont::Hangul, 0)) {
-        std::fprintf(stderr, "VectorPresApp: failed to load one or more fonts\n");
-    }
+    impl_->vfont = LoadVectorAppFonts("VectorPresApp");
 
     auto main = std::make_unique<PresentWindow>(impl_->vfont.get());
     main->SetTitle("Vector Font Window - SDL2 Port");

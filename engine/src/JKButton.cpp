@@ -62,10 +62,10 @@ void JKButton::RespondMessage(const JKEvent& ev) {
                     winId_, ev.x, ev.y, client.x, client.y, client.w, client.h);
                 std::fflush(log);
             }
-            g_currentJKApp->SetCapture(this);
+            g_jkAppHost->SetCapture(this);
         }
     } else if (ev.type == JKEventType::MouseUp) {
-        if (g_currentJKApp) g_currentJKApp->ReleaseCapture();
+        if (g_jkAppHost) g_jkAppHost->ReleaseCapture();
         if (selecting_) {
             selecting_ = false;
             const JKRect client = GetScreenClientRect();
@@ -85,7 +85,7 @@ void JKButton::RespondMessage(const JKEvent& ev) {
             }
         }
     } else if (ev.type == JKEventType::MouseMove) {
-        if (selecting_ && g_currentJKApp && g_currentJKApp->GetCapture() == this) {
+        if (selecting_ && g_jkAppHost && g_jkAppHost->GetCapture() == this) {
             const JKRect client = GetScreenClientRect();
             status_ = client.Contains(ev.x, ev.y);
         }

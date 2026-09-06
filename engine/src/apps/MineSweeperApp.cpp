@@ -474,7 +474,7 @@ void MineGrid::DrawCell(JKDC& dc, int row, int col, const JKRect& cell) const {
     bool isMine = game_.IsMine(row, col);
     auto mark = game_.GetMark(row, col);
 
-    JKResourceCache* cache = g_currentJKApp ? g_currentJKApp->GetResourceCache() : nullptr;
+    JKResourceCache* cache = g_jkAppHost ? g_jkAppHost->GetResourceCache() : nullptr;
 
     if (revealed && isMine) {
         // The mine that ended the game.
@@ -884,11 +884,18 @@ public:
         if (iconsLoaded) return;
         JKResourceCache* cache = app ? app->GetResourceCache() : nullptr;
         if (!cache) return;
-        cache->CreateImageFromRGBA("mine", kIconSize, kIconSize, CreateMineIcon());
-        cache->CreateImageFromRGBA("flag", kIconSize, kIconSize, CreateFlagIcon());
-        cache->CreateImageFromRGBA("question", kIconSize, kIconSize, CreateQuestionIcon());
-        cache->CreateImageFromRGBA("launcher_mine", 32, 32, CreateMineLauncherIcon());
-        cache->CreateImageFromRGBA("launcher_tetris", 32, 32, CreateTetrisLauncherIcon());
+        // PNG assets take precedence; the procedural fallback keeps the app
+        // working without an assets/ tree (asset spec: ARCHITECTURE_DOCS/20).
+        if (!cache->LoadImagePNG("mine", "assets/icons/mine@1x.png"))
+            cache->CreateImageFromRGBA("mine", kIconSize, kIconSize, CreateMineIcon());
+        if (!cache->LoadImagePNG("flag", "assets/icons/flag@1x.png"))
+            cache->CreateImageFromRGBA("flag", kIconSize, kIconSize, CreateFlagIcon());
+        if (!cache->LoadImagePNG("question", "assets/icons/question@1x.png"))
+            cache->CreateImageFromRGBA("question", kIconSize, kIconSize, CreateQuestionIcon());
+        if (!cache->LoadImagePNG("launcher_mine", "assets/icons/launcher_mine@1x.png"))
+            cache->CreateImageFromRGBA("launcher_mine", 32, 32, CreateMineLauncherIcon());
+        if (!cache->LoadImagePNG("launcher_tetris", "assets/icons/launcher_tetris@1x.png"))
+            cache->CreateImageFromRGBA("launcher_tetris", 32, 32, CreateTetrisLauncherIcon());
         iconsLoaded = true;
     }
 

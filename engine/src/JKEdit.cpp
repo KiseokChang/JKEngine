@@ -235,18 +235,18 @@ void JKEdit::OnSetFocus() {
 void JKEdit::OnKillFocus() {
     focused_ = false;
     showCaret_ = false;
-    if (imeComposing_ && g_currentJKApp) {
+    if (imeComposing_ && g_jkAppHost) {
         // Ask the OS IME to flush the composed string first, then fall back to
         // a local commit if the OS did not deliver a TEXTINPUT event in time.
-        SDL_Window* window = g_currentJKApp->GetSdlWindow();
+        SDL_Window* window = g_jkAppHost->GetSdlWindow();
         if (window) JKPlatform::CompleteComposition(window);
         CommitComposition();
     }
 }
 
 void JKEdit::UpdateTextInputRect() {
-    if (!g_currentJKApp) return;
-    SDL_Window* window = g_currentJKApp->GetSdlWindow();
+    if (!g_jkAppHost) return;
+    SDL_Window* window = g_jkAppHost->GetSdlWindow();
     if (!window) return;
     const JKRect client = GetScreenClientRect();
     SDL_Rect rect{ client.x, client.y, client.w, client.h };
@@ -255,8 +255,8 @@ void JKEdit::UpdateTextInputRect() {
 
 void JKEdit::DetectWindowsImeState() {
 #ifdef _WIN32
-    if (!g_currentJKApp) return;
-    SDL_Window* window = g_currentJKApp->GetSdlWindow();
+    if (!g_jkAppHost) return;
+    SDL_Window* window = g_jkAppHost->GetSdlWindow();
     if (!window) return;
     JKPlatform::ImeMode mode = JKPlatform::GetCurrentConversionMode(window);
     if (mode == JKPlatform::ImeMode::Hangul) {
@@ -287,8 +287,8 @@ void JKEdit::RespondMessage(const JKEvent& ev) {
 
         // If the IME was composing when the user clicked, ask the OS to commit
         // the string before we move the caret or change selection.
-        if (imeComposing_ && g_currentJKApp) {
-            SDL_Window* window = g_currentJKApp->GetSdlWindow();
+        if (imeComposing_ && g_jkAppHost) {
+            SDL_Window* window = g_jkAppHost->GetSdlWindow();
             if (window) JKPlatform::CompleteComposition(window);
         }
 
@@ -305,7 +305,7 @@ void JKEdit::RespondMessage(const JKEvent& ev) {
         mouseAnchor_ = selAnchor_;
         mouseSelecting_ = true;
         ScrollToCursor();
-        if (g_currentJKApp) g_currentJKApp->SetCapture(this);
+        if (g_jkAppHost) g_jkAppHost->SetCapture(this);
     } else if (ev.type == JKEventType::MouseMove) {
         if (mouseSelecting_) {
             cursorPos_ = PixelToPos(ev.x, ev.y);
@@ -315,8 +315,8 @@ void JKEdit::RespondMessage(const JKEvent& ev) {
         }
     } else if (ev.type == JKEventType::MouseUp) {
         mouseSelecting_ = false;
-        if (g_currentJKApp && g_currentJKApp->GetCapture() == this) {
-            g_currentJKApp->ReleaseCapture();
+        if (g_jkAppHost && g_jkAppHost->GetCapture() == this) {
+            g_jkAppHost->ReleaseCapture();
         }
     } else if (ev.type == JKEventType::Timer) {
         if (focused_) showCaret_ = !showCaret_;
@@ -365,8 +365,8 @@ void JKEdit::RespondMessage(const JKEvent& ev) {
                 // When the user switches to the internal automata, force the OS
                 // IME into ASCII mode so both systems do not compose at the same
                 // time and create duplicate characters.
-                if (inputMode_ == InputMode::InternalHangul && g_currentJKApp) {
-                    SDL_Window* window = g_currentJKApp->GetSdlWindow();
+                if (inputMode_ == InputMode::InternalHangul && g_jkAppHost) {
+                    SDL_Window* window = g_jkAppHost->GetSdlWindow();
                     if (window) JKPlatform::SetConversionMode(window, JKPlatform::ImeMode::Ascii);
                 }
             }

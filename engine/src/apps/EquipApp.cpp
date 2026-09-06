@@ -297,8 +297,8 @@ void EquipDialog::ShowInputDialog(bool modify) {
         });
     inputDlg_->SetOnClose([this](int) {
         bombMan_.Save();
-        if (g_currentJKApp) {
-            g_currentJKApp->SetModalWindow(this);
+        if (g_jkAppHost) {
+            g_jkAppHost->SetModalWindow(this);
         }
         RefreshAll();
     });

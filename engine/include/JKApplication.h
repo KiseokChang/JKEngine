@@ -4,6 +4,7 @@
 #include <JKWindow.h>
 #include <JKMessageBus.h>
 #include <JKAudioCommand.h>
+#include <JKApplicationHost.h>
 #include <JKHangulManager.h>
 #include <JKDC.h>
 #include <JKRenderBackend.h>
@@ -21,7 +22,11 @@ class JKRenderThread;
 class JKTimerThread;
 class JKAudioThread;
 
-class JKApplication {
+// Single-process application host. Implements the JKApplicationHost services
+// that controls and shared dialogs consume through g_jkAppHost; g_currentJKApp
+// remains for the few JKApplication-specific accesses (e.g. the debug mouse
+// log) and because main() owns one concrete instance.
+class JKApplication : public JKApplicationHost {
 public:
     JKApplication();
     virtual ~JKApplication();

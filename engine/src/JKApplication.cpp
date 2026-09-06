@@ -15,8 +15,11 @@ namespace jk {
 
 JKApplication* g_currentJKApp = nullptr;
 
+JKApplicationHost* g_jkAppHost = nullptr;
+
 JKApplication::JKApplication() : dc_(nullptr) {
     g_currentJKApp = this;
+    g_jkAppHost = this;
     windowManager_ = std::make_unique<JKWindowManager>();
     messageBus_ = std::make_unique<JKMessageBus>();
 }
@@ -24,6 +27,7 @@ JKApplication::JKApplication() : dc_(nullptr) {
 JKApplication::~JKApplication() {
     Close();
     if (g_currentJKApp == this) g_currentJKApp = nullptr;
+    if (g_jkAppHost == this) g_jkAppHost = nullptr;
 }
 
 bool JKApplication::Init(const std::string& title, int width, int height) {

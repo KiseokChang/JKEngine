@@ -335,14 +335,14 @@ void JKControl::SetFocus() {
         JKWindow* win = dynamic_cast<JKWindow*>(p);
         if (win) {
             if (win->GetFocusChild() == this) {
-                if (g_currentJKApp) g_currentJKApp->SetInputWindow(win);
+                if (g_jkAppHost) g_jkAppHost->SetInputWindow(win);
                 return;
             }
             JKControl* old = win->GetFocusChild();
             if (old) old->OnKillFocus();
             win->SetFocusChild(this);
             OnSetFocus();
-            if (g_currentJKApp) g_currentJKApp->SetInputWindow(win);
+            if (g_jkAppHost) g_jkAppHost->SetInputWindow(win);
             return;
         }
         p = p->GetParent();

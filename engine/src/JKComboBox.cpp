@@ -48,7 +48,13 @@ void JKComboBox::ToggleDropDown() {
     const JKRect rc = GetRect();
     int32_t h = static_cast<int32_t>(items_.size()) * 16 + 4;
     h = std::min(h, 120);
-    // Child coordinates are relative to the combobox's client area.
+    // Attach the popup to our PARENT so its rect lives in the same
+    // parent-client coordinate space as GetRect() (a child-of-combo rect
+    // would be interpreted as combo-local and end up double-offset by
+    // (rc.x, rc.y) on screen). Being the parent's last child also paints and
+    // hit-tests above the combo's siblings.
+    JKControl* parent = GetParent();
+    if (!parent) return;
     JKRect popupRect{ rc.x, rc.y + rc.h, rc.w, h };
     auto list = std::make_unique<JKListBox>(popupRect, 0);
     for (const auto& s : items_) list->AddString(s);
@@ -58,7 +64,7 @@ void JKComboBox::ToggleDropDown() {
         CloseDropDown();
     });
     popup_ = list.get();
-    AddControl(std::move(list));
+    parent->AddControl(std::move(list));
     dropped_ = true;
 }
 

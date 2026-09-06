@@ -13,8 +13,8 @@ void JKDialog::Show() {
     // SetModalWindow saves the previously focused control and then focuses the
     // first child of the modal; calling FocusFirstChild before this would
     // overwrite the control whose focus should be restored on close.
-    if (g_currentJKApp) {
-        g_currentJKApp->SetModalWindow(this);
+    if (g_jkAppHost) {
+        g_jkAppHost->SetModalWindow(this);
     }
 }
 
@@ -24,8 +24,8 @@ void JKDialog::Close(int result) {
         onClose_(result);
     }
     RequestClose();
-    if (g_currentJKApp && g_currentJKApp->GetModalWindow() == this) {
-        g_currentJKApp->SetModalWindow(nullptr);
+    if (g_jkAppHost && g_jkAppHost->GetModalWindow() == this) {
+        g_jkAppHost->SetModalWindow(nullptr);
     }
 }
 
@@ -38,12 +38,12 @@ void JKDialog::RespondMessage(const JKEvent& ev) {
     JKWindow::RespondMessage(ev);
 
     // The title-bar close button sets closeRequested_ without resetting modal state.
-    if (IsCloseRequested() && g_currentJKApp && g_currentJKApp->GetModalWindow() == this) {
+    if (IsCloseRequested() && g_jkAppHost && g_jkAppHost->GetModalWindow() == this) {
         result_ = ResultCancel;
         if (onClose_) {
             onClose_(ResultCancel);
         }
-        g_currentJKApp->SetModalWindow(nullptr);
+        g_jkAppHost->SetModalWindow(nullptr);
     }
 }
 

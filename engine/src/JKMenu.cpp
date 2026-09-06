@@ -65,15 +65,15 @@ void JKMenu::OpenPopup(int32_t index) {
     auto popup = std::make_unique<Popup>(popupRect, menus_[index].items,
                                             [this]() { ClosePopup(); });
     popup_ = std::move(popup);
-    if (g_currentJKApp) {
-        g_currentJKApp->SetModalWindow(popup_.get());
+    if (g_jkAppHost) {
+        g_jkAppHost->SetModalWindow(popup_.get());
     }
 }
 
 void JKMenu::ClosePopup() {
     if (popup_) {
-        if (g_currentJKApp && g_currentJKApp->GetModalWindow() == popup_.get()) {
-            g_currentJKApp->SetModalWindow(nullptr);
+        if (g_jkAppHost && g_jkAppHost->GetModalWindow() == popup_.get()) {
+            g_jkAppHost->SetModalWindow(nullptr);
         }
         popup_->RequestClose();
     }

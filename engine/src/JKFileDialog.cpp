@@ -200,13 +200,13 @@ void JKFileDialog::OnOk() {
     if (onOk_) onOk_(fileName_);
 
     RequestClose();
-    if (g_currentJKApp) g_currentJKApp->SetModalWindow(nullptr);
+    if (g_jkAppHost) g_jkAppHost->SetModalWindow(nullptr);
 }
 
 void JKFileDialog::OnCancel() {
     if (onCancel_) onCancel_();
     RequestClose();
-    if (g_currentJKApp) g_currentJKApp->SetModalWindow(nullptr);
+    if (g_jkAppHost) g_jkAppHost->SetModalWindow(nullptr);
 }
 
 void JKFileDialog::NavigateUp() {
@@ -243,7 +243,7 @@ void JKFileDialog::Show() {
         currentDir_ = fs::current_path().string();
     }
     RefreshList();
-    if (g_currentJKApp) g_currentJKApp->SetModalWindow(this);
+    if (g_jkAppHost) g_jkAppHost->SetModalWindow(this);
     Open();
 }
 
@@ -259,8 +259,8 @@ void JKFileDialog::RespondMessage(const JKEvent& ev) {
         }
     }
     JKWindow::RespondMessage(ev);
-    if (IsCloseRequested() && g_currentJKApp && g_currentJKApp->GetModalWindow() == this) {
-        g_currentJKApp->SetModalWindow(nullptr);
+    if (IsCloseRequested() && g_jkAppHost && g_jkAppHost->GetModalWindow() == this) {
+        g_jkAppHost->SetModalWindow(nullptr);
     }
 }
 

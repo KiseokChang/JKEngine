@@ -385,8 +385,8 @@ void InsaDialog::ShowInputDialog(bool modify) {
         });
     inputDlg_->SetOnClose([this](int) {
         personMan_.Save();
-        if (g_currentJKApp) {
-            g_currentJKApp->SetModalWindow(this);
+        if (g_jkAppHost) {
+            g_jkAppHost->SetModalWindow(this);
         }
         RebuildList();
     });
@@ -412,8 +412,8 @@ void InsaDialog::ShowSearchDialog() {
             }
         });
     inputDlg_->SetOnClose([this](int) {
-        if (g_currentJKApp) {
-            g_currentJKApp->SetModalWindow(this);
+        if (g_jkAppHost) {
+            g_jkAppHost->SetModalWindow(this);
         }
     });
     inputDlg_->Show();

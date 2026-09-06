@@ -1,7 +1,29 @@
 #include <JKHangulManager.h>
+#include <SDL.h>
+#include <cstdio>
 #include <cstring>
+#include <string>
 
 namespace jk {
+
+namespace {
+
+// The bitmap fonts are vendored under <exe>/assets/fonts. The window server
+// spawns clients with CWD set to the exe dir, but opening them CWD-relative
+// (the legacy layout) broke whenever the exe was launched from elsewhere, so
+// resolve against SDL_GetBasePath first and fall back to the bare name.
+FILE* OpenFontFile(const char* name) {
+    if (char* base = SDL_GetBasePath()) {
+        const std::string path = std::string(base) + "assets/fonts/" + name;
+        SDL_free(base);
+        if (FILE* fp = std::fopen(path.c_str(), "rb")) {
+            return fp;
+        }
+    }
+    return std::fopen(name, "rb");
+}
+
+} // namespace
 
 int8_t HangulManager::IndexHF[3][32] = {
     {
@@ -56,7 +78,7 @@ HangulManager::HangulManager() {
             std::memset(HanMiddleFont, 0, 4 * 22 * 32);
             std::memset(HanLastFont,   0, 4 * 28 * 32);
 
-            FILE* fp = std::fopen(HangulFontFile, "rb");
+            FILE* fp = OpenFontFile(HangulFontFile);
             if (fp) {
                 std::fread(HanFirstFont,  8 * 20 * 32, 1, fp);
                 std::fread(HanMiddleFont, 4 * 22 * 32, 1, fp);
@@ -75,7 +97,7 @@ HangulManager::HangulManager() {
         EnglishFont = new uint8_t[256 * 16];
         if (EnglishFont) {
             std::memset(EnglishFont, 0, 256 * 16);
-            FILE* fp = std::fopen(EngFontFile, "rb");
+            FILE* fp = OpenFontFile(EngFontFile);
             if (fp) {
                 std::fread(EnglishFont, 256 * 16, 1, fp);
                 std::fclose(fp);
@@ -93,7 +115,7 @@ HangulManager::HangulManager() {
         HanjaFont = new uint8_t[HanjaGlyphCount * 32];
         if (HanjaFont) {
             std::memset(HanjaFont, 0, HanjaGlyphCount * 32);
-            FILE* fp = std::fopen(HanjaFontFile, "rb");
+            FILE* fp = OpenFontFile(HanjaFontFile);
             if (fp) {
                 std::fread(HanjaFont, HanjaGlyphCount * 32, 1, fp);
                 std::fclose(fp);
@@ -108,7 +130,7 @@ HangulManager::HangulManager() {
         SpecialFont = new uint8_t[SpecialGlyphCount * 32];
         if (SpecialFont) {
             std::memset(SpecialFont, 0, SpecialGlyphCount * 32);
-            FILE* fp = std::fopen(SpcFontFile, "rb");
+            FILE* fp = OpenFontFile(SpcFontFile);
             if (fp) {
                 std::fread(SpecialFont, SpecialGlyphCount * 32, 1, fp);
                 std::fclose(fp);

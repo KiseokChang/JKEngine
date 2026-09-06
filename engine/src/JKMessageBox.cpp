@@ -75,8 +75,8 @@ void JKMessageBox::Show() {
     // SetModalWindow saves the previously focused control and then focuses the
     // first child of the modal; calling FocusFirstChild before this would
     // overwrite the control whose focus should be restored on close.
-    if (g_currentJKApp) {
-        g_currentJKApp->SetModalWindow(this);
+    if (g_jkAppHost) {
+        g_jkAppHost->SetModalWindow(this);
     }
 }
 
@@ -104,8 +104,8 @@ void JKMessageBox::Close(int result) {
     // Close the modal and restore focus before invoking the result callback,
     // so the callback can safely start a new game or open another dialog.
     RequestClose();
-    if (g_currentJKApp && g_currentJKApp->GetModalWindow() == this) {
-        g_currentJKApp->SetModalWindow(nullptr);
+    if (g_jkAppHost && g_jkAppHost->GetModalWindow() == this) {
+        g_jkAppHost->SetModalWindow(nullptr);
     }
     if (onResult_) onResult_(result);
 }
@@ -122,9 +122,8 @@ void JKMessageBox::RespondMessage(const JKEvent& ev) {
         }
     }
     JKWindow::RespondMessage(ev);
-    if (IsCloseRequested() && g_currentJKApp &&
-        g_currentJKApp->GetModalWindow() == this) {
-        g_currentJKApp->SetModalWindow(nullptr);
+    if (IsCloseRequested() && g_jkAppHost && g_jkAppHost->GetModalWindow() == this) {
+        g_jkAppHost->SetModalWindow(nullptr);
     }
 }
 

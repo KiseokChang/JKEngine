@@ -1,5 +1,6 @@
 #include <apps/RecogApp.h>
 
+#include <apps/RecogViews.h>
 #include <JKApplication.h>
 #include <JKButton.h>
 #include <JKDC.h>
@@ -189,7 +190,7 @@ private:
 
 } // anonymous namespace
 
-class RecogApp::Impl {
+class RecogUI::Impl {
 public:
     InputBoard* inputBoard = nullptr;
     JKListBox* strokeList = nullptr;
@@ -217,6 +218,60 @@ public:
         charList->AddString(buf);
         inputBoard->Clear();
     }
+
+    void Build(JKWindow* parent) {
+        auto input = std::make_unique<InputBoard>(
+            JKRect{ 20, 320, 1880, 1060 },
+            [this]() { FinishStroke(); },
+            [this]() { FinishCharacter(); });
+        inputBoard = input.get();
+
+        auto clearBtn = std::make_unique<JKButton>(JKRect{ 20, 50, 120, 80 }, ID_BTN_CLEAR);
+        clearBtn->SetText("Clear");
+        clearBtn->SetOnClick([this]() {
+            inputBoard->Clear();
+            strokeList->Clear();
+            charList->Clear();
+        });
+
+        auto recogBtn = std::make_unique<JKButton>(JKRect{ 140, 50, 260, 80 }, ID_BTN_RECOG);
+        recogBtn->SetText("Recognize");
+        recogBtn->SetOnClick([this]() { FinishCharacter(); });
+
+        auto strokeLabel = std::make_unique<JKStatic>(JKRect{ 300, 50, 620, 66 }, 0);
+        strokeLabel->SetText("Strokes:");
+        auto strokeList = std::make_unique<JKListBox>(JKRect{ 300, 70, 620, 300 }, ID_LIST_STROKE);
+        this->strokeList = strokeList.get();
+
+        auto charLabel = std::make_unique<JKStatic>(JKRect{ 640, 50, 960, 66 }, 0);
+        charLabel->SetText("Characters:");
+        auto charList = std::make_unique<JKListBox>(JKRect{ 640, 70, 960, 300 }, ID_LIST_CHAR);
+        this->charList = charList.get();
+
+        parent->AddControl(std::move(input));
+        parent->AddControl(std::move(clearBtn));
+        parent->AddControl(std::move(recogBtn));
+        parent->AddControl(std::move(strokeLabel));
+        parent->AddControl(std::move(strokeList));
+        parent->AddControl(std::move(charLabel));
+        parent->AddControl(std::move(charList));
+
+        inputBoard->SetFocus();
+    }
+};
+
+RecogUI::RecogUI() : impl_(std::make_unique<Impl>()) {
+}
+
+RecogUI::~RecogUI() = default;
+
+void RecogUI::Build(JKWindow* parent) {
+    impl_->Build(parent);
+}
+
+class RecogApp::Impl {
+public:
+    std::unique_ptr<RecogUI> ui = std::make_unique<RecogUI>();
 };
 
 RecogApp::RecogApp() : impl_(std::make_unique<Impl>()) {
@@ -228,43 +283,8 @@ void RecogApp::OnInit() {
     auto main = std::make_unique<JKWindow>("Stroke Recognition - SDL2 Port");
     main->SetWindowRect(JKRect{ 0, 0, 1920, 1080 });
 
-    auto input = std::make_unique<InputBoard>(
-        JKRect{ 20, 320, 1880, 1060 },
-        [this]() { impl_->FinishStroke(); },
-        [this]() { impl_->FinishCharacter(); });
-    impl_->inputBoard = input.get();
+    impl_->ui->Build(main.get());
 
-    auto clearBtn = std::make_unique<JKButton>(JKRect{ 20, 50, 120, 80 }, ID_BTN_CLEAR);
-    clearBtn->SetText("Clear");
-    clearBtn->SetOnClick([this]() {
-        impl_->inputBoard->Clear();
-        impl_->strokeList->Clear();
-        impl_->charList->Clear();
-    });
-
-    auto recogBtn = std::make_unique<JKButton>(JKRect{ 140, 50, 260, 80 }, ID_BTN_RECOG);
-    recogBtn->SetText("Recognize");
-    recogBtn->SetOnClick([this]() { impl_->FinishCharacter(); });
-
-    auto strokeLabel = std::make_unique<JKStatic>(JKRect{ 300, 50, 620, 66 }, 0);
-    strokeLabel->SetText("Strokes:");
-    auto strokeList = std::make_unique<JKListBox>(JKRect{ 300, 70, 620, 300 }, ID_LIST_STROKE);
-    impl_->strokeList = strokeList.get();
-
-    auto charLabel = std::make_unique<JKStatic>(JKRect{ 640, 50, 960, 66 }, 0);
-    charLabel->SetText("Characters:");
-    auto charList = std::make_unique<JKListBox>(JKRect{ 640, 70, 960, 300 }, ID_LIST_CHAR);
-    impl_->charList = charList.get();
-
-    main->AddControl(std::move(input));
-    main->AddControl(std::move(clearBtn));
-    main->AddControl(std::move(recogBtn));
-    main->AddControl(std::move(strokeLabel));
-    main->AddControl(std::move(strokeList));
-    main->AddControl(std::move(charLabel));
-    main->AddControl(std::move(charList));
-
-    impl_->inputBoard->SetFocus();
     SetMainWindow(std::move(main));
 }
 

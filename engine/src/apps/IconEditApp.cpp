@@ -1,10 +1,10 @@
 #include <apps/IconEditApp.h>
 
+#include <apps/IconEditViews.h>
 #include <JKApplication.h>
 #include <JKButton.h>
 #include <JKDC.h>
 #include <JKDialog.h>
-#include <JKEdit.h>
 #include <JKEdit.h>
 #include <JKEvent.h>
 #include <JKListBox.h>
@@ -349,16 +349,16 @@ public:
                 return;
             }
             PutPixelAt(ev.x, ev.y);
-            if (g_currentJKApp) g_currentJKApp->SetCapture(this);
+            if (g_jkAppHost) g_jkAppHost->SetCapture(this);
         } else if (ev.type == JKEventType::MouseMove) {
-            if (g_currentJKApp && g_currentJKApp->GetCapture() == this) {
+            if (g_jkAppHost && g_jkAppHost->GetCapture() == this) {
                 PutPixelAt(ev.x, ev.y);
             } else {
                 JKControl::RespondMessage(ev);
             }
         } else if (ev.type == JKEventType::MouseUp) {
-            if (g_currentJKApp && g_currentJKApp->GetCapture() == this) {
-                g_currentJKApp->ReleaseCapture();
+            if (g_jkAppHost && g_jkAppHost->GetCapture() == this) {
+                g_jkAppHost->ReleaseCapture();
             } else {
                 JKControl::RespondMessage(ev);
             }
@@ -411,10 +411,84 @@ private:
 
 } // anonymous namespace
 
-class IconEditApp::Impl {
+class IconEditUI::Impl {
 public:
     Sprite sprite;
     uint8_t currentColor = 1;
+
+    void Build(JKWindow* parent) {
+        MakeSprite(sprite, 24, 24, 14);
+        currentColor = 1; // White
+
+        auto preview = std::make_unique<PreviewBoard>(JKRect{ 20, 20, 120, 120 }, &sprite, 4);
+
+        auto labelFile = std::make_unique<JKStatic>(JKRect{ 150, 20, 200, 36 }, 0);
+        labelFile->SetText("File:");
+        auto editFile = std::make_unique<JKEdit>(JKRect{ 260, 20, 500, 40 }, ID_EDIT_FILENAME, 64);
+        editFile->SetText("NONAME");
+
+        auto labelName = std::make_unique<JKStatic>(JKRect{ 150, 55, 200, 71 }, 0);
+        labelName->SetText("Name:");
+        auto editName = std::make_unique<JKEdit>(JKRect{ 260, 55, 500, 75 }, ID_EDIT_IMAGENAME, 64);
+        editName->SetText("Image_Noname");
+
+        auto colorBtn = std::make_unique<JKButton>(JKRect{ 900, 55, 980, 85 }, ID_BTN_COLOR);
+        colorBtn->SetText("Color");
+
+        auto clearBtn = std::make_unique<JKButton>(JKRect{ 900, 20, 980, 50 }, ID_BTN_CLEAR);
+        clearBtn->SetText("Clear");
+        auto saveBtn = std::make_unique<JKButton>(JKRect{ 990, 20, 1070, 50 }, ID_BTN_SAVE);
+        saveBtn->SetText("Save");
+        auto loadBtn = std::make_unique<JKButton>(JKRect{ 1080, 20, 1160, 50 }, ID_BTN_LOAD);
+        loadBtn->SetText("Load");
+
+        JKEdit* fileEditPtr = editFile.get();
+
+        clearBtn->SetOnClick([this]() {
+            MakeSprite(sprite, sprite.width, sprite.height, 14);
+        });
+        saveBtn->SetOnClick([fileEditPtr, this]() {
+            std::string name = fileEditPtr->GetText();
+            if (name.empty()) name = "NONAME";
+            SaveSprite(EnsureSprExtension(name), sprite);
+        });
+        loadBtn->SetOnClick([fileEditPtr, this]() {
+            std::string name = fileEditPtr->GetText();
+            if (name.empty()) name = "NONAME";
+            LoadSprite(EnsureSprExtension(name), sprite);
+        });
+
+        auto pixelBoard = std::make_unique<PixelBoard>(JKRect{ 20, 120, 1900, 1060 }, &sprite, &currentColor);
+        PixelBoard* pixelBoardPtr = pixelBoard.get();
+        colorBtn->SetOnClick([pixelBoardPtr]() { pixelBoardPtr->OpenColorPicker(); });
+
+        parent->AddControl(std::move(preview));
+        parent->AddControl(std::move(labelFile));
+        parent->AddControl(std::move(editFile));
+        parent->AddControl(std::move(labelName));
+        parent->AddControl(std::move(editName));
+        parent->AddControl(std::move(colorBtn));
+        parent->AddControl(std::move(clearBtn));
+        parent->AddControl(std::move(saveBtn));
+        parent->AddControl(std::move(loadBtn));
+        parent->AddControl(std::move(pixelBoard));
+
+        pixelBoardPtr->SetFocus();
+    }
+};
+
+IconEditUI::IconEditUI() : impl_(std::make_unique<Impl>()) {
+}
+
+IconEditUI::~IconEditUI() = default;
+
+void IconEditUI::Build(JKWindow* parent) {
+    impl_->Build(parent);
+}
+
+class IconEditApp::Impl {
+public:
+    std::unique_ptr<IconEditUI> ui = std::make_unique<IconEditUI>();
 };
 
 IconEditApp::IconEditApp() : impl_(std::make_unique<Impl>()) {
@@ -426,63 +500,8 @@ void IconEditApp::OnInit() {
     auto main = std::make_unique<JKWindow>("Icon Editor - SDL2 Port");
     main->SetWindowRect(JKRect{ 0, 0, 1920, 1080 });
 
-    MakeSprite(impl_->sprite, 24, 24, 14);
-    impl_->currentColor = 1; // White
+    impl_->ui->Build(main.get());
 
-    auto preview = std::make_unique<PreviewBoard>(JKRect{ 20, 20, 120, 120 }, &impl_->sprite, 4);
-
-    auto labelFile = std::make_unique<JKStatic>(JKRect{ 150, 20, 200, 36 }, 0);
-    labelFile->SetText("File:");
-    auto editFile = std::make_unique<JKEdit>(JKRect{ 260, 20, 500, 40 }, ID_EDIT_FILENAME, 64);
-    editFile->SetText("NONAME");
-
-    auto labelName = std::make_unique<JKStatic>(JKRect{ 150, 55, 200, 71 }, 0);
-    labelName->SetText("Name:");
-    auto editName = std::make_unique<JKEdit>(JKRect{ 260, 55, 500, 75 }, ID_EDIT_IMAGENAME, 64);
-    editName->SetText("Image_Noname");
-
-    auto colorBtn = std::make_unique<JKButton>(JKRect{ 900, 55, 980, 85 }, ID_BTN_COLOR);
-    colorBtn->SetText("Color");
-
-    auto clearBtn = std::make_unique<JKButton>(JKRect{ 900, 20, 980, 50 }, ID_BTN_CLEAR);
-    clearBtn->SetText("Clear");
-    auto saveBtn = std::make_unique<JKButton>(JKRect{ 990, 20, 1070, 50 }, ID_BTN_SAVE);
-    saveBtn->SetText("Save");
-    auto loadBtn = std::make_unique<JKButton>(JKRect{ 1080, 20, 1160, 50 }, ID_BTN_LOAD);
-    loadBtn->SetText("Load");
-
-    JKEdit* fileEditPtr = editFile.get();
-
-    clearBtn->SetOnClick([this]() {
-        MakeSprite(impl_->sprite, impl_->sprite.width, impl_->sprite.height, 14);
-    });
-    saveBtn->SetOnClick([fileEditPtr, this]() {
-        std::string name = fileEditPtr->GetText();
-        if (name.empty()) name = "NONAME";
-        SaveSprite(EnsureSprExtension(name), impl_->sprite);
-    });
-    loadBtn->SetOnClick([fileEditPtr, this]() {
-        std::string name = fileEditPtr->GetText();
-        if (name.empty()) name = "NONAME";
-        LoadSprite(EnsureSprExtension(name), impl_->sprite);
-    });
-
-    auto pixelBoard = std::make_unique<PixelBoard>(JKRect{ 20, 120, 1900, 1060 }, &impl_->sprite, &impl_->currentColor);
-    PixelBoard* pixelBoardPtr = pixelBoard.get();
-    colorBtn->SetOnClick([pixelBoardPtr]() { pixelBoardPtr->OpenColorPicker(); });
-
-    main->AddControl(std::move(preview));
-    main->AddControl(std::move(labelFile));
-    main->AddControl(std::move(editFile));
-    main->AddControl(std::move(labelName));
-    main->AddControl(std::move(editName));
-    main->AddControl(std::move(colorBtn));
-    main->AddControl(std::move(clearBtn));
-    main->AddControl(std::move(saveBtn));
-    main->AddControl(std::move(loadBtn));
-    main->AddControl(std::move(pixelBoard));
-
-    pixelBoardPtr->SetFocus();
     SetMainWindow(std::move(main));
 }
 
