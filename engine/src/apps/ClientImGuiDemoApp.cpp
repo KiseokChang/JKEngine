@@ -58,6 +58,12 @@ bool ClientImGuiDemoApp::PreProcessMessage(const JKEvent& ev) {
     // NewFrame consumes the input queue (docs/23 §5.2-3). Unhandled kinds are
     // ignored inside the backend, so blind feeding is safe.
     ImGui_ImplJKWindow_ProcessJKEvent(ev);
+    // The 16ms timer is the frame clock: without re-arming here the first
+    // frame would be the last (OnFrameCommitted clears the flag and nothing
+    // else sets it — the run loop then idles forever).
+    if (ev.type == JKEventType::Timer) {
+        frameDirty_ = true;
+    }
     return true;
 }
 
@@ -83,8 +89,6 @@ void ClientImGuiDemoApp::RenderOverlay(SDL_Renderer* renderer, int w, int h) {
 
     ImGui::Render();
     ImGui_ImplJKWindow_RenderDrawData(ImGui::GetDrawData(), renderer);
-
-    frameDirty_ = true; // demo repaints continuously at the timer cadence
 }
 
 void ClientImGuiDemoApp::BuildUi(int w, int h) {
@@ -94,7 +98,7 @@ void ClientImGuiDemoApp::BuildUi(int w, int h) {
     ImGui::SetNextWindowPos(ImVec2(16, 16), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(360, 420), ImGuiCond_FirstUseEver);
     if (ImGui::Begin("imguidemo panel")) {
-        ImGui::Text("jkwindow client + Dear ImGui %.3f", ImGui::GetVersion());
+        ImGui::Text("jkwindow client + Dear ImGui %s", ImGui::GetVersion());
         ImGui::Text("surface %d x %d  |  %.1f FPS", w, h, io.Framerate);
         ImGui::Separator();
         ImGui::Checkbox("ShowDemoWindow", &showDemo_);
