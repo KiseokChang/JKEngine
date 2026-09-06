@@ -12,7 +12,7 @@ void ClientVectorFontApp::OnInit() {
     vfont_ = LoadVectorAppFonts("ClientVectorFontApp");
 
     auto main = std::make_unique<JKWindow>("Vector Font");
-    main->SetWindowRect(JKRect{ 0, 0, 1920, 1080 });
+    main->SetWindowRect(JKRect{ 0, 0, 1280, 680 });
 
     // VectorFontWindow는 단일 프로세스에서 떠 있는 메인 윈도우(자체 타이틀바 +
     // 이동/리사이즈 속성)로 태어난다. 서버 모드에서는 크롬이 서버 소유이므로

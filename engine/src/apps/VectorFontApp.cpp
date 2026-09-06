@@ -95,7 +95,7 @@ void VectorFontApp::OnInit() {
 
     auto main = std::make_unique<VectorFontWindow>(impl_->vfont.get());
     main->SetTitle("Vector Font Window - SDL2 Port");
-    main->SetWindowRect(JKRect{ 0, 0, 1920, 1080 });
+    main->SetWindowRect(JKRect{ 0, 0, 1280, 680 });
     impl_->mainWindow = main.get();
 
     SetMainWindow(std::move(main));

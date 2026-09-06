@@ -12,7 +12,7 @@ void ClientVectorPresApp::OnInit() {
     vfont_ = LoadVectorAppFonts("ClientVectorPresApp");
 
     auto main = std::make_unique<JKWindow>("Presentation");
-    main->SetWindowRect(JKRect{ 0, 0, 1920, 1080 });
+    main->SetWindowRect(JKRect{ 0, 0, 1280, 680 });
 
     // PresentWindow도 ClientTetrisApp처럼 크롬을 벗겨내고 루트 클라이언트
     // 영역에 도크필한다(서버가 타이틀/닫기/리사이즈 크롬을 소유).

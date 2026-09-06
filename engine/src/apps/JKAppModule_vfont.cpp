@@ -5,7 +5,7 @@
 #include <apps/ClientVectorFontApp.h>
 
 JKAPP_EXPORT const jk::JKAppMeta* jk_app_meta() {
-    static const jk::JKAppMeta meta{ "vfont", "Vector Font", 1920, 1080 };
+    static const jk::JKAppMeta meta{ "vfont", "Vector Font", 1280, 680 };
     return &meta;
 }
 
