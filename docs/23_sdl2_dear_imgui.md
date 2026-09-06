@@ -389,9 +389,9 @@ BlitTexture는 사각 blit뿐) **ImGui를 JKRenderCommandList로 직렬화하는
 ### 11.2 로드맵 재편 (§9 Phase 2 대체)
 
 - **Phase 2 — taskmgr 쇼케이스**: 셸 프로토콜(docs/28) 재사용.
-  - 프로토콜 v2: `ShellWindowEntry`에 `pid` 추가 — 서버가 클라 스폰 시
-    CreateProcess 정보에서 기록. 테스크매니저 클라는 pid로 직접
-    `GetProcessMemoryInfo`/`GetProcessTimes` 조회 (서버 부담 0).
+  - 프로토콜 v2: `ShellWindowEntry`에 `pid` 추가. 테스크매니저 클라는 pid로
+    직접 `GetProcessMemoryInfo`/`GetProcessTimes` 조회 (서버 부담 0).
+    (구현에서 정정: pid는 서버 기록이 아니라 Hello v2 클라 자기 보고 — §11.6)
   - UI: `ImGuiTable`(정렬 `ImGuiTableSortSpecs`) + `PlotLines`(CPU 이력) +
     IO 덤프 패널은 Phase 1 데모에서 계승.
   - 창 활성화/최소화: 기존 `WindowActivate`/`WindowMinimizeToggle` 재사용 —
@@ -456,3 +456,61 @@ BlitTexture는 사각 blit뿐) **ImGui를 JKRenderCommandList로 직렬화하는
 - 클라 FPS ~60(타이머 케이던스), 표면 1024×720.
 - **캡처 교훈**: 서버 창 PrintWindow 캡처는 가상화 좌표/스테일 프레임으로 오인을
   낳음 — `SetProcessDPIAware` + `CopyFromScreen`이 신뢰됨(125% 모니터).
+
+### 11.6 Phase 2 구현 기록 (2026-09-06 완료)
+
+§11.2 Phase 2 착수 승인 후 커밋 단위로 구현·검증 완료. taskmgr은
+**셸 프로토콜 위의 비셸 유틸리티 클라**로, 서버는 pid 전파만 하고 통계에
+관여하지 않는다("서버는 어리석은 컴포지터" 원칙 유지).
+
+| 커밋 | 내용 |
+|---|---|
+| 7f4a71d | 프로토콜 v2 — `HelloPayload{protocolVersion=2, pid}`, `ShellWindowEntry.pid`, `WindowListSubscribe`(16) |
+| 0a73831 | `jkapp_taskmgr` — ImGuiTable 정렬 + 자체 프로세스 샘플링 + `taskmgr.jkx` + 런처 아이콘 |
+
+**설계 정정 (계획 대비):**
+
+- **pid는 Hello v2 자기 보고** — §11.2 원안의 "서버가 스폰 시 CreateProcess
+  정보에서 기록"은 ①스폰→파이프 연결이 레이스(연결 전 기록 없음) ②수동 실행
+  클라를 놓친다는 문제. 클라가 `GetCurrentProcessId()`를 Hello에 실어 보내는
+  것이 순서 보장도 없고 수동 실행도 커버. v1 클라(4바이트 Hello)는 pid=0으로
+  수용 — 기존 앱 무재빌드 호환.
+- **`WindowListSubscribe`(16) 신설** — WindowList 발행은 셸 전용이었음.
+  taskmgr은 셸 슬롯을 차지하면 안 되므로(활성 셸 1개 제약, docs/28) 비셸
+  구독자 플래그를 추가하고 `PushWindowList`가 셸+구독자 모두에 발행.
+  구독자는 자기 자신도 목록에 포함(Windows 작업관리자가 자신을 보여주듯).
+  `WindowActivate`/`WindowMinimizeToggle`은 애초 전 클라에 개방 — 신규
+  메시지 0으로 창 제어 완성.
+
+**구현 확정 사항:**
+
+- 클라 통계 경로: `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` →
+  `GetProcessTimes` Δ(kernel+user)/Δ(wall)/코어수 = Task-Manager 스타일
+  머신 전체 대비 %, `GetProcessMemoryInfo` WorkingSetSize. ~2Hz 샘플.
+- 정렬은 서버가 아니라 클라가 `ImGuiTableSortSpecs`로 로컬 rows_ 사본만
+  재정렬 — 스냅샷은 항상 전체 교체이므로 서버 개입 불필요.
+- `history_`(surfaceId 키)·`prev_`(pid 키)는 스냅샷마다 죽은 항목을
+  제거 — 장시간 세션에서 모놀리식 surfaceId로 맵이 무한 커지지 않음.
+- 첫 샘플은 프레임 1에 시드(`lastSample_`를 600ms 과거로) — 실제 수치가
+  1초나 늦게 뜨지 않음.
+
+**검증 결과(서버 모드 스모크):**
+
+- taskmgr.jkx 런처 클릭 스폰 → WindowListSubscribe 즉시 초기 스냅샷 + pcx
+  접속 시 push-on-change 1행→2행.
+- pid/CPU%/Memory 라이브 갱신(자기 자신 1.3%/48.9MB, pcx 5.9%/52.8MB),
+  State 컬럼 active/running/minimized 추적.
+- Minimize 버튼 → pcx 숨김 + State=minimized + taskbar 버튼 딤 + 버튼
+  라벨 Restore 전환 + 선택 행 CPU PlotLines 표시.
+- Restore 버튼 → pcx 복귀 + State=running + 라벨 Minimize 복귀.
+- 행 더블클릭 → WindowActivate로 pcx z-order 상승 + taskbar 하이라이트
+  이전.
+- pcx X 닫기 → 행·taskbar 버튼 즉시 소멸, 선택 해제로 Activate/Minimize
+  버튼 disabled(BeginDisabled 경로).
+- PID 컬럼 DefaultSort 화살표 렌더. 셀프테스트 0 failures 유지.
+- **캡처 교훈(Phase 1 계승)**: 스몸 중 UI 좌표는 반드시 클라 영역 물리
+  해상도 크롭에서 재측정 — 패널 리사이즈 후 옛 좌표 클릭은 무반응으로
+  보인다(축소 렌더 눈측정 금지).
+- 서버 kill → taskbar·taskmgr 클라 자발 종료(407af96 경로 재확인).
+
+**Phase 3(생태계 — memory editor/ImPlot/OSR)**은 별도 승인 후 착수.
