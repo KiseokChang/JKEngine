@@ -379,7 +379,7 @@ public:
     OccTargetDialog(bool modify, const OccTarget& base, DoneFn onDone)
         : JKDialog(modify ? "OCC - Modify Target" : "OCC - Add Target") {
         onDone_ = std::move(onDone);
-        SetWindowRect(MakeRect(700, 340, 1220, 780));
+        SetWindowRect(MakeRect(380, 120, 900, 560));
         SetAttrFlags(WA_TITLEMOVEABLE);
         SetBackColor(LTGRAY_R, LTGRAY_G, LTGRAY_B);
 
@@ -467,7 +467,7 @@ public:
     OccUnitDialog(bool modify, const OccUnit& base, DoneFn onDone)
         : JKDialog(modify ? "OCC - Modify Unit" : "OCC - Add Unit") {
         onDone_ = std::move(onDone);
-        SetWindowRect(MakeRect(700, 340, 1220, 880));
+        SetWindowRect(MakeRect(380, 70, 900, 610));
         SetAttrFlags(WA_TITLEMOVEABLE);
         SetBackColor(LTGRAY_R, LTGRAY_G, LTGRAY_B);
 
@@ -575,7 +575,7 @@ public:
                   OccFireManager& fireMan)
         : JKDialog("OCC - Fire Orders"), dataMan_(dataMan), unitMan_(unitMan),
           fireMan_(fireMan) {
-        SetWindowRect(MakeRect(640, 220, 1300, 900));
+        SetWindowRect(MakeRect(310, 50, 970, 630));
         SetAttrFlags(WA_TITLEMOVEABLE);
         SetBackColor(LTGRAY_R, LTGRAY_G, LTGRAY_B);
 
@@ -742,7 +742,7 @@ void OccUI::BuildMainWindow() {
     mainWindow_->SetBackColor(LTGRAY_R, LTGRAY_G, LTGRAY_B);
     mainWindow_->SetAttrFlags(WA_TITLEMOVEABLE);
 
-    auto menu = std::make_unique<JKMenu>(JKRect{ 0, 0, 1916, 20 }, 300);
+    auto menu = std::make_unique<JKMenu>(JKRect{ 0, 0, 1276, 20 }, 300);
     menu->AddMenu("File", {
         jk::JKMenuItem{ "Exit", 301, [this]() {
             if (onExit_) {
@@ -773,7 +773,7 @@ void OccUI::BuildMainWindow() {
     targetHead->SetAdjustFlag(ADJ_YCENTER);
     mainWindow_->AddControl(std::unique_ptr<JKStatic>(targetHead));
 
-    targetList_ = new JKListBox(MakeRect(10, 60, 610, 480), 0);
+    targetList_ = new JKListBox(MakeRect(10, 60, 610, 280), 0);
     targetList_->SetBackColor(255, 255, 255);
     targetList_->SetTextColor(0, 0, 0);
     mainWindow_->AddControl(std::unique_ptr<JKListBox>(targetList_));
@@ -785,9 +785,9 @@ void OccUI::BuildMainWindow() {
         btn->SetOnClick(std::move(fn));
         mainWindow_->AddControl(std::unique_ptr<JKButton>(btn));
     };
-    addBtn(10, 140, 490, 524, "Add", [this]() { ShowTargetDialog(false); });
-    addBtn(150, 280, 490, 524, "Modify", [this]() { ShowTargetDialog(true); });
-    addBtn(290, 420, 490, 524, "Delete", [this]() {
+    addBtn(10, 140, 290, 324, "Add", [this]() { ShowTargetDialog(false); });
+    addBtn(150, 280, 290, 324, "Modify", [this]() { ShowTargetDialog(true); });
+    addBtn(290, 420, 290, 324, "Delete", [this]() {
         int sel = targetList_->GetSelectedIndex();
         if (sel < 0 || static_cast<size_t>(sel) >= dataMan_.targets.size()) {
             ShowMessageModal("OCC", "Select a target first.");
@@ -805,27 +805,27 @@ void OccUI::BuildMainWindow() {
                              }
                          });
     });
-    addBtn(430, 560, 490, 524, "Save", [this]() {
+    addBtn(430, 560, 290, 324, "Save", [this]() {
         SaveAll();
         ShowMessageModal("OCC", "Saved to " + dataMan_.fileName);
     });
 
     // Units section (Phase 2): simplified BattalionManager view.
-    JKStatic* unitHead = new JKStatic(MakeRect(10, 540, 610, 564), 0);
+    JKStatic* unitHead = new JKStatic(MakeRect(10, 334, 610, 358), 0);
     unitHead->SetText("  Units");
     unitHead->SetBackColor(BROWN_R, BROWN_G, BROWN_B);
     unitHead->SetTextColor(255, 255, 255);
     unitHead->SetAdjustFlag(ADJ_YCENTER);
     mainWindow_->AddControl(std::unique_ptr<JKStatic>(unitHead));
 
-    unitList_ = new JKListBox(MakeRect(10, 570, 610, 960), 0);
+    unitList_ = new JKListBox(MakeRect(10, 364, 610, 584), 0);
     unitList_->SetBackColor(255, 255, 255);
     unitList_->SetTextColor(0, 0, 0);
     mainWindow_->AddControl(std::unique_ptr<JKListBox>(unitList_));
 
-    addBtn(10, 140, 972, 1006, "Add", [this]() { ShowUnitDialog(false); });
-    addBtn(150, 280, 972, 1006, "Modify", [this]() { ShowUnitDialog(true); });
-    addBtn(290, 420, 972, 1006, "Delete", [this]() {
+    addBtn(10, 140, 594, 628, "Add", [this]() { ShowUnitDialog(false); });
+    addBtn(150, 280, 594, 628, "Modify", [this]() { ShowUnitDialog(true); });
+    addBtn(290, 420, 594, 628, "Delete", [this]() {
         int sel = unitList_->GetSelectedIndex();
         if (sel < 0 || static_cast<size_t>(sel) >= unitMan_.units.size()) {
             ShowMessageModal("OCC", "Select a unit first.");
@@ -843,9 +843,9 @@ void OccUI::BuildMainWindow() {
                              }
                          });
     });
-    addBtn(430, 560, 972, 1006, "Fire", [this]() { ShowFireDialog(); });
+    addBtn(430, 560, 594, 628, "Fire", [this]() { ShowFireDialog(); });
 
-    OccMapPanel* map = new OccMapPanel(MakeRect(620, 30, 1906, 960),
+    OccMapPanel* map = new OccMapPanel(MakeRect(620, 30, 1266, 664),
                                        dataMan_.targets, unitMan_.units);
     map->SetOnPickTarget([this](int32_t idx) {
         if (targetList_) {
@@ -872,11 +872,11 @@ void OccUI::BuildMainWindow() {
         }
     });
 
-    statusLine_ = new JKStatic(MakeRect(10, 1020, 800, 1044), 0);
+    statusLine_ = new JKStatic(MakeRect(10, 640, 800, 664), 0);
     statusLine_->SetAdjustFlag(ADJ_YCENTER);
     mainWindow_->AddControl(std::unique_ptr<JKStatic>(statusLine_));
 
-    JOClock* clock = new JOClock(MakeRect(1810, 1020, 1906, 1044), 0);
+    JOClock* clock = new JOClock(MakeRect(1180, 640, 1276, 664), 0);
     clock->SetBackColor(BLUE_R, BLUE_G, BLUE_B);
     clock->SetTextColor(255, 255, 255);
     mainWindow_->AddControl(std::unique_ptr<JKControl>(clock));
