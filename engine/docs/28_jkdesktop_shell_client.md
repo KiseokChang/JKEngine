@@ -53,13 +53,20 @@
   존재 확인 → `SpawnClient("taskbar")` (= `jkdesktop.exe --client taskbar`).
 - DLL이 없으면 로그만 남기고 셸 없이 운영. v1 재스폰은 생략(셸이 죽으면 로그만).
 
-## UI (`ClientTaskbarApp` — 단계 3)
+## UI (`ClientTaskbarApp` — 단계 3, 구현 완료)
 
-- 하단 가로 바: 어두운 배경 + 창당 버튼(타이틀 해시색 칩 + 제목 텍스트, `dc.TextOut` — 한글 가능).
-- 버튼 상태: **active** = 밝은 배경 / 보통 / **minimized** = 어둡게(단계 4).
-- 클릭 → `WindowActivate`; (단계 4) active 재클릭 → `WindowMinimizeToggle`.
-- **오버플로 규칙(최소 너비 보장형 동적 축소)**: 가용 폭 ÷ 창 수로 버튼 폭 분배, 최소 40px
-  아래로는 축소 중단, 텍스트 넘치면 생략. 스크롤/그룹화는 v2.
+- `TaskbarWindow`(`JKWindow` 서브클래스): `OnPaintClient`를 어두운 배경(24,26,32)으로
+  대체 — `JKWindow`는 밝은 회색(240)으로 하드코딩되어 있어서.
+- **버튼 풀**: `TaskbarButton : JKButton` 32개를 OnInit에서 미리 생성(= WindowListPayload
+  상한). 스냅샷마다 in-place 재바인딩(`Bind`) — 컨트롤 해체/재생성이 없어 플리커 없음,
+  프레임워크에 remove-control API 추가 불필요. count를 넘는 버튼은 Hide.
+- 버튼 페인트: 타이틀 FNV-1a 해시색 칩(10px) + 제목 텍스트(`Utf8ToKssm` → `dc.TextOutX`,
+  Y센터 정렬, 넘치면 클립). 상태: **active** = 밝은 면 + 흰 테두리 / 보통 = 중간 회색 /
+  **minimized** = 어두운 면 + 흐린 텍스트(단계 4).
+- 클릭(`JKButton::OnClick`) → `SendWindowActivate(surfaceId)`.
+- **오버플로 규칙(최소 너비 보장형 동적 축소)**: 가용 폭 ÷ 창 수로 버튼 폭 분배, 상한 180px,
+  하한 40px 아래로는 축소 중단. 스크롤/그룹화는 v2.
+- 도킹 리사이즈(`SizeChanged`)마다 `Relayout()`으로 재배치.
 - 셸이므로 타이머/편집컨트롤/IME 불필요 — 이벤트 구동 only.
 
 ## 최소화 (단계 4)
@@ -72,6 +79,6 @@
 
 - [x] 단계 1 — 프로토콜 레이어 (와이어 11-14 + 클라 전송/수신 경로 + 서버 핸들러 + taskbar 골격)
 - [x] 단계 2 — 컴포지터/도킹 (SortLayers/크롬·포커스 면제 + 작업영역 예약 + DockShellClient + 자동 스폰)
-- [ ] 단계 3 — UI 레이어 (TaskbarButton + 버튼 그리기)
+- [x] 단계 3 — UI 레이어 (TaskbarButton 풀 + 버튼 페인트 + 오버플로 규칙)
 - [ ] 단계 4 — 최소화 (MsgType 15 + SetLayerVisible)
-- [ ] 단계 5 — 문서 정리 (docs/25 결정 노트, docs/19 메시지 표)
+- [ ] 단계 5 — 문서 정리 (docs/19 메시지 표)
