@@ -140,6 +140,27 @@ struct Bindings {
         for (const auto& c : host->controls_) {
             if (c.first == id) return c.second;
         }
+        // Tree fallback (docs/27 단계 2): scenarios also target controls that
+        // belong to the attached window's own subtree (a real app's UI).
+        return host->window_ ? host->window_->FindControlByControlId(id) : nullptr;
+    }
+
+    // Depth-first text match. Visible labels are how scenario scripts locate
+    // real-app controls — the same cells the coordinate probes used to click.
+    static JKControl* FindControlByText(JKControl* node, const std::string& text) {
+        if (!node) return nullptr;
+        if (node->GetText() == text) return node;
+        for (const auto& child : node->GetChildren()) {
+            if (JKControl* hit = FindControlByText(child.get(), text)) return hit;
+        }
+        return nullptr;
+    }
+
+    static JKControl* FindInPanelTree(JKScriptHost* host, const std::string& text) {
+        if (!host->window_) return nullptr;
+        for (const auto& child : host->window_->GetChildren()) {
+            if (JKControl* hit = FindControlByText(child.get(), text)) return hit;
+        }
         return nullptr;
     }
 
@@ -306,6 +327,146 @@ struct Bindings {
         EraseTimer(host, ctx, static_cast<uint32_t>(id));
         return JS_UNDEFINED;
     }
+
+    // --- host API v2 — UI automation (docs/27 단계 2) ---------------------
+
+    // findControl(idOrText): a number resolves through the tree by controlId;
+    // a string resolves depth-first by visible text. Returns the controlId
+    // (number) or null — the handle every other v2 binding accepts.
+    static JSValue FindControlBinding(JSContext* ctx, JSValueConst, int argc,
+                                      JSValueConst* argv) {
+        JKScriptHost* host = HostOf(ctx);
+        if (!host || !host->window_ || argc < 1) return JS_NULL;
+        if (JS_IsNumber(argv[0])) {
+            int32_t id = 0;
+            if (JS_ToInt32(ctx, &id, argv[0]) || id < 0 || id > 0xFFFF) {
+                return JS_NULL;
+            }
+            return FindControl(host, static_cast<uint16_t>(id))
+                       ? JS_NewInt32(ctx, id)
+                       : JS_NULL;
+        }
+        if (JKControl* c = FindInPanelTree(host, ToUtf8(ctx, argv[0]))) {
+            return JS_NewInt32(ctx, static_cast<int32_t>(c->GetControlId()));
+        }
+        return JS_NULL;
+    }
+
+    // Structural click: invoke the control's own OnClick — the same entry a
+    // real mouse-up reaches through RespondMessage.
+    static JSValue Click(JSContext* ctx, JSValueConst, int argc,
+                         JSValueConst* argv) {
+        JKScriptHost* host = HostOf(ctx);
+        int32_t id = 0;
+        if (!host || argc < 1 || JS_ToInt32(ctx, &id, argv[0]) || id < 0 ||
+            id > 0xFFFF) {
+            return JS_UNDEFINED;
+        }
+        JKControl* c = FindControl(host, static_cast<uint16_t>(id));
+        if (!c) {
+            std::printf("[script] click: no control %d\n", id);
+            std::fflush(stdout);
+            return JS_UNDEFINED;
+        }
+        if (JKButton* btn = dynamic_cast<JKButton*>(c)) {
+            btn->OnClick();
+        } else {
+            std::printf("[script] click: control %d is not a button\n", id);
+            std::fflush(stdout);
+        }
+        return JS_UNDEFINED;
+    }
+
+    // Behavioral injection (aux): deliver real mouse/key events through the
+    // window's RespondMessage routing, so hit-testing, focus, and control
+    // handlers run exactly as they would for OS input. Coordinates are panel
+    // client pixels — the same space createButton rects use.
+    static JSValue InjectMouse(JSContext* ctx, JSValueConst, int argc,
+                               JSValueConst* argv) {
+        JKScriptHost* host = HostOf(ctx);
+        int32_t x = 0, y = 0;
+        if (!host || !host->window_ || argc < 2 ||
+            JS_ToInt32(ctx, &x, argv[0]) || JS_ToInt32(ctx, &y, argv[1])) {
+            return JS_UNDEFINED;
+        }
+        JKEvent ev;
+        ev.type = JKEventType::MouseDown;
+        // HitTest works in screen space; the binding's (x, y) are panel client
+        // pixels — translate through the window's screen client rect. (The
+        // call goes through the public JKControl declaration; JKWindow's
+        // override is protected.)
+        const JKRect client =
+            static_cast<JKControl*>(host->window_)->GetScreenClientRect();
+        ev.x = client.x + x;
+        ev.y = client.y + y;
+        host->window_->RespondMessage(ev);
+        ev.type = JKEventType::MouseUp;
+        host->window_->RespondMessage(ev);
+        return JS_UNDEFINED;
+    }
+
+    static JSValue InjectKey(JSContext* ctx, JSValueConst, int argc,
+                             JSValueConst* argv) {
+        JKScriptHost* host = HostOf(ctx);
+        int32_t key = 0;
+        if (!host || !host->window_ || argc < 1 ||
+            JS_ToInt32(ctx, &key, argv[0])) {
+            return JS_UNDEFINED;
+        }
+        JKEvent ev;
+        ev.type = JKEventType::KeyDown;
+        ev.keyCode = static_cast<uint32_t>(key);
+        host->window_->RespondMessage(ev);
+        ev.type = JKEventType::KeyUp;
+        host->window_->RespondMessage(ev);
+        return JS_UNDEFINED;
+    }
+
+    // Assertion helpers — log + failure count; the `test-script` runner turns
+    // the counters into the process exit code.
+    static JSValue Assert(JSContext* ctx, JSValueConst, int argc,
+                          JSValueConst* argv) {
+        JKScriptHost* host = HostOf(ctx);
+        if (!host) return JS_UNDEFINED;
+        ++host->assertChecks_;
+        if (argc >= 1 && JS_ToBool(ctx, argv[0]) == 1) return JS_UNDEFINED;
+        ++host->assertFailures_;
+        std::printf("[script] ASSERT FAIL: %s\n",
+                    (argc >= 2 ? ToUtf8(ctx, argv[1]) : std::string()).c_str());
+        std::fflush(stdout);
+        return JS_UNDEFINED;
+    }
+
+    // JSON.stringify when possible (distinguishes number 1 from string "1"),
+    // raw ToUtf8 fallback for undefined / non-stringifiable values.
+    static std::string StringifyForAssert(JSContext* ctx, JSValueConst v) {
+        JsValue s(ctx, JS_JSONStringify(ctx, v, JS_UNDEFINED, JS_UNDEFINED));
+        if (!JS_IsException(s.value()) && !JS_IsUndefined(s.value())) {
+            return ToUtf8(ctx, s.value());
+        }
+        return ToUtf8(ctx, v);
+    }
+
+    static JSValue AssertEq(JSContext* ctx, JSValueConst, int argc,
+                            JSValueConst* argv) {
+        JKScriptHost* host = HostOf(ctx);
+        if (!host) return JS_UNDEFINED;
+        ++host->assertChecks_;
+        if (argc >= 2) {
+            const std::string a = StringifyForAssert(ctx, argv[0]);
+            const std::string b = StringifyForAssert(ctx, argv[1]);
+            if (a == b) return JS_UNDEFINED;
+            ++host->assertFailures_;
+            std::printf("[script] ASSERT FAIL: %s (actual=%s, expected=%s)\n",
+                        (argc >= 3 ? ToUtf8(ctx, argv[2]) : std::string()).c_str(),
+                        a.c_str(), b.c_str());
+        } else {
+            ++host->assertFailures_;
+            std::printf("[script] ASSERT FAIL: assertEq needs 2 arguments\n");
+        }
+        std::fflush(stdout);
+        return JS_UNDEFINED;
+    }
 };
 
 } // namespace script_detail
@@ -389,8 +550,10 @@ bool JKScriptHost::Start(const std::string& entryPath) {
     JS_SetContextOpaque(ctx, this);
     controls_.clear();
     nextControlId_ = 1000;
+    assertChecks_ = 0;
+    assertFailures_ = 0;
 
-    // Host API v1 (docs/27 §4). Global functions — the .d.ts contract
+    // Host API v1 + v2 (docs/27 §4). Global functions — the .d.ts contract
     // (engine/scripts/jk.d.ts) is generated from exactly this set; the
     // self-test diffs the two (§2.4).
     using Bindings = script_detail::Bindings;
@@ -408,6 +571,12 @@ bool JKScriptHost::Start(const std::string& entryPath) {
     bind("getText", Bindings::GetText, 1);
     bind("setInterval", Bindings::SetInterval, 2);
     bind("clearInterval", Bindings::ClearInterval, 1);
+    bind("findControl", Bindings::FindControlBinding, 1);
+    bind("click", Bindings::Click, 1);
+    bind("injectMouse", Bindings::InjectMouse, 2);
+    bind("injectKey", Bindings::InjectKey, 1);
+    bind("assert", Bindings::Assert, 2);
+    bind("assertEq", Bindings::AssertEq, 3);
 
     // Evaluate the script (global code — the completion value is unused).
     // Failure paths set a flag and Stop() AFTER the scope: the JsValue holders

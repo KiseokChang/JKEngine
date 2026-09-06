@@ -1,4 +1,6 @@
-// jk.d.ts v1 — host API contract v1 (docs/27_scripting_quickjs_bridge.md §4).
+// jk.d.ts v2 — host API contract (docs/27_scripting_quickjs_bridge.md §4).
+// v1: 단계 1 최소 증명 세트 / v2: 단계 2 UI 자동화 API (findControl, click,
+// injectMouse, injectKey, assert, assertEq — additive).
 //
 // 이 파일은 실행되지 않는 TypeScript 선언 파일이다. QuickJS-ng가 실행하는
 // 것은 app.js(JavaScript)이며, 이 선언은 (1) 스크립트를 작성하는 에이전트가
@@ -68,6 +70,56 @@ declare function setInterval(ms: number, fn: () => void): number;
 
 /** setInterval로 건 타이머를 해제한다. 이미 해제된 id는 무시된다. */
 declare function clearInterval(timerId: number): void;
+
+// ---------------------------------------------------------------------------
+// v2 — UI 자동화 (docs/27 §4 단계 2). 시나리오 스크립트가 좌표 probe를 대체한다:
+// 컨트롤 핸들로 직접 구동하고(assert), 실제 입력 경로도 주입할 수 있다(inject*).
+// ---------------------------------------------------------------------------
+
+/**
+ * 컨트롤을 찾아 controlId를 반환한다 (못 찾으면 null).
+ * - 숫자: controlId로 첨부된 윈도우 트리 전체에서 탐색 — 스크립트가 만든
+ *   컨트롤뿐 아니라 호스트 윈도우의 기존 컨트롤도 찾는다.
+ * - 문자열: 표시 텍스트(GetText)로 트리를 깊이 우선 탐색 — probe가 화면
+ *   좌표로 찾던 컨트롤을 라벨로 찾는 용도.
+ */
+declare function findControl(idOrText: number | string): number | null;
+
+/**
+ * controlId 컨트롤을 클릭한다 — 버튼의 OnClick을 직접 호출(구조적 클릭).
+ * 스크립트가 만든 버튼이면 전역 onClick(controlId)로 이어진다. 버튼이 아닌
+ * 컨트롤이면 로그를 남기고 무시된다.
+ */
+declare function click(controlId: number): void;
+
+/**
+ * (x, y)에 마우스 다운/업을 주입한다. 패널 클라이언트 픽셀 좌표
+ * (createButton rect와 같은 좌표계). RespondMessage 라우팅 — 히트테스트와
+ * 컨트롤 핸들러가 실제 입력과 동일하게 동작한다.
+ */
+declare function injectMouse(x: number, y: number): void;
+
+/**
+ * keyCode 키 다운/업을 주입한다. 포커스를 가진 컨트롤로 전달된다.
+ * 키 코드 규약은 엔진의 JKEvent.keyCode와 동일.
+ */
+declare function injectKey(keyCode: number): void;
+
+/**
+ * cond가 아니면 실패를 기록한다 — `[script] ASSERT FAIL` 로그 + 실패 카운트
+ * 증가. 카운트는 `jkdesktop test-script` 러너가 프로세스 종료 코드로 승화한다
+ * (0 = 전부 통과, 1 = 실패 있음).
+ *
+ * @note [AI Agent] assert는 값을 고치지 않는다 — 기록만 한다. 실패해도
+ *   스크립트는 계속 실행되므로, 이후 assert가 연쇄 실패할 수 있다.
+ */
+declare function assert(cond: boolean, message: string): void;
+
+/**
+ * actual과 expected가 다르면 실패를 기록한다. 비교는 JSON 직렬화 기준 —
+ * 숫자 1과 문자열 "1"은 다르다고 판정한다.
+ */
+declare function assertEq(actual: unknown, expected: unknown, message: string): void;
 
 // ---------------------------------------------------------------------------
 // 스크립트 콜백 (전역 함수로 정의하면 호스트가 호출한다 — 선언 충돌을 피하려고

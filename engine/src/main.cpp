@@ -672,6 +672,32 @@ static int RunJkxExtract(const char* path, int nameCount, char** names) {
 }
 #endif // _WIN32
 
+// test-script <file> (docs/27 단계 2): run an automation scenario headlessly.
+// The script builds controls into a bare window and drives them through the
+// v2 bindings (findControl/click/inject*/setText/getText); assert/assertEq
+// failures decide the exit code.
+static int RunScriptTestFile(const char* path) {
+    jk::JKWindow root("script-test");
+    root.SetWindowRect(jk::JKRect{ 0, 0, 320, 240 });
+    jk::JKScriptHost host;
+    host.Attach(&root);
+    jk::JKScriptTimerServices timers;  // no-op: scenarios stay synchronous
+    timers.start = [](uint32_t, uint32_t) -> uint64_t { return 0; };
+    timers.stop = [](uint64_t) {};
+    host.SetTimerServices(std::move(timers));
+    if (!host.Start(path)) {
+        std::printf("[script-test] start failed: %s\n", host.LastError().c_str());
+        std::fflush(stdout);
+        return 1;
+    }
+    const int failures = host.AssertFailures();
+    host.Stop();
+    std::printf("[script-test] %s: %d/%d assertion(s) failed\n", path, failures,
+                host.AssertChecks());
+    std::fflush(stdout);
+    return failures == 0 ? 0 : 1;
+}
+
 // 포팅된 앱들의 데이터 관리자(Equip24DataManager/BombManager/PersonManager)
 // 로직을 검증하는 헤드리스 자기 테스트. "test" 인자로 실행한다.
 static int RunAppSelfTest() {
@@ -1777,6 +1803,14 @@ static int RunAppSelfTest() {
             }
             std::remove("test_script.jkx");  // test artifact — keep the repo clean
         }
+
+        // 7) test-script runner (docs/27 단계 2): the scenario passes, and an
+        // intentionally broken scenario is detected — the defect-detection
+        // equivalence the probes used to provide (§5 단계 2 검증).
+        check(RunScriptTestFile(JK_SCRIPTS_DIR "/tests/uiauto.js") == 0,
+              "test-script scenario passes");
+        check(RunScriptTestFile(JK_SCRIPTS_DIR "/tests/uiauto_broken.js") != 0,
+              "test-script detects injected defect");
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);
@@ -1814,6 +1848,7 @@ int main(int argc, char* argv[]) {
         std::printf("Commands:\n");
         std::printf("  (none)      Default demo app\n");
         std::printf("  test        Built-in self-test mode\n");
+        std::printf("  test-script FILE  Run a UI automation scenario (exit code = assertion failures)\n");
         std::printf("  jango       JANGO launcher\n");
         std::printf("  occ         OCC / fire control demo\n");
         std::printf("  pcx FILE    256-color PCX viewer\n");
@@ -1838,6 +1873,16 @@ int main(int argc, char* argv[]) {
 
     if (argc > 1 && std::strcmp(argv[1], "test") == 0) {
         return RunAppSelfTest();
+    }
+
+    if (argc > 1 && std::strcmp(argv[1], "test-script") == 0) {
+        if (argc < 3) {
+            std::fprintf(stderr,
+                         "Usage: test-script <scenario.js>  (headless UI automation; "
+                         "exit code = assertion failures)\n");
+            return 1;
+        }
+        return RunScriptTestFile(argv[2]);
     }
 
     if (argc > 1 && std::strcmp(argv[1], "jkx-pack") == 0) {

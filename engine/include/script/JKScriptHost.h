@@ -91,6 +91,11 @@ public:
     bool IsRunning() const { return ctx_ != nullptr; }
     const std::string& LastError() const { return lastError_; }
 
+    // Assertion counters (docs/27 단계 2): assert/assertEq record here and the
+    // `test-script` runner turns the failure count into the exit code.
+    int AssertChecks() const { return assertChecks_; }
+    int AssertFailures() const { return assertFailures_; }
+
     // Entry path of the last successful Start ("" before that).
     const std::string& EntryPath() const { return entryPath_; }
 
@@ -114,6 +119,9 @@ private:
 
     std::string entryPath_;
     std::string lastError_;
+
+    int assertChecks_ = 0;
+    int assertFailures_ = 0;
 };
 
 } // namespace jk
