@@ -88,6 +88,12 @@ desktop.ini
 /engine/_*.txt
 verify_fixwin*.png
 
+# CEF binary distribution (large third-party runtime, fetched manually —
+# see engine/third_party/cef/README.md for the download)
+/engine/third_party/cef/*
+!/engine/third_party/cef/README.md
+/tmp/
+
 # Runtime-generated data files
 *.dat
 *.DAT

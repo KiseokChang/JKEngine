@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>CEF OSR demo</title>
+<style>
+  body {
+    margin: 0; padding: 24px;
+    background: #1e2430; color: #e8e8f0;
+    font-family: 'Segoe UI', sans-serif;
+  }
+  h1 { color: #7ec8ff; margin: 0 0 12px; }
+  #box {
+    padding: 12px; margin: 12px 0;
+    background: #2a3242; border: 1px solid #3a4a6a; border-radius: 6px;
+  }
+  button {
+    padding: 8px 16px; margin-right: 8px;
+    background: #3a6ea5; color: white; border: 0; border-radius: 4px;
+    font-size: 14px; cursor: pointer;
+  }
+  button:hover { background: #4a7ec5; }
+  input {
+    padding: 8px; font-size: 14px;
+    background: #14181f; color: #e8e8f0;
+    border: 1px solid #3a4a6a; border-radius: 4px;
+  }
+  ul { list-style: none; padding: 0; }
+  li { padding: 2px 0; color: #9fd49f; }
+</style>
+</head>
+<body>
+<h1>CEF OSR works</h1>
+<div id="box">
+  <input id="inp" placeholder="type here">
+  <button onclick="add()">Add</button>
+  <button onclick="document.getElementById('list').innerHTML=''; log('cleared')">Clear</button>
+</div>
+<ul id="list"></ul>
+<script>
+  var n = 0;
+  function log(s) {
+    var li = document.createElement('li');
+    li.textContent = s;
+    document.getElementById('list').appendChild(li);
+    console.log(s); // shows up in osr.exe stderr via on_console_message
+  }
+  function add() {
+    var v = document.getElementById('inp').value;
+    log(++n + ': ' + (v || '(empty)'));
+    document.getElementById('inp').value = '';
+  }
+  log('page loaded, user agent: ' + navigator.userAgent.slice(0, 60));
+</script>
+</body>
+</html>
