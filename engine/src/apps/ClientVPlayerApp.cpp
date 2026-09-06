@@ -108,6 +108,7 @@ struct ClientVPlayerApp::PlayerCore {
     std::atomic<bool> jogging{false};        // scrub drag in progress: worker skips audio decode
     double seekTarget = 0;
     double dropBeforePts = -1;               // frames older than this are stale (post-seek)
+    bool postSeekJump = false;               // gate-starved first frame may display (see PopVideoFrame)
     uint64_t seekGen = 0;                    // bumped on seek; in-flight audio pushes abort
     std::deque<VideoFrame> videoQ;
 
@@ -246,6 +247,7 @@ struct ClientVPlayerApp::PlayerCore {
                             ? -1.0
                             : t - 0.05 +
                                   std::min(0.0, (double)avDelay.load(std::memory_order_relaxed));
+        postSeekJump = true;
         videoQ.clear();
         if (vctx) avcodec_flush_buffers(vctx);
         if (actx) avcodec_flush_buffers(actx);
@@ -523,15 +525,30 @@ struct ClientVPlayerApp::PlayerCore {
         bool popped = false;
         {
             std::lock_guard<std::mutex> lk(m);
-            if (videoQ.empty() || videoQ.front().pts > clock + 0.02) return false;
-            out = std::move(videoQ.front());
-            videoQ.pop_front();
-            // Everything older than the frame we just took is unrenderable history.
-            while (!videoQ.empty() && videoQ.front().pts <= clock + 0.02) {
+            if (videoQ.empty()) return false;
+            if (videoQ.front().pts > clock + 0.02) {
+                // Gate-starved first frame after a seek: the demuxer can only
+                // land on a keyframe, which may sit above the shifted gate
+                // (negative avDelay parks the gate |avDelay| below the target
+                // and no decodable frame exists that far back). Display the
+                // landing frame once instead of freezing the picture until
+                // the clock crawls |avDelay| forward — forever while paused.
+                if (!postSeekJump) return false;
                 out = std::move(videoQ.front());
                 videoQ.pop_front();
+                postSeekJump = false;
+                popped = true;
+            } else {
+                out = std::move(videoQ.front());
+                videoQ.pop_front();
+                // Everything older than the frame we just took is unrenderable history.
+                while (!videoQ.empty() && videoQ.front().pts <= clock + 0.02) {
+                    out = std::move(videoQ.front());
+                    videoQ.pop_front();
+                }
+                postSeekJump = false;
+                popped = true;
             }
-            popped = true;
         }
         // The producer's backpressure wait (videoQ full) is only re-checked on
         // notify; without this, a drained queue leaves it parked forever and
