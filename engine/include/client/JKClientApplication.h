@@ -86,6 +86,10 @@ public:
     void GetLetterbox(int& x, int& y) const;
 
 protected:
+    // Server-surface handle for privileged client protocols (e.g. the shell
+    // role: SendShellRegister / GetWindowList / SendWindowActivate).
+    jk::client::JKClientSurface* Surface() { return surface_.get(); }
+
     virtual void OnInit() {}
     virtual void OnClose() {}
     virtual bool PreProcessMessage(const JKEvent& ev);

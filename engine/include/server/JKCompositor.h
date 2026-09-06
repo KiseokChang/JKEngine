@@ -40,6 +40,13 @@ public:
     void SetLayerPosition(uint32_t id, int x, int y);
     void SetLayerScale(uint32_t id, float sx, float sy);
     void SetLayerAlpha(uint32_t id, uint8_t alpha);
+    // Shell role (docs/28): re-sorts so the shell stays topmost.
+    void SetLayerShell(uint32_t id, bool shell);
+
+    // Display height (logical points) of the shell layer, or 0 when no shell
+    // is active. The window server reserves this much of the desktop as the
+    // work area (window placement clamps + drag clamps).
+    int ShellReserveHeight();
 
     // Mark a layer dirty and request texture update.
     void MarkDirty(uint32_t id);

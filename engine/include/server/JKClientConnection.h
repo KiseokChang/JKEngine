@@ -53,6 +53,11 @@ public:
     int Y() const { return y_; }
     void SetPosition(int x, int y) { x_ = x; y_ = y; }
 
+    // Shell role (docs/28): granted via MsgType::ShellRegister. Exactly one
+    // connected client may act as the desktop shell (taskbar).
+    bool IsShell() const { return shell_; }
+    void SetShell(bool shell) { shell_ = shell; }
+
     uint8_t* SurfaceData() const;
     size_t SurfaceBytes() const;
 
@@ -92,6 +97,7 @@ private:
     std::string title_;
     int x_ = 0;
     int y_ = 0;
+    bool shell_ = false;   // desktop-shell (taskbar) role, granted on request
 
     SDL_Texture* texture_ = nullptr;
     std::atomic<bool> dirty_{true};

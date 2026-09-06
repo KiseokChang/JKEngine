@@ -1,5 +1,9 @@
 # 25. jkdesktop 작업 표시�(Taskbar) 구현 계획 (Phase 1–3)
 
+> **[2026-09-06 결정] 작업 표시줄은 B안(전용 클라이언트 앱)으로 확정 — 현행 스펙은 docs/28.
+> 이 문서는 A안(서버 오버레이) 계획의 기록으로 보존하며, §A 레이아웃 수치(하단 바 40pt,
+> fit-scale 분모/클램프)와 §C 최소화 분석(`visible_` 플래그 재사용)은 B안이 그대로 계승했다.**
+
 > 서브에이전트가 코드 전체(JKWindowServer.cpp 1221줄, JKCompositor.cpp 298줄,
 > JKClientConnection.cpp 147줄, JKWireProtocol.h, JKCompositorLayer.h)를 검토한 뒤
 > 작성한 계획. 라인 번호는 작성 시점 기준.

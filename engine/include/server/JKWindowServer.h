@@ -51,6 +51,14 @@ private:
     void ProcessPendingClients();
     void ProcessPendingMessages();
     void ProcessClientMessage(JKClientConnection& client, const ipc::Message& msg);
+    // Shell protocol (docs/28): build a full window-list snapshot from the
+    // client table and send it to the shell client.
+    void PushWindowList();         // takes clientsMutex_
+    void PushWindowListUnsafe();   // caller already holds clientsMutex_
+    // Dock the shell layer to the bottom edge (full desktop width, work-area
+    // reserve). Pass the shell connection, or nullptr to look it up.
+    void DockShellClient(JKClientConnection* shell);
+    JKClientConnection* FindShellClient();  // takes clientsMutex_
     void HandleSDLEvent(const SDL_Event& ev);
     void SendInputEvent(JKClientConnection& client, const ipc::InputEventPayload& payload);
     // Window chrome (title-bar move / close button / border resize).

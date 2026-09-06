@@ -66,6 +66,16 @@ extern "C" __declspec(dllimport) int __stdcall CloseHandle(void* hObject);
 extern "C" __declspec(dllimport) unsigned long __stdcall GetModuleFileNameA(
     void* hModule, char* lpFilename, unsigned long nSize);
 
+extern "C" __declspec(dllimport) int __stdcall WaitNamedPipeA(
+    const char* lpNamedPipeName, unsigned long nTimeOut);
+
+extern "C" __declspec(dllimport) void __stdcall Sleep(unsigned long dwMilliseconds);
+
+extern "C" __declspec(dllimport) unsigned long __stdcall GetFileAttributesA(
+    const char* lpFileName);
+
+constexpr unsigned long kInvalidFileAttributes = 0xFFFFFFFF;
+
 // .jkx app discovery (ScanJkxApps).
 struct JkxFindData {
     unsigned long dwFileAttributes = 0;
@@ -152,6 +162,32 @@ void JKWindowServer::StartAcceptor(const std::string& pipeName) {
     InitAudio();
     running_ = true;
     acceptorThread_ = std::thread([this] { AcceptorLoop(); });
+
+#ifdef _WIN32
+    // Auto-spawn the shell (docs/28): the taskbar is a privileged client, not
+    // an app — the server boots it itself when its module is installed next
+    // to the exe. Clients have no connect-retry, so wait for the acceptor's
+    // first pipe instance before spawning (bounded ~200 ms).
+    for (int i = 0; i < 20; ++i) {
+        if (WaitNamedPipeA(pipeName_.c_str(), 20)) break;
+        Sleep(10);
+    }
+    char modulePath[1024] = {};
+    const unsigned long len = GetModuleFileNameA(nullptr, modulePath, sizeof(modulePath));
+    if (len > 0 && len < sizeof(modulePath)) {
+        char* lastSlash = modulePath;
+        for (char* p = modulePath; *p; ++p) {
+            if (*p == '\\' || *p == '/') lastSlash = p;
+        }
+        *lastSlash = '\0';
+        std::string dllPath = std::string(modulePath[0] ? modulePath : ".") + "\\jkapp_taskbar.dll";
+        if (GetFileAttributesA(dllPath.c_str()) != kInvalidFileAttributes) {
+            SpawnClient("taskbar");
+        } else {
+            std::fprintf(stderr, "JKWindowServer: no jkapp_taskbar.dll — desktop runs without a shell\n");
+        }
+    }
+#endif
 }
 
 void JKWindowServer::AcceptorLoop() {
@@ -232,6 +268,10 @@ void JKWindowServer::ProcessPendingClients() {
 
         int ww = 0, wh = 0;
         SDL_GetWindowSize(window_, &ww, &wh);
+        // Work-area reserve (docs/28): the shell's docked bar height keeps new
+        // windows out of the taskbar zone. Computed per batch — the shell is
+        // not yet layered when it is placed itself.
+        const int reserve = compositor_ ? compositor_->ShellReserveHeight() : 0;
         // Surfaces larger than the desktop (apps designed for 1920x1080) are
         // displayed scaled down to fit; the client keeps rendering at its
         // designed surface size. Chrome zones are proportional to the layer
@@ -239,16 +279,16 @@ void JKWindowServer::ProcessPendingClients() {
         // working under a fit scale.
         const float fit = std::min(1.0f,
             std::min(ww / static_cast<float>(client->Width()),
-                     wh / static_cast<float>(client->Height())));
+                     (wh - reserve) / static_cast<float>(client->Height())));
         const int dispW = static_cast<int>(client->Width() * fit);
         const int dispH = static_cast<int>(client->Height() * fit);
         int x = std::max(0, (ww - dispW) / 2) + existingCount * 20;
-        int y = std::max(0, (wh - dispH) / 2) + existingCount * 20;
+        int y = std::max(0, (wh - reserve - dispH) / 2) + existingCount * 20;
         // A full-desktop fit layer (dispW == ww) would push its close-button
         // corner past the window edge with the cascade offset — clamp so the
-        // whole layer, chrome included, stays inside the desktop.
+        // whole layer, chrome included, stays inside the work area.
         x = std::min(x, std::max(0, ww - dispW));
-        y = std::min(y, std::max(0, wh - dispH));
+        y = std::min(y, std::max(0, wh - reserve - dispH));
         client->SetPosition(x, y);
         ++existingCount;
 
@@ -274,12 +314,18 @@ void JKWindowServer::ProcessPendingClients() {
         // while FocusLayer only fixes z-order. Only calling FocusLayer here
         // left focusedClientId_ at 0, so keys were silently dropped until the
         // first click on the surface (tetris arrows appeared dead at spawn).
-        FocusClient(client->Id());
+        // The shell never takes focus (docs/28) — keys stay with app windows.
+        if (!client->IsShell()) {
+            FocusClient(client->Id());
+        }
 
         {
             std::lock_guard<std::mutex> lock(clientsMutex_);
             clients_.push_back(std::move(client));
         }
+
+        // Shell protocol: the new window shows up in the taskbar.
+        PushWindowList();
     }
 }
 
@@ -449,8 +495,11 @@ bool JKWindowServer::HandleChromeGrab(const SDL_Event& ev, int mx, int my, float
                 layer->Height() * layer->ScaleY()));
             int nx = lmX - chromeGrabDX_;
             int ny = lmY - chromeGrabDY_;
+            // Keep the dragged window inside the work area: the shell's
+            // docked bar stays visible under it (docs/28).
+            const int reserve = compositor_ ? compositor_->ShellReserveHeight() : 0;
             nx = std::max(-lw + 40, std::min(nx, std::max(0, winW - 40)));
-            ny = std::max(0, std::min(ny, std::max(0, winH - 40)));
+            ny = std::max(0, std::min(ny, std::max(0, winH - reserve - 40)));
             client->SetPosition(nx, ny);
             compositor_->SetLayerPosition(client->Id(), nx, ny);
         } else {  // Resize: stretch-preview via layer scale.
@@ -527,6 +576,11 @@ bool JKWindowServer::TryChromeGrab(int mx, int my, float scale) {
     }
     JKClientConnection* client = FindClientById(layer->Id());
     if (!client) {
+        return false;
+    }
+    // The shell has no window chrome (docs/28): no close X, no title drag,
+    // no resize edges — clicks fall through to the shell's own UI.
+    if (client->IsShell()) {
         return false;
     }
 
@@ -711,7 +765,10 @@ void JKWindowServer::HandleSDLEvent(const SDL_Event& ev) {
             payload.type = ipc::InputEventType::MouseDown;
             payload.keyCode = ev.button.button;
             payload.detail = ev.button.clicks;
-            FocusClient(client->Id());
+            // Clicking the shell does not steal keyboard focus (docs/28).
+            if (!client->IsShell()) {
+                FocusClient(client->Id());
+            }
             capturedClientId_ = client->Id();
         } else if (ev.type == SDL_MOUSEBUTTONUP) {
             payload.type = ipc::InputEventType::MouseUp;
@@ -805,6 +862,10 @@ void JKWindowServer::UpdateOutputBounds() {
         scale = physW / static_cast<float>(logW);
     }
     compositor_->SetOutput(JKCompositorOutput(0, JKRect{0, 0, logW, logH}, scale));
+
+    // Keep the shell docked across desktop size changes (SIZE_CHANGED /
+    // MOVED / DISPLAY_CHANGED all funnel here).
+    DockShellClient(nullptr);
 }
 
 void JKWindowServer::ProcessPendingMessages() {
@@ -847,7 +908,113 @@ void JKWindowServer::ProcessClientMessage(JKClientConnection& client, const ipc:
         }
     } else if (msg.type == ipc::MsgType::Close) {
         // Client explicitly closed.
+    } else if (msg.type == ipc::MsgType::ShellRegister) {
+        // Shell protocol (docs/28): the FIRST client to register becomes the
+        // desktop shell (taskbar). Later registrations are ignored while one
+        // is active — the shell is a role, not an app.
+        bool alreadyShell = false;
+        for (const auto& other : clients_) {
+            if (other && other->Id() != client.Id() && other->IsShell()) {
+                alreadyShell = true;
+                break;
+            }
+        }
+        if (alreadyShell) {
+            std::fprintf(stderr, "JKWindowServer: surface %u shell register denied (shell already active)\n",
+                         client.Id());
+            ipc::ShellRegisterAckPayload ack{};  // accepted = 0
+            client.Send(ipc::MsgType::ShellRegisterAck, &ack, sizeof(ack));
+        } else {
+            client.SetShell(true);
+            if (compositor_) {
+                compositor_->SetLayerShell(client.Id(), true);
+            }
+            ipc::ShellRegisterAckPayload ack{};
+            ack.accepted = 1;
+            client.Send(ipc::MsgType::ShellRegisterAck, &ack, sizeof(ack));
+            std::fprintf(stderr, "JKWindowServer: surface %u registered as shell\n",
+                         client.Id());
+            PushWindowListUnsafe();  // initial snapshot (clientsMutex_ held)
+            DockShellClient(&client);  // bottom edge + full desktop width
+        }
+    } else if (msg.type == ipc::MsgType::WindowActivate) {
+        if (msg.payload.size() >= sizeof(ipc::WindowActivatePayload)) {
+            ipc::WindowActivatePayload payload{};
+            std::memcpy(&payload, msg.payload.data(), sizeof(payload));
+            if (payload.surfaceId != 0 && payload.surfaceId != client.Id()) {
+                // Restore-on-activate (minimized layers) arrives with the
+                // minimize feature; focusing is safe from day one.
+                FocusClient(payload.surfaceId);
+                PushWindowListUnsafe();  // active highlight follows focus
+            }
+        }
     }
+}
+
+void JKWindowServer::PushWindowList() {
+    std::lock_guard<std::mutex> lock(clientsMutex_);
+    PushWindowListUnsafe();
+}
+
+// Caller must hold clientsMutex_: ProcessPendingMessages and
+// CleanupDisconnectedClients iterate under it, and std::mutex is not
+// recursive.
+void JKWindowServer::PushWindowListUnsafe() {
+    JKClientConnection* shell = nullptr;
+    ipc::WindowListPayload payload{};
+    for (auto& c : clients_) {
+        if (!c || c->IsDisconnected()) continue;
+        if (c->IsShell()) {
+            shell = c.get();          // the shell never lists itself
+            continue;
+        }
+        if (payload.count < 32) {
+            ipc::ShellWindowEntry& entry = payload.windows[payload.count++];
+            entry.surfaceId = c->Id();
+            entry.flags = (focusedClientId_ == c->Id()) ? ipc::kShellWindowActive : 0;
+            std::strncpy(entry.title, c->Title().c_str(), sizeof(entry.title) - 1);
+        }
+    }
+    if (shell) {
+        shell->Send(ipc::MsgType::WindowList, &payload, sizeof(payload));
+    }
+}
+
+JKClientConnection* JKWindowServer::FindShellClient() {
+    std::lock_guard<std::mutex> lock(clientsMutex_);
+    for (auto& c : clients_) {
+        if (c && !c->IsDisconnected() && c->IsShell()) {
+            return c.get();
+        }
+    }
+    return nullptr;
+}
+
+// Dock the shell to the bottom edge: surface width = desktop logical width
+// (ResizeSurface via the chrome-resize machinery), position (0, wh - h).
+// Re-docked on every desktop size change (UpdateOutputBounds).
+void JKWindowServer::DockShellClient(JKClientConnection* shell) {
+    if (!compositor_ || !window_) {
+        return;
+    }
+    if (!shell) {
+        shell = FindShellClient();
+    }
+    if (!shell) {
+        return;
+    }
+
+    int ww = 0, wh = 0;
+    SDL_GetWindowSize(window_, &ww, &wh);
+    const uint32_t id = shell->Id();
+    const int barH = shell->Height();  // the client decides the thickness
+
+    // Re-resize only when the desktop width actually changed (a ResizeSurface
+    // forces the client to remap shared memory and re-layout).
+    if (shell->Width() != ww) {
+        CommitChromeResize(*shell, id, ww, barH, ww, barH);
+    }
+    compositor_->SetLayerPosition(id, 0, wh - barH);
 }
 
 void JKWindowServer::Composite() {
@@ -900,6 +1067,11 @@ void JKWindowServer::CleanupDisconnectedClients() {
             if (uint32_t top = compositor_->TopmostLayerId()) {
                 FocusClient(top);
             }
+        }
+
+        // Shell protocol: the dead window disappears from the taskbar.
+        if (!disconnected.empty()) {
+            PushWindowListUnsafe();
         }
     }
 

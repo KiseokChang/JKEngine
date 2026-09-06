@@ -94,6 +94,25 @@ void JKCompositor::SetLayerAlpha(uint32_t id, uint8_t alpha) {
     }
 }
 
+void JKCompositor::SetLayerShell(uint32_t id, bool shell) {
+    std::lock_guard<std::mutex> lock(layersMutex_);
+    if (JKCompositorLayer* layer = FindLayer(id)) {
+        layer->SetShell(shell);
+        // Keep the shell topmost right away (full sort policy in SortLayers).
+        SortLayers();
+    }
+}
+
+int JKCompositor::ShellReserveHeight() {
+    std::lock_guard<std::mutex> lock(layersMutex_);
+    for (auto& layer : layers_) {
+        if (layer && layer->IsShell() && layer->IsVisible()) {
+            return static_cast<int>(layer->Height() * layer->ScaleY());
+        }
+    }
+    return 0;
+}
+
 bool JKCompositor::ResizeLayer(uint32_t id, int width, int height, uint8_t* pixels) {
     if (!renderer_ || width <= 0 || height <= 0) {
         return false;
@@ -149,7 +168,9 @@ void JKCompositor::FocusLayer(uint32_t id) {
 uint32_t JKCompositor::TopmostLayerId() {
     std::lock_guard<std::mutex> lock(layersMutex_);
     for (auto it = layers_.rbegin(); it != layers_.rend(); ++it) {
-        if (*it && (*it)->IsVisible()) {
+        // The shell never receives focus fallback (docs/28) — keyboard input
+        // must stay with app windows.
+        if (*it && (*it)->IsVisible() && !(*it)->IsShell()) {
             return (*it)->Id();
         }
     }
@@ -181,7 +202,9 @@ void JKCompositor::UpdateLayerTexture(JKCompositorLayer& layer) {
 
 void JKCompositor::SortLayers() {
     // Stable sort: non-focused layers come before the focused layer so it is
-    // rendered last (on top). Null entries are sorted to the back.
+    // rendered last (on top). Null entries are sorted to the back. Shell
+    // layers (docs/28) outrank everything — the focused window never covers
+    // the taskbar.
     std::stable_sort(layers_.begin(), layers_.end(),
         [this](const std::unique_ptr<JKCompositorLayer>& a,
                const std::unique_ptr<JKCompositorLayer>& b) {
@@ -189,6 +212,9 @@ void JKCompositor::SortLayers() {
             const bool bValid = b != nullptr;
             if (!aValid || !bValid) {
                 return !aValid < bValid;
+            }
+            if (a->IsShell() != b->IsShell()) {
+                return !a->IsShell() && b->IsShell();
             }
             const bool aFocused = (a->Id() == focusedId_);
             const bool bFocused = (b->Id() == focusedId_);
@@ -236,7 +262,10 @@ void JKCompositor::Composite() {
             // The client paints the title bar inside its surface, but a
             // parentless main window paints no close button — the server
             // draws the close overlay at the top-right of every layer.
-            DrawCloseOverlay(*layer, outputScale);
+            // Shell layers have no chrome at all (docs/28).
+            if (!layer->IsShell()) {
+                DrawCloseOverlay(*layer, outputScale);
+            }
         }
     }
 

@@ -48,6 +48,10 @@ public:
     bool IsVisible() const { return visible_; }
     void SetVisible(bool v) { visible_ = v; }
 
+    // Shell role (docs/28): always-topmost, chrome-exempt, not focusable.
+    bool IsShell() const { return shell_; }
+    void SetShell(bool s) { shell_ = s; }
+
 private:
     uint32_t id_ = 0;
     int width_ = 0;
@@ -60,6 +64,7 @@ private:
     uint8_t alpha_ = 255;
     bool dirty_ = true;
     bool visible_ = true;
+    bool shell_ = false;
     SDL_Texture* texture_ = nullptr;
     uint8_t* pixels_ = nullptr;
 };

@@ -305,13 +305,23 @@ target_compile_definitions(jkapp_script PRIVATE JKAPP_MODULE_BUILD)
 target_link_libraries(jkapp_script PRIVATE jkcore)
 set_target_properties(jkapp_script PROPERTIES PREFIX "")
 
+# Taskbar shell module (docs/28) — a privileged client, NOT a launcher app:
+# never packaged as .jkx; the server auto-spawns it from jkapp_taskbar.dll.
+add_library(jkapp_taskbar SHARED
+    src/apps/JKAppModule_taskbar.cpp
+    src/apps/ClientTaskbarApp.cpp
+)
+target_compile_definitions(jkapp_taskbar PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_taskbar PRIVATE jkcore)
+set_target_properties(jkapp_taskbar PROPERTIES PREFIX "")
+
 if(WIN32)
     # Keep each module self-contained: no libstdc++/libgcc runtime DLLs needed
     # next to the app modules.
     foreach(jkapp_mod jkapp_minesweeper jkapp_tetris jkapp_testwin
                       jkapp_jango jkapp_occ jkapp_pcx jkapp_vector
                       jkapp_iconedit jkapp_recog jkapp_vfont jkapp_vpres
-                      jkapp_terminal jkapp_script)
+                      jkapp_terminal jkapp_script jkapp_taskbar)
         target_link_options(${jkapp_mod} PRIVATE -static-libstdc++ -static-libgcc)
     endforeach()
 endif()

@@ -24,7 +24,14 @@ enum class MsgType : uint32_t {
     // Server -> client: the surface was resized. The client must remap the
     // shared memory named in the payload (a new mapping per generation —
     // Windows file mappings cannot grow in place) and re-layout at w x h.
-    ResizeSurface = 10
+    ResizeSurface = 10,
+    // Shell protocol (docs/28): a client registers as the desktop shell
+    // (taskbar) and receives window-list snapshots; shell commands flow
+    // back client -> server. This is the seed of the privileged shell API.
+    ShellRegister  = 11,  // C -> S: register as the (single) shell client
+    WindowList     = 12,  // S -> C: full window-list snapshot to the shell
+    WindowActivate = 13,  // C -> S: focus (+restore) a window
+    ShellRegisterAck = 14 // S -> C: shell role granted (1) or denied (0)
 };
 
 #pragma pack(push, 1)
@@ -80,6 +87,48 @@ struct SurfaceResizePayload {
     int32_t  width = 0;
     int32_t  height = 0;
     char     shmName[256] = {};
+};
+
+// Client -> server with MsgType::ShellRegister: the sender wants to act as
+// the desktop shell (taskbar). One shell at a time — the server denies later
+// registrations with a ShellRegisterAck. dockEdge: 0 = bottom edge (v1);
+// barHeight: requested bar thickness in logical points (0 = surface decides).
+struct ShellRegisterPayload {
+    uint32_t protocolVersion = 1;
+    uint32_t dockEdge = 0;
+    uint32_t barHeight = 0;
+};
+
+// Server -> client with MsgType::ShellRegisterAck: shell role granted
+// (accepted = 1) or denied (0, e.g. another shell is already active).
+struct ShellRegisterAckPayload {
+    uint32_t accepted = 0;
+};
+
+// Window-list entry (docs/28). flags: bit0 = active (has keyboard focus),
+// bit1 = minimized (layer hidden server-side).
+struct ShellWindowEntry {
+    uint32_t surfaceId = 0;
+    uint32_t flags = 0;
+    char     title[128] = {};
+};
+
+// Server -> shell client with MsgType::WindowList: a FULL snapshot. The
+// receiver replaces its entire view with this list (idempotent, so a
+// restarted shell heals itself from the next snapshot).
+struct WindowListPayload {
+    uint32_t         count = 0;
+    ShellWindowEntry windows[32] = {};
+};
+
+// ShellWindowEntry::flags bits.
+constexpr uint32_t kShellWindowActive = 1u << 0;     // has keyboard focus
+constexpr uint32_t kShellWindowMinimized = 1u << 1;  // layer hidden server-side
+
+// Client -> server with MsgType::WindowActivate: focus the window (and
+// restore it first when it is minimized).
+struct WindowActivatePayload {
+    uint32_t surfaceId = 0;
 };
 
 enum class InputEventType : uint32_t {

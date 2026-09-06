@@ -249,6 +249,41 @@ void JKClientSurface::ReadLoop() {
             pendingResize_.width = payload.width;
             pendingResize_.height = payload.height;
             pendingResize_.shmName = payload.shmName;
+        } else if (msg.type == ipc::MsgType::WindowList &&
+                   msg.payload.size() >= sizeof(ipc::WindowListPayload)) {
+            // Shell protocol: full snapshot. Coalesce (keep only the latest —
+            // snapshots supersede each other) and wake the app with a light
+            // event; it pulls the list with GetWindowList().
+            ipc::WindowListPayload payload{};
+            std::memcpy(&payload, msg.payload.data(), sizeof(payload));
+
+            PendingWindowList snapshot;
+            snapshot.valid = true;
+            snapshot.windows.reserve(payload.count);
+            for (uint32_t i = 0; i < payload.count && i < 32; ++i) {
+                ShellWindowInfo info;
+                info.surfaceId = payload.windows[i].surfaceId;
+                info.flags = payload.windows[i].flags;
+                info.title = payload.windows[i].title;
+                snapshot.windows.push_back(std::move(info));
+            }
+
+            JKEvent ev{};
+            ev.type = JKEventType::WindowListChanged;
+            QueueInputEvent(ev);
+
+            std::lock_guard<std::mutex> lock(pendingWindowListMutex_);
+            pendingWindowList_ = std::move(snapshot);
+        } else if (msg.type == ipc::MsgType::ShellRegisterAck &&
+                   msg.payload.size() >= sizeof(ipc::ShellRegisterAckPayload)) {
+            // One-shot handshake result. Denied means another shell is
+            // active; the app sees no WindowList and stays inert (log-only
+            // for now — v1 runs a single auto-spawned shell).
+            ipc::ShellRegisterAckPayload payload{};
+            std::memcpy(&payload, msg.payload.data(), sizeof(payload));
+            std::fprintf(stderr, "[surface] shell register %s\n",
+                         payload.accepted ? "accepted" : "DENIED");
+            std::fflush(stderr);
         }
     }
 
@@ -300,6 +335,31 @@ bool JKClientSurface::ApplyPendingResize() {
 
 std::string JKClientSurface::ShmNameFromSurfaceId(uint32_t id) {
     return std::string("JKSurfaceShm_") + std::to_string(id);
+}
+
+bool JKClientSurface::SendShellRegister(uint32_t dockEdge, uint32_t barHeight) {
+    if (!IsConnected()) return false;
+    ipc::ShellRegisterPayload payload{};
+    payload.protocolVersion = 1;
+    payload.dockEdge = dockEdge;
+    payload.barHeight = barHeight;
+    return ipc::WriteMessage(*transport_, ipc::MsgType::ShellRegister, payload);
+}
+
+bool JKClientSurface::SendWindowActivate(uint32_t surfaceId) {
+    if (!IsConnected()) return false;
+    ipc::WindowActivatePayload payload{};
+    payload.surfaceId = surfaceId;
+    return ipc::WriteMessage(*transport_, ipc::MsgType::WindowActivate, payload);
+}
+
+bool JKClientSurface::GetWindowList(std::vector<ShellWindowInfo>& out) const {
+    std::lock_guard<std::mutex> lock(pendingWindowListMutex_);
+    if (!pendingWindowList_.valid) {
+        return false;
+    }
+    out = pendingWindowList_.windows;
+    return true;
 }
 
 } // namespace client

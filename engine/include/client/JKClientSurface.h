@@ -19,6 +19,14 @@
 namespace jk {
 namespace client {
 
+// One window in a shell window-list snapshot (docs/28). flags mirror
+// ipc::ShellWindowEntry: bit0 = active (keyboard focus), bit1 = minimized.
+struct ShellWindowInfo {
+    uint32_t surfaceId = 0;
+    uint32_t flags = 0;
+    std::string title;
+};
+
 // Client-side view of a surface managed by the window server.
 // The surface pixels live in shared memory; this class owns the named-pipe
 // connection used to synchronize creation and commits with the server.
@@ -67,6 +75,16 @@ public:
     // Returns true if a resize was applied.
     bool ApplyPendingResize();
 
+    // Shell protocol (docs/28). A shell client registers right after
+    // Connect(), then receives WindowList snapshots (JKEventType::
+    // WindowListChanged queues; fetch the latest with GetWindowList).
+    // WindowActivate asks the server to focus (and restore) a window.
+    // dockEdge: 0 = bottom edge; barHeight: requested thickness (0 = auto).
+    bool SendShellRegister(uint32_t dockEdge = 0, uint32_t barHeight = 0);
+    bool SendWindowActivate(uint32_t surfaceId);
+    // Main-thread only: copy of the latest window-list snapshot.
+    bool GetWindowList(std::vector<ShellWindowInfo>& out) const;
+
 private:
     void StartReadThread();
     void StopReadThread();
@@ -98,6 +116,16 @@ private:
     };
     std::mutex pendingResizeMutex_;
     PendingResize pendingResize_;
+
+    // Latest window-list snapshot pushed by the server (MsgType::WindowList),
+    // coalesced by the read thread; GetWindowList() copies it on the main
+    // thread. Same pattern as pendingResize_.
+    struct PendingWindowList {
+        bool valid = false;
+        std::vector<ShellWindowInfo> windows;
+    };
+    mutable std::mutex pendingWindowListMutex_;
+    PendingWindowList pendingWindowList_;
 
     static std::string ShmNameFromSurfaceId(uint32_t id);
 };

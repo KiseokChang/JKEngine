@@ -22,6 +22,9 @@ enum class JKEventType : uint16_t {
     Command,
     SizeChanged,
     DpiChanged,
+    // Shell protocol (docs/28): the server pushed a new window-list snapshot
+    // to this shell client. Fetch it with JKClientSurface::GetWindowList.
+    WindowListChanged,
     User
 };
 
