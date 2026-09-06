@@ -419,3 +419,40 @@ BlitTexture는 사각 blit뿐) **ImGui를 JKRenderCommandList로 직렬화하는
 
 - **멀티뷰포트 영구 제외** — 창 소유는 서버에 있다(§2, §9-2-5와 동일).
 - 버전 핀 §3.1(v1.92.x)과 `io.IniFilename = nullptr`(§8-10) 유지.
+
+### 11.5 Phase 1 구현 기록 (2026-09-06 완료)
+
+§9 Phase 1 착수 승인(2026-09-06) 후 커밋 단위로 구현·검증 완료.
+
+| 커밋 | 내용 |
+|---|---|
+| fbfd0b6 | v1.92.9b 벤더링 + `imgui` 스태틱 타깃(§3) — jkcore 밖(§3.2) |
+| 95c87c9 | `imgui_impl_jkwindow` 퓨즈드 백엔드(§4) — 이벤트/렌더/1.92 동적 텍스처 |
+| 7d08bea | `JKClientApplication::RenderOverlay` 훅(§5.2-4) — jkcore 유일 변경 |
+| eef3e7b | `jkapp_imguidemo` + `apps/imguidemo.jkx` + 런처 아이콘(§6) |
+| a3b646e | 데모 프레임 게이트 수정 — 16ms 타이머가 프레임 클럭 |
+
+**구현 확정 사항(계획 대비):**
+
+- 백엔드는 플랫폼+렌더 데이터를 한 구조체(`ImGui_ImplJKWindow_Data`)로 합침 —
+  클라는 단일 창/단일 렌더러 프로세스라 공식 백엔드의 분할 데이터가 무의미.
+- punctuation 키는 scancode 폴백(JKEvent에 scancode 없음, §4.1) 대신
+  ASCII 값 키코드 직접 매핑으로 해결.
+- `RenderOverlay`는 렌더 타깃이 1:1 스케일로 바인딩된 scene-replay 직후에 호출 —
+  ImGui 드로우가 그대로 커밋 표면에 합성됨.
+- 데모 앱 프레임 클럭 = 16ms 레거시 타이머 + `IsFrameDirty` 게이트.
+  **교훈**: 타이머 이벤트에서 dirty 플래그를 재설정해야 함 — RenderOverlay 끝의
+  set + OnFrameCommitted의 clear만으로는 첫 프레임 이후 영구 정지(커밋 a3b646e).
+- 이벤트 피딩은 `PreProcessMessage` 오버라이드 — TAB 포커스 사이클에 먹히는
+  것보다 앞단이라 모든 이벤트가 ImGui에 도달.
+
+**검증 결과(§10 스모크):**
+
+- 셀프테스트 0 failures. 서버+imguidemo 스폰 → 데모 창/패널/PlotLines 렌더.
+- 마우스: 패널 IO dump 체크박스 클릭 → 토글 + `MousePos`(표면 좌표) +
+  `WantCaptureMouse=1` — 서버→클라→ImGui 전 경로.
+- 셸 공존: 작업표시줄이 imguidemo 창을 버튼으로 추적, 버튼 클릭으로 활성화
+  (WindowActivate 재사용 확인).
+- 클라 FPS ~60(타이머 케이던스), 표면 1024×720.
+- **캡처 교훈**: 서버 창 PrintWindow 캡처는 가상화 좌표/스테일 프레임으로 오인을
+  낳음 — `SetProcessDPIAware` + `CopyFromScreen`이 신뢰됨(125% 모니터).
