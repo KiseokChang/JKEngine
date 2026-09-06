@@ -415,6 +415,13 @@ add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/scriptdemo.jkx"
         "${CMAKE_SOURCE_DIR}/scripts/apps/scriptdemo/app.js"
     COMMENT "Repacking apps/scriptdemo.jkx"
     VERBATIM)
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/passworddemo.jkx"
+    COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack passworddemo
+    DEPENDS jkdesktop jkapp_script
+        "${CMAKE_SOURCE_DIR}/scripts/apps/passworddemo/manifest.txt"
+        "${CMAKE_SOURCE_DIR}/scripts/apps/passworddemo/app.js"
+    COMMENT "Repacking apps/passworddemo.jkx"
+    VERBATIM)
 add_custom_target(jkx_packages ALL
     DEPENDS "${CMAKE_BINARY_DIR}/apps/minesweeper.jkx"
             "${CMAKE_BINARY_DIR}/apps/tetris.jkx"
@@ -428,4 +435,5 @@ add_custom_target(jkx_packages ALL
             "${CMAKE_BINARY_DIR}/apps/vfont.jkx"
             "${CMAKE_BINARY_DIR}/apps/vpres.jkx"
             "${CMAKE_BINARY_DIR}/apps/terminal.jkx"
-            "${CMAKE_BINARY_DIR}/apps/scriptdemo.jkx")
+            "${CMAKE_BINARY_DIR}/apps/scriptdemo.jkx"
+            "${CMAKE_BINARY_DIR}/apps/passworddemo.jkx")

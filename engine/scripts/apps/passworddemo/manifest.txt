@@ -1,0 +1,6 @@
+name=passworddemo
+title=Password Dialog (script port)
+width=340
+height=220
+module=jkapp_script.dll
+script=app.js

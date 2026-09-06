@@ -1,6 +1,7 @@
-// jk.d.ts v2 — host API contract (docs/27_scripting_quickjs_bridge.md §4).
+// jk.d.ts v3 — host API contract (docs/27_scripting_quickjs_bridge.md §4).
 // v1: 단계 1 최소 증명 세트 / v2: 단계 2 UI 자동화 API (findControl, click,
-// injectMouse, injectKey, assert, assertEq — additive).
+// injectMouse, injectKey, assert, assertEq — additive) / v3: 단계 3 모달
+// 다이얼로그 (createDialog, dialogAdd*, dialogShow, dialogClose — additive).
 //
 // 이 파일은 실행되지 않는 TypeScript 선언 파일이다. QuickJS-ng가 실행하는
 // 것은 app.js(JavaScript)이며, 이 선언은 (1) 스크립트를 작성하는 에이전트가
@@ -120,6 +121,59 @@ declare function assert(cond: boolean, message: string): void;
  * 숫자 1과 문자열 "1"은 다르다고 판정한다.
  */
 declare function assertEq(actual: unknown, expected: unknown, message: string): void;
+
+// ---------------------------------------------------------------------------
+// v3 — 모달 다이얼로그 (docs/27 §4 단계 3). 레거시 화면(JangoUI/OccUI 빌더)이
+// 다이얼로그 중심이므로, C++의 JKDialog 구축 패턴(모달 윈도우 + 컨트롤 + 결과
+// 콜백)을 그대로 옮긴 표면이다. 다이얼로그가 만든 컨트롤도 같은 controlId
+// 레지스트리에 등록되므로 findControl/click/setText/getText가 그대로 동작한다.
+//
+// 결과 코드 규약 (JKDialog 상수): 1 = OK, 2 = Cancel, 3 = Yes, 4 = No.
+// ---------------------------------------------------------------------------
+
+/**
+ * 모달 다이얼로그(숨김 상태)를 만들어 dialogId를 반환한다. title이 타이틀 바
+ * 텍스트가 되고 rect는 다이얼로그 크기(이동 가능 — 원본 다이얼로그와 동일한
+ * WA_TITLEMOVEABLE). 닫힐 때마다 onClose(result)가 호출된다 — OK/Cancel
+ * 버튼에서 dialogClose(dlg, 결과)로 닫거나, ESC/타이틀 닫기는 Cancel로 닫는다.
+ *
+ * Close 후에도 dialogShow(dlg)로 재열 수 있다(원본 앱의 다이얼로그 재사용
+ * 패턴과 동일).
+ *
+ * @note [AI Agent] 모달 슬롯은 앱당 하나다 — 다이얼로그가 열린 상태에서
+ *   messageBox를 호출하면 모달 슬롯을 빼앗는다(원본 C++ 앱과 동일 제약).
+ *   onDialogClose 안에서 messageBox를 여는 것은 안전하다(다이얼로그가 먼저
+ *   모달 슬롯을 해제한 뒤 콜백이 돈다).
+ */
+declare function createDialog(title: string, rect: JKRect, onClose: (result: number) => void): number;
+
+/**
+ * 다이얼로그에 정적 라벨을 추가하고 controlId를 반환한다. rect는 다이얼로그
+ * 클라이언트 영역 기준이다.
+ */
+declare function dialogAddLabel(dialogId: number, rect: JKRect, text: string, id?: number): number;
+
+/** 다이얼로그에 한 줄 입력란을 추가하고 controlId를 반환한다. */
+declare function dialogAddEdit(dialogId: number, rect: JKRect, text: string, id?: number): number;
+
+/**
+ * 다이얼로그에 버튼을 추가하고 controlId를 반환한다. 클릭은 전역
+ * onClick(controlId)로 전달되므로, 스크립트가 controlId로 결과를 구분해
+ * dialogClose를 호출한다(원본의 SetOnClick → Close(result) 패턴).
+ */
+declare function dialogAddButton(dialogId: number, rect: JKRect, text: string, id?: number): number;
+
+/**
+ * 다이얼로그를 모달로 연다. 이전 포커스 컨트롤이 저장되고 다이얼로그의 첫
+ * 자식에게 포커스가 간다 — 닫히면 저장된 포커스로 복원된다(모달 포커스 복원).
+ */
+declare function dialogShow(dialogId: number): void;
+
+/**
+ * 다이얼로그를 코드에서 닫는다 (result는 결과 코드 규약 참고). onClose(result)로
+ * 이어진다. ESC/타이틀 닫기 버튼은 Cancel(2)로 닫는다.
+ */
+declare function dialogClose(dialogId: number, result: number): void;
 
 // ---------------------------------------------------------------------------
 // 스크립트 콜백 (전역 함수로 정의하면 호스트가 호출한다 — 선언 충돌을 피하려고

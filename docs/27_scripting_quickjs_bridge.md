@@ -126,8 +126,8 @@
 |---|---|---|
 | **v1 (단계 1)** | `log`, `messageBox`, 창/다이얼로그 생성, `button`/`label`/`edit` 팩토리, `onClick`/`onTimer`, `setInterval`/`clearInterval` | 최소 증명 세트 |
 | **v2 (단계 2)** | `findControl(id/name)`, `click()`, `setText`/`getText`, 키/마우스 이벤트 주입, `assert*` 헬퍼 | 자동화. 컨트롤 **직접 호출 우선**(구조적), SDL 이벤트 주입은 보조 |
-| **v3 (단계 3)** | `combobox`/`menu`/목록 컨트롤, 모달 `JKDialog`(+`onClose` 결과), `loadImagePNG`(리소스 캐시) | 레거시 포팅에 필요한 만큼만 |
-| **v4 (단계 4)** | `readConfig(json)` — `JSON.parse` 기반 설정 주입 | terminal.ini 등 |
+| **v3 (단계 3)** | 모달 다이얼로그: `createDialog`(title/rect/onClose), `dialogAddLabel`/`dialogAddEdit`/`dialogAddButton`, `dialogShow`, `dialogClose(result)` | 레거시 포팅에 필요한 만큼만 — PasswordDialog 파일럿이 유발한 것만 추가 (combobox/목록/loadImagePNG는 필요해질 때) |
+| **v4 (단계 4)** | `readConfig(file)` — JSON 파일을 `JS_ParseJSON`으로 읽어 객체 반환 | terminal.ini 등 |
 
 `.d.ts` 운영은 §2.4 규칙을 따른다.
 
@@ -172,6 +172,8 @@
 - 포팅하며 필요해진 API만 v3에 추가한다(**선제 설계 금지** — API 표면 폭발 방지).
 
 **검증**: 원본 C++ 화면과 나란히 실행해 레이아웃/동작 등가 확인, 리사이즈/모달 포커스 복원 포함.
+
+**상태 (2026-09-06)**: 단계 3 구현 완료. 파일럿은 **JangoUI의 `PasswordDialog`**(정적+입력란+버튼 2 = 컨트롤 3종, 모달 1, 그리드 없음)로 확정 — 진입 흐름(Personnel 버튼 → 모달 → 결과 처리)까지 포팅한 `scripts/apps/passworddemo/`. 바인딩 v3 — `createDialog`(title/rect/onClose, WA_TITLEMOVEABLE), `dialogAddLabel`/`dialogAddEdit`/`dialogAddButton`(다이얼로그 전용 추가 함수 — v1 create* 시그니처 동결 유지, 컨트롤은 공용 레지스트리에 등록되어 `findControl`/`click`/`setText`가 그대로 동작), `dialogShow`(모달 진입 + 이전 포커스 저장), `dialogClose(result)` — `jk.d.ts` v3 갱신 동봉. 설계 결정: (1) 다이얼로그 윈도우는 JangoUI의 검증된 **재사용 모델**(Close는 숨김, 재Show로 재open — `JKControl::Open`이 closeRequested 해제) — UAF 없이 콜백 체인(버튼 OnClick → onClick → dialogClose → onClose)이 재진입해도 안전; (2) onClose JS 레퍼런스는 Impl이 소유하고 Stop()에서 JS_FreeRuntime **전에** 해제(단계 1 교훈 재적용), 핫 리로드 시 열린 다이얼로그는 모달 슬롯 리셋과 함께 폐기. `findControl` 문자열 탐색도 다이얼로그 트리로 확장(타이틀 매치는 제외). 셀프테스트가 `scripts/tests/dialog.js` 시나리오(생성/추가/show/close/재open, 결과 코드 전달, 다이얼로그 컨트롤 대상 v1/v2 바인딩)를 상시 검증 — 전체 0 failures. `jkx-pack passworddemo` + CMake 자동 리팩 등록. **잔여(수동)**: `jkdesktop jango`와 나란히 실행해 다이얼로그 레이아웃 등가 확인, 모달 포커스 복원(다이얼로그 닫힘 후 Personnel 버튼 포커스 복귀) 눈 확인, 서버 모드 .jkx 스폰 확인.
 
 ### 단계 4 — 설정·테마 데이터
 

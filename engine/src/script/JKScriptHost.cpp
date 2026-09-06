@@ -1,7 +1,9 @@
 #include <script/JKScriptHost.h>
 
+#include <JKApplicationHost.h>
 #include <JKButton.h>
 #include <JKControl.h>
+#include <JKDialog.h>
 #include <JKEdit.h>
 #include <JKEvent.h>
 #include <JKMessageBox.h>
@@ -121,6 +123,25 @@ struct JKScriptHost::Impl {
     // timers and dispatch order is irrelevant.
     std::vector<std::pair<uint32_t, TimerEntry>> timers;
     uint32_t nextTimerId = 0;
+
+    // Modal dialogs (docs/27 단계 3). The windows live here (JangoUI's proven
+    // reuse model: Close() hides a dialog, Show()/Open() revives it) so a
+    // script can reopen one without recreating; the JS onClose refs must be
+    // released in Stop() BEFORE JS_FreeRuntime (the 단계 1 lesson).
+    struct DialogEntry {
+        uint32_t id = 0;
+        std::unique_ptr<JKDialog> window;
+        JSValue onClose{};  // owned ref
+    };
+    std::vector<DialogEntry> dialogs;
+    uint32_t nextDialogId = 1;
+
+    DialogEntry* FindDialog(uint32_t id) {
+        for (auto& d : dialogs) {
+            if (d.id == id) return &d;
+        }
+        return nullptr;
+    }
 };
 
 // ---------------------------------------------------------------------------
@@ -160,6 +181,17 @@ struct Bindings {
         if (!host->window_) return nullptr;
         for (const auto& child : host->window_->GetChildren()) {
             if (JKControl* hit = FindControlByText(child.get(), text)) return hit;
+        }
+        // v3: dialog contents live in separate windows — search those too
+        // (children only, so a matching dialog TITLE never resolves to the
+        // window itself).
+        for (const auto& d : host->impl_->dialogs) {
+            if (!d.window) continue;
+            for (const auto& child : d.window->GetChildren()) {
+                if (JKControl* hit = FindControlByText(child.get(), text)) {
+                    return hit;
+                }
+            }
         }
         return nullptr;
     }
@@ -467,6 +499,141 @@ struct Bindings {
         std::fflush(stdout);
         return JS_UNDEFINED;
     }
+
+    // --- host API v3 — modal dialogs (docs/27 단계 3) ---------------------
+    // Legacy screens are dialog-centric (JangoUI/OccUI builders): a modal
+    // JKDialog window + controls + a result callback. The dialog-scoped
+    // dialogAdd* functions mirror the C++ construction pattern; their controls
+    // join the shared registry so findControl/click/setText/getText work on
+    // them unchanged.
+
+    static JSValue CreateDialog(JSContext* ctx, JSValueConst, int argc,
+                                JSValueConst* argv) {
+        JKScriptHost* host = HostOf(ctx);
+        if (!host || argc < 3 || !JS_IsFunction(ctx, argv[2])) {
+            return JS_EXCEPTION;
+        }
+        bool ok = false;
+        const JKRect rect = RectFromArg(ctx, argv[1], &ok);
+        if (!ok) return JS_EXCEPTION;
+        auto window = std::make_unique<JKDialog>(ToUtf8(ctx, argv[0]));
+        window->SetWindowRect(rect);
+        // Legacy dialogs are draggable by their title bar (JangoUI:
+        // SetAttrFlags(WA_TITLEMOVEABLE) on every dialog).
+        window->SetAttrFlags(WA_TITLEMOVEABLE);
+
+        JKScriptHost::Impl::DialogEntry entry;
+        entry.id = host->impl_->nextDialogId++;
+        entry.window = std::move(window);
+        entry.onClose = JS_DupValue(ctx, argv[2]);
+        const uint32_t id = entry.id;
+        entry.window->SetOnClose([host, id](int result) {
+            host->DispatchDialogClose(id, result);
+        });
+        host->impl_->dialogs.push_back(std::move(entry));
+        return JS_NewInt32(ctx, static_cast<int32_t>(id));
+    }
+
+    // Shared prologue for the dialogAdd* thunks. argv: dialogId, rect, text,
+    // [id?]. Returns the new control or nullptr (bad arguments / no dialog).
+    static JKControl* DialogAddControl(JKScriptHost* host, JSContext* ctx,
+                                       int argc, JSValueConst* argv, int kind) {
+        int32_t dialogId = 0;
+        if (!host || argc < 3 || JS_ToInt32(ctx, &dialogId, argv[0]) ||
+            dialogId <= 0) {
+            return nullptr;
+        }
+        auto* entry = host->impl_->FindDialog(static_cast<uint32_t>(dialogId));
+        if (!entry) return nullptr;
+        bool ok = false;
+        const JKRect rect = RectFromArg(ctx, argv[1], &ok);
+        if (!ok) return nullptr;
+        const std::string text = ToUtf8(ctx, argv[2]);
+        const uint16_t id =
+            ResolveControlId(host, ctx, argc >= 4 ? argv[3] : JS_UNDEFINED);
+        JKControl* added = nullptr;
+        switch (kind) {
+            case 0: {  // label
+                auto* label = new JKStatic(rect, 0);
+                label->SetText(text);
+                label->SetControlId(id);
+                host->controls_.emplace_back(id, label);
+                entry->window->AddControl(std::unique_ptr<JKStatic>(label));
+                added = label;
+                break;
+            }
+            case 1: {  // edit (same shape as createEdit: 256 chars, 1 line)
+                auto* edit = new JKEdit(rect, 0, 256, false);
+                edit->SetText(text);
+                edit->SetControlId(id);
+                host->controls_.emplace_back(id, edit);
+                entry->window->AddControl(std::unique_ptr<JKEdit>(edit));
+                added = edit;
+                break;
+            }
+            default: {  // button
+                auto* btn = new JKButton(rect, 0);
+                btn->SetText(text);
+                btn->SetControlId(id);
+                btn->SetOnClick([host, id]() { host->DispatchClick(id); });
+                host->controls_.emplace_back(id, btn);
+                entry->window->AddControl(std::unique_ptr<JKButton>(btn));
+                added = btn;
+                break;
+            }
+        }
+        return added;
+    }
+
+    static JSValue DialogAddLabel(JSContext* ctx, JSValueConst, int argc,
+                                  JSValueConst* argv) {
+        JKScriptHost* host = HostOf(ctx);
+        const JKControl* c = DialogAddControl(host, ctx, argc, argv, 0);
+        return c ? JS_NewInt32(ctx, c->GetControlId()) : JS_EXCEPTION;
+    }
+
+    static JSValue DialogAddEdit(JSContext* ctx, JSValueConst, int argc,
+                                 JSValueConst* argv) {
+        JKScriptHost* host = HostOf(ctx);
+        const JKControl* c = DialogAddControl(host, ctx, argc, argv, 1);
+        return c ? JS_NewInt32(ctx, c->GetControlId()) : JS_EXCEPTION;
+    }
+
+    static JSValue DialogAddButton(JSContext* ctx, JSValueConst, int argc,
+                                   JSValueConst* argv) {
+        JKScriptHost* host = HostOf(ctx);
+        const JKControl* c = DialogAddControl(host, ctx, argc, argv, 2);
+        return c ? JS_NewInt32(ctx, c->GetControlId()) : JS_EXCEPTION;
+    }
+
+    static JSValue DialogShow(JSContext* ctx, JSValueConst, int argc,
+                              JSValueConst* argv) {
+        JKScriptHost* host = HostOf(ctx);
+        int32_t id = 0;
+        if (!host || argc < 1 || JS_ToInt32(ctx, &id, argv[0]) || id <= 0) {
+            return JS_UNDEFINED;
+        }
+        // JKDialog::Show saves the previously focused control and focuses the
+        // dialog's first child — the modal focus restore contract.
+        if (auto* entry = host->impl_->FindDialog(static_cast<uint32_t>(id))) {
+            entry->window->Show();
+        }
+        return JS_UNDEFINED;
+    }
+
+    static JSValue DialogClose(JSContext* ctx, JSValueConst, int argc,
+                               JSValueConst* argv) {
+        JKScriptHost* host = HostOf(ctx);
+        int32_t id = 0, result = JKDialog::ResultCancel;
+        if (!host || argc < 1 || JS_ToInt32(ctx, &id, argv[0]) || id <= 0) {
+            return JS_UNDEFINED;
+        }
+        if (argc >= 2) JS_ToInt32(ctx, &result, argv[1]);
+        if (auto* entry = host->impl_->FindDialog(static_cast<uint32_t>(id))) {
+            entry->window->Close(result);  // fires onClose -> DispatchDialogClose
+        }
+        return JS_UNDEFINED;
+    }
 };
 
 } // namespace script_detail
@@ -577,6 +744,12 @@ bool JKScriptHost::Start(const std::string& entryPath) {
     bind("injectKey", Bindings::InjectKey, 1);
     bind("assert", Bindings::Assert, 2);
     bind("assertEq", Bindings::AssertEq, 3);
+    bind("createDialog", Bindings::CreateDialog, 3);
+    bind("dialogAddLabel", Bindings::DialogAddLabel, 4);
+    bind("dialogAddEdit", Bindings::DialogAddEdit, 4);
+    bind("dialogAddButton", Bindings::DialogAddButton, 4);
+    bind("dialogShow", Bindings::DialogShow, 1);
+    bind("dialogClose", Bindings::DialogClose, 2);
 
     // Evaluate the script (global code — the completion value is unused).
     // Failure paths set a flag and Stop() AFTER the scope: the JsValue holders
@@ -642,6 +815,18 @@ void JKScriptHost::Stop() {
     }
     for (const auto& t : impl_->timers) JS_FreeValue(ctx, t.second.fn);
     impl_->timers.clear();
+
+    // Dialogs: free the JS onClose refs (before JS_FreeRuntime) and destroy
+    // the windows. The app's modal slot must not outlive a dialog window it
+    // points at (hot reload / teardown with a dialog open).
+    for (auto& d : impl_->dialogs) {
+        if (g_jkAppHost &&
+            g_jkAppHost->GetModalWindow() == d.window.get()) {
+            g_jkAppHost->SetModalWindow(nullptr);
+        }
+        JS_FreeValue(ctx, d.onClose);
+    }
+    impl_->dialogs.clear();
     controls_.clear();
     msgboxSlot_.reset();
 
@@ -693,6 +878,24 @@ void JKScriptHost::DispatchTimerAt(uint32_t scriptTimerId) {
             std::fflush(stdout);
         }
         return;
+    }
+}
+
+void JKScriptHost::DispatchDialogClose(uint32_t dialogId, int result) {
+    if (!ctx_) return;
+    JSContext* ctx = static_cast<JSContext*>(ctx_);
+    Impl::DialogEntry* entry = impl_->FindDialog(dialogId);
+    if (!entry || !JS_IsFunction(ctx, entry->onClose)) return;
+    // Hold a ref across the call: the callback may call dialogClose/dialogShow
+    // (or Stop() from the app side) while we are inside JKDialog::Close.
+    JsValue fn(ctx, JS_DupValue(ctx, entry->onClose));
+    JsValue arg(ctx, JS_NewInt32(ctx, result));
+    JSValueConst argv[1] = { arg.value() };
+    JsValue call(ctx, JS_Call(ctx, fn.value(), JS_UNDEFINED, 1, argv));
+    if (JS_IsException(call.value())) {
+        std::printf("[script] dialog %u onClose error: %s\n", dialogId,
+                    DumpPendingException(ctx).c_str());
+        std::fflush(stdout);
     }
 }
 

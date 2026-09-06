@@ -76,9 +76,12 @@ public:
 
     // Dispatchers (main thread). DispatchClick is invoked by buttons the
     // script created; DispatchTimerAt by the app for a Timer event whose
-    // winId is a script timer id (see ScriptTimerWinIdBase).
+    // winId is a script timer id (see ScriptTimerWinIdBase);
+    // DispatchDialogClose by the script's modal dialogs when they close
+    // (docs/27 단계 3 — routes into the dialog's JS onClose(result)).
     void DispatchClick(uint16_t controlId);
     void DispatchTimerAt(uint32_t scriptTimerId);
+    void DispatchDialogClose(uint32_t dialogId, int result);
 
     // Introspection (self-test, docs/27 §2.4): the property names actually
     // visible to the script via Object.getOwnPropertyNames(globalThis).

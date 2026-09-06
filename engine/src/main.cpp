@@ -1811,6 +1811,12 @@ static int RunAppSelfTest() {
               "test-script scenario passes");
         check(RunScriptTestFile(JK_SCRIPTS_DIR "/tests/uiauto_broken.js") != 0,
               "test-script detects injected defect");
+
+        // 8) dialog scenario (docs/27 단계 3): modal dialog bindings work
+        // headless — create/add/show/close/reopen, result codes, and the
+        // shared control registry (findControl/click/setText across dialogs).
+        check(RunScriptTestFile(JK_SCRIPTS_DIR "/tests/dialog.js") == 0,
+              "dialog scenario passes");
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);
