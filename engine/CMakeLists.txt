@@ -167,6 +167,10 @@ add_executable(jkdesktop
     src/apps/MineSweeperApp.cpp
     src/apps/AppLauncherItem.cpp
     src/apps/TetrisApp.cpp
+    # terminal: single-process ConPTY mode. TerminalView is otherwise only in
+    # jkapp_terminal; jkcore does not carry it, so the exe needs its own copy.
+    src/apps/TerminalApp.cpp
+    src/apps/TerminalView.cpp
 )
 
 target_link_libraries(jkdesktop PRIVATE jkcore)

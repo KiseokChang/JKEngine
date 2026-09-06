@@ -79,6 +79,7 @@ using jk::Utf8ToKssm;
 #include <apps/VectorPresApp.h>
 #include <apps/MineSweeperApp.h>
 #include <apps/TetrisApp.h>
+#include <apps/TerminalApp.h>
 #include <apps/ClientScriptApp.h>
 #include <apps/JKAppModule.h>
 #include <apps/JKTerminalConfig.h>
@@ -2000,6 +2001,7 @@ int main(int argc, char* argv[]) {
         std::printf("  vpres       Vector font presentation\n");
         std::printf("  minesweeper App launcher (Minesweeper + Tetris)\n");
         std::printf("  tetris      Tetris game\n");
+        std::printf("  terminal    ConPTY terminal (single-process)\n");
         std::printf("  scriptdemo [FILE]  Script app demo (FILE: .jkx package or a direct app.js)\n");
         std::printf("  --server    Run as the window server (Phase 2 scaffolding)\n");
         std::printf("  --client minesweeper  Run Minesweeper as a window-server client\n");
@@ -2075,6 +2077,7 @@ int main(int argc, char* argv[]) {
     bool runVectorPres = (argc > 1 && std::strcmp(argv[1], "vpres") == 0);
     bool runMineSweeper = (argc > 1 && std::strcmp(argv[1], "minesweeper") == 0);
     bool runTetris = (argc > 1 && std::strcmp(argv[1], "tetris") == 0);
+    bool runTerminal = (argc > 1 && std::strcmp(argv[1], "terminal") == 0);
     bool runServer = (argc > 1 && std::strcmp(argv[1], "--server") == 0);
     bool runClient = (argc > 1 && std::strcmp(argv[1], "--client") == 0);
 
@@ -2153,6 +2156,14 @@ int main(int argc, char* argv[]) {
     if (runTetris) {
         jk::TetrisApp app;
         if (!app.Init("Tetris - SDL2 Port", 1920, 1080)) {
+            return 1;
+        }
+        return app.Run();
+    }
+
+    if (runTerminal) {
+        jk::TerminalApp app;
+        if (!app.Init("Terminal", 800, 500)) {
             return 1;
         }
         return app.Run();
