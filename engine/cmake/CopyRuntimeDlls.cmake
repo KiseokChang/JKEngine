@@ -27,6 +27,13 @@ string(REPLACE " " ";" SEARCH_DIRS "${SEARCH_DIRS}")
 foreach(_seed ${SEED_DLLS})
     foreach(_dir ${SEARCH_DIRS})
         if(EXISTS "${_dir}/${_seed}")
+            # Seeds are not necessarily in TARGET_FILE's import table (ffmpeg
+            # DLLs are only imported by the app modules), so copy them here —
+            # the walk below only copies what it discovers from imports.
+            if(NOT EXISTS "${DEST_DIR}/${_seed}")
+                file(COPY "${_dir}/${_seed}" DESTINATION "${DEST_DIR}")
+                message(STATUS "CopyRuntimeDlls: ${_seed} (seed)")
+            endif()
             list(APPEND _queue "${_dir}/${_seed}")
             break()
         endif()

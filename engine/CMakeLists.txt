@@ -31,6 +31,12 @@ if(NOT TARGET SDL2_mixer::SDL2_mixer)
     )
 endif()
 
+# FFmpeg (docs/23 §11.8 vplayer): msys2 ucrt64 pacman 패키지. jkcore에 걸지
+# 않고 jkapp_vplayer 타깃만 링크 — FFmpeg는 오디오/비디오 앱 전용 의존성.
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
+    libavformat libavcodec libswscale libswresample libavutil)
+
 # The prototype is self-contained: the legacy WANCODE conversion table and the
 # runtime fonts are vendored under legacy/ and assets/fonts/ (copied verbatim
 # from JKENGINE/JKWINDOW and JKENGINE/WINDBASE/2CAOCC), so the build no longer
@@ -385,6 +391,17 @@ target_compile_definitions(jkapp_taskmgr PRIVATE JKAPP_MODULE_BUILD)
 target_link_libraries(jkapp_taskmgr PRIVATE jkcore imgui implot)
 set_target_properties(jkapp_taskmgr PROPERTIES PREFIX "")
 
+# Video player module (docs/23 §11.8, ImGui Phase 4 long-term track): FFmpeg
+# demux/decode on a worker thread, decoded frames -> ImGui::Image via the
+# fused backend's GetTexID SDL texture path, audio -> client-side SDL device.
+add_library(jkapp_vplayer SHARED
+    src/apps/JKAppModule_vplayer.cpp
+    src/apps/ClientVPlayerApp.cpp
+)
+target_compile_definitions(jkapp_vplayer PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_vplayer PRIVATE jkcore imgui PkgConfig::FFMPEG)
+set_target_properties(jkapp_vplayer PROPERTIES PREFIX "")
+
 if(WIN32)
     # Keep each module self-contained: no libstdc++/libgcc runtime DLLs needed
     # next to the app modules.
@@ -392,7 +409,7 @@ if(WIN32)
                       jkapp_jango jkapp_occ jkapp_pcx jkapp_vector
                       jkapp_iconedit jkapp_recog jkapp_vfont jkapp_vpres
                       jkapp_terminal jkapp_script jkapp_taskbar
-                      jkapp_imguidemo jkapp_taskmgr)
+                      jkapp_imguidemo jkapp_taskmgr jkapp_vplayer)
         target_link_options(${jkapp_mod} PRIVATE -static-libstdc++ -static-libgcc)
     endforeach()
 endif()
@@ -415,7 +432,7 @@ if(JK_OBJDUMP)
             -DTARGET_FILE="$<TARGET_FILE:jkdesktop>"
             -DDEST_DIR="$<TARGET_FILE_DIR:jkdesktop>"
             -DSEARCH_DIRS="${JK_TOOLCHAIN_BIN}"
-            -DSEED_DLLS="SDL2.dll;SDL2_image.dll;SDL2_mixer.dll"
+            -DSEED_DLLS="SDL2.dll;SDL2_image.dll;SDL2_mixer.dll;avformat-63.dll;avcodec-63.dll;avutil-61.dll;swscale-10.dll;swresample-7.dll"
             -DOBJDUMP="${JK_OBJDUMP}"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CopyRuntimeDlls.cmake"
     )
@@ -498,6 +515,11 @@ add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/taskmgr.jkx"
     DEPENDS jkdesktop jkapp_taskmgr
     COMMENT "Repacking apps/taskmgr.jkx"
     VERBATIM)
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/vplayer.jkx"
+    COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack vplayer
+    DEPENDS jkdesktop jkapp_vplayer
+    COMMENT "Repacking apps/vplayer.jkx"
+    VERBATIM)
 # Script packages: the script source itself is a payload dependency so an
 # app.js edit repacks without a rebuild.
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/scriptdemo.jkx"
@@ -529,5 +551,6 @@ add_custom_target(jkx_packages ALL
             "${CMAKE_BINARY_DIR}/apps/terminal.jkx"
             "${CMAKE_BINARY_DIR}/apps/imguidemo.jkx"
             "${CMAKE_BINARY_DIR}/apps/taskmgr.jkx"
+            "${CMAKE_BINARY_DIR}/apps/vplayer.jkx"
             "${CMAKE_BINARY_DIR}/apps/scriptdemo.jkx"
             "${CMAKE_BINARY_DIR}/apps/passworddemo.jkx")
