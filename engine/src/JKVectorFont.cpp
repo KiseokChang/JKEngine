@@ -346,13 +346,13 @@ private:
         size_t glyphSize = 0;
         const uint8_t* data = GetGlyphBytes(*slot, index, glyphSize);
         if (!data || glyphSize == 0) {
-            xInc = CharAdvance(*slot, index);
+            CharAdvance(*slot, index, xInc, yInc);
             return;
         }
 
         Glyph glyph;
         if (!ParseGlyph(data, glyphSize, slot->header.emSize, glyph)) {
-            xInc = CharAdvance(*slot, index);
+            CharAdvance(*slot, index, xInc, yInc);
             return;
         }
 
@@ -361,20 +361,26 @@ private:
         p.y += sizeY_;
 
         RenderGlyph(dc, p, glyph);
-        xInc = CharAdvance(*slot, index);
+        CharAdvance(*slot, index, xInc, yInc);
     }
 
-    int CharAdvance(const FontSlot& slot, int index) {
+    // 다음 글자 펜 이동량(어드밴스)을 화면 좌표로 반환한다. 어드밴스 벡터도
+    // CTM을 통과해야 문장이 강체로 회전한다 — x 성분만 쓰면 베이스라인이
+    // 항상 수평으로 남아 글자들이 각자 따로 회전하고 cosθ→0에서 한 점에
+    // 겹쳐진다(2026-09-06 수정 전 vpres 증상).
+    void CharAdvance(const FontSlot& slot, int index, int16_t& xInc, int16_t& yInc) {
         int w = slot.header.defaultWidth;
         if (slot.header.pitch == FONT_VARIABLE &&
             index >= 0 && index < static_cast<int>(slot.widthTable.size())) {
             w = slot.widthTable[index];
         }
         double dx = static_cast<double>(w) * sizeX_ / slot.header.emSize;
-        double dy = 0.0;
-        double ox = dx * ctm_.a + dy * ctm_.b + ctm_.tx;
-        double oy = -(dx * ctm_.c + dy * ctm_.d + ctm_.ty);
-        return static_cast<int16_t>(static_cast<int32_t>(ox + 0.5));
+        double ox = dx * ctm_.a;
+        double oy = -(dx * ctm_.c);
+        xInc = static_cast<int16_t>(static_cast<int32_t>(
+            ox + (ox >= 0.0 ? 0.5 : -0.5)));
+        yInc = static_cast<int16_t>(static_cast<int32_t>(
+            oy + (oy >= 0.0 ? 0.5 : -0.5)));
     }
 
     bool ParseGlyph(const uint8_t* data, size_t size, int emSize, Glyph& out) {
