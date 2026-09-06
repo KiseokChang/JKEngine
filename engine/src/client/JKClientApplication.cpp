@@ -550,6 +550,11 @@ void JKClientApplication::RenderAndCommit() {
         }
     }
 
+    // Overlay hook (docs/23 §5.2-4): immediate-mode layers (ImGui) draw straight
+    // onto the target texture after the scene replay, before the readback turns
+    // the result into a shm commit. The target is bound at 1:1 scale here.
+    RenderOverlay(hiddenRenderer_, w, h);
+
     // Read pixels from the current render target (the off-screen texture).
     const size_t needed = static_cast<size_t>(w) * h * 4;
     if (pixelBuffer_.size() != needed) {

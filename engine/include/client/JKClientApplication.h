@@ -95,6 +95,10 @@ protected:
     virtual bool PreProcessMessage(const JKEvent& ev);
     virtual void RouteMessage(const JKEvent& ev);
     virtual void ComposeScene();
+    // Overlay hook (docs/23 §5.2-4): called inside RenderAndCommit after the
+    // scene replay, while the off-screen target texture is bound at 1:1 scale
+    // and before SDL_RenderReadPixels. Default: nothing.
+    virtual void RenderOverlay(SDL_Renderer* renderer, int w, int h) { (void)renderer; (void)w; (void)h; }
 
     // Run-loop hooks (docs/22 §5.3): OnIdle runs every loop iteration before
     // the frame gate — apps pump background sources there (terminal ConPTY).
