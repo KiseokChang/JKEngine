@@ -402,6 +402,55 @@ target_compile_definitions(jkapp_vplayer PRIVATE JKAPP_MODULE_BUILD)
 target_link_libraries(jkapp_vplayer PRIVATE jkcore imgui PkgConfig::FFMPEG)
 set_target_properties(jkapp_vplayer PROPERTIES PREFIX "")
 
+# ---------------------------------------------------------------------------
+# CEF OSR browser (docs/23 §11.9): jkapp_browser links libcef.dll directly
+# (GNU ld -l:libcef.dll, no import lib / no libcef_dll_wrapper — proven by the
+# tools/cefosr standalone demo), and cefosr.exe doubles as the CEF subprocess
+# worker (browser_subprocess_path). The whole block is gated on the vendored
+# binary distribution being fetched (third_party/cef/README.md).
+# ---------------------------------------------------------------------------
+if(EXISTS "${CMAKE_SOURCE_DIR}/third_party/cef/Release/libcef.dll")
+    set(CEF_DIR "${CMAKE_SOURCE_DIR}/third_party/cef")
+
+    # Standalone OSR demo + subprocess worker for jkapp_browser. Kept as a C
+    # target so it stays a minimal, dependency-free re-entry point.
+    add_executable(cefosr tools/cefosr/osr_main.c)
+    target_compile_definitions(cefosr PRIVATE SDL_MAIN_HANDLED)
+    target_include_directories(cefosr PRIVATE ${CEF_DIR})
+    target_link_libraries(cefosr PRIVATE SDL2::SDL2
+        "-L${CEF_DIR}/Release" "-l:libcef.dll")
+
+    add_library(jkapp_browser SHARED
+        src/apps/JKAppModule_browser.cpp
+        src/apps/ClientBrowserApp.cpp
+    )
+    target_compile_definitions(jkapp_browser PRIVATE JKAPP_MODULE_BUILD)
+    target_include_directories(jkapp_browser PRIVATE ${CEF_DIR})
+    target_link_libraries(jkapp_browser PRIVATE jkcore imgui
+        "-L${CEF_DIR}/Release" "-l:libcef.dll")
+    set_target_properties(jkapp_browser PROPERTIES PREFIX "")
+    target_link_options(jkapp_browser PRIVATE -static-libstdc++ -static-libgcc)
+
+    # Ship the CEF runtime set (libcef.dll + chromium resources, ~563 MB) next
+    # to jkdesktop.exe — clients spawn from that directory, and the browser
+    # process resolves resources/locales relative to the main exe. Runs on
+    # every build but is a no-op scan once copied.
+    add_custom_target(cef_deploy ALL
+        COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
+            "${CEF_DIR}/Release" "$<TARGET_FILE_DIR:jkdesktop>"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
+            "${CEF_DIR}/Resources" "$<TARGET_FILE_DIR:jkdesktop>"
+        COMMENT "Deploying CEF runtime next to jkdesktop.exe"
+        VERBATIM)
+
+    # Demo page for the cefosr.exe default URL.
+    add_custom_command(TARGET cefosr POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/cefosr/demo.html"
+            "$<TARGET_FILE_DIR:cefosr>/demo.html"
+    )
+endif()
+
 if(WIN32)
     # Keep each module self-contained: no libstdc++/libgcc runtime DLLs needed
     # next to the app modules.
@@ -520,6 +569,13 @@ add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/vplayer.jkx"
     DEPENDS jkdesktop jkapp_vplayer
     COMMENT "Repacking apps/vplayer.jkx"
     VERBATIM)
+# Browser needs libcef.dll next to jkdesktop.exe at pack time (the packer
+# LoadLibraryA's the module), hence the cef_deploy dependency.
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/browser.jkx"
+    COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack browser
+    DEPENDS jkdesktop jkapp_browser cef_deploy
+    COMMENT "Repacking apps/browser.jkx"
+    VERBATIM)
 # Script packages: the script source itself is a payload dependency so an
 # app.js edit repacks without a rebuild.
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/scriptdemo.jkx"
@@ -552,5 +608,6 @@ add_custom_target(jkx_packages ALL
             "${CMAKE_BINARY_DIR}/apps/imguidemo.jkx"
             "${CMAKE_BINARY_DIR}/apps/taskmgr.jkx"
             "${CMAKE_BINARY_DIR}/apps/vplayer.jkx"
+            "${CMAKE_BINARY_DIR}/apps/browser.jkx"
             "${CMAKE_BINARY_DIR}/apps/scriptdemo.jkx"
             "${CMAKE_BINARY_DIR}/apps/passworddemo.jkx")
