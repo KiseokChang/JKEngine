@@ -81,6 +81,17 @@ struct ClientVPlayerApp::PlayerCore {
     int audioRate = 0;                       // output rate == input rate (no resample)
     static constexpr int kAudioCh = 2;       // always mix down/up to stereo S16
     double duration = 0;
+    // Presentation-time origin. Streams need not start at 0 (MPEG-TS starts
+    // ~1.4 s; MP4 audio can lag video). Video pts are normalized by
+    // ptsOrigin, and the audio clock (which counts consumed samples from the
+    // first played sample, i.e. from the audio stream's own start) by
+    // audioRef = the audio start in UI time. Clock, seek targets and the UI
+    // slider all live in [0, duration].
+    double ptsOrigin = 0;                    // file start_time, seconds
+    double audioLead = 0;                    // audio stream start - ptsOrigin
+    double audioRef = 0;                     // clock value at framesPlayed==0
+    double devLatency = 0;                   // device buffer period (got.samples/rate):
+                                             // copied samples become audible this much later
     bool useWallClock = false;               // files without usable audio
     std::string lastError;
 
@@ -89,7 +100,8 @@ struct ClientVPlayerApp::PlayerCore {
     std::mutex ringM;                        // audio ring only (SDL callback takes this)
     std::condition_variable cvRing;
     std::thread worker;
-    bool paused = false, ended = false, stop = false, wantSeek = false;
+    std::atomic<bool> paused{false};         // atomic: ClockNow reads it under ringM
+    bool ended = false, stop = false, wantSeek = false;
     double seekTarget = 0;
     double dropBeforePts = -1;               // frames older than this are stale (post-seek)
     uint64_t seekGen = 0;                    // bumped on seek; in-flight audio pushes abort
@@ -124,7 +136,18 @@ struct ClientVPlayerApp::PlayerCore {
             return t;
         }
         std::lock_guard<std::mutex> lk(ringM);
-        return audioRate ? (double)framesPlayed / audioRate : 0.0;
+        if (!audioRate) return 0.0;
+        double t = audioRef + (double)framesPlayed / audioRate;
+        // framesPlayed counts samples *copied to* the device; they become
+        // audible one device-buffer period later, so track the audible
+        // position while playing. While paused the rebase already pins the
+        // clock exactly on the seek target — subtracting here would make
+        // paused frame-stepping drift one period per step.
+        if (!paused.load(std::memory_order_relaxed)) t -= devLatency;
+        // The audio stream can outlive the video by encoder tail padding
+        // (AAC priming/padding); the clock must not display past the end.
+        if (duration > 0) t = std::min(t, duration);
+        return std::max(0.0, t);
     }
 
     struct Snap {
@@ -189,11 +212,20 @@ struct ClientVPlayerApp::PlayerCore {
             std::lock_guard<std::mutex> lk(ringM);
             ++seekGen;
             ringR = ringW = 0;
-            if (audioRate) framesPlayed = (uint64_t)(t * audioRate);
+            if (audioRate) {
+                // Rebase the audio clock so ClockNow() == t at zero consumed
+                // samples. Post-seek audio resumes at file time t + ptsOrigin,
+                // not at the stream's original start, hence the rebase (a plain
+                // seed would go negative when audio starts after ptsOrigin).
+                const double f = (t - audioLead) * audioRate;
+                framesPlayed = f > 0 ? (uint64_t)f : 0;
+                audioRef = t - (double)framesPlayed / audioRate;
+            }
             cvRing.notify_all();
         }
         if (fmt && videoStream >= 0) {
-            const int64_t ts = (int64_t)(t / av_q2d(videoTb));
+            const int64_t ts =
+                (int64_t)((t + ptsOrigin) / av_q2d(videoTb));
             avformat_seek_file(fmt, videoStream, INT64_MIN, ts, ts, 0);
         }
         ended = false;
@@ -280,10 +312,21 @@ struct ClientVPlayerApp::PlayerCore {
                 swr_free(&swr); swr = nullptr;
                 avcodec_free_context(&actx);
                 audioStream = -1;
+            } else {
+                devLatency = (double)got.samples / (double)audioRate;
             }
         }
 
         useWallClock = (audioStream < 0);
+        // Presentation-time origin + audio clock rebase (see member docs).
+        if (fmt->start_time != AV_NOPTS_VALUE)
+            ptsOrigin = fmt->start_time / (double)AV_TIME_BASE;
+        if (audioStream >= 0 &&
+            fmt->streams[audioStream]->start_time != AV_NOPTS_VALUE)
+            audioLead = fmt->streams[audioStream]->start_time *
+                            av_q2d(fmt->streams[audioStream]->time_base) -
+                        ptsOrigin;
+        audioRef = audioLead;
         wallStart = std::chrono::steady_clock::now();
         wallAccum = 0; wallBase = 0; wallPlaying = true;
 
@@ -372,7 +415,8 @@ struct ClientVPlayerApp::PlayerCore {
         while (true) {
             if (avcodec_receive_frame(vctx, frame) < 0) return true;
             const double pts = frame->pts == AV_NOPTS_VALUE
-                                   ? -1.0 : frame->pts * av_q2d(videoTb);
+                                   ? -1.0
+                                   : frame->pts * av_q2d(videoTb) - ptsOrigin;
             if (pts < 0) { av_frame_unref(frame); continue; }
             VideoFrame vf;
             vf.pts = pts;
