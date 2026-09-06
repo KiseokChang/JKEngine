@@ -146,6 +146,18 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
     UpdateOutputBounds();
     InitLauncher();
 
+    // Directional cursors for chrome resize hotspots (hover feedback).
+    chromeCursors_[static_cast<int>(CursorShape::Arrow)] =
+        SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_ARROW);
+    chromeCursors_[static_cast<int>(CursorShape::SizeWE)] =
+        SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_SIZEWE);
+    chromeCursors_[static_cast<int>(CursorShape::SizeNS)] =
+        SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_SIZENS);
+    chromeCursors_[static_cast<int>(CursorShape::SizeNWSE)] =
+        SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_SIZENWSE);
+    chromeCursors_[static_cast<int>(CursorShape::SizeNESW)] =
+        SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_SIZENESW);
+
 #ifdef _WIN32
     // The server forwards raw keys to client surfaces and does no text
     // composition of its own. With an IME attached, Enter/Esc/letters arrive
@@ -415,6 +427,10 @@ void JKWindowServer::Stop() {
     DestroyLauncher();
     compositor_.reset();
 
+    for (SDL_Cursor* cursor : chromeCursors_) {
+        if (cursor) SDL_FreeCursor(cursor);
+    }
+
     if (renderer_) {
         SDL_DestroyRenderer(renderer_);
         renderer_ = nullptr;
@@ -513,10 +529,17 @@ bool JKWindowServer::HandleChromeGrab(const SDL_Event& ev, int mx, int my, float
             int newW = chromeResizeW_;
             int newH = chromeResizeH_;
             int newX = chromeResizeX_;
+            int newY = chromeResizeY_;
             if (chromeEdgeRight_) newW = lmX - chromeResizeX_;
             if (chromeEdgeBottom_) newH = lmY - chromeResizeY_;
             if (chromeEdgeLeft_) {
                 newW = chromeResizeW_ + (chromeResizeX_ - lmX);
+            }
+            if (chromeEdgeTop_) {
+                newH = chromeResizeH_ + (chromeResizeY_ - lmY);
+                // The grab-time bottom edge is fixed — growing past it would
+                // push the layer origin above the desktop.
+                newH = std::min(newH, chromeResizeY_ + chromeResizeH_);
             }
             newW = std::max(64, newW);
             newH = std::max(48, newH);
@@ -524,10 +547,17 @@ bool JKWindowServer::HandleChromeGrab(const SDL_Event& ev, int mx, int my, float
             // surface size does not change until the resize is committed).
             layer->SetScale(newW / static_cast<float>(layer->Width()),
                             newH / static_cast<float>(layer->Height()));
-            if (chromeEdgeLeft_) {
-                newX = chromeResizeX_ + chromeResizeW_ - newW;
-                client->SetPosition(newX, chromeResizeY_);
-                compositor_->SetLayerPosition(client->Id(), newX, chromeResizeY_);
+            if (chromeEdgeLeft_ || chromeEdgeTop_) {
+                // The fixed (opposite) edge stays put: right edge for a left
+                // resize, bottom edge for a top resize.
+                if (chromeEdgeLeft_) {
+                    newX = chromeResizeX_ + chromeResizeW_ - newW;
+                }
+                if (chromeEdgeTop_) {
+                    newY = chromeResizeY_ + chromeResizeH_ - newH;
+                }
+                client->SetPosition(newX, newY);
+                compositor_->SetLayerPosition(client->Id(), newX, newY);
             }
         }
         return true;
@@ -539,18 +569,28 @@ bool JKWindowServer::HandleChromeGrab(const SDL_Event& ev, int mx, int my, float
             int newW = chromeResizeW_;
             int newH = chromeResizeH_;
             int newX = chromeResizeX_;
+            int newY = chromeResizeY_;
             if (chromeEdgeRight_) newW = lmX - chromeResizeX_;
             if (chromeEdgeBottom_) newH = lmY - chromeResizeY_;
             if (chromeEdgeLeft_) {
                 newW = chromeResizeW_ + (chromeResizeX_ - lmX);
             }
+            if (chromeEdgeTop_) {
+                newH = chromeResizeH_ + (chromeResizeY_ - lmY);
+                newH = std::min(newH, chromeResizeY_ + chromeResizeH_);
+            }
             newW = std::max(64, newW);
             newH = std::max(48, newH);
             if (newW != chromeResizeW_ || newH != chromeResizeH_) {
-                if (chromeEdgeLeft_) {
-                    newX = chromeResizeX_ + chromeResizeW_ - newW;
-                    client->SetPosition(newX, chromeResizeY_);
-                    compositor_->SetLayerPosition(client->Id(), newX, chromeResizeY_);
+                if (chromeEdgeLeft_ || chromeEdgeTop_) {
+                    if (chromeEdgeLeft_) {
+                        newX = chromeResizeX_ + chromeResizeW_ - newW;
+                    }
+                    if (chromeEdgeTop_) {
+                        newY = chromeResizeY_ + chromeResizeH_ - newH;
+                    }
+                    client->SetPosition(newX, newY);
+                    compositor_->SetLayerPosition(client->Id(), newX, newY);
                 }
                 // Keep the grab-time surface:display ratio so a fit-scaled
                 // surface resizes without cutting off its layout (1:1 layers
@@ -612,12 +652,13 @@ bool JKWindowServer::TryChromeGrab(int mx, int my, float scale) {
         return true;
     }
 
-    // 2) Resize edges: left/right/bottom (6px inset). The top edge stays
-    //    title-drag, matching the client-painted frame.
+    // 2) Resize edges: all four sides + corners (6px inset). The top strip's
+    //    first 6px are resize; title drag starts below that (Windows-like).
     const bool edgeLeft = (lx < kResizeHotspot);
     const bool edgeRight = (lx >= w - kResizeHotspot);
     const bool edgeBottom = (ly >= h - kResizeHotspot);
-    if (edgeLeft || edgeRight || edgeBottom) {
+    const bool edgeTop = (ly < kResizeHotspot);
+    if (edgeLeft || edgeRight || edgeBottom || edgeTop) {
         FocusClient(client->Id());
         capturedClientId_ = 0;
         chromeGrab_ = ChromeGrab::Resize;
@@ -632,10 +673,13 @@ bool JKWindowServer::TryChromeGrab(int mx, int my, float scale) {
         chromeEdgeLeft_ = edgeLeft;
         chromeEdgeRight_ = edgeRight;
         chromeEdgeBottom_ = edgeBottom;
+        chromeEdgeTop_ = edgeTop;
+        SetChromeCursor(ChromeCursorFromEdges(edgeLeft, edgeRight, edgeTop, edgeBottom));
         return true;
     }
 
-    // 3) Title bar: start a move grab.
+    // 3) Title bar: start a move grab (y ∈ [kResizeHotspot, kChromeTitleBar) —
+    //    the top resize strip above returned first).
     if (ly < kChromeTitleBar) {
         FocusClient(client->Id());
         capturedClientId_ = 0;
@@ -675,6 +719,60 @@ void JKWindowServer::CommitChromeResize(JKClientConnection& client, uint32_t lay
     client.Send(ipc::MsgType::ResizeSurface, &payload, sizeof(payload));
 }
 
+JKWindowServer::CursorShape JKWindowServer::ChromeCursorFromEdges(bool left, bool right,
+                                                                  bool top, bool bottom) {
+    const bool horiz = left || right;
+    const bool vert = top || bottom;
+    if (horiz && vert) {
+        // TL/BR share one diagonal, TR/BL the other.
+        return (left == top) ? CursorShape::SizeNWSE : CursorShape::SizeNESW;
+    }
+    if (horiz) return CursorShape::SizeWE;
+    if (vert) return CursorShape::SizeNS;
+    return CursorShape::Arrow;
+}
+
+void JKWindowServer::SetChromeCursor(CursorShape shape) {
+    if (shape == cursorShape_) {
+        return;
+    }
+    SDL_Cursor* cursor = chromeCursors_[static_cast<int>(shape)];
+    if (cursor) {
+        SDL_SetCursor(cursor);
+        cursorShape_ = shape;
+    }
+}
+
+void JKWindowServer::UpdateChromeHoverCursor(int mx, int my, float scale) {
+    CursorShape shape = CursorShape::Arrow;
+    if (compositor_ && chromeGrab_ == ChromeGrab::None) {
+        JKCompositorLayer* layer = compositor_->HitTest(mx, my);
+        JKClientConnection* client = layer ? FindClientById(layer->Id()) : nullptr;
+        // The shell has no chrome — its own UI keeps the arrow (docs/28).
+        if (layer && client && !client->IsShell()) {
+            const int lx = static_cast<int>(std::llround(
+                (mx / scale - layer->X()) / layer->ScaleX()));
+            const int ly = static_cast<int>(std::llround(
+                (my / scale - layer->Y()) / layer->ScaleY()));
+            const int w = layer->Width();
+            const int h = layer->Height();
+            // The close overlay stays a plain arrow even though its corner
+            // overlaps the top resize strip.
+            const bool inCloseX = (lx >= w - kChromeCloseSize - kChromeCloseMargin) &&
+                                  (lx < w - kChromeCloseMargin);
+            const bool inCloseY = (ly >= kChromeCloseMargin) &&
+                                  (ly < kChromeCloseMargin + kChromeCloseSize);
+            if (!(inCloseX && inCloseY)) {
+                shape = ChromeCursorFromEdges(lx < kResizeHotspot,
+                                              lx >= w - kResizeHotspot,
+                                              ly < kResizeHotspot,
+                                              ly >= h - kResizeHotspot);
+            }
+        }
+    }
+    SetChromeCursor(shape);
+}
+
 void JKWindowServer::HandleSDLEvent(const SDL_Event& ev) {
     if (ev.type == SDL_WINDOWEVENT &&
         (ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED ||
@@ -710,6 +808,11 @@ void JKWindowServer::HandleSDLEvent(const SDL_Event& ev) {
         // intercepts mouse input before anything reaches the client.
         if (HandleChromeGrab(ev, mx, my, outputScale)) {
             return;
+        }
+        // Hover feedback for chrome hotspots (drag-active cursor was already
+        // set at grab start and survives until the next free motion).
+        if (ev.type == SDL_MOUSEMOTION) {
+            UpdateChromeHoverCursor(mx, my, outputScale);
         }
         if (ev.type == SDL_MOUSEBUTTONDOWN && TryChromeGrab(mx, my, outputScale)) {
             return;

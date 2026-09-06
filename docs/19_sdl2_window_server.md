@@ -167,13 +167,15 @@ outputScale = SDL_GetRendererOutputSize().w / SDL_GetWindowSize().w   (=DPI 배�
 | 영역 | rect | 동작 |
 |------|------|------|
 | 닫기 | `x∈[W-22, W-2), y∈[2, 22)` | `Close` S→C 전송 → 클라 정상 종료 → disconnect → 레이어 제거 |
-| 리사이즈 | 좌/우/하 6px inset (`kResizeHotspot`) | 드래그 중 `SetLayerScale` 늘리기 프리뷰 → MouseUp에 커밋 |
-| 타이틀 | `y∈[0, 24)` (위 영역 제외) | 드래그 이동. 이동 중 입력은 클라에 전달되지 않음 |
+| 리사이즈 | 4면 6px inset (`kResizeHotspot`), 모서리는 대각 리사이즈 — **TR 코너는 닫기 X 우선** | 드래그 중 `SetLayerScale` 늘리기 프리뷰(반대편 엣지 고정) → MouseUp에 커밋 |
+| 타이틀 | `y∈[6, 24)` (위 영역 제외) | 드래그 이동. 이동 중 입력은 클라에 전달되지 않음 |
 
 - 판정 순서: 닫기 → 리사이즈 → 타이틀. 왼쪽 버튼만 크롬으로 처리한다.
 - 최소 크기 clamp 64×48 (단일 모드 `JKWindow`와 동일).
 - 이동 clamp: 창 밖으로 완전히 나가지 않도록 제한.
-- 상단 엣지는 타이틀 드래그 전용(상단 리사이즈 없음) — 클라이언트가 그린 프레임과 정합.
+- **호버 피드백(2026-09-06)**: 리사이즈 핫스팟 위에서 SDL system cursor를 방향 커서로 교체
+  (↔/↕/↖↘/↗↙, `UpdateChromeHoverCursor`), 드래그 중에는 grab 시작 시 모양 유지.
+  닫기 X 위는 화살표 유지.
 - 크롬 상수는 `JKCompositor.h` (`kChrome*`), 단일 모드는 `JKWindow.cpp` — **동기화 필요**(주석 참조).
 - **좌표 변환(2026-09-05)**: `TryChromeGrab`은 마우스(물리 px)→`mx/outputScale`→레이어 원점 차감→**`/ScaleX, /ScaleY`로 surface px**까지 변환한 뒤 판정한다(1:1 레이어는 Scale=1이라 기존과 동일). 닫기 오버레이 **그리기**(`DrawCloseOverlay`)도 같은 surface px 기준으로 레이어 스케일을 곱해 그린다 — 그리기와 히트존이 어긋나면 fit 스케일 레이어에서 닫기가 안 눌린다.
 - **스폰 위치 clamp**: fit 레이어가 데스크톱을 정확히 채우면(jango 등) cascade 오프셋(+20/클라) 때문에 닫기 버튼 모서리가 창 밖으로 밀려나 클릭 불가가 된다. `ProcessPendingClients`는 `x,y ≤ 데스크톱−표시크기`로 clamp한다.
@@ -244,6 +246,7 @@ FHD(1920×1080) 레이아웃의 앱(jango/occ/pcx/vector/iconedit/recog/vfont/vp
 6. 셀프테스트: `jkdesktop.exe test` → `AppSelfTest: 0 failure(s)`.
 7. **크롬 스모크(2026-09-05 통과)**: 지뢰찾기+테트리스+지뢰찾기 3개 동시 스폰(cascade 배치) → 타이틀 드래그 3회(grabDX/DY·최종 위치 정확) → 우측 엣지 리사이즈(320→410) → clamp(64×48 하한) → 복귀 → BR 코너(460×410) → 바닥 엣지 → 좌측 엣지 → 닫기 버튼(레이어 제거·클라 정상 종료) → 재스폰(acceptor 재무장, 총 4연결·shm 세대 6 churn) — crash/오류 없음. 스크립트: `tmp/jk_click.ps1`(커서 검증 합성 입력), `tmp/jk_under.ps1`(WindowFromPoint 확인).
 8. **대량 동시 강제종료(2026-09-05 수정 후 통과)**: 클라이언트 3개를 `taskkill /F`로 **동시에** 죽이면 서버가 접근위반으로 크래시했다. 원인 2개 — (1) `JKCompositor::RemoveLayer`의 `remove_if`+`(*it)->Texture()` 오용: remove_if가 unique_ptr을 앞으로 move시켜 꼬리에 널을 남기는데, 제거 대상이 벡터 마지막 요소가 아니면(=포커스되지 않은 클라이언트) 그 널을 역참조했다. 지우기-루프로 교체. (2) `StopReadThread`가 read 스레드가 in-flight overlapped I/O를 가진 채 핸들을 닫았다(UB) — `CancelIoEx`로 깨운 뒤 join하고 나서 Close하도록 순서 변경(서버/클라이언트 양쪽), Read/Write 실패 경로는 핸들을 닫지 않고 `connected_=false`만 설정. 5라운드 × 3클라 동시 종료 재현 스크립트(`tmp/repro_loop.ps1`)로 서버 생존 확인.
+8a. **상단/코너 리사이즈 스모크(2026-09-06 통과)**: 상단 엣지 중앙 드래그 −50px → top만 이동(bottom 고정), 클라 재레이아웃. TL 코너 대각 −30/−30 → 픽셀 스캔 측정 `x 629..1026 → 601..1025, y 200..701 → 173..701`(좌·상 이동, 우·하 고정). TR 코너는 닫기 X 존과 겹쳐 닫기 우선(Windows와 동일). 합성 입력 스크립트: `tmp/jk_drag.ps1`(드래그), `tmp/jk_findwin.ps1`(타이틀 색 픽셀 스캔).
 9. **fit 스케일 앱 스모크(2026-09-05 통과)**: `--client jango/occ/vector` 스폰 → 1920×1080 surface가 1280×720 데스크톱에 0.667 fit 스케일로 중앙(clamp) 배치 → 축소 좌표에서 Personnel 클릭이 surface (175,85)로 정확 매핑(비밀번호 다이얼로그 오픈) → 닫기 오버레이 클릭(논리 1272,8) → 클라 정상 종료. 테트리스 화살표 키: 서버 키 전달 → root focusChild_ 체인(ClientTetrisApp의 gameWin SetFocus) 확인.
 
 ## 10. 알려진 제약 / Phase 3 남은 작업
@@ -251,5 +254,5 @@ FHD(1920×1080) 레이아웃의 앱(jango/occ/pcx/vector/iconedit/recog/vfont/vp
 - 출력 1개(서버 SDL 창)만 지원 — 멀티 디스플레이/워크스페이스는 미구현.
 - `TimerEvent` 메시지는 예약만 된 상태. 클라이언트 타이머는 자체 스레드 사용.
 - `spanDisplays`, `SurfaceHints`, `DisplayChanged` 등은 계획 문서(Phase 3) 단계.
-- 크롬: 이동/리사이즈 중 커서 모양 변경 없음. 상단 엣지 리사이즈 없음(타이틀 드래그 전용). 닫기 오버레이는 텍스트 없는 X 아이콘.
+- 크롬: 상단 엣지 리사이즈는 구현됨(2026-09-06, 타이틀 드래그 존은 y 6~24로 축소). 이동/리사이즈 호버·드래그 중 방향 커서 피드백도 구현. 닫기 오버레이는 텍스트 없는 X 아이콘.
 - 리사이즈 커밋 시 1프레임 빈 화면 (§8 인정 artifact).

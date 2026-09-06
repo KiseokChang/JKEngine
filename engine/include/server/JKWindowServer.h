@@ -68,6 +68,13 @@ private:
     bool TryChromeGrab(int mx, int my, float scale);
     void CommitChromeResize(JKClientConnection& client, uint32_t layerId,
                             int width, int height, int dispW, int dispH);
+    // Directional system cursors for chrome resize feedback.
+    enum class CursorShape { Arrow = 0, SizeWE, SizeNS, SizeNWSE, SizeNESW };
+    // Chrome hover feedback: show a directional system cursor over resize
+    // hotspots (↔ / ↕ / corner diagonals), arrow everywhere else.
+    void UpdateChromeHoverCursor(int mx, int my, float scale);
+    void SetChromeCursor(CursorShape shape);
+    static CursorShape ChromeCursorFromEdges(bool left, bool right, bool top, bool bottom);
     void FocusClient(uint32_t surfaceId);
     JKClientConnection* HitTestClient(int32_t x, int32_t y);
     JKClientConnection* FindClientById(uint32_t surfaceId);
@@ -139,6 +146,11 @@ private:
     bool chromeEdgeLeft_ = false;
     bool chromeEdgeRight_ = false;
     bool chromeEdgeBottom_ = false;
+    bool chromeEdgeTop_ = false;
+    // Directional system cursors for chrome resize feedback, indexed by
+    // CursorShape; built once in Init, freed with SDL in the destructor.
+    SDL_Cursor* chromeCursors_[5] = {};
+    CursorShape cursorShape_ = CursorShape::Arrow;
 
     // Server-side launcher state: simple icon textures drawn behind client layers.
     // Apps come from installed .jkx containers (apps/*.jkx, spawn via --jkx)
