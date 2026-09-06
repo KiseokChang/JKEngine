@@ -614,3 +614,73 @@ Replay→0부터 재생 재개, Space 일시정지/재개 토글, 오디오 디�
 실패해 KeyDown이 무의미해진다. key 이벤트는 **VK+실제 scan 코드 +
 down 후 150ms 지연 후 up**으로 보내야 한다 — SendKeys류는 down/up을
 연속 전송해 같은 ImGui 프레임에 처리되어 `IsKeyPressed`가 눌림을 못 본다.
+
+### 11.9 Phase 4 구현 기록 — CEF OSR 브라우저 (2026-09-06 완료)
+
+§11.7의 마지막 미착수 항목인 CEF OSR 브라우저 완료. Chromium Embedded
+Framework **144.0.6 windows64 minimal** 바이너리 배포판을
+`third_party/cef/`(gitignore)에 조달하고, libcef_dll_wrapper 없이
+**MinGW(ucrt64 gcc)에서 C API를 DLL 직접 링크**하는 것까지 검증한 뒤
+jkwindow 클라이언트 앱으로 통합했다. 워크플로 4단계(조달 → 링크 검증 →
+스탠드얼론 데모 → jkapp 통합) 중 앞 3단계는 `tools/cefosr/` 데모로
+먼저 실증하고 커밋했다.
+
+**핵심 아키텍처 (`jkapp_browser`):**
+
+- **래퍼 없는 C API + DLL 직접 링크**: GNU ld가 `-l:libcef.dll`을
+  임포트 라이브러리처럼 링크한다. wrapper(제공 배포판은 MSVC 전용)를
+  건너뛰는 것이 MinGW 지원의 열쇠. 앱 DLL이 plain `LoadLibraryA`로
+  %TEMP%에서 로드돼도 의존성(libcef.dll)은 exe 디렉토리에서 먼저
+  해결되므로 jkx 패키징과 호환.
+- **서브프로세스는 별도 exe**: CEF multi-process 렌더러/GPU는
+  `browser_subprocess_path`로 exe 옆 `cefosr.exe`(같은 C API로 짠
+  워커, `execute_process`)가 맡는다. 앱 DLL이 아니라 exe인 이유 —
+  Windows가 DLL 이미지로 프로세스를 시작할 수 없기 때문.
+- **스레드 모델 — 락 없음**: CEF 통합 메시지 루프
+  (`cef_do_message_loop_work()`)를 앱 메인 스레드의 16ms 타이머 경유
+  `RenderOverlay`에서 펌프 → `on_paint` BGRA 프레임이 같은 스레드에서
+  도착 → `SDL_UpdateTexture`(ARGB8888 스트리밍) → `ImGui::Image`.
+  vplayer의 비디오 프레임과 동일한 "페이지 = 텍스처" 모델.
+- **C API 수명주기 규칙**: 모든 프로세스에서 최초 CEF 호출 전
+  `cef_api_hash` 검증, settings 문자열은 의도적 leak(CEF가 포인터
+  보유), `no_sandbox=1`, 핸들러 구조체는 base ref-count +
+  ALLOC_HANDLER 패턴(osr_main.c 각색).
+
+**스모크에서 발견한 버그 4건 (이상 전부 수정):**
+
+1. **ImGui `WantCaptureMouse`의 mouse_any_down 함정** (imgui.cpp:5546):
+   `io.WantCaptureMouse`는 버튼이 눌려있는 동안(`mouse_any_down`) 항상
+   true. DOWN은 통과해도 다음 프레임의 UP이 `!io.WantCaptureMouse`
+   게이트에 막혀 CEF가 UP을 못 받음 → 클릭 전면 파손 + `g_mouseFlags`
+   못 풀림(드래그 상태 지속). 수정: 마우스 버튼/휠은 **기하 게이트만**
+   (y ≥ pageY_) + `cefMouseDown_` 플래그로 DOWN/UP 직접 페어링. ImGui
+   게이트는 키보드(WantCaptureKeyboard/WantTextInput)에만 유지.
+2. **휠 델타 스케일링**: SDL_MOUSEWHEEL은 노치당 ±1, Chromium은
+   WHEEL_DELTA(120) — ×120 안 하면 1px 스크롤이라 "안 먹는" 것.
+   추가로 서버 휠 페이로드엔 좌표가 없어 앱이 MouseMove로 추적한
+   lastMouse를 쓰는데, stale (0,0)이면 pageY 가드에 드롭됐다 → 드롭
+   대신 뷰 안으로 clamp.
+3. **페이지 하단 검은 띠 + 상단 가림**: ImGui 창 기본
+   `WindowPadding(8,8)` 때문에 텍스처가 (8,8)에 그려져 상단 56px가
+   URL 바 밑에 가려지고 하단에 여백. `PushStyleVar(WindowPadding,0)` +
+   `SetCursorPos(0, pageY_)`로 0,0 정렬.
+4. **뒤로/앞로 미구현**: URL 바에 `◀ ▶` 버튼 추가 — `cef_browser_t`
+   직접 메서드(`can_go_back/go_back/can_go_forward/go_forward`,
+   host가 아님)로, 불가 시 `BeginDisabled` 딤.
+
+**검증 결과(서버 모드, 합성 입력):** URL 바 타이핑+Enter 네비게이션
+(naver/youtube 실사용 확인), 홈 페이지 Add 버튼 20회 합성 클릭 전부
+CEF 도달(수정 1의 E2E 증거), 20항목 오버플로 후 휠 인젝션 → 스크롤바
+생성+페이지 스크롤(수정 2의 증거), 지오메트리 0,0 정렬(수정 3), X 닫기
+버튼 합성 클릭 → OnClose → `close_browser` 펌프 → `cef_shutdown` →
+**exit 0 클린 종료**, 서버+taskbar 생존. 장시간(수 분) 유튜브 풀페이지
+구동에서 크래시 없음.
+
+**스모크 도구 교훈:** 서버 크롬 닫기 X의 fill은 (192,192,192)다 —
+주변 배경(하늘 214,213,218)을 회색 근사치로 잡으면 창밖 픽셀이
+매칭돼 bounding box가 창 전체로 부풀어 오른다. 좌표 역산 전에 픽셀
+라인 프로파일로 fill 색을 먼저 확정할 것.
+
+**후속(미구현):** OSC 0 실시간 타이틀(페이지 제목 → taskbar), 한글
+IME 입력(현재 ASCII KEYEVENT_CHAR만), CEF 캐시/쿠키 지속화,
+`--client browser` 단독 모드 테스트.
