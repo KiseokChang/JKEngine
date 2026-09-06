@@ -1,7 +1,25 @@
 #ifdef _WIN32
 // Avoid pulling in the full Windows headers, which conflict with JKENGINE's
-// legacy typedef.h. We only need AllocConsole for the /? help path.
+// legacy typedef.h. We only need AllocConsole for the /? help path, the
+// LoadLibrary trio for app module loading (--client/--jkx), and the temp-file
+// trio for extracting a module out of a .jkx container.
 extern "C" __declspec(dllimport) int __stdcall AllocConsole(void);
+extern "C" __declspec(dllimport) void* __stdcall LoadLibraryA(const char*);
+extern "C" __declspec(dllimport) int __stdcall FreeLibrary(void*);
+extern "C" __declspec(dllimport) void* __stdcall GetProcAddress(void*, const char*);
+extern "C" __declspec(dllimport) unsigned long __stdcall GetTempPathA(
+    unsigned long nBufferLength, char* lpBuffer);
+extern "C" __declspec(dllimport) int __stdcall CreateDirectoryA(
+    const char* lpPathName, void* lpSecurityAttributes);
+extern "C" __declspec(dllimport) int __stdcall DeleteFileA(const char* lpFileName);
+extern "C" __declspec(dllimport) unsigned long __stdcall GetCurrentProcessId(void);
+// PULARGE_INTEGER is really just a pointer to a 64-bit byte count; declaring
+// it as unsigned long long* keeps windows.h out of this translation unit.
+extern "C" __declspec(dllimport) int __stdcall GetDiskFreeSpaceExA(
+    const char* lpDirectoryName,
+    unsigned long long* lpFreeBytesAvailableToCaller,
+    unsigned long long* lpTotalNumberOfBytes,
+    unsigned long long* lpTotalNumberOfFreeBytes);
 #endif
 
 #include <JKApplication.h>
@@ -9,6 +27,13 @@ extern "C" __declspec(dllimport) int __stdcall AllocConsole(void);
 
 #include <client/JKClientSurface.h>
 #include <server/JKWindowServer.h>
+
+#include <terminal/JKTerminalGrid.h>
+#include <terminal/JKVtParser.h>
+#include <terminal/JKConPtyBridge.h>
+#include <terminal/JKGlyphAtlas.h>
+
+#include <stb_truetype.h>
 
 #include <JKControl.h>
 #include <JKStatic.h>
@@ -51,8 +76,8 @@ using jk::Utf8ToKssm;
 #include <apps/VectorPresApp.h>
 #include <apps/MineSweeperApp.h>
 #include <apps/TetrisApp.h>
-#include <apps/ClientMineSweeperApp.h>
-#include <apps/ClientTetrisApp.h>
+#include <apps/JKAppModule.h>
+#include <JKJkxFile.h>
 #include "wancode.h"
 #include <cstdint>
 #include <cmath>
@@ -328,6 +353,190 @@ private:
     std::unique_ptr<jk::JKMessageBox> aboutBox_;
 };
 
+// ---------------------------------------------------------------------------
+// App module loading (Phase B) and .jkx container support (Phase C).
+// ---------------------------------------------------------------------------
+
+// Reads a whole file into out. Returns false when the file cannot be opened
+// or read back fully.
+static bool ReadWholeFile(const std::string& path, std::vector<uint8_t>& out) {
+    std::FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) return false;
+    std::fseek(f, 0, SEEK_END);
+    const long size = std::ftell(f);
+    std::fseek(f, 0, SEEK_SET);
+    out.resize(size > 0 ? static_cast<size_t>(size) : 0);
+    const bool ok = out.empty() || std::fread(out.data(), 1, out.size(), f) == out.size();
+    std::fclose(f);
+    return ok;
+}
+
+#ifdef _WIN32
+// Loads an app module DLL and runs it through the C ABI in apps/JKAppModule.h.
+// All C++ (app construction, Init, Run, destruction) stays inside the module.
+static int RunClientModule(const char* dllPath, const char* pipeName) {
+    void* module = LoadLibraryA(dllPath);
+    if (!module) {
+        std::fprintf(stderr, "Cannot load app module '%s'\n", dllPath);
+        return 1;
+    }
+    auto metaFn = reinterpret_cast<const jk::JKAppMeta* (*)()>(
+        GetProcAddress(module, "jk_app_meta"));
+    auto runFn = reinterpret_cast<int (*)(const char*)>(
+        GetProcAddress(module, "jk_app_run_client"));
+    if (!metaFn || !runFn) {
+        std::fprintf(stderr,
+                     "App module '%s' does not export jk_app_meta/jk_app_run_client\n",
+                     dllPath);
+        FreeLibrary(module);
+        return 1;
+    }
+
+    const jk::JKAppMeta* meta = metaFn();
+    std::printf("[client] module '%s' loaded: app='%s' title='%s' size=%dx%d\n",
+                dllPath, meta->name, meta->title,
+                static_cast<int>(meta->width), static_cast<int>(meta->height));
+    std::fflush(stdout);
+    const int rc = runFn(pipeName);
+    // NOTE: no FreeLibrary() here. Unloading the MinGW-built app module
+    // corrupts the heap in practice; the host process exits right after Run()
+    // returns, so keeping the module resident until process termination is
+    // both simpler and safer.
+    return rc;
+}
+
+// --jkx <container>: open the .jkx file, extract the MODL entry to a per-process
+// temp file, load and run it through the same C ABI, then delete the temp file.
+// The module's jk_app_meta (not the manifest) is authoritative at runtime; the
+// manifest identifies the entry and carries the launcher-side metadata.
+static int RunClientFromJkx(const char* jkxPath, const char* pipeName) {
+    jk::JKJkxFile jkx;
+    if (!jkx.Open(jkxPath)) return 1;
+    const jk::JkxManifest& mani = jkx.Manifest();
+
+    int entry = jkx.FindEntry("MODL", mani.module);
+    if (entry < 0) entry = jkx.FindEntry("MODL", "");
+    if (entry < 0) {
+        std::fprintf(stderr, "No module entry in '%s'\n", jkxPath);
+        return 1;
+    }
+    std::vector<uint8_t> dll;
+    if (!jkx.ReadEntry(entry, dll)) {
+        std::fprintf(stderr, "Cannot read module entry from '%s'\n", jkxPath);
+        return 1;
+    }
+
+    char tempDir[260] = ".";
+    GetTempPathA(static_cast<unsigned long>(sizeof(tempDir) - 64), tempDir);
+    // Unique temp name per process so several instances of the same .jkx can
+    // run side by side; deleted again on exit.
+    char tempPath[324] = {};
+    std::snprintf(tempPath, sizeof(tempPath), "%sjkapp_%s_%lu.dll",
+                  tempDir, mani.name.c_str(),
+                  static_cast<unsigned long>(GetCurrentProcessId()));
+    std::FILE* f = std::fopen(tempPath, "wb");
+    if (!f) {
+        std::fprintf(stderr, "Cannot extract module to '%s'\n", tempPath);
+        return 1;
+    }
+    const size_t written = std::fwrite(dll.data(), 1, dll.size(), f);
+    std::fclose(f);
+    if (written != dll.size()) {
+        // Short writes here are almost always a full temp volume (%TEMP% is
+        // usually on C:), not a container bug — surface the free space so the
+        // message is actionable instead of a bare "short write".
+        unsigned long long freeBytes = 0, totalBytes = 0, totalFree = 0;
+        if (GetDiskFreeSpaceExA(tempDir, &freeBytes, &totalBytes, &totalFree)) {
+            std::fprintf(stderr,
+                         "Short write extracting '%s' (wrote %zu of %zu bytes; "
+                         "%.1f GiB free on the temp volume)\n",
+                         tempPath, written, dll.size(),
+                         freeBytes / (1024.0 * 1024 * 1024));
+        } else {
+            std::fprintf(stderr, "Short write extracting '%s' (wrote %zu of %zu bytes)\n",
+                         tempPath, written, dll.size());
+        }
+        DeleteFileA(tempPath);
+        return 1;
+    }
+
+    const int rc = RunClientModule(tempPath, pipeName);
+    // NOTE: the temp DLL stays behind (it is still loaded — see the
+    // FreeLibrary note in RunClientModule — so DeleteFileA would fail with a
+    // sharing violation anyway). The per-pid name keeps reruns from
+    // accumulating files.
+    return rc;
+}
+
+// jkx-pack <app>: bundle jkapp_<app>.dll + launcher icon PNGs + a generated
+// manifest into apps/<app>.jkx. Metadata comes from the module's own
+// jk_app_meta (single source of truth); icons are optional.
+static int RunJkxPack(const char* appName) {
+    std::string base;
+    if (char* p = SDL_GetBasePath()) {
+        base = p;
+        SDL_free(p);
+    }
+
+    const std::string dllPath = base + "jkapp_" + appName + ".dll";
+    void* module = LoadLibraryA(dllPath.c_str());
+    if (!module) {
+        std::fprintf(stderr, "jkx-pack: cannot load '%s'\n", dllPath.c_str());
+        return 1;
+    }
+    auto metaFn = reinterpret_cast<const jk::JKAppMeta* (*)()>(
+        GetProcAddress(module, "jk_app_meta"));
+    if (!metaFn) {
+        std::fprintf(stderr, "jkx-pack: '%s' exports no jk_app_meta\n", dllPath.c_str());
+        return 1;
+    }
+    const jk::JKAppMeta* meta = metaFn();
+    // NOTE: intentionally not FreeLibrary()-ing here. Unloading the app module
+    // mid-process corrupted the heap in practice (crash on the next malloc),
+    // and the packer is a short-lived process — keep the module resident.
+
+    std::vector<uint8_t> dll;
+    if (!ReadWholeFile(dllPath, dll)) {
+        std::fprintf(stderr, "jkx-pack: cannot read '%s'\n", dllPath.c_str());
+        return 1;
+    }
+
+    // Launcher icon assets (see ARCHITECTURE_DOCS/20). The minesweeper launcher
+    // icon is stored as launcher_mine for historical reasons.
+    const std::string iconPrefix =
+        (std::strcmp(appName, "minesweeper") == 0) ? "mine" : appName;
+    const std::string icon1Name = "assets/icons/launcher_" + iconPrefix + "@1x.png";
+    const std::string icon2Name = "assets/icons/launcher_" + iconPrefix + "@2x.png";
+    std::vector<uint8_t> icon1Data;
+    std::vector<uint8_t> icon2Data;
+    const bool hasIcon1 = ReadWholeFile(base + icon1Name, icon1Data);
+    const bool hasIcon2 = ReadWholeFile(base + icon2Name, icon2Data);
+
+    std::string manifestText;
+    manifestText += "name=" + std::string(meta->name) + "\n";
+    manifestText += "title=" + std::string(meta->title) + "\n";
+    manifestText += "width=" + std::to_string(meta->width) + "\n";
+    manifestText += "height=" + std::to_string(meta->height) + "\n";
+    manifestText += "module=jkapp_" + std::string(appName) + ".dll\n";
+    if (hasIcon1) manifestText += "icon=launcher@1x.png\n";
+    if (hasIcon2) manifestText += "icon2x=launcher@2x.png\n";
+
+    std::vector<std::pair<std::string, std::vector<uint8_t>>> entries;
+    std::vector<uint8_t> manifestBytes(manifestText.begin(), manifestText.end());
+    entries.emplace_back("manifest.txt", std::move(manifestBytes));
+    entries.emplace_back(std::string("jkapp_") + appName + ".dll", std::move(dll));
+    if (hasIcon1) entries.emplace_back("launcher@1x.png", std::move(icon1Data));
+    if (hasIcon2) entries.push_back({"launcher@2x.png", std::move(icon2Data)});
+
+    CreateDirectoryA((base + "apps").c_str(), nullptr);
+    const std::string outPath = base + "apps\\" + appName + ".jkx";
+    if (!jk::JKJkxFile::Write(outPath, entries)) return 1;
+
+    std::printf("packed %s\n", outPath.c_str());
+    return 0;
+}
+#endif // _WIN32
+
 // 포팅된 앱들의 데이터 관리자(Equip24DataManager/BombManager/PersonManager)
 // 로직을 검증하는 헤드리스 자기 테스트. "test" 인자로 실행한다.
 static int RunAppSelfTest() {
@@ -585,7 +794,7 @@ static int RunAppSelfTest() {
         auto dlg = std::make_unique<jk::JKFileDialog>("Test Open");
         dlg->SetInitialDir(testDir.string());
         dlg->SetFilter("*.txt");
-        dlg->Show(); // registers modal, but g_currentJKApp is null in test mode
+        dlg->Show(); // registers modal, but g_jkAppHost is null in test mode
 
         // Show() already calls RefreshList. Verify filter is applied.
         check(dlg->FindControlByControlId(101) != nullptr,
@@ -955,13 +1164,321 @@ static int RunAppSelfTest() {
         check(game.IsWon(), "chord reveals all safe cells and wins");
     }
 
+    // .jkx container roundtrip: pack, reopen, verify manifest and payloads.
+    {
+        const std::string path = "test_container.jkx";
+        std::vector<uint8_t> payloadA(300);
+        for (size_t i = 0; i < payloadA.size(); ++i) payloadA[i] = static_cast<uint8_t>(i & 0xFF);
+        std::vector<uint8_t> payloadB(64, 0xAB);
+
+        std::vector<std::pair<std::string, std::vector<uint8_t>>> entries;
+        entries.emplace_back("manifest.txt",
+                             std::vector<uint8_t>{ 'n','a','m','e','=','t','e','s','t','\n',
+                                                   'm','o','d','u','l','e','=','a','p','p','.','d','l','l','\n',
+                                                   'w','i','d','t','h','=','3','2','0','\n' });
+        entries.emplace_back("app.dll", std::move(payloadA));
+        entries.emplace_back("launcher@1x.png", std::move(payloadB));
+        check(jk::JKJkxFile::Write(path, entries), "jkx pack writes container");
+
+        jk::JKJkxFile read;
+        check(read.Open(path), "jkx reopen container");
+        check(read.EntryCount() == 3, "jkx entry count");
+        check(read.Manifest().name == "test" && read.Manifest().module == "app.dll" &&
+                  read.Manifest().width == 320,
+              "jkx manifest parsed");
+        check(read.FindEntry("MODL", "app.dll") == 1, "jkx finds MODL by name");
+        check(read.FindEntry("ICON", "launcher@1x.png") == 2, "jkx finds ICON by name");
+
+        std::vector<uint8_t> dllBytes;
+        check(read.ReadEntry(1, dllBytes) && dllBytes.size() == 300, "jkx MODL payload size");
+        bool payloadOk = true;
+        for (size_t i = 0; i < dllBytes.size(); ++i) {
+            if (dllBytes[i] != static_cast<uint8_t>(i & 0xFF)) { payloadOk = false; break; }
+        }
+        check(payloadOk, "jkx MODL payload roundtrip");
+        std::vector<uint8_t> iconBytes;
+        check(read.ReadEntry(2, iconBytes) && iconBytes.size() == 64, "jkx ICON payload size");
+        std::remove(path.c_str());
+    }
+
+    // Terminal VT parser + grid (docs/22 §4/§5): golden scenarios.
+    {
+        jk::JKTerminalGrid grid;
+        jk::JKVtParser parser;
+        parser.Attach(&grid);
+        auto feed = [&parser](const char* s) {
+            parser.Feed(reinterpret_cast<const uint8_t*>(s), std::strlen(s));
+        };
+        auto rowText = [&grid](int r) {
+            std::string s;
+            for (int c = 0; c < grid.Cols(); ++c) {
+                const uint32_t cp = grid.Cell(c, r).cp;
+                s.push_back(cp >= 0x20 && cp < 0x7F ? static_cast<char>(cp) : ' ');
+            }
+            while (!s.empty() && s.back() == ' ') s.pop_back();
+            return s;
+        };
+
+        grid.Resize(20, 6);
+
+        // Plain text + newline handling.
+        feed("hello\r\nworld");
+        check(rowText(0) == "hello", "terminal: plain text row 0");
+        check(rowText(1) == "world", "terminal: LF moves to next row");
+
+        // Absolute cursor positioning (ConPTY repaint style).
+        feed("\x1b[1;1HJK");
+        check(rowText(0) == "JKllo", "terminal: CUP overwrite at 1;1");
+
+        // SGR colors are applied to written cells (cursor at col 2 after "JK").
+        feed("\x1b[31mR\x1b[0m");
+        const jk::JKTermCell& redCell = grid.Cell(2, 0);
+        check(redCell.cp == 'R' && redCell.fg == 0xcd0000,
+              "terminal: SGR 31 sets red fg on cell");
+
+        // 256-color and truecolor SGR.
+        feed("\x1b[1;1H\x1b[38;5;196mX");
+        check(grid.Cell(0, 0).fg == 0xff0000, "terminal: 256-color fg lookup");
+        feed("\x1b[2;1H\x1b[38;2;12;34;56mY");
+        check(grid.Cell(0, 1).fg == 0x0c2238, "terminal: truecolor fg lookup");
+
+        // Erase display (ED 2) clears content.
+        feed("\x1b[2J");
+        check(rowText(0).empty() && rowText(1).empty(), "terminal: ED2 clears");
+
+        // Deferred wrap: 20 cols → the 21st char wraps to row 1.
+        feed("\x1b[1;1H01234567890123456789Z");
+        check(rowText(0) == "01234567890123456789" && rowText(1) == "Z",
+              "terminal: deferred wrap at last column");
+
+        // Scroll region (DECSTBM) + LF scrolls only inside margins: rows 1..3
+        // (0-based) shift up, pulling "line1" into row 2.
+        grid.ClearDirty();
+        feed("\x1b[2;4r\x1b[4;1Hline1\r\nline2");
+        check(rowText(1).empty(), "terminal: region shift empties top row");
+        check(rowText(2) == "line1", "terminal: region scroll pulls line1 up");
+        check(rowText(3) == "line2", "terminal: LF inside region writes line2");
+        feed("\x1b[r");
+
+        // Alt screen (1049): swap out, erase, swap back restores content.
+        feed("\x1b[?1049h");
+        check(grid.InAltScreen(), "terminal: 1049 enters alt screen");
+        feed("\x1b[2Jalt");
+        check(rowText(0) == "alt", "terminal: alt screen content");
+        feed("\x1b[?1049l");
+        check(!grid.InAltScreen(), "terminal: 1049 leaves alt screen");
+        check(rowText(2) == "line1", "terminal: main screen restored after 1049 off");
+
+        // OSC 0 title.
+        feed("\x1b]0;my title\x07");
+        check(grid.Title() == "my title", "terminal: OSC 0 sets title");
+
+        // DSR 6 reply accumulates and TakeReplies clears it.
+        feed("\x1b[2;3H");
+        feed("\x1b[6n");
+        check(parser.TakeReplies() == "\x1b[2;3R",
+              "terminal: DSR 6 reports cursor position");
+        check(parser.TakeReplies().empty(), "terminal: TakeReplies clears buffer");
+
+        // UTF-8 (Korean): wide glyphs take their cell plus a width-0 follower
+        // dummy cell (docs/26 단계 1) so col index == pixel column.
+        feed("\x1b[1;1H한글");
+        check(grid.Cell(0, 0).cp == 0xD55C && grid.Cell(0, 0).width == 2 &&
+                  grid.Cell(1, 0).cp == 0 && grid.Cell(1, 0).width == 0 &&
+                  grid.Cell(2, 0).cp == 0xAE00 && grid.Cell(2, 0).width == 2,
+              "terminal: hangul decodes wide with follower dummies");
+
+        // Mixed narrow/wide layout: 'a가b' → a | 가 + dummy | b.
+        feed("\x1b[2;1Ha가b");
+        check(grid.Cell(0, 1).cp == 'a' && grid.Cell(1, 1).cp == 0xAC00 &&
+                  grid.Cell(2, 1).width == 0 && grid.Cell(3, 1).cp == 'b',
+              "terminal: mixed narrow/wide layout");
+
+        // Backspace steps over the width-0 follower onto the wide glyph.
+        // (BS = 0x08: the parser ignores DEL 0x7F per the VT state machine.)
+        feed("\x1b[3;1Ha가b");
+        feed("\x08\x08");
+        check(grid.GetCursor().x == 1 && grid.Cell(1, 2).cp == 0xAC00,
+              "terminal: BS skips follower onto wide glyph");
+
+        // Resize preserves top-left content and clamps the cursor.
+        grid.Resize(10, 4);
+        check(grid.Cols() == 10 && grid.Rows() == 4 &&
+                  grid.Cell(0, 0).cp == 0xD55C,
+              "terminal: resize preserves content");
+
+        // A wide glyph at the last column wraps to the next row whole
+        // instead of splitting across the edge.
+        feed("\x1b[1;10H가");
+        check(grid.GetCursor().x == 2 && grid.GetCursor().y == 1 &&
+                  grid.Cell(0, 1).cp == 0xAC00 && grid.Cell(1, 1).width == 0,
+              "terminal: wide glyph at last column wraps whole");
+
+        // Dirty tracking: MarkAllDirty then ClearDirty.
+        check(grid.IsDirty(), "terminal: resize marks dirty");
+        grid.ClearDirty();
+        check(!grid.IsDirty(), "terminal: ClearDirty resets flag");
+
+        // Scrollback: a scroll at the top margin records the departing row.
+        grid.ClearDirty();
+        feed("\x1b[1;1Hr0\r\nr1\r\nr2\r\nr3\r\nr4");
+        check(grid.ScrollbackLines() == 1, "terminal: top scroll records line");
+        check(grid.ScrollbackLine(0)[0].cp == 'r' && grid.ScrollbackLine(0)[1].cp == '0',
+              "terminal: scrollback line content");
+
+        // Alt-screen scrolling never records (grid is 4 rows; CUP clamps to
+        // the last row so each LF scrolls the alt screen).
+        feed("\x1b[?1049h\x1b[5;4H\r\n\r\n\r\n\r\n\x1b[?1049l");
+        check(grid.ScrollbackLines() == 1, "terminal: alt screen scroll not recorded");
+
+        // RIS clears the scrollback with everything else. ("\x1b" "c", not
+        // "\x1bc" — a trailing 'c' is a valid hex digit and would parse as a
+        // single 0x1BC escape.)
+        feed("\x1b" "c");
+        check(grid.ScrollbackLines() == 0, "terminal: RIS clears scrollback");
+
+        // --- Wide-glyph diagnostics (docs/26 단계 1) --------------------------
+        // A. Malgun Gothic must rasterize a Hangul syllable at the scale
+        // InitFallback computes (mirrors the formula; validates stbtt+font).
+        {
+            FILE* mf = nullptr;
+#ifdef _WIN32
+            fopen_s(&mf, "C:/Windows/Fonts/malgun.ttf", "rb");
+#else
+            mf = std::fopen("C:/Windows/Fonts/malgun.ttf", "rb");
+#endif
+            check(mf != nullptr, "terminal: malgun.ttf opens");
+            if (mf) {
+                std::fseek(mf, 0, SEEK_END);
+                const long msz = std::ftell(mf);
+                std::fseek(mf, 0, SEEK_SET);
+                std::vector<uint8_t> mdata(static_cast<size_t>(msz));
+                const size_t mread = std::fread(mdata.data(), 1, mdata.size(), mf);
+                std::fclose(mf);
+                stbtt_fontinfo minfo;
+                if (mread == mdata.size() &&
+                    stbtt_InitFont(&minfo, mdata.data(), 0)) {
+                    int advW = 0, lsb = 0;
+                    stbtt_GetCodepointHMetrics(&minfo, 0xAC00, &advW, &lsb);
+                    int asc = 0, desc = 0, lg = 0;
+                    stbtt_GetFontVMetrics(&minfo, &asc, &desc, &lg);
+                    float scale = (advW > 0)
+                        ? 16.0f / static_cast<float>(advW)
+                        : 16.0f / static_cast<float>(asc - desc);
+                    float emPx = static_cast<float>(asc - desc) * scale;
+                    if (emPx > 16.0f && asc - desc > 0) {
+                        scale *= 16.0f / emPx;
+                        emPx = 16.0f;
+                    }
+                    int bx0 = 0, by0 = 0, bx1 = 0, by1 = 0;
+                    stbtt_GetCodepointBitmapBox(&minfo, 0xAC00, scale, scale,
+                                                &bx0, &by0, &bx1, &by1);
+                    const int bw = bx1 - bx0, bh = by1 - by0;
+                    std::printf("[i] malgun advW=%d asc=%d desc=%d scale=%.6f "
+                                "box=%dx%d off=(%d,%d)\n",
+                                advW, asc, desc, scale, bw, bh, bx0, by0);
+                    check(bw > 0 && bh > 0, "terminal: hangul bitmap box nonempty");
+                    if (bw > 0 && bh > 0) {
+                        std::vector<uint8_t> cov(static_cast<size_t>(bw) * bh, 0);
+                        stbtt_MakeCodepointBitmap(&minfo, cov.data(), bw, bh, bw,
+                                                  scale, scale, 0xAC00);
+                        int lit = 0;
+                        for (const uint8_t v : cov) lit += (v != 0);
+                        std::printf("[i] hangul coverage %d/%d px\n",
+                                    lit, bw * bh);
+                        check(lit > 0, "terminal: hangul raster has coverage");
+                    }
+                } else {
+                    check(false, "terminal: stbtt inits malgun");
+                }
+            }
+        }
+
+        // B. Real conhost emission: the shell prints a Hangul syllable through
+        // the console API; ConPTY must deliver UTF-8 that our parser lands in
+        // a wide cell (+ follower dummy).
+        {
+            jk::JKTerminalGrid pgrid;
+            pgrid.Resize(80, 25);
+            jk::JKVtParser pparser;
+            pparser.Attach(&pgrid);
+            jk::JKConPtyBridge pty;
+            if (pty.Start("powershell.exe -NoLogo -Command \"[char]0xAC00\"",
+                          80, 25)) {
+                for (int i = 0; i < 300; ++i) {
+                    std::string out;
+                    pty.DrainOutput(out);
+                    if (!out.empty()) {
+                        pparser.Feed(reinterpret_cast<const uint8_t*>(out.data()),
+                                     out.size());
+                    }
+                    if (pty.ShellExited()) {
+                        std::string tail;
+                        pty.DrainOutput(tail);
+                        pparser.Feed(reinterpret_cast<const uint8_t*>(tail.data()),
+                                     tail.size());
+                        break;
+                    }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                }
+                bool found = false;
+                for (int r = 0; r < pgrid.Rows() && !found; ++r) {
+                    for (int c = 0; c < pgrid.Cols() && !found; ++c) {
+                        if (pgrid.Cell(c, r).cp == 0xAC00 &&
+                            pgrid.Cell(c, r).width == 2) {
+                            found = true;
+                        }
+                    }
+                }
+                check(found, "terminal: conhost emits hangul into wide cell");
+                pty.Stop();
+            } else {
+                check(false, "terminal: conpty probe spawns shell");
+            }
+        }
+
+        // C. Real fallback-page raster (regression): the page slot for a
+        // Hangul syllable must contain lit pixels — the stamp used to ignore
+        // the slot ROW offset, so every page row past the first stayed empty
+        // and wide glyphs blitted transparent (blank output).
+        {
+            jk::JKGlyphAtlas atlas;
+            if (atlas.Init("C:/Windows/Fonts/consola.ttf", 8, 16) &&
+                atlas.InitFallback("C:/Windows/Fonts/malgun.ttf")) {
+                std::vector<uint8_t> rgba;
+                int pw = 0, ph = 0;
+                if (atlas.RasterizeFallbackPageForTest(0x000000, false, 0xAC00,
+                                                       &rgba, &pw, &ph)) {
+                    const jk::JKRect src = atlas.GlyphSrc(0xAC00);
+                    int lit = 0;
+                    for (int y = 0; y < src.h; ++y) {
+                        for (int x = 0; x < src.w; ++x) {
+                            const size_t idx =
+                                (static_cast<size_t>(src.y + y) * pw +
+                                 src.x + x) * 4 + 3;
+                            if (idx + 3 < rgba.size() && rgba[idx]) ++lit;
+                        }
+                    }
+                    std::printf("[i] fallback slot (%d,%d,%d,%d) lit=%d\n",
+                                src.x, src.y, src.w, src.h, lit);
+                    check(lit > 0,
+                          "terminal: fallback page slot has hangul pixels");
+                } else {
+                    check(false, "terminal: fallback page rasterizes");
+                }
+            } else {
+                check(false, "terminal: atlas inits for page raster test");
+            }
+        }
+    }
+
     std::printf("AppSelfTest: %d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;
 }
 
 int main(int argc, char* argv[]) {
     // GUI 앱이므로 콘솔 출력이 안 보인다. 디버깅용 파일 로그를 먼저 연다.
-    std::FILE* logFile = std::fopen("jkproto_launch.log", "w");
+    std::FILE* logFile = std::fopen("jkdesktop_launch.log", "w");
     if (logFile) {
         std::fprintf(logFile, "[main] entered argc=%d\n", argc);
         std::fflush(logFile);
@@ -983,9 +1500,9 @@ int main(int argc, char* argv[]) {
             freopen_s(&dummy, "CONOUT$", "w", stderr);
         }
 #endif
-        std::printf("jkproto_sdl2_jkwindow - JKENGINE SDL2 prototype\n");
+        std::printf("jkdesktop - JKENGINE SDL2 prototype\n");
         std::printf("\n");
-        std::printf("Usage: jkproto_sdl2_jkwindow.exe [COMMAND]\n");
+        std::printf("Usage: jkdesktop.exe [COMMAND]\n");
         std::printf("\n");
         std::printf("Commands:\n");
         std::printf("  (none)      Default demo app\n");
@@ -1003,12 +1520,27 @@ int main(int argc, char* argv[]) {
         std::printf("  --server    Run as the window server (Phase 2 scaffolding)\n");
         std::printf("  --client minesweeper  Run Minesweeper as a window-server client\n");
         std::printf("  --client tetris     Run Tetris as a window-server client\n");
+        std::printf("  --jkx FILE  Run an app from a .jkx container\n");
+        std::printf("  jkx-pack APP  Bundle jkapp_<APP>.dll + icons + manifest into apps/<APP>.jkx\n");
         std::printf("  -h, --help, /?  Show this help message\n");
         return 0;
     }
 
     if (argc > 1 && std::strcmp(argv[1], "test") == 0) {
         return RunAppSelfTest();
+    }
+
+    if (argc > 1 && std::strcmp(argv[1], "jkx-pack") == 0) {
+#ifdef _WIN32
+        if (argc < 3) {
+            std::fprintf(stderr, "Usage: jkx-pack <app>  (bundles jkapp_<app>.dll + icons + manifest into apps/<app>.jkx)\n");
+            return 1;
+        }
+        return RunJkxPack(argv[2]);
+#else
+        std::fprintf(stderr, "jkx-pack is Windows-only in this prototype\n");
+        return 1;
+#endif
     }
 
     bool runJango = (argc > 1 && std::strcmp(argv[1], "jango") == 0);
@@ -1116,30 +1648,33 @@ int main(int argc, char* argv[]) {
 
     if (runClient) {
         constexpr const char* kPipe = "\\\\.\\pipe\\JKWindowServerPipe";
-
         const char* clientApp = (argc > 2) ? argv[2] : "";
-        bool runClientMine = (std::strcmp(clientApp, "minesweeper") == 0);
-        bool runClientTetris = (std::strcmp(clientApp, "tetris") == 0);
 
-        if (runClientMine) {
-            jk::ClientMineSweeperApp app;
-            if (!app.Init("Minesweeper", 320, 380, kPipe)) {
-                return 1;
-            }
-            return app.Run();
-        }
-
-        if (runClientTetris) {
-            jk::ClientTetrisApp app;
-            if (!app.Init("Tetris", 320, 520, kPipe)) {
-                return 1;
-            }
-            return app.Run();
-        }
-
-        std::fprintf(stderr, "Unknown client app '%s'. Use: --client minesweeper | tetris\n",
-                     clientApp);
+        // Phase B: client apps are dynamically loaded modules (jkapp_<name>.dll).
+        // The module statically contains its core code and is driven purely
+        // through the C ABI in apps/JKAppModule.h — no C++ crosses the boundary.
+#ifdef _WIN32
+        const std::string dllName = std::string("jkapp_") + clientApp + ".dll";
+        return RunClientModule(dllName.c_str(), kPipe);
+#else
+        (void)clientApp;
+        std::fprintf(stderr, "--client is Windows-only in this prototype\n");
         return 1;
+#endif
+    }
+
+    if (argc > 1 && std::strcmp(argv[1], "--jkx") == 0) {
+        constexpr const char* kPipe = "\\\\.\\pipe\\JKWindowServerPipe";
+        if (argc < 3) {
+            std::fprintf(stderr, "Usage: --jkx <container.jkx>\n");
+            return 1;
+        }
+#ifdef _WIN32
+        return RunClientFromJkx(argv[2], kPipe);
+#else
+        std::fprintf(stderr, "--jkx is Windows-only in this prototype\n");
+        return 1;
+#endif
     }
 
     MyApp app;
