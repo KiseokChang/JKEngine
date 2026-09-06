@@ -142,6 +142,12 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
         return false;
     }
 
+    // Client apps need SDL_TEXTINPUT (Char events) for text fields/IME. In
+    // client/single-process modes the app starts text input itself; the
+    // server window must too, or no client ever receives a Char event
+    // (vplayer path field stayed empty under synthetic typing).
+    SDL_StartTextInput();
+
     compositor_ = std::make_unique<JKCompositor>(renderer_);
     UpdateOutputBounds();
     InitLauncher();
@@ -656,6 +662,7 @@ bool JKWindowServer::TryChromeGrab(int mx, int my, float scale) {
                           (ly < kChromeCloseMargin + kChromeCloseSize);
     if (inCloseX && inCloseY) {
         FocusClient(client->Id());
+        PushWindowList();  // active highlight follows click focus
         client->Send(ipc::MsgType::Close, nullptr, 0);
         return true;
     }
@@ -668,6 +675,7 @@ bool JKWindowServer::TryChromeGrab(int mx, int my, float scale) {
     const bool edgeTop = (ly < kResizeHotspot);
     if (edgeLeft || edgeRight || edgeBottom || edgeTop) {
         FocusClient(client->Id());
+        PushWindowList();  // active highlight follows click focus
         capturedClientId_ = 0;
         chromeGrab_ = ChromeGrab::Resize;
         chromeGrabClient_ = client->Id();
@@ -690,6 +698,7 @@ bool JKWindowServer::TryChromeGrab(int mx, int my, float scale) {
     //    the top resize strip above returned first).
     if (ly < kChromeTitleBar) {
         FocusClient(client->Id());
+        PushWindowList();  // active highlight follows click focus
         capturedClientId_ = 0;
         chromeGrab_ = ChromeGrab::Move;
         chromeGrabClient_ = client->Id();
@@ -886,6 +895,7 @@ void JKWindowServer::HandleSDLEvent(const SDL_Event& ev) {
             // Clicking the shell does not steal keyboard focus (docs/28).
             if (!client->IsShell()) {
                 FocusClient(client->Id());
+                PushWindowList();  // active highlight follows click focus
             }
             capturedClientId_ = client->Id();
         } else if (ev.type == SDL_MOUSEBUTTONUP) {
