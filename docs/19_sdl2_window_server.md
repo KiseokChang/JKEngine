@@ -206,6 +206,7 @@ ApplyPendingResize(): 임시 JKSharedMemory에 Open **성공 후** 교체
 
 FHD(1920×1080) 레이아웃의 앱(jango/occ/pcx/vector/iconedit/recog/vfont/vpres)은 절대 좌표 배치라 surface 크기를 줄일 수 없다. 대신 **서버가 표시 크기만 축소**한다 — 클라는 설계 크기 그대로 렌더링.
 
+- 레이어 텍스처는 `SDL_ScaleModeLinear`로 생성한다(JKCompositor `AddLayer`/`ResizeLayer`). nearest는 축소 과정에서 픽셀 행을 통째로 버려 surface에 래스터화된 글자(타이틀/버튼 라벨)가 깨진다. 선형 필터로 부드럽게 표시되며, 1:1 레이어는 리샘플링이 없어 영향 없다(2026-09-06).
 - `ProcessPendingClients`: surface가 데스크톱(논리 1280×720)보다 크면 균일 fit 스케일 `min(ww/W, wh/H)`를 `SetLayerScale`로 적용하고, 표시 크기 기준으로 중앙 배치.
 - 입력 매핑: surface 로컬 좌표 = `((mx/outputScale) − X) / layerScale` — 레이어 스케일을 반영해 클라 surface 픽셀 공간으로 역변환. MouseMove의 dx/dy도 스케일로 나눈다.
 - 크롬 영역은 surface 로컬 px 기준이라 비례 축소된다(타이틀 24 → 16 논리 px 등) — 판정식은 그대로 동작.

@@ -37,6 +37,11 @@ JKCompositorLayer* JKCompositor::AddLayer(uint32_t id,
                      SDL_GetError());
         return nullptr;
     }
+    // Fit-scale 레이어(1920x1080 surface를 0.63배 축소 표시)는 nearest 샘플링으로는
+    // 축소 과정에서 픽셀 행이 통째로 버려져 surface에 래스터화된 글자가 깨진다.
+    // 선형 필터로 샘플링해 축소 텍스트가 부드럽게 보이도록 한다. 1:1 레이어는
+    // 리샘플링이 일어나지 않아 영향 없음.
+    SDL_SetTextureScaleMode(texture, SDL_ScaleModeLinear);
 
     JKCompositorLayer* raw = nullptr;
     {
@@ -139,6 +144,8 @@ bool JKCompositor::ResizeLayer(uint32_t id, int width, int height, uint8_t* pixe
                      SDL_GetError());
         return false;
     }
+    // AddLayer와 동일한 이유(축소 레이어 글자 깨짐 방지).
+    SDL_SetTextureScaleMode(texture, SDL_ScaleModeLinear);
     std::lock_guard<std::mutex> lock(layersMutex_);
     JKCompositorLayer* layer = FindLayer(id);
     if (!layer) {
