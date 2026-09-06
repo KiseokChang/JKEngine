@@ -357,6 +357,16 @@ target_compile_definitions(jkapp_imguidemo PRIVATE JKAPP_MODULE_BUILD)
 target_link_libraries(jkapp_imguidemo PRIVATE jkcore imgui)
 set_target_properties(jkapp_imguidemo PROPERTIES PREFIX "")
 
+# Task manager module (docs/23 §11.2, ImGui Phase 2 showcase): shell protocol
+# consumer — subscribes to WindowList, samples per-process stats itself.
+add_library(jkapp_taskmgr SHARED
+    src/apps/JKAppModule_taskmgr.cpp
+    src/apps/ClientTaskmgrApp.cpp
+)
+target_compile_definitions(jkapp_taskmgr PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_taskmgr PRIVATE jkcore imgui)
+set_target_properties(jkapp_taskmgr PROPERTIES PREFIX "")
+
 if(WIN32)
     # Keep each module self-contained: no libstdc++/libgcc runtime DLLs needed
     # next to the app modules.
@@ -364,7 +374,7 @@ if(WIN32)
                       jkapp_jango jkapp_occ jkapp_pcx jkapp_vector
                       jkapp_iconedit jkapp_recog jkapp_vfont jkapp_vpres
                       jkapp_terminal jkapp_script jkapp_taskbar
-                      jkapp_imguidemo)
+                      jkapp_imguidemo jkapp_taskmgr)
         target_link_options(${jkapp_mod} PRIVATE -static-libstdc++ -static-libgcc)
     endforeach()
 endif()
@@ -465,6 +475,11 @@ add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/imguidemo.jkx"
     DEPENDS jkdesktop jkapp_imguidemo
     COMMENT "Repacking apps/imguidemo.jkx"
     VERBATIM)
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/taskmgr.jkx"
+    COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack taskmgr
+    DEPENDS jkdesktop jkapp_taskmgr
+    COMMENT "Repacking apps/taskmgr.jkx"
+    VERBATIM)
 # Script packages: the script source itself is a payload dependency so an
 # app.js edit repacks without a rebuild.
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/scriptdemo.jkx"
@@ -495,5 +510,6 @@ add_custom_target(jkx_packages ALL
             "${CMAKE_BINARY_DIR}/apps/vpres.jkx"
             "${CMAKE_BINARY_DIR}/apps/terminal.jkx"
             "${CMAKE_BINARY_DIR}/apps/imguidemo.jkx"
+            "${CMAKE_BINARY_DIR}/apps/taskmgr.jkx"
             "${CMAKE_BINARY_DIR}/apps/scriptdemo.jkx"
             "${CMAKE_BINARY_DIR}/apps/passworddemo.jkx")
