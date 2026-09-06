@@ -48,8 +48,19 @@ VectorView::VectorView(const JKRect& rect) {
 
 void VectorView::Reset() {
     const JKRect client = GetScreenClientRect();
+    // NormalizeControlPoint는 포인트를 rect 가장자리에 정확히 놓는다. 뷰 전체를
+    // 격자로 쓰면 모서리 포인트가 절반 잘려 히트 박스(16×16)의 절반만 잡히므로
+    // 평면을 안쪽으로 들여 여백을 둔다.
+    constexpr int32_t kMargin = 40;
+    JKRect grid = client;
+    grid.x += kMargin;
+    grid.w -= kMargin * 2;
+    grid.y += kMargin;
+    grid.h -= kMargin * 2;
+    grid.w = std::max<int32_t>(grid.w, 64);
+    grid.h = std::max<int32_t>(grid.h, 64);
     BezierPlane engine;
-    engine.NormalizeControlPoint(client, ctrl_);
+    engine.NormalizeControlPoint(grid, ctrl_);
 }
 
 void VectorView::ToggleMode() {
@@ -90,11 +101,27 @@ void VectorView::OnPaintClient(JKDC& dc) {
             const JKPoint& p = ctrl_[i][j];
             JKRect rect{ p.x - CTRLPOINTXSIZE, p.y - CTRLPOINTYSIZE,
                          CTRLPOINTXSIZE * 2, CTRLPOINTYSIZE * 2 };
-            dc.SetColor(COL_YELLOW_R, COL_YELLOW_G, COL_YELLOW_B, 255);
-            dc.FillRect(rect);
-            dc.SetColor(0, 0, 0, 255);
-            dc.DrawRect(rect);
-            dc.TextOutX(rect, pname, ADJ_XYCENTER);
+            if (i * 4 + j == dragIdx_) {
+                // 드래그 중인 포인트: 확대 + 빨간 면 + 흰 두꺼운 테두리로
+                // "지금 이 포인트를 잡고 있다"를 표시한다. 라벨은 빨간 면 위에서
+                // 안 보이므로 흰색으로 바꿔 찍는다.
+                rect = rect.Expand(4);
+                dc.SetColor(COL_LTRED_R, COL_LTRED_G, COL_LTRED_B, 255);
+                dc.FillRect(rect);
+                dc.SetColor(255, 255, 255, 255);
+                dc.DrawRect(rect);
+                dc.SetColor(0, 0, 0, 255);
+                dc.DrawRect(rect.Expand(-3));
+                dc.SetTextColor(255, 255, 255);
+                dc.TextOutX(rect, pname, ADJ_XYCENTER);
+                dc.SetTextColor(COL_LTRED_R, COL_LTRED_G, COL_LTRED_B);
+            } else {
+                dc.SetColor(COL_YELLOW_R, COL_YELLOW_G, COL_YELLOW_B, 255);
+                dc.FillRect(rect);
+                dc.SetColor(0, 0, 0, 255);
+                dc.DrawRect(rect);
+                dc.TextOutX(rect, pname, ADJ_XYCENTER);
+            }
         }
     }
 
@@ -173,26 +200,49 @@ void VectorView::ShiftPoints(int32_t dx, int32_t dy) {
     }
 }
 
+// 왼쪽 버튼 패널: 버튼을 올려 놓는 전용 사이드바. 창 배경(240)과 같은 회색으로는
+// 패널/캔버스가 구분되지 않으므로 어두운 회색으로 채우고 오른쪽에 구분선을 긋는다.
+class VectorSidePanel : public JKControl {
+public:
+    explicit VectorSidePanel(const JKRect& rect) { SetRect(rect); }
+
+    void OnPaintClient(JKDC& dc) override {
+        const JKRect client = GetScreenClientRect();
+        dc.SetColor(208, 208, 208, 255);
+        dc.FillRect(client);
+        dc.SetColor(150, 150, 150, 255);
+        dc.FillRect(JKRect{ client.x + client.w - 1, client.y, 1, client.h });
+    }
+};
+
 // 공유 UI 빌더: 단일 프로세스 VectorApp::OnInit과 서버 모드
 // ClientVectorApp::OnInit이 함께 호출한다. VectorView는 JKControl이므로
 // 서버 모드에서도 크롬 제거 없이 루트 클라이언트 영역에 직접 구성된다.
 VectorView* BuildVectorEditorUi(JKWindow* main) {
     const JKRect client = main->GetClientRect();
-    auto view = std::make_unique<VectorView>(JKRect{ 0, 0, client.w, client.h });
+    // 왼쪽 100px는 버튼 사이드바, 나머지는 베지어 캔버스.
+    constexpr int32_t kSideBarW = 100;
+
+    auto panel = std::make_unique<VectorSidePanel>(JKRect{ 0, 0, kSideBarW, client.h });
+    auto view = std::make_unique<VectorView>(
+        JKRect{ kSideBarW, 0, client.w - kSideBarW, client.h });
     VectorView* viewPtr = view.get();
 
-    auto reset = std::make_unique<JKButton>(JKRect{ 10, 20, 60, 50 }, ID_RESET);
+    // 버튼 rect는 {x, y, w, h}. 예전 값은 원본 WINDBASE의 {l,t,r,b} 수치를 그대로
+    // 넘겨 K-Bez(높이 90)·Convert(높이 130)가 서로 겹쳐 그려졌었다.
+    auto reset = std::make_unique<JKButton>(JKRect{ 15, 20, 70, 30 }, ID_RESET);
     reset->SetText("Reset");
     reset->SetOnClick([viewPtr]() { viewPtr->Reset(); });
 
-    auto toggle = std::make_unique<JKButton>(JKRect{ 10, 60, 60, 90 }, ID_TOGGLE);
+    auto toggle = std::make_unique<JKButton>(JKRect{ 15, 65, 70, 30 }, ID_TOGGLE);
     toggle->SetText("K-Bez");
     toggle->SetOnClick([viewPtr]() { viewPtr->ToggleMode(); });
 
-    auto convert = std::make_unique<JKButton>(JKRect{ 10, 100, 60, 130 }, ID_CONVERT);
+    auto convert = std::make_unique<JKButton>(JKRect{ 15, 110, 70, 30 }, ID_CONVERT);
     convert->SetText("Convert");
     convert->SetOnClick([viewPtr]() { viewPtr->Convert(); });
 
+    main->AddControl(std::move(panel));
     main->AddControl(std::move(view));
     main->AddControl(std::move(reset));
     main->AddControl(std::move(toggle));
