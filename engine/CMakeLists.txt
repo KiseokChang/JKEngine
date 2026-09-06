@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(jkproto_sdl2_jkwindow LANGUAGES CXX RC)
+project(jkdesktop LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -18,18 +18,31 @@ if(NOT TARGET SDL2::SDL2)
     )
 endif()
 
-# The prototype is nested under JKENGINE/prototype/sdl2_jkwindow, but
-# build_with_temp.sh copies it to a temp tree on C:. Allow the build script
-# (or any out-of-tree configure) to point back at the real JKENGINE root so
-# we can share the legacy WANCODE conversion table.
-if(NOT DEFINED JKENGINE_ROOT)
-    # Source tree is JKENGINE/prototype/sdl2_jkwindow; the JKENGINE root is two levels up.
-    get_filename_component(JKENGINE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
+# SDL2_mixer: CMake config가 있으면 사용, 없으면 pkg-config fallback.
+find_package(SDL2_mixer QUIET)
+if(NOT TARGET SDL2_mixer::SDL2_mixer)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(SDL2_MIXER REQUIRED SDL2_mixer)
+
+    add_library(SDL2_mixer::SDL2_mixer INTERFACE IMPORTED)
+    set_target_properties(SDL2_mixer::SDL2_mixer PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES "${SDL2_MIXER_INCLUDE_DIRS}"
+        INTERFACE_LINK_LIBRARIES "${SDL2_MIXER_LIBRARIES}"
+    )
 endif()
 
-add_executable(jkproto_sdl2_jkwindow
-    src/main.cpp
-    src/jkproto.rc
+# The prototype is self-contained: the legacy WANCODE conversion table and the
+# runtime fonts are vendored under legacy/ and assets/fonts/ (copied verbatim
+# from JKENGINE/JKWINDOW and JKENGINE/WINDBASE/2CAOCC), so the build no longer
+# references paths outside this directory.
+
+# ---------------------------------------------------------------------------
+# jkcore: everything except main(), the RC file, and the apps. The exe and
+# each app module DLL link this statically — every module carries its own
+# copy of the core, and all cross-module calls go through the C ABI in
+# include/apps/JKAppModule.h (no C++ objects cross a module boundary).
+# ---------------------------------------------------------------------------
+add_library(jkcore STATIC
     src/JKEvent.cpp
     src/JKMessageQue.cpp
     src/JKDC.cpp
@@ -71,17 +84,52 @@ add_executable(jkproto_sdl2_jkwindow
     src/JKSoundManager.cpp
     src/client/JKClientSurface.cpp
     src/client/JKClientApplication.cpp
+    src/terminal/JKVtParser.cpp
+    src/terminal/JKTerminalGrid.cpp
+    src/terminal/JKGlyphAtlas.cpp
+    src/terminal/JKConPtyBridge.cpp
     src/server/JKClientConnection.cpp
     src/server/JKWindowServer.cpp
     src/server/JKCompositor.cpp
     src/server/JKCompositorOutput.cpp
     src/JKDataFile.cpp
+    src/JKImageLoader.cpp
+    src/JKJkxFile.cpp
     src/JKVectorFont.cpp
+    legacy/wancode/WANCODE.CPP
+)
+
+target_include_directories(jkcore PUBLIC
+    include
+    third_party/stb
+    legacy/wancode
+)
+
+# Default font directory for the vector font demos (vendored in-repo).
+target_compile_definitions(jkcore PUBLIC
+    JKENGINE_FONT_DIR="${CMAKE_SOURCE_DIR}/assets/fonts"
+)
+
+target_link_libraries(jkcore PUBLIC SDL2::SDL2 SDL2_mixer::SDL2_mixer)
+
+if(WIN32)
+    target_link_libraries(jkcore PUBLIC imm32)
+endif()
+
+# ---------------------------------------------------------------------------
+# jkdesktop.exe: demo host + single-process apps + window server.
+# Client game apps are NOT linked here — they load jkapp_<name>.dll at runtime.
+# ---------------------------------------------------------------------------
+add_executable(jkdesktop
+    src/main.cpp
+    src/jkdesktop.rc
     src/apps/JangoApp.cpp
+    src/apps/JangoUI.cpp
     src/apps/Equip24App.cpp
     src/apps/EquipApp.cpp
     src/apps/InsaApp.cpp
     src/apps/OccApp.cpp
+    src/apps/OccUI.cpp
     src/apps/PcxApp.cpp
     src/apps/VectorApp.cpp
     src/apps/IconEditApp.cpp
@@ -91,42 +139,247 @@ add_executable(jkproto_sdl2_jkwindow
     src/apps/MineSweeperApp.cpp
     src/apps/AppLauncherItem.cpp
     src/apps/TetrisApp.cpp
+)
+
+target_link_libraries(jkdesktop PRIVATE jkcore)
+
+# ---------------------------------------------------------------------------
+# App module DLLs (Phase B). Each exports the C ABI from include/apps/JKAppModule.h
+# and statically contains its game + client scaffolding on top of jkcore.
+# ---------------------------------------------------------------------------
+add_library(jkapp_minesweeper SHARED
+    src/apps/JKAppModule_minesweeper.cpp
     src/apps/ClientMineSweeperApp.cpp
+    src/apps/MineSweeperApp.cpp
+    # MineSweeperApp (single-process launcher) opens Tetris windows and uses
+    # launcher items, so the module needs their sources too.
+    src/apps/AppLauncherItem.cpp
+    src/apps/TetrisApp.cpp
+)
+target_compile_definitions(jkapp_minesweeper PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_minesweeper PRIVATE jkcore)
+# Windows DLL naming without the MinGW "lib" prefix — the host loads
+# "jkapp_<name>.dll" and the .jkx container (Phase C) will use the same name.
+set_target_properties(jkapp_minesweeper PROPERTIES PREFIX "")
+
+add_library(jkapp_tetris SHARED
+    src/apps/JKAppModule_tetris.cpp
     src/apps/ClientTetrisApp.cpp
-    "${JKENGINE_ROOT}/JKWINDOW/WANCODE.CPP"
+    src/apps/TetrisApp.cpp
+)
+target_compile_definitions(jkapp_tetris PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_tetris PRIVATE jkcore)
+set_target_properties(jkapp_tetris PROPERTIES PREFIX "")
+
+add_library(jkapp_testwin SHARED
+    src/apps/JKAppModule_testwin.cpp
+    src/apps/ClientTestWindowApp.cpp
+)
+target_compile_definitions(jkapp_testwin PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_testwin PRIVATE jkcore)
+set_target_properties(jkapp_testwin PROPERTIES PREFIX "")
+
+# JANGO launcher module: reuses the shared JangoUI plus the ported WINDBASE
+# dialogs (Equip24/Equip/Insa) that JangoUI opens.
+add_library(jkapp_jango SHARED
+    src/apps/JKAppModule_jango.cpp
+    src/apps/ClientJangoApp.cpp
+    src/apps/JangoUI.cpp
+    src/apps/Equip24App.cpp
+    src/apps/EquipApp.cpp
+    src/apps/InsaApp.cpp
+)
+target_compile_definitions(jkapp_jango PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_jango PRIVATE jkcore)
+set_target_properties(jkapp_jango PROPERTIES PREFIX "")
+
+# OCC (2CAOCC C2) module: data model + UI live in OccUI.cpp.
+add_library(jkapp_occ SHARED
+    src/apps/JKAppModule_occ.cpp
+    src/apps/ClientOccApp.cpp
+    src/apps/OccUI.cpp
+)
+target_compile_definitions(jkapp_occ PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_occ PRIVATE jkcore)
+set_target_properties(jkapp_occ PROPERTIES PREFIX "")
+
+add_library(jkapp_pcx SHARED
+    src/apps/JKAppModule_pcx.cpp
+    src/apps/ClientPcxApp.cpp
+    src/apps/PcxApp.cpp
+)
+target_compile_definitions(jkapp_pcx PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_pcx PRIVATE jkcore)
+set_target_properties(jkapp_pcx PROPERTIES PREFIX "")
+
+add_library(jkapp_vector SHARED
+    src/apps/JKAppModule_vector.cpp
+    src/apps/ClientVectorApp.cpp
+    src/apps/VectorApp.cpp
+)
+target_compile_definitions(jkapp_vector PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_vector PRIVATE jkcore)
+set_target_properties(jkapp_vector PROPERTIES PREFIX "")
+
+add_library(jkapp_iconedit SHARED
+    src/apps/JKAppModule_iconedit.cpp
+    src/apps/ClientIconEditApp.cpp
+    src/apps/IconEditApp.cpp
+)
+target_compile_definitions(jkapp_iconedit PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_iconedit PRIVATE jkcore)
+set_target_properties(jkapp_iconedit PROPERTIES PREFIX "")
+
+add_library(jkapp_recog SHARED
+    src/apps/JKAppModule_recog.cpp
+    src/apps/ClientRecogApp.cpp
+    src/apps/RecogApp.cpp
+)
+target_compile_definitions(jkapp_recog PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_recog PRIVATE jkcore)
+set_target_properties(jkapp_recog PROPERTIES PREFIX "")
+
+add_library(jkapp_vfont SHARED
+    src/apps/JKAppModule_vfont.cpp
+    src/apps/ClientVectorFontApp.cpp
+    src/apps/VectorFontApp.cpp
+)
+target_compile_definitions(jkapp_vfont PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_vfont PRIVATE jkcore)
+set_target_properties(jkapp_vfont PROPERTIES PREFIX "")
+
+add_library(jkapp_vpres SHARED
+    src/apps/JKAppModule_vpres.cpp
+    src/apps/ClientVectorPresApp.cpp
+    src/apps/VectorPresApp.cpp
+)
+target_compile_definitions(jkapp_vpres PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_vpres PRIVATE jkcore)
+set_target_properties(jkapp_vpres PROPERTIES PREFIX "")
+
+# Terminal (ConPTY) module — docs/22. View + client app live in the module;
+# parser/grid/atlas/bridge are in jkcore so the self-test can exercise them.
+add_library(jkapp_terminal SHARED
+    src/apps/JKAppModule_terminal.cpp
+    src/apps/ClientTerminalApp.cpp
+    src/apps/TerminalView.cpp
+)
+target_compile_definitions(jkapp_terminal PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_terminal PRIVATE jkcore)
+set_target_properties(jkapp_terminal PROPERTIES PREFIX "")
+
+if(WIN32)
+    # Keep each module self-contained: no libstdc++/libgcc runtime DLLs needed
+    # next to the app modules.
+    foreach(jkapp_mod jkapp_minesweeper jkapp_tetris jkapp_testwin
+                      jkapp_jango jkapp_occ jkapp_pcx jkapp_vector
+                      jkapp_iconedit jkapp_recog jkapp_vfont jkapp_vpres
+                      jkapp_terminal)
+        target_link_options(${jkapp_mod} PRIVATE -static-libstdc++ -static-libgcc)
+    endforeach()
+endif()
+
+# Ship the assets/ tree next to the executable so SDL_GetBasePath()-relative
+# asset paths work regardless of where the exe is launched from.
+add_custom_command(TARGET jkdesktop POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets"
+        "$<TARGET_FILE_DIR:jkdesktop>/assets"
 )
 
-target_include_directories(jkproto_sdl2_jkwindow PRIVATE
-    include
-    "${JKENGINE_ROOT}/JKWINDOW"
-    "${JKENGINE_ROOT}"
-)
-
-# Default font directory for the vector font demos.
-target_compile_definitions(jkproto_sdl2_jkwindow PRIVATE
-    JKENGINE_FONT_DIR="${JKENGINE_ROOT}/WINDBASE/2CAOCC"
-)
-
-# Use a plain main() entry point instead of SDL2main's WinMain wrapper.
-# SDL2main caused silent launch failures on MinGW/Windows in this project.
-# SDL itself is initialized explicitly with SDL_Init in JKApplication.
-target_link_libraries(jkproto_sdl2_jkwindow PRIVATE SDL2::SDL2)
-
-# SDL2_mixer: CMake config가 있으면 사용, 없으면 pkg-config fallback.
-find_package(SDL2_mixer QUIET)
-if(NOT TARGET SDL2_mixer::SDL2_mixer)
-    find_package(PkgConfig REQUIRED)
-    pkg_check_modules(SDL2_MIXER REQUIRED SDL2_mixer)
-
-    add_library(SDL2_mixer::SDL2_mixer INTERFACE IMPORTED)
-    set_target_properties(SDL2_mixer::SDL2_mixer PROPERTIES
-        INTERFACE_INCLUDE_DIRECTORIES "${SDL2_MIXER_INCLUDE_DIRS}"
-        INTERFACE_LINK_LIBRARIES "${SDL2_MIXER_LIBRARIES}"
+# Ship the MinGW/SDL runtime DLL closure next to the executable (relink only)
+# so a fresh build tree runs without the MSYS bin dirs on PATH.
+get_filename_component(JK_TOOLCHAIN_BIN "${CMAKE_CXX_COMPILER}" DIRECTORY)
+find_program(JK_OBJDUMP objdump HINTS "${JK_TOOLCHAIN_BIN}")
+if(JK_OBJDUMP)
+    add_custom_command(TARGET jkdesktop POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+            -DTARGET_FILE="$<TARGET_FILE:jkdesktop>"
+            -DDEST_DIR="$<TARGET_FILE_DIR:jkdesktop>"
+            -DSEARCH_DIRS="${JK_TOOLCHAIN_BIN}"
+            -DSEED_DLLS="SDL2.dll;SDL2_image.dll;SDL2_mixer.dll"
+            -DOBJDUMP="${JK_OBJDUMP}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CopyRuntimeDlls.cmake"
     )
 endif()
 
-target_link_libraries(jkproto_sdl2_jkwindow PRIVATE SDL2_mixer::SDL2_mixer)
-
-if(WIN32)
-    target_link_libraries(jkproto_sdl2_jkwindow PRIVATE imm32)
-endif()
+# ---------------------------------------------------------------------------
+# .jkx auto-repack (Phase C). Client app code ships INSIDE apps/<app>.jkx
+# (MODL entry), so a plain `cmake --build` is not enough after touching app
+# sources — the containers must be regenerated. This custom target reruns
+# `jkx-pack` whenever the host exe or a module DLL is newer than its package.
+# Depends on target names (not files) so Ninja always links exe+DLLs first.
+# ---------------------------------------------------------------------------
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/minesweeper.jkx"
+    COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack minesweeper
+    DEPENDS jkdesktop jkapp_minesweeper
+    COMMENT "Repacking apps/minesweeper.jkx"
+    VERBATIM)
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/tetris.jkx"
+    COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack tetris
+    DEPENDS jkdesktop jkapp_tetris
+    COMMENT "Repacking apps/tetris.jkx"
+    VERBATIM)
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/testwin.jkx"
+    COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack testwin
+    DEPENDS jkdesktop jkapp_testwin
+    COMMENT "Repacking apps/testwin.jkx"
+    VERBATIM)
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/jango.jkx"
+    COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack jango
+    DEPENDS jkdesktop jkapp_jango
+    COMMENT "Repacking apps/jango.jkx"
+    VERBATIM)
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/occ.jkx"
+    COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack occ
+    DEPENDS jkdesktop jkapp_occ
+    COMMENT "Repacking apps/occ.jkx"
+    VERBATIM)
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/pcx.jkx"
+    COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack pcx
+    DEPENDS jkdesktop jkapp_pcx
+    COMMENT "Repacking apps/pcx.jkx"
+    VERBATIM)
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/vector.jkx"
+    COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack vector
+    DEPENDS jkdesktop jkapp_vector
+    COMMENT "Repacking apps/vector.jkx"
+    VERBATIM)
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/iconedit.jkx"
+    COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack iconedit
+    DEPENDS jkdesktop jkapp_iconedit
+    COMMENT "Repacking apps/iconedit.jkx"
+    VERBATIM)
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/recog.jkx"
+    COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack recog
+    DEPENDS jkdesktop jkapp_recog
+    COMMENT "Repacking apps/recog.jkx"
+    VERBATIM)
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/vfont.jkx"
+    COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack vfont
+    DEPENDS jkdesktop jkapp_vfont
+    COMMENT "Repacking apps/vfont.jkx"
+    VERBATIM)
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/vpres.jkx"
+    COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack vpres
+    DEPENDS jkdesktop jkapp_vpres
+    COMMENT "Repacking apps/vpres.jkx"
+    VERBATIM)
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/terminal.jkx"
+    COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack terminal
+    DEPENDS jkdesktop jkapp_terminal
+    COMMENT "Repacking apps/terminal.jkx"
+    VERBATIM)
+add_custom_target(jkx_packages ALL
+    DEPENDS "${CMAKE_BINARY_DIR}/apps/minesweeper.jkx"
+            "${CMAKE_BINARY_DIR}/apps/tetris.jkx"
+            "${CMAKE_BINARY_DIR}/apps/testwin.jkx"
+            "${CMAKE_BINARY_DIR}/apps/jango.jkx"
+            "${CMAKE_BINARY_DIR}/apps/occ.jkx"
+            "${CMAKE_BINARY_DIR}/apps/pcx.jkx"
+            "${CMAKE_BINARY_DIR}/apps/vector.jkx"
+            "${CMAKE_BINARY_DIR}/apps/iconedit.jkx"
+            "${CMAKE_BINARY_DIR}/apps/recog.jkx"
+            "${CMAKE_BINARY_DIR}/apps/vfont.jkx"
+            "${CMAKE_BINARY_DIR}/apps/vpres.jkx"
+            "${CMAKE_BINARY_DIR}/apps/terminal.jkx")
