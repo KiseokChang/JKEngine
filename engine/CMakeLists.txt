@@ -77,11 +77,16 @@ add_library(imgui STATIC
     ${IMGUI_DIR}/imgui_tables.cpp
     ${IMGUI_DIR}/imgui_widgets.cpp
     ${IMGUI_DIR}/imgui_demo.cpp
+    # Custom fused backend (docs/23 §4): JKEvent feeding + SDL_RenderGeometry
+    # raster onto the client's offscreen target texture. Needs SDL headers and
+    # the JKEvent.h path from jkcore's include tree (already in include/).
+    src/imgui_impl_jkwindow.cpp
 )
 target_include_directories(imgui PUBLIC
     ${IMGUI_DIR}
     ${CMAKE_SOURCE_DIR}/include
 )
+target_link_libraries(imgui PUBLIC SDL2::SDL2)
 
 # ---------------------------------------------------------------------------
 # jkcore: everything except main(), the RC file, and the apps. The exe and
