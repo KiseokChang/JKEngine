@@ -84,4 +84,4 @@
 - [x] 단계 2 — 컴포지터/도킹 (SortLayers/크롬·포커스 면제 + 작업영역 예약 + DockShellClient + 자동 스폰)
 - [x] 단계 3 — UI 레이어 (TaskbarButton 풀 + 버튼 페인트 + 오버플로 규칙)
 - [x] 단계 4 — 최소화 (MsgType 15 + SetLayerVisible 토글 + restore-on-activate)
-- [ ] 단계 5 — 문서 정리 (docs/19 메시지 표)
+- [x] 단계 5 — 문서 정리 (docs/19 메시지 표 + 셸 모델 단락)

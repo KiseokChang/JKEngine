@@ -66,8 +66,18 @@
 | `ResizeSurface` | S→C | `SurfaceResizePayload{surfaceId,w,h,shmName[256]}` | 서버 주도 리사이즈(창 테두리 드래그). **새 shm 이름**을 전달 |
 | `AudioCommand` | C→S | `AudioCommand` | SFX/BGM 재생 요청 |
 | `Close` | C→S | — | 정상 종료 (클라→서버도 동일 타입 사용) |
+| `ShellRegister` | C→S | `ShellRegisterPayload{protocolVersion,dockEdge,barHeight}` | 셸(작업 표시줄) 역할 등록 — **첫 등록자만 승인**(docs/28) |
+| `WindowList` | S→C | `WindowListPayload{count, windows[32]}` | 셸 전용 **창 목록 전체 스냅샷**(push-on-change, idempotent) |
+| `WindowActivate` | C→S | `WindowActivatePayload{surfaceId}` | 창 포커스(+최소화 상태면 복귀) |
+| `ShellRegisterAck` | S→C | `ShellRegisterAckPayload{accepted}` | 셸 등록 승인/거부 — 거부 시 셸 후보는 inert |
+| `WindowMinimizeToggle` | C→S | `WindowActivatePayload{surfaceId}` | 창 표시/숨김 토글(서버가 레이어 가시성만 전환) |
 
 - 닫기 버튼: 서버가 `Close`를 **S→C로** 보내면 클라 `JKClientSurface::ReadLoop`가 `JKEventType::Quit`로 변환 → 클라가 정상 종료 루프를 타고 C→S `Close` 전송 → 서버 `CleanupDisconnectedClients`가 레이어 제거.
+
+- **셸 클라이언트 모델 (docs/28)**: 작업 표시줄은 서버 기능이 아니라 특권 셸 클라이언트 앱
+  (`jkapp_taskbar.dll`, 서버가 자동 스폰). 서버는 셸 레이어에 ①항상 최상위 ②크롬 면제
+  ③포커스 미인가 ④작업 영역 예약만 적용하고, 창 목록은 WindowList 스냅샷으로 푸시하며
+  창 제어(포커스/최소화)는 C→S 명령 메시지로 받는다. UI는 전부 클라이언트가 그린다.
 
 - `InputEventType`: `MouseMove/Down/Up`, `MouseWheel`, `KeyDown/Up`, `Char`, `TextEditing`(IME 조합, `editStart/editLength`는 detail/option 필드 사용).
 - 공유 메모리: `Local\JKSurfaceShm_<surfaceId>` (리사이즈 세대마다 `Local\JKSurfaceShm_<surfaceId>_<gen>`), 크기 = `w*h*4` (RGBA32). 서버가 생성(`JKClientConnection::CreateSurface`/`BeginResizeSurface`), 클라이언트가 매핑해 쓴다. Windows 파일 매핑은 크기 확장이 불가하므로 리사이즈마다 새 매핑을 만들고, 구 매핑은 `retiredMemories_`에 클라이언트 연결이 끊길 때까지 보관한다(진행 중인 커밋이 구 버퍼를 참조할 수 있음).
