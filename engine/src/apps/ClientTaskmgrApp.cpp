@@ -3,6 +3,7 @@
 #include <apps/ClientTaskmgrApp.h>
 
 #include <imgui_impl_jkwindow.h>
+#include <implot.h>
 #include <JKWindow.h>
 #include <SDL.h>
 #include <algorithm>
@@ -62,6 +63,7 @@ void ClientTaskmgrApp::OnInit() {
     SetTimerInterval(16); // ~60 Hz frame cadence (same clock as the demo)
 
     ImGui::CreateContext();
+    ImPlot::CreateContext();
     ImGui::GetIO().IniFilename = nullptr;
     lastFrame_ = std::chrono::steady_clock::now();
     // Force the first sample on frame 1: it only seeds prev_, but without it
@@ -86,6 +88,7 @@ void ClientTaskmgrApp::OnInit() {
 void ClientTaskmgrApp::OnClose() {
     if (imguiReady_) {
         ImGui_ImplJKWindow_Shutdown();
+        ImPlot::DestroyContext(); // while the ImGui context is still current
         ImGui::DestroyContext();
         imguiReady_ = false;
     }
@@ -380,12 +383,22 @@ void ClientTaskmgrApp::BuildUi(int w, int h) {
         ImGui::SameLine();
         ImGui::TextDisabled("double-click a row to activate");
 
-        // CPU history of the selected row.
+        // CPU history of the selected row — ImPlot ring-buffer line
+        // (offset makes the 90-sample ring draw from oldest to newest).
         auto hit = history_.find(selectedId_);
         if (hit != history_.end()) {
             const History& hist = hit->second;
-            ImGui::PlotLines("cpu history", hist.cpu, 90, hist.offset,
-                             nullptr, 0.0f, 100.0f, ImVec2(-1, 60));
+            if (ImPlot::BeginPlot("cpu history", ImVec2(-1, 60),
+                                  ImPlotFlags_CanvasOnly)) {
+                ImPlot::SetupAxes(nullptr, nullptr,
+                                  ImPlotAxisFlags_NoDecorations,
+                                  ImPlotAxisFlags_NoDecorations |
+                                      ImPlotAxisFlags_Lock);
+                ImPlot::SetupAxesLimits(0, 90, 0, 100, ImGuiCond_Always);
+                ImPlot::PlotLine("cpu", hist.cpu, 90, 1.0, 0.0,
+                                 ImPlotSpec(ImPlotProp_Offset, hist.offset));
+                ImPlot::EndPlot();
+            }
         } else {
             ImGui::Dummy(ImVec2(0.0f, 60.0f));
         }

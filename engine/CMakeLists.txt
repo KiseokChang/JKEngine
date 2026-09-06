@@ -382,7 +382,7 @@ add_library(jkapp_taskmgr SHARED
     src/apps/ClientTaskmgrApp.cpp
 )
 target_compile_definitions(jkapp_taskmgr PRIVATE JKAPP_MODULE_BUILD)
-target_link_libraries(jkapp_taskmgr PRIVATE jkcore imgui)
+target_link_libraries(jkapp_taskmgr PRIVATE jkcore imgui implot)
 set_target_properties(jkapp_taskmgr PROPERTIES PREFIX "")
 
 if(WIN32)
