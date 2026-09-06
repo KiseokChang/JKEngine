@@ -7,7 +7,7 @@
 
 ## TL;DR
 
-- 런처는 **윈도우 서버 프로세스**(`--server`)로, 앱들은 **클라이언트 프로세스**(`--client <app>` / .jkx)로 분리된다. 앱 모듈은 11종: 게임 3종(`minesweeper`/`tetris`/`testwin` — `testwin`은 760×560 컨트롤 쇼케이스), WINDBASE 계열 8종(`jango`/`occ`/`pcx`/`vector`/`iconedit`/`recog`/`vfont`/`vpres`, 2026-09-05 추가). WINDBASE 앱들은 1920×1080 절대 배치 그대로를 surface 설계 크기로 쓰며 서버가 fit 스케일(§7.3)로 표시 축소한다. UI 로직은 단일 프로세스 앱과 공유(`JangoUI`/`OccUI` 등 `include/apps/*UI.h`)하고 모듈 DLL은 `JKAppModule_<name>.cpp` C ABI만 노출한다.
+- 런처는 **윈도우 서버 프로세스**(`--server`)로, 앱들은 **클라이언트 프로세스**(`--client <app>` / .jkx)로 분리된다. 앱 모듈은 11종: 게임 3종(`minesweeper`/`tetris`/`testwin` — `testwin`은 760×560 컨트롤 쇼케이스), WINDBASE 계열 8종(`jango`/`occ`/`pcx`/`vector`/`iconedit`/`recog`/`vfont`/`vpres`, 2026-09-05 추가). WINDBASE 앱들은 2026-09-06부터 1280×680(vector는 960×640)으로 재설계되어 **전 앱이 1:1 표시**다 — fit 스케일(§7.3)은 과대 surface용 기제로만 남는다. UI 로직은 단일 프로세스 앱과 공유(`JangoUI`/`OccUI` 등 `include/apps/*UI.h`)하고 모듈 DLL은 `JKAppModule_<name>.cpp` C ABI만 노출한다.
 - 클라이언트는 SDL 윈도우를 띄우지 않고 **공유 메모리 RGBA surface**에 그린 뒤 named pipe로 `CommitSurface`를 보낸다. 서버는 이를 SDL 텍스처로 합성(compositing)한다.
 - 입력은 서버가 hit-test해서 **surface 로컬 좌표**로 변환해 클라이언트에 전달한다. 오디오도 서버가 유일한 SDL_mixer 인스턴스로 대행 재생한다.
 - **좌표 모델(2026-09-05 확정)**: 서버 쪽 모든 그리기·hit-test·마우스를 **물리 픽셀(px)** 하나로 통일한다. 논리 pt ↔ 물리 px 환산은 렌더러 비율(`outputScale = physW/logW`)로만 한다. `GetDpiForWindow/96` 같은 DPI 기반 환산을 섞으면 혼합 배율 모니터에서 어긋난다.
@@ -202,9 +202,11 @@ ApplyPendingResize(): 임시 JKSharedMemory에 Open **성공 후** 교체
 - 인정된 artifact: 커밋 직후 클라가 remap하기 전까지 1프레임 빈 화면(구 shm에 커밋 → 신규 shm은 영).
 - 클라가 remap 전에 계속 구 shm에 커밋해도 안전 — 구 매핑은 `retiredMemories_`가 살려두고, 컴포지터는 이미 신규 텍스처(영 버퍼)를 가리킨다.
 
-### 7.3 과대 surface fit 스케일 (2026-09-05 추가)
+### 7.3 과대 surface fit 스케일 (2026-09-05 추가, 2026-09-06부터 dormant)
 
 FHD(1920×1080) 레이아웃의 앱(jango/occ/pcx/vector/iconedit/recog/vfont/vpres)은 절대 좌표 배치라 surface 크기를 줄일 수 없다. 대신 **서버가 표시 크기만 축소**한다 — 클라는 설계 크기 그대로 렌더링.
+
+> **2026-09-06 갱신**: 위 8종 앱을 모두 재설계했다(vector 960×640, 나머지 1280×680) — 이제 어떤 앱도 fit 스케일을 타지 않고 1:1로 표시된다(축소 글자 깨짐 근원 제거). 아래 기제는 앞으로 과대 surface가 생길 때 그대로 동작한다. 앱 내부 rect는 이때 함께 손봤다 — iconedit/recog는 포트 때 WINDBASE `{l,t,r,b}` 수치가 `JKRect{x,y,w,h}`로 들어간 버그(`MakeRect` 변환)도 수정. jango 하위 창(Equip24/Equip/Insa 1220×620)·occ 좌측 열도 680 안쪽으로 압축.
 
 - 레이어 텍스처는 `SDL_ScaleModeLinear`로 생성한다(JKCompositor `AddLayer`/`ResizeLayer`). nearest는 축소 과정에서 픽셀 행을 통째로 버려 surface에 래스터화된 글자(타이틀/버튼 라벨)가 깨진다. 선형 필터로 부드럽게 표시되며, 1:1 레이어는 리샘플링이 없어 영향 없다(2026-09-06).
 - `ProcessPendingClients`: surface가 데스크톱(논리 1280×720)보다 크면 균일 fit 스케일 `min(ww/W, wh/H)`를 `SetLayerScale`로 적용하고, 표시 크기 기준으로 중앙 배치.
