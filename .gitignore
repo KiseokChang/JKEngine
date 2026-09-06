@@ -85,7 +85,7 @@ Thumbs.db
 desktop.ini
 
 # Scratch analysis dumps and screenshot artifacts (작업 중 덤프)
-/prototype/sdl2_jkwindow/_*.txt
+/engine/_*.txt
 verify_fixwin*.png
 
 # Runtime-generated data files

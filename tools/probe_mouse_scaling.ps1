@@ -50,12 +50,12 @@ if (-not [Wk]::SetProcessDpiAwarenessContext([IntPtr](-4))) { [Wk]::SetProcessDP
 
 $root = "I:\progwork\JKENGINE\prototype\sdl2_jkwindow"
 $build = Join-Path $root "build"
-$exe = Join-Path $build "jkproto_sdl2_jkwindow.exe"
+$exe = Join-Path $build "jkdesktop.exe"
 if (-not (Test-Path $exe)) { Write-Output "FAIL exe not found: $exe"; exit 1 }
 $applog = Join-Path $env:TEMP "jk_probe_mouse_app.log"
 if (Test-Path $applog) { Remove-Item $applog -Force }
 
-Get-Process -Name "jkproto_sdl2_jkwindow" -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process -Name "jkdesktop" -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Milliseconds 400
 
 # 앱 스폰(cwd=build, 숨김 콘솔). -WindowStyle Hidden은 첫 윈도우에 SW_HIDE를
@@ -65,7 +65,7 @@ Start-Process -FilePath $exe -ArgumentList "jango" -WorkingDirectory $build -Win
 $h = [IntPtr]::Zero
 for ($i = 0; $i -lt 40; $i++) {
   Start-Sleep -Milliseconds 250
-  $pl = @(Get-Process -Name "jkproto_sdl2_jkwindow" -ErrorAction SilentlyContinue)
+  $pl = @(Get-Process -Name "jkdesktop" -ErrorAction SilentlyContinue)
   if ($pl.Count -gt 0) {
     [Wk]::TargetPid = [uint32]($pl[0].Id)
     $cb = [Wk+EnumProc]{ param($hh, $l) [Wk]::Callback($hh, $l) }
@@ -73,7 +73,7 @@ for ($i = 0; $i -lt 40; $i++) {
     if ([Wk]::Found -ne [IntPtr]::Zero) { $h = [Wk]::Found; break }
   }
 }
-if ($h -eq [IntPtr]::Zero) { Write-Output "FAIL app window not found"; Get-Process -Name "jkproto_sdl2_jkwindow" -ErrorAction SilentlyContinue | Stop-Process -Force; exit 1 }
+if ($h -eq [IntPtr]::Zero) { Write-Output "FAIL app window not found"; Get-Process -Name "jkdesktop" -ErrorAction SilentlyContinue | Stop-Process -Force; exit 1 }
 if (-not [Wk]::IsWindowVisible($h)) { [Wk]::ShowWindow($h, 5) | Out-Null; Start-Sleep -Milliseconds 800 }
 [Wk]::SetForegroundWindow($h) | Out-Null
 Start-Sleep -Milliseconds 1800
@@ -132,6 +132,6 @@ if ($Phase -eq "stay") {
 }
 
 Start-Sleep -Milliseconds 500
-Get-Process -Name "jkproto_sdl2_jkwindow" -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process -Name "jkdesktop" -ErrorAction SilentlyContinue | Stop-Process -Force
 Write-Output ("APPLOG {0}" -f $applog)
 Write-Output "PROBE-DONE"

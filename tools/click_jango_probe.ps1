@@ -44,10 +44,10 @@ if (-not [Wcj]::SetProcessDpiAwarenessContext([IntPtr](-4))) { [Wcj]::SetProcess
 Add-Type -AssemblyName System.Drawing
 
 $build = "I:\progwork\JKENGINE\prototype\sdl2_jkwindow\build"
-$exe = Join-Path $build "jkproto_sdl2_jkwindow.exe"
+$exe = Join-Path $build "jkdesktop.exe"
 if (-not (Test-Path $exe)) { Write-Output "FAIL exe missing: $exe"; exit 1 }
 
-Get-Process -Name "jkproto_sdl2_jkwindow" -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process -Name "jkdesktop" -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Milliseconds 400
 $proc = Start-Process -FilePath $exe -ArgumentList "jango" -WorkingDirectory $build -WindowStyle Normal -PassThru
 
@@ -139,6 +139,6 @@ Write-Output ("AFTER-CLOSE bandRow={0} -> {1}" -f $bandEnd, $verdict2)
 $rc = 0
 if ($openOk -and $closeOk) { Write-Output "RESULT: PASS (open+close clicks captured correctly)" }
 else { Write-Output "RESULT: FAIL"; $rc = 1 }
-Get-Process -Name "jkproto_sdl2_jkwindow" -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process -Name "jkdesktop" -ErrorAction SilentlyContinue | Stop-Process -Force
 Write-Output "CLICK-JANGO-PROBE-DONE"
 exit $rc

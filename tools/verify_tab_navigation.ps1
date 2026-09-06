@@ -2,7 +2,7 @@
 # Uses SendKeys to send real Tab/Shift+Tab keystrokes to the SDL window and
 # checks stderr focus logs emitted by JKControl::SetFocus.
 param(
-    [string]$exe = "i:\progwork\JKENGINE\prototype\sdl2_jkwindow\build\jkproto_sdl2_jkwindow.exe"
+    [string]$exe = "i:\progwork\JKENGINE\prototype\sdl2_jkwindow\build\jkdesktop.exe"
 )
 $ErrorActionPreference = 'Stop'
 
@@ -46,7 +46,7 @@ if (-not [Wci]::SetProcessDpiAwarenessContext([IntPtr](-4))) { [Wci]::SetProcess
 
 if (-not (Test-Path $exe)) { throw "exe not found: $exe" }
 
-Get-Process -Name "jkproto_sdl2_jkwindow" -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process -Name "jkdesktop" -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Milliseconds 400
 
 $capturedStderr = New-Object System.Collections.Generic.List[string]

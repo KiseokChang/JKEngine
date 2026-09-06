@@ -5,7 +5,7 @@
 # 이 프로브는 SDL2 논리 좌표 -> 물리 픽셀 변환과
 # JKControl 내 마우스 좌표 라우팅이 정확한지 검증한다.
 param(
-    [string]$exe = "i:\progwork\JKENGINE\prototype\sdl2_jkwindow\build\jkproto_sdl2_jkwindow.exe"
+    [string]$exe = "i:\progwork\JKENGINE\prototype\sdl2_jkwindow\build\jkdesktop.exe"
 )
 $ErrorActionPreference = 'Stop'
 
@@ -46,7 +46,7 @@ Add-Type -AssemblyName System.Drawing
 
 if (-not (Test-Path $exe)) { throw "exe not found: $exe" }
 
-Get-Process -Name "jkproto_sdl2_jkwindow" -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process -Name "jkdesktop" -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Milliseconds 400
 
 $psi = New-Object System.Diagnostics.ProcessStartInfo

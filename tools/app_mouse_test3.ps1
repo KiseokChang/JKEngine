@@ -25,7 +25,7 @@ Add-Type -AssemblyName System.Drawing
 
 $wdir = "i:\progwork\JKENGINE\prototype\sdl2_jkwindow\build"
 
-Get-Process -Name "jkproto_sdl2_jkwindow" -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process -Name "jkdesktop" -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Milliseconds 300
 
 $trace = "C:\temp_jkwin_verify\dpi_trace.log"
@@ -36,10 +36,10 @@ Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "C:\temp_jkwin_verify\laun
 $h = [IntPtr]::Zero
 for ($i = 0; $i -lt 40; $i++) {
   Start-Sleep -Milliseconds 250
-  $pl = @(Get-Process -Name "jkproto_sdl2_jkwindow" -ErrorAction SilentlyContinue)
+  $pl = @(Get-Process -Name "jkdesktop" -ErrorAction SilentlyContinue)
   if ($pl.Count -gt 0 -and $pl[0].MainWindowHandle -ne [IntPtr]::Zero) { $h = $pl[0].MainWindowHandle; break }
 }
-if ($h -eq [IntPtr]::Zero) { Write-Output "FAIL app window not found"; Get-Process -Name "jkproto_sdl2_jkwindow" -ErrorAction SilentlyContinue | Stop-Process -Force; exit 1 }
+if ($h -eq [IntPtr]::Zero) { Write-Output "FAIL app window not found"; Get-Process -Name "jkdesktop" -ErrorAction SilentlyContinue | Stop-Process -Force; exit 1 }
 Start-Sleep -Milliseconds 1500
 
 function Shot-Window {
@@ -128,5 +128,5 @@ Shot-Window "back_primary" $h
 Start-Sleep -Milliseconds 1500
 Shot-Window "back_primary_b" $h
 
-Get-Process -Name "jkproto_sdl2_jkwindow" -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process -Name "jkdesktop" -ErrorAction SilentlyContinue | Stop-Process -Force
 Write-Output "DONE"

@@ -25,7 +25,7 @@
 ## 3. Build / Run
 
 - Always run `prototype\sdl2_jkwindow\build_sdl2_jkwindow.bat` (calls `build_with_temp.sh`).
-- The build copies the source tree to `C:\temp_jkproto_sdl2_jkwindow`, builds there with CMake+Ninja (UCRT64), and copies only the `.exe` back to `I:\...\prototype\sdl2_jkwindow\build\`.
+- The build copies the source tree to `C:\temp_jkdesktop`, builds there with CMake+Ninja (UCRT64), and copies only the `.exe` back to `I:\...\prototype\sdl2_jkwindow\build\`.
 - Do **not** run cmake/ninja directly inside the I: drive build directory — MinGW fails writing object files there.
 - Run: `prototype\sdl2_jkwindow\run_sdl2_jkwindow.bat [mode]`.
 - Modes: (none)=main demo, `test`=self-test, `jango`, `occ`, `pcx FILE`, `vector`, `iconedit`, `recog`, `vfont`, `vpres`.
@@ -34,7 +34,7 @@
 
 After any framework, UI, layout, focus, or mouse change:
 
-1. `jkproto_sdl2_jkwindow.exe test` → `AppSelfTest: 0 failure(s)`
+1. `jkdesktop.exe test` → `AppSelfTest: 0 failure(s)`
 2. `tools\verify_fixwin3.ps1` → 14 pass
 3. `tools\click_jango_probe.ps1` → PASS
 4. `tools\verify_iconedit_mouse.ps1` → 2 pass

@@ -1,6 +1,6 @@
 ﻿param(
     [string]$mode = "occ",
-    [string]$exe = "i:\progwork\JKENGINE\prototype\sdl2_jkwindow\build\jkproto_sdl2_jkwindow.exe"
+    [string]$exe = "i:\progwork\JKENGINE\prototype\sdl2_jkwindow\build\jkdesktop.exe"
 )
 
 $ErrorActionPreference = 'Stop'

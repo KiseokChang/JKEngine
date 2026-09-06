@@ -1,5 +1,5 @@
 param(
-    [string]$exe = "i:\progwork\JKENGINE\prototype\sdl2_jkwindow\build\jkproto_sdl2_jkwindow.exe",
+    [string]$exe = "i:\progwork\JKENGINE\prototype\sdl2_jkwindow\build\jkdesktop.exe",
     [string]$outPath = "i:\progwork\JKENGINE\tools\tempp\launcher_capture.png"
 )
 
