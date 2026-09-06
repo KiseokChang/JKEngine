@@ -634,6 +634,64 @@ struct Bindings {
         }
         return JS_UNDEFINED;
     }
+
+    // --- host API v4 — config injection (docs/27 단계 4) ------------------
+    // readConfig(fileName): the script sandbox has no file access, so the
+    // host reads one JSON file that sits next to the entry script and hands
+    // the parsed object over (JS_ParseJSON — the runtime's own parser).
+    // Absolute paths and traversal are rejected; per-key defaulting is the
+    // script's job.
+
+    static JSValue ReadConfig(JSContext* ctx, JSValueConst, int argc,
+                              JSValueConst* argv) {
+        JKScriptHost* host = HostOf(ctx);
+        if (!host || argc < 1 || host->entryPath_.empty()) return JS_NULL;
+        const std::string name = ToUtf8(ctx, argv[0]);
+        const bool rejected =
+            name.empty() || name.find("..") != std::string::npos ||
+            name[0] == '/' || name[0] == '\\' || name.find(':') != std::string::npos;
+        if (rejected) {
+            std::printf("[script] readConfig: '%s' rejected (a file name next "
+                        "to app.js only)\n", name.c_str());
+            std::fflush(stdout);
+            return JS_NULL;
+        }
+        std::string dir = host->entryPath_;
+        const size_t slash = dir.find_last_of("/\\");
+        dir = (slash == std::string::npos) ? std::string() : dir.substr(0, slash + 1);
+        const std::string path = dir + name;
+
+        FILE* f = nullptr;
+#ifdef _WIN32
+        if (fopen_s(&f, path.c_str(), "rb") != 0) f = nullptr;
+#else
+        f = std::fopen(path.c_str(), "rb");
+#endif
+        if (!f) {
+            std::printf("[script] readConfig: cannot open '%s'\n", path.c_str());
+            std::fflush(stdout);
+            return JS_NULL;
+        }
+        std::vector<char> buf;
+        char chunk[8192];
+        size_t n = 0;
+        while ((n = std::fread(chunk, 1, sizeof(chunk), f)) > 0) {
+            buf.insert(buf.end(), chunk, chunk + n);
+            if (buf.size() > (1u << 20)) break;  // 1 MiB cap — a config, not data
+        }
+        std::fclose(f);
+        buf.push_back('\0');  // JS_ParseJSON requires buf[buf_len] == '\0'
+
+        JsValue val(ctx, JS_ParseJSON(ctx, buf.data(), buf.size() - 1,
+                                      path.c_str()));
+        if (JS_IsException(val.value())) {
+            std::printf("[script] readConfig: %s is not valid JSON\n", path.c_str());
+            std::printf("%s\n", DumpPendingException(ctx).c_str());
+            std::fflush(stdout);
+            return JS_NULL;
+        }
+        return JS_DupValue(ctx, val.value());
+    }
 };
 
 } // namespace script_detail
@@ -750,6 +808,12 @@ bool JKScriptHost::Start(const std::string& entryPath) {
     bind("dialogAddButton", Bindings::DialogAddButton, 4);
     bind("dialogShow", Bindings::DialogShow, 1);
     bind("dialogClose", Bindings::DialogClose, 2);
+    bind("readConfig", Bindings::ReadConfig, 1);
+
+    // readConfig resolves files next to the entry script — the path must be
+    // known BEFORE evaluation and onCreate() run (the script may call it in
+    // either). A failed Start leaves it set; Reload() retries the same path.
+    entryPath_ = entryPath;
 
     // Evaluate the script (global code — the completion value is unused).
     // Failure paths set a flag and Stop() AFTER the scope: the JsValue holders
@@ -787,7 +851,6 @@ bool JKScriptHost::Start(const std::string& entryPath) {
         return false;
     }
 
-    entryPath_ = entryPath;
     return true;
 }
 

@@ -122,7 +122,11 @@ public:
     // snapshotted here; margin scrolls and alt-screen scrolling do not record.
     // Lines keep the column count they had at capture time — the view clamps
     // to the current columns when painting (no reflow).
+    // Depth is configurable (terminal.json "scrollback", docs/26 단계 5);
+    // kScrollbackMax is the default.
     static constexpr size_t kScrollbackMax = 1000;
+
+    void SetScrollbackMax(size_t lines) { scrollbackMax_ = lines; }
 
     int ScrollbackLines() const { return static_cast<int>(scrollback_.size()); }
     const std::vector<JKTermCell>& ScrollbackLine(int index) const {
@@ -161,6 +165,7 @@ private:
     bool altActive_ = false;
 
     std::deque<std::vector<JKTermCell>> scrollback_;
+    size_t scrollbackMax_ = kScrollbackMax;
 
     Cursor cursor_;
     int scrollTop_ = 0;                // 0-based inclusive

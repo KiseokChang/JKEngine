@@ -145,7 +145,7 @@
 | 작업 | 파일 | 비고 |
 |---|---|---|
 | URL 감지: 뷰포트 정규식 + OSC 8 파싱, Ctrl+클릭 → 셸 열기 | `TerminalView.cpp`, `JKVtParser.cpp` | OSC 8은 셀에 링크 메타데이터 필요(별도 벡터 캐시 권장) |
-| 설정 파일 `terminal.ini` | 신규 `JKTerminalConfig` | shell/폰트/테마/스크롤 크기 → 브릿지/아틀라스 주입 |
+| ✅ 설정 파일 `terminal.json` (2026-09-06, ini 대신 JSON) | `JKTerminalConfig` | shell/폰트/스크롤/테마 → 브릿지/아틀라스/뷰 주입. 파서는 vendored quickjs의 `JS_ParseJSON` 재사용(docs/27 단계 4), 키별 기본값 폴백 |
 | OSC 0 타이틀 → 서버 레이어 타이틀 | `JKWireProtocol.h`, `JKClientConnection` | `SetTitle` S→C 신규 메시지 |
 | 입력 쓰기 큐(스레드) | `JKConPtyBridge.cpp` | 대용량 붙여넣기 시 파이프 블록 방지. 현재 동기 유지 |
 | 스크롤 비트블릿 | 렌더 경로 | 행 스킵으로 부족할 때만 |

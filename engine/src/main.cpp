@@ -80,6 +80,7 @@ using jk::Utf8ToKssm;
 #include <apps/TetrisApp.h>
 #include <apps/ClientScriptApp.h>
 #include <apps/JKAppModule.h>
+#include <apps/JKTerminalConfig.h>
 #include <JKJkxFile.h>
 #include "wancode.h"
 #include <cstdint>
@@ -1817,6 +1818,37 @@ static int RunAppSelfTest() {
         // shared control registry (findControl/click/setText across dialogs).
         check(RunScriptTestFile(JK_SCRIPTS_DIR "/tests/dialog.js") == 0,
               "dialog scenario passes");
+
+        // 9) config scenario (docs/27 단계 4): readConfig parses a JSON file
+        // next to the entry script; missing files, traversal, and absolute
+        // paths return null.
+        check(RunScriptTestFile(JK_SCRIPTS_DIR "/tests/config.js") == 0,
+              "readConfig scenario passes");
+
+        // 10) terminal.json reader (docs/26 단계 5 via docs/27 단계 4): keys
+        // applied, malformed root keeps defaults, missing file reported.
+        {
+            writeScript("test_terminal.json",
+                "{ \"shell\": \"cmd.exe /k demo\", \"scrollback\": 2500,\n"
+                "  \"themeBg\": \"#112233\", \"bogus\": [1,2,3] }");
+            jk::JKTerminalConfig cfg;
+            check(cfg.Load("test_terminal.json"), "terminal config opens");
+            check(cfg.shell == "cmd.exe /k demo" && cfg.scrollback == 2500 &&
+                      cfg.themeBg == 0x112233,
+                  "terminal config keys applied");
+            writeScript("test_terminal.json", "{ not json ");
+            jk::JKTerminalConfig bad;
+            check(bad.Load("test_terminal.json"),
+                  "malformed terminal config does not fail startup");
+            check(bad.shell == "powershell.exe -NoLogo" && bad.scrollback == 1000,
+                  "malformed terminal config keeps defaults");
+            std::remove("test_terminal.json");
+            jk::JKTerminalConfig missing;
+            check(!missing.Load("test_terminal_missing.json"),
+                  "missing terminal config reported");
+            check(missing.scrollback == 1000,
+                  "missing terminal config keeps defaults");
+        }
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);

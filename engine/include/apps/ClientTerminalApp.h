@@ -11,6 +11,7 @@
 #include <terminal/JKGlyphAtlas.h>
 #include <terminal/JKConPtyBridge.h>
 #include <memory>
+#include <string>
 
 namespace jk {
 
@@ -44,6 +45,7 @@ private:
     bool firstFrame_ = true;
     int ptyCols_ = 0;
     int ptyRows_ = 0;
+    std::string shell_;   // terminal.json "shell" (default in JKTerminalConfig)
 };
 
 } // namespace jk

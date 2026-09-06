@@ -79,7 +79,7 @@ void JKTerminalGrid::ScrollRegionUpOne() {
     if (!altActive_ && scrollTop_ == 0) {
         scrollback_.emplace_back(cells_.begin(),
                                  cells_.begin() + static_cast<ptrdiff_t>(cols_));
-        if (scrollback_.size() > kScrollbackMax) {
+        if (scrollback_.size() > scrollbackMax_) {
             scrollback_.pop_front();
         }
     }

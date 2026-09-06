@@ -1,0 +1,7 @@
+{
+  "shell": "cmd.exe /k echo configured",
+  "scrollback": 2500,
+  "themeBg": "#112233",
+  "themeFg": 16766976,
+  "bogusKey": [1, 2, 3]
+}

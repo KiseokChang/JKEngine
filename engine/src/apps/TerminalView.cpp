@@ -10,9 +10,11 @@ namespace jk {
 
 namespace {
 
-// Theme (docs/22 §5): near-black background, light gray default text.
-constexpr uint32_t kThemeBg = 0x0C0C0C;
-constexpr uint32_t kThemeFg = 0xCCCCCC;
+// Theme (docs/22 §5): near-black background, light gray default text. The
+// values are instance members now (terminal.json overrides, docs/26 단계 5);
+// these constants are only the member initializers.
+constexpr uint32_t kDefaultThemeBg = 0x0C0C0C;
+constexpr uint32_t kDefaultThemeFg = 0xCCCCCC;
 
 uint32_t RgbOf(uint32_t c) { return c & 0x00FFFFFF; }
 
@@ -62,9 +64,9 @@ void TerminalView::OnPaintClient(JKDC& dc) {
     const JKRect client = GetScreenClientRect();
     if (!grid_ || client.w <= 0 || client.h <= 0) return;
 
-    dc.SetColor(static_cast<uint8_t>((kThemeBg >> 16) & 0xFF),
-                static_cast<uint8_t>((kThemeBg >> 8) & 0xFF),
-                static_cast<uint8_t>(kThemeBg & 0xFF), 255);
+    dc.SetColor(static_cast<uint8_t>((themeBg_ >> 16) & 0xFF),
+                static_cast<uint8_t>((themeBg_ >> 8) & 0xFF),
+                static_cast<uint8_t>(themeBg_ & 0xFF), 255);
     dc.FillRect(client);
 
     // Viewport lines are indexed over scrollback + live grid: the top visible
@@ -107,8 +109,8 @@ void TerminalView::PaintCell(JKDC& dc, const JKRect& cellRect,
                              const JKTermCell& cell, bool isCursor) {
     bool reverse = (cell.attrs & kTermReverse) != 0;
     const bool bold = (cell.attrs & kTermBold) != 0;
-    uint32_t fg = (cell.fg == kTermDefaultColor) ? kThemeFg : RgbOf(cell.fg);
-    uint32_t bg = (cell.bg == kTermDefaultColor) ? kThemeBg : RgbOf(cell.bg);
+    uint32_t fg = (cell.fg == kTermDefaultColor) ? themeFg_ : RgbOf(cell.fg);
+    uint32_t bg = (cell.bg == kTermDefaultColor) ? themeBg_ : RgbOf(cell.bg);
     if (reverse) std::swap(fg, bg);
 
     auto setColor = [&dc](uint32_t rgb) {
@@ -122,7 +124,7 @@ void TerminalView::PaintCell(JKDC& dc, const JKRect& cellRect,
     JKRect r = cellRect;
     if (cell.width == 2) r.w *= 2;
 
-    if (bg != kThemeBg) {
+    if (bg != themeBg_) {
         setColor(bg);
         dc.FillRect(r);
     }

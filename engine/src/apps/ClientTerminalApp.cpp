@@ -1,22 +1,35 @@
 #include <apps/ClientTerminalApp.h>
+#include <apps/JKTerminalConfig.h>
 #include <apps/TerminalView.h>
 #include <JKWindow.h>
+
+#include <cstdio>
 
 namespace jk {
 
 ClientTerminalApp::~ClientTerminalApp() = default;
 
 void ClientTerminalApp::OnInit() {
+    // terminal.json (docs/26 단계 5 via docs/27 단계 4): every key falls back
+    // to its default — a missing/malformed file never fails the startup.
+    JKTerminalConfig cfg;
+    if (!cfg.Load(JKTerminalConfig::DefaultPath())) {
+        std::printf("[terminal] no terminal.json next to the exe — defaults\n");
+        std::fflush(stdout);
+    }
+
     grid_ = std::make_unique<JKTerminalGrid>();
+    grid_->SetScrollbackMax(static_cast<size_t>(cfg.scrollback));
     parser_ = std::make_unique<JKVtParser>();
     parser_->Attach(grid_.get());
     atlas_ = std::make_unique<JKGlyphAtlas>();
     // Consolas ships with Windows; if missing the view draws placeholders.
-    atlas_->Init("C:\\Windows\\Fonts\\consola.ttf", kTermCellW, kTermCellH);
+    atlas_->Init(cfg.font.c_str(), kTermCellW, kTermCellH);
     // Malgun Gothic covers the Hangul/CJK blocks Consolas lacks (docs/26
     // 단계 1); failure only degrades wide glyphs to placeholders.
-    atlas_->InitFallback("C:\\Windows\\Fonts\\malgun.ttf");
+    atlas_->InitFallback(cfg.fontFallback.c_str());
     pty_ = std::make_unique<JKConPtyBridge>();
+    shell_ = cfg.shell;
 
     auto main = std::make_unique<JKWindow>("Terminal");
     main->SetWindowRect(JKRect{ 0, 0, 800, 500 });
@@ -26,6 +39,7 @@ void ClientTerminalApp::OnInit() {
         parser_.get(), grid_.get(), atlas_.get(), GetResourceCache());
     view->SetOnInput([this](const char* data, size_t len) { WriteToPty(data, len); });
     view->SetOnResize([this](int cols, int rows) { OnViewResized(cols, rows); });
+    view->SetTheme(cfg.themeBg, cfg.themeFg);
     view_ = view.get();
     // Chrome-less dock-fill child (the window server owns the frame chrome);
     // same arrangement as the tetris client game window.
@@ -64,7 +78,7 @@ void ClientTerminalApp::OnIdle() {
         if (view_ && view_->Cols() > 0 && view_->Rows() > 0) {
             ptyCols_ = view_->Cols();
             ptyRows_ = view_->Rows();
-            ptyStarted_ = pty_->Start("powershell.exe -NoLogo", ptyCols_, ptyRows_);
+            ptyStarted_ = pty_->Start(shell_, ptyCols_, ptyRows_);
             if (!ptyStarted_) return;
         } else {
             return;

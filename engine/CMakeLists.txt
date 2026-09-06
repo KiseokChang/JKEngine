@@ -112,6 +112,7 @@ add_library(jkcore STATIC
     src/terminal/JKTerminalGrid.cpp
     src/terminal/JKGlyphAtlas.cpp
     src/terminal/JKConPtyBridge.cpp
+    src/apps/JKTerminalConfig.cpp
     src/server/JKClientConnection.cpp
     src/server/JKWindowServer.cpp
     src/server/JKCompositor.cpp

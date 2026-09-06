@@ -43,6 +43,10 @@ public:
     int Cols() const { return cols_; }
     int Rows() const { return rows_; }
 
+    // Overrides the default color theme (terminal.json "themeBg"/"themeFg",
+    // docs/26 단계 5). Both are 0xRRGGBB.
+    void SetTheme(uint32_t bg, uint32_t fg) { themeBg_ = bg; themeFg_ = fg; }
+
     void SetOnInput(std::function<void(const char*, size_t)> fn) { onInput_ = std::move(fn); }
     // Fired after the grid was resized to the new cell geometry.
     void SetOnResize(std::function<void(int, int)> fn) { onResize_ = std::move(fn); }
@@ -65,6 +69,8 @@ private:
     int rows_ = 0;
     int scrollOffset_ = 0;   // rows scrolled up from the live bottom; 0 = live
     bool blinkOn_ = true;
+    uint32_t themeBg_ = 0x0C0C0C;   // defaults mirror the classic terminal
+    uint32_t themeFg_ = 0xCCCCCC;
     std::function<void(const char*, size_t)> onInput_;
     std::function<void(int, int)> onResize_;
 };

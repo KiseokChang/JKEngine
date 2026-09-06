@@ -1,7 +1,8 @@
-// jk.d.ts v3 — host API contract (docs/27_scripting_quickjs_bridge.md §4).
+// jk.d.ts v4 — host API contract (docs/27_scripting_quickjs_bridge.md §4).
 // v1: 단계 1 최소 증명 세트 / v2: 단계 2 UI 자동화 API (findControl, click,
 // injectMouse, injectKey, assert, assertEq — additive) / v3: 단계 3 모달
-// 다이얼로그 (createDialog, dialogAdd*, dialogShow, dialogClose — additive).
+// 다이얼로그 (createDialog, dialogAdd*, dialogShow, dialogClose — additive) /
+// v4: 단계 4 설정 주입 (readConfig).
 //
 // 이 파일은 실행되지 않는 TypeScript 선언 파일이다. QuickJS-ng가 실행하는
 // 것은 app.js(JavaScript)이며, 이 선언은 (1) 스크립트를 작성하는 에이전트가
@@ -174,6 +175,27 @@ declare function dialogShow(dialogId: number): void;
  * 이어진다. ESC/타이틀 닫기 버튼은 Cancel(2)로 닫는다.
  */
 declare function dialogClose(dialogId: number, result: number): void;
+
+// ---------------------------------------------------------------------------
+// v4 — 설정 주입 (docs/27 §4 단계 4). 터미널 terminal.json 같은 반복 데이터를
+// JSON으로 두고 스크립트가 읽어 반영한다.
+// ---------------------------------------------------------------------------
+
+/**
+ * app.js와 **같은 디렉터리**의 JSON 설정 파일을 읽어 파싱한 객체를 반환한다
+ * (런타임 자체 파서 사용). 파일이 없거나 JSON이 아니면 null을 반환하고 이유를
+ * 로그에 남긴다. 파일 단위 실패만 호스트가 알려주고, 각 키의 기본값 폴백은
+ * 스크립트가 담당한다.
+ *
+ * @example
+ *   const cfg = readConfig("config.json") || {};
+ *   const scrollback = cfg.scrollback ?? 1000;   // 기본값 폴백
+ *
+ * @note [AI Agent] 경로는 app.js 옆의 파일 이름만 허용된다 — 절대 경로와
+ *   `..` 탐색은 거부된다(샌드박스 유지). 스크립트의 파일 접근은 이 바인딩이
+ *   유일하며, 임의 경로 읽기 요구는 설계상 거절 대상이다.
+ */
+declare function readConfig(fileName: string): any;
 
 // ---------------------------------------------------------------------------
 // 스크립트 콜백 (전역 함수로 정의하면 호스트가 호출한다 — 선언 충돌을 피하려고

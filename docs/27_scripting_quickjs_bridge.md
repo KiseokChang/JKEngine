@@ -182,6 +182,8 @@
 
 **검증**: 터미널이 JSON 설정(shell/폰트/스크롤 크기)으로 기동, 잘못된 키는 기본값 폴백.
 
+**상태 (2026-09-06)**: 단계 4 구현 완료. 두 갈래로 제공했다. (1) **host API v4 `readConfig(fileName)`** — 스크립트 샌드박스에는 파일 접근이 없으므로 호스트가 app.js 옆의 JSON 파일 하나를 읽어 `JS_ParseJSON`으로 객체로 반환(파일 없음/파싱 실패는 null + 로그). 절대 경로와 `..` 탐색은 거부 — 임의 경로 읽기는 설계상 거절 대상이며 파일 접근은 이 바인딩이 유일하다. `jk.d.ts` v4 갱신 동봉. (2) **터미널 JSON 설정** — `JKTerminalConfig`가 exe 옆 `terminal.json`(shell/font/fontFallback/scrollback/themeBg/themeFg)을 읽어 `JKConPtyBridge`/아틀라스/스크롤백 깊이(`JKTerminalGrid::SetScrollbackMax`)/`TerminalView::SetTheme`에 주입. 파서는 새 의존성 없이 **vendored quickjs의 `JS_ParseJSON`을 재사용**(임시 JSContext 1회) — "JSON.parse 활용" 문구의 실현. 키별 기본값 폴백(범위 밖/타입 불일치 키만 무시 + 로그), 적용 결과 한 줄 로그로 수동 검증 지원. 구현 중 발견한 함정: `JS_ParseJSON`은 **NUL 종단 버퍼를 요구**(`buf[buf_len] == '\0'`) — 종단 NUL과 `buf_len - 1` 전달을 빠뜨리면 "unexpected data at the end"로 실패한다. 또 `readConfig`가 평가/onCreate 시점에 경로를 알아야 하므로 `entryPath_` 대입을 `JS_Eval` 전으로 이동(Start 실패 시에도 경로가 남아 Reload 재시도가 유효). 셀프테스트가 `scripts/tests/config.js` 시나리오(문자열/숫자/#RRGGBB/숫자색 키, 파일 없음/탐색/절대경로 → null)와 C++ 리더 체크(키 적용, 불량 JSON/부재 시 기본값)를 상시 검증 — 전체 0 failures. 서버 모드 `.jkx` 스폰 스모크로 `terminal.json` 적용 확인. **잔여(수동)**: 테마 색/스크롤 깊이의 눈 확인. **참고**: .jkx 패키지 안의 스크립트는 %TEMP%에서 실행되므로 패키지된 설정 파일 주입(SCRI 외 추가 TOC 페이로드)은 필요해질 때 별도 설계.
+
 ---
 
 ## 6. 코드 위치 (계획)
