@@ -197,7 +197,7 @@ public:
           onSelect_(std::move(onSelect)) {
         SetWindowRect(rect);
 
-        auto list = std::make_unique<JKListBox>(JKRect{ 10, 30, 280, 280 }, 0);
+        auto list = std::make_unique<JKListBox>(MakeRect(10, 30, 280, 280), 0);
         list_ = list.get();
         for (size_t i = 0; i < kColorCount; ++i) {
             list_->AddString(kColors[i].name);
@@ -212,7 +212,7 @@ public:
         });
         AddControl(std::move(list));
 
-        auto cancel = std::make_unique<JKButton>(JKRect{ 10, 300, 100, 330 }, 1);
+        auto cancel = std::make_unique<JKButton>(MakeRect(10, 300, 100, 330), 1);
         cancel->SetText("Cancel");
         cancel->SetOnClick([this]() { Close(ResultCancel); });
         AddControl(std::move(cancel));
@@ -420,26 +420,26 @@ public:
         MakeSprite(sprite, 24, 24, 14);
         currentColor = 1; // White
 
-        auto preview = std::make_unique<PreviewBoard>(JKRect{ 20, 20, 120, 120 }, &sprite, 4);
+        auto preview = std::make_unique<PreviewBoard>(MakeRect(20, 20, 120, 120), &sprite, 4);
 
-        auto labelFile = std::make_unique<JKStatic>(JKRect{ 150, 20, 200, 36 }, 0);
+        auto labelFile = std::make_unique<JKStatic>(MakeRect(150, 20, 200, 36), 0);
         labelFile->SetText("File:");
-        auto editFile = std::make_unique<JKEdit>(JKRect{ 260, 20, 500, 40 }, ID_EDIT_FILENAME, 64);
+        auto editFile = std::make_unique<JKEdit>(MakeRect(260, 20, 500, 40), ID_EDIT_FILENAME, 64);
         editFile->SetText("NONAME");
 
-        auto labelName = std::make_unique<JKStatic>(JKRect{ 150, 55, 200, 71 }, 0);
+        auto labelName = std::make_unique<JKStatic>(MakeRect(150, 55, 200, 71), 0);
         labelName->SetText("Name:");
-        auto editName = std::make_unique<JKEdit>(JKRect{ 260, 55, 500, 75 }, ID_EDIT_IMAGENAME, 64);
+        auto editName = std::make_unique<JKEdit>(MakeRect(260, 55, 500, 75), ID_EDIT_IMAGENAME, 64);
         editName->SetText("Image_Noname");
 
-        auto colorBtn = std::make_unique<JKButton>(JKRect{ 900, 55, 980, 85 }, ID_BTN_COLOR);
+        auto colorBtn = std::make_unique<JKButton>(MakeRect(900, 55, 980, 85), ID_BTN_COLOR);
         colorBtn->SetText("Color");
 
-        auto clearBtn = std::make_unique<JKButton>(JKRect{ 900, 20, 980, 50 }, ID_BTN_CLEAR);
+        auto clearBtn = std::make_unique<JKButton>(MakeRect(900, 20, 980, 50), ID_BTN_CLEAR);
         clearBtn->SetText("Clear");
-        auto saveBtn = std::make_unique<JKButton>(JKRect{ 990, 20, 1070, 50 }, ID_BTN_SAVE);
+        auto saveBtn = std::make_unique<JKButton>(MakeRect(990, 20, 1070, 50), ID_BTN_SAVE);
         saveBtn->SetText("Save");
-        auto loadBtn = std::make_unique<JKButton>(JKRect{ 1080, 20, 1160, 50 }, ID_BTN_LOAD);
+        auto loadBtn = std::make_unique<JKButton>(MakeRect(1080, 20, 1160, 50), ID_BTN_LOAD);
         loadBtn->SetText("Load");
 
         JKEdit* fileEditPtr = editFile.get();
@@ -458,7 +458,7 @@ public:
             LoadSprite(EnsureSprExtension(name), sprite);
         });
 
-        auto pixelBoard = std::make_unique<PixelBoard>(JKRect{ 20, 120, 1900, 1060 }, &sprite, &currentColor);
+        auto pixelBoard = std::make_unique<PixelBoard>(MakeRect(20, 120, 1240, 650), &sprite, &currentColor);
         PixelBoard* pixelBoardPtr = pixelBoard.get();
         colorBtn->SetOnClick([pixelBoardPtr]() { pixelBoardPtr->OpenColorPicker(); });
 
@@ -498,7 +498,7 @@ IconEditApp::~IconEditApp() = default;
 
 void IconEditApp::OnInit() {
     auto main = std::make_unique<JKWindow>("Icon Editor - SDL2 Port");
-    main->SetWindowRect(JKRect{ 0, 0, 1920, 1080 });
+    main->SetWindowRect(JKRect{ 0, 0, 1280, 680 });
 
     impl_->ui->Build(main.get());
 

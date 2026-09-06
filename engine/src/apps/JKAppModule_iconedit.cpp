@@ -5,7 +5,7 @@
 #include <apps/ClientIconEditApp.h>
 
 JKAPP_EXPORT const jk::JKAppMeta* jk_app_meta() {
-    static const jk::JKAppMeta meta{ "iconedit", "Icon Editor", 1920, 1080 };
+    static const jk::JKAppMeta meta{ "iconedit", "Icon Editor", 1280, 680 };
     return &meta;
 }
 
