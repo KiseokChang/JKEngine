@@ -26,7 +26,11 @@ public:
     void Bind(uint32_t surfaceId, const std::string& title,
               bool active, bool minimized);
 
-    void SetOnActivate(std::function<void(uint32_t)> cb) { onActivate_ = std::move(cb); }
+    // Click behavior: focus the window; re-clicking the ACTIVE button asks
+    // for a minimize toggle instead (docs/28 단계 4).
+    void SetOnClickWindow(std::function<void(uint32_t, bool wasActive)> cb) {
+        onClickWindow_ = std::move(cb);
+    }
 
     void OnClick() override;
     void OnPaintClient(JKDC& dc) override;
@@ -35,7 +39,7 @@ private:
     uint32_t surfaceId_ = 0;
     bool active_ = false;
     bool minimized_ = false;
-    std::function<void(uint32_t)> onActivate_;
+    std::function<void(uint32_t, bool)> onClickWindow_;
 };
 
 class ClientTaskbarApp : public JKClientApplication {

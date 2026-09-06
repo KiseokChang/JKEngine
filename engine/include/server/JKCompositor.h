@@ -43,6 +43,11 @@ public:
     // Shell role (docs/28): re-sorts so the shell stays topmost.
     void SetLayerShell(uint32_t id, bool shell);
 
+    // Minimize support (docs/28 단계 4): hide/show a layer server-side —
+    // the client keeps rendering and committing; only the draw is skipped.
+    void SetLayerVisible(uint32_t id, bool visible);
+    bool IsLayerVisible(uint32_t id);
+
     // Display height (logical points) of the shell layer, or 0 when no shell
     // is active. The window server reserves this much of the desktop as the
     // work area (window placement clamps + drag clamps).

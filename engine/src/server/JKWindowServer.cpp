@@ -942,10 +942,29 @@ void JKWindowServer::ProcessClientMessage(JKClientConnection& client, const ipc:
             ipc::WindowActivatePayload payload{};
             std::memcpy(&payload, msg.payload.data(), sizeof(payload));
             if (payload.surfaceId != 0 && payload.surfaceId != client.Id()) {
-                // Restore-on-activate (minimized layers) arrives with the
-                // minimize feature; focusing is safe from day one.
+                // Restore-on-activate: a minimized window comes back first.
+                if (compositor_) {
+                    compositor_->SetLayerVisible(payload.surfaceId, true);
+                }
                 FocusClient(payload.surfaceId);
                 PushWindowListUnsafe();  // active highlight follows focus
+            }
+        }
+    } else if (msg.type == ipc::MsgType::WindowMinimizeToggle) {
+        if (msg.payload.size() >= sizeof(ipc::WindowActivatePayload)) {
+            ipc::WindowActivatePayload payload{};
+            std::memcpy(&payload, msg.payload.data(), sizeof(payload));
+            if (payload.surfaceId != 0 && payload.surfaceId != client.Id() && compositor_) {
+                const bool visible = compositor_->IsLayerVisible(payload.surfaceId);
+                compositor_->SetLayerVisible(payload.surfaceId, !visible);
+                if (visible) {
+                    // Hiding it loses focus — hand the keyboard to the next
+                    // topmost app window (same fallback as a disconnect).
+                    if (focusedClientId_ == payload.surfaceId) {
+                        FocusClient(compositor_->TopmostLayerId());
+                    }
+                }
+                PushWindowListUnsafe();  // minimized flag follows visibility
             }
         }
     }
@@ -971,7 +990,14 @@ void JKWindowServer::PushWindowListUnsafe() {
         if (payload.count < 32) {
             ipc::ShellWindowEntry& entry = payload.windows[payload.count++];
             entry.surfaceId = c->Id();
-            entry.flags = (focusedClientId_ == c->Id()) ? ipc::kShellWindowActive : 0;
+            entry.flags = 0;
+            if (focusedClientId_ == c->Id()) {
+                entry.flags |= ipc::kShellWindowActive;
+            }
+            // Minimized = server-side layer visibility (docs/25 §C reuse).
+            if (compositor_ && !compositor_->IsLayerVisible(c->Id())) {
+                entry.flags |= ipc::kShellWindowMinimized;
+            }
             std::strncpy(entry.title, c->Title().c_str(), sizeof(entry.title) - 1);
         }
     }

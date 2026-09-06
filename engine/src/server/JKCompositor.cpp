@@ -113,6 +113,19 @@ int JKCompositor::ShellReserveHeight() {
     return 0;
 }
 
+void JKCompositor::SetLayerVisible(uint32_t id, bool visible) {
+    std::lock_guard<std::mutex> lock(layersMutex_);
+    if (JKCompositorLayer* layer = FindLayer(id)) {
+        layer->SetVisible(visible);
+    }
+}
+
+bool JKCompositor::IsLayerVisible(uint32_t id) {
+    std::lock_guard<std::mutex> lock(layersMutex_);
+    JKCompositorLayer* layer = FindLayer(id);
+    return layer ? layer->IsVisible() : false;
+}
+
 bool JKCompositor::ResizeLayer(uint32_t id, int width, int height, uint8_t* pixels) {
     if (!renderer_ || width <= 0 || height <= 0) {
         return false;

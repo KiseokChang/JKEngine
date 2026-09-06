@@ -42,8 +42,12 @@ void ClientTaskbarApp::OnInit() {
     // Button pool (WindowListPayload caps at 32 windows).
     for (size_t i = 0; i < 32; ++i) {
         auto btn = std::make_unique<TaskbarButton>();
-        btn->SetOnActivate([this](uint32_t surfaceId) {
-            if (jk::client::JKClientSurface* surface = Surface()) {
+        btn->SetOnClickWindow([this](uint32_t surfaceId, bool wasActive) {
+            jk::client::JKClientSurface* surface = Surface();
+            if (!surface) return;
+            if (wasActive) {
+                surface->SendWindowMinimizeToggle(surfaceId);
+            } else {
                 surface->SendWindowActivate(surfaceId);
             }
         });
@@ -143,8 +147,8 @@ void TaskbarButton::Bind(uint32_t surfaceId, const std::string& title,
 }
 
 void TaskbarButton::OnClick() {
-    if (onActivate_) {
-        onActivate_(surfaceId_);
+    if (onClickWindow_) {
+        onClickWindow_(surfaceId_, active_);
     }
 }
 

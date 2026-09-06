@@ -353,6 +353,13 @@ bool JKClientSurface::SendWindowActivate(uint32_t surfaceId) {
     return ipc::WriteMessage(*transport_, ipc::MsgType::WindowActivate, payload);
 }
 
+bool JKClientSurface::SendWindowMinimizeToggle(uint32_t surfaceId) {
+    if (!IsConnected()) return false;
+    ipc::WindowActivatePayload payload{};
+    payload.surfaceId = surfaceId;
+    return ipc::WriteMessage(*transport_, ipc::MsgType::WindowMinimizeToggle, payload);
+}
+
 bool JKClientSurface::GetWindowList(std::vector<ShellWindowInfo>& out) const {
     std::lock_guard<std::mutex> lock(pendingWindowListMutex_);
     if (!pendingWindowList_.valid) {

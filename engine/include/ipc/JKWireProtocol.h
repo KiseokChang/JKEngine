@@ -31,7 +31,10 @@ enum class MsgType : uint32_t {
     ShellRegister  = 11,  // C -> S: register as the (single) shell client
     WindowList     = 12,  // S -> C: full window-list snapshot to the shell
     WindowActivate = 13,  // C -> S: focus (+restore) a window
-    ShellRegisterAck = 14 // S -> C: shell role granted (1) or denied (0)
+    ShellRegisterAck = 14, // S -> C: shell role granted (1) or denied (0)
+    // C -> S: show/hide the window (taskbar active-button re-click). Same
+    // {surfaceId} payload as WindowActivate.
+    WindowMinimizeToggle = 15
 };
 
 #pragma pack(push, 1)

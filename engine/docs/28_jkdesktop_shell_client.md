@@ -69,16 +69,19 @@
 - 도킹 리사이즈(`SizeChanged`)마다 `Relayout()`으로 재배치.
 - 셸이므로 타이머/편집컨트롤/IME 불필요 — 이벤트 구동 only.
 
-## 최소화 (단계 4)
+## 최소화 (단계 4, 구현 완료)
 
-- `WindowMinimizeToggle` → 비셸 레이어 `SetLayerVisible(id, !visible)` 토글(docs/25 §C의
-  `visible_` 재사용) → 포커스를 잃으면 `FocusClient(TopmostLayerId())` → WindowList 재발행.
-- `WindowActivate`는 숨겨진 창을 먼저 보이게 한 뒤 포커스.
+- `WindowMinimizeToggle`(15) → 서버가 레이어 가시성 토글(`SetLayerVisible(id, !visible)`,
+  docs/25 §C의 `visible_` 재사용 — 클라는 계속 렌더+커밋하고 서버가 그리기만 스킵).
+- 숨김으로 포커스를 잃으면 `FocusClient(TopmostLayerId())`(disconnect 폴백과 동일 경로).
+- `WindowActivate`는 숨겨진 창을 먼저 보이게 한 뒤 포커스(restore-on-activate).
+- `PushWindowList`가 minimized 플래그(bit1)를 레이어 가시성에서 채움 — 버튼 딤 표시.
+- UI: **active 버튼 재클릭** → `WindowMinimizeToggle`, 그 외 클릭 → `WindowActivate`.
 
 ## 구현 상태
 
 - [x] 단계 1 — 프로토콜 레이어 (와이어 11-14 + 클라 전송/수신 경로 + 서버 핸들러 + taskbar 골격)
 - [x] 단계 2 — 컴포지터/도킹 (SortLayers/크롬·포커스 면제 + 작업영역 예약 + DockShellClient + 자동 스폰)
 - [x] 단계 3 — UI 레이어 (TaskbarButton 풀 + 버튼 페인트 + 오버플로 규칙)
-- [ ] 단계 4 — 최소화 (MsgType 15 + SetLayerVisible)
+- [x] 단계 4 — 최소화 (MsgType 15 + SetLayerVisible 토글 + restore-on-activate)
 - [ ] 단계 5 — 문서 정리 (docs/19 메시지 표)

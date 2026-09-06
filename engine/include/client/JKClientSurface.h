@@ -82,6 +82,7 @@ public:
     // dockEdge: 0 = bottom edge; barHeight: requested thickness (0 = auto).
     bool SendShellRegister(uint32_t dockEdge = 0, uint32_t barHeight = 0);
     bool SendWindowActivate(uint32_t surfaceId);
+    bool SendWindowMinimizeToggle(uint32_t surfaceId);
     // Main-thread only: copy of the latest window-list snapshot.
     bool GetWindowList(std::vector<ShellWindowInfo>& out) const;
 
