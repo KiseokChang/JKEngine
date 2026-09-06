@@ -52,6 +52,8 @@ extern "C" __declspec(dllimport) int __stdcall GetDiskFreeSpaceExA(
 #include <JKEvent.h>
 #include <JKHangulUtil.h>
 #include <JKPlatform.h>
+#include <JKJkxFile.h>
+#include <script/JKScriptHost.h>
 #include <SDL.h>
 #include <filesystem>
 
@@ -76,6 +78,7 @@ using jk::Utf8ToKssm;
 #include <apps/VectorPresApp.h>
 #include <apps/MineSweeperApp.h>
 #include <apps/TetrisApp.h>
+#include <apps/ClientScriptApp.h>
 #include <apps/JKAppModule.h>
 #include <JKJkxFile.h>
 #include "wancode.h"
@@ -460,6 +463,37 @@ static int RunClientFromJkx(const char* jkxPath, const char* pipeName) {
         return 1;
     }
 
+    // Script apps (docs/27 §8.1): extract the manifest copy and the script
+    // (SCRI entry) next to the DLL so the shared jkapp_script module can
+    // locate its data via its own module path. The per-pid temp names keep
+    // reruns from accumulating files — same rationale as the DLL above.
+    if (!mani.script.empty() || jkx.FindEntry("SCRI", "") >= 0) {
+        const int maniEntry = jkx.FindEntry("MANI", "manifest.txt");
+        const int scriptEntry =
+            jkx.FindEntry("SCRI", mani.script.empty() ? "app.js" : mani.script);
+        std::vector<uint8_t> payload;
+        if (maniEntry >= 0 &&
+            jkx.ReadEntry(maniEntry, payload)) {
+            const std::string side = std::string(tempPath) + ".manifest.txt";
+            std::FILE* sf = std::fopen(side.c_str(), "wb");
+            if (sf) {
+                std::fwrite(payload.data(), 1, payload.size(), sf);
+                std::fclose(sf);
+            }
+            payload.clear();
+        }
+        if (scriptEntry >= 0 && jkx.ReadEntry(scriptEntry, payload)) {
+            const std::string side = std::string(tempPath) + ".app.js";
+            std::FILE* sf = std::fopen(side.c_str(), "wb");
+            if (!sf) {
+                std::fprintf(stderr, "Cannot extract script to '%s'\n", side.c_str());
+                return 1;
+            }
+            std::fwrite(payload.data(), 1, payload.size(), sf);
+            std::fclose(sf);
+        }
+    }
+
     const int rc = RunClientModule(tempPath, pipeName);
     // NOTE: the temp DLL stays behind (it is still loaded — see the
     // FreeLibrary note in RunClientModule — so DeleteFileA would fail with a
@@ -471,6 +505,10 @@ static int RunClientFromJkx(const char* jkxPath, const char* pipeName) {
 // jkx-pack <app>: bundle jkapp_<app>.dll + launcher icon PNGs + a generated
 // manifest into apps/<app>.jkx. Metadata comes from the module's own
 // jk_app_meta (single source of truth); icons are optional.
+//
+// Script apps (docs/27 단계 1): when scripts/apps/<app>/{manifest.txt,app.js}
+// exists, the authored manifest is the metadata source and the shared
+// jkapp_script.dll rides in as the MODL entry — no per-app native module.
 static int RunJkxPack(const char* appName) {
     std::string base;
     if (char* p = SDL_GetBasePath()) {
@@ -478,26 +516,67 @@ static int RunJkxPack(const char* appName) {
         SDL_free(p);
     }
 
-    const std::string dllPath = base + "jkapp_" + appName + ".dll";
-    void* module = LoadLibraryA(dllPath.c_str());
-    if (!module) {
-        std::fprintf(stderr, "jkx-pack: cannot load '%s'\n", dllPath.c_str());
-        return 1;
+    std::string manifestText;
+    std::string moduleName;
+
+    // Script app branch: read the authored manifest + app.js.
+    std::vector<uint8_t> scriptManifest;
+    std::vector<uint8_t> appJs;
+    const bool isScriptApp =
+        ReadWholeFile(JK_SCRIPTS_DIR "/apps/" + std::string(appName) + "/manifest.txt",
+                      scriptManifest) &&
+        ReadWholeFile(JK_SCRIPTS_DIR "/apps/" + std::string(appName) + "/app.js",
+                      appJs);
+    jk::JkxManifest authored;
+    if (isScriptApp) {
+        std::string text(scriptManifest.begin(), scriptManifest.end());
+        if (!authored.Parse(text)) {
+            std::fprintf(stderr,
+                         "jkx-pack: invalid manifest for script app '%s'\n",
+                         appName);
+            return 1;
+        }
+        manifestText += "name=" +
+            (authored.name.empty() ? std::string(appName) : authored.name) + "\n";
+        manifestText += "title=" +
+            (authored.title.empty() ? std::string(appName) : authored.title) + "\n";
+        manifestText += "width=" +
+            std::to_string(authored.width > 0 ? authored.width : 320) + "\n";
+        manifestText += "height=" +
+            std::to_string(authored.height > 0 ? authored.height : 240) + "\n";
+        manifestText += "module=jkapp_script.dll\n";
+        manifestText += "script=app.js\n";
+        moduleName = "jkapp_script.dll";
+    } else {
+        const std::string dllPath = base + "jkapp_" + appName + ".dll";
+        void* module = LoadLibraryA(dllPath.c_str());
+        if (!module) {
+            std::fprintf(stderr, "jkx-pack: cannot load '%s'\n", dllPath.c_str());
+            return 1;
+        }
+        auto metaFn = reinterpret_cast<const jk::JKAppMeta* (*)()>(
+            GetProcAddress(module, "jk_app_meta"));
+        if (!metaFn) {
+            std::fprintf(stderr, "jkx-pack: '%s' exports no jk_app_meta\n", dllPath.c_str());
+            return 1;
+        }
+        const jk::JKAppMeta* meta = metaFn();
+        // NOTE: intentionally not FreeLibrary()-ing here. Unloading the app module
+        // mid-process corrupted the heap in practice (crash on the next malloc),
+        // and the packer is a short-lived process — keep the module resident.
+
+        manifestText += "name=" + std::string(meta->name) + "\n";
+        manifestText += "title=" + std::string(meta->title) + "\n";
+        manifestText += "width=" + std::to_string(meta->width) + "\n";
+        manifestText += "height=" + std::to_string(meta->height) + "\n";
+        manifestText += "module=jkapp_" + std::string(appName) + ".dll\n";
+        moduleName = std::string("jkapp_") + appName + ".dll";
     }
-    auto metaFn = reinterpret_cast<const jk::JKAppMeta* (*)()>(
-        GetProcAddress(module, "jk_app_meta"));
-    if (!metaFn) {
-        std::fprintf(stderr, "jkx-pack: '%s' exports no jk_app_meta\n", dllPath.c_str());
-        return 1;
-    }
-    const jk::JKAppMeta* meta = metaFn();
-    // NOTE: intentionally not FreeLibrary()-ing here. Unloading the app module
-    // mid-process corrupted the heap in practice (crash on the next malloc),
-    // and the packer is a short-lived process — keep the module resident.
 
     std::vector<uint8_t> dll;
-    if (!ReadWholeFile(dllPath, dll)) {
-        std::fprintf(stderr, "jkx-pack: cannot read '%s'\n", dllPath.c_str());
+    if (!ReadWholeFile(base + moduleName, dll)) {
+        std::fprintf(stderr, "jkx-pack: cannot read '%s'\n",
+                     (base + moduleName).c_str());
         return 1;
     }
 
@@ -512,19 +591,14 @@ static int RunJkxPack(const char* appName) {
     const bool hasIcon1 = ReadWholeFile(base + icon1Name, icon1Data);
     const bool hasIcon2 = ReadWholeFile(base + icon2Name, icon2Data);
 
-    std::string manifestText;
-    manifestText += "name=" + std::string(meta->name) + "\n";
-    manifestText += "title=" + std::string(meta->title) + "\n";
-    manifestText += "width=" + std::to_string(meta->width) + "\n";
-    manifestText += "height=" + std::to_string(meta->height) + "\n";
-    manifestText += "module=jkapp_" + std::string(appName) + ".dll\n";
     if (hasIcon1) manifestText += "icon=launcher@1x.png\n";
     if (hasIcon2) manifestText += "icon2x=launcher@2x.png\n";
 
     std::vector<std::pair<std::string, std::vector<uint8_t>>> entries;
     std::vector<uint8_t> manifestBytes(manifestText.begin(), manifestText.end());
     entries.emplace_back("manifest.txt", std::move(manifestBytes));
-    entries.emplace_back(std::string("jkapp_") + appName + ".dll", std::move(dll));
+    entries.emplace_back(moduleName, std::move(dll));
+    if (isScriptApp) entries.emplace_back("app.js", std::move(appJs));
     if (hasIcon1) entries.emplace_back("launcher@1x.png", std::move(icon1Data));
     if (hasIcon2) entries.push_back({"launcher@2x.png", std::move(icon2Data)});
 
@@ -533,6 +607,67 @@ static int RunJkxPack(const char* appName) {
     if (!jk::JKJkxFile::Write(outPath, entries)) return 1;
 
     std::printf("packed %s\n", outPath.c_str());
+    return 0;
+}
+
+// jkx-list <file>: print a container's header (version/codec) and TOC — the
+// developer counterpart to hexdumping the file (docs/21).
+static int RunJkxList(const char* path) {
+    jk::JKJkxFile f;
+    if (!f.Open(path)) return 1;
+    std::printf("%s: version=%u codec=%u entries=%d\n", path, f.Version(),
+                f.Codec(), f.EntryCount());
+    const jk::JkxManifest& m = f.Manifest();
+    if (!m.name.empty()) {
+        std::printf("  manifest: name=%s title=%s module=%s", m.name.c_str(),
+                    m.title.c_str(), m.module.c_str());
+        if (!m.script.empty()) std::printf(" script=%s", m.script.c_str());
+        if (m.width > 0) std::printf(" %dx%d", m.width, m.height);
+        std::printf("\n");
+    }
+    for (const auto& e : f.Entries()) {
+        std::printf("  %-4s %-32s %10u bytes @ 0x%08X\n", e.type, e.name.c_str(),
+                    static_cast<unsigned>(e.size), static_cast<unsigned>(e.offset));
+    }
+    return 0;
+}
+
+// jkx-extract <file> [entry ...]: dump all (or the named) entries into a
+// "<file>_x/" directory — the same raw bytes the client host would extract.
+static int RunJkxExtract(const char* path, int nameCount, char** names) {
+    jk::JKJkxFile f;
+    if (!f.Open(path)) return 1;
+    const std::string dir = std::string(path) + "_x";
+    CreateDirectoryA(dir.c_str(), nullptr);  // exists_ok
+    int extracted = 0;
+    for (int i = 0; i < f.EntryCount(); ++i) {
+        const jk::JKJkxFile::Entry& e = f.Entries()[i];
+        bool wanted = (nameCount == 0);
+        for (int n = 0; n < nameCount && !wanted; ++n)
+            wanted = (e.name == names[n]);
+        if (!wanted) continue;
+        std::vector<uint8_t> data;
+        if (!f.ReadEntry(i, data)) {
+            std::fprintf(stderr, "jkx-extract: read failed for '%s'\n", e.name.c_str());
+            return 1;
+        }
+        const std::string outPath = dir + "/" + e.name;
+        std::FILE* out = std::fopen(outPath.c_str(), "wb");
+        if (!out || (!data.empty() &&
+                     std::fwrite(data.data(), 1, data.size(), out) != data.size())) {
+            std::fprintf(stderr, "jkx-extract: cannot write '%s'\n", outPath.c_str());
+            if (out) std::fclose(out);
+            return 1;
+        }
+        std::fclose(out);
+        std::printf("  %s (%u bytes)\n", outPath.c_str(),
+                    static_cast<unsigned>(e.size));
+        ++extracted;
+    }
+    if (extracted == 0) {
+        std::fprintf(stderr, "jkx-extract: no matching entries in '%s'\n", path);
+        return 1;
+    }
     return 0;
 }
 #endif // _WIN32
@@ -544,6 +679,7 @@ static int RunAppSelfTest() {
     int failures = 0;
     auto check = [&failures](bool cond, const char* name) {
         std::printf("[%s] %s\n", cond ? "PASS" : "FAIL", name);
+        std::fflush(stdout);
         if (!cond) ++failures;
     };
 
@@ -1472,6 +1608,177 @@ static int RunAppSelfTest() {
         }
     }
 
+    // Script bridge (docs/27 단계 1): host boot, click dispatch, timer
+    // plumbing, exception policy, binding/contract introspection, SCRI
+    // container. Each scenario owns a fresh JKWindow — a stopped host leaves
+    // its controls in the window (no child-removal API) so sharing one window
+    // would leak control-id collisions across scenarios.
+    {
+        auto writeScript = [](const char* name, const char* text) {
+            std::FILE* f = std::fopen(name, "wb");
+            if (!f) return;
+            std::fwrite(text, 1, std::strlen(text), f);
+            std::fclose(f);
+        };
+        auto bytes = [](const char* s) {
+            return std::vector<uint8_t>(s, s + std::strlen(s));
+        };
+        auto makeTimerServices = [](std::vector<uint32_t>& claimed,
+                                    uint64_t& handleSeq) {
+            jk::JKScriptTimerServices ts;
+            ts.start = [&claimed, &handleSeq](uint32_t winId, uint32_t) -> uint64_t {
+                claimed.push_back(winId);
+                return ++handleSeq;
+            };
+            ts.stop = [](uint64_t) {};
+            return ts;
+        };
+
+        // 1) Boot + onCreate + control creation + click dispatch.
+        writeScript("test_script_app.js",
+            "var label = createLabel({x:10,y:10,w:120,h:24}, \"idle\");\n"
+            "var btn = createButton({x:10,y:44,w:100,h:30}, \"hit\");\n"
+            "function onCreate(){ log(\"boot\"); }\n"
+            "function onClick(id){ if (id === btn) setText(label, \"clicked:\" + id); }\n");
+        jk::JKWindow win("ScriptTest");
+        win.SetWindowRect(jk::JKRect{ 0, 0, 320, 240 });
+        jk::JKScriptHost host;
+        host.Attach(&win);
+        std::vector<uint32_t> claimedWinIds;
+        uint64_t handleSeq = 0;
+        host.SetTimerServices(makeTimerServices(claimedWinIds, handleSeq));
+        check(host.Start("test_script_app.js"), "script host boots app.js");
+        check(host.IsRunning() && host.EntryPath() == "test_script_app.js",
+              "script host running after start");
+        const uint16_t labelId = 1000;  // first auto-assigned id
+        const uint16_t btnId = 1001;
+        jk::JKControl* label = win.FindControlByControlId(labelId);
+        jk::JKControl* btn = win.FindControlByControlId(btnId);
+        check(label && btn, "script created label+button controls");
+        check(claimedWinIds.empty(),
+              "boot without setInterval claims no timers");
+        host.DispatchClick(btnId);
+        check(label && label->GetText() == "clicked:" + std::to_string(btnId),
+              "dispatchclick drives script onclick");
+        host.Stop();
+
+        // 2) setInterval claims a winId from the script range and manual
+        //    dispatch runs the interval callback.
+        writeScript("test_script_timer.js",
+            "var tick = 0;\n"
+            "var tlabel = createLabel({x:0,y:0,w:80,h:20}, \"t0\");\n"
+            "function onCreate(){ setInterval(50, function(){ tick++; "
+            "setText(tlabel, \"t\" + tick); }); }\n");
+        jk::JKWindow twin("ScriptTimerTest");
+        twin.SetWindowRect(jk::JKRect{ 0, 0, 320, 240 });
+        jk::JKScriptHost thost;
+        thost.Attach(&twin);
+        uint64_t handleSeq2 = 0;
+        thost.SetTimerServices(makeTimerServices(claimedWinIds, handleSeq2));
+        check(thost.Start("test_script_timer.js"), "timer script boots");
+        check(claimedWinIds.size() == 1 &&
+                  claimedWinIds[0] == jk::JKScriptHost::ScriptTimerWinIdBase,
+              "setInterval claims script timer winid");
+        thost.DispatchTimerAt(0);
+        jk::JKControl* tlabel = twin.FindControlByControlId(1000);
+        check(tlabel && tlabel->GetText() == "t1",
+              "dispatchtimerat runs interval callback");
+        thost.Stop();
+
+        // 3) Exception policy: the script error fails Start and lands in
+        //    LastError with the exception message (docs/27 §3.2).
+        writeScript("test_script_throw.js",
+            "function onCreate(){ throw new Error(\"boom\"); }\n");
+        jk::JKWindow ewin("ScriptThrowTest");
+        ewin.SetWindowRect(jk::JKRect{ 0, 0, 320, 240 });
+        jk::JKScriptHost ehost;
+        ehost.Attach(&ewin);
+        check(!ehost.Start("test_script_throw.js"),
+              "script exception fails start");
+        check(ehost.LastError().find("boom") != std::string::npos,
+              "script exception recorded in lasterror");
+        check(!ehost.IsRunning(), "failed script leaves host stopped");
+
+        // 4) jk.d.ts machine check (docs/27 §2.4): every declared function
+        //    must be visible to a running script (runtime introspection is
+        //    the ground truth).
+        writeScript("test_script_empty.js", "");
+        jk::JKWindow nwin("ScriptNamesTest");
+        nwin.SetWindowRect(jk::JKRect{ 0, 0, 320, 240 });
+        jk::JKScriptHost nhost;
+        nhost.Attach(&nwin);
+        check(nhost.Start("test_script_empty.js"), "empty script boots");
+        std::vector<std::string> bound = nhost.BoundNames();
+        std::vector<uint8_t> dtsBytes;
+        if (ReadWholeFile(JK_SCRIPTS_DIR "/jk.d.ts", dtsBytes)) {
+            std::string dts(dtsBytes.begin(), dtsBytes.end());
+            int missing = 0;
+            size_t pos = 0;
+            for (;;) {
+                const size_t d = dts.find("declare function ", pos);
+                if (d == std::string::npos) break;
+                const size_t nameBegin = d + std::strlen("declare function ");
+                const size_t nameEnd = dts.find('(', nameBegin);
+                if (nameEnd == std::string::npos) break;
+                const std::string name =
+                    dts.substr(nameBegin, nameEnd - nameBegin);
+                bool found = false;
+                for (const auto& n : bound) {
+                    if (n == name) { found = true; break; }
+                }
+                if (!found) {
+                    std::printf("      missing binding: %s\n", name.c_str());
+                    ++missing;
+                }
+                pos = d + 1;
+            }
+            check(missing == 0,
+                  "jk.d.ts declared functions all bound at runtime");
+        } else {
+            check(false, "jk.d.ts readable for introspection check");
+        }
+        nhost.Stop();
+
+        // 5) SCRI container roundtrip (docs/27 §3.1 .jkx extension; the TOC
+        // type field is a 4cc, so the script type is "SCRI" not "SCRPT").
+        {
+            std::vector<std::pair<std::string, std::vector<uint8_t>>> entries;
+            entries.emplace_back("manifest.txt",
+                bytes("name=x\nmodule=jkapp_script.dll\nscript=app.js\n"));
+            entries.emplace_back("jkapp_script.dll", bytes("stub"));
+            entries.emplace_back("app.js", bytes("log(1);"));
+            check(jk::JKJkxFile::Write("test_script.jkx", entries),
+                  "jkx write with app.js entry");
+            jk::JKJkxFile rd;
+            check(rd.Open("test_script.jkx") &&
+                      rd.FindEntry("SCRI", "app.js") >= 0,
+                  "app.js stored as SCRI entry");
+            std::vector<uint8_t> out;
+            check(rd.ReadEntry(rd.FindEntry("SCRI", "app.js"), out) &&
+                      out.size() == 7,
+                  "SCRI payload roundtrip");
+            check(rd.Version() == 1 && rd.Codec() == 0,
+                  "jkx header records version/codec");
+        }
+
+        // 6) Forward compat (docs/21 codec registry): a container claiming an
+        // unregistered codec must fail Open instead of misparsing payloads.
+        {
+            std::vector<uint8_t> raw;
+            if (ReadWholeFile("test_script.jkx", raw) && raw.size() >= 20) {
+                raw[16] = 7;  // codec field — 7 is unregistered
+                if (std::FILE* bf = std::fopen("test_badcodec.jkx", "wb")) {
+                    std::fwrite(raw.data(), 1, raw.size(), bf);
+                    std::fclose(bf);
+                }
+                jk::JKJkxFile bad;
+                check(!bad.Open("test_badcodec.jkx"), "unknown codec rejected");
+                std::remove("test_badcodec.jkx");
+            }
+            std::remove("test_script.jkx");  // test artifact — keep the repo clean
+        }
+    }
+
     std::printf("AppSelfTest: %d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;
 }
@@ -1517,11 +1824,14 @@ int main(int argc, char* argv[]) {
         std::printf("  vpres       Vector font presentation\n");
         std::printf("  minesweeper App launcher (Minesweeper + Tetris)\n");
         std::printf("  tetris      Tetris game\n");
+        std::printf("  scriptdemo [FILE]  Script app demo (FILE: .jkx package or a direct app.js)\n");
         std::printf("  --server    Run as the window server (Phase 2 scaffolding)\n");
         std::printf("  --client minesweeper  Run Minesweeper as a window-server client\n");
         std::printf("  --client tetris     Run Tetris as a window-server client\n");
         std::printf("  --jkx FILE  Run an app from a .jkx container\n");
         std::printf("  jkx-pack APP  Bundle jkapp_<APP>.dll + icons + manifest into apps/<APP>.jkx\n");
+        std::printf("  jkx-list FILE   Print a .jkx container's version/codec + TOC\n");
+        std::printf("  jkx-extract FILE [ENTRY...]  Extract .jkx entries into <FILE>_x/\n");
         std::printf("  -h, --help, /?  Show this help message\n");
         return 0;
     }
@@ -1539,6 +1849,32 @@ int main(int argc, char* argv[]) {
         return RunJkxPack(argv[2]);
 #else
         std::fprintf(stderr, "jkx-pack is Windows-only in this prototype\n");
+        return 1;
+#endif
+    }
+
+    if (argc > 1 && std::strcmp(argv[1], "jkx-list") == 0) {
+#ifdef _WIN32
+        if (argc < 3) {
+            std::fprintf(stderr, "Usage: jkx-list <file.jkx>  (print container version/codec + TOC)\n");
+            return 1;
+        }
+        return RunJkxList(argv[2]);
+#else
+        std::fprintf(stderr, "jkx-list is Windows-only in this prototype\n");
+        return 1;
+#endif
+    }
+
+    if (argc > 1 && std::strcmp(argv[1], "jkx-extract") == 0) {
+#ifdef _WIN32
+        if (argc < 3) {
+            std::fprintf(stderr, "Usage: jkx-extract <file.jkx> [entry ...]  (extract all/named entries into <file>_x/)\n");
+            return 1;
+        }
+        return RunJkxExtract(argv[2], argc - 3, argv + 3);
+#else
+        std::fprintf(stderr, "jkx-extract is Windows-only in this prototype\n");
         return 1;
 #endif
     }
@@ -1661,6 +1997,83 @@ int main(int argc, char* argv[]) {
         std::fprintf(stderr, "--client is Windows-only in this prototype\n");
         return 1;
 #endif
+    }
+
+    // scriptdemo [path]: packaged script app (docs/27 단계 1) in single-process
+    // mode — open the .jkx next to the exe (or an explicit path), extract the
+    // script payload to %TEMP%, and run ScriptAppT<JKApplication> on it. This
+    // is the dev counterpart of the server spawning the same container.
+    if (argc > 1 && std::strcmp(argv[1], "scriptdemo") == 0) {
+        const std::string argPath = (argc > 2) ? argv[2] : std::string();
+
+        // Direct app.js path (dev loop): load the source file itself so
+        // JK_SCRIPT_WATCH=1 hot reload fires on the actual edit — no .jkx
+        // repack and no %TEMP% copy in between.
+        const bool directJs = argPath.size() >= 3 &&
+            argPath.compare(argPath.size() - 3, 3, ".js") == 0;
+        if (directJs) {
+            size_t slash = argPath.find_last_of("/\\");
+            std::string stem = argPath.substr((slash == std::string::npos) ? 0 : slash + 1);
+            const size_t dot = stem.rfind('.');
+            if (dot != std::string::npos) stem = stem.substr(0, dot);
+            const std::string title = stem.empty() ? "Script App" : stem;
+            jk::ScriptAppT<jk::JKApplication> app;
+            app.SetScriptInfo(title, argPath);
+            if (!app.Init(title, 320, 240)) return 1;
+            return app.Run();
+        }
+
+        std::string jkxPath = argPath;
+        if (jkxPath.empty()) {
+            if (char* p = SDL_GetBasePath()) {
+                jkxPath = std::string(p) + "apps\\scriptdemo.jkx";
+                SDL_free(p);
+            } else {
+                jkxPath = "apps/scriptdemo.jkx";
+            }
+        }
+        jk::JKJkxFile jkx;
+        if (!jkx.Open(jkxPath)) {
+            std::fprintf(stderr,
+                         "scriptdemo: cannot open '%s' (build the jkx_packages "
+                         "target or pass a .jkx path)\n", jkxPath.c_str());
+            return 1;
+        }
+        const jk::JkxManifest& mani = jkx.Manifest();
+        const int scriptEntry =
+            jkx.FindEntry("SCRI", mani.script.empty() ? "app.js" : mani.script);
+        if (scriptEntry < 0) {
+            std::fprintf(stderr, "scriptdemo: no script entry in '%s'\n",
+                         jkxPath.c_str());
+            return 1;
+        }
+        std::vector<uint8_t> appJs;
+        if (!jkx.ReadEntry(scriptEntry, appJs)) {
+            std::fprintf(stderr, "scriptdemo: cannot read script entry\n");
+            return 1;
+        }
+        // JKScriptHost::Start takes a file path — drop the payload in %TEMP%
+        // under a per-pid name so reruns never collide (same scheme as --jkx).
+        char tempDir[260] = ".";
+        GetTempPathA(static_cast<unsigned long>(sizeof(tempDir) - 64), tempDir);
+        char scriptPath[324] = {};
+        std::snprintf(scriptPath, sizeof(scriptPath), "%sjkscript_%lu.app.js",
+                      tempDir, static_cast<unsigned long>(GetCurrentProcessId()));
+        std::FILE* sf = std::fopen(scriptPath, "wb");
+        if (!sf) {
+            std::fprintf(stderr, "scriptdemo: cannot write '%s'\n", scriptPath);
+            return 1;
+        }
+        std::fwrite(appJs.data(), 1, appJs.size(), sf);
+        std::fclose(sf);
+
+        jk::ScriptAppT<jk::JKApplication> app;
+        app.SetScriptInfo(mani.title, scriptPath);
+        if (!app.Init(mani.title, mani.width > 0 ? mani.width : 320,
+                      mani.height > 0 ? mani.height : 240)) {
+            return 1;
+        }
+        return app.Run();
     }
 
     if (argc > 1 && std::strcmp(argv[1], "--jkx") == 0) {

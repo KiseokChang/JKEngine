@@ -16,15 +16,18 @@
 [0..3]   magic "JKX1"
 [4..7]   tocOffset  (uint32 LE)
 [8..11]  entryCount (uint32 LE)
+[12..15] version    (uint32 LE, = 1)      — tocOffset >= 20일 때 존재
+[16..19] codec      (uint32 LE, 0 = raw)  — tocOffset >= 20일 때 존재
 [tocOffset .. tocOffset + 128*count)  TOC 엔트리:
-  type[4]   "MANI"(매니페스트) | "MODL"(모듈 DLL) | "ICON"(아이콘 PNG)
-  name[60]  NUL 패딩 ("manifest.txt", "jkapp_minesweeper.dll", "launcher@1x.png")
+  type[4]   "MANI"(매니페스트) | "MODL"(모듈 DLL) | "ICON"(아이콘 PNG) | "SCRI"(스크립트, docs/27)
+  name[60]  NUL 패딩 ("manifest.txt", "jkapp_minesweeper.dll", "launcher@1x.png", "app.js")
   offset[4] 페이로드 절대 오프셋
   size[4]   페이로드 바이트 수
 [tocOffset + 128*count ..]  페이로드들 (TOC 순서대로 붙임)
 ```
 
-- 타입은 이름에서 유도된다(`JKJkxFile::TypeForName`): `manifest.*` → MANI, `*.dll` → MODL, 그 외 ICON.
+- 타입은 이름에서 유도된다(`JKJkxFile::TypeForName`): `manifest.*` → MANI, `*.dll` → MODL, `*.js` → SCRI, 그 외 ICON.
+- **버전/코덱 필드(2026-09-06, v1)**: 최초 헤더는 12바이트였다(tocOffset == 12 → 구판 판별 기준, v0 레거시로 raw 읽음). v1이 version+codec을 [12..19]에 추가해 **나중의 압축 도입 대비**를 했다 — **코덱 레지스트리: 0 = raw(저장)**. 압축이 도입되면 새 번호를 배정하고, 리더는 모르는 version/codec을 만나면 반드시 Open 실패한다(모르는 코덱 payload를 raw로 조용히 해석하는 것 금지). 셀프테스트가 알 수 없는 codec 거부를 상시 검증한다.
 - 매니페스트는 key=value 텍스트(`JkxManifest::Parse`):
 
 ```
@@ -42,12 +45,15 @@ icon2x=launcher@2x.png         # ICON 엔트리 이름 (선택)
 | 명령 | 동작 |
 |------|------|
 | `jkx-pack <app>` | exe 옆의 `jkapp_<app>.dll` + `assets/icons/launcher_<pfx>@{1,2}x.png` + 생성한 매니페스트를 `apps/<app>.jkx`로 패킹. 메타는 모듈의 `jk_app_meta()`에서 읽음(단일 출처) |
+| `jkx-list <file>` | 컨테이너의 version/codec + TOC(타입/이름/크기/오프셋)와 매니페스트 요약 출력 — hexdump 대체 개발자 도구 |
+| `jkx-extract <file> [entry...]` | 전체(또는 이름 지정) 엔트리를 `<file>_x/`에 원본 바이트로 추출 |
 | `--jkx <file>` | 컨테이너 열기 → MODL을 `%TEMP%\jkapp_<name>_<pid>.dll`로 추출 → LoadLibrary → `jk_app_meta`/`jk_app_run_client` 실행 |
 | `--server` | 시작 시 `apps/*.jkx` 스캔(`ScanJkxApps`) → .jkx당 런처 셀 1개, 클릭 시 `--jkx <절대경로>` 스폰 |
 
 - 패킹 순서: 매니페스트 → 모듈 → 아이콘. 아이콘은 없어도 되고, 매니페스트의 icon/icon2x 키가 생략된다.
 - **빌드 자동 repack(2026-09-05)**: CMake 커스텀 타깃 `jkx_packages`(ALL)가 exe/DLL이 패키지보다 새로우면 `jkx-pack`을 재실행한다. 클라이언트 코드는 .jkx 안에 들어가므로 평범한 `cmake --build`만으로는 수정이 반영되지 않는다 — 이 타깃이 빌드→패킹을 한 커맨드로 묶어준다. 실행 중인 클라이언트가 자기 .jkx를 열어두므로(락) repack은 클라이언트 종료 후 유효하다.
 - 서버 아이콘 선택은 asset 규약과 동일(`outputScale >= 1.5`면 @2x) — doc 20 §2.
+- 런처 셀 배치는 `RelayoutLauncherIcons`가 단일 출처 — 100px 피치 그리드, 창 논리 폭에 맞춰 줄바꿈(단일 행이 1280px 화면을 넘어서 2026-09-06 수정).
 
 ## 3. 런타임 우선순위와 안전 규칙
 
@@ -78,4 +84,4 @@ icon2x=launcher@2x.png         # ICON 엔트리 이름 (선택)
 
 - 임시 DLL이 `%TEMP%`에 남음(§3 FreeLibrary 금지의 트레이드오프).
 - 서버는 시작 시 1회만 스캔 — 실행 중 .jkx 설치/제거 반영 안 함(Phase 3 후보).
-- 서명/무결성 검증 없음. 컨테이너 압축 없음(DLL 원본 그대로) — 이후 압축/서명 필드를 TOC에 추가 가능하도록 type 4cc 확려남.
+- 서명/무결성 검증 없음. 컨테이너 압축 없음(§1 codec 필드 = 0 raw; 도입 시 레지스트리에 번호 배정).

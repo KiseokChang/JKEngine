@@ -12,6 +12,8 @@ namespace {
 constexpr uint32_t kMagic = 0x31584B4A;      // "JKX1" little-endian
 constexpr uint32_t kEntrySize = 128;
 constexpr uint32_t kNameSize = 60;
+constexpr uint32_t kJkxVersion = 1;          // docs/21 §header — v1 added version+codec
+constexpr uint32_t kJkxCodecRaw = 0;         // codec registry: 0 = raw/stored
 
 void PutU32(uint8_t* p, uint32_t v) {
     p[0] = static_cast<uint8_t>(v & 0xFF);
@@ -49,6 +51,7 @@ bool JkxManifest::Parse(const std::string& text) {
         if (key == "name") name = value;
         else if (key == "title") title = value;
         else if (key == "module") module = value;
+        else if (key == "script") script = value;
         else if (key == "icon") icon = value;
         else if (key == "icon2x") icon2x = value;
         else if (key == "width") width = std::atoi(value.c_str());
@@ -67,6 +70,7 @@ JKJkxFile::~JKJkxFile() {
 const char* JKJkxFile::TypeForName(const std::string& name) {
     if (name.rfind("manifest.", 0) == 0) return "MANI";
     if (name.size() >= 4 && name.compare(name.size() - 4, 4, ".dll") == 0) return "MODL";
+    if (name.size() >= 3 && name.compare(name.size() - 3, 3, ".js") == 0) return "SCRI";
     return "ICON";
 }
 
@@ -85,15 +89,40 @@ bool JKJkxFile::Open(const std::string& path) {
         return false;
     }
 
-    uint8_t header[12] = {};
-    if (std::fread(header, 1, sizeof(header), f) != sizeof(header) ||
-        GetU32(header) != kMagic) {
+    uint8_t header[20] = {};
+    const size_t got = std::fread(header, 1, sizeof(header), f);
+    if (got < 12 || GetU32(header) != kMagic) {
         std::fprintf(stderr, "JKJkxFile: '%s' is not a JKX1 container\n", path.c_str());
         std::fclose(f);
         return false;
     }
     const uint32_t tocOffset = GetU32(header + 4);
     const uint32_t entryCount = GetU32(header + 8);
+    // v0 files (tocOffset == 12) predate the version/codec fields; v1+ keeps
+    // the TOC at >= 20 so both fields fit between the counts and the TOC.
+    if (tocOffset >= sizeof(header)) {
+        if (got < sizeof(header)) {
+            std::fprintf(stderr, "JKJkxFile: truncated header in '%s'\n", path.c_str());
+            std::fclose(f);
+            return false;
+        }
+        version_ = GetU32(header + 12);
+        codec_ = GetU32(header + 16);
+    }
+    if (version_ > kJkxVersion) {
+        std::fprintf(stderr,
+                     "JKJkxFile: '%s' has unsupported version %u (reader supports <= %u)\n",
+                     path.c_str(), version_, kJkxVersion);
+        std::fclose(f);
+        return false;
+    }
+    if (codec_ != kJkxCodecRaw) {
+        std::fprintf(stderr,
+                     "JKJkxFile: '%s' uses codec %u, which this reader cannot decode\n",
+                     path.c_str(), codec_);
+        std::fclose(f);
+        return false;
+    }
 
     bool ok = true;
     for (uint32_t i = 0; ok && i < entryCount; ++i) {
@@ -158,13 +187,15 @@ bool JKJkxFile::Write(const std::string& path,
         return false;
     }
 
-    const uint32_t tocOffset = sizeof(uint32_t) * 3;
+    const uint32_t tocOffset = sizeof(uint32_t) * 5;  // magic/toc/count/version/codec
     uint32_t payloadOffset = tocOffset + kEntrySize * static_cast<uint32_t>(entries.size());
 
-    uint8_t header[12] = {};
+    uint8_t header[20] = {};
     PutU32(header, kMagic);
     PutU32(header + 4, tocOffset);
     PutU32(header + 8, static_cast<uint32_t>(entries.size()));
+    PutU32(header + 12, kJkxVersion);
+    PutU32(header + 16, kJkxCodecRaw);
     bool ok = std::fwrite(header, 1, sizeof(header), f) == sizeof(header);
 
     std::vector<uint8_t> entryRaw(kEntrySize, 0);
