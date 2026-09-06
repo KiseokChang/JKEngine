@@ -14,7 +14,7 @@
 | `04_windbase_jango.md` | WINDBASE/JANGO 애플리케이션 프레임워크 | ★★☆ | 295 |
 | `05_2caocc_app.md` | WINDBASE/2CAOCC 애플리케이션 아키텍처 | ★★☆ | 235 |
 | `06_web_port_roadmap.md` | 웹 포팅 로드맵 및 기술 스택 제안 | ★★★ | 217 |
-| `10_sdl2_windows_setup.md` | Windows + VS Code + MSYS2 + SDL2 개발 환경 세팅 | ★★★ | 269 |
+| `10_sdl2_windows_setup.md` | Windows 빌드 환경 세팅 — 클론→MSYS2→패키지→빌드→실행 가이드 | ★★★ | 211 |
 | `11_jkwindow_sdl_mapping.md` | JKWINDOW → SDL2 클래스 매핑 설계 | ★★★ | 321 |
 | `12_sdl2_prototype_roadmap.md` | SDL2 JKWindow 프로토타입 로드맵 | ★★★ | 195 |
 | `13_sdl2_top_level_apps.md` | SDL2 기반 최상위 앱/기능 후보 | ★★☆ | 124 |
