@@ -18,6 +18,7 @@ extern "C" {
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <deque>
 #include <mutex>
@@ -92,6 +93,7 @@ struct ClientVPlayerApp::PlayerCore {
     double audioRef = 0;                     // clock value at framesPlayed==0
     double devLatency = 0;                   // device buffer period (got.samples/rate):
                                              // copied samples become audible this much later
+    double fps = 0;                          // video frame rate (0 = unknown), for ±1F stepping
     bool useWallClock = false;               // files without usable audio
     std::string lastError;
 
@@ -102,6 +104,8 @@ struct ClientVPlayerApp::PlayerCore {
     std::thread worker;
     std::atomic<bool> paused{false};         // atomic: ClockNow reads it under ringM
     bool ended = false, stop = false, wantSeek = false;
+    bool jogSeek = false;                    // setter-owned: pending seek is a scrub (keyframe-only)
+    std::atomic<bool> jogging{false};        // scrub drag in progress: worker skips audio decode
     double seekTarget = 0;
     double dropBeforePts = -1;               // frames older than this are stale (post-seek)
     uint64_t seekGen = 0;                    // bumped on seek; in-flight audio pushes abort
@@ -184,11 +188,28 @@ struct ClientVPlayerApp::PlayerCore {
 
     void SetVolume(float v) { volume.store(std::clamp(v, 0.0f, 1.0f), std::memory_order_relaxed); }
 
-    void Seek(double t) {
+    // User A/V offset, seconds. Positive = audio later relative to video
+    // (PotPlayer-style "음성 지연"). Applied ONLY as a display-gate shift in
+    // SyncVideoTexture — the clock/seek domain stays pure, so scrubbing and
+    // frame stepping never accumulate the offset.
+    std::atomic<float> avDelay{0.0f};
+    void SetAvDelay(float v) {
+        avDelay.store(std::clamp(v, -1.0f, 1.0f), std::memory_order_relaxed);
+    }
+
+    // Seek() = precision (decode forward to the target). SeekScrub() = jog-dial
+    // scrub (keyframe-only). Both write the flag together with the target
+    // under m, so a pending seek always carries the flag of the LAST request —
+    // scrub-then-release coalesces into one precision seek (latest-wins).
+    void Seek(double t) { SeekCommon(t, false); }
+    void SeekScrub(double t) { SeekCommon(t, true); }
+
+    void SeekCommon(double t, bool scrub) {
         if (duration > 0) t = std::clamp(t, 0.0, duration);
         std::lock_guard<std::mutex> lk(m);
         wantSeek = true;
         seekTarget = t;
+        jogSeek = scrub;
         if (useWallClock) {
             if (wallPlaying) { wallAccum += WallSec(wallStart); }
             wallBase = t;
@@ -199,12 +220,32 @@ struct ClientVPlayerApp::PlayerCore {
         cv.notify_all();
     }
 
+    // Jog mode: while scrubbing (usually paused) the audio ring never drains,
+    // so RingPush would park the worker mid-GOP and stall video decode. Skip
+    // audio decode entirely — packets are still read + unref'd, keeping the
+    // demuxer position in sync for the next seek.
+    void SetJog(bool j) { jogging.store(j, std::memory_order_relaxed); }
+
     // Stage-1 seek: runs on the worker with m held. Flush codecs + queues, park
     // the clock at the target and drop frames older than target (dropBeforePts).
+    // Scrub seeks are keyframe-only: dropBeforePts = -1 keeps every decoded
+    // frame, so the landing keyframe displays immediately and decode creeps
+    // toward the target (the pop gate converges as videoQ drains). NOPTS
+    // frames are already rejected by pts < 0 in DecodeVideoPacket, so -1.0 is
+    // a safe "drop nothing" sentinel.
     void DoSeekLockedStage1() {
         double t = seekTarget;
         if (duration > 0) t = std::clamp(t, 0.0, duration);
-        dropBeforePts = t - 0.05;
+        // With a negative user A/V offset the display gate sits at
+        // clock + avDelay (< t), so the first pushable frame (t - 0.05)
+        // would exceed the gate and nothing pops until the clock crawls
+        // |avDelay| forward — a frozen picture after every seek, forever
+        // while paused. Extend the stale cutoff to cover the shifted gate
+        // (positive offsets need nothing: the gate is in the future).
+        dropBeforePts = jogSeek
+                            ? -1.0
+                            : t - 0.05 +
+                                  std::min(0.0, (double)avDelay.load(std::memory_order_relaxed));
         videoQ.clear();
         if (vctx) avcodec_flush_buffers(vctx);
         if (actx) avcodec_flush_buffers(actx);
@@ -212,11 +253,11 @@ struct ClientVPlayerApp::PlayerCore {
             std::lock_guard<std::mutex> lk(ringM);
             ++seekGen;
             ringR = ringW = 0;
+            // Rebase the audio clock so ClockNow() == t at zero consumed
+            // samples. Post-seek audio resumes at file time t + ptsOrigin,
+            // not at the stream's original start, hence the rebase (a plain
+            // seed would go negative when audio starts after ptsOrigin).
             if (audioRate) {
-                // Rebase the audio clock so ClockNow() == t at zero consumed
-                // samples. Post-seek audio resumes at file time t + ptsOrigin,
-                // not at the stream's original start, hence the rebase (a plain
-                // seed would go negative when audio starts after ptsOrigin).
                 const double f = (t - audioLead) * audioRate;
                 framesPlayed = f > 0 ? (uint64_t)f : 0;
                 audioRef = t - (double)framesPlayed / audioRate;
@@ -252,6 +293,13 @@ struct ClientVPlayerApp::PlayerCore {
             } else {
                 videoW = st->codecpar->width;
                 videoH = st->codecpar->height;
+                // Frame rate for ±1F stepping. r_frame_rate is a sane fallback
+                // but some containers carry fake values (1000 fps tbn hacks),
+                // so clamp hard.
+                AVRational fr = st->avg_frame_rate;
+                if (fr.num <= 0 || fr.den <= 0) fr = st->r_frame_rate;
+                if (fr.num > 0 && fr.den > 0)
+                    fps = std::clamp((double)fr.num / (double)fr.den, 1.0, 240.0);
             }
         }
         audioStream = av_find_best_stream(fmt, AVMEDIA_TYPE_AUDIO, -1, -1, &adec, 0);
@@ -399,7 +447,8 @@ struct ClientVPlayerApp::PlayerCore {
             bool cont = true;
             if (pkt->stream_index == videoStream) {
                 cont = DecodeVideoPacket(pkt, frame);
-            } else if (pkt->stream_index == audioStream && actx) {
+            } else if (pkt->stream_index == audioStream && actx &&
+                       !jogging.load(std::memory_order_relaxed)) {
                 DecodeAudioPacket(pkt, frame);
             }
             av_packet_unref(pkt);
@@ -579,7 +628,12 @@ void ClientVPlayerApp::SyncVideoTexture(SDL_Renderer* renderer) {
     PlayerCore* p = player_.get();
     if (!p || p->videoW <= 0) return;
     VideoFrame vf;
-    if (!p->PopVideoFrame(p->ClockNow(), vf)) return;
+    // The user A/V offset lives here — a display-gate shift only. Positive
+    // avDelay shows frames earlier relative to the audio clock (= audio
+    // later), without touching the clock/seek domain (no stepping drift).
+    const double gate = p->ClockNow() +
+                        (double)p->avDelay.load(std::memory_order_relaxed);
+    if (!p->PopVideoFrame(gate, vf)) return;
 
     if (!videoTex_ || texW_ != vf.w || texH_ != vf.h) {
         if (videoTex_) SDL_DestroyTexture(static_cast<SDL_Texture*>(videoTex_));
@@ -661,7 +715,7 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
     }
 
     char tbuf[16], dbuf[16];
-    FormatTime(tbuf, sizeof(tbuf), st.pos);
+    FormatTime(tbuf, sizeof(tbuf), jogActive_ ? jogTarget_ : st.pos);
     FormatTime(dbuf, sizeof(dbuf), st.dur);
     ImGui::SameLine();
     ImGui::Text("%s / %s", tbuf, dbuf);
@@ -672,10 +726,20 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
     if (ImGui::SliderFloat("##vol", &vol, 0.0f, 1.0f, "vol %.2f"))
         p->SetVolume(vol);
 
+    // Manual A/V offset (user request): positive = audio later relative to
+    // video. Pure display-gate shift — see SyncVideoTexture.
+    float avd = p->avDelay.load(std::memory_order_relaxed);
+    ImGui::SetNextItemWidth(160);
+    if (ImGui::SliderFloat("##avsync", &avd, -1.0f, 1.0f, "A/V sync %+.2f s"))
+        p->SetAvDelay(avd);
+    ImGui::SameLine();
+    ImGui::TextColored(ImVec4(0.65f, 0.65f, 0.7f, 1.0f), "(+) audio later");
+
     ImGui::Separator();
 
     // Video area: aspect-fit, centered.
     const ImVec2 avail = ImGui::GetContentRegionAvail();
+    ImVec2 vidMin(0, 0), vidMax(0, 0);
     if (hasFrame_ && videoTex_ && texW_ > 0 && texH_ > 0) {
         float scale = std::min(avail.x / texW_, avail.y / texH_);
         scale = std::max(scale, 0.01f);
@@ -684,16 +748,152 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
         ImGui::SetCursorPos(ImVec2(cur.x + (avail.x - size.x) * 0.5f,
                                    cur.y + (avail.y - size.y) * 0.5f));
         ImGui::Image((ImTextureID)videoTex_, size);
+        vidMin = ImGui::GetItemRectMin();
+        vidMax = ImGui::GetItemRectMax();
     } else if (!openError_.empty()) {
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", openError_.c_str());
     } else {
         ImGui::TextUnformatted("no frame yet");
     }
 
+    // --- Jog knob overlay (translucent, floats over the video's bottom-right)
+    // Drag = rotary scrub: tangential mouse motion spins the dial, time
+    // follows, the clock is auto-paused and re-pinned per debounced seek so
+    // the picture tracks the knob. Release = one precision seek to the
+    // snapped frame, then playback state is restored.
+    const bool jogUi = vidMax.x > vidMin.x && st.dur > 0 &&
+                       (vidMax.x - vidMin.x) >= 220.0f &&
+                       (vidMax.y - vidMin.y) >= 120.0f;
+    if (jogUi) {
+        const float kD = 64.0f;  // knob diameter
+        const float kM = 16.0f;  // inset from the video rect
+        const ImVec2 kmin(vidMax.x - kM - kD, vidMax.y - kM - kD);
+        const ImVec2 kmax(kmin.x + kD, kmin.y + kD);
+        const ImVec2 c((kmin.x + kmax.x) * 0.5f, (kmin.y + kmax.y) * 0.5f);
+        const double dur = (double)st.dur;
+
+        // ±1F step (frame-precise, paused-friendly). Guarded against an
+        // active knob drag; Left/Right keys below share this path.
+        const double fps = p->fps;
+        auto stepFrame = [&](int n) {
+            if (fps <= 0.0 || jogActive_) return;
+            double t = std::clamp(st.pos + (double)n / fps, 0.0, dur);
+            t = std::round(t * fps) / fps;
+            p->Seek(t);
+        };
+
+        // Translucent step buttons left of the knob.
+        ImGui::SetCursorScreenPos(ImVec2(kmin.x - 78.0f, c.y - 11.0f));
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.16f, 0.16f, 0.20f, 0.55f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.25f, 0.25f, 0.32f, 0.80f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.32f, 0.32f, 0.42f, 0.90f));
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.9f, 0.9f, 0.95f, 0.75f));
+        if (ImGui::Button("<", ImVec2(30, 22))) stepFrame(-1);
+        ImGui::SameLine();
+        if (ImGui::Button(">", ImVec2(30, 22))) stepFrame(+1);
+        ImGui::PopStyleColor(4);
+
+        ImGui::SetCursorScreenPos(kmin);
+        ImGui::InvisibleButton("##jogknob", ImVec2(kD, kD));
+        const bool hot = ImGui::IsItemHovered() || ImGui::IsItemActive();
+
+        const bool activated = ImGui::IsItemActivated();
+        if (activated) {
+            // Drag start: freeze the clock (auto-pause) and skip audio decode
+            // while scrubbing so the worker never parks on the idle ring.
+            jogActive_ = true;
+            jogWasPlaying_ = !st.paused && !st.ended;
+            if (jogWasPlaying_) p->SetPaused(true);
+            p->SetJog(true);
+            jogTarget_ = st.pos;
+            jogLastSent_ = -1;
+            knobCX_ = c.x; knobCY_ = c.y;
+            jogMouseX_ = io.MousePos.x; jogMouseY_ = io.MousePos.y;
+            jogLastSeek_ = std::chrono::steady_clock::now();
+        }
+        if (jogActive_ && !ImGui::IsItemActive()) {
+            // Release: precision seek to the snapped frame, restore transport.
+            const double t = fps > 0.0
+                                 ? std::round(std::clamp(jogTarget_, 0.0, dur) * fps) / fps
+                                 : jogTarget_;
+            p->Seek(t);
+            p->SetJog(false);
+            if (jogWasPlaying_) p->SetPaused(false);
+            jogActive_ = false;
+        }
+        if (jogActive_ && !activated) {
+            // Tangential delta: dθ = cross(r, dMouse) / |r|². Wrap-free and
+            // exact for any drag speed; skip when the pointer sits on the
+            // center (r too small for a stable direction). The activation
+            // frame is excluded: its MouseDelta is the press-placement jump
+            // (the cursor can teleport onto the knob), not a rotation —
+            // feeding it in once spun the dial by whole seconds.
+            const float rx = jogMouseX_ - knobCX_, ry = jogMouseY_ - knobCY_;
+            const float r2 = rx * rx + ry * ry;
+            const float dx = io.MouseDelta.x, dy = io.MouseDelta.y;
+            if (r2 > 36.0f && (dx != 0.0f || dy != 0.0f)) {
+                const double dth = (double)(rx * dy - ry * dx) / (double)r2;
+                // One full revolution = sPerRev seconds (tuned; scales with
+                // clip length but never coarser than ~1 s/rev on short clips).
+                const double sPerRev = std::clamp(dur / 8.0, 1.0, 30.0);
+                jogTarget_ = std::clamp(
+                    jogTarget_ + dth * 0.15915494309 * sPerRev, 0.0, dur);
+            }
+            jogMouseX_ += dx;
+            jogMouseY_ += dy;
+            // Debounced latest-wins scrub seek: 40 ms cadence, target only
+            // when it moved. The single wantSeek/seekTarget slot coalesces.
+            const auto now = std::chrono::steady_clock::now();
+            if (std::chrono::duration<double>(now - jogLastSeek_).count() >= 0.040 &&
+                jogTarget_ != jogLastSent_) {
+                p->SeekScrub(jogTarget_);
+                jogLastSent_ = jogTarget_;
+                jogLastSeek_ = now;
+            }
+        }
+
+        // Knob visuals: base disc + rim, position arc from 12 o'clock and a
+        // head dot at the arc end. Drag/hover brightens the glass.
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const float rad = kD * 0.5f;
+        const ImU32 colBase = ImGui::IsItemActive()
+                                  ? IM_COL32(30, 60, 110, 170)
+                                  : hot ? IM_COL32(24, 24, 32, 150)
+                                        : IM_COL32(16, 16, 22, 90);
+        const ImU32 colRim = hot ? IM_COL32(140, 190, 255, 190)
+                                 : IM_COL32(160, 170, 190, 110);
+        dl->AddCircleFilled(c, rad, colBase, 24);
+        dl->AddCircle(c, rad, colRim, 24, 2.0f);
+        const double frac = std::clamp(
+            (jogActive_ ? jogTarget_ : (double)st.pos) / dur, 0.0, 1.0);
+        if (frac > 0.002) {
+            const float kTwoPi = 6.28318530718f;
+            const float a0 = -kTwoPi * 0.25f; // 12 o'clock
+            const float a1 = a0 + (float)(frac * 2.0) * kTwoPi;
+            dl->PathArcTo(c, rad - 6.0f, a0, a1, 24);
+            dl->PathStroke(IM_COL32(120, 220, 140, 200), 0, 3.5f);
+            dl->AddCircleFilled(ImVec2(c.x + (rad - 6.0f) * std::cos(a1),
+                                       c.y + (rad - 6.0f) * std::sin(a1)),
+                                4.0f, IM_COL32(120, 220, 140, 255), 12);
+        }
+    }
+
     // Space toggles pause (unless typing in the path field).
     if (!io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Space, false) &&
         st.dur > 0 && !st.ended) {
         p->SetPaused(!st.paused);
+    }
+
+    // Left/Right = ±1 frame. repeat=false on purpose: key repeat would fire a
+    // full flush-seek per repeat (~20/s).
+    if (!io.WantTextInput && st.dur > 0 && p->fps > 0.0 && !jogActive_) {
+        int step = 0;
+        if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)) step = -1;
+        if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, false)) step = +1;
+        if (step) {
+            double t = std::clamp(st.pos + (double)step / p->fps, 0.0, (double)st.dur);
+            p->Seek(std::round(t * p->fps) / p->fps);
+        }
     }
 
     ImGui::End();

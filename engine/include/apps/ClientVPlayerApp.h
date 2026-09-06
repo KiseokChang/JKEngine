@@ -52,6 +52,17 @@ private:
     float seekUi_ = 0.f;
     bool seekingUi_ = false;
     std::string openError_;
+
+    // Jog dial (translucent rotary scrub overlay on the video). Screen-space
+    // floats keep this header ImGui-free; the knob center and last mouse pos
+    // only matter while a drag is active.
+    bool jogActive_ = false;
+    bool jogWasPlaying_ = false;
+    double jogTarget_ = 0;      // scrub target while dragging (UI time)
+    double jogLastSent_ = -1;   // last target sent to SeekScrub (debounce)
+    float knobCX_ = 0, knobCY_ = 0;
+    float jogMouseX_ = 0, jogMouseY_ = 0;
+    std::chrono::steady_clock::time_point jogLastSeek_{};
 };
 
 } // namespace jk

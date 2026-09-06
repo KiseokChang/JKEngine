@@ -615,6 +615,52 @@ Replay→0부터 재생 재개, Space 일시정지/재개 토글, 오디오 디�
 down 후 150ms 지연 후 up**으로 보내야 한다 — SendKeys류는 down/up을
 연속 전송해 같은 ImGui 프레임에 처리되어 `IsKeyPressed`가 눌림을 못 본다.
 
+#### 11.8.1 조그 다이얼 + A/V 오프셋 (2026-09-06 후속)
+
+iCLOO 스타일의 프레임 정밀 감기기. 영상 위에 떠 있는 반투명
+오버레이 컨트롤로, 비디오 영역 우하단에 노브 64×64 + 미니 버튼
+`[<]` `[>]`(±1F) 클러스터. DrawList `AddCircleFilled`(alpha ~90)로
+베이스 원 + `PathArcTo` 위치 호, hover/drag 시 alpha 상승.
+
+- **드래그 수학**: per-frame atan2 대신 접선 cross-product
+  `dθ = (r.x·Δy − r.y·Δx)/|r|²`(중심 6px 데드존) — 중심 근처
+  노이즈·부호 반전에 견고하고, 프레임 랙으로 마우스 델타가 몰려도
+  총 회전량이 보존된다. `sPerRev = clamp(dur/8, 1, 30)` — 1회전이
+  항상 1~30초 스케일을 커버.
+- **스크럽 파이프라인(무프리징 3기법)**: ①디바운스+latest-wins —
+  드래그 중 40ms 간격으로 `SeekScrub(target)`을 단일 슬롯에
+  덮어쓰기 ②키프레임 시크 — `jogSeek` 시 Stage1이
+  `dropBeforePts = -1`(착지 키프레임 즉시 표시, 디코드가 타깃으로
+  수렴) ③비동기 분리 — UI는 워커를 절대 기다리지 않고 드래그 중엔
+  `jogTarget_`이 클럭 역할(시크 리베이스가 clock=target).
+  재생 중 드래그 시작 시 자동 일시정지 + `SetJog(true)`로 오디오
+  디코드 스킵(RingPush 블록 방지), 릴리즈 시 프레임 스냅 정밀 시크
+  `Seek(round(t·fps)/fps)` 후 복귀.
+- **fps 획득**: `avg_frame_rate` 아니면 `r_frame_rate`, **[1,240]
+  클램프** — r_frame_rate 가짜값(1000 등) 방어. Left/Right 키도
+  ±1F(리핏 없음 — 반복당 Stage1 시크는 과중).
+- **A/V 오프셋 UI**: −1..+1s 슬라이더. 양수=오디오 늦게(비디오가
+  빠를 때). SyncVideoTexture 표시 게이트가 `clock + avDelay`를 쓰므로
+  시크 직후 게이트와 Stage1 착지 프레임(`t−0.05`) 사이에
+  |avDelay| 공백이 생길 수 있다 → **음수 오프셋일 때만**
+  `dropBeforePts`를 `t − 0.05 + min(0, avDelay)`로 확장(사용자
+  도깨비 E01 −0.71s 시크 프리즈 보고로 수정). 양수는 게이트가
+  미래라 불필요.
+- **pts 정규화 + 디바이스 레이턴시(싱크 픽스)**: 컨테이너
+  `start_time`(ptsOrigin)을 모든 pts/시크 ts에서 차감해 MKV
+  0.001s 오프셋 제거. ClockNow 오디오 경로는
+  `audioRef + framesPlayed/rate − devLatency`(재생 중만)로 재작성 —
+  `framesPlayed`는 "디바이스로 복사된" 샘플 수라 실제 가청 위치보다
+  spec.samples(≈46ms)만큼 앞서 세는 것을 보정. 시크 시 오디오
+  클럭 리베이스(`framesPlayed=(t−audioLead)·rate`).
+
+**검증(서버 모드, testsrc 25fps + 초당 번인):** ±1F 30클릭 = +1.0s
+정확, 느린 CW/CCW 드래그, 고속 플릭(+2.2s 수렴 — 일시정지/재생/
+시크 직후/무오디오 전부), 자동 일시정지/복귀, 슬라이더 A/V 오프셋
+3지점, 무오디오 월클록 경로, EOF/Replay/Space 회귀. 플릭 스크립트
+(vp_jog.ps1)는 접선 적분이 과소평가되는 게 정상 — 화면 반응으로
+판정.
+
 ### 11.9 Phase 4 구현 기록 — CEF OSR 브라우저 (2026-09-06 완료)
 
 §11.7의 마지막 미착수 항목인 CEF OSR 브라우저 완료. Chromium Embedded
