@@ -165,7 +165,7 @@ public:
                        DoneFn onDone)
         : JKDialog(modify ? "2.4G Equipment - Modify" : "2.4G Equipment - Add") {
         onDone_ = std::move(onDone);
-        SetWindowRect(MakeRect(660, 220, 1260, 860));
+        SetWindowRect(MakeRect(340, 20, 940, 660));
         SetAttrFlags(WA_TITLEMOVEABLE);
         SetBackColor(LTGRAY_R, LTGRAY_G, LTGRAY_B);
         modify_ = modify;
@@ -303,7 +303,7 @@ Equip24Dialog::Equip24Dialog(const std::string& budae)
                + " - Copyright 2 C/A 1996 (SDL2 Port)"),
       budae_(budae.empty() ? std::string("HQ") : budae) {
     dataMan_.Load();
-    SetWindowRect(MakeRect(60, 40, 1860, 1040));
+    SetWindowRect(MakeRect(30, 30, 1250, 650));
     SetAttrFlags(WA_TITLEMOVEABLE);
     SetBackColor(LTGRAY_R, LTGRAY_G, LTGRAY_B);
     BuildControls();
@@ -323,20 +323,20 @@ void Equip24Dialog::BuildControls() {
     nameHead->SetAdjustFlag(ADJ_YCENTER);
     AddControl(std::unique_ptr<JKStatic>(nameHead));
 
-    JKStatic* colHead = new JKStatic(MakeRect(310, 10, 1780, 34), 0);
+    JKStatic* colHead = new JKStatic(MakeRect(310, 10, 1180, 34), 0);
     colHead->SetText("  Name              Number        Use    A     B     C     Date");
     colHead->SetBackColor(BROWN_R, BROWN_G, BROWN_B);
     colHead->SetTextColor(255, 255, 255);
     colHead->SetAdjustFlag(ADJ_YCENTER);
     AddControl(std::unique_ptr<JKStatic>(colHead));
 
-    nameList_ = new JKListBox(MakeRect(10, 40, 300, 880), 0);
+    nameList_ = new JKListBox(MakeRect(10, 40, 300, 520), 0);
     nameList_->SetBackColor(255, 255, 255);
     nameList_->SetTextColor(0, 0, 0);
     nameList_->SetOnSelect([this](int32_t) { RebuildKindList(); });
     AddControl(std::unique_ptr<JKListBox>(nameList_));
 
-    kindList_ = new JKListBox(MakeRect(310, 40, 1780, 880), 0);
+    kindList_ = new JKListBox(MakeRect(310, 40, 1180, 520), 0);
     kindList_->SetBackColor(255, 255, 255);
     kindList_->SetTextColor(0, 0, 0);
     AddControl(std::unique_ptr<JKListBox>(kindList_));
@@ -349,18 +349,18 @@ void Equip24Dialog::BuildControls() {
         AddControl(std::unique_ptr<JKButton>(btn));
     };
 
-    addBtn(310, 895, 440, 935, "Add", [this]() { ShowInputDialog(false); });
-    addBtn(450, 895, 580, 935, "Modify", [this]() { ShowInputDialog(true); });
-    addBtn(590, 895, 720, 935, "Delete", [this]() { ConfirmDelete(); });
-    addBtn(730, 895, 860, 935, "Totals", [this]() { ShowTotals(); });
-    addBtn(870, 895, 1000, 935, "Save", [this]() {
+    addBtn(310, 535, 440, 575, "Add", [this]() { ShowInputDialog(false); });
+    addBtn(450, 535, 580, 575, "Modify", [this]() { ShowInputDialog(true); });
+    addBtn(590, 535, 720, 575, "Delete", [this]() { ConfirmDelete(); });
+    addBtn(730, 535, 860, 575, "Totals", [this]() { ShowTotals(); });
+    addBtn(870, 535, 1000, 575, "Save", [this]() {
         dataMan_.Save();
         ShowMessageModal("2.4G Equipment", "Saved to " + dataMan_.fileName);
     });
-    addBtn(1650, 895, 1780, 935, "Close",
+    addBtn(1050, 535, 1180, 575, "Close",
            [this]() { dataMan_.Save(); Close(ResultOk); });
 
-    statusLine_ = new JKStatic(MakeRect(10, 945, 1780, 970), 0);
+    statusLine_ = new JKStatic(MakeRect(10, 585, 1180, 610), 0);
     statusLine_->SetAdjustFlag(ADJ_YCENTER);
     AddControl(std::unique_ptr<JKStatic>(statusLine_));
     UpdateStatusLine();

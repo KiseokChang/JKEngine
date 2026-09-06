@@ -127,7 +127,7 @@ public:
         onDone_ = std::move(onDone);
         modify_ = modify;
         baseText_ = base.text;
-        SetWindowRect(MakeRect(660, 300, 1260, 780));
+        SetWindowRect(MakeRect(340, 100, 940, 580));
         SetAttrFlags(WA_TITLEMOVEABLE);
         SetBackColor(LTGRAY_R, LTGRAY_G, LTGRAY_B);
 
@@ -206,7 +206,7 @@ EquipDialog::EquipDialog(const std::string& budae)
                + " - Copyright 2 C/A 1996 (SDL2 Port)"),
       budae_(budae.empty() ? std::string("HQ") : budae) {
     bombMan_.Load();
-    SetWindowRect(MakeRect(240, 120, 1680, 960));
+    SetWindowRect(MakeRect(30, 30, 1250, 650));
     SetAttrFlags(WA_TITLEMOVEABLE);
     SetBackColor(LTGRAY_R, LTGRAY_G, LTGRAY_B);
     BuildControls();
@@ -218,20 +218,20 @@ EquipDialog::~EquipDialog() {
 }
 
 void EquipDialog::BuildControls() {
-    JKStatic* colHead = new JKStatic(MakeRect(10, 10, 1426, 34), 0);
+    JKStatic* colHead = new JKStatic(MakeRect(10, 10, 1180, 34), 0);
     colHead->SetText("  Kind             HQ        1st Co    2nd Co    3rd Co");
     colHead->SetBackColor(BROWN_R, BROWN_G, BROWN_B);
     colHead->SetTextColor(255, 255, 255);
     colHead->SetAdjustFlag(ADJ_YCENTER);
     AddControl(std::unique_ptr<JKStatic>(colHead));
 
-    listBox_ = new JKListBox(MakeRect(10, 40, 1426, 700), 0);
+    listBox_ = new JKListBox(MakeRect(10, 40, 1180, 520), 0);
     listBox_->SetBackColor(255, 255, 255);
     listBox_->SetTextColor(0, 0, 0);
     AddControl(std::unique_ptr<JKListBox>(listBox_));
 
     auto addBtn = [&](int x1, int x2, const char* label, std::function<void()> fn) {
-        JKButton* btn = new JKButton(MakeRect(x1, 715, x2, 755), 0);
+        JKButton* btn = new JKButton(MakeRect(x1, 535, x2, 575), 0);
         btn->SetText(label);
         btn->SetOnClick(std::move(fn));
         AddControl(std::unique_ptr<JKButton>(btn));
@@ -245,9 +245,9 @@ void EquipDialog::BuildControls() {
         ShowMessageModal("Equipment", "Saved to " + bombMan_.fileName);
     });
     addBtn(570, 700, "Total", [this]() { ShowTotals(); });
-    addBtn(1290, 1426, "Close", [this]() { bombMan_.Save(); Close(ResultOk); });
+    addBtn(1050, 1180, "Close", [this]() { bombMan_.Save(); Close(ResultOk); });
 
-    statusLine_ = new JKStatic(MakeRect(10, 765, 1426, 795), 0);
+    statusLine_ = new JKStatic(MakeRect(10, 585, 1180, 610), 0);
     statusLine_->SetAdjustFlag(ADJ_YCENTER);
     AddControl(std::unique_ptr<JKStatic>(statusLine_));
     UpdateStatusLine();

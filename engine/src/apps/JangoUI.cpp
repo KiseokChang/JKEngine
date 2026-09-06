@@ -177,8 +177,8 @@ void JangoUI::BuildMainWindow() {
     AddMenuButton(ID_BTN_BUDAE,   "Change Unit",  MakeRect(50, y, 300, y + 70)); y += h;
     AddMenuButton(ID_BTN_EXIT,    "Exit",         MakeRect(50, y, 300, y + 70));
 
-    // FHD(1920x1080) 클라이언트 영역(1916x1054)에서 우측 정보 영역을 채운다.
-    auto about = std::make_unique<AboutPanel>(MakeRect(360, 50, 1896, 1030), 0);
+    // 1280x680 클라이언트 영역에서 우측 정보 영역을 채운다.
+    auto about = std::make_unique<AboutPanel>(MakeRect(360, 50, 1256, 630), 0);
     mainWindow_->AddControl(std::move(about));
 }
 

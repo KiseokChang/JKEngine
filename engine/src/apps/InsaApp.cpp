@@ -140,7 +140,7 @@ public:
         onDone_ = std::move(onDone);
         modify_ = modify;
         baseSerial_ = base.serial;
-        SetWindowRect(MakeRect(560, 160, 1360, 860));
+        SetWindowRect(MakeRect(240, 20, 1040, 660));
         SetAttrFlags(WA_TITLEMOVEABLE);
         SetBackColor(LTGRAY_R, LTGRAY_G, LTGRAY_B);
 
@@ -287,7 +287,7 @@ InsaDialog::InsaDialog(const std::string& budae)
                + " - Copyright 2 C/A 1996 (SDL2 Port)"),
       budae_(budae.empty() ? std::string("HQ") : budae) {
     personMan_.Load();
-    SetWindowRect(MakeRect(160, 80, 1760, 1000));
+    SetWindowRect(MakeRect(30, 30, 1250, 650));
     SetAttrFlags(WA_TITLEMOVEABLE);
     SetBackColor(LTGRAY_R, LTGRAY_G, LTGRAY_B);
     BuildControls();
@@ -299,20 +299,20 @@ InsaDialog::~InsaDialog() {
 }
 
 void InsaDialog::BuildControls() {
-    JKStatic* colHead = new JKStatic(MakeRect(10, 10, 1586, 34), 0);
+    JKStatic* colHead = new JKStatic(MakeRect(10, 10, 1180, 34), 0);
     colHead->SetText("  Name            Rank      Serial        Unit            Birth       Enlist      Specialty");
     colHead->SetBackColor(BROWN_R, BROWN_G, BROWN_B);
     colHead->SetTextColor(255, 255, 255);
     colHead->SetAdjustFlag(ADJ_YCENTER);
     AddControl(std::unique_ptr<JKStatic>(colHead));
 
-    listBox_ = new JKListBox(MakeRect(10, 40, 1586, 760), 0);
+    listBox_ = new JKListBox(MakeRect(10, 40, 1180, 520), 0);
     listBox_->SetBackColor(255, 255, 255);
     listBox_->SetTextColor(0, 0, 0);
     AddControl(std::unique_ptr<JKListBox>(listBox_));
 
     auto addBtn = [&](int x1, int x2, const char* label, std::function<void()> fn) {
-        JKButton* btn = new JKButton(MakeRect(x1, 775, x2, 815), 0);
+        JKButton* btn = new JKButton(MakeRect(x1, 535, x2, 575), 0);
         btn->SetText(label);
         btn->SetOnClick(std::move(fn));
         AddControl(std::unique_ptr<JKButton>(btn));
@@ -327,10 +327,10 @@ void InsaDialog::BuildControls() {
         personMan_.Save();
         ShowMessageModal("Personnel", "Saved to " + personMan_.fileName);
     });
-    addBtn(1450, 1586, "Close",
+    addBtn(1050, 1180, "Close",
            [this]() { personMan_.Save(); Close(ResultOk); });
 
-    statusLine_ = new JKStatic(MakeRect(10, 830, 1586, 860), 0);
+    statusLine_ = new JKStatic(MakeRect(10, 585, 1180, 610), 0);
     statusLine_->SetAdjustFlag(ADJ_YCENTER);
     AddControl(std::unique_ptr<JKStatic>(statusLine_));
     UpdateStatusLine();

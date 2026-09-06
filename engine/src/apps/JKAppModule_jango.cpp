@@ -5,7 +5,7 @@
 #include <apps/ClientJangoApp.h>
 
 JKAPP_EXPORT const jk::JKAppMeta* jk_app_meta() {
-    static const jk::JKAppMeta meta{ "jango", "JANGO", 1920, 1080 };
+    static const jk::JKAppMeta meta{ "jango", "JANGO", 1280, 680 };
     return &meta;
 }
 
