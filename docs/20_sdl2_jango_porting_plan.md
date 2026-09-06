@@ -1,6 +1,6 @@
 # SDL2 JKWindow 기반 원본 비즈니스 앱 포팅 계획
 
-> WINDBASE/JANGO, WINDBASE/2CAOCC에 남아 있는 원본 JKENGINE 애플리케이션을 `prototype/sdl2_jkwindow` 위로 포팅하는 단계별 계획입니다.  
+> WINDBASE/JANGO, WINDBASE/2CAOCC에 남아 있는 원본 JKENGINE 애플리케이션을 `engine` 위로 포팅하는 단계별 계획입니다.  
 > 원본 파일은 그대로 두고, SDL2 프로토타입 API에 맞춰 **새로운 앱 클래스**를 작성합니다.
 
 ---
@@ -72,7 +72,7 @@
 ## 5. 파일 추가/변경 예정
 
 ```
-prototype/sdl2_jkwindow/
+engine/
 ├── include/
 │   ├── JKTypes.h              # JKRect 헬퍼 확장
 │   ├── JKButton.h             # SetDepth() 추가
@@ -93,11 +93,11 @@ prototype/sdl2_jkwindow/
 ## 6. 검증 기준
 
 - [x] `build_with_temp.sh`(bash) / `build_sdl2_jkwindow.bat`로 빌드 성공
-- [x] `jkproto_sdl2_jkwindow.exe jango` 실행 시 JANGO 메인 메뉴 표시 (FHD 1920×1080)
+- [x] `jkdesktop.exe jango` 실행 시 JANGO 메인 메뉴 표시 (FHD 1920×1080)
 - [x] 6개 버튼 클릭 시 각각 비밀번호/**InsaWindow**/**Equip24Window**/**EquipWindow**/파일선택/부대변경/종료 동작 (하위 윈도우 스텁 해제 완료)
 - [x] 모달 다이얼로그가 메인 윈도우 위에 표시되고, 닫기 전 메인 윈도우 입력 차단
 - [x] 종료 버튼 또는 창 닫기로 앱 종료
-- [x] `jkproto_sdl2_jkwindow.exe test` — 데이터 매니저 자기 테스트 28건 PASS (장비/폭탄/인사 13 + OCC 목표 5 + OCC 유닛 5 + OCC 사격 5)
+- [x] `jkdesktop.exe test` — 데이터 매니저 자기 테스트 28건 PASS (장비/폭탄/인사 13 + OCC 목표 5 + OCC 유닛 5 + OCC 사격 5)
 
 ---
 

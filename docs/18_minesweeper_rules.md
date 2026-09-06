@@ -117,6 +117,6 @@
 
 ## 9. 관련 파일
 
-- `prototype/sdl2_jkwindow/include/apps/MineSweeperApp.h`
-- `prototype/sdl2_jkwindow/src/apps/MineSweeperApp.cpp`
-- `prototype/sdl2_jkwindow/src/main.cpp` (self-test)
+- `engine/include/apps/MineSweeperApp.h`
+- `engine/src/apps/MineSweeperApp.cpp`
+- `engine/src/main.cpp` (self-test)

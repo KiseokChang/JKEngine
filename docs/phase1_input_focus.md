@@ -25,7 +25,7 @@ Strengthen the low-level input layer so controls behave predictably across mouse
    - Closing the modal restores focus to the previous window.
 
 ## Verification
-- Build `prototype/sdl2_jkwindow`.
+- Build `engine`.
 - Run automated probes:
   - `tools\verify_tab_navigation.ps1` — Tab/Shift+Tab cycles through focusable controls.
   - `tools\verify_dialog_keyboard.ps1` — Enter confirms `JKMessageBox`, Escape cancels `JKFileDialog`, focus restores to the previous control.
@@ -37,7 +37,7 @@ Strengthen the low-level input layer so controls behave predictably across mouse
 ## 5. IME 한글 입력 (Windows IME 우선, F2 내부 오토마타 폴백)
 
 `JKEdit`에 OS IME를 지원하는 작업도 Phase 1 후반에 함께 완료했다. 자세한 설계는
-`ARCHITECTURE_DOCS/16_sdl2_jkwindow_ime.md`를 참고한다.
+`docs/16_sdl2_jkwindow_ime.md`를 참고한다.
 
 - `JKEventType::TextEditing` 추가 — SDL `SDL_TEXTEDITING`(조합 중 문자열) 라우팅
 - `JKHangulUtil`로 UTF-8 → CP949 → KSSM 2바이트 변환 공용화

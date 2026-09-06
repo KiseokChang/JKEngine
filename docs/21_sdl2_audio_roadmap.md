@@ -1,6 +1,6 @@
 # SDL2 JKWindow 오디오 시스템 로드맵
 
-> `prototype/sdl2_jkwindow` 위에 오디오 서브시스템을 단계적으로 도입하여, 단순 UI 피드백 재생부터 멀티프로세스 오디오 컴포지터, 나아가 DAW 개발 인프라까지 확장하는 장기 계획입니다.
+> `engine` 위에 오디오 서브시스템을 단계적으로 도입하여, 단순 UI 피드백 재생부터 멀티프로세스 오디오 컴포지터, 나아가 DAW 개발 인프라까지 확장하는 장기 계획입니다.
 >
 > 현재 JKENGINE/SDL2 프로토타입은 Windows 기반 단일 프로세스/단일 스레드 메인 루프입니다. 이 로드맵은 메인 루프 구조를 해치지 않으면서도, 향후 멀티프로세스 및 DAW 확장에 대비한 믹서 뼈대를 단계적으로 쌓는 것을 목표로 합니다.
 
@@ -17,7 +17,7 @@
 
 ### 범위
 
-- **In scope**: `prototype/sdl2_jkwindow/` 내부의 오디오 서브시스템 설계 및 구현.
+- **In scope**: `engine/` 내부의 오디오 서브시스템 설계 및 구현.
 - **Out of scope**: 원본 DOS JKENGINE 오디오 코드 복원, 웹 포팅용 Web Audio 구현, 상용 DAW의 완전한 기능 재현.
 
 ---
@@ -58,7 +58,7 @@
 #### 추가 파일
 
 ```
-prototype/sdl2_jkwindow/
+engine/
 ├── include/
 │   └── JKSoundManager.h
 ├── src/
@@ -160,7 +160,7 @@ SDL_mixer를 걷어내고, 부동소수점(AUDIO_F32SYS) 기반 자체 믹서를
 #### 추가 파일
 
 ```
-prototype/sdl2_jkwindow/
+engine/
 ├── include/jkaudio/
 │   ├── JKAudioMixer.h
 │   ├── JKAudioSource.h
@@ -262,7 +262,7 @@ public:
 #### 추가 파일
 
 ```
-prototype/sdl2_jkwindow/
+engine/
 ├── include/jkaudio/
 │   ├── JKIpcAudioTransport.h
 │   ├── SharedAudioQueue.h
@@ -320,7 +320,7 @@ struct SharedAudioQueue {
 
 #### 검증 기준
 
-- [ ] `jkproto_sdl2_jkwindow.exe --child=tetris` 형태로 자식 프로세스 실행.
+- [ ] `jkdesktop.exe --child=tetris` 형태로 자식 프로세스 실행.
 - [ ] 자식에서 사운드 재생 요청 시 런처에서 실제로 소리 출력.
 - [ ] 런처 창을 닫으면 자식 프로세스와 공유 메모리가 정리됨.
 
@@ -335,7 +335,7 @@ JKWindow 위에서 전문적인 오디오 작업(가상 악기, 이펙터, MIDI,
 #### 추가 파일
 
 ```
-prototype/sdl2_jkwindow/
+engine/
 ├── include/jkaudio/
 │   ├── JKAudioDevice.h         // WASAPI/ASIO 추상화
 │   ├── JKAudioGraph.h          // DAG 기반 오디오 그래프
@@ -388,8 +388,8 @@ prototype/sdl2_jkwindow/
 ### Phase 1 변경
 
 ```cmake
-# prototype/sdl2_jkwindow/CMakeLists.txt
-target_link_libraries(jkproto_sdl2_jkwindow PRIVATE
+# engine/CMakeLists.txt
+target_link_libraries(jkdesktop PRIVATE
     SDL2::SDL2
     SDL2::SDL2main
     SDL2_mixer::SDL2_mixer   # 추가
@@ -399,7 +399,7 @@ target_link_libraries(jkproto_sdl2_jkwindow PRIVATE
 ### Phase 2~4 구조
 
 ```
-prototype/sdl2_jkwindow/
+engine/
 ├── include/
 │   ├── JKSoundManager.h          # Phase 1~2 (싱글톤 API 유지)
 │   └── jkaudio/
@@ -438,7 +438,7 @@ prototype/sdl2_jkwindow/
 
 ## 6. 다음 즉시 행동
 
-1. `prototype/sdl2_jkwindow/CMakeLists.txt`에 `SDL2_mixer` 의존성 추가.
+1. `engine/CMakeLists.txt`에 `SDL2_mixer` 의존성 추가.
 2. `include/JKSoundManager.h` 및 `src/JKSoundManager.cpp` 작성 (Phase 1).
 3. `JKApplication::Init()` / `Quit()`에 `JKSoundManager` 연동.
 4. 지뢰찾기/테트리스 앱의 이벤트 핸들러에 효과음 트리거 포인트 삽입.

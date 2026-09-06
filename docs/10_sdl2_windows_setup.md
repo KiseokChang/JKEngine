@@ -253,8 +253,8 @@ C:\msys64\usr\bin
 
 이 환경이 구축되고 빈 창이 뜨는 것을 확인한 후 다음 문서로 이동:
 
-- `ARCHITECTURE_DOCS/11_jkwindow_sdl_mapping.md` — JKWINDOW → SDL2 클래스 설계
-- `prototype/sdl2_jkwindow/` — JKDC/JKControl 기반 프로토타입 구현
+- `docs/11_jkwindow_sdl_mapping.md` — JKWINDOW → SDL2 클래스 설계
+- `engine/` — JKDC/JKControl 기반 프로토타입 구현
 
 ---
 

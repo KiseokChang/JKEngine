@@ -9,7 +9,7 @@
 
 ## 1. 개요
 
-현재 `prototype/sdl2_jkwindow`는 업무용 폼 UI(버튼, 에디트, 리스트, 파일/메시지
+현재 `engine`는 업무용 폼 UI(버튼, 에디트, 리스트, 파일/메시지
 다이얼로그, 한글 입력)에 적합한 기반을 갖췄습니다. 그러나 게임, 그림판, 메모장 등
 새로운 앱을 만들면서 플랫폼이 제공하지 않는 기능을 직접 우회하거나 반복 구현해야
 하는 지점이 드러났습니다.
@@ -366,11 +366,11 @@
 
 ## 5. 관련 파일
 
-- `prototype/sdl2_jkwindow/include/JKControl.h`
-- `prototype/sdl2_jkwindow/include/JKWindow.h`
-- `prototype/sdl2_jkwindow/include/JKApplication.h`
-- `prototype/sdl2_jkwindow/include/JKDC.h`
-- `prototype/sdl2_jkwindow/include/JKMessageBox.h`
-- `prototype/sdl2_jkwindow/include/apps/AppUtil.h`
-- `prototype/sdl2_jkwindow/src/apps/MineSweeperApp.cpp` (참조 구현)
-- `ARCHITECTURE_DOCS/12_sdl2_prototype_roadmap.md`
+- `engine/include/JKControl.h`
+- `engine/include/JKWindow.h`
+- `engine/include/JKApplication.h`
+- `engine/include/JKDC.h`
+- `engine/include/JKMessageBox.h`
+- `engine/include/apps/AppUtil.h`
+- `engine/src/apps/MineSweeperApp.cpp` (참조 구현)
+- `docs/12_sdl2_prototype_roadmap.md`

@@ -1,6 +1,6 @@
 # SDL2 윈도우 배치·DPI·좌표계 아키텍처
 
-> `prototype/sdl2_jkwindow`의 창 생성/배치, DPI 스케일링, 좌표계, 렌더링 파이프라인의 실제 구현을 정리한 문서.
+> `engine`의 창 생성/배치, DPI 스케일링, 좌표계, 렌더링 파이프라인의 실제 구현을 정리한 문서.
 > 2026-08 창 상단 잘림(title bar clipping) 수정 작업에서 확정된 내용을 반영한다.
 > 2026-08-29 마우스 좌표 배율 어긋남(모니터 전이) 원인·해결을 추가 반영한다 (§11.6·§12).
 > 2026-09-05 렌더 스레드 경로(JKRenderThread)의 마우스 원인 규명·수정을 추가 반영한다 (§14).
@@ -197,8 +197,8 @@ appX  = round(physX / fit)                 // → 앱 논리 좌표
 
 ### 절차
 
-1. 빌드: `prototype\sdl2_jkwindow\build_sdl2_jkwindow.bat`
-2. 실행: `prototype\sdl2_jkwindow\run_sdl2_jkwindow.bat [mode]` (없음=메인 데모 / `jango` / `occ` / `test`)
+1. 빌드: `engine\build_sdl2_jkwindow.bat`
+2. 실행: `engine\run_sdl2_jkwindow.bat [mode]` (없음=메인 데모 / `jango` / `occ` / `test`)
 3. 필요시 DPI-aware 스크린샷 캡처 후 픽셀 분석 — PowerShell 기본 캡처는 DPI 가상화가 적용되므로 `SetProcessDPIAware()`를 호출한 뒤 찍어야 물리 픽셀과 정합한다.
 4. 자동 검증: `tools\verify_fixwin3.ps1` (모드당 14항목) — 방법론 전체는 `15_verification_playbook.md` 참조.
 
@@ -222,9 +222,9 @@ appX  = round(physX / fit)                 // → 앱 논리 좌표
 
 | 파일 | 내용 |
 |------|------|
-| `prototype/sdl2_jkwindow/src/JKApplication.cpp` | Init(생성/재배치), UpdateScale, Render, TranslateSDLEvent |
-| `prototype/sdl2_jkwindow/include/JKApplication.h` | 스케일 관련 멤버(scaleX/Y, logicalW/H, letterboxX/Y, ptToPhysX/Y) |
-| `prototype/sdl2_jkwindow/src/JKWindow.cpp` | 비클라이언트 영역 계산, 레이아웃 재귀 회피 |
+| `engine/src/JKApplication.cpp` | Init(생성/재배치), UpdateScale, Render, TranslateSDLEvent |
+| `engine/include/JKApplication.h` | 스케일 관련 멤버(scaleX/Y, logicalW/H, letterboxX/Y, ptToPhysX/Y) |
+| `engine/src/JKWindow.cpp` | 비클라이언트 영역 계산, 레이아웃 재귀 회피 |
 | `10_sdl2_windows_setup.md` | 빌드 환경 |
 | `11_jkwindow_sdl_mapping.md` | JKWINDOW → SDL2 클래스 매핑 (§7 좌표 체계) |
 | `12_sdl2_prototype_roadmap.md` | 프로토타입 로드맵 (Phase 5) |
@@ -446,7 +446,7 @@ logicalHeight_ = windowH;
 
 ### 14.1 증상
 
-단일 프로세스 모드(`jkproto_sdl2_jkwindow.exe minesweeper`, §12와 같은 JKApplication/JKRenderThread 경로)에서
+단일 프로세스 모드(`jkdesktop.exe minesweeper`, §12와 같은 JKApplication/JKRenderThread 경로)에서
 **모니터 1(125%)에서만** 전체 마우스 좌표가 어긋난다. 원점 근처는 맞고 멀어질수록 간격이 벌어지는
 순수 스케일 오류 — §12.1과 동일한 체감이지만 이번엔 앱 창 전체가 대상.
 

@@ -16,7 +16,7 @@
 
 ### 범위
 
-- **In scope**: SDL2 프로토타입 전용 코드(`prototype/sdl2_jkwindow/`).
+- **In scope**: SDL2 프로토타입 전용 코드(`engine/`).
 - **Out of scope**: 원본 DOS/VESA 코드 수정, 웹 포팅, 완전한 JKDBASE/JKWINDOW 기능 재현.
 
 ---
@@ -46,7 +46,7 @@
 
 **검증 기준**
 
-- [x] `prototype/sdl2_jkwindow`가 CMake로 빌드됨.
+- [x] `engine`가 CMake로 빌드됨.
 - [x] 데모 윈도우가 실행되고 버튼/에디트/체크박스에 입력이 반응함.
 
 ---
@@ -92,7 +92,7 @@
 
 #### 1.5 Verification
 
-- [x] `prototype/sdl2_jkwindow` 빌드 성공.
+- [x] `engine` 빌드 성공.
 - [x] 데모 윈도우에서 `Tab`이 edit → button → checkbox → list → combo 순으로 순환 (`verify_tab_navigation.ps1`).
 - [x] 멀티라인 에디트에서 마우스를 에디트 박스 밖으로 드래그해도 선택이 계속 확장/변경됨.
 - [x] 버튼을 누른 채 마우스가 버튼 밖으로 나갔다가 다시 들어오면 눌린 상태가 복원됨.
@@ -116,7 +116,7 @@
 - [x] 수동: Windows 한국어 IME로 "한글" 입력 시 조합 하이라이트, 확정 후 2바이트 KSSM 저장, 중복 삽입 없음.
 - [x] `F2` 후 `gksrmf` 입력 시 내부 2벌식 오토마타로 "한글" 생성.
 
-> 상세 아키텍처: `ARCHITECTURE_DOCS/16_sdl2_jkwindow_ime.md`
+> 상세 아키텍처: `docs/16_sdl2_jkwindow_ime.md`
 
 ---
 
@@ -203,8 +203,8 @@ Phase 1~4의 코드를 통합하고, SDL2 프로토타입이 안정적으로 빌
 | `../phase1_input_focus.md` | Phase 1 상세 작업 명세 |
 | `11_jkwindow_sdl_mapping.md` | JKWINDOW → SDL2 클래스 매핑 설계 |
 | `10_sdl2_windows_setup.md` | Windows + MSYS2 + SDL2 개발 환경 세팅 |
-| `../prototype/sdl2_jkwindow/` | SDL2 프로토타입 소스 디렉터리 |
-| `../prototype/sdl2_jkwindow/src/main.cpp` | Phase 2/4 데모 및 통합 테스트 진입점 |
+| `../engine/` | SDL2 프로토타입 소스 디렉터리 |
+| `../engine/src/main.cpp` | Phase 2/4 데모 및 통합 테스트 진입점 |
 
 ---
 

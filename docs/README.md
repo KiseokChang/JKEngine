@@ -82,7 +82,7 @@
 - [x] 2CAOCC 파일 구조 및 도메인 추정
 - [x] SDL2 기반 Windows 개발 환경 설계 (MSYS2/UCRT64 + CMake)
 - [x] JKWINDOW → SDL2 클래스 매핑 설계
-- [x] SDL2 JKWINDOW 프로토타입 코드 작성 (`prototype/sdl2_jkwindow/`)
+- [x] SDL2 JKWINDOW 프로토타입 코드 작성 (`engine/`)
 - [x] SDL2 JKWindow 프로토타입 로드맵 작성 (`12_sdl2_prototype_roadmap.md`)
 - [x] Phase 2~4 (Layout/Rendering/Resource) 브랜치 구현 확인 (`phase2-full-stack`)
 - [x] SDL2 기반 최상위 앱/기능 후보 검토 (`13_sdl2_top_level_apps.md`)
@@ -102,5 +102,5 @@
 ## 참고
 
 - 모든 문서는 Markdown 형식입니다.
-- 절대 경로 기준: `i:\progwork\JKENGINE\ARCHITECTURE_DOCS\`
+- 절대 경로 기준: `i:\progwork\JKENGINE\docs\`
 - 원본 코드: `i:\progwork\JKENGINE\`

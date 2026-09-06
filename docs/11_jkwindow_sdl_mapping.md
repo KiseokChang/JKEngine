@@ -284,7 +284,7 @@ struct JKRect {
 ## 9. Prototype 파일 구조
 
 ```
-prototype/sdl2_jkwindow/
+engine/
 ├── CMakeLists.txt
 ├── include/
 │   ├── JKTypes.h

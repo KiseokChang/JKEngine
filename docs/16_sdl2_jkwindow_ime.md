@@ -1,6 +1,6 @@
 # SDL2 JKWindow 한글 IME 입력 아키텍처
 
-> `prototype/sdl2_jkwindow`의 `JKEdit` 한글 입력 설계.  
+> `engine`의 `JKEdit` 한글 입력 설계.  
 > OS 기본 IME(Windows 한국어 입력기)를 우선 사용하고, 내부 2벌식 한글 오토마타는 `F2` 폴백으로 유지한다.  
 > 2026-08-30 `JKEdit` IME 충돌 문제를 해결하며 확정된 개념·구현·고려사항을 반영한다.
 
@@ -330,7 +330,7 @@ OS IME가 한글 모드인 상태에서 사용자가 `F2`를 누르면:
 
 ### 8.2 수동 통합 테스트
 
-1. `jkproto_sdl2_jkwindow.exe` 실행 → 메인 데모.
+1. `jkdesktop.exe` 실행 → 메인 데모.
 2. 에디트 컨트롤 클릭으로 포커스.
 3. Windows 한국어 IME 켜고 "한글" 입력.
 4. 기대:
@@ -344,7 +344,7 @@ OS IME가 한글 모드인 상태에서 사용자가 `F2`를 누르면:
 
 변경 후 반드시 수행:
 
-- `jkproto_sdl2_jkwindow.exe test` → 0 failure(s)
+- `jkdesktop.exe test` → 0 failure(s)
 - `tools\verify_tab_navigation.ps1` → PASS
 - `tools\verify_dialog_keyboard.ps1` → PASS
 - `tools\click_jango_probe.ps1` → PASS
@@ -373,8 +373,8 @@ OS IME가 한글 모드인 상태에서 사용자가 `F2`를 누르면:
 
 ## 11. 관련 문서
 
-- `ARCHITECTURE_DOCS/15_verification_playbook.md` §11 — IME 입력 검증 절차 및 안정화 포인트 요약
-- `ARCHITECTURE_DOCS/12_sdl2_prototype_roadmap.md` Phase 1 §1.6 — IME 항목
-- `ARCHITECTURE_DOCS/11_jkwindow_sdl_mapping.md` — JKWINDOW → SDL2 이벤트/컨트롤 매핑
-- `ARCHITECTURE_DOCS/14_sdl2_window_dpi.md` — 좌표계/스케일링 (마우스/입력 좌표와 연결)
+- `docs/15_verification_playbook.md` §11 — IME 입력 검증 절차 및 안정화 포인트 요약
+- `docs/12_sdl2_prototype_roadmap.md` Phase 1 §1.6 — IME 항목
+- `docs/11_jkwindow_sdl_mapping.md` — JKWINDOW → SDL2 이벤트/컨트롤 매핑
+- `docs/14_sdl2_window_dpi.md` — 좌표계/스케일링 (마우스/입력 좌표와 연결)
 - `.claude/PROJECT.md` — 변경 후 필수 검증 절차

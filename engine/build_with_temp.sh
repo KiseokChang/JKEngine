@@ -3,8 +3,8 @@ set -e
 
 export PATH=/c/msys64/ucrt64/bin:$PATH
 
-SRC=/i/progwork/JKENGINE/prototype/sdl2_jkwindow
-TEMP=/c/temp_jkproto_sdl2_jkwindow
+SRC=/i/progwork/JKENGINE/engine
+TEMP=/c/temp_jkdesktop
 
 # 1. 소스를 C: 드라이브로 동기화 (MinGW가 I: 드라이브에 쓰지 못하는 문제 회피)
 rm -rf "$TEMP"
@@ -22,9 +22,9 @@ cmake .. -G Ninja -DJKENGINE_ROOT=/i/progwork/JKENGINE
 ninja
 
 # 4. 결과물을 원래 build 디렉터리로 복사
-cp -f "$TEMP/build/jkproto_sdl2_jkwindow.exe" "$SRC/build/"
+cp -f "$TEMP/build/jkdesktop.exe" "$SRC/build/"
 # assets 폴더도 build 디렉터리에 동기화하여 실행 파일이 단독으로 리소스를 찾을 수 있게 한다.
 if [ -d "$SRC/assets" ]; then
     cp -R "$SRC/assets" "$SRC/build/"
 fi
-echo "Build succeeded. Output copied to $SRC/build/jkproto_sdl2_jkwindow.exe"
+echo "Build succeeded. Output copied to $SRC/build/jkdesktop.exe"

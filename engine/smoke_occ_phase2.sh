@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # OCC Phase 2 smoke: run occ mode 5 s with sample OCCDATA.DAT/OCCUNIT.DAT.
 export PATH=/usr/bin:/c/msys64/ucrt64/bin:$PATH
-cd /i/progwork/JKENGINE/prototype/sdl2_jkwindow/build || exit 1
+cd /i/progwork/JKENGINE/engine/build || exit 1
 
 echo "== occ smoke (with data) =="
-./jkproto_sdl2_jkwindow.exe occ &
+./jkdesktop.exe occ &
 APP=$!
 sleep 5
 kill $APP 2>/dev/null

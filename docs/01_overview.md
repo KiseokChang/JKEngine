@@ -22,7 +22,7 @@
 
 ```
 i:\progwork\JKENGINE
-├── ARCHITECTURE_DOCS        # 본 문서 폴더
+├── docs        # 본 문서 폴더
 ├── JKDBASE                  # 데이터 관리 라이브러리
 ├── JKWINDOW                 # GUI/그래픽/이벤트 프레임워크
 ├── RESOUCES                 # 리소스(아이콘 등, 폴더명 오타로 보임)

@@ -2,7 +2,7 @@
 
 > **요약**: 2026-08 창 잘림(DPI 스케일링) 버그 수정에서 실제로 사용한 **검증 방법론과 프로세스**를 정리한 문서.
 > `14_sdl2_window_dpi.md`가 "무엇을" 구현했는지라면, 이 문서는 "어떻게 맞는지를 확인했는지"를 다룬다.
-> 대상: `prototype/sdl2_jkwindow`의 화면 좌표·레이아웃·스케일 변경 작업 전후 검증.
+> 대상: `engine`의 화면 좌표·레이아웃·스케일 변경 작업 전후 검증.
 
 ---
 
@@ -37,8 +37,8 @@ DPI/좌표계 버그는 일반적인 디버깅 직관이 잘 작동하지 않았
 
 ### ① 재현 가능한 빌드·실행
 
-- `prototype\sdl2_jkwindow\build_sdl2_jkwindow.bat`으로 빌드한다 (I: 드라이브 직접 빌드 금지 — 절차는 `.claude\PROJECT.md`).
-- `jkproto_sdl2_jkwindow.exe test` → `AppSelfTest: 0 failure(s)` (33 체크) — **좌표 문제와 무관한 논리 회귀를 먼저 배제**한다.
+- `engine\build_sdl2_jkwindow.bat`으로 빌드한다 (I: 드라이브 직접 빌드 금지 — 절차는 `.claude\PROJECT.md`).
+- `jkdesktop.exe test` → `AppSelfTest: 0 failure(s)` (33 체크) — **좌표 문제와 무관한 논리 회귀를 먼저 배제**한다.
 - 빌드·실행 절차가 통일되어야 측정값의 회귀 비교가 유효하다.
 
 ### ② 창 지오메트리 독립 측정
@@ -86,7 +86,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\verify_fixwin3.ps1 -mo
 
 | 항목 | 내용 |
 |------|------|
-| 파라미터 | `-mode occ\|jango` (검증할 앱 모드), `-exe <경로>` (기본값: `prototype\sdl2_jkwindow\build\jkproto_sdl2_jkwindow.exe`) |
+| 파라미터 | `-mode occ\|jango` (검증할 앱 모드), `-exe <경로>` (기본값: `engine\build\jkdesktop.exe`) |
 | 사전 조건 | 빌드 완료 상태. 스크린샷이 `C:\temp_jkwin_verify\`에 저장되므로 이 디렉터리가 존재해야 함 |
 | 동작 | 앱 Start-Process → 5초 대기 → `SetForegroundWindow` → 측정·체크 → `CloseMainWindow` (무응답 시 강제 종료) |
 | 출력 | 체크별 `PASS/FAIL` + `[info]` 측정값 + `RESULT[mode]: N pass, M fail`. 실패 시 exit 1 |
@@ -217,7 +217,7 @@ SDL `TEXTEDITING`/`TEXTINPUT` 이벤트를 받아 KSSM 2바이트로 저장하�
 
 OS 한국어 IME를 직접 켜고 타이핑해야 하는 부분은 자동화할 수 없다. 절차:
 
-1. `jkproto_sdl2_jkwindow.exe`를 실행해 메인 데모(장교/장비 관리 등)를 연다.
+1. `jkdesktop.exe`를 실행해 메인 데모(장교/장비 관리 등)를 연다.
 2. 에디트 컨트롤을 클릭해 포커스를 준다.
 3. Windows 한국어 IME(기본 MS IME)를 켜고 "한글"을 입력한다.
 4. 기대 결과:
@@ -241,13 +241,13 @@ OS 한국어 IME를 직접 켜고 타이핑해야 하는 부분은 자동화할 
   먼저 호출해 OS IME가 조합 문자를 `TEXTINPUT`으로내도록 유도한 뒤, 이벤트가 누락될
   경우를 대비해 로컬 `CommitComposition` 폴백도 유지.
 
-> 개념·의도·구현·고려사항의 상세 설명은 `ARCHITECTURE_DOCS/16_sdl2_jkwindow_ime.md`를 참고.
+> 개념·의도·구현·고려사항의 상세 설명은 `docs/16_sdl2_jkwindow_ime.md`를 참고.
 
 ## 12. 관련 문서
 
 
-- `ARCHITECTURE_DOCS\14_sdl2_window_dpi.md` — 구현 내용 (좌표계 계층·재배치 알고리즘·렌더링 파이프라인·기준값 원본 표 §9, 마우스 배율 버그 §12)
-- `ARCHITECTURE_DOCS\16_sdl2_jkwindow_ime.md` — `JKEdit` IME 입력 아키텍처 (데이터 파이프라인·입력 모드·PAL·안정화 설계)
+- `docs\14_sdl2_window_dpi.md` — 구현 내용 (좌표계 계층·재배치 알고리즘·렌더링 파이프라인·기준값 원본 표 §9, 마우스 배율 버그 §12)
+- `docs\16_sdl2_jkwindow_ime.md` — `JKEdit` IME 입력 아키텍처 (데이터 파이프라인·입력 모드·PAL·안정화 설계)
 - `.claude\PROJECT.md` — 변경 후 필수 검증 절차 (셀프테스트 → 모드 실행 → verify_fixwin3 → tab/dialog probes)
-- `ARCHITECTURE_DOCS\12_sdl2_prototype_roadmap.md` — Phase 1 Input/Focus System 완료 상태
+- `docs\12_sdl2_prototype_roadmap.md` — Phase 1 Input/Focus System 완료 상태
 - `phase1_input_focus.md` — Phase 1 상세 작업 명세
