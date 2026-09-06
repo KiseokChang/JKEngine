@@ -10,9 +10,9 @@ ClientRecogApp::~ClientRecogApp() = default;
 
 void ClientRecogApp::OnInit() {
     auto main = std::make_unique<JKWindow>("Stroke Recognition - SDL2 Port");
-    main->SetWindowRect(JKRect{ 0, 0, 1920, 1080 });
+    main->SetWindowRect(JKRect{ 0, 0, 1280, 680 });
 
-    // Same layout as RecogApp::OnInit (1920x1080 with the input board at
+    // Same layout as RecogApp::OnInit (1280x680 with the input board at
     // {20,320,1880,1060}). All controls are added straight to the root
     // window — no floating child window, so no chrome stripping is needed;
     // the server overlays the close button.

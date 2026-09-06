@@ -5,7 +5,7 @@
 #include <apps/ClientRecogApp.h>
 
 JKAPP_EXPORT const jk::JKAppMeta* jk_app_meta() {
-    static const jk::JKAppMeta meta{ "recog", "Stroke Recognition", 1920, 1080 };
+    static const jk::JKAppMeta meta{ "recog", "Stroke Recognition", 1280, 680 };
     return &meta;
 }
 

@@ -221,12 +221,12 @@ public:
 
     void Build(JKWindow* parent) {
         auto input = std::make_unique<InputBoard>(
-            JKRect{ 20, 320, 1880, 1060 },
+            MakeRect(20, 320, 1260, 650),
             [this]() { FinishStroke(); },
             [this]() { FinishCharacter(); });
         inputBoard = input.get();
 
-        auto clearBtn = std::make_unique<JKButton>(JKRect{ 20, 50, 120, 80 }, ID_BTN_CLEAR);
+        auto clearBtn = std::make_unique<JKButton>(MakeRect(20, 50, 120, 80), ID_BTN_CLEAR);
         clearBtn->SetText("Clear");
         clearBtn->SetOnClick([this]() {
             inputBoard->Clear();
@@ -234,18 +234,18 @@ public:
             charList->Clear();
         });
 
-        auto recogBtn = std::make_unique<JKButton>(JKRect{ 140, 50, 260, 80 }, ID_BTN_RECOG);
+        auto recogBtn = std::make_unique<JKButton>(MakeRect(140, 50, 260, 80), ID_BTN_RECOG);
         recogBtn->SetText("Recognize");
         recogBtn->SetOnClick([this]() { FinishCharacter(); });
 
-        auto strokeLabel = std::make_unique<JKStatic>(JKRect{ 300, 50, 620, 66 }, 0);
+        auto strokeLabel = std::make_unique<JKStatic>(MakeRect(300, 50, 620, 66), 0);
         strokeLabel->SetText("Strokes:");
-        auto strokeList = std::make_unique<JKListBox>(JKRect{ 300, 70, 620, 300 }, ID_LIST_STROKE);
+        auto strokeList = std::make_unique<JKListBox>(MakeRect(300, 70, 620, 300), ID_LIST_STROKE);
         this->strokeList = strokeList.get();
 
-        auto charLabel = std::make_unique<JKStatic>(JKRect{ 640, 50, 960, 66 }, 0);
+        auto charLabel = std::make_unique<JKStatic>(MakeRect(640, 50, 960, 66), 0);
         charLabel->SetText("Characters:");
-        auto charList = std::make_unique<JKListBox>(JKRect{ 640, 70, 960, 300 }, ID_LIST_CHAR);
+        auto charList = std::make_unique<JKListBox>(MakeRect(640, 70, 960, 300), ID_LIST_CHAR);
         this->charList = charList.get();
 
         parent->AddControl(std::move(input));
@@ -281,7 +281,7 @@ RecogApp::~RecogApp() = default;
 
 void RecogApp::OnInit() {
     auto main = std::make_unique<JKWindow>("Stroke Recognition - SDL2 Port");
-    main->SetWindowRect(JKRect{ 0, 0, 1920, 1080 });
+    main->SetWindowRect(JKRect{ 0, 0, 1280, 680 });
 
     impl_->ui->Build(main.get());
 
