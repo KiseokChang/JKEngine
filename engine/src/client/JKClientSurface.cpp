@@ -161,8 +161,11 @@ void JKClientSurface::StartReadThread() {
 
 void JKClientSurface::StopReadThread() {
     running_ = false;
-    if (transport_) transport_->Close();
+    // Same discipline as the server's JKClientConnection::StopReadThread:
+    // unblock the parked reader, join it, and only then close the handle.
+    if (transport_) transport_->CancelPendingIo();
     if (readThread_.joinable()) readThread_.join();
+    if (transport_) transport_->Close();
 }
 
 void JKClientSurface::ReadLoop() {
@@ -198,8 +201,23 @@ void JKClientSurface::ReadLoop() {
 
             switch (payload.type) {
                 case ipc::InputEventType::MouseMove:  ev.type = JKEventType::MouseMove; break;
-                case ipc::InputEventType::MouseDown:  ev.type = JKEventType::MouseDown; break;
-                case ipc::InputEventType::MouseUp:    ev.type = JKEventType::MouseUp; break;
+                case ipc::InputEventType::MouseDown:
+                case ipc::InputEventType::MouseUp: {
+                    ev.type = (payload.type == ipc::InputEventType::MouseDown)
+                                  ? JKEventType::MouseDown
+                                  : JKEventType::MouseUp;
+                    // Wire puts the SDL button in keyCode and the click count in
+                    // detail. The JKEvent convention (TranslateSDLEvent, the
+                    // single-process path and the whole control library) carries
+                    // the BUTTON in detail — map here so client apps behave
+                    // identically in both paths. Without this, left clicks only
+                    // worked by coincidence (1 click == SDL_BUTTON_LEFT) and a
+                    // right click was read as left (e.g. minesweeper opened
+                    // instead of flagging).
+                    ev.detail = payload.keyCode;   // SDL button
+                    ev.keyCode = payload.detail;   // click count
+                    break;
+                }
                 case ipc::InputEventType::MouseWheel: ev.type = JKEventType::MouseWheel; break;
                 case ipc::InputEventType::KeyDown:    ev.type = JKEventType::KeyDown; break;
                 case ipc::InputEventType::KeyUp:      ev.type = JKEventType::KeyUp; break;
@@ -213,11 +231,32 @@ void JKClientSurface::ReadLoop() {
             }
 
             QueueInputEvent(ev);
+        } else if (msg.type == ipc::MsgType::ResizeSurface &&
+                   msg.payload.size() >= sizeof(ipc::SurfaceResizePayload)) {
+            // Server-initiated resize. Coalesce: keep only the latest request;
+            // the main thread applies it when it drains the SizeChanged event.
+            ipc::SurfaceResizePayload payload{};
+            std::memcpy(&payload, msg.payload.data(), sizeof(payload));
+
+            JKEvent resize{};
+            resize.type = JKEventType::SizeChanged;
+            resize.x = payload.width;
+            resize.y = payload.height;
+            QueueInputEvent(resize);
+
+            std::lock_guard<std::mutex> lock(pendingResizeMutex_);
+            pendingResize_.valid = true;
+            pendingResize_.width = payload.width;
+            pendingResize_.height = payload.height;
+            pendingResize_.shmName = payload.shmName;
         }
     }
 
     running_ = false;
-    if (transport_) transport_->Close();
+    // Do NOT close the transport here: the main thread may be inside an
+    // overlapped WriteFile on the same handle (CommitSurface), and
+    // CloseHandle under in-flight I/O is undefined behavior. The writer
+    // self-closes on failure.
 }
 
 void JKClientSurface::QueueInputEvent(const JKEvent& ev) {
@@ -227,6 +266,36 @@ void JKClientSurface::QueueInputEvent(const JKEvent& ev) {
         inputEvents_.pop_front();
     }
     inputEvents_.push_back(ev);
+}
+
+bool JKClientSurface::ApplyPendingResize() {
+    PendingResize pending;
+    {
+        std::lock_guard<std::mutex> lock(pendingResizeMutex_);
+        if (!pendingResize_.valid) {
+            return false;
+        }
+        pending = pendingResize_;
+        pendingResize_.valid = false;
+    }
+    if (pending.width <= 0 || pending.height <= 0) {
+        return false;
+    }
+
+    // Open the new mapping in a temporary object first: reusing sharedMemory_
+    // with Close-then-Open would leave it unusable if the Open failed (Open
+    // refuses while a handle exists). On success, adopt the new mapping.
+    auto fresh = std::make_unique<ipc::JKSharedMemory>();
+    const size_t bytes = static_cast<size_t>(pending.width) * pending.height * 4;
+    if (!fresh->Open(pending.shmName, bytes)) {
+        std::fprintf(stderr, "JKClientSurface::ApplyPendingResize: failed to open %s (%dx%d)\n",
+                     pending.shmName.c_str(), pending.width, pending.height);
+        return false;
+    }
+    sharedMemory_ = std::move(fresh);
+    width_ = pending.width;
+    height_ = pending.height;
+    return true;
 }
 
 std::string JKClientSurface::ShmNameFromSurfaceId(uint32_t id) {

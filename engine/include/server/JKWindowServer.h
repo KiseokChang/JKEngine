@@ -21,6 +21,7 @@ namespace jk {
 
 class JKMessageBus;
 class JKAudioThread;
+struct LoadedImage;
 
 namespace server {
 
@@ -52,6 +53,13 @@ private:
     void ProcessClientMessage(JKClientConnection& client, const ipc::Message& msg);
     void HandleSDLEvent(const SDL_Event& ev);
     void SendInputEvent(JKClientConnection& client, const ipc::InputEventPayload& payload);
+    // Window chrome (title-bar move / close button / border resize).
+    // HandleChromeGrab applies an in-progress grab and consumes the event;
+    // TryChromeGrab starts a grab (or performs a close click) on MouseDown.
+    bool HandleChromeGrab(const SDL_Event& ev, int mx, int my, float scale);
+    bool TryChromeGrab(int mx, int my, float scale);
+    void CommitChromeResize(JKClientConnection& client, uint32_t layerId,
+                            int width, int height, int dispW, int dispH);
     void FocusClient(uint32_t surfaceId);
     JKClientConnection* HitTestClient(int32_t x, int32_t y);
     JKClientConnection* FindClientById(uint32_t surfaceId);
@@ -63,11 +71,18 @@ private:
     void UpdateOutputBounds();
 
     void InitLauncher();
+    void ScanJkxApps();
     void DrawLauncher();
     void DrawLauncherBackground();
     void DestroyLauncher();
     int HitTestLauncherIcon(int x, int y) const;
-    void SpawnClient(const char* appName);
+    void SpawnClient(const char* appName, bool fromJkx = false);
+
+    // Load a PNG asset pair ("<base>@1x.png" / "@2x.png") — @2x when the
+    // output scale is >= 1.5 — into a blended SDL texture. Returns nullptr
+    // when the asset is missing (callers fall back to flat drawing).
+    SDL_Texture* LoadTextureScaled(const char* assetBase);
+    SDL_Texture* TextureFromRGBA(const jk::LoadedImage& img, const char* label);
 
     SDL_Window* window_ = nullptr;
     SDL_Renderer* renderer_ = nullptr;
@@ -90,13 +105,45 @@ private:
     uint32_t nextSurfaceId_ = 1;
     uint32_t focusedClientId_ = 0;
 
+    // Server-side mouse capture (Win32 SetCapture equivalent): the surface id
+    // that received the last MouseDown and has not seen its MouseUp yet.
+    // While set, MouseMove/MouseUp are routed to this client even when the
+    // cursor leaves the surface, so client-side drags survive outside bounds.
+    uint32_t capturedClientId_ = 0;
+
+    // Server-side window chrome grab: title-bar move and border resize on
+    // client layers. Only the layer id is stored (layer pointers die on
+    // RemoveLayer), so grab handlers re-resolve the layer each event.
+    enum class ChromeGrab { None, Move, Resize };
+    ChromeGrab chromeGrab_ = ChromeGrab::None;
+    uint32_t chromeGrabClient_ = 0;
+    uint32_t chromeGrabLayerId_ = 0;
+    // Move grab: mouse offset from the layer origin (logical points).
+    int chromeGrabDX_ = 0;
+    int chromeGrabDY_ = 0;
+    // Resize grab: layer origin and DISPLAY size at grab time (logical
+    // points; a fit-scaled surface is displayed smaller than its pixels).
+    int chromeResizeX_ = 0;
+    int chromeResizeY_ = 0;
+    int chromeResizeW_ = 0;
+    int chromeResizeH_ = 0;
+    bool chromeEdgeLeft_ = false;
+    bool chromeEdgeRight_ = false;
+    bool chromeEdgeBottom_ = false;
+
     // Server-side launcher state: simple icon textures drawn behind client layers.
+    // Apps come from installed .jkx containers (apps/*.jkx, spawn via --jkx)
+    // and, as a fallback, the built-in process modes (spawn via --client).
     struct LauncherIcon {
         JKRect rect;
-        const char* appName = nullptr;
+        std::string appName;   // spawn key / display name
+        std::string jkxPath;   // non-empty → spawn "--jkx <path>"
         SDL_Texture* texture = nullptr;
     };
     std::vector<LauncherIcon> launcherIcons_;
+
+    // Launcher desktop background photo (PNG asset), stretched to the window.
+    SDL_Texture* backgroundTexture_ = nullptr;
 
     // Throttle launcher icon double-clicks / rapid spawns to one per app per
     // 500 ms. Stores the last spawn time keyed by app name.

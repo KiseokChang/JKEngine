@@ -40,6 +40,10 @@ bool JKPipeTransport::Read(void* data, size_t len) {
     return false;
 }
 
+void JKPipeTransport::CancelPendingIo() {
+    // POSIX transport is a stub; no async I/O to cancel.
+}
+
 void JKPipeTransport::Close() {
     if (handle_ >= 0) {
         close(handle_);

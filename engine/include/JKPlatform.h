@@ -138,6 +138,11 @@ public:
     // Useful on focus loss so that the composed text is committed before the
     // control disappears.
     static void CompleteComposition(SDL_Window* window);
+
+    // Disassociate the IME context from the window so keydowns arrive as raw
+    // VK_* codes instead of VK_PROCESSKEY. For surfaces that forward raw keys
+    // (the window server) and never compose text themselves.
+    static void DetachIme(SDL_Window* window);
 };
 
 } // namespace jk

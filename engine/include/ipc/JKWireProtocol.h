@@ -20,7 +20,11 @@ enum class MsgType : uint32_t {
     InputEvent    = 6,
     TimerEvent    = 7,
     AudioCommand  = 8,
-    Close         = 9
+    Close         = 9,
+    // Server -> client: the surface was resized. The client must remap the
+    // shared memory named in the payload (a new mapping per generation —
+    // Windows file mappings cannot grow in place) and re-layout at w x h.
+    ResizeSurface = 10
 };
 
 #pragma pack(push, 1)
@@ -67,6 +71,15 @@ struct SurfaceMovePayload {
     int32_t  y = 0;
     int32_t  width = 0;
     int32_t  height = 0;
+};
+
+// Server -> client with MsgType::ResizeSurface. shmName is a fresh mapping
+// (Local\JKSurfaceShm_<id>_<gen>) sized w*h*4.
+struct SurfaceResizePayload {
+    uint32_t surfaceId = 0;
+    int32_t  width = 0;
+    int32_t  height = 0;
+    char     shmName[256] = {};
 };
 
 enum class InputEventType : uint32_t {

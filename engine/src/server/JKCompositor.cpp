@@ -54,15 +54,19 @@ JKCompositorLayer* JKCompositor::AddLayer(uint32_t id,
 
 void JKCompositor::RemoveLayer(uint32_t id) {
     std::lock_guard<std::mutex> lock(layersMutex_);
-    auto it = std::remove_if(layers_.begin(), layers_.end(),
-                             [id](const std::unique_ptr<JKCompositorLayer>& layer) {
-        return layer && layer->Id() == id;
-    });
-    if (it != layers_.end()) {
-        if ((*it)->Texture()) {
-            SDL_DestroyTexture((*it)->Texture());
+    // Plain erase loop, NOT remove_if+erase: remove_if moves kept unique_ptrs
+    // forward, leaving MOVED-FROM (null) unique_ptrs in the tail — the old
+    // code then dereferenced (*it)->Texture() on a null element whenever the
+    // removed layer was not the vector's last element (killing a non-focused
+    // client, e.g. three at once from Task Manager, crashed the server).
+    for (auto it = layers_.begin(); it != layers_.end(); ++it) {
+        if (*it && (*it)->Id() == id) {
+            if ((*it)->Texture()) {
+                SDL_DestroyTexture((*it)->Texture());
+            }
+            layers_.erase(it);
+            break;
         }
-        layers_.erase(it, layers_.end());
     }
     if (focusedId_ == id) {
         focusedId_ = 0;
@@ -90,6 +94,38 @@ void JKCompositor::SetLayerAlpha(uint32_t id, uint8_t alpha) {
     }
 }
 
+bool JKCompositor::ResizeLayer(uint32_t id, int width, int height, uint8_t* pixels) {
+    if (!renderer_ || width <= 0 || height <= 0) {
+        return false;
+    }
+    SDL_Texture* texture = SDL_CreateTexture(renderer_,
+                                             SDL_PIXELFORMAT_RGBA32,
+                                             SDL_TEXTUREACCESS_STREAMING,
+                                             width, height);
+    if (!texture) {
+        std::fprintf(stderr, "JKCompositor::ResizeLayer: SDL_CreateTexture failed: %s\n",
+                     SDL_GetError());
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(layersMutex_);
+    JKCompositorLayer* layer = FindLayer(id);
+    if (!layer) {
+        SDL_DestroyTexture(texture);
+        return false;
+    }
+    if (layer->Texture()) {
+        SDL_DestroyTexture(layer->Texture());
+    }
+    layer->SetTexture(texture);
+    layer->SetPixels(pixels);
+    layer->SetSize(width, height);
+    // The stretch preview during a resize drag uses Scale; reset it here so
+    // the new texture is drawn at its native size.
+    layer->SetScale(1.0f, 1.0f);
+    layer->MarkDirty();
+    return true;
+}
+
 void JKCompositor::MarkDirty(uint32_t id) {
     std::lock_guard<std::mutex> lock(layersMutex_);
     if (JKCompositorLayer* layer = FindLayer(id)) {
@@ -110,6 +146,16 @@ void JKCompositor::FocusLayer(uint32_t id) {
     SortLayers();
 }
 
+uint32_t JKCompositor::TopmostLayerId() {
+    std::lock_guard<std::mutex> lock(layersMutex_);
+    for (auto it = layers_.rbegin(); it != layers_.rend(); ++it) {
+        if (*it && (*it)->IsVisible()) {
+            return (*it)->Id();
+        }
+    }
+    return 0;
+}
+
 JKCompositorLayer* JKCompositor::FindLayer(uint32_t id) {
     for (auto& layer : layers_) {
         if (layer && layer->Id() == id) {
@@ -117,6 +163,11 @@ JKCompositorLayer* JKCompositor::FindLayer(uint32_t id) {
         }
     }
     return nullptr;
+}
+
+JKCompositorLayer* JKCompositor::FindLayerById(uint32_t id) {
+    std::lock_guard<std::mutex> lock(layersMutex_);
+    return FindLayer(id);
 }
 
 void JKCompositor::UpdateLayerTexture(JKCompositorLayer& layer) {
@@ -181,10 +232,44 @@ void JKCompositor::Composite() {
                 static_cast<int>(layer->Height() * layer->ScaleY() * outputScale)
             };
             SDL_RenderCopy(renderer_, layer->Texture(), nullptr, &dst);
+
+            // The client paints the title bar inside its surface, but a
+            // parentless main window paints no close button — the server
+            // draws the close overlay at the top-right of every layer.
+            DrawCloseOverlay(*layer, outputScale);
         }
     }
 
     SDL_RenderPresent(renderer_);
+}
+
+void JKCompositor::DrawCloseOverlay(const JKCompositorLayer& layer, float scale) {
+    if (!renderer_) {
+        return;
+    }
+    // Mirrors JKWindow::GetCloseButtonRect / close-button painting
+    // (src/JKWindow.cpp:171-229): 20x20 at 2px inset from the top-right,
+    // grey fill, black outline, white X with a 5px pad.
+    // The rect lives in SURFACE px like the chrome hit-test zones
+    // (JKWindowServer::TryChromeGrab), so it shrinks proportionally on
+    // fit-scaled layers — Width()*ScaleX() is the on-screen width.
+    const SDL_Rect btn{
+        static_cast<int>((layer.X() + (layer.Width() - kChromeCloseSize - kChromeCloseMargin) * layer.ScaleX()) * scale),
+        static_cast<int>((layer.Y() + kChromeCloseMargin * layer.ScaleY()) * scale),
+        static_cast<int>(kChromeCloseSize * layer.ScaleX() * scale),
+        static_cast<int>(kChromeCloseSize * layer.ScaleY() * scale)
+    };
+    const int pad = static_cast<int>(5 * layer.ScaleX() * scale);
+
+    SDL_SetRenderDrawColor(renderer_, 192, 192, 192, 255);
+    SDL_RenderFillRect(renderer_, &btn);
+    SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 255);
+    SDL_RenderDrawRect(renderer_, &btn);
+    SDL_SetRenderDrawColor(renderer_, 255, 255, 255, 255);
+    SDL_RenderDrawLine(renderer_, btn.x + pad, btn.y + pad,
+                       btn.x + btn.w - pad - 1, btn.y + btn.h - pad - 1);
+    SDL_RenderDrawLine(renderer_, btn.x + btn.w - pad - 1, btn.y + pad,
+                       btn.x + pad, btn.y + btn.h - pad - 1);
 }
 
 JKCompositorLayer* JKCompositor::HitTest(int x, int y) {

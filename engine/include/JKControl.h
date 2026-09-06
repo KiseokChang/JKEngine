@@ -12,6 +12,11 @@ namespace jk {
 
 constexpr uint32_t WA_TITLEMOVEABLE  = 0x00000001;
 constexpr uint32_t WA_BORDERRESIZABLE = 0x00000002;
+// Frame-less window: no title bar, border, or close button; the client area
+// spans the full rect. Used for server-mode client game windows whose
+// move/close/resize chrome is owned by the window server (see
+// ARCHITECTURE_DOCS/19_sdl2_window_server.md §7).
+constexpr uint32_t WA_CHROMELESS = 0x00000004;
 
 // Layout anchor flags for automatic resize / reposition.
 constexpr uint32_t ANCHOR_NONE   = 0x00000000;
@@ -125,7 +130,7 @@ public:
 
     void RequestClose();
     bool IsCloseRequested() const;
-    void RemoveClosedChildren();
+    virtual void RemoveClosedChildren();
 
     // Called when RequestClose() is invoked. Override to perform cleanup
     // (e.g. stopping audio) before the control is removed from its parent.

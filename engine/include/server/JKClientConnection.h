@@ -14,6 +14,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace jk {
 namespace server {
@@ -35,6 +36,14 @@ public:
 
     // Create the shared memory segment for the surface. Returns false on failure.
     bool CreateSurface(int width, int height, const std::string& title);
+
+    // Begin a server-initiated resize: create a fresh shared memory mapping
+    // (Windows file mappings cannot grow in place, so each generation gets a
+    // new name), retire the old one (the compositor's pixel pointer may still
+    // point into it until ResizeLayer swaps it), and fill the payload the
+    // caller sends to the client. Returns false if the new mapping failed.
+    bool BeginResizeSurface(int width, int height,
+                            ipc::SurfaceResizePayload& outPayload);
 
     // Accessors for the compositor.
     int Width() const { return width_; }
@@ -72,6 +81,11 @@ private:
     uint32_t id_ = 0;
     std::unique_ptr<ipc::JKPipeTransport> transport_;
     std::unique_ptr<ipc::JKSharedMemory> memory_;
+    // Retired shared memory generations. The compositor layer's pixel pointer
+    // may still reference a retired mapping until ResizeLayer swaps it, so
+    // they are kept alive until this connection is destroyed.
+    std::vector<std::unique_ptr<ipc::JKSharedMemory>> retiredMemories_;
+    uint32_t shmGeneration_ = 0;
 
     int width_ = 0;
     int height_ = 0;

@@ -25,9 +25,20 @@ public:
     WindowRegion HitTestRegion(int32_t screenX, int32_t screenY) const;
     JKControl* HitTest(int32_t screenX, int32_t screenY) override;
 
+    // Client area within the window rect (title bar/border already excluded):
+    // {kBorder, kTitle, w-2*kBorder, h-kBorder-kTitle} in window-local coords.
+    // Child control rects are interpreted relative to the client area origin.
+    JKRect GetClientRect() const { return clientRect_; }
+
     void SetFocusChild(JKControl* child);
     JKControl* GetFocusChild() { return focusChild_; }
     const JKControl* GetFocusChild() const { return focusChild_; }
+
+    // Drops focusChild_ first when it (or one of its ancestors) is
+    // close-requested, so the destruction pass cannot leave a dangling
+    // focus reference (e.g. the combobox dropdown popup owns focus when the
+    // user picks an item and it is removed).
+    void RemoveClosedChildren() override;
 
     void FocusFirstChild();
     void FocusNextChild();

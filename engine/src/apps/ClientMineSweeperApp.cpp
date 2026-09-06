@@ -109,9 +109,14 @@ public:
 
     void LoadIcons(JKResourceCache* cache) {
         if (iconsLoaded || !cache) return;
-        cache->CreateImageFromRGBA("mine", 16, 16, CreateMineIcon());
-        cache->CreateImageFromRGBA("flag", 16, 16, CreateFlagIcon());
-        cache->CreateImageFromRGBA("question", 16, 16, CreateQuestionIcon());
+        // PNG assets take precedence; the procedural fallback keeps the game
+        // working without an assets/ tree (asset spec: ARCHITECTURE_DOCS/20).
+        if (!cache->LoadImagePNG("mine", "assets/icons/mine@1x.png"))
+            cache->CreateImageFromRGBA("mine", 16, 16, CreateMineIcon());
+        if (!cache->LoadImagePNG("flag", "assets/icons/flag@1x.png"))
+            cache->CreateImageFromRGBA("flag", 16, 16, CreateFlagIcon());
+        if (!cache->LoadImagePNG("question", "assets/icons/question@1x.png"))
+            cache->CreateImageFromRGBA("question", 16, 16, CreateQuestionIcon());
         iconsLoaded = true;
     }
 };
@@ -123,8 +128,20 @@ void ClientMineSweeperApp::OnInit() {
     auto main = std::make_unique<JKWindow>("Minesweeper");
     main->SetWindowRect(JKRect{ 0, 0, 320, 380 });
 
+    // The game window must exactly fill the main window's client area (the
+    // root paints the title bar/border chrome that the server overlays), and
+    // dock-fill so server-initiated resizes propagate into the game layout.
+    const JKRect clientArea = main->GetClientRect();
     impl_->mineWindow = std::make_unique<MineGameWindow>();
-    impl_->mineWindow->Build(main.get(), JKRect{ 0, 0, 320, 380 });
+    impl_->mineWindow->Build(main.get(), JKRect{ 0, 0, clientArea.w, clientArea.h });
+    // MineWindow is built as a floating window (own title bar + move/resize
+    // attrs) for the single-process path. In server mode the window server
+    // owns all chrome, so strip it: chrome-less and fixed in place. Re-setting
+    // the rect recomputes the client area (full rect) and relayouts children.
+    auto* gameWin = impl_->mineWindow->GetWindow();
+    gameWin->SetAttrFlags(WA_CHROMELESS);
+    gameWin->SetWindowRect(JKRect{ 0, 0, clientArea.w, clientArea.h });
+    gameWin->SetDock(DOCK_FILL);
     impl_->mineWindow->NewGame();
 
     SetMainWindow(std::move(main));

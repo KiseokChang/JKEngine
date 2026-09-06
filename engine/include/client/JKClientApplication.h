@@ -4,6 +4,7 @@
 #include <JKWindow.h>
 #include <JKMessageBus.h>
 #include <JKAudioCommand.h>
+#include <JKApplicationHost.h>
 #include <JKHangulManager.h>
 #include <JKDC.h>
 #include <JKRenderBackend.h>
@@ -27,7 +28,12 @@ class JKAudioThread;
 // so that JKDC and the resource cache can upload textures and render to an
 // off-screen target, whose pixels are then copied to shared memory and
 // committed to the window server.
-class JKClientApplication {
+//
+// It is a JKApplicationHost (NOT a JKApplication — a client must not own the
+// SDL video/audio threads the single-process host owns), so controls and
+// shared dialogs reach its services through g_jkAppHost exactly like they
+// reach JKApplication in single-process mode.
+class JKClientApplication : public JKApplicationHost {
 public:
     JKClientApplication();
     virtual ~JKClientApplication();
@@ -45,6 +51,9 @@ public:
 
     void SetModalWindow(JKWindow* window);
     JKWindow* GetModalWindow() const;
+
+    // JKApplicationHost: IME composition targets the hidden renderer window.
+    SDL_Window* GetSdlWindow() const { return hiddenWindow_; }
 
     void SetCapture(JKControl* control);
     void ReleaseCapture();
@@ -65,6 +74,10 @@ public:
     void RemoveTimer(uint64_t handle);
     void RemoveTimersForWindow(uint32_t winId);
 
+    // Stop the run loop cleanly (Exit buttons in client apps): Run() returns,
+    // Close() disconnects the surface and the server removes the layer.
+    void RequestQuit() { running_ = false; }
+
     void PostAudioCommand(const AudioCommand& cmd);
 
     void SetLogicalSize(int w, int h);
@@ -78,6 +91,18 @@ protected:
     virtual bool PreProcessMessage(const JKEvent& ev);
     virtual void RouteMessage(const JKEvent& ev);
     virtual void ComposeScene();
+
+    // Run-loop hooks (docs/22 §5.3): OnIdle runs every loop iteration before
+    // the frame gate — apps pump background sources there (terminal ConPTY).
+    // IsFrameDirty gates RenderAndCommit so idle apps do not burn CPU; the
+    // default keeps the legacy always-repaint behavior. OnFrameCommitted runs
+    // after a render+commit so apps can clear dirty state.
+    virtual void OnIdle() {}
+    virtual bool IsFrameDirty() const { return true; }
+    virtual void OnFrameCommitted() {}
+    // TAB drives the child focus cycle in most apps; the terminal consumes it
+    // as data instead.
+    virtual bool WantsTabFocusCycle() const { return true; }
 
 private:
     SDL_Window* hiddenWindow_ = nullptr;

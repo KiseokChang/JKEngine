@@ -324,6 +324,17 @@ void JKPlatform::CompleteComposition(SDL_Window* window) {
     }
 }
 
+void JKPlatform::DetachIme(SDL_Window* window) {
+    HWND hwnd = GetImeHwnd(window);
+    if (!hwnd) {
+        return;
+    }
+    // An active IME turns Enter/Esc/letter keydowns into VK_PROCESSKEY (plus
+    // committed text), which starves raw-key consumers of those keys. Pass
+    // nullptr to disassociate the context for this window's lifetime.
+    ImmAssociateContext(hwnd, nullptr);
+}
+
 } // namespace jk
 
 #else // Non-Windows stub implementation
@@ -392,6 +403,7 @@ JKPlatform::ImeMode JKPlatform::GetCurrentConversionMode(SDL_Window*) {
 }
 void JKPlatform::SetConversionMode(SDL_Window*, ImeMode) {}
 void JKPlatform::CompleteComposition(SDL_Window*) {}
+void JKPlatform::DetachIme(SDL_Window*) {}
 
 } // namespace jk
 

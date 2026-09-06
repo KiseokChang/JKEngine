@@ -36,12 +36,20 @@ void JKWindow::OnRectChanged(const JKRect& rect) {
     constexpr int32_t kBorder = 2;
     constexpr int32_t kTitle  = 24;
     JKRect client;
-    client.x = kBorder;
-    client.y = kTitle;
-    client.w = rect.w - kBorder * 2;
-    if (client.w < 0) client.w = 0;
-    client.h = rect.h - kTitle - kBorder;
-    if (client.h < 0) client.h = 0;
+    if (HasAttrFlag(WA_CHROMELESS)) {
+        // 크롬 없는 창: 클라이언트 영역이 전체 rect.
+        client.x = 0;
+        client.y = 0;
+        client.w = rect.w;
+        client.h = rect.h;
+    } else {
+        client.x = kBorder;
+        client.y = kTitle;
+        client.w = rect.w - kBorder * 2;
+        if (client.w < 0) client.w = 0;
+        client.h = rect.h - kTitle - kBorder;
+        if (client.h < 0) client.h = 0;
+    }
     SetClientRect(client);
 
     // Dock/Fill layout is handled at the window level so that edge-docked
@@ -50,8 +58,15 @@ void JKWindow::OnRectChanged(const JKRect& rect) {
     // JKWindow는 자기 자신을 PerformLayout() 대상으로 삼으면
     // JKControl::PerformLayout -> SetRect -> PerformLayout 무한 재귀에 빠진다.
     // 직접 자식들만 재배치한다.
+    //
+    // Child rects are interpreted relative to this window's CLIENT origin
+    // (JKControl::GetScreenRect offsets by parent_->GetScreenClientRect()),
+    // so layout rects passed to children must be client-relative {0,0,w,h} —
+    // NOT the window-local clientRect_ (whose {kBorder,kTitle} offset would
+    // be applied twice).
     const JKRect& clientRect = GetClientRect();
-    JKRect remaining = clientRect;
+    const JKRect clientSpace{ 0, 0, clientRect.w, clientRect.h };
+    JKRect remaining = clientSpace;
 
     // Pass 1: place edge-docked children and subtract their occupied area.
     for (auto& child : children_) {
@@ -92,7 +107,7 @@ void JKWindow::OnRectChanged(const JKRect& rect) {
     for (auto& child : children_) {
         if (!child->IsVisible()) continue;
         if (child->GetDock() == DOCK_NONE) {
-            child->PerformLayout(clientRect);
+            child->PerformLayout(clientSpace);
         }
     }
 }
@@ -140,6 +155,9 @@ JKWindow::WindowRegion JKWindow::HitTestRegion(int32_t screenX, int32_t screenY)
     if (!screenRect.Contains(screenX, screenY)) {
         return WindowRegion::None;
     }
+    if (HasAttrFlag(WA_CHROMELESS)) {
+        return WindowRegion::Client;
+    }
     const JKRect screenClient = GetScreenClientRect();
     if (screenClient.Contains(screenX, screenY)) {
         return WindowRegion::Client;
@@ -169,7 +187,7 @@ JKRect JKWindow::GetScreenClientRect() const {
 }
 
 JKRect JKWindow::GetCloseButtonRect() const {
-    if (!parent_) {
+    if (!parent_ || HasAttrFlag(WA_CHROMELESS)) {
         return JKRect{ 0, 0, 0, 0 };
     }
     const JKRect screenRect = GetScreenRect();
@@ -184,6 +202,12 @@ JKRect JKWindow::GetCloseButtonRect() const {
 }
 
 void JKWindow::PaintWindow(JKDC& dc) {
+    // 크롬 없는 창은 프레임(타이틀/테두리/닫기)을 그리지 않는다.
+    // 배경과 자식은 PaintClient 경로가 처리한다.
+    if (HasAttrFlag(WA_CHROMELESS)) {
+        return;
+    }
+
     const JKRect screenRect = GetScreenRect();
 
     // 윈도우 프레임(타이틀 바, 테두리)은 윈도우 화면 영역으로 클립한다.
@@ -255,8 +279,8 @@ void JKWindow::OnPaintClient(JKDC& dc) {
 
 void JKWindow::OnClose() {
     JKControl::OnClose();
-    if (g_currentJKApp && g_currentJKApp->GetWindowManager()) {
-        g_currentJKApp->GetWindowManager()->NotifyWindowClosing(this);
+    if (g_jkAppHost && g_jkAppHost->GetWindowManager()) {
+        g_jkAppHost->GetWindowManager()->NotifyWindowClosing(this);
     }
 }
 
@@ -364,6 +388,20 @@ void JKWindow::SetFocusChild(JKControl* child) {
     focusChild_ = child;
 }
 
+void JKWindow::RemoveClosedChildren() {
+    // focusChild_가 닫힐(파괴될) 컨트롤(또는 그 조상)을 가리키고 있으면 먼저
+    // 떼어낸다. 콤보박스 드롭다운 팝업이 포커스를 가진 채 선택되어 제거되면
+    // 다음 Timer 이벤트의 focusChild_->RespondMessage가 해제된 메모리를
+    // 참조(UAF)하는 것이 원인이었다.
+    for (JKControl* c = focusChild_; c; c = c->GetParent()) {
+        if (c->IsCloseRequested()) {
+            focusChild_ = nullptr;
+            break;
+        }
+    }
+    JKControl::RemoveClosedChildren();
+}
+
 void JKWindow::RespondMessage(const JKEvent& ev) {
     // 키/문자 입력은 포커스를 가진 자식 컨트롤로 전달한다.
     if (ev.type == JKEventType::KeyDown ||
@@ -441,7 +479,7 @@ void JKWindow::RespondMessage(const JKEvent& ev) {
         if (target && target != this) {
             if (ev.type == JKEventType::MouseDown) {
                 target->SetFocus();
-                if (g_currentJKApp) g_currentJKApp->SetInputWindow(this);
+                if (g_jkAppHost) g_jkAppHost->SetInputWindow(this);
             }
             target->RespondMessage(ev);
         }

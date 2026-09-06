@@ -21,6 +21,7 @@ public:
     uint32_t Id() const { return id_; }
     int Width() const { return width_; }
     int Height() const { return height_; }
+    void SetSize(int w, int h) { width_ = w; height_ = h; }
     const std::string& Title() const { return title_; }
 
     int X() const { return x_; }

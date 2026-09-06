@@ -45,6 +45,39 @@ uint8_t* JKClientConnection::SurfaceData() const {
     return memory_ ? memory_->Data() : nullptr;
 }
 
+bool JKClientConnection::BeginResizeSurface(int width, int height,
+                                            ipc::SurfaceResizePayload& outPayload) {
+    if (width <= 0 || height <= 0) return false;
+
+    auto fresh = std::make_unique<ipc::JKSharedMemory>();
+    const std::string shmName = std::string("Local\\JKSurfaceShm_")
+        + std::to_string(id_) + "_" + std::to_string(++shmGeneration_);
+    const size_t bytes = static_cast<size_t>(width) * height * 4;
+    if (!fresh->Create(shmName, bytes)) {
+        std::fprintf(stderr, "JKClientConnection[%u]: failed to create resized shared memory\n",
+                     id_);
+        return false;
+    }
+    if (fresh->Data()) {
+        std::memset(fresh->Data(), 0, bytes);
+    }
+
+    if (memory_) {
+        retiredMemories_.push_back(std::move(memory_));
+    }
+    memory_ = std::move(fresh);
+    width_ = width;
+    height_ = height;
+
+    ipc::SurfaceResizePayload payload{};
+    payload.surfaceId = id_;
+    payload.width = width;
+    payload.height = height;
+    std::strncpy(payload.shmName, shmName.c_str(), sizeof(payload.shmName) - 1);
+    outPayload = payload;
+    return true;
+}
+
 size_t JKClientConnection::SurfaceBytes() const {
     return static_cast<size_t>(width_) * height_ * 4;
 }
@@ -70,8 +103,14 @@ void JKClientConnection::StartReadThread() {
 
 void JKClientConnection::StopReadThread() {
     running_ = false;
-    if (transport_) transport_->Close();
+    // Wake a reader parked in a pending overlapped ReadFile FIRST, join it,
+    // and only then close the handle. Closing (or CancelIo-less teardown)
+    // while the read thread may still touch the handle or its stack OVERLAPPED
+    // is undefined behavior — killing several clients at once made the main
+    // thread race each reader's broken-pipe exit and crash the server.
+    if (transport_) transport_->CancelPendingIo();
     if (readThread_.joinable()) readThread_.join();
+    if (transport_) transport_->Close();
 }
 
 bool JKClientConnection::Send(const ipc::Message& msg) {
@@ -99,7 +138,9 @@ void JKClientConnection::ReadLoop() {
     }
 
     disconnected_ = true;
-    if (transport_) transport_->Close();
+    // Do NOT close the transport here: the server main thread may be inside
+    // an overlapped WriteFile on the same handle, and CloseHandle under an
+    // in-flight I/O is undefined behavior. The writer self-closes on failure.
 }
 
 } // namespace server

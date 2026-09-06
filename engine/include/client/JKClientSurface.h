@@ -61,6 +61,12 @@ public:
     // Drain one server-forwarded input event. Returns false if none are queued.
     bool PollInputEvent(JKEvent& out);
 
+    // Apply a server-initiated resize queued by the read thread
+    // (MsgType::ResizeSurface). Main-thread only: opens the new shared memory
+    // mapping and updates Width()/Height() before the caller re-lays out.
+    // Returns true if a resize was applied.
+    bool ApplyPendingResize();
+
 private:
     void StartReadThread();
     void StopReadThread();
@@ -81,6 +87,17 @@ private:
 
     std::mutex inputMutex_;
     std::deque<JKEvent> inputEvents_;
+
+    // Latest server-initiated resize, coalesced by the read thread and
+    // applied on the main thread via ApplyPendingResize().
+    struct PendingResize {
+        bool valid = false;
+        int width = 0;
+        int height = 0;
+        std::string shmName;
+    };
+    std::mutex pendingResizeMutex_;
+    PendingResize pendingResize_;
 
     static std::string ShmNameFromSurfaceId(uint32_t id);
 };

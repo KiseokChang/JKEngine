@@ -1,5 +1,6 @@
 #include <client/JKClientApplication.h>
 
+#include <JKApplication.h>
 #include <JKSDLRenderBackend.h>
 #include <JKRenderCommandList.h>
 #include <JKOffscreenSurface.h>
@@ -14,10 +15,16 @@ namespace jk {
 JKClientApplication::JKClientApplication() : dc_(nullptr) {
     windowManager_ = std::make_unique<JKWindowManager>();
     messageBus_ = std::make_unique<JKMessageBus>();
+    // Controls and shared dialogs (JKMessageBox/JKMenu/JKDialog/...) reach
+    // host services through g_jkAppHost — without a host registered here they
+    // silently no-op in client processes (the game-over message box was never
+    // registered as modal and never painted).
+    g_jkAppHost = this;
 }
 
 JKClientApplication::~JKClientApplication() {
     Close();
+    if (g_jkAppHost == this) g_jkAppHost = nullptr;
 }
 
 bool JKClientApplication::CreateHiddenRenderer(const std::string& title, int width, int height) {
@@ -184,7 +191,11 @@ int JKClientApplication::Run() {
             mainWindow_->RemoveClosedChildren();
         }
 
-        RenderAndCommit();
+        OnIdle();
+        if (IsFrameDirty()) {
+            RenderAndCommit();
+            OnFrameCommitted();
+        }
 
         SDL_Delay(1);
     }
@@ -226,6 +237,12 @@ bool JKClientApplication::ProcessOneEvent(const JKEvent& ev) {
         if (ev.x <= 0 || ev.y <= 0) {
             return true;
         }
+        // A server-initiated resize (MsgType::ResizeSurface) arrives as a
+        // SizeChanged event: remap shared memory first so subsequent commits
+        // target the new mapping, then let the relayout below run.
+        if (surface_) {
+            surface_->ApplyPendingResize();
+        }
         {
             std::lock_guard<std::mutex> lock(stateMutex_);
             logicalWidth_ = ev.x;
@@ -254,7 +271,8 @@ bool JKClientApplication::ProcessOneEvent(const JKEvent& ev) {
     JKEvent routedEv = ev;
     ApplyInputRouting(routedEv);
 
-    if (routedEv.type == JKEventType::KeyDown && routedEv.keyCode == SDLK_TAB) {
+    if (routedEv.type == JKEventType::KeyDown && routedEv.keyCode == SDLK_TAB &&
+        WantsTabFocusCycle()) {
         JKWindow* active = windowManager_->GetKeyboardTargetWindow();
         bool shift = (SDL_GetModState() & KMOD_SHIFT) != 0;
         if (active) {
@@ -495,6 +513,13 @@ void JKClientApplication::RenderAndCommit() {
     if (w <= 0 || h <= 0) {
         return;
     }
+
+    // Upload queued resource-cache images (flag/mine/question icons etc.)
+    // before painting: the single-process path flushes these in
+    // JKRenderThread, but the client has no render thread. ComposeScene bakes
+    // texture handles into the serialized scene, so any image loaded during
+    // paint must already be a real texture or the blit is a silent no-op.
+    resourceCache_->FlushUploads(renderBackend_.get());
 
     // Build the scene description once.
     ComposeScene();

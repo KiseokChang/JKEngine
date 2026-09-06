@@ -3,6 +3,8 @@
 #include <apps/AppLauncherItem.h>
 #include <JKAudioCommand.h>
 #include <JKAudioThread.h>
+#include <JKImageLoader.h>
+#include <JKJkxFile.h>
 #include <JKMessageBus.h>
 #include <JKSDLAudioBackend.h>
 #include <JKSoundManager.h>
@@ -63,6 +65,26 @@ extern "C" __declspec(dllimport) int __stdcall CloseHandle(void* hObject);
 
 extern "C" __declspec(dllimport) unsigned long __stdcall GetModuleFileNameA(
     void* hModule, char* lpFilename, unsigned long nSize);
+
+// .jkx app discovery (ScanJkxApps).
+struct JkxFindData {
+    unsigned long dwFileAttributes = 0;
+    unsigned long ftCreationTime[2] = {};
+    unsigned long ftLastAccessTime[2] = {};
+    unsigned long ftLastWriteTime[2] = {};
+    unsigned long nFileSizeHigh = 0;
+    unsigned long nFileSizeLow = 0;
+    unsigned long dwReserved0 = 0;
+    unsigned long dwReserved1 = 0;
+    char cFileName[260] = {};
+    char cAlternateFileName[14] = {};
+};
+
+extern "C" __declspec(dllimport) void* __stdcall FindFirstFileA(
+    const char* lpFileName, JkxFindData* lpFindFileData);
+extern "C" __declspec(dllimport) int __stdcall FindNextFileA(
+    void* hFindFile, JkxFindData* lpFindFileData);
+extern "C" __declspec(dllimport) int __stdcall FindClose(void* hFindFile);
 #endif // _WIN32
 
 namespace jk {
@@ -79,6 +101,10 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
     SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitorv2");
     SDL_SetHint(SDL_HINT_WINDOWS_DPI_SCALING, "1");
 #endif
+    // A click on an unfocused window must BOTH activate it and act (grab the
+    // title bar, press a button...). SDL's default drops the activation click,
+    // which breaks "click title bar of a background surface to move it".
+    SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1");
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) {
         std::fprintf(stderr, "JKWindowServer::Init: SDL_Init failed: %s\n", SDL_GetError());
@@ -109,6 +135,14 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
     compositor_ = std::make_unique<JKCompositor>(renderer_);
     UpdateOutputBounds();
     InitLauncher();
+
+#ifdef _WIN32
+    // The server forwards raw keys to client surfaces and does no text
+    // composition of its own. With an IME attached, Enter/Esc/letters arrive
+    // as VK_PROCESSKEY + committed text only, so clients would never see
+    // those keydowns — detach the IME context from the SDL window.
+    JKPlatform::DetachIme(window_);
+#endif
 
     return true;
 }
@@ -198,8 +232,23 @@ void JKWindowServer::ProcessPendingClients() {
 
         int ww = 0, wh = 0;
         SDL_GetWindowSize(window_, &ww, &wh);
-        int x = std::max(0, (ww - client->Width()) / 2) + existingCount * 20;
-        int y = std::max(0, (wh - client->Height()) / 2) + existingCount * 20;
+        // Surfaces larger than the desktop (apps designed for 1920x1080) are
+        // displayed scaled down to fit; the client keeps rendering at its
+        // designed surface size. Chrome zones are proportional to the layer
+        // size, so title-drag, the close overlay and resize hotspots keep
+        // working under a fit scale.
+        const float fit = std::min(1.0f,
+            std::min(ww / static_cast<float>(client->Width()),
+                     wh / static_cast<float>(client->Height())));
+        const int dispW = static_cast<int>(client->Width() * fit);
+        const int dispH = static_cast<int>(client->Height() * fit);
+        int x = std::max(0, (ww - dispW) / 2) + existingCount * 20;
+        int y = std::max(0, (wh - dispH) / 2) + existingCount * 20;
+        // A full-desktop fit layer (dispW == ww) would push its close-button
+        // corner past the window edge with the cascade offset — clamp so the
+        // whole layer, chrome included, stays inside the desktop.
+        x = std::min(x, std::max(0, ww - dispW));
+        y = std::min(y, std::max(0, wh - dispH));
         client->SetPosition(x, y);
         ++existingCount;
 
@@ -217,9 +266,15 @@ void JKWindowServer::ProcessPendingClients() {
             continue;
         }
         compositor_->SetLayerPosition(client->Id(), x, y);
-        if (client->Id() == focusedClientId_ || focusedClientId_ == 0) {
-            compositor_->FocusLayer(client->Id());
+        if (fit < 1.0f) {
+            compositor_->SetLayerScale(client->Id(), fit, fit);
         }
+        // A newly spawned client takes keyboard focus unconditionally, like a
+        // new desktop window: focusedClientId_ drives key/text/wheel routing
+        // while FocusLayer only fixes z-order. Only calling FocusLayer here
+        // left focusedClientId_ at 0, so keys were silently dropped until the
+        // first click on the surface (tetris arrows appeared dead at spawn).
+        FocusClient(client->Id());
 
         {
             std::lock_guard<std::mutex> lock(clientsMutex_);
@@ -360,6 +415,205 @@ void JKWindowServer::UnblockAcceptor() {
     std::fprintf(stderr, "JKWindowServer::UnblockAcceptor: failed to unblock acceptor\n");
 }
 
+bool JKWindowServer::HandleChromeGrab(const SDL_Event& ev, int mx, int my, float scale) {
+    if (chromeGrab_ == ChromeGrab::None) {
+        return false;
+    }
+    JKClientConnection* client = FindClientById(chromeGrabClient_);
+    JKCompositorLayer* layer =
+        compositor_ ? compositor_->FindLayerById(chromeGrabLayerId_) : nullptr;
+    if (!client || !layer) {
+        // The grabbed layer vanished (client disconnected during drag).
+        chromeGrab_ = ChromeGrab::None;
+        chromeGrabClient_ = 0;
+        chromeGrabLayerId_ = 0;
+        return true;
+    }
+
+    const int lmX = static_cast<int>(std::llround(mx / scale));
+    const int lmY = static_cast<int>(std::llround(my / scale));
+
+    if (ev.type == SDL_MOUSEBUTTONDOWN) {
+        return true;  // other buttons during a drag are consumed
+    }
+
+    if (ev.type == SDL_MOUSEMOTION) {
+        if (chromeGrab_ == ChromeGrab::Move) {
+            int winW = 0, winH = 0;
+            SDL_GetWindowSize(window_, &winW, &winH);
+            // Display size in logical points (a fit-scaled layer is smaller
+            // than its surface size).
+            const int lw = static_cast<int>(std::llround(
+                layer->Width() * layer->ScaleX()));
+            const int lh = static_cast<int>(std::llround(
+                layer->Height() * layer->ScaleY()));
+            int nx = lmX - chromeGrabDX_;
+            int ny = lmY - chromeGrabDY_;
+            nx = std::max(-lw + 40, std::min(nx, std::max(0, winW - 40)));
+            ny = std::max(0, std::min(ny, std::max(0, winH - 40)));
+            client->SetPosition(nx, ny);
+            compositor_->SetLayerPosition(client->Id(), nx, ny);
+        } else {  // Resize: stretch-preview via layer scale.
+            int newW = chromeResizeW_;
+            int newH = chromeResizeH_;
+            int newX = chromeResizeX_;
+            if (chromeEdgeRight_) newW = lmX - chromeResizeX_;
+            if (chromeEdgeBottom_) newH = lmY - chromeResizeY_;
+            if (chromeEdgeLeft_) {
+                newW = chromeResizeW_ + (chromeResizeX_ - lmX);
+            }
+            newW = std::max(64, newW);
+            newH = std::max(48, newH);
+            // Absolute display scale = display target / surface width (the
+            // surface size does not change until the resize is committed).
+            layer->SetScale(newW / static_cast<float>(layer->Width()),
+                            newH / static_cast<float>(layer->Height()));
+            if (chromeEdgeLeft_) {
+                newX = chromeResizeX_ + chromeResizeW_ - newW;
+                client->SetPosition(newX, chromeResizeY_);
+                compositor_->SetLayerPosition(client->Id(), newX, chromeResizeY_);
+            }
+        }
+        return true;
+    }
+
+    if (ev.type == SDL_MOUSEBUTTONUP) {
+        if (chromeGrab_ == ChromeGrab::Resize) {
+            // Recompute the final logical size at the release point.
+            int newW = chromeResizeW_;
+            int newH = chromeResizeH_;
+            int newX = chromeResizeX_;
+            if (chromeEdgeRight_) newW = lmX - chromeResizeX_;
+            if (chromeEdgeBottom_) newH = lmY - chromeResizeY_;
+            if (chromeEdgeLeft_) {
+                newW = chromeResizeW_ + (chromeResizeX_ - lmX);
+            }
+            newW = std::max(64, newW);
+            newH = std::max(48, newH);
+            if (newW != chromeResizeW_ || newH != chromeResizeH_) {
+                if (chromeEdgeLeft_) {
+                    newX = chromeResizeX_ + chromeResizeW_ - newW;
+                    client->SetPosition(newX, chromeResizeY_);
+                    compositor_->SetLayerPosition(client->Id(), newX, chromeResizeY_);
+                }
+                // Keep the grab-time surface:display ratio so a fit-scaled
+                // surface resizes without cutting off its layout (1:1 layers
+                // get surface == display, unchanged).
+                const float fitX = static_cast<float>(layer->Width()) / std::max(1, chromeResizeW_);
+                const float fitY = static_cast<float>(layer->Height()) / std::max(1, chromeResizeH_);
+                const int commitW = std::max(64,
+                    static_cast<int>(std::llround(newW / fitX)));
+                const int commitH = std::max(48,
+                    static_cast<int>(std::llround(newH / fitY)));
+                CommitChromeResize(*client, layer->Id(), commitW, commitH, newW, newH);
+            }
+        }
+        chromeGrab_ = ChromeGrab::None;
+        chromeGrabClient_ = 0;
+        chromeGrabLayerId_ = 0;
+        return true;
+    }
+
+    return true;
+}
+
+bool JKWindowServer::TryChromeGrab(int mx, int my, float scale) {
+    if (!compositor_) {
+        return false;
+    }
+    JKCompositorLayer* layer = compositor_->HitTest(mx, my);
+    if (!layer) {
+        return false;
+    }
+    JKClientConnection* client = FindClientById(layer->Id());
+    if (!client) {
+        return false;
+    }
+
+    // Chrome zones are in SURFACE-local px (they shrink proportionally on
+    // fit-scaled layers, §7.3), so convert display px → surface px here.
+    // For 1:1 layers ScaleX/Y == 1 and this is the plain logical-local map.
+    const int lx = static_cast<int>(std::llround(
+        (mx / scale - layer->X()) / layer->ScaleX()));
+    const int ly = static_cast<int>(std::llround(
+        (my / scale - layer->Y()) / layer->ScaleY()));
+    const int w = layer->Width();
+    const int h = layer->Height();
+
+    // 1) Close overlay (top-right of the title bar, server-drawn).
+    const bool inCloseX = (lx >= w - kChromeCloseSize - kChromeCloseMargin) &&
+                          (lx < w - kChromeCloseMargin);
+    const bool inCloseY = (ly >= kChromeCloseMargin) &&
+                          (ly < kChromeCloseMargin + kChromeCloseSize);
+    if (inCloseX && inCloseY) {
+        FocusClient(client->Id());
+        client->Send(ipc::MsgType::Close, nullptr, 0);
+        return true;
+    }
+
+    // 2) Resize edges: left/right/bottom (6px inset). The top edge stays
+    //    title-drag, matching the client-painted frame.
+    const bool edgeLeft = (lx < kResizeHotspot);
+    const bool edgeRight = (lx >= w - kResizeHotspot);
+    const bool edgeBottom = (ly >= h - kResizeHotspot);
+    if (edgeLeft || edgeRight || edgeBottom) {
+        FocusClient(client->Id());
+        capturedClientId_ = 0;
+        chromeGrab_ = ChromeGrab::Resize;
+        chromeGrabClient_ = client->Id();
+        chromeGrabLayerId_ = layer->Id();
+        chromeResizeX_ = layer->X();
+        chromeResizeY_ = layer->Y();
+        // Display size at grab time (logical points) — the resize drag and
+        // its commit threshold work in display space.
+        chromeResizeW_ = static_cast<int>(std::llround(w * layer->ScaleX()));
+        chromeResizeH_ = static_cast<int>(std::llround(h * layer->ScaleY()));
+        chromeEdgeLeft_ = edgeLeft;
+        chromeEdgeRight_ = edgeRight;
+        chromeEdgeBottom_ = edgeBottom;
+        return true;
+    }
+
+    // 3) Title bar: start a move grab.
+    if (ly < kChromeTitleBar) {
+        FocusClient(client->Id());
+        capturedClientId_ = 0;
+        chromeGrab_ = ChromeGrab::Move;
+        chromeGrabClient_ = client->Id();
+        chromeGrabLayerId_ = layer->Id();
+        // Move works in desktop-logical positions, but lx/ly are surface-local
+        // and a fit-scaled layer maps surface px to logical px at ScaleX/Y.
+        chromeGrabDX_ = static_cast<int>(std::llround(lx * layer->ScaleX()));
+        chromeGrabDY_ = static_cast<int>(std::llround(ly * layer->ScaleY()));
+        return true;
+    }
+    return false;
+}
+
+void JKWindowServer::CommitChromeResize(JKClientConnection& client, uint32_t layerId,
+                                        int width, int height, int dispW, int dispH) {
+    // Order matters: (1) create the new shared memory generation and retire
+    // the old one, (2) atomically swap the layer texture/pixels to the new
+    // size (a layer with the new width and the old pixel buffer would make
+    // SDL_UpdateTexture read out of bounds), (3) only then notify the client.
+    ipc::SurfaceResizePayload payload{};
+    if (!client.BeginResizeSurface(width, height, payload)) {
+        return;
+    }
+    if (!compositor_ || !compositor_->ResizeLayer(layerId, width, height,
+                                                  client.SurfaceData())) {
+        return;
+    }
+    // Restore the display size the drag asked for (ResizeLayer resets the
+    // layer scale to 1; a fit-scaled surface needs its scale back).
+    if (dispW != width || dispH != height) {
+        compositor_->SetLayerScale(layerId,
+                                   dispW / static_cast<float>(width),
+                                   dispH / static_cast<float>(height));
+    }
+    client.Send(ipc::MsgType::ResizeSurface, &payload, sizeof(payload));
+}
+
 void JKWindowServer::HandleSDLEvent(const SDL_Event& ev) {
     if (ev.type == SDL_WINDOWEVENT &&
         (ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED ||
@@ -391,41 +645,79 @@ void JKWindowServer::HandleSDLEvent(const SDL_Event& ev) {
             my = static_cast<int>(std::llround(ev.button.y * outputScale));
         }
 
+        // Server window chrome (title-bar move / close / border resize)
+        // intercepts mouse input before anything reaches the client.
+        if (HandleChromeGrab(ev, mx, my, outputScale)) {
+            return;
+        }
+        if (ev.type == SDL_MOUSEBUTTONDOWN && TryChromeGrab(mx, my, outputScale)) {
+            return;
+        }
+
         // Client surfaces are rendered on top of the launcher, so they should
         // receive input first. Only treat a click as a launcher icon click if
         // it did not hit any client surface.
-        JKClientConnection* client = HitTestClient(mx, my);
+        //
+        // While a mouse button is held inside a client surface (captured),
+        // keep routing motion/release to that client even when the cursor
+        // leaves the surface — the server-side equivalent of Win32
+        // SetCapture. The client runs the same capture logic as the
+        // single-process path, so out-of-bounds payload coordinates are
+        // expected and handled there.
+        JKClientConnection* client = nullptr;
+        if (capturedClientId_ != 0) {
+            client = FindClientById(capturedClientId_);
+            if (!client) capturedClientId_ = 0;  // captured client vanished
+        }
+        if (!client) client = HitTestClient(mx, my);
         if (!client && ev.type == SDL_MOUSEBUTTONDOWN) {
             int icon = HitTestLauncherIcon(mx, my);
             if (icon >= 0) {
-                SpawnClient(launcherIcons_[icon].appName);
+                const LauncherIcon& item = launcherIcons_[static_cast<size_t>(icon)];
+                if (item.jkxPath.empty()) {
+                    SpawnClient(item.appName.c_str());
+                } else {
+                    SpawnClient(item.jkxPath.c_str(), /*fromJkx=*/true);
+                }
                 return;
             }
         }
         if (!client) return;
 
         // mx/my are physical client px. The client surface is client->Width() x
-        // client->Height() surface pixels, stretched by outputScale when drawn.
+        // client->Height() surface pixels, stretched by outputScale when drawn
+        // and possibly shrunk by the fit scale (surface larger than desktop).
         // Convert the physical mouse position back into the client's surface
-        // pixel space: (mx - client->X()*outputScale) / outputScale.
+        // pixel space: ((mx/outputScale) - client->X()) / layerScale.
+        float layerScaleX = 1.0f, layerScaleY = 1.0f;
+        if (compositor_) {
+            if (auto* layer = compositor_->FindLayerById(client->Id())) {
+                layerScaleX = layer->ScaleX();
+                layerScaleY = layer->ScaleY();
+            }
+        }
         ipc::InputEventPayload payload{};
         payload.surfaceId = client->Id();
-        payload.x = static_cast<int>(std::llround(mx / outputScale)) - client->X();
-        payload.y = static_cast<int>(std::llround(my / outputScale)) - client->Y();
+        payload.x = static_cast<int>(std::llround(
+            (mx / outputScale - client->X()) / layerScaleX));
+        payload.y = static_cast<int>(std::llround(
+            (my / outputScale - client->Y()) / layerScaleY));
 
         if (ev.type == SDL_MOUSEMOTION) {
             payload.type = ipc::InputEventType::MouseMove;
-            payload.dx = ev.motion.xrel;
-            payload.dy = ev.motion.yrel;
+            payload.dx = static_cast<int32_t>(std::llround(ev.motion.xrel / layerScaleX));
+            payload.dy = static_cast<int32_t>(std::llround(ev.motion.yrel / layerScaleY));
         } else if (ev.type == SDL_MOUSEBUTTONDOWN) {
             payload.type = ipc::InputEventType::MouseDown;
             payload.keyCode = ev.button.button;
             payload.detail = ev.button.clicks;
             FocusClient(client->Id());
+            capturedClientId_ = client->Id();
         } else if (ev.type == SDL_MOUSEBUTTONUP) {
             payload.type = ipc::InputEventType::MouseUp;
             payload.keyCode = ev.button.button;
             payload.detail = ev.button.clicks;
+            capturedClientId_ = 0;
         }
 
         SendInputEvent(*client, payload);
@@ -589,6 +881,9 @@ void JKWindowServer::CleanupDisconnectedClients() {
                 if (focusedClientId_ == client->Id()) {
                     focusedClientId_ = 0;
                 }
+                if (capturedClientId_ == client->Id()) {
+                    capturedClientId_ = 0;
+                }
                 if (compositor_) {
                     compositor_->RemoveLayer(client->Id());
                 }
@@ -596,6 +891,14 @@ void JKWindowServer::CleanupDisconnectedClients() {
                 it = clients_.erase(it);
             } else {
                 ++it;
+            }
+        }
+
+        // When the focused client went away, move keyboard focus to the
+        // topmost surviving layer so keys keep working without a click.
+        if (focusedClientId_ == 0 && compositor_ && !clients_.empty()) {
+            if (uint32_t top = compositor_->TopmostLayerId()) {
+                FocusClient(top);
             }
         }
     }
@@ -607,26 +910,151 @@ void JKWindowServer::CleanupDisconnectedClients() {
     }
 }
 
+SDL_Texture* JKWindowServer::TextureFromRGBA(const jk::LoadedImage& img, const char* label) {
+    if (!renderer_) return nullptr;
+    // stb decodes to byte-order R,G,B,A; SDL_PIXELFORMAT_RGBA32 is exactly
+    // that layout regardless of platform endianness.
+    SDL_Surface* surface = SDL_CreateRGBSurfaceWithFormatFrom(
+        const_cast<uint8_t*>(img.rgba.data()), img.w, img.h, 32, img.w * 4,
+        SDL_PIXELFORMAT_RGBA32);
+    if (!surface) {
+        std::fprintf(stderr, "JKWindowServer: surface for '%s' failed: %s\n",
+                     label, SDL_GetError());
+        return nullptr;
+    }
+    SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer_, surface);
+    SDL_FreeSurface(surface);
+    if (!texture) {
+        std::fprintf(stderr, "JKWindowServer: texture for '%s' failed: %s\n",
+                     label, SDL_GetError());
+        return nullptr;
+    }
+    SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_BLEND);
+    return texture;
+}
+
+SDL_Texture* JKWindowServer::LoadTextureScaled(const char* assetBase) {
+    if (!renderer_) return nullptr;
+
+    // Pick the @2x asset when the display scale is high enough for the extra
+    // pixels to pay off (mixed-DPI rule: renderer ratio drives the choice).
+    const float s = compositor_ ? compositor_->OutputScale() : 1.0f;
+    char path[512];
+    std::snprintf(path, sizeof(path), "%s@%s.png", assetBase, s >= 1.5f ? "2x" : "1x");
+
+    jk::LoadedImage img;
+    if (!jk::LoadImageFile(jk::ResolveAssetPath(path), img)) {
+        return nullptr;
+    }
+    return TextureFromRGBA(img, path);
+}
+
 void JKWindowServer::InitLauncher() {
     if (!renderer_) return;
 
-    // Server-side launcher: two desktop icons for Minesweeper and Tetris.
-    // These live as simple SDL textures drawn behind the composited surfaces.
     launcherIcons_.clear();
-    {
+
+    // Installed .jkx containers first (Phase C): one launcher cell per
+    // apps/<name>.jkx, icon decoded from the container itself.
+    ScanJkxApps();
+
+    // Built-in process-mode fallback for apps that have no .jkx installed.
+    auto hasJkx = [this](const char* name) {
+        for (const auto& icon : launcherIcons_) {
+            if (icon.appName == name) return true;
+        }
+        return false;
+    };
+    if (!hasJkx("minesweeper")) {
         LauncherIcon icon;
         icon.rect = JKRect{ 50, 50, 64, 80 };
         icon.appName = "minesweeper";
         launcherIcons_.push_back(icon);
     }
-    {
+    if (!hasJkx("tetris")) {
+        const int col = static_cast<int>(launcherIcons_.size());
         LauncherIcon icon;
-        icon.rect = JKRect{ 150, 50, 64, 80 };
+        icon.rect = JKRect{ 50 + col * 100, 50, 64, 80 };
         icon.appName = "tetris";
         launcherIcons_.push_back(icon);
     }
 
+    // Desktop background photo + launcher icon art (PNG assets, see
+    // ARCHITECTURE_DOCS/20). Missing assets fall back to the flat placeholder.
+    if (backgroundTexture_) {
+        SDL_DestroyTexture(backgroundTexture_);
+        backgroundTexture_ = nullptr;
+    }
+    backgroundTexture_ = LoadTextureScaled("assets/backgrounds/desktop");
+
+    for (auto& icon : launcherIcons_) {
+        if (icon.texture) continue;   // .jkx apps carry their own icon texture
+
+        // Built-in apps: assets/icons/launcher_<pfx>; legacy cell layout kept
+        // for them so the flat-placeholder fallback still matches by name.
+        const char* base = (icon.appName == "minesweeper") ? "assets/icons/launcher_mine"
+                                                           : "assets/icons/launcher_tetris";
+        icon.texture = LoadTextureScaled(base);
+        if (icon.texture) {
+            std::fprintf(stderr, "JKWindowServer: launcher icon '%s' loaded\n", base);
+        }
+    }
+
     DrawLauncher();
+}
+
+void JKWindowServer::ScanJkxApps() {
+#ifdef _WIN32
+    // Enumerate <exe-dir>/apps/*.jkx. Icon textures are decoded from the
+    // container's ICON entries (no temp files); spawning uses --jkx <path>.
+    char basePath[1024] = {};
+    if (!GetModuleFileNameA(nullptr, basePath, sizeof(basePath))) return;
+    char* lastSlash = basePath;
+    for (char* p = basePath; *p; ++p) {
+        if (*p == '\\' || *p == '/') lastSlash = p;
+    }
+    *lastSlash = '\0';
+
+    char pattern[1024];
+    std::snprintf(pattern, sizeof(pattern), "%s\\apps\\*.jkx", basePath);
+    JkxFindData fd{};
+    void* find = FindFirstFileA(pattern, &fd);
+    if (!find) return;
+
+    const float s = compositor_ ? compositor_->OutputScale() : 1.0f;
+
+    do {
+        char path[1024];
+        std::snprintf(path, sizeof(path), "%s\\apps\\%s", basePath, fd.cFileName);
+
+        jk::JKJkxFile jkx;
+        if (!jkx.Open(path)) continue;
+        const jk::JkxManifest& mani = jkx.Manifest();
+        if (mani.name.empty()) continue;
+
+        LauncherIcon icon;
+        icon.appName = mani.name;
+        icon.jkxPath = path;
+        icon.rect = JKRect{ 50 + static_cast<int>(launcherIcons_.size()) * 100, 50, 64, 80 };
+
+        // Icon entry: prefer @2x on high-scale displays.
+        std::string wanted = (s >= 1.5f && !mani.icon2x.empty()) ? mani.icon2x : mani.icon;
+        if (wanted.empty()) wanted = !mani.icon2x.empty() ? mani.icon2x : mani.icon;
+        const int entry = wanted.empty() ? -1 : jkx.FindEntry("ICON", wanted);
+        std::vector<uint8_t> png;
+        jk::LoadedImage img;
+        if (entry >= 0 && jkx.ReadEntry(entry, png) &&
+            jk::LoadImageMemory(png.data(), png.size(), img)) {
+            icon.texture = TextureFromRGBA(img, mani.name.c_str());
+        }
+
+        launcherIcons_.push_back(std::move(icon));
+        std::fprintf(stderr, "JKWindowServer: installed app '%s' from %s (icon %s)\n",
+                     mani.name.c_str(), fd.cFileName,
+                     launcherIcons_.back().texture ? "decoded" : "missing");
+    } while (FindNextFileA(find, &fd));
+    FindClose(find);
+#endif // _WIN32
 }
 
 void JKWindowServer::DrawLauncher() {
@@ -641,13 +1069,18 @@ void JKWindowServer::DrawLauncherBackground() {
     // physical-pixel rect. The mouse hit-test uses the same physical rect.
     const float s = compositor_ ? compositor_->OutputScale() : 1.0f;
 
-    // For Phase 2 the launcher is a minimal placeholder: a grey desktop and
-    // two colored rectangles representing app icons. Full icons would need a
-    // server-side text renderer; for now labels are rendered by drawing colored
-    // squares and (on Windows) relying on the user knowing which is which.
     // This only draws; the compositor calls SDL_RenderPresent once per frame.
     SDL_SetRenderDrawColor(renderer_, 96, 96, 96, 255);
     SDL_RenderClear(renderer_);
+
+    // Desktop background photo stretched to the full window.
+    if (backgroundTexture_) {
+        int pw = 0;
+        int ph = 0;
+        SDL_GetRendererOutputSize(renderer_, &pw, &ph);
+        SDL_Rect dst{ 0, 0, pw, ph };
+        SDL_RenderCopy(renderer_, backgroundTexture_, nullptr, &dst);
+    }
 
     for (const auto& icon : launcherIcons_) {
         SDL_Rect rc{
@@ -656,14 +1089,28 @@ void JKWindowServer::DrawLauncherBackground() {
             static_cast<int>(icon.rect.w * s),
             static_cast<int>(icon.rect.h * s),
         };
-        if (std::strcmp(icon.appName, "minesweeper") == 0) {
-            SDL_SetRenderDrawColor(renderer_, 128, 128, 128, 255);
+        if (icon.texture) {
+            // Square icon art in the top part of the 64x80 cell; the rest of
+            // the cell is label space (the server has no text renderer).
+            SDL_Rect art{
+                rc.x,
+                rc.y,
+                static_cast<int>(icon.rect.w * s),
+                static_cast<int>(icon.rect.w * s),
+            };
+            SDL_RenderCopy(renderer_, icon.texture, nullptr, &art);
         } else {
-            SDL_SetRenderDrawColor(renderer_, 128, 0, 128, 255);
+            if (icon.appName == "minesweeper") {
+                SDL_SetRenderDrawColor(renderer_, 128, 128, 128, 255);
+            } else if (icon.appName == "tetris") {
+                SDL_SetRenderDrawColor(renderer_, 128, 0, 128, 255);
+            } else {
+                SDL_SetRenderDrawColor(renderer_, 100, 100, 100, 255);
+            }
+            SDL_RenderFillRect(renderer_, &rc);
+            SDL_SetRenderDrawColor(renderer_, 255, 255, 255, 255);
+            SDL_RenderDrawRect(renderer_, &rc);
         }
-        SDL_RenderFillRect(renderer_, &rc);
-        SDL_SetRenderDrawColor(renderer_, 255, 255, 255, 255);
-        SDL_RenderDrawRect(renderer_, &rc);
     }
 }
 
@@ -675,6 +1122,10 @@ void JKWindowServer::DestroyLauncher() {
         }
     }
     launcherIcons_.clear();
+    if (backgroundTexture_) {
+        SDL_DestroyTexture(backgroundTexture_);
+        backgroundTexture_ = nullptr;
+    }
 }
 
 int JKWindowServer::HitTestLauncherIcon(int x, int y) const {
@@ -693,7 +1144,7 @@ int JKWindowServer::HitTestLauncherIcon(int x, int y) const {
     return -1;
 }
 
-void JKWindowServer::SpawnClient(const char* appName) {
+void JKWindowServer::SpawnClient(const char* appName, bool fromJkx) {
 #ifdef _WIN32
     // Throttle repeated spawns for the same app to avoid launching many copies
     // from a single double-click.
@@ -714,7 +1165,7 @@ void JKWindowServer::SpawnClient(const char* appName) {
     }
 
     // Assume the server executable is in the same directory as the client.
-    // Build a command line of the form: jkproto_sdl2_jkwindow.exe --client minesweeper
+    // Build a command line of the form: jkdesktop.exe --client minesweeper
     char modulePath[1024] = {};
     const unsigned long len = GetModuleFileNameA(nullptr, modulePath, sizeof(modulePath));
     if (len == 0 || len >= sizeof(modulePath)) {
@@ -735,10 +1186,18 @@ void JKWindowServer::SpawnClient(const char* appName) {
     }
 
     char cmdLine[2048] = {};
-    std::snprintf(cmdLine, sizeof(cmdLine),
-                  "\"%s\\jkproto_sdl2_jkwindow.exe\" --client %s",
-                  modulePath[0] ? modulePath : ".",
-                  appName);
+    if (fromJkx) {
+        // A .jkx container path — may contain spaces, so quote it.
+        std::snprintf(cmdLine, sizeof(cmdLine),
+                      "\"%s\\jkdesktop.exe\" --jkx \"%s\"",
+                      modulePath[0] ? modulePath : ".",
+                      appName);
+    } else {
+        std::snprintf(cmdLine, sizeof(cmdLine),
+                      "\"%s\\jkdesktop.exe\" --client %s",
+                      modulePath[0] ? modulePath : ".",
+                      appName);
+    }
 
     LauncherStartupInfoA si{};
     si.cb = sizeof(si);
@@ -757,9 +1216,11 @@ void JKWindowServer::SpawnClient(const char* appName) {
     if (pi.hProcess) CloseHandle(pi.hProcess);
     if (pi.hThread) CloseHandle(pi.hThread);
 
-    std::fprintf(stderr, "JKWindowServer: spawned client --client %s\n", appName);
+    std::fprintf(stderr, "JKWindowServer: spawned client %s %s\n",
+                 fromJkx ? "--jkx" : "--client", appName);
 #else
     (void)appName;
+    (void)fromJkx;
     std::fprintf(stderr, "JKWindowServer: SpawnClient is Windows-only in this prototype\n");
 #endif // _WIN32
 }

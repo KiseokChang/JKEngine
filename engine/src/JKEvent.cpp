@@ -37,11 +37,13 @@ JKEvent TranslateSDLEvent(const SDL_Event& sdl) {
         case SDL_KEYDOWN:
             ev.type = JKEventType::KeyDown;
             ev.keyCode = static_cast<uint32_t>(sdl.key.keysym.sym);
+            ev.option = static_cast<uint32_t>(sdl.key.keysym.mod);
             break;
 
         case SDL_KEYUP:
             ev.type = JKEventType::KeyUp;
             ev.keyCode = static_cast<uint32_t>(sdl.key.keysym.sym);
+            ev.option = static_cast<uint32_t>(sdl.key.keysym.mod);
             break;
 
         case SDL_TEXTINPUT:
