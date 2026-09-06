@@ -174,6 +174,18 @@ void JKClientSurface::ReadLoop() {
     while (running_ && transport_->IsConnected()) {
         ipc::Message msg;
         if (!ipc::ReadMessage(*transport_, msg)) {
+            // Read() only fails when the transport is dead (broken pipe) or
+            // cancelled. Cancel path sets running_ = false before unblocking
+            // the reader, so a failure here while running_ means the server
+            // died without sending Close (crash / taskkill). The client has
+            // nothing to render to once the server is gone — queue Quit so
+            // the app loop exits instead of lingering as an invisible
+            // orphan process.
+            if (running_) {
+                JKEvent quit{};
+                quit.type = JKEventType::Quit;
+                QueueInputEvent(quit);
+            }
             break;
         }
         if (msg.type == ipc::MsgType::Close) {
