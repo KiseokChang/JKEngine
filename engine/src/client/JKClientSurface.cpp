@@ -2,6 +2,9 @@
 
 #include <cstdio>
 #include <cstring>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 namespace jk {
 namespace client {
@@ -27,9 +30,14 @@ bool JKClientSurface::Connect() {
         return false;
     }
 
-    // Send Hello.
+    // Send Hello. Protocol v2 self-reports this process's OS pid so window
+    // lists can attribute per-process stats without server involvement.
     {
-        ipc::HelloPayload hello{1};
+        ipc::HelloPayload hello{};
+        hello.protocolVersion = 2;
+#ifdef _WIN32
+        hello.pid = ::GetCurrentProcessId();
+#endif
         if (!ipc::WriteMessage(*transport_, ipc::MsgType::Hello, hello)) {
             std::fprintf(stderr, "JKClientSurface: Hello write failed\n");
             Close();
@@ -276,6 +284,7 @@ void JKClientSurface::ReadLoop() {
                 ShellWindowInfo info;
                 info.surfaceId = payload.windows[i].surfaceId;
                 info.flags = payload.windows[i].flags;
+                info.pid = payload.windows[i].pid;
                 info.title = payload.windows[i].title;
                 snapshot.windows.push_back(std::move(info));
             }
@@ -370,6 +379,13 @@ bool JKClientSurface::SendWindowMinimizeToggle(uint32_t surfaceId) {
     ipc::WindowActivatePayload payload{};
     payload.surfaceId = surfaceId;
     return ipc::WriteMessage(*transport_, ipc::MsgType::WindowMinimizeToggle, payload);
+}
+
+bool JKClientSurface::SendWindowListSubscribe(bool subscribe) {
+    if (!IsConnected()) return false;
+    ipc::WindowListSubscribePayload payload{};
+    payload.subscribe = subscribe ? 1 : 0;
+    return ipc::WriteMessage(*transport_, ipc::MsgType::WindowListSubscribe, payload);
 }
 
 bool JKClientSurface::GetWindowList(std::vector<ShellWindowInfo>& out) const {

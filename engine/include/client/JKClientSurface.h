@@ -21,9 +21,11 @@ namespace client {
 
 // One window in a shell window-list snapshot (docs/28). flags mirror
 // ipc::ShellWindowEntry: bit0 = active (keyboard focus), bit1 = minimized.
+// pid is the client-reported OS process id (protocol v2, 0 = unknown).
 struct ShellWindowInfo {
     uint32_t surfaceId = 0;
     uint32_t flags = 0;
+    uint32_t pid = 0;
     std::string title;
 };
 
@@ -83,6 +85,9 @@ public:
     bool SendShellRegister(uint32_t dockEdge = 0, uint32_t barHeight = 0);
     bool SendWindowActivate(uint32_t surfaceId);
     bool SendWindowMinimizeToggle(uint32_t surfaceId);
+    // Non-shell opt-in to WindowList pushes (taskmgr; the shell gets them
+    // by role). Subscribing yields an immediate initial snapshot.
+    bool SendWindowListSubscribe(bool subscribe);
     // Main-thread only: copy of the latest window-list snapshot.
     bool GetWindowList(std::vector<ShellWindowInfo>& out) const;
 

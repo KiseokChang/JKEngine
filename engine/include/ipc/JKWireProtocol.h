@@ -29,12 +29,15 @@ enum class MsgType : uint32_t {
     // (taskbar) and receives window-list snapshots; shell commands flow
     // back client -> server. This is the seed of the privileged shell API.
     ShellRegister  = 11,  // C -> S: register as the (single) shell client
-    WindowList     = 12,  // S -> C: full window-list snapshot to the shell
+    WindowList     = 12,  // S -> C: full window-list snapshot (shell + subscribers)
     WindowActivate = 13,  // C -> S: focus (+restore) a window
     ShellRegisterAck = 14, // S -> C: shell role granted (1) or denied (0)
     // C -> S: show/hide the window (taskbar active-button re-click). Same
     // {surfaceId} payload as WindowActivate.
-    WindowMinimizeToggle = 15
+    WindowMinimizeToggle = 15,
+    // C -> S: opt in/out of WindowList snapshot pushes without claiming the
+    // single shell slot — utility windows (taskmgr, docs/23 §11.2) use this.
+    WindowListSubscribe = 16
 };
 
 #pragma pack(push, 1)
@@ -47,8 +50,14 @@ struct WireHeader {
 // Protocol payload structures shared by server and client.
 // All payloads are trivially-copyable and sent raw over the wire.
 
+// Client -> server with MsgType::Hello. Protocol v2 adds the client's OS
+// process id: window-list entries carry it so utility windows can query
+// per-process stats (GetProcessTimes/GetProcessMemoryInfo) directly, keeping
+// the server a dumb compositor (docs/23 §11.2). v1 Hellos (4 bytes) are
+// accepted; pid then reads as 0.
 struct HelloPayload {
-    uint32_t protocolVersion = 1;
+    uint32_t protocolVersion = 2;
+    uint32_t pid = 0;
 };
 
 struct SurfaceCreatePayload {
@@ -108,11 +117,13 @@ struct ShellRegisterAckPayload {
     uint32_t accepted = 0;
 };
 
-// Window-list entry (docs/28). flags: bit0 = active (has keyboard focus),
-// bit1 = minimized (layer hidden server-side).
+// Window-list entry (docs/28). flags: bit0 = active (keyboard focus),
+// bit1 = minimized (layer hidden server-side). pid: the client's OS process
+// id, self-reported in Hello v2 (0 for legacy clients).
 struct ShellWindowEntry {
     uint32_t surfaceId = 0;
     uint32_t flags = 0;
+    uint32_t pid = 0;
     char     title[128] = {};
 };
 
@@ -132,6 +143,14 @@ constexpr uint32_t kShellWindowMinimized = 1u << 1;  // layer hidden server-side
 // restore it first when it is minimized).
 struct WindowActivatePayload {
     uint32_t surfaceId = 0;
+};
+
+// Client -> server with MsgType::WindowListSubscribe: opt in to (subscribe=1)
+// or out of (0) WindowList snapshot pushes. Unlike the shell (excluded from
+// its own list, chrome-exempt) a subscriber is a regular window and appears
+// in the snapshot it receives.
+struct WindowListSubscribePayload {
+    uint32_t subscribe = 0;
 };
 
 enum class InputEventType : uint32_t {

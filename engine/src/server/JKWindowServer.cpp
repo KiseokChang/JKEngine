@@ -212,12 +212,19 @@ void JKWindowServer::AcceptorLoop() {
         }
         if (!running_) break;
 
-        // Expect Hello.
+        // Expect Hello. Protocol v2 carries the client's OS pid; a v1 Hello
+        // (4-byte payload) is accepted with pid = 0.
         ipc::Message hello;
         if (!ipc::ReadMessage(*transport, hello) || hello.type != ipc::MsgType::Hello) {
             std::fprintf(stderr, "JKWindowServer::AcceptorLoop: expected Hello, got type=%u\n",
                          static_cast<uint32_t>(hello.type));
             continue;
+        }
+        uint32_t helloPid = 0;
+        if (hello.payload.size() >= sizeof(ipc::HelloPayload)) {
+            ipc::HelloPayload helloPayload{};
+            std::memcpy(&helloPayload, hello.payload.data(), sizeof(helloPayload));
+            helloPid = helloPayload.pid;
         }
 
         // Expect CreateSurface.
@@ -234,6 +241,7 @@ void JKWindowServer::AcceptorLoop() {
 
         uint32_t id = nextSurfaceId_++;
         auto client = std::make_unique<JKClientConnection>(id, std::move(transport));
+        client->SetPid(helloPid);
 
         if (!client->CreateSurface(create.width, create.height, create.title)) {
             std::fprintf(stderr, "JKWindowServer::AcceptorLoop: failed to create surface\n");
@@ -1077,6 +1085,15 @@ void JKWindowServer::ProcessClientMessage(JKClientConnection& client, const ipc:
                 PushWindowListUnsafe();  // minimized flag follows visibility
             }
         }
+    } else if (msg.type == ipc::MsgType::WindowListSubscribe) {
+        if (msg.payload.size() >= sizeof(ipc::WindowListSubscribePayload)) {
+            ipc::WindowListSubscribePayload payload{};
+            std::memcpy(&payload, msg.payload.data(), sizeof(payload));
+            client.SetWindowListSubscriber(payload.subscribe != 0);
+            if (payload.subscribe) {
+                PushWindowListUnsafe();  // initial snapshot (clientsMutex_ held)
+            }
+        }
     }
 }
 
@@ -1109,10 +1126,18 @@ void JKWindowServer::PushWindowListUnsafe() {
                 entry.flags |= ipc::kShellWindowMinimized;
             }
             std::strncpy(entry.title, c->Title().c_str(), sizeof(entry.title) - 1);
+            entry.pid = c->Pid();
         }
     }
     if (shell) {
         shell->Send(ipc::MsgType::WindowList, &payload, sizeof(payload));
+    }
+    // Non-shell subscribers (taskmgr) get the same snapshot; unlike the
+    // shell they are regular windows and appear in it.
+    for (auto& c : clients_) {
+        if (c && !c->IsDisconnected() && !c->IsShell() && c->WantsWindowList()) {
+            c->Send(ipc::MsgType::WindowList, &payload, sizeof(payload));
+        }
     }
 }
 

@@ -58,6 +58,17 @@ public:
     bool IsShell() const { return shell_; }
     void SetShell(bool shell) { shell_ = shell; }
 
+    // Client-reported OS process id (Hello protocol v2). 0 when unknown
+    // (legacy client). Consumed by window-list entries (docs/23 §11.2).
+    uint32_t Pid() const { return pid_; }
+    void SetPid(uint32_t pid) { pid_ = pid; }
+
+    // WindowList push subscription (MsgType::WindowListSubscribe): how
+    // non-shell utility windows (taskmgr) receive snapshots. The shell
+    // always receives them by role.
+    bool WantsWindowList() const { return windowListSubscriber_; }
+    void SetWindowListSubscriber(bool s) { windowListSubscriber_ = s; }
+
     uint8_t* SurfaceData() const;
     size_t SurfaceBytes() const;
 
@@ -98,6 +109,8 @@ private:
     int x_ = 0;
     int y_ = 0;
     bool shell_ = false;   // desktop-shell (taskbar) role, granted on request
+    uint32_t pid_ = 0;     // client-reported OS pid (Hello v2)
+    bool windowListSubscriber_ = false;  // opted into WindowList pushes
 
     SDL_Texture* texture_ = nullptr;
     std::atomic<bool> dirty_{true};
