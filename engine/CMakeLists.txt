@@ -494,79 +494,129 @@ endif()
 # `jkx-pack` whenever the host exe or a module DLL is newer than its package.
 # Depends on target names (not files) so Ninja always links exe+DLLs first.
 # ---------------------------------------------------------------------------
+# Launcher icon art is embedded by jkx-pack at repack time. The packer reads
+# assets/ next to the exe (build dir), where the tree is only refreshed by the
+# jkdesktop POST_BUILD copy — i.e. never after an icons-only edit. Sync each
+# icon into the build tree as an explicit output so icon edits chain into
+# repacking (minesweeper uses the launcher_mine prefix).
+set(JKX_ICON_APPS
+    mine tetris testwin jango occ pcx vector iconedit recog vfont vpres
+    terminal imguidemo taskmgr vplayer browser scriptdemo passworddemo)
+set(JKX_ICONS "${CMAKE_BINARY_DIR}/assets/icons")
+foreach(icon_app IN LISTS JKX_ICON_APPS)
+    foreach(icon_px IN ITEMS 1x 2x)
+        set(icon_src "${CMAKE_SOURCE_DIR}/assets/icons/launcher_${icon_app}@${icon_px}.png")
+        set(icon_dst "${JKX_ICONS}/launcher_${icon_app}@${icon_px}.png")
+        add_custom_command(OUTPUT "${icon_dst}"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${icon_src}" "${icon_dst}"
+            DEPENDS "${icon_src}"
+            COMMENT "Syncing ${icon_dst}"
+            VERBATIM)
+    endforeach()
+endforeach()
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/minesweeper.jkx"
     COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack minesweeper
     DEPENDS jkdesktop jkapp_minesweeper
+        "${JKX_ICONS}/launcher_mine@1x.png"
+        "${JKX_ICONS}/launcher_mine@2x.png"
     COMMENT "Repacking apps/minesweeper.jkx"
     VERBATIM)
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/tetris.jkx"
     COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack tetris
     DEPENDS jkdesktop jkapp_tetris
+        "${JKX_ICONS}/launcher_tetris@1x.png"
+        "${JKX_ICONS}/launcher_tetris@2x.png"
     COMMENT "Repacking apps/tetris.jkx"
     VERBATIM)
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/testwin.jkx"
     COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack testwin
     DEPENDS jkdesktop jkapp_testwin
+        "${JKX_ICONS}/launcher_testwin@1x.png"
+        "${JKX_ICONS}/launcher_testwin@2x.png"
     COMMENT "Repacking apps/testwin.jkx"
     VERBATIM)
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/jango.jkx"
     COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack jango
     DEPENDS jkdesktop jkapp_jango
+        "${JKX_ICONS}/launcher_jango@1x.png"
+        "${JKX_ICONS}/launcher_jango@2x.png"
     COMMENT "Repacking apps/jango.jkx"
     VERBATIM)
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/occ.jkx"
     COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack occ
     DEPENDS jkdesktop jkapp_occ
+        "${JKX_ICONS}/launcher_occ@1x.png"
+        "${JKX_ICONS}/launcher_occ@2x.png"
     COMMENT "Repacking apps/occ.jkx"
     VERBATIM)
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/pcx.jkx"
     COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack pcx
     DEPENDS jkdesktop jkapp_pcx
+        "${JKX_ICONS}/launcher_pcx@1x.png"
+        "${JKX_ICONS}/launcher_pcx@2x.png"
     COMMENT "Repacking apps/pcx.jkx"
     VERBATIM)
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/vector.jkx"
     COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack vector
     DEPENDS jkdesktop jkapp_vector
+        "${JKX_ICONS}/launcher_vector@1x.png"
+        "${JKX_ICONS}/launcher_vector@2x.png"
     COMMENT "Repacking apps/vector.jkx"
     VERBATIM)
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/iconedit.jkx"
     COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack iconedit
     DEPENDS jkdesktop jkapp_iconedit
+        "${JKX_ICONS}/launcher_iconedit@1x.png"
+        "${JKX_ICONS}/launcher_iconedit@2x.png"
     COMMENT "Repacking apps/iconedit.jkx"
     VERBATIM)
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/recog.jkx"
     COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack recog
     DEPENDS jkdesktop jkapp_recog
+        "${JKX_ICONS}/launcher_recog@1x.png"
+        "${JKX_ICONS}/launcher_recog@2x.png"
     COMMENT "Repacking apps/recog.jkx"
     VERBATIM)
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/vfont.jkx"
     COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack vfont
     DEPENDS jkdesktop jkapp_vfont
+        "${JKX_ICONS}/launcher_vfont@1x.png"
+        "${JKX_ICONS}/launcher_vfont@2x.png"
     COMMENT "Repacking apps/vfont.jkx"
     VERBATIM)
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/vpres.jkx"
     COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack vpres
     DEPENDS jkdesktop jkapp_vpres
+        "${JKX_ICONS}/launcher_vpres@1x.png"
+        "${JKX_ICONS}/launcher_vpres@2x.png"
     COMMENT "Repacking apps/vpres.jkx"
     VERBATIM)
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/terminal.jkx"
     COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack terminal
     DEPENDS jkdesktop jkapp_terminal
+        "${JKX_ICONS}/launcher_terminal@1x.png"
+        "${JKX_ICONS}/launcher_terminal@2x.png"
     COMMENT "Repacking apps/terminal.jkx"
     VERBATIM)
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/imguidemo.jkx"
     COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack imguidemo
     DEPENDS jkdesktop jkapp_imguidemo
+        "${JKX_ICONS}/launcher_imguidemo@1x.png"
+        "${JKX_ICONS}/launcher_imguidemo@2x.png"
     COMMENT "Repacking apps/imguidemo.jkx"
     VERBATIM)
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/taskmgr.jkx"
     COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack taskmgr
     DEPENDS jkdesktop jkapp_taskmgr
+        "${JKX_ICONS}/launcher_taskmgr@1x.png"
+        "${JKX_ICONS}/launcher_taskmgr@2x.png"
     COMMENT "Repacking apps/taskmgr.jkx"
     VERBATIM)
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/vplayer.jkx"
     COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack vplayer
     DEPENDS jkdesktop jkapp_vplayer
+        "${JKX_ICONS}/launcher_vplayer@1x.png"
+        "${JKX_ICONS}/launcher_vplayer@2x.png"
     COMMENT "Repacking apps/vplayer.jkx"
     VERBATIM)
 # Browser needs libcef.dll next to jkdesktop.exe at pack time (the packer
@@ -574,6 +624,8 @@ add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/vplayer.jkx"
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/browser.jkx"
     COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack browser
     DEPENDS jkdesktop jkapp_browser cef_deploy
+        "${JKX_ICONS}/launcher_browser@1x.png"
+        "${JKX_ICONS}/launcher_browser@2x.png"
     COMMENT "Repacking apps/browser.jkx"
     VERBATIM)
 # Script packages: the script source itself is a payload dependency so an
@@ -583,6 +635,8 @@ add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/scriptdemo.jkx"
     DEPENDS jkdesktop jkapp_script
         "${CMAKE_SOURCE_DIR}/scripts/apps/scriptdemo/manifest.txt"
         "${CMAKE_SOURCE_DIR}/scripts/apps/scriptdemo/app.js"
+        "${JKX_ICONS}/launcher_scriptdemo@1x.png"
+        "${JKX_ICONS}/launcher_scriptdemo@2x.png"
     COMMENT "Repacking apps/scriptdemo.jkx"
     VERBATIM)
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/passworddemo.jkx"
@@ -590,6 +644,8 @@ add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/passworddemo.jkx"
     DEPENDS jkdesktop jkapp_script
         "${CMAKE_SOURCE_DIR}/scripts/apps/passworddemo/manifest.txt"
         "${CMAKE_SOURCE_DIR}/scripts/apps/passworddemo/app.js"
+        "${JKX_ICONS}/launcher_passworddemo@1x.png"
+        "${JKX_ICONS}/launcher_passworddemo@2x.png"
     COMMENT "Repacking apps/passworddemo.jkx"
     VERBATIM)
 add_custom_target(jkx_packages ALL
