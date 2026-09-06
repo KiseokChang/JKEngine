@@ -11,7 +11,8 @@ void ClientPcxApp::OnInit() {
     // placeholder as the single-process `pcx` invocation without a file.
     auto main = CreatePcxViewerWindow(std::string());
     // The root window paints its own frame chrome; the server overlays the
-    // close button. Its rect is already the designed 1920x1080 layout.
+    // close button. Its rect is the designed 1280x680 layout (1:1 on the
+    // 1280x680 work area — no fit-scale shrink).
     SetMainWindow(std::move(main));
 }
 

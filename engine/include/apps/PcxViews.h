@@ -15,7 +15,7 @@ class JKWindow;
 // 플레이스홀더를 보여준다. 앱 모듈은 CLI 인수를 받지 못하므로 클라이언트
 // 래퍼는 빈 경로로 호출한다(단일 프로세스 `pcx` 무인수 실행과 동일 상태).
 //
-// 반환된 윈도우(1920x1080, 제목 "PCX Viewer - SDL2 Port")는 호출자가
+// 반환된 윈도우(1280x680, 제목 "PCX Viewer - SDL2 Port")는 호출자가
 // 소유한다 — SetMainWindow로 루트 윈도우로 지정한다.
 std::unique_ptr<JKWindow> CreatePcxViewerWindow(const std::string& filePath);
 

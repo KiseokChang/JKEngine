@@ -5,7 +5,7 @@
 #include <apps/ClientPcxApp.h>
 
 JKAPP_EXPORT const jk::JKAppMeta* jk_app_meta() {
-    static const jk::JKAppMeta meta{ "pcx", "PCX Viewer", 1920, 1080 };
+    static const jk::JKAppMeta meta{ "pcx", "PCX Viewer", 1280, 680 };
     return &meta;
 }
 

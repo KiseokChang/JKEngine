@@ -218,23 +218,23 @@ std::unique_ptr<JKWindow> CreatePcxViewerWindow(const std::string& filePath) {
     bool loaded = LoadPcx(filePath, sImage);
 
     auto main = std::make_unique<JKWindow>("PCX Viewer - SDL2 Port");
-    main->SetWindowRect(JKRect{ 0, 0, 1920, 1080 });
+    main->SetWindowRect(JKRect{ 0, 0, 1280, 680 });
 
     if (!loaded) {
-        auto msg = std::make_unique<JKStatic>(JKRect{ 0, 0, 1920, 1080 }, 0);
+        auto msg = std::make_unique<JKStatic>(JKRect{ 0, 0, 1280, 680 }, 0);
         msg->SetText("Failed to load PCX file.");
         msg->SetBackColor(0, 0, 0);
         msg->SetTextColor(255, 255, 255);
         main->AddControl(std::move(msg));
     } else {
         auto view = std::make_unique<PcxViewControl>(sImage);
-        view->SetRect(JKRect{ 0, 0, 1920, 1080 });
+        view->SetRect(JKRect{ 0, 0, 1280, 680 });
         main->AddControl(std::move(view));
 
         char info[256];
         std::snprintf(info, sizeof(info), "%s  (%dx%d)",
                       filePath.c_str(), sImage.width, sImage.height);
-        auto label = std::make_unique<JKStatic>(JKRect{ 0, 0, 1920, 24 }, 0);
+        auto label = std::make_unique<JKStatic>(JKRect{ 0, 0, 1280, 24 }, 0);
         label->SetText(info);
         label->SetBackColor(0, 0, 128);
         label->SetTextColor(255, 255, 255);
