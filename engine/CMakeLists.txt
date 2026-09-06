@@ -347,13 +347,24 @@ target_compile_definitions(jkapp_taskbar PRIVATE JKAPP_MODULE_BUILD)
 target_link_libraries(jkapp_taskbar PRIVATE jkcore)
 set_target_properties(jkapp_taskbar PROPERTIES PREFIX "")
 
+# Dear ImGui demo module (docs/23 §9 Phase 1): the first ImGui app — links the
+# vendored imgui target (kept out of jkcore on purpose, see the imgui block).
+add_library(jkapp_imguidemo SHARED
+    src/apps/JKAppModule_imguidemo.cpp
+    src/apps/ClientImGuiDemoApp.cpp
+)
+target_compile_definitions(jkapp_imguidemo PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_imguidemo PRIVATE jkcore imgui)
+set_target_properties(jkapp_imguidemo PROPERTIES PREFIX "")
+
 if(WIN32)
     # Keep each module self-contained: no libstdc++/libgcc runtime DLLs needed
     # next to the app modules.
     foreach(jkapp_mod jkapp_minesweeper jkapp_tetris jkapp_testwin
                       jkapp_jango jkapp_occ jkapp_pcx jkapp_vector
                       jkapp_iconedit jkapp_recog jkapp_vfont jkapp_vpres
-                      jkapp_terminal jkapp_script jkapp_taskbar)
+                      jkapp_terminal jkapp_script jkapp_taskbar
+                      jkapp_imguidemo)
         target_link_options(${jkapp_mod} PRIVATE -static-libstdc++ -static-libgcc)
     endforeach()
 endif()
@@ -449,6 +460,11 @@ add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/terminal.jkx"
     DEPENDS jkdesktop jkapp_terminal
     COMMENT "Repacking apps/terminal.jkx"
     VERBATIM)
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/imguidemo.jkx"
+    COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack imguidemo
+    DEPENDS jkdesktop jkapp_imguidemo
+    COMMENT "Repacking apps/imguidemo.jkx"
+    VERBATIM)
 # Script packages: the script source itself is a payload dependency so an
 # app.js edit repacks without a rebuild.
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/scriptdemo.jkx"
@@ -478,5 +494,6 @@ add_custom_target(jkx_packages ALL
             "${CMAKE_BINARY_DIR}/apps/vfont.jkx"
             "${CMAKE_BINARY_DIR}/apps/vpres.jkx"
             "${CMAKE_BINARY_DIR}/apps/terminal.jkx"
+            "${CMAKE_BINARY_DIR}/apps/imguidemo.jkx"
             "${CMAKE_BINARY_DIR}/apps/scriptdemo.jkx"
             "${CMAKE_BINARY_DIR}/apps/passworddemo.jkx")
