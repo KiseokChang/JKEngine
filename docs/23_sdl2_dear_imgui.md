@@ -562,3 +562,55 @@ BlitTexture는 사각 blit뿐) **ImGui를 JKRenderCommandList로 직렬화하는
 결정(CEF 바이너리 배포판, FFmpeg LGPL/GPL)이 선행되므로 리서치 문서의
 OSR 5단계 파이프라인·A/V 싱크 분석(§11.2)과 함께 착수 시 전용 플랜을
 세운다.
+
+### 11.8 Phase 4 구현 기록 — FFmpeg 비디오 플레이어 (2026-09-06 완료)
+
+§11.7의 미착수 항목 중 FFmpeg 비디오 플레이어 완료. 사용자 지시로
+개인 사용 전제 라이선스 고민 없이 진행(FFmpeg는 msys2 ucrt64 빌드를
+런타임 DLL로만 소비 — LGPL 배포 의무는 배포 시점에 재검토). OSR
+브라우저는 P4-4로 남는다.
+
+**구성 (`jkapp_vplayer`):**
+
+- `PlayerCore` (불투명 unique_ptr, 커스텀 딜리터로 FFmpeg 헤더 캡슐화):
+  워커 스레드가 av_read_frame→디코드→RGBA(sws)→`videoQ`(백프레셔 3프레임),
+  오디오는 swr→S16 스테레오 링→SDL 오디오 콜백이 소비하며 `framesPlayed`가
+  마스터 클럭. 오디오 미개설 시 스테디 월클록 폴백(`useWallClock`).
+  시크는 2단계 — UI 스레드 `Seek()`가 월클록 즉시 점프 + `wantSeek` 플래그,
+  워커가 `DoSeekLockedStage1`에서 큐/코덱 플러시 + `avformat_seek_file` +
+  `dropBeforePts` 스태일 프레임 폐기.
+- UI는 ImGui — path InputText + Open 버튼, 비디오 텍스처(`SyncVideoTexture`
+  가 팝 시점에만 `SDL_UpdateTexture`), Pause/Replay + 시크 슬라이더 + vol.
+  60Hz 타이머로 frameDirty → RenderOverlay.
+
+**스모크에서 발견한 버그 5건 (이상 전부 수정):**
+
+1. **서버 크롬 존 침범**: 서버는 모든 표면 상단 24pt를 타이틀 드래그+닫기
+   X 존으로 쓰므로(vkwindow kChromeTitleBar) 앱 UI 첫 행이 y<24에 있으면
+   클릭이 앱에 도달하지 않는다. `SetCursorPosY(30)`로 첫 행을 아래로.
+   — 클라 앱은 상단 24pt에 클릭 가능한 UI를 두면 안 된다.
+2. **서버 모드 `SDL_StartTextInput` 누락**: 클라/단일 모드 앱은 직접
+   시작하지만 서버 창은 안 해서 SDL_TEXTINPUT이 아예 생성되지 않았다
+   → 모든 클라의 Char 이벤트 전멸(붙여넣기·IME 불가). 서버 Init에 추가.
+3. **소비자 notify 부재**: `PopVideoFrame`이 큐를 비워도 워커의
+   백프레셔 `cv.wait`을 깨우지 않아, 큐가 한 번 가득 차는 순간 워커가
+   영구 정지 → `av_read_frame` 재호출이 안 돼 EOF 검출 실패,
+   `ended`가 영원히 미설정(pos는 duration 클램프라 30.0에서 동결).
+   소비자도 notify한다(생산자만 깨우는 condvar는 데드락 아닌 데드락).
+4. **클라 프로세스 `SDL_INIT_AUDIO` 미초기화**: 앱 프레임워크는 video만
+   init → `SDL_OpenAudioDevice` 실패 → 무음+월클록 폴백.
+   `SDL_InitSubSystem(SDL_INIT_AUDIO)` 후 개설.
+5. **taskbar active stale**: 클릭 포커스 경로 4곳(닫기 X/리사이즈/타이틀/
+   플레인 MouseDown)에서 `FocusClient` 후 `PushWindowList` 누락 —
+   클릭으로 포커스를 옮기면 taskbar 하이라이트가 갱신되지 않았다.
+
+**검증 결과(서버 모드, vp8):** paste 경로 입력→Open→testsrc 640x360
+렌더 + 시간 진행, EOF 도달 시 Replay 버튼 등장(수정 3의 E2E 증거),
+Replay→0부터 재생 재개, Space 일시정지/재개 토글, 오디오 디바이스
+개설 성공(실패 로그 부재 + AAC 디코드 경고로 DecodeAudio 경로 활성
+확인). 서버 kill → taskbar/vplayer 클라 전원 자발 종료.
+
+**스모크 도구 교훈:** `keybd_event(vk, scan=0)`은 SDL keycode 유추를
+실패해 KeyDown이 무의미해진다. key 이벤트는 **VK+실제 scan 코드 +
+down 후 150ms 지연 후 up**으로 보내야 한다 — SendKeys류는 down/up을
+연속 전송해 같은 ImGui 프레임에 처리되어 `IsKeyPressed`가 눌림을 못 본다.
