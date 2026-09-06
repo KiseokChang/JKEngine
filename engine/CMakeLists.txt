@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(jkdesktop LANGUAGES CXX RC)
+project(jkdesktop LANGUAGES C CXX RC)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -35,6 +35,30 @@ endif()
 # runtime fonts are vendored under legacy/ and assets/fonts/ (copied verbatim
 # from JKENGINE/JKWINDOW and JKENGINE/WINDBASE/2CAOCC), so the build no longer
 # references paths outside this directory.
+
+# ---------------------------------------------------------------------------
+# quickjs (vendored quickjs-ng, docs/27 단계 1): the C11 core interpreter
+# behind JKScriptHost. Vendored at master 02368b6b (2026-09-05), trimmed to
+# the four library sources + headers (no CLI/libc/test262). Mirrors the
+# upstream CMake's compile definitions for the library.
+# ---------------------------------------------------------------------------
+set(QJS_DIR third_party/quickjs-ng)
+add_library(quickjs STATIC
+    ${QJS_DIR}/quickjs.c
+    ${QJS_DIR}/dtoa.c
+    ${QJS_DIR}/libregexp.c
+    ${QJS_DIR}/libunicode.c
+)
+target_include_directories(quickjs PUBLIC ${QJS_DIR})
+target_compile_definitions(quickjs PRIVATE
+    _GNU_SOURCE QUICKJS_NG_BUILD
+    $<$<PLATFORM_ID:Windows>:WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0601>
+)
+set_target_properties(quickjs PROPERTIES
+    C_STANDARD 11
+    C_STANDARD_REQUIRED ON
+    C_EXTENSIONS ON
+)
 
 # ---------------------------------------------------------------------------
 # jkcore: everything except main(), the RC file, and the apps. The exe and
@@ -96,6 +120,7 @@ add_library(jkcore STATIC
     src/JKImageLoader.cpp
     src/JKJkxFile.cpp
     src/JKVectorFont.cpp
+    src/script/JKScriptHost.cpp
     legacy/wancode/WANCODE.CPP
 )
 
@@ -106,11 +131,13 @@ target_include_directories(jkcore PUBLIC
 )
 
 # Default font directory for the vector font demos (vendored in-repo).
+# JK_SCRIPTS_DIR: the script apps' source tree (jkx-pack script branch).
 target_compile_definitions(jkcore PUBLIC
     JKENGINE_FONT_DIR="${CMAKE_SOURCE_DIR}/assets/fonts"
+    JK_SCRIPTS_DIR="${CMAKE_SOURCE_DIR}/scripts"
 )
 
-target_link_libraries(jkcore PUBLIC SDL2::SDL2 SDL2_mixer::SDL2_mixer)
+target_link_libraries(jkcore PUBLIC quickjs SDL2::SDL2 SDL2_mixer::SDL2_mixer)
 
 if(WIN32)
     target_link_libraries(jkcore PUBLIC imm32)
@@ -268,13 +295,22 @@ target_compile_definitions(jkapp_terminal PRIVATE JKAPP_MODULE_BUILD)
 target_link_libraries(jkapp_terminal PRIVATE jkcore)
 set_target_properties(jkapp_terminal PROPERTIES PREFIX "")
 
+# Common script module (docs/27 단계 1) — every script .jkx shares this DLL;
+# app.js is data extracted next to it by the client host (SCRPT TOC entry).
+add_library(jkapp_script SHARED
+    src/apps/JKAppModule_script.cpp
+)
+target_compile_definitions(jkapp_script PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_script PRIVATE jkcore)
+set_target_properties(jkapp_script PROPERTIES PREFIX "")
+
 if(WIN32)
     # Keep each module self-contained: no libstdc++/libgcc runtime DLLs needed
     # next to the app modules.
     foreach(jkapp_mod jkapp_minesweeper jkapp_tetris jkapp_testwin
                       jkapp_jango jkapp_occ jkapp_pcx jkapp_vector
                       jkapp_iconedit jkapp_recog jkapp_vfont jkapp_vpres
-                      jkapp_terminal)
+                      jkapp_terminal jkapp_script)
         target_link_options(${jkapp_mod} PRIVATE -static-libstdc++ -static-libgcc)
     endforeach()
 endif()
@@ -370,6 +406,15 @@ add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/terminal.jkx"
     DEPENDS jkdesktop jkapp_terminal
     COMMENT "Repacking apps/terminal.jkx"
     VERBATIM)
+# Script packages: the script source itself is a payload dependency so an
+# app.js edit repacks without a rebuild.
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/scriptdemo.jkx"
+    COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack scriptdemo
+    DEPENDS jkdesktop jkapp_script
+        "${CMAKE_SOURCE_DIR}/scripts/apps/scriptdemo/manifest.txt"
+        "${CMAKE_SOURCE_DIR}/scripts/apps/scriptdemo/app.js"
+    COMMENT "Repacking apps/scriptdemo.jkx"
+    VERBATIM)
 add_custom_target(jkx_packages ALL
     DEPENDS "${CMAKE_BINARY_DIR}/apps/minesweeper.jkx"
             "${CMAKE_BINARY_DIR}/apps/tetris.jkx"
@@ -382,4 +427,5 @@ add_custom_target(jkx_packages ALL
             "${CMAKE_BINARY_DIR}/apps/recog.jkx"
             "${CMAKE_BINARY_DIR}/apps/vfont.jkx"
             "${CMAKE_BINARY_DIR}/apps/vpres.jkx"
-            "${CMAKE_BINARY_DIR}/apps/terminal.jkx")
+            "${CMAKE_BINARY_DIR}/apps/terminal.jkx"
+            "${CMAKE_BINARY_DIR}/apps/scriptdemo.jkx")

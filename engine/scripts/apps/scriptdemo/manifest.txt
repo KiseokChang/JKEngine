@@ -1,0 +1,6 @@
+name=scriptdemo
+title=Script Demo
+width=320
+height=240
+module=jkapp_script.dll
+script=app.js

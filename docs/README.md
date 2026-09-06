@@ -23,6 +23,7 @@
 | `19_sdl2_window_server.md` | SDL2 윈도우 서버(Phase 2) — 프로세스 분리/IPC/컴포지터 아키텍처 | ★★☆ | 173 |
 | `20_sdl2_jango_porting_plan.md` | SDL2 JKWindow 기반 원본 비즈니스 앱 포팅 계획 | ★★★ | — |
 | `21_sdl2_audio_roadmap.md` | SDL2 JKWindow 오디오 시스템 장기 로드맵 | ★★★ | — |
+| `27_scripting_quickjs_bridge.md` | QuickJS-ng 스크립트 브릿지 설계 + 4단계 구현 계획 (확정) | ★★★ | — |
 | `99_file_inventory.md` | 주요 소스/헤더/리소스 파일 인벤토리 | ★★☆ | 265 |
 | `README.md` | 본 문서 | ★★★ | 93 |
 
@@ -33,6 +34,7 @@
 - **윈도우 서버(Phase 2) 작업 중**: `19_sdl2_window_server.md` (IPC/컴포지터/좌표 모델)
 - **화면 좌표/배율 버그**: `14_sdl2_window_dpi.md` §11-§14, 서버 모드는 `19_sdl2_window_server.md` §6
 - **검증 방법/스크립트**: `15_verification_playbook.md`
+- **스크립트 브릿지 작업 중**: `27_scripting_quickjs_bridge.md` (호스트 API 계약은 `engine/scripts/jk.d.ts`)
 - **포팅 우선순위/로드맵**: `06_web_port_roadmap.md`, `12_sdl2_prototype_roadmap.md`
 
 ---
