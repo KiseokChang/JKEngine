@@ -967,14 +967,11 @@ void JKWindowServer::InitLauncher() {
     };
     if (!hasJkx("minesweeper")) {
         LauncherIcon icon;
-        icon.rect = JKRect{ 50, 50, 64, 80 };
         icon.appName = "minesweeper";
         launcherIcons_.push_back(icon);
     }
     if (!hasJkx("tetris")) {
-        const int col = static_cast<int>(launcherIcons_.size());
         LauncherIcon icon;
-        icon.rect = JKRect{ 50 + col * 100, 50, 64, 80 };
         icon.appName = "tetris";
         launcherIcons_.push_back(icon);
     }
@@ -1000,7 +997,29 @@ void JKWindowServer::InitLauncher() {
         }
     }
 
+    // Grid layout: one source of truth for cell rects, wrapping to the window
+    // width (the single row overflowed the 1280px desktop at 13 .jkx apps).
+    RelayoutLauncherIcons();
     DrawLauncher();
+}
+
+// Launcher cell grid (docs/21 §2): wraps cells into multiple rows so a
+// growing app list stays on screen. Cells sit 100x100 apart starting at
+// (50, 50); the column count derives from the window's logical width.
+void JKWindowServer::RelayoutLauncherIcons() {
+    if (!renderer_) return;
+    const float s = compositor_ ? compositor_->OutputScale() : 1.0f;
+    int pw = 1280;
+    int ph = 720;
+    SDL_GetRendererOutputSize(renderer_, &pw, &ph);
+    const int logicalW = static_cast<int>(pw / s);
+    int cols = (logicalW - 50) / 100;  // (left margin .. right edge) / pitch
+    if (cols < 1) cols = 1;
+    for (size_t i = 0; i < launcherIcons_.size(); ++i) {
+        const int col = static_cast<int>(i) % cols;
+        const int row = static_cast<int>(i) / cols;
+        launcherIcons_[i].rect = JKRect{ 50 + col * 100, 50 + row * 100, 64, 80 };
+    }
 }
 
 void JKWindowServer::ScanJkxApps() {
@@ -1035,7 +1054,6 @@ void JKWindowServer::ScanJkxApps() {
         LauncherIcon icon;
         icon.appName = mani.name;
         icon.jkxPath = path;
-        icon.rect = JKRect{ 50 + static_cast<int>(launcherIcons_.size()) * 100, 50, 64, 80 };
 
         // Icon entry: prefer @2x on high-scale displays.
         std::string wanted = (s >= 1.5f && !mani.icon2x.empty()) ? mani.icon2x : mani.icon;

@@ -72,6 +72,7 @@ private:
 
     void InitLauncher();
     void ScanJkxApps();
+    void RelayoutLauncherIcons();
     void DrawLauncher();
     void DrawLauncherBackground();
     void DestroyLauncher();
