@@ -514,3 +514,51 @@ BlitTexture는 사각 blit뿐) **ImGui를 JKRenderCommandList로 직렬화하는
 - 서버 kill → taskbar·taskmgr 클라 자발 종료(407af96 경로 재확인).
 
 **Phase 3(생태계 — memory editor/ImPlot/OSR)**은 별도 승인 후 착수.
+
+### 11.7 Phase 3 구현 기록 — 생태계 1·2단계 (2026-09-06 완료)
+
+§11.2 Phase 3 착수 승인 후 생태계 트랙의 근거리 2종(memory editor, ImPlot)을
+구현·검증 완료. 벤더링 원칙은 §3.2 계승 — imgui 타깃 위에 얹되 jkcore에는
+절대 넣지 않는다.
+
+| 커밋 | 내용 |
+|---|---|
+| 70bed80 | ImPlot(master 7eeb916, 2026-08-06) + imgui_club 메모리 에디터 벤더링, `implot` 스태틱 타깃, imguidemo에 편집 가능한 256바이트 스크래치 패널 |
+| 1eb4a07 | taskmgr CPU 이력을 ImPlot으로 전환 — 첫 실사용 소비자 |
+
+**구현 확정 사항:**
+
+- **ImPlot 버전 선택**: v0.17은 1.92 텍스처 API(`ImTextureRef`,
+  `ImDrawList::_SelectLineTexture`) 이전이라 컴파일이 안 된다. 1.92 지원
+  첫 라인인 master 7eeb916(2026-08-06)을 채택. 이 마스터는 API가
+  리팩터링되어 `ImPlotCond`/offset 인자가 사라지고 `ImPlotSpec` 하나로
+  통합됐다 — 링버퍼 오프셋은
+  `ImPlotSpec(ImPlotProp_Offset, offset)`으로 전달(구판 튜토리얼 그대로
+  따라가면 컴파일 에러).
+- ImPlot 컨텍스트 수명: `ImPlot::CreateContext()`는 ImGui 컨텍스트 직후,
+  `DestroyContext()`는 **ImGui 컨텍스트 소멸 전**(현재 컨텍스트를 참조함).
+- 메모리 에디터는 헤더온리라 include 경로만 `imgui` 타깃에 추가.
+  `MemoryEditor::DrawWindow`는 호출마다 `Open=true`로 되돌리므로 토글은
+  반드시 `if (Open) DrawWindow(...)` 가드로 — 패널 체크박스와 X 버튼이
+  같은 플래그를 공유해 동기화된다.
+- taskmgr 플롯은 `ImPlotFlags_CanvasOnly` + `NoDecorations` +
+  `SetupAxesLimits(0,90,0,100, Always)` 스파크라인 구성.
+
+**검증 결과(서버 모드 스모크):**
+
+- imguidemo: 메모리 에디터에 시드 패턴(`00..FF` + "jkwindow memory
+  editor") 렌더. **편집 경로 E2E 확인** — 첫 바이트 클릭 후 키보드 "41"
+  입력 → 0x6A('j')가 0x41('A')로 쓰이고 ASCII 컬럼이 "Akwindow"로 갱신,
+  커서 자동 진행. 서버 키 이벤트→클라→백엔드→위젯→버퍼 쓰기 전 경로.
+- taskmgr: ImPlot 플롯 박스 + CPU 라인 렌더. **플롯은 버튼 아래에
+  그려진다**(레이아웃 순서: 테이블→버튼→플롯→IO dump) — 위쪽만 캡처해서
+  "플롯이 안 나온다"고 오독하지 않도록 주의. 저사용률 프로세스(0-2%)의
+  라인은 0-100 축 하단 1-2px에 붙어 눈에 안 보일 수 있음.
+- 셀프테스트 0 failures. imguidemo 60.7 FPS. 서버 kill → 클라 전부
+  자발 종료(exit 0).
+
+**미착수 (장기 트랙 — 별도 계획 필요):** CEF/Ultralight OSR과 FFmpeg
+비디오 플레이어. 둘 다 수백 MB급 외부 바이너리 의존성 + 라이선스/빌드
+결정(CEF 바이너리 배포판, FFmpeg LGPL/GPL)이 선행되므로 리서치 문서의
+OSR 5단계 파이프라인·A/V 싱크 분석(§11.2)과 함께 착수 시 전용 플랜을
+세운다.
