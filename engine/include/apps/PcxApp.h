@@ -12,6 +12,7 @@ public:
 
 protected:
     void OnInit() override;
+    bool PreProcessMessage(const JKEvent& ev) override;
 
 private:
     std::string filePath_;

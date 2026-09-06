@@ -5,9 +5,11 @@
 
 namespace jk {
 
-// Separate-process PCX viewer client. Renders into a server-managed surface
-// via JKClientApplication instead of owning a visible SDL window. Reuses the
-// single-process viewer construction through CreatePcxViewerWindow.
+// Separate-process image viewer client (pcx module). Renders into a
+// server-managed surface via JKClientApplication instead of owning a visible
+// SDL window. Reuses the single-process viewer construction through
+// CreatePcxViewerWindow; OnIdle opens the startup file dialog and
+// PreProcessMessage forwards wheel events (no hit target) to the canvas.
 class ClientPcxApp : public JKClientApplication {
 public:
     ClientPcxApp() = default;
@@ -15,6 +17,11 @@ public:
 
 protected:
     void OnInit() override;
+    void OnIdle() override;
+    bool PreProcessMessage(const JKEvent& ev) override;
+
+private:
+    bool startupDone_ = false;
 };
 
 } // namespace jk

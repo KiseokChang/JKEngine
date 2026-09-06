@@ -41,6 +41,13 @@ bool JKApplication::Init(const std::string& title, int width, int height) {
         return false;
     }
 
+    // SDL drops the first click that activates an unfocused window by default
+    // (focus-clickthrough). Single-process apps run without the window server
+    // (which sets this hint at JKWindowServer.cpp), so without it the first
+    // click on a toolbar button was silently swallowed — the user had to click
+    // twice after switching away and back.
+    SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1");
+
     // Render thread owns the SDL window and renderer.
     renderThread_ = std::make_unique<JKRenderThread>();
     if (!renderThread_->Init(title, width, height)) {

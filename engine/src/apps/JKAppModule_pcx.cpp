@@ -1,11 +1,12 @@
-// PCX viewer app module (Phase B dynamic loading).
+// Image viewer app module (Phase B dynamic loading; pcx app rewritten
+// 2026-09-06 into a general PCX/PNG/JPG/BMP viewer).
 // All C++ — app object construction, Init and Run — happens inside this DLL;
 // the host only sees the C ABI from JKAppModule.h.
 #include <apps/JKAppModule.h>
 #include <apps/ClientPcxApp.h>
 
 JKAPP_EXPORT const jk::JKAppMeta* jk_app_meta() {
-    static const jk::JKAppMeta meta{ "pcx", "PCX Viewer", 1280, 680 };
+    static const jk::JKAppMeta meta{ "pcx", "Image Viewer", 1280, 680 };
     return &meta;
 }
 

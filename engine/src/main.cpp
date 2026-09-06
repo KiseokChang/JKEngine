@@ -71,6 +71,7 @@ using jk::Utf8ToKssm;
 #include <apps/InsaApp.h>
 #include <apps/OccApp.h>
 #include <apps/PcxApp.h>
+#include <apps/PcxViews.h>
 #include <apps/VectorApp.h>
 #include <apps/IconEditApp.h>
 #include <apps/RecogApp.h>
@@ -1851,6 +1852,108 @@ static int RunAppSelfTest() {
         }
     }
 
+    // 11) pcx image viewer (2026-09-06 rewrite): PCX decode + zoom ladder.
+    // A 4x3 256-color PCX is written programmatically (no asset needed) and
+    // driven through real window event dispatch — clicks hit the toolbar
+    // buttons via JKWindow::RespondMessage hit-testing, wheel via the app
+    // forwarder. The synthetic-click SDL path cannot be used here (touch-
+    // capable machines swallow stationary injected buttons), so this headless
+    // block is the regression net for the viewer's interaction logic.
+    {
+        namespace fs = std::filesystem;
+        const fs::path pcxPath = fs::temp_directory_path() / "jk_selftest.pcx";
+        {
+            unsigned char header[128];
+            std::memset(header, 0, sizeof(header));
+            header[0] = 0x0A;  // ZSoft PCX
+            header[1] = 5;     // version 3.0 (256-color palette)
+            header[2] = 1;     // RLE encoding
+            header[3] = 8;     // bits per pixel
+            header[4] = 0; header[5] = 0;   // x1
+            header[6] = 0; header[7] = 0;   // y1
+            header[8] = 3; header[9] = 0;   // x2 = 3 (width 4)
+            header[10] = 2; header[11] = 0; // y2 = 2 (height 3)
+            header[65] = 1;  // numPlanes
+            header[66] = 4; header[67] = 0; // bytesPerLine
+            header[68] = 1; header[69] = 0; // paletteInfo
+
+            FILE* fp = std::fopen(pcxPath.string().c_str(), "wb");
+            if (fp) {
+                std::fwrite(header, 1, sizeof(header), fp);
+                // Literal (non-RLE) scanlines: all indices < 0xC0.
+                const unsigned char rows[3][4] = {
+                    { 5, 5, 5, 5 }, { 6, 7, 8, 9 }, { 10, 11, 12, 13 } };
+                for (int y = 0; y < 3; ++y) {
+                    std::fwrite(rows[y], 1, 4, fp);
+                }
+                // 256-color palette (marker 0x0C + 256*3 BGR triplets).
+                unsigned char palette[1 + 256 * 3] = { 0x0C };
+                palette[1 + 5 * 3 + 0] = 10;  palette[1 + 5 * 3 + 1] = 20;
+                palette[1 + 5 * 3 + 2] = 30;
+                palette[1 + 13 * 3 + 0] = 44; palette[1 + 13 * 3 + 1] = 55;
+                palette[1 + 13 * 3 + 2] = 66;
+                std::fwrite(palette, 1, sizeof(palette), fp);
+                std::fclose(fp);
+            }
+
+            auto win = jk::CreatePcxViewerWindow(pcxPath.string());
+            auto* viewer = static_cast<jk::ImageViewerWindow*>(win.get());
+            check(viewer->HasImage(), "pcx viewer decodes generated file");
+            const jk::ViewerImage* img = viewer->Image();
+            check(img && img->w == 4 && img->h == 3, "pcx viewer dimensions 4x3");
+            check(img && img->rgba.size() == static_cast<size_t>(4) * 3 * 4,
+                  "pcx viewer rgba size");
+            if (img && img->rgba.size() >= 8) {
+                check(img->rgba[4] == 10 && img->rgba[5] == 20 &&
+                          img->rgba[6] == 30 && img->rgba[7] == 255,
+                      "pcx palette expansion spot pixel (1,0)");
+                const size_t last = (2 * 4 + 3) * 4;
+                check(img->rgba[last] == 44 && img->rgba[last + 1] == 55 &&
+                          img->rgba[last + 2] == 66,
+                      "pcx palette expansion spot pixel (3,2)");
+            }
+
+            // Toolbar clicks through real window dispatch.
+            auto clickBtn = [&](uint16_t id) {
+                jk::JKControl* btn = win->FindControlByControlId(id);
+                if (!btn) return;
+                const jk::JKRect r = btn->GetScreenClientRect();
+                jk::JKEvent ev;
+                ev.type = jk::JKEventType::MouseDown;
+                ev.x = r.x + r.w / 2;
+                ev.y = r.y + r.h / 2;
+                win->RespondMessage(ev);
+                ev.type = jk::JKEventType::MouseUp;
+                win->RespondMessage(ev);
+            };
+            // From fit: + enters the ladder at 125%.
+            clickBtn(5);
+            check(!viewer->IsFit() && viewer->ZoomPercent() == 125,
+                  "pcx zoom in from fit lands at 125%");
+            clickBtn(5);
+            check(viewer->ZoomPercent() == 150, "pcx zoom in steps ladder");
+            clickBtn(4);
+            check(viewer->ZoomPercent() == 125, "pcx zoom out steps ladder");
+            clickBtn(3);
+            check(viewer->ZoomPercent() == 100, "pcx 1:1 resets to 100%");
+            viewer->ForwardWheel(1);
+            check(viewer->ZoomPercent() == 125, "pcx wheel up zooms");
+            viewer->ForwardWheel(-1);
+            check(viewer->ZoomPercent() == 100, "pcx wheel down zooms");
+            clickBtn(2);
+            check(viewer->IsFit(), "pcx fit returns to fit mode");
+            // Ladder clamps: 20 wheel-ups from 100% cap at 800%.
+            for (int i = 0; i < 20; ++i) viewer->ForwardWheel(1);
+            check(viewer->ZoomPercent() == 800, "pcx zoom ladder caps at 800%");
+            for (int i = 0; i < 20; ++i) viewer->ForwardWheel(-1);
+            check(viewer->ZoomPercent() == 25, "pcx zoom ladder floors at 25%");
+            // Missing file keeps the previous content.
+            viewer->OpenPath((fs::temp_directory_path() / "jk_selftest_missing.pcx").string());
+            check(viewer->HasImage(), "pcx failed load keeps previous content");
+            std::remove(pcxPath.string().c_str());
+        }
+    }
+
     std::printf("AppSelfTest: %d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;
 }
@@ -1889,7 +1992,7 @@ int main(int argc, char* argv[]) {
         std::printf("  test-script FILE  Run a UI automation scenario (exit code = assertion failures)\n");
         std::printf("  jango       JANGO launcher\n");
         std::printf("  occ         OCC / fire control demo\n");
-        std::printf("  pcx FILE    256-color PCX viewer\n");
+        std::printf("  pcx FILE    image viewer (PCX/PNG/JPG/BMP)\n");
         std::printf("  vector      Bezier vector editor\n");
         std::printf("  iconedit    Icon/sprite editor\n");
         std::printf("  recog       Stroke recognition demo\n");
@@ -1977,7 +2080,7 @@ int main(int argc, char* argv[]) {
 
     if (runPcx) {
         jk::PcxApp app((argc > 2) ? argv[2] : "");
-        if (!app.Init("PCX Viewer - SDL2 Port", 1920, 1080)) {
+        if (!app.Init("Image Viewer", 1280, 680)) {
             return 1;
         }
         return app.Run();
