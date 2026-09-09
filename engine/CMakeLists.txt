@@ -393,6 +393,18 @@ target_compile_definitions(jkapp_taskmgr PRIVATE JKAPP_MODULE_BUILD)
 target_link_libraries(jkapp_taskmgr PRIVATE jkcore imgui implot)
 set_target_properties(jkapp_taskmgr PROPERTIES PREFIX "")
 
+# Command palette module (agent platform M2a, spec §6.2): an ImGui window
+# client that speaks the Desktop Agent API over its own window connection.
+# Shell-adjacent utility, spawned by Alt+Space / --client — not a launcher
+# .jkx (taskbar precedent: shell parts stay out of the launcher grid).
+add_library(jkapp_palette SHARED
+    src/apps/JKAppModule_palette.cpp
+    src/apps/ClientPaletteApp.cpp
+)
+target_compile_definitions(jkapp_palette PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_palette PRIVATE jkcore imgui)
+set_target_properties(jkapp_palette PROPERTIES PREFIX "")
+
 # Video player module (docs/23 §11.8, ImGui Phase 4 long-term track): FFmpeg
 # demux/decode on a worker thread, decoded frames -> ImGui::Image via the
 # fused backend's GetTexID SDL texture path, audio -> client-side SDL device.
