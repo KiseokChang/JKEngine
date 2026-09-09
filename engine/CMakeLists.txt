@@ -453,6 +453,17 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/third_party/cef/Release/libcef.dll")
     )
 endif()
 
+# ---------------------------------------------------------------------------
+# jkagentd: Desktop Agent MCP broker (spec §2 sidecar). stdin MCP JSON-RPC →
+# window-server pipe queries → stdout. Links jkcore for JKAgentClient (pipe)
+# and JKAgentJson (quickjs) — the same stack the server side uses.
+# ---------------------------------------------------------------------------
+add_executable(jkagentd tools/jkagentd/main.cpp)
+target_link_libraries(jkagentd PRIVATE jkcore)
+if(WIN32)
+    target_link_options(jkagentd PRIVATE -static-libstdc++ -static-libgcc)
+endif()
+
 if(WIN32)
     # Keep each module self-contained: no libstdc++/libgcc runtime DLLs needed
     # next to the app modules.
