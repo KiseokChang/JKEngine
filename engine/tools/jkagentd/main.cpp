@@ -82,9 +82,12 @@ bool EnsureConnected() {
 }
 
 // --- permissions gate (spec §5) --------------------------------------------
-// permissions.json next to jkagentd.exe: {"<tool>":"allow"|"deny"}. Missing
-// file or missing key → defaults: everything allowed EXCEPT close_window —
-// M1 has no approval UI, so editing the file IS the approval act.
+// permissions.json next to jkagentd.exe: {"<tool>":"allow"|"ask"|"deny"}.
+// Missing file or missing key → defaults: everything allowed EXCEPT
+// close_window — M1 has no approval UI, so editing the file IS the approval
+// act. M2 chat: "ask" is not a deny — the server runs the inline-approval
+// pipeline (chat window) and the broker's query simply blocks until the user
+// (or a timeout) resolves it, so the broker passes ask through.
 std::map<std::string, bool> LoadPermissions() {
     static const char* kNames[] = {
         "list_windows", "launch_app", "focus_window", "close_window",
@@ -114,7 +117,10 @@ std::map<std::string, bool> LoadPermissions() {
     if (p.ok()) {
         for (const char* name : kNames) {
             std::string v;
-            if (p.GetStr(name, v)) perms[name] = (v == "allow");
+            if (p.GetStr(name, v)) {
+                // "ask" passes through to the server's approval pipeline.
+                perms[name] = (v == "allow" || v == "ask");
+            }
         }
     }
     return perms;
