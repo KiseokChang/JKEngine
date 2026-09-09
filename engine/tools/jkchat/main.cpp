@@ -139,6 +139,7 @@ static const int kTimerPump = 1;
 static const UINT kPumpMs = 400;
 
 static jk::agent::JKAgentClient g_agent;
+static HWND g_hMain = nullptr;
 static HWND g_hLog = nullptr, g_hInput = nullptr, g_hSend = nullptr,
             g_hPrompt = nullptr, g_hAllow = nullptr, g_hDeny = nullptr;
 static HFONT g_font = nullptr;
@@ -203,6 +204,95 @@ static void SendTool(const std::string& tool, const std::string& args,
 }
 
 // --- slash commands (mirror the palette set) -------------------------------
+static void Submit();  // forward: the LLM path logs before parsing
+
+// --- LLM turn (claude headless, worker thread) ------------------------------
+struct LlmTurnResult {
+    bool ok = false;
+    std::string result;     // the reply JSON's "result" field
+    std::string sessionId;  // its "session_id" field ("" on parse failure)
+};
+
+static const UINT WM_APP_LLM_DONE = WM_APP + 1;
+static std::string g_sessionId;  // claude session continuity (--resume)
+static std::atomic<int> g_llmBusy{0};
+
+static DWORD WINAPI LlmThread(LPVOID param) {
+    // param = heap-allocated prompt (owned and freed here)
+    std::wstring* prompt = static_cast<std::wstring*>(param);
+    const ChatConfig cfg = LoadChatConfig();
+    const std::wstring cmd =
+        BuildEngineCmd(cfg, WideToUtf8(*prompt), g_sessionId);
+    delete prompt;
+
+    SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
+    HANDLE readEnd = nullptr, writeEnd = nullptr;
+    if (!CreatePipe(&readEnd, &writeEnd, &sa, 0)) {
+        g_llmBusy = 0;
+        return 0;
+    }
+    // Our read end must NOT be inherited by the child.
+    SetHandleInformation(readEnd, HANDLE_FLAG_INHERIT, 0);
+
+    std::wstring full = L"cmd.exe /c " + cmd;
+    std::vector<wchar_t> mutableCmd(full.begin(), full.end());
+    mutableCmd.push_back(L'\0');
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    si.hStdOutput = writeEnd;
+    si.hStdError = writeEnd;
+    PROCESS_INFORMATION pi{};
+    const BOOL spawned = CreateProcessW(nullptr, mutableCmd.data(), nullptr,
+                                        nullptr, TRUE, CREATE_NO_WINDOW,
+                                        nullptr, nullptr, &si, &pi);
+    CloseHandle(writeEnd);  // the child holds its end now
+
+    LlmTurnResult* out = new LlmTurnResult;
+    if (!spawned) {
+        out->result = "engine spawn failed";
+        PostMessageW(g_hMain, WM_APP_LLM_DONE, 0,
+                     reinterpret_cast<LPARAM>(out));
+        CloseHandle(readEnd);
+        g_llmBusy = 0;
+        return 0;
+    }
+    // Read stdout to EOF (cmd /c echo paths exit immediately; claude turns
+    // can take minutes).
+    std::string stdoutBuf;
+    char chunk[4096];
+    DWORD got = 0;
+    while (ReadFile(readEnd, chunk, sizeof(chunk), &got, nullptr) && got > 0) {
+        stdoutBuf.append(chunk, got);
+    }
+    CloseHandle(readEnd);
+    // Turn timeout: kill a hung engine after 10 minutes (bridge convention).
+    if (WaitForSingleObject(pi.hProcess, 600000) == WAIT_TIMEOUT) {
+        TerminateProcess(pi.hProcess, 1);
+    }
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+
+    jk::agent::AgentJson reply(stdoutBuf);
+    out->ok = reply.ok();
+    reply.GetStr("result", out->result);
+    reply.GetStr("session_id", out->sessionId);
+    PostMessageW(g_hMain, WM_APP_LLM_DONE, 0, reinterpret_cast<LPARAM>(out));
+    g_llmBusy = 0;
+    return 0;
+}
+
+static void StartLlmTurn(const std::string& prompt) {
+    if (g_llmBusy.exchange(1) == 1) {
+        Log(L"[!] LLM이 이미 실행 중입니다");
+        return;
+    }
+    Log(L"… LLM 실행 중 (claude 헤드리스)");
+    CloseHandle(CreateThread(nullptr, 0, LlmThread,
+                             new std::wstring(Utf8ToWide(prompt)), 0, nullptr));
+}
+
 static void Submit() {
     wchar_t buf[512] = {};
     GetWindowTextW(g_hInput, buf, 512);
@@ -212,7 +302,7 @@ static void Submit() {
     Log(L"> " + Utf8ToWide(line));
 
     if (line[0] != '/') {
-        Log(L"(자연어 위임은 다음 단계 — 지금은 /help 의 슬래시 커맨드를 쓰세요)");
+        StartLlmTurn(line);  // natural language → claude headless
         return;
     }
 
@@ -225,8 +315,11 @@ static void Submit() {
                                 : line.substr(space + 1);
 
     if (cmd == "help") {
-        Log(L"/list /launch <app> /close <id> /save <name> /restore <name> /undo");
-        Log(L"/chat 은 이미 채팅창입니다. 창 목록/스냅샷은 서버 얼굴을 거칩니다.");
+        Log(L"자연어 입력 → LLM(claude 헤드리스) 위임 / 슬래시: 결정적 커맨드");
+        Log(L"/list /launch <app> /close <id> /save <name> /restore <name> /undo /new");
+    } else if (cmd == "new") {
+        g_sessionId.clear();
+        Log(L"새 LLM 세션");
     } else if (cmd == "list") {
         SendTool("list_windows", "{}", "list");
     } else if (cmd == "launch") {
@@ -436,6 +529,17 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM w, LPARAM l) {
         case WM_TIMER:
             Pump();
             return 0;
+        case WM_APP_LLM_DONE: {
+            LlmTurnResult* r = reinterpret_cast<LlmTurnResult*>(l);
+            if (!r->ok || r->result.empty()) {
+                Log(L"[!] LLM 응답 파싱 실패 — 엔진/모델 설정(state\\chat.json) 확인");
+            } else {
+                Log(Utf8ToWide(r->result));
+            }
+            if (!r->sessionId.empty()) g_sessionId = r->sessionId;
+            delete r;
+            return 0;
+        }
         case WM_COMMAND: {
             switch (LOWORD(w)) {
                 case IDC_SEND: Submit(); return 0;
@@ -474,6 +578,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nCmdShow) {
                               r.right - r.left, r.bottom - r.top, nullptr,
                               nullptr, hInst, nullptr);
     ShowWindow(hwnd, nCmdShow);
+    g_hMain = hwnd;
     UpdateWindow(hwnd);
 
     MSG msg;
