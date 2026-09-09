@@ -1081,6 +1081,28 @@ void JKWindowServer::ProcessPendingMessages() {
             ProcessClientMessage(*client, msg);
         }
     }
+
+    // M2 chat: expire parked approvals — answer the parked query with
+    // approval_timeout and broadcast the resolution (same lock scope).
+    const time_t now = std::time(nullptr);
+    for (auto it = pendingApprovals_.begin(); it != pendingApprovals_.end();) {
+        if (now < it->expiresAt) { ++it; continue; }
+        for (auto& c : clients_) {
+            if (c && c->Id() == it->requesterId && !c->IsDisconnected()) {
+                ipc::WriteAgentJson(c->Transport(), ipc::MsgType::AgentReply,
+                                    it->queryId, 0,
+                                    "{\"ok\":false,\"error\":\"approval_timeout\"}");
+                break;
+            }
+        }
+        char buf[256];
+        std::snprintf(buf, sizeof(buf),
+                      "{\"topic\":\"agent.approval_resolved\","
+                      "\"request\":%u,\"decision\":\"timeout\"}",
+                      it->requestId);
+        PushAgentEventJson(buf);
+        it = pendingApprovals_.erase(it);
+    }
 }
 
 void JKWindowServer::ProcessClientMessage(JKClientConnection& client, const ipc::Message& msg) {
@@ -1242,8 +1264,10 @@ void JKWindowServer::PushWindowListUnsafe() {
     }
 }
 
-// Desktop Agent API (spec §3): always answers — the agent client blocks on
-// ReadMessage waiting for the reply with the matching queryId.
+// Desktop Agent API (spec §3): normally answers at once — the agent client
+// blocks on ReadMessage waiting for the reply with the matching queryId.
+// Exception (M2 chat): an "ask"-gated close_window parks its query and replies
+// later, when the inline approval resolves.
 // Precondition: clientsMutex_ held (called from ProcessClientMessage), so
 // iterate clients_ directly — FindClientById/FocusClient-style helpers that
 // lock would deadlock on the non-recursive mutex.
@@ -1251,6 +1275,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                                       uint32_t queryId, const std::string& json) {
     jk::agent::AgentJson req(json);
     std::string tool, reply;
+    bool replied = true;
     if (!req.ok() || !req.GetStr("tool", tool)) {
         reply = "{\"ok\":false,\"error\":\"bad_request\"}";
     } else if (tool == "ping") {
@@ -1300,19 +1325,60 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                 if (c && c->Id() == static_cast<uint32_t>(id)) { target = c.get(); break; }
             }
         }
-        if (target && !target->IsControlOnly() && AgentToolAllowed("close_window")) {
-            // Server-initiated close: the client's read loop treats Close as
-            // quit; the disconnect cleanup path then removes the layer and
-            // fires window.destroyed.
-            ipc::WriteMessage(target->Transport(), ipc::MsgType::Close,
-                              std::vector<uint8_t>{});
-            reply = "{\"ok\":true}";
-        } else if (target) {
-            // M2a: the server-side gate denied it — permissions.json is the
-            // approval act (same file the broker reads).
-            reply = "{\"ok\":false,\"error\":\"permission_denied\"}";
-        } else {
+        if (!target || target->IsControlOnly()) {
             reply = "{\"ok\":false,\"error\":\"window_not_found\"}";
+        } else {
+            switch (AgentToolAllowed("close_window")) {
+                case AgentDecision::Allow: {
+                    // Server-initiated close: the client's read loop treats
+                    // Close as quit; the disconnect cleanup path then removes
+                    // the layer and fires window.destroyed.
+                    ipc::WriteMessage(target->Transport(), ipc::MsgType::Close,
+                                      std::vector<uint8_t>{});
+                    reply = "{\"ok\":true}";
+                    break;
+                }
+                case AgentDecision::Ask: {
+                    // M2 chat inline approval: park the query and broadcast
+                    // the request — the reply goes out only when the approval
+                    // resolves (or the expiry scan answers with timeout).
+                    bool subscriber = false;
+                    for (auto& c : clients_) {
+                        if (c && c->AgentEventSubscriber() && !c->IsDisconnected()) {
+                            subscriber = true;
+                            break;
+                        }
+                    }
+                    if (!subscriber) {
+                        reply = "{\"ok\":false,\"error\":\"approval_unavailable\"}";
+                        break;
+                    }
+                    PendingApproval p;
+                    p.requestId = nextApprovalId_++;
+                    p.queryId = queryId;
+                    p.requesterId = client.Id();
+                    p.targetId = target->Id();
+                    p.expiresAt = std::time(nullptr) + 60;
+                    char buf[640];
+                    std::snprintf(buf, sizeof(buf),
+                                  "{\"topic\":\"agent.approval_request\","
+                                  "\"request\":%u,\"tool\":\"close_window\","
+                                  "\"target_id\":%u,\"title\":\"%s\",\"ts\":%lld}",
+                                  p.requestId, p.targetId,
+                                  JsonEsc(target->Title()).c_str(),
+                                  static_cast<long long>(std::time(nullptr)) * 1000);
+                    pendingApprovals_.push_back(p);
+                    PushAgentEventJson(buf);
+                    replied = false;  // answered when the approval resolves
+                    break;
+                }
+                case AgentDecision::Deny:
+                default:
+                    // M2a: the server-side gate denied it — permissions.json
+                    // is the approval act (same file the broker reads).
+                    reply = "{\"ok\":false,\"error\":\"permission_denied\"}";
+                    break;
+            }
         }
     } else if (tool == "launch_app") {
         std::string app, jkx;
@@ -1408,11 +1474,59 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                 }
             }
         }
+    } else if (tool == "approve") {
+        // M2 chat: resolve one pending approval. The parked query's reply
+        // goes to the ORIGINAL requester; the approver gets the ack below.
+        int request = 0;
+        std::string decision;
+        req.GetObjInt("args", "request", request);
+        req.GetObjStr("args", "decision", decision);
+        const bool allow = (decision == "allow");
+        bool resolved = false;
+        for (auto it = pendingApprovals_.begin();
+             it != pendingApprovals_.end(); ++it) {
+            if (it->requestId != static_cast<uint32_t>(request)) continue;
+            resolved = true;
+            if (allow) {
+                for (auto& c : clients_) {
+                    if (c && c->Id() == it->targetId && !c->IsDisconnected()) {
+                        ipc::WriteMessage(c->Transport(), ipc::MsgType::Close,
+                                          std::vector<uint8_t>{});
+                        break;
+                    }
+                }
+            }
+            for (auto& c : clients_) {
+                if (c && c->Id() == it->requesterId && !c->IsDisconnected()) {
+                    const std::string result = allow
+                        ? "{\"ok\":true}"
+                        : "{\"ok\":false,\"error\":\"denied_by_user\"}";
+                    ipc::WriteAgentJson(c->Transport(), ipc::MsgType::AgentReply,
+                                        it->queryId, allow ? 1 : 0, result);
+                    break;
+                }
+            }
+            char buf[256];
+            std::snprintf(buf, sizeof(buf),
+                          "{\"topic\":\"agent.approval_resolved\","
+                          "\"request\":%u,\"decision\":\"%s\"}",
+                          it->requestId, allow ? "allow" : "deny");
+            PushAgentEventJson(buf);
+            pendingApprovals_.erase(it);
+            reply = allow ? "{\"ok\":true,\"approved\":true}"
+                          : "{\"ok\":true,\"approved\":false}";
+            break;
+        }
+        if (!resolved) reply = "{\"ok\":false,\"error\":\"unknown_request\"}";
     } else {
         reply = "{\"ok\":false,\"error\":\"not_implemented\"}";
     }
-    ipc::WriteAgentJson(client.Transport(), ipc::MsgType::AgentReply,
-                        queryId, 1, reply);
+    // The ask path parks the query — its reply is sent when the approval
+    // resolves (approve tool) or times out (expiry scan below).
+    if (replied) {
+        ipc::WriteAgentJson(client.Transport(), ipc::MsgType::AgentReply,
+                            queryId, 1, reply);
+    }
 }
 
 // Push a desktop event JSON to every subscribed control-only client.
@@ -1424,14 +1538,17 @@ void JKWindowServer::PushAgentEvent(const char* topic, uint32_t id,
     std::snprintf(buf, sizeof(buf),
                   "{\"topic\":\"%s\",\"id\":%u,\"title\":\"%s\",\"pid\":%u,\"ts\":%lld}",
                   topic, id, JsonEsc(title).c_str(), pid, ts);
-    int subscribers = 0;
+    PushAgentEventJson(buf);
+}
+
+// Push a fully-formed agent event JSON (topic included) to subscribers.
+void JKWindowServer::PushAgentEventJson(const std::string& json) {
     for (auto& c : clients_) {
         // M2a: window clients can opt in too (the palette does, via
         // AgentEventSubscribe on its regular connection); control-only agent
         // connections declare the flag at connect time.
         if (c && c->AgentEventSubscriber() && !c->IsDisconnected()) {
-            ++subscribers;
-            ipc::WriteAgentJson(c->Transport(), ipc::MsgType::AgentEvent, 0, 1, buf);
+            ipc::WriteAgentJson(c->Transport(), ipc::MsgType::AgentEvent, 0, 1, json);
         }
     }
 }
@@ -1467,7 +1584,9 @@ void JKWindowServer::TogglePalette() {
 // (the palette does over its window connection). close_window is denied by
 // default; <exeDir>\permissions.json — the same file the broker reads, both
 // exes live in the same build directory — is the approval act.
-bool JKWindowServer::AgentToolAllowed(const std::string& tool) const {
+// M2 chat: "ask" means the inline-approval pipeline (chat window) — wired for
+// close_window; other tools degrade to allow since nothing parks them.
+AgentDecision JKWindowServer::AgentToolAllowed(const std::string& tool) const {
     char exePath[1024] = {};
     GetModuleFileNameA(nullptr, exePath, sizeof(exePath));
     std::string dir = exePath;
@@ -1476,15 +1595,24 @@ bool JKWindowServer::AgentToolAllowed(const std::string& tool) const {
     const std::string path = dir + "\\permissions.json";
     const bool defaultAllowed = (tool != "close_window");
     std::FILE* f = std::fopen(path.c_str(), "rb");
-    if (!f) return defaultAllowed;
+    if (!f) return defaultAllowed ? AgentDecision::Allow : AgentDecision::Deny;
     char buf[4096] = {};
     const size_t n = std::fread(buf, 1, sizeof(buf) - 1, f);
     std::fclose(f);
     buf[n] = '\0';
     jk::agent::AgentJson perm(buf);
     std::string value;
-    if (!perm.ok() || !perm.GetStr(tool.c_str(), value)) return defaultAllowed;
-    return value == "allow";
+    if (!perm.ok() || !perm.GetStr(tool.c_str(), value)) {
+        return defaultAllowed ? AgentDecision::Allow : AgentDecision::Deny;
+    }
+    if (value == "allow") return AgentDecision::Allow;
+    if (value == "ask") {
+        return (tool == "close_window") ? AgentDecision::Ask
+                                        : AgentDecision::Allow;
+    }
+    return value == "deny" ? AgentDecision::Deny
+                           : (defaultAllowed ? AgentDecision::Allow
+                                             : AgentDecision::Deny);
 }
 
 // <exeDir>/state — agent-created files (layout snapshots). CreateDirectoryA

@@ -10,6 +10,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <ctime>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -24,6 +25,10 @@ class JKAudioThread;
 struct LoadedImage;
 
 namespace server {
+
+// M2 chat: what the server-side permission gate says about a tool.
+// Ask = park the query until the chat window's inline approval resolves it.
+enum class AgentDecision { Allow, Ask, Deny };
 
 // Single-display window server.
 // Owns the SDL window and renderer, accepts clients over a named pipe,
@@ -60,10 +65,14 @@ private:
     // Callers hold clientsMutex_.
     void PushAgentEvent(const char* topic, uint32_t id,
                         const std::string& title, uint32_t pid);
+    // Push a fully-formed agent event JSON (topic included) to subscribers.
+    // Caller holds clientsMutex_.
+    void PushAgentEventJson(const std::string& json);
     // M2a server-side permission gate: close_window is denied by default;
     // <exeDir>\permissions.json (the same file the broker reads) is the
     // approval act — it gates any connected face, not just the broker.
-    bool AgentToolAllowed(const std::string& tool) const;
+    // M2 chat: "ask" values become AgentDecision::Ask (inline approval).
+    AgentDecision AgentToolAllowed(const std::string& tool) const;
     // Alt+Space (spec §6.2): focus the palette if one is open, else spawn it.
     void TogglePalette();
     // <exeDir>/state directory for agent-created files (layout snapshots).
@@ -138,6 +147,20 @@ private:
 
     uint32_t nextSurfaceId_ = 1;
     uint32_t focusedClientId_ = 0;
+
+    // Pending approval (M2 chat): an "ask"-gated AgentQuery parked until the
+    // chat window (any agent-event subscriber) resolves it with the approve
+    // tool, or until it expires. Connections are stored by id — pointers
+    // would dangle if the requester disconnects while the approval is open.
+    struct PendingApproval {
+        uint32_t requestId = 0;
+        uint32_t queryId = 0;      // AgentQuery to complete on resolution
+        uint32_t requesterId = 0;  // requesting connection's id
+        uint32_t targetId = 0;     // window the request would touch
+        time_t expiresAt = 0;
+    };
+    std::vector<PendingApproval> pendingApprovals_;
+    uint32_t nextApprovalId_ = 1;
 
     // Server-side mouse capture (Win32 SetCapture equivalent): the surface id
     // that received the last MouseDown and has not seen its MouseUp yet.
