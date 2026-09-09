@@ -488,6 +488,13 @@ if(WIN32)
     target_link_options(jkchat PRIVATE -municode -static-libstdc++ -static-libgcc)
 endif()
 
+# M2b trigger-script host: console process, no UI (outside JKWindow/SDL).
+add_executable(jktriggers tools/jktriggers/main.cpp)
+target_link_libraries(jktriggers PRIVATE jkcore)
+if(WIN32)
+    target_link_options(jktriggers PRIVATE -static-libstdc++ -static-libgcc)
+endif()
+
 if(WIN32)
     # Keep each module self-contained: no libstdc++/libgcc runtime DLLs needed
     # next to the app modules.
