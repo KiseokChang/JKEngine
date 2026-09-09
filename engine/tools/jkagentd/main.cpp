@@ -9,11 +9,13 @@
 
 #include <agent/JKAgentClient.h>
 #include <agent/JKAgentJson.h>
+#include <terminal/JKConPtyBridge.h>
 
 #ifdef _WIN32
 #include <windows.h>
 #endif
 
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -224,6 +226,57 @@ std::string ReadEvents() {
     return out + "]}";
 }
 
+// Run a command in a ConPTY session and return its output (spec §3 execute
+// tier). Windows only — POSIX builds have no ConPTY (JKConPtyBridge stub).
+std::string TerminalExec(const jk::agent::AgentJson& req) {
+#if defined(_WIN32)
+    std::string cmd;
+    if (!req.GetDeepStr("params", "arguments", "command", cmd) || cmd.empty()) {
+        return "{\"ok\":false,\"error\":\"missing_command\"}";
+    }
+    int timeoutSec = 30;
+    req.GetDeepInt("params", "arguments", "timeoutSec", timeoutSec);
+    if (timeoutSec <= 0 || timeoutSec > 600) timeoutSec = 30;
+
+    jk::JKConPtyBridge pty;
+    if (!pty.Start(cmd, 80, 25)) {
+        return "{\"ok\":false,\"error\":\"pty_start_failed\"}";
+    }
+    std::string output;
+    const auto deadline = std::chrono::steady_clock::now() +
+                          std::chrono::seconds(timeoutSec);
+    bool exited = false;
+    while (std::chrono::steady_clock::now() < deadline) {
+        std::string chunk;
+        pty.DrainOutput(chunk);
+        output += chunk;
+        if (output.size() > (1u << 20)) {   // 1 MiB cap — same as the bridge
+            output.resize(1u << 20);
+            break;
+        }
+        // ShellExited = pipe closed (conhost); ProcessExited = the command
+        // itself finished — the meaningful "ended" for one-shot commands.
+        if (pty.ShellExited() || pty.ProcessExited()) {
+            Sleep(50);   // let the reader thread land the last bytes
+            std::string rest;
+            pty.DrainOutput(rest);
+            output += rest;
+            exited = true;
+            break;
+        }
+        Sleep(30);   // TerminalApp's pump period (docs/27 단계 1)
+    }
+    pty.Stop();
+    // JsonEsc escapes quotes and control chars — ANSI sequences in pty
+    // output become  escapes, valid JSON.
+    return "{\"ok\":true,\"ended\":\"" + std::string(exited ? "exited" : "timeout") +
+           "\",\"output\":\"" + JsonEsc(output) + "\"}";
+#else
+    (void)req;
+    return "{\"ok\":false,\"error\":\"unsupported_platform\"}";
+#endif
+}
+
 // Process one MCP JSON-RPC line. isResponse is false for notifications
 // (nothing to send back). Testability is the point: RunSelfTest feeds the
 // same function scripted lines.
@@ -304,8 +357,7 @@ std::string HandleLine(const std::string& line, bool& isResponse) {
         } else if (tool == "read_events") {
             resultJson = ReadEvents();
         } else if (tool == "terminal_exec") {
-            // Task 7 wires ConPTY here.
-            resultJson = "{\"ok\":false,\"error\":\"not_implemented\"}";
+            resultJson = TerminalExec(req);
         } else if (EnsureConnected()) {
             std::string reply;
             if (g_agent.Query(tool, argsJson, reply)) {

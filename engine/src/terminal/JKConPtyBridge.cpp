@@ -140,6 +140,11 @@ bool JKConPtyBridge::Start(const std::string& commandLine, int cols, int rows) {
     return true;
 }
 
+bool JKConPtyBridge::ProcessExited() const {
+    if (!started_ || !proc_) return false;
+    return WaitForSingleObject(static_cast<HANDLE>(proc_), 0) == WAIT_OBJECT_0;
+}
+
 void JKConPtyBridge::ReaderThread() {
     HANDLE outRead = static_cast<HANDLE>(outRead_);
     char buf[4096];

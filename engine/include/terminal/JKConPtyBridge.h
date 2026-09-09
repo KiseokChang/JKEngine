@@ -35,6 +35,11 @@ public:
     bool IsValid() const { return started_; }
     bool ShellExited() const { return exited_; }
 
+    // True once the spawned child process has terminated. Unlike
+    // ShellExited() (pipe closed — conhost lingers until ClosePseudoConsole),
+    // this fires when the command itself is done.
+    bool ProcessExited() const;
+
     // Appends pty output bytes to `out` (drain from the UI thread).
     void DrainOutput(std::string& out);
 
