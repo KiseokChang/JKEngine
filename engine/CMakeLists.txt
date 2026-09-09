@@ -476,6 +476,18 @@ if(WIN32)
     target_link_options(jkagentd PRIVATE -static-libstdc++ -static-libgcc)
 endif()
 
+# ---------------------------------------------------------------------------
+# jkchat: Desktop Agent chat window (spec §6.2). Plain Win32 UI —
+# deliberately OUTSIDE the JKWindow/SDL system (user constraint; keeps the
+# door open for STT later). Links jkcore for the same JKAgentClient stack.
+# ---------------------------------------------------------------------------
+add_executable(jkchat WIN32 tools/jkchat/main.cpp)
+target_link_libraries(jkchat PRIVATE jkcore)
+if(WIN32)
+    # -municode: wWinMain entry (the app is UTF-16 end-to-end for hangul).
+    target_link_options(jkchat PRIVATE -municode -static-libstdc++ -static-libgcc)
+endif()
+
 if(WIN32)
     # Keep each module self-contained: no libstdc++/libgcc runtime DLLs needed
     # next to the app modules.
