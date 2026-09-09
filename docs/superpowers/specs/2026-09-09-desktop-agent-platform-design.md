@@ -4,7 +4,9 @@
 - 상태: 스펙 + M1 구현 완료 (2026-09-10, 사용 문서 `docs/29_desktop_agent_m1.md`).
   2단계 커맨드 바 MVP(M2a) 구현 완료 (2026-09-10, 사용 문서 `docs/30_desktop_agent_m2a.md`);
   내부 에이전트 채팅창(슬래시 + 인라인 승인 UX) 구현 완료 (2026-09-10, 사용 문서
-  `docs/31_desktop_agent_chat.md`); 트리거 스크립트(M2b)·LLM 연동·3~4단계(§6.3~6.4)는 미착수.
+  `docs/31_desktop_agent_chat.md`); 채팅창 LLM 위임(claude CLI 서브프로세스,
+  ollama launch claude) 구현 완료 (2026-09-10, 문서 §5); 트리거
+  스크립트(M2b)·3~4단계(§6.3~6.4)는 미착수.
 - 범위: 1단계 = Desktop Agent API + 브로커(jkagentd) + MCP 서버.
   §6에 2~4단계까지 단계별 구현을 구체화, §7에 필요한 신규 앱 제안,
   §8에 장치·외부 세계 I/O 계층을 추가했다.
