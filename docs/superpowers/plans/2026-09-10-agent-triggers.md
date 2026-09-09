@@ -143,10 +143,10 @@
 - Consumes: `JKJkxFile::Open/FindEntry/ReadEntry` (엔트리 타입 무관 이름 조회), `JKJkxFile::Write`.
 - Produces: `jktriggers --pack <srcDir> <outDir>` — `<srcDir>/<name>/manifest.txt` + 스크립트 → `<outDir>/<name>.jkx`. 로더: `<exeDir>\apps\triggers\*.jkx` 스캔 → 매니페스트 `trigger=` (쉼표 목록) → 각 SCRI 엔트리 읽어 eval. 매니페스트 파서는 jktriggers 로컬 (name/trigger만 — 서버 JkxManifest는 건드리지 않음, 런처 오염 방지).
 
-- [ ] **Step 1: 로더** — `LoadTriggerContainers()`: FindFirstFile `apps/triggers/*.jkx` → Open → manifest.txt 엔트리 찾아 로컬 파싱 → `trigger=` 목록의 각 이름 FindEntry+ReadEntry → `JS_Eval`(file명으로). 로드 실패는 로그하고 계속.
-- [ ] **Step 2: 패커** — `--pack`: 디렉터 순회, `manifest.txt` + `*.js`를 JKJkxFile::Write로 패킹 (TypeForName이 .js→SCRI 자동).
-- [ ] **Step 3: CMake** — POST_BUILD식: `$<TARGET_FILE:jktriggers> --pack ${CMAKE_SOURCE_DIR}/tools/triggers "${CMAKE_BINARY_DIR}/apps/triggers"`. 소스 트리 `engine/tools/triggers/<name>/{manifest.txt,*.js}`.
-- [ ] **Step 4: 커밋** `feat(triggers): .jkx trigger containers + packer`.
+- [x] **Step 1: 로더** — `LoadTriggerContainers()`: FindFirstFile `apps/triggers/*.jkx` → Open → manifest.txt 엔트리 찾아 로컬 파싱 → `trigger=` 목록의 각 이름 FindEntry+ReadEntry → `JS_Eval`(file명으로). 로드 실패는 로그하고 계속.
+- [x] **Step 2: 패커** — `--pack`: 디렉터 순회, `manifest.txt` + `*.js`를 JKJkxFile::Write로 패킹 (TypeForName이 .js→SCRI 자동).
+- [x] **Step 3: CMake** — POST_BUILD식: `$<TARGET_FILE:jktriggers> --pack ${CMAKE_SOURCE_DIR}/tools/triggers "${CMAKE_BINARY_DIR}/apps/triggers"`. 소스 트리 `engine/tools/triggers/<name>/{manifest.txt,*.js}`.
+- [x] **Step 4: 커밋** `feat(triggers): .jkx trigger containers + packer`.
 
 ### Task 6: 첫 번들 3개
 

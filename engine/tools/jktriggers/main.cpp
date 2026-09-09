@@ -137,7 +137,11 @@ JSValue JsOn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
     const char* topic = JS_ToCString(ctx, argv[0]);
     t.topic = topic ? topic : "";
     if (topic) JS_FreeCString(ctx, topic);
-    JSValue match = JS_GetPropertyStr(ctx, argv[1], "match");
+    // filter is {match: /regex/} — null/undefined/other non-objects mean
+    // "match all" (GetPropertyStr on null would throw and poison the reg).
+    JSValue match = JS_IsObject(argv[1]) && !JS_IsNull(argv[1])
+                        ? JS_GetPropertyStr(ctx, argv[1], "match")
+                        : JS_UNDEFINED;
     t.match = JS_IsUndefined(match) ? JS_UNDEFINED : JS_DupValue(ctx, match);
     JS_FreeValue(ctx, match);
     t.handler = JS_DupValue(ctx, argv[2]);
@@ -464,6 +468,68 @@ void LoadJsDir() {
     FindClose(h);
 }
 
+// Packaged path: <exeDir>\apps\triggers\*.jkx containers. Each container's
+// manifest.txt carries "name=<pkg>" and "trigger=<script.js>[,more.js]".
+// The manifest is parsed locally (name/trigger only) — the server never
+// sees these containers, so they stay out of the launcher grid.
+void LoadTriggerContainers() {
+    const std::string dir = g_exeDir + "\\apps\\triggers\\*.jkx";
+    WIN32_FIND_DATAA fd{};
+    HANDLE h = FindFirstFileA(dir.c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) return;
+    do {
+        const std::string path = g_exeDir + "\\apps\\triggers\\" + fd.cFileName;
+        jk::JKJkxFile jkx;
+        if (!jkx.Open(path)) {
+            HostLog(std::string("[triggers] cannot open ") + fd.cFileName);
+            continue;
+        }
+        // Read manifest.txt (type MANI per the writer's convention).
+        std::vector<uint8_t> mani;
+        const int mi = jkx.FindEntry(nullptr, "manifest.txt");
+        if (mi < 0 || !jkx.ReadEntry(mi, mani)) {
+            HostLog(std::string("[triggers] no manifest in ") + fd.cFileName);
+            continue;
+        }
+        const std::string maniText(mani.begin(), mani.end());
+        // Parse "trigger=" values (comma list), then eval each script entry.
+        for (size_t p = 0; p < maniText.size();) {
+            size_t eol = maniText.find('\n', p);
+            if (eol == std::string::npos) eol = maniText.size();
+            const std::string line = maniText.substr(p, eol - p);
+            p = eol + 1;
+            if (line.rfind("trigger=", 0) != 0) continue;
+            const std::string list = line.substr(8);
+            size_t start = 0;
+            while (start < list.size()) {
+                size_t comma = list.find(',', start);
+                if (comma == std::string::npos) comma = list.size();
+                std::string script = list.substr(start, comma - start);
+                // trim
+                while (!script.empty() &&
+                       (script.front() == ' ' || script.front() == '\r'))
+                    script.erase(script.begin());
+                while (!script.empty() &&
+                       (script.back() == ' ' || script.back() == '\r'))
+                    script.pop_back();
+                if (!script.empty()) {
+                    std::vector<uint8_t> code;
+                    const int idx = jkx.FindEntry(nullptr, script);
+                    if (idx >= 0 && jkx.ReadEntry(idx, code) && !code.empty()) {
+                        EvalScript(std::string(code.begin(), code.end()),
+                                   std::string(fd.cFileName) + "/" + script);
+                    } else {
+                        HostLog(std::string("[triggers] entry not found: ") +
+                                fd.cFileName + "/" + script);
+                    }
+                }
+                start = comma + 1;
+            }
+        }
+    } while (FindNextFileA(h, &fd));
+    FindClose(h);
+}
+
 void Shutdown() {
     for (auto& t : g_timers) JS_FreeValue(g_ctx, t.fn);
     g_timers.clear();
@@ -485,8 +551,9 @@ int PackMode(const std::string& srcDir, const std::string& outDir) {
     WIN32_FIND_DATAA fd{};
     HANDLE h = FindFirstFileA(glob.c_str(), &fd);
     if (h == INVALID_HANDLE_VALUE) {
+        // Empty bundle is fine (pre-Task-6 builds) — just leave a marker.
         HostLog("jktriggers: no trigger sources under " + srcDir);
-        return 1;
+        return 0;
     }
     int packed = 0;
     do {
@@ -551,7 +618,8 @@ int main(int argc, char* argv[]) {
         HostLog("jktriggers: QuickJS init failed");
         return 1;
     }
-    LoadJsDir();  // Task 5 adds the .jkx container loader
+    LoadJsDir();
+    LoadTriggerContainers();
 
     HostLog("jktriggers: running (" +
             std::to_string(g_triggers.size()) + " trigger(s), " +

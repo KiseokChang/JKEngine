@@ -495,6 +495,21 @@ if(WIN32)
     target_link_options(jktriggers PRIVATE -static-libstdc++ -static-libgcc)
 endif()
 
+# Pack the trigger bundle: tools/triggers/<name>/ -> apps/triggers/<name>.jkx
+# (the packer is jktriggers itself; --pack is offline, never contacts the
+# server). Runs in the default build via ALL.
+file(GLOB JK_TRIGGER_SOURCES "${CMAKE_SOURCE_DIR}/tools/triggers/*/*")
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/triggers/.packed"
+    COMMAND "$<TARGET_FILE:jktriggers>" --pack
+            "${CMAKE_SOURCE_DIR}/tools/triggers"
+            "${CMAKE_BINARY_DIR}/apps/triggers"
+    COMMAND ${CMAKE_COMMAND} -E touch "${CMAKE_BINARY_DIR}/apps/triggers/.packed"
+    DEPENDS jktriggers ${JK_TRIGGER_SOURCES}
+    COMMENT "Packing trigger containers"
+    VERBATIM)
+add_custom_target(triggers ALL
+    DEPENDS "${CMAKE_BINARY_DIR}/apps/triggers/.packed")
+
 if(WIN32)
     # Keep each module self-contained: no libstdc++/libgcc runtime DLLs needed
     # next to the app modules.
