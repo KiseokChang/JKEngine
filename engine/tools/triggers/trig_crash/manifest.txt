@@ -1,0 +1,3 @@
+name=trig_crash
+title=Crash badge trigger
+trigger=trig_crash.js

@@ -1,0 +1,3 @@
+name=trig_idle
+title=Idle auto-save trigger
+trigger=trig_idle.js

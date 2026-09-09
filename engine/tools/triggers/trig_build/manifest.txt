@@ -1,0 +1,3 @@
+name=trig_build
+title=Build-failure trigger
+trigger=trig_build.js

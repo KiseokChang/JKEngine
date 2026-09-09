@@ -159,7 +159,7 @@
 - Consumes: Task 4 API, Task 3 terminal.output, Task 2 app.crashed.
 - Produces: 알림 3종 → 채팅창 `[알림]` 줄.
 
-- [ ] **Step 1: trig_build.js** — 빌드 실패 감지 (스펙 예제 충실):
+- [x] **Step 1: trig_build.js** — 빌드 실패 감지 (스펙 예제 충실):
 
 ```js
 var lastNotify = 0;
@@ -173,11 +173,11 @@ on("terminal.output", { match: /error C\d+|fatal error|error:/i }, function (e) 
 });
 ```
 
-- [ ] **Step 2: trig_idle.js** — 30분 idle 레이아웃 저장. 활동 = `window.focused|window.created|window.destroyed` 수신 시각. `state/idle_minutes` 파일로 임계값 오버라이드 (기본 30 — 프로브가 0으로 세팅해 즉시 발화 검증 가능).
+- [x] **Step 2: trig_idle.js** — 30분 idle 레이아웃 저장. 활동 = `window.focused|window.created|window.destroyed` 수신 시각. `state/idle_minutes` 파일로 임계값 오버라이드 (기본 30 — 프로브가 0으로 세팅해 즉시 발화 검증 가능).
 
 ```js
 var thresholdMin = 30;
-try { var f = desktop.readFile("state/idle_minutes"); thresholdMin = parseInt(f, 10) || 30; } catch (e) {}
+try { var f = desktop.readFile("state/idle_minutes"); parseInt(desktop.readFile(...)) !== NaN 체크 — 0도 유효 임계값
 var lastActivity = Date.now(), saved = false;
 on("window.focused", {}, function () { lastActivity = Date.now(); saved = false; });
 on("window.created", {}, function () { lastActivity = Date.now(); saved = false; });
@@ -193,7 +193,7 @@ setInterval(function () {
 ```
 
   `desktop.readFile(relPath)` — jktriggers 호스트 API에 추가 (exeDir 기준 상대경로, 크기 상한 64KiB).
-- [ ] **Step 3: trig_crash.js** — 크래시 배지:
+- [x] **Step 3: trig_crash.js** — 크래시 배지:
 
 ```js
 on("app.crashed", {}, function (e) {
@@ -201,8 +201,8 @@ on("app.crashed", {}, function (e) {
 });
 ```
 
-- [ ] **Step 4: 각 manifest.txt** — `name=trig_build` / `title=Build-failure trigger` / `trigger=trig_build.js` (icon/module 없음).
-- [ ] **Step 5: 커밋** `feat(triggers): first bundle — build fail, idle save, crash badge`.
+- [x] **Step 4: 각 manifest.txt** — `name=trig_build` / `title=Build-failure trigger` / `trigger=trig_build.js` (icon/module 없음).
+- [x] **Step 5: 커밋** `feat(triggers): first bundle — build fail, idle save, crash badge`.
 
 ### Task 7: 채팅창 `agent.notify` 표시
 
