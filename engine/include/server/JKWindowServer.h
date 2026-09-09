@@ -120,6 +120,10 @@ private:
     void DestroyLauncher();
     int HitTestLauncherIcon(int x, int y) const;
     void SpawnClient(const char* appName, bool fromJkx = false);
+    // Launch an arbitrary exe from the server's directory (chat MVP: jkchat).
+    // Same 500ms throttle as SpawnClient; throttleKey defaults to exeName.
+    void SpawnProcess(const char* exeName, const std::string& args,
+                      const char* throttleKey = nullptr);
 
     // Load a PNG asset pair ("<base>@1x.png" / "@2x.png") — @2x when the
     // output scale is >= 1.5 — into a blended SDL texture. Returns nullptr

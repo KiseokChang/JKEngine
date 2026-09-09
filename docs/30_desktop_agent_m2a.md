@@ -94,6 +94,8 @@ permissions.json 허용 후 팔레트 자신을 close → 목록에서 소멸 �
 - **M2b 트리거 스크립트**: QuickJS `on(topic, filter, handler)` + .jkx
   매니페스트 `triggers:` — "빌드 실패 알림"이 이 팔레트의 이벤트 패널(또는
   그때까지 승격된 알림 센터 앱)로 도달한다.
-- **내부 에이전트 채팅창**: JKWindow/SDL 체계 밖 (사용자 제약, M1 계획
-  말미) — 승인 UX(인라인 프롬프트)와 함께 별도 계획.
+- **내부 에이전트 채팅창**: 구현 완료 (2026-09-10) — `docs/31_desktop_agent_chat.md`.
+  JKWindow/SDL 체계 밖의 순수 Win32 프로세스(jkchat.exe), 팔레트 `/chat` 또는
+  `launch_chat` 도구로 연다. 이 팔레트의 서버 관문이 3값 모델(allow/ask/deny)로
+  확장되고, "ask"는 채팅창의 인라인 승인 프롬프트로 해결된다.
 - 앱 정복 사다리(스펙 §6.6)의 L1(테트리스)은 그대로 다음 대상.

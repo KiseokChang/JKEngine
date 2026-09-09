@@ -1474,6 +1474,11 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                 }
             }
         }
+    } else if (tool == "launch_chat") {
+        // M2 chat: open the Win32 chat window (approval surface). One API,
+        // many faces — MCP agents can open it too.
+        SpawnProcess("jkchat.exe", "");
+        reply = "{\"ok\":true}";
     } else if (tool == "approve") {
         // M2 chat: resolve one pending approval. The parked query's reply
         // goes to the ORIGINAL requester; the approver gets the ack below.
@@ -1996,28 +2001,32 @@ int JKWindowServer::HitTestLauncherIcon(int x, int y) const {
     return -1;
 }
 
-void JKWindowServer::SpawnClient(const char* appName, bool fromJkx) {
+// Launch an arbitrary exe from the server's directory (SpawnClient core).
+// throttleKey defaults to exeName; SpawnClient keeps the per-app key so two
+// DIFFERENT apps can still launch back-to-back.
+void JKWindowServer::SpawnProcess(const char* exeName, const std::string& args,
+                                  const char* throttleKey) {
 #ifdef _WIN32
-    // Throttle repeated spawns for the same app to avoid launching many copies
-    // from a single double-click.
+    const char* key = throttleKey ? throttleKey : exeName;
+    // Throttle repeated spawns for the same key to avoid launching many
+    // copies from a single double-click.
     {
         auto now = std::chrono::steady_clock::now();
-        auto it = lastSpawnTimes_.find(appName);
+        auto it = lastSpawnTimes_.find(key);
         if (it != lastSpawnTimes_.end()) {
             auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                 now - it->second);
             if (elapsed.count() < 500) {
                 std::fprintf(stderr,
                              "JKWindowServer: ignoring rapid spawn for %s (%lld ms)\n",
-                             appName, static_cast<long long>(elapsed.count()));
+                             key, static_cast<long long>(elapsed.count()));
                 return;
             }
         }
-        lastSpawnTimes_[appName] = now;
+        lastSpawnTimes_[key] = now;
     }
 
-    // Assume the server executable is in the same directory as the client.
-    // Build a command line of the form: jkdesktop.exe --client minesweeper
+    // Assume the server executable is in the same directory as the target.
     char modulePath[1024] = {};
     const unsigned long len = GetModuleFileNameA(nullptr, modulePath, sizeof(modulePath));
     if (len == 0 || len >= sizeof(modulePath)) {
@@ -2038,17 +2047,12 @@ void JKWindowServer::SpawnClient(const char* appName, bool fromJkx) {
     }
 
     char cmdLine[2048] = {};
-    if (fromJkx) {
-        // A .jkx container path — may contain spaces, so quote it.
-        std::snprintf(cmdLine, sizeof(cmdLine),
-                      "\"%s\\jkdesktop.exe\" --jkx \"%s\"",
-                      modulePath[0] ? modulePath : ".",
-                      appName);
+    if (args.empty()) {
+        std::snprintf(cmdLine, sizeof(cmdLine), "\"%s\\%s\"",
+                      modulePath[0] ? modulePath : ".", exeName);
     } else {
-        std::snprintf(cmdLine, sizeof(cmdLine),
-                      "\"%s\\jkdesktop.exe\" --client %s",
-                      modulePath[0] ? modulePath : ".",
-                      appName);
+        std::snprintf(cmdLine, sizeof(cmdLine), "\"%s\\%s\" %s",
+                      modulePath[0] ? modulePath : ".", exeName, args.c_str());
     }
 
     LauncherStartupInfoA si{};
@@ -2061,15 +2065,30 @@ void JKWindowServer::SpawnClient(const char* appName, bool fromJkx) {
 
     if (!CreateProcessA(nullptr, cmdLine, nullptr, nullptr, 0, 0,
                         nullptr, workDir, &si, &pi)) {
-        std::fprintf(stderr, "JKWindowServer: CreateProcessA failed for %s\n", appName);
+        std::fprintf(stderr, "JKWindowServer: CreateProcessA failed for %s\n", exeName);
         return;
     }
 
     if (pi.hProcess) CloseHandle(pi.hProcess);
     if (pi.hThread) CloseHandle(pi.hThread);
 
-    std::fprintf(stderr, "JKWindowServer: spawned client %s %s\n",
-                 fromJkx ? "--jkx" : "--client", appName);
+    std::fprintf(stderr, "JKWindowServer: spawned %s %s\n", exeName, args.c_str());
+#else
+    (void)exeName;
+    (void)args;
+    std::fprintf(stderr, "JKWindowServer: SpawnProcess is Windows-only in this prototype\n");
+#endif // _WIN32
+}
+
+void JKWindowServer::SpawnClient(const char* appName, bool fromJkx) {
+#ifdef _WIN32
+    if (fromJkx) {
+        // A .jkx container path — may contain spaces, so quote it.
+        std::string arg = std::string("--jkx \"") + appName + "\"";
+        SpawnProcess("jkdesktop.exe", arg, appName);
+    } else {
+        SpawnProcess("jkdesktop.exe", std::string("--client ") + appName, appName);
+    }
 #else
     (void)appName;
     (void)fromJkx;
