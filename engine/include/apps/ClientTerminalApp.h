@@ -35,6 +35,10 @@ private:
     void PumpPty();
     void WriteToPty(const char* data, size_t len);
     void OnViewResized(int cols, int rows);
+    // M2b trigger feed: publish sanitized output as agent events.
+    void PublishTerminalOutput();
+    static std::string StripVtEscapes(const std::string& raw);
+    static std::string JsonEscape(const std::string& s);
 
     std::unique_ptr<JKTerminalGrid> grid_;
     std::unique_ptr<JKVtParser> parser_;
@@ -46,6 +50,9 @@ private:
     int ptyCols_ = 0;
     int ptyRows_ = 0;
     std::string shell_;   // terminal.json "shell" (default in JKTerminalConfig)
+    std::string pendingPub_;      // sanitized output awaiting publish
+    uint32_t nextPubQueryId_ = 1;
+    uint64_t lastPubTickMs_ = 0;  // steady_clock ms of last publish
 };
 
 } // namespace jk

@@ -3,9 +3,17 @@
 #include <apps/TerminalView.h>
 #include <JKWindow.h>
 
+#include <chrono>
 #include <cstdio>
 
 namespace jk {
+
+namespace {
+// Coalescing windows for terminal.output publishes (M2b): batch fast shell
+// output instead of one event per VT chunk.
+constexpr uint64_t kPubMinIntervalMs = 250;
+constexpr size_t kPubMaxBytes = 4096;
+}  // namespace
 
 ClientTerminalApp::~ClientTerminalApp() = default;
 
@@ -105,13 +113,106 @@ void ClientTerminalApp::PumpPty() {
     pty_->DrainOutput(out);
     if (!out.empty()) {
         parser_->Feed(reinterpret_cast<const uint8_t*>(out.data()), out.size());
+        // M2b trigger feed: buffer the sanitized text for terminal.output.
+        std::string cleaned = StripVtEscapes(out);
+        if (!cleaned.empty()) pendingPub_ += cleaned;
     }
     const std::string replies = parser_->TakeReplies();
     if (!replies.empty()) {
         pty_->WriteInput(replies.data(), replies.size());
     }
+    PublishTerminalOutput();
     if (pty_->ShellExited()) {
         RequestQuit();   // shell gone → close the surface, server drops the layer
+    }
+}
+
+// Remove VT escape sequences (CSI, OSC, other ESC forms) and control chars,
+// keeping the human-readable text for trigger regexes (e.g. /error C\d+/).
+std::string ClientTerminalApp::StripVtEscapes(const std::string& raw) {
+    std::string out;
+    out.reserve(raw.size());
+    for (size_t i = 0; i < raw.size(); ++i) {
+        const unsigned char c = static_cast<unsigned char>(raw[i]);
+        if (c != 0x1B) {
+            if (c == '\r' || c == '\n' || c == '\t' || c >= 0x20) out += c;
+            continue;
+        }
+        if (i + 1 >= raw.size()) break;
+        const char next = raw[i + 1];
+        if (next == '[') {  // CSI: ESC [ params final(0x40-0x7E)
+            i += 2;
+            while (i < raw.size() &&
+                   static_cast<unsigned char>(raw[i]) < 0x40)
+                ++i;
+            // raw[i] is now the final byte (or end) — consumed below.
+        } else if (next == ']') {  // OSC: terminated by BEL or ESC \
+            i += 2;
+            while (i < raw.size()) {
+                if (raw[i] == 0x07) break;
+                if (raw[i] == 0x1B && i + 1 < raw.size() &&
+                    raw[i + 1] == '\\') {
+                    ++i;
+                    break;
+                }
+                ++i;
+            }
+        } else {
+            ++i;  // other two-byte ESC forms
+        }
+    }
+    return out;
+}
+
+std::string ClientTerminalApp::JsonEscape(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 8);
+    for (unsigned char c : s) {
+        switch (c) {
+            case '"': out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default:
+                if (c < 0x20) {
+                    char buf[8];
+                    std::snprintf(buf, sizeof(buf), "\\u%04x", c);
+                    out += buf;
+                } else {
+                    out += static_cast<char>(c);
+                }
+        }
+    }
+    return out;
+}
+
+void ClientTerminalApp::PublishTerminalOutput() {
+    if (pendingPub_.empty()) return;
+    jk::client::JKClientSurface* surface = Surface();
+    if (!surface || !surface->IsConnected()) {
+        pendingPub_.clear();  // drop rather than queue against a dead pipe
+        return;
+    }
+    const uint64_t now =
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count();
+    const bool intervalMet = now - lastPubTickMs_ >= kPubMinIntervalMs;
+    const bool full = pendingPub_.size() >= kPubMaxBytes;
+    if (!intervalMet && !full) return;
+
+    const std::string json =
+        "{\"tool\":\"publish_event\",\"args\":{\"topic\":\"terminal.output\","
+        "\"data\":{\"text\":\"" + JsonEscape(pendingPub_) + "\"}}}";
+    if (surface->SendAgentQuery(nextPubQueryId_++, json)) {
+        lastPubTickMs_ = now;
+    }
+    pendingPub_.clear();
+
+    // Fire-and-forget: keep the reply ring drained so it never fills.
+    jk::client::AgentReply r;
+    while (surface->PollAgentReply(r)) {
     }
 }
 
