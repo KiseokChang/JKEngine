@@ -1,7 +1,8 @@
 # jkdesktop Desktop Agent Platform 설계
 
 - 날짜: 2026-09-09 (v2 — 단계별 구체화 + 장치 계층 반영)
-- 상태: 스펙 (사용자 검토 대기; 승인 후 writing-plans로 구현 계획)
+- 상태: 스펙 + M1 구현 완료 (2026-09-10, 커밋 d72f244~; 사용 문서 `docs/29_desktop_agent_m1.md`).
+  2~4단계(§6.2~6.4)는 미착수.
 - 범위: 1단계 = Desktop Agent API + 브로커(jkagentd) + MCP 서버.
   §6에 2~4단계까지 단계별 구현을 구체화, §7에 필요한 신규 앱 제안,
   §8에 장치·외부 세계 I/O 계층을 추가했다.

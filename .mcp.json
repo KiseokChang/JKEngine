@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "jkdesktop": {
+      "command": "I:\\progwork\\JKENGINE\\engine\\build\\jkagentd.exe",
+      "args": []
+    }
+  }
+}
