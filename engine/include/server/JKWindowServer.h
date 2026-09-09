@@ -55,6 +55,10 @@ private:
     // the AgentReply. Called with clientsMutex_ held (ProcessPendingMessages).
     void HandleAgentQuery(JKClientConnection& client, uint32_t queryId,
                           const std::string& json);
+    // Push one desktop event JSON to subscribed control-only clients.
+    // Callers hold clientsMutex_.
+    void PushAgentEvent(const char* topic, uint32_t id,
+                        const std::string& title, uint32_t pid);
     // Shell protocol (docs/28): build a full window-list snapshot from the
     // client table and send it to the shell client.
     void PushWindowList();         // takes clientsMutex_

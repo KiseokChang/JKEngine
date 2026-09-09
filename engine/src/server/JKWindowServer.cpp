@@ -1,4 +1,5 @@
 #include <server/JKWindowServer.h>
+#include <agent/JKAgentJson.h>
 
 #include <apps/AppLauncherItem.h>
 #include <JKAudioCommand.h>
@@ -387,7 +388,11 @@ void JKWindowServer::ProcessPendingClients() {
 
         {
             std::lock_guard<std::mutex> lock(clientsMutex_);
+            const std::string createdTitle = client->Title();
+            const uint32_t createdPid = client->Pid();
+            const uint32_t createdId = client->Id();
             clients_.push_back(std::move(client));
+            PushAgentEvent("window.created", createdId, createdTitle, createdPid);
         }
 
         // Shell protocol: the new window shows up in the taskbar.
@@ -504,6 +509,23 @@ namespace {
 std::string ResolveAudioPath(const char* id, AudioCommand::Type type) {
     const char* ext = (type == AudioCommand::Type::LoadBGM) ? ".wav" : ".wav";
     return JKSoundManager::AssetPath(std::string(id) + ext);
+}
+
+// Minimal JSON string escape for agent replies (quotes, backslash, control
+// chars). UTF-8 bytes pass through untouched — titles are KSSM-decoded
+// UTF-8 already (taskbar convention).
+std::string JsonEsc(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 8);
+    char num[8];
+    for (char ch : s) {
+        const unsigned char c = static_cast<unsigned char>(ch);
+        if (c == '"')       out += "\\\"";
+        else if (c == '\\') out += "\\\\";
+        else if (c < 0x20)  { std::snprintf(num, sizeof(num), "\\u%04x", c); out += num; }
+        else                out += ch;
+    }
+    return out;
 }
 
 } // anonymous namespace
@@ -1006,6 +1028,14 @@ void JKWindowServer::FocusClient(uint32_t surfaceId) {
     if (compositor_) {
         compositor_->FocusLayer(surfaceId);
     }
+    // Desktop Agent event (spec §4). Resolves nothing when the id is not (yet)
+    // in the table (e.g. focus at spawn intake, before push_back).
+    for (auto& c : clients_) {
+        if (c && c->Id() == surfaceId) {
+            PushAgentEvent("window.focused", surfaceId, c->Title(), c->Pid());
+            break;
+        }
+    }
 }
 
 void JKWindowServer::UpdateOutputBounds() {
@@ -1202,17 +1232,95 @@ void JKWindowServer::PushWindowListUnsafe() {
 
 // Desktop Agent API (spec §3): always answers — the agent client blocks on
 // ReadMessage waiting for the reply with the matching queryId.
+// Precondition: clientsMutex_ held (called from ProcessClientMessage), so
+// iterate clients_ directly — FindClientById/FocusClient-style helpers that
+// lock would deadlock on the non-recursive mutex.
 void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                                       uint32_t queryId, const std::string& json) {
-    std::string reply;
-    // M1 skeleton: only ping. Tools arrive in the following tasks.
-    if (json.find("\"ping\"") != std::string::npos) {
+    jk::agent::AgentJson req(json);
+    std::string tool, reply;
+    if (!req.ok() || !req.GetStr("tool", tool)) {
+        reply = "{\"ok\":false,\"error\":\"bad_request\"}";
+    } else if (tool == "ping") {
         reply = "{\"ok\":true,\"pong\":true}";
+    } else if (tool == "list_windows") {
+        std::string out = "{\"ok\":true,\"windows\":[";
+        bool first = true;
+        for (auto& c : clients_) {
+            if (!c || c->IsDisconnected() || c->IsControlOnly() || c->IsShell()) continue;
+            char item[640];
+            std::snprintf(item, sizeof(item),
+                "%s{\"id\":%u,\"title\":\"%s\",\"pid\":%u,\"x\":%d,\"y\":%d,"
+                "\"w\":%d,\"h\":%d,\"focused\":%s,\"minimized\":%s}",
+                first ? "" : ",", c->Id(), JsonEsc(c->Title()).c_str(), c->Pid(),
+                c->X(), c->Y(), c->Width(), c->Height(),
+                focusedClientId_ == c->Id() ? "true" : "false",
+                (compositor_ && !compositor_->IsLayerVisible(c->Id()))
+                    ? "true" : "false");
+            out += item;
+            first = false;
+        }
+        reply = out + "]}";
+    } else if (tool == "focus_window") {
+        int id = 0;
+        JKClientConnection* target = nullptr;
+        if (req.GetObjInt("args", "id", id)) {
+            for (auto& c : clients_) {
+                if (c && c->Id() == static_cast<uint32_t>(id)) { target = c.get(); break; }
+            }
+        }
+        if (target && !target->IsControlOnly()) {
+            // Same restore-on-activate semantics as WindowActivate (docs/28).
+            if (compositor_) {
+                compositor_->SetLayerVisible(target->Id(), true);
+            }
+            FocusClient(target->Id());
+            PushWindowListUnsafe();
+            reply = "{\"ok\":true}";
+        } else {
+            reply = "{\"ok\":false,\"error\":\"window_not_found\"}";
+        }
+    } else if (tool == "close_window") {
+        int id = 0;
+        JKClientConnection* target = nullptr;
+        if (req.GetObjInt("args", "id", id)) {
+            for (auto& c : clients_) {
+                if (c && c->Id() == static_cast<uint32_t>(id)) { target = c.get(); break; }
+            }
+        }
+        if (target && !target->IsControlOnly()) {
+            // Server-initiated close: the client's read loop treats Close as
+            // quit; the disconnect cleanup path then removes the layer and
+            // fires window.destroyed.
+            ipc::WriteMessage(target->Transport(), ipc::MsgType::Close,
+                              std::vector<uint8_t>{});
+            reply = "{\"ok\":true}";
+        } else {
+            reply = "{\"ok\":false,\"error\":\"window_not_found\"}";
+        }
     } else {
         reply = "{\"ok\":false,\"error\":\"not_implemented\"}";
     }
     ipc::WriteAgentJson(client.Transport(), ipc::MsgType::AgentReply,
                         queryId, 1, reply);
+}
+
+// Push a desktop event JSON to every subscribed control-only client.
+// Callers hold clientsMutex_ (the call sites do).
+void JKWindowServer::PushAgentEvent(const char* topic, uint32_t id,
+                                    const std::string& title, uint32_t pid) {
+    const long long ts = static_cast<long long>(std::time(nullptr)) * 1000;
+    char buf[640];
+    std::snprintf(buf, sizeof(buf),
+                  "{\"topic\":\"%s\",\"id\":%u,\"title\":\"%s\",\"pid\":%u,\"ts\":%lld}",
+                  topic, id, JsonEsc(title).c_str(), pid, ts);
+    int subscribers = 0;
+    for (auto& c : clients_) {
+        if (c && c->IsControlOnly() && c->AgentEventSubscriber() && !c->IsDisconnected()) {
+            ++subscribers;
+            ipc::WriteAgentJson(c->Transport(), ipc::MsgType::AgentEvent, 0, 1, buf);
+        }
+    }
 }
 
 JKClientConnection* JKWindowServer::FindShellClient() {
@@ -1295,6 +1403,13 @@ void JKWindowServer::CleanupDisconnectedClients() {
                 }
                 if (compositor_) {
                     compositor_->RemoveLayer(client->Id());
+                }
+                // Desktop Agent event (spec §4) — app windows only: the shell
+                // and control-only agents are not listable windows, so their
+                // teardown is not a desktop event. Captured before the move.
+                if (!client->IsControlOnly() && !client->IsShell()) {
+                    PushAgentEvent("window.destroyed", client->Id(),
+                                   client->Title(), client->Pid());
                 }
                 disconnected.push_back(std::move(client));
                 it = clients_.erase(it);

@@ -1994,13 +1994,17 @@ static int RunAgentEvents(int seconds) {
     const auto deadline = std::chrono::steady_clock::now() +
                           std::chrono::seconds(seconds);
     while (std::chrono::steady_clock::now() < deadline) {
+        // The pipe transport's Read has no timeout, so the pump only advances
+        // on a query round-trip. A cheap ping flushes any queued events.
+        std::string reply;
+        agent.QueryRaw("{\"tool\":\"ping\",\"args\":{}}", reply);
         std::vector<jk::agent::AgentEvent> events;
         agent.PollEvents(events);
         for (const auto& ev : events) {
             std::fputs(ev.json.c_str(), stdout);
             std::fputc('\n', stdout);
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
     return 0;
 }
