@@ -94,5 +94,65 @@ bool AgentJson::GetObjInt(const char* obj, const char* key, int& out) const {
     return got;
 }
 
+bool AgentJson::GetArraySize(const char* key, int& out) const {
+    if (!ok_) return false;
+    JSValue v = JS_GetPropertyStr(ctx_, root_, key);
+    bool got = false;
+    if (JS_IsArray(v)) {
+        int64_t len = 0;
+        if (JS_GetLength(ctx_, v, &len) == 0) {
+            out = static_cast<int>(len);
+            got = true;
+        }
+    }
+    JS_FreeValue(ctx_, v);
+    return got;
+}
+
+bool AgentJson::GetArrStr(const char* key, int idx, const char* field,
+                          std::string& out) const {
+    if (!ok_) return false;
+    JSValue arr = JS_GetPropertyStr(ctx_, root_, key);
+    bool got = false;
+    if (JS_IsArray(arr)) {
+        JSValue item = JS_GetPropertyUint32(ctx_, arr, static_cast<uint32_t>(idx));
+        if (JS_IsObject(item)) {
+            JSValue v = JS_GetPropertyStr(ctx_, item, field);
+            if (JS_IsString(v)) {
+                const char* s = JS_ToCString(ctx_, v);
+                if (s) {
+                    out = s;
+                    got = true;
+                }
+                JS_FreeCString(ctx_, s);
+            }
+            JS_FreeValue(ctx_, v);
+        }
+        JS_FreeValue(ctx_, item);
+    }
+    JS_FreeValue(ctx_, arr);
+    return got;
+}
+
+bool AgentJson::GetArrInt(const char* key, int idx, const char* field, int& out) const {
+    if (!ok_) return false;
+    JSValue arr = JS_GetPropertyStr(ctx_, root_, key);
+    bool got = false;
+    if (JS_IsArray(arr)) {
+        JSValue item = JS_GetPropertyUint32(ctx_, arr, static_cast<uint32_t>(idx));
+        if (JS_IsObject(item)) {
+            JSValue v = JS_GetPropertyStr(ctx_, item, field);
+            int64_t i = 0;
+            got = !JS_IsException(v) && !JS_IsUndefined(v) &&
+                  JS_ToInt64(ctx_, &i, v) == 0;
+            JS_FreeValue(ctx_, v);
+            if (got) out = static_cast<int>(i);
+        }
+        JS_FreeValue(ctx_, item);
+    }
+    JS_FreeValue(ctx_, arr);
+    return got;
+}
+
 } // namespace agent
 } // namespace jk

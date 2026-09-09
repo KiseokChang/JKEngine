@@ -13,6 +13,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <cmath>
 #include <algorithm>
 #include <chrono>
@@ -66,6 +67,9 @@ extern "C" __declspec(dllimport) int __stdcall CloseHandle(void* hObject);
 
 extern "C" __declspec(dllimport) unsigned long __stdcall GetModuleFileNameA(
     void* hModule, char* lpFilename, unsigned long nSize);
+
+extern "C" __declspec(dllimport) int __stdcall CreateDirectoryA(
+    const char* lpPathName, void* lpSecurityAttributes);
 
 extern "C" __declspec(dllimport) int __stdcall WaitNamedPipeA(
     const char* lpNamedPipeName, unsigned long nTimeOut);
@@ -1298,6 +1302,100 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         } else {
             reply = "{\"ok\":false,\"error\":\"window_not_found\"}";
         }
+    } else if (tool == "launch_app") {
+        std::string app, jkx;
+        req.GetObjStr("args", "app", app);
+        req.GetObjStr("args", "jkx", jkx);
+        if (!app.empty()) {
+            SpawnClient(app.c_str(), false);
+            reply = "{\"ok\":true}";
+        } else if (!jkx.empty()) {
+            SpawnClient(jkx.c_str(), true);
+            reply = "{\"ok\":true}";
+        } else {
+            reply = "{\"ok\":false,\"error\":\"missing_app\"}";
+        }
+    } else if (tool == "save_layout") {
+        std::string name;
+        if (!req.GetObjStr("args", "name", name) || name.empty()) {
+            reply = "{\"ok\":false,\"error\":\"missing_name\"}";
+        } else {
+            std::string snapshot = "{\"name\":\"" + JsonEsc(name) + "\",\"windows\":[";
+            bool first = true;
+            int count = 0;
+            for (auto& c : clients_) {
+                if (!c || c->IsDisconnected() || c->IsControlOnly() || c->IsShell()) continue;
+                char item[640];
+                std::snprintf(item, sizeof(item),
+                    "%s{\"title\":\"%s\",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d}",
+                    first ? "" : ",", JsonEsc(c->Title()).c_str(),
+                    c->X(), c->Y(), c->Width(), c->Height());
+                snapshot += item;
+                first = false;
+                ++count;
+            }
+            snapshot += "]}";
+            const std::string path = StateDir() + "\\layout_" + name + ".json";
+            std::FILE* f = std::fopen(path.c_str(), "wb");
+            if (!f) {
+                reply = "{\"ok\":false,\"error\":\"write_failed\"}";
+            } else {
+                std::fwrite(snapshot.data(), 1, snapshot.size(), f);
+                std::fclose(f);
+                reply = "{\"ok\":true,\"count\":" + std::to_string(count) + "}";
+            }
+        }
+    } else if (tool == "restore_layout") {
+        std::string name;
+        if (!req.GetObjStr("args", "name", name) || name.empty()) {
+            reply = "{\"ok\":false,\"error\":\"missing_name\"}";
+        } else {
+            const std::string path = StateDir() + "\\layout_" + name + ".json";
+            std::FILE* f = std::fopen(path.c_str(), "rb");
+            if (!f) {
+                reply = "{\"ok\":false,\"error\":\"layout_not_found\"}";
+            } else {
+                char buf[65536];
+                const size_t n = std::fread(buf, 1, sizeof(buf) - 1, f);
+                std::fclose(f);
+                buf[n] = '\0';
+                jk::agent::AgentJson layout(buf);
+                int arrLen = 0, restored = 0;
+                std::string unmatched;
+                if (!layout.ok() || !layout.GetArraySize("windows", arrLen)) {
+                    reply = "{\"ok\":false,\"error\":\"bad_layout\"}";
+                } else {
+                    for (int i = 0; i < arrLen; ++i) {
+                        std::string title;
+                        int x = 0, y = 0;
+                        layout.GetArrStr("windows", i, "title", title);
+                        layout.GetArrInt("windows", i, "x", x);
+                        layout.GetArrInt("windows", i, "y", y);
+                        if (title.empty()) continue;
+                        // Match by title — the stable key a layout snapshot
+                        // has (surface ids change across restarts).
+                        bool matched = false;
+                        for (auto& c : clients_) {
+                            if (!c || c->IsDisconnected() || c->IsControlOnly() || c->IsShell()) continue;
+                            if (c->Title() != title) continue;
+                            c->SetPosition(x, y);
+                            if (compositor_) {
+                                compositor_->SetLayerPosition(c->Id(), x, y);
+                            }
+                            matched = true;
+                            ++restored;
+                            break;
+                        }
+                        if (!matched) {
+                            if (!unmatched.empty()) unmatched += ",";
+                            unmatched += "\"" + JsonEsc(title) + "\"";
+                        }
+                    }
+                    reply = "{\"ok\":true,\"restored\":" + std::to_string(restored) +
+                            ",\"unmatched\":[" + unmatched + "]}";
+                }
+            }
+        }
     } else {
         reply = "{\"ok\":false,\"error\":\"not_implemented\"}";
     }
@@ -1321,6 +1419,19 @@ void JKWindowServer::PushAgentEvent(const char* topic, uint32_t id,
             ipc::WriteAgentJson(c->Transport(), ipc::MsgType::AgentEvent, 0, 1, buf);
         }
     }
+}
+
+// <exeDir>/state — agent-created files (layout snapshots). CreateDirectoryA
+// fails harmlessly when the directory already exists.
+std::string JKWindowServer::StateDir() const {
+    char exePath[1024] = {};
+    GetModuleFileNameA(nullptr, exePath, sizeof(exePath));
+    std::string dir = exePath;
+    const size_t slash = dir.find_last_of("\\/");
+    dir = (slash == std::string::npos) ? std::string(".") : dir.substr(0, slash);
+    dir += "\\state";
+    CreateDirectoryA(dir.c_str(), nullptr);
+    return dir;
 }
 
 JKClientConnection* JKWindowServer::FindShellClient() {

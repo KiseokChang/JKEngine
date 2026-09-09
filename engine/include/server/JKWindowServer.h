@@ -59,6 +59,9 @@ private:
     // Callers hold clientsMutex_.
     void PushAgentEvent(const char* topic, uint32_t id,
                         const std::string& title, uint32_t pid);
+    // <exeDir>/state directory for agent-created files (layout snapshots).
+    // Created on first use; returns the path.
+    std::string StateDir() const;
     // Shell protocol (docs/28): build a full window-list snapshot from the
     // client table and send it to the shell client.
     void PushWindowList();         // takes clientsMutex_

@@ -32,6 +32,12 @@ public:
     bool GetObjStr(const char* obj, const char* key, std::string& out) const;
     bool GetObjInt(const char* obj, const char* key, int& out) const;
 
+    // Array traversal: <key> must be a JSON array of objects (layout files).
+    bool GetArraySize(const char* key, int& out) const;
+    bool GetArrStr(const char* key, int idx, const char* field,
+                   std::string& out) const;
+    bool GetArrInt(const char* key, int idx, const char* field, int& out) const;
+
 private:
     JSRuntime* rt_ = nullptr;
     JSContext* ctx_ = nullptr;
