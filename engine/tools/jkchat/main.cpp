@@ -107,9 +107,10 @@ static std::wstring BuildEngineCmd(const ChatConfig& cfg,
     if (!resumeSessionId.empty()) {
         claudeArgs += " --resume \"" + resumeSessionId + "\"";
     }
-    if (!cfg.directory.empty()) {
-        claudeArgs += " --directory \"" + cfg.directory + "\"";
-    }
+    // NOTE: claude CLI has no --directory flag (guide table was wrong for
+    // CLI 2.1.x — only --add-dir exists). cfg.directory is applied as the
+    // worker process's current directory in LlmThread instead; session
+    // history binds to cwd, so --resume needs the same dir every turn.
 
     std::string cmd;
     if (cfg.engine == "stub") {
@@ -226,13 +227,19 @@ static DWORD WINAPI LlmThread(LPVOID param) {
     delete prompt;
 
     SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
-    HANDLE readEnd = nullptr, writeEnd = nullptr;
-    if (!CreatePipe(&readEnd, &writeEnd, &sa, 0)) {
+    // stdout and stderr get SEPARATE pipes: claude CLI prints warnings (e.g.
+    // "[claude-code:unrecognized_model] {...}") to stderr, and merging them
+    // into stdout would break the reply-JSON parse.
+    HANDLE readOut = nullptr, writeOut = nullptr;
+    HANDLE readErr = nullptr, writeErr = nullptr;
+    if (!CreatePipe(&readOut, &writeOut, &sa, 0) ||
+        !CreatePipe(&readErr, &writeErr, &sa, 0)) {
         g_llmBusy = 0;
         return 0;
     }
-    // Our read end must NOT be inherited by the child.
-    SetHandleInformation(readEnd, HANDLE_FLAG_INHERIT, 0);
+    // Our read ends must NOT be inherited by the child.
+    SetHandleInformation(readOut, HANDLE_FLAG_INHERIT, 0);
+    SetHandleInformation(readErr, HANDLE_FLAG_INHERIT, 0);
 
     std::wstring full = L"cmd.exe /c " + cmd;
     std::vector<wchar_t> mutableCmd(full.begin(), full.end());
@@ -241,32 +248,46 @@ static DWORD WINAPI LlmThread(LPVOID param) {
     si.cb = sizeof(si);
     si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
     si.wShowWindow = SW_HIDE;
-    si.hStdOutput = writeEnd;
-    si.hStdError = writeEnd;
+    si.hStdOutput = writeOut;
+    si.hStdError = writeErr;
     PROCESS_INFORMATION pi{};
+    // Session history binds to cwd (claude --resume lookup); cfg.directory
+    // pins it (default: repo root where .mcp.json lives).
+    const std::wstring cwd = cfg.directory.empty()
+                                 ? std::wstring()
+                                 : Utf8ToWide(cfg.directory);
     const BOOL spawned = CreateProcessW(nullptr, mutableCmd.data(), nullptr,
                                         nullptr, TRUE, CREATE_NO_WINDOW,
-                                        nullptr, nullptr, &si, &pi);
-    CloseHandle(writeEnd);  // the child holds its end now
+                                        nullptr,
+                                        cwd.empty() ? nullptr : cwd.c_str(),
+                                        &si, &pi);
+    CloseHandle(writeOut);  // the child holds its end now
+    CloseHandle(writeErr);
 
     LlmTurnResult* out = new LlmTurnResult;
     if (!spawned) {
         out->result = "engine spawn failed";
         PostMessageW(g_hMain, WM_APP_LLM_DONE, 0,
                      reinterpret_cast<LPARAM>(out));
-        CloseHandle(readEnd);
+        CloseHandle(readOut);
+        CloseHandle(readErr);
         g_llmBusy = 0;
         return 0;
     }
     // Read stdout to EOF (cmd /c echo paths exit immediately; claude turns
-    // can take minutes).
-    std::string stdoutBuf;
+    // can take minutes). stderr is drained separately and only surfaces on
+    // parse failure.
+    std::string stdoutBuf, stderrBuf;
     char chunk[4096];
     DWORD got = 0;
-    while (ReadFile(readEnd, chunk, sizeof(chunk), &got, nullptr) && got > 0) {
+    while (ReadFile(readOut, chunk, sizeof(chunk), &got, nullptr) && got > 0) {
         stdoutBuf.append(chunk, got);
     }
-    CloseHandle(readEnd);
+    CloseHandle(readOut);
+    while (ReadFile(readErr, chunk, sizeof(chunk), &got, nullptr) && got > 0) {
+        stderrBuf.append(chunk, got);
+    }
+    CloseHandle(readErr);
     // Turn timeout: kill a hung engine after 10 minutes (bridge convention).
     if (WaitForSingleObject(pi.hProcess, 600000) == WAIT_TIMEOUT) {
         TerminateProcess(pi.hProcess, 1);
@@ -276,6 +297,14 @@ static DWORD WINAPI LlmThread(LPVOID param) {
 
     jk::agent::AgentJson reply(stdoutBuf);
     out->ok = reply.ok();
+    if (!out->ok && stderrBuf.size() > 0) {
+        // Surface the engine's stderr tail (parse errors are opaque without
+        // it — e.g. claude warnings or cmd-level failures).
+        out->result = "stderr: " +
+                      stderrBuf.substr(stderrBuf.size() > 400
+                                           ? stderrBuf.size() - 400
+                                           : 0);
+    }
     reply.GetStr("result", out->result);
     reply.GetStr("session_id", out->sessionId);
     PostMessageW(g_hMain, WM_APP_LLM_DONE, 0, reinterpret_cast<LPARAM>(out));

@@ -108,7 +108,7 @@ claude CLI 서브프로세스, `ollama launch claude`로 구동, 참고
 | `engine` | `"ollama"` | `ollama` / `claude`(직접) / `stub`(프로브용) |
 | `ollama_model` | `kimi-k2.7-code:cloud` | ollama가 launch할 모델 |
 | `skip_permissions` | `1` | claude 헤드리스는 프롬프트에서 **자동 거부**하므로(행 없음) 기본 켬. 0으로 끄면 도구가 자동 거부될 뿐 hang은 없음 — claude 도구 호출의 실제 승인 관문은 **서버 파이프라인**(§3)이 담당 |
-| `directory` | `I:\progwork\JKENGINE` | claude `--directory` (작업 디렉터리) |
+| `directory` | `I:\progwork\JKENGINE` | 엔진 프로세스의 **작업 디렉터리** (CreateProcessW lpCurrentDirectory). claude CLI 2.1.x에는 `--directory` 플래그가 없고 세션 히스토리가 cwd에 바인딩되므로 `--resume`에는 매 턴 같은 cwd가 필요. `.mcp.json`(jkagentd)이 있는 위치로 잡을 것 |
 
 - **세션 연속성**: 응답 JSON의 `session_id`를 저장해 다음 입력에 `--resume`.
   `/new`로 리셋.
@@ -120,14 +120,22 @@ claude CLI 서브프로세스, `ollama launch claude`로 구동, 참고
   `close_window`가 ask면 **채팅창 승인 프롬프트가 claude의 도구 호출에 뜬다**.
 
 실엔진 수동 체크리스트 (네트워크 필요 — 자동 프로브는 stub으로 대체):
+**2026-09-10 실측 완료** — `tools/probes/smoke_llm_real_a.ps1` / `_b.ps1`이
+전 항목을 실엔진으로 자동 구동 검증했다 (실 API 호출 발생하므로 회귀 세트에서는
+제외하고 필요시 수동 실행).
 
-1. `state\chat.json` 없이 기동 → 기본값(ollama/kimi) 사용 확인
-2. "열려 있는 창을 목록으로 보여줘" → claude가 `list_windows`를 호출하고
+1. [x] `state\chat.json` 없이 기동 → 기본값(ollama/kimi) 사용 확인
+2. [x] "열려 있는 창을 목록으로 보여줘" → claude가 `list_windows`를 호출하고
    목록이 결과로 표시
-3. 후속 "그 목록에서 지뢰찾기는 몇 번 id야?" → `--resume`로 맥락 유지
-4. `permissions.json {"close_window":"ask"}`에서 "지뢰찾기 닫아줘" → 채팅창
-   승인 프롬프트 → 허용 → LLM이 결과 보고
-5. `/new` 후 후속 질문이 맥락 없이 시작
+3. [x] 후속 "그 목록에서 지뢰찾기는 몇 번 id야?" → `--resume`로 맥락 유지
+4. [x] `permissions.json {"close_window":"ask"}`에서 "지뢰찾기 닫아줘" → 채팅창
+   승인 프롬프트가 claude의 도구 호출에 뜸 → 허용 → 창 소멸 + LLM이 결과 보고
+5. [x] `/new` → "새 LLM 세션" 표시, 세션 리셋
+
+실측에서 고친 것: (a) claude CLI에 `--directory` 플래그가 없어 인자에서 제거하고
+워커 프로세스 cwd로 대체; (b) stderr를 stdout 파이프에서 분리 — claude의
+`[claude-code:unrecognized_model]` 경고가 stderr로 나와 합치면 JSON 파싱이
+깨진다 (파싱 실패 시 stderr 꼬리를 에러로 표시).
 
 ## 6. 테스트
 
