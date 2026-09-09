@@ -82,6 +82,8 @@ void ClientPaletteApp::RenderOverlay(SDL_Renderer* renderer, int w, int h) {
     const float dt = std::chrono::duration<float>(now - lastFrame_).count();
     lastFrame_ = now;
 
+    PumpReplies();
+
     ImGui_ImplJKWindow_NewFrame(dt, w, h);
     ImGui::NewFrame();
 
@@ -106,12 +108,7 @@ void ClientPaletteApp::BuildUi(int w, int h) {
             input_[0] = '\0';
             if (!text.empty()) {
                 AppendLog("> " + text);
-                if (text == "/help") {
-                    AppendLog("  /list  /launch <app>  /close <id>");
-                    AppendLog("  /save <name>  /restore <name>  /undo");
-                } else {
-                    AppendLog("  (agent queries arrive in the next task)");
-                }
+                Submit(text);
             }
             ImGui::SetKeyboardFocusHere();  // stay in the box after Enter
             focusInput_ = true;
@@ -130,6 +127,134 @@ void ClientPaletteApp::BuildUi(int w, int h) {
 void ClientPaletteApp::AppendLog(const std::string& line) {
     log_.push_back(line);
     scrollDirty_ = true;
+}
+
+std::string ClientPaletteApp::EscapeJson(const std::string& in) {
+    std::string out;
+    for (char c : in) {
+        if (c == '"' || c == '\\') {
+            out += '\\';
+            out += c;
+        } else if (static_cast<unsigned char>(c) < 0x20) {
+            char buf[8];
+            std::snprintf(buf, sizeof(buf), "\\u%04x", c);
+            out += buf;
+        } else {
+            out += c;
+        }
+    }
+    return out;
+}
+
+// One deterministic tool call ("one API, many faces": the same tools the
+// MCP broker drives, sent over the palette's own window connection).
+uint32_t ClientPaletteApp::SendTool(const std::string& tool,
+                                    const std::string& argsJson) {
+    jk::client::JKClientSurface* surface = Surface();
+    if (!surface || !surface->IsConnected()) {
+        AppendLog("! not connected to the desktop");
+        return 0;
+    }
+    if (pendingQueryId_ != 0) {
+        AppendLog("! busy (previous command still running)");
+        return 0;
+    }
+    const std::string json =
+        "{\"tool\":\"" + tool + "\",\"args\":" + argsJson + "}";
+    const uint32_t id = nextQueryId_++;
+    if (!surface->SendAgentQuery(id, json)) {
+        AppendLog("! send failed");
+        return 0;
+    }
+    pendingQueryId_ = id;
+    return id;
+}
+
+void ClientPaletteApp::Submit(const std::string& text) {
+    if (text.empty()) return;
+    if (text[0] != '/') {
+        AppendLog("  natural-language delegation arrives in a later stage");
+        return;
+    }
+    const size_t sp = text.find(' ');
+    const std::string cmd = text.substr(1, sp == std::string::npos
+                                             ? std::string::npos : sp - 1);
+    const std::string arg = (sp == std::string::npos)
+                                ? std::string() : Trim(text.substr(sp + 1));
+    if (cmd == "help") {
+        AppendLog("  /list  /launch <app>  /close <id>");
+        AppendLog("  /save <name>  /restore <name>  /undo");
+    } else if (cmd == "list") {
+        SendTool("list_windows", "{}");
+    } else if (cmd == "launch") {
+        if (arg.empty()) {
+            AppendLog("  usage: /launch <app>");
+        } else {
+            SendTool("launch_app", "{\"app\":\"" + EscapeJson(arg) + "\"}");
+        }
+    } else if (cmd == "save") {
+        if (arg.empty()) {
+            AppendLog("  usage: /save <name>");
+        } else {
+            SendTool("save_layout", "{\"name\":\"" + EscapeJson(arg) + "\"}");
+        }
+    } else if (cmd == "restore") {
+        if (arg.empty()) {
+            AppendLog("  usage: /restore <name>");
+        } else if (const uint32_t save = SendTool(
+                       "save_layout", "{\"name\":\"pre_undo\"}")) {
+            undoSaveQueryId_ = save;
+            afterUndoSave_ = "restore_layout\x1f" + arg;
+        }
+    } else if (cmd == "close") {
+        const int id = arg.empty() ? 0 : std::atoi(arg.c_str());
+        if (id <= 0) {
+            AppendLog("  usage: /close <id>  (see /list)");
+        } else if (const uint32_t save = SendTool(
+                       "save_layout", "{\"name\":\"pre_undo\"}")) {
+            undoSaveQueryId_ = save;
+            afterUndoSave_ = "close_window\x1f" + arg;
+        }
+    } else if (cmd == "undo") {
+        if (!undoSaved_) {
+            AppendLog("  nothing to undo");
+        } else {
+            SendTool("restore_layout", "{\"name\":\"pre_undo\"}");
+        }
+    } else {
+        AppendLog("  unknown command - /help");
+    }
+}
+
+void ClientPaletteApp::PumpReplies() {
+    jk::client::JKClientSurface* surface = Surface();
+    jk::client::AgentReply reply;
+    while (surface && surface->PollAgentReply(reply)) {
+        if (reply.queryId == pendingQueryId_) pendingQueryId_ = 0;
+        if (reply.queryId == undoSaveQueryId_ && !afterUndoSave_.empty()) {
+            // The pre_undo save landed — now run the destructive command it
+            // was guarding (sequential because the palette is one query
+            // deep). If the save failed, the chain stops: never run a
+            // destructive command without its undo snapshot.
+            if (reply.ok) {
+                undoSaved_ = true;
+                const size_t sep = afterUndoSave_.find('\x1f');
+                const std::string tool = afterUndoSave_.substr(0, sep);
+                const std::string arg = afterUndoSave_.substr(sep + 1);
+                if (tool == "close_window") {
+                    SendTool(tool, "{\"id\":" + arg + "}");
+                } else {
+                    SendTool(tool, "{\"name\":\"" + EscapeJson(arg) + "\"}");
+                }
+            } else {
+                AppendLog("  ! snapshot failed - destructive command skipped");
+            }
+            afterUndoSave_.clear();
+            undoSaveQueryId_ = 0;
+            continue;
+        }
+        AppendLog("  " + reply.json);
+    }
 }
 
 } // namespace jk
