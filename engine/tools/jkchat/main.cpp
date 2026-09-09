@@ -15,7 +15,9 @@
 
 #include <windows.h>
 
+#include <atomic>
 #include <cstdint>
+#include <cstdio>
 #include <string>
 #include <utility>
 #include <vector>
@@ -43,6 +45,84 @@ static std::string WideToUtf8(const std::wstring& w) {
     WideCharToMultiByte(CP_UTF8, 0, w.c_str(), static_cast<int>(w.size()),
                         &s[0], n, nullptr, nullptr);
     return s;
+}
+
+// ---------------------------------------------------------------------------
+// LLM engine (claude CLI subprocess, claude_wrapper guide §1-2).
+// ---------------------------------------------------------------------------
+// state/chat.json — user tunables (workbench config.json convention).
+struct ChatConfig {
+    std::string engine = "ollama";  // "ollama" | "claude" | "stub"
+    std::string model = "kimi-k2.7-code:cloud";
+    bool skipPermissions = true;    // workbench default; headless auto-denies
+                                    // tool consent when off
+    std::string directory =
+        "I:\\progwork\\JKENGINE";   // --directory: .mcp.json (jkagentd) lives here
+};
+
+static std::string ExeDirA() {
+    char path[1024] = {};
+    GetModuleFileNameA(nullptr, path, sizeof(path));
+    std::string dir = path;
+    const size_t slash = dir.find_last_of("\\/");
+    if (slash != std::string::npos) dir = dir.substr(0, slash);
+    return dir;
+}
+
+static ChatConfig LoadChatConfig() {
+    ChatConfig cfg;
+    std::FILE* f =
+        std::fopen((ExeDirA() + "\\state\\chat.json").c_str(), "rb");
+    if (!f) return cfg;
+    char buf[4096] = {};
+    const size_t n = std::fread(buf, 1, sizeof(buf) - 1, f);
+    std::fclose(f);
+    buf[n] = '\0';
+    jk::agent::AgentJson c(buf);
+    std::string v;
+    if (c.ok()) {
+        if (c.GetStr("engine", v)) cfg.engine = v;
+        if (c.GetStr("model", v)) cfg.model = v;
+        if (c.GetStr("directory", v)) cfg.directory = v;
+        int skip = -1;
+        if (c.GetInt("skip_permissions", skip)) {
+            cfg.skipPermissions = (skip != 0);
+        }
+    }
+    return cfg;
+}
+
+// claude_wrapper guide §2.2: ollama launch claude --model <m> -- [claude args]
+static std::wstring BuildEngineCmd(const ChatConfig& cfg,
+                                   const std::string& prompt,
+                                   const std::string& resumeSessionId) {
+    // -p argument escaping: only quotes (the rest reaches claude verbatim).
+    std::string esc;
+    for (char ch : prompt) {
+        if (ch == '"') esc += "\\\"";
+        else esc += ch;
+    }
+    std::string claudeArgs = "-p \"" + esc + "\" --output-format json";
+    if (cfg.skipPermissions) claudeArgs += " --dangerously-skip-permissions";
+    if (!resumeSessionId.empty()) {
+        claudeArgs += " --resume \"" + resumeSessionId + "\"";
+    }
+    if (!cfg.directory.empty()) {
+        claudeArgs += " --directory \"" + cfg.directory + "\"";
+    }
+
+    std::string cmd;
+    if (cfg.engine == "stub") {
+        // No-network machinery test: emits a valid reply JSON.
+        cmd =
+            "cmd.exe /c echo {\"result\":\"stub ok\",\"session_id\":\"stub-1\"}";
+    } else if (cfg.engine == "claude") {
+        cmd = "claude " + claudeArgs;
+    } else {  // "ollama" (default)
+        cmd = "ollama launch claude --model \"" + cfg.model + "\" -- " +
+              claudeArgs;
+    }
+    return Utf8ToWide(cmd);
 }
 
 // ---------------------------------------------------------------------------
