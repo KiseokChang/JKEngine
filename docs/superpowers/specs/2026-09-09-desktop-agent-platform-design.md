@@ -1,7 +1,7 @@
 # jkdesktop Desktop Agent Platform 설계
 
 - 날짜: 2026-09-09 (v2 — 단계별 구체화 + 장치 계층 반영)
-- 상태: 스펙 + M1 구현 완료 (2026-09-10, 사용 문서 `docs/29_desktop_agent_m1.md`).
+- 상태: 스펙 + M1/M2/M2a/M2b 구현 완료 (2026-09-10 — M1 `docs/29`, 채팅 `docs/31`, 트리거 `docs/32`; LLM 위임·승인 파이프라인·publish_event 이벤트 버스·jktriggers QuickJS 호스트·첫 번들 3종 실측 완료).
   2단계 커맨드 바 MVP(M2a) 구현 완료 (2026-09-10, 사용 문서 `docs/30_desktop_agent_m2a.md`);
   내부 에이전트 채팅창(슬래시 + 인라인 승인 UX) 구현 완료 (2026-09-10, 사용 문서
   `docs/31_desktop_agent_chat.md`); 채팅창 LLM 위임(claude CLI 서브프로세스,

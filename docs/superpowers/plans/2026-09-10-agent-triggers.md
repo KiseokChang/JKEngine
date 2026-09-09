@@ -232,19 +232,19 @@ on("app.crashed", {}, function (e) {
 - Create: `docs/32_desktop_agent_triggers.md`
 - Modify: 스펙 상태줄, docs/31 §8, memory
 
-- [ ] **Step 1: 프로브** — 서버+jktriggers+jkchat 구동, 채팅 구독 먼저(lesson 28):
+- [x] **Step 1: 프로브** — 서버+jktriggers+jkchat 구동, 채팅 구독 먼저(lesson 28):
   1. `agentctl publish_event terminal.output {"text":"... error C2084 ..."}` → 채팅 트랜스크립트에 "빌드 실패 감지" (WmGetText로 판정)
   2. minesweeper 띄우고 `taskkill //F` (비정상) → "앱 비정상 종료" 표시
   3. minesweeper 다시 띄우고 `close_window`(allow)로 닫기 → "비정상" 추가 줄 없음 + `window.destroyed` 정상 경로 회귀 확인
   4. `state/idle_minutes=0` 쓰고 jktriggers 재시작 → 10초 내 "자동 저장" 표시 + `save_layout` 응답 ok
   5. 정리: idle_minutes 삭제, 프로세스 종료
-- [ ] **Step 2: 전체 회귀** — jkdesktop test 0, jkagentd --selftest 0, mcp 5/5, e2e 7/7, palette 4/4, chat 7/7, chat_llm 2/2.
-- [ ] **Step 3: docs/32** — 아키텍처(발행/구독/트리거 호스트), 스크립트 API, .jkx 선언 형식, 번들 3개 설명, 프로브, 제한(rate limit/dead-letter·알림 센터·async 이벤트 루프·스트리밍은 후속), 다음 단계.
-- [ ] **Step 4: 스펙 상태줄 + docs/31 §8 + memory 갱신, 커밋+push.**
+- [x] **Step 2: 전체 회귀** — jkdesktop test 0, jkagentd --selftest 0, mcp 5/5, e2e 7/7, palette 4/4, chat 7/7, chat_llm 2/2.
+- [x] **Step 3: docs/32** — 아키텍처(발행/구독/트리거 호스트), 스크립트 API, .jkx 선언 형식, 번들 3개 설명, 프로브, 제한(rate limit/dead-letter·알림 센터·async 이벤트 루프·스트리밍은 후속), 다음 단계.
+- [x] **Step 4: 스펙 상태줄 + docs/31 §8 + memory 갱신, 커밋+push.**
 
 ## 완료 조건
 
-1. 터미널에서 실제 빌드 실패(또는 동합성 패턴) → trig_build가 notify → 채팅창 `[알림] 빌드 실패 감지` 도달.
-2. taskkill로 죽인 앱 → `[알림] 앱 비정상 종료`, 정상 닫기는 `window.destroyed` 그대로.
-3. idle 0분 오버라이드 → `auto_idle` 저장 + 알림.
-4. 기존 회귀 전부 녹색.
+1. [x] 터미널에서 실제 빌드 실패(또는 동합성 패턴) → trig_build가 notify → 채팅창 `[알림] 빌드 실패 감지` 도달.
+2. [x] taskkill로 죽인 앱 → `[알림] 앱 비정상 종료`, 정상 닫기는 `window.destroyed` 그대로.
+3. [x] idle 0분 오버라이드 → `auto_idle` 저장 + 알림.
+4. [x] 기존 회귀 전부 녹색.

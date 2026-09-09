@@ -174,7 +174,8 @@ request id 캡처 → **approve allow** → close 완결 + 창 소멸 → **deny
 
 - **LLM 스트리밍**: `--output-format stream-json --include-partial-messages`
   로 부분 출력 표시 (MVP 이후).
-- **M2b 트리거 스크립트**: QuickJS `on(topic, filter, handler)` — 알림의
-  단일 수신처는 채팅창 트랜스크립트 또는 그때까지 승격된 알림 센터.
+- **M2b 트리거 스크립트**: 구현 완료 (`docs/32`) — QuickJS 호스트 jktriggers.exe,
+  첫 번들 3종. 알림 수신처는 이 문서의 `agent.notify` 브랜치(`[알림]` 줄, §6)로
+  연결됐고, 알림 센터 앱은 스펙 §7 후속.
 - 앱 정복 사다리(§6.6): 승인 UX가 생겨 close_window의 control 등급이
   "인라인 승인" 스펙(§5)을 처음으로 충족했다.

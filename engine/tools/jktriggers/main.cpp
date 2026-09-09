@@ -319,11 +319,15 @@ void DispatchEvent(const std::string& topic, const std::string& json) {
         if (!TopicMatches(t.topic, topic)) continue;
         if (!JS_IsUndefined(t.match)) {
             // RegExp.test(JSON text of the event) — the spec's filter shape.
+            // Note: test() gets the STRING, not the parsed object (calling it
+            // with evArgs[0] would stringify to "[object Object]" and never
+            // match — caught by the Task 8 probe).
             JSValue evStr =
                 JS_NewStringLen(g_ctx, json.c_str(), json.size());
+            JSValue strArgs[1] = {evStr};
             JSValue testFn = JS_GetPropertyStr(g_ctx, t.match, "test");
             JSValue r = JS_IsFunction(g_ctx, testFn)
-                            ? JS_Call(g_ctx, testFn, t.match, 1, evArgs)
+                            ? JS_Call(g_ctx, testFn, t.match, 1, strArgs)
                             : JS_UNDEFINED;
             JS_FreeValue(g_ctx, testFn);
             int hit = 0;
