@@ -305,6 +305,33 @@ void JKClientSurface::ReadLoop() {
             std::fprintf(stderr, "[surface] shell register %s\n",
                          payload.accepted ? "accepted" : "DENIED");
             std::fflush(stderr);
+        } else if (msg.type == ipc::MsgType::AgentReply ||
+                   msg.type == ipc::MsgType::AgentEvent) {
+            // Desktop Agent API (M2a): coalesce into per-kind queues and wake
+            // the app; it polls PollAgentReply/DrainAgentEvents on the frame
+            // loop (same queue + light-event pattern as WindowList).
+            uint32_t queryId = 0, ok = 0;
+            std::string json;
+            if (ipc::ReadAgentJson(msg, queryId, ok, json)) {
+                JKEvent ev{};
+                ev.type = JKEventType::AgentReply;
+                if (msg.type == ipc::MsgType::AgentReply) {
+                    AgentReply reply{ queryId, ok != 0, std::move(json) };
+                    std::lock_guard<std::mutex> lock(agentReplyMutex_);
+                    if (pendingAgentReplies_.size() >= 64) {
+                        pendingAgentReplies_.pop_front();
+                    }
+                    pendingAgentReplies_.push_back(std::move(reply));
+                    ev.keyCode = queryId;   // reply wake carries its query id
+                } else {
+                    std::lock_guard<std::mutex> lock(agentEventMutex_);
+                    if (pendingAgentEvents_.size() >= 256) {
+                        pendingAgentEvents_.pop_front();
+                    }
+                    pendingAgentEvents_.push_back(std::move(json));
+                }
+                QueueInputEvent(ev);
+            }
         }
     }
 
@@ -395,6 +422,38 @@ bool JKClientSurface::GetWindowList(std::vector<ShellWindowInfo>& out) const {
     }
     out = pendingWindowList_.windows;
     return true;
+}
+
+bool JKClientSurface::SendAgentQuery(uint32_t queryId, const std::string& json) {
+    if (!IsConnected()) return false;
+    return ipc::WriteAgentJson(*transport_, ipc::MsgType::AgentQuery,
+                               queryId, 0, json);
+}
+
+bool JKClientSurface::SendAgentEventSubscribe(bool subscribe) {
+    if (!IsConnected()) return false;
+    ipc::AgentEventSubscribePayload payload{};
+    payload.subscribe = subscribe ? 1 : 0;
+    return ipc::WriteMessage(*transport_, ipc::MsgType::AgentEventSubscribe,
+                             &payload, sizeof(payload));
+}
+
+bool JKClientSurface::PollAgentReply(AgentReply& out) {
+    std::lock_guard<std::mutex> lock(agentReplyMutex_);
+    if (pendingAgentReplies_.empty()) return false;
+    out = std::move(pendingAgentReplies_.front());
+    pendingAgentReplies_.pop_front();
+    return true;
+}
+
+size_t JKClientSurface::DrainAgentEvents(std::vector<std::string>& out) {
+    std::lock_guard<std::mutex> lock(agentEventMutex_);
+    out.clear();
+    while (!pendingAgentEvents_.empty()) {
+        out.push_back(std::move(pendingAgentEvents_.front()));
+        pendingAgentEvents_.pop_front();
+    }
+    return out.size();
 }
 
 } // namespace client

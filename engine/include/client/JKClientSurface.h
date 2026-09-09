@@ -29,6 +29,14 @@ struct ShellWindowInfo {
     std::string title;
 };
 
+// Desktop Agent API (M2a): one AgentReply pulled off the window connection.
+// ok mirrors the wire reply flag; json is the tool result body.
+struct AgentReply {
+    uint32_t queryId = 0;
+    bool ok = false;
+    std::string json;
+};
+
 // Client-side view of a surface managed by the window server.
 // The surface pixels live in shared memory; this class owns the named-pipe
 // connection used to synchronize creation and commits with the server.
@@ -91,6 +99,18 @@ public:
     // Main-thread only: copy of the latest window-list snapshot.
     bool GetWindowList(std::vector<ShellWindowInfo>& out) const;
 
+    // Desktop Agent API over the window connection (M2a): the same pipe that
+    // carries CommitSurface/InputEvent also carries AgentQuery/Reply — the
+    // server's ProcessClientMessage answers any client ("one API, many
+    // faces"). Replies and subscribed events queue in the read loop and are
+    // polled on the frame loop.
+    bool SendAgentQuery(uint32_t queryId, const std::string& json);
+    bool SendAgentEventSubscribe(bool subscribe);
+    // Drain one queued AgentReply. Returns false if none are queued.
+    bool PollAgentReply(AgentReply& out);
+    // Drain all queued agent events (raw JSON bodies); returns the count.
+    size_t DrainAgentEvents(std::vector<std::string>& out);
+
 private:
     void StartReadThread();
     void StopReadThread();
@@ -132,6 +152,13 @@ private:
     };
     mutable std::mutex pendingWindowListMutex_;
     PendingWindowList pendingWindowList_;
+
+    // Agent channel (M2a): queued by the read loop, drained on the main
+    // thread. Bounded the same way as inputEvents_.
+    std::deque<AgentReply> pendingAgentReplies_;
+    std::mutex agentReplyMutex_;
+    std::deque<std::string> pendingAgentEvents_;
+    std::mutex agentEventMutex_;
 
     static std::string ShmNameFromSurfaceId(uint32_t id);
 };

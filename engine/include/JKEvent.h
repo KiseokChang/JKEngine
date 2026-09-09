@@ -25,6 +25,9 @@ enum class JKEventType : uint16_t {
     // Shell protocol (docs/28): the server pushed a new window-list snapshot
     // to this shell client. Fetch it with JKClientSurface::GetWindowList.
     WindowListChanged,
+    // Agent channel (M2a): the server pushed an AgentReply or AgentEvent on
+    // the window connection. Pull with PollAgentReply / DrainAgentEvents.
+    AgentReply,
     User
 };
 
