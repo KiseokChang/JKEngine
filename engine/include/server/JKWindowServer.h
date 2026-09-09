@@ -55,10 +55,15 @@ private:
     // the AgentReply. Called with clientsMutex_ held (ProcessPendingMessages).
     void HandleAgentQuery(JKClientConnection& client, uint32_t queryId,
                           const std::string& json);
-    // Push one desktop event JSON to subscribed control-only clients.
+    // Push one desktop event JSON to subscribed clients (control-only agent
+    // connections plus any window client that opted in).
     // Callers hold clientsMutex_.
     void PushAgentEvent(const char* topic, uint32_t id,
                         const std::string& title, uint32_t pid);
+    // M2a server-side permission gate: close_window is denied by default;
+    // <exeDir>\permissions.json (the same file the broker reads) is the
+    // approval act — it gates any connected face, not just the broker.
+    bool AgentToolAllowed(const std::string& tool) const;
     // <exeDir>/state directory for agent-created files (layout snapshots).
     // Created on first use; returns the path.
     std::string StateDir() const;

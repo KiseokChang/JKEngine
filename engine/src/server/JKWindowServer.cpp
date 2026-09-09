@@ -1292,13 +1292,17 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                 if (c && c->Id() == static_cast<uint32_t>(id)) { target = c.get(); break; }
             }
         }
-        if (target && !target->IsControlOnly()) {
+        if (target && !target->IsControlOnly() && AgentToolAllowed("close_window")) {
             // Server-initiated close: the client's read loop treats Close as
             // quit; the disconnect cleanup path then removes the layer and
             // fires window.destroyed.
             ipc::WriteMessage(target->Transport(), ipc::MsgType::Close,
                               std::vector<uint8_t>{});
             reply = "{\"ok\":true}";
+        } else if (target) {
+            // M2a: the server-side gate denied it — permissions.json is the
+            // approval act (same file the broker reads).
+            reply = "{\"ok\":false,\"error\":\"permission_denied\"}";
         } else {
             reply = "{\"ok\":false,\"error\":\"window_not_found\"}";
         }
@@ -1414,11 +1418,39 @@ void JKWindowServer::PushAgentEvent(const char* topic, uint32_t id,
                   topic, id, JsonEsc(title).c_str(), pid, ts);
     int subscribers = 0;
     for (auto& c : clients_) {
-        if (c && c->IsControlOnly() && c->AgentEventSubscriber() && !c->IsDisconnected()) {
+        // M2a: window clients can opt in too (the palette does, via
+        // AgentEventSubscribe on its regular connection); control-only agent
+        // connections declare the flag at connect time.
+        if (c && c->AgentEventSubscriber() && !c->IsDisconnected()) {
             ++subscribers;
             ipc::WriteAgentJson(c->Transport(), ipc::MsgType::AgentEvent, 0, 1, buf);
         }
     }
+}
+
+// M2a server-side permission gate (spec §5): the broker (jkagentd) gates its
+// own tool calls, but any connected face can also send AgentQuery directly
+// (the palette does over its window connection). close_window is denied by
+// default; <exeDir>\permissions.json — the same file the broker reads, both
+// exes live in the same build directory — is the approval act.
+bool JKWindowServer::AgentToolAllowed(const std::string& tool) const {
+    char exePath[1024] = {};
+    GetModuleFileNameA(nullptr, exePath, sizeof(exePath));
+    std::string dir = exePath;
+    const size_t slash = dir.find_last_of("\\/");
+    if (slash != std::string::npos) dir = dir.substr(0, slash);
+    const std::string path = dir + "\\permissions.json";
+    const bool defaultAllowed = (tool != "close_window");
+    std::FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) return defaultAllowed;
+    char buf[4096] = {};
+    const size_t n = std::fread(buf, 1, sizeof(buf) - 1, f);
+    std::fclose(f);
+    buf[n] = '\0';
+    jk::agent::AgentJson perm(buf);
+    std::string value;
+    if (!perm.ok() || !perm.GetStr(tool.c_str(), value)) return defaultAllowed;
+    return value == "allow";
 }
 
 // <exeDir>/state — agent-created files (layout snapshots). CreateDirectoryA
