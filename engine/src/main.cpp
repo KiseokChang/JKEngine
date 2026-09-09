@@ -27,6 +27,7 @@ extern "C" __declspec(dllimport) int __stdcall GetDiskFreeSpaceExA(
 
 #include <client/JKClientSurface.h>
 #include <server/JKWindowServer.h>
+#include <agent/JKAgentClient.h>
 
 #include <terminal/JKTerminalGrid.h>
 #include <terminal/JKVtParser.h>
@@ -1959,6 +1960,51 @@ static int RunAppSelfTest() {
     return failures == 0 ? 0 : 1;
 }
 
+// Desktop Agent API CLI (spec §3): send one agent query to the running
+// window server and print the reply JSON on stdout.
+//   jkdesktop agentctl '{"tool":"ping","args":{}}'
+static int RunAgentCtl(const char* requestJson) {
+    jk::agent::JKAgentClient agent;
+    if (!agent.Connect()) {
+        std::fprintf(stderr, "agentctl: connect to window server failed\n");
+        return 2;
+    }
+    std::string reply;
+    if (!agent.QueryRaw(requestJson, reply)) {
+        std::fprintf(stderr, "agentctl: query failed (server gone?)\n");
+        return 3;
+    }
+    std::fputs(reply.c_str(), stdout);
+    std::fputc('\n', stdout);
+    return 0;
+}
+
+// Subscribe to desktop events and print them line by line for <seconds>
+// seconds (probe harness for the event stream).
+static int RunAgentEvents(int seconds) {
+    jk::agent::JKAgentClient agent;
+    if (!agent.Connect()) {
+        std::fprintf(stderr, "agent-events: connect to window server failed\n");
+        return 2;
+    }
+    if (!agent.SubscribeEvents(true)) {
+        std::fprintf(stderr, "agent-events: subscribe failed\n");
+        return 3;
+    }
+    const auto deadline = std::chrono::steady_clock::now() +
+                          std::chrono::seconds(seconds);
+    while (std::chrono::steady_clock::now() < deadline) {
+        std::vector<jk::agent::AgentEvent> events;
+        agent.PollEvents(events);
+        for (const auto& ev : events) {
+            std::fputs(ev.json.c_str(), stdout);
+            std::fputc('\n', stdout);
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    return 0;
+}
+
 int main(int argc, char* argv[]) {
     // GUI 앱이므로 콘솔 출력이 안 보인다. 디버깅용 파일 로그를 먼저 연다.
     std::FILE* logFile = std::fopen("jkdesktop_launch.log", "w");
@@ -2010,12 +2056,31 @@ int main(int argc, char* argv[]) {
         std::printf("  jkx-pack APP  Bundle jkapp_<APP>.dll + icons + manifest into apps/<APP>.jkx\n");
         std::printf("  jkx-list FILE   Print a .jkx container's version/codec + TOC\n");
         std::printf("  jkx-extract FILE [ENTRY...]  Extract .jkx entries into <FILE>_x/\n");
+        std::printf("  agentctl '<json>'  Send one Desktop Agent query to the server\n");
+        std::printf("  agent-events SEC   Subscribe to desktop events for SEC seconds\n");
         std::printf("  -h, --help, /?  Show this help message\n");
         return 0;
     }
 
     if (argc > 1 && std::strcmp(argv[1], "test") == 0) {
         return RunAppSelfTest();
+    }
+
+    if (argc > 1 && std::strcmp(argv[1], "agentctl") == 0) {
+        if (argc < 3) {
+            std::fprintf(stderr, "Usage: jkdesktop agentctl '<request json>'\n"
+                                 "  e.g. jkdesktop agentctl '{\"tool\":\"ping\",\"args\":{}}'\n");
+            return 1;
+        }
+        return RunAgentCtl(argv[2]);
+    }
+
+    if (argc > 1 && std::strcmp(argv[1], "agent-events") == 0) {
+        if (argc < 3) {
+            std::fprintf(stderr, "Usage: jkdesktop agent-events <seconds>\n");
+            return 1;
+        }
+        return RunAgentEvents(std::atoi(argv[2]));
     }
 
     if (argc > 1 && std::strcmp(argv[1], "test-script") == 0) {

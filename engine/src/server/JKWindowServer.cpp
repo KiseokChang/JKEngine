@@ -233,21 +233,46 @@ void JKWindowServer::AcceptorLoop() {
             helloPid = helloPayload.pid;
         }
 
-        // Expect CreateSurface.
-        ipc::Message createMsg;
-        if (!ipc::ReadMessage(*transport, createMsg) ||
-            createMsg.type != ipc::MsgType::CreateSurface ||
-            createMsg.payload.size() < sizeof(ipc::SurfaceCreatePayload)) {
+        // Second message: CreateSurface for a regular window client, or
+        // AgentEventSubscribe for a control-only agent connection.
+        ipc::Message second;
+        if (!ipc::ReadMessage(*transport, second)) {
+            std::fprintf(stderr, "JKWindowServer::AcceptorLoop: second message read failed\n");
+            continue;
+        }
+
+        uint32_t id = nextSurfaceId_++;
+        auto client = std::make_unique<JKClientConnection>(id, std::move(transport));
+        client->SetPid(helloPid);
+
+        if (second.type == ipc::MsgType::AgentEventSubscribe) {
+            // Control-only agent connection (Desktop Agent API, spec §3):
+            // skip the surface/shm handshake entirely — pipe-only. Queued
+            // through pendingClients_ so registration happens on the main
+            // thread like every other client.
+            ipc::AgentEventSubscribePayload sub{};
+            if (second.payload.size() >= sizeof(sub)) {
+                std::memcpy(&sub, second.payload.data(), sizeof(sub));
+                client->SetAgentEventSubscriber(sub.subscribe != 0);
+            }
+            client->SetControlOnly(true);
+            client->StartReadThread();
+            {
+                std::lock_guard<std::mutex> lock(pendingClientsMutex_);
+                pendingClients_.push_back(std::move(client));
+            }
+            std::fprintf(stderr, "JKWindowServer: control-only client %u connected\n", id);
+            continue;
+        }
+
+        if (second.type != ipc::MsgType::CreateSurface ||
+            second.payload.size() < sizeof(ipc::SurfaceCreatePayload)) {
             std::fprintf(stderr, "JKWindowServer::AcceptorLoop: expected CreateSurface\n");
             continue;
         }
 
         ipc::SurfaceCreatePayload create{};
-        std::memcpy(&create, createMsg.payload.data(), sizeof(create));
-
-        uint32_t id = nextSurfaceId_++;
-        auto client = std::make_unique<JKClientConnection>(id, std::move(transport));
-        client->SetPid(helloPid);
+        std::memcpy(&create, second.payload.data(), sizeof(create));
 
         if (!client->CreateSurface(create.width, create.height, create.title)) {
             std::fprintf(stderr, "JKWindowServer::AcceptorLoop: failed to create surface\n");
@@ -291,6 +316,14 @@ void JKWindowServer::ProcessPendingClients() {
 
     for (auto& client : newClients) {
         if (!client) continue;
+
+        // Control-only clients have no layer: no placement, no focus, no
+        // window-list entry — just join the client table.
+        if (client->IsControlOnly()) {
+            std::lock_guard<std::mutex> lock(clientsMutex_);
+            clients_.push_back(std::move(client));
+            continue;
+        }
 
         int ww = 0, wh = 0;
         SDL_GetWindowSize(window_, &ww, &wh);
@@ -1104,6 +1137,19 @@ void JKWindowServer::ProcessClientMessage(JKClientConnection& client, const ipc:
                 PushWindowListUnsafe();  // initial snapshot (clientsMutex_ held)
             }
         }
+    } else if (msg.type == ipc::MsgType::AgentEventSubscribe) {
+        // Subscribe/unsubscribe to desktop event pushes (agent connections).
+        if (msg.payload.size() >= sizeof(ipc::AgentEventSubscribePayload)) {
+            ipc::AgentEventSubscribePayload payload{};
+            std::memcpy(&payload, msg.payload.data(), sizeof(payload));
+            client.SetAgentEventSubscriber(payload.subscribe != 0);
+        }
+    } else if (msg.type == ipc::MsgType::AgentQuery) {
+        uint32_t queryId = 0, ok = 0;
+        std::string json;
+        if (ipc::ReadAgentJson(msg, queryId, ok, json)) {
+            HandleAgentQuery(client, queryId, json);
+        }
     }
 }
 
@@ -1123,6 +1169,9 @@ void JKWindowServer::PushWindowListUnsafe() {
         if (c->IsShell()) {
             shell = c.get();          // the shell never lists itself
             continue;
+        }
+        if (c->IsControlOnly()) {
+            continue;                 // agent connections are not windows
         }
         if (payload.count < 32) {
             ipc::ShellWindowEntry& entry = payload.windows[payload.count++];
@@ -1149,6 +1198,21 @@ void JKWindowServer::PushWindowListUnsafe() {
             c->Send(ipc::MsgType::WindowList, &payload, sizeof(payload));
         }
     }
+}
+
+// Desktop Agent API (spec §3): always answers — the agent client blocks on
+// ReadMessage waiting for the reply with the matching queryId.
+void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
+                                      uint32_t queryId, const std::string& json) {
+    std::string reply;
+    // M1 skeleton: only ping. Tools arrive in the following tasks.
+    if (json.find("\"ping\"") != std::string::npos) {
+        reply = "{\"ok\":true,\"pong\":true}";
+    } else {
+        reply = "{\"ok\":false,\"error\":\"not_implemented\"}";
+    }
+    ipc::WriteAgentJson(client.Transport(), ipc::MsgType::AgentReply,
+                        queryId, 1, reply);
 }
 
 JKClientConnection* JKWindowServer::FindShellClient() {

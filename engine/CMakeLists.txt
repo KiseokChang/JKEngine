@@ -155,6 +155,7 @@ add_library(jkcore STATIC
     src/ipc/JKPipeTransport_posix.cpp
     src/ipc/JKSharedMemory_win32.cpp
     src/ipc/JKSharedMemory_posix.cpp
+    src/agent/JKAgentClient.cpp
     src/JKHangulManager.cpp
     src/JKResourceCache.cpp
     src/JKSoundManager.cpp

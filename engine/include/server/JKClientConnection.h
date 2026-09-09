@@ -69,6 +69,21 @@ public:
     bool WantsWindowList() const { return windowListSubscriber_; }
     void SetWindowListSubscriber(bool s) { windowListSubscriber_ = s; }
 
+    // Control-only connection (Desktop Agent API, spec §3): no surface, no
+    // shared memory, no compositor layer — the pipe is the whole relationship
+    // (agentctl, jkagentd). Excluded from window lists and placement.
+    bool IsControlOnly() const { return controlOnly_; }
+    void SetControlOnly(bool c) { controlOnly_ = c; }
+
+    // AgentEvent push subscription (MsgType::AgentEventSubscribe). Meaningful
+    // for control-only clients; regular windows ignore desktop event pushes.
+    bool AgentEventSubscriber() const { return agentEventSubscriber_; }
+    void SetAgentEventSubscriber(bool s) { agentEventSubscriber_ = s; }
+
+    // Raw transport access — server-initiated sends to this client that do
+    // not fit the fixed-POD Send helpers (e.g. agent JSON replies, Close).
+    ipc::IWireTransport& Transport() { return *transport_; }
+
     uint8_t* SurfaceData() const;
     size_t SurfaceBytes() const;
 
@@ -111,6 +126,8 @@ private:
     bool shell_ = false;   // desktop-shell (taskbar) role, granted on request
     uint32_t pid_ = 0;     // client-reported OS pid (Hello v2)
     bool windowListSubscriber_ = false;  // opted into WindowList pushes
+    bool controlOnly_ = false;           // agent connection: no surface/layer
+    bool agentEventSubscriber_ = false;  // opted into AgentEvent pushes
 
     SDL_Texture* texture_ = nullptr;
     std::atomic<bool> dirty_{true};
