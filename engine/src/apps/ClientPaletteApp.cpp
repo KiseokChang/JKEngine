@@ -4,6 +4,7 @@
 // backend before NewFrame, the root paints the dark clear color.
 #include <apps/ClientPaletteApp.h>
 
+#include <agent/JKAgentJson.h>
 #include <imgui_impl_jkwindow.h>
 #include <JKWindow.h>
 #include <SDL.h>
@@ -45,6 +46,11 @@ void ClientPaletteApp::OnInit() {
     ImGui::CreateContext();
     ImGui::GetIO().IniFilename = nullptr;
     lastFrame_ = std::chrono::steady_clock::now();
+    // Opt into desktop events on the window connection (M2a relaxed push —
+    // the palette is a regular client that subscribed).
+    if (jk::client::JKClientSurface* surface = Surface()) {
+        surface->SendAgentEventSubscribe(true);
+    }
     AppendLog("command palette ready - type /help");
 }
 
@@ -83,6 +89,7 @@ void ClientPaletteApp::RenderOverlay(SDL_Renderer* renderer, int w, int h) {
     lastFrame_ = now;
 
     PumpReplies();
+    DrainEvents();
 
     ImGui_ImplJKWindow_NewFrame(dt, w, h);
     ImGui::NewFrame();
@@ -113,12 +120,19 @@ void ClientPaletteApp::BuildUi(int w, int h) {
             ImGui::SetKeyboardFocusHere();  // stay in the box after Enter
             focusInput_ = true;
         }
-        ImGui::BeginChild("log", ImVec2(0, 0));
+        ImGui::BeginChild("log", ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 7));
         for (const auto& line : log_) ImGui::TextWrapped("%s", line.c_str());
         if (scrollDirty_) {
             ImGui::SetScrollHereY(1.0f);
             scrollDirty_ = false;
         }
+        ImGui::EndChild();
+
+        // Event feed — the minimal notification center (spec §7 MVP).
+        ImGui::Separator();
+        ImGui::Text("events");
+        ImGui::BeginChild("feed", ImVec2(0, 0), ImGuiChildFlags_Borders);
+        for (const auto& line : feed_) ImGui::TextWrapped("%s", line.c_str());
         ImGui::EndChild();
     }
     ImGui::End();
@@ -127,6 +141,25 @@ void ClientPaletteApp::BuildUi(int w, int h) {
 void ClientPaletteApp::AppendLog(const std::string& line) {
     log_.push_back(line);
     scrollDirty_ = true;
+}
+
+void ClientPaletteApp::DrainEvents() {
+    jk::client::JKClientSurface* surface = Surface();
+    std::vector<std::string> events;
+    if (!surface || surface->DrainAgentEvents(events) == 0) return;
+    for (const std::string& e : events) {
+        agent::AgentJson json(e);
+        std::string topic, title;
+        int id = 0;
+        json.GetStr("topic", topic);
+        json.GetStr("title", title);
+        json.GetInt("id", id);
+        if (topic.empty()) continue;
+        feed_.push_back(topic + ": " +
+                        (title.empty() ? "?" : title) +
+                        " (#" + std::to_string(id) + ")");
+    }
+    while (feed_.size() > 12) feed_.erase(feed_.begin());
 }
 
 std::string ClientPaletteApp::EscapeJson(const std::string& in) {

@@ -30,6 +30,10 @@ protected:
 private:
     void BuildUi(int w, int h);
     void AppendLog(const std::string& line);
+    // Poll queued desktop events (AgentEventSubscribe) into the feed panel —
+    // the minimal notification center (spec §7; a standalone app lands with
+    // the trigger scripts in M2b).
+    void DrainEvents();
     void Submit(const std::string& text);
     // Send one agent tool query; returns the queryId (0 = not sent —
     // disconnected or the previous query is still in flight).
@@ -47,6 +51,7 @@ private:
 
     char input_[256] = {};
     std::vector<std::string> log_;
+    std::vector<std::string> feed_;   // latest desktop events (bounded)
 
     uint32_t nextQueryId_ = 1;
     uint32_t pendingQueryId_ = 0;   // 0 = idle (the palette is 1 query deep)
