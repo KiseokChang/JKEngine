@@ -37,7 +37,14 @@ enum class MsgType : uint32_t {
     WindowMinimizeToggle = 15,
     // C -> S: opt in/out of WindowList snapshot pushes without claiming the
     // single shell slot — utility windows (taskmgr, docs/23 §11.2) use this.
-    WindowListSubscribe = 16
+    WindowListSubscribe = 16,
+    // Desktop Agent API (docs/superpowers/specs/2026-09-09-desktop-agent-platform-design.md §3).
+    // Control-only connections (no surface / shared memory) talk to the
+    // server through these.
+    AgentQuery          = 17, // C -> S: query (queryId + JSON)
+    AgentReply          = 18, // S -> C: query result (queryId + ok + JSON)
+    AgentEventSubscribe = 19, // C -> S: subscribe to AgentEvent pushes
+    AgentEvent          = 20  // S -> C: desktop event push (JSON)
 };
 
 #pragma pack(push, 1)
@@ -153,6 +160,31 @@ struct WindowListSubscribePayload {
     uint32_t subscribe = 0;
 };
 
+// --- Desktop Agent API ----------------------------------------------------
+// AgentQuery / AgentReply / AgentEvent payloads are "fixed header followed by
+// jsonLen bytes of UTF-8 JSON" — the same "Followed by N entries" convention
+// as CommitSurfaceHeader. The JSON is the tool name/args on the way in and a
+// result object on the way out (docs/superpowers/specs/2026-09-09 §3, §4).
+
+#pragma pack(push, 1)
+struct AgentQueryHeader {
+    uint32_t queryId = 0;   // request/response correlation id
+    uint32_t jsonLen = 0;
+};
+struct AgentReplyHeader {
+    uint32_t queryId = 0;
+    uint32_t ok = 0;        // 1 = success, 0 = tool-level failure (JSON carries error)
+    uint32_t jsonLen = 0;
+};
+struct AgentEventHeader {
+    uint32_t jsonLen = 0;
+};
+#pragma pack(pop)
+
+struct AgentEventSubscribePayload {
+    uint32_t subscribe = 0;
+};
+
 enum class InputEventType : uint32_t {
     None       = 0,
     MouseMove  = 1,
@@ -220,6 +252,16 @@ bool WriteMessage(IWireTransport& transport, MsgType type, const T& payload) {
     static_assert(std::is_trivially_copyable<T>::value, "wire payload must be POD");
     return WriteMessage(transport, type, &payload, sizeof(T));
 }
+
+// Writer for AgentQuery / AgentReply / AgentEvent. Returns false for other
+// message types. An empty json still sends the bare header.
+bool WriteAgentJson(IWireTransport& transport, MsgType type,
+                    uint32_t queryId, uint32_t ok, const std::string& json);
+
+// Extract header + JSON from an AgentQuery / AgentReply / AgentEvent Message.
+// Returns false for other types or a truncated payload.
+bool ReadAgentJson(const Message& msg, uint32_t& queryId, uint32_t& ok,
+                   std::string& json);
 
 } // namespace ipc
 } // namespace jk
