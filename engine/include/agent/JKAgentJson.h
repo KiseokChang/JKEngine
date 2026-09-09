@@ -32,6 +32,11 @@ public:
     bool GetObjStr(const char* obj, const char* key, std::string& out) const;
     bool GetObjInt(const char* obj, const char* key, int& out) const;
 
+    // Two-level access returning the value as RAW JSON (JSON.stringify —
+    // objects stay `{...}`, strings stay quoted). For passthrough fields
+    // like publish_event's "data" that must be embedded in another envelope.
+    bool GetObjRaw(const char* obj, const char* key, std::string& out) const;
+
     // Three-level access: <a>.<b>.<key> (MCP "params"."arguments"."app").
     bool GetDeepStr(const char* a, const char* b, const char* key,
                     std::string& out) const;

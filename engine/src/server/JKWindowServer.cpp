@@ -1474,6 +1474,31 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                 }
             }
         }
+    } else if (tool == "publish_event") {
+        // M2b trigger scripts: client→subscriber event publishing. Any
+        // client may publish; the server stamps the envelope and relays it
+        // to every agent-event subscriber. "data" passes through as raw
+        // JSON so trigger filters can shape arbitrary payloads.
+        std::string topic, data;
+        if (!req.GetObjStr("args", "topic", topic) || topic.empty() ||
+            topic.size() > 96 || JsonEsc(topic).size() > 96 ||
+            !req.GetObjRaw("args", "data", data) || data.empty() ||
+            data.size() > 4096) {
+            reply = "{\"ok\":false,\"error\":\"bad_request\"}";
+        } else {
+            char ev[4352];
+            std::snprintf(ev, sizeof(ev),
+                          "{\"topic\":\"%s\",\"data\":%s,\"ts\":%lld}",
+                          JsonEsc(topic).c_str(), data.c_str(),
+                          static_cast<long long>(
+                              std::chrono::duration_cast<
+                                  std::chrono::milliseconds>(
+                                  std::chrono::system_clock::now()
+                                      .time_since_epoch())
+                                  .count()));
+            PushAgentEventJson(ev);
+            reply = "{\"ok\":true}";
+        }
     } else if (tool == "launch_chat") {
         // M2 chat: open the Win32 chat window (approval surface). One API,
         // many faces — MCP agents can open it too.
