@@ -64,6 +64,9 @@ extern "C" __declspec(dllimport) int __stdcall CreateProcessA(
     LauncherProcessInformation* lpProcessInformation);
 
 extern "C" __declspec(dllimport) int __stdcall CloseHandle(void* hObject);
+extern "C" __declspec(dllimport) int __stdcall GetExitCodeProcess(
+    void* hProcess, unsigned long* lpExitCode);
+static const unsigned long kStillActiveExit = 259;  // STILL_ACTIVE
 
 extern "C" __declspec(dllimport) unsigned long __stdcall GetModuleFileNameA(
     void* hModule, char* lpFilename, unsigned long nSize);
@@ -1743,8 +1746,24 @@ void JKWindowServer::CleanupDisconnectedClients() {
                 // and control-only agents are not listable windows, so their
                 // teardown is not a desktop event. Captured before the move.
                 if (!client->IsControlOnly() && !client->IsShell()) {
-                    PushAgentEvent("window.destroyed", client->Id(),
-                                   client->Title(), client->Pid());
+                    // Crash detection (M2b): a spawned client whose process
+                    // exited non-zero did not leave gracefully. pids not in
+                    // the spawn table (externally started clients) read as
+                    // graceful — we can only judge what we spawned.
+                    bool crashed = false;
+                    auto sh = spawnedClients_.find(client->Pid());
+                    if (sh != spawnedClients_.end()) {
+                        unsigned long code = 0;
+                        if (GetExitCodeProcess(sh->second, &code) &&
+                            code != kStillActiveExit && code != 0) {
+                            crashed = true;
+                        }
+                        CloseHandle(sh->second);
+                        spawnedClients_.erase(sh);
+                    }
+                    PushAgentEvent(crashed ? "app.crashed" : "window.destroyed",
+                                   client->Id(), client->Title(),
+                                   client->Pid());
                 }
                 disconnected.push_back(std::move(client));
                 it = clients_.erase(it);
@@ -2094,7 +2113,11 @@ void JKWindowServer::SpawnProcess(const char* exeName, const std::string& args,
         return;
     }
 
-    if (pi.hProcess) CloseHandle(pi.hProcess);
+    // Keep the child's process handle for crash classification (M2b): when
+    // the spawned client disconnects, CleanupDisconnectedClients checks the
+    // exit code and emits app.crashed for non-zero exits. The thread handle
+    // is never needed again.
+    if (pi.hProcess) spawnedClients_[pi.dwProcessId] = pi.hProcess;
     if (pi.hThread) CloseHandle(pi.hThread);
 
     std::fprintf(stderr, "JKWindowServer: spawned %s %s\n", exeName, args.c_str());

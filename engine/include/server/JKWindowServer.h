@@ -214,6 +214,11 @@ private:
     // Throttle launcher icon double-clicks / rapid spawns to one per app per
     // 500 ms. Stores the last spawn time keyed by app name.
     std::unordered_map<std::string, std::chrono::steady_clock::time_point> lastSpawnTimes_;
+
+    // Child process handles kept from SpawnProcess, keyed by pid, so a
+    // disconnecting client can be classified as crashed (non-zero exit) vs
+    // graceful (M2b app.crashed detection). void* avoids <windows.h>.
+    std::unordered_map<unsigned long, void*> spawnedClients_;
 };
 
 } // namespace server
