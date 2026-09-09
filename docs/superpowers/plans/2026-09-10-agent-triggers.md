@@ -209,7 +209,7 @@ on("app.crashed", {}, function (e) {
 **Files:**
 - Modify: `engine/tools/jkchat/main.cpp` (HandleEvent ~:396)
 
-- [ ] **Step 1:** HandleEvent에 토픽 브랜치:
+- [x] **Step 1:** HandleEvent에 토픽 브랜치:
 
 ```cpp
     } else if (ev.topic == "agent.notify") {
@@ -223,7 +223,7 @@ on("app.crashed", {}, function (e) {
 ```
 
   (봉투 필드 배치는 실제 방송 JSON에 맞춰 조정 — `data.title` 경로 확인.)
-- [ ] **Step 2: 빌드 + 커밋** `feat(chat): display agent.notify as system lines`.
+- [x] **Step 2: 빌드 + 커밋** `feat(chat): display agent.notify as system lines`.
 
 ### Task 8: 프로브 + 문서
 

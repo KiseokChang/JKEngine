@@ -411,6 +411,15 @@ static void HandleEvent(const jk::agent::AgentEvent& ev) {
             EnableWindow(g_hDeny, TRUE);
         }
         Log("[승인] request " + std::to_string(request) + " → " + decision);
+    } else if (ev.topic == "agent.notify") {
+        // M2b: trigger hosts broadcast desktop.notify here (envelope
+        // {"topic","data":{title,body},"ts"}). 알림 센터 앱은 이후 §7 후속.
+        jk::agent::AgentJson e(ev.json);
+        std::string title, body;
+        e.GetObjStr("data", "title", title);
+        e.GetObjStr("data", "body", body);
+        Log("[알림] " + (title.empty() ? std::string("(무제)") : title) +
+            (body.empty() ? "" : " — " + body));
     } else if (ev.topic.rfind("window.", 0) == 0) {
         Log("[" + ev.topic + "] " + ev.json);
     }
