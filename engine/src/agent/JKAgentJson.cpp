@@ -94,6 +94,52 @@ bool AgentJson::GetObjInt(const char* obj, const char* key, int& out) const {
     return got;
 }
 
+bool AgentJson::GetDeepStr(const char* a, const char* b, const char* key,
+                           std::string& out) const {
+    if (!ok_) return false;
+    JSValue pa = JS_GetPropertyStr(ctx_, root_, a);
+    bool got = false;
+    if (JS_IsObject(pa)) {
+        JSValue pb = JS_GetPropertyStr(ctx_, pa, b);
+        if (JS_IsObject(pb)) {
+            JSValue v = JS_GetPropertyStr(ctx_, pb, key);
+            if (JS_IsString(v)) {
+                const char* s = JS_ToCString(ctx_, v);
+                if (s) {
+                    out = s;
+                    got = true;
+                }
+                JS_FreeCString(ctx_, s);
+            }
+            JS_FreeValue(ctx_, v);
+        }
+        JS_FreeValue(ctx_, pb);
+    }
+    JS_FreeValue(ctx_, pa);
+    return got;
+}
+
+bool AgentJson::GetDeepInt(const char* a, const char* b, const char* key,
+                           int& out) const {
+    if (!ok_) return false;
+    JSValue pa = JS_GetPropertyStr(ctx_, root_, a);
+    bool got = false;
+    if (JS_IsObject(pa)) {
+        JSValue pb = JS_GetPropertyStr(ctx_, pa, b);
+        if (JS_IsObject(pb)) {
+            JSValue v = JS_GetPropertyStr(ctx_, pb, key);
+            int64_t i = 0;
+            got = !JS_IsException(v) && !JS_IsUndefined(v) &&
+                  JS_ToInt64(ctx_, &i, v) == 0;
+            JS_FreeValue(ctx_, v);
+            if (got) out = static_cast<int>(i);
+        }
+        JS_FreeValue(ctx_, pb);
+    }
+    JS_FreeValue(ctx_, pa);
+    return got;
+}
+
 bool AgentJson::GetArraySize(const char* key, int& out) const {
     if (!ok_) return false;
     JSValue v = JS_GetPropertyStr(ctx_, root_, key);

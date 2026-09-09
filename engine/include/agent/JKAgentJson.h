@@ -32,6 +32,12 @@ public:
     bool GetObjStr(const char* obj, const char* key, std::string& out) const;
     bool GetObjInt(const char* obj, const char* key, int& out) const;
 
+    // Three-level access: <a>.<b>.<key> (MCP "params"."arguments"."app").
+    bool GetDeepStr(const char* a, const char* b, const char* key,
+                    std::string& out) const;
+    bool GetDeepInt(const char* a, const char* b, const char* key,
+                    int& out) const;
+
     // Array traversal: <key> must be a JSON array of objects (layout files).
     bool GetArraySize(const char* key, int& out) const;
     bool GetArrStr(const char* key, int idx, const char* field,
