@@ -93,5 +93,7 @@ powershell -File tools/probes/probe_agent_e2e.ps1    # 정복 사이클 전체
 ## 7. 다음 단계와의 연결
 
 스펙 §6.2의 커맨드 바가 같은 도구 집합을 호출한다 ("하나의 API, 여러 얼굴").
-앱 정복 사다리(§6.6)의 L0(minesweeper)는 `probe_agent_e2e.ps1`이 이미
-수행한다 — 정복 = launch/observe/drive/verify/recover 와주.
+**M2a 커맨드 바(Alt+Space 팔레트) 구현 완료 (2026-09-10)** —
+`docs/30_desktop_agent_m2a.md`. 서버 관문(permissions.json)이 팔레트
+얼굴까지 확장되었다. 앱 정복 사다리(§6.6)의 L0(minesweeper)는
+`probe_agent_e2e.ps1`이 이미 수행한다 — 정복 = launch/observe/drive/verify/recover 완주.
