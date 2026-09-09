@@ -64,6 +64,8 @@ private:
     // <exeDir>\permissions.json (the same file the broker reads) is the
     // approval act — it gates any connected face, not just the broker.
     bool AgentToolAllowed(const std::string& tool) const;
+    // Alt+Space (spec §6.2): focus the palette if one is open, else spawn it.
+    void TogglePalette();
     // <exeDir>/state directory for agent-created files (layout snapshots).
     // Created on first use; returns the path.
     std::string StateDir() const;

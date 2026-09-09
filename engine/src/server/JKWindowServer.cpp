@@ -975,6 +975,14 @@ void JKWindowServer::HandleSDLEvent(const SDL_Event& ev) {
         payload.dy = ev.wheel.y;
         SendInputEvent(*client, payload);
     } else if (ev.type == SDL_KEYDOWN || ev.type == SDL_KEYUP) {
+        // Alt+Space opens (or refocuses) the command palette (M2a, spec §6.2).
+        // A shell-level chord: the server interprets it instead of forwarding.
+        if (ev.type == SDL_KEYDOWN && !ev.key.repeat &&
+            (ev.key.keysym.mod & KMOD_ALT) &&
+            ev.key.keysym.sym == SDLK_SPACE) {
+            TogglePalette();
+            return;
+        }
         JKClientConnection* client = FindClientById(focusedClientId_);
         if (!client) return;
         ipc::InputEventPayload payload{};
@@ -1425,6 +1433,32 @@ void JKWindowServer::PushAgentEvent(const char* topic, uint32_t id,
             ++subscribers;
             ipc::WriteAgentJson(c->Transport(), ipc::MsgType::AgentEvent, 0, 1, buf);
         }
+    }
+}
+
+// Alt+Space (M2a): bring the palette to front if it is already open,
+// otherwise spawn it. Title-match — the palette is a regular client whose
+// surface title is the stable key (layout snapshots use the same key).
+void JKWindowServer::TogglePalette() {
+    bool found = false;
+    {
+        std::lock_guard<std::mutex> lock(clientsMutex_);
+        for (auto& c : clients_) {
+            if (!c || c->IsDisconnected() || c->IsControlOnly() || c->IsShell()) {
+                continue;
+            }
+            if (c->Title() == "Command Palette") {
+                if (compositor_) compositor_->SetLayerVisible(c->Id(), true);
+                FocusClient(c->Id());  // caller-holds-clientsMutex_ contract
+                found = true;
+                break;
+            }
+        }
+    }
+    if (found) {
+        PushWindowList();  // taskbar active highlight follows the refocus
+    } else {
+        SpawnClient("palette");
     }
 }
 
