@@ -39,6 +39,11 @@ protected:
 private:
     void BuildUi(int w, int h);
     void DrainEvents();
+    // Title badge (docs/33): "Notifications (N)" while N unread entries —
+    // rides MsgType::WindowTitle so the taskbar button text follows.
+    void UpdateBadge();
+    void MarkAllRead();
+    void ClearHistory();
     // Config + persistence (docs/33 §state): <exeDir>\state\notify.json
     // {"topics":[{"topic":"agent.notify"},...]} and notify_history.json
     // {"entries":[...]}. Missing files fall back to the default topic and
@@ -53,13 +58,16 @@ private:
     bool frameDirty_ = true;
     bool imguiReady_ = false;
     bool koreanFont_ = false;   // Malgun Gothic loaded (hangul-capable)
-    bool scrollDirty_ = false;
 
     std::vector<std::string> topics_;    // subscription filter (Task 3)
     std::vector<NotifyEntry> history_;   // newest last, capped at 200
     int unread_ = 0;
 
-    std::vector<std::string> preview_;   // Task 2 skeleton feed (bounded)
+    // In-window toast strip (MVP — a screen-corner toast needs the shell
+    // track, docs/33 §제한): the newest entry shows for 5 s, 2 s fade-out.
+    NotifyEntry toastEntry_;
+    uint64_t toastUntilMs_ = 0;
+    std::string badge_;   // last title sent — UpdateBadge skips no-ops
 };
 
 } // namespace jk

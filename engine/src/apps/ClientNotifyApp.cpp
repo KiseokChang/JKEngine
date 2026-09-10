@@ -96,22 +96,61 @@ void ClientNotifyApp::RenderOverlay(SDL_Renderer* renderer, int w, int h) {
     ImGui_ImplJKWindow_RenderDrawData(ImGui::GetDrawData(), renderer);
 }
 
+namespace {
+// "[HH:MM] 제목 — 본문"; non-agent.notify entries carry their topic prefix so
+// mixed subscriptions stay readable. localtime from the stored epoch ms.
+std::string FormatEntry(const NotifyEntry& e) {
+    time_t t = static_cast<time_t>(e.ts / 1000);
+    struct tm lt;
+    localtime_s(&lt, &t);
+    char hhmm[8];
+    std::snprintf(hhmm, sizeof(hhmm), "%02d:%02d", lt.tm_hour, lt.tm_min);
+    std::string line = std::string("[") + hhmm + "] ";
+    if (e.topic != "agent.notify") line += e.topic + " · ";
+    line += e.title.empty() ? std::string("(무제)") : e.title;
+    if (!e.body.empty()) line += " — " + e.body;
+    return line;
+}
+} // namespace
+
 void ClientNotifyApp::BuildUi(int w, int h) {
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(ImVec2((float)w, (float)h));
     if (ImGui::Begin("notify", nullptr,
                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove)) {
-        ImGui::Text("notifications%s", koreanFont_ ? "" : " (ascii font)");
-        if (ImGui::BeginChild("preview", ImVec2(0, 0),
+        // Header: unread count + actions
+        ImGui::Text(koreanFont_ ? "안읽음 %d" : "Unread %d", unread_);
+        ImGui::SameLine(ImGui::GetWindowWidth() - 160);
+        if (ImGui::Button(koreanFont_ ? "모두 읽음" : "Mark read") && unread_ > 0)
+            MarkAllRead();
+        ImGui::SameLine();
+        if (ImGui::Button(koreanFont_ ? "지우기" : "Clear") && !history_.empty())
+            ClearHistory();
+        ImGui::Separator();
+        // History, newest first; unread entries highlighted amber
+        if (ImGui::BeginChild("history", ImVec2(0, -32),
                               ImGuiChildFlags_Borders)) {
-            for (const auto& line : preview_)
-                ImGui::TextWrapped("%s", line.c_str());
-            if (scrollDirty_) {
-                ImGui::SetScrollHereY(1.0f);
-                scrollDirty_ = false;
+            for (int i = static_cast<int>(history_.size()) - 1; i >= 0; --i) {
+                const NotifyEntry& e = history_[i];
+                if (!e.read)
+                    ImGui::PushStyleColor(ImGuiCol_Text,
+                                          ImVec4(1.0f, 0.85f, 0.5f, 1.0f));
+                ImGui::TextWrapped("%s", FormatEntry(e).c_str());
+                if (!e.read) ImGui::PopStyleColor();
             }
         }
         ImGui::EndChild();
+        // Toast strip (MVP, docs/33 §제한): newest entry, 5 s on, 2 s fade
+        const uint64_t now = NowMs();
+        if (now < toastUntilMs_) {
+            const uint64_t remain = toastUntilMs_ - now;
+            const float alpha =
+                remain >= 2000 ? 1.0f : static_cast<float>(remain) / 2000.0f;
+            ImGui::PushStyleVar(ImGuiStyleVar_Alpha, alpha);
+            ImGui::Separator();
+            ImGui::TextWrapped("%s", FormatEntry(toastEntry_).c_str());
+            ImGui::PopStyleVar();
+        }
     }
     ImGui::End();
 }
@@ -120,6 +159,7 @@ void ClientNotifyApp::DrainEvents() {
     jk::client::JKClientSurface* surface = Surface();
     std::vector<std::string> events;
     if (!surface || surface->DrainAgentEvents(events) == 0) return;
+    bool changed = false;
     for (const std::string& e : events) {
         agent::AgentJson json(e);
         std::string topic;
@@ -133,13 +173,55 @@ void ClientNotifyApp::DrainEvents() {
 
         NotifyEntry entry;
         entry.topic = topic;
+        // Envelope shapes differ by publisher (docs/32 §1): publish_event
+        // puts fields under data.*; server-internal pushes (app.crashed,
+        // window.*) put title/pid at the top level.
+        json.GetObjStr("data", "title", entry.title);
+        if (entry.title.empty()) json.GetStr("title", entry.title);
+        json.GetObjStr("data", "body", entry.body);
         entry.ts = static_cast<long long>(NowMs());
         entry.read = false;
-        history_.push_back(std::move(entry));
+        history_.push_back(entry);
         ++unread_;
         while (history_.size() > 200) history_.erase(history_.begin());
         SaveHistory();
+
+        toastEntry_ = entry;
+        toastUntilMs_ = NowMs() + 5000;
+        changed = true;
     }
+    if (changed) UpdateBadge();
+    frameDirty_ = true;
+}
+
+void ClientNotifyApp::UpdateBadge() {
+    JKWindow* main = GetMainWindow();
+    if (!main) return;
+    const std::string title = unread_ > 0
+        ? "Notifications (" + std::to_string(unread_) + ")"
+        : std::string("Notifications");
+    if (title == badge_) return;   // no-op guard — SetTitle spams the pipe
+    badge_ = title;
+    main->SetTitle(title);
+    if (jk::client::JKClientSurface* surface = Surface()) {
+        surface->SendWindowTitle(title);
+    }
+}
+
+void ClientNotifyApp::MarkAllRead() {
+    for (NotifyEntry& e : history_) e.read = true;
+    unread_ = 0;
+    SaveHistory();
+    UpdateBadge();
+    frameDirty_ = true;
+}
+
+void ClientNotifyApp::ClearHistory() {
+    history_.clear();
+    unread_ = 0;
+    toastUntilMs_ = 0;
+    SaveHistory();
+    UpdateBadge();
     frameDirty_ = true;
 }
 
