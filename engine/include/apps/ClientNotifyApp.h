@@ -8,10 +8,20 @@
 // (MsgType::WindowTitle); a screen-corner toast needs the shell track later.
 
 #include <client/JKClientApplication.h>
+#include <cstdint>
 #include <string>
 #include <vector>
 
 namespace jk {
+
+// One notification in the center's history (docs/33). ts is epoch ms.
+struct NotifyEntry {
+    std::string topic;
+    std::string title;
+    std::string body;
+    long long ts = 0;
+    bool read = false;
+};
 
 class ClientNotifyApp : public JKClientApplication {
 public:
@@ -29,11 +39,25 @@ protected:
 private:
     void BuildUi(int w, int h);
     void DrainEvents();
+    // Config + persistence (docs/33 §state): <exeDir>\state\notify.json
+    // {"topics":[{"topic":"agent.notify"},...]} and notify_history.json
+    // {"entries":[...]}. Missing files fall back to the default topic and
+    // an empty history; a corrupt history starts empty.
+    static std::string StatePath(const char* name);
+    void LoadConfig();
+    void LoadHistory();
+    void SaveHistory();
+    static std::string EscapeJson(const std::string& in);
+    static uint64_t NowMs();
 
     bool frameDirty_ = true;
     bool imguiReady_ = false;
     bool koreanFont_ = false;   // Malgun Gothic loaded (hangul-capable)
     bool scrollDirty_ = false;
+
+    std::vector<std::string> topics_;    // subscription filter (Task 3)
+    std::vector<NotifyEntry> history_;   // newest last, capped at 200
+    int unread_ = 0;
 
     std::vector<std::string> preview_;   // Task 2 skeleton feed (bounded)
 };
