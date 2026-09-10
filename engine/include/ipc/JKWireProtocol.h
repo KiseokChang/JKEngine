@@ -44,7 +44,12 @@ enum class MsgType : uint32_t {
     AgentQuery          = 17, // C -> S: query (queryId + JSON)
     AgentReply          = 18, // S -> C: query result (queryId + ok + JSON)
     AgentEventSubscribe = 19, // C -> S: subscribe to AgentEvent pushes
-    AgentEvent          = 20  // S -> C: desktop event push (JSON)
+    AgentEvent          = 20, // S -> C: desktop event push (JSON)
+    // C -> S: the client updates its own window title (UTF-8 payload, capped
+    // at 96 bytes server-side). The unread-count badge of the notification
+    // center (docs/33) rides on this — the taskbar button text follows the
+    // WindowList push. docs/28 예고 "SetTitle C->S" 확장.
+    WindowTitle         = 21
 };
 
 #pragma pack(push, 1)

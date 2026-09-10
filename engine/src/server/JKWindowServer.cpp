@@ -1211,6 +1211,14 @@ void JKWindowServer::ProcessClientMessage(JKClientConnection& client, const ipc:
             std::memcpy(&payload, msg.payload.data(), sizeof(payload));
             client.SetAgentEventSubscriber(payload.subscribe != 0);
         }
+    } else if (msg.type == ipc::MsgType::WindowTitle) {
+        // C -> S title update (docs/33): the notification center's unread
+        // badge. Raw UTF-8 payload, capped so a rogue client can't bloat the
+        // window-list entries.
+        if (!msg.payload.empty() && msg.payload.size() <= 96) {
+            client.SetTitle(std::string(msg.payload.begin(), msg.payload.end()));
+            PushWindowListUnsafe();  // taskbar button text follows (mutex held)
+        }
     } else if (msg.type == ipc::MsgType::AgentQuery) {
         uint32_t queryId = 0, ok = 0;
         std::string json;

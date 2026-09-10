@@ -96,6 +96,10 @@ public:
     // Non-shell opt-in to WindowList pushes (taskmgr; the shell gets them
     // by role). Subscribing yields an immediate initial snapshot.
     bool SendWindowListSubscribe(bool subscribe);
+    // C -> S: update this window's title on the server (raw UTF-8 payload,
+    // 96-byte cap). Drives the taskbar button text — the notification
+    // center's unread badge uses it (docs/33).
+    bool SendWindowTitle(const std::string& utf8);
     // Main-thread only: copy of the latest window-list snapshot.
     bool GetWindowList(std::vector<ShellWindowInfo>& out) const;
 

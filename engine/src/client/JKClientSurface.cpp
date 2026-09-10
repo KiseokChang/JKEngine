@@ -438,6 +438,14 @@ bool JKClientSurface::SendAgentEventSubscribe(bool subscribe) {
                              &payload, sizeof(payload));
 }
 
+bool JKClientSurface::SendWindowTitle(const std::string& utf8) {
+    if (!IsConnected()) return false;
+    if (utf8.size() > 96) return false;   // server cap — don't send garbage
+    return ipc::WriteMessage(
+        *transport_, ipc::MsgType::WindowTitle,
+        std::vector<uint8_t>(utf8.begin(), utf8.end()));
+}
+
 bool JKClientSurface::PollAgentReply(AgentReply& out) {
     std::lock_guard<std::mutex> lock(agentReplyMutex_);
     if (pendingAgentReplies_.empty()) return false;

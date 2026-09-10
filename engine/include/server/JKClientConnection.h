@@ -49,6 +49,8 @@ public:
     int Width() const { return width_; }
     int Height() const { return height_; }
     const std::string& Title() const { return title_; }
+    // MsgType::WindowTitle (C->S): client-driven title update (docs/33 badge).
+    void SetTitle(const std::string& t) { title_ = t; }
     int X() const { return x_; }
     int Y() const { return y_; }
     void SetPosition(int x, int y) { x_ = x; y_ = y; }
