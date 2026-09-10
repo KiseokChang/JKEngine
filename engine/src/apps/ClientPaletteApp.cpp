@@ -216,10 +216,29 @@ void ClientPaletteApp::Submit(const std::string& text) {
                                 ? std::string() : Trim(text.substr(sp + 1));
     if (cmd == "help") {
         AppendLog("  /list  /launch <app>  /close <id>  /chat  /notify");
+        AppendLog("  /triggers  /trigger <name> on|off");
         AppendLog("  /save <name>  /restore <name>  /undo");
     } else if (cmd == "notify") {
         // Open/toggle the notification center (docs/33).
         SendTool("open_notify", "{}");
+    } else if (cmd == "triggers") {
+        SendTool("trigger_list", "{}");
+    } else if (cmd == "trigger") {
+        // /trigger <name> on|off — toggle one trigger bundle (docs/34).
+        const size_t sp2 = arg.find(' ');
+        if (sp2 == std::string::npos || arg.empty()) {
+            AppendLog("  usage: /trigger <name> on|off");
+        } else {
+            const std::string name = Trim(arg.substr(0, sp2));
+            const std::string mode = Trim(arg.substr(sp2 + 1));
+            if (mode != "on" && mode != "off") {
+                AppendLog("  usage: /trigger <name> on|off");
+            } else {
+                SendTool("trigger_toggle",
+                         "{\"name\":\"" + EscapeJson(name) + "\",\"on\":" +
+                             (mode == "on" ? "1" : "0") + "}");
+            }
+        }
     } else if (cmd == "chat") {
         // Open the Win32 agent chat window (the inline approval surface).
         SendTool("launch_chat", "{}");
