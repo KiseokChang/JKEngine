@@ -243,6 +243,10 @@ void JKCompositor::SortLayers() {
 }
 
 void JKCompositor::Composite() {
+    Composite(true);
+}
+
+void JKCompositor::Composite(bool present) {
     if (!renderer_) {
         return;
     }
@@ -289,7 +293,9 @@ void JKCompositor::Composite() {
         }
     }
 
-    SDL_RenderPresent(renderer_);
+    if (present) {
+        SDL_RenderPresent(renderer_);
+    }
 }
 
 void JKCompositor::DrawCloseOverlay(const JKCompositorLayer& layer, float scale) {

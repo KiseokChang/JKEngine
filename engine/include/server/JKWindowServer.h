@@ -111,6 +111,9 @@ private:
     JKClientConnection* HitTestClient(int32_t x, int32_t y);
     JKClientConnection* FindClientById(uint32_t surfaceId);
     void Composite();
+    // capture_region (docs/35): draw the frame without presenting so the
+    // pixels can be read back (requester's layer hidden by the caller).
+    void Composite(bool present);
     void CleanupDisconnectedClients();
     void UnblockAcceptor();
     void InitAudio();

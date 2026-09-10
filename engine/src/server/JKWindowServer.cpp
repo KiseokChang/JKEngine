@@ -1563,6 +1563,84 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                 reply = "{\"ok\":false,\"error\":\"write_failed\"}";
             }
         }
+    } else if (tool == "capture_region") {
+        // docs/35: composited-frame readback (SDL_RenderReadPixels), then
+        // crop. The requester's own layer is hidden for the readback so a
+        // rubber-band overlay does not appear in its own screenshot. Args
+        // are logical desktop points — the framebuffer is physical pixels.
+        int x = 0, y = 0, w = 0, h = 0;
+        req.GetObjInt("args", "x", x);
+        req.GetObjInt("args", "y", y);
+        req.GetObjInt("args", "w", w);
+        req.GetObjInt("args", "h", h);
+        const int outW = compositor_ ? compositor_->OutputWidth() : 0;
+        const int outH = compositor_ ? compositor_->OutputHeight() : 0;
+        if (outW <= 0 || outH <= 0 || w <= 0 || h <= 0) {
+            reply = "{\"ok\":false,\"error\":\"bad_request\"}";
+        } else {
+            // Intersect with the output bounds (logical points).
+            int x0 = x < 0 ? 0 : x, y0 = y < 0 ? 0 : y;
+            int x1 = x + w > outW ? outW : x + w;
+            int y1 = y + h > outH ? outH : y + h;
+            if (x0 >= x1 || y0 >= y1) {
+                reply = "{\"ok\":false,\"error\":\"bad_request\"}";
+            } else {
+                const float scale = compositor_->OutputScale();
+                const int fx = static_cast<int>(x0 * scale);
+                const int fy = static_cast<int>(y0 * scale);
+                const int fw = static_cast<int>((x1 - x0) * scale);
+                const int fh = static_cast<int>((y1 - y0) * scale);
+                const int fullW =
+                    static_cast<int>(outW * scale);
+                const int fullH = static_cast<int>(outH * scale);
+
+                JKCompositorLayer* self =
+                    compositor_->FindLayerById(client.Id());
+                const bool hideSelf = self && self->IsVisible();
+                if (hideSelf) self->SetVisible(false);
+                Composite(false);   // clear + draw, no present
+                std::vector<uint8_t> full(
+                    static_cast<size_t>(fullW) * fullH * 4);
+                SDL_Rect fullRect{0, 0, fullW, fullH};
+                const int got = SDL_RenderReadPixels(
+                    renderer_, &fullRect, SDL_PIXELFORMAT_RGBA32,
+                    full.data(), fullW * 4);
+                if (hideSelf) self->SetVisible(true);
+                Composite(false);
+                if (got != 0) {
+                    reply = "{\"ok\":false,\"error\":\"read_failed\"}";
+                } else {
+                    // Row-wise crop into the capture buffer.
+                    std::vector<uint8_t> crop(
+                        static_cast<size_t>(fw) * fh * 4);
+                    for (int row = 0; row < fh; ++row) {
+                        std::memcpy(crop.data() +
+                                        static_cast<size_t>(row) * fw * 4,
+                                    full.data() +
+                                        (static_cast<size_t>(fy + row) *
+                                             fullW +
+                                         fx) * 4,
+                                    static_cast<size_t>(fw) * 4);
+                    }
+                    const std::string dir = StateDir() + "\\screenshots";
+                    CreateDirectoryA(dir.c_str(), nullptr);
+                    const long long ts =
+                        std::chrono::duration_cast<
+                            std::chrono::milliseconds>(
+                            std::chrono::system_clock::now()
+                                .time_since_epoch())
+                            .count();
+                    const std::string path =
+                        dir + "\\shot_" + std::to_string(ts) + "_region.png";
+                    if (WritePng(path, fw, fh, crop.data())) {
+                        reply = "{\"ok\":true,\"path\":\"" + JsonEsc(path) +
+                                "\"}";
+                    } else {
+                        reply = "{\"ok\":false,\"error\":\"write_failed\"}";
+                    }
+                }
+            }
+        }
     } else if (tool == "trigger_toggle") {
         // docs/34: write state/triggers.json (single source of truth) then
         // publish triggers.reload — jktriggers re-reads the file on the
@@ -1897,6 +1975,10 @@ void JKWindowServer::DockShellClient(JKClientConnection* shell) {
 }
 
 void JKWindowServer::Composite() {
+    Composite(true);
+}
+
+void JKWindowServer::Composite(bool present) {
     if (!compositor_ || !renderer_) {
         return;
     }
@@ -1913,7 +1995,7 @@ void JKWindowServer::Composite() {
     // Draw the launcher desktop into the renderer first; the compositor will
     // layer client surfaces on top and then present once.
     DrawLauncherBackground();
-    compositor_->Composite();
+    compositor_->Composite(present);
 }
 
 void JKWindowServer::CleanupDisconnectedClients() {

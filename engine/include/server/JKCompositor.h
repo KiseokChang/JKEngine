@@ -59,9 +59,16 @@ public:
     // Update output bounds (for now a single output covering the SDL window).
     void SetOutput(const JKCompositorOutput& output);
     float OutputScale() const { return output_.Scale(); }
+    // Logical size of the single output (docs/35 capture_region clamping).
+    int OutputWidth() const { return output_.Bounds().w; }
+    int OutputHeight() const { return output_.Bounds().h; }
 
     // Sort layers by a z-order policy. Phase 2: focused client on top.
     void FocusLayer(uint32_t id);
+
+    // Draw all visible layers into the framebuffer; present when asked.
+    // capture_region (docs/35) draws without presenting to read pixels back.
+    void Composite(bool present);
 
     // Id of the topmost visible layer (the focused one, or the last sorted
     // layer when focus is unset) — used to re-focus keyboard input after the
