@@ -215,8 +215,11 @@ void ClientPaletteApp::Submit(const std::string& text) {
     const std::string arg = (sp == std::string::npos)
                                 ? std::string() : Trim(text.substr(sp + 1));
     if (cmd == "help") {
-        AppendLog("  /list  /launch <app>  /close <id>  /chat");
+        AppendLog("  /list  /launch <app>  /close <id>  /chat  /notify");
         AppendLog("  /save <name>  /restore <name>  /undo");
+    } else if (cmd == "notify") {
+        // Open/toggle the notification center (docs/33).
+        SendTool("open_notify", "{}");
     } else if (cmd == "chat") {
         // Open the Win32 agent chat window (the inline approval surface).
         SendTool("launch_chat", "{}");

@@ -1404,6 +1404,13 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         } else {
             reply = "{\"ok\":false,\"error\":\"missing_app\"}";
         }
+    } else if (tool == "open_notify") {
+        // docs/33: toggle the notification center — safe UI command, no
+        // permission gate (same tier as launch_app).
+        if (ToggleClientByTitleUnsafe("Notifications", "notify")) {
+            PushWindowListUnsafe();  // taskbar highlight follows the refocus
+        }
+        reply = "{\"ok\":true}";
     } else if (tool == "save_layout") {
         std::string name;
         if (!req.GetObjStr("args", "name", name) || name.empty()) {
@@ -1595,29 +1602,37 @@ void JKWindowServer::PushAgentEventJson(const std::string& json) {
 }
 
 // Alt+Space (M2a): bring the palette to front if it is already open,
-// otherwise spawn it. Title-match — the palette is a regular client whose
-// surface title is the stable key (layout snapshots use the same key).
+// otherwise spawn it.
 void JKWindowServer::TogglePalette() {
     bool found = false;
     {
         std::lock_guard<std::mutex> lock(clientsMutex_);
-        for (auto& c : clients_) {
-            if (!c || c->IsDisconnected() || c->IsControlOnly() || c->IsShell()) {
-                continue;
-            }
-            if (c->Title() == "Command Palette") {
-                if (compositor_) compositor_->SetLayerVisible(c->Id(), true);
-                FocusClient(c->Id());  // caller-holds-clientsMutex_ contract
-                found = true;
-                break;
-            }
-        }
+        found = ToggleClientByTitleUnsafe("Command Palette", "palette");
     }
     if (found) {
         PushWindowList();  // taskbar active highlight follows the refocus
-    } else {
-        SpawnClient("palette");
     }
+}
+
+// Title-match toggle core (docs/33), caller holds clientsMutex_ (the
+// AgentQuery hot path pre-condition — the non-recursive mutex deadlocks if
+// we lock here). Focuses the existing client or spawns a new one.
+// Returns true when an existing client was focused (caller may push the
+// window list).
+bool JKWindowServer::ToggleClientByTitleUnsafe(const char* title,
+                                               const char* app) {
+    for (auto& c : clients_) {
+        if (!c || c->IsDisconnected() || c->IsControlOnly() || c->IsShell()) {
+            continue;
+        }
+        if (c->Title() == title) {
+            if (compositor_) compositor_->SetLayerVisible(c->Id(), true);
+            FocusClient(c->Id());  // caller-holds-clientsMutex_ contract
+            return true;
+        }
+    }
+    SpawnClient(app);  // no lock inside — launch_app precedent
+    return false;
 }
 
 // M2a server-side permission gate (spec §5): the broker (jkagentd) gates its

@@ -75,6 +75,11 @@ private:
     AgentDecision AgentToolAllowed(const std::string& tool) const;
     // Alt+Space (spec §6.2): focus the palette if one is open, else spawn it.
     void TogglePalette();
+    // Generalized title-match toggle core (docs/33): focus-or-spawn any
+    // client by its surface title; app is the SpawnClient argument when not
+    // open. Caller holds clientsMutex_ (AgentQuery hot path precondition) —
+    // returns true when an existing client was focused.
+    bool ToggleClientByTitleUnsafe(const char* title, const char* app);
     // <exeDir>/state directory for agent-created files (layout snapshots).
     // Created on first use; returns the path.
     std::string StateDir() const;

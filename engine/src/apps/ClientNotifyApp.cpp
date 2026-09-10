@@ -40,6 +40,7 @@ void ClientNotifyApp::OnInit() {
 
     LoadConfig();
     LoadHistory();
+    UpdateBadge();   // restored unread count survives restart (docs/33)
 
     ImGui::CreateContext();
     ImGui::GetIO().IniFilename = nullptr;
