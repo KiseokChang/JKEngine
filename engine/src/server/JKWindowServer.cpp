@@ -17,6 +17,7 @@
 #include <cmath>
 #include <algorithm>
 #include <chrono>
+#include <map>
 #include <thread>
 
 #ifdef _WIN32
@@ -1517,6 +1518,115 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             PushAgentEventJson(ev);
             reply = "{\"ok\":true}";
         }
+    } else if (tool == "trigger_toggle") {
+        // docs/34: write state/triggers.json (single source of truth) then
+        // publish triggers.reload — jktriggers re-reads the file on the
+        // event. Safe tier (no gate), same as launch_app.
+        std::string name;
+        int on = -1;
+        req.GetObjStr("args", "name", name);
+        req.GetObjInt("args", "on", on);
+        if (name.empty() || on < 0) {
+            reply = "{\"ok\":false,\"error\":\"missing_name\"}";
+        } else {
+            const std::string path = StateDir() + "\\triggers.json";
+            std::map<std::string, int> flags;
+            std::FILE* f = std::fopen(path.c_str(), "rb");
+            if (f) {
+                char buf[4096] = {};
+                const size_t n = std::fread(buf, 1, sizeof(buf) - 1, f);
+                std::fclose(f);
+                jk::agent::AgentJson json(buf);
+                int cnt = 0;
+                if (json.ok() && json.GetArraySize("triggers", cnt)) {
+                    for (int i = 0; i < cnt && i < 64; ++i) {
+                        std::string nm;
+                        int en = 1;
+                        if (json.GetArrStr("triggers", i, "name", nm)) {
+                            json.GetArrInt("triggers", i, "enabled", en);
+                            flags[nm] = en;
+                        }
+                    }
+                }
+            }
+            flags[name] = on;
+            std::string out = "{\"triggers\":[";
+            bool first = true;
+            for (const auto& kv : flags) {
+                if (!first) out += ",";
+                first = false;
+                out += "{\"name\":\"" + JsonEsc(kv.first) + "\",\"enabled\":" +
+                       std::to_string(kv.second) + "}";
+            }
+            out += "]}";
+            reply = "{\"ok\":true}";
+            if (std::FILE* w = std::fopen(path.c_str(), "wb")) {
+                std::fwrite(out.data(), 1, out.size(), w);
+                std::fclose(w);
+            } else {
+                reply = "{\"ok\":false,\"error\":\"write_failed\"}";
+            }
+            if (reply.find("\"ok\":true") != std::string::npos) {
+                char ev[128];
+                std::snprintf(ev, sizeof(ev),
+                              "{\"topic\":\"triggers.reload\",\"data\":{},"
+                              "\"ts\":%lld}",
+                              static_cast<long long>(
+                                  std::chrono::duration_cast<
+                                      std::chrono::milliseconds>(
+                                      std::chrono::system_clock::now()
+                                          .time_since_epoch())
+                                      .count()));
+                PushAgentEventJson(ev);
+            }
+        }
+    } else if (tool == "trigger_list") {
+        // docs/34: flat rows from jktriggers' loaded manifest merged with
+        // the flags file (missing entry = enabled).
+        std::map<std::string, std::pair<std::vector<std::string>, int>> merged;
+        auto readState = [&](const char* file, bool isManifest) {
+            std::FILE* f =
+                std::fopen((StateDir() + "\\" + file).c_str(), "rb");
+            if (!f) return;
+            char buf[8192] = {};
+            const size_t n = std::fread(buf, 1, sizeof(buf) - 1, f);
+            std::fclose(f);
+            jk::agent::AgentJson json(buf);
+            int cnt = 0;
+            if (!json.ok() || !json.GetArraySize("triggers", cnt)) return;
+            for (int i = 0; i < cnt && i < 256; ++i) {
+                std::string nm, topic;
+                if (!json.GetArrStr("triggers", i, "name", nm)) continue;
+                auto& entry = merged[nm];
+                if (isManifest) {
+                    // operator[] default is 0 — absent flags mean enabled.
+                    entry.second = 1;
+                    if (json.GetArrStr("triggers", i, "topic", topic) &&
+                        !topic.empty()) {
+                        entry.first.push_back(topic);
+                    }
+                } else {
+                    int en = 1;
+                    json.GetArrInt("triggers", i, "enabled", en);
+                    entry.second = en;
+                }
+            }
+        };
+        readState("triggers_loaded.json", true);
+        readState("triggers.json", false);
+        std::string out = "{\"ok\":true,\"triggers\":[";
+        bool first = true;
+        for (const auto& kv : merged) {
+            if (!first) out += ",";
+            first = false;
+            out += "{\"name\":\"" + JsonEsc(kv.first) + "\",\"topics\":[";
+            for (size_t i = 0; i < kv.second.first.size(); ++i) {
+                if (i) out += ",";
+                out += "\"" + JsonEsc(kv.second.first[i]) + "\"";
+            }
+            out += "],\"enabled\":" + std::to_string(kv.second.second) + "}";
+        }
+        reply = out + "]}";
     } else if (tool == "launch_chat") {
         // M2 chat: open the Win32 chat window (approval surface). One API,
         // many faces — MCP agents can open it too.
@@ -1619,13 +1729,26 @@ void JKWindowServer::TogglePalette() {
 // we lock here). Focuses the existing client or spawns a new one.
 // Returns true when an existing client was focused (caller may push the
 // window list).
+namespace {
+// The notify app appends " (N)" to its own title via MsgType::WindowTitle
+// (unread badge), so an exact-match toggle loses the key after the first
+// badge update and spawns a duplicate — accept the bare title or the
+// badged form "key (…)".
+bool TitleMatchesToggleKey(const std::string& actual, const char* key) {
+    const std::string k(key);
+    if (actual == k) return true;
+    return actual.size() > k.size() + 2 &&
+           actual.rfind(k + " (", 0) == 0 && actual.back() == ')';
+}
+} // namespace
+
 bool JKWindowServer::ToggleClientByTitleUnsafe(const char* title,
                                                const char* app) {
     for (auto& c : clients_) {
         if (!c || c->IsDisconnected() || c->IsControlOnly() || c->IsShell()) {
             continue;
         }
-        if (c->Title() == title) {
+        if (TitleMatchesToggleKey(c->Title(), title)) {
             if (compositor_) compositor_->SetLayerVisible(c->Id(), true);
             FocusClient(c->Id());  // caller-holds-clientsMutex_ contract
             return true;
