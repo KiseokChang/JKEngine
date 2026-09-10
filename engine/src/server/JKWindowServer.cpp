@@ -19,6 +19,13 @@
 #include <chrono>
 #include <map>
 #include <thread>
+#include <vector>
+
+// stb_image_write (docs/35): single-TU implementation — STBIW_STATIC keeps
+// the symbols file-local so other TUs (imgui) are unaffected.
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#define STB_IMAGE_WRITE_STATIC
+#include <stb_image_write.h>
 
 #ifdef _WIN32
 // Minimal Windows API declarations for spawning client processes without
@@ -534,6 +541,12 @@ std::string JsonEsc(const std::string& s) {
         else                out += ch;
     }
     return out;
+}
+
+// PNG write for screenshots (docs/35). pixels must be RGBA32, w*h*4 bytes —
+// the same layout the client surfaces use in their shm mapping.
+bool WritePng(const std::string& path, int w, int h, const uint8_t* px) {
+    return stbi_write_png(path.c_str(), w, h, 4, px, w * 4) != 0;
 }
 
 } // anonymous namespace
@@ -1517,6 +1530,38 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                                   .count()));
             PushAgentEventJson(ev);
             reply = "{\"ok\":true}";
+        }
+    } else if (tool == "capture_window") {
+        // docs/35: read the client's shm surface (RGBA32) directly — the
+        // app framebuffer, no screen DPI involvement. Safe tier (same as
+        // launch_app); permissions.json can deny "capture_window".
+        int id = 0;
+        req.GetObjInt("args", "id", id);
+        JKCompositorLayer* layer =
+            compositor_ ? compositor_->FindLayerById(static_cast<uint32_t>(id))
+                        : nullptr;
+        if (!layer || !layer->Pixels() || layer->Width() <= 0 ||
+            layer->Height() <= 0) {
+            reply = "{\"ok\":false,\"error\":\"window_not_found\"}";
+        } else {
+            const std::string dir = StateDir() + "\\screenshots";
+            CreateDirectoryA(dir.c_str(), nullptr);
+            const long long ts =
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::system_clock::now().time_since_epoch())
+                    .count();
+            const std::string path = dir + "\\shot_" + std::to_string(ts) +
+                                     "_" + std::to_string(id) + ".png";
+            // Copy out — the client may commit into the shm while encoding.
+            const int w = layer->Width(), h = layer->Height();
+            std::vector<uint8_t> px(layer->Pixels(),
+                                    layer->Pixels() +
+                                        static_cast<size_t>(w) * h * 4);
+            if (WritePng(path, w, h, px.data())) {
+                reply = "{\"ok\":true,\"path\":\"" + JsonEsc(path) + "\"}";
+            } else {
+                reply = "{\"ok\":false,\"error\":\"write_failed\"}";
+            }
         }
     } else if (tool == "trigger_toggle") {
         // docs/34: write state/triggers.json (single source of truth) then
