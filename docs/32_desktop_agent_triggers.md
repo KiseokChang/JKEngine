@@ -128,6 +128,7 @@ jktriggers/jkchat/터미널은 영향 없음. 프로브 페이로드는 공백�
   긴 핸들러가 펌프를 막는다 (saveLayout의 블로킹 Query도 동일).
 - **스트리밍 아님**: terminal.output은 250ms/4KiB 코얼레싱된 청크 — 행 경계
   보장 없음. LLM 토큰 스트리밍은 스펙 §7 후속.
-- **알림 센터 앱**: `agent.notify` 소비자 추가 (스펙 §7).
+- **알림 센터 앱**: ~~`agent.notify` 소비자 추가~~ — **구현됨 (2026-09-11,
+  docs/33)**: jkapp_notify (ImGui 클라, 히스토리/토스트/제목 배지).
 - **M2b 남은 것**: 트리거 활성/비활성 UI, `state/triggers` 재적재(현재 시작 시
   1회), 스크립트 서명/신뢰 모델.
