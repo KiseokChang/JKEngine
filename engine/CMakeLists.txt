@@ -405,6 +405,18 @@ target_compile_definitions(jkapp_palette PRIVATE JKAPP_MODULE_BUILD)
 target_link_libraries(jkapp_palette PRIVATE jkcore imgui)
 set_target_properties(jkapp_palette PROPERTIES PREFIX "")
 
+# Notification center module (agent platform, docs/33): subscribes to desktop
+# agent events over its own window connection and keeps the single
+# notification history (spec §7). Unlike the palette it IS a launcher .jkx
+# (users open it like any app; /notify toggles it).
+add_library(jkapp_notify SHARED
+    src/apps/JKAppModule_notify.cpp
+    src/apps/ClientNotifyApp.cpp
+)
+target_compile_definitions(jkapp_notify PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_notify PRIVATE jkcore imgui)
+set_target_properties(jkapp_notify PROPERTIES PREFIX "")
+
 # Video player module (docs/23 §11.8, ImGui Phase 4 long-term track): FFmpeg
 # demux/decode on a worker thread, decoded frames -> ImGui::Image via the
 # fused backend's GetTexID SDL texture path, audio -> client-side SDL device.
@@ -560,7 +572,8 @@ endif()
 # repacking (minesweeper uses the launcher_mine prefix).
 set(JKX_ICON_APPS
     mine tetris testwin jango occ pcx vector iconedit recog vfont vpres
-    terminal imguidemo taskmgr vplayer browser scriptdemo passworddemo)
+    terminal imguidemo taskmgr vplayer browser scriptdemo passworddemo
+    notify)
 set(JKX_ICONS "${CMAKE_BINARY_DIR}/assets/icons")
 foreach(icon_app IN LISTS JKX_ICON_APPS)
     foreach(icon_px IN ITEMS 1x 2x)
@@ -678,6 +691,13 @@ add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/vplayer.jkx"
         "${JKX_ICONS}/launcher_vplayer@2x.png"
     COMMENT "Repacking apps/vplayer.jkx"
     VERBATIM)
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/notify.jkx"
+    COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack notify
+    DEPENDS jkdesktop jkapp_notify
+        "${JKX_ICONS}/launcher_notify@1x.png"
+        "${JKX_ICONS}/launcher_notify@2x.png"
+    COMMENT "Repacking apps/notify.jkx"
+    VERBATIM)
 # Browser needs libcef.dll next to jkdesktop.exe at pack time (the packer
 # LoadLibraryA's the module), hence the cef_deploy dependency.
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/browser.jkx"
@@ -723,6 +743,7 @@ add_custom_target(jkx_packages ALL
             "${CMAKE_BINARY_DIR}/apps/imguidemo.jkx"
             "${CMAKE_BINARY_DIR}/apps/taskmgr.jkx"
             "${CMAKE_BINARY_DIR}/apps/vplayer.jkx"
+            "${CMAKE_BINARY_DIR}/apps/notify.jkx"
             "${CMAKE_BINARY_DIR}/apps/browser.jkx"
             "${CMAKE_BINARY_DIR}/apps/scriptdemo.jkx"
             "${CMAKE_BINARY_DIR}/apps/passworddemo.jkx")
