@@ -8,6 +8,7 @@
 // <exeDir>\apps\triggers\*.jkx containers (packaged, Task 5).
 
 #include <agent/JKAgentClient.h>
+#include <agent/JKAgentJson.h>
 #include <JKJkxFile.h>
 #include <quickjs.h>
 
@@ -16,6 +17,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -32,8 +34,15 @@ struct TriggerReg {
     std::string topic;  // exact topic, or "prefix.*" glob
     JSValue match;      // RegExp object, or JS_UNDEFINED (match all)
     JSValue handler;    // function(ev)
+    std::string source;  // container name ("trig_build") — enable/disable key
+    bool enabled = true;
 };
 std::vector<TriggerReg> g_triggers;
+
+// Container name set while its scripts eval (LoadTriggerContainers → JsOn).
+std::string g_currentSource;
+// name -> 0/1 from state/triggers.json; absent entry = enabled (docs/34).
+std::map<std::string, int> g_enabled;
 
 struct Timer {
     int64_t id;
@@ -145,6 +154,7 @@ JSValue JsOn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
     t.match = JS_IsUndefined(match) ? JS_UNDEFINED : JS_DupValue(ctx, match);
     JS_FreeValue(ctx, match);
     t.handler = JS_DupValue(ctx, argv[2]);
+    t.source = g_currentSource;   // enable/disable key (docs/34)
     g_triggers.push_back(std::move(t));
     return JS_UNDEFINED;
 }
@@ -281,6 +291,66 @@ void RunPendingJobs() {
 }
 
 // ---------------------------------------------------------------------------
+// Enable flags + loaded manifest (docs/34)
+// ---------------------------------------------------------------------------
+
+// state/triggers.json: {"triggers":[{"name":"trig_build","enabled":0},...]}
+// — the server writes it (trigger_toggle); we re-read on triggers.reload.
+void ReloadTriggerFlags() {
+    g_enabled.clear();
+    FILE* f = std::fopen((g_exeDir + "\\state\\triggers.json").c_str(), "rb");
+    if (!f) return;
+    std::string buf;
+    char chunk[4096];
+    size_t got;
+    while ((got = std::fread(chunk, 1, sizeof(chunk), f)) > 0)
+        buf.append(chunk, got);
+    std::fclose(f);
+    // JS_ParseJSON requires a NUL-terminated buffer — std::string guarantees
+    // one via c_str() semantics (docs/27 lesson 3).
+    jk::agent::AgentJson json(buf);
+    int n = 0;
+    if (!json.ok() || !json.GetArraySize("triggers", n)) return;
+    for (int i = 0; i < n && i < 64; ++i) {
+        std::string name;
+        int en = 1;
+        if (!json.GetArrStr("triggers", i, "name", name) || name.empty())
+            continue;
+        json.GetArrInt("triggers", i, "enabled", en);
+        g_enabled[name] = en;
+    }
+    for (auto& t : g_triggers) {
+        auto it = g_enabled.find(t.source);
+        t.enabled = (it == g_enabled.end()) || it->second != 0;
+    }
+    HostLog("[triggers] flags reloaded (" + std::to_string(g_enabled.size()) +
+            ")");
+}
+
+// Startup manifest for trigger_list (server merges with triggers.json):
+// one flat row per container×topic so AgentJson array access reads it
+// without nested paths: {"triggers":[{"name":..,"topic":..},...]}.
+void WriteLoadedManifest() {
+    std::string out = "{\"triggers\":[";
+    bool first = true;
+    for (const auto& t : g_triggers) {
+        if (!first) out += ",";
+        first = false;
+        out += "{\"name\":\"" + JsonEscapeStr(t.source) + "\",\"topic\":\"" +
+               JsonEscapeStr(t.topic) + "\"}";
+    }
+    out += "]}";
+    CreateDirectoryA((g_exeDir + "\\state").c_str(), nullptr);
+    FILE* f =
+        std::fopen((g_exeDir + "\\state\\triggers_loaded.json").c_str(), "wb");
+    if (!f) return;
+    std::fwrite(out.data(), 1, out.size(), f);
+    std::fclose(f);
+    HostLog("[triggers] loaded manifest written (" +
+            std::to_string(g_triggers.size()) + " reg(s))");
+}
+
+// ---------------------------------------------------------------------------
 // Event dispatch
 // ---------------------------------------------------------------------------
 
@@ -316,6 +386,7 @@ void DispatchEvent(const std::string& topic, const std::string& json) {
 
     JSValue evArgs[1] = {ev};
     for (auto& t : g_triggers) {
+        if (!t.enabled) continue;   // disabled via state/triggers.json
         if (!TopicMatches(t.topic, topic)) continue;
         if (!JS_IsUndefined(t.match)) {
             // RegExp.test(JSON text of the event) — the spec's filter shape.
@@ -482,6 +553,12 @@ void LoadTriggerContainers() {
     HANDLE h = FindFirstFileA(dir.c_str(), &fd);
     if (h == INVALID_HANDLE_VALUE) return;
     do {
+        // Container name (sans .jkx) tags every trigger its scripts register
+        // — the enable/disable key for state/triggers.json (docs/34).
+        std::string container = fd.cFileName;
+        const size_t dot = container.rfind(".jkx");
+        if (dot != std::string::npos) container.resize(dot);
+        g_currentSource = container;
         const std::string path = g_exeDir + "\\apps\\triggers\\" + fd.cFileName;
         jk::JKJkxFile jkx;
         if (!jkx.Open(path)) {
@@ -624,6 +701,8 @@ int main(int argc, char* argv[]) {
     }
     LoadJsDir();
     LoadTriggerContainers();
+    ReloadTriggerFlags();   // apply state/triggers.json before first dispatch
+    WriteLoadedManifest();
 
     HostLog("jktriggers: running (" +
             std::to_string(g_triggers.size()) + " trigger(s), " +
@@ -653,6 +732,10 @@ int main(int argc, char* argv[]) {
         std::vector<jk::agent::AgentEvent> events;
         g_agent.PollEvents(events);
         for (const auto& ev : events) {
+            if (ev.topic == "triggers.reload") {
+                ReloadTriggerFlags();  // server publishes after trigger_toggle
+                continue;
+            }
             DispatchEvent(ev.topic, ev.json);
         }
         FireTimers();
