@@ -102,7 +102,12 @@ static std::wstring BuildEngineCmd(const ChatConfig& cfg,
         if (ch == '"') esc += "\\\"";
         else esc += ch;
     }
-    std::string claudeArgs = "-p \"" + esc + "\" --output-format json";
+    // Token streaming (docs/31 §6): stream-json + partial messages gives
+    // line-delimited events with content_block_delta text fragments. --verbose
+    // is REQUIRED by stream-json in -p mode.
+    std::string claudeArgs =
+        "-p \"" + esc +
+        "\" --output-format stream-json --verbose --include-partial-messages";
     if (cfg.skipPermissions) claudeArgs += " --dangerously-skip-permissions";
     if (!resumeSessionId.empty()) {
         claudeArgs += " --resume \"" + resumeSessionId + "\"";
@@ -152,6 +157,10 @@ static std::vector<std::pair<uint32_t, std::string>> g_pendingSends;
 // The approval currently on the strip (0 = none).
 static uint32_t g_approvalRequest = 0;
 
+// Token streaming (docs/31 §6): a "[LLM] " transcript line is currently open
+// (first delta logged, more fragments appending raw).
+static bool g_streamLineOpen = false;
+
 // /close and /restore take a pre_undo snapshot first; the destructive tool
 // fires only when the save reply lands (spec §9 undo, palette model).
 static uint32_t g_undoSaveQueryId = 0;
@@ -172,6 +181,17 @@ static void Log(const std::wstring& line) {
 }
 
 static void Log(const std::string& utf8) { Log(Utf8ToWide(utf8)); }
+
+// Append without a leading newline — token-stream fragments keep typing into
+// the same transcript line.
+static void LogRaw(const std::wstring& chunk) {
+    if (!g_hLog) return;
+    const int len = GetWindowTextLengthW(g_hLog);
+    SendMessageW(g_hLog, EM_SETSEL, len, len);
+    SendMessageW(g_hLog, EM_REPLACESEL, FALSE,
+                 reinterpret_cast<LPARAM>(chunk.c_str()));
+    SendMessageW(g_hLog, EM_SCROLLCARET, 0, 0);
+}
 
 static void ShowApproval(const std::string& title, uint32_t targetId,
                          uint32_t request) {
@@ -210,13 +230,47 @@ static void Submit();  // forward: the LLM path logs before parsing
 // --- LLM turn (claude headless, worker thread) ------------------------------
 struct LlmTurnResult {
     bool ok = false;
+    bool streamed = false;  // ≥1 text delta reached the UI (live typing) —
+                            // the done handler skips re-printing the result
     std::string result;     // the reply JSON's "result" field
     std::string sessionId;  // its "session_id" field ("" on parse failure)
 };
 
 static const UINT WM_APP_LLM_DONE = WM_APP + 1;
+// Token streaming (docs/31 §6): lparam = heap std::wstring* (UTF-16, owned
+// and freed by the UI thread).
+static const UINT WM_APP_LLM_DELTA = WM_APP + 2;
 static std::string g_sessionId;  // claude session continuity (--resume)
 static std::atomic<int> g_llmBusy{0};
+
+// One stream-json line → turn state. Text deltas go to the UI immediately
+// (PostMessage, heap wstring) so the transcript types live. Lines without a
+// "type" (the stub engine's plain echo-JSON) are ignored — the legacy
+// whole-buffer fallback handles them after EOF.
+static bool ParseStreamLine(const std::string& line, LlmTurnResult* out) {
+    jk::agent::AgentJson j(line);
+    std::string type;
+    if (!j.ok() || !j.GetStr("type", type)) return false;
+    j.GetStr("session_id", out->sessionId);  // last one wins (init/result agree)
+    if (type == "stream_event") {
+        // event.delta.text — three levels, so pull "delta" raw and re-parse
+        // (AgentJson's object accessors are two levels deep).
+        std::string deltaRaw;
+        if (!j.GetObjRaw("event", "delta", deltaRaw)) return false;
+        jk::agent::AgentJson delta(deltaRaw);
+        std::string text;
+        if (!delta.GetStr("text", text) || text.empty()) return false;
+        out->streamed = true;
+        PostMessageW(g_hMain, WM_APP_LLM_DELTA, 0,
+                     reinterpret_cast<LPARAM>(new std::wstring(Utf8ToWide(text))));
+        return true;
+    }
+    if (type == "result") {
+        out->ok = true;
+        j.GetStr("result", out->result);
+    }
+    return false;
+}
 
 static DWORD WINAPI LlmThread(LPVOID param) {
     // param = heap-allocated prompt (owned and freed here)
@@ -275,13 +329,23 @@ static DWORD WINAPI LlmThread(LPVOID param) {
         return 0;
     }
     // Read stdout to EOF (cmd /c echo paths exit immediately; claude turns
-    // can take minutes). stderr is drained separately and only surfaces on
-    // parse failure.
+    // can take minutes). Complete lines are parsed AS THEY LAND so stream
+    // deltas reach the UI while claude is still generating. stdoutBuf stays
+    // intact — the line scan advances a separate offset (the stub engine's
+    // plain echo-JSON needs the whole buffer in the EOF fallback below).
     std::string stdoutBuf, stderrBuf;
+    size_t lineScan = 0;
     char chunk[4096];
     DWORD got = 0;
     while (ReadFile(readOut, chunk, sizeof(chunk), &got, nullptr) && got > 0) {
         stdoutBuf.append(chunk, got);
+        size_t nl;
+        while ((nl = stdoutBuf.find('\n', lineScan)) != std::string::npos) {
+            std::string line = stdoutBuf.substr(lineScan, nl - lineScan);
+            lineScan = nl + 1;
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            if (!line.empty()) ParseStreamLine(line, out);
+        }
     }
     CloseHandle(readOut);
     while (ReadFile(readErr, chunk, sizeof(chunk), &got, nullptr) && got > 0) {
@@ -295,18 +359,22 @@ static DWORD WINAPI LlmThread(LPVOID param) {
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
 
-    jk::agent::AgentJson reply(stdoutBuf);
-    out->ok = reply.ok();
-    if (!out->ok && stderrBuf.size() > 0) {
-        // Surface the engine's stderr tail (parse errors are opaque without
-        // it — e.g. claude warnings or cmd-level failures).
-        out->result = "stderr: " +
-                      stderrBuf.substr(stderrBuf.size() > 400
-                                           ? stderrBuf.size() - 400
-                                           : 0);
+    if (!out->ok) {
+        // No stream result line (stub engine echoes plain JSON) — legacy
+        // whole-buffer parse of the reply object.
+        jk::agent::AgentJson reply(stdoutBuf);
+        out->ok = reply.ok();
+        if (!out->ok && stderrBuf.size() > 0) {
+            // Surface the engine's stderr tail (parse errors are opaque
+            // without it — e.g. claude warnings or cmd-level failures).
+            out->result = "stderr: " +
+                          stderrBuf.substr(stderrBuf.size() > 400
+                                               ? stderrBuf.size() - 400
+                                               : 0);
+        }
+        reply.GetStr("result", out->result);
+        reply.GetStr("session_id", out->sessionId);
     }
-    reply.GetStr("result", out->result);
-    reply.GetStr("session_id", out->sessionId);
     PostMessageW(g_hMain, WM_APP_LLM_DONE, 0, reinterpret_cast<LPARAM>(out));
     g_llmBusy = 0;
     return 0;
@@ -567,10 +635,30 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM w, LPARAM l) {
         case WM_TIMER:
             Pump();
             return 0;
+        case WM_APP_LLM_DELTA: {
+            // Live token (docs/31 §6): first fragment opens the "[LLM] " line,
+            // the rest keep appending to it.
+            std::wstring* frag = reinterpret_cast<std::wstring*>(l);
+            if (!frag) return 0;
+            if (!g_streamLineOpen) {
+                Log(L"[LLM] ");
+                g_streamLineOpen = true;
+            }
+            LogRaw(*frag);
+            delete frag;
+            return 0;
+        }
         case WM_APP_LLM_DONE: {
             LlmTurnResult* r = reinterpret_cast<LlmTurnResult*>(l);
+            if (g_streamLineOpen) {
+                LogRaw(L"\r\n");
+                g_streamLineOpen = false;
+            }
             if (!r->ok || r->result.empty()) {
                 Log(L"[!] LLM 응답 파싱 실패 — 엔진/모델 설정(state\\chat.json) 확인");
+            } else if (r->streamed) {
+                // The text already typed itself in — just close the turn out.
+                Log(L"[LLM 완료]");
             } else {
                 Log(Utf8ToWide(r->result));
             }

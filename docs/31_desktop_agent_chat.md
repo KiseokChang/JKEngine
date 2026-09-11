@@ -163,7 +163,9 @@ request id 캡처 → **approve allow** → close 완결 + 창 소멸 → **deny
 
 ## 7. 제한 (채팅창 MVP 스코프)
 
-- LLM 출력은 최종 결과만, 타임아웃 10분 고정, 스트리밍 미구현 (후속).
+- LLM 출력은 최종 결과만, 타임아웃 10분 고정, 스트리밍 미구현 (후속). —
+  **스트리밍은 2026-09-11 구현 완료 (`docs/36`)**, 타임아웃 10분과 도구 호출
+  과정의 비표시는 유지.
 - 타임아웃 60초 고정, 승인 프롬프트 1건 동시 처리 (채팅창 UI 기준).
 - Win32 기본 폰트라 한글 표시는 OK지만 시각 디자인은 최소 수준.
 - STT/마이크는 4단계(장치 게이트) 과제 — 별도 프로세스라 채팅창 안에서만
@@ -172,8 +174,9 @@ request id 캡처 → **approve allow** → close 완결 + 창 소멸 → **deny
 
 ## 8. 다음 단계와의 연결
 
-- **LLM 스트리밍**: `--output-format stream-json --include-partial-messages`
-  로 부분 출력 표시 (MVP 이후).
+- **LLM 스트리밍**: 구현 완료 (2026-09-11, `docs/36`) — `--output-format
+  stream-json --verbose --include-partial-messages`의 content_block_delta를
+  PostMessage 청크로 트랜스크립트 라이브 타이핑, result에서 세션 확정.
 - **M2b 트리거 스크립트**: 구현 완료 (`docs/32`) — QuickJS 호스트 jktriggers.exe,
   첫 번들 3종. 알림 수신처는 이 문서의 `agent.notify` 브랜치(`[알림]` 줄, §6)로
   연결됐고, 알림 센터 앱은 스펙 §7 후속.
