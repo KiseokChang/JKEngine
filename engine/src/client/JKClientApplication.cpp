@@ -483,7 +483,13 @@ void JKClientApplication::ComposeScene() {
     JKDC dc(cmdList.get());
     dc.SetHangulManager(hangulManager_.get());
 
-    dc.SetColor(192, 192, 192, 255);
+    if (WantsTransparentSurface()) {
+        // SDL_RenderClear ignores the blend mode: this is a raw write, so
+        // (0,0,0,0) really leaves the surface transparent for the compositor.
+        dc.SetColor(0, 0, 0, 0);
+    } else {
+        dc.SetColor(192, 192, 192, 255);
+    }
     dc.Clear();
 
     mainWindow_->PaintWindow(dc);

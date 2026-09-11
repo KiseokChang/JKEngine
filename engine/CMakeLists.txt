@@ -417,6 +417,18 @@ target_compile_definitions(jkapp_notify PRIVATE JKAPP_MODULE_BUILD)
 target_link_libraries(jkapp_notify PRIVATE jkcore imgui)
 set_target_properties(jkapp_notify PROPERTIES PREFIX "")
 
+# Region-capture overlay module (agent platform, docs/35 Task 3): the
+# rubber-band fullscreen layer behind /shot and the viewer's 영역 캡처
+# button. A launcher .jkx too (no icon — the packer treats icons as
+# optional and the launcher falls back to flat drawing).
+add_library(jkapp_snap SHARED
+    src/apps/JKAppModule_snap.cpp
+    src/apps/ClientSnapApp.cpp
+)
+target_compile_definitions(jkapp_snap PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_snap PRIVATE jkcore imgui)
+set_target_properties(jkapp_snap PROPERTIES PREFIX "")
+
 # Video player module (docs/23 §11.8, ImGui Phase 4 long-term track): FFmpeg
 # demux/decode on a worker thread, decoded frames -> ImGui::Image via the
 # fused backend's GetTexID SDL texture path, audio -> client-side SDL device.
@@ -698,6 +710,11 @@ add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/notify.jkx"
         "${JKX_ICONS}/launcher_notify@2x.png"
     COMMENT "Repacking apps/notify.jkx"
     VERBATIM)
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/snap.jkx"
+    COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack snap
+    DEPENDS jkdesktop jkapp_snap
+    COMMENT "Repacking apps/snap.jkx"
+    VERBATIM)
 # Browser needs libcef.dll next to jkdesktop.exe at pack time (the packer
 # LoadLibraryA's the module), hence the cef_deploy dependency.
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/browser.jkx"
@@ -744,6 +761,7 @@ add_custom_target(jkx_packages ALL
             "${CMAKE_BINARY_DIR}/apps/taskmgr.jkx"
             "${CMAKE_BINARY_DIR}/apps/vplayer.jkx"
             "${CMAKE_BINARY_DIR}/apps/notify.jkx"
+            "${CMAKE_BINARY_DIR}/apps/snap.jkx"
             "${CMAKE_BINARY_DIR}/apps/browser.jkx"
             "${CMAKE_BINARY_DIR}/apps/scriptdemo.jkx"
             "${CMAKE_BINARY_DIR}/apps/passworddemo.jkx")

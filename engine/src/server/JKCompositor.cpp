@@ -286,8 +286,10 @@ void JKCompositor::Composite(bool present) {
             // The client paints the title bar inside its surface, but a
             // parentless main window paints no close button — the server
             // draws the close overlay at the top-right of every layer.
-            // Shell layers have no chrome at all (docs/28).
-            if (!layer->IsShell()) {
+            // Shell layers have no chrome at all (docs/28); neither does the
+            // capture overlay (docs/35) — a grey X would end up in the
+            // user's face for the lifetime of the drag.
+            if (!layer->IsShell() && layer->Title() != kCaptureOverlayTitle) {
                 DrawCloseOverlay(*layer, outputScale);
             }
         }

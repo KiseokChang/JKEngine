@@ -111,6 +111,11 @@ protected:
     // TAB drives the child focus cycle in most apps; the terminal consumes it
     // as data instead.
     virtual bool WantsTabFocusCycle() const { return true; }
+    // ComposeScene clears the surface to opaque grey every frame. Apps that
+    // need the desktop to show through their window (the docs/35 rubber-band
+    // capture overlay dims the screen with per-pixel alpha) opt out here:
+    // the clear becomes (0,0,0,0) and the surface keeps its alpha channel.
+    virtual bool WantsTransparentSurface() const { return false; }
 
 private:
     SDL_Window* hiddenWindow_ = nullptr;

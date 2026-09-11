@@ -22,6 +22,12 @@ constexpr int kChromeCloseSize = 20;
 constexpr int kChromeCloseMargin = 2;
 constexpr int kResizeHotspot = 6;
 
+// docs/35: the rubber-band capture overlay's surface title. The server treats
+// a client with this title as chromeless fullscreen: no close overlay, no
+// title-bar drag, and the spawn placement resizes it to the whole desktop.
+// Must match ClientSnapApp's JKAppMeta title.
+constexpr const char* kCaptureOverlayTitle = "Region Capture";
+
 // Server compositor: owns SDL textures for client surfaces and draws them into
 // a single renderer output. For Phase 2 there is exactly one output.
 class JKCompositor {

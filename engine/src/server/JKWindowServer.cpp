@@ -397,6 +397,18 @@ void JKWindowServer::ProcessPendingClients() {
             // placement above is overwritten by the bottom-edge dock.
             compositor_->SetLayerShell(client->Id(), true);
             DockShellClient(client.get());
+        } else if (client->Title() == kCaptureOverlayTitle) {
+            // docs/35: the rubber-band capture overlay always covers the
+            // whole desktop, taskbar included — it is momentary (dismissed
+            // by mouse-up or ESC) so it neither reserves work area nor keeps
+            // its meta size. The meta size is a placeholder: the same
+            // ResizeSurface round-trip DockShellClient uses dictates the
+            // real (output) size, and the layer sits at (0,0) with scale 1
+            // so the client's drag coords are desktop logical coords.
+            CommitChromeResize(*client, client->Id(), ww, wh, ww, wh);
+            compositor_->SetLayerPosition(client->Id(), 0, 0);
+            client->SetPosition(0, 0);
+            FocusClient(client->Id());
         } else {
             FocusClient(client->Id());
         }
@@ -716,8 +728,10 @@ bool JKWindowServer::TryChromeGrab(int mx, int my, float scale) {
         return false;
     }
     // The shell has no window chrome (docs/28): no close X, no title drag,
-    // no resize edges — clicks fall through to the shell's own UI.
-    if (client->IsShell()) {
+    // no resize edges — clicks fall through to the shell's own UI. The
+    // capture overlay (docs/35) likewise: a title-bar grab over its top
+    // strip would swallow the first 24 px of the rubber band.
+    if (client->IsShell() || client->Title() == kCaptureOverlayTitle) {
         return false;
     }
 
