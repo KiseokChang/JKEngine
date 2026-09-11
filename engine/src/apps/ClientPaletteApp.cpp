@@ -216,11 +216,15 @@ void ClientPaletteApp::Submit(const std::string& text) {
                                 ? std::string() : Trim(text.substr(sp + 1));
     if (cmd == "help") {
         AppendLog("  /list  /launch <app>  /close <id>  /chat  /notify");
-        AppendLog("  /triggers  /trigger <name> on|off");
+        AppendLog("  /shot  /triggers  /trigger <name> on|off");
         AppendLog("  /save <name>  /restore <name>  /undo");
     } else if (cmd == "notify") {
         // Open/toggle the notification center (docs/33).
         SendTool("open_notify", "{}");
+    } else if (cmd == "shot") {
+        // Open the screenshot viewer (docs/35); its 영역 캡처 button spawns
+        // the rubber-band overlay.
+        SendTool("launch_app", "{\"app\":\"shot\"}");
     } else if (cmd == "triggers") {
         SendTool("trigger_list", "{}");
     } else if (cmd == "trigger") {

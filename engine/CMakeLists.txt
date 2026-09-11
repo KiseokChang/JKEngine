@@ -429,6 +429,17 @@ target_compile_definitions(jkapp_snap PRIVATE JKAPP_MODULE_BUILD)
 target_link_libraries(jkapp_snap PRIVATE jkcore imgui)
 set_target_properties(jkapp_snap PROPERTIES PREFIX "")
 
+# Screenshot viewer module (agent platform, docs/35 Task 4): lists
+# <exeDir>\state\screenshots newest-first, shows the selection, spawns the
+# snap overlay. A launcher .jkx with the amber camera icon.
+add_library(jkapp_shot SHARED
+    src/apps/JKAppModule_shot.cpp
+    src/apps/ClientShotApp.cpp
+)
+target_compile_definitions(jkapp_shot PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_shot PRIVATE jkcore imgui)
+set_target_properties(jkapp_shot PROPERTIES PREFIX "")
+
 # Video player module (docs/23 §11.8, ImGui Phase 4 long-term track): FFmpeg
 # demux/decode on a worker thread, decoded frames -> ImGui::Image via the
 # fused backend's GetTexID SDL texture path, audio -> client-side SDL device.
@@ -585,7 +596,7 @@ endif()
 set(JKX_ICON_APPS
     mine tetris testwin jango occ pcx vector iconedit recog vfont vpres
     terminal imguidemo taskmgr vplayer browser scriptdemo passworddemo
-    notify)
+    notify shot)
 set(JKX_ICONS "${CMAKE_BINARY_DIR}/assets/icons")
 foreach(icon_app IN LISTS JKX_ICON_APPS)
     foreach(icon_px IN ITEMS 1x 2x)
@@ -715,6 +726,13 @@ add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/snap.jkx"
     DEPENDS jkdesktop jkapp_snap
     COMMENT "Repacking apps/snap.jkx"
     VERBATIM)
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/shot.jkx"
+    COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack shot
+    DEPENDS jkdesktop jkapp_shot
+        "${JKX_ICONS}/launcher_shot@1x.png"
+        "${JKX_ICONS}/launcher_shot@2x.png"
+    COMMENT "Repacking apps/shot.jkx"
+    VERBATIM)
 # Browser needs libcef.dll next to jkdesktop.exe at pack time (the packer
 # LoadLibraryA's the module), hence the cef_deploy dependency.
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/browser.jkx"
@@ -762,6 +780,7 @@ add_custom_target(jkx_packages ALL
             "${CMAKE_BINARY_DIR}/apps/vplayer.jkx"
             "${CMAKE_BINARY_DIR}/apps/notify.jkx"
             "${CMAKE_BINARY_DIR}/apps/snap.jkx"
+            "${CMAKE_BINARY_DIR}/apps/shot.jkx"
             "${CMAKE_BINARY_DIR}/apps/browser.jkx"
             "${CMAKE_BINARY_DIR}/apps/scriptdemo.jkx"
             "${CMAKE_BINARY_DIR}/apps/passworddemo.jkx")
