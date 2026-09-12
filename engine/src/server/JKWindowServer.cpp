@@ -1458,6 +1458,11 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         };
         if (name.empty()) {
             reply = "{\"ok\":false,\"error\":\"missing_name\"}";
+        } else if (name.size() > 96) {
+            // docs/38: bound the display name before it reaches the approval
+            // broadcast payload and the parked PendingApproval (same shape as
+            // bad_fingerprint — validated before parking).
+            reply = "{\"ok\":false,\"error\":\"bad_name\"}";
         } else if (!ValidFingerprint(fingerprint)) {
             reply = "{\"ok\":false,\"error\":\"bad_fingerprint\"}";
         } else if (origin != "dev" && origin != "package") {
@@ -1640,8 +1645,42 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                                   std::chrono::system_clock::now()
                                       .time_since_epoch())
                                   .count()));
-            PushAgentEventJson(ev);
-            reply = "{\"ok\":true}";
+            // docs/38: connection-level cap — 60 events / 10s (same figure as
+            // the local handler cap so the local cap binds first for
+            // self-loops — deterministic notify/stop point; spec §2 interaction
+            // note). Over-cap events are dropped but answered ok so senders
+            // don't turn into retry bombs. The budget counts allowed events
+            // only (a drop consumes nothing — same semantics as the jktriggers
+            // source cap) and must stay lock-free — this branch runs with
+            // clientsMutex_ already held.
+            constexpr int kPublishCap = 60;
+            constexpr uint64_t kPublishWindowMs = 10000;
+            const uint64_t nowMs = static_cast<uint64_t>(
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now().time_since_epoch())
+                    .count());
+            PublishBudget& b = publishBudgets_[client.Id()];
+            if (nowMs - b.windowStartMs >= kPublishWindowMs) {
+                b.windowStartMs = nowMs;
+                b.count = 0;
+                b.logged = false;
+            }
+            if (b.count >= kPublishCap) {
+                // Over cap: no budget consumption on the drop path.
+                if (!b.logged) {
+                    b.logged = true;
+                    // One log line per connection per window — stdout is the
+                    // server log (run_test.sh redirects it, read_log tails it).
+                    std::printf("[server] publish_event rate-capped (conn %u)\n",
+                                client.Id());
+                    std::fflush(stdout);
+                }
+                reply = "{\"ok\":true,\"dropped\":1}";
+            } else {
+                ++b.count;
+                PushAgentEventJson(ev);
+                reply = "{\"ok\":true}";
+            }
         }
     } else if (tool == "capture_window") {
         // docs/35: read the client's shm surface (RGBA32) directly — the
@@ -1875,19 +1914,31 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
     } else if (tool == "trust_list") {
         // Script trust store (docs/37 spec): the loader's trust.json records,
         // fingerprints truncated to 15 chars ("sha256:"+8hex) for display.
-        std::string out = "{\"ok\":true,\"records\":[";
-        bool first = true;
+        // docs/38: a missing/corrupt store is distinguished from an empty one
+        // — trust_store_unreadable on fopen or parse failure; a valid file
+        // with zero records still answers ok with an empty array.
         std::FILE* f =
             std::fopen((StateDir() + "\\trust.json").c_str(), "rb");
-        if (f) {
+        if (!f) {
+            reply = "{\"ok\":false,\"error\":\"trust_store_unreadable\"}";
+        } else {
             char buf[65536] = {};
             const size_t n = std::fread(buf, 1, sizeof(buf) - 1, f);
             std::fclose(f);
+            buf[n] = '\0';
             jk::agent::AgentJson json(buf);
             int cnt = 0;
-            if (json.ok() && json.GetArraySize("records", cnt)) {
+            if (!json.ok() || !json.GetArraySize("records", cnt)) {
+                reply = "{\"ok\":false,\"error\":\"trust_store_unreadable\"}";
+            } else {
+                std::string out = "{\"ok\":true,\"records\":[";
+                bool first = true;
                 for (int i = 0; i < cnt && i < 512; ++i) {
                     std::string fp, name, source;
+                    // ts is epoch ms (int64 in the loader's writer) but the
+                    // AgentJson accessor has no int64 getter — display-only
+                    // int truncation is accepted (jktriggers reads ts via a
+                    // direct QuickJS reader instead).
                     int ts = 0;
                     if (!json.GetArrStr("records", i, "fingerprint", fp))
                         continue;
@@ -1902,10 +1953,10 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                            "\",\"source\":\"" + JsonEsc(source) +
                            "\",\"ts\":" + std::to_string(ts) + "}";
                 }
+                out += "]}";
+                reply = out;
             }
         }
-        out += "]}";
-        reply = out;
     } else if (tool == "events_list") {
         // docs/32: the structured event catalog. Static rows describe the
         // system topics (source + payload shape); fired/last_ts come from

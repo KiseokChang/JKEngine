@@ -11,6 +11,7 @@
 #include <chrono>
 #include <cstdint>
 #include <ctime>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -179,6 +180,16 @@ private:
     };
     std::vector<PendingApproval> pendingApprovals_;
     uint32_t nextApprovalId_ = 1;
+
+    // publish_event connection rate budget (docs/38 spec §4) — fixed window.
+    // Accessed only on the clientsMutex_-held HandleAgentQuery path (lesson
+    // 35: no helper takes the lock — this member must stay lock-free there).
+    struct PublishBudget {
+        uint64_t windowStartMs = 0;
+        int count = 0;
+        bool logged = false;  // one log line per window per connection
+    };
+    std::map<uint64_t, PublishBudget> publishBudgets_;
 
     // docs/35: when a client launches the capture overlay (launch_app snap),
     // remember the requester so the overlay's capture_region can hide the
