@@ -157,9 +157,11 @@ jktriggers/jkchat/터미널은 영향 없음. 프로브 페이로드는 공백�
 
 ## 8. 제한과 다음 단계
 
-- **rate limit/dead-letter 없음**: 핸들러 예외는 로그만 하고 트리거는 계속.
-  무한 루프 트리거(publish→on 셀프 루프)는 호스트가 막지 않는다 — 번들 작성
-  규율 + 이후 rate limiter.
+- **rate limit/dead-letter**: ~~없음~~ — **rate limit 구현됨 (2026-09-13,
+  docs/38)**: 핸들러 발화 소스당 60회/60초 + 라이브 타이머 전역 64개 +
+  서버 publish_event 연결당 60/10s. 무한 루프 트리거(publish→on 셀프 루프)는
+  로컬 cap에서 정지 (윈도우당 notify+log 1회). **dead-letter는 미적용 유지** —
+  디스패치는 동기 JS_Call + 큐 없음 (적체 개념 없음, docs/38 §2).
 - **async 이벤트 루프 아님**: DispatchEvent는 동기 호출 + pending job 정산.
   긴 핸들러가 펌프를 막는다 (saveLayout의 블로킹 Query도 동일).
 - **스트리밍 아님**: terminal.output은 250ms/4KiB 코얼레싱된 청크 — 행 경계
