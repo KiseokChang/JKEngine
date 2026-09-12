@@ -55,7 +55,8 @@ const char* kToolsListJson =
 "{\"name\":\"restore_layout\",\"description\":\"Restore window positions from a layout snapshot (matched by title)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}},"
 "{\"name\":\"read_log\",\"description\":\"Tail the jkdesktop server log (env JKDESKTOP_LOG or jkdesktop_run.log)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"lines\":{\"type\":\"integer\"},\"match\":{\"type\":\"string\"}}}},"
 "{\"name\":\"read_events\",\"description\":\"Drain desktop events (window.created/destroyed/focused) received since the last call\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}},"
-"{\"name\":\"terminal_exec\",\"description\":\"Run a command in a ConPTY session and return its output (Windows only)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"command\":{\"type\":\"string\"},\"timeoutSec\":{\"type\":\"integer\"}},\"required\":[\"command\"]}}"
+"{\"name\":\"terminal_exec\",\"description\":\"Run a command in a ConPTY session and return its output (Windows only)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"command\":{\"type\":\"string\"},\"timeoutSec\":{\"type\":\"integer\"}},\"required\":[\"command\"]}},"
+"{\"name\":\"trust_list\",\"description\":\"List trusted script fingerprints from state/trust.json\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}}"
 "]}";
 
 // Known tool names.
@@ -63,7 +64,7 @@ bool IsKnownTool(const std::string& name) {
     static const char* kNames[] = {
         "list_windows", "launch_app", "focus_window", "close_window",
         "save_layout", "restore_layout", "read_log", "read_events",
-        "terminal_exec"
+        "terminal_exec", "trust_list"
     };
     for (const char* n : kNames) {
         if (name == n) return true;
@@ -92,7 +93,7 @@ std::map<std::string, bool> LoadPermissions() {
     static const char* kNames[] = {
         "list_windows", "launch_app", "focus_window", "close_window",
         "save_layout", "restore_layout", "read_log", "read_events",
-        "terminal_exec"
+        "terminal_exec", "trust_list"
     };
     std::map<std::string, bool> perms;
     for (const char* n : kNames) perms[n] = true;
