@@ -97,7 +97,7 @@ if (g_timers.size() >= kMaxTimers) {
 - [ ] **Step 6: 빌드 + selftest**: `jktriggers.exe --selftest` exit 0
 - [ ] **Step 7: Commit** `feat(triggers): per-source rate limit + timer cap + ts int64 (docs/38 Task 1)`
 
-⚠️ 회귀 게이트: 서버 publish_event cap(30/10s)이 이 시점엔 없다 — 기존 triggers 프로브의 발화량(≤ 수 회)에 영향 없음을 Task 3에서 실측. 이 커밋 이후 `jkdesktop test`는 불필요(jkdesktop 미변경).
+⚠️ 회귀 게이트: 서버 publish_event cap(60/10s)이 이 시점엔 없다 — 기존 triggers 프로브의 발화량(≤ 수 회)에 영향 없음을 Task 3에서 실측. 이 커밋 이후 `jkdesktop test`는 불필요(jkdesktop 미변경).
 
 ### Task 2: 서버 — publish_event 연결 cap + name 상한 + trust_list 파손 구분
 
@@ -119,9 +119,11 @@ std::map<uint64_t, PublishBudget> publishBudgets_;
 - [ ] **Step 2: publish_event 브랜치 게이트** — 검증 통과 후 `PushAgentEventJson(ev)` 앞:
 
 ```cpp
-// docs/38: connection-level cap — 30 events / 10s. Over-cap events are
-// dropped but answered ok so senders don't turn into retry bombs.
-constexpr int kPublishCap = 30;
+// docs/38: connection-level cap — 60 events / 10s (same figure as the local
+// handler cap so the local cap binds first for self-loops — deterministic
+// notify/stop point; spec §2 interaction note). Over-cap events are dropped
+// but answered ok so senders don't turn into retry bombs.
+constexpr int kPublishCap = 60;
 constexpr uint64_t kPublishWindowMs = 10000;
 const uint64_t nowMs = static_cast<uint64_t>(
     std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -161,28 +163,39 @@ if (name.size() > 96) { reply = "{\"ok\":false,\"error\":\"bad_name\"}"; /* skip
 **Interfaces:**
 - Consumes: probe_agent_trust.ps1의 기동/정리 관례(포트, process kill, trust.json 보존), BOM 필수 레슨 50, agentctl 공백 제한(레슨 26/32)
 
-- [ ] **Step 1: 테스트 번들** — `rate_probe` (dev .js로도 드롭 가능하나 trust 게이트가 프롬프트 파킹시키므로 **패키지 경로**로: `--pack` 후 부팅 — probe_agent_trust의 자가치유 재팩 관례 재사용). `main.js`:
+- [ ] **Step 1: 테스트 번들** — `rate_probe` (dev .js로 드롭하면 trust 게이트가 프롬프트 파킹시키므로 **패키지 경로**: `--pack` 후 부팅 — probe_agent_trust의 자가치유 재팩 관례 재사용, pack 레코드로 무프롬프트). `main.js`:
 
 ```js
+// Phases driven by the probe publishing kick events (server cap = local cap
+// = 60 — the LOCAL cap binds first for self-loops; spec §2 interaction note).
+on("ratelimit.kick_burst", null, function (e) {
+  for (var i = 0; i < 70; i++) desktop.publish("ratelimit.server", { n: i });
+  desktop.log("burst done");
+});
+on("ratelimit.kick_loop", null, function (e) {
+  desktop.publish("ratelimit.ping", { n: 0 });
+});
 on("ratelimit.ping", null, function (e) {
   var n = (e.data && e.data.n) || 0;
+  desktop.log("ping:" + n);
   desktop.publish("ratelimit.ping", { n: n + 1 });
 });
 on("ratelimit.other", null, function (e) { desktop.log("other fired"); });
-on("ratelimit.timers", null, function (e) {
+on("ratelimit.kick_timers", null, function (e) {
   for (var i = 0; i < 70; i++) setTimeout(function () {}, 1000);
 });
 ```
 
-셀프루프: ping 발화 → publish ping → 다음 펌프에서 재발화 → cap 60에서 정지.
-- [ ] **Step 2: 프로브 체크 (7개)** — 각 PASS/FAIL + 실패 exit 1, cleanup(trust.json pack 보존 관례):
-  1. 셀프루프 발화 ≤ 61 (호스트 stdout 로그의 publish 카운트 or 다른 관측 지표 — desktop.log 마커로 실측 권장: 핸들러에 `desktop.log("ping:"+n)` 추가해 로그 행 카운트)
-  2. `[triggers] rate limit:` 로그 정확 1회
-  3. `트리거 발화 제한` 알림 채팅 트랜스크립트에 정확 1회 (probe_agent_triggers의 트랜스크립트 판독 관례 — 레슨 33: 프로세스 죽이기 전 판독)
-  4. 격리 — `ratelimit.other` 마커는 cap 도달 이후에도 여전히 발화 (다른 source 예산)
-  5. 타이머 상한 — `ratelimit.timers` 발화 후 호스트 로그에 `timer cap` → `timer dropped` 7회(70-64)
-  6. 서버 cap — 40회 publish_event(agentctl, 토픽 ratelimit.server, 공백 없는 data) → 마지막 10개 회신에 `"dropped":1`
+- [ ] **Step 2: 프로브 체크 (7개)** — 각 PASS/FAIL + 실패 exit 1, cleanup(trust.json pack 보존 관례 + 스크립트/컨테이너 제거):
+  1. **버스트**: `ratelimit.kick_burst` 발행 → `burst done` 로그 → events_list에서 `ratelimit.server` fired == 60 (70 중 10 드롭) + 서버 로그 `publish_event rate-capped` 1회
+  2. **윈도우 리셋 대기 10초** → `ratelimit.kick_loop` 발행 → 호스트 로그의 `ping:` 행 카운트가 **55..61** 범위 (로컬 cap 60에서 정지)
+  3. `[triggers] rate limit:` 로그 정확 1회
+  4. `트리거 발화 제한` 알림 채팅 트랜스크립트에 정확 1회 (probe_agent_triggers의 트랜스크립트 판독 관례 — 레슨 33: 프로세스 죽이기 전 판독)
+  5. 격리 — `ratelimit.other` 킥 발행 → `other fired` 마커 발화 (다른 source 예산)
+  6. 타이머 상한 — `ratelimit.kick_timers` 발행 → 호스트 로그에 `timer dropped` 7회(70-64)
   7. 회귀 — probe_agent_triggers.ps1 7/7 + probe_agent_trust.ps1 7/7 (별도 실행)
+  주의: 2번 페이즈 전 10초 대기 — 버스트가 jktriggers 연결의 서버 예산을 소진했으므로 셀프루프 페이즈는 리셋된 윈도우에서 실행 (레슨 28: 구독/기동 순서 — 채팅 구독은 킥 전 기동).
+- [ ] **Step 2.5: events_list 판독** — `agentctl '{"tool":"events_list","args":{}}'` 응답에서 `events[].topic=="ratelimit.server"`의 `fired` 실측 (docs/32 §7.5 관례).
 - [ ] **Step 3: 전체 회귀** — mcp 5/5, e2e 7/7, palette 4/4, chat 7/7, events 5/5
 - [ ] **Step 4: Commit** `test(triggers): probe_agent_ratelimit — self-loop cap, isolation, server drop`
 

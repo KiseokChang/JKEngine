@@ -33,8 +33,12 @@
 - **동작**: DispatchEvent에서 filter 통과 후 JS_Call 직전에 예산 확인·소비.
   초과 시 핸들러 **스킵**(이벤트 하나만 — 다른 트리거는 정상 발화).
 - **통지는 윈도우당 1회**: 초과 첫 이벤트에서 `desktop.publish("agent.notify",
-  {"title":"트리거 발화 제한","body":"<source> — 60초 동안 N회 초과"})` 1회 +
+  {"title":"트리거 발화 제한","body":"<source> — 이벤트 발화 상한 도달"})` 1회 +
   HostLog 1회. 윈도우 리셋 시 재통지 허용 (폭주 자체는 계속 조용히 스킵).
+- **cap 상호작용 (preflight ruling)**: 서버 연결 cap(§4)은 **60/10s**로 맞춘다 —
+  로컬 cap(60/60s)과 동일 수치로, 셀프루프 패턴에서 항상 **로컬 cap이 먼저
+  바인딩**되어 notify-once·정지 지점이 결정론적. 서버 cap이 더 낮으면 루프가
+  로컬 통지 전에 서버에서 굶는다. (초안 30/10s → 정정.)
 - **예산 소비는 성공 발화만**: JS_Call이 예외로 끝나도 1회로 센다(발화 자체 소비).
   필터 미스·disabled는 소비 아님.
 - dead-letter: 현재 디스패치는 동기 호출 + 큐 없음 — 개념 미적용 (문서로만 명시).
@@ -47,7 +51,8 @@
 
 ## 4. 서버 — publish_event 연결 cap
 
-- HandleAgentQuery publish_event 브랜치: **연결별 고정 윈도우 30 이벤트 / 10초**.
+- HandleAgentQuery publish_event 브랜치: **연결별 고정 윈도우 60 이벤트 / 10초**
+  (§2 상호작용 — 로컬 cap과 동일 수치).
   초과 이벤트는 **드롭** + `{"ok":true,"dropped":1}` 회신(발신자가 재시도 폭탄을
   안 돌리도록 ok로 통과, `dropped` 필드로 정직 표시) + 서버 로그 1회/윈도우.
 - 상태: `map<uint64_t connId, {windowStart, count}>` — 브로드캐스트 전 확인.
@@ -70,9 +75,13 @@
 
 - **selftest (jktriggers)**: 윈도우 cap 경계(60→61회), 리셋 후 재발화, 타이머
   상한(64+1), ts int64 라운드트립(19억+ 초 값).
-- **`probe_agent_ratelimit.ps1`** (신규): 셀프루프 트리거 스크립트 드롭
-  (on X → publish X) → 발화 ≤ cap 실측 + `트리거 발화 제한` 알림 정확 1회 +
-  다른 트리거는 여전히 발화(격리) + 서버 publish_event 폭탄(연결 cap) 드롭 실측.
+- **`probe_agent_ratelimit.ps1`** (신규, 페이즈 구성 — cap 상호작용으로 결정론 확보):
+  1. **버스트 페이즈** (신규 윈도우): 핸들러가 `ratelimit.server` 토픽으로 70회
+     publish → events_list에서 fired == 60 + 서버 `rate-capped` 로그 1회
+  2. 10초 대기 (서버 윈도우 리셋) → **셀프루프 페이즈**: `on X → publish X` →
+     발화 60±1 + `rate limit:` 로그 1회 + `트리거 발화 제한` 알림 채팅 트랜스크립트 1회
+  3. 격리 — 다른 토픽 트리거는 cap 도달 이후에도 발화
+  4. 타이머 상한 — 70개 setTimeout → `timer dropped` 7회(70-64)
 - 기존 회귀 전부 유지 (triggers 7/7, trust 7/7, events 5/5, chat 7/7, mcp 5/5,
   e2e 7/7, palette 4/4).
 
