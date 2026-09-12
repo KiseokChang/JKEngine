@@ -168,5 +168,6 @@ jktriggers/jkchat/터미널은 영향 없음. 프로브 페이로드는 공백�
   docs/33)**: jkapp_notify (ImGui 클라, 히스토리/토스트/제목 배지).
 - **M2b 남은 것**: ~~트리거 활성/비활성 UI~~ — **구현됨 (2026-09-11,
   docs/34)**: trigger_toggle/trigger_list 도구 + 팔레트 /triggers·/trigger +
-  state/triggers.json 플래그 + triggers.reload 재적재. 스크립트 서명/신뢰
-  모델은 후속.
+  state/triggers.json 플래그 + triggers.reload 재적재. ~~스크립트 서명/신뢰
+  모델~~ — **구현됨 (2026-09-13, docs/37)**: SHA-256 지문 + state/trust.json
+  + trust_request 승인 파이프라인 일반화.
