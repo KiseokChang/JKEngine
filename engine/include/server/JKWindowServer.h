@@ -169,7 +169,13 @@ private:
         uint32_t queryId = 0;      // AgentQuery to complete on resolution
         uint32_t requesterId = 0;  // requesting connection's id
         uint32_t targetId = 0;     // window the request would touch
+                                   // (trust_request: 0 — no target window)
         time_t expiresAt = 0;
+        // Script trust model (docs/37 spec): one pipeline, two kinds.
+        std::string kind = "close_window";  // "close_window" | "trust_request"
+        std::string name;          // trust_request: script display name
+        std::string origin;        // trust_request: "dev" | "package"
+        std::string fingerprint;   // trust_request: "sha256:<64hex>"
     };
     std::vector<PendingApproval> pendingApprovals_;
     uint32_t nextApprovalId_ = 1;

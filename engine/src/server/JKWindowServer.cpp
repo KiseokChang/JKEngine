@@ -1425,6 +1425,69 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                     break;
             }
         }
+    } else if (tool == "trust_request") {
+        // Script trust gate (docs/37 spec): jktriggers asks before the first
+        // eval of an unknown fingerprint. Default permission is "ask" — the
+        // same inline-approval pipeline as close_window. The server only
+        // relays the decision; the loader owns trust.json.
+        std::string name, origin, fingerprint;
+        req.GetObjStr("args", "name", name);
+        req.GetObjStr("args", "origin", origin);
+        req.GetObjStr("args", "fingerprint", fingerprint);
+        if (name.empty() || fingerprint.empty()) {
+            reply = "{\"ok\":false,\"error\":\"missing_name\"}";
+        } else {
+            switch (AgentToolAllowed("trust_request")) {
+                case AgentDecision::Allow:
+                    // permissions.json says allow — every script is trusted.
+                    reply = "{\"ok\":true}";
+                    break;
+                case AgentDecision::Ask: {
+                    bool subscriber = false;
+                    for (auto& c : clients_) {
+                        if (c && c->AgentEventSubscriber() &&
+                            !c->IsDisconnected()) {
+                            subscriber = true;
+                            break;
+                        }
+                    }
+                    if (!subscriber) {
+                        reply = "{\"ok\":false,\"error\":\"approval_unavailable\"}";
+                        break;
+                    }
+                    PendingApproval p;
+                    p.kind = "trust_request";
+                    p.name = name;
+                    p.origin = origin;
+                    p.fingerprint = fingerprint;
+                    p.requestId = nextApprovalId_++;
+                    p.queryId = queryId;
+                    p.requesterId = client.Id();
+                    p.targetId = 0;
+                    p.expiresAt = std::time(nullptr) + 60;
+                    char buf[1024];
+                    std::snprintf(buf, sizeof(buf),
+                                  "{\"topic\":\"agent.approval_request\","
+                                  "\"request\":%u,\"tool\":\"trust_request\","
+                                  "\"kind\":\"trust_request\",\"name\":\"%s\","
+                                  "\"origin\":\"%s\",\"fingerprint\":\"%s\","
+                                  "\"ts\":%lld}",
+                                  p.requestId, JsonEsc(name).c_str(),
+                                  JsonEsc(origin).c_str(),
+                                  fingerprint.c_str(),
+                                  static_cast<long long>(std::time(nullptr)) *
+                                      1000);
+                    pendingApprovals_.push_back(p);
+                    PushAgentEventJson(buf);
+                    replied = false;  // answered when the approval resolves
+                    break;
+                }
+                case AgentDecision::Deny:
+                default:
+                    reply = "{\"ok\":false,\"error\":\"permission_denied\"}";
+                    break;
+            }
+        }
     } else if (tool == "launch_app") {
         std::string app, jkx;
         req.GetObjStr("args", "app", app);
@@ -1783,6 +1846,40 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             out += "],\"enabled\":" + std::to_string(kv.second.second) + "}";
         }
         reply = out + "]}";
+    } else if (tool == "trust_list") {
+        // Script trust store (docs/37 spec): the loader's trust.json records,
+        // fingerprints truncated to 15 chars ("sha256:"+8hex) for display.
+        std::string out = "{\"ok\":true,\"records\":[";
+        bool first = true;
+        std::FILE* f =
+            std::fopen((StateDir() + "\\trust.json").c_str(), "rb");
+        if (f) {
+            char buf[65536] = {};
+            const size_t n = std::fread(buf, 1, sizeof(buf) - 1, f);
+            std::fclose(f);
+            jk::agent::AgentJson json(buf);
+            int cnt = 0;
+            if (json.ok() && json.GetArraySize("records", cnt)) {
+                for (int i = 0; i < cnt && i < 512; ++i) {
+                    std::string fp, name, source;
+                    int ts = 0;
+                    if (!json.GetArrStr("records", i, "fingerprint", fp))
+                        continue;
+                    json.GetArrStr("records", i, "name", name);
+                    json.GetArrStr("records", i, "source", source);
+                    json.GetArrInt("records", i, "ts", ts);
+                    if (!first) out += ",";
+                    first = false;
+                    out += "{\"fingerprint\":\"" +
+                           (fp.size() > 15 ? fp.substr(0, 15) : fp) +
+                           "\",\"name\":\"" + JsonEsc(name) +
+                           "\",\"source\":\"" + JsonEsc(source) +
+                           "\",\"ts\":" + std::to_string(ts) + "}";
+                }
+            }
+        }
+        out += "]}";
+        reply = out;
     } else if (tool == "events_list") {
         // docs/32: the structured event catalog. Static rows describe the
         // system topics (source + payload shape); fired/last_ts come from
@@ -1868,7 +1965,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
              it != pendingApprovals_.end(); ++it) {
             if (it->requestId != static_cast<uint32_t>(request)) continue;
             resolved = true;
-            if (allow) {
+            if (allow && it->kind == "close_window") {
                 for (auto& c : clients_) {
                     if (c && c->Id() == it->targetId && !c->IsDisconnected()) {
                         ipc::WriteMessage(c->Transport(), ipc::MsgType::Close,
@@ -2002,8 +2099,9 @@ bool JKWindowServer::ToggleClientByTitleUnsafe(const char* title,
 // (the palette does over its window connection). close_window is denied by
 // default; <exeDir>\permissions.json — the same file the broker reads, both
 // exes live in the same build directory — is the approval act.
-// M2 chat: "ask" means the inline-approval pipeline (chat window) — wired for
-// close_window; other tools degrade to allow since nothing parks them.
+// M2 chat / docs/37: "ask" means the inline-approval pipeline (chat window) —
+// wired for close_window + trust_request; other tools degrade to allow since
+// nothing parks them.
 AgentDecision JKWindowServer::AgentToolAllowed(const std::string& tool) const {
     char exePath[1024] = {};
     GetModuleFileNameA(nullptr, exePath, sizeof(exePath));
@@ -2011,9 +2109,18 @@ AgentDecision JKWindowServer::AgentToolAllowed(const std::string& tool) const {
     const size_t slash = dir.find_last_of("\\/");
     if (slash != std::string::npos) dir = dir.substr(0, slash);
     const std::string path = dir + "\\permissions.json";
-    const bool defaultAllowed = (tool != "close_window");
+    // Missing entry defaults: close_window denies (M1 rule), trust_request
+    // ASKS (the gate would be pointless if unknown scripts loaded silently),
+    // everything else allows. "ask" pipelines: close_window + trust_request;
+    // other tools degrade to allow since nothing parks them.
+    const bool askCapable = (tool == "close_window" || tool == "trust_request");
+    auto defaultDecision = [&]() -> AgentDecision {
+        if (tool == "close_window") return AgentDecision::Deny;
+        if (tool == "trust_request") return AgentDecision::Ask;
+        return AgentDecision::Allow;
+    };
     std::FILE* f = std::fopen(path.c_str(), "rb");
-    if (!f) return defaultAllowed ? AgentDecision::Allow : AgentDecision::Deny;
+    if (!f) return defaultDecision();
     char buf[4096] = {};
     const size_t n = std::fread(buf, 1, sizeof(buf) - 1, f);
     std::fclose(f);
@@ -2021,16 +2128,14 @@ AgentDecision JKWindowServer::AgentToolAllowed(const std::string& tool) const {
     jk::agent::AgentJson perm(buf);
     std::string value;
     if (!perm.ok() || !perm.GetStr(tool.c_str(), value)) {
-        return defaultAllowed ? AgentDecision::Allow : AgentDecision::Deny;
+        return defaultDecision();
     }
     if (value == "allow") return AgentDecision::Allow;
     if (value == "ask") {
-        return (tool == "close_window") ? AgentDecision::Ask
-                                        : AgentDecision::Allow;
+        return askCapable ? AgentDecision::Ask : AgentDecision::Allow;
     }
-    return value == "deny" ? AgentDecision::Deny
-                           : (defaultAllowed ? AgentDecision::Allow
-                                             : AgentDecision::Deny);
+    if (value == "deny") return AgentDecision::Deny;
+    return defaultDecision();
 }
 
 // <exeDir>/state — agent-created files (layout snapshots). CreateDirectoryA
