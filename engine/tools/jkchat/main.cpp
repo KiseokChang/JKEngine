@@ -205,6 +205,25 @@ static void ShowApproval(const std::string& title, uint32_t targetId,
     ShowWindow(g_hDeny, SW_SHOWNORMAL);
 }
 
+// Script trust prompt (docs/37 spec): same strip, different copy. The
+// fingerprint shows as "sha256:"+8 hex — enough to eyeball against
+// /trust output, full value in the transcript log.
+static void ShowTrustApproval(const std::string& name, const std::string& origin,
+                              const std::string& fingerprint, uint32_t request) {
+    g_approvalRequest = request;
+    const std::string fp8 =
+        fingerprint.size() > 15 ? fingerprint.substr(0, 15) : fingerprint;
+    wchar_t buf[512];
+    _snwprintf_s(buf, _TRUNCATE,
+                 L"[신뢰 요청] %s (%s) 해시 %s… 승인할까요?",
+                 Utf8ToWide(name).c_str(), Utf8ToWide(origin).c_str(),
+                 Utf8ToWide(fp8).c_str());
+    SetWindowTextW(g_hPrompt, buf);
+    ShowWindow(g_hPrompt, SW_SHOWNORMAL);
+    ShowWindow(g_hAllow, SW_SHOWNORMAL);
+    ShowWindow(g_hDeny, SW_SHOWNORMAL);
+}
+
 static void HideApproval() {
     g_approvalRequest = 0;
     ShowWindow(g_hPrompt, SW_HIDE);
@@ -413,7 +432,7 @@ static void Submit() {
 
     if (cmd == "help") {
         Log(L"자연어 입력 → LLM(claude 헤드리스) 위임 / 슬래시: 결정적 커맨드");
-        Log(L"/list /launch <app> /close <id> /chat /notify /shot /triggers");
+        Log(L"/list /launch <app> /close <id> /chat /notify /shot /triggers /trust");
         Log(L"/trigger <name> on|off /events /save <name> /restore <name>");
         Log(L"/undo /new");
     } else if (cmd == "new") {
@@ -485,6 +504,9 @@ static void Submit() {
     } else if (cmd == "events") {
         // Structured event catalog (docs/32).
         SendTool("events_list", "{}", "events");
+    } else if (cmd == "trust") {
+        // Script trust store (docs/37, palette parity).
+        SendTool("trust_list", "{}", "trust");
     } else {
         Log(L"알 수 없는 커맨드 — /help 참고");
     }
@@ -493,15 +515,28 @@ static void Submit() {
 static void HandleEvent(const jk::agent::AgentEvent& ev) {
     if (ev.topic == "agent.approval_request") {
         jk::agent::AgentJson e(ev.json);
-        std::string title;
-        int request = 0, target = 0;
+        std::string kind;
+        int request = 0;
         e.GetInt("request", request);
-        e.GetInt("target_id", target);
-        e.GetStr("title", title);
-        ShowApproval(title, static_cast<uint32_t>(target),
-                     static_cast<uint32_t>(request));
-        Log("[승인 요청] close_window → " + title + " (#" +
-            std::to_string(target) + ")");
+        e.GetStr("kind", kind);
+        if (kind == "trust_request") {
+            std::string name, origin, fp;
+            e.GetStr("name", name);
+            e.GetStr("origin", origin);
+            e.GetStr("fingerprint", fp);
+            ShowTrustApproval(name, origin, fp, static_cast<uint32_t>(request));
+            Log("[신뢰 요청] " + name + " (" + origin + ") — 해시 " +
+                (fp.size() > 15 ? fp.substr(0, 15) : fp) + "…");
+        } else {
+            std::string title;
+            int target = 0;
+            e.GetInt("target_id", target);
+            e.GetStr("title", title);
+            ShowApproval(title, static_cast<uint32_t>(target),
+                         static_cast<uint32_t>(request));
+            Log("[승인 요청] close_window → " + title + " (#" +
+                std::to_string(target) + ")");
+        }
     } else if (ev.topic == "agent.approval_resolved") {
         jk::agent::AgentJson e(ev.json);
         std::string decision;
