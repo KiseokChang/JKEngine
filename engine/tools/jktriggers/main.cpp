@@ -108,7 +108,8 @@ bool Publish(const std::string& topic, const std::string& dataRawJson);
 std::string JsonEscapeStr(const std::string& s);  // defined below (trust block)
 
 // Core with injected clock (selftest). Returns true when this invocation may
-// proceed; consumes 1 budget unit either way once the filter has passed.
+// proceed; consumes 1 budget unit only when allowed — a throttled call
+// returns false without touching the count.
 bool RateAllowAt(const std::string& source, uint64_t nowMs) {
     SourceBudget& b = g_budget[source];
     if (nowMs - b.windowStartMs >= kRateLimitWindowMs) {
@@ -422,22 +423,23 @@ int SelfTest() {
         check(!IsTrusted(recs, "sha256:ccc3") && !IsTrusted(recs, ""),
               "is_trusted unknown fail-closed");
         check(SaveTrustRecords(path, recs), "trust save");
-        // ts int64: a post-int32 epoch value survives the save/load roundtrip
-        // through the direct-QuickJS ts reader (GetArrInt would truncate).
+        // ts int64: a value beyond INT32_MAX survives the save/load roundtrip
+        // through the direct-QuickJS ts reader (GetArrInt would truncate it —
+        // 2200000000 pins the widening, not just a wide-but-in-int32 value).
         {
             std::vector<TrustRecord> big;
             TrustRecord t64;
             t64.fingerprint = "sha256:ccc3";
             t64.name = "big_ts";
             t64.source = "user";
-            t64.ts = 1900000000;
+            t64.ts = 2200000000;
             TrustUpsert(&big, t64);
             const std::string tsPath = g_exeDir + "\\state\\_selftest_ts.json";
             check(SaveTrustRecords(tsPath, big), "ts int64 save");
             std::vector<TrustRecord> tsBack;
             LoadTrustRecords(tsPath, &tsBack);
-            check(tsBack.size() == 1 && tsBack[0].ts == 1900000000,
-                  "ts int64 roundtrip (1900000000)");
+            check(tsBack.size() == 1 && tsBack[0].ts == 2200000000,
+                  "ts int64 roundtrip (2200000000 > INT32_MAX)");
             DeleteFileA(tsPath.c_str());
         }
         std::vector<TrustRecord> back;
