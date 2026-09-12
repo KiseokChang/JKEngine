@@ -414,7 +414,8 @@ static void Submit() {
     if (cmd == "help") {
         Log(L"자연어 입력 → LLM(claude 헤드리스) 위임 / 슬래시: 결정적 커맨드");
         Log(L"/list /launch <app> /close <id> /chat /notify /shot /triggers");
-        Log(L"/trigger <name> on|off /save <name> /restore <name> /undo /new");
+        Log(L"/trigger <name> on|off /events /save <name> /restore <name>");
+        Log(L"/undo /new");
     } else if (cmd == "new") {
         g_sessionId.clear();
         Log(L"새 LLM 세션");
@@ -481,6 +482,9 @@ static void Submit() {
         // Palette parity (docs/31): spawn another chat window (inline
         // approval surface).
         SendTool("launch_chat", "{}", "chat");
+    } else if (cmd == "events") {
+        // Structured event catalog (docs/32).
+        SendTool("events_list", "{}", "events");
     } else {
         Log(L"알 수 없는 커맨드 — /help 참고");
     }

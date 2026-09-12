@@ -216,8 +216,12 @@ void ClientPaletteApp::Submit(const std::string& text) {
                                 ? std::string() : Trim(text.substr(sp + 1));
     if (cmd == "help") {
         AppendLog("  /list  /launch <app>  /close <id>  /chat  /notify");
-        AppendLog("  /shot  /triggers  /trigger <name> on|off");
+        AppendLog("  /shot  /triggers  /trigger <name> on|off  /events");
         AppendLog("  /save <name>  /restore <name>  /undo");
+    } else if (cmd == "events") {
+        // Structured event catalog (docs/32): topic/source/payload shape +
+        // live fired/last_ts/subscribers.
+        SendTool("events_list", "{}");
     } else if (cmd == "notify") {
         // Open/toggle the notification center (docs/33).
         SendTool("open_notify", "{}");

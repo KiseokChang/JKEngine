@@ -1783,6 +1783,73 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             out += "],\"enabled\":" + std::to_string(kv.second.second) + "}";
         }
         reply = out + "]}";
+    } else if (tool == "events_list") {
+        // docs/32: the structured event catalog. Static rows describe the
+        // system topics (source + payload shape); fired/last_ts come from
+        // the runtime stats and subscribers from the live connections.
+        // Topics published via publish_event that are not cataloged are
+        // appended as dynamic "app" rows.
+        size_t subscribers = 0;
+        for (auto& c : clients_) {
+            if (c && c->AgentEventSubscriber() && !c->IsDisconnected()) {
+                ++subscribers;
+            }
+        }
+        static const struct {
+            const char* topic;
+            const char* source;  // server | app
+            const char* desc;
+            const char* fields;  // JSON array literal of payload paths
+        } kCatalog[] = {
+            {"window.created", "server", "클라 창(레이어) 생성",
+             "[\"id\",\"title\",\"pid\"]"},
+            {"window.focused", "server", "창 포커스 이동",
+             "[\"id\",\"title\",\"pid\"]"},
+            {"window.destroyed", "server", "창 소멸(연결 종료, 정상 종료 포함)",
+             "[\"id\",\"title\",\"pid\"]"},
+            {"app.crashed", "server", "앱 비정상 종료(exit code 0/259 외)",
+             "[\"id\",\"title\",\"pid\"]"},
+            {"agent.approval_request", "server", "ask 권한 승인 요청 (docs/31)",
+             "[\"request\",\"tool\",\"target_id\",\"title\"]"},
+            {"agent.approval_resolved", "server",
+             "승인 결정: allow/deny/timeout", "[\"request\",\"decision\"]"},
+            {"terminal.output", "app", "터미널 출력(250ms 코얼레싱, VT 제거)",
+             "[\"data.text\"]"},
+            {"agent.notify", "app",
+             "알림 방송 — desktop.notify()가 발행, 채팅 [알림] 줄 + 알림 센터가 소비",
+             "[\"data.title\",\"data.body\"]"},
+            {"triggers.reload", "server", "트리거 플래그 변경 재적재 신호", "[]"},
+        };
+        std::string out = "{\"ok\":true,\"subscribers\":" +
+                          std::to_string(subscribers) + ",\"events\":[";
+        bool first = true;
+        auto appendEntry = [&](const std::string& topic, const char* source,
+                               const char* desc, const char* fields) {
+            const auto it = topicStats_.find(topic);
+            const uint64_t fired =
+                it == topicStats_.end() ? 0 : it->second.fired;
+            const long long lastTs =
+                it == topicStats_.end() ? 0 : it->second.lastTs;
+            if (!first) out += ",";
+            first = false;
+            out += "{\"topic\":\"" + JsonEsc(topic) + "\",\"source\":\"" +
+                   source + "\",\"desc\":\"" + JsonEsc(desc) +
+                   "\",\"fields\":" + fields + ",\"fired\":" +
+                   std::to_string(fired) + ",\"last_ts\":" +
+                   std::to_string(lastTs) + "}";
+        };
+        for (const auto& e : kCatalog) {
+            appendEntry(e.topic, e.source, e.desc, e.fields);
+        }
+        for (const auto& kv : topicStats_) {
+            bool inCatalog = false;
+            for (const auto& e : kCatalog) inCatalog |= (e.topic == kv.first);
+            if (!inCatalog) {
+                appendEntry(kv.first, "app",
+                            "publish_event로 발행된 동적 토픽", "[]");
+            }
+        }
+        reply = out + "]}";
     } else if (tool == "launch_chat") {
         // M2 chat: open the Win32 chat window (approval surface). One API,
         // many faces — MCP agents can open it too.
@@ -1857,6 +1924,22 @@ void JKWindowServer::PushAgentEvent(const char* topic, uint32_t id,
 
 // Push a fully-formed agent event JSON (topic included) to subscribers.
 void JKWindowServer::PushAgentEventJson(const std::string& json) {
+    // events_list stats (docs/32): every emit site starts the envelope with
+    // {"topic":"..." — a raw scan avoids a JSON parse on the hot path.
+    static constexpr char kKey[] = "\"topic\":\"";
+    const size_t keyPos = json.find(kKey);
+    if (keyPos != std::string::npos) {
+        const size_t start = keyPos + sizeof(kKey) - 1;
+        const size_t end = json.find('"', start);
+        if (end != std::string::npos) {
+            TopicStat& st = topicStats_[json.substr(start, end - start)];
+            ++st.fired;
+            st.lastTs = static_cast<long long>(
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::system_clock::now().time_since_epoch())
+                    .count());
+        }
+    }
     for (auto& c : clients_) {
         // M2a: window clients can opt in too (the palette does, via
         // AgentEventSubscribe on its regular connection); control-only agent

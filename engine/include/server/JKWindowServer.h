@@ -183,6 +183,15 @@ private:
     uint32_t pendingSnapSpawnerConnId_ = 0;
     std::unordered_map<uint32_t, uint32_t> overlaySpawner_;
 
+    // docs/32: per-topic runtime stats for the events_list catalog — fired
+    // count and last fire timestamp (epoch ms), keyed by topic. Updated in
+    // PushAgentEventJson (single server-loop thread).
+    struct TopicStat {
+        uint64_t fired = 0;
+        long long lastTs = 0;
+    };
+    std::unordered_map<std::string, TopicStat> topicStats_;
+
     // Server-side mouse capture (Win32 SetCapture equivalent): the surface id
     // that received the last MouseDown and has not seen its MouseUp yet.
     // While set, MouseMove/MouseUp are routed to this client even when the

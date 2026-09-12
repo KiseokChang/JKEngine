@@ -119,6 +119,42 @@ Connect → SubscribeEvents(true) → 루프:
 jktriggers/jkchat/터미널은 영향 없음. 프로브 페이로드는 공백을 피함
 (`/error:/i`는 `error:C2084`도 잡는다).
 
+## 7.5 이벤트 카탈로그 — events_list 도구 (2026-09-12)
+
+이벤트 버스의 **구조화된 카탈로그**: 토픽마다 발신처/설명/페이로드 필드를
+문서로 갖고, 런타임 통계(발화 횟수·마지막 발화 시각)와 라이브 구독자 수를
+덧붙여 준다. "그냥 리스트가 아니라 구조화"가 요구사항이었다.
+
+```bash
+./jkdesktop.exe agentctl '{"tool":"events_list","args":{}}'
+```
+
+```json
+{"ok":true,"subscribers":1,"events":[
+  {"topic":"window.created","source":"server","desc":"클라 창(레이어) 생성",
+   "fields":["id","title","pid"],"fired":1,"last_ts":1789201673562},
+  {"topic":"terminal.output","source":"app",
+   "desc":"터미널 출력(250ms 코얼레싱, VT 제거)",
+   "fields":["data.text"],"fired":0,"last_ts":0}, ...]}
+```
+
+- **정적 카탈로그 9종**: window.created/focused/destroyed, app.crashed,
+  agent.approval_request/resolved, terminal.output, agent.notify,
+  triggers.reload — 각 항목에 topic/source(server|app)/desc/fields.
+  `fields`는 토픽별 페이로드 키 이름 — 서버 내부 이벤트는 최상위
+  (`id`,`title`,`pid`), publish_event 이벤트는 `data.*` 아래 (`data.text` 등).
+- **런타임 통계**: `PushAgentEventJson`이 매 발화마다 `"topic":"` 원시 스캔으로
+  `topicStats_`를 갱신한다 (핫패스 JSON 파싱 회피). `fired`(누적)와
+  `last_ts`(epoch ms)가 응답에 덧붙는다.
+- **동적 토픽**: 카탈로그에 없는 토픽이 `publish_event`로 발행되면 "app" 소스
+  동적 행으로 자동 추가 — 스크립트가 만든 커스텀 토픽도 목록에 보인다.
+- **`subscribers`**: 현재 이벤트 구독 중인 연결 수
+  (`AgentEventSubscriber() && !IsDisconnected()`).
+- 얼굴: agentctl, 팔레트 `/events`, jkchat `/events` (팔레트 패리티).
+- 테스트: `probe_agent_events.ps1` (5 체크) — 응답 셰이프/엔트리 스키마/
+  window.created 카탈로그+통계/minesweeper 스폰으로 fired 증가 실측/
+  jktriggers 구독으로 subscribers 증가.
+
 ## 8. 제한과 다음 단계
 
 - **rate limit/dead-letter 없음**: 핸들러 예외는 로그만 하고 트리거는 계속.
