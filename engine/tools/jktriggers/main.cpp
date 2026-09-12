@@ -86,6 +86,54 @@ void LogJsException(const std::string& where) {
 }
 
 // ---------------------------------------------------------------------------
+// Rate limiter (docs/38 spec §2): per-source fixed-window budget. A trusted
+// script that runs away (publish→on self-loop) is throttled instead of
+// flooding the bus. Convenience guard — not a security boundary (spec §1).
+// Kept as one block (struct + constants + core with the injected clock) so
+// the throttle reads as a unit. It sits above SelfTest (which consumes
+// RateAllowAt) and above Publish, whose definition is below — the one-time
+// notify path calls it through the hoisted declaration.
+// ---------------------------------------------------------------------------
+struct SourceBudget {
+    uint64_t windowStartMs = 0;
+    int count = 0;
+    bool notified = false;  // one notify + one log per window
+};
+constexpr int kRateLimitCount = 60;
+constexpr uint64_t kRateLimitWindowMs = 60000;
+constexpr size_t kMaxTimers = 64;
+std::map<std::string, SourceBudget> g_budget;
+
+bool Publish(const std::string& topic, const std::string& dataRawJson);
+std::string JsonEscapeStr(const std::string& s);  // defined below (trust block)
+
+// Core with injected clock (selftest). Returns true when this invocation may
+// proceed; consumes 1 budget unit either way once the filter has passed.
+bool RateAllowAt(const std::string& source, uint64_t nowMs) {
+    SourceBudget& b = g_budget[source];
+    if (nowMs - b.windowStartMs >= kRateLimitWindowMs) {
+        b.windowStartMs = nowMs;
+        b.count = 0;
+        b.notified = false;
+    }
+    if (b.count >= kRateLimitCount) {
+        if (!b.notified) {
+            b.notified = true;
+            HostLog("[triggers] rate limit: " + source + " (" +
+                    std::to_string(kRateLimitCount) + " fires/" +
+                    std::to_string(kRateLimitWindowMs / 1000) + "s)");
+            Publish("agent.notify",
+                    "{\"title\":\"트리거 발화 제한\",\"body\":\"" +
+                        JsonEscapeStr(source) + " — 이벤트 발화 상한 도달\"}");
+        }
+        return false;
+    }
+    ++b.count;
+    return true;
+}
+bool RateAllow(const std::string& source) { return RateAllowAt(source, NowMs()); }
+
+// ---------------------------------------------------------------------------
 // Script trust model (docs/37 spec): SHA-256 fingerprints via Windows CNG.
 // ---------------------------------------------------------------------------
 
@@ -116,16 +164,64 @@ std::string Sha256Hex(const uint8_t* data, size_t len) {
 // Trust store — state\trust.json (spec §3).
 // {"records":[{"fingerprint":"sha256:…","name":…,"source":"pack"|"user","ts":…}]}
 // Missing/corrupt file = everything untrusted (fail-closed). ts is epoch
-// seconds (int — AgentJson's int accessor bound; ms would overflow).
+// seconds (long long — the file format is unchanged; only the load path
+// widened, see ReadTrustTimestamps below).
 struct TrustRecord {
     std::string fingerprint;  // "sha256:<64hex>" — the identity key
     std::string name;         // display name ("trig_build", "state/x.js")
     std::string source;       // "pack" (packer self-attestation) | "user" (approval)
-    int ts = 0;               // epoch seconds
+    long long ts = 0;         // epoch seconds
 };
 
 // Defined below with the JSON string helpers (used by SaveTrustRecords).
 std::string JsonEscapeStr(const std::string& s);
+
+// ts (epoch seconds) reader: AgentJson has no int64 array accessor —
+// GetArrInt truncates to int (post-2038 timestamps would clip) and
+// GetArrStr only accepts string values (JS_IsString check), so a strtoll
+// fallback would silently zero every numeric ts. Read ts through a direct
+// QuickJS parse of the same buffer instead: one extra throwaway parse per
+// file at startup, full 64-bit precision, missing/malformed -> 0.
+std::vector<long long> ReadTrustTimestamps(const std::string& text) {
+    std::vector<long long> out;
+    JSRuntime* rt = JS_NewRuntime();
+    JSContext* ctx = rt ? JS_NewContext(rt) : nullptr;
+    if (!ctx) {
+        if (rt) JS_FreeRuntime(rt);
+        return out;
+    }
+    JSValue root = JS_ParseJSON(ctx, text.c_str(), text.size(), "trust");
+    if (JS_IsException(root)) {
+        JS_FreeValue(ctx, JS_GetException(ctx));
+        root = JS_UNDEFINED;
+    }
+    JSValue arr = JS_IsObject(root) ? JS_GetPropertyStr(ctx, root, "records")
+                                    : JS_UNDEFINED;
+    if (JS_IsArray(arr)) {
+        int64_t len = 0;
+        if (JS_GetLength(ctx, arr, &len) == 0) {
+            out.assign(static_cast<size_t>(len), 0);
+            for (int64_t i = 0; i < len; ++i) {
+                JSValue item =
+                    JS_GetPropertyUint32(ctx, arr, static_cast<uint32_t>(i));
+                if (JS_IsObject(item)) {
+                    JSValue v = JS_GetPropertyStr(ctx, item, "ts");
+                    int64_t ts = 0;
+                    if (!JS_IsException(v) && !JS_IsUndefined(v) &&
+                        JS_ToInt64(ctx, &ts, v) == 0)
+                        out[static_cast<size_t>(i)] = ts;
+                    JS_FreeValue(ctx, v);
+                }
+                JS_FreeValue(ctx, item);
+            }
+        }
+    }
+    JS_FreeValue(ctx, arr);
+    JS_FreeValue(ctx, root);
+    JS_FreeContext(ctx);
+    JS_FreeRuntime(rt);
+    return out;
+}
 
 bool LoadTrustRecords(const std::string& path, std::vector<TrustRecord>* out) {
     out->clear();
@@ -140,6 +236,7 @@ bool LoadTrustRecords(const std::string& path, std::vector<TrustRecord>* out) {
     jk::agent::AgentJson json(buf);
     int n = 0;
     if (!json.ok() || !json.GetArraySize("records", n)) return false;
+    const std::vector<long long> tsList = ReadTrustTimestamps(buf);
     for (int i = 0; i < n && i < 512; ++i) {
         TrustRecord r;
         if (!json.GetArrStr("records", i, "fingerprint", r.fingerprint) ||
@@ -147,7 +244,8 @@ bool LoadTrustRecords(const std::string& path, std::vector<TrustRecord>* out) {
             continue;
         json.GetArrStr("records", i, "name", r.name);
         json.GetArrStr("records", i, "source", r.source);
-        json.GetArrInt("records", i, "ts", r.ts);
+        r.ts = i < static_cast<int>(tsList.size()) ? tsList[static_cast<size_t>(i)]
+                                                   : 0;
         out->push_back(std::move(r));
     }
     return true;
@@ -259,7 +357,7 @@ bool TrustGate(const std::string& name, const char* origin,
     r.fingerprint = fp;
     r.name = name;
     r.source = "user";
-    r.ts = static_cast<int>(std::time(nullptr));
+    r.ts = static_cast<long long>(std::time(nullptr));
     TrustUpsert(&g_trust, r);
     SaveTrustRecords(g_exeDir + "\\state\\trust.json", g_trust);
     HostLog("[triggers] trusted + recorded: " + name);
@@ -268,8 +366,10 @@ bool TrustGate(const std::string& name, const char* origin,
 
 int SelfTest() {
     int fails = 0;
+    int total = 0;
     auto check = [&](bool ok, const char* what) {
         HostLog(std::string("[selftest] ") + what + ": " + (ok ? "PASS" : "FAIL"));
+        ++total;
         if (!ok) ++fails;
     };
     // NIST FIPS 180-4 known vectors.
@@ -322,6 +422,24 @@ int SelfTest() {
         check(!IsTrusted(recs, "sha256:ccc3") && !IsTrusted(recs, ""),
               "is_trusted unknown fail-closed");
         check(SaveTrustRecords(path, recs), "trust save");
+        // ts int64: a post-int32 epoch value survives the save/load roundtrip
+        // through the direct-QuickJS ts reader (GetArrInt would truncate).
+        {
+            std::vector<TrustRecord> big;
+            TrustRecord t64;
+            t64.fingerprint = "sha256:ccc3";
+            t64.name = "big_ts";
+            t64.source = "user";
+            t64.ts = 1900000000;
+            TrustUpsert(&big, t64);
+            const std::string tsPath = g_exeDir + "\\state\\_selftest_ts.json";
+            check(SaveTrustRecords(tsPath, big), "ts int64 save");
+            std::vector<TrustRecord> tsBack;
+            LoadTrustRecords(tsPath, &tsBack);
+            check(tsBack.size() == 1 && tsBack[0].ts == 1900000000,
+                  "ts int64 roundtrip (1900000000)");
+            DeleteFileA(tsPath.c_str());
+        }
         std::vector<TrustRecord> back;
         LoadTrustRecords(path, &back);
         // Order: [0] = user-approved-over-pack record (ts 400 — the skipped
@@ -364,7 +482,35 @@ int SelfTest() {
         }
         DeleteFileA(path.c_str());
     }
-    if (fails == 0) HostLog("[selftest] all passed");
+    // Rate limiter (docs/38): fixed-window boundary with the injected clock.
+    // The 61st hit latches notified=true and fires the one-time notify —
+    // Publish fails here (no server) and logs, which is the expected path.
+    {
+        const std::string src = "selftest_rate";
+        g_budget.clear();
+        const uint64_t now = 1000000;  // arbitrary steady-clock ms
+        bool earlyDeny = false;
+        for (int i = 0; i < kRateLimitCount; ++i)
+            earlyDeny |= !RateAllowAt(src, now);
+        check(!earlyDeny, "rate: 60 within window allowed");
+        check(!RateAllowAt(src, now), "rate: 61st denied");
+        check(g_budget[src].notified, "rate: notify latched on denial");
+        check(!RateAllowAt(src, now + 1000),
+              "rate: still denied in same window");
+        check(RateAllowAt(src, now + kRateLimitWindowMs),
+              "rate: window rollover re-allowed");
+        check(!g_budget[src].notified && g_budget[src].count == 1,
+              "rate: budget reset (notified=false, count=1)");
+        bool reDeny = false;
+        for (int i = 1; i < kRateLimitCount; ++i)
+            reDeny |= !RateAllowAt(src, now + kRateLimitWindowMs);
+        check(!reDeny, "rate: re-exhaust after rollover allowed");
+        check(!RateAllowAt(src, now + kRateLimitWindowMs),
+              "rate: re-exhausted denied again");
+        g_budget.clear();
+    }
+    if (fails == 0)
+        HostLog("[selftest] all passed (" + std::to_string(total) + " checks)");
     return fails == 0 ? 0 : 1;
 }
 
@@ -535,6 +681,11 @@ JSValue JsSetTimeout(JSContext* ctx, JSValueConst, int argc,
         return JS_ThrowTypeError(ctx, "setTimeout(fn, ms)");
     int64_t ms = 0;
     if (argc > 1) JS_ToInt64(ctx, &ms, argv[1]);
+    if (g_timers.size() >= kMaxTimers) {
+        HostLog("[triggers] timer cap reached (" +
+                std::to_string(kMaxTimers) + ") — timer dropped");
+        return JS_UNDEFINED;
+    }
     Timer t;
     t.id = g_nextTimerId++;
     t.dueMs = NowMs() + static_cast<uint64_t>(ms < 0 ? 0 : ms);
@@ -551,6 +702,11 @@ JSValue JsSetInterval(JSContext* ctx, JSValueConst, int argc,
     int64_t ms = 0;
     if (argc > 1) JS_ToInt64(ctx, &ms, argv[1]);
     if (ms <= 0) ms = 1;
+    if (g_timers.size() >= kMaxTimers) {
+        HostLog("[triggers] timer cap reached (" +
+                std::to_string(kMaxTimers) + ") — timer dropped");
+        return JS_UNDEFINED;
+    }
     Timer t;
     t.id = g_nextTimerId++;
     t.dueMs = NowMs() + static_cast<uint64_t>(ms);
@@ -705,6 +861,7 @@ void DispatchEvent(const std::string& topic, const std::string& json) {
             JS_FreeValue(g_ctx, r);
             if (!hit) continue;
         }
+        if (!RateAllow(t.source)) continue;  // docs/38: skip quietly (notify once)
         JSValue r = JS_Call(g_ctx, t.handler, JS_UNDEFINED, 1, evArgs);
         if (JS_IsException(r)) {
             LogJsException("handler");
@@ -982,7 +1139,7 @@ int PackMode(const std::string& srcDir, const std::string& outDir) {
             r.fingerprint = FingerprintBytes(blob);
             r.name = fd.cFileName;
             r.source = "pack";
-            r.ts = static_cast<int>(std::time(nullptr));
+            r.ts = static_cast<long long>(std::time(nullptr));
             if (!r.fingerprint.empty()) {
                 std::vector<TrustRecord> recs;
                 LoadTrustRecords(g_exeDir + "\\state\\trust.json", &recs);
