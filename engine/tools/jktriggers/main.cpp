@@ -195,6 +195,29 @@ bool IsTrusted(const std::vector<TrustRecord>& recs, const std::string& fp) {
     return false;
 }
 
+// Fingerprint of raw bytes — empty input yields "" (an empty script never
+// gets a trust record; the loader skips it anyway).
+std::string FingerprintBytes(const std::vector<uint8_t>& bytes) {
+    return bytes.empty() ? std::string()
+                         : Sha256Hex(bytes.data(), bytes.size());
+}
+
+// Container fingerprint (spec §2): SHA-256 over the MANI + SCRI payloads
+// concatenated in TOC order — icon/metadata-only changes do NOT re-trigger
+// approval. Any read failure yields "" (fail-closed).
+std::string FingerprintContainer(jk::JKJkxFile& jkx) {
+    std::vector<uint8_t> blob;
+    for (int i = 0; i < jkx.EntryCount(); ++i) {
+        const auto& e = jkx.Entries()[i];
+        if (std::strcmp(e.type, "MANI") != 0 && std::strcmp(e.type, "SCRI") != 0)
+            continue;
+        std::vector<uint8_t> payload;
+        if (!jkx.ReadEntry(i, payload)) return "";
+        blob.insert(blob.end(), payload.begin(), payload.end());
+    }
+    return FingerprintBytes(blob);
+}
+
 int SelfTest() {
     int fails = 0;
     auto check = [&](bool ok, const char* what) {
@@ -241,6 +264,39 @@ int SelfTest() {
         check(back.size() == 2 && back[0].source == "pack" &&
                   back[1].source == "user",
               "trust roundtrip + user record preserved");
+        DeleteFileA(path.c_str());
+    }
+    // Container fingerprint: MANI+SCRI in TOC order, deterministic, and
+    // sensitive to script content (spec §2).
+    {
+        const std::string path = g_exeDir + "\\state\\_selftest_fp.jkx";
+        const char* maniText = "name=demo\ntrigger=a.js\n";
+        std::vector<std::pair<std::string, std::vector<uint8_t>>> entries;
+        entries.emplace_back(
+            "manifest.txt",
+            std::vector<uint8_t>(maniText, maniText + std::strlen(maniText)));
+        entries.emplace_back("a.js",
+                             std::vector<uint8_t>{'l','o','g','(',')',';'});
+        check(jk::JKJkxFile::Write(path, entries), "fp test container write");
+        std::string fp1;
+        {
+            // Inner scopes so each container's FILE* is closed before the
+            // next Write/DeleteFileA — an open handle makes both fail
+            // silently on Windows (fopen shares, but not for delete).
+            jk::JKJkxFile jkx;
+            check(jkx.Open(path), "fp test container open");
+            fp1 = FingerprintContainer(jkx);
+            const std::string fp2 = FingerprintContainer(jkx);
+            check(!fp1.empty() && fp1 == fp2, "container fp deterministic");
+        }
+        // Same manifest + changed script -> different fingerprint.
+        entries[1].second = {'l','o','g','(','1',')',';'};
+        check(jk::JKJkxFile::Write(path, entries), "fp test rewrite");
+        {
+            jk::JKJkxFile jkx2;
+            check(jkx2.Open(path), "fp test reopen");
+            check(FingerprintContainer(jkx2) != fp1, "container fp content-bound");
+        }
         DeleteFileA(path.c_str());
     }
     if (fails == 0) HostLog("[selftest] all passed");
