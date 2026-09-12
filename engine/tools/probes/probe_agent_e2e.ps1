@@ -30,7 +30,10 @@ Start-Sleep -Seconds 2
 # 2. observe
 $r2 = Invoke-Mcp '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_windows","arguments":{}}}'
 $id = $null
-if ($r2 -match '"id\\?":(\d+)') { $id = $Matches[1] }
+# Window id lives ESCAPED inside the tool text — the plain form matches the
+# jsonrpc envelope's own id first (probe bug: close went to the envelope id
+# and passed only while a layer with that number happened to exist).
+if ($r2 -match '\\"id\\":(\d+)') { $id = $Matches[1] }
 
 # 3. snapshot
 $r3 = Invoke-Mcp '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"save_layout","arguments":{"name":"e2e_final"}}}'
