@@ -19,6 +19,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <map>
 #include <string>
 #include <vector>
@@ -45,6 +46,12 @@ std::vector<TriggerReg> g_triggers;
 std::string g_currentSource;
 // name -> 0/1 from state/triggers.json; absent entry = enabled (docs/34).
 std::map<std::string, int> g_enabled;
+
+// Trust store in memory (spec §3) — loaded once at startup; approval
+// resolutions upsert into it and the file. (Struct defined in the trust
+// block below; vector-of-incomplete-type is fine for a declaration.)
+struct TrustRecord;
+std::vector<TrustRecord> g_trust;
 
 struct Timer {
     int64_t id;
@@ -216,6 +223,42 @@ std::string FingerprintContainer(jk::JKJkxFile& jkx) {
         blob.insert(blob.end(), payload.begin(), payload.end());
     }
     return FingerprintBytes(blob);
+}
+
+// Spec §4.1: fingerprint → IsTrusted → trust_request approval → record.
+// Returns false to skip the script. Every failure path (hash failure,
+// server down, deny, timeout, permission) is fail-closed.
+bool TrustGate(const std::string& name, const char* origin,
+               const std::string& fp) {
+    if (fp.empty()) {
+        HostLog("[triggers] untrusted (fingerprint failed): " + name);
+        return false;
+    }
+    if (IsTrusted(g_trust, fp)) return true;
+    HostLog("[triggers] trust approval needed: " + name + " (" +
+            fp.substr(0, 15) + "…)");
+    std::string args = "{\"name\":\"" + JsonEscapeStr(name) +
+                       "\",\"origin\":\"" + origin +
+                       "\",\"fingerprint\":\"" + fp + "\"}";
+    std::string reply;
+    if (!g_agent.Query("trust_request", args, reply)) {
+        HostLog("[triggers] trust_request failed (server down) — skip: " +
+                name);
+        return false;
+    }
+    if (reply.find("\"ok\":true") == std::string::npos) {
+        HostLog("[triggers] trust denied: " + name + " -> " + reply);
+        return false;
+    }
+    TrustRecord r;
+    r.fingerprint = fp;
+    r.name = name;
+    r.source = "user";
+    r.ts = static_cast<int>(std::time(nullptr));
+    TrustUpsert(&g_trust, r);
+    SaveTrustRecords(g_exeDir + "\\state\\trust.json", g_trust);
+    HostLog("[triggers] trusted + recorded: " + name);
+    return true;
 }
 
 int SelfTest() {
@@ -765,7 +808,13 @@ void LoadJsDir() {
         while ((got = std::fread(buf, 1, sizeof(buf), f)) > 0)
             code.append(buf, got);
         std::fclose(f);
-        if (!code.empty()) EvalScript(code, std::string("state/") + fd.cFileName);
+        if (!code.empty()) {
+            if (!TrustGate(std::string("state/") + fd.cFileName, "dev",
+                           FingerprintBytes(std::vector<uint8_t>(
+                               code.begin(), code.end()))))
+                continue;
+            EvalScript(code, std::string("state/") + fd.cFileName);
+        }
     } while (FindNextFileA(h, &fd));
     FindClose(h);
 }
@@ -800,6 +849,10 @@ void LoadTriggerContainers() {
             continue;
         }
         const std::string maniText(mani.begin(), mani.end());
+        // The container is the trust unit (spec §2): one fingerprint per
+        // .jkx, gated once before any of its scripts eval.
+        if (!TrustGate(container, "package", FingerprintContainer(jkx)))
+            continue;
         // Parse "trigger=" values (comma list), then eval each script entry.
         for (size_t p = 0; p < maniText.size();) {
             size_t eol = maniText.find('\n', p);
@@ -895,6 +948,25 @@ int PackMode(const std::string& srcDir, const std::string& outDir) {
         if (jk::JKJkxFile::Write(out, entries)) {
             HostLog("jktriggers: packed " + out);
             ++packed;
+            // Spec §3 self-attestation: the packer records its output's
+            // fingerprint as source "pack" (upsert — user records untouched).
+            // Entries order == TOC order == the MANI+SCRI stream the loader
+            // hashes, so the fingerprints agree by construction.
+            std::vector<uint8_t> blob;
+            for (const auto& e : entries)
+                blob.insert(blob.end(), e.second.begin(), e.second.end());
+            TrustRecord r;
+            r.fingerprint = FingerprintBytes(blob);
+            r.name = fd.cFileName;
+            r.source = "pack";
+            r.ts = static_cast<int>(std::time(nullptr));
+            if (!r.fingerprint.empty()) {
+                std::vector<TrustRecord> recs;
+                LoadTrustRecords(g_exeDir + "\\state\\trust.json", &recs);
+                TrustUpsert(&recs, r);
+                if (SaveTrustRecords(g_exeDir + "\\state\\trust.json", recs))
+                    HostLog("jktriggers: trust record (pack): " + r.name);
+            }
         } else {
             HostLog("jktriggers: FAILED packing " + out);
         }
@@ -930,6 +1002,15 @@ int main(int argc, char* argv[]) {
         HostLog("jktriggers: QuickJS init failed");
         return 1;
     }
+    // Spec §4.1: first-run approvals need the server — connect (best effort,
+    // ~5 s) BEFORE loading. Trusted records still load offline; untrusted
+    // scripts fail closed when the server never appears.
+    for (int i = 0; i < 10 && !g_agent.Connect(); ++i) Sleep(500);
+    if (g_agent.IsConnected()) {
+        g_agent.SubscribeEvents(true);
+        HostLog("[triggers] connected to the window server");
+    }
+    LoadTrustRecords(g_exeDir + "\\state\\trust.json", &g_trust);
     LoadJsDir();
     LoadTriggerContainers();
     ReloadTriggerFlags();   // apply state/triggers.json before first dispatch
