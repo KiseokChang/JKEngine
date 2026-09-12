@@ -56,7 +56,9 @@ if ($r1 -match 'ok\\":true')            { Write-Host "launch: PASS" }   else { $
 if ($r2 -match 'Minesweeper')           { Write-Host "list: PASS" }     else { $ok = $false; Write-Host "list: FAIL $r2" }
 if ($r3 -match 'ok\\":true')            { Write-Host "save: PASS" }     else { $ok = $false; Write-Host "save: FAIL $r3" }
 if ($r4 -match 'ok\\":true')            { Write-Host "close: PASS" }    else { $ok = $false; Write-Host "close: FAIL $r4" }
-if ($id -and $r5 -notmatch ('\"id\\?":' + $id + '\b')) {
+# Escaped form only — the envelope's own plain "id" would shadow (same class
+# as the close-reply id fix at line 36).
+if ($id -and $r5 -notmatch ('\\"id\\":' + $id + '\b')) {
     Write-Host "gone: PASS"
 } else { $ok = $false; Write-Host "gone: FAIL (id $id still listed)" }
 if ($r6 -match 'ok\\":true')            { Write-Host "restore: PASS" }  else { $ok = $false; Write-Host "restore: FAIL $r6" }
