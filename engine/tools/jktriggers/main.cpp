@@ -105,6 +105,96 @@ std::string Sha256Hex(const uint8_t* data, size_t len) {
     return out;
 }
 
+// ---------------------------------------------------------------------------
+// Trust store — state\trust.json (spec §3).
+// {"records":[{"fingerprint":"sha256:…","name":…,"source":"pack"|"user","ts":…}]}
+// Missing/corrupt file = everything untrusted (fail-closed). ts is epoch
+// seconds (int — AgentJson's int accessor bound; ms would overflow).
+struct TrustRecord {
+    std::string fingerprint;  // "sha256:<64hex>" — the identity key
+    std::string name;         // display name ("trig_build", "state/x.js")
+    std::string source;       // "pack" (packer self-attestation) | "user" (approval)
+    int ts = 0;               // epoch seconds
+};
+
+// Defined below with the JSON string helpers (used by SaveTrustRecords).
+std::string JsonEscapeStr(const std::string& s);
+
+bool LoadTrustRecords(const std::string& path, std::vector<TrustRecord>* out) {
+    out->clear();
+    FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) return false;
+    std::string buf;
+    char chunk[4096];
+    size_t got;
+    while ((got = std::fread(chunk, 1, sizeof(chunk), f)) > 0)
+        buf.append(chunk, got);
+    std::fclose(f);
+    jk::agent::AgentJson json(buf);
+    int n = 0;
+    if (!json.ok() || !json.GetArraySize("records", n)) return false;
+    for (int i = 0; i < n && i < 512; ++i) {
+        TrustRecord r;
+        if (!json.GetArrStr("records", i, "fingerprint", r.fingerprint) ||
+            r.fingerprint.empty())
+            continue;
+        json.GetArrStr("records", i, "name", r.name);
+        json.GetArrStr("records", i, "source", r.source);
+        json.GetArrInt("records", i, "ts", r.ts);
+        out->push_back(std::move(r));
+    }
+    return true;
+}
+
+bool SaveTrustRecords(const std::string& path,
+                      const std::vector<TrustRecord>& recs) {
+    std::string dir = path;
+    const size_t slash = dir.find_last_of("\\/");
+    if (slash != std::string::npos) {
+        dir = dir.substr(0, slash);
+        CreateDirectoryA(dir.c_str(), nullptr);
+    }
+    std::string out = "{\"records\":[";
+    bool first = true;
+    for (const auto& r : recs) {
+        if (!first) out += ",";
+        first = false;
+        out += "{\"fingerprint\":\"" + JsonEscapeStr(r.fingerprint) +
+               "\",\"name\":\"" + JsonEscapeStr(r.name) +
+               "\",\"source\":\"" + JsonEscapeStr(r.source) +
+               "\",\"ts\":" + std::to_string(r.ts) + "}";
+    }
+    out += "]}";
+    FILE* f = std::fopen(path.c_str(), "wb");
+    if (!f) return false;
+    std::fwrite(out.data(), 1, out.size(), f);
+    std::fclose(f);
+    return true;
+}
+
+// Upsert by fingerprint — replace in place or append. Callers own the
+// preservation rule: the packer only writes source:"pack", the loader only
+// writes source:"user" (spec §3).
+void TrustUpsert(std::vector<TrustRecord>* recs, const TrustRecord& r) {
+    for (auto& existing : *recs) {
+        if (existing.fingerprint == r.fingerprint) {
+            existing = r;
+            return;
+        }
+    }
+    recs->push_back(r);
+}
+
+// A fingerprint is trusted only via an explicit record (spec §3 — no
+// "trusted by absence").
+bool IsTrusted(const std::vector<TrustRecord>& recs, const std::string& fp) {
+    if (fp.empty()) return false;
+    for (const auto& r : recs) {
+        if (r.fingerprint == fp) return true;
+    }
+    return false;
+}
+
 int SelfTest() {
     int fails = 0;
     auto check = [&](bool ok, const char* what) {
@@ -120,6 +210,39 @@ int SelfTest() {
               "sha256:e3b0c44298fc1c149afbf4c8996fb924"
               "27ae41e4649b934ca495991b7852b855",
           "sha256 empty");
+    // Trust store: upsert idempotency + user-record preservation (spec §3).
+    {
+        const std::string path = g_exeDir + "\\state\\_selftest_trust.json";
+        std::vector<TrustRecord> recs;
+        TrustRecord pack;
+        pack.fingerprint = "sha256:aaa1";
+        pack.name = "pack_bundle";
+        pack.source = "pack";
+        pack.ts = 100;
+        TrustUpsert(&recs, pack);
+        TrustUpsert(&recs, pack);  // idempotent
+        TrustRecord user;
+        user.fingerprint = "sha256:bbb2";
+        user.name = "state/x.js";
+        user.source = "user";
+        user.ts = 200;
+        TrustUpsert(&recs, user);
+        TrustRecord pack2 = pack;
+        pack2.ts = 300;  // repack bumps ts, same fingerprint
+        TrustUpsert(&recs, pack2);
+        check(recs.size() == 2, "upsert idempotent");
+        check(IsTrusted(recs, "sha256:aaa1") && IsTrusted(recs, "sha256:bbb2"),
+              "is_trusted recorded");
+        check(!IsTrusted(recs, "sha256:ccc3") && !IsTrusted(recs, ""),
+              "is_trusted unknown fail-closed");
+        check(SaveTrustRecords(path, recs), "trust save");
+        std::vector<TrustRecord> back;
+        LoadTrustRecords(path, &back);
+        check(back.size() == 2 && back[0].source == "pack" &&
+                  back[1].source == "user",
+              "trust roundtrip + user record preserved");
+        DeleteFileA(path.c_str());
+    }
     if (fails == 0) HostLog("[selftest] all passed");
     return fails == 0 ? 0 : 1;
 }
