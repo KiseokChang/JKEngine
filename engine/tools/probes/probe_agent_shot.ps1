@@ -79,6 +79,40 @@ $snapWin = ($l4 | ConvertFrom-Json).windows |
 $overlayOk = ($null -ne $snapWin -and $snapWin.x -eq 0 -and $snapWin.y -eq 0 -and
               $snapWin.w -ge 1280 -and $snapWin.h -ge 720)
 
+# --- 4b. dim blend: with the overlay open, a composited readback over the
+# minesweeper window must be DIMMED GREY, not opaque black. The shipped
+# regression: layer textures without an explicit BLEND mode rendered the
+# (0,0,0,70) dim as an opaque black screen (alpha ignored).
+$dimOk = $true; $dimNote = "skipped (no minesweeper rect)"
+if ($mineWin) {
+    $cx = [int]($mineWin.x + $mineWin.w / 2) - 60
+    $cy = [int]($mineWin.y + $mineWin.h / 2) - 40
+    $r4b = Invoke-Agentctl ('{"tool":"capture_region","args":{"x":' + $cx +
+                            ',"y":' + $cy + ',"w":120,"h":80}}')
+    $dimPath = ""
+    if ($r4b -match '"path\\?":\\?"([^"]*)"') {
+        $dimPath = $Matches[1] -replace '\\\\', '\'
+    }
+    if (($r4b -match 'ok\\?":true') -and (Test-Path $dimPath)) {
+        $bmp = [System.Drawing.Bitmap]::FromFile($dimPath)
+        $maxSum = 0
+        for ($gy = 10; $gy -lt $bmp.Height; $gy += [int]($bmp.Height / 4)) {
+            for ($gx = 10; $gx -lt $bmp.Width; $gx += [int]($bmp.Width / 4)) {
+                $c = $bmp.GetPixel($gx, $gy)
+                $s = [int]$c.R + [int]$c.G + [int]$c.B
+                if ($s -gt $maxSum) { $maxSum = $s }
+            }
+        }
+        $bmp.Dispose()
+        # Minesweeper's grey-192 background dimmed by 70/255 sums ~420/px;
+        # an alpha-ignored black overlay sums 0 everywhere.
+        $dimOk = ($maxSum -gt 100)
+        $dimNote = "maxSum=$maxSum"
+    } else {
+        $dimOk = $false; $dimNote = "capture failed: $r4b"
+    }
+}
+
 # --- 5+6. viewer spawn: one "Screenshots" window, no duplicates ---
 $r5 = Invoke-Agentctl '{"tool":"launch_app","args":{"app":"shot"}}'
 Start-Sleep -Seconds 2
@@ -99,6 +133,7 @@ if ($r0 -match 'ok\\?":true' -and $r1ok -and $magicOk) { Write-Host "capture-win
 if ($r2ok) { Write-Host "capture-region: PASS ($regionPath)" } else { $ok = $false; Write-Host "capture-region: FAIL $r2" }
 if ($sizeOk) { Write-Host "region-size: PASS (${rw}x${rh})" } else { $ok = $false; Write-Host "region-size: FAIL (${rw}x${rh}, want 4:3 >= 120x90)" }
 if ($r4 -match 'ok\\?":true' -and $overlayOk) { Write-Host "overlay-spawn: PASS ($($snapWin.w)x$($snapWin.h) at 0,0)" } else { $ok = $false; Write-Host "overlay-spawn: FAIL $l4" }
+if ($dimOk) { Write-Host "dim-blend: PASS ($dimNote)" } else { $ok = $false; Write-Host "dim-blend: FAIL ($dimNote — overlay renders opaque black)" }
 if ($r5 -match 'ok\\?":true' -and $viewerOk) { Write-Host "viewer-spawn: PASS" } else { $ok = $false; Write-Host "viewer-spawn: FAIL $l5" }
 if ($countOk) { Write-Host "viewer-count: PASS (1 window)" } else { $ok = $false; Write-Host "viewer-count: FAIL ($($viewers.Count) windows)" }
 

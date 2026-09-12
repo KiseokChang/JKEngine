@@ -42,6 +42,11 @@ JKCompositorLayer* JKCompositor::AddLayer(uint32_t id,
     // 선형 필터로 샘플링해 축소 텍스트가 부드럽게 보이도록 한다. 1:1 레이어는
     // 리샘플링이 일어나지 않아 영향 없음.
     SDL_SetTextureScaleMode(texture, SDL_ScaleModeLinear);
+    // Per-pixel alpha must blend over the desktop (the docs/35 capture
+    // overlay is a whole-screen (0,0,0,70) dim). This SDL build does not
+    // default STREAMING textures to BLEND — without this the dim renders
+    // as an opaque black screen (실측: region readback = (0,0,0,255)).
+    SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_BLEND);
 
     JKCompositorLayer* raw = nullptr;
     {
@@ -144,8 +149,9 @@ bool JKCompositor::ResizeLayer(uint32_t id, int width, int height, uint8_t* pixe
                      SDL_GetError());
         return false;
     }
-    // AddLayer와 동일한 이유(축소 레이어 글자 깨짐 방지).
+    // AddLayer와 동일한 이유(축소 레이어 글자 깨짐 방지 + per-pixel alpha 블렌드).
     SDL_SetTextureScaleMode(texture, SDL_ScaleModeLinear);
+    SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_BLEND);
     std::lock_guard<std::mutex> lock(layersMutex_);
     JKCompositorLayer* layer = FindLayer(id);
     if (!layer) {

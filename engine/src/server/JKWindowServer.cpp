@@ -398,6 +398,12 @@ void JKWindowServer::ProcessPendingClients() {
             compositor_->SetLayerShell(client->Id(), true);
             DockShellClient(client.get());
         } else if (client->Title() == kCaptureOverlayTitle) {
+            // Consume the pending launch_app requester — this overlay now
+            // knows which client to hide during its own capture_region.
+            if (pendingSnapSpawnerConnId_ != 0) {
+                overlaySpawner_[client->Id()] = pendingSnapSpawnerConnId_;
+                pendingSnapSpawnerConnId_ = 0;
+            }
             // docs/35: the rubber-band capture overlay always covers the
             // whole desktop, taskbar included — it is momentary (dismissed
             // by mouse-up or ESC) so it neither reserves work area nor keeps
@@ -1424,6 +1430,9 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         req.GetObjStr("args", "app", app);
         req.GetObjStr("args", "jkx", jkx);
         if (!app.empty()) {
+            // docs/35: pair the capture overlay with the client that asked
+            // for it (see overlaySpawner_ member comment).
+            pendingSnapSpawnerConnId_ = (app == "snap") ? client.Id() : 0;
             SpawnClient(app.c_str(), false);
             reply = "{\"ok\":true}";
         } else if (!jkx.empty()) {
@@ -1612,6 +1621,15 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                     compositor_->FindLayerById(client.Id());
                 const bool hideSelf = self && self->IsVisible();
                 if (hideSelf) self->SetVisible(false);
+                // Hide the viewer that launched this overlay too (docs/35):
+                // it is the capture UI and must not appear in its own shot.
+                JKCompositorLayer* spawner = nullptr;
+                auto sp = overlaySpawner_.find(client.Id());
+                if (sp != overlaySpawner_.end() && sp->second != client.Id()) {
+                    spawner = compositor_->FindLayerById(sp->second);
+                }
+                const bool hideSpawner = spawner && spawner->IsVisible();
+                if (hideSpawner) spawner->SetVisible(false);
                 Composite(false);   // clear + draw, no present
                 std::vector<uint8_t> full(
                     static_cast<size_t>(fullW) * fullH * 4);
@@ -1619,6 +1637,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                 const int got = SDL_RenderReadPixels(
                     renderer_, &fullRect, SDL_PIXELFORMAT_RGBA32,
                     full.data(), fullW * 4);
+                if (hideSpawner) spawner->SetVisible(true);
                 if (hideSelf) self->SetVisible(true);
                 Composite(false);
                 if (got != 0) {

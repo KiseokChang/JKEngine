@@ -174,6 +174,15 @@ private:
     std::vector<PendingApproval> pendingApprovals_;
     uint32_t nextApprovalId_ = 1;
 
+    // docs/35: when a client launches the capture overlay (launch_app snap),
+    // remember the requester so the overlay's capture_region can hide the
+    // spawner's layer too — the shot viewer that opened the overlay would
+    // otherwise appear in its own screenshot. Pending is consumed when the
+    // overlay connection registers; stale entries are harmless (connection
+    // ids are monotonic, dead ids resolve to no layer).
+    uint32_t pendingSnapSpawnerConnId_ = 0;
+    std::unordered_map<uint32_t, uint32_t> overlaySpawner_;
+
     // Server-side mouse capture (Win32 SetCapture equivalent): the surface id
     // that received the last MouseDown and has not seen its MouseUp yet.
     // While set, MouseMove/MouseUp are routed to this client even when the

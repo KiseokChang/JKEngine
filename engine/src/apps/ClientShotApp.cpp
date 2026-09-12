@@ -150,6 +150,10 @@ void ClientShotApp::BuildUi(int w, int h) {
     ImGui::SetNextWindowSize(ImVec2((float)w, (float)h));
     if (ImGui::Begin("shot", nullptr,
                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove)) {
+        // The server reserves the top 24 px of every surface as title-bar
+        // chrome — mouse-downs there never reach the client (vplayer lesson
+        // 8). First row starts below the strip or its buttons are dead.
+        ImGui::SetCursorPosY(30.0f);
         // Header: refresh + spawn the rubber-band overlay.
         if (ImGui::Button("새로고침")) {
             RefreshList();

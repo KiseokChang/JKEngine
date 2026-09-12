@@ -100,10 +100,37 @@ triggers/notify/triggerctl/shot 전부 PASS.
 ## 6. 제한 / 후속
 
 - 오버레이 드래그/ESC는 실입력이 필요해 프로브가 못 잡는다 — 사용자 실측 항목
-  (스폰/리사이즈/투명/캡처 경로는 프로브가 검증).
+  (스폰/리사이즈/투명/캡처 경로는 프로브가 검증). — **2026-09-12 실사에서
+  외부 합성 클릭/드래그(SendInput)로 자동 검증 달성, §6.1 참조.**
 - 다중 모니터는 단일 출력 가정 (OutputWidth/Height).
 - 오버레이 중복 스폰 시 마지막 것이 위에 쌓임 — 실사용 시나리오에서 문제되면
   토글로 승격.
+
+### 6.1 실사 피드백 수정 (2026-09-12)
+
+사용자 실측에서 세 건이 나와 수정했다. 전부 프로브 맹점이었다.
+
+1. **"영역 캡처" 버튼 무반응** — 뷰어의 버튼들이 ImGui 기본 패딩으로 y≈8에
+   깔렸고, 서버는 모든 일반 클라 표면의 상단 24px(`kChromeTitleBar`)을
+   타이틀바 드래그 존으로 쓰므로(`TryChromeGrab` zone 3) 마우스 DOWN이 클라에
+   도달하지 않았다. 레슨 8("첫 행은 SetCursorPosY(30) 이상")의 서버측 근거가
+   여기서 확정됐다 — 첫 UI 행을 크롬 존 아래로 내리는 한 줄 수정. 프로브는
+   spawn을 agentctl로 하고 클릭하지 않아 못 잡았다.
+2. **오버레이가 반투명이 아니라 불투명 검정** — 오버레이 레이어 픽셀은
+   (0,0,0,70)으로 완벽했지만 컴포지터가 화면에 그릴 때 알파를 무시했다
+   (실측: 오버레이 떠 있는 상태의 region readback = (0,0,0,255)). 이 SDL
+   빌드의 STREAMING 텍스처는 기본 블렌드가 BLEND가 아니어서
+   `SDL_SetTextureBlendMode(BLEND)`를 AddLayer/ResizeLayer에 명시. 런처
+   아이콘 로드 경로는 이미 명시하고 있었다(선례 누락). 프로브는 오버레이
+   없이 region을 캡처해 못 잡았다 → **dim-blend 체크 신설**(오버레이 떠 있는
+   상태에서 지뢰찾기 회색 영역 readback이 검정이면 FAIL).
+3. **캡처 결과에 뷰어가 보임** — 오버레이(요청자)만 숨기고 그것을 연 뷰어는
+   숨기지 않았다. launch_app snap 시 요청자 연결 id를 기억했다가 오버레이
+   연결 등록에서 페어링(`overlaySpawner_`)하고, capture_region readback에서
+   요청자와 스포너 레이어를 함께 숨긴다. agentctl에서 스폰하면 스포너가
+   컨트롤 전용이라 숨길 레이어가 없다(자연 노오프).
+4. **외부 합성 클릭으로 e2e 달성** — SendInput으로 뷰어 버튼 클릭 → 오버레이
+   스폰 → 러버밴드 드래그 → 캡처까지 자동 검증했다. 좌표계 교훈은 레슨 8번.
 
 ## 7. 레슨
 
@@ -113,18 +140,39 @@ triggers/notify/triggerctl/shot 전부 PASS.
    지시하는 게 정답 (셸 도킹이 이미 그렇게 동작).
 2. **SDL_RenderClear는 블렌드를 무시한다** — 덕분에 (0,0,0,0) 클리어가
    진짜 투명 서피스를 만든다. 반투명 오버레이는 "투명 클리어 + ImGui가
-   알파 블렌딩으로 그리기" 두 층으로 분리.
+   알파 블렌딩으로 그리기" 두 층으로 분리. — **단, 이 사실은 클라 자기
+   표면까지다. 서버가 다른 레이어 위에 얹을 때는 텍스처 블렌드 모드가
+   별개다 (레슨 7번).**
 3. **close_window 기본 deny가 프로브 정리를 막는다** — 창 닫기가 권한 게이트에
    걸리면 `Win32_Process WHERE CommandLine LIKE '--client <app>'`로 클라
    프로세스를 직접 찾아 Stop-Process (서버와 같은 이미지명이라 PID 매칭 필수).
 4. **find -newer 앞의 -o 우선순위** — `find src -name "*.cpp" -o -name "*.h"
    -newer exe`는 이름 조건과 -newer가 OR로 묶여 전수 나열된다. 괄호로 묶어야
    stale 체크가 된다 (레슨 37의 mtime 확인 절차 자체가 틀리기 쉽다).
+5. **상단 24px 크롬 존은 서버가 클라에서 뺏는다** — 레슨 8(vplayer)의 근거
+   확정: `TryChromeGrab` zone 3이 `ly < kChromeTitleBar`의 마우스 DOWN을
+   타이틀바 이동 그랩으로 소비한다. 첫 UI 행은 반드시 y≥30 — "버튼이 그려져
+   보인다"와 "클릭이 닿는다"는 다르다.
+6. **이 SDL 빌드의 STREAMING 텍스처는 기본 블렌드가 BLEND가 아니다** —
+   per-pixel alpha를 지닌 레이어는 `SDL_SetTextureBlendMode(BLEND)` 명시가
+   필수. 미설정 시 알파 무시 + RGB 대입 → (0,0,0,70) 디임이 불투명 검정
+   화면이 된다. "레이어 픽셀은 옳은데 화면이 다르다"면 텍스처 블렌드 모드부터
+   의심한다. 코드베이스에 선례(런처 아이콘 경로의 명시 설정)가 이미 있었다 —
+   선례 검색이 이 버그를 1시간 먼저 잡았을 것이다.
+7. **캡처 UI의 스폰자도 숨긴다** — 셀프 레이어만 숨기면 "캡처를 연 앱"이
+   결과에 남는다. launch_app 요청자를 기억해 오버레이 연결에서 페어링하는
+   서버측 소량 상태로 해결 (컨트롤 전용 스폰은 자연 노오프).
+8. **외부 합성 입력의 좌표계는 대상 프로세스의 DPI 가상화를 따른다** —
+   DPI 가상화된 윈도우에 대해 PowerShell의 ClientToScreen/GetClientRect는
+   가상화(논리) 좌표를 돌려주고, 같은 프로세스의 SetCursorPos도 같은 공간을
+   쓴다. 물리 배율(×OutputScale 1.25)을 곱하면 과조준으로 빗나간다 — 서버
+   내부 마우스 변환(레슨 6의 renderer ratio)과 외부 합성 입력은 좌표계가
+   다르다. 먼저 캡처 도구로 실제 UI 좌표를 재측정하고 1:1로 클릭한다.
 
 ## 8. 파일
 
 - `src/server/JKWindowServer.cpp` — capture_window/capture_region,
-  스폰 배치 훅, TryChromeGrab 제외.
+  스폰 배치 훅, TryChromeGrab 제외, 오버레이 스포너 페어링(§6.1).
 - `src/server/JKCompositor.cpp` + `include/server/JKCompositor.h` —
   Composite(bool), OutputWidth/Height, kCaptureOverlayTitle, 닫기 오버레이 제외.
 - `include/client/JKClientApplication.h` + `src/client/JKClientApplication.cpp`
