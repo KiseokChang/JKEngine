@@ -14,6 +14,8 @@
 
 #include <windows.h>
 
+#include <bcrypt.h>
+
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -74,6 +76,52 @@ void LogJsException(const std::string& where) {
             (msg ? msg : "?"));
     if (msg) JS_FreeCString(g_ctx, msg);
     JS_FreeValue(g_ctx, ex);
+}
+
+// ---------------------------------------------------------------------------
+// Script trust model (docs/37 spec): SHA-256 fingerprints via Windows CNG.
+// ---------------------------------------------------------------------------
+
+// "sha256:<64 hex>" — the identity of a script (spec §2). Returns "" on
+// failure; an empty fingerprint never matches a trust record (fail-closed).
+std::string Sha256Hex(const uint8_t* data, size_t len) {
+    BCRYPT_ALG_HANDLE alg = nullptr;
+    if (BCryptOpenAlgorithmProvider(&alg, BCRYPT_SHA256_ALGORITHM, nullptr, 0) != 0)
+        return "";
+    BCRYPT_HASH_HANDLE h = nullptr;
+    uint8_t digest[32] = {};
+    bool ok = BCryptCreateHash(alg, &h, nullptr, 0, nullptr, 0, 0) == 0;
+    if (ok && len > 0) ok = BCryptHashData(h, (PUCHAR)data, (ULONG)len, 0) == 0;
+    if (ok) ok = BCryptFinishHash(h, digest, sizeof(digest), 0) == 0;
+    if (h) BCryptDestroyHash(h);
+    BCryptCloseAlgorithmProvider(alg, 0);
+    if (!ok) return "";
+    static const char* kHex = "0123456789abcdef";
+    std::string out = "sha256:";
+    for (uint8_t b : digest) {
+        out += kHex[b >> 4];
+        out += kHex[b & 0xf];
+    }
+    return out;
+}
+
+int SelfTest() {
+    int fails = 0;
+    auto check = [&](bool ok, const char* what) {
+        HostLog(std::string("[selftest] ") + what + ": " + (ok ? "PASS" : "FAIL"));
+        if (!ok) ++fails;
+    };
+    // NIST FIPS 180-4 known vectors.
+    check(Sha256Hex((const uint8_t*)"abc", 3) ==
+              "sha256:ba7816bf8f01cfea414140de5dae2223"
+              "b00361a396177a9cb410ff61f20015ad",
+          "sha256 abc");
+    check(Sha256Hex(nullptr, 0) ==
+              "sha256:e3b0c44298fc1c149afbf4c8996fb924"
+              "27ae41e4649b934ca495991b7852b855",
+          "sha256 empty");
+    if (fails == 0) HostLog("[selftest] all passed");
+    return fails == 0 ? 0 : 1;
 }
 
 // ---------------------------------------------------------------------------
@@ -693,6 +741,10 @@ int main(int argc, char* argv[]) {
 
     if (argc >= 4 && std::strcmp(argv[1], "--pack") == 0) {
         return PackMode(argv[2], argv[3]);
+    }
+
+    if (argc >= 2 && std::strcmp(argv[1], "--selftest") == 0) {
+        return SelfTest();
     }
 
     if (!InitRuntime()) {

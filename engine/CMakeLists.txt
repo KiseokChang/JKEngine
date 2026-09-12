@@ -524,8 +524,9 @@ if(WIN32)
 endif()
 
 # M2b trigger-script host: console process, no UI (outside JKWindow/SDL).
+# bcrypt: SHA-256 for the script trust model (docs/37 spec, CNG BCrypt).
 add_executable(jktriggers tools/jktriggers/main.cpp)
-target_link_libraries(jktriggers PRIVATE jkcore)
+target_link_libraries(jktriggers PRIVATE jkcore bcrypt)
 if(WIN32)
     target_link_options(jktriggers PRIVATE -static-libstdc++ -static-libgcc)
 endif()
