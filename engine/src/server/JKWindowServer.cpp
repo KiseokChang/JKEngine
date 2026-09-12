@@ -1434,8 +1434,34 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         req.GetObjStr("args", "name", name);
         req.GetObjStr("args", "origin", origin);
         req.GetObjStr("args", "fingerprint", fingerprint);
-        if (name.empty() || fingerprint.empty()) {
+        // Trim the name — whitespace-only is still missing (final-review fix:
+        // validate before parking an approval, so no face can feed a
+        // malformed fingerprint/origin into the broadcast payload).
+        {
+            const size_t b = name.find_first_not_of(" \t\r\n");
+            if (b == std::string::npos) {
+                name.clear();
+            } else {
+                name = name.substr(b, name.find_last_not_of(" \t\r\n") - b + 1);
+            }
+        }
+        auto ValidFingerprint = [](const std::string& fp) {
+            // Exactly "sha256:" + 64 lowercase hex (the loader's format).
+            if (fp.size() != 7 + 64 || fp.compare(0, 7, "sha256:") != 0)
+                return false;
+            for (size_t i = 7; i < fp.size(); ++i) {
+                const char c = fp[i];
+                if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')))
+                    return false;
+            }
+            return true;
+        };
+        if (name.empty()) {
             reply = "{\"ok\":false,\"error\":\"missing_name\"}";
+        } else if (!ValidFingerprint(fingerprint)) {
+            reply = "{\"ok\":false,\"error\":\"bad_fingerprint\"}";
+        } else if (origin != "dev" && origin != "package") {
+            reply = "{\"ok\":false,\"error\":\"bad_origin\"}";
         } else {
             switch (AgentToolAllowed("trust_request")) {
                 case AgentDecision::Allow:
@@ -1474,7 +1500,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                                   "\"ts\":%lld}",
                                   p.requestId, JsonEsc(name).c_str(),
                                   JsonEsc(origin).c_str(),
-                                  fingerprint.c_str(),
+                                  JsonEsc(fingerprint).c_str(),
                                   static_cast<long long>(std::time(nullptr)) *
                                       1000);
                     pendingApprovals_.push_back(p);

@@ -181,10 +181,15 @@ bool SaveTrustRecords(const std::string& path,
 
 // Upsert by fingerprint — replace in place or append. Callers own the
 // preservation rule: the packer only writes source:"pack", the loader only
-// writes source:"user" (spec §3).
-void TrustUpsert(std::vector<TrustRecord>* recs, const TrustRecord& r) {
+// writes source:"user" (spec §3). keepUserRecord (packer path) skips the
+// upsert when the same fingerprint already has a source:"user" record —
+// a user who explicitly approved a hash keeps their record; the packer
+// never flips a user record to "pack".
+void TrustUpsert(std::vector<TrustRecord>* recs, const TrustRecord& r,
+                 bool keepUserRecord = false) {
     for (auto& existing : *recs) {
         if (existing.fingerprint == r.fingerprint) {
+            if (keepUserRecord && existing.source == "user") return;
             existing = r;
             return;
         }
@@ -297,6 +302,21 @@ int SelfTest() {
         pack2.ts = 300;  // repack bumps ts, same fingerprint
         TrustUpsert(&recs, pack2);
         check(recs.size() == 2, "upsert idempotent");
+        // A user approval of the same fingerprint replaces the pack record;
+        // a later repack must not flip it back (spec §3 — packer never
+        // touches user records).
+        TrustRecord userSame = pack;
+        userSame.name = "state/y.js";
+        userSame.source = "user";
+        userSame.ts = 400;
+        TrustUpsert(&recs, userSame);
+        check(recs.size() == 2 && recs[0].source == "user",
+              "user approval replaces pack record");
+        TrustRecord pack3 = pack;
+        pack3.ts = 500;  // repack, same fingerprint — must be skipped
+        TrustUpsert(&recs, pack3, /*keepUserRecord=*/true);
+        check(recs.size() == 2 && recs[0].source == "user",
+              "repack preserves user record");
         check(IsTrusted(recs, "sha256:aaa1") && IsTrusted(recs, "sha256:bbb2"),
               "is_trusted recorded");
         check(!IsTrusted(recs, "sha256:ccc3") && !IsTrusted(recs, ""),
@@ -304,8 +324,10 @@ int SelfTest() {
         check(SaveTrustRecords(path, recs), "trust save");
         std::vector<TrustRecord> back;
         LoadTrustRecords(path, &back);
-        check(back.size() == 2 && back[0].source == "pack" &&
-                  back[1].source == "user",
+        // Order: [0] = user-approved-over-pack record (ts 400 — the skipped
+        // repack's ts 500 must NOT have landed), [1] = the loader user record.
+        check(back.size() == 2 && back[0].source == "user" &&
+                  back[0].ts == 400 && back[1].source == "user",
               "trust roundtrip + user record preserved");
         DeleteFileA(path.c_str());
     }
@@ -949,7 +971,8 @@ int PackMode(const std::string& srcDir, const std::string& outDir) {
             HostLog("jktriggers: packed " + out);
             ++packed;
             // Spec §3 self-attestation: the packer records its output's
-            // fingerprint as source "pack" (upsert — user records untouched).
+            // fingerprint as source "pack" (upsert — user records untouched:
+            // keepUserRecord skips a same-fingerprint source:"user" record).
             // Entries order == TOC order == the MANI+SCRI stream the loader
             // hashes, so the fingerprints agree by construction.
             std::vector<uint8_t> blob;
@@ -963,7 +986,7 @@ int PackMode(const std::string& srcDir, const std::string& outDir) {
             if (!r.fingerprint.empty()) {
                 std::vector<TrustRecord> recs;
                 LoadTrustRecords(g_exeDir + "\\state\\trust.json", &recs);
-                TrustUpsert(&recs, r);
+                TrustUpsert(&recs, r, /*keepUserRecord=*/true);
                 if (SaveTrustRecords(g_exeDir + "\\state\\trust.json", recs))
                     HostLog("jktriggers: trust record (pack): " + r.name);
             }
