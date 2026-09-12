@@ -43,7 +43,13 @@ cd engine/build
 | `/list` | list_windows | 창 목록 JSON |
 | `/launch <app>` | launch_app | |
 | `/close <id>` | close_window | pre_undo 스냅샷 후 전송 — ask면 승인 프롬프트 |
+| `/chat` | launch_chat | 채팅창 추가 스폰 (팔레트 패리티, 2026-09-12) |
+| `/notify` | open_notify | 알림 센터 토글 (docs/33, 팔레트 패리티) |
+| `/shot` | launch_app shot | 스크린샷 뷰어 (docs/35, 팔레트 패리티) |
+| `/triggers` | trigger_list | 번들+플래그 목록 (docs/34, 팔레트 패리티) |
+| `/trigger <name> on\|off` | trigger_toggle | 번들 토글 (docs/34, 팔레트 패리티) |
 | `/save <name>` / `/restore <name>` / `/undo` | save/restore_layout | |
+| `/new` | — | LLM 세션 리셋 |
 | `/help` | — | |
 
 - 자연어 입력은 LLM(claude 헤드리스)으로 위임된다 — 아래 §5. 슬래시는

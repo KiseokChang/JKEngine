@@ -413,7 +413,8 @@ static void Submit() {
 
     if (cmd == "help") {
         Log(L"자연어 입력 → LLM(claude 헤드리스) 위임 / 슬래시: 결정적 커맨드");
-        Log(L"/list /launch <app> /close <id> /save <name> /restore <name> /undo /new");
+        Log(L"/list /launch <app> /close <id> /chat /notify /shot /triggers");
+        Log(L"/trigger <name> on|off /save <name> /restore <name> /undo /new");
     } else if (cmd == "new") {
         g_sessionId.clear();
         Log(L"새 LLM 세션");
@@ -449,6 +450,37 @@ static void Submit() {
         g_pendingSends.push_back({g_undoSaveQueryId, "save pre_undo"});
     } else if (cmd == "undo") {
         SendTool("restore_layout", "{\"name\":\"pre_undo\"}", "undo");
+    } else if (cmd == "notify") {
+        // Palette parity (docs/33): open/toggle the notification center.
+        SendTool("open_notify", "{}", "notify");
+    } else if (cmd == "shot") {
+        // Palette parity (docs/35): open the screenshot viewer.
+        SendTool("launch_app", "{\"app\":\"shot\"}", "shot");
+    } else if (cmd == "triggers") {
+        // Palette parity (docs/34): list trigger bundles + flags.
+        SendTool("trigger_list", "{}", "triggers");
+    } else if (cmd == "trigger") {
+        // /trigger <name> on|off — toggle one trigger bundle (docs/34).
+        const size_t sp2 = arg.find(' ');
+        if (sp2 == std::string::npos) {
+            Log(L"사용법: /trigger <name> on|off");
+        } else {
+            const std::string name = arg.substr(0, sp2);
+            const std::string mode = arg.substr(sp2 + 1);
+            if (name.empty() || name.find('"') != std::string::npos ||
+                (mode != "on" && mode != "off")) {
+                Log(L"사용법: /trigger <name> on|off");
+            } else {
+                SendTool("trigger_toggle",
+                         "{\"name\":\"" + name + "\",\"on\":" +
+                             (mode == "on" ? "1" : "0") + "}",
+                         "trigger " + name + " " + mode);
+            }
+        }
+    } else if (cmd == "chat") {
+        // Palette parity (docs/31): spawn another chat window (inline
+        // approval surface).
+        SendTool("launch_chat", "{}", "chat");
     } else {
         Log(L"알 수 없는 커맨드 — /help 참고");
     }
