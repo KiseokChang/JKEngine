@@ -216,7 +216,7 @@ void ClientPaletteApp::Submit(const std::string& text) {
                                 ? std::string() : Trim(text.substr(sp + 1));
     if (cmd == "help") {
         AppendLog("  /list  /launch <app>  /close <id>  /chat  /notify");
-        AppendLog("  /shot  /triggers  /trigger <name> on|off  /events");
+        AppendLog("  /shot  /triggers  /trigger <name> on|off  /events  /trust");
         AppendLog("  /save <name>  /restore <name>  /undo");
     } else if (cmd == "events") {
         // Structured event catalog (docs/32): topic/source/payload shape +
@@ -231,6 +231,9 @@ void ClientPaletteApp::Submit(const std::string& text) {
         SendTool("launch_app", "{\"app\":\"shot\"}");
     } else if (cmd == "triggers") {
         SendTool("trigger_list", "{}");
+    } else if (cmd == "trust") {
+        // Script trust store (docs/37).
+        SendTool("trust_list", "{}");
     } else if (cmd == "trigger") {
         // /trigger <name> on|off — toggle one trigger bundle (docs/34).
         const size_t sp2 = arg.find(' ');
