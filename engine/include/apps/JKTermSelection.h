@@ -9,7 +9,9 @@
 #include <terminal/JKTerminalGrid.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <string>
+#include <vector>
 
 namespace jk {
 
@@ -78,6 +80,52 @@ inline void AppendUtf8(std::string& out, uint32_t cp) {
         out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
         out += static_cast<char>(0x80 | (cp & 0x3F));
     }
+}
+
+// UTF-8 decoder — the mirror of AppendUtf8 above (docs/26 단계 5, spec §3):
+// standard 1-4 byte form; invalid leads, overlong forms and surrogates decode
+// as U+FFFD (one per bad byte, so the caller's cell pacing stays in sync with
+// the input length). Pure helper so the view's pre-edit overlay and the
+// self-test share one implementation.
+inline std::vector<uint32_t> DecodeUtf8(const std::string& text) {
+    const auto byte = [&text](size_t k) {
+        return static_cast<unsigned char>(text[k]);
+    };
+    std::vector<uint32_t> cps;
+    cps.reserve(text.size());
+    size_t i = 0;
+    while (i < text.size()) {
+        const unsigned char b0 = byte(i);
+        uint32_t cp = 0xFFFD;   // replacement char for anything malformed
+        size_t len = 1;
+        // A sequence is consumed only when every continuation byte exists and
+        // has the 10xxxxxx form; otherwise emit FFFD for the lead byte alone
+        // and resync at the next byte.
+        const auto complete = [&](size_t n, uint32_t min) {
+            if (i + n > text.size()) return false;
+            uint32_t v = b0 & (0x7F >> n);
+            for (size_t k = 1; k < n; ++k) {
+                if ((byte(i + k) & 0xC0) != 0x80) return false;
+                v = (v << 6) | (byte(i + k) & 0x3F);
+            }
+            if (v < min || (v >= 0xD800 && v <= 0xDFFF)) return false;
+            cp = v;
+            len = n;
+            return true;
+        };
+        if (b0 < 0x80) {
+            cp = b0;
+        } else if ((b0 & 0xE0) == 0xC0) {
+            complete(2, 0x80);
+        } else if ((b0 & 0xF0) == 0xE0) {
+            complete(3, 0x800);
+        } else if ((b0 & 0xF8) == 0xF0) {
+            complete(4, 0x10000);
+        }
+        cps.push_back(cp);
+        i += len;
+    }
+    return cps;
 }
 
 // Copy rows rule (spec §2): per row take the cells up to and including the

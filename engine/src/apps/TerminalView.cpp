@@ -19,6 +19,17 @@ constexpr uint32_t kDefaultThemeFg = 0xCCCCCC;
 
 uint32_t RgbOf(uint32_t c) { return c & 0x00FFFFFF; }
 
+// Blend num/255 of fg into bg, per channel — used for the IME pre-edit
+// overlay background (a slightly bright tint of the theme fg, spec §3).
+uint32_t MixRgb(uint32_t bg, uint32_t fg, int num) {
+    const auto chan = [num, bg, fg](int shift) {
+        const int b = static_cast<int>((bg >> shift) & 0xFF);
+        const int f = static_cast<int>((fg >> shift) & 0xFF);
+        return (b * (255 - num) + f * num) / 255;
+    };
+    return static_cast<uint32_t>((chan(16) << 16) | (chan(8) << 8) | chan(0));
+}
+
 } // namespace
 
 TerminalView::TerminalView(JKVtParser* parser, JKTerminalGrid* grid,
@@ -115,6 +126,40 @@ void TerminalView::OnPaintClient(JKDC& dc) {
                           sel.Contains(c, gr));
             }
         }
+    }
+
+    // IME pre-edit overlay (docs/26 단계 5, spec §3) paints AFTER the
+    // selection swap: the cursor cell may be selected and the overlay wins.
+    // Shown on the live view only (off == 0, the same gate the cursor outline
+    // uses) — while scrolled back the composition stays hidden until the
+    // user returns to the live view.
+    if (!preEdit_.empty() && off == 0) {
+        PaintPreEdit(dc, client);
+    }
+}
+
+void TerminalView::PaintPreEdit(JKDC& dc, const JKRect& client) {
+    const auto& cursor = grid_->GetCursor();
+    const std::vector<uint32_t> cps = DecodeUtf8(preEdit_);
+    // Fixed blend: 25% of themeFg mixed into themeBg — a slightly bright
+    // background strip marking the composition span without clashing with
+    // reverse/selection cells it covers.
+    constexpr int kPreEditMix = 64;   // 64/255 ≈ 25%
+    const uint32_t bg = MixRgb(RgbOf(themeBg_), RgbOf(themeFg_), kPreEditMix);
+    dc.SetColor(static_cast<uint8_t>((bg >> 16) & 0xFF),
+                static_cast<uint8_t>((bg >> 8) & 0xFF),
+                static_cast<uint8_t>(bg & 0xFF), 255);
+    for (size_t i = 0, x = static_cast<size_t>(std::max(0, cursor.x));
+         i < cps.size() && x < static_cast<size_t>(cols_); ++i) {
+        // One glyph per cell; wide glyphs (JKTermCharWidth == 2) occupy 2
+        // cells, clamped at the grid width (spec §3).
+        const int w = std::min(JKTermCharWidth(cps[i]), cols_ - static_cast<int>(x));
+        const JKRect r{ client.x + static_cast<int>(x) * kTermCellW,
+                        client.y + cursor.y * kTermCellH,
+                        kTermCellW * w, kTermCellH };
+        dc.FillRect(r);
+        PaintGlyph(dc, r, cps[i], RgbOf(themeFg_), false);
+        x += static_cast<size_t>(w);
     }
 }
 
@@ -243,6 +288,13 @@ void TerminalView::PaintFallbackGlyph(JKDC& dc, const JKRect& cellRect,
 }
 
 void TerminalView::RespondMessage(const JKEvent& ev) {
+    // IME composition (docs/26 단계 5, spec §3): TextEditing carries the UTF-8
+    // pre-edit string while the OS IME is composing. Stored for the cursor
+    // overlay and dropped on commit (Char) or any key/paste/selection start.
+    if (ev.type == JKEventType::TextEditing) {
+        preEdit_ = ev.text;
+        if (grid_) grid_->MarkAllDirty();   // repaint through the frame gate
+    }
     if (onInput_) {
         if (ev.type == JKEventType::KeyDown) {
             HandleKeyDown(ev);
@@ -252,6 +304,7 @@ void TerminalView::RespondMessage(const JKEvent& ev) {
             // e.g. SendKeys/IME commit). NUL and DEL are never meaningful.
             const unsigned char b0 = static_cast<unsigned char>(ev.text[0]);
             if (b0 != 0x00 && b0 != 0x7F) {
+                ClearPreEdit();   // the commit replaces the composition (§3)
                 ClearSelection();   // any text input drops the selection
                 scrollOffset_ = 0;   // typing returns to the live view
                 onInput_(ev.text, std::strlen(ev.text));
@@ -315,6 +368,7 @@ void TerminalView::HandleMouseEvent(const JKEvent& ev) {
             // is armed at once and degenerates away on MouseUp if the user
             // only clicked (no drag → no selection, spec §1).
             selDragging_ = true;
+            ClearPreEdit();   // selection start drops the composition (§3)
             selAnchor_ = CellFromPoint(ev.x, ev.y);
             selEnd_ = selAnchor_;
             grid_->MarkAllDirty();
@@ -349,6 +403,12 @@ void TerminalView::HandleMouseEvent(const JKEvent& ev) {
         default:
             break;
     }
+}
+
+void TerminalView::ClearPreEdit() {
+    if (preEdit_.empty()) return;
+    preEdit_.clear();
+    if (grid_) grid_->MarkAllDirty();   // drop the overlay this frame
 }
 
 void TerminalView::ClearSelection() {
@@ -390,6 +450,7 @@ void TerminalView::PasteClipboard() {
     const std::string data =
         SanitizeClipboardPaste(raw, parser_ && parser_->BracketedPaste());
     SDL_free(raw);
+    ClearPreEdit();   // pasting drops the composition (spec §3)
     ClearSelection();   // pasting drops the selection (spec §2)
     if (!data.empty()) {
         scrollOffset_ = 0;   // paste returns to the live view
@@ -406,6 +467,12 @@ void TerminalView::HandleKeyDown(const JKEvent& ev) {
     const bool ctrl = (mod & KMOD_CTRL) != 0;
     const bool alt = (mod & KMOD_ALT) != 0;
     const bool shift = (mod & KMOD_SHIFT) != 0;
+
+    // Any key drops the IME composition (docs/26 단계 5, spec §3) — bare
+    // modifier presses included, harmlessly: the next TextEditing update
+    // re-arms it. Ordering with SDL is KeyDown first, TextEditing after, so
+    // the composition repaints within the same frame.
+    ClearPreEdit();
 
     // Selection lifetime (docs/26 단계 2, spec §2): any key drops the
     // selection — except the clipboard chords (handled in the switch below,

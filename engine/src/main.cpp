@@ -1746,6 +1746,42 @@ static int RunAppSelfTest() {
         // Bracketed off: no wrapper bytes.
         check(jk::SanitizeClipboardPaste("hi", false) == "hi",
               "termselect: unbracketed paste has no wrapper");
+
+        // IME pre-edit decode (docs/26 단계 5, spec §3): the pure UTF-8 ->
+        // codepoint helper the TerminalView cursor overlay consumes.
+        {
+            const auto ascii = jk::DecodeUtf8("ab");
+            check(ascii.size() == 2 && ascii[0] == 'a' && ascii[1] == 'b',
+                  "termselect: decode utf8 ascii");
+            const auto han = jk::DecodeUtf8("\xED\x95\x9C");   // U+D55C 한
+            check(han.size() == 1 && han[0] == 0xD55C &&
+                      jk::JKTermCharWidth(han[0]) == 2,
+                  "termselect: decode utf8 hangul syllable is wide");
+            // Round-trip through the encoder (AppendUtf8 is the mirror).
+            std::string re;
+            for (uint32_t cp : jk::DecodeUtf8("a\xEA\xB0\x80")) {
+                jk::AppendUtf8(re, cp);
+            }
+            check(re == "a\xEA\xB0\x80", "termselect: decode/encode roundtrip");
+            // Invalid leads, overlong forms and surrogates -> U+FFFD, with
+            // resync at the next byte (counts are byte-position exact).
+            const auto bad = jk::DecodeUtf8("\xFF\x41");   // stray lead + 'A'
+            check(bad.size() == 2 && bad[0] == 0xFFFD && bad[1] == 'A',
+                  "termselect: invalid utf8 lead decodes as FFFD");
+            const auto over = jk::DecodeUtf8("\xC0\xAF");   // overlong 2-byte
+            check(over.size() == 2 && over[0] == 0xFFFD &&
+                      over[1] == 0xFFFD,
+                  "termselect: overlong utf8 decodes as FFFD");
+            const auto sur = jk::DecodeUtf8("\xED\xA0\x80");   // surrogate D800
+            check(sur.size() == 3 && sur[0] == 0xFFFD &&
+                      sur[1] == 0xFFFD && sur[2] == 0xFFFD,
+                  "termselect: surrogate utf8 decodes as FFFD");
+            // A truncated sequence emits FFFD for the lead and resyncs at the
+            // orphan continuation byte.
+            const auto trunc = jk::DecodeUtf8("\xEA\xB0");
+            check(trunc.size() == 2 && trunc[0] == 0xFFFD && trunc[1] == 0xFFFD,
+                  "termselect: truncated utf8 decodes as FFFD");
+        }
     }
 
     // Script bridge (docs/27 단계 1): host boot, click dispatch, timer

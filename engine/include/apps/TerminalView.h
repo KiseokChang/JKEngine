@@ -71,6 +71,10 @@ private:
                     uint32_t fg, bool bold);
     void PaintFallbackGlyph(JKDC& dc, const JKRect& cellRect, uint32_t cp,
                             uint32_t fg);
+    // IME pre-edit overlay (docs/26 단계 5, spec §3): composition glyphs
+    // drawn over the live grid cursor cell.
+    void PaintPreEdit(JKDC& dc, const JKRect& client);
+    void ClearPreEdit();
 
     JKVtParser* parser_ = nullptr;
     JKTerminalGrid* grid_ = nullptr;
@@ -91,6 +95,12 @@ private:
     JKPoint selAnchor_{ -1, -1 };
     JKPoint selEnd_{ -1, -1 };
     bool selDragging_ = false;   // left button held, drag in progress
+
+    // IME composition (docs/26 단계 5, spec §3): the UTF-8 pre-edit string
+    // from JKEventType::TextEditing, empty when nothing is composing. Shown
+    // as an overlay at the live grid cursor cell until a commit (Char) or a
+    // key/paste/selection-start clears it.
+    std::string preEdit_;
 };
 
 } // namespace jk
