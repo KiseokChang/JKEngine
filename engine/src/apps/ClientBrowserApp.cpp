@@ -7,6 +7,7 @@
 
 #include <imgui_impl_jkwindow.h>
 #include <imgui.h>
+#include "theme/JKThemeImGui.h"
 #include <JKWindow.h>
 #include <SDL.h>
 
@@ -345,7 +346,8 @@ class BrowserRoot : public JKWindow {
 public:
     explicit BrowserRoot(const std::string& title) : JKWindow(title) {}
     void OnPaintClient(JKDC& dc) override {
-        dc.SetColor(24, 24, 28, 255);
+        const auto& t = jk::theme::current();
+        dc.SetColor(t.appClearBg.r, t.appClearBg.g, t.appClearBg.b, 255);
         dc.FillRect(GetClientRect());
     }
 };
@@ -363,6 +365,7 @@ void ClientBrowserApp::OnInit() {
     SetTimerInterval(16); // ~60 Hz frame cadence (CEF pump + repaint clock)
 
     ImGui::CreateContext();
+    jk::theme::ApplyImGuiTheme(); // JKTheme 팔레트 봉합 (P2 단계 3)
     ImGui::GetIO().IniFilename = nullptr;
     lastFrame_ = std::chrono::steady_clock::now();
 }
@@ -645,6 +648,7 @@ void ClientBrowserApp::BuildUi(int w, int h) {
         ImGui::Image((ImTextureID)g_tex, ImVec2((float)pageW_, (float)pageH_));
     } else if (!initError_.empty()) {
         ImGui::SetCursorPos(ImVec2(0.0f, (float)pageY_));
+        // 의도적 잔존 — 의미색 (P2 테마 스왑 제외)
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s",
                            initError_.c_str());
     } else {

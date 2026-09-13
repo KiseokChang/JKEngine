@@ -8,6 +8,7 @@
 
 #include <client/JKClientSurface.h>
 #include <imgui_impl_jkwindow.h>
+#include "theme/JKThemeImGui.h"
 #include <JKWindow.h>
 #include <SDL.h>
 
@@ -47,6 +48,7 @@ void ClientSnapApp::OnInit() {
     SetTimerInterval(16); // ~60 Hz frame cadence (notify/palette idiom)
 
     ImGui::CreateContext();
+    jk::theme::ApplyImGuiTheme(); // JKTheme 팔레트 봉합 (P2 단계 3)
     ImGui::GetIO().IniFilename = nullptr;
     // The hint line is Korean — load Malgun Gothic like the notify center;
     // failure degrades to the default font (English-only UI).
@@ -123,6 +125,7 @@ void ClientSnapApp::BuildUi(int w, int h) {
 
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(ImVec2((float)w, (float)h));
+    // 의도적 잔존 — 의미색 (P2 테마 스왑 제외): 투명 표면 필수 (오버레이)
     ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
     if (ImGui::Begin("snap", nullptr,
                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |

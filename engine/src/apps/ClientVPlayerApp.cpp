@@ -2,6 +2,7 @@
 
 #include <imgui_impl_jkwindow.h>
 #include <imgui.h>
+#include "theme/JKThemeImGui.h"
 #include <JKWindow.h>
 #include <SDL.h>
 
@@ -39,7 +40,8 @@ public:
     explicit VPlayerRoot(const std::string& title) : JKWindow(title) {}
     void OnPaintClient(JKDC& dc) override {
         const JKRect client = GetClientRect();
-        dc.SetColor(18, 18, 22, 255);
+        const auto& t = jk::theme::current();
+        dc.SetColor(t.appClearBg.r, t.appClearBg.g, t.appClearBg.b, 255);
         dc.FillRect(client);
     }
 };
@@ -573,6 +575,7 @@ void ClientVPlayerApp::OnInit() {
     SetTimerInterval(16); // ~60 Hz frame cadence
 
     ImGui::CreateContext();
+    jk::theme::ApplyImGuiTheme(); // JKTheme 팔레트 봉합 (P2 단계 3)
     ImGui::GetIO().IniFilename = nullptr;
     lastFrame_ = std::chrono::steady_clock::now();
 }
@@ -695,6 +698,7 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
     PlayerCore* p = player_.get();
     if (!p) {
         if (!openError_.empty())
+            // 의도적 잔존 — 의미색 (P2 테마 스왑 제외)
             ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", openError_.c_str());
         ImGui::End();
         return;
@@ -750,6 +754,7 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
     if (ImGui::SliderFloat("##avsync", &avd, -1.0f, 1.0f, "A/V sync %+.2f s"))
         p->SetAvDelay(avd);
     ImGui::SameLine();
+    // 의도적 잔존 — 의미색 (P2 테마 스왑 제외)
     ImGui::TextColored(ImVec4(0.65f, 0.65f, 0.7f, 1.0f), "(+) audio later");
 
     ImGui::Separator();
@@ -768,6 +773,7 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
         vidMin = ImGui::GetItemRectMin();
         vidMax = ImGui::GetItemRectMax();
     } else if (!openError_.empty()) {
+        // 의도적 잔존 — 의미색 (P2 테마 스왑 제외)
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", openError_.c_str());
     } else {
         ImGui::TextUnformatted("no frame yet");
@@ -801,6 +807,7 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
 
         // Translucent step buttons left of the knob.
         ImGui::SetCursorScreenPos(ImVec2(kmin.x - 78.0f, c.y - 11.0f));
+        // 의도적 잔존 — 의미색 (P2 테마 스왑 제외): 비디오 위 반투명 오버레이
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.16f, 0.16f, 0.20f, 0.55f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.25f, 0.25f, 0.32f, 0.80f));
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.32f, 0.32f, 0.42f, 0.90f));

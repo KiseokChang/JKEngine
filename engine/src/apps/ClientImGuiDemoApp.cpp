@@ -2,6 +2,7 @@
 
 #include <imgui_impl_jkwindow.h>
 #include <imgui_memory_editor.h>
+#include "theme/JKThemeImGui.h"
 #include <JKWindow.h>
 #include <SDL.h>
 #include <math.h>
@@ -20,7 +21,8 @@ public:
     explicit ImGuiDemoRoot(const std::string& title) : JKWindow(title) {}
     void OnPaintClient(JKDC& dc) override {
         const JKRect client = GetClientRect();
-        dc.SetColor(36, 36, 43, 255);
+        const auto& t = jk::theme::current();
+        dc.SetColor(t.appClearBg.r, t.appClearBg.g, t.appClearBg.b, 255);
         dc.FillRect(client);
     }
 };
@@ -49,6 +51,7 @@ void ClientImGuiDemoApp::OnInit() {
     SetTimerInterval(16); // ~60 Hz frame cadence
 
     ImGui::CreateContext();
+    jk::theme::ApplyImGuiTheme(); // JKTheme 팔레트 봉합 (P2 단계 3)
     // No window-position persistence: a client has no writable cwd guarantee,
     // and the demo resets its layout every launch anyway (docs/23 §11.4).
     ImGui::GetIO().IniFilename = nullptr;

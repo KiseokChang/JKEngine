@@ -6,6 +6,7 @@
 
 #include <client/JKClientSurface.h>
 #include <imgui_impl_jkwindow.h>
+#include "theme/JKThemeImGui.h"
 #include <JKWindow.h>
 #include <SDL.h>
 
@@ -22,7 +23,8 @@ public:
     explicit ShotRoot(const std::string& title) : JKWindow(title) {}
     void OnPaintClient(JKDC& dc) override {
         const JKRect client = GetClientRect();
-        dc.SetColor(24, 24, 30, 255);
+        const auto& t = jk::theme::current();
+        dc.SetColor(t.appClearBg.r, t.appClearBg.g, t.appClearBg.b, 255);
         dc.FillRect(client);
     }
 };
@@ -49,6 +51,7 @@ void ClientShotApp::OnInit() {
     SetTimerInterval(16); // ~60 Hz frame cadence (notify idiom)
 
     ImGui::CreateContext();
+    jk::theme::ApplyImGuiTheme(); // JKTheme 팔레트 봉합 (P2 단계 3)
     ImGui::GetIO().IniFilename = nullptr;
     // Korean UI (새로고침/영역 캡처/empty-state text) — Malgun Gothic like
     // the notify center; failure degrades to the default font.

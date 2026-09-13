@@ -4,6 +4,7 @@
 
 #include <imgui_impl_jkwindow.h>
 #include <implot.h>
+#include "theme/JKThemeImGui.h"
 #include <JKWindow.h>
 #include <SDL.h>
 #include <algorithm>
@@ -26,7 +27,8 @@ public:
     explicit TaskmgrRoot(const std::string& title) : JKWindow(title) {}
     void OnPaintClient(JKDC& dc) override {
         const JKRect client = GetClientRect();
-        dc.SetColor(32, 32, 38, 255);
+        const auto& t = jk::theme::current();
+        dc.SetColor(t.appClearBg.r, t.appClearBg.g, t.appClearBg.b, 255);
         dc.FillRect(client);
     }
 };
@@ -63,6 +65,7 @@ void ClientTaskmgrApp::OnInit() {
     SetTimerInterval(16); // ~60 Hz frame cadence (same clock as the demo)
 
     ImGui::CreateContext();
+    jk::theme::ApplyImGuiTheme(); // JKTheme 팔레트 봉합 (P2 단계 3)
     ImPlot::CreateContext();
     ImGui::GetIO().IniFilename = nullptr;
     lastFrame_ = std::chrono::steady_clock::now();

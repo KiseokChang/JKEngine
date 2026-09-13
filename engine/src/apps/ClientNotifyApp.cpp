@@ -6,6 +6,7 @@
 
 #include <agent/JKAgentJson.h>
 #include <imgui_impl_jkwindow.h>
+#include "theme/JKThemeImGui.h"
 #include <JKWindow.h>
 #include <SDL.h>
 
@@ -22,7 +23,8 @@ public:
     explicit NotifyRoot(const std::string& title) : JKWindow(title) {}
     void OnPaintClient(JKDC& dc) override {
         const JKRect client = GetClientRect();
-        dc.SetColor(24, 24, 30, 255);
+        const auto& t = jk::theme::current();
+        dc.SetColor(t.appClearBg.r, t.appClearBg.g, t.appClearBg.b, 255);
         dc.FillRect(client);
     }
 };
@@ -43,6 +45,7 @@ void ClientNotifyApp::OnInit() {
     UpdateBadge();   // restored unread count survives restart (docs/33)
 
     ImGui::CreateContext();
+    jk::theme::ApplyImGuiTheme(); // JKTheme 팔레트 봉합 (P2 단계 3)
     ImGui::GetIO().IniFilename = nullptr;
     // Notifications carry Korean (trigger titles, [알림] bodies) — the ImGui
     // default font is ASCII-only, so load Malgun Gothic with the Korean
@@ -134,6 +137,7 @@ void ClientNotifyApp::BuildUi(int w, int h) {
             for (int i = static_cast<int>(history_.size()) - 1; i >= 0; --i) {
                 const NotifyEntry& e = history_[i];
                 if (!e.read)
+                    // 의도적 잔존 — 의미색 (P2 테마 스왑 제외)
                     ImGui::PushStyleColor(ImGuiCol_Text,
                                           ImVec4(1.0f, 0.85f, 0.5f, 1.0f));
                 ImGui::TextWrapped("%s", FormatEntry(e).c_str());

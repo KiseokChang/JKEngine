@@ -6,6 +6,7 @@
 
 #include <agent/JKAgentJson.h>
 #include <imgui_impl_jkwindow.h>
+#include "theme/JKThemeImGui.h"
 #include <JKWindow.h>
 #include <SDL.h>
 #include <cctype>
@@ -20,7 +21,8 @@ public:
     explicit PaletteRoot(const std::string& title) : JKWindow(title) {}
     void OnPaintClient(JKDC& dc) override {
         const JKRect client = GetClientRect();
-        dc.SetColor(24, 24, 30, 255);
+        const auto& t = jk::theme::current();
+        dc.SetColor(t.appClearBg.r, t.appClearBg.g, t.appClearBg.b, 255);
         dc.FillRect(client);
     }
 };
@@ -44,6 +46,7 @@ void ClientPaletteApp::OnInit() {
     SetTimerInterval(16); // ~60 Hz frame cadence (taskmgr clock)
 
     ImGui::CreateContext();
+    jk::theme::ApplyImGuiTheme(); // JKTheme 팔레트 봉합 (P2 단계 3)
     ImGui::GetIO().IniFilename = nullptr;
     lastFrame_ = std::chrono::steady_clock::now();
     // Opt into desktop events on the window connection (M2a relaxed push —
