@@ -8,9 +8,15 @@
 #
 # Phases:
 #   setup    - kill desktop, clean state dir, start server + browser
-#   e2e      - full task-2 gate: add -> json -> click-nav -> toggle off/on ->
-#              client-restart persistence -> right-click delete ->
-#              corrupt fail-open -> one-time .bak -> g_viewPageY page click
+#   e2e      - full task-2 gate: add -> json -> distinct-url click-nav
+#              (defocus-commit lock) -> toggle off/on -> client-restart
+#              persistence -> right-click delete -> corrupt fail-open ->
+#              one-time .bak -> g_viewPageY page click
+#
+#   Address-box behavior this probe relies on (measured 2026-09-14): the
+#   field Navigate()s on EVERY edit while focused; the IsItemFocused commit
+#   gate only blocks the click-away deactivation commit. Failed loads never
+#   fire on_address_change, so the tracked URL survives failed Navigates.
 #   teardown - stop desktop
 $ErrorActionPreference = 'Continue'
 Add-Type -TypeDefinition @"
@@ -107,6 +113,13 @@ function Send-Click([double]$lx, [double]$ly, [uint32]$down, [uint32]$up) {
 
 function Click-App([double]$lx, [double]$ly) { Send-Click $lx $ly 2 4 }
 
+function Move-App([double]$lx, [double]$ly) {
+    $px = [int]([math]::Round($script:srvOx + ($script:layerX + $lx) * $script:srvScale))
+    $py = [int]([math]::Round($script:srvOy + ($script:layerY + $ly) * $script:srvScale))
+    [Wt2]::SetCursorPos($px, $py) | Out-Null
+    Start-Sleep -Milliseconds 300
+}
+
 function RightClick-App([double]$lx, [double]$ly) { Send-Click $lx $ly 8 16 } # RM_DOWN/RM_UP
 
 function Type-Keys([string]$keys) {
@@ -161,15 +174,16 @@ function Restart-Browser {
     Find-BrowserLayer
 }
 
-# Differing-pixel count between two shots inside the app-local page region
-# (g_viewPageY gate: a page button click must change the page rendering).
-function Page-DiffCount([string]$a, [string]$b) {
+# Differing-pixel count between two shots inside an app-local region
+# (coords in the 960x640 layer space, converted with the server scale).
+function Region-DiffCount([string]$a, [string]$b, [int]$rx, [int]$ry,
+                          [int]$rw, [int]$rh) {
     $imgA = [System.Drawing.Bitmap]::FromFile((Join-Path $shotDir $a))
     $imgB = [System.Drawing.Bitmap]::FromFile((Join-Path $shotDir $b))
-    $x0 = 0  # full page region below the bar (list lines start near x=30 app-local)
-    $y0 = [int](115 * $script:srvScale)
-    $w  = [int](700 * $script:srvScale)
-    $h  = [int](450 * $script:srvScale)
+    $x0 = [int]($rx * $script:srvScale)
+    $y0 = [int]($ry * $script:srvScale)
+    $w  = [int]($rw * $script:srvScale)
+    $h  = [int]($rh * $script:srvScale)
     $count = 0
     for ($y = $y0; $y -lt $y0 + $h; $y += 2) {
         for ($x = $x0; $x -lt $x0 + $w; $x += 2) {
@@ -181,6 +195,13 @@ function Page-DiffCount([string]$a, [string]$b) {
     }
     $imgA.Dispose(); $imgB.Dispose()
     return $count
+}
+
+# Differing-pixel count between two shots inside the app-local page region
+# (g_viewPageY gate: a page button click must change the page rendering).
+function Page-DiffCount([string]$a, [string]$b) {
+    # full page region below the bar (list lines start near x=30 app-local)
+    return Region-DiffCount $a $b 0 115 700 450
 }
 
 $script:fails = 0
@@ -206,6 +227,20 @@ elseif ($args[0] -eq 'e2e') {
     Type-Keys "example.com{ENTER}"
     Start-Sleep -Seconds 4
 
+    # 1.5) address-hint reference: clear the typed buffer (backspaces; ^a is
+    #      not delivered by the server key pipeline) WITHOUT clicking away.
+    #      An empty buffer renders the hint even while the field keeps focus,
+    #      and clicking the page here would deactivate-commit the buffer:
+    #      measured on this build, page-click defocus still Navigates (only
+    #      bar-widget clicks are gated by the IsItemFocused fix). The hint
+    #      then shows the CEF-reported URL (https://example.com/), which
+    #      step 3 asserts against.
+    Click-App $posInput[0] $posInput[1]
+    Start-Sleep -Milliseconds 500
+    Type-Keys "{END}{BACKSPACE 30}"
+    Start-Sleep -Milliseconds 800
+    Save-ServerShot "task2-hint-ref.png"
+
     # 2) star -> bookmark saved (first save ever: no pre-existing file, no .bak)
     Click-App $posStar[0] $posStar[1]
     Start-Sleep -Seconds 1
@@ -215,10 +250,49 @@ elseif ($args[0] -eq 'e2e') {
     Check ".bak NOT created when no pre-existing file" (-not (Test-Path "$jsonPath.bak"))
     Save-ServerShot "task2-bar.png"
 
-    # 3) bookmark button click navigates (still example.com; page reloaded)
+    # 3) defocus-commit lock: type a DIFFERENT, successfully-loadable URL
+    #    (example.org, no Enter), then click the bookmark. Measured on this
+    #    build: the address box Navigate()s on EVERY edit while focused (the
+    #    IsItemFocused gate only blocks the click-away deactivation commit),
+    #    so after typing, currentUrl_ IS the typed URL (the star goes gray)
+    #    and the buffer holds the URL with the field still focused -- exactly
+    #    the stale state that a defocus-commit regression would re-Navigate
+    #    after the bookmark's Navigate (task-2 review MINOR-1). example.org
+    #    renders pixel-identical to example.com here, so the regression is
+    #    detected via the ACTIVE STAR (currentUrl_ == bookmark URL) and the
+    #    ADDRESS HINT below, not the page pixels. The truncations produced by
+    #    the buffer-clearing below must all FAIL to resolve, so currentUrl_
+    #    survives the clear (a file:// typed URL would load its truncations
+    #    and clobber it).
+    Click-App $posInput[0] $posInput[1]
+    Start-Sleep -Milliseconds 500
+    Type-Keys "example.org"    # 11 keys + no Enter: one SendWait, no burst risk
+    Start-Sleep -Seconds 4
+    Save-ServerShot "task2-typed-stale.png"
     Click-App $posBm1[0] $posBm1[1]
     Start-Sleep -Seconds 3
+    Move-App 500 300    # park off the bookmark button: its tooltip covers the page
     Save-ServerShot "task2-bmnav.png"
+    $diffStar = Region-DiffCount "task2-bmnav.png" "task2-bar.png" 876 42 32 28
+    Check ("bookmark click keeps currentUrl_ at bookmark URL, star stays active (diff {0} < 80)" -f $diffStar) `
+        ($diffStar -lt 80)
+    $diffRef = Page-DiffCount "task2-bmnav.png" "task2-bar.png"
+    Check ("and lands on the bookmark URL's page (diff {0} < 500)" -f $diffRef) `
+        ($diffRef -lt 500)
+    # hint assertion: clear the leftover buffer (NO page click to defocus --
+    # that deactivation still commits; an empty buffer shows the hint while
+    # the field keeps focus; the truncation Navigates all fail to resolve so
+    # currentUrl_ survives). The hint must show the bookmark URL again --
+    # not the typed example.org, not the empty-state placeholder.
+    Click-App $posInput[0] $posInput[1]
+    Start-Sleep -Milliseconds 500
+    Type-Keys "{END}{BACKSPACE 30}"
+    Start-Sleep -Milliseconds 1500
+    Save-ServerShot "task2-hint.png"
+    $diffHint = Region-DiffCount "task2-hint.png" "task2-hint-ref.png" 70 44 690 26
+    Check ("address hint equals bookmark URL (diff {0} < 80)" -f $diffHint) ($diffHint -lt 80)
+    $diffDef = Region-DiffCount "task2-hint.png" "task2-empty.png" 70 44 690 26
+    Check ("hint is not the empty-state placeholder (diff {0} > 80)" -f $diffDef) ($diffDef -gt 80)
 
     # 4) toggle off / on (toggle-off is the FIRST save over a pre-existing
     #    file -> the one-time .bak must now hold the pre-save content)
