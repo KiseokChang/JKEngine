@@ -1,7 +1,7 @@
 # 43. engine/desktop 3-lib 분할 (P1) as-built
 
 - 날짜: 2026-09-13
-- 상태: 구현 완료 (커밋 08c5829 → 5659b50, 게이트 GATE_GREEN)
+- 상태: 구현 완료 (코드 커밋 08c5829 → 5659b50 + 문서 보완, 게이트 GATE_GREEN)
 - 선행: docs/superpowers/specs/2026-09-13-engine-desktop-split-design.md (스펙),
   docs/42 (리플로우 — P1 직전 상태)
 
@@ -18,7 +18,7 @@
 (Win11 모던, Theme 구조체 중앙화 — 셸/서버가 분리된 덕에 어디에 둘지가
 이제 결정 가능).
 
-## 2. 단계별 커밋 (BASE 6ee11b1 → HEAD 5659b50)
+## 2. 단계별 커밋 (코드 5종 — BASE 6ee11b1 → 5659b50; 이후 문서 보완 커밋 e1ebc3f, 9ccd326)
 
 | 커밋 | 내용 | 스펙 단계 |
 |---|---|---|
