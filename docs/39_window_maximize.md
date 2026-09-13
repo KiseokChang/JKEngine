@@ -62,17 +62,24 @@ scale 1**. 기존 `CommitChromeResize`(드래그 리사이즈/셸 도킹/오버�
 2. **제목바 더블클릭 토글**: `ev.button.clicks == 2`면 이동 그랩 대신 토글 (Windows
    관례). `ly ∈ [kResizeHotspot, kChromeTitleBar)`로 한정 — 상단 리사이즈 스트립은
    여전히 리사이즈 존. 버튼 존 위 더블클릭은 버튼 로직이 먼저 먹는다.
-3. **드래그 복원 (deferred — Fix 1)**: 최대화 레이어에서 Move/Resize 그랩 시작 시
-   **복원하지 않고 `chromeRestorePendingId_`만 무장** — 복원은 그랩의 **첫 MOUSEMOTION
-   시점**에 발생 (mousedown 아님). Move는 `chromeGrabFX_/FY_`(그랩 점의 표면 내
-   분수 좌표)를 저장해 복원 후 `fx·dispW/fy·dispH` 재앵커로 창을 커서 아래에
-   재배치(Windows와 동일 체감); Resize는 복원 rect에서 엣지 핫스팟을 재평가하고
-   클릭이 더 이상 엣지가 아니면 **그랩 취소**(복원된 채 grab-free). MOUSEBUTTONUP은
-   pending을 클리어 — **움직임 없는 클릭은 복원하지 않는다** (Windows 패리티).
+3. **드래그 복원 (deferred + 모션 스레숄드 — Fix 1 + final review)**: 최대화 레이어에서
+   Move/Resize 그랩 시작 시 **복원하지 않고 `chromeRestorePendingId_`만 무장** — 복원은
+   그랩 시작점에서 누적 이동이 **`kResizeHotspot`(6px)을 넘는 첫 MOUSEMOTION** 시점에
+   발생 (mousedown 아님, 임계 이하 모션은 소비만 하고 무시). **아주 미세한 손떨림은
+   복원 트리거가 아님 — 실제 드래그만 복원**: 실제 손의 더블클릭은 클릭 사이 ~1px
+   떨림이 있는데 임계 없이는 그 떨림이 복원을 발화해 click 2(clicks==2)가 이제
+   일반 상태인 창을 재최대화했다(최대화 유지 + restored/maximized 페어). 6px 임계로
+   무모션·떨림 더블클릭 모두 존 1c에 그대로 도달해 정확히 한 번 토글. Move는
+   `chromeGrabFX_/FY_`(그랩 점의 표면 내 분수 좌표)를 저장해 복원 후
+   `fx·dispW/fy·dispH` 재앵커로 창을 커서 아래에 재배치(Windows와 동일 체감);
+   Resize는 복원 rect에서 엣지 핫스팟을 재평가하고 클릭이 더 이상 엣지가 아니면
+   **그랩 취소**(복원된 채 grab-free). MOUSEBUTTONUP은 pending을 클리어 —
+   **움직임 없는 클릭은 복원하지 않는다** (Windows 패리티).
    이유: 초기 구현(mousedown 복원)에서는 최대화 상태 더블클릭이 click 1 = 드래그
    복원 → click 2 = 재최대화로 **두 이벤트/제자리 토글 없음**이 되었는데, deferred로
    바꾸면 click 1은 무장만 하고 click 2(clicks==2)는 여전히 최대화 상태에서 존 1c에
-   도달해 정확히 한 번 복원 — 문제가 구조적으로 사라진다.
+   도달해 정확히 한 번 복원 — 문제가 구조적으로 사라진다. 최대화가 아닌 그랩은
+   임계 없이 기존 그대로(첫 모션이 곧 이동/리사이즈).
 4. **호버 커서**: 버튼 존(`inMaxX && inCloseY`)은 닫기 존과 동일하게 화살표 유지
    (UpdateChromeHoverCursor에 동일 면제 조건 추가).
 
@@ -131,5 +138,11 @@ scale 1**. 기존 `CommitChromeResize`(드래그 리사이즈/셸 도킹/오버�
   최대화 창의 엣지 리사이즈가 없으므로 이 v1 동작은 의도적 차이.
 - 더블클릭 직후 아주 짧은 시간에 그랩이 시작되면 pending id가 남을 수 있으나 MOUSEUP/
   그랩 종료에서 모두 클리어 — 스테일 pending이 이후 무관한 그랩에서 발화하지 않음.
+- **드래그 복원 임계는 6px (kResizeHotspot)** — 그랩 시작점에서 누적 이동이 6px를
+  넘어야 복원. 아주 미세한 손떨림은 복원 트리거가 아님(§4-3) — 실제 드래그만 복원.
+  임계 이하 모션은 그랩에 의해 소비되며 창을 움직이지 않는다.
+- PushMaximizeEvent 봉투 버퍼 640 — PushAgentEvent와 동일 크기. 타이틀 상한 + JSON
+  이스케이프(\uXXXX) 확장이 320을 초과할 수 있어 잘림 → malformed JSON 방지.
 - 커밋: fb45dc5 (코어 + 크롬 버튼 + 상호작용), ce2bf44 (Fix 1 — deferred 드래그
-  복원), a1368b1 (프로브), 7f7dbcc (프로브 폴리시), 본 문서.
+  복원), a1368b1 (프로브), 7f7dbcc (프로브 폴리시), 본 문서, 드래그 복원 모션 임계 +
+  이벤트 버퍼 640 (final review).

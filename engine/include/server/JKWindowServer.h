@@ -244,11 +244,17 @@ private:
     // window under the cursor.
     float chromeGrabFX_ = 0.0f;
     float chromeGrabFY_ = 0.0f;
+    // Grab-start mouse position (logical points) — the deferred drag-restore
+    // fires only past kResizeHotspot of accumulated motion from here, so a
+    // hand's ~1px jitter between a double-click's clicks stays a click.
+    int chromeGrabStartX_ = 0;
+    int chromeGrabStartY_ = 0;
     // Deferred drag-restore (docs/39 fix 1): the surface id whose grab is
-    // running on a maximized layer. Restore fires on the FIRST motion of the
-    // grab (not at mousedown), so a double-click's second click still sees
-    // the maximized state and toggles exactly once. Cleared at grab start
-    // (re-armed per grab), on mouse-up, and when the grabbed layer vanishes.
+    // running on a maximized layer. Restore fires on the first motion BEYOND
+    // the kResizeHotspot drag threshold (not at mousedown), so a double-click
+    // — zero-motion or jittered — still reaches zone 1c while maximized and
+    // toggles exactly once. Cleared at grab start (re-armed per grab), on
+    // mouse-up, and when the grabbed layer vanishes.
     uint32_t chromeRestorePendingId_ = 0;
     // Resize grab: layer origin and DISPLAY size at grab time (logical
     // points; a fit-scaled surface is displayed smaller than its pixels).
