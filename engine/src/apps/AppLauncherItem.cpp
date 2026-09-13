@@ -47,10 +47,20 @@ void AppLauncherItem::OnPaintClient(JKDC& dc) {
     face.y += 2;
     face.w -= 4;
     face.h -= 4;
+    const auto& t = jk::theme::current();
     if (pressed_) {
-        dc.Box3D(face, 2, 128, 128, 128, 0, 0, 0, 255, 255, 255);
+        // Pressed: the bevel inversion lives in the argument swap (dark on
+        // top / light below); the old face darkening 192→128 is intentionally
+        // dropped — dark palettes already have a dark base face.
+        dc.Box3D(face, 2,
+                 t.widgetFace.r, t.widgetFace.g, t.widgetFace.b,
+                 t.bevelDark.r, t.bevelDark.g, t.bevelDark.b,
+                 t.bevelLight.r, t.bevelLight.g, t.bevelLight.b);
     } else {
-        dc.Box3D(face, 2, 192, 192, 192, 255, 255, 255, 0, 0, 0);
+        dc.Box3D(face, 2,
+                 t.widgetFace.r, t.widgetFace.g, t.widgetFace.b,
+                 t.bevelLight.r, t.bevelLight.g, t.bevelLight.b,
+                 t.bevelDark.r, t.bevelDark.g, t.bevelDark.b);
     }
 
     // Icon area centered in the upper portion.
