@@ -231,6 +231,22 @@ void JKVtParser::DispatchCsi(uint8_t final_) {
         case 'l':
             if (privateMode) HandlePrivateMode(p, final_ == 'h');
             break;
+        case 'q': {
+            // DECSCUSR "CSI Ps SP q": the 0x20 intermediate byte is already
+            // accumulated in csiBuf_ (HandleCsiByte, 0x20-0x2F) — scan for it
+            // and take the Ps digits preceding it. Blink variants (even/odd
+            // Ps) collapse to the shape; v1 always renders steady.
+            const size_t sp = params.find(static_cast<char>(0x20));
+            if (sp != std::string::npos) {
+                const std::string digits = params.substr(0, sp);
+                const int ps = digits.empty() ? 0 : std::atoi(digits.c_str());
+                CursorShape shape = CursorShape::Block;
+                if (ps == 3 || ps == 4)      shape = CursorShape::Underline;
+                else if (ps == 5 || ps == 6) shape = CursorShape::Bar;
+                grid_->SetCursorShape(shape);
+            }
+            break;   // "q" without the SP intermediate (other finals): ignore
+        }
         default: break;   // unsupported final byte: ignore
     }
 }
@@ -239,14 +255,21 @@ void JKVtParser::HandlePrivateMode(const int* p, bool set) {
     if (!grid_) return;
     switch (p[0]) {
         case 25:   grid_->SetCursorVisible(set); break;
+        case 1:    appCursor_ = set; break;        // app cursor keys (docs/26 단계 3)
+        case 1000: mouseMode_ = set ? TermMouseMode::Normal : TermMouseMode::Off; break;
+        case 1002: mouseMode_ = set ? TermMouseMode::Button : TermMouseMode::Off; break;
+        case 1003: mouseMode_ = set ? TermMouseMode::Any    : TermMouseMode::Off; break;
+        case 1006: sgrMouse_ = set; break;         // SGR mouse encoding
         case 1047: if (!set) grid_->EraseDisplay(2); else grid_->SetAltScreen(true); break;
         case 1048: if (set) grid_->SaveCursor(); else grid_->RestoreCursor(); break;
         case 1049:
+            // Alt-screen swap must NOT touch mouse modes (xterm standard:
+            // the application enables/disables mouse reporting itself).
             if (set) { grid_->SaveCursor(); grid_->SetAltScreen(true); grid_->EraseDisplay(2); }
             else     { grid_->SetAltScreen(false); grid_->RestoreCursor(); }
             break;
         case 2004: bracketedPaste_ = set; break;   // tracked only (Phase 2)
-        default: break;
+        default: break;   // 12 (blink) and the rest: ignore
     }
 }
 

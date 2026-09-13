@@ -28,6 +28,12 @@ enum JKTermAttr : uint8_t {
 // Sentinel cell color meaning "theme default".
 inline constexpr uint32_t kTermDefaultColor = 0xFFFFFFFFu;
 
+// Cursor shape (DECSCUSR "CSI Ps SP q", docs/26 단계 3). Ps 0/1/2 → Block,
+// 3/4 → Underline, 5/6 → Bar; the blink variant is ignored — v1 renders
+// steady. Default Block; only DECSCUSR changes it (Reset/Resize/alt-screen
+// swap leave it alone).
+enum class CursorShape { Block, Underline, Bar };
+
 // East Asian Width, minimal subset (docs/26 단계 1): the ranges ConPTY/conhost
 // actually renders two cells wide. Hangul compatibility jamo (0x3130-0x318F)
 // is intentionally narrow — conhost counts it as one cell.
@@ -81,6 +87,12 @@ public:
     const Cursor& GetCursor() const { return cursor_; }
     Cursor&       MutableCursor() { return cursor_; }
     void SetCursorVisible(bool visible) { cursor_.visible = visible; MarkAllDirty(); }
+
+    // DECSCUSR cursor shape (docs/26 단계 3). Default Block; deliberately NOT
+    // reset by Resize/Reset/alt-screen swap — the application re-issues
+    // DECSCUSR when it wants a different shape.
+    void        SetCursorShape(CursorShape shape) { cursorShape_ = shape; MarkAllDirty(); }
+    CursorShape GetCursorShape() const { return cursorShape_; }
 
     // SGR render state applied by the parser on PutChar (see JKVtParser).
     uint32_t curFg = kTermDefaultColor;
@@ -168,6 +180,7 @@ private:
     size_t scrollbackMax_ = kScrollbackMax;
 
     Cursor cursor_;
+    CursorShape cursorShape_ = CursorShape::Block;   // DECSCUSR (docs/26 단계 3)
     int scrollTop_ = 0;                // 0-based inclusive
     int scrollBottom_ = 0;
     SavedCursor savedCursor_;          // DECSC slot (main screen)

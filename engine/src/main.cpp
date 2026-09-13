@@ -1830,6 +1830,114 @@ static int RunAppSelfTest() {
         }
     }
 
+    // Terminal mouse-report + DECSCUSR parser tracking (docs/26 단계 3,
+    // spec §1/§6): DECSET 1000/1002/1003/1006/1 set+reset, alt-screen swap
+    // leaves mouse modes alone, DECSCUSR maps Ps to the grid cursor shape.
+    {
+        jk::JKTerminalGrid grid;
+        jk::JKVtParser parser;
+        parser.Attach(&grid);
+        auto feed = [&parser](const char* s) {
+            parser.Feed(reinterpret_cast<const uint8_t*>(s), std::strlen(s));
+        };
+        using jk::TermMouseMode;
+        using jk::CursorShape;
+
+        grid.Resize(20, 6);   // alt-screen/erase paths touch dirtyRows_
+
+        // Defaults: no mouse reporting, no app cursor keys, block cursor.
+        check(parser.MouseMode() == TermMouseMode::Off &&
+                  !parser.SgrMouse() && !parser.AppCursorKeys(),
+              "termmouse: parser defaults are Off/no-sgr/no-appcursor");
+        check(grid.GetCursorShape() == CursorShape::Block,
+              "termmouse: default cursor shape is Block");
+
+        // DECSET 1000 (normal tracking) set + reset.
+        feed("\x1b[?1000h");
+        check(parser.MouseMode() == TermMouseMode::Normal, "termmouse: 1000h → Normal");
+        feed("\x1b[?1000l");
+        check(parser.MouseMode() == TermMouseMode::Off, "termmouse: 1000l → Off");
+
+        // DECSET 1002 (button-event tracking) set + reset.
+        feed("\x1b[?1002h");
+        check(parser.MouseMode() == TermMouseMode::Button, "termmouse: 1002h → Button");
+        feed("\x1b[?1002l");
+        check(parser.MouseMode() == TermMouseMode::Off, "termmouse: 1002l → Off");
+
+        // DECSET 1003 (any-event tracking) set + reset; a later 1000 set
+        // downgrades Any back to Normal (last DECSET wins, xterm behavior).
+        feed("\x1b[?1003h");
+        check(parser.MouseMode() == TermMouseMode::Any, "termmouse: 1003h → Any");
+        feed("\x1b[?1000h");
+        check(parser.MouseMode() == TermMouseMode::Normal,
+              "termmouse: 1000h after 1003h downgrades to Normal");
+        feed("\x1b[?1000l");
+        check(parser.MouseMode() == TermMouseMode::Off, "termmouse: 1000l → Off");
+
+        // DECSET 1006 (SGR encoding) is orthogonal to the mode bits.
+        feed("\x1b[?1000h\x1b[?1006h");
+        check(parser.MouseMode() == TermMouseMode::Normal && parser.SgrMouse(),
+              "termmouse: 1000h+1006h → Normal + SGR");
+        feed("\x1b[?1006l");
+        check(parser.MouseMode() == TermMouseMode::Normal && !parser.SgrMouse(),
+              "termmouse: 1006l clears SGR, keeps mode");
+        feed("\x1b[?1000l\x1b[?1006h");
+        check(parser.MouseMode() == TermMouseMode::Off && parser.SgrMouse(),
+              "termmouse: SGR flag independent of mode reset");
+        feed("\x1b[?1006l");
+
+        // DECSET 1 (application cursor keys) set + reset.
+        feed("\x1b[?1h");
+        check(parser.AppCursorKeys(), "termmouse: 1h → app cursor keys");
+        feed("\x1b[?1l");
+        check(!parser.AppCursorKeys(), "termmouse: 1l → normal cursor keys");
+
+        // Alt-screen enter/exit must NOT clear mouse modes (xterm standard —
+        // the application enables/disables mouse reporting itself).
+        feed("\x1b[?1002h\x1b[?1006h\x1b[?1h");
+        feed("\x1b[?1049h");
+        check(grid.InAltScreen() && parser.MouseMode() == TermMouseMode::Button &&
+                  parser.SgrMouse() && parser.AppCursorKeys(),
+              "termmouse: 1049h keeps mouse modes");
+        feed("\x1b[?1049l");
+        check(!grid.InAltScreen() && parser.MouseMode() == TermMouseMode::Button &&
+                  parser.SgrMouse() && parser.AppCursorKeys(),
+              "termmouse: 1049l keeps mouse modes");
+        feed("\x1b[?1002l\x1b[?1006l\x1b[?1l");
+
+        // DECSCUSR "CSI Ps SP q" → grid cursor shape (blink variants collapse).
+        check(grid.GetCursorShape() == CursorShape::Block,
+              "termmouse: shape default Block before DECSCUSR");
+        feed("\x1b[2 q");
+        check(grid.GetCursorShape() == CursorShape::Block, "termmouse: DECSCUSR 2 → Block");
+        feed("\x1b[3 q");
+        check(grid.GetCursorShape() == CursorShape::Underline,
+              "termmouse: DECSCUSR 3 → Underline");
+        feed("\x1b[4 q");
+        check(grid.GetCursorShape() == CursorShape::Underline,
+              "termmouse: DECSCUSR 4 (blink) → Underline");
+        feed("\x1b[5 q");
+        check(grid.GetCursorShape() == CursorShape::Bar, "termmouse: DECSCUSR 5 → Bar");
+        feed("\x1b[6 q");
+        check(grid.GetCursorShape() == CursorShape::Bar,
+              "termmouse: DECSCUSR 6 (blink) → Bar");
+        feed("\x1b[1 q");
+        check(grid.GetCursorShape() == CursorShape::Block,
+              "termmouse: DECSCUSR 1 → Block (default)");
+
+        // DECSCUSR survives alt-screen swap and grid resize (nothing resets it).
+        feed("\x1b[5 q\x1b[?1049h\x1b[?1049l");
+        grid.Resize(30, 8);
+        check(grid.GetCursorShape() == CursorShape::Bar,
+              "termmouse: shape survives alt swap + resize");
+        feed("\x1b[2 q");
+
+        // Plain CSI 'q' without the SP intermediate is ignored (not DECSCUSR).
+        feed("\x1b[3q");
+        check(grid.GetCursorShape() == CursorShape::Block,
+              "termmouse: CSI 3 q without SP intermediate ignored");
+    }
+
     // Script bridge (docs/27 단계 1): host boot, click dispatch, timer
     // plumbing, exception policy, binding/contract introspection, SCRI
     // container. Each scenario owns a fresh JKWindow — a stopped host leaves
