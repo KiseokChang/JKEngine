@@ -143,7 +143,8 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
         SDL_WINDOWPOS_CENTERED,
         width,
         height,
-        SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI);
+        SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI |
+        SDL_WINDOW_RESIZABLE);
     if (!window_) {
         std::fprintf(stderr, "JKWindowServer::Init: SDL_CreateWindow failed: %s\n", SDL_GetError());
         return false;
@@ -1311,6 +1312,51 @@ void JKWindowServer::UpdateOutputBounds() {
     // Keep the shell docked across desktop size changes (SIZE_CHANGED /
     // MOVED / DISPLAY_CHANGED all funnel here).
     DockShellClient(nullptr);
+
+    // docs/39 §8: the server window is now RESIZABLE (and maximizable via the
+    // OS title button). SIZE_CHANGED funnels here too, but MOVED /
+    // DISPLAY_CHANGED must NOT touch the maximized layers — only an actual
+    // logical SIZE change re-issues their maximize against the new work area.
+    // The first call (Init, before any client exists) only seeds the trackers.
+    if (lastDesktopW_ != logW || lastDesktopH_ != logH) {
+        const bool firstCall = (lastDesktopW_ < 0);
+        lastDesktopW_ = logW;
+        lastDesktopH_ = logH;
+        if (!firstCall) {
+            const size_t nMax = preMaxRects_.size();
+            if (nMax != 0) {
+                const int reserve = compositor_->ShellReserveHeight();
+                const int workH = logH - reserve;
+                for (const auto& kv : preMaxRects_) {
+                    // FindClientById locks clientsMutex_; this path never runs
+                    // with that lock held (Init / HandleSDLEvent), matching
+                    // FocusClient's PushAgentEvent locking regime. Entries
+                    // whose client is gone (died while the desktop was
+                    // resized) are skipped — CleanupDisconnectedClients
+                    // erases their map entries later anyway.
+                    JKClientConnection* client = FindClientById(kv.first);
+                    if (!client) {
+                        continue;
+                    }
+                    CommitChromeResize(*client, kv.first, logW, workH,
+                                       logW, workH);
+                    compositor_->SetLayerPosition(kv.first, 0, 0);
+                    // Connection-side position in sync (DockShellClient
+                    // comment: the input mapping reads client->X()/Y(),
+                    // drawing reads the compositor layer).
+                    client->SetPosition(0, 0);
+                }
+            }
+            // Desktop-size adjustment, NOT a toggle: no window.maximized /
+            // window.restored event, and the saved pre-max rects stay valid.
+            // One log line — stdout is the server log (run_test.sh redirects
+            // it, read_log tails it).
+            std::printf("[server] desktop size changed to %dx%d "
+                        "(re-maximized %zu layer(s))\n",
+                        logW, logH, nMax);
+            std::fflush(stdout);
+        }
+    }
 }
 
 void JKWindowServer::ProcessPendingMessages() {

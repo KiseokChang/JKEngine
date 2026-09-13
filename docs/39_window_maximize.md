@@ -132,6 +132,7 @@ scale 1**. 기존 `CommitChromeResize`(드래그 리사이즈/셸 도킹/오버�
 
 - **최대화 중 서버 창 리사이즈(모니터 해상도 변경) 시 재최대화 없음** — 창은 새
   크기에 맞춰 늘어나지 않는다 (복원 rect는 유효, 크기만 옛값). 다음 배치.
+  → **§8에서 해소** (SIZE_CHANGED → UpdateOutputBounds 재최대화 재발행).
 - 최소화/스냅-반쪽 제외 (머리말 전제).
 - 크롬(버튼 히트/그리기)은 표면 px 기준이라 fit 스케일에서 닫기 X와 똑같이 비례 축소.
 - 최대화 중 리사이즈 엣지 그랩은 복원 후 복원 rect 기준으로 진행 — Windows에는
@@ -147,3 +148,36 @@ scale 1**. 기존 `CommitChromeResize`(드래그 리사이즈/셸 도킹/오버�
 - 커밋: fb45dc5 (코어 + 크롬 버튼 + 상호작용), ce2bf44 (Fix 1 — deferred 드래그
   복원), a1368b1 (프로브), 7f7dbcc (프로브 폴리시), 본 문서, 드래그 복원 모션 임계 +
   이벤트 버퍼 640 (final review).
+## 8. 데스크탑 리사이즈/최대화 (2026-09-13)
+
+사용자 요청: jkdesktop SDL 서버 창 자체에 OS 최대화/리사이즈가 없었다. 서버 창
+생성 플래그에 `SDL_WINDOW_RESIZABLE` 추가(JKWindowServer.cpp Init)로 해결.
+
+- **플로우**: OS 최대화/리사이즈 → `SDL_WINDOWEVENT_SIZE_CHANGED` → 기존
+  `UpdateOutputBounds()` (논리 크기 + 렌더러 물리 크기 + OutputScale 재계산 →
+  `DockShellClient(nullptr)` 태스크바 재도킹) — 이 경로는 이미 존재했고 창만
+  고정이라 잠겨 있었을 뿐이다.
+- **최대화 레이어 재발행**: `UpdateOutputBounds()`가 멤버 `lastDesktopW_/H_`로
+  논리 SIZE 변경을 감지(MOVED/DISPLAY_CHANGED는 무시, Init 첫 호출은 시딩만).
+  SIZE 변경 시 `preMaxRects_`의 모든 id에 대해 새 작업 영역 기준 최대화 재발행:
+  `CommitChromeResize(client, id, ww, wh-reserve, ww, wh-reserve)` +
+  `SetLayerPosition(id, 0, 0)` + `client->SetPosition(0, 0)` (connection 측
+  동기화 — DockShellClient 주석 참조). 클라이언트 죽은 엔트리는 skip.
+- **이벤트 없음**: 데스크탑 크기 조정은 토글이 아니므로 `window.maximized`/
+  `window.restored`를 발행하지 않는다. 대신 서버 로그 1행
+  `[server] desktop size changed to %dx%d (re-maximized %zu layer(s))`
+  (stdout = run_test 리다이렉트 로그). 저장된 pre-max rect는 그대로 유지.
+- **프로브**: `engine/tools/probes/probe_desktop_resize.ps1` 5/5 —
+  (1) spawn+list, (2) `ShowWindow(SW_MAXIMIZE)` → 로그 "1536x793" + 비최대화
+  레이어 유지, (3) 큰 데스크탑에서 2차 앱 spawn이 새 영역 안에 배치, (4) 2차 앱
+  크롬 버튼 최대화 → `window.maximized` rect == 1536x753(로그 유도, 1280x680 초과),
+  (5) `ShowWindow(SW_RESTORE)` → 이벤트 없음(의도) + 로그 "1280x720 n=1" +
+  레이어가 1280x680@0,0으로 재최대화. 회귀: probe_agent_maximize 5/5,
+  probe_agent_e2e 7/7, `jkdesktop.exe test` 0 failure(s).
+- **프로브 교훈**: 서버 창이 움직이므로 ClientToScreen 원점을 매 단계 재판독.
+  scale은 clientW/논리폭 — 최대화 후 논리폭이 1536이 되므로
+  probe_agent_maximize의 고정 /1280을 쓰면 1.5x가 되어 클릭이 저우측으로 빗나감
+  (논리폭은 로그 라인에서 도출). 서버 stdout은 `Start-Process
+  -RedirectStandardOutput`으로 캡처(printf+fflush라 파일이 라이브로 읽힘).
+- **v1 미스**: 데스크탑 축소 시 비최대화 창은 재배치/재핏하지 않음(화면 밖으로
+  나갈 수 있음); 저장된 복원 rect는 유효. 이전 §7 제한 1행(재최대화 없음)은 해소.

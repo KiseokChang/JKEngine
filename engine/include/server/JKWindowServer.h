@@ -278,6 +278,13 @@ private:
     struct MaxState { int x, y, surfW, surfH, dispW, dispH; };
     std::map<uint32_t, MaxState> preMaxRects_;
 
+    // docs/39 §8: last logical desktop size seen by UpdateOutputBounds, so a
+    // SIZE_CHANGED can be told apart from a MOVED/DISPLAY_CHANGED (only a
+    // real size change re-issues maximized layers). -1 = not seeded yet (the
+    // first Init call only records the initial size).
+    int lastDesktopW_ = -1;
+    int lastDesktopH_ = -1;
+
     // Server-side launcher state: simple icon textures drawn behind client layers.
     // Apps come from installed .jkx containers (apps/*.jkx, spawn via --jkx)
     // and, as a fallback, the built-in process modes (spawn via --client).
