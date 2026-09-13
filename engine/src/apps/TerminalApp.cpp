@@ -7,10 +7,18 @@
 #include <apps/TerminalApp.h>
 #include <apps/JKTerminalConfig.h>
 #include <apps/TerminalView.h>
+#include <theme/JKTheme.h>
 
 #include <cstdio>
 
 namespace jk {
+
+namespace {
+// 테마 토큰(SDL_Color) → TerminalView 0xRRGGBB (P2 단계 3 시딩용).
+uint32_t ThemeRgb(const SDL_Color& c) {
+    return (uint32_t(c.r) << 16) | (uint32_t(c.g) << 8) | uint32_t(c.b);
+}
+}  // namespace
 
 TerminalApp::~TerminalApp() = default;
 
@@ -45,7 +53,11 @@ void TerminalApp::OnInit() {
         parser_.get(), grid_.get(), atlas_.get(), GetResourceCache());
     view->SetOnInput([this](const char* data, size_t len) { WriteToPty(data, len); });
     view->SetOnResize([this](int cols, int rows) { OnViewResized(cols, rows); });
-    view->SetTheme(cfg.themeBg, cfg.themeFg);
+    // 터미널 색: terminal.json에 지정된 키만 사용자값, 없는 키는 현재 테마에서
+    // 시딩 (P2 단계 3). 둘 다 없으면 테마값 = 구값과 동일 (kDefault).
+    const auto& t = jk::theme::current();
+    view->SetTheme(cfg.themeBgSet ? cfg.themeBg : ThemeRgb(t.terminalBg),
+                   cfg.themeFgSet ? cfg.themeFg : ThemeRgb(t.terminalFg));
     view->SetTitle("Terminal");
     view->SetWindowRect(JKRect{ 0, 0, 800, 500 });   // 클라 meta와 동일한 초기 크기
     view_ = view.get();

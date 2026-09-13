@@ -134,23 +134,28 @@ bool JKTerminalConfig::Load(const std::string& path) {
             }
             JS_FreeValue(ctx, v);
         };
+        // Returns true when the key parsed and the field was assigned (the
+        // caller turns that into the themeBgSet/themeFgSet presence flags —
+        // P2 단계 3). Parse/fallback semantics unchanged.
         auto getColor = [&](const char* key, uint32_t* field) {
             JSValue v = JS_GetPropertyStr(ctx, root, key);
             uint32_t rgb = 0;
-            if (ParseColor(ctx, v, &rgb)) {
+            const bool ok = ParseColor(ctx, v, &rgb);
+            if (ok) {
                 *field = rgb;
             } else if (!JS_IsUndefined(v)) {
                 std::printf("[terminal] config: '%s' ignored (want #RRGGBB or a number)\n", key);
             }
             JS_FreeValue(ctx, v);
+            return ok;
         };
 
         getString("shell", &shell);
         getString("font", &font);
         getString("fontFallback", &fontFallback);
         getInt("scrollback", &scrollback, 0, 100000, 1000);
-        getColor("themeBg", &themeBg);
-        getColor("themeFg", &themeFg);
+        themeBgSet = getColor("themeBg", &themeBg);
+        themeFgSet = getColor("themeFg", &themeFg);
     } else {
         std::printf("[terminal] config: root is not an object — defaults\n");
     }

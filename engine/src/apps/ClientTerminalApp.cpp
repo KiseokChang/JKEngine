@@ -2,6 +2,7 @@
 #include <apps/JKTerminalConfig.h>
 #include <apps/TerminalView.h>
 #include <JKWindow.h>
+#include <theme/JKTheme.h>
 
 #include <chrono>
 #include <cstdio>
@@ -13,6 +14,11 @@ namespace {
 // output instead of one event per VT chunk.
 constexpr uint64_t kPubMinIntervalMs = 250;
 constexpr size_t kPubMaxBytes = 4096;
+
+// 테마 토큰(SDL_Color) → TerminalView 0xRRGGBB (P2 단계 3 시딩용).
+uint32_t ThemeRgb(const SDL_Color& c) {
+    return (uint32_t(c.r) << 16) | (uint32_t(c.g) << 8) | uint32_t(c.b);
+}
 }  // namespace
 
 ClientTerminalApp::~ClientTerminalApp() = default;
@@ -47,7 +53,11 @@ void ClientTerminalApp::OnInit() {
         parser_.get(), grid_.get(), atlas_.get(), GetResourceCache());
     view->SetOnInput([this](const char* data, size_t len) { WriteToPty(data, len); });
     view->SetOnResize([this](int cols, int rows) { OnViewResized(cols, rows); });
-    view->SetTheme(cfg.themeBg, cfg.themeFg);
+    // 터미널 색: terminal.json에 지정된 키만 사용자값, 없는 키는 현재 테마에서
+    // 시딩 (P2 단계 3). 둘 다 없으면 테마값 = 구값과 동일 (kDefault).
+    const auto& t = jk::theme::current();
+    view->SetTheme(cfg.themeBgSet ? cfg.themeBg : ThemeRgb(t.terminalBg),
+                   cfg.themeFgSet ? cfg.themeFg : ThemeRgb(t.terminalFg));
     view_ = view.get();
     // Chrome-less dock-fill child (the window server owns the frame chrome);
     // same arrangement as the tetris client game window.

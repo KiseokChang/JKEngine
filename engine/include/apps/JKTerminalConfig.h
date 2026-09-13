@@ -19,6 +19,8 @@ struct JKTerminalConfig {
     int scrollback = 1000;              // JKTerminalGrid::kScrollbackMax
     uint32_t themeBg = 0x0C0C0C;        // TerminalView defaults
     uint32_t themeFg = 0xCCCCCC;
+    bool themeBgSet = false;            // terminal.json에 themeBg 키가 있으면 true (P2 단계 3)
+    bool themeFgSet = false;            // terminal.json에 themeFg 키가 있으면 true (P2 단계 3)
 
     // Applies overrides from `path` (JSON). Returns false when the file could
     // not be opened (defaults retained); a malformed file logs and keeps
