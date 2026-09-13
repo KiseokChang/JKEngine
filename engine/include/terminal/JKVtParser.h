@@ -28,6 +28,11 @@ public:
     void Attach(JKTerminalGrid* grid) { grid_ = grid; }
     JKTerminalGrid* GetGrid() const { return grid_; }
 
+    // Bracketed paste (DECSET 2004, docs/26 단계 5): true while the
+    // application wants pastes wrapped in \x1b[200~/\x1b[201~. TerminalView
+    // gates Ctrl+Shift+V on this (docs/26 단계 2, spec §2).
+    bool BracketedPaste() const { return bracketedPaste_; }
+
 private:
     enum class State { Ground, Esc, Csi, Osc, Utf8 };
 

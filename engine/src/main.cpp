@@ -33,6 +33,7 @@ extern "C" __declspec(dllimport) int __stdcall GetDiskFreeSpaceExA(
 #include <terminal/JKVtParser.h>
 #include <terminal/JKConPtyBridge.h>
 #include <terminal/JKGlyphAtlas.h>
+#include <apps/JKTermSelection.h>
 
 #include <stb_truetype.h>
 
@@ -1636,6 +1637,96 @@ static int RunAppSelfTest() {
                 check(false, "terminal: atlas inits for page raster test");
             }
         }
+    }
+
+    // Terminal selection pure functions (docs/26 단계 2, JKTermSelection.h):
+    // normalization, row extraction with UTF-8 re-encoding, paste sanitizer
+    // with the bracketed-paste gate.
+    {
+        using jk::JKTermCell;
+        using jk::JKTermSelRect;
+
+        // NormalizeSel: min/max ordering of anchor/end.
+        {
+            const JKTermSelRect s = jk::NormalizeSel(5, 4, 1, 1, 20, 6);
+            check(s.x0 == 1 && s.y0 == 1 && s.x1 == 5 && s.y1 == 4,
+                  "termselect: normalize orders anchor/end");
+        }
+        // NormalizeSel: clamps out-of-range endpoints (drag past the edge).
+        {
+            const JKTermSelRect s = jk::NormalizeSel(-3, -2, 99, 99, 20, 6);
+            check(s.x0 == 0 && s.y0 == 0 && s.x1 == 19 && s.y1 == 5,
+                  "termselect: normalize clamps into the grid");
+        }
+        // NormalizeSel: degenerate grid -> empty rect.
+        check(jk::NormalizeSel(0, 0, 0, 0, 0, 0).Empty(),
+              "termselect: empty grid normalizes to empty rect");
+
+        // Dummy 3x2 grid for the extractor (generic accessor, no JKTerminalGrid).
+        std::vector<JKTermCell> cells(3 * 2);
+        auto setCell = [&cells](int c, int r, uint32_t cp, uint8_t width = 1) {
+            cells[static_cast<size_t>(r) * 3 + c].cp = cp;
+            cells[static_cast<size_t>(r) * 3 + c].width = width;
+        };
+        auto cellAt = [&cells](int c, int r) -> const JKTermCell& {
+            return cells[static_cast<size_t>(r) * 3 + c];
+        };
+
+        // Row truncation: cells up to the LAST non-empty cell only.
+        setCell(0, 0, 'a');
+        setCell(1, 0, 'b');
+        {
+            const std::string text =
+                jk::ExtractSelectedText(cellAt, JKTermSelRect{0, 0, 2, 0});
+            check(text == "ab", "termselect: row stops at last non-empty cell");
+        }
+        // Hangul re-encoding: 'a' 0x61, '가' 0xAC00 (wide, + width-0 follower
+        // dummy) — must re-encode to the canonical 3 UTF-8 bytes; the follower
+        // terminates the row naturally.
+        setCell(0, 1, 'a');
+        setCell(1, 1, 0xAC00, 2);
+        setCell(2, 1, 0, 0);
+        {
+            const std::string text =
+                jk::ExtractSelectedText(cellAt, JKTermSelRect{0, 1, 2, 1});
+            check(text == "\x61\xEA\xB0\x80",
+                  "termselect: hangul AC00 re-encodes to UTF-8");
+        }
+        // Empty rows are joined, never skipped; multi-row join with "\n".
+        {
+            const std::string text =
+                jk::ExtractSelectedText(cellAt, JKTermSelRect{0, 0, 2, 1});
+            check(text == "ab\na\xEA\xB0\x80",
+                  "termselect: rows join with \\n");
+        }
+        // A selection over only-empty cells yields an empty line, not garbage.
+        {
+            const std::string text =
+                jk::ExtractSelectedText(cellAt, JKTermSelRect{2, 1, 2, 1});
+            check(text.empty(), "termselect: follower-only row extracts empty");
+        }
+        // Empty selection -> empty string.
+        check(jk::ExtractSelectedText(cellAt, JKTermSelRect{}).empty(),
+              "termselect: empty selection extracts nothing");
+
+        // Paste sanitizer: \r\n and lone \r both become \n; the ESC byte is
+        // removed (the rest of a pasted-in VT sequence stays as plain text).
+        {
+            const std::string out =
+                jk::SanitizeClipboardPaste("a\r\nb\rc\x1b[31md", false);
+            check(out == "a\nb\nc[31md",
+                  "termselect: paste newline + ESC sanitize");
+        }
+        // Bracketed paste gate: wrapper added, payload ESC still stripped.
+        {
+            const std::string out =
+                jk::SanitizeClipboardPaste("hi\x1b[0m", true);
+            check(out == "\x1b[200~hi[0m\x1b[201~",
+                  "termselect: bracketed paste wraps sanitized payload");
+        }
+        // Bracketed off: no wrapper bytes.
+        check(jk::SanitizeClipboardPaste("hi", false) == "hi",
+              "termselect: unbracketed paste has no wrapper");
     }
 
     // Script bridge (docs/27 단계 1): host boot, click dispatch, timer

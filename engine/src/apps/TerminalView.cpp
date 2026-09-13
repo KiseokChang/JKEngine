@@ -2,6 +2,7 @@
 #include <terminal/JKVtParser.h>
 #include <terminal/JKGlyphAtlas.h>
 #include <JKResourceCache.h>
+#include <JKApplicationHost.h>
 #include <SDL.h>
 #include <algorithm>
 #include <cstring>
@@ -69,6 +70,16 @@ void TerminalView::OnPaintClient(JKDC& dc) {
                 static_cast<uint8_t>(themeBg_ & 0xFF), 255);
     dc.FillRect(client);
 
+    // Selection (docs/26 단계 2) covers LIVE grid rows only — scrollback
+    // snapshots are never selected (spec §5 v1 restriction: no scroll-while-
+    // select). The anchor/end pair is normalized to an inclusive cell rect;
+    // a drag performed while scrolled back still targets live rows.
+    JKTermSelRect sel;   // Empty() until a selection exists
+    if (selAnchor_.x >= 0) {
+        sel = NormalizeSel(selAnchor_.x, selAnchor_.y, selEnd_.x, selEnd_.y,
+                           grid_->Cols(), grid_->Rows());
+    }
+
     // Viewport lines are indexed over scrollback + live grid: the top visible
     // line is (history - offset); rows past the history come from the grid.
     // offset == 0 is the live view (identical to painting the grid alone).
@@ -82,6 +93,7 @@ void TerminalView::OnPaintClient(JKDC& dc) {
         if (line < hist) {
             // Scrollback snapshot — may be narrower than the current columns
             // after a resize; cells past its width paint as default bg.
+            // Never selection-highlighted (see the sel comment above).
             const auto& lineCells = grid_->ScrollbackLine(line);
             const int lineCols =
                 std::min<int>(static_cast<int>(lineCells.size()), grid_->Cols());
@@ -99,15 +111,19 @@ void TerminalView::OnPaintClient(JKDC& dc) {
                                        kTermCellW, kTermCellH };
                 const JKTermCell& cell = grid_->Cell(c, gr);
                 PaintCell(dc, cellRect, cell,
-                          off == 0 && gr == cursor.y && c == cursor.x);
+                          off == 0 && gr == cursor.y && c == cursor.x,
+                          sel.Contains(c, gr));
             }
         }
     }
 }
 
 void TerminalView::PaintCell(JKDC& dc, const JKRect& cellRect,
-                             const JKTermCell& cell, bool isCursor) {
-    bool reverse = (cell.attrs & kTermReverse) != 0;
+                             const JKTermCell& cell, bool isCursor,
+                             bool selected) {
+    // Selected cells render with fg/bg swapped — the same visual as a
+    // kTermReverse cell, through the same paint path (spec §1).
+    bool reverse = (cell.attrs & kTermReverse) != 0 || selected;
     const bool bold = (cell.attrs & kTermBold) != 0;
     uint32_t fg = (cell.fg == kTermDefaultColor) ? themeFg_ : RgbOf(cell.fg);
     uint32_t bg = (cell.bg == kTermDefaultColor) ? themeBg_ : RgbOf(cell.bg);
@@ -236,12 +252,126 @@ void TerminalView::RespondMessage(const JKEvent& ev) {
             // e.g. SendKeys/IME commit). NUL and DEL are never meaningful.
             const unsigned char b0 = static_cast<unsigned char>(ev.text[0]);
             if (b0 != 0x00 && b0 != 0x7F) {
+                ClearSelection();   // any text input drops the selection
                 scrollOffset_ = 0;   // typing returns to the live view
                 onInput_(ev.text, std::strlen(ev.text));
             }
         }
     }
+    // Mouse selection MUST run before the JKWindow delegation: in single-
+    // process mode the view IS the main window and JKWindow::RespondMessage
+    // drops client-area mouse events (the HitTest target is the window
+    // itself, guarded by "target != this", JKWindow.cpp:478). In client mode
+    // the events arrive here as a DOCK_FILL child via HitTest with the same
+    // window/surface coordinates, so one handler covers both modes. Events
+    // outside the client area fall through unchanged and keep the chrome
+    // behavior (title-bar drag, border resize, close button).
+    HandleMouseEvent(ev);
     JKWindow::RespondMessage(ev);
+}
+
+JKPoint TerminalView::CellFromPoint(int32_t px, int32_t py) const {
+    // ev.x/y are window/surface coordinates; the client-area origin converts
+    // them into cell pixel space in BOTH modes (single-process: the window's
+    // own chrome; client mode: the DOCK_FILL child offset inside its parent).
+    const JKRect client = GetScreenClientRect();
+    const int cx = std::clamp((px - client.x) / kTermCellW, 0,
+                              std::max(0, cols_ - 1));
+    const int cy = std::clamp((py - client.y) / kTermCellH, 0,
+                              std::max(0, rows_ - 1));
+    return JKPoint{ cx, cy };
+}
+
+void TerminalView::HandleMouseEvent(const JKEvent& ev) {
+    if (!grid_) return;
+    const bool isMouse = ev.type == JKEventType::MouseDown ||
+                         ev.type == JKEventType::MouseUp ||
+                         ev.type == JKEventType::MouseMove;
+    if (!isMouse) return;
+
+    const JKRect client = GetScreenClientRect();
+    const bool inside = client.Contains(ev.x, ev.y);
+    // Outside the client area the event is delegated unchanged — unless a
+    // drag is already active: the capture keeps motion/release flowing while
+    // the cursor leaves the window, and the coordinates are clamped to the
+    // edge cell so the selection keeps its extreme (CellFromPoint clamps).
+    if (!inside && !selDragging_) return;
+
+    switch (ev.type) {
+        case JKEventType::MouseDown:
+            if (ev.detail != SDL_BUTTON_LEFT) return;   // right/middle: chrome
+            // A left click always drops an existing selection; the new anchor
+            // is armed at once and degenerates away on MouseUp if the user
+            // only clicked (no drag → no selection, spec §1).
+            selDragging_ = true;
+            selAnchor_ = CellFromPoint(ev.x, ev.y);
+            selEnd_ = selAnchor_;
+            grid_->MarkAllDirty();
+            // Keep motion/release flowing outside the window while dragging
+            // (same capture idiom as JKEdit.cpp:308).
+            if (g_jkAppHost) g_jkAppHost->SetCapture(this);
+            break;
+        case JKEventType::MouseMove:
+            if (!selDragging_) return;
+            {
+                const JKPoint cell = CellFromPoint(ev.x, ev.y);
+                if (cell.x != selEnd_.x || cell.y != selEnd_.y) {
+                    selEnd_ = cell;
+                    grid_->MarkAllDirty();   // repaint through the frame gate
+                }
+            }
+            break;
+        case JKEventType::MouseUp:
+            if (!selDragging_) return;
+            selDragging_ = false;
+            if (g_jkAppHost && g_jkAppHost->GetCapture() == this) {
+                g_jkAppHost->ReleaseCapture();
+            }
+            if (selAnchor_.x == selEnd_.x && selAnchor_.y == selEnd_.y) {
+                ClearSelection();   // click without drag → no selection
+            }
+            break;
+        default:
+            break;
+    }
+}
+
+void TerminalView::ClearSelection() {
+    if (selAnchor_.x < 0 && !selDragging_) return;
+    selAnchor_ = JKPoint{ -1, -1 };
+    selEnd_ = JKPoint{ -1, -1 };
+    selDragging_ = false;
+    if (grid_) grid_->MarkAllDirty();   // un-reverse the highlighted cells
+}
+
+void TerminalView::CopySelection() {
+    if (!grid_ || selAnchor_.x < 0) return;
+    const JKTermSelRect sel = NormalizeSel(selAnchor_.x, selAnchor_.y,
+                                           selEnd_.x, selEnd_.y,
+                                           grid_->Cols(), grid_->Rows());
+    // Live grid rows only (spec §5); the accessor keeps ExtractSelectedText
+    // independent of the grid type so the self-test can share it.
+    const JKTerminalGrid* g = grid_;
+    const std::string text = ExtractSelectedText(
+        [g](int c, int r) -> const JKTermCell& { return g->Cell(c, r); }, sel);
+    if (!text.empty()) {
+        SDL_SetClipboardText(text.c_str());   // JKEdit.cpp:716 precedent
+    }
+}
+
+void TerminalView::PasteClipboard() {
+    if (!onInput_ || !SDL_HasClipboardText()) return;
+    char* raw = SDL_GetClipboardText();
+    if (!raw) return;
+    // Bracketed paste gate (spec §2): JKVtParser already tracks DECSET 2004;
+    // when on, the sanitized payload is wrapped so the shell sees a paste.
+    const std::string data =
+        SanitizeClipboardPaste(raw, parser_ && parser_->BracketedPaste());
+    SDL_free(raw);
+    if (!data.empty()) {
+        scrollOffset_ = 0;   // paste returns to the live view
+        onInput_(data.data(), data.size());
+    }
 }
 
 void TerminalView::HandleKeyDown(const JKEvent& ev) {
@@ -253,6 +383,24 @@ void TerminalView::HandleKeyDown(const JKEvent& ev) {
     const bool ctrl = (mod & KMOD_CTRL) != 0;
     const bool alt = (mod & KMOD_ALT) != 0;
     const bool shift = (mod & KMOD_SHIFT) != 0;
+
+    // Selection lifetime (docs/26 단계 2, spec §2): any key drops the
+    // selection — except the clipboard chords (handled in the switch below,
+    // which copy/paste the selection first) and bare modifier presses. The
+    // modifier exclusion is load-bearing: Ctrl and Shift arrive as their own
+    // KeyDown events BEFORE the C/V of the chord, and clearing there would
+    // destroy the selection CopySelection is about to read.
+    const bool clipboardChord =
+        ctrl && shift &&
+        (key == 'C' || key == 'c' || key == 'V' || key == 'v');
+    const bool modifierKey =
+        key == SDLK_LCTRL || key == SDLK_RCTRL ||
+        key == SDLK_LSHIFT || key == SDLK_RSHIFT ||
+        key == SDLK_LALT || key == SDLK_RALT ||
+        key == SDLK_LGUI || key == SDLK_RGUI;
+    if (!clipboardChord && !modifierKey) {
+        ClearSelection();
+    }
 
     // docs/22 §6.1 input mapping.
     const char* seq = nullptr;
@@ -297,6 +445,17 @@ void TerminalView::HandleKeyDown(const JKEvent& ev) {
             seq = "\x1b";
             break;
         default:
+            // Clipboard chords (docs/26 단계 2, spec §2) are checked FIRST,
+            // before the ctrl+letter path: ctrl+C WITHOUT shift must still
+            // send 0x03 (SIGINT), only ctrl+shift+C is Copy.
+            if (ctrl && shift && (key == 'C' || key == 'c')) {
+                CopySelection();   // the selection survives a copy
+                return;
+            }
+            if (ctrl && shift && (key == 'V' || key == 'v')) {
+                PasteClipboard();
+                return;
+            }
             if (ctrl && key >= 'a' && key <= 'z') {
                 buf[n++] = static_cast<char>(key & 0x1F);
             } else if (ctrl && key >= 'A' && key <= 'Z') {

@@ -8,6 +8,7 @@
 
 #include <JKWindow.h>
 #include <terminal/JKTerminalGrid.h>
+#include <apps/JKTermSelection.h>
 #include <functional>
 #include <string>
 
@@ -54,8 +55,18 @@ public:
 private:
     void RecalcCells();
     void HandleKeyDown(const JKEvent& ev);
+    // Mouse selection (docs/26 단계 2): left-drag box selection over the live
+    // grid rows. Called from RespondMessage BEFORE the JKWindow delegation —
+    // single-process mode drops client-area mouse events there (the HitTest
+    // target is the window itself), client mode receives them as a DOCK_FILL
+    // child but with the same window/surface coordinates.
+    void HandleMouseEvent(const JKEvent& ev);
+    JKPoint CellFromPoint(int32_t px, int32_t py) const;
+    void ClearSelection();
+    void CopySelection();
+    void PasteClipboard();
     void PaintCell(JKDC& dc, const JKRect& cellRect, const JKTermCell& cell,
-                   bool isCursor);
+                   bool isCursor, bool selected = false);
     void PaintGlyph(JKDC& dc, const JKRect& cellRect, uint32_t cp,
                     uint32_t fg, bool bold);
     void PaintFallbackGlyph(JKDC& dc, const JKRect& cellRect, uint32_t cp,
@@ -73,6 +84,13 @@ private:
     uint32_t themeFg_ = 0xCCCCCC;
     std::function<void(const char*, size_t)> onInput_;
     std::function<void(int, int)> onResize_;
+
+    // Selection state (docs/26 단계 2): live grid cell coords; x < 0 = none.
+    // v1 covers live screen rows only — scrollback snapshots are never
+    // selected and the rect does not follow shell output (spec §5).
+    JKPoint selAnchor_{ -1, -1 };
+    JKPoint selEnd_{ -1, -1 };
+    bool selDragging_ = false;   // left button held, drag in progress
 };
 
 } // namespace jk
