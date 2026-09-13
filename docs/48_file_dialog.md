@@ -3,7 +3,9 @@
 - 날짜: 2026-09-13 → 09-14 (구현+사용자 실사용 결함 픽스 라운드 포함)
 - 상태: 구현 완료 (코드 커밋 d915cc7 → 670ee9d, 게이트 **GATE GREEN** — 프로브
   18/20, 실패 2건은 도구/기존 귀속으로 성립, §4). 사용자 보고 결함 3건 전부
-  픽스 완료(71c806b + cbaa53c) + 회귀 프로브(670ee9d).
+  픽스 완료(71c806b + cbaa53c) + 회귀 프로브(670ee9d). **최종 리뷰 픽스
+  라운드 완료(§5.5)** — file_open_result 발신자 상관(requesterConnId 되울림)
+  + title 적용 + 요청자 사망 슬롯 즉시 회수.
 - 선행: docs/superpowers/specs/2026-09-13-file-dialog-design.md (스펙),
   docs/superpowers/plans/2026-09-13-file-dialog.md (플랜)
 - 비고: 게이트 보고서 `.superpowers/sdd/2026-09-13-file-dialog/task-4-report.md`,
@@ -54,9 +56,9 @@ Task 4(최종 게이트)는 검증 전용이라 커밋 없음. 2d7d914..HEAD 실
 
 | 도구 | 방향/시점 | args | 동작 |
 |---|---|---|---|
-| `file_open` | 요청자 → 서버 (vplayer) | `{filter?, start?, title?}` | 쿼리 **파킹** + `filedlg:<json>` appName으로 SpawnClient(`--filedlg <json>` 자식 인자). 스폰 실패 시 파킹 즉시 오류 해소. 600s 만료 스캔이 슬롯 회수(fd05664 — 미회수 시 dialog_busy 영구 블로커 픽스) |
-| `file_dialog_params` | 다이얼로그 → 서버 (기동 직후 1회) | 없음 | 1슬롯 pending에서 params+requesterConnId 응답 후 소진 — 요청자-다이얼로그 상관을 conn id로 일반화(snap의 하드코딩 타이틀 페어링을 도구화) |
-| `file_open_result` | 다이얼로그 → 서버 (종료 시 1회) | `{ok, path?}` | 요청자의 파킹 쿼리 해소. 부재/만료면 no-op `parked:false` — 요청자 사망 경로에서 무해 |
+| `file_open` | 요청자 → 서버 (vplayer) | `{filter?, start?, title?}` | 쿼리 **파킹** + `filedlg:<json>` appName으로 SpawnClient(`--filedlg <json>` 자식 인자). 스폰 실패 시 파킹 즉시 오류 해소. 600s 만료 스캔이 슬롯 회수(fd05664 — 미회수 시 dialog_busy 영구 블로커 픽스). **만료 시 `agent.approval_resolved` 브로드캐스트는 하지 않는다**(최종 리뷰 NOTE-4 — file_open 만료는 승인 결정이 아니라 대화상자 수명 만료라 승인 이벤트를 날조하지 않는다; 승인 kind는 기존대로 브로드캐스트). **요청자가 먼저 죽으면 disconnect 정리에서 슬롯 즉시 회수**(최종 리뷰 MINOR-2 — 픽스 전엔 요청자 사망이 슬롯을 그대로 두어 남은 file_open 전부가 600s 동안 dialog_busy였다) |
+| `file_dialog_params` | 다이얼로그 → 서버 (기동 직후 1회) | 없음 | 1슬롯 pending에서 params+requesterConnId 응답 후 소진 — 요청자-다이얼로그 상관을 conn id로 일반화(snap의 하드코딩 타이틀 페어링을 도구화). `title` 포함 — 다이얼로그가 SetTitle로 크롬 타이틀에 적용(최종 리뷰 MINOR-1; 픽스 전엔 받아만 두고 버렸다). 서버 등록 타이틀은 기동 시의 것(list_windows) 그대로 — SetTitle은 클라이언트 크롬 렌더링만 바꾼다 |
+| `file_open_result` | 다이얼로그 → 서버 (종료 시 1회) | `{ok, requesterConnId, path?}` | **발신자 상관 검증(최종 리뷰 MAJOR-1)**: file_dialog_params로 받은 requesterConnId를 되울리고, 서버는 필드 존재 + 슬롯의 요청자 일치를 **요구**한다 — 불일치/부재면 아무것도 해소하지 않는 `parked:false` no-op(슬롯 미소진). 검증 없으면 만료 회수 후에도 살아 있던 고아 다이얼로그의 결과가 새 요청자에게 잘못 전달되는 회귀가 있다(라이브 재현→픽스로 봉쇄). 요청자 사망 등 부재/만료 경로는 종래대로 무해 no-op |
 
 - **filedlg: 접두** — `"terminal:<cmdline>"`에 이은 두 번째 스폰 접두 관례.
   SpawnProcess가 `--filedlg <json>` argv를 받아 quoted 인용으로 전달
@@ -139,7 +141,46 @@ Task 4(최종 게이트)는 검증 전용이라 커밋 없음. 2d7d914..HEAD 실
    닫음. 영향 범위: 한국어 타이틀 보유 전 창. 실측: 타이틀 무결
    스크린샷(fix-title-list.png).
 
+## 5.5 최종 리뷰 픽스 라운드 (2026-09-14, 결과 상관 프로토콜 추가)
+
+코드 리뷰 MAJOR-1이 실제 회귀로 라이브 재현됐다: 다이얼로그가 600s 넘게
+열려 있으면 만료 스캔이 슬롯을 회수하는데 **다이얼로그 프로세스는 그대로
+살아 있다**. 이후 file_open이 슬롯을 다시 채워 두 번째 다이얼로그를 띄우면,
+사용자가 **오래된 창**에서 끝내는 순간 그 결과가 **새 요청자**에게 전달된다
+(또는 스파이스 ok=false) — 발신자 누구나 `pendingFileDialog_.requestId`
+일치만으로 해소됐기 때문.
+
+**픽스 (작은 프로토콜 추가, 양쪽):**
+- file_dialog_params가 주던 `requesterConnId`를 다이얼로그가 저장하고
+  `file_open_result`에 되울린다(`{ok, requesterConnId, path?}`).
+- 서버는 필드 존재 + 슬롯 요청자 일치를 요구 — 불일치/부재면 `parked:false`
+  no-op이고 슬롯을 지우지 않는다. 수동 `--client filedlg` 실행(파킹 슬롯
+  없음, requesterConnId 0)은 어느 경로든 무해 no-op으로 수렴한다.
+
+동반 픽스: **title 파라미터 적용**(MINOR-1 — 하드코딩 "파일 열기"만 쓰고
+버렸다; SetTitle은 클라이언트 크롬에 반영, 서버 등록 타이틀은 불변),
+**요청자 사망 시 슬롯 즉시 회수**(MINOR-2 — 픽스 전엔 요청자를 다이얼로그
+도중 죽이면 남은 file_open 전부가 600s 만료까지 dialog_busy로 막혔다.
+ disconnect 정리에서 요청자 conn id 일치 시 슬롯만 비운다; 파킹 쿼리는
+기존 만료 스캔이 담당), **file_open 만료가 승인 이벤트를 날조하는 것
+제거**(NOTE-4 — `agent.approval_resolved` timeout 브로드캐스트를
+file_open kind에서 억제), **main.cpp `--filedlg` 주석 축소**(NOTE-1 —
+CRT 2n-백슬래시 규칙으로 argv[2]가 변형될 수 있어 "json 그대로" 문언은
+과장이었다; 자식은 argv에 의존하지 않는다, 설계 D3).
+
+**라이브 실측** (빌드 exit 0 + `jkdesktop test` 0 failures + agentctl e2e):
+(1) file_open→다이얼로그→취소 클릭 → 요청자가 `{"ok":false}` 수신(상관
+양의 경로) (2) **리뷰 회귀 경로**: 요청자를 다이얼로그 도중 킬 → 직후
+file_open이 dialog_busy 없이 새 다이얼로그 스폰(슬롯 즉시 회수) → 고아
+다이얼로그 취소 결과는 no-op(새 요청자 무훼손 실측) → 새 다이얼로그 취소는
+자기 요청자에게 정상 전달 (3) 취소 경로 반복 성공 (4) title 파라미터가
+크롬에 렌더링("PickerOne" 스크린샷 final-fix-s1-title.png), title 없으면
+기본 "파일 열기" 유지. Esc 키 주입은 하네스(포그라운드) 제약으로 취소
+클릭 경로로 대체 실측 — 결과 전송 경로는 Esc/취소/크롬 X가 전부 동일한
+SendResult다.
+
 ## 6. 실행 직감 (스펙 §4 장부에 일부 기록)
+
 
 1. **표시 형식은 파싱 계약이다.** "동영상 (*.mp4;...)"은 사람에게 표시하는
    문자열이 아니라 Windows 관례의 파싱 대상 — 필터를 소비하는 쪽이 라벨을
