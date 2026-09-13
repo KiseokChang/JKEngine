@@ -88,7 +88,6 @@ public class Wm {
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
     [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr h, out RECT r);
     [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr h, ref POINT p);
-    [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT p);
     [DllImport("user32.dll")] public static extern int GetSystemMetrics(int index);
     [DllImport("user32.dll", SetLastError = true)]
     public static extern uint SendInput(uint n, INPUT[] p, int size);
@@ -163,7 +162,7 @@ if ($hwnd -ne [IntPtr]::Zero -and -not [Wm]::IsWindowVisible($hwnd)) {
 # windows over it) - synthetic clicks must land on the server, not on
 # whatever happens to be on top. The server is killed at cleanup.
 if ($hwnd -ne [IntPtr]::Zero) {
-    # HWND_TOPMOST = -1; SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE = 0x53
+    # HWND_TOPMOST = -1; SWP_NOSIZE|SWP_NOMOVE|SWP_NOACTIVATE = 0x13
     [void][Wm]::SetWindowPos($hwnd, [IntPtr](-1), 0, 0, 0, 0, 0x13)
 }
 
