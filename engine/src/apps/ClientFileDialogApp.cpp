@@ -466,6 +466,11 @@ void ClientFileDialogApp::SendResult(bool ok, const std::string& path) {
     }
     std::string json = "{\"tool\":\"file_open_result\",\"args\":{\"ok\":";
     json += ok ? "1" : "0";
+    // Sender correlation (final-review MAJOR-1): echo the requesterConnId
+    // from the params reply — the server resolves the parked query only when
+    // this matches its slot, so a stale/orphan dialog cannot deliver another
+    // request's result.
+    json += ",\"requesterConnId\":" + std::to_string(requesterConnId_);
     if (ok && !path.empty()) {
         json += ",\"path\":\"" + EscapeJson(path) + "\"";
     }
@@ -505,7 +510,7 @@ void ClientFileDialogApp::PumpReplies() {
         paramsQueryId_ = 0;
         if (!reply.ok) continue;  // no_pending_dialog → keep the defaults
         agent::AgentJson json(reply.json);
-        std::string filter, start;
+        std::string filter, start, title;
         if (json.GetStr("filter", filter) && !Trim(filter).empty()) {
             filterAll_ = Trim(filter);
             filterActive_ = filterAll_;
@@ -516,6 +521,19 @@ void ClientFileDialogApp::PumpReplies() {
             NavigateTo(start);  // refreshes the list with the new filter
         } else {
             RefreshList();
+        }
+        // Sender correlation: remember who to echo in file_open_result.
+        int connId = 0;
+        if (json.GetInt("requesterConnId", connId) && connId > 0) {
+            requesterConnId_ = static_cast<uint32_t>(connId);
+        }
+        // 요청 타이틀 적용 (final-review MINOR-1) — params가 공백/부재면
+        // 기본 "파일 열기"를 유지한다. KSSM 크롬 변환은 그리기 직전
+        // (cbaa53c)이므로 여기선 UTF-8 원문만 세팅하면 된다.
+        if (json.GetStr("title", title) && !Trim(title).empty()) {
+            if (JKWindow* root = GetMainWindow()) {
+                root->SetTitle(Trim(title));
+            }
         }
     }
 }

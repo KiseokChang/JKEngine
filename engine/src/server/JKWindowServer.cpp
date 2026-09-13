@@ -1400,12 +1400,18 @@ void JKWindowServer::ProcessPendingMessages() {
                 break;
             }
         }
-        char buf[256];
-        std::snprintf(buf, sizeof(buf),
-                      "{\"topic\":\"agent.approval_resolved\","
-                      "\"request\":%u,\"decision\":\"timeout\"}",
-                      it->requestId);
-        PushAgentEventJson(buf);
+        // file_open 만료는 승인 결정이 아니라 대화상자 수명 만료다
+        // (final-review NOTE-4) — agent.approval_resolved 승인 이벤트를
+        // 브로드캐스트하면 구독자에게 존재하지 않는 승인의 timeout 결정을
+        // 날조해 전달하게 된다. 슬롯 회수(위)는 그대로 유지.
+        if (it->kind != "file_open") {
+            char buf[256];
+            std::snprintf(buf, sizeof(buf),
+                          "{\"topic\":\"agent.approval_resolved\","
+                          "\"request\":%u,\"decision\":\"timeout\"}",
+                          it->requestId);
+            PushAgentEventJson(buf);
+        }
         it = pendingApprovals_.erase(it);
     }
 }
@@ -2445,8 +2451,22 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         std::string path;
         req.GetObjInt("args", "ok", ok);
         req.GetObjStr("args", "path", path);
+        // 발신자 상관 검증 (final-review MAJOR-1): filedlg가
+        // file_dialog_params로 받은 requesterConnId를 결과에 되울린다.
+        // 필드 부재(구버전 다이얼로그/수조작) 또는 슬롯의 요청자와 불일치면
+        // 아무것도 해소하지 않는 parked:false no-op — 슬롯도 지우지 않는다.
+        // 검증이 없으면 만료 회수 후에도 살아 있던 고아 다이얼로그의 결과가
+        // 새 요청자에게 잘못 전달된다(회귀 시나리오). 수동 `--client
+        // filedlg` 실행(파킹 슬롯 없음)은 requesterConnId 0으로 발신하므로
+        // 어느 경로든 무해한 no-op으로 수렴한다.
+        int senderConnId = -1;
+        req.GetObjInt("args", "requesterConnId", senderConnId);
+        const bool senderMatched =
+            senderConnId >= 0 &&
+            static_cast<uint32_t>(senderConnId) ==
+                pendingFileDialog_.requesterConnId;
         bool resolved = false;
-        if (pendingFileDialog_.requesterConnId != 0) {
+        if (senderMatched && pendingFileDialog_.requesterConnId != 0) {
             for (auto it = pendingApprovals_.begin();
                  it != pendingApprovals_.end(); ++it) {
                 if (it->kind != "file_open" ||
@@ -2724,6 +2744,14 @@ void JKWindowServer::CleanupDisconnectedClients() {
                 preMaxRects_.erase(client->Id());
                 if (compositor_) {
                     compositor_->RemoveLayer(client->Id());
+                }
+                // filedlg 슬롯 회수 (final-review MINOR-2): 요청자가 다이얼로그
+                // 도중 죽으면 슬롯을 즉시 비운다 — 픽스 전엔 만료 스캔(600s)까지
+                // dialog_busy로 모든 file_open을 막았다. 이 연결의 파킹 쿼리는
+                // 만료 스캔이 회수한다(요청자가 죽었으면 응답 대상이 없어
+                // no-op) — pendingApprovals_ 기계는 건드리지 않는다.
+                if (pendingFileDialog_.requesterConnId == client->Id()) {
+                    pendingFileDialog_ = PendingFileDialog{};
                 }
                 // Desktop Agent event (spec §4) — app windows only: the shell
                 // and control-only agents are not listable windows, so their

@@ -2831,10 +2831,10 @@ int main(int argc, char* argv[]) {
 
     if (argc > 1 && std::strcmp(argv[1], "--filedlg") == 0) {
         // 파일 열기 대화상자 자식 (Task 1의 SpawnClient "filedlg:<json>" 접두
-        // 스폰 — --jkx 인용 계약과 동일, argv[2]가 file_open args json 그대로).
-        // 설계 D3: 스폰 인자는 전달 편의일 뿐 — 모듈은 params를
-        // file_dialog_params 쿼리로 회수하는 것이 계약이라 argv json은 여기서
-        // 소비하지 않는다 (모듈이 쿼리로 filter/start를 받는다).
+        // 스폰). 설계 D3: 모듈은 params를 file_dialog_params 쿼리로 회수하는
+        // 것이 계약이라 argv[2]에 의존하지 않는다 — CRT 인용 규칙상 값 끝의
+        // 이스케이프된 백슬래시는 SpawnClient의 인용 과정에서 변형될 수 있으므로
+        // argv json은 전달 편의일 뿐 (모듈이 쿼리로 filter/start/title을 받는다).
         constexpr const char* kPipe = jk::ipc::kWindowServerPipeName;
 #ifdef _WIN32
         return RunClientModule("jkapp_filedlg.dll", kPipe);

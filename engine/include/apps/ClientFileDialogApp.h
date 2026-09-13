@@ -62,7 +62,9 @@ private:
     // per frame until it lands — the spawn/connect race must not strand the
     // dialog on defaults).
     void RequestParams();
-    // Poll queued AgentReplies; the params reply applies filter/start.
+    // Poll queued AgentReplies; the params reply applies filter/start/title
+    // and stores requesterConnId_ for the result echo (sender correlation —
+    // the server resolves file_open_result only when it matches the slot).
     void PumpReplies();
     void SetFileName(const std::string& name);
     void SyncDirBuffer();
@@ -103,6 +105,13 @@ private:
     uint32_t paramsQueryId_ = 0;  // 0 = reply consumed (or never sent)
     bool paramsRequested_ = false;
     bool resultSent_ = false;     // file_open_result exactly-once guard
+    // Sender correlation (final-review MAJOR-1): file_dialog_params delivers
+    // the requester's connection id; SendResult echoes it so the server can
+    // verify the result comes from the dialog that owns the CURRENT slot —
+    // an orphan dialog (slot expired/reclaimed while still open) must resolve
+    // nothing. 0 also happens for a manual `--client filedlg` run with no
+    // parked slot — its result is a harmless parked:false no-op either way.
+    uint32_t requesterConnId_ = 0;
 };
 
 } // namespace jk
