@@ -67,7 +67,10 @@ private:
     void PushAgentEvent(const char* topic, uint32_t id,
                         const std::string& title, uint32_t pid);
     // Push a fully-formed agent event JSON (topic included) to subscribers.
-    // Caller holds clientsMutex_.
+    // Server-loop-thread only: call sites either hold clientsMutex_
+    // (ProcessPendingMessages / HandleAgentQuery / CleanupDisconnectedClients)
+    // or run on the SDL event path where clients_ is only mutated by this
+    // same thread (TryChromeGrab chrome events, e.g. docs/39 maximize).
     void PushAgentEventJson(const std::string& json);
     // docs/39: window.maximized / window.restored envelope — id/title at top
     // level like the PushAgentEvent sites, minus pid (no process change).
@@ -236,6 +239,17 @@ private:
     // Move grab: mouse offset from the layer origin (logical points).
     int chromeGrabDX_ = 0;
     int chromeGrabDY_ = 0;
+    // Move grab: fractional grab point inside the surface (lx/w, ly/h) —
+    // kept so a deferred drag-restore (docs/39) can re-anchor the restored
+    // window under the cursor.
+    float chromeGrabFX_ = 0.0f;
+    float chromeGrabFY_ = 0.0f;
+    // Deferred drag-restore (docs/39 fix 1): the surface id whose grab is
+    // running on a maximized layer. Restore fires on the FIRST motion of the
+    // grab (not at mousedown), so a double-click's second click still sees
+    // the maximized state and toggles exactly once. Cleared at grab start
+    // (re-armed per grab), on mouse-up, and when the grabbed layer vanishes.
+    uint32_t chromeRestorePendingId_ = 0;
     // Resize grab: layer origin and DISPLAY size at grab time (logical
     // points; a fit-scaled surface is displayed smaller than its pixels).
     int chromeResizeX_ = 0;

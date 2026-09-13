@@ -604,6 +604,7 @@ bool JKWindowServer::HandleChromeGrab(const SDL_Event& ev, int mx, int my, float
         chromeGrab_ = ChromeGrab::None;
         chromeGrabClient_ = 0;
         chromeGrabLayerId_ = 0;
+        chromeRestorePendingId_ = 0;
         return true;
     }
 
@@ -615,6 +616,61 @@ bool JKWindowServer::HandleChromeGrab(const SDL_Event& ev, int mx, int my, float
     }
 
     if (ev.type == SDL_MOUSEMOTION) {
+        // Deferred drag-restore (docs/39 fix 1): the FIRST motion of a grab
+        // that was started on a maximized layer restores it now (single
+        // window.restored event), then the grab anchors are re-derived from
+        // the restored geometry before the normal logic below runs.
+        if (chromeRestorePendingId_ != 0) {
+            if (chromeRestorePendingId_ == layer->Id() &&
+                preMaxRects_.count(chromeRestorePendingId_) != 0) {
+                RestoreFromMaximize(*client, *layer);
+                chromeRestorePendingId_ = 0;
+                const int dispW = static_cast<int>(std::llround(
+                    layer->Width() * layer->ScaleX()));
+                const int dispH = static_cast<int>(std::llround(
+                    layer->Height() * layer->ScaleY()));
+                if (chromeGrab_ == ChromeGrab::Move) {
+                    // Put the restored window under the cursor: keep the
+                    // fractional grab point inside the window.
+                    chromeGrabDX_ = static_cast<int>(std::llround(
+                        chromeGrabFX_ * dispW));
+                    chromeGrabDY_ = static_cast<int>(std::llround(
+                        chromeGrabFY_ * dispH));
+                } else {  // Resize: re-evaluate the hotspots on the restored
+                          // rect — the maximized-geometry edges are stale.
+                    const int dx = lmX - layer->X();
+                    const int dy = lmY - layer->Y();
+                    const bool eLeft = (dx < kResizeHotspot);
+                    const bool eRight = (dx >= dispW - kResizeHotspot);
+                    const bool eTop = (dy < kResizeHotspot);
+                    const bool eBottom = (dy >= dispH - kResizeHotspot);
+                    if (!(eLeft || eRight || eTop || eBottom)) {
+                        // The click no longer sits on any resize edge after
+                        // restore — cancel the grab, window stays restored
+                        // and grab-free.
+                        chromeGrab_ = ChromeGrab::None;
+                        chromeGrabClient_ = 0;
+                        chromeGrabLayerId_ = 0;
+                        chromeRestorePendingId_ = 0;
+                        SetChromeCursor(CursorShape::Arrow);
+                        return true;
+                    }
+                    chromeEdgeLeft_ = eLeft;
+                    chromeEdgeRight_ = eRight;
+                    chromeEdgeTop_ = eTop;
+                    chromeEdgeBottom_ = eBottom;
+                    chromeResizeX_ = layer->X();
+                    chromeResizeY_ = layer->Y();
+                    chromeResizeW_ = dispW;
+                    chromeResizeH_ = dispH;
+                    SetChromeCursor(ChromeCursorFromEdges(
+                        eLeft, eRight, eTop, eBottom));
+                }
+            } else {
+                // Stale pending id (grab state mismatch) — drop it.
+                chromeRestorePendingId_ = 0;
+            }
+        }
         if (chromeGrab_ == ChromeGrab::Move) {
             int winW = 0, winH = 0;
             SDL_GetWindowSize(window_, &winW, &winH);
@@ -715,6 +771,9 @@ bool JKWindowServer::HandleChromeGrab(const SDL_Event& ev, int mx, int my, float
         chromeGrab_ = ChromeGrab::None;
         chromeGrabClient_ = 0;
         chromeGrabLayerId_ = 0;
+        // A click without motion never restores (Windows parity): drop the
+        // armed restore so a later unrelated grab cannot fire it.
+        chromeRestorePendingId_ = 0;
         return true;
     }
 
@@ -744,14 +803,14 @@ bool JKWindowServer::TryChromeGrab(int mx, int my, float scale, int clicks) {
     // Chrome zones are in SURFACE-local px (they shrink proportionally on
     // fit-scaled layers, §7.3), so convert display px → surface px here.
     // For 1:1 layers ScaleX/Y == 1 and this is the plain logical-local map.
-    // Not const: a drag-restore below resizes the layer and the zones are
-    // re-read from the restored geometry.
-    int lx = static_cast<int>(std::llround(
+    // The deferred drag-restore (zone 1d) keeps maximized geometry here; the
+    // grab anchors are re-derived from the restored layer on the first motion.
+    const int lx = static_cast<int>(std::llround(
         (mx / scale - layer->X()) / layer->ScaleX()));
-    int ly = static_cast<int>(std::llround(
+    const int ly = static_cast<int>(std::llround(
         (my / scale - layer->Y()) / layer->ScaleY()));
-    int w = layer->Width();
-    int h = layer->Height();
+    const int w = layer->Width();
+    const int h = layer->Height();
 
     // 1) Close overlay (top-right of the title bar, server-drawn).
     const bool inCloseX = (lx >= w - kChromeCloseSize - kChromeCloseMargin) &&
@@ -777,9 +836,10 @@ bool JKWindowServer::TryChromeGrab(int mx, int my, float scale, int clicks) {
     }
 
     // 1c) Title double-click toggles maximize/restore (docs/39) — checked
-    // before the drag-restore below so a maximized window's double-click is
-    // ONE restore toggle, not restore-then-re-maximize. The top resize strip
-    // stays a resize zone (a move grab never starts there either).
+    // before the deferred restore is armed in zone 1d, so a maximized
+    // window's double-click (second click, still maximized) toggles exactly
+    // ONCE, Windows-like. The top resize strip stays a resize zone (a move
+    // grab never starts there either).
     if (ly >= kResizeHotspot && ly < kChromeTitleBar && clicks == 2) {
         FocusClient(client->Id());
         PushWindowList();  // active highlight follows click focus
@@ -787,21 +847,13 @@ bool JKWindowServer::TryChromeGrab(int mx, int my, float scale, int clicks) {
         return true;
     }
 
-    // 1d) Drag-restore (docs/39): starting a Move or Resize grab on a
-    // maximized layer restores it FIRST (RestoreFromMaximize erases the map
-    // entry + clears the flag + publishes window.restored exactly once), then
-    // the grab logic below proceeds with FRESH coordinates read from the
-    // restored layer. The click may now sit outside the restored rect (the
-    // maximized title bar is at the very top) — the grab keeps that offset,
-    // which puts the restored window under the cursor like Windows does.
-    if (RestoreFromMaximize(*client, *layer)) {
-        lx = static_cast<int>(std::llround(
-            (mx / scale - layer->X()) / layer->ScaleX()));
-        ly = static_cast<int>(std::llround(
-            (my / scale - layer->Y()) / layer->ScaleY()));
-        w = layer->Width();
-        h = layer->Height();
-    }
+    // 1d) Deferred drag-restore (docs/39 fix 1): a Move or Resize grab on a
+    // maximized layer only ARMS the restore (chromeRestorePendingId_) — the
+    // restore fires on the grab's FIRST motion (HandleChromeGrab), so a plain
+    // double-click still reaches zone 1c while maximized and toggles exactly
+    // once. Anchors below use the maximized geometry; they are discarded and
+    // re-derived from the restored layer on the first motion.
+    const bool grabMaximized = (preMaxRects_.count(layer->Id()) != 0);
 
     // 2) Resize edges: all four sides + corners (6px inset). The top strip's
     //    first 6px are resize; title drag starts below that (Windows-like).
@@ -816,6 +868,8 @@ bool JKWindowServer::TryChromeGrab(int mx, int my, float scale, int clicks) {
         chromeGrab_ = ChromeGrab::Resize;
         chromeGrabClient_ = client->Id();
         chromeGrabLayerId_ = layer->Id();
+        // Deferred drag-restore (docs/39 fix 1): re-armed per grab.
+        chromeRestorePendingId_ = grabMaximized ? layer->Id() : 0;
         chromeResizeX_ = layer->X();
         chromeResizeY_ = layer->Y();
         // Display size at grab time (logical points) — the resize drag and
@@ -839,10 +893,16 @@ bool JKWindowServer::TryChromeGrab(int mx, int my, float scale, int clicks) {
         chromeGrab_ = ChromeGrab::Move;
         chromeGrabClient_ = client->Id();
         chromeGrabLayerId_ = layer->Id();
+        // Deferred drag-restore (docs/39 fix 1): re-armed per grab.
+        chromeRestorePendingId_ = grabMaximized ? layer->Id() : 0;
         // Move works in desktop-logical positions, but lx/ly are surface-local
         // and a fit-scaled layer maps surface px to logical px at ScaleX/Y.
         chromeGrabDX_ = static_cast<int>(std::llround(lx * layer->ScaleX()));
         chromeGrabDY_ = static_cast<int>(std::llround(ly * layer->ScaleY()));
+        // Fractional grab point inside the surface — the anchor a deferred
+        // drag-restore re-uses to put the restored window under the cursor.
+        chromeGrabFX_ = (w > 0) ? (lx / static_cast<float>(w)) : 0.0f;
+        chromeGrabFY_ = (h > 0) ? (ly / static_cast<float>(h)) : 0.0f;
         return true;
     }
     return false;
