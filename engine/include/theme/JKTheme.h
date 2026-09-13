@@ -6,6 +6,8 @@
 
 #include <SDL.h>
 
+#include <string>
+
 namespace jk { namespace theme {
 
 struct JKTheme {
@@ -27,6 +29,23 @@ struct JKTheme {
     SDL_Color taskbarFaceNormal, taskbarFaceActive, taskbarFaceMinimized;
     SDL_Color taskbarTextNormal, taskbarTextActive, taskbarTextMinimized;
     SDL_Color taskbarBorderActive, taskbarBorderInactive;
+    // 위젯 라이브러리 — JKControl 계열 (단계 2)
+    SDL_Color widgetFace;       // 버튼/스크롤/메뉴/콤보버튼/스태틱/체크박스 면
+    SDL_Color widgetText;       // 위젯 텍스트/글리프/캐럿
+    SDL_Color fieldBg;          // 입력 필드/리스트/콤보 배경
+    SDL_Color selectionBg;      // 선택/하이라이트 배경 (액센트)
+    SDL_Color selectionText;    // 선택/하이라이트 텍스트
+    SDL_Color bevelLight;       // 3D 가장자리 (밝음)
+    SDL_Color bevelDark;        // 3D 가장자리 (어두움)
+    SDL_Color bevelMid;         // 썸 그림자/중간 톤
+    SDL_Color scrollbarTrack;   // 스크롤바 트랙
+    SDL_Color scrollbarThumb;   // 스크롤바 썸 면
+    SDL_Color focusRing;        // 포커스 링
+    SDL_Color imeCompositionBg; // IME 조합 배경 (알파 64 보존 필수)
+    SDL_Color imeCaret;         // IME 조합 캐럿/에러 (값 유지 토큰)
+    // 표면 — 클라이언트 영역/앱 클리어 (단계 2)
+    SDL_Color windowClientBg;   // JKWindow 클라 영역 배경
+    SDL_Color appClearBg;       // JKClientApplication 표면 클리어
 };
 
 inline constexpr JKTheme kDefault = {
@@ -50,7 +69,112 @@ inline constexpr JKTheme kDefault = {
     /*taskbarTextMinimized*/ {120, 120, 120, 255},
     /*taskbarBorderActive*/  {255, 255, 255, 255},
     /*taskbarBorderInactive*/{70, 72, 84, 255},
+    /*widgetFace*/       {43, 43, 43, 255},
+    /*widgetText*/       {240, 240, 240, 255},
+    /*fieldBg*/          {26, 26, 26, 255},
+    /*selectionBg*/      {0, 120, 212, 255},
+    /*selectionText*/    {255, 255, 255, 255},
+    /*bevelLight*/       {70, 70, 70, 255},
+    /*bevelDark*/        {16, 16, 16, 255},
+    /*bevelMid*/         {40, 40, 40, 255},
+    /*scrollbarTrack*/   {56, 56, 56, 255},
+    /*scrollbarThumb*/   {86, 86, 86, 255},
+    /*focusRing*/        {0, 120, 212, 255},
+    /*imeCompositionBg*/ {0, 120, 212, 64},   // 알파 64 보존
+    /*imeCaret*/         {255, 0, 0, 255},    // 값 유지
+    /*windowClientBg*/   {32, 32, 32, 255},
+    /*appClearBg*/       {32, 32, 32, 255},
 };
+
+// --- 프리셋 (단계 2 스펙 §1b) ---
+// kLight: Win11 라이트. kClassic: 단계 1 이전 값 전부 (픽셀 회귀 도구).
+// taskbar는 단계 1에서 값 불변 토큰화였으므로 kClassic의 taskbar = kDefault와 동일.
+inline constexpr JKTheme kLight = {
+    /*chromeTitleBg*/        {243, 243, 243, 255},
+    /*chromeTitleText*/      {0, 0, 0, 255},
+    /*chromeBorder*/         {204, 204, 204, 255},
+    /*chromeActiveBorder*/   {0, 120, 212, 255},
+    /*chromeButtonFace*/     {229, 229, 229, 255},
+    /*chromeButtonGlyph*/    {0, 0, 0, 255},
+    /*chromeCloseHover*/     {196, 43, 28, 255},
+    /*desktopBgFallback*/    {243, 243, 243, 255},
+    /*launcherCellFace*/     {249, 249, 249, 255},
+    /*launcherCellOutline*/  {200, 200, 200, 255},
+    /*launcherCellPlaceholder*/ {204, 204, 208, 255},
+    /*taskbarBg*/            {243, 243, 243, 255},
+    /*taskbarFaceNormal*/    {229, 229, 229, 255},
+    /*taskbarFaceActive*/    {204, 204, 204, 255},
+    /*taskbarFaceMinimized*/ {236, 236, 236, 255},
+    /*taskbarTextNormal*/    {0, 0, 0, 255},
+    /*taskbarTextActive*/    {0, 0, 0, 255},
+    /*taskbarTextMinimized*/ {96, 96, 96, 255},
+    /*taskbarBorderActive*/  {0, 0, 0, 255},
+    /*taskbarBorderInactive*/{200, 200, 200, 255},
+    /*widgetFace*/           {240, 240, 240, 255},
+    /*widgetText*/           {0, 0, 0, 255},
+    /*fieldBg*/              {255, 255, 255, 255},
+    /*selectionBg*/          {0, 120, 212, 255},
+    /*selectionText*/        {255, 255, 255, 255},
+    /*bevelLight*/           {255, 255, 255, 255},
+    /*bevelDark*/            {160, 160, 160, 255},
+    /*bevelMid*/             {160, 160, 160, 255},
+    /*scrollbarTrack*/       {229, 229, 229, 255},
+    /*scrollbarThumb*/       {205, 205, 205, 255},
+    /*focusRing*/            {0, 120, 212, 255},
+    /*imeCompositionBg*/     {0, 120, 212, 64},
+    /*imeCaret*/             {255, 0, 0, 255},
+    /*windowClientBg*/       {249, 249, 249, 255},
+    /*appClearBg*/           {240, 240, 240, 255},
+};
+
+inline constexpr JKTheme kClassic = {
+    /*chromeTitleBg*/        {0, 0, 128, 255},      // 구 네이비
+    /*chromeTitleText*/      {255, 255, 255, 255},
+    /*chromeBorder*/         {192, 192, 192, 255},  // 구 실버
+    /*chromeActiveBorder*/   {0, 0, 128, 255},      // 단계 1 전에는 미존재 — 구 테두리색으로 근사
+    /*chromeButtonFace*/     {192, 192, 192, 255},
+    /*chromeButtonGlyph*/    {255, 255, 255, 255},
+    /*chromeCloseHover*/     {196, 43, 28, 255},    // 호버 페인트 미구현이라 무영향
+    /*desktopBgFallback*/    {96, 96, 96, 255},
+    /*launcherCellFace*/     {100, 100, 100, 255},
+    /*launcherCellOutline*/  {255, 255, 255, 255},
+    /*launcherCellPlaceholder*/ {128, 128, 128, 255},
+    /*taskbarBg*/            {24, 26, 32, 255},     // 이하 taskbar 10필드 = kDefault와 동일 (값 불변 토큰화)
+    /*taskbarFaceNormal*/    {56, 58, 68, 255},
+    /*taskbarFaceActive*/    {92, 98, 122, 255},
+    /*taskbarFaceMinimized*/ {38, 40, 46, 255},
+    /*taskbarTextNormal*/    {224, 224, 224, 255},
+    /*taskbarTextActive*/    {255, 255, 255, 255},
+    /*taskbarTextMinimized*/ {120, 120, 120, 255},
+    /*taskbarBorderActive*/  {255, 255, 255, 255},
+    /*taskbarBorderInactive*/{70, 72, 84, 255},
+    /*widgetFace*/           {192, 192, 192, 255},  // 구 실버 면 (스태틱 240과의 차이는 Global Constraints 마지막 항목)
+    /*widgetText*/           {0, 0, 0, 255},
+    /*fieldBg*/              {255, 255, 255, 255},
+    /*selectionBg*/          {0, 0, 128, 255},      // 구 네이비 선택
+    /*selectionText*/        {255, 255, 255, 255},
+    /*bevelLight*/           {255, 255, 255, 255},
+    /*bevelDark*/            {0, 0, 0, 255},
+    /*bevelMid*/             {128, 128, 128, 255},
+    /*scrollbarTrack*/       {220, 220, 220, 255},
+    /*scrollbarThumb*/       {255, 255, 255, 255},
+    /*focusRing*/            {0, 0, 255, 255},
+    /*imeCompositionBg*/     {0, 0, 255, 64},       // 구 파랑 조합 — 알파 64
+    /*imeCaret*/             {255, 0, 0, 255},
+    /*windowClientBg*/       {240, 240, 240, 255},
+    /*appClearBg*/           {192, 192, 192, 255},
+};
+
+// --- 스위칭 봉합 ---
+// 기동 시 1회 setTheme가 정석 — 렌더 중 스왑은 P3(핫스왑)에서 재검토.
+inline const JKTheme* activeTheme_ = &kDefault;
+inline JKTheme const& current() { return *activeTheme_; }
+inline void setTheme(const JKTheme* t) { if (t) activeTheme_ = t; }
+
+// theme.json {"preset": "dark"|"light"|"classic"} 1키 로더. 파일 없음/깨짐
+// → false, 상태 불변 (기본값=다크가 곧 정답).
+bool loadPresetFromFile(const std::string& path);
+std::string DefaultThemePath();  // exe 옆 theme.json (terminal.json 패턴 준용)
 
 } } // namespace jk::theme
 

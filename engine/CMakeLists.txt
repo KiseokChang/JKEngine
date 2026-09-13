@@ -165,6 +165,7 @@ add_library(jkcore STATIC
     # only (spec §2 — the daemon never links the client stack). The client
     # terminal stack still reaches it through jkclient's PUBLIC jkcore link.
     src/terminal/JKConPtyBridge.cpp
+    src/theme/JKThemeConfig.cpp
     src/JKDataFile.cpp
     src/JKImageLoader.cpp
     src/JKJkxFile.cpp
