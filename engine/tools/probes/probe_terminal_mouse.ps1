@@ -37,7 +37,9 @@
 #          wire convention - proves the ENCODING, not just arrival);
 #      (b) wheel up `\e[<64;...` = 1b 5b 3c 36 34 3b - the view reports the
 #          wheel in SGR mode ONLY, so wheel bytes prove DECSET 1006 reached
-#          the parser (catches a reverted combined-DECSET parser fix).
+#          the parser (catches a reverted combined-DECSET parser fix);
+#      (c) NO SGR motion report (\e[<32;...) - 1000 (Normal) tracking never
+#          reports motion, asserted after a hover move (final review MINOR-5).
 #      Release `m` (terminator 6d) stays a diagnostic WARN.
 #   5. Cleanup by PID/command line (never window title), temp files deleted.
 #
@@ -324,6 +326,10 @@ function Get-Dump { if (Test-Path $dumpPath) { [IO.File]::ReadAllText($dumpPath)
 $rxPress   = '1b5b3c303b([0-9a-f]+?)4d'
 $rxRelease = '1b5b3c303b([0-9a-f]+?)6d'
 $rxWheelUp = '1b5b3c36343b'
+# SGR motion report: \e[<32;... (b=32 = hover motion in 1002/1003) = bytes
+# 1b 5b 3c 33 32 3b. Mode 1000 (Normal) must NEVER report motion - its
+# absence after a hover move is a hard gate (final review MINOR-5).
+$rxSgrMotion = '1b5b3c33323b'
 # Classic X10 form: \e[M + (32+btn) + (32+x) + (32+y), bytes 1b 5b 4d ?? ?? ??
 # (btn 0x20-0x22 = left/middle/right press; coord bytes are >= 0x21 for
 # 1-based coords, so the coord groups cannot swallow a following \x1b).
@@ -439,12 +445,13 @@ if ($ok) {
     }
 }
 
-# --- 4. wheel + hover move (HARD gate: SGR wheel proves 1006) ----------------
+# --- 4. wheel + hover move (HARD gates: SGR wheel present, motion absent) ----
 # Our view reports the wheel ONLY in SGR mode (btn 64/65), so wheel bytes here
 # PROVE DECSET 1006 reached the parser - this is the anti-X10 gate (review
 # MAJOR-1: without it, reverting the combined-DECSET parser fix would still
 # exit 0 via the X10 press). Hover motion exists only in 1002/1003 tracking -
-# the reader enables 1000, so NO motion bytes expected.
+# the reader enables 1000 (Normal), so a motion report (\e[<32;...) after the
+# hover move is a FAIL too (final review MINOR-5).
 if ($ok) {
     $p = Cell-Center $clickC $clickR
     [void][Wm]::SendWheel($p[0], $p[1], 120)
@@ -460,6 +467,13 @@ if ($ok) {
         $ok = $false
         Write-Host "mouse-wheel: FAIL (no SGR wheel-up 1b5b3c36343b in dump -"
         Write-Host "  DECSET 1006 did not reach the parser or SGR wheel lost)"
+    }
+    if ($wdump -match $rxSgrMotion) {
+        $ok = $false
+        Write-Host "mouse-motion: FAIL (SGR motion \e[<32; observed - mode 1000"
+        Write-Host "  must not report motion; reader enabled ?1000;1006 only)"
+    } else {
+        Write-Host "mouse-motion: PASS (no SGR motion in 1000 tracking)"
     }
     Write-Host ("  dump tail: [{0}]" -f
         $wdump.Substring([math]::Max(0, $wdump.Length - 160)))
