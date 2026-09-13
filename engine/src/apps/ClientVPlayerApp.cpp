@@ -174,6 +174,13 @@ struct ClientVPlayerApp::PlayerCore {
     double undoWallBase = 0, undoWallAccum = 0;
     std::chrono::steady_clock::time_point undoWallStart{};
     bool undoWallPlaying = false;
+    // The snapshot must describe the last REAL position, never an
+    // intermediate park (review MINOR-1): while a seek is between stage (a)
+    // and its stage-(c) outcome, superseding requests (SeekCommon) and
+    // chained stage-(a) passes skip the capture, so one snapshot survives
+    // the whole supersede cascade and is consumed only by the cascade's
+    // final Failed exit.
+    bool seekInFlight = false;
     std::string seekError;                   // one-shot failed-seek notice (under m)
     std::chrono::steady_clock::time_point seekErrorAt{};
 
@@ -302,10 +309,15 @@ struct ClientVPlayerApp::PlayerCore {
         // pre-seek values for the failed-seek restore must be captured now,
         // before they are overwritten.
         seekError.clear();
-        undoWallBase = wallBase;
-        undoWallAccum = wallAccum;
-        undoWallStart = wallStart;
-        undoWallPlaying = wallPlaying;
+        // While a seek is in flight the snapshot already holds the last real
+        // position; re-capturing here would record the intermediate park of
+        // the seek being superseded (review MINOR-1).
+        if (!seekInFlight) {
+            undoWallBase = wallBase;
+            undoWallAccum = wallAccum;
+            undoWallStart = wallStart;
+            undoWallPlaying = wallPlaying;
+        }
         if (useWallClock) {
             if (wallPlaying) { wallAccum += WallSec(wallStart); }
             wallBase = t;
@@ -356,15 +368,23 @@ struct ClientVPlayerApp::PlayerCore {
         // ---- Stage (a): under m — flush, snapshot, park the clock. ---------
         double t = seekTarget;
         if (duration > 0) t = std::clamp(t, 0.0, duration);
-        undoEnded = ended;
+        // Capture the undo baseline only when no seek is in flight (review
+        // MINOR-1): a chained stage (a) after a superseded seek would
+        // otherwise snapshot the parked (never-rendered) clock of the seek
+        // it supersedes, and a later failure would "restore" to that
+        // phantom instead of the real position.
+        const bool captureUndo = !seekInFlight;
+        if (captureUndo) undoEnded = ended;
         // With a negative user A/V offset the display gate sits at
         // clock + avDelay (< t), so the first pushable frame (t - 0.05)
         // would exceed the gate and nothing pops until the clock crawls
         // |avDelay| forward — a frozen picture after every seek, forever
         // while paused. Extend the stale cutoff to cover the shifted gate
         // (positive offsets need nothing: the gate is in the future).
-        undoDropBeforePts = dropBeforePts;
-        undoPostSeekJump = postSeekJump;
+        if (captureUndo) {
+            undoDropBeforePts = dropBeforePts;
+            undoPostSeekJump = postSeekJump;
+        }
         dropBeforePts = jogSeek
                             ? -1.0
                             : t - 0.05 +
@@ -384,10 +404,13 @@ struct ClientVPlayerApp::PlayerCore {
         {
             std::lock_guard<std::mutex> lk2(ringM);
             ++seekGen;
-            undoAudioRef = audioRef;
-            undoFramesPlayed = framesPlayed;
-            undoRingR = ringR;
-            undoRingW = ringW;
+            if (captureUndo) {
+                undoAudioRef = audioRef;
+                undoFramesPlayed = framesPlayed;
+                undoRingR = ringR;
+                undoRingW = ringW;
+            }
+            seekInFlight = true;
             ringR = ringW = 0;
             // Rebase the audio clock so ClockNow() == t at zero consumed
             // samples. Post-seek audio resumes at file time t + ptsOrigin,
@@ -413,7 +436,14 @@ struct ClientVPlayerApp::PlayerCore {
         }
 
         // ---- Stage (c): m re-acquired — commit, restore, or discard. -------
-        if (stop || wantSeek) return SeekResult::Superseded;
+        if (stop || wantSeek) {
+            // Deliberately NOT clearing seekInFlight (review MINOR-1): the
+            // superseding request's stage (a) must skip its capture so the
+            // snapshot keeps describing the last real position across the
+            // whole supersede cascade. The cascade ends in exactly one Ok
+            // or Failed exit, and both clear the flag.
+            return SeekResult::Superseded;
+        }
 
         if (r < 0) {
             // Failed seek: put the pipeline back the way stage (a) found it.
@@ -434,16 +464,27 @@ struct ClientVPlayerApp::PlayerCore {
             postSeekJump = undoPostSeekJump;
             ended = undoEnded;
             if (useWallClock) {
-                wallBase = undoWallBase;
-                wallAccum = undoWallAccum;
-                wallStart = undoWallStart;
-                wallPlaying = undoWallPlaying;
-                restoredClock = wallBase + wallAccum +
-                    (wallPlaying ? WallSec(wallStart) : 0.0);
+                // Fold the snapshot into a position, then RE-PIN it against
+                // the current paused state (review MINOR-2): a SetPaused
+                // during the I/O window mutated wallAccum/wallPlaying under
+                // m, so writing the old quadruple back verbatim could leave
+                // ClockNow() advancing while paused (stale
+                // undoWallPlaying=true + old wallStart).
+                const double pos = undoWallBase + undoWallAccum +
+                    (undoWallPlaying ? WallSec(undoWallStart) : 0.0);
+                wallBase = 0;
+                wallAccum = pos;
+                wallStart = std::chrono::steady_clock::now();
+                wallPlaying = !paused.load(std::memory_order_relaxed);
+                restoredClock = pos;
             }
             seekError = "시크 불가 위치: " + AvErr(r);
             seekErrorAt = std::chrono::steady_clock::now();
-            lastError = seekError; // classified like the other stop reasons
+            // Not touching lastError (review MINOR-4): it only displays on
+            // `ended`, so a failed seek must not masquerade as the stop
+            // reason of a later natural EOF — the 3 s seekError notice is
+            // the whole failed-seek UI.
+            seekInFlight = false;
             // One-shot diagnostic (same convention as the audio-device open
             // failure): a failed seek is invisible otherwise — the pipeline
             // keeps running from the restored position.
@@ -458,6 +499,7 @@ struct ClientVPlayerApp::PlayerCore {
         ended = false;
         lastError.clear(); // a successful seek supersedes a stale stop reason
         seekError.clear();
+        seekInFlight = false;
         return SeekResult::Ok;
     }
 
