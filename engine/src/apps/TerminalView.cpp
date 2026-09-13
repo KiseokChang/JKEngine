@@ -128,6 +128,20 @@ void TerminalView::OnPaintClient(JKDC& dc) {
                 static_cast<uint8_t>(themeBg_ & 0xFF), 255);
     dc.FillRect(client);
 
+    // Scroll anchor (docs/26 단계 4): while the user is scrolled back (offset
+    // > 0), new output pushes lines into the history — grow the offset by the
+    // same amount so the viewport stays pinned to the content the user is
+    // reading instead of drifting toward the bottom. The clamp also handles
+    // history shrinking (RIS, reflow).
+    const int hist = grid_->ScrollbackLines();
+    if (hist != lastHist_) {
+        if (hist > lastHist_ && scrollOffset_ > 0) {
+            scrollOffset_ += hist - lastHist_;
+        }
+        if (scrollOffset_ > hist) scrollOffset_ = hist;
+        lastHist_ = hist;
+    }
+
     // Selection (docs/26 단계 2) covers LIVE grid rows only — scrollback
     // snapshots are never selected (spec §5 v1 restriction: no scroll-while-
     // select). The anchor/end pair is normalized to an inclusive cell rect;
@@ -142,24 +156,25 @@ void TerminalView::OnPaintClient(JKDC& dc) {
     // line is (history - offset); rows past the history come from the grid.
     // offset == 0 is the live view (identical to painting the grid alone).
     const auto& cursor = grid_->GetCursor();
-    const int hist = grid_->ScrollbackLines();
     const int off = std::min(scrollOffset_, hist);
     const int top = hist - off;
     for (int r = 0; r < grid_->Rows(); ++r) {
         const int line = top + r;
         const int cellY = client.y + r * kTermCellH;
         if (line < hist) {
-            // Scrollback snapshot — may be narrower than the current columns
-            // after a resize; cells past its width paint as default bg.
-            // Never selection-highlighted (see the sel comment above).
-            const auto& lineCells = grid_->ScrollbackLine(line);
+            // Scrollback snapshot — after a reflow every line is exactly the
+            // current width, but a pre-reflow capture (alt-screen resize
+            // fallback) may be narrower; cells past its width paint as
+            // default bg. Never selection-highlighted (see the sel comment
+            // above).
+            const auto& snap = grid_->ScrollbackLine(line);
             const int lineCols =
-                std::min<int>(static_cast<int>(lineCells.size()), grid_->Cols());
+                std::min<int>(static_cast<int>(snap.cells.size()), grid_->Cols());
             for (int c = 0; c < grid_->Cols(); ++c) {
                 const JKRect cellRect{ client.x + c * kTermCellW, cellY,
                                        kTermCellW, kTermCellH };
                 static const JKTermCell kEmpty{};
-                const JKTermCell& cell = (c < lineCols) ? lineCells[c] : kEmpty;
+                const JKTermCell& cell = (c < lineCols) ? snap.cells[c] : kEmpty;
                 PaintCell(dc, cellRect, cell, false);
             }
         } else {
@@ -173,6 +188,32 @@ void TerminalView::OnPaintClient(JKDC& dc) {
                           sel.Contains(c, gr));
             }
         }
+    }
+
+    // Scrollbar (docs/26 단계 4): a thin right-edge track whenever history
+    // exists — thumb height is the live-view share of (history + screen),
+    // its position the scroll offset's share of the travel. An overlay (the
+    // last column's glyph edge may be covered; the cells keep painting).
+    if (hist > 0) {
+        constexpr int kTrackW = 4;
+        const JKRect track{ client.x + client.w - kTrackW, client.y,
+                            kTrackW, client.h };
+        const uint32_t trackCol = MixRgb(RgbOf(themeBg_), RgbOf(themeFg_), 14);
+        const uint32_t thumbCol = MixRgb(RgbOf(themeBg_), RgbOf(themeFg_), 64);
+        dc.SetColor(static_cast<uint8_t>((trackCol >> 16) & 0xFF),
+                    static_cast<uint8_t>((trackCol >> 8) & 0xFF),
+                    static_cast<uint8_t>(trackCol & 0xFF), 255);
+        dc.FillRect(track);
+        const int total = hist + grid_->Rows();
+        const int thumbH = std::max(kTrackW, client.h * grid_->Rows() / total);
+        const int maxTravel = client.h - thumbH;
+        const int thumbY = track.y +
+            static_cast<int>(static_cast<long long>(hist - off) * maxTravel /
+                             std::max(1, hist));
+        dc.SetColor(static_cast<uint8_t>((thumbCol >> 16) & 0xFF),
+                    static_cast<uint8_t>((thumbCol >> 8) & 0xFF),
+                    static_cast<uint8_t>(thumbCol & 0xFF), 255);
+        dc.FillRect(JKRect{ track.x, thumbY, kTrackW, thumbH });
     }
 
     // IME pre-edit overlay (docs/26 단계 5, spec §3) paints AFTER the

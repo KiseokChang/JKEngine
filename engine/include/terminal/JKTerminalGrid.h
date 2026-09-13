@@ -102,7 +102,9 @@ public:
     // --- content -----------------------------------------------------------
     // Writes cp at the cursor and advances (with wrap at the last column).
     void PutChar(uint32_t cp);
-    void LineFeed();                     // honours scroll margins
+    // Honours scroll margins. softWrap=true (deferred-wrap path) keeps the
+    // departing row's soft-wrap flag; a hard feed clears it (docs/26 단계 4).
+    void LineFeed(bool softWrap = false);
     void ReverseLineFeed();
     void CarriageReturn();
     void Backspace();
@@ -130,10 +132,18 @@ public:
     void Reset();
 
     // --- scrollback ---------------------------------------------------------
+    // One recorded line: the cells as they left the screen, plus the soft-wrap
+    // flag (docs/26 단계 4) — wrapped=true means the line logically continues
+    // into the NEXT recorded/screen line, so a resize can unwrap→rewrap.
+    struct JKTermScrollLine {
+        std::vector<JKTermCell> cells;
+        bool wrapped = false;
+    };
+
     // Rows pushed off the top of the MAIN screen (scrollTop_ == 0 scroll) are
     // snapshotted here; margin scrolls and alt-screen scrolling do not record.
-    // Lines keep the column count they had at capture time — the view clamps
-    // to the current columns when painting (no reflow).
+    // Resize reflows (docs/26 단계 4): history + screen are unwrapped into
+    // logical lines and rewrapped to the new width.
     // Depth is configurable (terminal.json "scrollback", docs/26 단계 5);
     // kScrollbackMax is the default.
     static constexpr size_t kScrollbackMax = 1000;
@@ -141,8 +151,18 @@ public:
     void SetScrollbackMax(size_t lines) { scrollbackMax_ = lines; }
 
     int ScrollbackLines() const { return static_cast<int>(scrollback_.size()); }
-    const std::vector<JKTermCell>& ScrollbackLine(int index) const {
+    const JKTermScrollLine& ScrollbackLine(int index) const {
         return scrollback_[static_cast<size_t>(index)];
+    }
+
+    // Soft-wrap flag of a live MAIN screen row (docs/26 단계 4): set when
+    // PutChar deferred-wraps off the row's last column, cleared by hard
+    // newlines landing... never directly — it is cleared on full-row erases
+    // (EL 2 / ED 2) and recomputed wholesale by reflow. Stale flags from CUP
+    // repaints that never erase are a documented v1 approximation.
+    bool RowWrapped(int row) const {
+        return row >= 0 && row < static_cast<int>(rowWrapped_.size()) &&
+               rowWrapped_[static_cast<size_t>(row)];
     }
 
     // --- accessors ---------------------------------------------------------
@@ -168,6 +188,12 @@ private:
     void     ClearCells(std::vector<JKTermCell>& cells);
     JKTermCell* CellPtr(int col, int row);
     void ScrollRegionUpOne();
+    // Old top-left-copy geometry change (alt-screen resize + first sizing).
+    void LegacyResize(int cols, int rows);
+    // Reflow (docs/26 단계 4): unwrap history + main screen into logical
+    // lines, rewrap to the new width, assemble a fresh screen + scrollback
+    // and swap. Never mutates the existing buffers in place.
+    void ReflowMain(int cols, int rows);
 
     int cols_ = 0;
     int rows_ = 0;
@@ -176,7 +202,12 @@ private:
     std::vector<JKTermCell> altCells_; // alternate screen buffer
     bool altActive_ = false;
 
-    std::deque<std::vector<JKTermCell>> scrollback_;
+    // Soft-wrap flags, one per MAIN screen row (docs/26 단계 4). Stashed with
+    // the screen content across an alt-screen swap.
+    std::vector<bool> rowWrapped_;
+    std::vector<bool> rowWrappedAlt_;
+
+    std::deque<JKTermScrollLine> scrollback_;
     size_t scrollbackMax_ = kScrollbackMax;
 
     Cursor cursor_;

@@ -87,6 +87,9 @@ private:
     int cols_ = 0;
     int rows_ = 0;
     int scrollOffset_ = 0;   // rows scrolled up from the live bottom; 0 = live
+    // Scrollback depth at the last paint (docs/26 단계 4): the delta since
+    // then re-anchors the viewport while the user is scrolled back.
+    int lastHist_ = 0;
     bool blinkOn_ = true;
     uint32_t themeBg_ = 0x0C0C0C;   // defaults mirror the classic terminal
     uint32_t themeFg_ = 0xCCCCCC;

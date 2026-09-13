@@ -1418,6 +1418,13 @@ static int RunAppSelfTest() {
         feed("\x1b[1;1H01234567890123456789Z");
         check(rowText(0) == "01234567890123456789" && rowText(1) == "Z",
               "terminal: deferred wrap at last column");
+        // Soft-wrap flag (docs/26 단계 4): the wrapped row is flagged, the
+        // continuation row is not.
+        check(grid.RowWrapped(0) && !grid.RowWrapped(1),
+              "terminal: soft wrap flags the row");
+        // ED 2 wipes the logical structure — flags reset with the cells.
+        feed("\x1b[2J");
+        check(!grid.RowWrapped(0), "terminal: ED2 clears wrap flags");
 
         // Scroll region (DECSTBM) + LF scrolls only inside margins: rows 1..3
         // (0-based) shift up, pulling "line1" into row 2.
@@ -1469,11 +1476,16 @@ static int RunAppSelfTest() {
         check(grid.GetCursor().x == 1 && grid.Cell(1, 2).cp == 0xAC00,
               "terminal: BS skips follower onto wide glyph");
 
-        // Resize preserves top-left content and clamps the cursor.
+        // Reflow resize (docs/26 단계 4): short logical lines survive a
+        // width change; content pads top (bottom-anchored assembly), the
+        // cursor maps to its logical line.
+        feed("\x1b[2J\x1b[1;1Haaa\r\nbbb\r\nccc");
         grid.Resize(10, 4);
         check(grid.Cols() == 10 && grid.Rows() == 4 &&
-                  grid.Cell(0, 0).cp == 0xD55C,
-              "terminal: resize preserves content");
+                  grid.Cell(0, 1).cp == 'a' && grid.Cell(0, 2).cp == 'b' &&
+                  grid.Cell(0, 3).cp == 'c' &&
+                  grid.GetCursor().x == 3 && grid.GetCursor().y == 3,
+              "terminal: reflow keeps short lines");
 
         // A wide glyph at the last column wraps to the next row whole
         // instead of splitting across the edge.
@@ -1491,7 +1503,9 @@ static int RunAppSelfTest() {
         grid.ClearDirty();
         feed("\x1b[1;1Hr0\r\nr1\r\nr2\r\nr3\r\nr4");
         check(grid.ScrollbackLines() == 1, "terminal: top scroll records line");
-        check(grid.ScrollbackLine(0)[0].cp == 'r' && grid.ScrollbackLine(0)[1].cp == '0',
+        check(grid.ScrollbackLine(0).cells[0].cp == 'r' &&
+                  grid.ScrollbackLine(0).cells[1].cp == '0' &&
+                  !grid.ScrollbackLine(0).wrapped,
               "terminal: scrollback line content");
 
         // Alt-screen scrolling never records (grid is 4 rows; CUP clamps to
@@ -1504,6 +1518,71 @@ static int RunAppSelfTest() {
         // single 0x1BC escape.)
         feed("\x1b" "c");
         check(grid.ScrollbackLines() == 0, "terminal: RIS clears scrollback");
+
+        // --- Reflow round trip (docs/26 단계 4) ------------------------------
+        {
+            jk::JKTerminalGrid g;
+            jk::JKVtParser p;
+            p.Attach(&g);
+            auto feed2 = [&p](const char* s) {
+                p.Feed(reinterpret_cast<const uint8_t*>(s), std::strlen(s));
+            };
+            auto txt = [&g](int r) {
+                std::string s;
+                for (int c = 0; c < g.Cols(); ++c) {
+                    const uint32_t cp = g.Cell(c, r).cp;
+                    s.push_back(cp >= 0x20 && cp < 0x7F ? static_cast<char>(cp) : ' ');
+                }
+                while (!s.empty() && s.back() == ' ') s.pop_back();
+                return s;
+            };
+
+            // 10x3: one soft-wrapped line (no hard newline between the
+            // halves) + one hard line; cursor parked on the last line.
+            g.Resize(10, 3);
+            feed2("abcdefghijKLMNO\r\nPQ");
+            check(g.RowWrapped(0) && !g.RowWrapped(1),
+                  "reflow: wrap flag across the screen");
+            check(g.GetCursor().x == 2 && g.GetCursor().y == 2,
+                  "reflow: cursor after input");
+
+            // Narrow to 6x3: the logical line rewraps abcdef|ghijKL|MNO and
+            // the overflow row "abcdef" (itself soft-wrapped) goes to the
+            // history; the cursor line stays on screen.
+            g.Resize(6, 3);
+            check(g.ScrollbackLines() == 1 &&
+                      g.ScrollbackLine(0).cells[0].cp == 'a' &&
+                      g.ScrollbackLine(0).wrapped,
+                  "reflow: overflow row recorded as wrapped history");
+            check(txt(0) == "ghijKL" && txt(1) == "MNO" && txt(2) == "PQ",
+                  "reflow: rewrap to the narrower width");
+            check(g.RowWrapped(0) && !g.RowWrapped(1) && !g.RowWrapped(2),
+                  "reflow: rewrapped rows carry fresh flags");
+            check(g.GetCursor().x == 2 && g.GetCursor().y == 2,
+                  "reflow: cursor mapped to its logical line");
+
+            // Widen back to 10x3: unwrap merges the history row back in —
+            // the logical lines round-trip to the original layout.
+            g.Resize(10, 3);
+            check(g.ScrollbackLines() == 0, "reflow: history merges back in");
+            check(txt(0) == "abcdefghij" && txt(1) == "KLMNO" && txt(2) == "PQ",
+                  "reflow: round trip restores logical lines");
+            check(g.GetCursor().x == 2 && g.GetCursor().y == 2,
+                  "reflow: cursor survives the round trip");
+
+            // A wide glyph never splits across a rewrap boundary: the chunk
+            // ends before the glyph, which moves to the next row whole (with
+            // its follower). Bottom-anchored: the 5-col layout shows only the
+            // last produced row on screen, the wrapped "1234" goes to history.
+            feed2("\x1b[2J\x1b[1;1H1234가");
+            g.Resize(5, 1);
+            check(g.Cell(0, 0).cp == 0xAC00 && g.Cell(1, 0).width == 0,
+                  "reflow: wide glyph wraps whole at the boundary");
+            check(g.ScrollbackLine(0).cells[3].cp == '4' &&
+                      g.ScrollbackLine(0).cells[4].cp == 0 &&
+                      g.ScrollbackLine(0).wrapped,
+                  "reflow: chunk ends before the wide glyph");
+        }
 
         // --- Wide-glyph diagnostics (docs/26 단계 1) --------------------------
         // A. Malgun Gothic must rasterize a Hangul syllable at the scale
