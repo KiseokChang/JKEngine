@@ -46,6 +46,10 @@ struct JKTheme {
     // 표면 — 클라이언트 영역/앱 클리어 (단계 2)
     SDL_Color windowClientBg;   // JKWindow 클라 영역 배경
     SDL_Color appClearBg;       // JKClientApplication 표면 클리어
+    // 터미널 — 기본 전경/배경 (단계 3). terminal.json의 themeBg/Fg 키가
+    // 없을 때만 소비(시딩) — 사용자 지정 키가 있으면 그 값이 우선한다.
+    SDL_Color terminalBg;       // 터미널 배경 (kDefault/kClassic = 구값 #0C0C0C 불변)
+    SDL_Color terminalFg;       // 터미널 전경 (kDefault/kClassic = 구값 #CCCCCC 불변)
 };
 
 inline constexpr JKTheme kDefault = {
@@ -84,6 +88,8 @@ inline constexpr JKTheme kDefault = {
     .imeCaret         = {255, 0, 0, 255},    // 값 유지
     .windowClientBg   = {32, 32, 32, 255},
     .appClearBg       = {32, 32, 32, 255},
+    .terminalBg       = {12, 12, 12, 255},       // #0C0C0C (구값 불변)
+    .terminalFg       = {204, 204, 204, 255},    // #CCCCCC (구값 불변)
 };
 
 // --- 프리셋 (단계 2 스펙 §1b) ---
@@ -125,6 +131,8 @@ inline constexpr JKTheme kLight = {
     .imeCaret         = {255, 0, 0, 255},
     .windowClientBg   = {249, 249, 249, 255},
     .appClearBg       = {240, 240, 240, 255},
+    .terminalBg       = {250, 250, 250, 255},
+    .terminalFg       = {31, 31, 31, 255},
 };
 
 inline constexpr JKTheme kClassic = {
@@ -163,6 +171,8 @@ inline constexpr JKTheme kClassic = {
     .imeCaret         = {255, 0, 0, 255},
     .windowClientBg   = {240, 240, 240, 255},
     .appClearBg       = {192, 192, 192, 255},
+    .terminalBg       = {12, 12, 12, 255},       // 구값 불변 (kDefault와 동일)
+    .terminalFg       = {204, 204, 204, 255},    // 구값 불변 (kDefault와 동일)
 };
 
 // --- 스위칭 봉합 ---
