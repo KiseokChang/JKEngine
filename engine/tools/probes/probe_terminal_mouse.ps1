@@ -31,11 +31,14 @@
 #      `\e[<0;x;yM` = hex 1b 5b 3c 30 3b <x digits> 3b <y digits> 4d (the
 #      coords are decimal digits, hex-encoded as 30-39 byte pairs, so a
 #      non-greedy scan to 4d cannot bridge into the next event).
-#   4. Gate: press found AND decoded x/y == clicked cell + 1 (1-based, the
-#      SGR wire convention - this proves the ENCODING, not just arrival).
-#      Secondary: release `m` (terminator 6d) and wheel up `\e[<64;...`
-#      = 1b 5b 3c 36 34 3b (our view reports the wheel in SGR mode ONLY, so
-#      wheel bytes additionally prove DECSET 1006 reached the parser).
+#   4. HARD GATES (both SGR-only, review MAJOR-1 - an X10 observation can
+#      never satisfy the gate, it is decoded for the failure log only):
+#      (a) press found AND decoded x/y == clicked cell + 1 (1-based, the SGR
+#          wire convention - proves the ENCODING, not just arrival);
+#      (b) wheel up `\e[<64;...` = 1b 5b 3c 36 34 3b - the view reports the
+#          wheel in SGR mode ONLY, so wheel bytes prove DECSET 1006 reached
+#          the parser (catches a reverted combined-DECSET parser fix).
+#      Release `m` (terminator 6d) stays a diagnostic WARN.
 #   5. Cleanup by PID/command line (never window title), temp files deleted.
 #
 # Bring-up findings (docs/41 for the full story):
@@ -383,11 +386,11 @@ if ($ok) {
     }
 }
 
-# --- 3. click an interior cell -> mouse press report in the dump (GATE) ------
-# Gate accepts EITHER raw SGR bytes (1b5b3c30..4d) OR the classic X10 form
-# (1b5b4d = \e[M + 32+btn + 32+x + 32+y) - conhost re-encodes mouse reports
-# for raw VT-input readers; either way the press arrived with the wire
-# button/coords. Coordinates are asserted after decoding the observed form.
+# --- 3. click an interior cell -> SGR press report in the dump (GATE) --------
+# HARD gate on the SGR form (1b5b3c303b..4d). An X10 observation means
+# DECSET 1006 did NOT reach the parser (the exact combined-DECSET regression
+# this probe exists to catch) - it is decoded for the diagnostic line but
+# can NEVER satisfy the gate.
 $clickC = 30; $clickR = 10   # comfortably inside the 99x29 grid
 if ($ok) {
     Invoke-Click $clickC $clickR
@@ -395,29 +398,27 @@ if ($ok) {
     for ($i = 0; $i -lt 40; ++$i) {          # poll up to ~12s
         $dump = Get-Dump
         if ($dump -match $rxPress) { break }
-        if ($dump -match $rxX10Press) { break }
         Start-Sleep -Milliseconds 300
     }
     $m = [regex]::Match($dump, $rxPress)
-    $mx = [regex]::Match($dump, $rxX10Press)
-    if (-not $m.Success -and -not $mx.Success) {
+    if (-not $m.Success) {
         $ok = $false
-        Write-Host ("mouse-press: FAIL (no mouse press report in dump)")
+        # Diagnostic: did a classic X10 press arrive instead? Decode its
+        # coords so the failure log still shows what the view emitted.
+        $mx = [regex]::Match($dump, $rxX10Press)
+        if ($mx.Success) {
+            $b = [Convert]::ToInt32($mx.Groups[1].Value, 16)
+            Write-Host ("mouse-press: FAIL (X10 press observed - 1006 did not reach the parser; btn byte 0x{0}, x={1} y={2})" -f `
+                $b.ToString("x2"), ([Convert]::ToInt32($mx.Groups[2].Value, 16) - 32),
+                ([Convert]::ToInt32($mx.Groups[3].Value, 16) - 32))
+        } else {
+            Write-Host "mouse-press: FAIL (no SGR press report in dump)"
+        }
         Write-Host ("  dump: [{0}]" -f $dump)
     } else {
-        if ($m.Success) {
-            $xy = Get-SgrCoords $m.Groups[1].Value
-            Write-Host "mouse-press: SGR form observed"
-        } else {
-            $b = [Convert]::ToInt32($mx.Groups[1].Value, 16)
-            $x = [Convert]::ToInt32($mx.Groups[2].Value, 16) - 32
-            $y = [Convert]::ToInt32($mx.Groups[3].Value, 16) - 32
-            $xy = @($x, $y)
-            Write-Host ("mouse-press: X10 form observed (btn byte 0x{0})" -f
-                $mx.Groups[1].Value)
-        }
+        $xy = Get-SgrCoords $m.Groups[1].Value
         if ($xy -and $xy[0] -eq ($clickC + 1) -and $xy[1] -eq ($clickR + 1)) {
-            Write-Host ("mouse-press: PASS (report x={0} y={1} == cell ({2},{3})+1)" -f
+            Write-Host ("mouse-press: PASS (SGR \e[<0;{0};{1}M == cell ({2},{3})+1)" -f
                 $xy[0], $xy[1], $clickC, $clickR)
         } else {
             $ok = $false
@@ -426,7 +427,8 @@ if ($ok) {
                 ($clickC + 1), ($clickR + 1))
             Write-Host ("  match: [{0}]" -f $m.Value)
         }
-        # Secondary: the release report (SGR 'm' terminator; X10 has none).
+        # Secondary (diagnostic): the release report (SGR 'm' terminator;
+        # X10 has none - covered by the wheel gate below anyway).
         Start-Sleep -Milliseconds 400
         $d2 = Get-Dump
         if ($d2 -match $rxRelease) {
@@ -437,10 +439,12 @@ if ($ok) {
     }
 }
 
-# --- 4. wheel + hover move diagnostics ---------------------------------------
+# --- 4. wheel + hover move (HARD gate: SGR wheel proves 1006) ----------------
 # Our view reports the wheel ONLY in SGR mode (btn 64/65), so wheel bytes here
-# also prove DECSET 1006 reached the parser. Hover motion exists only in
-# 1002/1003 tracking - the reader enables 1000, so NO motion bytes expected.
+# PROVE DECSET 1006 reached the parser - this is the anti-X10 gate (review
+# MAJOR-1: without it, reverting the combined-DECSET parser fix would still
+# exit 0 via the X10 press). Hover motion exists only in 1002/1003 tracking -
+# the reader enables 1000, so NO motion bytes expected.
 if ($ok) {
     $p = Cell-Center $clickC $clickR
     [void][Wm]::SendWheel($p[0], $p[1], 120)
@@ -453,7 +457,9 @@ if ($ok) {
     if ($wdump -match $rxWheelUp) {
         Write-Host "mouse-wheel: PASS (SGR 1b5b3c36343b = \e[<64;... press)"
     } else {
-        Write-Host "mouse-wheel: WARN (no SGR wheel-up 1b5b3c36343b in dump)"
+        $ok = $false
+        Write-Host "mouse-wheel: FAIL (no SGR wheel-up 1b5b3c36343b in dump -"
+        Write-Host "  DECSET 1006 did not reach the parser or SGR wheel lost)"
     }
     Write-Host ("  dump tail: [{0}]" -f
         $wdump.Substring([math]::Max(0, $wdump.Length - 160)))
