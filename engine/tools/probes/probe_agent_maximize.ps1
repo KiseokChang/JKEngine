@@ -253,10 +253,18 @@ if ($ok) {
         if ($im.Success) { $evId = [int]$im.Groups[1].Value }
     }
     $nMaxA = Count-Topic $evA 'maximized'
+    # Maximize must land on the EXACT work area (docs/39 s2): server window is
+    # 1280x720 logical (main.cpp Init) minus the shell reserve
+    # (JKCompositor::ShellReserveHeight = the visible shell layer's display
+    # height; the taskbar shell meta is 1280x40, JKAppModule_taskbar.cpp) ->
+    # 1280x680 @ 0,0 on this rig. Growth-only would let a dropped
+    # "- ShellReserveHeight()" (maximize covering the taskbar) pass.
+    $workW = 1280
+    $workH = 720 - 40
     $rectMaxOk = ($maxA -ne $null -and $maxA.x -eq 0 -and $maxA.y -eq 0 -and
-                  $maxA.w -gt $mine.w -and $maxA.h -gt $mine.h)
+                  $maxA.w -eq $workW -and $maxA.h -eq $workH)
     if ($nMaxA -eq 1 -and $evId -eq $mine.id -and $rectMaxOk) {
-        Write-Host ("button-maximize: PASS (window.maximized id={0}, rect {1}x{2} @ 0,0)" -f
+        Write-Host ("button-maximize: PASS (window.maximized id={0}, work-area rect {1}x{2} @ 0,0)" -f
             $evId, $maxA.w, $maxA.h)
         # BONUS (not pass/fail): shoot the maximized window for a visual check.
         $cap = Invoke-Agentctl ('{"tool":"capture_window","args":{"id":' + $mine.id + '}}')
