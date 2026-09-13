@@ -4,7 +4,6 @@
 #include "theme/JKTheme.h"
 
 #include <cstdio>
-#include <cstring>
 #include <string>
 
 #ifdef _WIN32

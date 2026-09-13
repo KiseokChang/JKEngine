@@ -139,7 +139,7 @@ inline constexpr JKTheme kClassic = {
     /*launcherCellFace*/     {100, 100, 100, 255},
     /*launcherCellOutline*/  {255, 255, 255, 255},
     /*launcherCellPlaceholder*/ {128, 128, 128, 255},
-    /*taskbarBg*/            {24, 26, 32, 255},     // 이하 taskbar 10필드 = kDefault와 동일 (값 불변 토큰화)
+    /*taskbarBg*/            {24, 26, 32, 255},     // 이하 taskbar 9필드 = kDefault와 동일 (값 불변 토큰화)
     /*taskbarFaceNormal*/    {56, 58, 68, 255},
     /*taskbarFaceActive*/    {92, 98, 122, 255},
     /*taskbarFaceMinimized*/ {38, 40, 46, 255},
