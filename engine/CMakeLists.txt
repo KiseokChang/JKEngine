@@ -160,13 +160,11 @@ add_library(jkcore STATIC
     src/JKHangulManager.cpp
     src/JKResourceCache.cpp
     src/JKSoundManager.cpp
-    src/client/JKClientSurface.cpp
-    src/client/JKClientApplication.cpp
-    src/terminal/JKVtParser.cpp
-    src/terminal/JKTerminalGrid.cpp
-    src/terminal/JKGlyphAtlas.cpp
+    # JKConPtyBridge stays in jkcore (deviation from the task-3 brief): jkagentd's
+    # terminal_exec MCP tool drives it directly, and jkagentd must link jkcore
+    # only (spec §2 — the daemon never links the client stack). The client
+    # terminal stack still reaches it through jkclient's PUBLIC jkcore link.
     src/terminal/JKConPtyBridge.cpp
-    src/apps/JKTerminalConfig.cpp
     src/JKDataFile.cpp
     src/JKImageLoader.cpp
     src/JKJkxFile.cpp
@@ -209,6 +207,23 @@ add_library(jkserver STATIC
 target_link_libraries(jkserver PUBLIC jkcore)
 
 # ---------------------------------------------------------------------------
+# jkclient (P1 split ②, spec §3②): the client-application stack every app
+# module links — surfaces, the client app loop, the terminal stack and the
+# terminal config. Statically embedded into every module DLL like jkcore
+# (the C ABI in JKAppModule.h still isolates module boundaries).
+# ---------------------------------------------------------------------------
+add_library(jkclient STATIC
+    src/client/JKClientSurface.cpp
+    src/client/JKClientApplication.cpp
+    src/terminal/JKVtParser.cpp
+    src/terminal/JKTerminalGrid.cpp
+    src/terminal/JKGlyphAtlas.cpp
+    # (JKConPtyBridge remains in jkcore — see the note in the jkcore list.)
+    src/apps/JKTerminalConfig.cpp
+)
+target_link_libraries(jkclient PUBLIC jkcore)
+
+# ---------------------------------------------------------------------------
 # jkdesktop.exe: demo host + single-process apps + window server.
 # Client game apps are NOT linked here — they load jkapp_<name>.dll at runtime.
 # ---------------------------------------------------------------------------
@@ -237,7 +252,7 @@ add_executable(jkdesktop
     src/apps/TerminalView.cpp
 )
 
-target_link_libraries(jkdesktop PRIVATE jkcore jkserver)
+target_link_libraries(jkdesktop PRIVATE jkcore jkserver jkclient)
 
 # ---------------------------------------------------------------------------
 # App module DLLs (Phase B). Each exports the C ABI from include/apps/JKAppModule.h
@@ -253,7 +268,7 @@ add_library(jkapp_minesweeper SHARED
     src/apps/TetrisApp.cpp
 )
 target_compile_definitions(jkapp_minesweeper PRIVATE JKAPP_MODULE_BUILD)
-target_link_libraries(jkapp_minesweeper PRIVATE jkcore)
+target_link_libraries(jkapp_minesweeper PRIVATE jkclient)
 # Windows DLL naming without the MinGW "lib" prefix — the host loads
 # "jkapp_<name>.dll" and the .jkx container (Phase C) will use the same name.
 set_target_properties(jkapp_minesweeper PROPERTIES PREFIX "")
@@ -264,7 +279,7 @@ add_library(jkapp_tetris SHARED
     src/apps/TetrisApp.cpp
 )
 target_compile_definitions(jkapp_tetris PRIVATE JKAPP_MODULE_BUILD)
-target_link_libraries(jkapp_tetris PRIVATE jkcore)
+target_link_libraries(jkapp_tetris PRIVATE jkclient)
 set_target_properties(jkapp_tetris PROPERTIES PREFIX "")
 
 add_library(jkapp_testwin SHARED
@@ -272,7 +287,7 @@ add_library(jkapp_testwin SHARED
     src/apps/ClientTestWindowApp.cpp
 )
 target_compile_definitions(jkapp_testwin PRIVATE JKAPP_MODULE_BUILD)
-target_link_libraries(jkapp_testwin PRIVATE jkcore)
+target_link_libraries(jkapp_testwin PRIVATE jkclient)
 set_target_properties(jkapp_testwin PROPERTIES PREFIX "")
 
 # JANGO launcher module: reuses the shared JangoUI plus the ported WINDBASE
@@ -286,7 +301,7 @@ add_library(jkapp_jango SHARED
     src/apps/InsaApp.cpp
 )
 target_compile_definitions(jkapp_jango PRIVATE JKAPP_MODULE_BUILD)
-target_link_libraries(jkapp_jango PRIVATE jkcore)
+target_link_libraries(jkapp_jango PRIVATE jkclient)
 set_target_properties(jkapp_jango PROPERTIES PREFIX "")
 
 # OCC (2CAOCC C2) module: data model + UI live in OccUI.cpp.
@@ -296,7 +311,7 @@ add_library(jkapp_occ SHARED
     src/apps/OccUI.cpp
 )
 target_compile_definitions(jkapp_occ PRIVATE JKAPP_MODULE_BUILD)
-target_link_libraries(jkapp_occ PRIVATE jkcore)
+target_link_libraries(jkapp_occ PRIVATE jkclient)
 set_target_properties(jkapp_occ PROPERTIES PREFIX "")
 
 add_library(jkapp_pcx SHARED
@@ -305,7 +320,7 @@ add_library(jkapp_pcx SHARED
     src/apps/PcxApp.cpp
 )
 target_compile_definitions(jkapp_pcx PRIVATE JKAPP_MODULE_BUILD)
-target_link_libraries(jkapp_pcx PRIVATE jkcore)
+target_link_libraries(jkapp_pcx PRIVATE jkclient)
 set_target_properties(jkapp_pcx PROPERTIES PREFIX "")
 
 add_library(jkapp_vector SHARED
@@ -314,7 +329,7 @@ add_library(jkapp_vector SHARED
     src/apps/VectorApp.cpp
 )
 target_compile_definitions(jkapp_vector PRIVATE JKAPP_MODULE_BUILD)
-target_link_libraries(jkapp_vector PRIVATE jkcore)
+target_link_libraries(jkapp_vector PRIVATE jkclient)
 set_target_properties(jkapp_vector PROPERTIES PREFIX "")
 
 add_library(jkapp_iconedit SHARED
@@ -323,7 +338,7 @@ add_library(jkapp_iconedit SHARED
     src/apps/IconEditApp.cpp
 )
 target_compile_definitions(jkapp_iconedit PRIVATE JKAPP_MODULE_BUILD)
-target_link_libraries(jkapp_iconedit PRIVATE jkcore)
+target_link_libraries(jkapp_iconedit PRIVATE jkclient)
 set_target_properties(jkapp_iconedit PROPERTIES PREFIX "")
 
 add_library(jkapp_recog SHARED
@@ -332,7 +347,7 @@ add_library(jkapp_recog SHARED
     src/apps/RecogApp.cpp
 )
 target_compile_definitions(jkapp_recog PRIVATE JKAPP_MODULE_BUILD)
-target_link_libraries(jkapp_recog PRIVATE jkcore)
+target_link_libraries(jkapp_recog PRIVATE jkclient)
 set_target_properties(jkapp_recog PROPERTIES PREFIX "")
 
 add_library(jkapp_vfont SHARED
@@ -341,7 +356,7 @@ add_library(jkapp_vfont SHARED
     src/apps/VectorFontApp.cpp
 )
 target_compile_definitions(jkapp_vfont PRIVATE JKAPP_MODULE_BUILD)
-target_link_libraries(jkapp_vfont PRIVATE jkcore)
+target_link_libraries(jkapp_vfont PRIVATE jkclient)
 set_target_properties(jkapp_vfont PROPERTIES PREFIX "")
 
 add_library(jkapp_vpres SHARED
@@ -350,7 +365,7 @@ add_library(jkapp_vpres SHARED
     src/apps/VectorPresApp.cpp
 )
 target_compile_definitions(jkapp_vpres PRIVATE JKAPP_MODULE_BUILD)
-target_link_libraries(jkapp_vpres PRIVATE jkcore)
+target_link_libraries(jkapp_vpres PRIVATE jkclient)
 set_target_properties(jkapp_vpres PROPERTIES PREFIX "")
 
 # Terminal (ConPTY) module — docs/22. View + client app live in the module;
@@ -361,7 +376,7 @@ add_library(jkapp_terminal SHARED
     src/apps/TerminalView.cpp
 )
 target_compile_definitions(jkapp_terminal PRIVATE JKAPP_MODULE_BUILD)
-target_link_libraries(jkapp_terminal PRIVATE jkcore)
+target_link_libraries(jkapp_terminal PRIVATE jkclient)
 set_target_properties(jkapp_terminal PROPERTIES PREFIX "")
 
 # Common script module (docs/27 단계 1) — every script .jkx shares this DLL;
@@ -370,7 +385,7 @@ add_library(jkapp_script SHARED
     src/apps/JKAppModule_script.cpp
 )
 target_compile_definitions(jkapp_script PRIVATE JKAPP_MODULE_BUILD)
-target_link_libraries(jkapp_script PRIVATE jkcore)
+target_link_libraries(jkapp_script PRIVATE jkclient)
 set_target_properties(jkapp_script PROPERTIES PREFIX "")
 
 # Taskbar shell module (docs/28) — a privileged client, NOT a launcher app:
@@ -380,7 +395,7 @@ add_library(jkapp_taskbar SHARED
     src/apps/ClientTaskbarApp.cpp
 )
 target_compile_definitions(jkapp_taskbar PRIVATE JKAPP_MODULE_BUILD)
-target_link_libraries(jkapp_taskbar PRIVATE jkcore)
+target_link_libraries(jkapp_taskbar PRIVATE jkclient)
 set_target_properties(jkapp_taskbar PROPERTIES PREFIX "")
 
 # Dear ImGui demo module (docs/23 §9 Phase 1): the first ImGui app — links the
@@ -390,7 +405,7 @@ add_library(jkapp_imguidemo SHARED
     src/apps/ClientImGuiDemoApp.cpp
 )
 target_compile_definitions(jkapp_imguidemo PRIVATE JKAPP_MODULE_BUILD)
-target_link_libraries(jkapp_imguidemo PRIVATE jkcore imgui)
+target_link_libraries(jkapp_imguidemo PRIVATE jkclient imgui)
 set_target_properties(jkapp_imguidemo PROPERTIES PREFIX "")
 
 # Task manager module (docs/23 §11.2, ImGui Phase 2 showcase): shell protocol
@@ -400,7 +415,7 @@ add_library(jkapp_taskmgr SHARED
     src/apps/ClientTaskmgrApp.cpp
 )
 target_compile_definitions(jkapp_taskmgr PRIVATE JKAPP_MODULE_BUILD)
-target_link_libraries(jkapp_taskmgr PRIVATE jkcore imgui implot)
+target_link_libraries(jkapp_taskmgr PRIVATE jkclient imgui implot)
 set_target_properties(jkapp_taskmgr PROPERTIES PREFIX "")
 
 # Command palette module (agent platform M2a, spec §6.2): an ImGui window
@@ -412,7 +427,7 @@ add_library(jkapp_palette SHARED
     src/apps/ClientPaletteApp.cpp
 )
 target_compile_definitions(jkapp_palette PRIVATE JKAPP_MODULE_BUILD)
-target_link_libraries(jkapp_palette PRIVATE jkcore imgui)
+target_link_libraries(jkapp_palette PRIVATE jkclient imgui)
 set_target_properties(jkapp_palette PROPERTIES PREFIX "")
 
 # Notification center module (agent platform, docs/33): subscribes to desktop
@@ -424,7 +439,7 @@ add_library(jkapp_notify SHARED
     src/apps/ClientNotifyApp.cpp
 )
 target_compile_definitions(jkapp_notify PRIVATE JKAPP_MODULE_BUILD)
-target_link_libraries(jkapp_notify PRIVATE jkcore imgui)
+target_link_libraries(jkapp_notify PRIVATE jkclient imgui)
 set_target_properties(jkapp_notify PROPERTIES PREFIX "")
 
 # Region-capture overlay module (agent platform, docs/35 Task 3): the
@@ -436,7 +451,7 @@ add_library(jkapp_snap SHARED
     src/apps/ClientSnapApp.cpp
 )
 target_compile_definitions(jkapp_snap PRIVATE JKAPP_MODULE_BUILD)
-target_link_libraries(jkapp_snap PRIVATE jkcore imgui)
+target_link_libraries(jkapp_snap PRIVATE jkclient imgui)
 set_target_properties(jkapp_snap PROPERTIES PREFIX "")
 
 # Screenshot viewer module (agent platform, docs/35 Task 4): lists
@@ -447,7 +462,7 @@ add_library(jkapp_shot SHARED
     src/apps/ClientShotApp.cpp
 )
 target_compile_definitions(jkapp_shot PRIVATE JKAPP_MODULE_BUILD)
-target_link_libraries(jkapp_shot PRIVATE jkcore imgui)
+target_link_libraries(jkapp_shot PRIVATE jkclient imgui)
 set_target_properties(jkapp_shot PROPERTIES PREFIX "")
 
 # Video player module (docs/23 §11.8, ImGui Phase 4 long-term track): FFmpeg
@@ -458,7 +473,7 @@ add_library(jkapp_vplayer SHARED
     src/apps/ClientVPlayerApp.cpp
 )
 target_compile_definitions(jkapp_vplayer PRIVATE JKAPP_MODULE_BUILD)
-target_link_libraries(jkapp_vplayer PRIVATE jkcore imgui PkgConfig::FFMPEG)
+target_link_libraries(jkapp_vplayer PRIVATE jkclient imgui PkgConfig::FFMPEG)
 set_target_properties(jkapp_vplayer PROPERTIES PREFIX "")
 
 # ---------------------------------------------------------------------------
@@ -485,7 +500,7 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/third_party/cef/Release/libcef.dll")
     )
     target_compile_definitions(jkapp_browser PRIVATE JKAPP_MODULE_BUILD)
     target_include_directories(jkapp_browser PRIVATE ${CEF_DIR})
-    target_link_libraries(jkapp_browser PRIVATE jkcore imgui
+    target_link_libraries(jkapp_browser PRIVATE jkclient imgui
         "-L${CEF_DIR}/Release" "-l:libcef.dll")
     set_target_properties(jkapp_browser PROPERTIES PREFIX "")
     target_link_options(jkapp_browser PRIVATE -static-libstdc++ -static-libgcc)
