@@ -1887,6 +1887,20 @@ static int RunAppSelfTest() {
               "termmouse: SGR flag independent of mode reset");
         feed("\x1b[?1006l");
 
+        // COMBINED DECSET params (probe_terminal_mouse regression): apps
+        // enable mouse reporting with ONE CSI — "\x1b[?1000;1006h". The
+        // private-mode handler used to apply only p[0], silently dropping
+        // 1006 and leaving the view on classic X10 encoding.
+        feed("\x1b[?1000;1006h");
+        check(parser.MouseMode() == TermMouseMode::Normal && parser.SgrMouse(),
+              "termmouse: combined ?1000;1006h → Normal + SGR");
+        feed("\x1b[?1002;1006h");
+        check(parser.MouseMode() == TermMouseMode::Button && parser.SgrMouse(),
+              "termmouse: combined ?1002;1006h → Button + SGR");
+        feed("\x1b[?1000;1006l");
+        check(parser.MouseMode() == TermMouseMode::Off && !parser.SgrMouse(),
+              "termmouse: combined ?1000;1006l → Off + no-SGR");
+
         // DECSET 1 (application cursor keys) set + reset.
         feed("\x1b[?1h");
         check(parser.AppCursorKeys(), "termmouse: 1h → app cursor keys");

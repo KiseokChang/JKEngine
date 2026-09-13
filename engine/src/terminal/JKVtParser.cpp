@@ -229,7 +229,7 @@ void JKVtParser::DispatchCsi(uint8_t final_) {
             break;
         case 'h':
         case 'l':
-            if (privateMode) HandlePrivateMode(p, final_ == 'h');
+            if (privateMode) HandlePrivateMode(p, count, final_ == 'h');
             break;
         case 'q': {
             // DECSCUSR "CSI Ps SP q": the 0x20 intermediate byte is already
@@ -251,9 +251,14 @@ void JKVtParser::DispatchCsi(uint8_t final_) {
     }
 }
 
-void JKVtParser::HandlePrivateMode(const int* p, bool set) {
+void JKVtParser::HandlePrivateMode(const int* p, int count, bool set) {
     if (!grid_) return;
-    switch (p[0]) {
+    // Combined DECSETs are the norm on the wire — apps enable mouse reporting
+    // with a single "\x1b[?1000;1006h" (found by probe_terminal_mouse: only
+    // p[0] was applied, so 1006 was silently dropped and the view kept
+    // sending classic X10). Apply EVERY param in the sequence.
+    for (int i = 0; i < count; ++i) {
+        switch (p[i]) {
         case 25:   grid_->SetCursorVisible(set); break;
         case 1:    appCursor_ = set; break;        // app cursor keys (docs/26 단계 3)
         case 1000: mouseMode_ = set ? TermMouseMode::Normal : TermMouseMode::Off; break;
@@ -270,6 +275,7 @@ void JKVtParser::HandlePrivateMode(const int* p, bool set) {
             break;
         case 2004: bracketedPaste_ = set; break;   // tracked only (Phase 2)
         default: break;   // 12 (blink) and the rest: ignore
+        }
     }
 }
 

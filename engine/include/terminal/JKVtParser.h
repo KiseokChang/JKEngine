@@ -61,7 +61,7 @@ private:
     void DispatchCsi(uint8_t final_);
     void DispatchSgr(const int* params, int count);
     void HandleCodepoint(uint32_t cp);
-    void HandlePrivateMode(const int* params, bool set);
+    void HandlePrivateMode(const int* params, int count, bool set);
 
     // Cursor motion helpers (CSI A/B/C/D/E/F/G/d/H/f), clamped by the grid.
     void CursorUp();
