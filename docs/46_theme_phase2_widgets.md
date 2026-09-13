@@ -35,7 +35,7 @@ main / jkwinserver main / JKClientApplication::Init 3점에서 exe 옆 theme.jso
 P3(핫스왑 + 시작 메뉴 설정 UI)와 단계 3(ImGui PushStyleColor 래퍼, 터미널
 통합 재판단).
 
-## 2. 단계별 커밋 (5 feat + 3 fix — f0bb374 → 9121f4c)
+## 2. 단계별 커밋 (4 feat + 3 fix — f0bb374 → 9121f4c)
 
 | 커밋 | 내용 |
 |---|---|
@@ -47,7 +47,7 @@ P3(핫스왑 + 시작 메뉴 설정 UI)와 단계 3(ImGui PushStyleColor 래퍼,
 | 928fd3f | fix(theme): JKMenu 팝업 텍스트 주석 메커니즘 교정 (T3 review — 주석 전용, 코드 변경 없음) |
 | 9121f4c | feat(theme): theme.json 프리셋 기동 로딩 와이어 — 서버 main / jkwinserver main / 클라 Init 3점 |
 
-Task 5(최종 게이트)는 검증 전용이라 커밋 없음.
+Task 5(최종 게이트)는 검증 전용이라 커밋 없음. 본 문서의 커밋 a6b344d는 표 범위 밖.
 
 ## 3. 기존→신규 대응표 (역할 클러스터 단위)
 
