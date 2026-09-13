@@ -1323,21 +1323,23 @@ void JKWindowServer::UpdateOutputBounds() {
         lastDesktopW_ = logW;
         lastDesktopH_ = logH;
         if (!firstCall) {
-            const size_t nMax = preMaxRects_.size();
-            if (nMax != 0) {
+            size_t nMax = 0;
+            if (!preMaxRects_.empty()) {
                 const int reserve = compositor_->ShellReserveHeight();
                 const int workH = logH - reserve;
                 for (const auto& kv : preMaxRects_) {
                     // FindClientById locks clientsMutex_; this path never runs
                     // with that lock held (Init / HandleSDLEvent), matching
                     // FocusClient's PushAgentEvent locking regime. Entries
-                    // whose client is gone (died while the desktop was
-                    // resized) are skipped — CleanupDisconnectedClients
-                    // erases their map entries later anyway.
+                    // whose client is gone (died or disconnected while the
+                    // desktop was resized) are skipped —
+                    // CleanupDisconnectedClients erases their map entries
+                    // later anyway.
                     JKClientConnection* client = FindClientById(kv.first);
-                    if (!client) {
+                    if (!client || client->IsDisconnected()) {
                         continue;
                     }
+                    ++nMax;
                     CommitChromeResize(*client, kv.first, logW, workH,
                                        logW, workH);
                     compositor_->SetLayerPosition(kv.first, 0, 0);
