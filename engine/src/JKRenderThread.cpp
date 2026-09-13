@@ -55,7 +55,7 @@ bool JKRenderThread::CreateSdlWindowAndRenderer() {
         SDL_WINDOWPOS_CENTERED,
         createW,
         createH,
-        SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI
+        SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE
     );
     if (!window_) {
         std::fprintf(stderr, "JKRenderThread::CreateSdlWindowAndRenderer: SDL_CreateWindow failed: %s\n", SDL_GetError());
