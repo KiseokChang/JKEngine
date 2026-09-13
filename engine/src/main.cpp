@@ -34,6 +34,7 @@ extern "C" __declspec(dllimport) int __stdcall GetDiskFreeSpaceExA(
 #include <terminal/JKConPtyBridge.h>
 #include <terminal/JKGlyphAtlas.h>
 #include <apps/JKTermSelection.h>
+#include <apps/JKTermInput.h>
 
 #include <stb_truetype.h>
 
@@ -1943,6 +1944,119 @@ static int RunAppSelfTest() {
         feed("\x1b[3q");
         check(grid.GetCursorShape() == CursorShape::Block,
               "termmouse: CSI 3 q without SP intermediate ignored");
+    }
+
+    // Terminal input encoding pure functions (docs/26 단계 3, JKTermInput.h,
+    // spec §2/§4): SGR mouse press/release/motion/wheel + modifier wire bits,
+    // X10 fallback with the 223 cap, arrow CSI/SS3/modifier forms, wheel →
+    // arrow keys. Pure string builders — no grid or parser needed.
+    {
+        using jk::MouseKind;
+        using jk::NavKey;
+
+        // SGR press, no modifiers: "\x1b[<" + btn + ";" + x + ";" + y + 'M'
+        // (coordinates arrive 1-based; the encoder prints them verbatim).
+        check(jk::EncodeMouseSgr(0, 10, 5, MouseKind::Press, 0) ==
+                  "\x1b[<0;10;5M",
+              "terminput: SGR press left no mods");
+        // Modifier wire bits (spec §2): +4 Shift, +8 Meta, +16 Ctrl.
+        check(jk::EncodeMouseSgr(0, 1, 1, MouseKind::Press, 16) ==
+                  "\x1b[<16;1;1M",
+              "terminput: SGR press ctrl+left = b 16");
+        check(jk::EncodeMouseSgr(2, 40, 20, MouseKind::Press, 4) ==
+                  "\x1b[<6;40;20M",
+              "terminput: SGR press shift+right = b 6");
+        check(jk::EncodeMouseSgr(1, 40, 20, MouseKind::Press, 4 | 16) ==
+                  "\x1b[<21;40;20M",
+              "terminput: SGR press ctrl+shift+middle = b 21");
+        // Release terminates with lowercase 'm'.
+        check(jk::EncodeMouseSgr(0, 10, 5, MouseKind::Release, 0) ==
+                  "\x1b[<0;10;5m",
+              "terminput: SGR release uses 'm'");
+        // Motion adds +32 to the button byte.
+        check(jk::EncodeMouseSgr(0, 3, 4, MouseKind::Motion, 0) ==
+                  "\x1b[<32;3;4M",
+              "terminput: SGR motion = b 32");
+        check(jk::EncodeMouseSgr(1, 3, 4, MouseKind::Motion, 0) ==
+                  "\x1b[<33;3;4M",
+              "terminput: SGR motion middle = b 33");
+        // Wheel: btn 64 (up) / 65 (down) passed as the button.
+        check(jk::EncodeMouseSgr(64, 7, 2, MouseKind::Press, 0) ==
+                  "\x1b[<64;7;2M",
+              "terminput: SGR wheel up = b 64");
+        check(jk::EncodeMouseSgr(65, 7, 2, MouseKind::Press, 0) ==
+                  "\x1b[<65;7;2M",
+              "terminput: SGR wheel down = b 65");
+
+        // X10 fallback: "\x1b[M" + 32+b + 32+x + 32+y, 1-based, 223 cap.
+        {
+            const std::string s = jk::EncodeMouseX10(0, 10, 5);
+            check(s.size() == 6 &&
+                      static_cast<unsigned char>(s[3]) == 32 + 0 &&
+                      static_cast<unsigned char>(s[4]) == 32 + 10 &&
+                      static_cast<unsigned char>(s[5]) == 32 + 5,
+                  "terminput: X10 encodes 32-offset bytes");
+        }
+        // Out-of-range coordinates clamp to 1..223 (byte range floor/ceiling).
+        {
+            const std::string s = jk::EncodeMouseX10(1, 300, 0);
+            check(static_cast<unsigned char>(s[3]) == 32 + 1 &&
+                      static_cast<unsigned char>(s[4]) == 32 + 223 &&
+                      static_cast<unsigned char>(s[5]) == 32 + 1,
+                  "terminput: X10 clamps x/y into 1..223");
+        }
+        check(jk::EncodeMouseX10(2, 223, 223)[4] == static_cast<char>(255),
+              "terminput: X10 max coordinate stays in one byte");
+
+        // Arrows, no mods, normal cursor keys (CSI) — the legacy forms,
+        // byte-for-byte.
+        check(jk::EncodeArrow(NavKey::Up, 0, false) == "\x1b[A" &&
+                  jk::EncodeArrow(NavKey::Down, 0, false) == "\x1b[B" &&
+                  jk::EncodeArrow(NavKey::Right, 0, false) == "\x1b[C" &&
+                  jk::EncodeArrow(NavKey::Left, 0, false) == "\x1b[D",
+              "terminput: arrows CSI (no mods, !appCursor)");
+        check(jk::EncodeArrow(NavKey::Home, 0, false) == "\x1b[H" &&
+                  jk::EncodeArrow(NavKey::End, 0, false) == "\x1b[F",
+              "terminput: home/end CSI (no mods, !appCursor)");
+        // App cursor keys (DECSET 1): SS3 form.
+        check(jk::EncodeArrow(NavKey::Up, 0, true) == "\x1bOA" &&
+                  jk::EncodeArrow(NavKey::Down, 0, true) == "\x1bOB" &&
+                  jk::EncodeArrow(NavKey::Right, 0, true) == "\x1bOC" &&
+                  jk::EncodeArrow(NavKey::Left, 0, true) == "\x1bOD",
+              "terminput: arrows SS3 (no mods, appCursor)");
+        check(jk::EncodeArrow(NavKey::Home, 0, true) == "\x1bOH" &&
+                  jk::EncodeArrow(NavKey::End, 0, true) == "\x1bOF",
+              "terminput: home/end SS3 (appCursor)");
+        // PgUp/PgDn keep the plain tilde form without mods (both modes).
+        check(jk::EncodeArrow(NavKey::PgUp, 0, false) == "\x1b[5~" &&
+                  jk::EncodeArrow(NavKey::PgDn, 0, false) == "\x1b[6~" &&
+                  jk::EncodeArrow(NavKey::PgUp, 0, true) == "\x1b[5~" &&
+                  jk::EncodeArrow(NavKey::PgDn, 0, true) == "\x1b[6~",
+              "terminput: pgup/pgdn plain tilde form");
+        // Modifier forms: m = 1 + shift1 + alt2 + ctrl4 (xterm CSI 1;<m>).
+        check(jk::EncodeArrow(NavKey::Left, 4, false) == "\x1b[1;5D",
+              "terminput: ctrl+left = CSI 1;5D");
+        check(jk::EncodeArrow(NavKey::Right, 1, false) == "\x1b[1;2C",
+              "terminput: shift+right = CSI 1;2C");
+        check(jk::EncodeArrow(NavKey::Up, 2, false) == "\x1b[1;3A",
+              "terminput: alt+up = CSI 1;3A");
+        check(jk::EncodeArrow(NavKey::Down, 1 | 4, true) == "\x1b[1;6B",
+              "terminput: ctrl+shift+down = m 6 (SS3 flag ignored)");
+        check(jk::EncodeArrow(NavKey::Home, 4, false) == "\x1b[1;5H" &&
+                  jk::EncodeArrow(NavKey::End, 2, true) == "\x1b[1;3F",
+              "terminput: home/end modifier form shares 1;<m> family");
+        // PgUp/PgDn with modifiers use the 5;/6; tilde form.
+        check(jk::EncodeArrow(NavKey::PgUp, 4, false) == "\x1b[5;5~" &&
+                  jk::EncodeArrow(NavKey::PgDn, 1, false) == "\x1b[6;2~",
+              "terminput: pgup/pgdn modifier tilde form");
+
+        // Wheel → arrow keys (alt screen, mouse reporting off): n sequences.
+        check(jk::EncodeWheelAlt(true, 3) == "\x1b[A\x1b[A\x1b[A",
+              "terminput: wheel-alt 3 up = 3 Up arrows");
+        check(jk::EncodeWheelAlt(false, 2) == "\x1b[B\x1b[B",
+              "terminput: wheel-alt 2 down = 2 Down arrows");
+        check(jk::EncodeWheelAlt(true, 0).empty(),
+              "terminput: wheel-alt n=0 sends nothing");
     }
 
     // Script bridge (docs/27 단계 1): host boot, click dispatch, timer

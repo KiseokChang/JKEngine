@@ -1,4 +1,5 @@
 #include <apps/TerminalView.h>
+#include <apps/JKTermInput.h>
 #include <terminal/JKVtParser.h>
 #include <terminal/JKGlyphAtlas.h>
 #include <JKResourceCache.h>
@@ -505,15 +506,38 @@ void TerminalView::HandleKeyDown(const JKEvent& ev) {
     size_t n = 0;
     if (alt) buf[n++] = '\x1b';
 
+    // Arrow/navigation keys (spec §4): delegated to EncodeArrow — DECSET 1
+    // (application cursor keys, parser_->AppCursorKeys()) switches the
+    // arrow/Home/End family to SS3, and any modifier produces CSI 1;<m><char>
+    // (Ctrl+Left = \x1b[1;5D for vim word motion; Shift = 1, Alt = 2,
+    // Ctrl = 4 xterm wire bits — NOT SDL KMOD, translated here). Alt-modified
+    // arrows therefore drop the legacy bare-ESC prefix above: the modifier is
+    // encoded inside the sequence per xterm. PgUp/PgDn without modifiers keep
+    // the plain \x1b[5~/\x1b[6~ forms. This branch only fires for these keys;
+    // the ctrl+shift C/V clipboard chords and the ctrl+letter control-byte
+    // path in the switch below are untouched (docs/40 key-order regression
+    // guard).
+    const bool appCursor = parser_ && parser_->AppCursorKeys();
+    const int navMods = (shift ? 1 : 0) | (alt ? 2 : 0) | (ctrl ? 4 : 0);
+    std::string navSeq;
     switch (key) {
-        case SDLK_UP:      seq = "\x1b[A"; break;
-        case SDLK_DOWN:    seq = "\x1b[B"; break;
-        case SDLK_RIGHT:   seq = "\x1b[C"; break;
-        case SDLK_LEFT:    seq = "\x1b[D"; break;
-        case SDLK_HOME:    seq = "\x1b[H"; break;
-        case SDLK_END:     seq = "\x1b[F"; break;
-        case SDLK_PAGEUP:  seq = "\x1b[5~"; break;
-        case SDLK_PAGEDOWN: seq = "\x1b[6~"; break;
+        case SDLK_UP:       navSeq = jk::EncodeArrow(jk::NavKey::Up,    navMods, appCursor); break;
+        case SDLK_DOWN:     navSeq = jk::EncodeArrow(jk::NavKey::Down,  navMods, appCursor); break;
+        case SDLK_RIGHT:    navSeq = jk::EncodeArrow(jk::NavKey::Right, navMods, appCursor); break;
+        case SDLK_LEFT:     navSeq = jk::EncodeArrow(jk::NavKey::Left,  navMods, appCursor); break;
+        case SDLK_HOME:     navSeq = jk::EncodeArrow(jk::NavKey::Home,  navMods, appCursor); break;
+        case SDLK_END:      navSeq = jk::EncodeArrow(jk::NavKey::End,   navMods, appCursor); break;
+        case SDLK_PAGEUP:   navSeq = jk::EncodeArrow(jk::NavKey::PgUp,  navMods, appCursor); break;
+        case SDLK_PAGEDOWN: navSeq = jk::EncodeArrow(jk::NavKey::PgDn,  navMods, appCursor); break;
+        default: break;
+    }
+    if (!navSeq.empty()) {
+        scrollOffset_ = 0;   // key input returns to the live view
+        onInput_(navSeq.data(), navSeq.size());
+        return;
+    }
+
+    switch (key) {
         case SDLK_INSERT:  seq = "\x1b[2~"; break;
         case SDLK_DELETE:  seq = "\x1b[3~"; break;
         case SDLK_F1:      seq = "\x1bOP"; break;
