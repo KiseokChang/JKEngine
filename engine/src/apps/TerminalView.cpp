@@ -504,7 +504,6 @@ void TerminalView::HandleKeyDown(const JKEvent& ev) {
     const char* seq = nullptr;
     char buf[8];
     size_t n = 0;
-    if (alt) buf[n++] = '\x1b';
 
     // Arrow/navigation keys (spec §4): delegated to EncodeArrow — DECSET 1
     // (application cursor keys, parser_->AppCursorKeys()) switches the
@@ -536,6 +535,11 @@ void TerminalView::HandleKeyDown(const JKEvent& ev) {
         onInput_(navSeq.data(), navSeq.size());
         return;
     }
+
+    // Legacy ESC prefix for Alt-modified keys that fall through to the
+    // mapping below (the nav branch above encodes Alt inside CSI 1;<m><char>
+    // and returns early, so it never sees this byte).
+    if (alt) buf[n++] = '\x1b';
 
     switch (key) {
         case SDLK_INSERT:  seq = "\x1b[2~"; break;

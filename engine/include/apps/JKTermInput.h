@@ -9,6 +9,7 @@
 // reporting on? SGR or X10? app cursor keys?) lives in TerminalView and
 // JKVtParser's DECSET accessors.
 
+#include <algorithm>
 #include <cstdint>
 #include <string>
 
@@ -60,6 +61,8 @@ inline std::string EncodeMouseSgr(int btn, int x, int y, MouseKind kind,
 // must stay inside one signed byte (255 max wire char). `btn` is the plain
 // button number 0/1/2; wheel/motion encoding does not exist in this mode.
 inline std::string EncodeMouseX10(int btn, int x, int y) {
+    btn = std::clamp(btn, 0, 2);   // plain button number — this mode has no
+                                   // release/motion byte on the wire
     const auto clamp = [](int v) { return v < 1 ? 1 : (v > 223 ? 223 : v); };
     std::string out = "\x1b[M";
     out += static_cast<char>(32 + btn);
