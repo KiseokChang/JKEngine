@@ -20,6 +20,10 @@ constexpr int kChromeTitleBar = 24;
 constexpr int kChromeBorder = 2;
 constexpr int kChromeCloseSize = 20;
 constexpr int kChromeCloseMargin = 2;
+// docs/39: maximize/restore button — same 20x20 box as the close X, sitting
+// kChromeMaximizeGap px to its left in the title bar.
+constexpr int kChromeMaximizeSize = 20;
+constexpr int kChromeMaximizeGap = 2;
 constexpr int kResizeHotspot = 6;
 
 // docs/35: the rubber-band capture overlay's surface title. The server treats
@@ -109,6 +113,10 @@ private:
     void UpdateLayerTexture(JKCompositorLayer& layer);
     void SortLayers();
     void DrawCloseOverlay(const JKCompositorLayer& layer, float scale);
+    // docs/39: maximize/restore button left of the close X. The glyph
+    // (maximize vs. restore) follows the layer's Maximized() flag — the
+    // server owns the state, the compositor only mirrors it for drawing.
+    void DrawMaximizeButton(const JKCompositorLayer& layer, float scale);
 };
 
 } // namespace server

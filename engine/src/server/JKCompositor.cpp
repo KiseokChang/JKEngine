@@ -297,6 +297,10 @@ void JKCompositor::Composite(bool present) {
             // user's face for the lifetime of the drag.
             if (!layer->IsShell() && layer->Title() != kCaptureOverlayTitle) {
                 DrawCloseOverlay(*layer, outputScale);
+                // docs/39: the maximize/restore button shares the close
+                // overlay's guard — shell layers and the capture overlay get
+                // neither button.
+                DrawMaximizeButton(*layer, outputScale);
             }
         }
     }
@@ -333,6 +337,49 @@ void JKCompositor::DrawCloseOverlay(const JKCompositorLayer& layer, float scale)
                        btn.x + btn.w - pad - 1, btn.y + btn.h - pad - 1);
     SDL_RenderDrawLine(renderer_, btn.x + btn.w - pad - 1, btn.y + pad,
                        btn.x + pad, btn.y + btn.h - pad - 1);
+}
+
+// docs/39: maximize/restore button — the same 20x20 grey box as the close X
+// (DrawCloseOverlay), sitting kChromeMaximizeGap px to its left. Hit zone is
+// JKWindowServer::TryChromeGrab zone 1b, mirrored surface-px like the close
+// zone so both shrink proportionally on fit-scaled layers.
+void JKCompositor::DrawMaximizeButton(const JKCompositorLayer& layer, float scale) {
+    if (!renderer_) {
+        return;
+    }
+    const SDL_Rect btn{
+        static_cast<int>((layer.X() +
+            (layer.Width() - kChromeCloseSize - kChromeCloseMargin -
+             kChromeMaximizeGap - kChromeMaximizeSize) * layer.ScaleX()) * scale),
+        static_cast<int>((layer.Y() + kChromeCloseMargin * layer.ScaleY()) * scale),
+        static_cast<int>(kChromeMaximizeSize * layer.ScaleX() * scale),
+        static_cast<int>(kChromeMaximizeSize * layer.ScaleY() * scale)
+    };
+
+    SDL_SetRenderDrawColor(renderer_, 192, 192, 192, 255);
+    SDL_RenderFillRect(renderer_, &btn);
+    SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 255);
+    SDL_RenderDrawRect(renderer_, &btn);
+    SDL_SetRenderDrawColor(renderer_, 255, 255, 255, 255);
+    if (layer.Maximized()) {
+        // Restore glyph: two overlapping white outlines — a big square pad 7
+        // with a smaller square pad 3 in front (the window + its shadow).
+        const int padOuter = static_cast<int>(7 * layer.ScaleX() * scale);
+        SDL_Rect r{btn.x + padOuter, btn.y + padOuter,
+                   btn.w - 2 * padOuter, btn.h - 2 * padOuter};
+        SDL_RenderDrawRect(renderer_, &r);
+        const int padInner = static_cast<int>(3 * layer.ScaleX() * scale);
+        r.x = btn.x + padInner;
+        r.y = btn.y + padInner;
+        r.w = btn.w - 2 * padInner;
+        r.h = btn.h - 2 * padInner;
+        SDL_RenderDrawRect(renderer_, &r);
+    } else {
+        // Maximize glyph: one white outline with a 5px pad (like the X pad).
+        const int pad = static_cast<int>(5 * layer.ScaleX() * scale);
+        SDL_Rect r{btn.x + pad, btn.y + pad, btn.w - 2 * pad, btn.h - 2 * pad};
+        SDL_RenderDrawRect(renderer_, &r);
+    }
 }
 
 JKCompositorLayer* JKCompositor::HitTest(int x, int y) {

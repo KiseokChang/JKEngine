@@ -52,6 +52,12 @@ public:
     bool IsShell() const { return shell_; }
     void SetShell(bool s) { shell_ = s; }
 
+    // Maximize state (docs/39): the server (JKWindowServer) owns the state
+    // map; this flag mirrors it so the compositor draw path (which has no
+    // access to the server) can paint the maximize/restore glyph.
+    bool Maximized() const { return maximizedFlag; }
+    void SetMaximized(bool m) { maximizedFlag = m; }
+
 private:
     uint32_t id_ = 0;
     int width_ = 0;
@@ -65,6 +71,8 @@ private:
     bool dirty_ = true;
     bool visible_ = true;
     bool shell_ = false;
+    // docs/39: mirrors JKWindowServer's preMaxRects_ map (presence = maximized).
+    bool maximizedFlag = false;
     SDL_Texture* texture_ = nullptr;
     uint8_t* pixels_ = nullptr;
 };

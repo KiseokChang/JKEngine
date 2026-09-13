@@ -721,7 +721,7 @@ bool JKWindowServer::HandleChromeGrab(const SDL_Event& ev, int mx, int my, float
     return true;
 }
 
-bool JKWindowServer::TryChromeGrab(int mx, int my, float scale) {
+bool JKWindowServer::TryChromeGrab(int mx, int my, float scale, int clicks) {
     if (!compositor_) {
         return false;
     }
@@ -744,12 +744,14 @@ bool JKWindowServer::TryChromeGrab(int mx, int my, float scale) {
     // Chrome zones are in SURFACE-local px (they shrink proportionally on
     // fit-scaled layers, §7.3), so convert display px → surface px here.
     // For 1:1 layers ScaleX/Y == 1 and this is the plain logical-local map.
-    const int lx = static_cast<int>(std::llround(
+    // Not const: a drag-restore below resizes the layer and the zones are
+    // re-read from the restored geometry.
+    int lx = static_cast<int>(std::llround(
         (mx / scale - layer->X()) / layer->ScaleX()));
-    const int ly = static_cast<int>(std::llround(
+    int ly = static_cast<int>(std::llround(
         (my / scale - layer->Y()) / layer->ScaleY()));
-    const int w = layer->Width();
-    const int h = layer->Height();
+    int w = layer->Width();
+    int h = layer->Height();
 
     // 1) Close overlay (top-right of the title bar, server-drawn).
     const bool inCloseX = (lx >= w - kChromeCloseSize - kChromeCloseMargin) &&
@@ -761,6 +763,44 @@ bool JKWindowServer::TryChromeGrab(int mx, int my, float scale) {
         PushWindowList();  // active highlight follows click focus
         client->Send(ipc::MsgType::Close, nullptr, 0);
         return true;
+    }
+
+    // 1b) Maximize/restore button (left of the close X, server-drawn — docs/39).
+    const int maxBtnX0 = w - kChromeCloseMargin - kChromeCloseSize -
+                         kChromeMaximizeGap - kChromeMaximizeSize;
+    const bool inMaxX = (lx >= maxBtnX0) && (lx < maxBtnX0 + kChromeMaximizeSize);
+    if (inMaxX && inCloseY) {
+        FocusClient(client->Id());
+        PushWindowList();  // active highlight follows click focus
+        ToggleMaximize(*client, *layer);
+        return true;
+    }
+
+    // 1c) Title double-click toggles maximize/restore (docs/39) — checked
+    // before the drag-restore below so a maximized window's double-click is
+    // ONE restore toggle, not restore-then-re-maximize. The top resize strip
+    // stays a resize zone (a move grab never starts there either).
+    if (ly >= kResizeHotspot && ly < kChromeTitleBar && clicks == 2) {
+        FocusClient(client->Id());
+        PushWindowList();  // active highlight follows click focus
+        ToggleMaximize(*client, *layer);
+        return true;
+    }
+
+    // 1d) Drag-restore (docs/39): starting a Move or Resize grab on a
+    // maximized layer restores it FIRST (RestoreFromMaximize erases the map
+    // entry + clears the flag + publishes window.restored exactly once), then
+    // the grab logic below proceeds with FRESH coordinates read from the
+    // restored layer. The click may now sit outside the restored rect (the
+    // maximized title bar is at the very top) — the grab keeps that offset,
+    // which puts the restored window under the cursor like Windows does.
+    if (RestoreFromMaximize(*client, *layer)) {
+        lx = static_cast<int>(std::llround(
+            (mx / scale - layer->X()) / layer->ScaleX()));
+        ly = static_cast<int>(std::llround(
+            (my / scale - layer->Y()) / layer->ScaleY()));
+        w = layer->Width();
+        h = layer->Height();
     }
 
     // 2) Resize edges: all four sides + corners (6px inset). The top strip's
@@ -832,6 +872,86 @@ void JKWindowServer::CommitChromeResize(JKClientConnection& client, uint32_t lay
     client.Send(ipc::MsgType::ResizeSurface, &payload, sizeof(payload));
 }
 
+// docs/39: window.maximized / window.restored envelope — id/title at top
+// level like the PushAgentEvent sites (window.created / window.destroyed),
+// minus pid (no process change). Emitted from the chrome path on the server
+// loop thread: the same locking regime as FocusClient's PushAgentEvent call
+// (clientsMutex_ is NOT held here, matching that existing call site).
+void JKWindowServer::PushMaximizeEvent(const char* topic, JKClientConnection& client) {
+    char buf[320];
+    std::snprintf(buf, sizeof(buf),
+                  "{\"topic\":\"%s\",\"id\":%u,\"title\":\"%s\",\"ts\":%lld}",
+                  topic, client.Id(), JsonEsc(client.Title()).c_str(),
+                  static_cast<long long>(std::time(nullptr)) * 1000);
+    PushAgentEventJson(buf);
+}
+
+// docs/39: chrome maximize/restore toggle (button click or title
+// double-click). The state map preMaxRects_ is the single source of truth:
+// presence = maximized; JKCompositorLayer::SetMaximized mirrors it only so
+// the compositor draw path can pick the button glyph.
+void JKWindowServer::ToggleMaximize(JKClientConnection& client, JKCompositorLayer& layer) {
+    if (preMaxRects_.count(layer.Id()) != 0) {
+        RestoreFromMaximize(client, layer);
+        return;
+    }
+    if (!compositor_ || !window_) {
+        return;
+    }
+    // Capture the pre-maximize rect BEFORE the resize below replaces the
+    // surface: layer origin, surface size, and the on-screen display size
+    // (a fit-scaled layer shows a shrunk surface).
+    MaxState saved;
+    saved.x = layer.X();
+    saved.y = layer.Y();
+    saved.surfW = layer.Width();
+    saved.surfH = layer.Height();
+    saved.dispW = static_cast<int>(std::llround(saved.surfW * layer.ScaleX()));
+    saved.dispH = static_cast<int>(std::llround(saved.surfH * layer.ScaleY()));
+
+    int ww = 0, wh = 0;
+    SDL_GetWindowSize(window_, &ww, &wh);
+    // Work-area reserve (docs/28): a maximized window must not cover the
+    // taskbar.
+    const int reserve = compositor_->ShellReserveHeight();
+    // Grow the surface to the whole work area via the same machinery a
+    // resize drag uses (CommitChromeResize): shared-memory remap + layer
+    // texture swap. dispW/dispH equal the new surface size, so the layer
+    // scale resets to 1 — the window is drawn 1:1 across the work area.
+    CommitChromeResize(client, layer.Id(), ww, wh - reserve, ww, wh - reserve);
+    preMaxRects_[layer.Id()] = saved;
+    compositor_->SetLayerPosition(layer.Id(), 0, 0);
+    // Keep the connection-side position in sync: the input mapping reads
+    // client->X()/Y() while drawing reads the compositor layer (see
+    // DockShellClient for the same pairing).
+    client.SetPosition(0, 0);
+    layer.SetMaximized(true);
+    PushMaximizeEvent("window.maximized", client);
+}
+
+// Shared restore core: pre-maximize rect back, map entry erased, flag
+// cleared, window.restored published exactly once. Also used as the
+// drag-restore step before a Move/Resize grab starts on a maximized layer.
+bool JKWindowServer::RestoreFromMaximize(JKClientConnection& client,
+                                         JKCompositorLayer& layer) {
+    auto it = preMaxRects_.find(layer.Id());
+    if (it == preMaxRects_.end()) {
+        return false;  // not maximized
+    }
+    const MaxState saved = it->second;
+    preMaxRects_.erase(it);
+    // Shrink the surface back to the pre-maximize size (CommitChromeResize
+    // restores the saved fit via dispW/dispH) and put the layer back where
+    // it was, both on the compositor side and the connection side.
+    CommitChromeResize(client, layer.Id(), saved.surfW, saved.surfH,
+                       saved.dispW, saved.dispH);
+    compositor_->SetLayerPosition(layer.Id(), saved.x, saved.y);
+    client.SetPosition(saved.x, saved.y);
+    layer.SetMaximized(false);
+    PushMaximizeEvent("window.restored", client);
+    return true;
+}
+
 JKWindowServer::CursorShape JKWindowServer::ChromeCursorFromEdges(bool left, bool right,
                                                                   bool top, bool bottom) {
     const bool horiz = left || right;
@@ -869,13 +989,18 @@ void JKWindowServer::UpdateChromeHoverCursor(int mx, int my, float scale) {
                 (my / scale - layer->Y()) / layer->ScaleY()));
             const int w = layer->Width();
             const int h = layer->Height();
-            // The close overlay stays a plain arrow even though its corner
-            // overlaps the top resize strip.
+            // The close overlay and the maximize/restore button (docs/39)
+            // stay a plain arrow even though their corner overlaps the top
+            // resize strip.
             const bool inCloseX = (lx >= w - kChromeCloseSize - kChromeCloseMargin) &&
                                   (lx < w - kChromeCloseMargin);
             const bool inCloseY = (ly >= kChromeCloseMargin) &&
                                   (ly < kChromeCloseMargin + kChromeCloseSize);
-            if (!(inCloseX && inCloseY)) {
+            const int maxBtnX0 = w - kChromeCloseMargin - kChromeCloseSize -
+                                 kChromeMaximizeGap - kChromeMaximizeSize;
+            const bool inMaxX = (lx >= maxBtnX0) &&
+                                (lx < maxBtnX0 + kChromeMaximizeSize);
+            if (!(inCloseX && inCloseY) && !(inMaxX && inCloseY)) {
                 shape = ChromeCursorFromEdges(lx < kResizeHotspot,
                                               lx >= w - kResizeHotspot,
                                               ly < kResizeHotspot,
@@ -927,7 +1052,8 @@ void JKWindowServer::HandleSDLEvent(const SDL_Event& ev) {
         if (ev.type == SDL_MOUSEMOTION) {
             UpdateChromeHoverCursor(mx, my, outputScale);
         }
-        if (ev.type == SDL_MOUSEBUTTONDOWN && TryChromeGrab(mx, my, outputScale)) {
+        if (ev.type == SDL_MOUSEBUTTONDOWN &&
+            TryChromeGrab(mx, my, outputScale, ev.button.clicks)) {
             return;
         }
 
@@ -1981,6 +2107,12 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
              "[\"id\",\"title\",\"pid\"]"},
             {"window.destroyed", "server", "창 소멸(연결 종료, 정상 종료 포함)",
              "[\"id\",\"title\",\"pid\"]"},
+            {"window.maximized", "server",
+             "창 최대화 (크롬 최대화 버튼 / 제목 더블클릭, docs/39)",
+             "[\"id\",\"title\"]"},
+            {"window.restored", "server",
+             "창 복원 (최대화 해제 — 버튼/더블클릭/제목·가장자리 드래그, docs/39)",
+             "[\"id\",\"title\"]"},
             {"app.crashed", "server", "앱 비정상 종료(exit code 0/259 외)",
              "[\"id\",\"title\",\"pid\"]"},
             {"agent.approval_request", "server",
@@ -2311,6 +2443,9 @@ void JKWindowServer::CleanupDisconnectedClients() {
                 if (capturedClientId_ == client->Id()) {
                     capturedClientId_ = 0;
                 }
+                // docs/39: the layer is going away — drop its maximize state
+                // so a recycled surface id cannot inherit a stale pre-max rect.
+                preMaxRects_.erase(client->Id());
                 if (compositor_) {
                     compositor_->RemoveLayer(client->Id());
                 }

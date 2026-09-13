@@ -69,6 +69,9 @@ private:
     // Push a fully-formed agent event JSON (topic included) to subscribers.
     // Caller holds clientsMutex_.
     void PushAgentEventJson(const std::string& json);
+    // docs/39: window.maximized / window.restored envelope — id/title at top
+    // level like the PushAgentEvent sites, minus pid (no process change).
+    void PushMaximizeEvent(const char* topic, JKClientConnection& client);
     // M2a server-side permission gate: close_window is denied by default;
     // <exeDir>\permissions.json (the same file the broker reads) is the
     // approval act — it gates any connected face, not just the broker.
@@ -98,9 +101,17 @@ private:
     // HandleChromeGrab applies an in-progress grab and consumes the event;
     // TryChromeGrab starts a grab (or performs a close click) on MouseDown.
     bool HandleChromeGrab(const SDL_Event& ev, int mx, int my, float scale);
-    bool TryChromeGrab(int mx, int my, float scale);
+    // `clicks` is the SDL button event's repeat count — 2 means a title-bar
+    // double-click, which toggles maximize instead of starting a move grab.
+    bool TryChromeGrab(int mx, int my, float scale, int clicks);
     void CommitChromeResize(JKClientConnection& client, uint32_t layerId,
                             int width, int height, int dispW, int dispH);
+    // Maximize/restore (docs/39): toggle from the chrome button or the title
+    // double-click. RestoreFromMaximize is the shared core — also used to
+    // un-maximize before a Move/Resize grab starts on a maximized layer
+    // (drag-restore). Returns false (no-op) when the layer is not maximized.
+    void ToggleMaximize(JKClientConnection& client, JKCompositorLayer& layer);
+    bool RestoreFromMaximize(JKClientConnection& client, JKCompositorLayer& layer);
     // Directional system cursors for chrome resize feedback.
     enum class CursorShape { Arrow = 0, SizeWE, SizeNS, SizeNWSE, SizeNESW };
     // Chrome hover feedback: show a directional system cursor over resize
@@ -239,6 +250,13 @@ private:
     // CursorShape; built once in Init, freed with SDL in the destructor.
     SDL_Cursor* chromeCursors_[5] = {};
     CursorShape cursorShape_ = CursorShape::Arrow;
+
+    // Maximize/restore (docs/39): pre-maximize rect per layer. Presence in
+    // the map = currently maximized. Accessed only on the server loop thread
+    // (SDL event handling + CleanupDisconnectedClients) — no lock of its own,
+    // like the other chrome grab state above.
+    struct MaxState { int x, y, surfW, surfH, dispW, dispH; };
+    std::map<uint32_t, MaxState> preMaxRects_;
 
     // Server-side launcher state: simple icon textures drawn behind client layers.
     // Apps come from installed .jkx containers (apps/*.jkx, spawn via --jkx)
