@@ -66,6 +66,38 @@ void TerminalView::TickBlink() {
 
 void TerminalView::HandleWheel(int wheelY) {
     if (!grid_) return;
+    if (onInput_ && parser_ && wheelY != 0) {
+        // Mouse reporting ON (DECSET 1000/1002/1003, docs/26 단계 3 spec §3):
+        // the wheel belongs to the app — SGR 64 (up) / 65 (down) press
+        // reports, NO local scrollback scroll. xterm sends wheel reports only
+        // in SGR mode (X10 has no wheel encoding), so non-SGR just consumes
+        // the event. One report per notch, capped like EncodeWheelAlt's 3.
+        if (parser_->MouseMode() != TermMouseMode::Off) {
+            if (parser_->SgrMouse()) {
+                const JKPoint cell = CellFromPoint(lastMouse_.x, lastMouse_.y);
+                const int btn = wheelY > 0 ? 64 : 65;
+                const int notches = std::min(wheelY < 0 ? -wheelY : wheelY, 3);
+                std::string seq;
+                for (int i = 0; i < notches; ++i) {
+                    seq += EncodeMouseSgr(btn, cell.x + 1, cell.y + 1,
+                                          MouseKind::Press, 0);
+                }
+                if (!seq.empty()) {
+                    onInput_(seq.data(), seq.size());
+                }
+            }
+            return;
+        }
+        // Reporting OFF + alt screen (docs/26 단계 3 spec §3): the wheel
+        // scrolls the TUI app — vim/less receive arrow keys (Windows
+        // Terminal convention, 3 rows per notch, spec §2).
+        if (grid_->InAltScreen()) {
+            const std::string seq = EncodeWheelAlt(wheelY > 0, 3);
+            onInput_(seq.data(), seq.size());
+            return;
+        }
+    }
+    // Reporting OFF + main screen: existing local scrollback scroll.
     scrollOffset_ = std::clamp(scrollOffset_ + wheelY * 3, 0,
                                grid_->ScrollbackLines());
     // Wheel scrolling alone must repaint: the frame gate only renders when
@@ -200,9 +232,25 @@ void TerminalView::PaintCell(JKDC& dc, const JKRect& cellRect,
                     r.y + kTermCellH - 2);
     }
     if (isCursor && grid_->GetCursor().visible && blinkOn_) {
+        // DECSCUSR shapes (docs/26 단계 3, spec §5): Block keeps the classic
+        // fill+outline; Underline is a 2px bar at the cell bottom, Bar a 2px
+        // vertical bar at the left edge — same color as the Block cursor.
+        // Blink applies to all shapes; blink rate itself is not configurable
+        // (v1 steady render, no DECSET 12 tracking).
         setColor(fg);
-        dc.DrawRect(r);
-        dc.DrawRect(JKRect{ r.x + 1, r.y + 1, r.w - 2, r.h - 2 });
+        switch (grid_->GetCursorShape()) {
+            case CursorShape::Underline:
+                dc.FillRect(JKRect{ r.x, r.y + r.h - 2, r.w, 2 });
+                break;
+            case CursorShape::Bar:
+                dc.FillRect(JKRect{ r.x, r.y, 2, r.h });
+                break;
+            case CursorShape::Block:
+            default:
+                dc.DrawRect(r);
+                dc.DrawRect(JKRect{ r.x + 1, r.y + 1, r.w - 2, r.h - 2 });
+                break;
+        }
     }
 }
 
@@ -356,11 +404,29 @@ void TerminalView::HandleMouseEvent(const JKEvent& ev) {
 
     const JKRect client = GetScreenClientRect();
     const bool inside = client.Contains(ev.x, ev.y);
+    // Track the last mouse position for wheel reports (spec §3): MouseWheel
+    // events carry no coordinates, so HandleWheel reports the wheel at the
+    // last cell the cursor was over.
+    lastMouse_ = JKPoint{ ev.x, ev.y };
     // Outside the client area the event is delegated unchanged — unless a
     // drag is already active: the capture keeps motion/release flowing while
     // the cursor leaves the window, and the coordinates are clamped to the
     // edge cell so the selection keeps its extreme (CellFromPoint clamps).
     if (!inside && !selDragging_) return;
+
+    // Mouse-report gate (docs/26 단계 3, spec §3): while the TUI app has
+    // mouse reporting on (DECSET 1000/1002/1003), mouse events are encoded
+    // and sent to the pty INSTEAD of driving the local selection path —
+    // EXCEPT Shift (Windows Terminal convention: copy must stay reachable
+    // even when the app owns the mouse) and an in-progress selection drag
+    // (a Shift-initiated drag keeps running to its MouseUp). The report
+    // branch never touches selection state (no ClearSelection, no capture).
+    const bool shiftHeld = (static_cast<SDL_Keymod>(ev.option) & KMOD_SHIFT) != 0;
+    if (!selDragging_ && !shiftHeld && onInput_ && parser_ &&
+        parser_->MouseMode() != TermMouseMode::Off) {
+        HandleMouseReport(ev);
+        return;   // consumed — the app owns this event
+    }
 
     switch (ev.type) {
         case JKEventType::MouseDown:
@@ -411,6 +477,66 @@ void TerminalView::HandleMouseEvent(const JKEvent& ev) {
         default:
             break;
     }
+}
+
+// Mouse-report encoding (docs/26 단계 3, spec §2/§3): translate one mouse
+// event into xterm wire bytes and send them to the pty. The caller has
+// already gated on mouse mode on, onInput_ set, Shift NOT held, no selection
+// drag in progress and the event inside the client area — this function
+// never touches selection state.
+void TerminalView::HandleMouseReport(const JKEvent& ev) {
+    // xterm WIRE modifier bits (JKTermInput.h): Shift=4, Meta/Alt=8, Ctrl=16
+    // — the same translation style as HandleKeyDown's navMods, NOT SDL KMOD.
+    const SDL_Keymod mod = static_cast<SDL_Keymod>(ev.option);
+    const int mods = ((mod & KMOD_SHIFT) ? 4 : 0) | ((mod & KMOD_ALT) ? 8 : 0) |
+                     ((mod & KMOD_CTRL) ? 16 : 0);
+    const bool sgr = parser_->SgrMouse();
+    // 1-based viewport cell (spec §2/§3): CellFromPoint's exact math (clamp
+    // to the grid dims) plus 1 on each axis; no viewport-row remap — reports
+    // use the viewport coordinates as-is.
+    const JKPoint cell = CellFromPoint(ev.x, ev.y);
+    const int x = cell.x + 1;
+    const int y = cell.y + 1;
+    // SDL button number → xterm wire button: 1=left→0, 2=middle→1, 3=right→2.
+    // Side buttons (4/5) are not reported in v1.
+    const int detail = static_cast<int>(ev.detail);
+    std::string seq;
+    switch (ev.type) {
+        case JKEventType::MouseDown: {
+            if (detail < 1 || detail > 3) return;
+            reportedButtons_ |= 1u << (detail - 1);   // held → motion gating
+            const int btn = detail - 1;
+            seq = sgr ? EncodeMouseSgr(btn, x, y, MouseKind::Press, mods)
+                      : EncodeMouseX10(btn, x, y);
+            break;
+        }
+        case JKEventType::MouseUp: {
+            if (detail < 1 || detail > 3) return;
+            reportedButtons_ &= ~(1u << (detail - 1));
+            if (!sgr) return;   // X10 has no release form (spec §2)
+            seq = EncodeMouseSgr(detail - 1, x, y, MouseKind::Release, mods);
+            break;
+        }
+        case JKEventType::MouseMove: {
+            // 1000 (Normal): no motion events at all (xterm standard — motion
+            // only in 1002/1003). X10 has no motion form either (spec §2).
+            const TermMouseMode mode = parser_->MouseMode();
+            if (mode == TermMouseMode::Normal || !sgr) return;
+            // 1002 (Button): only while a reported button is held.
+            if (mode == TermMouseMode::Button && reportedButtons_ == 0) return;
+            // Wire button byte: the lowest held button, 3 = no button (hover
+            // motion in 1003 mode); the +32 motion offset is the encoder's.
+            int btn = 3;
+            if (reportedButtons_ & 1u) btn = 0;
+            else if (reportedButtons_ & 2u) btn = 1;
+            else if (reportedButtons_ & 4u) btn = 2;
+            seq = EncodeMouseSgr(btn, x, y, MouseKind::Motion, mods);
+            break;
+        }
+        default:
+            return;
+    }
+    onInput_(seq.data(), seq.size());
 }
 
 void TerminalView::ClearPreEdit() {

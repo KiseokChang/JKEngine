@@ -61,6 +61,10 @@ private:
     // target is the window itself), client mode receives them as a DOCK_FILL
     // child but with the same window/surface coordinates.
     void HandleMouseEvent(const JKEvent& ev);
+    // Mouse-report gate (docs/26 단계 3, spec §3): encodes a mouse event with
+    // the JKTermInput encoders and sends it to the pty via onInput_ instead
+    // of the local selection path. Never touches selection state.
+    void HandleMouseReport(const JKEvent& ev);
     JKPoint CellFromPoint(int32_t px, int32_t py) const;
     void ClearSelection();
     void CopySelection();
@@ -95,6 +99,14 @@ private:
     JKPoint selAnchor_{ -1, -1 };
     JKPoint selEnd_{ -1, -1 };
     bool selDragging_ = false;   // left button held, drag in progress
+
+    // Mouse-report state (docs/26 단계 3): reportedButtons_ is a bitmask of
+    // the buttons the view has reported down (bit 0 = left .. bit 2 = right)
+    // gating Button-mode (1002) motion reports; lastMouse_ is the last mouse
+    // position seen in RespondMessage — MouseWheel events carry no
+    // coordinates, so HandleWheel reports the wheel at the last seen cell.
+    uint32_t reportedButtons_ = 0;
+    JKPoint lastMouse_{ 0, 0 };
 
     // IME composition (docs/26 단계 5, spec §3): the UTF-8 pre-edit string
     // from JKEventType::TextEditing, empty when nothing is composing. Shown
