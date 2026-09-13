@@ -59,10 +59,26 @@ bool IEquals(const std::string& a, const std::string& b) {
     return true;
 }
 
+// Windows-style filter label "동영상 (*.mp4;*.mkv;...)" carries the matchable
+// pattern list inside the parens — the raw string split on ';' would yield
+// first pattern "동영상 (*.mp4" (an exact-name pattern matching nothing) and
+// last pattern "*.mov)" (suffix ".mov)"), hiding every real file. Extract the
+// parenthesized list when the string contains both parens in order and the
+// content is non-empty; otherwise the trimmed whole string IS the list.
+std::string ExtractPatterns(const std::string& filter) {
+    const std::string trimmed = Trim(filter);
+    const size_t open = trimmed.find('(');
+    if (open == std::string::npos) return trimmed;
+    const size_t close = trimmed.rfind(')');
+    if (close == std::string::npos || close <= open + 1) return trimmed;
+    return Trim(trimmed.substr(open + 1, close - open - 1));
+}
+
 // Verbatim port of JKFileDialog.cpp:36-63 MatchFilter — `*.ext` suffix match,
 // exact name match, `;`-separated pattern list, `*`/`*.*` = everything.
+// (The Windows label wrapper is stripped first — ExtractPatterns above.)
 bool MatchFilter(const std::string& name, const std::string& filter) {
-    std::string f = Trim(filter);
+    std::string f = ExtractPatterns(filter);
     if (f.empty() || f == "*" || f == "*.*") return true;
 
     std::string ext;
@@ -235,28 +251,45 @@ void ClientFileDialogApp::BuildUi(int w, int h) {
         ImGui::TextColored(ImVec4(0.94f, 0.30f, 0.28f, 1.0f), "%s",
                            error_.c_str());
     }
-    for (int i = 0; i < static_cast<int>(entries_.size()); ++i) {
-        const Entry& e = entries_[static_cast<size_t>(i)];
-        const std::string label =
-            e.isDir ? ("[D] " + e.name) : ("     " + e.name);
-        if (ImGui::Selectable(label.c_str(), selectedIdx_ == i)) {
-            selectedIdx_ = i;
-            // Legacy JKFileDialog OnSelect: a single click (folder included)
-            // mirrors the name into the file box; 열기/Enter on a folder then
-            // descends (OnOk).
-            SetFileName(e.name);
-        }
-        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-            if (e.isDir) {
-                if (e.name == "..") {
-                    NavigateUp();
-                } else {
-                    NavigateTo((fs::path(currentDir_) / e.name).string());
-                }
-            } else {
+    // List clipper: large directories (thousands of files) must not submit
+    // every Selectable every frame — frame time collapses and the list could
+    // not be scrolled to the end. The double-click action is DEFERRED to
+    // after the loop: its handlers (NavigateTo/OnOk) refresh entries_, and
+    // acting mid-clipper would keep indexing the clipper's cached
+    // DisplayEnd past the shrunken vector (the plain loop re-read
+    // entries_.size() every iteration and never had this hazard).
+    int openIdx = -1;
+    ImGuiListClipper clipper;
+    clipper.Begin(static_cast<int>(entries_.size()));
+    while (clipper.Step()) {
+        for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
+            const Entry& e = entries_[static_cast<size_t>(i)];
+            const std::string label =
+                e.isDir ? ("[D] " + e.name) : ("     " + e.name);
+            if (ImGui::Selectable(label.c_str(), selectedIdx_ == i)) {
+                selectedIdx_ = i;
+                // Legacy JKFileDialog OnSelect: a single click (folder
+                // included) mirrors the name into the file box; 열기/Enter on
+                // a folder then descends (OnOk).
                 SetFileName(e.name);
-                OnOk();  // double-click file = open
             }
+            if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
+                openIdx = i;
+            }
+        }
+    }
+    if (openIdx >= 0 && openIdx < static_cast<int>(entries_.size())) {
+        const Entry e = entries_[static_cast<size_t>(openIdx)];  // copy — the
+        // handlers below refresh entries_, invalidating the reference.
+        if (e.isDir) {
+            if (e.name == "..") {
+                NavigateUp();
+            } else {
+                NavigateTo((fs::path(currentDir_) / e.name).string());
+            }
+        } else {
+            SetFileName(e.name);
+            OnOk();  // double-click file = open
         }
     }
     ImGui::EndChild();
@@ -501,12 +534,15 @@ void ClientFileDialogApp::SyncFilterBuffer() {
 
 void ClientFileDialogApp::BuildFilterChoices() {
     filterChoices_.clear();
+    // Windows-style label "동영상 (*.mp4;...)" → the parenthesized pattern
+    // list (ExtractPatterns); the label text itself is not matchable.
+    const std::string list = ExtractPatterns(filterAll_);
     size_t start = 0;
-    while (start < filterAll_.size()) {
-        size_t sep = filterAll_.find(';', start);
+    while (start < list.size()) {
+        size_t sep = list.find(';', start);
         std::string pat = (sep == std::string::npos)
-                              ? filterAll_.substr(start)
-                              : filterAll_.substr(start, sep - start);
+                              ? list.substr(start)
+                              : list.substr(start, sep - start);
         pat = Trim(pat);
         if (!pat.empty() &&
             std::find_if(filterChoices_.begin(), filterChoices_.end(),
@@ -515,7 +551,7 @@ void ClientFileDialogApp::BuildFilterChoices() {
                          }) == filterChoices_.end()) {
             filterChoices_.push_back(FilterChoice{ pat, pat });
         }
-        start = (sep == std::string::npos) ? filterAll_.size() : sep + 1;
+        start = (sep == std::string::npos) ? list.size() : sep + 1;
     }
     // The all-files entry: Korean display LABEL, but the pattern handed to
     // MatchFilter is "*.*" — the label itself would match nothing
