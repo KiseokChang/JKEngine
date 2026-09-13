@@ -2,7 +2,8 @@
 
 - 날짜: 2026-09-13
 - 상태: 구현 완료 (코드 커밋 c6ebce3 → 94692c8, 게이트 GATE GREEN — 15/15 프로브
-  + 픽셀 측정 통과, 게이트 발견 Table*/Tab* 잔존은 즉시 픽스)
+  + 픽셀 측정 통과, 게이트 발견 Table*/Tab* 잔존은 즉시 픽스, 최종 전체리뷰
+  APPROVE — MINOR 1건은 kLight 터미널 미실측 갭 기록으로 §4에 이월)
 - 선행: docs/superpowers/specs/2026-09-13-theme-phase3-imgui-terminal-design.md
   (스펙), docs/superpowers/plans/2026-09-13-theme-phase3-imgui-terminal.md (플랜),
   docs/46 (단계 2 as-built — 토큰 체계와 대응표 관례의 선행)
@@ -124,6 +125,10 @@ view->SetTheme(cfg.themeBgSet ? cfg.themeBg : ThemeRgb(t.terminalBg),
 - 키 부재 상태에서 kDefault 시딩값 = 구 하드코딩 기본값과 정확히 동일 →
   기존 terminal.json 무키 파일과의 동작 차이 0. 반키 파일은 해당 키만
   사용자값 (필수 반키 케이스).
+- **키 파싱 실패 시**(예: `"themeBg": "red"` 같은 비정형값)는 키 부재와
+  동일하게 취급 — 플래그 false → 토큰 시딩. "파싱 불가 ≠ 사용자 선택"이므로
+  정확한 시맨틱이나, kLight 프리셋 하에서는 구 동작(다크 0x0C0C0C)과 달리
+  라이트 배경으로 시딩될 수 있다 (최종리뷰 NOTE — 이월 없음, 기록만).
 - **VT 16색 팔레트 미변경** — ANSI 색은 터미널 표준 영역 (스펙 D4).
 
 ### (d) 의미색 잔존 목록 (테트리스 퍼플 카테고리 — 코드 무변경, 의도 주석 부착)
@@ -176,6 +181,11 @@ view->SetTheme(cfg.themeBgSet ? cfg.themeBg : ThemeRgb(t.terminalBg),
   **(122,31,162)** = #7A1FA2 정확 + 프롬프트 #FFD54F — 사용자값 우선.
   (c) classic + 무 terminal.json → **(12,12,12)** = kClassic 토큰 추종
   (kClassic terminalBg = kDefault 동일값 설계), 크롬 네이비로 프리셋 활성 확인.
+- **검증 갭 기록 (최종리뷰 MINOR-1)** — 스펙 §2의 "kClassic/kLight 스위치
+  추종" 중 **kLight 시딩 상태는 픽셀 미실측**이다 (kClassic 측정은
+  kClassic=kDefault 동일값이라 약한 오라클 — 네이비 크롬의 간접 증명만 성립).
+  코드 경로는 구조적으로 검증(토큰 값 (250,250,250)/(31,31,31)) — P3에서
+  1회 kLight 픽셀 측정으로 닫을 것.
 - **Table 헤더 픽스 실측 (94692c8)** — 게이트가 클래식 taskmgr 테이블 헤더가
   ImGui 기본값 **(48,48,51)**로 남아 (240,240,240) 실버 위에 어두운 띠로
   위화감을 일으키는 것을 픽셀로 발견 → 봉합에 Table*/Tab* 12항목 확장 후
