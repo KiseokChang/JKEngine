@@ -159,3 +159,8 @@
 | D8 | **문서 = 산출물 원칙** (사용자 지시 2026-09-13) | 결정과 직감을 장부로 기록 — 본 §8이 그 실천. 이후 P2/P3/P4 스펙에도 동일 섹션 유지 |
 | 직감 | jkserver가 jkclient를 링크하지 않는 경계는 **이미 사실** (서버-클라 교신이 와이어 IPC) — "경계가 없다"가 아니라 "경계를 CMake가 안 존중한다"가 현실. lib으로 찢는 것은 사실상 서술화 | 설계 리뷰 + 와이어 프로토콜 구조 |
 | 직감 | desktop/ 추출의 진짜 가치는 런처 코드 이동이 아니라 **P2 테마가 셸과 서버에 각각 접근할 수 있게 되는 것** | 섹션 6 — P2 표면 미리보기 |
+| D9 | **`jkserver PUBLIC jkdesktop_shell` 링크 방향은 스펙 §2 표와 반대로 확정** (실행 중, docs/43 §6 R1) | 인클루드 방향(desktop이 jkserver 헤더를 include하지 않음)은 유지 — ShellHost 콜백 구조체로 역결합. 링크를 서버가 소유하는 이유는 셸 유닛의 수명을 서버가 관리하기 때문. 스펙 §8 직감("경계를 CMake가 안 존중한다"가 현실)이 재현된 지점 |
+| D10 | **JKConPtyBridge.cpp는 jkclient가 아니라 jkcore 잔존** (실행 중, docs/43 §6 R2) | jkagentd의 terminal_exec가 브리지를 직접 구동(engine/tools/jkagentd/main.cpp:248) — 브리지는 "클라 스택"이 아니라 양측 공유 ConPTY 프로세스 I/O 기반시설. jkclient로 옮기면 jkagentd가 jkclient 링크를 강요당함. P4에서 재검토 |
+| D11 | **셸 스폰을 `LaunchAt(x,y)` 한 메서드로 캡슐화** (실행 중, docs/43 §6 R3) | 셸로 launcherIcons_가 이동하면서 스폰 키(appName/jkxPath)가 서버 손 밖으로 감 → HitTest만으론 스폰 불가. 히트테스트+스폰을 캡슐화해 서버가 셸 내부 상태(아이콘 표)를 모르게 유지 |
+| D12 | **호스트 exe 주입을 셸 초기화 인자가 아니라 서버 멤버 + `SetClientHostExe` 세터로** (실행 중, docs/43 §6 R4) | SpawnProcess의 `jkdesktop.exe --client` 하드코딩 제거 — jkwinserver thin main이 서버 구동 후 주입. 셸이 호스트 exe를 모르면 별도 프로세스 셸 전환(D7) 경로가 열린 채 유지됨 |
+| 직감 | **링크 방향과 인클루드 방향은 별개의 결정** — "누가 헤더를 보는가"(역결합 설계)와 "누가 lib을 링크하는가"(수명 소유)가 다른 답을 내놓을 수 있다. 스펙 표는 둘을 하나로 그리지 말 것 (D9에서 실제로 갈라짐) | docs/43 §6 R1 실행 결과 |
