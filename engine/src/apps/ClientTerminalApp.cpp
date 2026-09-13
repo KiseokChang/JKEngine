@@ -74,7 +74,7 @@ bool ClientTerminalApp::PreProcessMessage(const JKEvent& ev) {
     // Wheel events carry dx/dy (SDL wheel axes) and have no x/y hit target —
     // intercept them before routing so they always reach the view.
     if (ev.type == JKEventType::MouseWheel && view_) {
-        view_->HandleWheel(ev.dy);
+        view_->HandleWheel(ev.dy, ev.option);   // option = mods (SGR wheel bits)
     }
     return JKClientApplication::PreProcessMessage(ev);
 }

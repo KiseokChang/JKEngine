@@ -39,7 +39,7 @@ public:
     // Mouse wheel scrollback: wheelY > 0 scrolls toward older output.
     // Positive values are lines per notch; the offset is clamped to the
     // grid's scrollback depth and reset to live view on any keyboard input.
-    void HandleWheel(int wheelY);
+    void HandleWheel(int wheelY, uint32_t option);
 
     int Cols() const { return cols_; }
     int Rows() const { return rows_; }

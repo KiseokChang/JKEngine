@@ -54,18 +54,26 @@ inline std::string EncodeMouseSgr(int btn, int x, int y, MouseKind kind,
     return out;
 }
 
-// X10 mouse fallback (spec §2, non-SGR / DECSET 1006 off): "\x1b[M" +
-// (32+b) + (32+x) + (32+y). Press ONLY — X10 has no release or motion form,
-// so the caller never invokes this for those (they are dropped, the xterm
-// standard). Coordinates are 1-based and clamped to 1..223 — the 32-offset
-// must stay inside one signed byte (255 max wire char). `btn` is the plain
-// button number 0/1/2; wheel/motion encoding does not exist in this mode.
-inline std::string EncodeMouseX10(int btn, int x, int y) {
-    btn = std::clamp(btn, 0, 2);   // plain button number — this mode has no
-                                   // release/motion byte on the wire
+// Classic (non-SGR) mouse encoding (spec §2, DECSET 1000/1002 without 1006):
+// "\x1b[M" + (32+Cb) + (32+x) + (32+y). Cb semantics per xterm NORMAL/BUTTON
+// tracking: press = Cb 0/1/2 (the button), release = Cb 3 (the classic
+// protocol cannot say WHICH button was released), motion = Cb btn+32. Press
+// ONLY is X10 COMPATIBILITY mode (DECSET 9) — a different, older mode we do
+// not implement. Coordinates are 1-based and clamped to 1..223 — the
+// 32-offset must stay inside one signed byte (255 max wire char).
+// Classic MOTION (Cb btn+32) exists on the wire but v1 does not report it —
+// Motion returns an empty string; the caller drops it (explicit gap,
+// docs/41 §7, same reasoning as the non-SGR wheel gap). Wheel has no classic
+// form here either (see EncodeWheelAlt).
+inline std::string EncodeMouseX10(int btn, int x, int y, MouseKind kind) {
+    const int cb = (kind == MouseKind::Release)
+                       ? 3                                // generic release
+                       : std::clamp(btn, 0, 2);           // plain button press
     const auto clamp = [](int v) { return v < 1 ? 1 : (v > 223 ? 223 : v); };
-    std::string out = "\x1b[M";
-    out += static_cast<char>(32 + btn);
+    std::string out;
+    if (kind == MouseKind::Motion) return out;   // v1 gap — not reported
+    out = "\x1b[M";
+    out += static_cast<char>(32 + cb);
     out += static_cast<char>(32 + clamp(x));
     out += static_cast<char>(32 + clamp(y));
     return out;

@@ -284,6 +284,8 @@ void JKTerminalGrid::Reset() {
     curFg = kTermDefaultColor;
     curBg = kTermDefaultColor;
     curAttrs = 0;
+    cursorShape_ = CursorShape::Block;   // RIS resets DECSCUSR too (xterm);
+                                         // Resize/alt-swap still preserve it
     MarkAllDirty();
 }
 

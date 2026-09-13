@@ -64,30 +64,37 @@ void TerminalView::TickBlink() {
     }
 }
 
-void TerminalView::HandleWheel(int wheelY) {
+void TerminalView::HandleWheel(int wheelY, uint32_t option) {
     if (!grid_) return;
     if (onInput_ && parser_ && wheelY != 0) {
         // Mouse reporting ON (DECSET 1000/1002/1003, docs/26 단계 3 spec §3):
         // the wheel belongs to the app — SGR 64 (up) / 65 (down) press
-        // reports, NO local scrollback scroll. v1 limit (spec §3 letter):
-        // wheel is sent in SGR mode only. Real xterm ALSO reports the wheel
-        // in non-SGR normal tracking through the classic \x1b[M encoding
-        // (buttons 64/65 via the 32+button offset bytes), which we skip —
-        // an acknowledged gap, not an xterm behavior. One report per notch,
-        // capped like EncodeWheelAlt's 3. Gated on the last mouse position
-        // being inside the client: the wheel event itself carries no
-        // coordinates, so wheeling the title bar must not emit a clamped
-        // (1,1) cell report.
+        // reports with the same wire modifier bits HandleMouseReport uses
+        // (MouseMod enum — Shift=4/Meta=8/Ctrl=16, review MINOR-1: hardcoding
+        // 0 dropped Shift/Ctrl+wheel semantics for apps like less), NO local
+        // scrollback scroll. v1 limit (spec §3 letter): wheel is sent in SGR
+        // mode only. Real xterm ALSO reports the wheel in non-SGR normal
+        // tracking through the classic \x1b[M encoding (buttons 64/65 via the
+        // 32+button offset bytes), which we skip — an acknowledged gap, not
+        // an xterm behavior. One report per notch, capped like EncodeWheelAlt's
+        // 3. Gated on the last mouse position being inside the client: the
+        // wheel event itself carries no coordinates, so wheeling the title
+        // bar must not emit a clamped (1,1) cell report.
         if (parser_->MouseMode() != TermMouseMode::Off) {
             const JKRect client = GetScreenClientRect();
             if (parser_->SgrMouse() && client.Contains(lastMouse_.x, lastMouse_.y)) {
                 const JKPoint cell = CellFromPoint(lastMouse_.x, lastMouse_.y);
                 const int btn = wheelY > 0 ? 64 : 65;
                 const int notches = std::min(wheelY < 0 ? -wheelY : wheelY, 3);
+                const SDL_Keymod mod = static_cast<SDL_Keymod>(option);
+                const int mods =
+                    ((mod & KMOD_SHIFT) ? int(MouseMod::Shift) : 0) |
+                    ((mod & KMOD_ALT) ? int(MouseMod::Meta) : 0) |
+                    ((mod & KMOD_CTRL) ? int(MouseMod::Ctrl) : 0);
                 std::string seq;
                 for (int i = 0; i < notches; ++i) {
                     seq += EncodeMouseSgr(btn, cell.x + 1, cell.y + 1,
-                                          MouseKind::Press, 0);
+                                          MouseKind::Press, mods);
                 }
                 if (!seq.empty()) {
                     onInput_(seq.data(), seq.size());
@@ -496,14 +503,16 @@ void TerminalView::HandleMouseEvent(const JKEvent& ev) {
 // drag in progress and the event inside the client area — this function
 // never touches selection state.
 void TerminalView::HandleMouseReport(const JKEvent& ev) {
-    // xterm WIRE modifier bits (JKTermInput.h): Shift=4, Meta/Alt=8, Ctrl=16
-    // — the same translation style as HandleKeyDown's navMods, NOT SDL KMOD.
-    // ev.option carries SDL_Keymod from the producers: TranslateSDLEvent
-    // (SDL_GetModState, single-process) or the server's InputEventPayload
-    // (client mode) — mouse events never carry mods on the SDL struct itself.
+    // xterm WIRE modifier bits (JKTermInput.h MouseMod enum): Shift=4,
+    // Meta/Alt=8, Ctrl=16 — the same translation style as HandleKeyDown's
+    // navMods (NavMod), NOT SDL KMOD. ev.option carries SDL_Keymod from the
+    // producers: TranslateSDLEvent (SDL_GetModState, single-process) or the
+    // server's InputEventPayload (client mode) — mouse events never carry
+    // mods on the SDL struct itself.
     const SDL_Keymod mod = static_cast<SDL_Keymod>(ev.option);
-    const int mods = ((mod & KMOD_SHIFT) ? 4 : 0) | ((mod & KMOD_ALT) ? 8 : 0) |
-                     ((mod & KMOD_CTRL) ? 16 : 0);
+    const int mods = ((mod & KMOD_SHIFT) ? int(MouseMod::Shift) : 0) |
+                     ((mod & KMOD_ALT) ? int(MouseMod::Meta) : 0) |
+                     ((mod & KMOD_CTRL) ? int(MouseMod::Ctrl) : 0);
     const bool sgr = parser_->SgrMouse();
     // 1-based viewport cell (spec §2/§3): CellFromPoint's exact math (clamp
     // to the grid dims) plus 1 on each axis; no viewport-row remap — reports
@@ -521,14 +530,18 @@ void TerminalView::HandleMouseReport(const JKEvent& ev) {
             reportedButtons_ |= 1u << (detail - 1);   // held → motion gating
             const int btn = detail - 1;
             seq = sgr ? EncodeMouseSgr(btn, x, y, MouseKind::Press, mods)
-                      : EncodeMouseX10(btn, x, y);
+                      : EncodeMouseX10(btn, x, y, MouseKind::Press);
             break;
         }
         case JKEventType::MouseUp: {
             if (detail < 1 || detail > 3) return;
             reportedButtons_ &= ~(1u << (detail - 1));
-            if (!sgr) return;   // X10 has no release form (spec §2)
-            seq = EncodeMouseSgr(detail - 1, x, y, MouseKind::Release, mods);
+            // Classic release exists on the wire as Cb=3 (xterm NORMAL/BUTTON
+            // tracking — press-only is DECSET 9, a mode we don't implement).
+            // The classic protocol cannot say WHICH button was released; the
+            // encoder collapses every release to 3.
+            seq = sgr ? EncodeMouseSgr(detail - 1, x, y, MouseKind::Release, mods)
+                      : EncodeMouseX10(detail - 1, x, y, MouseKind::Release);
             break;
         }
         case JKEventType::MouseMove: {
@@ -657,7 +670,11 @@ void TerminalView::HandleKeyDown(const JKEvent& ev) {
     // path in the switch below are untouched (docs/40 key-order regression
     // guard).
     const bool appCursor = parser_ && parser_->AppCursorKeys();
-    const int navMods = (shift ? 1 : 0) | (alt ? 2 : 0) | (ctrl ? 4 : 0);
+    // NavMod enum documents the mapping: Shift=1, Alt=2, Ctrl=4 (xterm CSI
+    // <m> family — m = 1 + bits, NOT the mouse +4/+8/+16 wire bits).
+    const int navMods = (shift ? int(NavMod::Shift) : 0) |
+                        (alt ? int(NavMod::Alt) : 0) |
+                        (ctrl ? int(NavMod::Ctrl) : 0);
     std::string navSeq;
     switch (key) {
         case SDLK_UP:       navSeq = jk::EncodeArrow(jk::NavKey::Up,    navMods, appCursor); break;

@@ -66,7 +66,7 @@ bool TerminalApp::PreProcessMessage(const JKEvent& ev) {
     // 휠 이벤트는 dx/dy만 있고 히트 타깃이 없어 라우팅 전에 가로챈다
     // (ClientTerminalApp와 동일).
     if (ev.type == JKEventType::MouseWheel && view_) {
-        view_->HandleWheel(ev.dy);
+        view_->HandleWheel(ev.dy, ev.option);   // option = mods (SGR wheel bits)
         SyncRepaint();
     }
     if (ev.type == JKEventType::Timer) {

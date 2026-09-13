@@ -180,7 +180,9 @@ private:
     size_t scrollbackMax_ = kScrollbackMax;
 
     Cursor cursor_;
-    CursorShape cursorShape_ = CursorShape::Block;   // DECSCUSR (docs/26 단계 3)
+    // DECSCUSR (docs/26 단계 3): survives Resize and alt-screen swap — only
+    // RIS (JKTerminalGrid::Reset) restores the default Block.
+    CursorShape cursorShape_ = CursorShape::Block;
     int scrollTop_ = 0;                // 0-based inclusive
     int scrollBottom_ = 0;
     SavedCursor savedCursor_;          // DECSC slot (main screen)

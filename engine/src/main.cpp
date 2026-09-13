@@ -1947,11 +1947,18 @@ static int RunAppSelfTest() {
         check(grid.GetCursorShape() == CursorShape::Block,
               "termmouse: DECSCUSR 0 → Block (reset)");
 
-        // DECSCUSR survives alt-screen swap and grid resize (nothing resets it).
+        // DECSCUSR survives alt-screen swap and grid resize — only RIS resets
+        // it (review MINOR-3).
         feed("\x1b[5 q\x1b[?1049h\x1b[?1049l");
         grid.Resize(30, 8);
         check(grid.GetCursorShape() == CursorShape::Bar,
               "termmouse: shape survives alt swap + resize");
+        feed("\x1b[5 q");
+        check(grid.GetCursorShape() == CursorShape::Bar,
+              "termmouse: shape is Bar before RIS");
+        feed("\x1b" "c");   // RIS — full reset ("\x1bc" would lex as hex \x1BC)
+        check(grid.GetCursorShape() == CursorShape::Block,
+              "termmouse: RIS resets cursor shape to Block");
         feed("\x1b[2 q");
 
         // Plain CSI 'q' without the SP intermediate is ignored (not DECSCUSR).
@@ -2001,26 +2008,48 @@ static int RunAppSelfTest() {
         check(jk::EncodeMouseSgr(65, 7, 2, MouseKind::Press, 0) ==
                   "\x1b[<65;7;2M",
               "terminput: SGR wheel down = b 65");
+        // Wheel reports carry the same wire modifier bits as button events.
+        check(jk::EncodeMouseSgr(64, 7, 2, MouseKind::Press, 4) ==
+                  "\x1b[<68;7;2M",
+              "terminput: SGR wheel shift+up = b 68");
+        check(jk::EncodeMouseSgr(65, 7, 2, MouseKind::Press, 16) ==
+                  "\x1b[<81;7;2M",
+              "terminput: SGR wheel ctrl+down = b 81");
 
-        // X10 fallback: "\x1b[M" + 32+b + 32+x + 32+y, 1-based, 223 cap.
+        // Classic (non-SGR) encoding: "\x1b[M" + 32+Cb + 32+x + 32+y.
+        // Press = Cb button (0/1/2); release = Cb 3 (xterm NORMAL/BUTTON
+        // tracking — the classic protocol cannot name the released button;
+        // press-only is DECSET 9, a mode we do not implement).
         {
-            const std::string s = jk::EncodeMouseX10(0, 10, 5);
+            const std::string s = jk::EncodeMouseX10(0, 10, 5, MouseKind::Press);
             check(s.size() == 6 &&
                       static_cast<unsigned char>(s[3]) == 32 + 0 &&
                       static_cast<unsigned char>(s[4]) == 32 + 10 &&
                       static_cast<unsigned char>(s[5]) == 32 + 5,
-                  "terminput: X10 encodes 32-offset bytes");
+                  "terminput: X10 press encodes 32-offset bytes");
+        }
+        {
+            const std::string s = jk::EncodeMouseX10(1, 10, 5, MouseKind::Release);
+            check(s.size() == 6 &&
+                      static_cast<unsigned char>(s[3]) == 32 + 3 &&
+                      static_cast<unsigned char>(s[4]) == 32 + 10 &&
+                      static_cast<unsigned char>(s[5]) == 32 + 5,
+                  "terminput: classic release = Cb 3 (btn ignored)");
         }
         // Out-of-range coordinates clamp to 1..223 (byte range floor/ceiling).
         {
-            const std::string s = jk::EncodeMouseX10(1, 300, 0);
+            const std::string s = jk::EncodeMouseX10(1, 300, 0, MouseKind::Press);
             check(static_cast<unsigned char>(s[3]) == 32 + 1 &&
                       static_cast<unsigned char>(s[4]) == 32 + 223 &&
                       static_cast<unsigned char>(s[5]) == 32 + 1,
                   "terminput: X10 clamps x/y into 1..223");
         }
-        check(jk::EncodeMouseX10(2, 223, 223)[4] == static_cast<char>(255),
+        check(jk::EncodeMouseX10(2, 223, 223, MouseKind::Press)[4] ==
+                  static_cast<char>(255),
               "terminput: X10 max coordinate stays in one byte");
+        // Classic MOTION is an explicit v1 gap (docs/41 §7) — empty string.
+        check(jk::EncodeMouseX10(0, 10, 5, MouseKind::Motion).empty(),
+              "terminput: classic motion not reported (v1 gap)");
 
         // Arrows, no mods, normal cursor keys (CSI) — the legacy forms,
         // byte-for-byte.
