@@ -41,10 +41,17 @@ cef_browser_t* g_browser = nullptr; // set in on_after_created
 int g_browserGone = 0;
 
 int g_viewW = 960, g_viewH = 576;   // OSR view == page area (below URL bar)
-int g_viewPageY = 80;               // page origin in client coords (= pageY_)
+int g_viewPageY = 110;              // page origin in client coords (= pageY_,
+                                    // re-synced every frame in RenderOverlay)
 bool g_insideView = false;          // last MouseMove was inside the view
 uint32_t g_mouseFlags = 0;          // held-button flags for move/wheel events
 std::string g_exeDirSlash;          // exe dir with trailing '/', set in InitCef
+
+// Page URL/title as reported by the display handler. Bridge state: callbacks
+// write these, RenderOverlay copies them into the app's currentUrl_/
+// currentTitle_ members each frame. Same thread as the app (no locks) —
+// same story as g_browser/g_tex above.
+std::string g_currentUrl, g_currentTitle;
 
 // ---------------------------------------------------------------------------
 // Ref-counting for plain-C handler objects. Every object is
@@ -89,6 +96,19 @@ int CEF_CALLBACK base_has_at_least_one_ref(cef_base_ref_counted_t* self) {
 void MakeString(const char* utf8, cef_string_t* out) {
     memset(out, 0, sizeof *out);
     cef_string_utf8_to_utf16(utf8, strlen(utf8), out);
+}
+
+// The reverse of MakeString: UTF-16 -> UTF-8. The conversion API expects a
+// zeroed output string (same as MakeString's input) and the result must be
+// released with cef_string_utf8_clear.
+void CefToUtf8(const cef_string_t* s, std::string& out) {
+    out.clear();
+    if (!s || !s->str || s->length == 0) return;
+    cef_string_utf8_t u8;
+    memset(&u8, 0, sizeof u8);
+    if (!cef_string_utf16_to_utf8(s->str, s->length, &u8) || !u8.str) return;
+    out.assign(u8.str, u8.length);
+    cef_string_utf8_clear(&u8);
 }
 
 // ---------------------------------------------------------------------------
@@ -176,6 +196,23 @@ int CEF_CALLBACK dh_on_console_message(struct _cef_display_handler_t* /*self*/,
     msg[n] = 0;
     fprintf(stderr, "[browser console] %s (line %d)\n", msg, line);
     return 0;
+}
+
+// Address-bar state for the current page (bookmark bar groundwork). Both
+// callbacks fire on the browser UI thread == the app thread; the main-frame
+// filter keeps subframe (iframe) navigations from polluting the address bar.
+void CEF_CALLBACK dh_on_address_change(struct _cef_display_handler_t* /*self*/,
+                                       struct _cef_browser_t* /*browser*/,
+                                       struct _cef_frame_t* frame,
+                                       const cef_string_t* url) {
+    if (frame && frame->is_main(frame))
+        CefToUtf8(url, g_currentUrl);
+}
+
+void CEF_CALLBACK dh_on_title_change(struct _cef_display_handler_t* /*self*/,
+                                     struct _cef_browser_t* /*browser*/,
+                                     const cef_string_t* title) {
+    CefToUtf8(title, g_currentTitle);
 }
 
 struct _cef_life_span_handler_t* CEF_CALLBACK cl_get_life_span(
@@ -461,6 +498,10 @@ void ClientBrowserApp::RenderOverlay(SDL_Renderer* renderer, int w, int h) {
     const int pw = w;
     int ph = h - pageY_;
     if (ph < 1) ph = 1;
+    // Per-frame sync (was a one-shot copy in InitCef): the CEF mouse-coord
+    // translation must always track the bar geometry, even if pageY_ changes
+    // again. Invariant: g_viewPageY == pageY_ from the first CEF-bound frame.
+    g_viewPageY = pageY_;
     if (pw != pageW_ || ph != pageH_) {
         pageW_ = pw;
         pageH_ = ph;
@@ -479,6 +520,9 @@ void ClientBrowserApp::RenderOverlay(SDL_Renderer* renderer, int w, int h) {
     if (cefReady_) {
         g_renderer = renderer;
         cef_do_message_loop_work(); // may fire on_paint -> g_tex update
+        // Pull display-handler state across the g_ bridge (same thread).
+        currentUrl_ = g_currentUrl;
+        currentTitle_ = g_currentTitle;
     }
 
     const auto now = std::chrono::steady_clock::now();
@@ -579,6 +623,8 @@ void ClientBrowserApp::InitCef() {
     DisplayObj* display;
     ALLOC_HANDLER(display, cef_display_handler_t);
     display->h.on_console_message = dh_on_console_message;
+    display->h.on_address_change = dh_on_address_change;
+    display->h.on_title_change = dh_on_title_change;
     clientObj->display = display;
 
     char url[MAX_PATH * 2];
@@ -692,8 +738,14 @@ void ClientBrowserApp::BuildUi(int w, int h) {
     ImGui::SameLine();
 
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 100);
-    const bool go = ImGui::InputTextWithHint("##url", "https://  (Enter to load)",
-                                             urlBuf_, sizeof(urlBuf_));
+    // Hint carries the live page URL while the user hasn't typed anything —
+    // the buffer stays user-owned (a hint is never written into urlBuf_).
+    // The hint arg is a plain value, not a printf format string.
+    const char* hint = currentUrl_.empty()
+                           ? "https://  (Enter to load)"
+                           : currentUrl_.c_str();
+    const bool go = ImGui::InputTextWithHint("##url", hint, urlBuf_,
+                                             sizeof(urlBuf_));
     ImGui::SameLine();
     if (ImGui::Button("Go") || go)
         Navigate(urlBuf_);
@@ -705,6 +757,10 @@ void ClientBrowserApp::BuildUi(int w, int h) {
         snprintf(urlBuf_, sizeof(urlBuf_), "%s", home);
         Navigate(urlBuf_);
     }
+    // Second row: the bookmark bar strip (task 2 fills it with the real
+    // widgets; this task lays out the row and its placeholder hint).
+    ImGui::Separator();
+    ImGui::TextUnformatted("★로 현재 페이지 추가");
     ImGui::End();
     ImGui::PopStyleVar(2);
 }

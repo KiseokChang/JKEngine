@@ -47,7 +47,14 @@ private:
     // Page-area geometry (everything below the URL bar row). CEF's OSR view
     // IS the page area — get_view_rect reports this size and mouse coords are
     // translated by pageY before being handed to CEF.
-    int pageY_ = 80;
+    // Current page URL/title, carried for the address-bar hint and the
+    // bookmark bar (task 2). Written by the CEF display-handler callbacks,
+    // which fire on the thread pumping cef_do_message_loop_work() — the same
+    // thread that reads these in BuildUi — so no locks; a plain member copy
+    // per frame is the whole synchronization story.
+    std::string currentUrl_, currentTitle_;
+
+    int pageY_ = 110; // 2 rows: toolbar + bookmark row (see task 2)
     int pageW_ = 960, pageH_ = 576;
     bool viewSizeDirty_ = false;
 
