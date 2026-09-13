@@ -25,6 +25,8 @@ class JKMessageBus;
 class JKAudioThread;
 struct LoadedImage;
 
+namespace desktop { class JKDesktopShell; }
+
 namespace server {
 
 // M2 chat: what the server-side permission gate says about a tool.
@@ -135,23 +137,15 @@ private:
     void PostAudioCommand(const AudioCommand& cmd);
     void UpdateOutputBounds();
 
-    void InitLauncher();
-    void ScanJkxApps();
-    void RelayoutLauncherIcons();
-    void DrawLauncher();
-    void DrawLauncherBackground();
-    void DestroyLauncher();
-    int HitTestLauncherIcon(int x, int y) const;
     void SpawnClient(const char* appName, bool fromJkx = false);
     // Launch an arbitrary exe from the server's directory (chat MVP: jkchat).
     // Same 500ms throttle as SpawnClient; throttleKey defaults to exeName.
     void SpawnProcess(const char* exeName, const std::string& args,
                       const char* throttleKey = nullptr);
 
-    // Load a PNG asset pair ("<base>@1x.png" / "@2x.png") — @2x when the
-    // output scale is >= 1.5 — into a blended SDL texture. Returns nullptr
-    // when the asset is missing (callers fall back to flat drawing).
-    SDL_Texture* LoadTextureScaled(const char* assetBase);
+    // Decode a decoded RGBA image into a blended SDL texture — exposed to the
+    // desktop shell through ShellHost.makeTexture (spec D7: the shell never
+    // includes jkserver headers, so texture creation stays a host service).
     SDL_Texture* TextureFromRGBA(const jk::LoadedImage& img, const char* label);
 
     SDL_Window* window_ = nullptr;
@@ -285,19 +279,9 @@ private:
     int lastDesktopW_ = -1;
     int lastDesktopH_ = -1;
 
-    // Server-side launcher state: simple icon textures drawn behind client layers.
-    // Apps come from installed .jkx containers (apps/*.jkx, spawn via --jkx)
-    // and, as a fallback, the built-in process modes (spawn via --client).
-    struct LauncherIcon {
-        JKRect rect;
-        std::string appName;   // spawn key / display name
-        std::string jkxPath;   // non-empty → spawn "--jkx <path>"
-        SDL_Texture* texture = nullptr;
-    };
-    std::vector<LauncherIcon> launcherIcons_;
-
-    // Launcher desktop background photo (PNG asset), stretched to the window.
-    SDL_Texture* backgroundTexture_ = nullptr;
+    // In-process privileged shell (P1 ③): owns the launcher grid + desktop
+    // background. Wired in Init, torn down in the destructor.
+    std::unique_ptr<desktop::JKDesktopShell> shell_;
 
     // Throttle launcher icon double-clicks / rapid spawns to one per app per
     // 500 ms. Stores the last spawn time keyed by app name.

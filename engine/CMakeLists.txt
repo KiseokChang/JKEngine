@@ -207,6 +207,22 @@ add_library(jkserver STATIC
 target_link_libraries(jkserver PUBLIC jkcore)
 
 # ---------------------------------------------------------------------------
+# jkdesktop_shell (P1 ③, spec D7): the in-process privileged shell — launcher
+# grid, desktop background, .jkx scan. Compiles against jkcore+SDL only; the
+# server links it and wires services via ShellHost. jkserver PUBLIC-links it
+# so the exe targets get the shell transitively.
+# ---------------------------------------------------------------------------
+add_library(jkdesktop_shell STATIC
+    src/desktop/JKDesktopShell.cpp
+)
+target_include_directories(jkdesktop_shell PUBLIC
+    include
+    third_party/stb
+)
+target_link_libraries(jkdesktop_shell PUBLIC jkcore)
+target_link_libraries(jkserver PUBLIC jkdesktop_shell)
+
+# ---------------------------------------------------------------------------
 # jkclient (P1 split ②, spec §3②): the client-application stack every app
 # module links — surfaces, the client app loop, the terminal stack and the
 # terminal config. Statically embedded into every module DLL like jkcore

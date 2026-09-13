@@ -2,10 +2,10 @@
 #include <agent/JKAgentJson.h>
 
 #include <apps/AppLauncherItem.h>
+#include <desktop/JKDesktopShell.h>
 #include <JKAudioCommand.h>
 #include <JKAudioThread.h>
 #include <JKImageLoader.h>
-#include <JKJkxFile.h>
 #include <JKMessageBus.h>
 #include <JKSDLAudioBackend.h>
 #include <JKSoundManager.h>
@@ -91,26 +91,6 @@ extern "C" __declspec(dllimport) unsigned long __stdcall GetFileAttributesA(
     const char* lpFileName);
 
 constexpr unsigned long kInvalidFileAttributes = 0xFFFFFFFF;
-
-// .jkx app discovery (ScanJkxApps).
-struct JkxFindData {
-    unsigned long dwFileAttributes = 0;
-    unsigned long ftCreationTime[2] = {};
-    unsigned long ftLastAccessTime[2] = {};
-    unsigned long ftLastWriteTime[2] = {};
-    unsigned long nFileSizeHigh = 0;
-    unsigned long nFileSizeLow = 0;
-    unsigned long dwReserved0 = 0;
-    unsigned long dwReserved1 = 0;
-    char cFileName[260] = {};
-    char cAlternateFileName[14] = {};
-};
-
-extern "C" __declspec(dllimport) void* __stdcall FindFirstFileA(
-    const char* lpFileName, JkxFindData* lpFindFileData);
-extern "C" __declspec(dllimport) int __stdcall FindNextFileA(
-    void* hFindFile, JkxFindData* lpFindFileData);
-extern "C" __declspec(dllimport) int __stdcall FindClose(void* hFindFile);
 #endif // _WIN32
 
 namespace jk {
@@ -167,7 +147,23 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
 
     compositor_ = std::make_unique<JKCompositor>(renderer_);
     UpdateOutputBounds();
-    InitLauncher();
+
+    // P1 ③: the launcher is the in-process privileged shell (spec D7) — the
+    // shell owns the grid + background; the server only supplies host
+    // services through ShellHost (renderer, scale, texture factory, spawn).
+    jk::desktop::JKDesktopShell::ShellHost shellHost;
+    shellHost.renderer = renderer_;
+    shellHost.outputScale = [this]() {
+        return compositor_ ? compositor_->OutputScale() : 1.0f;
+    };
+    shellHost.makeTexture = [this](const jk::LoadedImage& img, const char* label) {
+        return TextureFromRGBA(img, label);
+    };
+    shellHost.launch = [this](const char* app, bool fromJkx) {
+        SpawnClient(app, fromJkx);
+    };
+    shell_ = std::make_unique<jk::desktop::JKDesktopShell>();
+    shell_->Init(shellHost);
 
     // Directional cursors for chrome resize hotspots (hover feedback).
     chromeCursors_[static_cast<int>(CursorShape::Arrow)] =
@@ -510,7 +506,10 @@ void JKWindowServer::Stop() {
 
     pendingCleanup_.clear();
 
-    DestroyLauncher();
+    if (shell_) {
+        shell_->Destroy();
+        shell_.reset();
+    }
     compositor_.reset();
 
     for (SDL_Cursor* cursor : chromeCursors_) {
@@ -1154,14 +1153,11 @@ void JKWindowServer::HandleSDLEvent(const SDL_Event& ev) {
         }
         if (!client) client = HitTestClient(mx, my);
         if (!client && ev.type == SDL_MOUSEBUTTONDOWN) {
-            int icon = HitTestLauncherIcon(mx, my);
-            if (icon >= 0) {
-                const LauncherIcon& item = launcherIcons_[static_cast<size_t>(icon)];
-                if (item.jkxPath.empty()) {
-                    SpawnClient(item.appName.c_str());
-                } else {
-                    SpawnClient(item.jkxPath.c_str(), /*fromJkx=*/true);
-                }
+            // Launcher icons live in the desktop shell (P1 ③): LaunchAt
+            // hit-tests in physical pixels and dispatches the spawn through
+            // the ShellHost launch callback (this server's SpawnClient, so
+            // the 500 ms throttle below stays server-side).
+            if (shell_ && shell_->LaunchAt(mx, my)) {
                 return;
             }
         }
@@ -2558,8 +2554,11 @@ void JKWindowServer::Composite(bool present) {
     SDL_RenderSetScale(renderer_, 1.0f, 1.0f);
 
     // Draw the launcher desktop into the renderer first; the compositor will
-    // layer client surfaces on top and then present once.
-    DrawLauncherBackground();
+    // layer client surfaces on top and then present once. The desktop shell
+    // (P1 ③) owns that background; Draw no-ops on an empty desktop.
+    if (shell_) {
+        shell_->Draw(renderer_);
+    }
     compositor_->Composite(present);
 }
 
@@ -2655,235 +2654,6 @@ SDL_Texture* JKWindowServer::TextureFromRGBA(const jk::LoadedImage& img, const c
     }
     SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_BLEND);
     return texture;
-}
-
-SDL_Texture* JKWindowServer::LoadTextureScaled(const char* assetBase) {
-    if (!renderer_) return nullptr;
-
-    // Pick the @2x asset when the display scale is high enough for the extra
-    // pixels to pay off (mixed-DPI rule: renderer ratio drives the choice).
-    const float s = compositor_ ? compositor_->OutputScale() : 1.0f;
-    char path[512];
-    std::snprintf(path, sizeof(path), "%s@%s.png", assetBase, s >= 1.5f ? "2x" : "1x");
-
-    jk::LoadedImage img;
-    if (!jk::LoadImageFile(jk::ResolveAssetPath(path), img)) {
-        return nullptr;
-    }
-    return TextureFromRGBA(img, path);
-}
-
-void JKWindowServer::InitLauncher() {
-    if (!renderer_) return;
-
-    launcherIcons_.clear();
-
-    // Installed .jkx containers first (Phase C): one launcher cell per
-    // apps/<name>.jkx, icon decoded from the container itself.
-    ScanJkxApps();
-
-    // Built-in process-mode fallback for apps that have no .jkx installed.
-    auto hasJkx = [this](const char* name) {
-        for (const auto& icon : launcherIcons_) {
-            if (icon.appName == name) return true;
-        }
-        return false;
-    };
-    if (!hasJkx("minesweeper")) {
-        LauncherIcon icon;
-        icon.appName = "minesweeper";
-        launcherIcons_.push_back(icon);
-    }
-    if (!hasJkx("tetris")) {
-        LauncherIcon icon;
-        icon.appName = "tetris";
-        launcherIcons_.push_back(icon);
-    }
-
-    // Desktop background photo + launcher icon art (PNG assets, see
-    // ARCHITECTURE_DOCS/20). Missing assets fall back to the flat placeholder.
-    if (backgroundTexture_) {
-        SDL_DestroyTexture(backgroundTexture_);
-        backgroundTexture_ = nullptr;
-    }
-    backgroundTexture_ = LoadTextureScaled("assets/backgrounds/desktop");
-
-    for (auto& icon : launcherIcons_) {
-        if (icon.texture) continue;   // .jkx apps carry their own icon texture
-
-        // Built-in apps: assets/icons/launcher_<pfx>; legacy cell layout kept
-        // for them so the flat-placeholder fallback still matches by name.
-        const char* base = (icon.appName == "minesweeper") ? "assets/icons/launcher_mine"
-                                                           : "assets/icons/launcher_tetris";
-        icon.texture = LoadTextureScaled(base);
-        if (icon.texture) {
-            std::fprintf(stderr, "JKWindowServer: launcher icon '%s' loaded\n", base);
-        }
-    }
-
-    // Grid layout: one source of truth for cell rects, wrapping to the window
-    // width (the single row overflowed the 1280px desktop at 13 .jkx apps).
-    RelayoutLauncherIcons();
-    DrawLauncher();
-}
-
-// Launcher cell grid (docs/21 §2): wraps cells into multiple rows so a
-// growing app list stays on screen. Cells sit 100x100 apart starting at
-// (50, 50); the column count derives from the window's logical width.
-void JKWindowServer::RelayoutLauncherIcons() {
-    if (!renderer_) return;
-    const float s = compositor_ ? compositor_->OutputScale() : 1.0f;
-    int pw = 1280;
-    int ph = 720;
-    SDL_GetRendererOutputSize(renderer_, &pw, &ph);
-    const int logicalW = static_cast<int>(pw / s);
-    int cols = (logicalW - 50) / 100;  // (left margin .. right edge) / pitch
-    if (cols < 1) cols = 1;
-    for (size_t i = 0; i < launcherIcons_.size(); ++i) {
-        const int col = static_cast<int>(i) % cols;
-        const int row = static_cast<int>(i) / cols;
-        launcherIcons_[i].rect = JKRect{ 50 + col * 100, 50 + row * 100, 64, 80 };
-    }
-}
-
-void JKWindowServer::ScanJkxApps() {
-#ifdef _WIN32
-    // Enumerate <exe-dir>/apps/*.jkx. Icon textures are decoded from the
-    // container's ICON entries (no temp files); spawning uses --jkx <path>.
-    char basePath[1024] = {};
-    if (!GetModuleFileNameA(nullptr, basePath, sizeof(basePath))) return;
-    char* lastSlash = basePath;
-    for (char* p = basePath; *p; ++p) {
-        if (*p == '\\' || *p == '/') lastSlash = p;
-    }
-    *lastSlash = '\0';
-
-    char pattern[1024];
-    std::snprintf(pattern, sizeof(pattern), "%s\\apps\\*.jkx", basePath);
-    JkxFindData fd{};
-    void* find = FindFirstFileA(pattern, &fd);
-    if (!find) return;
-
-    const float s = compositor_ ? compositor_->OutputScale() : 1.0f;
-
-    do {
-        char path[1024];
-        std::snprintf(path, sizeof(path), "%s\\apps\\%s", basePath, fd.cFileName);
-
-        jk::JKJkxFile jkx;
-        if (!jkx.Open(path)) continue;
-        const jk::JkxManifest& mani = jkx.Manifest();
-        if (mani.name.empty()) continue;
-
-        LauncherIcon icon;
-        icon.appName = mani.name;
-        icon.jkxPath = path;
-
-        // Icon entry: prefer @2x on high-scale displays.
-        std::string wanted = (s >= 1.5f && !mani.icon2x.empty()) ? mani.icon2x : mani.icon;
-        if (wanted.empty()) wanted = !mani.icon2x.empty() ? mani.icon2x : mani.icon;
-        const int entry = wanted.empty() ? -1 : jkx.FindEntry("ICON", wanted);
-        std::vector<uint8_t> png;
-        jk::LoadedImage img;
-        if (entry >= 0 && jkx.ReadEntry(entry, png) &&
-            jk::LoadImageMemory(png.data(), png.size(), img)) {
-            icon.texture = TextureFromRGBA(img, mani.name.c_str());
-        }
-
-        launcherIcons_.push_back(std::move(icon));
-        std::fprintf(stderr, "JKWindowServer: installed app '%s' from %s (icon %s)\n",
-                     mani.name.c_str(), fd.cFileName,
-                     launcherIcons_.back().texture ? "decoded" : "missing");
-    } while (FindNextFileA(find, &fd));
-    FindClose(find);
-#endif // _WIN32
-}
-
-void JKWindowServer::DrawLauncher() {
-    DrawLauncherBackground();
-}
-
-void JKWindowServer::DrawLauncherBackground() {
-    if (!renderer_ || launcherIcons_.empty()) return;
-
-    // All server drawing is in physical pixels. icon.rect is stored in SDL
-    // logical points, so multiply by the compositor output scale to get the
-    // physical-pixel rect. The mouse hit-test uses the same physical rect.
-    const float s = compositor_ ? compositor_->OutputScale() : 1.0f;
-
-    // This only draws; the compositor calls SDL_RenderPresent once per frame.
-    SDL_SetRenderDrawColor(renderer_, 96, 96, 96, 255);
-    SDL_RenderClear(renderer_);
-
-    // Desktop background photo stretched to the full window.
-    if (backgroundTexture_) {
-        int pw = 0;
-        int ph = 0;
-        SDL_GetRendererOutputSize(renderer_, &pw, &ph);
-        SDL_Rect dst{ 0, 0, pw, ph };
-        SDL_RenderCopy(renderer_, backgroundTexture_, nullptr, &dst);
-    }
-
-    for (const auto& icon : launcherIcons_) {
-        SDL_Rect rc{
-            static_cast<int>(icon.rect.x * s),
-            static_cast<int>(icon.rect.y * s),
-            static_cast<int>(icon.rect.w * s),
-            static_cast<int>(icon.rect.h * s),
-        };
-        if (icon.texture) {
-            // Square icon art in the top part of the 64x80 cell; the rest of
-            // the cell is label space (the server has no text renderer).
-            SDL_Rect art{
-                rc.x,
-                rc.y,
-                static_cast<int>(icon.rect.w * s),
-                static_cast<int>(icon.rect.w * s),
-            };
-            SDL_RenderCopy(renderer_, icon.texture, nullptr, &art);
-        } else {
-            if (icon.appName == "minesweeper") {
-                SDL_SetRenderDrawColor(renderer_, 128, 128, 128, 255);
-            } else if (icon.appName == "tetris") {
-                SDL_SetRenderDrawColor(renderer_, 128, 0, 128, 255);
-            } else {
-                SDL_SetRenderDrawColor(renderer_, 100, 100, 100, 255);
-            }
-            SDL_RenderFillRect(renderer_, &rc);
-            SDL_SetRenderDrawColor(renderer_, 255, 255, 255, 255);
-            SDL_RenderDrawRect(renderer_, &rc);
-        }
-    }
-}
-
-void JKWindowServer::DestroyLauncher() {
-    for (auto& icon : launcherIcons_) {
-        if (icon.texture) {
-            SDL_DestroyTexture(icon.texture);
-            icon.texture = nullptr;
-        }
-    }
-    launcherIcons_.clear();
-    if (backgroundTexture_) {
-        SDL_DestroyTexture(backgroundTexture_);
-        backgroundTexture_ = nullptr;
-    }
-}
-
-int JKWindowServer::HitTestLauncherIcon(int x, int y) const {
-    // (x, y) are physical client px. icon.rect is in logical points.
-    const float s = compositor_ ? compositor_->OutputScale() : 1.0f;
-    for (size_t i = 0; i < launcherIcons_.size(); ++i) {
-        const auto& r = launcherIcons_[i].rect;
-        const int rx = static_cast<int>(r.x * s);
-        const int ry = static_cast<int>(r.y * s);
-        const int rw = static_cast<int>(r.w * s);
-        const int rh = static_cast<int>(r.h * s);
-        if (x >= rx && x < rx + rw && y >= ry && y < ry + rh) {
-            return static_cast<int>(i);
-        }
-    }
-    return -1;
 }
 
 // Launch an arbitrary exe from the server's directory (SpawnClient core).
