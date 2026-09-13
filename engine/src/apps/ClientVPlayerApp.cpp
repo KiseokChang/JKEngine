@@ -59,6 +59,10 @@ std::string AvErr(int err) {
     return buf;
 }
 
+// Sanctioned semantic-red for open/playback error text (docs/45 theme token
+// path; dedup per review MINOR-3 — was copy-pasted at 4 call sites).
+const ImVec4 kErrorRed(1.0f, 0.4f, 0.4f, 1.0f);
+
 // JSON string escape for agent-query args (same shape as the palette's
 // EscapeJson / the server's JsonEsc: quotes, backslashes, control bytes).
 std::string EscapeJson(const std::string& in) {
@@ -219,7 +223,7 @@ struct ClientVPlayerApp::PlayerCore {
         // that is only safe after the m-ordered Running transition — during
         // Opening the worker is mid-write, so skip the clock entirely.
         if (s.opened) s.pos = ClockNow(); // lock order m -> ringM, consistent
-        s.dur = duration;
+        if (s.opened) s.dur = duration;   // same race as ClockNow (review MINOR-1)
         s.vol = volume.load(std::memory_order_relaxed);
         s.error = lastError;
         return s;
@@ -1016,7 +1020,7 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
     if (!p) {
         if (!openError_.empty())
             // 의도적 잔존 — 의미색 (P2 테마 스왑 제외)
-            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", openError_.c_str());
+            ImGui::TextColored(kErrorRed, "%s", openError_.c_str());
         ImGui::End();
         return;
     }
@@ -1038,7 +1042,7 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
         // error screen below renders the same text from openError_.
         openError_ = st.error.empty() ? "파일을 열 수 없습니다" : st.error;
         ClosePlayer(player_);
-        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s",
+        ImGui::TextColored(kErrorRed, "%s",
                            openError_.c_str());
         ImGui::End();
         return;
@@ -1061,7 +1065,7 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
         // 다시 재생 — semantic red, same path as openError_.
         if (!st.error.empty()) {
             ImGui::SameLine();
-            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s",
+            ImGui::TextColored(kErrorRed, "%s",
                                st.error.c_str());
         }
     }
@@ -1119,7 +1123,7 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
         vidMax = ImGui::GetItemRectMax();
     } else if (!openError_.empty()) {
         // 의도적 잔존 — 의미색 (P2 테마 스왑 제외)
-        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", openError_.c_str());
+        ImGui::TextColored(kErrorRed, "%s", openError_.c_str());
     } else {
         ImGui::TextUnformatted("no frame yet");
     }
