@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 project(jkdesktop LANGUAGES C CXX RC)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)  # GNU 16.2 지원 + JKTheme 지정 초기자(designated initializers) 요구
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
