@@ -160,8 +160,8 @@ void TaskbarButton::OnPaintClient(JKDC& dc) {
 
     // Variant faces (docs/28): active = light + white border,
     // minimized = dark + dim text, normal = mid grey.
-    // colors: jk::theme::kDefault (P2) — 값 불변 토큰화.
-    const auto& t = jk::theme::kDefault;
+    // colors: jk::theme::current() (P2) — 값 불변 토큰화.
+    const auto& t = jk::theme::current();
     uint8_t fr, fg, fb, tr, tg, tb;
     if (active_) {
         fr = t.taskbarFaceActive.r; fg = t.taskbarFaceActive.g; fb = t.taskbarFaceActive.b;
@@ -205,7 +205,7 @@ void TaskbarButton::OnPaintClient(JKDC& dc) {
 
 void ClientTaskbarApp::TaskbarWindow::OnPaintClient(JKDC& dc) {
     const JKRect client = GetScreenClientRect();
-    const auto& t = jk::theme::kDefault;
+    const auto& t = jk::theme::current();
     dc.SetColor(t.taskbarBg.r, t.taskbarBg.g, t.taskbarBg.b, 255);
     dc.FillRect(client);
     for (const auto& child : GetChildren()) {

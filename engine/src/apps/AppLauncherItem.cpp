@@ -4,6 +4,7 @@
 #include <JKResourceCache.h>
 #include <JKSoundManager.h>
 #include <JKDC.h>
+#include <theme/JKTheme.h>
 #include <algorithm>
 #include <cstring>
 
@@ -21,8 +22,9 @@ AppLauncherItem::AppLauncherItem(const JKRect& rect, const std::string& label,
                                  std::function<void()> onClick)
     : label_(label), onClick_(std::move(onClick)) {
     SetRect(rect);
-    SetBackColor(192, 192, 192);
-    SetTextColor(0, 0, 0);
+    const auto& t = jk::theme::current();
+    SetBackColor(t.widgetFace.r, t.widgetFace.g, t.widgetFace.b);
+    SetTextColor(t.widgetText.r, t.widgetText.g, t.widgetText.b);
     SetFocusable(true);
 }
 

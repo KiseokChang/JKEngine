@@ -211,7 +211,7 @@ void JKDesktopShell::Draw(SDL_Renderer* renderer) {
     // physical-pixel rect. The mouse hit-test uses the same physical rect.
     const float s = host_.outputScale ? host_.outputScale() : 1.0f;
 
-    const auto& t = jk::theme::kDefault;
+    const auto& t = jk::theme::current();
     SDL_SetRenderDrawColor(renderer, t.desktopBgFallback.r, t.desktopBgFallback.g, t.desktopBgFallback.b, 255);
     SDL_RenderClear(renderer);
 

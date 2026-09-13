@@ -3,6 +3,7 @@
 #include <JKButton.h>
 #include <JKStatic.h>
 #include <JKEvent.h>
+#include <theme/JKTheme.h>
 #include <SDL.h>
 #include <algorithm>
 
@@ -23,8 +24,9 @@ void JKMessageBox::OnInitControls() {
     auto msg = std::make_unique<JKStatic>(JKRect{ 10, 10, client.w - 20, client.h - 60 }, 0);
     msg->SetText(message_);
     msg->SetAdjustFlag(ADJ_XYCENTER | ADJ_LEFT);
-    msg->SetBackColor(240, 240, 240);
-    msg->SetTextColor(0, 0, 0);
+    const auto& t = jk::theme::current();
+    msg->SetBackColor(t.widgetFace.r, t.widgetFace.g, t.widgetFace.b);
+    msg->SetTextColor(t.widgetText.r, t.widgetText.g, t.widgetText.b);
     AddControl(std::move(msg));
 
     auto addButton = [this](const std::string& label, int result, const JKRect& rect) {

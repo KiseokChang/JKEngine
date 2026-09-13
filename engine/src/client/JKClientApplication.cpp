@@ -7,6 +7,7 @@
 #include <JKTimerThread.h>
 #include <JKSoundManager.h>
 #include <JKPlatform.h>
+#include <theme/JKTheme.h>
 #include <cstdio>
 #include <cstring>
 
@@ -483,12 +484,13 @@ void JKClientApplication::ComposeScene() {
     JKDC dc(cmdList.get());
     dc.SetHangulManager(hangulManager_.get());
 
+    const auto& t = jk::theme::current();
     if (WantsTransparentSurface()) {
         // SDL_RenderClear ignores the blend mode: this is a raw write, so
         // (0,0,0,0) really leaves the surface transparent for the compositor.
         dc.SetColor(0, 0, 0, 0);
     } else {
-        dc.SetColor(192, 192, 192, 255);
+        dc.SetColor(t.appClearBg.r, t.appClearBg.g, t.appClearBg.b, 255);
     }
     dc.Clear();
 

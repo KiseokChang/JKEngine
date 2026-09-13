@@ -1,5 +1,6 @@
 #include <JKButton.h>
 #include <JKApplication.h>
+#include <theme/JKTheme.h>
 #include <cstdio>
 
 namespace jk {
@@ -10,8 +11,9 @@ JKButton::JKButton(const JKRect& rect, uint16_t controlId) {
     SetRect(rect);
     SetControlId(controlId);
     SetAdjustFlag(ADJ_XYCENTER);
-    SetBackColor(192, 192, 192);
-    SetTextColor(0, 0, 0);
+    const auto& t = jk::theme::current();
+    SetBackColor(t.widgetFace.r, t.widgetFace.g, t.widgetFace.b);
+    SetTextColor(t.widgetText.r, t.widgetText.g, t.widgetText.b);
     SetFocusable(true);
 }
 

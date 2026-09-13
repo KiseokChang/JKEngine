@@ -3,6 +3,7 @@
 
 #include <JKTypes.h>
 #include <JKRenderBackend.h>
+#include <theme/JKTheme.h>
 #include <cstdint>
 #include <cstddef>
 #include <vector>
@@ -47,14 +48,26 @@ public:
     // points using line segments. The draw color is set via SetColor().
     void Bezier(const JKPoint ps[4], bool iskbez = false, double delta = 0.05);
 
-    // 3D-styled rectangles (colors are explicit, independent of SetColor).
+    // 3D-styled rectangles (colors default to jk::theme::current() widgets —
+    // P2 phase 2; default arguments are evaluated at the call site, so every
+    // caller that omits them follows the active theme preset).
     void Rectangle3D(const JKRect& rect, int32_t depth,
-                       uint8_t lightR = 255, uint8_t lightG = 255, uint8_t lightB = 255,
-                       uint8_t darkR = 0,   uint8_t darkG = 0,   uint8_t darkB = 0);
+                       uint8_t lightR = jk::theme::current().bevelLight.r,
+                       uint8_t lightG = jk::theme::current().bevelLight.g,
+                       uint8_t lightB = jk::theme::current().bevelLight.b,
+                       uint8_t darkR = jk::theme::current().bevelDark.r,
+                       uint8_t darkG = jk::theme::current().bevelDark.g,
+                       uint8_t darkB = jk::theme::current().bevelDark.b);
     void Box3D(const JKRect& rect, int32_t depth,
-               uint8_t faceR = 192,  uint8_t faceG = 192,  uint8_t faceB = 192,
-               uint8_t lightR = 255, uint8_t lightG = 255, uint8_t lightB = 255,
-               uint8_t darkR = 0,    uint8_t darkG = 0,    uint8_t darkB = 0);
+               uint8_t faceR = jk::theme::current().widgetFace.r,
+               uint8_t faceG = jk::theme::current().widgetFace.g,
+               uint8_t faceB = jk::theme::current().widgetFace.b,
+               uint8_t lightR = jk::theme::current().bevelLight.r,
+               uint8_t lightG = jk::theme::current().bevelLight.g,
+               uint8_t lightB = jk::theme::current().bevelLight.b,
+               uint8_t darkR = jk::theme::current().bevelDark.r,
+               uint8_t darkG = jk::theme::current().bevelDark.g,
+               uint8_t darkB = jk::theme::current().bevelDark.b);
 
     // Bitmap-font text output. Strings are interpreted as byte sequences:
     //   - bytes < 0x80        -> 8-pixel wide ASCII glyph

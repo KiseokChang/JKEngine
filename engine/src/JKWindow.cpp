@@ -216,9 +216,9 @@ void JKWindow::PaintWindow(JKDC& dc) {
     // 윈도우 프레임(타이틀 바, 테두리)은 윈도우 화면 영역으로 클립한다.
     dc.PushClipRect(screenRect);
 
-    // 타이틀 바 (colors: jk::theme::kDefault — P2). SDL 논리 높이 clientRect_.y를
+    // 타이틀 바 (colors: jk::theme::current() — P2). SDL 논리 높이 clientRect_.y를
     // 사용하며, SDL_RenderSetScale()이 HiDPI 물리 픽셀로 변환한다.
-    const auto& t = jk::theme::kDefault;
+    const auto& t = jk::theme::current();
     JKRect titleBar = screenRect;
     titleBar.h = clientRect_.y;
     dc.SetColor(t.chromeTitleBg.r, t.chromeTitleBg.g, t.chromeTitleBg.b, 255);
@@ -239,7 +239,7 @@ void JKWindow::PaintWindow(JKDC& dc) {
         dc.TextOutX(textRect, title_.c_str(), ADJ_YCENTER | ADJ_LEFT, false);
     }
 
-    // 닫기 버튼: 면/윤곽/글리프는 jk::theme::kDefault (P2).
+    // 닫기 버튼: 면/윤곽/글리프는 jk::theme::current() (P2).
     if (!closeBtn.IsEmpty()) {
         dc.SetColor(t.chromeButtonFace.r, t.chromeButtonFace.g, t.chromeButtonFace.b, 255);
         dc.FillRect(closeBtn);
@@ -266,8 +266,9 @@ void JKWindow::PaintWindow(JKDC& dc) {
 void JKWindow::OnPaintClient(JKDC& dc) {
     const JKRect client = GetScreenClientRect();
 
-    // 클라이언트 배경
-    dc.SetColor(240, 240, 240, 255);
+    // 클라이언트 배경 (P2 단계 2: windowClientBg 토큰 — 단계 1 스왑 금지 해제)
+    const auto& t = jk::theme::current();
+    dc.SetColor(t.windowClientBg.r, t.windowClientBg.g, t.windowClientBg.b, 255);
     dc.FillRect(client);
 
     // 자식 컨트롤 그리기. 자식이 JKWindow이면 프레임(PaintWindow)도 함께 그립니다.

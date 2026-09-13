@@ -1,5 +1,6 @@
 #include <JKScrollBar.h>
 #include <JKEvent.h>
+#include <theme/JKTheme.h>
 #include <algorithm>
 
 namespace jk {
@@ -10,8 +11,9 @@ JKScrollBar::JKScrollBar(const JKRect& rect, uint16_t controlId, ScrollBarDir di
     : dir_(dir) {
     SetRect(rect);
     SetControlId(controlId);
-    SetBackColor(192, 192, 192);
-    SetTextColor(0, 0, 0);
+    const auto& t = jk::theme::current();
+    SetBackColor(t.widgetFace.r, t.widgetFace.g, t.widgetFace.b);
+    SetTextColor(t.widgetText.r, t.widgetText.g, t.widgetText.b);
 }
 
 void JKScrollBar::SetRange(int32_t min, int32_t max, int32_t pageSize) {
@@ -66,7 +68,11 @@ void JKScrollBar::SetPosFromMouse(int32_t mouseCoord) {
 
 void JKScrollBar::OnPaintClient(JKDC& dc) {
     const JKRect client = GetScreenClientRect();
-    dc.Box3D(client, 1, 192, 192, 192, 255, 255, 255, 0, 0, 0);
+    const auto& t = jk::theme::current();
+    dc.Box3D(client, 1,
+             t.widgetFace.r, t.widgetFace.g, t.widgetFace.b,
+             t.bevelLight.r, t.bevelLight.g, t.bevelLight.b,
+             t.bevelDark.r, t.bevelDark.g, t.bevelDark.b);
 
     JKRect track = client;
     if (dir_ == ScrollBarDir::Vertical) {
@@ -76,7 +82,7 @@ void JKScrollBar::OnPaintClient(JKDC& dc) {
         track.y += 2; track.h -= 4;
         track.x += 16; track.w -= 32;
     }
-    dc.SetColor(220, 220, 220, 255);
+    dc.SetColor(t.scrollbarTrack.r, t.scrollbarTrack.g, t.scrollbarTrack.b, 255);
     dc.FillRect(track);
 
     int32_t thumbSize = GetThumbSize();
@@ -87,7 +93,10 @@ void JKScrollBar::OnPaintClient(JKDC& dc) {
     } else {
         thumb = JKRect{ track.x + thumbPos, track.y, thumbSize, track.h };
     }
-    dc.Box3D(thumb, 1, 255, 255, 255, 255, 255, 255, 128, 128, 128);
+    dc.Box3D(thumb, 1,
+             t.scrollbarThumb.r, t.scrollbarThumb.g, t.scrollbarThumb.b,
+             t.bevelLight.r, t.bevelLight.g, t.bevelLight.b,
+             t.bevelMid.r, t.bevelMid.g, t.bevelMid.b);
 
     JKControl::OnPaintClient(dc);
 }

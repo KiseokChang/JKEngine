@@ -318,7 +318,7 @@ void JKCompositor::DrawCloseOverlay(const JKCompositorLayer& layer, float scale)
     }
     // Mirrors JKWindow::GetCloseButtonRect / close-button painting
     // (src/JKWindow.cpp): 20x20 at 2px inset from the top-right, 5px X pad.
-    // colors: jk::theme::kDefault (P2)
+    // colors: jk::theme::current() (P2)
     // The rect lives in SURFACE px like the chrome hit-test zones
     // (JKWindowServer::TryChromeGrab), so it shrinks proportionally on
     // fit-scaled layers — Width()*ScaleX() is the on-screen width.
@@ -329,7 +329,7 @@ void JKCompositor::DrawCloseOverlay(const JKCompositorLayer& layer, float scale)
         static_cast<int>(kChromeCloseSize * layer.ScaleY() * scale)
     };
     const int pad = static_cast<int>(5 * layer.ScaleX() * scale);
-    const auto& t = jk::theme::kDefault;
+    const auto& t = jk::theme::current();
 
     SDL_SetRenderDrawColor(renderer_, t.chromeButtonFace.r, t.chromeButtonFace.g, t.chromeButtonFace.b, 255);
     SDL_RenderFillRect(renderer_, &btn);
@@ -358,7 +358,7 @@ void JKCompositor::DrawMaximizeButton(const JKCompositorLayer& layer, float scal
         static_cast<int>(kChromeMaximizeSize * layer.ScaleX() * scale),
         static_cast<int>(kChromeMaximizeSize * layer.ScaleY() * scale)
     };
-    const auto& t = jk::theme::kDefault;
+    const auto& t = jk::theme::current();
 
     SDL_SetRenderDrawColor(renderer_, t.chromeButtonFace.r, t.chromeButtonFace.g, t.chromeButtonFace.b, 255);
     SDL_RenderFillRect(renderer_, &btn);
