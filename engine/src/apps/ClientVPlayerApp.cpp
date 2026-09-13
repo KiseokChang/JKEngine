@@ -124,11 +124,28 @@ struct ClientVPlayerApp::PlayerCore {
     bool useWallClock = false;               // files without usable audio
     std::string lastError;
 
+    // --- Async open state machine (vplayer-stability T1, spec D1) ------------
+    // OpenPath only arms the format context + spawns the EXISTING worker; the
+    // demux/codec bring-up runs as the worker's first stage (OpenStage), so a
+    // hostile file can stall the worker but never the UI thread. The UI polls
+    // `phase` through SnapNow; everything OpenStage writes before the
+    // Running transition happens-before the UI's observation of it (same `m`).
+    enum class Phase { Opening, Running, Failed };
+    Phase phase = Phase::Opening;
+    std::string openPath_;                       // path the worker opens
+    std::chrono::steady_clock::time_point openDeadline{}; // set pre-spawn (UI)
+    std::atomic<bool> cancelOpen{false};         // interrupt_callback: abort now
+    std::atomic<bool> openDeadlineActive{true};  // open-phase guard; disarmed
+                                                 // once playback starts
+    int eagainStreak = 0;                        // consecutive av_read_frame EAGAIN
+    int decodeFailStreak = 0;                    // consecutive decode failures
+
     std::mutex m;                            // decode/transport state
     std::condition_variable cv;
     std::mutex ringM;                        // audio ring only (SDL callback takes this)
     std::condition_variable cvRing;
     std::thread worker;
+    bool workerDone = false;                 // worker set before its last cv notify
     std::atomic<bool> paused{false};         // atomic: ClockNow reads it under ringM
     bool ended = false, stop = false, wantSeek = false;
     bool jogSeek = false;                    // setter-owned: pending seek is a scrub (keyframe-only)
@@ -184,20 +201,35 @@ struct ClientVPlayerApp::PlayerCore {
 
     struct Snap {
         bool opened = false, paused = false, ended = false;
+        bool opening = false, openFailed = false; // async-open state (D1)
         double pos = 0, dur = 0;
         float vol = 0.8f;
+        std::string error;                    // classified stop reason (T1)
     };
 
     Snap SnapNow() {
         std::lock_guard<std::mutex> lk(m);
         Snap s;
-        s.opened = fmt != nullptr;
+        s.opening = phase == Phase::Opening;
+        s.openFailed = phase == Phase::Failed;
+        s.opened = phase == Phase::Running && fmt != nullptr;
         s.paused = paused;
         s.ended = ended;
-        s.pos = ClockNow(); // lock order m -> ringM, consistent everywhere
+        // ClockNow reads OpenStage-written state (duration/useWallClock/...)
+        // that is only safe after the m-ordered Running transition — during
+        // Opening the worker is mid-write, so skip the clock entirely.
+        if (s.opened) s.pos = ClockNow(); // lock order m -> ringM, consistent
         s.dur = duration;
         s.vol = volume.load(std::memory_order_relaxed);
+        s.error = lastError;
         return s;
+    }
+
+    // True once OpenStage finished successfully (happens-before boundary for
+    // the worker-written decode state the UI reads locklessly: videoW, fps...).
+    bool IsRunning() {
+        std::lock_guard<std::mutex> lk(m);
+        return phase == Phase::Running;
     }
 
     void SetPaused(bool p) {
@@ -299,13 +331,75 @@ struct ClientVPlayerApp::PlayerCore {
             avformat_seek_file(fmt, videoStream, INT64_MIN, ts, ts, 0);
         }
         ended = false;
+        lastError.clear(); // a successful seek supersedes a stale stop reason
     }
 
-    bool Open(const char* path) {
-        fmt = nullptr;
-        int r = avformat_open_input(&fmt, path, nullptr, nullptr);
-        if (r < 0) { lastError = "open: " + AvErr(r); return false; }
-        if (avformat_find_stream_info(fmt, nullptr) < 0) { lastError = "find_stream_info failed"; return false; }
+    // UI thread, returns immediately. Arms the interrupt callback on a
+    // pre-allocated AVFormatContext (so even avformat_open_input is bounded)
+    // and hands the actual demux/codec work to the existing worker thread.
+    void BeginOpen(std::string path) {
+        openPath_ = std::move(path);
+        openDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        fmt = avformat_alloc_context();
+        if (fmt) {
+            fmt->interrupt_callback.callback = &PlayerCore::InterruptCb;
+            fmt->interrupt_callback.opaque = this;
+        }
+        worker = std::thread([this] { WorkerLoop(); });
+    }
+
+    void CancelOpen() { cancelOpen.store(true, std::memory_order_relaxed); }
+
+    // FFmpeg calls this on the worker thread inside open/find_stream_info/seek.
+    // Returning 1 aborts the blocking call with AVERROR_EXIT.
+    static int InterruptCb(void* ud) {
+        auto* p = static_cast<PlayerCore*>(ud);
+        if (p->cancelOpen.load(std::memory_order_relaxed)) return 1;
+        // The 10 s deadline guards the OPEN phase only — it is disarmed
+        // (same thread) before the first playback read, so seeking/reading
+        // on a slow file is never aborted by it.
+        if (p->openDeadlineActive.load(std::memory_order_relaxed) &&
+            std::chrono::steady_clock::now() > p->openDeadline)
+            return 1;
+        return 0;
+    }
+
+    // Worker thread, first stage (spec D1): the demux/codec bring-up that used
+    // to block the UI thread. Every failure lands in phase=Failed with a
+    // human-readable lastError; the interrupt callback bounds it to 10 s or
+    // a user cancel.
+    bool OpenStage() {
+        auto fail = [&](const std::string& msg) {
+            std::lock_guard<std::mutex> lk(m);
+            lastError = msg;
+            phase = Phase::Failed;
+            ended = true; // park the worker loop; UI adopts lastError
+            cv.notify_all();
+        };
+        int r = avformat_open_input(&fmt, openPath_.c_str(), nullptr, nullptr);
+        if (r < 0) {
+            if (cancelOpen.load(std::memory_order_relaxed))
+                fail("열기가 취소되었습니다");
+            else if (openDeadlineActive.load(std::memory_order_relaxed) &&
+                     std::chrono::steady_clock::now() > openDeadline)
+                fail("열기 시간 초과");
+            else
+                fail("open: " + AvErr(r));
+            return false;
+        }
+        if (avformat_find_stream_info(fmt, nullptr) < 0) {
+            if (cancelOpen.load(std::memory_order_relaxed))
+                fail("열기가 취소되었습니다");
+            else if (openDeadlineActive.load(std::memory_order_relaxed) &&
+                     std::chrono::steady_clock::now() > openDeadline)
+                fail("열기 시간 초과");
+            else
+                fail("스트림 정보를 읽을 수 없는 파일입니다");
+            return false;
+        }
+        // Open phase survived: disarm the deadline before playback I/O.
+        openDeadlineActive.store(false, std::memory_order_relaxed);
+
         if (fmt->duration > 0) duration = fmt->duration / (double)AV_TIME_BASE;
 
         const AVCodec* vdec = nullptr;
@@ -313,6 +407,15 @@ struct ClientVPlayerApp::PlayerCore {
         videoStream = av_find_best_stream(fmt, AVMEDIA_TYPE_VIDEO, -1, -1, &vdec, 0);
         if (videoStream >= 0) {
             AVStream* st = fmt->streams[videoStream];
+            // Dimension caps BEFORE the decoder opens (spec 1a-2): a lying
+            // header must not reach vf.rgba.resize — a worker bad_alloc would
+            // std::terminate the whole desktop process.
+            const int64_t w = st->codecpar->width;
+            const int64_t h = st->codecpar->height;
+            if (w > 8192 || h > 8192 || w * h * 4 > (int64_t)256 * 1024 * 1024) {
+                fail("지원하지 않는 해상도 (최대 8192x8192, 프레임 256MiB)");
+                return false;
+            }
             videoTb = st->time_base;
             vctx = avcodec_alloc_context3(vdec);
             avcodec_parameters_to_context(vctx, st->codecpar);
@@ -342,7 +445,7 @@ struct ClientVPlayerApp::PlayerCore {
             }
         }
         if (videoStream < 0 && audioStream < 0) {
-            lastError = "no decodable audio/video stream";
+            fail("재생 가능한 오디오/비디오 스트림이 없습니다");
             return false;
         }
 
@@ -350,7 +453,7 @@ struct ClientVPlayerApp::PlayerCore {
             sws = sws_getContext(videoW, videoH, vctx->pix_fmt,
                                  videoW, videoH, AV_PIX_FMT_RGBA,
                                  SWS_BILINEAR, nullptr, nullptr, nullptr);
-            if (!sws) { lastError = "sws_getContext failed"; return false; }
+            if (!sws) { fail("sws_getContext failed"); return false; }
         }
 
         if (audioStream >= 0) {
@@ -407,15 +510,23 @@ struct ClientVPlayerApp::PlayerCore {
         wallStart = std::chrono::steady_clock::now();
         wallAccum = 0; wallBase = 0; wallPlaying = true;
 
-        worker = std::thread([this] { WorkerLoop(); });
         if (dev) SDL_PauseAudioDevice(dev, 0); // start unpaused; underruns are silence
+        {
+            std::lock_guard<std::mutex> lk(m);
+            phase = Phase::Running; // publishes ALL OpenStage state to the UI
+        }
+        cv.notify_all();
         return true;
     }
 
     void Close() {
+        // Abort a hung open first: the interrupt callback (worker thread) sees
+        // this without taking any lock and unwinds the blocking FFmpeg call.
+        // No early return on a second call: TryClose already set stop, and the
+        // dtor must still free the FFmpeg/SDL state (all idempotent below).
+        cancelOpen.store(true, std::memory_order_relaxed);
         {
             std::lock_guard<std::mutex> lk(m);
-            if (stop) return;
             stop = true;
         }
         cv.notify_all();
@@ -429,6 +540,39 @@ struct ClientVPlayerApp::PlayerCore {
         if (fmt) avformat_close_input(&fmt);
         if (ring) { av_free(ring); ring = nullptr; }
         videoQ.clear();
+    }
+
+    // Bounded shutdown for the UI thread. Returns true once the worker has
+    // exited (caller may destroy the core). False means the worker is stuck
+    // inside a never-returning FFmpeg call (silent named pipe, dead network
+    // mount): the interrupt callback is only consulted BETWEEN FFmpeg
+    // operations, so it cannot unwind a blocked synchronous read (measured,
+    // task-1 report 4c) — the caller must Abandon() instead of joining, or
+    // the UI thread would freeze forever.
+    bool TryClose(int timeoutMs) {
+        cancelOpen.store(true, std::memory_order_relaxed);
+        {
+            std::lock_guard<std::mutex> lk(m);
+            stop = true;
+        }
+        cv.notify_all();
+        { std::lock_guard<std::mutex> lk(ringM); cvRing.notify_all(); }
+        bool done;
+        {
+            std::unique_lock<std::mutex> lk(m);
+            done = cv.wait_for(lk, std::chrono::milliseconds(timeoutMs),
+                               [&] { return workerDone; });
+        }
+        if (done && worker.joinable()) worker.join();
+        return done;
+    }
+
+    // Give up on a stuck worker: detach the thread and let the caller leak
+    // this core (bounded — one per abandoned open). The worker eventually
+    // finishes into memory that is never freed and exits; its FFmpeg/SDL
+    // state stays alive with it. Deleting here would be a use-after-free.
+    void Abandon() {
+        if (worker.joinable()) worker.detach();
     }
 
     // SDL audio thread: pull S16 bytes from the ring, apply volume, advance
@@ -455,43 +599,104 @@ struct ClientVPlayerApp::PlayerCore {
     void WorkerLoop() {
         AVPacket* pkt = av_packet_alloc();
         AVFrame* frame = av_frame_alloc();
-        if (!pkt || !frame) return;
-        while (true) {
-            {
-                std::unique_lock<std::mutex> lk(m);
-                cv.wait(lk, [&] { return stop || wantSeek || !ended; });
-                if (stop) break;
-                if (wantSeek) {
-                    DoSeekLockedStage1();
-                    wantSeek = false;
+        try {
+            // Stage 1 (D1): demux/codec bring-up on the worker, not the UI.
+            const bool opened = (pkt && frame) ? OpenStage() : false;
+            if (!opened && phase != Phase::Failed) {
+                // pkt/frame allocation died before any classification.
+                std::lock_guard<std::mutex> lk(m);
+                lastError = "메모리 부족 (재생 초기화 실패)";
+                phase = Phase::Failed;
+                ended = true;
+            }
+            if (opened) {
+                while (true) {
+                    {
+                        std::unique_lock<std::mutex> lk(m);
+                        cv.wait(lk, [&] { return stop || wantSeek || !ended; });
+                        if (stop) break;
+                        if (wantSeek) {
+                            DoSeekLockedStage1();
+                            wantSeek = false;
+                        }
+                    }
+                    const int r = av_read_frame(fmt, pkt);
+                    if (r == AVERROR(EAGAIN)) {
+                        // Transient resource shortage: brief sleep + bounded
+                        // retry so a chatty demuxer can't spin the CPU forever.
+                        if (++eagainStreak > 50) {
+                            std::lock_guard<std::mutex> lk(m);
+                            lastError = "읽기 지연 (EAGAIN 반복)";
+                            ended = true;
+                            eagainStreak = 0;
+                            cv.notify_all();
+                            continue;
+                        }
+                        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                        continue;
+                    }
+                    eagainStreak = 0;
+                    if (r < 0) {
+                        std::lock_guard<std::mutex> lk(m);
+                        // EOF parks quietly (normal end); anything else records
+                        // WHY playback stopped — the UI shows it next to Replay.
+                        if (r != AVERROR_EOF)
+                            lastError = "읽기 오류: " + AvErr(r);
+                        ended = true; // park; Seek()/stop wake us again
+                        cv.notify_all();
+                        continue;
+                    }
+                    bool cont = true;
+                    if (pkt->stream_index == videoStream) {
+                        cont = DecodeVideoPacket(pkt, frame);
+                    } else if (pkt->stream_index == audioStream && actx &&
+                               !jogging.load(std::memory_order_relaxed)) {
+                        DecodeAudioPacket(pkt, frame);
+                    }
+                    av_packet_unref(pkt);
+                    if (!cont) continue; // seek/stop fired mid-packet; loop top handles it
                 }
             }
-            const int r = av_read_frame(fmt, pkt);
-            if (r < 0) {
-                std::lock_guard<std::mutex> lk(m);
-                ended = true; // park; Seek()/stop wake us again
-                cv.notify_all();
-                continue;
-            }
-            bool cont = true;
-            if (pkt->stream_index == videoStream) {
-                cont = DecodeVideoPacket(pkt, frame);
-            } else if (pkt->stream_index == audioStream && actx &&
-                       !jogging.load(std::memory_order_relaxed)) {
-                DecodeAudioPacket(pkt, frame);
-            }
-            av_packet_unref(pkt);
-            if (!cont) continue; // seek/stop fired mid-packet; loop top handles it
+        } catch (...) {
+            // Last-resort barrier (spec 1a-3): a worker exception — bad_alloc
+            // on a giant frame, STL misuse — must end playback, not terminate
+            // the desktop process. Error codes stay the normal path.
+            std::lock_guard<std::mutex> lk(m);
+            lastError = "재생 중 내부 오류가 발생했습니다";
+            ended = true;
+            if (phase == Phase::Opening) phase = Phase::Failed;
         }
         av_packet_free(&pkt);
         av_frame_free(&frame);
+        // Open failed (or exception): park until Close() stops us — the UI
+        // keeps the core alive to display lastError.
+        {
+            std::unique_lock<std::mutex> lk(m);
+            cv.wait(lk, [&] { return stop; });
+            workerDone = true; // TryClose's shutdown predicate
+        }
+        cv.notify_all();
+    }
+
+    // Consecutive decode failures across streams. One success clears the
+    // streak; 30 in a row stop playback with a classified reason instead of
+    // spinning silently on garbage (spec 1a-4). decodeFailStreak itself is
+    // worker-only, so the counter bump needs no lock.
+    void DecodeFail(const char* what) {
+        if (++decodeFailStreak < 30) return;
+        std::lock_guard<std::mutex> lk(m);
+        lastError = std::string(what) + " 디코딩 오류 지속";
+        decodeFailStreak = 0;
+        ended = true;
+        cv.notify_all();
     }
 
     // Returns false when decoding should stop (seek/stop requested).
     bool DecodeVideoPacket(AVPacket* pkt, AVFrame* frame) {
-        if (avcodec_send_packet(vctx, pkt) < 0) return true;
+        if (avcodec_send_packet(vctx, pkt) < 0) { DecodeFail("비디오"); return true; }
         while (true) {
             if (avcodec_receive_frame(vctx, frame) < 0) return true;
+            decodeFailStreak = 0; // a decoded frame resets the failure streak
             const double pts = frame->pts == AV_NOPTS_VALUE
                                    ? -1.0
                                    : frame->pts * av_q2d(videoTb) - ptsOrigin;
@@ -517,10 +722,11 @@ struct ClientVPlayerApp::PlayerCore {
     }
 
     void DecodeAudioPacket(AVPacket* pkt, AVFrame* frame) {
-        if (avcodec_send_packet(actx, pkt) < 0) return;
+        if (avcodec_send_packet(actx, pkt) < 0) { DecodeFail("오디오"); return; }
         uint64_t gen;
         { std::lock_guard<std::mutex> lk(ringM); gen = seekGen; }
         while (avcodec_receive_frame(actx, frame) == 0) {
+            decodeFailStreak = 0; // a decoded frame resets the failure streak
             const int maxOut = swr_get_out_samples(swr, frame->nb_samples);
             if (maxOut <= 0) { av_frame_unref(frame); continue; }
             uint8_t* out = (uint8_t*)av_malloc((size_t)maxOut * kAudioCh * 2);
@@ -585,10 +791,22 @@ struct ClientVPlayerApp::PlayerCore {
     }
 };
 
+// UI-thread teardown. Bounded: a worker stuck inside a never-returning FFmpeg
+// call can't be joined (see PlayerCore::TryClose) — then detach + release so
+// the core is intentionally leaked (never deleted) instead of freezing the UI
+// thread forever or freeing state the worker is still using.
+template <typename CorePtr>
+static void ClosePlayer(CorePtr& p) {
+    if (!p) return;
+    if (p->TryClose(2000)) { p.reset(); return; }
+    p->Abandon();
+    p.release();
+}
+
 ClientVPlayerApp::~ClientVPlayerApp() = default;
 
 void ClientVPlayerApp::PlayerCoreDeleter::operator()(PlayerCore* p) const noexcept {
-    delete p; // full type visible here
+    delete p; // full type visible here; only reached when TryClose succeeded
 }
 
 void ClientVPlayerApp::OnInit() {
@@ -612,7 +830,7 @@ void ClientVPlayerApp::OnInit() {
 }
 
 void ClientVPlayerApp::OnClose() {
-    player_.reset(); // stops worker + audio device before ImGui teardown
+    ClosePlayer(player_); // stops worker + audio device before ImGui teardown
     if (renderer_ && videoTex_) {
         SDL_DestroyTexture(static_cast<SDL_Texture*>(videoTex_));
     }
@@ -659,18 +877,36 @@ void ClientVPlayerApp::RenderOverlay(SDL_Renderer* renderer, int w, int h) {
     ImGui_ImplJKWindow_RenderDrawData(ImGui::GetDrawData(), renderer);
 }
 
+// Async open (spec D1): validates the path cheaply, arms a PlayerCore in the
+// `opening` state and returns immediately — the worker thread does the demux/
+// codec work and reports openError_ / playback through the state machine.
 void ClientVPlayerApp::OpenPath(const char* path) {
     openError_.clear();
-    player_.reset();
+    ClosePlayer(player_); // bounded: never freezes the UI on a stuck worker
     if (renderer_ && videoTex_) SDL_DestroyTexture(static_cast<SDL_Texture*>(videoTex_));
     videoTex_ = nullptr;
     texW_ = texH_ = 0;
     hasFrame_ = false;
     if (!path || !path[0]) { openError_ = "empty path"; return; }
-    PlayerCore* raw = new PlayerCore();
-    if (!raw->Open(path)) {
-        openError_ = raw->lastError;
-        delete raw; // dtor runs Close() on any half-opened state
+    // Cheap existence gate BEFORE spawning anything — a bad path must not
+    // even cost a worker spin-up (missing file, drive letter typos).
+    if (std::FILE* f = std::fopen(path, "rb")) {
+        std::fclose(f);
+    } else {
+        openError_ = "파일을 찾을 수 없습니다";
+        return;
+    }
+    PlayerCore* raw = nullptr;
+    try {
+        raw = new PlayerCore();
+        raw->BeginOpen(path); // spawns the (existing) worker; never blocks
+    } catch (const std::exception&) {
+        openError_ = "메모리 부족"; // new/BeginOpen failure (spec 1a-3)
+        delete raw; // dtor runs Close() on any half-armed state
+        return;
+    } catch (...) {
+        openError_ = "플레이어 초기화 실패";
+        delete raw;
         return;
     }
     player_.reset(raw);
@@ -721,7 +957,10 @@ void ClientVPlayerApp::PumpAgentReplies() {
 
 void ClientVPlayerApp::SyncVideoTexture(SDL_Renderer* renderer) {
     PlayerCore* p = player_.get();
-    if (!p || p->videoW <= 0) return;
+    // IsRunning() is the happens-before gate for the worker-written decode
+    // state read below locklessly (videoW/fps/avDelay-adjacent fields): during
+    // the Opening phase the worker is still mid-write, so don't touch them.
+    if (!p || !p->IsRunning() || p->videoW <= 0) return;
     VideoFrame vf;
     // The user A/V offset lives here — a display-gate shift only. Positive
     // avDelay shows frames earlier relative to the audio clock (= audio
@@ -783,6 +1022,27 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
     }
 
     const PlayerCore::Snap st = p->SnapNow();
+
+    // Async open (D1): the worker owns demux/codec init — the UI reports
+    // progress and offers the cancel affordance (interrupt_callback flag).
+    if (st.opening) {
+        ImGui::TextUnformatted("여는 중...");
+        ImGui::SameLine();
+        if (ImGui::Button("취소"))
+            p->CancelOpen();
+        ImGui::End();
+        return;
+    }
+    if (st.openFailed) {
+        // Adopt the classified open failure and drop the core — the idle
+        // error screen below renders the same text from openError_.
+        openError_ = st.error.empty() ? "파일을 열 수 없습니다" : st.error;
+        ClosePlayer(player_);
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s",
+                           openError_.c_str());
+        ImGui::End();
+        return;
+    }
     if (!st.opened) {
         ImGui::End();
         return;
@@ -796,6 +1056,13 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
         if (ImGui::Button("Replay")) {
             p->Seek(0);
             p->SetPaused(false);
+        }
+        // Classified stop reason (read error / decode streak), next to
+        // 다시 재생 — semantic red, same path as openError_.
+        if (!st.error.empty()) {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s",
+                               st.error.c_str());
         }
     }
 
