@@ -81,6 +81,9 @@ void JKClientApplication::DestroyHiddenRenderer() {
 
 bool JKClientApplication::Init(const std::string& title, int width, int height,
                                const std::string& pipeName) {
+    // theme.json 프리셋 로딩 (P2 단계 2) — 파일 없으면 다크 기본값 유지
+    jk::theme::loadPresetFromFile(jk::theme::DefaultThemePath());
+
     if (!CreateHiddenRenderer(title, width, height)) {
         return false;
     }

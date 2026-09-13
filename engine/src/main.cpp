@@ -32,6 +32,7 @@ extern "C" __declspec(dllimport) int __stdcall GetDiskFreeSpaceExA(
 #include <server/JKWindowServer.h>
 #include <agent/JKAgentClient.h>
 #include <ipc/JKWireEndpoints.h>
+#include <theme/JKTheme.h>
 
 #include <terminal/JKTerminalGrid.h>
 #include <terminal/JKVtParser.h>
@@ -2568,6 +2569,9 @@ int main(int argc, char* argv[]) {
     if (logFile) std::fprintf(logFile, "[main] before InitializeProcessDpiAwareness\n"), std::fflush(logFile);
     jk::JKPlatform::InitializeProcessDpiAwareness();
     if (logFile) std::fprintf(logFile, "[main] after InitializeProcessDpiAwareness\n"), std::fflush(logFile);
+
+    // theme.json 프리셋 로딩 (P2 단계 2) — 파일 없으면 다크 기본값 유지
+    jk::theme::loadPresetFromFile(jk::theme::DefaultThemePath());
 
     if (argc > 1 && (std::strcmp(argv[1], "--help") == 0 ||
                      std::strcmp(argv[1], "-h") == 0 ||
