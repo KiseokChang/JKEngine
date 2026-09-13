@@ -2829,6 +2829,21 @@ int main(int argc, char* argv[]) {
 #endif
     }
 
+    if (argc > 1 && std::strcmp(argv[1], "--filedlg") == 0) {
+        // 파일 열기 대화상자 자식 (Task 1의 SpawnClient "filedlg:<json>" 접두
+        // 스폰 — --jkx 인용 계약과 동일, argv[2]가 file_open args json 그대로).
+        // 설계 D3: 스폰 인자는 전달 편의일 뿐 — 모듈은 params를
+        // file_dialog_params 쿼리로 회수하는 것이 계약이라 argv json은 여기서
+        // 소비하지 않는다 (모듈이 쿼리로 filter/start를 받는다).
+        constexpr const char* kPipe = jk::ipc::kWindowServerPipeName;
+#ifdef _WIN32
+        return RunClientModule("jkapp_filedlg.dll", kPipe);
+#else
+        std::fprintf(stderr, "--filedlg is Windows-only in this prototype\n");
+        return 1;
+#endif
+    }
+
     // scriptdemo [path]: packaged script app (docs/27 단계 1) in single-process
     // mode — open the .jkx next to the exe (or an explicit path), extract the
     // script payload to %TEMP%, and run ScriptAppT<JKApplication> on it. This

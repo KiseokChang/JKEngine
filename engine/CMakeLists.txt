@@ -493,6 +493,18 @@ target_compile_definitions(jkapp_vplayer PRIVATE JKAPP_MODULE_BUILD)
 target_link_libraries(jkapp_vplayer PRIVATE jkclient imgui PkgConfig::FFMPEG)
 set_target_properties(jkapp_vplayer PROPERTIES PREFIX "")
 
+# File open dialog module (file dialog design §1b, Task 2): resolves the
+# server's parked file_open query over its own window connection
+# (file_dialog_params on entry, file_open_result on exit). Spawned by the
+# server as "filedlg:<json>" — shell-adjacent, not a launcher .jkx.
+add_library(jkapp_filedlg SHARED
+    src/apps/JKAppModule_filedlg.cpp
+    src/apps/ClientFileDialogApp.cpp
+)
+target_compile_definitions(jkapp_filedlg PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_filedlg PRIVATE jkclient imgui)
+set_target_properties(jkapp_filedlg PROPERTIES PREFIX "")
+
 # ---------------------------------------------------------------------------
 # CEF OSR browser (docs/23 §11.9): jkapp_browser links libcef.dll directly
 # (GNU ld -l:libcef.dll, no import lib / no libcef_dll_wrapper — proven by the
