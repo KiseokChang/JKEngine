@@ -1,5 +1,7 @@
 #include <desktop/JKDesktopShell.h>
 
+#include "theme/JKTheme.h"
+
 #include <JKImageLoader.h>
 #include <JKJkxFile.h>
 
@@ -196,7 +198,8 @@ void JKDesktopShell::Draw(SDL_Renderer* renderer) {
     // physical-pixel rect. The mouse hit-test uses the same physical rect.
     const float s = host_.outputScale ? host_.outputScale() : 1.0f;
 
-    SDL_SetRenderDrawColor(renderer, 96, 96, 96, 255);
+    const auto& t = jk::theme::kDefault;
+    SDL_SetRenderDrawColor(renderer, t.desktopBgFallback.r, t.desktopBgFallback.g, t.desktopBgFallback.b, 255);
     SDL_RenderClear(renderer);
 
     // Desktop background photo stretched to the full window.
@@ -227,14 +230,15 @@ void JKDesktopShell::Draw(SDL_Renderer* renderer) {
             SDL_RenderCopy(renderer, icon.texture, nullptr, &art);
         } else {
             if (icon.appName == "minesweeper") {
-                SDL_SetRenderDrawColor(renderer, 128, 128, 128, 255);
+                SDL_SetRenderDrawColor(renderer, t.launcherCellPlaceholder.r, t.launcherCellPlaceholder.g, t.launcherCellPlaceholder.b, 255);
             } else if (icon.appName == "tetris") {
+                // 의도적 리터럴 잔존 — 앱 식별색 (P2 테마 스왑 제외).
                 SDL_SetRenderDrawColor(renderer, 128, 0, 128, 255);
             } else {
-                SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255);
+                SDL_SetRenderDrawColor(renderer, t.launcherCellFace.r, t.launcherCellFace.g, t.launcherCellFace.b, 255);
             }
             SDL_RenderFillRect(renderer, &rc);
-            SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+            SDL_SetRenderDrawColor(renderer, t.launcherCellOutline.r, t.launcherCellOutline.g, t.launcherCellOutline.b, 255);
             SDL_RenderDrawRect(renderer, &rc);
         }
     }
