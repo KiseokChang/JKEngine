@@ -1384,6 +1384,13 @@ void JKWindowServer::ProcessPendingMessages() {
         // 만료 기계로 회수하되 오류 문자열만 대화상자에 맞춘다.
         const char* timeoutErr =
             (it->kind == "file_open") ? "dialog_timeout" : "approval_timeout";
+        // 다이얼로그가 result 없이 죽으면(크래시/kill/요청자 먼저 종료) 슬롯도
+        // 같이 비워야 한다 — 안 그러면 이후 file_open이 서버 재시작까지
+        // dialog_busy로 막힌다. 새 무효화 기계 없이 이 스캔 안에서 회수.
+        if (it->kind == "file_open" &&
+            pendingFileDialog_.requestId == it->requestId) {
+            pendingFileDialog_ = PendingFileDialog{};
+        }
         for (auto& c : clients_) {
             if (c && c->Id() == it->requesterId && !c->IsDisconnected()) {
                 ipc::WriteAgentJson(c->Transport(), ipc::MsgType::AgentReply,
@@ -2352,8 +2359,9 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         req.GetObjStr("args", "filter", filter);
         req.GetObjStr("args", "start", start);
         req.GetObjStr("args", "title", title);
-        // 256자 상한 (trust_request의 bad_name 선례): 스폰 인자 json이
-        // SpawnProcess의 2048 cmdLine 버퍼를 넘지 않게 한다.
+        // 256자 상한 (trust_request의 bad_name 선례) — 1차 가지치기. 실제
+        // cmdLine 경계는 아래의 이스케이프 후 크기 검사다 (원시 길이만으로는
+        // 인용 확장을 못 잡는다).
         if (filter.size() > 256 || start.size() > 256 || title.size() > 256) {
             reply = "{\"ok\":false,\"error\":\"bad_request\"}";
         } else if (pendingFileDialog_.requesterConnId != 0) {
@@ -2361,17 +2369,6 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             // 파킹해도 해소자가 없으므로 즉시 오류 (만료 대기보다 정직).
             reply = "{\"ok\":false,\"error\":\"dialog_busy\"}";
         } else {
-            // 만료는 승인 파이프라인의 60s가 아니라 600s — 사용자가
-            // 다이얼로그에서 고민하는 시간을 감안한다. 요청자 연결이 먼저
-            // 닫혀도 이 만료 스캔이 회수한다 (신규 무효화 코드 없음).
-            PendingApproval p;
-            p.kind = "file_open";
-            p.requestId = nextApprovalId_++;
-            p.queryId = queryId;
-            p.requesterId = client.Id();
-            p.targetId = 0;  // 대상 창 없음 — 다이얼로그가 해소자
-            p.expiresAt = std::time(nullptr) + 600;
-            pendingApprovals_.push_back(p);
             // 스폰 인자: args 그대로의 json (선택 필드만 — 없으면 키 생략).
             std::string jsonArgs = "{";
             bool first = true;
@@ -2386,17 +2383,39 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             appendField("start", start);
             appendField("title", title);
             jsonArgs += "}";
-            if (!SpawnClient(("filedlg:" + jsonArgs).c_str(), false)) {
-                // 스폰 실패 — 파킹 즉시 해소 (오류 응답).
-                pendingApprovals_.pop_back();
-                reply = "{\"ok\":false,\"error\":\"spawn_failed\"}";
+            // publish_event의 이스케이프 후 크기 검사 선례: cmdLine 잘림은
+            // 조용히 일어나므로 스폰 전에 이스케이프된 크기를 검문한다. 1000
+            // = SpawnProcess cmdLine 2048 − 최악 exe 경로(~1026, 인용 포함)
+            // − "--filedlg \"\"" 골격 — 원시 json에서 인용 확장분까지 포함한
+            // 상계(JsonEsc는 인용+백슬래시를 모두 늘리므로 보수적).
+            if (JsonEsc(jsonArgs).size() > 1000) {
+                reply = "{\"ok\":false,\"error\":\"bad_request\"}";
             } else {
-                pendingFileDialog_.requesterConnId = client.Id();
-                pendingFileDialog_.requestId = p.requestId;
-                pendingFileDialog_.filter = filter;
-                pendingFileDialog_.start = start;
-                pendingFileDialog_.title = title;
-                replied = false;  // file_open_result(또는 만료)가 응답한다
+                // 만료는 승인 파이프라인의 60s가 아니라 600s — 사용자가
+                // 다이얼로그에서 고민하는 시간을 감안한다. 요청자 연결이 먼저
+                // 닫혀도 이 만료 스캔이 회수한다 (신규 무효화 코드 없음).
+                PendingApproval p;
+                p.kind = "file_open";
+                p.requestId = nextApprovalId_++;
+                p.queryId = queryId;
+                p.requesterId = client.Id();
+                p.targetId = 0;  // 대상 창 없음 — 다이얼로그가 해소자
+                p.expiresAt = std::time(nullptr) + 600;
+                pendingApprovals_.push_back(p);
+                auto parkedIt = std::prev(pendingApprovals_.end());
+                if (!SpawnClient(("filedlg:" + jsonArgs).c_str(), false)) {
+                    // 스폰 실패 — 파킹 즉시 해소 (오류 응답). 저장해둔
+                    // 반복자로 지운다 (pop_back의 순서 가정 제거).
+                    pendingApprovals_.erase(parkedIt);
+                    reply = "{\"ok\":false,\"error\":\"spawn_failed\"}";
+                } else {
+                    pendingFileDialog_.requesterConnId = client.Id();
+                    pendingFileDialog_.requestId = p.requestId;
+                    pendingFileDialog_.filter = filter;
+                    pendingFileDialog_.start = start;
+                    pendingFileDialog_.title = title;
+                    replied = false;  // file_open_result(또는 만료)가 응답한다
+                }
             }
         }
     } else if (tool == "file_dialog_params") {
