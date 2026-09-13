@@ -33,7 +33,7 @@
 | 유닛 | 소유 | 위치 |
 |---|---|---|
 | **jkcore** (static) | 위젯(JKControl 계열)/DC/한글/오디오/ipc(wire+pipe+shmem)/agent client+json/이벤트 | include/ 루트 + src/ipc, src/agent |
-| **jkclient** (static, jkcore 위) | JKClientSurface/JKClientApplication + 터미널 스택(파서/그리드/아틀라스/컨피그; ConPTY 브리지는 jkcore 잔존 — §5 R2) | src/client, src/terminal |
+| **jkclient** (static, jkcore 위) | JKClientSurface/JKClientApplication + 터미널 스택(파서/그리드/아틀라스/컨피그; ConPTY 브리지는 jkcore 잔존 — §6 R2) | src/client, src/terminal |
 | **jkserver** (static, jkcore 위) | JKWindowServer/JKCompositor/JKCompositorLayer/JKCompositorOutput/JKClientConnection | src/server |
 | **desktop 셸** (유닛) | launcher 셀/배경/스폰 (`JKDesktopShell` + `ShellHost` 주입) | desktop/ |
 
@@ -61,7 +61,7 @@
 | 서버 소스 (`src/server/*`) | `--target jkwinserver` (+ 필요 시 jkdesktop 재링크) | 없음 |
 | 클라/터미널 스택 | jkclient 재빌드 + 앱 DLL 재링크 + **jkx_packages 재포장** (레슨 18) | 있음 |
 | 셸 (`desktop/`) | jkdesktop_shell + jkwinserver/jkdesktop 재링크 | 없음 |
-| 풀 빌드 | `cmake --build .` (변함없음) — | — |
+| 풀 빌드 | `cmake --build .` (변함없음) | — |
 
 전제와 관례:
 
