@@ -90,6 +90,21 @@ inline void ApplyToImGui(ImGuiStyle& style) {
     style.Colors[ImGuiCol_DragDropTarget]   = ToImVec4(t.focusRing);
     // 모달 뒤 디밍 — 반투명 검정 기능색 (테마 토큰 아님; 유일한 리터럴)
     style.Colors[ImGuiCol_ModalWindowDimBg] = ImVec4(0.0f, 0.0f, 0.0f, 96.0f / 255.0f);
+    // 테이블/탭 — 게이트 실측에서 기본값 잔존 확인 (docs/47) 표면/베벨 토큰으로 확장
+    // 테이블 — 헤더는 위젯 면, 테두리는 bevel 쌍, 행 배경은 클라 영역 토큰
+    style.Colors[ImGuiCol_TableHeaderBg]    = ToImVec4(t.widgetFace);
+    style.Colors[ImGuiCol_TableBorderStrong]= ToImVec4(t.bevelDark);
+    style.Colors[ImGuiCol_TableBorderLight] = ToImVec4(t.bevelLight);
+    style.Colors[ImGuiCol_TableRowBg]       = ToImVec4(t.windowClientBg);
+    style.Colors[ImGuiCol_TableRowBgAlt]    = ToImVec4(Lighten(t.windowClientBg, 0.05f)); // 얼룩말 줄 — 표면 살짝 밝게
+    // 탭 — 비선택은 위젯 면 변주, 선택은 selectionBg (kClassic 회귀: selectionBg가 액센트 — 의도)
+    style.Colors[ImGuiCol_Tab]              = ToImVec4(t.widgetFace);
+    style.Colors[ImGuiCol_TabHovered]       = ToImVec4(Lighten(t.widgetFace, 0.12f));
+    style.Colors[ImGuiCol_TabActive]        = ToImVec4(Lighten(t.widgetFace, 0.08f)); // 1.90.9+ TabSelected 별칭 슬롯 — 아래 TabSelected가 최종값
+    style.Colors[ImGuiCol_TabSelected]      = ToImVec4(t.selectionBg);
+    style.Colors[ImGuiCol_TabSelectedOverline] = ToImVec4(t.selectionBg);
+    style.Colors[ImGuiCol_TabDimmed]        = ToImVec4(Lighten(t.windowClientBg, 0.04f));
+    style.Colors[ImGuiCol_TabDimmedSelected]= ToImVec4(Lighten(t.windowClientBg, 0.10f));
 }
 
 // 편의 래퍼 — CreateContext() 직후 1회 호출용.
