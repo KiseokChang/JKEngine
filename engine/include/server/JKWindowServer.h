@@ -54,6 +54,11 @@ public:
     // Signal the server to stop and unblock the acceptor thread if necessary.
     void Stop();
 
+    // P1 ③: which exe hosts client modules (SpawnClient builds its command
+    // line from this). The server exe name and the client host name are
+    // different concerns — jkwinserver.exe spawns jkdesktop.exe clients.
+    void SetClientHostExe(const std::string& exeName) { clientHostExe_ = exeName; }
+
 private:
     void AcceptorLoop();
     void ProcessPendingClients();
@@ -286,6 +291,10 @@ private:
     // Throttle launcher icon double-clicks / rapid spawns to one per app per
     // 500 ms. Stores the last spawn time keyed by app name.
     std::unordered_map<std::string, std::chrono::steady_clock::time_point> lastSpawnTimes_;
+
+    // Client host exe (P1 ③, SetClientHostExe). Defaults to jkdesktop.exe so
+    // behavior is identical even if nobody injects a name.
+    std::string clientHostExe_ = "jkdesktop.exe";
 
     // Child process handles kept from SpawnProcess, keyed by pid, so a
     // disconnecting client can be classified as crashed (non-zero exit) vs

@@ -553,6 +553,25 @@ if(WIN32)
 endif()
 
 # ---------------------------------------------------------------------------
+# jkwinserver.exe (P1 ③, spec §2): thin server host. The client host exe is
+# jkdesktop.exe (SetClientHostExe) — smoke scripts keep driving jkdesktop,
+# which keeps its --server mode unchanged.
+# ---------------------------------------------------------------------------
+add_executable(jkwinserver src/jkwinserver_main.cpp)
+target_link_libraries(jkwinserver PRIVATE jkserver)
+if(WIN32)
+    target_link_options(jkwinserver PRIVATE -static-libstdc++ -static-libgcc)
+endif()
+
+# Ship the assets/ tree next to jkwinserver.exe too — the in-process shell
+# (launcher grid / desktop background) loads assets relative to SDL_GetBasePath.
+add_custom_command(TARGET jkwinserver POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets"
+        "$<TARGET_FILE_DIR:jkwinserver>/assets"
+)
+
+# ---------------------------------------------------------------------------
 # jkchat: Desktop Agent chat window (spec §6.2). Plain Win32 UI —
 # deliberately OUTSIDE the JKWindow/SDL system (user constraint; keeps the
 # door open for STT later). Links jkcore for the same JKAgentClient stack.

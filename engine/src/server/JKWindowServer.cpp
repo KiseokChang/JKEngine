@@ -2744,9 +2744,10 @@ void JKWindowServer::SpawnClient(const char* appName, bool fromJkx) {
     if (fromJkx) {
         // A .jkx container path — may contain spaces, so quote it.
         std::string arg = std::string("--jkx \"") + appName + "\"";
-        SpawnProcess("jkdesktop.exe", arg, appName);
+        SpawnProcess(clientHostExe_.c_str(), arg, appName);
     } else {
-        SpawnProcess("jkdesktop.exe", std::string("--client ") + appName, appName);
+        SpawnProcess(clientHostExe_.c_str(),
+                     std::string("--client ") + appName, appName);
     }
 #else
     (void)appName;
