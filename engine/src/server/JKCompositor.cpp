@@ -1,5 +1,7 @@
 #include <server/JKCompositor.h>
 
+#include "theme/JKTheme.h"
+
 #include <algorithm>
 #include <cstdio>
 
@@ -315,8 +317,8 @@ void JKCompositor::DrawCloseOverlay(const JKCompositorLayer& layer, float scale)
         return;
     }
     // Mirrors JKWindow::GetCloseButtonRect / close-button painting
-    // (src/JKWindow.cpp:171-229): 20x20 at 2px inset from the top-right,
-    // grey fill, black outline, white X with a 5px pad.
+    // (src/JKWindow.cpp): 20x20 at 2px inset from the top-right, 5px X pad.
+    // colors: jk::theme::kDefault (P2)
     // The rect lives in SURFACE px like the chrome hit-test zones
     // (JKWindowServer::TryChromeGrab), so it shrinks proportionally on
     // fit-scaled layers — Width()*ScaleX() is the on-screen width.
@@ -327,12 +329,13 @@ void JKCompositor::DrawCloseOverlay(const JKCompositorLayer& layer, float scale)
         static_cast<int>(kChromeCloseSize * layer.ScaleY() * scale)
     };
     const int pad = static_cast<int>(5 * layer.ScaleX() * scale);
+    const auto& t = jk::theme::kDefault;
 
-    SDL_SetRenderDrawColor(renderer_, 192, 192, 192, 255);
+    SDL_SetRenderDrawColor(renderer_, t.chromeButtonFace.r, t.chromeButtonFace.g, t.chromeButtonFace.b, 255);
     SDL_RenderFillRect(renderer_, &btn);
-    SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 255);
+    SDL_SetRenderDrawColor(renderer_, t.chromeBorder.r, t.chromeBorder.g, t.chromeBorder.b, 255);
     SDL_RenderDrawRect(renderer_, &btn);
-    SDL_SetRenderDrawColor(renderer_, 255, 255, 255, 255);
+    SDL_SetRenderDrawColor(renderer_, t.chromeButtonGlyph.r, t.chromeButtonGlyph.g, t.chromeButtonGlyph.b, 255);
     SDL_RenderDrawLine(renderer_, btn.x + pad, btn.y + pad,
                        btn.x + btn.w - pad - 1, btn.y + btn.h - pad - 1);
     SDL_RenderDrawLine(renderer_, btn.x + btn.w - pad - 1, btn.y + pad,
@@ -355,12 +358,13 @@ void JKCompositor::DrawMaximizeButton(const JKCompositorLayer& layer, float scal
         static_cast<int>(kChromeMaximizeSize * layer.ScaleX() * scale),
         static_cast<int>(kChromeMaximizeSize * layer.ScaleY() * scale)
     };
+    const auto& t = jk::theme::kDefault;
 
-    SDL_SetRenderDrawColor(renderer_, 192, 192, 192, 255);
+    SDL_SetRenderDrawColor(renderer_, t.chromeButtonFace.r, t.chromeButtonFace.g, t.chromeButtonFace.b, 255);
     SDL_RenderFillRect(renderer_, &btn);
-    SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 255);
+    SDL_SetRenderDrawColor(renderer_, t.chromeBorder.r, t.chromeBorder.g, t.chromeBorder.b, 255);
     SDL_RenderDrawRect(renderer_, &btn);
-    SDL_SetRenderDrawColor(renderer_, 255, 255, 255, 255);
+    SDL_SetRenderDrawColor(renderer_, t.chromeButtonGlyph.r, t.chromeButtonGlyph.g, t.chromeButtonGlyph.b, 255);
     if (layer.Maximized()) {
         // Restore glyph: two overlapping white outlines — a big square pad 7
         // with a smaller square pad 3 in front (the window + its shadow).

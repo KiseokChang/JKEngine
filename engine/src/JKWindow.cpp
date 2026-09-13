@@ -1,5 +1,8 @@
 #include <JKWindow.h>
 #include <JKApplication.h>
+
+#include "theme/JKTheme.h"
+
 #include <algorithm>
 #include <cstdio>
 
@@ -213,11 +216,12 @@ void JKWindow::PaintWindow(JKDC& dc) {
     // 윈도우 프레임(타이틀 바, 테두리)은 윈도우 화면 영역으로 클립한다.
     dc.PushClipRect(screenRect);
 
-    // 타이틀 바 (classic blue). SDL 논리 높이 clientRect_.y를 사용하며,
-    // SDL_RenderSetScale()이 HiDPI 물리 픽셀로 변환한다.
+    // 타이틀 바 (colors: jk::theme::kDefault — P2). SDL 논리 높이 clientRect_.y를
+    // 사용하며, SDL_RenderSetScale()이 HiDPI 물리 픽셀로 변환한다.
+    const auto& t = jk::theme::kDefault;
     JKRect titleBar = screenRect;
     titleBar.h = clientRect_.y;
-    dc.SetColor(0, 0, 128, 255);
+    dc.SetColor(t.chromeTitleBg.r, t.chromeTitleBg.g, t.chromeTitleBg.b, 255);
     dc.FillRect(titleBar);
 
     // 닫기 버튼은 부모가 있는 떠 있는 윈도우에만 표시한다.
@@ -226,8 +230,8 @@ void JKWindow::PaintWindow(JKDC& dc) {
 
     // 타이틀 텍스트 (bitmap font).
     if (!title_.empty()) {
-        dc.SetTextColor(255, 255, 255);
-        dc.SetBackColor(0, 0, 128);
+        dc.SetTextColor(t.chromeTitleText.r, t.chromeTitleText.g, t.chromeTitleText.b);
+        dc.SetBackColor(t.chromeTitleBg.r, t.chromeTitleBg.g, t.chromeTitleBg.b);
         JKRect textRect = titleBar;
         // 안쪽 여백 4px, 닫기 버튼이 있으면 우측 여유를 추가한다.
         textRect.x += 4;
@@ -235,15 +239,15 @@ void JKWindow::PaintWindow(JKDC& dc) {
         dc.TextOutX(textRect, title_.c_str(), ADJ_YCENTER | ADJ_LEFT, false);
     }
 
-    // 닫기 버튼: 회색 배경에 흰색 ×.
+    // 닫기 버튼: 면/윤곽/글리프는 jk::theme::kDefault (P2).
     if (!closeBtn.IsEmpty()) {
-        dc.SetColor(192, 192, 192, 255);
+        dc.SetColor(t.chromeButtonFace.r, t.chromeButtonFace.g, t.chromeButtonFace.b, 255);
         dc.FillRect(closeBtn);
-        dc.SetColor(0, 0, 0, 255);
+        dc.SetColor(t.chromeBorder.r, t.chromeBorder.g, t.chromeBorder.b, 255);
         dc.DrawRect(closeBtn);
 
         constexpr int32_t kPad = 5;
-        dc.SetColor(255, 255, 255, 255);
+        dc.SetColor(t.chromeButtonGlyph.r, t.chromeButtonGlyph.g, t.chromeButtonGlyph.b, 255);
         dc.DrawLine(closeBtn.x + kPad, closeBtn.y + kPad,
                     closeBtn.x + closeBtn.w - kPad - 1,
                     closeBtn.y + closeBtn.h - kPad - 1);
@@ -253,7 +257,7 @@ void JKWindow::PaintWindow(JKDC& dc) {
     }
 
     // 테두리
-    dc.SetColor(192, 192, 192, 255);
+    dc.SetColor(t.chromeBorder.r, t.chromeBorder.g, t.chromeBorder.b, 255);
     dc.DrawRect(screenRect);
 
     dc.PopClipRect();
