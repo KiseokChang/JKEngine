@@ -8,6 +8,7 @@
 #include <JKPlatform.h>
 #include <JKSoundManager.h>
 #include <JKTimerThread.h>
+#include <theme/JKTheme.h>
 #include <cstdio>
 #include <cstring>
 
@@ -415,7 +416,9 @@ void JKApplication::ComposeScene() {
     dc.SetHangulManager(hangulManager_.get());
 
     // Desktop background.
-    dc.SetColor(192, 192, 192, 255);
+    dc.SetColor(jk::theme::current().appClearBg.r,
+                jk::theme::current().appClearBg.g,
+                jk::theme::current().appClearBg.b, 255);
     dc.Clear();
 
     // Paint the main window tree and any modal window on top.
