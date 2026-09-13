@@ -4,6 +4,7 @@
 #include <client/JKClientApplication.h>
 #include <chrono>
 #include <string>
+#include <vector>
 
 namespace jk {
 
@@ -30,9 +31,15 @@ protected:
     void RenderOverlay(SDL_Renderer* renderer, int w, int h) override;
 
 private:
+    // One bookmark row in the bar. title is never empty on disk rows (load
+    // substitutes the URL); url is the exact string matched by the ★ toggle.
+    struct Bookmark { std::string title; std::string url; };
+
     void BuildUi(int w, int h);
     void InitCef();
     void Navigate(const char* url);
+    void LoadBookmarks();  // once at OnInit; missing/corrupt -> empty (fail-open)
+    void SaveBookmarks();  // after every mutation; one-time .bak preservation
 
     bool frameDirty_ = true;
     bool imguiReady_ = false;
@@ -53,6 +60,9 @@ private:
     // thread that reads these in BuildUi — so no locks; a plain member copy
     // per frame is the whole synchronization story.
     std::string currentUrl_, currentTitle_;
+
+    // Bookmark bar state (task 2): <exeDir>\state\bookmarks.json, app-local.
+    std::vector<Bookmark> bookmarks_;
 
     int pageY_ = 110; // 2 rows: toolbar + bookmark row (see task 2)
     int pageW_ = 960, pageH_ = 576;

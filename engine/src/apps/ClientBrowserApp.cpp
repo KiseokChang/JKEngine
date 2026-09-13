@@ -8,6 +8,7 @@
 #include <imgui_impl_jkwindow.h>
 #include <imgui.h>
 #include "theme/JKThemeImGui.h"
+#include <agent/JKAgentJson.h>
 #include <JKWindow.h>
 #include <SDL.h>
 
@@ -109,6 +110,61 @@ void CefToUtf8(const cef_string_t* s, std::string& out) {
     if (!cef_string_utf16_to_utf8(s->str, s->length, &u8) || !u8.str) return;
     out.assign(u8.str, u8.length);
     cef_string_utf8_clear(&u8);
+}
+
+// ---------------------------------------------------------------------------
+// Bookmark persistence (task 2): <exeDir>\state\bookmarks.json, app-local.
+// ---------------------------------------------------------------------------
+
+// Minimal JSON string escape — browser-local copy of the server's
+// JKWindowServer::JsonEsc (JKWindowServer.cpp:550): quotes, backslash, control
+// bytes <0x20 as \u00xx. UTF-8 bytes (Korean titles) pass through untouched.
+std::string JsonEsc(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 8);
+    char num[8];
+    for (char ch : s) {
+        const unsigned char c = static_cast<unsigned char>(ch);
+        if (c == '"')       out += "\\\"";
+        else if (c == '\\') out += "\\\\";
+        else if (c < 0x20)  { std::snprintf(num, sizeof(num), "\\u%04x", c); out += num; }
+        else                out += ch;
+    }
+    return out;
+}
+
+// exe dir with trailing '/' — the same cache InitCef fills (g_exeDirSlash).
+// Bookmark load runs at OnInit, before the lazy first-frame InitCef, so this
+// computes (and caches) it on demand instead of depending on init order.
+const std::string& ExeDirSlash() {
+    if (g_exeDirSlash.empty()) {
+        char exePath[MAX_PATH];
+        GetModuleFileNameA(NULL, exePath, MAX_PATH);
+        std::string dir = exePath;
+        const size_t slash = dir.find_last_of('\\');
+        if (slash != std::string::npos)
+            dir = dir.substr(0, slash);
+        g_exeDirSlash = dir;
+        for (char& c : g_exeDirSlash)
+            if (c == '\\') c = '/';
+        g_exeDirSlash += '/';
+    }
+    return g_exeDirSlash;
+}
+
+// Truncates to fit maxW pixels, cutting on UTF-8 sequence boundaries and
+// suffixing ASCII "..." (U+2026 is outside the baked glyph ranges).
+std::string TruncateLabel(const std::string& s, float maxW) {
+    if (ImGui::CalcTextSize(s.c_str()).x <= maxW) return s;
+    std::string out = s;
+    while (out.size() > 4) {
+        size_t n = out.size() - 1;
+        while (n > 0 && ((unsigned char)out[n] & 0xC0) == 0x80) --n;
+        out.resize(n);
+        const std::string cand = out + "...";
+        if (ImGui::CalcTextSize(cand.c_str()).x <= maxW) return cand;
+    }
+    return "...";
 }
 
 // ---------------------------------------------------------------------------
@@ -404,6 +460,24 @@ void ClientBrowserApp::OnInit() {
     ImGui::CreateContext();
     jk::theme::ApplyImGuiTheme(); // JKTheme 팔레트 봉합 (P2 단계 3)
     ImGui::GetIO().IniFilename = nullptr;
+    // Korean UI (★ 힌트/북마크 제목·툴팁/삭제 메뉴) — Malgun Gothic, the
+    // ClientFileDialogApp idiom. GetGlyphRangesKorean lacks U+2605/2606 (★☆),
+    // so a local range array adds just those two code points on top of it.
+    {
+        ImGuiIO& io = ImGui::GetIO();
+        static const ImWchar koreanWithStar[] = {
+            0x0020, 0x00FF, // Basic Latin + Latin Supplement (covers »)
+            0x2605, 0x2606, // BLACK/WHITE STAR — the bookmark toggle glyph
+            0x3131, 0x3163, // KS X 1001 Hangul compatibility jamo
+            0xAC00, 0xD7A3, // KS X 1001 Hangul syllables
+            0xFF00, 0xFFDC, // halfwidth/fullwidth forms
+            0,
+        };
+        io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\malgun.ttf", 16.0f,
+                                     nullptr, koreanWithStar);
+    }
+
+    LoadBookmarks(); // task 2 step 4: one-shot restore at startup
     lastFrame_ = std::chrono::steady_clock::now();
 }
 
@@ -673,6 +747,74 @@ void ClientBrowserApp::Navigate(const char* url) {
     cef_string_utf16_clear(&us); // load_url copies; our scratch is done
 }
 
+// Fail-open restore: missing, oversized, or corrupt file -> empty list, never
+// an error dialog (the bar just starts empty). Rows without a URL are skipped.
+void ClientBrowserApp::LoadBookmarks() {
+    bookmarks_.clear();
+    const std::string path = ExeDirSlash() + "state/bookmarks.json";
+    FILE* f = fopen(path.c_str(), "rb");
+    if (!f) return;
+    std::string buf;
+    char chunk[4096];
+    size_t n;
+    while (buf.size() < 64 * 1024 && (n = fread(chunk, 1, sizeof chunk, f)) > 0)
+        buf.append(chunk, n);
+    fclose(f);
+    if (buf.size() >= 64 * 1024) return; // oversized -> treat as corrupt
+
+    agent::AgentJson json(buf);
+    int count = 0;
+    if (!json.ok() || !json.GetArraySize("bookmarks", count) || count <= 0)
+        return;
+    if (count > 256) count = 256; // item cap
+    for (int i = 0; i < count; ++i) {
+        std::string title, url;
+        if (!json.GetArrStr("bookmarks", i, "url", url) || url.empty())
+            continue; // malformed row
+        if (!json.GetArrStr("bookmarks", i, "title", title))
+            title.clear();
+        if (title.empty()) title = url;
+        bookmarks_.push_back({std::move(title), std::move(url)});
+    }
+}
+
+// Overwrites bookmarks.json after every mutation. Before the first overwrite
+// of a pre-existing file, copies it to bookmarks.json.bak exactly once — later
+// saves never refresh the .bak, so the pre-corruption original survives.
+void ClientBrowserApp::SaveBookmarks() {
+    const std::string stateDir = ExeDirSlash() + "state";
+    CreateDirectoryA(stateDir.c_str(), NULL); // idempotent when it exists
+    const std::string path = stateDir + "/bookmarks.json";
+    const std::string bakPath = path + ".bak";
+    if (GetFileAttributesA(path.c_str()) != INVALID_FILE_ATTRIBUTES &&
+        GetFileAttributesA(bakPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        if (FILE* src = fopen(path.c_str(), "rb")) {
+            FILE* dst = fopen(bakPath.c_str(), "wb");
+            if (dst) {
+                char cp[4096];
+                size_t cn;
+                while ((cn = fread(cp, 1, sizeof cp, src)) > 0)
+                    fwrite(cp, 1, cn, dst);
+                fclose(dst);
+            }
+            fclose(src);
+        }
+    }
+
+    std::string json = "{\"bookmarks\":[";
+    for (size_t i = 0; i < bookmarks_.size(); ++i) {
+        if (i) json += ",";
+        json += "{\"title\":\"" + JsonEsc(bookmarks_[i].title) +
+                "\",\"url\":\"" + JsonEsc(bookmarks_[i].url) + "\"}";
+    }
+    json += "]}";
+
+    FILE* f = fopen(path.c_str(), "wb");
+    if (!f) return; // unreadable state dir: bar keeps working in memory
+    fwrite(json.data(), 1, json.size(), f);
+    fclose(f);
+}
+
 void ClientBrowserApp::BuildUi(int w, int h) {
     // Page host: full-surface NoInputs window, so hovering the page keeps
     // io.WantCaptureMouse false and mouse/keys fall through to CEF.
@@ -737,7 +879,9 @@ void ClientBrowserApp::BuildUi(int w, int h) {
     }
     ImGui::SameLine();
 
-    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 100);
+    // -170 reserves the Go + Home + ★ widgets to the right (task 2 added ★;
+    // the old -100 left it clipped past the bar's right edge).
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 170);
     // Hint carries the live page URL while the user hasn't typed anything —
     // the buffer stays user-owned (a hint is never written into urlBuf_).
     // The hint arg is a plain value, not a printf format string.
@@ -745,7 +889,12 @@ void ClientBrowserApp::BuildUi(int w, int h) {
                            ? "https://  (Enter to load)"
                            : currentUrl_.c_str();
     const bool go = ImGui::InputTextWithHint("##url", hint, urlBuf_,
-                                             sizeof(urlBuf_));
+                                             sizeof(urlBuf_))
+                    // Commit on Enter only. InputText also reports true when
+                    // clicking another bar widget deactivates it; without
+                    // this gate any button click (★, a bookmark) would
+                    // Navigate(urlBuf_) in the same frame.
+                    && ImGui::IsItemFocused();
     ImGui::SameLine();
     if (ImGui::Button("Go") || go)
         Navigate(urlBuf_);
@@ -757,10 +906,112 @@ void ClientBrowserApp::BuildUi(int w, int h) {
         snprintf(urlBuf_, sizeof(urlBuf_), "%s", home);
         Navigate(urlBuf_);
     }
-    // Second row: the bookmark bar strip (task 2 fills it with the real
-    // widgets; this task lays out the row and its placeholder hint).
+
+    // ★ toggle: adds/removes the current page. No-op while no page is loaded
+    // (currentUrl_ empty). Highlighted with the selectionBg token while the
+    // page is bookmarked — theme token swap, no new color literals.
+    ImGui::SameLine();
+    bool bookmarked = false;
+    for (const Bookmark& b : bookmarks_)
+        if (b.url == currentUrl_) { bookmarked = true; break; }
+    const bool noUrl = currentUrl_.empty();
+    if (noUrl) ImGui::BeginDisabled();
+    if (bookmarked) {
+        const auto& th = jk::theme::current();
+        ImGui::PushStyleColor(ImGuiCol_Button,
+                              jk::theme::ToImVec4(th.selectionBg));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+                              jk::theme::ToImVec4(
+                                  jk::theme::Lighten(th.selectionBg, 0.12f)));
+    }
+    if (ImGui::Button(bookmarked ? "★" : "☆") && !noUrl) {
+        bool removed = false;
+        for (size_t i = 0; i < bookmarks_.size(); ++i) {
+            if (bookmarks_[i].url == currentUrl_) {
+                bookmarks_.erase(bookmarks_.begin() + i);
+                removed = true;
+                break;
+            }
+        }
+        if (!removed)
+            bookmarks_.push_back({currentTitle_.empty() ? currentUrl_
+                                                        : currentTitle_,
+                                  currentUrl_});
+        SaveBookmarks();
+    }
+    if (bookmarked) ImGui::PopStyleColor(2);
+    if (noUrl) ImGui::EndDisabled();
+
+    // Second row: the bookmark bar (task 2). Left-click navigates, right-click
+    // opens the 삭제 menu, items that no longer fit collapse into a "»"
+    // popup. Empty state keeps the T1 hint text.
     ImGui::Separator();
-    ImGui::TextUnformatted("★로 현재 페이지 추가");
+    if (bookmarks_.empty()) {
+        ImGui::TextUnformatted("★로 현재 페이지 추가");
+    } else {
+        const ImGuiStyle& style = ImGui::GetStyle();
+        const float moreW = ImGui::CalcTextSize("»").x +
+                            style.FramePadding.x * 2.0f;
+        size_t i = 0;
+        bool removed = false;
+        for (; i < bookmarks_.size() && !removed; ++i) {
+            if (i > 0) ImGui::SameLine();
+            const float reserve =
+                (i + 1 < bookmarks_.size()) ? moreW + style.ItemSpacing.x : 0.0f;
+            const std::string label =
+                TruncateLabel(bookmarks_[i].title, 140.0f);
+            if (ImGui::GetContentRegionAvail().x <
+                ImGui::CalcTextSize(label.c_str()).x +
+                    style.FramePadding.x * 2.0f + reserve)
+                break; // row full -> remainder goes to the "»" popup
+            ImGui::PushID((int)i);
+            if (ImGui::Button(label.c_str()))
+                Navigate(bookmarks_[i].url.c_str());
+            if (ImGui::BeginItemTooltip()) {
+                ImGui::TextUnformatted(bookmarks_[i].title.c_str());
+                ImGui::TextUnformatted(bookmarks_[i].url.c_str());
+                ImGui::EndTooltip();
+            }
+            if (ImGui::BeginPopupContextItem("bkm_ctx")) {
+                if (ImGui::MenuItem("삭제")) {
+                    bookmarks_.erase(bookmarks_.begin() + i);
+                    SaveBookmarks();
+                    removed = true; // indices shifted; re-render next frame
+                }
+                ImGui::EndPopup();
+            }
+            ImGui::PopID();
+        }
+        if (!removed && i < bookmarks_.size()) {
+            ImGui::SameLine();
+            if (ImGui::Button("»"))
+                ImGui::OpenPopup("bkm_more");
+            if (ImGui::BeginPopup("bkm_more")) {
+                for (; i < bookmarks_.size(); ++i) {
+                    ImGui::PushID((int)i);
+                    if (ImGui::MenuItem(
+                            TruncateLabel(bookmarks_[i].title, 200.0f).c_str()))
+                        Navigate(bookmarks_[i].url.c_str());
+                    if (ImGui::BeginItemTooltip()) {
+                        ImGui::TextUnformatted(bookmarks_[i].title.c_str());
+                        ImGui::TextUnformatted(bookmarks_[i].url.c_str());
+                        ImGui::EndTooltip();
+                    }
+                    if (ImGui::BeginPopupContextItem("bkm_ctx")) {
+                        if (ImGui::MenuItem("삭제")) {
+                            bookmarks_.erase(bookmarks_.begin() + i);
+                            SaveBookmarks();
+                            removed = true;
+                        }
+                        ImGui::EndPopup();
+                    }
+                    ImGui::PopID();
+                    if (removed) break;
+                }
+                ImGui::EndPopup();
+            }
+        }
+    }
     ImGui::End();
     ImGui::PopStyleVar(2);
 }
