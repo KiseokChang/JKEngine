@@ -123,6 +123,7 @@ void ClientFileDialogApp::OnInit() {
     }
     filterAll_ = "*.*";
     filterActive_ = filterAll_;
+    BuildFilterChoices();  // seed the combo before the params reply lands
     SyncDirBuffer();
     SyncFilterBuffer();
     RefreshList();
@@ -182,8 +183,11 @@ void ClientFileDialogApp::BuildUi(int w, int h) {
         Finish(false, {});
         return;
     }
-    const bool enter = ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
-                       ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false);
+    const bool enter = (ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
+                        ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false)) &&
+                       // A combo popup swallows Enter to pick the highlighted
+                       // item — that pick must not also fire OnOk.
+                       !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId);
 
     // Sit inside the client area the root chrome leaves us (kBorder=2,
     // kTitle=24 — the server eats clicks in the title strip anyway, vplayer
@@ -260,9 +264,12 @@ void ClientFileDialogApp::BuildUi(int w, int h) {
     // (3) filter combo + file-name edit (Enter = OK).
     ImGui::SetNextItemWidth(220.0f);
     if (ImGui::BeginCombo("##filter", filterBuf_)) {
-        for (const std::string& choice : filterChoices_) {
-            if (ImGui::Selectable(choice.c_str(), choice == filterActive_)) {
-                filterActive_ = choice;
+        for (const FilterChoice& choice : filterChoices_) {
+            if (ImGui::Selectable(choice.label.c_str(),
+                                  choice.pattern == filterActive_)) {
+                filterActive_ = choice.pattern;  // pattern, never the label —
+                                                 // the 모든 파일 label is not a
+                                                 // matchable pattern (MAJOR fix)
                 SyncFilterBuffer();
                 RefreshList();
             }
@@ -333,10 +340,6 @@ void ClientFileDialogApp::RefreshList() {
         return;
     }
     for (fs::directory_iterator end; it != end; it.increment(ec)) {
-        if (ec) {
-            error_ = "디렉터리 접근이 거부되었습니다: " + dir;
-            break;
-        }
         std::error_code entryEc;
         const bool isDir = it->is_directory(entryEc);
         std::string name = it->path().filename().string();
@@ -344,6 +347,13 @@ void ClientFileDialogApp::RefreshList() {
         if (isDir || MatchFilter(name, filterActive_)) {
             found.push_back(Entry{ std::move(name), isDir });
         }
+    }
+    // increment(ec) sets the iterator to end on error ([fs.class.directory
+    // .iterator]), so the loop condition exits before an in-body check could
+    // run — the error is observable only after the loop (MAJOR-fix round 1,
+    // MINOR A): a mid-scan permission failure surfaces as the overlay.
+    if (ec) {
+        error_ = "디렉터리 접근이 거부되었습니다: " + dir;
     }
 
     // Legacy sort (JKFileDialog:153): dirs first, then by name.
@@ -460,7 +470,6 @@ void ClientFileDialogApp::PumpReplies() {
             continue;  // params is the only leg we wait on
         }
         paramsQueryId_ = 0;
-        paramsReceived_ = true;
         if (!reply.ok) continue;  // no_pending_dialog → keep the defaults
         agent::AgentJson json(reply.json);
         std::string filter, start;
@@ -500,16 +509,24 @@ void ClientFileDialogApp::BuildFilterChoices() {
                               : filterAll_.substr(start, sep - start);
         pat = Trim(pat);
         if (!pat.empty() &&
-            std::find(filterChoices_.begin(), filterChoices_.end(), pat) ==
-                filterChoices_.end()) {
-            filterChoices_.push_back(pat);
+            std::find_if(filterChoices_.begin(), filterChoices_.end(),
+                         [&](const FilterChoice& c) {
+                             return c.pattern == pat;
+                         }) == filterChoices_.end()) {
+            filterChoices_.push_back(FilterChoice{ pat, pat });
         }
         start = (sep == std::string::npos) ? filterAll_.size() : sep + 1;
     }
-    static const char* kAll = "모든 파일 (*.*)";
-    if (std::find(filterChoices_.begin(), filterChoices_.end(),
-                  std::string(kAll)) == filterChoices_.end()) {
-        filterChoices_.push_back(kAll);
+    // The all-files entry: Korean display LABEL, but the pattern handed to
+    // MatchFilter is "*.*" — the label itself would match nothing
+    // (MAJOR-fix round 1).
+    static const char* kAllLabel = "모든 파일 (*.*)";
+    static const char* kAllPattern = "*.*";
+    if (std::find_if(filterChoices_.begin(), filterChoices_.end(),
+                     [](const FilterChoice& c) {
+                         return c.pattern == kAllPattern;
+                     }) == filterChoices_.end()) {
+        filterChoices_.push_back(FilterChoice{ kAllLabel, kAllPattern });
     }
 }
 

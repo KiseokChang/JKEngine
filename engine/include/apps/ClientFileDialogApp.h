@@ -67,7 +67,9 @@ private:
     void SetFileName(const std::string& name);
     void SyncDirBuffer();
     void SyncFilterBuffer();
-    // Split filterAll_ into combo items (dedup + a 모든 파일 fallback).
+    // Split filterAll_ into combo items (dedup + a 모든 파일 fallback whose
+    // LABEL is Korean but whose pattern is "*.*" — a label must never leak
+    // into MatchFilter).
     void BuildFilterChoices();
     static std::string EscapeJson(const std::string& in);
 
@@ -78,10 +80,14 @@ private:
 
     // Filesystem state (ported from JKFileDialog — dialog-local, no jkcore
     // promotion: the module owns its core copy by design).
+    struct FilterChoice {
+        std::string label;    // combo display text
+        std::string pattern;  // what MatchFilter runs against
+    };
     std::string currentDir_;
     std::string filterAll_;      // full filter list from the params reply
     std::string filterActive_;   // the pattern MatchFilter runs against
-    std::vector<std::string> filterChoices_;  // combo items (split + 전체)
+    std::vector<FilterChoice> filterChoices_;  // combo items (split + 전체)
     std::vector<Entry> entries_;
     std::string error_;          // non-empty → error overlay in the list area
     int selectedIdx_ = -1;
@@ -96,7 +102,6 @@ private:
     uint32_t nextQueryId_ = 1;
     uint32_t paramsQueryId_ = 0;  // 0 = reply consumed (or never sent)
     bool paramsRequested_ = false;
-    bool paramsReceived_ = false;
     bool resultSent_ = false;     // file_open_result exactly-once guard
 };
 
