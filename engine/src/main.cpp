@@ -1728,6 +1728,22 @@ static int RunAppSelfTest() {
         check(jk::ExtractSelectedText(cellAt, JKTermSelRect{}).empty(),
               "termselect: empty selection extracts nothing");
 
+        // Interior gap copies as a space: an erased/never-written cell (cp==0,
+        // width==1) between two written cells must not become a raw NUL byte
+        // (a NUL inside std::string truncates SDL_SetClipboardText at that
+        // byte). Wide follower stays silent (no phantom space after the glyph).
+        // Reuses row 1 after clearing it back to the 3x2 dummy grid's layout.
+        setCell(1, 1, 0);
+        setCell(2, 1, 0, 1);
+        setCell(0, 1, 'x');
+        setCell(2, 1, 'y');
+        {
+            const std::string text =
+                jk::ExtractSelectedText(cellAt, JKTermSelRect{0, 1, 2, 1});
+            check(text == std::string("x y"),
+                  "termselect: interior gap extracts as space");
+        }
+
         // Paste sanitizer: \r\n and lone \r both become \n; the ESC byte is
         // removed (the rest of a pasted-in VT sequence stays as plain text).
         {

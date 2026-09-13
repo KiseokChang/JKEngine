@@ -135,8 +135,13 @@ inline std::vector<uint32_t> DecodeUtf8(const std::string& text) {
 // Copy rows rule (spec §2): per row take the cells up to and including the
 // LAST non-empty cell (cp != 0); a row without any non-empty cell contributes
 // an empty line. Rows are joined with "\n" — empty rows are never skipped
-// (Windows Terminal convention). Wide-cell followers (width==0, cp==0)
-// terminate the row extraction naturally: the wide glyph itself is the last
+// (Windows Terminal convention). INTERIOR empty cells copy as spaces: the
+// grid stores an erased/never-written cell as cp==0, and a gap between two
+// written cells (ConPTY cursor-positioned updates leave them all the time)
+// must not become a raw NUL byte in the payload — a NUL inside std::string
+// truncates SDL_SetClipboardText at that byte (probed: a 119-byte selection
+// landed in the clipboard as its first 37 chars). Wide-cell followers
+// (width==0, cp==0) still emit nothing: the wide glyph itself is the last
 // non-empty cell.
 //
 // CellFn is a generic row-cell accessor: cellAt(col, row) -> const
@@ -156,7 +161,9 @@ std::string ExtractSelectedText(CellFn&& cellAt, const JKTermSelRect& sel) {
             }
         }
         for (int c = sel.x0; c <= last; ++c) {
-            AppendUtf8(out, cellAt(c, r).cp);
+            const JKTermCell& cell = cellAt(c, r);
+            if (cell.cp == 0 && cell.width == 0) continue;   // wide follower
+            AppendUtf8(out, cell.cp == 0 ? 0x20 : cell.cp);   // gap -> space
         }
     }
     return out;
