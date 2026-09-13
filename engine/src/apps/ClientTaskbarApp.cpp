@@ -3,6 +3,8 @@
 // WindowList snapshots, and sends WindowActivate on click.
 #include <apps/ClientTaskbarApp.h>
 
+#include "theme/JKTheme.h"
+
 #include <JKHangulUtil.h>
 #include <cstdio>
 #include <algorithm>
@@ -158,20 +160,23 @@ void TaskbarButton::OnPaintClient(JKDC& dc) {
 
     // Variant faces (docs/28): active = light + white border,
     // minimized = dark + dim text, normal = mid grey.
+    // colors: jk::theme::kDefault (P2) — 값 불변 토큰화.
+    const auto& t = jk::theme::kDefault;
     uint8_t fr, fg, fb, tr, tg, tb;
     if (active_) {
-        fr = 92; fg = 98; fb = 122;
-        tr = 255; tg = 255; tb = 255;
+        fr = t.taskbarFaceActive.r; fg = t.taskbarFaceActive.g; fb = t.taskbarFaceActive.b;
+        tr = t.taskbarTextActive.r; tg = t.taskbarTextActive.g; tb = t.taskbarTextActive.b;
     } else if (minimized_) {
-        fr = 38; fg = 40; fb = 46;
-        tr = 120; tg = 120; tb = 120;
+        fr = t.taskbarFaceMinimized.r; fg = t.taskbarFaceMinimized.g; fb = t.taskbarFaceMinimized.b;
+        tr = t.taskbarTextMinimized.r; tg = t.taskbarTextMinimized.g; tb = t.taskbarTextMinimized.b;
     } else {
-        fr = 56; fg = 58; fb = 68;
-        tr = 224; tg = 224; tb = 224;
+        fr = t.taskbarFaceNormal.r; fg = t.taskbarFaceNormal.g; fb = t.taskbarFaceNormal.b;
+        tr = t.taskbarTextNormal.r; tg = t.taskbarTextNormal.g; tb = t.taskbarTextNormal.b;
     }
     dc.SetColor(fr, fg, fb, 255);
     dc.FillRect(client);
-    dc.SetColor(active_ ? 255 : 70, active_ ? 255 : 72, active_ ? 255 : 84, 255);
+    const SDL_Color& border = active_ ? t.taskbarBorderActive : t.taskbarBorderInactive;
+    dc.SetColor(border.r, border.g, border.b, 255);
     dc.DrawRect(client);
 
     // Title hash-color chip.
@@ -200,7 +205,8 @@ void TaskbarButton::OnPaintClient(JKDC& dc) {
 
 void ClientTaskbarApp::TaskbarWindow::OnPaintClient(JKDC& dc) {
     const JKRect client = GetScreenClientRect();
-    dc.SetColor(24, 26, 32, 255);
+    const auto& t = jk::theme::kDefault;
+    dc.SetColor(t.taskbarBg.r, t.taskbarBg.g, t.taskbarBg.b, 255);
     dc.FillRect(client);
     for (const auto& child : GetChildren()) {
         if (child->IsVisible()) {
