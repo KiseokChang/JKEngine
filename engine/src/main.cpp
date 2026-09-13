@@ -150,27 +150,28 @@ public:
 
     void AddDemoControls() {
         // 원본 TESTWIN의 버튼 / 시계 / 체크박스를 재현.
-        auto button = std::make_unique<jk::JKButton>(jk::JKRect{ 10, 10, 90, 30 }, 101);
+        // 초기 창 420x420 기준 배치 — 250x250 시절엔 리스트/콤보가 창 밖으로 넘쳤다.
+        auto button = std::make_unique<jk::JKButton>(jk::JKRect{ 10, 10, 110, 32 }, 101);
         button->SetText("Click Me");
         button->SetOnClick([]() { std::printf("Button clicked!\n"); });
         AddControl(std::move(button));
 
-        auto clock = std::make_unique<jk::JOClock>(jk::JKRect{ 10, 48, 90, 22 }, 0);
+        auto clock = std::make_unique<jk::JOClock>(jk::JKRect{ 140, 10, 110, 26 }, 0);
         AddControl(std::move(clock));
 
-        auto checkbox = std::make_unique<jk::JKCheckBox>(jk::JKRect{ 10, 80, 120, 24 }, 102);
+        auto checkbox = std::make_unique<jk::JKCheckBox>(jk::JKRect{ 10, 52, 130, 26 }, 102);
         checkbox->SetText("Option");
         AddControl(std::move(checkbox));
 
-        auto edit = std::make_unique<jk::JKEdit>(jk::JKRect{ 10, 112, 220, 26 }, 103, 100, false);
+        auto edit = std::make_unique<jk::JKEdit>(jk::JKRect{ 10, 88, 396, 30 }, 103, 100, false);
         edit->SetText("Type here");
         AddControl(std::move(edit));
 
-        auto memo = std::make_unique<jk::JKEdit>(jk::JKRect{ 10, 146, 220, 90 }, 104, 1000, true);
+        auto memo = std::make_unique<jk::JKEdit>(jk::JKRect{ 10, 126, 396, 130 }, 104, 1000, true);
         memo->SetText("Line 1\nLine 2\nLine 3");
         AddControl(std::move(memo));
 
-        auto list = std::make_unique<jk::JKListBox>(jk::JKRect{ 10, 242, 120, 80 }, 105);
+        auto list = std::make_unique<jk::JKListBox>(jk::JKRect{ 10, 266, 190, 140 }, 105);
         list->AddString("Apple");
         list->AddString("Banana");
         list->AddString("Cherry");
@@ -178,7 +179,7 @@ public:
         list->AddString("Elderberry");
         AddControl(std::move(list));
 
-        auto combo = std::make_unique<jk::JKComboBox>(jk::JKRect{ 140, 242, 90, 24 }, 106);
+        auto combo = std::make_unique<jk::JKComboBox>(jk::JKRect{ 212, 266, 194, 28 }, 106);
         combo->AddString("Red");
         combo->AddString("Green");
         combo->AddString("Blue");
@@ -233,11 +234,11 @@ public:
     void RespondMessage(const jk::JKEvent& ev) override {
         if (ev.type == jk::JKEventType::MouseDown && ev.detail == SDL_BUTTON_RIGHT) {
             auto newWin = std::make_unique<TestWindow>();
-            newWin->SetWindowRect(jk::JKRect{ ev.x, ev.y, 250, 250 });
+            newWin->SetWindowRect(jk::JKRect{ ev.x, ev.y, 420, 420 });
             newWin->AddDemoControls();
 
             auto innerBox = std::make_unique<ColorBox>(255, 165, 0);
-            innerBox->SetRect(jk::JKRect{ 110, 10, 80, 80 });
+            innerBox->SetRect(jk::JKRect{ 320, 10, 80, 80 });
             innerBox->SetControlId(100 + windowCounter_);
             newWin->AddControl(std::move(innerBox));
 
@@ -274,14 +275,14 @@ public:
         box3->SetControlId(3);
         main->AddControl(std::move(box3));
 
-        // 떠 있는 TestWindow: 원본 testwin과 동일한 초기 위치/크기
+        // 떠 있는 TestWindow: 250x250 시절엔 컨트롤이 창 밖으로 넘쳤다 — 420x420으로 확대.
         auto testWin = std::make_unique<TestWindow>();
-        testWin->SetWindowRect(jk::JKRect{ 50, 50, 250, 250 });
+        testWin->SetWindowRect(jk::JKRect{ 50, 50, 420, 420 });
         testWin->AddDemoControls();
 
         // TestWindow 클라이언트 영역에 배치된 자식 컨트롤
         auto innerBox = std::make_unique<ColorBox>(255, 165, 0);
-        innerBox->SetRect(jk::JKRect{ 110, 10, 80, 80 });
+        innerBox->SetRect(jk::JKRect{ 320, 10, 80, 80 });
         innerBox->SetControlId(10);
         testWin->AddControl(std::move(innerBox));
 
