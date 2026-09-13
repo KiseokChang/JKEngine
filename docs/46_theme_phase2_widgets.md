@@ -49,6 +49,14 @@ P3(핫스왑 + 시작 메뉴 설정 UI)와 단계 3(ImGui PushStyleColor 래퍼,
 
 Task 5(최종 게이트)는 검증 전용이라 커밋 없음. 본 문서의 커밋 a6b344d는 표 범위 밖.
 
+최종 전체 리뷰 후 커밋 3건(표 작성 이후):
+
+| 커밋 | 내용 |
+|---|---|
+| 06ff52c | docs: 커밋 표 수치(4 feat)+범위 주석 교정 (T6 review) |
+| 538748f | fix(theme): 인벤토리 누락 잔여 리터럴 2건 — JKApplication.cpp:418 ComposeScene 클리어 → appClearBg, JOClock.cpp ctor → widgetFace/widgetText (final review. JOClock은 46사이트 스캔 밖 위젯이었음) |
+| 6a821f1 | docs: kClassic 3번째 한계(§4 3번)+위치 초기화 위험 계승(§7) 기록 (final review) |
+
 ## 3. 기존→신규 대응표 (역할 클러스터 단위)
 
 되돌릴 때의 기준(스펙 §4 장부 D2: kClassic = 구값 전부). 브리프의 라인번호
