@@ -26,6 +26,10 @@ public:
     TerminalApp() = default;
     ~TerminalApp() override;
 
+    // --shell 오버라이드 (Phase A 흡수, docs/44): terminal.json의 shell 대신
+    // 이 명령줄을 ConPTY에 띄운다. 빈 문자열이면 config 기본값을 쓴다.
+    void SetShellOverride(const std::string& shell) { shellOverride_ = shell; }
+
 protected:
     void OnInit() override;
     void OnClose() override;
@@ -52,6 +56,7 @@ private:
     int blinkCounter_ = 0;          // 30ms ticks; cursor blinks at ~540ms like the client
     bool quitRequested_ = false;    // shell exited → stop the run loop
     std::string shell_;             // terminal.json "shell" (default in JKTerminalConfig)
+    std::string shellOverride_;     // --shell CLI override, wins over terminal.json
 };
 
 } // namespace jk

@@ -88,6 +88,19 @@ void JKDesktopShell::Init(const ShellHost& host) {
         icon.appName = "tetris";
         launcherIcons_.push_back(icon);
     }
+    // Phase A TUI 흡수 (docs/44): 콘솔 앱은 appName "terminal:<cmdline>" 관례로
+    // 터미널 위에 띄운다 (SpawnClient가 접두사를 해석). 상대경로는 jkdesktop
+    // cwd(engine/build) 기준. 전용 아이콘 아트는 이후 폴리싱 — fallback 아트.
+    if (!hasJkx("terminal:apps-bin/lf/lf.exe")) {
+        LauncherIcon icon;
+        icon.appName = "terminal:apps-bin/lf/lf.exe";
+        launcherIcons_.push_back(icon);
+    }
+    if (!hasJkx("terminal:apps-bin/helix/hx.exe")) {
+        LauncherIcon icon;
+        icon.appName = "terminal:apps-bin/helix/hx.exe";
+        launcherIcons_.push_back(icon);
+    }
 
     // Desktop background photo + launcher icon art (PNG assets, see
     // ARCHITECTURE_DOCS/20). Missing assets fall back to the flat placeholder.

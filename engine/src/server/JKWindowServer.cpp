@@ -2746,8 +2746,18 @@ void JKWindowServer::SpawnClient(const char* appName, bool fromJkx) {
         std::string arg = std::string("--jkx \"") + appName + "\"";
         SpawnProcess(clientHostExe_.c_str(), arg, appName);
     } else {
-        SpawnProcess(clientHostExe_.c_str(),
-                     std::string("--client ") + appName, appName);
+        // Phase A 흡수 (docs/44): appName "terminal:<cmdline>" — 콘솔 TUI 앱을
+        // 터미널 위에 띄운다. 런처 fallback 셀이 이 관례를 쓴다.
+        std::string name(appName);
+        constexpr const char* kTermPrefix = "terminal:";
+        if (name.rfind(kTermPrefix, 0) == 0) {
+            SpawnProcess(clientHostExe_.c_str(),
+                         std::string("terminal --shell ") + name.substr(strlen(kTermPrefix)),
+                         appName);
+        } else {
+            SpawnProcess(clientHostExe_.c_str(),
+                         std::string("--client ") + appName, appName);
+        }
     }
 #else
     (void)appName;

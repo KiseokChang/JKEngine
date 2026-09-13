@@ -34,7 +34,8 @@ void TerminalApp::OnInit() {
     // 실패 시 넓은 글리프만 placeholder로 degrade된다.
     atlas_->InitFallback(cfg.fontFallback.c_str());
     pty_ = std::make_unique<JKConPtyBridge>();
-    shell_ = cfg.shell;
+    // --shell 오버라이드가 terminal.json 설정보다 우선 (Phase A 흡수 경로).
+    shell_ = !shellOverride_.empty() ? shellOverride_ : cfg.shell;
 
     // TerminalView는 JKWindow 서브클래스이므로 그 자체가 메인 윈도우가 된다.
     // RespondMessage가 JKWindow로 위임하므로 크롬 입력 처리도 정상 동작한다.

@@ -4,6 +4,9 @@
 // LoadLibrary trio for app module loading (--client/--jkx), and the temp-file
 // trio for extracting a module out of a .jkx container.
 extern "C" __declspec(dllimport) int __stdcall AllocConsole(void);
+// Phase A (docs/44): --cwd sets the PTY spawn working directory.
+extern "C" __declspec(dllimport) int __stdcall SetCurrentDirectoryA(
+    const char* lpPathName);
 extern "C" __declspec(dllimport) void* __stdcall LoadLibraryA(const char*);
 extern "C" __declspec(dllimport) int __stdcall FreeLibrary(void*);
 extern "C" __declspec(dllimport) void* __stdcall GetProcAddress(void*, const char*);
@@ -2775,7 +2778,19 @@ int main(int argc, char* argv[]) {
     }
 
     if (runTerminal) {
+        // Phase A 흡수 경로 (docs/44): terminal [--shell <cmdline>] [--cwd <dir>]
+        // --cwd는 PTY 스폰 전 프로세스 작업 디렉토리를 바꾼다 (lf 시작 폴더).
+        // --shell은 terminal.json shell 대신 띄울 명령줄.
+        std::string shellOverride;
+        for (int i = 2; i < argc; ++i) {
+            if (std::strcmp(argv[i], "--shell") == 0 && i + 1 < argc) {
+                shellOverride = argv[++i];
+            } else if (std::strcmp(argv[i], "--cwd") == 0 && i + 1 < argc) {
+                SetCurrentDirectoryA(argv[++i]);
+            }
+        }
         jk::TerminalApp app;
+        if (!shellOverride.empty()) app.SetShellOverride(shellOverride);
         if (!app.Init("Terminal", 800, 500)) {
             return 1;
         }
