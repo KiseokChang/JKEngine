@@ -143,7 +143,8 @@
    (`\x1b[<b;x;yM/m`) 인코딩 → pty 전송. 버튼/좌표는 이미 와이어에 있음.
 2. alt 화면 휠 → 화살표/PgUp 변환(vim 스크롤).
 3. DECSET 1(어플리케이션 커서 키) → 화살표 `\x1bOA` 계열 전환.
-4. 수식어 조합: `CSI 1;<m><char>` (Shift=2, Alt=3, Ctrl=5).
+4. 수식어 조합: `CSI 1;<m><char>` — m = 1 + 비트 합 (Shift=1, Alt=2, Ctrl=4;
+   Shift+Right = `\x1b[1;2C`, Ctrl+Right = `\x1b[1;5C`).
 5. DECSCUSR(커서 모양) + DECSET 12.
 6. 검증: `wsl htop`(마우스), vim에서 Ctrl+방향키 단어 이동.
 

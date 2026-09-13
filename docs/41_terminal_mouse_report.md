@@ -15,8 +15,10 @@ TerminalView(라우팅) 3층.
 ## 1. 파서 모드 추적 (JKVtParser)
 
 - **DECSET 1000/1002/1003** → `TermMouseMode{Off, Normal, Button, Any}` 접근자
-  `MouseMode()`. 1002/1003은 1000 인코딩을 공유(모션 게이트만 다름). 1000 set이
-  1002/1003을 덮고, `l`은 Off로.
+  `MouseMode()`. 1002/1003은 1000 인코딩을 공유(모션 게이트만 다름). 적용은
+  **시퀀스 내 파라미터 순서대로, 마지막이 이긴다**(last-param-wins — 합동
+  `\x1b[?1000;1006h`든 `\x1b[?1003h` 후 `\x1b[?1000h`든 이후 값이 덮는다),
+  `l`은 Off로.
 - **DECSET 1006** → `SgrMouse()` — 인코딩 선택(SGR vs X10) 플래그, 모드 비트와
   직교.
 - **DECSET 1** → `AppCursorKeys()` — 화살표 SS3/CSI 전환.
