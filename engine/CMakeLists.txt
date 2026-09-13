@@ -167,10 +167,6 @@ add_library(jkcore STATIC
     src/terminal/JKGlyphAtlas.cpp
     src/terminal/JKConPtyBridge.cpp
     src/apps/JKTerminalConfig.cpp
-    src/server/JKClientConnection.cpp
-    src/server/JKWindowServer.cpp
-    src/server/JKCompositor.cpp
-    src/server/JKCompositorOutput.cpp
     src/JKDataFile.cpp
     src/JKImageLoader.cpp
     src/JKJkxFile.cpp
@@ -197,6 +193,20 @@ target_link_libraries(jkcore PUBLIC quickjs SDL2::SDL2 SDL2_mixer::SDL2_mixer)
 if(WIN32)
     target_link_libraries(jkcore PUBLIC imm32)
 endif()
+
+# ---------------------------------------------------------------------------
+# jkserver (P1 split ①, spec §3①): the compositor/window-server side. Clients
+# reach the server only over wire IPC, so it never links the client stack.
+# jkdesktop links it next to jkcore — main.cpp hosts server + client modes
+# in one exe until the jkwinserver split (stage ③).
+# ---------------------------------------------------------------------------
+add_library(jkserver STATIC
+    src/server/JKClientConnection.cpp
+    src/server/JKWindowServer.cpp
+    src/server/JKCompositor.cpp
+    src/server/JKCompositorOutput.cpp
+)
+target_link_libraries(jkserver PUBLIC jkcore)
 
 # ---------------------------------------------------------------------------
 # jkdesktop.exe: demo host + single-process apps + window server.
@@ -227,7 +237,7 @@ add_executable(jkdesktop
     src/apps/TerminalView.cpp
 )
 
-target_link_libraries(jkdesktop PRIVATE jkcore)
+target_link_libraries(jkdesktop PRIVATE jkcore jkserver)
 
 # ---------------------------------------------------------------------------
 # App module DLLs (Phase B). Each exports the C ABI from include/apps/JKAppModule.h
