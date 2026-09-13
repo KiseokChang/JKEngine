@@ -108,6 +108,7 @@ struct ClientVPlayerApp::PlayerCore {
     SwsContext* sws = nullptr;
     SwrContext* swr = nullptr;
     AVRational videoTb{};
+    AVRational audioTb{};                    // demuxer seek domain for audio-only files
     int videoStream = -1, audioStream = -1;
     int videoW = 0, videoH = 0;
     int audioRate = 0;                       // output rate == input rate (no resample)
@@ -158,6 +159,24 @@ struct ClientVPlayerApp::PlayerCore {
     double dropBeforePts = -1;               // frames older than this are stale (post-seek)
     bool postSeekJump = false;               // gate-starved first frame may display (see PopVideoFrame)
     uint64_t seekGen = 0;                    // bumped on seek; in-flight audio pushes abort
+
+    // Failed-seek correction (T2, spec D3). Stage (a) snapshots the audio
+    // clock + ring + stale-frame gates under the same locks it mutates them;
+    // the wall-clock snapshot is taken in SeekCommon because THAT rebase runs
+    // at request time on the UI thread. On a failed avformat_seek_file the
+    // whole snapshot goes back (the demuxer never moved, so the restored
+    // pipeline stays consistent) and seekError surfaces a one-shot notice.
+    double undoAudioRef = 0;
+    uint64_t undoFramesPlayed = 0;
+    size_t undoRingR = 0, undoRingW = 0;
+    double undoDropBeforePts = -1;
+    bool undoPostSeekJump = false, undoEnded = false;
+    double undoWallBase = 0, undoWallAccum = 0;
+    std::chrono::steady_clock::time_point undoWallStart{};
+    bool undoWallPlaying = false;
+    std::string seekError;                   // one-shot failed-seek notice (under m)
+    std::chrono::steady_clock::time_point seekErrorAt{};
+
     std::deque<VideoFrame> videoQ;
 
     // Audio byte ring (S16 stereo). One byte of slack distinguishes full/empty.
@@ -209,6 +228,8 @@ struct ClientVPlayerApp::PlayerCore {
         double pos = 0, dur = 0;
         float vol = 0.8f;
         std::string error;                    // classified stop reason (T1)
+        std::string seekError;                // one-shot failed-seek notice (T2)
+        std::chrono::steady_clock::time_point seekErrorAt{};
     };
 
     Snap SnapNow() {
@@ -226,6 +247,8 @@ struct ClientVPlayerApp::PlayerCore {
         if (s.opened) s.dur = duration;   // same race as ClockNow (review MINOR-1)
         s.vol = volume.load(std::memory_order_relaxed);
         s.error = lastError;
+        s.seekError = seekError;
+        s.seekErrorAt = seekErrorAt;
         return s;
     }
 
@@ -274,6 +297,15 @@ struct ClientVPlayerApp::PlayerCore {
         wantSeek = true;
         seekTarget = t;
         jogSeek = scrub;
+        // A fresh request supersedes a failed-seek notice, and the wall-clock
+        // rebase below happens HERE (request time, UI thread) — so the
+        // pre-seek values for the failed-seek restore must be captured now,
+        // before they are overwritten.
+        seekError.clear();
+        undoWallBase = wallBase;
+        undoWallAccum = wallAccum;
+        undoWallStart = wallStart;
+        undoWallPlaying = wallPlaying;
         if (useWallClock) {
             if (wallPlaying) { wallAccum += WallSec(wallStart); }
             wallBase = t;
@@ -290,22 +322,49 @@ struct ClientVPlayerApp::PlayerCore {
     // demuxer position in sync for the next seek.
     void SetJog(bool j) { jogging.store(j, std::memory_order_relaxed); }
 
-    // Stage-1 seek: runs on the worker with m held. Flush codecs + queues, park
-    // the clock at the target and drop frames older than target (dropBeforePts).
+    // Three-stage seek (T2, spec D3). Runs on the worker; takes and releases
+    // `lk` itself. The point of the split: avformat_seek_file is blocking disk
+    // I/O, and it used to run under `m` — freezing the UI thread's SnapNow
+    // (and the jog knob) for the whole seek. Now only the cheap transport
+    // mutations hold locks; the I/O runs with `m` RELEASED.
+    //
+    //   (a) under m/ringM — flush queues + codecs, snapshot the pre-seek
+    //       state, park the clock at the target (dropBeforePts / seekGen).
+    //   (b) m RELEASED   — avformat_seek_file (the disk I/O). SnapNow,
+    //       SetPaused and a newer SeekCommon all proceed meanwhile.
+    //   (c) m re-acquired — three outcomes:
+    //         stop or a newer seek request arrived  -> Superseded: discard
+    //             everything this seek did (the newer request's stage (a)
+    //             re-flushes and re-rebases; it owns the pipeline).
+    //         avformat_seek_file < 0                -> Failed: restore the
+    //             stage-(a) snapshot (the demuxer never moved, so the restored
+    //             clock/ring/gates are consistent with it again), surface a
+    //             one-shot notice, and keep playing from the pre-seek
+    //             position. No decode-forward fallback — this task is failure
+    //             correction, not long-range scan.
+    //         otherwise                             -> Ok: demux continues from
+    //             the new position.
+    //
     // Scrub seeks are keyframe-only: dropBeforePts = -1 keeps every decoded
     // frame, so the landing keyframe displays immediately and decode creeps
     // toward the target (the pop gate converges as videoQ drains). NOPTS
     // frames are already rejected by pts < 0 in DecodeVideoPacket, so -1.0 is
     // a safe "drop nothing" sentinel.
-    void DoSeekLockedStage1() {
+    enum class SeekResult { Ok, Failed, Superseded };
+
+    SeekResult DoSeekStages(std::unique_lock<std::mutex>& lk) {
+        // ---- Stage (a): under m — flush, snapshot, park the clock. ---------
         double t = seekTarget;
         if (duration > 0) t = std::clamp(t, 0.0, duration);
+        undoEnded = ended;
         // With a negative user A/V offset the display gate sits at
         // clock + avDelay (< t), so the first pushable frame (t - 0.05)
         // would exceed the gate and nothing pops until the clock crawls
         // |avDelay| forward — a frozen picture after every seek, forever
         // while paused. Extend the stale cutoff to cover the shifted gate
         // (positive offsets need nothing: the gate is in the future).
+        undoDropBeforePts = dropBeforePts;
+        undoPostSeekJump = postSeekJump;
         dropBeforePts = jogSeek
                             ? -1.0
                             : t - 0.05 +
@@ -314,9 +373,21 @@ struct ClientVPlayerApp::PlayerCore {
         videoQ.clear();
         if (vctx) avcodec_flush_buffers(vctx);
         if (actx) avcodec_flush_buffers(actx);
+        const bool seekVideo = fmt && videoStream >= 0;
+        // Audio-only files must seek the demuxer too — skipping it used to
+        // leave the demuxer at the old position with the clock parked at the
+        // target, a guaranteed A/V desync (T2).
+        const bool seekAudio = fmt && !seekVideo && audioStream >= 0;
+        AVRational tb{};
+        if (seekVideo) tb = videoTb;
+        if (seekAudio) tb = audioTb;
         {
-            std::lock_guard<std::mutex> lk(ringM);
+            std::lock_guard<std::mutex> lk2(ringM);
             ++seekGen;
+            undoAudioRef = audioRef;
+            undoFramesPlayed = framesPlayed;
+            undoRingR = ringR;
+            undoRingW = ringW;
             ringR = ringW = 0;
             // Rebase the audio clock so ClockNow() == t at zero consumed
             // samples. Post-seek audio resumes at file time t + ptsOrigin,
@@ -329,13 +400,65 @@ struct ClientVPlayerApp::PlayerCore {
             }
             cvRing.notify_all();
         }
-        if (fmt && videoStream >= 0) {
+
+        // ---- Stage (b): m RELEASED — the blocking disk I/O. ----------------
+        int r = 0;
+        if (seekVideo || seekAudio) {
             const int64_t ts =
-                (int64_t)((t + ptsOrigin) / av_q2d(videoTb));
-            avformat_seek_file(fmt, videoStream, INT64_MIN, ts, ts, 0);
+                (int64_t)((t + ptsOrigin) / av_q2d(tb));
+            lk.unlock();
+            r = avformat_seek_file(fmt, seekVideo ? videoStream : audioStream,
+                                   INT64_MIN, ts, ts, 0);
+            lk.lock();
         }
+
+        // ---- Stage (c): m re-acquired — commit, restore, or discard. -------
+        if (stop || wantSeek) return SeekResult::Superseded;
+
+        if (r < 0) {
+            // Failed seek: put the pipeline back the way stage (a) found it.
+            // ringR/ringW are exact (the ring was empty the whole time — the
+            // only producer is this worker, and it was inside the seek).
+            double restoredClock = 0;
+            {
+                std::lock_guard<std::mutex> lk2(ringM);
+                audioRef = undoAudioRef;
+                framesPlayed = undoFramesPlayed;
+                ringR = undoRingR;
+                ringW = undoRingW;
+                restoredClock = audioRef +
+                    (audioRate ? (double)framesPlayed / audioRate : 0.0);
+                cvRing.notify_all();
+            }
+            dropBeforePts = undoDropBeforePts;
+            postSeekJump = undoPostSeekJump;
+            ended = undoEnded;
+            if (useWallClock) {
+                wallBase = undoWallBase;
+                wallAccum = undoWallAccum;
+                wallStart = undoWallStart;
+                wallPlaying = undoWallPlaying;
+                restoredClock = wallBase + wallAccum +
+                    (wallPlaying ? WallSec(wallStart) : 0.0);
+            }
+            seekError = "시크 불가 위치: " + AvErr(r);
+            seekErrorAt = std::chrono::steady_clock::now();
+            lastError = seekError; // classified like the other stop reasons
+            // One-shot diagnostic (same convention as the audio-device open
+            // failure): a failed seek is invisible otherwise — the pipeline
+            // keeps running from the restored position.
+            std::fprintf(stderr,
+                         "[vplayer] seek failed r=%d (%s); clock restored to "
+                         "%.3fs\n", r, AvErr(r).c_str(), restoredClock);
+            std::fflush(stderr);
+            cv.notify_all();
+            return SeekResult::Failed;
+        }
+
         ended = false;
         lastError.clear(); // a successful seek supersedes a stale stop reason
+        seekError.clear();
+        return SeekResult::Ok;
     }
 
     // UI thread, returns immediately. Arms the interrupt callback on a
@@ -380,6 +503,15 @@ struct ClientVPlayerApp::PlayerCore {
             ended = true; // park the worker loop; UI adopts lastError
             cv.notify_all();
         };
+        // Cheap existence gate (T1 review MINOR-2 carry): used to run on the
+        // UI thread in OpenPath, where a dead UNC path blocked the UI in
+        // fopen for the network timeout. Same check, same classification —
+        // now on the worker, where I/O belongs.
+        {
+            std::FILE* f = std::fopen(openPath_.c_str(), "rb");
+            if (!f) { fail("파일을 찾을 수 없습니다"); return false; }
+            std::fclose(f);
+        }
         int r = avformat_open_input(&fmt, openPath_.c_str(), nullptr, nullptr);
         if (r < 0) {
             if (cancelOpen.load(std::memory_order_relaxed))
@@ -441,6 +573,7 @@ struct ClientVPlayerApp::PlayerCore {
         audioStream = av_find_best_stream(fmt, AVMEDIA_TYPE_AUDIO, -1, -1, &adec, 0);
         if (audioStream >= 0) {
             AVStream* st = fmt->streams[audioStream];
+            audioTb = st->time_base; // seek timebase for audio-only files (T2)
             actx = avcodec_alloc_context3(adec);
             avcodec_parameters_to_context(actx, st->codecpar);
             if (avcodec_open2(actx, adec, nullptr) < 0) {
@@ -620,8 +753,19 @@ struct ClientVPlayerApp::PlayerCore {
                         cv.wait(lk, [&] { return stop || wantSeek || !ended; });
                         if (stop) break;
                         if (wantSeek) {
-                            DoSeekLockedStage1();
+                            // Consume this request BEFORE the unlocked I/O so
+                            // a wantSeek seen in stage (c) can only mean a
+                            // newer request (which then owns the pipeline).
                             wantSeek = false;
+                            // Stage (a) under lk; stage (b) releases lk for
+                            // the avformat_seek_file I/O; stage (c) re-locks
+                            // (see DoSeekStages).
+                            const SeekResult sr = DoSeekStages(lk);
+                            if (sr == SeekResult::Superseded)
+                                continue; // newest target re-seeks next pass
+                            // Ok: demux below continues from the new position.
+                            // Failed: clock restored — demux below continues
+                            // from the (unmoved) pre-seek position.
                         }
                     }
                     const int r = av_read_frame(fmt, pkt);
@@ -892,14 +1036,10 @@ void ClientVPlayerApp::OpenPath(const char* path) {
     texW_ = texH_ = 0;
     hasFrame_ = false;
     if (!path || !path[0]) { openError_ = "empty path"; return; }
-    // Cheap existence gate BEFORE spawning anything — a bad path must not
-    // even cost a worker spin-up (missing file, drive letter typos).
-    if (std::FILE* f = std::fopen(path, "rb")) {
-        std::fclose(f);
-    } else {
-        openError_ = "파일을 찾을 수 없습니다";
-        return;
-    }
+    // Existence gate moved into OpenStage (T2, T1 review MINOR-2 carry):
+    // fopen on a dead UNC path blocks for the network timeout — on the UI
+    // thread that froze the whole app. The worker classifies it as a failed
+    // open ("파일을 찾을 수 없습니다") instead.
     PlayerCore* raw = nullptr;
     try {
         raw = new PlayerCore();
@@ -1105,6 +1245,14 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
     ImGui::SameLine();
     // 의도적 잔존 — 의미색 (P2 테마 스왑 제외)
     ImGui::TextColored(ImVec4(0.65f, 0.65f, 0.7f, 1.0f), "(+) audio later");
+
+    // One-shot failed-seek notice (T2, spec D3): the clock was restored to
+    // the pre-seek position and playback continues, so the notice auto-
+    // expires instead of sticking (a new seek request clears it too).
+    if (!st.seekError.empty() &&
+        std::chrono::duration<double>(std::chrono::steady_clock::now() -
+                                      st.seekErrorAt).count() < 3.0)
+        ImGui::TextColored(kErrorRed, "%s", st.seekError.c_str());
 
     ImGui::Separator();
 
