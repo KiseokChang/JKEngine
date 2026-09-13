@@ -174,7 +174,7 @@ CRT 2n-백슬래시 규칙으로 argv[2]가 변형될 수 있어 "json 그대로
 file_open이 dialog_busy 없이 새 다이얼로그 스폰(슬롯 즉시 회수) → 고아
 다이얼로그 취소 결과는 no-op(새 요청자 무훼손 실측) → 새 다이얼로그 취소는
 자기 요청자에게 정상 전달 (3) 취소 경로 반복 성공 (4) title 파라미터가
-크롬에 렌더링("PickerOne" 스크린샷 final-fix-s1-title.png), title 없으면
+크롬에 렌더링("PickerOne" 스크린샷 final-fix-s1-title.png — SDD 워크스페이스 보존, 원본 state/screenshots/shot_1789319631638_4.png), title 없으면
 기본 "파일 열기" 유지. Esc 키 주입은 하네스(포그라운드) 제약으로 취소
 클릭 경로로 대체 실측 — 결과 전송 경로는 Esc/취소/크롬 X가 전부 동일한
 SendResult다.
