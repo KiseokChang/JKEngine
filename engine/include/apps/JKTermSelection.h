@@ -108,7 +108,11 @@ inline std::vector<uint32_t> DecodeUtf8(const std::string& text) {
                 if ((byte(i + k) & 0xC0) != 0x80) return false;
                 v = (v << 6) | (byte(i + k) & 0x3F);
             }
-            if (v < min || (v >= 0xD800 && v <= 0xDFFF)) return false;
+            // Unicode scalar values only: range floor, surrogates, and the
+            // >U+10FFFF cap (a 4-byte sequence like F4 90 80 80 overflows).
+            if (v < min || (v >= 0xD800 && v <= 0xDFFF) || v > 0x10FFFF) {
+                return false;
+            }
             cp = v;
             len = n;
             return true;

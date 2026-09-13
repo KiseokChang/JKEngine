@@ -1781,6 +1781,13 @@ static int RunAppSelfTest() {
             const auto trunc = jk::DecodeUtf8("\xEA\xB0");
             check(trunc.size() == 2 && trunc[0] == 0xFFFD && trunc[1] == 0xFFFD,
                   "termselect: truncated utf8 decodes as FFFD");
+            // Beyond U+10FFFF (F4 90 80 80 = 0x110000) is not a scalar value:
+            // FFFD per bad byte, then resync on the 'A'.
+            const auto overflow = jk::DecodeUtf8("\xF4\x90\x80\x80" "A");
+            check(overflow.size() == 5 && overflow[0] == 0xFFFD &&
+                      overflow[1] == 0xFFFD && overflow[2] == 0xFFFD &&
+                      overflow[3] == 0xFFFD && overflow[4] == 'A',
+                  "termselect: >U+10FFFF utf8 decodes as FFFD + resync");
         }
     }
 
