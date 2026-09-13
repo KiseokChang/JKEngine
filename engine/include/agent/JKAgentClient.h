@@ -3,6 +3,7 @@
 
 #include <ipc/JKWireProtocol.h>
 #include <ipc/JKPipeTransport.h>
+#include <ipc/JKWireEndpoints.h>
 
 #include <cstdint>
 #include <deque>
@@ -35,7 +36,7 @@ struct AgentReplyMsg {
 class JKAgentClient {
 public:
     // Handshake: Hello (pid self-reported), no surface request.
-    bool Connect(const std::string& pipeName = "\\\\.\\pipe\\JKWindowServerPipe");
+    bool Connect(const std::string& pipeName = jk::ipc::kWindowServerPipeName);
     bool IsConnected() const;
 
     // Send {"tool":"<tool>","args":<argsJson>} and wait for the reply JSON.

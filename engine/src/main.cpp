@@ -28,6 +28,7 @@ extern "C" __declspec(dllimport) int __stdcall GetDiskFreeSpaceExA(
 #include <client/JKClientSurface.h>
 #include <server/JKWindowServer.h>
 #include <agent/JKAgentClient.h>
+#include <ipc/JKWireEndpoints.h>
 
 #include <terminal/JKTerminalGrid.h>
 #include <terminal/JKVtParser.h>
@@ -2786,13 +2787,13 @@ int main(int argc, char* argv[]) {
         if (!server.Init("JKENGINE Window Server", 1280, 720)) {
             return 1;
         }
-        server.StartAcceptor("\\\\.\\pipe\\JKWindowServerPipe");
+        server.StartAcceptor(jk::ipc::kWindowServerPipeName);
         server.Run();
         return 0;
     }
 
     if (runClient) {
-        constexpr const char* kPipe = "\\\\.\\pipe\\JKWindowServerPipe";
+        constexpr const char* kPipe = jk::ipc::kWindowServerPipeName;
         const char* clientApp = (argc > 2) ? argv[2] : "";
 
         // Phase B: client apps are dynamically loaded modules (jkapp_<name>.dll).
@@ -2886,7 +2887,7 @@ int main(int argc, char* argv[]) {
     }
 
     if (argc > 1 && std::strcmp(argv[1], "--jkx") == 0) {
-        constexpr const char* kPipe = "\\\\.\\pipe\\JKWindowServerPipe";
+        constexpr const char* kPipe = jk::ipc::kWindowServerPipeName;
         if (argc < 3) {
             std::fprintf(stderr, "Usage: --jkx <container.jkx>\n");
             return 1;
