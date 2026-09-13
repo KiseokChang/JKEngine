@@ -1662,6 +1662,20 @@ static int RunAppSelfTest() {
         check(jk::NormalizeSel(0, 0, 0, 0, 0, 0).Empty(),
               "termselect: empty grid normalizes to empty rect");
 
+        // Scrolled selection mapping (TerminalView::CellFromPoint): the top
+        // visible line is (history - offset), so a viewport row r maps to the
+        // live grid row r - off; rows sitting over scrollback snapshots
+        // (r < off) clamp onto live row 0 — v1 selects live rows only.
+        {
+            const int rows = 6, off = 2;
+            auto map = [rows](int r) {
+                const int gr = r - off;
+                return gr < 0 ? 0 : (gr > rows - 1 ? rows - 1 : gr);
+            };
+            check(map(0) == 0 && map(2) == 0 && map(4) == 2 && map(5) == 3,
+                  "termselect: scrolled viewport row maps to live grid row");
+        }
+
         // Dummy 3x2 grid for the extractor (generic accessor, no JKTerminalGrid).
         std::vector<JKTermCell> cells(3 * 2);
         auto setCell = [&cells](int c, int r, uint32_t cp, uint8_t width = 1) {

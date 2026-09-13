@@ -277,8 +277,17 @@ JKPoint TerminalView::CellFromPoint(int32_t px, int32_t py) const {
     const JKRect client = GetScreenClientRect();
     const int cx = std::clamp((px - client.x) / kTermCellW, 0,
                               std::max(0, cols_ - 1));
-    const int cy = std::clamp((py - client.y) / kTermCellH, 0,
-                              std::max(0, rows_ - 1));
+    int cy = std::clamp((py - client.y) / kTermCellH, 0,
+                        std::max(0, rows_ - 1));
+    // Viewport row → live grid row. OnPaintClient shows the live rows under
+    // a scroll offset: the top visible line is (history - offset), so live
+    // grid row = viewport row - offset (same formula, gr = line - hist).
+    // Viewport rows sitting over scrollback snapshots (r < off) clamp onto
+    // live row 0 — v1 selects live rows only (spec §5).
+    if (grid_) {
+        const int off = std::min(scrollOffset_, grid_->ScrollbackLines());
+        cy = std::clamp(cy - off, 0, std::max(0, rows_ - 1));
+    }
     return JKPoint{ cx, cy };
 }
 
@@ -322,11 +331,15 @@ void TerminalView::HandleMouseEvent(const JKEvent& ev) {
             }
             break;
         case JKEventType::MouseUp:
-            if (!selDragging_) return;
-            selDragging_ = false;
+            // Release BEFORE the drag-flag check: a mid-drag key press can
+            // clear selDragging_ through ClearSelection (which releases too);
+            // this covers any other path — a stuck capture would hijack all
+            // mouse input until the next click.
             if (g_jkAppHost && g_jkAppHost->GetCapture() == this) {
                 g_jkAppHost->ReleaseCapture();
             }
+            if (!selDragging_) return;
+            selDragging_ = false;
             if (selAnchor_.x == selEnd_.x && selAnchor_.y == selEnd_.y) {
                 ClearSelection();   // click without drag → no selection
             }
@@ -340,6 +353,13 @@ void TerminalView::ClearSelection() {
     if (selAnchor_.x < 0 && !selDragging_) return;
     selAnchor_ = JKPoint{ -1, -1 };
     selEnd_ = JKPoint{ -1, -1 };
+    // A mid-drag key press reaches here with the drag flag set and the mouse
+    // capture still held — drop the capture too, or the MouseUp would
+    // early-return on the cleared flag and the view keeps ALL mouse input
+    // until the next click (capture leak).
+    if (selDragging_ && g_jkAppHost && g_jkAppHost->GetCapture() == this) {
+        g_jkAppHost->ReleaseCapture();
+    }
     selDragging_ = false;
     if (grid_) grid_->MarkAllDirty();   // un-reverse the highlighted cells
 }
@@ -368,6 +388,7 @@ void TerminalView::PasteClipboard() {
     const std::string data =
         SanitizeClipboardPaste(raw, parser_ && parser_->BracketedPaste());
     SDL_free(raw);
+    ClearSelection();   // pasting drops the selection (spec §2)
     if (!data.empty()) {
         scrollOffset_ = 0;   // paste returns to the live view
         onInput_(data.data(), data.size());
