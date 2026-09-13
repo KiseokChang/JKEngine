@@ -112,7 +112,7 @@
 > **✅ 구현 완료 (2026-09-13, docs/40).** 박스 선택(fg/bg 스왑 렌더, 캡처 드래그,
 > 클릭 해제) + Ctrl+Shift+C/V + bracketed paste 2004 게이트 + 순수 함수
 > `JKTermSelection.h`(NormalizeSel/ExtractSelectedText/ViewportRowToLive/
-> SanitizeClipboardPaste — self-test 23체크) + `probe_terminal_select.ps1`.
+> SanitizeClipboardPaste — self-test 25체크) + `probe_terminal_select.ps1`.
 > 내부 빈 셀은 공백으로 복사(cp==0 raw NUL이 SDL_SetClipboardText를 끊는 실측
 > 버그 수정). 더블/트리플 클릭과 스크롤백 선택은 후속.
 

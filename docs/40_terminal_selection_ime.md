@@ -96,7 +96,7 @@ docs/26 단계 2(선택+클립보드)와 단계 5 IME 조합 인라인의 as-bui
 
 ## 5. 테스트
 
-- **self-test (`jkdesktop.exe test`, 23체크, 0 failure(s))** — normalize 순서/클램프/
+- **self-test (`jkdesktop.exe test`, 25체크, 0 failure(s))** — normalize 순서/클램프/
   빈 그리드, viewport 매핑 3종, 행 잘림, AC00 재인코딩(3바이트 UTF-8), 행 `\n` 결합,
   follower-only 빈 행, 빈 선택, **내부 구멍 → 공백**(NUL 잘림 회귀 — 아래 프로브 교훈),
   paste \r\n/\r/ESC 정리, bracketed 래핑, 미브래킷, DecodeUtf8 ascii/한글/왕복/
@@ -148,6 +148,11 @@ docs/26 단계 2(선택+클립보드)와 단계 5 IME 조합 인라인의 as-bui
   단일 모드 공통. IME 문장 커밋이 한 번에 64바이트를 넘으면 잘려 들어온다(커밋은
   보통 짧게 쪼개진다).
 - **워드 더블클릭/쉬프트+클릭 확장 후속** (스펙 §1) — 박스 선택만.
+- **멀티라인 붙여넣기는 `
+`** (스펙 §2) — 키보드 Enter 경로는 ``을 보내므로
+  cmd.exe 같은 셸에서는 붙여넣은 줄이 자동 실행되지 않을 수 있다. 비 bracketed
+  대상에 `
+→` 변환은 후속.
 - 블록 선택은 행 단위 rect(리플로우 모델 없음, §1).
 - 클라 모드 클립보드는 OS 클립보드 직행 — 서버를 경유하지 않는다(스펙 §5).
 

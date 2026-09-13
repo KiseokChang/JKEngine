@@ -1774,6 +1774,17 @@ static int RunAppSelfTest() {
         // Bracketed off: no wrapper bytes.
         check(jk::SanitizeClipboardPaste("hi", false) == "hi",
               "termselect: unbracketed paste has no wrapper");
+        // Stray C0 controls (incl. embedded NUL, which truncates at the
+        // ConPTY input layer) are dropped; \n and \t survive.
+        {
+            // Octal escapes (\0, \3) are exactly bounded; a hex escape like
+            // \x03b would greedily consume the 'b' (0x3B).
+            const std::string out =
+                jk::SanitizeClipboardPaste(std::string("a\0\3b\tc\nd", 8),
+                                           false);
+            check(out == "ab\tc\nd",
+                  "termselect: paste drops C0 controls, keeps \\n and \\t");
+        }
 
         // IME pre-edit decode (docs/26 단계 5, spec §3): the pure UTF-8 ->
         // codepoint helper the TerminalView cursor overlay consumes.

@@ -170,10 +170,12 @@ std::string ExtractSelectedText(CellFn&& cellAt, const JKTermSelRect& sel) {
 }
 
 // Paste sanitizer (spec §2): normalize "\r\n"/"\r" to "\n", strip ESC bytes
-// (a clipboard payload is plain text, never a VT sequence), and — when the
-// application enabled bracketed paste (DECSET 2004, tracked by JKVtParser) —
-// wrap the sanitized payload in \x1b[200~ ... \x1b[201~ so the shell can
-// distinguish a paste from typed keys.
+// and stray C0 controls (a clipboard payload is plain text, never a VT
+// sequence; an embedded NUL truncates at the ConPTY input layer) — only
+// \n and \t survive among controls — and, when the application enabled
+// bracketed paste (DECSET 2004, tracked by JKVtParser), wrap the sanitized
+// payload in \x1b[200~ ... \x1b[201~ so the shell can distinguish a paste
+// from typed keys.
 inline std::string SanitizeClipboardPaste(const std::string& raw,
                                           bool bracketed) {
     std::string text;
@@ -183,7 +185,10 @@ inline std::string SanitizeClipboardPaste(const std::string& raw,
         if (c == '\r') {
             if (i + 1 < raw.size() && raw[i + 1] == '\n') ++i;
             text += '\n';
-        } else if (c != '\x1b') {
+        } else if (c != '\x1b' && (c == '\n' || c == '\t' ||
+                   static_cast<unsigned char>(c) >= 0x20)) {
+            // ESC and stray C0 controls (embedded NUL truncates at the ConPTY
+            // input layer) are dropped; only \n and \t survive.
             text += c;
         }
     }

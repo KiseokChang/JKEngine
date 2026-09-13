@@ -363,7 +363,14 @@ void TerminalView::HandleMouseEvent(const JKEvent& ev) {
 
     switch (ev.type) {
         case JKEventType::MouseDown:
-            if (ev.detail != SDL_BUTTON_LEFT) return;   // right/middle: chrome
+            if (ev.detail != SDL_BUTTON_LEFT) {
+                // Right/middle during an active drag: the host released the
+                // capture on this MouseDown, so re-arm it — otherwise motion
+                // outside the client stops reaching the view and the
+                // selection freezes until the next click.
+                if (selDragging_ && g_jkAppHost) g_jkAppHost->SetCapture(this);
+                return;   // right/middle: chrome
+            }
             // A left click always drops an existing selection; the new anchor
             // is armed at once and degenerates away on MouseUp if the user
             // only clicked (no drag → no selection, spec §1).
