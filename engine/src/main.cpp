@@ -1924,6 +1924,13 @@ static int RunAppSelfTest() {
         feed("\x1b[1 q");
         check(grid.GetCursorShape() == CursorShape::Block,
               "termmouse: DECSCUSR 1 → Block (default)");
+        // Ps 0 is the reset shells actually emit — also Block.
+        feed("\x1b[3 q");   // move off Block first so the reset is observable
+        check(grid.GetCursorShape() == CursorShape::Underline,
+              "termmouse: DECSCUSR 3 → Underline (pre-reset)");
+        feed("\x1b[0 q");
+        check(grid.GetCursorShape() == CursorShape::Block,
+              "termmouse: DECSCUSR 0 → Block (reset)");
 
         // DECSCUSR survives alt-screen swap and grid resize (nothing resets it).
         feed("\x1b[5 q\x1b[?1049h\x1b[?1049l");
