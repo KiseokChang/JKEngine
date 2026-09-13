@@ -4,6 +4,7 @@
 #include <JKTypes.h>
 #include <JKEvent.h>
 #include <JKDC.h>
+#include <theme/JKTheme.h>
 #include <memory>
 #include <string>
 #include <vector>
@@ -166,12 +167,14 @@ protected:
     // override to recompute their client area or relayout children.
     virtual void OnRectChanged(const JKRect& rect);
 
-    uint8_t textR_ = 0;
-    uint8_t textG_ = 0;
-    uint8_t textB_ = 0;
-    uint8_t backR_ = 240;
-    uint8_t backG_ = 240;
-    uint8_t backB_ = 240;
+    // 멤버 기본값도 테마 토큰에서 가져온다 (생성 시점 평가 — 기동 로딩 후
+    // 생성되는 위젯은 활성 프리셋을 따름; 스펙 §1 단일 진실원).
+    uint8_t textR_ = jk::theme::current().widgetText.r;
+    uint8_t textG_ = jk::theme::current().widgetText.g;
+    uint8_t textB_ = jk::theme::current().widgetText.b;
+    uint8_t backR_ = jk::theme::current().widgetFace.r;
+    uint8_t backG_ = jk::theme::current().widgetFace.g;
+    uint8_t backB_ = jk::theme::current().widgetFace.b;
 };
 
 } // namespace jk

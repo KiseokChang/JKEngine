@@ -1,6 +1,7 @@
 #include <JKMenu.h>
 #include <JKApplication.h>
 #include <JKEvent.h>
+#include <theme/JKTheme.h>
 #include <algorithm>
 
 namespace jk {
@@ -10,8 +11,9 @@ JKMenu::JKMenu() = default;
 JKMenu::JKMenu(const JKRect& rect, uint16_t controlId) {
     SetRect(rect);
     SetControlId(controlId);
-    SetBackColor(192, 192, 192);
-    SetTextColor(0, 0, 0);
+    const auto& t = jk::theme::current();
+    SetBackColor(t.widgetFace.r, t.widgetFace.g, t.widgetFace.b);
+    SetTextColor(t.widgetText.r, t.widgetText.g, t.widgetText.b);
 }
 
 void JKMenu::AddMenu(const std::string& label, const std::vector<JKMenuItem>& items) {
@@ -82,6 +84,7 @@ void JKMenu::ClosePopup() {
 
 void JKMenu::OnPaintClient(JKDC& dc) {
     const JKRect client = GetScreenClientRect();
+    const auto& t = jk::theme::current();
     dc.SetColor(backR_, backG_, backB_, 255);
     dc.FillRect(client);
 
@@ -90,9 +93,9 @@ void JKMenu::OnPaintClient(JKDC& dc) {
         int32_t w = ItemWidth(static_cast<int32_t>(i));
         JKRect itemRect{ x, client.y, w, client.h };
         if (static_cast<int32_t>(i) == activeIndex_) {
-            dc.SetColor(0, 0, 128, 255);
+            dc.SetColor(t.selectionBg.r, t.selectionBg.g, t.selectionBg.b, 255);
             dc.FillRect(itemRect);
-            dc.SetTextColor(255, 255, 255);
+            dc.SetTextColor(t.selectionText.r, t.selectionText.g, t.selectionText.b);
         } else {
             dc.SetTextColor(textR_, textG_, textB_);
         }
@@ -142,9 +145,10 @@ void JKMenu::Popup::PaintWindow(JKDC& dc) {
 void JKMenu::Popup::OnPaintClient(JKDC& dc) {
     const JKRect client = GetScreenClientRect();
     if (client.IsEmpty()) return;
+    const auto& t = jk::theme::current();
 
     // Menu popup background and raised border.
-    dc.SetColor(192, 192, 192, 255);
+    dc.SetColor(t.widgetFace.r, t.widgetFace.g, t.widgetFace.b, 255);
     dc.FillRect(client);
     dc.Rectangle3D(client, 2);
 
@@ -153,11 +157,13 @@ void JKMenu::Popup::OnPaintClient(JKDC& dc) {
     for (size_t i = 0; i < items_.size(); ++i) {
         int32_t y = client.y + 2 + static_cast<int32_t>(i) * kItemH;
         if (static_cast<int32_t>(i) == selectedIndex_) {
-            dc.SetColor(0, 0, 128, 255);
+            dc.SetColor(t.selectionBg.r, t.selectionBg.g, t.selectionBg.b, 255);
             dc.FillRect(JKRect{ client.x + 2, y, client.w - 4, kItemH });
-            dc.SetTextColor(255, 255, 255);
+            dc.SetTextColor(t.selectionText.r, t.selectionText.g, t.selectionText.b);
         } else {
-            dc.SetTextColor(0, 0, 0);
+            // 팝업 텍스트 리터럴 우회 교정 (스펙 §1c-4): 직접 지정색도
+            // widgetText 토큰을 따른다.
+            dc.SetTextColor(t.widgetText.r, t.widgetText.g, t.widgetText.b);
         }
         dc.TextOut(JKPoint{ client.x + 4, y }, items_[i].label.c_str());
     }

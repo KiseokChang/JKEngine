@@ -1,6 +1,7 @@
 #include <JKListBox.h>
 #include <JKEvent.h>
 #include <JKApplication.h>
+#include <theme/JKTheme.h>
 #include <algorithm>
 #include <cmath>
 
@@ -22,8 +23,9 @@ JKListBox::JKListBox() = default;
 JKListBox::JKListBox(const JKRect& rect, uint16_t controlId) {
     SetRect(rect);
     SetControlId(controlId);
-    SetBackColor(255, 255, 255);
-    SetTextColor(0, 0, 0);
+    const auto& t = jk::theme::current();
+    SetBackColor(t.fieldBg.r, t.fieldBg.g, t.fieldBg.b);
+    SetTextColor(t.widgetText.r, t.widgetText.g, t.widgetText.b);
     SetFocusable(true);
 
     // Scrollbar is a child of the listbox: coordinates are relative to the
@@ -108,7 +110,11 @@ void JKListBox::UpdateScrollRange() {
 
 void JKListBox::OnPaintClient(JKDC& dc) {
     const JKRect client = GetScreenClientRect();
-    dc.Box3D(client, 1, 255, 255, 255, 255, 255, 255, 0, 0, 0);
+    const auto& t = jk::theme::current();
+    dc.Box3D(client, 1,
+             t.fieldBg.r, t.fieldBg.g, t.fieldBg.b,
+             t.bevelLight.r, t.bevelLight.g, t.bevelLight.b,
+             t.bevelDark.r, t.bevelDark.g, t.bevelDark.b);
 
     JKRect inner = client;
     inner.x += 2; inner.y += 2;
@@ -121,9 +127,9 @@ void JKListBox::OnPaintClient(JKDC& dc) {
         int32_t idx = topIndex_ + i;
         int32_t y = inner.y + i * itemHeight_;
         if (idx == selectedIndex_) {
-            dc.SetColor(0, 0, 128, 255);
+            dc.SetColor(t.selectionBg.r, t.selectionBg.g, t.selectionBg.b, 255);
             dc.FillRect(JKRect{ inner.x, y, inner.w, itemHeight_ });
-            dc.SetTextColor(255, 255, 255);
+            dc.SetTextColor(t.selectionText.r, t.selectionText.g, t.selectionText.b);
         } else {
             dc.SetTextColor(textR_, textG_, textB_);
         }

@@ -1,5 +1,6 @@
 #include <JKComboBox.h>
 #include <JKEvent.h>
+#include <theme/JKTheme.h>
 #include <algorithm>
 
 namespace jk {
@@ -9,8 +10,9 @@ JKComboBox::JKComboBox() = default;
 JKComboBox::JKComboBox(const JKRect& rect, uint16_t controlId) {
     SetRect(rect);
     SetControlId(controlId);
-    SetBackColor(255, 255, 255);
-    SetTextColor(0, 0, 0);
+    const auto& t = jk::theme::current();
+    SetBackColor(t.fieldBg.r, t.fieldBg.g, t.fieldBg.b);
+    SetTextColor(t.widgetText.r, t.widgetText.g, t.widgetText.b);
     SetFocusable(true);
 }
 
@@ -78,7 +80,11 @@ void JKComboBox::CloseDropDown() {
 
 void JKComboBox::OnPaintClient(JKDC& dc) {
     const JKRect client = GetScreenClientRect();
-    dc.Box3D(client, 1, 255, 255, 255, 255, 255, 255, 0, 0, 0);
+    const auto& t = jk::theme::current();
+    dc.Box3D(client, 1,
+             t.fieldBg.r, t.fieldBg.g, t.fieldBg.b,
+             t.bevelLight.r, t.bevelLight.g, t.bevelLight.b,
+             t.bevelDark.r, t.bevelDark.g, t.bevelDark.b);
 
     JKRect inner = client;
     inner.x += 2; inner.y += 2;
@@ -93,8 +99,11 @@ void JKComboBox::OnPaintClient(JKDC& dc) {
     }
 
     JKRect btn{ client.x + client.w - 18, client.y + 2, 16, client.h - 4 };
-    dc.Box3D(btn, 1, 192, 192, 192, 255, 255, 255, 128, 128, 128);
-    dc.SetColor(0, 0, 0, 255);
+    dc.Box3D(btn, 1,
+             t.widgetFace.r, t.widgetFace.g, t.widgetFace.b,
+             t.bevelLight.r, t.bevelLight.g, t.bevelLight.b,
+             t.bevelMid.r, t.bevelMid.g, t.bevelMid.b);
+    dc.SetColor(t.widgetText.r, t.widgetText.g, t.widgetText.b, 255);
     int32_t cx = btn.x + btn.w / 2;
     int32_t cy = btn.y + btn.h / 2;
     dc.DrawLine(cx - 3, cy - 1, cx + 3, cy - 1);

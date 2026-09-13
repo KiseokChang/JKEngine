@@ -1,6 +1,7 @@
 #include <JKControl.h>
 #include <JKWindow.h>
 #include <JKApplication.h>
+#include <theme/JKTheme.h>
 #include <algorithm>
 
 namespace jk {
@@ -371,7 +372,8 @@ void JKControl::PaintFocus(JKDC& dc) const {
     r.w -= 4;
     r.h -= 4;
     if (r.IsEmpty()) return;
-    dc.SetColor(0, 0, 255, 255);
+    const auto& t = jk::theme::current();
+    dc.SetColor(t.focusRing.r, t.focusRing.g, t.focusRing.b, 255);
     dc.DrawRect(r);
 }
 

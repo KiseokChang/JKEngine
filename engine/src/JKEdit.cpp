@@ -4,6 +4,7 @@
 #include <JKApplication.h>
 #include <JKHangulUtil.h>
 #include <JKPlatform.h>
+#include <theme/JKTheme.h>
 #include <SDL.h>
 #include <algorithm>
 #include <cstring>
@@ -16,8 +17,9 @@ JKEdit::JKEdit(const JKRect& rect, uint16_t controlId, size_t maxLength, bool mu
     : maxLength_(maxLength), multiLine_(multiLine) {
     SetRect(rect);
     SetControlId(controlId);
-    SetBackColor(255, 255, 255);
-    SetTextColor(0, 0, 0);
+    const auto& t = jk::theme::current();
+    SetBackColor(t.fieldBg.r, t.fieldBg.g, t.fieldBg.b);
+    SetTextColor(t.widgetText.r, t.widgetText.g, t.widgetText.b);
     SetFocusable(true);
 }
 
@@ -108,13 +110,17 @@ void JKEdit::ScrollToCursor() {
 
 void JKEdit::OnPaintClient(JKDC& dc) {
     const JKRect client = GetScreenClientRect();
-    dc.Box3D(client, 1, 255, 255, 255, 255, 255, 255, 0, 0, 0);
+    const auto& t = jk::theme::current();
+    dc.Box3D(client, 1,
+             t.fieldBg.r, t.fieldBg.g, t.fieldBg.b,
+             t.bevelLight.r, t.bevelLight.g, t.bevelLight.b,
+             t.bevelDark.r, t.bevelDark.g, t.bevelDark.b);
 
     JKRect inner = client;
     inner.x += 2; inner.y += 2;
     inner.w -= 4; inner.h -= 4;
     if (readOnly_) {
-        dc.SetColor(240, 240, 240, 255);
+        dc.SetColor(t.widgetFace.r, t.widgetFace.g, t.widgetFace.b, 255);
     } else {
         dc.SetColor(backR_, backG_, backB_, 255);
     }
@@ -137,7 +143,7 @@ void JKEdit::OnPaintClient(JKDC& dc) {
                 selW = inner.x + inner.w - selX;
             }
             if (selW > 0) {
-                dc.SetColor(0, 0, 128, 255);
+                dc.SetColor(t.selectionBg.r, t.selectionBg.g, t.selectionBg.b, 255);
                 dc.FillRect(JKRect{ selX, textY, selW, 16 });
             }
 
@@ -146,7 +152,7 @@ void JKEdit::OnPaintClient(JKDC& dc) {
             if (selA > 0) {
                 dc.TextOut(jk::JKPoint{ inner.x, textY }, selA, buf);
             }
-            dc.SetTextColor(255, 255, 255);
+            dc.SetTextColor(t.selectionText.r, t.selectionText.g, t.selectionText.b);
             dc.TextOut(jk::JKPoint{ inner.x + static_cast<int32_t>(selA * charWidth_), textY },
                        selB - selA, buf + selA);
             dc.SetTextColor(textR_, textG_, textB_);
@@ -163,7 +169,8 @@ void JKEdit::OnPaintClient(JKDC& dc) {
         if (focused_ && !compText_.empty()) {
             int32_t compX = inner.x + static_cast<int32_t>(cursorPos_ * charWidth_);
             int32_t compW = static_cast<int32_t>(compText_.size()) * charWidth_;
-            dc.SetColor(0, 0, 255, 64);
+            // IME 조합 배경 — 토큰 rgb, 알파 64 고정 보존 (스펙 §1c).
+            dc.SetColor(t.imeCompositionBg.r, t.imeCompositionBg.g, t.imeCompositionBg.b, 64);
             dc.FillRect(JKRect{ compX, textY, compW, 16 });
             dc.SetTextColor(textR_, textG_, textB_);
             dc.TextOut(jk::JKPoint{ compX, textY }, compText_.c_str());
@@ -172,13 +179,13 @@ void JKEdit::OnPaintClient(JKDC& dc) {
         if (focused_ && showCaret_) {
             int32_t caretX = inner.x + static_cast<int32_t>(cursorPos_ * charWidth_);
             int32_t caretY = textY;
-            dc.SetColor(0, 0, 0, 255);
+            dc.SetColor(t.widgetText.r, t.widgetText.g, t.widgetText.b, 255);
             dc.DrawLine(caretX, caretY, caretX, caretY + 12);
 
             // Additional caret inside the composition string.
             if (!compText_.empty()) {
                 int32_t compCaretX = caretX + static_cast<int32_t>(compCursor_ * charWidth_);
-                dc.SetColor(255, 0, 0, 255);
+                dc.SetColor(t.imeCaret.r, t.imeCaret.g, t.imeCaret.b, 255);
                 dc.DrawLine(compCaretX, caretY, compCaretX, caretY + 12);
             }
         }
@@ -200,7 +207,8 @@ void JKEdit::OnPaintClient(JKDC& dc) {
             int32_t compX = inner.x + static_cast<int32_t>(col * charWidth_);
             int32_t compY = inner.y + static_cast<int32_t>((line - firstVisibleLine_) * lineHeight_) + 2;
             int32_t compW = static_cast<int32_t>(compText_.size()) * charWidth_;
-            dc.SetColor(0, 0, 255, 64);
+            // IME 조합 배경 — 토큰 rgb, 알파 64 고정 보존 (스펙 §1c).
+            dc.SetColor(t.imeCompositionBg.r, t.imeCompositionBg.g, t.imeCompositionBg.b, 64);
             dc.FillRect(JKRect{ compX, compY, compW, 16 });
             dc.SetTextColor(textR_, textG_, textB_);
             dc.TextOut(jk::JKPoint{ compX, compY }, compText_.c_str());
@@ -211,12 +219,12 @@ void JKEdit::OnPaintClient(JKDC& dc) {
             size_t col = GetColFromPos(cursorPos_);
             int32_t caretX = inner.x + static_cast<int32_t>(col * charWidth_);
             int32_t caretY = inner.y + static_cast<int32_t>((line - firstVisibleLine_) * lineHeight_) + 2;
-            dc.SetColor(0, 0, 0, 255);
+            dc.SetColor(t.widgetText.r, t.widgetText.g, t.widgetText.b, 255);
             dc.DrawLine(caretX, caretY, caretX, caretY + 12);
 
             if (!compText_.empty()) {
                 int32_t compCaretX = caretX + static_cast<int32_t>(compCursor_ * charWidth_);
-                dc.SetColor(255, 0, 0, 255);
+                dc.SetColor(t.imeCaret.r, t.imeCaret.g, t.imeCaret.b, 255);
                 dc.DrawLine(compCaretX, caretY, compCaretX, caretY + 12);
             }
         }
