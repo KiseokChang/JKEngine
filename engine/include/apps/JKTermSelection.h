@@ -48,6 +48,18 @@ inline JKTermSelRect NormalizeSel(int ax, int ay, int bx, int by,
                           std::max(ax, bx), std::max(ay, by) };
 }
 
+// Viewport row → live grid row while the view is scrolled back (TerminalView
+// selection, docs/26 단계 2): the top visible line is (history - offset), so a
+// viewport row r maps to the live grid row r - offset, clamped into the grid.
+// Rows sitting over scrollback snapshots (r < off) clamp onto live row 0 —
+// v1 selects live rows only (spec §5). Single source of truth for
+// TerminalView::CellFromPoint (mouse → cell) and the self-test.
+inline int ViewportRowToLive(int r, int off, int rows) {
+    if (rows <= 0) return 0;
+    const int gr = r - off;
+    return gr < 0 ? 0 : (gr > rows - 1 ? rows - 1 : gr);
+}
+
 // UTF-8 encoder — the mirror of JKVtParser's decoder (docs/22 §4): standard
 // 1-4 byte form, no BOM, no surrogate handling (cps are scalar values).
 inline void AppendUtf8(std::string& out, uint32_t cp) {

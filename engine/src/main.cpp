@@ -1662,18 +1662,23 @@ static int RunAppSelfTest() {
         check(jk::NormalizeSel(0, 0, 0, 0, 0, 0).Empty(),
               "termselect: empty grid normalizes to empty rect");
 
-        // Scrolled selection mapping (TerminalView::CellFromPoint): the top
-        // visible line is (history - offset), so a viewport row r maps to the
-        // live grid row r - off; rows sitting over scrollback snapshots
-        // (r < off) clamp onto live row 0 — v1 selects live rows only.
+        // Scrolled selection mapping — production code (TerminalView::
+        // CellFromPoint delegates to ViewportRowToLive): a viewport row r maps
+        // to the live grid row r - off, clamped into the grid; rows sitting
+        // over scrollback snapshots (r < off) clamp onto live row 0 — v1
+        // selects live rows only.
         {
             const int rows = 6, off = 2;
-            auto map = [rows](int r) {
-                const int gr = r - off;
-                return gr < 0 ? 0 : (gr > rows - 1 ? rows - 1 : gr);
-            };
-            check(map(0) == 0 && map(2) == 0 && map(4) == 2 && map(5) == 3,
+            check(jk::ViewportRowToLive(0, off, rows) == 0 &&
+                      jk::ViewportRowToLive(2, off, rows) == 0 &&
+                      jk::ViewportRowToLive(4, off, rows) == 2 &&
+                      jk::ViewportRowToLive(5, off, rows) == 3,
                   "termselect: scrolled viewport row maps to live grid row");
+            check(jk::ViewportRowToLive(99, off, rows) == 5 &&
+                      jk::ViewportRowToLive(-5, off, rows) == 0,
+                  "termselect: viewport row mapping over-clamps");
+            check(jk::ViewportRowToLive(0, 0, 0) == 0,
+                  "termselect: viewport row mapping on empty grid");
         }
 
         // Dummy 3x2 grid for the extractor (generic accessor, no JKTerminalGrid).

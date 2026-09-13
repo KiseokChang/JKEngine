@@ -281,12 +281,14 @@ JKPoint TerminalView::CellFromPoint(int32_t px, int32_t py) const {
                         std::max(0, rows_ - 1));
     // Viewport row → live grid row. OnPaintClient shows the live rows under
     // a scroll offset: the top visible line is (history - offset), so live
-    // grid row = viewport row - offset (same formula, gr = line - hist).
-    // Viewport rows sitting over scrollback snapshots (r < off) clamp onto
-    // live row 0 — v1 selects live rows only (spec §5).
+    // grid row = viewport row - offset (same arithmetic as OnPaintClient's
+    // gr = line - hist in the live branch). Viewport rows sitting over
+    // scrollback snapshots (r < off) clamp onto live row 0 — v1 selects live
+    // rows only (spec §5). Mapping lives in JKTermSelection.h so the
+    // self-test exercises the production formula.
     if (grid_) {
         const int off = std::min(scrollOffset_, grid_->ScrollbackLines());
-        cy = std::clamp(cy - off, 0, std::max(0, rows_ - 1));
+        cy = ViewportRowToLive(cy, off, rows_);
     }
     return JKPoint{ cx, cy };
 }
