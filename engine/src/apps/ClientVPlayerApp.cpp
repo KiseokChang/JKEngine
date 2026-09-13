@@ -1,5 +1,6 @@
 #include <apps/ClientVPlayerApp.h>
 
+#include <agent/JKAgentJson.h>
 #include <imgui_impl_jkwindow.h>
 #include <imgui.h>
 #include "theme/JKThemeImGui.h"
@@ -57,6 +58,30 @@ std::string AvErr(int err) {
     av_strerror(err, buf, sizeof(buf));
     return buf;
 }
+
+// JSON string escape for agent-query args (same shape as the palette's
+// EscapeJson / the server's JsonEsc: quotes, backslashes, control bytes).
+std::string EscapeJson(const std::string& in) {
+    std::string out;
+    for (char c : in) {
+        if (c == '"' || c == '\\') {
+            out += '\\';
+            out += c;
+        } else if (static_cast<unsigned char>(c) < 0x20) {
+            char buf[8];
+            std::snprintf(buf, sizeof(buf), "\\u%04x", c);
+            out += buf;
+        } else {
+            out += c;
+        }
+    }
+    return out;
+}
+
+// Brief-specified filter, verbatim (filedlg treats it as display text; the
+// dialog app parses the *.ext list out of it).
+constexpr const char* kVideoFilter =
+    "동영상 (*.mp4;*.mkv;*.avi;*.webm;*.mov)";
 
 // One decoded video frame, already converted to RGBA for SDL_UpdateTexture.
 struct VideoFrame {
@@ -577,6 +602,12 @@ void ClientVPlayerApp::OnInit() {
     ImGui::CreateContext();
     jk::theme::ApplyImGuiTheme(); // JKTheme 팔레트 봉합 (P2 단계 3)
     ImGui::GetIO().IniFilename = nullptr;
+    // Korean UI (열기... picker button) — Malgun Gothic like the shot/filedlg
+    // apps; failure degrades to the default font.
+    ImGuiIO& io = ImGui::GetIO();
+    io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\malgun.ttf", 16.0f,
+                                 nullptr,
+                                 io.Fonts->GetGlyphRangesKorean());
     lastFrame_ = std::chrono::steady_clock::now();
 }
 
@@ -620,6 +651,7 @@ void ClientVPlayerApp::RenderOverlay(SDL_Renderer* renderer, int w, int h) {
     ImGui_ImplJKWindow_NewFrame(dt, w, h);
     ImGui::NewFrame();
 
+    PumpAgentReplies();
     SyncVideoTexture(renderer);
     BuildUi(w, h);
 
@@ -642,6 +674,49 @@ void ClientVPlayerApp::OpenPath(const char* path) {
         return;
     }
     player_.reset(raw);
+}
+
+// --- File picker (specs/2026-09-13-file-dialog Task 3) ----------------------
+// One file_open query in flight at a time (palette SendTool pattern). The
+// server parks the query, spawns the filedlg dialog, and completes the query
+// when the dialog closes — the reply body is {"ok":true,"path":"..."} on open
+// or {"ok":false} on cancel (plus the immediate error variants
+// dialog_busy/bad_request/spawn_failed and the 600 s dialog_timeout).
+
+void ClientVPlayerApp::RequestOpenDialog() {
+    jk::client::JKClientSurface* surface = Surface();
+    if (!surface || !surface->IsConnected()) return;
+    if (fileOpenQueryId_ != 0) return; // already in flight — ignore
+    std::string args = std::string("{\"filter\":\"") + EscapeJson(kVideoFilter) +
+                       "\"";
+    if (!lastDir_.empty())
+        args += ",\"start\":\"" + EscapeJson(lastDir_) + "\"";
+    args += "}";
+    const uint32_t id = nextQueryId_++;
+    if (!surface->SendAgentQuery(id, "{\"tool\":\"file_open\",\"args\":" +
+                                        args + "}"))
+        return;
+    fileOpenQueryId_ = id;
+}
+
+void ClientVPlayerApp::PumpAgentReplies() {
+    if (fileOpenQueryId_ == 0) return; // nothing parked; nothing sent otherwise
+    jk::client::JKClientSurface* surface = Surface();
+    jk::client::AgentReply reply;
+    while (surface && surface->PollAgentReply(reply)) {
+        if (reply.queryId != fileOpenQueryId_) continue;
+        fileOpenQueryId_ = 0; // cleared on open AND on cancel/error
+        agent::AgentJson body(reply.json);
+        std::string path;
+        // Any reply without a usable path is "cancelled, ignore" — 취소,
+        // dialog_busy, bad_request, spawn_failed, dialog_timeout alike.
+        if (!body.ok() || !body.GetStr("path", path) || path.empty()) continue;
+        // Remember the folder for the next picker start (process lifetime).
+        const size_t slash = path.find_last_of("/\\");
+        lastDir_ = slash == std::string::npos ? std::string()
+                                              : path.substr(0, slash);
+        OpenPath(path.c_str());
+    }
 }
 
 void ClientVPlayerApp::SyncVideoTexture(SDL_Renderer* renderer) {
@@ -687,13 +762,16 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
     // grab and never reach this app. Push the first row below the strip.
     ImGui::SetCursorPosY(30.0f);
 
-    // Path row + Open.
-    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 70);
+    // Path row + Open + "열기..." (file_open picker, agent channel).
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 170);
     ImGui::InputTextWithHint("##path", "media file path (mp4 / mkv / wav ...)",
                              pathBuf_, sizeof(pathBuf_));
     ImGui::SameLine();
     if (ImGui::Button("Open"))
         OpenPath(pathBuf_);
+    ImGui::SameLine();
+    if (ImGui::Button("열기..."))
+        RequestOpenDialog();
 
     PlayerCore* p = player_.get();
     if (!p) {

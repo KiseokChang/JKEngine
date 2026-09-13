@@ -3,6 +3,7 @@
 
 #include <client/JKClientApplication.h>
 #include <chrono>
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -31,6 +32,18 @@ private:
     void BuildUi(int w, int h);
     void SyncVideoTexture(SDL_Renderer* renderer);
     void OpenPath(const char* path);
+
+    // File picker (specs/2026-09-13-file-dialog Task 3): "열기..." sends one
+    // file_open query on the agent channel; the server parks it until the
+    // filedlg dialog resolves (open path / cancel). 1-in-flight — the query
+    // id is 0 while nothing is pending. lastDir_ seeds the dialog's start
+    // folder for the process lifetime (no persistence).
+    void RequestOpenDialog();
+    void PumpAgentReplies();
+
+    uint32_t fileOpenQueryId_ = 0; // 0 = no file_open in flight
+    uint32_t nextQueryId_ = 1;
+    std::string lastDir_;
 
     struct PlayerCore; // FFmpeg demux/decode + SDL audio state, defined in cpp
     // Custom deleter: an out-of-line delete keeps PlayerCore incomplete in TUs
