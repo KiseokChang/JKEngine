@@ -69,11 +69,18 @@ void TerminalView::HandleWheel(int wheelY) {
     if (onInput_ && parser_ && wheelY != 0) {
         // Mouse reporting ON (DECSET 1000/1002/1003, docs/26 단계 3 spec §3):
         // the wheel belongs to the app — SGR 64 (up) / 65 (down) press
-        // reports, NO local scrollback scroll. xterm sends wheel reports only
-        // in SGR mode (X10 has no wheel encoding), so non-SGR just consumes
-        // the event. One report per notch, capped like EncodeWheelAlt's 3.
+        // reports, NO local scrollback scroll. v1 limit (spec §3 letter):
+        // wheel is sent in SGR mode only. Real xterm ALSO reports the wheel
+        // in non-SGR normal tracking through the classic \x1b[M encoding
+        // (buttons 64/65 via the 32+button offset bytes), which we skip —
+        // an acknowledged gap, not an xterm behavior. One report per notch,
+        // capped like EncodeWheelAlt's 3. Gated on the last mouse position
+        // being inside the client: the wheel event itself carries no
+        // coordinates, so wheeling the title bar must not emit a clamped
+        // (1,1) cell report.
         if (parser_->MouseMode() != TermMouseMode::Off) {
-            if (parser_->SgrMouse()) {
+            const JKRect client = GetScreenClientRect();
+            if (parser_->SgrMouse() && client.Contains(lastMouse_.x, lastMouse_.y)) {
                 const JKPoint cell = CellFromPoint(lastMouse_.x, lastMouse_.y);
                 const int btn = wheelY > 0 ? 64 : 65;
                 const int notches = std::min(wheelY < 0 ? -wheelY : wheelY, 3);
@@ -421,6 +428,10 @@ void TerminalView::HandleMouseEvent(const JKEvent& ev) {
     // even when the app owns the mouse) and an in-progress selection drag
     // (a Shift-initiated drag keeps running to its MouseUp). The report
     // branch never touches selection state (no ClearSelection, no capture).
+    // Mods arrive in ev.option from two producers: TranslateSDLEvent
+    // (SDL_GetModState, single-process — engine/src/JKEvent.cpp) and the
+    // server's InputEventPayload.option (client mode, SDL_GetModState on the
+    // server side — JKWindowServer.cpp mouse payload construction).
     const bool shiftHeld = (static_cast<SDL_Keymod>(ev.option) & KMOD_SHIFT) != 0;
     if (!selDragging_ && !shiftHeld && onInput_ && parser_ &&
         parser_->MouseMode() != TermMouseMode::Off) {
@@ -487,6 +498,9 @@ void TerminalView::HandleMouseEvent(const JKEvent& ev) {
 void TerminalView::HandleMouseReport(const JKEvent& ev) {
     // xterm WIRE modifier bits (JKTermInput.h): Shift=4, Meta/Alt=8, Ctrl=16
     // — the same translation style as HandleKeyDown's navMods, NOT SDL KMOD.
+    // ev.option carries SDL_Keymod from the producers: TranslateSDLEvent
+    // (SDL_GetModState, single-process) or the server's InputEventPayload
+    // (client mode) — mouse events never carry mods on the SDL struct itself.
     const SDL_Keymod mod = static_cast<SDL_Keymod>(ev.option);
     const int mods = ((mod & KMOD_SHIFT) ? 4 : 0) | ((mod & KMOD_ALT) ? 8 : 0) |
                      ((mod & KMOD_CTRL) ? 16 : 0);

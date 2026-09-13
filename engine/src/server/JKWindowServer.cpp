@@ -1190,10 +1190,15 @@ void JKWindowServer::HandleSDLEvent(const SDL_Event& ev) {
             payload.type = ipc::InputEventType::MouseMove;
             payload.dx = static_cast<int32_t>(std::llround(ev.motion.xrel / layerScaleX));
             payload.dy = static_cast<int32_t>(std::llround(ev.motion.yrel / layerScaleY));
+            // Live modifier state for mouse reports (docs/26 단계 3) — the
+            // mouse structs carry no mods, the server owns the real keyboard
+            // state; JKClientSurface copies payload.option through verbatim.
+            payload.option = SDL_GetModState();
         } else if (ev.type == SDL_MOUSEBUTTONDOWN) {
             payload.type = ipc::InputEventType::MouseDown;
             payload.keyCode = ev.button.button;
             payload.detail = ev.button.clicks;
+            payload.option = SDL_GetModState();
             // Clicking the shell does not steal keyboard focus (docs/28).
             if (!client->IsShell()) {
                 FocusClient(client->Id());
@@ -1204,6 +1209,7 @@ void JKWindowServer::HandleSDLEvent(const SDL_Event& ev) {
             payload.type = ipc::InputEventType::MouseUp;
             payload.keyCode = ev.button.button;
             payload.detail = ev.button.clicks;
+            payload.option = SDL_GetModState();
             capturedClientId_ = 0;
         }
 
@@ -1216,6 +1222,7 @@ void JKWindowServer::HandleSDLEvent(const SDL_Event& ev) {
         payload.type = ipc::InputEventType::MouseWheel;
         payload.dx = ev.wheel.x;
         payload.dy = ev.wheel.y;
+        payload.option = SDL_GetModState();   // mouse-report mods (단계 3)
         SendInputEvent(*client, payload);
     } else if (ev.type == SDL_KEYDOWN || ev.type == SDL_KEYUP) {
         // Alt+Space opens (or refocuses) the command palette (M2a, spec §6.2).
