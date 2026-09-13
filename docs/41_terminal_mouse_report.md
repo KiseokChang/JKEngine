@@ -53,11 +53,14 @@ TerminalView(라우팅) 3층.
 - SDL 버튼 1/2/3 → 와이어 0/1/2. 사이드 버튼(4/5)은 미보고.
 - SDL `KMOD_*` → 와이어 비트 변환은 뷰가 호출부에서 수행(헤더 SDL-free 유지).
 
-### X10 모드 (1006 off): `\x1b[M` + 3바이트
+### 클래식 모드 (1006 off): `\x1b[M` + 3바이트
 
-- `(32+버튼)` `(32+x)` `(32+y)` — press 전용(release/motion 형태가 없음, xterm
-  표준이라 뷰가 아예 호출하지 않음). 좌표는 1-based, **1..223 클램프**(32 오프셋이
-  부호 바이트 안에 머물도록).
+- `(32+Cb)` `(32+x)` `(32+y)` — xterm NORMAL(1000)/BUTTON(1002) 추적의 클래식
+  인코딩: **press = Cb 버튼(0/1/2), release = Cb 3**, motion = Cb 버튼+32.
+  클래식 프로토콜은 어떤 버튼이 떨어졌는지 구별할 수 없으므로 release는 항상
+  Cb=3 하나(xterm 사양). 좌표는 1-based, **1..223 클램프**(32 오프셋이 부호
+  바이트 안에 머물도록). press 전용은 **X10 호환 모드(DECSET 9)**의 특성으로,
+  우리는 구현하지 않는 모드다.
 
 ### 키보드 (spec §4): `EncodeArrow(NavKey, mods, appCursor)`
 
@@ -86,18 +89,22 @@ Terminal 관례).
   JKEvent.cpp), 클라 모드 JKWindowServer InputEventPayload (83a10d2).
 - **버튼 비트**: `reportedButtons_`에 현재 눌린 리포트 버튼 비트 유지 — 1002 모드
   모션 게이트(버튼 없으면 무시)와 motion 바이트의 최저 버튼 결정에 사용.
-- **모션**: 1000(Normal)은 모션 자체 없음(xterm 표준). X10도 모션 없음. 1002는
-  버튼 홀드 중만, 1003은 hover(버튼 3) 포함 전부 — 둘 다 SGR에서만.
-- **릴리즈**: SGR은 `\e[<b;x;ym` 발송. X10은 드랍(형태가 없음).
+- **모션**: 1000(Normal)은 모션 자체 없음(xterm 표준). 1002는 버튼 홀드 중만,
+  1003은 hover(버튼 3) 포함 전부 — SGR에서만 발송. **클래식 모션(Cb 버튼+32)은
+  와이어에 존재하나 v1 미보고**(§7 명시 갭 — non-SGR 휠과 같은 사유).
+- **릴리즈**: SGR은 `\e[<b;x;ym`, 클래식은 Cb=3 (`\e[M` + 35) — 어떤 버튼이든
+  동일(xterm 사양). non-SGR에서도 릴리즈를 보내므로 1000 without 1006 앱이
+  클릭에 갇히지 않는다.
 
 ## 4. 휠 (TerminalView::HandleWheel)
 
 - **보고 ON**: 로컬 스크롤백 스크롤 없이 앱에 귀속. SGR 모드 + 마지막 마우스
   위치가 클라 안이면 **버튼 64(up)/65(down) press 리포트**를 노치당 1회(상한 3,
-  EncodeWheelAlt 상한과 동일). 휠 이벤트는 좌표가 없으므로 직전 MouseMove가
-  기록한 `lastMouse_` 셀로 보고하며, 타이틀바 위 휠은 클램프 (1,1) 리포트를
-  만들지 않게 게이트. **non-SGR 휠은 미보고** — 실제 xterm은 클래식 인코딩
-  (버튼 64/65)으로도 보내므로 v1 격차로 명시(§7).
+  EncodeWheelAlt 상한과 동일) — 버튼 이벤트와 동일한 와이어 수식 비트
+  (Shift=4/Meta=8/Ctrl=16, `MouseMod` enum)를 포함한다. 휠 이벤트는 좌표가
+  없으므로 직전 MouseMove가 기록한 `lastMouse_` 셀로 보고하며, 타이틀바 위 휠은
+  클램프 (1,1) 리포트를 만들지 않게 게이트. **non-SGR 휠은 미보고** — 실제
+  xterm은 클래식 인코딩(버튼 64/65)으로도 보내므로 v1 격차로 명시(§7).
 - **보고 OFF + alt 화면**: 휠 → 화살표 3개/노치(vim 스크롤).
 - **보고 OFF + 메인 화면**: 기존 로컬 스크롤백 3행/노치.
 - 참고: 83a10d2까지 단일 모드 SDL_MOUSEWHEEL 이벤트가 파이프라인에서 드랍됐다
@@ -121,10 +128,11 @@ Terminal 관례).
   1바이트씩 읽어 `$env:TEMP\jkterm_mouse_dump.txt`에 hex 2자로 적체(READY 마커
   먼저). 데드라인 없음 — 타임아웃 제어자는 프로브(기동 엔진을 PID로 kill). detach
   리더는 PSReadLine과 입력 큐를 다투므로 배제.
-- **검증**: 알려진 셀 (30,10) SendInput 클릭 → 덤프에 SGR press
+- **검증 (하드 게이트 3종)**: 알려진 셀 (30,10) SendInput 클릭 → 덤프에 SGR press
   `1b5b3c303b..4d` 도착 + **좌표 디코드 일치**(x=31, y=11 == 셀+1, 인코딩 자체를
-  증명)가 게이트. 보조로 release `m`(6d)과 SGR 휠 `1b5b3c36343b` — 휠은 SGR
-  모드에서만 발송되므로 DECSET 1006 도달의 증거이기도 하다.
+  증명), SGR 휠 `1b5b3c36343b` 존재(휠은 SGR 모드에서만 발송 — 1006 도달 증명,
+  X10 관측은 게이트 불충족 진단 전용), hover 이동 후 **SGR 모션 부재**
+  (`\e[<32;...` 없음 — 1000은 모션을 보고하지 않음). 보조로 release `m`(6d).
 - **ConPTY 실측 (Win11 26200 conhost)**:
   - 클라(리더)가 stdout에 쓴 DECSET은 conhost가 터미널로 전달한다 — 파서가
     1000/1006을 모두 봤다.
@@ -146,25 +154,30 @@ Terminal 관례).
 ## 7. 제한
 
 - **DECSCUSR 깜빡임 변형 무시** — ps 3/5(blink)도 steady 모양으로 렌더. DECSET
-  12(깜빡임 토글) 미추적.
-- **X10은 press 전용** — release/motion 미보고(xterm 표준, 우리가 아닌 프로토콜
-  한계).
+  12(깜빡임 토글) 미추적. RIS(ESC c)는 DECSCUSR를 Block으로 리셋 — Resize/alt
+  스왑은 보존.
+- **클래식 모션 미보고 (v1 갭)** — 클래식 인코딩은 Cb=버튼+32 모션 형태가
+  와이어에 존재하지만(1002 버튼 홀드 모션, 1003 hover 포함) 우리는 SGR에서만
+  모션을 보낸다. non-SGR 휠 미보고와 같은 사유 — 스펙 §3 letter가 SGR 전용으로
+  명시한 것을 따른다. 클래식 press/release는 보고한다(release = Cb 3).
 - **non-SGR 휠 미보고** — 실제 xterm은 non-SGR normal 추적에서도 휠을 64/65
   클래식 인코딩으로 보내지만 v1은 SGR에서만(스펙 §3 letter 명시 갭).
 - **리포트 경로에 SetCapture 없음** — 마우스가 창 밖에서 업되면 MouseUp 이벤트가
   뷰에 도달하지 않아 `reportedButtons_`에 스테일 비트가 남는다(1002 모션 게이트가
   계속 통과). 다음 클릭의 down/up으로 정상화. 선택 경로는 기존 캡처 유지.
-- 사이드 버튼(4/5) 미보고, 포커스 리포팅(1004) 미추적.
-- 1002/1003 모션은 SGR 전용(X10 모션 형태 없음).
+- 사이드 버튼(4/5) 미보고, 포커스 리포팅(1004) 미추적. DECSET 9(X10 호환,
+  press 전용) 미구현 — 1000/1002/1003은 클래식 Cb 인코딩을 쓴다.
 
 ## 8. 테스트
 
-- **self-test (`jkdesktop.exe test`, 247체크, 0 failure(s))** — 기존 244 +
-  합동 DECSET 3체크(§1). 커버리지: DECSET 1000/1002/1003 set/reset/다운그레이드,
-  1006 직교성, 합동 파라미터, DECSET 1, alt 스왑 무영향, DECSCUSR 0-6 매핑 + 0
-  리셋 + alt/리사이즈 생존 + SP 없는 `q` 무시, `EncodeMouseSgr` press/release/
-  motion/휠/수식 비트, `EncodeMouseX10` 223 클램프, `EncodeArrow` CSI/SS3/
-  수식형, `EncodeWheelAlt`.
+- **self-test (`jkdesktop.exe test`, 253체크, 0 failure(s))** — 247(244 + 합동
+  DECSET 3) + 최종 리뷰 6체크: 클래식 press Cb=버튼 / **클래식 release Cb=3** /
+  클래식 모션 미보고(빈 문자열), 휠 수식 비트(shift+up b=68, ctrl+down b=81),
+  RIS가 DECSCUSR를 Block으로 리셋(Resize/alt 스왑은 보존). 커버리지: DECSET
+  1000/1002/1003 set/reset/다운그레이드, 1006 직교성, 합동 파라미터, DECSET 1,
+  alt 스왑 무영향, DECSCUSR 0-6 매핑 + 0 리셋 + alt/리사이즈/RIS, `EncodeMouseSgr`
+  press/release/motion/휠/수식 비트, `EncodeMouseX10` press/release/223 클램프/
+  모션 갭, `EncodeArrow` CSI/SS3/수식형, `EncodeWheelAlt`.
 - **프로브 회귀 (exit 0 전부)**:
   - `probe_terminal_mouse.ps1` — PASS (press 게이트 + release + SGR 휠).
   - `probe_terminal_select.ps1` — PASS 5체크. **이번 변경의 핵심 게이트**:
@@ -178,4 +191,6 @@ Terminal 관례).
   손댄 소비자를 커버 — 13종 전수 불필요(docs/40과 동일 판단).
 
 - 커밋: 923847a (합동 DECSET 파서 픽스 + self-test 3체크), 147afa5
-  (probe_terminal_mouse), 본 문서 + docs/26 갱신.
+  (probe_terminal_mouse), acb1fb9 (프로브 SGR 하드 게이트 — 리뷰 MAJOR-1),
+  07e2da8 (docs/26 수식 비트 교정), 최종 리뷰 커밋들 (클래식 release/휠 수식/
+  RIS 리셋 + 프로브 모션 게이트), 본 문서 + docs/26 갱신.

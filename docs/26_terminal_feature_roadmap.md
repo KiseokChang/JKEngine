@@ -58,7 +58,7 @@
 |---|---|---|
 | **CJK 전각 + 한글 렌더** | ★★★ 최대 | 아틀라스 범위가 ASCII(0x20–0x7E)+박스그리기(0x2500–0x259F)뿐 → **한글이 전부 플레이스홀더 막대로 보임**. `width` 필드는 예약돼 있으나 항상 1, 더미 셀 없음, East Asian Width 판별 없음 |
 | 텍스트 선택 + 클립보드 | ✅ 단계 2로 구현 완료 (2026-09-13, docs/40) | 드래그 하이라이트/추출/Ctrl+Shift+C·V 완료. 더블·트리플 클릭만 미구현 |
-| 마우스 보고 | ✅ 단계 3으로 구현 완료 (2026-09-13, docs/41) | DECSET 1000/1002/1003/1006 추적 + SGR/X10 인코딩 + Shift 우회 라우팅. non-SGR 휠 미보고, 리포트 경로 SetCapture 없음(docs/41 §7) |
+| 마우스 보고 | ✅ 단계 3으로 구현 완료 (2026-09-13, docs/41) | DECSET 1000/1002/1003/1006 추적 + SGR/클래식 인코딩(클래식 release Cb=3 포함) + Shift 우회 라우팅. 클래식 모션·non-SGR 휠 미보고, 리포트 경로 SetCapture 없음(docs/41 §7) |
 | 텍스트 리플로우 | ★★ | `isWrapped` 추적 없음, unwrap→rewrap 없음 |
 | 조합키 특수 시퀀스 | ✅ 단계 3으로 구현 완료 (2026-09-13, docs/41) | `EncodeArrow` 수식형 `\x1b[1;<m><char>` (Shift=1/Alt=2/Ctrl=4), PgUp/PgDn `\x1b[5;<m>~` |
 | 어플리케이션 커서 키 모드 | ✅ 단계 3으로 구현 완료 (2026-09-13, docs/41) | DECSET 1 추적 → 무수식 화살표 SS3(`\x1bOA` 계열) 전환 |
@@ -132,12 +132,13 @@
 
 > **✅ 구현 완료 (2026-09-13, docs/41).** JKVtParser DECSET 1000/1002/1003/1006/1
 > 추적(합동 파라미터 적용 — 프로브가 잡은 픽스) + 순수 인코더 `JKTermInput.h`
-> (SGR `\x1b[<b;x;yM/m` / X10 press 전용 / `EncodeArrow` CSI·SS3·수식형 /
-> `EncodeWheelAlt`) + TerminalView 라우팅(Shift 우회, 1002 모션 게이트,
-> lastMouse_ 휠 좌표) + DECSCUSR 0-6 커서 모양. alt 화면 휠 → 화살표 3개/노치.
-> self-test 247체크 + `probe_terminal_mouse.ps1` (SGR press 좌표 게이트) +
+> (SGR `\x1b[<b;x;yM/m` / 클래식 `\x1b[M` press+release(Cb=3), 모션 미보고 갭 /
+> `EncodeArrow` CSI·SS3·수식형 / `EncodeWheelAlt`) + TerminalView 라우팅(Shift
+> 우회, 1002 모션 게이트, lastMouse_ 휠 좌표 + 휠 수식 비트) + DECSCUSR 0-6 커서
+> 모양(RIS 리셋 포함). alt 화면 휠 → 화살표 3개/노치. self-test 253체크 +
+> `probe_terminal_mouse.ps1` (SGR press/휠/모션 부재 하드 게이트) +
 > probe_terminal_select(보고 OFF 선택 회귀) + 에이전트 3종 전부 PASS.
-> non-SGR 휠 미보고 등 제한은 docs/41 §7.
+> 클래식 모션·non-SGR 휠 미보고 등 제한은 docs/41 §7.
 
 1. DECSET 1000/1002/1006 추적(파서 상태), 마우스 다운/업/무브 → SGR 시퀀스
    (`\x1b[<b;x;yM/m`) 인코딩 → pty 전송. 버튼/좌표는 이미 와이어에 있음.
