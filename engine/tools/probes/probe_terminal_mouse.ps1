@@ -38,8 +38,10 @@
 #      (b) wheel up `\e[<64;...` = 1b 5b 3c 36 34 3b - the view reports the
 #          wheel in SGR mode ONLY, so wheel bytes prove DECSET 1006 reached
 #          the parser (catches a reverted combined-DECSET parser fix);
-#      (c) NO SGR motion report (\e[<32;...) - 1000 (Normal) tracking never
-#          reports motion, asserted after a hover move (final review MINOR-5).
+#      (c) NO SGR motion report (\e[<32;.. \e[<62; range) - 1000 (Normal)
+#          tracking never reports motion, asserted after a hover move
+#          (final review MINOR-5; motion byte = btn + mods + 32, so the gate
+#          must cover the whole 32..62 range, not just b=32).
 #      Release `m` (terminator 6d) stays a diagnostic WARN.
 #   5. Cleanup by PID/command line (never window title), temp files deleted.
 #
@@ -326,10 +328,17 @@ function Get-Dump { if (Test-Path $dumpPath) { [IO.File]::ReadAllText($dumpPath)
 $rxPress   = '1b5b3c303b([0-9a-f]+?)4d'
 $rxRelease = '1b5b3c303b([0-9a-f]+?)6d'
 $rxWheelUp = '1b5b3c36343b'
-# SGR motion report: \e[<32;... (b=32 = hover motion in 1002/1003) = bytes
-# 1b 5b 3c 33 32 3b. Mode 1000 (Normal) must NEVER report motion - its
-# absence after a hover move is a hard gate (final review MINOR-5).
-$rxSgrMotion = '1b5b3c33323b'
+# SGR motion reports: the motion byte is btn(0-2) + mods(4/8/16) + 32, i.e.
+# decimal 32..62 -> wire text `\e[<32;` .. `\e[<62;` (hover motion in Any
+# tracking is btn=3, so b=35 = `\e[<35;`; b=32 is LEFT-BUTTON-HELD motion).
+# Mode 1000 (Normal) must NEVER report motion - its absence after a hover
+# move is a hard gate (final review MINOR-5).
+# In the hex dump each ASCII digit '0'-'9' encodes to 30..39, so decimal
+# b="32".."62" appears as hex 3332..3632; the alternation covers 32-39
+# (333[2-9]), 40-49 (343[0-9]), 50-59 (353[0-9]), 60-62 (363[0-2]) and
+# cannot match press (`<0;`..<`30;` = 30..3330), wheel (64/65 + mods =
+# 3634..3932), or the release terminator.
+$rxSgrMotion = '1b5b3c(333[2-9]|343[0-9]|353[0-9]|363[0-2])3b'
 # Classic X10 form: \e[M + (32+btn) + (32+x) + (32+y), bytes 1b 5b 4d ?? ?? ??
 # (btn 0x20-0x22 = left/middle/right press; coord bytes are >= 0x21 for
 # 1-based coords, so the coord groups cannot swallow a following \x1b).
@@ -470,8 +479,8 @@ if ($ok) {
     }
     if ($wdump -match $rxSgrMotion) {
         $ok = $false
-        Write-Host "mouse-motion: FAIL (SGR motion \e[<32; observed - mode 1000"
-        Write-Host "  must not report motion; reader enabled ?1000;1006 only)"
+        Write-Host "mouse-motion: FAIL (SGR motion \e[<32;..\e[<62; observed -"
+        Write-Host "  mode 1000 must not report motion; reader enabled ?1000;1006 only)"
     } else {
         Write-Host "mouse-motion: PASS (no SGR motion in 1000 tracking)"
     }
