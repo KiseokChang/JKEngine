@@ -1681,14 +1681,14 @@ static int RunAppSelfTest() {
                   "termselect: viewport row mapping on empty grid");
         }
 
-        // Dummy 3x2 grid for the extractor (generic accessor, no JKTerminalGrid).
-        std::vector<JKTermCell> cells(3 * 2);
+        // Dummy 4x2 grid for the extractor (generic accessor, no JKTerminalGrid).
+        std::vector<JKTermCell> cells(4 * 2);
         auto setCell = [&cells](int c, int r, uint32_t cp, uint8_t width = 1) {
-            cells[static_cast<size_t>(r) * 3 + c].cp = cp;
-            cells[static_cast<size_t>(r) * 3 + c].width = width;
+            cells[static_cast<size_t>(r) * 4 + c].cp = cp;
+            cells[static_cast<size_t>(r) * 4 + c].width = width;
         };
         auto cellAt = [&cells](int c, int r) -> const JKTermCell& {
-            return cells[static_cast<size_t>(r) * 3 + c];
+            return cells[static_cast<size_t>(r) * 4 + c];
         };
 
         // Row truncation: cells up to the LAST non-empty cell only.
@@ -1731,17 +1731,29 @@ static int RunAppSelfTest() {
         // Interior gap copies as a space: an erased/never-written cell (cp==0,
         // width==1) between two written cells must not become a raw NUL byte
         // (a NUL inside std::string truncates SDL_SetClipboardText at that
-        // byte). Wide follower stays silent (no phantom space after the glyph).
-        // Reuses row 1 after clearing it back to the 3x2 dummy grid's layout.
-        setCell(1, 1, 0);
-        setCell(2, 1, 0, 1);
+        // byte).
+        // Reuses row 1 after clearing it back to the 4x2 dummy grid's layout.
         setCell(0, 1, 'x');
+        setCell(1, 1, 0);
         setCell(2, 1, 'y');
         {
             const std::string text =
                 jk::ExtractSelectedText(cellAt, JKTermSelRect{0, 1, 2, 1});
             check(text == std::string("x y"),
                   "termselect: interior gap extracts as space");
+        }
+        // A mid-row wide follower stays silent (no phantom space between the
+        // wide glyph and the cell after it — the hangul case above only
+        // exercises a row-*ending* follower).
+        setCell(0, 1, 'x');
+        setCell(1, 1, 0xAC00, 2);  // 가: wide glyph, follower at (2,1)
+        setCell(2, 1, 0, 0);       // follower: silent
+        setCell(3, 1, 'y');
+        {
+            const std::string text =
+                jk::ExtractSelectedText(cellAt, JKTermSelRect{0, 1, 3, 1});
+            check(text == std::string("x") + "\xEA\xB0\x80" + "y",
+                  "termselect: mid-row wide follower extracts no phantom space");
         }
 
         // Paste sanitizer: \r\n and lone \r both become \n; the ESC byte is
