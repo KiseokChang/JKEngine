@@ -142,10 +142,12 @@ private:
     void PostAudioCommand(const AudioCommand& cmd);
     void UpdateOutputBounds();
 
-    void SpawnClient(const char* appName, bool fromJkx = false);
+    // Returns false when nothing was spawned (throttle skip or CreateProcess
+    // failure) — file_open uses this to resolve its parked query at once.
+    bool SpawnClient(const char* appName, bool fromJkx = false);
     // Launch an arbitrary exe from the server's directory (chat MVP: jkchat).
     // Same 500ms throttle as SpawnClient; throttleKey defaults to exeName.
-    void SpawnProcess(const char* exeName, const std::string& args,
+    bool SpawnProcess(const char* exeName, const std::string& args,
                       const char* throttleKey = nullptr);
 
     // Decode a decoded RGBA image into a blended SDL texture — exposed to the
@@ -193,6 +195,23 @@ private:
     };
     std::vector<PendingApproval> pendingApprovals_;
     uint32_t nextApprovalId_ = 1;
+
+    // 파일 열기 대화상자 (filedlg 설계 specs/2026-09-13-file-dialog §1b):
+    // file_open이 채우는 1슬롯 파라미터 — file_dialog_params가 기동 직후
+    // 파라미터를 꺼내 가고(paramsTaken), file_open_result가 파킹 쿼리 해소에
+    // 쓴다. requesterConnId+requesterId 상관관계는 파라미터 소진 후에도
+    // 결과 회수까지 살아 있어야 한다 (다이얼로그 수명 = 슬롯 수명).
+    // pendingSnapSpawnerConnId_/overlaySpawner_의 conn-id 페어링 선례를
+    // 도구화한 것 (snap의 하드코딩 타이틀 페어링 일반화).
+    struct PendingFileDialog {
+        uint32_t requesterConnId = 0;  // 0 = 빈 슬롯 (대화상자 미기동/종료)
+        uint32_t requestId = 0;        // 파킹된 pendingApprovals_ 항목 id
+        bool paramsTaken = false;      // file_dialog_params가 이미 꺼냈는가
+        std::string filter;            // 선택 필드 — 없으면 빈 문자열
+        std::string start;
+        std::string title;
+    };
+    PendingFileDialog pendingFileDialog_;
 
     // publish_event connection rate budget (docs/38 spec §4) — fixed window.
     // Accessed only on the clientsMutex_-held HandleAgentQuery path (lesson

@@ -1380,11 +1380,16 @@ void JKWindowServer::ProcessPendingMessages() {
     const time_t now = std::time(nullptr);
     for (auto it = pendingApprovals_.begin(); it != pendingApprovals_.end();) {
         if (now < it->expiresAt) { ++it; continue; }
+        // file_open (filedlg 설계)은 승인이 아니라 대화상자가 해소자 — 같은
+        // 만료 기계로 회수하되 오류 문자열만 대화상자에 맞춘다.
+        const char* timeoutErr =
+            (it->kind == "file_open") ? "dialog_timeout" : "approval_timeout";
         for (auto& c : clients_) {
             if (c && c->Id() == it->requesterId && !c->IsDisconnected()) {
                 ipc::WriteAgentJson(c->Transport(), ipc::MsgType::AgentReply,
                                     it->queryId, 0,
-                                    "{\"ok\":false,\"error\":\"approval_timeout\"}");
+                                    (std::string("{\"ok\":false,\"error\":\"") +
+                                     timeoutErr + "\"}").c_str());
                 break;
             }
         }
@@ -2336,11 +2341,130 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             break;
         }
         if (!resolved) reply = "{\"ok\":false,\"error\":\"unknown_request\"}";
+    } else if (tool == "file_open") {
+        // 파일 열기 대화상자 (설계 specs/2026-09-13-file-dialog §1b): 쿼리를
+        // 파킹한 뒤 filedlg:<json args> appName 접두로 다이얼로그를 띄운다.
+        // 파킹은 jkchat close_window/trust_request와 같은 pendingApprovals_
+        // 기계를 재사용 — 해소는 다이얼로그의 file_open_result가 담당하고,
+        // 요청자가 먼저 닫히면 만료 스캔이 회수한다. 권한 게이트 없음 —
+        // launch_app 같은 안전 계층 (AgentToolAllowed 기본 allow).
+        std::string filter, start, title;
+        req.GetObjStr("args", "filter", filter);
+        req.GetObjStr("args", "start", start);
+        req.GetObjStr("args", "title", title);
+        // 256자 상한 (trust_request의 bad_name 선례): 스폰 인자 json이
+        // SpawnProcess의 2048 cmdLine 버퍼를 넘지 않게 한다.
+        if (filter.size() > 256 || start.size() > 256 || title.size() > 256) {
+            reply = "{\"ok\":false,\"error\":\"bad_request\"}";
+        } else if (pendingFileDialog_.requesterConnId != 0) {
+            // 설계 리스크 2: 1슬롯 선착순 — 대화상자가 열려 있으면 후발은
+            // 파킹해도 해소자가 없으므로 즉시 오류 (만료 대기보다 정직).
+            reply = "{\"ok\":false,\"error\":\"dialog_busy\"}";
+        } else {
+            // 만료는 승인 파이프라인의 60s가 아니라 600s — 사용자가
+            // 다이얼로그에서 고민하는 시간을 감안한다. 요청자 연결이 먼저
+            // 닫혀도 이 만료 스캔이 회수한다 (신규 무효화 코드 없음).
+            PendingApproval p;
+            p.kind = "file_open";
+            p.requestId = nextApprovalId_++;
+            p.queryId = queryId;
+            p.requesterId = client.Id();
+            p.targetId = 0;  // 대상 창 없음 — 다이얼로그가 해소자
+            p.expiresAt = std::time(nullptr) + 600;
+            pendingApprovals_.push_back(p);
+            // 스폰 인자: args 그대로의 json (선택 필드만 — 없으면 키 생략).
+            std::string jsonArgs = "{";
+            bool first = true;
+            auto appendField = [&](const char* key, const std::string& v) {
+                if (v.empty()) return;
+                if (!first) jsonArgs += ",";
+                first = false;
+                jsonArgs += std::string("\"") + key + "\":\"" + JsonEsc(v) +
+                            "\"";
+            };
+            appendField("filter", filter);
+            appendField("start", start);
+            appendField("title", title);
+            jsonArgs += "}";
+            if (!SpawnClient(("filedlg:" + jsonArgs).c_str(), false)) {
+                // 스폰 실패 — 파킹 즉시 해소 (오류 응답).
+                pendingApprovals_.pop_back();
+                reply = "{\"ok\":false,\"error\":\"spawn_failed\"}";
+            } else {
+                pendingFileDialog_.requesterConnId = client.Id();
+                pendingFileDialog_.requestId = p.requestId;
+                pendingFileDialog_.filter = filter;
+                pendingFileDialog_.start = start;
+                pendingFileDialog_.title = title;
+                replied = false;  // file_open_result(또는 만료)가 응답한다
+            }
+        }
+    } else if (tool == "file_dialog_params") {
+        // filedlg 앱 기동 직후 1회 — file_open이 채운 파라미터를 꺼내 간다
+        // (설계 D3: 모듈 ABI 무변경, 스폰 인자 회수는 쿼리로). 선착순 1회 —
+        // 재요청은 오류. requesterConnId로 요청자-다이얼로그 상관관계를
+        // 전달하고, 상관관계 자체는 결과 회수까지 슬롯에 남는다.
+        if (pendingFileDialog_.requesterConnId == 0 ||
+            pendingFileDialog_.paramsTaken) {
+            reply = "{\"ok\":false,\"error\":\"no_pending_dialog\"}";
+        } else {
+            std::string out = "{\"ok\":true,\"requesterConnId\":" +
+                              std::to_string(pendingFileDialog_.requesterConnId);
+            auto appendParam = [&](const char* key, const std::string& v) {
+                out += std::string(",\"") + key + "\":\"" + JsonEsc(v) + "\"";
+            };
+            appendParam("filter", pendingFileDialog_.filter);
+            appendParam("start", pendingFileDialog_.start);
+            appendParam("title", pendingFileDialog_.title);
+            reply = out + "}";
+            pendingFileDialog_.paramsTaken = true;  // 선착순 소진
+        }
+    } else if (tool == "file_open_result") {
+        // filedlg 앱 종료 결과 — 요청자의 파킹 쿼리를 완료한다 (approve 도구의
+        // 파킹 해소 선례). 파킹이 이미 만료/부재면 no-op + parked:false.
+        int ok = 0;
+        std::string path;
+        req.GetObjInt("args", "ok", ok);
+        req.GetObjStr("args", "path", path);
+        bool resolved = false;
+        if (pendingFileDialog_.requesterConnId != 0) {
+            for (auto it = pendingApprovals_.begin();
+                 it != pendingApprovals_.end(); ++it) {
+                if (it->kind != "file_open" ||
+                    it->requestId != pendingFileDialog_.requestId) {
+                    continue;
+                }
+                resolved = true;
+                for (auto& c : clients_) {
+                    if (c && c->Id() == it->requesterId &&
+                        !c->IsDisconnected()) {
+                        // ok=false(취소)는 ok 플래그 0 + {"ok":false}.
+                        const std::string result = ok
+                            ? (path.empty()
+                                   ? "{\"ok\":true}"
+                                   : "{\"ok\":true,\"path\":\"" +
+                                         JsonEsc(path) + "\"}")
+                            : "{\"ok\":false}";
+                        ipc::WriteAgentJson(c->Transport(),
+                                            ipc::MsgType::AgentReply,
+                                            it->queryId, ok ? 1 : 0, result);
+                        break;
+                    }
+                }
+                pendingApprovals_.erase(it);
+                break;
+            }
+            pendingFileDialog_ = PendingFileDialog{};  // 슬롯 소진 (결과와 무관)
+        }
+        reply = resolved ? "{\"ok\":true,\"parked\":true}"
+                         : "{\"tool\":\"file_open_result\","
+                           "\"ok\":true,\"parked\":false}";
     } else {
         reply = "{\"ok\":false,\"error\":\"not_implemented\"}";
     }
     // The ask path parks the query — its reply is sent when the approval
-    // resolves (approve tool) or times out (expiry scan below).
+    // resolves (approve tool), when the filedlg app answers (file_open_result)
+    // or when it times out (expiry scan below).
     if (replied) {
         ipc::WriteAgentJson(client.Transport(), ipc::MsgType::AgentReply,
                             queryId, 1, reply);
@@ -2659,7 +2783,7 @@ SDL_Texture* JKWindowServer::TextureFromRGBA(const jk::LoadedImage& img, const c
 // Launch an arbitrary exe from the server's directory (SpawnClient core).
 // throttleKey defaults to exeName; SpawnClient keeps the per-app key so two
 // DIFFERENT apps can still launch back-to-back.
-void JKWindowServer::SpawnProcess(const char* exeName, const std::string& args,
+bool JKWindowServer::SpawnProcess(const char* exeName, const std::string& args,
                                   const char* throttleKey) {
 #ifdef _WIN32
     const char* key = throttleKey ? throttleKey : exeName;
@@ -2675,7 +2799,7 @@ void JKWindowServer::SpawnProcess(const char* exeName, const std::string& args,
                 std::fprintf(stderr,
                              "JKWindowServer: ignoring rapid spawn for %s (%lld ms)\n",
                              key, static_cast<long long>(elapsed.count()));
-                return;
+                return false;
             }
         }
         lastSpawnTimes_[key] = now;
@@ -2686,7 +2810,7 @@ void JKWindowServer::SpawnProcess(const char* exeName, const std::string& args,
     const unsigned long len = GetModuleFileNameA(nullptr, modulePath, sizeof(modulePath));
     if (len == 0 || len >= sizeof(modulePath)) {
         std::fprintf(stderr, "JKWindowServer: GetModuleFileNameA failed\n");
-        return;
+        return false;
     }
 
     // Find the directory component.
@@ -2721,7 +2845,7 @@ void JKWindowServer::SpawnProcess(const char* exeName, const std::string& args,
     if (!CreateProcessA(nullptr, cmdLine, nullptr, nullptr, 0, 0,
                         nullptr, workDir, &si, &pi)) {
         std::fprintf(stderr, "JKWindowServer: CreateProcessA failed for %s\n", exeName);
-        return;
+        return false;
     }
 
     // Keep the child's process handle for crash classification (M2b): when
@@ -2732,37 +2856,55 @@ void JKWindowServer::SpawnProcess(const char* exeName, const std::string& args,
     if (pi.hThread) CloseHandle(pi.hThread);
 
     std::fprintf(stderr, "JKWindowServer: spawned %s %s\n", exeName, args.c_str());
+    return true;
 #else
     (void)exeName;
     (void)args;
     std::fprintf(stderr, "JKWindowServer: SpawnProcess is Windows-only in this prototype\n");
+    return false;
 #endif // _WIN32
 }
 
-void JKWindowServer::SpawnClient(const char* appName, bool fromJkx) {
+bool JKWindowServer::SpawnClient(const char* appName, bool fromJkx) {
 #ifdef _WIN32
     if (fromJkx) {
         // A .jkx container path — may contain spaces, so quote it.
         std::string arg = std::string("--jkx \"") + appName + "\"";
-        SpawnProcess(clientHostExe_.c_str(), arg, appName);
-    } else {
-        // Phase A 흡수 (docs/44): appName "terminal:<cmdline>" — 콘솔 TUI 앱을
-        // 터미널 위에 띄운다. 런처 fallback 셀이 이 관례를 쓴다.
-        std::string name(appName);
-        constexpr const char* kTermPrefix = "terminal:";
-        if (name.rfind(kTermPrefix, 0) == 0) {
-            SpawnProcess(clientHostExe_.c_str(),
-                         std::string("terminal --shell ") + name.substr(strlen(kTermPrefix)),
-                         appName);
-        } else {
-            SpawnProcess(clientHostExe_.c_str(),
-                         std::string("--client ") + appName, appName);
-        }
+        return SpawnProcess(clientHostExe_.c_str(), arg, appName);
     }
+    // Phase A 흡수 (docs/44): appName "terminal:<cmdline>" — 콘솔 TUI 앱을
+    // 터미널 위에 띄운다. 런처 fallback 셀이 이 관례를 쓴다.
+    std::string name(appName);
+    constexpr const char* kTermPrefix = "terminal:";
+    if (name.rfind(kTermPrefix, 0) == 0) {
+        return SpawnProcess(clientHostExe_.c_str(),
+                            std::string("terminal --shell ") +
+                                name.substr(strlen(kTermPrefix)),
+                            appName);
+    }
+    // 파일 열기 대화상자 (설계 specs/2026-09-13-file-dialog §1b): appName
+    // "filedlg:<json args>" — terminal:과 같은 계열의 두 번째 접두 관례.
+    // json을 따옴표로 감싸고 내부 "만 \"로 이스케이프(--jkx 인용 선례 + CRT
+    // argv 규칙) — 자식의 argv[2]가 json 그대로 온다 (--jkx argv 계약과
+    // 동일). terminal: 쪽은 건드리지 않는다.
+    constexpr const char* kFileDlgPrefix = "filedlg:";
+    if (name.rfind(kFileDlgPrefix, 0) == 0) {
+        const std::string json = name.substr(strlen(kFileDlgPrefix));
+        std::string quoted = "--filedlg \"";
+        for (char ch : json) {
+            if (ch == '"') quoted += "\\\"";
+            else           quoted += ch;
+        }
+        quoted += "\"";
+        return SpawnProcess(clientHostExe_.c_str(), quoted, appName);
+    }
+    return SpawnProcess(clientHostExe_.c_str(),
+                        std::string("--client ") + appName, appName);
 #else
     (void)appName;
     (void)fromJkx;
     std::fprintf(stderr, "JKWindowServer: SpawnClient is Windows-only in this prototype\n");
+    return false;
 #endif // _WIN32
 }
 
