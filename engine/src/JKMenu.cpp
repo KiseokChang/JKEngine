@@ -161,8 +161,7 @@ void JKMenu::Popup::OnPaintClient(JKDC& dc) {
             dc.FillRect(JKRect{ client.x + 2, y, client.w - 4, kItemH });
             dc.SetTextColor(t.selectionText.r, t.selectionText.g, t.selectionText.b);
         } else {
-            // 팝업 텍스트 리터럴 우회 교정 (스펙 §1c-4): 직접 지정색도
-            // widgetText 토큰을 따른다.
+            // 팝업 텍스트 리터럴 → widgetText 교정 (스펙 §1c-4).
             dc.SetTextColor(t.widgetText.r, t.widgetText.g, t.widgetText.b);
         }
         dc.TextOut(JKPoint{ client.x + 4, y }, items_[i].label.c_str());
