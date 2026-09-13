@@ -1,5 +1,6 @@
 #include <JKWindow.h>
 #include <JKApplication.h>
+#include <JKHangulUtil.h>
 
 #include "theme/JKTheme.h"
 
@@ -16,6 +17,17 @@ void CollectFocusableControls(JKControl* root, std::vector<JKControl*>& out) {
     for (const auto& child : root->GetChildren()) {
         CollectFocusableControls(child.get(), out);
     }
+}
+
+// Chrome title for the legacy KSSM bitmap font. Utf8ToKssm returns {} for
+// invalid UTF-8 (MultiByteToWideChar MB_ERR_INVALID_CHARS gate) — legacy
+// single-process windows may hold already-KSSM titles, and double conversion
+// would render an EMPTY title, so an empty conversion of a non-empty input
+// falls back to the raw string.
+std::string LegacyFontTitle(const std::string& utf8) {
+    if (utf8.empty()) return utf8;
+    const std::string kssm = jk::Utf8ToKssm(utf8.c_str());
+    return kssm.empty() ? utf8 : kssm;
 }
 
 } // anonymous namespace
@@ -228,15 +240,17 @@ void JKWindow::PaintWindow(JKDC& dc) {
     const JKRect closeBtn = GetCloseButtonRect();
     const int32_t closeReserve = closeBtn.IsEmpty() ? 0 : closeBtn.w + 4;
 
-    // 타이틀 텍스트 (bitmap font).
+    // 타이틀 텍스트 (bitmap font). UTF-8 → KSSM 변환 (이미 KSSM인 레거시
+    // 타이틀은 원문 폴백 — LegacyFontTitle 참조).
     if (!title_.empty()) {
+        const std::string titleKssm = LegacyFontTitle(title_);
         dc.SetTextColor(t.chromeTitleText.r, t.chromeTitleText.g, t.chromeTitleText.b);
         dc.SetBackColor(t.chromeTitleBg.r, t.chromeTitleBg.g, t.chromeTitleBg.b);
         JKRect textRect = titleBar;
         // 안쪽 여백 4px, 닫기 버튼이 있으면 우측 여유를 추가한다.
         textRect.x += 4;
         textRect.w -= 8 + closeReserve;
-        dc.TextOutX(textRect, title_.c_str(), ADJ_YCENTER | ADJ_LEFT, false);
+        dc.TextOutX(textRect, titleKssm.c_str(), ADJ_YCENTER | ADJ_LEFT, false);
     }
 
     // 닫기 버튼: 면/윤곽/글리프는 jk::theme::current() (P2).
