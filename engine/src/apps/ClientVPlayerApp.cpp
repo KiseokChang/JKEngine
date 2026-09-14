@@ -485,8 +485,15 @@ struct ClientVPlayerApp::PlayerCore {
             const int64_t ts =
                 (int64_t)((t + ptsOrigin) / av_q2d(tb));
             lk.unlock();
+            // AVSEEK_FLAG_BACKWARD: land on a keyframe <= target. With
+            // flags=0 mkv/webm demuxers can park mid-GOP and every following
+            // frame fails to decode (h264 "co located POCs unavailable",
+            // dav1d "Error parsing frame header") — video never recovers.
+            // Backward landing + the dropBeforePts gate = standard
+            // decode-forward-to-target; mp4's keyframe table made flags=0
+            // work by accident.
             r = avformat_seek_file(fmt, seekVideo ? videoStream : audioStream,
-                                   INT64_MIN, ts, ts, 0);
+                                   INT64_MIN, ts, ts, AVSEEK_FLAG_BACKWARD);
             lk.lock();
         }
 
@@ -1307,6 +1314,19 @@ void ClientVPlayerApp::OpenPath(const char* path) {
     texW_ = texH_ = 0;
     hasFrame_ = false;
     if (!path || !path[0]) { openError_ = "empty path"; return; }
+    // The picker's next start folder is the CURRENT file's folder — every
+    // open site feeds this (CLI arg, drag-drop, picker reply alike), not just
+    // picker replies. A drive-root file ("I:\x.mp4") yields "I:", which Win32
+    // resolves as current-dir-on-drive, not the root — normalize to "I:\".
+    {
+        const std::string p(path);
+        const size_t slash = p.find_last_of("/\\");
+        if (slash != std::string::npos) {
+            std::string dir = p.substr(0, slash);
+            if (dir.size() == 2 && dir[1] == ':') dir += '\\';
+            lastDir_ = std::move(dir);
+        }
+    }
     // Existence gate moved into OpenStage (T2, T1 review MINOR-2 carry):
     // fopen on a dead UNC path blocks for the network timeout — on the UI
     // thread that froze the whole app. The worker classifies it as a failed
@@ -1362,10 +1382,7 @@ void ClientVPlayerApp::PumpAgentReplies() {
         // Any reply without a usable path is "cancelled, ignore" — 취소,
         // dialog_busy, bad_request, spawn_failed, dialog_timeout alike.
         if (!body.ok() || !body.GetStr("path", path) || path.empty()) continue;
-        // Remember the folder for the next picker start (process lifetime).
-        const size_t slash = path.find_last_of("/\\");
-        lastDir_ = slash == std::string::npos ? std::string()
-                                              : path.substr(0, slash);
+        // lastDir_ is recorded in OpenPath — every open site feeds it there.
         OpenPath(path.c_str());
     }
 }
