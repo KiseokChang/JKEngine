@@ -462,6 +462,11 @@ struct ClientVPlayerApp::PlayerCore {
             }
             seekInFlight = true;
             ringR = ringW = 0;
+            // The ring stays empty for the whole seek gap; that silence is
+            // the seek, not starvation — gate the underrun counter for the
+            // duration (the Ok path clears it; the Failed path restores the
+            // pre-seek undoEnded verdict).
+            audioEof.store(true, std::memory_order_relaxed);
             // Rebase the audio clock so ClockNow() == t at zero consumed
             // samples. Post-seek audio resumes at file time t + ptsOrigin,
             // not at the stream's original start, hence the rebase (a plain
@@ -990,6 +995,11 @@ struct ClientVPlayerApp::PlayerCore {
             lastError = "재생 중 내부 오류가 발생했습니다";
             ended = true;
             audioEof.store(true, std::memory_order_relaxed); // parked (T3)
+            // An exception mid-seek (between stage (a) and stage (c)) must
+            // not leave the flag latched: a stuck seekInFlight would make a
+            // later successful open's first seek skip its undo capture and a
+            // later failed seek restore a phantom snapshot.
+            seekInFlight = false;
             if (phase == Phase::Opening) phase = Phase::Failed;
         }
         av_packet_free(&pkt);
@@ -1119,7 +1129,7 @@ struct ClientVPlayerApp::PlayerCore {
             return stop || wantSeek || seekGen != gen ||
                    RingFreeLocked() >= bytes;
         });
-        if (stop || seekGen != gen) return false;
+        if (stop || wantSeek || seekGen != gen) return false;
         const size_t first = std::min(bytes, ringCap - ringW);
         std::memcpy(ring + ringW, src, first);
         if (bytes > first) std::memcpy(ring, src + first, bytes - first);
