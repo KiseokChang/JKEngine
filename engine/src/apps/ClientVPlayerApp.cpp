@@ -310,7 +310,7 @@ struct ClientVPlayerApp::PlayerCore {
     // so always finite); the 30 fps seed covers streams whose fps stays
     // unknown.
     static constexpr double kClumpFrames = 2.0;
-    double kClumpLead = kClumpFrames / 30.0;
+    double clumpLead = kClumpFrames / 30.0;
     // Frame-threaded decoders (dav1d with auto threads) emit a frame N
     // packets after N was sent — the decoder is a pipeline of depth D, and
     // throughput requires ~D packets in flight. Gating packets by a small
@@ -914,9 +914,9 @@ struct ClientVPlayerApp::PlayerCore {
                     // Decode-thread clock-gate seed (see vPipeDelay).
                     vDecodeDelay = std::max(0, vctx->has_b_frames) / fps;
                     vPipeDelay = std::max(0.10, vDecodeDelay);
-                    // Clump-lead widening (see kClumpLead): fps was clamped
+                    // Clump-lead widening (see clumpLead): fps was clamped
                     // [1,240] above, so this is always finite and positive.
-                    kClumpLead = kClumpFrames / fps;
+                    clumpLead = kClumpFrames / fps;
                 }
             }
         }
@@ -1420,7 +1420,7 @@ struct ClientVPlayerApp::PlayerCore {
 
     // Video decode thread (demux/decode split). Drains vPktQ in order,
     // holding each packet until it is near-due on the presentation clock
-    // (kVideoLead + the decoder's frame-threading latency + kClumpLead — the
+    // (kVideoLead + the decoder's frame-threading latency + clumpLead — the
     // B-frame clump width, see kVideoLead). Packet order is never broken, so
     // the reference chain stays intact; the clock gate is what bounds
     // decode-ahead.
@@ -1471,7 +1471,7 @@ struct ClientVPlayerApp::PlayerCore {
                                            ? -1.0
                                            : mine->pts * av_q2d(videoTb) - ptsOrigin;
                     if (pts < 0 ||
-                        pts <= gateClock + kVideoLead + vPipeDelay + kClumpLead)
+                        pts <= gateClock + kVideoLead + vPipeDelay + clumpLead)
                         break;
                     std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 }
