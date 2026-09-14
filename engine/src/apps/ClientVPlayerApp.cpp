@@ -195,6 +195,17 @@ struct ClientVPlayerApp::PlayerCore {
 
     std::deque<VideoFrame> videoQ;
 
+    // --- Jog frame-scrub history ring (spec 2026-09-15 §3.1) -------------
+    // Retained decoded-frame suffix: the dial's instant-reverse window.
+    // Contiguous decoded pixels — keyframe boundaries do NOT clear it (only
+    // a seek does, stage (a)); GOP is a FALLBACK-path concept only. Trimmed
+    // at push time to kJogRingMaxSecs / kJogRingMaxBytes; no backpressure —
+    // the caps are the bound. m-protected (same domain as videoQ).
+    static constexpr double kJogRingMaxSecs = 10.0;
+    static constexpr size_t kJogRingMaxBytes = (size_t)1536 * 1024 * 1024;
+    std::deque<VideoFrame> jogRing;
+    size_t jogRingBytes = 0;
+
     // RGBA buffer pool for decoded frames (video-thread-only state): see
     // the VideoFrame comment. Slots whose refcount dropped to 1 (only the
     // pool holds them) are recycled; the cap bounds pathological bursts.
@@ -496,6 +507,11 @@ struct ClientVPlayerApp::PlayerCore {
                                   std::min(0.0, (double)avDelay.load(std::memory_order_relaxed));
         postSeekJump = true;
         videoQ.clear();
+        // The jog ring is pre-seek history: drop it so the ring rebuilds
+        // from the landing position (dropBeforePts guard keeps stale
+        // frames out of both queues at push time).
+        jogRing.clear();
+        jogRingBytes = 0;
         // vctx is decoded on the video decode thread now (demux/decode
         // split): serialize the flush against its send/receive. The hold is
         // bounded by one packet's decode (~20 ms); DecodeVideoPacket releases
@@ -1113,6 +1129,21 @@ struct ClientVPlayerApp::PlayerCore {
         cv.notify_all();
     }
 
+    // m held. Retain one decoded frame in the jog ring and trim the caps
+    // (time from the newest pts, bytes). The ring has NO backpressure: the
+    // trim IS the bound, so the caller never parks on it.
+    void JogRingPushLocked(VideoFrame vf) {
+        const size_t fb = (size_t)vf.w * (size_t)vf.h * 4;
+        jogRing.push_back(std::move(vf));
+        jogRingBytes += fb;
+        while (!jogRing.empty() &&
+               (jogRing.back().pts - jogRing.front().pts > kJogRingMaxSecs ||
+                jogRingBytes > kJogRingMaxBytes)) {
+            jogRingBytes -= (size_t)jogRing.front().w * (size_t)jogRing.front().h * 4;
+            jogRing.pop_front();
+        }
+    }
+
     // Returns false when decoding should stop (seek/stop requested).
     // Runs on the video decode thread (VideoLoop). Decode + convert one
     // packet, then push the frames under m. vdecM covers only the codec
@@ -1167,23 +1198,33 @@ struct ClientVPlayerApp::PlayerCore {
                 ready.push_back(std::move(vf));
             }
         } // vdecM released — the seek flush can proceed while we push
-        // Backpressure: hold at most 3 pending frames (~100 ms at 30 fps).
-        // Unlike the pre-split worker loop, a park here blocks ONLY video
-        // decode — the demuxer keeps feeding the audio ring independently,
-        // so no RefillDue() escape is needed. Timed wait (review
-        // Important-1) stays: while paused nothing pops, so NOTHING notifies
-        // this wait; the 50 ms escape re-checks the predicate and drops the
-        // frame on timeout (the display gate drops late frames the same way,
-        // and the clock gate upstream stops decode from running ahead of a
-        // frozen clock by more than kVideoLead + vDecodeDelay anyway).
         for (VideoFrame& vf : ready) {
             std::unique_lock<std::mutex> lk(m);
+            if (stop || wantSeek) return false;
+            if (vf.pts < dropBeforePts) continue; // stale frame from before the seek
+            // Jog ring retention (frame-scrub history): always, before any
+            // videoQ decision. During a jog the videoQ push below is SKIPPED:
+            // nothing pops while paused, so the 3-slot cap would park this
+            // thread and stall the dial — the ring is the jog path's sink.
+            if (jogging.load(std::memory_order_relaxed)) {
+                JogRingPushLocked(std::move(vf));
+                continue;
+            }
+            JogRingPushLocked(vf); // copy — vf still moves to videoQ below
+            // Backpressure: hold at most 3 pending frames (~100 ms at 30 fps).
+            // Unlike the pre-split worker loop, a park here blocks ONLY video
+            // decode — the demuxer keeps feeding the audio ring independently,
+            // so no RefillDue() escape is needed. Timed wait (review
+            // Important-1) stays: while paused nothing pops, so NOTHING notifies
+            // this wait; the 50 ms escape re-checks the predicate and drops the
+            // frame on timeout (the display gate drops late frames the same way,
+            // and the clock gate upstream stops decode from running ahead of a
+            // frozen clock by more than kVideoLead + vDecodeDelay anyway).
             const bool ok = cv.wait_for(lk, std::chrono::milliseconds(50), [&] {
                 return stop || wantSeek || videoQ.size() < 3;
             });
             if (stop || wantSeek) return false;
             if (!ok) continue; // queue still full at timeout: drop
-            if (vf.pts < dropBeforePts) continue; // stale frame from before the seek
             videoQ.push_back(std::move(vf));
         }
         return true;
