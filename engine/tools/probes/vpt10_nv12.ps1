@@ -24,12 +24,18 @@
 # S0 setup: 4K file open -> autoplaying (async open, T1).
 # S1 render gauge: NO interaction; 3 shots 2 s apart while PLAYING (the gauge
 #    keeps its last posted value while paused - known, brief-mandated).
-#    Executor reads the "render NNHz" gauge (Korean label) off the status row;
-#    measured 16-31 Hz over 3 runs - the >= 40 verdict bar is FALSIFIED (the
-#    playback display path has a size-independent pacing cap; see docs/50
-#    section 9). Do NOT treat a sub-40 reading as a probe failure.
-#    (baseline: docs/50 section 7.3 temporary instrumentation, ~27 Hz on the
-#    same RGBA upload path).
+#    Executor reads the "render NNHz" gauge (Korean label) off the status row.
+#    After the PopVideoFrame pacing fix (docs/50 section 9.4, task-4: drops
+#    only truly-expired frames + videoQ cap 3 -> 6) the measured 4K playback
+#    gauge is ~32-39 Hz (counted ok 29-43/s). A reading in ~28-42 Hz is
+#    in-family. The brief's 45-50 Hz bar is NOT reached: the residual cap is
+#    SUPPLY-side (the decode clock gate emits frames just-in-time, so each
+#    burst's tail arrives already expired; avg push lateness +5..+16 ms at
+#    4K, +22..+30 ms at 480p) - not the display drop rule. The jog path
+#    (47-59 Hz, no clock gate) remains the chain's upper bound. Do NOT treat
+#    a sub-40 reading as a probe failure.
+#    (pre-fix baseline: 16-31 Hz over 3 runs - latest-wins drop consumed each
+#    decode burst as 1 display + N-1 discards).
 # S2 color bars: testsrc2 full-frame saturated bars (R/G/Y/B/M/C) on the
 #    NV12 YUV->RGB shader path - no chroma distortion, checked against an
 #    ffmpeg-extracted reference frame (tmp/ref4k_5s.png).

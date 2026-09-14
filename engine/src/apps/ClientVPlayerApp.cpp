@@ -234,6 +234,12 @@ struct ClientVPlayerApp::PlayerCore {
     std::string seekError;                   // one-shot failed-seek notice (under m)
     std::chrono::steady_clock::time_point seekErrorAt{};
 
+    // Pending decoded-frame cap. Must hold a decode burst: the clock gate
+    // passes B-frame-reordered packets in clumps (3-4 frames decoded back to
+    // back), and the display drop rule below keeps unexpired frames queued,
+    // so the queue temporarily carries them. 6 slots ~ 200 ms at 30 fps /
+    // ~120 ms at 50 fps (~99 MB at 4K NV12).
+    static constexpr size_t kVideoQMaxFrames = 6;
     std::deque<VideoFrame> videoQ;
 
     // --- Jog frame-scrub history ring (spec 2026-09-15 §3.1) -------------
@@ -1329,7 +1335,7 @@ struct ClientVPlayerApp::PlayerCore {
             if (vf.pts < dropBeforePts) continue; // stale frame from before the seek
             // Jog ring retention (frame-scrub history): always, before any
             // videoQ decision. During a frame-scrub jog the videoQ push
-            // below is SKIPPED: nothing pops while paused, so the 3-slot cap
+            // below is SKIPPED: nothing pops while paused, so the videoQ cap
             // would park this thread and stall the dial — the ring is the
             // jog path's sink. The skip is gated on jogTargetPts: the legacy
             // keyframe jog (SetJog without JogTo) keeps the videoQ push so
@@ -1342,7 +1348,8 @@ struct ClientVPlayerApp::PlayerCore {
                 continue;
             }
             JogRingPushLocked(vf); // copy — vf still moves to videoQ below
-            // Backpressure: hold at most 3 pending frames (~100 ms at 30 fps).
+            // Backpressure: hold at most kVideoQMaxFrames pending frames
+            // (~200 ms at 30 fps / ~120 ms at 50 fps — see kVideoQMaxFrames).
             // Unlike the pre-split worker loop, a park here blocks ONLY video
             // decode — the demuxer keeps feeding the audio ring independently,
             // so no RefillDue() escape is needed. Timed wait (review
@@ -1352,7 +1359,7 @@ struct ClientVPlayerApp::PlayerCore {
             // and the clock gate upstream stops decode from running ahead of a
             // frozen clock by more than kVideoLead + vDecodeDelay anyway).
             const bool ok = cv.wait_for(lk, std::chrono::milliseconds(50), [&] {
-                return stop || wantSeek || videoQ.size() < 3;
+                return stop || wantSeek || videoQ.size() < kVideoQMaxFrames;
             });
             if (stop || wantSeek) return false;
             if (!ok) continue; // queue still full at timeout: drop
@@ -1502,8 +1509,14 @@ struct ClientVPlayerApp::PlayerCore {
         return true;
     }
 
-    // UI thread: hand back the latest frame whose pts is due at `clock`,
-    // dropping older ones. False = nothing due yet.
+    // UI thread: hand back the next frame whose pts is due at `clock`.
+    // Only frames TRULY expired (older than one frame interval behind the
+    // clock) are dropped — anything merely not-yet-due stays queued and pops
+    // on its own later tick. (The old latest-wins rule dropped every frame up
+    // to clock+0.02 after the first pop, so a decode burst — B-frame reordering
+    // makes the decode gate admit packets in 3-4 frame clumps — was consumed
+    // as 1 display + N-1 discards, capping the playback display rate at ~0.5x
+    // content fps. docs/50 section 9.) False = nothing due yet.
     bool PopVideoFrame(double clock, VideoFrame& out) {
         bool popped = false;
         {
@@ -1524,8 +1537,14 @@ struct ClientVPlayerApp::PlayerCore {
             } else {
                 out = std::move(videoQ.front());
                 videoQ.pop_front();
-                // Everything older than the frame we just took is unrenderable history.
-                while (!videoQ.empty() && videoQ.front().pts <= clock + 0.02) {
+                // Unrenderable history = older than a full frame interval
+                // behind the clock. Anything in between keeps its queue slot
+                // and is displayed on a later tick (the UI chain polls at
+                // 61 Hz, faster than any supported frame rate).
+                const double frameInterval =
+                    fps > 0.0 ? 1.0 / fps : 1.0 / 30.0;
+                while (!videoQ.empty() &&
+                       videoQ.front().pts < clock - frameInterval) {
                     out = std::move(videoQ.front());
                     videoQ.pop_front();
                 }
