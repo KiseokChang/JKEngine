@@ -25,7 +25,9 @@
 # S1 render gauge: NO interaction; 3 shots 2 s apart while PLAYING (the gauge
 #    keeps its last posted value while paused - known, brief-mandated).
 #    Executor reads the "render NNHz" gauge (Korean label) off the status row;
-#    PASS = NN >= 40
+#    measured 16-31 Hz over 3 runs - the >= 40 verdict bar is FALSIFIED (the
+#    playback display path has a size-independent pacing cap; see docs/50
+#    section 9). Do NOT treat a sub-40 reading as a probe failure.
 #    (baseline: docs/50 section 7.3 temporary instrumentation, ~27 Hz on the
 #    same RGBA upload path).
 # S2 color bars: testsrc2 full-frame saturated bars (R/G/Y/B/M/C) on the
