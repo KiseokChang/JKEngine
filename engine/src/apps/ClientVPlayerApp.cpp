@@ -1043,7 +1043,14 @@ struct ClientVPlayerApp::PlayerCore {
                 // bounded too); the predicate's RefillDue() mutates
                 // worker-only latch state — safe here because this wait runs
                 // on the worker, the thread that owns the latch.
-                cv.wait_for(lk, std::chrono::milliseconds(50), [&] {
+                // wait_for returns the predicate's value: false means it
+                // TIMED OUT with the queue still full and no escape condition
+                // — pushing then would grow videoQ unboundedly (a still-image
+                // tail pushes ~20 frames/s with nothing popping; ~8 MB/frame
+                // at 1080p would OOM a minute-scale tail). Drop the frame in
+                // hand instead — the display gate drops late frames the same
+                // way, and the decoder's next receive drains the codec.
+                const bool ready = cv.wait_for(lk, std::chrono::milliseconds(50), [&] {
                     return stop || wantSeek || videoQ.size() < 3 || RefillDue();
                 });
                 if (stop || wantSeek) return false;
@@ -1053,6 +1060,7 @@ struct ClientVPlayerApp::PlayerCore {
                 // spends the next passes on audio until the high water.
                 // Frames still buffered in the codec drain on later passes.
                 if (RefillDue()) return true;
+                if (!ready) continue; // queue still full at timeout: drop
                 if (pts < dropBeforePts) continue; // stale frame from before the seek
                 videoQ.push_back(std::move(vf));
             }
