@@ -653,6 +653,18 @@ struct ClientVPlayerApp::PlayerCore {
                 vPktQ.pop_front();
             }
             vPktQBytes = 0;
+            // Second generation bump (final-review hardening, docs/50 §8.2):
+            // the bump earlier in stage (a) only invalidates packets dequeued
+            // BEFORE it. A packet dequeued in the window between that bump
+            // and this drain captured the NEW generation and would sail
+            // through the gate loop (wantSeek is already consumed by then) —
+            // a pre-seek frame entering the just-cleared videoQ. Bump again
+            // under vPktM after the drain: every packet still in flight was
+            // dequeued before this bump, so its captured generation is now
+            // stale and the next gate poll aborts the hold. Nothing dequeues
+            // after this point until post-seek packets arrive (the worker is
+            // the only enqueuer and it is inside this seek).
+            vSeekSeq.fetch_add(1, std::memory_order_relaxed);
             vPktCv.notify_all();
         }
         const bool seekVideo = fmt && videoStream >= 0;
@@ -779,7 +791,12 @@ struct ClientVPlayerApp::PlayerCore {
         // is demuxer landing rewind, not playable content. Only the Ok path
         // sets it — a failed seek restores the pre-seek demux position, whose
         // audio is exactly what the gate would (wrongly) drop.
-        audioSkipBelow = t;
+        audioSkipBelow = t - 0.05;
+        // -0.05 slack = dropBeforePts' landing tolerance (final-review
+        // hardening, docs/50 §8.2): the demuxer lands on a keyframe <= t, so
+        // the first audio packet can sit just below t; a bare `t` gate would
+        // shave it. avDelay is deliberately NOT folded in — it is a
+        // display-gate shift only, the audio clock domain stays pure.
         lastError.clear(); // a successful seek supersedes a stale stop reason
         seekError.clear();
         seekInFlight = false;
