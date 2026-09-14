@@ -192,7 +192,31 @@ struct ClientVPlayerApp::PlayerCore {
     uint64_t framesPlayed = 0;               // master clock, in sample frames
     std::atomic<float> volume{0.8f};
 
+    // --- Audio-first refill + underrun diagnostics (T3, spec 1b) --------
+    // The device drains the ring in real time while the single worker's
+    // pass cadence is display-rate-limited (DecodeVideoPacket parks until
+    // the UI pops), so heavy video decode starves audio decode and the
+    // ring runs dry. Policy: when the ring falls under the 200 ms low
+    // water, the worker decodes-and-pushes audio packets continuously
+    // (the demuxer keeps advancing) until the 600 ms high water, skipping
+    // video decode for that window only. Thresholds are derived from the
+    // opened stream's format in OpenStage (rate x stereo x 2 bytes x ms —
+    // the same arithmetic as the ring capacity comment), never hardcoded.
+    size_t audioLowWater = 0, audioHighWater = 0; // 200 / 600 ms in ring bytes
+    bool audioRefilling = false;            // worker-only: window latch
+    bool refillSuppressed = false;          // worker-only: window abandoned —
+                                            // no audio packets are coming
+    int refillDryPasses = 0;                // window passes since the last push
+
+    // Lock-free diagnostics the SDL callback maintains (relaxed atomics
+    // only — that thread must stay lock-light; ringM above is all it takes).
+    std::atomic<uint64_t> underruns{0};     // silence-fill callbacks, cumulative
+    std::atomic<bool> audioEof{false};      // worker parked: no further audio
+                                            // will be produced (post-EOF
+                                            // silence is not starvation)
+
     SDL_AudioDeviceID dev = 0;
+    bool audioDeviceFailed = false;          // SDL open failed: silent playback (T3)
 
     // Wall-clock fallback (no audio) — UI-thread-only, no lock needed.
     std::chrono::steady_clock::time_point wallStart{};
@@ -237,6 +261,7 @@ struct ClientVPlayerApp::PlayerCore {
         std::string error;                    // classified stop reason (T1)
         std::string seekError;                // one-shot failed-seek notice (T2)
         std::chrono::steady_clock::time_point seekErrorAt{};
+        bool audioDeviceFailed = false;       // SDL open failed: silent playback (T3)
     };
 
     Snap SnapNow() {
@@ -256,6 +281,9 @@ struct ClientVPlayerApp::PlayerCore {
         s.error = lastError;
         s.seekError = seekError;
         s.seekErrorAt = seekErrorAt;
+        // Written in OpenStage before the m-held Running transition, so
+        // reading it under m is safe (same happens-before as duration).
+        s.audioDeviceFailed = audioDeviceFailed;
         return s;
     }
 
@@ -463,6 +491,9 @@ struct ClientVPlayerApp::PlayerCore {
             dropBeforePts = undoDropBeforePts;
             postSeekJump = undoPostSeekJump;
             ended = undoEnded;
+            // Restore the callback's underrun-counting gate with it: the
+            // pre-seek "no more audio" verdict is the restored truth.
+            audioEof.store(undoEnded, std::memory_order_relaxed);
             if (useWallClock) {
                 // Fold the snapshot into a position, then RE-PIN it against
                 // the current paused state (review MINOR-2): a SetPaused
@@ -497,6 +528,7 @@ struct ClientVPlayerApp::PlayerCore {
         }
 
         ended = false;
+        audioEof.store(false, std::memory_order_relaxed); // audio flows again
         lastError.clear(); // a successful seek supersedes a stale stop reason
         seekError.clear();
         seekInFlight = false;
@@ -652,6 +684,13 @@ struct ClientVPlayerApp::PlayerCore {
             if (!SDL_WasInit(SDL_INIT_AUDIO)) SDL_InitSubSystem(SDL_INIT_AUDIO);
             ringCap = 1u << 20; // 1 MiB of S16 stereo (~5.8 s at 44.1 kHz)
             ring = (uint8_t*)av_mallocz(ringCap);
+            // T3 refill water marks in ring bytes, from the opened format
+            // (rate x stereo x 2 bytes x ms — the capacity arithmetic above):
+            // refill the ring when under 200 ms, decode video again at 600 ms.
+            const size_t bytesPerMs =
+                (size_t)audioRate * kAudioCh * sizeof(int16_t) / 1000;
+            audioLowWater = bytesPerMs * 200;
+            audioHighWater = std::min(bytesPerMs * 600, ringCap - 1);
             SDL_AudioSpec want{};
             want.freq = audioRate;
             want.format = AUDIO_S16SYS;
@@ -666,6 +705,11 @@ struct ClientVPlayerApp::PlayerCore {
                 // distinguish from device problems otherwise.
                 std::fprintf(stderr, "[vplayer] audio device open failed: %s\n",
                              SDL_GetError());
+                // Surface it in the status text too (T3, spec 1b-3): silent
+                // playback must say why. Informational only — the demux/
+                // decode pipeline is unaffected, so this deliberately does
+                // NOT go through lastError (the T1 classification channel).
+                audioDeviceFailed = true;
                 if (dev) { SDL_CloseAudioDevice(dev); dev = 0; }
                 if (ring) { av_free(ring); ring = nullptr; }
                 swr_free(&swr); swr = nullptr;
@@ -766,7 +810,24 @@ struct ClientVPlayerApp::PlayerCore {
         std::memcpy(stream, p->ring + p->ringR, first);
         if (n > first) std::memcpy(stream + first, p->ring, n - first);
         p->ringR = (p->ringR + n) % p->ringCap;
-        if (n < (size_t)len) std::memset(stream + n, 0, len - n);
+        // Wake a producer parked on a full ring (RingPush's cvRing.wait):
+        // a condition_variable's predicate is only re-checked on notify, so
+        // a consumer that pops without notifying leaves the worker asleep
+        // forever once the ring fills. The baseline never hit the wait
+        // (video decode paced the loop); the T3 audio-first refill can.
+        // Notify with no waiter is a no-op, so the callback stays lock-light.
+        p->cvRing.notify_all();
+        if (n < (size_t)len) {
+            // Underrun (T3, spec 1b-2): the ring ran dry mid-fill — silence
+            // the tail and count it. Lock-free relaxed atomics only: this
+            // thread must stay lock-light (ringM above is all it takes).
+            // Post-EOF silence is not starvation — the worker raises
+            // audioEof when no further audio will be produced, and the
+            // count stops there.
+            if (!p->audioEof.load(std::memory_order_relaxed))
+                p->underruns.fetch_add(1, std::memory_order_relaxed);
+            std::memset(stream + n, 0, len - n);
+        }
         const float v = p->volume.load(std::memory_order_relaxed);
         if (v < 0.999f) {
             auto* s = reinterpret_cast<int16_t*>(stream);
@@ -807,9 +868,19 @@ struct ClientVPlayerApp::PlayerCore {
                                 continue; // newest target re-seeks next pass
                             // Ok: demux below continues from the new position.
                             // Failed: clock restored — demux below continues
-                            // from the (unmoved) pre-seek position.
+                            // from the (unmoved) pre-seek position. Either
+                            // way the demuxer moved: the stage-(a) flush
+                            // emptied the ring, so the next pass re-arms a
+                            // refill window, and a pre-seek "audio produces
+                            // nothing" verdict is stale.
+                            refillDryPasses = 0;
+                            refillSuppressed = false;
                         }
                     }
+                    // Refill latch evaluation (T3): hysteresis from the
+                    // current ring level (no other locks held here — ringM
+                    // alone, brief).
+                    RefillDue();
                     const int r = av_read_frame(fmt, pkt);
                     if (r == AVERROR(EAGAIN)) {
                         // Transient resource shortage: brief sleep + bounded
@@ -818,6 +889,7 @@ struct ClientVPlayerApp::PlayerCore {
                             std::lock_guard<std::mutex> lk(m);
                             lastError = "읽기 지연 (EAGAIN 반복)";
                             ended = true;
+                            audioEof.store(true, std::memory_order_relaxed);
                             eagainStreak = 0;
                             cv.notify_all();
                             continue;
@@ -833,15 +905,44 @@ struct ClientVPlayerApp::PlayerCore {
                         if (r != AVERROR_EOF)
                             lastError = "읽기 오류: " + AvErr(r);
                         ended = true; // park; Seek()/stop wake us again
+                        // Parked = no further audio packets will be pushed
+                        // (T3): the callback's silence fills after the ring
+                        // drains are end-of-playback, not starvation.
+                        audioEof.store(true, std::memory_order_relaxed);
                         cv.notify_all();
                         continue;
                     }
                     bool cont = true;
                     if (pkt->stream_index == videoStream) {
-                        cont = DecodeVideoPacket(pkt, frame);
+                        // Decode keyframes even mid-refill: skipping them
+                        // starves the h264 decoder of its reference anchor
+                        // and it outputs nothing until the NEXT keyframe —
+                        // on a sparse-GOP file that starves video decode
+                        // long enough for the ring to fill to capacity.
+                        const bool kf = (pkt->flags & AV_PKT_FLAG_KEY) != 0;
+                        if (audioRefilling && !kf &&
+                            !jogging.load(std::memory_order_relaxed)) {
+                            // Refill window (T3, spec 1b-1): skip video
+                            // decode — the demuxer still advances (unref
+                            // below) toward the audio packets interleaved
+                            // around it, and they top the ring up to the
+                            // high water. The dry-pass cap abandons a
+                            // window that cannot fill (audio exhausted
+                            // mid-file): without it video decode would
+                            // stay skipped to file EOF.
+                            if (++refillDryPasses > 60) {
+                                audioRefilling = false;
+                                refillSuppressed = true;
+                            }
+                        } else {
+                            cont = DecodeVideoPacket(pkt, frame);
+                        }
                     } else if (pkt->stream_index == audioStream && actx &&
                                !jogging.load(std::memory_order_relaxed)) {
-                        DecodeAudioPacket(pkt, frame);
+                        if (DecodeAudioPacket(pkt, frame)) {
+                            refillDryPasses = 0;
+                            refillSuppressed = false; // audio flows again
+                        }
                     }
                     av_packet_unref(pkt);
                     if (!cont) continue; // seek/stop fired mid-packet; loop top handles it
@@ -854,6 +955,7 @@ struct ClientVPlayerApp::PlayerCore {
             std::lock_guard<std::mutex> lk(m);
             lastError = "재생 중 내부 오류가 발생했습니다";
             ended = true;
+            audioEof.store(true, std::memory_order_relaxed); // parked (T3)
             if (phase == Phase::Opening) phase = Phase::Failed;
         }
         av_packet_free(&pkt);
@@ -878,6 +980,7 @@ struct ClientVPlayerApp::PlayerCore {
         lastError = std::string(what) + " 디코딩 오류 지속";
         decodeFailStreak = 0;
         ended = true;
+        audioEof.store(true, std::memory_order_relaxed); // parked (T3)
         cv.notify_all();
     }
 
@@ -902,19 +1005,36 @@ struct ClientVPlayerApp::PlayerCore {
             av_frame_unref(frame);
             {
                 std::unique_lock<std::mutex> lk(m);
-                // Backpressure: hold at most 3 pending frames (~100 ms at 30 fps).
-                cv.wait(lk, [&] { return stop || wantSeek || videoQ.size() < 3; });
+                // Backpressure: hold at most 3 pending frames (~100 ms at 30
+                // fps). The wait doubles as the audio-starvation escape (T3,
+                // spec 1b-1): audio is the A/V master clock, so a worker
+                // parked on a full queue must still be able to leave and
+                // refill the ring — RefillDue() also exits the wait (m ->
+                // ringM, the documented order).
+                cv.wait(lk, [&] {
+                    return stop || wantSeek || videoQ.size() < 3 || RefillDue();
+                });
                 if (stop || wantSeek) return false;
+                // A refill window opened while parked: leave the video
+                // decode loop — the frame in hand is dropped (the display
+                // gate drops late frames the same way) and the loop top
+                // spends the next passes on audio until the high water.
+                // Frames still buffered in the codec drain on later passes.
+                if (RefillDue()) return true;
                 if (pts < dropBeforePts) continue; // stale frame from before the seek
                 videoQ.push_back(std::move(vf));
             }
         }
     }
 
-    void DecodeAudioPacket(AVPacket* pkt, AVFrame* frame) {
-        if (avcodec_send_packet(actx, pkt) < 0) { DecodeFail("오디오"); return; }
+    // Returns whether any converted audio reached the ring — the refill
+    // window's productivity signal (T3): a window over a stream that
+    // decodes to nothing must be abandoned, not held open forever.
+    bool DecodeAudioPacket(AVPacket* pkt, AVFrame* frame) {
+        if (avcodec_send_packet(actx, pkt) < 0) { DecodeFail("오디오"); return false; }
         uint64_t gen;
         { std::lock_guard<std::mutex> lk(ringM); gen = seekGen; }
+        bool pushedAny = false;
         while (avcodec_receive_frame(actx, frame) == 0) {
             decodeFailStreak = 0; // a decoded frame resets the failure streak
             const int maxOut = swr_get_out_samples(swr, frame->nb_samples);
@@ -923,11 +1043,13 @@ struct ClientVPlayerApp::PlayerCore {
             if (!out) { av_frame_unref(frame); continue; }
             const int conv = swr_convert(swr, &out, maxOut,
                                          (const uint8_t**)frame->data, frame->nb_samples);
-            if (conv > 0) RingPush(gen, out, (size_t)conv * kAudioCh * 2);
+            if (conv > 0 && RingPush(gen, out, (size_t)conv * kAudioCh * 2))
+                pushedAny = true;
             av_free(out);
             av_frame_unref(frame);
             if (stop) break;
         }
+        return pushedAny;
     }
 
     // Blocks while the ring is full (backpressure); aborts on stop or seek.
@@ -940,6 +1062,35 @@ struct ClientVPlayerApp::PlayerCore {
         if (bytes > first) std::memcpy(ring, src + first, bytes - first);
         ringW = (ringW + bytes) % ringCap;
         return true;
+    }
+
+    // Refill-window hysteresis (T3, spec 1b-1), worker-only state: the
+    // window opens when the ring is under the 200 ms low water and stays
+    // open until the 600 ms high water, so a refill tops up to a
+    // comfortable depth instead of hovering at the trigger line. Called
+    // from the worker loop top (no locks held) and from DecodeVideoPacket's
+    // backpressure wait (m held — taking ringM after m is the documented
+    // order). False when there is nothing to refill: no audio stream at
+    // all (a missing device is not a starvation), or while jogging (audio
+    // decode is off by design, so no window must open mid-GOP), or when a
+    // window was abandoned — the audio stream produced nothing for a whole
+    // window and refilling would hold video decode off forever (audio that
+    // ends before the video's demuxer EOF). Suppression lifts as soon as
+    // any audio is pushed again, or on the next seek.
+    bool RefillDue() {
+        if (audioStream < 0) return false;
+        if (jogging.load(std::memory_order_relaxed)) return false;
+        std::lock_guard<std::mutex> lk2(ringM);
+        const size_t used = RingUsedLocked();
+        if (audioRefilling) {
+            if (used >= audioHighWater) {
+                audioRefilling = false;
+                refillDryPasses = 0;
+            }
+        } else if (!refillSuppressed && used < audioLowWater) {
+            audioRefilling = true;
+        }
+        return audioRefilling;
     }
 
     // UI thread: hand back the latest frame whose pts is due at `clock`,
@@ -1296,6 +1447,13 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
                                       st.seekErrorAt).count() < 3.0)
         ImGui::TextColored(kErrorRed, "%s", st.seekError.c_str());
 
+    // Device-failure surfacing (T3, spec 1b-3): silent playback says why.
+    // Informational status of a degraded-but-running pipeline — deliberately
+    // not lastError/openError_ (the T1 classification channels stay
+    // separate); the same notice color as the failed-seek status above.
+    if (st.audioDeviceFailed)
+        ImGui::TextColored(kErrorRed, "%s", "오디오 장치를 열 수 없음(무음 재생)");
+
     ImGui::Separator();
 
     // Video area: aspect-fit, centered.
@@ -1439,6 +1597,21 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
                                        c.y + (rad - 6.0f) * std::sin(a1)),
                                 4.0f, IM_COL32(120, 220, 140, 255), 12);
         }
+    }
+
+    // Underrun diagnostic (T3, spec 1b-2): display-only debug counter in the
+    // bottom-right status region, neutral status color (not an error). The
+    // count is cumulative since the file opened and never resets mid-file;
+    // hidden when there is no audio stream at all — a missing device is not
+    // an underrun (spec edge).
+    if (p->audioStream >= 0) {
+        char ubuf[32];
+        std::snprintf(ubuf, sizeof(ubuf), "underrun: %llu",
+                      (unsigned long long)p->underruns.load(std::memory_order_relaxed));
+        const ImVec2 tsz = ImGui::CalcTextSize(ubuf);
+        ImGui::SetCursorScreenPos(
+            ImVec2(w - tsz.x - 12.0f, h - tsz.y - 10.0f));
+        ImGui::TextUnformatted(ubuf);
     }
 
     // Space toggles pause (unless typing in the path field).
