@@ -314,4 +314,8 @@ EOF 클램프까지 롱 전진 조그 → 링 경계 폴백 시크 후 그림이
   27Hz). 이번 작업과 무관하게 최우선.
 - **② v2 역방향 자동 재생** — 링을 역방향 케이던스로 자동 진행, 소진 시
   이전 키프레임 시크 후 반복(스펙 §7, v1 링 기계 위에 얹음).
+- **최종리뷰(opus, APPROVE — 2026-09-15) 1줄 경화 2건** (조그 영역 재접촉 시):
+  stage-(a) vPktQ drain 뒤 `vSeekSeq` 제2 bump(너비 μs급 bump↔drain 갭 봉쇄),
+  `audioSkipBelow`에 dropBeforePts와 동일 -0.05 슬랙. 잔여 레이스는 전부
+  자가치유·1프레임 스케일로 park(ledger 트리아지).
 - §7.4 ②(vPipeDelay 일시정지 수축 관찰)·③(audioEof 상호작용) 그대로 유지.
