@@ -1795,13 +1795,18 @@ void ClientVPlayerApp::SyncVideoTexture(SDL_Renderer* renderer) {
     if (videoTex_) {
         // Count the upload only when it succeeded — a failed upload must not
         // inflate the verdict gauge while the picture goes stale/black.
-        const bool uploaded =
+        // SDL_Update* return 0 on success, -1 on failure (SDL_render.h) — the
+        // inverted `if (!uploaded) return;` here (398fe30's hardening wave,
+        // landed after task 4's e2e run) took every SUCCESSFUL upload as a
+        // failure: hasFrame_ never set, "no frame yet" at 0 Hz for both NV12
+        // and RGBA playback while audio kept the clock running.
+        const int upRet =
             vf.nv12 ? SDL_UpdateNVTexture(static_cast<SDL_Texture*>(videoTex_), nullptr,
                                           vf.pix->data(), vf.w,
                                           vf.pix->data() + (size_t)vf.w * vf.h, vf.w)
                     : SDL_UpdateTexture(static_cast<SDL_Texture*>(videoTex_), nullptr,
                                         vf.pix->data(), vf.w * 4);
-        if (!uploaded) return;
+        if (upRet != 0) return;
         hasFrame_ = true;
         // Render-rate window (see header comment).
         const double now = SDL_GetTicks() / 1000.0;
