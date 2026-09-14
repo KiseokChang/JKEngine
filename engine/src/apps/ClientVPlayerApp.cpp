@@ -208,12 +208,21 @@ struct ClientVPlayerApp::PlayerCore {
                                             // no audio packets are coming
     int refillDryPasses = 0;                // window passes since the last push
 
+    // Dry-pass cap: how many consecutive video packets a refill window may
+    // skip without a single audio push before the window is abandoned —
+    // bounds a window over a stream whose audio ends before the video's
+    // demuxer EOF, so video decode cannot be starved to file EOF
+    // (~1 GOP of packets per refill window at typical interleave ratios).
+    static constexpr int kRefillDryCap = 60;
+
     // Lock-free diagnostics the SDL callback maintains (relaxed atomics
     // only — that thread must stay lock-light; ringM above is all it takes).
     std::atomic<uint64_t> underruns{0};     // silence-fill callbacks, cumulative
-    std::atomic<bool> audioEof{false};      // worker parked: no further audio
-                                            // will be produced (post-EOF
-                                            // silence is not starvation)
+    std::atomic<bool> audioEof{false};      // no further audio will be produced:
+                                            // demuxer EOF/read-error/decode-fail
+                                            // park, or the refill dry cap (audio
+                                            // stream ended before video) —
+                                            // post-EOF silence is not starvation
 
     SDL_AudioDeviceID dev = 0;
     bool audioDeviceFailed = false;          // SDL open failed: silent playback (T3)
@@ -930,9 +939,20 @@ struct ClientVPlayerApp::PlayerCore {
                             // window that cannot fill (audio exhausted
                             // mid-file): without it video decode would
                             // stay skipped to file EOF.
-                            if (++refillDryPasses > 60) {
+                            if (++refillDryPasses > kRefillDryCap) {
                                 audioRefilling = false;
                                 refillSuppressed = true;
+                                // A whole window passed with no audio
+                                // produced — the audio stream is done for
+                                // this stretch (still-image tail, long
+                                // video track). Once the ring drains, the
+                                // callback's silence is end-of-audio, not
+                                // starvation: raise the same gate the demux
+                                // EOF paths use so the underrun counter
+                                // stops here (review Important-1). Cleared
+                                // below when audio is pushed again, and by
+                                // the seek paths.
+                                audioEof.store(true, std::memory_order_relaxed);
                             }
                         } else {
                             cont = DecodeVideoPacket(pkt, frame);
@@ -942,6 +962,7 @@ struct ClientVPlayerApp::PlayerCore {
                         if (DecodeAudioPacket(pkt, frame)) {
                             refillDryPasses = 0;
                             refillSuppressed = false; // audio flows again
+                            audioEof.store(false, std::memory_order_relaxed);
                         }
                     }
                     av_packet_unref(pkt);
@@ -1011,7 +1032,18 @@ struct ClientVPlayerApp::PlayerCore {
                 // parked on a full queue must still be able to leave and
                 // refill the ring — RefillDue() also exits the wait (m ->
                 // ringM, the documented order).
-                cv.wait(lk, [&] {
+                // Timed wait (review Important-1): once the audio clock
+                // freezes (audio stream ended before the video's demuxer
+                // EOF) the display pops no frames, so NOTHING notifies this
+                // wait — a plain wait() would never re-evaluate RefillDue(),
+                // the refill dry cap would stay unreachable, audioEof would
+                // never rise, and the callback would count every silence
+                // pass as an underrun forever. The 50 ms escape re-checks
+                // the predicate (stop/wantSeek included, so their latency is
+                // bounded too); the predicate's RefillDue() mutates
+                // worker-only latch state — safe here because this wait runs
+                // on the worker, the thread that owns the latch.
+                cv.wait_for(lk, std::chrono::milliseconds(50), [&] {
                     return stop || wantSeek || videoQ.size() < 3 || RefillDue();
                 });
                 if (stop || wantSeek) return false;
