@@ -205,10 +205,10 @@ struct ClientVPlayerApp::PlayerCore {
     static constexpr size_t kJogRingMaxBytes = (size_t)1536 * 1024 * 1024;
     std::deque<VideoFrame> jogRing;
     size_t jogRingBytes = 0;
-    // Live jog dial target (UI time). -1 = no frame-scrub session. While it
-    // stays -1 the jog branch in DecodeVideoPacket does NOT skip the videoQ
-    // push — the skip arms exactly when the frame-scrub UI (JogTo) starts
-    // driving this value, so intermediate commits stay behavior-neutral.
+    // Live jog dial target (UI time). -1 = no frame-scrub session. Written
+    // by JogTo under m; read by the video thread's clock gate and JogFrame
+    // (UI thread). (The fallback scrub seek — SeekCommon scrub branch —
+    // feeds it too, armed with the UI switch: Task 3.)
     double jogTargetPts = -1;
 
     // RGBA buffer pool for decoded frames (video-thread-only state): see
@@ -334,6 +334,7 @@ struct ClientVPlayerApp::PlayerCore {
         std::string seekError;                // one-shot failed-seek notice (T2)
         std::chrono::steady_clock::time_point seekErrorAt{};
         bool audioDeviceFailed = false;       // SDL open failed: silent playback (T3)
+        double jogRingLo = -1;                // oldest retained jog-ring pts (-1 = empty)
     };
 
     Snap SnapNow() {
@@ -353,6 +354,7 @@ struct ClientVPlayerApp::PlayerCore {
         s.error = lastError;
         s.seekError = seekError;
         s.seekErrorAt = seekErrorAt;
+        s.jogRingLo = jogRing.empty() ? -1.0 : jogRing.front().pts;
         // Written in OpenStage before the m-held Running transition, so
         // reading it under m is safe (same happens-before as duration).
         s.audioDeviceFailed = audioDeviceFailed;
@@ -449,11 +451,45 @@ struct ClientVPlayerApp::PlayerCore {
         }
     }
 
+    // Jog dial target update (frame-scrub): zero-blocking. The UI thread
+    // calls this every frame the dial moves; the video thread's clock gate
+    // re-evaluates against it on its 10 ms poll — no notify needed.
+    void JogTo(double t) {
+        if (duration > 0) t = std::clamp(t, 0.0, duration);
+        std::lock_guard<std::mutex> lk(m);
+        jogTargetPts = t;
+    }
+
+    // UI thread: the frame to display for the live jog target — the newest
+    // decoded frame at or before jogTargetPts. Nothing is popped: dialing
+    // back re-displays history straight from the ring (the ring holds every
+    // decoded frame, videoQ included — videoQ pushes also ring-push).
+    bool JogFrame(VideoFrame& out) {
+        std::lock_guard<std::mutex> lk(m);
+        if (jogTargetPts < 0) return false;
+        // Half-frame tolerance: the dial target is continuous time, decoded
+        // pts are quantized — pick the frame the target lands on.
+        const double eps = fps > 0.0 ? 0.5 / fps : 0.005;
+        for (auto it = jogRing.rbegin(); it != jogRing.rend(); ++it) {
+            if (it->pts <= jogTargetPts + eps) {
+                out = *it; // shared_ptr copy — the frame stays for re-display
+                return true;
+            }
+        }
+        return false;
+    }
+
     // Jog mode: while scrubbing (usually paused) the audio ring never drains,
     // so RingPush would park the worker mid-GOP and stall video decode. Skip
     // audio decode entirely — packets are still read + unref'd, keeping the
     // demuxer position in sync for the next seek.
-    void SetJog(bool j) { jogging.store(j, std::memory_order_relaxed); }
+    void SetJog(bool j) {
+        jogging.store(j, std::memory_order_relaxed);
+        if (!j) {
+            std::lock_guard<std::mutex> lk(m);
+            jogTargetPts = -1; // stale gate input must not outlive the session
+        }
+    }
 
     // Three-stage seek (T2, spec D3). Runs on the worker; takes and releases
     // `lk` itself. The point of the split: avformat_seek_file is blocking disk
@@ -1211,10 +1247,10 @@ struct ClientVPlayerApp::PlayerCore {
             // videoQ decision. During a frame-scrub jog the videoQ push
             // below is SKIPPED: nothing pops while paused, so the 3-slot cap
             // would park this thread and stall the dial — the ring is the
-            // jog path's sink. The skip is STAGED behind jogTargetPts: the
-            // legacy keyframe jog (SetJog without JogTo) keeps the videoQ
-            // push so the picture keeps updating; the gate arms when the
-            // frame-scrub UI lands (Task 1 stays behavior-neutral).
+            // jog path's sink. The skip is gated on jogTargetPts: the legacy
+            // keyframe jog (SetJog without JogTo) keeps the videoQ push so
+            // the picture keeps updating; the gate arms when JogTo starts
+            // driving the target.
             const bool jogFrameMode = jogging.load(std::memory_order_relaxed) &&
                                       jogTargetPts >= 0;
             if (jogFrameMode) {
@@ -1289,14 +1325,19 @@ struct ClientVPlayerApp::PlayerCore {
                 // dropped, not decoded.
                 bool seekAbort = false;
                 while (!stop) {
+                    double gateClock;
                     {
                         std::lock_guard<std::mutex> lk(m);
                         if (wantSeek) { seekAbort = true; break; }
+                        // Jog frame-scrub: decode runs to the DIAL target, not
+                        // the (pinned) clock — max() keeps non-jog playback
+                        // identical (jogTargetPts is -1 outside a session).
+                        gateClock = std::max(ClockNow(), jogTargetPts);
                     }
                     const double pts = mine->pts == AV_NOPTS_VALUE
                                            ? -1.0
                                            : mine->pts * av_q2d(videoTb) - ptsOrigin;
-                    if (pts < 0 || pts <= ClockNow() + kVideoLead + vPipeDelay)
+                    if (pts < 0 || pts <= gateClock + kVideoLead + vPipeDelay)
                         break;
                     std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 }
