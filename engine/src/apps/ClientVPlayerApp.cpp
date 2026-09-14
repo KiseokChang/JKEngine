@@ -2076,7 +2076,13 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.25f, 0.25f, 0.32f, 0.80f));
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.32f, 0.32f, 0.42f, 0.90f));
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.9f, 0.9f, 0.95f, 0.75f));
-        if (reverseActive_)
+        // The tint reflects the state going INTO this frame (the pre-click
+        // value): capturing the count before the button keeps the style stack
+        // balanced on every path — the click handler mutates reverseActive_,
+        // so a post-mutation guard would pop entries that were never pushed
+        // (toggle-on) or strand the tint entry (every exit while displayed).
+        const int pushed = reverseActive_ ? 1 : 0;
+        if (pushed)
             ImGui::PushStyleColor(ImGuiCol_Button,
                                   ImVec4(0.12f, 0.24f, 0.43f, 0.85f)); // active tint
         if (ImGui::Button("<<", ImVec2(30, 22))) {
@@ -2085,20 +2091,24 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
             } else {
                 // Toggle-on: open the shared jog session. A still-open wheel
                 // session (target-only, no release yet) is superseded —
-                // letting both run would double-finish (two seeks).
+                // letting both run would double-finish (two seeks). On that
+                // supersede the wheel session's pause verdict is KEPT (it
+                // paused the clock first; st.paused no longer holds the
+                // truth) — same rule as the drag/wheel entry blocks.
+                const bool takeover = wheelScrubbing_;
                 wheelScrubbing_ = false;
                 reverseActive_ = true;
                 reverseAcc_ = 0.0;
                 reverseLastTick_ = std::chrono::steady_clock::now();
-                jogWasPlaying_ = !st.paused && !st.ended;
-                if (jogWasPlaying_) p->SetPaused(true);
+                if (!takeover) jogWasPlaying_ = !st.paused && !st.ended;
+                if (jogWasPlaying_ && st.paused == false) p->SetPaused(true);
                 p->SetJog(true);
                 jogTarget_ = st.pos;
                 jogLastSent_ = -1;
                 jogLastSeek_ = std::chrono::steady_clock::now();
             }
         }
-        if (reverseActive_) ImGui::PopStyleColor();
+        if (pushed) ImGui::PopStyleColor();
         ImGui::SameLine();
         if (ImGui::Button("<", ImVec2(30, 22))) stepFrame(-1);
         ImGui::SameLine();
