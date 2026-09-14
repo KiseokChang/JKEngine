@@ -77,6 +77,13 @@ private:
     float jogMouseX_ = 0, jogMouseY_ = 0;
     std::chrono::steady_clock::time_point jogLastSeek_{};
 
+    // Render-rate metric: UI-thread-only counter refreshed by
+    // SyncVideoTexture (uploads/sec over a 1 s window), shown in the status
+    // row — the probe reads it as the 4K upload-bottleneck verdict.
+    int renderFrames_ = 0;          // uploads in the current 1 s window
+    double renderWindowStart_ = 0;  // SDL_GetTicks-based window start (s)
+    int renderHz_ = 0;              // last completed window's rate
+
     // Mouse-wheel scrub (spec 1d/D5): wheel ticks over the knob drive the
     // same jogTarget_ frame-scrub pump (ring hit = JogTo, ring-miss =
     // debounced SeekScrub fallback); there is no wheel-release event,

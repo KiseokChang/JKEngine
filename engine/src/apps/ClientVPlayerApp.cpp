@@ -88,17 +88,26 @@ std::string EscapeJson(const std::string& in) {
 constexpr const char* kVideoFilter =
     "동영상 (*.mp4;*.mkv;*.avi;*.webm;*.mov)";
 
-// One decoded video frame, already converted to RGBA for SDL_UpdateTexture.
-// rgba is a pooled shared buffer: at 4K a fresh 33 MB vector allocation per
-// frame measured ~20 ms (the single biggest decode-thread cost); recycling
-// dropped it back near the raw sws cost. Ownership follows the refcount —
-// frames parked in videoQ or held by the last UI upload keep their buffer
-// alive, released buffers return to the decode thread's pool.
+// One decoded video frame in a single contiguous NV12 buffer (Y plane at
+// offset 0, stride w; interleaved UV plane at offset w*h, stride w) — half
+// the bytes of the old RGBA layout, so both the sws conversion and the
+// SDL_UpdateNVTexture upload cost half as much at 4K (the 27 Hz render
+// bottleneck, docs/50 §7.4-①). Odd-dimension sources keep RGBA (NV12 needs
+// even w/h) — nv12 flags which layout this buffer holds. pix is a pooled
+// shared buffer: at 4K a fresh allocation per frame measured ~20 ms; the
+// pool recycles released slots (docs/50 §7). Ownership follows the
+// refcount — frames parked in videoQ/jogRing or held by the last UI
+// upload keep their buffer alive.
 struct VideoFrame {
     double pts = 0;
     int w = 0, h = 0;
-    std::shared_ptr<std::vector<uint8_t>> rgba;
+    bool nv12 = true;
+    std::shared_ptr<std::vector<uint8_t>> pix;
 };
+static inline size_t bytesFor(int w, int h) { return (size_t)w * (size_t)h * 3 / 2; }
+static inline size_t FrameBytes(const VideoFrame& vf) {
+    return vf.nv12 ? bytesFor(vf.w, vf.h) : (size_t)vf.w * (size_t)vf.h * 4;
+}
 
 } // namespace
 
@@ -133,6 +142,10 @@ struct ClientVPlayerApp::PlayerCore {
                                              // copied samples become audible this much later
     double fps = 0;                          // video frame rate (0 = unknown), for ±1F stepping
     bool useWallClock = false;               // files without usable audio
+
+    // Even-dimension sources render NV12 (half the upload bytes); odd ones
+    // keep RGBA (NV12 needs even w/h) — decided at open, spec §4.
+    bool nv12Out = false;
     std::string lastError;
 
     // --- Async open state machine (vplayer-stability T1, spec D1) ------------
@@ -239,15 +252,17 @@ struct ClientVPlayerApp::PlayerCore {
     // feeds it too, armed with the UI switch: Task 3.)
     double jogTargetPts = -1;
 
-    // RGBA buffer pool for decoded frames (video-thread-only state): see
-    // the VideoFrame comment. Slots whose refcount dropped to 1 (only the
-    // pool holds them) are recycled; the cap bounds pathological bursts.
+    // Pixel buffer pool for decoded frames (NV12, or RGBA for odd dims;
+    // video-thread-only state): see the VideoFrame comment. Slots whose
+    // refcount dropped to 1 (only the pool holds them) are recycled; the
+    // cap bounds pathological bursts.
     std::vector<std::shared_ptr<std::vector<uint8_t>>> vPool;
 
     // --- Demux/decode split (docs/50 follow-up, 4K playback root fix) ----
     // The demux position runs up to the audio ring's 600 ms horizon ahead of
-    // the presentation clock (audio-first refill), but a decoded 4K RGBA
-    // frame is ~33 MB — the old 3-frame videoQ could never span that lead,
+    // the presentation clock (audio-first refill), but a decoded 4K frame
+    // is tens of MB (33 MB RGBA, ~16.5 MB NV12) — the old 3-frame videoQ
+    // could never span that lead,
     // so every decoded frame was "future", the display starved ~90% of its
     // ticks and then collapsed several frames at once (freeze-then-jump), and
     // the T3 refill windows skipped mid-GOP video packets on top (dav1d
@@ -279,7 +294,7 @@ struct ClientVPlayerApp::PlayerCore {
     // the MEASURED pipeline delay (sent-packet pts minus received-frame
     // pts, EMA-smoothed; seeded from has_b_frames/fps at open). This both
     // saturates the decoder and keeps the emitted frames near-due — the
-    // runway exists inside the decoder, not in decoded RGBA.
+    // runway exists inside the decoder, not in decoded frames.
     double vPipeDelay = 0;
     // Seed only (see vPipeDelay): has_b_frames measured in OpenStage once
     // fps is known, in seconds.
@@ -829,11 +844,14 @@ struct ClientVPlayerApp::PlayerCore {
         if (videoStream >= 0) {
             AVStream* st = fmt->streams[videoStream];
             // Dimension caps BEFORE the decoder opens (spec 1a-2): a lying
-            // header must not reach vf.rgba.resize — a worker bad_alloc would
+            // header must not reach vf.pix.resize — a worker bad_alloc would
             // std::terminate the whole desktop process.
             const int64_t w = st->codecpar->width;
             const int64_t h = st->codecpar->height;
-            if (w > 8192 || h > 8192 || w * h * 4 > (int64_t)256 * 1024 * 1024) {
+            nv12Out = (w % 2 == 0) && (h % 2 == 0);
+            const int64_t maxBytes = nv12Out ? (int64_t)bytesFor(w, h)
+                                             : (int64_t)w * h * 4;
+            if (w > 8192 || h > 8192 || maxBytes > (int64_t)256 * 1024 * 1024) {
                 fail("지원하지 않는 해상도 (최대 8192x8192, 프레임 256MiB)");
                 return false;
             }
@@ -886,7 +904,8 @@ struct ClientVPlayerApp::PlayerCore {
 
         if (videoStream >= 0) {
             sws = sws_getContext(videoW, videoH, vctx->pix_fmt,
-                                 videoW, videoH, AV_PIX_FMT_RGBA,
+                                 videoW, videoH,
+                                 nv12Out ? AV_PIX_FMT_NV12 : AV_PIX_FMT_RGBA,
                                  SWS_BILINEAR, nullptr, nullptr, nullptr);
             if (!sws) { fail("sws_getContext failed"); return false; }
         }
@@ -1233,13 +1252,13 @@ struct ClientVPlayerApp::PlayerCore {
     // (time from the newest pts, bytes). The ring has NO backpressure: the
     // trim IS the bound, so the caller never parks on it.
     void JogRingPushLocked(VideoFrame vf) {
-        const size_t fb = (size_t)vf.w * (size_t)vf.h * 4;
+        const size_t fb = FrameBytes(vf);
         jogRing.push_back(std::move(vf));
         jogRingBytes += fb;
         while (!jogRing.empty() &&
                (jogRing.back().pts - jogRing.front().pts > kJogRingMaxSecs ||
                 jogRingBytes > kJogRingMaxBytes)) {
-            jogRingBytes -= (size_t)jogRing.front().w * (size_t)jogRing.front().h * 4;
+            jogRingBytes -= FrameBytes(jogRing.front());
             jogRing.pop_front();
         }
     }
@@ -1288,11 +1307,17 @@ struct ClientVPlayerApp::PlayerCore {
                     buf = std::make_shared<std::vector<uint8_t>>();
                     if (vPool.size() < 10) vPool.push_back(buf);
                 }
-                vf.rgba = buf;
-                if (vf.rgba->size() != (size_t)videoW * videoH * 4)
-                    vf.rgba->resize((size_t)videoW * videoH * 4);
-                uint8_t* dst[4] = { vf.rgba->data(), nullptr, nullptr, nullptr };
+                vf.nv12 = nv12Out;
+                vf.pix = buf;
+                if (vf.pix->size() != FrameBytes(vf))
+                    vf.pix->resize(FrameBytes(vf));
+                uint8_t* dst[4] = { vf.pix->data(), nullptr, nullptr, nullptr };
                 int dstStride[4] = { videoW * 4, 0, 0, 0 };
+                if (nv12Out) {
+                    dst[1] = vf.pix->data() + (size_t)videoW * videoH;
+                    dstStride[0] = videoW;
+                    dstStride[1] = videoW;
+                }
                 sws_scale(sws, frame->data, frame->linesize, 0, frame->height, dst, dstStride);
                 av_frame_unref(frame);
                 ready.push_back(std::move(vf));
@@ -1724,7 +1749,11 @@ void ClientVPlayerApp::SyncVideoTexture(SDL_Renderer* renderer) {
 
     if (!videoTex_ || texW_ != vf.w || texH_ != vf.h) {
         if (videoTex_) SDL_DestroyTexture(static_cast<SDL_Texture*>(videoTex_));
-        videoTex_ = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ABGR8888,
+        // NV12 for even-dimension sources (the D3D11/GL backends render it
+        // with a YUV→RGB shader — no CPU conversion), RGBA fallback for odd.
+        videoTex_ = SDL_CreateTexture(renderer,
+                                      vf.nv12 ? SDL_PIXELFORMAT_NV12
+                                              : SDL_PIXELFORMAT_ABGR8888,
                                       SDL_TEXTUREACCESS_STREAMING, vf.w, vf.h);
         texW_ = vf.w;
         texH_ = vf.h;
@@ -1733,9 +1762,23 @@ void ClientVPlayerApp::SyncVideoTexture(SDL_Renderer* renderer) {
                                                SDL_ScaleModeLinear);
     }
     if (videoTex_) {
-        SDL_UpdateTexture(static_cast<SDL_Texture*>(videoTex_), nullptr,
-                          vf.rgba->data(), vf.w * 4);
+        if (vf.nv12) {
+            SDL_UpdateNVTexture(static_cast<SDL_Texture*>(videoTex_), nullptr,
+                                vf.pix->data(), vf.w,
+                                vf.pix->data() + (size_t)vf.w * vf.h, vf.w);
+        } else {
+            SDL_UpdateTexture(static_cast<SDL_Texture*>(videoTex_), nullptr,
+                              vf.pix->data(), vf.w * 4);
+        }
         hasFrame_ = true;
+        // Render-rate window (see header comment).
+        const double now = SDL_GetTicks() / 1000.0;
+        if (renderHz_ == 0 || now - renderWindowStart_ >= 1.0) {
+            renderHz_ = renderFrames_;
+            renderFrames_ = 0;
+            renderWindowStart_ = now;
+        }
+        ++renderFrames_;
     }
 }
 
@@ -1855,6 +1898,10 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
     ImGui::SameLine();
     // 의도적 잔존 — 의미색 (P2 테마 스왑 제외)
     ImGui::TextColored(ImVec4(0.65f, 0.65f, 0.7f, 1.0f), "(+) audio later");
+
+    // Render-rate metric (docs/50 §7.4-① verdict gauge) — always shown.
+    ImGui::SameLine();
+    ImGui::Text("렌더 %dHz", renderHz_);
 
     // One-shot failed-seek notice (T2, spec D3): the clock was restored to
     // the pre-seek position and playback continues, so the notice auto-
