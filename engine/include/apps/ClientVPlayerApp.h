@@ -72,13 +72,14 @@ private:
     bool jogActive_ = false;
     bool jogWasPlaying_ = false;
     double jogTarget_ = 0;      // scrub target while dragging (UI time)
-    double jogLastSent_ = -1;   // last target sent to SeekScrub (debounce)
+    double jogLastSent_ = -1;   // last target sent to JogTo/SeekScrub
     float knobCX_ = 0, knobCY_ = 0;
     float jogMouseX_ = 0, jogMouseY_ = 0;
     std::chrono::steady_clock::time_point jogLastSeek_{};
 
     // Mouse-wheel scrub (spec 1d/D5): wheel ticks over the knob drive the
-    // same jogTarget_/debounce as a drag; there is no wheel-release event,
+    // same jogTarget_ frame-scrub pump (ring hit = JogTo, ring-miss =
+    // debounced SeekScrub fallback); there is no wheel-release event,
     // so the session ends 400 ms after the last tick (idle timeout).
     bool wheelScrubbing_ = false;
     std::chrono::steady_clock::time_point wheelLastTick_{};

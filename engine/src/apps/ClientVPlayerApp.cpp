@@ -406,6 +406,10 @@ struct ClientVPlayerApp::PlayerCore {
         wantSeek = true;
         seekTarget = t;
         jogSeek = scrub;
+        // The fallback scrub seek (ring start crossed) ALSO feeds the jog
+        // display: JogFrame shows each decoded frame as decode creeps toward
+        // the target, so the fallback is frame-smooth too, not a keyframe pop.
+        if (scrub) jogTargetPts = t;
         // A fresh request supersedes a failed-seek notice, and the wall-clock
         // rebase below happens HERE (request time, UI thread) — so the
         // pre-seek values for the failed-seek restore must be captured now,
@@ -1635,12 +1639,20 @@ void ClientVPlayerApp::SyncVideoTexture(SDL_Renderer* renderer) {
     // the Opening phase the worker is still mid-write, so don't touch them.
     if (!p || !p->IsRunning() || p->videoW <= 0) return;
     VideoFrame vf;
-    // The user A/V offset lives here — a display-gate shift only. Positive
-    // avDelay shows frames earlier relative to the audio clock (= audio
-    // later), without touching the clock/seek domain (no stepping drift).
-    const double gate = p->ClockNow() +
-                        (double)p->avDelay.load(std::memory_order_relaxed);
-    if (!p->PopVideoFrame(gate, vf)) return;
+    if (p->jogging.load(std::memory_order_relaxed)) {
+        // Frame-scrub: display the frame at the live dial target (ring hit)
+        // or the decode creep toward it (fallback seek) — the clock gate
+        // does not apply, the dial owns the picture. avDelay is scrub-domain
+        // pure (spec: display-gate shift only for playback) and not applied.
+        if (!p->JogFrame(vf)) return;
+    } else {
+        // The user A/V offset lives here — a display-gate shift only. Positive
+        // avDelay shows frames earlier relative to the audio clock (= audio
+        // later), without touching the clock/seek domain (no stepping drift).
+        const double gate = p->ClockNow() +
+                            (double)p->avDelay.load(std::memory_order_relaxed);
+        if (!p->PopVideoFrame(gate, vf)) return;
+    }
 
     if (!videoTex_ || texW_ != vf.w || texH_ != vf.h) {
         if (videoTex_) SDL_DestroyTexture(static_cast<SDL_Texture*>(videoTex_));
@@ -1938,16 +1950,32 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
                 wheelLastTick_ = std::chrono::steady_clock::now();
         }
 
-        // Debounced latest-wins scrub seek — one shared 40 ms pump for both
-        // input sources; target only when it moved. The single
-        // wantSeek/seekTarget slot coalesces.
+        // Frame-scrub pump: inside the retained ring the dial is zero-blocking
+        // (JogTo per moved target — decode runs to it, JogFrame displays it).
+        // Crossing the ring start falls back to the keyframe scrub seek
+        // (blocking I/O — keeps the 40 ms latest-wins debounce; SeekCommon's
+        // scrub branch feeds jogTargetPts so the fallback display is
+        // frame-smooth too). The single jogTargetPts slot coalesces both.
         if ((jogActive_ && !activated) || (wheelScrubbing_ && !jogActive_)) {
-            const auto now = std::chrono::steady_clock::now();
-            if (std::chrono::duration<double>(now - jogLastSeek_).count() >= 0.040 &&
-                jogTarget_ != jogLastSent_) {
-                p->SeekScrub(jogTarget_);
-                jogLastSent_ = jogTarget_;
-                jogLastSeek_ = now;
+            const double halfFrame = fps > 0.0 ? 0.5 / fps : 0.0;
+            const bool ringHit = st.jogRingLo >= 0.0 &&
+                                 jogTarget_ >= st.jogRingLo - halfFrame;
+            if (ringHit) {
+                if (jogTarget_ != jogLastSent_) {
+                    p->JogTo(jogTarget_);
+                    jogLastSent_ = jogTarget_;
+                    // Arm the fallback debounce too: a later ring-miss must
+                    // not burst-seek through every missed frame.
+                    jogLastSeek_ = std::chrono::steady_clock::now();
+                }
+            } else {
+                const auto now = std::chrono::steady_clock::now();
+                if (std::chrono::duration<double>(now - jogLastSeek_).count() >= 0.040 &&
+                    jogTarget_ != jogLastSent_) {
+                    p->SeekScrub(jogTarget_);
+                    jogLastSent_ = jogTarget_;
+                    jogLastSeek_ = now;
+                }
             }
         }
 
