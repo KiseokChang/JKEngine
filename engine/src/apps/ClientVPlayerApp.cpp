@@ -89,10 +89,11 @@ constexpr const char* kVideoFilter =
     "동영상 (*.mp4;*.mkv;*.avi;*.webm;*.mov)";
 
 // One decoded video frame in a single contiguous NV12 buffer (Y plane at
-// offset 0, stride w; interleaved UV plane at offset w*h, stride w) — half
-// the bytes of the old RGBA layout, so both the sws conversion and the
-// SDL_UpdateNVTexture upload cost half as much at 4K (the 27 Hz render
-// bottleneck, docs/50 §7.4-①). Odd-dimension sources keep RGBA (NV12 needs
+// offset 0, stride w; interleaved UV plane at offset w*h, stride w) — 3/8
+// the bytes of the old RGBA layout (12 bpp vs 32 bpp, ~12.4 MB at 4K), so
+// both the sws conversion and the SDL_UpdateNVTexture upload cost 62% less
+// (the suspected 27 Hz render bottleneck, docs/50 §7.4-① — later measured
+// NOT the bottleneck, §9). Odd-dimension sources keep RGBA (NV12 needs
 // even w/h) — nv12 flags which layout this buffer holds. pix is a pooled
 // shared buffer: at 4K a fresh allocation per frame measured ~20 ms; the
 // pool recycles released slots (docs/50 §7). Ownership follows the
@@ -267,7 +268,7 @@ struct ClientVPlayerApp::PlayerCore {
     // --- Demux/decode split (docs/50 follow-up, 4K playback root fix) ----
     // The demux position runs up to the audio ring's 600 ms horizon ahead of
     // the presentation clock (audio-first refill), but a decoded 4K frame
-    // is tens of MB (33 MB RGBA, ~16.5 MB NV12) — the old 3-frame videoQ
+    // is tens of MB (33 MB RGBA, ~12.4 MB NV12) — the old 3-frame videoQ
     // could never span that lead,
     // so every decoded frame was "future", the display starved ~90% of its
     // ticks and then collapsed several frames at once (freeze-then-jump), and
@@ -854,6 +855,12 @@ struct ClientVPlayerApp::PlayerCore {
             // std::terminate the whole desktop process.
             const int64_t w = st->codecpar->width;
             const int64_t h = st->codecpar->height;
+            // w/h <= 0: a lying header would slip the maxBytes check on the
+            // RGBA branch (negative int64 passes the cap) — reject up front.
+            if (w <= 0 || h <= 0) {
+                fail("지원하지 않는 비디오 차원");
+                return false;
+            }
             nv12Out = (w % 2 == 0) && (h % 2 == 0);
             const int64_t maxBytes = nv12Out ? (int64_t)bytesFor(w, h)
                                              : (int64_t)w * h * 4;
@@ -1670,6 +1677,11 @@ void ClientVPlayerApp::OpenPath(const char* path) {
     videoTex_ = nullptr;
     texW_ = texH_ = 0;
     hasFrame_ = false;
+    // The render gauge is a per-file verdict instrument — a stale window
+    // straddling re-open would post the previous file's counts (final review).
+    renderFrames_ = 0;
+    renderHz_ = 0;
+    renderWindowStart_ = 0.0;
     if (!path || !path[0]) { openError_ = "empty path"; return; }
     // The picker's next start folder is the CURRENT file's folder — every
     // open site feeds this (CLI arg, drag-drop, picker reply alike), not just
@@ -1781,14 +1793,15 @@ void ClientVPlayerApp::SyncVideoTexture(SDL_Renderer* renderer) {
                                                SDL_ScaleModeLinear);
     }
     if (videoTex_) {
-        if (vf.nv12) {
-            SDL_UpdateNVTexture(static_cast<SDL_Texture*>(videoTex_), nullptr,
-                                vf.pix->data(), vf.w,
-                                vf.pix->data() + (size_t)vf.w * vf.h, vf.w);
-        } else {
-            SDL_UpdateTexture(static_cast<SDL_Texture*>(videoTex_), nullptr,
-                              vf.pix->data(), vf.w * 4);
-        }
+        // Count the upload only when it succeeded — a failed upload must not
+        // inflate the verdict gauge while the picture goes stale/black.
+        const bool uploaded =
+            vf.nv12 ? SDL_UpdateNVTexture(static_cast<SDL_Texture*>(videoTex_), nullptr,
+                                          vf.pix->data(), vf.w,
+                                          vf.pix->data() + (size_t)vf.w * vf.h, vf.w)
+                    : SDL_UpdateTexture(static_cast<SDL_Texture*>(videoTex_), nullptr,
+                                        vf.pix->data(), vf.w * 4);
+        if (!uploaded) return;
         hasFrame_ = true;
         // Render-rate window (see header comment).
         const double now = SDL_GetTicks() / 1000.0;
