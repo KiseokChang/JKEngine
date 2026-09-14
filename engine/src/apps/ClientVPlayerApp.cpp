@@ -363,6 +363,19 @@ struct ClientVPlayerApp::PlayerCore {
             wallPlaying = !paused;
         }
         cv.notify_all();
+        // RingPush parks on cvRing (never on cv) whenever the ring is full —
+        // which while PAUSED is permanent: the SDL device is stopped, nothing
+        // drains, so the predicate's ring-space escape never opens. A seek
+        // that only notified cv left the worker parked there forever (the
+        // clock/video froze at the pre-seek position; T4 e2e symptom ③).
+        // Notify cvRing under ringM — the same shape Close/TryClose use — so
+        // the parked worker wakes and re-evaluates a predicate that now also
+        // sees wantSeek. Lock order m -> ringM (documented), and holding
+        // ringM closes the check-vs-park window on the waiter side.
+        {
+            std::lock_guard<std::mutex> lk2(ringM);
+            cvRing.notify_all();
+        }
     }
 
     // Jog mode: while scrubbing (usually paused) the audio ring never drains,
@@ -1093,9 +1106,19 @@ struct ClientVPlayerApp::PlayerCore {
     }
 
     // Blocks while the ring is full (backpressure); aborts on stop or seek.
+    // The predicate must see wantSeek: while paused nothing drains the ring,
+    // so without it a parked worker would sleep through every seek request
+    // (the SeekCommon cvRing notify is what guarantees it is re-checked).
+    // Reading wantSeek here is ordered: the notifier sets it under m, then
+    // takes and releases ringM around the notify; this waiter re-reads under
+    // the ringM it just acquired — the same benign-by-construction shape the
+    // `stop` read below always had.
     bool RingPush(uint64_t gen, const uint8_t* src, size_t bytes) {
         std::unique_lock<std::mutex> lk(ringM);
-        cvRing.wait(lk, [&] { return stop || seekGen != gen || RingFreeLocked() >= bytes; });
+        cvRing.wait(lk, [&] {
+            return stop || wantSeek || seekGen != gen ||
+                   RingFreeLocked() >= bytes;
+        });
         if (stop || seekGen != gen) return false;
         const size_t first = std::min(bytes, ringCap - ringW);
         std::memcpy(ring + ringW, src, first);
