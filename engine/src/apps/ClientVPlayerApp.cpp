@@ -28,6 +28,7 @@ extern "C" {
 #include <thread>
 #include <vector>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace jk {
@@ -88,10 +89,15 @@ constexpr const char* kVideoFilter =
     "동영상 (*.mp4;*.mkv;*.avi;*.webm;*.mov)";
 
 // One decoded video frame, already converted to RGBA for SDL_UpdateTexture.
+// rgba is a pooled shared buffer: at 4K a fresh 33 MB vector allocation per
+// frame measured ~20 ms (the single biggest decode-thread cost); recycling
+// dropped it back near the raw sws cost. Ownership follows the refcount —
+// frames parked in videoQ or held by the last UI upload keep their buffer
+// alive, released buffers return to the decode thread's pool.
 struct VideoFrame {
     double pts = 0;
     int w = 0, h = 0;
-    std::vector<uint8_t> rgba;
+    std::shared_ptr<std::vector<uint8_t>> rgba;
 };
 
 } // namespace
@@ -143,7 +149,10 @@ struct ClientVPlayerApp::PlayerCore {
     std::atomic<bool> openDeadlineActive{true};  // open-phase guard; disarmed
                                                  // once playback starts
     int eagainStreak = 0;                        // consecutive av_read_frame EAGAIN
-    int decodeFailStreak = 0;                    // consecutive decode failures
+    // Consecutive decode failures. Worker (audio) and the video decode thread
+    // both bump it, so it must be atomic (DecodeFail takes m; the counter
+    // bump itself stays lock-free).
+    std::atomic<int> decodeFailStreak{0};        // consecutive decode failures
 
     std::mutex m;                            // decode/transport state
     std::condition_variable cv;
@@ -186,34 +195,72 @@ struct ClientVPlayerApp::PlayerCore {
 
     std::deque<VideoFrame> videoQ;
 
+    // RGBA buffer pool for decoded frames (video-thread-only state): see
+    // the VideoFrame comment. Slots whose refcount dropped to 1 (only the
+    // pool holds them) are recycled; the cap bounds pathological bursts.
+    std::vector<std::shared_ptr<std::vector<uint8_t>>> vPool;
+
+    // --- Demux/decode split (docs/50 follow-up, 4K playback root fix) ----
+    // The demux position runs up to the audio ring's 600 ms horizon ahead of
+    // the presentation clock (audio-first refill), but a decoded 4K RGBA
+    // frame is ~33 MB — the old 3-frame videoQ could never span that lead,
+    // so every decoded frame was "future", the display starved ~90% of its
+    // ticks and then collapsed several frames at once (freeze-then-jump), and
+    // the T3 refill windows skipped mid-GOP video packets on top (dav1d
+    // corruption). Video PACKETS, in contrast, are ~100 KB at 4K AV1 — so
+    // the worker only ENQUEUES video packets into this bounded queue and a
+    // dedicated decode thread drains it gated by the presentation clock:
+    // decode just-in-time (packet order preserved — the reference chain
+    // stays intact), convert, push to videoQ. At most a few decoded frames
+    // exist at any moment, and no video packet is ever skipped.
+    std::mutex vPktM;
+    std::condition_variable vPktCv;
+    std::deque<AVPacket*> vPktQ;             // owned packets (av_packet_ref'd)
+    size_t vPktQBytes = 0;
+    std::thread vthread;                     // video decode thread
+    // ~16 MB ≈ 5 s of 4K AV1 packets. For A/V files the audio ring's own
+    // backpressure parks the demuxer well before this; the bound exists for
+    // video-only files (no ring to park on) so read-ahead cannot swallow the
+    // whole file into memory.
+    static constexpr size_t kVPktQMaxBytes = 16u * 1024 * 1024;
+    // Decode clock gate lead, in seconds past ClockNow(). Small by design:
+    // it is the queue-span headroom, and anything larger only adds display
+    // latency (frames render when the clock reaches them).
+    static constexpr double kVideoLead = 0.05;
+    // Frame-threaded decoders (dav1d with auto threads) emit a frame N
+    // packets after N was sent — the decoder is a pipeline of depth D, and
+    // throughput requires ~D packets in flight. Gating packets by a small
+    // fixed lead leaves the pipeline starved (measured: dav1d fell to
+    // 17 fps with a 120 ms runway vs 84 fps unthrottled). So the gate adds
+    // the MEASURED pipeline delay (sent-packet pts minus received-frame
+    // pts, EMA-smoothed; seeded from has_b_frames/fps at open). This both
+    // saturates the decoder and keeps the emitted frames near-due — the
+    // runway exists inside the decoder, not in decoded RGBA.
+    double vPipeDelay = 0;
+    // Seed only (see vPipeDelay): has_b_frames measured in OpenStage once
+    // fps is known, in seconds.
+    double vDecodeDelay = 0;
+    // vctx is touched by the video thread (send/receive) and the worker
+    // (DoSeekStages stage-(a) flush); this mutex serializes them. Held only
+    // across the codec calls — never across an m acquisition (lock order:
+    // m -> vdecM on the seek side; the video thread takes vdecM alone and
+    // releases it before touching m, so no nesting inversion exists).
+    std::mutex vdecM;
+
     // Audio byte ring (S16 stereo). One byte of slack distinguishes full/empty.
     uint8_t* ring = nullptr;
     size_t ringCap = 0, ringR = 0, ringW = 0;
     uint64_t framesPlayed = 0;               // master clock, in sample frames
     std::atomic<float> volume{0.8f};
 
-    // --- Audio-first refill + underrun diagnostics (T3, spec 1b) --------
-    // The device drains the ring in real time while the single worker's
-    // pass cadence is display-rate-limited (DecodeVideoPacket parks until
-    // the UI pops), so heavy video decode starves audio decode and the
-    // ring runs dry. Policy: when the ring falls under the 200 ms low
-    // water, the worker decodes-and-pushes audio packets continuously
-    // (the demuxer keeps advancing) until the 600 ms high water, skipping
-    // video decode for that window only. Thresholds are derived from the
-    // opened stream's format in OpenStage (rate x stereo x 2 bytes x ms —
-    // the same arithmetic as the ring capacity comment), never hardcoded.
+    // --- Audio-first refill water marks (T3, spec 1b) --------------------
+    // Derived from the opened stream's format in OpenStage (rate x stereo x
+    // 2 bytes x ms — the same arithmetic as the ring capacity comment). The
+    // T3 refill-window video-skip branch was removed with the demux/decode
+    // split (video packets no longer delay the worker's audio decode, so
+    // audio-first is structural), but the marks still document the ring's
+    // intended depth and remain the reference for future pacing work.
     size_t audioLowWater = 0, audioHighWater = 0; // 200 / 600 ms in ring bytes
-    bool audioRefilling = false;            // worker-only: window latch
-    bool refillSuppressed = false;          // worker-only: window abandoned —
-                                            // no audio packets are coming
-    int refillDryPasses = 0;                // window passes since the last push
-
-    // Dry-pass cap: how many consecutive video packets a refill window may
-    // skip without a single audio push before the window is abandoned —
-    // bounds a window over a stream whose audio ends before the video's
-    // demuxer EOF, so video decode cannot be starved to file EOF
-    // (~1 GOP of packets per refill window at typical interleave ratios).
-    static constexpr int kRefillDryCap = 60;
 
     // Lock-free diagnostics the SDL callback maintains (relaxed atomics
     // only — that thread must stay lock-light; ringM above is all it takes).
@@ -376,6 +423,14 @@ struct ClientVPlayerApp::PlayerCore {
             std::lock_guard<std::mutex> lk2(ringM);
             cvRing.notify_all();
         }
+        // Same reasoning for the video side: the decode thread's clock-gate
+        // hold must re-see wantSeek (it drops the held pre-seek packet), and
+        // a demuxer parked on a full vPktQ must escape to run the seek.
+        // Lock order m -> vPktM (same shape as the ring notify above).
+        {
+            std::lock_guard<std::mutex> lk2(vPktM);
+            vPktCv.notify_all();
+        }
     }
 
     // Jog mode: while scrubbing (usually paused) the audio ring never drains,
@@ -441,8 +496,32 @@ struct ClientVPlayerApp::PlayerCore {
                                   std::min(0.0, (double)avDelay.load(std::memory_order_relaxed));
         postSeekJump = true;
         videoQ.clear();
-        if (vctx) avcodec_flush_buffers(vctx);
+        // vctx is decoded on the video decode thread now (demux/decode
+        // split): serialize the flush against its send/receive. The hold is
+        // bounded by one packet's decode (~20 ms); DecodeVideoPacket releases
+        // vdecM before it takes m, so no lock-order inversion. Any packet the
+        // video thread already popped but not yet decoded is dropped by its
+        // own gate loop (it re-checks wantSeek) or by dropBeforePts at push
+        // time — both post-flush, so no stale frame can enter videoQ.
+        {
+            std::lock_guard<std::mutex> lkDec(vdecM);
+            if (vctx) avcodec_flush_buffers(vctx);
+        }
         if (actx) avcodec_flush_buffers(actx);
+        // Drain queued video packets: they belong to the pre-seek demux
+        // position. The worker is the only enqueuer and it is inside the
+        // seek, so everything in the queue right now is pre-seek; the next
+        // enqueue comes from the post-seek read loop.
+        {
+            std::lock_guard<std::mutex> lkV(vPktM);
+            while (!vPktQ.empty()) {
+                av_packet_unref(vPktQ.front());
+                av_packet_free(&vPktQ.front());
+                vPktQ.pop_front();
+            }
+            vPktQBytes = 0;
+            vPktCv.notify_all();
+        }
         const bool seekVideo = fmt && videoStream >= 0;
         // Audio-only files must seek the demuxer too — skipping it used to
         // leave the demuxer at the old position with the clock parked at the
@@ -663,6 +742,15 @@ struct ClientVPlayerApp::PlayerCore {
             videoTb = st->time_base;
             vctx = avcodec_alloc_context3(vdec);
             avcodec_parameters_to_context(vctx, st->codecpar);
+            // The AVCodecContext default is thread_count=1 — measured on the
+            // user's 4K50 AV1 file that is 43 ms/frame (~23 fps). Frame
+            // threading is what makes dav1d usable here (threads=12 decoded
+            // at 98 fps in the standalone probe). Cap at 12: the frame-thread
+            // pool holds ~threads decoded 4K surfaces, so unbounded auto
+            // threading on a 24+ core machine would pin hundreds of MB, and
+            // the pipeline depth delays the clock gate (vPipeDelay).
+            vctx->thread_count =
+                (int)std::clamp(std::thread::hardware_concurrency() / 2, 1u, 12u);
             if (avcodec_open2(vctx, vdec, nullptr) < 0) {
                 avcodec_free_context(&vctx);
                 videoStream = -1;
@@ -674,8 +762,12 @@ struct ClientVPlayerApp::PlayerCore {
                 // so clamp hard.
                 AVRational fr = st->avg_frame_rate;
                 if (fr.num <= 0 || fr.den <= 0) fr = st->r_frame_rate;
-                if (fr.num > 0 && fr.den > 0)
+                if (fr.num > 0 && fr.den > 0) {
                     fps = std::clamp((double)fr.num / (double)fr.den, 1.0, 240.0);
+                    // Decode-thread clock-gate seed (see vPipeDelay).
+                    vDecodeDelay = std::max(0, vctx->has_b_frames) / fps;
+                    vPipeDelay = std::max(0.10, vDecodeDelay);
+                }
             }
         }
         audioStream = av_find_best_stream(fmt, AVMEDIA_TYPE_AUDIO, -1, -1, &adec, 0);
@@ -788,6 +880,7 @@ struct ClientVPlayerApp::PlayerCore {
         }
         cv.notify_all();
         { std::lock_guard<std::mutex> lk(ringM); cvRing.notify_all(); }
+        { std::lock_guard<std::mutex> lk(vPktM); vPktCv.notify_all(); }
         if (worker.joinable()) worker.join();
         if (dev) { SDL_CloseAudioDevice(dev); dev = 0; }
         if (sws) { sws_freeContext(sws); sws = nullptr; }
@@ -814,6 +907,7 @@ struct ClientVPlayerApp::PlayerCore {
         }
         cv.notify_all();
         { std::lock_guard<std::mutex> lk(ringM); cvRing.notify_all(); }
+        { std::lock_guard<std::mutex> lk(vPktM); vPktCv.notify_all(); }
         bool done;
         {
             std::unique_lock<std::mutex> lk(m);
@@ -867,7 +961,18 @@ struct ClientVPlayerApp::PlayerCore {
             auto* s = reinterpret_cast<int16_t*>(stream);
             for (int i = 0; i < len / 2; ++i) s[i] = (int16_t)(s[i] * v);
         }
-        p->framesPlayed += n / (kAudioCh * sizeof(int16_t));
+        // The master clock advances with consumed TIME, not copied bytes:
+        // an underrun's silence IS the presentation position — counting only
+        // copied bytes permanently lagged the clock by every silent gap, and
+        // the lag accumulated across underruns (A/V desync). The seek-gap /
+        // end-of-audio gate (audioEof) keeps the old pinned behaviour: seek
+        // silence must not run the clock past its target, and a parked
+        // worker must not advance the clock into content that was never
+        // decoded.
+        const bool starving =
+            n < (size_t)len && !p->audioEof.load(std::memory_order_relaxed);
+        p->framesPlayed += (starving ? (size_t)len : n) /
+                           (kAudioCh * sizeof(int16_t));
     }
 
     void WorkerLoop() {
@@ -884,6 +989,13 @@ struct ClientVPlayerApp::PlayerCore {
                 ended = true;
             }
             if (opened) {
+                // Demux/decode split: video packets flow through vPktQ to a
+                // dedicated decode thread gated by the presentation clock.
+                // Started after OpenStage published videoStream/vctx (the
+                // happens-before boundary is Running's m transition below,
+                // but the worker itself only touches these after open too).
+                if (videoStream >= 0)
+                    vthread = std::thread([this] { VideoLoop(); });
                 while (true) {
                     {
                         std::unique_lock<std::mutex> lk(m);
@@ -903,18 +1015,12 @@ struct ClientVPlayerApp::PlayerCore {
                             // Ok: demux below continues from the new position.
                             // Failed: clock restored — demux below continues
                             // from the (unmoved) pre-seek position. Either
-                            // way the demuxer moved: the stage-(a) flush
-                            // emptied the ring, so the next pass re-arms a
-                            // refill window, and a pre-seek "audio produces
-                            // nothing" verdict is stale.
-                            refillDryPasses = 0;
-                            refillSuppressed = false;
+                            // way the stage-(a) flush emptied the ring, so
+                            // the next pass re-arms audio decode, and a
+                            // pre-seek "audio produces nothing" verdict is
+                            // stale.
                         }
                     }
-                    // Refill latch evaluation (T3): hysteresis from the
-                    // current ring level (no other locks held here — ringM
-                    // alone, brief).
-                    RefillDue();
                     const int r = av_read_frame(fmt, pkt);
                     if (r == AVERROR(EAGAIN)) {
                         // Transient resource shortage: brief sleep + bounded
@@ -946,52 +1052,20 @@ struct ClientVPlayerApp::PlayerCore {
                         cv.notify_all();
                         continue;
                     }
-                    bool cont = true;
+                    // Video packets are only enqueued (demux/decode split —
+                    // see the vPktQ member docs): enqueueing is a memcpy of
+                    // ~100 KB, so the demuxer reaches interleaved audio
+                    // packets immediately and the T3 video-skip branch is
+                    // unnecessary — audio-first is now structural, and no
+                    // video packet is ever dropped mid-GOP.
                     if (pkt->stream_index == videoStream) {
-                        // Decode keyframes even mid-refill: skipping them
-                        // starves the h264 decoder of its reference anchor
-                        // and it outputs nothing until the NEXT keyframe —
-                        // on a sparse-GOP file that starves video decode
-                        // long enough for the ring to fill to capacity.
-                        const bool kf = (pkt->flags & AV_PKT_FLAG_KEY) != 0;
-                        if (audioRefilling && !kf &&
-                            !jogging.load(std::memory_order_relaxed)) {
-                            // Refill window (T3, spec 1b-1): skip video
-                            // decode — the demuxer still advances (unref
-                            // below) toward the audio packets interleaved
-                            // around it, and they top the ring up to the
-                            // high water. The dry-pass cap abandons a
-                            // window that cannot fill (audio exhausted
-                            // mid-file): without it video decode would
-                            // stay skipped to file EOF.
-                            if (++refillDryPasses > kRefillDryCap) {
-                                audioRefilling = false;
-                                refillSuppressed = true;
-                                // A whole window passed with no audio
-                                // produced — the audio stream is done for
-                                // this stretch (still-image tail, long
-                                // video track). Once the ring drains, the
-                                // callback's silence is end-of-audio, not
-                                // starvation: raise the same gate the demux
-                                // EOF paths use so the underrun counter
-                                // stops here (review Important-1). Cleared
-                                // below when audio is pushed again, and by
-                                // the seek paths.
-                                audioEof.store(true, std::memory_order_relaxed);
-                            }
-                        } else {
-                            cont = DecodeVideoPacket(pkt, frame);
-                        }
+                        EnqueueVideoPacket(pkt);
                     } else if (pkt->stream_index == audioStream && actx &&
                                !jogging.load(std::memory_order_relaxed)) {
-                        if (DecodeAudioPacket(pkt, frame)) {
-                            refillDryPasses = 0;
-                            refillSuppressed = false; // audio flows again
+                        if (DecodeAudioPacket(pkt, frame))
                             audioEof.store(false, std::memory_order_relaxed);
-                        }
                     }
                     av_packet_unref(pkt);
-                    if (!cont) continue; // seek/stop fired mid-packet; loop top handles it
                 }
             }
         } catch (...) {
@@ -1009,6 +1083,10 @@ struct ClientVPlayerApp::PlayerCore {
             seekInFlight = false;
             if (phase == Phase::Opening) phase = Phase::Failed;
         }
+        // The video decode thread parks on vPktCv once the queue drains; it
+        // only exits on stop (Close/TryClose notify vPktCv with the other
+        // shutdown gates). Join before freeing the worker's own AVPacket.
+        if (vthread.joinable()) vthread.join();
         av_packet_free(&pkt);
         av_frame_free(&frame);
         // Open failed (or exception): park until Close() stops us — the UI
@@ -1036,65 +1114,155 @@ struct ClientVPlayerApp::PlayerCore {
     }
 
     // Returns false when decoding should stop (seek/stop requested).
+    // Runs on the video decode thread (VideoLoop). Decode + convert one
+    // packet, then push the frames under m. vdecM covers only the codec
+    // calls — released before any m acquisition so DoSeekStages' stage-(a)
+    // flush (m -> vdecM) can never invert against us.
     bool DecodeVideoPacket(AVPacket* pkt, AVFrame* frame) {
-        if (avcodec_send_packet(vctx, pkt) < 0) { DecodeFail("비디오"); return true; }
-        while (true) {
-            if (avcodec_receive_frame(vctx, frame) < 0) return true;
-            decodeFailStreak = 0; // a decoded frame resets the failure streak
-            const double pts = frame->pts == AV_NOPTS_VALUE
-                                   ? -1.0
-                                   : frame->pts * av_q2d(videoTb) - ptsOrigin;
-            if (pts < 0) { av_frame_unref(frame); continue; }
-            VideoFrame vf;
-            vf.pts = pts;
-            vf.w = videoW;
-            vf.h = videoH;
-            vf.rgba.resize((size_t)videoW * videoH * 4);
-            uint8_t* dst[4] = { vf.rgba.data(), nullptr, nullptr, nullptr };
-            int dstStride[4] = { videoW * 4, 0, 0, 0 };
-            sws_scale(sws, frame->data, frame->linesize, 0, frame->height, dst, dstStride);
-            av_frame_unref(frame);
-            {
-                std::unique_lock<std::mutex> lk(m);
-                // Backpressure: hold at most 3 pending frames (~100 ms at 30
-                // fps). The wait doubles as the audio-starvation escape (T3,
-                // spec 1b-1): audio is the A/V master clock, so a worker
-                // parked on a full queue must still be able to leave and
-                // refill the ring — RefillDue() also exits the wait (m ->
-                // ringM, the documented order).
-                // Timed wait (review Important-1): once the audio clock
-                // freezes (audio stream ended before the video's demuxer
-                // EOF) the display pops no frames, so NOTHING notifies this
-                // wait — a plain wait() would never re-evaluate RefillDue(),
-                // the refill dry cap would stay unreachable, audioEof would
-                // never rise, and the callback would count every silence
-                // pass as an underrun forever. The 50 ms escape re-checks
-                // the predicate (stop/wantSeek included, so their latency is
-                // bounded too); the predicate's RefillDue() mutates
-                // worker-only latch state — safe here because this wait runs
-                // on the worker, the thread that owns the latch.
-                // wait_for returns the predicate's value: false means it
-                // TIMED OUT with the queue still full and no escape condition
-                // — pushing then would grow videoQ unboundedly (a still-image
-                // tail pushes ~20 frames/s with nothing popping; ~8 MB/frame
-                // at 1080p would OOM a minute-scale tail). Drop the frame in
-                // hand instead — the display gate drops late frames the same
-                // way, and the decoder's next receive drains the codec.
-                const bool ready = cv.wait_for(lk, std::chrono::milliseconds(50), [&] {
-                    return stop || wantSeek || videoQ.size() < 3 || RefillDue();
-                });
-                if (stop || wantSeek) return false;
-                // A refill window opened while parked: leave the video
-                // decode loop — the frame in hand is dropped (the display
-                // gate drops late frames the same way) and the loop top
-                // spends the next passes on audio until the high water.
-                // Frames still buffered in the codec drain on later passes.
-                if (RefillDue()) return true;
-                if (!ready) continue; // queue still full at timeout: drop
-                if (pts < dropBeforePts) continue; // stale frame from before the seek
-                videoQ.push_back(std::move(vf));
+        std::deque<VideoFrame> ready;
+        // Pipeline-delay sample for the clock gate (vPipeDelay): the sent
+        // packet's pts minus the received frame's pts. Only valid when both
+        // pts are known; the EMA tracks the decoder's steady-state depth.
+        const bool haveSentPts =
+            pkt->pts != AV_NOPTS_VALUE && videoTb.den > 0 && videoTb.num > 0;
+        const double sentPts = haveSentPts
+                                   ? pkt->pts * av_q2d(videoTb) - ptsOrigin
+                                   : 0.0;
+        {
+            std::lock_guard<std::mutex> lkDec(vdecM);
+            if (avcodec_send_packet(vctx, pkt) < 0) { DecodeFail("비디오"); return true; }
+            while (true) {
+                if (avcodec_receive_frame(vctx, frame) < 0) break;
+                decodeFailStreak = 0; // a decoded frame resets the failure streak
+                const double pts = frame->pts == AV_NOPTS_VALUE
+                                       ? -1.0
+                                       : frame->pts * av_q2d(videoTb) - ptsOrigin;
+                if (pts < 0) { av_frame_unref(frame); continue; }
+                if (haveSentPts) {
+                    const double lag = std::clamp(sentPts - pts, 0.0, 0.5);
+                    vPipeDelay += 0.25 * (lag - vPipeDelay);
+                }
+                VideoFrame vf;
+                vf.pts = pts;
+                vf.w = videoW;
+                vf.h = videoH;
+                // Pooled buffer: reuse a released allocation, else allocate
+                // (bounded by videoQ + pipeline depth at steady state; the
+                // pool itself is capped so a burst cannot grow it forever).
+                std::shared_ptr<std::vector<uint8_t>> buf;
+                for (auto& slot : vPool) {
+                    if (slot.use_count() == 1) { buf = slot; break; }
+                }
+                if (!buf) {
+                    buf = std::make_shared<std::vector<uint8_t>>();
+                    if (vPool.size() < 10) vPool.push_back(buf);
+                }
+                vf.rgba = buf;
+                if (vf.rgba->size() != (size_t)videoW * videoH * 4)
+                    vf.rgba->resize((size_t)videoW * videoH * 4);
+                uint8_t* dst[4] = { vf.rgba->data(), nullptr, nullptr, nullptr };
+                int dstStride[4] = { videoW * 4, 0, 0, 0 };
+                sws_scale(sws, frame->data, frame->linesize, 0, frame->height, dst, dstStride);
+                av_frame_unref(frame);
+                ready.push_back(std::move(vf));
+            }
+        } // vdecM released — the seek flush can proceed while we push
+        // Backpressure: hold at most 3 pending frames (~100 ms at 30 fps).
+        // Unlike the pre-split worker loop, a park here blocks ONLY video
+        // decode — the demuxer keeps feeding the audio ring independently,
+        // so no RefillDue() escape is needed. Timed wait (review
+        // Important-1) stays: while paused nothing pops, so NOTHING notifies
+        // this wait; the 50 ms escape re-checks the predicate and drops the
+        // frame on timeout (the display gate drops late frames the same way,
+        // and the clock gate upstream stops decode from running ahead of a
+        // frozen clock by more than kVideoLead + vDecodeDelay anyway).
+        for (VideoFrame& vf : ready) {
+            std::unique_lock<std::mutex> lk(m);
+            const bool ok = cv.wait_for(lk, std::chrono::milliseconds(50), [&] {
+                return stop || wantSeek || videoQ.size() < 3;
+            });
+            if (stop || wantSeek) return false;
+            if (!ok) continue; // queue still full at timeout: drop
+            if (vf.pts < dropBeforePts) continue; // stale frame from before the seek
+            videoQ.push_back(std::move(vf));
+        }
+        return true;
+    }
+
+    // Worker thread: move one video packet into the decode queue. Bounded by
+    // kVPktQMaxBytes — parking here backpressures the demuxer itself (which
+    // is the point: the audio ring's backpressure only exists for A/V files).
+    void EnqueueVideoPacket(AVPacket* pkt) {
+        AVPacket* copy = av_packet_alloc();
+        if (!copy) return; // OOM: drop one packet; DecodeFail catches streaks
+        if (av_packet_ref(copy, pkt) < 0) { av_packet_free(&copy); return; }
+        {
+            std::unique_lock<std::mutex> lk(vPktM);
+            // wantSeek in the predicate: a seek requested while the demuxer
+            // is parked here must reach the loop top (SeekCommon notifies
+            // vPktCv under vPktM).
+            vPktCv.wait(lk, [&] {
+                return stop || wantSeek || vPktQBytes < kVPktQMaxBytes;
+            });
+            if (stop || wantSeek) { av_packet_free(&copy); return; }
+            vPktQBytes += (size_t)copy->size + sizeof(AVPacket);
+            vPktQ.push_back(copy);
+        }
+        vPktCv.notify_all(); // hand the packet to the decode thread
+    }
+
+    // Video decode thread (demux/decode split). Drains vPktQ in order,
+    // holding each packet until it is near-due on the presentation clock
+    // (kVideoLead + the decoder's frame-threading latency). Packet order is
+    // never broken, so the reference chain stays intact; the clock gate is
+    // what bounds decode-ahead.
+    void VideoLoop() {
+        AVPacket* pkt = av_packet_alloc();
+        AVFrame* frame = av_frame_alloc();
+        if (pkt && frame) {
+            while (true) {
+                AVPacket* mine = nullptr;
+                {
+                    std::unique_lock<std::mutex> lk(vPktM);
+                    vPktCv.wait(lk, [&] { return stop || !vPktQ.empty(); });
+                    if (stop) break;
+                    mine = vPktQ.front();
+                    vPktQ.pop_front();
+                    vPktQBytes -= (size_t)mine->size + sizeof(AVPacket);
+                }
+                vPktCv.notify_all(); // a freed slot may unpark the demuxer
+                // Clock gate: hold the packet until it is near-due. A seek
+                // aborts the hold — the held packet is pre-seek (stage (a)
+                // flushed the queue and the codec behind us), so it is
+                // dropped, not decoded.
+                bool seekAbort = false;
+                while (!stop) {
+                    {
+                        std::lock_guard<std::mutex> lk(m);
+                        if (wantSeek) { seekAbort = true; break; }
+                    }
+                    const double pts = mine->pts == AV_NOPTS_VALUE
+                                           ? -1.0
+                                           : mine->pts * av_q2d(videoTb) - ptsOrigin;
+                    if (pts < 0 || pts <= ClockNow() + kVideoLead + vPipeDelay)
+                        break;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                }
+                if (!stop && !seekAbort) {
+                    // A false return means stop/seek fired mid-decode: on
+                    // stop the outer wait's predicate ends this loop; on
+                    // seek the queue is empty (stage (a) flushed it) and the
+                    // thread parks until the post-seek packets arrive. The
+                    // loop itself must NEVER exit on wantSeek — that would
+                    // permanently kill video after the first seek.
+                    DecodeVideoPacket(mine, frame);
+                }
+                av_packet_unref(mine);
+                av_packet_free(&mine);
             }
         }
+        if (frame) av_frame_free(&frame);
+        if (pkt) av_packet_free(&pkt);
     }
 
     // Returns whether any converted audio reached the ring — the refill
@@ -1142,35 +1310,6 @@ struct ClientVPlayerApp::PlayerCore {
         if (bytes > first) std::memcpy(ring, src + first, bytes - first);
         ringW = (ringW + bytes) % ringCap;
         return true;
-    }
-
-    // Refill-window hysteresis (T3, spec 1b-1), worker-only state: the
-    // window opens when the ring is under the 200 ms low water and stays
-    // open until the 600 ms high water, so a refill tops up to a
-    // comfortable depth instead of hovering at the trigger line. Called
-    // from the worker loop top (no locks held) and from DecodeVideoPacket's
-    // backpressure wait (m held — taking ringM after m is the documented
-    // order). False when there is nothing to refill: no audio stream at
-    // all (a missing device is not a starvation), or while jogging (audio
-    // decode is off by design, so no window must open mid-GOP), or when a
-    // window was abandoned — the audio stream produced nothing for a whole
-    // window and refilling would hold video decode off forever (audio that
-    // ends before the video's demuxer EOF). Suppression lifts as soon as
-    // any audio is pushed again, or on the next seek.
-    bool RefillDue() {
-        if (audioStream < 0) return false;
-        if (jogging.load(std::memory_order_relaxed)) return false;
-        std::lock_guard<std::mutex> lk2(ringM);
-        const size_t used = RingUsedLocked();
-        if (audioRefilling) {
-            if (used >= audioHighWater) {
-                audioRefilling = false;
-                refillDryPasses = 0;
-            }
-        } else if (!refillSuppressed && used < audioLowWater) {
-            audioRefilling = true;
-        }
-        return audioRefilling;
     }
 
     // UI thread: hand back the latest frame whose pts is due at `clock`,
@@ -1248,6 +1387,15 @@ void ClientVPlayerApp::OnInit() {
                                  nullptr,
                                  io.Fonts->GetGlyphRangesKorean());
     lastFrame_ = std::chrono::steady_clock::now();
+
+    // Probe affordance (vpt8): open a file without injected keyboard/mouse —
+    // the path row needs focus, which synthetic input can't win reliably
+    // while the desktop is in use. Probes set JK_VPLAYER_OPEN and spawn the
+    // jkx directly; harmless no-op when the variable is absent.
+    if (const char* env = std::getenv("JK_VPLAYER_OPEN"); env && env[0]) {
+        std::snprintf(pathBuf_, sizeof(pathBuf_), "%s", env);
+        OpenPath(pathBuf_);
+    }
 }
 
 void ClientVPlayerApp::OnClose() {
@@ -1413,7 +1561,7 @@ void ClientVPlayerApp::SyncVideoTexture(SDL_Renderer* renderer) {
     }
     if (videoTex_) {
         SDL_UpdateTexture(static_cast<SDL_Texture*>(videoTex_), nullptr,
-                          vf.rgba.data(), vf.w * 4);
+                          vf.rgba->data(), vf.w * 4);
         hasFrame_ = true;
     }
 }
