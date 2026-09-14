@@ -90,6 +90,16 @@ private:
     // so the session ends 400 ms after the last tick (idle timeout).
     bool wheelScrubbing_ = false;
     std::chrono::steady_clock::time_point wheelLastTick_{};
+
+    // Reverse auto-play (spec 2026-09-15 section 7 v2): the jog ring walked
+    // backward at content fps by the UI cadence (Task 3); ring exhaustion
+    // falls back to the debounced keyframe SeekScrub (GOP-boundary stutter
+    // accepted by spec). The session opens/closes exactly like a drag/wheel
+    // scrub (auto-pause + SetJog(true) = silent), so the same finishScrub
+    // precision-seek contract applies on every exit.
+    bool reverseActive_ = false;
+    double reverseAcc_ = 0.0; // fractional-frame cadence carry (seconds)
+    std::chrono::steady_clock::time_point reverseLastTick_{};
 };
 
 } // namespace jk

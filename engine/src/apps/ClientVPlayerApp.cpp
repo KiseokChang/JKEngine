@@ -2048,13 +2048,58 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
             p->Seek(t);
         };
 
-        // Translucent step buttons left of the knob.
-        ImGui::SetCursorScreenPos(ImVec2(kmin.x - 78.0f, c.y - 11.0f));
+        // Shared scrub finish (drag release / wheel idle release): one
+        // precision seek to the snapped frame, audio decode back on, and the
+        // pre-scrub pause state restored. Declared before the step buttons so
+        // the "<<" toggle-off can converge on it too (single exit contract).
+        auto finishScrub = [&]() {
+            const double t = fps > 0.0
+                                 ? std::round(std::clamp(jogTarget_, 0.0, dur) * fps) / fps
+                                 : jogTarget_;
+            p->Seek(t);
+            p->SetJog(false);
+            if (jogWasPlaying_) p->SetPaused(false);
+            // Reverse auto-play converges here too: any scrub release ends a
+            // reverse session (its own toggle-off / 0-reach auto-finish, or a
+            // drag/wheel takeover), so there is exactly one exit contract.
+            reverseActive_ = false;
+            reverseAcc_ = 0.0;
+        };
+
+        // Translucent step buttons + reverse auto-play toggle, left of the
+        // knob. "<<" (spec section 7 v2) walks the jog ring backward at
+        // content fps; the shared pump below turns each new target into
+        // JogTo (ring hit) or the debounced SeekScrub fallback.
+        ImGui::SetCursorScreenPos(ImVec2(kmin.x - 116.0f, c.y - 11.0f));
         // 의도적 잔존 — 의미색 (P2 테마 스왑 제외): 비디오 위 반투명 오버레이
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.16f, 0.16f, 0.20f, 0.55f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.25f, 0.25f, 0.32f, 0.80f));
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.32f, 0.32f, 0.42f, 0.90f));
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.9f, 0.9f, 0.95f, 0.75f));
+        if (reverseActive_)
+            ImGui::PushStyleColor(ImGuiCol_Button,
+                                  ImVec4(0.12f, 0.24f, 0.43f, 0.85f)); // active tint
+        if (ImGui::Button("<<", ImVec2(30, 22))) {
+            if (reverseActive_) {
+                finishScrub(); // toggle-off = the one exit contract
+            } else {
+                // Toggle-on: open the shared jog session. A still-open wheel
+                // session (target-only, no release yet) is superseded —
+                // letting both run would double-finish (two seeks).
+                wheelScrubbing_ = false;
+                reverseActive_ = true;
+                reverseAcc_ = 0.0;
+                reverseLastTick_ = std::chrono::steady_clock::now();
+                jogWasPlaying_ = !st.paused && !st.ended;
+                if (jogWasPlaying_) p->SetPaused(true);
+                p->SetJog(true);
+                jogTarget_ = st.pos;
+                jogLastSent_ = -1;
+                jogLastSeek_ = std::chrono::steady_clock::now();
+            }
+        }
+        if (reverseActive_) ImGui::PopStyleColor();
+        ImGui::SameLine();
         if (ImGui::Button("<", ImVec2(30, 22))) stepFrame(-1);
         ImGui::SameLine();
         if (ImGui::Button(">", ImVec2(30, 22))) stepFrame(+1);
@@ -2064,29 +2109,24 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
         ImGui::InvisibleButton("##jogknob", ImVec2(kD, kD));
         const bool hot = ImGui::IsItemHovered() || ImGui::IsItemActive();
 
-        // Shared scrub finish (drag release / wheel idle release): one
-        // precision seek to the snapped frame, audio decode back on, and the
-        // pre-scrub pause state restored.
-        auto finishScrub = [&]() {
-            const double t = fps > 0.0
-                                 ? std::round(std::clamp(jogTarget_, 0.0, dur) * fps) / fps
-                                 : jogTarget_;
-            p->Seek(t);
-            p->SetJog(false);
-            if (jogWasPlaying_) p->SetPaused(false);
-        };
         const bool activated = ImGui::IsItemActivated();
         if (activated) {
             // Drag start: freeze the clock (auto-pause) and skip audio decode
-            // while scrubbing so the worker never parks on the idle ring.
-            // A drag takes over any wheel session — its release below becomes
-            // the single finish (no stale wheel flag, no double seek).
+            // while scrubbing. A drag takes over any open session (wheel
+            // scrub or reverse auto-play) — its release below becomes the
+            // single finish (no stale flags, no double seek). On takeover the
+            // in-flight dial target and the pre-scrub pause verdict are
+            // KEPT: the first session to pause captured the truth, and the
+            // target is the user's accumulated dial position.
+            const bool takeover = wheelScrubbing_ || reverseActive_;
             wheelScrubbing_ = false;
+            reverseActive_ = false;
+            reverseAcc_ = 0.0;
             jogActive_ = true;
-            jogWasPlaying_ = !st.paused && !st.ended;
-            if (jogWasPlaying_) p->SetPaused(true);
+            if (!takeover) jogWasPlaying_ = !st.paused && !st.ended;
+            if (jogWasPlaying_ && st.paused == false) p->SetPaused(true);
             p->SetJog(true);
-            jogTarget_ = st.pos;
+            if (!takeover) jogTarget_ = st.pos;
             jogLastSent_ = -1;
             knobCX_ = c.x; knobCY_ = c.y;
             jogMouseX_ = io.MousePos.x; jogMouseY_ = io.MousePos.y;
@@ -2127,12 +2167,17 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
         if (hot && io.MouseWheel != 0.0f) {
             if (!jogActive_ && !wheelScrubbing_) {
                 // Entry mirrors the drag start: auto-pause if playing, skip
-                // audio decode, seed the target from the live position.
+                // audio decode, seed the target from the live position. A
+                // reverse session is taken over the same way (its target and
+                // pause verdict are kept).
+                const bool takeover = reverseActive_;
+                reverseActive_ = false;
+                reverseAcc_ = 0.0;
                 wheelScrubbing_ = true;
-                jogWasPlaying_ = !st.paused && !st.ended;
-                if (jogWasPlaying_) p->SetPaused(true);
+                if (!takeover) jogWasPlaying_ = !st.paused && !st.ended;
+                if (jogWasPlaying_ && st.paused == false) p->SetPaused(true);
                 p->SetJog(true);
-                jogTarget_ = st.pos;
+                if (!takeover) jogTarget_ = st.pos;
                 jogLastSent_ = -1;
                 jogLastSeek_ = std::chrono::steady_clock::now();
             }
