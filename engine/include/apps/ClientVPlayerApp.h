@@ -76,6 +76,12 @@ private:
     float knobCX_ = 0, knobCY_ = 0;
     float jogMouseX_ = 0, jogMouseY_ = 0;
     std::chrono::steady_clock::time_point jogLastSeek_{};
+
+    // Mouse-wheel scrub (spec 1d/D5): wheel ticks over the knob drive the
+    // same jogTarget_/debounce as a drag; there is no wheel-release event,
+    // so the session ends 400 ms after the last tick (idle timeout).
+    bool wheelScrubbing_ = false;
+    std::chrono::steady_clock::time_point wheelLastTick_{};
 };
 
 } // namespace jk

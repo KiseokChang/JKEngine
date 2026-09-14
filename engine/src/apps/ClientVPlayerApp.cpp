@@ -1264,6 +1264,11 @@ void ClientVPlayerApp::RenderOverlay(SDL_Renderer* renderer, int w, int h) {
 void ClientVPlayerApp::OpenPath(const char* path) {
     openError_.clear();
     ClosePlayer(player_); // bounded: never freezes the UI on a stuck worker
+    // A wheel scrub session must not outlive its PlayerCore: the flag has no
+    // release event of its own, and a stale session would fire its idle
+    // release (a precision Seek to a dead target) against the next file.
+    // The drag path self-heals on release; the wheel needs this explicit cut.
+    wheelScrubbing_ = false;
     if (renderer_ && videoTex_) SDL_DestroyTexture(static_cast<SDL_Texture*>(videoTex_));
     videoTex_ = nullptr;
     texW_ = texH_ = 0;
@@ -1458,7 +1463,8 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
     }
 
     char tbuf[16], dbuf[16];
-    FormatTime(tbuf, sizeof(tbuf), jogActive_ ? jogTarget_ : st.pos);
+    FormatTime(tbuf, sizeof(tbuf),
+               (jogActive_ || wheelScrubbing_) ? jogTarget_ : st.pos);
     FormatTime(dbuf, sizeof(dbuf), st.dur);
     ImGui::SameLine();
     ImGui::Text("%s / %s", tbuf, dbuf);
@@ -1533,10 +1539,15 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
         const double dur = (double)st.dur;
 
         // ±1F step (frame-precise, paused-friendly). Guarded against an
-        // active knob drag; Left/Right keys below share this path.
+        // active knob drag or wheel scrub (both own the transport while
+        // active); Left/Right keys below share this path.
         const double fps = p->fps;
+        // One full revolution = sPerRev seconds (tuned; scales with clip
+        // length but never coarser than ~1 s/rev on short clips). Shared by
+        // the drag (dθ per pixel) and the wheel (1/16 rev per tick).
+        const double sPerRev = std::clamp(dur / 8.0, 1.0, 30.0);
         auto stepFrame = [&](int n) {
-            if (fps <= 0.0 || jogActive_) return;
+            if (fps <= 0.0 || jogActive_ || wheelScrubbing_) return;
             double t = std::clamp(st.pos + (double)n / fps, 0.0, dur);
             t = std::round(t * fps) / fps;
             p->Seek(t);
@@ -1558,10 +1569,24 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
         ImGui::InvisibleButton("##jogknob", ImVec2(kD, kD));
         const bool hot = ImGui::IsItemHovered() || ImGui::IsItemActive();
 
+        // Shared scrub finish (drag release / wheel idle release): one
+        // precision seek to the snapped frame, audio decode back on, and the
+        // pre-scrub pause state restored.
+        auto finishScrub = [&]() {
+            const double t = fps > 0.0
+                                 ? std::round(std::clamp(jogTarget_, 0.0, dur) * fps) / fps
+                                 : jogTarget_;
+            p->Seek(t);
+            p->SetJog(false);
+            if (jogWasPlaying_) p->SetPaused(false);
+        };
         const bool activated = ImGui::IsItemActivated();
         if (activated) {
             // Drag start: freeze the clock (auto-pause) and skip audio decode
             // while scrubbing so the worker never parks on the idle ring.
+            // A drag takes over any wheel session — its release below becomes
+            // the single finish (no stale wheel flag, no double seek).
+            wheelScrubbing_ = false;
             jogActive_ = true;
             jogWasPlaying_ = !st.paused && !st.ended;
             if (jogWasPlaying_) p->SetPaused(true);
@@ -1574,12 +1599,7 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
         }
         if (jogActive_ && !ImGui::IsItemActive()) {
             // Release: precision seek to the snapped frame, restore transport.
-            const double t = fps > 0.0
-                                 ? std::round(std::clamp(jogTarget_, 0.0, dur) * fps) / fps
-                                 : jogTarget_;
-            p->Seek(t);
-            p->SetJog(false);
-            if (jogWasPlaying_) p->SetPaused(false);
+            finishScrub();
             jogActive_ = false;
         }
         if (jogActive_ && !activated) {
@@ -1594,16 +1614,43 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
             const float dx = io.MouseDelta.x, dy = io.MouseDelta.y;
             if (r2 > 36.0f && (dx != 0.0f || dy != 0.0f)) {
                 const double dth = (double)(rx * dy - ry * dx) / (double)r2;
-                // One full revolution = sPerRev seconds (tuned; scales with
-                // clip length but never coarser than ~1 s/rev on short clips).
-                const double sPerRev = std::clamp(dur / 8.0, 1.0, 30.0);
                 jogTarget_ = std::clamp(
                     jogTarget_ + dth * 0.15915494309 * sPerRev, 0.0, dur);
             }
             jogMouseX_ += dx;
             jogMouseY_ += dy;
-            // Debounced latest-wins scrub seek: 40 ms cadence, target only
-            // when it moved. The single wantSeek/seekTarget slot coalesces.
+        }
+
+        // Mouse-wheel scrub (spec 1d, D5): ticks over the knob feed the same
+        // jogTarget_/debounce as a drag — 1/16 revolution per tick, wheel-up
+        // = forward (the drag's clockwise = +dθ convention). Wheel input has
+        // no release event, so the session ends 400 ms after the LAST tick
+        // (every tick re-arms the timer) with exactly the drag-release
+        // finish. While a drag is held the drag owns the finish: ticks still
+        // move the shared target (latest wins) but the flag and timer stay
+        // with the drag.
+        if (hot && io.MouseWheel != 0.0f) {
+            if (!jogActive_ && !wheelScrubbing_) {
+                // Entry mirrors the drag start: auto-pause if playing, skip
+                // audio decode, seed the target from the live position.
+                wheelScrubbing_ = true;
+                jogWasPlaying_ = !st.paused && !st.ended;
+                if (jogWasPlaying_) p->SetPaused(true);
+                p->SetJog(true);
+                jogTarget_ = st.pos;
+                jogLastSent_ = -1;
+                jogLastSeek_ = std::chrono::steady_clock::now();
+            }
+            jogTarget_ = std::clamp(
+                jogTarget_ + (double)io.MouseWheel * sPerRev / 16.0, 0.0, dur);
+            if (!jogActive_)
+                wheelLastTick_ = std::chrono::steady_clock::now();
+        }
+
+        // Debounced latest-wins scrub seek — one shared 40 ms pump for both
+        // input sources; target only when it moved. The single
+        // wantSeek/seekTarget slot coalesces.
+        if ((jogActive_ && !activated) || (wheelScrubbing_ && !jogActive_)) {
             const auto now = std::chrono::steady_clock::now();
             if (std::chrono::duration<double>(now - jogLastSeek_).count() >= 0.040 &&
                 jogTarget_ != jogLastSent_) {
@@ -1611,6 +1658,15 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
                 jogLastSent_ = jogTarget_;
                 jogLastSeek_ = now;
             }
+        }
+
+        // Idle release (D5): 400 ms with no wheel tick while a wheel session
+        // is open — same finish as the drag release, then the flag clears.
+        if (wheelScrubbing_ &&
+            std::chrono::duration<double>(std::chrono::steady_clock::now() -
+                                          wheelLastTick_).count() >= 0.400) {
+            finishScrub();
+            wheelScrubbing_ = false;
         }
 
         // Knob visuals: base disc + rim, position arc from 12 o'clock and a
@@ -1626,7 +1682,9 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
         dl->AddCircleFilled(c, rad, colBase, 24);
         dl->AddCircle(c, rad, colRim, 24, 2.0f);
         const double frac = std::clamp(
-            (jogActive_ ? jogTarget_ : (double)st.pos) / dur, 0.0, 1.0);
+            ((jogActive_ || wheelScrubbing_) ? jogTarget_ : (double)st.pos) /
+                dur,
+            0.0, 1.0);
         if (frac > 0.002) {
             const float kTwoPi = 6.28318530718f;
             const float a0 = -kTwoPi * 0.25f; // 12 o'clock
@@ -1661,8 +1719,10 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
     }
 
     // Left/Right = ±1 frame. repeat=false on purpose: key repeat would fire a
-    // full flush-seek per repeat (~20/s).
-    if (!io.WantTextInput && st.dur > 0 && p->fps > 0.0 && !jogActive_) {
+    // full flush-seek per repeat (~20/s). Skipped while a knob drag or wheel
+    // scrub owns the transport (the debounced scrub seek would override it).
+    if (!io.WantTextInput && st.dur > 0 && p->fps > 0.0 && !jogActive_ &&
+        !wheelScrubbing_) {
         int step = 0;
         if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)) step = -1;
         if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, false)) step = +1;
