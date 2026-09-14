@@ -293,6 +293,24 @@ struct ClientVPlayerApp::PlayerCore {
     // it is the queue-span headroom, and anything larger only adds display
     // latency (frames render when the clock reaches them).
     static constexpr double kVideoLead = 0.05;
+    // Clump lead (docs/50 section 9 residual, task 5): with B-frame reordering
+    // the gate passes a P packet once the P's OWN pts is within the lead, and
+    // the lower-pts B packets attached behind it then cascade through
+    // immediately (their pts already satisfies the condition) — decode output
+    // arrives as a 3-frame clump whose tail B frames land ~1-2 frame intervals
+    // AFTER their display time (measured push lateness: 480p +22-30 ms avg,
+    // 4K +5-16 ms), so the display side drops them as expired. Widening the
+    // gate lead by the clump width (P + its 2 attached B frames) lets the
+    // whole clump through early enough that its tail arrives in the future,
+    // where PopVideoFrame (task 4) keeps it queued until its turn. This
+    // advances DECODE start only — display timing is still decided by the
+    // PopVideoFrame clock gate, so A/V sync is untouched. Cost: ~2 frames of
+    // extra decode-ahead (~67 ms @30 fps, ~40 ms @50 fps) and +2 frames in
+    // the video pipeline/pool. Set from fps at open (clamped [1,240] there,
+    // so always finite); the 30 fps seed covers streams whose fps stays
+    // unknown.
+    static constexpr double kClumpFrames = 2.0;
+    double kClumpLead = kClumpFrames / 30.0;
     // Frame-threaded decoders (dav1d with auto threads) emit a frame N
     // packets after N was sent — the decoder is a pipeline of depth D, and
     // throughput requires ~D packets in flight. Gating packets by a small
@@ -896,6 +914,9 @@ struct ClientVPlayerApp::PlayerCore {
                     // Decode-thread clock-gate seed (see vPipeDelay).
                     vDecodeDelay = std::max(0, vctx->has_b_frames) / fps;
                     vPipeDelay = std::max(0.10, vDecodeDelay);
+                    // Clump-lead widening (see kClumpLead): fps was clamped
+                    // [1,240] above, so this is always finite and positive.
+                    kClumpLead = kClumpFrames / fps;
                 }
             }
         }
@@ -1399,9 +1420,10 @@ struct ClientVPlayerApp::PlayerCore {
 
     // Video decode thread (demux/decode split). Drains vPktQ in order,
     // holding each packet until it is near-due on the presentation clock
-    // (kVideoLead + the decoder's frame-threading latency). Packet order is
-    // never broken, so the reference chain stays intact; the clock gate is
-    // what bounds decode-ahead.
+    // (kVideoLead + the decoder's frame-threading latency + kClumpLead — the
+    // B-frame clump width, see kVideoLead). Packet order is never broken, so
+    // the reference chain stays intact; the clock gate is what bounds
+    // decode-ahead.
     void VideoLoop() {
         AVPacket* pkt = av_packet_alloc();
         AVFrame* frame = av_frame_alloc();
@@ -1448,7 +1470,8 @@ struct ClientVPlayerApp::PlayerCore {
                     const double pts = mine->pts == AV_NOPTS_VALUE
                                            ? -1.0
                                            : mine->pts * av_q2d(videoTb) - ptsOrigin;
-                    if (pts < 0 || pts <= gateClock + kVideoLead + vPipeDelay)
+                    if (pts < 0 ||
+                        pts <= gateClock + kVideoLead + vPipeDelay + kClumpLead)
                         break;
                     std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 }
