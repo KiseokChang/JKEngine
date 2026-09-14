@@ -238,7 +238,7 @@ struct ClientVPlayerApp::PlayerCore {
     // passes B-frame-reordered packets in clumps (3-4 frames decoded back to
     // back), and the display drop rule below keeps unexpired frames queued,
     // so the queue temporarily carries them. 6 slots ~ 200 ms at 30 fps /
-    // ~120 ms at 50 fps (~99 MB at 4K NV12).
+    // ~120 ms at 50 fps (~75 MB at 4K NV12).
     static constexpr size_t kVideoQMaxFrames = 6;
     std::deque<VideoFrame> videoQ;
 
