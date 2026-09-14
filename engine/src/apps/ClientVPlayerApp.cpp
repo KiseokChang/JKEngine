@@ -166,8 +166,36 @@ struct ClientVPlayerApp::PlayerCore {
     std::atomic<bool> jogging{false};        // scrub drag in progress: worker skips audio decode
     double seekTarget = 0;
     double dropBeforePts = -1;               // frames older than this are stale (post-seek)
+    // Audio twin of dropBeforePts. Worker-thread-only (written by the seek's
+    // Ok stage, read by the worker's read loop — never the UI thread, so no
+    // lock). The demuxer seek restarts BOTH tracks at the landing keyframe
+    // (mp4 aligns every stream to the video keyframe's DTS), so after a
+    // keyframe-clamped backward seek the first audio packets sit up to a
+    // whole GOP below the clock target. Decoding them into the ring fills it
+    // with content the clock has already passed and parks the demuxer on the
+    // full ring BELOW the video clock gate — the decode-forward then never
+    // reaches dropBeforePts, videoQ stays empty and the picture freezes on
+    // the pre-seek frame (the jog fallback wedge: ±1F cannot revive, the
+    // landing keyframe is the same). Dropped at the source instead; the
+    // first packet at/above the target disarms the gate. This also removes
+    // the latent A/V desync of keyframe-clamped seeks (landing-position
+    // audio played over target-position video).
+    double audioSkipBelow = -1;
     bool postSeekJump = false;               // gate-starved first frame may display (see PopVideoFrame)
     uint64_t seekGen = 0;                    // bumped on seek; in-flight audio pushes abort
+    // Seek generation for the video gate loop (VideoLoop). Stage (a) bumps it
+    // under m; the gate loop compares against the value it captured at
+    // dequeue. wantSeek alone cannot abort a hold: the worker consumes
+    // wantSeek at its loop top and a PARKED worker (ended) completes the
+    // whole seek in a few ms, so the gate loop's 10 ms poll can miss the
+    // window entirely and hold the pre-seek packet forever — the pinned
+    // paused clock never advances the gate past it, the decode-forward never
+    // runs and the picture freezes (the jog fallback wedge, which ±1F cannot
+    // revive: its seek window is just as short). A generation survives that
+    // race — stage (a) bumps it before stage (b)'s I/O and it never unwinds,
+    // so the very next poll sees the change. Relaxed is enough: the gate
+    // loop re-reads it every poll under m, and stage (a) writes it under m.
+    std::atomic<uint64_t> vSeekSeq{0};
 
     // Failed-seek correction (T2, spec D3). Stage (a) snapshots the audio
     // clock + ring + stale-frame gates under the same locks it mutates them;
@@ -551,6 +579,10 @@ struct ClientVPlayerApp::PlayerCore {
                             : t - 0.05 +
                                   std::min(0.0, (double)avDelay.load(std::memory_order_relaxed));
         postSeekJump = true;
+        // Invalidate the video gate loop's in-hand packet (see vSeekSeq): it
+        // was dequeued before this flush and is pre-seek, even though the
+        // queue drain below cannot see it.
+        vSeekSeq.fetch_add(1, std::memory_order_relaxed);
         videoQ.clear();
         // The jog ring is pre-seek history: drop it so the ring rebuilds
         // from the landing position (dropBeforePts guard keeps stale
@@ -703,6 +735,11 @@ struct ClientVPlayerApp::PlayerCore {
 
         ended = false;
         audioEof.store(false, std::memory_order_relaxed); // audio flows again
+        // Arm the stale-audio gate (see audioSkipBelow): everything below t
+        // is demuxer landing rewind, not playable content. Only the Ok path
+        // sets it — a failed seek restores the pre-seek demux position, whose
+        // audio is exactly what the gate would (wrongly) drop.
+        audioSkipBelow = t;
         lastError.clear(); // a successful seek supersedes a stale stop reason
         seekError.clear();
         seekInFlight = false;
@@ -1123,8 +1160,26 @@ struct ClientVPlayerApp::PlayerCore {
                         EnqueueVideoPacket(pkt);
                     } else if (pkt->stream_index == audioStream && actx &&
                                !jogging.load(std::memory_order_relaxed)) {
-                        if (DecodeAudioPacket(pkt, frame))
-                            audioEof.store(false, std::memory_order_relaxed);
+                        // Stale-audio gate (audioSkipBelow): audio below the
+                        // seek target is landing rewind — decoding it would
+                        // park the demuxer on a full ring below the video
+                        // clock gate (frozen picture after every
+                        // keyframe-clamped seek) and desync A/V. Drop until
+                        // the demuxer reaches the target; NOPTS pts cannot be
+                        // classified, so they decode (a missed drop is the
+                        // pre-fix behaviour, a wrong drop loses audio).
+                        const double aPts =
+                            pkt->pts == AV_NOPTS_VALUE
+                                ? -1.0
+                                : pkt->pts * av_q2d(audioTb) - ptsOrigin;
+                        if (audioSkipBelow >= 0 && aPts >= 0 &&
+                            aPts < audioSkipBelow) {
+                            // stale: keep gating — the demuxer must reach t
+                        } else {
+                            audioSkipBelow = -1; // audio caught up: normal decode
+                            if (DecodeAudioPacket(pkt, frame))
+                                audioEof.store(false, std::memory_order_relaxed);
+                        }
                     }
                     av_packet_unref(pkt);
                 }
@@ -1314,10 +1369,17 @@ struct ClientVPlayerApp::PlayerCore {
         if (pkt && frame) {
             while (true) {
                 AVPacket* mine = nullptr;
+                uint64_t mySeq = 0;
                 {
                     std::unique_lock<std::mutex> lk(vPktM);
                     vPktCv.wait(lk, [&] { return stop || !vPktQ.empty(); });
                     if (stop) break;
+                    // Capture the seek generation BEFORE dequeuing: a packet
+                    // taken from the queue before stage (a)'s drain must
+                    // abort in the gate loop below even if the seek's
+                    // wantSeek window was missed (see vSeekSeq). A stale
+                    // read here can only cause one harmless dropped packet.
+                    mySeq = vSeekSeq.load(std::memory_order_relaxed);
                     mine = vPktQ.front();
                     vPktQ.pop_front();
                     vPktQBytes -= (size_t)mine->size + sizeof(AVPacket);
@@ -1326,13 +1388,19 @@ struct ClientVPlayerApp::PlayerCore {
                 // Clock gate: hold the packet until it is near-due. A seek
                 // aborts the hold — the held packet is pre-seek (stage (a)
                 // flushed the queue and the codec behind us), so it is
-                // dropped, not decoded.
+                // dropped, not decoded. The abort keys on vSeekSeq, not just
+                // wantSeek: a seek that ran while we slept 10 ms here is
+                // invisible to a plain wantSeek re-check (see vSeekSeq).
                 bool seekAbort = false;
                 while (!stop) {
                     double gateClock;
                     {
                         std::lock_guard<std::mutex> lk(m);
-                        if (wantSeek) { seekAbort = true; break; }
+                        if (wantSeek ||
+                            vSeekSeq.load(std::memory_order_relaxed) != mySeq) {
+                            seekAbort = true;
+                            break;
+                        }
                         // Jog frame-scrub: decode runs to the DIAL target, not
                         // the (pinned) clock — max() keeps non-jog playback
                         // identical (jogTargetPts is -1 outside a session).
