@@ -205,6 +205,11 @@ struct ClientVPlayerApp::PlayerCore {
     static constexpr size_t kJogRingMaxBytes = (size_t)1536 * 1024 * 1024;
     std::deque<VideoFrame> jogRing;
     size_t jogRingBytes = 0;
+    // Live jog dial target (UI time). -1 = no frame-scrub session. While it
+    // stays -1 the jog branch in DecodeVideoPacket does NOT skip the videoQ
+    // push — the skip arms exactly when the frame-scrub UI (JogTo) starts
+    // driving this value, so intermediate commits stay behavior-neutral.
+    double jogTargetPts = -1;
 
     // RGBA buffer pool for decoded frames (video-thread-only state): see
     // the VideoFrame comment. Slots whose refcount dropped to 1 (only the
@@ -1203,10 +1208,16 @@ struct ClientVPlayerApp::PlayerCore {
             if (stop || wantSeek) return false;
             if (vf.pts < dropBeforePts) continue; // stale frame from before the seek
             // Jog ring retention (frame-scrub history): always, before any
-            // videoQ decision. During a jog the videoQ push below is SKIPPED:
-            // nothing pops while paused, so the 3-slot cap would park this
-            // thread and stall the dial — the ring is the jog path's sink.
-            if (jogging.load(std::memory_order_relaxed)) {
+            // videoQ decision. During a frame-scrub jog the videoQ push
+            // below is SKIPPED: nothing pops while paused, so the 3-slot cap
+            // would park this thread and stall the dial — the ring is the
+            // jog path's sink. The skip is STAGED behind jogTargetPts: the
+            // legacy keyframe jog (SetJog without JogTo) keeps the videoQ
+            // push so the picture keeps updating; the gate arms when the
+            // frame-scrub UI lands (Task 1 stays behavior-neutral).
+            const bool jogFrameMode = jogging.load(std::memory_order_relaxed) &&
+                                      jogTargetPts >= 0;
+            if (jogFrameMode) {
                 JogRingPushLocked(std::move(vf));
                 continue;
             }
