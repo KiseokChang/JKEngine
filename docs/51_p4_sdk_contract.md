@@ -126,7 +126,7 @@
   레슨 준수, manifest `cmd`를 `main.cmd`로), `build_with_temp.sh`가
   `templates/console-app`을 런타임 루트로 동기화(`/.` 중첩 방지 복사).
   jkctl init은 `<cwd>\<name>\` 생성 + `"myapp"` 토큰 치환, 이름은
-  `[A-Za-z0-9_-]{1,64}` 검증. probe_jkctl_init.ps1 9/9.
+  `[A-Za-z0-9_-]{1,64}` 검증. probe_jkctl_init.ps1 10/10.
 - 패키지 매니저 — 콘솔 앱 폴더의 zip 배포 + trust 지문 검증 설치
   **→ 2026-09-16 폴더 MVP 완료: `jkctl install <folder>`** — manifest.json의
   `"name"` 문자열 스캔 → `<exeDir>\apps\<name>\` 재귀 복사, 기존 설치 거부.

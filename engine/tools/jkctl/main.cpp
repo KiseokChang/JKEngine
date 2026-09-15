@@ -8,6 +8,7 @@
 
 #include <windows.h>
 
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -140,6 +141,15 @@ int Init(const std::string& name) {
     }
     const std::string tplDir = ExeDirA() + "templates\\console-app";
     const char* files[] = { "manifest.json", "README.md", "main.cmd" };
+    // Template existence check BEFORE creating the target dir — a missing
+    // template otherwise leaves a stray empty <name>\ in the cwd.
+    for (const char* f : files) {
+        if (!std::filesystem::exists(tplDir + "\\" + f)) {
+            std::fprintf(stderr, "init: template not found: %s\\%s\n",
+                         tplDir.c_str(), f);
+            return 2;
+        }
+    }
     std::error_code ec;
     std::filesystem::create_directories(name, ec);
     if (ec) {
@@ -162,7 +172,17 @@ int Init(const std::string& name) {
              p = body.find(token, p + name.size()))
             body.replace(p, token.size(), name);
         std::ofstream out(std::string(name) + "\\" + f, std::ios::binary);
+        if (!out) {
+            std::fprintf(stderr, "init: cannot write %s\\%s\n", name.c_str(),
+                         f);
+            return 2;
+        }
         out << body;
+        if (!out) {
+            std::fprintf(stderr, "init: write failed: %s\\%s\n", name.c_str(),
+                         f);
+            return 2;
+        }
     }
     std::printf("created %s\\ (manifest.json, README.md, main.cmd)\n"
                 "install: jkctl install %s   then restart the desktop\n",
@@ -198,9 +218,18 @@ int Install(const std::string& folder) {
         return 2;
     }
     const std::string name = body.substr(q1 + 1, q2 - q1 - 1);
-    if (name.empty() || name.size() > 64 ||
-        name.find_first_of("\\/:*?\"<>|") != std::string::npos) {
-        std::fprintf(stderr, "install: bad name '%s'\n", name.c_str());
+    // Same validation as init — the server scan keys on this name, so a
+    // loose name here becomes a launcher key (and Windows reserves CON/NUL).
+    bool nameOk = !name.empty() && name.size() <= 64;
+    for (char c : name) {
+        if (!(std::isalnum((unsigned char)c) || c == '-' || c == '_')) {
+            nameOk = false;
+            break;
+        }
+    }
+    if (!nameOk) {
+        std::fprintf(stderr, "install: bad name '%s' ([A-Za-z0-9_-] 1..64)\n",
+                     name.c_str());
         return 2;
     }
     const std::string dst = ExeDirA() + "apps\\" + name;
