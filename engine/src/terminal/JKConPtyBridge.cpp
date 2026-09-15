@@ -83,13 +83,12 @@ bool JKConPtyBridge::Start(const std::string& commandLine, int cols, int rows) {
     auto attrList = static_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(HeapAlloc(
         GetProcessHeap(), 0, attrSize));
     bool spawnOk = false;
-    STARTUPINFOEXA si{};
+    STARTUPINFOEXW si{};
     PROCESS_INFORMATION pi{};
     if (attrList &&
         InitializeProcThreadAttributeList(attrList, 1, 0, &attrSize) &&
         UpdateProcThreadAttribute(attrList, 0, kProcThreadAttributePseudoConsole,
                                   hpcon, sizeof(hpcon), nullptr, nullptr)) {
-        ZeroMemory(&si, sizeof(si));
         si.StartupInfo.cb = sizeof(si);
         si.lpAttributeList = attrList;   // EXTENDED_STARTUPINFO_PRESENT reads this
         // Console-subsystem children copy the parent's std handles even with
@@ -102,9 +101,22 @@ bool JKConPtyBridge::Start(const std::string& commandLine, int cols, int rows) {
         si.StartupInfo.hStdInput = nullptr;
         si.StartupInfo.hStdOutput = nullptr;
         si.StartupInfo.hStdError = nullptr;
-        std::vector<char> cmd(commandLine.begin(), commandLine.end());
-        cmd.push_back('\0');
-        if (CreateProcessA(nullptr, cmd.data(), nullptr, nullptr, FALSE,
+        // W spawn (docs/48 후속 CP949 레저): commandLine is UTF-8 and may
+        // carry Korean (--shell cmdlines). The A variant would round-trip it
+        // through CP_ACP and mangle it; convert to UTF-16 with CP_UTF8.
+        std::vector<wchar_t> cmd;
+        {
+            // -1 converts the trailing NUL too, so cmd keeps a terminator.
+            int n = MultiByteToWideChar(CP_UTF8, 0, commandLine.c_str(), -1,
+                                        nullptr, 0);
+            if (n > 0) {
+                cmd.resize(static_cast<size_t>(n), L'\0');
+                MultiByteToWideChar(CP_UTF8, 0, commandLine.c_str(), -1,
+                                    cmd.data(), n);
+            }
+        }
+        if (!cmd.empty() &&
+            CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE,
                            EXTENDED_STARTUPINFO_PRESENT, nullptr, nullptr,
                            &si.StartupInfo, &pi)) {
             spawnOk = true;

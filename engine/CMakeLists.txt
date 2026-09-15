@@ -270,6 +270,9 @@ add_executable(jkdesktop
 )
 
 target_link_libraries(jkdesktop PRIVATE jkcore jkserver jkclient)
+# wmain entry (docs/48 후속 CP949 레저): UTF-8 argv conversion shim in
+# main.cpp. Link-only so UNICODE/_UNICODE stay undefined for the TUs.
+set_property(TARGET jkdesktop APPEND_STRING PROPERTY LINK_FLAGS " -municode")
 
 # ---------------------------------------------------------------------------
 # App module DLLs (Phase B). Each exports the C ABI from include/apps/JKAppModule.h

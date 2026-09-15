@@ -2558,7 +2558,7 @@ static int RunAgentEvents(int seconds) {
     return 0;
 }
 
-int main(int argc, char* argv[]) {
+static int RunMain(int argc, char* argv[]) {
     // GUI 앱이므로 콘솔 출력이 안 보인다. 디버깅용 파일 로그를 먼저 연다.
     std::FILE* logFile = std::fopen("jkdesktop_launch.log", "w");
     if (logFile) {
@@ -2942,3 +2942,31 @@ int main(int argc, char* argv[]) {
 
     return app.Run();
 }
+
+#ifdef _WIN32
+// UTF-8 argv entry (docs/48 후속 CP949 레저). The ANSI CRT startup converts
+// the (always wide) Windows command line with CP_ACP — CP949 on Korean
+// Windows — so Korean --filedlg json / agentctl payloads arrived as invalid
+// UTF-8. wmain (link with -municode) receives the true wide argv; convert
+// to UTF-8 here so every RunMain consumer keeps its encoding contract.
+extern "C" __declspec(dllimport) int __stdcall WideCharToMultiByte(
+    unsigned int codePage, unsigned long dwFlags, const wchar_t* lpWideCharStr,
+    int cchWideChar, char* lpMultiByteStr, int cbMultiByte,
+    const char* lpDefaultChar, int* lpUsedDefaultChar);
+
+int wmain(int argc, wchar_t* argv[]) {
+    std::vector<std::string> utf8(static_cast<size_t>(argc > 0 ? argc : 1));
+    std::vector<char*> ptrs(static_cast<size_t>(argc > 0 ? argc : 1), nullptr);
+    for (int i = 0; i < argc; ++i) {
+        int n = WideCharToMultiByte(65001 /* CP_UTF8 */, 0, argv[i], -1,
+                                    nullptr, 0, nullptr, nullptr);
+        if (n <= 0) continue;
+        utf8[static_cast<size_t>(i)].resize(static_cast<size_t>(n) - 1);
+        WideCharToMultiByte(65001, 0, argv[i], -1,
+                            utf8[static_cast<size_t>(i)].data(), n,
+                            nullptr, nullptr);
+        ptrs[static_cast<size_t>(i)] = utf8[static_cast<size_t>(i)].data();
+    }
+    return RunMain(argc, ptrs.data());
+}
+#endif // _WIN32

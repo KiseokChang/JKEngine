@@ -59,17 +59,47 @@ struct LauncherProcessInformation {
     unsigned long dwThreadId = 0;
 };
 
-extern "C" __declspec(dllimport) int __stdcall CreateProcessA(
-    const char* lpApplicationName,
-    char* lpCommandLine,
+// W variant (docs/48 후속 CP949 레저): the A variants round-trip the command
+// line through CP_ACP (CP949 on Korean Windows), mangling UTF-8 args — the
+// filedlg json filter/title Korean labels arrived corrupted. Spawn wide:
+// convert UTF-8 args to UTF-16 here and let the child's wmain entry
+// (main.cpp) convert back with CP_UTF8.
+struct LauncherStartupInfoW {
+    unsigned long cb = 0;
+    wchar_t* lpReserved = nullptr;
+    wchar_t* lpDesktop = nullptr;
+    wchar_t* lpTitle = nullptr;
+    unsigned long dwX = 0;
+    unsigned long dwY = 0;
+    unsigned long dwXSize = 0;
+    unsigned long dwYSize = 0;
+    unsigned long dwXCountChars = 0;
+    unsigned long dwYCountChars = 0;
+    unsigned long dwFillAttribute = 0;
+    unsigned long dwFlags = 0;
+    unsigned short wShowWindow = 0;
+    unsigned short cbReserved2 = 0;
+    unsigned char* lpReserved2 = nullptr;
+    void* hStdInput = nullptr;
+    void* hStdOutput = nullptr;
+    void* hStdError = nullptr;
+};
+
+extern "C" __declspec(dllimport) int __stdcall CreateProcessW(
+    const wchar_t* lpApplicationName,
+    wchar_t* lpCommandLine,
     void* lpProcessAttributes,
     void* lpThreadAttributes,
     int bInheritHandles,
     unsigned long dwCreationFlags,
     void* lpEnvironment,
-    const char* lpCurrentDirectory,
-    LauncherStartupInfoA* lpStartupInfo,
+    const wchar_t* lpCurrentDirectory,
+    LauncherStartupInfoW* lpStartupInfo,
     LauncherProcessInformation* lpProcessInformation);
+
+extern "C" __declspec(dllimport) int __stdcall MultiByteToWideChar(
+    unsigned int codePage, unsigned long dwFlags, const char* lpMultiByteStr,
+    int cbMultiByte, wchar_t* lpWideCharStr, int cchWideChar);
 
 extern "C" __declspec(dllimport) int __stdcall CloseHandle(void* hObject);
 extern "C" __declspec(dllimport) int __stdcall GetExitCodeProcess(
@@ -78,6 +108,9 @@ static const unsigned long kStillActiveExit = 259;  // STILL_ACTIVE
 
 extern "C" __declspec(dllimport) unsigned long __stdcall GetModuleFileNameA(
     void* hModule, char* lpFilename, unsigned long nSize);
+
+extern "C" __declspec(dllimport) unsigned long __stdcall GetModuleFileNameW(
+    void* hModule, wchar_t* lpFilename, unsigned long nSize);
 
 extern "C" __declspec(dllimport) int __stdcall CreateDirectoryA(
     const char* lpPathName, void* lpSecurityAttributes);
@@ -2853,45 +2886,67 @@ bool JKWindowServer::SpawnProcess(const char* exeName, const std::string& args,
     }
 
     // Assume the server executable is in the same directory as the target.
-    char modulePath[1024] = {};
-    const unsigned long len = GetModuleFileNameA(nullptr, modulePath, sizeof(modulePath));
-    if (len == 0 || len >= sizeof(modulePath)) {
-        std::fprintf(stderr, "JKWindowServer: GetModuleFileNameA failed\n");
+    // Wide path: GetModuleFileNameA would break on non-ANSI install dirs.
+    wchar_t modulePathW[1024] = {};
+    const unsigned long len =
+        GetModuleFileNameW(nullptr, modulePathW, 1024);
+    if (len == 0 || len >= 1024) {
+        std::fprintf(stderr, "JKWindowServer: GetModuleFileNameW failed\n");
         return false;
     }
 
     // Find the directory component.
-    char* lastSlash = modulePath;
-    for (char* p = modulePath; *p; ++p) {
-        if (*p == '\\' || *p == '/') lastSlash = p;
+    wchar_t* lastSlash = modulePathW;
+    for (wchar_t* p = modulePathW; *p; ++p) {
+        if (*p == L'\\' || *p == L'/') lastSlash = p;
     }
     // Leave a NUL after the directory; exe name is appended below.
-    if (lastSlash != modulePath) {
-        *lastSlash = '\0';
-    } else {
-        modulePath[0] = '\0';
+    const bool haveDir = (lastSlash != modulePathW);
+    std::wstring dirW(modulePathW, haveDir ? (lastSlash - modulePathW) : 0);
+    const wchar_t* workDir = haveDir ? dirW.c_str() : nullptr;
+
+    // Wide command line, UTF-8 args converted with CP_UTF8 (see the W-variant
+    // note above). 2048 chars upper-bounds the ANSI version's byte budget.
+    std::wstring cmdLine;
+    cmdLine.reserve(2048);
+    cmdLine += L"\"";
+    cmdLine += (haveDir ? dirW : L".");
+    cmdLine += L"\\";
+    {
+        // exeName is an ASCII literal from the spawn table; convert anyway so
+        // the whole line is one encoding.
+        int n = MultiByteToWideChar(65001, 0, exeName, -1, nullptr, 0);
+        std::wstring exeW(static_cast<size_t>(n > 0 ? n : 1), L'\0');
+        if (n > 0) MultiByteToWideChar(65001, 0, exeName, -1, exeW.data(), n);
+        cmdLine += L"\"";
+        cmdLine += exeW.c_str();
+        cmdLine += L"\"";
+    }
+    if (!args.empty()) {
+        int n = MultiByteToWideChar(65001, 0, args.c_str(),
+                                    static_cast<int>(args.size()),
+                                    nullptr, 0);
+        if (n <= 0) {
+            std::fprintf(stderr, "JKWindowServer: arg UTF-8 conversion failed for %s\n",
+                         exeName);
+            return false;
+        }
+        std::wstring argsW(static_cast<size_t>(n), L'\0');
+        MultiByteToWideChar(65001, 0, args.c_str(),
+                            static_cast<int>(args.size()), argsW.data(), n);
+        cmdLine += L" ";
+        cmdLine += argsW;
     }
 
-    char cmdLine[2048] = {};
-    if (args.empty()) {
-        std::snprintf(cmdLine, sizeof(cmdLine), "\"%s\\%s\"",
-                      modulePath[0] ? modulePath : ".", exeName);
-    } else {
-        std::snprintf(cmdLine, sizeof(cmdLine), "\"%s\\%s\" %s",
-                      modulePath[0] ? modulePath : ".", exeName, args.c_str());
-    }
-
-    LauncherStartupInfoA si{};
+    LauncherStartupInfoW si{};
     si.cb = sizeof(si);
     LauncherProcessInformation pi{};
 
     // Set the child's working directory to the executable directory so it can
     // locate the assets/ folder regardless of where the server was launched from.
-    const char* workDir = modulePath[0] ? modulePath : nullptr;
-
-    if (!CreateProcessA(nullptr, cmdLine, nullptr, nullptr, 0, 0,
+    if (!CreateProcessW(nullptr, cmdLine.data(), nullptr, nullptr, 0, 0,
                         nullptr, workDir, &si, &pi)) {
-        std::fprintf(stderr, "JKWindowServer: CreateProcessA failed for %s\n", exeName);
+        std::fprintf(stderr, "JKWindowServer: CreateProcessW failed for %s\n", exeName);
         return false;
     }
 
