@@ -464,4 +464,18 @@ void JKControl::InvalidateRect(const JKRect& rect) {
     }
 }
 
+// P3 hot-swap: re-capture ctor-captured theme tokens and recurse. Paint-
+// time consumers (local `current()` refs, JKDC default args) follow the
+// preset automatically; this covers the copy-at-construction class only
+// (docs/46 §7 "재캡처 전략"). Subclasses whose ctor captured a DIFFERENT
+// token (Edit/ListBox/ComboBox use fieldBg, not widgetFace) override and
+// re-capture their own members before recursing.
+void JKControl::ApplyTheme() {
+    const auto& t = jk::theme::current();
+    SetTextColor(t.widgetText.r, t.widgetText.g, t.widgetText.b);
+    SetBackColor(t.widgetFace.r, t.widgetFace.g, t.widgetFace.b);
+    for (auto& c : children_) c->ApplyTheme();
+    InvalidateRect(JKRect{ 0, 0, rect_.w, rect_.h });
+}
+
 } // namespace jk

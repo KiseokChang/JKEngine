@@ -62,6 +62,11 @@ public:
     virtual void SetText(const std::string& text);
     virtual const std::string& GetText() const;
 
+    // P3 핫스왑 (docs/52): 프리셋 스왑 후 ctor 캡처 멤버를 재포착하고
+    // children_에 재귀한다. 페인트 시점 current() 소비자는 무처리로 자동
+    // 추종. 캡처 토큰이 widgetFace가 아닌 파생(fieldBg 3종)은 오버라이드.
+    virtual void ApplyTheme();
+
     void SetTextColor(uint8_t r, uint8_t g, uint8_t b);
     void GetTextColor(uint8_t& r, uint8_t& g, uint8_t& b) const;
     void SetBackColor(uint8_t r, uint8_t g, uint8_t b);

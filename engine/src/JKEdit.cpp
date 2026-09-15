@@ -740,4 +740,15 @@ void JKEdit::PasteFromClipboard() {
     }
 }
 
+// fieldBg 함정 (docs/52): 이 위젯군의 ctor는 back에 widgetFace가 아니라
+// fieldBg를 캡처한다 (JKEdit.cpp:21). 자기 멤버만 재포착하고 재귀·무효화는
+// 반복하지 않는다 — children_ 재귀 후 베이스와 동일하게 마무리.
+void JKEdit::ApplyTheme() {
+    const auto& t = jk::theme::current();
+    SetBackColor(t.fieldBg.r, t.fieldBg.g, t.fieldBg.b);
+    SetTextColor(t.widgetText.r, t.widgetText.g, t.widgetText.b);
+    for (auto& c : children_) c->ApplyTheme();
+    InvalidateRect(JKRect{ 0, 0, rect_.w, rect_.h });
+}
+
 } // namespace jk

@@ -185,6 +185,10 @@ inline void setTheme(const JKTheme* t) { if (t) activeTheme_ = t; }
 // → false, 상태 불변 (기본값=다크가 곧 정답).
 bool loadPresetFromFile(const std::string& path);
 std::string DefaultThemePath();  // exe 옆 theme.json (terminal.json 패턴 준용)
+// P3 핫스왑: theme.json mtime 폴링 (호출자가 주기 소유, 500ms). 바뀜 감지 시
+// 로더 재실행하고 true. theme_set 도구의 기록용 — 셀프 폴링 오탐 방지 포함.
+bool PollPresetFile();
+void WriteThemePresetFile(const std::string& preset);  // {"preset":"<p>"} 기록
 
 } } // namespace jk::theme
 

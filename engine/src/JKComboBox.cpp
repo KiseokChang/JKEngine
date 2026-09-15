@@ -150,4 +150,13 @@ void JKComboBox::RespondMessage(const JKEvent& ev) {
     JKControl::RespondMessage(ev);
 }
 
+// ctor가 fieldBg를 캡처하는 위젯군 (docs/52 — 근거는 JKEdit.cpp ApplyTheme).
+void JKComboBox::ApplyTheme() {
+    const auto& t = jk::theme::current();
+    SetBackColor(t.fieldBg.r, t.fieldBg.g, t.fieldBg.b);
+    SetTextColor(t.widgetText.r, t.widgetText.g, t.widgetText.b);
+    for (auto& c : children_) c->ApplyTheme();
+    InvalidateRect(JKRect{ 0, 0, rect_.w, rect_.h });
+}
+
 } // namespace jk

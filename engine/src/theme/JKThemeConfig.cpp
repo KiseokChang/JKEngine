@@ -53,4 +53,40 @@ std::string DefaultThemePath() {
     return dir + "theme.json";
 }
 
+// P3 hot-swap: poll theme.json mtime (the caller owns the cadence, 500ms).
+// Missing file counts as mtime 0, so deleting the file also registers and
+// re-runs the loader, which is fail-open on missing (keeps preset — docs/45).
+static long long s_lastThemeMtime = -1;
+
+static long long ThemeFileMtime(const std::string& path) {
+    WIN32_FILE_ATTRIBUTE_DATA fa{};
+    if (!GetFileAttributesExA(path.c_str(), GetFileExInfoStandard, &fa))
+        return 0;
+    return ((long long)fa.ftLastWriteTime.dwHighDateTime << 32) |
+            fa.ftLastWriteTime.dwLowDateTime;
+}
+
+bool PollPresetFile() {
+    const std::string path = DefaultThemePath();
+    const long long m = ThemeFileMtime(path);
+    if (m == s_lastThemeMtime) return false;
+    s_lastThemeMtime = m;
+    if (s_lastThemeMtime == 0) return false;  // vanished: nothing to load
+    return loadPresetFromFile(path);          // idempotent on same preset
+}
+
+void WriteThemePresetFile(const std::string& preset) {
+    const std::string path = DefaultThemePath();
+    FILE* f = std::fopen(path.c_str(), "wb");
+    if (!f) return;
+    std::fprintf(f, "{\"preset\":\"%s\"}\n", preset.c_str());
+    std::fclose(f);
+    // Register the write immediately so the next poll tick doesn't
+    // re-run the loader for our own write.
+    s_lastThemeMtime = ThemeFileMtime(path);
+    std::printf("[theme] preset '%s' -> %s (hot-swap)\n", preset.c_str(),
+                path.c_str());
+    std::fflush(stdout);
+}
+
 } } // namespace jk::theme

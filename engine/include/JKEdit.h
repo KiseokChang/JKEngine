@@ -36,6 +36,7 @@ public:
 
     void OnPaintClient(JKDC& dc) override;
     void RespondMessage(const JKEvent& ev) override;
+    void ApplyTheme() override;  // fieldBg 재캡처 (docs/52)
 
     void OnSetFocus() override;
     void OnKillFocus() override;
