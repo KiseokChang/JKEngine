@@ -57,6 +57,7 @@ const char* kToolsListJson =
 "{\"name\":\"read_log\",\"description\":\"Tail the jkdesktop server log (env JKDESKTOP_LOG or jkdesktop_run.log)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"lines\":{\"type\":\"integer\"},\"match\":{\"type\":\"string\"}}}},"
 "{\"name\":\"read_events\",\"description\":\"Drain desktop events (window.created/destroyed/focused) received since the last call\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}},"
 "{\"name\":\"terminal_exec\",\"description\":\"Run a command in a ConPTY session and return its output (Windows only)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"command\":{\"type\":\"string\"},\"timeoutSec\":{\"type\":\"integer\"}},\"required\":[\"command\"]}},"
+"{\"name\":\"theme_set\",\"description\":\"Switch the desktop theme preset: dark, light, or classic (P3 hot-swap, docs/52)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"preset\":{\"type\":\"string\",\"enum\":[\"dark\",\"light\",\"classic\"]}},\"required\":[\"preset\"]}},"
 "{\"name\":\"trust_list\",\"description\":\"List trusted script fingerprints from state/trust.json\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}}"
 "]}";
 
@@ -65,7 +66,7 @@ bool IsKnownTool(const std::string& name) {
     static const char* kNames[] = {
         "list_windows", "launch_app", "run_console_app", "focus_window",
         "close_window", "save_layout", "restore_layout", "read_log",
-        "read_events", "terminal_exec", "trust_list"
+        "read_events", "terminal_exec", "trust_list", "theme_set"
     };
     for (const char* n : kNames) {
         if (name == n) return true;
@@ -94,7 +95,7 @@ std::map<std::string, bool> LoadPermissions() {
     static const char* kNames[] = {
         "list_windows", "launch_app", "run_console_app", "focus_window",
         "close_window", "save_layout", "restore_layout", "read_log",
-        "read_events", "terminal_exec", "trust_list"
+        "read_events", "terminal_exec", "trust_list", "theme_set"
     };
     std::map<std::string, bool> perms;
     for (const char* n : kNames) perms[n] = true;
@@ -351,6 +352,12 @@ std::string HandleLine(const std::string& line, bool& isResponse) {
             std::string name;
             if (req.GetDeepStr("params", "arguments", "name", name)) {
                 argsJson = "{\"name\":\"" + JsonEsc(name) + "\"}";
+            }
+        } else if (tool == "theme_set") {
+            // P3 hot-swap (docs/52): 프리셋 문자열을 서버 args로 전달.
+            std::string preset;
+            if (req.GetDeepStr("params", "arguments", "preset", preset)) {
+                argsJson = "{\"preset\":\"" + JsonEsc(preset) + "\"}";
             }
         } else if (tool == "focus_window" || tool == "close_window") {
             int id = 0;

@@ -104,3 +104,8 @@ task-3 계측 빌드의 1초 윈도 카운터(`[vpt3] ro=... tim=... sync=... at
 - **ROOT_CAUSED 아님 / UNRESOLVED 아님 → PARTIAL**: 실체(UI 스레드 단독 블록, 길이 산술) 확정, 위치 미확정, 재현 0건.
 - 커밋 없음. 추적 파일 기준 작업 트리 클린. 신규 비계측 프루브 2종(`engine/tools/probes/vptdiag_stall.ps1`, `spin_load.ps1`)과 빌드 디렉터리 스크래치 로그는 기존 프루브 무추적 관행에 준해 그대로 둠.
 - 남은 레저: (1) Run 루프 영구 워치독 착수 시 이 문서의 계측 블록 재사용, (2) agentctl 행발 1건 관찰 기록, (3) 증거 로그 절단 사고의 재발 방지(프루브 stderr 리다이렉트를 append 또는 타임스탬프 파일로).
+- **(1) 해소 (2026-09-16)** — §5 계측 블록의 영구 승격: `JKClientApplication::Run`에
+  500ms 임계 페이즈 워치독(`[uistall] total= timer= input= idle= render= gap=`) +
+  `RenderAndCommit` 커밋 스테이지 분해(`[uistall] commit comp= overlay= readpix=
+  commit=`, 100ms 임계). 로그 전용·동작 변경 0 — 조용할 때 비용은 clock 읽기
+  수 회/반복. 임계/형식은 §5 계측 형식을 그대로 계승. (2)(3) 잔여.

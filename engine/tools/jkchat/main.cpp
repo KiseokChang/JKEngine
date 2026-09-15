@@ -433,7 +433,7 @@ static void Submit() {
     if (cmd == "help") {
         Log(L"자연어 입력 → LLM(claude 헤드리스) 위임 / 슬래시: 결정적 커맨드");
         Log(L"/list /launch <app> /close <id> /chat /notify /shot /triggers /trust");
-        Log(L"/trigger <name> on|off /events /save <name> /restore <name>");
+        Log(L"/trigger <name> on|off /events /theme dark|light|classic /save <name> /restore <name>");
         Log(L"/undo /new");
     } else if (cmd == "new") {
         g_sessionId.clear();
@@ -443,6 +443,13 @@ static void Submit() {
     } else if (cmd == "launch") {
         if (arg.empty()) { Log(L"사용법: /launch <app>"); return; }
         SendTool("launch_app", "{\"app\":\"" + arg + "\"}", "launch " + arg);
+    } else if (cmd == "theme") {
+        // P3 hot-swap (docs/52): /theme dark|light|classic.
+        if (arg != "dark" && arg != "light" && arg != "classic") {
+            Log(L"사용법: /theme dark|light|classic");
+            return;
+        }
+        SendTool("theme_set", "{\"preset\":\"" + arg + "\"}", "theme " + arg);
     } else if (cmd == "close") {
         if (arg.empty()) { Log(L"사용법: /close <id>"); return; }
         // Parked close needs the UI alive — non-blocking by design. The

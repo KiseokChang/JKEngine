@@ -10,6 +10,7 @@
 #include <JKSDLAudioBackend.h>
 #include <JKSoundManager.h>
 #include <JKPlatform.h>
+#include <theme/JKTheme.h>
 
 #include <cstdio>
 #include <cstring>
@@ -1906,6 +1907,28 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                     reply = "{\"ok\":false,\"error\":\"permission_denied\"}";
                     break;
             }
+        }
+    } else if (tool == "theme_set") {
+        // P3 hot-swap (docs/52): write theme.json (the same truth the boot
+        // loader and every client's 500ms mtime poll read) then swap
+        // in-process. Paint-time consumers (shell, JKDC default args) follow
+        // instantly; ctor-captured widget tokens re-capture via the client
+        // poll's ApplyTheme walk. Allow by default — appearance only.
+        std::string preset;
+        req.GetObjStr("args", "preset", preset);
+        const jk::theme::JKTheme* t = nullptr;
+        if (preset == "light") t = &jk::theme::kLight;
+        else if (preset == "classic") t = &jk::theme::kClassic;
+        else if (preset == "dark") t = &jk::theme::kDefault;
+        if (!t) {
+            reply = "{\"ok\":false,\"error\":\"bad_preset\"}";
+        } else {
+            jk::theme::setTheme(t);
+            jk::theme::WriteThemePresetFile(preset);
+            char buf[96];
+            std::snprintf(buf, sizeof(buf), "{\"ok\":true,\"preset\":\"%s\"}",
+                          preset.c_str());
+            reply = buf;
         }
     } else if (tool == "open_notify") {
         // docs/33: toggle the notification center — safe UI command, no
