@@ -217,6 +217,12 @@ SendResult다.
   agentctl 인자를 망가뜨림(게이트 Concerns 1). 진입점 UTF-8 인식 또는
   프로브의 JSON 파일/stdin 전송 전환 중 선택. probe_terminal_reflow 귀속
   A/B(basecheck 워크트리 2d7d914)와 함께 정리.
+  **→ 해소 (2026-09-15, 453a327)** — 진입점 UTF-8 인식으로 결정: main.cpp
+  wmain 진입(-municode 링크)이 argv를 CP_UTF8로 변환해 RunMain에 전달
+  (소비처 무변경). 서버 SpawnProcess는 MultiByteToWideChar+CreateProcessW,
+  ConPTY 브리지는 STARTUPINFOEXW+CreateProcessW로 전환 — UTF-8
+  명령행이 CP_ACP(CP949) 왕복으로 망가지는 근원 제거. 한국어 agentctl
+  argv는 JSON 파싱이 살아난다(기존 bad_request → 파싱 성공).
 - **원자적 쓰기(tmp+rename)** — 엔진 공용 유틸 승격 후보. 브라우저 북마크
   스펙(2026-09-14) D5가 fopen "wb" 관례 유지로 이월한 공유 후속.
 - **기존 후속 유지** — 동시 file_open 멀티슬롯(필요 실측 후), jkcore
