@@ -536,11 +536,11 @@ git commit -m "feat(sdk): console-app template + sampletodo sample (P4 SDK §6)"
 
 ---
 
-### Task 5: lfrc jkctl 교체 + docs/45 as-built
+### Task 5: lfrc jkctl 교체 + docs/51 as-built
 
 **Files:**
 - Modify: `%APPDATA%\lf\lfrc` (git 밖)
-- Create: `docs/45_p4_sdk_contract.md`
+- Create: `docs/51_p4_sdk_contract.md`
 
 **Interfaces:**
 - Consumes: Task 3의 jkctl.exe — lfrc `A`가 임시 LLM 직접 호출(docs/44)을 갈아탐
@@ -564,9 +564,9 @@ $jkctl = "I:\progwork\JKENGINE\engine\build\jkctl.exe"
 if (-not (Test-Path $jkctl)) { Write-Host "FAIL: jkctl.exe missing"; exit 1 }
 ```
 
-- [ ] **Step 3: docs/45 as-built**
+- [ ] **Step 3: docs/51 as-built**
 
-`docs/45_p4_sdk_contract.md` — 스펙 §2~§7 as-built + 층위 2(DLL)/3(.jkx) 문서화 섹션:
+`docs/51_p4_sdk_contract.md` — 스펙 §2~§7 as-built + 층위 2(DLL)/3(.jkx) 문서화 섹션:
 
 ```markdown
 # 45 — P4 SDK 계약 as-built (콘솔 앱 + 에이전트 쌍방)
@@ -592,7 +592,7 @@ if (-not (Test-Path $jkctl)) { Write-Host "FAIL: jkctl.exe missing"; exit 1 }
 - [ ] **Step 4: Commit**
 
 ```bash
-git add docs/45_p4_sdk_contract.md engine/tools/probes/probe_lf_ops.ps1
+git add docs/51_p4_sdk_contract.md engine/tools/probes/probe_lf_ops.ps1
 git commit -m "docs(45): P4 SDK as-built + DLL/.jkx contract docs + C candidates"
 ```
 

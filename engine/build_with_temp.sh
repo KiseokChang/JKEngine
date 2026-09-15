@@ -31,7 +31,7 @@ cp -f "$TEMP/build/jkwinserver.exe" "$SRC/build/"
 for dll in "$TEMP"/build/jkapp_*.dll; do
     [ -e "$dll" ] && cp -f "$dll" "$SRC/build/"
 done
-# 도구 exe도 복사 — jkagentd/jkchat/jktriggers/jkctl(P4 SDK, docs/45)이
+# 도구 exe도 복사 — jkagentd/jkchat/jktriggers/jkctl(P4 SDK, docs/51)이
 # temp에만 남으면 실행 환경에서 agent 채널/jkctl이 사라진다.
 for exe in jkagentd jkchat jktriggers jkctl; do
     [ -e "$TEMP/build/$exe.exe" ] && cp -f "$TEMP/build/$exe.exe" "$SRC/build/"
