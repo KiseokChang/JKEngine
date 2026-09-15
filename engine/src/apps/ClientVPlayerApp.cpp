@@ -1713,6 +1713,14 @@ void ClientVPlayerApp::OpenPath(const char* path) {
     // release (a precision Seek to a dead target) against the next file.
     // The drag path self-heals on release; the wheel needs this explicit cut.
     wheelScrubbing_ = false;
+    // A reverse auto-play session must not outlive its PlayerCore either:
+    // st.opening suspends the cadence but BuildUi resumes on the next file
+    // with the stale jogTarget_/jogWasPlaying_ — the pump would SeekScrub/
+    // JogTo the fresh core toward file A's position, walk it to 0, and
+    // finishScrub would force SetJog(false) + a wrong SetPaused(false).
+    // Same reasoning as the wheel cut: no release event of its own.
+    reverseActive_ = false;
+    reverseAcc_ = 0.0;
     if (renderer_ && videoTex_) SDL_DestroyTexture(static_cast<SDL_Texture*>(videoTex_));
     videoTex_ = nullptr;
     texW_ = texH_ = 0;
