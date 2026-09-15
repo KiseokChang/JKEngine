@@ -23,6 +23,7 @@ public:
 protected:
     void OnInit() override;
     void OnClose() override;
+    void OnThemeChanged() override;  // ImGui palette re-apply (docs/52)
     bool PreProcessMessage(const JKEvent& ev) override;
     bool IsFrameDirty() const override { return frameDirty_; }
     void OnFrameCommitted() override;
@@ -100,6 +101,9 @@ private:
     bool reverseActive_ = false;
     double reverseAcc_ = 0.0; // fractional-frame cadence carry (seconds)
     std::chrono::steady_clock::time_point reverseLastTick_{};
+    // [vpt11] pacing-log throttle — once per second while reverseActive_
+    // (probe cadence gate; structure-only checks cannot see pacing).
+    std::chrono::steady_clock::time_point reverseLastLog_{};
 };
 
 } // namespace jk

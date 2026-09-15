@@ -88,6 +88,11 @@ std::string EscapeJson(const std::string& in) {
 constexpr const char* kVideoFilter =
     "동영상 (*.mp4;*.mkv;*.avi;*.webm;*.mov)";
 
+// Reverse-cadence carry cap in seconds (docs/50 §10 final review): after a
+// UI stall the clock delta folds back in at most this much, so a 5 s freeze
+// replays as ~7 frames of backward motion, not a burst.
+constexpr double kReverseCarryMax = 0.25;
+
 // One decoded video frame in a single contiguous NV12 buffer (Y plane at
 // offset 0, stride w; interleaved UV plane at offset w*h, stride w) — 3/8
 // the bytes of the old RGBA layout (12 bpp vs 32 bpp, ~12.4 MB at 4K), so
@@ -1942,10 +1947,12 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
         return;
     }
 
-    // Transport controls.
-    if (ImGui::Button(st.paused ? "Play" : "Pause"))
+    // Transport controls. Reverse session owns the transport — cadence
+    // drives jogTarget_, and a pause/play/replay here would fight it
+    // (docs/50 §10 final-review MINOR; joins the Space/arrow guards).
+    if (!reverseActive_ && ImGui::Button(st.paused ? "Play" : "Pause"))
         p->SetPaused(!st.paused);
-    if (st.ended) {
+    if (st.ended && !reverseActive_) {
         ImGui::SameLine();
         if (ImGui::Button("Replay")) {
             p->Seek(0);
@@ -1970,7 +1977,11 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
     if (ImGui::IsItemActivated())
         seekingUi_ = true;
     if (seekingUi_ && ImGui::IsItemDeactivatedAfterEdit()) {
-        p->Seek(seekUi_);
+        // Guarded commit (docs/50 §10 review): during a reverse session the
+        // seek is dropped, but seekingUi_ still resets — otherwise the
+        // slider would never resync to st.pos again.
+        if (!reverseActive_)
+            p->Seek(seekUi_);
         seekingUi_ = false;
     }
 
@@ -2231,8 +2242,14 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
         if (reverseActive_) {
             const double stepSec = fps > 0.0 ? 1.0 / fps : 1.0 / 30.0;
             const auto now = std::chrono::steady_clock::now();
-            reverseAcc_ +=
-                std::chrono::duration<double>(now - reverseLastTick_).count();
+            // Bounded carry: a UI-thread stall must replay as at most
+            // kReverseCarryMax of backward motion, not a burst of catch-up
+            // frames (docs/50 §10 final-review MINOR — the carry previously
+            // accumulated unbounded).
+            reverseAcc_ = std::min(
+                reverseAcc_ +
+                    std::chrono::duration<double>(now - reverseLastTick_).count(),
+                kReverseCarryMax);
             reverseLastTick_ = now;
             while (reverseAcc_ >= stepSec && jogTarget_ > 0.0) {
                 reverseAcc_ -= stepSec;
@@ -2242,6 +2259,15 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
                 // Ring walked to the file start: auto-finish with the same
                 // precision-seek contract as a manual toggle-off.
                 finishScrub();
+            }
+            // Pacing evidence for the vpt11 gate — structure-only checks
+            // cannot see cadence (vpt11 header note, docs/50 §10 review).
+            // Once per second, stderr, same convention as seek failures.
+            if (now - reverseLastLog_ >= std::chrono::seconds(1)) {
+                reverseLastLog_ = now;
+                std::fprintf(stderr, "[vpt11] rev pos=%.3f fps=%.1f\n",
+                             jogTarget_, fps);
+                std::fflush(stderr);
             }
         }
 
@@ -2351,5 +2377,10 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
 
     ImGui::End();
 }
+
+
+// P3 theme hot-swap (docs/52): the palette was snapshotted into ImGuiStyle
+// at OnInit - re-apply it after a preset swap.
+void ClientVPlayerApp::OnThemeChanged() { jk::theme::ApplyImGuiTheme(); }
 
 } // namespace jk

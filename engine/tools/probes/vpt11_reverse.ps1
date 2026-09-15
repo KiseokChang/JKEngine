@@ -141,6 +141,36 @@ function Type-IntoPath([string]$path) {
 }
 function Click-Open { Click-App 808 42 }
 
+# Media-open verification: after a failed open the UI shows the red
+# "empty path" label under the path row (layer coords ~y 78-100). Typing via
+# SendKeys is the one flaky setup step (2026-09-16 rerun: typing landed
+# nowhere -> "empty path" -> every later scenario passed vacuously with 0
+# pacing lines). Red-pixel count in the label region = open failed; retry.
+function Test-OpenFailed {
+    Refresh-Geom | Out-Null
+    $crect = New-Object Wt9+RECT
+    [Wt9]::GetClientRect($script:srvHwnd, [ref]$crect) | Out-Null
+    $co = New-Object Wt9+POINT; $co.X = 0; $co.Y = 0
+    [Wt9]::ClientToScreen($script:srvHwnd, [ref]$co) | Out-Null
+    $bmp = New-Object System.Drawing.Bitmap ($crect.R - $crect.L), ($crect.B - $crect.T)
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    $g.CopyFromScreen($co.X, $co.Y, 0, 0, $bmp.Size)
+    $g.Dispose()
+    $x0 = [int]([math]::Round(($script:layerX + 0) * $script:scale))
+    $y0 = [int]([math]::Round(($script:layerY + 75) * $script:scale))
+    $w  = [int]([math]::Round(240 * $script:scale))
+    $h  = [int]([math]::Round(25 * $script:scale))
+    $red = 0
+    for ($y = $y0; $y -lt $y0 + $h -and $y -lt $bmp.Height; $y++) {
+        for ($x = $x0; $x -lt $x0 + $w -and $x -lt $bmp.Width; $x++) {
+            $c = $bmp.GetPixel($x, $y)
+            if ($c.R -gt 140 -and ($c.R - $c.G) -gt 60 -and ($c.R - $c.B) -gt 60) { $red++ }
+        }
+    }
+    $bmp.Dispose()
+    return ($red -gt 20)
+}
+
 # Fast shot: cached server geometry (used mid-scrub where settle windows
 # matter - the agentctl round trip would eat them).
 function Save-ServerShotFast([string]$name) {
@@ -204,13 +234,26 @@ Start-Sleep -Seconds 1
 Start-Process -FilePath $exe -ArgumentList "--server" -WorkingDirectory $build
 Start-Sleep -Seconds 4
 Check "setup: server up" ((Invoke-Agentctl '{"tool":"ping","args":{}}') -match '"ok"\s*:\s*true') ""
-Invoke-Agentctl '{"tool":"launch_app","args":{"app":"vplayer"}}' | Out-Null
+# Spawn the client directly with stderr capture — the [vpt11] pacing lines
+# (docs/50 sec 10 review gate) go to the client's stderr, which a
+# server-side launch_app spawn never surfaces.
+$log = "$build\vpt11_client.log"
+Start-Process -FilePath $exe -ArgumentList "--client", "vplayer" -WorkingDirectory $build -RedirectStandardError $log
 Start-Sleep -Seconds 6
 Check "setup: vplayer launched" (Refresh-Geom) "no Video Player layer"
 Type-IntoPath $mp4
 Click-Open
 Start-Sleep -Seconds 4
-Check "setup: media open" (VPlayer-Alive) ""
+# Retry open up to 3 times: Type-IntoPath -> Open -> red-label check.
+$openOk = $false
+for ($attempt = 1; $attempt -le 3; $attempt++) {
+    if (-not (Test-OpenFailed)) { $openOk = $true; break }
+    Write-Host ("setup: open attempt {0} showed empty-path label, retrying" -f $attempt)
+    Type-IntoPath $mp4
+    Click-Open
+    Start-Sleep -Seconds 4
+}
+Check "setup: media open (no empty-path label)" $openOk ("attempts={0}" -f $attempt)
 
 # ---------- S0: base shot + "<<" button calibration ----------
 Save-ServerShot "vpt11-s0-base.png"
@@ -259,6 +302,50 @@ Start-Sleep -Milliseconds 800
 $p = Ping-Ms
 Check "S2: responsive after ring exhaustion" ($p -ge 0 -and $p -lt 500) ("ping {0:N0} ms" -f $p)
 Check "S2: no crash" (VPlayer-Alive) ""
+
+# ---------- S2 pacing gate (docs/50 sec 10 review) ----------
+# The [vpt11] rev pos= stderr lines (1/s while reverseActive_) make cadence
+# machine-checkable — frame-number verdicts off shots stay manual (lesson 19).
+$revLines = @()
+if (Test-Path $log) {
+    $revLines = Select-String -Path $log -Pattern '\[vpt11\] rev pos=([0-9.]+)' |
+        ForEach-Object { [double]$_.Matches[0].Groups[1].Value }
+}
+Check "S2: pacing lines captured" ($revLines.Count -ge 4) ("got {0} lines" -f $revLines.Count)
+$paceOk = $false; $paceDetail = "insufficient lines"
+if ($revLines.Count -ge 4) {
+    # The log ACCUMULATES across scenarios: an upward pos jump (>0.1) is a
+    # session boundary (S1 toggle-off -> S2 re-toggle -> S3/S5 seeks), not a
+    # cadence violation. Split into sessions, evaluate the LAST one that has
+    # enough samples. 30 fps content: backward speed ~1.0 pos-s per wall-s.
+    $sessions = @()
+    $cur = @()
+    for ($i = 0; $i -lt $revLines.Count; $i++) {
+        if ($cur.Count -gt 0 -and $revLines[$i] -gt $cur[-1] + 0.1) {
+            $sessions += ,@($cur); $cur = @()
+        }
+        $cur += $revLines[$i]
+    }
+    if ($cur.Count -gt 0) { $sessions += ,@($cur) }
+    $eval = $null
+    for ($i = $sessions.Count - 1; $i -ge 0; $i--) {
+        if ($sessions[$i].Count -ge 4) { $eval = $sessions[$i]; break }
+    }
+    if ($eval) {
+        $mono = $true
+        for ($i = 1; $i -lt $eval.Count; $i++) {
+            if ($eval[$i] -gt $eval[$i - 1] + 0.05) { $mono = $false }
+        }
+        $deltas = @()
+        for ($i = 1; $i -lt $eval.Count; $i++) { $deltas += ($eval[$i - 1] - $eval[$i]) }
+        $avg = ($deltas | Measure-Object -Average).Average
+        $paceOk = $mono -and ($avg -ge 0.3) -and ($avg -le 1.5)
+        $paceDetail = "mono=$mono avgRate={0:N3} pos-s/s (session of {1})" -f $avg, $eval.Count
+    } else {
+        $paceDetail = "no session with >=4 samples ({0} sessions)" -f $sessions.Count
+    }
+}
+Check "S2: cadence pacing rate" $paceOk $paceDetail
 
 # ---------- S3: auto-finish at 0 + playback restore ----------
 # Independent scenario (S2 ended paused at ~10 s). Seek near the file start
