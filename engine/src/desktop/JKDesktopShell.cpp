@@ -115,8 +115,15 @@ void JKDesktopShell::Init(const ShellHost& host) {
 
         // Built-in apps: assets/icons/launcher_<pfx>; legacy cell layout kept
         // for them so the flat-placeholder fallback still matches by name.
-        const char* base = (icon.appName == "minesweeper") ? "assets/icons/launcher_mine"
-                                                           : "assets/icons/launcher_tetris";
+        // terminal: 셀은 각 TUI 앱의 전용 아이콘 (docs/44).
+        const char* base = "assets/icons/launcher_tetris";
+        if (icon.appName == "minesweeper") {
+            base = "assets/icons/launcher_mine";
+        } else if (icon.appName == "terminal:apps-bin/lf/lf.exe") {
+            base = "assets/icons/launcher_lf";
+        } else if (icon.appName == "terminal:apps-bin/helix/hx.exe") {
+            base = "assets/icons/launcher_helix";
+        }
         icon.texture = LoadTextureScaled(base);
         if (icon.texture) {
             std::fprintf(stderr, "JKWindowServer: launcher icon '%s' loaded\n", base);
