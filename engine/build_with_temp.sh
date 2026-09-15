@@ -26,6 +26,11 @@ cp -f "$TEMP/build/jkdesktop.exe" "$SRC/build/"
 # jkwinserver.exe도 복사 (docs/44: 빌드 bat이 desktop만 복사해 서버 exe가
 # temp에만 남는 갭 — docs/43 P1 split으로 서버가 필수 실행 파일이 됨).
 cp -f "$TEMP/build/jkwinserver.exe" "$SRC/build/"
+# 클라이언트 모듈 DLL도 복사 — 새 모듈(jkapp_taskbar 등)이 temp에만 남아
+# "no jkapp_taskbar.dll — desktop runs without a shell"로 뜨는 갭 (docs/44).
+for dll in "$TEMP"/build/jkapp_*.dll; do
+    [ -e "$dll" ] && cp -f "$dll" "$SRC/build/"
+done
 # assets 폴더도 build 디렉터리에 동기화하여 실행 파일이 단독으로 리소스를 찾을 수 있게 한다.
 if [ -d "$SRC/assets" ]; then
     cp -R "$SRC/assets" "$SRC/build/"
