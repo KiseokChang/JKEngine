@@ -149,6 +149,10 @@ private:
     // Same 500ms throttle as SpawnClient; throttleKey defaults to exeName.
     bool SpawnProcess(const char* exeName, const std::string& args,
                       const char* throttleKey = nullptr);
+    // 콘솔 앱 스폰 (P4 SDK §3/§5): 터미널 위에 cmd — cwd는 앱 폴더. 런처 셀
+    // (ShellHost.spawnConsole)과 run_console_app 도구가 공유한다.
+    void SpawnConsoleApp(const std::string& cmd, const std::string& cwd,
+                         const std::string& name);
 
     // Decode a decoded RGBA image into a blended SDL texture — exposed to the
     // desktop shell through ShellHost.makeTexture (spec D7: the shell never
@@ -187,9 +191,11 @@ private:
         uint32_t targetId = 0;     // window the request would touch
                                    // (trust_request: 0 — no target window)
         time_t expiresAt = 0;
-        // Script trust model (docs/37 spec): one pipeline, two kinds.
+        // Script trust model (docs/37 spec): one pipeline, several kinds.
         std::string kind = "close_window";  // "close_window" | "trust_request"
+                                            // | "run_console_app" (P4 SDK)
         std::string name;          // trust_request: script display name
+                                   // run_console_app: 콘솔 앱 이름 (P4 SDK)
         std::string origin;        // trust_request: "dev" | "package"
         std::string fingerprint;   // trust_request: "sha256:<64hex>"
     };

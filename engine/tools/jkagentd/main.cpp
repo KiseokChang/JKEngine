@@ -49,6 +49,7 @@ const char* kToolsListJson =
 "{\"tools\":["
 "{\"name\":\"list_windows\",\"description\":\"List desktop windows with id/title/pid/geometry/focus/minimized\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}},"
 "{\"name\":\"launch_app\",\"description\":\"Launch a built-in app (app) or a .jkx package (jkx)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"app\":{\"type\":\"string\"},\"jkx\":{\"type\":\"string\"}}}},"
+"{\"name\":\"run_console_app\",\"description\":\"Spawn an installed console app (apps/<name>/manifest.json) in a terminal window (permission-gated, P4 SDK)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}},"
 "{\"name\":\"focus_window\",\"description\":\"Focus (and restore) a window by id\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"integer\"}},\"required\":[\"id\"]}},"
 "{\"name\":\"close_window\",\"description\":\"Close a window by id (permission-gated)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"integer\"}},\"required\":[\"id\"]}},"
 "{\"name\":\"save_layout\",\"description\":\"Snapshot current window positions to state/layout_<name>.json\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}},"
@@ -62,9 +63,9 @@ const char* kToolsListJson =
 // Known tool names.
 bool IsKnownTool(const std::string& name) {
     static const char* kNames[] = {
-        "list_windows", "launch_app", "focus_window", "close_window",
-        "save_layout", "restore_layout", "read_log", "read_events",
-        "terminal_exec", "trust_list"
+        "list_windows", "launch_app", "run_console_app", "focus_window",
+        "close_window", "save_layout", "restore_layout", "read_log",
+        "read_events", "terminal_exec", "trust_list"
     };
     for (const char* n : kNames) {
         if (name == n) return true;
@@ -91,13 +92,17 @@ bool EnsureConnected() {
 // (or a timeout) resolves it, so the broker passes ask through.
 std::map<std::string, bool> LoadPermissions() {
     static const char* kNames[] = {
-        "list_windows", "launch_app", "focus_window", "close_window",
-        "save_layout", "restore_layout", "read_log", "read_events",
-        "terminal_exec", "trust_list"
+        "list_windows", "launch_app", "run_console_app", "focus_window",
+        "close_window", "save_layout", "restore_layout", "read_log",
+        "read_events", "terminal_exec", "trust_list"
     };
     std::map<std::string, bool> perms;
     for (const char* n : kNames) perms[n] = true;
     perms["close_window"] = false;
+    // P4 SDK §5: run_console_app은 broker에서도 기본 차단 — "ask"는 서버의
+    // inline-approval 파이프라인으로 통과되므로 permissions.json에
+    // {"run_console_app":"ask"}를 넣는 것이 승인 행위다 (close_window 동일).
+    perms["run_console_app"] = false;
 
     std::string dir = ".";
 #ifdef _WIN32
@@ -341,6 +346,12 @@ std::string HandleLine(const std::string& line, bool& isResponse) {
             req.GetDeepStr("params", "arguments", "jkx", jkx);
             if (!app.empty())     argsJson = "{\"app\":\"" + JsonEsc(app) + "\"}";
             else if (!jkx.empty()) argsJson = "{\"jkx\":\"" + JsonEsc(jkx) + "\"}";
+        } else if (tool == "run_console_app") {
+            // P4 SDK §5: 콘솔 앱 스폰 — 서버가 ask 게이트를 담당한다.
+            std::string name;
+            if (req.GetDeepStr("params", "arguments", "name", name)) {
+                argsJson = "{\"name\":\"" + JsonEsc(name) + "\"}";
+            }
         } else if (tool == "focus_window" || tool == "close_window") {
             int id = 0;
             if (req.GetDeepInt("params", "arguments", "id", id)) {

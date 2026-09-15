@@ -200,9 +200,7 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
     // 매니페스트는 상대경로 규칙으로 이를 보장한다.
     shellHost.spawnConsole = [this](const std::string& cmd, const std::string& cwd,
                                     const std::string& name) {
-        SpawnProcess(clientHostExe_.c_str(),
-                     std::string("terminal --cwd \"") + cwd + "\" --shell \"" + cmd + "\"",
-                     name.c_str());
+        SpawnConsoleApp(cmd, cwd, name);
     };
     shell_ = std::make_unique<jk::desktop::JKDesktopShell>();
     shell_->Init(shellHost);
@@ -1851,6 +1849,64 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         } else {
             reply = "{\"ok\":false,\"error\":\"missing_app\"}";
         }
+    } else if (tool == "run_console_app") {
+        // P4 SDK §5: 에이전트가 콘솔 앱(apps/<name>/manifest.json)을 스폰.
+        // ask 기본 게이트 — close_window/trust_request와 같은 inline-approval
+        // 파이프라인. target 창이 없으므로 targetId=0, 식별자는 앱 name.
+        std::string name;
+        req.GetObjStr("args", "name", name);
+        std::string cmd, dir, fp;
+        if (name.empty() || name.size() > 64) {
+            reply = "{\"ok\":false,\"error\":\"bad_name\"}";
+        } else if (!shell_ ||
+                   !shell_->ConsoleAppInfo(name, cmd, dir, fp)) {
+            reply = "{\"ok\":false,\"error\":\"unknown_app\"}";
+        } else {
+            switch (AgentToolAllowed("run_console_app")) {
+                case AgentDecision::Allow:
+                    SpawnConsoleApp(cmd, dir, name);
+                    reply = "{\"ok\":true}";
+                    break;
+                case AgentDecision::Ask: {
+                    bool subscriber = false;
+                    for (auto& c : clients_) {
+                        if (c && c->AgentEventSubscriber() &&
+                            !c->IsDisconnected()) {
+                            subscriber = true;
+                            break;
+                        }
+                    }
+                    if (!subscriber) {
+                        reply = "{\"ok\":false,\"error\":\"approval_unavailable\"}";
+                        break;
+                    }
+                    PendingApproval p;
+                    p.kind = "run_console_app";
+                    p.name = name;
+                    p.requestId = nextApprovalId_++;
+                    p.queryId = queryId;
+                    p.requesterId = client.Id();
+                    p.targetId = 0;
+                    p.expiresAt = std::time(nullptr) + 60;
+                    char buf[512];
+                    std::snprintf(buf, sizeof(buf),
+                                  "{\"topic\":\"agent.approval_request\","
+                                  "\"request\":%u,\"tool\":\"run_console_app\","
+                                  "\"name\":\"%s\",\"ts\":%lld}",
+                                  p.requestId, JsonEsc(name).c_str(),
+                                  static_cast<long long>(std::time(nullptr)) *
+                                      1000);
+                    pendingApprovals_.push_back(p);
+                    PushAgentEventJson(buf);
+                    replied = false;  // answered when the approval resolves
+                    break;
+                }
+                case AgentDecision::Deny:
+                default:
+                    reply = "{\"ok\":false,\"error\":\"permission_denied\"}";
+                    break;
+            }
+        }
     } else if (tool == "open_notify") {
         // docs/33: toggle the notification center — safe UI command, no
         // permission gate (same tier as launch_app).
@@ -2374,6 +2430,15 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                     }
                 }
             }
+            if (allow && it->kind == "run_console_app" && shell_) {
+                // P4 SDK §5: 승인 시점에 스캔에서 cmd를 다시 읽는다 — 승인
+                // 대기 중 매니페스트가 바뀌었으면 최신 cmd가 스폰된다(파킹된
+                // cmd를 신뢰하지 않음 — 지문 재계산이 아니라 재조회로 방어).
+                std::string cmd, dir, fp;
+                if (shell_->ConsoleAppInfo(it->name, cmd, dir, fp)) {
+                    SpawnConsoleApp(cmd, dir, it->name);
+                }
+            }
             for (auto& c : clients_) {
                 if (c && c->Id() == it->requesterId && !c->IsDisconnected()) {
                     const std::string result = allow
@@ -2656,12 +2721,16 @@ AgentDecision JKWindowServer::AgentToolAllowed(const std::string& tool) const {
     const std::string path = dir + "\\permissions.json";
     // Missing entry defaults: close_window denies (M1 rule), trust_request
     // ASKS (the gate would be pointless if unknown scripts loaded silently),
-    // everything else allows. "ask" pipelines: close_window + trust_request;
-    // other tools degrade to allow since nothing parks them.
-    const bool askCapable = (tool == "close_window" || tool == "trust_request");
+    // run_console_app ASKS (P4 SDK §5 — the agent launching local apps is an
+    // explicit-approval act), everything else allows. "ask" pipelines:
+    // close_window + trust_request + run_console_app; other tools degrade to
+    // allow since nothing parks them.
+    const bool askCapable = (tool == "close_window" || tool == "trust_request" ||
+                             tool == "run_console_app");
     auto defaultDecision = [&]() -> AgentDecision {
         if (tool == "close_window") return AgentDecision::Deny;
         if (tool == "trust_request") return AgentDecision::Ask;
+        if (tool == "run_console_app") return AgentDecision::Ask;
         return AgentDecision::Allow;
     };
     std::FILE* f = std::fopen(path.c_str(), "rb");
@@ -2694,6 +2763,16 @@ std::string JKWindowServer::StateDir() const {
     dir += "\\state";
     CreateDirectoryA(dir.c_str(), nullptr);
     return dir;
+}
+
+// 콘솔 앱 스폰 (P4 SDK §3/§5): 터미널 위에 cmd — cwd는 앱 폴더(상대경로).
+// SpawnProcess가 인용을 만들므로 cmd/cwd 끝에 백슬래시가 없어야 한다
+// (453a327 레슨) — 매니페스트의 상대경로 규칙이 이를 보장한다.
+void JKWindowServer::SpawnConsoleApp(const std::string& cmd, const std::string& cwd,
+                                     const std::string& name) {
+    SpawnProcess(clientHostExe_.c_str(),
+                 std::string("terminal --cwd \"") + cwd + "\" --shell \"" + cmd + "\"",
+                 name.c_str());
 }
 
 JKClientConnection* JKWindowServer::FindShellClient() {
