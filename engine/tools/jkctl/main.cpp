@@ -10,6 +10,8 @@
 
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <string>
 
 namespace {
@@ -122,12 +124,112 @@ int Ask(const char* question) {
     return (code == 0) ? 0 : 1;
 }
 
+// init — docs/51 C 후보 "템플릿 생성기": templates/console-app을 <name>\로
+// 복사하고 "myapp" 토큰을 치환한다. 템플릿 위치는 <exeDir>\templates\
+// console-app (build_with_temp.sh가 런타임 루트로 동기화).
+int Init(const std::string& name) {
+    if (name.empty() || name.size() > 64) {
+        std::fprintf(stderr, "init: name must be 1..64 chars\n");
+        return 2;
+    }
+    for (char c : name) {
+        if (!(std::isalnum((unsigned char)c) || c == '-' || c == '_')) {
+            std::fprintf(stderr, "init: name may contain [A-Za-z0-9_-] only\n");
+            return 2;
+        }
+    }
+    const std::string tplDir = ExeDirA() + "templates\\console-app";
+    const char* files[] = { "manifest.json", "README.md", "main.cmd" };
+    std::error_code ec;
+    std::filesystem::create_directories(name, ec);
+    if (ec) {
+        std::fprintf(stderr, "init: cannot create %s (%s)\n", name.c_str(),
+                     ec.message().c_str());
+        return 2;
+    }
+    for (const char* f : files) {
+        std::ifstream in(tplDir + "\\" + f, std::ios::binary);
+        if (!in) {
+            std::fprintf(stderr, "init: template not found: %s\\%s\n",
+                         tplDir.c_str(), f);
+            return 2;
+        }
+        std::string body((std::istreambuf_iterator<char>(in)),
+                         std::istreambuf_iterator<char>());
+        // 토큰 치환 — 템플릿은 "myapp" 이름으로 배포된다.
+        const std::string token = "myapp";
+        for (size_t p = body.find(token); p != std::string::npos;
+             p = body.find(token, p + name.size()))
+            body.replace(p, token.size(), name);
+        std::ofstream out(std::string(name) + "\\" + f, std::ios::binary);
+        out << body;
+    }
+    std::printf("created %s\\ (manifest.json, README.md, main.cmd)\n"
+                "install: jkctl install %s   then restart the desktop\n",
+                name.c_str(), name.c_str());
+    return 0;
+}
+
+// install — docs/51 C 후보 "패키지 매니저" MVP: 콘솔 앱 폴더(manifest.json
+// 포함)를 <exeDir>\apps\<name>\로 복사한다. zip 배포 + trust 지문 검증
+// 설치는 C 후보 잔여. 서버 스캔은 시작 시 1회라 재시작이 필요하다 —
+// 지문은 스캔 시점에 EnsureTrustRecord가 남긴다(docs/51 §3.4).
+int Install(const std::string& folder) {
+    std::ifstream in(folder + "\\manifest.json", std::ios::binary);
+    if (!in) {
+        std::fprintf(stderr, "install: not a console app (missing %s\\manifest.json)\n",
+                     folder.c_str());
+        return 2;
+    }
+    std::string body((std::istreambuf_iterator<char>(in)),
+                     std::istreambuf_iterator<char>());
+    // "name" 추출 — 서버/LoadModel과 같은 문자열 스캔 관용구.
+    const size_t k = body.find("\"name\"");
+    if (k == std::string::npos) {
+        std::fprintf(stderr, "install: manifest has no \"name\"\n");
+        return 2;
+    }
+    const size_t colon = body.find(':', k);
+    const size_t q1 = body.find('"', colon);
+    const size_t q2 = (q1 == std::string::npos) ? std::string::npos
+                                                : body.find('"', q1 + 1);
+    if (q1 == std::string::npos || q2 == std::string::npos) {
+        std::fprintf(stderr, "install: bad manifest name\n");
+        return 2;
+    }
+    const std::string name = body.substr(q1 + 1, q2 - q1 - 1);
+    if (name.empty() || name.size() > 64 ||
+        name.find_first_of("\\/:*?\"<>|") != std::string::npos) {
+        std::fprintf(stderr, "install: bad name '%s'\n", name.c_str());
+        return 2;
+    }
+    const std::string dst = ExeDirA() + "apps\\" + name;
+    std::error_code ec;
+    if (std::filesystem::exists(dst)) {
+        std::fprintf(stderr, "install: already exists: %s (remove it first)\n",
+                     dst.c_str());
+        return 2;
+    }
+    std::filesystem::create_directories(ExeDirA() + "apps", ec);
+    std::filesystem::copy(folder, dst,
+                          std::filesystem::copy_options::recursive, ec);
+    if (ec) {
+        std::fprintf(stderr, "install: copy failed (%s)\n", ec.message().c_str());
+        return 2;
+    }
+    std::printf("installed %s -> %s\n"
+                "restart the desktop to scan it into the launcher\n",
+                folder.c_str(), dst.c_str());
+    return 0;
+}
+
 } // namespace
 
 int wmain(int argc, wchar_t* argv[]) {
     if (argc < 3) {
         std::fprintf(stderr,
-                     "usage: jkctl notify \"<msg>\" | agent '<json>' | ask \"<question>\"\n");
+                     "usage: jkctl notify \"<msg>\" | agent '<json>' | ask \"<question>\"\n"
+                     "       jkctl init \"<name>\" | install \"<folder>\"\n");
         return 2;
     }
     // argv를 UTF-8로 정규화 (docs/48 레슨 — 이후 모든 처리는 UTF-8).
@@ -140,6 +242,8 @@ int wmain(int argc, wchar_t* argv[]) {
     if (sub == "notify") return Notify(a2);
     if (sub == "agent") return Agent(a2);
     if (sub == "ask") return Ask(a2);
+    if (sub == "init") return Init(a2);
+    if (sub == "install") return Install(a2);
     std::fprintf(stderr, "unknown subcommand: %s\n", a1);
     return 2;
 }

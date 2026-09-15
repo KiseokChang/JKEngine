@@ -1,5 +1,5 @@
 {
   "name": "myapp",
-  "cmd": "python myapp.py",
-  "desc": "설명 한 줄 (선택)"
+  "cmd": "main.cmd",
+  "desc": "scaffolded by jkctl init (edit desc)"
 }

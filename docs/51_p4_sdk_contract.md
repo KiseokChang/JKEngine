@@ -122,10 +122,19 @@
 `sampletodo`(살아있는 예제), `jkctl`(에이전트 원컷).
 
 - 템플릿 생성기 — `jkctl init <name>`: 템플릿을 복사해 이름 치환
+  **→ 2026-09-16 완료.** 템플릿에 실행 본체 `main.cmd` 추가(ASCII 전용
+  레슨 준수, manifest `cmd`를 `main.cmd`로), `build_with_temp.sh`가
+  `templates/console-app`을 런타임 루트로 동기화(`/.` 중첩 방지 복사).
+  jkctl init은 `<cwd>\<name>\` 생성 + `"myapp"` 토큰 치환, 이름은
+  `[A-Za-z0-9_-]{1,64}` 검증. probe_jkctl_init.ps1 9/9.
 - 패키지 매니저 — 콘솔 앱 폴더의 zip 배포 + trust 지문 검증 설치
-- 샘플 라인업 — Python/Rust/Go 예제 + jkctl agent 실전 예제
-- `--attach` — jkctl ask 파일 첨부(스펙 §4 예제에 있었으나 미구현)
-- 콘솔 앱 → `.jkx` 승격 도구(매니페스트→컨테이너 변환)
+  **→ 2026-09-16 폴더 MVP 완료: `jkctl install <folder>`** — manifest.json의
+  `"name"` 문자열 스캔 → `<exeDir>\apps\<name>\` 재귀 복사, 기존 설치 거부.
+  스캔/지문은 서버 재시작 시 1회(EnsureTrustRecord — docs/51 §3.4 그대로).
+  **잔여**: zip 배포 + 설치 시 trust 지문 선검증.
+- 샘플 라인업 — Python/Rust/Go 예제 + jkctl agent 실전 예제 (잔여)
+- `--attach` — jkctl ask 파일 첨부(스펙 §4 예제에 있었으나 미구현) (잔여)
+- 콘솔 앱 → `.jkx` 승격 도구(매니페스트→컨테이너 변환) (잔여)
 
 ## 검증 요약
 

@@ -47,4 +47,10 @@ if [ -d "$SRC/apps" ]; then
         [ -d "$d" ] && cp -R "$d" "$SRC/build/apps/"
     done
 fi
+# jkctl init 템플릿 동기화 (docs/51 C 후보): jkctl은 exe 옆 templates\
+# console-app에서 읽는다. `/.` 복사(중첩 방지 — docs/51 부록 레슨).
+if [ -d "$SRC/templates/console-app" ]; then
+    mkdir -p "$SRC/build/templates"
+    cp -R "$SRC/templates/console-app/." "$SRC/build/templates/console-app/"
+fi
 echo "Build succeeded. Output copied to $SRC/build/jkdesktop.exe"
