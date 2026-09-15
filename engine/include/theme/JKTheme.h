@@ -188,7 +188,9 @@ std::string DefaultThemePath();  // exe 옆 theme.json (terminal.json 패턴 준
 // P3 핫스왑: theme.json mtime 폴링 (호출자가 주기 소유, 500ms). 바뀜 감지 시
 // 로더 재실행하고 true. theme_set 도구의 기록용 — 셀프 폴링 오탐 방지 포함.
 bool PollPresetFile();
-void WriteThemePresetFile(const std::string& preset);  // {"preset":"<p>"} 기록
+// {"preset":"<p>"} 기록. false = fopen 실패 (호출자가 ok:false로 응답 —
+// 쓰기 실패 시 서버만 스왑되고 클라 폴링이 따라오지 못한다, docs/52).
+bool WriteThemePresetFile(const std::string& preset);
 
 } } // namespace jk::theme
 

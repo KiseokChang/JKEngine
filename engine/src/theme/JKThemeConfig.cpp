@@ -75,10 +75,10 @@ bool PollPresetFile() {
     return loadPresetFromFile(path);          // idempotent on same preset
 }
 
-void WriteThemePresetFile(const std::string& preset) {
+bool WriteThemePresetFile(const std::string& preset) {
     const std::string path = DefaultThemePath();
     FILE* f = std::fopen(path.c_str(), "wb");
-    if (!f) return;
+    if (!f) return false;
     std::fprintf(f, "{\"preset\":\"%s\"}\n", preset.c_str());
     std::fclose(f);
     // Register the write immediately so the next poll tick doesn't
@@ -87,6 +87,7 @@ void WriteThemePresetFile(const std::string& preset) {
     std::printf("[theme] preset '%s' -> %s (hot-swap)\n", preset.c_str(),
                 path.c_str());
     std::fflush(stdout);
+    return true;
 }
 
 } } // namespace jk::theme

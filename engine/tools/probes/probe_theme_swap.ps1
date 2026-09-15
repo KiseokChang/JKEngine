@@ -48,9 +48,11 @@ try {
     }
     Check "theme.json carries light" $fileOk $fileTxt
 
-    # 3: client poll load line (first poll tick seeds + loads). The loader
-    # printf goes to STDOUT (theme_set tool path uses the same convention),
-    # so capture both streams.
+    # 3: client first-poll load line. NOTE (review): the boot loader prints
+    # the byte-identical line, so this check alone proves seed+load, not the
+    # poll tick — the LIVE-swap proof is check 4 (classic line while running
+    # can only originate from an mtime-change poll). The loader printf goes
+    # to STDOUT, so capture both streams.
     $cliOut = "$build\themeswap_client_out.log"
     Start-Process -FilePath $exe -ArgumentList "--client","palette" `
         -WorkingDirectory $build -RedirectStandardError $cliLog `

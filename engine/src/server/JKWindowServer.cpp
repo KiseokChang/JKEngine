@@ -1924,11 +1924,18 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             reply = "{\"ok\":false,\"error\":\"bad_preset\"}";
         } else {
             jk::theme::setTheme(t);
-            jk::theme::WriteThemePresetFile(preset);
-            char buf[96];
-            std::snprintf(buf, sizeof(buf), "{\"ok\":true,\"preset\":\"%s\"}",
-                          preset.c_str());
-            reply = buf;
+            if (!jk::theme::WriteThemePresetFile(preset)) {
+                // Swap happened in-process but the truth file didn't land —
+                // clients' mtime poll would never follow. Fail loudly
+                // instead of replying ok (docs/52 review MINOR).
+                reply = "{\"ok\":false,\"error\":\"write_failed\"}";
+            } else {
+                char buf[96];
+                std::snprintf(buf, sizeof(buf),
+                              "{\"ok\":true,\"preset\":\"%s\"}",
+                              preset.c_str());
+                reply = buf;
+            }
         }
     } else if (tool == "open_notify") {
         // docs/33: toggle the notification center — safe UI command, no

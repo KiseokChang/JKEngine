@@ -16,8 +16,11 @@
   vplayer 등)이 빠진다 — 폴링이 전포괄이므로 이벤트는 YAGNI로 뺐다. 선례:
   `JK_SCRIPT_WATCH` 500ms OnIdle 폴링.
 - 클라 폴링 첫 틱은 시드(mtime 기록) + 로드 1회 — 기동 로딩과 멱등 중복
-  (같은 프리셋 재로드는 같은 포인터 대입이라 무해). stderr에
-  `[theme] preset '<p>' from <path>` 1행이 로더 흔적.
+  (같은 프리셋 재로드는 같은 포인터 대입이라 무해). 로더 흔적
+  `[theme] preset '<p>' from <path>` 1행은 **stdout**으로 찍힌다.
+- 쓰기 실패 표면화: `WriteThemePresetFile`이 bool 반환 — fopen 실패 시
+  theme_set이 `{"ok":false,"error":"write_failed"}`로 응답한다(스왑-후-기록
+  순서라 무보고 시 서버만 스왑되고 클라 폴링이 영구 미추종 — 리뷰 MINOR).
 - `WriteThemePresetFile`은 쓰기 직후 mtime을 등록해 **자기 쓰기에 대한
   셀프 폴링 오탐**을 막는다.
 
@@ -62,6 +65,15 @@ run_console_app의 ask 티어와 달리 파괴적이지 않다). jkagentd 기본
   docs/51 레슨), 팔레트 `/theme dark|light|classic` + /help 1행, jkchat
   `/theme` 동일.
 - JKDesktopShell은 별도 ApplyTheme 불필요 — 페인트 시점 current() 소비자.
+- **레거시 앱 색 분기 (수용·기록)**: ApplyTheme 워크는 기동에는 호출되지
+  않고 스왑 시에만 돌므로, 레거시 데모 앱(Tetris LTGRAY 툴바 등)의 하드코딩
+  색은 부팅 후엔 유지되다 첫 핫스왑에서 widgetFace/widgetText로 초기화된다
+  (부팅/스왑 경로 불일치). 데스크톱 정식 앱은 무영향 — 레거시 재스타일이
+  필요하면 그 앱이 오버라이드.
+- **귀속 기록 (bisect 주의)**: vplayer의 `OnThemeChanged()` 훅은 docs/52
+  변경이지만 3f4a0c3(vplayer 픽스 커밋)에 실렸다 — 3f4a0c3 시점엔 기본
+  가상이 존재하지 않아 그 커밋 단독으로는 컴파일 불가. 훅의 실제 착지는
+  0101d55와 함께 봐야 한다.
 
 ## 검증
 
