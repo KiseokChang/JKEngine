@@ -302,6 +302,8 @@ elseif ($args[0] -eq 'e2e') {
     $bakBefore = Get-Json "$jsonPath.bak"
     Check ".bak created at first save over pre-existing file (pre-save content)" `
         ($bakBefore -match 'Example Domain')
+    Save-ServerShot "task2-toggledoff.png"   # DIAG: where is the page between the two star clicks?
+    Write-Host ("DIAG list_windows: " + (Invoke-Agentctl '{"tool":"list_windows","args":{}}'))
     Click-App $posStar[0] $posStar[1]
     Start-Sleep -Seconds 1
     Check "toggle-on re-adds bookmark" ((Get-Json $jsonPath) -match 'Example Domain')

@@ -167,7 +167,9 @@ std::string TruncateLabel(const std::string& s, float maxW) {
         const unsigned char c = (unsigned char)s[i];
         i += (c < 0x80) ? 1 : (c < 0xE0) ? 2 : (c < 0xF0) ? 3 : 4;
     }
-    size_t lo = 0, hi = cps.size();
+    // hi caps mid below cps.size(): mid is used as cps[mid] with the "+1"
+    // bias, so hi = size would read cps[size] out of bounds for a 1-cp label.
+    size_t lo = 0, hi = cps.size() - 1;
     while (lo < hi) {
         const size_t mid = (lo + hi + 1) / 2;
         const std::string cand = s.substr(0, cps[mid]) + "...";
@@ -551,9 +553,10 @@ bool ClientBrowserApp::PreProcessMessage(const JKEvent& ev) {
             } else if (ev.y >= pageY_ &&
                        !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)) {
                 // Popup-guarded too: a popup click suppressed its DOWN, so
-                // this branch must not emit an orphan UP after the popup
-                // closed and cleared the popup-open state.
-                SendMouseButton(ev.x, ev.y, ev.detail, true);
+                // while the popup is still open the UP is suppressed as well.
+                // A popup dismissed between DOWN and UP leaks one stray UP —
+                // Chromium tolerates up-without-down (no click synthesized),
+                // so this is benign (docs/49 review MINOR).
             }
             break;
         case JKEventType::MouseWheel:
