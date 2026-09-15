@@ -607,6 +607,15 @@ if(WIN32)
     target_link_options(jktriggers PRIVATE -static-libstdc++ -static-libgcc)
 endif()
 
+# jkctl: 앱→에이전트 원컷 CLI (P4 SDK specs/2026-09-16-p4-sdk-contract §4).
+# 콘솔 앱이 에이전트를 호출하는 표준 수단 — notify/agent(서버 쿼리, JKAgentClient)
+# + ask(로컬 LLM 원컷, jkchat의 claude 래퍼 관례). wmain: docs/48 CP949 레슨.
+add_executable(jkctl tools/jkctl/main.cpp)
+target_link_libraries(jkctl PRIVATE jkcore)
+if(WIN32)
+    target_link_options(jkctl PRIVATE -municode -static-libstdc++ -static-libgcc)
+endif()
+
 # Pack the trigger bundle: tools/triggers/<name>/ -> apps/triggers/<name>.jkx
 # (the packer is jktriggers itself; --pack is offline, never contacts the
 # server). Runs in the default build via ALL.
