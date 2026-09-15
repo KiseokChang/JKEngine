@@ -1235,18 +1235,31 @@ struct ClientVPlayerApp::PlayerCore {
                         // park the demuxer on a full ring below the video
                         // clock gate (frozen picture after every
                         // keyframe-clamped seek) and desync A/V. Drop until
-                        // the demuxer reaches the target; NOPTS pts cannot be
-                        // classified, so they decode (a missed drop is the
-                        // pre-fix behaviour, a wrong drop loses audio).
+                        // the demuxer reaches the target. Only a POSITIVELY
+                        // classified packet may disarm the gate: NOPTS pts
+                        // cannot be classified, so they decode but keep the
+                        // gate armed (a missed drop is the pre-fix behaviour,
+                        // a wrong drop loses audio), and a negative real pts
+                        // (AAC encoder priming, first packet of the track) is
+                        // rewind by definition — decoding it at track start
+                        // disarmed the gate for the whole landing rewind
+                        // (stale-picture root cause, diag-stale-frame-release).
                         const double aPts =
                             pkt->pts == AV_NOPTS_VALUE
                                 ? -1.0
                                 : pkt->pts * av_q2d(audioTb) - ptsOrigin;
-                        if (audioSkipBelow >= 0 && aPts >= 0 &&
-                            aPts < audioSkipBelow) {
+                        if (audioSkipBelow < 0) {
+                            // gate disarmed: normal decode
+                            if (DecodeAudioPacket(pkt, frame))
+                                audioEof.store(false, std::memory_order_relaxed);
+                        } else if (aPts >= 0 && aPts >= audioSkipBelow) {
+                            audioSkipBelow = -1; // audio caught up: disarm
+                            if (DecodeAudioPacket(pkt, frame))
+                                audioEof.store(false, std::memory_order_relaxed);
+                        } else if (aPts >= 0) {
                             // stale: keep gating — the demuxer must reach t
                         } else {
-                            audioSkipBelow = -1; // audio caught up: normal decode
+                            // unclassifiable: decode, gate stays armed
                             if (DecodeAudioPacket(pkt, frame))
                                 audioEof.store(false, std::memory_order_relaxed);
                         }
