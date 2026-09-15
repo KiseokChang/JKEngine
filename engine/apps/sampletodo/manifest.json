@@ -1,0 +1,5 @@
+{
+  "name": "sampletodo",
+  "cmd": "sampletodo.cmd",
+  "desc": "SDK 샘플 — 할 일 뷰어 + jkctl ask"
+}

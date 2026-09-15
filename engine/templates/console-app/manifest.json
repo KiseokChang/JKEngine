@@ -1,0 +1,5 @@
+{
+  "name": "myapp",
+  "cmd": "python myapp.py",
+  "desc": "설명 한 줄 (선택)"
+}

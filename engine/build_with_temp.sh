@@ -35,4 +35,11 @@ done
 if [ -d "$SRC/assets" ]; then
     cp -R "$SRC/assets" "$SRC/build/"
 fi
+# 콘솔 앱 폴더(kind) 동기화 (P4 SDK): apps/<dir>/manifest.json 앱을 실행
+# 폴더로 복사 — .jkx 패커 산출물과 같은 자리. 빈 폴더/더미는 스킵.
+if [ -d "$SRC/apps" ]; then
+    for d in "$SRC"/apps/*/; do
+        [ -d "$d" ] && cp -R "$d" "$SRC/build/apps/"
+    done
+fi
 echo "Build succeeded. Output copied to $SRC/build/jkdesktop.exe"
