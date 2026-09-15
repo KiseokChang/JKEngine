@@ -135,3 +135,14 @@
 - jkctl: notify/agent/ask 세 경로 e2e ✓
 - sampletodo: 목록 경로(type) + ask 경로(한글 LLM 응답) ✓
 - 런처 셀 클릭 스폰: 사용자 확인 대상 (최종 리뷰 항목)
+## 부록 — worktree 빌드 워크플로 (build_wt.sh)
+
+worktree 세션의 빌드는 커밋된 build_with_temp.sh로 부족하다:
+
+- `SRC`가 본 트리 경로로 박혀 있다 — worktree 경로로 트윈 스크립트 필요
+- **third_party/cef는 gitignored** — worktree 소스 복사본에 없어
+  `jkapp_browser missing`이 뜬다. 본 트리에서 `cp -R third_party/cef/.`
+  (tracked README 위 내용 겹침 — `/.`로 중첩 방지)
+- temp를 본 트리와 **별도 디렉토리**(`temp_jkdesktop_wt`)로 — 상호 파괴 방지
+- 빌드 산출 복사는 exe/dll뿐 아니라 **runtime DLL 141개**도 필요
+  (`CopyRuntimeDlls` 산출 — 없으면 SDL2_mixer 로드 실패로 즉사)
