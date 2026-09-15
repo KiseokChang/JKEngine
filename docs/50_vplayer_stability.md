@@ -515,7 +515,15 @@ task-5의 게이지 판정 지표가 이 게이트 위에 서 있어 미교정 �
   docs/diag-stale-frame-release.md, 픽스 7c04ee5 — 양성 분류 pts만
   해제(NOPTS는 디코드하되 게이트 유지, 음수 실 pts는 프라이밍이라
   정의상 리와인드 → 드롭). 회귀 게이트 4종 전부 GREEN(vpt9/vpt4/vpt5/
-  selftest). ②는 미규명 레저 유지.
+  selftest). ② 진단 완료 (2026-09-15) — **PARTIAL: 실체 확정, 위치
+  미확정**. UI 스레드 단독 1.2-8.9s 블록(타이머 백로그 tim=71-539 ≈
+  stepAvg 산술 일치; 오디오/디코드 스레드 정상, parkMs≈stepAvg는
+  결과). 7회 이상 계측 재현 시도 0건(현행+시대 재현 바이너리), 배제표
+  +최유력 가설(①픽스로 소멸한 2차 경로 / GPU-DWM 동기 스톨)은
+  docs/diag-probe-ui-stall.md. 재발 대비 영구 저비용 워치독
+  (JKClientApplication::Run 갭 감시, 로그 전용)을 1순위 제안 — 레저
+  대기열(공용 런 루프라 별도 리뷰 사이클 권장). 증거 로그 절단 사고
+  교훈: 프로브가 -RedirectStandardError로 여는 증거 로그는 실행 전 복제.
 - **경화 웨이브 게이트 교훈** — 398fe30 반전 결함이 vpt4(픽셀 무검증
   e2e)+selftest를 통과하고 합류했다. 반환값 규약 손댐(비교 연산자·bool
   변환)이 들어간 경화 커밋은 픽셀 유무를 검증하는 e2e 1런을 게이트로.
