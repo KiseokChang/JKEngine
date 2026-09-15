@@ -27,6 +27,10 @@ public:
         std::function<float()> outputScale;
         std::function<SDL_Texture*(const jk::LoadedImage&, const char*)> makeTexture;
         std::function<void(const char*, bool)> launch;  // (appName, fromJkx)
+        // 콘솔 앱 스폰 (P4 SDK, specs/2026-09-16-p4-sdk-contract §3): 터미널
+        // 위에 cmd를 띄운다 (cwd = 앱 폴더, 상대경로).
+        std::function<void(const std::string& cmd, const std::string& cwd,
+                           const std::string& name)> spawnConsole;
     };
 
     // Scan apps/*.jkx, add built-in fallbacks, load the background photo,
@@ -50,15 +54,26 @@ public:
     // never sees the index.
     bool LaunchAt(int x, int y);
 
+    // 콘솔 앱 조회 (P4 SDK §5): 설치된 매니페스트 앱의 스폰 cmd/디렉토리/
+    // cmd 지문을 돌려준다. 매니페스트 앱이 아니면 false. 에이전트
+    // run_console_app 도구가 재사용한다.
+    bool ConsoleAppInfo(const std::string& name, std::string& cmd,
+                        std::string& dir, std::string& fingerprint) const;
+
 private:
     struct LauncherIcon {
         JKRect rect;
         std::string appName;   // spawn key / display name
         std::string jkxPath;   // non-empty → spawn "--jkx <path>"
+        // 콘솔 앱 kind (P4 SDK §3): 비었으면 .jkx/내장 앱 셀. cmd는 서버
+        // cwd(engine/build) 기준 상대경로 — 인용 겹침 방지(453a327).
+        std::string consoleCmd;
+        std::string consoleDir;
         SDL_Texture* texture = nullptr;
     };
 
     void ScanJkxApps();
+    void ScanConsoleApps();
     void RelayoutLauncherIcons();
     SDL_Texture* LoadTextureScaled(const char* assetBase);
 

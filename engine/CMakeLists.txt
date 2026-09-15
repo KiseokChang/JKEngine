@@ -220,7 +220,7 @@ target_include_directories(jkdesktop_shell PUBLIC
     include
     third_party/stb
 )
-target_link_libraries(jkdesktop_shell PUBLIC jkcore)
+target_link_libraries(jkdesktop_shell PUBLIC jkcore bcrypt)
 target_link_libraries(jkserver PUBLIC jkdesktop_shell)
 
 # ---------------------------------------------------------------------------

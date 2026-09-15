@@ -195,6 +195,15 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
     shellHost.launch = [this](const char* app, bool fromJkx) {
         SpawnClient(app, fromJkx);
     };
+    // 콘솔 앱 스폰 (P4 SDK §3): 터미널 위에 cmd — cwd는 앱 폴더. SpawnProcess가
+    // 인용을 만들므로 cmd/cwd에 뒤따르는 백슬래시가 없어야 한다(453a327 레슨) —
+    // 매니페스트는 상대경로 규칙으로 이를 보장한다.
+    shellHost.spawnConsole = [this](const std::string& cmd, const std::string& cwd,
+                                    const std::string& name) {
+        SpawnProcess(clientHostExe_.c_str(),
+                     std::string("terminal --cwd \"") + cwd + "\" --shell \"" + cmd + "\"",
+                     name.c_str());
+    };
     shell_ = std::make_unique<jk::desktop::JKDesktopShell>();
     shell_->Init(shellHost);
 
