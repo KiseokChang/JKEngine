@@ -2914,11 +2914,12 @@ bool JKWindowServer::SpawnProcess(const char* exeName, const std::string& args,
     cmdLine += L"\\";
     {
         // exeName is an ASCII literal from the spawn table; convert anyway so
-        // the whole line is one encoding.
+        // the whole line is one encoding. The path quote is already open —
+        // just append the exe and close it (a quote here would escape on the
+        // backslash: "dir\"exe" is one broken token).
         int n = MultiByteToWideChar(65001, 0, exeName, -1, nullptr, 0);
         std::wstring exeW(static_cast<size_t>(n > 0 ? n : 1), L'\0');
         if (n > 0) MultiByteToWideChar(65001, 0, exeName, -1, exeW.data(), n);
-        cmdLine += L"\"";
         cmdLine += exeW.c_str();
         cmdLine += L"\"";
     }
