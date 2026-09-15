@@ -7,6 +7,7 @@
 
 #include <quickjs.h>
 
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -56,6 +57,8 @@ extern "C" __declspec(dllimport) long __stdcall BCryptFinishHash(
 extern "C" __declspec(dllimport) long __stdcall BCryptDestroyHash(void* hHash);
 extern "C" __declspec(dllimport) long __stdcall BCryptCloseAlgorithmProvider(
     void* hAlgorithm, unsigned long dwFlags);
+extern "C" __declspec(dllimport) int __stdcall CreateDirectoryA(
+    const char* lpPathName, void* lpSecurityAttributes);
 #endif // _WIN32
 
 namespace jk {
@@ -117,6 +120,120 @@ std::string ConsoleAppFingerprint(const std::string& cmd) {
 #else
     (void)cmd;
     return "";
+#endif
+}
+
+// trust ledger 보증 (P4 SDK §3.4): 스폰 cmd 지문을 state\trust.json에 upsert
+// (docs/37 형식 — jktriggers SaveTrustRecords와 동일 레이아웃). 서버는 시작
+// 때 한 번만 쓴다. 이미 같은 지문이 있으면 파일을 건드리지 않는다(읽기-수정
+// -쓰기 경쟁 최소화). 파손된 스토어는 덮어쓰지 않는다 — 기록 보존이 우선.
+void EnsureTrustRecord(const std::string& fingerprint, const std::string& name) {
+#ifdef _WIN32
+    char exePath[1024] = {};
+    if (!GetModuleFileNameA(nullptr, exePath, sizeof(exePath))) return;
+    std::string exeDir = exePath;
+    const size_t slash = exeDir.find_last_of("\\/");
+    if (slash == std::string::npos) return;
+    exeDir.resize(slash);
+    CreateDirectoryA((exeDir + "\\state").c_str(), nullptr);
+    const std::string path = exeDir + "\\state\\trust.json";
+
+    std::vector<uint8_t> bytes;
+    std::vector<std::string> recs;  // 재조립용 레코드 JSON 문자열
+    bool corrupt = false;
+    if (ReadFileBytes(path, bytes)) {
+        JSRuntime* rt = JS_NewRuntime();
+        if (!rt) return;
+        JSContext* ctx = JS_NewContext(rt);
+        if (!ctx) {
+            JS_FreeRuntime(rt);
+            return;
+        }
+        JSValue root = JS_ParseJSON(ctx, reinterpret_cast<const char*>(bytes.data()),
+                                    bytes.size() - 1, "trust.json");
+        if (JS_IsException(root)) {
+            std::fprintf(stderr, "JKWindowServer: trust store corrupt — console app '%s' not recorded\n",
+                         name.c_str());
+            JS_FreeValue(ctx, root);
+            JS_FreeContext(ctx);
+            JS_FreeRuntime(rt);
+            return;
+        }
+        if (JS_IsObject(root)) {
+            JSValue arr = JS_GetPropertyStr(ctx, root, "records");
+            if (JS_IsArray(arr)) {
+                JSValue lenVal = JS_GetPropertyStr(ctx, arr, "length");
+                int32_t len = 0;
+                JS_ToInt32(ctx, &len, lenVal);
+                JS_FreeValue(ctx, lenVal);
+                for (int32_t i = 0; i < len; ++i) {
+                    JSValue item = JS_GetPropertyUint32(ctx, arr, (uint32_t)i);
+                    auto str = [&](const char* key) {
+                        JSValue v = JS_GetPropertyStr(ctx, item, key);
+                        std::string s;
+                        if (JS_IsString(v)) {
+                            size_t l = 0;
+                            const char* c = JS_ToCStringLen(ctx, &l, v);
+                            if (c) s.assign(c, l);
+                            JS_FreeCString(ctx, c);
+                        }
+                        JS_FreeValue(ctx, v);
+                        return s;
+                    };
+                    const std::string fp = str("fingerprint");
+                    const std::string nm = str("name");
+                    const std::string src = str("source");
+                    JSValue tsVal = JS_GetPropertyStr(ctx, item, "ts");
+                    int64_t ts = 0;
+                    JS_ToInt64(ctx, &ts, tsVal);
+                    JS_FreeValue(ctx, tsVal);
+                    if (fp == fingerprint) {
+                        // 이미 기록된 지문 — 스토어 변경 없이 끝낸다.
+                        JS_FreeValue(ctx, item);
+                        JS_FreeValue(ctx, arr);
+                        JS_FreeValue(ctx, root);
+                        JS_FreeContext(ctx);
+                        JS_FreeRuntime(rt);
+                        return;
+                    }
+                    if (!fp.empty()) {
+                        recs.push_back("{\"fingerprint\":\"" + fp + "\",\"name\":\"" +
+                                       nm + "\",\"source\":\"" + src +
+                                       "\",\"ts\":" + std::to_string(ts) + "}");
+                    }
+                    JS_FreeValue(ctx, item);
+                }
+            }
+            JS_FreeValue(ctx, arr);
+        }
+        JS_FreeValue(ctx, root);
+        JS_FreeContext(ctx);
+        JS_FreeRuntime(rt);
+    }
+
+    // 새 레코드 append (source "user" — jktriggers 로더와 동일 역할 표기).
+    const uint64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                               std::chrono::steady_clock::now().time_since_epoch())
+                               .count();
+    recs.push_back("{\"fingerprint\":\"" + fingerprint + "\",\"name\":\"" + name +
+                   "\",\"source\":\"user\",\"ts\":" + std::to_string(nowMs) + "}");
+    std::string out = "{\"records\":[";
+    for (size_t i = 0; i < recs.size(); ++i) {
+        if (i) out += ",";
+        out += recs[i];
+    }
+    out += "]}";
+
+    FILE* wf = nullptr;
+    if (fopen_s(&wf, path.c_str(), "wb") == 0 && wf) {
+        std::fwrite(out.data(), 1, out.size(), wf);
+        std::fclose(wf);
+        std::fprintf(stderr, "JKWindowServer: console app cmd fingerprint recorded (%s, '%s')\n",
+                     fingerprint.substr(0, 15).c_str(), name.c_str());
+    }
+#else
+    (void)fingerprint;
+    (void)name;
 #endif
 }
 
@@ -365,6 +482,11 @@ void JKDesktopShell::ScanConsoleApps() {
         icon.appName = name;
         icon.consoleDir = std::string("apps\\") + dirName;
         icon.consoleCmd = cmd;
+
+        // 스폰 cmd 지문 보증 (P4 SDK §3.4, docs/37 형식). 이미 있으면
+        // EnsureTrustRecord가 파일을 건드리지 않는다.
+        const std::string fp = ConsoleAppFingerprint(cmd);
+        if (!fp.empty()) EnsureTrustRecord(fp, name);
 
         // 아이콘(선택): apps/<name>/icon@{2x,1x}.png — 없으면 placeholder 사각형.
         const float s = host_.outputScale ? host_.outputScale() : 1.0f;
