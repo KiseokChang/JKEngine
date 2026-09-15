@@ -8,6 +8,7 @@
 #include <JKSoundManager.h>
 #include <JKPlatform.h>
 #include <theme/JKTheme.h>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 
@@ -185,20 +186,68 @@ int JKClientApplication::Run() {
     }
 
     while (running_) {
+        const auto t0 = std::chrono::steady_clock::now();
         DrainTimerChannel();
+        const auto t1 = std::chrono::steady_clock::now();
         if (!running_) break;
 
         DrainInputChannel();
+        const auto t2 = std::chrono::steady_clock::now();
         if (!running_) break;
 
         if (mainWindow_) {
             mainWindow_->RemoveClosedChildren();
         }
 
+        // P3 theme hot-swap (docs/52): poll theme.json every 500ms. The
+        // theme_set tool swaps the server in-process and clients catch up
+        // here — mtime polling covers every client process, including
+        // non-agent native apps a wire event would miss. PollPresetFile
+        // re-runs the loader on change and ApplyTheme re-captures the
+        // ctor-captured tokens down the widget tree.
+        {
+            static auto s_themeLast = std::chrono::steady_clock::now();
+            const auto now = std::chrono::steady_clock::now();
+            if (now - s_themeLast >= std::chrono::milliseconds(500)) {
+                s_themeLast = now;
+                if (jk::theme::PollPresetFile()) {
+                    if (mainWindow_) mainWindow_->ApplyTheme();
+                    OnThemeChanged();
+                }
+            }
+        }
+
         OnIdle();
+        const auto t3 = std::chrono::steady_clock::now();
         if (IsFrameDirty()) {
             RenderAndCommit();
             OnFrameCommitted();
+        }
+        const auto t4 = std::chrono::steady_clock::now();
+
+        // Permanent low-cost watchdog (diag-probe-ui-stall §7-1): any
+        // UI-thread stall >= kUiStallGapMs is attributed to a phase.
+        // Log-only — on stall, ph= values route the triage (render ->
+        // GPU/DWM path, idle/timer -> app event path). Cost when quiet: a
+        // few clock reads per iteration.
+        constexpr double kUiStallGapMs = 500.0;
+        const double totalMs =
+            std::chrono::duration<double, std::milli>(t4 - t0).count();
+        if (totalMs >= kUiStallGapMs) {
+            const double timerMs =
+                std::chrono::duration<double, std::milli>(t1 - t0).count();
+            const double inputMs =
+                std::chrono::duration<double, std::milli>(t2 - t1).count();
+            const double idleMs =
+                std::chrono::duration<double, std::milli>(t3 - t2).count();
+            const double renderMs =
+                std::chrono::duration<double, std::milli>(t4 - t3).count();
+            std::fprintf(stderr,
+                         "[uistall] total=%.0fms timer=%.0f input=%.0f "
+                         "idle=%.0f render=%.0f gap=%.0f\n",
+                         totalMs, timerMs, inputMs, idleMs, renderMs,
+                         totalMs - timerMs - inputMs - idleMs - renderMs);
+            std::fflush(stderr);
         }
 
         SDL_Delay(1);
@@ -553,6 +602,12 @@ void JKClientApplication::RenderAndCommit() {
     renderBackend_->SetRenderTarget(targetTexture_);
     renderBackend_->SetScale(1.0f, 1.0f);
 
+    // Commit-stage watchdog marks (diag-probe-ui-stall §7-2): boundaries
+    // between compose/replay, overlay, readback and the shm commit. Logged
+    // only when the stage total crosses kCommitStallMs.
+    constexpr double kCommitStallMs = 100.0;
+    const auto c0 = std::chrono::steady_clock::now();
+
     // Replay the serialized scene into the target texture.
     if (!pendingScene_.empty()) {
         auto scene = JKRenderCommandList::Deserialize(pendingScene_);
@@ -560,11 +615,13 @@ void JKClientApplication::RenderAndCommit() {
             scene->Replay(renderBackend_.get());
         }
     }
+    const auto cComp = std::chrono::steady_clock::now();
 
     // Overlay hook (docs/23 §5.2-4): immediate-mode layers (ImGui) draw straight
     // onto the target texture after the scene replay, before the readback turns
     // the result into a shm commit. The target is bound at 1:1 scale here.
     RenderOverlay(hiddenRenderer_, w, h);
+    const auto c1 = std::chrono::steady_clock::now();
 
     // Read pixels from the current render target (the off-screen texture).
     const size_t needed = static_cast<size_t>(w) * h * 4;
@@ -581,6 +638,7 @@ void JKClientApplication::RenderAndCommit() {
         return;
     }
     (void)pitch;
+    const auto c2 = std::chrono::steady_clock::now();
 
     renderBackend_->SetRenderTarget(nullptr);
 
@@ -589,6 +647,27 @@ void JKClientApplication::RenderAndCommit() {
     if (dest) {
         std::memcpy(dest, pixelBuffer_.data(), needed);
         surface_->CommitFull();
+    }
+    const auto c3 = std::chrono::steady_clock::now();
+
+    // On stall, attribute: readpix+commit -> GPU/DWM path, comp/overlay ->
+    // app paint path (same triage rule as the Run-loop watchdog).
+    const double stageMs =
+        std::chrono::duration<double, std::milli>(c3 - c0).count();
+    if (stageMs >= kCommitStallMs) {
+        const double compMs =
+            std::chrono::duration<double, std::milli>(cComp - c0).count();
+        const double overlayMs =
+            std::chrono::duration<double, std::milli>(c1 - cComp).count();
+        const double readpixMs =
+            std::chrono::duration<double, std::milli>(c2 - c1).count();
+        const double commitMs =
+            std::chrono::duration<double, std::milli>(c3 - c2).count();
+        std::fprintf(stderr,
+                     "[uistall] commit comp=%.0f overlay=%.0f readpix=%.0f "
+                     "commit=%.0f\n",
+                     compMs, overlayMs, readpixMs, commitMs);
+        std::fflush(stderr);
     }
 }
 

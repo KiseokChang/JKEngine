@@ -29,6 +29,7 @@ protected:
     void OnIdle() override;
     bool IsFrameDirty() const override;
     void OnFrameCommitted() override;
+    void OnThemeChanged() override;  // theme-seeded colors re-apply (docs/52)
     bool WantsTabFocusCycle() const override { return false; }
 
 private:
@@ -50,6 +51,10 @@ private:
     int ptyCols_ = 0;
     int ptyRows_ = 0;
     std::string shell_;   // terminal.json "shell" (default in JKTerminalConfig)
+    // Color source stashed from terminal.json at OnInit (hot-swap re-seed):
+    // explicit keys win over the theme-seeded path (P2 단계 3 규칙 준용).
+    bool themeBgSet_ = false, themeFgSet_ = false;
+    uint32_t themeBg_ = 0, themeFg_ = 0;  // 0xRRGGBB, TerminalView 형식
     std::string pendingPub_;      // sanitized output awaiting publish
     uint32_t nextPubQueryId_ = 1;
     uint64_t lastPubTickMs_ = 0;  // steady_clock ms of last publish

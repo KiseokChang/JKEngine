@@ -427,4 +427,9 @@ void ClientTaskmgrApp::BuildUi(int w, int h) {
     ImGui::End();
 }
 
+
+// P3 theme hot-swap (docs/52): the palette was snapshotted into ImGuiStyle
+// at OnInit - re-apply it after a preset swap.
+void ClientTaskmgrApp::OnThemeChanged() { jk::theme::ApplyImGuiTheme(); }
+
 } // namespace jk

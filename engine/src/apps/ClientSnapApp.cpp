@@ -210,4 +210,9 @@ void ClientSnapApp::CloseSelf() {
     Close();
 }
 
+
+// P3 theme hot-swap (docs/52): the palette was snapshotted into ImGuiStyle
+// at OnInit - re-apply it after a preset swap.
+void ClientSnapApp::OnThemeChanged() { jk::theme::ApplyImGuiTheme(); }
+
 } // namespace jk

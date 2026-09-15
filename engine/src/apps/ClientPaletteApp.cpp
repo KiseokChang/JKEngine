@@ -220,7 +220,7 @@ void ClientPaletteApp::Submit(const std::string& text) {
     if (cmd == "help") {
         AppendLog("  /list  /launch <app>  /close <id>  /chat  /notify");
         AppendLog("  /shot  /triggers  /trigger <name> on|off  /events  /trust");
-        AppendLog("  /save <name>  /restore <name>  /undo");
+        AppendLog("  /theme dark|light|classic  /save <name>  /restore <name>  /undo");
     } else if (cmd == "events") {
         // Structured event catalog (docs/32): topic/source/payload shape +
         // live fired/last_ts/subscribers.
@@ -263,6 +263,15 @@ void ClientPaletteApp::Submit(const std::string& text) {
             AppendLog("  usage: /launch <app>");
         } else {
             SendTool("launch_app", "{\"app\":\"" + EscapeJson(arg) + "\"}");
+        }
+    } else if (cmd == "theme") {
+        // P3 hot-swap (docs/52): /theme dark|light|classic — the server swaps
+        // in-process and writes theme.json; every client follows via the
+        // 500ms mtime poll.
+        if (arg != "dark" && arg != "light" && arg != "classic") {
+            AppendLog("  usage: /theme dark|light|classic");
+        } else {
+            SendTool("theme_set", "{\"preset\":\"" + arg + "\"}");
         }
     } else if (cmd == "save") {
         if (arg.empty()) {
@@ -328,5 +337,10 @@ void ClientPaletteApp::PumpReplies() {
         AppendLog("  " + reply.json);
     }
 }
+
+
+// P3 theme hot-swap (docs/52): the palette was snapshotted into ImGuiStyle
+// at OnInit - re-apply it after a preset swap.
+void ClientPaletteApp::OnThemeChanged() { jk::theme::ApplyImGuiTheme(); }
 
 } // namespace jk

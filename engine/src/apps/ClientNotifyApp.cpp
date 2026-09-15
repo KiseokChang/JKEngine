@@ -352,4 +352,9 @@ uint64_t ClientNotifyApp::NowMs() {
         .count();
 }
 
+
+// P3 theme hot-swap (docs/52): the palette was snapshotted into ImGuiStyle
+// at OnInit - re-apply it after a preset swap.
+void ClientNotifyApp::OnThemeChanged() { jk::theme::ApplyImGuiTheme(); }
+
 } // namespace jk

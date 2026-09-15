@@ -18,6 +18,7 @@ public:
 protected:
     void OnInit() override;
     void OnClose() override;
+    void OnThemeChanged() override;  // ImGui palette re-apply (docs/52)
     bool PreProcessMessage(const JKEvent& ev) override;
     bool IsFrameDirty() const override { return frameDirty_; }
     void OnFrameCommitted() override;

@@ -34,6 +34,7 @@ protected:
     void OnInit() override;
     void OnClose() override;
     bool PreProcessMessage(const JKEvent& ev) override;
+    void OnThemeChanged() override;  // theme-seeded colors re-apply (docs/52)
 
 private:
     void PumpPty();
@@ -57,6 +58,10 @@ private:
     bool quitRequested_ = false;    // shell exited → stop the run loop
     std::string shell_;             // terminal.json "shell" (default in JKTerminalConfig)
     std::string shellOverride_;     // --shell CLI override, wins over terminal.json
+    // Color source stashed from terminal.json at OnInit (hot-swap re-seed):
+    // explicit keys win over the theme-seeded path (P2 단계 3 규칙 준용).
+    bool themeBgSet_ = false, themeFgSet_ = false;
+    uint32_t themeBg_ = 0, themeFg_ = 0;  // 0xRRGGBB, TerminalView 형식
 };
 
 } // namespace jk

@@ -1039,4 +1039,9 @@ void ClientBrowserApp::BuildUi(int w, int h) {
     ImGui::PopStyleVar(2);
 }
 
+
+// P3 theme hot-swap (docs/52): the palette was snapshotted into ImGuiStyle
+// at OnInit - re-apply it after a preset swap.
+void ClientBrowserApp::OnThemeChanged() { jk::theme::ApplyImGuiTheme(); }
+
 } // namespace jk

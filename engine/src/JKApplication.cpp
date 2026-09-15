@@ -9,6 +9,7 @@
 #include <JKSoundManager.h>
 #include <JKTimerThread.h>
 #include <theme/JKTheme.h>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 
@@ -223,6 +224,21 @@ int JKApplication::Run() {
         // Cleanup closed child windows.
         if (mainWindow_) {
             mainWindow_->RemoveClosedChildren();
+        }
+
+        // P3 theme hot-swap (docs/52): same 500ms poll as the client host.
+        // In the server process the theme_set tool already swapped in-place;
+        // this covers manual theme.json edits between restarts.
+        {
+            static auto s_themeLast = std::chrono::steady_clock::now();
+            const auto now = std::chrono::steady_clock::now();
+            if (now - s_themeLast >= std::chrono::milliseconds(500)) {
+                s_themeLast = now;
+                if (jk::theme::PollPresetFile()) {
+                    if (mainWindow_) mainWindow_->ApplyTheme();
+                    OnThemeChanged();
+                }
+            }
         }
 
         // Compose scene and send to render thread.

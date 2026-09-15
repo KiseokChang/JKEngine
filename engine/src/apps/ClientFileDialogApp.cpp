@@ -601,4 +601,9 @@ std::string ClientFileDialogApp::EscapeJson(const std::string& in) {
     return out;
 }
 
+
+// P3 theme hot-swap (docs/52): the palette was snapshotted into ImGuiStyle
+// at OnInit - re-apply it after a preset swap.
+void ClientFileDialogApp::OnThemeChanged() { jk::theme::ApplyImGuiTheme(); }
+
 } // namespace jk

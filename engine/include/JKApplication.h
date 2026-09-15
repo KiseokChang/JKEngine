@@ -92,6 +92,11 @@ protected:
     // serialized render commands.
     virtual void ComposeScene();
 
+    // P3 theme hot-swap (docs/52): after the 500ms theme.json mtime poll
+    // detected a preset swap and mainWindow_->ApplyTheme() re-walked the
+    // widget tree. Server-mode apps override for their own snapshots.
+    virtual void OnThemeChanged() {}
+
 private:
     SDL_Window* sdlWindow_ = nullptr;
 

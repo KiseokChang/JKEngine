@@ -108,6 +108,13 @@ protected:
     virtual void OnIdle() {}
     virtual bool IsFrameDirty() const { return true; }
     virtual void OnFrameCommitted() {}
+    // P3 theme hot-swap (docs/52): called after the 500ms theme.json mtime
+    // poll detected a preset swap and the widget tree was re-walked
+    // (mainWindow_->ApplyTheme() in Run). Base: nothing — ImGui palette
+    // snapshots and app-owned caches (terminal SetTheme) re-apply here.
+    // The base class does not link imgui, so ImGui apps override and call
+    // jk::theme::ApplyImGuiTheme() themselves.
+    virtual void OnThemeChanged() {}
     // TAB drives the child focus cycle in most apps; the terminal consumes it
     // as data instead.
     virtual bool WantsTabFocusCycle() const { return true; }

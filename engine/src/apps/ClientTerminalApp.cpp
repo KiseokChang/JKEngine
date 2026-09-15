@@ -55,10 +55,11 @@ void ClientTerminalApp::OnInit() {
     view->SetOnResize([this](int cols, int rows) { OnViewResized(cols, rows); });
     // 터미널 색: terminal.json에 지정된 키만 사용자값, 없는 키는 현재 테마에서
     // 시딩 (P2 단계 3). 둘 다 없으면 테마값 = 구값과 동일 (kDefault).
-    const auto& t = jk::theme::current();
-    view->SetTheme(cfg.themeBgSet ? cfg.themeBg : ThemeRgb(t.terminalBg),
-                   cfg.themeFgSet ? cfg.themeFg : ThemeRgb(t.terminalFg));
+    // Stash for OnThemeChanged — hot-swap이 같은 규칙으로 재시딩한다 (docs/52).
+    themeBgSet_ = cfg.themeBgSet; themeFgSet_ = cfg.themeFgSet;
+    themeBg_ = cfg.themeBg; themeFg_ = cfg.themeFg;  // 이미 0xRRGGBB
     view_ = view.get();
+    OnThemeChanged();
     // Chrome-less dock-fill child (the window server owns the frame chrome);
     // same arrangement as the tetris client game window.
     view->SetAttrFlags(WA_CHROMELESS);
@@ -238,6 +239,15 @@ void ClientTerminalApp::OnViewResized(int cols, int rows) {
     ptyCols_ = cols;
     ptyRows_ = rows;
     pty_->Resize(cols, rows);
+}
+
+// P3 hot-swap (docs/52): 테마 프리셋 스왑 후 터미널 색 재적용. terminal.json에
+// 명시된 키가 이기는 규칙은 OnInit 시딩과 동일 (P2 단계 3).
+void ClientTerminalApp::OnThemeChanged() {
+    if (!view_) return;
+    const auto& t = jk::theme::current();
+    view_->SetTheme(themeBgSet_ ? themeBg_ : ThemeRgb(t.terminalBg),
+                    themeFgSet_ ? themeFg_ : ThemeRgb(t.terminalFg));
 }
 
 } // namespace jk
