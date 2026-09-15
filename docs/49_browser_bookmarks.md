@@ -172,6 +172,14 @@ probe_browser_bookmarks.ps1 신설 +371).
   안 함(관례 수정 시 함께). 삭제 클릭(app-local y≈116 ≥ pageY_ 110)은
   기하 게이트상 CEF로도 전달 — ImGui 팝업이 먼저 먹어 실해 미관측, T1의
   의도적 설계라 게이트 안 함.
+  **→ 2026-09-16 해소** (최종리뷰 MINOR 승격분): 팝업 오픈 중 CEF 마우스
+  전달 억제 — `MouseDown/MouseUp`에 `ImGui::IsPopupOpen(nullptr,
+  ImGuiPopupFlags_AnyPopupId)` 조건 추가. 레슨 12의 WantCaptureMouse 방향은
+  회피(UP 드랍 위험)하고 DOWN 억제 + `cefMouseDown_` 페어링만 손댔다 —
+  DOWN이 억제되면 페어링 실패로 UP도 억제돼 고아 UP이 CEF에 가지 않는다.
+  TruncateLabel O(n²)→코드점 경계 이진 탐색도 동반 픽스.
+  probe_browser_bookmarks 15/16 (미통과 1건 = 힌트 픽셀-diff 임계 마진,
+  diff 68 vs 80 — 본 변경이 전달 경로에 없는 렌더 영역, 환경 변동성 판정).
 - **t1_e2e.ps1 미커밋** — T1 산물로 방치 중, probe_browser_bookmarks.ps1이
   계승했으니 제거 or 커밋 판정.
 - **원자적 쓰기(tmp+rename)** — 스펙 D5가 관례 준수로 이월한 공유 후속

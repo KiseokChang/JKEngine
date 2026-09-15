@@ -18,6 +18,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "include/capi/cef_app_capi.h"
 #include "include/capi/cef_client_capi.h"
@@ -156,15 +157,23 @@ const std::string& ExeDirSlash() {
 // suffixing ASCII "..." (U+2026 is outside the baked glyph ranges).
 std::string TruncateLabel(const std::string& s, float maxW) {
     if (ImGui::CalcTextSize(s.c_str()).x <= maxW) return s;
-    std::string out = s;
-    while (out.size() > 4) {
-        size_t n = out.size() - 1;
-        while (n > 0 && ((unsigned char)out[n] & 0xC0) == 0x80) --n;
-        out.resize(n);
-        const std::string cand = out + "...";
-        if (ImGui::CalcTextSize(cand.c_str()).x <= maxW) return cand;
+    // Binary search over code-point boundaries. The old loop chopped one
+    // UTF-8 sequence per iteration and re-measured the whole candidate
+    // each time — O(n²) per bookmark label per frame (docs/49 review).
+    static thread_local std::vector<size_t> cps;  // code-point start offsets
+    cps.clear();
+    for (size_t i = 0; i < s.size(); ) {
+        cps.push_back(i);
+        const unsigned char c = (unsigned char)s[i];
+        i += (c < 0x80) ? 1 : (c < 0xE0) ? 2 : (c < 0xF0) ? 3 : 4;
     }
-    return "...";
+    size_t lo = 0, hi = cps.size();
+    while (lo < hi) {
+        const size_t mid = (lo + hi + 1) / 2;
+        const std::string cand = s.substr(0, cps[mid]) + "...";
+        if (ImGui::CalcTextSize(cand.c_str()).x <= maxW) lo = mid; else hi = mid - 1;
+    }
+    return lo == 0 ? std::string("...") : s.substr(0, cps[lo]) + "...";
 }
 
 // ---------------------------------------------------------------------------
@@ -517,20 +526,34 @@ bool ClientBrowserApp::PreProcessMessage(const JKEvent& ev) {
             // for "pointer entered the URL bar row" must still reach CEF.
             SendMouseMotion(ev.x, ev.y);
             break;
-        case JKEventType::MouseDown:
+        case JKEventType::MouseDown: {
             // Geometric gate only. WantCaptureMouse is wrong here: imgui sets
             // it true while ANY button is down (mouse_any_down), so gating
             // UPs by it drops the UP, leaves CEF stuck pressed, and freezes
             // our g_mouseFlags. Pair DOWN/UP by ourselves instead.
-            if (ev.y >= pageY_) {
+            // Popup clicks must not reach the CEF page underneath — an open
+            // popup owns the click, and forwarding the DOWN made popup
+            // actions (bookmark menu items, delete) double-fire onto the
+            // page (docs/49 §7 T2 NOTE, final-review MINOR). Popup-open
+            // check, NOT WantCaptureMouse, so the pairing contract above
+            // is untouched.
+            if (ev.y >= pageY_ &&
+                !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)) {
                 SendMouseButton(ev.x, ev.y, ev.detail, false);
                 cefMouseDown_ = true;
             }
             break;
+        }
         case JKEventType::MouseUp:
-            if (ev.y >= pageY_ || cefMouseDown_) {
+            if (cefMouseDown_) {
                 SendMouseButton(ev.x, ev.y, ev.detail, true);
                 cefMouseDown_ = false;
+            } else if (ev.y >= pageY_ &&
+                       !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)) {
+                // Popup-guarded too: a popup click suppressed its DOWN, so
+                // this branch must not emit an orphan UP after the popup
+                // closed and cleared the popup-open state.
+                SendMouseButton(ev.x, ev.y, ev.detail, true);
             }
             break;
         case JKEventType::MouseWheel:
