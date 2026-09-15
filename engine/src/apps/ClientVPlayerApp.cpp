@@ -1955,7 +1955,8 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
 
     char tbuf[16], dbuf[16];
     FormatTime(tbuf, sizeof(tbuf),
-               (jogActive_ || wheelScrubbing_) ? jogTarget_ : st.pos);
+               (jogActive_ || wheelScrubbing_ || reverseActive_) ? jogTarget_
+                                                                 : st.pos);
     FormatTime(dbuf, sizeof(dbuf), st.dur);
     ImGui::SameLine();
     ImGui::Text("%s / %s", tbuf, dbuf);
@@ -2042,7 +2043,8 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
         // the drag (dθ per pixel) and the wheel (1/16 rev per tick).
         const double sPerRev = std::clamp(dur / 8.0, 1.0, 30.0);
         auto stepFrame = [&](int n) {
-            if (fps <= 0.0 || jogActive_ || wheelScrubbing_) return;
+            if (fps <= 0.0 || jogActive_ || wheelScrubbing_ || reverseActive_)
+                return;
             double t = std::clamp(st.pos + (double)n / fps, 0.0, dur);
             t = std::round(t * fps) / fps;
             p->Seek(t);
@@ -2197,13 +2199,39 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
                 wheelLastTick_ = std::chrono::steady_clock::now();
         }
 
+        // Reverse auto-play cadence (spec section 7 v2): walk jogTarget_
+        // backward one frame per content-fps period, in real time. The UI
+        // frame gate is the 16 ms Timer (OnInit SetTimerInterval), so the
+        // accumulator carries sub-frame remainders. fps unknown: fall back
+        // to 30 fps pacing (spec section 4: pts-based dial is time-accumulated
+        // either way). Each new target flows through the shared pump below —
+        // ring hit = JogTo, exhaustion = debounced SeekScrub (the accepted
+        // GOP-boundary stutter).
+        if (reverseActive_) {
+            const double stepSec = fps > 0.0 ? 1.0 / fps : 1.0 / 30.0;
+            const auto now = std::chrono::steady_clock::now();
+            reverseAcc_ +=
+                std::chrono::duration<double>(now - reverseLastTick_).count();
+            reverseLastTick_ = now;
+            while (reverseAcc_ >= stepSec && jogTarget_ > 0.0) {
+                reverseAcc_ -= stepSec;
+                jogTarget_ = std::clamp(jogTarget_ - stepSec, 0.0, dur);
+            }
+            if (jogTarget_ <= 0.0) {
+                // Ring walked to the file start: auto-finish with the same
+                // precision-seek contract as a manual toggle-off.
+                finishScrub();
+            }
+        }
+
         // Frame-scrub pump: inside the retained ring the dial is zero-blocking
         // (JogTo per moved target — decode runs to it, JogFrame displays it).
         // Crossing the ring start falls back to the keyframe scrub seek
         // (blocking I/O — keeps the 40 ms latest-wins debounce; SeekCommon's
         // scrub branch feeds jogTargetPts so the fallback display is
         // frame-smooth too). The single jogTargetPts slot coalesces both.
-        if ((jogActive_ && !activated) || (wheelScrubbing_ && !jogActive_)) {
+        if ((jogActive_ && !activated) || (wheelScrubbing_ && !jogActive_) ||
+            reverseActive_) {
             const double halfFrame = fps > 0.0 ? 0.5 / fps : 0.0;
             const bool ringHit = st.jogRingLo >= 0.0 &&
                                  jogTarget_ >= st.jogRingLo - halfFrame;
@@ -2248,7 +2276,8 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
         dl->AddCircleFilled(c, rad, colBase, 24);
         dl->AddCircle(c, rad, colRim, 24, 2.0f);
         const double frac = std::clamp(
-            ((jogActive_ || wheelScrubbing_) ? jogTarget_ : (double)st.pos) /
+            ((jogActive_ || wheelScrubbing_ || reverseActive_) ? jogTarget_
+                                                               : (double)st.pos) /
                 dur,
             0.0, 1.0);
         if (frac > 0.002) {
@@ -2280,7 +2309,8 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
 
     // Space toggles pause (unless typing in the path field).
     if (!io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Space, false) &&
-        st.dur > 0 && !st.ended) {
+        st.dur > 0 && !st.ended && !jogActive_ && !wheelScrubbing_ &&
+        !reverseActive_) {
         p->SetPaused(!st.paused);
     }
 
@@ -2288,7 +2318,7 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
     // full flush-seek per repeat (~20/s). Skipped while a knob drag or wheel
     // scrub owns the transport (the debounced scrub seek would override it).
     if (!io.WantTextInput && st.dur > 0 && p->fps > 0.0 && !jogActive_ &&
-        !wheelScrubbing_) {
+        !wheelScrubbing_ && !reverseActive_) {
         int step = 0;
         if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)) step = -1;
         if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, false)) step = +1;
