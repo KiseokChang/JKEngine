@@ -14,7 +14,10 @@
 #  10. trust.json still parses after the splice (valid JSON out)
 #  11. ask --attach: missing file / binary (NUL) rejected with exit 2,
 #      text attachment reaches the LLM launch path (exit 0/1)
-#  12. teardown removes every tree it created
+#  12. promote wraps the folder into <name>.jkx (JKX1 magic) and install
+#      from the container lands the tree with trust pre-record; promote
+#      rejects a manifest-less directory
+#  13. teardown removes every tree it created
 
 $ErrorActionPreference = "Stop"
 $script:fails = 0
@@ -130,6 +133,36 @@ try {
     [IO.File]::WriteAllText($txtP, "hello", (New-Object System.Text.UTF8Encoding($false)))
     $null = & $jkctl ask "echo test" --attach $txtP 2>&1
     Check "ask attach text reaches LLM launch" ($LASTEXITCODE -ne 2) "exit=$LASTEXITCODE (0/1 ok - network dependent)"
+
+    # 14: promote wraps the folder into <name>.jkx (JKX1 magic). The zip
+    # install occupied apps\<name> - use the Remove-Item + reinstall pattern
+    # (same as checks 8-10) before promote+install-from-container.
+    Remove-Item -Recurse -Force (Join-Path $build ("apps\" + $appName)) -ErrorAction SilentlyContinue
+    $jkxPath = Join-Path $work ($appName + ".jkx")
+    $null = & $jkctl promote $appDir 2>&1
+    Check "promote exit ok" ($LASTEXITCODE -eq 0) "exit=$LASTEXITCODE"
+    Check "promote wrote <name>.jkx" (Test-Path $jkxPath) $jkxPath
+    if (Test-Path $jkxPath) {
+        $m4 = New-Object byte[] 4
+        $fs = [IO.File]::OpenRead($jkxPath)
+        $null = $fs.Read($m4, 0, 4); $fs.Close()
+        Check "jkx has JKX1 magic" ([Text.Encoding]::ASCII.GetString($m4) -eq "JKX1") ""
+    }
+    # 15: install from the .jkx lands the tree (staging + manifest validation
+    # + trust pre-record ride the shared InstallFromDir tail)
+    $null = & $jkctl install $jkxPath 2>&1
+    Check "jkx install exit ok" ($LASTEXITCODE -eq 0) "exit=$LASTEXITCODE"
+    Check "jkx install landed in build apps" ((Test-Path (Join-Path $build ("apps\" + $appName + "\manifest.json")))) "installed from .jkx"
+    # 16: trust pre-record fires for the container path too (same cmd fp)
+    $trustTxt2 = ""
+    if (Test-Path $trustP) { $trustTxt2 = Get-Content $trustP -Raw -Encoding UTF8 }
+    $wantFp2 = & $fpOf "main.cmd"
+    Check "jkx trust pre-record" ($trustTxt2 -match [regex]::Escape($wantFp2)) ""
+    # 17: promote honestly rejects a manifest-less directory
+    $emptyDir = Join-Path $work "emptyapp"
+    New-Item -ItemType Directory -Force -Path $emptyDir | Out-Null
+    $null = & $jkctl promote $emptyDir 2>&1
+    Check "promote rejects manifest-less dir" ($LASTEXITCODE -eq 2) "exit=$LASTEXITCODE"
 
     # teardown of the installed copy happens in finally; server-side
     # scan is a restart-time action, so no launcher interaction here.

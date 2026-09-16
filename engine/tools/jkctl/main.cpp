@@ -7,6 +7,7 @@
 // wmain + CreateProcessW: docs/48 CP949 argv 레슨 — UTF-8 프롬프트를
 // cmd.exe std::system으로 넘기면 인코딩이 파손되므로 유니코드 경로로 간다.
 #include <agent/JKAgentClient.h>
+#include <JKJkxFile.h>
 #include <miniz.h>
 #include <miniz_zip.h>
 
@@ -528,14 +529,26 @@ int Pack(const std::string& folder) {
     return 0;
 }
 
-// install — 배포본(zip) 또는 폴더를 apps\<name>\로 설치한다. zip은 zip-slip
-// 방어(절대경로/.. 구성요소 거부) 후 임시 폴더에 언팩 → 공용 설치 경로.
+// install — 배포본(zip/.jkx) 또는 폴더를 apps\<name>\로 설치한다. zip은
+// zip-slip 방어(절대경로/.. 구성요소 거부) 후 임시 폴더에 언팩 → 공용 설치
+// 경로. .jkx(승격 컨테이너)도 동일 규약 — 확장자 없어도 JKX1 매직 스니프.
+int InstallJkx(const std::string& path);
+
 int Install(const std::string& path) {
     std::error_code ec;
     if (std::filesystem::is_directory(path, ec))
         return InstallFromDir(path, false, path);
+    if (path.size() >= 4 && path.substr(path.size() - 4) == ".jkx")
+        return InstallJkx(path);
+    // 확장자 없는 컨테이너도 매직으로 인식 (JKX1 스니프)
+    if (path.size() >= 4) {
+        std::ifstream sniffer(path, std::ios::binary);
+        char m4[4] = {};
+        if (sniffer.read(m4, 4) && std::memcmp(m4, "JKX1", 4) == 0)
+            return InstallJkx(path);
+    }
     if (path.size() < 4 || path.substr(path.size() - 4) != ".zip") {
-        std::fprintf(stderr, "install: pass a console app folder or a .zip package\n");
+        std::fprintf(stderr, "install: pass a console app folder, a .zip package or a .jkx container\n");
         return 2;
     }
 
@@ -611,14 +624,164 @@ int Install(const std::string& path) {
     return irc;
 }
 
+// promote — docs/51 C 후보 잔여 "콘솔 앱 → .jkx 승격(매니페스트→컨테이너
+// 변환)": 콘솔 앱 폴더를 JKX1 컨테이너로 포장한다. pack(<name>.zip)과 같은
+// 배포 역할의 컨테이너 매직 버전 — install이 언팩해 설치한다. 서버 스캔
+// (apps/*.jkx)은 MODL 엔트리 기반이라 이 파일을 런처로 올리지 않는다.
+int Promote(const std::string& folder) {
+    std::error_code ec;
+    if (!std::filesystem::is_directory(folder, ec)) {
+        std::fprintf(stderr, "promote: not a directory: %s\n", folder.c_str());
+        return 2;
+    }
+    std::ifstream in(folder + "\\manifest.json", std::ios::binary);
+    if (!in) {
+        std::fprintf(stderr, "promote: not a console app (missing %s\\manifest.json)\n",
+                     folder.c_str());
+        return 2;
+    }
+    std::string body((std::istreambuf_iterator<char>(in)),
+                     std::istreambuf_iterator<char>());
+    in.close();
+    const std::string name = ManifestString(body, "name");
+    if (!ValidAppName(name)) {
+        std::fprintf(stderr, "promote: bad name '%s' in manifest ([A-Za-z0-9_-] 1..64)\n",
+                     name.c_str());
+        return 2;
+    }
+
+    // 파일 수집 — 매니페스트가 TOC 머리에 오도록 먼저 넣는다(manifest.json
+    // 바이트는 이미 읽은 body에서 만든다; in 스트림은 소진됐다).
+    std::vector<std::pair<std::string, std::vector<uint8_t>>> entries;
+    std::vector<uint8_t> mbytes(body.begin(), body.end());
+    entries.emplace_back("manifest.json", std::move(mbytes));
+    for (auto it = std::filesystem::recursive_directory_iterator(
+             folder, std::filesystem::directory_options::skip_permission_denied, ec);
+         it != std::filesystem::recursive_directory_iterator();
+         it.increment(ec)) {
+        if (ec) break;
+        if (!it->is_regular_file(ec)) continue;
+        std::string rel = std::filesystem::relative(it->path(), folder, ec).string();
+        if (ec) {
+            ec.clear();
+            continue;
+        }
+        if (rel.empty()) continue;
+        std::replace(rel.begin(), rel.end(), '\\', '/');
+        if (rel == "manifest.json") continue;  // 이미 머리에 있음
+        // TOC name 필드는 60B — 초과 항목은 조용히 잘려 컨테이너가 깨진다.
+        if (rel.size() > 59) {
+            std::fprintf(stderr, "promote: entry name too long (max 59): %s\n",
+                         rel.c_str());
+            return 2;
+        }
+        std::ifstream f(it->path().string(), std::ios::binary);
+        std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)),
+                                   std::istreambuf_iterator<char>());
+        entries.emplace_back(rel, std::move(bytes));
+    }
+    if (ec) {
+        std::fprintf(stderr, "promote: walk failed (%s)\n", ec.message().c_str());
+        return 2;
+    }
+    const std::string out = name + ".jkx";
+    if (!jk::JKJkxFile::Write(out, entries)) {
+        std::fprintf(stderr, "promote: cannot write %s\n", out.c_str());
+        return 2;
+    }
+    std::printf("promoted %s (%zu entry(ies))\n"
+                "install with: jkctl install %s\n",
+                out.c_str(), entries.size(), out.c_str());
+    return 0;
+}
+
+// install(.jkx) — 승격 컨테이너 언팩 설치. JKJkxFile::Open이 version/codec
+// 검증을 대신한다(미지원 버전/코덱 거부 — Open 계약). 엔트리 경로는 zip과
+// 동일 unsafe-path 가드(절대/드라이브/'..', '\'도 구분자 — zip-slip 리뷰
+// MAJOR 동일 규약). 스테이징 후 InstallFromDir(공용 꼬리: 검증+trust 선기록).
+int InstallJkx(const std::string& path) {
+    jk::JKJkxFile f;
+    if (!f.Open(path)) {
+        std::fprintf(stderr, "install: not a valid .jkx container: %s\n",
+                     path.c_str());
+        return 2;
+    }
+    std::string base = std::filesystem::path(path).filename().string();
+    if (base.size() >= 4 && base.substr(base.size() - 4) == ".jkx")
+        base.resize(base.size() - 4);
+    const std::string tmp = ExeDirA() + "tmp\\install_" + base;
+    std::error_code ec;
+    std::filesystem::remove_all(tmp, ec);
+    std::filesystem::create_directories(tmp, ec);
+    if (ec) {
+        std::fprintf(stderr, "install: cannot stage %s (%s)\n", tmp.c_str(),
+                     ec.message().c_str());
+        return 2;
+    }
+    int rc = 0;
+    for (const jk::JKJkxFile::Entry& e : f.Entries()) {
+        const std::string nm = e.name;
+        // zip 설치와 동일 규칙 — 컨테이너는 자체 도구가 만들지만 방어는 공짜다.
+        bool unsafe = nm.empty() || nm[0] == '/' || nm[0] == '\\' ||
+                      (nm.size() >= 2 && nm[1] == ':');
+        for (size_t p = 0; !unsafe && p + 1 < nm.size(); ++p) {
+            if (nm[p] == '.' && nm[p + 1] == '.' &&
+                (p == 0 || nm[p - 1] == '/' || nm[p - 1] == '\\') &&
+                (p + 2 >= nm.size() || nm[p + 2] == '/' || nm[p + 2] == '\\'))
+                unsafe = true;
+        }
+        if (unsafe) {
+            std::fprintf(stderr, "install: unsafe container entry: %s\n",
+                         nm.c_str());
+            rc = 2;
+            break;
+        }
+        std::vector<uint8_t> bytes;
+        if (!f.ReadEntry(f.FindEntry(nullptr, nm), bytes)) {
+            std::fprintf(stderr, "install: extract failed: %s\n", nm.c_str());
+            rc = 2;
+            break;
+        }
+        std::string outPath = tmp + "\\" + nm;
+        std::replace(outPath.begin(), outPath.end(), '/', '\\');
+        std::filesystem::create_directories(
+            std::filesystem::path(outPath).parent_path(), ec);
+        std::ofstream out(outPath, std::ios::binary);
+        if (!out || ec) {
+            std::fprintf(stderr, "install: cannot write: %s\n", outPath.c_str());
+            rc = 2;
+            break;
+        }
+        out.write(reinterpret_cast<const char*>(bytes.data()),
+                  static_cast<std::streamsize>(bytes.size()));
+        if (!out) {
+            std::fprintf(stderr, "install: write failed: %s\n", outPath.c_str());
+            rc = 2;
+            break;
+        }
+    }
+    if (rc != 0) {
+        std::error_code cec;
+        std::filesystem::remove_all(tmp, cec);
+        return rc;
+    }
+    const int irc = InstallFromDir(tmp, true, path);
+    if (irc != 0) {
+        // 거부 시에도 스테이징 잔여를 남기지 않는다(zip 경로 동일 규약).
+        std::error_code cec;
+        std::filesystem::remove_all(tmp, cec);
+    }
+    return irc;
+}
+
 } // namespace
 
 int wmain(int argc, wchar_t* argv[]) {
     if (argc < 3) {
         std::fprintf(stderr,
                      "usage: jkctl notify \"<msg>\" | agent '<json>' | ask \"<q>\" [--attach <file>]...\n"
-                     "       jkctl init \"<name>\" | pack \"<folder>\"\n"
-                     "       jkctl install \"<folder-or-package.zip>\"\n");
+                     "       jkctl init \"<name>\" | pack \"<folder>\" | promote \"<folder>\"\n"
+                     "       jkctl install \"<folder-or-package.zip-or-.jkx>\"\n");
         return 2;
     }
     // argv를 UTF-8로 정규화 (docs/48 레슨 — 이후 모든 처리는 UTF-8).
@@ -660,6 +823,7 @@ int wmain(int argc, wchar_t* argv[]) {
     }
     if (sub == "init") return Init(a2);
     if (sub == "pack") return Pack(a2);
+    if (sub == "promote") return Promote(a2);
     if (sub == "install") return Install(a2);
     std::fprintf(stderr, "unknown subcommand: %s\n", a1);
     return 2;
