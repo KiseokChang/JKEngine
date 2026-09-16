@@ -231,7 +231,7 @@ probe_agent_triggerctl, probe_agent_chat(승인 스트립에 permission_set 렌�
 | permissions.json 파손(수동 편집) | agent_permissions가 permissions_unreadable로 구분, RMW는 유효 키 전재기록으로 복구 효과 |
 | HandleAgentQuery 내 재획득 데드락 | 도구 구현은 락 프리 (lesson 35, Unsafe 관용구) |
 | receipts에 민감 args 노출 | read_receipts는 ts/tool/ok만 반환 |
-| approve 도구의 self-approve(요청자가 자기 파킹을 해소) | **서버 게이트로 봉쇄 완료 (2026-09-17 leftovers)** — 승인 파이프라인 approve 분기에서 requesterId == 연결 자신이고 kind가 permission_set/trust_revoke면 `{"ok":false,"error":"self_approve"}` 즉답. close_window는 예외: ask 모드에서 채팅 자신의 /close를 자기 승인 스트립으로 해소하는 건 docs/31 §3의 설계 UX. probe_approve_self.ps1 5체크 (a75f05e) |
+| approve 도구의 self-approve(요청자가 자기 파킹을 해소) | **서버 게이트로 봉쇄 (2026-09-17 leftovers, opus 재판정 M1 반전)** — approve 분기에서 requesterId == 연결 자신이고 kind != close_window면 `{"ok":false,"error":"self_approve"}` 즉답(전종 봉쇄). close_window만 예외: ask 모드에서 채팅 자신의 /close를 자기 승인 스트립으로 해소하는 건 docs/31 §3의 설계 UX. probe_approve_self.ps1 7체크 — permission_set+trust_request 자기거부 (a75f05e). **잔여(2연결, 문서화된 수용)**: 파킹이 요청자 단절에 생존하고 승인 부작용은 요청자 생존과 무관히 실행되므로, 요청 후 별도 연결(예: jkctl agent 2회)에서 approve하면 봉쇄를 관통한다. 연결 상태 아는 표면(채팅)만 승인하는 설계 성격상 남는 잔여 |
 
 ## 8. 구현 표기 (완료 시 기입)
 

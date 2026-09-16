@@ -126,7 +126,7 @@
   레슨 준수, manifest `cmd`를 `main.cmd`로), `build_with_temp.sh`가
   `templates/console-app`을 런타임 루트로 동기화(`/.` 중첩 방지 복사).
   jkctl init은 `<cwd>\<name>\` 생성 + `"myapp"` 토큰 치환, 이름은
-  `[A-Za-z0-9_-]{1,64}` 검증. (누적 계수는 C 후보末 23/23 참조)
+  `[A-Za-z0-9_-]{1,64}` 검증. (누적 계수는 C 후보末 27/27 참조)
 - 패키지 매니저 — 콘솔 앱 폴더의 zip 배포 + trust 지문 검증 설치
   **→ 2026-09-16 폴더 MVP 완료: `jkctl install <folder>`** — manifest.json의
   `"name"` 문자열 스캔 → `<exeDir>\apps\<name>\` 재귀 복사, 기존 설치 거부.
@@ -140,7 +140,7 @@
   trust 지문 선기록 — manifest cmd의 SHA-256 = 서버 ConsoleAppFingerprint와
   동일 규약, 스플라이스는 배열 머리 삽입(빈 배열/공백 경계 처리; 쉼표 누락
   시 fail-closed 서버가 절대 못 고치는 실측 결함 픽스 포함). 매니페스트
-  상한 1MiB = 서버 kMaxManifestBytes 동일. (누적 계수는 C 후보末 23/23 참조)
+  상한 1MiB = 서버 kMaxManifestBytes 동일. (누적 계수는 C 후보末 27/27 참조)
   주의: 선기록 source는 "user" — zip 파생 지문이지만 현행 trust는 표시
   이상의 역할이 없어(run_console_app은 승인 시점 재조회) 안전 실패 설계.
 - 샘플 라인업 — Python/Rust/Go 예제 + jkctl agent 실전 예제
@@ -162,7 +162,7 @@
   install은 .jkx 확장자/매직 스니프 분기 → JKJkxFile::Open(버전/코덱 검증)
   → tmp 스테이징 → zip과 동일 unsafe-경로 가드('\.' 포함) → 공통
   InstallFromDir 꼬리(trust 선기록 포함). probe_jkctl_init 14-17 →
-  **23/23 ALL PASS**.
+  **27/27 ALL PASS**.
 
 ## 검증 요약
 

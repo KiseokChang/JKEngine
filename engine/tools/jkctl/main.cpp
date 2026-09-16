@@ -125,8 +125,14 @@ int Ask(const AskRequest& req) {
             std::fprintf(stderr, "ask: cannot read attachment: %s\n", p.c_str());
             return 2;
         }
-        std::string raw((std::istreambuf_iterator<char>(in)),
-                        std::istreambuf_iterator<char>());
+        // 경계 읽기(opus 최종리뷰 m4): 컷이 16KiB라도 전체 파일을 버퍼에
+        // 읽으면 수 GB 첨부가 통째로 버퍼링된다. 256KiB만 읽는다 — 바이너리
+        // 판별(NUL)은 이 창 안에서 하고, 그 너머의 NUL은 절단 이후라 모델
+        // 입력에 도달하지 않는다(수용된 휴리스틱).
+        std::vector<char> chunk(256 * 1024 + 1);
+        in.read(chunk.data(), 256 * 1024);
+        std::string raw(chunk.data(),
+                        static_cast<size_t>(in.gcount() > 0 ? in.gcount() : 0));
         if (raw.size() > 16 * 1024) {
             // UTF-8 연속 바이트(0x80-0xBF)에서 물러나 잘라낸다 — 절단이
             // 멀티바이트 문자 중간에 끊기면 모델 입력에 FFFD 파손이 온다.
@@ -161,7 +167,11 @@ int Ask(const AskRequest& req) {
                 if (u8len > 0)
                     WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1, &u8[0],
                                         u8len, nullptr, nullptr);
-                raw = u8;
+                // -1 경유 재인코딩은 종료 NUL을 u8에 남긴다(opus 최종리뷰
+                // M2): 뒤 첨부 블록이 프롬프트에서 통째로 사라진다(Utf8ToWide
+                // -1이 첫 NUL에서 끊음 — 조용한 절단). NUL 떼고 이어간다.
+                raw.assign(u8, 0, u8len > 0 ? static_cast<size_t>(u8len) - 1
+                                            : 0);
             }
         }
         std::string base = p;
@@ -791,13 +801,38 @@ int wmain(int argc, wchar_t* argv[]) {
     WideCharToMultiByte(CP_UTF8, 0, argv[2], -1, a2, sizeof(a2), nullptr, nullptr);
 
     const std::string sub = a1;
+    if (sub.empty() && argv[1] && argv[1][0]) {
+        // 정규화 실패(길이 초과/무효 유니코드)를 조용한 빈 서브커맨드로
+        // 통과시키지 않는다(opus 최종리뷰 m5 — 잘린 인자가 엉뚱한
+        // 프롬프트/서브커맨드로 보내지는 것보다 즉시 거부가 낫다).
+        std::fprintf(stderr, "jkctl: argument too long or invalid UTF-16\n");
+        return 2;
+    }
+    // a2 정규화 검사(m5): 잘림이 있으면 usage 오류로 종료 — 조용한 절단 금지.
+    {
+        const int need = WideCharToMultiByte(
+            CP_UTF8, 0, argv[2], -1, nullptr, 0, nullptr, nullptr);
+        const int got = static_cast<int>(std::strlen(a2)) + 1;
+        if (need == 0 || got < need) {
+            std::fprintf(stderr, "jkctl: argument too long or invalid UTF-16\n");
+            return 2;
+        }
+    }
     if (sub == "notify") return Notify(a2);
     if (sub == "agent") return Agent(a2);
     if (sub == "ask") {
         AskRequest req;
         for (int i = 2; i < argc; ++i) {
             char a8[1024] = {};
-            WideCharToMultiByte(CP_UTF8, 0, argv[i], -1, a8, sizeof(a8) - 1,
+            const int need = WideCharToMultiByte(
+                CP_UTF8, 0, argv[i], -1, nullptr, 0, nullptr, nullptr);
+            if (need == 0 || need > static_cast<int>(sizeof(a8))) {
+                // 잘림 대신 즉시 거부(m5) — 잘린 질문이 모델로 가지 않는다.
+                std::fprintf(stderr,
+                             "ask: argument too long or invalid UTF-16\n");
+                return 2;
+            }
+            WideCharToMultiByte(CP_UTF8, 0, argv[i], -1, a8, sizeof(a8),
                                 nullptr, nullptr);
             if (std::strcmp(a8, "--attach") == 0) {
                 if (i + 1 >= argc) {
@@ -805,8 +840,15 @@ int wmain(int argc, wchar_t* argv[]) {
                     return 2;
                 }
                 char p8[1024] = {};
-                WideCharToMultiByte(CP_UTF8, 0, argv[++i], -1, p8,
-                                    sizeof(p8) - 1, nullptr, nullptr);
+                const int pNeed = WideCharToMultiByte(
+                    CP_UTF8, 0, argv[++i], -1, nullptr, 0, nullptr, nullptr);
+                if (pNeed == 0 || pNeed > static_cast<int>(sizeof(p8))) {
+                    std::fprintf(stderr,
+                                 "ask: attach path too long or invalid UTF-16\n");
+                    return 2;
+                }
+                WideCharToMultiByte(CP_UTF8, 0, argv[i], -1, p8,
+                                    sizeof(p8), nullptr, nullptr);
                 req.attaches.push_back(p8);
             } else if (req.question.empty()) {
                 req.question = a8;

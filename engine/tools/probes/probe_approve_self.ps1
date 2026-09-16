@@ -4,6 +4,8 @@
 # from the SAME connection -> expect {"ok":false,"error":"self_approve"}.
 # A second approve from agentctl (different connection) must still resolve
 # it and the parked reply must land on the raw connection (regression).
+# Checks 6-7 (opus final-review M1): the gate exempts ONLY close_window —
+# a trust_request parked from the same connection must also be rejected.
 # Wire format (JKWireProtocol): 12B header {magic 0x4A4B0001, type, length}
 # + payload. AgentQuery payload = queryId(4)+jsonLen(4)+json. AgentReply
 # payload = queryId(4)+ok(4)+jsonLen(4)+json. AgentEvent payload =
@@ -156,6 +158,36 @@ try {
     #     surface path — the self-approve rejection must not have side effects)
     $fraw = Get-Content $permFile -Raw -ErrorAction SilentlyContinue
     Check "5-file" ($fraw -match '"close_window":"allow"') "RMW wrote the file"
+
+    # --- 6. trust_request self-approve (opus M1 kind-coverage: the gate
+    #     exempts only close_window — a synthetic-format fingerprint parks
+    #     without any trust.json seeding, its own subscription satisfies
+    #     approval_unavailable, and the same connection must NOT resolve it)
+    $synFp = "sha256:" + ((1..64 | ForEach-Object { "0123456789abcdef"[[int]($_ % 16)] }) -join "")
+    SendQuery $pipe 3 ('{"tool":"trust_request","args":{"name":"approve_self_probe","origin":"dev","fingerprint":"' + $synFp + '"}}')
+    $reqId6 = 0
+    foreach ($i in 1..20) {
+        $f = ReadFrame $pipe
+        if ($f.type -ne 20) { ReadPayloadBytes $pipe $f.len | Out-Null; continue }
+        $pl = ReadPayloadBytes $pipe $f.len
+        $ev = [Text.Encoding]::UTF8.GetString($pl, 4, $pl.Length - 4)
+        $rid = 0
+        if ($ev -match '"request":(\d+)') { $rid = [int]$Matches[1] }
+        if ($rid -gt 0 -and $ev -match '"kind":"trust_request"') { $reqId6 = $rid; break }
+    }
+    Check "6-trust-request-parked" ($reqId6 -gt 0) ("request=" + $reqId6)
+    SendQuery $pipe 4 ('{"tool":"approve","args":{"request":' + $reqId6 + ',"decision":"allow"}}')
+    $gotSelf6 = $false
+    foreach ($i in 1..10) {
+        $f = ReadFrame $pipe
+        if ($f.type -ne 18) { ReadPayloadBytes $pipe $f.len | Out-Null; continue }
+        $pl = ReadPayloadBytes $pipe $f.len
+        $qid = [BitConverter]::ToUInt32($pl, 0)
+        $jlen = [BitConverter]::ToUInt32($pl, 8)
+        $reply = [Text.Encoding]::UTF8.GetString($pl, 12, $jlen)
+        if ($qid -eq 4) { $gotSelf6 = ($reply -match 'self_approve'); break }
+    }
+    Check "7-trust-request-self-approve-rejected" $gotSelf6 "expect self_approve"
 
     $pipe.Close()
 } catch {

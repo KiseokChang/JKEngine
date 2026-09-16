@@ -140,21 +140,52 @@ docs/superpowers/plans/2026-09-17-agentmgr-sdk-leftovers.md):
   if (!open) return;` (f91a677). NoDecoration/NoMove로 close 불가라 도달 불가지만
   계약 준수로 봉합.
 - WritePermissionsEntry 4KB 상한: fseek/ftell 전체 읽기 + 256KiB 캡, AgentJson
-  파싱. 캡 초과는 파싱 실패 → bad_target 자기치유. trust_revoke의 기록/분기
-  존재 2개 사이트도 8MiB 캡 전체 읽기(초과는 not_found 정직 반환) (c930532).
-  프로브로 고정: probe_agentmgr 3d(4KB+ 시드 JSON, close_window:allow 판별키)
-  ·5c-5e(999 레코드 + 64KB 초과 tail, approve E2E) → 21/21.
+  파싱. 캡 초과는 잘린 JSON 파싱 실패 → 전재기록이 기본값으로 복원하는 RMW
+  자기치유(알려진 키만 기록). trust_revoke의 기록/분기 존재 2개 사이트도
+  8MiB 캡 전체 읽기(초과/읽기 미달은 스플라이스 보류 + 정직 not_found —
+  opus 재판정 m3) (c930532). 프로브로 고정: probe_agentmgr 3d(4KB+ 시드
+  JSON, close_window:allow 판별키)·5c-5e(999 레코드 + 64KB 초과 tail,
+  approve E2E) → 21/21.
 - approve self-approve 룰링 (spec §7): 파킹을 requesterId 자기 연결에서
-  approve하면 승인 없는 허가 — permission_set/trust_revoke만 봉쇄
+  approve하면 승인 없는 허가 — 봉쇄 예외는 close_window뿐
   (`{"ok":false,"error":"self_approve"}`). close_window는 예외: ask 모드에서
   채팅 자신의 /close를 자기 승인 스트립으로 해소하는 건 docs/31 §3의 설계 UX.
-  probe_approve_self.ps1 5체크(1-parked/2-자기거부/3-cross-approve/4-파킹
-  답신/5-파일) (a75f05e). jkctl은 승인 연결이 없어 2회 잔여 없음 — 룰링은
-  서버 게이트로 해소됨.
+  (opus 최종리뷰 M1 교정: 처음에는 permission_set/trust_revoke 2종만
+  봉쇄했으나 trust_request/run_console_app 파킹이 같은 우회를 남긴다 —
+  지문 선기록/스폰이 자기 승인으로 관통. 전종 봉쇄로 반전.) probe_approve_self
+  7체크(1-parked/2-자기거부/3-cross-approve/4-파킹 답신/5-파일/
+  6-trust_request 파킹/7-trust_request 자기거부) (a75f05e).
+  **잔여(2연결)**: 파킹은 요청자 단절에 생존하고 승인 부작용은 요청자 생존과
+  무관히 실행되므로, `jkctl agent '{"tool":"permission_set",...}'` 후 별도
+  연결에서 `jkctl agent '{"tool":"approve",...}'`를 한 번 더 치면 자기
+  승인에 성공한다. 1회성 원컷 CLI는 승인 개념이 없어 봉쇄 불가 — 잔여로
+  명시(spec §7 동일 기술). 연결 상태를 알 수 있는 표면만 승인 가능하다는
+  룰링의 성격상 남는다.
 - jkchat 단일 승인 스트립(선존 M2): ApprovalUi 큐(f31e424) — 요청 도착 시
   front 표시, 나머지 큐잉(`[대기] 승인 요청 #N` 로그), resolved 시 front
   회전 또는 큐에서 제거. docs/31 self-close 흐름 보존.
 
 픽스 후 회귀 전부 PASS: jkdesktop test 0, jkagentd --selftest 0,
-probe_approve_self 5/5, probe_agentmgr 21/21, probe_agent_chat PASS,
-probe_agent_trust PASS, probe_jkctl_init 23/23 ALL PASS.
+probe_approve_self 7/7, probe_agentmgr 21/21, probe_agent_chat PASS,
+probe_agent_trust PASS, probe_jkctl_init 27/27 ALL PASS.
+
+## 10. 최종리뷰 재판정 (opus, 2026-09-17 leftovers)
+
+**VERDICT: FIX REQUIRED → 전부 픽스.** MAJOR 2건: (M1) self-approve 게이트
+kind 커버리지 — permission_set/trust_revoke 2종 한정은 trust_request/
+run_console_app 우회를 남김 → close_window만 예외로 반전 + probe 6-7.
+(M2) jkctl --attach CP949 재인코딩이 종료 NUL을 남겨 뒤 첨부 블록이
+조용히 잘림 → NUL 떼고 이어감. MINOR 5건: (m1) probe_jkctl_init 16번이
+같은 지문이라 false-pass → jkx 설치 전 지문 소거로 진판별 (체크 27개로
+실측, 문서 계수 정정). (m2) §9 "jkctl 2회 잔여 없음"은 오기 — 파킹이
+요청자 단절에 생존하므로 2연결 잔여가 실존(위 룰링 절에 정정). (m3)
+RevokeTrustRecord가 잘린 접두어를 되돌려 쓰면 상한 너머 레코드 파괴 →
+8MiB 초과/읽기 미달 시 스플라이스 보류 + 정직 not_found. (m4) --attach가
+전체 파일을 버퍼링 → 256KiB 경계 읽기. (m5) argv 정규화 무검증 잘림 →
+사전 길이 검사+즉시 거부. 부수(n3): WritePermissionsEntry ftell 실패 시
+RMW 파괴 → permissions_unreadable 반환. NON-BLOCKING 관찰: 첨부 본문의
+`\` 직전 `"` 인용 조기종료(수용 — 로컬 CLI 주입 모델), CP949 절단
+쌍바이트 모지바케 1자(수용), permissions.json ftell 실패 경로 제외
+상한초과 RMW는 .bak 없는 기본값 복원(문서화된 자기치유), GUI .jkx 설치
+오류 메시지 중복 컨테이너 TOC 중복명 첫 페이로드 승(자가생성 컨테이너,
+수용).

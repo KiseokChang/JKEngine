@@ -37,8 +37,8 @@
 
 **설계 룰링 (스펙 §7 권장의 축소 적용 — 컨트롤러 결정, 스펙 ledger 기록):**
 - 검사를 **모든 kind에 적용하면 jkchat의 설계된 UX가 깨진다**: ask 모드에서 채팅 자신의 `/close`는 파킹되고 채팅 자신의 스트립이 해소한다(docs/31 §3 — non-blocking 채팅의 존재 이유). 요청자=호출자인 legit 승인은 close_window뿐이다.
-- 따라서 **permission_set/trust_revoke에만** self-approve를 봉쇄한다. 이 두 kind의 파킹 요청자(agentmgr 앱/jkagentd)가 스스로 approve를 보낼 legit 경로는 오늘도 없다 — 위반만 막고 기존 흐름은 무손상.
-- 잔여 위험(기록): 콘솔 앱이 jkctl agent 2회로 park+approve하는 경로는 여전히 열려 있다(다른 연결이므로). docs/38 룰링과 동일한 위협 모델 — 같은 머신 신뢰 스크립트는 자기 예산을 회피할 수 있다. 스펙 §7에 잔여로 명시.
+- **[opus 최종리뷰 M1으로 반전]** 위 축소 적용(permission_set/trust_revoke 2종 한정)은 **틀린 전제였다** — trust_request/run_console_app 파킹도 같은 우회를 남긴다(자기 구독으로 승인 불가 상태를 스스로 해소 → 지문 선기록/스폰 관통). 실행 세션에서 2종만 봉쇄했으나 재판정 후 **close_window만 예외로 전종 봉쇄**로 수정. 위 룰링 3줄은 최초 판단 기록으로 남기고 as-built는 docs/53 §9-§10 + 스펙 §7.
+- 잔여 위험(기록): 콘솔 앱이 jkctl agent 2회로 park+approve하는 경로는 여전히 열려 있다(다른 연결이므로 — 파킹은 요청자 단절에 생존). docs/38 룰링과 동일한 위협 모델 — 같은 머신 신뢰 스크립트는 자기 예산을 회피할 수 있다. 스펙 §7에 잔여로 명시.
 
 - [x] **Step 1: 서버 approve 브랜치에 게이트 추가**
 
@@ -955,8 +955,22 @@ powershell -ExecutionPolicy Bypass -File probe_agent_trust.ps1
 powershell -ExecutionPolicy Bypass -File probe_jkctl_init.ps1                  # 확장판 ALL PASS
 ```
 
-- [x] **Step 2: docs/53 §9 갱신** — NON-BLOCKING 4항목 상태 표기: End 짝(픽스)/4KB·64KB 캡(픽스+프로브 3d·5c-5e)/단일 스트립(큐, docs/31 self-close 흐름 보존)/approve self-approve(루링: permission_set/trust_revoke만 봉쇄, close_window 예외 사유, jkctl 2회 잔여 명시).
+- [x] **Step 2: docs/53 §9 갱신** — NON-BLOCKING 4항목 상태 표기: End 짝(픽스)/4KB·64KB 캡(픽스+프로브 3d·5c-5e)/단일 스트립(큐, docs/31 self-close 흐름 보존)/approve self-approve(루링: **close_window만 예외로 전종 봉쇄** — opus 재판정 M1 반전, 예외 사유, 2연결 잔여 명시).
 - [x] **Step 3: docs/51 C 후복 절** — `--attach`(텍스트 첨부 구현, 16KiB/CP949/30000 가드)와 승격 도구(`promote`/`install .jkx`)를 완료 표기 + probe_jkctl_init 체크 수 갱신.
 - [x] **Step 4: 스펙 ledger** — agent-manager 스펙 §7 표의 approve 행에 룰링 기입; p4-sdk 스펙 §4에 --attach as-built 표기.
 - [x] **Step 5: 메모리 동기화** — `killer_app_absorption.md`의 "★다음 세션 실행 지시" 갱신(잔여 레저 소각, 눈확인 항목 유지, 새 잔여 = jkctl 2회 self-approve 잔여만) + `MEMORY.md` 훅 라인 갱신.
 - [x] **Step 6: 최종리뷰(opus) 준비** — 전체 커밋 diff + 신규 probe 결과를 리뷰어에게 전달(사용자 상임 관례). 리뷰 픽스가 나오면 반영 커밋.
+## Task 8 (실행 중 발생): opus 최종리뷰 픽스 (2026-09-17)
+
+재판정 **FIX REQUIRED** — MAJOR 2 + MINOR 5 전부 반영:
+- M1 게이트 반전: close_window만 예외(close_window 제외 전종 봉쇄). probe_approve_self +2체크(trust_request 파킹/자기거부) → 7체크.
+- M2 CP949 재인코딩 종료 NUL → NUL 떼고 이어감(u8len-1).
+- m1 probe_jkctl_init 16번 지문 소거 후 재삽입 진판별. 체크 실측 27개 — 문서 계수 23/23→27/27 정정.
+- m3 RevokeTrustRecord: 8MiB 초과/읽기 미달 시 스플라이스 보류 + 정직 not_found(잘린 접두어 되돌려 쓰기 금지).
+- m4 --attach 경계 읽기 256KiB(전체 버퍼링 제거).
+- m5 argv 정규화 사전 길이 검사(a1/a2/ask args/attach path) + 즉시 거부.
+- n3 WritePermissionsEntry ftell<0 → permissions_unreadable.
+- m2/n7 문서 정정: docs/53 §9 "2회 잔여 없음" 오기 교정(잔여 실존), §10 재판정 절 신설.
+
+재실행 회귀: jkdesktop test 0 / jkagentd selftest 0 / approve_self 7/7 /
+agentmgr 21/21 / chat PASS / trust PASS / jkctl_init 27/27.

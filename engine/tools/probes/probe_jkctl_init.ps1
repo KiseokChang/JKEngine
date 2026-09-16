@@ -149,15 +149,34 @@ try {
         Check "jkx has JKX1 magic" ([Text.Encoding]::ASCII.GetString($m4) -eq "JKX1") ""
     }
     # 15: install from the .jkx lands the tree (staging + manifest validation
-    # + trust pre-record ride the shared InstallFromDir tail)
+    # + trust pre-record ride the shared InstallFromDir tail).
+    # The zip install (checks 8-10) already spliced the SAME fingerprint
+    # ("main.cmd" - every init'd app shares it), so check 16 below would
+    # false-pass even if InstallJkx never called TrustPreRecord (opus
+    # final-review m1). Purge the probe's fingerprint records first: the
+    # probe owns its own fp (teardown restores it if it pre-existed), so the
+    # post-install presence is a genuine record of the .jkx path's splice.
+    $fpBeforeJkx = & $fpOf "main.cmd"
+    if (Test-Path $trustP) {
+        try {
+            $obj = Get-Content $trustP -Raw | ConvertFrom-Json
+            $kept = @($obj.records | Where-Object {
+                $_.fingerprint -ne ("sha256:" + $fpBeforeJkx) })
+            if ($kept.Count -eq 0) {
+                [IO.File]::WriteAllText($trustP, '{"records":[]}')
+            } else {
+                $obj.records = $kept
+                [IO.File]::WriteAllText($trustP, (ConvertTo-Json $obj -Depth 5 -Compress))
+            }
+        } catch {}
+    }
     $null = & $jkctl install $jkxPath 2>&1
     Check "jkx install exit ok" ($LASTEXITCODE -eq 0) "exit=$LASTEXITCODE"
     Check "jkx install landed in build apps" ((Test-Path (Join-Path $build ("apps\" + $appName + "\manifest.json")))) "installed from .jkx"
     # 16: trust pre-record fires for the container path too (same cmd fp)
     $trustTxt2 = ""
     if (Test-Path $trustP) { $trustTxt2 = Get-Content $trustP -Raw -Encoding UTF8 }
-    $wantFp2 = & $fpOf "main.cmd"
-    Check "jkx trust pre-record" ($trustTxt2 -match [regex]::Escape($wantFp2)) ""
+    Check "jkx trust pre-record" ($trustTxt2 -match [regex]::Escape($fpBeforeJkx)) "fp purged before the jkx install"
     # 17: promote honestly rejects a manifest-less directory
     $emptyDir = Join-Path $work "emptyapp"
     New-Item -ItemType Directory -Force -Path $emptyDir | Out-Null

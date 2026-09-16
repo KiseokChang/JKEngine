@@ -1678,6 +1678,13 @@ static std::string WritePermissionsEntry(const std::string& permTool,
         // 기본값으로 복원한다(자기 치유, 알려진 키만 기록되는 RMW 원래 의미).
         std::fseek(f, 0, SEEK_END);
         const long sz = std::ftell(f);
+        if (sz < 0) {
+            // ftell 실패에도 RMW를 진행하면 기존 파일 전체가 기본값으로
+            // 되돌려진다(opus 최종리뷰 n3) — 지문 없는 not-found RMW보다
+            // 나은 정직 오류로 파킹 전 즉답 경로에 표면화한다.
+            std::fclose(f);
+            return "permissions_unreadable";
+        }
         std::fseek(f, 0, SEEK_SET);
         if (sz > 0) {
             const size_t cap =
@@ -1758,16 +1765,21 @@ static std::string RevokeTrustRecord(const std::string& fingerprint) {
     std::FILE* f = std::fopen(path.c_str(), "rb");
     if (!f) return "trust_store_unreadable";
     // 전체 읽기 (docs/53 §9 잔여): 64KB 캡은 장기 설치의 스토어에서 뒤쪽
-    // 레코드를 not_found로 미끄러뜨린다. 8MiB 상한 = 이상 파일 가드;
-    // 초과분의 레코드는 여전히 not_found(정직한 오류 — 잘림 조용 통과 아님).
+    // 레코드를 not_found로 미끄러뜨린다. 8MiB 상한 = 이상 파일 가드.
+    // 상한 초과/읽기 미달(stale write 중 등)에는 스플라이스를 하지 않는다 —
+    // 잘린 접두어를 되돌려 쓰면 상한 너머의 레코드가 파괴되고 .bak도 잘린
+    // 원본이라 복구 불가(opus 최종리뷰 m3). 정직한 not_found 반환.
     std::fseek(f, 0, SEEK_END);
     const long sz = std::ftell(f);
+    if (sz < 0) { std::fclose(f); return "trust_store_unreadable"; }
     std::fseek(f, 0, SEEK_SET);
-    const size_t cap = sz > 0
-        ? std::min<size_t>(static_cast<size_t>(sz), 8u * 1024 * 1024) : 0;
+    const size_t tsz = static_cast<size_t>(sz);
+    const bool overCap = tsz > 8u * 1024 * 1024;
+    const size_t cap = overCap ? 8u * 1024 * 1024 : tsz;
     std::vector<char> buf(cap + 1, '\0');
     const size_t n = std::fread(buf.data(), 1, cap, f);
     std::fclose(f);
+    if (overCap || n < cap) return "not_found";
     buf[n] = '\0';
     const std::string text(buf.data());
 
@@ -2912,14 +2924,16 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
              it != pendingApprovals_.end(); ++it) {
             if (it->requestId != static_cast<uint32_t>(request)) continue;
             // 승인 파이프라인의 2단 우회 봉쇄(스펙 §7 리뷰 후속): 파킹을
-            // 자기 연결에서 approve하면 승인 없는 허가가 된다. close_window는
-            // 예외 — ask 모드에서 채팅 자신의 /close를 자기 승인 스트립으로
-            // 해소하는 것은 docs/31 §3의 설계된 UX다(non-blocking 채팅의
-            // 존재 이유). permission_set/trust_revoke에는 legit
+            // 자기 연결에서 approve하면 승인 없는 허가가 된다. kind를
+            // 2종(permission_set/trust_revoke)으로 한정하면 trust_request/
+            // run_console_app 파킹이 우회를 남긴다(opus 최종리뷰 M1 — 자기
+            // 구독으로 승인 불가 상태를 스스로 해소해 지문 선기록/스폰이
+            // 그대로 관통). close_window만 예외 — ask 모드에서 채팅 자신의
+            // /close를 자기 승인 스트립으로 해소하는 것은 docs/31 §3의 설계된
+            // UX다(non-blocking 채팅의 존재 이유). 나머지 전종에는 legit
             // 요청자-자체승인 경로가 없다. 파킹은 건드리지 않는다 — 다른
             // 표면(채팅)의 승인은 여전히 가능하다.
-            if (it->requesterId == client.Id() &&
-                (it->kind == "permission_set" || it->kind == "trust_revoke")) {
+            if (it->requesterId == client.Id() && it->kind != "close_window") {
                 selfApprove = true;
                 break;
             }
