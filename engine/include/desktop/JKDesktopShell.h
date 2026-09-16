@@ -6,6 +6,7 @@
 
 #include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace jk {
@@ -59,6 +60,12 @@ public:
     // run_console_app 도구가 재사용한다.
     bool ConsoleAppInfo(const std::string& name, std::string& cmd,
                         std::string& dir, std::string& fingerprint) const;
+
+    // 에이전트 관리자 (specs/2026-09-16-agent-manager §2.4): 설치 앱의
+    // 이름/kind 열람. kind = "console"(consoleCmd 비지 않음) | "jkx" |
+    // "builtin". cmd/지문은 run_console_app 승인 경로의 관심사 — 최소 노출.
+    void ListInstalled(
+        std::vector<std::pair<std::string, const char*>>& out) const;
 
 private:
     struct LauncherIcon {

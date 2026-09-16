@@ -1624,6 +1624,39 @@ void JKWindowServer::PushWindowListUnsafe() {
     }
 }
 
+// 권한 매트릭스의 행 — 게이트 소비처별 정직 표기 (스펙 §2.1). 서버는
+// AgentToolAllowed를 3종(+신규 2종)에서만 검사하고 브로커 bool 맵이 MCP
+// 경로만 걸러낸다. "none" 행의 파일값은 서버 경로에서 무력.
+struct AgentPermRow { const char* tool; const char* gate; const char* deflt; };
+static const AgentPermRow kPermMatrix[] = {
+    {"close_window", "server", "deny"},
+    {"trust_request", "server", "ask"},
+    {"run_console_app", "server", "ask"},
+    {"trust_revoke", "server", "ask"},
+    {"permission_set", "server(fixed)", "ask"},
+    {"read_log", "broker", "allow"},
+    {"read_events", "broker", "allow"},
+    {"terminal_exec", "broker", "allow"},
+    {"list_windows", "none", "allow"},
+    {"focus_window", "none", "allow"},
+    {"launch_app", "none", "allow"},
+    {"save_layout", "none", "allow"},
+    {"restore_layout", "none", "allow"},
+    {"publish_event", "none", "allow"},
+    {"capture_window", "none", "allow"},
+    {"capture_region", "none", "allow"},
+    {"trigger_toggle", "none", "allow"},
+    {"theme_set", "none", "allow"},
+    {"open_notify", "none", "allow"},
+    {"launch_chat", "none", "allow"},
+    {"approve", "none", "allow"},
+    {"file_open", "none", "allow"},
+    {"file_dialog_params", "none", "allow"},
+    {"agent_permissions", "none", "allow"},
+    {"installed_list", "none", "allow"},
+    {"read_receipts", "none", "allow"},
+};
+
 // Desktop Agent API (spec §3): normally answers at once — the agent client
 // blocks on ReadMessage waiting for the reply with the matching queryId.
 // Exception (M2 chat): an "ask"-gated close_window parks its query and replies
@@ -2087,7 +2120,12 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
     } else if (tool == "capture_window") {
         // docs/35: read the client's shm surface (RGBA32) directly — the
         // app framebuffer, no screen DPI involvement. Safe tier (same as
-        // launch_app); permissions.json can deny "capture_window".
+        // launch_app). Note: permissions.json does NOT gate this tool
+        // server-side (only close_window/trust_request/run_console_app are
+        // checked via AgentToolAllowed). The broker's LoadPermissions bool
+        // map filters MCP-agent calls; agent_permissions reports this row
+        // as gate "none". Kept ungated — see
+        // specs/2026-09-16-agent-manager §2.1.
         int id = 0;
         req.GetObjInt("args", "id", id);
         JKCompositorLayer* layer =
@@ -2433,6 +2471,127 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             }
         }
         reply = out + "]}";
+    } else if (tool == "agent_permissions") {
+        // 스펙 §2.1: permissions.json + 기본값 병합. gate 뱃지로 게이트
+        // 소비처를 정직 표기 — "none" 행의 파일값은 서버 무력(브로커만).
+        // file은 "" = 오버라이드 없음 (AgentJson이 null을 못 읽는다).
+        char exePath[1024] = {};
+        GetModuleFileNameA(nullptr, exePath, sizeof(exePath));
+        std::string dir = exePath;
+        const size_t slash = dir.find_last_of("\\/");
+        if (slash != std::string::npos) dir = dir.substr(0, slash);
+        const std::string permPath = dir + "\\permissions.json";
+        char pbuf[4096] = {};
+        bool fileExists = false;
+        if (std::FILE* f = std::fopen(permPath.c_str(), "rb")) {
+            fileExists = true;
+            std::fread(pbuf, 1, sizeof(pbuf) - 1, f);
+            std::fclose(f);
+        }
+        // AgentJson은 복사/대입 불가(docs/38) — 파일이 없으면 "{}"로 생성.
+        jk::agent::AgentJson perm(fileExists ? pbuf : "{}");
+        if (fileExists && !perm.ok()) {
+            // 파일 없음(기본값)과 파싱 실패(수동 편집 실수)를 구분 —
+            // trust_list의 docs/38 선례.
+            reply = "{\"ok\":false,\"error\":\"permissions_unreadable\"}";
+        } else {
+            std::string out = "{\"ok\":true,\"perms\":[";
+            bool first = true;
+            for (const AgentPermRow& row : kPermMatrix) {
+                std::string fileVal;
+                const bool hasFile = perm.ok() &&
+                    perm.GetStr(row.tool, fileVal) &&
+                    (fileVal == "allow" || fileVal == "ask" ||
+                     fileVal == "deny");
+                std::string effective = row.deflt;
+                if (std::string(row.gate) == "server(fixed)") {
+                    effective = "ask";
+                } else if (std::string(row.gate) == "server") {
+                    if (hasFile) effective = fileVal;
+                } else {
+                    effective = "allow";   // broker/none — 서버 미게이트
+                }
+                if (!first) out += ",";
+                first = false;
+                out += "{\"tool\":\"" + std::string(row.tool) +
+                       "\",\"gate\":\"" + row.gate + "\",\"file\":\"" +
+                       (hasFile ? fileVal : std::string()) +
+                       "\",\"effective\":\"" + effective +
+                       "\",\"default\":\"" + row.deflt + "\"}";
+            }
+            reply = out + "]}";
+        }
+    } else if (tool == "installed_list") {
+        // 스펙 §2.4: 셸 런처 스캔의 이름/kind. shell_ 미기동 = 빈 배열(정상).
+        std::vector<std::pair<std::string, const char*>> rows;
+        if (shell_) shell_->ListInstalled(rows);
+        std::string out = "{\"ok\":true,\"installed\":[";
+        for (size_t i = 0; i < rows.size(); ++i) {
+            if (i) out += ",";
+            out += "{\"name\":\"" + JsonEsc(rows[i].first) +
+                   "\",\"kind\":\"" + rows[i].second + "\"}";
+        }
+        reply = out + "]}";
+    } else if (tool == "read_receipts") {
+        // 스펙 §2.5: 브로커 receipts.jsonl 꼬리 — ts/tool/ok만 반환
+        // (result 전문은 args에 경로/명령어가 실릴 수 있다).
+        int limit = 50;
+        req.GetObjInt("args", "limit", limit);
+        if (limit <= 0) limit = 50;
+        if (limit > 200) limit = 200;
+        const std::string path = StateDir() + "\\receipts.jsonl";
+        std::FILE* f = std::fopen(path.c_str(), "rb");
+        if (!f) {
+            reply = "{\"ok\":true,\"rows\":[]}";   // 브로커 미사용 = 정상
+        } else {
+            std::fseek(f, 0, SEEK_END);
+            const long size = std::ftell(f);
+            const long start = size > 262144 ? size - 262144 : 0;
+            std::fseek(f, start, SEEK_SET);
+            std::vector<char> buf(static_cast<size_t>(size - start) + 1);
+            const size_t n = std::fread(buf.data(), 1, buf.size() - 1, f);
+            std::fclose(f);
+            buf[n] = '\0';
+            std::vector<std::string> lines;
+            size_t pos = 0;
+            while (pos < n) {
+                const char* begin = buf.data() + pos;
+                const char* nl = static_cast<const char*>(
+                    std::memchr(begin, '\n', n - pos));
+                const size_t len = nl ? (size_t)(nl - begin) : (n - pos);
+                if (len > 0) lines.push_back(std::string(begin, len));
+                pos += len + (nl ? 1 : 0);
+            }
+            std::string out = "{\"ok\":true,\"rows\":[";
+            int used = 0;
+            for (size_t i = lines.size(); i-- > 0 && used < limit;) {
+                const std::string& line = lines[i];
+                // JSONL 행의 result 중첩은 2레벨 리더의 관심사가 아니다 —
+                // ts/tool은 행 파서(AgentJson) + ts는 raw 스캔(숫자 필드),
+                // ok는 result 내 raw 스캔.
+                jk::agent::AgentJson row(line.c_str());
+                std::string toolName;
+                if (!row.ok() || !row.GetStr("tool", toolName)) continue;
+                long long ts = 0;
+                {
+                    const size_t tp = line.find("\"ts\":");
+                    if (tp != std::string::npos) {
+                        ts = std::atoll(line.c_str() + tp + 5);
+                    }
+                }
+                const bool okFlag =
+                    line.find("\"result\":") != std::string::npos &&
+                    line.find("\"ok\":true") != std::string::npos;
+                if (used) out += ",";
+                // 직렬화 규약(파서 계약): ts = epoch 초(2레벨 GetArrInt 경유,
+                // ms → 초 절단), ok = "0"/"1" 문자열(리더가 bool을 못 읽는다).
+                out += "{\"ts\":" + std::to_string(ts / 1000) +
+                       ",\"tool\":\"" + JsonEsc(toolName) +
+                       "\",\"ok\":\"" + (okFlag ? "1" : "0") + "\"}";
+                ++used;
+            }
+            reply = out + "]}";
+        }
     } else if (tool == "launch_chat") {
         // M2 chat: open the Win32 chat window (approval surface). One API,
         // many faces — MCP agents can open it too.

@@ -627,5 +627,16 @@ bool JKDesktopShell::ConsoleAppInfo(const std::string& name, std::string& cmd,
     return false;
 }
 
+// 에이전트 관리자 (스펙 §2.4): 런처 스캔 결과의 이름/kind만 돌려준다.
+void JKDesktopShell::ListInstalled(
+        std::vector<std::pair<std::string, const char*>>& out) const {
+    for (const LauncherIcon& icon : launcherIcons_) {
+        const char* kind = !icon.consoleCmd.empty()
+            ? "console"
+            : (!icon.jkxPath.empty() ? "jkx" : "builtin");
+        out.emplace_back(icon.appName, kind);
+    }
+}
+
 } // namespace desktop
 } // namespace jk
