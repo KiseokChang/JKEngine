@@ -1672,19 +1672,31 @@ static std::string WritePermissionsEntry(const std::string& permTool,
 
     std::map<std::string, std::string> values;
     if (std::FILE* f = std::fopen(path.c_str(), "rb")) {
-        char buf[4096] = {};
-        const size_t n = std::fread(buf, 1, sizeof(buf) - 1, f);
-        std::fclose(f);
-        jk::agent::AgentJson json(buf);
-        std::string v;
-        if (json.ok()) {
-            for (const AgentPermRow& r : kPermMatrix) {
-                if (json.GetStr(r.tool, v) &&
-                    (v == "allow" || v == "ask" || v == "deny")) {
-                    values[r.tool] = v;
+        // 전체 읽기 (docs/53 §9 잔여): 4KB 스택 버프는 파일 뒤쪽의 알려진
+        // 도구 행을 잘라내 RMW가 기본값으로 되돌렸다. 256KiB 상한 = 이상
+        // 파일 메모리 가드 — 초과 시 잘린 JSON이 파싱 실패하면 전재기록이
+        // 기본값으로 복원한다(자기 치유, 알려진 키만 기록되는 RMW 원래 의미).
+        std::fseek(f, 0, SEEK_END);
+        const long sz = std::ftell(f);
+        std::fseek(f, 0, SEEK_SET);
+        if (sz > 0) {
+            const size_t cap =
+                std::min<size_t>(static_cast<size_t>(sz), 256 * 1024);
+            std::vector<char> buf(cap + 1, '\0');
+            const size_t n = std::fread(buf.data(), 1, cap, f);
+            buf[n] = '\0';
+            jk::agent::AgentJson json(buf.data());
+            std::string v;
+            if (json.ok()) {
+                for (const AgentPermRow& r : kPermMatrix) {
+                    if (json.GetStr(r.tool, v) &&
+                        (v == "allow" || v == "ask" || v == "deny")) {
+                        values[r.tool] = v;
+                    }
                 }
             }
         }
+        std::fclose(f);
     }
     values[permTool] = decision;
     std::string out = "{";
@@ -1745,8 +1757,16 @@ static std::string RevokeTrustRecord(const std::string& fingerprint) {
 
     std::FILE* f = std::fopen(path.c_str(), "rb");
     if (!f) return "trust_store_unreadable";
-    std::vector<char> buf(65536);
-    const size_t n = std::fread(buf.data(), 1, buf.size() - 1, f);
+    // 전체 읽기 (docs/53 §9 잔여): 64KB 캡은 장기 설치의 스토어에서 뒤쪽
+    // 레코드를 not_found로 미끄러뜨린다. 8MiB 상한 = 이상 파일 가드;
+    // 초과분의 레코드는 여전히 not_found(정직한 오류 — 잘림 조용 통과 아님).
+    std::fseek(f, 0, SEEK_END);
+    const long sz = std::ftell(f);
+    std::fseek(f, 0, SEEK_SET);
+    const size_t cap = sz > 0
+        ? std::min<size_t>(static_cast<size_t>(sz), 8u * 1024 * 1024) : 0;
+    std::vector<char> buf(cap + 1, '\0');
+    const size_t n = std::fread(buf.data(), 1, cap, f);
     std::fclose(f);
     buf[n] = '\0';
     const std::string text(buf.data());
@@ -2067,11 +2087,21 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             if (dslash != std::string::npos) dir = dir.substr(0, dslash);
             if (std::FILE* f = std::fopen(
                     (dir + "\\state\\trust.json").c_str(), "rb")) {
-                std::vector<char> tbuf(65536);
-                const size_t tn = std::fread(tbuf.data(), 1, tbuf.size() - 1, f);
+                // 전체 읽기 (docs/53 §9 잔여 — RevokeTrustRecord와 동일 근거):
+                // 64KB 캡이면 뒤쪽 레코드가 not_found로 미끄러져 해지가
+                // RMW까지 못 간다. 8MiB 상한 = 이상 파일 가드.
+                std::fseek(f, 0, SEEK_END);
+                const long tsz = std::ftell(f);
+                std::fseek(f, 0, SEEK_SET);
+                if (tsz > 0) {
+                    const size_t tcap = std::min<size_t>(
+                        static_cast<size_t>(tsz), 8u * 1024 * 1024);
+                    std::vector<char> tbuf(tcap + 1, '\0');
+                    const size_t tn = std::fread(tbuf.data(), 1, tcap, f);
+                    tbuf[tn] = '\0';
+                    trustText = tbuf.data();
+                }
                 std::fclose(f);
-                tbuf[tn] = '\0';
-                trustText = tbuf.data();
             }
             if (!TrustRecordText(trustText, fingerprint, rec)) {
                 reply = "{\"ok\":false,\"error\":\"not_found\"}";

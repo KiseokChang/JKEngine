@@ -367,6 +367,17 @@ Check "5e-large-intact" ($tAfter -match 'filler0' -and $tAfter -match 'filler998
 
 (filler 지문 999개는 동일 해시("f0"*32)다 — 중복 지문 레코드가 스토어에 쌓여도 TrustRecordText는 첫 매치만 찾으므로 무방하나, **서버 신뢰 로더가 중복 지문을 허용하는지** 실측이 필요하면 filler마다 `("f0"*31) + hex2자` 유니크로 바꿀 것. 안전하게 유니크로 쓰는 것을 권장: `"sha256:f0" + ("0" + $i) ...` 형태로 64자 유니크 hex 구성.)
 
+**실행 시정 (as-run)**: 위 5c 스니펫의 직접 `Invoke-Agentctl` 호출은 실패한다 —
+trust_revoke는 기본 Ask 게이트라 직접 호출은 파킹→60s approval_timeout이고
+`restart_needed`는 영원히 오지 않는다(플랜이 게이트를 놓쳤다). 시정: 체크 4와
+같은 승인 E2E(파킹 job + approve **request 4**; 3d가 request 3을 썼으므로)로
+배치 — trust_revoke 분기의 존재 확인 읽기(~2070)와 RevokeTrustRecord 두
+전체-읽기 경로를 모두 검증한다. 또한 3d는 "체크 3 뒤"가 아니라 **체크 4 뒤**에
+삽입했다(플랜 예시의 request id 3과 일치시키기 위해; 체크 3=1, 4=2 사용).
+그리고 3d의 본 판별 키는 `close_window:"allow"`(기본값 deny와 다름)다 —
+`trust_request:"ask"`는 기본값과 같아 단독으로는 픽스를 판별하지 못한다
+(3점 판정의 보조 축). 공식런 21/21 ALL PASS.
+
 - [ ] **Step 5: 공식런** — `powershell -ExecutionPolicy Bypass -File probe_agentmgr.ps1` → 기존 16체크 + 신규 2~5체크 ALL PASS. (환경 전제는 docs/53 §7: build/apps/triggers 설치 + trust.json 레코드 존재.)
 - [ ] **Step 6: Commit**
 

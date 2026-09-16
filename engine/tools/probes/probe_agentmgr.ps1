@@ -91,11 +91,59 @@ $tafter = Get-Content $trust -Raw -ErrorAction SilentlyContinue
 Check "4b-removed" ($tafter -notmatch $fp)
 Check "4c-bak" ((Test-Path ($trust + ".bak")) -and ((Get-Content ($trust + ".bak") -Raw) -match $fp))
 
+# --- 3d. >4KB permissions.json: known-key rows beyond the old 4KB read cap
+# survive the RMW (docs/53 section 9 leftover). filler puts close_window and
+# trust_request past the 4KB mark; RMW target publish_event (approve loop has
+# no side effect for it - unlike run_console_app, which would spawn).
+$big = '{"' + ("x" * 4080) + 'filler":"' + ("a" * 64) + '","close_window":"allow","trust_request":"ask"}'
+Write-NoBom $permFile $big
+$job3 = Start-Job -ScriptBlock {
+    param($e)
+    $x = '{"tool":"permission_set","args":{"tool":"publish_event","decision":"deny"}}' -replace '"', '\"'
+    & $e agentctl $x
+} -ArgumentList $exe
+Start-Sleep -Seconds 3
+Invoke-Agentctl '{"tool":"approve","args":{"request":3,"decision":"allow"}}' | Out-Null
+Start-Sleep -Seconds 2
+$reply3 = (Receive-Job $job3 -Wait) -join "`n"
+Check "3d-a-reply" ($reply3 -match '"written":true')
+$f3 = Get-Content $permFile -Raw
+Check "3d-b-preserved" ($f3 -match '"trust_request":"ask"' -and $f3 -match '"close_window":"allow"' -and $f3 -match '"publish_event":"deny"')
+
 # --- 5. trust_revoke immediate errors
 $nf = Invoke-Agentctl ('{"tool":"trust_revoke","args":{"fingerprint":"sha256:' + ("cd" * 32) + '"}}')
 Check "5a-notfound" ($nf -match 'not_found')
 $bf = Invoke-Agentctl '{"tool":"trust_revoke","args":{"fingerprint":"sha256:xyz"}}'
 Check "5b-badfp" ($bf -match 'bad_fingerprint')
+
+# --- 5c. >64KB trust store: a record past the old 64KB read cap revokes
+# (docs/53 section 9 leftover; probe owns trust.json - teardown restores).
+# trust_revoke is ask-gated, so this is an approve E2E like check 4
+# (request 4) - a direct call would park and time out, not answer.
+$tailFp = "sha256:" + ("ee" * 32)
+$sb = New-Object System.Text.StringBuilder
+[void]$sb.Append('{"records":[')
+for ($i = 0; $i -lt 999; $i++) {
+    if ($i -gt 0) { [void]$sb.Append(',') }
+    [void]$sb.Append(('{"fingerprint":"sha256:' + ("f0" * 32) + '","name":"filler' + $i + '","source":"dev","ts":1700000000000}'))
+}
+[void]$sb.Append(',')
+[void]$sb.Append(('{"fingerprint":"' + $tailFp + '","name":"mgrtail","source":"dev","ts":1700000000000}'))
+[void]$sb.Append(']}')
+Write-NoBom $trust $sb.ToString()
+$job5 = Start-Job -ScriptBlock {
+    param($e, $f)
+    $x = '{"tool":"trust_revoke","args":{"fingerprint":"' + $f + '"}}' -replace '"', '\"'
+    & $e agentctl $x
+} -ArgumentList $exe, $tailFp
+Start-Sleep -Seconds 3
+Invoke-Agentctl '{"tool":"approve","args":{"request":4,"decision":"allow"}}' | Out-Null
+Start-Sleep -Seconds 2
+$rv = (Receive-Job $job5 -Wait) -join "`n"
+Check "5c-large-revoke" ($rv -match '"restart_needed":true')
+$tAfter = Get-Content $trust -Raw
+Check "5d-large-removed" ($tAfter -notmatch $tailFp)
+Check "5e-large-intact" ($tAfter -match 'filler0' -and $tAfter -match 'filler998')
 
 # --- 6. installed_list
 $il = Invoke-Agentctl '{"tool":"installed_list","args":{}}'
