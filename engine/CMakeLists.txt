@@ -462,6 +462,17 @@ target_compile_definitions(jkapp_notify PRIVATE JKAPP_MODULE_BUILD)
 target_link_libraries(jkapp_notify PRIVATE jkclient imgui)
 set_target_properties(jkapp_notify PROPERTIES PREFIX "")
 
+# Agent manager module (specs/2026-09-16-agent-manager): 4-tab GUI over the
+# permission matrix, triggers, trust store, installed apps + receipts. A
+# launcher .jkx (palette /agentmgr + launch_app open it).
+add_library(jkapp_agentmgr SHARED
+    src/apps/JKAppModule_agentmgr.cpp
+    src/apps/ClientAgentMgrApp.cpp
+)
+target_compile_definitions(jkapp_agentmgr PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_agentmgr PRIVATE jkclient imgui)
+set_target_properties(jkapp_agentmgr PROPERTIES PREFIX "")
+
 # Region-capture overlay module (agent platform, docs/35 Task 3): the
 # rubber-band fullscreen layer behind /shot and the viewer's 영역 캡처
 # button. A launcher .jkx too (no icon — the packer treats icons as
@@ -690,7 +701,7 @@ endif()
 set(JKX_ICON_APPS
     mine tetris testwin jango occ pcx vector iconedit recog vfont vpres
     terminal imguidemo taskmgr vplayer browser scriptdemo passworddemo
-    notify shot)
+    notify shot agentmgr)
 set(JKX_ICONS "${CMAKE_BINARY_DIR}/assets/icons")
 foreach(icon_app IN LISTS JKX_ICON_APPS)
     foreach(icon_px IN ITEMS 1x 2x)
@@ -815,6 +826,13 @@ add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/notify.jkx"
         "${JKX_ICONS}/launcher_notify@2x.png"
     COMMENT "Repacking apps/notify.jkx"
     VERBATIM)
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/agentmgr.jkx"
+    COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack agentmgr
+    DEPENDS jkdesktop jkapp_agentmgr
+        "${JKX_ICONS}/launcher_agentmgr@1x.png"
+        "${JKX_ICONS}/launcher_agentmgr@2x.png"
+    COMMENT "Repacking apps/agentmgr.jkx"
+    VERBATIM)
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/snap.jkx"
     COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack snap
     DEPENDS jkdesktop jkapp_snap
@@ -875,6 +893,7 @@ add_custom_target(jkx_packages ALL
             "${CMAKE_BINARY_DIR}/apps/notify.jkx"
             "${CMAKE_BINARY_DIR}/apps/snap.jkx"
             "${CMAKE_BINARY_DIR}/apps/shot.jkx"
+            "${CMAKE_BINARY_DIR}/apps/agentmgr.jkx"
             "${CMAKE_BINARY_DIR}/apps/browser.jkx"
             "${CMAKE_BINARY_DIR}/apps/scriptdemo.jkx"
             "${CMAKE_BINARY_DIR}/apps/passworddemo.jkx")
