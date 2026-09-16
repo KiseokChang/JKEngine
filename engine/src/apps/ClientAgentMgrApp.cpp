@@ -298,10 +298,12 @@ void ClientAgentMgrApp::RenderOverlay(SDL_Renderer* renderer, int w, int h) {
 void ClientAgentMgrApp::BuildUi(int w, int h) {
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(ImVec2((float)w, (float)h));
-    if (!ImGui::Begin("agentmgr", nullptr,
-                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove))
-        return;
+    // Begin-false여도 End()는 반드시 호출(imgui.h 계약 — docs/53 §9 잔여).
+    const bool open = ImGui::Begin("agentmgr", nullptr,
+                                   ImGuiWindowFlags_NoDecoration |
+                                       ImGuiWindowFlags_NoMove);
     ImGui::End();
+    if (!open) return;
 
     // 서버 크롬이 상단 24pt를 먹는다(레슨 8) — 탭바는 y>=30부터.
     ImGui::SetNextWindowPos(ImVec2(0, 30));
