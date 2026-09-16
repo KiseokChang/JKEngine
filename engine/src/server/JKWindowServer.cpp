@@ -1705,6 +1705,78 @@ static std::string WritePermissionsEntry(const std::string& permTool,
     return wrote == out.size() ? std::string() : std::string("write_failed");
 }
 
+// 지문 형식: 정확히 "sha256:" + 64 소문자 hex (로더 형식 — docs/37).
+static bool ValidFingerprint(const std::string& fp) {
+    if (fp.size() != 7 + 64 || fp.compare(0, 7, "sha256:") != 0) return false;
+    for (size_t i = 7; i < fp.size(); ++i) {
+        const char c = fp[i];
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
+    }
+    return true;
+}
+
+// trust.json 원본 텍스트에서 지문 레코드의 { ... } 경계를 찾는다. 레코드는
+// 로더 쓰기 형식(name/source/fingerprint/ts — 중첩 객체 없음)이므로 중괄호
+// 스캔이 안전하다. AgentJson 재직렬화는 ts(int64)를 잃는다(AgentJson에 int64
+// 접근자 없음 — docs/38) — 그래서 원문 수술.
+static bool TrustRecordText(const std::string& text,
+                            const std::string& fingerprint,
+                            std::string& recOut) {
+    const std::string needle = "\"fingerprint\":\"" + fingerprint + "\"";
+    const size_t hit = text.find(needle);
+    if (hit == std::string::npos) return false;
+    const size_t begin = text.rfind('{', hit);
+    const size_t end = text.find('}', hit);
+    if (begin == std::string::npos || end == std::string::npos) return false;
+    recOut = text.substr(begin, end - begin + 1);
+    return true;
+}
+
+// trust.json에서 해당 지문 레코드 제거 + .bak 1회 보존(북마크 선례 — 최초
+// 덮어쓰기 시점 원본만). 반환: 빈 문자열 = 성공(제거 1건), 아니면 오류 문자열.
+static std::string RevokeTrustRecord(const std::string& fingerprint) {
+    char exePath[1024] = {};
+    GetModuleFileNameA(nullptr, exePath, sizeof(exePath));
+    std::string dir = exePath;
+    const size_t slash = dir.find_last_of("\\/");
+    if (slash != std::string::npos) dir = dir.substr(0, slash);
+    CreateDirectoryA((dir + "\\state").c_str(), nullptr);
+    const std::string path = dir + "\\state\\trust.json";
+
+    std::FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) return "trust_store_unreadable";
+    std::vector<char> buf(65536);
+    const size_t n = std::fread(buf.data(), 1, buf.size() - 1, f);
+    std::fclose(f);
+    buf[n] = '\0';
+    const std::string text(buf.data());
+
+    std::string rec;
+    if (!TrustRecordText(text, fingerprint, rec)) return "not_found";
+    const size_t hit = text.find(rec);
+    size_t begin = hit;
+    size_t end = hit + rec.size() - 1;
+    // 선행 쉼표 흡수 — "},{" 형태에서 앞 레코드의 쉼표를 남기지 않는다.
+    size_t cutBegin = begin;
+    if (cutBegin > 0 && text[cutBegin - 1] == ',') --cutBegin;
+    else if (end + 1 < text.size() && text[end + 1] == ',') ++end;
+    const std::string out = text.substr(0, cutBegin) +
+                            text.substr(end + 1);
+
+    const std::string bak = path + ".bak";
+    if (std::FILE* b = std::fopen(bak.c_str(), "rb")) {
+        std::fclose(b);   // .bak 이미 있음 — 1회 보존 규약
+    } else if (std::FILE* b = std::fopen(bak.c_str(), "wb")) {
+        std::fwrite(text.data(), 1, text.size(), b);
+        std::fclose(b);
+    }
+    std::FILE* w = std::fopen(path.c_str(), "wb");
+    if (!w) return "write_failed";
+    const size_t wrote = std::fwrite(out.data(), 1, out.size(), w);
+    std::fclose(w);
+    return wrote == out.size() ? std::string() : std::string("write_failed");
+}
+
 // Desktop Agent API (spec §3): normally answers at once — the agent client
 // blocks on ReadMessage waiting for the reply with the matching queryId.
 // Exception (M2 chat): an "ask"-gated close_window parks its query and replies
@@ -1841,17 +1913,6 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                 name = name.substr(b, name.find_last_not_of(" \t\r\n") - b + 1);
             }
         }
-        auto ValidFingerprint = [](const std::string& fp) {
-            // Exactly "sha256:" + 64 lowercase hex (the loader's format).
-            if (fp.size() != 7 + 64 || fp.compare(0, 7, "sha256:") != 0)
-                return false;
-            for (size_t i = 7; i < fp.size(); ++i) {
-                const char c = fp[i];
-                if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')))
-                    return false;
-            }
-            return true;
-        };
         if (name.empty()) {
             reply = "{\"ok\":false,\"error\":\"missing_name\"}";
         } else if (name.size() > 96) {
@@ -1980,6 +2041,94 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                     // 도달하지 않는다(고정 Ask) — 방어선으로 deny 유지.
                     reply = "{\"ok\":false,\"error\":\"permission_denied\"}";
                     break;
+            }
+        }
+    } else if (tool == "trust_revoke") {
+        // 스펙 §2.3: 신뢰 해지 — 안전 방향이지만 무게이트는 신뢰 저장소
+        // 전면 소각 DoS 통로. 기본 Ask, 파일로 allow/deny 변경 가능(해지는
+        // 권한 부여가 아니라 2단 우회 위험이 없다). 파킹 전 검증+실측.
+        std::string fingerprint;
+        req.GetObjStr("args", "fingerprint", fingerprint);
+        std::string rec, name;
+        if (fingerprint.empty()) {
+            reply = "{\"ok\":false,\"error\":\"missing_fingerprint\"}";
+        } else if (!ValidFingerprint(fingerprint)) {
+            reply = "{\"ok\":false,\"error\":\"bad_fingerprint\"}";
+        } else {
+            std::string trustText;
+            char exePath[1024] = {};
+            GetModuleFileNameA(nullptr, exePath, sizeof(exePath));
+            std::string dir = exePath;
+            const size_t dslash = dir.find_last_of("\\/");
+            if (dslash != std::string::npos) dir = dir.substr(0, dslash);
+            if (std::FILE* f = std::fopen(
+                    (dir + "\\state\\trust.json").c_str(), "rb")) {
+                std::vector<char> tbuf(65536);
+                const size_t tn = std::fread(tbuf.data(), 1, tbuf.size() - 1, f);
+                std::fclose(f);
+                tbuf[tn] = '\0';
+                trustText = tbuf.data();
+            }
+            if (!TrustRecordText(trustText, fingerprint, rec)) {
+                reply = "{\"ok\":false,\"error\":\"not_found\"}";
+            } else {
+                jk::agent::AgentJson(rec.c_str()).GetStr("name", name);
+                switch (AgentToolAllowed("trust_revoke")) {
+                    case AgentDecision::Ask: {
+                        bool subscriber = false;
+                        for (auto& c : clients_) {
+                            if (c && c->AgentEventSubscriber() &&
+                                !c->IsDisconnected()) {
+                                subscriber = true;
+                                break;
+                            }
+                        }
+                        if (!subscriber) {
+                            reply = "{\"ok\":false,"
+                                    "\"error\":\"approval_unavailable\"}";
+                            break;
+                        }
+                        PendingApproval p;
+                        p.kind = "trust_revoke";
+                        p.name = name.empty() ? "script" : name;
+                        p.fingerprint = fingerprint;
+                        p.requestId = nextApprovalId_++;
+                        p.queryId = queryId;
+                        p.requesterId = client.Id();
+                        p.targetId = 0;
+                        p.expiresAt = std::time(nullptr) + 60;
+                        char buf[1024];
+                        std::snprintf(buf, sizeof(buf),
+                                      "{\"topic\":\"agent.approval_request\","
+                                      "\"request\":%u,\"tool\":\"trust_revoke\","
+                                      "\"kind\":\"trust_revoke\",\"name\":\"%s\","
+                                      "\"fingerprint\":\"%s\",\"ts\":%lld}",
+                                      p.requestId, JsonEsc(p.name).c_str(),
+                                      fingerprint.c_str(),
+                                      static_cast<long long>(
+                                          std::time(nullptr)) * 1000);
+                        pendingApprovals_.push_back(p);
+                        PushAgentEventJson(buf);
+                        replied = false;
+                        break;
+                    }
+                    case AgentDecision::Allow:
+                        // 파일이 allow로 명시한 설치 — 즉시 해지(사용자가
+                        // 매트릭스에서 그렇게 정한 것).
+                        {
+                            const std::string err =
+                                RevokeTrustRecord(fingerprint);
+                            reply = err.empty()
+                                ? "{\"ok\":true,\"written\":true,"
+                                  "\"restart_needed\":true}"
+                                : "{\"ok\":false,\"error\":\"" + err + "\"}";
+                        }
+                        break;
+                    case AgentDecision::Deny:
+                    default:
+                        reply = "{\"ok\":false,\"error\":\"permission_denied\"}";
+                        break;
+                }
             }
         }
     } else if (tool == "launch_app") {
@@ -2502,10 +2651,13 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                     json.GetArrInt("records", i, "ts", ts);
                     if (!first) out += ",";
                     first = false;
+                    // 에이전트 관리자 해지용 전체 지문 (스펙 §2.3 전제) — 15자
+                    // 절단 fingerprint는 표시용으로 유지.
                     out += "{\"fingerprint\":\"" +
                            (fp.size() > 15 ? fp.substr(0, 15) : fp) +
                            "\",\"name\":\"" + JsonEsc(name) +
                            "\",\"source\":\"" + JsonEsc(source) +
+                           "\",\"fp\":\"" + JsonEsc(fp) +
                            "\",\"ts\":" + std::to_string(ts) + "}";
                 }
                 out += "]}";
@@ -2754,6 +2906,13 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                             it->permTool, it->permDecision);
                         result = err.empty()
                             ? "{\"ok\":true,\"written\":true}"
+                            : "{\"ok\":false,\"error\":\"" + err + "\"}";
+                    } else if (it->kind == "trust_revoke") {
+                        const std::string err =
+                            RevokeTrustRecord(it->fingerprint);
+                        result = err.empty()
+                            ? "{\"ok\":true,\"written\":true,"
+                              "\"restart_needed\":true}"
                             : "{\"ok\":false,\"error\":\"" + err + "\"}";
                     } else {
                         result = "{\"ok\":true}";
