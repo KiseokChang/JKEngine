@@ -231,6 +231,38 @@ static void HideApproval() {
     ShowWindow(g_hDeny, SW_HIDE);
 }
 
+// 매니저 권한 변경 (스펙 §2.2): 동일 스트립, 다른 문구. approve 도구는
+// kind 불문 공용이라 서버 변경 없이 허용/거부가 해소한다.
+static void ShowPermissionApproval(const std::string& targetTool,
+                                   const std::string& decision,
+                                   uint32_t request) {
+    g_approvalRequest = request;
+    wchar_t buf[512];
+    _snwprintf_s(buf, _TRUNCATE, L"[권한 변경] %s → %s 승인할까요?",
+                 Utf8ToWide(targetTool).c_str(),
+                 Utf8ToWide(decision).c_str());
+    SetWindowTextW(g_hPrompt, buf);
+    ShowWindow(g_hPrompt, SW_SHOWNORMAL);
+    ShowWindow(g_hAllow, SW_SHOWNORMAL);
+    ShowWindow(g_hDeny, SW_SHOWNORMAL);
+}
+
+// 매니저 신뢰 해지 (스펙 §2.3): 지문은 15자 절단 표시(ShowTrustApproval 선례).
+static void ShowTrustRevokeApproval(const std::string& name,
+                                    const std::string& fingerprint,
+                                    uint32_t request) {
+    g_approvalRequest = request;
+    const std::string fp8 =
+        fingerprint.size() > 15 ? fingerprint.substr(0, 15) : fingerprint;
+    wchar_t buf[512];
+    _snwprintf_s(buf, _TRUNCATE, L"[신뢰 해지] %s (%s…) 승인할까요?",
+                 Utf8ToWide(name).c_str(), Utf8ToWide(fp8).c_str());
+    SetWindowTextW(g_hPrompt, buf);
+    ShowWindow(g_hPrompt, SW_SHOWNORMAL);
+    ShowWindow(g_hAllow, SW_SHOWNORMAL);
+    ShowWindow(g_hDeny, SW_SHOWNORMAL);
+}
+
 // Send one tool request (non-blocking) and remember its label so the reply
 // can be attributed when the ping pump flushes it back.
 static void SendTool(const std::string& tool, const std::string& args,
@@ -534,6 +566,19 @@ static void HandleEvent(const jk::agent::AgentEvent& ev) {
             ShowTrustApproval(name, origin, fp, static_cast<uint32_t>(request));
             Log("[신뢰 요청] " + name + " (" + origin + ") — 해시 " +
                 (fp.size() > 15 ? fp.substr(0, 15) : fp) + "…");
+        } else if (kind == "permission_set") {
+            std::string targetTool, decision;
+            e.GetStr("target_tool", targetTool);
+            e.GetStr("decision", decision);
+            ShowPermissionApproval(targetTool, decision,
+                                   static_cast<uint32_t>(request));
+            Log("[권한 변경] " + targetTool + " → " + decision);
+        } else if (kind == "trust_revoke") {
+            std::string name, fp;
+            e.GetStr("name", name);
+            e.GetStr("fingerprint", fp);
+            ShowTrustRevokeApproval(name, fp, static_cast<uint32_t>(request));
+            Log("[신뢰 해지] " + name);
         } else {
             std::string title;
             int target = 0;
