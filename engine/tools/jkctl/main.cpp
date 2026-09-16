@@ -102,18 +102,91 @@ int Agent(const char* requestJson) {
 }
 
 // ask — 로컬 LLM 원컷: 응답이 jkctl의 stdout으로 통과한다(동기 원컷, §4).
-// 인용 이스케이프는 jkchat BuildEngineCmd와 동일(따옴표만) — claude CLI 인자
-// 경로가 나머지 문자를 그대로 전달한다.
-int Ask(const char* question) {
-    std::string esc;
-    for (const char* p = question; *p; ++p) {
-        if (*p == '"') esc += "\\\"";
-        else esc += *p;
+// --attach는 파일 본문을 프롬프트에 텍스트 블록으로 첨부한다(docs/51 C 후보
+// 잔여 — 스펙 §4 예제). 텍스트 전용: NUL 포함은 거부(경로를 프롬프트에
+// 넣는 구안 유지). 16KiB 절단(UTF-8 경계 보정). CP949 파일은 ACP 경유
+// 재인코딩(docs/48 레슨). CreateProcessW cmdLine 32767 한계 — 최종 길이
+// 검사로 조용한 잘림을 막는다(publish_event의 이스케이프 후 크기 검사 선례).
+struct AskRequest {
+    std::string question;
+    std::vector<std::string> attaches;
+};
+
+int Ask(const AskRequest& req) {
+    if (req.question.empty()) {
+        std::fprintf(stderr, "ask: empty question\n");
+        return 2;
     }
-    const std::string prompt = "-p \"" + esc + "\"";
+    std::string prompt = req.question;
+    for (const std::string& p : req.attaches) {
+        std::ifstream in(p, std::ios::binary);
+        if (!in) {
+            std::fprintf(stderr, "ask: cannot read attachment: %s\n", p.c_str());
+            return 2;
+        }
+        std::string raw((std::istreambuf_iterator<char>(in)),
+                        std::istreambuf_iterator<char>());
+        if (raw.size() > 16 * 1024) {
+            // UTF-8 연속 바이트(0x80-0xBF)에서 물러나 잘라낸다 — 절단이
+            // 멀티바이트 문자 중간에 끊기면 모델 입력에 FFFD 파손이 온다.
+            size_t cut = 16 * 1024;
+            while (cut > 0 && (static_cast<unsigned char>(raw[cut]) & 0xC0) == 0x80)
+                --cut;
+            raw.resize(cut);
+        }
+        if (raw.find('\0') != std::string::npos) {
+            std::fprintf(stderr, "ask: binary attachment not supported: %s "
+                                 "(pass the path in the prompt instead)\n",
+                         p.c_str());
+            return 2;
+        }
+        // UTF-8 검증 실패 = ANSI/CP949 텍스트일 확률 — ACP 경유 정규화.
+        {
+            const int wlen = MultiByteToWideChar(
+                CP_UTF8, MB_ERR_INVALID_CHARS, raw.c_str(),
+                static_cast<int>(raw.size()), nullptr, 0);
+            if (wlen == 0 && !raw.empty()) {
+                const int wlenA = MultiByteToWideChar(
+                    CP_ACP, 0, raw.c_str(), static_cast<int>(raw.size()),
+                    nullptr, 0);
+                std::wstring w(wlenA > 0 ? wlenA : 0, L'\0');
+                if (wlenA > 0)
+                    MultiByteToWideChar(CP_ACP, 0, raw.c_str(),
+                                        static_cast<int>(raw.size()), &w[0],
+                                        wlenA);
+                const int u8len = WideCharToMultiByte(
+                    CP_UTF8, 0, w.c_str(), -1, nullptr, 0, nullptr, nullptr);
+                std::string u8(u8len > 0 ? u8len : 0, '\0');
+                if (u8len > 0)
+                    WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1, &u8[0],
+                                        u8len, nullptr, nullptr);
+                raw = u8;
+            }
+        }
+        std::string base = p;
+        const size_t slash = base.find_last_of("\\/");
+        if (slash != std::string::npos) base = base.substr(slash + 1);
+        prompt += "\n\n--- attached file: " + base + " ---\n" + raw +
+                  "\n--- end of " + base + " ---";
+    }
+    std::string esc;
+    for (const char c : prompt) {
+        if (c == '"') esc += "\\\"";
+        else if (c == '\n') esc += "\\n";
+        else if (c == '\r') esc += "\\r";
+        else esc += c;
+    }
     const std::string cmdA = "ollama launch claude --model \"" + LoadModel() +
-                             "\" -- " + prompt;
+                             "\" -- -p \"" + esc + "\"";
     std::wstring cmd = Utf8ToWide(cmdA);
+    // CreateProcessW cmdLine 상한 32767 wchar — 초과 시 CreateProcess 실패
+    // 원인을 알기 어렵다. 30000 여유로 미리 거부.
+    if (cmd.size() > 30000) {
+        std::fprintf(stderr,
+                     "ask: prompt too large (%zu chars) — reduce attachments\n",
+                     cmd.size());
+        return 2;
+    }
 
     STARTUPINFOW si = {};
     si.cb = sizeof(si);
@@ -543,7 +616,7 @@ int Install(const std::string& path) {
 int wmain(int argc, wchar_t* argv[]) {
     if (argc < 3) {
         std::fprintf(stderr,
-                     "usage: jkctl notify \"<msg>\" | agent '<json>' | ask \"<question>\"\n"
+                     "usage: jkctl notify \"<msg>\" | agent '<json>' | ask \"<q>\" [--attach <file>]...\n"
                      "       jkctl init \"<name>\" | pack \"<folder>\"\n"
                      "       jkctl install \"<folder-or-package.zip>\"\n");
         return 2;
@@ -557,7 +630,34 @@ int wmain(int argc, wchar_t* argv[]) {
     const std::string sub = a1;
     if (sub == "notify") return Notify(a2);
     if (sub == "agent") return Agent(a2);
-    if (sub == "ask") return Ask(a2);
+    if (sub == "ask") {
+        AskRequest req;
+        for (int i = 2; i < argc; ++i) {
+            char a8[1024] = {};
+            WideCharToMultiByte(CP_UTF8, 0, argv[i], -1, a8, sizeof(a8) - 1,
+                                nullptr, nullptr);
+            if (std::strcmp(a8, "--attach") == 0) {
+                if (i + 1 >= argc) {
+                    std::fprintf(stderr, "ask: --attach needs a path\n");
+                    return 2;
+                }
+                char p8[1024] = {};
+                WideCharToMultiByte(CP_UTF8, 0, argv[++i], -1, p8,
+                                    sizeof(p8) - 1, nullptr, nullptr);
+                req.attaches.push_back(p8);
+            } else if (req.question.empty()) {
+                req.question = a8;
+            } else {
+                std::fprintf(stderr, "usage: jkctl ask \"<question>\" [--attach <file>]...\n");
+                return 2;
+            }
+        }
+        if (req.question.empty()) {
+            std::fprintf(stderr, "usage: jkctl ask \"<question>\" [--attach <file>]...\n");
+            return 2;
+        }
+        return Ask(req);
+    }
     if (sub == "init") return Init(a2);
     if (sub == "pack") return Pack(a2);
     if (sub == "install") return Install(a2);

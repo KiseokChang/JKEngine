@@ -12,7 +12,9 @@
 #   8. install from the zip lands the same tree (via tmp staging)
 #   9. zip install pre-records the cmd fingerprint in state/trust.json
 #  10. trust.json still parses after the splice (valid JSON out)
-#  11. teardown removes every tree it created
+#  11. ask --attach: missing file / binary (NUL) rejected with exit 2,
+#      text attachment reaches the LLM launch path (exit 0/1)
+#  12. teardown removes every tree it created
 
 $ErrorActionPreference = "Stop"
 $script:fails = 0
@@ -110,6 +112,24 @@ try {
         $trustOk = ($null -ne $trustObj.records -and $trustObj.records.Count -ge 1)
     } catch {}
     Check "trust.json parses after splice" $trustOk "records kept byte-exact for server"
+
+    # 11: attach to a missing file is a clean error (exit 2), not a silent ask
+    $null = & $jkctl ask "q" --attach (Join-Path $work "no_such_file.txt") 2>&1
+    Check "ask attach missing file rejected" ($LASTEXITCODE -eq 2) "exit=$LASTEXITCODE"
+
+    # 12: binary attachment rejected (NUL byte)
+    $binP = Join-Path $work "bin_att.bin"
+    [IO.File]::WriteAllBytes($binP, (New-Object byte[] 16))
+    $null = & $jkctl ask "q" --attach $binP 2>&1
+    Check "ask attach binary rejected" ($LASTEXITCODE -eq 2) "exit=$LASTEXITCODE"
+
+    # 13: valid text attachment passes arg handling far enough to try the
+    # LLM launch path (exit != 2 - real engine/network is out of probe scope;
+    # 0 or 1 both mean the prompt made it into the process launch).
+    $txtP = Join-Path $work "att.txt"
+    [IO.File]::WriteAllText($txtP, "hello", (New-Object System.Text.UTF8Encoding($false)))
+    $null = & $jkctl ask "echo test" --attach $txtP 2>&1
+    Check "ask attach text reaches LLM launch" ($LASTEXITCODE -ne 2) "exit=$LASTEXITCODE (0/1 ok - network dependent)"
 
     # teardown of the installed copy happens in finally; server-side
     # scan is a restart-time action, so no launcher interaction here.
