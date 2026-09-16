@@ -610,8 +610,16 @@ endif()
 # jkctl: 앱→에이전트 원컷 CLI (P4 SDK specs/2026-09-16-p4-sdk-contract §4).
 # 콘솔 앱이 에이전트를 호출하는 표준 수단 — notify/agent(서버 쿼리, JKAgentClient)
 # + ask(로컬 LLM 원컷, jkchat의 claude 래퍼 관례). wmain: docs/48 CP949 레슨.
-add_executable(jkctl tools/jkctl/main.cpp)
-target_link_libraries(jkctl PRIVATE jkcore)
+# pack/install: miniz 벤더링(zip 배포, third_party/miniz — Explorer/PowerShell이
+# 만드는 DEFLATE zip을 읽어야 하므로 zlib 유사 구현 필수) + bcrypt(SHA-256
+# trust 선기록, docs/51 §3.4).
+add_executable(jkctl tools/jkctl/main.cpp
+    third_party/miniz/miniz.c
+    third_party/miniz/miniz_zip.c
+    third_party/miniz/miniz_tinfl.c
+    third_party/miniz/miniz_tdef.c)
+target_include_directories(jkctl PRIVATE third_party/miniz)
+target_link_libraries(jkctl PRIVATE jkcore bcrypt)
 if(WIN32)
     target_link_options(jkctl PRIVATE -municode -static-libstdc++ -static-libgcc)
 endif()

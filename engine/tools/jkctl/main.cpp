@@ -2,18 +2,25 @@
 // notify/agent: 서버 도구 쿼리(JKAgentClient control-client, 권한은 서버
 // 파이프라인). ask: 로컬 LLM 원컷 — jkchat의 claude 래퍼 관례
 // (state\chat.json 설정 재사용, claude_wrapper guide §2.2).
+// pack/install: docs/51 C 후보 패키지 매니저 — zip 배포(miniz 벤더링) +
+// 설치 시 trust 지문 선기록(docs/51 §3.4, EnsureTrustRecord와 동일 규약).
 // wmain + CreateProcessW: docs/48 CP949 argv 레슨 — UTF-8 프롬프트를
 // cmd.exe std::system으로 넘기면 인코딩이 파손되므로 유니코드 경로로 간다.
 #include <agent/JKAgentClient.h>
+#include <miniz.h>
+#include <miniz_zip.h>
 
 #include <windows.h>
 
+#include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -125,7 +132,128 @@ int Ask(const char* question) {
     return (code == 0) ? 0 : 1;
 }
 
-// init — docs/51 C 후보 "템플릿 생성기": templates/console-app을 <name>\로
+// --- 패키지 매니저 공용 (docs/51 C 후보 잔여: zip 배포 + trust 선기록) ---
+
+// bcrypt SHA-256 → "sha256:"+64hex (docs/51 §3.4 ConsoleAppFingerprint와
+// 동일 형식·동일 CNG 구현 — 서버 EnsureTrustRecord가 남기는 지문과
+// 바이트 단위로 일치해야 한다). 빈 입력/실패 시 "" 반환.
+std::string Sha256Hex(const std::string& data) {
+    void* alg = nullptr;
+    if (BCryptOpenAlgorithmProvider(&alg, L"SHA256", nullptr, 0) != 0) return "";
+    void* h = nullptr;
+    uint8_t digest[32] = {};
+    bool ok = BCryptCreateHash(alg, &h, nullptr, 0, nullptr, 0, 0) == 0;
+    if (ok && !data.empty())
+        ok = BCryptHashData(h, (unsigned char*)data.data(),
+                            (unsigned long)data.size(), 0) == 0;
+    if (ok) ok = BCryptFinishHash(h, digest, sizeof(digest), 0) == 0;
+    if (h) BCryptDestroyHash(h);
+    BCryptCloseAlgorithmProvider(alg, 0);
+    if (!ok) return "";
+    static const char* kHex = "0123456789abcdef";
+    std::string out = "sha256:";
+    for (uint8_t b : digest) {
+        out += kHex[b >> 4];
+        out += kHex[b & 0xf];
+    }
+    return out;
+}
+
+// manifest.json에서 "key":"value" 추출 — install MVP의 문자열 스캔 관용구를
+// 공용화. 못 찾으면 "".
+std::string ManifestString(const std::string& body, const char* key) {
+    const std::string pat = std::string("\"") + key + "\"";
+    const size_t k = body.find(pat);
+    if (k == std::string::npos) return "";
+    const size_t colon = body.find(':', k + pat.size());
+    const size_t q1 = body.find('"', colon);
+    const size_t q2 = (q1 == std::string::npos) ? std::string::npos
+                                                : body.find('"', q1 + 1);
+    if (colon == std::string::npos || q1 == std::string::npos ||
+        q2 == std::string::npos)
+        return "";
+    return body.substr(q1 + 1, q2 - q1 - 1);
+}
+
+bool ValidAppName(const std::string& name) {
+    if (name.empty() || name.size() > 64) return false;
+    for (char c : name) {
+        if (!(std::isalnum((unsigned char)c) || c == '-' || c == '_'))
+            return false;
+    }
+    return true;
+}
+
+// 설치 시 trust 지문 선기록 (docs/51 §3.4): 서버 재시작 전에도 첫 스폰이
+// 신뢰 상태로 시작한다. 서버 EnsureTrustRecord와 동일 규약 — 이미 같은
+// 지문이 있으면 파일을 건드리지 않고, 파손된 스토어는 절대 덮어쓰지
+// 않는다(기록 보존 우선). 파싱 없이 "records":[" 뒤에 레코드를 스플라이스
+// 한다(jkctl은 quickjs에 링크하지 않는다 — 서브스트링 규약으로 충분).
+void TrustPreRecord(const std::string& fingerprint, const std::string& name) {
+    if (fingerprint.empty()) return;
+    char exePath[1024] = {};
+    if (!GetModuleFileNameA(nullptr, exePath, sizeof(exePath))) return;
+    std::string exeDir = exePath;
+    const size_t slash = exeDir.find_last_of("\\/");
+    if (slash == std::string::npos) return;
+    exeDir.resize(slash);
+    CreateDirectoryA((exeDir + "\\state").c_str(), nullptr);
+    const std::string path = exeDir + "\\state\\trust.json";
+    const std::string fpKey = "\"fingerprint\":\"" + fingerprint + "\"";
+
+    std::string body;
+    bool have = false;
+    {
+        std::ifstream in(path, std::ios::binary);
+        if (in) {
+            body.assign((std::istreambuf_iterator<char>(in)),
+                        std::istreambuf_iterator<char>());
+            have = true;
+        }
+    }
+    const uint64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                               std::chrono::steady_clock::now().time_since_epoch())
+                               .count();
+    const std::string rec = "{\"fingerprint\":\"" + fingerprint +
+                            "\",\"name\":\"" + name +
+                            "\",\"source\":\"user\",\"ts\":" +
+                            std::to_string(nowMs) + "}";
+
+    if (have) {
+        if (body.find(fpKey) != std::string::npos)
+            return;  // 이미 기록된 지문 — 스토어 무변경 (서버 규약 동일).
+        const size_t arr = body.find("\"records\":[");
+        if (arr == std::string::npos) {
+            std::fprintf(stderr,
+                         "jkctl: trust.json unrecognizable — skipped pre-record "
+                         "(server startup scan will record it)\n");
+            return;
+        }
+        // "records":[ 바로 뒤에 스플라이스 — 기존 레코드는 전부 보존된다.
+        // 빈 배열 뒤엔 쉼표 없이, 아니면 rec 뒤에 쉼표를 붙인다(스플라이스
+        // 위치가 배열 머리이므로 뒤쪽 경계가 언제나 새 레코드와 기존 레코드
+        // 사이). 쉼표 누락 시 store 전체가 파싱 불능 — fail-closed 서버가
+        // 절대 고치지 않으므로 여기서 반드시 올바른 JSON을 쓴다.
+        const size_t insert = arr + strlen("\"records\":[");
+        size_t p = insert;
+        while (p < body.size() &&
+               (body[p] == ' ' || body[p] == '\t' || body[p] == '\n' ||
+                body[p] == '\r'))
+            ++p;
+        body.insert(insert, p < body.size() && body[p] == ']' ? rec : rec + ",");
+    } else {
+        body = "{\"records\":[" + rec + "]}";
+    }
+    FILE* wf = nullptr;
+    if (fopen_s(&wf, path.c_str(), "wb") != 0 || !wf) {
+        std::fprintf(stderr, "jkctl: cannot write trust.json — skipped pre-record\n");
+        return;
+    }
+    std::fwrite(body.data(), 1, body.size(), wf);
+    std::fclose(wf);
+    std::printf("trust fingerprint pre-recorded (%s, '%s')\n",
+                fingerprint.substr(0, 15).c_str(), name.c_str());
+}
 // 복사하고 "myapp" 토큰을 치환한다. 템플릿 위치는 <exeDir>\templates\
 // console-app (build_with_temp.sh가 런타임 루트로 동기화).
 int Init(const std::string& name) {
@@ -190,44 +318,21 @@ int Init(const std::string& name) {
     return 0;
 }
 
-// install — docs/51 C 후보 "패키지 매니저" MVP: 콘솔 앱 폴더(manifest.json
-// 포함)를 <exeDir>\apps\<name>\로 복사한다. zip 배포 + trust 지문 검증
-// 설치는 C 후보 잔여. 서버 스캔은 시작 시 1회라 재시작이 필요하다 —
-// 지문은 스캔 시점에 EnsureTrustRecord가 남긴다(docs/51 §3.4).
-int Install(const std::string& folder) {
-    std::ifstream in(folder + "\\manifest.json", std::ios::binary);
+// 설치 공용 꼬리: 스테이지 디렉터리의 manifest를 검증 → trust 선기록 →
+// apps\<name>\ 복사. fromZip이면 복사 후 임시 언팩 정리. label은 사용자
+// 안내에 표시할 원본 경로(zip 설치 시 임시 언팩 경로 대신 원본을 보여준다).
+int InstallFromDir(const std::string& staged, bool fromZip,
+                   const std::string& label) {
+    std::ifstream in(staged + "\\manifest.json", std::ios::binary);
     if (!in) {
         std::fprintf(stderr, "install: not a console app (missing %s\\manifest.json)\n",
-                     folder.c_str());
+                     staged.c_str());
         return 2;
     }
     std::string body((std::istreambuf_iterator<char>(in)),
                      std::istreambuf_iterator<char>());
-    // "name" 추출 — 서버/LoadModel과 같은 문자열 스캔 관용구.
-    const size_t k = body.find("\"name\"");
-    if (k == std::string::npos) {
-        std::fprintf(stderr, "install: manifest has no \"name\"\n");
-        return 2;
-    }
-    const size_t colon = body.find(':', k);
-    const size_t q1 = body.find('"', colon);
-    const size_t q2 = (q1 == std::string::npos) ? std::string::npos
-                                                : body.find('"', q1 + 1);
-    if (q1 == std::string::npos || q2 == std::string::npos) {
-        std::fprintf(stderr, "install: bad manifest name\n");
-        return 2;
-    }
-    const std::string name = body.substr(q1 + 1, q2 - q1 - 1);
-    // Same validation as init — the server scan keys on this name, so a
-    // loose name here becomes a launcher key (and Windows reserves CON/NUL).
-    bool nameOk = !name.empty() && name.size() <= 64;
-    for (char c : name) {
-        if (!(std::isalnum((unsigned char)c) || c == '-' || c == '_')) {
-            nameOk = false;
-            break;
-        }
-    }
-    if (!nameOk) {
+    const std::string name = ManifestString(body, "name");
+    if (!ValidAppName(name)) {
         std::fprintf(stderr, "install: bad name '%s' ([A-Za-z0-9_-] 1..64)\n",
                      name.c_str());
         return 2;
@@ -240,16 +345,176 @@ int Install(const std::string& folder) {
         return 2;
     }
     std::filesystem::create_directories(ExeDirA() + "apps", ec);
-    std::filesystem::copy(folder, dst,
+    // copy (rename 아님): zip 언팩 직후 rename은 AV 스캔 공유 위반
+    // (Permission denied)에 걸릴 수 있다 — 실측. 임시 언팩 정리는 꼬리에서.
+    std::filesystem::copy(staged, dst,
                           std::filesystem::copy_options::recursive, ec);
     if (ec) {
         std::fprintf(stderr, "install: copy failed (%s)\n", ec.message().c_str());
         return 2;
     }
+    // trust 지문 선기록 — manifest cmd의 SHA-256 (docs/51 §3.4와 동일
+    // 원문: 서버는 설치된 manifest.json의 cmd 값을 그대로 해시한다).
+    TrustPreRecord(Sha256Hex(ManifestString(body, "cmd")), name);
+    if (fromZip) {
+        // 임시 언팩 정리 — 방금 쓴 파일은 AV 스캔 락에 걸릴 수 있으므로
+        // 3회 재시도(300ms 간격). 실패해도 설치 자체는 성공이므로 경고만.
+        bool cleaned = false;
+        for (int attempt = 0; attempt < 3 && !cleaned; ++attempt) {
+            ec.clear();
+            std::filesystem::remove_all(staged, ec);
+            cleaned = !ec;
+            if (!cleaned) Sleep(300);
+        }
+        if (!cleaned)
+            std::fprintf(stderr,
+                         "install: warning: staging %s left behind (AV scan "
+                         "lock — safe to delete manually)\n",
+                         staged.c_str());
+    }
     std::printf("installed %s -> %s\n"
                 "restart the desktop to scan it into the launcher\n",
-                folder.c_str(), dst.c_str());
+                label.c_str(), dst.c_str());
     return 0;
+}
+
+// pack — docs/51 C 후보 "패키지 매니저": 콘솔 앱 폴더를 <name>.zip으로
+// 배포 포장한다 (deflate — miniz 벤더링). 아카이브 경로는 폴더 상대경로에
+// '/' 구분자 통일(zip 관례, 대상 OS 무관).
+int Pack(const std::string& folder) {
+    std::error_code ec;
+    if (!std::filesystem::is_directory(folder, ec)) {
+        std::fprintf(stderr, "pack: not a directory: %s\n", folder.c_str());
+        return 2;
+    }
+    std::ifstream in(folder + "\\manifest.json", std::ios::binary);
+    if (!in) {
+        std::fprintf(stderr, "pack: not a console app (missing %s\\manifest.json)\n",
+                     folder.c_str());
+        return 2;
+    }
+    std::string body((std::istreambuf_iterator<char>(in)),
+                     std::istreambuf_iterator<char>());
+    const std::string name = ManifestString(body, "name");
+    if (!ValidAppName(name)) {
+        std::fprintf(stderr, "pack: bad name '%s' in manifest ([A-Za-z0-9_-] 1..64)\n",
+                     name.c_str());
+        return 2;
+    }
+    const std::string zipPath = name + ".zip";
+
+    std::vector<std::string> files;
+    for (auto it = std::filesystem::recursive_directory_iterator(
+             folder, std::filesystem::directory_options::skip_permission_denied, ec);
+         it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
+        if (ec) break;
+        if (it->is_regular_file(ec)) files.push_back(it->path().string());
+    }
+    if (ec) {
+        std::fprintf(stderr, "pack: walk failed (%s)\n", ec.message().c_str());
+        return 2;
+    }
+
+    mz_zip_archive za = {};
+    if (!mz_zip_writer_init_file(&za, zipPath.c_str(), 0)) {
+        std::fprintf(stderr, "pack: cannot create %s\n", zipPath.c_str());
+        return 2;
+    }
+    bool ok = true;
+    std::string prefix = std::filesystem::absolute(folder, ec).string();
+    std::replace(prefix.begin(), prefix.end(), '\\', '/');
+    if (!prefix.empty() && prefix.back() != '/') prefix += '/';
+    for (const std::string& f : files) {
+        std::string abs = std::filesystem::absolute(f, ec).string();
+        if (abs.size() <= prefix.size()) continue;
+        std::string arc = abs.substr(prefix.size());
+        std::replace(arc.begin(), arc.end(), '\\', '/');
+        if (!mz_zip_writer_add_file(&za, arc.c_str(), f.c_str(), nullptr, 0,
+                                    MZ_DEFAULT_LEVEL)) {
+            std::fprintf(stderr, "pack: add failed: %s\n", f.c_str());
+            ok = false;
+            break;
+        }
+    }
+    if (ok) ok = mz_zip_writer_finalize_archive(&za);
+    mz_zip_writer_end(&za);
+    if (!ok) {
+        std::fprintf(stderr, "pack: finalize failed\n");
+        std::remove(zipPath.c_str());
+        return 2;
+    }
+    std::printf("packed %s (%zu file(s))\n", zipPath.c_str(), files.size());
+    return 0;
+}
+
+// install — 배포본(zip) 또는 폴더를 apps\<name>\로 설치한다. zip은 zip-slip
+// 방어(절대경로/.. 구성요소 거부) 후 임시 폴더에 언팩 → 공용 설치 경로.
+int Install(const std::string& path) {
+    std::error_code ec;
+    if (std::filesystem::is_directory(path, ec))
+        return InstallFromDir(path, false, path);
+    if (path.size() < 4 || path.substr(path.size() - 4) != ".zip") {
+        std::fprintf(stderr, "install: pass a console app folder or a .zip package\n");
+        return 2;
+    }
+
+    mz_zip_archive za = {};
+    if (!mz_zip_reader_init_file(&za, path.c_str(), 0)) {
+        std::fprintf(stderr, "install: cannot open zip: %s\n", path.c_str());
+        return 2;
+    }
+    // 임시 언팩 디렉터리 — <exeDir>\tmp\install_<zip basename>
+    std::string base = std::filesystem::path(path).filename().string();
+    const size_t dot = base.size() >= 4 ? base.size() - 4 : 0;
+    std::string tmp = ExeDirA() + "tmp\\install_" + base.substr(0, dot);
+    std::filesystem::remove_all(tmp, ec);  // 이전 실패 잔여 제거
+    std::filesystem::create_directories(tmp, ec);
+    if (ec) {
+        std::fprintf(stderr, "install: cannot stage %s (%s)\n", tmp.c_str(),
+                     ec.message().c_str());
+        mz_zip_reader_end(&za);
+        return 2;
+    }
+    const int n = (int)mz_zip_reader_get_num_files(&za);
+    int rc = 0;
+    for (int i = 0; i < n; ++i) {
+        mz_zip_archive_file_stat st = {};
+        if (!mz_zip_reader_file_stat(&za, i, &st)) continue;
+        const std::string nm = st.m_filename;
+        // zip-slip 방어: 절대경로/드라이브/.. 구성요소는 설치 거부.
+        bool unsafe = nm.empty() || nm[0] == '/' || nm[0] == '\\' ||
+                      (nm.size() >= 2 && nm[1] == ':');
+        for (size_t p = 0; !unsafe && p + 1 < nm.size(); ++p) {
+            if (nm[p] == '.' && nm[p + 1] == '.' &&
+                (p == 0 || nm[p - 1] == '/') && (p + 2 >= nm.size() || nm[p + 2] == '/'))
+                unsafe = true;
+        }
+        if (unsafe) {
+            std::fprintf(stderr, "install: unsafe archive path: %s\n", nm.c_str());
+            rc = 2;
+            break;
+        }
+        std::string outPath = tmp + "\\" + nm;
+        std::replace(outPath.begin(), outPath.end(), '/', '\\');
+        if (st.m_is_directory) {
+            std::filesystem::create_directories(outPath, ec);
+            continue;
+        }
+        // 엔트리의 상위 디렉터리가 zip에 별도 행으로 없을 수 있다 — 보장.
+        std::filesystem::create_directories(
+            std::filesystem::path(outPath).parent_path(), ec);
+        if (!mz_zip_reader_extract_to_file(&za, i, outPath.c_str(), 0)) {
+            std::fprintf(stderr, "install: extract failed: %s\n", nm.c_str());
+            rc = 2;
+            break;
+        }
+    }
+    mz_zip_reader_end(&za);
+    if (rc != 0) {
+        std::filesystem::remove_all(tmp, ec);
+        return rc;
+    }
+    return InstallFromDir(tmp, true, path);
 }
 
 } // namespace
@@ -258,7 +523,8 @@ int wmain(int argc, wchar_t* argv[]) {
     if (argc < 3) {
         std::fprintf(stderr,
                      "usage: jkctl notify \"<msg>\" | agent '<json>' | ask \"<question>\"\n"
-                     "       jkctl init \"<name>\" | install \"<folder>\"\n");
+                     "       jkctl init \"<name>\" | pack \"<folder>\"\n"
+                     "       jkctl install \"<folder-or-package.zip>\"\n");
         return 2;
     }
     // argv를 UTF-8로 정규화 (docs/48 레슨 — 이후 모든 처리는 UTF-8).
@@ -272,6 +538,7 @@ int wmain(int argc, wchar_t* argv[]) {
     if (sub == "agent") return Agent(a2);
     if (sub == "ask") return Ask(a2);
     if (sub == "init") return Init(a2);
+    if (sub == "pack") return Pack(a2);
     if (sub == "install") return Install(a2);
     std::fprintf(stderr, "unknown subcommand: %s\n", a1);
     return 2;
