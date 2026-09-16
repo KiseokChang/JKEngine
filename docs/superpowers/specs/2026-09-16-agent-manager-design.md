@@ -234,6 +234,13 @@ probe_agent_triggerctl, probe_agent_chat(승인 스트립에 permission_set 렌�
 
 ## 8. 구현 표기 (완료 시 기입)
 
-- 커밋: (미정)
-- docs: (미정)
-- 프로브: (미정)
+- 커밋: de7d2b9(읽기 3종) → 72c5355(permission_set) → 7cd4393(trust_revoke) →
+  d542415(브로커 5종) → bcee1e6(jkchat 스트립 + /agentmgr) → 9528113(jkapp_agentmgr)
+- docs: docs/53_desktop_agent_mgr.md
+- 프로브: probe_agentmgr.ps1 (15/15 PASS) + 회귀 GREEN (mcp/trust/triggerctl/chat,
+  jkagentd --selftest 0)
+- 델타 (구현과 정합, §2.1/§2.5 보완): agent_permissions의 `file`은 파일 행 부재 시
+  `""`(규약). read_receipts 행의 ok는 bool 접근자 부재로 `"0"/"1"` 문자열, ts는
+  epoch 초(ms→1000 나눔). trust_list 행에 전체 지문 `fp` 필드 추가(표시용 15자
+  truncated와 병행) — UI 해지가 전체 지문으로 동작하게. 트리거 탭은 2레벨 리더
+  제약으로 topics 열 생략(name/enabled만).
