@@ -193,16 +193,42 @@ static void LogRaw(const std::wstring& chunk) {
     SendMessageW(g_hLog, EM_SCROLLCARET, 0, 0);
 }
 
-static void ShowApproval(const std::string& title, uint32_t targetId,
-                         uint32_t request) {
-    g_approvalRequest = request;
-    wchar_t buf[512];
-    _snwprintf_s(buf, _TRUNCATE, L"[%s #%u] 창을 닫을까요?", Utf8ToWide(title).c_str(),
-                 targetId);
-    SetWindowTextW(g_hPrompt, buf);
+// 승인 스트립 큐 (docs/53 §9 잔여 — 단일 슬롯은 후발 요청이 선행 요청을
+// 덮어썼고, 파킹된 선행 요청은 시간초과까지 보이지 않았다). 스트립 1개를
+// 큐로 순환: 점유 중엔 대기, resolved되면 다음 요청이 스트립에 오른다.
+struct ApprovalUi {
+    uint32_t request;
+    std::wstring text;
+};
+static std::vector<ApprovalUi> g_approvalQueue;
+
+static void ShowApprovalText(const std::wstring& text) {
+    SetWindowTextW(g_hPrompt, text.c_str());
     ShowWindow(g_hPrompt, SW_SHOWNORMAL);
     ShowWindow(g_hAllow, SW_SHOWNORMAL);
     ShowWindow(g_hDeny, SW_SHOWNORMAL);
+    EnableWindow(g_hAllow, TRUE);
+    EnableWindow(g_hDeny, TRUE);
+}
+
+// approval_request 수신 경유점: 스트립이 비었으면 즉시 표시, 아니면 대기 큐.
+static void EnqueueApproval(uint32_t request, const std::wstring& text) {
+    if (g_approvalRequest == 0) {
+        g_approvalRequest = request;
+        ShowApprovalText(text);
+    } else {
+        g_approvalQueue.push_back({request, text});
+        Log(L"[대기] 승인 요청 #" + std::to_wstring(request) +
+            L" — 현재 승인 처리 후 표시");
+    }
+}
+
+static void ShowApproval(const std::string& title, uint32_t targetId,
+                         uint32_t request) {
+    wchar_t buf[512];
+    _snwprintf_s(buf, _TRUNCATE, L"[%s #%u] 창을 닫을까요?", Utf8ToWide(title).c_str(),
+                 targetId);
+    EnqueueApproval(request, buf);
 }
 
 // Script trust prompt (docs/37 spec): same strip, different copy. The
@@ -210,7 +236,6 @@ static void ShowApproval(const std::string& title, uint32_t targetId,
 // /trust output, full value in the transcript log.
 static void ShowTrustApproval(const std::string& name, const std::string& origin,
                               const std::string& fingerprint, uint32_t request) {
-    g_approvalRequest = request;
     const std::string fp8 =
         fingerprint.size() > 15 ? fingerprint.substr(0, 15) : fingerprint;
     wchar_t buf[512];
@@ -218,10 +243,7 @@ static void ShowTrustApproval(const std::string& name, const std::string& origin
                  L"[신뢰 요청] %s (%s) 해시 %s… 승인할까요?",
                  Utf8ToWide(name).c_str(), Utf8ToWide(origin).c_str(),
                  Utf8ToWide(fp8).c_str());
-    SetWindowTextW(g_hPrompt, buf);
-    ShowWindow(g_hPrompt, SW_SHOWNORMAL);
-    ShowWindow(g_hAllow, SW_SHOWNORMAL);
-    ShowWindow(g_hDeny, SW_SHOWNORMAL);
+    EnqueueApproval(request, buf);
 }
 
 static void HideApproval() {
@@ -236,31 +258,23 @@ static void HideApproval() {
 static void ShowPermissionApproval(const std::string& targetTool,
                                    const std::string& decision,
                                    uint32_t request) {
-    g_approvalRequest = request;
     wchar_t buf[512];
     _snwprintf_s(buf, _TRUNCATE, L"[권한 변경] %s → %s 승인할까요?",
                  Utf8ToWide(targetTool).c_str(),
                  Utf8ToWide(decision).c_str());
-    SetWindowTextW(g_hPrompt, buf);
-    ShowWindow(g_hPrompt, SW_SHOWNORMAL);
-    ShowWindow(g_hAllow, SW_SHOWNORMAL);
-    ShowWindow(g_hDeny, SW_SHOWNORMAL);
+    EnqueueApproval(request, buf);
 }
 
 // 매니저 신뢰 해지 (스펙 §2.3): 지문은 15자 절단 표시(ShowTrustApproval 선례).
 static void ShowTrustRevokeApproval(const std::string& name,
                                     const std::string& fingerprint,
                                     uint32_t request) {
-    g_approvalRequest = request;
     const std::string fp8 =
         fingerprint.size() > 15 ? fingerprint.substr(0, 15) : fingerprint;
     wchar_t buf[512];
     _snwprintf_s(buf, _TRUNCATE, L"[신뢰 해지] %s (%s…) 승인할까요?",
                  Utf8ToWide(name).c_str(), Utf8ToWide(fp8).c_str());
-    SetWindowTextW(g_hPrompt, buf);
-    ShowWindow(g_hPrompt, SW_SHOWNORMAL);
-    ShowWindow(g_hAllow, SW_SHOWNORMAL);
-    ShowWindow(g_hDeny, SW_SHOWNORMAL);
+    EnqueueApproval(request, buf);
 }
 
 // Send one tool request (non-blocking) and remember its label so the reply
@@ -596,10 +610,26 @@ static void HandleEvent(const jk::agent::AgentEvent& ev) {
         e.GetInt("request", request);
         e.GetStr("decision", decision);
         if (g_approvalRequest == static_cast<uint32_t>(request)) {
-            HideApproval();
-            // Re-arm for the next request.
-            EnableWindow(g_hAllow, TRUE);
-            EnableWindow(g_hDeny, TRUE);
+            // 프론트 해소 — 큐의 다음 요청이 스트립에 오르거나 숨김.
+            // approval_timeout도 decision=timeout의 approval_resolved로 온다
+            // (서버 만료 스캔), 타임아웃된 프론트도 자동 순환한다.
+            if (!g_approvalQueue.empty()) {
+                ApprovalUi next = g_approvalQueue.front();
+                g_approvalQueue.erase(g_approvalQueue.begin());
+                g_approvalRequest = next.request;
+                ShowApprovalText(next.text);
+            } else {
+                HideApproval();
+            }
+        } else {
+            // 다른 표면(다른 채팅창)이 해소한 대기 항목 — 큐에서 제거.
+            for (auto it = g_approvalQueue.begin(); it != g_approvalQueue.end();
+                 ++it) {
+                if (it->request == static_cast<uint32_t>(request)) {
+                    g_approvalQueue.erase(it);
+                    break;
+                }
+            }
         }
         Log("[승인] request " + std::to_string(request) + " → " + decision);
     } else if (ev.topic == "agent.notify") {
