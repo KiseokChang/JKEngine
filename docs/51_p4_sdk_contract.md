@@ -126,7 +126,7 @@
   레슨 준수, manifest `cmd`를 `main.cmd`로), `build_with_temp.sh`가
   `templates/console-app`을 런타임 루트로 동기화(`/.` 중첩 방지 복사).
   jkctl init은 `<cwd>\<name>\` 생성 + `"myapp"` 토큰 치환, 이름은
-  `[A-Za-z0-9_-]{1,64}` 검증. probe_jkctl_init.ps1 10/10.
+  `[A-Za-z0-9_-]{1,64}` 검증. (누적 계수는 C 후보末 23/23 참조)
 - 패키지 매니저 — 콘솔 앱 폴더의 zip 배포 + trust 지문 검증 설치
   **→ 2026-09-16 폴더 MVP 완료: `jkctl install <folder>`** — manifest.json의
   `"name"` 문자열 스캔 → `<exeDir>\apps\<name>\` 재귀 복사, 기존 설치 거부.
@@ -140,7 +140,7 @@
   trust 지문 선기록 — manifest cmd의 SHA-256 = 서버 ConsoleAppFingerprint와
   동일 규약, 스플라이스는 배열 머리 삽입(빈 배열/공백 경계 처리; 쉼표 누락
   시 fail-closed 서버가 절대 못 고치는 실측 결함 픽스 포함). 매니페스트
-  상한 1MiB = 서버 kMaxManifestBytes 동일. probe_jkctl_init.ps1 17/17.
+  상한 1MiB = 서버 kMaxManifestBytes 동일. (누적 계수는 C 후보末 23/23 참조)
   주의: 선기록 source는 "user" — zip 파생 지문이지만 현행 trust는 표시
   이상의 역할이 없어(run_console_app은 승인 시점 재조회) 안전 실패 설계.
 - 샘플 라인업 — Python/Rust/Go 예제 + jkctl agent 실전 예제
@@ -149,8 +149,20 @@
   agent-notify(jkctl notify/agent/ask 3종 실전 데모). 공통 계약: 무인자 =
   todo.txt 목록, 인자 = jkctl ask 우선순위 정리. .bat 본체 ASCII 전용
   (docs/48). 배포는 `jkctl pack samples/<name>`.
-- `--attach` — jkctl ask 파일 첨부(스펙 §4 예제에 있었으나 미구현) (잔여)
-- 콘솔 앱 → `.jkx` 승격 도구(매니페스트→컨테이너 변환) (잔여)
+- `--attach` — jkctl ask 파일 첨부 **→ 2026-09-17 완료: `jkctl ask "<질문>"
+  --attach <파일> [--attach <파일>...]`** — 텍스트 파일만(NUL 검사), basename
+  헤더 블록으로 질의 뒤 결합. 16KiB 컷(UTF-8 연속바이트 후퇴로 문자 깨짐
+  방지), CreateProcessW 전체 명령행 30000 가드, UTF-8 실패 시 CP949(ACP)
+  재인코딩. **교훈: 런치 체인이 명령행을 첫 개행에서 절단** — 프롬프트 내
+  개행은 `\n`/`\r` 리터럴로 인코딩(실측: 2줄 프롬프트 → 모델은 1줄만 봄).
+  probe_jkctl_init 11-13(부재/바이너리 exit 2, 텍스트 → LLM 런치 경로).
+- 콘솔 앱 → `.jkx` 승격 도구 **→ 2026-09-17 완료: `jkctl promote <폴더>` +
+  `jkctl install <파일>.jkx`** — promote은 JKJkxFile::Write로 JKX1 컨테이너
+  작성(manifest.json TOC 선두, 상대경로 '/' 통일, 엔트리명 59B 가드),
+  install은 .jkx 확장자/매직 스니프 분기 → JKJkxFile::Open(버전/코덱 검증)
+  → tmp 스테이징 → zip과 동일 unsafe-경로 가드('\.' 포함) → 공통
+  InstallFromDir 꼬리(trust 선기록 포함). probe_jkctl_init 14-17 →
+  **23/23 ALL PASS**.
 
 ## 검증 요약
 

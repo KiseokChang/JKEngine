@@ -74,6 +74,12 @@ apps/<name>/
 
 ```
 jkctl ask "선택한 파일 요약해줘" --attach <path>   # 에이전트 질의 → 응답 stdout
+```
+
+> **as-built (2026-09-17)**: `--attach` 구현 완료 — 텍스트만(NUL 거부),
+> basename 헤더 블록 결합, 16KiB 컷(UTF-8 연속바이트 후퇴) + 명령행 30000
+> 가드, UTF-8 실패 시 CP949 재인코딩. 개행은 `\n`/`\r` 리터럴 인코딩(런치
+> 체인이 명령행을 첫 개행에서 절단하는 실측 교훈). probe_jkctl_init 11-13.
 jkctl notify "메시지"                             # 데스크탑 알림
 ```
 

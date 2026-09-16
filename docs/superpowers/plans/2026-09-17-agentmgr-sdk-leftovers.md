@@ -40,7 +40,7 @@
 - 따라서 **permission_set/trust_revoke에만** self-approve를 봉쇄한다. 이 두 kind의 파킹 요청자(agentmgr 앱/jkagentd)가 스스로 approve를 보낼 legit 경로는 오늘도 없다 — 위반만 막고 기존 흐름은 무손상.
 - 잔여 위험(기록): 콘솔 앱이 jkctl agent 2회로 park+approve하는 경로는 여전히 열려 있다(다른 연결이므로). docs/38 룰링과 동일한 위협 모델 — 같은 머신 신뢰 스크립트는 자기 예산을 회피할 수 있다. 스펙 §7에 잔여로 명시.
 
-- [ ] **Step 1: 서버 approve 브랜치에 게이트 추가**
+- [x] **Step 1: 서버 approve 브랜치에 게이트 추가**
 
 `engine/src/server/JKWindowServer.cpp` approve 브랜치(2871행 부근). 루프 선두의 requestId 매치 직후에 삽입하고, 꼬리의 `if (!resolved)`가 self_approve 응답을 덮어쓰지 않게 플래그를 추가한다:
 
@@ -79,14 +79,14 @@
 
 주의: 기존 `if (!resolved) reply = ...unknown_request...` 한 줄을 위의 3분기로 교체한다. 파킹 엔트리는 erase하지 않은 채 break — 다른 표면(채팅)의 승인은 여전히 가능하다.
 
-- [ ] **Step 2: 빌드 + mtime 게이트**
+- [x] **Step 2: 빌드 + mtime 게이트**
 
 ```bash
 cd /i/progwork/JKENGINE/engine/build && PATH=/c/msys64/ucrt64/bin:$PATH cmake --build . --target jkdesktop 2>&1 | tail -5
 ```
 Expected: 링크 성공. `ls -l jkdesktop.exe` mtime이 소스 mtime보다 최신이면 통과.
 
-- [ ] **Step 3: probe_approve_self.ps1 작성 (raw 파이프 클라이언트 — 같은 연결에서 park+approve)**
+- [x] **Step 3: probe_approve_self.ps1 작성 (raw 파이프 클라이언트 — 같은 연결에서 park+approve)**
 
 `engine/tools/probes/probe_approve_self.ps1` (ASCII-only, BOM 포함 — Write tool 사용). 핵심: agentctl은 쿼리 1건당 프로세스 1개라 "같은 연결" 시험을 못 한다 — 와이어(JKX1 아님, JKPipe)를 PS5.1로 직접 드라이브한다.
 
@@ -228,14 +228,14 @@ if ($script:fail -eq 0) { Write-Host "RESULT: ALL PASS" } else { Write-Host ("RE
 
 주의(실행자): 위에서 `$gotSelf` 변수를 2/3 검사에서 재사용했다 — 3번 검사는 별도 변수 `$gotParked`로 이름을 바꿔 쓸 것(복붙 실수 방지). 프레임 읽기 순서는 실제 와이어와 일치해야 한다: **Reply = 12B WireHeader(type=18) → payload: AgentReplyHeader 12B(queryId, ok, jsonLen) → json**. Event = 12B 헤더(type=20) → AgentEventHeader 4B(jsonLen) → json — 즉 **event의 jsonLen은 payload 앞 4B**다. 위 `ReadFrame`은 와이어 헤더의 length만 읽으므로, event의 실제 json은 `ReadPayload $pipe $f.len`에서 와이어 헤더 length 그대로 읽으면 된다(서버가 WireHeader.length에 jsonLen을 쓰는지 WriteAgentJson 구현에서 확인하고, 다르면 보정할 것 — **1차 가지치기로 서버 측 WriteAgentJson/ReadAgentJson 구현(src/ipc/JKWireProtocol.cpp)을 읽고 프레임 규약을 확인한 뒤 프로브를 맞출 것**).
 
-- [ ] **Step 4: 공식런**
+- [x] **Step 4: 공식런**
 
 ```bash
 cd /i/progwork/JKENGINE/engine/tools/probes && powershell -ExecutionPolicy Bypass -File probe_approve_self.ps1
 ```
 Expected: 5체크 ALL PASS. permission_set은 fixed-ask라 permissions.json 시딩 불필요. 실패 시 서버 로그(stdout)로 승인 파이프라인 동작 확인.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /i/progwork/JKENGINE && git add engine/src/server/JKWindowServer.cpp engine/tools/probes/probe_approve_self.ps1 && git commit -m "feat(server): approve self-approve gate for permission_set/trust_revoke (spec 7)
@@ -253,7 +253,7 @@ cd /i/progwork/JKENGINE && git add engine/src/server/JKWindowServer.cpp engine/t
 - Consumes: 없음(정적 함수 내부 변경).
 - Produces: 동작만 변경 — 반환 계약 불변(빈 문자열=성공, "write_failed"/"not_found"/"trust_store_unreadable").
 
-- [ ] **Step 1: WritePermissionsEntry 전체 읽기**
+- [x] **Step 1: WritePermissionsEntry 전체 읽기**
 
 1674-1688행의 4096 스택 버프를 전체 읽기로 교체:
 
@@ -288,7 +288,7 @@ cd /i/progwork/JKENGINE && git add engine/src/server/JKWindowServer.cpp engine/t
     }
 ```
 
-- [ ] **Step 2: RevokeTrustRecord 전체 읽기**
+- [x] **Step 2: RevokeTrustRecord 전체 읽기**
 
 1746-1752행의 64KB 버프를 전체 읽기로 교체:
 
@@ -312,9 +312,9 @@ cd /i/progwork/JKENGINE && git add engine/src/server/JKWindowServer.cpp engine/t
 
 (이하 TrustRecordText/콤마 수술/.bak/쓰기 경계는 무변경.)
 
-- [ ] **Step 3: 빌드 + mtime 게이트** (`--target jkdesktop`)
+- [x] **Step 3: 빌드 + mtime 게이트** (`--target jkdesktop`)
 
-- [ ] **Step 4: probe_agentmgr.ps1에 2체크 추가**
+- [x] **Step 4: probe_agentmgr.ps1에 2체크 추가**
 
 `3d-largefile-preserves`(permissions 4KB 픽스) — 체크 3 뒤에 삽입. 시나리오: >4KB 파일에서 4KB 너머의 `trust_request:"ask"`가 RMW 후에도 보존되는가(구코드는 4KB 절단 → 파싱 실패 → 전재기록이 기본값 deny로 되돌렸다). 판정 대상은 RMW 시의 **타깃 이외 키 보존**이므로 RMW가 실제 일어나는 **allow** 결정으로 승인한다:
 
@@ -378,8 +378,8 @@ trust_revoke는 기본 Ask 게이트라 직접 호출은 파킹→60s approval_t
 `trust_request:"ask"`는 기본값과 같아 단독으로는 픽스를 판별하지 못한다
 (3점 판정의 보조 축). 공식런 21/21 ALL PASS.
 
-- [ ] **Step 5: 공식런** — `powershell -ExecutionPolicy Bypass -File probe_agentmgr.ps1` → 기존 16체크 + 신규 2~5체크 ALL PASS. (환경 전제는 docs/53 §7: build/apps/triggers 설치 + trust.json 레코드 존재.)
-- [ ] **Step 6: Commit**
+- [x] **Step 5: 공식런** — `powershell -ExecutionPolicy Bypass -File probe_agentmgr.ps1` → 기존 16체크 + 신규 2~5체크 ALL PASS. (환경 전제는 docs/53 §7: build/apps/triggers 설치 + trust.json 레코드 존재.)
+- [x] **Step 6: Commit**
 
 ```bash
 git add engine/src/server/JKWindowServer.cpp engine/tools/probes/probe_agentmgr.ps1
@@ -395,7 +395,7 @@ git commit -m "fix(server): full-file reads in permissions RMW + trust revoke (d
 
 **Interfaces:** 없음 — imgui.h:431 계약("Always call a matching End() for each Begin() call, regardless of its return value") 준수. 도달 불가 경로지만 docs/53 §9 명시 잔여.
 
-- [ ] **Step 1: End 짝 보장**
+- [x] **Step 1: End 짝 보장**
 
 ```cpp
     if (!ImGui::Begin("agentmgr", nullptr,
@@ -406,9 +406,9 @@ git commit -m "fix(server): full-file reads in permissions RMW + trust revoke (d
     ImGui::End();
 ```
 
-- [ ] **Step 2: 빌드** — `--target jkapp_agentmgr` 후 `--target jkx_packages` (레슨 18/57: agentmgr.jkx 재팩 필수). dll/jkx mtime 게이트 확인.
-- [ ] **Step 3: spawn 스모크** — 서버 기동 → agentctl launch_app agentmgr → list_windows에 "Agent Manager". (probe_agentmgr의 체크 1이 커버 — Task 2 공식런이 이를 수행하므로 여기선 수동 스모크 불필요, Task 2 뒤에 배치해도 무방하나 독립 커밋.)
-- [ ] **Step 4: Commit**
+- [x] **Step 2: 빌드** — `--target jkapp_agentmgr` 후 `--target jkx_packages` (레슨 18/57: agentmgr.jkx 재팩 필수). dll/jkx mtime 게이트 확인.
+- [x] **Step 3: spawn 스모크** — 서버 기동 → agentctl launch_app agentmgr → list_windows에 "Agent Manager". (probe_agentmgr의 체크 1이 커버 — Task 2 공식런이 이를 수행하므로 여기선 수동 스모크 불필요, Task 2 뒤에 배치해도 무방하나 독립 커밋.)
+- [x] **Step 4: Commit**
 
 ```bash
 git add engine/src/apps/ClientAgentMgrApp.cpp
@@ -426,7 +426,7 @@ git commit -m "fix(agentmgr): ImGui Begin/End pairing on clipped path (docs/53 s
 - Consumes: 기존 `ShowApproval`/`ShowTrustApproval`/`ShowPermissionApproval`/`ShowTrustRevokeApproval` 서명(그대로 유지 — 내부만 큐로), `g_approvalRequest`, `HideApproval()`, `Decision()`.
 - Produces: 승인 요청이 스트립 점유 중이면 큐 대기 → resolved 시 순차 표시. UI 레이아웃 무변경.
 
-- [ ] **Step 1: 큐 도입 + Show* 리팩**
+- [x] **Step 1: 큐 도입 + Show* 리팩**
 
 `g_approvalRequest` 옆(158행 부근)에 추가:
 
@@ -475,7 +475,7 @@ static void ShowApproval(const std::string& title, uint32_t targetId,
 ```
 (ShowTrustApproval/ShowPermissionApproval/ShowTrustRevokeApproval 동일 패턴 — 각자의 문구 유지, `EnqueueApproval(request, buf)` 호출로 끝맺음.)
 
-- [ ] **Step 2: approval_resolved 핸들러 큐 처리**
+- [x] **Step 2: approval_resolved 핸들러 큐 처리**
 
 ```cpp
     } else if (ev.topic == "agent.approval_resolved") {
@@ -508,9 +508,9 @@ static void ShowApproval(const std::string& title, uint32_t targetId,
 ```
 
 주의: `HideApproval()`이 버튼 Enable 상태를 건드리지 않으므로(현행 그대로), 프론트 교체 시 `ShowApprovalText`가 EnableWindow(TRUE)를 해준다. `Decision()`의 비활성화(레이스 방지)는 유지 — approval_timeout도 approval_resolved(decision=timeout)로 온다(서버 1448-1455행 실측 확인)이므로 타임아웃된 프론트도 자동 순환한다.
-- [ ] **Step 3: 빌드** — `--target jkchat` + mtime 게이트.
-- [ ] **Step 4: 회귀** — probe_agent_chat.ps1 (스트립 와이어 경로 — chat exe 스폰만 검증) PASS 확인.
-- [ ] **Step 5: Commit**
+- [x] **Step 3: 빌드** — `--target jkchat` + mtime 게이트.
+- [x] **Step 4: 회귀** — probe_agent_chat.ps1 (스트립 와이어 경로 — chat exe 스폰만 검증) PASS 확인.
+- [x] **Step 5: Commit**
 
 ```bash
 git add engine/tools/jkchat/main.cpp
@@ -529,7 +529,7 @@ git commit -m "feat(chat): approval strip queue for concurrent approvals (docs/5
 - Produces: `jkctl ask "<q>" --attach <path>` (반복 가능). 파일 본문을 프롬프트에 텍스트 블록으로 첨부. 에러: 읽기 실패/바이너리/과대 → exit 2.
 - 실엔진 응답 검증은 네트워크 의존이라 커밋 프로브에서 제외 — 컨트롤러가 실엔진 스모크 1회 수행.
 
-- [ ] **Step 1: Ask 재구성**
+- [x] **Step 1: Ask 재구성**
 
 기존 `int Ask(const char* question)`을 구조체 버전으로 교체:
 
@@ -637,7 +637,7 @@ int Ask(const AskRequest& req) {
 }
 ```
 
-- [ ] **Step 2: wmain ask 디스패치 + usage 갱신**
+- [x] **Step 2: wmain ask 디스패치 + usage 갱신**
 
 ```cpp
     if (sub == "ask") {
@@ -670,8 +670,8 @@ int Ask(const AskRequest& req) {
     }
 ```
 헤더 usage 문자열(543행 부근)의 ask 행도 `ask "<question>" [--attach <file>]`로 갱신. (기존 `Ask(a2)` 호출 제거.)
-- [ ] **Step 3: 빌드** — `--target jkctl` + mtime 게이트.
-- [ ] **Step 4: probe_jkctl_init.ps1 에러 경로 체크 추가** (체크 11~13으로):
+- [x] **Step 3: 빌드** — `--target jkctl` + mtime 게이트.
+- [x] **Step 4: probe_jkctl_init.ps1 에러 경로 체크 추가** (체크 11~13으로):
 
 ```powershell
     # 11: attach to a missing file is a clean error (exit 2), not a silent ask
@@ -693,8 +693,8 @@ int Ask(const AskRequest& req) {
     Check "ask attach text reaches LLM launch" ($LASTEXITCODE -ne 2) "exit=$LASTEXITCODE (0/1 ok — network dependent)"
 ```
 (주의: 체크 13은 ollama가 설치된 머신에서만 실행되며 네트워크 실패 시 exit 1 — `$LASTEXITCODE -ne 2`만 판정한다. 서버 불필요.)
-- [ ] **Step 5: 공식런** probe_jkctl_init.ps1 ALL PASS. (단, 신규 체크는 서버 불요 — 기존 프로브는 서버 ping 가드만 있음, 확인.)
-- [ ] **Step 6: 실엔진 스모크(컨트롤러 실행, 커밋 아님)** — `jkctl ask "첨부 요약" --attach engine/README.md` → 한글/파일 반영 응답 1회. 실패해도 CLI 계약(위 체크)은 유효 — 결과를 리포트에 기록.
+- [x] **Step 5: 공식런** probe_jkctl_init.ps1 ALL PASS. (단, 신규 체크는 서버 불요 — 기존 프로브는 서버 ping 가드만 있음, 확인.)
+- [x] **Step 6: 실엔진 스모크(컨트롤러 실행, 커밋 아님)** — `jkctl ask "첨부 요약" --attach engine/README.md` → 한글/파일 반영 응답 1회. 실패해도 CLI 계약(위 체크)은 유효 — 결과를 리포트에 기록.
 - [ ] **Step 7: Commit**
 
 ```bash
@@ -714,7 +714,7 @@ git commit -m "feat(jkctl): ask --attach text embedding (docs/51 C leftover)"
 - Consumes: `jk::JKJkxFile::Write/Entries/FindEntry/ReadEntry` (jkctl은 이미 jkcore 링크 — CMakeLists:633), `InstallFromDir`, `ManifestString`, `ValidAppName`, `Sha256Hex`, `TrustPreRecord`, zip 설치의 스테이징/클린업 관용구.
 - Produces: `jkctl promote <folder>` → `<name>.jkx` (JKX1 v1 컨테이너). `jkctl install <path>.jkx` → TOC 언팩 → InstallFromDir. 서버/런처 무변경 — 승격 .jkx는 배포 산출물일 뿐(MODL 부재로 서버 스캔이 런처에 안 올리고, jkctl이 apps\에 .jkx를 두지 않으므로 충돌 없음).
 
-- [ ] **Step 1: 헤더 include + Promote 구현**
+- [x] **Step 1: 헤더 include + Promote 구현**
 
 `main.cpp` 상단: `#include <JKJkxFile.h>` 추가. Pack 뒤에:
 
@@ -788,7 +788,7 @@ int Promote(const std::string& folder) {
 
 (실행자 주의: 위 스니펫의 `mbytes`/`mraw` 자리 표시는 실수 여지가 있다 — **"manifest.json" 엔트리의 바이트는 이미 읽은 `body` 변수에서 만든다**: `std::vector<uint8_t> mbytes(body.begin(), body.end()); entries.emplace_back("manifest.json", std::move(mbytes));` — `in` 스트림은 소진됐음을 상기. 그리고 Pack과 달리 `entries.emplace_back("manifest.json", ...)` 이름은 정확히 `manifest.json`이어야 install의 `InstallFromDir` 검증을 통과한다.)
 
-- [ ] **Step 2: InstallJkx + 디스패치**
+- [x] **Step 2: InstallJkx + 디스패치**
 
 ```cpp
 // install(.jkx) — 승격 컨테이너 언팩 설치. JKJkxFile::Open이 version/codec
@@ -890,8 +890,8 @@ int Install(const std::string& path) {
 }
 ```
 wmain usage에 `promote "<folder>"` 행 추가 + 디스패치 `if (sub == "promote") return Promote(a2);`.
-- [ ] **Step 3: 빌드** — `--target jkctl` + mtime 게이트.
-- [ ] **Step 4: probe_jkctl_init.ps1 체크 14~17** (체크 13 뒤, zip 설치가 이미 apps\<name>을 차지 — **Remove-Item 후 재설치 패턴**(체크 8-10과 동일)을 따른다):
+- [x] **Step 3: 빌드** — `--target jkctl` + mtime 게이트.
+- [x] **Step 4: probe_jkctl_init.ps1 체크 14~17** (체크 13 뒤, zip 설치가 이미 apps\<name>을 차지 — **Remove-Item 후 재설치 패턴**(체크 8-10과 동일)을 따른다):
 
 ```powershell
     # 14: promote wraps the folder into <name>.jkx (JKX1 magic)
@@ -926,8 +926,8 @@ wmain usage에 `promote "<folder>"` 행 추가 + 디스패치 `if (sub == "promo
     Check "promote rejects manifest-less dir" ($LASTEXITCODE -eq 2) "exit=$LASTEXITCODE"
 ```
 (`$jkxPath = Join-Path $work ($appName + ".jkx")`를 상단 변수 블록에 추가. teardown의 apps\<name> 제거가 그대로 커버.)
-- [ ] **Step 5: 공식런** probe_jkctl_init.ps1 ALL PASS.
-- [ ] **Step 6: Commit**
+- [x] **Step 5: 공식런** probe_jkctl_init.ps1 ALL PASS.
+- [x] **Step 6: Commit**
 
 ```bash
 git add engine/tools/jkctl/main.cpp engine/tools/probes/probe_jkctl_init.ps1
@@ -942,7 +942,7 @@ git commit -m "feat(jkctl): console app to .jkx promotion + install from contain
 - Modify: `docs/53_desktop_agent_mgr.md` §9, `docs/51_p4_sdk_contract.md` C 후보 절, `docs/superpowers/specs/2026-09-16-agent-manager-design.md` §7, `docs/superpowers/specs/2026-09-16-p4-sdk-contract-design.md` §4
 - Modify: `C:\Users\kisoc\.claude\projects\I--progwork-JKENGINE\memory\killer_app_absorption.md` (실행 지시 갱신)
 
-- [ ] **Step 1: 전체 회귀 공식런** — 순서대로 전부 PASS:
+- [x] **Step 1: 전체 회귀 공식런** — 순서대로 전부 PASS:
 
 ```bash
 cd /i/progwork/JKENGINE/engine/build && PATH=/c/msys64/ucrt64/bin:$PATH ./jkdesktop.exe test   # jkdesktop test 0 (인자 'test' — dash 없음, docs/53 §8)
@@ -955,8 +955,8 @@ powershell -ExecutionPolicy Bypass -File probe_agent_trust.ps1
 powershell -ExecutionPolicy Bypass -File probe_jkctl_init.ps1                  # 확장판 ALL PASS
 ```
 
-- [ ] **Step 2: docs/53 §9 갱신** — NON-BLOCKING 4항목 상태 표기: End 짝(픽스)/4KB·64KB 캡(픽스+프로브 3d·5c-5e)/단일 스트립(큐, docs/31 self-close 흐름 보존)/approve self-approve(루링: permission_set/trust_revoke만 봉쇄, close_window 예외 사유, jkctl 2회 잔여 명시).
-- [ ] **Step 3: docs/51 C 후복 절** — `--attach`(텍스트 첨부 구현, 16KiB/CP949/30000 가드)와 승격 도구(`promote`/`install .jkx`)를 완료 표기 + probe_jkctl_init 체크 수 갱신.
-- [ ] **Step 4: 스펙 ledger** — agent-manager 스펙 §7 표의 approve 행에 룰링 기입; p4-sdk 스펙 §4에 --attach as-built 표기.
-- [ ] **Step 5: 메모리 동기화** — `killer_app_absorption.md`의 "★다음 세션 실행 지시" 갱신(잔여 레저 소각, 눈확인 항목 유지, 새 잔여 = jkctl 2회 self-approve 잔여만) + `MEMORY.md` 훅 라인 갱신.
-- [ ] **Step 6: 최종리뷰(opus) 준비** — 전체 커밋 diff + 신규 probe 결과를 리뷰어에게 전달(사용자 상임 관례). 리뷰 픽스가 나오면 반영 커밋.
+- [x] **Step 2: docs/53 §9 갱신** — NON-BLOCKING 4항목 상태 표기: End 짝(픽스)/4KB·64KB 캡(픽스+프로브 3d·5c-5e)/단일 스트립(큐, docs/31 self-close 흐름 보존)/approve self-approve(루링: permission_set/trust_revoke만 봉쇄, close_window 예외 사유, jkctl 2회 잔여 명시).
+- [x] **Step 3: docs/51 C 후복 절** — `--attach`(텍스트 첨부 구현, 16KiB/CP949/30000 가드)와 승격 도구(`promote`/`install .jkx`)를 완료 표기 + probe_jkctl_init 체크 수 갱신.
+- [x] **Step 4: 스펙 ledger** — agent-manager 스펙 §7 표의 approve 행에 룰링 기입; p4-sdk 스펙 §4에 --attach as-built 표기.
+- [x] **Step 5: 메모리 동기화** — `killer_app_absorption.md`의 "★다음 세션 실행 지시" 갱신(잔여 레저 소각, 눈확인 항목 유지, 새 잔여 = jkctl 2회 self-approve 잔여만) + `MEMORY.md` 훅 라인 갱신.
+- [x] **Step 6: 최종리뷰(opus) 준비** — 전체 커밋 diff + 신규 probe 결과를 리뷰어에게 전달(사용자 상임 관례). 리뷰 픽스가 나오면 반영 커밋.

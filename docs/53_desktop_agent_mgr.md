@@ -134,5 +134,27 @@ RMW .bak 선기록 순서, fixed-ask 2단 우회 봉쇄, 브로커 triple-sync, 
 MINOR 픽스 반영 커밋: permission_set→permission_set bad_target 즉답(거짓
 written:true 제거), 프로브 시딩 객체형+ok 단언+stale .bak 제거, 스펙 §7
 self-approve 전제 명시 + §8 델타 2차(MergeRunning substring/effective 열 생략).
-NON-BLOCKING 잔여: ImGui Begin false 경로 End 스킵(도달 불가), WritePermissionsEntry
-4KB 상한, trust 64KB 상한, jkchat 단일 승인 스트립(선존 M2).
+NON-BLOCKING 잔여는 후속 세션에서 전부 소각 (2026-09-17, leftovers 플랜
+docs/superpowers/plans/2026-09-17-agentmgr-sdk-leftovers.md):
+- ImGui Begin false → End 스킵: `const bool open = ImGui::Begin(...); ImGui::End();
+  if (!open) return;` (f91a677). NoDecoration/NoMove로 close 불가라 도달 불가지만
+  계약 준수로 봉합.
+- WritePermissionsEntry 4KB 상한: fseek/ftell 전체 읽기 + 256KiB 캡, AgentJson
+  파싱. 캡 초과는 파싱 실패 → bad_target 자기치유. trust_revoke의 기록/분기
+  존재 2개 사이트도 8MiB 캡 전체 읽기(초과는 not_found 정직 반환) (c930532).
+  프로브로 고정: probe_agentmgr 3d(4KB+ 시드 JSON, close_window:allow 판별키)
+  ·5c-5e(999 레코드 + 64KB 초과 tail, approve E2E) → 21/21.
+- approve self-approve 룰링 (spec §7): 파킹을 requesterId 자기 연결에서
+  approve하면 승인 없는 허가 — permission_set/trust_revoke만 봉쇄
+  (`{"ok":false,"error":"self_approve"}`). close_window는 예외: ask 모드에서
+  채팅 자신의 /close를 자기 승인 스트립으로 해소하는 건 docs/31 §3의 설계 UX.
+  probe_approve_self.ps1 5체크(1-parked/2-자기거부/3-cross-approve/4-파킹
+  답신/5-파일) (a75f05e). jkctl은 승인 연결이 없어 2회 잔여 없음 — 룰링은
+  서버 게이트로 해소됨.
+- jkchat 단일 승인 스트립(선존 M2): ApprovalUi 큐(f31e424) — 요청 도착 시
+  front 표시, 나머지 큐잉(`[대기] 승인 요청 #N` 로그), resolved 시 front
+  회전 또는 큐에서 제거. docs/31 self-close 흐름 보존.
+
+픽스 후 회귀 전부 PASS: jkdesktop test 0, jkagentd --selftest 0,
+probe_approve_self 5/5, probe_agentmgr 21/21, probe_agent_chat PASS,
+probe_agent_trust PASS, probe_jkctl_init 23/23 ALL PASS.

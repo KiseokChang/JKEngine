@@ -231,7 +231,7 @@ probe_agent_triggerctl, probe_agent_chat(승인 스트립에 permission_set 렌�
 | permissions.json 파손(수동 편집) | agent_permissions가 permissions_unreadable로 구분, RMW는 유효 키 전재기록으로 복구 효과 |
 | HandleAgentQuery 내 재획득 데드락 | 도구 구현은 락 프리 (lesson 35, Unsafe 관용구) |
 | receipts에 민감 args 노출 | read_receipts는 ts/tool/ok만 반환 |
-| approve 도구의 self-approve(요청자가 자기 파킹을 해소) | **전제로만 봉쇄** — MCP 브로커 IsKnownTool에 approve 미포함 + 스크립트는 도구 호출 경로 없음(우연한 차단). 후속으로 approve에 requesterId != caller 검사 권장 (2026-09-17 리뷰 MINOR) |
+| approve 도구의 self-approve(요청자가 자기 파킹을 해소) | **서버 게이트로 봉쇄 완료 (2026-09-17 leftovers)** — 승인 파이프라인 approve 분기에서 requesterId == 연결 자신이고 kind가 permission_set/trust_revoke면 `{"ok":false,"error":"self_approve"}` 즉답. close_window는 예외: ask 모드에서 채팅 자신의 /close를 자기 승인 스트립으로 해소하는 건 docs/31 §3의 설계 UX. probe_approve_self.ps1 5체크 (a75f05e) |
 
 ## 8. 구현 표기 (완료 시 기입)
 
