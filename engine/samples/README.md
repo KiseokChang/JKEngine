@@ -18,6 +18,9 @@
 ## zip 배포
 
 ```
-jkctl pack samples/py-todo     # → samples/py-todo.zip (deflate)
+jkctl pack samples/py-todo     # → <cwd>\py-todo.zip (zipPath는 현재 디렉터리 기준)
 jkctl install py-todo.zip      # 받는 쪽: tmp 스테이징 → apps/ + trust 선기록
 ```
+
+참고: jkctl.exe는 libwinpthread-1.dll을 동반하므로 배포는 빌드 루트 째로
+가정한다(단일 exe 복사로는 실행되지 않는다).

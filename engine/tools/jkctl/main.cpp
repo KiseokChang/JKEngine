@@ -329,6 +329,14 @@ int InstallFromDir(const std::string& staged, bool fromZip,
                      staged.c_str());
         return 2;
     }
+    // 서버 스캔의 kMaxManifestBytes(1 MiB — JKDesktopShell)와 동일 상한 —
+    // 서버가 거부할 초대형 매니페스트를 설치해 고아 디렉터리를 만들지 않는다.
+    in.seekg(0, std::ios::end);
+    if (in.tellg() > (1u << 20)) {
+        std::fprintf(stderr, "install: manifest.json too large (>1 MiB)\n");
+        return 2;
+    }
+    in.seekg(0, std::ios::beg);
     std::string body((std::istreambuf_iterator<char>(in)),
                      std::istreambuf_iterator<char>());
     const std::string name = ManifestString(body, "name");
@@ -481,12 +489,17 @@ int Install(const std::string& path) {
         mz_zip_archive_file_stat st = {};
         if (!mz_zip_reader_file_stat(&za, i, &st)) continue;
         const std::string nm = st.m_filename;
-        // zip-slip 방어: 절대경로/드라이브/.. 구성요소는 설치 거부.
+        // zip-slip 방어: 절대경로/드라이브/.. 구성요소는 설치 거부. Win32는
+        // '\'도 구분자로 처리하므로 raw entry name(ZIP 사양상 '\' 허용)의
+        // .. 구성요소 검사는 양쪽 구분자를 모두 본다 — 그렇지 않으면
+        // "..\..\x" 항목이 스테이징 밖에 적재된다(리뷰 MAJOR 실증).
         bool unsafe = nm.empty() || nm[0] == '/' || nm[0] == '\\' ||
                       (nm.size() >= 2 && nm[1] == ':');
         for (size_t p = 0; !unsafe && p + 1 < nm.size(); ++p) {
             if (nm[p] == '.' && nm[p + 1] == '.' &&
-                (p == 0 || nm[p - 1] == '/') && (p + 2 >= nm.size() || nm[p + 2] == '/'))
+                (p == 0 || nm[p - 1] == '/' || nm[p - 1] == '\\') &&
+                (p + 2 >= nm.size() || nm[p + 2] == '/' ||
+                 nm[p + 2] == '\\'))
                 unsafe = true;
         }
         if (unsafe) {
@@ -514,7 +527,15 @@ int Install(const std::string& path) {
         std::filesystem::remove_all(tmp, ec);
         return rc;
     }
-    return InstallFromDir(tmp, true, path);
+    const int irc = InstallFromDir(tmp, true, path);
+    if (irc != 0) {
+        // 거부(중복/무효 매니페스트) 시에도 스테이징 잔여를 남기지 않는다
+        // (언팩 페이로드가 tmp에 남는 것을 막음 — 리뷰 MINOR).
+        std::error_code cec;
+        std::filesystem::remove_all(tmp, cec);
+        return irc;
+    }
+    return irc;
 }
 
 } // namespace

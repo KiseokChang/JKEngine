@@ -131,8 +131,24 @@
   **→ 2026-09-16 폴더 MVP 완료: `jkctl install <folder>`** — manifest.json의
   `"name"` 문자열 스캔 → `<exeDir>\apps\<name>\` 재귀 복사, 기존 설치 거부.
   스캔/지문은 서버 재시작 시 1회(EnsureTrustRecord — docs/51 §3.4 그대로).
-  **잔여**: zip 배포 + 설치 시 trust 지문 선검증.
-- 샘플 라인업 — Python/Rust/Go 예제 + jkctl agent 실전 예제 (잔여)
+  **→ 2026-09-17 zip 배포 완결: `jkctl pack <folder>` + `jkctl install
+  <folder-or-.zip>`** — miniz 3.0.2 벤더링(`engine/third_party/miniz`,
+  `miniz_export.h` 수동 스텁). pack은 deflate + '/' 구분자 통일, install은
+  tmp 스테이징 → zip-slip 가드(절대경로/드라이브문자/'..' — **'\'도 구분자로
+  검사(리뷰 MAJOR: `"..\..\x"` raw 항목이 스테이징 밖에 적재되는 우회를
+  실증 후 봉쇄**) → copy 설치(rename은 AV 스캔 공유 위반 실측). 설치 시
+  trust 지문 선기록 — manifest cmd의 SHA-256 = 서버 ConsoleAppFingerprint와
+  동일 규약, 스플라이스는 배열 머리 삽입(빈 배열/공백 경계 처리; 쉼표 누락
+  시 fail-closed 서버가 절대 못 고치는 실측 결함 픽스 포함). 매니페스트
+  상한 1MiB = 서버 kMaxManifestBytes 동일. probe_jkctl_init.ps1 17/17.
+  주의: 선기록 source는 "user" — zip 파생 지문이지만 현행 trust는 표시
+  이상의 역할이 없어(run_console_app은 승인 시점 재조회) 안전 실패 설계.
+- 샘플 라인업 — Python/Rust/Go 예제 + jkctl agent 실전 예제
+  **→ 2026-09-17 완료: `engine/samples/`** — py-todo(즉시 실행, stdlib),
+  rust-todo/go-todo(소스 + 첫 실행 1회 빌드, 툴체인 부재 시 안내),
+  agent-notify(jkctl notify/agent/ask 3종 실전 데모). 공통 계약: 무인자 =
+  todo.txt 목록, 인자 = jkctl ask 우선순위 정리. .bat 본체 ASCII 전용
+  (docs/48). 배포는 `jkctl pack samples/<name>`.
 - `--attach` — jkctl ask 파일 첨부(스펙 §4 예제에 있었으나 미구현) (잔여)
 - 콘솔 앱 → `.jkx` 승격 도구(매니페스트→컨테이너 변환) (잔여)
 
