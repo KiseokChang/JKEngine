@@ -58,7 +58,12 @@ const char* kToolsListJson =
 "{\"name\":\"read_events\",\"description\":\"Drain desktop events (window.created/destroyed/focused) received since the last call\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}},"
 "{\"name\":\"terminal_exec\",\"description\":\"Run a command in a ConPTY session and return its output (Windows only)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"command\":{\"type\":\"string\"},\"timeoutSec\":{\"type\":\"integer\"}},\"required\":[\"command\"]}},"
 "{\"name\":\"theme_set\",\"description\":\"Switch the desktop theme preset: dark, light, or classic (P3 hot-swap, docs/52)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"preset\":{\"type\":\"string\",\"enum\":[\"dark\",\"light\",\"classic\"]}},\"required\":[\"preset\"]}},"
-"{\"name\":\"trust_list\",\"description\":\"List trusted script fingerprints from state/trust.json\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}}"
+"{\"name\":\"trust_list\",\"description\":\"List trusted script fingerprints from state/trust.json\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}},"
+"{\"name\":\"agent_permissions\",\"description\":\"Show the permission matrix: tool x allow/ask/deny with gate badge (server/broker/none)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}},"
+"{\"name\":\"permission_set\",\"description\":\"Change a tool permission (allow/ask/deny) - always requires approval (fixed ask gate)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"tool\":{\"type\":\"string\"},\"decision\":{\"type\":\"string\",\"enum\":[\"allow\",\"ask\",\"deny\"]}},\"required\":[\"tool\",\"decision\"]}},"
+"{\"name\":\"trust_revoke\",\"description\":\"Revoke a trusted script fingerprint (approval-gated)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"fingerprint\":{\"type\":\"string\",\"pattern\":\"sha256:[0-9a-f]{64}\"}},\"required\":[\"fingerprint\"]}},"
+"{\"name\":\"installed_list\",\"description\":\"List installed apps (console + .jkx) with kind\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}},"
+"{\"name\":\"read_receipts\",\"description\":\"Tail the broker receipt log (ts/tool/ok only)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"limit\":{\"type\":\"integer\"}}}}"
 "]}";
 
 // Known tool names.
@@ -66,7 +71,9 @@ bool IsKnownTool(const std::string& name) {
     static const char* kNames[] = {
         "list_windows", "launch_app", "run_console_app", "focus_window",
         "close_window", "save_layout", "restore_layout", "read_log",
-        "read_events", "terminal_exec", "trust_list", "theme_set"
+        "read_events", "terminal_exec", "trust_list", "theme_set",
+        "agent_permissions", "permission_set", "trust_revoke",
+        "installed_list", "read_receipts"
     };
     for (const char* n : kNames) {
         if (name == n) return true;
@@ -95,7 +102,9 @@ std::map<std::string, bool> LoadPermissions() {
     static const char* kNames[] = {
         "list_windows", "launch_app", "run_console_app", "focus_window",
         "close_window", "save_layout", "restore_layout", "read_log",
-        "read_events", "terminal_exec", "trust_list", "theme_set"
+        "read_events", "terminal_exec", "trust_list", "theme_set",
+        "agent_permissions", "permission_set", "trust_revoke",
+        "installed_list", "read_receipts"
     };
     std::map<std::string, bool> perms;
     for (const char* n : kNames) perms[n] = true;
@@ -104,6 +113,11 @@ std::map<std::string, bool> LoadPermissions() {
     // inline-approval 파이프라인으로 통과되므로 permissions.json에
     // {"run_console_app":"ask"}를 넣는 것이 승인 행위다 (close_window 동일).
     perms["run_console_app"] = false;
+    // 매니저 쓰기 2종 — 브로커 기본 deny (run_console_app 선례: MCP 에이전트가
+    // 직접 권한/신뢰를 바꾸려면 permissions.json 편집이 선행 승인 행위다.
+    // 서버 게이트(Ask 파이프라인)는 별도로 살아 있다 — 여기선 정직한 기본값).
+    perms["permission_set"] = false;
+    perms["trust_revoke"] = false;
 
     std::string dir = ".";
 #ifdef _WIN32
@@ -369,6 +383,24 @@ std::string HandleLine(const std::string& line, bool& isResponse) {
             if (req.GetDeepStr("params", "arguments", "name", name)) {
                 argsJson = "{\"name\":\"" + JsonEsc(name) + "\"}";
             }
+        } else if (tool == "permission_set") {
+            // 매니저 (스펙 §2.2): 서버 args는 {tool, decision}.
+            std::string pt, dec;
+            if (req.GetDeepStr("params", "arguments", "tool", pt) &&
+                req.GetDeepStr("params", "arguments", "decision", dec)) {
+                argsJson = "{\"tool\":\"" + JsonEsc(pt) +
+                           "\",\"decision\":\"" + JsonEsc(dec) + "\"}";
+            }
+        } else if (tool == "trust_revoke") {
+            std::string fp;
+            if (req.GetDeepStr("params", "arguments", "fingerprint", fp)) {
+                argsJson = "{\"fingerprint\":\"" + JsonEsc(fp) + "\"}";
+            }
+        } else if (tool == "read_receipts") {
+            int limit = 50;
+            if (req.GetDeepInt("params", "arguments", "limit", limit)) {
+                argsJson = "{\"limit\":" + std::to_string(limit) + "}";
+            }
         }
 
         // Permission gate (spec §5) — see LoadPermissions for the defaults.
@@ -419,6 +451,14 @@ int RunSelfTest() {
     if (!isResp || r.find("unknown_tool") == std::string::npos) ++failures;
     r = HandleLine("not json", isResp);
     if (!isResp || r.find("-32700") == std::string::npos) ++failures;
+    // 에이전트 관리자 도구 5종이 tools/list에 노출되는가 (스펙 §3).
+    r = HandleLine("{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/list\"}",
+                   isResp);
+    if (!isResp || r.find("agent_permissions") == std::string::npos ||
+        r.find("installed_list") == std::string::npos ||
+        r.find("read_receipts") == std::string::npos ||
+        r.find("permission_set") == std::string::npos ||
+        r.find("trust_revoke") == std::string::npos) ++failures;
     std::fprintf(stderr, "selftest: %d failures\n", failures);
     return failures;
 }
