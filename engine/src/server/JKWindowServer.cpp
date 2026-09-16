@@ -2877,9 +2877,22 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         req.GetObjStr("args", "decision", decision);
         const bool allow = (decision == "allow");
         bool resolved = false;
+        bool selfApprove = false;
         for (auto it = pendingApprovals_.begin();
              it != pendingApprovals_.end(); ++it) {
             if (it->requestId != static_cast<uint32_t>(request)) continue;
+            // 승인 파이프라인의 2단 우회 봉쇄(스펙 §7 리뷰 후속): 파킹을
+            // 자기 연결에서 approve하면 승인 없는 허가가 된다. close_window는
+            // 예외 — ask 모드에서 채팅 자신의 /close를 자기 승인 스트립으로
+            // 해소하는 것은 docs/31 §3의 설계된 UX다(non-blocking 채팅의
+            // 존재 이유). permission_set/trust_revoke에는 legit
+            // 요청자-자체승인 경로가 없다. 파킹은 건드리지 않는다 — 다른
+            // 표면(채팅)의 승인은 여전히 가능하다.
+            if (it->requesterId == client.Id() &&
+                (it->kind == "permission_set" || it->kind == "trust_revoke")) {
+                selfApprove = true;
+                break;
+            }
             resolved = true;
             if (allow && it->kind == "close_window") {
                 for (auto& c : clients_) {
@@ -2940,7 +2953,11 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                           : "{\"ok\":true,\"approved\":false}";
             break;
         }
-        if (!resolved) reply = "{\"ok\":false,\"error\":\"unknown_request\"}";
+        if (selfApprove) {
+            reply = "{\"ok\":false,\"error\":\"self_approve\"}";
+        } else if (!resolved) {
+            reply = "{\"ok\":false,\"error\":\"unknown_request\"}";
+        }
     } else if (tool == "file_open") {
         // 파일 열기 대화상자 (설계 specs/2026-09-13-file-dialog §1b): 쿼리를
         // 파킹한 뒤 filedlg:<json args> appName 접두로 다이얼로그를 띄운다.
