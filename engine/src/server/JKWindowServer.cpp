@@ -1657,6 +1657,54 @@ static const AgentPermRow kPermMatrix[] = {
     {"read_receipts", "none", "allow"},
 };
 
+// permissions.json RMW (스펙 §2.2): 알려진 도구 키 전부 명시 기록 — 없던 키는
+// 현재 기본값으로 채워 다음 편집자가 기본값을 온전히 본다. permission_set 행은
+// 기록하지 않는다(파일값 무시 게이트). 반환: 빈 문자열 = 성공, 아니면
+// write_failed. kPermMatrix는 gate "server" 행의 기본값에도 쓰인다.
+static std::string WritePermissionsEntry(const std::string& permTool,
+                                         const std::string& decision) {
+    char exePath[1024] = {};
+    GetModuleFileNameA(nullptr, exePath, sizeof(exePath));
+    std::string dir = exePath;
+    const size_t slash = dir.find_last_of("\\/");
+    if (slash != std::string::npos) dir = dir.substr(0, slash);
+    const std::string path = dir + "\\permissions.json";
+
+    std::map<std::string, std::string> values;
+    if (std::FILE* f = std::fopen(path.c_str(), "rb")) {
+        char buf[4096] = {};
+        const size_t n = std::fread(buf, 1, sizeof(buf) - 1, f);
+        std::fclose(f);
+        jk::agent::AgentJson json(buf);
+        std::string v;
+        if (json.ok()) {
+            for (const AgentPermRow& r : kPermMatrix) {
+                if (json.GetStr(r.tool, v) &&
+                    (v == "allow" || v == "ask" || v == "deny")) {
+                    values[r.tool] = v;
+                }
+            }
+        }
+    }
+    values[permTool] = decision;
+    std::string out = "{";
+    bool first = true;
+    for (const AgentPermRow& r : kPermMatrix) {
+        if (std::string(r.gate) == "server(fixed)") continue;
+        if (!first) out += ",";
+        first = false;
+        const auto it = values.find(r.tool);
+        out += "\"" + std::string(r.tool) + "\":\"" +
+               (it != values.end() ? it->second : std::string(r.deflt)) + "\"";
+    }
+    out += "}";
+    std::FILE* w = std::fopen(path.c_str(), "wb");
+    if (!w) return "write_failed";
+    const size_t wrote = std::fwrite(out.data(), 1, out.size(), w);
+    std::fclose(w);
+    return wrote == out.size() ? std::string() : std::string("write_failed");
+}
+
 // Desktop Agent API (spec §3): normally answers at once — the agent client
 // blocks on ReadMessage waiting for the reply with the matching queryId.
 // Exception (M2 chat): an "ask"-gated close_window parks its query and replies
@@ -1863,6 +1911,73 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                 }
                 case AgentDecision::Deny:
                 default:
+                    reply = "{\"ok\":false,\"error\":\"permission_denied\"}";
+                    break;
+            }
+        }
+    } else if (tool == "permission_set") {
+        // 스펙 §2.2: 매트릭스 쓰기 — AgentToolAllowed("permission_set")은
+        // 파일값 무시하고 항상 Ask(하드코딩, §2.2 2단 우회 봉쇄). 검증은
+        // 파킹 전(trust_request의 bad_* 선례).
+        std::string permTool, decision;
+        req.GetObjStr("args", "tool", permTool);
+        req.GetObjStr("args", "decision", decision);
+        bool known = false;
+        for (const AgentPermRow& r : kPermMatrix) {
+            if (permTool == r.tool) { known = true; break; }
+        }
+        if (permTool.empty()) {
+            reply = "{\"ok\":false,\"error\":\"missing_tool\"}";
+        } else if (!known) {
+            reply = "{\"ok\":false,\"error\":\"unknown_tool\"}";
+        } else if (decision != "allow" && decision != "ask" &&
+                   decision != "deny") {
+            reply = "{\"ok\":false,\"error\":\"bad_decision\"}";
+        } else {
+            switch (AgentToolAllowed("permission_set")) {
+                case AgentDecision::Ask: {
+                    bool subscriber = false;
+                    for (auto& c : clients_) {
+                        if (c && c->AgentEventSubscriber() &&
+                            !c->IsDisconnected()) {
+                            subscriber = true;
+                            break;
+                        }
+                    }
+                    if (!subscriber) {
+                        reply = "{\"ok\":false,"
+                                "\"error\":\"approval_unavailable\"}";
+                        break;
+                    }
+                    PendingApproval p;
+                    p.kind = "permission_set";
+                    p.permTool = permTool;
+                    p.permDecision = decision;
+                    p.requestId = nextApprovalId_++;
+                    p.queryId = queryId;
+                    p.requesterId = client.Id();
+                    p.targetId = 0;
+                    p.expiresAt = std::time(nullptr) + 60;
+                    char buf[640];
+                    std::snprintf(buf, sizeof(buf),
+                                  "{\"topic\":\"agent.approval_request\","
+                                  "\"request\":%u,\"tool\":\"permission_set\","
+                                  "\"kind\":\"permission_set\","
+                                  "\"target_tool\":\"%s\","
+                                  "\"decision\":\"%s\",\"ts\":%lld}",
+                                  p.requestId, JsonEsc(permTool).c_str(),
+                                  decision.c_str(),
+                                  static_cast<long long>(std::time(nullptr)) *
+                                      1000);
+                    pendingApprovals_.push_back(p);
+                    PushAgentEventJson(buf);
+                    replied = false;   // 해소 시 답신
+                    break;
+                }
+                case AgentDecision::Allow:
+                case AgentDecision::Deny:
+                default:
+                    // 도달하지 않는다(고정 Ask) — 방어선으로 deny 유지.
                     reply = "{\"ok\":false,\"error\":\"permission_denied\"}";
                     break;
             }
@@ -2630,11 +2745,24 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             }
             for (auto& c : clients_) {
                 if (c && c->Id() == it->requesterId && !c->IsDisconnected()) {
-                    const std::string result = allow
-                        ? "{\"ok\":true}"
-                        : "{\"ok\":false,\"error\":\"denied_by_user\"}";
+                    std::string result;
+                    if (!allow) {
+                        result = "{\"ok\":false,\"error\":\"denied_by_user\"}";
+                    } else if (it->kind == "permission_set") {
+                        // 쓰기 실패는 요청자 reply에 표면화 (docs/52 선례).
+                        const std::string err = WritePermissionsEntry(
+                            it->permTool, it->permDecision);
+                        result = err.empty()
+                            ? "{\"ok\":true,\"written\":true}"
+                            : "{\"ok\":false,\"error\":\"" + err + "\"}";
+                    } else {
+                        result = "{\"ok\":true}";
+                    }
+                    const int flag = (result.find("\"ok\":true") !=
+                                      std::string::npos)
+                                         ? 1 : 0;
                     ipc::WriteAgentJson(c->Transport(), ipc::MsgType::AgentReply,
-                                        it->queryId, allow ? 1 : 0, result);
+                                        it->queryId, flag, result);
                     break;
                 }
             }
@@ -2902,6 +3030,10 @@ bool JKWindowServer::ToggleClientByTitleUnsafe(const char* title,
 // wired for close_window + trust_request; other tools degrade to allow since
 // nothing parks them.
 AgentDecision JKWindowServer::AgentToolAllowed(const std::string& tool) const {
+    // permission_set은 파일 값을 무시하고 항상 Ask — 파일로 이 도구를
+    // allow로 바꿔두면 이후 모든 권한 변경이 무승인이 되는 2단 우회 봉쇄
+    // (스펙 §2.2 핵심 안전 결정).
+    if (tool == "permission_set") return AgentDecision::Ask;
     char exePath[1024] = {};
     GetModuleFileNameA(nullptr, exePath, sizeof(exePath));
     std::string dir = exePath;
@@ -2911,15 +3043,19 @@ AgentDecision JKWindowServer::AgentToolAllowed(const std::string& tool) const {
     // Missing entry defaults: close_window denies (M1 rule), trust_request
     // ASKS (the gate would be pointless if unknown scripts loaded silently),
     // run_console_app ASKS (P4 SDK §5 — the agent launching local apps is an
-    // explicit-approval act), everything else allows. "ask" pipelines:
-    // close_window + trust_request + run_console_app; other tools degrade to
-    // allow since nothing parks them.
+    // explicit-approval act), trust_revoke ASKS (agent-manager — revoking is
+    // safe-direction but ungated would let an agent burn the whole trust
+    // store), everything else allows. "ask" pipelines: close_window +
+    // trust_request + run_console_app + trust_revoke; permission_set is
+    // hardwired Ask regardless of the file; other tools degrade to allow
+    // since nothing parks them.
     const bool askCapable = (tool == "close_window" || tool == "trust_request" ||
-                             tool == "run_console_app");
+                             tool == "run_console_app" || tool == "trust_revoke");
     auto defaultDecision = [&]() -> AgentDecision {
         if (tool == "close_window") return AgentDecision::Deny;
         if (tool == "trust_request") return AgentDecision::Ask;
         if (tool == "run_console_app") return AgentDecision::Ask;
+        if (tool == "trust_revoke") return AgentDecision::Ask;
         return AgentDecision::Allow;
     };
     std::FILE* f = std::fopen(path.c_str(), "rb");

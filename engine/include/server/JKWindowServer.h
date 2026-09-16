@@ -198,6 +198,10 @@ private:
                                    // run_console_app: 콘솔 앱 이름 (P4 SDK)
         std::string origin;        // trust_request: "dev" | "package"
         std::string fingerprint;   // trust_request: "sha256:<64hex>"
+        // 매니저 권한 (specs/2026-09-16-agent-manager §2.2): permission_set의
+        // 대상 도구와 결정 — kind 전용 페이로드(name 재용용 금지).
+        std::string permTool;      // permission_set: 대상 도구
+        std::string permDecision;  // permission_set: "allow"|"ask"|"deny"
     };
     std::vector<PendingApproval> pendingApprovals_;
     uint32_t nextApprovalId_ = 1;
