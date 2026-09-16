@@ -1,0 +1,5 @@
+{
+  "name": "py-todo",
+  "cmd": "main.cmd",
+  "desc": "SDK sample - Python todo viewer with jkctl ask (runnable)"
+}

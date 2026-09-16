@@ -1,0 +1,5 @@
+{
+  "name": "rust-todo",
+  "cmd": "main.cmd",
+  "desc": "SDK sample - Rust todo viewer (source + build script, no toolchain build needed)"
+}

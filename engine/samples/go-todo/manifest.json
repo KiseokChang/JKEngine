@@ -1,0 +1,5 @@
+{
+  "name": "go-todo",
+  "cmd": "main.cmd",
+  "desc": "SDK sample - Go todo viewer (source + build script, no toolchain build needed)"
+}

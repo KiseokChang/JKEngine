@@ -1,0 +1,3 @@
+verify the terminal build in the probe gate
+tag the samples with manifest kinds
+backport the reflow lesson

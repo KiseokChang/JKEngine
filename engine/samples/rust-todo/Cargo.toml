@@ -1,0 +1,9 @@
+[package]
+name = "rust-todo"
+version = "0.1.0"
+edition = "2021"
+
+# No external crates - std only, so the sample builds on a bare toolchain.
+
+[profile.release]
+opt-level = "z"

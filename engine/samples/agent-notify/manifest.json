@@ -1,0 +1,5 @@
+{
+  "name": "agent-notify",
+  "cmd": "main.cmd",
+  "desc": "SDK sample - jkctl notify/ask live demo of the agent channel"
+}

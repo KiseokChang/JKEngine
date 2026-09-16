@@ -1,14 +1,18 @@
-# probe_jkctl_init: jkctl init/install structural probe (docs/51 C candidates).
+# probe_jkctl_init: jkctl init/pack/install structural probe (docs/51 C).
 # ASCII-only PS5.1 (docs/15 convention). No server interaction needed beyond
-# a ping guard - init/install are pure CLI (file copy + token substitution).
-# Checks:
+# a ping guard - init/pack/install are pure CLI (file copy + token
+# substitution + zip write). Checks:
 #   1. init creates the 3 template files with the name substituted
 #   2. manifest.json parses and carries the scaffolded name
 #   3. main.cmd is ASCII-only (OEM codepage lesson, docs/48)
 #   4. init rejects an invalid name (exit 2)
 #   5. install copies the folder into <exeDir>\apps\<name>
 #   6. install refuses a duplicate install (exit 2)
-#   7. teardown removes both trees
+#   7. pack writes <name>.zip with the app files inside
+#   8. install from the zip lands the same tree (via tmp staging)
+#   9. zip install pre-records the cmd fingerprint in state/trust.json
+#  10. trust.json still parses after the splice (valid JSON out)
+#  11. teardown removes every tree it created
 
 $ErrorActionPreference = "Stop"
 $script:fails = 0
@@ -24,8 +28,21 @@ $build   = "I:\progwork\JKENGINE\engine\build"
 $work    = Join-Path $env:TEMP ("jkinit_probe_" + [guid]::NewGuid().ToString("N").Substring(0, 8))
 $appName = "jkinitt" + (Get-Random -Maximum 100)
 $appDir  = Join-Path $work $appName
+$zipPath = Join-Path $work ($appName + ".zip")
+$trustP  = Join-Path $build "state\trust.json"
 
 New-Item -ItemType Directory -Path $work -Force | Out-Null
+
+# Trust records before the probe - the probe owns only its own fingerprint.
+$preRecords = @()
+if (Test-Path $trustP) {
+    try { $preRecords = (Get-Content $trustP -Raw | ConvertFrom-Json).records } catch {}
+}
+$fpOf = { param($cmdStr)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    ($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($cmdStr)) |
+        ForEach-Object { $_.ToString("x2") }) -join ""
+}
 
 try {
     # 1-3: init + substitution + ASCII body (init writes a RELATIVE <name>\
@@ -65,7 +82,36 @@ try {
     $null = & $jkctl install $appDir 2>&1
     Check "install refuses duplicate" ($LASTEXITCODE -eq 2) "exit=$LASTEXITCODE"
 
-    # 7: teardown of the installed copy happens in finally; server-side
+    # 7: pack wraps the same folder into <name>.zip
+    $null = & $jkctl pack $appDir 2>&1
+    Check "pack exit ok" ($LASTEXITCODE -eq 0) "exit=$LASTEXITCODE"
+    Check "pack wrote <name>.zip" (Test-Path $zipPath) $zipPath
+    if (Test-Path $zipPath) {
+        # 7b: zip really contains the manifest (deflate stream carries it)
+        $zipBytes = [IO.File]::ReadAllBytes($zipPath)
+        Check "zip is a PK archive" ($zipBytes.Length -gt 4 -and $zipBytes[0] -eq 0x50 -and $zipBytes[1] -eq 0x4B) ("size=" + $zipBytes.Length)
+    }
+
+    # 8-10: remove the folder install, then install FROM THE ZIP. This is the
+    # full distribution path: tmp staging + zip-slip guard + trust pre-record.
+    Remove-Item -Recurse -Force $installed
+    $null = & $jkctl install $zipPath 2>&1
+    Check "zip install exit ok" ($LASTEXITCODE -eq 0) "exit=$LASTEXITCODE"
+    Check "zip install landed in build apps" ((Test-Path (Join-Path $build ("apps\" + $appName + "\manifest.json")))) "reinstalled from zip"
+    $trustTxt = ""
+    if (Test-Path $trustP) { $trustTxt = Get-Content $trustP -Raw -Encoding UTF8 }
+    $wantFp = & $fpOf "main.cmd"
+    Check "trust.json pre-recorded cmd fingerprint" ($trustTxt -match [regex]::Escape($wantFp)) ("fp=" + $wantFp.Substring(0, 20) + "...")
+    # 10: the store must still be valid JSON after the splice - a broken
+    # comma here bricks the fail-closed server scan (observed defect).
+    $trustOk = $false
+    try {
+        $trustObj = $trustTxt | ConvertFrom-Json
+        $trustOk = ($null -ne $trustObj.records -and $trustObj.records.Count -ge 1)
+    } catch {}
+    Check "trust.json parses after splice" $trustOk "records kept byte-exact for server"
+
+    # teardown of the installed copy happens in finally; server-side
     # scan is a restart-time action, so no launcher interaction here.
 }
 finally {
@@ -73,7 +119,31 @@ finally {
     if (Test-Path (Join-Path $build ("apps\" + $appName))) {
         Remove-Item -Recurse -Force (Join-Path $build ("apps\" + $appName))
     }
-    if (Test-Path $work) { Remove-Item -Recurse -Force $work }
+    # staging leftover is warn-only in jkctl (AV scan lock) - clean it here
+    $staging = Join-Path $build ("tmp\install_" + $appName)
+    if (Test-Path $staging) { Remove-Item -Recurse -Force $staging -ErrorAction SilentlyContinue }
+    if (Test-Path $work) { Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue }
+    # trust record: remove ONLY the probe's own fingerprint entry (all
+    # init'd apps share the cmd "main.cmd" fingerprint - never touch others).
+    # Write with [IO.File]::WriteAllText - PS5.1 Set-Content -Encoding UTF8
+    # adds a BOM, which quickjs JS_ParseJSON rejects (store bricked).
+    if (Test-Path $trustP) {
+        $fp = & $fpOf "main.cmd"
+        $probeFp = "sha256:" + $fp
+        $hadPre = @($preRecords | Where-Object { $_.fingerprint -eq $probeFp }).Count
+        if ($hadPre -eq 0) {
+            try {
+                $obj = Get-Content $trustP -Raw | ConvertFrom-Json
+                $kept = @($obj.records | Where-Object { $_.fingerprint -ne $probeFp })
+                if ($kept.Count -eq 0) {
+                    [IO.File]::WriteAllText($trustP, '{"records":[]}')
+                } else {
+                    $obj.records = $kept
+                    [IO.File]::WriteAllText($trustP, (ConvertTo-Json $obj -Depth 5 -Compress))
+                }
+            } catch {}
+        }
+    }
 }
 
 if ($script:fails -eq 0) { Write-Host "RESULT: ALL PASS" }
