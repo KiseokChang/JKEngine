@@ -91,11 +91,19 @@ jkx_packages DEPENDS), `assets/icons/launcher_agentmgr@{1x,2x}.png`.
 
 ## 7. 프로브 + 회귀
 
-- **probe_agentmgr.ps1** (신규, 공식 회귀): 15체크 — spawn / shape /
+- **probe_agentmgr.ps1** (신규, 공식 회귀): 16체크 — spawn / shape /
   permission_set E2E(3a응답·3b파일·3c매트릭스) / trust_revoke E2E(4a응답·4b삭제·4c
-  .bak) / not_found·bad_fingerprint / installed_list / read_receipts(빈·역순·cap) /
-  trigger 토글 회귀. **ALL PASS**. 종료 시 permissions.json 삭제 + trust/receipts 복원.
-  - 플랜 대비 델타 2건: (1) `Set-Content -Encoding UTF8` → `[IO.File]::WriteAllText`
+  .bak) / not_found·bad_fingerprint / installed_list / read_receipts(빈·역순·ok
+  플래그·cap) / trigger 토글 회귀. **ALL PASS**. 종료 시 permissions.json 삭제 +
+  trust/receipts 복원.
+  - 환경 전제: `build/apps/triggers/*.jkx` 설치 + trust.json에 레코드 1건 이상
+    존재(빈 스토어면 시딩 splice가 `[,{...}]` 불법 JSON을 만들고 jktriggers
+    fail-closed 재기록으로 fake가 유실돼 4a FAIL). 스펙 §6의 mtime 게이트는
+    미적용 — 로컬 개발 프로브 전제.
+  - 리뷰 픽스 반영: 시딩 result를 객체형으로(`"ok":true` 서브스트링 스캔이
+    문자열 이스케이프를 못 찾는 문제) + first/second ok:"1"/"0" 단언 + 실행 전
+    stale trust.json.bak 삭제(4c 스테일 패스 방지).
+  - 플랜 대비 델타: (1) `Set-Content -Encoding UTF8` → `[IO.File]::WriteAllText`
     (PS5.1 BOM — Part 1 레슨), (2) trigger_list 행은 `{"name","topics","enabled"}`
     순서라 정규식이 topics를 건너뜀(플랜 노트 (c) 예중). Receive-Job은 Object[]라
     `-join "\`n"` 후 판정.
@@ -119,3 +127,12 @@ jkx_packages DEPENDS), `assets/icons/launcher_agentmgr@{1x,2x}.png`.
   스핀 — hang처럼 보인다(gdb 스택으로 판명: RunMain→JKApplication::Run).
 - (재확인) **아이콘 GDI+ 스크립트**: PS5.1에서 backtick 연속행 + inline
   -ArgumentList는 바인딩 실패 — 변수 사전계산 + 직접 생성자 호출(레슨 21).
+## 9. 최종리뷰 (opus, 2026-09-17)
+
+**VERDICT: APPROVE** — MAJOR 없음. 핵심 검증: trust 수술 콤마 엣지 4케이스,
+RMW .bak 선기록 순서, fixed-ask 2단 우회 봉쇄, 브로커 triple-sync, 파서 계약 준수.
+MINOR 픽스 반영 커밋: permission_set→permission_set bad_target 즉답(거짓
+written:true 제거), 프로브 시딩 객체형+ok 단언+stale .bak 제거, 스펙 §7
+self-approve 전제 명시 + §8 델타 2차(MergeRunning substring/effective 열 생략).
+NON-BLOCKING 잔여: ImGui Begin false 경로 End 스킵(도달 불가), WritePermissionsEntry
+4KB 상한, trust 64KB 상한, jkchat 단일 승인 스트립(선존 M2).

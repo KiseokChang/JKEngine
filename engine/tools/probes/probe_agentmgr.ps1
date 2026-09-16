@@ -24,7 +24,11 @@ function Write-NoBom([string]$path, [string]$text) {
 if (Test-Path $permFile) { Write-Host "ABORT - permissions.json exists"; exit 1 }
 $hadTrust = Test-Path $trust
 $hadRcpt = Test-Path $rcpt
-if ($hadTrust) { Copy-Item $trust (Join-Path $env:TEMP "trust_pre_mgr.json") -Force }
+if ($hadTrust) {
+    Copy-Item $trust (Join-Path $env:TEMP "trust_pre_mgr.json") -Force
+    # stale .bak would make check 4c pass without the server writing it
+    Remove-Item ($trust + ".bak") -Force -ErrorAction SilentlyContinue
+}
 if ($hadRcpt) { Copy-Item $rcpt (Join-Path $env:TEMP "rcpt_pre_mgr.json") -Force }
 
 # --- seed trust fake record (revoked later in check 4)
@@ -101,11 +105,12 @@ Check "6-installed" ($il -match '"name":"sampletodo","kind":"console"' -and $il 
 if ($hadRcpt) { Remove-Item $rcpt -Force }
 $r0 = Invoke-Agentctl '{"tool":"read_receipts","args":{}}'
 Check "7a-empty" ($r0 -match '"rows":\[\]')
-$twoRows = '{"ts":1700000001000,"tool":"first_tool","result":"{\"ok\":true}"}' + [char]10 + '{"ts":1700000002000,"tool":"second_tool","result":"{\"ok\":false,\"error\":\"x\"}"}'
+$twoRows = '{"ts":1700000001000,"tool":"first_tool","result":{"ok":true}}' + [char]10 + '{"ts":1700000002000,"tool":"second_tool","result":{"ok":false,"error":"x"}}'
 Write-NoBom $rcpt $twoRows
 $r1 = Invoke-Agentctl '{"tool":"read_receipts","args":{}}'
 $r2 = Invoke-Agentctl '{"tool":"read_receipts","args":{"limit":1}}'
 Check "7b-reverse" ($r1 -match '"tool":"second_tool"' -and ($r1.IndexOf("second_tool") -lt $r1.IndexOf("first_tool")))
+Check "7b-okflags" ($r1 -match '"tool":"first_tool","ok":"1"' -and $r1 -match '"tool":"second_tool","ok":"0"')
 Check "7c-cap" ($r2 -match '"tool":"second_tool"' -and $r2 -notmatch 'first_tool')
 
 # --- 8. trigger toggle regression

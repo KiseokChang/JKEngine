@@ -231,6 +231,7 @@ probe_agent_triggerctl, probe_agent_chat(승인 스트립에 permission_set 렌�
 | permissions.json 파손(수동 편집) | agent_permissions가 permissions_unreadable로 구분, RMW는 유효 키 전재기록으로 복구 효과 |
 | HandleAgentQuery 내 재획득 데드락 | 도구 구현은 락 프리 (lesson 35, Unsafe 관용구) |
 | receipts에 민감 args 노출 | read_receipts는 ts/tool/ok만 반환 |
+| approve 도구의 self-approve(요청자가 자기 파킹을 해소) | **전제로만 봉쇄** — MCP 브로커 IsKnownTool에 approve 미포함 + 스크립트는 도구 호출 경로 없음(우연한 차단). 후속으로 approve에 requesterId != caller 검사 권장 (2026-09-17 리뷰 MINOR) |
 
 ## 8. 구현 표기 (완료 시 기입)
 
@@ -244,3 +245,9 @@ probe_agent_triggerctl, probe_agent_chat(승인 스트립에 permission_set 렌�
   epoch 초(ms→1000 나눔). trust_list 행에 전체 지문 `fp` 필드 추가(표시용 15자
   truncated와 병행) — UI 해지가 전체 지문으로 동작하게. 트리거 탭은 2레벨 리더
   제약으로 topics 열 생략(name/enabled만).
+- 델타 2차 (2026-09-17 리뷰): MergeRunning은 대소문자 구분 **substring** 매치
+  (§1.1의 "대소문자 무시 exact"와 다름 — substring이라 짧은 설치명 오탐 가능).
+  권한 탭은 도구/gate/파일/기본값 5열이고 §1.1의 effective 열은 UI에서 생략
+  (§2.1 응답 필드에는 존재 — gate/file/default에서 파생 가능). permission_set이
+  permission_set을 타깃하면 파킹 없이 bad_target 즉담(fixed 행은 파일 불변이라
+  written:true 거짓 보고 방지).

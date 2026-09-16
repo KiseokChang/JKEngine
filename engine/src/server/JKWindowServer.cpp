@@ -1994,6 +1994,10 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         } else if (decision != "allow" && decision != "ask" &&
                    decision != "deny") {
             reply = "{\"ok\":false,\"error\":\"bad_decision\"}";
+        } else if (permTool == "permission_set") {
+            // fixed-ask 행은 WritePermissionsEntry가 스킵하므로 승인해도
+            // 파일이 불변 — written:true 거짓 보고 대신 즉답 거절(리뷰 MINOR).
+            reply = "{\"ok\":false,\"error\":\"bad_target\"}";
         } else {
             switch (AgentToolAllowed("permission_set")) {
                 case AgentDecision::Ask: {
