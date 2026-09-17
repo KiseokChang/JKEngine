@@ -214,8 +214,10 @@ private:
         // 재실행(파킹 대기 중 파일값이 바뀌면 최신 게이트가 강제 —
         // run_console_app의 승인 시점 재조회 선례).
         std::string filesTool;     // files_access: "files_list"|"files_read"
+                                   // |"files_audit" (opus 리뷰 MINOR-3 파킹)
         std::string filesPath;
         int filesMaxBytes = 0;     // files_read 전용 (0 = 기본 64KiB)
+        int filesLimit = 0;        // files_audit 전용 (0 = 기본 50)
     };
     std::vector<PendingApproval> pendingApprovals_;
     uint32_t nextApprovalId_ = 1;

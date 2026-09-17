@@ -253,6 +253,16 @@ static void HideApproval() {
     ShowWindow(g_hDeny, SW_HIDE);
 }
 
+// 파일 허브 (스펙 2026-09-18-file-hub): files_access 전용 문구 — close_window
+// 재용은 승인 대상을 기만적으로 표기한다(opus 리뷰 MAJOR-1). title = 경로.
+static void ShowFilesApproval(const std::string& tool, const std::string& path,
+                              uint32_t request) {
+    wchar_t buf[512];
+    _snwprintf_s(buf, _TRUNCATE, L"[파일 요청] %s → %s 승인할까요?",
+                 Utf8ToWide(tool).c_str(), Utf8ToWide(path).c_str());
+    EnqueueApproval(request, buf);
+}
+
 // 매니저 권한 변경 (스펙 §2.2): 동일 스트립, 다른 문구. approve 도구는
 // kind 불문 공용이라 서버 변경 없이 허용/거부가 해소한다.
 static void ShowPermissionApproval(const std::string& targetTool,
@@ -610,7 +620,7 @@ static void HandleEvent(const jk::agent::AgentEvent& ev) {
             std::string tool, title;
             e.GetStr("tool", tool);
             e.GetStr("title", title);
-            ShowApproval(title, 0, static_cast<uint32_t>(request));
+            ShowFilesApproval(tool, title, static_cast<uint32_t>(request));
             Log("[파일 요청] " + tool + " → " + title);
         } else {
             std::string title;

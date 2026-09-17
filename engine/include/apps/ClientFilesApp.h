@@ -38,7 +38,7 @@ private:
 
     void BuildUi(int w, int h);
     void BuildBrowser(int leftW);
-    void BuildPreview(int leftW);
+    void BuildPreview();
     void BuildAuditPanel(int w, int h);
     void PollReplies();
     void SendQuery(const char* tool, const std::string& args, Query kind);

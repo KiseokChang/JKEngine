@@ -1800,7 +1800,9 @@ static const AgentPermRow kPermMatrix[] = {
     // audit은 감사 열람이라 저위험 allow.
     {"files_list", "server(files)", "none"},
     {"files_read", "server(files)", "none"},
-    {"files_audit", "none", "allow"},
+    // audit은 감사 열람이라 기본 allow — 단 파일값은 강제한다(opus 리뷰
+    // MINOR-3): deny=거부, ask=files 도구와 동일 파킹(kind files_access).
+    {"files_audit", "server(audit)", "allow"},
 };
 
 // permissions.json RMW (스펙 §2.2): 알려진 도구 키 전부 명시 기록 — 없던 키는
@@ -2191,10 +2193,17 @@ static std::string FilesPermRaw(const std::string& tool) {
 
 // 경로 검증기 (스펙 §2.2): 절대 드라이브 형식(X:\...)만 — UNC 접두와 이중
 // 구분자(\\, //)/상대/빈 경로 거부, ".." 구성요소 거부, ADS 지점(:) 거부,
-// 260 경계. 8.3 짧은 이름은 수용 — FindFirstFileA가 실명으로 확장해 목록/
-// 읽기 자체는 실명으로 이뤄진다(docs/56 한계 기록).
+// 제어문자 거부(opus 리뷰 MINOR-2 — JsonEsc 6배 확장이 approval_request
+// 고정 버퍼를 잘라 무효 JSON을 만든다; Windows 경로에서도 원래 무효),
+// 길이 256 캡(opus 리뷰 NIT-7 — list op가 "\\*"를 뒤에 붙여도 MAX_PATH 내).
+// 8.3 짧은 이름은 수용 — FindFirstFileA가 실명으로 확장해 목록/읽기 자체는
+// 실명으로 이뤄진다(docs/56 한계 기록).
 static bool ValidFilePath(const std::string& path) {
-    if (path.size() < 3 || path.size() > 260) return false;
+    if (path.size() < 3 || path.size() > 256) return false;
+    for (const char c : path) {
+        const auto u = static_cast<unsigned char>(c);
+        if (u < 0x20 || u == 0x7F) return false;
+    }
     const char d = path[0];
     if (!((d >= 'A' && d <= 'Z') || (d >= 'a' && d <= 'z'))) return false;
     if (path[1] != ':' || (path[2] != '\\' && path[2] != '/')) return false;
@@ -2281,15 +2290,24 @@ static std::string FilesReadOpJson(const std::string& path, int maxBytes) {
     std::fseek(f, 0, SEEK_END);
     const long size = std::ftell(f);
     std::fseek(f, 0, SEEK_SET);
+    // ftell 실패(−1 — 2GiB 초과 파일)를 size 0으로 흡수(opus 리뷰 NIT-5 —
+    // 음수 size가 그대로 응답에 나가지 않게; truncated=0 — 64KiB는 이미
+    // 읽힌다). MVP 한계: >2GiB 파일의 size 표기가 0으로 뭉개진다.
+    if (size < 0) {
+        std::fclose(f);
+        return "{\"ok\":true,\"text\":\"\",\"truncated\":0,\"binary\":1,"
+               "\"size\":0}";
+    }
     const size_t want = static_cast<size_t>(maxBytes);
     const size_t take =
         want < static_cast<size_t>(size) ? want : static_cast<size_t>(size);
     std::vector<char> buf(take);
     const size_t n = buf.empty() ? 0 : std::fread(buf.data(), 1, buf.size(), f);
     std::fclose(f);
-    // NUL 스니핑 — 실제 읽은 바이트만 (빈 파일은 이진 아님).
+    // NUL 스니핑 — 실제 읽은 바이트만 (빈 파일은 이진 아님; sniff 0일 때
+    // memchr에 buf.data()를 넘기지 않는다 — opus 리뷰 NIT-5).
     const size_t sniff = n < 4096 ? n : 4096;
-    if (std::memchr(buf.data(), '\0', sniff) != nullptr) {
+    if (sniff > 0 && std::memchr(buf.data(), '\0', sniff) != nullptr) {
         return "{\"ok\":true,\"text\":\"\",\"truncated\":0,\"binary\":1,"
                "\"size\":" + std::to_string(size) + "}";
     }
@@ -3821,6 +3839,10 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                     // 쪽 최악값(ask)을 쓴다(사용자 window 연결은 무승인).
                     if (hasFile) effective = fileVal;
                     else effective = "ask";
+                } else if (std::string(row.gate) == "server(audit)") {
+                    // files_audit (opus 리뷰 MINOR-3): 파일값 강제(deny/ask
+                    // 파킹) — 파일 없음 = 기본 allow.
+                    if (hasFile) effective = fileVal;
                 } else {
                     effective = "allow";   // broker/none — 서버 미게이트
                 }
@@ -4119,27 +4141,82 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                 p.filesTool = tool;
                 p.filesPath = path;
                 p.filesMaxBytes = maxBytes;
-                char buf[1024];   // path 260 + JsonEsc 확장(백슬래시 2배) 여유
-                std::snprintf(buf, sizeof(buf),
-                              "{\"topic\":\"agent.approval_request\","
-                              "\"request\":%u,\"tool\":\"%s\","
-                              "\"kind\":\"files_access\","
-                              "\"title\":\"%s\",\"ts\":%lld}",
-                              p.requestId, tool.c_str(),
-                              JsonEsc(path).c_str(),
-                              static_cast<long long>(std::time(nullptr)) *
-                                  1000);
-                pendingApprovals_.push_back(p);
-                PushAgentEventJson(buf);
-                replied = false;  // answered when the approval resolves
+                char buf[1024];   // path 256 + JsonEsc 확장(백슬래시 2배) 여유
+                const int evLen =
+                    std::snprintf(buf, sizeof(buf),
+                                  "{\"topic\":\"agent.approval_request\","
+                                  "\"request\":%u,\"tool\":\"%s\","
+                                  "\"kind\":\"files_access\","
+                                  "\"title\":\"%s\",\"ts\":%lld}",
+                                  p.requestId, tool.c_str(),
+                                  JsonEsc(path).c_str(),
+                                  static_cast<long long>(std::time(nullptr)) *
+                                      1000);
+                if (evLen < 0 || static_cast<size_t>(evLen) >= sizeof(buf)) {
+                    // 잘린 이벤트는 무효 JSON(opus 리뷰 MINOR-2) — 파킹하지
+                    // 않고 승인 불가로 답한다(발행-후-검사 순서).
+                    reply = "{\"ok\":false,\"error\":\"approval_unavailable\"}";
+                } else {
+                    pendingApprovals_.push_back(p);
+                    PushAgentEventJson(buf);
+                    replied = false;  // answered when the approval resolves
+                }
             }
         }
     } else if (tool == "files_audit") {
-        // 감사 열람 — 저위험 allow (kPermMatrix "none" 행). 브로커가 쓴
-        // receipts의 files_* 행만 — 신규 감사 파일 없음(단일 감사원).
+        // 감사 열람 — 기본 allow(저위험), 단 파일값 강제(opus 리뷰 MINOR-3):
+        // deny=전 소스 거부, ask+에이전트=files 도구와 동일 파킹. 브로커가
+        // 쓴 receipts의 files_* 행만 — 신규 감사 파일 없음(단일 감사원).
         int limit = 0;
         req.GetObjInt("args", "limit", limit);
-        reply = FilesAuditOpJson(limit);
+        const std::string auditPerm = FilesPermRaw("files_audit");
+        if (auditPerm == "deny") {
+            reply = "{\"ok\":false,\"error\":\"permission_denied\"}";
+        } else if (!client.IsControlOnly() || auditPerm == "allow" ||
+                   auditPerm == "missing") {
+            reply = FilesAuditOpJson(limit);
+        } else {
+            // ask + 에이전트 — files_list/read와 동일한 승인 파킹.
+            bool subscriber = false;
+            for (auto& c : clients_) {
+                if (c && c->IsControlOnly() && c->AgentEventSubscriber() &&
+                    !c->IsDisconnected()) {
+                    subscriber = true;
+                    break;
+                }
+            }
+            if (!subscriber) {
+                reply = "{\"ok\":false,\"error\":\"approval_unavailable\"}";
+            } else {
+                PendingApproval p;
+                p.kind = "files_access";
+                p.requestId = nextApprovalId_++;
+                p.queryId = queryId;
+                p.requesterId = client.Id();
+                p.expiresAt = std::time(nullptr) + 60;
+                p.filesTool = "files_audit";
+                p.filesLimit = limit;   // 재실행 원본 — 승인 시점 재실행
+                char buf2[256];         // 경로 없음 — tool 이름뿐, 잘림 여유
+                const int evLen2 =
+                    std::snprintf(buf2, sizeof(buf2),
+                                  "{\"topic\":\"agent.approval_request\","
+                                  "\"request\":%u,\"tool\":\"files_audit\","
+                                  "\"kind\":\"files_access\","
+                                  "\"title\":\"files_audit\",\"ts\":%lld}",
+                                  p.requestId,
+                                  static_cast<long long>(std::time(nullptr)) *
+                                      1000);
+                if (evLen2 < 0 ||
+                    static_cast<size_t>(evLen2) >= sizeof(buf2)) {
+                    reply =
+                        "{\"ok\":false,\"error\":\"approval_unavailable\"}";
+                } else {
+                    pendingApprovals_.push_back(p);
+                    PushAgentEventJson(buf2);
+                    replied = false;
+                }
+            }
+        }
     } else if (tool == "launch_chat") {
         // M2 chat: open the Win32 chat window (approval surface). One API,
         // many faces — MCP agents can open it too.
@@ -4230,12 +4307,15 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                         if (FilesPermRaw(it->filesTool) == "deny") {
                             result =
                                 "{\"ok\":false,\"error\":\"permission_denied\"}";
+                        } else if (it->filesTool == "files_audit") {
+                            // 감사 열람 파킹(MINOR-3) — 경로 없음, limit 재실행.
+                            result = FilesAuditOpJson(it->filesLimit);
                         } else if (!ValidFilePath(it->filesPath)) {
                             result = "{\"ok\":false,\"error\":\"bad_path\"}";
                         } else if (it->filesTool == "files_read") {
                             result = FilesReadOpJson(it->filesPath,
                                                      it->filesMaxBytes);
-                        } else {   // "files_list" — 파킹은 이 둘만 걸린다
+                        } else {   // "files_list"
                             result = FilesListOpJson(it->filesPath);
                         }
                     } else {

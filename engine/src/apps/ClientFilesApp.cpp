@@ -196,6 +196,9 @@ void ClientFilesApp::ApplyReply(Query kind, const std::string& json) {
         prevTrunc_ = false;
         prevSize_ = 0;
         if (!r.ok()) {
+            // 실패 시 이전 미리보기를 통째로 비운다(opus 리뷰 NIT-8 —
+            // prevName_만 남으면 헤더가 옛 이름 + "0 B"을 보여준다).
+            prevName_.clear();
             status_ = "[!] " + json;
             return;
         }
@@ -266,7 +269,7 @@ void ClientFilesApp::BuildUi(int w, int h) {
                  ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove);
     BuildBrowser(leftW);
     ImGui::SameLine();
-    BuildPreview(leftW);
+    BuildPreview();
     ImGui::End();
 
     BuildAuditPanel(w, h);
@@ -371,7 +374,7 @@ void ClientFilesApp::BuildBrowser(int leftW) {
     ImGui::EndGroup();
 }
 
-void ClientFilesApp::BuildPreview(int leftW) {
+void ClientFilesApp::BuildPreview() {
     // 헤더: 이름 + size(+이진/잘림 배지). 이진/잘림은 응답 계약(0/1 문자열).
     std::string header;
     if (prevName_.empty()) {
@@ -418,9 +421,10 @@ void ClientFilesApp::BuildAuditPanel(int w, int h) {
     }
     if (ImGui::BeginChild("auditlist",
                           ImVec2(0, 0), ImGuiChildFlags_None)) {
-        for (const FileAuditRowUi& row : audit_) {
-            ImGui::PushID(static_cast<int>(row.ts) *
-                              31 + static_cast<int>(row.tool.size()));
+        for (size_t i = 0; i < audit_.size(); ++i) {
+            const FileAuditRowUi& row = audit_[i];
+            ImGui::PushID(static_cast<int>(i));   // opus 리뷰 NIT-8 — ts*31 해시는
+                                                  // int 오버플로(UB) + 동초 충돌
             const std::string line =
                 FmtStamp(row.ts) + "  " +
                 (row.tool == "files_list"

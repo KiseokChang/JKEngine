@@ -196,7 +196,9 @@ Start-Sleep -Seconds 4
 $wins = Invoke-Agentctl '{"tool":"list_windows","args":{}}'
 Check "12-gui-spawn" ($wins -match '"title":"Files"')
 
-# --- cleanup
+# --- cleanup (opus 리뷰 NIT-9: agent-events 하니스 + 이벤트 캡처 파일도 회수)
+if ($evProc -and -not $evProc.HasExited) { Stop-Process -Id $evProc.Id -Force -ErrorAction SilentlyContinue }
+Remove-Item $evPath -Force -ErrorAction SilentlyContinue
 Get-Process jkdesktop -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Seconds 1
 if ($hadPerm) { Copy-Item (Join-Path $env:TEMP "perm_pre_files.json") $permFile -Force }
