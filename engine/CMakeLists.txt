@@ -473,6 +473,17 @@ target_compile_definitions(jkapp_agentmgr PRIVATE JKAPP_MODULE_BUILD)
 target_link_libraries(jkapp_agentmgr PRIVATE jkclient imgui)
 set_target_properties(jkapp_agentmgr PROPERTIES PREFIX "")
 
+# Settings hub module (specs/2026-09-18-settings-hub): single-scroll 5-section
+# GUI over theme/triggers/data/permissions/devices. A launcher .jkx (no icon —
+# the packer treats icons as optional; launcher falls back to flat drawing).
+add_library(jkapp_settings SHARED
+    src/apps/JKAppModule_settings.cpp
+    src/apps/ClientSettingsApp.cpp
+)
+target_compile_definitions(jkapp_settings PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_settings PRIVATE jkclient imgui)
+set_target_properties(jkapp_settings PROPERTIES PREFIX "")
+
 # Region-capture overlay module (agent platform, docs/35 Task 3): the
 # rubber-band fullscreen layer behind /shot and the viewer's 영역 캡처
 # button. A launcher .jkx too (no icon — the packer treats icons as
@@ -838,6 +849,11 @@ add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/snap.jkx"
     DEPENDS jkdesktop jkapp_snap
     COMMENT "Repacking apps/snap.jkx"
     VERBATIM)
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/settings.jkx"
+    COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack settings
+    DEPENDS jkdesktop jkapp_settings
+    COMMENT "Repacking apps/settings.jkx"
+    VERBATIM)
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/shot.jkx"
     COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack shot
     DEPENDS jkdesktop jkapp_shot
@@ -893,6 +909,7 @@ add_custom_target(jkx_packages ALL
             "${CMAKE_BINARY_DIR}/apps/notify.jkx"
             "${CMAKE_BINARY_DIR}/apps/snap.jkx"
             "${CMAKE_BINARY_DIR}/apps/shot.jkx"
+            "${CMAKE_BINARY_DIR}/apps/settings.jkx"
             "${CMAKE_BINARY_DIR}/apps/agentmgr.jkx"
             "${CMAKE_BINARY_DIR}/apps/browser.jkx"
             "${CMAKE_BINARY_DIR}/apps/scriptdemo.jkx"
