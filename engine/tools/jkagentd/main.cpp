@@ -66,7 +66,9 @@ const char* kToolsListJson =
 "{\"name\":\"installed_list\",\"description\":\"List installed apps (console + .jkx) with kind\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}},"
 "{\"name\":\"read_receipts\",\"description\":\"Tail the broker receipt log (ts/tool/ok only)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"limit\":{\"type\":\"integer\"}}}},"
 "{\"name\":\"settings_read\",\"description\":\"Read desktop settings (theme, triggers, idle threshold, receipt retention, audio master, layouts)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}},"
-"{\"name\":\"settings_set\",\"description\":\"Set a whitelisted desktop setting: idle_minutes, receipt_retention_days, audio_master_mute, audio_master_volume, capture_allow\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"},\"value\":{}}}}"
+"{\"name\":\"settings_set\",\"description\":\"Set a whitelisted desktop setting: idle_minutes, receipt_retention_days, audio_master_mute, audio_master_volume, capture_allow\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"},\"value\":{}}}},"
+"{\"name\":\"notes_read\",\"description\":\"Read the notes hub: margin comments + backlog items (state/notes.json)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}},"
+"{\"name\":\"notes_write\",\"description\":\"Write the notes hub: op=add_note(text<=512,win)/add_item(title<=128,state)/move_item(id,state)/del(kind by id)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"op\":{\"type\":\"string\"},\"text\":{\"type\":\"string\"},\"win\":{\"type\":\"integer\"},\"state\":{\"type\":\"integer\"},\"id\":{\"type\":\"integer\"}}}}"
 "]}";
 
 // Known tool names.
@@ -78,7 +80,8 @@ bool IsKnownTool(const std::string& name) {
         "read_events", "terminal_exec", "trust_list", "theme_set",
         "agent_permissions", "permission_set", "trust_revoke",
         "installed_list", "read_receipts",
-        "settings_read", "settings_set"
+        "settings_read", "settings_set",
+        "notes_read", "notes_write"
     };
     for (const char* n : kNames) {
         if (name == n) return true;
@@ -111,7 +114,8 @@ std::map<std::string, bool> LoadPermissions() {
         "read_events", "terminal_exec", "trust_list", "theme_set",
         "agent_permissions", "permission_set", "trust_revoke",
         "installed_list", "read_receipts",
-        "settings_read", "settings_set"
+        "settings_read", "settings_set",
+        "notes_read", "notes_write"
     };
     std::map<std::string, bool> perms;
     for (const char* n : kNames) perms[n] = true;
@@ -446,6 +450,28 @@ std::string HandleLine(const std::string& line, bool& isResponse) {
                     argsJson = "{\"key\":\"" + JsonEsc(k) + "\"}";
                 }
             }
+        } else if (tool == "notes_write") {
+            // 노트 허브 (스펙 2026-09-18-notes-hub §2.2): op + 필드 재조립
+            // (파서 계약). notes_read는 인자 없음 — 기본 passthrough.
+            std::string op;
+            if (req.GetDeepStr("params", "arguments", "op", op)) {
+                argsJson = "{\"op\":\"" + JsonEsc(op) + "\"";
+                std::string t;
+                if (req.GetDeepStr("params", "arguments", "text", t)) {
+                    argsJson += ",\"text\":\"" + JsonEsc(t) + "\"";
+                }
+                int win = 0, state = 0, id = 0;
+                if (req.GetDeepInt("params", "arguments", "win", win)) {
+                    argsJson += ",\"win\":" + std::to_string(win);
+                }
+                if (req.GetDeepInt("params", "arguments", "state", state)) {
+                    argsJson += ",\"state\":" + std::to_string(state);
+                }
+                if (req.GetDeepInt("params", "arguments", "id", id)) {
+                    argsJson += ",\"id\":" + std::to_string(id);
+                }
+                argsJson += "}";
+            }
         }
 
         // Permission gate (spec §5) — see LoadPermissions for the defaults.
@@ -509,6 +535,11 @@ int RunSelfTest() {
                    isResp);
     if (!isResp || r.find("settings_read") == std::string::npos ||
         r.find("settings_set") == std::string::npos) ++failures;
+    // 노트 허브 도구 2종이 tools/list에 노출되는가 (스펙 2026-09-18 §2.2).
+    r = HandleLine("{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"tools/list\"}",
+                   isResp);
+    if (!isResp || r.find("notes_read") == std::string::npos ||
+        r.find("notes_write") == std::string::npos) ++failures;
     std::fprintf(stderr, "selftest: %d failures\n", failures);
     return failures;
 }

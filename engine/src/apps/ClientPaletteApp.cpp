@@ -217,7 +217,7 @@ void ClientPaletteApp::Submit(const std::string& text) {
         AppendLog("  /list  /launch <app>  /close <id>  /chat  /notify");
         AppendLog("  /shot  /triggers  /trigger <name> on|off  /events  /trust");
         AppendLog("  /theme dark|light|classic  /save <name>  /restore <name>  /undo");
-        AppendLog("  /agentmgr  /settings");
+        AppendLog("  /agentmgr  /settings  /notes");
     } else if (cmd == "agentmgr") {
         // 에이전트 관리자 앱 (specs/2026-09-16-agent-manager) — launch_app
         // 재사용. MVP는 토글 없음(재스폰 = 사용자 책임).
@@ -225,6 +225,9 @@ void ClientPaletteApp::Submit(const std::string& text) {
     } else if (cmd == "settings") {
         // 설정 허브 앱 (specs/2026-09-18-settings-hub) — launch_app 재사용.
         SendTool("launch_app", "{\"app\":\"settings\"}");
+    } else if (cmd == "notes") {
+        // 노트 허브 앱 (specs/2026-09-18-notes-hub) — launch_app 재사용.
+        SendTool("launch_app", "{\"app\":\"notes\"}");
     } else if (cmd == "events") {
         // Structured event catalog (docs/32): topic/source/payload shape +
         // live fired/last_ts/subscribers.

@@ -629,6 +629,8 @@ std::string JsonEsc(const std::string& s) {
         const unsigned char c = static_cast<unsigned char>(ch);
         if (c == '"')       out += "\\\"";
         else if (c == '\\') out += "\\\\";
+        else if (c == '{')  out += "\\u007b";   // 행 경계 스캔(노트 허브 등
+        else if (c == '}')  out += "\\u007d";   // 원문 수술)이 안전하도록
         else if (c < 0x20)  { std::snprintf(num, sizeof(num), "\\u%04x", c); out += num; }
         else                out += ch;
     }
@@ -1777,6 +1779,10 @@ static const AgentPermRow kPermMatrix[] = {
     {"file_dialog_params", "none", "allow"},
     {"agent_permissions", "none", "allow"},
     {"installed_list", "none", "allow"},
+    // 노트 허브 (스펙 2026-09-18-notes-hub §2.2): 저위험 사용자 데이터 —
+    // 스팸 벡터는 receipts 감사 + rate limiter(docs/38).
+    {"notes_read", "none", "allow"},
+    {"notes_write", "none", "allow"},
     {"read_receipts", "none", "allow"},
     // 설정 허브 (스펙 2026-09-18-settings-hub §2.2): 외관·환경 설정 —
     // theme_set/trigger_toggle 분류. 단 settings_set의 capture_allow 키만
@@ -1959,6 +1965,154 @@ static bool PruneReceipts(int retentionDays) {
     std::fclose(w);
     // 쓰기 실패(부분 파일)도 복원 — .bak이 곧 원본.
     if (wrote != kept.size()) {
+        std::remove(path.c_str());
+        std::rename((path + ".bak").c_str(), path.c_str());
+        return false;
+    }
+    return true;
+}
+
+// state/notes.json (스펙 2026-09-18-notes-hub §2.3): 노트 허브 저장 — 서버가
+// 유일 쓰기자. 행은 AgentJson으로 파싱해 재직렬화한다(ts는 int64라 AgentJson
+// 접근자가 없어 docs/38 — 행 원문에서 "ts":<숫자>만 수기 추출). 행 경계는
+// 중괄호 스캔이 안전하다(JsonEsc가 { }를 {/}로 이스케이프 — 위).
+// 256KiB 캡 초과 쓰기는 거부(docs/53 3d 선례) + .bak 1세대.
+struct NoteRow {
+    int id = 0;
+    std::string text;        // note 본문 / item 제목
+    int win = 0;             // note: 타깃 창 id (0=범용)
+    int state = 0;           // item: 0대기/1진행/2완료
+    std::string src;         // "agent"|"user"
+    std::string tsRaw;       // "ts":<원문 숫자> — 재직렬화용
+    bool isItem = false;
+};
+static std::string NotesPath() {
+    char exePath[1024] = {};
+    GetModuleFileNameA(nullptr, exePath, sizeof(exePath));
+    std::string dir = exePath;
+    const size_t slash = dir.find_last_of("\\/");
+    if (slash != std::string::npos) dir = dir.substr(0, slash);
+    return dir + "\\state\\notes.json";
+}
+// 배열 원문에서 행을 뽑는다 — JsonEsc의 중괄호 이스케이프 덕에 행 경계는
+// 중괄호 스캔으로 확정된다(스펙 §2.3).
+static void NotesArrayRows(const std::string& body, const char* name,
+                           bool isItem, std::vector<NoteRow>& rows) {
+    const std::string key = std::string("\"") + name + "\":[";
+    const size_t arr = body.find(key);
+    if (arr == std::string::npos) return;
+    size_t pos = body.find('[', arr);
+    if (pos == std::string::npos) return;
+    ++pos;
+    while (pos < body.size()) {
+        // 다음 비공백 문자가 '{'가 아니면 배열 끝 — find('{')로는 ']'를
+        // 건너뛰어 다음 배열(역방향 오염: backlog 행이 notes로 흡수됨)까지
+        // 긁는다. RMW가 그 오염을 재직렬화로 굳히므로 반드시 여기서 끊는다.
+        while (pos < body.size() &&
+               std::isspace(static_cast<unsigned char>(body[pos]))) {
+            ++pos;
+        }
+        if (pos >= body.size() || body[pos] != '{') break;
+        const size_t obj = pos;
+        const size_t close = body.find('}', obj);
+        if (close == std::string::npos) break;
+        const std::string row = body.substr(obj, close - obj + 1);
+        jk::agent::AgentJson j(row);
+        NoteRow r;
+        r.isItem = isItem;
+        if (j.ok()) {
+            j.GetInt("id", r.id);
+            j.GetStr("src", r.src);
+            if (isItem) {
+                j.GetStr("title", r.text);
+                j.GetInt("state", r.state);
+            } else {
+                j.GetStr("text", r.text);
+                j.GetInt("win", r.win);
+            }
+            const size_t tp = row.find("\"ts\":");
+            if (tp != std::string::npos) {
+                size_t d = tp + 5;
+                while (d < row.size() &&
+                       (row[d] == '-' || (row[d] >= '0' && row[d] <= '9'))) {
+                    r.tsRaw += row[d];
+                    ++d;
+                }
+            }
+            if (r.id > 0 && !r.tsRaw.empty()) rows.push_back(r);
+        }
+        pos = close + 1;
+        // 다음 행은 쉼표 뒤 — ','/공백을 걷어내고 '{'를 다시 검사한다.
+        while (pos < body.size() &&
+               (body[pos] == ',' ||
+                std::isspace(static_cast<unsigned char>(body[pos])))) {
+            ++pos;
+        }
+    }
+}
+static bool ReadNotes(std::vector<NoteRow>& notes, std::vector<NoteRow>& items,
+                      int& next) {
+    std::FILE* f = std::fopen(NotesPath().c_str(), "rb");
+    if (!f) return true;   // 파일 없음 = 빈 상태(정상)
+    std::string body;
+    char chunk[8192];
+    size_t n = 0;
+    while ((n = std::fread(chunk, 1, sizeof(chunk), f)) > 0) body.append(chunk, n);
+    std::fclose(f);
+    jk::agent::AgentJson j(body);
+    if (!j.ok()) return false;   // 손상 — 호출자가 빈 상태 시작(정직 로그)
+    NotesArrayRows(body, "notes", false, notes);
+    NotesArrayRows(body, "backlog", true, items);
+    if (!j.GetInt("next", next)) {
+        // 구형/손상 파일 — 채번기 복구(최대 id + 1).
+        for (const NoteRow& r : notes) next = std::max(next, r.id + 1);
+        for (const NoteRow& r : items) next = std::max(next, r.id + 1);
+    }
+    return true;
+}
+static bool WriteNotesFile(const std::vector<NoteRow>& notes,
+                           const std::vector<NoteRow>& items, int next) {
+    std::string out = "{\"notes\":[";
+    for (size_t i = 0; i < notes.size(); ++i) {
+        if (i) out += ",";
+        // 행 크기가 가변(text 512바이트 × 이스케이프 확장)이라 스트링 빌더 —
+        // 고정 snprintf 버퍼는 잘림 함정(docs/38 레슨 계열).
+        out += "{\"id\":" + std::to_string(notes[i].id) +
+               ",\"text\":\"" + JsonEsc(notes[i].text) +
+               "\",\"win\":" + std::to_string(notes[i].win) +
+               ",\"ts\":" + notes[i].tsRaw +
+               ",\"src\":\"" + notes[i].src + "\"}";
+    }
+    out += "],\"backlog\":[";
+    for (size_t i = 0; i < items.size(); ++i) {
+        if (i) out += ",";
+        out += "{\"id\":" + std::to_string(items[i].id) +
+               ",\"title\":\"" + JsonEsc(items[i].text) +
+               "\",\"state\":" + std::to_string(items[i].state) +
+               ",\"ts\":" + items[i].tsRaw +
+               ",\"src\":\"" + items[i].src + "\"}";
+    }
+    out += "],\"next\":" + std::to_string(next) + "}";
+    if (out.size() > 262144) return false;   // 256KiB 캡 (docs/53 3d 선례)
+    const std::string path = NotesPath();
+    std::remove((path + ".bak").c_str());
+    // rename 실패(브로커/프로브가 읽기 잠금) → fopen "wb"로 원본이 잘리는
+    // receipts M5 선례의 동일 벡터 — 실패 시 절단 없이 중단. 첫 쓰기(원본
+    // 부재)는 통과.
+    if (std::FILE* probe = std::fopen(path.c_str(), "rb")) {
+        std::fclose(probe);
+        if (std::rename(path.c_str(), (path + ".bak").c_str()) != 0) {
+            return false;
+        }
+    }
+    std::FILE* f = std::fopen(path.c_str(), "wb");
+    if (!f) {
+        std::rename((path + ".bak").c_str(), path.c_str());
+        return false;
+    }
+    const size_t wrote = std::fwrite(out.data(), 1, out.size(), f);
+    std::fclose(f);
+    if (wrote != out.size()) {
         std::remove(path.c_str());
         std::rename((path + ".bak").c_str(), path.c_str());
         return false;
@@ -3501,6 +3655,137 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                 ++used;
             }
             reply = out + "]}";
+        }
+    } else if (tool == "notes_read") {
+        // 노트 허브 (스펙 2026-09-18-notes-hub §2.2): state/notes.json 전체
+        // 반환. ts는 epoch ms 원문 저장 — 클라 응답은 epoch 초 절단
+        // (read_receipts와 동일 2레벨 규약).
+        std::vector<NoteRow> notes, items;
+        int next = 1;
+        if (!ReadNotes(notes, items, next)) {
+            std::printf("[server] notes.json unreadable — starting empty\n");
+            std::fflush(stdout);
+        }
+        std::string out = "{\"ok\":true,\"notes\":[";
+        for (size_t i = 0; i < notes.size(); ++i) {
+            if (i) out += ",";
+            out += "{\"id\":" + std::to_string(notes[i].id) +
+                   ",\"text\":\"" + JsonEsc(notes[i].text) +
+                   "\",\"win\":" + std::to_string(notes[i].win) +
+                   ",\"ts\":" + std::to_string(
+                       std::atoll(notes[i].tsRaw.c_str()) / 1000) +
+                   ",\"src\":\"" + notes[i].src + "\"}";
+        }
+        out += "],\"backlog\":[";
+        for (size_t i = 0; i < items.size(); ++i) {
+            if (i) out += ",";
+            out += "{\"id\":" + std::to_string(items[i].id) +
+                   ",\"title\":\"" + JsonEsc(items[i].text) +
+                   "\",\"state\":" + std::to_string(items[i].state) +
+                   ",\"ts\":" + std::to_string(
+                       std::atoll(items[i].tsRaw.c_str()) / 1000) +
+                   ",\"src\":\"" + items[i].src + "\"}";
+        }
+        reply = out + "]}";
+    } else if (tool == "notes_write") {
+        // op 화이트리스트(§2.2): add_note/add_item/move_item/del. RMW는
+        // 행 파싱 → 재직렬화(서버가 유일 쓰기자). id는 서버 채번기(next).
+        std::string op, text;
+        int id = 0, st = -1, win = -1;
+        req.GetObjStr("args", "op", op);
+        req.GetObjStr("args", "text", text);
+        req.GetObjInt("args", "id", id);
+        req.GetObjInt("args", "state", st);
+        req.GetObjInt("args", "win", win);
+        if (op != "add_note" && op != "add_item" && op != "move_item" &&
+            op != "del") {
+            reply = "{\"ok\":false,\"error\":\"bad_op\"}";
+        } else if (op == "add_note" &&
+                   (text.empty() || text.size() > 512)) {
+            reply = "{\"ok\":false,\"error\":\"bad_text\"}";
+        } else if (op == "add_item" &&
+                   (text.empty() || text.size() > 128)) {
+            reply = "{\"ok\":false,\"error\":\"bad_text\"}";
+        } else if (op == "move_item" && (id <= 0 || st < 0 || st > 2)) {
+            reply = "{\"ok\":false,\"error\":\"bad_state\"}";
+        } else if (op == "del" && id <= 0) {
+            reply = "{\"ok\":false,\"error\":\"bad_id\"}";
+        } else {
+            std::vector<NoteRow> notes, items;
+            int next = 1;
+            if (!ReadNotes(notes, items, next)) {
+                reply = "{\"ok\":false,\"error\":\"notes_unreadable\"}";
+            } else if (op == "add_note" || op == "add_item") {
+                NoteRow r;
+                r.isItem = (op == "add_item");
+                r.id = next;
+                r.text = text;
+                r.src = client.IsControlOnly() ? "agent" : "user";
+                r.tsRaw = std::to_string(
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::system_clock::now().time_since_epoch())
+                        .count());
+                if (r.isItem) {
+                    r.state = (st >= 0 && st <= 2) ? st : 0;
+                    items.push_back(r);
+                } else {
+                    r.win = win > 0 ? win : 0;
+                    notes.push_back(r);
+                }
+                if (WriteNotesFile(notes, items, next + 1)) {
+                    reply = "{\"ok\":true,\"id\":" + std::to_string(next) +
+                            ",\"written\":true}";
+                    // §2.4: 에이전트 노트는 알림 센터로 유입(agent.notify —
+                    // 기존 토픽, 카탈로그 변경 없음). 사용자 추가는 방송 없음.
+                    if (r.src == "agent") {
+                        char ev[896];
+                        std::snprintf(ev, sizeof(ev),
+                                      "{\"topic\":\"agent.notify\",\"data\":{"
+                                      "\"title\":\"[노트] %s\",\"body\":\"%s\"},"
+                                      "\"ts\":%lld}",
+                                      (r.isItem ? "백로그" : "코멘트"),
+                                      JsonEsc(r.text.substr(0, 128)).c_str(),
+                                      static_cast<long long>(
+                                          std::time(nullptr)) * 1000);
+                        PushAgentEventJson(ev);
+                    }
+                } else {
+                    reply = "{\"ok\":false,\"error\":\"write_failed\"}";
+                }
+            } else if (op == "move_item") {
+                bool found = false;
+                for (NoteRow& r : items) {
+                    if (r.id == id) { r.state = st; found = true; break; }
+                }
+                if (!found) {
+                    reply = "{\"ok\":false,\"error\":\"id_not_found\"}";
+                } else if (WriteNotesFile(notes, items, next)) {
+                    reply = "{\"ok\":true,\"written\":true}";
+                } else {
+                    reply = "{\"ok\":false,\"error\":\"write_failed\"}";
+                }
+            } else {   // del
+                const size_t beforeN = notes.size(), beforeI = items.size();
+                for (size_t i = notes.size(); i > 0; --i) {
+                    if (notes[i - 1].id == id) {
+                        notes.erase(notes.begin() +
+                                    static_cast<long>(i - 1));
+                    }
+                }
+                for (size_t i = items.size(); i > 0; --i) {
+                    if (items[i - 1].id == id) {
+                        items.erase(items.begin() +
+                                    static_cast<long>(i - 1));
+                    }
+                }
+                if (notes.size() == beforeN && items.size() == beforeI) {
+                    reply = "{\"ok\":false,\"error\":\"id_not_found\"}";
+                } else if (WriteNotesFile(notes, items, next)) {
+                    reply = "{\"ok\":true,\"written\":true}";
+                } else {
+                    reply = "{\"ok\":false,\"error\":\"write_failed\"}";
+                }
+            }
         }
     } else if (tool == "launch_chat") {
         // M2 chat: open the Win32 chat window (approval surface). One API,

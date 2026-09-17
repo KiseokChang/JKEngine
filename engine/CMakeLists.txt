@@ -484,6 +484,17 @@ target_compile_definitions(jkapp_settings PRIVATE JKAPP_MODULE_BUILD)
 target_link_libraries(jkapp_settings PRIVATE jkclient imgui)
 set_target_properties(jkapp_settings PROPERTIES PREFIX "")
 
+# Notes hub module (specs/2026-09-18-notes-hub): 2-tab GUI (코멘트 + 백로그
+# 보드) over state/notes.json. A launcher .jkx (no icon — same fallback as
+# settings).
+add_library(jkapp_notes SHARED
+    src/apps/JKAppModule_notes.cpp
+    src/apps/ClientNotesApp.cpp
+)
+target_compile_definitions(jkapp_notes PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_notes PRIVATE jkclient imgui)
+set_target_properties(jkapp_notes PROPERTIES PREFIX "")
+
 # Region-capture overlay module (agent platform, docs/35 Task 3): the
 # rubber-band fullscreen layer behind /shot and the viewer's 영역 캡처
 # button. A launcher .jkx too (no icon — the packer treats icons as
@@ -854,6 +865,11 @@ add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/settings.jkx"
     DEPENDS jkdesktop jkapp_settings
     COMMENT "Repacking apps/settings.jkx"
     VERBATIM)
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/notes.jkx"
+    COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack notes
+    DEPENDS jkdesktop jkapp_notes
+    COMMENT "Repacking apps/notes.jkx"
+    VERBATIM)
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/shot.jkx"
     COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack shot
     DEPENDS jkdesktop jkapp_shot
@@ -910,6 +926,7 @@ add_custom_target(jkx_packages ALL
             "${CMAKE_BINARY_DIR}/apps/snap.jkx"
             "${CMAKE_BINARY_DIR}/apps/shot.jkx"
             "${CMAKE_BINARY_DIR}/apps/settings.jkx"
+            "${CMAKE_BINARY_DIR}/apps/notes.jkx"
             "${CMAKE_BINARY_DIR}/apps/agentmgr.jkx"
             "${CMAKE_BINARY_DIR}/apps/browser.jkx"
             "${CMAKE_BINARY_DIR}/apps/scriptdemo.jkx"
