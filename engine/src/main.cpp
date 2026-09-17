@@ -2593,6 +2593,9 @@ static int RunAgentEvents(int seconds) {
         for (const auto& ev : events) {
             std::fputs(ev.json.c_str(), stdout);
             std::fputc('\n', stdout);
+            // 리다이렉트된 stdout은 블록 버퍼링이라 이벤트가 종료 시까지
+            // 묶여 있다(프로브가 런 중간에 빈 파일을 읽는다) — 행 단위 플러시.
+            std::fflush(stdout);
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
