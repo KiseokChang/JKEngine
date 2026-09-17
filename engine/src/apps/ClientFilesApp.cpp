@@ -186,8 +186,8 @@ void ClientFilesApp::ApplyReply(Query kind, const std::string& json) {
                 entries_.push_back(e);
             }
         }
-        std::string cappedStr;
-        if (r.GetStr("capped", cappedStr)) listCapped_ = (cappedStr == "1");
+        int cappedInt = 0;
+        if (r.GetInt("capped", cappedInt)) listCapped_ = (cappedInt == 1);
         return;
     }
     if (kind == Query::Read) {
@@ -199,15 +199,14 @@ void ClientFilesApp::ApplyReply(Query kind, const std::string& json) {
             status_ = "[!] " + json;
             return;
         }
-        // 응답 계약: bool은 0/1, size는 숫자 — 2레벨 리더(int 계약)로 읽는다.
-        std::string binStr = "0", truncStr = "0";
-        int sizeInt = 0;
+        // 응답 계약: binary/truncated/size는 int 직렬화 — GetInt로 읽는다.
+        int binInt = 0, truncInt = 0, sizeInt = 0;
         r.GetStr("text", prevText_);
-        r.GetStr("binary", binStr);
-        r.GetStr("truncated", truncStr);
+        r.GetInt("binary", binInt);
+        r.GetInt("truncated", truncInt);
         r.GetInt("size", sizeInt);
-        prevBinary_ = (binStr == "1");
-        prevTrunc_ = (truncStr == "1");
+        prevBinary_ = (binInt == 1);
+        prevTrunc_ = (truncInt == 1);
         prevSize_ = sizeInt;
         return;
     }
