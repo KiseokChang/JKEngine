@@ -343,6 +343,11 @@ void ClientNotesApp::BuildCommentsTab() {
         commentBuf_[0] = '\0';
         winSel_ = 0;
     }
+    // 수동 새로고침(백로그 탭과 패리티 — 에이전트 노트는 폴링 없음).
+    ImGui::SameLine();
+    if (ImGui::Button(koreanFont_ ? "새로고침" : "refresh")) {
+        SendQuery("notes_read", "{}", Query::Read);
+    }
 }
 
 void ClientNotesApp::BuildBacklogTab() {

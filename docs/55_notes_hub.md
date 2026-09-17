@@ -19,11 +19,11 @@
 
 ## 2. 도구 계약
 
-- **notes_read**: 봉투 `{ok,notes:[{id,text,win,ts,src}...],backlog:[{id,title,state,ts,src}...]}` — ts는 파일엔 epoch ms, 응답은 초 절단(read_receipts 2레벨 규약). 파일 없음/손상 → 빈 배열 + 정직 로그(`notes.json unreadable — starting empty`).
-- **notes_write** op 화이트리스트: `add_note`(text 1..512, win 0=범용), `add_item`(text 1..128, state 0..2 생략 시 0), `move_item`(id>0, state 0..2), `del`(id>0 — notes/backlog 양쪽에서 id 매칭 삭제). 그 외 `bad_op`/`bad_text`/`bad_state`/`bad_id`/`id_not_found`/`notes_unreadable`/`write_failed`.
+- **notes_read**: 봉투 `{ok,notes:[{id,text,win,ts,src}...],backlog:[{id,title,state,ts,src}...]}` — ts는 파일엔 epoch ms, 응답은 초 절단(read_receipts 2레벨 규약). 파일 없음/손상 → 빈 배열 + 정직 로그(`notes.json unreadable — starting empty`). **스펙 §2.2의 `win_title`과의 편차**: 응답은 `win` id만 주고 창 제목 역참조는 GUI가 list_windows 스냅샷으로 한다(스펙 §2.3 "역참조는 읽기 시점"의 as-built 해석 — docs/55 §4).
+- **notes_write** op 화이트리스트: `add_note`(text 1..512, win 0=범용), `add_item`(text 1..128, state 생략 시 0, 명시 0..2 벗어남 → `bad_state`), `move_item`(id>0, state 0..2), `del`(id>0 — notes/backlog 양쪽에서 id 매칭 삭제; 스펙의 kind 인자는 id 단독으로 단순화). 그 외 `bad_op`/`bad_text`/`bad_state`/`bad_id`/`id_not_found`/`notes_unreadable`/`write_failed`.
 - **id 채번기**: `next` 필드(서버 유일 채번 — 단일 디스패치 스레드라 순차). 파일에 next가 없으면 max(id)+1로 복구(구형/손상 파일).
 - **src 분류**: 요청자 연결이 control-only → `agent`(jkagentd/jkctl/agentctl), 창 연결 → `user`(GUI). 스펙 §2.2 그대로.
-- **kPermMatrix**: `{"notes_read","none","allow"},{"notes_write","none","allow"}` — 저위험 사용자 데이터. 스팸 벡터는 rate limiter(docs/38) + receipts 감사.
+- **kPermMatrix**: `{"notes_read","none","allow"},{"notes_write","none","allow"}` — 저위험 사용자 데이터. 노트 방송(toast) 스팸은 publish_event와 **같은 연결 예산(docs/38 60/10s)**으로 제한(opus MINOR-1 픽스) — 캡 초과 시 **토스트만 버리고 노트는 씁니다**(데이터 vs 표시 분리, ok 유지로 재시도 폭탄 방지).
 
 ## 3. 상태 파일 안전장치 (docs/54 레슨 직행)
 
@@ -32,7 +32,7 @@
 3. **.bak 1세대**: 기존 파일을 rename으로 .bak화 후 새로 씀(북마크/trust 관례).
 4. **rename 실패 시 절단 없이 중단**: rename(브로커/프로브가 읽기 잠금 시 실패)을 검사하지 않으면 이어지는 `fopen "wb"`가 원본을 절단한다 — receipts opus M5의 동일 벡터를 선제 봉쇄. **첫 쓰기(원본 부재)는 fopen rb 프로브로 통과** — 신규 케이스에서 rename 실패=파일 부재라 쓰기가 영구 실패하는 역함정이 생겼다가 픽스(세션 실측: 첫 쓰기 전부 write_failed).
 5. **부분 쓰기 복구**: fwrite 크기 불일치 → 새 파일 remove + .bak 복원.
-6. **JsonEsc 중괄호 이스케이프**: `{`→`{`, `}`→`}`(JSON 등가) — 노트 본문에 중괄호가 있어도 행 경계 스캔이 안전. 전역 적용이라 receipts/permissions 등 모든 JSON 출력에 함께 적용(유효 JSON 변화 없음).
+6. **JsonEsc 중괄호 이스케이프**: `{`→`{`, `}`→`}`(JSON 등가) — 노트 본문에 중괄호가 있어도 행 경계 스캔이 안전. 전역 적용이라 receipts/permissions 등 모든 JSON 출력에 함께 적용(유효 JSON 변화 없음 — quickjs 기반 AgentJson이 `{` 디코드 검증 완료).
 
 ## 4. GUI (jkapp_notes)
 
@@ -57,3 +57,17 @@
 - del은 id만으로 매칭(kind 인자는 스펙에 있었으나 구현에서 id 단독으로 단순화 — tools/list 설명 "del(kind by id)"과의 표기 엇갈림은 무해).
 - 실시간 동기 없음(단일 창 가정, 스펙 §4 YAGNI) — 다른 소스가 노트를 추가하면 수동 새로고침/알림 센터로 인지.
 - 256KiB 도달 시 GUI는 write_failed 상태줄로 알림 — 오래된 항목 삭제 유지.
+
+## 8. opus 최종리뷰 — APPROVE WITH MINORS 전부 픽스 (2026-09-18)
+
+- **MINOR-1 노트 방송 무예산**: publish 예산(docs/38)은 publish_event 브랜치에만 존재 — 노트 스팸은 토스트 스팸 + notify_history 전체 재쓰기 + clientsMutex_ 하 전체 RMW로 데스크탑 펌프 지체. 픽스: 노트 방송이 publish_event와 **같은 연결 예산**(60/10s, 연결당)을 소비 — 캡 초과분은 노트가 아니라 토스트만 버림(데이터/표시 분리, ok 유지).
+- **MINOR-2 body 128바이트 절단이 UTF-8 시퀀스 파단**: `Utf8TrimTo` 헬퍼 — 연속 바이트 + 리드 바이트만큼 물러난 뒤 절단.
+- **MINOR-3 프로브가 실노트 소각**: notes.json/.bak도 %TEMP% 백업+복원(permissions/theme/settings와 동일 생명주기).
+- **MINOR-4 역오염(읽기 실패 → 쓰기로 소각)**: pretty-print/오탈자로 행 수확이 0(또는 행 유실)인데 JSON은 통과하면 RMW가 빈/축소 배열을 재직렬화. 픽스: ReadNotes에 **수확-파서 정합 검증** — `GetArraySize("notes"/"backlog")`와 수확 수가 다르거나 키가 없으면 `false`(notes_read는 빈 시작+정직 로그, notes_write는 `notes_unreadable`로 RMW 거부 — 소각 봉쇄).
+- **NIT-1 src 원문 통과**: read/WriteNotesFile 모두 JsonEsc(src).
+- **NIT-2 ReadNotes 무한 slurp**: 8MiB 초과 거부(docs/53 state 상한 — 정상 상태는 쓰기 챔 256KiB라 심어진 파일만 걸림).
+- **NIT-3 코멘트 탭 새로고침 부재**: 백로그 탭과 패리티로 추가.
+- **NIT-4 add_item state 클램프→bad_state**: 생략(-1)=0, 명시 out-of-range(>2)=bad_state(스펙 §2.2 준수). docs `{`→`{` 오타 수정.
+- **NIT-5 win_title 편차**: 문서화(§2).
+- 확인(코멘트) 항목: id 채번 단일 스레드 안전, 256KiB 캡 경계+RMW 이스케이프 멱등, 행 스캔(서버 쓰기 형식) 정확, WriteNotesFile 실패 경로=receipts M5 패턴, 토픽 스푸핑 신규 능력 없음, JsonEsc 중괄호 이스케이프 전역 안전(quickjs 디코드 검증), GUI Begin/End·pending_ 큐 계약, InputText+Enter(imgui 1.92 검증 프레임 동작 — 프로브 미실측, 소스 판독), none/allow 등급 동료 일치.
+- 회귀 재실측: probe_notes 15체크 ×2 ALL PASS + 기존 스위트 전부 GREEN.

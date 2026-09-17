@@ -88,9 +88,12 @@ Start-Process -FilePath $exe -ArgumentList "--server" `
 Start-Sleep -Seconds 3
 
 function Invoke-Agentctl([string]$json) {
-    # raw JSON in (it escapes); no spaces in data — native argv (lesson 26)
+    # raw JSON in (it escapes); no spaces in data — native argv (lesson 26).
+    # [theme] stdout loader line (docs/52) breaks ConvertFrom-Json — probe_agent_shot
+    # same fix. Only JSON lines pass.
     $escaped = $json -replace '"', '\"'
-    return (& $exe agentctl $escaped) -join "`n"
+    $raw = (& $exe agentctl $escaped) -join "`n"
+    return ($raw -split "`n" | Where-Object { $_ -match '^\s*\{' }) -join "`n"
 }
 
 # --- jkchat FIRST (lesson 28: subscribers up before the kicks fire) -------

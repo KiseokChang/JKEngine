@@ -1994,6 +1994,18 @@ static std::string NotesPath() {
     if (slash != std::string::npos) dir = dir.substr(0, slash);
     return dir + "\\state\\notes.json";
 }
+// 바이트 절단은 UTF-8 후행 시퀀스를 자른다(substr는 바이트 단위 — opus
+// MINOR-2: 한국어 3바이트 글자가 경계에 걸리면 mojibake). 마지막 완전한
+// 시퀀스 뒤로 물러난다.
+static std::string Utf8TrimTo(const std::string& s, size_t maxBytes) {
+    if (s.size() <= maxBytes) return s;
+    size_t cut = maxBytes;
+    while (cut > 0 && (static_cast<unsigned char>(s[cut]) & 0xC0) == 0x80) {
+        --cut;   // 연속 바이트(10xxxxxx)만큼 물러난다
+    }
+    if (cut > 0) --cut;   // 리드 바이트도 제거(잘린 시퀀스)
+    return s.substr(0, cut);
+}
 // 배열 원문에서 행을 뽑는다 — JsonEsc의 중괄호 이스케이프 덕에 행 경계는
 // 중괄호 스캔으로 확정된다(스펙 §2.3).
 static void NotesArrayRows(const std::string& body, const char* name,
@@ -2059,10 +2071,27 @@ static bool ReadNotes(std::vector<NoteRow>& notes, std::vector<NoteRow>& items,
     size_t n = 0;
     while ((n = std::fread(chunk, 1, sizeof(chunk), f)) > 0) body.append(chunk, n);
     std::fclose(f);
+    // 이상 수확 방어(opus NIT-2): 8MiB 초과 파일은 파싱/수확을 거부 —
+    // docs/53 state 파일 캡과 같은 상한. 쓰기 캡(256KiB)보다 큰 정상 상태는
+    // 있을 수 없으므로(캡 거부) 이 경계는 심어진 파일만 걸러낸다.
+    if (body.size() > 8u * 1024 * 1024) return false;
     jk::agent::AgentJson j(body);
     if (!j.ok()) return false;   // 손상 — 호출자가 빈 상태 시작(정직 로그)
     NotesArrayRows(body, "notes", false, notes);
     NotesArrayRows(body, "backlog", true, items);
+    // 역오염 방어(opus MINOR-4): JSON은 통과하는데 행 스캔이 행을 놓치면
+    // (pretty-print 재포맷, 키 오탈자, drop된 행) RMW가 빈 배열/축소 배열을
+    // "정상"으로 재직렬화해 사용자 노트를 소각한다. 읽기 오염 = 쓰기 오염 —
+    // 수확 수와 파서 수가 다르면 파산 파일로 판정(RMW 거부, read는 빈 시작).
+    {
+        int cntN = 0, cntI = 0;
+        const bool shapeOk =
+            j.GetArraySize("notes", cntN) && j.GetArraySize("backlog", cntI);
+        if (!shapeOk || cntN != static_cast<int>(notes.size()) ||
+            cntI != static_cast<int>(items.size())) {
+            return false;
+        }
+    }
     if (!j.GetInt("next", next)) {
         // 구형/손상 파일 — 채번기 복구(최대 id + 1).
         for (const NoteRow& r : notes) next = std::max(next, r.id + 1);
@@ -2081,7 +2110,7 @@ static bool WriteNotesFile(const std::vector<NoteRow>& notes,
                ",\"text\":\"" + JsonEsc(notes[i].text) +
                "\",\"win\":" + std::to_string(notes[i].win) +
                ",\"ts\":" + notes[i].tsRaw +
-               ",\"src\":\"" + notes[i].src + "\"}";
+               ",\"src\":\"" + JsonEsc(notes[i].src) + "\"}";
     }
     out += "],\"backlog\":[";
     for (size_t i = 0; i < items.size(); ++i) {
@@ -2090,7 +2119,7 @@ static bool WriteNotesFile(const std::vector<NoteRow>& notes,
                ",\"title\":\"" + JsonEsc(items[i].text) +
                "\",\"state\":" + std::to_string(items[i].state) +
                ",\"ts\":" + items[i].tsRaw +
-               ",\"src\":\"" + items[i].src + "\"}";
+               ",\"src\":\"" + JsonEsc(items[i].src) + "\"}";
     }
     out += "],\"next\":" + std::to_string(next) + "}";
     if (out.size() > 262144) return false;   // 256KiB 캡 (docs/53 3d 선례)
@@ -3674,7 +3703,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                    "\",\"win\":" + std::to_string(notes[i].win) +
                    ",\"ts\":" + std::to_string(
                        std::atoll(notes[i].tsRaw.c_str()) / 1000) +
-                   ",\"src\":\"" + notes[i].src + "\"}";
+                   ",\"src\":\"" + JsonEsc(notes[i].src) + "\"}";
         }
         out += "],\"backlog\":[";
         for (size_t i = 0; i < items.size(); ++i) {
@@ -3684,7 +3713,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                    "\",\"state\":" + std::to_string(items[i].state) +
                    ",\"ts\":" + std::to_string(
                        std::atoll(items[i].tsRaw.c_str()) / 1000) +
-                   ",\"src\":\"" + items[i].src + "\"}";
+                   ",\"src\":\"" + JsonEsc(items[i].src) + "\"}";
         }
         reply = out + "]}";
     } else if (tool == "notes_write") {
@@ -3706,6 +3735,10 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         } else if (op == "add_item" &&
                    (text.empty() || text.size() > 128)) {
             reply = "{\"ok\":false,\"error\":\"bad_text\"}";
+        } else if (op == "add_item" && st > 2) {
+            // 스펙 §2.2: state 0..2 — 명시 out-of-range는 bad_state(opus
+            // NIT-4). 생략(st==-1)은 대기(0)로 채번 시 적용.
+            reply = "{\"ok\":false,\"error\":\"bad_state\"}";
         } else if (op == "move_item" && (id <= 0 || st < 0 || st > 2)) {
             reply = "{\"ok\":false,\"error\":\"bad_state\"}";
         } else if (op == "del" && id <= 0) {
@@ -3726,7 +3759,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                         std::chrono::system_clock::now().time_since_epoch())
                         .count());
                 if (r.isItem) {
-                    r.state = (st >= 0 && st <= 2) ? st : 0;
+                    r.state = st >= 0 ? st : 0;   // 생략(-1) → 대기
                     items.push_back(r);
                 } else {
                     r.win = win > 0 ? win : 0;
@@ -3737,17 +3770,51 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                             ",\"written\":true}";
                     // §2.4: 에이전트 노트는 알림 센터로 유입(agent.notify —
                     // 기존 토픽, 카탈로그 변경 없음). 사용자 추가는 방송 없음.
+                    // 방송은 publish_event와 같은 연결 예산(docs/38 60/10s)을
+                    // 쓴다(opus MINOR-1 — 노트 스팸 = 토스트 스팸 + 히스토리
+                    // 전체 재쓰기). 캡 초과분은 **노트가 아니라 토스트만
+                    // 버린다** — 노트는 데이터라 남고, senders가 재시도 폭탄
+                    // 으로 변하지 않게 ok 유지.
                     if (r.src == "agent") {
-                        char ev[896];
-                        std::snprintf(ev, sizeof(ev),
-                                      "{\"topic\":\"agent.notify\",\"data\":{"
-                                      "\"title\":\"[노트] %s\",\"body\":\"%s\"},"
-                                      "\"ts\":%lld}",
-                                      (r.isItem ? "백로그" : "코멘트"),
-                                      JsonEsc(r.text.substr(0, 128)).c_str(),
-                                      static_cast<long long>(
-                                          std::time(nullptr)) * 1000);
-                        PushAgentEventJson(ev);
+                        constexpr int kPublishCap = 60;
+                        constexpr uint64_t kPublishWindowMs = 10000;
+                        const uint64_t nowMs = static_cast<uint64_t>(
+                            std::chrono::duration_cast<
+                                std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now()
+                                    .time_since_epoch())
+                                .count());
+                        PublishBudget& b = publishBudgets_[client.Id()];
+                        bool overCap = false;
+                        if (nowMs - b.windowStartMs >= kPublishWindowMs) {
+                            b.windowStartMs = nowMs;
+                            b.count = 0;
+                            b.logged = false;
+                        }
+                        if (b.count >= kPublishCap) {
+                            overCap = true;
+                            if (!b.logged) {
+                                b.logged = true;
+                                std::printf("[server] notes notify "
+                                            "rate-capped (conn %u)\n",
+                                            client.Id());
+                                std::fflush(stdout);
+                            }
+                        }
+                        if (!overCap) {
+                            ++b.count;
+                            char ev[896];
+                            std::snprintf(
+                                ev, sizeof(ev),
+                                "{\"topic\":\"agent.notify\",\"data\":{"
+                                "\"title\":\"[노트] %s\",\"body\":\"%s\"},"
+                                "\"ts\":%lld}",
+                                (r.isItem ? "백로그" : "코멘트"),
+                                JsonEsc(Utf8TrimTo(r.text, 128)).c_str(),
+                                static_cast<long long>(
+                                    std::time(nullptr)) * 1000);
+                            PushAgentEventJson(ev);
+                        }
                     }
                 } else {
                     reply = "{\"ok\":false,\"error\":\"write_failed\"}";

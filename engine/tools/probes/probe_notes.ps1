@@ -45,7 +45,12 @@ if ($hadTheme) { Copy-Item $themeFile (Join-Path $env:TEMP "theme_pre_notes.json
 $kvFile = Join-Path $state "settings.json"
 $hadKv = Test-Path $kvFile
 if ($hadKv) { Copy-Item $kvFile (Join-Path $env:TEMP "kv_pre_notes.json") -Force }
-# notes.json + .bak: deterministic probe state — remove both (fresh baseline).
+# notes.json + .bak: back up first (opus MINOR-3 — a future user may have
+# real notes; never burn them), then reset for a deterministic baseline.
+$hadNotes = Test-Path $notesFile
+if ($hadNotes) { Copy-Item $notesFile (Join-Path $env:TEMP "notes_pre.json") -Force }
+$hadNotesBak = Test-Path $notesBak
+if ($hadNotesBak) { Copy-Item $notesBak (Join-Path $env:TEMP "notes_pre_bak.json") -Force }
 Remove-Item $notesFile -ErrorAction SilentlyContinue
 Remove-Item $notesBak -ErrorAction SilentlyContinue
 
@@ -155,6 +160,8 @@ Get-Process jkdesktop -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Seconds 1
 Remove-Item $notesFile -ErrorAction SilentlyContinue
 Remove-Item $notesBak -ErrorAction SilentlyContinue
+if ($hadNotes) { Copy-Item (Join-Path $env:TEMP "notes_pre.json") $notesFile -Force }
+if ($hadNotesBak) { Copy-Item (Join-Path $env:TEMP "notes_pre_bak.json") $notesBak -Force }
 if ($hadPerm) { Copy-Item (Join-Path $env:TEMP "perm_pre_notes.json") $permFile -Force }
 else { Remove-Item $permFile -ErrorAction SilentlyContinue }
 if ($hadTheme) { Copy-Item (Join-Path $env:TEMP "theme_pre_notes.json") $themeFile -Force }
