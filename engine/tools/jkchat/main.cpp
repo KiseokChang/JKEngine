@@ -587,6 +587,14 @@ static void HandleEvent(const jk::agent::AgentEvent& ev) {
             ShowPermissionApproval(targetTool, decision,
                                    static_cast<uint32_t>(request));
             Log("[권한 변경] " + targetTool + " → " + decision);
+        } else if (kind == "capture_allow") {
+            // 설정 허브 (스펙 2026-09-18-settings-hub §2.2): 캡처 허용 스위치
+            // 키별 Ask — 승인 시 캡처 도구 2종을 함께 쓴다(서버 해소).
+            std::string decision;
+            e.GetStr("decision", decision);
+            ShowPermissionApproval("capture_window", decision,
+                                   static_cast<uint32_t>(request));
+            Log("[캡처 허용] → " + decision);
         } else if (kind == "trust_revoke") {
             std::string name, fp;
             e.GetStr("name", name);

@@ -323,6 +323,12 @@ private:
     int lastDesktopW_ = -1;
     int lastDesktopH_ = -1;
 
+    // 설정 허브 KV (스펙 2026-09-18-settings-hub §2.2): state/settings.json의
+    // 런타임 미러 — 부팅 로드(LoadSettingsKv), settings_set 쓰기.
+    bool audioMasterMute_ = false;
+    int audioMasterVolume_ = 80;      // 0..100
+    int receiptRetentionDays_ = 0;    // 0 = 무기한(현재 관행 — 0은 set 불가)
+
     // In-process privileged shell (P1 ③): owns the launcher grid + desktop
     // background. Wired in Init, torn down in the destructor.
     std::unique_ptr<desktop::JKDesktopShell> shell_;

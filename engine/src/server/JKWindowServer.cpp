@@ -125,10 +125,39 @@ extern "C" __declspec(dllimport) unsigned long __stdcall GetFileAttributesA(
     const char* lpFileName);
 
 constexpr unsigned long kInvalidFileAttributes = 0xFFFFFFFF;
+
+// settings_read의 layout_*.json 열거 (설정 허브 스펙 §2.2) — 이 TU는
+// windows.h를 끌지 않으므로(JKENGINE 레거시 typedef 충돌) 수기 선언.
+struct FindFileDataA {
+    unsigned long dwFileAttributes = 0;
+    unsigned long long ftCreationTime = 0;
+    unsigned long long ftLastAccessTime = 0;
+    unsigned long long ftLastWriteTime = 0;
+    unsigned long nFileSizeHigh = 0;
+    unsigned long nFileSizeLow = 0;
+    unsigned long dwReserved0 = 0;
+    unsigned long dwReserved1 = 0;
+    char cFileName[260] = {};
+    char cAlternateFileName[14] = {};
+};
+
+extern "C" __declspec(dllimport) void* __stdcall FindFirstFileA(
+    const char* lpFileName, FindFileDataA* lpFindFileData);
+extern "C" __declspec(dllimport) int __stdcall FindNextFileA(
+    void* hFindFile, FindFileDataA* lpFindFileData);
+extern "C" __declspec(dllimport) int __stdcall FindClose(void* hFindFile);
+// INVALID_HANDLE_VALUE (-1) — constexpr reinterpret_cast는 상수식이 아니라 함수로.
+static inline void* kInvalidFindHandle() { return reinterpret_cast<void*>(-1); }
 #endif // _WIN32
 
+// 설정 허브 KV 헬퍼 — 본문은 WritePermissionsEntry 뒤(§2.2). Init의 부팅
+// 로드가 쓴다(정의가 뒤에 있으므로 네임스페이스 내 전방선언).
 namespace jk {
 namespace server {
+
+// 설정 허브 KV 헬퍼 — 본문은 WritePermissionsEntry 뒤(§2.2). Init의 부팅
+// 로드가 쓴다(정의가 뒤에 있으므로 네임스페이스 내 전방선언).
+static void LoadSettingsKv(bool& mute, int& volume, int& retention);
 
 JKWindowServer::JKWindowServer() = default;
 
@@ -225,6 +254,10 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
     // those keydowns — detach the IME context from the SDL window.
     JKPlatform::DetachIme(window_);
 #endif
+
+    // 설정 허브 KV (스펙 2026-09-18-settings-hub §2.2): 재시작 복원 —
+    // audio.master/retention은 이 값이 진실원(파일 없으면 기본값 유지).
+    LoadSettingsKv(audioMasterMute_, audioMasterVolume_, receiptRetentionDays_);
 
     return true;
 }
@@ -1740,6 +1773,11 @@ static const AgentPermRow kPermMatrix[] = {
     {"agent_permissions", "none", "allow"},
     {"installed_list", "none", "allow"},
     {"read_receipts", "none", "allow"},
+    // 설정 허브 (스펙 2026-09-18-settings-hub §2.2): 외관·환경 설정 —
+    // theme_set/trigger_toggle 분류. 단 settings_set의 capture_allow 키만
+    // 키별 Ask(파킹) — 에이전트가 설정 도구로 권한을 넓히는 경로 봉쇄.
+    {"settings_read", "none", "allow"},
+    {"settings_set", "none", "allow"},
 };
 
 // permissions.json RMW (스펙 §2.2): 알려진 도구 키 전부 명시 기록 — 없던 키는
@@ -1807,6 +1845,104 @@ static std::string WritePermissionsEntry(const std::string& permTool,
     const size_t wrote = std::fwrite(out.data(), 1, out.size(), w);
     std::fclose(w);
     return wrote == out.size() ? std::string() : std::string("write_failed");
+}
+
+// ---- 설정 허브 KV (스펙 2026-09-18-settings-hub §2.2) --------------------
+// state/settings.json: {"audio":{"mute":0/1,"volume":int},
+// "retention":{"days":int}}. StateDir()는 멤버 메서드라 static 헬퍼는
+// exe-dir 인라인 계산(WritePermissionsEntry/RevokeTrustRecord 선례). 실패는
+// 조용한 소실 없이 write_failed로 표면화(docs/52 리뷰 규약).
+static std::string SettingsKvPath() {
+    char exePath[1024] = {};
+    GetModuleFileNameA(nullptr, exePath, sizeof(exePath));
+    std::string dir = exePath;
+    const size_t slash = dir.find_last_of("\\/");
+    if (slash != std::string::npos) dir = dir.substr(0, slash);
+    return dir + "\\state\\settings.json";
+}
+
+static void LoadSettingsKv(bool& mute, int& volume, int& retention) {
+    std::FILE* f = std::fopen(SettingsKvPath().c_str(), "rb");
+    if (!f) return;
+    std::string text;
+    char chunk[2048];
+    size_t n;
+    while ((n = std::fread(chunk, 1, sizeof(chunk), f)) > 0) text.append(chunk, n);
+    std::fclose(f);
+    jk::agent::AgentJson json(text);
+    if (!json.ok()) return;
+    int v = 0;
+    if (json.GetObjInt("audio", "mute", v) && (v == 0 || v == 1)) {
+        mute = (v == 1);
+    }
+    if (json.GetObjInt("audio", "volume", v) && v >= 0 && v <= 100) volume = v;
+    if (json.GetObjInt("retention", "days", v) && v >= 1) retention = v;
+}
+
+static bool WriteSettingsKv(bool mute, int volume, int retention) {
+    char out[160];
+    std::snprintf(out, sizeof(out),
+                  "{\"audio\":{\"mute\":%d,\"volume\":%d},"
+                  "\"retention\":{\"days\":%d}}",
+                  mute ? 1 : 0, volume, retention);
+    std::FILE* f = std::fopen(SettingsKvPath().c_str(), "wb");
+    if (!f) return false;
+    const size_t len = std::strlen(out);
+    const size_t wrote = std::fwrite(out, 1, len, f);
+    std::fclose(f);
+    return wrote == len;
+}
+
+// receipts.jsonl 보존기간 정리 (스펙 §2.5): ts(epoch ms — read_receipts와
+// 같은 규약)가 경계 이전인 행 삭제 + 전체 리라이트. 파일은 256KiB 캡 스케일
+// (docs/38 rate limiter 파일 전체 읽기 허용 규모) — 전체 리라이트 허용.
+// .bak 1세대 보존(bookmarks/trust 관례). 실패 시 .bak 복원 — 부분 상태 방지.
+// 정리 대상은 receipts뿐 — trust/permissions는 불변(수술 위험 레슨).
+static bool PruneReceipts(int retentionDays) {
+    std::string stateDir = SettingsKvPath();
+    stateDir = stateDir.substr(0, stateDir.find_last_of("\\/") + 1);
+    const std::string path = stateDir + "receipts.jsonl";
+    std::FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) return true;  // 파일 없음 = 정리할 것도 없음 (정상)
+    std::fseek(f, 0, SEEK_END);
+    const long size = std::ftell(f);
+    std::fseek(f, 0, SEEK_SET);
+    std::vector<char> buf(static_cast<size_t>(size) + 1);
+    const size_t n = std::fread(buf.data(), 1, size, f);
+    std::fclose(f);
+    buf[n] = '\0';
+    const long long cutoff =
+        static_cast<long long>(std::time(nullptr)) * 1000 -
+        static_cast<long long>(retentionDays) * 86400 * 1000;
+    std::string kept;
+    size_t pos = 0;
+    while (pos < n) {
+        const char* begin = buf.data() + pos;
+        const char* nl =
+            static_cast<const char*>(std::memchr(begin, '\n', n - pos));
+        const size_t len = nl ? static_cast<size_t>(nl - begin) : (n - pos);
+        if (len > 0) {
+            const std::string line(begin, len);
+            const size_t tp = line.find("\"ts\":");
+            const long long ts = (tp == std::string::npos)
+                                     ? 0
+                                     : std::atoll(line.c_str() + tp + 5);
+            if (ts >= cutoff) {
+                kept += line + "\n";
+            }
+        }
+        pos += len + (nl ? 1 : 0);
+    }
+    std::remove((path + ".bak").c_str());
+    std::rename(path.c_str(), (path + ".bak").c_str());
+    std::FILE* w = std::fopen(path.c_str(), "wb");
+    if (!w) {
+        std::rename((path + ".bak").c_str(), path.c_str());  // 복원
+        return false;
+    }
+    const size_t wrote = std::fwrite(kept.data(), 1, kept.size(), w);
+    std::fclose(w);
+    return wrote == kept.size();
 }
 
 // 지문 형식: 정확히 "sha256:" + 64 소문자 hex (로더 형식 — docs/37).
@@ -2402,6 +2538,271 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                               preset.c_str());
                 reply = buf;
             }
+        }
+    } else if (tool == "settings_read") {
+        // 스펙 2026-09-18-settings-hub §2.2: 현재 설정 수집 — B 진화 씨앗
+        // 봉투(key/kind/value). bool은 int 0/1로 직렬화(AgentJson 파서
+        // 계약), ts는 epoch 초. 수집 원천: theme.json(exe 옆),
+        // state/triggers.json, state/idle_minutes, 서버 KV 멤버,
+        // state/layout_*.json, receipts.jsonl 꼬리.
+        std::string out = "{\"ok\":true,\"settings\":[";
+        char item[640];
+        // theme.current: theme.json의 preset(부트 로더 진실원). 파일은 exe
+        // 옆 — jk::theme::DefaultThemePath() (StateDir 아님).
+        {
+            std::string preset = "dark";
+            std::FILE* f =
+                std::fopen(jk::theme::DefaultThemePath().c_str(), "rb");
+            if (f) {
+                std::string text;
+                char chunk[4096];
+                size_t n;
+                while ((n = std::fread(chunk, 1, sizeof(chunk), f)) > 0)
+                    text.append(chunk, n);
+                std::fclose(f);
+                jk::agent::AgentJson json(text);
+                std::string p;
+                if (json.ok() && json.GetStr("preset", p) && !p.empty())
+                    preset = p;
+            }
+            std::snprintf(item, sizeof(item),
+                          "{\"key\":\"theme.current\",\"kind\":\"string\","
+                          "\"value\":\"%s\"}",
+                          JsonEsc(preset).c_str());
+            out += item;
+        }
+        // triggers: state/triggers.json 플래그(trigger_toggle의 진실원).
+        {
+            std::FILE* f =
+                std::fopen((StateDir() + "\\triggers.json").c_str(), "rb");
+            if (f) {
+                std::string text;
+                char chunk[8192];
+                size_t n;
+                while ((n = std::fread(chunk, 1, sizeof(chunk), f)) > 0)
+                    text.append(chunk, n);
+                std::fclose(f);
+                jk::agent::AgentJson json(text);
+                int cnt = 0;
+                if (json.ok() && json.GetArraySize("triggers", cnt)) {
+                    for (int i = 0; i < cnt && i < 64; ++i) {
+                        std::string nm;
+                        int en = 1;
+                        if (!json.GetArrStr("triggers", i, "name", nm)) continue;
+                        json.GetArrInt("triggers", i, "enabled", en);
+                        std::snprintf(item, sizeof(item),
+                                      ",{\"key\":\"trigger.%s\",\"kind\":"
+                                      "\"bool\",\"value\":%d}",
+                                      JsonEsc(nm).c_str(), en ? 1 : 0);
+                        out += item;
+                    }
+                }
+            }
+        }
+        // idle_minutes: state/idle_minutes 파일(trig_idle이 읽는 진실원).
+        {
+            int idle = 30;
+            if (std::FILE* f =
+                    std::fopen((StateDir() + "\\idle_minutes").c_str(), "rb")) {
+                char buf[32] = {};
+                const size_t n = std::fread(buf, 1, sizeof(buf) - 1, f);
+                std::fclose(f);
+                buf[n] = '\0';
+                const int v = std::atoi(buf);
+                if (v >= 0) idle = v;
+            }
+            std::snprintf(item, sizeof(item),
+                          ",{\"key\":\"idle_minutes\",\"kind\":\"int\","
+                          "\"value\":%d}",
+                          idle);
+            out += item;
+        }
+        // 서버 KV 멤버(부팅 로드 — Init의 LoadSettingsKv).
+        std::snprintf(
+            item, sizeof(item),
+            ",{\"key\":\"receipt_retention_days\",\"kind\":\"int\","
+            "\"value\":%d},{\"key\":\"audio_master_mute\",\"kind\":\"bool\","
+            "\"value\":%d},{\"key\":\"audio_master_volume\",\"kind\":\"int\","
+            "\"value\":%d}",
+            receiptRetentionDays_, audioMasterMute_ ? 1 : 0, audioMasterVolume_);
+        out += item;
+        // layouts: state/layout_*.json 열거 — key/value = 레이아웃 이름.
+        {
+            const std::string dir = StateDir();
+            FindFileDataA fd;
+            void* h = FindFirstFileA((dir + "\\layout_*.json").c_str(), &fd);
+            while (h != kInvalidFindHandle()) {
+                std::string name = fd.cFileName;
+                // "layout_<name>.json" → <name> (7자 접두, 5자 확장자).
+                if (name.size() > 12) {
+                    name = name.substr(7, name.size() - 12);
+                    std::snprintf(item, sizeof(item),
+                                  ",{\"key\":\"layout.%s\",\"kind\":\"string\","
+                                  "\"value\":\"%s\"}",
+                                  JsonEsc(name).c_str(), JsonEsc(name).c_str());
+                    out += item;
+                }
+                if (!FindNextFileA(h, &fd)) {
+                    FindClose(h);
+                    break;
+                }
+            }
+        }
+        // receipts 통계: 총 행수 + 최근 ts(초). 꼬리 256KiB만 읽는다
+        // (read_receipts의 상한 스캔과 같은 규모 — 이상 파일 가드).
+        {
+            long long rows = 0, lastTs = 0;
+            const std::string path = StateDir() + "\\receipts.jsonl";
+            std::FILE* f = std::fopen(path.c_str(), "rb");
+            if (f) {
+                std::fseek(f, 0, SEEK_END);
+                const long size = std::ftell(f);
+                const long start = size > 262144 ? size - 262144 : 0;
+                std::fseek(f, start, SEEK_SET);
+                std::vector<char> buf(static_cast<size_t>(size - start) + 1);
+                const size_t n = std::fread(buf.data(), 1, buf.size() - 1, f);
+                std::fclose(f);
+                buf[n] = '\0';
+                size_t pos = 0;
+                while (pos < n) {
+                    const char* begin = buf.data() + pos;
+                    const char* nl = static_cast<const char*>(
+                        std::memchr(begin, '\n', n - pos));
+                    const size_t len =
+                        nl ? static_cast<size_t>(nl - begin) : (n - pos);
+                    if (len > 2) ++rows;
+                    const std::string line(begin, len);
+                    const size_t tp = line.find("\"ts\":");
+                    if (tp != std::string::npos)
+                        lastTs = std::atoll(line.c_str() + tp + 5);
+                    if (!nl) break;
+                    pos += len + 1;
+                }
+            }
+            std::snprintf(item, sizeof(item),
+                          "],\"receipts\":{\"rows\":%lld,\"last_ts\":%lld}",
+                          rows, lastTs / 1000);
+            out += item;
+        }
+        out += "}";
+        reply = out;
+    } else if (tool == "settings_set") {
+        // 스펙 §2.2: 화이트리스트 KV. 응답에 적용 후 값(applied) — 클라
+        // 단일 신뢰원(fullscreen 응답 규약). capture_allow만 키별 Ask:
+        // 파킹(kind "capture_allow") — 에이전트/GUI 불문 전 경로, 승인은
+        // jkchat 스트립(§2.2 키별 게이트 — 도구별 askCapable과 달리).
+        std::string key;
+        int valInt = 0;
+        const bool hasInt = req.GetObjInt("args", "value", valInt);
+        req.GetObjStr("args", "key", key);
+        if (key.empty()) {
+            reply = "{\"ok\":false,\"error\":\"bad_key\"}";
+        } else if (key == "idle_minutes") {
+            if (!hasInt || valInt < 0 || valInt > 1440) {
+                reply = "{\"ok\":false,\"error\":\"bad_value\"}";
+            } else {
+                std::FILE* f = std::fopen(
+                    (StateDir() + "\\idle_minutes").c_str(), "wb");
+                if (!f) {
+                    reply = "{\"ok\":false,\"error\":\"write_failed\"}";
+                } else {
+                    std::fprintf(f, "%d", valInt);
+                    std::fclose(f);
+                    reply = "{\"ok\":true,\"applied\":{\"idle_minutes\":" +
+                            std::to_string(valInt) + "}}";
+                }
+            }
+        } else if (key == "receipt_retention_days") {
+            if (!hasInt || valInt < 1) {
+                // 0 = 무기한은 현재값(관행) — set 불가(§2.2 표).
+                reply = "{\"ok\":false,\"error\":\"bad_value\"}";
+            } else if (!WriteSettingsKv(audioMasterMute_, audioMasterVolume_,
+                                        valInt)) {
+                reply = "{\"ok\":false,\"error\":\"write_failed\"}";
+            } else {
+                receiptRetentionDays_ = valInt;
+                // KV 성공 후 즉시 정리 — 정리 실패는 reply에 표면화(KV는
+                // 이미 적용됐지만 다음 set에서 재정리된다 — 정직 응답).
+                reply = PruneReceipts(valInt)
+                            ? ("{\"ok\":true,\"applied\":{"
+                               "\"receipt_retention_days\":" +
+                               std::to_string(valInt) + "}}")
+                            : "{\"ok\":true,\"applied\":{\"receipt_"
+                              "retention_days\":" + std::to_string(valInt) +
+                              "},\"warning\":\"prune_failed\"}";
+            }
+        } else if (key == "audio_master_mute" || key == "audio_master_volume") {
+            if (key == "audio_master_mute" && hasInt &&
+                (valInt == 0 || valInt == 1)) {
+                audioMasterMute_ = (valInt == 1);
+            } else if (key == "audio_master_volume" && hasInt &&
+                       valInt >= 0 && valInt <= 100) {
+                audioMasterVolume_ = valInt;
+                audioMasterMute_ = false;  // 볼륨 조작은 음소거 해제 의미
+            } else {
+                reply = "{\"ok\":false,\"error\":\"bad_value\"}";
+            }
+            if (reply.empty()) {
+                if (!WriteSettingsKv(audioMasterMute_, audioMasterVolume_,
+                                     receiptRetentionDays_)) {
+                    reply = "{\"ok\":false,\"error\":\"write_failed\"}";
+                } else {
+                    char ev[160];
+                    std::snprintf(ev, sizeof(ev),
+                                  "{\"topic\":\"audio.master\",\"data\":{"
+                                  "\"mute\":%d,\"volume\":%d},\"ts\":%lld}",
+                                  audioMasterMute_ ? 1 : 0, audioMasterVolume_,
+                                  static_cast<long long>(
+                                      std::time(nullptr)) * 1000);
+                    PushAgentEventJson(ev);
+                    reply = "{\"ok\":true,\"applied\":{\"audio_master_mute\":" +
+                            std::string(audioMasterMute_ ? "1" : "0") +
+                            ",\"audio_master_volume\":" +
+                            std::to_string(audioMasterVolume_) + "}}";
+                }
+            }
+        } else if (key == "capture_allow") {
+            // §2.2 키별 Ask: value 1=allow, 0=ask. 승인 시점에 두 캡처 도구를
+            // 함께 쓴다(approve 분기의 kind "capture_allow" 해소).
+            if (!hasInt || (valInt != 0 && valInt != 1)) {
+                reply = "{\"ok\":false,\"error\":\"bad_value\"}";
+            } else {
+                bool subscriber = false;
+                for (auto& c : clients_) {
+                    if (c && c->AgentEventSubscriber() && !c->IsDisconnected()) {
+                        subscriber = true;
+                        break;
+                    }
+                }
+                if (!subscriber) {
+                    reply = "{\"ok\":false,\"error\":\"approval_unavailable\"}";
+                } else {
+                    const std::string d = valInt ? "allow" : "ask";
+                    PendingApproval p;
+                    p.kind = "capture_allow";
+                    p.permDecision = d;
+                    p.requestId = nextApprovalId_++;
+                    p.queryId = queryId;
+                    p.requesterId = client.Id();
+                    p.targetId = 0;
+                    p.expiresAt = std::time(nullptr) + 60;
+                    char buf[640];
+                    std::snprintf(buf, sizeof(buf),
+                                  "{\"topic\":\"agent.approval_request\","
+                                  "\"request\":%u,\"tool\":\"settings_set\","
+                                  "\"kind\":\"capture_allow\","
+                                  "\"target_tool\":\"capture_window\","
+                                  "\"decision\":\"%s\",\"ts\":%lld}",
+                                  p.requestId, d.c_str(),
+                                  static_cast<long long>(std::time(nullptr)) *
+                                      1000);
+                    pendingApprovals_.push_back(p);
+                    PushAgentEventJson(buf);
+                    replied = false;  // 해소 시 답신
+                }
+            }
+        } else {
+            reply = "{\"ok\":false,\"error\":\"bad_key\"}";
         }
     } else if (tool == "open_notify") {
         // docs/33: toggle the notification center — safe UI command, no
@@ -3096,6 +3497,18 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                         // 쓰기 실패는 요청자 reply에 표면화 (docs/52 선례).
                         const std::string err = WritePermissionsEntry(
                             it->permTool, it->permDecision);
+                        result = err.empty()
+                            ? "{\"ok\":true,\"written\":true}"
+                            : "{\"ok\":false,\"error\":\"" + err + "\"}";
+                    } else if (it->kind == "capture_allow") {
+                        // 설정 허브 §2.2 키별 Ask 해소: 두 캡처 도구를 함께
+                        // 쓴다 — 쓰기는 RMW 2회(같은 값이라 멱등 방향).
+                        std::string err = WritePermissionsEntry(
+                            "capture_window", it->permDecision);
+                        if (err.empty()) {
+                            err = WritePermissionsEntry("capture_region",
+                                                        it->permDecision);
+                        }
                         result = err.empty()
                             ? "{\"ok\":true,\"written\":true}"
                             : "{\"ok\":false,\"error\":\"" + err + "\"}";
