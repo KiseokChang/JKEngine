@@ -1702,10 +1702,8 @@ void ClientVPlayerApp::RenderOverlay(SDL_Renderer* renderer, int w, int h) {
         if (!ImGui_ImplJKWindow_Init(renderer))
             return;
         imguiReady_ = true;
-        // 극장 모드 외부 토글 동기화(스펙 §2.2): agentctl이 window_fullscreen을
-        // 호출하면 클라는 도구 응답을 못 받는다 — 이벤트 구독으로 받는다.
-        if (jk::client::JKClientSurface* surface = Surface())
-            surface->SendAgentEventSubscribe(true);
+        // 극장 모드 외부 토글 동기화(스펙 §2.2): 구독은 코어
+        // (JKClientApplication::Init — 설정 허브 §2.3 단일 펌프)가 소유.
     }
     renderer_ = renderer;
 
@@ -1716,7 +1714,6 @@ void ClientVPlayerApp::RenderOverlay(SDL_Renderer* renderer, int w, int h) {
     ImGui_ImplJKWindow_NewFrame(dt, w, h);
     ImGui::NewFrame();
 
-    PumpAgentEvents();
     PumpAgentReplies();
     SyncVideoTexture(renderer);
     BuildUi(w, h);
@@ -1832,31 +1829,28 @@ void ClientVPlayerApp::RequestFullscreen(bool on) {
     fsQueryId_ = id;
 }
 
-// 외부 토글 동기화(스펙 §2.2): DrainAgentEvents에서 window.fullscreen(_exit)
-// 만 골라 자기 표면 id 이벤트일 때 미러를 갱신한다. 도구 응답 경로와 최종
-// 상태가 항상 일치(동일 서버 상태의 두 통로 — 이벤트가 늦게 와도 no-op).
-void ClientVPlayerApp::PumpAgentEvents() {
+// 외부 토글 동기화(스펙 §2.2 → 설정 허브 §2.3 단일 펌프 이관): 코어 펌프가
+// 전달한 window.fullscreen(_exit) 이벤트 중 자기 표면 id 것만 골라 미러를
+// 갱신한다. 도구 응답 경로와 최종 상태가 항상 일치(동일 서버 상태의 두 통로 —
+// 이벤트가 늦게 와도 no-op).
+void ClientVPlayerApp::OnAgentEvent(const std::string& js) {
+    const bool fsOn =
+        js.find("\"topic\":\"window.fullscreen\"") != std::string::npos;
+    const bool fsOff =
+        js.find("\"topic\":\"window.fullscreen_exit\"") != std::string::npos;
+    if (!fsOn && !fsOff) return;
     jk::client::JKClientSurface* surface = Surface();
     if (!surface) return;
-    std::vector<std::string> events;
-    if (surface->DrainAgentEvents(events) == 0) return;
-    for (const std::string& js : events) {
-        const bool fsOn =
-            js.find("\"topic\":\"window.fullscreen\"") != std::string::npos;
-        const bool fsOff =
-            js.find("\"topic\":\"window.fullscreen_exit\"") != std::string::npos;
-        if (!fsOn && !fsOff) continue;
-        char needle[32];
-        std::snprintf(needle, sizeof(needle), "\"id\":%u,", surface->SurfaceId());
-        if (js.find(needle) == std::string::npos) continue;
-        if (fsOn != fullscreenUi_) {
-            fullscreenUi_ = fsOn;
-            osdShown_ = false;
-            osdAlpha_ = 0.f;
-            const auto now = std::chrono::steady_clock::now();
-            osdLastActivity_ = now;
-            lastOsdTick_ = now;
-        }
+    char needle[32];
+    std::snprintf(needle, sizeof(needle), "\"id\":%u,", surface->SurfaceId());
+    if (js.find(needle) == std::string::npos) return;
+    if (fsOn != fullscreenUi_) {
+        fullscreenUi_ = fsOn;
+        osdShown_ = false;
+        osdAlpha_ = 0.f;
+        const auto now = std::chrono::steady_clock::now();
+        osdLastActivity_ = now;
+        lastOsdTick_ = now;
     }
 }
 
