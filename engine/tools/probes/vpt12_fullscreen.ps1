@@ -318,6 +318,18 @@ Start-Sleep -Seconds 3
 $evText = (Get-Content $ev3 -ErrorAction SilentlyContinue) -join "`n"
 Check "S6: second exit event" ($evText -match '"topic":"window[.]fullscreen_exit"') ""
 
+# ---------- S7: tool toggle with "on" omitted (opus review NIT-6) ----------
+# No "on" argument -> server inverts the current state (spec 2.2). After S6
+# the layer is windowed, so the omitted form must ENTER fullscreen.
+$r = Invoke-Agentctl ('{"tool":"window_fullscreen","args":{"id":' + $script:vplayerId + '}}')
+Start-Sleep -Milliseconds 800
+$togOk = $false
+if (Refresh-Geom) { $togOk = ($script:layerX -eq 0 -and $script:layerH -gt $preH) }
+Check "S7: on-omitted toggles to fullscreen" ($togOk) ("{0}x{1} at ({2},{3})" -f $script:layerW, $script:layerH, $script:layerX, $script:layerY)
+# Leave a clean windowed state.
+$r = Invoke-Agentctl ('{"tool":"window_fullscreen","args":{"id":' + $script:vplayerId + ',"on":0}}')
+Check "S7: cleanup on:0 ok" ($r -match '"ok"\s*:\s*true') ""
+
 # ---------- teardown ----------
 Write-Host ("RESULT: " + $(if ($script:fails -eq 0) { "ALL PASS" } else { "$($script:fails) FAILURE(S)" }))
 exit $(if ($script:fails -eq 0) { 0 } else { 1 })

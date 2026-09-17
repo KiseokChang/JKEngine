@@ -1965,7 +1965,10 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             target = &client;
         }
         JKCompositorLayer* fsLayer = nullptr;
-        if (target && !target->IsControlOnly() && compositor_) {
+        if (target && !target->IsControlOnly() && !target->IsShell() && compositor_) {
+            // opus 리뷰 MINOR-2: 명시 id로 shell(태스크바) 레이어를 노리면
+            // 전체화면 토글이 데스크탑 셸을 덮는다 — shell은 '창'이 아니므로
+            // window_not_found로 거절한다(생략형 경로는 애초 shell 불가).
             fsLayer = compositor_->FindLayerById(target->Id());
         }
         if (!fsLayer) {

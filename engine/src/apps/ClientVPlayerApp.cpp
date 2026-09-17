@@ -1966,6 +1966,9 @@ void ClientVPlayerApp::TheaterUi(int w, int h) {
         reverseAcc_ = 0.0;
         jogActive_ = false;
         wheelScrubbing_ = false;
+        // opus 리뷰 NIT-5: 창 모드 슬라이더 드래그 중 F11이면 seekingUi_가
+        // 남아 커밋/동기가 멈는다 — 극장 진입 시 같이 정산.
+        seekingUi_ = false;
     }
 
     // --- OSD 스트립 -------------------------------------------------------
@@ -2002,6 +2005,13 @@ void ClientVPlayerApp::TheaterUi(int w, int h) {
             p->SetPaused(!st.paused);
         ImGui::End();
         return;
+    }
+    {
+        // opus 리뷰 NIT-4: 가시 OSD 경로에서도 Space 토글 — 창 모드의 상시
+        // 처리(:2656 규약)와 정합. 위 히든 분기와 상호배타라 이중 발화 없음.
+        if (!io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Space, false) &&
+            st.dur > 0 && !st.ended && !reverseActive_)
+            p->SetPaused(!st.paused);
     }
 
     ImGui::PushStyleVar(ImGuiStyleVar_Alpha, osdAlpha_);

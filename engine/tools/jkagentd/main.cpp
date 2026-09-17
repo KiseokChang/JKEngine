@@ -395,7 +395,15 @@ std::string HandleLine(const std::string& line, bool& isResponse) {
                 body += "}";
                 argsJson = body;
             } else {
-                argsJson = "{}";
+                // opus 리뷰 MINOR-1: id 생략분에도 on을 실어 보낸다 — 셀프
+                // 경로가 생기는 순간 반전 의도가 조용히 소실되는 것을 봉쇄
+                // (서버는 현재 no_window 즉답, 포맷 정합만 보장).
+                int on2 = -1;
+                if (req.GetDeepInt("params", "arguments", "on", on2) &&
+                    (on2 == 0 || on2 == 1))
+                    argsJson = "{\"on\":" + std::to_string(on2) + "}";
+                else
+                    argsJson = "{}";
             }
         } else if (tool == "save_layout" || tool == "restore_layout") {
             std::string name;

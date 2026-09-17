@@ -55,6 +55,9 @@ vplayer는 항상 창 모드(경로/전송행 + 비디오 영역)로만 동작�
 - **vplayer 자체 트리거**: (1) F11 키(PreProcessMessage에서 Key 이벤트 —
   keyCode 확인 후 도구 호출), (2) 비디오 위 더블클릭(detail==2 — payload.detail
   로 클릭 수 전달 확인됨, windowed 모드 더블클릭은 무시), (3) OSD 버튼.
+  **as-built(§6, opus 리뷰 NIT-7)**: F11은 PreProcessMessage가 아니라 BuildUi의
+  ImGui `IsKeyPressed(ImGuiKey_F11)`로 처리(프레임 루프 규약), 더블클릭은
+  창/극장 양쪽 모드에서 유효(스펙 초안의 "windowed 무시"과 다름).
   vplayer는 항상 자기 창(id 생략)으로 호출 — 응답이
   `{"ok":true,"fullscreen":true|false}` 로 새 상태를 실어 오므로 클라 플래그가
   항상 최신(외부에서 명시 id로 바꾼 경우까지 커버: 응답이 실제 결과를 반영).

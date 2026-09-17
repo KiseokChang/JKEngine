@@ -786,3 +786,31 @@ v2 최종리뷰(opus APPROVE)가 남긴 MINOR 3건 중 케이던스·가드·증
   항목으로 남긴다(원하면 전체화면 시 태스크바 은닉 후속).
 - OSD 페이드는 프레임 레이트 의존 보간(`dt/0.2f`) — 극단적 저fps에서
   페이드가 계단식으로 보일 수 있다(기능 영향 없음).
+
+### 11.6 최종리뷰 재판정 (2026-09-17, opus)
+
+**VERDICT: APPROVE WITH MINORS** — MINOR 2건 픽스 + NIT 픽스. 리뷰가 높이 평가한
+것: 상태 기계 이벤트 1:1 페어링, 도구 응답/이벤트의 이중 통로 수렴(멱등),
+공허-통과 없는 프로브 설계, 세션-피니시 바운서.
+
+- **MINOR-1 픽스** (`engine/tools/jkagentd/main.cpp`): window_fullscreen의
+  id-생략 args-rebuild else 분기가 `on`을 탈락시켰다 — 셀프 경로가 생기는
+  순간 반전 의도가 조용히 소실. on이 0/1이면 실어 보내도록 수정(포맷 정합).
+- **MINOR-2 픽스** (`JKWindowServer.cpp:1968`): 명시 id로 shell(태스크바)
+  레이어를 노리면 전체화면 토글이 데스크탑 셸을 덮는다 —
+  `target->IsShell()` 가드 추가, `window_not_found` 즉답(생략형 경로는
+  애초 shell 불가).
+- **NIT-4** (`ClientVPlayerApp.cpp`): Space 토글이 OSD 히든 분기에만 있었다 —
+  가시 경로에도 동일 가드 추가(창 모드 상시 처리 규약과 정합, 분기 상호배타라
+  이중 발화 없음).
+- **NIT-5**: 극장 진입 세션-피니시 블록에 `seekingUi_ = false` 추가 — 창 모드
+  슬라이더 드래그 중 F11 시 커밋/동기 정체 봉쇄.
+- **NIT-6**: vpt12에 S7 체크 추가 — on-생략 명시 id 토글이 서버 상태를
+  반전하는지 실측(16→18 체크, ×2연속 ALL PASS).
+- **NIT-7**: 스펙 §2.2에 as-built 드리프트 기입(F11 = ImGui IsKeyPressed,
+  더블클릭은 양 모드 유효).
+- **NIT-3 수용**(픽스 없음): CommitChromeResize 실패의 조용한 무시 — maximize
+  선례와 동일 운명 공유(docs/39), 재시도 없이 이벤트 정직 발행이 계약.
+- 검증: 재빌드(jkserver/jkagentd/jkapp_vplayer) + jkx 리팩, selftest 0
+  failure, jkagentd selftest 0, probe_agentmgr ALL PASS, vpt12 18×2 ALL
+  PASS, vpt11 ALL PASS.
