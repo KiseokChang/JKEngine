@@ -41,6 +41,11 @@ private:
     // folder for the process lifetime (no persistence).
     void RequestOpenDialog();
     void PumpAgentReplies();
+    // 외부 토글 동기화(스펙 §2.2): agentctl 등 제3자가 window_fullscreen을
+    // 호출하면 서버가 window.fullscreen(_exit) 이벤트를 발행한다 — 클라는
+    // OnInit에서 AgentEventSubscribe하고 이 펌프에서 자기 id 이벤트만 미러에
+    // 반영한다(도구 응답만으론 외부 토글을 못 본다 — vpt12 1차런 결함).
+    void PumpAgentEvents();
 
     // 전체화면/극장 모드(스펙 2026-09-17 vplayer-fullscreen-osd §2.2-2.3):
     // RequestFullscreen은 file_open과 같은 1-in-flight agent 쿼리(명시 on —

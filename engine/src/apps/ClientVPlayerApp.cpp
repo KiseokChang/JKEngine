@@ -1702,6 +1702,10 @@ void ClientVPlayerApp::RenderOverlay(SDL_Renderer* renderer, int w, int h) {
         if (!ImGui_ImplJKWindow_Init(renderer))
             return;
         imguiReady_ = true;
+        // 극장 모드 외부 토글 동기화(스펙 §2.2): agentctl이 window_fullscreen을
+        // 호출하면 클라는 도구 응답을 못 받는다 — 이벤트 구독으로 받는다.
+        if (jk::client::JKClientSurface* surface = Surface())
+            surface->SendAgentEventSubscribe(true);
     }
     renderer_ = renderer;
 
@@ -1712,6 +1716,7 @@ void ClientVPlayerApp::RenderOverlay(SDL_Renderer* renderer, int w, int h) {
     ImGui_ImplJKWindow_NewFrame(dt, w, h);
     ImGui::NewFrame();
 
+    PumpAgentEvents();
     PumpAgentReplies();
     SyncVideoTexture(renderer);
     BuildUi(w, h);
@@ -1825,6 +1830,34 @@ void ClientVPlayerApp::RequestFullscreen(bool on) {
                                          (on ? "1" : "0") + "}}"))
         return;
     fsQueryId_ = id;
+}
+
+// 외부 토글 동기화(스펙 §2.2): DrainAgentEvents에서 window.fullscreen(_exit)
+// 만 골라 자기 표면 id 이벤트일 때 미러를 갱신한다. 도구 응답 경로와 최종
+// 상태가 항상 일치(동일 서버 상태의 두 통로 — 이벤트가 늦게 와도 no-op).
+void ClientVPlayerApp::PumpAgentEvents() {
+    jk::client::JKClientSurface* surface = Surface();
+    if (!surface) return;
+    std::vector<std::string> events;
+    if (surface->DrainAgentEvents(events) == 0) return;
+    for (const std::string& js : events) {
+        const bool fsOn =
+            js.find("\"topic\":\"window.fullscreen\"") != std::string::npos;
+        const bool fsOff =
+            js.find("\"topic\":\"window.fullscreen_exit\"") != std::string::npos;
+        if (!fsOn && !fsOff) continue;
+        char needle[32];
+        std::snprintf(needle, sizeof(needle), "\"id\":%u,", surface->SurfaceId());
+        if (js.find(needle) == std::string::npos) continue;
+        if (fsOn != fullscreenUi_) {
+            fullscreenUi_ = fsOn;
+            osdShown_ = false;
+            osdAlpha_ = 0.f;
+            const auto now = std::chrono::steady_clock::now();
+            osdLastActivity_ = now;
+            lastOsdTick_ = now;
+        }
+    }
 }
 
 // 극장 모드 본문(스펙 §2.3): 표면 전체가 비디오(서버 크롬 스트립 스킵)이고,
@@ -1947,6 +1980,17 @@ void ClientVPlayerApp::TheaterUi(int w, int h) {
     if (active) osdLastActivity_ = now;
     osdShown_ = inBand &&
         std::chrono::duration<double>(now - osdLastActivity_).count() < 2.5;
+    // [vpt12] OSD gate debug — probe cadence gate (structure-only checks
+    // cannot see the fade). Once per second while TheaterUi runs.
+    static std::chrono::steady_clock::time_point osdDbgLast_{};
+    if (now - osdDbgLast_ >= std::chrono::milliseconds(1000)) {
+        osdDbgLast_ = now;
+        std::fprintf(stderr, "[vpt12] osd pos=(%.0f,%.0f) bandY=%.0f inBand=%d active=%d shown=%d alpha=%.2f fs=%d\n",
+                     io.MousePos.x, io.MousePos.y, bandY, inBand ? 1 : 0,
+                     active ? 1 : 0, osdShown_ ? 1 : 0, osdAlpha_,
+                     fullscreenUi_ ? 1 : 0);
+        std::fflush(stderr);
+    }
     const float dt = std::chrono::duration<float>(now - lastOsdTick_).count();
     lastOsdTick_ = now;
     const float target = osdShown_ ? 1.0f : 0.0f;
@@ -1964,9 +2008,14 @@ void ClientVPlayerApp::TheaterUi(int w, int h) {
     ImGui::SetNextWindowPos(ImVec2(0.0f, (float)h - 64.0f));
     ImGui::SetNextWindowSize(ImVec2((float)w, 64.0f));
     ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.08f, 0.08f, 0.10f, 0.82f));
+    // NOTE: NoBringToFrontOnFocus 은 금지 — CreateNewWindow는 이 플래그 창을
+    // g.Windows "맨 앞"(push_front)에 밀어 넣는다(imgui 1.92). 그러면 스트립이
+    // 기본 창(전면 비디오)보다 먼저 렌더되어 비디오에 영구히 가려진다(vpt12
+    // 런 5-7 결함: 게이트·드로 데이터는 정상, 픽셀만 소실). 스트립은 항상
+    // 기본 창 "뒤"(push_back)로 생성되어야 비디오 위에 그려진다.
     const ImGuiWindowFlags of = ImGuiWindowFlags_NoDecoration |
         ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar |
-        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus;
+        ImGuiWindowFlags_NoSavedSettings;
     ImGui::Begin("##theater_osd", nullptr, of);
 
     // Play/Pause(창 모드와 동일 가드) | Replay | 시크 슬라이더(커밋-on-release,
