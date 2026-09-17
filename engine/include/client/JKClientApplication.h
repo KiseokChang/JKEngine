@@ -115,6 +115,12 @@ protected:
     // The base class does not link imgui, so ImGui apps override and call
     // jk::theme::ApplyImGuiTheme() themselves.
     virtual void OnThemeChanged() {}
+    // 설정 허브(스펙 2026-09-18-settings-hub §2.3): 코어가 에이전트 이벤트의
+    // 유일 소비자(단일 펌프 — 이중 드레인 경쟁 봉쇄)이고, 앱은 이 훅으로
+    // 받는다. 기본 구현은 무시(이벤트 소실 무해). audio.master는 코어가
+    // 직접 JKSoundManager 마스터 게인에 적용하고 훅도 함께 부른다(관심 앱은
+    // 니들로 거른다 — vplayer fullscreen 미러).
+    virtual void OnAgentEvent(const std::string& /*eventJson*/) {}
     // TAB drives the child focus cycle in most apps; the terminal consumes it
     // as data instead.
     virtual bool WantsTabFocusCycle() const { return true; }

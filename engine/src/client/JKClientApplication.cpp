@@ -7,6 +7,7 @@
 #include <JKTimerThread.h>
 #include <JKSoundManager.h>
 #include <JKPlatform.h>
+#include <agent/JKAgentJson.h>
 #include <theme/JKTheme.h>
 #include <chrono>
 #include <cstdio>
@@ -168,6 +169,11 @@ bool JKClientApplication::Init(const std::string& title, int width, int height,
         return false;
     }
 
+    // 코어 레벨 에이전트 이벤트 구독(스펙 2026-09-18-settings-hub §2.3):
+    // audio.master 등 서버 상태 변경을 모든 클라가 받는다. 자체 구독 앱과
+    // 멱등 공존(서버 구독은 플래그 세트).
+    surface_->SendAgentEventSubscribe(true);
+
     logicalWidth_ = width;
     logicalHeight_ = height;
     scaleX_ = 1.0f;
@@ -249,6 +255,27 @@ int JKClientApplication::Run() {
         if (!running_) break;
 
         DrainInputChannel();
+
+        // 코어 에이전트 이벤트 펌프(스펙 2026-09-18-settings-hub §2.3): 유일
+        // 소비자. audio.master는 코어가 직접 JKSoundManager 마스터 게인에
+        // 적용(모든 ImGui 앱 일괄 수용 — 앱별 코드 0), 나머지는 앱 훅으로.
+        {
+            std::vector<std::string> events;
+            if (surface_->DrainAgentEvents(events) > 0) {
+                for (const std::string& js : events) {
+                    if (js.find("\"topic\":\"audio.master\"") != std::string::npos) {
+                        jk::agent::AgentJson body(js);
+                        int mute = 0, vol = 80;
+                        body.GetObjInt("data", "mute", mute);
+                        body.GetObjInt("data", "volume", vol);
+                        JKSoundManager::GetInstance().SetMasterVolume(
+                            mute ? 0.f : std::min(1.f, vol / 100.f));
+                    }
+                    OnAgentEvent(js);
+                }
+            }
+        }
+
         const auto t2 = std::chrono::steady_clock::now();
         if (!running_) break;
 
