@@ -1739,6 +1739,12 @@ void ClientVPlayerApp::OpenPath(const char* path) {
     // Same reasoning as the wheel cut: no release event of its own.
     reverseActive_ = false;
     reverseAcc_ = 0.0;
+    // 극장 모드 OSD 타이머도 파일 경계에서 리셋(스펙 §2.3 주의 ②) — 스테일
+    // 활동 타임스탬프는 새 파일의 첫 프레임에 OSD를 즉시 소멸시킨다.
+    osdShown_ = false;
+    osdAlpha_ = 0.f;
+    osdLastActivity_ = std::chrono::steady_clock::now();
+    lastOsdTick_ = std::chrono::steady_clock::now();
     if (renderer_ && videoTex_) SDL_DestroyTexture(static_cast<SDL_Texture*>(videoTex_));
     videoTex_ = nullptr;
     texW_ = texH_ = 0;
@@ -1805,12 +1811,239 @@ void ClientVPlayerApp::RequestOpenDialog() {
     fileOpenQueryId_ = id;
 }
 
+// --- 극장 모드 (스펙 §2.2-2.3) ----------------------------------------------
+// window_fullscreen 쿼리 1-in-flight(file_open 선례). 명시 on 0/1로 클라
+// 의도를 고정한다(생략형 반전 대신 — 응답과 의도가 어긋날 여지 제거).
+
+void ClientVPlayerApp::RequestFullscreen(bool on) {
+    jk::client::JKClientSurface* surface = Surface();
+    if (!surface || !surface->IsConnected()) return;
+    if (fsQueryId_ != 0) return; // already in flight — ignore
+    const uint32_t id = nextQueryId_++;
+    if (!surface->SendAgentQuery(id, std::string("{\"tool\":\"window_fullscreen\","
+                                                 "\"args\":{\"on\":") +
+                                         (on ? "1" : "0") + "}}"))
+        return;
+    fsQueryId_ = id;
+}
+
+// 극장 모드 본문(스펙 §2.3): 표면 전체가 비디오(서버 크롬 스트립 스킵)이고,
+// 컨트롤은 하단 22% 밴드에 마우스가 있고 최근 2.5s 내 입력이 있을 때만
+// 200ms 페이드로 나타난다. 상태 문구(오류류)는 OSD 히든과 무관히 좌상단에
+// 항상 렌더 — 에러는 사라지면 안 된다. 창 모드의 세션 릴리스 핸들러(드래그
+// /휠)는 BuildUi 본문에만 있으므로, 극장 진입 시점에 열린 세션은 같은
+// precision-seek 계약으로 즉시 마무리한다(릴리스 이벤트가 극장에 갇히지 않게).
+void ClientVPlayerApp::TheaterUi(int w, int h) {
+    ImGuiIO& io = ImGui::GetIO();
+
+    ImGui::SetNextWindowPos(ImVec2(0, 0));
+    ImGui::SetNextWindowSize(ImVec2((float)w, (float)h));
+    const ImGuiWindowFlags wf = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                                ImGuiWindowFlags_NoSavedSettings |
+                                ImGuiWindowFlags_NoBringToFrontOnFocus;
+    ImGui::Begin("vplayer", nullptr, wf);
+
+    PlayerCore* p = player_.get();
+    const PlayerCore::Snap st = p ? p->SnapNow() : PlayerCore::Snap{};
+
+    // 상태 문구 누적 렌더러 — 좌상단부터 쌓는다(OSD와 무관히 상시).
+    float statusY = 6.0f;
+    auto statusText = [&](const char* msg, bool error) {
+        if (!msg || !msg[0]) return;
+        ImGui::SetCursorScreenPos(ImVec2(8.0f, statusY));
+        if (error) ImGui::TextColored(kErrorRed, "%s", msg);
+        else ImGui::TextUnformatted(msg);
+        statusY += ImGui::GetTextLineHeightWithSpacing() + 2.0f;
+    };
+
+    if (!p) {
+        statusText(openError_.c_str(), true);
+        ImGui::End();
+        return;
+    }
+    if (st.opening) {
+        statusText("여는 중...", false);
+        ImGui::SetCursorScreenPos(ImVec2(8.0f, statusY));
+        if (ImGui::Button("취소"))
+            p->CancelOpen();
+        ImGui::End();
+        return;
+    }
+    if (st.openFailed) {
+        openError_ = st.error.empty() ? "파일을 열 수 없습니다" : st.error;
+        ClosePlayer(player_);
+        statusText(openError_.c_str(), true);
+        ImGui::End();
+        return;
+    }
+    if (!st.opened) {
+        ImGui::End();
+        return;
+    }
+
+    // One-shot failed-seek notice + device-failure notice (창 모드와 동일 규약,
+    // 스트립 밖 상시 렌더).
+    if (!st.seekError.empty() &&
+        std::chrono::duration<double>(std::chrono::steady_clock::now() -
+                                      st.seekErrorAt).count() < 3.0)
+        statusText(st.seekError.c_str(), true);
+    if (st.audioDeviceFailed)
+        statusText("오디오 장치를 열 수 없음(무음 재생)", true);
+
+    // 비디오: 표면 전체 aspect-fit 중앙(창 모드와 동일 코드, avail = 전체).
+    if (hasFrame_ && videoTex_ && texW_ > 0 && texH_ > 0) {
+        const ImVec2 avail((float)w, (float)h);
+        float scale = std::min(avail.x / texW_, avail.y / texH_);
+        scale = std::max(scale, 0.01f);
+        const ImVec2 size(texW_ * scale, texH_ * scale);
+        ImGui::SetCursorScreenPos(ImVec2((avail.x - size.x) * 0.5f,
+                                         (avail.y - size.y) * 0.5f));
+        ImGui::Image((ImTextureID)videoTex_, size);
+        // 더블클릭 = 해제(스펙 §2.2 — 양쪽 모드에서 토글).
+        if (ImGui::IsItemHovered() &&
+            ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+            RequestFullscreen(!fullscreenUi_);
+    } else if (!openError_.empty()) {
+        statusText(openError_.c_str(), true);
+    }
+
+    // Underrun counter (T3) — bottom-right, 극장 모드에서도 유지.
+    if (p->audioStream >= 0) {
+        char ubuf[32];
+        std::snprintf(ubuf, sizeof(ubuf), "underrun: %llu",
+                      (unsigned long long)p->underruns.load(std::memory_order_relaxed));
+        const ImVec2 tsz = ImGui::CalcTextSize(ubuf);
+        ImGui::SetCursorScreenPos(
+            ImVec2(w - tsz.x - 12.0f, h - tsz.y - 10.0f));
+        ImGui::TextUnformatted(ubuf);
+    }
+
+    // 창 모드 세션(드래그/휠 스크럽) 마무리 — 릴리스 핸들러가 BuildUi 본문에만
+    // 있어 극장 모드에 갇히면 SetJog(true)(무음) 잠금이 남는다. 첫 극장 프레임에
+    // precision-seek 계약으로 즉시 마무리.
+    if (jogActive_ || wheelScrubbing_) {
+        const double durD = st.dur > 0 ? st.dur : 1.0;
+        const double t = p->fps > 0.0
+                             ? std::round(std::clamp(jogTarget_, 0.0, durD) * p->fps) / p->fps
+                             : jogTarget_;
+        p->Seek(t);
+        p->SetJog(false);
+        if (jogWasPlaying_) p->SetPaused(false);
+        reverseActive_ = false;
+        reverseAcc_ = 0.0;
+        jogActive_ = false;
+        wheelScrubbing_ = false;
+    }
+
+    // --- OSD 스트립 -------------------------------------------------------
+    // 하단 22% 밴드 + 최근 활동 2.5s + 200ms 페이드(스펙 §2.3). 히든이면
+    // 그리지 않는다 — 입력 흡수 없음(비디오 위 더블클릭이 항상 유효).
+    const auto now = std::chrono::steady_clock::now();
+    const float bandY = (float)h * 0.78f;
+    const bool inBand = io.MousePos.y >= bandY && io.MousePos.x >= 0.0f &&
+                        io.MousePos.x < (float)w && io.MousePos.y < (float)h;
+    const bool active = io.MouseDelta.x != 0.0f || io.MouseDelta.y != 0.0f ||
+                        io.MouseWheel != 0.0f || io.MouseClicked[0];
+    if (active) osdLastActivity_ = now;
+    osdShown_ = inBand &&
+        std::chrono::duration<double>(now - osdLastActivity_).count() < 2.5;
+    const float dt = std::chrono::duration<float>(now - lastOsdTick_).count();
+    lastOsdTick_ = now;
+    const float target = osdShown_ ? 1.0f : 0.0f;
+    osdAlpha_ += (target - osdAlpha_) * std::min(1.0f, dt / 0.2f); // 200ms 선형
+    if (osdAlpha_ <= 0.02f) {
+        // Space 토글만 OSD 히든에서도 유지(키보드 UX — 스펙 §2.2 스페이스 규약).
+        if (!io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Space, false) &&
+            st.dur > 0 && !st.ended && !reverseActive_)
+            p->SetPaused(!st.paused);
+        ImGui::End();
+        return;
+    }
+
+    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, osdAlpha_);
+    ImGui::SetNextWindowPos(ImVec2(0.0f, (float)h - 64.0f));
+    ImGui::SetNextWindowSize(ImVec2((float)w, 64.0f));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.08f, 0.08f, 0.10f, 0.82f));
+    const ImGuiWindowFlags of = ImGuiWindowFlags_NoDecoration |
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar |
+        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus;
+    ImGui::Begin("##theater_osd", nullptr, of);
+
+    // Play/Pause(창 모드와 동일 가드) | Replay | 시크 슬라이더(커밋-on-release,
+    // reverseActive_ 가드) | 시간/전체 | vol | 해제 버튼.
+    if (!reverseActive_ && ImGui::Button(st.paused ? "Play" : "Pause"))
+        p->SetPaused(!st.paused);
+    if (st.ended && !reverseActive_) {
+        ImGui::SameLine();
+        if (ImGui::Button("Replay")) {
+            p->Seek(0);
+            p->SetPaused(false);
+        }
+    }
+    ImGui::SameLine();
+    if (!seekingUi_)
+        seekUi_ = (float)st.pos;
+    const float dur = (float)(st.dur > 0 ? st.dur : 1.0);
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 320.0f);
+    ImGui::SliderFloat("##fsseek", &seekUi_, 0.0f, dur, "");
+    if (ImGui::IsItemActivated())
+        seekingUi_ = true;
+    if (seekingUi_ && ImGui::IsItemDeactivatedAfterEdit()) {
+        if (!reverseActive_)
+            p->Seek(seekUi_);
+        seekingUi_ = false;
+    }
+    ImGui::SameLine();
+    char tbuf[16], dbuf[16];
+    FormatTime(tbuf, sizeof(tbuf),
+               (jogActive_ || wheelScrubbing_ || reverseActive_) ? jogTarget_
+                                                                 : st.pos);
+    FormatTime(dbuf, sizeof(dbuf), st.dur);
+    ImGui::Text("%s / %s", tbuf, dbuf);
+    ImGui::SameLine();
+    float vol = st.vol;
+    ImGui::SetNextItemWidth(110.0f);
+    if (ImGui::SliderFloat("##fsvol", &vol, 0.0f, 1.0f, "vol %.2f"))
+        p->SetVolume(vol);
+    ImGui::SameLine();
+    if (ImGui::Button("전체화면 해제"))
+        RequestFullscreen(false);
+
+    ImGui::End();
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar();
+
+    ImGui::End();
+}
+
 void ClientVPlayerApp::PumpAgentReplies() {
-    if (fileOpenQueryId_ == 0) return; // nothing parked; nothing sent otherwise
+    if (fileOpenQueryId_ == 0 && fsQueryId_ == 0)
+        return; // nothing parked; nothing sent otherwise
     jk::client::JKClientSurface* surface = Surface();
     jk::client::AgentReply reply;
     while (surface && surface->PollAgentReply(reply)) {
-        if (reply.queryId != fileOpenQueryId_) continue;
+        // window_fullscreen 응답(스펙 §2.2): AgentJson에 bool 접근자가 없어
+        // "fullscreen":true/false 문자열 스캔(서버 reply 포맷은 공백 없음).
+        // 오류 응답(pipe_error/window_not_found)은 fsQueryId_만 리셋 —
+        // fullscreenUi_ 불변(다음 토글 재시도). 진입/이탈 시점마다 OSD 타이머
+        // 리셋(스테일 타이머 방지).
+        if (fsQueryId_ != 0 && reply.queryId == fsQueryId_) {
+            fsQueryId_ = 0; // cleared on ok AND error
+            const bool nowOn =
+                reply.json.find("\"fullscreen\":true") != std::string::npos;
+            const bool nowOff =
+                reply.json.find("\"fullscreen\":false") != std::string::npos;
+            if (nowOn != nowOff && nowOn != fullscreenUi_) {
+                fullscreenUi_ = nowOn;
+                osdShown_ = false;
+                osdAlpha_ = 0.f;
+                const auto now = std::chrono::steady_clock::now();
+                osdLastActivity_ = now;
+                lastOsdTick_ = now;
+            }
+            continue;
+        }
+        if (fileOpenQueryId_ == 0 || reply.queryId != fileOpenQueryId_) continue;
         fileOpenQueryId_ = 0; // cleared on open AND on cancel/error
         agent::AgentJson body(reply.json);
         std::string path;
@@ -1887,6 +2120,18 @@ void ClientVPlayerApp::SyncVideoTexture(SDL_Renderer* renderer) {
 
 void ClientVPlayerApp::BuildUi(int w, int h) {
     ImGuiIO& io = ImGui::GetIO();
+
+    // F11 = 전체화면 토글(스펙 §2.2) — 창/극장 양쪽 모드 공통. 경로 필드
+    // 타이핑 중에는 무시(백엔드가 F11을 ImGuiKey_F11로 매핑한다).
+    if (!io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F11, false))
+        RequestFullscreen(!fullscreenUi_);
+
+    // 극장 모드: 별도 본문(창 모드 무손상). 서버가 fullscreen layer의 크롬
+    // 24pt 스트립을 그리지 않으므로 SetCursorPosY(30) 보정도 없다.
+    if (fullscreenUi_) {
+        TheaterUi(w, h);
+        return;
+    }
 
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(ImVec2((float)w, (float)h));
@@ -2043,6 +2288,10 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
         ImGui::Image((ImTextureID)videoTex_, size);
         vidMin = ImGui::GetItemRectMin();
         vidMax = ImGui::GetItemRectMax();
+        // 더블클릭 = 극장 모드 진입(스펙 §2.2 — 창 모드에서도 토글).
+        if (ImGui::IsItemHovered() &&
+            ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+            RequestFullscreen(!fullscreenUi_);
     } else if (!openError_.empty()) {
         // 의도적 잔존 — 의미색 (P2 테마 스왑 제외)
         ImGui::TextColored(kErrorRed, "%s", openError_.c_str());

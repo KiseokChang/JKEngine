@@ -42,9 +42,26 @@ private:
     void RequestOpenDialog();
     void PumpAgentReplies();
 
+    // 전체화면/극장 모드(스펙 2026-09-17 vplayer-fullscreen-osd §2.2-2.3):
+    // RequestFullscreen은 file_open과 같은 1-in-flight agent 쿼리(명시 on —
+    // 생략형 반전 대신 클라 의도 고정). fullscreenUi_는 도구 응답의
+    // "fullscreen" 값으로만 갱신된다(외부 토글 포함 최신 상태 거울).
+    // TheaterUi는 BuildUi 최상단에서 분기 진입(창 모드 본문 무손상) —
+    // PlayerCore가 헤더에서 불완전 중첩 타입이라 파라미터 없이 자체 조회한다.
+    void RequestFullscreen(bool on);
+    void TheaterUi(int w, int h);
+
     uint32_t fileOpenQueryId_ = 0; // 0 = no file_open in flight
+    uint32_t fsQueryId_ = 0;       // 0 = no window_fullscreen in flight
     uint32_t nextQueryId_ = 1;
     std::string lastDir_;
+
+    bool fullscreenUi_ = false;
+    // OSD: 하단 밴드(22%) + 2.5s 아이들 + 200ms 페이드(스펙 §2.3).
+    float osdAlpha_ = 0.f; // 0..1 (페이드 보간)
+    bool osdShown_ = false;
+    std::chrono::steady_clock::time_point osdLastActivity_{};
+    std::chrono::steady_clock::time_point lastOsdTick_{};
 
     struct PlayerCore; // FFmpeg demux/decode + SDL audio state, defined in cpp
     // Custom deleter: an out-of-line delete keeps PlayerCore incomplete in TUs
