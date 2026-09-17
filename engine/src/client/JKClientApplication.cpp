@@ -11,6 +11,63 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <cstdarg>
+#include <string>
+
+#ifdef _WIN32
+#ifndef MAX_PATH
+#define MAX_PATH 260
+#endif
+extern "C" __declspec(dllimport) unsigned long __stdcall GetModuleFileNameA(
+    void* hModule, char* lpFilename, unsigned long nSize);
+#endif
+
+namespace {
+
+// [uistall] 워치독(roadmap 후보 3 실측)의 영구 착지점: stderr는 런처가
+// 가리키는 곳(콘솔/프로브 파이프)으로만 가서 실사용 세션에서 휘발된다.
+// 같은 줄을 <exeDir>\uistall.log에도 어펜드한다 — 스톨 빈도는 낮아서
+// fopen/fclose per-report가 허용된다. 첫 open 시점에 4MiB 초과면 잘라낸다.
+void UiStallReport(const char* fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    std::vfprintf(stderr, fmt, ap);
+    va_end(ap);
+    std::fflush(stderr);
+#ifdef _WIN32
+    static std::string logPath;
+    if (logPath.empty()) {
+        char exePath[MAX_PATH];
+        if (GetModuleFileNameA(nullptr, exePath, sizeof(exePath)) == 0) return;
+        std::string dir = exePath;
+        const size_t slash = dir.find_last_of('\\');
+        if (slash == std::string::npos) return;
+        dir.resize(slash + 1);
+        // exe 옆: 클라/서버가 같은 exe다 — 상태 파일 관례(browser
+        // bookmarks.json의 ExeDirSlash 패턴)와 동일한 착지.
+        logPath = dir + "uistall.log";
+        FILE* f = std::fopen(logPath.c_str(), "rb");
+        long size = 0;
+        if (f) {
+            std::fseek(f, 0, SEEK_END);
+            size = std::ftell(f);
+            std::fclose(f);
+        }
+        if (size > 4 * 1024 * 1024)
+            std::fopen(logPath.c_str(), "wb"); // truncate — 본문은 아래 "a"가 다시 연다
+    }
+    FILE* f = std::fopen(logPath.c_str(), "a");
+    if (!f) return;
+    va_start(ap, fmt);
+    std::vfprintf(f, fmt, ap);
+    va_end(ap);
+    std::fclose(f);
+#else
+    (void)fmt;
+#endif
+}
+
+} // namespace
 
 namespace jk {
 
@@ -242,12 +299,11 @@ int JKClientApplication::Run() {
                 std::chrono::duration<double, std::milli>(t3 - t2).count();
             const double renderMs =
                 std::chrono::duration<double, std::milli>(t4 - t3).count();
-            std::fprintf(stderr,
-                         "[uistall] total=%.0fms timer=%.0f input=%.0f "
-                         "idle=%.0f render=%.0f gap=%.0f\n",
-                         totalMs, timerMs, inputMs, idleMs, renderMs,
-                         totalMs - timerMs - inputMs - idleMs - renderMs);
-            std::fflush(stderr);
+            UiStallReport(
+                "[uistall] total=%.0fms timer=%.0f input=%.0f "
+                "idle=%.0f render=%.0f gap=%.0f\n",
+                totalMs, timerMs, inputMs, idleMs, renderMs,
+                totalMs - timerMs - inputMs - idleMs - renderMs);
         }
 
         SDL_Delay(1);
@@ -663,11 +719,10 @@ void JKClientApplication::RenderAndCommit() {
             std::chrono::duration<double, std::milli>(c2 - c1).count();
         const double commitMs =
             std::chrono::duration<double, std::milli>(c3 - c2).count();
-        std::fprintf(stderr,
-                     "[uistall] commit comp=%.0f overlay=%.0f readpix=%.0f "
-                     "commit=%.0f\n",
-                     compMs, overlayMs, readpixMs, commitMs);
-        std::fflush(stderr);
+        UiStallReport(
+            "[uistall] commit comp=%.0f overlay=%.0f readpix=%.0f "
+            "commit=%.0f\n",
+            compMs, overlayMs, readpixMs, commitMs);
     }
 }
 

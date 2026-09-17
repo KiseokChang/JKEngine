@@ -108,4 +108,14 @@ task-3 계측 빌드의 1초 윈도 카운터(`[vpt3] ro=... tim=... sync=... at
   500ms 임계 페이즈 워치독(`[uistall] total= timer= input= idle= render= gap=`) +
   `RenderAndCommit` 커밋 스테이지 분해(`[uistall] commit comp= overlay= readpix=
   commit=`, 100ms 임계). 로그 전용·동작 변경 0 — 조용할 때 비용은 clock 읽기
-  수 회/반복. 임계/형식은 §5 계측 형식을 그대로 계승. (2)(3) 잔여.
+  수 회/반복. 임계/형식은 §5 계측 형식을 그대로 계승. (2)(3) 잔여.- **(1)+영구 착지 해소 (2026-09-17)** — roadmap 후보 3 "[uistall] 로그 수집" 실현:
+  워치독 발화 줄이 stderr(콘솔/프로브 파이프 — 실사용 세션에서 휘발)에 더해
+  **`<exeDir>\uistall.log`에 영구 어펜드**된다(`JKClientApplication.cpp`의
+  `UiStallReport` — 두 발화 사이트 공통, 4MiB 초과 시 open 시점 절단). 이로써
+  서버 스폰/콘솔/프로브 어떤 런치 경로든 실측 데이터가 누적된다. 추가로
+  `main.cpp RunClientModule`이 stderr가 무효할 때(분리 스폰/GUI 런치)만
+  `<exeDir>\client_<app>.log`로 stderr를 미러링 — detached 런치의 진단 소실
+  봉쇄. **검증: 임계치 1ms 임시 빌드로 양 사이트 발화+착지 실측 후 복원**
+  (uistall.log 38KiB, `total=`/`commit=` 양식 확인), selftest 0, vpt12 ALL
+  PASS. 귀속 판독은 실사용 데이터가 쌓인 후 (§7 라우팅 규칙: render=→GPU/DWM,
+  commit readpix=→동일, idle/timer=→앱 이벤트 경로).

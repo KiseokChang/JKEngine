@@ -16,6 +16,9 @@ extern "C" __declspec(dllimport) int __stdcall CreateDirectoryA(
     const char* lpPathName, void* lpSecurityAttributes);
 extern "C" __declspec(dllimport) int __stdcall DeleteFileA(const char* lpFileName);
 extern "C" __declspec(dllimport) unsigned long __stdcall GetCurrentProcessId(void);
+extern "C" __declspec(dllimport) unsigned long __stdcall GetModuleFileNameA(
+    void* hModule, char* lpFilename, unsigned long nSize);
+extern "C" __declspec(dllimport) void* __stdcall GetStdHandle(int nStdHandle);
 // PULARGE_INTEGER is really just a pointer to a 64-bit byte count; declaring
 // it as unsigned long long* keeps windows.h out of this translation unit.
 extern "C" __declspec(dllimport) int __stdcall GetDiskFreeSpaceExA(
@@ -101,6 +104,7 @@ using jk::Utf8ToKssm;
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <memory>
 #include <string>
 #include <thread>
@@ -387,9 +391,46 @@ static bool ReadWholeFile(const std::string& path, std::vector<uint8_t>& out) {
 }
 
 #ifdef _WIN32
+// [uistall] 워치독(docs/50 §10.7)과 클라 진단의 착지점: 서버가 스폰할 때는
+// (GUI 서브시스템, 핸들 비상속) stderr가 무효라 모든 fprintf가 소실된다.
+// stderr가 무효일 때만 <exeDir>\client_<app>.log로 미러링한다 — 콘솔/프로브
+// 런치(RedirectStandardError 파이프)는 자기 stderr를 그대로 쓴다. 1MiB 초과
+// 시 open 시점에 잘라낸다(순환 버퍼 대신 최소 구현 — 스톨 판독은 최근분).
+static void MirrorClientStderr(const char* dllPath) {
+    constexpr int kStdErrorHandle = -12; // STD_ERROR_HANDLE
+    void* errH = GetStdHandle(kStdErrorHandle);
+    if (errH && errH != (void*)(intptr_t)-1) return;
+    char exePath[520];
+    if (GetModuleFileNameA(nullptr, exePath, sizeof(exePath)) == 0) return;
+    char* slash = std::strrchr(exePath, '\\');
+    if (!slash) return;
+    *(slash + 1) = '\0';
+    // jkapp_<app>.dll -> <app>
+    const char* base = std::strstr(dllPath, "jkapp_");
+    base = base ? base + 6 : dllPath;
+    std::string app(base);
+    const size_t dot = app.rfind(".dll");
+    if (dot != std::string::npos) app.resize(dot);
+    const std::string logPath =
+        std::string(exePath) + "client_" + app + ".log";
+    std::FILE* f = std::fopen(logPath.c_str(), "rb");
+    long size = 0;
+    if (f) {
+        std::fseek(f, 0, SEEK_END);
+        size = std::ftell(f);
+        std::fclose(f);
+    }
+    if (!std::freopen(logPath.c_str(), size > 1024 * 1024 ? "w" : "a", stderr))
+        return;
+    const std::time_t t = std::time(nullptr);
+    std::fprintf(stderr, "[clientlog] open %s %s", app.c_str(), std::ctime(&t));
+    std::fflush(stderr);
+}
+
 // Loads an app module DLL and runs it through the C ABI in apps/JKAppModule.h.
 // All C++ (app construction, Init, Run, destruction) stays inside the module.
 static int RunClientModule(const char* dllPath, const char* pipeName) {
+    MirrorClientStderr(dllPath);
     void* module = LoadLibraryA(dllPath);
     if (!module) {
         std::fprintf(stderr, "Cannot load app module '%s'\n", dllPath);
