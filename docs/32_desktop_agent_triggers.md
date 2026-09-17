@@ -138,8 +138,9 @@ jktriggers/jkchat/터미널은 영향 없음. 프로브 페이로드는 공백�
    "fields":["data.text"],"fired":0,"last_ts":0}, ...]}
 ```
 
-- **정적 카탈로그 9종**: window.created/focused/destroyed, app.crashed,
-  agent.approval_request/resolved, terminal.output, agent.notify,
+- **정적 카탈로그 13종**: window.created/focused/destroyed/maximized/restored
+  (최대화 쌍, docs/39)/fullscreen/fullscreen_exit (전체화면 쌍, docs/50 §11),
+  app.crashed, agent.approval_request/resolved, terminal.output, agent.notify,
   triggers.reload — 각 항목에 topic/source(server|app)/desc/fields.
   `fields`는 토픽별 페이로드 키 이름 — 서버 내부 이벤트는 최상위
   (`id`,`title`,`pid`), publish_event 이벤트는 `data.*` 아래 (`data.text` 등).

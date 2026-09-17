@@ -136,5 +136,18 @@ vplayer는 항상 창 모드(경로/전송행 + 비디오 영역)로만 동작�
 
 ## 6. as-built
 
-- 커밋: (실행 시 기입)
-- docs: (실행 시 기입 — docs/50 §11)
+- 커밋: `cd9f98a`(서버 전체화면 레이어 상태 + window_fullscreen 도구 +
+  jkagentd 등록 + 이벤트 카탈로그 2행), `375d493`(극장 모드 + 하단 호버 OSD +
+  jkx 리팩), `7c9e648`(OSD 스트립 드로 순서 픽스 + 에이전트 이벤트 미러 +
+  vpt12 프로브).
+- docs: docs/50 §11 as-built + docs/32 §7.5 카탈로그 갱신.
+- 스펙 대비 결정 사항: (a) 제3자 토글 동기화는 §2.2의 이벤트 구독 설계대로
+  구현 — 도구 응답 경로는 자기 토글에만 유효하고, agentctl 등 제3자 호출은
+  window.fullscreen(_exit) 이벤트로만 관찰 가능(vpt12 1차런 입증).
+  (b) OSD 스트립 창에 NoBringToFrontOnFocus 금지 — imgui 1.92가 이 플래그
+  창을 push_front해 전면 비디오에 가려짐(docs/50 §11.4-2). (c) 전체화면이
+  데스크탑 전체라 서버 태스크바가 스트립 하단을 부분 가림 — 위젯은 모두
+  태스크바 위에 배치, 태스크바 은닉은 비목표 유지(눈확인 항목).
+- 검증: vpt12 16 체크 × 2연속 ALL PASS; 회귀 vpt11 / vpt4_e2e(11 PASS) /
+  vpt5_e2e(23 PASS) / selftest(0 failure) / probe_agentmgr /
+  probe_approve_self 전부 GREEN.

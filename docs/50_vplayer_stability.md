@@ -700,3 +700,89 @@ v2 최종리뷰(opus APPROVE)가 남긴 MINOR 3건 중 케이던스·가드·증
    "empty path" 빨간 라벨 픽셀 검사로 오픈 검증+3회 재시도(레슨: vacuous
    pass 방지는 시나리오 전제 검증부터), (b) 누적 stderr 로그의 세션 경계
    무시는 오탐 — 증거 라인 설계 시 세션 식별자를 함께 찍을 것.
+
+## 11. 전체화면 + 하단 호버 OSD (as-built, 2026-09-17)
+
+사용자 요청(2026-09-17): "vplayer 전체 화면 재생 + seek 등 반투명 제어창이
+영상 위에, 마우스가 아래쪽 호버하면 나타나고 안 움직이면 사라지게".
+스펙/플랜: `docs/superpowers/{specs,plans}/2026-09-17-vplayer-fullscreen-osd.md`.
+
+### 11.1 설계 (스펙 §2 요지)
+
+- **전체화면 = 서버 레이어 상태(maximize 계열)**: OS SDL fullscreen이 아니라
+  `preFsRects_` map(존재=전체화면) + `JKCompositorLayer.fullscreenFlag` 미러.
+  `ToggleFullscreen`이 MaxState 저장 → maximize 우선 복원 →
+  `CommitChromeResize(0,0,데스크탑 논리 크기)` + `PushMaximizeEvent`로
+  `window.fullscreen`/`window.fullscreen_exit` 발행. 크롬 스트립은
+  `IsFullscreen()` 레이어에서 스킵(컴포지터+히트테스트+호버커서).
+- **토글 경로 3종 + 도구 1종**: vplayer F11 / 비디오 더블클릭(양쪽 모드) /
+  OSD "전체화면 해제" 버튼 + `window_fullscreen` 도구(명시 id 또는 self,
+  `on` 생략 시 반전, kPermMatrix `"none"→"allow"` — 창 제어류와 동일 등급).
+- **극장 모드 + OSD(스펙 §2.3)**: `BuildUi` 최상단에서 `TheaterUi` 분기.
+  표면 전체 aspect-fit 비디오 + 하단 22% 밴드(y≥0.78h) 호버 + 2.5s 아이들 +
+  200ms 선형 페이드. 히든 = 미렌더(입력 흡수 없음, 비디오 더블클릭 상시
+  유효). Space 토글은 히든에서도 유지. 상태 문구(시크 실패/오디오 장치
+  실패/열기 실패)는 OSD와 무관히 좌상단 상시 렌더. 조그/휠/역방향 세션은
+  첫 극장 프레임에서 precision-seek 계약으로 마무리(SetJog(false) 잠금 방지).
+
+### 11.2 커밋
+
+- `cd9f98a` — 서버: 전체화면 레이어 상태 + window_fullscreen 도구 +
+  jkagentd 등록 4곳 + 이벤트 카탈로그 2행 + kPermMatrix.
+- `375d493` — vplayer 극장 모드 + 하단 호버 OSD + jkx 리팩.
+- `7c9e648` — OSD 스트립 드로 순서 픽스 + 에이전트 이벤트 미러 + vpt12 프로브.
+
+### 11.3 검증 실측
+
+- **vpt12** 16 체크 × 2연속 ALL PASS. S2 도구 진입(ok+fullscreen:true, 기하
+  0,0 1280x720, 이벤트, 크롬 X 소실 — 화이트 글리프 73→0), S3 OSD 표시
+  (스트립 픽셀 diff 47940 / thr 781), S4 OSD 해제 버튼 클릭 복원
+  (960x640@180,40) + fullscreen_exit, S5 재진입 표시 + 3.4s 아이들 숨김
+  (back-diff 0), S6 on:0 복원 + 두 번째 exit 이벤트.
+- **회귀**: vpt11 ALL PASS, vpt4_e2e 11 PASS, vpt5_e2e 23 PASS, selftest
+  0 failure, probe_agentmgr ALL PASS, probe_approve_self ALL PASS.
+
+### 11.4 실행 직감 (레슨)
+
+1. **제3자 토글은 도구 응답이 없다** — agentctl이 명시 id로
+   window_fullscreen을 호출하면 서버 상태만 바뀌고, vplayer 클라의
+   `fullscreenUi_` 미러는 자기 쿼리 응답으로만 갱신되어 극장 모드에 진입
+   못했다(vpt12 1차런 결함). 픽스: 클라가 `SendAgentEventSubscribe(true)` +
+   프레임 루프에서 `window.fullscreen(_exit)` 이벤트를 자기 표면 id로 골라
+   미러 갱신. 도구 응답과 이벤트는 같은 서버 상태의 두 통로 — 최종 상태가
+   항상 수렴(늦게 온 이벤트는 no-op). **교훈: 도구를 호출할 수 있는 제3자가
+   존재하는 상태는 반드시 이벤트 스트림으로도 관찰해야 한다.**
+2. **imgui 1.92 `NoBringToFrontOnFocus` = push_front**: `CreateNewWindow`는
+   이 플래그 창을 `g.Windows` 맨 앞에 넣는다(imgui.cpp:6795). OSD 스트립에
+   방어적으로 복사한 이 플래그가 스트립을 기본 창(전면 비디오)보다 먼저
+   렌더하게 만들어 **비디오에 영구히 가려졌다** — 게이트/드로데이터는
+   정상인데 픽셀만 소실. 국소화: `ImGui::Render` 직후
+   `SDL_RenderReadPixels`로 스트립 밴드를 클라 렌더 타깃에서 직접 덤프 →
+   클라-렌더 vs 커밋/서버-표시 이분법 → 덤프에도 없음 → 드로 리스트
+   y-범위 프린트로 dd[0]=스트립(655..721) 확정 → g.Windows 순서 프린트로
+   push_front 발견. **교훈: "그리는데 안 보인다"는 z-순서부터, 증거는
+   한 단계씩 좁히는 계측(렌더 타깃 덤프 → draw data → 윈도우 순서).**
+3. **프로브 하니스 — 사용자 데스크탑은 살아 있다**: 콘솔 창/브라우저 팝업이
+   서버 위에 겹쳐 클릭을 먹고 픽셀을 오염시킨다(S1 일시정지 클릭이
+   터미널로 간 1차런). 픽스: 프로브 콘솔 `SW_MINIMIZE` + 서버 창
+   `HWND_TOPMOST` 고정(Find-Server마다 재적용) + 원시 클릭 전
+   `SetForegroundWindow`. 전체화면 해제 버튼은 **태스크바(서버 레이어,
+   물리 ~847px 아래)에 부분 가려지므로** 클릭 y를 태스크바 위(레이어
+   (1200,673) = (w-80,h-47))로 — alpha=1.0 스크린샷에서 실측.
+4. **픽셀 판정 설계**: 크롬 X 소실 판정은 **화이트 글리프 카운트**(corner
+   60×29에서 RGB≥200) — 얼굴색 카운트는 테스트 패턴 배경이 정확히
+   chromeButtonFace(38,38,38)라 무효, dominant-color 균일도는 마진
+   0.960/0.95로 빠듯. 화이트 글리프는 창 모드 73 / 극장 0으로 이진.
+5. **타이밍 레이스와 진짜 결함 구분**: OSD 미표시가 1Hz stderr 트레이스
+   (`[vpt12] osd pos=… shown=1 alpha=0.99`)와 픽셀 diff=0의 공존으로
+   드러남 — 트레이스만 믿으면 "로직 정상"으로 끝났을 것. 상태 기계와
+   화면 픽셀은 별개의 증거다.
+
+### 11.5 알려진 한계 (수용)
+
+- 전체화면이 데스크탑 논리 크기 전체이므로 **서버 태스크바가 스트립 하단을
+  부분 가린다**(태스크바는 항상 최상위 레이어). 스트립의 상호작용 위젯은
+  모두 태스크바 위(y ≤ 0.947h)에 배치되어 실사용 가능 — 사용자 눈확인
+  항목으로 남긴다(원하면 전체화면 시 태스크바 은닉 후속).
+- OSD 페이드는 프레임 레이트 의존 보간(`dt/0.2f`) — 극단적 저fps에서
+  페이드가 계단식으로 보일 수 있다(기능 영향 없음).
