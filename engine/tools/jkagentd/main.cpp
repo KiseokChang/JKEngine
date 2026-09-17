@@ -64,7 +64,9 @@ const char* kToolsListJson =
 "{\"name\":\"permission_set\",\"description\":\"Change a tool permission (allow/ask/deny) - always requires approval (fixed ask gate)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"tool\":{\"type\":\"string\"},\"decision\":{\"type\":\"string\",\"enum\":[\"allow\",\"ask\",\"deny\"]}},\"required\":[\"tool\",\"decision\"]}},"
 "{\"name\":\"trust_revoke\",\"description\":\"Revoke a trusted script fingerprint (approval-gated)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"fingerprint\":{\"type\":\"string\",\"pattern\":\"sha256:[0-9a-f]{64}\"}},\"required\":[\"fingerprint\"]}},"
 "{\"name\":\"installed_list\",\"description\":\"List installed apps (console + .jkx) with kind\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}},"
-"{\"name\":\"read_receipts\",\"description\":\"Tail the broker receipt log (ts/tool/ok only)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"limit\":{\"type\":\"integer\"}}}}"
+"{\"name\":\"read_receipts\",\"description\":\"Tail the broker receipt log (ts/tool/ok only)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"limit\":{\"type\":\"integer\"}}}},"
+"{\"name\":\"settings_read\",\"description\":\"Read desktop settings (theme, triggers, idle threshold, receipt retention, audio master, layouts)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}},"
+"{\"name\":\"settings_set\",\"description\":\"Set a whitelisted desktop setting: idle_minutes, receipt_retention_days, audio_master_mute, audio_master_volume, capture_allow\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"},\"value\":{}}}}"
 "]}";
 
 // Known tool names.
@@ -75,7 +77,8 @@ bool IsKnownTool(const std::string& name) {
         "close_window", "save_layout", "restore_layout", "read_log",
         "read_events", "terminal_exec", "trust_list", "theme_set",
         "agent_permissions", "permission_set", "trust_revoke",
-        "installed_list", "read_receipts"
+        "installed_list", "read_receipts",
+        "settings_read", "settings_set"
     };
     for (const char* n : kNames) {
         if (name == n) return true;
@@ -107,7 +110,8 @@ std::map<std::string, bool> LoadPermissions() {
         "close_window", "save_layout", "restore_layout", "read_log",
         "read_events", "terminal_exec", "trust_list", "theme_set",
         "agent_permissions", "permission_set", "trust_revoke",
-        "installed_list", "read_receipts"
+        "installed_list", "read_receipts",
+        "settings_read", "settings_set"
     };
     std::map<std::string, bool> perms;
     for (const char* n : kNames) perms[n] = true;
@@ -428,6 +432,20 @@ std::string HandleLine(const std::string& line, bool& isResponse) {
             if (req.GetDeepInt("params", "arguments", "limit", limit)) {
                 argsJson = "{\"limit\":" + std::to_string(limit) + "}";
             }
+        } else if (tool == "settings_set") {
+            // 설정 허브 (스펙 2026-09-18-settings-hub §2.2): key + int value
+            // (파서 계약 — bool은 0/1 int로 직렬화). settings_read는 인자
+            // 없음 — 기본 passthrough.
+            std::string k;
+            if (req.GetDeepStr("params", "arguments", "key", k)) {
+                int v = 0;
+                if (req.GetDeepInt("params", "arguments", "value", v)) {
+                    argsJson = "{\"key\":\"" + JsonEsc(k) +
+                               "\",\"value\":" + std::to_string(v) + "}";
+                } else {
+                    argsJson = "{\"key\":\"" + JsonEsc(k) + "\"}";
+                }
+            }
         }
 
         // Permission gate (spec §5) — see LoadPermissions for the defaults.
@@ -486,6 +504,11 @@ int RunSelfTest() {
         r.find("read_receipts") == std::string::npos ||
         r.find("permission_set") == std::string::npos ||
         r.find("trust_revoke") == std::string::npos) ++failures;
+    // 설정 허브 도구 2종이 tools/list에 노출되는가 (스펙 2026-09-18 §2.2).
+    r = HandleLine("{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"tools/list\"}",
+                   isResp);
+    if (!isResp || r.find("settings_read") == std::string::npos ||
+        r.find("settings_set") == std::string::npos) ++failures;
     std::fprintf(stderr, "selftest: %d failures\n", failures);
     return failures;
 }
