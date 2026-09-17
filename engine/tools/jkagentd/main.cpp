@@ -68,7 +68,10 @@ const char* kToolsListJson =
 "{\"name\":\"settings_read\",\"description\":\"Read desktop settings (theme, triggers, idle threshold, receipt retention, audio master, layouts)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}},"
 "{\"name\":\"settings_set\",\"description\":\"Set a whitelisted desktop setting: idle_minutes, receipt_retention_days, audio_master_mute, audio_master_volume, capture_allow\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"},\"value\":{}}}},"
 "{\"name\":\"notes_read\",\"description\":\"Read the notes hub: margin comments + backlog items (state/notes.json)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}},"
-"{\"name\":\"notes_write\",\"description\":\"Write the notes hub: op=add_note(text<=512,win)/add_item(title<=128,state)/move_item(id,state)/del(kind by id)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"op\":{\"type\":\"string\"},\"text\":{\"type\":\"string\"},\"win\":{\"type\":\"integer\"},\"state\":{\"type\":\"integer\"},\"id\":{\"type\":\"integer\"}}}}"
+"{\"name\":\"notes_write\",\"description\":\"Write the notes hub: op=add_note(text<=512,win)/add_item(title<=128,state)/move_item(id,state)/del(kind by id)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"op\":{\"type\":\"string\"},\"text\":{\"type\":\"string\"},\"win\":{\"type\":\"integer\"},\"state\":{\"type\":\"integer\"},\"id\":{\"type\":\"integer\"}}}},"
+"{\"name\":\"files_list\",\"description\":\"List a directory (absolute drive path only): entries name/kind/size/mtime, dirs first, 512 cap. Agent calls park for approval unless permissions.json marks the tool allow\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}},"
+"{\"name\":\"files_read\",\"description\":\"Read a text preview (<=64KiB, NUL sniff marks binary). Absolute path. Agent calls park for approval unless permissions.json marks allow\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"maxBytes\":{\"type\":\"integer\"}},\"required\":[\"path\"]}},"
+"{\"name\":\"files_audit\",\"description\":\"Tail the broker receipts for files_* tool calls (ts/tool/ok/path) — agent file access audit\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"limit\":{\"type\":\"integer\"}}}}"
 "]}";
 
 // Known tool names.
@@ -81,7 +84,8 @@ bool IsKnownTool(const std::string& name) {
         "agent_permissions", "permission_set", "trust_revoke",
         "installed_list", "read_receipts",
         "settings_read", "settings_set",
-        "notes_read", "notes_write"
+        "notes_read", "notes_write",
+        "files_list", "files_read", "files_audit"
     };
     for (const char* n : kNames) {
         if (name == n) return true;
@@ -115,7 +119,8 @@ std::map<std::string, bool> LoadPermissions() {
         "agent_permissions", "permission_set", "trust_revoke",
         "installed_list", "read_receipts",
         "settings_read", "settings_set",
-        "notes_read", "notes_write"
+        "notes_read", "notes_write",
+        "files_list", "files_read", "files_audit"
     };
     std::map<std::string, bool> perms;
     for (const char* n : kNames) perms[n] = true;
@@ -472,6 +477,24 @@ std::string HandleLine(const std::string& line, bool& isResponse) {
                 }
                 argsJson += "}";
             }
+        } else if (tool == "files_list" || tool == "files_read") {
+            // 파일 허브 (스펙 2026-09-18-file-hub §2.2): path + maxBytes
+            // 재조립 (파서 계약). files_audit은 아래 limit 분기.
+            std::string path;
+            if (req.GetDeepStr("params", "arguments", "path", path)) {
+                argsJson = "{\"path\":\"" + JsonEsc(path) + "\"";
+                int maxBytes = 0;
+                if (req.GetDeepInt("params", "arguments", "maxBytes",
+                                   maxBytes)) {
+                    argsJson += ",\"maxBytes\":" + std::to_string(maxBytes);
+                }
+                argsJson += "}";
+            }
+        } else if (tool == "files_audit") {
+            int limit = 0;
+            if (req.GetDeepInt("params", "arguments", "limit", limit)) {
+                argsJson = "{\"limit\":" + std::to_string(limit) + "}";
+            }
         }
 
         // Permission gate (spec §5) — see LoadPermissions for the defaults.
@@ -540,6 +563,13 @@ int RunSelfTest() {
                    isResp);
     if (!isResp || r.find("notes_read") == std::string::npos ||
         r.find("notes_write") == std::string::npos) ++failures;
+    // 파일 허브 도구 3종이 tools/list에 노출되는가 (스펙 2026-09-18-file-hub
+    // §2.2) — 최초의 파일 콘텐츠 도구.
+    r = HandleLine("{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/list\"}",
+                   isResp);
+    if (!isResp || r.find("files_list") == std::string::npos ||
+        r.find("files_read") == std::string::npos ||
+        r.find("files_audit") == std::string::npos) ++failures;
     std::fprintf(stderr, "selftest: %d failures\n", failures);
     return failures;
 }

@@ -603,6 +603,15 @@ static void HandleEvent(const jk::agent::AgentEvent& ev) {
             e.GetStr("fingerprint", fp);
             ShowTrustRevokeApproval(name, fp, static_cast<uint32_t>(request));
             Log("[신뢰 해지] " + name);
+        } else if (kind == "files_access") {
+            // 파일 허브 (스펙 2026-09-18-file-hub §2.2): 에이전트 파일 접근
+            // ask 파킹 — 승인 시 서버가 원 요청을 재실행한다(deny 재검사).
+            // title = 요청 경로, tool = files_list|files_read.
+            std::string tool, title;
+            e.GetStr("tool", tool);
+            e.GetStr("title", title);
+            ShowApproval(title, 0, static_cast<uint32_t>(request));
+            Log("[파일 요청] " + tool + " → " + title);
         } else {
             std::string title;
             int target = 0;

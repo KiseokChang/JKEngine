@@ -200,6 +200,7 @@ private:
         // Script trust model (docs/37 spec): one pipeline, several kinds.
         std::string kind = "close_window";  // "close_window" | "trust_request"
                                             // | "run_console_app" (P4 SDK)
+                                            // | "files_access" (file hub)
         std::string name;          // trust_request: script display name
                                    // run_console_app: 콘솔 앱 이름 (P4 SDK)
         std::string origin;        // trust_request: "dev" | "package"
@@ -208,6 +209,13 @@ private:
         // 대상 도구와 결정 — kind 전용 페이로드(name 재용용 금지).
         std::string permTool;      // permission_set: 대상 도구
         std::string permDecision;  // permission_set: "allow"|"ask"|"deny"
+        // 파일 허브 (specs/2026-09-18-file-hub §2.2): files_access의 재실행
+        // 원본 — 도구/경로/읽기 상한. 승인 시점에 FilesPermRaw deny 재검사 +
+        // 재실행(파킹 대기 중 파일값이 바뀌면 최신 게이트가 강제 —
+        // run_console_app의 승인 시점 재조회 선례).
+        std::string filesTool;     // files_access: "files_list"|"files_read"
+        std::string filesPath;
+        int filesMaxBytes = 0;     // files_read 전용 (0 = 기본 64KiB)
     };
     std::vector<PendingApproval> pendingApprovals_;
     uint32_t nextApprovalId_ = 1;

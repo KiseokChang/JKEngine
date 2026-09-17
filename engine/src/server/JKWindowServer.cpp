@@ -128,6 +128,10 @@ constexpr unsigned long kInvalidFileAttributes = 0xFFFFFFFF;
 
 // settings_read의 layout_*.json 열거 (설정 허브 스펙 §2.2) — 이 TU는
 // windows.h를 끌지 않으므로(JKENGINE 레거시 typedef 충돌) 수기 선언.
+// WIN32_FIND_DATAA는 4바이트 팩(FILETIME 멤버가 8아니라 DWORD 정렬 —
+// cFileName 오프셋 44) — pack 없으면 패딩이 4 들어가 이름이 4바이트 밀린다
+// (파일 허브 files_list에서 발견 — settings_read 열거도 같은 결함).
+#pragma pack(push, 4)
 struct FindFileDataA {
     unsigned long dwFileAttributes = 0;
     unsigned long long ftCreationTime = 0;
@@ -140,6 +144,7 @@ struct FindFileDataA {
     char cFileName[260] = {};
     char cAlternateFileName[14] = {};
 };
+#pragma pack(pop)
 
 extern "C" __declspec(dllimport) void* __stdcall FindFirstFileA(
     const char* lpFileName, FindFileDataA* lpFindFileData);
@@ -1789,6 +1794,13 @@ static const AgentPermRow kPermMatrix[] = {
     // 키별 Ask(파킹) — 에이전트가 설정 도구로 권한을 넓히는 경로 봉쇄.
     {"settings_read", "none", "allow"},
     {"settings_set", "none", "allow"},
+    // 파일 허브 (스펙 2026-09-18-file-hub §2.2): 최초의 파일 콘텐츠 도구 —
+    // 게이트 "server(files)" (소스 분리: window 연결=allow, control-only=ask
+    // 파킹 kind files_access; 명시 allow=에이전트 무승인, deny=전 소스 거부).
+    // audit은 감사 열람이라 저위험 allow.
+    {"files_list", "server(files)", "none"},
+    {"files_read", "server(files)", "none"},
+    {"files_audit", "none", "allow"},
 };
 
 // permissions.json RMW (스펙 §2.2): 알려진 도구 키 전부 명시 기록 — 없던 키는
@@ -2147,6 +2159,208 @@ static bool WriteNotesFile(const std::vector<NoteRow>& notes,
         return false;
     }
     return true;
+}
+
+// ---- 파일 허브 (스펙 2026-09-18-file-hub §2.2) ---------------------------
+// 최초의 파일 콘텐츠 도구 — 읽기 전용 3종 + 감사. 쓰기 도구는 YAGNI(스펙 §3).
+
+// permissions.json 원문값("missing"/"allow"/"ask"/"deny"). AgentToolAllowed는
+// 없음과 명시 allow를 구분하지 못한다(없음 = 기본 Allow) — 파일 도구 분기는
+// 명시 "allow"만 에이전트 무승인이어야 하므로 원문을 직접 읽는다
+// (WritePermissionsEntry 선례의 exe-dir 인라인 — StateDir는 멤버라 static
+// 헬퍼 불가). AgentToolAllowed와 같은 4KiB 원문 상한.
+static std::string FilesPermRaw(const std::string& tool) {
+    char exePath[1024] = {};
+    GetModuleFileNameA(nullptr, exePath, sizeof(exePath));
+    std::string dir = exePath;
+    const size_t slash = dir.find_last_of("\\/");
+    if (slash != std::string::npos) dir = dir.substr(0, slash);
+    const std::string path = dir + "\\permissions.json";
+    std::FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) return "missing";
+    char buf[4096] = {};
+    const size_t n = std::fread(buf, 1, sizeof(buf) - 1, f);
+    std::fclose(f);
+    buf[n] = '\0';
+    jk::agent::AgentJson perm(buf);
+    std::string value;
+    if (!perm.ok() || !perm.GetStr(tool.c_str(), value)) return "missing";
+    if (value == "allow" || value == "ask" || value == "deny") return value;
+    return "missing";
+}
+
+// 경로 검증기 (스펙 §2.2): 절대 드라이브 형식(X:\...)만 — UNC 접두와 이중
+// 구분자(\\, //)/상대/빈 경로 거부, ".." 구성요소 거부, ADS 지점(:) 거부,
+// 260 경계. 8.3 짧은 이름은 수용 — FindFirstFileA가 실명으로 확장해 목록/
+// 읽기 자체는 실명으로 이뤄진다(docs/56 한계 기록).
+static bool ValidFilePath(const std::string& path) {
+    if (path.size() < 3 || path.size() > 260) return false;
+    const char d = path[0];
+    if (!((d >= 'A' && d <= 'Z') || (d >= 'a' && d <= 'z'))) return false;
+    if (path[1] != ':' || (path[2] != '\\' && path[2] != '/')) return false;
+    if (path.find("\\\\") != std::string::npos ||
+        path.find("//") != std::string::npos) return false;
+    size_t i = 3;
+    while (i <= path.size()) {
+        size_t j = i;
+        while (j < path.size() && path[j] != '\\' && path[j] != '/') ++j;
+        const size_t len = j - i;
+        if (len == 2 && path[i] == '.' && path[i + 1] == '.') return false;
+        if (std::memchr(path.data() + i, ':', len) != nullptr) return false;
+        i = j + 1;
+    }
+    return true;
+}
+
+// files_list op (스펙 §2.2): 절대 경로의 단일 디렉터리 열거 — dir 우선 +
+// 이름 asc(바이트 순 — 탐색기와 다르나 결정적), 상한 512행(초과는 capped).
+// 와일드카드/리다이렉트 문자는 op에서 재거부(명시 — ValidFilePath가 못
+// 걸러낸다). 숨김 파일도 열거(MVP 단순 — 감사 친화).
+static std::string FilesListOpJson(const std::string& path) {
+    if (path.find_first_of("*?\"<>|") != std::string::npos) {
+        return "{\"ok\":false,\"error\":\"bad_path\"}";
+    }
+    struct Ent {
+        std::string name;
+        bool dir = false;
+        long long size = 0;
+        long long mtime = 0;
+    };
+    std::vector<Ent> rows;
+    bool capped = false;
+    FindFileDataA fd;
+    void* h = FindFirstFileA((path + "\\*").c_str(), &fd);
+    if (h == kInvalidFindHandle()) {
+        return "{\"ok\":false,\"error\":\"not_found\"}";
+    }
+    bool more = true;
+    while (more && rows.size() < 512) {
+        if (std::strcmp(fd.cFileName, ".") != 0 &&
+            std::strcmp(fd.cFileName, "..") != 0) {
+            Ent e;
+            e.name = fd.cFileName;
+            e.dir = (fd.dwFileAttributes & 0x10) != 0;   // DIRECTORY
+            e.size = (static_cast<long long>(fd.nFileSizeHigh) << 32) |
+                     fd.nFileSizeLow;
+            // FILETIME(1601 100ns) → epoch 초 — read_receipts의 초 절단 규약.
+            e.mtime = fd.ftLastWriteTime > 116444736000000000ULL
+                ? static_cast<long long>(
+                      (fd.ftLastWriteTime - 116444736000000000ULL) /
+                      10000000ULL)
+                : 0;
+            rows.push_back(e);
+        }
+        more = FindNextFileA(h, &fd) != 0;
+    }
+    if (more) capped = true;
+    FindClose(h);
+    std::sort(rows.begin(), rows.end(),
+              [](const Ent& a, const Ent& b) {
+                  if (a.dir != b.dir) return a.dir;
+                  return a.name < b.name;
+              });
+    std::string out = "{\"ok\":true,\"entries\":[";
+    for (size_t i = 0; i < rows.size(); ++i) {
+        if (i) out += ",";
+        out += "{\"name\":\"" + JsonEsc(rows[i].name) +
+               "\",\"kind\":\"" + (rows[i].dir ? "dir" : "file") +
+               "\",\"size\":" + std::to_string(rows[i].size) +
+               ",\"mtime\":" + std::to_string(rows[i].mtime) + "}";
+    }
+    return out + "],\"capped\":" + (capped ? "1" : "0") + "}";
+}
+
+// files_read op (스펙 §2.2): 텍스트 미리보기 — 상한 64KiB(기본), maxBytes는
+// 요청 상한(≤65536). 첫 4KiB에 NUL → binary:true(text 공란) — UTF-16 텍스트
+// 도 NUL을 포함하므로 이진으로 분류된다(스펙 §6(e) 허수를 한계로 기록).
+static std::string FilesReadOpJson(const std::string& path, int maxBytes) {
+    if (maxBytes <= 0) maxBytes = 65536;
+    if (maxBytes > 65536) maxBytes = 65536;
+    std::FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) return "{\"ok\":false,\"error\":\"not_found\"}";
+    std::fseek(f, 0, SEEK_END);
+    const long size = std::ftell(f);
+    std::fseek(f, 0, SEEK_SET);
+    const size_t want = static_cast<size_t>(maxBytes);
+    const size_t take =
+        want < static_cast<size_t>(size) ? want : static_cast<size_t>(size);
+    std::vector<char> buf(take);
+    const size_t n = buf.empty() ? 0 : std::fread(buf.data(), 1, buf.size(), f);
+    std::fclose(f);
+    // NUL 스니핑 — 실제 읽은 바이트만 (빈 파일은 이진 아님).
+    const size_t sniff = n < 4096 ? n : 4096;
+    if (std::memchr(buf.data(), '\0', sniff) != nullptr) {
+        return "{\"ok\":true,\"text\":\"\",\"truncated\":0,\"binary\":1,"
+               "\"size\":" + std::to_string(size) + "}";
+    }
+    const bool truncated = static_cast<size_t>(size) > n;
+    std::string out = "{\"ok\":true,\"text\":\"";
+    out += JsonEsc(std::string(buf.data(), n));
+    out += "\",\"truncated\":" + std::string(truncated ? "1" : "0") +
+           ",\"binary\":0,\"size\":" + std::to_string(size) + "}";
+    return out;
+}
+
+// files_audit op (스펙 §2.2): receipts.jsonl 꼬리 256KiB 행 스캔에서
+// files_* 도구 행만 필터 — 에이전트 접근 시각화. receipts는 브로커
+// (jkagentd)가 쓰는 단일 감사원(GUI 직접 호출은 기록되지 않는다 — 스펙 §4
+// 위험의 자연 완화). read_receipts와 동일 행 분해 + args.path 2레벨 추출.
+// state dir는 SettingsKvPath 파생(PruneReceipts 선례 — StateDir 멤버라
+// static 헬퍼 불가).
+static std::string FilesAuditOpJson(int limit) {
+    if (limit <= 0) limit = 50;
+    if (limit > 200) limit = 200;
+    std::string stateDir = SettingsKvPath();
+    stateDir = stateDir.substr(0, stateDir.find_last_of("\\/") + 1);
+    const std::string path = stateDir + "receipts.jsonl";
+    std::FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) return "{\"ok\":true,\"rows\":[]}";   // 브로커 미사용 = 정상
+    std::fseek(f, 0, SEEK_END);
+    const long size = std::ftell(f);
+    const long start = size > 262144 ? size - 262144 : 0;
+    std::fseek(f, start, SEEK_SET);
+    std::vector<char> buf(static_cast<size_t>(size - start) + 1);
+    const size_t n = std::fread(buf.data(), 1, buf.size() - 1, f);
+    std::fclose(f);
+    buf[n] = '\0';
+    std::vector<std::string> lines;
+    size_t pos = 0;
+    while (pos < n) {
+        const char* begin = buf.data() + pos;
+        const char* nl = static_cast<const char*>(
+            std::memchr(begin, '\n', n - pos));
+        const size_t len = nl ? static_cast<size_t>(nl - begin) : (n - pos);
+        if (len > 0) lines.push_back(std::string(begin, len));
+        pos += len + (nl ? 1 : 0);
+    }
+    std::string out = "{\"ok\":true,\"rows\":[";
+    int used = 0;
+    for (size_t i = lines.size(); i-- > 0 && used < limit;) {
+        const std::string& line = lines[i];
+        // 행 파서(ts/tool) + ts raw 스캔 + result.ok raw 스캔 —
+        // read_receipts의 동일 규약(ok는 "0"/"1" 문자열).
+        jk::agent::AgentJson row(line.c_str());
+        std::string toolName;
+        if (!row.ok() || !row.GetStr("tool", toolName)) continue;
+        if (toolName.rfind("files_", 0) != 0) continue;
+        long long ts = 0;
+        const size_t tp = line.find("\"ts\":");
+        if (tp != std::string::npos) {
+            ts = std::atoll(line.c_str() + tp + 5);
+        }
+        std::string ppath;
+        row.GetObjStr("args", "path", ppath);
+        const bool okFlag =
+            line.find("\"result\":") != std::string::npos &&
+            line.find("\"ok\":true") != std::string::npos;
+        if (used) out += ",";
+        out += "{\"ts\":" + std::to_string(ts / 1000) +
+               ",\"tool\":\"" + JsonEsc(toolName) +
+               "\",\"ok\":\"" + (okFlag ? "1" : "0") +
+               "\",\"path\":\"" + JsonEsc(ppath) + "\"}";
+        ++used;
+    }
+    return out + "]}";
 }
 
 // 지문 형식: 정확히 "sha256:" + 64 소문자 hex (로더 형식 — docs/37).
@@ -3601,6 +3815,12 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                     // docs/54 §11 opus M2: 캡처 쌍 — 파일값이 서버 강제
                     // ("ask" = capture_ask 거부, flip 승인이 해소).
                     if (hasFile) effective = fileVal;
+                } else if (std::string(row.gate) == "server(files)") {
+                    // 파일 허브 (스펙 2026-09-18-file-hub §2.2): 파일값이
+                    // 서버 강제. 파일 없음 = 소스 분리 — 표시는 에이전트
+                    // 쪽 최악값(ask)을 쓴다(사용자 window 연결은 무승인).
+                    if (hasFile) effective = fileVal;
+                    else effective = "ask";
                 } else {
                     effective = "allow";   // broker/none — 서버 미게이트
                 }
@@ -3854,6 +4074,72 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                 }
             }
         }
+    } else if (tool == "files_list" || tool == "files_read") {
+        // 파일 허브 (스펙 2026-09-18-file-hub §2.2): 최초의 파일 콘텐츠
+        // 도구 — 읽기 전용. 게이트 "server(files)": 소스 분리 — 사용자
+        // (window 연결)는 무승인(자기 파일), 에이전트(control-only)는 파킹
+        // (kind files_access). permissions.json 명시 "allow"면 에이전트도
+        // 무승인, "deny"면 전 소스 거부, 없음/ask가 위 기본.
+        std::string path;
+        int maxBytes = 0;
+        req.GetObjStr("args", "path", path);
+        req.GetObjInt("args", "maxBytes", maxBytes);
+        const std::string perm = FilesPermRaw(tool);
+        if (perm == "deny") {
+            // 사용자가 영구 거부한 행위 — window 연결도 거부된다.
+            reply = "{\"ok\":false,\"error\":\"permission_denied\"}";
+        } else if (!ValidFilePath(path)) {
+            reply = "{\"ok\":false,\"error\":\"bad_path\"}";
+        } else if (perm == "allow" || !client.IsControlOnly()) {
+            reply = tool == "files_list" ? FilesListOpJson(path)
+                                         : FilesReadOpJson(path, maxBytes);
+        } else {
+            // 에이전트 ask — 승인 파킹(close_window 선례). 구독자 검사는
+            // control-only만 센다(opus 리뷰 M3, docs/54 §11 — 코어가 모든
+            // ImGui 클라를 구독시키므로 전체 구독자 검사는 공허하다).
+            bool subscriber = false;
+            for (auto& c : clients_) {
+                if (c && c->IsControlOnly() && c->AgentEventSubscriber() &&
+                    !c->IsDisconnected()) {
+                    subscriber = true;
+                    break;
+                }
+            }
+            if (!subscriber) {
+                reply = "{\"ok\":false,\"error\":\"approval_unavailable\"}";
+            } else {
+                PendingApproval p;
+                p.kind = "files_access";
+                p.requestId = nextApprovalId_++;
+                p.queryId = queryId;
+                p.requesterId = client.Id();
+                p.expiresAt = std::time(nullptr) + 60;
+                // 재실행 원본 — 승인 시점에 deny 재검사 + op 재실행(파킹
+                // 대기 중 permissions.json이 바뀌면 최신 게이트가 강제).
+                p.filesTool = tool;
+                p.filesPath = path;
+                p.filesMaxBytes = maxBytes;
+                char buf[1024];   // path 260 + JsonEsc 확장(백슬래시 2배) 여유
+                std::snprintf(buf, sizeof(buf),
+                              "{\"topic\":\"agent.approval_request\","
+                              "\"request\":%u,\"tool\":\"%s\","
+                              "\"kind\":\"files_access\","
+                              "\"title\":\"%s\",\"ts\":%lld}",
+                              p.requestId, tool.c_str(),
+                              JsonEsc(path).c_str(),
+                              static_cast<long long>(std::time(nullptr)) *
+                                  1000);
+                pendingApprovals_.push_back(p);
+                PushAgentEventJson(buf);
+                replied = false;  // answered when the approval resolves
+            }
+        }
+    } else if (tool == "files_audit") {
+        // 감사 열람 — 저위험 allow (kPermMatrix "none" 행). 브로커가 쓴
+        // receipts의 files_* 행만 — 신규 감사 파일 없음(단일 감사원).
+        int limit = 0;
+        req.GetObjInt("args", "limit", limit);
+        reply = FilesAuditOpJson(limit);
     } else if (tool == "launch_chat") {
         // M2 chat: open the Win32 chat window (approval surface). One API,
         // many faces — MCP agents can open it too.
@@ -3936,6 +4222,22 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                             ? "{\"ok\":true,\"written\":true,"
                               "\"restart_needed\":true}"
                             : "{\"ok\":false,\"error\":\"" + err + "\"}";
+                    } else if (it->kind == "files_access") {
+                        // 승인 = 원 요청 재실행(스펙 2026-09-18-file-hub
+                        // §2.2) — 승인 시점에 deny 재검사(파킹 대기 중
+                        // permissions.json이 바뀌면 최신 게이트가 강제 —
+                        // run_console_app의 재조회 선례) + 경로 재검증.
+                        if (FilesPermRaw(it->filesTool) == "deny") {
+                            result =
+                                "{\"ok\":false,\"error\":\"permission_denied\"}";
+                        } else if (!ValidFilePath(it->filesPath)) {
+                            result = "{\"ok\":false,\"error\":\"bad_path\"}";
+                        } else if (it->filesTool == "files_read") {
+                            result = FilesReadOpJson(it->filesPath,
+                                                     it->filesMaxBytes);
+                        } else {   // "files_list" — 파킹은 이 둘만 걸린다
+                            result = FilesListOpJson(it->filesPath);
+                        }
                     } else {
                         result = "{\"ok\":true}";
                     }
@@ -4241,7 +4543,15 @@ AgentDecision JKWindowServer::AgentToolAllowed(const std::string& tool) const {
                              // 도구 분기가 Ask를 capture_ask 거부로 소비
                              // (설정 허브 캡처 스위치의 승인 파킹이 flip).
                              tool == "capture_window" ||
-                             tool == "capture_region");
+                             tool == "capture_region" ||
+                             // 파일 허브 (스펙 2026-09-18-file-hub §2.2):
+                             // 파일 2종도 파일값 "ask"를 Allow로 열화하지
+                             // 않는다 — 도구 분기가 FilesPermRaw로 소비
+                             // (control-only 파킹). 이 스위치 자체는 파일
+                             // 도구에서 호출되지 않지만(소스 분리 게이트),
+                             // 값 일관성을 위해 묶는다.
+                             tool == "files_list" ||
+                             tool == "files_read");
     auto defaultDecision = [&]() -> AgentDecision {
         if (tool == "close_window") return AgentDecision::Deny;
         if (tool == "trust_request") return AgentDecision::Ask;

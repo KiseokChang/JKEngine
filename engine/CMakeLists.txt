@@ -495,6 +495,17 @@ target_compile_definitions(jkapp_notes PRIVATE JKAPP_MODULE_BUILD)
 target_link_libraries(jkapp_notes PRIVATE jkclient imgui)
 set_target_properties(jkapp_notes PROPERTIES PREFIX "")
 
+# File hub module (specs/2026-09-18-file-hub): 3-panel GUI (browser +
+# preview + agent access log) — the user face of the files permission tier.
+# A launcher .jkx (no icon — same fallback as settings/notes).
+add_library(jkapp_files SHARED
+    src/apps/JKAppModule_files.cpp
+    src/apps/ClientFilesApp.cpp
+)
+target_compile_definitions(jkapp_files PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_files PRIVATE jkclient imgui)
+set_target_properties(jkapp_files PROPERTIES PREFIX "")
+
 # Region-capture overlay module (agent platform, docs/35 Task 3): the
 # rubber-band fullscreen layer behind /shot and the viewer's 영역 캡처
 # button. A launcher .jkx too (no icon — the packer treats icons as
@@ -870,6 +881,11 @@ add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/notes.jkx"
     DEPENDS jkdesktop jkapp_notes
     COMMENT "Repacking apps/notes.jkx"
     VERBATIM)
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/files.jkx"
+    COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack files
+    DEPENDS jkdesktop jkapp_files
+    COMMENT "Repacking apps/files.jkx"
+    VERBATIM)
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/shot.jkx"
     COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack shot
     DEPENDS jkdesktop jkapp_shot
@@ -927,6 +943,7 @@ add_custom_target(jkx_packages ALL
             "${CMAKE_BINARY_DIR}/apps/shot.jkx"
             "${CMAKE_BINARY_DIR}/apps/settings.jkx"
             "${CMAKE_BINARY_DIR}/apps/notes.jkx"
+            "${CMAKE_BINARY_DIR}/apps/files.jkx"
             "${CMAKE_BINARY_DIR}/apps/agentmgr.jkx"
             "${CMAKE_BINARY_DIR}/apps/browser.jkx"
             "${CMAKE_BINARY_DIR}/apps/scriptdemo.jkx"
