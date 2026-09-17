@@ -3275,7 +3275,8 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             {"app.crashed", "server", "앱 비정상 종료(exit code 0/259 외)",
              "[\"id\",\"title\",\"pid\"]"},
             {"agent.approval_request", "server",
-             "ask 권한 승인 요청 (docs/31) + trust_request (docs/37)",
+             "ask 권한 승인 요청 (docs/31) + trust_request (docs/37) + "
+             "capture_allow 키별 Ask (docs/54)",
              "\"request,tool,kind,title/target_id/name,origin,fingerprint\""},
             {"agent.approval_resolved", "server",
              "승인 결정: allow/deny/timeout", "[\"request\",\"decision\"]"},
@@ -3285,6 +3286,10 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
              "알림 방송 — desktop.notify()가 발행, 채팅 [알림] 줄 + 알림 센터가 소비",
              "[\"data.title\",\"data.body\"]"},
             {"triggers.reload", "server", "트리거 플래그 변경 재적재 신호", "[]"},
+            {"audio.master", "server",
+             "마스터 볼륨/뮤트 변경 방송 (settings_set, docs/54) — 코어 펌프가 "
+             "JKSoundManager에 적용",
+             "\"data.mute,data.volume\""},
         };
         std::string out = "{\"ok\":true,\"subscribers\":" +
                           std::to_string(subscribers) + ",\"events\":[";
