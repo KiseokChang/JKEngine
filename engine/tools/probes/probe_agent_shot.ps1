@@ -20,7 +20,15 @@ Start-Sleep -Seconds 3
 
 function Invoke-Agentctl([string]$json) {
     $escaped = $json -replace '"', '\"'
-    return (& $exe agentctl $escaped) -join "`n"
+    # docs/52 레슨: 서버가 stdout에 "[theme] preset ..." 로더 라인을 찍는다 —
+    # JSON 행만 통과(첫 '{' 이후)시켜 ConvertFrom-Json 오염을 막는다.
+    $raw = (& $exe agentctl $escaped)
+    $start = $null
+    for ($i = 0; $i -lt $raw.Count; $i++) {
+        if ($raw[$i] -match '^\s*\{') { $start = $i; break }
+    }
+    if ($null -eq $start) { return "" }
+    return ($raw[$start..($raw.Count - 1)] -join "`n")
 }
 $list = '{"tool":"list_windows","args":{}}'
 

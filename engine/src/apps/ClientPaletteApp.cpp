@@ -92,7 +92,6 @@ void ClientPaletteApp::RenderOverlay(SDL_Renderer* renderer, int w, int h) {
     lastFrame_ = now;
 
     PumpReplies();
-    DrainEvents();
 
     ImGui_ImplJKWindow_NewFrame(dt, w, h);
     ImGui::NewFrame();
@@ -146,22 +145,19 @@ void ClientPaletteApp::AppendLog(const std::string& line) {
     scrollDirty_ = true;
 }
 
-void ClientPaletteApp::DrainEvents() {
-    jk::client::JKClientSurface* surface = Surface();
-    std::vector<std::string> events;
-    if (!surface || surface->DrainAgentEvents(events) == 0) return;
-    for (const std::string& e : events) {
-        agent::AgentJson json(e);
-        std::string topic, title;
-        int id = 0;
-        json.GetStr("topic", topic);
-        json.GetStr("title", title);
-        json.GetInt("id", id);
-        if (topic.empty()) continue;
-        feed_.push_back(topic + ": " +
-                        (title.empty() ? "?" : title) +
-                        " (#" + std::to_string(id) + ")");
-    }
+// 코어 펌프 이관 (docs/54 §4, opus 리뷰 M1): 코어가 유일 드레이너 — 훅으로
+// 건별 수령(자체 DrainAgentEvents는 빈 큐만 본다).
+void ClientPaletteApp::OnAgentEvent(const std::string& eventJson) {
+    agent::AgentJson json(eventJson);
+    std::string topic, title;
+    int id = 0;
+    json.GetStr("topic", topic);
+    json.GetStr("title", title);
+    json.GetInt("id", id);
+    if (topic.empty()) return;
+    feed_.push_back(topic + ": " +
+                    (title.empty() ? "?" : title) +
+                    " (#" + std::to_string(id) + ")");
     while (feed_.size() > 12) feed_.erase(feed_.begin());
 }
 

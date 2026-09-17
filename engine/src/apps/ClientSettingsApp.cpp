@@ -161,7 +161,6 @@ void ClientSettingsApp::ApplyRead(const std::string& json) {
     if (!volumeDragging_) {
         const auto it = kv_.find("audio_master_volume");
         volumeTemp_ = it != kv_.end() ? std::atoi(it->second.c_str()) : 80;
-        volumeDragging_ = false;
     }
     retentionSel_ = -1;   // 콤보는 kv_로부터 재계산
 }
@@ -363,8 +362,10 @@ void ClientSettingsApp::BuildUi(int w, int h) {
 #endif
             std::strftime(tsBuf, sizeof(tsBuf), "%m-%d %H:%M:%S", &lt);
         }
-        ImGui::Text(koreanFont_ ? "receipt 행수: %lld, 최근: %s"
-                                : "receipts rows: %lld, last: %s",
+        // opus 리뷰 MINOR-3: settings_read의 rows는 256KiB 꼬리 행수다 —
+        // 전체 행수로 읽지 않게 라벨에 명시.
+        ImGui::Text(koreanFont_ ? "receipt 행수(최근 256KiB): %lld, 최근: %s"
+                                : "receipts rows (last 256KiB): %lld, last: %s",
                     receiptRows_, tsBuf);
     }
     {
@@ -378,8 +379,19 @@ void ClientSettingsApp::BuildUi(int w, int h) {
                 if (kDays[i] == cur) { retentionSel_ = i + 1; break; }
             }
         }
-        const char* labels[] = { koreanFont_ ? "무기한 (현재)" : "unlimited",
-                                 "7", "30", "90", "365" };
+        // opus 리뷰 MINOR-4: 현재값이 프리셋 외(수동 편집 등)면 "무기한
+        // (현재)" 라벨이 거짓말한다 — 현재값이 무기한일 때만 "(현재)"를 붙이고
+        // 프리셋 외 값은 별도 힌트로 표시.
+        char zeroLabel[40];
+        if (cur == 0) {
+            std::snprintf(zeroLabel, sizeof(zeroLabel), "%s",
+                          koreanFont_ ? "무기한 (현재)" : "unlimited (current)");
+        } else {
+            std::snprintf(zeroLabel, sizeof(zeroLabel), "%s",
+                          koreanFont_ ? "무기한" : "unlimited");
+        }
+        const char* labels[] = { zeroLabel, "7", "30", "90", "365" };
+        const bool unmatched = cur > 0 && retentionSel_ == 0;
         ImGui::SetNextItemWidth(160);
         if (ImGui::Combo(koreanFont_ ? "receipt 보존" : "receipt retention",
                          &retentionSel_, labels, 5)) {
@@ -394,6 +406,11 @@ void ClientSettingsApp::BuildUi(int w, int h) {
                     ? "무기한은 현재값 — 임계는 7/30/90/365로 설정"
                     : "unlimited is the current value";
             }
+        }
+        if (unmatched) {
+            ImGui::SameLine();
+            ImGui::TextDisabled(koreanFont_ ? "(현재 %d일)" : "(current %d d)",
+                                cur);
         }
     }
     ImGui::Separator();
@@ -493,6 +510,11 @@ void ClientSettingsApp::BuildUi(int w, int h) {
         if (!mute && volumeDragging_) {
             ImGui::TextDisabled(koreanFont_ ? "해제 시 적용" : "applies on release");
         }
+        // opus 리뷰 MINOR-2: JKSoundManager 소비자는 게임/런처 — vplayer는
+        // 자체 SDL 오디오라 미적용. 과대광고 방지 힌트.
+        ImGui::TextDisabled(
+            koreanFont_ ? "※ vplayer(자체 오디오) 미적용"
+                        : "(vplayer uses its own audio — not covered)");
         // 캡처 스위치 — 키별 Ask(§2.2): 승인은 jkchat 스트립. 현재 상태의
         // 원천은 agent_permissions의 capture_window 오버라이드(설정 화면은
         // 정적 데이터 — 조작 후 Perms 재수집).

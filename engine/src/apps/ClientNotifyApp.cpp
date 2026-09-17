@@ -89,7 +89,6 @@ void ClientNotifyApp::RenderOverlay(SDL_Renderer* renderer, int w, int h) {
             return;
         imguiReady_ = true;
     }
-    DrainEvents();
 
     ImGui_ImplJKWindow_NewFrame(1.0f / 60.0f, w, h);
     ImGui::NewFrame();
@@ -160,42 +159,37 @@ void ClientNotifyApp::BuildUi(int w, int h) {
     ImGui::End();
 }
 
-void ClientNotifyApp::DrainEvents() {
-    jk::client::JKClientSurface* surface = Surface();
-    std::vector<std::string> events;
-    if (!surface || surface->DrainAgentEvents(events) == 0) return;
-    bool changed = false;
-    for (const std::string& e : events) {
-        agent::AgentJson json(e);
-        std::string topic;
-        json.GetStr("topic", topic);
-        if (topic.empty()) continue;
-        // Subscription filter (docs/33): only the configured topics enter
-        // the history. Default install is agent.notify only.
-        bool wanted = false;
-        for (const std::string& t : topics_) wanted |= (t == topic);
-        if (!wanted) continue;
+// 코어 펌프 이관 (docs/54 §4, opus 리뷰 M1): 코어가 유일 드레이너이므로
+// 자체 DrainAgentEvents는 영원히 빈 큐를 본다 — 훅으로 건별 수령.
+void ClientNotifyApp::OnAgentEvent(const std::string& eventJson) {
+    agent::AgentJson json(eventJson);
+    std::string topic;
+    json.GetStr("topic", topic);
+    if (topic.empty()) return;
+    // Subscription filter (docs/33): only the configured topics enter
+    // the history. Default install is agent.notify only.
+    bool wanted = false;
+    for (const std::string& t : topics_) wanted |= (t == topic);
+    if (!wanted) return;
 
-        NotifyEntry entry;
-        entry.topic = topic;
-        // Envelope shapes differ by publisher (docs/32 §1): publish_event
-        // puts fields under data.*; server-internal pushes (app.crashed,
-        // window.*) put title/pid at the top level.
-        json.GetObjStr("data", "title", entry.title);
-        if (entry.title.empty()) json.GetStr("title", entry.title);
-        json.GetObjStr("data", "body", entry.body);
-        entry.ts = static_cast<long long>(NowMs());
-        entry.read = false;
-        history_.push_back(entry);
-        ++unread_;
-        while (history_.size() > 200) history_.erase(history_.begin());
-        SaveHistory();
+    NotifyEntry entry;
+    entry.topic = topic;
+    // Envelope shapes differ by publisher (docs/32 §1): publish_event
+    // puts fields under data.*; server-internal pushes (app.crashed,
+    // window.*) put title/pid at the top level.
+    json.GetObjStr("data", "title", entry.title);
+    if (entry.title.empty()) json.GetStr("title", entry.title);
+    json.GetObjStr("data", "body", entry.body);
+    entry.ts = static_cast<long long>(NowMs());
+    entry.read = false;
+    history_.push_back(entry);
+    ++unread_;
+    while (history_.size() > 200) history_.erase(history_.begin());
+    SaveHistory();
 
-        toastEntry_ = entry;
-        toastUntilMs_ = NowMs() + 5000;
-        changed = true;
-    }
-    if (changed) UpdateBadge();
+    toastEntry_ = entry;
+    toastUntilMs_ = NowMs() + 5000;
+    UpdateBadge();
     frameDirty_ = true;
 }
 

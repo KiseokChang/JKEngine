@@ -39,7 +39,8 @@ protected:
 
 private:
     void BuildUi(int w, int h);
-    void DrainEvents();
+    // 코어 펌프 이관 (docs/54 §4): 코어가 유일 드레이너 — 훅으로 건별 수령.
+    void OnAgentEvent(const std::string& eventJson) override;
     // Title badge (docs/33): "Notifications (N)" while N unread entries —
     // rides MsgType::WindowTitle so the taskbar button text follows.
     void UpdateBadge();

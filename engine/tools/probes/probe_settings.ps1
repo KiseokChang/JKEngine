@@ -1,7 +1,8 @@
 # probe_settings.ps1 - settings hub end-to-end (specs/2026-09-18-settings-hub).
-# ASCII-only (PS5.1). Checks 15: settings_read shape, theme_set round-trip,
+# ASCII-only (PS5.1). Checks 16: settings_read shape, theme_set round-trip,
 # trigger_toggle round-trip, idle_minutes file, receipt prune + .bak,
-# audio.master event capture, capture_allow key-ask parking, bad_key/bad_value.
+# audio.master event capture, capture_allow key-ask parking, capture flip gate
+# (capture_ask), bad_key/bad_value.
 $ErrorActionPreference = "Continue"
 $exe = "I:\progwork\JKENGINE\engine\build\jkdesktop.exe"
 $root = Split-Path $exe
@@ -35,6 +36,14 @@ if ($hadIdle) { Copy-Item $idleFile (Join-Path $env:TEMP "idle_pre_set.txt") -Fo
 $permFile = Join-Path $root "permissions.json"
 $hadPerm = Test-Path $permFile
 if ($hadPerm) { Copy-Item $permFile (Join-Path $env:TEMP "perm_pre_set.json") -Force }
+# opus 리뷰 MINOR-6: settings.json KV와 theme.json도 사용자 실제 상태 —
+# 백업 없이 지우거나 마지막 preset을 고정 복원하면 소각된다. (kvFile은
+# 위 state lifecycle 선언을 재사용)
+$hadKv = Test-Path $kvFile
+if ($hadKv) { Copy-Item $kvFile (Join-Path $env:TEMP "kv_pre_set.json") -Force }
+$themeFile = Join-Path $root "theme.json"
+$hadTheme = Test-Path $themeFile
+if ($hadTheme) { Copy-Item $themeFile (Join-Path $env:TEMP "theme_pre_set.json") -Force }
 
 Get-Process jkdesktop -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Seconds 1
@@ -113,9 +122,10 @@ $bakThere = Test-Path ($rcpt + ".bak")
 Check "11-prune-bak" ($oldGone -and $bakThere)
 if (-not $oldGone) { Write-Host "  (old row present)" }
 
-# --- 12. retention 0 -> bad_value
+# --- 12. retention 0 / 3 -> bad_value (하한 7 — opus M4)
 $r0 = Invoke-Agentctl '{"tool":"settings_set","args":{"key":"receipt_retention_days","value":0}}'
-Check "12-retention-zero-bad" ($r0 -match 'bad_value')
+$r3 = Invoke-Agentctl '{"tool":"settings_set","args":{"key":"receipt_retention_days","value":3}}'
+Check "12-retention-zero-bad" ($r0 -match 'bad_value' -and $r3 -match 'bad_value')
 
 # --- 13. audio_master_mute 1 -> audio.master event + read reflects
 function Wait-EventLine([string]$file, [string]$needle, [int]$maxSec) {
@@ -141,8 +151,10 @@ $muteSeen = $read6 -match '"key":"audio_master_mute"[^}]*"value":1'
 Check "13-audio-master-event" ($evText -ne "" -and $muteSeen)
 
 # --- 14. capture_allow by agentctl -> parked approval -> approve -> written
-Invoke-Agentctl '{"tool":"launch_app","args":{"app":"agentmgr"}}' | Out-Null
-Start-Sleep -Seconds 2
+# opus M3: 파킹 가용 검사는 control-only(jkchat류) 연결을 센다 — jkchat을
+# 먼저 띄워 승인 표면을 확보한다.
+Invoke-Agentctl '{"tool":"launch_chat","args":{}}' | Out-Null
+Start-Sleep -Seconds 4
 $approveJob = Start-Job -ScriptBlock {
     param($e)
     $esc = '{"tool":"settings_set","args":{"key":"capture_allow","value":1}}' -replace '"', '\"'
@@ -151,8 +163,9 @@ $approveJob = Start-Job -ScriptBlock {
 Start-Sleep -Seconds 2
 $reqId = 0
 $evText2 = Wait-EventLine $evPath '"topic":"agent\.approval_request".*?"kind":"capture_allow"' 20
-if ($evText2 -match '"topic":"agent\.approval_request".*?"request":(\d+)') {
-    $reqId = [int]$Matches[1]
+if ($evText2) {
+    $allReq0 = [regex]::Matches($evText2, '"request":(\d+)')
+    if ($allReq0.Count -gt 0) { $reqId = [int]$allReq0[$allReq0.Count - 1].Groups[1].Value }
 }
 Check "14a-capture-parked" ($reqId -gt 0)
 $approve = Invoke-Agentctl ('{"tool":"approve","args":{"request":' + $reqId + ',"decision":"allow"}}')
@@ -160,6 +173,57 @@ Wait-Job $approveJob -Timeout 40 | Out-Null
 $parked = Receive-Job $approveJob | Out-String
 Remove-Job $approveJob -Force
 Check "14b-capture-approved" ($parked -match '"ok":true' -and $parked -match '"written":true')
+
+# --- 16. flip gate: capture_allow=0 (park->approve) -> capture_window refuses
+# approval_request는 파일에 누적된다 — "카운트 증가" 폴링으로 새 파킹만 잡는다.
+function Wait-NewApproval([string]$file, [int]$prevCount, [int]$maxSec) {
+    $deadline = (Get-Date).AddSeconds($maxSec)
+    while ((Get-Date) -lt $deadline) {
+        $t = (Get-Content $file -Raw -ErrorAction SilentlyContinue)
+        if ($t) {
+            $c = [regex]::Matches($t, '"kind":"capture_allow"').Count
+            if ($c -gt $prevCount) { return $t }
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    return ""
+}
+function Last-RequestId([string]$text) {
+    if (-not $text) { return 0 }
+    $all = [regex]::Matches($text, '"request":(\d+)')
+    if ($all.Count -eq 0) { return 0 }
+    return [int]$all[$all.Count - 1].Groups[1].Value
+}
+$baseText = (Get-Content $evPath -Raw -ErrorAction SilentlyContinue)
+$baseCap = 0
+if ($baseText) { $baseCap = [regex]::Matches($baseText, '"kind":"capture_allow"').Count }
+$capOffJob = Start-Job -ScriptBlock {
+    param($e)
+    $esc = '{"tool":"settings_set","args":{"key":"capture_allow","value":0}}' -replace '"', '\"'
+    return (& $e agentctl $esc) -join "`n"
+} -ArgumentList $exe
+Start-Sleep -Seconds 2
+$reqId3 = Last-RequestId (Wait-NewApproval $evPath $baseCap 20)
+Invoke-Agentctl ('{"tool":"approve","args":{"request":' + $reqId3 + ',"decision":"allow"}}') | Out-Null
+Wait-Job $capOffJob -Timeout 40 | Out-Null
+Remove-Job $capOffJob -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 1
+$capRefused = Invoke-Agentctl '{"tool":"capture_window","args":{"id":999999}}'
+Check "16-capture-ask-gate" ($capRefused -match 'capture_ask')
+# capture allow 복원(다른 프로브 영향 방지 — permissions.json은 cleanup이 복원)
+$midText = (Get-Content $evPath -Raw -ErrorAction SilentlyContinue)
+$midCap = 0
+if ($midText) { $midCap = [regex]::Matches($midText, '"kind":"capture_allow"').Count }
+$capJob2 = Start-Job -ScriptBlock {
+    param($e)
+    $esc = '{"tool":"settings_set","args":{"key":"capture_allow","value":1}}' -replace '"', '\"'
+    return (& $e agentctl $esc) -join "`n"
+} -ArgumentList $exe
+Start-Sleep -Seconds 2
+$reqId4 = Last-RequestId (Wait-NewApproval $evPath $midCap 20)
+Invoke-Agentctl ('{"tool":"approve","args":{"request":' + $reqId4 + ',"decision":"allow"}}') | Out-Null
+Wait-Job $capJob2 -Timeout 40 | Out-Null
+Remove-Job $capJob2 -Force -ErrorAction SilentlyContinue
 
 # --- 15. bad_key + bad_value
 $bk = Invoke-Agentctl '{"tool":"settings_set","args":{"key":"nope","value":1}}'
@@ -180,7 +244,10 @@ if ($hadIdle) { Copy-Item (Join-Path $env:TEMP "idle_pre_set.txt") $idleFile -Fo
 else { Remove-Item $idleFile -Force -ErrorAction SilentlyContinue }
 if ($hadPerm) { Copy-Item (Join-Path $env:TEMP "perm_pre_set.json") $permFile -Force }
 else { Remove-Item $permFile -Force -ErrorAction SilentlyContinue }
-Remove-Item $kvFile -Force -ErrorAction SilentlyContinue
+if ($hadKv) { Copy-Item (Join-Path $env:TEMP "kv_pre_set.json") $kvFile -Force }
+else { Remove-Item $kvFile -Force -ErrorAction SilentlyContinue }
+if ($hadTheme) { Copy-Item (Join-Path $env:TEMP "theme_pre_set.json") $themeFile -Force }
+Get-Process jkchat -ErrorAction SilentlyContinue | Stop-Process -Force
 Remove-Item ($rcpt + ".bak") -Force -ErrorAction SilentlyContinue
 
 Write-Host ("RESULT: " + ($(if ($script:fail -eq 0) { "ALL PASS" } else { "$($script:fail) FAIL" })))

@@ -1742,8 +1742,10 @@ void JKWindowServer::PushWindowListUnsafe() {
 }
 
 // 권한 매트릭스의 행 — 게이트 소비처별 정직 표기 (스펙 §2.1). 서버는
-// AgentToolAllowed를 3종(+신규 2종)에서만 검사하고 브로커 bool 맵이 MCP
-// 경로만 걸러낸다. "none" 행의 파일값은 서버 경로에서 무력.
+// AgentToolAllowed를 ask 게이트 도구들에서 검사하고 브로커 bool 맵이 MCP
+// 경로만 걸러낸다. "none" 행의 파일값은 서버 경로에서 무력. "server(flip)"
+// 행(캡처 쌍, docs/54 §11)은 파일값이 서버에서 강제 — "ask"는 도구 거부,
+// 승인 파킹이 "allow"로 뒤집는다.
 struct AgentPermRow { const char* tool; const char* gate; const char* deflt; };
 static const AgentPermRow kPermMatrix[] = {
     {"close_window", "server", "deny"},
@@ -1761,8 +1763,11 @@ static const AgentPermRow kPermMatrix[] = {
     {"save_layout", "none", "allow"},
     {"restore_layout", "none", "allow"},
     {"publish_event", "none", "allow"},
-    {"capture_window", "none", "allow"},
-    {"capture_region", "none", "allow"},
+    // 캡처 쌍은 gate "server(flip)" (docs/54 §11 opus M2 픽스): 파일값이
+    // 서버에서 강제되고, "ask"는 도구 거부(capture_ask) — 승인 파킹이
+    // "allow"로 뒤집을 때까지. 기본값(파일 없음)은 allow 유지.
+    {"capture_window", "server(flip)", "allow"},
+    {"capture_region", "server(flip)", "allow"},
     {"trigger_toggle", "none", "allow"},
     {"theme_set", "none", "allow"},
     {"open_notify", "none", "allow"},
@@ -1876,7 +1881,7 @@ static void LoadSettingsKv(bool& mute, int& volume, int& retention) {
         mute = (v == 1);
     }
     if (json.GetObjInt("audio", "volume", v) && v >= 0 && v <= 100) volume = v;
-    if (json.GetObjInt("retention", "days", v) && v >= 1) retention = v;
+    if (json.GetObjInt("retention", "days", v) && v >= 7) retention = v;
 }
 
 static bool WriteSettingsKv(bool mute, int volume, int retention) {
@@ -1885,7 +1890,12 @@ static bool WriteSettingsKv(bool mute, int volume, int retention) {
                   "{\"audio\":{\"mute\":%d,\"volume\":%d},"
                   "\"retention\":{\"days\":%d}}",
                   mute ? 1 : 0, volume, retention);
-    std::FILE* f = std::fopen(SettingsKvPath().c_str(), "wb");
+    const std::string kvPath = SettingsKvPath();
+    // .bak 1세대 (opus 리뷰 MINOR-1): 비원자 쓰기 중간 절단 시 부팅 로더가
+    // 기본값으로 조용히 리셋한다 — 직전 KV를 복구 원본으로 남긴다.
+    std::remove((kvPath + ".bak").c_str());
+    std::rename(kvPath.c_str(), (kvPath + ".bak").c_str());
+    std::FILE* f = std::fopen(kvPath.c_str(), "wb");
     if (!f) return false;
     const size_t len = std::strlen(out);
     const size_t wrote = std::fwrite(out, 1, len, f);
@@ -1934,7 +1944,12 @@ static bool PruneReceipts(int retentionDays) {
         pos += len + (nl ? 1 : 0);
     }
     std::remove((path + ".bak").c_str());
-    std::rename(path.c_str(), (path + ".bak").c_str());
+    // opus 리뷰 M5 (docs/54 §11): rename 실패(예: 브로커가 append용으로
+    // 열어둔 공유 위반 창)에도 진행하면 원본 절단 + .bak은 한 세대 전
+    // 임파일러가 된다 — 실패 시 중단, 원본은 그대로(다음 set에서 재시도).
+    if (std::rename(path.c_str(), (path + ".bak").c_str()) != 0) {
+        return false;
+    }
     std::FILE* w = std::fopen(path.c_str(), "wb");
     if (!w) {
         std::rename((path + ".bak").c_str(), path.c_str());  // 복원
@@ -1942,7 +1957,13 @@ static bool PruneReceipts(int retentionDays) {
     }
     const size_t wrote = std::fwrite(kept.data(), 1, kept.size(), w);
     std::fclose(w);
-    return wrote == kept.size();
+    // 쓰기 실패(부분 파일)도 복원 — .bak이 곧 원본.
+    if (wrote != kept.size()) {
+        std::remove(path.c_str());
+        std::rename((path + ".bak").c_str(), path.c_str());
+        return false;
+    }
+    return true;
 }
 
 // 지문 형식: 정확히 "sha256:" + 64 소문자 hex (로더 형식 — docs/37).
@@ -2713,8 +2734,11 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                 }
             }
         } else if (key == "receipt_retention_days") {
-            if (!hasInt || valInt < 1) {
-                // 0 = 무기한은 현재값(관행) — set 불가(§2.2 표).
+            // 하한 7 (docs/54 §11 opus M4): receipts.jsonl은 에이전트 도구
+            // 호출의 감사 증적 — 어느 경로에서든 하한 아래로 절단 불가.
+            // (0 = 무기한은 현재값(관행) — set 불가(§2.2 표). GUI 콤보가
+            // 제시하는 최소 프리셋도 7이므로 GUI 기능 손실 없음.)
+            if (!hasInt || valInt < 7) {
                 reply = "{\"ok\":false,\"error\":\"bad_value\"}";
             } else if (!WriteSettingsKv(audioMasterMute_, audioMasterVolume_,
                                         valInt)) {
@@ -2769,7 +2793,12 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             } else {
                 bool subscriber = false;
                 for (auto& c : clients_) {
-                    if (c && c->AgentEventSubscriber() && !c->IsDisconnected()) {
+                    // opus 리뷰 M3 (docs/54 §11): 코어가 모든 ImGui 클라를
+                    // 구독시키므로 "구독자 존재" 검사는 요청자 자신까지
+                    // true가 되어 공허하다. 승인 표면(jkchat류)은 제어
+                    // 전용 연결 — 그것만 센다.
+                    if (c && c->IsControlOnly() &&
+                        c->AgentEventSubscriber() && !c->IsDisconnected()) {
                         subscriber = true;
                         break;
                     }
@@ -2898,11 +2927,24 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         // to every agent-event subscriber. "data" passes through as raw
         // JSON so trigger filters can shape arbitrary payloads.
         std::string topic, data;
+        // opus 리뷰 NIT-3 (docs/54 §11): 서버 네임스페이스 토픽은 스크립트
+        // publish로 흉내 낼 수 없다 — window.*는 vplayer 전체화면 미러가
+        // 자기 id 니들로 수용하고, audio.*는 코어 펌프가 마스터 게인에
+        // 적용한다. 스크립트 커스텀 토픽은 이 접두어 밖의 것으로.
+        static const char* kReservedPrefixes[] = {
+            "window.", "agent.", "app.", "terminal.", "audio.", "triggers.",
+        };
+        bool reserved = false;
+        for (const char* p : kReservedPrefixes) {
+            if (topic.compare(0, std::strlen(p), p) == 0) { reserved = true; break; }
+        }
         if (!req.GetObjStr("args", "topic", topic) || topic.empty() ||
             topic.size() > 96 || JsonEsc(topic).size() > 96 ||
             !req.GetObjRaw("args", "data", data) || data.empty() ||
             data.size() > 4096) {
             reply = "{\"ok\":false,\"error\":\"bad_request\"}";
+        } else if (reserved) {
+            reply = "{\"ok\":false,\"error\":\"reserved_topic\"}";
         } else {
             char ev[4352];
             std::snprintf(ev, sizeof(ev),
@@ -2954,12 +2996,17 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
     } else if (tool == "capture_window") {
         // docs/35: read the client's shm surface (RGBA32) directly — the
         // app framebuffer, no screen DPI involvement. Safe tier (same as
-        // launch_app). Note: permissions.json does NOT gate this tool
-        // server-side (only close_window/trust_request/run_console_app are
-        // checked via AgentToolAllowed). The broker's LoadPermissions bool
-        // map filters MCP-agent calls; agent_permissions reports this row
-        // as gate "none". Kept ungated — see
-        // specs/2026-09-16-agent-manager §2.1.
+        // launch_app).
+        // 게이트 (docs/54 §11 opus M2 픽스): permissions.json 파일값이
+        // 서버에서 강제된다 — "ask"면 거부(capture_ask; 설정 허브 캡처
+        // 스위치의 승인 파킹이 "allow"로 뒤집을 때까지), "deny"면
+        // permission_denied, 없음/allow는 docs/35 안전 계층 그대로.
+        const AgentDecision gate = AgentToolAllowed("capture_window");
+        if (gate == AgentDecision::Ask) {
+            reply = "{\"ok\":false,\"error\":\"capture_ask\"}";
+        } else if (gate == AgentDecision::Deny) {
+            reply = "{\"ok\":false,\"error\":\"permission_denied\"}";
+        } else {
         int id = 0;
         req.GetObjInt("args", "id", id);
         JKCompositorLayer* layer =
@@ -2988,11 +3035,19 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                 reply = "{\"ok\":false,\"error\":\"write_failed\"}";
             }
         }
+        }
     } else if (tool == "capture_region") {
         // docs/35: composited-frame readback (SDL_RenderReadPixels), then
         // crop. The requester's own layer is hidden for the readback so a
         // rubber-band overlay does not appear in its own screenshot. Args
         // are logical desktop points — the framebuffer is physical pixels.
+        // 게이트: capture_window와 동일 (docs/54 §11 opus M2 픽스).
+        const AgentDecision gateR = AgentToolAllowed("capture_region");
+        if (gateR == AgentDecision::Ask) {
+            reply = "{\"ok\":false,\"error\":\"capture_ask\"}";
+        } else if (gateR == AgentDecision::Deny) {
+            reply = "{\"ok\":false,\"error\":\"permission_denied\"}";
+        } else {
         int x = 0, y = 0, w = 0, h = 0;
         req.GetObjInt("args", "x", x);
         req.GetObjInt("args", "y", y);
@@ -3075,6 +3130,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                     }
                 }
             }
+        }
         }
     } else if (tool == "trigger_toggle") {
         // docs/34: write state/triggers.json (single source of truth) then
@@ -3357,6 +3413,10 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                 if (std::string(row.gate) == "server(fixed)") {
                     effective = "ask";
                 } else if (std::string(row.gate) == "server") {
+                    if (hasFile) effective = fileVal;
+                } else if (std::string(row.gate) == "server(flip)") {
+                    // docs/54 §11 opus M2: 캡처 쌍 — 파일값이 서버 강제
+                    // ("ask" = capture_ask 거부, flip 승인이 해소).
                     if (hasFile) effective = fileVal;
                 } else {
                     effective = "allow";   // broker/none — 서버 미게이트
@@ -3823,7 +3883,13 @@ AgentDecision JKWindowServer::AgentToolAllowed(const std::string& tool) const {
     // hardwired Ask regardless of the file; other tools degrade to allow
     // since nothing parks them.
     const bool askCapable = (tool == "close_window" || tool == "trust_request" ||
-                             tool == "run_console_app" || tool == "trust_revoke");
+                             tool == "run_console_app" || tool == "trust_revoke" ||
+                             // docs/54 §11 opus M2 픽스: 캡처 2종의 파일값
+                             // "ask"를 더 이상 Allow로 열화하지 않는다 —
+                             // 도구 분기가 Ask를 capture_ask 거부로 소비
+                             // (설정 허브 캡처 스위치의 승인 파킹이 flip).
+                             tool == "capture_window" ||
+                             tool == "capture_region");
     auto defaultDecision = [&]() -> AgentDecision {
         if (tool == "close_window") return AgentDecision::Deny;
         if (tool == "trust_request") return AgentDecision::Ask;

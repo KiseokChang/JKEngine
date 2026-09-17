@@ -592,9 +592,11 @@ static void HandleEvent(const jk::agent::AgentEvent& ev) {
             // 키별 Ask — 승인 시 캡처 도구 2종을 함께 쓴다(서버 해소).
             std::string decision;
             e.GetStr("decision", decision);
-            ShowPermissionApproval("capture_window", decision,
+            // opus 리뷰 MINOR-5: 승인 시 capture_window+capture_region 둘 다
+            // 기록되므로 라벨도 쌍으로 정직하게.
+            ShowPermissionApproval("capture_window/region", decision,
                                    static_cast<uint32_t>(request));
-            Log("[캡처 허용] → " + decision);
+            Log("[캡처 허용] capture_window/region → " + decision);
         } else if (kind == "trust_revoke") {
             std::string name, fp;
             e.GetStr("name", name);

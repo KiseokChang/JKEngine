@@ -34,7 +34,8 @@ private:
     // Poll queued desktop events (AgentEventSubscribe) into the feed panel —
     // the minimal notification center (spec §7; a standalone app lands with
     // the trigger scripts in M2b).
-    void DrainEvents();
+    // 코어 펌프 이관 (docs/54 §4): 코어가 유일 드레이너 — 훅으로 건별 수령.
+    void OnAgentEvent(const std::string& eventJson) override;
     void Submit(const std::string& text);
     // Send one agent tool query; returns the queryId (0 = not sent —
     // disconnected or the previous query is still in flight).
