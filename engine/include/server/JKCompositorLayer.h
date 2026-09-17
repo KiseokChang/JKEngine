@@ -58,6 +58,12 @@ public:
     bool Maximized() const { return maximizedFlag; }
     void SetMaximized(bool m) { maximizedFlag = m; }
 
+    // 전체화면 상태(vplayer 스펙 2026-09-17 §2.1): 서버가 상태 맕(preFsRects_)
+    // 을 소유하고 이 플래그는 컴포지터 그리기 경로가 크롬 버튼을 생략하도록
+    // 하는 거울(maximizedFlag 선례). 그랩/커서 스킵은 서버 측 검사.
+    bool IsFullscreen() const { return fullscreenFlag; }
+    void SetFullscreen(bool f) { fullscreenFlag = f; }
+
 private:
     uint32_t id_ = 0;
     int width_ = 0;
@@ -73,6 +79,8 @@ private:
     bool shell_ = false;
     // docs/39: mirrors JKWindowServer's preMaxRects_ map (presence = maximized).
     bool maximizedFlag = false;
+    // vplayer 스펙 §2.1: mirrors JKWindowServer's preFsRects_ map.
+    bool fullscreenFlag = false;
     SDL_Texture* texture_ = nullptr;
     uint8_t* pixels_ = nullptr;
 };

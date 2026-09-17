@@ -296,8 +296,11 @@ void JKCompositor::Composite(bool present) {
             // draws the close overlay at the top-right of every layer.
             // Shell layers have no chrome at all (docs/28); neither does the
             // capture overlay (docs/35) — a grey X would end up in the
-            // user's face for the lifetime of the drag.
-            if (!layer->IsShell() && layer->Title() != kCaptureOverlayTitle) {
+            // user's face for the lifetime of the drag. Fullscreen layers
+            // (vplayer spec §2.1) have no chrome either — the app owns the
+            // whole surface including the top strip.
+            if (!layer->IsShell() && layer->Title() != kCaptureOverlayTitle &&
+                !layer->IsFullscreen()) {
                 DrawCloseOverlay(*layer, outputScale);
                 // docs/39: the maximize/restore button shares the close
                 // overlay's guard — shell layers and the capture overlay get

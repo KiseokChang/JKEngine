@@ -856,6 +856,12 @@ bool JKWindowServer::TryChromeGrab(int mx, int my, float scale, int clicks) {
         return false;
     }
 
+    // 전체화면 레이어(vplayer 스펙 §2.1)는 크롬이 없다 — 상단 24pt 포함 모든
+    // 클릭이 앱에 도달한다. 클릭 포커스는 1241행 일반 경로라 살아 있다.
+    if (layer->IsFullscreen()) {
+        return false;
+    }
+
     // Chrome zones are in SURFACE-local px (they shrink proportionally on
     // fit-scaled layers, §7.3), so convert display px → surface px here.
     // For 1:1 layers ScaleX/Y == 1 and this is the plain logical-local map.
@@ -1072,6 +1078,66 @@ bool JKWindowServer::RestoreFromMaximize(JKClientConnection& client,
     return true;
 }
 
+// vplayer 전체화면(스펙 2026-09-17 vplayer-fullscreen-osd §2.1): maximize
+// 형제. 최대화 중이면 먼저 복원에서 출발(Windows 관례)하고, 전체 출력 크기로
+// CommitChromeResize — 작업 영역 예약 없음(전체화면은 작업표시줄을 덮는다,
+// 표준). 크롬 스킵은 layer.SetFullscreen 거울 + TryChromeGrab / Composite /
+// UpdateChromeHoverCursor의 플래그 검사 3곳.
+void JKWindowServer::ToggleFullscreen(JKClientConnection& client,
+                                      JKCompositorLayer& layer, bool on) {
+    if (!on) {
+        RestoreFullscreen(client, layer);
+        return;
+    }
+    if (preFsRects_.count(layer.Id()) != 0) {
+        return;  // already fullscreen — idempotent, no duplicate event
+    }
+    if (!compositor_ || !window_) {
+        return;
+    }
+    // 최대화 중이면 먼저 정상 크기로 복원한 뒤 출발(Windows 관례 — 최대화
+    // →전체화면 토글은 복원 rect에서 시작). window.restored 이벤트는
+    // RestoreFromMaximize가 정직 발행한다.
+    if (preMaxRects_.count(layer.Id()) != 0) {
+        RestoreFromMaximize(client, layer);
+    }
+    MaxState saved;
+    saved.x = layer.X();
+    saved.y = layer.Y();
+    saved.surfW = layer.Width();
+    saved.surfH = layer.Height();
+    saved.dispW = static_cast<int>(std::llround(saved.surfW * layer.ScaleX()));
+    saved.dispH = static_cast<int>(std::llround(saved.surfH * layer.ScaleY()));
+    int ww = 0, wh = 0;
+    SDL_GetWindowSize(window_, &ww, &wh);
+    CommitChromeResize(client, layer.Id(), ww, wh, ww, wh);
+    preFsRects_[layer.Id()] = saved;
+    compositor_->SetLayerPosition(layer.Id(), 0, 0);
+    client.SetPosition(0, 0);
+    layer.SetFullscreen(true);
+    PushMaximizeEvent("window.fullscreen", client);
+}
+
+// 전체화면 복원: RestoreFromMaximize의 대응물 — 저장 rect 복원 + 이벤트 1회.
+// 데스크탑 리사이즈 재발행은 이 함수를 경유하지 않는다(재발행은 이벤트
+// 없음, 저장 rect는 무효화하지 않음 — maximize와 동일 규약).
+bool JKWindowServer::RestoreFullscreen(JKClientConnection& client,
+                                       JKCompositorLayer& layer) {
+    auto it = preFsRects_.find(layer.Id());
+    if (it == preFsRects_.end()) {
+        return false;  // not fullscreen
+    }
+    const MaxState saved = it->second;
+    preFsRects_.erase(it);
+    CommitChromeResize(client, layer.Id(), saved.surfW, saved.surfH,
+                       saved.dispW, saved.dispH);
+    compositor_->SetLayerPosition(layer.Id(), saved.x, saved.y);
+    client.SetPosition(saved.x, saved.y);
+    layer.SetFullscreen(false);
+    PushMaximizeEvent("window.fullscreen_exit", client);
+    return true;
+}
+
 JKWindowServer::CursorShape JKWindowServer::ChromeCursorFromEdges(bool left, bool right,
                                                                   bool top, bool bottom) {
     const bool horiz = left || right;
@@ -1101,6 +1167,11 @@ void JKWindowServer::UpdateChromeHoverCursor(int mx, int my, float scale) {
     if (compositor_ && chromeGrab_ == ChromeGrab::None) {
         JKCompositorLayer* layer = compositor_->HitTest(mx, my);
         JKClientConnection* client = layer ? FindClientById(layer->Id()) : nullptr;
+        // 전체화면 레이어는 리사이즈 핫스팟이 없다(스펙 §2.1) — 화살표 고정.
+        if (layer && layer->IsFullscreen()) {
+            SetChromeCursor(CursorShape::Arrow);
+            return;
+        }
         // The shell has no chrome — its own UI keeps the arrow (docs/28).
         if (layer && client && !client->IsShell()) {
             const int lx = static_cast<int>(std::llround(
@@ -1393,13 +1464,26 @@ void JKWindowServer::UpdateOutputBounds() {
                     client->SetPosition(0, 0);
                 }
             }
+            // vplayer 전체화면(스펙 §2.1) 재발행: 새 출력 전체(예약 없음).
+            // 저장 rect는 무효화하지 않는다 — 복원 대상은 여전히 진짜 원 rect.
+            size_t nFs = 0;
+            for (const auto& kv : preFsRects_) {
+                JKClientConnection* client = FindClientById(kv.first);
+                if (!client || client->IsDisconnected()) {
+                    continue;
+                }
+                ++nFs;
+                CommitChromeResize(*client, kv.first, logW, logH, logW, logH);
+                compositor_->SetLayerPosition(kv.first, 0, 0);
+                client->SetPosition(0, 0);
+            }
             // Desktop-size adjustment, NOT a toggle: no window.maximized /
             // window.restored event, and the saved pre-max rects stay valid.
             // One log line — stdout is the server log (run_test.sh redirects
             // it, read_log tails it).
             std::printf("[server] desktop size changed to %dx%d "
-                        "(re-maximized %zu layer(s))\n",
-                        logW, logH, nMax);
+                        "(re-maximized %zu, re-fullscreened %zu layer(s))\n",
+                        logW, logH, nMax, nFs);
             std::fflush(stdout);
         }
     }
@@ -1639,6 +1723,7 @@ static const AgentPermRow kPermMatrix[] = {
     {"terminal_exec", "broker", "allow"},
     {"list_windows", "none", "allow"},
     {"focus_window", "none", "allow"},
+    {"window_fullscreen", "none", "allow"},
     {"launch_app", "none", "allow"},
     {"save_layout", "none", "allow"},
     {"restore_layout", "none", "allow"},
@@ -1861,6 +1946,41 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             reply = "{\"ok\":true}";
         } else {
             reply = "{\"ok\":false,\"error\":\"window_not_found\"}";
+        }
+    } else if (tool == "window_fullscreen") {
+        // vplayer 전체화면(스펙 2026-09-17 vplayer-fullscreen-osd §2.2): id
+        // 생략 = 호출자 자기 창(창 클라이언트 — vplayer 경로), 명시 id =
+        // 임의 창(스크립트/프로브). control-only 호출자의 생략형은 no_window.
+        // on 생략 = 현재 상태 반전(AgentJson에 bool 접근자 없음 — GetObjInt
+        // 0/1로 읽는다). 화면 상태 변경일 뿐 승인 행위가 아니어서 none gate
+        // (focus_window 분류). reply의 fullscreen은 토글 후 실제 플래그 —
+        // 클라 플래그의 유일 신뢰원.
+        int id = 0;
+        JKClientConnection* target = nullptr;
+        if (req.GetObjInt("args", "id", id)) {
+            for (auto& c : clients_) {
+                if (c && c->Id() == static_cast<uint32_t>(id)) { target = c.get(); break; }
+            }
+        } else if (!client.IsControlOnly()) {
+            target = &client;
+        }
+        JKCompositorLayer* fsLayer = nullptr;
+        if (target && !target->IsControlOnly() && compositor_) {
+            fsLayer = compositor_->FindLayerById(target->Id());
+        }
+        if (!fsLayer) {
+            reply = (target ? "{\"ok\":false,\"error\":\"window_not_found\"}"
+                            : "{\"ok\":false,\"error\":\"no_window\"}");
+        } else {
+            int onArg = -1;
+            bool on = fsLayer->IsFullscreen() ? false : true;
+            if (req.GetObjInt("args", "on", onArg) &&
+                (onArg == 0 || onArg == 1)) {
+                on = (onArg == 1);
+            }
+            ToggleFullscreen(*target, *fsLayer, on);
+            reply = std::string("{\"ok\":true,\"fullscreen\":") +
+                    (fsLayer->IsFullscreen() ? "true" : "false") + "}";
         }
     } else if (tool == "close_window") {
         int id = 0;
@@ -2740,6 +2860,14 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             {"window.restored", "server",
              "창 복원 (최대화 해제 — 버튼/더블클릭/제목·가장자리 드래그, docs/39)",
              "[\"id\",\"title\"]"},
+            {"window.fullscreen", "server",
+             "창 전체화면 진입 (window_fullscreen 도구/vplayer F11·더블클릭, "
+             "docs/50 §11)",
+             "[\"id\",\"title\"]"},
+            {"window.fullscreen_exit", "server",
+             "창 전체화면 해제 (window_fullscreen 도구/vplayer F11·더블클릭·OSD "
+             "버튼, docs/50 §11)",
+             "[\"id\",\"title\"]"},
             {"app.crashed", "server", "앱 비정상 종료(exit code 0/259 외)",
              "[\"id\",\"title\",\"pid\"]"},
             {"agent.approval_request", "server",
@@ -3412,6 +3540,9 @@ void JKWindowServer::CleanupDisconnectedClients() {
                 // docs/39: the layer is going away — drop its maximize state
                 // so a recycled surface id cannot inherit a stale pre-max rect.
                 preMaxRects_.erase(client->Id());
+                // vplayer 전체화면(스펙 §2.1): maximize 동일 — 죽은 레이어의
+                // 저장 rect는 무의미.
+                preFsRects_.erase(client->Id());
                 if (compositor_) {
                     compositor_->RemoveLayer(client->Id());
                 }

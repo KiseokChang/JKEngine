@@ -122,6 +122,12 @@ private:
     // (drag-restore). Returns false (no-op) when the layer is not maximized.
     void ToggleMaximize(JKClientConnection& client, JKCompositorLayer& layer);
     bool RestoreFromMaximize(JKClientConnection& client, JKCompositorLayer& layer);
+    // vplayer 전체화면(스펙 2026-09-17 vplayer-fullscreen-osd §2.1):
+    // maximize 형제 — preFsRects_가 상태의 단일 소유, SetFullscreen은 그리기
+    // 경로 거울. on=false = RestoreFullscreen(저장 rect 복원 + exit 이벤트).
+    void ToggleFullscreen(JKClientConnection& client, JKCompositorLayer& layer,
+                          bool on);
+    bool RestoreFullscreen(JKClientConnection& client, JKCompositorLayer& layer);
     // Directional system cursors for chrome resize feedback.
     enum class CursorShape { Arrow = 0, SizeWE, SizeNS, SizeNWSE, SizeNESW };
     // Chrome hover feedback: show a directional system cursor over resize
@@ -305,6 +311,10 @@ private:
     // like the other chrome grab state above.
     struct MaxState { int x, y, surfW, surfH, dispW, dispH; };
     std::map<uint32_t, MaxState> preMaxRects_;
+    // vplayer 전체화면(스펙 §2.1): preMaxRects_와 별개 맕 — maximize 글리프/
+    // 재발행 경로와 얽히지 않게 하려는 룰링(형제 상태는 별도 소유). 같은
+    // 스레드 접근 규약(preMaxRects_와 동일 — 락 없음).
+    std::map<uint32_t, MaxState> preFsRects_;
 
     // docs/39 §8: last logical desktop size seen by UpdateOutputBounds, so a
     // SIZE_CHANGED can be told apart from a MOVED/DISPLAY_CHANGED (only a

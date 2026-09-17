@@ -51,6 +51,7 @@ const char* kToolsListJson =
 "{\"name\":\"launch_app\",\"description\":\"Launch a built-in app (app) or a .jkx package (jkx)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"app\":{\"type\":\"string\"},\"jkx\":{\"type\":\"string\"}}}},"
 "{\"name\":\"run_console_app\",\"description\":\"Spawn an installed console app (apps/<name>/manifest.json) in a terminal window (permission-gated, P4 SDK)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}},"
 "{\"name\":\"focus_window\",\"description\":\"Focus (and restore) a window by id\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"integer\"}},\"required\":[\"id\"]}},"
+"{\"name\":\"window_fullscreen\",\"description\":\"Toggle a window's fullscreen layer state (vplayer theater mode; id omitted = caller's own window; on=0/1, omitted=invert)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"integer\"},\"on\":{\"type\":\"integer\",\"enum\":[0,1]}}}},"
 "{\"name\":\"close_window\",\"description\":\"Close a window by id (permission-gated)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"integer\"}},\"required\":[\"id\"]}},"
 "{\"name\":\"save_layout\",\"description\":\"Snapshot current window positions to state/layout_<name>.json\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}},"
 "{\"name\":\"restore_layout\",\"description\":\"Restore window positions from a layout snapshot (matched by title)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}},"
@@ -70,6 +71,7 @@ const char* kToolsListJson =
 bool IsKnownTool(const std::string& name) {
     static const char* kNames[] = {
         "list_windows", "launch_app", "run_console_app", "focus_window",
+        "window_fullscreen",
         "close_window", "save_layout", "restore_layout", "read_log",
         "read_events", "terminal_exec", "trust_list", "theme_set",
         "agent_permissions", "permission_set", "trust_revoke",
@@ -101,6 +103,7 @@ bool EnsureConnected() {
 std::map<std::string, bool> LoadPermissions() {
     static const char* kNames[] = {
         "list_windows", "launch_app", "run_console_app", "focus_window",
+        "window_fullscreen",
         "close_window", "save_layout", "restore_layout", "read_log",
         "read_events", "terminal_exec", "trust_list", "theme_set",
         "agent_permissions", "permission_set", "trust_revoke",
@@ -377,6 +380,22 @@ std::string HandleLine(const std::string& line, bool& isResponse) {
             int id = 0;
             if (req.GetDeepInt("params", "arguments", "id", id)) {
                 argsJson = "{\"id\":" + std::to_string(id) + "}";
+            }
+        } else if (tool == "window_fullscreen") {
+            // vplayer 전체화면(스펙 §2.2): id 생략 = 호출자 자기 창(control-only
+            // 브로커라 실질 미사용 — 서버가 no_window 즉답), on 생략 = 반전.
+            int id = 0;
+            std::string body;
+            if (req.GetDeepInt("params", "arguments", "id", id)) {
+                body = "{\"id\":" + std::to_string(id);
+                int on2 = -1;
+                if (req.GetDeepInt("params", "arguments", "on", on2) &&
+                    (on2 == 0 || on2 == 1))
+                    body += ",\"on\":" + std::to_string(on2);
+                body += "}";
+                argsJson = body;
+            } else {
+                argsJson = "{}";
             }
         } else if (tool == "save_layout" || tool == "restore_layout") {
             std::string name;
