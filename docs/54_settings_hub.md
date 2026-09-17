@@ -13,6 +13,8 @@
 최소 신규 도구, 봉투는 서버 소유 스키마 진화(B안) 여지를 남김:
 
 - **서버 도구 2종 신규**: `settings_read`, `settings_set` (커밋 d0c5800)
+- **캡처 게이트 (opus 리뷰 M2 픽스, §11)**: 캡처 쌍의 permissions.json 파일값이
+  서버에서 강제됨 — "ask" 거부/승인 파킹 flip, 기본 allow (docs/35 안전 계층)
 - **state/settings.json KV**: `{"audio":{"mute":0/1,"volume":N},
   "retention":{"days":N}}` — 부팅 로드(LoadSettingsKv) + settings_set 쓰기,
   런타임 미러 멤버(audioMasterMute_/audioMasterVolume_/receiptRetentionDays_)
@@ -64,11 +66,17 @@ close_window/trust_request/run_console_app/trust_revoke 4종뿐).
   (`"tool":"settings_set","kind":"capture_allow","target_tool":"capture_window"`).
 - approve 루프에 kind 분기 추가: **capture_window와 capture_region을 함께**
   WritePermissionsEntry — 캡처 도구는 쌍이므로 반쪽 허용은 성가신 함정.
-- 얼굴 2종: jkchat 전용 스트립(`[캡처 허용] → decision`), 설정 GUI 체크박스는
-  승인 전까지 pending 스트립 상태. 에이전트든 GUI든 **전부 파킹** — 키 수준
-  Ask 균일화 (docs/53 레슨 대칭).
-- 승인 불가(구독자 없음) 시 `approval_unavailable` 즉답 — GUI는
-  "jkchat(에이전트 구독) 필요" 상태로 안내.
+- 얼굴 2종: jkchat 전용 스트립(`[캡처 허용] capture_window/region → decision`),
+  설정 GUI 체크박스는 승인 전까지 pending 스트립 상태. 에이전트든 GUI든
+  **전부 파킹** — 키 수준 Ask 균일화 (docs/53 레슨 대칭).
+- 승인 표면 부재 시 `approval_unavailable` 즉답 — **승인 표면은 control-only
+  연결(jkchat류)만 카운트** (opus M3: 코어가 모든 ImGui 클라를 구독시키므로
+  일반 구독자 검사는 요청자 자신까지 true로 공허). GUI는
+  "jkchat(에이전트 구독) 필요" 안내로 안내(도달 가능해짐).
+- **flip 게이트(§11 opus M2)**: 승인이 permissions.json의 capture_* 값을
+  "allow"/"ask"로 쓰면 캡처 도구 분기가 그 값을 서버에서 강제한다 — "ask"
+  상태의 캡처 호출은 `capture_ask` 거부. 스위치가 표시 변경이 아니라 실제
+  강제력을 갖는다.
 
 ## 4. 코어 이벤트 펌프 (스펙 §2.3)
 
@@ -151,7 +159,54 @@ close_window/trust_request/run_console_app/trust_revoke 4종뿐).
 - **사용자 눈확인 대기**: settings 창(스폰/5섹션/볼륨 슬라이더/캡처 스트립/
   agentmgr 연동) — 눈확인 항목에 추가.
 - audio.master의 코어 적용은 전역 마스터 볼륨 — 앱별 볼륨(트리거 소스와 무관한
-  개별 제어)은 미범위(스펙 §3 YAGNI).
+  개별 제어)은 미범위(스펙 §3 YAGNI). **vplayer는 자체 SDL 오디오라 미적용**
+  (JKSoundManager 소비자는 게임/런처 — GUI 힌트 표시, opus MINOR-2).
 - 레이아웃 목록 열거는 exe-dir layout_*.json FindFirstFileA — state로 이전
   시 SettingsKvPath와 같은 경로 정리 레저.
 - receipt 프룬은 전체 읽기(파일이 커지면 스트리밍 프룬 레저).
+- 캡처 게이트는 **flip 방식**(docs/54 §11 opus M2): "ask"는 건별 승인이 아니라
+  승인 파킹이 "allow"로 뒤집을 때까지 거부 — 건별 승인 UX는 미범위.
+
+## 11. opus 최종리뷰 — FIX REQUIRED 전부 픽스 (2026-09-18, c9ba8bf)
+
+판정 **FIX REQUIRED** (M1-M5 + MINOR 6건 + NIT 3건) → 전부 픽스 후 회귀
+전부 GREEN:
+
+- **M1 (봉쇄)** — 코어 펌프가 매 프레임 맨 앞에서 파괴적 드레인 → 자체
+  드레인하던 notify/palette가 영원히 빈 큐(알림 센터·팔레트 피드 사망).
+  vplayer만 이관하고 남은 자체 드레인 2종을 놓쳤던 회귀. **픽스: 두 앱도
+  OnAgentEvent 훅 이관 + probe_agent_notify를 회귀 게이트로 추가**
+  (기존 회귀 세트가 이 경로를 못 잡았다 — docs/33 프로브를 세트에 편입).
+- **M2 (기능 무력)** — capture_allow 스위치가 쓰는 permissions.json 값은
+  어디서도 읽는 자가 없었다(캡처 도구는 원래 무게이트 + "ask"는
+  askCapable 밖이면 Allow 열화). **픽스: 캡처 쌍에 서버 게이트 부착 —
+  파일값 "ask"면 도구 거부(capture_ask), "deny"면 permission_denied,
+  없음/allow는 docs/35 안전 계층. kPermMatrix gate "server(flip)" +
+  askCapable에 캡처 2종 편입(Allow 열화 봉쇄). 건별 승인이 아니라 승인
+  파킹이 파일을 뒤집는 flip 방식 — settings 스위치가 실제 강제력을 갖는다.**
+- **M3** — 승인 가용 검사가 코어 전체 구독으로 공허(요청자 자신까지 true).
+  **픽스: control-only 연결(jkchat류)만 승인 표면으로 계산** —
+  approval_unavailable이 실제로 도달 가능. probe check 14/16은 launch_chat
+  선행으로 조정.
+- **M4** — receipt_retention_days 무게이트 = 에이전트가 감사로그 절단 가능.
+  **픽스: 하한 7일(어느 경로든 — GUI 콤보 최소 프리셋도 7이라 GUI 손실 0).
+  LoadSettingsKv 부팅 경계도 동일하게.**
+- **M5** — PruneReceipts rename 무검사(공유 위반 시 원본 절단 + .bak 한 세대
+  임파일러) + 쓰기 실패 무복구. **픽스: rename 검사 + 부분 쓰기 .bak 복원.**
+- **MINOR**: settings KV .bak 1세대 / vplayer 오디오 미적용 GUI 힌트 /
+  receipt 행수 라벨 "최근 256KiB" 명시 / 콤보 프리셋 외 값 힌트 / jkchat
+  스트립 라벨 쌍 표기 / 프로브 KV+theme.json 백업복원.
+- **NIT-3 진화**: publish_event가 서버 네임스페이스 토픽 흉내 가능 실측 —
+  **예약 접두어 봉쇄(window./agent./app./terminal./audio./triggers. →
+  reserved_topic)**. window.* 스푸핑은 vplayer 전체화면 미러까지 흔들 수
+  있었음 — 같은 원리의 다른 사각.
+- **픽스 발견 선존재 결함**: probe_agent_shot이 서버 stdout의 `[theme]`
+  로더 라인(docs/52 레슨)에 ConvertFrom-Json 파산 — docs/52 이후부터
+  깨져 있던 프로브. JSON 행 필터 픽스 후 ALL PASS(캡처 게이트 기본
+  allow 경로 실증 겸용).
+- **opus 확인 사항**: capture_allow 자기승인 봉쇄(approve requester 게이트,
+  close_window 예외 밖), 파킹 응답 상관(queryId/replied), settings_set
+  경계, jkagentd 4곳, probe false-PASS 없음 — 그대로 유지.
+- **회귀**: probe_settings 16체크×2 ALL PASS(체크 16 신규 — flip 게이트
+  실측), probe_agent_notify ALL PASS, agentmgr/palette/shot/vpt11 PASS,
+  vpt12 2연속 ALL PASS, selftest/jkagentd selftest 0.
