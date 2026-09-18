@@ -28,6 +28,11 @@ public:
     bool GetStr(const char* key, std::string& out) const;
     bool GetInt(const char* key, int& out) const;
 
+    // Top-level field as RAW JSON (JSON.stringify — objects stay `{...}`,
+    // strings stay quoted). The one-level sibling of GetObjRaw: jkbridge's
+    // tool relay re-embeds a request's "args" object into the pipe request.
+    bool GetRaw(const char* key, std::string& out) const;
+
     // Two-level access: <obj>.<key> (e.g. "params"."name" in an MCP request).
     bool GetObjStr(const char* obj, const char* key, std::string& out) const;
     bool GetObjInt(const char* obj, const char* key, int& out) const;

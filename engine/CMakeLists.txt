@@ -157,6 +157,7 @@ add_library(jkcore STATIC
     src/ipc/JKSharedMemory_posix.cpp
     src/agent/JKAgentClient.cpp
     src/agent/JKAgentJson.cpp
+    src/agent/JKLlmEngine.cpp
     src/JKHangulManager.cpp
     src/JKResourceCache.cpp
     src/JKSoundManager.cpp

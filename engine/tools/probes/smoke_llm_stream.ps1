@@ -1,4 +1,4 @@
-# Real-engine token streaming smoke (docs/36): default (ollama) engine,
+﻿# Real-engine token streaming smoke (docs/36): default (ollama) engine,
 # one NL turn — the transcript must show a live "[LLM] ..." line typed by
 # stream deltas, closed by "[LLM 완료]". Judges via transcript (lessons 29/30:
 # GetWindowTextW with over-allocated buffer). Costs real quota (~1 turn).

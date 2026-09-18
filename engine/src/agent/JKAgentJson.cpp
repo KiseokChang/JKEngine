@@ -58,6 +58,27 @@ bool AgentJson::GetInt(const char* key, int& out) const {
     return got;
 }
 
+bool AgentJson::GetRaw(const char* key, std::string& out) const {
+    if (!ok_) return false;
+    JSValue v = JS_GetPropertyStr(ctx_, root_, key);
+    bool got = false;
+    if (!JS_IsException(v) && !JS_IsUndefined(v)) {
+        // Compact raw JSON: objects stay {...}, strings stay quoted.
+        JSValue s = JS_JSONStringify(ctx_, v, JS_UNDEFINED, JS_UNDEFINED);
+        if (JS_IsString(s)) {
+            const char* c = JS_ToCString(ctx_, s);
+            if (c) {
+                out = c;
+                got = true;
+            }
+            JS_FreeCString(ctx_, c);
+        }
+        JS_FreeValue(ctx_, s);
+    }
+    JS_FreeValue(ctx_, v);
+    return got;
+}
+
 bool AgentJson::GetObjStr(const char* obj, const char* key, std::string& out) const {
     if (!ok_) return false;
     JSValue o = JS_GetPropertyStr(ctx_, root_, obj);
