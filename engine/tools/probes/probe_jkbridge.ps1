@@ -251,6 +251,46 @@ $hello10 = WsRecv $c10 5000
 Check "resume-memo" ($hello10 -ne $null -and $hello10 -match '"pending_result":"stub ok"')
 $c10.Close()
 
+# --- 9b. QR startup output (console QR for phone camera scan) ----------------
+# --qr-debug: 0/1 matrix dump (verifier interface); --qr-print: half-block
+# glyphs. Structural checks here; full decode verified via cv2/pyzbar (docs/57).
+$qrUrl = "http://192.168.0.34:8790/?token=a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"
+$qrDebug1 = & $exe --qr-debug $qrUrl 2>&1
+$qrDebug2 = & $exe --qr-debug $qrUrl 2>&1
+$lines = @($qrDebug1 | ForEach-Object { "$_" })
+$hdr = ""
+if ($lines.Count -ge 1) { $hdr = $lines[0] }
+$mtx = @()
+foreach ($l in $lines) { if ($l -match "^[01]{21,}$") { $mtx += $l } }
+Check "qr-debug-parse" ($hdr -match "^version=\d+ mask=[0-7] size=\d+$" -and $mtx.Count -ge 21 -and $mtx.Count -eq 17 + 4 * [int]($hdr -replace "^version=(\d+).*", '$1'))
+if ($mtx.Count -gt 0) {
+    $n = $mtx[0].Length
+    $finderTop = $mtx[0].Substring(0, 7)
+    Check "qr-finder" ($finderTop -eq "1111111" -and $mtx[6].Substring(0, 7) -eq "1111111" -and $mtx[3].Substring(0, 7) -eq "1011101")
+    $timing = ""
+    for ($i = 8; $i -lt $n - 8; $i++) { $timing += $mtx[6][$i] }
+    Check "qr-timing" ($timing -match "^1(01)*0?$")
+    $v = [int]($hdr -replace "^version=(\d+).*", '$1')
+    $darkOk = $mtx[$n - 8][8] -eq "1"
+    Check "qr-dark-module" $darkOk
+}
+Check "qr-determinism" (("$qrDebug1" -replace "`r`n", "`n") -eq (("$qrDebug2" -replace "`r`n", "`n")))
+
+$glyphs = $null
+$savedEnc = [Console]::OutputEncoding
+try {
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8  # glyphs are UTF-8
+    $glyphs = & $exe --qr-print $qrUrl 2>&1
+} finally {
+    [Console]::OutputEncoding = $savedEnc
+}
+$gl = @($glyphs | ForEach-Object { "$_" }) | Where-Object { $_ -and $_.Trim().Length -gt 0 }
+$onlyGlyphs = $true
+foreach ($l in $gl) {
+    if ("$l".Trim() -match "[^█▀▄ ]") { $onlyGlyphs = $false }
+}
+Check "qr-print-glyphs" ($gl.Count -ge 15 -and $onlyGlyphs -and ($gl[0].Length -ge 2 * 21))
+
 # --- 10. rate limit: 10 bad tokens → the next one is refused (LAST — the IP
 # gate would poison every good-token check after it) --------------------------
 $limited = $false

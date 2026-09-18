@@ -26,6 +26,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <map>
@@ -1176,7 +1177,490 @@ static void HandleConn(SOCKET conn, const BridgeConfig& cfg) {
     closesocket(conn);
 }
 
-int main() {
+// ---------------------------------------------------------------------------
+// QR encoder — console pair-up display (docs/57 §11). Byte mode, ECC level L,
+// versions 1-6 (URL ≤ ~200 data bytes; the token URL is ~65 bytes, so V4 in
+// practice). Version info blocks (V7+) are therefore never drawn.
+// Constant provenance: segno's installed tables (ISO 18004) — the SHA-1
+// lesson: every "well-known" value below was pulled from the reference
+// library, not memory, and the whole encoder is matrix-diffed against segno
+// plus decoded by cv2/pyzbar before shipping.
+// ---------------------------------------------------------------------------
+namespace qr {
+
+struct BlockGroup { int nBlocks; int total; int data; };
+// (blocks, total codewords, data codewords) per version, level L.
+const BlockGroup kLevelL[6] = {
+    {1, 26, 19},  {1, 44, 34},   {1, 70, 55},  {1, 100, 80},
+    {1, 134, 108}, {2, 86, 68},
+};
+// Alignment pattern centers, index = version-1 (V1 has none; V6 = {6,34}).
+const int kAlign[6][4] = {
+    {0, 0, 0, 0}, {2, 6, 18, 0}, {2, 6, 22, 0},
+    {2, 6, 26, 0}, {2, 6, 30, 0}, {3, 6, 22, 38},
+};
+// Final 15-bit format strings, level L, masks 0-7 (segno FORMAT_INFO[8..15]).
+const unsigned kFormatL[8] = {30660, 29427, 32170, 30877,
+                              26159, 25368, 27713, 26998};
+
+// GF(256) with the QR primitive x^8+x^4+x^3+x^2+1 — tables computed, not
+// transcribed (the only "constants" left to memory are the polynomial and
+// the algorithm shape; everything numeric derives from them at runtime).
+struct Gf {
+    uint8_t exp[512], log[256];
+    static const Gf& Table() {
+        static const Gf g;
+        return g;
+    }
+    static uint8_t Mul(uint8_t a, uint8_t b) {
+        if (!a || !b) return 0;
+        const Gf& g = Table();
+        return g.exp[g.log[a] + g.log[b]];
+    }
+
+  private:
+    Gf() {
+        unsigned x = 1;
+        for (int i = 0; i < 255; ++i) {
+            log[x] = static_cast<uint8_t>(i);
+            exp[i] = static_cast<uint8_t>(x);
+            x <<= 1;
+            if (x & 0x100) x ^= 0x11D;
+        }
+        for (int i = 255; i < 512; ++i) exp[i] = exp[i - 255];
+        log[0] = 0;
+    }
+};
+
+struct Field {
+    int size = 0;
+    std::vector<uint8_t> dark, func;
+    uint8_t& Dark(int r, int c) { return dark[static_cast<size_t>(r) * size + c]; }
+    uint8_t& Func(int r, int c) { return func[static_cast<size_t>(r) * size + c]; }
+};
+
+// Data bitstream: byte mode + 8-bit count (V1-9) + bytes + terminator +
+// pad codewords 0xEC/0x11 alternating, exactly filling `dataCw`.
+static void BuildBitstream(const std::string& url, int dataCw,
+                           std::vector<uint8_t>* bits) {
+    bits->clear();
+    bits->reserve(static_cast<size_t>(dataCw) * 8);
+    const auto push = [&](unsigned val, int n) {
+        for (int i = n - 1; i >= 0; --i)
+            bits->push_back(static_cast<uint8_t>((val >> i) & 1));
+    };
+    push(0b0100, 4);  // byte mode
+    push(static_cast<unsigned>(url.size()), 8);
+    for (unsigned char c : url) push(c, 8);
+    const int capBits = dataCw * 8;
+    const int term = std::min(4, capBits - static_cast<int>(bits->size()));
+    if (term > 0) push(0, term);
+    bits->resize((bits->size() + 7) / 8 * 8, 0);
+    unsigned pad = 0xEC;
+    while (static_cast<int>(bits->size()) < capBits) {
+        push(pad, 8);
+        pad = (pad == 0xEC) ? 0x11 : 0xEC;
+    }
+}
+
+// Reed-Solomon remainder of one data block (monic generator, synthetic
+// division over GF(256)).
+static void EccBytes(const std::vector<uint8_t>& block, int ecc,
+                     std::vector<uint8_t>* out) {
+    std::vector<uint8_t> gen{1};  // coefficient j of x^(ecc-j), gen[0]=1
+    for (int i = 0; i < ecc; ++i) {
+        std::vector<uint8_t> ng(gen.size() + 1, 0);
+        for (size_t j = 0; j < gen.size(); ++j) {
+            ng[j + 1] ^= gen[j];
+            ng[j] ^= Gf::Mul(gen[j], Gf::Table().exp[i]);
+        }
+        gen = ng;
+    }
+    std::vector<uint8_t> rem(static_cast<size_t>(ecc), 0);
+    for (uint8_t d : block) {
+        const uint8_t f = static_cast<uint8_t>(d ^ rem[0]);
+        std::memmove(rem.data(), rem.data() + 1, static_cast<size_t>(ecc) - 1);
+        rem[ecc - 1] = 0;
+        if (f) {
+            // gen is built low-order first (gen[0] = x^0 coeff); rem[j] holds
+            // the x^(ecc-1-j) coefficient, so the multiplier is the mirrored
+            // index — using gen[j+1] here silently scrambles the ECC.
+            for (int j = 0; j < ecc; ++j)
+                rem[j] ^= Gf::Mul(gen[ecc - 1 - j], f);
+        }
+    }
+    *out = rem;
+}
+
+// Data + ECC codewords, interleaved (V1-V6 L always splits into equal-size
+// blocks, so plain round-robin is the full ISO 18004 interleave here).
+static void BuildCodewords(const std::string& url, int version,
+                           std::vector<uint8_t>* out) {
+    const BlockGroup g = kLevelL[version - 1];
+    const int ecc = g.total - g.data;
+    std::vector<uint8_t> bits;
+    BuildBitstream(url, g.data * g.nBlocks, &bits);
+    // bit vector -> data codewords per block
+    std::vector<std::vector<uint8_t>> blocks(g.nBlocks);
+    size_t bit = 0;
+    for (int b = 0; b < g.nBlocks; ++b) {
+        blocks[b].reserve(static_cast<size_t>(g.data));
+        for (int i = 0; i < g.data; ++i, bit += 8) {
+            unsigned v = 0;
+            for (int k = 0; k < 8; ++k) v = (v << 1) | bits[bit + k];
+            blocks[b].push_back(static_cast<uint8_t>(v));
+        }
+    }
+    out->clear();
+    for (int i = 0; i < g.data; ++i)
+        for (int b = 0; b < g.nBlocks; ++b) out->push_back(blocks[b][i]);
+    for (int b = 0; b < g.nBlocks; ++b) {
+        std::vector<uint8_t> e;
+        EccBytes(blocks[b], ecc, &e);
+        for (uint8_t v : e) out->push_back(v);
+    }
+}
+
+static void DrawPatterns(Field* f, int version) {
+    const int n = f->size;
+    const auto mark = [&](int r, int c, int d) {
+        f->Dark(r, c) = static_cast<uint8_t>(d);
+        f->Func(r, c) = 1;
+    };
+    // finder patterns + separators
+    const int fp[3][2] = {{0, 0}, {0, n - 7}, {n - 7, 0}};
+    for (const auto& p : fp) {
+        for (int r = -1; r <= 7; ++r) {
+            for (int c = -1; c <= 7; ++c) {
+                const int rr = p[0] + r, cc = p[1] + c;
+                if (rr < 0 || cc < 0 || rr >= n || cc >= n) continue;
+                int d = 0;  // separators (the -1..7 ring)
+                if (r >= 0 && r <= 6 && c >= 0 && c <= 6) {
+                    d = (r == 0 || r == 6 || c == 0 || c == 6 ||
+                         (r >= 2 && r <= 4 && c >= 2 && c <= 4))
+                            ? 1
+                            : 0;
+                }
+                mark(rr, cc, d);
+            }
+        }
+    }
+    // timing patterns (skip cells already claimed by finders)
+    for (int i = 8; i < n - 8; ++i) {
+        if (!f->Func(6, i)) mark(6, i, (i & 1) ? 0 : 1);
+        if (!f->Func(i, 6)) mark(i, 6, (i & 1) ? 0 : 1);
+    }
+    // alignment patterns (skip finder overlaps)
+    const int* ap = kAlign[version - 1];
+    const int cnt = ap[0];
+    for (int a = 0; a < cnt; ++a) {
+        for (int b = 0; b < cnt; ++b) {
+            const int r = ap[1 + a], c = ap[1 + b];
+            if ((r == 6 && c == 6) || (r == 6 && c == n - 7) ||
+                (r == n - 7 && c == 6))
+                continue;
+            for (int dr = -2; dr <= 2; ++dr) {
+                for (int dc = -2; dc <= 2; ++dc) {
+                    const int d = (dr == -2 || dr == 2 || dc == -2 ||
+                                   dc == 2 || (dr == 0 && dc == 0))
+                                      ? 1
+                                      : 0;
+                    mark(r + dr, c + dc, d);
+                }
+            }
+        }
+    }
+    // reserve format-info cells + dark module
+    for (int i = 0; i <= 8; ++i) {
+        if (!f->Func(i, 8)) mark(i, 8, 0);
+        if (!f->Func(8, i)) mark(8, i, 0);
+    }
+    for (int i = 0; i < 8; ++i) {
+        mark(8, n - 1 - i, 0);
+        mark(n - 1 - i, 8, 0);
+    }
+    mark(n - 8, 8, 1);
+}
+
+static unsigned MaskBit(int mask, int r, int c) {
+    // Dark where the condition holds (ISO 18004 §7.8.2 — the "== 0" forms).
+    switch (mask) {
+        case 0: return static_cast<unsigned>((r + c) % 2 == 0);
+        case 1: return static_cast<unsigned>(r % 2 == 0);
+        case 2: return static_cast<unsigned>(c % 3 == 0);
+        case 3: return static_cast<unsigned>((r + c) % 3 == 0);
+        case 4: return static_cast<unsigned>(((r / 2) + (c / 3)) % 2 == 0);
+        case 5: return static_cast<unsigned>(
+                    ((r * c) % 2) + ((r * c) % 3) == 0);
+        case 6: return static_cast<unsigned>(
+                    (((r * c) % 2) + ((r * c) % 3)) % 2 == 0);
+        default: return static_cast<unsigned>(
+                     (((r + c) % 2) + ((r * c) % 3)) % 2 == 0);
+    }
+}
+
+static int Penalty(const Field& f) {
+    const int n = f.size;
+    int score = 0;
+    const auto darkAt = [&](int r, int c) {
+        return f.dark[static_cast<size_t>(r) * n + c] != 0;
+    };
+    for (int axis = 0; axis < 2; ++axis) {  // N1: runs ≥ 5, rows then cols
+        for (int a = 0; a < n; ++a) {
+            int run = 1;
+            for (int b = 1; b <= n; ++b) {
+                const bool cur = b < n && (axis ? darkAt(b, a) : darkAt(a, b));
+                const bool prev = (axis ? darkAt(b - 1, a) : darkAt(a, b - 1));
+                if (b < n && cur == prev) {
+                    run++;
+                } else {
+                    if (run >= 5) score += 3 + (run - 5);
+                    run = 1;
+                }
+            }
+        }
+    }
+    for (int r = 0; r + 1 < n; ++r) {  // N2: 2x2 same-color blocks
+        for (int c = 0; c + 1 < n; ++c) {
+            const bool d = darkAt(r, c);
+            if (d == darkAt(r, c + 1) && d == darkAt(r + 1, c) &&
+                d == darkAt(r + 1, c + 1))
+                score += 3;
+        }
+    }
+    const unsigned p1 = 0x05D, p2 = 0x05D >> 1;  // 10111010000 / 00001011101
+    for (int axis = 0; axis < 2; ++axis) {  // N3: finder-like sequences
+        for (int a = 0; a < n; ++a) {
+            unsigned win1 = 0, win2 = 0;
+            for (int b = 0; b < n; ++b) {
+                const unsigned bit =
+                    axis ? (darkAt(b, a) ? 1u : 0u) : (darkAt(a, b) ? 1u : 0u);
+                win1 = ((win1 << 1) | bit) & 0x7FF;
+                win2 = ((win2 >> 1) | (bit << 10)) & 0x7FF;
+                if (b >= 10 && (win1 == p1 || win2 == p2)) score += 40;
+            }
+        }
+    }
+    int darkCount = 0;  // N4: dark proportion
+    for (uint8_t d : f.dark) darkCount += d ? 1 : 0;
+    const int pct = darkCount * 100 / (n * n);
+    score += std::abs(pct - 50) / 5 * 10;
+    return score;
+}
+
+// Writes data bits + chosen-mask format info into a fresh matrix.
+static void Compose(int version, int mask, const std::vector<uint8_t>& bits,
+                    Field* f) {
+    const int n = f->size;
+    int bit = 0;
+    for (int right = n - 1; right > 0; right -= 2) {
+        const int r2 = (right <= 6) ? right - 1 : right;
+        for (int vert = 0; vert < n; ++vert) {
+            for (int z = 0; z < 2; ++z) {
+                const int j = r2 - z;
+                bool up = ((r2 & 2) == 0);
+                if (j < 6) up = !up;
+                const int i = up ? (n - 1 - vert) : vert;
+                if (f->Func(i, j)) continue;
+                f->Dark(i, j) = static_cast<uint8_t>(
+                    (bit < static_cast<int>(bits.size()) ? bits[bit] : 0) ^
+                    MaskBit(mask, i, j));
+                bit++;
+            }
+        }
+    }
+    const unsigned fmt = kFormatL[mask];
+    int voff = 0, hoff = 0;
+    for (int i = 0; i < 8; ++i) {
+        const unsigned vbit = (fmt >> i) & 1;
+        const unsigned hbit = (fmt >> (14 - i)) & 1;
+        if (i == 6) { voff = 1; hoff = 1; }
+        f->Dark(i + voff, 8) = static_cast<uint8_t>(vbit);
+        f->Dark(8, i + hoff) = static_cast<uint8_t>(hbit);
+        f->Dark(8, n - 1 - i) = static_cast<uint8_t>(vbit);
+        f->Dark(n - 1 - i, 8) = static_cast<uint8_t>(hbit);
+    }
+    f->Dark(n - 8, 8) = 1;  // dark module
+}
+
+// Encodes `url` — returns the version, fills `matrix` (dark=1, size 17+4v).
+static int Encode(const std::string& url, std::vector<uint8_t>* matrix,
+                  int* sizeOut, int* maskOut) {
+    int version = 0;
+    // Data budget must count the full segment overhead (mode nibble + 8-bit
+    // count for V1-9 + terminator up to 4 bits) — comparing the raw byte
+    // count against the codeword capacity silently truncates boundary URLs.
+    for (int v = 1; v <= 6; ++v) {
+        const int capBits = kLevelL[v - 1].data * kLevelL[v - 1].nBlocks * 8;
+        // (terminator may be truncated to the remaining capacity — ISO
+        // 18004 §7.4.9 — so the plain needBits <= capBits check suffices)
+        const int needBits = 4 + 8 + static_cast<int>(url.size()) * 8;
+        if (needBits <= capBits) {
+            version = v;
+            break;
+        }
+    }
+    if (!version) return 0;
+    // Placement consumes the FULL interleaved codeword sequence (data + ECC).
+    // Feeding it the data bitstream alone leaves the ECC region as zero
+    // padding — an undecodable symbol.
+    std::vector<uint8_t> cw;
+    BuildCodewords(url, version, &cw);
+    std::vector<uint8_t> bits;
+    bits.reserve(cw.size() * 8);
+    for (uint8_t b : cw)
+        for (int k = 7; k >= 0; --k)
+            bits.push_back(static_cast<uint8_t>((b >> k) & 1));
+    Field base;
+    base.size = 17 + 4 * version;
+    base.dark.assign(static_cast<size_t>(base.size) * base.size, 0);
+    base.func.assign(static_cast<size_t>(base.size) * base.size, 0);
+    DrawPatterns(&base, version);
+    int bestMask = 0, bestScore = -1;
+    Field work;
+    for (int mask = 0; mask < 8; ++mask) {
+        work = base;
+        Compose(version, mask, bits, &work);
+        const int score = Penalty(work);
+        if (bestScore < 0 || score < bestScore) {
+            bestScore = score;
+            bestMask = mask;
+        }
+    }
+    work = base;
+    Compose(version, bestMask, bits, &work);
+    if (sizeOut) *sizeOut = work.size;
+    if (maskOut) *maskOut = bestMask;
+    *matrix = work.dark;
+    return version;
+}
+
+// Console rendering: swap the console attribute to white-background/black-
+// foreground and print — "██" then renders DARK modules on a light field
+// (true dark-on-light, what phone cameras prefer). Two QR rows merge per
+// text row via the half-block glyphs (▀/▄) so a V4 symbol fits ~25 lines.
+// Redirected output (probe convention) skips the QR — --qr-debug covers it.
+static void PrintConsole(const std::vector<uint8_t>& m, int n, bool force) {
+    HANDLE out = GetStdHandle(STD_OUTPUT_HANDLE);
+    DWORD mode = 0;
+    const bool console = GetConsoleMode(out, &mode) != 0;
+    if (!console && !force) return;
+    CONSOLE_SCREEN_BUFFER_INFO info{};
+    const WORD saved =
+        GetConsoleScreenBufferInfo(out, &info)
+            ? info.wAttributes
+            : static_cast<WORD>(FOREGROUND_RED | FOREGROUND_GREEN |
+                                FOREGROUND_BLUE);
+    if (console) {
+        SetConsoleTextAttribute(
+            out, BACKGROUND_RED | BACKGROUND_GREEN | BACKGROUND_BLUE);
+    }
+    const auto rowLine = [&](int top, int bottom) {
+        std::string line(8, ' ');
+        for (int c = 0; c < n; ++c) {
+            const int a = m[static_cast<size_t>(top) * n + c];
+            const int b = m[static_cast<size_t>(bottom) * n + c];
+            // UTF-8 glyphs: ██ dark/dark, ▀▀ upper dark, ▄▄ lower dark.
+            // Half-block cells double the vertical resolution so a V4
+            // symbol fits ~25 console lines.
+            if (a && b) line += "\xe2\x96\x88\xe2\x96\x88";
+            else if (a) line += "\xe2\x96\x80\xe2\x96\x80";
+            else if (b) line += "\xe2\x96\x84\xe2\x96\x84";
+            else line += "  ";
+        }
+        line += std::string(8, ' ');
+        OutW(line);
+    };
+    OutW(std::string(2 * n + 16, ' '));
+    for (int r = 0; r < n; r += 2) {
+        if (r + 1 < n) {
+            rowLine(r, r + 1);
+        } else {  // odd height: last row renders as (dark, light)
+            std::string line(8, ' ');
+            for (int c = 0; c < n; ++c) {
+                const int a = m[static_cast<size_t>(r) * n + c];
+                line += a ? "\xe2\x96\x80\xe2\x96\x80" : "  ";
+            }
+            line += std::string(8, ' ');
+            OutW(line);
+        }
+    }
+    OutW(std::string(2 * n + 16, ' '));
+    if (console) SetConsoleTextAttribute(out, saved);
+}
+
+// Debug dump: version/mask header + matrix rows of '0'/'1' — python diffs
+// this against segno and decodes it via cv2/pyzbar (verification gate).
+static void DumpDebug(const std::string& url, const std::vector<uint8_t>& m,
+                      int n, int version, int mask) {
+    char head[64];
+    std::snprintf(head, sizeof(head), "version=%d mask=%d size=%d", version,
+                  mask, n);
+    OutW(head);
+    // codeword hex dump — python diffs the bitstream separately from layout
+    {
+        std::vector<uint8_t> cw;
+        BuildCodewords(url, version, &cw);
+        std::string hex;
+        char b[8];
+        for (uint8_t v : cw) {
+            std::snprintf(b, sizeof(b), "%02x", v);
+            hex += b;
+        }
+        OutW("codewords=" + hex);
+    }
+    std::string row;
+    for (int r = 0; r < n; ++r) {
+        row.clear();
+        for (int c = 0; c < n; ++c)
+            row += m[static_cast<size_t>(r) * n + c] ? '1' : '0';
+        OutW(row);
+    }
+}
+
+}  // namespace qr
+
+int main(int argc, char** argv) {
+    // --qr-debug-func: function-cell map dump (python verifier diff input).
+    if (argc >= 2 && std::strcmp(argv[1], "--qr-debug-func") == 0) {
+        qr::Field base;
+        base.size = 33;
+        base.dark.assign(static_cast<size_t>(base.size) * base.size, 0);
+        base.func.assign(static_cast<size_t>(base.size) * base.size, 0);
+        qr::DrawPatterns(&base, 4);
+        for (int r = 0; r < base.size; ++r) {
+            std::string row;
+            for (int c = 0; c < base.size; ++c)
+                row += base.Func(r, c) ? '1' : '0';
+            OutW(row);
+        }
+        return 0;
+    }
+    // --qr-print <url>: console QR glyphs even when redirected (the probe
+    // reassembles the matrix from the half-block glyphs and decodes it).
+    if (argc >= 3 && std::strcmp(argv[1], "--qr-print") == 0) {
+        std::vector<uint8_t> m;
+        int n = 0, mask = 0;
+        const int v = qr::Encode(argv[2], &m, &n, &mask);
+        if (!v) {
+            OutW("encode-failed");
+            return 1;
+        }
+        qr::PrintConsole(m, n, true);
+        return 0;
+    }
+    // --qr-debug <url>: matrix dump for the python verifier, no server.
+    if (argc >= 3 && std::strcmp(argv[1], "--qr-debug") == 0) {
+        std::vector<uint8_t> m;
+        int n = 0, mask = 0;
+        const int v = qr::Encode(argv[2], &m, &n, &mask);
+        if (!v) {
+            OutW("encode-failed");
+            return 1;
+        }
+        qr::DumpDebug(argv[2], m, n, v, mask);
+        return 0;
+    }
     if (!Sha1SelfTest()) {
         OutW("[!] SHA-1 self-test FAIL — 중단");
         return 1;
@@ -1204,9 +1688,16 @@ int main() {
     }
 
     OutW("jkbridge — phone web gateway");
-    OutW("  URL: http://" + PrimaryIp() + ":" + std::to_string(cfg.port) +
-         "/?token=" + cfg.token);
+    const std::string url = "http://" + PrimaryIp() + ":" +
+                            std::to_string(cfg.port) + "/?token=" + cfg.token;
+    OutW("  URL: " + url);
     OutW("  (같은 Wi-Fi의 폰 브라우저에서 위 URL 열기 — 토큰은 state\\jkbridge.json)");
+    OutW("  폰 카메라로 아래 QR을 스캔해도 접속됩니다:");
+    {
+        std::vector<uint8_t> m;
+        int n = 0, mask = 0;
+        if (qr::Encode(url, &m, &n, &mask)) qr::PrintConsole(m, n, false);
+    }
     OutW("  Ctrl+C 종료. 세션 상한 " + std::to_string(kMaxSessions) + ", 프레임 상한 1MiB.");
 
     for (;;) {
