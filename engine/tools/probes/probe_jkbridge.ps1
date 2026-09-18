@@ -95,15 +95,28 @@ function WsRecv([System.Net.Sockets.TcpClient]$c, [int]$waitMs) {
     $s = $c.GetStream()
     $s.ReadTimeout = $waitMs
     try {
-        $b0 = $s.ReadByte(); if ($b0 -lt 0) { return $null }
-        $b1 = $s.ReadByte()
-        $len = $b1 -band 0x7F
-        if ($len -eq 126) { $e0 = $s.ReadByte(); $e1 = $s.ReadByte(); $len = ($e0 -shl 8) -bor $e1 }
-        elseif ($len -eq 127) { $len = 0; for ($i = 0; $i -lt 8; $i++) { $len = ($len -shl 8) -bor $s.ReadByte() } }
-        $buf = New-Object byte[] $len
-        $off = 0
-        while ($off -lt $len) { $n = $s.Read($buf, $off, $len - $off); if ($n -le 0) { break }; $off += $n }
-        return [System.Text.Encoding]::UTF8.GetString($buf, 0, $off)
+        for (;;) {
+            $b0 = $s.ReadByte(); if ($b0 -lt 0) { return $null }
+            $b1 = $s.ReadByte()
+            $op = $b0 -band 0x0F
+            $len = $b1 -band 0x7F
+            if ($len -eq 126) { $e0 = $s.ReadByte(); $e1 = $s.ReadByte(); $len = ($e0 -shl 8) -bor $e1 }
+            elseif ($len -eq 127) { $len = 0; for ($i = 0; $i -lt 8; $i++) { $len = ($len -shl 8) -bor $s.ReadByte() } }
+            # control frames: consume (the bridge heartbeats every ~4.8s),
+            # answer pings with an (unmasked, lenient) pong, and keep reading
+            if ($op -eq 0x9 -or $op -eq 0xA) {
+                if ($len -gt 0) { $ctrl = New-Object byte[] $len; [void]($s.Read($ctrl, 0, $len)) }
+                if ($op -eq 0x9) {
+                    $pong = [byte[]]@(0x8A, 0x00)
+                    $s.Write($pong, 0, 2); $s.Flush()
+                }
+                continue
+            }
+            $buf = New-Object byte[] $len
+            $off = 0
+            while ($off -lt $len) { $n = $s.Read($buf, $off, $len - $off); if ($n -le 0) { break }; $off += $n }
+            return [System.Text.Encoding]::UTF8.GetString($buf, 0, $off)
+        }
     } catch { return $null }
 }
 
@@ -146,7 +159,7 @@ Check "stub-chat-done" ($chatDone -match '"ok":1' -and $chatDone -match "stub ok
 WsSend $c1 '{"type":"tool","tool":"list_windows","args":{},"label":"list"}'
 $reply = $null
 foreach ($i in 1..10) { $r = WsRecv $c1 3000; if ($r -match '"type":"reply"') { $reply = $r; break } }
-Check "tool-reply" ($reply -match '"label":"list"' -and $reply -match '"ok"')
+Check "tool-reply" ($reply -match '"label":"list"' -and $reply -match '"ok"\s*:\s*(true|1)')
 
 # --- 6. approve roundtrip: ask-gated close via the bridge --------------------
 # agentctl argument passing: the probe_agent_chat convention (PS 5.1 strips
@@ -155,7 +168,9 @@ function Invoke-Agentctl([string]$json) {
     $escaped = $json -replace '"', '\"'
     return (& $server agentctl $escaped) -join "`n"
 }
-'{"close_window":"ask"}' | Set-Content -Path (Join-Path $build "permissions.json") -Encoding ASCII
+$permFile = Join-Path $build "permissions.json"
+$hadPerm = Test-Path $permFile; if ($hadPerm) { $permBak = [System.IO.File]::ReadAllBytes($permFile) }
+'{"close_window":"ask"}' | Set-Content -Path $permFile -Encoding ASCII
 [void](Invoke-Agentctl '{"tool":"launch_app","args":{"app":"minesweeper"}}')
 Start-Sleep -Seconds 2
 $list = Invoke-Agentctl '{"tool":"list_windows","args":{}}'
@@ -175,7 +190,7 @@ Start-Sleep -Seconds 2
 $list2 = Invoke-Agentctl '{"tool":"list_windows","args":{}}'
 Check "approve-roundtrip" ($apprReply -ne $null -and $list2 -notmatch ('"id\\?":' + $mineId + '\b'))
 
-# --- 7. session cap: 4 live sessions, the 5th refused ------------------------
+# --- 7. session cap: with c1 live, 4 more connects — growth past 4 refused ---
 $socks = @()
 foreach ($i in 1..4) {
     $c = New-Sock "127.0.0.1" 8899
@@ -209,10 +224,24 @@ foreach ($i in 1..8) { $hdr.Add(0xFF) }
 $c9.GetStream().Write($hdr.ToArray(), 0, $hdr.ToArray().Length)
 $c9.GetStream().ReadTimeout = 3000
 $buf2 = New-Object byte[] 64
-try { $t = $c9.GetStream().Read($buf2, 0, $buf2.Length) } catch { $t = -1 }
-# read either 0/-1 or throws — both mean "connection closed"
-Check "frame-cap" ($t -le 0)
+try {
+    $t = $c9.GetStream().Read($buf2, 0, $buf2.Length)
+} catch {
+    # a bare timeout would be a false PASS — the server must actually close
+    $sc = $_.Exception.InnerException.SocketErrorCode
+    if ($sc -eq [System.Net.Sockets.SocketError]::TimedOut) { $t = -2 } else { $t = -1 }
+}
+Check "frame-cap" ($t -ne -2 -and ($t -le 0))
 $c9.Close()
+
+# --- 8b. slot reclaim: closed sessions free their slots (FIN-less leak guard)
+Start-Sleep -Seconds 2
+$c8 = New-Sock "127.0.0.1" 8899
+[void](WsHandshake $c8 "probetoken0123456789abcdef")
+WsSend $c8 '{"type":"hello","resume_session":""}'
+$hello8 = WsRecv $c8 5000
+Check "slot-reclaim" ($hello8 -ne $null -and $hello8 -match '"type":"hello"' -and $hello8 -match '"ok":1')
+$c8.Close()
 
 # --- 9. resume memo: hello with the stub session id → pending_result -------
 $c10 = New-Sock "127.0.0.1" 8899
@@ -236,7 +265,7 @@ Check "rate-limit" $limited
 # --- cleanup ------------------------------------------------------------------
 Get-Process jkdesktop -ErrorAction SilentlyContinue | Stop-Process -Force
 if ($bridgeProc -and -not $bridgeProc.HasExited) { $bridgeProc.Kill() }
-Remove-Item (Join-Path $build "permissions.json") -ErrorAction SilentlyContinue
+if ($hadPerm) { [System.IO.File]::WriteAllBytes($permFile, $permBak) } else { Remove-Item $permFile -ErrorAction SilentlyContinue }
 if ($hadJb) { [System.IO.File]::WriteAllBytes($jbFile, $jbBak) } else { Remove-Item $jbFile -ErrorAction SilentlyContinue }
 if ($hadChat) { [System.IO.File]::WriteAllBytes($chatFile, $chatBak) } else { Remove-Item $chatFile -ErrorAction SilentlyContinue }
 Remove-Item -Recurse -Force $run -ErrorAction SilentlyContinue

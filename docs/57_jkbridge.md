@@ -36,7 +36,13 @@ URL 토큰. jkchat을 서버에서 띄우는 대신 **브리지가 폰 브라우
   2바이트 회신), **1MiB 캡 — 선언 길이 먼저 검사**해 거대 프레임 버퍼링 전
   절단(서버는 클라 프레임을 읽기 전에 상한을 안다).
 - **세션 = JKAgentClient 1 + JKLlmEngine 1 + pump 스레드(400ms ping) 1**,
-  상한 4(`too many sessions` — 핸드셰이크 101 직후 WS 오류 프레임으로 거절).
+  상한 4(`too many sessions` — 핸드셰이크 101 직후 WS 오류 프레임으로 거절,
+  fetch_add 후 반납으로 TOCTOU 봉쇄).
+- **연결별 30s SO_RCVTIMEO/SO_SNDTIMEO** + **pump WS 하트비트(~4.8s ping,
+  브라우저가 자동 pong)** — 무타임아웃이면 서스펜드된 폰이 dispatcher의 recv를
+  영구 블록해 세션 슬롯을 영구 누수하고(opus MAJOR-3), 45s 무pong 세션은
+  pump가 강제 종료해 슬롯 회수. 소켓 close는 소멸자로 이동(핸들 재사용
+  경합 봉쇄 — opus MINOR-6), shutdown(SD_BOTH)만 즉시.
 
 ## 3. 릴레이 프레임 (generic tool relay — 확장 포인트)
 
@@ -62,9 +68,12 @@ URL 토큰. jkchat을 서버에서 띄우는 대신 **브리지가 폰 브라우
   저장. **WS 핸드셰이크 쿼리 파라미터에서 검증**(스펙 §4 hello 프레임 검증에서
   변경 — as-built 위임; hello는 resume_session만 운반). HTTP UI/health는
   토큰 무관(스펙 §4 명시).
-- IP 게이트: 실패 토큰 10/60s → 403(성공 시도는 카운트하지 않음).
+- IP 게이트: 실패 토큰 10/60s → 403(성공 시도는 카운트하지 않음). 토큰 비교는
+  상수-형태(TokenEq, 길이 먼저 — 32hex라 길이 누출은 무해).
 - 부트 **SHA-1 셀프테스트(RFC 6455 §1.3 벡터)** — FAIL이면 기동 거부.
-- 키 길이 상한 120(SHA1 스크래치 128바이트 경계 — 적대적 긴 키 오버플로 봉쇄).
+- 키 길이 상한 64(RFC 키는 24자; Sha1 입력 ≤ 64+36+패딩 ≤ 128 — 스크래치는
+  256으로 이중 여유. 초기 컷의 "상한 120"은 GUID 36바이트를 빠뜨린 계산 착오로
+  opus 리뷰 MAJOR-1에서 스택 오버플로로 판명되어 픽스).
 - 토큰은 URL에 붙어 다닌다(공유 편의) — LAN 신뢰 전제, 스펙 §6 한계 그대로.
 
 ## 5. 웹 UI (단일 임베드 HTML)
@@ -74,18 +83,23 @@ URL 토큰. jkchat을 서버에서 띄우는 대신 **브리지가 폰 브라우
 (/close·/restore 등 — /close는 pre_undo 2단 연쇄), localStorage 세션 재개,
 2s 자동재접속, 재접속 시 pending_result 복구. 서버 상태 없음 — 전부 클라.
 
-## 6. 검증 — probe_jkbridge 15체크 ×2 연속 ALL PASS
+## 6. 검증 — probe_jkbridge 16체크 ×2 연속 ALL PASS
 
 빌드 디렉터리 실행(jkbridge는 jkcore → SDL2.dll 등 런타임 DLL 의존 — temp
 복사 실행은 즉사, **probe-owned state 스왑**: state\jkbridge.json 고정
-토큰/포트 + state\chat.json stub 엔진 백업/복원). 원시 TcpClient WS 클라:
+토큰/포트 + state\chat.json stub 엔진 + permissions.json까지 전부 백업/복원
+— docs/54 레슨 ⑥ 재적용). 원시 TcpClient WS 클라(핑 자동 응답):
 
 http-health / http-ui / http-404 / ws-no-token-401 / ws-handshake-101 /
 ws-hello-ok / stub-chat-done(stub ok+stub-1) / tool-reply(list_windows) /
 minesweeper-launched / approval-request-event(close=ask 파킹 이벤트) /
-approve-roundtrip(allow → 창 파괴 + approve reply) / session-cap(4+1) /
-frame-cap(선언 길이 0xFF×8 → 절단) / resume-memo(stub-1 → pending_result) /
-rate-limit(11회 → 403).
+approve-roundtrip(allow → 창 파괴 + approve reply) / session-cap(성장 거절) /
+frame-cap(선언 길이 0xFF×8 → 절단 — 타임아웃과 진짜 close 변별) /
+slot-reclaim(닫힌 세션 슬롯 회수 — FIN 누수 회귀 가드) /
+resume-memo(stub-1 → pending_result) / rate-limit(11회 → 403, 마지막 배치 —
+403 등급 IP 게이트가 이후 체크를 오염하는 것을 피하려는 순서).
+
+회귀: probe_agent_chat 7체크 PASS, smoke_llm_stream 3체크 PASS(픽스 후 재실행).
 
 ## 7. SHA-1 디버그 — 오탐 3연쇄 (레슨)
 
@@ -112,7 +126,36 @@ rate-limit(11회 → 403).
 
 - WS 토큰이 URL 쿼리로 다닌다 — LAN 한정 전제. HTTPS/WSS 없음(브라우저가
   localhost가 아닌 origin의 http WS를 허용하므로 동작하나 평문).
+- **INADDR_ANY 바인딩** — "LAN 한정"은 PC가 붙은 모든 네트워크 인터페이스
+  (사내망 포함)에 노출된다는 뜻. 방화벽(Windows가 기본으로 공용 네트워크
+  차단)이 실질 경계. 특정 인터페이스 바인딩은 백로그.
 - 1세션 = 1 에이전트 파이프 연결 — 서버 파이프 접속 예산과 공유.
 - 웹 UI는 눈확인 항목(폰 실기기 레이아웃/터치).
 - 확장: tool 프레임이 generic이라 files/notes 등 서버 도구 추가 시
   브리지 무수정 — 스펙 §2의 확장 프리미스 충족.
+
+## 10. opus 최종리뷰 — **FIX REQUIRED → 전부 픽스 (2026-09-18)**
+
+**MAJOR-1** 키 상한 120은 핸드셰이크 SHA1 입력(key+36 GUID)을 빠뜨려 키 93자
+부터 스택 오버플로 → 상한 64+버퍼 256. **MAJOR-2** pump 재접속 경로(agent
+연결/구독)가 agentMtx_ 밖 — dispatcher의 SendQuery와 JKAgentClient(내부 락
+없음)를 경합 → 전 agent 접촉을 잠금 내로. **MAJOR-3** 소켓 타임아웃 0 +
+WS keepalive 부재 → 서스펜드 폰이 슬롯 영구 점유("too many sessions"로
+전면 마비) + pump가 wsMtx_ 보유 중 블로킹 send로 세션 교착 → 30s 타임아웃 +
+pump WS 하트비트(4.8s ping/45s 무pong 강제종료) + pump SendText 실패 시
+dead 루트.
+
+**MINOR-1** resumeSession_ 레이스(LLM 워커 쓰기) → resumeMtx_.
+**MINOR-2** 세션 캡 TOCTOU → fetch_add/fetch_sub. **MINOR-3** WsReadFrame의
+정확-크기 단일 recv 가정(2바이트 확장/4바이트 마스크) → RecvAll 루프 통일.
+**MINOR-4** ping/pong 마스크·페이로드 미소비(스트림 desync)+재귀(플러드 시
+스택 사망)+납입 pong → 전량 소비·루프 전환·wsMtx_ 경유. **MINOR-5** probe가
+permissions.json을 백업 없이 파괴 → 백업/복원 패턴 적용. **MINOR-6**
+closesocket 즉시 실행의 핸들 재사용 경합 → shutdown만 즉시, close는 소멸자.
+
+**NIT**: 토큰 상수시간 비교(TokenEq)/CreatePipe 부분 실패 핸들 누수/
+ReadHttpHead(1바이트 독해 — 미종결 헤드 거부+과잉독해 소멸)/설정 쓰기 실패
+로그/labels_ 128 상한/probe frame-cap 타임아웃 오판 변별+tool-reply 루즈
+매치 강화/웹 UI esc() 데드 코드 제거(XSS는 전 경로 textContent로 클린 명시)/
+INADDR_ANY 한계 문서화(§9). probe는 슬롯 회수 체크(slot-reclaim) 신설 —
+16체크 ×2 ALL PASS로 재검증.

@@ -182,6 +182,11 @@ DWORD WINAPI LlmTurnThread(LPVOID param) {
     HANDLE readErr = nullptr, writeErr = nullptr;
     if (!CreatePipe(&readOut, &writeOut, &sa, 0) ||
         !CreatePipe(&readErr, &writeErr, &sa, 0)) {
+        // Partial success must not leak the first pair (opus NIT-2).
+        if (readOut) CloseHandle(readOut);
+        if (writeOut) CloseHandle(writeOut);
+        if (readErr) CloseHandle(readErr);
+        if (writeErr) CloseHandle(writeErr);
         Finish(true);
         return 0;
     }

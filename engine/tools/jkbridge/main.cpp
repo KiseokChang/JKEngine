@@ -159,6 +159,10 @@ static BridgeConfig LoadBridgeConfig() {
     if (f) {
         std::fwrite(json.data(), 1, json.size(), f);
         std::fclose(f);
+    } else {
+        // A silently-failing save regenerates the token on every boot and
+        // kills every phone bookmark (opus NIT-4).
+        OutW("[!] state\\jkbridge.json 쓰기 실패 — 재부트마다 토큰이 재생성됨");
     }
     return cfg;
 }
@@ -172,8 +176,11 @@ static BridgeConfig LoadBridgeConfig() {
 static void Sha1(const uint8_t* data, size_t len, uint8_t out[20]) {
     uint32_t h[5] = {0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0};
     const uint64_t bitLen = static_cast<uint64_t>(len) * 8;
-    // Short keys only (handshake: <64 bytes) — one-block scratch is plenty.
-    uint8_t buf[128] = {};
+    // Handshake inputs are short, but keep headroom (256) — the input is
+    // caller-controlled and a hostile long key must not walk past the
+    // padding loop. (First cut assumed 128 was enough "for short keys";
+    // the opus review caught key 93+36 GUID bytes already overflowing.)
+    uint8_t buf[256] = {};
     std::memcpy(buf, data, len);  // the message itself (self-test caught a
                                   // version that hashed zeros instead)
     size_t padded = len;
@@ -264,59 +271,18 @@ static bool Sha1SelfTest() {
 // ---------------------------------------------------------------------------
 static const size_t kMaxFrame = 1 * 1024 * 1024;
 
-// Reads one text frame. Continuation frames are refused (our protocol is
-// strictly one-JSON-per-frame — a phone that fragments is misbehaving).
-// Returns: 1 = got payload, 0 = clean close, -1 = protocol error / I/O fail.
-static int WsReadFrame(SOCKET s, std::string& out) {
-    unsigned char hdr[2];
+// Exact-size recv — TCP may fragment anywhere; every header read uses this.
+static bool RecvAll(SOCKET s, void* buf, size_t n) {
+    auto* p = static_cast<char*>(buf);
     size_t got = 0;
-    while (got < 2) {
-        const int r = recv(s, reinterpret_cast<char*>(hdr) + got,
-                           static_cast<int>(2 - got), 0);
-        if (r <= 0) return -1;
+    while (got < n) {
+        const int r = recv(s, p + got, static_cast<int>(n - got), 0);
+        if (r <= 0) return false;
         got += static_cast<size_t>(r);
     }
-    const unsigned char opcode = hdr[0] & 0x0F;
-    const bool masked = (hdr[1] & 0x80) != 0;
-    uint64_t len = hdr[1] & 0x7F;
-    if (len == 126) {
-        unsigned char ext[2] = {};
-        if (recv(s, reinterpret_cast<char*>(ext), 2, 0) != 2) return -1;
-        len = (static_cast<uint64_t>(ext[0]) << 8) | ext[1];
-    } else if (len == 127) {
-        unsigned char ext[8] = {};
-        if (recv(s, reinterpret_cast<char*>(ext), 8, 0) != 8) return -1;
-        len = 0;
-        for (int i = 0; i < 8; i++) {
-            len = (len << 8) | ext[i];
-        }
-    }
-    if (opcode == 0x8) return 0;  // close
-    if (opcode == 0xA) return WsReadFrame(s, out);  // pong — skip
-    if (opcode == 0x9) {  // ping → pong (masked-echo of our own 0x8A)
-        const unsigned char pong[2] = {0x8A, 0x00};
-        send(s, reinterpret_cast<const char*>(pong), 2, 0);
-        return WsReadFrame(s, out);
-    }
-    if (opcode != 0x1) return -1;  // binary / continuation — refused
-    if (!masked) return -1;        // RFC: clients MUST mask
-    if (len > kMaxFrame) return -1;
-    unsigned char mask[4];
-    if (recv(s, reinterpret_cast<char*>(mask), 4, 0) != 4) return -1;
-    out.resize(static_cast<size_t>(len));
-    size_t off = 0;
-    while (off < out.size()) {
-        const int r = recv(s, &out[off],
-                           static_cast<int>(out.size() - off), 0);
-        if (r <= 0) return -1;
-        off += static_cast<size_t>(r);
-    }
-    for (size_t i = 0; i < out.size(); i++) out[i] ^= mask[i % 4];
-    return 1;
+    return true;
 }
 
-// Server frames are never masked. Sends must be serialized by the session's
-// mutex (frame = up to 3 send() calls).
 static bool WsSendFrame(SOCKET s, const std::string& text) {
     std::string frame;
     frame.reserve(text.size() + 10);
@@ -432,7 +398,8 @@ let claudeSession = localStorage.getItem('jkbridge_session') || '';
 // re-armed by approval_resolved — a later ask must not overwrite a parked one.
 let apprFront = null; const apprQueue = [];
 let pendingUndo = null; // /close,/restore → save_layout pre_undo → act
-function esc(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+// XSS posture: every server-sourced string reaches the DOM via textContent
+// (add()/showFront()/route()/onEvent) — no innerHTML interpolation anywhere.
 function cut(s,n){ s=String(s||''); return s.length>n ? s.slice(0,n) : s; }
 function add(text, cls){ const d=document.createElement('div'); d.className=cls||'';
   d.textContent=text; logEl.appendChild(d); logEl.scrollTop=logEl.scrollHeight; return d; }
@@ -588,7 +555,9 @@ connect();
 // pump thread mirrors jkchat's 400 ms ping pump (replies + events out).
 // ---------------------------------------------------------------------------
 struct BridgeSession {
-    explicit BridgeSession(SOCKET sock) : sock_(sock) {}
+    explicit BridgeSession(SOCKET sock)
+        : sock_(sock),
+          lastPong_(static_cast<int64_t>(time(nullptr))) {}
 
     // The dispatcher (Run) owns the lifecycle. Returns when the WS dies.
     void Run();
@@ -603,9 +572,58 @@ struct BridgeSession {
         return true;
     }
 
+    // WS-level control frame under wsMtx_ — a naked send here would interleave
+    // into another thread's frame (opus MINOR-4③).
+    void SendPong(const std::string& payload) {
+        if (!alive_.load()) return;
+        std::lock_guard<std::mutex> lock(wsMtx_);
+        std::string frame;
+        frame.reserve(payload.size() + 10);
+        frame += static_cast<char>(0x8A);  // pong, no mask (server frames)
+        if (payload.size() < 126) {
+            frame += static_cast<char>(payload.size());
+        } else {
+            return;  // RFC caps control payloads at 125 — refuse, don't emit
+        }
+        frame += payload;
+        const int r = send(sock_, frame.data(),
+                           static_cast<int>(frame.size()), 0);
+        if (r <= 0) Shutdown();
+    }
+
+    void TouchPong() { lastPong_.store(static_cast<int64_t>(time(nullptr))); }
+
+    // WS-level ping (empty, unmasked) — browsers answer at protocol level;
+    // the pong keeps the dispatcher's recv fed and the stamp fresh.
+    void SendWsPing() {
+        if (!alive_.load()) return;
+        std::lock_guard<std::mutex> lock(wsMtx_);
+        const unsigned char ping[2] = {0x89, 0x00};
+        const int r = send(sock_, reinterpret_cast<const char*>(ping), 2, 0);
+        if (r <= 0) Shutdown();
+    }
+
+    bool PongStale() const {
+        return static_cast<int64_t>(time(nullptr)) -
+                   lastPong_.load() >
+               45;
+    }
+
     void Shutdown() {
+        // shutdown() only here — closesocket in the destructor. A first cut
+        // closed the socket immediately while other threads still held it;
+        // the accept loop can then hand the same handle value to a new
+        // session and stale sends write into its stream (opus MINOR-6).
         if (alive_.exchange(false)) {
             shutdown(sock_, SD_BOTH);
+        }
+    }
+
+    ~BridgeSession() {
+        if (alive_.exchange(false)) {
+            shutdown(sock_, SD_BOTH);
+        }
+        if (sock_ != INVALID_SOCKET) {
             closesocket(sock_);
         }
     }
@@ -615,6 +633,7 @@ struct BridgeSession {
     SOCKET sock_;
     std::mutex wsMtx_;       // serializes frame writes (3+ send() calls each)
     std::atomic<bool> alive_{true};
+    std::atomic<int64_t> lastPong_;  // heartbeat: pump's WS pings / pongs back
 
     jk::agent::JKAgentClient agent_;
     std::mutex agentMtx_;    // pipe IO: dispatcher SendQuery vs pump Query
@@ -623,9 +642,75 @@ struct BridgeSession {
 
     std::thread pump_;
     jk::agent::JKLlmEngine engine_;           // one turn at a time
+    std::mutex resumeMtx_;                    // LLM worker ↔ dispatcher
     std::string resumeSession_;               // consumer-owned claude session
 };
 
+// Reads one frame. Continuation frames are refused (our protocol is
+// strictly one-JSON-per-frame — a phone that fragments is misbehaving).
+// Ping/pong are consumed (header, mask and payload) here — a first cut
+// returned before consuming the mask, leaving stream desync — and pong
+// refreshes the session's heartbeat stamp. Loop, not recursion: a ping
+// flood recursed to stack death.
+// Returns: 1 = got text payload, 0 = clean close, -1 = protocol error / I/O.
+static int WsReadFrame(BridgeSession* s, std::string& out) {
+    for (;;) {
+        unsigned char hdr[2];
+        if (!RecvAll(s->sock_, hdr, 2)) return -1;
+        const unsigned char opcode = hdr[0] & 0x0F;
+        const bool masked = (hdr[1] & 0x80) != 0;
+        uint64_t len = hdr[1] & 0x7F;
+        if (len == 126) {
+            unsigned char ext[2] = {};
+            if (!RecvAll(s->sock_, ext, 2)) return -1;
+            len = (static_cast<uint64_t>(ext[0]) << 8) | ext[1];
+        } else if (len == 127) {
+            unsigned char ext[8] = {};
+            if (!RecvAll(s->sock_, ext, 8)) return -1;
+            len = 0;
+            for (int i = 0; i < 8; i++) {
+                len = (len << 8) | ext[i];
+            }
+        }
+        if (opcode == 0x8) return 0;  // close
+        if (opcode == 0x9 || opcode == 0xA) {
+            // Control frame: consume mask + payload fully (RFC cap: 125).
+            if (len > 125) return -1;
+            unsigned char mask[4] = {};
+            if (masked && !RecvAll(s->sock_, mask, 4)) return -1;
+            std::string payload(static_cast<size_t>(len), '\0');
+            if (len > 0 && !RecvAll(s->sock_, &payload[0],
+                                    static_cast<size_t>(len))) {
+                return -1;
+            }
+            if (masked) {
+                for (size_t i = 0; i < payload.size(); i++) {
+                    payload[i] = static_cast<char>(payload[i] ^ mask[i % 4]);
+                }
+            }
+            if (opcode == 0xA) {
+                s->TouchPong();  // heartbeat proof of life
+            } else {
+                s->SendPong(payload);  // ping → masked-echo pong
+            }
+            continue;
+        }
+        if (opcode != 0x1) return -1;  // binary / continuation — refused
+        if (!masked) return -1;        // RFC: clients MUST mask
+        if (len > kMaxFrame) return -1;
+        unsigned char mask[4];
+        if (!RecvAll(s->sock_, mask, 4)) return -1;
+        out.resize(static_cast<size_t>(len));
+        if (len > 0 && !RecvAll(s->sock_, &out[0], out.size())) return -1;
+        for (size_t i = 0; i < out.size(); i++) {
+            out[i] = static_cast<char>(out[i] ^ mask[i % 4]);
+        }
+        return 1;
+    }
+}
+
+// Server frames are never masked. Sends must be serialized by the session's
+// mutex (frame = up to 3 send() calls).
 // claude session continuity across phone reconnects (spec §6): the last
 // chat_done per claude session id, 5-minute window, 4 entries max — keyed by
 // the id the phone will resume with.
@@ -670,7 +755,10 @@ static void OnLlmDelta(const std::string& utf8, void* user) {
 
 static void OnLlmDone(jk::agent::LlmTurnResult&& r, void* user) {
     auto* keep = static_cast<std::shared_ptr<BridgeSession>*>(user);
-    if (!r.sessionId.empty()) (*keep)->resumeSession_ = r.sessionId;
+    if (!r.sessionId.empty()) {
+        std::lock_guard<std::mutex> lock((*keep)->resumeMtx_);
+        (*keep)->resumeSession_ = r.sessionId;
+    }
     std::string frame = "{\"type\":\"chat_done\",\"ok\":";
     frame += r.ok ? "1" : "0";
     frame += ",\"streamed\":";
@@ -689,44 +777,83 @@ static void OnLlmDone(jk::agent::LlmTurnResult&& r, void* user) {
 
 // The pump: a ping round-trip flushes parked replies (jkchat Pump pattern),
 // then drain replies and events out over the WS. Blocking ping is a few ms
-// — acceptable on the pump thread.
+// — acceptable on the pump thread. EVERY agent touch sits inside agentMtx_ —
+// a first cut left the reconnect path bare, racing the dispatcher's
+// SendQuery on the unsynchronized JKAgentClient (opus MAJOR-2). The pump
+// also heartbeats the phone at the WS level every ~5 s (browsers pong
+// automatically): without it a suspended phone wedges the dispatcher's recv
+// forever and burns a session slot (opus MAJOR-3).
 static void PumpLoop(BridgeSession* s) {
     std::string json;
+    int cycles = 0;
     while (s->Alive()) {
-        if (!s->agent_.IsConnected()) {
-            if (s->agent_.Connect()) {
-                s->agent_.SubscribeEvents(true);
-            } else {
-                Sleep(400);
-                continue;
-            }
-        }
+        bool connected = false;
         {
             std::lock_guard<std::mutex> lock(s->agentMtx_);
+            if (!s->agent_.IsConnected()) {
+                if (s->agent_.Connect()) {
+                    s->agent_.SubscribeEvents(true);
+                }
+            }
+            connected = s->agent_.IsConnected();
+        }
+        if (s->Alive() && !connected) {
+            Sleep(400);
+            continue;
+        }
+        bool dead = false;
+        {
+            std::lock_guard<std::mutex> lock(s->agentMtx_);
+            if (++cycles % 12 == 0) {
+                // WS heartbeat (~every 4.8 s). A phone that stops ponging
+                // for 45 s is gone for good — free its slot.
+                if (s->PongStale()) {
+                    s->SendText(
+                        "{\"type\":\"error\",\"text\":\"heartbeat timeout\"}");
+                    s->Shutdown();
+                    break;
+                }
+                s->SendWsPing();
+            }
             std::string pong;
             s->agent_.Query("ping", "{}", pong);
             if (!s->agent_.IsConnected()) {
-                s->SendText("{\"type\":\"error\",\"text\":\"server connection lost\"}");
-                Sleep(400);
-                continue;
-            }
-            // queryId → label mapping: dispatcher adds, pump consumes.
-            std::lock_guard<std::mutex> labelLock(s->labelsMtx_);
-            for (auto it = s->labels_.begin(); it != s->labels_.end();) {
-                if (s->agent_.PollReply(it->first, json)) {
-                    s->SendText("{\"type\":\"reply\",\"label\":" +
-                                JsonEsc(it->second) + ",\"json\":" + json + "}");
-                    it = s->labels_.erase(it);
-                } else {
-                    ++it;
+                dead = true;
+            } else {
+                // queryId → label mapping: dispatcher adds, pump consumes.
+                std::lock_guard<std::mutex> labelLock(s->labelsMtx_);
+                for (auto it = s->labels_.begin(); it != s->labels_.end();) {
+                    if (s->agent_.PollReply(it->first, json)) {
+                        if (!s->SendText("{\"type\":\"reply\",\"label\":" +
+                                         JsonEsc(it->second) + ",\"json\":" +
+                                         json + "}")) {
+                            dead = true;
+                            break;
+                        }
+                        it = s->labels_.erase(it);
+                    } else {
+                        ++it;
+                    }
+                }
+                if (!dead) {
+                    std::vector<jk::agent::AgentEvent> events;
+                    s->agent_.PollEvents(events);
+                    for (const auto& ev : events) {
+                        if (!s->SendText("{\"type\":\"event\",\"topic\":" +
+                                         JsonEsc(ev.topic) + ",\"json\":" +
+                                         ev.json + "}")) {
+                            dead = true;
+                            break;
+                        }
+                    }
                 }
             }
-            std::vector<jk::agent::AgentEvent> events;
-            s->agent_.PollEvents(events);
-            for (const auto& ev : events) {
-                s->SendText("{\"type\":\"event\",\"topic\":" + JsonEsc(ev.topic) +
-                            ",\"json\":" + ev.json + "}");
-            }
+        }
+        if (dead) {
+            s->SendText(
+                "{\"type\":\"error\",\"text\":\"server connection lost\"}");
+            Sleep(400);
+            continue;
         }
         Sleep(400);
     }
@@ -737,7 +864,7 @@ static void SessionRun(std::shared_ptr<BridgeSession> s) {
     s->pump_ = std::thread(PumpLoop, s.get());
     std::string line;
     for (;;) {
-        const int r = WsReadFrame(s->sock_, line);
+        const int r = WsReadFrame(s.get(), line);
         if (r != 1) {
             s->Shutdown();
             break;
@@ -751,11 +878,18 @@ static void SessionRun(std::shared_ptr<BridgeSession> s) {
         if (type == "hello") {
             std::string resume;
             f.GetStr("resume_session", resume);
-            if (!resume.empty()) s->resumeSession_ = resume;
+            std::string resumeAtHello;
+            {
+                // resumeSession_ is written by the LLM worker thread (opus
+                // MINOR-1) — never read or written without the mutex.
+                std::lock_guard<std::mutex> lock(s->resumeMtx_);
+                if (!resume.empty()) s->resumeSession_ = resume;
+                resumeAtHello = s->resumeSession_;
+            }
             std::string frame =
                 "{\"type\":\"hello\",\"ok\":1,\"busy\":" +
                 std::string(s->engine_.Busy() ? "1" : "0");
-            const std::string pending = g_doneMemo.Get(s->resumeSession_);
+            const std::string pending = g_doneMemo.Get(resumeAtHello);
             if (!pending.empty()) {
                 frame += ",\"pending_result\":" + JsonEsc(pending);
             }
@@ -767,8 +901,13 @@ static void SessionRun(std::shared_ptr<BridgeSession> s) {
                 s->SendText("{\"type\":\"error\",\"text\":\"empty text\"}");
                 continue;
             }
+            std::string resumeAtChat;
+            {
+                std::lock_guard<std::mutex> lock(s->resumeMtx_);
+                resumeAtChat = s->resumeSession_;
+            }
             auto* keep = new std::shared_ptr<BridgeSession>(s);
-            if (!s->engine_.StartTurn(text, s->resumeSession_, OnLlmDelta,
+            if (!s->engine_.StartTurn(text, resumeAtChat, OnLlmDelta,
                                       OnLlmDone, keep)) {
                 delete keep;
                 s->SendText("{\"type\":\"error\",\"text\":\"busy\"}");
@@ -797,6 +936,12 @@ static void SessionRun(std::shared_ptr<BridgeSession> s) {
                 continue;
             }
             std::lock_guard<std::mutex> lock(s->labelsMtx_);
+            if (s->labels_.size() >= 128) {
+                // Bounded: a server that never replies must not grow the map
+                // forever (each entry can carry a 1 MiB label). Crude
+                // eviction is fine — a live phone has a handful of entries.
+                s->labels_.clear();
+            }
             s->labels_[id] = label.empty() ? tool : label;
         } else if (type == "approve") {
             int request = 0;
@@ -832,15 +977,34 @@ static void SessionRun(std::shared_ptr<BridgeSession> s) {
 static std::atomic<int> g_activeSessions{0};
 static const int kMaxSessions = 4;
 
-// Reads the request head (up to \r\n\r\n, 8 KiB cap).
+// Reads the request head (up to \r\n\r\n, 8 KiB cap). One recv per byte —
+// slow (heads are a few hundred bytes, once per connection) but exact: a
+// chunked read could swallow bytes past the terminator, and an unterminated
+// 8 KiB head must be a failure, not a valid request (slowloris is killed by
+// the socket read timeout, not here).
 static bool ReadHttpHead(SOCKET s, std::string& head) {
-    char chunk[1024];
-    while (head.find("\r\n\r\n") == std::string::npos && head.size() < 8192) {
-        const int r = recv(s, chunk, sizeof(chunk), 0);
+    char c;
+    while (head.size() < 8192) {
+        const int r = recv(s, &c, 1, 0);
         if (r <= 0) return false;
-        head.append(chunk, static_cast<size_t>(r));
+        head += c;
+        if (head.size() >= 4 && head.compare(head.size() - 4, 4, "\r\n\r\n") == 0) {
+            return true;
+        }
     }
-    return true;
+    return false;
+}
+
+// Constant-shape token compare — the strings are 32 hex chars, so the length
+// check leaks nothing (hygiene: early exit per byte is a LAN-negligible
+// timing oracle, but it costs nothing to close).
+static bool TokenEq(const std::string& a, const std::string& b) {
+    if (a.size() != b.size()) return false;
+    unsigned char d = 0;
+    for (size_t i = 0; i < a.size(); i++) {
+        d |= static_cast<unsigned char>(a[i] ^ b[i]);
+    }
+    return d == 0;
 }
 
 static std::string HeaderValue(const std::string& head, const char* name) {
@@ -925,6 +1089,15 @@ static std::string QueryParam(const std::string& target, const char* name) {
 }
 
 static void HandleConn(SOCKET conn, const BridgeConfig& cfg) {
+    // 30 s read/write timeouts on every connection: kills slowloris at the
+    // HTTP stage, breaks a dead phone's blocked recv (slot leak — opus
+    // MAJOR-3) and unblocks a wedged send. Healthy sessions stay fed by the
+    // pump's WS heartbeat below.
+    const DWORD timeoutMs = 30 * 1000;
+    setsockopt(conn, SOL_SOCKET, SO_RCVTIMEO,
+               reinterpret_cast<const char*>(&timeoutMs), sizeof(timeoutMs));
+    setsockopt(conn, SOL_SOCKET, SO_SNDTIMEO,
+               reinterpret_cast<const char*>(&timeoutMs), sizeof(timeoutMs));
     std::string head;
     if (!ReadHttpHead(conn, head)) {
         closesocket(conn);
@@ -949,7 +1122,7 @@ static void HandleConn(SOCKET conn, const BridgeConfig& cfg) {
             }
             return std::string("?");
         }();
-        if (QueryParam(target, "token") != cfg.token) {
+        if (!TokenEq(QueryParam(target, "token"), cfg.token)) {
             if (!g_rate.Allow(ip)) {
                 HttpReply(conn, 403, "denied", 6, "text/plain");
             } else {
@@ -959,10 +1132,11 @@ static void HandleConn(SOCKET conn, const BridgeConfig& cfg) {
             return;
         }
         const std::string key = HeaderValue(head, "Sec-WebSocket-Key");
-        // Upper bound = Sha1's 128-byte scratch (len ≤ 120 fits with padding);
-        // RFC keys are 24 chars — anything long is hostile anyway.
+        // RFC keys are 24 base64 chars; anything long is hostile. The cap
+        // also keeps Sha1's padded input well inside its scratch buffer
+        // (key 64 + 36 GUID bytes + padding ≤ 128 — buf is 256 for margin).
         if (HeaderValue(head, "Upgrade") != "websocket" || key.size() < 16 ||
-            key.size() > 120) {
+            key.size() > 64) {
             HttpReply(conn, 400, "not websocket", 13, "text/plain");
             closesocket(conn);
             return;
@@ -978,18 +1152,18 @@ static void HandleConn(SOCKET conn, const BridgeConfig& cfg) {
             B64(digest, 20) + "\r\n\r\n";
         SendAll(conn, resp.data(), resp.size());
 
-        // Session cap: authenticated phones only.
-        if (g_activeSessions.load() >= kMaxSessions) {
+        // Session cap: authenticated phones only. fetch_add first (opus
+        // MINOR-2 — load+++ raced two handshakes past the cap).
+        if (g_activeSessions.fetch_add(1) >= kMaxSessions) {
+            g_activeSessions.fetch_sub(1);
             WsSendFrame(conn,
                         "{\"type\":\"error\",\"text\":\"too many sessions\"}");
             closesocket(conn);
             return;
         }
-        g_activeSessions++;
         auto s = std::make_shared<BridgeSession>(conn);
         SessionRun(s);
         g_activeSessions--;
-        return;
     }
 
     if (target == "/" || target.rfind("/?token=", 0) == 0) {
