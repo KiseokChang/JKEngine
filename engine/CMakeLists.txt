@@ -644,6 +644,17 @@ if(WIN32)
     target_link_options(jkchat PRIVATE -municode -static-libstdc++ -static-libgcc)
 endif()
 
+# jkbridge: phone web gateway (spec docs/superpowers/specs/2026-09-18-jkbridge-design).
+# Console HTTP+WebSocket gateway — the phone's browser is the UI; jkbridge is
+# a generic relay (JKAgentClient pipe + JKLlmEngine turn runner). LAN + URL
+# token; ws2_32 (TCP/WS), bcrypt (token CSPRNG). LAN IP print uses the
+# UDP-connect/getsockname trick — no iphlpapi.
+add_executable(jkbridge tools/jkbridge/main.cpp)
+target_link_libraries(jkbridge PRIVATE jkcore ws2_32 bcrypt)
+if(WIN32)
+    target_link_options(jkbridge PRIVATE -static-libstdc++ -static-libgcc)
+endif()
+
 # M2b trigger-script host: console process, no UI (outside JKWindow/SDL).
 # bcrypt: SHA-256 for the script trust model (docs/37 spec, CNG BCrypt).
 add_executable(jktriggers tools/jktriggers/main.cpp)

@@ -33,7 +33,7 @@ for dll in "$TEMP"/build/jkapp_*.dll; do
 done
 # 도구 exe도 복사 — jkagentd/jkchat/jktriggers/jkctl(P4 SDK, docs/51)이
 # temp에만 남으면 실행 환경에서 agent 채널/jkctl이 사라진다.
-for exe in jkagentd jkchat jktriggers jkctl; do
+for exe in jkagentd jkchat jktriggers jkctl jkbridge; do
     [ -e "$TEMP/build/$exe.exe" ] && cp -f "$TEMP/build/$exe.exe" "$SRC/build/"
 done
 # assets 폴더도 build 디렉터리에 동기화하여 실행 파일이 단독으로 리소스를 찾을 수 있게 한다.
