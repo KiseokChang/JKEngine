@@ -458,17 +458,20 @@ bool BrokerAppToolAllowed(const std::string& app, const std::string& tool) {
 // list_app_tools 질의 — 앱 도구명은 <app>_<tool>(MCP 도구명 규약: 점 부재),
 // description 앞에 [<app>] 접두, inputSchema는 앱 선언 그대로. 서버 질의
 // 실패 시 정적부만 반환(폴백 — 앱 도구만 잠깐 안 보이는 수준).
-std::string ComposeToolsListJson() {
+//
+// 합성 본체는 카탈로그 응답 문자열을 받는 FromReply로 분리 — 셀프테스트가
+// 라이브 서버 접속 없이 조립 결과를 검증하게 하기 위함(2026-09-20 실측:
+// 동적부 2행째부터 쉼표 누락으로 tools/list 응답 전체가 비-JSON이 되고,
+// claude CLI는 30s 타임아웃 뒤 jkagentd를 강제종료·재스폰하는 재접속 폭풍
+// 을 돌렸다 — 폰 세션 "MCP 연결 불안정"의 근원. 첫 행 전용 쉼표 주입
+// `if (dyn.empty()) dyn = ","` 가 결함이었다).
+std::string ComposeToolsListJsonFromReply(const std::string& replyJson) {
     std::string core = kCoreToolsListJson;   // {"tools":[ ... ]} 완결 형태
     std::string dyn;
-    if (EnsureConnected()) {
-        std::string reply;
-        if (g_agent.QueryRaw("{\"tool\":\"list_app_tools\",\"args\":{}}",
-                             reply) &&
-            !reply.empty()) {
-            jk::agent::AgentJson r(reply);
-            int n = 0;
-            if (r.ok() && r.GetArraySize("tools", n)) {
+    {
+        jk::agent::AgentJson r(replyJson);
+        int n = 0;
+        if (r.ok() && r.GetArraySize("tools", n)) {
                 // 2-패스: 1차로 mcpName별 서로 다른 (app,tool) 쌍을 수집해
                 // 복합명 충돌(a.b_c vs a_b.c → 같은 합성명)을 검출 — 스트리밍
                 // 1-패스는 최초 행을 이미 방출한 뒤에 충돌을 알게 되는 결함이
@@ -534,13 +537,17 @@ std::string ComposeToolsListJson() {
                                      mcpName.c_str());
                         continue;
                     }
+                    // 행 경계 쉼표 — 정적부 꼬리 뒤 선행 쉼표(첫 행)와 행
+                    // 사이 쉼표(2행째부터) 전부. 이전 코드는 첫 행에만
+                    // 쉼표를 넣어 2행째부터 `}{` 접합으로 tools/list 응답
+                    // 전체가 비-JSON이 되었다(2026-09-20 폰 세션 실측).
                     if (dyn.empty()) dyn = ",";
+                    else dyn += ",";
                     dyn += std::string("{\"name\":\"") + JsonEsc(mcpName) +
                            "\",\"description\":\"[" + JsonEsc(app) + "] " +
                            JsonEsc(desc) + "\",\"inputSchema\":" + schema + "}";
                 }
             }
-        }
     }
     if (dyn.empty()) return core;
     // core 끝 "]}"}를 열어 동적부 삽입 — 정적 문자열의 마지막 "]}") 절단 후
@@ -549,6 +556,18 @@ std::string ComposeToolsListJson() {
     const size_t tail = core.rfind("]}");
     if (tail == std::string::npos) return core;
     return core.substr(0, tail) + dyn + "]}";
+}
+
+std::string ComposeToolsListJson() {
+    if (EnsureConnected()) {
+        std::string reply;
+        if (g_agent.QueryRaw("{\"tool\":\"list_app_tools\",\"args\":{}}",
+                             reply) &&
+            !reply.empty()) {
+            return ComposeToolsListJsonFromReply(reply);
+        }
+    }
+    return kCoreToolsListJson;   // 폴백 — 정적부만
 }
 
 // file_open 서버 args 재조립 (filedlg 음성 내비게이션, 스펙 §7): MCP 경로는
@@ -898,6 +917,26 @@ int RunSelfTest() {
             jk::agent::AgentJson cq(calls[i]);
             if (!cq.ok() || BuildFileOpenArgs(cq) != wants[i]) ++failures;
         }
+    }
+    // 동적부 합성 (스펙 §6, 2026-09-20 실측 결함 회귀): 카탈로그 3행을
+    // 스크립트로 주입 — 조립 결과가 온전한 JSON인지(행 경계 쉼표 포함)
+    // AgentJson으로 직접 검증한다. 라이브 서버 부재 환경에서도 조립 전
+    // 경로가 커버된다. 코어 28 + 유효 동적 3 = 31행.
+    {
+        const char* cat =
+            "{\"tools\":["
+            "{\"app\":\"appx\",\"name\":\"t1\",\"description\":\"d1\","
+            "\"inputSchema\":{\"type\":\"object\",\"properties\":{}}},"
+            "{\"app\":\"appx\",\"name\":\"t2\",\"description\":\"d2\","
+            "\"inputSchema\":{}},"
+            "{\"app\":\"appy\",\"name\":\"t3\",\"description\":\"d3\","
+            "\"inputSchema\":{\"type\":\"object\",\"properties\":{}}}]}";
+        const std::string composed = ComposeToolsListJsonFromReply(cat);
+        jk::agent::AgentJson c(composed);
+        int tc = 0;
+        if (!c.ok() || !c.GetArraySize("tools", tc) || tc != 31) ++failures;
+        if (composed.find("appx_t2") == std::string::npos ||
+            composed.find("appy_t3") == std::string::npos) ++failures;
     }
     // 동적명 tools/call의 폴백: 서버 부재(selftest 환경)에서 ResolveAppTool이
     // 즉시 실패 — 행블록 없이 unknown_tool 즉답.

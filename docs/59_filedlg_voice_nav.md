@@ -395,3 +395,44 @@ list limit 비양수 → 1 클램프, 스키마 밖 key → `bad_args`(방어선
 - **실측**: `probe_filedlg_voice` 60체크 **×2 연속 ALL PASS**(회귀 중첩
   c12a-e 포함). `pfdv_diag2` 12/12 해소. 중첩 probe_app_tools run1에서
   1회 플레이크(rows=0, vplayer 등록 레이스 — 재실행 통과, 기존 결함 아님).
+
+## 10. 폰 플로우 재발 진단 — jkagentd tools/list 접합 파산 (2026-09-20)
+
+§9 종료 뒤 사용자 폰 실사에서 동일 증상 재보고("MCP 연결이 자주 끊기네요",
+"[!] busy", 수동 선택 무반응). 증거 3중 소스로 박제:
+
+- **폰 세션 claude CLI 트랜스크립트**(`projects/I--progwork-JKENGINE/
+  f2541842-*.jsonl`): 성공 호출 6건(list_windows×2 → launch_app →
+  list_windows → file_open parked → read_events 빈) 뒤 MCP 호출이
+  전면 "No such tool available. The MCP server 'jkdesktop' is still
+  connecting"로 전락. 부수 실측: 폰 LLM이 Bash 도구로 jkdesktop 프로세스
+  2인분 관측 → kill/`--server` 재기동 에스컬레이션(다중 기동 레슨 재현),
+  `filedlg_open` 등 존재하지 않는 도구명 환각.
+- **claude CLI 측 MCP 로그**(`AppData/Local/claude-cli-nodejs/Cache/
+  I--progwork-JKENGINE/mcp-logs-jkdesktop/*.jsonl`)가 결정타:
+  `Ignoring non-JSON line on stdout: JSON Parse error: Expected ']'` +
+  `Failed to fetch tools: MCP error -32001: Request timed out` — tools/list
+  응답이 비-JSON이라 CLI가 폐기 → 30s 타임아웃 → **jkagentd 강제종료·재스폰
+  반복**(4분간 6회 스폰). "MCP 연결 불안정" 전부가 이 루프.
+- **근원 1줄**: `ComposeToolsListJson` 동적부 조립이
+  `if (dyn.empty()) dyn = ","` — 첫 행 앞에만 쉼표를 넣어 2행째부터
+  `}{` 접합. 카탈로그가 비어 있으면(동적 0행) 정적부라 정상 — vplayer
+  등 앱 창이 살아 도구를 등록하는 순간 tools/list 전체가 파산. 셀프테스트는
+  서버 부재 환경이라 동적 경로가 한 번도 검증된 적 없었음(커버리지 갭).
+- **픽스**: 합성 본체를 카탈로그 응답 문자열을 받는
+  `ComposeToolsListJsonFromReply`로 추출 + 행 경계 쉼표 전면 수정
+  (`if (dyn.empty()) dyn=","; else dyn += ",`;`). 셀프테스트에 스크립트
+  카탈로그 3행 주입 검증 추가(코어 28 + 동적 3 = 31행, AgentJson 파싱).
+- **검증**: selftest 0 failures. 라이브 서버(vplayer 창 id 6 생존, 카탈로그
+  6행)에 tools/list → 유효 JSON 34행(28 코어 + 6 동적) + tools/call 정상.
+- **유보(권고)**: ①폰 LLM의 Bash/파일 도구 제한(jkbridge 스폰 인자에
+  `--disallowedTools "Bash"`) — 서버 kill·재기동 에스컬레이션 봉쇄. 단
+  진단용 Bash까지 막히는 트레이드오프라 사용자 판정 필요. ②서버 단일
+  인스턴스 가드(명명 뮤텍스) — 다중 기동 시 클라이언트 인스턴스 갈림의
+  근본 봉쇄. ③jkbridge busy 게이트 큐잉 전환 — UX 수준.
+- **레슨**: ①동적 합성 경로는 "정적 경로만 지나는 테스트"로는 무증거 —
+  스크립트 주입형 합성 검증이 정답. ②"MCP 불안정" 같은 상위 증상은 자체
+  프로세스가 아니라 **소비자(CLI)의 로그**에서 확정한다 — CLI가 남기는
+  stdout 파싱 에러 한 줄이 3시간 추측을 대체. ③폰 LLM의 에스컬레이션
+  (프로세스 kill/재기동)은 진짜 결함을 가리는 소음이자 새 결함의 원인 —
+  에이전트에게 OS 프로세스 권한을 주지 않는 것이 안정성 그 자체.
