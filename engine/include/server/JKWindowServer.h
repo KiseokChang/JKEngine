@@ -269,6 +269,11 @@ private:
     // 도구화한 것 (snap의 하드코딩 타이틀 페어링 일반화).
     struct PendingFileDialog {
         uint32_t requesterConnId = 0;  // 0 = 빈 슬롯 (대화상자 미기동/종료)
+        uint32_t dialogConnId = 0;     // file_dialog_params를 수락한 다이얼로그
+                                       // 연결 — 모달 가드 진실원 (스펙 §5).
+                                       // requesterConnId와 역할 구분:
+                                       // requester=file_open 호출자(요청자),
+                                       // dialog=파라미터를 꺼내 간 다이얼로그.
         uint32_t requestId = 0;        // 파킹된 pendingApprovals_ 항목 id
         bool paramsTaken = false;      // file_dialog_params가 이미 꺼냈는가
         std::string filter;            // 선택 필드 — 없으면 빈 문자열
@@ -289,6 +294,8 @@ private:
         std::string app;         // ^[a-z][a-z0-9_]{0,15}$
         uint32_t windowId = 0;   // 창 클라만(= connId), 제어 연결 0
         std::string title;       // 카탈로그 표기용
+        bool modal = false;      // 쿼리-수명 모달(filedlg) — app_tool 중계 시
+                                 // 슬롯 소유 재검증 (스펙 §4)
         std::vector<AppToolDef> tools;
     };
     // 중계 대기 중인 도구 호출 — 앱의 AgentToolResult를 기다린다(10s 만료).

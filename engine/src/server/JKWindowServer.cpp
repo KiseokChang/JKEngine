@@ -2652,7 +2652,9 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                        (t.inputSchema.empty() ? "{}" : t.inputSchema) +
                        ",\"windowId\":" + std::to_string(m.windowId) +
                        ",\"title\":\"" + JsonEsc(m.title) +
-                       "\",\"connId\":" + std::to_string(m.connId) + "}";
+                       "\",\"connId\":" + std::to_string(m.connId) +
+                       // 스펙 §4: modal은 false도 명시 — 소비자 파싱 단순화.
+                       ",\"modal\":" + (m.modal ? "true" : "false") + "}";
             }
         }
         reply = out + "]}";
@@ -2710,138 +2712,147 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                         list + "]}";
             } else {
                 const AppToolManifest* m = cands.front();
-                JKClientConnection* conn = nullptr;
-                for (const auto& c : clients_) {
-                    if (c && c->Id() == m->connId && !c->IsDisconnected()) {
-                        conn = c.get();
-                        break;
-                    }
-                }
-                if (!conn) {
-                    // 매니페스트는 살아 있지만 연결이 끊김(정리 대기) —
-                    // tool_gone과 동일 수명 사건 (스펙 §9).
-                    reply = "{\"ok\":false,\"error\":\"unknown_app_tool\"}";
+                // 모달 가드 (스펙 §5): 모달 도구는 "다이얼로그가 슬롯을
+                // 소유한 동안만" 존재한다. 슬롯 만료(600s)/해소/재사용 후에도
+                // 살아 있는 고아 다이얼로그의 도구 호출을 중계 전에 차단한다
+                // (docs/48 MAJOR-1 교차결함 동류 — 판정은 앱이 아니라 슬롯
+                // 진실원 pendingFileDialog_.dialogConnId가 한다).
+                if (m->modal && pendingFileDialog_.dialogConnId != m->connId) {
+                    reply = "{\"ok\":false,\"error\":\"tool_gone\"}";
                 } else {
-                    switch (AppToolAllowed(app, toolName)) {
-                        case AgentDecision::Deny:
-                            // 스펙 §9 게이트 표면 — capture_ask 선례의 "denied".
-                            reply = "{\"ok\":false,\"error\":\"denied\"}";
+                    JKClientConnection* conn = nullptr;
+                    for (const auto& c : clients_) {
+                        if (c && c->Id() == m->connId && !c->IsDisconnected()) {
+                            conn = c.get();
                             break;
-                        case AgentDecision::Ask: {
-                            // 스펙 §4.3: 기존 승인 파이프라인 재사용 —
-                            // close_window ask 패턴 그대로 (구독자 체크 →
-                            // approval_unavailable, PendingApproval push +
-                            // agent.approval_request 방송, replied=false).
-                            // kind="app_tool", name=app+"."+tool,
-                            // targetId=windowId(Task 8 하이라이트 소비).
-                            bool subscriber = false;
-                            for (const auto& c : clients_) {
-                                if (c && c->AgentEventSubscriber() &&
-                                    !c->IsDisconnected()) {
-                                    subscriber = true;
+                        }
+                    }
+                    if (!conn) {
+                        // 매니페스트는 살아 있지만 연결이 끊김(정리 대기) —
+                        // tool_gone과 동일 수명 사건 (스펙 §9).
+                        reply = "{\"ok\":false,\"error\":\"unknown_app_tool\"}";
+                    } else {
+                        switch (AppToolAllowed(app, toolName)) {
+                            case AgentDecision::Deny:
+                                // 스펙 §9 게이트 표면 — capture_ask 선례의 "denied".
+                                reply = "{\"ok\":false,\"error\":\"denied\"}";
+                                break;
+                            case AgentDecision::Ask: {
+                                // 스펙 §4.3: 기존 승인 파이프라인 재사용 —
+                                // close_window ask 패턴 그대로 (구독자 체크 →
+                                // approval_unavailable, PendingApproval push +
+                                // agent.approval_request 방송, replied=false).
+                                // kind="app_tool", name=app+"."+tool,
+                                // targetId=windowId(Task 8 하이라이트 소비).
+                                bool subscriber = false;
+                                for (const auto& c : clients_) {
+                                    if (c && c->AgentEventSubscriber() &&
+                                        !c->IsDisconnected()) {
+                                        subscriber = true;
+                                        break;
+                                    }
+                                }
+                                if (!subscriber) {
+                                    reply = "{\"ok\":false,"
+                                            "\"error\":\"approval_unavailable\"}";
                                     break;
                                 }
-                            }
-                            if (!subscriber) {
-                                reply = "{\"ok\":false,"
-                                        "\"error\":\"approval_unavailable\"}";
+                                PendingApproval p;
+                                p.kind = "app_tool";
+                                p.requestId = nextApprovalId_++;
+                                p.queryId = queryId;
+                                p.requesterId = client.Id();
+                                p.targetId = m->windowId;
+                                p.expiresAt = std::time(nullptr) + 60;
+                                // 배너 표기(스펙 §5 1단)는 p.name 하나를 소스로
+                                // 삼는다 — 그리는 쪽에서 app/tool을 다시 조립하지
+                                // 않게 app+"."+tool을 파킹 시점에 확정.
+                                p.name = app + "." + toolName;
+                                p.appToolApp = app;
+                                p.appToolTool = toolName;
+                                p.appToolArgs = argsRaw;
+                                p.appToolConnId = m->connId;
+                                // 스펙 §5 3단: 대상 창 "조작 전" 썸네일 — 캡처
+                                // 실패는 비치명(thumb 필드만 생략, 승인 흐름은
+                                // 계속). 제어 연결 매니페스트(windowId=0)는 레이어
+                                // 부재로 자연 실패한다. 파일명 규약 =
+                                // capture_window의 shot_<ts>_<id>.png와 동일 형식.
+                                // 서버 루프 스레드에서의 GPU readback은
+                                // capture_window가 이미 이 스레드에서 하는 비용과
+                                // 같다(스레드 추가 없음).
+                                std::string thumb;
+                                {
+                                    const std::string sdir =
+                                        StateDir() + "\\screenshots";
+                                    CreateDirectoryA(sdir.c_str(), nullptr);
+                                    char tbuf[512];
+                                    std::snprintf(tbuf, sizeof(tbuf),
+                                                  "%s\\approval_%lld_%u.png",
+                                                  sdir.c_str(),
+                                                  static_cast<long long>(
+                                                      std::time(nullptr)),
+                                                  p.requestId);
+                                    if (CaptureLayerToPng(m->windowId, tbuf))
+                                        thumb = tbuf;
+                                }
+                                char buf[2048];
+                                std::snprintf(buf, sizeof(buf),
+                                              "{\"topic\":\"agent.approval_request\","
+                                              "\"request\":%u,\"tool\":\"app_tool\","
+                                              "\"kind\":\"app_tool\","
+                                              "\"name\":\"%s.%s\","
+                                              "\"target_id\":%u,\"title\":\"%s\","
+                                              "\"target\":{\"app\":\"%s\","
+                                              "\"tool\":\"%s\",\"windowId\":%u,"
+                                              "\"title\":\"%s\"}"
+                                              "%s%s%s,"
+                                              "\"ts\":%lld}",
+                                              p.requestId, JsonEsc(app).c_str(),
+                                              JsonEsc(toolName).c_str(),
+                                              m->windowId,
+                                              JsonEsc(m->title).c_str(),
+                                              JsonEsc(app).c_str(),
+                                              JsonEsc(toolName).c_str(),
+                                              m->windowId,
+                                              JsonEsc(m->title).c_str(),
+                                              thumb.empty() ? "" : ",\"thumb\":\"",
+                                              thumb.empty()
+                                                  ? ""
+                                                  : JsonEsc(thumb).c_str(),
+                                              thumb.empty() ? "" : "\"",
+                                              static_cast<long long>(
+                                                  std::time(nullptr)) * 1000);
+                                pendingApprovals_.push_back(p);
+                                PushAgentEventJson(buf);
+                                replied = false;  // 승인 resolve(또는 만료)가 응답
                                 break;
                             }
-                            PendingApproval p;
-                            p.kind = "app_tool";
-                            p.requestId = nextApprovalId_++;
-                            p.queryId = queryId;
-                            p.requesterId = client.Id();
-                            p.targetId = m->windowId;
-                            p.expiresAt = std::time(nullptr) + 60;
-                            // 배너 표기(스펙 §5 1단)는 p.name 하나를 소스로
-                            // 삼는다 — 그리는 쪽에서 app/tool을 다시 조립하지
-                            // 않게 app+"."+tool을 파킹 시점에 확정.
-                            p.name = app + "." + toolName;
-                            p.appToolApp = app;
-                            p.appToolTool = toolName;
-                            p.appToolArgs = argsRaw;
-                            p.appToolConnId = m->connId;
-                            // 스펙 §5 3단: 대상 창 "조작 전" 썸네일 — 캡처
-                            // 실패는 비치명(thumb 필드만 생략, 승인 흐름은
-                            // 계속). 제어 연결 매니페스트(windowId=0)는 레이어
-                            // 부재로 자연 실패한다. 파일명 규약 =
-                            // capture_window의 shot_<ts>_<id>.png와 동일 형식.
-                            // 서버 루프 스레드에서의 GPU readback은
-                            // capture_window가 이미 이 스레드에서 하는 비용과
-                            // 같다(스레드 추가 없음).
-                            std::string thumb;
-                            {
-                                const std::string sdir =
-                                    StateDir() + "\\screenshots";
-                                CreateDirectoryA(sdir.c_str(), nullptr);
-                                char tbuf[512];
-                                std::snprintf(tbuf, sizeof(tbuf),
-                                              "%s\\approval_%lld_%u.png",
-                                              sdir.c_str(),
-                                              static_cast<long long>(
-                                                  std::time(nullptr)),
-                                              p.requestId);
-                                if (CaptureLayerToPng(m->windowId, tbuf))
-                                    thumb = tbuf;
+                            case AgentDecision::Allow: {
+                                // 스펙 §9 시퀀싱: 즉시 중계 + 타이머 시작. 응답은
+                                // 앱의 AgentToolResult(HandleToolResult)가 queryId로
+                                // 회송 — replied=false. expiresAt은 여기서 설정하므로
+                                // 승인 대기 시간이 타임아웃을 갉지 않는다.
+                                const uint32_t reqId = nextToolReqId_++;
+                                InflightAppTool inf;
+                                inf.reqId = reqId;
+                                inf.queryId = queryId;
+                                inf.requesterConnId = client.Id();
+                                inf.targetConnId = conn->Id();
+                                inf.windowId = m->windowId;
+                                inf.expiresAt = std::time(nullptr) + 10;
+                                inflightAppTools_[reqId] = inf;
+                                std::string callJson = "{\"app\":\"" + JsonEsc(app) +
+                                    "\",\"tool\":\"" + JsonEsc(toolName) +
+                                    "\",\"args\":" +
+                                    (argsRaw.empty() ? "{}" : argsRaw) + "}";
+                                ipc::WriteAgentToolCall(conn->Transport(), reqId,
+                                                        callJson);
+                                replied = false;  // HandleToolResult가 응답한다
+                                break;
                             }
-                            char buf[2048];
-                            std::snprintf(buf, sizeof(buf),
-                                          "{\"topic\":\"agent.approval_request\","
-                                          "\"request\":%u,\"tool\":\"app_tool\","
-                                          "\"kind\":\"app_tool\","
-                                          "\"name\":\"%s.%s\","
-                                          "\"target_id\":%u,\"title\":\"%s\","
-                                          "\"target\":{\"app\":\"%s\","
-                                          "\"tool\":\"%s\",\"windowId\":%u,"
-                                          "\"title\":\"%s\"}"
-                                          "%s%s%s,"
-                                          "\"ts\":%lld}",
-                                          p.requestId, JsonEsc(app).c_str(),
-                                          JsonEsc(toolName).c_str(),
-                                          m->windowId,
-                                          JsonEsc(m->title).c_str(),
-                                          JsonEsc(app).c_str(),
-                                          JsonEsc(toolName).c_str(),
-                                          m->windowId,
-                                          JsonEsc(m->title).c_str(),
-                                          thumb.empty() ? "" : ",\"thumb\":\"",
-                                          thumb.empty()
-                                              ? ""
-                                              : JsonEsc(thumb).c_str(),
-                                          thumb.empty() ? "" : "\"",
-                                          static_cast<long long>(
-                                              std::time(nullptr)) * 1000);
-                            pendingApprovals_.push_back(p);
-                            PushAgentEventJson(buf);
-                            replied = false;  // 승인 resolve(또는 만료)가 응답
-                            break;
-                        }
-                        case AgentDecision::Allow: {
-                            // 스펙 §9 시퀀싱: 즉시 중계 + 타이머 시작. 응답은
-                            // 앱의 AgentToolResult(HandleToolResult)가 queryId로
-                            // 회송 — replied=false. expiresAt은 여기서 설정하므로
-                            // 승인 대기 시간이 타임아웃을 갉지 않는다.
-                            const uint32_t reqId = nextToolReqId_++;
-                            InflightAppTool inf;
-                            inf.reqId = reqId;
-                            inf.queryId = queryId;
-                            inf.requesterConnId = client.Id();
-                            inf.targetConnId = conn->Id();
-                            inf.windowId = m->windowId;
-                            inf.expiresAt = std::time(nullptr) + 10;
-                            inflightAppTools_[reqId] = inf;
-                            std::string callJson = "{\"app\":\"" + JsonEsc(app) +
-                                "\",\"tool\":\"" + JsonEsc(toolName) +
-                                "\",\"args\":" +
-                                (argsRaw.empty() ? "{}" : argsRaw) + "}";
-                            ipc::WriteAgentToolCall(conn->Transport(), reqId,
-                                                    callJson);
-                            replied = false;  // HandleToolResult가 응답한다
-                            break;
                         }
                     }
-                }
+                }  // 모달 가드 else
             }
         }
     } else if (tool == "close_window") {
@@ -4765,6 +4776,10 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             appendParam("start", pendingFileDialog_.start);
             appendParam("title", pendingFileDialog_.title);
             reply = out + "}";
+            // 스펙 §5: 슬롯이 파라미터를 준 다이얼로그 연결을 기록 — 모달
+            // 가드(app_tool 중계 재검증)의 진실원. paramsTaken과 함께
+            // 선착순 소진 시점에 확정된다.
+            pendingFileDialog_.dialogConnId = client.Id();
             pendingFileDialog_.paramsTaken = true;  // 선착순 소진
         }
     } else if (tool == "file_open_result") {
@@ -4940,6 +4955,11 @@ void JKWindowServer::HandleToolRegister(JKClientConnection& client,
     m.app = app;
     m.windowId = client.IsControlOnly() ? 0u : client.Id();
     m.title = client.Title();
+    // 스펙 §4: 모달 플래그(선택 필드, 부재=false). AgentJson에 bool 리더가
+    // 없으므로 기존 파서 계약(파킹 쿼리 ok/ok 필드 등 — bool은 0/1 int,
+    // jkagentd settings_set 선례)대로 GetInt로 수용한다. 0이 아니면 true.
+    int modalArg = 0;
+    m.modal = req.GetInt("modal", modalArg) && modalArg != 0;
     for (int i = 0; i < toolCount; ++i) {
         AppToolDef d;
         if (!req.GetArrStr("tools", i, "name", d.name) ||
