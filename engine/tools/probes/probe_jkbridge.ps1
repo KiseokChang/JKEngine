@@ -3,8 +3,8 @@
 # there) with probe-owned state swap: state\jkbridge.json (fixed token/port)
 # and state\chat.json (stub engine — pollution guard, docs/54 lesson 6) are
 # backed up and restored. Drives the wire with a raw PS TcpClient WS client.
-# Checks: HTTP UI/health/404, token gate, rate limit (LAST — a 403-grade IP
-# gate would poison later good-token checks), WS hello, stub chat done, tool
+# Checks: HTTP UI/health/404, app_tool approval-strip wording (served JS,
+# task-9 review M-4), token gate, rate limit (LAST — a 403-grade IP
 # relay, ask-gate close approval roundtrip, session cap, 1MiB frame cap,
 # resume memo. jkwinserver (jkdesktop --server) lifecycle probe-managed.
 $ErrorActionPreference = "Continue"
@@ -125,6 +125,22 @@ try { $health = (Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:8899/
 Check "http-health" ($health -eq "ok")
 try { $ui = (Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:8899/" -TimeoutSec 5).Content } catch { $ui = "" }
 Check "http-ui" ($ui -match "doctype html" -and $ui -match "jkbridge")
+
+# --- 1b. approval strip wording: app_tool branch (task-9 review M-4 fix) ------
+# The strip text is rendered client-side, so the probe asserts the SERVED JS:
+# the app_tool branch must render the target window honestly ("[<app> 창 #id]
+# <tool> 실행할까요?" - jkchat wording) and the close_window fallback wording
+# ("창을 닫을까요?") must stay untouched. Korean needles are built from
+# codepoints - this file stays ASCII-only (PS5.1 encoding trap). $ui is
+# decoded per the served "charset=utf-8" header, so string matching is exact.
+function K([int[]]$c) { return (-join ($c | ForEach-Object { [char]$_ })) }
+$krChang = K @(0xCC3D)                                  # chang (window)
+$krShil  = K @(0xC2E4,0xD589,0xD560,0xAE4C,0xC694)      # silhaeng (exec)
+$krChaRe = (K @(0xCC3D,0xC744)) + " " + (K @(0xB2EB,0xC744,0xAE4C,0xC694))  # chang-eul kka-yo (close re-ask)
+Check "bridge-app-tool-strip" ($ui -match "k === 'app_tool'" -and
+                               $ui -match ("' " + $krChang + " #'") -and
+                               $ui -match ($krShil + "\?") -and
+                               $ui -match $krChaRe)
 try {
     Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:8899/bogus" -TimeoutSec 5 | Out-Null
     $code = 200

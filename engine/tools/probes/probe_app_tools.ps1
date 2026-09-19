@@ -21,6 +21,21 @@
 #      unknown dynamic -> unknown_tool; 13 fallback: server down -> core only.
 #   14 fix round 1: composite-name ambiguity (coll_a.b + coll.a_b ->
 #      coll_a_b): tools/call -> ambiguous_tool+candidates(2), list skips it.
+#   stage 3 (spec §5): c15/c16/c17 = brief checks 13-15 -
+#   15 highlight pixel measurement: COORDINATOR RULING - do NOT duplicate
+#      probe_app_tools_highlight.ps1's pixel logic here; the probe is folded
+#      in as a nested regression (c10/probe_jkbridge precedent) and its ALL
+#      PASS is an explicit check. It manages its own server lifecycle, so
+#      c16/c17 restart what they need after it.
+#   16 approval_request payload: target{app,tool,windowId,title} +
+#      thumb absolute path + PNG magic first 8 bytes (thumb file deleted
+#      after the check - it lives in state\screenshots).
+#   17 approval strip wording: jkchat is launched BEFORE the ask parks, its
+#      transcript edit (id 103) and strip prompt (id 106) are read via
+#      WM_GETTEXT and must carry the target-present wording ("[vplayer
+#      chang #<id>] play_pause sil-hal-kka-yo?" in romanized form) - Korean
+#      needles are built from codepoints at runtime; this file stays
+#      ASCII-only (PS5.1 encoding trap).
 # Raw pipe helpers = mgr_t1_read/mgr_t8_cross_approve frame reader (one function
 # consumes header+payload whole). agentctl args = probe_notes ProcessStartInfo
 # raw command-line idiom (PS5.1 argv re-parsing trap). Tool args use INTEGERs
@@ -153,6 +168,30 @@ function Pipe-Avail([System.IO.Pipes.NamedPipeClientStream]$s) {
         if (-not [PipePeek]::PeekNamedPipe($h, $null, 0, [ref]$read, [ref]$avail, [ref]$left)) { return -1 }
     } catch { return -1 }
     return $avail
+}
+# jkchat transcript/strip readers (c17): jkchat is a plain Win32 app - the
+# transcript is a multiline EDIT (id IDC_LOG=103) and the approval strip a
+# STATIC (id IDC_PROMPT=106). WM_GETTEXTLENGTH(0x000E)/WM_GETTEXT(0x000D) on
+# standard controls is marshaled cross-process by the OS.
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public class ChatUiR {
+    [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr h, int id);
+    [DllImport("user32.dll")] public static extern int SendMessageW(IntPtr h, int msg, IntPtr w, IntPtr l);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern int SendMessageW(IntPtr h, int msg, IntPtr w, StringBuilder l);
+}
+"@
+function Read-Ctrl([IntPtr]$hwnd, [int]$id) {
+    $c = [ChatUiR]::GetDlgItem($hwnd, $id)
+    if ($c -eq [IntPtr]::Zero) { return "" }
+    $n = [ChatUiR]::SendMessageW($c, 0x000E, [IntPtr]::Zero, [IntPtr]::Zero)
+    if ($n -le 0) { return "" }
+    $sb = New-Object System.Text.StringBuilder ($n + 2)
+    [void][ChatUiR]::SendMessageW($c, 0x000D, [IntPtr]($n + 1), $sb)
+    return $sb.ToString()
 }
 # Deadline-bounded frame read: poll availability, then a SYNCHRONOUS Read only
 # when the needed bytes are already buffered (Read returns without blocking).
@@ -543,12 +582,126 @@ try {
     Check "c13-fallback-static" ($fb -match '"name":"list_windows"' -and
                                  $fb -notmatch '"name":"vplayer_seek"') ($fb.Substring(0, [Math]::Min(300, $fb.Length)))
 
+    # ---- c15 (stage-3 #13): highlight pixel measurement, folded in -----------
+    # Coordinator ruling: probe_app_tools_highlight.ps1 owns the pixel logic
+    # (amber band/ring/glyph). Nested regression like c10 - the nested probe
+    # kills and restarts the server VISIBLE (CopyFromScreen needs a real
+    # window) and restores permissions itself, so c16/c17 rebuild after it.
+    Get-Process jkbridge -ErrorAction SilentlyContinue | Stop-Process -Force
+    Start-Sleep -Seconds 2
+    $hlLog = Join-Path $env:TEMP "probe_app_tools_highlight_nested.log"
+    $ho = (& powershell -NoProfile -ExecutionPolicy Bypass `
+        -File "I:\progwork\JKENGINE\engine\tools\probes\probe_app_tools_highlight.ps1") 2>&1
+    $ho | Out-File -FilePath $hlLog -Encoding ASCII
+    $hlOk = (($ho | ForEach-Object { "$_" }) -join "`n") -match "RESULT: ALL PASS"
+    Check "c15-highlight-probe" $hlOk ("log=$hlLog")
+
+    # ---- c16/c17 (stage-3 #14/#15): approval payload + strip wording ---------
+    # ONE parked ask feeds both: the raw-pipe subscriber inspects the event
+    # JSON (c16), jkchat - launched BEFORE the park, it subscribes on its own
+    # - renders the strip from the same event and is read via WM_GETTEXT (c17).
+    Clear-Perms
+    Start-Process -FilePath $exe -ArgumentList "--server" -WorkingDirectory $root -WindowStyle Hidden
+    $up3 = $false
+    foreach ($i in 1..30) {
+        Start-Sleep -Milliseconds 500
+        if ((Invoke-Agentctl '{"tool":"ping","args":{}}') -match '"ok"\s*:\s*true') { $up3 = $true; break }
+    }
+    Check "setup-server-up-3" $up3 ""
+    $cat9 = Spawn-VPlayer
+    Check "setup-vplayer-4" (([regex]::Matches($cat9, '"app":"vplayer"').Count) -eq 6) $cat9
+    $wcur = 0
+    $m = [regex]::Match($cat9, '"name":"seek","description":"[^"]*","inputSchema":[\s\S]*?"windowId":(\d+)')
+    if ($m.Success) { $wcur = [int]$m.Groups[1].Value }
+    $op4 = (AppTool "vplayer" "open" ('{"path":"' + $clip + '"}'))
+    $st5 = Wait-Opened "vplayer"
+    Check "setup-clip-opened-3" ($st5 -match '"opened":true' -and $wcur -gt 0) "$op4 / $st5"
+    [void](Invoke-Agentctl '{"tool":"launch_chat","args":{}}')
+    $chatHwnd = [IntPtr]::Zero
+    foreach ($i in 1..20) {
+        Start-Sleep -Milliseconds 500
+        $cp = Get-Process jkchat -ErrorAction SilentlyContinue |
+            Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+        if ($cp) { $chatHwnd = [IntPtr]$cp.MainWindowHandle; break }
+    }
+    Check "setup-jkchat-up" ($chatHwnd -ne [IntPtr]::Zero) ""
+
+    Set-Perms '{"app_tool.vplayer.play_pause":"ask"}'
+    $connC = New-Pipe 1
+    SendQuery $connC 911 '{"tool":"app_tool","args":{"app":"vplayer","tool":"play_pause","args":{}}}'
+    $reqId16 = 0; $evt16 = ""
+    foreach ($i in 1..50) {
+        $f = Read-Frame $connC 400
+        if ($f -and $f.type -eq 20 -and $f.text -match '"kind":"app_tool"' -and
+            $f.text -match '"name":"vplayer\.play_pause"') {
+            $mm = [regex]::Match($f.text, '"request":(\d+)')
+            if ($mm.Success) { $reqId16 = [int]$mm.Groups[1].Value; $evt16 = $f.text }
+            break
+        }
+    }
+    Check "c16-setup-parked" ($reqId16 -gt 0) ($evt16 + " req=$reqId16")
+
+    # c16a: target block {app,tool,windowId,title} - windowId must be THIS
+    # vplayer layer (the catalog one), title non-empty.
+    Check "c16-target-fields" ($evt16 -match ('"target":\{"app":"vplayer","tool":"play_pause","windowId":' + $wcur + ',"title":"[^"]+"')) ("wcur=$wcur " + $evt16)
+
+    # c16b/c: thumb = absolute StateDir path, PNG magic first 8 bytes.
+    $thumb = ""
+    $m = [regex]::Match($evt16, '"thumb":"([^"]+)"')
+    if ($m.Success) { $thumb = $m.Groups[1].Value }
+    $thumbOk = ($thumb -ne "" -and [System.IO.Path]::IsPathRooted($thumb) -and (Test-Path $thumb))
+    Check "c16-thumb-absolute" $thumbOk ("thumb=$thumb")
+    $magic = @()
+    if ($thumbOk) { $magic = [System.IO.File]::ReadAllBytes($thumb)[0..7] }
+    $pngOk = ($magic.Count -eq 8 -and $magic[0] -eq 0x89 -and $magic[1] -eq 0x50 -and
+              $magic[2] -eq 0x4E -and $magic[3] -eq 0x47 -and $magic[4] -eq 0x0D -and
+              $magic[5] -eq 0x0A -and $magic[6] -eq 0x1A -and $magic[7] -eq 0x0A)
+    Check "c16-thumb-png-magic" $pngOk (($magic | ForEach-Object { $_.ToString("X2") }) -join " ")
+
+    # c17: strip wording on the real jkchat UI. Strip prompt (106) must be the
+    # exact target-present string; the transcript line (103) must carry the
+    # app-tool label + window tag. Korean needles from codepoints (ASCII-only
+    # file): chang=window, "aap do"=the [..] label, "sil-hal-kka-yo"=exec ask.
+    function U([int[]]$c) { return (-join ($c | ForEach-Object { [char]$_ })) }
+    $krChang = U @(0xCC3D)                                    # chang (window)
+    $krAapDo = U @(0xC571, 0x0020, 0xB3C4, 0xAD6C)            # aep do-gu label
+    $krExe   = U @(0xC2E4, 0xD589, 0xD560, 0xAE4C, 0xC694)    # sil-hal-kka-yo
+    $stripWant = "[vplayer " + $krChang + " #" + $wcur + "] play_pause " + $krExe + "?"
+    $strip = ""
+    foreach ($i in 1..12) {
+        Start-Sleep -Milliseconds 400
+        $strip = Read-Ctrl $chatHwnd 106
+        if ($strip -match "play_pause") { break }
+    }
+    Check "c17-strip-target-wording" ($strip -eq $stripWant) ("strip=[$strip] want=[$stripWant]")
+    $logTxt = Read-Ctrl $chatHwnd 103
+    $logTail = ""
+    if ($logTxt.Length -gt 300) { $logTail = $logTxt.Substring($logTxt.Length - 300) } else { $logTail = $logTxt }
+    # .Contains, not -match: the needles contain literal "[" (regex class open).
+    $lineWant = "[" + $krAapDo + "] vplayer.play_pause"
+    Check "c17-transcript-line" ($logTxt.Contains($lineWant) -and
+                                 $logTxt.Contains($krChang + " #" + $wcur)) ("log=[$logTail]")
+
+    # resolve the parked ask (cross approve) + thumb cleanup
+    $ap16 = (Invoke-Agentctl ('{"tool":"approve","args":{"request":' + $reqId16 + ',"decision":"allow"}}'))
+    Check "c16-approve-ack" ($ap16 -match '"approved":true') $ap16
+    $parked16 = ""
+    foreach ($i in 1..50) {
+        $f = Read-Frame $connC 400
+        if ($f -and $f.type -eq 18 -and $f.text -match '"result"') { $parked16 = $f.text; break }
+    }
+    Check "c16-parked-result" ($parked16 -match '"ok":true') $parked16
+    $connC.Dispose()
+    if ($thumb -ne "") { Remove-Item $thumb -Force -ErrorAction SilentlyContinue }
+    Clear-Perms
+
 } finally {
     Clear-Perms
     if ($hadPerm) { Copy-Item $permBakFile $permFile -Force; Remove-Item $permBakFile -ErrorAction SilentlyContinue }
     Get-Process jkdesktop -ErrorAction SilentlyContinue | Stop-Process -Force
     Get-Process jkapp_vplayer -ErrorAction SilentlyContinue | Stop-Process -Force
     Get-Process jkbridge -ErrorAction SilentlyContinue | Stop-Process -Force
+    Get-Process jkchat -ErrorAction SilentlyContinue | Stop-Process -Force
 }
 
 Write-Host ("RESULT: " + $(if ($script:fail -eq 0) { "ALL PASS" } else { "$($script:fail) FAILURE(S)" }))
