@@ -649,6 +649,17 @@ struct BridgeSession {
 
     jk::agent::JKAgentClient agent_;
     std::mutex agentMtx_;    // pipe IO: dispatcher SendQuery vs pump Query
+    // Approval-only SECOND control connection (final review Important 2):
+    // the phone's tools/call relay and its approve both rode the session
+    // connection — so an ask-gated app_tool (run_console_app / files_access
+    // too) parked with THIS connection as requester, and the server's
+    // self-approve gate (kind != close_window → self_approve, docs/31 §3)
+    // made the phone's Allow tab dead-on-arrival. jkchat's cross-approve
+    // precedent: route ONLY the approve query through a dedicated
+    // Hello+subscribe=0 control connection so the server sees a different
+    // requester. Never subscribed to events, never used by the pump.
+    jk::agent::JKAgentClient approve_;
+    std::mutex approveMtx_;
     std::mutex labelsMtx_;
     std::map<uint32_t, std::string> labels_;  // queryId → transcript label
 
@@ -965,16 +976,29 @@ static void SessionRun(std::shared_ptr<BridgeSession> s) {
                     "{\"type\":\"error\",\"text\":\"bad approve\"}");
                 continue;
             }
-            std::lock_guard<std::mutex> lock(s->agentMtx_);
-            const uint32_t aid = s->agent_.SendQuery(
-                "approve",
-                "{\"request\":" + std::to_string(request) +
-                    ",\"decision\":\"" + decision + "\"}");
-            // The pump only forwards labelled replies — without this the
-            // phone never learns whether the approval actually landed.
-            if (aid != 0) {
-                std::lock_guard<std::mutex> l2(s->labelsMtx_);
-                s->labels_[aid] = "approve";
+            // Blocking Query on the approval connection is safe: the server
+            // answers the APPROVER's approve query immediately in every path
+            // (only the original requester's reply is parked/deferred) — so
+            // this never waits on the ask itself. Failure surfaces as an
+            // explicit error frame, same fail-closed shape as before.
+            std::string reply;
+            bool sent = false;
+            {
+                std::lock_guard<std::mutex> lock(s->approveMtx_);
+                if (s->approve_.IsConnected() || s->approve_.Connect()) {
+                    sent = s->approve_.Query(
+                        "approve",
+                        "{\"request\":" + std::to_string(request) +
+                            ",\"decision\":\"" + decision + "\"}",
+                        reply);
+                }
+            }
+            if (!sent) {
+                s->SendText("{\"type\":\"error\",\"text\":"
+                            "\"approval connection failed\"}");
+            } else {
+                s->SendText("{\"type\":\"reply\",\"label\":\"approve\","
+                            "\"json\":" + reply + "}");
             }
         } else {
             s->SendText("{\"type\":\"error\",\"text\":\"unknown type\"}");

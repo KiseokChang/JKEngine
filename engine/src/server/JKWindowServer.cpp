@@ -2540,6 +2540,16 @@ static std::string RevokeTrustRecord(const std::string& fingerprint) {
 // Precondition: clientsMutex_ held (called from ProcessClientMessage), so
 // iterate clients_ directly — FindClientById/FocusClient-style helpers that
 // lock would deadlock on the non-recursive mutex.
+// 서버 이벤트 토픽 예약 접두 — 단일 원본. publish_event의 스크립트 토픽
+// 봉쇄(docs/54 NIT-3)와 HandleToolRegister의 namespace_conflict 검사(스펙
+// 2026-09-19-app-tool-hub §4.1 — app명 정확 일치/도구명 접두 충돌 금지)가
+// 이 표를 공유한다. events_list 카탈로그 "server" 행의 접두와 동일 집합
+// (window/app/agent/terminal/audio/triggers) — 카탈로그에 서버 토픽을
+// 추가하면 여기도 손으로 넣는다(두 표가 한 파일 안에 있다).
+static const char* kReservedTopicPrefixes[] = {
+    "window.", "agent.", "app.", "terminal.", "audio.", "triggers.",
+};
+
 void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                                       uint32_t queryId, const std::string& json) {
     jk::agent::AgentJson req(json);
@@ -3623,11 +3633,8 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         // publish로 흉내 낼 수 없다 — window.*는 vplayer 전체화면 미러가
         // 자기 id 니들로 수용하고, audio.*는 코어 펌프가 마스터 게인에
         // 적용한다. 스크립트 커스텀 토픽은 이 접두어 밖의 것으로.
-        static const char* kReservedPrefixes[] = {
-            "window.", "agent.", "app.", "terminal.", "audio.", "triggers.",
-        };
         bool reserved = false;
-        for (const char* p : kReservedPrefixes) {
+        for (const char* p : kReservedTopicPrefixes) {
             if (topic.compare(0, std::strlen(p), p) == 0) { reserved = true; break; }
         }
         if (!req.GetObjStr("args", "topic", topic) || topic.empty() ||
@@ -4908,6 +4915,26 @@ void JKWindowServer::HandleToolRegister(JKClientConnection& client,
     // 자기교정을 유도한다(브로커는 tools/list에서 이름 유니온으로 중복 흡수).
     for (const auto& row : kPermMatrix)
         if (app == row.tool) { ack(false, "namespace_conflict"); return; }
+    // 스펙 §4.1(구속력): 이벤트 예약 접두도 namespace_conflict — 최종리뷰
+    // Important 1. 서버 토픽 접두(kReservedTopicPrefixes — publish_event와
+    // 동일 원본, events_list 카탈로그 "server" 접두와 동일 집합)와 app명의
+    // 정확 일치(app="window"/"agent"…) 또는 도구명의 접두 충돌
+    // ("window.created" 류 점 표기명)를 금지한다. docs/54 NIT-3 토픽 위장
+    // 방어 계열 선례 — 후속 소비자가 카탈로그를 접두 해석해도 충돌층이
+    // 되지 않게 계약상 봉쇄. (도구명은 ValidAppToolToken이 점을 이미
+    // 배제하므로 접두 검사는 사실상 도달하지 않는 2중 방어.)
+    for (const char* p : kReservedTopicPrefixes) {
+        const size_t plen = std::strlen(p);
+        const std::string tok(p, plen - 1);   // 마지막 '.' 제외 토큰
+        if (app == tok) { ack(false, "namespace_conflict"); return; }
+        for (int i = 0; i < toolCount; ++i) {
+            std::string tn;
+            if (req.GetArrStr("tools", i, "name", tn) &&
+                tn.compare(0, plen, p) == 0) {
+                ack(false, "namespace_conflict"); return;
+            }
+        }
+    }
     AppToolManifest m;
     m.connId = client.Id();
     m.app = app;

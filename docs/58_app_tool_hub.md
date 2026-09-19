@@ -233,11 +233,32 @@ claude ──MCP── jkagentd(브로커) ──파이프── JKWindowServer(
   없다). permissions.json 핫리드(호출마다).
 - **에러 매핑 셰이프 재작성 없음** — 중계 응답은 원문을 content[0].text에
   싣는다. receipts도 동적 경로 기록(기존 관례).
-- 폰 브리지(jkbridge)는 generic relay라 **무수정** — 확장 프리미스 실증
-  (probe_jkbridge에 `bridge-app-tool-strip` 체크로 회귀 가드).
+- 폰 브리지(jkbridge)는 generic relay라 **중계 경로 무수정** — 확장 프리미스
+  실증 (probe_jkbridge에 `bridge-app-tool-strip` 체크로 회귀 가드). 승인
+  경로만 후속 픽스(아래 §6b).
 - **레슨(docs/51 재발)**: 새 서버 도구 추가 시 브로커 4곳 — tools/list, IsKnownTool,
   LoadPermissions(kNames), args-rebuild 분기. 이번에도 코어 2종 직접 호출
   분기가 필요했다.
+
+### 6b. 최종리뷰 픽스 — jkbridge 별도 승인 연결 (최종리뷰 Important 2)
+
+- **결함**: 폰의 approve가 tools/call 중계와 **같은 세션 파이프 연결**로 나갔다
+  → ask 게이트 앱 도구의 파킹 requester가 곧 jkbridge 연결이고, 폰 Allow 탭의
+  approve가 서버 self-approve 게이트(`requesterId == client.Id()`, kind !=
+  close_window → `self_approve`, docs/31 §3)에 막혔다. "폰에서 앱을 말로
+  다룬다"의 표면 기능이 fail-closed로 죽어 있었다.
+- **픽스**: BridgeSession에 승인 전용 **제2 제어 연결**(`approve_` +
+  approveMtx_ — Hello+subscribe=0 선언, 이벤트 구독 없음, 펌프 미사용;
+  jkchat 크로스 승인 선례). approve 프레임만 이 연결로 **블로킹 Query** —
+  승인 도구는 승인자에 대해서는 파킹 없이 즉답(지연 응답은 원 요청자 쪽만)이라
+  블로킹이 안전. 연결 실패는 `{"type":"error","text":"approval connection
+  failed"}` 즉답 — fail-closed 동일. 세션 연결의 SendQuery+labels 경로는
+  중계 원본 그대로(레슨: pump 재접속 agentMtx_ 규약 건드리지 않음).
+- **회귀 고정**: probe_jkbridge §6b — 가짜 앱(probeapp.echo) 등록 → ask 게이트
+  → 폰 tools/call(세션 연결이 파킹 소유) → 폰 approve → `approved:true` ack +
+  앱 AgentToolCall 수신 + 파킹 결과가 라벨 reply("at")로 폰 도착, 4체크
+  e2e. 픽스 전이라면 approve가 `self_approve`로 즉답해 이 체크는 반드시
+  실패한다(체크가 픽스를 변별).
 
 ## 7. 승인 시각화 3단 (`b9a98ca..8237f52`, `8237f52..fb0d68a`)
 
