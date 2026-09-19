@@ -182,6 +182,18 @@ void JKPipeTransport::Close() {
         if (serverSide_) {
             FlushFileBuffers(handle_);
             DisconnectNamedPipe(handle_);
+        } else if (connected_) {
+            // Client-side graceful close belt: hand every byte we wrote to the
+            // pipe before the handle closes. A client that sends its last
+            // messages and exits immediately (filedlg resolve → RequestQuit)
+            // races the server's read thread; without this the peer can tear
+            // the pipe down while bytes are still kernel-buffered. Not a
+            // complete fix on its own — the server must also drain its message
+            // queue before erasing a disconnected client (see
+            // CleanupDisconnectedClients) — but it shrinks the window at
+            // negligible cost. Returns ERROR_NO_DATA when the peer is already
+            // gone; harmless either way.
+            FlushFileBuffers(handle_);
         }
         CloseHandle(handle_);
         handle_ = INVALID_HANDLE_VALUE;

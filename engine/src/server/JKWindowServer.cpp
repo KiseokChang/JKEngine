@@ -5594,6 +5594,20 @@ void JKWindowServer::CleanupDisconnectedClients() {
         while (it != clients_.end()) {
             auto& client = *it;
             if (client && client->IsDisconnected()) {
+                // 최종 메시지 드레인 게이트: read 스레드가 마지막 메시지를 큐잉
+                // 하고 disconnected_를 마킹하는 시점이 메인 루프의 Composite()
+                // 도중(ProcessPendingMessages 뒤, 여기 앞)이면, 즉시 소멸시
+                // 읽지 않은 큐가 함께 소멸한다 — filedlg resolve가 보낸
+                // file_open_result/AgentToolResult가 유실되고 파킹 쿼리는
+                // 600s 만료까지 dialog_busy로 남는다(2026-09-20 관측, err=109
+                // 파산 ~1/7). disconnected_가 true면 read 루프는 이미 종료라
+                // 큐는 이후 불변 — 소멸을 한 이터레이션 유보하면 다음 루프의
+                // ProcessPendingMessages(여기보다 먼저 실행)가 드레인하고 그
+                // 뒤 이곳에서 소멸된다.
+                if (client->HasQueuedMessages()) {
+                    ++it;
+                    continue;
+                }
                 if (focusedClientId_ == client->Id()) {
                     focusedClientId_ = 0;
                 }

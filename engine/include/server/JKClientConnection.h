@@ -99,6 +99,10 @@ public:
     // Message queue used by the read thread and the server main thread.
     void QueueMessage(ipc::Message msg);
     bool PopMessage(ipc::Message& out);
+    // True while undelivered messages are still queued. Once IsDisconnected()
+    // is true the read loop has exited, so the queue is final — the server's
+    // cleanup defers erasing a disconnected client until this drains.
+    bool HasQueuedMessages() const;
 
     // Start/stop the read thread.
     void StartReadThread();
@@ -136,7 +140,7 @@ private:
     std::atomic<bool> running_{true};
     std::atomic<bool> disconnected_{false};
 
-    std::mutex messageMutex_;
+    mutable std::mutex messageMutex_;
     std::deque<ipc::Message> messages_;
     std::thread readThread_;
 };

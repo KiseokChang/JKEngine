@@ -95,6 +95,11 @@ bool JKClientConnection::PopMessage(ipc::Message& out) {
     return true;
 }
 
+bool JKClientConnection::HasQueuedMessages() const {
+    std::lock_guard<std::mutex> lock(messageMutex_);
+    return !messages_.empty();
+}
+
 void JKClientConnection::StartReadThread() {
     if (readThread_.joinable()) return;
     running_ = true;
