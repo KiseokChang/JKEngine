@@ -111,8 +111,11 @@ std::map<uint32_t, AppToolManifest> appToolManifests_;  // connId → 매니페�
     result ≤16KiB는 호출 경로 상한)
   - `namespace_conflict` — app이 코어 도구명, 이벤트 예약 접두
     (`window.`, `agent.` 등 events_list 카탈로그의 서버 토픽 접두
-    선례), 또는 **기존 등록된 다른 연결의 app**와 충돌. 예외: 같은
-    connId의 재등록은 언제나 허용(upsert).
+    선례)와 충돌. **동일 app의 복수 인스턴스(다른 연결) 등록은 허용**
+    — §4.2 인스턴스 변별이 그 다수 후보를 전제한다(2026-09-19 실행 중
+    정정: 원문의 "다른 연결의 app 충돌" 절은 §4.2와 모순 — 같은 앱을
+    둘 띄우면 ambiguous가 도달 불가). 예외: 같은 connId의 재등록은
+    언제나 허용(upsert).
 - 셸 특권 연결(taskbar 등 IsShell)의 등록은 봉쇄 — 셸 도구 표면 오염 방지.
 
 ### 4.2 인스턴스 변별
