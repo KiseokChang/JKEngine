@@ -206,6 +206,156 @@ Start-Sleep -Seconds 2
 $list2 = Invoke-Agentctl '{"tool":"list_windows","args":{}}'
 Check "approve-roundtrip" ($apprReply -ne $null -and $list2 -notmatch ('"id\\?":' + $mineId + '\b'))
 
+# --- 6b. app_tool ask THROUGH the bridge: the phone approves its own park ----
+# Final-review Important 2. A fake app registers one tool, permissions gate it
+# to ask; the phone relays the tool call - the bridge SESSION connection is
+# the requester, so the ask parks on it. Pre-fix the phone's Allow died with
+# self_approve (approve rode the same connection); it now rides a second
+# approval-only control connection (jkchat cross-approve precedent) and the
+# parked app result flows back to the phone as a labelled reply.
+# Raw pipe helpers = task9_thumb_adhoc/probe_app_tools idiom.
+function SendMsgB([System.IO.Pipes.NamedPipeClientStream]$s, [int]$type, [byte[]]$payload) {
+    $hdr = New-Object byte[] 12
+    [BitConverter]::GetBytes([uint32]0x4A4B0001).CopyTo($hdr, 0)
+    [BitConverter]::GetBytes([uint32]$type).CopyTo($hdr, 4)
+    [BitConverter]::GetBytes([uint32]$payload.Length).CopyTo($hdr, 8)
+    $s.Write($hdr, 0, 12)
+    if ($payload.Length -gt 0) { $s.Write($payload, 0, $payload.Length) }
+    $s.Flush()
+}
+function New-PipeB([int]$subscriber) {
+    $p = New-Object System.IO.Pipes.NamedPipeClientStream(".", "JKWindowServerPipe",
+        [System.IO.Pipes.PipeDirection]::InOut)
+    $p.Connect(5000)
+    $hello = New-Object byte[] 8
+    [BitConverter]::GetBytes([uint32]2).CopyTo($hello, 0)
+    [BitConverter]::GetBytes([uint32]$PID).CopyTo($hello, 4)
+    SendMsgB $p 1 $hello
+    $sub = New-Object byte[] 4
+    [BitConverter]::GetBytes([uint32]$subscriber).CopyTo($sub, 0)
+    SendMsgB $p 19 $sub
+    return $p
+}
+function Send-ToolRegisterB([System.IO.Pipes.NamedPipeClientStream]$s, [string]$json) {
+    $body = [Text.Encoding]::UTF8.GetBytes($json)
+    $payload = New-Object byte[] (4 + $body.Length)
+    [BitConverter]::GetBytes([uint32]$body.Length).CopyTo($payload, 0)
+    [Array]::Copy($body, 0, $payload, 4, $body.Length)
+    SendMsgB $s 22 $payload
+}
+function Send-ToolResultB([System.IO.Pipes.NamedPipeClientStream]$s, [uint32]$reqId, [string]$json) {
+    $body = [Text.Encoding]::UTF8.GetBytes($json)
+    $payload = New-Object byte[] (12 + $body.Length)
+    [BitConverter]::GetBytes([uint32]$reqId).CopyTo($payload, 0)
+    [BitConverter]::GetBytes([uint32]1).CopyTo($payload, 4)
+    [BitConverter]::GetBytes([uint32]$body.Length).CopyTo($payload, 8)
+    [Array]::Copy($body, 0, $payload, 12, $body.Length)
+    SendMsgB $s 24 $payload
+}
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public class PipePeekB {
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool PeekNamedPipe(IntPtr hPipe, byte[] buf,
+        int bufSize, out int read, out int avail, out int left);
+}
+"@
+function Pipe-AvailB([System.IO.Pipes.NamedPipeClientStream]$s) {
+    $read = 0; $avail = 0; $left = 0
+    try {
+        $h = $s.SafePipeHandle.DangerousGetHandle()
+        if (-not [PipePeekB]::PeekNamedPipe($h, $null, 0, [ref]$read, [ref]$avail, [ref]$left)) { return -1 }
+    } catch { return -1 }
+    return $avail
+}
+# Same frame reader as probe_app_tools (deadline-bounded, whole-frame), plus
+# the reqId the type-23 tool-call header carries (the fake app must echo it).
+function Read-FrameB([System.IO.Pipes.NamedPipeClientStream]$s, [int]$timeoutMs) {
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    while ((Pipe-AvailB $s) -lt 12) {
+        if ($sw.ElapsedMilliseconds -gt $timeoutMs) { return $null }
+        Start-Sleep -Milliseconds 10
+    }
+    $hdr = New-Object byte[] 12
+    if ($s.Read($hdr, 0, 12) -ne 12) { return $null }
+    $type = [int][BitConverter]::ToUInt32($hdr, 4)
+    $len = [int][BitConverter]::ToUInt32($hdr, 8)
+    if ($len -lt 0 -or $len -gt (4 * 1024 * 1024)) { return $null }
+    while ((Pipe-AvailB $s) -lt $len) {
+        if ($sw.ElapsedMilliseconds -gt $timeoutMs) { return $null }
+        Start-Sleep -Milliseconds 10
+    }
+    $pl = New-Object byte[] $len
+    $off = 0
+    while ($off -lt $len) {
+        $a = Pipe-AvailB $s
+        if ($a -le 0) { return $null }
+        $n = [Math]::Min($a, $len - $off)
+        $r = $s.Read($pl, $off, $n)
+        if ($r -le 0) { return $null }
+        $off += $r
+    }
+    $hs = 12; $reqId = [uint32]0
+    if ($type -eq 20 -or $type -eq 22) { $hs = 4 }
+    elseif ($type -eq 17) { $hs = 8 }
+    elseif ($type -eq 23) { $hs = 8; $reqId = [BitConverter]::ToUInt32($pl, 0) }
+    $text = ""
+    if ($len -gt $hs) { $text = [Text.Encoding]::UTF8.GetString($pl, $hs, $len - $hs) }
+    return @{ type = $type; len = $len; text = $text; reqId = $reqId }
+}
+$permAskAll = '{"close_window":"ask","app_tool.probeapp.echo":"ask"}'
+[IO.File]::WriteAllText($permFile, $permAskAll, (New-Object System.Text.UTF8Encoding($false)))
+$appPipe = New-PipeB 0   # control-only declarer - fake app, no window
+Send-ToolRegisterB $appPipe '{"app":"probeapp","tools":[{"name":"echo","description":"probe echo tool"}]}'
+$ackA = ""
+foreach ($i in 1..20) {
+    $f = Read-FrameB $appPipe 400
+    if ($f -and $f.type -eq 18 -and $f.text -match '"ok"') { $ackA = $f.text; break }
+}
+Check "bridge-app-registered" ($ackA -match '"ok":true') $ackA
+
+WsSend $c1 '{"type":"tool","tool":"app_tool","args":{"app":"probeapp","tool":"echo","args":{}},"label":"at"}'
+$atReq = $null
+foreach ($i in 1..12) {
+    $r = WsRecv $c1 3000
+    # 2nd -match order: the capturing match must run LAST or $Matches gets
+    # clobbered by the group-less one (probe_notes lesson 5).
+    if ($r -match 'app_tool' -and $r -match '"request\\?":(\d+)') { $atReq = $Matches[1]; break }
+}
+Check "bridge-ask-parks" ($atReq -ne $null)
+
+# The approve the phone sends must NOT die with self_approve - it rides the
+# bridge's second control connection (this exact flow failed pre-fix).
+WsSend $c1 ('{"type":"approve","request":' + $atReq + ',"decision":"allow"}')
+$apprAckB = $null
+foreach ($i in 1..12) {
+    $r = WsRecv $c1 3000
+    if ($r -match '"label":"approve"' -and $r -match '"approved":true') { $apprAckB = $r; break }
+}
+Check "bridge-phone-approve" ($apprAckB -ne $null)
+
+# The parked relay: the fake app got the AgentToolCall and its result must
+# reach the phone as the labelled reply of the original tool query.
+$callB = $null
+foreach ($i in 1..25) {
+    $f = Read-FrameB $appPipe 400
+    if ($f -and $f.type -eq 23) { $callB = $f; break }
+}
+Check "bridge-tool-relayed" ($callB -ne $null -and $callB.text -match '"app":"probeapp"' -and $callB.text -match '"tool":"echo"')
+$atReply = $null
+if ($callB) {
+    Send-ToolResultB $appPipe $callB.reqId '{"echo":"pong"}'
+    foreach ($i in 1..12) {
+        $r = WsRecv $c1 3000
+        if ($r -match '"label":"at"' -and $r -match '"echo\\?":\\?"pong') { $atReply = $r; break }
+    }
+}
+Check "bridge-parked-result" ($atReply -ne $null)
+
+$appPipe.Dispose()
+'{"close_window":"ask"}' | Set-Content -Path $permFile -Encoding ASCII
+
 # --- 7. session cap: with c1 live, 4 more connects — growth past 4 refused ---
 $socks = @()
 foreach ($i in 1..4) {

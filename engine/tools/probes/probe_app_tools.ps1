@@ -379,6 +379,25 @@ try {
         if ($f -and $f.type -eq 18 -and $f.text -match '"error"') { $ack2 = $f.text; break }
     }
     Check "c6-namespace-conflict" ($ack2 -match '"error":"namespace_conflict"') $ack2
+    # c6b (final review Important 1): event reserved-topic prefixes are also
+    # namespace_conflict - app name equal to a server topic segment, and a
+    # dotted tool name under a reserved prefix ("window.created" style).
+    Send-ToolRegister $connR '{"app":"agent","tools":[{"name":"ok_tool","description":"x"}]}'
+    $ack2b = ""
+    foreach ($i in 1..20) {
+        $f = Read-Frame $connR 400
+        if ($f -and $f.type -eq 18 -and $f.text -match '"error"') { $ack2b = $f.text; break }
+    }
+    Check "c6b-reserved-app" ($ack2b -match '"error":"namespace_conflict"') $ack2b
+    Send-ToolRegister $connR '{"app":"fakereg3","tools":[{"name":"window_created","description":"x"}]}'
+    $ack2c = ""
+    foreach ($i in 1..20) {
+        $f = Read-Frame $connR 400
+        if ($f -and $f.type -eq 18 -and $f.text -match '"ok"') { $ack2c = $f.text; break }
+    }
+    # window_created (underscore) must still be ACCEPTED - only dotted
+    # topic-style names collide; bad_name would mean the token rule broke.
+    Check "c6b-underscore-ok" ($ack2c -match '"ok":true') $ack2c
     $many = '{"app":"fakereg2","tools":['
     for ($i = 0; $i -lt 33; $i++) {
         if ($i) { $many += "," }
@@ -417,7 +436,7 @@ try {
     Set-Perms '{"app_tool.vplayer.play_pause":"ask"}'
     $connA = New-Pipe 1   # subscriber (parks the ask query)
     SendQuery $connA 901 '{"tool":"app_tool","args":{"app":"vplayer","tool":"play_pause","args":{}}}'
-    $reqId = 0
+    $reqId = 0; $evt8 = ""   # init: a missed event must not echo a stale loop value (final review Minor)
     foreach ($i in 1..50) {
         $f = Read-Frame $connA 400
         if ($f -and $f.type -eq 20 -and $f.text -match '"kind":"app_tool"' -and
