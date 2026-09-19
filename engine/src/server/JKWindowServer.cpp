@@ -4623,17 +4623,17 @@ void JKWindowServer::HandleToolResult(JKClientConnection& client,
                                       const ipc::Message& msg) {
     uint32_t reqId = 0, ok = 0; std::string json;
     if (!ipc::ReadAgentJson(msg, reqId, ok, json)) return;
-    if (json.size() > 16 * 1024) {   // 결과 상한 (스펙 §4.1)
-        auto it = inflightAppTools_.find(reqId);
-        if (it != inflightAppTools_.end()) {
-            ReplyAppToolError(it->second, "result_too_large");
-            inflightAppTools_.erase(it);
-        }
-        return;
-    }
     auto it = inflightAppTools_.find(reqId);
     if (it == inflightAppTools_.end()) return;
+    // 상관관계를 크기 상한보다 먼저 — nextToolReqId_는 1부터 순차라 남의
+    // reqId를 추측해 >16KiB를 보내면 진짜 요청자의 대기 호출을
+    // result_too_large로 소멸시키는 주입이 됐다(리뷰 Important 1).
     if (it->second.targetConnId != client.Id()) return;
+    if (json.size() > 16 * 1024) {   // 결과 상한 (스펙 §4.1)
+        ReplyAppToolError(it->second, "result_too_large");
+        inflightAppTools_.erase(it);
+        return;
+    }
     for (auto& c : clients_) {
         if (c && c->Id() == it->second.requesterConnId && !c->IsDisconnected()) {
             std::string reply = std::string("{\"ok\":true,\"windowId\":") +
