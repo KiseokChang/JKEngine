@@ -2707,6 +2707,26 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                     }
                 }
             }
+            // 모달 후보 선별 (스펙 §5 케이스 ③ — 고아+슬롯 재사용): 슬롯
+            // 만료/요청자 회수/재사용 후에도 살아 있는 고아 다이얼로그가 후보에
+            // 끼면 정상 슬롯 소유 다이얼로그의 호출까지 ambiguous로 봉쇄된다
+            // (아래 단일 분기의 가드는 cands.size()==1에만 도달 — 복수 후보
+            // 경로는 미커버였음). 수집 직후 모달 후보를 슬롯 소유로 선별해
+            // 뿌리에서 걷어낸다. 판정은 앱이 아니라 슬롯 진실원
+            // pendingFileDialog_.dialogConnId가 한다 — 단일 분기 가드와 동일
+            // 조건(중복 제거해도 무방하나 최소 변경으로 유지).
+            bool orphanPurgedAll = false;
+            if (!cands.empty()) {
+                std::vector<const AppToolManifest*> owned;
+                for (const AppToolManifest* c : cands) {
+                    if (!c->modal ||
+                        pendingFileDialog_.dialogConnId == c->connId) {
+                        owned.push_back(c);
+                    }
+                }
+                orphanPurgedAll = owned.empty();
+                cands.swap(owned);
+            }
             // windowId 지정 = 그 창 직행 (스펙 §4.2 인스턴스 변별).
             if (hasWindowId && windowIdArg > 0) {
                 std::vector<const AppToolManifest*> filtered;
@@ -2716,7 +2736,12 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                 cands.swap(filtered);
             }
             if (cands.empty()) {
-                reply = "{\"ok\":false,\"error\":\"unknown_app_tool\"}";
+                // 후보가 있었지만 모달 선별에서 전부 걷어졌으면 tool_gone(기존
+                // 가드와 동일 페이로드) — 애초 후보가 없었던 경우는 기존
+                // unknown_app_tool 유지(windowId 불일치로 비는 경로 포함).
+                reply = (orphanPurgedAll
+                             ? "{\"ok\":false,\"error\":\"tool_gone\"}"
+                             : "{\"ok\":false,\"error\":\"unknown_app_tool\"}");
             } else if (cands.size() > 1) {
                 // 스펙 §4.2: 묵시적 추측 라우팅 금지 — 후보 제시(자기교정).
                 std::string list = "[";
@@ -4864,7 +4889,19 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             static_cast<uint32_t>(senderConnId) ==
                 pendingFileDialog_.requesterConnId;
         bool resolved = false;
-        if (senderMatched && pendingFileDialog_.requesterConnId != 0) {
+        // dialogConnId 진실원의 해소 경로 적용 (final-review Important-2):
+        // senderMatched는 "요청자 에코 일치"만 검사하므로 슬롯 재사용(고아
+        // 다이얼로그 + 동일 요청자의 재호출) 조합에서 고아의 결과가 "새" 슬롯을
+        // 대신 해소하는 교차배달이 가능했다 — ClientFileDialogApp.h의
+        // "an orphan dialog must resolve nothing" 계약 집행. 슬롯이 파라미터를
+        // 준 다이얼로그 연결(dialogConnId)과 발신 연결이 일치할 때만 해소.
+        // dialogConnId 미기록(params 수락 전 창)은 기존 동작 유지이며, 수동
+        // 기동(`--client filedlg`)은 requesterConnId 0이라 위 조건 어디든
+        // 무해한 no-op으로 수렴한다(기존 불변).
+        if (senderMatched && pendingFileDialog_.requesterConnId != 0 &&
+            (pendingFileDialog_.dialogConnId == 0 ||
+             static_cast<uint32_t>(client.Id()) ==
+                 pendingFileDialog_.dialogConnId)) {
             // waitAsync는 슬롯 소진(아래 reset) 전에 판독 — 리셋 후엔 판독
             // 불가. 상관 검증/슬롯 소진은 waitAsync 양쪽이 공유한다.
             const bool waitAsync = pendingFileDialog_.waitAsync;
@@ -5578,6 +5615,19 @@ void JKWindowServer::CleanupDisconnectedClients() {
                 // 만료 스캔이 회수한다(요청자가 죽었으면 응답 대상이 없어
                 // no-op) — pendingApprovals_ 기계는 건드리지 않는다.
                 if (pendingFileDialog_.requesterConnId == client->Id()) {
+                    // waitAsync 슬롯의 모든 종료 경로(해소/만료/요청자 회수)를
+                    // 이벤트로 마감 — 수명주기 완결성 (final-review Minor-1).
+                    // 회수만 하고 발행이 없으면 이후 만료 스캔의 슬롯 대조가
+                    // requestId 불일치로 영구 실패해 expired 이벤트도 timeout
+                    // reply도 없는 무통지 경로였다(재접속 세션의 read_events가
+                    // 영원히 못 받는다 — 재접속 비복구 한계). 만료 스캔과 동일
+                    // 페이로드 관례. PushAgentEventJson은 락 프리(레슨 35)라
+                    // clientsMutex_ 보유 경로에서 호출 가능(만료 스캔 선례).
+                    if (pendingFileDialog_.waitAsync) {
+                        PushAgentEventJson("{\"topic\":\"file.open_result\","
+                                           "\"ok\":false,\"error\":"
+                                           "\"requester_gone\"}");
+                    }
                     pendingFileDialog_ = PendingFileDialog{};
                 }
                 // 앱 도구 허브 (스펙 §4.1): 연결 수명에 묶인 매니페스트 소멸 +
