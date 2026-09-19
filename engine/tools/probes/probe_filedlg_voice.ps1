@@ -48,7 +48,10 @@
 #   c9  c9a fresh dialog, tools live; c9b requester connection disposed while
 #       the dialog lives -> app_tool answers tool_gone (modal guard, slot
 #       truth source pendingFileDialog_.dialogConnId, spec section 5);
-#       c9c kill the dialog process -> rows vanish -> unknown_app_tool
+#       c9c kill the dialog process -> rows vanish -> unknown_app_tool;
+#       c9d two-dialog combination (final-review Important-1): orphan A
+#       alive + fresh file_open -> dialog B -> app_tool answers from B
+#       normally (orphan purged from candidates - NOT ambiguous)
 #   c10 manual `--filedlg "{}"` with no parked slot -> file_dialog_params
 #       fails (no_pending_dialog) -> tools never registered (0 rows) +
 #       unknown_app_tool (spec section 0 decision 2 side effect IS the guard)
@@ -608,6 +611,32 @@ try {
     Start-Sleep -Milliseconds 1500
     $g = (AppTool "filedlg" "list" '{"offset":0}')
     Check "c9b-modal-guard-tool-gone" ($g -match '"ok":false,"error":"tool_gone"') $g
+    # c9d: two-dialog combination (final-review Important-1). With orphan A
+    # still alive (same premise as c9b: slot recycled, A survives), a fresh
+    # file_open spawns dialog B and the recycled slot now owns B -> candidate
+    # collection must purge orphan A (modal, not slot-owned) instead of
+    # letting it poison the pool, so `app_tool filedlg list` answers NORMALLY
+    # from B - NOT ambiguous. c9b covers the single-manifest tool_gone; this
+    # covers the multi-candidate purge that the old guard never reached.
+    $connT = New-Pipe 1
+    SendQuery $connT 404 ('{"tool":"file_open","args":{"start":"' + $startFwd + '","wait":"event"}}')
+    $ackD = ""
+    foreach ($i in 1..50) {
+        $f = Read-Frame $connT 200
+        if ($f -and $f.type -eq 18 -and $f.qid -eq 404) { $ackD = $f.text; break }
+    }
+    Check "c9d-reopen-parked-ack" ($ackD -match '"ok":true,"parked":true') $ackD
+    $dlgE = Wait-DialogPid $serverPid 30
+    Check "c9d-dialog-E-spawned" ($dlgE -gt 0 -and $dlgE -ne $dlgD) ("dialogPid=$dlgE")
+    Check "c9d-rows-6" (Wait-Rows 6 30) "orphan A + slot-owned B manifests coexist"
+    $gD = (AppTool "filedlg" "list" '{"offset":0}')
+    Check "c9d-orphan-purged-B-answers" ($gD -match '"result":\{"ok":true' -and
+                                        $gD -match '"total":5' -and
+                                        $gD -notmatch '"error":"ambiguous"') $gD
+    # B is killed here (A stays for c9c): B's death cleans its manifest back
+    # to A's 3 rows, then c9c kills A -> 0. Both dialog PIDs were recorded by
+    # Wait-DialogPid into $myPids (PID-scoped teardown covers them).
+    Stop-Process -Id $dlgE -Force -ErrorAction SilentlyContinue
     # c9c: kill the dialog process -> manifest cleanup -> tools vanish.
     Stop-Process -Id $dlgD -Force -ErrorAction SilentlyContinue
     Check "c9c-rows-vanish" (Wait-Rows 0 20) ""
@@ -687,6 +716,7 @@ try {
     Start-Sleep -Milliseconds 500
     Remove-Item $base -Recurse -Force -ErrorAction SilentlyContinue
     if ($connS) { $connS.Dispose() }
+    if ($connT) { $connT.Dispose() }
 }
 
 Write-Host ("RESULT: " + $(if ($script:fail -eq 0) { "ALL PASS" } else { "$($script:fail) FAILURE(S)" }))
