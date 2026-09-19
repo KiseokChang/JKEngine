@@ -436,3 +436,40 @@ list limit 비양수 → 1 클램프, 스키마 밖 key → `bad_args`(방어선
   stdout 파싱 에러 한 줄이 3시간 추측을 대체. ③폰 LLM의 에스컬레이션
   (프로세스 kill/재기동)은 진짜 결함을 가리는 소음이자 새 결함의 원인 —
   에이전트에게 OS 프로세스 권한을 주지 않는 것이 안정성 그 자체.
+
+## 11. 서버 단일 인스턴스 가드 — 명명 뮤텍스 + 파이프 벨트 (2026-09-20)
+
+§10 유보 ② 채택(사용자 "2") 구현. 두 jkdesktop 서버가
+`PIPE_UNLIMITED_INSTANCES` 파이프에 각자 인스턴스를 만들면 클라이언트
+접속이 인스턴스 간 갈려 window_not_found 오판이 나는 것을 근본 봉쇄.
+
+- **설계(2층)**: ①세션 로컬 명명 뮤텍스 `Local\jkdesktop-server-<파이프
+  basename>` — `CreateMutexA` 초기소유, `ERROR_ALREADY_EXISTS`면 기각.
+  커널이 프로세스 사망 시 뮤텍스를 회수하므로 크래시-재시작이 무료.
+  ②뮤텍스 다음 `WaitNamedPipeA`(50ms) 벨트 — 가드 없는 구형 바이너리가
+  이미 파이프에 살아 있는 경우 성공·`ERROR_PIPE_BUSY`면 기각,
+  `ERROR_FILE_NOT_FOUND`면 진행. 기각 경로는 뮤텍스 release/close 후
+  acceptor 미가동.
+- **위치**: `JKWindowServer::StartAcceptor` 선두(bool 화 — 기각 시 false,
+  호출부 main.cpp/jkwinserver_main.cpp는 exit 1). TU 관례 유지
+  (windows.h 회피 — kernel32 수기 `extern "C" __declspec(dllimport)`
+  선언 + `kErrorAlreadyExists=183`/`kErrorPipeBusy=231` constexpr,
+  헤더 멤버는 `void*`로 spawnedClients_ 선례).
+- **검증(양브랜치 실측)**: ①벨트 — 라이브 데스크탑 가동 중
+  `jkwinserver.exe` 기동 → `a live pipe instance is already serving
+  '\.\pipe\JKWindowServerPipe' (single-instance guard) — close it first`
+  + exit 1, 라이브 서버 무교란. ②뮤텍스 — Init 없는 임시 하네스로
+  커스텀 파이프 2인스턴스 → 2번째
+  `another window server already holds the single-instance guard` 기각,
+  GUARD-OK. 하네스·CMake 타깃은 검증 후 전부 제거(원복 확인).
+- **부작용 2건 처리**: ①실행 중 exe 재링크 — 이전처럼 삭제는 불가라
+  `jkdesktop.exe` → `jkdesktop.exe.running` 리네임 후 링크(구 프로세스는
+  리네임 이미지 계속 사용; 구 프로세스 종료 후 `.running` 삭제 가능).
+  ②하네스 StartAcceptor가 태스크바 클라이언트를 자동 스폰해 **사용자
+  라이브 서버에 침투**(surfaceId=20, shell register DENIED로 권한은
+  정상 봉쇄) → close_window id 20 + 프로세스 자연 종료로 청소.
+- **레슨**: ①StartAcceptor는 Init와 무관하게 클라이언트 호스트를 스폰한다
+  — dll이 인접해 있으면 하네스도 스폰하므로 서버 클래스만 손대는 테스트
+  하네스는 커스텀 파이프+스폰 차단까지 고려. ②실행 중 이미지 교체는
+  리네임 링크가 표준 절차(삭제 불가·리네임 가능). ③shell register
+  DENIED가 실전에서 침투자 권한을 정확히 봉쇄했다 — 가드 이중 방어.

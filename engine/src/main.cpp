@@ -2851,7 +2851,11 @@ static int RunMain(int argc, char* argv[]) {
         if (!server.Init("JKENGINE Window Server", 1280, 720)) {
             return 1;
         }
-        server.StartAcceptor(jk::ipc::kWindowServerPipeName);
+        // 단일 인스턴스 가드(docs/59 §10): 이미 서버가 살아 있으면 즉답 거부 —
+        // 조용한 인스턴스 갈림(빈 서버 절반) 대신 명시적 실패.
+        if (!server.StartAcceptor(jk::ipc::kWindowServerPipeName)) {
+            return 1;
+        }
         server.Run();
         return 0;
     }

@@ -124,6 +124,14 @@ extern "C" __declspec(dllimport) int __stdcall CreateDirectoryA(
 extern "C" __declspec(dllimport) int __stdcall WaitNamedPipeA(
     const char* lpNamedPipeName, unsigned long nTimeOut);
 
+// 단일 인스턴스 가드 (StartAcceptor) — 수기 선언 관례 동일.
+extern "C" __declspec(dllimport) void* __stdcall CreateMutexA(
+    void* lpMutexAttributes, int bInitialOwner, const char* lpName);
+extern "C" __declspec(dllimport) int __stdcall ReleaseMutex(void* hMutex);
+extern "C" __declspec(dllimport) unsigned long __stdcall GetLastError();
+constexpr unsigned long kErrorAlreadyExists = 183;   // winbase.h
+constexpr unsigned long kErrorPipeBusy = 231;        // winbase.h
+
 extern "C" __declspec(dllimport) void __stdcall Sleep(unsigned long dwMilliseconds);
 
 extern "C" __declspec(dllimport) unsigned long __stdcall GetFileAttributesA(
@@ -173,6 +181,12 @@ JKWindowServer::JKWindowServer() = default;
 
 JKWindowServer::~JKWindowServer() {
     Stop();
+#ifdef _WIN32
+    if (serverGuardMutex_) {
+        CloseHandle(serverGuardMutex_);
+        serverGuardMutex_ = nullptr;
+    }
+#endif
 }
 
 bool JKWindowServer::Init(const std::string& title, int width, int height) {
@@ -278,7 +292,51 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
     return true;
 }
 
-void JKWindowServer::StartAcceptor(const std::string& pipeName) {
+bool JKWindowServer::StartAcceptor(const std::string& pipeName) {
+#ifdef _WIN32
+    // 단일 인스턴스 가드 (2026-09-20, docs/59 §10 유보 ②): 파이프 인스턴스는
+    // PIPE_UNLIMITED_INSTANCES라 두 서버가 같은 이름을 열면 클라이언트가
+    // 인스턴스에 갈라져 절반은 빈 서버(list_windows:[])를 보게 된다 — 폰
+    // 세션 실측(list_windows:[] 오판 → 프로세스 kill 에스컬레이션)의 근원.
+    // ①세션 로컬 명명 뮤텍스(뮤텍스 보유 = 서버 생존, 프로세스 사망 시 커널
+    // 해제라 크래시 후 재기동 자유) ②파이프 프로브 벨트(가드 없는 구
+    // 바이너리가 파이프를 이미 점유 중이어도 WaitNamedPipeA로 잡아낸다 —
+    // 자기 인스턴스 생성 전 검사라 오탐 없음; ERROR_FILE_NOT_FOUND만 통과).
+    {
+        std::string guard = pipeName;
+        const size_t slash = guard.find_last_of("\\/");
+        if (slash != std::string::npos) guard = guard.substr(slash + 1);
+        guard = "Local\\jkdesktop-server-" + guard;
+        void* m = CreateMutexA(nullptr, 1 /* TRUE: initial owner */, guard.c_str());
+        if (!m) {
+            std::fprintf(stderr,
+                         "JKWindowServer: single-instance guard CreateMutex failed (%lu)\n",
+                         GetLastError());
+            return false;
+        }
+        if (GetLastError() == kErrorAlreadyExists) {
+            CloseHandle(m);
+            std::fprintf(stderr,
+                         "JKWindowServer: another window server already holds the "
+                         "single-instance guard for '%s' — close it first\n",
+                         pipeName.c_str());
+            return false;
+        }
+        if (WaitNamedPipeA(pipeName.c_str(), 50) ||
+            GetLastError() == kErrorPipeBusy) {
+            // 뮤텍스는 우리가 갖지만 파이프에 살아있는 인스턴스가 응답 —
+            // 가드 이전 바이너리의 서버다. 두 인스턴스 갈림을 막기 위해 거부.
+            ReleaseMutex(m);
+            CloseHandle(m);
+            std::fprintf(stderr,
+                         "JKWindowServer: a live pipe instance is already serving '%s' "
+                         "(single-instance guard) — close it first\n",
+                         pipeName.c_str());
+            return false;
+        }
+        serverGuardMutex_ = static_cast<void*>(m);
+    }
+#endif
     pipeName_ = pipeName;
     InitAudio();
     running_ = true;
@@ -309,6 +367,7 @@ void JKWindowServer::StartAcceptor(const std::string& pipeName) {
         }
     }
 #endif
+    return true;
 }
 
 void JKWindowServer::AcceptorLoop() {

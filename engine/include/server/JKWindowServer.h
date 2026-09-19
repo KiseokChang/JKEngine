@@ -46,7 +46,9 @@ public:
     bool Init(const std::string& title, int width, int height);
 
     // Start the background acceptor thread. Must be called before Run().
-    void StartAcceptor(const std::string& pipeName);
+    // Returns false when the single-instance guard trips (another server
+    // already owns the pipe) — the acceptor is not started in that case.
+    bool StartAcceptor(const std::string& pipeName);
 
     // Run the server main loop. This thread owns the SDL renderer and must
     // be the one that calls Init/StartAcceptor.
@@ -203,6 +205,10 @@ private:
     std::string pipeName_;
     std::atomic<bool> running_{false};
     std::thread acceptorThread_;
+    // Single-instance guard (2026-09-20): session-local named mutex acquired
+    // in StartAcceptor, held for the process lifetime. void* avoids
+    // <windows.h> in the header (spawnedClients_ 선례).
+    void* serverGuardMutex_ = nullptr;
 
     std::mutex clientsMutex_;
     std::vector<std::unique_ptr<JKClientConnection>> clients_;

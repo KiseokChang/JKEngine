@@ -23,7 +23,9 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     server.SetClientHostExe("jkdesktop.exe");
-    server.StartAcceptor(jk::ipc::kWindowServerPipeName);
+    if (!server.StartAcceptor(jk::ipc::kWindowServerPipeName)) {
+        return 1;   // 단일 인스턴스 가드 — 다른 서버가 파이프 점유 중
+    }
     server.Run();
     return 0;
 }
