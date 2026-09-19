@@ -13,7 +13,9 @@
 커밋 스팬: `7d0617c`(스펙) → `4c778e7`(플랜) → `fdec7e4`+`3d8f7e5`(서버
 모달+가드) → `f684c5f`+`2a28b1a`(서버 wait:event+이벤트) → `988eb5e`+
 `d11eca1`(filedlg 도구 3종) → `0405e5e`(브로커) → `99d19b8`+`0e3b328`+
-`359555d`(프로브) → 본 커밋(docs/59).
+`359555d`(프로브) → 본 커밋(docs/59) → 최종리뷰 FIX REQUIRED 픽스
+`42b1ea5`(서버 Important-1/2+Minor-1) → `36dda88`(프로브 c9d) → 본 갱신
+(docs/59 정정).
 
 **검증 상태(정직 기록)**: 코드는 확정(태스크별 리뷰 FIX_REQUIRED→픽스→
 재심사 FIXES_VERIFIED)이나 **e2e 프로브 ×2 ALL PASS는 미실행** — 라이브
@@ -63,8 +65,18 @@ PS5.1 ReadLineAsync 폴링 재실측뿐이다.
 - 가드는 `HandleAgentQuery` clientsMutex_ 보유 경로(list_app_tools와 동일
   블록) — 신규 락 0. 슬롯 소멸 3지점(만료 스캔/해소 소진/요청자 연결 회수)
   전부 `PendingFileDialog{}`로 dialogConnId까지 0 초기화, 슬롯 재사용은
-  `dialog_busy` 게이트 덕에 전면 소멸 후에만 가능 → 스펙 §5 커버 케이스
-  ①수동 기동 ②만료/해소 후 고아 ③재사용 후 옛 다이얼로그 전부 성립.
+  `dialog_busy` 게이트 덕에 전면 소멸 후에만 가능. **최종리뷰 정정+픽스
+  (42b1ea5, Important-1)**: 초기 구현은 케이스 ③(재사용 후 옛 다이얼로그)이
+  **실측 미성립**이었다 — 가드가 `cands.size()==1` 분기 안에 있어 고아가
+  후보에 끼면 ambiguous 즉답이 먼저 채택되고, 정상 슬롯 소유 다이얼로그의
+  호출까지 고아가 살아 있는 한 봉쇄됐다(다이얼로그는 자기 만료가 없음).
+  픽스 = app_tool 중계 후보 수집 직후 모달 후보를 슬롯 소유로 선별 제거
+  (`m->modal && dialogConnId != m->connId`) — 제거 후 비면 tool_gone 즉답
+  (기존 가드 동일 페이로드), 애초 후보 부재/windowId 불일치로 비는 경로는
+  unknown_app_tool 현행 유지. 픽스 후 케이스 ①수동 기동 ②만료/해소 후 고아
+  ③재사용 후 옛 다이얼로그 성립 — 정적 실측+프로브 c9d 체크 신설
+  (36dda88), **e2e 실행은 §5.3 미실행 상태 유지**. windowId 직행 경로와
+  resolve 재중계 경로(`:4673` 부근)는 connId 고정 조회라 무수정 확인.
 - `list_app_tools` 행: `,"modal":` + true/false — **false도 명시**(스펙 §4,
   소비자 파싱 단순화).
 - 리뷰 Important-1 픽스가 3d8f7e5(§0.1 첫 항목). NIT 수용(기록만): modal
@@ -84,6 +96,25 @@ PS5.1 ReadLineAsync 폴링 재실측뿐이다.
   재들여쓰기만, 와이어 바이트 동일.
 - 만료 이벤트는 슬라이스 슬롯 대조가 성공한 분기에서만 — 대조 실패(이미
   소진) 시엔 waitAsync 판독 불가+수신처 부재라 발행 안 함.
+- **최종리뷰 픽스(42b1ea5) 2건**:
+  - **해소 경로도 dialogConnId 진실원 적용(Important-2)**: file_open_result의
+    senderMatched는 요청자 에코 일치만 보므로, 슬롯 재사용(고아 다이얼로그+
+    동일 요청자의 재호출 — 브로커 연결은 영속이라 connId 동일) 조합에서
+    고아의 결과가 "새" 슬롯을 대신 해소하는 교차배달이 가능했다.
+    `senderMatched && (dialogConnId == 0 || client.Id() == dialogConnId)`
+    로 발신 연결 소유까지 검증 — ClientFileDialogApp.h "an orphan dialog
+    must resolve nothing" 계약의 집행. 수동 기동(requesterConnId 0,
+    무슬롯)은 기존 no-op 불변 유지.
+  - **요청자 연결 회수 경로의 이벤트 마감(Minor-1)**: 요청자가 다이얼로그
+    도중 끊기면(폰 브리지 재접속 등) 슬롯을 회수만 하고 발행이 없어
+    waitAsync 요청이 무통지로 사라졌다 — 회수 후엔 만료 스캔의 슬롯 대조가
+    requestId 불일치로 영구 실패해 expired 이벤트도 timeout reply도 없었다.
+    회수 시점에 waitAsync면 `file.open_result
+    {"ok":false,"error":"requester_gone"}` 방송으로 waitAsync 슬롯의 모든
+    종료 경로(해소/만료/회수)를 이벤트로 마감. **재접속 비복구 한계 명시**:
+    이 방송은 푸시 시점 구독자에게만 가므로 끊긴 연결·재접속한 세션은 이
+    통지를 수취할 수 없고 슬롯은 소진돼 복구되지 않는다 — 해소/만료와 같은
+    자리의 최후 통지이지 재접속 복구 기능이 아니다.
 - `kReservedTopicPrefixes`에 `"file."` — HandleToolRegister의
   namespace_conflict 검사가 같은 표를 공유하므로 등록 경로도 동시 강제.
 - **부수 수술**: publish_event 예약 접두 게이트가 `reserved` 계산을 topic
@@ -298,6 +329,14 @@ list limit 비양수 → 1 클램프, 스키마 밖 key → `bad_args`(방어선
 ## 8. 후속 / 범위 밖
 
 - **e2e ×2 ALL PASS** — §5.3 재실행 절차. 유일한 미완료 항목.
+- **Minor-2(선행 결함 — 본 브랜치 회귀 아님, 후속 이월)**:
+  `file_dialog_params` 게이트 none/allow(docs/48 이후 존재한 표면)로 제3
+  에이전트 연결이 슬롯 활성 중 params+`requesterConnId`를 선점(다이얼로그
+  굶김)할 수 있고, 얻은 id로 `file_open_result` 에코를 위조해 상관 검증을
+  통과할 수 있다. 저비용 봉쇄안 = 호출자가 창 연결/windowId 보유 or
+  `client.Id()==0` 기록 전 거부(본 브랜치가 만든 dialogConnId로 가능) —
+  Important-2의 소유 검증이 1차 방어선이 되므로 긴급도는 낮음. 후속 스펙
+  항목으로 이월(픽스 강제 아님).
 - 스펙 §3.1 응답 예시의 `"selected":{name,isDir}` 객체 표기 vs 구현의
   `selected:i` 인덱스+`selectedName/selectedIsDir` 병행 — 구현이 양쪽 소비자
   모두 수용하며 스펙 문구 정정은 Task 6 문서로 이월돼 본 문서로 기록
