@@ -2766,6 +2766,44 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                     }
                 }
             }
+            // 슬롯 리바인드 (docs/59 §13, 2026-09-20 폰 플로우 실측): 요청자
+            // (jkagentd)는 CLI가 턴마다 재스폰하므로 연결 id가 턴마다 바뀌고,
+            // 턴 종료의 요청자 회수기(final-review MINOR-2)가 슬롯을 전량
+            // 비운다. 생존한 다이얼로그는 모달 가드(§5)에 영구 tool_gone —
+            // 폰 플로우의 턴 2 내비게이션(filedlg_navigate/list/choose)이
+            // 전면 파산했다. 슬롯이 "완전히" 비어 있고(회수/만료 — 소유
+            // 다이얼로그도 기록 없음) 목표 모달 후보의 연결이 생존해 있으면,
+            // 제어 채널 호출자를 새 요청자로 리바인드한다. 슬롯에 소유
+            // 다이얼로그가 기록돼 있는 진짜 모달 경합은 기존 tool_gone 유지.
+            // paramsTaken=true — 원 다이얼로그가 이미 소진했으므로 재전달
+            // 금지. waitAsync=true — 리바인드 슬롯은 파킹 승인 항목이 없어
+            // 해소는 file.open_result 이벤트 방송으로만 통지(아래 해소 경로).
+            if (!cands.empty() && client.IsControlOnly() &&
+                pendingFileDialog_.requesterConnId == 0 &&
+                pendingFileDialog_.dialogConnId == 0 &&
+                pendingFileDialog_.requestId == 0) {
+                for (const AppToolManifest* c : cands) {
+                    if (!c->modal) continue;
+                    bool alive = false;
+                    for (const auto& cc : clients_) {
+                        if (cc && cc->Id() == c->connId &&
+                            !cc->IsDisconnected()) {
+                            alive = true;
+                            break;
+                        }
+                    }
+                    if (alive) {
+                        pendingFileDialog_.requesterConnId = client.Id();
+                        pendingFileDialog_.dialogConnId = c->connId;
+                        pendingFileDialog_.paramsTaken = true;
+                        pendingFileDialog_.waitAsync = true;
+                        std::fprintf(stderr,
+                                     "filedlg slot rebound: requester=%u dialog=%u\n",
+                                     client.Id(), c->connId);
+                        break;   // 슬롯 1개 — 첫 생존 모달 후보에 바인드
+                    }
+                }
+            }
             // 모달 후보 선별 (스펙 §5 케이스 ③ — 고아+슬롯 재사용): 슬롯
             // 만료/요청자 회수/재사용 후에도 살아 있는 고아 다이얼로그가 후보에
             // 끼면 정상 슬롯 소유 다이얼로그의 호출까지 ambiguous로 봉쇄된다
@@ -4943,10 +4981,19 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         // 어느 경로든 무해한 no-op으로 수렴한다.
         int senderConnId = -1;
         req.GetObjInt("args", "requesterConnId", senderConnId);
+        // 슬롯 리바인드 (docs/59 §13): 다이얼로그는 원 요청자 id를 에코한다 —
+        // 요청자 교체 후엔 에코가 슬롯의 새 requesterConnId와 영구 불일치.
+        // 발신 연결이 슬롯의 dialogConnId(파라미터를 준 다이얼로그 본인)와
+        // 일치하면 요청자 에코보다 강한 진실원이므로 해소를 수락한다.
+        // dialogConnId==0(파라미터 수락 전) 구간은 OR가 살아 있는 연결과
+        // 0을 비교할 수 없어 위변조 여지 없음(기존 불변 유지).
         const bool senderMatched =
             senderConnId >= 0 &&
-            static_cast<uint32_t>(senderConnId) ==
-                pendingFileDialog_.requesterConnId;
+            (static_cast<uint32_t>(senderConnId) ==
+                 pendingFileDialog_.requesterConnId ||
+             (pendingFileDialog_.dialogConnId != 0 &&
+              static_cast<uint32_t>(client.Id()) ==
+                  pendingFileDialog_.dialogConnId));
         bool resolved = false;
         // dialogConnId 진실원의 해소 경로 적용 (final-review Important-2):
         // senderMatched는 "요청자 에코 일치"만 검사하므로 슬롯 재사용(고아
@@ -4971,22 +5018,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                     continue;
                 }
                 resolved = true;
-                if (waitAsync) {
-                    // 스펙 §6 결정 5: 원래 쿼리는 이미 parked ack로 회답됐다
-                    // — AgentReply는 건너뛰고 file.open_result 이벤트 한 번만
-                    // 방송(구독자 전체, 브로커가 read_events로 수취). 이중
-                    // 전달 금지 — reply든 event든 정확히 하나. 취소(ok=false)
-                    // 는 사용자의 정당한 행동이라 error 멤버 없음 — "expired"
-                    // 만이 오류 문자열(스펙 §6 페이로드).
-                    std::string ev = ok
-                        ? (path.empty()
-                               ? "{\"topic\":\"file.open_result\",\"ok\":true}"
-                               : "{\"topic\":\"file.open_result\",\"ok\":true,"
-                                 "\"path\":\"" +
-                                     JsonEsc(path) + "\"}")
-                        : "{\"topic\":\"file.open_result\",\"ok\":false}";
-                    PushAgentEventJson(ev);
-                } else {
+                if (!waitAsync) {
                     for (auto& c : clients_) {
                         if (c && c->Id() == it->requesterId &&
                             !c->IsDisconnected()) {
@@ -5007,6 +5039,25 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                 }
                 pendingApprovals_.erase(it);
                 break;
+            }
+            if (waitAsync) {
+                // 스펙 §6 결정 5 + 리바인드 (docs/59 §13): file.open_result
+                // 이벤트는 승인 항목 매칭과 독립으로 방송 — 정상 waitAsync
+                // 슬롯(항목 있음)과 리바인드 슬롯(항목 없음 — 요청자 교체로
+                // requestId=0) 양쪽이 이 한 경로로 방송된다. 항목 미매칭
+                // waitAsync의 기존 무통지 경로(해소됐는데 구독자가 영원히 못
+                // 받는)도 여기서 마감. 원래 쿼리는 parked ack로 이미 회답됐다
+                // — AgentReply는 생략(이중 전달 금지). 취소(ok=false)는
+                // 사용자의 정당한 행동이라 error 멤버 없음 — "expired"만이
+                // 오류 문자열(스펙 §6 페이로드).
+                std::string ev = ok
+                    ? (path.empty()
+                           ? "{\"topic\":\"file.open_result\",\"ok\":true}"
+                           : "{\"topic\":\"file.open_result\",\"ok\":true,"
+                             "\"path\":\"" +
+                                 JsonEsc(path) + "\"}")
+                    : "{\"topic\":\"file.open_result\",\"ok\":false}";
+                PushAgentEventJson(ev);
             }
             pendingFileDialog_ = PendingFileDialog{};  // 슬롯 소진 (결과와 무관)
         }

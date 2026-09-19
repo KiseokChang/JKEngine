@@ -46,9 +46,13 @@
 #       stdout); every broker ReadLine is deadline-bounded so a lost
 #       response degrades to FAIL instead of wedging the probe
 #   c9  c9a fresh dialog, tools live; c9b requester connection disposed while
-#       the dialog lives -> app_tool answers tool_gone (modal guard, slot
-#       truth source pendingFileDialog_.dialogConnId, spec section 5);
-#       c9c kill the dialog process -> rows vanish -> unknown_app_tool;
+#       the dialog lives -> slot recycled, and the next control-only app_tool
+#       call REBINDS the empty slot to the fresh requester (2026-09-20 slot
+#       rebind, docs/59 section 13 — the phone broker respawns per turn, so
+#       requester death is ownership succession, not abandonment) and the
+#       relay answers normally. tool_gone remains only for a slot that owns
+#       a different dialog (real modal conflict); c9c kill the dialog process
+#       -> rows vanish -> unknown_app_tool;
 #       c9d two-dialog combination (final-review Important-1): orphan A
 #       alive + fresh file_open -> dialog B -> app_tool answers from B
 #       normally (orphan purged from candidates - NOT ambiguous)
@@ -622,12 +626,14 @@ try {
     $live = (AppTool "filedlg" "list" '{"offset":0}')
     Check "c9a-tools-live" ($live -match '"result":\{"ok":true' -and $live -match '"total":5') $live
     # c9b: dispose the REQUESTER connection -> slot recycled (requesterConnId=0,
-    # dialogConnId=0) while the dialog lives -> manifest connId no longer owned
-    # -> modal guard answers tool_gone BEFORE any relay.
+    # dialogConnId=0) while the dialog lives. Since the 2026-09-20 slot rebind
+    # (docs/59 section 13) the next control-only app_tool call rebinds the
+    # empty slot to itself and the relay answers NORMALLY — requester death is
+    # succession, not abandonment (phone broker respawns per turn).
     $connS.Dispose()
     Start-Sleep -Milliseconds 1500
     $g = (AppTool "filedlg" "list" '{"offset":0}')
-    Check "c9b-modal-guard-tool-gone" ($g -match '"ok":false,"error":"tool_gone"') $g
+    Check "c9b-rebind-relay-ok" ($g -match '"result":\{"ok":true' -and $g -match '"total":5') $g
     # c9d: two-dialog combination (final-review Important-1). With orphan A
     # still alive (same premise as c9b: slot recycled, A survives), a fresh
     # file_open spawns dialog B and the recycled slot now owns B -> candidate
