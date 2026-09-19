@@ -115,6 +115,20 @@ public:
     // Drain all queued agent events (raw JSON bodies); returns the count.
     size_t DrainAgentEvents(std::vector<std::string>& out);
 
+    // 앱 도구 허브 (스펙 2026-09-19-app-tool-hub §8.2): 런치 시 자기 도구를
+    // 선언하고, 서버 중계 호출(AgentToolCall)을 프레임 루프에서 폴링한다.
+    struct AgentToolDecl {
+        std::string name, description, inputSchema;  // inputSchema = 원문 JSON
+    };
+    struct AgentToolCallMsg {
+        uint32_t reqId = 0;
+        std::string app, tool, args;
+    };
+    bool SendAgentToolRegister(const std::string& app,
+                               const std::vector<AgentToolDecl>& tools);
+    bool PollToolCall(AgentToolCallMsg& out);
+    bool SendAgentToolResult(uint32_t reqId, bool ok, const std::string& resultJson);
+
 private:
     void StartReadThread();
     void StopReadThread();
@@ -163,6 +177,10 @@ private:
     std::mutex agentReplyMutex_;
     std::deque<std::string> pendingAgentEvents_;
     std::mutex agentEventMutex_;
+
+    // 앱 도구 허브: ReadLoop가 적재, 메인 스레드가 PollToolCall로 소비.
+    std::deque<AgentToolCallMsg> pendingToolCalls_;
+    std::mutex agentToolMutex_;
 
     static std::string ShmNameFromSurfaceId(uint32_t id);
 };

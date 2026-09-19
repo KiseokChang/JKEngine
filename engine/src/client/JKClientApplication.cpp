@@ -276,6 +276,18 @@ int JKClientApplication::Run() {
             }
         }
 
+        // 앱 도구 허브 (스펙 2026-09-19-app-tool-hub §8.2): 프레임 펌프 결합
+        // 폴링 — DrainAgentEvents와 동일 스위프/관용구. 결과 전송까지 코어가
+        // 처리(앱은 OnAgentToolCall 훅만 오버라이드; reqId 비노출).
+        {
+            jk::client::JKClientSurface::AgentToolCallMsg tc;
+            while (surface_ && surface_->PollToolCall(tc)) {
+                std::string resultJson;
+                const bool ok = OnAgentToolCall(tc.tool, tc.args, resultJson);
+                surface_->SendAgentToolResult(tc.reqId, ok, resultJson);
+            }
+        }
+
         const auto t2 = std::chrono::steady_clock::now();
         if (!running_) break;
 
@@ -572,6 +584,17 @@ void JKClientApplication::GetLetterbox(int& x, int& y) const {
 bool JKClientApplication::PreProcessMessage(const JKEvent& ev) {
     (void)ev;
     return true;
+}
+
+// 앱 도구 허브 (스펙 2026-09-19-app-tool-hub §8.2) — 기본 구현: 등록하지 않은
+// 앱은 도구가 오지 않지만(서버가 레지스트리로 중계 대상을 고름), 방어적으로
+// unsupported 에러로 응답한다(코어가 SendAgentToolResult로 에코).
+bool JKClientApplication::OnAgentToolCall(const std::string& tool,
+                                          const std::string& argsJson,
+                                          std::string& resultJson) {
+    (void)argsJson;
+    resultJson = "{\"error\":\"unsupported_tool\",\"tool\":\"" + tool + "\"}";
+    return false;
 }
 
 void JKClientApplication::RouteMessage(const JKEvent& ev) {

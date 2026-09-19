@@ -121,6 +121,14 @@ protected:
     // 직접 JKSoundManager 마스터 게인에 적용하고 훅도 함께 부른다(관심 앱은
     // 니들로 거른다 — vplayer fullscreen 미러).
     virtual void OnAgentEvent(const std::string& /*eventJson*/) {}
+    // 앱 도구 허브 (스펙 2026-09-19-app-tool-hub §8.2): 코어 펌프가
+    // PollToolCall로 모아 이 훅으로 전달한다(settings-hub §2.3 단일 펌프 이관
+    // 선례). resultJson에 결과 객체(실패 시 {"error":...})를 담고 ok를
+    // 돌려주면 코어가 SendAgentToolResult까지 처리한다 — 앱은 reqId를
+    // 만지지 않는다. 기본 구현은 unsupported 에러.
+    virtual bool OnAgentToolCall(const std::string& tool,
+                                 const std::string& argsJson,
+                                 std::string& resultJson);
     // TAB drives the child focus cycle in most apps; the terminal consumes it
     // as data instead.
     virtual bool WantsTabFocusCycle() const { return true; }

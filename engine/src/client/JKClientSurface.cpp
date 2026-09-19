@@ -1,5 +1,6 @@
 #include <client/JKClientSurface.h>
 
+#include <agent/JKAgentJson.h>
 #include <cstdio>
 #include <cstring>
 #ifdef _WIN32
@@ -8,6 +9,28 @@
 
 namespace jk {
 namespace client {
+
+namespace {
+
+// Minimal JSON string escape for agent JSON (quotes, backslash, control
+// chars) — same contract as the server's JsonEsc (JKWindowServer.cpp), minus
+// the brace escaping that only the server's row-scan needs. UTF-8 bytes pass
+// through untouched.
+std::string JsonEsc(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 8);
+    char num[8];
+    for (char ch : s) {
+        const unsigned char c = static_cast<unsigned char>(ch);
+        if (c == '"')       out += "\\\"";
+        else if (c == '\\') out += "\\\\";
+        else if (c < 0x20)  { std::snprintf(num, sizeof(num), "\\u%04x", c); out += num; }
+        else                out += ch;
+    }
+    return out;
+}
+
+} // namespace
 
 JKClientSurface::JKClientSurface(const std::string& pipeName,
                                  int width, int height,
@@ -332,6 +355,24 @@ void JKClientSurface::ReadLoop() {
                 }
                 QueueInputEvent(ev);
             }
+        } else if (msg.type == ipc::MsgType::AgentToolCall) {
+            // 앱 도구 허브 (스펙 2026-09-19-app-tool-hub §8.2): 서버 중계 호출.
+            // ReadLoop는 큐에 적재만 하고(짧은 lock_guard — 메인 스레드 폴링과
+            // 경합 최소), 프레임 루프가 PollToolCall로 소비한다. args는 원문
+            // JSON 유지(스키마 재해석은 앱 계약). bounded 64 — 넘치는 것은
+            // 폐기(앱이 등록한 도구만 오므로 과부하는 비정상 상태).
+            uint32_t reqId = 0; std::string json;
+            if (ipc::ReadAgentToolCall(msg, reqId, json)) {
+                jk::agent::AgentJson body(json);
+                JKClientSurface::AgentToolCallMsg tc;
+                tc.reqId = reqId;
+                body.GetStr("app", tc.app);
+                body.GetStr("tool", tc.tool);
+                body.GetRaw("args", tc.args);   // 원문 유지
+                std::lock_guard<std::mutex> lk(agentToolMutex_);
+                if (pendingToolCalls_.size() < 64)   // bounded (inputEvents_ 관용구)
+                    pendingToolCalls_.push_back(std::move(tc));
+            }
         }
     }
 
@@ -462,6 +503,38 @@ size_t JKClientSurface::DrainAgentEvents(std::vector<std::string>& out) {
         pendingAgentEvents_.pop_front();
     }
     return out.size();
+}
+
+// 앱 도구 허브 (스펙 2026-09-19-app-tool-hub §8.2) — 등록/폴링/결과 3종.
+bool JKClientSurface::SendAgentToolRegister(
+        const std::string& app, const std::vector<AgentToolDecl>& tools) {
+    if (!IsConnected()) return false;
+    std::string json = "{\"app\":\"" + JsonEsc(app) + "\",\"tools\":[";
+    bool first = true;
+    for (const auto& t : tools) {
+        json += first ? "{" : ",{";
+        first = false;
+        json += "\"name\":\"" + JsonEsc(t.name) + "\",\"description\":\"" +
+                JsonEsc(t.description) + "\",\"inputSchema\":" +
+                (t.inputSchema.empty() ? "{}" : t.inputSchema) + "}";
+    }
+    json += "]}";
+    return ipc::WriteAgentToolRegister(*transport_, json);
+}
+
+bool JKClientSurface::PollToolCall(AgentToolCallMsg& out) {
+    std::lock_guard<std::mutex> lk(agentToolMutex_);
+    if (pendingToolCalls_.empty()) return false;
+    out = pendingToolCalls_.front();
+    pendingToolCalls_.pop_front();
+    return true;
+}
+
+bool JKClientSurface::SendAgentToolResult(uint32_t reqId, bool ok,
+                                          const std::string& resultJson) {
+    if (!IsConnected()) return false;
+    return ipc::WriteAgentJson(*transport_, ipc::MsgType::AgentToolResult,
+                               reqId, ok ? 1u : 0u, resultJson);
 }
 
 } // namespace client
