@@ -428,6 +428,8 @@ function route(msg, j) {
     logEl.scrollTop = logEl.scrollHeight;
     return;
   }
+  if (msg.type === 'chat_queued') { add('[대기열] 이전 턴이 끝나면 이어서 실행해요', 'sys'); return; }
+  if (msg.type === 'chat_queued_start') { add('[대기열] 대기 중이던 메시지 실행 시작', 'sys'); return; }
   if (msg.type === 'chat_done') {
     if (streamEl) streamEl = null;
     if (msg.session_id) { claudeSession = msg.session_id; localStorage.setItem('jkbridge_session', msg.session_id); }
@@ -570,6 +572,13 @@ struct BridgeSession {
     explicit BridgeSession(SOCKET sock)
         : sock_(sock),
           lastPong_(static_cast<int64_t>(time(nullptr))) {}
+
+    // 대기열 (docs/59 유보 ③, 2026-09-20): 턴 실행 중 도착한 chat을 최대
+    // kMaxPendingTurns개 적립 — 순서가 되면 OnLlmDone이 다음 턴을 시작한다.
+    // 상한 초과분만 busy로 거부(무경합 플러드 방지 백로그 레슨 선례).
+    static constexpr size_t kMaxPendingTurns = 3;
+    std::mutex queueMtx_;
+    std::vector<std::string> pendingTurns_;
 
     // The dispatcher (Run) owns the lifecycle. Returns when the WS dies.
     void Run();
@@ -795,6 +804,34 @@ static void OnLlmDone(jk::agent::LlmTurnResult&& r, void* user) {
     } else {
         g_doneMemo.Put(r.sessionId, "[!] LLM 실패 — " + r.result);
     }
+    // 대기열 드레인 (docs/59 유보 ③): 다음 적립 턴을 즉시 시작한다 — busy_는
+    // DoneFn 전에 해제돼 있다(engine Finish 관례)라 StartTurn은 성공. 같은
+    // keep(세션 소유권)을 다음 턴의 DoneFn으로 넘기므로 여기서 delete하지
+    // 않는다. 극히 드문 실패(재진입 경합)면 맨 앞에 되돌려 순서를 지킨다.
+    std::string next;
+    {
+        std::lock_guard<std::mutex> lock((*keep)->queueMtx_);
+        if (!(*keep)->pendingTurns_.empty()) {
+            next = std::move((*keep)->pendingTurns_.front());
+            (*keep)->pendingTurns_.erase((*keep)->pendingTurns_.begin());
+        }
+    }
+    if (!next.empty()) {
+        std::string resume;
+        {
+            std::lock_guard<std::mutex> lock((*keep)->resumeMtx_);
+            resume = (*keep)->resumeSession_;
+        }
+        (*keep)->SendText("{\"type\":\"chat_queued_start\"}");
+        if (!(*keep)->engine_.StartTurn(next, resume, OnLlmDelta,
+                                        OnLlmDone, keep)) {
+            std::lock_guard<std::mutex> lock((*keep)->queueMtx_);
+            (*keep)->pendingTurns_.insert(
+                (*keep)->pendingTurns_.begin(), next);
+            delete keep;
+        }
+        return;
+    }
     delete keep;
 }
 
@@ -932,8 +969,23 @@ static void SessionRun(std::shared_ptr<BridgeSession> s) {
             auto* keep = new std::shared_ptr<BridgeSession>(s);
             if (!s->engine_.StartTurn(text, resumeAtChat, OnLlmDelta,
                                       OnLlmDone, keep)) {
-                delete keep;
-                s->SendText("{\"type\":\"error\",\"text\":\"busy\"}");
+                // 대기열 (docs/59 유보 ③): 턴 실행 중 도착 메시지는 적립 —
+                // 순서가 되면 OnLlmDone이 시작한다. 상한 초과분만 busy 거부.
+                bool queued = false;
+                {
+                    std::lock_guard<std::mutex> lock(s->queueMtx_);
+                    if (s->pendingTurns_.size() <
+                        BridgeSession::kMaxPendingTurns) {
+                        s->pendingTurns_.push_back(text);
+                        queued = true;
+                    }
+                }
+                if (queued) {
+                    s->SendText("{\"type\":\"chat_queued\"}");
+                } else {
+                    delete keep;
+                    s->SendText("{\"type\":\"error\",\"text\":\"busy\"}");
+                }
             }
         } else if (type == "tool") {
             std::string tool, args, label;

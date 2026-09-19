@@ -553,3 +553,31 @@ tools/list failed ([{"code":"invalid_value","values":["object"],
   전제(요청자 불사)가 틀리면 검증은 결함을 확증한 것 — e2e 검증은
   소비자의 실제 수명 모델 위에서. ③트랜스크립트의 "승인 팝업이 안 뜬다"
   같은 LLM 해석은 틀리기 쉽다 — parked:true는 wait:event의 정상 ack였다.
+
+## 14. 유보 ③① 소각 — bridge busy 큐잉 + LLM kill-deny (2026-09-20)
+
+사용자 "쭉쭉 재량껏"으로 §10 유보 잔여 2건 처리.
+
+- **③ busy 큐잉**: 기존 `[!] busy` 즉거부를 **대기열 전환**으로. BridgeSession에
+  대기열(상한 3 — 플러드 백로그 레슨 선례)을 두고, 턴 실행 중 도착 chat은
+  `chat_queued`로 적립. OnLlmDone이 다음 턴을 즉시 시작(`chat_queued_start`
+  통지) — busy_는 DoneFn **전에** 해제된다는 엔진 Finish 관례(주석 명시)가
+  성립 조건. 같은 keep(세소유권 shared_ptr)을 다음 턴의 DoneFn으로 넘기므로
+  드레인 경로에서 delete하지 않는다. 재진입 경합(극히 드문 StartTurn 실패)은
+  맨 앞 되돌림으로 순서 보존. jkchat은 무수정(엔진 아닌 브리지 측 큐).
+- **① kill-deny**: 전면 Bash 차단(§10 원안)은 진단 능력 상실로 미채택 —
+  **프로세스 kill 계열만 deny**하는 `--settings`를 BuildEngineCmd에 고정
+  주입. 실측 2건: ①직접 claude 경로 ②실제 브리지 스폰 경로
+  (cmd.exe /c → ollama launch → claude) — **--dangerously-skip-permissions
+  하에서도 deny 규칙은 강제된다**(permission_denials로 차단). 인용은
+  prompt의 `\"` 이스케이프와 동일 CRT 규칙 — 1차 구현이 원문 따옴표를
+  써서 argv 재파싱이 JSON을 쪼갤 뻔한 것을 검토 중 발견·픽스. 잔여 우회
+  (powershell 래퍼 등 접두 외 경로)는 미커버 — 재발 시 전면 차단으로 상향.
+- **검증**: 빌드 클린 + jkagentd selftest 0 failures. smoke_llm_stream /
+  probe_jkbridge는 실행 중 데스크탑·브리지를 이미지 단위로 죽이므로
+  다음 데스크탑 종료창에 회귀(서버·브리지 재기동 후 효과 발동).
+- **레슨**: ①deny 규칙은 skipPermissions에서도 강제된다("권한 우회가 deny를
+  우회한다"는 추측은 무증상 실측으로 반증) ②명령행 임베드 JSON은
+  반드시 인용 이스케이프 — prompt 선례와 같은 CRT 규칙 ③이미지 단위
+  Stop-Process를 하는 프로브는 실행 중 라이브 프로세스와 공존 불가 —
+  회귀는 프로세스 정지창에 예약.

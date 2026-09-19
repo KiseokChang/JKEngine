@@ -77,6 +77,24 @@ ChatConfig LoadChatConfig() {
 
 namespace {
 
+// LLM 턴에 kill 계열 Bash deny를 고정 주입 (docs/59 유보 ①, 2026-09-20
+// 재량 채택 — 사용자 "쭉쭉 재량껏"). 배경: 폰 세션의 MCP 불안정 스톰 동안
+// LLM이 jkdesktop 프로세스 kill/재기동으로 에스컬레이션한 실측 — 근원 치료
+// (docs/59 §10-13)이 끝났어도 재발 스톰에서 같은 에스컬레이션이 데스크탑
+// 전체를 죽인다. 전면 Bash 차단(§10 ① 원안)은 진단 능력을 함께 잃으므로
+// 프로세스 kill 계열만 deny한다. 실측: --dangerously-skip-permissions
+// 하에서도 deny 규칙은 강제된다(permission_denials로 차단, 직접·cmd /c +
+// ollama launch 경로 양쪽). 잔여 우회: powershell 래퍼 등 접두 외 경로는
+// 미커버 — 재발 시 전면 Bash 차단으로 상향(사용자 판정).
+// 인용: JSON 따옴표는 명령행 임베드를 위해 \" 로 이스케이프 — prompt의
+// -p 이스케이프와 같은 CRT 규칙(2026-09-20 cmd.exe 경로 실측).
+constexpr const char* kLlmDenySettings =
+    "{\"permissions\":{\"deny\":["
+    "\"Bash(taskkill:*)\",\"Bash(taskkill.exe:*)\","
+    "\"Bash(Stop-Process:*)\",\"Bash(kill:*)\",\"Bash(pkill:*)\","
+    "\"Bash(wmic process:*)\",\"Bash(Stop-Service:*)\","
+    "\"Bash(net stop:*)\"]}}";
+
 // claude_wrapper guide §2.2: ollama launch claude --model <m> -- [claude args]
 std::wstring BuildEngineCmd(const ChatConfig& cfg,
                             const std::string& prompt,
@@ -94,6 +112,14 @@ std::wstring BuildEngineCmd(const ChatConfig& cfg,
         "-p \"" + esc +
         "\" --output-format stream-json --verbose --include-partial-messages";
     if (cfg.skipPermissions) claudeArgs += " --dangerously-skip-permissions";
+    // JSON 인용 이스케이프 — 원문 따옴표는 CRT argv 재파싱에서 스팬을 끊어
+    // claude가 파산 JSON을 받는다(prompt의 -p 이스케이프와 동일 규칙).
+    std::string escSettings;
+    for (const char* p = kLlmDenySettings; *p; ++p) {
+        if (*p == '"') escSettings += "\\\"";
+        else escSettings += *p;
+    }
+    claudeArgs += " --settings \"" + escSettings + "\"";
     if (!resumeSessionId.empty()) {
         claudeArgs += " --resume \"" + resumeSessionId + "\"";
     }
