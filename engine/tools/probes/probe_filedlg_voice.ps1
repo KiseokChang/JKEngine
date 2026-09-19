@@ -33,10 +33,18 @@
 #       reply-mode file_open resolves {"ok":true,"path":..} (reply-mode e2e);
 #       dialog process exits; catalog rows back to 0
 #   c8  c8a re-open wait:"event" -> IMMEDIATE parked ack; c8b choose b.txt ->
-#       resolved + file.open_result event on the subscriber (ok+path);
-#       c8c broker e2e in ONE jkagentd stdio session: tools/call file_open
-#       (broker injects wait:event) -> filedlg_choose -> read_events delivers
-#       file.open_result
+#       resolved + file.open_result event on the subscriber (ok+path) + ~1s
+#       drain asserting NO late AgentReply for the parked qid (single
+#       delivery, spec section 6); c8c broker e2e in ONE jkagentd stdio
+#       session: tools/call file_open (broker injects wait:event) ->
+#       tools/call read_events BEFORE choose (subscribes this connection -
+#       the server pushes only to subscribers at push time and the broker
+#       declares subscribe=0 until its first read_events - and drains the
+#       queue) -> filedlg_choose -> tools/call read_events AGAIN and the
+#       file.open_result event is asserted in THAT RESPONSE LINE (jkagentd
+#       writes one stdout line per request and never streams events to
+#       stdout); every broker ReadLine is deadline-bounded so a lost
+#       response degrades to FAIL instead of wedging the probe
 #   c9  c9a fresh dialog, tools live; c9b requester connection disposed while
 #       the dialog lives -> app_tool answers tool_gone (modal guard, slot
 #       truth source pendingFileDialog_.dialogConnId, spec section 5);
@@ -46,9 +54,14 @@
 #       unknown_app_tool (spec section 0 decision 2 side effect IS the guard)
 #   c11 publish_event topic "file.open_result" -> reserved_topic;
 #       c11b events_list catalog carries file.open_result (source server)
-#   c12 jkagentd --selftest + jkdesktop test smoke + probe_app_tools.ps1 x2
-#       (nested; manages its own server lifecycle and permissions; run last -
-#       it kills this probe's server too, same exclusive pipe by design)
+#   c12 jkagentd --selftest + jkdesktop test smoke + nested regression probes:
+#       probe_app_tools.ps1 x2, probe_files.ps1, probe_agent_chat.ps1 (each
+#       manages its own server lifecycle and permissions; run last - they
+#       kill this probe's server too, same exclusive pipe by design). An
+#       inventory re-check runs immediately BEFORE each nested run: the
+#       nested probes kill jkdesktop/jkchat/jkbridge BY IMAGE, so a foreign
+#       desktop/bridge that re-appeared mid-run would die indirectly - the
+#       nested run is skipped + FAILed (fail fast) in that case.
 #
 # Wire facts asserted against (Tasks 1-4 as-built):
 #   - file_open reply mode parks; AgentReply (type 18) {"ok":true,"path":..}
@@ -103,6 +116,29 @@ function AppTool([string]$app, [string]$tool, [string]$argsJson, [int]$windowId 
 # Separator-flexible regex for a fixture path (the dialog lexically_normal()s).
 function PathRx([string]$p) {
     return ([regex]::Escape($p) -replace '/', '[/\\\\]')
+}
+# Deadline-bounded ReadLine for the c8c broker stdio session. PS5.1's
+# synchronous ReadLine would block forever if jkagentd fails to answer a
+# request (jkagentd writes one line per request and nothing else); polling
+# the pending ReadLineAsync task keeps THIS thread free to check HasExited
+# and the deadline, so a lost response degrades to a FAIL instead of
+# wedging the probe (finally never reached, state left dirty).
+function Read-BrokerLine([int]$timeoutMs) {
+    if ($script:procM.HasExited) { return $null }
+    $t = $script:procM.StandardOutput.ReadLineAsync()
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    while (-not $t.IsCompleted) {
+        if ($script:procM.HasExited) { return $null }
+        if ($sw.ElapsedMilliseconds -gt $timeoutMs) {
+            # Session is toast: kill the broker so no later ReadLineAsync
+            # stacks onto the still-pending task (that would throw and
+            # bypass finally).
+            Stop-Process -Id $script:procM.Id -Force -ErrorAction SilentlyContinue
+            return $null
+        }
+        Start-Sleep -Milliseconds 50
+    }
+    return $t.Result
 }
 
 # --- permissions.json is probe-owned state: stale-residue guard first (a
@@ -259,6 +295,24 @@ function Stop-MyPids {
         if ($p2 -gt 0) { Stop-Process -Id $p2 -Force -ErrorAction SilentlyContinue }
     }
 }
+# Mid-run foreign re-check (c12 nested runs): the nested probes kill
+# jkdesktop/jkchat/jkbridge BY IMAGE, so a foreign desktop/bridge that
+# re-appeared after the pre-spawn inventory would be killed indirectly. Own
+# PIDs (this probe's server tree) are excluded. Returns $false and FAILs
+# (fail fast) when anything foreign is alive - the caller skips the nested run.
+function Test-ForeignFree([string]$tag) {
+    $inv = @()
+    foreach ($img in @("jkdesktop", "jkbridge", "jkwinserver")) {
+        $inv += (Get-Process $img -ErrorAction SilentlyContinue |
+                 Where-Object { $script:myPids -notcontains $_.Id } |
+                 ForEach-Object { "$img(pid=$($_.Id))" })
+    }
+    if ($inv) {
+        Check ("setup-foreign-midrun-" + $tag) $false ("foreign re-appeared before the nested run: " + ($inv -join ", ") + " - nested run SKIPPED")
+        return $false
+    }
+    return $true
+}
 
 # --- pre-spawn inventory + foreign-server fail fast (task constraints) -------
 $preInv = @()
@@ -286,19 +340,34 @@ if ($answered) {
     exit 1
 }
 # Stale-binary guard: jkdesktop --server embeds the server (libjkserver.a).
-if (-not (Test-Path (Join-Path $root "libjkserver.a")) -or -not (Test-Path $exe) -or -not (Test-Path $agnt)) {
-    Write-Host "FAIL: setup-missing-artifacts -- engine/build/jkdesktop.exe, jkagentd.exe or libjkserver.a missing"
+# Extended to the other Task 3/4 artifacts: jkagentd.exe links ONLY jkcore
+# (no libjkagentd.a exists - engine/CMakeLists.txt target jkagentd ->
+# target_link_libraries jkcore) and jkapp_filedlg.dll links jkclient
+# (engine/CMakeLists.txt:548-554); a newer static lib means the binary was
+# never relinked and silently lacks the new code.
+if (-not (Test-Path (Join-Path $root "libjkserver.a")) -or -not (Test-Path $exe) -or -not (Test-Path $agnt) -or
+    -not (Test-Path (Join-Path $root "jkapp_filedlg.dll")) -or
+    -not (Test-Path (Join-Path $root "libjkcore.a")) -or
+    -not (Test-Path (Join-Path $root "libjkclient.a"))) {
+    Write-Host "FAIL: setup-missing-artifacts -- engine/build/jkdesktop.exe, jkagentd.exe, jkapp_filedlg.dll, libjkserver.a, libjkcore.a or libjkclient.a missing"
     if ($hadPerm) { Copy-Item $permBakFile $permFile -Force; Remove-Item $permBakFile -ErrorAction SilentlyContinue }
     exit 1
 }
-$libAge = (Get-Item (Join-Path $root "libjkserver.a")).LastWriteTime
-$exeAge = (Get-Item $exe).LastWriteTime
-if ($libAge -gt $exeAge) {
-    Write-Host ("FAIL: setup-stale-binary -- libjkserver.a (" + $libAge.ToString("HH:mm:ss") +
-                ") is newer than jkdesktop.exe (" + $exeAge.ToString("HH:mm:ss") + ")")
-    Write-Host "      jkdesktop --server embeds the server; rebuild first: cmake --build build --target jkdesktop"
-    if ($hadPerm) { Copy-Item $permBakFile $permFile -Force; Remove-Item $permBakFile -ErrorAction SilentlyContinue }
-    exit 1
+$stalePairs = @(
+    @{ bin = "jkdesktop.exe";     lib = "libjkserver.a"; tgt = "jkdesktop" },
+    @{ bin = "jkagentd.exe";      lib = "libjkcore.a";   tgt = "jkagentd" },
+    @{ bin = "jkapp_filedlg.dll"; lib = "libjkclient.a"; tgt = "jkapp_filedlg" }
+)
+foreach ($sp in $stalePairs) {
+    $binAge = (Get-Item (Join-Path $root $sp.bin)).LastWriteTime
+    $libAge = (Get-Item (Join-Path $root $sp.lib)).LastWriteTime
+    if ($libAge -gt $binAge) {
+        Write-Host ("FAIL: setup-stale-binary -- " + $sp.lib + " (" + $libAge.ToString("HH:mm:ss") +
+                    ") is newer than " + $sp.bin + " (" + $binAge.ToString("HH:mm:ss") + ")")
+        Write-Host ("      the binary was not relinked after the lib was rebuilt; rebuild first: cmake --build build --target " + $sp.tgt)
+        if ($hadPerm) { Copy-Item $permBakFile $permFile -Force; Remove-Item $permBakFile -ErrorAction SilentlyContinue }
+        exit 1
+    }
 }
 
 # --- fixture dir: entries resolve to [.., sub, a.txt, b.txt, c.txt] ----------
@@ -452,14 +521,32 @@ try {
         if ($f -and $f.type -eq 20 -and $f.text -match '"topic":"file\.open_result"') { $evt = $f.text; break }
     }
     Check "c8b-file-open-result-event" ($evt -match '"ok":true' -and $evt -match '"path":"[^"]*[/\\]start[/\\]b\.txt"') $evt
+    # Single-delivery invariant (spec section 6): the resolution is ONE
+    # file.open_result broadcast - the parked wait:event query (qid 402) must
+    # NOT also receive an AgentReply. Drain ~1s and assert absence.
+    $dbl = $false
+    $drainSw = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($drainSw.ElapsedMilliseconds -lt 1100) {
+        $f = Read-Frame $connS 150
+        if ($f -and $f.type -eq 18 -and $f.qid -eq 402) { $dbl = $true; break }
+    }
+    Check "c8b-no-reply-double-delivery" (-not $dbl) "qid 402 must stay parked - event-only resolution"
     Check "c8b-dialog-B-gone" (-not (Get-Process -Id $dlgB -ErrorAction SilentlyContinue)) ("dialogPid=$dlgB")
 
     # ---- c8c: broker e2e in ONE jkagentd stdio session -------------------------
     # The broker injects wait:"event" into MCP file_open (Task 4), so the MCP
-    # call returns parked at once and the resolution must arrive via read_events
-    # IN THE SAME SESSION (events queue per connection - a fresh session would
-    # drain nothing). One ReadLine per request (newline-delimited JSON-RPC);
-    # no fixed sleeps - the dialog is polled via agentctl between writes.
+    # call returns parked at once. jkagentd stdout is ONE response line per
+    # request (main.cpp getline -> HandleLine -> fputs, nothing else) and
+    # events NEVER stream to stdout - they queue in the broker connection and
+    # are drained ONLY by the read_events tool. The server broadcasts to
+    # whoever is subscribed AT PUSH TIME (no server-side queueing for
+    # non-subscribers) and the broker declares subscribe=0 at startup,
+    # subscribing on its FIRST read_events - so read_events must be called
+    # BEFORE choose (subscription preemption + queue drain), then AGAIN after
+    # choose, and the file.open_result event is asserted in that RESPONSE
+    # LINE's events array. No fixed sleeps; the dialog is polled via agentctl
+    # between writes. Every ReadLine goes through Read-BrokerLine (deadline
+    # bounded) so a missing answer can never wedge the probe.
     Clear-Perms   # broker gate reads the same file; absent = allow
     $psiM = New-Object System.Diagnostics.ProcessStartInfo
     $psiM.FileName = $agnt
@@ -468,28 +555,33 @@ try {
     $psiM.RedirectStandardOutput = $true
     $psiM.CreateNoWindow = $true
     $procM = [System.Diagnostics.Process]::Start($psiM)
+    $script:procM = $procM
     $script:myPids += $procM.Id
     $sin = $procM.StandardInput
     $sin.WriteLine('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}')
-    $initR = $procM.StandardOutput.ReadLine()
+    $initR = Read-BrokerLine 30000
     Check "c8c-broker-init" ($null -ne $initR -and $initR -match '"protocolVersion"') "$initR"
     $sin.WriteLine('{"jsonrpc":"2.0","method":"notifications/initialized"}')
     $sin.WriteLine('{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"file_open","arguments":{"start":"' + $startFwd + '"}}}')
-    $foR = $procM.StandardOutput.ReadLine()
+    $foR = Read-BrokerLine 30000
     Check "c8c-mcp-file-open-parked" ($null -ne $foR -and $foR -match 'parked\\":true' -and $foR -match 'ok\\":true') "$foR"
     $dlgC = Wait-DialogPid $serverPid 30
     Check "c8c-dialog-C-spawned" ($dlgC -gt 0) ("dialogPid=$dlgC")
     Check "c8c-rows-3" (Wait-Rows 3 30) ""
-    $sin.WriteLine('{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"filedlg_choose","arguments":{"name":"c.txt"}}}')
-    $choR = $procM.StandardOutput.ReadLine()
+    # (1) read_events BEFORE choose - subscribes this broker connection (the
+    # server pushes only to push-time subscribers; subscribe=0 at startup,
+    # first read_events subscribes) and drains whatever queued meanwhile.
+    $sin.WriteLine('{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"read_events","arguments":{}}}')
+    $subR = Read-BrokerLine 30000
+    Check "c8c-read-events-subscribed" ($null -ne $subR -and $subR -match 'ok\\":true') "$subR"
+    $sin.WriteLine('{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"filedlg_choose","arguments":{"name":"c.txt"}}}')
+    $choR = Read-BrokerLine 30000
     Check "c8c-mcp-choose-resolved" ($null -ne $choR -and $choR -match 'resolved\\":true' -and $choR -match 'c\.txt') "$choR"
-    $evR = ""
-    foreach ($i in 1..30) {
-        $line = $procM.StandardOutput.ReadLine()
-        if ($null -eq $line -or $procM.HasExited) { break }
-        if ($line -match 'file\.open_result') { $evR = $line; break }
-    }
-    Check "c8c-read-events-delivers" ($evR -match 'file\.open_result' -and $evR -match 'c\.txt') "$evR"
+    # (2) read_events AFTER choose - file.open_result arrives in THIS response
+    # line's events array, never on stdout by itself.
+    $sin.WriteLine('{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"read_events","arguments":{}}}')
+    $evR = Read-BrokerLine 30000
+    Check "c8c-read-events-delivers" ($null -ne $evR -and $evR -match 'file\.open_result' -and $evR -match 'c\.txt') "$evR"
     $sin.Close()
     if (-not $procM.WaitForExit(30000)) { Stop-Process -Id $procM.Id -Force -ErrorAction SilentlyContinue }
     Check "c8c-dialog-C-gone" ($dlgC -gt 0 -and -not (Get-Process -Id $dlgC -ErrorAction SilentlyContinue)) ("dialogPid=$dlgC")
@@ -542,22 +634,43 @@ try {
     Clear-Perms
     $selfOut = (& $agnt --selftest) 2>&1
     $selfTxt = (($selfOut | ForEach-Object { "$_" }) -join "`n")
-    Check "c12a-jkagentd-selftest" ($LASTEXITCODE -eq 0 -and $selfTxt -match "0 failures") ($selfTxt.Substring(0, [Math]::Min(200, $selfTxt.Length)))
+    Check "c12a-jkagentd-selftest" ($LASTEXITCODE -eq 0 -and $selfTxt -match '(?m)^selftest: 0 failures\s*$') ($selfTxt.Substring(0, [Math]::Min(200, $selfTxt.Length)))
     $pT = Start-Process -FilePath $exe -ArgumentList "test" -WorkingDirectory $root -WindowStyle Hidden -PassThru
     $script:myPids += $pT.Id
     Start-Sleep -Seconds 6
     Check "c12b-jkdesktop-test-alive" (-not $pT.HasExited) $(if ($pT.HasExited) { "exit=" + $pT.ExitCode } else { "alive" })
     Stop-Process -Id $pT.Id -Force -ErrorAction SilentlyContinue
-    # nested probe_app_tools x2 - it manages its own server lifecycle, kills its
-    # own tree, and restores its own permissions baseline. Run LAST: it tears
-    # this probe's server down too (same exclusive pipe - by design).
+    # Nested regression probes - each manages its own server lifecycle, kills
+    # its own tree, and restores its own permissions baseline. Run LAST: they
+    # tear this probe's server down too (same exclusive pipe - by design).
+    # Test-ForeignFree runs immediately before each run (see helper).
     foreach ($run in 1..2) {
+        if (-not (Test-ForeignFree ("c12c-run" + $run))) { continue }
         $nestedLog = Join-Path $env:TEMP ("probe_filedlg_voice_nested_run" + $run + "_" + $PID + ".log")
         $no = (& powershell -NoProfile -ExecutionPolicy Bypass `
             -File "I:\progwork\JKENGINE\engine\tools\probes\probe_app_tools.ps1") 2>&1
         $no | Out-File -FilePath $nestedLog -Encoding ASCII
         $nOk = (($no | ForEach-Object { "$_" }) -join "`n") -match "RESULT: ALL PASS"
         Check ("c12c-probe-app-tools-run" + $run) $nOk ("log=$nestedLog")
+    }
+    # c12d: file hub regression (probe_files.ps1, own server + state backups).
+    if (Test-ForeignFree "c12d") {
+        $filesLog = Join-Path $env:TEMP ("probe_filedlg_voice_files_run_" + $PID + ".log")
+        $no = (& powershell -NoProfile -ExecutionPolicy Bypass `
+            -File "I:\progwork\JKENGINE\engine\tools\probes\probe_files.ps1") 2>&1
+        $no | Out-File -FilePath $filesLog -Encoding ASCII
+        $nOk = (($no | ForEach-Object { "$_" }) -join "`n") -match "PASS: file hub"
+        Check "c12d-probe-files" $nOk ("log=$filesLog")
+    }
+    # c12e: chat approval pipeline regression (probe_agent_chat.ps1, own
+    # server + jkchat/minesweeper windows spawned and reaped by the probe).
+    if (Test-ForeignFree "c12e") {
+        $chatLog = Join-Path $env:TEMP ("probe_filedlg_voice_chat_run_" + $PID + ".log")
+        $no = (& powershell -NoProfile -ExecutionPolicy Bypass `
+            -File "I:\progwork\JKENGINE\engine\tools\probes\probe_agent_chat.ps1") 2>&1
+        $no | Out-File -FilePath $chatLog -Encoding ASCII
+        $nOk = (($no | ForEach-Object { "$_" }) -join "`n") -match "PASS: agent chat"
+        Check "c12e-probe-agent-chat" $nOk ("log=$chatLog")
     }
 
 } finally {
