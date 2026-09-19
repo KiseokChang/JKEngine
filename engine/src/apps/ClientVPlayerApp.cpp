@@ -1662,6 +1662,31 @@ void ClientVPlayerApp::OnInit() {
                                  io.Fonts->GetGlyphRangesKorean());
     lastFrame_ = std::chrono::steady_clock::now();
 
+    // 앱 도구 허브 (스펙 2026-09-19-app-tool-hub §8.1): 자기 도구 선언 — 연결
+    // 수명 동안 서버가 보관. 배치 근거(Task 4 리뷰 ⚠): OnInit은
+    // JKClientApplication::Init의 surface_->Connect() 이후에만 불린다(src/
+    // client/JKClientApplication.cpp :166 → :196), 따라서 SendAgentToolRegister의
+    // "연결 전 조용한 false" 경로에 걸리지 않는다(영구 미등록 함정).
+    // 재접속: JKClientApplication엔 재 Connect 경로가 없어(Connect 실패 시
+    // Init false + 앱 종료) 1회 등록이 충분.
+    // 스키마는 MCP inputSchema 그대로(브로커가 tools/list에 실는다).
+    if (jk::client::JKClientSurface* surface = Surface()) {
+        using Decl = jk::client::JKClientSurface::AgentToolDecl;
+        std::vector<Decl> tools = {
+            {"open", "Open a media file (async; poll get_status)",
+             "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}"},
+            {"play_pause", "Toggle play/pause", "{}"},
+            {"seek", "Seek to absolute seconds",
+             "{\"type\":\"object\",\"properties\":{\"seconds\":{\"type\":\"integer\"}},\"required\":[\"seconds\"]}"},
+            {"set_volume", "Set volume percent 0..100",
+             "{\"type\":\"object\",\"properties\":{\"percent\":{\"type\":\"integer\"}},\"required\":[\"percent\"]}"},
+            {"set_av_delay", "Set A/V offset in seconds (-1..1)",
+             "{\"type\":\"object\",\"properties\":{\"seconds\":{\"type\":\"integer\"}},\"required\":[\"seconds\"]}"},
+            {"get_status", "Playback status snapshot (opened/paused/pos/dur/volume/error)", "{}"},
+        };
+        surface->SendAgentToolRegister("vplayer", tools);
+    }
+
     // Probe affordance (vpt8): open a file without injected keyboard/mouse —
     // the path row needs focus, which synthetic input can't win reliably
     // while the desktop is in use. Probes set JK_VPLAYER_OPEN and spawn the
@@ -2106,6 +2131,85 @@ void ClientVPlayerApp::PumpAgentReplies() {
         // lastDir_ is recorded in OpenPath — every open site feeds it there.
         OpenPath(path.c_str());
     }
+}
+
+// 앱 도구 허브 (스펙 2026-09-19-app-tool-hub §8.1): 전부 UI/프레임 스레드 —
+// 기존 UI→PlayerCore 세터 경로(BuildUi의 SetPaused/Seek/SetVolume/...
+// SnapNow 패턴)와 동일 스레드라 새 락 없음. 인자 검증은 앱이 한다(서버는
+// 패스스루 계약). 어느 경로도 블로킹 I/O를 넣지 않는다(프레임 루프 스톨 금지).
+// JsonEsc는 이 파일 스코프의 EscapeJson과 동일 구현(따옴표/백슬래시/제어문자)
+// — 중복 정의 대신 재사용.
+bool ClientVPlayerApp::OnAgentToolCall(const std::string& tool,
+                                       const std::string& argsJson,
+                                       std::string& out) {
+    jk::agent::AgentJson args(argsJson);
+    if (tool == "get_status") {
+        const PlayerCore::Snap st =
+            player_ ? player_->SnapNow() : PlayerCore::Snap{};
+        char buf[512];
+        std::snprintf(buf, sizeof(buf),
+            "{\"opened\":%s,\"opening\":%s,\"openFailed\":%s,\"paused\":%s,"
+            "\"ended\":%s,\"pos\":%.3f,\"dur\":%.3f,\"volume\":%.2f,"
+            "\"error\":\"%s\"}",
+            st.opened ? "true" : "false", st.opening ? "true" : "false",
+            st.openFailed ? "true" : "false", st.paused ? "true" : "false",
+            st.ended ? "true" : "false", st.pos, st.dur, st.vol,
+            EscapeJson(st.error).c_str());
+        out = buf;
+        return true;
+    }
+    // open은 player_ 없는 신규 인스턴스에서도 유효(OpenPath가 코어를 만든다)
+    // — !player_ 가드보다 앞에 둔다. 브리프 순서(가드 아래)의 결함: 기동 직후
+    // open이 no_player로 거절됐다(실행 검증으로 발견).
+    if (tool == "open") {
+        std::string path;
+        if (!args.ok() || !args.GetStr("path", path) || path.empty()) {
+            out = "{\"error\":\"bad_args\",\"need\":\"path\"}";
+            return false;
+        }
+        OpenPath(path.c_str());
+        out = "{\"accepted\":true}";   // 비동기 — 진행은 get_status
+        return true;
+    }
+    if (!player_) { out = "{\"error\":\"no_player\"}"; return false; }
+    if (tool == "play_pause") {
+        const PlayerCore::Snap st = player_->SnapNow();
+        player_->SetPaused(!st.paused);
+        out = std::string("{\"paused\":") + (!st.paused ? "true" : "false") + "}";
+        return true;
+    }
+    if (tool == "seek") {
+        int sec = 0;
+        if (!args.ok() || !args.GetInt("seconds", sec) || sec < 0) {
+            out = "{\"error\":\"bad_args\",\"need\":\"seconds:int>=0\"}";
+            return false;
+        }
+        player_->Seek(static_cast<double>(sec));
+        out = "{\"ok\":true}";
+        return true;
+    }
+    if (tool == "set_volume") {
+        int p = 0;
+        if (!args.ok() || !args.GetInt("percent", p) || p < 0 || p > 100) {
+            out = "{\"error\":\"bad_args\",\"need\":\"percent:int 0..100\"}";
+            return false;
+        }
+        player_->SetVolume(static_cast<float>(p) / 100.0f);
+        out = "{\"ok\":true}";
+        return true;
+    }
+    if (tool == "set_av_delay") {
+        int s = 0;
+        if (!args.ok() || !args.GetInt("seconds", s) || s < -1 || s > 1) {
+            out = "{\"error\":\"bad_args\",\"need\":\"seconds:int -1..1\"}";
+            return false;
+        }
+        player_->SetAvDelay(static_cast<float>(s));
+        out = "{\"ok\":true}";
+        return true;
+    }
+    out = "{\"error\":\"unknown_tool\"}";
+    return false;
 }
 
 void ClientVPlayerApp::SyncVideoTexture(SDL_Renderer* renderer) {

@@ -48,6 +48,12 @@ private:
     // (도구 응답만으론 외부 토글을 못 본다 — vpt12 1차런 결함).
     void OnAgentEvent(const std::string& eventJson) override;
 
+    // 앱 도구 허브 (스펙 2026-09-19-app-tool-hub §8.1): 서버 중계 app_tool 호출
+    // — 코어 펌프(JKClientApplication::Run)가 PollToolCall로 모아 전달하고
+    // 결과 전송까지 담당한다. false + {"error":...} = 앱 보고 실패.
+    bool OnAgentToolCall(const std::string& tool, const std::string& argsJson,
+                         std::string& resultJson) override;
+
     // 전체화면/극장 모드(스펙 2026-09-17 vplayer-fullscreen-osd §2.2-2.3):
     // RequestFullscreen은 file_open과 같은 1-in-flight agent 쿼리(명시 on —
     // 생략형 반전 대신 클라 의도 고정). fullscreenUi_는 도구 응답의
