@@ -240,17 +240,17 @@ void JKWindowServer::HandleToolRegister(JKClientConnection& client,
     if (!req.GetArraySize("tools", toolCount)) { ack(false, "bad_request"); return; }
     if (toolCount < 0 || toolCount > 32) { ack(false, "too_many_tools"); return; }
     // namespace_conflict: 코어 도구명(kPermMatrix 전 행 = 서버 도구 전체
-    // 목록)과 다른 연결이 이미 등록한 app를 금지. 같은 connId 재등록은
-    // 언제나 upsert 허용.
-    if (app != "app_tool") {
-        for (const auto& row : kPermMatrix)
-            if (app == row.tool) { ack(false, "namespace_conflict"); return; }
-        for (const auto& kv : appToolManifests_)
-            if (kv.second.app == app && kv.first != client.Id()) {
-                ack(false, "namespace_conflict");
-                return;
-            }
-    }
+    // 목록 — "app_tool"/"list_app_tools" 행 포함)과 다른 연결이 이미
+    // 등록한 app를 금지. 같은 connId 재등록은 언제나 upsert 허용.
+    // (조건문 없이 전 app를 검사한다 — app="app_tool"은 kPermMatrix의
+    // app_tool 행과 걸려서 자동 봉쇄.)
+    for (const auto& row : kPermMatrix)
+        if (app == row.tool) { ack(false, "namespace_conflict"); return; }
+    for (const auto& kv : appToolManifests_)
+        if (kv.second.app == app && kv.first != client.Id()) {
+            ack(false, "namespace_conflict");
+            return;
+        }
     AppToolManifest m;
     m.connId = client.Id();
     m.app = app;
@@ -258,15 +258,16 @@ void JKWindowServer::HandleToolRegister(JKClientConnection& client,
     m.title = client.Title();
     for (int i = 0; i < toolCount; ++i) {
         AppToolDef d;
-        std::string schemaRaw;
         if (!req.GetArrStr("tools", i, "name", d.name) ||
             !ValidAppToolToken(d.name, 32)) { ack(false, "bad_name"); return; }
         req.GetArrStr("tools", i, "description", d.description);
         if (d.description.size() > 512) { ack(false, "schema_too_large"); return; }
-        // inputSchema는 원문 JSON — AgentJson 배열 원소의 raw 접근이 필요하다.
-        // JKAgentJson.h에 GetArrRaw(key, idx, field) 신설(§Task 2a)하거나,
-        // 등록 JSON을 서버에서 직접 스캔하는 대신 아래 대안을 쓴다(Step 2a).
-        ...
+        // inputSchema는 원문 JSON — Step 2a의 GetArrRaw로 배열 원소 안
+        // 필드를 원문으로 회수. 부재 시 빈 문자열(카탈로그가 {}로 방출).
+        if (!req.GetArrRaw("tools", i, "inputSchema", d.inputSchema))
+            d.inputSchema.clear();
+        if (d.inputSchema.size() > 2 * 1024) { ack(false, "schema_too_large"); return; }
+        m.tools.push_back(std::move(d));
     }
     appToolManifests_[client.Id()] = m;   // upsert
     ack(true, "");
