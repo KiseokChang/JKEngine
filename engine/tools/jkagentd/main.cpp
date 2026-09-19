@@ -524,18 +524,54 @@ std::string ComposeToolsListJsonFromReply(const std::string& replyJson) {
                     }
                     r.GetArrStr("tools", i, "description", desc);
                     if (!r.GetArrRaw("tools", i, "inputSchema", schema)) {
-                        schema = "{}";   // 서버 부재 기본과 동일
+                        // MCP SDK는 inputSchema.type=="object"를 필수 검증한다
+                        // (zod) — 빈 {}는 검증 거부로 tools/list 전체 폐기
+                        // (2026-09-20 폰 세션 2차 파산: vplayer play_pause/
+                        // get_status가 {} 내보냄). 서버 부재 기본도 완결형.
+                        schema = "{\"type\":\"object\",\"properties\":{}}";
                     }
                     // 스키마 유효성 가드 (Task 2 리뷰 이월): inputSchema를
                     // 템플릿에 원문 임베드 — 앱 하나의 파산 스키마가 tools/list
                     // 전체 응답(모든 도구)을 깨는 것을 봉쇄. 파싱 실패 행은
                     // 건너뛴다(해당 도구만 목록에서 감람).
+                    // 스키마 정규화 — MCP SDK 필수 조건 type=="object"를
+                    // 충족시킨다(파싱 전 수행 — 교체된 스키마로 파싱해야
+                    // 아래 type 검사가 정규화 결과를 본다). ①빈 객체 {}:
+                    // 주입하면 후행 쉼표 파산({"type":"object",})이라
+                    // 완결형으로 교체 ②type 누락: 첫 { 뒤 주입(properties
+                    // 보존) ③type이 object 아님: 전체를 무해 완결형 교체
+                    // (도구는 생존, 인자 스키마만 상실 — skip의 감람보다
+                    // 도구 가용성 우선).
+                    {
+                        std::string compact;
+                        for (char ch : schema)
+                            if (ch != ' ' && ch != '\t' && ch != '\n' && ch != '\r')
+                                compact += ch;
+                        if (compact == "{}")
+                            schema = "{\"type\":\"object\",\"properties\":{}}";
+                    }
                     jk::agent::AgentJson s(schema);
                     if (!s.ok()) {
                         std::fprintf(stderr,
                                      "tools/list: skip %s: malformed inputSchema\n",
                                      mcpName.c_str());
                         continue;
+                    }
+                    std::string ty;
+                    if (!s.GetStr("type", ty)) {
+                        const size_t brace = schema.find('{');
+                        if (brace == std::string::npos) {
+                            std::fprintf(stderr,
+                                         "tools/list: skip %s: inputSchema has no object body\n",
+                                         mcpName.c_str());
+                            continue;
+                        }
+                        schema.insert(brace + 1, "\"type\":\"object\",");
+                    } else if (ty != "object") {
+                        std::fprintf(stderr,
+                                     "tools/list: normalize %s: inputSchema.type=\"%s\" -> object\n",
+                                     mcpName.c_str(), ty.c_str());
+                        schema = "{\"type\":\"object\",\"properties\":{}}";
                     }
                     // 행 경계 쉼표 — 정적부 꼬리 뒤 선행 쉼표(첫 행)와 행
                     // 사이 쉼표(2행째부터) 전부. 이전 코드는 첫 행에만
@@ -937,6 +973,14 @@ int RunSelfTest() {
         if (!c.ok() || !c.GetArraySize("tools", tc) || tc != 31) ++failures;
         if (composed.find("appx_t2") == std::string::npos ||
             composed.find("appy_t3") == std::string::npos) ++failures;
+        // 스키마 정규화: t2의 빈 {}는 MCP SDK zod 필수 조건(type=="object")
+        // 누락으로 CLI가 tools/list 전체를 폐기한다(2026-09-20 폰 2차 파산 —
+        // JSON 유효성만 보던 검증은 이 갭을 못 잡았다). t2 행의 스키마가
+        // 완결형으로 바뀌었는지 검증.
+        if (composed.find(
+                "\"description\":\"[appx] d2\",\"inputSchema\":"
+                "{\"type\":\"object\",\"properties\":{}}") == std::string::npos)
+            ++failures;
     }
     // 동적명 tools/call의 폴백: 서버 부재(selftest 환경)에서 ResolveAppTool이
     // 즉시 실패 — 행블록 없이 unknown_tool 즉답.

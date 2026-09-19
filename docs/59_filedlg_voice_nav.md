@@ -473,3 +473,41 @@ list limit 비양수 → 1 클램프, 스키마 밖 key → `bad_args`(방어선
   하네스는 커스텀 파이프+스폰 차단까지 고려. ②실행 중 이미지 교체는
   리네임 링크가 표준 절차(삭제 불가·리네임 가능). ③shell register
   DENIED가 실전에서 침투자 권한을 정확히 봉쇄했다 — 가드 이중 방어.
+
+## 12. 2차 파산 — inputSchema.type 정규화 누락 (2026-09-20)
+
+§10 픽스 후 폰 재시도에서 재발("MCP 연결이 또 끊겼어요", send_keys 도구
+없음 전락). MCP 로그가 즉시 결정타 — 이번엔 **JSON은 유효**했으나 CLI가
+스키마 검증(zod)에서 거부:
+
+```
+tools/list failed ([{"code":"invalid_value","values":["object"],
+ "path":["tools",29,"inputSchema","type"],"message":"Invalid input"}, ...
+ "path":["tools",33,...]])
+→ Failed to fetch tools → Terminating MCP server process tree → 재스폰
+```
+
+- **근원**: vplayer 카탈로그가 `play_pause`/`get_status`(동적 인덱스 29·33)
+  의 inputSchema로 빈 객체 `{}`를 내보냄. MCP SDK는
+  `inputSchema.type=="object"`를 필수 검증 — `{}`는 JSON으로 유효해도
+  스키마 계약 위반. 조립부의 누락 폴백(`schema="{}"`)도 같은 값이라 같은
+  파산. §10 검증이 "온전한 JSON 34행"만 봤던 게 갭 — **JSON 유효성 ≠
+  소비자 스키마 계약**.
+- **픽스**: `ComposeToolsListJsonFromReply`에 스키마 정규화 3단 — ①빈
+  객체 `{}`(공백 제거 비교) → 완결형 `{"type":"object","properties":{}}`
+  교체 ②type 누락 → 첫 `{` 뒤 `"type":"object",` 주입(properties 보존)
+  ③type이 object 아님 → 완결형 교체(도구 생존 우선, 스키마만 상실).
+  정규화는 `AgentJson s` 파싱 **전**에 수행(교체 후 파싱 — 처음엔 파싱
+  뒤에 두어 s가 원본을 보고 중복 주입 `{"type":"object","type":"object"...}`
+  가 됐다, selftest가 잡음). 서버 부재 기본 폴백도 완결형으로.
+- **검증**: selftest에 t2(`{}` 스키마) 행의 정규화 검증 추가 — 0 failures
+  (중복 주입·후행 쉼표 `{"type":"object",}` 두 픽스 라운드의 회귀 전부
+  포착). 라이브 MCP 핸드셰이크 실측: initialize+tools/list → 34행 전부
+  `inputSchema.type=="object"`, schema-bad 0.
+- **레슨**: ①검증은 소비자의 계약 수준에서 — "JSON 파싱 성공"은 MCP
+  SDK의 zod 스키마 검증을 통과하지 못하면 무의미. 상위 증상(MCP 연결
+  끊김)이 재발하면 로그의 에러 **형태**가 바뀌었는지 먼저 본다(1차=비-JSON
+  파싱 에러, 2차=zod invalid_value — 같은 증상, 다른 결함). ②문자열 주입
+  정규화는 빈 컨테이너 특례가 먼저(`{`+주입은 후행 쉼표 파산). ③교체형
+  정규화는 파싱 전에 — 정규화 결과를 파서가 봐야 type 이중 주입이
+  안 생긴다.
