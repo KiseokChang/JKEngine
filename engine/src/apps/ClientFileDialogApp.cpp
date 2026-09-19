@@ -752,9 +752,10 @@ bool ClientFileDialogApp::OnAgentToolCall(const std::string& tool,
             const int step =
                 (key == "pgup" || key == "pgdn") ? std::max(visibleRows_, 1) : 1;
             const int delta = (key == "down" || key == "pgdn") ? step : -step;
-            const int next = std::clamp((selectedIdx_ < 0 ? 0 : selectedIdx_) +
-                                            delta,
-                                        0, count - 1);
+            // 스펙 §3.1 그대로 selectedIdx_ ±1(±페이지) 클램프 — 미선택(-1)에서
+            // down하면 -1+1=0으로 첫 항목을 하이라이트한다(0 기준 재계산으로
+            // index 1을 건너뛰는 오판 방지; up은 -1-1=-2 → 클램프로 0).
+            const int next = std::clamp(selectedIdx_ + delta, 0, count - 1);
             selectedIdx_ = next;
             SetFileName(entries_[static_cast<size_t>(next)].name);
             scrollToSelection_ = true;
@@ -799,8 +800,10 @@ bool ClientFileDialogApp::OnAgentToolCall(const std::string& tool,
         // 상황을 말로 전달할 수 있게(스펙 §3.2).
         std::string errorField;
         if (!error_.empty()) errorField = ",\"error\":\"" + EscapeJson(error_) + "\"";
-        out = std::string("{\"ok\":true,\"dir\":\"") + EscapeJson(currentDir_) +
-              "\",\"total\":" + std::to_string(count) +
+        // dir는 CommonFields()가 1회 실어준다 — 중복 키 금지(같은 값을
+        // 두 번 쓰면 파서에 따라 마지막 값만 남거나 중복 키 경고).
+        out = std::string("{\"ok\":true,\"total\":") +
+              std::to_string(count) +
               ",\"offset\":" + std::to_string(offset) +
               ",\"entries\":" + entriesJson + "," + CommonFields() +
               errorField + "}";
