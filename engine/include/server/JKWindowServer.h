@@ -230,6 +230,16 @@ private:
         std::string filesPath;
         int filesMaxBytes = 0;     // files_read 전용 (0 = 기본 64KiB)
         int filesLimit = 0;        // files_audit 전용 (0 = 기본 50)
+        // 앱 도구 허브 (스펙 2026-09-19-app-tool-hub §4.3): app_tool의
+        // 파킹-응답형 원본 — files_access의 재실행형과 달리 승인 시점에
+        // AgentToolCall 중계를 시작하고 그때 10s 타이머가 켜진다(§9 시퀀싱:
+        // 타이머는 resolve 후 시작 — 승인 대기로 tool_timeout 오발 방지).
+        std::string appToolApp;      // app_tool: 앱 네임스페이스
+        std::string appToolTool;     // app_tool: 도구 이름
+        std::string appToolArgs;     // app_tool: args 원문 JSON (패스스루)
+        uint32_t appToolConnId = 0;  // app_tool: 중계 대상 연결 id — 승인
+                                     // 시점에 연결 생존 재확인(run_console_app
+                                     // 승인 시점 재조회 선례)
     };
     std::vector<PendingApproval> pendingApprovals_;
     uint32_t nextApprovalId_ = 1;

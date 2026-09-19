@@ -1579,6 +1579,20 @@ void JKWindowServer::ProcessPendingMessages() {
         }
         it = pendingApprovals_.erase(it);
     }
+
+    // 앱 도구 중계 타임아웃 (스펙 2026-09-19-app-tool-hub §9): 10s —
+    // expiresAt은 allow 중계 시점(승인 resolve 포함)에 설정되므로 승인 파킹
+    // 대기 중엔 오발하지 않는다. 회수 = 요청자 queryId에 tool_timeout 에러
+    // reply(§8 표면).
+    const time_t toolNow = std::time(nullptr);
+    for (auto it = inflightAppTools_.begin(); it != inflightAppTools_.end();) {
+        if (toolNow >= it->second.expiresAt) {
+            ReplyAppToolError(it->second, "tool_timeout");
+            it = inflightAppTools_.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 void JKWindowServer::ProcessClientMessage(JKClientConnection& client, const ipc::Message& msg) {
@@ -1809,6 +1823,13 @@ static const AgentPermRow kPermMatrix[] = {
     // audit은 감사 열람이라 기본 allow — 단 파일값은 강제한다(opus 리뷰
     // MINOR-3): deny=거부, ask=files 도구와 동일 파킹(kind files_access).
     {"files_audit", "server(audit)", "allow"},
+    // 앱 도구 허브 (스펙 2026-09-19-app-tool-hub §4.3/§4.4): app_tool의
+    // 실질 게이트는 3단 키(AppToolAllowed) — 이 행은 전역 기본값/매트릭스
+    // 표기용. list_app_tools는 카탈로그 조회(none 등급).
+    // ⚠ load-bearing(Task 2 리뷰): HandleToolRegister의 namespace_conflict는
+    // 이 두 행으로 app="app_tool"/"list_app_tools" 등록을 자동 봉쇄한다.
+    {"list_app_tools", "none", "allow"},
+    {"app_tool", "server", "allow"},
 };
 
 // permissions.json RMW (스펙 §2.2): 알려진 도구 키 전부 명시 기록 — 없던 키는
@@ -2562,6 +2583,176 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             ToggleFullscreen(*target, *fsLayer, on);
             reply = std::string("{\"ok\":true,\"fullscreen\":") +
                     (fsLayer->IsFullscreen() ? "true" : "false") + "}";
+        }
+    } else if (tool == "list_app_tools") {
+        // 앱 도구 허브 (스펙 2026-09-19-app-tool-hub §4.4): 평면 행 카탈로그
+        // (레슨 39 — AgentJson에 중첩 배열 접근이 없어 브로커 tools/list
+        // 합성과 agentctl face 양쪽이 평면 행을 먹는다). inputSchema는 등록
+        // 원문 그대로 임베드(부재 시 {}), 나머지 필드는 JsonEsc.
+        std::string out = "{\"ok\":true,\"tools\":[";
+        bool first = true;
+        for (const auto& kv : appToolManifests_) {
+            const AppToolManifest& m = kv.second;
+            for (const AppToolDef& t : m.tools) {
+                if (!first) out += ",";
+                first = false;
+                out += "{\"app\":\"" + JsonEsc(m.app) + "\",\"name\":\"" +
+                       JsonEsc(t.name) + "\",\"description\":\"" +
+                       JsonEsc(t.description) + "\",\"inputSchema\":" +
+                       (t.inputSchema.empty() ? "{}" : t.inputSchema) +
+                       ",\"windowId\":" + std::to_string(m.windowId) +
+                       ",\"title\":\"" + JsonEsc(m.title) +
+                       "\",\"connId\":" + std::to_string(m.connId) + "}";
+            }
+        }
+        reply = out + "]}";
+    } else if (tool == "app_tool") {
+        // 앱 도구 허브 (스펙 2026-09-19-app-tool-hub §4.4): 중계. args는
+        // 원문 패스스루(서버 스키마 검증 안 함 — 앱 계약). allow/ask 모두
+        // 응답이 지연된다 — 기존 파킹 경로의 replied=false 기계를 그대로 쓴다
+        // (allow 중계 = 앱의 AgentToolResult 대기, ask 파킹 = 승인 resolve가
+        // 중계를 시작). deny만 즉답.
+        std::string app, toolName, argsRaw;
+        int windowIdArg = 0;
+        const bool hasWindowId = req.GetObjInt("args", "windowId", windowIdArg);
+        req.GetObjStr("args", "app", app);
+        req.GetObjStr("args", "tool", toolName);
+        req.GetObjRaw("args", "args", argsRaw);
+        if (argsRaw.size() > 8 * 1024) {
+            // 스펙 §4.1 호출 경로 상한 (result 16KiB는 HandleToolResult가).
+            reply = "{\"ok\":false,\"error\":\"args_too_large\"}";
+        } else if (app.empty() || toolName.empty()) {
+            reply = "{\"ok\":false,\"error\":\"unknown_app_tool\"}";
+        } else {
+            // 후보 수집 (스펙 §4.2): 등록된 (app, tool) 조합 역매칭 — 접두
+            // 추측 금지. app은 연결당 1매니페스트(namespace_conflict가 app
+            // 중복 봉쇄)라 복수 후보는 사실상 방어 코드 — 그래도 ambiguous
+            // 표면을 유지한다(레지스트리 규칙 완화 시 함정 방지).
+            std::vector<const AppToolManifest*> cands;
+            for (const auto& kv : appToolManifests_) {
+                for (const AppToolDef& t : kv.second.tools) {
+                    if (kv.second.app == app && t.name == toolName) {
+                        cands.push_back(&kv.second);
+                        break;
+                    }
+                }
+            }
+            // windowId 지정 = 그 창 직행 (스펙 §4.2 인스턴스 변별).
+            if (hasWindowId && windowIdArg > 0) {
+                std::vector<const AppToolManifest*> filtered;
+                for (const AppToolManifest* c : cands)
+                    if (c->windowId == static_cast<uint32_t>(windowIdArg))
+                        filtered.push_back(c);
+                cands.swap(filtered);
+            }
+            if (cands.empty()) {
+                reply = "{\"ok\":false,\"error\":\"unknown_app_tool\"}";
+            } else if (cands.size() > 1) {
+                // 스펙 §4.2: 묵시적 추측 라우팅 금지 — 후보 제시(자기교정).
+                std::string list = "[";
+                for (size_t i = 0; i < cands.size(); ++i) {
+                    if (i) list += ",";
+                    list += "{\"windowId\":" +
+                            std::to_string(cands[i]->windowId) +
+                            ",\"title\":\"" + JsonEsc(cands[i]->title) + "\"}";
+                }
+                reply = "{\"ok\":false,\"error\":\"ambiguous\",\"candidates\":" +
+                        list + "]}";
+            } else {
+                const AppToolManifest* m = cands.front();
+                JKClientConnection* conn = nullptr;
+                for (const auto& c : clients_) {
+                    if (c && c->Id() == m->connId && !c->IsDisconnected()) {
+                        conn = c.get();
+                        break;
+                    }
+                }
+                if (!conn) {
+                    // 매니페스트는 살아 있지만 연결이 끊김(정리 대기) —
+                    // tool_gone과 동일 수명 사건 (스펙 §9).
+                    reply = "{\"ok\":false,\"error\":\"unknown_app_tool\"}";
+                } else {
+                    switch (AppToolAllowed(app, toolName)) {
+                        case AgentDecision::Deny:
+                            // 스펙 §9 게이트 표면 — capture_ask 선례의 "denied".
+                            reply = "{\"ok\":false,\"error\":\"denied\"}";
+                            break;
+                        case AgentDecision::Ask: {
+                            // 스펙 §4.3: 기존 승인 파이프라인 재사용 —
+                            // close_window ask 패턴 그대로 (구독자 체크 →
+                            // approval_unavailable, PendingApproval push +
+                            // agent.approval_request 방송, replied=false).
+                            // kind="app_tool", name=app+"."+tool,
+                            // targetId=windowId(Task 8 하이라이트 소비).
+                            bool subscriber = false;
+                            for (const auto& c : clients_) {
+                                if (c && c->AgentEventSubscriber() &&
+                                    !c->IsDisconnected()) {
+                                    subscriber = true;
+                                    break;
+                                }
+                            }
+                            if (!subscriber) {
+                                reply = "{\"ok\":false,"
+                                        "\"error\":\"approval_unavailable\"}";
+                                break;
+                            }
+                            PendingApproval p;
+                            p.kind = "app_tool";
+                            p.requestId = nextApprovalId_++;
+                            p.queryId = queryId;
+                            p.requesterId = client.Id();
+                            p.targetId = m->windowId;
+                            p.expiresAt = std::time(nullptr) + 60;
+                            p.appToolApp = app;
+                            p.appToolTool = toolName;
+                            p.appToolArgs = argsRaw;
+                            p.appToolConnId = m->connId;
+                            char buf[1024];
+                            std::snprintf(buf, sizeof(buf),
+                                          "{\"topic\":\"agent.approval_request\","
+                                          "\"request\":%u,\"tool\":\"app_tool\","
+                                          "\"kind\":\"app_tool\","
+                                          "\"name\":\"%s.%s\","
+                                          "\"target_id\":%u,\"title\":\"%s\","
+                                          "\"ts\":%lld}",
+                                          p.requestId, JsonEsc(app).c_str(),
+                                          JsonEsc(toolName).c_str(),
+                                          m->windowId,
+                                          JsonEsc(m->title).c_str(),
+                                          static_cast<long long>(
+                                              std::time(nullptr)) * 1000);
+                            pendingApprovals_.push_back(p);
+                            PushAgentEventJson(buf);
+                            replied = false;  // 승인 resolve(또는 만료)가 응답
+                            break;
+                        }
+                        case AgentDecision::Allow: {
+                            // 스펙 §9 시퀀싱: 즉시 중계 + 타이머 시작. 응답은
+                            // 앱의 AgentToolResult(HandleToolResult)가 queryId로
+                            // 회송 — replied=false. expiresAt은 여기서 설정하므로
+                            // 승인 대기 시간이 타임아웃을 갉지 않는다.
+                            const uint32_t reqId = nextToolReqId_++;
+                            InflightAppTool inf;
+                            inf.reqId = reqId;
+                            inf.queryId = queryId;
+                            inf.requesterConnId = client.Id();
+                            inf.targetConnId = conn->Id();
+                            inf.windowId = m->windowId;
+                            inf.expiresAt = std::time(nullptr) + 10;
+                            inflightAppTools_[reqId] = inf;
+                            std::string callJson = "{\"app\":\"" + JsonEsc(app) +
+                                "\",\"tool\":\"" + JsonEsc(toolName) +
+                                "\",\"args\":" +
+                                (argsRaw.empty() ? "{}" : argsRaw) + "}";
+                            ipc::WriteAgentToolCall(conn->Transport(), reqId,
+                                                    callJson);
+                            replied = false;  // HandleToolResult가 응답한다
+                            break;
+                        }
+                    }
+                }
+            }
         }
     } else if (tool == "close_window") {
         int id = 0;
@@ -4242,6 +4433,9 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         const bool allow = (decision == "allow");
         bool resolved = false;
         bool selfApprove = false;
+        // 앱 도구 허브 (스펙 §4.3): app_tool 승인은 응답을 즉시 쓰지 않는다 —
+        // 중계를 시작하고 응답은 앱의 AgentToolResult가 회송(HandleToolResult).
+        bool deferred = false;
         for (auto it = pendingApprovals_.begin();
              it != pendingApprovals_.end(); ++it) {
             if (it->requestId != static_cast<uint32_t>(request)) continue;
@@ -4328,14 +4522,58 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                         } else {   // "files_list"
                             result = FilesListOpJson(it->filesPath);
                         }
+                    } else if (it->kind == "app_tool") {
+                        // 앱 도구 허브 (스펙 2026-09-19-app-tool-hub §4.3/§9):
+                        // 승인 = 중계 시작 — files_access의 재실행형이 아니라
+                        // 파킹-응답형. resolve 시점에 10s 타이머가 시작되므로
+                        // 승인 대기가 tool_timeout 오발을 낳지 않는다. 대기 중
+                        // 앱이 닫혔으면 승인해도 중계 불가 — tool_gone(연결
+                        // 생존 재확인 + 매니페스트 재조회, run_console_app의
+                        // 승인 시점 재조회 선례).
+                        auto mit = appToolManifests_.find(it->appToolConnId);
+                        JKClientConnection* target = nullptr;
+                        if (mit != appToolManifests_.end() &&
+                            mit->second.app == it->appToolApp) {
+                            for (auto& c : clients_) {
+                                if (c && c->Id() == it->appToolConnId &&
+                                    !c->IsDisconnected()) {
+                                    target = c.get();
+                                    break;
+                                }
+                            }
+                        }
+                        if (!target) {
+                            result = "{\"ok\":false,\"error\":\"tool_gone\"}";
+                        } else {
+                            const uint32_t reqId = nextToolReqId_++;
+                            InflightAppTool inf;
+                            inf.reqId = reqId;
+                            inf.queryId = it->queryId;
+                            inf.requesterConnId = it->requesterId;
+                            inf.targetConnId = target->Id();
+                            inf.windowId = mit->second.windowId;
+                            inf.expiresAt = std::time(nullptr) + 10;
+                            inflightAppTools_[reqId] = inf;
+                            ipc::WriteAgentToolCall(
+                                target->Transport(), reqId,
+                                "{\"app\":\"" + JsonEsc(it->appToolApp) +
+                                    "\",\"tool\":\"" + JsonEsc(it->appToolTool) +
+                                    "\",\"args\":" +
+                                    (it->appToolArgs.empty() ? "{}"
+                                                             : it->appToolArgs) +
+                                    "}");
+                            deferred = true;  // HandleToolResult가 응답한다
+                        }
                     } else {
                         result = "{\"ok\":true}";
                     }
                     const int flag = (result.find("\"ok\":true") !=
                                       std::string::npos)
                                          ? 1 : 0;
-                    ipc::WriteAgentJson(c->Transport(), ipc::MsgType::AgentReply,
-                                        it->queryId, flag, result);
+                    if (!deferred) {
+                        ipc::WriteAgentJson(c->Transport(), ipc::MsgType::AgentReply,
+                                            it->queryId, flag, result);
+                    }
                     break;
                 }
             }
@@ -4754,7 +4992,14 @@ AgentDecision JKWindowServer::AgentToolAllowed(const std::string& tool) const {
                              // 도구에서 호출되지 않지만(소스 분리 게이트),
                              // 값 일관성을 위해 묶는다.
                              tool == "files_list" ||
-                             tool == "files_read");
+                             tool == "files_read" ||
+                             // 앱 도구 허브 (스펙 2026-09-19-app-tool-hub
+                             // §4.3): app_tool도 파일값 "ask"를 Allow로
+                             // 열화하지 않는다 — 실질 게이트는 AppToolAllowed
+                             // 3단 키지만(이 스위치 자체는 app_tool 분기에서
+                             // 호출되지 않음), 값 일관성을 위해 묶는다
+                             // (files 도구 편입 선례).
+                             tool == "app_tool");
     auto defaultDecision = [&]() -> AgentDecision {
         if (tool == "close_window") return AgentDecision::Deny;
         if (tool == "trust_request") return AgentDecision::Ask;
@@ -4779,6 +5024,42 @@ AgentDecision JKWindowServer::AgentToolAllowed(const std::string& tool) const {
     }
     if (value == "deny") return AgentDecision::Deny;
     return defaultDecision();
+}
+
+// 앱 도구 허브 (스펙 2026-09-19-app-tool-hub §4.3): app_tool 3단 키 해석 —
+// app_tool.<app>.<tool> > app_tool.<app> > app_tool (도구별 > 앱별 > 전역).
+// permissions.json은 점을 포함한 평면 키 리터럴로 기록한다 — AgentJson::GetStr
+// 은 JS_GetPropertyStr 한 단계라 중첩 객체는 못 읽지만, 점 키 프로퍼티는 그대로
+// 읽힌다. 파일 부재/키 부재 폴백 = allow (스펙 §0 결정 3). permissions.json
+// 핫리드는 AgentToolAllowed 기존 계약(호출마다 읽음) 유지. 클라이언트 락 없음
+// (레슨 35 — HandleAgentQuery 보유 중 호출).
+AgentDecision JKWindowServer::AppToolAllowed(const std::string& app,
+                                             const std::string& tool) const {
+    std::string k0 = "app_tool." + app + "." + tool;
+    std::string k1 = "app_tool." + app;
+    const char* keys[3] = {k0.c_str(), k1.c_str(), "app_tool"};
+    char exePath[1024] = {};
+    GetModuleFileNameA(nullptr, exePath, sizeof(exePath));
+    std::string dir = exePath;
+    const size_t slash = dir.find_last_of("\\/");
+    if (slash != std::string::npos) dir = dir.substr(0, slash);
+    std::FILE* f = std::fopen((dir + "\\permissions.json").c_str(), "rb");
+    if (!f) return AgentDecision::Allow;
+    char buf[4096] = {};
+    const size_t n = std::fread(buf, 1, sizeof(buf) - 1, f);
+    std::fclose(f);
+    buf[n] = '\0';
+    jk::agent::AgentJson perm(buf);
+    if (!perm.ok()) return AgentDecision::Allow;
+    for (const char* k : keys) {
+        std::string v;
+        if (perm.GetStr(k, v)) {
+            if (v == "allow") return AgentDecision::Allow;
+            if (v == "ask") return AgentDecision::Ask;
+            if (v == "deny") return AgentDecision::Deny;
+        }
+    }
+    return AgentDecision::Allow;
 }
 
 // <exeDir>/state — agent-created files (layout snapshots). CreateDirectoryA
