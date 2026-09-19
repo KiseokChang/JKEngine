@@ -449,6 +449,17 @@ function approvalText(e) {
   if (k === 'capture_allow')  return '[캡처 허용] capture_window/region → '+e.decision+' 승인할까요?';
   if (k === 'trust_revoke')   return '[신뢰 해지] '+e.name+' ('+cut(e.fingerprint,15)+'…) 승인할까요?';
   if (k === 'files_access')   return '[파일 요청] '+e.tool+' → '+e.title+' 승인할까요?';
+  // 앱 도구 허브 (스펙 2026-09-19-app-tool-hub §5 2단, 태스크 9 리뷰 M-4):
+  // app_tool 승인이 close_window 재용 문구("창을 닫을까요?")로 나오는 기만
+  // 픽스 — jkchat과 동일하게 대상 창을 정직하게 표기한다. target 있으면
+  // "[<app> 창 #<windowId>] <tool> 실행할까요?", 부재(구버전 서버)는 name
+  // 문구 하위호환. close_window(마지막 폴백) 문구는 그대로 유지.
+  if (k === 'app_tool') {
+    const t = e.target || {};
+    if (t.windowId > 0 && t.app && t.tool)
+      return '['+t.app+' 창 #'+t.windowId+'] '+t.tool+' 실행할까요?';
+    return '[앱 도구] '+(e.name||'')+' 실행할까요?';
+  }
   return '['+(e.title||'')+(' #'+(e.target_id||'?'))+'] 창을 닫을까요?';
 }
 function showFront() {
