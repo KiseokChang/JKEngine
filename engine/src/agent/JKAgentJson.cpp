@@ -247,5 +247,36 @@ bool AgentJson::GetArrInt(const char* key, int idx, const char* field, int& out)
     return got;
 }
 
+bool AgentJson::GetArrRaw(const char* key, int idx, const char* field,
+                          std::string& out) const {
+    if (!ok_) return false;
+    JSValue arr = JS_GetPropertyStr(ctx_, root_, key);
+    bool got = false;
+    if (JS_IsArray(arr)) {
+        JSValue item = JS_GetPropertyUint32(ctx_, arr, static_cast<uint32_t>(idx));
+        if (JS_IsObject(item)) {
+            JSValue v = JS_GetPropertyStr(ctx_, item, field);
+            if (!JS_IsException(v) && !JS_IsUndefined(v)) {
+                // Compact raw JSON: objects stay {...}, strings stay quoted
+                // (GetObjRaw의 인덱스 탐색부 형제).
+                JSValue s = JS_JSONStringify(ctx_, v, JS_UNDEFINED, JS_UNDEFINED);
+                if (JS_IsString(s)) {
+                    const char* c = JS_ToCString(ctx_, s);
+                    if (c) {
+                        out = c;
+                        got = true;
+                    }
+                    JS_FreeCString(ctx_, c);
+                }
+                JS_FreeValue(ctx_, s);
+            }
+            JS_FreeValue(ctx_, v);
+        }
+        JS_FreeValue(ctx_, item);
+    }
+    JS_FreeValue(ctx_, arr);
+    return got;
+}
+
 } // namespace agent
 } // namespace jk

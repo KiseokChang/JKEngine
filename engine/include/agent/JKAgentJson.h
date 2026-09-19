@@ -53,6 +53,9 @@ public:
     bool GetArrStr(const char* key, int idx, const char* field,
                    std::string& out) const;
     bool GetArrInt(const char* key, int idx, const char* field, int& out) const;
+    // GetArrStr/GetArrInt의 raw 형제 — 배열 원소 안 필드를 원문 JSON으로
+    // 돌려준다 (앱 도구 inputSchema/args 패스스루용).
+    bool GetArrRaw(const char* key, int idx, const char* field, std::string& out) const;
 
 private:
     JSRuntime* rt_ = nullptr;

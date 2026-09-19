@@ -1698,6 +1698,12 @@ void JKWindowServer::ProcessClientMessage(JKClientConnection& client, const ipc:
         if (ipc::ReadAgentJson(msg, queryId, ok, json)) {
             HandleAgentQuery(client, queryId, json);
         }
+    } else if (msg.type == ipc::MsgType::AgentToolRegister) {
+        std::string json;
+        if (ipc::ReadAgentToolRegister(msg, json))
+            HandleToolRegister(client, json);
+    } else if (msg.type == ipc::MsgType::AgentToolResult) {
+        HandleToolResult(client, msg);
     }
 }
 
@@ -3761,6 +3767,10 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
              "마스터 볼륨/뮤트 변경 방송 (settings_set, docs/54) — 코어 펌프가 "
              "JKSoundManager에 적용",
              "\"data.mute,data.volume\""},
+            // 앱 도구 허브 (스펙 §4.1): 등록/소멸 시 publish. 레슨 ⑧ 신규
+            // 토픽은 카탈로그 즉시 등록.
+            {"agent.app_tools_changed", "server",
+             "앱 도구 등록/소멸(연결 수명)", "[\"topic\"]"},
         };
         std::string out = "{\"ok\":true,\"subscribers\":" +
                           std::to_string(subscribers) + ",\"events\":[";
@@ -4541,6 +4551,119 @@ void JKWindowServer::PushAgentEventJson(const std::string& json) {
     }
 }
 
+// 앱 도구 허브 (스펙 §4.1): 소문자+숫자+밑줄 토큰 검증. std::regex 대신
+// 수기 — 기존 sha256/fingerprint 검증기 관용구.
+static bool ValidAppToolToken(const std::string& s, size_t maxLen) {
+    if (s.empty() || s.size() > maxLen) return false;
+    if (s[0] < 'a' || s[0] > 'z') return false;
+    for (char c : s)
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'))
+            return false;
+    return true;
+}
+
+// 스펙 §4.1: 등록 검증 — bad_app/bad_name/too_many_tools/schema_too_large/
+// namespace_conflict. 셸 특권 연결의 등록은 봉쇄(셸 도구 표면 오염 방지).
+// ack는 AgentReply 재사용(queryId=0 상수 — 앱 쿼리 id는 1부터 시작하는
+// 기존 관례와 충돌 없음; 앱은 미인지 queryId reply를 무시한다 — 정보성).
+void JKWindowServer::HandleToolRegister(JKClientConnection& client,
+                                        const std::string& json) {
+    auto ack = [&](bool ok, const char* err) {
+        std::string body = ok ? std::string("{\"ok\":true}")
+            : std::string("{\"ok\":false,\"error\":\"") + err + "\"}";
+        ipc::WriteAgentJson(client.Transport(), ipc::MsgType::AgentReply,
+                            0, ok ? 1u : 0u, body);
+    };
+    if (client.IsShell()) { ack(false, "shell_denied"); return; }
+    jk::agent::AgentJson req(json);
+    std::string app;
+    if (!req.ok() || !req.GetStr("app", app)) { ack(false, "bad_request"); return; }
+    if (!ValidAppToolToken(app, 16)) { ack(false, "bad_app"); return; }
+    int toolCount = 0;
+    if (!req.GetArraySize("tools", toolCount)) { ack(false, "bad_request"); return; }
+    if (toolCount < 0 || toolCount > 32) { ack(false, "too_many_tools"); return; }
+    // namespace_conflict: 코어 도구명(kPermMatrix 전 행 = 서버 도구 전체
+    // 목록 — "app_tool"/"list_app_tools" 행 포함)과 다른 연결이 이미
+    // 등록한 app를 금지. 같은 connId 재등록은 언제나 upsert 허용.
+    // (조건문 없이 전 app를 검사한다 — app="app_tool"은 kPermMatrix의
+    // app_tool 행과 걸려서 자동 봉쇄.)
+    for (const auto& row : kPermMatrix)
+        if (app == row.tool) { ack(false, "namespace_conflict"); return; }
+    for (const auto& kv : appToolManifests_)
+        if (kv.second.app == app && kv.first != client.Id()) {
+            ack(false, "namespace_conflict");
+            return;
+        }
+    AppToolManifest m;
+    m.connId = client.Id();
+    m.app = app;
+    m.windowId = client.IsControlOnly() ? 0u : client.Id();
+    m.title = client.Title();
+    for (int i = 0; i < toolCount; ++i) {
+        AppToolDef d;
+        if (!req.GetArrStr("tools", i, "name", d.name) ||
+            !ValidAppToolToken(d.name, 32)) { ack(false, "bad_name"); return; }
+        req.GetArrStr("tools", i, "description", d.description);
+        if (d.description.size() > 512) { ack(false, "schema_too_large"); return; }
+        // inputSchema는 원문 JSON — AgentJson::GetArrRaw로 배열 원소 안
+        // 필드를 원문으로 회수. 부재 시 빈 문자열(카탈로그가 {}로 방출).
+        if (!req.GetArrRaw("tools", i, "inputSchema", d.inputSchema))
+            d.inputSchema.clear();
+        if (d.inputSchema.size() > 2 * 1024) { ack(false, "schema_too_large"); return; }
+        m.tools.push_back(std::move(d));
+    }
+    appToolManifests_[client.Id()] = m;   // upsert
+    ack(true, "");
+    PublishAppToolsChanged();
+}
+
+// 스펙 §3/§4.2: 앱의 AgentToolResult를 reqId 상관관계로 원 요청자에 회송.
+// 요청자 에코 상관관계(filedlg requesterConnId 선례) — 남의 reqId는 무시.
+void JKWindowServer::HandleToolResult(JKClientConnection& client,
+                                      const ipc::Message& msg) {
+    uint32_t reqId = 0, ok = 0; std::string json;
+    if (!ipc::ReadAgentJson(msg, reqId, ok, json)) return;
+    if (json.size() > 16 * 1024) {   // 결과 상한 (스펙 §4.1)
+        auto it = inflightAppTools_.find(reqId);
+        if (it != inflightAppTools_.end()) {
+            ReplyAppToolError(it->second, "result_too_large");
+            inflightAppTools_.erase(it);
+        }
+        return;
+    }
+    auto it = inflightAppTools_.find(reqId);
+    if (it == inflightAppTools_.end()) return;
+    if (it->second.targetConnId != client.Id()) return;
+    for (auto& c : clients_) {
+        if (c && c->Id() == it->second.requesterConnId && !c->IsDisconnected()) {
+            std::string reply = std::string("{\"ok\":true,\"windowId\":") +
+                std::to_string(it->second.windowId) + "," +
+                (ok ? "\"result\":" + json : "\"error\":" + json) + "}";
+            ipc::WriteAgentJson(c->Transport(), ipc::MsgType::AgentReply,
+                                it->second.queryId, ok, reply);
+            break;
+        }
+    }
+    inflightAppTools_.erase(it);
+}
+
+void JKWindowServer::PublishAppToolsChanged() {
+    PushAgentEventJson("{\"topic\":\"agent.app_tools_changed\"}");
+}
+
+void JKWindowServer::ReplyAppToolError(const InflightAppTool& inf,
+                                       const char* err) {
+    for (auto& c : clients_) {
+        if (c && c->Id() == inf.requesterConnId && !c->IsDisconnected()) {
+            std::string reply = std::string("{\"ok\":false,\"windowId\":") +
+                std::to_string(inf.windowId) + ",\"error\":\"" + err + "\"}";
+            ipc::WriteAgentJson(c->Transport(), ipc::MsgType::AgentReply,
+                                inf.queryId, 0, reply);
+            return;
+        }
+    }
+}
+
 // Alt+Space (M2a): bring the palette to front if it is already open,
 // otherwise spawn it.
 void JKWindowServer::TogglePalette() {
@@ -4756,6 +4879,9 @@ void JKWindowServer::CleanupDisconnectedClients() {
     std::vector<std::unique_ptr<JKClientConnection>> disconnected;
     {
         std::lock_guard<std::mutex> lock(clientsMutex_);
+        // 앱 도구 허브 (스펙 §4.1): 카탈로그 변경 플래그 — 루프 밖에서 한 번만
+        // publish(PushAgentEventJson은 락 프리, 레슨 35).
+        bool toolsChanged = false;
         auto it = clients_.begin();
         while (it != clients_.end()) {
             auto& client = *it;
@@ -4782,6 +4908,17 @@ void JKWindowServer::CleanupDisconnectedClients() {
                 // no-op) — pendingApprovals_ 기계는 건드리지 않는다.
                 if (pendingFileDialog_.requesterConnId == client->Id()) {
                     pendingFileDialog_ = PendingFileDialog{};
+                }
+                // 앱 도구 허브 (스펙 §4.1): 연결 수명에 묶인 매니페스트 소멸 +
+                // 이 연결로 중계 중이던 호출 tool_gone 회수 + 카탈로그 변경
+                // 이벤트. 별도 언레지스터 메시지 없음.
+                if (appToolManifests_.erase(client->Id())) toolsChanged = true;
+                for (auto iit = inflightAppTools_.begin();
+                     iit != inflightAppTools_.end();) {
+                    if (iit->second.targetConnId == client->Id()) {
+                        ReplyAppToolError(iit->second, "tool_gone");
+                        iit = inflightAppTools_.erase(iit);
+                    } else ++iit;
                 }
                 // Desktop Agent event (spec §4) — app windows only: the shell
                 // and control-only agents are not listable windows, so their
@@ -4825,6 +4962,10 @@ void JKWindowServer::CleanupDisconnectedClients() {
         if (!disconnected.empty()) {
             PushWindowListUnsafe();
         }
+
+        // 앱 도구 허브 (스펙 §4.1): 연결 수명 매니페스트 소멸로 카탈로그가
+        // 바뀌었으면 한 번만 방송 — PublishAppToolsChanged는 락 프리(레슨 35).
+        if (toolsChanged) PublishAppToolsChanged();
     }
 
     // Join read threads outside the lock to avoid blocking the server main loop

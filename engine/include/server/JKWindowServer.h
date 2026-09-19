@@ -87,6 +87,18 @@ private:
     // approval act — it gates any connected face, not just the broker.
     // M2 chat: "ask" values become AgentDecision::Ask (inline approval).
     AgentDecision AgentToolAllowed(const std::string& tool) const;
+    // 등록 수신(검증+저장+ack+agent.app_tools_changed)과 결과 상관관계 회수.
+    // clientsMutex_ 보유 경로에서만 호출 — 헬퍼는 락을 잡지 않는다(레슨 35).
+    // (InflightAppTool 정의는 §4.1 멤버 블록 — 매개변수 자리는 전방선언만
+    //  요구한다. 멤버 블록이 클래스 뒤쪽이라 여기서 이름이 아직 없다.)
+    struct InflightAppTool;
+    void HandleToolRegister(JKClientConnection& client, const std::string& json);
+    void HandleToolResult(JKClientConnection& client, const ipc::Message& msg);
+    // app_tool 3단 키 게이트: app_tool.<app>.<tool> > app_tool.<app> >
+    // app_tool. 키 부재 폴백 = allow (스펙 §0 결정 3).
+    AgentDecision AppToolAllowed(const std::string& app, const std::string& tool) const;
+    void ReplyAppToolError(const InflightAppTool& inf, const char* err);
+    void PublishAppToolsChanged();
     // Alt+Space (spec §6.2): focus the palette if one is open, else spawn it.
     void TogglePalette();
     // Generalized title-match toggle core (docs/33): focus-or-spawn any
@@ -238,6 +250,33 @@ private:
         std::string title;
     };
     PendingFileDialog pendingFileDialog_;
+
+    // 앱 도구 허브 (스펙 2026-09-19-app-tool-hub §4.1): 연결이 선언한 도구
+    // 매니페스트 — 연결 수명에 묶임(CleanupDisconnectedClients에서 소멸).
+    struct AppToolDef {
+        std::string name;        // ^[a-z][a-z0-9_]{0,31}$
+        std::string description; // ≤512B
+        std::string inputSchema; // 원문 JSON ≤2KiB (MCP inputSchema 그대로)
+    };
+    struct AppToolManifest {
+        uint32_t connId = 0;
+        std::string app;         // ^[a-z][a-z0-9_]{0,15}$
+        uint32_t windowId = 0;   // 창 클라만(= connId), 제어 연결 0
+        std::string title;       // 카탈로그 표기용
+        std::vector<AppToolDef> tools;
+    };
+    // 중계 대기 중인 도구 호출 — 앱의 AgentToolResult를 기다린다(10s 만료).
+    struct InflightAppTool {
+        uint32_t reqId = 0;
+        uint32_t queryId = 0;         // 완료할 AgentQuery
+        uint32_t requesterConnId = 0; // 레슨 33: id로 저장 — 포인터 금지
+        uint32_t targetConnId = 0;
+        uint32_t windowId = 0;
+        time_t expiresAt = 0;
+    };
+    std::map<uint32_t, AppToolManifest> appToolManifests_;  // connId → 매니페스트
+    std::map<uint32_t, InflightAppTool> inflightAppTools_;  // reqId → 중계
+    uint32_t nextToolReqId_ = 1;
 
     // publish_event connection rate budget (docs/38 spec §4) — fixed window.
     // Accessed only on the clientsMutex_-held HandleAgentQuery path (lesson
