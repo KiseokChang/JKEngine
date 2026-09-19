@@ -60,8 +60,8 @@ jkctl로 되물어보기" 3단계다.
 - `jkctl ask "질문"` — 로컬 LLM 질의, 응답은 stdout
 
 에이전트가 sampletodo에 작업을 시키고 싶으면: run_console_app으로 띄운 뒤
-필요한 인자를 알 수 없으므로(콘솔 앱은 도구를 등록하지 않는다 — 앱 도구 허브는
-창 클라 전용, docs/58) terminal_exec로 앱 cmd를 인자와 함께 재실행하거나,
+필요한 인자를 알 수 없으므로(콘솔 앱은 아직 도구 등록 구현이 없다 — 앱 도구 허브의
+등록 경로는 프로토콜상 전 클라에게 열려 있으나 현재 등록을 구현한 앱은 창 클라뿐, docs/58) terminal_exec로 앱 cmd를 인자와 함께 재실행하거나,
 앱 안의 jkctl ask 응답을 terminal.output/read_events로 수신한다.
 
 ## 종료
