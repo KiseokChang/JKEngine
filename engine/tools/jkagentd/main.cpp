@@ -75,6 +75,9 @@ const char* kCoreToolsListJson =
 "{\"name\":\"files_list\",\"description\":\"List a directory (absolute drive path only): entries name/kind/size/mtime, dirs first, 512 cap. Agent calls park for approval unless permissions.json marks the tool allow\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}},"
 "{\"name\":\"files_read\",\"description\":\"Read a text preview (<=64KiB, NUL sniff marks binary). Absolute path. Agent calls park for approval unless permissions.json marks allow\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"maxBytes\":{\"type\":\"integer\"}},\"required\":[\"path\"]}},"
 "{\"name\":\"files_audit\",\"description\":\"Tail the broker receipts for files_* tool calls (ts/tool/ok/path) — agent file access audit\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"limit\":{\"type\":\"integer\"}}}},"
+// file_open (filedlg 음성 내비게이션, 스펙 §7): wait은 브로커 주입 전용 —
+// MCP 호출자에게 노출하지 않는다(재조립 분기가 무조건 "event"로 덮어쓴다).
+"{\"name\":\"file_open\",\"description\":\"Open a file picker dialog (filter/start/title optional; start = initial directory). Returns parked immediately — the resolution arrives as the file.open_result desktop event (poll read_events)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"filter\":{\"type\":\"string\"},\"start\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"}}}},"
 "{\"name\":\"list_app_tools\",\"description\":\"List registered app tools (app/name/inputSchema/windowId rows) — the app tool hub catalog (spec 2026-09-19-app-tool-hub)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}},"
 "{\"name\":\"app_tool\",\"description\":\"Call a registered app tool directly (app, tool, args; windowId disambiguates instances). The per-app-tool 3-tier gate still applies\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"app\":{\"type\":\"string\"},\"tool\":{\"type\":\"string\"},\"args\":{},\"windowId\":{\"type\":\"integer\"}}}}"
 "]}";
@@ -93,7 +96,11 @@ bool IsKnownTool(const std::string& name) {
         "files_list", "files_read", "files_audit",
         // 앱 도구 허브 (스펙 2026-09-19-app-tool-hub §6): 코어 2종 — 카탈로그
         // 조회와 직접 중계. 브로커 기본 allow(키 부재=deny 레슨 재발 방지).
-        "list_app_tools", "app_tool"
+        "list_app_tools", "app_tool",
+        // file_open (filedlg 음성 내비게이션, 스펙 §7): 분기 부재로 MCP 경로가
+        // unknown_tool로 떨어지던 잠복 결함 — IsKnownTool 등록이 재조립 분기의
+        // 전제다(미등록 시 tools/call이 동적 역매칭 → 즉시 unknown_tool).
+        "file_open"
     };
     for (const char* n : kNames) {
         if (name == n) return true;
@@ -132,7 +139,10 @@ std::map<std::string, bool> LoadPermissions() {
         // 앱 도구 허브 코어 2종 — 기본 allow 명시 (브로커 키 부재=deny 레슨).
         // 동적 <app>_<tool>명의 게이트는 BrokerAppToolAllowed 3단 키가 별도로
         // 담당한다(아래 — 도구별 > 앱별 > 전역).
-        "list_app_tools", "app_tool"
+        "list_app_tools", "app_tool",
+        // file_open — 서버 게이트도 none/allow(JKWindowServer kToolMatrix)라
+        // 브로커 기본 allow가 정합. 다이얼로그 해소는 사람 몫이라 ask 불요.
+        "file_open"
     };
     std::map<std::string, bool> perms;
     for (const char* n : kNames) perms[n] = true;
@@ -541,6 +551,26 @@ std::string ComposeToolsListJson() {
     return core.substr(0, tail) + dyn + "]}";
 }
 
+// file_open 서버 args 재조립 (filedlg 음성 내비게이션, 스펙 §7): MCP 경로는
+// wait:event를 무조건 주입한다 — 파킹 응답이 해소 때까지 안 오면 브로커가
+// 600s 블록해 음성 흐름이 죽는다(스펙 §0 결정 5). 해소는 file.open_result
+// 이벤트로 온다. filter/start/title은 선택 전달(서버 계약 — 빈 값은 키 생략).
+// 부수 픽스: file_open은 원래 재조립 분기가 없어 MCP 경로의 filter/start/
+// title이 기본 "{}" 폴백에 유실되던 잠복 결함이 있었다 — 본 분기로 치유.
+// 헬퍼로 뽑은 이유: selftest가 서버 질의 없이(라이브 서버 접속·파킹 유발
+// 없이) 재조립 결과를 직접 검증하게 하기 위함.
+std::string BuildFileOpenArgs(const jk::agent::AgentJson& req) {
+    std::string body = "{\"wait\":\"event\"";
+    std::string f, s, t;
+    if (req.GetDeepStr("params", "arguments", "filter", f))
+        body += ",\"filter\":\"" + JsonEsc(f) + "\"";
+    if (req.GetDeepStr("params", "arguments", "start", s))
+        body += ",\"start\":\"" + JsonEsc(s) + "\"";
+    if (req.GetDeepStr("params", "arguments", "title", t))
+        body += ",\"title\":\"" + JsonEsc(t) + "\"";
+    return body + "}";
+}
+
 // Process one MCP JSON-RPC line. isResponse is false for notifications
 // (nothing to send back). Testability is the point: RunSelfTest feeds the
 // same function scripted lines.
@@ -742,6 +772,8 @@ std::string HandleLine(const std::string& line, bool& isResponse) {
         } else if (tool == "list_app_tools") {
             // 앱 도구 허브 (스펙 §6): 카탈로그 조회 — 인자 없음.
             argsJson = "{}";
+        } else if (tool == "file_open") {
+            argsJson = BuildFileOpenArgs(req);
         } else if (tool == "app_tool") {
             // 직접 중계 (스펙 §6): 원문 패스스루 — 서버 도구와 동일 스키마
             // (app/tool/args/windowId). 서버 측 AppToolAllowed 게이트가 그대로
@@ -840,6 +872,33 @@ int RunSelfTest() {
                    isResp);
     if (!isResp || r.find("list_app_tools") == std::string::npos ||
         r.find("app_tool") == std::string::npos) ++failures;
+    // file_open (filedlg 음성 내비게이션, 스펙 §7): tools/list 정적부 노출 +
+    // 알려진 도구 등록 — 서버 부재(selftest 환경)에서 not_connected 즉답이
+    // 정상 경로다(unknown_tool이면 등록 누락).
+    r = HandleLine("{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"tools/list\"}",
+                   isResp);
+    if (!isResp || r.find("file_open") == std::string::npos ||
+        r.find("file.open_result") == std::string::npos) ++failures;
+    // file_open 등록 + 재조립 (스펙 §7): 서버 질의 없이 검증한다 — 라이브
+    // 서버가 살아 있으면 tools/call file_open이 진짜 파킹 쿼리를 날려 셀프테스트
+    // 가 600s 블록된다(실측). wait:event 주입은 BuildFileOpenArgs 직접 검증.
+    if (!IsKnownTool("file_open") || IsKnownTool("file_openX")) ++failures;
+    {
+        const char* calls[] = {
+            "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"tools/call\","
+            "\"params\":{\"name\":\"file_open\",\"arguments\":{\"filter\":"
+            "\"*.mkv\",\"start\":\"D:\\\\media\",\"title\":\"movie\"}}}",
+            "{\"jsonrpc\":\"2.0\",\"id\":13,\"method\":\"tools/call\","
+            "\"params\":{\"name\":\"file_open\",\"arguments\":{}}}"};
+        const char* wants[] = {
+            "{\"wait\":\"event\",\"filter\":\"*.mkv\","
+            "\"start\":\"D:\\\\media\",\"title\":\"movie\"}",
+            "{\"wait\":\"event\"}"};
+        for (int i = 0; i < 2; ++i) {
+            jk::agent::AgentJson cq(calls[i]);
+            if (!cq.ok() || BuildFileOpenArgs(cq) != wants[i]) ++failures;
+        }
+    }
     // 동적명 tools/call의 폴백: 서버 부재(selftest 환경)에서 ResolveAppTool이
     // 즉시 실패 — 행블록 없이 unknown_tool 즉답.
     r = HandleLine("{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\","
