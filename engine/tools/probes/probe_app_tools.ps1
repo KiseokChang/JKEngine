@@ -19,6 +19,8 @@
 #   11 MCP tools/list synthesis: jkagentd stdio -> vplayer_seek + [vplayer]
 #      prefix; 12 MCP tools/call: vplayer_seek ok + pos reflects + receipt +
 #      unknown dynamic -> unknown_tool; 13 fallback: server down -> core only.
+#   14 fix round 1: composite-name ambiguity (coll_a.b + coll.a_b ->
+#      coll_a_b): tools/call -> ambiguous_tool+candidates(2), list skips it.
 # Raw pipe helpers = mgr_t1_read/mgr_t8_cross_approve frame reader (one function
 # consumes header+payload whole). agentctl args = probe_notes ProcessStartInfo
 # raw command-line idiom (PS5.1 argv re-parsing trap). Tool args use INTEGERs
@@ -497,6 +499,41 @@ try {
     # Unknown dynamic name -> reverse-match miss -> unknown_tool (not a hang).
     $unk = Invoke-Mcp '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"vplayer_nope","arguments":{}}}'
     Check "c12-unknown-dynamic" ($unk -match 'unknown_tool') $unk
+
+    # ---- c14 (fix round 1): composite-name ambiguity -----------------------------
+    # app "coll_a"+tool "b" and app "coll"+tool "a_b" both yield MCP name
+    # "coll_a_b" (fix round 1 Important-1): tools/call must self-correct with
+    # ambiguous_tool+candidates (never pick arbitrarily - the gate key
+    # app_tool.<app>.<tool> would misapply), and tools/list must skip the
+    # unroutable name. Server §4.2 mirrored. Fake apps over raw pipes (c6/c9
+    # idiom); underscores are valid app tokens (ValidAppToolToken).
+    $connX = New-Pipe 0
+    $connY = New-Pipe 0
+    Send-ToolRegister $connX '{"app":"coll_a","tools":[{"name":"b","description":"x"}]}'
+    Send-ToolRegister $connY '{"app":"coll","tools":[{"name":"a_b","description":"x"}]}'
+    $ackX = ""
+    foreach ($i in 1..20) {
+        $f = Read-Frame $connX 400
+        if ($f -and $f.type -eq 18 -and $f.text -match '"ok"') { $ackX = $f.text; break }
+    }
+    $ackY = ""
+    foreach ($i in 1..20) {
+        $f = Read-Frame $connY 400
+        if ($f -and $f.type -eq 18 -and $f.text -match '"ok"') { $ackY = $f.text; break }
+    }
+    Check "c14-setup-registered" ($ackX -match '"ok":true' -and $ackY -match '"ok":true') "$ackX / $ackY"
+    $ambc = Invoke-Mcp '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"coll_a_b","arguments":{}}}'
+    # ambiguous_tool is a bare JSON-RPC result (early return, not content text)
+    # - quotes are NOT escaped in the wire text.
+    $cn2 = 0
+    $m = [regex]::Match($ambc, '"error":"ambiguous_tool","candidates":\[([^\]]*)\]')
+    if ($m.Success) { $cn2 = [regex]::Matches($m.Groups[1].Value, '"app":').Count }
+    Check "c14-ambiguous-tool" ($cn2 -eq 2) ($ambc + " candidates=$cn2")
+    $lst2 = Invoke-Mcp '{"jsonrpc":"2.0","id":8,"method":"tools/list"}'
+    Check "c14-list-skips-composite" ($lst2 -notmatch '"name":"coll_a_b"') ""
+    $connX.Dispose()
+    $connY.Dispose()
+    Start-Sleep -Milliseconds 800   # manifest cleanup lands
 
     # ---- c13 (stage-2 #12): fallback — server down -> static part only ----------
     Get-Process jkdesktop -ErrorAction SilentlyContinue | Stop-Process -Force

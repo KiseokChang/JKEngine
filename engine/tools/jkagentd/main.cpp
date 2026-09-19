@@ -356,30 +356,51 @@ bool SendServerQuery(const std::string& tool, const std::string& argsJson,
 // 가 포함될 수 있으므로 mcpName == app + "_" + tool 전 행 검사만이 정확한
 // 파싱이다. 서버에 실시간 질의(앱이 방금 종료해도 정확). 서버 부재 시
 // EnsureConnected가 즉시 실패 — 행블록 없이 폴백(unknown_tool).
-bool ResolveAppTool(const std::string& mcpName, std::string& app,
-                    std::string& tool) {
-    if (!EnsureConnected()) return false;
+// 반환: 0=미일치, 1=유니크, 2=복합명 충돌(서로 다른 (app,tool) 쌍이 같은
+// 합성명을 낸다 — app "a"+tool "b_c" vs app "a_b"+tool "c" → a_b_c). 복합
+// 충돌은 서버 §4.2 자기교정을 거울처럼 따라 임의 선택 금지 — 후보 목록을
+// candidatesJson에 [{"app":..,"tool":..}...]로 채운다. 다중 인스턴스(같은
+// (app,tool) 쌍의 복수 행)는 동일 조합이라 모호가 아니다.
+int ResolveAppTool(const std::string& mcpName, std::string& app,
+                   std::string& tool, std::string& candidatesJson) {
+    if (!EnsureConnected()) return 0;
     std::string reply;
     if (!g_agent.QueryRaw("{\"tool\":\"list_app_tools\",\"args\":{}}", reply) ||
         reply.empty()) {
         g_agentConnected = false;   // 파이프 사망 — 다음 호출 재접속
-        return false;
+        return 0;
     }
     jk::agent::AgentJson r(reply);
     int n = 0;
-    if (!r.ok() || !r.GetArraySize("tools", n)) return false;
+    if (!r.ok() || !r.GetArraySize("tools", n)) return 0;
+    std::vector<std::pair<std::string, std::string>> pairs;
     for (int i = 0; i < n; ++i) {
         std::string a, t;
         if (r.GetArrStr("tools", i, "app", a) &&
             r.GetArrStr("tools", i, "name", t) && a + "_" + t == mcpName) {
-            // 최초 일치 — 다중 인스턴스는 동명(유니온)이라 인스턴스 변별은
-            // 서버가 한다(windowId 직행 / ambiguous+후보).
-            app = a;
-            tool = t;
-            return true;
+            bool dup = false;
+            for (const auto& p : pairs) {
+                if (p.first == a && p.second == t) { dup = true; break; }
+            }
+            if (!dup) pairs.emplace_back(a, t);
         }
     }
-    return false;
+    if (pairs.empty()) return 0;
+    if (pairs.size() == 1) {
+        app = pairs[0].first;
+        tool = pairs[0].second;
+        return 1;
+    }
+    // 복합명 충돌 — 게이트 오적용(app_tool.<app>.<tool> 키가 어긋난다)과
+    // 임의 라우팅을 봉쇄한다(코디네이터 판정 1). 후보 제시로 자기교정.
+    candidatesJson = "[";
+    for (size_t i = 0; i < pairs.size(); ++i) {
+        if (i) candidatesJson += ",";
+        candidatesJson += "{\"app\":\"" + JsonEsc(pairs[i].first) +
+                          "\",\"tool\":\"" + JsonEsc(pairs[i].second) + "\"}";
+    }
+    candidatesJson += "]";
+    return 2;
 }
 
 // 브로커 3단 게이트 (스펙 §4.3) — 서버 JKWindowServer::AppToolAllowed와 동일
@@ -410,12 +431,15 @@ bool BrokerAppToolAllowed(const std::string& app, const std::string& tool) {
     buf[n] = '\0';
     jk::agent::AgentJson p(buf);
     if (!p.ok()) return true;
+    // 값 파싱은 서버 AppToolAllowed와 바이트 동일: 정확한 "allow"/"ask"/"deny"
+    // 만 인정 — 그 외 값은 그 키를 무시하고 다음 단계로 폴백(코디네이터 판정
+    // 2 — 두 게이트가 같은 파일을 같게 읽는다).
     for (const char* k : keys) {
         std::string v;
-        if (p.GetStr(k, v)) {
-            if (v == "deny") return false;
-            return true;   // allow / ask(서버 파이프라인)
-        }
+        if (!p.GetStr(k, v)) continue;
+        if (v == "allow") return true;
+        if (v == "ask") return true;   // 서버 파이프라인 통과
+        if (v == "deny") return false;
     }
     return true;
 }
@@ -435,17 +459,56 @@ std::string ComposeToolsListJson() {
             jk::agent::AgentJson r(reply);
             int n = 0;
             if (r.ok() && r.GetArraySize("tools", n)) {
-                std::set<std::string> seen;   // 다중 인스턴스: 이름당 1개
+                // 2-패스: 1차로 mcpName별 서로 다른 (app,tool) 쌍을 수집해
+                // 복합명 충돌(a.b_c vs a_b.c → 같은 합성명)을 검출 — 스트리밍
+                // 1-패스는 최초 행을 이미 방출한 뒤에 충돌을 알게 되는 결함이
+                // 있다(픽스 라운드 1 회귀). 2차에서 방출: 충돌명 제외, 다중
+                // 인스턴스(같은 쌍 재등장)는 이름당 1개. 충돌명은 라우팅
+                // 불가라 목록에서도 제외(코디네이터 판정 1 — resolve 측
+                // ambiguous_tool과 짝; 코어 app_tool 직접 호출이 변별로 남음).
+                std::map<std::string, std::pair<std::string, std::string>> seen;
+                std::set<std::string> ambiguous;
+                for (int i = 0; i < n; ++i) {
+                    std::string app, name;
+                    if (!r.GetArrStr("tools", i, "app", app) ||
+                        !r.GetArrStr("tools", i, "name", name)) continue;
+                    const std::string mcpName = app + "_" + name;
+                    const auto it = seen.find(mcpName);
+                    if (it == seen.end()) {
+                        seen.emplace(mcpName, std::make_pair(app, name));
+                        continue;
+                    }
+                    if (it->second.first != app || it->second.second != name) {
+                        // 임의 1개만 노출하면 스킵 이유를 알 수 없어 감람
+                        // (판정 3) — 노트는 충돌당 1회.
+                        if (ambiguous.insert(mcpName).second) {
+                            std::fprintf(
+                                stderr,
+                                "tools/list: skip %s: ambiguous composite name"
+                                " (first=(%s,%s) also=(%s,%s))\n",
+                                mcpName.c_str(), it->second.first.c_str(),
+                                it->second.second.c_str(), app.c_str(),
+                                name.c_str());
+                        }
+                    }
+                }
+                std::set<std::string> emitted;   // 이름당 1행 (다중 인스턴스)
                 for (int i = 0; i < n; ++i) {
                     std::string app, name, desc, schema;
                     if (!r.GetArrStr("tools", i, "app", app) ||
                         !r.GetArrStr("tools", i, "name", name)) continue;
                     const std::string mcpName = app + "_" + name;
-                    if (!seen.insert(mcpName).second) continue;
+                    if (ambiguous.count(mcpName)) continue;
+                    if (!emitted.insert(mcpName).second) continue;
                     // 동적명이 코어 도구명과 충돌(app="files", tool="list" →
                     // files_list 등)하면 코어가 승리한다 — 목록 중복/라우팅
                     // 불가 허수 항목을 봉쇄(tools/call은 IsKnownTool 선검).
-                    if (IsKnownTool(mcpName)) continue;
+                    if (IsKnownTool(mcpName)) {
+                        std::fprintf(stderr,
+                                     "tools/list: skip %s: collides with core tool name\n",
+                                     mcpName.c_str());
+                        continue;
+                    }
                     r.GetArrStr("tools", i, "description", desc);
                     if (!r.GetArrRaw("tools", i, "inputSchema", schema)) {
                         schema = "{}";   // 서버 부재 기본과 동일
@@ -455,7 +518,12 @@ std::string ComposeToolsListJson() {
                     // 전체 응답(모든 도구)을 깨는 것을 봉쇄. 파싱 실패 행은
                     // 건너뛴다(해당 도구만 목록에서 감람).
                     jk::agent::AgentJson s(schema);
-                    if (!s.ok()) continue;
+                    if (!s.ok()) {
+                        std::fprintf(stderr,
+                                     "tools/list: skip %s: malformed inputSchema\n",
+                                     mcpName.c_str());
+                        continue;
+                    }
                     if (dyn.empty()) dyn = ",";
                     dyn += std::string("{\"name\":\"") + JsonEsc(mcpName) +
                            "\",\"description\":\"[" + JsonEsc(app) + "] " +
@@ -522,8 +590,18 @@ std::string HandleLine(const std::string& line, bool& isResponse) {
         if (!IsKnownTool(tool)) {
             // 동적 앱 도구 라우팅 (스펙 §6): 접두 추측 아님 — 등록된
             // (app, tool) 조합 역매칭으로 파싱한다(app/도구명에 _ 포함 가능).
-            if (!ResolveAppTool(tool, dynApp, dynToolName)) {
+            std::string candidates;
+            const int matched =
+                ResolveAppTool(tool, dynApp, dynToolName, candidates);
+            if (matched == 0) {
                 return result("{\"ok\":false,\"error\":\"unknown_tool\"}");
+            }
+            if (matched == 2) {
+                // 복합명 충돌 — 임의 선택 금지(서버 §4.2 자기교정 거울).
+                // 게이트 키(app_tool.<app>.<tool>)가 어긋나는 것까지 같이
+                // 봉쇄된다(코디네이터 판정 1).
+                return result("{\"ok\":false,\"error\":\"ambiguous_tool\",\"candidates\":" +
+                              candidates + "}");
             }
             std::string argsRaw;
             req.GetObjRaw("params", "arguments", argsRaw);
