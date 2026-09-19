@@ -148,9 +148,11 @@ std::map<uint32_t, AppToolManifest> appToolManifests_;  // connId → 매니페�
 
 ### 4.4 서버 도구 2종
 
-- **`list_app_tools {}`** → `{"ok":true,"apps":[{"app","windowId",
-  "title","connId","tools":[{"name","description","inputSchema"}]}]}`
-  — 카탈로그 조회. 브로커 tools/list 합성과 agentctl face 양쪽이 먹는다.
+- **`list_app_tools {}`** → `{"ok":true,"tools":[{"app","name",
+  "description","inputSchema","windowId","title","connId"}, ...]}`
+  — **평면 행** 카탈로그(앱별 중첩 아님 — 브로커 파서 AgentJson이 중첩
+  배열 접근을 못 한다. 레슨 39 "중첩 배열 접근 없는 리더면 평면 행으로
+  내림"의 재적용). 브로커 tools/list 합성과 agentctl face 양쪽이 먹는다.
   kPermMatrix `{"list_app_tools","none","allow"}`.
 - **`app_tool {app, tool, args, windowId?}`** → 중계. args는 원문
   패스스루(스키마 검증 안 함). 응답 `{"ok":true,"windowId":..,
@@ -222,10 +224,10 @@ ask 파킹은 텍스트로만 무엇에 승인하는지 전달하므로, 대상�
 |---|---|---|
 | `open` | `{path}` | 비동기 오픈(T1 OpenStage) — 즉시 accepted 응답, 진행은 get_status로 추적 |
 | `play_pause` | `{}` | 토글 |
-| `seek` | `{seconds}` | 절대 시각 시크(기존 2단 시크) |
-| `set_volume` | `{percent 0..100}` | 볼륨 |
-| `set_av_delay` | `{seconds -10..10}` | A/V 오프셋 |
-| `get_status` | `{}` | `{file, pos, duration, playing, fps, underruns, av_delay, volume}` — 상태행 데이터 재사용 |
+| `seek` | `{seconds int}` | 절대 시각 시크(기존 2단 시크) — AgentJson에 double 접근자 부재, v1 정수 초 |
+| `set_volume` | `{percent int 0..100}` | 볼륨 (코어 SetVolume 0..1 float로 변환) |
+| `set_av_delay` | `{seconds int -1..1}` | A/V 오프셋 — 코어 SetAvDelay 클램프가 ±1이므로 스펙도 ±1로 정정 |
+| `get_status` | `{}` | `{opened, opening, openFailed, paused, ended, pos, dur, volume, error}` — PlayerCore::Snap 재사용 (fps/underruns/file는 Snap 소속이 아니어서 제외) |
 
 - `advance`(상대 시크)는 제외 — get_status로 pos 읽고 절대 시크 계산으로
   충분 (YAGNI).
