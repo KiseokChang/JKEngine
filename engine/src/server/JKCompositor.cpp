@@ -310,6 +310,14 @@ void JKCompositor::Composite(bool present) {
         }
     }
 
+    // 승인 대상 시각화 훅 (스펙 2026-09-19-app-tool-hub §5 1단): 반드시 레이어
+    // 루프 밖(위의 layersMutex_ 스코프 해제 후)에서 부른다 — 훅이 레이어를
+    // FindLayerById로 다시 찾으므로(layersMutex_ 재획득) 락 보유 중 호출이면
+    // std::mutex 교착. present 전이라서 이번 프레임에 바로 화면에 오른다.
+    if (overlayHook_) {
+        overlayHook_(outputScale);
+    }
+
     if (present) {
         SDL_RenderPresent(renderer_);
     }

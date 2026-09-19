@@ -5,6 +5,7 @@
 #include <server/JKCompositorOutput.h>
 #include <SDL.h>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <vector>
@@ -101,6 +102,15 @@ public:
     // pointers die on RemoveLayer, so callers store ids and re-resolve).
     JKCompositorLayer* FindLayerById(uint32_t id);
 
+    // 승인 대상 시각화 훅 (스펙 2026-09-19-app-tool-hub §5 1단): Composite가
+    // 모든 레이어(크롬 오버레이 포함)를 그린 뒤 present 직전에 한 번 부른다 —
+    // DrawCloseOverlay와 같은 컴포지트 패스의 "레이어 위" 드로잉 단계. 서버만
+    // pendingApprovals_를 알므로 컴포지터는 함수만 받는다(의존성 역전 —
+    // DrawCloseOverlay의 면제 규칙은 훅 구현자가 동일 적용한다). Composite(false)
+    // (capture_region 리드백)에서도 그려진다 — 화면에 보이는 것이 곧 캡처다.
+    using OverlayHook = std::function<void(float outputScale)>;
+    void SetOverlayHook(OverlayHook hook) { overlayHook_ = std::move(hook); }
+
 private:
     SDL_Renderer* renderer_ = nullptr;
     JKCompositorOutput output_{0, JKRect{0, 0, 0, 0}, 1.0f};
@@ -117,6 +127,7 @@ private:
     // (maximize vs. restore) follows the layer's Maximized() flag — the
     // server owns the state, the compositor only mirrors it for drawing.
     void DrawMaximizeButton(const JKCompositorLayer& layer, float scale);
+    OverlayHook overlayHook_;
 };
 
 } // namespace server

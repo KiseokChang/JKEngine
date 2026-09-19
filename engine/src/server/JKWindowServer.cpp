@@ -5,9 +5,13 @@
 #include <desktop/JKDesktopShell.h>
 #include <JKAudioCommand.h>
 #include <JKAudioThread.h>
+#include <JKDC.h>
+#include <JKHangulManager.h>
+#include <JKHangulUtil.h>
 #include <JKImageLoader.h>
 #include <JKMessageBus.h>
 #include <JKSDLAudioBackend.h>
+#include <JKSDLRenderBackend.h>
 #include <JKSoundManager.h>
 #include <JKPlatform.h>
 #include <theme/JKTheme.h>
@@ -19,6 +23,7 @@
 #include <algorithm>
 #include <chrono>
 #include <map>
+#include <set>
 #include <thread>
 #include <vector>
 
@@ -214,6 +219,12 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
     SDL_StartTextInput();
 
     compositor_ = std::make_unique<JKCompositor>(renderer_);
+    // 승인 대상 시각화 (스펙 2026-09-19-app-tool-hub §5 1단): 컴포지트 패스의
+    // 최상위 드로잉 단계를 서버 쪽 멤버 함수로 연결한다(의존성 역전 — 컴포지터는
+    // pendingApprovals_를 모른다). outputScale 인자로 Composite의 스케일을 전달.
+    compositor_->SetOverlayHook([this](float outputScale) {
+        DrawApprovalHighlights(outputScale);
+    });
     UpdateOutputBounds();
 
     // P1 ③: the launcher is the in-process privileged shell (spec D7) — the
@@ -589,6 +600,16 @@ void JKWindowServer::Stop() {
         shell_->Destroy();
         shell_.reset();
     }
+    // 승인 배너 텍스처 캐시 폐기 (스펙 2026-09-19-app-tool-hub §5 1단) —
+    // renderer_가 살아 있을 때 SDL_DestroyTexture해야 한다(소유 순서: 컴포지터
+    // 텍스처와 동일 — renderer 소멸 전).
+    for (auto& kv : approvalBannerTexs_) {
+        if (kv.second.tex) {
+            SDL_DestroyTexture(kv.second.tex);
+        }
+    }
+    approvalBannerTexs_.clear();
+    approvalFont_.reset();
     compositor_.reset();
 
     for (SDL_Cursor* cursor : chromeCursors_) {
@@ -2704,6 +2725,10 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                             p.requesterId = client.Id();
                             p.targetId = m->windowId;
                             p.expiresAt = std::time(nullptr) + 60;
+                            // 배너 표기(스펙 §5 1단)는 p.name 하나를 소스로
+                            // 삼는다 — 그리는 쪽에서 app/tool을 다시 조립하지
+                            // 않게 app+"."+tool을 파킹 시점에 확정.
+                            p.name = app + "." + toolName;
                             p.appToolApp = app;
                             p.appToolTool = toolName;
                             p.appToolArgs = argsRaw;
@@ -5153,6 +5178,192 @@ void JKWindowServer::Composite(bool present) {
         shell_->Draw(renderer_);
     }
     compositor_->Composite(present);
+}
+
+// 승인 대상 시각화 (스펙 2026-09-19-app-tool-hub §5 1단): 파킹된 승인의 대상
+// 창 위에 호박색 링 + 상단 배너 "에이전트 승인 대기: <name>". DrawCloseOverlay
+// 와 같은 컴포지트 패스의 최상위(레이어 루프 후) 단계 — 오버레이 훅을 통해
+// 매 프레임 호출된다. 승인 파이프라인 자체의 기능이라 close_window /
+// run_console_app 등 targetId를 갖는 모든 ask 도구가 동시 혜택을 본다.
+// resolve(허용/거부/타임아웃)는 pendingApprovals_에서 항목을 지우므로 하이라이트
+// 는 그 프레임부터 자동 해제 — 별도 상태·타이머 없음.
+// 스레드 규약: 서버 루프 스레드 전용. pendingApprovals_는 ProcessPendingMessages
+// (만료 스캔)와 HandleAgentQuery(파킹/resolve — 같은 스레드가 clientsMutex_를
+// 잡고 부르는 유일 경로)에서만 쓰이므로, 이 함수(컴포지트 패스)와 읽기 경쟁이
+// 생기지 않는다. preMaxRects_ 등 크롬 상태와 동일한 "락 없음" 규약.
+void JKWindowServer::DrawApprovalHighlights(float outputScale) {
+    if (!renderer_ || !compositor_) {
+        return;
+    }
+    // 파킹 승인의 대상 모음 — targetId 0(제어 연결·trust_request 등 대상 창
+    // 없는 파킹)은 스킵. 같은 창에 여러 승인이 파킹되면 한 번만 그린다(첫
+    // 승인의 name 우선, name 없는 파킹이 먼저면 뒤의 name으로 보완).
+    std::map<uint32_t, std::string> targets;
+    for (const PendingApproval& p : pendingApprovals_) {
+        if (!p.targetId) {
+            continue;
+        }
+        std::string name;
+        if (p.kind == "app_tool") {
+            name = p.name;  // 스펙 §5: 배너 표기 "<app>.<tool>" (파킹 시 확정)
+        } else if (!p.name.empty()) {
+            name = p.name;
+        }
+        auto it = targets.find(p.targetId);
+        if (it == targets.end()) {
+            targets.emplace(p.targetId, std::move(name));
+        } else if (it->second.empty() && !name.empty()) {
+            it->second = std::move(name);
+        }
+    }
+    if (targets.empty()) {
+        return;
+    }
+
+    std::set<std::string> usedBanners;  // 이 프레임에 쓴 배너 캐시 키
+    for (const auto& kv : targets) {
+        JKCompositorLayer* layer = compositor_->FindLayerById(kv.first);
+        if (!layer || !layer->IsVisible()) {
+            continue;
+        }
+        // 면제: shell(docs/28)과 캡처 오버레이(docs/35) — DrawCloseOverlay의
+        // 크롬 면제 목록과 동일 조건. 전체화면 레이어는 일부러 면제하지 않는다:
+        // 전체화면 앱에 대한 승인이야말로 눈으로 대상을 확인해야 할 때고, 배너는
+        // 크롬(X 버튼)이 아니라 승인 알림이므로 "앱이 상단 스트립을 소유" 규칙에
+        // 걸리지 않는다.
+        if (layer->IsShell() || layer->Title() == kCaptureOverlayTitle) {
+            continue;
+        }
+        // 논리 포인트 → 물리 픽셀(Composite와 같은 산식 — 레이어 rect × Scale ×
+        // outputScale). 링/밴드/텍스트가 전부 클릭 좌표계와 일치한다.
+        const SDL_Rect rc{
+            static_cast<int>(layer->X() * outputScale),
+            static_cast<int>(layer->Y() * outputScale),
+            static_cast<int>(layer->Width() * layer->ScaleX() * outputScale),
+            static_cast<int>(layer->Height() * layer->ScaleY() * outputScale)};
+        if (rc.w <= 0 || rc.h <= 0) {
+            continue;
+        }
+        // 호박 (230,140,40) — 스펙 §5 1단 고정값(테마 무관, 승인 알림 식별색).
+        SDL_SetRenderDrawColor(renderer_, 230, 140, 40, 255);
+        // 링: DrawCloseOverlay의 SDL_RenderDrawRect 스트로크 기법 그대로 —
+        // 1px씩 안으로 들어가는 3중 사각형으로 두꺼운 테두리를 만든다.
+        for (int i = 0; i < 3; ++i) {
+            SDL_Rect ring{rc.x + i, rc.y + i, rc.w - 2 * i, rc.h - 2 * i};
+            if (ring.w <= 0 || ring.h <= 0) {
+                break;
+            }
+            SDL_RenderDrawRect(renderer_, &ring);
+        }
+        // 상단 배너 밴드: 크롬 타이틀바(kChromeTitleBar)와 같은 두께로 대상 창의
+        // 상단 스트립을 덮는다(링 안쪽 1px에 맞춰 겹침 방지).
+        const int bandH = std::min(
+            static_cast<int>(kChromeTitleBar * layer->ScaleY() * outputScale),
+            rc.h - 3);
+        if (bandH <= 0) {
+            continue;
+        }
+        SDL_Rect band{rc.x + 3, rc.y + 3, rc.w - 6, bandH};
+        SDL_RenderFillRect(renderer_, &band);
+        // 배너 문자열: p.name(비었으면 대상 레이어의 창 제목 — close_window류).
+        std::string banner = "에이전트 승인 대기: ";
+        banner += (kv.second.empty() ? layer->Title() : kv.second);
+        usedBanners.insert(banner);
+        int tw = 0, th = 0;
+        SDL_Texture* tex = ApprovalBannerTexture(banner, tw, th);
+        if (tex && tw > 0 && th > 0) {
+            const int tx = band.x + 8;
+            const int ty = band.y + std::max(0, (band.h - th) / 2);
+            // 밴드 오른쪽에서 자름 — 좁은 창에서 글자가 창 밖(다른 창 위)으로
+            // 흘러나가 다른 대상의 배너와 겹치는 일을 막는다.
+            SDL_RenderSetClipRect(renderer_, &band);
+            SDL_Rect dst{tx, ty, tw, th};
+            SDL_RenderCopy(renderer_, tex, nullptr, &dst);
+            SDL_RenderSetClipRect(renderer_, nullptr);
+        }
+    }
+    // 이 프레임에 안 쓰인 캐시는 즉시 폐기 — 파킹 해소(밴드 키 소멸)가 곧
+    // 텍스처 해제다. 다시 파킹되면 한 번만 다시 레스터라이즈된다.
+    for (auto it = approvalBannerTexs_.begin();
+         it != approvalBannerTexs_.end();) {
+        if (!usedBanners.count(it->first)) {
+            if (it->second.tex) {
+                SDL_DestroyTexture(it->second.tex);
+            }
+            it = approvalBannerTexs_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+// 배너 텍스트 래스터라이즈 (스펙 2026-09-19-app-tool-hub §5 1단): 크롬 타이틀과
+// 동일한 글리프 경로 — Utf8ToKssm 변환 + JKDC 비트맵 폰트(한글 16px/영문 8px,
+// HangulManager의 assets/fonts/hangul.fnt·english.fnt). 새 글리프 엔진 없음.
+// 컴포지트가 ~1kHz로 도므로 매 프레임 글리프 DrawPixel은 비용이 남아, 렌더
+// 타깃 텍스처에 한 번 찍어 캐시한다(문자열당 1회). 실패는 null 엔트리로 기록 —
+// 매 프레임 재시도·로그 스팸을 막는다(1kHz 컴포지트 전제).
+SDL_Texture* JKWindowServer::ApprovalBannerTexture(const std::string& bannerUtf8,
+                                                   int& w, int& h) {
+    w = 0;
+    h = 0;
+    auto it = approvalBannerTexs_.find(bannerUtf8);
+    if (it != approvalBannerTexs_.end()) {
+        w = it->second.w;
+        h = it->second.h;
+        return it->second.tex;
+    }
+    if (bannerUtf8.empty() || !renderer_ ||
+        !SDL_RenderTargetSupported(renderer_)) {
+        // 렌더 타깃 미지원 백엔드: 텍스트 없이 링+밴드만(하이라이트 식별은
+        // 유지). SDL 가속 렌더러는 전부 타깃을 지원하므로 사실상 안 쓰는 가지.
+        approvalBannerTexs_[bannerUtf8] = ApprovalBannerTex{};
+        return nullptr;
+    }
+    if (!approvalFont_) {
+        approvalFont_ = std::make_unique<HangulManager>();
+        if (approvalFont_->CreationError) {
+            // 폰트 파일 부재 — 클라 크롬과 동일하게 ASCII 폴백이 JKDC에
+            // 내장돼 있으므로 래스터 자체는 가능하다. 폰트 없이 계속 간다.
+            std::fprintf(stderr,
+                         "[server] approval banner: font files missing, "
+                         "built-in ASCII fallback\n");
+        }
+    }
+    // 크롬 타이틀의 LegacyFontTitle 선례: KSSM 변환이 빈 결과면 원문을 쓴다
+    // (이미 KSSM인 문자열·ASCII 전용 문자열의 이중 변환 방지).
+    std::string kssm = Utf8ToKssm(bannerUtf8.c_str());
+    if (kssm.empty()) {
+        kssm = bannerUtf8;
+    }
+    const JKPoint m = JKDC::MeasureText(kssm.c_str());
+    constexpr int kPad = 4;
+    const int texW = m.x + kPad * 2;
+    const int texH = m.y > 0 ? m.y : 16;
+    SDL_Texture* tex = SDL_CreateTexture(renderer_, SDL_PIXELFORMAT_RGBA8888,
+                                         SDL_TEXTUREACCESS_TARGET, texW, texH);
+    if (!tex) {
+        approvalBannerTexs_[bannerUtf8] = ApprovalBannerTex{};
+        return nullptr;
+    }
+    // 글자만 실은 투명 배경 텍스처 — 밴드(호박 채움) 위에 블렌딩으로 얹는다.
+    SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
+    SDL_Texture* prev = SDL_GetRenderTarget(renderer_);
+    SDL_SetRenderTarget(renderer_, tex);
+    SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 0);
+    SDL_RenderClear(renderer_);
+    JKSDLRenderBackend backend(renderer_);
+    JKDC dc(&backend);
+    if (approvalFont_) {
+        dc.SetHangulManager(approvalFont_.get());
+    }
+    dc.SetTextColor(34, 20, 4);  // 호박 밴드 위 진한 갈색 글자 (고정 대비색)
+    dc.TextOut(JKPoint{kPad, kPad}, kssm.c_str());
+    SDL_SetRenderTarget(renderer_, prev);
+    approvalBannerTexs_[bannerUtf8] = ApprovalBannerTex{tex, texW, texH};
+    w = texW;
+    h = texH;
+    return tex;
 }
 
 void JKWindowServer::CleanupDisconnectedClients() {

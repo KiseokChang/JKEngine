@@ -23,6 +23,7 @@ namespace jk {
 
 class JKMessageBus;
 class JKAudioThread;
+class HangulManager;
 struct LoadedImage;
 
 namespace desktop { class JKDesktopShell; }
@@ -154,6 +155,15 @@ private:
     // capture_region (docs/35): draw the frame without presenting so the
     // pixels can be read back (requester's layer hidden by the caller).
     void Composite(bool present);
+    // 승인 대상 시각화 (스펙 2026-09-19-app-tool-hub §5 1단): 파킹된 승인의
+    // 대상 창 위 호박색 링 + 상단 배너. 컴포지터의 오버레이 훅으로 호출된다 —
+    // DrawCloseOverlay와 같은 컴포지트 패스, 레이어 루프 후 최상위 단계.
+    void DrawApprovalHighlights(float outputScale);
+    // 배너 텍스트를 크롬 타이틀과 동일한 비트맵 글리프 경로(Utf8ToKssm → JKDC
+    // 한글/영문 폰트)로 한 번 레스터라이즈해 캐시한다(성공만 캐시 — 실패는
+    // null 엔트리로 기록해 매 프레임 재시도를 막는다). w/h는 글리프 픽셀 크기.
+    SDL_Texture* ApprovalBannerTexture(const std::string& bannerUtf8,
+                                       int& w, int& h);
     void CleanupDisconnectedClients();
     void UnblockAcceptor();
     void InitAudio();
@@ -391,6 +401,21 @@ private:
     // In-process privileged shell (P1 ③): owns the launcher grid + desktop
     // background. Wired in Init, torn down in the destructor.
     std::unique_ptr<desktop::JKDesktopShell> shell_;
+
+    // 승인 배너 텍스처 캐시 (스펙 2026-09-19-app-tool-hub §5 1단): 컴포지트가
+    // ~1kHz(Run 루프 SDL_Delay(1))로 도니 매 프레임마다 글리프를 DrawPixel로
+    // 찍을 수 없다 — 배너 문자열당 한 번 레스터라이즈한 SDL 텍스처를 문자열
+    // 키로 캐시하고, 그 프레임에 쓰인 키만 남긴다(해소 = 캐시 폐기, 별도 타이머
+    // 없음). 서버 루프 스레드 전용(preMaxRects_ 동일 규약 — 락 없음).
+    struct ApprovalBannerTex {
+        SDL_Texture* tex = nullptr;
+        int w = 0;
+        int h = 0;
+    };
+    std::map<std::string, ApprovalBannerTex> approvalBannerTexs_;
+    // 배너 래스터에 쓰는 비트맵 폰트 — 클라와 동일 HangulManager(assets/fonts
+    // 의 hangul/english.fnt, SDL_GetBasePath 해석). 지연 생성(첫 배너 시점).
+    std::unique_ptr<HangulManager> approvalFont_;
 
     // Throttle launcher icon double-clicks / rapid spawns to one per app per
     // 500 ms. Stores the last spawn time keyed by app name.
