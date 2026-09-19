@@ -1592,6 +1592,7 @@ void JKWindowServer::ProcessPendingMessages() {
         // 다이얼로그가 result 없이 죽으면(크래시/kill/요청자 먼저 종료) 슬롯도
         // 같이 비워야 한다 — 안 그러면 이후 file_open이 서버 재시작까지
         // dialog_busy로 막힌다. 새 무효화 기계 없이 이 스캔 안에서 회수.
+        bool eventModeExpired = false;  // waitAsync 만료 — timeout reply 생략
         if (it->kind == "file_open" &&
             pendingFileDialog_.requestId == it->requestId) {
             // 스펙 §6: waitAsync 요청자는 파킹 응답을 이미 받았으므로 만료도
@@ -1603,16 +1604,23 @@ void JKWindowServer::ProcessPendingMessages() {
             if (pendingFileDialog_.waitAsync) {
                 PushAgentEventJson("{\"topic\":\"file.open_result\","
                                    "\"ok\":false,\"error\":\"expired\"}");
+                // 단일 전달 불변 (스펙 §6): 원래 쿼리는 parked ack로 이미
+                // 회답됐다 — 아래의 dialog_timeout AgentReply를 또 보내면
+                // 응답받은 queryId에 2통째가 꽂힌다. reply 모드/비 file_open/
+                // 슬롯 불일치는 기존대로 timeout reply를 받는다.
+                eventModeExpired = true;
             }
             pendingFileDialog_ = PendingFileDialog{};
         }
-        for (auto& c : clients_) {
-            if (c && c->Id() == it->requesterId && !c->IsDisconnected()) {
-                ipc::WriteAgentJson(c->Transport(), ipc::MsgType::AgentReply,
-                                    it->queryId, 0,
-                                    (std::string("{\"ok\":false,\"error\":\"") +
-                                     timeoutErr + "\"}").c_str());
-                break;
+        if (!eventModeExpired) {
+            for (auto& c : clients_) {
+                if (c && c->Id() == it->requesterId && !c->IsDisconnected()) {
+                    ipc::WriteAgentJson(c->Transport(), ipc::MsgType::AgentReply,
+                                        it->queryId, 0,
+                                        (std::string("{\"ok\":false,\"error\":\"") +
+                                         timeoutErr + "\"}").c_str());
+                    break;
+                }
             }
         }
         // file_open 만료는 승인 결정이 아니라 대화상자 수명 만료다
@@ -3654,16 +3662,22 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         // publish로 흉내 낼 수 없다 — window.*는 vplayer 전체화면 미러가
         // 자기 id 니들로 수용하고, audio.*는 코어 펌프가 마스터 게인에
         // 적용한다. 스크립트 커스텀 토픽은 이 접두어 밖의 것으로.
-        bool reserved = false;
-        for (const char* p : kReservedTopicPrefixes) {
-            if (topic.compare(0, std::strlen(p), p) == 0) { reserved = true; break; }
-        }
+        // 리뷰 Task 2 Important-1 수술: 접두 검사가 topic 파싱 전(빈 문자열
+        // 상태)에 돌아 c9ba8bf 이래 데드코드 — 검사를 파싱 후 평가하는
+        // 람다로 이동해 게이트를 살린다 (file.open_result 스푸핑 봉쇄 —
+        // 스펙 2026-09-19-filedlg-voice-nav 결정 6이 이 게이트에 의존).
+        auto topicReserved = [](const std::string& t) {
+            for (const char* p : kReservedTopicPrefixes) {
+                if (t.compare(0, std::strlen(p), p) == 0) return true;
+            }
+            return false;
+        };
         if (!req.GetObjStr("args", "topic", topic) || topic.empty() ||
             topic.size() > 96 || JsonEsc(topic).size() > 96 ||
             !req.GetObjRaw("args", "data", data) || data.empty() ||
             data.size() > 4096) {
             reply = "{\"ok\":false,\"error\":\"bad_request\"}";
-        } else if (reserved) {
+        } else if (topicReserved(topic)) {
             reply = "{\"ok\":false,\"error\":\"reserved_topic\"}";
         } else {
             char ev[4352];
