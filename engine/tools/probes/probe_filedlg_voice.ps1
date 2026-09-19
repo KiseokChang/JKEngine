@@ -117,8 +117,10 @@ function AppTool([string]$app, [string]$tool, [string]$argsJson, [int]$windowId 
     return (Invoke-Agentctl ('{"tool":"app_tool","args":' + $a + '}'))
 }
 # Separator-flexible regex for a fixture path (the dialog lexically_normal()s).
+# {1,2}: wire JSON doubles backslashes ("I:\\progwork") while raw pipe text has
+# singles — the class must match 1 or 2 consecutive separator chars.
 function PathRx([string]$p) {
-    return ([regex]::Escape($p) -replace '/', '[/\\\\]')
+    return ([regex]::Escape($p) -replace '/', '[/\\\\]{1,2}')
 }
 # Deadline-bounded ReadLine for the c8c broker stdio session. PS5.1's
 # synchronous ReadLine would block forever if jkagentd fails to answer a
@@ -438,7 +440,17 @@ try {
     $modalOk = ($fdRows.Count -eq 3)
     foreach ($r in $fdRows) { if ($r -notmatch '"modal":true') { $modalOk = $false } }
     Check "c2-modal-true" $modalOk ($fdRows -join " | ")
-    Check "c2-title-echo" ($cat -match '"app":"filedlg"[\s\S]*?"title":"voice nav probe"') ""
+    # c2-title-echo: the file_open params title reaches the dialog's window
+    # title (root->SetTitle). The catalog row's "title" is the window title at
+    # REGISTRATION time (the meta title) and is not refreshed on SetTitle —
+    # so the echo is verified via list_windows, not the catalog.
+    $wtitleOk = $false; $wtitle = ""
+    foreach ($i in 1..15) {
+        Start-Sleep -Milliseconds 300
+        $wl = Invoke-Agentctl '{"tool":"list_windows","args":{}}'
+        if ($wl -match '"title":"voice nav probe"') { $wtitleOk = $true; $wtitle = $Matches[0]; break }
+    }
+    Check "c2-title-echo" $wtitleOk $wtitle
     $schemaOk = ($fdRows.Count -eq 3)
     foreach ($r in $fdRows) { if ($r -notmatch '"inputSchema":\{"type":"object"') { $schemaOk = $false } }
     Check "c2-schemas-embedded" $schemaOk ""
@@ -493,13 +505,13 @@ try {
 
     # ---- c7: choose a file -> parked reply-mode file_open resolves e2e --------
     $ch = (AppTool "filedlg" "choose" '{"name":"a.txt"}')
-    Check "c7-app-resolved" ($ch -match '"result":\{"ok":true,"resolved":true,"path":"[^"]*[/\\]start[/\\]a\.txt"\}') $ch
+    Check "c7-app-resolved" ($ch -match '"result":\{"ok":true,"resolved":true,"path":"[^"]*[/\\]{1,2}start[/\\]{1,2}a\.txt"\}') $ch
     $parked = ""
     foreach ($i in 1..100) {
         $f = Read-Frame $connS 200
         if ($f -and $f.type -eq 18 -and $f.qid -eq 401) { $parked = $f.text; break }
     }
-    Check "c7-parked-reply-path" ($parked -match '"ok":true' -and $parked -match '"path":"[^"]*[/\\]start[/\\]a\.txt"') $parked
+    Check "c7-parked-reply-path" ($parked -match '"ok":true' -and $parked -match '"path":"[^"]*[/\\]{1,2}start[/\\]{1,2}a\.txt"') $parked
     $gone = $false
     foreach ($i in 1..20) {
         Start-Sleep -Milliseconds 400
@@ -523,13 +535,13 @@ try {
     Check "c8a-rows-3" (Wait-Rows 3 30) ""
     # ---- c8b: choose b.txt -> resolved + file.open_result event ---------------
     $ch8 = (AppTool "filedlg" "choose" '{"name":"b.txt"}')
-    Check "c8b-choose-resolved" ($ch8 -match '"result":\{"ok":true,"resolved":true,"path":"[^"]*[/\\]start[/\\]b\.txt"\}') $ch8
+    Check "c8b-choose-resolved" ($ch8 -match '"result":\{"ok":true,"resolved":true,"path":"[^"]*[/\\]{1,2}start[/\\]{1,2}b\.txt"\}') $ch8
     $evt = ""
     foreach ($i in 1..100) {
         $f = Read-Frame $connS 200
         if ($f -and $f.type -eq 20 -and $f.text -match '"topic":"file\.open_result"') { $evt = $f.text; break }
     }
-    Check "c8b-file-open-result-event" ($evt -match '"ok":true' -and $evt -match '"path":"[^"]*[/\\]start[/\\]b\.txt"') $evt
+    Check "c8b-file-open-result-event" ($evt -match '"ok":true' -and $evt -match '"path":"[^"]*[/\\]{1,2}start[/\\]{1,2}b\.txt"') $evt
     # Single-delivery invariant (spec section 6): the resolution is ONE
     # file.open_result broadcast - the parked wait:event query (qid 402) must
     # NOT also receive an AgentReply. Drain ~1s and assert absence.
@@ -650,6 +662,12 @@ try {
     Check "c9c-rows-vanish" (Wait-Rows 0 20) ""
     $g2 = (AppTool "filedlg" "list" '{"offset":0}')
     Check "c9c-unknown-app-tool" ($g2 -match '"ok":false,"error":"unknown_app_tool"') $g2
+    # c9d's requester connT still parks its wait:"event" slot (dialog E died
+    # without resolving). Dispose the requester too — a parked slot here would
+    # hand file_dialog_params to c10's manual spawn, which would register 3
+    # rows and break both c10 checks.
+    $connT.Dispose()
+    Start-Sleep -Milliseconds 800
 
     # ---- c10: orphan guard - manual spawn with no parked slot ------------------
     # Manual `--filedlg "{}"` never gets file_dialog_params (no pending slot ->

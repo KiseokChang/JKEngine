@@ -518,8 +518,17 @@ void ClientFileDialogApp::PumpReplies() {
             continue;  // params is the only leg we wait on
         }
         paramsQueryId_ = 0;
-        if (!reply.ok) continue;  // no_pending_dialog → keep the defaults
+        // 슬롯 소유 불변식(스펙 §0 결정 2): 와이어 ok 바이트는 "응답 도달"
+        // 의미라 no_pending_dialog도 ok=1로 온다(220230e부터 HandleAgentQuery
+        // 가 하드코딩 1 — `if (!reply.ok)` 게이트는 한 번도 작동하지 않았다).
+        // 등록 게이트는 params JSON의 requesterConnId(진짜 슬롯 소유 마커)로
+        // 판정한다 — 슬롯 없는 수기 기동은 도구 미등록(스펙 §9 체크 10).
         agent::AgentJson json(reply.json);
+        int reqConn = 0;
+        if (!(json.GetInt("requesterConnId", reqConn) && reqConn > 0)) {
+            continue;  // no_pending_dialog → keep the defaults, no tools
+        }
+        if (!reply.ok) continue;
         std::string filter, start, title;
         if (json.GetStr("filter", filter) && !Trim(filter).empty()) {
             filterAll_ = Trim(filter);
@@ -533,16 +542,21 @@ void ClientFileDialogApp::PumpReplies() {
             RefreshList();
         }
         // Sender correlation: remember who to echo in file_open_result.
-        int connId = 0;
-        if (json.GetInt("requesterConnId", connId) && connId > 0) {
-            requesterConnId_ = static_cast<uint32_t>(connId);
-        }
+        requesterConnId_ = static_cast<uint32_t>(reqConn);
         // 요청 타이틀 적용 (final-review MINOR-1) — params가 공백/부재면
         // 기본 "파일 열기"를 유지한다. KSSM 크롬 변환은 그리기 직전
         // (cbaa53c)이므로 여기선 UTF-8 원문만 세팅하면 된다.
         if (json.GetStr("title", title) && !Trim(title).empty()) {
+            const std::string reqTitle = Trim(title);
             if (JKWindow* root = GetMainWindow()) {
-                root->SetTitle(Trim(title));
+                root->SetTitle(reqTitle);
+            }
+            // 서버 측 크롬/카탈로그도 따라가게 전파 — JKWindow::SetTitle은
+            // 로컬 전용이라 전파가 없으면 서버 크롬과 도구 카탈로그 title이
+            // 구 타이틀(스폰 시 메타 타이틀)에 고정된다 (docs/33,
+            // ClientNotifyApp SendWindowTitle 선례).
+            if (jk::client::JKClientSurface* s = Surface()) {
+                s->SendWindowTitle(reqTitle);
             }
         }
         // 음성 내비게이션 도구 등록 (스펙 2026-09-19-filedlg-voice-nav §0
