@@ -49,7 +49,12 @@ enum class MsgType : uint32_t {
     // at 96 bytes server-side). The unread-count badge of the notification
     // center (docs/33) rides on this — the taskbar button text follows the
     // WindowList push. docs/28 예고 "SetTitle C->S" 확장.
-    WindowTitle         = 21
+    WindowTitle         = 21,
+    // 앱 도구 허브 (스펙 2026-09-19-app-tool-hub §3): 앱이 런치 시 자기
+    // 도구를 선언하고, 서버가 에이전트의 도구 호출을 중계한다.
+    AgentToolRegister = 22, // C -> S: {jsonLen + JSON {app, tools:[{name, description, inputSchema}]}}
+    AgentToolCall     = 23, // S -> C: {reqId + jsonLen + JSON {app, tool, args}}
+    AgentToolResult   = 24  // C -> S: AgentReplyHeader와 동일 레이아웃 {reqId, ok, jsonLen}
 };
 
 #pragma pack(push, 1)
@@ -186,6 +191,19 @@ struct AgentEventHeader {
 };
 #pragma pack(pop)
 
+#pragma pack(push, 1)
+// 앱 도구 허브 (스펙 §3): 등록은 AgentEvent와 같은 {jsonLen} 헤더, 중계는
+// {reqId, jsonLen}. 결과는 AgentReplyHeader({queryId, ok, jsonLen})를
+// 그대로 재사용 — queryId 자리가 reqId다.
+struct AgentToolRegisterHeader {
+    uint32_t jsonLen = 0;
+};
+struct AgentToolCallHeader {
+    uint32_t reqId = 0;  // 서버 채번 — AgentToolResult가 에코 (0 = 등록 ack)
+    uint32_t jsonLen = 0;
+};
+#pragma pack(pop)
+
 struct AgentEventSubscribePayload {
     uint32_t subscribe = 0;
 };
@@ -267,6 +285,15 @@ bool WriteAgentJson(IWireTransport& transport, MsgType type,
 // Returns false for other types or a truncated payload.
 bool ReadAgentJson(const Message& msg, uint32_t& queryId, uint32_t& ok,
                    std::string& json);
+
+// --- 앱 도구 허브 (스펙 2026-09-19-app-tool-hub §3) -------------------------
+// 앱 -> 서버: 자기 도구 목록을 JSON으로 선언 (런치 시 1회).
+bool WriteAgentToolRegister(IWireTransport& transport, const std::string& json);
+bool ReadAgentToolRegister(const Message& msg, std::string& json);
+// 서버 -> 앱: 에이전트의 도구 호출 중계 (reqId는 서버 채번).
+bool WriteAgentToolCall(IWireTransport& transport, uint32_t reqId,
+                        const std::string& json);
+bool ReadAgentToolCall(const Message& msg, uint32_t& reqId, std::string& json);
 
 } // namespace ipc
 } // namespace jk
