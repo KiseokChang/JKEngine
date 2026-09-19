@@ -22,6 +22,7 @@
 #include <iostream>
 #include <map>
 #include <regex>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -45,7 +46,9 @@ std::string JsonEsc(const std::string& s) {
 
 // MCP tools/list result — the spec §3 tool surface, byte-for-byte what a
 // client sees. Schemas mirror the server tool args (Tasks 3/4 + 6/7).
-const char* kToolsListJson =
+// 스펙 §6: 정적부(코어)만 담는다 — 동적 앱 도구부는 ComposeToolsListJson이
+// tools/list 시점에 서버 질의로 합성해 이 문자열 끝에 접합한다.
+const char* kCoreToolsListJson =
 "{\"tools\":["
 "{\"name\":\"list_windows\",\"description\":\"List desktop windows with id/title/pid/geometry/focus/minimized\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}},"
 "{\"name\":\"launch_app\",\"description\":\"Launch a built-in app (app) or a .jkx package (jkx)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"app\":{\"type\":\"string\"},\"jkx\":{\"type\":\"string\"}}}},"
@@ -71,7 +74,9 @@ const char* kToolsListJson =
 "{\"name\":\"notes_write\",\"description\":\"Write the notes hub: op=add_note(text<=512,win)/add_item(title<=128,state)/move_item(id,state)/del(kind by id)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"op\":{\"type\":\"string\"},\"text\":{\"type\":\"string\"},\"win\":{\"type\":\"integer\"},\"state\":{\"type\":\"integer\"},\"id\":{\"type\":\"integer\"}}}},"
 "{\"name\":\"files_list\",\"description\":\"List a directory (absolute drive path only): entries name/kind/size/mtime, dirs first, 512 cap. Agent calls park for approval unless permissions.json marks the tool allow\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}},"
 "{\"name\":\"files_read\",\"description\":\"Read a text preview (<=64KiB, NUL sniff marks binary). Absolute path. Agent calls park for approval unless permissions.json marks allow\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"maxBytes\":{\"type\":\"integer\"}},\"required\":[\"path\"]}},"
-"{\"name\":\"files_audit\",\"description\":\"Tail the broker receipts for files_* tool calls (ts/tool/ok/path) — agent file access audit\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"limit\":{\"type\":\"integer\"}}}}"
+"{\"name\":\"files_audit\",\"description\":\"Tail the broker receipts for files_* tool calls (ts/tool/ok/path) — agent file access audit\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"limit\":{\"type\":\"integer\"}}}},"
+"{\"name\":\"list_app_tools\",\"description\":\"List registered app tools (app/name/inputSchema/windowId rows) — the app tool hub catalog (spec 2026-09-19-app-tool-hub)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}},"
+"{\"name\":\"app_tool\",\"description\":\"Call a registered app tool directly (app, tool, args; windowId disambiguates instances). The per-app-tool 3-tier gate still applies\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"app\":{\"type\":\"string\"},\"tool\":{\"type\":\"string\"},\"args\":{},\"windowId\":{\"type\":\"integer\"}}}}"
 "]}";
 
 // Known tool names.
@@ -85,7 +90,10 @@ bool IsKnownTool(const std::string& name) {
         "installed_list", "read_receipts",
         "settings_read", "settings_set",
         "notes_read", "notes_write",
-        "files_list", "files_read", "files_audit"
+        "files_list", "files_read", "files_audit",
+        // 앱 도구 허브 (스펙 2026-09-19-app-tool-hub §6): 코어 2종 — 카탈로그
+        // 조회와 직접 중계. 브로커 기본 allow(키 부재=deny 레슨 재발 방지).
+        "list_app_tools", "app_tool"
     };
     for (const char* n : kNames) {
         if (name == n) return true;
@@ -120,7 +128,11 @@ std::map<std::string, bool> LoadPermissions() {
         "installed_list", "read_receipts",
         "settings_read", "settings_set",
         "notes_read", "notes_write",
-        "files_list", "files_read", "files_audit"
+        "files_list", "files_read", "files_audit",
+        // 앱 도구 허브 코어 2종 — 기본 allow 명시 (브로커 키 부재=deny 레슨).
+        // 동적 <app>_<tool>명의 게이트는 BrokerAppToolAllowed 3단 키가 별도로
+        // 담당한다(아래 — 도구별 > 앱별 > 전역).
+        "list_app_tools", "app_tool"
     };
     std::map<std::string, bool> perms;
     for (const char* n : kNames) perms[n] = true;
@@ -320,6 +332,147 @@ std::string TerminalExec(const jk::agent::AgentJson& req) {
 #endif
 }
 
+// --- app tool hub (스펙 2026-09-19-app-tool-hub §6) -------------------------
+
+// 서버 전송 공용 — 기존 tools/call 전송 경로의 추출(코어/동적 양 경로 재사용).
+// 파이프 사망 시 연결 플래그 리셋(다음 호출이 재접속 시도).
+bool SendServerQuery(const std::string& tool, const std::string& argsJson,
+                     std::string& resultJson) {
+    if (!EnsureConnected()) {
+        resultJson = "{\"ok\":false,\"error\":\"not_connected\"}";
+        return false;
+    }
+    std::string reply;
+    if (!g_agent.Query(tool, argsJson, reply)) {
+        g_agentConnected = false;
+        resultJson = "{\"ok\":false,\"error\":\"pipe_error\"}";
+        return false;
+    }
+    resultJson = reply;
+    return true;
+}
+
+// 등록된 (app, tool) 조합 역매칭 — 접두 추측 금지(스펙 §6). app/도구명에 _
+// 가 포함될 수 있으므로 mcpName == app + "_" + tool 전 행 검사만이 정확한
+// 파싱이다. 서버에 실시간 질의(앱이 방금 종료해도 정확). 서버 부재 시
+// EnsureConnected가 즉시 실패 — 행블록 없이 폴백(unknown_tool).
+bool ResolveAppTool(const std::string& mcpName, std::string& app,
+                    std::string& tool) {
+    if (!EnsureConnected()) return false;
+    std::string reply;
+    if (!g_agent.QueryRaw("{\"tool\":\"list_app_tools\",\"args\":{}}", reply) ||
+        reply.empty()) {
+        g_agentConnected = false;   // 파이프 사망 — 다음 호출 재접속
+        return false;
+    }
+    jk::agent::AgentJson r(reply);
+    int n = 0;
+    if (!r.ok() || !r.GetArraySize("tools", n)) return false;
+    for (int i = 0; i < n; ++i) {
+        std::string a, t;
+        if (r.GetArrStr("tools", i, "app", a) &&
+            r.GetArrStr("tools", i, "name", t) && a + "_" + t == mcpName) {
+            // 최초 일치 — 다중 인스턴스는 동명(유니온)이라 인스턴스 변별은
+            // 서버가 한다(windowId 직행 / ambiguous+후보).
+            app = a;
+            tool = t;
+            return true;
+        }
+    }
+    return false;
+}
+
+// 브로커 3단 게이트 (스펙 §4.3) — 서버 JKWindowServer::AppToolAllowed와 동일
+// 순서: app_tool.<app>.<tool> > app_tool.<app> > app_tool (도구별 > 앱별 >
+// 전역). permissions.json은 점을 포함한 평면 키 리터럴 — AgentJson::GetStr은
+// JS_GetPropertyStr 한 단계라 중첩 객체는 못 읽지만 점 키 프로퍼티는 읽힌다.
+// 파일/키 부재 = allow 명시(브로커 키 부재=deny 레슨 재발 방지). "ask"는
+// 브로커가 막지 않는다 — 서버의 ask 파킹 파이프라인으로 통과(LoadPermissions
+// 의 ask pass-through 선례). permissions.json 핫리드는 호출마다.
+bool BrokerAppToolAllowed(const std::string& app, const std::string& tool) {
+    std::string k0 = "app_tool." + app + "." + tool;
+    std::string k1 = "app_tool." + app;
+    const char* keys[3] = {k0.c_str(), k1.c_str(), "app_tool"};
+    std::string dir = ".";
+#ifdef _WIN32
+    char exePath[MAX_PATH] = {};
+    if (GetModuleFileNameA(nullptr, exePath, MAX_PATH) > 0) {
+        dir = exePath;
+        const size_t slash = dir.find_last_of("\\/");
+        if (slash != std::string::npos) dir.resize(slash + 1);
+    }
+#endif
+    std::FILE* f = std::fopen((dir + "permissions.json").c_str(), "rb");
+    if (!f) return true;
+    char buf[4096];
+    const size_t n = std::fread(buf, 1, sizeof(buf) - 1, f);
+    std::fclose(f);
+    buf[n] = '\0';
+    jk::agent::AgentJson p(buf);
+    if (!p.ok()) return true;
+    for (const char* k : keys) {
+        std::string v;
+        if (p.GetStr(k, v)) {
+            if (v == "deny") return false;
+            return true;   // allow / ask(서버 파이프라인)
+        }
+    }
+    return true;
+}
+
+// 스펙 §6: 코어 정적부 + 앱 도구 동적부. 동적부는 tools/list 시점에 서버
+// list_app_tools 질의 — 앱 도구명은 <app>_<tool>(MCP 도구명 규약: 점 부재),
+// description 앞에 [<app>] 접두, inputSchema는 앱 선언 그대로. 서버 질의
+// 실패 시 정적부만 반환(폴백 — 앱 도구만 잠깐 안 보이는 수준).
+std::string ComposeToolsListJson() {
+    std::string core = kCoreToolsListJson;   // {"tools":[ ... ]} 완결 형태
+    std::string dyn;
+    if (EnsureConnected()) {
+        std::string reply;
+        if (g_agent.QueryRaw("{\"tool\":\"list_app_tools\",\"args\":{}}",
+                             reply) &&
+            !reply.empty()) {
+            jk::agent::AgentJson r(reply);
+            int n = 0;
+            if (r.ok() && r.GetArraySize("tools", n)) {
+                std::set<std::string> seen;   // 다중 인스턴스: 이름당 1개
+                for (int i = 0; i < n; ++i) {
+                    std::string app, name, desc, schema;
+                    if (!r.GetArrStr("tools", i, "app", app) ||
+                        !r.GetArrStr("tools", i, "name", name)) continue;
+                    const std::string mcpName = app + "_" + name;
+                    if (!seen.insert(mcpName).second) continue;
+                    // 동적명이 코어 도구명과 충돌(app="files", tool="list" →
+                    // files_list 등)하면 코어가 승리한다 — 목록 중복/라우팅
+                    // 불가 허수 항목을 봉쇄(tools/call은 IsKnownTool 선검).
+                    if (IsKnownTool(mcpName)) continue;
+                    r.GetArrStr("tools", i, "description", desc);
+                    if (!r.GetArrRaw("tools", i, "inputSchema", schema)) {
+                        schema = "{}";   // 서버 부재 기본과 동일
+                    }
+                    // 스키마 유효성 가드 (Task 2 리뷰 이월): inputSchema를
+                    // 템플릿에 원문 임베드 — 앱 하나의 파산 스키마가 tools/list
+                    // 전체 응답(모든 도구)을 깨는 것을 봉쇄. 파싱 실패 행은
+                    // 건너뛴다(해당 도구만 목록에서 감람).
+                    jk::agent::AgentJson s(schema);
+                    if (!s.ok()) continue;
+                    if (dyn.empty()) dyn = ",";
+                    dyn += std::string("{\"name\":\"") + JsonEsc(mcpName) +
+                           "\",\"description\":\"[" + JsonEsc(app) + "] " +
+                           JsonEsc(desc) + "\",\"inputSchema\":" + schema + "}";
+                }
+            }
+        }
+    }
+    if (dyn.empty()) return core;
+    // core 끝 "]}"}를 열어 동적부 삽입 — 정적 문자열의 마지막 "]}") 절단 후
+    // 재조립(kCoreToolsListJson은 {"tools":[...]}} 형태 유지). rfind라 정적부
+    // 어디에 "]}")가 있어도 항상 꼬리를 가른다.
+    const size_t tail = core.rfind("]}");
+    if (tail == std::string::npos) return core;
+    return core.substr(0, tail) + dyn + "]}";
+}
+
 // Process one MCP JSON-RPC line. isResponse is false for notifications
 // (nothing to send back). Testability is the point: RunSelfTest feeds the
 // same function scripted lines.
@@ -357,15 +510,28 @@ std::string HandleLine(const std::string& line, bool& isResponse) {
         return "";
     }
     if (method == "tools/list") {
-        return result(kToolsListJson);
+        // 스펙 §6: 코어 정적부 + 앱 도구 동적부 합성.
+        return result(ComposeToolsListJson());
     }
     if (method == "tools/call") {
         std::string tool;
         if (!req.GetObjStr("params", "name", tool)) {
             return result("{\"ok\":false,\"error\":\"missing_tool\"}");
         }
+        std::string dynApp, dynToolName, dynArgsJson;
         if (!IsKnownTool(tool)) {
-            return result("{\"ok\":false,\"error\":\"unknown_tool\"}");
+            // 동적 앱 도구 라우팅 (스펙 §6): 접두 추측 아님 — 등록된
+            // (app, tool) 조합 역매칭으로 파싱한다(app/도구명에 _ 포함 가능).
+            if (!ResolveAppTool(tool, dynApp, dynToolName)) {
+                return result("{\"ok\":false,\"error\":\"unknown_tool\"}");
+            }
+            std::string argsRaw;
+            req.GetObjRaw("params", "arguments", argsRaw);
+            // 서버 app_tool args: app/tool + 앱 페이로드는 중첩 args 패스스루
+            // (windowId는 호출자가 직접 실어 인스턴스 변별).
+            dynArgsJson = "{\"app\":\"" + JsonEsc(dynApp) + "\",\"tool\":\"" +
+                          JsonEsc(dynToolName) + "\",\"args\":" +
+                          (argsRaw.empty() ? "{}" : argsRaw) + "}";
         }
 
         // Rebuild the server args JSON from typed reads (the server speaks
@@ -495,6 +661,33 @@ std::string HandleLine(const std::string& line, bool& isResponse) {
             if (req.GetDeepInt("params", "arguments", "limit", limit)) {
                 argsJson = "{\"limit\":" + std::to_string(limit) + "}";
             }
+        } else if (tool == "list_app_tools") {
+            // 앱 도구 허브 (스펙 §6): 카탈로그 조회 — 인자 없음.
+            argsJson = "{}";
+        } else if (tool == "app_tool") {
+            // 직접 중계 (스펙 §6): 원문 패스스루 — 서버 도구와 동일 스키마
+            // (app/tool/args/windowId). 서버 측 AppToolAllowed 게이트가 그대로
+            // 적용된다(중계 경로라 브로커 단 재작성 없음).
+            std::string raw;
+            if (req.GetObjRaw("params", "arguments", raw) && !raw.empty() &&
+                raw != "{}") {
+                argsJson = raw;
+            }
+        }
+
+        // 동적 앱 도구 중계 (스펙 §6): 성공/앱 보고 실패 모두 원문 통과 —
+        // 소비자는 error 멤버 존재 여부로 분기한다(Task 2 와이어 계약), 셰이프
+        // 재작성 금지. 브로커 3단 게이트(스펙 §4.3)가 MCP 경로를 선차단한다.
+        if (!dynApp.empty()) {
+            std::string dynResult;
+            if (BrokerAppToolAllowed(dynApp, dynToolName)) {
+                SendServerQuery("app_tool", dynArgsJson, dynResult);
+            } else {
+                dynResult = "{\"ok\":false,\"error\":\"denied\"}";
+            }
+            WriteReceipt(tool, dynArgsJson, dynResult);
+            return result("{\"content\":[{\"type\":\"text\",\"text\":\"" +
+                          JsonEsc(dynResult) + "\"}]}");
         }
 
         // Permission gate (spec §5) — see LoadPermissions for the defaults.
@@ -509,16 +702,8 @@ std::string HandleLine(const std::string& line, bool& isResponse) {
             resultJson = ReadEvents();
         } else if (tool == "terminal_exec") {
             resultJson = TerminalExec(req);
-        } else if (EnsureConnected()) {
-            std::string reply;
-            if (g_agent.Query(tool, argsJson, reply)) {
-                resultJson = reply;
-            } else {
-                g_agentConnected = false;
-                resultJson = "{\"ok\":false,\"error\":\"pipe_error\"}";
-            }
         } else {
-            resultJson = "{\"ok\":false,\"error\":\"not_connected\"}";
+            SendServerQuery(tool, argsJson, resultJson);
         }
 
         WriteReceipt(tool, argsJson, resultJson);
@@ -570,6 +755,19 @@ int RunSelfTest() {
     if (!isResp || r.find("files_list") == std::string::npos ||
         r.find("files_read") == std::string::npos ||
         r.find("files_audit") == std::string::npos) ++failures;
+    // 앱 도구 허브 코어 2종이 tools/list에 노출되는가 (스펙
+    // 2026-09-19-app-tool-hub §6) — 브로커 키 부재=deny 레슨: 기본 allow가
+    // 목록 노출의 전제.
+    r = HandleLine("{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"tools/list\"}",
+                   isResp);
+    if (!isResp || r.find("list_app_tools") == std::string::npos ||
+        r.find("app_tool") == std::string::npos) ++failures;
+    // 동적명 tools/call의 폴백: 서버 부재(selftest 환경)에서 ResolveAppTool이
+    // 즉시 실패 — 행블록 없이 unknown_tool 즉답.
+    r = HandleLine("{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\","
+                   "\"params\":{\"name\":\"vplayer_nope\",\"arguments\":{}}}",
+                   isResp);
+    if (!isResp || r.find("unknown_tool") == std::string::npos) ++failures;
     std::fprintf(stderr, "selftest: %d failures\n", failures);
     return failures;
 }

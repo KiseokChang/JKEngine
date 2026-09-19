@@ -15,6 +15,10 @@
 #      3s..15s (floor catches an instantly-emitted timeout), then close ->
 #      manifest cleanup
 #   10 bridge regression: probe_jkbridge.ps1 re-run (generic relay unchanged)
+#   stage 2 (spec §6): c11/c12/c13 = brief checks 10-12 —
+#   11 MCP tools/list synthesis: jkagentd stdio -> vplayer_seek + [vplayer]
+#      prefix; 12 MCP tools/call: vplayer_seek ok + pos reflects + receipt +
+#      unknown dynamic -> unknown_tool; 13 fallback: server down -> core only.
 # Raw pipe helpers = mgr_t1_read/mgr_t8_cross_approve frame reader (one function
 # consumes header+payload whole). agentctl args = probe_notes ProcessStartInfo
 # raw command-line idiom (PS5.1 argv re-parsing trap). Tool args use INTEGERs
@@ -438,6 +442,69 @@ try {
     $bo | Out-File -FilePath $bridgeLog -Encoding ASCII
     $brOk = (($bo | ForEach-Object { "$_" }) -join "`n") -match "PASS: jkbridge"
     Check "c10-jkbridge-regression" $brOk ("log=$bridgeLog")
+
+    # ---- stage 2 (spec 2026-09-19-app-tool-hub §6): broker dynamic synthesis +
+    # routing. Check ids c11/c12/c13 = brief stage-2 checks 10/11/12 (c10 is
+    # taken by the bridge regression above). One jkagentd process per MCP
+    # invocation (probe_agent_mcp idiom - the broker is stateless between
+    # calls); judged on the JSON-RPC envelope. The broker gate reads the SAME
+    # permissions.json this probe owns, so the Clear-Perms baseline = dynamic
+    # tools allow (3-tier keys absent -> allow, broker lesson).
+    Clear-Perms
+    $agnt = Join-Path $root "jkagentd.exe"
+    function Invoke-Mcp([string[]]$lines) {
+        $out = $lines | & $agnt 2>$null
+        return ($out -join "`n")
+    }
+    Start-Process -FilePath $exe -ArgumentList "--server" -WorkingDirectory $root -WindowStyle Hidden
+    $up2 = $false
+    foreach ($i in 1..30) {
+        Start-Sleep -Milliseconds 500
+        if ((Invoke-Agentctl '{"tool":"ping","args":{}}') -match '"ok"\s*:\s*true') { $up2 = $true; break }
+    }
+    Check "setup-server-up-2" $up2 ""
+    $cat7 = Spawn-VPlayer
+    Check "setup-vplayer-3" (([regex]::Matches($cat7, '"app":"vplayer"').Count) -eq 6) $cat7
+
+    # ---- c11 (stage-2 #10): MCP tools/list synthesis ----------------------------
+    # initialize -> tools/list in ONE process (real MCP stdio handshake order).
+    $lst = Invoke-Mcp @(
+        '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}',
+        '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
+    Check "c11-mcp-dynamic-listed" ($lst -match '"name":"vplayer_seek"' -and
+                                    $lst -match '\[vplayer\]') ($lst.Substring(0, [Math]::Min(400, $lst.Length)))
+    Check "c11-mcp-core-tools" ($lst -match '"name":"list_app_tools"' -and
+                                $lst -match '"name":"app_tool"') ""
+    # Dynamic names must be the <app>_<tool> union (no dotted names).
+    Check "c11-mcp-no-dotted-names" ($lst -notmatch '"name":"vplayer\.') ""
+
+    # ---- c12 (stage-2 #11): MCP tools/call routing -------------------------------
+    $op3 = (AppTool "vplayer" "open" ('{"path":"' + $clip + '"}'))
+    $st4 = Wait-Opened "vplayer"
+    Check "setup-clip-opened-2" ($st4 -match '"opened":true') "$op3 / $st4"
+    $call = Invoke-Mcp '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"vplayer_seek","arguments":{"seconds":2}}}'
+    Check "c12-mcp-call-ok" ($call -match 'ok\\":true') $call
+    Start-Sleep -Milliseconds 400
+    $stmcp = Invoke-Mcp '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"vplayer_get_status","arguments":{}}}'
+    $pos2 = -1.0
+    $m = [regex]::Match($stmcp, 'pos\\":([0-9.]+)')
+    if ($m.Success) { $pos2 = [double]$m.Groups[1].Value }
+    Check "c12-pos-reflects" ($pos2 -ge 1.0 -and $pos2 -lt 5.0) ("pos=$pos2")
+    # Spec §6: the relay records receipts like other broker-path calls (the
+    # receipt row carries the MCP name the caller used).
+    $rec = (Get-Content (Join-Path $root "state\receipts.jsonl") -Tail 10 -ErrorAction SilentlyContinue) -join "`n"
+    Check "c12-receipt" ($rec -match '"tool":"vplayer_seek"') ($rec.Substring(0, [Math]::Min(200, $rec.Length)))
+    # Unknown dynamic name -> reverse-match miss -> unknown_tool (not a hang).
+    $unk = Invoke-Mcp '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"vplayer_nope","arguments":{}}}'
+    Check "c12-unknown-dynamic" ($unk -match 'unknown_tool') $unk
+
+    # ---- c13 (stage-2 #12): fallback — server down -> static part only ----------
+    Get-Process jkdesktop -ErrorAction SilentlyContinue | Stop-Process -Force
+    Get-Process jkapp_vplayer -ErrorAction SilentlyContinue | Stop-Process -Force
+    Start-Sleep -Seconds 2
+    $fb = Invoke-Mcp '{"jsonrpc":"2.0","id":6,"method":"tools/list"}'
+    Check "c13-fallback-static" ($fb -match '"name":"list_windows"' -and
+                                 $fb -notmatch '"name":"vplayer_seek"') ($fb.Substring(0, [Math]::Min(300, $fb.Length)))
 
 } finally {
     Clear-Perms
