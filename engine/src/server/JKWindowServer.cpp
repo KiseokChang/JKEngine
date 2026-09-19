@@ -4639,6 +4639,17 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                         }
                         if (!target) {
                             result = "{\"ok\":false,\"error\":\"tool_gone\"}";
+                        } else if (mit->second.modal &&
+                                   pendingFileDialog_.dialogConnId !=
+                                       mit->second.connId) {
+                            // 모달 가드 — resolve 중계 경로 (스펙 §5 케이스
+                            // ③): 파킹 대기 중 슬롯이 만료/해소/재사용되고
+                            // 새 file_open이 슬롯을 가져가면, 늦게 승인된
+                            // 이 요청은 고아(또는 타) 다이얼로그를 때린다.
+                            // 첫 중계 경로(app_tool)와 동일 조건 — 판정은
+                            // 앱이 아니라 슬롯 진실원 pendingFileDialog_
+                            // .dialogConnId가 한다.
+                            result = "{\"ok\":false,\"error\":\"tool_gone\"}";
                         } else {
                             const uint32_t reqId = nextToolReqId_++;
                             InflightAppTool inf;
