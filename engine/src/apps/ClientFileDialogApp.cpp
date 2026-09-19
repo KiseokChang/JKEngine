@@ -262,6 +262,10 @@ void ClientFileDialogApp::BuildUi(int w, int h) {
     ImGuiListClipper clipper;
     clipper.Begin(static_cast<int>(entries_.size()));
     while (clipper.Step()) {
+        // 클리퍼가 이번 패스에 실제로 그린 행수 — navigate pgup/pgdn의
+        // 페이지 크기 캐시(스펙 §3.1). 도구 핸들러는 코어 Run 스윕(NewFrame
+        // 밖)에서 불리므로 ImGui 실측 대신 이 캐시를 읽는다.
+        visibleRows_ = std::max(1, clipper.DisplayEnd - clipper.DisplayStart);
         for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
             const Entry& e = entries_[static_cast<size_t>(i)];
             const std::string label =
@@ -275,6 +279,12 @@ void ClientFileDialogApp::BuildUi(int w, int h) {
             }
             if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
                 openIdx = i;
+            }
+            // 음성 내비게이션 스크롤 인뷰 (스펙 §3.1): navigate가 옮긴 선택을
+            // 다음 프레임 1회 가운데로 — 폴더 더블클릭 유사 위치.
+            if (i == selectedIdx_ && scrollToSelection_) {
+                ImGui::SetScrollHereY(0.5f);
+                scrollToSelection_ = false;
             }
         }
     }
@@ -535,6 +545,29 @@ void ClientFileDialogApp::PumpReplies() {
                 root->SetTitle(Trim(title));
             }
         }
+        // 음성 내비게이션 도구 등록 (스펙 2026-09-19-filedlg-voice-nav §0
+        // 결정 2): 등록 시점은 params 수락 직후 — 도구 가시성 == 슬롯 소유
+        // 불변식을 처음부터 성립시킨다(§5 가드가 등록 직후 공백창에서
+        // tool_gone 오판하지 않게). 수동 --client filedlg 기동은 params가
+        // 안 오므로 도구도 미등록 — 슬롯 없는 choose는 무의미하고, 이
+        // 부작용이 곧 고아 가드 검증(스펙 §9 체크 10).
+        if (!toolsRegistered_) {
+            toolsRegistered_ = true;
+            if (jk::client::JKClientSurface* s = Surface()) {
+                using Decl = jk::client::JKClientSurface::AgentToolDecl;
+                const std::vector<Decl> tools = {
+                    {"navigate", "Move the file dialog selection (key: up/down/pgup/pgdn/parent/select) or jump to index; select acts like Enter (folder descends, file resolves)",
+                     "{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\",\"enum\":[\"up\",\"down\",\"pgup\",\"pgdn\",\"parent\",\"select\"]},\"index\":{\"type\":\"integer\"}}}"},
+                    {"list", "Page the dialog's current directory listing (offset 0-based, limit <= 200, default 50)",
+                     "{\"type\":\"object\",\"properties\":{\"offset\":{\"type\":\"integer\"},\"limit\":{\"type\":\"integer\"}}}"},
+                    {"choose", "Resolve the dialog: optional entry name (folder descends, file resolves); omitted = current selection/file box",
+                     "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}}}"},
+                };
+                // 모달 플래그 (스펙 §0 결정 3/§4): 이 다이얼로그는 쿼리-수명
+                // 모달임을 카탈로그에 명시 — 서버 모달 가드(§5)의 표기 근거.
+                s->SendAgentToolRegister("filedlg", tools, true);
+            }
+        }
     }
 }
 
@@ -605,5 +638,204 @@ std::string ClientFileDialogApp::EscapeJson(const std::string& in) {
 // P3 theme hot-swap (docs/52): the palette was snapshotted into ImGuiStyle
 // at OnInit - re-apply it after a preset swap.
 void ClientFileDialogApp::OnThemeChanged() { jk::theme::ApplyImGuiTheme(); }
+
+// --- filedlg 음성 내비게이션 도구 (스펙 2026-09-19-filedlg-voice-nav §3) ---
+
+// 공통 성공 필드(스펙 §3.1/§3.2, 브리프 Step 3 규약): dir/count/selected/file.
+// list는 이 위에 total(=count 동일값)/offset/entries/error를 얹는다.
+std::string ClientFileDialogApp::CommonFields() const {
+    return "\"dir\":\"" + EscapeJson(currentDir_) +
+           "\",\"count\":" + std::to_string(entries_.size()) +
+           ",\"selected\":" + std::to_string(selectedIdx_) +
+           ",\"file\":\"" + EscapeJson(fileBuf_) + "\"";
+}
+
+// navigate 전용 선택 엔트리 스냅샷(스펙 §3.1) — 선행 콤마 포함. 선택 없으면
+// selectedName은 빈 문자열, selectedIsDir는 false(파서 단순화 — 항상 존재).
+std::string ClientFileDialogApp::SelectedSnapshot() const {
+    if (selectedIdx_ < 0 ||
+        selectedIdx_ >= static_cast<int>(entries_.size())) {
+        return ",\"selectedName\":\"\",\"selectedIsDir\":false";
+    }
+    const Entry& e = entries_[static_cast<size_t>(selectedIdx_)];
+    return ",\"selectedName\":\"" + EscapeJson(e.name) +
+           "\",\"selectedIsDir\":" + (e.isDir ? "true" : "false");
+}
+
+// navigate.select / choose 공용 — OnOk()와 동일 경로(스펙 §3.1/§3.3): 폴더면
+// 하강(descended), 파일이면 해소(resolved), 대상 없으면 nothing_selected.
+// 해소 순서(스펙 §3.3): out을 먼저 세팅한 뒤 Finish를 부른다 — 코어는 훅
+// 반환 직후 SendAgentToolResult를 보내고(JKClientApplication.cpp :286→:287)
+// 그 다음 !running_ 체크(:292)로 빠지므로, 훅 안에서 RequestQuit해도 결과
+// 전송이 보장된다. (OnOk()를 직접 부르지 않는 이유: Finish가 응답 형태를
+// 모르고, 응답을 먼저 만들려면 하강/해소 판정이 필요하기 때문.)
+void ClientFileDialogApp::ResolveOnOk(std::string& out) {
+    std::string name = Trim(fileBuf_);
+    if (name.empty() && selectedIdx_ >= 0 &&
+        selectedIdx_ < static_cast<int>(entries_.size())) {
+        name = entries_[static_cast<size_t>(selectedIdx_)].name;
+    }
+    if (name.empty()) {
+        out = "{\"ok\":true,\"error\":\"nothing_selected\"}";  // 스펙 §8
+        return;
+    }
+    if (name == "..") {
+        NavigateUp();  // legacy OnOk: ".."는 상위로
+        out = "{\"ok\":true,\"descended\":true," + CommonFields() + "}";
+        return;
+    }
+    std::error_code ec;
+    const fs::path selected = fs::path(currentDir_) / name;
+    if (fs::is_directory(selected, ec)) {
+        NavigateTo(selected.string());  // legacy OnOk: 폴더명은 하강
+        out = "{\"ok\":true,\"descended\":true," + CommonFields() + "}";
+        return;
+    }
+    const std::string path = selected.string();
+    // 해소 — out 선세팅 후 Finish(위 순서 주석 참조).
+    out = "{\"ok\":true,\"resolved\":true,\"path\":\"" + EscapeJson(path) +
+          "\"}";
+    Finish(true, path);
+}
+
+bool ClientFileDialogApp::OnAgentToolCall(const std::string& tool,
+                                          const std::string& argsJson,
+                                          std::string& out) {
+    const agent::AgentJson args(argsJson);
+    const int count = static_cast<int>(entries_.size());
+    // 앱 실패도 {"ok":true,"error":...} — 플래그는 와이어 헤더가 아니다
+    // (스펙 §3.4, docs/58 레슨 f).
+    auto err = [&out](const char* code) {
+        out = std::string("{\"ok\":true,\"error\":\"") + code + "\"}";
+    };
+    // 이동/하강 후 현재 상태 스냅샷(스펙 §3.1 응답) — index+공통 필드+선택
+    // 스냅샷. NavigateUp/NavigateTo 뒤라도 currentDir_/entries_가 이미 갱신된
+    // 뒤이므로 그대로 읽으면 된다.
+    auto moveResponse = [&out, this]() {
+        out = "{\"ok\":true,\"index\":" + std::to_string(selectedIdx_) + "," +
+              CommonFields() + SelectedSnapshot() + "}";
+    };
+
+    if (tool == "navigate") {
+        int index = 0;
+        std::string key;
+        const bool hasIndex = args.ok() && args.GetInt("index", index);
+        const bool hasKey =
+            args.ok() && args.GetStr("key", key) && !Trim(key).empty();
+        if (!hasIndex && !hasKey) {
+            err("bad_args");  // 둘 다 없음 (스펙 §8)
+            return true;
+        }
+        if (hasIndex) {
+            // 둘 다 있으면 index가 이긴다 — 명시 인자 우선, 모호 추측 금지
+            // (스펙 §3.1).
+            if (index < 0 || index >= count) {
+                out = "{\"ok\":true,\"error\":\"bad_index\",\"count\":" +
+                      std::to_string(count) + "}";
+                return true;
+            }
+            selectedIdx_ = index;
+            // 이동 시 레거시 OnSelect 계약: SetFileName 미러(스펙 §3.1).
+            SetFileName(entries_[static_cast<size_t>(index)].name);
+            scrollToSelection_ = true;  // 다음 프레임 SetScrollHereY 1회
+            moveResponse();
+            return true;
+        }
+        key = Trim(key);
+        if (key == "up" || key == "down" || key == "pgup" || key == "pgdn") {
+            if (entries_.empty()) {
+                err("empty_list");  // 빈 리스트 이동 무의미 (스펙 §3.1)
+                return true;
+            }
+            // 페이지 크기는 BuildUi 클리퍼가 갱신한 visibleRows_ 캐시(최소 1)
+            // — 핸들러는 NewFrame 밖이라 ImGui 실측 불가.
+            const int step =
+                (key == "pgup" || key == "pgdn") ? std::max(visibleRows_, 1) : 1;
+            const int delta = (key == "down" || key == "pgdn") ? step : -step;
+            const int next = std::clamp((selectedIdx_ < 0 ? 0 : selectedIdx_) +
+                                            delta,
+                                        0, count - 1);
+            selectedIdx_ = next;
+            SetFileName(entries_[static_cast<size_t>(next)].name);
+            scrollToSelection_ = true;
+            moveResponse();
+            return true;
+        }
+        if (key == "parent") {
+            NavigateUp();
+            moveResponse();
+            return true;
+        }
+        if (key == "select") {
+            ResolveOnOk(out);  // OnOk() 동등 — 하강/해소/nothing_selected
+            return true;
+        }
+        err("bad_args");  // 스키마 밖 key 값 — 방어선
+        return true;
+    }
+
+    if (tool == "list") {
+        int offset = 0, limit = 50;
+        args.GetInt("offset", offset);  // 부재/비정수 → 0
+        if (args.GetInt("limit", limit) && limit > 200) limit = 200;
+        if (limit < 1) limit = 1;  // 비양수 limit 클램프 — 빈 페이지 요청 방지
+        std::string entriesJson = "[";
+        if (offset >= 0 && offset < count) {
+            // 음수/범위 밖 offset은 빈 배열(스펙 §3.2) — 클램프가 아니라
+            // "그 위치엔 아무것도 없다"로 응답한다.
+            const int end = std::min(count, offset + limit);
+            bool first = true;
+            for (int i = offset; i < end; ++i) {
+                const Entry& e = entries_[static_cast<size_t>(i)];
+                entriesJson += first ? "{" : ",{";
+                first = false;
+                entriesJson += "\"name\":\"" + EscapeJson(e.name) +
+                               "\",\"isDir\":" + (e.isDir ? "true" : "false") +
+                               "}";
+            }
+        }
+        entriesJson += "]";
+        // error_ 비어있지 않으면(접근 거부 등) 그대로 전달 — 에이전트가
+        // 상황을 말로 전달할 수 있게(스펙 §3.2).
+        std::string errorField;
+        if (!error_.empty()) errorField = ",\"error\":\"" + EscapeJson(error_) + "\"";
+        out = std::string("{\"ok\":true,\"dir\":\"") + EscapeJson(currentDir_) +
+              "\",\"total\":" + std::to_string(count) +
+              ",\"offset\":" + std::to_string(offset) +
+              ",\"entries\":" + entriesJson + "," + CommonFields() +
+              errorField + "}";
+        return true;
+    }
+
+    if (tool == "choose") {
+        std::string name;
+        if (args.ok() && args.GetStr("name", name) && !Trim(name).empty()) {
+            // 이름 탐색 — 대소문자 구분 없음(MatchFilter와 동일 IEquals).
+            const std::string want = Trim(name);
+            int found = -1;
+            for (int i = 0; i < count; ++i) {
+                if (IEquals(entries_[static_cast<size_t>(i)].name, want)) {
+                    found = i;
+                    break;
+                }
+            }
+            if (found < 0) {
+                err("no_such_entry");  // 상태 불변 (스펙 §3.3/§8)
+                return true;
+            }
+            selectedIdx_ = found;
+            SetFileName(entries_[static_cast<size_t>(found)].name);
+            // fileBuf/selectedIdx_ 세팅 후 OnOk 동등 경로로 통과 — 폴더면
+            // 하강, 파일이면 해소(스펙 §3.3).
+        }
+        ResolveOnOk(out);  // name 없으면 현재 fileBuf/선택지로 OnOk 동등
+        return true;
+    }
+
+    // 도달 불가 방어선 — 서버가 app_tool 중계에서 역매칭하므로 미등록 도구명은
+    // 여기 못 온다(vplayer 선례, 스펙 2026-09-19-app-tool-hub §8.2).
+    out = "{\"error\":\"unknown_tool\"}";
+    return false;
+}
 
 } // namespace jk

@@ -125,7 +125,12 @@ public:
         std::string app, tool, args;
     };
     bool SendAgentToolRegister(const std::string& app,
-                               const std::vector<AgentToolDecl>& tools);
+                               const std::vector<AgentToolDecl>& tools,
+                               bool modal = false);
+        // modal (스펙 2026-09-19-filedlg-voice-nav §0 결정 3/§4): 쿼리-수명
+        // 모달 앱(filedlg) 표기 — top-level "modal":true (부재=false). 서버
+        // HandleToolRegister가 GetInt("modal")로 판독(quickjs가 JSON bool을
+        // 0/1로 수용). 기존 발신자(vplayer)는 기본 false라 와이어 무변경.
     bool PollToolCall(AgentToolCallMsg& out);
     bool SendAgentToolResult(uint32_t reqId, bool ok, const std::string& resultJson);
 

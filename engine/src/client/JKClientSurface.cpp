@@ -507,9 +507,15 @@ size_t JKClientSurface::DrainAgentEvents(std::vector<std::string>& out) {
 
 // 앱 도구 허브 (스펙 2026-09-19-app-tool-hub §8.2) — 등록/폴링/결과 3종.
 bool JKClientSurface::SendAgentToolRegister(
-        const std::string& app, const std::vector<AgentToolDecl>& tools) {
+        const std::string& app, const std::vector<AgentToolDecl>& tools,
+        bool modal) {
     if (!IsConnected()) return false;
-    std::string json = "{\"app\":\"" + JsonEsc(app) + "\",\"tools\":[";
+    std::string json = "{\"app\":\"" + JsonEsc(app) + "\"";
+    // 스펙 2026-09-19-filedlg-voice-nav §4: 모달 플래그 — top-level 필드
+    // (서버 HandleToolRegister가 req.GetInt("modal")로 판독). 부재=false라
+    // true일 때만 실어 보낸다 — 기존 발신자(vplayer)의 와이어 바이트 무변경.
+    if (modal) json += ",\"modal\":true";
+    json += ",\"tools\":[";
     bool first = true;
     for (const auto& t : tools) {
         json += first ? "{" : ",{";

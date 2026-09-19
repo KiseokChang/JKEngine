@@ -32,6 +32,12 @@ public:
 protected:
     void OnInit() override;
     void OnClose() override;
+    // filedlg 음성 내비게이션 (스펙 2026-09-19-filedlg-voice-nav §3): 앱이
+    // 자기 도구 3종(navigate/list/choose)을 서빙한다. 앱 실패도
+    // {"ok":true,"error":...} 로 회답한다(스펙 §3.4 — docs/58 레슨 f).
+    bool OnAgentToolCall(const std::string& tool,
+                         const std::string& argsJson,
+                         std::string& resultJson) override;
     void OnThemeChanged() override;  // ImGui palette re-apply (docs/52)
     bool PreProcessMessage(const JKEvent& ev) override;
     bool IsFrameDirty() const override { return frameDirty_; }
@@ -76,6 +82,20 @@ private:
     void BuildFilterChoices();
     static std::string EscapeJson(const std::string& in);
 
+    // --- 음성 내비게이션 도구 헬퍼 (스펙 §3) ---
+    // navigate/list/choose 성공 응답의 공통 필드(dir/count/selected/file)를
+    // 조립한다 — 브리프 Step 3 공통 필드 규약.
+    std::string CommonFields() const;
+    // navigate 전용 선택 엔트리 스냅샷(스펙 §3.1 selectedName/selectedIsDir,
+    // 선행 콤마 포함). 선택 없으면 빈 이름+false.
+    std::string SelectedSnapshot() const;
+    // navigate.select / choose 공용 OnOk() 동등 경로(스펙 §3.1/§3.3):
+    // 폴더=하강(descended) / 파일=해소(resolved) / 대상 없음=nothing_selected.
+    // 해소는 out 선세팅 후 Finish — 코어가 훅 반환 직후 SendAgentToolResult를
+    // 보내므로(JKClientApplication.cpp :286→:287, !running_ 체크 :292 이전)
+    // 훅 안의 RequestQuit도 결과 전송이 보장된다(스펙 §3.3).
+    void ResolveOnOk(std::string& out);
+
     bool frameDirty_ = true;
     bool imguiReady_ = false;
     bool focusFileName_ = true;  // grab keyboard focus on open (dialog idiom)
@@ -113,6 +133,16 @@ private:
     // nothing. 0 also happens for a manual `--client filedlg` run with no
     // parked slot — its result is a harmless parked:false no-op either way.
     uint32_t requesterConnId_ = 0;
+
+    // 음성 내비게이션 (스펙 2026-09-19-filedlg-voice-nav §0 결정 2/§3):
+    // toolsRegistered_ — params 수락 직후 1회 등록 가드(도구 가시성 == 슬롯
+    // 소유 불변식; 수동 --client filedlg 기동은 params가 없어 미등록이 곧
+    // 고아 가드). scrollToSelection_ — navigate 이동 후 다음 프레임 1회
+    // SetScrollHereY. visibleRows_ — pgup/pgdn 페이지 크기 캐시: 코어 Run
+    // 스윕은 NewFrame 밖이라 ImGui 실측이 불가하므로 BuildUi 클리퍼가 갱신.
+    bool toolsRegistered_ = false;
+    bool scrollToSelection_ = false;
+    int visibleRows_ = 10;
 };
 
 } // namespace jk
