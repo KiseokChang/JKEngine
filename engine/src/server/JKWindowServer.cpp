@@ -1594,6 +1594,16 @@ void JKWindowServer::ProcessPendingMessages() {
         // dialog_busy로 막힌다. 새 무효화 기계 없이 이 스캔 안에서 회수.
         if (it->kind == "file_open" &&
             pendingFileDialog_.requestId == it->requestId) {
+            // 스펙 §6: waitAsync 요청자는 파킹 응답을 이미 받았으므로 만료도
+            // file.open_result 이벤트로 통지한다 (reply 모드는 아래의
+            // dialog_timeout AgentReply 현행 불변). 슬롯 대조 성공이 만료된
+            // 요청이 waitAsync였음을 증명하는 유일한 시점 — 슬롯이 먼저
+            // 소진돼 비었으면 waitAsync 판독 불가 (그때는 요청자 연결 소멸
+            // 후이라 통지할 곳도 없다). reset 전에 판독.
+            if (pendingFileDialog_.waitAsync) {
+                PushAgentEventJson("{\"topic\":\"file.open_result\","
+                                   "\"ok\":false,\"error\":\"expired\"}");
+            }
             pendingFileDialog_ = PendingFileDialog{};
         }
         for (auto& c : clients_) {
@@ -2544,10 +2554,10 @@ static std::string RevokeTrustRecord(const std::string& fingerprint) {
 // 봉쇄(docs/54 NIT-3)와 HandleToolRegister의 namespace_conflict 검사(스펙
 // 2026-09-19-app-tool-hub §4.1 — app명 정확 일치/도구명 접두 충돌 금지)가
 // 이 표를 공유한다. events_list 카탈로그 "server" 행의 접두와 동일 집합
-// (window/app/agent/terminal/audio/triggers) — 카탈로그에 서버 토픽을
+// (window/app/agent/terminal/audio/triggers/file) — 카탈로그에 서버 토픽을
 // 추가하면 여기도 손으로 넣는다(두 표가 한 파일 안에 있다).
 static const char* kReservedTopicPrefixes[] = {
-    "window.", "agent.", "app.", "terminal.", "audio.", "triggers.",
+    "window.", "agent.", "app.", "terminal.", "audio.", "triggers.", "file.",
 };
 
 void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
@@ -4057,6 +4067,13 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             // 토픽은 카탈로그 즉시 등록.
             {"agent.app_tools_changed", "server",
              "앱 도구 등록/소멸(연결 수명)", "[\"topic\"]"},
+            // file_open wait:event 비동기 모드 (스펙 §6 결정 5): filedlg가
+            // 해소한 결과/취소와 만료 스캔의 expired를 방송. 레슨 ⑧ 신규
+            // 토픽은 카탈로그 즉시 등록.
+            {"file.open_result", "server",
+             "file_open(wait:event) 해소 — ok=true path / 취소 ok=false / "
+             "만료 expired (docs/48 파킹 파이프라인의 이벤트 통지)",
+             "[\"ok\",\"path\",\"error\"]"},
         };
         std::string out = "{\"ok\":true,\"subscribers\":" +
                           std::to_string(subscribers) + ",\"events\":[";
@@ -4706,14 +4723,22 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         // 기계를 재사용 — 해소는 다이얼로그의 file_open_result가 담당하고,
         // 요청자가 먼저 닫히면 만료 스캔이 회수한다. 권한 게이트 없음 —
         // launch_app 같은 안전 계층 (AgentToolAllowed 기본 allow).
-        std::string filter, start, title;
+        std::string filter, start, title, wait;
         req.GetObjStr("args", "filter", filter);
         req.GetObjStr("args", "start", start);
         req.GetObjStr("args", "title", title);
+        // wait 모드 (스펙 §6 결정 5): ""/"reply" = 현행(파킹 응답이 해소 때
+        // 도착), "event" = 즉시 parked ack + 해소를 file.open_result 이벤트로.
+        // 폰 브로커가 최대 600s 블록되는 것을 끊는 게 존재 이유. 알 수 없는
+        // 값은 오류 표(스펙 §8)대로 즉답.
+        req.GetObjStr("args", "wait", wait);
         // 256자 상한 (trust_request의 bad_name 선례) — 1차 가지치기. 실제
         // cmdLine 경계는 아래의 이스케이프 후 크기 검사다 (원시 길이만으로는
         // 인용 확장을 못 잡는다).
-        if (filter.size() > 256 || start.size() > 256 || title.size() > 256) {
+        if (!wait.empty() && wait != "reply" && wait != "event") {
+            reply = "{\"ok\":false,\"error\":\"bad_args\"}";
+        } else if (filter.size() > 256 || start.size() > 256 ||
+                   title.size() > 256) {
             reply = "{\"ok\":false,\"error\":\"bad_request\"}";
         } else if (pendingFileDialog_.requesterConnId != 0) {
             // 설계 리스크 2: 1슬롯 선착순 — 대화상자가 열려 있으면 후발은
@@ -4762,10 +4787,20 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                 } else {
                     pendingFileDialog_.requesterConnId = client.Id();
                     pendingFileDialog_.requestId = p.requestId;
+                    pendingFileDialog_.waitAsync = (wait == "event");
                     pendingFileDialog_.filter = filter;
                     pendingFileDialog_.start = start;
                     pendingFileDialog_.title = title;
-                    replied = false;  // file_open_result(또는 만료)가 응답한다
+                    if (pendingFileDialog_.waitAsync) {
+                        // 스펙 §6 결정 5: 즉시 parked ack — 해소는
+                        // file_open_result가 이벤트로 방송한다.
+                        replied = true;
+                        reply = "{\"ok\":true,\"parked\":true}";
+                    } else {
+                        // 현행 reply 모드 — file_open_result(또는 만료)가
+                        // 응답한다.
+                        replied = false;
+                    }
                 }
             }
         }
@@ -4816,6 +4851,9 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                 pendingFileDialog_.requesterConnId;
         bool resolved = false;
         if (senderMatched && pendingFileDialog_.requesterConnId != 0) {
+            // waitAsync는 슬롯 소진(아래 reset) 전에 판독 — 리셋 후엔 판독
+            // 불가. 상관 검증/슬롯 소진은 waitAsync 양쪽이 공유한다.
+            const bool waitAsync = pendingFileDialog_.waitAsync;
             for (auto it = pendingApprovals_.begin();
                  it != pendingApprovals_.end(); ++it) {
                 if (it->kind != "file_open" ||
@@ -4823,20 +4861,38 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                     continue;
                 }
                 resolved = true;
-                for (auto& c : clients_) {
-                    if (c && c->Id() == it->requesterId &&
-                        !c->IsDisconnected()) {
-                        // ok=false(취소)는 ok 플래그 0 + {"ok":false}.
-                        const std::string result = ok
-                            ? (path.empty()
-                                   ? "{\"ok\":true}"
-                                   : "{\"ok\":true,\"path\":\"" +
-                                         JsonEsc(path) + "\"}")
-                            : "{\"ok\":false}";
-                        ipc::WriteAgentJson(c->Transport(),
-                                            ipc::MsgType::AgentReply,
-                                            it->queryId, ok ? 1 : 0, result);
-                        break;
+                if (waitAsync) {
+                    // 스펙 §6 결정 5: 원래 쿼리는 이미 parked ack로 회답됐다
+                    // — AgentReply는 건너뛰고 file.open_result 이벤트 한 번만
+                    // 방송(구독자 전체, 브로커가 read_events로 수취). 이중
+                    // 전달 금지 — reply든 event든 정확히 하나. 취소(ok=false)
+                    // 는 사용자의 정당한 행동이라 error 멤버 없음 — "expired"
+                    // 만이 오류 문자열(스펙 §6 페이로드).
+                    std::string ev = ok
+                        ? (path.empty()
+                               ? "{\"topic\":\"file.open_result\",\"ok\":true}"
+                               : "{\"topic\":\"file.open_result\",\"ok\":true,"
+                                 "\"path\":\"" +
+                                     JsonEsc(path) + "\"}")
+                        : "{\"topic\":\"file.open_result\",\"ok\":false}";
+                    PushAgentEventJson(ev);
+                } else {
+                    for (auto& c : clients_) {
+                        if (c && c->Id() == it->requesterId &&
+                            !c->IsDisconnected()) {
+                            // ok=false(취소)는 ok 플래그 0 + {"ok":false}.
+                            const std::string result = ok
+                                ? (path.empty()
+                                       ? "{\"ok\":true}"
+                                       : "{\"ok\":true,\"path\":\"" +
+                                             JsonEsc(path) + "\"}")
+                                : "{\"ok\":false}";
+                            ipc::WriteAgentJson(c->Transport(),
+                                                ipc::MsgType::AgentReply,
+                                                it->queryId, ok ? 1 : 0,
+                                                result);
+                            break;
+                        }
                     }
                 }
                 pendingApprovals_.erase(it);

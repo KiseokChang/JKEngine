@@ -276,6 +276,11 @@ private:
                                        // dialog=파라미터를 꺼내 간 다이얼로그.
         uint32_t requestId = 0;        // 파킹된 pendingApprovals_ 항목 id
         bool paramsTaken = false;      // file_dialog_params가 이미 꺼냈는가
+        bool waitAsync = false;        // file_open args.wait:"event" 모드
+                                       // (스펙 §6 결정 5) — 해소/만료를
+                                       // file.open_result 이벤트로 통지하고
+                                       // 요청자 AgentReply는 생략 (이중
+                                       // 전달 금지). 기본 "reply" = 현행.
         std::string filter;            // 선택 필드 — 없으면 빈 문자열
         std::string start;
         std::string title;
