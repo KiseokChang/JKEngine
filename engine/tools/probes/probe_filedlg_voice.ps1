@@ -130,9 +130,9 @@ function Read-BrokerLine([int]$timeoutMs) {
     while (-not $t.IsCompleted) {
         if ($script:procM.HasExited) { return $null }
         if ($sw.ElapsedMilliseconds -gt $timeoutMs) {
-            # Session is toast: kill the broker so no later ReadLineAsync
-            # stacks onto the still-pending task (that would throw and
-            # bypass finally).
+            # Session is toast: kill the broker so the pending task errors
+            # out and no later ReadLineAsync stacks onto it; finally still
+            # runs for teardown.
             Stop-Process -Id $script:procM.Id -Force -ErrorAction SilentlyContinue
             return $null
         }
@@ -296,13 +296,14 @@ function Stop-MyPids {
     }
 }
 # Mid-run foreign re-check (c12 nested runs): the nested probes kill
-# jkdesktop/jkchat/jkbridge BY IMAGE, so a foreign desktop/bridge that
-# re-appeared after the pre-spawn inventory would be killed indirectly. Own
+# jkdesktop/jkchat/jkbridge/jkapp_vplayer BY IMAGE, so a foreign desktop,
+# chat, bridge or vplayer that re-appeared after the pre-spawn inventory
+# would be killed indirectly. Own
 # PIDs (this probe's server tree) are excluded. Returns $false and FAILs
 # (fail fast) when anything foreign is alive - the caller skips the nested run.
 function Test-ForeignFree([string]$tag) {
     $inv = @()
-    foreach ($img in @("jkdesktop", "jkbridge", "jkwinserver")) {
+    foreach ($img in @("jkdesktop", "jkbridge", "jkwinserver", "jkchat", "jkapp_vplayer")) {
         $inv += (Get-Process $img -ErrorAction SilentlyContinue |
                  Where-Object { $script:myPids -notcontains $_.Id } |
                  ForEach-Object { "$img(pid=$($_.Id))" })
