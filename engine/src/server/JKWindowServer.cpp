@@ -671,6 +671,25 @@ bool WritePng(const std::string& path, int w, int h, const uint8_t* px) {
 
 } // anonymous namespace
 
+// capture_window 본문 추출 (스펙 2026-09-19-app-tool-hub §5 3단): docs/35의
+// 레이어 readback→stb_image_write 경로를 app_tool 파킹 썸네일이 재사용한다.
+// 레이어 id = 연결 id — 창 클라의 windowId와 같다(HandleToolRegister가
+// windowId = client.Id()로 등록). pixels를 복사해 인코딩하는 이유도 원본
+// 그대로 — 클라가 인코딩 중에 shm에 커밋할 수 있다.
+bool JKWindowServer::CaptureLayerToPng(uint32_t connId, const std::string& path) {
+    JKCompositorLayer* layer =
+        compositor_ ? compositor_->FindLayerById(connId) : nullptr;
+    if (!layer || !layer->Pixels() || layer->Width() <= 0 ||
+        layer->Height() <= 0) {
+        return false;
+    }
+    const int w = layer->Width(), h = layer->Height();
+    std::vector<uint8_t> px(layer->Pixels(),
+                            layer->Pixels() +
+                                static_cast<size_t>(w) * h * 4);
+    return WritePng(path, w, h, px.data());
+}
+
 void JKWindowServer::PostAudioCommand(const AudioCommand& cmd) {
     if (!messageBus_) return;
     std::vector<uint8_t> data(sizeof(AudioCommand));
@@ -2733,18 +2752,54 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                             p.appToolTool = toolName;
                             p.appToolArgs = argsRaw;
                             p.appToolConnId = m->connId;
-                            char buf[1024];
+                            // 스펙 §5 3단: 대상 창 "조작 전" 썸네일 — 캡처
+                            // 실패는 비치명(thumb 필드만 생략, 승인 흐름은
+                            // 계속). 제어 연결 매니페스트(windowId=0)는 레이어
+                            // 부재로 자연 실패한다. 파일명 규약 =
+                            // capture_window의 shot_<ts>_<id>.png와 동일 형식.
+                            // 서버 루프 스레드에서의 GPU readback은
+                            // capture_window가 이미 이 스레드에서 하는 비용과
+                            // 같다(스레드 추가 없음).
+                            std::string thumb;
+                            {
+                                const std::string sdir =
+                                    StateDir() + "\\screenshots";
+                                CreateDirectoryA(sdir.c_str(), nullptr);
+                                char tbuf[512];
+                                std::snprintf(tbuf, sizeof(tbuf),
+                                              "%s\\approval_%lld_%u.png",
+                                              sdir.c_str(),
+                                              static_cast<long long>(
+                                                  std::time(nullptr)),
+                                              p.requestId);
+                                if (CaptureLayerToPng(m->windowId, tbuf))
+                                    thumb = tbuf;
+                            }
+                            char buf[2048];
                             std::snprintf(buf, sizeof(buf),
                                           "{\"topic\":\"agent.approval_request\","
                                           "\"request\":%u,\"tool\":\"app_tool\","
                                           "\"kind\":\"app_tool\","
                                           "\"name\":\"%s.%s\","
                                           "\"target_id\":%u,\"title\":\"%s\","
+                                          "\"target\":{\"app\":\"%s\","
+                                          "\"tool\":\"%s\",\"windowId\":%u,"
+                                          "\"title\":\"%s\"}"
+                                          "%s%s%s,"
                                           "\"ts\":%lld}",
                                           p.requestId, JsonEsc(app).c_str(),
                                           JsonEsc(toolName).c_str(),
                                           m->windowId,
                                           JsonEsc(m->title).c_str(),
+                                          JsonEsc(app).c_str(),
+                                          JsonEsc(toolName).c_str(),
+                                          m->windowId,
+                                          JsonEsc(m->title).c_str(),
+                                          thumb.empty() ? "" : ",\"thumb\":\"",
+                                          thumb.empty()
+                                              ? ""
+                                              : JsonEsc(thumb).c_str(),
+                                          thumb.empty() ? "" : "\"",
                                           static_cast<long long>(
                                               std::time(nullptr)) * 1000);
                             pendingApprovals_.push_back(p);
@@ -3646,6 +3701,8 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         } else {
         int id = 0;
         req.GetObjInt("args", "id", id);
+        // 사전 검사는 원본 그대로 유지 — 레이어 부재는 window_not_found,
+        // PNG 기록 실패만 write_failed(스펙 §5 3단 헬퍼 추출, 동작 불변).
         JKCompositorLayer* layer =
             compositor_ ? compositor_->FindLayerById(static_cast<uint32_t>(id))
                         : nullptr;
@@ -3661,12 +3718,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                     .count();
             const std::string path = dir + "\\shot_" + std::to_string(ts) +
                                      "_" + std::to_string(id) + ".png";
-            // Copy out — the client may commit into the shm while encoding.
-            const int w = layer->Width(), h = layer->Height();
-            std::vector<uint8_t> px(layer->Pixels(),
-                                    layer->Pixels() +
-                                        static_cast<size_t>(w) * h * 4);
-            if (WritePng(path, w, h, px.data())) {
+            if (CaptureLayerToPng(static_cast<uint32_t>(id), path)) {
                 reply = "{\"ok\":true,\"path\":\"" + JsonEsc(path) + "\"}";
             } else {
                 reply = "{\"ok\":false,\"error\":\"write_failed\"}";

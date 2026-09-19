@@ -110,6 +110,12 @@ private:
     // <exeDir>/state directory for agent-created files (layout snapshots).
     // Created on first use; returns the path.
     std::string StateDir() const;
+    // docs/35 capture_window 본문 추출 + 스펙 2026-09-19-app-tool-hub §5 3단:
+    // connId(=레이어 id = 창 클라의 windowId) 레이어를 RGBA32로 읽어 path에
+    // PNG 기록. 레이어 부재/픽셀 부재/쓰기 실패 모두 false — capture_window는
+    // 자체 사전 검사로 window_not_found 문구를 유지하고, app_tool 파킹은
+    // 실패를 썸네일 생략으로 처리한다(비치명).
+    bool CaptureLayerToPng(uint32_t connId, const std::string& path);
     // Shell protocol (docs/28): build a full window-list snapshot from the
     // client table and send it to the shell client.
     void PushWindowList();         // takes clientsMutex_

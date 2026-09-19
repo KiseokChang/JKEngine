@@ -408,6 +408,32 @@ static void HandleEvent(const jk::agent::AgentEvent& ev) {
             e.GetStr("title", title);
             ShowFilesApproval(tool, title, static_cast<uint32_t>(request));
             Log("[파일 요청] " + tool + " → " + title);
+        } else if (kind == "app_tool") {
+            // 앱 도구 허브 (스펙 2026-09-19-app-tool-hub §5 2단): 대상 창을
+            // 정직하게 표기 — close_window 재용은 기만적이다(docs/56 레슨).
+            // target이 오면 "[<app> 창 #<windowId>] <tool> 실행할까요?",
+            // 부재(구버전 서버)는 name 문구 유지 — 하위호환.
+            std::string app, tool;
+            int windowId = 0;
+            if (e.GetObjStr("target", "app", app) &&
+                e.GetObjStr("target", "tool", tool) &&
+                e.GetObjInt("target", "windowId", windowId) && windowId > 0) {
+                wchar_t buf[512];
+                _snwprintf_s(buf, _TRUNCATE, L"[%s 창 #%u] %s 실행할까요?",
+                             Utf8ToWide(app).c_str(), windowId,
+                             Utf8ToWide(tool).c_str());
+                EnqueueApproval(static_cast<uint32_t>(request), buf);
+                Log("[앱 도구] " + app + "." + tool + " → 창 #" +
+                    std::to_string(windowId));
+            } else {
+                std::string name;
+                e.GetStr("name", name);
+                wchar_t buf[512];
+                _snwprintf_s(buf, _TRUNCATE, L"[앱 도구] %s 실행할까요?",
+                             Utf8ToWide(name).c_str());
+                EnqueueApproval(static_cast<uint32_t>(request), buf);
+                Log("[앱 도구] " + name);
+            }
         } else {
             std::string title;
             int target = 0;
