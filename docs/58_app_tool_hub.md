@@ -434,7 +434,13 @@ claude ──MCP── jkagentd(브로커) ──파이프── JKWindowServer(
 
 ## 11. 후속 / 범위 밖
 
-- **filedlg 음성 내비게이션 (다음 스펙, 사용자 확정 2026-09-19)** — 폰에서
+- **filedlg 음성 내비게이션 — ✅ 완결 (docs/59, 2026-09-19)**: 스펙+구현+
+  프로브 완료(커밋 fdec7e4..359555d) — 도구 3종(navigate/list/choose)+
+  modal 와이어 플래그+슬롯 소유 재검증(tool_gone 가드)+file_open wait:event
+  (파킹 즉답+file.open_result 이벤트)+브로커 주입+probe_filedlg_voice
+  12체크. as-built: `docs/59_filedlg_voice_nav.md`. 잔여 = e2e 프로브 ×2
+  실행(라이브 데스크탑 종료+jkdesktop 재빌드 후 — docs/59 §5.3).
+  원 항목(설계 당시 메모): 폰에서
   파일 대화상자를 다룰 수 없다는 갭(file_open의 파킹+스폰+result 회수는
   있으나 다이얼로그 내부 조작 도구가 전혀 없다). 설계 방향: filedlg가 이번
   허브(AgentToolRegister)로 자기 도구 등록 — `navigate{key: up|down|pgup|

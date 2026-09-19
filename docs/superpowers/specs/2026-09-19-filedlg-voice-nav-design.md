@@ -1,5 +1,8 @@
 # filedlg 음성 내비게이션 설계 (file dialog voice navigation) — 2026-09-19
 
+as-built: `docs/59_filedlg_voice_nav.md` (2026-09-19 — 구현 fdec7e4..359555d,
+e2e 프로브 미실행 상태 포함 정직 기록).
+
 상위: docs/58 §11 후속 / 사용자 확정(2026-09-19 "넵"). 앱 도구 허브
 (docs/58, 스펙 `2026-09-19-app-tool-hub-design.md`) 위에 얹는 두 번째 소비자.
 

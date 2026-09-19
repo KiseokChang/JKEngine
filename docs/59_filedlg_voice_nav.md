@@ -1,0 +1,310 @@
+# 59. filedlg 음성 내비게이션 as-built — 2026-09-19
+
+스펙: `docs/superpowers/specs/2026-09-19-filedlg-voice-nav-design.md` / 플랜:
+`docs/superpowers/plans/2026-09-19-filedlg-voice-nav.md` / 원장(리뷰·룰링
+전문): `.superpowers/sdd/2026-09-19-filedlg-voice-nav/progress.md`.
+
+요구(사용자 2026-09-19): "열기 대화상자에서 파일 리스트 위/아래, pgdn/pgup,
+상위 폴더, 선택이 말로 되어야 리모트 구동" — 폰(jkbridge)에서 file_open이
+띄운 다이얼로그를 에이전트가 대신 조작한다. 앱 도구 허브(docs/58) 위에 얹는
+두 번째 소비자이며, 사용자 지정 캐치 **"앱과 모달 다이얼로그는 차이가 있다"**를
+프로토콜에 구조적으로 반영(modal 플래그 + 슬롯 소유 재검증)했다.
+
+커밋 스팬: `7d0617c`(스펙) → `4c778e7`(플랜) → `fdec7e4`+`3d8f7e5`(서버
+모달+가드) → `f684c5f`+`2a28b1a`(서버 wait:event+이벤트) → `988eb5e`+
+`d11eca1`(filedlg 도구 3종) → `0405e5e`(브로커) → `99d19b8`+`0e3b328`+
+`359555d`(프로브) → 본 커밋(docs/59).
+
+**검증 상태(정직 기록)**: 코드는 확정(태스크별 리뷰 FIX_REQUIRED→픽스→
+재심사 FIXES_VERIFIED)이나 **e2e 프로브 ×2 ALL PASS는 미실행** — 라이브
+사용자 데스크탑(파이프 상수라 공존 불가)+jkdesktop.exe 스테일(파일락) 2중
+차단(§5). 실측 PASS는 jkagentd selftest와 프로브 fail-fast 가드 발화 실증,
+PS5.1 ReadLineAsync 폴링 재실측뿐이다.
+
+## 0. 스펙 결정 1-7의 코드 반영 (소스 근거)
+
+| 결정 | 코드 반영 | 근거 |
+|---|---|---|
+| 1 도구 주체=filedlg 앱 자체 | `SendAgentToolRegister("filedlg", tools, true)` — 허브 경로 그대로, 브리지/브로커 제네릭 릴레이로 폰 노출(수정 0) | `ClientFileDialogApp.cpp:568` |
+| 2 등록 시점=params 수락 직후 | 등록은 `PumpReplies`의 file_dialog_params 성공 경로(title 적용 직후) 말미 — params 실패(`no_pending_dialog`) 경로는 등록 코드 미도달 → 수동 기동은 애초 미등록(고아 가드 겸용) | `ClientFileDialogApp.cpp:568` 위치, 프로브 c10 전제(`JKWindowServer.cpp:4826` no_pending_dialog) |
+| 3 modal 와이어 플래그 | 등록 JSON 루트 `"modal":true`(bool) → 서버 `AppToolManifest.modal`(기본 false) → `list_app_tools` 행에 false도 명시 | `JKClientSurface.cpp:511-517`(top-level, modal일 때만 부가 — 기존 발신자 바이트 무변경), `JKWindowServer.cpp:5042-5043`(`GetInt("modal")` — AgentJson에 bool 리더가 없어 bool=true가 JS_ToInt64로 1 수용되는 기존 파서 계약), `JKWindowServer.cpp:2674-2675` |
+| 4 스테일 가드=서버가 슬롯 소유 판정 | `PendingFileDialog.dialogConnId`(params 처리 시점 기록, requesterConnId와 역할 분리) != 매니페스트 connId → 중계 전 `tool_gone` | 기록 `JKWindowServer.cpp:4842`, 가드(즉시 중계 경로) `:2738` |
+| 5 file_open wait:event | `args.wait` 3분류(`""|"reply"|"event"`, 그 외 bad_args) → waitAsync 슬롯은 즉시 `{"ok":true,"parked":true}`, 해소/만료는 `file.open_result` 이벤트 단일 배달 | 파싱+bad_args `JKWindowServer.cpp:4745` 부근, 대입 `:4804`, 즉답 `:4808`, 해소 이벤트 `:4870-4891`, 만료 `:1595-1610` |
+| 6 예약 접두 "file." | kReservedTopicPrefixes 편입 + publish_event 게이트 살리기(데드코드 수술 — c9ba8bf부터 무효였던 선행 결함) | `JKWindowServer.cpp:2568`, 게이트 `:3667-3680`, events_list 카탈로그 `:4087` |
+| 7 choose와 navigate.select 역할 분리 | 공용 `ResolveOnOk`(빈 대상=nothing_selected/폴더=descended/파일=resolved+Finish) — choose는 이름 지정 즉해소(IEquals), select는 OnOk 동등 | `ClientFileDialogApp.cpp:672`(ResolveOnOk), `:771`(navigate select), `:834`(choose), `:820`(IEquals) |
+
+결정 5가 설계 노트가 놓친 갭의 해소다: file_open의 파킹 응답은 해소 때까지
+안 오므로(최대 600s) 브로커 QueryRaw가 블록 — 그 사이 에이전트가 filedlg
+도구를 부를 수 없어 음성 흐름 자체가 성립하지 않았다. wait:event 주입(§7)이
+이 갭을 끊는다.
+
+### 0.1 리뷰에서 나온 반영 (결정에 없는 as-built 추가)
+
+- **resolve 재중계 경로 가드**(3d8f7e5, Task 1 Important-1): ask 파킹 중 슬롯이
+  재사용된 뒤 승인되면 `HandleApprovalResolve`의 재조회가 가드 없이 고아
+  다이얼로그로 중계하는 우회 경로 — 즉시 중계 경로(`:2738`)와 동일 조건식을
+  `JKWindowServer.cpp:4673-4674`에도 삽입. 중계 경로 전수 조사로 제3 경로
+  없음 확인(파킹 기록 시점은 가드 통과 후라 안전).
+- **만료 이중 전달 제거**(2a28b1a, Task 2 Important-2): waitAsync 만료 시
+  신규 이벤트 뒤에 기존 dialog_timeout AgentReply가 무조건 실행돼 이미
+  parked-ack 응답된 queryId에 2통째 reply — `eventModeExpired` 플래그로
+  timeout reply 스킵(`JKWindowServer.cpp:1595-1626`). 단일 배달 불변식 회복.
+- **down 미선택(-1)→0 착지**(d11eca1, Task 3 Minor-1): 이동 기준을
+  `clamp(selectedIdx_+delta, 0, count-1)`로 — 초기 컷의 "0 기준 재계산"은
+  미선택에서 첫 down이 entry 0을 스킵하는 무공개 편차였음(보고 누락 시정
+  포함). **list "dir" 중복 키 제거**(동 커밋 Minor-2) — CommonFields() 단일
+  출처로 통일.
+
+## 1. Task 1 — 서버 modal 플래그 + 슬롯 소유자 재검증 (`fdec7e4` + `3d8f7e5`)
+
+- `PendingFileDialog`에 `dialogConnId = 0`(`JKWindowServer.h:272`),
+  `AppToolManifest`에 `modal = false`(`:297-298`). 주석에 requester(호출자
+  상관)와 dialog(파라미터를 준 연결 — 가드 진실원)의 역할 구분 명기.
+- 가드는 `HandleAgentQuery` clientsMutex_ 보유 경로(list_app_tools와 동일
+  블록) — 신규 락 0. 슬롯 소멸 3지점(만료 스캔/해소 소진/요청자 연결 회수)
+  전부 `PendingFileDialog{}`로 dialogConnId까지 0 초기화, 슬롯 재사용은
+  `dialog_busy` 게이트 덕에 전면 소멸 후에만 가능 → 스펙 §5 커버 케이스
+  ①수동 기동 ②만료/해소 후 고아 ③재사용 후 옛 다이얼로그 전부 성립.
+- `list_app_tools` 행: `,"modal":` + true/false — **false도 명시**(스펙 §4,
+  소비자 파싱 단순화).
+- 리뷰 Important-1 픽스가 3d8f7e5(§0.1 첫 항목). NIT 수용(기록만): modal
+  강제 파싱("2"/1.9→true — 인증된 등록 경로라 무해), disconnect-미정리
+  매니페스트의 응답이 unknown_app_tool→tool_gone 변화(소비자 무구분).
+
+## 2. Task 2 — 서버 file_open wait 모드 + file.open_result (`f684c5f` + `2a28b1a`)
+
+- `PendingFileDialog.waitAsync` — wait 파싱은 filter/start/title과 동일
+  블록, 검증 체인 선두에 `wait ∉ {"", "reply", "event"}` → bad_args
+  (256자 상한 검사보다 앞 — 최저비용 모드 검증).
+- 즉답은 HandleAgentQuery 꼬리의 기존 `if (replied)` 전송 경로 재사용 —
+  신규 전송 코드 0. 해소 경로는 슬롯 reset 전에 waitAsync 캡처(리셋 후엔
+  판독 불가) → waitAsync면 요청자 WriteAgentJson 완전 생략 + 이벤트 1회:
+  ok+path / ok(빈 path) / 취소 `{"ok":false}`(**error 멤버 없음** — 사용자의
+  정당한 행동) / 만료 `{"ok":false,"error":"expired"}`. 비waitAsync 경로는
+  재들여쓰기만, 와이어 바이트 동일.
+- 만료 이벤트는 슬라이스 슬롯 대조가 성공한 분기에서만 — 대조 실패(이미
+  소진) 시엔 waitAsync 판독 불가+수신처 부재라 발행 안 함.
+- `kReservedTopicPrefixes`에 `"file."` — HandleToolRegister의
+  namespace_conflict 검사가 같은 표를 공유하므로 등록 경로도 동시 강제.
+- **부수 수술**: publish_event 예약 접두 게이트가 `reserved` 계산을 topic
+  파싱 전(빈 문자열)에 돌려 항상 false — docs/54 NIT-3 게이트가 c9ba8bf부터
+  사실상 no-op이었다(프로브가 reserved_topic을 단언 안 해서 생존). 픽스=
+  파싱 후 재평가 람다 `topicReserved`(`:3667-3680`). 결정 6은 이 게이트
+  위에 서 있었으므로 같이 무력 상태였던 셈.
+- 편차 수용: 브리프 문구대로면 명시 `"reply"`도 bad_args였으나 스펙 §6이
+  reply를 유효 모드로 명시 — 스펙 우위로 3값 수용.
+
+## 3. Task 3 — filedlg 도구 3종 (`988eb5e` + `d11eca1`)
+
+- 등록(결정 1/2/3): 도구명 navigate/list/choose + description +
+  inputSchema 원문, `toolsRegistered_` 1회 가드. modal 시그니처는
+  `SendAgentToolRegister(app, tools, bool modal = false)` 확장 —
+  `JKClientSurface.cpp:511-517`이 `if (modal)`일 때만 루트에 `"modal":true`
+  를 붙여 기존 vplayer 발신 바이트 무변경, 서버 루트 GetInt 위치와 일치
+  실측(quickjs `JS_ToInt64Free`가 JS bool→1).
+- **navigate**(`ClientFileDialogApp.cpp:740-771` 부근): index/key 배타 —
+  둘 다 있으면 index 승리(명시 인자 우선), 모두 없으면 bad_args. index
+  범위 밖 → `bad_index`+`count`. up/down ±1, pgup/pgdn ±페이지 크기 —
+  페이지 크기는 코어 Run 스윕이 NewFrame 밖이므로 **클리퍼 루프가 갱신하는
+  `visibleRows_` 캐시**(`:268`, `:750-753`, 최소 1). 이동 시 SetFileName
+  미러(레거시 OnSelect 계약)+`scrollToSelection_` 플래그 → 다음 프레임
+  클리퍼 루프에서 `SetScrollHereY(0.5f)` 1회(`:285-287`). 스키마 밖 key는
+  bad_args 방어선(스펙 미정의).
+- **list**: limit 기본 50/최대 200 클램프, 비양수 → 1(빈 페이지 방지 —
+  스펙 상한만 명시한 것에 대한 구현 판단). offset 음수/범위 밖은 클램프가
+  아니라 빈 `entries`+요청 offset 에코("그 위치엔 없다"). error_ 비어있지
+  않으면 `"error"` 필드 부가.
+- **choose**: name 있으면 IEquals 대소문자 무시 탐색(`:820`) → 미발견
+  `no_such_entry`(상태 불변). name 없으면 현재 fileBuf/선택지로 ResolveOnOk.
+- **해소 순서 보장**(스펙 §3.3): `ResolveOnOk`이 out 응답을 **선세팅 후
+  Finish** — 코어가 훅 반환 직후 `SendAgentToolResult`를 먼저 보내고
+  `!running_` 체크가 그 다음(JKClientApplication.cpp :286→:287→:292)이므로
+  훅 안의 RequestQuit도 결과 전송 보장. OnOk()를 직접 부르지 않은 이유:
+  Finish는 응답 형태를 모르고 하강/해소 판정이 응답 조립에 필요.
+- ImGui 호출 0(페이지 캐시), 신규 락 0, 블로킹 I/O 0, 외부 의존 0.
+  filedlg는 런처 .jkx가 아니라 서버가 `filedlg:<json>`로 직접 스폰하는
+  shell-adjacent DLL(CMakeLists :545-547) — jkdesktop 파일락과 무관하게
+  `jkapp_filedlg.dll`만 재빌드면 되고 .jkx 재포장 불필요.
+
+## 4. Task 4 — 브로커 file_open 재조립 (`0405e5e`)
+
+- **브리프 전제 정정(구현자 실측)**: file_open은 "분기 부재로 `{}` 폴백"이
+  아니라 **3사이트 전부 부재**였다 — `kCoreToolsListJson` 정적부 행 부재
+  (tools/list 미노출)+`IsKnownTool`/`LoadPermissions` kNames 부재(tools/call
+  이 재조립 체인에 닿기도 전에 `ResolveAppTool` 역매칭 실패로 즉시
+  unknown_tool). 즉 **MCP file_open 경로 자체가 처음 열린 것** — 부수 픽스라
+  기각하기엔 효과가 크다. 3곳 모두 등록(`main.cpp:80-100-143`).
+- 재조립: `BuildFileOpenArgs`(`main.cpp:562-563`) — `{"wait":"event"`로
+  시작해 filter/start/title을 전달. **wait은 MCP 스키마에 노출하지 않는다**
+  (주입 전용 — 노출하면 "스키마에 있으면 쓰인다"는 오해). tools/list의
+  file_open description에 parked 즉답+read_events 폴링 문구.
+- 동적 합성(filedlg_navigate/list/choose)은 기존 제네릭 경로 — 수정 0.
+  폰(jkbridge) 제네릭 릴레이도 수정 0. 유일한 상호작용: 어떤 앱이
+  (app="file", tool="open")을 등록하면 코어 충돌 가드가 `file_open` 합성명을
+  스킵 — 코어 승리 규칙의 기존 의도(filedlg는 앱명 filedlg라 실충돌 없음).
+- **셀프테스트 결함 1건 실측/픽스**: 초기안이 tools/call file_open 라이브
+  질의로 not_connected를 기대했는데 이 머신에 라이브 서버가 살아 있어
+  Connect가 성공 → **진짜 파킹 쿼리가 나가 셀프테스트가 120s 블록**. 서버
+  질의를 안 하는 정적 검증(IsKnownTool 직접 호출+BuildFileOpenArgs 기대
+  JSON 동등 비교, `main.cpp:875-899`)으로 교체. 교훈: 셀프테스트에 서버
+  질의를 태우지 마라. (실수로 나간 질의 1건의 잔여 filedlg 다이얼로그
+  PID 15628은 600s 만료 회수 대상 — 사용자 조치 불요.)
+
+## 5. Task 5 — 프로브 probe_filedlg_voice (`99d19b8` + `0e3b328` + `359555d`)
+
+### 5.1 설계 (스펙 §9 12체크 대응)
+
+PS5.1 ASCII 전용, `> log 2>&1`, PID-유니크 permissions 백업+스테일 잔여
+가드(전용 네임스페이스 `perm_pre_filedlgvoice_*`)+모든 fail-fast/finally에서
+바이트 동일 복원. fixture `tmp/pfdv_<PID>/start/{a.txt,b.txt,c.txt,sub\}` →
+entries `[.., sub, a.txt, b.txt, c.txt]`(total 5) — 정렬 계약까지 단정.
+
+| §9 | 체크 | 검증 내용 |
+|---|---|---|
+| 1 | c1/c1b | file_open(reply 기본) → `--filedlg` 스폰 + 2초간 qid 401 응답 부재 = reply 모드가 정말 파킹 |
+| 2 | c2 5종 | `list_app_tools` filedlg 3행 + `"modal":true` + title 에코 + inputSchema 원문 |
+| 3 | c3 | list 필드(total/entries/dir/selected/file)+정렬 단정 |
+| 4 | c4 | navigate index → selected 반영 + fileBuf 미러 |
+| 5 | c5a-e | -1에서 down→0 착지(d11eca1 경계 수학)/up@0 클램프/마지막 down 클램프/bad_args/bad_index+count |
+| 6 | c6 | key:parent 상승 + choose(dir) descended:true 하강 |
+| 7 | c7 | choose(파일) → 앱 resolved **그리고** 파킹 qid 401 type-18 reply 수신 + 다이얼로그 소멸+카탈로그 0행 |
+| 8 | c8a/c8b/c8c | wait:event 즉시 parked ack(<5s)+다이얼로그 B 스폰/choose 해소+file.open_result 이벤트+qid 402 이중전달 부재단정(1.1s 드레인)/**c8c=브로커 stdio 세션 e2e** |
+| 9 | c9a/b/c | c9b=스펙 §5 직접 검증: 요청자 연결 Dispose → 슬롯 회수 → 다이얼로그 생존 상태 app_tool → `tool_gone`(중계 전 차단). c9c=kill → 매니페스트 정리 → unknown_app_tool |
+| 10 | c10 | 수 manual `--filedlg "{}"` → params 실패로 미등록(결정 2의 부작용=가드 검증) |
+| 11 | c11/c11b | publish_event `file.open_result` → reserved_topic 거부 + events_list 카탈로그 행 |
+| 12 | c12a-e | jkagentd selftest(전체행 단정)/jkdesktop test 생존/probe_app_tools ×2/**c12d probe_files/c12e probe_agent_chat 중첩 편입** |
+
+안전 설계: 스폰 전 인벤토리 출력+외래 fail-fast(파이프 상수 `JKWindowServerPipe`
+라 재정의 불가 — 제2 서버 기동=인스턴스 갈림)/행동 이중 가드(이미지가 없어도
+파이프에 응답하는 리스너 거부)/PID 스코프 킬($myPids+finally StartTime 필터
+스윕 — 스폰 전 존재 프로세스는 실행 중 신규 기동분도 절대 안 죽임)/
+Test-ForeignFree(c12c/d/e 각 중첩 직전 인벤토리 재검사 — 중첩 프로브가 이미지
+전량 킬 패턴이라 실행 중간 창의 외래 간접 킬 봉쇄). PS5.1: [theme] 행 필터,
+ProcessStartInfo 원시 Arguments 조립, `PathRx`(NavigateTo의 lexically_normal이
+슬래시를 백슬래시로 돌려줌 — `[/\\]` 양쪽 수용), Read-Frame qid/ok 노출 확장
+(probe_app_tools 것은 헤더 절단이라 파킹 reply 상관 불가).
+
+### 5.2 검토 이력 — 3라운드
+
+1. **`99d19b8` → 리뷰 FIX_REQUIRED(task-5-review.md)**: 11체크+가드 4종+
+   PS5.1 대응은 소스 대조 전부 정합, 정직성 양호(차단 실측 기술). 결함:
+   **C1 Critical — c8c가 브로커 stdout에서 file.open_result 대기 → 영구
+   교착**(jkagentd stdout은 요청 1행당 응답 1행이 전부, 이벤트는 큐→
+   read_events로만 배출; **보고서가 "stdout 비스트리밍"을 실측해놓고 코드는
+   반대로 씀** — 그리고 read_events를 choose 후에만 호출해도 구독 선점
+   없이는 영구 놓침: 브로커는 기동 시 subscribe=0, 서버는 푸시 시점 구독자에게만
+   방송)+I1(probe_files/agent_chat 누락 미기재)+I2(c12c 중첩의 실행 중간
+   외래 간접 킬)+M1(selftest 부분일치 "10 failures" 오탐)+M2(이중전달
+   부재단정 부재)+M3(스테일 가드 jkagentd/jkapp_filedlg 미커버).
+2. **픽스 `0e3b328`(+150/−37) → 재심사 FIXES_VERIFIED(task-5-rereview.md)**:
+   C1 = c8c 재작성(id 1 init/2 file_open/3 read_events 구독 선점/4 choose/
+   5 read_events 응답 행 단정 — id 유일·순차, notifications는 무id라
+   요청:응답 1:1 유지)+`Read-BrokerLine`(ReadLineAsync 50ms 폴링+30s
+   deadline, 무응답 프로세스 실발화 TIMEOUT-FIRED ms=3026 — 재심사가 본
+   머신 ms=3004로 재실측). I1 = c12d/e 중첩 편입(양립 불가 전제 없음 소스
+   확인). I2 = Test-ForeignFree 신설. M2 = c8b-no-reply-double-delivery
+   (type 18+qid 402 부재단정). M3 = 스테일 가드 3쌍 — **jkdesktop.exe↔
+   libjkserver.a, jkagentd.exe↔libjkcore.a, jkapp_filedlg.dll↔
+   libjkclient.a**(`libjkagentd.a`는 빌드 트리에 존재하지 않음 — 없는 이름
+   가정 금지; CMake 근거 jkagentd→jkcore, jkapp_filedlg→jkclient).
+   신규: N-1 가드가 jkchat/jkapp_vplayer 미점검, N-2 주석 부정확.
+3. **마이크로 픽스 `359555d`(2줄 규모, 컨트롤러 diff 직접 검증)**:
+   Test-ForeignFree+인벤토리에 jkchat/jkapp_vplayer 추가, 함수/Read-BrokerLine
+   주석 정정 — 로직 변경 0, PARSE-OK. **코드 확정 — 잔여는 e2e ×2뿐.**
+
+### 5.3 e2e 미실행 상태 (정직 기록)
+
+**12체크 e2e는 미실행.** "ALL PASS" 서술은 없다 — 아래가 현재 상태의 전부다.
+
+- **차단 1 — 라이브 사용자 데스크탑**: 프로브 시작 시점 인벤토리 실측 —
+  jkdesktop 4(서버 24080/taskbar 30052/vplayer 15708/잔여 filedlg 15628)+
+  jkbridge 29824, 전부 Responding. 파이프 이름이 컴파일 타임 상수라
+  (`JKWireEndpoints.h`) 유니크 파이프로 공존 불가, 태스크 제약(스포 안 한
+  프로세스 킬 금지)과 결합하면 fail-fast가 유일한 정직한 경로.
+- **차단 2 — 스테일 jkdesktop.exe**: mtime 17:32:36 < libjkserver.a 18:37 →
+  Task 1/2 서버 코드가 미링크(바이너리 grep 실측: `file.open_result` 0건·
+  `,"modal":` 0건). 원인 = 풀빌드의 jkdesktop.exe 재링크가 라이브 데스크탑
+  파일락(ld Permission denied)으로 전부 실패. 재시도도 동일하게 실패 실측.
+- **자기 가드(재실행 시 전제를 프로브가 스스로 재검증)**: ①setup-foreign-instance
+  (스폰 전 인벤토리) ②setup-unknown-server(이미지 없어도 파이프 응답 리스너
+  거부) ③setup-stale-binary(3쌍 mtime 대비 — 위 사건의 재발 방어) ④
+  missing-artifacts+Test-ForeignFree(중첩 직전 외래 재출현 시 skip+FAIL).
+- **가드 발화 실증은 실측**: 프로브 1회 실실행 → `setup-foreign-instance`
+  FAIL, exit 1, 스폰 0, 라이브 5 PID 생존, permissions.json 바이트 동일
+  (7키 allow 세트, mtime 프리 프로브 값 유지). PARSE-OK(PS AST 파서).
+- **실측 PASS인 것**: jkagentd `--selftest` → `selftest: 0 failures`, exit 0
+  (c12a와 동일 검증을 세션에서 직접 수행). PS5.1 ReadLineAsync 폴링 비봉쇄
+  (TIMEOUT-FIRED 실측 2회).
+- **미실측인 것**: 스펙 §9 12체크 실행, probe_app_tools ×2/probe_files/
+  probe_agent_chat(c12c/d/e로 편입됨 — 실행 대기), c8a/c8b/c9b 타이밍
+  플레이크 관찰. 정적 대조로는 12체크 전부가 Task 1-4 as-built 와이어
+  (응답 봉투/파킹 reply 헤더/이벤트 페이로드/카탈로그 행 형식)와 대응 확인.
+
+**재실행 절차** (사용자 조정 필요 — 데스크탑 종료 동의):
+
+1. 라이브 데스크탑/브리지 세션 종료(눈확인 대기 세션일 수 있음 — 사용자 확인).
+2. `cmake --build build --target jkdesktop` — libjkserver.a가 새로(스테일 가드 통과용).
+3. `powershell -NoProfile -ExecutionPolicy Bypass -File engine/tools/probes/probe_filedlg_voice.ps1 > engine/tools/probes/probe_filedlg_voice_run1.log 2>&1` — ×2 연속 ALL PASS 요구.
+4. 종료 후 permissions.json 바이트 동일(7키) 확인.
+
+## 6. 오류 표 (스펙 §8 vs as-built 대조)
+
+9행 전부 구현됐고 정적 대조(소스 판독)로 스펙 문구와 정합 — 단 **전부
+런타임 미실측**(§5.3). 프로브 체크 열은 실행 대기인 대응 체크다.
+
+| 상황 | 스펙 §8 응답 | as-built | 근거/체크 |
+|---|---|---|---|
+| navigate key/index 모두 없음 | `{"ok":true,"error":"bad_args"}` | 일치 — err 람다가 앱 실패도 ok:true 봉투로 | `ClientFileDialogApp.cpp` navigate 진입 / c5d |
+| navigate index 범위 밖 | `{"ok":true,"error":"bad_index","count":N}` | 일치 | c5e |
+| select/choose 대상 없음 | `{"ok":true,"error":"nothing_selected"}` | 일치(ResolveOnOk 공용) | `:672` / c5 계열·c7 |
+| choose name 부재 | `{"ok":true,"error":"no_such_entry"}` | 일치(IEquals, 상태 불변) | `:820` / c6 |
+| choose/select 폴더 | `{"ok":true,"descended":true,"dir":...}` | 일치 | c6 choose-dir |
+| choose/select 파일 해소 | `{"ok":true,"resolved":true,"path":...}` | 일치 — out 선세팅 후 Finish(:286→:287 순서 근거) | c7/c8b |
+| 모달 가드 실패(고아/미소유) | 서버 `tool_gone`(중계 전 차단) | 일치 — 즉시 중계+resolve 재중계 양쪽 가드 | `:2738`/`:4673` / c9b |
+| file_open wait 알 수 없는 값 | `{"ok":false,"error":"bad_args"}` | 일치 — 단 `""`/`"reply"`/`"event"` 3값은 유효(스펙 §6 우위 편차 수용) | `:4745` 부근 |
+| filedlg 미기동/사망 | 기존 `unknown_app_tool`/`tool_gone` | docs/58 §9 표면 그대로(연결 정리=unknown_app_tool, 중계 대기 중=tool_gone) | c9c/c10 |
+
+as-built 추가 표면(스펙 표에 없음): 빈 리스트 navigate → `empty_list`,
+list limit 비양수 → 1 클램프, 스키마 밖 key → `bad_args`(방어선), 예약 토픽
+발행 → `reserved_topic`(c11).
+
+## 7. 레슨
+
+1. **구독 선점이 없으면 이벤트는 영원히 안 온다** — 서버는 푸시 시점
+   구독자에게만 방송하고 브로커는 기동 시 subscribe=0으로 선언하므로, 이벤트
+   수신 전 read_events 1회(구독+드레인)가 필수. choose 후에만 호출하는
+   코드는 논리상 완전해 보여도 영원히 못 받는다(원 리뷰 C1의 2차 결함).
+2. **브로커 stdout은 요청 1행당 응답 1행이 전부** — 이벤트는 내부 큐에만
+   쌓이고 read_events로만 배출된다. "이벤트를 stdout에서 기다리는" 코드는
+   영구 교착이며, 타임아웃 가드가 읽기 뒤에 있으면 무방비 — 타임아웃은
+   읽기 자체에 내장돼야 한다(Read-BrokerLine 패턴).
+3. **소스 실측 문구와 코드의 불일치는 진짜 결함이다** — 보고서가 "stdout
+   비스트리밍 실측"이라 써놓고 코드는 반대로 썼다. 실측 기록은 코드 리뷰에서
+   코드와 대조돼야 증거가 되고, 불일치 자체가 Critical로 판명했다.
+4. **스테일 바이너리 판정은 exe mtime vs 짝 lib*.a mtime** — jkagentd.exe의
+   짝은 libjkcore.a, jkapp_filedlg.dll의 짝은 libjkclient.a(libjkagentd.a는
+   존재하지 않음 — 없는 이름 가정 금지). 풀빌드가 라이브 프로세스 파일락으로
+   실패해도 일부 타깃만 빌드되면 불일치가 조용히 생긴다. 이 가드는 이번에
+   실제 발화 조건이 성립한 상태로 발견됐다.
+5. **중첩 회귀 프로브는 이미지 전량 킬을 한다** — 프로브가 다른 프로브를
+   중첩 실행하면 그 프로브의 `Get-Process <이미지> | Stop-Process`가 수 분
+   실행 중간에 뜬 외래 세션을 간접 킬한다. 중첩 직전마다 인벤토리 재검사+
+   외래 재출현 시 skip+FAIL(Test-ForeignFree)이 최소 방어.
+6. **PS5.1 ReadLineAsync는 동기 우회 없이 폴링 가능** — ReadLineAsync 50ms
+   폴링+deadline이 무응답 프로세스에서 실발화(TIMEOUT-FIRED, 2회 재실측)로
+   검증됐다. 단순 ReadLine 대기 루프는 타임아웃 가드가 루프 뒤에 있으면
+   교착을 못 잡는다.
+
+## 8. 후속 / 범위 밖
+
+- **e2e ×2 ALL PASS** — §5.3 재실행 절차. 유일한 미완료 항목.
+- 스펙 §3.1 응답 예시의 `"selected":{name,isDir}` 객체 표기 vs 구현의
+  `selected:i` 인덱스+`selectedName/selectedIsDir` 병행 — 구현이 양쪽 소비자
+  모두 수용하며 스펙 문구 정정은 Task 6 문서로 이월돼 본 문서로 기록
+  (스펙 §3.1 예시는 초안 유실로 판단).
+- 스펙 §10 범위 밖 그대로: 필터 콤보 조작 도구/절대 경로 직접 해소/브로커
+  tools/list의 modal 노출/다중 동시 다이얼로그(1-in-flight 유지).
+- deferred minors: modal 강제 파싱(비문자열 진리값 — 인증된 등록 경로라
+  무해)/unknown_app_tool→tool_gone 응답 변화의 소비자 무구분/list limit
+  비양수 클램프(스펙 미정의 구현 판단)/navigate 스키마 밖 key bad_args 등 —
+  원장 `.superpowers/sdd/2026-09-19-filedlg-voice-nav/progress.md` 참조.
