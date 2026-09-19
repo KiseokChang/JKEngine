@@ -268,11 +268,16 @@ function Add-TreePids([int]$parentPid) {
     }
 }
 # Poll for a file dialog child of the probe's server. Returns its PID (0 = none).
-function Wait-DialogPid([int]$serverPid, [int]$loops) {
+# $exclude lists PIDs of dialogs ALREADY alive when the poll starts (surviving
+# dialogs from earlier steps); a candidate in that list is skipped so the
+# returned PID is always a freshly spawned dialog - never an existing one
+# (c9d orphan: without this the pick depended on WMI enumeration order).
+function Wait-DialogPid([int]$serverPid, [int]$loops, [int[]]$exclude = @()) {
     foreach ($i in 1..$loops) {
         Start-Sleep -Milliseconds 400
         foreach ($c in (Get-CimInstance Win32_Process -Filter "Name='jkdesktop.exe'" -ErrorAction SilentlyContinue)) {
-            if ($c.ParentProcessId -eq $serverPid -and $c.CommandLine -match '--filedlg') {
+            if ($c.ParentProcessId -eq $serverPid -and $c.CommandLine -match '--filedlg' -and
+                $exclude -notcontains $c.ProcessId) {
                 if ($script:myPids -notcontains $c.ProcessId) { $script:myPids += $c.ProcessId }
                 return $c.ProcessId
             }
@@ -626,7 +631,10 @@ try {
         if ($f -and $f.type -eq 18 -and $f.qid -eq 404) { $ackD = $f.text; break }
     }
     Check "c9d-reopen-parked-ack" ($ackD -match '"ok":true,"parked":true') $ackD
-    $dlgE = Wait-DialogPid $serverPid 30
+    # exclude the surviving dialogs already alive at this point (orphan D from
+    # c9a/c9b - the c9 section's "orphan A" - plus A from c1, dead but listed
+    # for safety) so the pick is the freshly spawned E, not enumeration order.
+    $dlgE = Wait-DialogPid $serverPid 30 @($dlgA, $dlgD)
     Check "c9d-dialog-E-spawned" ($dlgE -gt 0 -and $dlgE -ne $dlgD) ("dialogPid=$dlgE")
     Check "c9d-rows-6" (Wait-Rows 6 30) "orphan A + slot-owned B manifests coexist"
     $gD = (AppTool "filedlg" "list" '{"offset":0}')
