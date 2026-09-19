@@ -11,8 +11,9 @@
 #   7  gate deny: permissions.json {"app_tool.vplayer.seek":"deny"} -> denied
 #   8  gate ask + parking: approval_request event (kind=app_tool) -> cross approve
 #      (agentctl, different conn) -> parked result + paused actually toggled
-#   9  tool_timeout: fake app never answers AgentToolCall -> tool_timeout <= 15s,
-#      then close -> manifest cleanup
+#   9  tool_timeout: fake app never answers AgentToolCall -> tool_timeout
+#      3s..15s (floor catches an instantly-emitted timeout), then close ->
+#      manifest cleanup
 #   10 bridge regression: probe_jkbridge.ps1 re-run (generic relay unchanged)
 # Raw pipe helpers = mgr_t1_read/mgr_t8_cross_approve frame reader (one function
 # consumes header+payload whole). agentctl args = probe_notes ProcessStartInfo
@@ -60,8 +61,16 @@ function AppTool([string]$app, [string]$tool, [string]$argsJson, [int]$windowId 
 # --- permissions.json is probe-owned state: back up, remove for a clean
 # baseline (absent file = allow for app_tool, deny for close_window), restore
 # in finally (probe_files/probe_notes pattern - never burn user state).
-# Backup name is per-process: a KILLED earlier run (timeout) must not have its
-# own leftover adopted as "user state" by a later run's backup overwrite.
+# Stale-residue guard FIRST: a killed earlier run leaves its backup behind;
+# backing up the current file on top of that could adopt polluted residue as
+# user state (the exact incident class). Refuse to run - manual restore only.
+# Backup name is per-process so a later run never overwrites a prior backup.
+$stale = Get-ChildItem (Join-Path $env:TEMP "perm_pre_apptools_*.json") -ErrorAction SilentlyContinue
+if ($stale) {
+    Write-Host ("FAIL: setup-stale-residue -- " + (($stale | ForEach-Object { $_.Name }) -join ", "))
+    Write-Host "      stale residue from a killed run - restore engine/build/permissions.json manually, delete the leftover(s) in TEMP, re-run"
+    exit 1
+}
 $permBakFile = Join-Path $env:TEMP ("perm_pre_apptools_" + $PID + ".json")
 $hadPerm = Test-Path $permFile
 if ($hadPerm) { Copy-Item $permFile $permBakFile -Force }
@@ -69,6 +78,7 @@ function Set-Perms([string]$json) {
     [IO.File]::WriteAllText($permFile, $json, (New-Object System.Text.UTF8Encoding($false)))
 }
 function Clear-Perms { Remove-Item $permFile -ErrorAction SilentlyContinue }
+Clear-Perms   # clean baseline from the start: c1-c3 run without user perms, not against the live file
 
 # --- raw named pipe client (mgr_t8_cross_approve idiom + deadline reads) -----
 function SendMsg([System.IO.Pipes.NamedPipeClientStream]$s, [int]$type, [byte[]]$payload) {
@@ -404,7 +414,7 @@ try {
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $to = (AppTool "slowpoke" "ping1" "")
     $ms = [int]$sw.ElapsedMilliseconds
-    Check "c9-tool-timeout" ($to -match '"error":"tool_timeout"' -and $ms -le 15000) ("$to elapsed=${ms}ms")
+    Check "c9-tool-timeout" ($to -match '"error":"tool_timeout"' -and $ms -ge 3000 -and $ms -le 15000) ("$to elapsed=${ms}ms")
     $connB.Dispose()   # close the client: manifest cleanup (inflight already consumed)
     $goneB = $false
     foreach ($i in 1..20) {
