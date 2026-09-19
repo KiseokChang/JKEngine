@@ -347,3 +347,51 @@ list limit 비양수 → 1 클램프, 스키마 밖 key → `bad_args`(방어선
   무해)/unknown_app_tool→tool_gone 응답 변화의 소비자 무구분/list limit
   비양수 클램프(스펙 미정의 구현 판단)/navigate 스키마 밖 key bad_args 등 —
   원장 `.superpowers/sdd/2026-09-19-filedlg-voice-nav/progress.md` 참조.
+## 9. e2e 라운드 — 파이프 최종쓰기 유실 근본 픽스 + 실측 (2026-09-20)
+
+§5.3 e2e 재실행 중 폭발한 실전 결함 2건(폰 음성 내비 "MCP 불안정" 오인의
+진짜 근원) + 프로브 검증 버그 일괄 픽스. 커밋 `7fd7b82`(서버) + `b53a85d`
+(filedlg+프로브).
+
+### 9.1 서버 — 연결 소멸 시 미독 메시지 큐 유실 (7fd7b82)
+
+- **증상**: choose 직후 `tool_gone`+`dialog_busy`(600s 만료까지), ~1/7
+  확률. 다이얼로그는 file_open_result/AgentToolResult를 전부 성공 쓰기
+  (trace ret=1)하고 정상 종료.
+- **오인 3연쇄**: ①클라 측 `FlushFileBuffers` 추가→불충분(ret=1에도 err=109
+  지속) ②"커널이 버퍼 데이터 폐기" 가설→trace 실험으로 기각 ③진짜 인과:
+  메인 루프가 `ProcessPendingMessages → Composite → Cleanup` 순서라 read
+  스레드가 **Composite 도중** 마지막 메시지를 큐잉+disconnect 마킹하면
+  cleanup이 **읽지 않은 큐째로** 클라이언트를 소멸. trace 빌드(느림)에선
+  성공하고 cheap 빌드에선 ~1/7 파산한 타이밍 민감성이 정확히 이 창 크기.
+- **픽스**: CleanupDisconnectedClients가 disconnected인데 큐가 남은
+  클라이언트는 소멸 1이터레이션 유보(disconnected_==true면 read 루프 종료로
+  큐 불변 → 다음 루프 ProcessPendingMessages가 드레인한 뒤 소멸). 클라 측
+  FlushFileBuffers는 커널 인계 벨트로 유지(단독 픽스 아님).
+- **레슨**: `FlushFileBuffers` 성공은 피어 앱의 소비를 보증하지 않는다.
+  "데이터 유실"은 커널이 아니라 **앱 큐 소멸 경쟁**일 수 있다 — 실패율이
+  빌드 속도(trace 유무)에 반비례하면 락/순서 경쟁부터 의심.
+
+### 9.2 filedlg — params 타이틀 미전파 + 등록 게이트 불작동 (b53a85d)
+
+- params title이 `JKWindow::SetTitle`(로컬 전용)로만 적용 → 서버 크롬과
+  카탈로그가 메타 타이틀 고정. `SendWindowTitle` 전파 추가(docs/33,
+  ClientNotifyApp 선례) — 전파가 등록보다 먼저 큐잉되므로 카탈로그도 갱신.
+- 도구 등록 게이트 `if (!reply.ok) continue;`는 **한 번도 작동한 적 없음** —
+  HandleAgentQuery가 응답 ok 바이트를 태초(220230e)부터 하드코딩 1로 보내
+  no_pending_dialog도 ok=1로 도착. 스펙 §0 불변식(도구 가시성==슬롯 소유)
+  이 깨져 수기 기동도 도구 3행 등록. 게이트를 params JSON의
+  `requesterConnId`로 판정하도록 수정.
+- **레슨**: 와이어 ok 바이트는 "응답 도달" 의미다 — 논리 ok는 JSON 필드.
+  "항상 참인 것으로 쓰인 게이트"는 불변식이 처음 성립했는지 기생 커밋
+  mtime으로라도 검증한다.
+
+### 9.3 프로브 픽스 + 실측
+
+- PathRx/인라인 경로 regex가 와이어 이중 백슬래시(`I:\progwork`)를 못 맞춤
+  — `{1,2}` 수용(c2/c3/c4/c6/c7/c8b 일괄). c2 타이틀 에코는 카탈로그가 아닌
+  `list_windows`로 검증(카탈로그 title=등록 시점 창 제목). c9c 후 connT
+  요청자 폐기(c9d 파킹 슬롯이 c10에 params를 오염 주입 차단).
+- **실측**: `probe_filedlg_voice` 60체크 **×2 연속 ALL PASS**(회귀 중첩
+  c12a-e 포함). `pfdv_diag2` 12/12 해소. 중첩 probe_app_tools run1에서
+  1회 플레이크(rows=0, vplayer 등록 레이스 — 재실행 통과, 기존 결함 아님).
