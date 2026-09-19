@@ -2625,9 +2625,9 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             reply = "{\"ok\":false,\"error\":\"unknown_app_tool\"}";
         } else {
             // 후보 수집 (스펙 §4.2): 등록된 (app, tool) 조합 역매칭 — 접두
-            // 추측 금지. app은 연결당 1매니페스트(namespace_conflict가 app
-            // 중복 봉쇄)라 복수 후보는 사실상 방어 코드 — 그래도 ambiguous
-            // 표면을 유지한다(레지스트리 규칙 완화 시 함정 방지).
+            // 추측 금지. 같은 app의 다중 인스턴스(연결간 중복 등록 허용 —
+            // HandleToolRegister 러링)가 복수 후보를 낸다: windowId 지정 =
+            // 직행, 미지정+복수 = ambiguous+후보 목록(자기교정).
             std::vector<const AppToolManifest*> cands;
             for (const auto& kv : appToolManifests_) {
                 for (const AppToolDef& t : kv.second.tools) {
@@ -4821,17 +4821,16 @@ void JKWindowServer::HandleToolRegister(JKClientConnection& client,
     if (!req.GetArraySize("tools", toolCount)) { ack(false, "bad_request"); return; }
     if (toolCount < 0 || toolCount > 32) { ack(false, "too_many_tools"); return; }
     // namespace_conflict: 코어 도구명(kPermMatrix 전 행 = 서버 도구 전체
-    // 목록 — "app_tool"/"list_app_tools" 행 포함)과 다른 연결이 이미
-    // 등록한 app를 금지. 같은 connId 재등록은 언제나 upsert 허용.
-    // (조건문 없이 전 app를 검사한다 — app="app_tool"은 kPermMatrix의
-    // app_tool 행과 걸려서 자동 봉쇄.)
+    // 목록 — "app_tool"/"list_app_tools" 행 포함)만 금지. 같은 connId
+    // 재등록은 언제나 upsert 허용. (조건문 없이 전 app를 검사한다 —
+    // app="app_tool"은 kPermMatrix의 app_tool 행과 걸려서 자동 봉쇄.)
+    // ⚠ 스펙 §4.1의 "기존 등록된 다른 연결의 app와 충돌" 절은 §4.2 다중
+    // 인스턴스 변별(windowId 직행/단독 후보/ambiguous+후보)과 모순 —
+    // §4.2가 승리(사용자 확정 설계, 코디네이터 러링 2026-09-19). 같은 app의
+    // 연결간 중복 등록은 허용되고, 복수 후보는 app_tool이 ambiguous로
+    // 자기교정을 유도한다(브로커는 tools/list에서 이름 유니온으로 중복 흡수).
     for (const auto& row : kPermMatrix)
         if (app == row.tool) { ack(false, "namespace_conflict"); return; }
-    for (const auto& kv : appToolManifests_)
-        if (kv.second.app == app && kv.first != client.Id()) {
-            ack(false, "namespace_conflict");
-            return;
-        }
     AppToolManifest m;
     m.connId = client.Id();
     m.app = app;
