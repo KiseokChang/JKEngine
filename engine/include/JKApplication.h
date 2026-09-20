@@ -21,6 +21,7 @@ namespace jk {
 class JKRenderThread;
 class JKTimerThread;
 class JKAudioThread;
+class JKTextAtlas;
 
 // Single-process application host. Implements the JKApplicationHost services
 // that controls and shared dialogs consume through g_jkAppHost; g_currentJKApp
@@ -106,6 +107,8 @@ private:
     JKDC dc_;
     std::unique_ptr<HangulManager> hangulManager_;
     std::unique_ptr<JKResourceCache> resourceCache_;
+    // 데스크탑 벡터 폰트 (docs/63): dc_의 TextOut이 사용. 실패 시 비트맵 경로.
+    std::unique_ptr<JKTextAtlas> textAtlas_;
     bool running_ = false;
 
     std::unique_ptr<JKRenderThread> renderThread_;

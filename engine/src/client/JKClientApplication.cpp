@@ -7,6 +7,7 @@
 #include <JKTimerThread.h>
 #include <JKSoundManager.h>
 #include <JKPlatform.h>
+#include <JKTextAtlas.h>
 #include <agent/JKAgentJson.h>
 #include <theme/JKTheme.h>
 #include <chrono>
@@ -190,6 +191,19 @@ bool JKClientApplication::Init(const std::string& title, int width, int height,
     HanMan = hangulManager_.get();
     resourceCache_->RegisterFont("default", hangulManager_.get());
 
+    // 데스크탑 벡터 폰트 (docs/63 §2): 관문 교체 — 실패 시 비트맵 경로 그대로.
+    // ResolveDesktopFontPath가 state\settings.json의 text.font_path 오버라이드를
+    // 직접 읽으므로 서버 KV(textFontPath_)를 여기로 파이프할 필요가 없다.
+    textAtlas_ = std::make_unique<JKTextAtlas>();
+    const std::string fontPath = jk::text::ResolveDesktopFontPath();
+    if (!fontPath.empty() && textAtlas_->Init(fontPath, 8, 16, 16)) {
+        dc_.SetTextAtlas(textAtlas_.get(), resourceCache_.get());
+    } else {
+        std::fprintf(stderr,
+            "Warning: vector font init failed (%s); staying on bitmap glyphs.\n",
+            fontPath.c_str());
+    }
+
     timerThread_ = std::make_unique<JKTimerThread>();
     timerThread_->Start(messageBus_.get());
 
@@ -237,6 +251,7 @@ void JKClientApplication::Close() {
 
     hangulManager_.reset();
     HanMan = nullptr;
+    textAtlas_.reset();
     resourceCache_.reset();
 
     DestroyHiddenRenderer();

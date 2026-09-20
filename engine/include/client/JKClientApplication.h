@@ -22,6 +22,7 @@ namespace jk {
 
 class JKTimerThread;
 class JKAudioThread;
+class JKTextAtlas;
 
 // Client-side application that renders into a server-managed surface instead of
 // owning a visible SDL window. A hidden SDL window + renderer is used locally
@@ -151,6 +152,8 @@ private:
     JKDC dc_;
     std::unique_ptr<HangulManager> hangulManager_;
     std::unique_ptr<JKResourceCache> resourceCache_;
+    // 데스크탑 벡터 폰트 (docs/63): dc_의 TextOut이 사용. 실패 시 비트맵 경로.
+    std::unique_ptr<JKTextAtlas> textAtlas_;
     bool running_ = false;
 
     std::unique_ptr<JKTimerThread> timerThread_;
