@@ -55,6 +55,7 @@ vcpkg_installed/
 .vscode/
 .claude/*
 !.claude/PROJECT.md
+!.claude/skills
 *.suo
 *.user
 *.userosscache
