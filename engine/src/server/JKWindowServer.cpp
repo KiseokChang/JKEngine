@@ -5076,6 +5076,27 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                         } else {   // "files_list"
                             result = FilesListOpJson(it->filesPath);
                         }
+                    } else if (it->kind == "send_input") {
+                        // 승인 시점 게이트 재검사(파킹 대기 중 permissions.json이
+                        // 바뀌면 최신 게이트 강제 — files_access/run_console_app
+                        // 선례) + 원 요청 재실행.
+                        if (AgentToolAllowed("send_input") ==
+                            AgentDecision::Deny) {
+                            result =
+                                "{\"ok\":false,\"error\":\"permission_denied\"}";
+                        } else {
+                            jk::agent::AgentJson args(it->sendArgs);
+                            SendInputOp op;
+                            const std::string buildErr =
+                                args.ok() ? BuildSendInputOp(args, &op)
+                                          : "bad_args";
+                            const std::string ex =
+                                buildErr.empty() ? ExecuteSendInputOp(op)
+                                                 : buildErr;
+                            result = ex.empty()
+                                ? "{\"ok\":true,\"sent\":true}"
+                                : "{\"ok\":false,\"error\":\"" + ex + "\"}";
+                        }
                     } else if (it->kind == "app_tool") {
                         // 앱 도구 허브 (스펙 2026-09-19-app-tool-hub §4.3/§9):
                         // 승인 = 중계 시작 — files_access의 재실행형이 아니라
