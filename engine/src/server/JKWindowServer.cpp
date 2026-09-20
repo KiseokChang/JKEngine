@@ -1575,6 +1575,127 @@ void JKWindowServer::SendInputEvent(JKClientConnection& client, const ipc::Input
     client.Send(ipc::MsgType::InputEvent, &payload, sizeof(payload));
 }
 
+// 앱 정복 사다리 (스펙 2026-09-21-conquest-ladder §3.1): send_input 실행기.
+// 도구 경로와 승인 재실행 경로가 공유한다. 좌표는 논리 데스크톱 좌표 — 실시간
+// 경로의 표면 변환식은 ((mx/outputScale) - client->X()) / layerScale (mx는
+// 물리 px)인데 send_input은 논리 좌표를 받으므로 물리 전곱이 소거돼
+// (논리 - client->X()) / layerScale이 된다. 셸은 대상에서 제외 — 크롬 닫기는
+// close_window가 담당한다.
+//
+// Precondition: clientsMutex_ held — 도구/승인 재실행 호출부가 모두
+// HandleAgentQuery 계열(레슨 35: 락 보유 경로에서 FindClientById 같은
+// 자체-락 헬퍼를 부르면 std::mutex 비재귀라 데드락)이라 clients_를 직접
+// 순회한다(ProcessClientMessage의 2696-2697 선례 주석).
+std::string JKWindowServer::ExecuteSendInputOp(const SendInputOp& op) {
+    JKClientConnection* client = nullptr;
+    for (auto& c : clients_) {
+        if (c && c->Id() == op.target && !c->IsDisconnected()) {
+            client = c.get();
+            break;
+        }
+    }
+    if (!client) return "window_not_found";
+    if (client->IsShell()) return "bad_target";
+    ipc::InputEventPayload p{};
+    p.surfaceId = op.target;
+    if (op.op == "click") {
+        float sx = 1.0f, sy = 1.0f;
+        if (compositor_) {
+            if (auto* layer = compositor_->FindLayerById(op.target)) {
+                sx = layer->ScaleX();
+                sy = layer->ScaleY();
+            }
+        }
+        p.x = static_cast<int>(std::llround((op.x - client->X()) / sx));
+        p.y = static_cast<int>(std::llround((op.y - client->Y()) / sy));
+        p.keyCode = op.button;
+        p.detail = op.clicks;
+        p.option = 0;
+        p.type = ipc::InputEventType::MouseDown;
+        SendInputEvent(*client, p);
+        p.type = ipc::InputEventType::MouseUp;
+        SendInputEvent(*client, p);
+        return "";
+    }
+    if (op.op == "key") {
+        if (op.key == 0) return "bad_key";
+        p.keyCode = op.key;
+        p.option = op.mods;
+        if (op.action != "up") {
+            p.type = ipc::InputEventType::KeyDown;
+            p.detail = 0;
+            SendInputEvent(*client, p);
+        }
+        if (op.action != "down") {
+            p.type = ipc::InputEventType::KeyUp;
+            SendInputEvent(*client, p);
+        }
+        return "";
+    }
+    if (op.op == "type") {
+        if (op.text.empty()) return "bad_text";
+        // Char 페이로드는 63B — UTF-8 후속 바이트(0x80-0xBF)를 넘지 않게 분할.
+        size_t off = 0;
+        while (off < op.text.size()) {
+            size_t len = std::min<size_t>(63, op.text.size() - off);
+            while (len > 0 && (op.text[off + len] & 0xC0) == 0x80) --len;
+            p.type = ipc::InputEventType::Char;
+            std::memcpy(p.text, op.text.c_str() + off, len);
+            p.text[len] = '\0';
+            SendInputEvent(*client, p);
+            off += len;
+        }
+        return "";
+    }
+    if (op.op == "wheel") {
+        p.type = ipc::InputEventType::MouseWheel;
+        p.dx = op.dx;
+        p.dy = op.dy;
+        SendInputEvent(*client, p);
+        return "";
+    }
+    return "bad_op";
+}
+
+// 도구 인자(args 오브젝트) → SendInputOp. 빈 문자열=성공, 아니면 error 키.
+std::string JKWindowServer::BuildSendInputOp(
+    const jk::agent::AgentJson& args, SendInputOp* out) {
+    std::string op, text, action;
+    int id = 0, x = 0, y = 0, dx = 0, dy = 0, key = 0, mods = 0;
+    int button = 1, clicks = 1;
+    args.GetStr("op", op);
+    args.GetInt("id", id);
+    args.GetInt("x", x);
+    args.GetInt("y", y);
+    args.GetInt("dx", dx);
+    args.GetInt("dy", dy);
+    args.GetInt("key", key);
+    args.GetInt("mods", mods);
+    args.GetInt("button", button);
+    args.GetInt("clicks", clicks);
+    args.GetStr("text", text);
+    args.GetStr("action", action);
+    if (op != "click" && op != "key" && op != "type" && op != "wheel")
+        return "bad_op";
+    if (id <= 0) return "bad_target";
+    if (action.empty()) action = "tap";
+    if (action != "tap" && action != "down" && action != "up") return "bad_action";
+    SendInputOp& o = *out;
+    o.op = op;
+    o.target = static_cast<uint32_t>(id);
+    o.x = x;
+    o.y = y;
+    o.dx = dx;
+    o.dy = dy;
+    o.key = static_cast<uint32_t>(key);
+    o.mods = static_cast<uint32_t>(mods);
+    o.button = static_cast<uint32_t>(button > 0 ? button : 1);
+    o.clicks = static_cast<uint32_t>(clicks > 0 ? clicks : 1);
+    o.text = text;
+    o.action = action;
+    return "";
+}
+
 JKClientConnection* JKWindowServer::HitTestClient(int32_t x, int32_t y) {
     if (!compositor_) return nullptr;
     auto* layer = compositor_->HitTest(x, y);
@@ -2007,6 +2128,10 @@ static const AgentPermRow kPermMatrix[] = {
     // 이 두 행으로 app="app_tool"/"list_app_tools" 등록을 자동 봉쇄한다.
     {"list_app_tools", "none", "allow"},
     {"app_tool", "server", "allow"},
+    // 앱 정복 사다리 (스펙 2026-09-21-conquest-ladder §3.1): 트랙 B 조작
+    // 수단 — 대상 창 합성 입력. ask 기본(2026-09-21 사용자 승인): 매 호출이
+    // 승인 파킹으로 들어간다. 자동화 편의는 permissions.json에서 allow로.
+    {"send_input", "server", "ask"},
 };
 
 // permissions.json RMW (스펙 §2.2): 알려진 도구 키 전부 명시 기록 — 없던 키는
@@ -3425,6 +3550,72 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             reply = "{\"ok\":true}";
         } else {
             reply = "{\"ok\":false,\"error\":\"missing_app\"}";
+        }
+    } else if (tool == "send_input") {
+        // 앱 정복 사다리 (스펙 2026-09-21-conquest-ladder §3.1): 트랙 B 조작
+        // 수단 — 대상 창에 합성 입력. ask 기본 게이트(run_console_app와 같은
+        // inline-approval 파이프라인, 승인 시점 원 요청 재실행 = files_access
+        // 선례). 원문 args는 승인 재실행을 위해 파킹에 함께 저장한다.
+        std::string rawArgs;
+        req.GetRaw("args", rawArgs);
+        jk::agent::AgentJson args(rawArgs);
+        SendInputOp op;
+        const std::string buildErr =
+            args.ok() ? BuildSendInputOp(args, &op) : "bad_args";
+        if (!buildErr.empty()) {
+            reply = "{\"ok\":false,\"error\":\"" + buildErr + "\"}";
+        } else {
+            switch (AgentToolAllowed("send_input")) {
+                case AgentDecision::Allow: {
+                    const std::string ex = ExecuteSendInputOp(op);
+                    reply = ex.empty() ? "{\"ok\":true,\"sent\":true}"
+                                       : "{\"ok\":false,\"error\":\"" + ex + "\"}";
+                    break;
+                }
+                case AgentDecision::Ask: {
+                    bool subscriber = false;
+                    for (auto& c : clients_) {
+                        if (c && c->AgentEventSubscriber() &&
+                            !c->IsDisconnected()) {
+                            subscriber = true;
+                            break;
+                        }
+                    }
+                    if (!subscriber) {
+                        reply = "{\"ok\":false,\"error\":\"approval_unavailable\"}";
+                        break;
+                    }
+                    if (ApprovalParkingFull(client.Id())) {
+                        reply = "{\"ok\":false,\"error\":\"approval_overflow\"}";
+                        break;
+                    }
+                    PendingApproval p;
+                    p.kind = "send_input";
+                    p.name = op.op;           // 승인 스트립 표시용 조작명
+                    p.requestId = nextApprovalId_++;
+                    p.queryId = queryId;
+                    p.requesterId = client.Id();
+                    p.targetId = op.target;
+                    p.sendArgs = rawArgs;     // 승인 시점 원 요청 재실행 원문
+                    p.expiresAt = std::time(nullptr) + 60;
+                    char buf[512];
+                    std::snprintf(buf, sizeof(buf),
+                                  "{\"topic\":\"agent.approval_request\","
+                                  "\"request\":%u,\"tool\":\"send_input\","
+                                  "\"name\":\"%s\",\"ts\":%lld}",
+                                  p.requestId, JsonEsc(op.op).c_str(),
+                                  static_cast<long long>(std::time(nullptr)) *
+                                      1000);
+                    pendingApprovals_.push_back(p);
+                    PushAgentEventJson(buf);
+                    replied = false;  // 승인 해소 시 응답
+                    break;
+                }
+                case AgentDecision::Deny:
+                default:
+                    reply = "{\"ok\":false,\"error\":\"permission_denied\"}";
+                    break;
+            }
         }
     } else if (tool == "run_console_app") {
         // P4 SDK §5: 에이전트가 콘솔 앱(apps/<name>/manifest.json)을 스폰.
@@ -5464,12 +5655,21 @@ AgentDecision JKWindowServer::AgentToolAllowed(const std::string& tool) const {
                              // 3단 키지만(이 스위치 자체는 app_tool 분기에서
                              // 호출되지 않음), 값 일관성을 위해 묶는다
                              // (files 도구 편입 선례).
-                             tool == "app_tool");
+                             tool == "app_tool" ||
+                             // 앱 정복 사다리 (스펙 2026-09-21-conquest-ladder
+                             // §3.1): send_input도 파일값 "ask"를 Allow로
+                             // 열화하지 않는다 — 도구 분기가 승인 파킹으로
+                             // 소비(kPermMatrix "ask" 기본 행과 쌍).
+                             tool == "send_input");
     auto defaultDecision = [&]() -> AgentDecision {
         if (tool == "close_window") return AgentDecision::Deny;
         if (tool == "trust_request") return AgentDecision::Ask;
         if (tool == "run_console_app") return AgentDecision::Ask;
         if (tool == "trust_revoke") return AgentDecision::Ask;
+        // 앱 정복 사다리 (스펙 2026-09-21-conquest-ladder §3.1): 파일 부재/
+        // 키 부재 기본도 ask — kPermMatrix "ask" 행과 정합(2026-09-21
+        // 사용자 승인: 합성 입력은 승인 행위).
+        if (tool == "send_input") return AgentDecision::Ask;
         return AgentDecision::Allow;
     };
     std::FILE* f = std::fopen(path.c_str(), "rb");
