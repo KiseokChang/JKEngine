@@ -761,15 +761,31 @@ bool JKEdit::DeleteSelection() {
 void JKEdit::DeleteBackward() {
     if (DeleteSelection()) return;
     if (cursorPos_ == 0) return;
-    // If the internal automata is mid-composition, cancel it first so that a
-    // single Backspace removes the whole in-progress Hangul character.
-    if (composing_) {
-        composing_ = false;
-        if (cursorPos_ >= 2) {
+    // 조합 중 백스페이스는 자소 단위로 되돌린다(docs/61 §19) — 표준 IME처럼
+    // 가→ㄱ→(빈). 옛 코드는 자동사를 통째로 취소해 조합 중인 글자 전체가
+    // 날아갔다(유저 보고).
+    if (composing_ && cursorPos_ >= 2) {
+        uint16_t restored = 0;
+        if (automata_.BackspaceJamo(restored)) {
+            // 자소 1개 제거 — 조합 쌍을 되돌린 코드로 다시 쓴다.
+            cursorPos_ -= 2;
+            buffer_[cursorPos_]     = static_cast<char>(restored >> 8);
+            buffer_[cursorPos_ + 1] = static_cast<char>(restored & 0xFF);
+            cursorPos_ += 2;
+        } else {
+            // 조합이 비었다 — 쌍을 제거하고 자동사를 초기화한다.
+            composing_ = false;
             buffer_.erase(cursorPos_ - 2, 2);
             cursorPos_ -= 2;
             automata_.InitAutomata();
         }
+        ScrollToCursor();
+        showCaret_ = true;
+        return;
+    }
+    if (composing_) {
+        composing_ = false;
+        automata_.InitAutomata();
         ScrollToCursor();
         showCaret_ = true;
         return;

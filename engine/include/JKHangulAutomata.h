@@ -42,6 +42,12 @@ public:
     uint16_t JongsungPair(uint16_t& key);
     bool Automata(uint16_t key);
 
+    // 조합 중 백스페이스: 마지막 키 하나를 되돌린다(docs/61 §19). inpStack은
+    // 키마다 적용 후 상태 스냅샷을 쌓으므로 한 칸 pop = 자소 1개 제거.
+    // 되돌린 음절 코드를 restoredCode에 넣고 true. 되돌릴 키가 시드뿐이거나
+    // 스택이 비었으면 false — 호출자가 조합 쌍을 버퍼에서 지운다.
+    bool BackspaceJamo(uint16_t& restoredCode);
+
     // 8비트 자모 슬롯 코드(ConvertKey 출력, 0x82-0xB4)를 독립 KSSM 2바이트
     // 코드로 변환한다. 자동사 End1/End2 플러시와 InsertKssmChar 방어선이 쓴다.
     // outStack에 원본 슬롯 코드를 넣으면 {0x00,XX} NUL 쌍이 버퍼에 기록돼

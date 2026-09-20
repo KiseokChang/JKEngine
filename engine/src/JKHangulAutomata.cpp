@@ -197,6 +197,30 @@ bool HangulAutomata::Automata(uint16_t key) {
     return false;
 }
 
+// 조합 중 백스페이스(docs/61 §19): inpStack이 키마다 "적용 후" 상태 스냅샷을
+// 쌓으므로 한 칸 pop하면 마지막 자소가 정확히 제거된다 — 되돌린 상태는
+// inpStack[inpSP-1](직전 키 적용 후). 팩트: End1/End2는 플러시 후 inpStack[0]을
+// 재시드하므로 현재 음절의 역사만 스택에 남는다 — 넘어간 받침(하고의 ㄱ)은
+// 재부착 불가(한계, MS IME와 다른 점).
+bool HangulAutomata::BackspaceJamo(uint16_t& restoredCode) {
+    restoredCode = 0;
+    if (inpSP == 0) {
+        curHanState = 0;
+        return false;
+    }
+    --inpSP;
+    if (inpSP == 0) {
+        // 시드뿐 — 조합이 비었다. 호출자가 버퍼 쌍을 지운다.
+        curHanState = 0;
+        charCode    = 0;
+        return false;
+    }
+    curHanState = inpStack[inpSP - 1].curHanState;
+    charCode    = inpStack[inpSP - 1].charCode;
+    restoredCode = charCode;
+    return curHanState != 0 && charCode != 0x8441;
+}
+
 // 8비트 슬롯 코드 → 독립 KSSM 2바이트 코드. 슬롯 배치는 ConvertKey의 역:
 // 자음 = 0x8041|(slot<<10), 모음 = 0x8401|(slot<<5), 겹받침 = 0x8440|jong.
 // 검증: ㄱ(0x82)→0x8841, ㅏ(0xA3)→0x8461, ㄳ(0xC4)→0x8444 — SingleHan과 일치.

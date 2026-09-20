@@ -16,12 +16,15 @@ static Uint32 g_toggleEvent = 0;
 static HWND   g_watchHwnd   = nullptr;
 
 static LRESULT CALLBACK LowLevelKeyboardProc(int code, WPARAM wParam, LPARAM lParam) {
-    if (code >= 0 && wParam == VK_HANGUL) {
+    // LL 훅의 wParam은 메시지 종류(WM_KEYDOWN 등)다 — 가상키는 vkCode에 있다.
+    // 옛 코드가 wParam == VK_HANGUL(0x15)로 검사해 WM_KEYDOWN(0x100)과 절대
+    // 일치하지 않았고, 훅은 영원히 발화하지 않았다(docs/61 §19).
+    if (code >= 0 && (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN)) {
         const KBDLLHOOKSTRUCT* info =
             reinterpret_cast<const KBDLLHOOKSTRUCT*>(lParam);
         // 키다운만(LLKHF_UP = 키업 플래그) — 토글은 다운 1회당 1번.
         // watchWindow가 전경일 때만 — 유저가 다른 앱에서 누른 한/영 오탐 방지.
-        if (info && !(info->flags & LLKHF_UP) &&
+        if (info && info->vkCode == VK_HANGUL && !(info->flags & LLKHF_UP) &&
             (!g_watchHwnd || GetForegroundWindow() == g_watchHwnd)) {
             SDL_Event ev{};
             ev.type = g_toggleEvent;

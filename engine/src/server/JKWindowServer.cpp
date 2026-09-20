@@ -616,6 +616,9 @@ void JKWindowServer::Run() {
             }
             if (ev.type == JkImeToggleEventType()) {
                 JKClientConnection* client = FindClientById(focusedClientId_);
+                // 라이브 진단 증거(docs/61 §19): 훅 발화+전달 대상을 로그에 남긴다.
+                std::fprintf(stderr, "[ime] toggle -> client %u (%s)\n",
+                             focusedClientId_, client ? "sent" : "no-focus-client");
                 if (client) {
                     ipc::InputEventPayload payload{};
                     payload.surfaceId = client->Id();

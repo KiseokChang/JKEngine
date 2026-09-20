@@ -299,6 +299,52 @@ int main() {
               "got=" + KssmToUtf8(e.GetText().c_str()));
     }
 
+    // T20: 조합 중 백스페이스 = 자소 단위 되돌림(docs/61 §19) — 표준 IME처럼
+    // 가→ㄱ→(빈). 옛 코드는 조합 쌍 전체를 삭제했다(유저 보고 "조합중인 글자가
+    // 다 날아감"). inpStack 키별 스냅샷 pop으로 구현.
+    {
+        JKEdit e(JKRect{ 0, 0, 400, 24 });
+        e.SetHangulMode(true);
+        SendKey(e, SDLK_r);
+        SendKey(e, SDLK_k);                    // "가" 조합 중
+        SendKey(e, SDLK_BACKSPACE);
+        Check("T20a-backspace-to-jamo",
+              KssmToUtf8(e.GetText().c_str()) == "ㄱ",
+              "got=" + KssmToUtf8(e.GetText().c_str()));
+        SendKey(e, SDLK_k);                    // ㄱ에 ㅏ 재조합 → 가
+        Check("T20b-recompose-after-pop",
+              KssmToUtf8(e.GetText().c_str()) == "가",
+              "got=" + KssmToUtf8(e.GetText().c_str()));
+        SendKey(e, SDLK_BACKSPACE);
+        SendKey(e, SDLK_BACKSPACE);
+        Check("T20c-backspace-empty", e.GetText().empty(),
+              "len=" + std::to_string(e.GetText().size()));
+        // 겹... 아니 단일 받침 음절 되돌림: 랄 → 라 → ㄹ → (빈).
+        for (int k : { SDLK_f, SDLK_k, SDLK_f }) SendKey(e, k);   // 랄
+        Check("T20d-lal",
+              KssmToUtf8(e.GetText().c_str()) == "랄",
+              "got=" + KssmToUtf8(e.GetText().c_str()));
+        SendKey(e, SDLK_BACKSPACE);
+        Check("T20e-lal-to-ra",
+              KssmToUtf8(e.GetText().c_str()) == "라",
+              "got=" + KssmToUtf8(e.GetText().c_str()));
+        SendKey(e, SDLK_BACKSPACE);
+        Check("T20f-ra-to-jamo",
+              KssmToUtf8(e.GetText().c_str()) == "ㄹ",
+              "got=" + KssmToUtf8(e.GetText().c_str()));
+        SendKey(e, SDLK_BACKSPACE);
+        Check("T20g-empty2", e.GetText().empty(),
+              "len=" + std::to_string(e.GetText().size()));
+        // 받침 넘김(학+ㅗ → 하+고) 뒤 백스페이스: 고 씨앗만 pop → 하.
+        // 넘어간 받침 ㄱ의 재부착(학 복원)은 자동사가 플러시 이력을 갖지 않아
+        // 불가 — 한계 문서화(docs/61 §19).
+        for (int k : { SDLK_g, SDLK_k, SDLK_r, SDLK_h }) SendKey(e, k);
+        SendKey(e, SDLK_BACKSPACE);
+        Check("T20h-carry-limit",
+              KssmToUtf8(e.GetText().c_str()) == "하",
+              "got=" + KssmToUtf8(e.GetText().c_str()));
+    }
+
     {
         // T9: "한국어" = ㅎㅏㄴ ㄱㅜ ㄹ ㅇㅓ — 받침 뒤 새 음절이 조합돼야 한다.
         {
