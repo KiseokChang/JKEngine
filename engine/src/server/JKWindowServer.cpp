@@ -176,7 +176,8 @@ namespace server {
 
 // 설정 허브 KV 헬퍼 — 본문은 WritePermissionsEntry 뒤(§2.2). Init의 부팅
 // 로드가 쓴다(정의가 뒤에 있으므로 네임스페이스 내 전방선언).
-static void LoadSettingsKv(bool& mute, int& volume, int& retention);
+static void LoadSettingsKv(bool& mute, int& volume, int& retention,
+                           std::string& fontPath);
 
 JKWindowServer::JKWindowServer() = default;
 
@@ -288,7 +289,8 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
 
     // 설정 허브 KV (스펙 2026-09-18-settings-hub §2.2): 재시작 복원 —
     // audio.master/retention은 이 값이 진실원(파일 없으면 기본값 유지).
-    LoadSettingsKv(audioMasterMute_, audioMasterVolume_, receiptRetentionDays_);
+    LoadSettingsKv(audioMasterMute_, audioMasterVolume_, receiptRetentionDays_,
+                   textFontPath_);
 
     return true;
 }
@@ -2078,9 +2080,11 @@ static std::string WritePermissionsEntry(const std::string& permTool,
 
 // ---- 설정 허브 KV (스펙 2026-09-18-settings-hub §2.2) --------------------
 // state/settings.json: {"audio":{"mute":0/1,"volume":int},
-// "retention":{"days":int}}. StateDir()는 멤버 메서드라 static 헬퍼는
-// exe-dir 인라인 계산(WritePermissionsEntry/RevokeTrustRecord 선례). 실패는
-// 조용한 소실 없이 write_failed로 표면화(docs/52 리뷰 규약).
+// "retention":{"days":int},"text":{"font_path":"..."}}. StateDir()는 멤버
+// 메서드라 static 헬퍼는 exe-dir 인라인 계산(WritePermissionsEntry/
+// RevokeTrustRecord 선례). 실패는 조용한 소실 없이 write_failed로 표면화
+// (docs/52 리뷰 규약). text.font_path는 데스크탑 벡터 폰트 경로(docs/63 §4)
+// — JKTextAtlas::ResolveDesktopFontPath가 기동 시 같은 키를 원독한다.
 static std::string SettingsKvPath() {
     char exePath[1024] = {};
     GetModuleFileNameA(nullptr, exePath, sizeof(exePath));
@@ -2090,7 +2094,8 @@ static std::string SettingsKvPath() {
     return dir + "\\state\\settings.json";
 }
 
-static void LoadSettingsKv(bool& mute, int& volume, int& retention) {
+static void LoadSettingsKv(bool& mute, int& volume, int& retention,
+                           std::string& fontPath) {
     std::FILE* f = std::fopen(SettingsKvPath().c_str(), "rb");
     if (!f) return;
     std::string text;
@@ -2106,14 +2111,24 @@ static void LoadSettingsKv(bool& mute, int& volume, int& retention) {
     }
     if (json.GetObjInt("audio", "volume", v) && v >= 0 && v <= 100) volume = v;
     if (json.GetObjInt("retention", "days", v) && v >= 7) retention = v;
+    // text.font_path (docs/63 §4): 상한 300 — settings_set 및
+    // ResolveDesktopFontPath와 같은 캡(초과치는 폐기, 기본 폰트로 폴백).
+    std::string s;
+    if (json.GetObjStr("text", "font_path", s) && !s.empty() &&
+        s.size() <= 300) {
+        fontPath = s;
+    }
 }
 
-static bool WriteSettingsKv(bool mute, int volume, int retention) {
-    char out[160];
-    std::snprintf(out, sizeof(out),
-                  "{\"audio\":{\"mute\":%d,\"volume\":%d},"
-                  "\"retention\":{\"days\":%d}}",
-                  mute ? 1 : 0, volume, retention);
+static bool WriteSettingsKv(bool mute, int volume, int retention,
+                            const std::string& fontPath) {
+    // 고정 char 버퍼 대신 문자열 조립 — fontPath 300자가 JsonEsc로 제어문자
+    // 6배 확장(\\uXXXX)까지 갈 수 있어 512 버퍼는 조용한 절단이 나온다.
+    const std::string out =
+        std::string("{\"audio\":{\"mute\":") + (mute ? "1" : "0") +
+        ",\"volume\":" + std::to_string(volume) + "},\"retention\":{\"days\":" +
+        std::to_string(retention) + "},\"text\":{\"font_path\":\"" +
+        JsonEsc(fontPath) + "\"}}";
     const std::string kvPath = SettingsKvPath();
     // .bak 1세대 (opus 리뷰 MINOR-1): 비원자 쓰기 중간 절단 시 부팅 로더가
     // 기본값으로 조용히 리셋한다 — 직전 KV를 복구 원본으로 남긴다.
@@ -2121,8 +2136,8 @@ static bool WriteSettingsKv(bool mute, int volume, int retention) {
     std::rename(kvPath.c_str(), (kvPath + ".bak").c_str());
     std::FILE* f = std::fopen(kvPath.c_str(), "wb");
     if (!f) return false;
-    const size_t len = std::strlen(out);
-    const size_t wrote = std::fwrite(out, 1, len, f);
+    const size_t len = out.size();
+    const size_t wrote = std::fwrite(out.c_str(), 1, len, f);
     std::fclose(f);
     return wrote == len;
 }
@@ -3524,7 +3539,9 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         // state/triggers.json, state/idle_minutes, 서버 KV 멤버,
         // state/layout_*.json, receipts.jsonl 꼬리.
         std::string out = "{\"ok\":true,\"settings\":[";
-        char item[640];
+        // 2048: text.font_path 300자가 JsonEsc 제어문자 6배 확장({ 등)까지
+        // 갈 수 있다 — 640은 조용한 절단으로 봉투 전체를 파산시킨다.
+        char item[2048];
         // theme.current: theme.json의 preset(부트 로더 진실원). 파일은 exe
         // 옆 — jk::theme::DefaultThemePath() (StateDir 아님).
         {
@@ -3549,6 +3566,13 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                           JsonEsc(preset).c_str());
             out += item;
         }
+        // text.font_path (docs/63 §4): 서버 멤버 — 기동 시 KV+기본값 합성
+        // (빈 문자열 = 오버라이드 없음, GUI가 기본 경로를 표시).
+        std::snprintf(item, sizeof(item),
+                      ",{\"key\":\"text.font_path\",\"kind\":\"string\","
+                      "\"value\":\"%s\"}",
+                      JsonEsc(textFontPath_).c_str());
+        out += item;
         // triggers: state/triggers.json 플래그(trigger_toggle의 진실원).
         {
             std::FILE* f =
@@ -3698,7 +3722,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             if (!hasInt || valInt < 7) {
                 reply = "{\"ok\":false,\"error\":\"bad_value\"}";
             } else if (!WriteSettingsKv(audioMasterMute_, audioMasterVolume_,
-                                        valInt)) {
+                                        valInt, textFontPath_)) {
                 reply = "{\"ok\":false,\"error\":\"write_failed\"}";
             } else {
                 receiptRetentionDays_ = valInt;
@@ -3725,7 +3749,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             }
             if (reply.empty()) {
                 if (!WriteSettingsKv(audioMasterMute_, audioMasterVolume_,
-                                     receiptRetentionDays_)) {
+                                     receiptRetentionDays_, textFontPath_)) {
                     reply = "{\"ok\":false,\"error\":\"write_failed\"}";
                 } else {
                     char ev[160];
@@ -3741,6 +3765,25 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                             ",\"audio_master_volume\":" +
                             std::to_string(audioMasterVolume_) + "}}";
                 }
+            }
+        } else if (key == "text_font_path") {
+            // docs/63 §4: 데스크탑 벡터 폰트 경로. 값은 문자열 — 재시작 적용
+            // (아틀라스는 기동 시 Init이 JKTextAtlas::ResolveDesktopFontPath로
+            // 합성한다). 상한 300자 — LoadSettingsKv·ResolveDesktopFontPath와
+            // 같은 캡. 빈 값은 기본 폰트로의 폴백이 아니라 기각(오타 방어 —
+            // 되돌리려면 파일 수동 편집이 아니라 기본값 명시를 쓴다).
+            std::string valStr;
+            if (!req.GetObjStr("args", "value", valStr) || valStr.empty() ||
+                valStr.size() > 300) {
+                reply = "{\"ok\":false,\"error\":\"bad_value\"}";
+            } else if (!WriteSettingsKv(audioMasterMute_, audioMasterVolume_,
+                                        receiptRetentionDays_, valStr)) {
+                reply = "{\"ok\":false,\"error\":\"write_failed\"}";
+            } else {
+                textFontPath_ = valStr;
+                reply = std::string("{\"ok\":true,\"applied\":{"
+                                    "\"text_font_path\":\"") +
+                        JsonEsc(valStr) + "\"},\"note\":\"applies_on_restart\"}";
             }
         } else if (key == "capture_allow") {
             // §2.2 키별 Ask: value 1=allow, 0=ask. 승인 시점에 두 캡처 도구를

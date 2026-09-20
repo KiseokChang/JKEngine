@@ -64,6 +64,9 @@ private:
     bool volumeDragging_ = false;
     // 보존기간 콤보 — settings_read value와 동기(사용자 조작 중엔 임시 유지).
     int retentionSel_ = -1;
+    // 텍스트 폰트 경로 입력 (docs/63 §4) — Enter 시 settings_set. 300은 서버
+    // 캡과 동일(초과치는 bad_value).
+    char textFontBuf_[300] = {};
     std::vector<std::pair<uint32_t, PendingQuery>> pending_;
 };
 

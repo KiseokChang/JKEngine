@@ -442,6 +442,11 @@ private:
     bool audioMasterMute_ = false;
     int audioMasterVolume_ = 80;      // 0..100
     int receiptRetentionDays_ = 0;    // 0 = 무기한(현재 관행 — 0은 set 불가)
+    // text.font_path (docs/63 §4): 데스크탑 벡터 폰트 경로 — 기동 시
+    // LoadSettingsKv가 채우고(settings.json "text"."font_path", 상한 300자),
+    // settings_set이 쓴다. 적용 시점은 재시작(아틀라스는 Init에서 합성 —
+    // JKTextAtlas::ResolveDesktopFontPath가 파일 원독).
+    std::string textFontPath_;
 
     // In-process privileged shell (P1 ③): owns the launcher grid + desktop
     // background. Wired in Init, torn down in the destructor.

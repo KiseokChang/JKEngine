@@ -10,6 +10,7 @@
 #include <JKWindow.h>
 #include <SDL.h>
 
+#include <cfloat>
 #include <cstdio>
 #include <ctime>
 
@@ -344,6 +345,38 @@ void ClientSettingsApp::BuildUi(int w, int h) {
                       "{\"key\":\"idle_minutes\",\"value\":" +
                           std::to_string(idleTemp) + "}",
                       Query::Set, "idle_minutes");
+        }
+    }
+
+    // ---- 텍스트 폰트 (docs/63 §4) ----
+    SectionHeader(koreanFont_ ? "텍스트" : "Text");
+    {
+        // 오버라이드 없음(빈 값)이면 플랫폼 기본값을 표시한다 — 서버의
+        // textFontPath_는 빈 문자열(기본값 합성은 ResolveDesktopFontPath).
+        const std::string curPath = KvStr("text.font_path", "");
+        ImGui::TextDisabled(
+            "%s: %s",
+            koreanFont_ ? "벡터 폰트" : "vector font",
+            (curPath.empty() ? std::string("C:\\Windows\\Fonts\\malgun.ttf")
+                             : curPath)
+                .c_str());
+        if (textFontBuf_[0] == '\0' && !curPath.empty()) {
+            std::snprintf(textFontBuf_, sizeof(textFontBuf_), "%s",
+                          curPath.c_str());
+        }
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::InputText(koreanFont_ ? "폰트 경로(재시작 적용)"
+                                         : "font path (applies on restart)",
+                             textFontBuf_, sizeof(textFontBuf_),
+                             ImGuiInputTextFlags_EnterReturnsTrue)) {
+            const std::string v(textFontBuf_);
+            if (!v.empty()) {
+                SendQuery("settings_set",
+                          std::string("{\"key\":\"text_font_path\",\"value\":"
+                                      "\"") +
+                              EscapeJson(v) + "\"}",
+                          Query::Set, "text_font_path");
+            }
         }
     }
 
