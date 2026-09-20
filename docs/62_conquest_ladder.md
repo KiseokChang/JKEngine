@@ -127,6 +127,14 @@ approval_unavailable / approval_overflow.
   이전 표기 18은 집계 Check "cycle1" 누락 착시): 동일 정적검증 완료. 단
   recover-gone이 FAIL하면 하드 게이트가 cycle2 블록을 스킵 — 실제로 런되는
   체크는 12뿐이다(§7-7의 아이러니: 계수 표기는 실제 런 분기를 따라야 한다).
+- probe_conquest_tetris.ps1(런그 2 — 템플릿 복제, **19체크 구조 동일**, drive만
+  click→key로 교체: `{"op":"key","key":1073741904}` = SDLK_LEFT, 인자 형식은
+  probe_send_input.ps1 key-ok 선례 그대로, 소스 실측 = JKAppModule_tetris.cpp:8
+  스폰명 "tetris"/타이틀 "Tetris" + TetrisApp.cpp TetrisGrid::RespondMessage의
+  SDLK_LEFT/RIGHT/UP/DOWN/SPACE `changed`→Invalidate 갱신): 동일 정적검증
+  완료(ASCII 무BOM + ninja GREEN 유지 + 템플릿 diff로 시나리오 라인 외 무편집
+  확인). 유의: verify-hash는 게임 중력 타이머도 화면을 다시 그리므로 drive+렌더
+  종합 증거이고, 키 고유 게이트는 drive-key 도구 승인 응답이다.
 - **회귀 스윕 배치 대기**: probe_app_tools ×2 + `jkdesktop test` 종료코드 0 +
   probe_agent_e2e ×1(minesweeper 스폰 경로 무손상).
 
@@ -136,7 +144,7 @@ approval_unavailable / approval_overflow.
 
 | 프로브 | 테스트 대상 서버 | permissions.json | teardown |
 |---|---|---|---|
-| probe_send_input / probe_send_input_ask / probe_conquest_minesweeper | **워크트리** build(스크립트 `$build` 하드코딩) | Copy-Item 백업+finally 복원(검증됨) | jkwinserver/jkdesktop/jkagentd/jkbridge 전면 정지 |
+| probe_send_input / probe_send_input_ask / probe_conquest_minesweeper / probe_conquest_tetris | **워크트리** build(스크립트 `$build` 하드코딩) | Copy-Item 백업+finally 복원(검증됨) | jkwinserver/jkdesktop/jkagentd/jkbridge 전면 정지 |
 | probe_app_tools | **메인 트리** build(`$exe` 하드코딩) | TEMP per-PID 백업+stale 가드+finally 복원 | jkdesktop/jkapp_vplayer/jkbridge/jkchat 정지 |
 | probe_agent_e2e | **메인 트리** build(`$exe`/`$agnt` 하드코딩 — 사용자 라이브 데스크톱이 쓰는 그 빌드) | **백업 없이** `{"close_window":"allow"}`로 덮어쓰고 끝에 Remove-Item으로 **삭제**(docs/59 §16.1 재발 패턴) | jkdesktop 정지 |
 
@@ -164,6 +172,8 @@ powershell -ExecutionPolicy Bypass -File probe_send_input_ask.ps1       > probe_
 powershell -ExecutionPolicy Bypass -File probe_send_input_ask.ps1       > probe_send_input_ask_run2.log 2>&1
 powershell -ExecutionPolicy Bypass -File probe_conquest_minesweeper.ps1 > probe_conquest_minesweeper.log 2>&1
 powershell -ExecutionPolicy Bypass -File probe_conquest_minesweeper.ps1 > probe_conquest_minesweeper_run2.log 2>&1
+powershell -ExecutionPolicy Bypass -File probe_conquest_tetris.ps1      > probe_conquest_tetris.log 2>&1
+powershell -ExecutionPolicy Bypass -File probe_conquest_tetris.ps1      > probe_conquest_tetris_run2.log 2>&1
 # (2) 메인 트리 회귀
 powershell -ExecutionPolicy Bypass -File probe_app_tools.ps1            > probe_app_tools_b62.log 2>&1
 powershell -ExecutionPolicy Bypass -File probe_app_tools.ps1            > probe_app_tools_b62_run2.log 2>&1
@@ -202,7 +212,8 @@ Start-Process -FilePath I:\progwork\JKENGINE\engine\build\jkbridge.exe -WorkingD
 | 단 | 상태 |
 |---|---|
 | **minesweeper** | **코드 정복 완료** — send_input 도구 + 정복 프로브 템플릿 확립. 프로브 공식런+회귀 스윕은 배치 대기(§4). 남은 판정 = 배치 런 + LLM 실전 세션(§6) |
-| tetris | 대기 — probe_conquest_minesweeper.ps1 복제+시나리오 교체 |
+| tetris | **코드 정복 완료** — probe_conquest_tetris.ps1(템플릿 복제+키 드라이브,
+  런 시 19체크). 공식런 ×2는 배치 대기(§4) |
 | scriptdemo | 대기 |
 | taskmgr | 대기 |
 | terminal | 대기 |
