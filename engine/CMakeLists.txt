@@ -133,6 +133,7 @@ add_library(jkcore STATIC
     src/JKHangulAutomata.cpp
     src/JKHangulUtil.cpp
     src/JKPlatform_win32.cpp
+    src/JKCrashHandler_win32.cpp
     src/JKScrollBar.cpp
     src/JKListBox.cpp
     src/JKComboBox.cpp
@@ -192,6 +193,8 @@ target_link_libraries(jkcore PUBLIC quickjs SDL2::SDL2 SDL2_mixer::SDL2_mixer)
 
 if(WIN32)
     target_link_libraries(jkcore PUBLIC imm32)
+    # Minidump on unhandled exceptions (JKCrashHandler_win32.cpp, docs/57 §13)
+    target_link_libraries(jkcore PUBLIC dbghelp)
 endif()
 
 # ---------------------------------------------------------------------------

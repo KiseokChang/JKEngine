@@ -29,6 +29,7 @@ extern "C" __declspec(dllimport) int __stdcall GetDiskFreeSpaceExA(
 #endif
 
 #include <JKApplication.h>
+#include <JKCrashHandler.h>
 #include <JKWindow.h>
 
 #include <client/JKClientSurface.h>
@@ -2847,6 +2848,11 @@ static int RunMain(int argc, char* argv[]) {
     }
 
     if (runServer) {
+        // 크래시 증거+로그 보존(docs/57 §13) — 가드/Init보다 먼저: 서버가
+        // 무음 사망하면(2026-09-20 16:12 실측 — WER 기록 0, 콘솔 로그 증발)
+        // state\logs의 파일 로그+미니덤프가 유일한 진실원이 된다.
+        jk::InstallCrashHandler("state/logs", "server");
+        jk::MirrorLogToFiles("state/logs", "server");
         jk::server::JKWindowServer server;
         // 단일 인스턴스 가드(docs/59 §10) — Init 전에 봉쇄: 가드가 Init 뒤에
         // 있으면 거부 인스턴스가 앱 설치+아이콘 로드를 전부 수행한 뒤 죽는다

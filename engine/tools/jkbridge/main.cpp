@@ -16,6 +16,7 @@
 #include <agent/JKAgentClient.h>
 #include <agent/JKAgentJson.h>
 #include <agent/JKLlmEngine.h>
+#include <JKCrashHandler.h>
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -1845,6 +1846,10 @@ static void DumpDebug(const std::string& url, const std::vector<uint8_t>& m,
 }  // namespace qr
 
 int main(int argc, char** argv) {
+    // 크래시 증거 보존(docs/57 §13): 서버 무음 사망(2026-09-20)을 브리지도
+    // 따라가지 않게. OutW는 Win32 콘솔 핸들 직접 출력이라 로그 미러 대상이
+    // 아님 — 미니덤프가 브리지 죽음의 진실원.
+    jk::InstallCrashHandler("state/logs", "bridge");
     // --qr-debug-func: function-cell map dump (python verifier diff input).
     if (argc >= 2 && std::strcmp(argv[1], "--qr-debug-func") == 0) {
         qr::Field base;

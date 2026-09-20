@@ -1,7 +1,7 @@
 # probe_workshop.ps1 - workshop regression (docs/60 §4). ASCII-only (PS5.1).
 # Checks (setup + 9):
 #   s1 server up (probe-owned lifecycle: fresh --server)
-#   s2 spawn workshop.jkx -> get_script/set_script registered (2 rows)
+#   s2 spawn workshop.jkx -> get_script/set_script/api registered (3 rows)
 #   s3 template seeded: state/scripts/myapp.js exists + has createButton
 #   1  get_script roundtrip: ok:true + source contains createButton
 #   2  set_script good source -> ok:true + DISK file actually written +
@@ -14,7 +14,7 @@
 #      8KiB - the app's 256KiB cap is a backstop that stays behind it)
 #   5  watch path: DISK edit (not via tools) -> client log
 #      "[script] app.js changed - hot reload" within 3s
-#   6  cleanup: close_window -> catalog rows 2 -> 0
+#   6  cleanup: close_window -> catalog rows 3 -> 0
 #   7  truth source restored to the template (clean state for the eye check)
 # permissions.json is NEVER touched by this probe (docs/59 §16.1 incident):
 # app_tool defaults to allow without keys, and close_window allowance comes
@@ -89,13 +89,14 @@ try {
         Start-Sleep -Milliseconds 500
         $cat = Catalog
         $rows = [regex]::Matches($cat, '"app":"workshop"').Count
-        if ($rows -eq 2) { break }
+        if ($rows -eq 3) { break }
     }
     $head = $cat
     if ($head.Length -gt 300) { $head = $head.Substring(0, 300) }
-    Check "s2-spawn-2-rows" ($rows -eq 2) ("rows=$rows / " + $head)
+    Check "s2-spawn-3-rows" ($rows -eq 3) ("rows=$rows / " + $head)
     $namesOk = ($cat -match '"app":"workshop","name":"get_script"') -and
-               ($cat -match '"app":"workshop","name":"set_script"')
+               ($cat -match '"app":"workshop","name":"set_script"') -and
+               ($cat -match '"app":"workshop","name":"api"')
     Check "s2-catalog-names" $namesOk ""
 
     # ---- s3: template seeded on first boot --------------------------------------
@@ -113,6 +114,17 @@ try {
     $g1s = $g1
     if ($g1s.Length -gt 300) { $g1s = $g1s.Substring(0, 300) }
     Check "c1-get-script-ok" ($g1 -match '"ok":true' -and $g1 -match "createButton") $g1s
+
+    # ---- check 1b: api catalog — the LLM-facing digest (docs/60 §8) ---------------
+    # The phone session burned 3 turns guessing at bindings (createListBox
+    # 헛다리). The api tool must return the function list + the charset
+    # contract. ASCII-only needle against the UTF-8 body.
+    $api = (AppTool "workshop" "api" "")
+    $apiOk = ($api -match '"ok":true' -and
+              $api -match '"sig":"createButton\(rect, text\)"' -and
+              $api -match '"sig":"setInterval' -and
+              $api -match '"note":"createListBox')
+    Check "c1b-api-catalog" $apiOk $api.Substring(0, [Math]::Min(200, $api.Length))
 
     # ---- check 2: set_script good source -> file written + roundtrip --------------
     # JS single-quote strings: a raw " in the source becomes \" in JSON and

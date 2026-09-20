@@ -243,6 +243,11 @@ protected:
                  "a script error comes back in the same response",
                  "{\"type\":\"object\",\"properties\":{\"source\":{\"type\":"
                  "\"string\"}},\"required\":[\"source\"]}"},
+                {"api",
+                 "List the workshop script API: function signatures and "
+                 "constraints (charset, timers, events). Call this before "
+                 "writing a script",
+                 "{}"},
             };
             surface->SendAgentToolRegister(agentAppName_, tools);
         }
@@ -250,6 +255,10 @@ protected:
 
     bool OnAgentToolCall(const std::string& tool, const std::string& argsJson,
                          std::string& out) override {
+        if (tool == "api") {
+            out = kApiCatalog;
+            return true;
+        }
         if (tool == "get_script") {
             std::string source;
             if (!ReadTextFile(scriptPath_, source)) {
@@ -281,8 +290,10 @@ protected:
             }
             // The closed loop (docs/60 §2.3): the failing script's error text
             // travels back inside the tool response so the agent fixes itself.
+            // The api hint turns "createListBox is not defined" style failures
+            // into a one-turn fix (docs/60 §8 — 폰 세션 실측: 추측 3턴 소모).
             out = "{\"ok\":false,\"error\":\"" + JsonEsc(host_->LastError()) +
-                  "\"}";
+                  "\",\"hint\":\"call the api tool for the function list\"}";
             return false;
         }
         // Unreachable through the server (reverse matching answers
@@ -293,6 +304,45 @@ protected:
 
 private:
     static constexpr size_t kMaxScriptBytes = 256 * 1024;  // docs/60 §2.3
+
+    // Workshop API digest (docs/60 §8): the phone LLM guessed at bindings
+    // (createListBox 헛다리 — 2026-09-20 폰 세션 실측) because the contract
+    // lived only in scripts/jk.d.ts, which the agent never sees. This digest
+    // rides the `api` tool. Same maintenance rule as jk.d.ts: binding changes
+    // MUST update both (additive-only policy makes drift rare). Full contract
+    // remains scripts/jk.d.ts — this is the LLM-facing digest.
+    static constexpr const char* kApiCatalog =
+        "{"
+        "\"contract\":\"engine/scripts/jk.d.ts (full reference; additive only)\","
+        "\"charset\":\"위젯 텍스트는 ASCII+한글만 안전 — 기호(■□●◆)·이모지는 ?로 렌더됨\","
+        "\"events\":\"전역 함수 onClick(id)를 정의하면 모든 클릭이 id와 함께 전달된다\","
+        "\"layout\":\"좌표는 패널 클라이언트 픽셀; 창이 리사이즈되어도 위젯은 재배치되지 않는다\","
+        "\"functions\":["
+        "{\"sig\":\"log(text)\",\"desc\":\"콘솔 로그\"},"
+        "{\"sig\":\"messageBox(title, text)\",\"desc\":\"모달 메시지 박스(비동기, JS 비차단)\"},"
+        "{\"sig\":\"createButton(rect, text)\",\"desc\":\"버튼, id 반환\"},"
+        "{\"sig\":\"createLabel(rect, text)\",\"desc\":\"정적 라벨\"},"
+        "{\"sig\":\"createEdit(rect, text)\",\"desc\":\"한 줄 입력창\"},"
+        "{\"sig\":\"setText(id, text)\",\"desc\":\"위젯 텍스트 변경\"},"
+        "{\"sig\":\"getText(id)\",\"desc\":\"위젯 텍스트 읽기\"},"
+        "{\"sig\":\"setInterval(fn, ms)\",\"desc\":\"반복 타이머(자동 낙하/시계 등) — id 반환\"},"
+        "{\"sig\":\"clearInterval(id)\",\"desc\":\"타이머 해제\"},"
+        "{\"sig\":\"findControl(title)\",\"desc\":\"제목으로 위젯 탐색\"},"
+        "{\"sig\":\"click(id)\",\"desc\":\"프로그래매틱 클릭\"},"
+        "{\"sig\":\"injectMouse(x, y)\",\"desc\":\"마우스 이벤트 주입(테스트)\"},"
+        "{\"sig\":\"injectKey(key)\",\"desc\":\"키 이벤트 주입(테스트)\"},"
+        "{\"sig\":\"assert(cond, msg)\",\"desc\":\"셀프테스트 단정\"},"
+        "{\"sig\":\"assertEq(a, b, msg)\",\"desc\":\"셀프테스트 동일 단정\"},"
+        "{\"sig\":\"createDialog(rect, title, fn)\",\"desc\":\"모달 다이얼로그 생성\"},"
+        "{\"sig\":\"dialogAddLabel(dialog, rect, text)\",\"desc\":\"다이얼로그 라벨\"},"
+        "{\"sig\":\"dialogAddEdit(dialog, rect, text)\",\"desc\":\"다이얼로그 입력창\"},"
+        "{\"sig\":\"dialogAddButton(dialog, rect, text)\",\"desc\":\"다이얼로그 버튼\"},"
+        "{\"sig\":\"dialogShow(dialog)\",\"desc\":\"다이얼로그 표시\"},"
+        "{\"sig\":\"dialogClose(dialog, result)\",\"desc\":\"다이얼로그 닫기\"},"
+        "{\"sig\":\"readConfig(key)\",\"desc\":\"스크립트 옆 설정 파일 읽기\"}"
+        "],"
+        "\"note\":\"createListBox/createCheckbox 같은 목록·체크 위젯은 아직 없다 — 목록은 라벨+버튼 조합으로 구성\""
+        "}";
 
     static std::string JsonEsc(const std::string& s) {
         std::string r;
