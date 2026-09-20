@@ -408,7 +408,14 @@ const apText = document.getElementById('aptext');
 const bAllow = document.getElementById('bAllow');
 const bDeny = document.getElementById('bDeny');
 const txt = document.getElementById('txt');
-let ws = null, streamEl = null;
+let ws = null, streamEl = null, streamIdx = -1, streamText = '';
+// 진단 타임라인 (docs/57 §12): 서버가 모든 프레임에 ts(유닉스 초)를 싣는다 —
+// 폰 대화 기록이 서버 리시트/파일 mtime과 직접 대조 가능(진실원은 서버 시각,
+// 기기 시계 아님). 렌더된 모든 줄을 transcript에 적립 — /report 한 번으로
+// 진단 대화 전체를 파일로 보낸다(진짜 폰에서 복사가 어려운 문제의 해법).
+const transcript = [];
+function hhmm(ts){ const d=new Date(ts*1000);
+  return ('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2); }
 // claude session continuity: the phone owns it (localStorage) — a reconnect
 // resumes the engine, not the transcript (spec §5).
 let claudeSession = localStorage.getItem('jkbridge_session') || '';
@@ -419,8 +426,12 @@ let pendingUndo = null; // /close,/restore → save_layout pre_undo → act
 // XSS posture: every server-sourced string reaches the DOM via textContent
 // (add()/showFront()/route()/onEvent) — no innerHTML interpolation anywhere.
 function cut(s,n){ s=String(s||''); return s.length>n ? s.slice(0,n) : s; }
-function add(text, cls){ const d=document.createElement('div'); d.className=cls||'';
-  d.textContent=text; logEl.appendChild(d); logEl.scrollTop=logEl.scrollHeight; return d; }
+// add: ts(유닉스 초, 서버 프레임에서 온 값) 있으면 그 시각, 없으면 기기 시각 —
+// 모든 줄에 [HH:MM] 접두. client 생성 라인도 표기 대상이라 기본 now.
+function add(text, cls, ts){ const t = ts || Date.now()/1000;
+  const line = '['+hhmm(t)+'] '+text; transcript.push(line);
+  const d=document.createElement('div'); d.className=cls||'';
+  d.textContent=line; logEl.appendChild(d); logEl.scrollTop=logEl.scrollHeight; return d; }
 
 function connect() {
   document.getElementById('stat').textContent='연결 중…';
@@ -435,29 +446,32 @@ function connect() {
 }
 function route(msg, j) {
   if (msg.type === 'hello') {
-    if (msg.pending_result) add('[복구] '+msg.pending_result, 'note');
-    if (msg.busy) add('[LLM 실행 중 — 이전 턴 진행]', 'sys');
+    if (msg.pending_result) add('[복구] '+msg.pending_result, 'note', msg.pending_ts);
+    if (msg.busy) add('[LLM 실행 중 — 이전 턴 진행]', 'sys', msg.ts);
     return;
   }
   if (msg.type === 'stream') {
-    if (!streamEl) streamEl = add('[LLM] ', 'llm');
+    if (!streamEl) { streamText = ''; streamEl = add('[LLM] ', 'llm', msg.ts);
+      streamIdx = transcript.length - 1; }
+    streamText += msg.text;
     streamEl.textContent += msg.text;
+    transcript[streamIdx] = '['+hhmm(msg.ts || Date.now()/1000)+'] [LLM] '+streamText;
     logEl.scrollTop = logEl.scrollHeight;
     return;
   }
-  if (msg.type === 'chat_queued') { add('[대기열] 이전 턴이 끝나면 이어서 실행해요', 'sys'); return; }
-  if (msg.type === 'chat_queued_start') { add('[대기열] 대기 중이던 메시지 실행 시작', 'sys'); return; }
+  if (msg.type === 'chat_queued') { add('[대기열] 이전 턴이 끝나면 이어서 실행해요', 'sys', msg.ts); return; }
+  if (msg.type === 'chat_queued_start') { add('[대기열] 대기 중이던 메시지 실행 시작', 'sys', msg.ts); return; }
   if (msg.type === 'chat_done') {
     if (streamEl) streamEl = null;
     if (msg.session_id) { claudeSession = msg.session_id; localStorage.setItem('jkbridge_session', msg.session_id); }
-    if (msg.ok && !msg.streamed) add(msg.result || '(빈 응답)', 'llm');
-    else if (!msg.ok) add('[!] LLM 응답 실패 — ' + (msg.result||''), 'err');
-    else add('[LLM 완료]', 'sys');
+    if (msg.ok && !msg.streamed) add(msg.result || '(빈 응답)', 'llm', msg.ts);
+    else if (!msg.ok) add('[!] LLM 응답 실패 — ' + (msg.result||''), 'err', msg.ts);
+    else add('[LLM 완료]', 'sys', msg.ts);
     return;
   }
-  if (msg.type === 'reply') { add('['+(msg.label||'?')+'] '+(j?JSON.stringify(j):'?'), 'sys'); onReply(msg.label, j); return; }
-  if (msg.type === 'event') { onEvent(msg.topic, j); return; }
-  if (msg.type === 'error') { add('[!] '+(msg.text||''), 'err'); return; }
+  if (msg.type === 'reply') { add('['+(msg.label||'?')+'] '+(j?JSON.stringify(j):'?'), 'sys', msg.ts); onReply(msg.label, j); return; }
+  if (msg.type === 'event') { onEvent(msg.topic, j, msg.ts); return; }
+  if (msg.type === 'error') { add('[!] '+(msg.text||''), 'err', msg.ts); return; }
 }
 
 // ---- approval strip (jkchat 문구 + 큐 순환 이식) ---------------------------
@@ -494,17 +508,17 @@ function decide(d) {
 }
 bAllow.onclick = () => decide('allow');
 bDeny.onclick  = () => decide('deny');
-function onEvent(topic, e) {
-  if (!e) { add('['+topic+']', 'ev'); return; }
+function onEvent(topic, e, ts) {
+  if (!e) { add('['+topic+']', 'ev', ts); return; }
   if (topic === 'agent.approval_request') {
-    add('[승인 요청] ' + approvalText(e), 'note');
+    add('[승인 요청] ' + approvalText(e), 'note', ts);
     if (!apprFront) { apprFront = {request: e.request, text: approvalText(e)}; showFront(); }
     else { apprQueue.push({request: e.request, text: approvalText(e)});
-           add('[대기] 승인 요청 #'+e.request+' — 현재 승인 처리 후 표시', 'sys'); }
+           add('[대기] 승인 요청 #'+e.request+' — 현재 승인 처리 후 표시', 'sys', ts); }
     return;
   }
   if (topic === 'agent.approval_resolved') {
-    add('[승인] request '+e.request+' → '+e.decision, 'sys');
+    add('[승인] request '+e.request+' → '+e.decision, 'sys', ts);
     if (apprFront && apprFront.request === e.request) {
       apprFront = apprQueue.shift() || null; showFront();
     } else { // another surface resolved a queued item
@@ -514,8 +528,8 @@ function onEvent(topic, e) {
     return;
   }
   if (topic === 'agent.notify') { add('[알림] '+((e.data||{}).title||'(무제)')+
-      ((e.data||{}).body ? ' — '+e.data.body : ''), 'note'); return; }
-  add('['+topic+'] '+(j?JSON.stringify(e):''), 'ev');
+      ((e.data||{}).body ? ' — '+e.data.body : ''), 'note', ts); return; }
+  add('['+topic+'] '+(j?JSON.stringify(e):''), 'ev', ts);
 }
 
 // ---- slash commands (jkchat Submit 매핑 이식) -------------------------------
@@ -547,7 +561,7 @@ function submit() {
     add('자연어 → LLM(claude 헤드리스) 위임 / 슬래시: 결정적 커맨드','sys');
     add('/list /launch <app> /close <id> /chat /notify /shot /triggers /trust','sys');
     add('/trigger <name> on|off /events /theme dark|light|classic /save <name> /restore <name>','sys');
-    add('/undo /new', 'sys');
+    add('/undo /new /report — 대화 기록을 파일로 저장(PC 진단용)','sys');
   }
   else if (cmd==='new') { claudeSession=''; localStorage.removeItem('jkbridge_session'); add('새 LLM 세션','sys');
     if (ws && ws.readyState===1) ws.send(JSON.stringify({type:'hello', resume_session:''})); }
@@ -561,6 +575,14 @@ function submit() {
   else if (cmd==='restore') { if(!arg){need();return;} pendingUndo={tool:'restore_layout',args:{name:arg},label:'restore '+arg};
     sendTool('save_layout', {name:'pre_undo'}, 'save pre_undo'); }
   else if (cmd==='undo') sendTool('restore_layout', {name:'pre_undo'}, 'undo');
+  else if (cmd==='report') {
+    // 대화 전체(타임스탬프 포함)를 서버로 — state\bridge_report_*.txt로
+    // 기록되고 agent.notify가 뜬다. 최신 256KiB만(스트림 긴 턴 대비).
+    if (!ws || ws.readyState !== 1) { add('[!] 연결 안 됨', 'err'); return; }
+    let body = transcript.join('\n');
+    if (body.length > 256*1024) body = '…(이하 생략 아님, 앞부분 절단)\n' + body.slice(body.length - 256*1024);
+    ws.send(JSON.stringify({type:'report', text:body}));
+  }
   else if (cmd==='notify') sendTool('open_notify', {}, 'notify');
   else if (cmd==='shot') sendTool('launch_app', {app:'shot'}, 'shot');
   else if (cmd==='triggers') sendTool('trigger_list', {}, 'triggers');
@@ -596,14 +618,28 @@ struct BridgeSession {
     static constexpr size_t kMaxPendingTurns = 3;
     std::mutex queueMtx_;
     std::vector<std::string> pendingTurns_;
+    std::atomic<int64_t> lastReport_{0};  // /report 쿨다운 스탬프 (10초)
 
     // The dispatcher (Run) owns the lifecycle. Returns when the WS dies.
     void Run();
 
     bool SendText(const std::string& json) {
         if (!alive_.load()) return false;
+        // 서버 스탬프 (docs/57 §12): 모든 프레임에 유닉스 초를 중앙 주입 —
+        // 폰 대화 기록이 서버 리시트/파일 mtime과 직접 대조 가능하고, 재접속
+        // 복구 라인에도 시각이 산다. 브라우저 시계는 기기마다 틀릴 수 있으니
+        // 진실원은 서버가 된다. SendText 한 곳이면 미래 프레임도 자동 커버.
+        std::string stamped;
+        if (json.size() > 1) {
+            stamped.reserve(json.size() + 16);
+            stamped += "{\"ts\":";
+            stamped += std::to_string(static_cast<long long>(time(nullptr)));
+            stamped += json.substr(1);  // 선두 '{' 뒤를 이어붙인다
+        } else {
+            stamped = json;
+        }
         std::lock_guard<std::mutex> lock(wsMtx_);
-        if (!WsSendFrame(sock_, json)) {
+        if (!WsSendFrame(sock_, stamped)) {
             Shutdown();
             return false;
         }
@@ -779,16 +815,18 @@ struct DoneMemo {
             bySession.erase(oldest);
         }
     }
-    std::string Get(const std::string& sessionId) {
-        if (sessionId.empty()) return "";
+    std::pair<int64_t, std::string> Get(const std::string& sessionId) {
+        // 반환에 기록 시각을 포함한다 — hello의 pending_ts로 폰이 "[복구]"
+        // 라인에 턴 완료 시각을 찍는다(재접속 후에도 타임라인 보존).
+        if (sessionId.empty()) return {0, ""};
         std::lock_guard<std::mutex> lock(m);
         const auto it = bySession.find(sessionId);
-        if (it == bySession.end()) return "";
+        if (it == bySession.end()) return {0, ""};
         if (static_cast<int64_t>(time(nullptr)) - it->second.first > 300) {
             bySession.erase(it);
-            return "";
+            return {0, ""};
         }
-        return it->second.second;
+        return it->second;
     }
 };
 static DoneMemo g_doneMemo;
@@ -966,9 +1004,10 @@ static void SessionRun(std::shared_ptr<BridgeSession> s) {
             std::string frame =
                 "{\"type\":\"hello\",\"ok\":1,\"busy\":" +
                 std::string(s->engine_.Busy() ? "1" : "0");
-            const std::string pending = g_doneMemo.Get(resumeAtHello);
-            if (!pending.empty()) {
-                frame += ",\"pending_result\":" + JsonEsc(pending);
+            const auto memo = g_doneMemo.Get(resumeAtHello);
+            if (!memo.second.empty()) {
+                frame += ",\"pending_result\":" + JsonEsc(memo.second);
+                frame += ",\"pending_ts\":" + std::to_string(memo.first);
             }
             frame += "}";
             s->SendText(frame);
@@ -1068,6 +1107,67 @@ static void SessionRun(std::shared_ptr<BridgeSession> s) {
             } else {
                 s->SendText("{\"type\":\"reply\",\"label\":\"approve\","
                             "\"json\":" + reply + "}");
+            }
+        } else if (type == "report") {
+            // 폰 버그 리포트 (docs/57 §12): 대화 기록(타임스탬프 포함)을 폰이
+            // 모아 보내면 state\bridge_report_<시각>.txt로 기록하고
+            // agent.notify로 데스크탑에 알린다 — 진짜 폰에서 대화 복사가
+            // 어려운 문제(사용자 피드백)의 직격 해법. PC Claude 세션은 파일을
+            // 읽어 진단한다. 쿨다운 10초(플러드 레슨 — 사용자 행동이어도
+            // 경계는 기계가 든다), 본문 상한 256KiB.
+            std::string text;
+            if (!f.GetStr("text", text) || text.empty() ||
+                text.size() > 256 * 1024) {
+                s->SendText(
+                    "{\"type\":\"error\",\"text\":\"bad report\"}");
+                continue;
+            }
+            const int64_t now = static_cast<int64_t>(time(nullptr));
+            const int64_t prev = s->lastReport_.load();
+            if (prev != 0 && now - prev < 10) {
+                s->SendText(
+                    "{\"type\":\"error\",\"text\":\"report_cooldown\"}");
+                continue;
+            }
+            char stamp[32];
+            std::tm tmb{};
+            localtime_s(&tmb, &now);
+            std::strftime(stamp, sizeof(stamp), "%Y%m%d_%H%M%S", &tmb);
+            const std::string path = ExeDirA() + "\\state\\bridge_report_" +
+                                     stamp + ".txt";
+            std::FILE* fp = std::fopen(path.c_str(), "wb");
+            bool wrote = false;
+            if (fp) {
+                wrote = std::fwrite(text.data(), 1, text.size(), fp) ==
+                            text.size() &&
+                        std::fclose(fp) == 0;
+            }
+            if (!wrote) {
+                s->SendText(
+                    "{\"type\":\"error\",\"text\":\"report write failed\"}");
+                continue;
+            }
+            s->lastReport_.store(now);
+            s->SendText("{\"type\":\"reply\",\"label\":\"report\","
+                        "\"json\":{\"ok\":true,\"path\":" +
+                        JsonEsc(path) + "}}");
+            // notify는 결과와 무관하게 화재 — 실패는 조용히(리포트는 이미
+            // 파일로 남아 다음 PC 세션이 찾을 수 있다).
+            const uint32_t nid = [&] {
+                std::lock_guard<std::mutex> lock(s->agentMtx_);
+                if (!s->agent_.IsConnected() && !s->agent_.Connect()) {
+                    return 0u;
+                }
+                return s->agent_.SendQuery(
+                    "publish_event",
+                    "{\"topic\":\"agent.notify\",\"data\":{\"title\":\"폰 "
+                    "리포트 도착\",\"body\":\"" +
+                        JsonEsc(stamp) + "\"}}");
+            }();
+            if (nid != 0) {
+                std::lock_guard<std::mutex> lock(s->labelsMtx_);
+                if (s->labels_.size() >= 128) s->labels_.clear();
+                s->labels_[nid] = "notify report";
             }
         } else {
             s->SendText("{\"type\":\"error\",\"text\":\"unknown type\"}");

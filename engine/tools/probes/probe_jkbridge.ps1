@@ -182,6 +182,23 @@ $reply = $null
 foreach ($i in 1..10) { $r = WsRecv $c1 3000; if ($r -match '"type":"reply"') { $reply = $r; break } }
 Check "tool-reply" ($reply -match '"label":"list"' -and $reply -match '"ok"\s*:\s*(true|1)')
 
+# --- 5b. report: transcript dump -> state\bridge_report_*.txt (docs/57 §12) ---
+# The phone posts its transcript; the bridge writes the file, replies with the
+# path, and fires agent.notify. A second report inside 10 s hits the cooldown.
+WsSend $c1 '{"type":"report","text":"probe report body 12345"}'
+$repReply = $null
+foreach ($i in 1..10) { $r = WsRecv $c1 3000; if ($r -match '"label":"report"') { $repReply = $r; break } }
+$repPath = $null
+if ($repReply -match '"path\\?":"([^"]+)"') { $repPath = $Matches[1] -replace '\\\\', '\' }
+$repOk = ($repPath -ne $null -and (Test-Path $repPath) -and
+          ((Get-Content $repPath -Raw -ErrorAction SilentlyContinue) -match "probe report body 12345"))
+Check "report-file-written" $repOk ("path=$repPath")
+if ($repPath -ne $null) { Remove-Item $repPath -Force -ErrorAction SilentlyContinue }
+WsSend $c1 '{"type":"report","text":"probe cooldown probe"}'
+$repCool = $null
+foreach ($i in 1..6) { $r = WsRecv $c1 2000; if ($r -match "report_cooldown") { $repCool = $r; break } }
+Check "report-cooldown" ($repCool -ne $null) "$repCool"
+
 # --- 6. approve roundtrip: ask-gated close via the bridge --------------------
 # agentctl argument passing: the probe_agent_chat convention (PS 5.1 strips
 # embedded quotes on reparse — escape them the way the green probe does).
