@@ -11,8 +11,12 @@
 namespace jk {
 
 namespace {
-// 비트맵 폰트 셀과 동일 — MeasureText 계약(8x8 ASCII / 16x16 한글 셀).
-constexpr int kTextCellH = 16;
+// 셀 메트릭 진실원 (docs/63 §6 text.font_scale): 기본 1.0 = 비트맵 셀과 동일
+// {8, 16, 16}. MeasureText가 static이라 정적 진실원
+// (jk::text::CellMetrics — 함수 로컬 static, 프로세스당 1회)을 경유한다.
+// 비트맵 글리프 내부(PutEngGlyph8x8/8x16·PutHanGlyph16x16의 픽셀 오프셋)와
+// 비트맵 폴백 고정 크기(EngPutCh/HanPutCh 폴백의 8x16/16x16)는 폰트 메트릭이
+// 아니라 그대로 둔다.
 } // namespace
 
 JKDC::JKDC(JKRenderBackend* backend) : backend_(backend) {
@@ -45,24 +49,26 @@ void JKDC::Present() {
 }
 
 JKPoint JKDC::MeasureText(const char* str) {
-    if (!str || !str[0]) return JKPoint{ 0, 16 };
+    // 정적 진실원 직독 (docs/63 §6) — 호출부 무수정 계약 유지를 위해 static 유지.
+    const text::CellMetrics& m = text::GetCellMetrics();
+    if (!str || !str[0]) return JKPoint{ 0, m.cellH };
     int32_t width = 0;
-    int32_t height = 16;
+    int32_t height = m.cellH;
     int32_t lineWidth = 0;
     for (const char* p = str; *p; ++p) {
         uint8_t c = static_cast<uint8_t>(*p);
         if (c == '\n') {
             if (lineWidth > width) width = lineWidth;
             lineWidth = 0;
-            height += 16;
+            height += m.cellH;
         } else if (c < 0x80) {
-            lineWidth += 8;
+            lineWidth += m.engW;
         } else {
             // KSSM/Johab Hangul byte pair.
             if (*(p + 1)) {
                 ++p;
             }
-            lineWidth += 16;
+            lineWidth += m.hanW;
         }
     }
     if (lineWidth > width) width = lineWidth;
@@ -190,6 +196,9 @@ void JKDC::SetTextAtlas(JKTextAtlas* atlas, JKResourceCache* cache) {
 
 bool JKDC::DrawGlyph(JKPoint p, uint32_t cp, int stride) {
     if (!textAtlas_ || !textCache_ || !backend_) return false;
+    // 블릿 높이 = 셀 메트릭 (docs/63 §6) — 폰트 메트릭(셀 높이)이지 비트맵
+    // 글리프 내부 픽셀 오프셋이 아니다.
+    const int32_t cellH = text::GetCellMetrics().cellH;
     const uint32_t fg =
         (static_cast<uint32_t>(textR_) << 16) |
         (static_cast<uint32_t>(textG_) << 8) | static_cast<uint32_t>(textB_);
@@ -210,15 +219,19 @@ bool JKDC::DrawGlyph(JKPoint p, uint32_t cp, int stride) {
         if (!tex) return false;
     }
     backend_->BlitTexture(tex, nullptr,
-                          JKRect{ p.x, p.y, stride, kTextCellH }, 255);
+                          JKRect{ p.x, p.y, stride, cellH }, 255);
     return true;
 }
 
 void JKDC::EngPutCh(JKPoint p, uint8_t ch) {
     // 아틀라스 우선 (docs/63) — 실패 시 기존 비트맵 경로 그대로. ASCII(ch<0x80)만
-    // 블릿 — 잘린 KSSM 트레일 바이트(ch>=0x80)는 16px 글리프 텍스처를 8px dst로
+    // 블릿 — 잘린 KSSM 트레일 바이트(ch>=0x80)는 한글 셀 텍스처를 영문 dst로
     // 눌러 그리는 왜곡이 생기므로 비트맵 폴백으로 라우팅한다(최종리뷰 IMP-1).
-    if (ch < 0x80 && DrawGlyph(p, static_cast<uint32_t>(ch), 8)) return;
+    // 전진 8은 셀 메트릭 engW(docs/63 §6) — 폰트 메트릭이다.
+    if (ch < 0x80 &&
+        DrawGlyph(p, static_cast<uint32_t>(ch), text::GetCellMetrics().engW)) {
+        return;
+    }
     uint8_t image[16];
     if (fontMan_ && fontMan_->GetEnglishImage(image, ch)) {
         PutEngGlyph8x16(p, image);
@@ -234,13 +247,15 @@ void JKDC::HanPutCh(JKPoint p, uint8_t first, uint8_t second) {
     // Init 실패 등)이면 변환 없이 비트맵으로 곧장 — cp가 필요 없는 경로.
     if (textAtlas_ && textCache_) {
         const uint32_t cp = KssmCodepointToUnicode(first, second);
-        if (cp != 0 && DrawGlyph(p, cp, 16)) return;
+        // 전진 16은 셀 메트릭 hanW(docs/63 §6) — 폰트 메트릭이다.
+        if (cp != 0 && DrawGlyph(p, cp, text::GetCellMetrics().hanW)) return;
     }
     uint8_t buffer[32];
     if (fontMan_ && fontMan_->GetWORDImage(buffer, first, second)) {
         PutHanGlyph16x16(p, buffer);
     } else {
         // Fallback: draw an empty rectangle for missing glyph data.
+        // (비트맵 폴백 경로 — 16x16은 비트맵 글리프 고정 크기라 스케일 안 함.)
         SetColor(textR_, textG_, textB_, 255);
         DrawRect(JKRect{ p.x, p.y, 16, 16 });
     }
@@ -265,6 +280,8 @@ void JKDC::TextOut(JKPoint p, size_t n, const char* str) {
     if (!str || !str[0] || n == 0) return;
     size_t len = std::strlen(str);
     if (n > len) n = len;
+    // 전진은 셀 메트릭 (docs/63 §6) — 폰트 메트릭이다.
+    const text::CellMetrics& m = text::GetCellMetrics();
 
     size_t i = 0;
     while (i < n && *str) {
@@ -272,12 +289,12 @@ void JKDC::TextOut(JKPoint p, size_t n, const char* str) {
         if (i + 1 < n && (c & 0x80)) {
             HanPutCh(p, static_cast<uint8_t>(c), static_cast<uint8_t>(str[1]));
             str += 2;
-            p.x += 16;
+            p.x += m.hanW;
             i += 2;
         } else {
             EngPutCh(p, static_cast<uint8_t>(c));
             ++str;
-            p.x += 8;
+            p.x += m.engW;
             ++i;
         }
     }
@@ -285,12 +302,15 @@ void JKDC::TextOut(JKPoint p, size_t n, const char* str) {
 
 void JKDC::TextOutInRect(const JKRect& rect, JKPoint p, size_t n, const char* str) {
     if (!n || !str) return;
-    const int32_t charW = 8;
-    const int32_t charH = 16;
+    // 셀 메트릭 (docs/63 §6) — charW는 1셀 전진(폰트 메트릭), charH는 셀 높이.
+    const text::CellMetrics& m = text::GetCellMetrics();
+    const int32_t charW = m.engW;
+    const int32_t charH = m.cellH;
     if (rect.y > p.y || rect.y + rect.h < p.y + charH) return;
 
     int32_t count1 = (p.x >= rect.x) ? (rect.x - p.x) / charW : (rect.x - p.x) / charW + 1;
-    int32_t count2 = (p.x <= rect.x + rect.w) ? (rect.x + rect.w - p.x - 7) / charW
+    // -7은 "마지막 셀의 잉크 폭 1px 여유"(기존 8-1) — engW 스케일을 따른다.
+    int32_t count2 = (p.x <= rect.x + rect.w) ? (rect.x + rect.w - p.x - (charW - 1)) / charW
                                                 : (rect.x + rect.w - p.x) / charW - 1;
     if (count2 >= static_cast<int32_t>(n)) count2 = static_cast<int32_t>(n) - 1;
     if (count1 < 0) count1 = 0;
@@ -320,20 +340,27 @@ void JKDC::TextOutX(const JKRect& rect, const char* str, uint8_t adjflag, bool w
     }
     charsPerLine[lineCount++] = i;
 
+    // 셀 메트릭 (docs/63 §6) — 행 높이와 바이트당 전진 추정은 폰트 메트릭.
+    // (charsPerLine은 바이트 수라 KSSM 쌍 폭은 hanW가 아니라 engW×2로 근사하는
+    // 기존 추정 관례 그대로 — engW만 바꾼다.)
+    const text::CellMetrics& m = text::GetCellMetrics();
+
     JKPoint p;
     JKPoint adjY{ rect.y, rect.y + rect.h };
-    p.y = adjY.Adjust((adjflag >> 4) & 0x0f, static_cast<int32_t>(lineCount * 16));
+    p.y = adjY.Adjust((adjflag >> 4) & 0x0f,
+                      static_cast<int32_t>(lineCount * m.cellH));
 
     JKPoint adjX{ rect.x, rect.x + rect.w };
     tempstr = str;
     for (i = 0; i < lineCount; ++i) {
         if (charsPerLine[i]) {
-            p.x = adjX.Adjust(adjflag & 0x0f, static_cast<int32_t>(8 * charsPerLine[i]));
+            p.x = adjX.Adjust(adjflag & 0x0f,
+                              static_cast<int32_t>(m.engW * charsPerLine[i]));
             if (wrapping) {
-                TextOutInRect(rect, JKPoint{ p.x, p.y + static_cast<int32_t>(i * 16) },
+                TextOutInRect(rect, JKPoint{ p.x, p.y + static_cast<int32_t>(i * m.cellH) },
                               charsPerLine[i], tempstr);
             } else {
-                TextOut(JKPoint{ p.x, p.y + static_cast<int32_t>(i * 16) },
+                TextOut(JKPoint{ p.x, p.y + static_cast<int32_t>(i * m.cellH) },
                         charsPerLine[i], tempstr);
             }
             tempstr += charsPerLine[i] + 1;

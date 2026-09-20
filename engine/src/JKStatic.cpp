@@ -1,4 +1,5 @@
 #include <JKStatic.h>
+#include <JKTextAtlas.h>
 
 namespace jk {
 
@@ -25,12 +26,14 @@ void JKStatic::OnPaintClient(JKDC& dc) {
 }
 
 JKPoint JKStatic::MeasureContent() const {
+    // 빈 텍스트/높이 0의 폴백 16 = 셀 높이(폰트 메트릭, docs/63 §6).
+    const int32_t cellH = jk::text::GetCellMetrics().cellH;
     const std::string& txt = GetText();
     if (txt.empty()) {
-        return JKPoint{ 0, 16 };
+        return JKPoint{ 0, cellH };
     }
     JKPoint size = JKDC::MeasureText(txt.c_str());
-    if (size.y == 0) size.y = 16;
+    if (size.y == 0) size.y = cellH;
     return size;
 }
 

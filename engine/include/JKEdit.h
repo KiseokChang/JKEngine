@@ -70,11 +70,12 @@ private:
     size_t compCursor_ = 0;
     bool imeComposing_ = false;
 
-    // 멀티라인 / 스크롤 상태
+    // 멀티라인 / 스크롤 상태 — 기본값은 비트맵 셀(16/8). 두 ctor가 셀 메트릭
+    // 진실원(jk::text::CellMetrics, docs/63 §6 text.font_scale)으로 채운다.
     size_t firstVisibleLine_ = 0;
     int32_t lineHeight_ = 16;
     int32_t charWidth_ = 8;
-    // 한 줄 편집 수평 스크롤 (표시 셀 단위 — ASCII 1셀=8px, KSSM 1글자=2셀=16px).
+    // 한 줄 편집 수평 스크롤 (표시 셀 단위 — ASCII 1셀=engW, KSSM 1글자=2셀).
     size_t firstVisibleCol_ = 0;
 
     // 선택 영역

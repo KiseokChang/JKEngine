@@ -179,7 +179,8 @@ namespace server {
 // 설정 허브 KV 헬퍼 — 본문은 WritePermissionsEntry 뒤(§2.2). Init의 부팅
 // 로드가 쓴다(정의가 뒤에 있으므로 네임스페이스 내 전방선언).
 static void LoadSettingsKv(bool& mute, int& volume, int& retention,
-                           std::string& fontPath, std::string& fontFallback);
+                           std::string& fontPath, std::string& fontFallback,
+                           std::string& fontScale);
 
 JKWindowServer::JKWindowServer() = default;
 
@@ -297,7 +298,7 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
     // 설정 허브 KV (스펙 2026-09-18-settings-hub §2.2): 재시작 복원 —
     // audio.master/retention은 이 값이 진실원(파일 없으면 기본값 유지).
     LoadSettingsKv(audioMasterMute_, audioMasterVolume_, receiptRetentionDays_,
-                   textFontPath_, textFontFallback_);
+                   textFontPath_, textFontFallback_, textFontScale_);
 
     return true;
 }
@@ -2254,8 +2255,19 @@ static std::string SettingsKvPath() {
     return dir + "\\state\\settings.json";
 }
 
+// text.font_scale 유효성 (docs/63 §6 Task 3): 문자열 float 전체 소비 + 범위
+// [1.0, 3.0]. 부팅 로드(LoadSettingsKv)와 settings_set(정문 게이트)이 같은
+// 규약을 쓴다 — "1.5x"·"-2"·"abc"류는 전부 기각(기본 1.0 폴백/bad_value).
+static bool ValidFontScale(const std::string& v) {
+    if (v.empty()) return false;
+    char* end = nullptr;
+    const double d = std::strtod(v.c_str(), &end);
+    return end != v.c_str() && *end == '\0' && d >= 1.0 && d <= 3.0;
+}
+
 static void LoadSettingsKv(bool& mute, int& volume, int& retention,
-                           std::string& fontPath, std::string& fontFallback) {
+                           std::string& fontPath, std::string& fontFallback,
+                           std::string& fontScale) {
     std::FILE* f = std::fopen(SettingsKvPath().c_str(), "rb");
     if (!f) return;
     std::string text;
@@ -2284,11 +2296,17 @@ static void LoadSettingsKv(bool& mute, int& volume, int& retention,
         s.size() <= 300) {
         fontFallback = s;
     }
+    // text.font_scale (docs/63 §6 Task 3): 셀 확대 배율 문자열 float —
+    // 범위 밖/파손치는 폐기(멤버 기본 "1.0" 유지 = 비트맵 셀).
+    if (json.GetObjStr("text", "font_scale", s) && ValidFontScale(s)) {
+        fontScale = s;
+    }
 }
 
 static bool WriteSettingsKv(bool mute, int volume, int retention,
                             const std::string& fontPath,
-                            const std::string& fontFallback) {
+                            const std::string& fontFallback,
+                            const std::string& fontScale) {
     // 고정 char 버퍼 대신 문자열 조립 — fontPath 300자가 JsonEsc로 제어문자
     // 6배 확장(\\uXXXX)까지 갈 수 있어 512 버퍼는 조용한 절단이 나온다.
     const std::string out =
@@ -2296,7 +2314,8 @@ static bool WriteSettingsKv(bool mute, int volume, int retention,
         ",\"volume\":" + std::to_string(volume) + "},\"retention\":{\"days\":" +
         std::to_string(retention) + "},\"text\":{\"font_path\":\"" +
         JsonEsc(fontPath) + "\",\"font_fallback\":\"" +
-        JsonEsc(fontFallback) + "\"}}";
+        JsonEsc(fontFallback) + "\",\"font_scale\":\"" +
+        JsonEsc(fontScale) + "\"}}";
     const std::string kvPath = SettingsKvPath();
     // .bak 1세대 (opus 리뷰 MINOR-1): 비원자 쓰기 중간 절단 시 부팅 로더가
     // 기본값으로 조용히 리셋한다 — 직전 KV를 복구 원본으로 남긴다.
@@ -3827,6 +3846,13 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                       "\"value\":\"%s\"}",
                       JsonEsc(textFontFallback_).c_str());
         out += item;
+        // text.font_scale (docs/63 §6 Task 3): 셀 확대 배율 문자열 float —
+        // 미설정은 기본 "1.0"(멤버 초기값).
+        std::snprintf(item, sizeof(item),
+                      ",{\"key\":\"text.font_scale\",\"kind\":\"string\","
+                      "\"value\":\"%s\"}",
+                      JsonEsc(textFontScale_).c_str());
+        out += item;
         // triggers: state/triggers.json 플래그(trigger_toggle의 진실원).
         {
             std::FILE* f =
@@ -3977,7 +4003,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                 reply = "{\"ok\":false,\"error\":\"bad_value\"}";
             } else if (!WriteSettingsKv(audioMasterMute_, audioMasterVolume_,
                                         valInt, textFontPath_,
-                                        textFontFallback_)) {
+                                        textFontFallback_, textFontScale_)) {
                 reply = "{\"ok\":false,\"error\":\"write_failed\"}";
             } else {
                 receiptRetentionDays_ = valInt;
@@ -4005,7 +4031,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             if (reply.empty()) {
                 if (!WriteSettingsKv(audioMasterMute_, audioMasterVolume_,
                                      receiptRetentionDays_, textFontPath_,
-                                     textFontFallback_)) {
+                                     textFontFallback_, textFontScale_)) {
                     reply = "{\"ok\":false,\"error\":\"write_failed\"}";
                 } else {
                     char ev[160];
@@ -4034,7 +4060,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                 reply = "{\"ok\":false,\"error\":\"bad_value\"}";
             } else if (!WriteSettingsKv(audioMasterMute_, audioMasterVolume_,
                                         receiptRetentionDays_, valStr,
-                                        textFontFallback_)) {
+                                        textFontFallback_, textFontScale_)) {
                 reply = "{\"ok\":false,\"error\":\"write_failed\"}";
             } else {
                 textFontPath_ = valStr;
@@ -4053,12 +4079,32 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                 reply = "{\"ok\":false,\"error\":\"bad_value\"}";
             } else if (!WriteSettingsKv(audioMasterMute_, audioMasterVolume_,
                                         receiptRetentionDays_, textFontPath_,
-                                        valStr)) {
+                                        valStr, textFontScale_)) {
                 reply = "{\"ok\":false,\"error\":\"write_failed\"}";
             } else {
                 textFontFallback_ = valStr;
                 reply = std::string("{\"ok\":true,\"applied\":{"
                                     "\"text_font_fallback\":\"") +
+                        JsonEsc(valStr) + "\"},\"note\":\"applies_on_restart\"}";
+            }
+        } else if (key == "text_font_scale") {
+            // docs/63 §6 Task 3: 셀 확대 배율(옵트인) — 문자열 float. 범위
+            // [1.0, 3.0] 밖·숫자 아님·빈 값은 전부 bad_value(하한 미달을
+            // "1.0으로 클램프"하지 않는다 — 오타 방어, font_path 선례).
+            // 재시작 적용(CellMetrics()는 기동 시 settings.json 직독, 함수
+            // 로컬 static — 실행 중 반영 불가).
+            std::string valStr;
+            if (!req.GetObjStr("args", "value", valStr) ||
+                !ValidFontScale(valStr)) {
+                reply = "{\"ok\":false,\"error\":\"bad_value\"}";
+            } else if (!WriteSettingsKv(audioMasterMute_, audioMasterVolume_,
+                                        receiptRetentionDays_, textFontPath_,
+                                        textFontFallback_, valStr)) {
+                reply = "{\"ok\":false,\"error\":\"write_failed\"}";
+            } else {
+                textFontScale_ = valStr;
+                reply = std::string("{\"ok\":true,\"applied\":{"
+                                    "\"text_font_scale\":\"") +
                         JsonEsc(valStr) + "\"},\"note\":\"applies_on_restart\"}";
             }
         } else if (key == "capture_allow") {
@@ -6147,6 +6193,8 @@ SDL_Texture* JKWindowServer::ApprovalBannerTexture(const std::string& bannerUtf8
     }
     if (!bannerAtlas_) {
         bannerAtlas_ = std::make_unique<jk::JKTextAtlas>();
+        // 셀 메트릭 진실원 (docs/63 §6 text.font_scale) — 기본 1.0 = {8,16,16}.
+        const jk::text::CellMetrics m = jk::text::GetCellMetrics();
         const std::string fp = textFontPath_.empty()
                                    ? jk::text::ResolveDesktopFontPath()
                                    : textFontPath_;
@@ -6154,7 +6202,7 @@ SDL_Texture* JKWindowServer::ApprovalBannerTexture(const std::string& bannerUtf8
             std::fprintf(stderr,
                          "[server] approval banner: no vector font configured "
                          "(text.font_path empty), staying on bitmap glyphs\n");
-        } else if (!bannerAtlas_->Init(fp, 8, 16, 16)) {
+        } else if (!bannerAtlas_->Init(fp, m.engW, m.cellH, m.hanW)) {
             std::fprintf(stderr,
                          "[server] approval banner: vector font init failed "
                          "(%s), staying on bitmap glyphs\n",

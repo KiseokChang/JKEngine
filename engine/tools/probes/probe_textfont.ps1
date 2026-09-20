@@ -227,6 +227,34 @@ SendQuery $p ([uint32]$qid) '{"tool":"settings_set","args":{"key":"text_font_fal
 $r = Wait-Reply $p $qid 5000
 CHECK ($null -ne $r -and $r -match '"ok":true' -and $r -match 'applies_on_restart') "T8 empty fallback = clear (allowed)"
 
+# T9-T13 (docs/63 §6 Task 3): text_font_scale — opt-in cell scale, string
+# float, range [1.0, 3.0]. Applies on restart (CellMetrics reads settings.json
+# once at boot). Out-of-range / non-numeric / empty all rejected bad_value.
+$qid = 9
+SendQuery $p ([uint32]$qid) '{"tool":"settings_set","args":{"key":"text_font_scale","value":"1.5"}}'
+$r = Wait-Reply $p $qid 5000
+CHECK ($null -ne $r -and $r -match '"ok":true' -and $r -match 'applies_on_restart') "T9 scale set ok + restart note"
+
+$qid = 10
+SendQuery $p ([uint32]$qid) '{"tool":"settings_read","args":{}}'
+$r = Wait-Reply $p $qid 5000
+CHECK ($null -ne $r -and $r -match '"key":"text\.font_scale"' -and $r -match '"value":"1\.5"') "T10 read echoes text.font_scale"
+
+$qid = 11
+SendQuery $p ([uint32]$qid) '{"tool":"settings_set","args":{"key":"text_font_scale","value":"3.5"}}'
+$r = Wait-Reply $p $qid 5000
+CHECK ($null -ne $r -and $r -match '"error":"bad_value"') "T11 scale >3.0 rejected"
+
+$qid = 12
+SendQuery $p ([uint32]$qid) '{"tool":"settings_set","args":{"key":"text_font_scale","value":"1.5x"}}'
+$r = Wait-Reply $p $qid 5000
+CHECK ($null -ne $r -and $r -match '"error":"bad_value"') "T12 non-numeric scale rejected"
+
+$qid = 13
+SendQuery $p ([uint32]$qid) '{"tool":"settings_set","args":{"key":"text_font_scale","value":""}}'
+$r = Wait-Reply $p $qid 5000
+CHECK ($null -ne $r -and $r -match '"error":"bad_value"') "T13 empty scale rejected (1.0 is the default, not a settable empty)"
+
 # T5 (restore): write the original text.font_path back when one existed
 if ($origFont -ne "") {
     $qid = 5

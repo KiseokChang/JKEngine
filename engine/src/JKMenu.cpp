@@ -1,6 +1,7 @@
 #include <JKMenu.h>
 #include <JKApplication.h>
 #include <JKEvent.h>
+#include <JKTextAtlas.h>
 #include <theme/JKTheme.h>
 #include <algorithm>
 
@@ -45,7 +46,11 @@ int32_t JKMenu::ItemX(int32_t index) const {
 
 int32_t JKMenu::ItemWidth(int32_t index) const {
     if (index < 0 || index >= static_cast<int32_t>(menus_.size())) return 0;
-    return static_cast<int32_t>(menus_[index].label.size()) * 8 + 16;
+    // 라벨 폭 = 바이트 수 × 영문 셀 폭(폰트 메트릭, docs/63 §6). 뒤 16은 항목
+    // 간 여백이지만 셀 폭 2개분으로 쓰이던 값이라 engW×2로 따라간다(1.0 동일).
+    const text::CellMetrics& m = text::GetCellMetrics();
+    return static_cast<int32_t>(menus_[index].label.size()) * m.engW +
+           m.engW * 2;
 }
 
 void JKMenu::OpenPopup(int32_t index) {
@@ -55,12 +60,16 @@ void JKMenu::OpenPopup(int32_t index) {
 
     const JKRect screen = GetScreenRect();
     int32_t itemX = ItemX(index);
+    // 폰트 메트릭 vs 레이아웃 여백 (docs/63 §6): maxLen×engW(텍스트 폭)와
+    // 항목 수×cellH(행 높이)는 메트릭, 최소 폭 80·+40(좌우 여백)·+4(상하
+    // 여백)·최소 높이 24는 레이아웃 여백이라 그대로 둔다.
+    const text::CellMetrics& m = text::GetCellMetrics();
     int32_t maxLen = 0;
     for (const auto& item : menus_[index].items) {
         maxLen = std::max(maxLen, static_cast<int32_t>(item.label.size()));
     }
-    int32_t w = std::max(80, maxLen * 8 + 40);
-    int32_t h = static_cast<int32_t>(menus_[index].items.size()) * 16 + 4;
+    int32_t w = std::max(80, maxLen * m.engW + 40);
+    int32_t h = static_cast<int32_t>(menus_[index].items.size()) * m.cellH + 4;
     h = std::max(h, 24);
 
     JKRect popupRect{ screen.x + itemX, screen.y + screen.h, w, h };
@@ -89,6 +98,7 @@ void JKMenu::OnPaintClient(JKDC& dc) {
     dc.FillRect(client);
 
     int32_t x = client.x;
+    const text::CellMetrics& m = text::GetCellMetrics();
     for (size_t i = 0; i < menus_.size(); ++i) {
         int32_t w = ItemWidth(static_cast<int32_t>(i));
         JKRect itemRect{ x, client.y, w, client.h };
@@ -100,8 +110,10 @@ void JKMenu::OnPaintClient(JKDC& dc) {
             dc.SetTextColor(textR_, textG_, textB_);
         }
         JKRect textRect = itemRect;
-        textRect.x += 8;
-        textRect.w -= 16;
+        // 라벨 여백 — ItemWidth의 셀 단위 여백(engW 앞 1셀 + 뒤 2셀)과 동일
+        // 분해라 engW 스케일을 따라간다(1.0 동일; 판단 주석 — 폰트 메트릭).
+        textRect.x += m.engW;
+        textRect.w -= m.engW * 2;
         dc.TextOutX(textRect, menus_[i].label.c_str(), ADJ_YCENTER | ADJ_LEFT, false);
         x += w;
     }
@@ -152,8 +164,9 @@ void JKMenu::Popup::OnPaintClient(JKDC& dc) {
     dc.FillRect(client);
     dc.Rectangle3D(client, 2);
 
-    // Menu item text rows (16 px each, 2 px inset).
-    constexpr int32_t kItemH = 16;
+    // Menu item text rows — 행 높이는 셀 메트릭(폰트 메트릭, docs/63 §6),
+    // 2px 인셋과 4px 좌우 트림은 레이아웃 여백이라 그대로.
+    const int32_t kItemH = text::GetCellMetrics().cellH;
     for (size_t i = 0; i < items_.size(); ++i) {
         int32_t y = client.y + 2 + static_cast<int32_t>(i) * kItemH;
         if (static_cast<int32_t>(i) == selectedIndex_) {
@@ -173,8 +186,9 @@ void JKMenu::Popup::RespondMessage(const JKEvent& ev) {
     if (ev.type == JKEventType::MouseMove) {
         const JKRect client = GetScreenClientRect();
         if (client.Contains(ev.x, ev.y)) {
-            constexpr int32_t kItemH = 16;
-            int32_t idx = (ev.y - client.y - 2) / kItemH;
+            // 행 높이 = 셀 메트릭(렌더 측 kItemH와 동일 — 폰트 메트릭, docs/63 §6);
+            // 2px 인셋은 레이아웃 여백.
+            int32_t idx = (ev.y - client.y - 2) / text::GetCellMetrics().cellH;
             if (idx < 0 || idx >= static_cast<int32_t>(items_.size())) idx = -1;
             selectedIndex_ = idx;
         }

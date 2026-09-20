@@ -307,3 +307,52 @@ Task 4 시점(ninja [80/80]) 이후 Task 5/6이 착지해 라이브 데스크탑
 - **운영 실측** — 폰트 체인 없는 설정(기본)에서 기동: 기존 동작과 동일(체인
   미개입). 사용자 눈확인 대기: settings 앱에서 text.font_fallback = consola.ttf
   저장 → 재기동 → 한글 텍스트가 consola 1차+맑은 고딕 승계로 렌더되는지.
+### 9.7 셀 확대 text.font_scale (2단계 Task 3, 2026-09-21)
+
+- **메트릭 진실원** — `jk::text::CellMetrics{engW, hanW, cellH}` + 순수
+  `ComputeCellMetrics(float s)`(산출식 `engW=max(4,round(8*s))`,
+  `hanW=max(8,round(16*s))`, `cellH=max(8,round(16*s))`, s 클램프 [1.0, 3.0])
+  + `GetCellMetrics()` — settings.json `text.font_scale`(문자열 float) 직독,
+  함수 로컬 static **프로세스당 1회** 산출(MeasureText가 static이라 정적 경유
+  필수). 미설정/파싱 실패/범위 밖 = 기본 1.0 = 비트맵 셀 {8,16,16} 픽셀동일.
+  **재시작 적용** — 실행 중 settings_set 반영 없음.
+- **이름 규약 편차(brief 지정 `text::CellMetrics()` 채택 불가)** — 같은
+  스코프에 struct CellMetrics와 함수 CellMetrics()가 공존하면 함수 이름이
+  클래스 이름을 가린다(C++ 기본 탐색 규칙. 검증: `struct Foo{}; const Foo&
+  Foo();` 후 `Foo x;` → "expected ';' before 'x'" 파산). 접근자를
+  `GetCellMetrics()`로 접두어했다 — struct/순수 함수 이름은 brief 그대로.
+- **JKDC 리터럴 치환** — MeasureText(진행/높이)·TextOut 전진(engW/hanW)·
+  TextOutInRect(셀 폭/높이, `-7` → `-(charW-1)`)·TextOutX(행 높이/바이트당
+  engW 추정)·DrawGlyph 블릿 높이(cellH)·EngPutCh/HanPutCh stride → 전부
+  GetCellMetrics(). MeasureText는 **static 유지**(호출부 무수정). 비트맵
+  글리프 내부(PutEngGlyph 8x8/8x16·PutHanGlyph16x16 픽셀 오프셋)와 비트맵
+  폴백 고정 크기(HanPutCh 미커버 DrawRect 16x16)는 폰트 메트릭이 아니라
+  그대로 — 스케일 1.0에서 비트맵과 공존하기 때문.
+- **위젯 치환** — JKEdit(charWidth_/lineHeight_를 ctor에서 셀 메트릭으로,
+  밴드/텍스트Y/캐럿 길이 16-4=12 → lineHeight_-4), JKListBox(itemHeight_),
+  JKMenu(라벨 폭/팝업 폭·높이/행 높이/라벨 여백 engW 스케일), JKComboBox
+  (드롭 높이/텍스트 수직 중앙), JKStatic(MeasureContent 폴백). **폰트 메트릭
+  vs 레이아웃 여백 판단 주석**을 치환마다 남김 — 여백(+40/+4/2px 인셋/최소
+  폭 80/최대 높이 120·24)은 그대로. 터미널·아이콘·스크롤바 화살표·PadRight는
+  미개입.
+- **호스트 배선** — 3곳 Init(JKClientApplication/JKApplication/승인 배너
+  bannerAtlas_)이 `Init(fp, m.engW, m.cellH, m.hanW)`(m=GetCellMetrics()).
+- **설정** — `text_font_scale` settings_set(문자열 float 전체 소비+범위
+  [1.0, 3.0] 밖·빈 값 = bad_value; 하한 미달 클램프 없음 — 오타 방어,
+  font_path 선례)+settings_read `text.font_scale`(미설정 표시 "1.0")
+  +Load/WriteSettingsKv `"text":{"font_scale":"..."}`(멤버 기본 "1.0").
+  GUI 텍스트 섹션 3행(숫자 InputText, Enter → settings_set, 현재값과 다를
+  때만 전송, 시드는 ApplyRead 첫 도착 1회 래치 — fallback 행 선례).
+- **프로브** — jktext_probe 54→60체크(T11: ComputeCellMetrics(1.0)={8,16,16}·
+  (1.25)={10,20,20}·(3.0)={24,48,48}·(0.5)={8,16,16} 하한 클램프·(99) 상한
+  클램프 + 미설정 기본 {8,16,16}) ×2 GREEN. probe_textfont.ps1 9→14체크
+  (T9 set ok+restart note, T10 read echo, T11 >3.0 bad_value, T12 "1.5x"
+  bad_value, T13 빈 값 bad_value) ×2, settings.json 바이트동일 복원 검증
+  유지. 회귀: jkedit_probe ALL PASS ×2, probe_settings ALL PASS ×2,
+  jktext_view_probe(재컴파일, 실 렌더러) ink=189 aa=172 ×2, jamo 9/9 ×2.
+  ninja 전부 GREEN(라이브 데스크탑 락으로 jkdesktop 링크 1차 보류 → 정지 후
+  링크 완료, 잔여 실패 0).
+- **알려진 한계** — 창/데스크톱 기하(창 크기·작업표줄·아이콘 격자)는 스케일
+  되지 않는다(문서화 수용). scale>1.0 실물 렌더는 눈확인 유예(옵트인, 기본
+  1.0이라 회귀 없음). fractional scale에서 hanW ≠ 2×engW가 될 수 있어
+  JKEdit의 표시 셀 매핑(쌍=2셀×engW)은 근사 — engW 스케일을 따른다.

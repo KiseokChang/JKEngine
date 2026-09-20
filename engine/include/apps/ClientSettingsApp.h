@@ -74,6 +74,11 @@ private:
     // (리뷰 fix-2). 래치 후에는 재시드 없음 — 삭제 원본 유지.
     char fallbackFontBuf_[300] = {};
     bool fallbackSeeded_ = false;
+    // 셀 확대 배율 입력 (docs/63 §6 Task 3) — 숫자 문자열(1.0–3.0), Enter 시
+    // settings_set. 시드는 fallbackFontBuf_와 동일 **첫 settings_read 도착
+    // 시**(ApplyRead) 1회 래치 — 키 부재 시 기본 "1.0" 표시.
+    char scaleBuf_[16] = {};
+    bool scaleSeeded_ = false;
     std::vector<std::pair<uint32_t, PendingQuery>> pending_;
 };
 

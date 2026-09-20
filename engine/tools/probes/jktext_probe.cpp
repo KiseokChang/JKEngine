@@ -5,6 +5,7 @@
 // T9: 글리프 텍스처 상한+LRU 폐기 (docs/63 §6, 2단계 Task 1) + T9(c) LRU≠FIFO.
 // T10: 보조 폰트 체인 — 미커버 cp 승계+캐시 키 접두어 분리 (2단계 Task 2).
 // T6-T8: JKDC 배선 — 아틀라스 우선/비트맵 폴백/메트릭 불변 (Task 3).
+// T11: 셀 메트릭 진실원 — ComputeCellMetrics 산출식+클램프, 기본 1.0 (Task 3).
 #include <JKHangulUtil.h>
 #include <JKTextAtlas.h>
 #include <JKResourceCache.h>
@@ -347,6 +348,30 @@ int main() {
         CHECK(JKDC::MeasureText(mixed.c_str()).x == 16 * 2 + 8 * 2,
               "T8 metrics unchanged");
         CHECK(JKDC::MeasureText(mixed.c_str()).y == 16, "T8 cell height 16");
+    }
+    // T11: 셀 메트릭 진실원 (docs/63 §6 Task 3, text.font_scale 옵트인).
+    // (a) 순수 산출 함수 단정 — 설정 개입 없음. (b) 기본 경유 — 이 프로브 exe
+    // 옆 tools/probes/state\settings.json이 없어 font_scale 미설정 = 1.0.
+    {
+        using jk::text::ComputeCellMetrics;
+        const jk::text::CellMetrics c10 = ComputeCellMetrics(1.0f);
+        CHECK(c10.engW == 8 && c10.hanW == 16 && c10.cellH == 16,
+              "T11(a) ComputeCellMetrics(1.0) == {8,16,16}");
+        const jk::text::CellMetrics c125 = ComputeCellMetrics(1.25f);
+        CHECK(c125.engW == 10 && c125.hanW == 20 && c125.cellH == 20,
+              "T11(a) ComputeCellMetrics(1.25) == {10,20,20}");
+        const jk::text::CellMetrics c30 = ComputeCellMetrics(3.0f);
+        CHECK(c30.engW == 24 && c30.hanW == 48 && c30.cellH == 48,
+              "T11(a) ComputeCellMetrics(3.0) == {24,48,48}");
+        const jk::text::CellMetrics c05 = ComputeCellMetrics(0.5f);
+        CHECK(c05.engW == 8 && c05.hanW == 16 && c05.cellH == 16,
+              "T11(a) ComputeCellMetrics(0.5) == {8,16,16} (하한 클램프)");
+        const jk::text::CellMetrics cHi = ComputeCellMetrics(99.0f);
+        CHECK(cHi.engW == 24 && cHi.hanW == 48 && cHi.cellH == 48,
+              "T11(a) ComputeCellMetrics(99) == 상한 클램프 {24,48,48}");
+        const jk::text::CellMetrics& live = jk::text::GetCellMetrics();
+        CHECK(live.engW == 8 && live.hanW == 16 && live.cellH == 16,
+              "T11(b) CellMetrics() 미설정 기본 {8,16,16}");
     }
 
     std::printf("PASS %d FAIL %d\n", g_pass, g_fail);

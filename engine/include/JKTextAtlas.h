@@ -39,6 +39,32 @@ std::string ResolveDesktopFontPath();
 // 쓴다). 상한 300자는 font_path와 같은 캡.
 std::string ResolveDesktopFallbackPath();
 
+// 셀 메트릭 진실원 (docs/63 §6 text.font_scale, 옵트인 셀 확대). 기본
+// scale 1.0 = 비트맵 셀과 동일 {8, 16, 16} — 기존 레이아웃·프로브 픽셀동일.
+struct CellMetrics {
+    int engW;   // ASCII 셀 폭 (기본 8)
+    int hanW;   // KSSM 2바이트 쌍 셀 폭 (기본 16)
+    int cellH;  // 셀 높이 (기본 16)
+};
+
+// 순수 산출 함수 (프로브 단정용 — 설정 파싱 개입 없음). 산출식:
+// engW=max(4, round(8*s)), hanW=max(8, round(16*s)), cellH=max(8, round(16*s)).
+// s는 허용 범위 [1.0, 3.0]으로 클램프한다(파싱 단계의 범위 검사가 정문 게이트 —
+// 여기는 방어선 클램프로, 0.5 같은 하한 미달 입력도 {8,16,16}로 수렴).
+CellMetrics ComputeCellMetrics(float s);
+
+// 설정 진실원: settings.json `text.font_scale`(문자열 float)을 **직독**해
+// 산출한다(ResolveDesktopFontPath의 settings 직독 선례). 함수 로컬 static —
+// C++11 스레드 안전 초기화로 프로세스당 1회 산출. MeasureText가 static이라
+// 모든 경로(MeasureText/TextOut/위젯)가 이 경유다. **재시작 적용** — 실행 중
+// settings_set 반영 없음(프로세스 수명 = 메트릭 수명).
+// (이름 규약 주의: 같은 스코프에 struct CellMetrics와 CellMetrics() 함수가
+// 공존하면 함수 이름이 클래스 이름을 가린다(C++ 기본 탐색 규칙 — 검증:
+// `struct Foo{}; const Foo& Foo();` 후 `Foo x;` 파산) — 그래서 접근자는
+// GetCellMetrics로 접두어를 붙였다. brief의 `text::GetCellMetrics()` 이름은
+// 이 규칙과 충돌해 채택 불가.)
+const CellMetrics& GetCellMetrics();
+
 } // namespace text
 
 class JKTextAtlas {

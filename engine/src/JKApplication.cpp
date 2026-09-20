@@ -121,8 +121,10 @@ bool JKApplication::Init(const std::string& title, int width, int height) {
     // ResolveDesktopFontPath가 state\settings.json의 text.font_path 오버라이드를
     // 직접 읽으므로 서버 KV(textFontPath_)를 여기로 파이프할 필요가 없다.
     textAtlas_ = std::make_unique<JKTextAtlas>();
+    // 셀 메트릭 진실원 (docs/63 §6 text.font_scale) — 기본 1.0 = {8,16,16}.
+    const jk::text::CellMetrics m = jk::text::GetCellMetrics();
     const std::string fontPath = jk::text::ResolveDesktopFontPath();
-    if (!fontPath.empty() && textAtlas_->Init(fontPath, 8, 16, 16)) {
+    if (!fontPath.empty() && textAtlas_->Init(fontPath, m.engW, m.cellH, m.hanW)) {
         dc_.SetTextAtlas(textAtlas_.get(), resourceCache_.get());
         // 보조 폰트 체인 (docs/63 §6 2단계): 미설정(빈)이면 체인 없음 — 1차만.
         // Init 실패는 경고 1줄, 체인 없이 계속(치명 아님).

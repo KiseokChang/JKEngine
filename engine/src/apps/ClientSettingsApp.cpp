@@ -175,6 +175,18 @@ void ClientSettingsApp::ApplyRead(const std::string& json) {
                           fb->second.c_str());
         }
     }
+    // 셀 확대 배율 1회 시드 — fallbackFontBuf_와 동일 래치(첫 settings_read
+    // 도착). 설정되면 항상 비지 않는 숫자 문자열, 키 부재 = 기본 "1.0" 표시.
+    if (!scaleSeeded_) {
+        scaleSeeded_ = true;
+        const auto sc = kv_.find("text.font_scale");
+        if (sc != kv_.end() && !sc->second.empty()) {
+            std::snprintf(scaleBuf_, sizeof(scaleBuf_), "%s",
+                          sc->second.c_str());
+        } else {
+            std::snprintf(scaleBuf_, sizeof(scaleBuf_), "1.0");
+        }
+    }
 }
 
 void ClientSettingsApp::ApplyReply(Query kind, const std::string& json,
@@ -411,6 +423,29 @@ void ClientSettingsApp::BuildUi(int w, int h) {
                                       "\"value\":\"") +
                               EscapeJson(v) + "\"}",
                           Query::Set, "text_font_fallback");
+            }
+        }
+
+        // 셀 확대 배율 (docs/63 §6 Task 3): 숫자 문자열(1.0–3.0) — 옵트인,
+        // 재시작 적용. 시드는 ApplyRead 1회 래치(위). 현재값과 다를 때만 전송
+        // (빈 Enter 스팸 방지 — 보조 폰트 행 선례).
+        const std::string curScale = KvStr("text.font_scale", "1.0");
+        ImGui::TextDisabled(
+            "%s: %s",
+            koreanFont_ ? "셀 배율" : "cell scale",
+            (curScale.empty() ? std::string("1.0") : curScale).c_str());
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::InputText(koreanFont_ ? "셀 배율(1.0-3.0, 재시작 적용)"
+                                         : "cell scale (1.0-3.0, restart)",
+                             scaleBuf_, sizeof(scaleBuf_),
+                             ImGuiInputTextFlags_EnterReturnsTrue)) {
+            const std::string v(scaleBuf_);
+            if (v != curScale) {
+                SendQuery("settings_set",
+                          std::string("{\"key\":\"text_font_scale\","
+                                      "\"value\":\"") +
+                              EscapeJson(v) + "\"}",
+                          Query::Set, "text_font_scale");
             }
         }
     }

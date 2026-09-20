@@ -1,5 +1,6 @@
 #include <JKComboBox.h>
 #include <JKEvent.h>
+#include <JKTextAtlas.h>
 #include <theme/JKTheme.h>
 #include <algorithm>
 
@@ -48,7 +49,9 @@ void JKComboBox::ToggleDropDown() {
     if (items_.empty()) return;
 
     const JKRect rc = GetRect();
-    int32_t h = static_cast<int32_t>(items_.size()) * 16 + 4;
+    // 폰트 메트릭 vs 레이아웃 여백 (docs/63 §6): 항목 수×cellH는 행 높이
+    // (메트릭), +4(상하 여백)·최대 120은 레이아웃이라 그대로.
+    int32_t h = static_cast<int32_t>(items_.size()) * text::GetCellMetrics().cellH + 4;
     h = std::min(h, 120);
     // Attach the popup to our PARENT so its rect lives in the same
     // parent-client coordinate space as GetRect() (a child-of-combo rect
@@ -94,7 +97,10 @@ void JKComboBox::OnPaintClient(JKDC& dc) {
 
     dc.SetTextColor(textR_, textG_, textB_);
     if (selectedIndex_ >= 0 && selectedIndex_ < static_cast<int32_t>(items_.size())) {
-        dc.TextOut(JKPoint{ inner.x + 2, inner.y + (inner.h - 16) / 2 },
+        // 텍스트 수직 중앙 배치 — 16은 셀 높이(폰트 메트릭, docs/63 §6);
+        // inner.x+2px 좌측 인셋은 레이아웃 여백.
+        dc.TextOut(JKPoint{ inner.x + 2,
+                            inner.y + (inner.h - text::GetCellMetrics().cellH) / 2 },
                    items_[selectedIndex_].c_str());
     }
 

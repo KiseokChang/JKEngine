@@ -1,6 +1,7 @@
 #include <JKListBox.h>
 #include <JKEvent.h>
 #include <JKApplication.h>
+#include <JKTextAtlas.h>
 #include <theme/JKTheme.h>
 #include <algorithm>
 #include <cmath>
@@ -18,7 +19,10 @@ uint32_t GetEventTick() {
 
 } // anonymous namespace
 
-JKListBox::JKListBox() = default;
+JKListBox::JKListBox() {
+    // 행 높이 = 셀 메트릭 진실원 (docs/63 §6 text.font_scale) — 폰트 메트릭.
+    itemHeight_ = text::GetCellMetrics().cellH;
+}
 
 JKListBox::JKListBox(const JKRect& rect, uint16_t controlId) {
     SetRect(rect);
@@ -27,6 +31,9 @@ JKListBox::JKListBox(const JKRect& rect, uint16_t controlId) {
     SetBackColor(t.fieldBg.r, t.fieldBg.g, t.fieldBg.b);
     SetTextColor(t.widgetText.r, t.widgetText.g, t.widgetText.b);
     SetFocusable(true);
+    // 행 높이 = 셀 메트릭 진실원 (docs/63 §6) — 폰트 메트릭(스크롤바 폭 16은
+    // 레이아웃이라 그대로).
+    itemHeight_ = text::GetCellMetrics().cellH;
 
     // Scrollbar is a child of the listbox: coordinates are relative to the
     // listbox rect (parent client area), not screen coordinates.

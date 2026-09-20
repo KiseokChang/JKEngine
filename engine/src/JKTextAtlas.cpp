@@ -8,7 +8,9 @@
 #include <agent/JKAgentJson.h>
 #include <stb_truetype.h>
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
+#include <cstdlib>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -95,6 +97,42 @@ std::string text::ResolveDesktopFallbackPath() {
         }
     }
     return std::string();
+}
+
+jk::text::CellMetrics jk::text::ComputeCellMetrics(float s) {
+    // 허용 범위 [1.0, 3.0] 클램프 — settings_set 파싱 단계가 정문 게이트
+    // (범위 밖은 bad_value 거부)이고 이 함수는 방어선. 하한 클램프 덕에
+    // 0.5 같은 입력도 기본 셀 {8,16,16}로 수렴한다.
+    if (s < 1.0f) s = 1.0f;
+    if (s > 3.0f) s = 3.0f;
+    return CellMetrics{
+        std::max(4, static_cast<int>(std::lround(8.0f * s))),
+        std::max(8, static_cast<int>(std::lround(16.0f * s))),
+        std::max(8, static_cast<int>(std::lround(16.0f * s))),
+    };
+}
+
+const jk::text::CellMetrics& jk::text::GetCellMetrics() {
+    // 함수 로컬 static — C++11 스레드 안전 초기화, **프로세스당 1회** 산출.
+    // MeasureText가 static이라 모든 텍스트 경로(MeasureText/TextOut/위젯)가
+    // 이 경유하며, 설정 반영 시점은 재시작(스펙: text.font_scale 옵트인).
+    static const CellMetrics m = []() -> CellMetrics {
+        float s = 1.0f;   // 미설정/파싱 실패/범위 밖 = 기본 1.0 (기각, 픽셀동일)
+        if (auto json = LoadDesktopSettingsJson()) {
+            std::string v;
+            if (json->GetObjStr("text", "font_scale", v) && !v.empty()) {
+                char* end = nullptr;
+                const double d = std::strtod(v.c_str(), &end);
+                // 전체 소비 + 숫자 + 허용 범위만 수용 — "1.5x"·"-2"·"abc"류는
+                // 전부 기각해 기본 1.0(비트맵 셀)으로 폴백한다.
+                if (end != v.c_str() && *end == '\0' && d >= 1.0 && d <= 3.0) {
+                    s = static_cast<float>(d);
+                }
+            }
+        }
+        return ComputeCellMetrics(s);
+    }();
+    return m;
 }
 
 JKTextAtlas::JKTextAtlas() = default;

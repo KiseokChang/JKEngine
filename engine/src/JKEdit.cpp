@@ -4,6 +4,7 @@
 #include <JKApplication.h>
 #include <JKHangulUtil.h>
 #include <JKPlatform.h>
+#include <JKTextAtlas.h>
 #include <theme/JKTheme.h>
 #include <SDL.h>
 #include <algorithm>
@@ -11,7 +12,13 @@
 
 namespace jk {
 
-JKEdit::JKEdit() = default;
+JKEdit::JKEdit() {
+    // 셀 메트릭 진실원 (docs/63 §6 text.font_scale) — 수평 레이아웃은 전부
+    // charWidth_ 경유, 행은 lineHeight_. 기본 1.0 = {8, 16} 픽셀동일.
+    const text::CellMetrics& m = text::GetCellMetrics();
+    charWidth_ = m.engW;
+    lineHeight_ = m.cellH;
+}
 
 JKEdit::JKEdit(const JKRect& rect, uint16_t controlId, size_t maxLength, bool multiLine)
     : maxLength_(maxLength), multiLine_(multiLine) {
@@ -21,6 +28,9 @@ JKEdit::JKEdit(const JKRect& rect, uint16_t controlId, size_t maxLength, bool mu
     SetBackColor(t.fieldBg.r, t.fieldBg.g, t.fieldBg.b);
     SetTextColor(t.widgetText.r, t.widgetText.g, t.widgetText.b);
     SetFocusable(true);
+    const text::CellMetrics& m = text::GetCellMetrics();
+    charWidth_ = m.engW;
+    lineHeight_ = m.cellH;
 }
 
 void JKEdit::SetText(const std::string& text) {
@@ -167,9 +177,14 @@ void JKEdit::OnPaintClient(JKDC& dc) {
     }
     dc.FillRect(inner);
 
+    // 캐럿 길이 = 셀 높이 - 4(기존 16-4=12 고정값의 메트릭화 — 폰트 메트릭).
+    const int32_t caretH = lineHeight_ - 4;
+
     dc.SetTextColor(textR_, textG_, textB_);
     if (!multiLine_) {
-        int32_t textY = inner.y + (inner.h - 16) / 2;
+        // 텍스트 행 중앙 배치·밴드 높이·캐럿 길이는 폰트 메트릭(lineHeight_ 셀
+        // 높이, docs/63 §6) — inner.h/4px 여백류는 레이아웃이라 그대로.
+        int32_t textY = inner.y + (inner.h - lineHeight_) / 2;
         // 수평 스크롤 오프셋: 화면의 첫 바이트 off, x는 off 기준 셀 수로 환산
         // (docs/60 §10 — 바이트×charWidth_는 KSSM에서 밀린다).
         size_t off = PosFromCells(buffer_, 0, buffer_.size(), firstVisibleCol_);
@@ -192,7 +207,7 @@ void JKEdit::OnPaintClient(JKDC& dc) {
                     selW = inner.x + inner.w - selX;
                 if (selW > 0) {
                     dc.SetColor(t.selectionBg.r, t.selectionBg.g, t.selectionBg.b, 255);
-                    dc.FillRect(JKRect{ selX, textY, selW, 16 });
+                    dc.FillRect(JKRect{ selX, textY, selW, lineHeight_ });
                 }
 
                 const char* buf = buffer_.c_str();
@@ -223,7 +238,7 @@ void JKEdit::OnPaintClient(JKDC& dc) {
                 DisplayCells(compText_, 0, compText_.size()) * static_cast<size_t>(charWidth_));
             // IME 조합 배경 — 토큰 rgb, 알파 64 고정 보존 (스펙 §1c).
             dc.SetColor(t.imeCompositionBg.r, t.imeCompositionBg.g, t.imeCompositionBg.b, 64);
-            dc.FillRect(JKRect{ compX, textY, compW, 16 });
+            dc.FillRect(JKRect{ compX, textY, compW, lineHeight_ });
             dc.SetTextColor(textR_, textG_, textB_);
             dc.TextOut(jk::JKPoint{ compX, textY }, compText_.c_str());
         }
@@ -232,14 +247,14 @@ void JKEdit::OnPaintClient(JKDC& dc) {
             int32_t caretX = xOf(cursorPos_);
             int32_t caretY = textY;
             dc.SetColor(t.widgetText.r, t.widgetText.g, t.widgetText.b, 255);
-            dc.DrawLine(caretX, caretY, caretX, caretY + 12);
+            dc.DrawLine(caretX, caretY, caretX, caretY + caretH);
 
             // Additional caret inside the composition string.
             if (!compText_.empty()) {
                 int32_t compCaretX = caretX + static_cast<int32_t>(
                     DisplayCells(compText_, 0, compCursor_) * static_cast<size_t>(charWidth_));
                 dc.SetColor(t.imeCaret.r, t.imeCaret.g, t.imeCaret.b, 255);
-                dc.DrawLine(compCaretX, caretY, compCaretX, caretY + 12);
+                dc.DrawLine(compCaretX, caretY, compCaretX, caretY + caretH);
             }
         }
     } else {
@@ -298,7 +313,7 @@ void JKEdit::OnPaintClient(JKDC& dc) {
                 DisplayCells(compText_, 0, compText_.size()) * static_cast<size_t>(charWidth_));
             // IME 조합 배경 — 토큰 rgb, 알파 64 고정 보존 (스펙 §1c).
             dc.SetColor(t.imeCompositionBg.r, t.imeCompositionBg.g, t.imeCompositionBg.b, 64);
-            dc.FillRect(JKRect{ compX, compY, compW, 16 });
+            dc.FillRect(JKRect{ compX, compY, compW, lineHeight_ });
             dc.SetTextColor(textR_, textG_, textB_);
             dc.TextOut(jk::JKPoint{ compX, compY }, compText_.c_str());
         }
@@ -310,13 +325,13 @@ void JKEdit::OnPaintClient(JKDC& dc) {
                 DisplayCells(buffer_, lineStart, cursorPos_) * static_cast<size_t>(charWidth_));
             int32_t caretY = inner.y + static_cast<int32_t>((line - firstVisibleLine_) * lineHeight_) + 2;
             dc.SetColor(t.widgetText.r, t.widgetText.g, t.widgetText.b, 255);
-            dc.DrawLine(caretX, caretY, caretX, caretY + 12);
+            dc.DrawLine(caretX, caretY, caretX, caretY + caretH);   // 폰트 메트릭 (기존 16-4=12)
 
             if (!compText_.empty()) {
                 int32_t compCaretX = caretX + static_cast<int32_t>(
                     DisplayCells(compText_, 0, compCursor_) * static_cast<size_t>(charWidth_));
                 dc.SetColor(t.imeCaret.r, t.imeCaret.g, t.imeCaret.b, 255);
-                dc.DrawLine(compCaretX, caretY, compCaretX, caretY + 12);
+                dc.DrawLine(compCaretX, caretY, compCaretX, caretY + caretH);
             }
         }
     }
