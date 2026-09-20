@@ -20,6 +20,8 @@ enum class JKEventType : uint16_t {
     // Server-polled OS IME conversion-mode change (option = JKPlatform::ImeMode).
     // 한/영 key never reaches SDL (docs/61 §16) — the state change is the signal.
     ImeChanged,
+    // Low-level hook observed a physical 한/영 toggle key (docs/61 §16.1).
+    ImeToggle,
     Paint,
     Timer,
     Command,

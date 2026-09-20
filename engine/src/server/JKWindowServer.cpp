@@ -9,6 +9,7 @@
 #include <JKHangulManager.h>
 #include <JKHangulUtil.h>
 #include <JKImageLoader.h>
+#include <JKImeHook.h>
 #include <JKMessageBus.h>
 #include <JKSDLAudioBackend.h>
 #include <JKSDLRenderBackend.h>
@@ -596,6 +597,12 @@ void JKWindowServer::Run() {
     if (!renderer_) return;
     running_ = true;
 
+    // 한/영 토글키 저수준 훅(docs/61 §16.1): OS IME가 VK_HANGUL을 삼켜 앱에
+    // 키 이벤트가 도달하지 않고 신식 IME는 IMM 변환 플래그도 갱신하지 않는다
+    // — WH_KEYBOARD_LL만이 IME 이전의 원시 키를 본다. 훅은 이 스레드의 메시지
+    // 펌프(SDL_PollEvent)에서 발화해 SDL 사용자 이벤트로 되돌아온다.
+    JkInstallImeKeyHook(window_);
+
     while (running_) {
         SDL_Event ev;
         while (SDL_PollEvent(&ev)) {
@@ -606,6 +613,16 @@ void JKWindowServer::Run() {
             if (ev.type == SDL_WINDOWEVENT && ev.window.event == SDL_WINDOWEVENT_CLOSE) {
                 running_ = false;
                 break;
+            }
+            if (ev.type == JkImeToggleEventType()) {
+                JKClientConnection* client = FindClientById(focusedClientId_);
+                if (client) {
+                    ipc::InputEventPayload payload{};
+                    payload.surfaceId = client->Id();
+                    payload.type      = ipc::InputEventType::ImeToggle;
+                    SendInputEvent(*client, payload);
+                }
+                continue;
             }
             HandleSDLEvent(ev);
         }
@@ -647,6 +664,8 @@ void JKWindowServer::Run() {
 
 void JKWindowServer::Stop() {
     running_ = false;
+
+    JkUninstallImeKeyHook();
 
     UnblockAcceptor();
 

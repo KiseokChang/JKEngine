@@ -254,6 +254,29 @@ int main() {
               "mode=" + std::to_string(static_cast<int>(e.GetInputMode())));
     }
 
+    // T19: ImeToggle(서버 저수준 훅 관측, docs/61 §16.1) — 내부 모드에서
+    // 토글 이벤트가 오면 진행 중 조합을 확정하고 OS IME 경로로 핸드오버.
+    // OS IME 모드(Ascii/ImeHangul)면 할 일이 없다.
+    {
+        JKEdit e(JKRect{ 0, 0, 400, 24 });
+        e.SetHangulMode(true);
+        for (int k : { SDLK_r, SDLK_k }) SendKey(e, k);   // "가" 조합 중
+        JKEvent ev{};
+        ev.type = JKEventType::ImeToggle;
+        e.RespondMessage(ev);
+        Check("T19a-toggle-handover",
+              e.GetInputMode() == JKEdit::InputMode::ImeHangul,
+              "mode=" + std::to_string(static_cast<int>(e.GetInputMode())));
+        Check("T19b-toggle-committed",
+              KssmToUtf8(e.GetText().c_str()) == "가",
+              "got=" + KssmToUtf8(e.GetText().c_str()));
+        // OS IME 경로(ImeHangul)에서의 토글은 내부 모드가 아니므로 무시된다.
+        e.RespondMessage(ev);
+        Check("T19c-toggle-ime-noop",
+              e.GetInputMode() == JKEdit::InputMode::ImeHangul,
+              "mode=" + std::to_string(static_cast<int>(e.GetInputMode())));
+    }
+
     {
         // T9: "한국어" = ㅎㅏㄴ ㄱㅜ ㄹ ㅇㅓ — 받침 뒤 새 음절이 조합돼야 한다.
         {

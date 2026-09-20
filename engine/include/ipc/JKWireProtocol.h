@@ -222,7 +222,13 @@ enum class InputEventType : uint32_t {
     // (option = JKPlatform::ImeMode). The 한/영 toggle key is swallowed by
     // the OS IME and never reaches SDL (docs/61 §16 measured — VK_HANGUL
     // produces no KEYDOWN/KEYUP), so the state is the only observable.
-    ImeChanged = 9
+    ImeChanged = 9,
+    // S -> C: the server's low-level keyboard hook observed a physical
+    // 한/영 toggle key press (docs/61 §16.1 — the OS IME swallows the key so
+    // it never reaches SDL, and the modern Korean IME never updates the
+    // legacy IMM conversion flags, leaving no readable absolute state).
+    // option unused.
+    ImeToggle  = 10
 };
 
 struct InputEventPayload {

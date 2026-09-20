@@ -133,6 +133,7 @@ add_library(jkcore STATIC
     src/JKHangulAutomata.cpp
     src/JKHangulUtil.cpp
     src/JKPlatform_win32.cpp
+    src/JKImeHook_win32.cpp
     src/JKCrashHandler_win32.cpp
     src/JKScrollBar.cpp
     src/JKListBox.cpp

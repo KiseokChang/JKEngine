@@ -436,6 +436,17 @@ void JKEdit::RespondMessage(const JKEvent& ev) {
             FinishInternalComposition();
         }
         inputMode_ = hangul ? InputMode::ImeHangul : InputMode::Ascii;
+    } else if (ev.type == JKEventType::ImeToggle) {
+        // 서버 저수준 훅이 물리 한/영 키를 관측(docs/61 §16.1 — OS IME가 키를
+        // 삼키고 신식 IME는 IMM 변환 플래그를 갱신하지 않아 절대 상태를 읽을
+        // 방법이 없다). 기능적으로 중요한 건 내부 모드만 손을 떼는 것: OS IME가
+        // 방금 언어를 전환했고 조합/커밋은 TEXTINPUT/TEXTEDITING 경로로 오므로
+        // OS IME를 따르면 된다. 절대 모드 판정은 포커스 시점의
+        // DetectWindowsImeState가 IMM이 살아 있는 환경에서 보정한다.
+        if (inputMode_ == InputMode::InternalHangul && !imeComposing_) {
+            FinishInternalComposition();
+            inputMode_ = InputMode::ImeHangul;
+        }
     } else if (ev.type == JKEventType::MouseWheel) {
         // 멀티라인 휠 스크롤 (docs/61 §2) — dy>0 = 위(이전 라인).
         if (multiLine_) {

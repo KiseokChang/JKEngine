@@ -422,10 +422,16 @@ void JKWindow::RemoveClosedChildren() {
 }
 
 void JKWindow::RespondMessage(const JKEvent& ev) {
-    // 키/문자 입력은 포커스를 가진 자식 컨트롤로 전달한다.
+    // 키/문자 입력은 포커스를 가진 자식 컨트롤로 전달한다. TEXTEDITING(OS IME
+    // 조합)과 IME 상태 이벤트(한/영 토글은 OS IME가 키를 삼켜 이 이벤트만이
+    // 관측점 — docs/61 §16)도 키 입력과 같은 경로다: 조합 중인 편집 상자가
+    // 항상 포커스를 가진다.
     if (ev.type == JKEventType::KeyDown ||
         ev.type == JKEventType::KeyUp ||
-        ev.type == JKEventType::Char) {
+        ev.type == JKEventType::Char ||
+        ev.type == JKEventType::TextEditing ||
+        ev.type == JKEventType::ImeChanged ||
+        ev.type == JKEventType::ImeToggle) {
         if (focusChild_) {
             focusChild_->RespondMessage(ev);
             return;

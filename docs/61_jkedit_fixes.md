@@ -335,3 +335,34 @@ DetectWindowsImeState로 현재 변환 상태를 다시 읽어 동기화한다. 
 무효(IME는 서버 창에 붙어 있고 클라의 SetConversionMode는 클라 자체 창에
 적용) — 내부 모드 중 OS IME가 한글이면 이중 조합 위험, 클라→서버 IME 강제
 채널이 백로그.
+
+## 17. 폴링도 실패 — §16의 ImeChanged가 라이브에서 무효였던 두 결함과 저수준 훅으로의 전환
+
+유저 재보고 "전혀 변화 없음". 두 결함이 겹쳤다:
+
+1. **JKWindow가 ImeChanged(및 TextEditing!)를 포커스 컨트롤로 전달하지 않았다**
+   — RespondMessage의 포커스 디스패치 목록에 KeyDown/KeyUp/Char/Timer/MouseWheel만
+   있어 TextEditing/ImeChanged는 히트테스트 경로(x=y=0)로 떨어져 유실. 서버가
+   브로드캐스트해도 편집창에 도달하지 않았다. 부수: 편집 상자의 OS IME 조합
+   프리에디트 표시도 이 누락 때문에 죽어 있었다(터미널은 루트 컨트롤이라 우연히
+   살아 있었던 것). → 포커스 디스패치에 TextEditing/ImeChanged/ImeToggle 추가.
+2. **폴링 관측점 자체가 이 환경에서 죽어 있었다** — 포커스 확실한 진단 창에서
+   SendInput VK_HANGUL 토글 전후 `ImmGetOpenStatus/ImmGetConversionStatus`가
+   open=0 conv=0 고정(신식 MS 한글 IME는 구형 IMM 변환 플래그를 갱신하지
+   않는다). IMM 기반 폴링은 이 환경에서 영원히 발화하지 않는다.
+
+**픽스**: 관측점을 저수준 키보드 훅(WH_KEYBOARD_LL)으로 전환 — IME 가로채기
+이전의 원시 VK_HANGUL을 본다. `JKImeHook_win32.cpp` 신설(watchWindow가 전경일
+때만 — 다른 앱에서의 한/영 오탐 방지; 훅은 설치 스레드 메시지 펌프에서
+발화하므로 서버 Run 루프의 SDL_PollEvent가 배출) → SDL 사용자 이벤트 → 서버가
+`InputEventType::ImeToggle`을 포커스 클라에 푸시 → JKEdit 핸들러: 내부 모드만
+`FinishInternalComposition()` 후 OS IME 경로 핸드오버(절대 모드 판정은 불가하므
+로 하지 않는다 — 기능적으로 중요한 건 내부 조합의 인도뿐). IMM 폴링은
+살아 있는 환경용 보조로 유지(ImeChanged는 절대 모드라 멱등). T19(토글
+핸드오버 3체크) 신설, 27체크 ×2 ALL PASS.
+
+**레슨 21. 관측점의 죽음은 두 층으로 확인해야 한다 — ①이벤트가 소비자에게
+도달하는가(배관) ②관측점 자체가 변화를 보고하는가(플랫폼). "픽스했는데 변화
+없음"이면 이 순서로 이분한다.** 신식 IME는 구형 IMM 변환 플래그를 갱신하지
+않는다 — Win32 상태 관측은 시대에 따라 부패한다. 알려진 한계: 한자 키(LANG2)
+미처리, F2 진입 시 서버 측 IME 영문 강제 채널 미흡(백로그).
