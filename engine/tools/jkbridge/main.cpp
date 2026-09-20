@@ -414,6 +414,22 @@ let ws = null, streamEl = null, streamIdx = -1, streamText = '';
 // 기기 시계 아님). 렌더된 모든 줄을 transcript에 적립 — /report 한 번으로
 // 진단 대화 전체를 파일로 보낸다(진짜 폰에서 복사가 어려운 문제의 해법).
 const transcript = [];
+// LLM 마크다운 정리 (2026-09-20 사용자 보고 "답변에 ``` 섞여나와"): 모델이
+// 코드펜스/사고 블록/굵게 마커를 원문으로 뱉어 폰(플레인 텍스트)에 아티팩트로
+// 찍힌다. XSS 포스트(textContent 전용, innerHTML 금지)를 지키는 최소 정리 —
+// 태그 변환 없이 마커만 제거한다. 스트리밍은 매 프레임 누적 원문을 통째로
+// 정해 다시 그린다(펜스가 프레임 경계에 걸쳐도 안전).
+function clean(s){
+  s = String(s||'');
+  s = s.replace(/([\s\S]*?)<\/think>/g, '$1');   // 닫힌 사고 블록 제거
+  s = s.replace(/<think>[\s\S]*$/, '');          // 스트리밍 중 미닫힌 사고 블록
+  s = s.replace(/^```[^\n]*$/gm, '');            // 펜스 마커 줄(언어 태그 포함)
+  s = s.replace(/^#{1,6} /gm, '');               // 헤딩 # 마커
+  s = s.replace(/\*\*([^*]*)\*\*/g, '$1');       // **굵게** → 텍스트만
+  s = s.replace(/`([^`]*)`/g, '$1');             // 인라인 코드 마커
+  s = s.replace(/\n{3,}/g, '\n\n');              // 펜스 제거 잔여 빈 줄 정리
+  return s;
+}
 function hhmm(ts){ const d=new Date(ts*1000);
   return ('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2); }
 // claude session continuity: the phone owns it (localStorage) — a reconnect
@@ -446,7 +462,7 @@ function connect() {
 }
 function route(msg, j) {
   if (msg.type === 'hello') {
-    if (msg.pending_result) add('[복구] '+msg.pending_result, 'note', msg.pending_ts);
+    if (msg.pending_result) add('[복구] '+clean(msg.pending_result), 'note', msg.pending_ts);
     if (msg.busy) add('[LLM 실행 중 — 이전 턴 진행]', 'sys', msg.ts);
     return;
   }
@@ -454,8 +470,9 @@ function route(msg, j) {
     if (!streamEl) { streamText = ''; streamEl = add('[LLM] ', 'llm', msg.ts);
       streamIdx = transcript.length - 1; }
     streamText += msg.text;
-    streamEl.textContent += msg.text;
-    transcript[streamIdx] = '['+hhmm(msg.ts || Date.now()/1000)+'] [LLM] '+streamText;
+    const shown = clean(streamText);
+    streamEl.textContent = '[LLM] ' + shown;
+    transcript[streamIdx] = '['+hhmm(msg.ts || Date.now()/1000)+'] [LLM] '+shown;
     logEl.scrollTop = logEl.scrollHeight;
     return;
   }
@@ -464,7 +481,7 @@ function route(msg, j) {
   if (msg.type === 'chat_done') {
     if (streamEl) streamEl = null;
     if (msg.session_id) { claudeSession = msg.session_id; localStorage.setItem('jkbridge_session', msg.session_id); }
-    if (msg.ok && !msg.streamed) add(msg.result || '(빈 응답)', 'llm', msg.ts);
+    if (msg.ok && !msg.streamed) add(clean(msg.result) || '(빈 응답)', 'llm', msg.ts);
     else if (!msg.ok) add('[!] LLM 응답 실패 — ' + (msg.result||''), 'err', msg.ts);
     else add('[LLM 완료]', 'sys', msg.ts);
     return;
