@@ -148,7 +148,7 @@ approval_unavailable / approval_overflow.
 | probe_app_tools | **메인 트리** build(`$exe` 하드코딩) | TEMP per-PID 백업+stale 가드+finally 복원 | jkdesktop/jkapp_vplayer/jkbridge/jkchat 정지 |
 | probe_agent_e2e | **메인 트리** build(`$exe`/`$agnt` 하드코딩 — 사용자 라이브 데스크톱이 쓰는 그 빌드) | **백업 없이** `{"close_window":"allow"}`로 덮어쓰고 끝에 Remove-Item으로 **삭제**(docs/59 §16.1 재발 패턴) | jkdesktop 정지 |
 
-따라서 "각 프로브의 finally가 permissions.json을 복원한다"는 **워크트리 3종 + 
+따라서 "각 프로브의 finally가 permissions.json을 복원한다"는 **워크트리 4종 +
 probe_app_tools에만 참**이다 — probe_agent_e2e는 수동 백업/복원 의무가 있다(아래
 0·4단). **단계 순서는 강제다 — (0) 백업 → (1) 워크트리 프로브 → (2) 메인 트리
 회귀 순서를 바꾸지 마라**: (1)의 프로브 teardown이 jkwinserver를 정지해야 (2)의
