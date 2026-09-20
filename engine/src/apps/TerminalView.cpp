@@ -751,7 +751,15 @@ void TerminalView::HandleKeyDown(const JKEvent& ev) {
     // 비문자 키(Enter/Tab/이동/F키) 앞에서 진행 조합 확정 — pty로 가는 바이트
     // 순서가 입력 순서를 따른다. 이 지점은 ClearPreEdit 뒤라 오버레이는 이미
     // 비었고, 확정 바이트만 뒤따라 나간다.
-    if (hangul_.Composing()) {
+    // **문자 키는 확정에서 제외한다(docs/61 §22.2)** — 무조건 확정하면 조합
+    // 중인 다음 자모 키가 직전 음절을 강제 확정해 자모가 매 키마다 따로 pty로
+    // 흘렀다(유저 보고 "자소 조합안되고 하나씩 찍힘"). plainLetter 판정은
+    // 아래 수용 분기와 같은 식 — ctrl+letter는 비문자 경로로 확정 후 제어바이트.
+    const bool isLetter =
+        (key >= SDLK_a && key <= SDLK_z) || (key >= 'A' && key <= 'Z');
+    const bool plainLetter =
+        isLetter && !(mod & (KMOD_CTRL | KMOD_ALT | KMOD_GUI));
+    if (hangul_.Composing() && !plainLetter) {
         SendHangulResult(hangul_.Commit());
     }
 
@@ -760,15 +768,11 @@ void TerminalView::HandleKeyDown(const JKEvent& ev) {
     // printable이 Char로 새는 통상 경로와 겹치지 않는다. ctrl/alt/gui가 붙거나
     // 문자가 아니면 빈 Result로 거부 → 아래 기존 경로(ctrl+letter 제어바이트
     // 등)를 그대로 계속한다.
-    if (hangul_.HangulMode()) {
-        const bool isLetter =
-            (key >= SDLK_a && key <= SDLK_z) || (key >= 'A' && key <= 'Z');
-        // 수용 판정은 키 모양으로 먼저 — 조합 진행 여부로 판정하면 ctrl+letter
-        // 같은 거부 키까지 삼켜 SIGINT 경로가 죽는다.
-        if (isLetter && !(mod & (KMOD_CTRL | KMOD_ALT | KMOD_GUI))) {
-            SendHangulResult(hangul_.Letter(key, mod));
-            return;
-        }
+    if (hangul_.HangulMode() && plainLetter) {
+        // 수용 판정은 키 모양으로 먼저(레슨 26) — 조합 진행 여부로 판정하면
+        // ctrl+letter 같은 거부 키까지 삼켜 SIGINT 경로가 죽는다.
+        SendHangulResult(hangul_.Letter(key, mod));
+        return;
     }
 
     // docs/22 §6.1 input mapping.
