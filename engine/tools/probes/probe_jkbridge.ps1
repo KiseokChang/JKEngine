@@ -21,6 +21,11 @@ $hadJb = Test-Path $jbFile;  if ($hadJb) { $jbBak = [System.IO.File]::ReadAllByt
 $hadChat = Test-Path $chatFile; if ($hadChat) { $chatBak = [System.IO.File]::ReadAllBytes($chatFile) } else { $chatBak = $null }
 '{"token":"probetoken0123456789abcdef","port":8899}' | Set-Content -Path $jbFile -Encoding ASCII
 '{"engine":"stub"}' | Set-Content -Path $chatFile -Encoding ASCII
+# State restore MUST survive every exit path: an end-of-file restore ran only
+# on clean completion, so a mid-body crash leaked the probe token into the
+# LIVE bridge state (2026-09-20: user's real jkbridge.json token replaced by
+# probetoken*, phone URL dead). finally below is the only guarantee.
+try {
 
 Get-Process jkdesktop -ErrorAction SilentlyContinue | Stop-Process -Force
 Get-Process jkbridge -ErrorAction SilentlyContinue | Stop-Process -Force
@@ -479,11 +484,13 @@ foreach ($i in 1..11) {
 Check "rate-limit" $limited
 
 # --- cleanup ------------------------------------------------------------------
-Get-Process jkdesktop -ErrorAction SilentlyContinue | Stop-Process -Force
-if ($bridgeProc -and -not $bridgeProc.HasExited) { $bridgeProc.Kill() }
-if ($hadPerm) { [System.IO.File]::WriteAllBytes($permFile, $permBak) } else { Remove-Item $permFile -ErrorAction SilentlyContinue }
-if ($hadJb) { [System.IO.File]::WriteAllBytes($jbFile, $jbBak) } else { Remove-Item $jbFile -ErrorAction SilentlyContinue }
-if ($hadChat) { [System.IO.File]::WriteAllBytes($chatFile, $chatBak) } else { Remove-Item $chatFile -ErrorAction SilentlyContinue }
-Remove-Item -Recurse -Force $run -ErrorAction SilentlyContinue
+} finally {
+    Get-Process jkdesktop -ErrorAction SilentlyContinue | Stop-Process -Force
+    if ($bridgeProc -and -not $bridgeProc.HasExited) { $bridgeProc.Kill() }
+    if ($hadPerm) { [System.IO.File]::WriteAllBytes($permFile, $permBak) } else { Remove-Item $permFile -ErrorAction SilentlyContinue }
+    if ($hadJb) { [System.IO.File]::WriteAllBytes($jbFile, $jbBak) } else { Remove-Item $jbFile -ErrorAction SilentlyContinue }
+    if ($hadChat) { [System.IO.File]::WriteAllBytes($chatFile, $chatBak) } else { Remove-Item $chatFile -ErrorAction SilentlyContinue }
+    Remove-Item -Recurse -Force $run -ErrorAction SilentlyContinue
+}
 
 if ($ok) { Write-Host "PASS: jkbridge"; exit 0 } else { Write-Host "FAIL: jkbridge"; exit 1 }
