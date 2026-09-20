@@ -125,39 +125,61 @@ approval_unavailable / approval_overflow.
 
 ### 배치 런 절차 (파워셰일 가용 세션에서)
 
-모든 경로는 **워크트리** 기준(프로브가 `$build`를 워크트리 engine/build로 하드코딩).
-프로브는 전부 `> log 2>&1` 파일 리다이렉트로 구동(파이프 grep은 버퍼링 행걸 오판 —
-기존 레슨), 각 프로브 ×2(2연통 원칙):
+**프로브 대상 분리 — 배치는 두 서버를 건드린다**(스크립트 하드코딩 기준):
+
+| 프로브 | 테스트 대상 서버 | permissions.json | teardown |
+|---|---|---|---|
+| probe_send_input / probe_send_input_ask / probe_conquest_minesweeper | **워크트리** build(스크립트 `$build` 하드코딩) | Copy-Item 백업+finally 복원(검증됨) | jkwinserver/jkdesktop/jkagentd/jkbridge 전면 정지 |
+| probe_app_tools | **메인 트리** build(`$exe` 하드코딩) | TEMP per-PID 백업+stale 가드+finally 복원 | jkdesktop/jkapp_vplayer/jkbridge/jkchat 정지 |
+| probe_agent_e2e | **메인 트리** build(`$exe`/`$agnt` 하드코딩 — 사용자 라이브 데스크톱이 쓰는 그 빌드) | **백업 없이** `{"close_window":"allow"}`로 덮어쓰고 끝에 Remove-Item으로 **삭제**(docs/59 §16.1 재발 패턴) | jkdesktop 정지 |
+
+따라서 "각 프로브의 finally가 permissions.json을 복원한다"는 **워크트리 3종 + 
+probe_app_tools에만 참**이다 — probe_agent_e2e는 수동 백업/복원 의무가 있다(아래
+0·4단). 프로브는 전부 `> log 2>&1` 파일 리다이렉트로 구동(파이프 grep은 버퍼링
+행걸 오판 — 기존 레슨), 정복 계약 프로브는 ×2(2연통 원칙):
 
 ```powershell
 cd I:\progwork\JKENGINE\.claude\worktrees\conquest-ladder\engine\tools\probes
+# (0) 메인 트리 permissions.json 수동 백업 — probe_agent_e2e가 백업 없이 삭제한다
+Copy-Item I:\progwork\JKENGINE\engine\build\permissions.json I:\progwork\JKENGINE\engine\build\permissions.json.bak_b62 -Force
+Write-Output "NOTICE: main-tree permissions.json backed up to permissions.json.bak_b62 (probe_agent_e2e deletes it — restore after the batch)"
+# (1) 워크트리 프로브 — 정복 계약 ×2
 powershell -ExecutionPolicy Bypass -File probe_send_input_ask.ps1       > probe_send_input_ask.log 2>&1
 powershell -ExecutionPolicy Bypass -File probe_send_input_ask.ps1       > probe_send_input_ask_run2.log 2>&1
 powershell -ExecutionPolicy Bypass -File probe_conquest_minesweeper.ps1 > probe_conquest_minesweeper.log 2>&1
 powershell -ExecutionPolicy Bypass -File probe_conquest_minesweeper.ps1 > probe_conquest_minesweeper_run2.log 2>&1
+# (2) 메인 트리 회귀
 powershell -ExecutionPolicy Bypass -File probe_app_tools.ps1            > probe_app_tools_b62.log 2>&1
 powershell -ExecutionPolicy Bypass -File probe_app_tools.ps1            > probe_app_tools_b62_run2.log 2>&1
 powershell -ExecutionPolicy Bypass -File probe_agent_e2e.ps1            > probe_agent_e2e_b62.log 2>&1
-# self-test: 종료코드 0 기대
+# (3) self-test: 종료코드 0 기대
 I:\progwork\JKENGINE\.claude\worktrees\conquest-ladder\engine\build\jkdesktop.exe test > jkdesktop_test_b62.log 2>&1
 echo "exit=$LASTEXITCODE"
+# (4) 메인 트리 permissions.json 수동 복원
+Copy-Item I:\progwork\JKENGINE\engine\build\permissions.json.bak_b62 I:\progwork\JKENGINE\engine\build\permissions.json -Force
+Remove-Item I:\progwork\JKENGINE\engine\build\permissions.json.bak_b62 -Force
+Write-Output "NOTICE: main-tree permissions.json restored"
 ```
 
 판정: 각 로그에서 `FAIL` 0 + `ALL PASS`(정복 프로브는 `CONQUEST PASS`) 확인.
+probe_agent_e2e만 PASS/FAIL을 exit 코드로 보고한다.
 
-**라이브 서버 복원 의무**: 이 프로브들은 teardown에서 jkdesktop / jkwinserver /
-jkagentd / jkbridge를 **전면** 정지시키고 서버를 멈춘 채 끝난다(낡은 서버가 파이프를
-소유하면 MCP 호출이 전부 옛 서버에 떨어진다 — 실측 레슨). permissions.json은 각
-프로브의 finally가 백업-복원하므로 손댈 필요 없다. 배치 종료 후 복원 순서:
+**라이브 서버 복원 의무 — 반드시 메인 빌드 경로에서**: 배치가 남기는 결손은
+teardown이 전부 정지시킨 jkwinserver / jkdesktop(--client taskbar) / jkbridge다.
+복원을 워크트리 build로 하면 안 된다 — state 디렉토리는 exe 경로를 추종하고
+(SettingsKvPath가 GetModuleFileNameA의 `dir\state`, JKWindowServer.cpp:2214),
+워크트리 서버는 `worktrees\conquest-ladder\engine\build\state`(빈 셸)로 조용히
+갈아타 사용자의 permissions/브리지 토큰/notes가 소실처럼 보인다. jkagentd는 복원
+목록에서 제외 — CLI가 턴마다 재스폰한다.
 
 ```powershell
-Start-Process -FilePath I:\progwork\JKENGINE\.claude\worktrees\conquest-ladder\engine\build\jkwinserver.exe -WorkingDirectory I:\progwork\JKENGINE\.claude\worktrees\conquest-ladder\engine\build
-Start-Process -FilePath I:\progwork\JKENGINE\.claude\worktrees\conquest-ladder\engine\build\jkdesktop.exe -ArgumentList "--client","taskbar" -WorkingDirectory I:\progwork\JKENGINE\.claude\worktrees\conquest-ladder\engine\build
+# 복원 = 라이브 환경(메인 빌드). 프로브가 테스트한 워크트리 빌드와 분리.
+Start-Process -FilePath I:\progwork\JKENGINE\engine\build\jkwinserver.exe -WorkingDirectory I:\progwork\JKENGINE\engine\build
+Start-Process -FilePath I:\progwork\JKENGINE\engine\build\jkdesktop.exe -ArgumentList "--client","taskbar" -WorkingDirectory I:\progwork\JKENGINE\engine\build
+Start-Process -FilePath I:\progwork\JKENGINE\engine\build\jkbridge.exe -WorkingDirectory I:\progwork\JKENGINE\engine\build
 ```
 
-(라이브 데스크톱이 본 checkout 빌드로 구동되어 있었다면 경로를 그쪽 build로,
-단 워크트리 빌드와 코드가 같으므로 워크트리 build 복원도 무해하다. 복원 뒤
-jkdesktop 프로세스가 1개인지 확인 — 2개 관측은 좀비 의심, 기존 레슨.)
+복원 뒤 jkdesktop 프로세스가 1개인지 확인 — 2개 관측은 좀비 의심(기존 레슨).
 
 ## 5. 사다리 현황
 
