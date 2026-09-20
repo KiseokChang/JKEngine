@@ -58,9 +58,13 @@
 2. 코드포인트 변환: KSSM 2바이트 → `KssmToUtf8` 경유 Unicode cp (한글 완성형·한자·
    특수 포함), 영문은 ASCII 그대로
 3. 아틀라스 조회 `EnsureGlyph(fg, cp)`:
-   - 페이지 키 = `(fg 색, cp)` — 1단계는 크기 고정, 데스크탑은 bold 미사용이라 키에서 뺌
-   - 페이지 = **fg 색당 1개, tightly-packed**, 가득 차면 다음 페이지 신설
-     (터미널의 chunk 방식보다 임의 코드포인트가 흩어지는 데스크탑 텍스트에 적합)
+   - **글리프당 소형 텍스처**(stride×16px) — 캐시 키 `desktext_%08x_%06x` (fg, cp),
+     수요 시 1회 래스터라이즈 후 JKResourceCache 등록 (색 구움, 터미널과 동일)
+   - [구현 편차 2026-09-21] 원설계 "fg 색당 tightly-packed 페이지" → 글리프당
+     텍스처로 단순화. 근거: 페이지는 새 글리프마다 재업로드가 필요한데
+     JKResourceCache의 동일 키 재등록 재업로드 의미론이 보장되지 않고, 데스크탑
+     텍스트는 프레임당 수십 글자 규모라 터미널(수백 셀/프레임)과 달리 페이지
+     압축 이득이 작다. 메모리는 글리프당 ~1KB (256×256×4B 페이지 대비).
    - stb_truetype 래스터라이즈 → 셀 크기(한글 16×16/영문 8×16) 스케일 → fg색 채움 +
      AA 알파 (BlitTexture의 텍스처 알파 블렌딩은 터미널이 이미 증명)
 4. `GlyphSrc(cp)` rect를 `BlitTexture`로 dst 셀 위치에 블릿 — 글자당 블릿 1회
@@ -122,8 +126,9 @@
 
 ## 7. 미결/열린 질문
 
-- fg 색 폭증 시 페이지 메모리 상한 — 필요 시 LRU 폐기(백로그)
-- 클라 모드 앱의 settings.json 읽기 경로(공유 state dir) 확인 — 구현 계획 단계에서 확정
+- (해소 2026-09-21) 클라 모드 settings.json 읽기 — 앱은 jkdesktop 단일 프로세스
+  (jkapp_*.dll 로드), exe-dir + `state\settings.json` 공용 경로로 서버/클라 동일
+- fg 색 폭증 시 글리프 텍스처 수 상한 — 필요 시 LRU 폐기(백로그)
 - 번들 폰트 선정(Noto Sans CJK KR vs 나눔고딕, 용량/포맷 .ttc vs .otf) — 리눅스 착수
   시점에 확정, Windows 1단계에는 불요
 
