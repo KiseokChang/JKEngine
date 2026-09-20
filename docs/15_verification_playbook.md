@@ -87,7 +87,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\verify_fixwin3.ps1 -mo
 | 항목 | 내용 |
 |------|------|
 | 파라미터 | `-mode occ\|jango` (검증할 앱 모드), `-exe <경로>` (기본값: `engine\build\jkdesktop.exe`) |
-| 사전 조건 | 빌드 완료 상태. 스크린샷이 `C:\temp_jkwin_verify\`에 저장되므로 이 디렉터리가 존재해야 함 |
+| 사전 조건 | 빌드 완료 상태. 스크린샷이 `I:\temp_jkwin_verify\`에 저장되므로 이 디렉터리가 존재해야 함 |
 | 동작 | 앱 Start-Process → 5초 대기 → `SetForegroundWindow` → 측정·체크 → `CloseMainWindow` (무응답 시 강제 종료) |
 | 출력 | 체크별 `PASS/FAIL` + `[info]` 측정값 + `RESULT[mode]: N pass, M fail`. 실패 시 exit 1 |
 
@@ -134,7 +134,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\verify_fixwin3.ps1 -mo
 
 ## 6. 검증 도구 자체의 함정 — 스크립트 진화사
 
-검증 스크립트 자체가 DPI 버그를 갖고 있어 잘못된 결론을 낸 적이 있다 (1~3세대는 `C:\temp_jkwin_verify\`에만 남음):
+검증 스크립트 자체가 DPI 버그를 갖고 있어 잘못된 결론을 낸 적이 있다 (1~3세대는 `I:\temp_jkwin_verify\`에만 남음):
 
 | 세대 | 파일 | 문제/한계 |
 |------|------|-----------|
@@ -156,7 +156,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\verify_fixwin3.ps1 -mo
 ## 8. 보조 유틸과 에이전트 도구 주의
 
 - `tools\fix_bom.ps1 -Path <파일>`: 한글 포함 .ps1의 UTF-8 BOM 확인/부착. editor 도구로 .ps1을 저장하면 BOM이 빠질 수 있고, BOM이 없으면 PowerShell 5.1이 cp949로 읽어 파싱이 깨진다.
-- 캡처/스캔 임시 파일과 스크린샷은 `C:\temp_jkwin_verify\` 작업장에 둔다.
+- 캡처/스캔 임시 파일과 스크린샷은 `I:\temp_jkwin_verify\` 작업장에 둔다.
 
 ## 9. 마우스 좌표 스케일 검증 — `tools\probe_mouse_scaling.ps1` (2026-08-29)
 

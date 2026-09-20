@@ -673,8 +673,9 @@ temp_jkdesktop_agentmgr(420M)·temp_jkdesktop_build·temp_jkproto_sdl2_jkwindow
 근거 실측: ①본 세션 내내 engine/build(I:)에서 직접 `cmake --build` 성공
 ②I: temp에서 configure+ninja 풀빌드 [157/157] 성공 — **exFAT 쓰기 제약은
 재현 불가(스테일)**. docs/10의 "재현되면 빌드 트리만 C:로 분리"는
-컨틴전시 플랜으로 유지. temp_jkwin_verify(2.2M)만 유지 — docs/15 검증
-플레이북이 스크린샷 경로로 참조.
+컨틴전시 플랜으로 유지. temp_jkwin_verify(2.2M)는 후속 요청으로
+I:\temp_jkwin_verify로 이동+참조 갱신(tools 검증 스크립트 5종+docs/15) —
+C: 잔여 temp(temp_jkwin_verify+C:\temp) 전부 소각.
 
 - **레슨**: ①빌드 temp는 전량 I:로 — C:에 소스 사본을 두지 않는다(사본은
   반드시 스테일이 된다 — docs/57 §8과 같은 뿌리) ②"못 쓴다"류 드라이브

@@ -192,7 +192,7 @@ try {
         Check "콘텐츠 범위 감지" $false "no non-gray pixels found in client"
     }
 
-    $out = "C:\temp_jkwin_verify\shot_fixwin3_${mode}.png"
+    $out = "I:\temp_jkwin_verify\shot_fixwin3_${mode}.png"
     $bmp.Save($out, [System.Drawing.Imaging.ImageFormat]::Png)
     Write-Host "[saved] $out"
 

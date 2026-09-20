@@ -28,10 +28,10 @@ $wdir = "i:\progwork\JKENGINE\prototype\sdl2_jkwindow\build"
 Get-Process -Name "jkdesktop" -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Milliseconds 300
 
-$trace = "C:\temp_jkwin_verify\dpi_trace.log"
+$trace = "I:\temp_jkwin_verify\dpi_trace.log"
 if (Test-Path $trace) { Remove-Item $trace -Force }
 
-Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "C:\temp_jkwin_verify\launch_app_traced.cmd" -WorkingDirectory $wdir -WindowStyle Hidden
+Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "I:\temp_jkwin_verify\launch_app_traced.cmd" -WorkingDirectory $wdir -WindowStyle Hidden
 
 $h = [IntPtr]::Zero
 for ($i = 0; $i -lt 40; $i++) {
@@ -52,7 +52,7 @@ function Shot-Window {
   $g = [System.Drawing.Graphics]::FromImage($bmp)
   $g.CopyFromScreen($wr.L, $wr.T, 0, 0, (New-Object System.Drawing.Size($bw, $bh)))
   $g.Dispose()
-  $png = "C:\temp_jkwin_verify\shot2_{0}.png" -f $Tag
+  $png = "I:\temp_jkwin_verify\shot2_{0}.png" -f $Tag
   $bmp.Save($png, [System.Drawing.Imaging.ImageFormat]::Png)
   $bmp.Dispose()
   Write-Output ("SHOT {0} file={1} winRect=({2},{3},{4}x{5})" -f $Tag, $png, $wr.L, $wr.T, $bw, $bh)
@@ -65,7 +65,7 @@ function Shot-Region {
   $g = [System.Drawing.Graphics]::FromImage($bmp)
   $g.CopyFromScreen($X, $Y, 0, 0, (New-Object System.Drawing.Size($W, $H)))
   $g.Dispose()
-  $png = "C:\temp_jkwin_verify\shot2_{0}.png" -f $Tag
+  $png = "I:\temp_jkwin_verify\shot2_{0}.png" -f $Tag
   $bmp.Save($png, [System.Drawing.Imaging.ImageFormat]::Png)
   $bmp.Dispose()
   Write-Output ("SHOT {0} file={1} rect=({2},{3},{4}x{5})" -f $Tag, $png, $X, $Y, $W, $H)
