@@ -682,3 +682,20 @@ C: 잔여 temp(temp_jkwin_verify+C:\temp) 전부 소각.
   제약은 주기적으로 재실측 — 환경(msys2/드라이브)이 바뀌면 제약은 유령이
   된다 ③ninja ld 일시 실패(exit 67) 재확인 — 1차 실패→재실행 회복, 파이프
   `tail`이 실패 지점을 잘라 재현에 2번 들었다(파일 리다이렉트 레슨 재확인).
+
+## 16.1 회귀 + 신규 프로브 (2026-09-20, 정지창)
+
+§16 픽스 회귀 2연속 전부 PASS: probe_settings(프룬 스트리밍 경로)×2 ALL
+PASS, probe_files×2, probe_agent_trust×2, probe_app_tools×2, jkdesktop
+test 0 failure. **probe_approval_overflow 신설** — raw 파이프 하네스
+(probe_app_tools 계열, Hello→구독→같은 연결에서 AgentQuery 9회)로
+trust_request 8회 파킹+9번째 approval_overflow+승인 이벤트 8회 실측
+×2 PASS. 진단 노트: 첫 판정 "9개 전부 즉시 응답"은 파킹 기계 결함이 아니라
+프로브 지문 65자(64hex+1) bad_fingerprint — 응답이 전부 에러였다.
+
+- 참고: 진행 중 permissions.json이 사라져 있는 것을 발견(어제 만든 전면
+  allow 런타임 파일, 백업 없음) — 사용자 확인 후 전면 allow로 복원
+  (close_window/trust_request/run_console_app/trust_revoke/permission_set/
+  files_list/files_read/files_audit/file_open). 어젯밤 mgr_t1류 검증
+  프로브의 Remove-Item 패턴이 유력 원인 — **프로브가 유저 런타임 파일을
+  소유·삭제할 때 백업+콘솔 고지 필수**.
