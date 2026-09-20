@@ -1615,7 +1615,9 @@ std::string JKWindowServer::ExecuteSendInputOp(const SendInputOp& op) {
         p.y = static_cast<int>(std::llround((op.y - client->Y()) / sy));
         p.keyCode = op.button;
         p.detail = op.clicks;
-        p.option = 0;
+        // 합성 마우스에도 실시간 경로와 동일한 mods 스탬프(최종리뷰 Minor 3) —
+        // 마우스 구조체는 mods 필드가 없고 option으로 실린다(단계 3 선례).
+        p.option = SDL_GetModState();
         p.type = ipc::InputEventType::MouseDown;
         SendInputEvent(*client, p);
         p.type = ipc::InputEventType::MouseUp;
@@ -1644,6 +1646,12 @@ std::string JKWindowServer::ExecuteSendInputOp(const SendInputOp& op) {
         while (off < op.text.size()) {
             size_t len = std::min<size_t>(63, op.text.size() - off);
             while (len > 0 && (op.text[off + len] & 0xC0) == 0x80) --len;
+            // 경화(최종리뷰 Important 2): 후속 바이트만 이어지면 len이 0에 닿아
+            // memcpy 0 + off 진행 0으로 무한 루프한다. GetStr 재인코더는 후속
+            // 런 ≤3을 통상 보장하지만 SendInputOp는 미래의 비-QuickJS 생산자를
+            // 위한 구조 — 불변식(off는 항상 리드 바이트에서 시작)이 깨진 입력에
+            //도 핫 경로가 멈추지 않게 방어선을 둔다.
+            if (len == 0) len = 1;
             p.type = ipc::InputEventType::Char;
             std::memcpy(p.text, op.text.c_str() + off, len);
             p.text[len] = '\0';
@@ -1656,6 +1664,8 @@ std::string JKWindowServer::ExecuteSendInputOp(const SendInputOp& op) {
         p.type = ipc::InputEventType::MouseWheel;
         p.dx = op.dx;
         p.dy = op.dy;
+        // 실시간 휠 경로와 동일한 mods 스탬프(최종리뷰 Minor 3, :1523 선례).
+        p.option = SDL_GetModState();
         SendInputEvent(*client, p);
         return "";
     }
@@ -3603,12 +3613,25 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                     p.targetId = op.target;
                     p.sendArgs = rawArgs;     // 승인 시점 원 요청 재실행 원문
                     p.expiresAt = std::time(nullptr) + 60;
-                    char buf[512];
+                    // 대상 식별 (최종리뷰 Important 1): close_window 선례 형태
+                    // (:3262) — 승인 스트립이 조작(op)만이 아니라 어느 창에
+                    // 가해지는지 보여야 한다. 해소 실패 시 빈 문자열.
+                    std::string targetTitle;
+                    for (auto& c : clients_) {
+                        if (c && c->Id() == op.target &&
+                            !c->IsDisconnected()) {
+                            targetTitle = c->Title();
+                            break;
+                        }
+                    }
+                    char buf[640];
                     std::snprintf(buf, sizeof(buf),
                                   "{\"topic\":\"agent.approval_request\","
                                   "\"request\":%u,\"tool\":\"send_input\","
-                                  "\"name\":\"%s\",\"ts\":%lld}",
+                                  "\"name\":\"%s\",\"target_id\":%u,"
+                                  "\"title\":\"%s\",\"ts\":%lld}",
                                   p.requestId, JsonEsc(op.op).c_str(),
+                                  p.targetId, JsonEsc(targetTitle).c_str(),
                                   static_cast<long long>(std::time(nullptr)) *
                                       1000);
                     pendingApprovals_.push_back(p);
@@ -4487,7 +4510,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
              "[\"id\",\"title\",\"pid\"]"},
             {"agent.approval_request", "server",
              "ask 권한 승인 요청 (docs/31) + trust_request (docs/37) + "
-             "capture_allow 키별 Ask (docs/54)",
+             "capture_allow 키별 Ask (docs/54) + send_input (docs/62 정복 사다리)",
              "\"request,tool,kind,title/target_id/name,origin,fingerprint\""},
             {"agent.approval_resolved", "server",
              "승인 결정: allow/deny/timeout", "[\"request\",\"decision\"]"},

@@ -40,6 +40,11 @@ bad_key/bad_text/bad_action):
 | `text` | string | — | type: UTF-8 (63B 단위, UTF-8 후속 바이트 경계에서 분할 발송) |
 | `dx`,`dy` | int | 0 | wheel: 델타 |
 
+수용 편차(최종리뷰 기재): 스펙 원안의 wheel `{x?,y?}`는 잘라냈다 — 실시간 휠
+경로도 좌표를 실지 않는다(JKWindowServer.cpp:1527-1533, dx/dy만). 스펙의 `target`/`vk`/`scan`은
+구현에서 `id`/`key`(SDL keycode)로 개명해 list_windows의 id와 SDL keycode
+계약(list_windows의 기존 도구들과 동일)에 정렬했다.
+
 실행(`ExecuteSendInputOp`, :1589): 대상 연결을 clients_에서 직접 순회해 찾고
 (window_not_found), 기존 `InputEventPayload` 경로로 주입 — 와이어 신규 0.
 클릭은 MouseDown+MouseUp 쌍, key는 action에 따라 Down/Up, type은 63B 분할 Char,
@@ -117,9 +122,11 @@ approval_unavailable / approval_overflow.
 
 - probe_send_input_ask.ps1(11체크 — 파킹/승인/재실행/클릭 착지/deny/무주입):
   ASCII 무BOM·ninja GREEN·와이어 포맷 선례 대조 완료.
-- probe_conquest_minesweeper.ps1(런 시 18체크 — setup-server-up + cycle1 6 +
-  이벤트 3 + recover-gone + cycle2 6 + cycle2-after-recover): 동일 정적검증
-  완료.
+- probe_conquest_minesweeper.ps1(런 시 **19체크** — setup-server-up + cycle1 6 +
+  **cycle1 집계** + 이벤트 3 + recover-gone + cycle2 6 + cycle2-after-recover;
+  이전 표기 18은 집계 Check "cycle1" 누락 착시): 동일 정적검증 완료. 단
+  recover-gone이 FAIL하면 하드 게이트가 cycle2 블록을 스킵 — 실제로 런되는
+  체크는 12뿐이다(§7-7의 아이러니: 계수 표기는 실제 런 분기를 따라야 한다).
 - **회귀 스윕 배치 대기**: probe_app_tools ×2 + `jkdesktop test` 종료코드 0 +
   probe_agent_e2e ×1(minesweeper 스폰 경로 무손상).
 
@@ -135,7 +142,12 @@ approval_unavailable / approval_overflow.
 
 따라서 "각 프로브의 finally가 permissions.json을 복원한다"는 **워크트리 3종 + 
 probe_app_tools에만 참**이다 — probe_agent_e2e는 수동 백업/복원 의무가 있다(아래
-0·4단). 프로브는 전부 `> log 2>&1` 파일 리다이렉트로 구동(파이프 grep은 버퍼링
+0·4단). **단계 순서는 강제다 — (0) 백업 → (1) 워크트리 프로브 → (2) 메인 트리
+회귀 순서를 바꾸지 마라**: (1)의 프로브 teardown이 jkwinserver를 정지해야 (2)의
+메인 트리 프로브가 자기 서버를 스폰할 수 있다. 라이브 jkwinserver가 파이프를
+계속 소유한 채 (2)를 먼저 돌리면 메인 트리 프로브의 호출이 전부 라이브(테스트
+대상 아닌) 인스턴스에 착지한다(§7-4 실측의 배치판 변형). 프로브는 전부
+`> log 2>&1` 파일 리다이렉트로 구동(파이프 grep은 버퍼링
 행걸 오판 — 기존 레슨), 정복 계약 프로브는 ×2(2연통 원칙):
 
 ```powershell
@@ -143,6 +155,10 @@ cd I:\progwork\JKENGINE\.claude\worktrees\conquest-ladder\engine\tools\probes
 # (0) 메인 트리 permissions.json 수동 백업 — probe_agent_e2e가 백업 없이 삭제한다
 Copy-Item I:\progwork\JKENGINE\engine\build\permissions.json I:\progwork\JKENGINE\engine\build\permissions.json.bak_b62 -Force
 Write-Output "NOTICE: main-tree permissions.json backed up to permissions.json.bak_b62 (probe_agent_e2e deletes it — restore after the batch)"
+# 이 배치가 중간에 비정상 종료하면 4단의 NOTICE를 믿지 말고 즉시 수동 복원한다 —
+# probe_agent_e2e가 백업 없이 삭제·재작성하는 파일이라 크래시된 4단은 복원을
+# 보장하지 않는다(최종리뷰 Minor 7):
+#   Copy-Item I:\progwork\JKENGINE\engine\build\permissions.json.bak_b62 I:\progwork\JKENGINE\engine\build\permissions.json -Force
 # (1) 워크트리 프로브 — 정복 계약 ×2
 powershell -ExecutionPolicy Bypass -File probe_send_input_ask.ps1       > probe_send_input_ask.log 2>&1
 powershell -ExecutionPolicy Bypass -File probe_send_input_ask.ps1       > probe_send_input_ask_run2.log 2>&1
@@ -192,7 +208,9 @@ Start-Process -FilePath I:\progwork\JKENGINE\engine\build\jkbridge.exe -WorkingD
 | terminal | 대기 |
 | vplayer | 대기 — MCP 도구 6개 기보유, 트랙 A(도구 릴레이) 시제 케이스 |
 | browser | 대기 |
-| taskbar | 대기 — 최종 관문(셸 자체 정복) |
+| taskbar | 대기 — 최종 관문(셸 자체 정복). **send_input 불가 단** — 셸은 대상
+  배제 설계(`IsShell()` → `bad_target`, §2)라 트랙 B로 정복할 수 없다. 최종 러닝은
+  트랙 A(도구 릴레이) 또는 스펙 개정이 필요하다 |
 
 ## 6. LLM 실전 체크리스트 (minesweeper)
 
