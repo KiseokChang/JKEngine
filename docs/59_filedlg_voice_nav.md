@@ -437,6 +437,29 @@ list limit 비양수 → 1 클램프, 스키마 밖 key → `bad_args`(방어선
   (프로세스 kill/재기동)은 진짜 결함을 가리는 소음이자 새 결함의 원인 —
   에이전트에게 OS 프로세스 권한을 주지 않는 것이 안정성 그 자체.
 
+## 11.1 가드를 Init 전으로 — 거부 인스턴스 선행 작업 소각 (2026-09-20, 4435aeb)
+
+§11 as-built의 "위치" 갱신. `StartAcceptor`는 `Init`(앱 스캔+아이콘 디코드
+전부) 뒤에 불리므로, 거부 인스턴스가 installed app 26줄+런처 아이콘 로드를
+전부 수행한 뒤에야 기각됐다(사용자 붙여넣기 로그 실측). 픽스:
+`TryAcquireSingleInstanceGuard`로 가드 블록 분리 → main.cpp/jkwinserver_main.cpp
+양 경로가 **Init 전**에 취득, `StartAcceptor`는 미취득 시에만 취득(직접 호출자
+방어선). 실측: 제2 인스턴스가 테마 1줄+가드 메시지 1줄만 출력하고 즉시
+exit 1. probe_workshop ×2 + probe_app_tools ×2 ALL PASS(재빌드 회귀).
+
+- **부수 픽스(잠복 결함 폭로)**: ClientScriptApp.h의 `#include <windows.h>`
+  (docs/60 워크숍)가 main.cpp의 `JKDC::TextOut` 사용부를 wingdi
+  `#define TextOut TextOutA` 매크로로 오염 — main.cpp.obj가 스테일로
+  살아 있어 워크숍 빌드에선 무증상, main.cpp 재컴파일과 함께 발현.
+  fileapi.h로 교체도 실패(wancode 레거시 BOOL/CreateDirectoryA 충돌) →
+  **GetFileAttributesExA 수기 선언**(`_WINBASE_` 센티넬 — windows.h 선행
+  TU는 SDK 선언 사용, 후행 TU는 수기 선언)로 양 TU 모두 해소.
+- **레슨**: ①가드류는 첫머리에서 봉쇄 — 무거운 초기화 뒤의 기각은 기각이
+  아니라 낭비 ②스테일 obj는 잠복 결함을 은폐한다 — 헤더에 windows 계열
+  인클루드를 넣으면 그 헤더를 쓰는 전 TU를 상기시킬 것(main.cpp 포함)
+  ③레거시 typedef(wancode BOOL)와 SDK 헤더가 같은 TU에 공존하면
+  windows.h/fileapi.h 모두 안전하지 않다 — 필요한 OS 함수만 수기 선언.
+
 ## 11. 서버 단일 인스턴스 가드 — 명명 뮤텍스 + 파이프 벨트 (2026-09-20)
 
 §10 유보 ② 채택(사용자 "2") 구현. 두 jkdesktop 서버가
