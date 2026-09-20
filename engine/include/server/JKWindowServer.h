@@ -3,6 +3,7 @@
 
 #include <server/JKClientConnection.h>
 #include <server/JKCompositor.h>
+#include <agent/JKAgentJson.h>
 #include <JKAudioCommand.h>
 #include <JKTypes.h>
 #include <SDL.h>
@@ -259,6 +260,7 @@ private:
         std::string kind = "close_window";  // "close_window" | "trust_request"
                                             // | "run_console_app" (P4 SDK)
                                             // | "files_access" (file hub)
+                                            // | "send_input" (정복 사다리)
         std::string name;          // trust_request: script display name
                                    // run_console_app: 콘솔 앱 이름 (P4 SDK)
         std::string origin;        // trust_request: "dev" | "package"
@@ -286,9 +288,38 @@ private:
         uint32_t appToolConnId = 0;  // app_tool: 중계 대상 연결 id — 승인
                                      // 시점에 연결 생존 재확인(run_console_app
                                      // 승인 시점 재조회 선례)
+        // 앱 정복 사다리 (스펙 2026-09-21-conquest-ladder §3.1): send_input의
+        // 재실행 원본 — args 원문 JSON. 승인 시점에 BuildSendInputOp로 재조립해
+        // ExecuteSendInputOp를 다시 태운다(files_access의 파킹-재실행 선례,
+        // app_toolArgs의 원문-보관 선례).
+        std::string sendArgs;        // send_input: args 원문 JSON (패스스루)
     };
     std::vector<PendingApproval> pendingApprovals_;
     uint32_t nextApprovalId_ = 1;
+
+    // 앱 정복 사다리 (스펙 2026-09-21-conquest-ladder §3.1): send_input의
+    // 실행 원본 — 도구 경로와 승인 재실행 경로(approve)가 같은 구조를
+    // 소비한다(files_access의 파킹-재실행 선례).
+    struct SendInputOp {
+        std::string op;              // "click"|"key"|"type"|"wheel"
+        uint32_t target = 0;         // window id (셸 제외)
+        int32_t x = 0, y = 0;        // click: 논리 데스크톱 좌표
+        int32_t dx = 0, dy = 0;      // wheel: 델타
+        uint32_t key = 0;            // key: SDL keycode
+        uint32_t mods = 0;           // key: SDL mod
+        uint32_t button = 1;         // click: 마우스 버튼
+        uint32_t clicks = 1;         // click: 클릭 수
+        std::string text;            // type: UTF-8 (63B 단위 분할 발송)
+        std::string action = "tap";  // key: "tap"|"down"|"up"
+    };
+    // 도구 인자 → SendInputOp. 빈 문자열=성공, 아니면 error 키
+    // (bad_op/bad_target/bad_key/bad_text/bad_action).
+    static std::string BuildSendInputOp(
+        const jk::agent::AgentJson& args, SendInputOp* out);
+    // SendInputOp 실행. 빈 문자열=성공, 아니면 error 키
+    // (window_not_found/bad_target(셸)). Task 2의 승인 재실행이 이 시그니처를
+    // 그대로 소비한다.
+    std::string ExecuteSendInputOp(const SendInputOp& op);
 
     // 파일 열기 대화상자 (filedlg 설계 specs/2026-09-13-file-dialog §1b):
     // file_open이 채우는 1슬롯 파라미터 — file_dialog_params가 기동 직후

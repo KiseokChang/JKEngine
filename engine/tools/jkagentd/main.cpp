@@ -79,7 +79,8 @@ const char* kCoreToolsListJson =
 // MCP 호출자에게 노출하지 않는다(재조립 분기가 무조건 "event"로 덮어쓴다).
 "{\"name\":\"file_open\",\"description\":\"Open a file picker dialog (filter/start/title optional; start = initial directory). Returns parked immediately — the resolution arrives as the file.open_result desktop event (poll read_events)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"filter\":{\"type\":\"string\"},\"start\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"}}}},"
 "{\"name\":\"list_app_tools\",\"description\":\"List registered app tools (app/name/inputSchema/windowId rows) — the app tool hub catalog (spec 2026-09-19-app-tool-hub)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}},"
-"{\"name\":\"app_tool\",\"description\":\"Call a registered app tool directly (app, tool, args; windowId disambiguates instances). The per-app-tool 3-tier gate still applies\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"app\":{\"type\":\"string\"},\"tool\":{\"type\":\"string\"},\"args\":{},\"windowId\":{\"type\":\"integer\"}}}}"
+"{\"name\":\"app_tool\",\"description\":\"Call a registered app tool directly (app, tool, args; windowId disambiguates instances). The per-app-tool 3-tier gate still applies\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"app\":{\"type\":\"string\"},\"tool\":{\"type\":\"string\"},\"args\":{},\"windowId\":{\"type\":\"integer\"}}}},"
+"{\"name\":\"send_input\",\"description\":\"Send synthetic input to a window: click/key/type/wheel. Coordinates are logical desktop points; the server converts to the target surface. Default gate is ask (approval strip)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"integer\"},\"op\":{\"type\":\"string\",\"enum\":[\"click\",\"key\",\"type\",\"wheel\"]},\"x\":{\"type\":\"integer\"},\"y\":{\"type\":\"integer\"},\"key\":{\"type\":\"integer\"},\"mods\":{\"type\":\"integer\"},\"button\":{\"type\":\"integer\"},\"clicks\":{\"type\":\"integer\"},\"dx\":{\"type\":\"integer\"},\"dy\":{\"type\":\"integer\"},\"text\":{\"type\":\"string\"},\"action\":{\"type\":\"string\",\"enum\":[\"tap\",\"down\",\"up\"]}},\"required\":[\"id\",\"op\"]}}"
 "]}";
 
 // Known tool names.
@@ -97,6 +98,9 @@ bool IsKnownTool(const std::string& name) {
         // 앱 도구 허브 (스펙 2026-09-19-app-tool-hub §6): 코어 2종 — 카탈로그
         // 조회와 직접 중계. 브로커 기본 allow(키 부재=deny 레슨 재발 방지).
         "list_app_tools", "app_tool",
+        // 앱 정복 사다리 (스펙 2026-09-21-conquest-ladder §3.1): 대상 창
+        // 합성 입력 — 서버 ask 게이트가 승인 파이프라인을 담당한다.
+        "send_input",
         // file_open (filedlg 음성 내비게이션, 스펙 §7): 분기 부재로 MCP 경로가
         // unknown_tool로 떨어지던 잠복 결함 — IsKnownTool 등록이 재조립 분기의
         // 전제다(미등록 시 tools/call이 동적 역매칭 → 즉시 unknown_tool).
@@ -140,6 +144,10 @@ std::map<std::string, bool> LoadPermissions() {
         // 동적 <app>_<tool>명의 게이트는 BrokerAppToolAllowed 3단 키가 별도로
         // 담당한다(아래 — 도구별 > 앱별 > 전역).
         "list_app_tools", "app_tool",
+        // 앱 정복 사다리 (스펙 2026-09-21-conquest-ladder §3.1): 기본 true
+        // (통과) — ask는 서버 파이프라인으로 통과가 정의(주석 122-127)이고
+        // 서버 kPermMatrix가 ask를 강제한다.
+        "send_input",
         // file_open — 서버 게이트도 none/allow(JKWindowServer kToolMatrix)라
         // 브로커 기본 allow가 정합. 다이얼로그 해소는 사람 몫이라 ask 불요.
         "file_open"
@@ -838,6 +846,16 @@ std::string HandleLine(const std::string& line, bool& isResponse) {
                 raw != "{}") {
                 argsJson = raw;
             }
+        } else if (tool == "send_input") {
+            // 앱 정복 사다리 (스펙 2026-09-21-conquest-ladder §3.1): args 원문
+            // 패스스루 — 스키마가 넓고(id/op/좌표/키/텍스트…) 재조립 파서
+            // 계약(app_tool 선례)이 낫다. 승인 파킹 시 서버가 이 원문을
+            // PendingApproval.sendArgs로 보관해 재실행한다.
+            std::string raw;
+            if (req.GetObjRaw("params", "arguments", raw) && !raw.empty() &&
+                raw != "{}") {
+                argsJson = raw;
+            }
         }
 
         // 동적 앱 도구 중계 (스펙 §6): 성공/앱 보고 실패 모두 원문 통과 —
@@ -957,7 +975,7 @@ int RunSelfTest() {
     // 동적부 합성 (스펙 §6, 2026-09-20 실측 결함 회귀): 카탈로그 3행을
     // 스크립트로 주입 — 조립 결과가 온전한 JSON인지(행 경계 쉼표 포함)
     // AgentJson으로 직접 검증한다. 라이브 서버 부재 환경에서도 조립 전
-    // 경로가 커버된다. 코어 28 + 유효 동적 3 = 31행.
+    // 경로가 커버된다. 코어 29(send_input 포함) + 유효 동적 3 = 32행.
     {
         const char* cat =
             "{\"tools\":["
@@ -970,7 +988,7 @@ int RunSelfTest() {
         const std::string composed = ComposeToolsListJsonFromReply(cat);
         jk::agent::AgentJson c(composed);
         int tc = 0;
-        if (!c.ok() || !c.GetArraySize("tools", tc) || tc != 31) ++failures;
+        if (!c.ok() || !c.GetArraySize("tools", tc) || tc != 32) ++failures;
         if (composed.find("appx_t2") == std::string::npos ||
             composed.find("appy_t3") == std::string::npos) ++failures;
         // 스키마 정규화: t2의 빈 {}는 MCP SDK zod 필수 조건(type=="object")
