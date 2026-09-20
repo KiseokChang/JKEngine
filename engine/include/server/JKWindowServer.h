@@ -24,6 +24,8 @@ namespace jk {
 class JKMessageBus;
 class JKAudioThread;
 class HangulManager;
+class JKTextAtlas;
+class JKResourceCache;
 struct LoadedImage;
 
 namespace desktop { class JKDesktopShell; }
@@ -466,6 +468,18 @@ private:
     // 배너 래스터에 쓰는 비트맵 폰트 — 클라와 동일 HangulManager(assets/fonts
     // 의 hangul/english.fnt, SDL_GetBasePath 해석). 지연 생성(첫 배너 시점).
     std::unique_ptr<HangulManager> approvalFont_;
+    // 승인 배너 벡터 글리프 (docs/63 Task 6): approvalFont_와 동일 지연 초기화
+    // (서버 루프 스레드 전용 — 위 approvalBannerTexs_ 규약, 락 없음). KSSM 고정
+    // fg(34,20,4) 단일이라 캐시 키는 글자당 1개. Init 실패 시 atlas는 살아 있되
+    // IsLoaded()==false — SetTextAtlas 미장착으로 비트맵 폴백(재시도·로그 반복
+    // 없음, 클라 크롬의 "Init 실패 = 비트맵 유지" 규약 동일).
+    std::unique_ptr<JKTextAtlas> bannerAtlas_;
+    // 배너 전용 글리프 텍스처 캐시. 배너는 렌더 타깃에 동기 그리므로(렌더 스레드
+    // 플러시 캐댄스 없음) DrawGlyph의 즉시 FlushUploads 폴백(JKDC.cpp)이 매번
+    // 살아 있는 지역 JKSDLRenderBackend를 직접 넘겨 업로드한다 — 캐시 소유
+    // backend 포인터는 비워둔다(nullptr). 지역 백엔드 포인터를 저장하면 함수
+    // 반환 뒤 소멸자 플러시가 댕글링한다.
+    std::unique_ptr<JKResourceCache> bannerCache_;
 
     // Throttle launcher icon double-clicks / rapid spawns to one per app per
     // 500 ms. Stores the last spawn time keyed by app name.

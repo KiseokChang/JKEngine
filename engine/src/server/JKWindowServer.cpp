@@ -13,7 +13,9 @@
 #include <JKMessageBus.h>
 #include <JKSDLAudioBackend.h>
 #include <JKSDLRenderBackend.h>
+#include <JKResourceCache.h>
 #include <JKSoundManager.h>
+#include <JKTextAtlas.h>
 #include <JKPlatform.h>
 #include <theme/JKTheme.h>
 
@@ -730,6 +732,16 @@ void JKWindowServer::Stop() {
         }
     }
     approvalBannerTexs_.clear();
+    // 배너 벡터 글리프 캐시 (docs/63 Task 6): 승인 배너 텍스처와 동일 소유
+    // 순서 — renderer_가 살아 있을 때 글리프 텍스처를 회수한다. 캐시 소유
+    // backend 포인터는 비워뒀으므로(nullptr) 이후 소멸자는 플러시 없이 끝난다.
+    if (bannerCache_ && renderer_) {
+        JKSDLRenderBackend backend(renderer_);
+        bannerCache_->UnloadAllImages();
+        bannerCache_->FlushUploads(&backend);
+    }
+    bannerAtlas_.reset();
+    bannerCache_.reset();
     approvalFont_.reset();
     compositor_.reset();
 
@@ -5827,6 +5839,26 @@ SDL_Texture* JKWindowServer::ApprovalBannerTexture(const std::string& bannerUtf8
                          "built-in ASCII fallback\n");
         }
     }
+    // 승인 배너 벡터 글리프 (docs/63 Task 6): approvalFont_와 동일 지연 초기화
+    // (서버 루프 스레드 전용 — 락 없음). 캐시 소유 backend 포인터는 비워두고
+    // DrawGlyph의 즉시 FlushUploads 폴백이 살아 있는 지역 백엔드를 넘긴다
+    // (헤더 주석 참조). Init 실패는 atlas 유지(IsLoaded()==false) — 비트맵
+    // 폴백 유지 + 경고 1회, 배너마다 재시도·로그 반복을 만들지 않는다.
+    if (!bannerCache_) {
+        bannerCache_ = std::make_unique<jk::JKResourceCache>(nullptr);
+    }
+    if (!bannerAtlas_) {
+        bannerAtlas_ = std::make_unique<jk::JKTextAtlas>();
+        const std::string fp = textFontPath_.empty()
+                                   ? jk::text::ResolveDesktopFontPath()
+                                   : textFontPath_;
+        if (!bannerAtlas_->Init(fp, 8, 16, 16)) {
+            std::fprintf(stderr,
+                         "[server] approval banner: vector font init failed "
+                         "(%s), staying on bitmap glyphs\n",
+                         fp.c_str());
+        }
+    }
     // 크롬 타이틀의 LegacyFontTitle 선례: KSSM 변환이 빈 결과면 원문을 쓴다
     // (이미 KSSM인 문자열·ASCII 전용 문자열의 이중 변환 방지).
     std::string kssm = Utf8ToKssm(bannerUtf8.c_str());
@@ -5853,6 +5885,13 @@ SDL_Texture* JKWindowServer::ApprovalBannerTexture(const std::string& bannerUtf8
     JKDC dc(&backend);
     if (approvalFont_) {
         dc.SetHangulManager(approvalFont_.get());
+    }
+    // 벡터 글리프 장착 (docs/63 Task 6): 실패한 Init(IsLoaded()==false)은
+    // 미장착 — EngPutCh/HanPutCh의 글리프 단위 비트맵 폴백이 그대로 쓰인다.
+    // 업로드는 DrawGlyph의 즉시 FlushUploads 폴백(&backend) — 동기 그리기라
+    // 별도 플러시 호출은 불요.
+    if (bannerAtlas_ && bannerAtlas_->IsLoaded() && bannerCache_) {
+        dc.SetTextAtlas(bannerAtlas_.get(), bannerCache_.get());
     }
     dc.SetTextColor(34, 20, 4);  // 호박 밴드 위 진한 갈색 글자 (고정 대비색)
     dc.TextOut(JKPoint{kPad, kPad}, kssm.c_str());
