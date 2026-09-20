@@ -45,6 +45,14 @@ struct JkxManifest {
     std::string icon2x;  // ICON entry name, @2x ("" when absent)
     int width = 0;
     int height = 0;
+    // Workshop fields (docs/60 §2.2) — optional, script-app manifests only:
+    //   scriptfile: exeDir-relative path to an editable external script. When
+    //     set, jkapp_script uses it instead of the extracted SCRI entry (the
+    //     workshop's single source of truth).
+    //   watch: 1 = hot reload always on (mtime poll), regardless of the
+    //     JK_SCRIPT_WATCH dev env switch. Built-in SCRI apps keep env-off.
+    std::string scriptfile;
+    int watch = 0;
 
     // Parses "key=value" lines; unknown keys are ignored. Returns false when
     // the required keys (name, module) are missing.

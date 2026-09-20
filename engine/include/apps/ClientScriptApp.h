@@ -2,10 +2,20 @@
 #define APPS_CLIENTSCRIPTAPP_H
 
 #include <JKApplicationHost.h>
+#ifdef _WIN32
+// FileMtime's GetFileAttributesExA (docs/60: 100ns mtime for the watch poll).
+#include <windows.h>
+#endif
 #include <JKEvent.h>
+#include <JKStatic.h>
 #include <JKWindow.h>
+#include <agent/JKAgentJson.h>
 #include <client/JKClientApplication.h>
+#include <client/JKClientSurface.h>
 #include <script/JKScriptHost.h>
+
+#include <cstdio>
+#include <vector>
 
 #include <memory>
 #include <string>
@@ -39,14 +49,20 @@ public:
         scriptPath_ = scriptPath;
     }
 
+    // Workshop hot reload (docs/60 §2.2): MANI `watch=1` forces the mtime
+    // poll on regardless of the JK_SCRIPT_WATCH env switch. Built-in SCRI
+    // apps never call this — deployment behavior stays env-opt-in.
+    void SetHotWatch(bool force) { watchForced_ = force; }
+
 protected:
     void OnInit() override {
         // Hot reload is an opt-in dev switch (docs/27 단계 1) — deployment
         // paths never set JK_SCRIPT_WATCH. The mtime poll rides an internal
         // app timer (both base classes provide AddTimer) at the watch winId,
         // so the reload path is identical in single-process and client mode.
+        // Workshop apps force it via MANI watch=1 (docs/60 §2.2).
         const char* env = std::getenv("JK_SCRIPT_WATCH");
-        watch_ = (env && env[0] == '1');
+        watch_ = watchForced_ || (env && env[0] == '1');
 
         auto main = std::make_unique<JKWindow>(scriptTitle_);
         int w = 0, h = 0;
@@ -74,7 +90,7 @@ protected:
         BaseApp::RouteMessage(ev);
     }
 
-private:
+protected:
     // Fresh script panel + host Attach/Start. Used by OnInit and by reload.
     void StartScript() {
         JKWindow* main = this->GetMainWindow();
@@ -107,15 +123,30 @@ private:
             std::printf("[script] start failed: %s\n",
                         host_->LastError().c_str());
             std::fflush(stdout);
+            // docs/60 §2.3: a failed reload must not leave a silent empty
+            // panel — one static label with the error text keeps the failure
+            // visible until the next successful reload rebuilds the panel.
+            const JKRect cr = main->GetClientRect();
+            auto* label = new JKStatic(
+                JKRect{ 8, 8, cr.w > 16 ? cr.w - 16 : cr.w, 24 });
+            label->SetText("[script error] " + host_->LastError());
+            panel_->AddControl(std::unique_ptr<JKStatic>(label));
         }
         lastMtime_ = FileMtime(scriptPath_);
     }
 
     static long long FileMtime(const std::string& path) {
 #ifdef _WIN32
-        struct _stat64 st = {};
-        if (_stat64(path.c_str(), &st) != 0) return 0;
-        return static_cast<long long>(st.st_mtime);
+        // 100ns FILETIME, not _stat64::st_mtime: the stat mtime is 1-second
+        // resolution, so two saves within the same second (rapid notepad
+        // edits / probe back-to-back writes) alias to the same stamp and the
+        // watcher never fires (probe_workshop c5, first live run).
+        WIN32_FILE_ATTRIBUTE_DATA fa = {};
+        if (!GetFileAttributesExA(path.c_str(), GetFileExInfoStandard, &fa)) {
+            return 0;
+        }
+        return (static_cast<long long>(fa.ftLastWriteTime.dwHighDateTime) << 32) |
+               fa.ftLastWriteTime.dwLowDateTime;
 #else
         struct stat st = {};
         if (::stat(path.c_str(), &st) != 0) return 0;
@@ -149,6 +180,30 @@ private:
         reloadPending_ = true;
     }
 
+    // Synchronous reload (docs/60 §2.3): Stop + panel teardown + immediate
+    // rebuild, returning whether the fresh script booted (LastError() has the
+    // error otherwise). Only valid on the frame thread — agent tool calls run
+    // inside JKClientApplication::Run's sweep (app-tool-hub §8.2), the same
+    // main/UI thread as every event handler, so QuickJS's main-thread-only
+    // rule (docs/27 §3.2) holds. The sweep calls RemoveClosedChildren a few
+    // lines after the tool poll; doing it inline here first is idempotent.
+    bool SyncReload() {
+        host_->Stop();
+        if (g_jkAppHost) {
+            g_jkAppHost->SetModalWindow(nullptr);
+            g_jkAppHost->ReleaseCapture();
+        }
+        if (panel_) {
+            panel_->RequestClose();
+            panel_ = nullptr;
+        }
+        if (JKWindow* main = this->GetMainWindow()) {
+            main->RemoveClosedChildren();
+        }
+        StartScript();
+        return host_->IsRunning();
+    }
+
     std::string scriptTitle_;
     std::string scriptPath_;
     std::unique_ptr<JKScriptHost> host_;
@@ -159,6 +214,7 @@ private:
     // ScriptTimerWinIdBase (0x7F00) must stay above it.
     static constexpr uint32_t kWatchTimerWinId = 0x7E00;
     bool watch_ = false;
+    bool watchForced_ = false;    // MANI watch=1 (docs/60 §2.2)
     bool reloadPending_ = false;  // panel closed; start on the next watch tick
     long long lastMtime_ = 0;
     uint64_t watchTimer_ = 0;
@@ -166,6 +222,131 @@ private:
 
 // Client-mode alias kept for the jkapp_script module (server mode).
 using ClientScriptApp = ScriptAppT<JKClientApplication>;
+
+// Workshop script app (docs/60 §2.3) — a client-mode ScriptAppT that exposes
+// its script file as agent tools (app tool hub, docs/58): get_script returns
+// the source, set_script writes it and reloads synchronously, so a script
+// error returns to the agent immediately — the talk-to-fix closed loop. The
+// MANI `scriptfile=`/`watch=1` interpretation happens in JKAppModule_script;
+// this class only registers the tools and serves them.
+class WorkshopScriptApp : public ScriptAppT<JKClientApplication> {
+public:
+    // App token for AgentToolRegister — must match the MANI name so the
+    // broker's composed MCP names (<app>_<tool>) line up. Set before Init().
+    void SetAgentAppName(const std::string& name) { agentAppName_ = name; }
+
+protected:
+    void OnInit() override {
+        ScriptAppT<JKClientApplication>::OnInit();
+        // Registration timing (docs/58 §5.1): OnInit runs after the surface
+        // Connect, so a register here never hits the "before-connect silent
+        // false" path. No reconnect path exists — one registration suffices.
+        if (agentAppName_.empty() || scriptPath_.empty()) return;
+        if (jk::client::JKClientSurface* surface = this->Surface()) {
+            using Decl = jk::client::JKClientSurface::AgentToolDecl;
+            std::vector<Decl> tools = {
+                {"get_script", "Read the workshop script source", "{}"},
+                {"set_script",
+                 "Replace the workshop script and reload it synchronously — "
+                 "a script error comes back in the same response",
+                 "{\"type\":\"object\",\"properties\":{\"source\":{\"type\":"
+                 "\"string\"}},\"required\":[\"source\"]}"},
+            };
+            surface->SendAgentToolRegister(agentAppName_, tools);
+        }
+    }
+
+    bool OnAgentToolCall(const std::string& tool, const std::string& argsJson,
+                         std::string& out) override {
+        if (tool == "get_script") {
+            std::string source;
+            if (!ReadTextFile(scriptPath_, source)) {
+                out = "{\"error\":\"read_failed\"}";
+                return false;
+            }
+            out = "{\"ok\":true,\"source\":\"" + JsonEsc(source) + "\"}";
+            return true;
+        }
+        if (tool == "set_script") {
+            jk::agent::AgentJson args(argsJson);
+            std::string source;
+            if (!args.ok() || !args.GetStr("source", source)) {
+                out = "{\"error\":\"bad_args\",\"need\":\"source:string\"}";
+                return false;
+            }
+            if (source.size() > kMaxScriptBytes) {
+                out = "{\"error\":\"too_large\",\"cap\":" +
+                      std::to_string(kMaxScriptBytes) + "}";
+                return false;
+            }
+            if (!WriteTextFile(scriptPath_, source)) {
+                out = "{\"error\":\"write_failed\"}";
+                return false;
+            }
+            if (SyncReload()) {
+                out = "{\"ok\":true}";
+                return true;
+            }
+            // The closed loop (docs/60 §2.3): the failing script's error text
+            // travels back inside the tool response so the agent fixes itself.
+            out = "{\"ok\":false,\"error\":\"" + JsonEsc(host_->LastError()) +
+                  "\"}";
+            return false;
+        }
+        // Unreachable through the server (reverse matching answers
+        // unknown_app_tool first) — defensive, same as vplayer.
+        out = "{\"error\":\"unknown_tool\",\"tool\":\"" + tool + "\"}";
+        return false;
+    }
+
+private:
+    static constexpr size_t kMaxScriptBytes = 256 * 1024;  // docs/60 §2.3
+
+    static std::string JsonEsc(const std::string& s) {
+        std::string r;
+        r.reserve(s.size() + 8);
+        for (char c : s) {
+            switch (c) {
+                case '"': r += "\\\""; break;
+                case '\\': r += "\\\\"; break;
+                case '\n': r += "\\n"; break;
+                case '\r': r += "\\r"; break;
+                case '\t': r += "\\t"; break;
+                default:
+                    if (static_cast<unsigned char>(c) < 0x20) {
+                        char buf[8];
+                        std::snprintf(buf, sizeof(buf), "\\u%04X", c);
+                        r += buf;
+                    } else {
+                        r += c;
+                    }
+            }
+        }
+        return r;
+    }
+
+    static bool ReadTextFile(const std::string& path, std::string& out) {
+        std::FILE* f = nullptr;
+        fopen_s(&f, path.c_str(), "rb");
+        if (!f) return false;
+        char buf[4096];
+        size_t n = 0;
+        while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0) out.append(buf, n);
+        std::fclose(f);
+        return true;
+    }
+
+    static bool WriteTextFile(const std::string& path, const std::string& data) {
+        std::FILE* f = nullptr;
+        fopen_s(&f, path.c_str(), "wb");
+        if (!f) return false;
+        const size_t w = std::fwrite(data.data(), 1, data.size(), f);
+        std::fclose(f);
+        return w == data.size();
+    }
+
+    std::string agentAppName_;
+};
 
 } // namespace jk
 

@@ -56,6 +56,8 @@ bool JkxManifest::Parse(const std::string& text) {
         else if (key == "icon2x") icon2x = value;
         else if (key == "width") width = std::atoi(value.c_str());
         else if (key == "height") height = std::atoi(value.c_str());
+        else if (key == "scriptfile") scriptfile = value;  // docs/60 §2.2
+        else if (key == "watch") watch = std::atoi(value.c_str());
     }
     return !name.empty() && !module.empty();
 }

@@ -1,0 +1,7 @@
+name=workshop
+title=Workshop
+width=360
+height=280
+module=jkapp_script.dll
+scriptfile=state/scripts/myapp.js
+watch=1
