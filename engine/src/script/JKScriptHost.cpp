@@ -6,6 +6,7 @@
 #include <JKDialog.h>
 #include <JKEdit.h>
 #include <JKEvent.h>
+#include <JKHangulUtil.h>
 #include <JKMessageBox.h>
 #include <JKStatic.h>
 #include <JKWindow.h>
@@ -53,6 +54,15 @@ struct JsValue {
 
     JSValue value() const { return v; }
 };
+
+std::string ToUtf8(JSContext* ctx, JSValueConst v);
+
+// 위젯 텍스트는 KSSM 조합형(JKDC 비트맵 폰트 경로)을 기대한다 — JS 문자열은
+// UTF-8이므로 위젯 경계에서 변환(docs/60: 워크숍 한글 깨짐 실측). 콘솔 log는
+// UTF-8 그대로.
+static std::string ToWidgetText(JSContext* ctx, JSValueConst v) {
+    return jk::Utf8ToKssm(ToUtf8(ctx, v).c_str());
+}
 
 std::string ToUtf8(JSContext* ctx, JSValueConst v) {
     size_t len = 0;
@@ -239,7 +249,8 @@ struct Bindings {
         JKScriptHost* host = HostOf(ctx);
         if (!host || !host->window_ || argc < 2) return JS_UNDEFINED;
         apputil::ShowModalMessage(host->window_, host->msgboxSlot_,
-                                  ToUtf8(ctx, argv[0]), ToUtf8(ctx, argv[1]),
+                                  ToWidgetText(ctx, argv[0]),
+                                  ToWidgetText(ctx, argv[1]),
                                   JKMessageBox::Buttons::Ok, nullptr);
         return JS_UNDEFINED;
     }
@@ -254,7 +265,7 @@ struct Bindings {
         auto* btn = new JKButton(rect, 0);
         const uint16_t id =
             ResolveControlId(host, ctx, argc >= 3 ? argv[2] : JS_UNDEFINED);
-        btn->SetText(ToUtf8(ctx, argv[1]));
+        btn->SetText(ToWidgetText(ctx, argv[1]));
         btn->SetControlId(id);
         btn->SetOnClick([host, id]() { host->DispatchClick(id); });
         host->controls_.emplace_back(id, btn);
@@ -272,7 +283,7 @@ struct Bindings {
         auto* label = new JKStatic(rect, 0);
         const uint16_t id =
             ResolveControlId(host, ctx, argc >= 3 ? argv[2] : JS_UNDEFINED);
-        label->SetText(ToUtf8(ctx, argv[1]));
+        label->SetText(ToWidgetText(ctx, argv[1]));
         label->SetControlId(id);
         host->controls_.emplace_back(id, label);
         host->window_->AddControl(std::unique_ptr<JKStatic>(label));
@@ -289,7 +300,7 @@ struct Bindings {
         auto* edit = new JKEdit(rect, 0, 256, false);
         const uint16_t id =
             ResolveControlId(host, ctx, argc >= 3 ? argv[2] : JS_UNDEFINED);
-        edit->SetText(ToUtf8(ctx, argv[1]));
+        edit->SetText(ToWidgetText(ctx, argv[1]));
         edit->SetControlId(id);
         host->controls_.emplace_back(id, edit);
         host->window_->AddControl(std::unique_ptr<JKEdit>(edit));
@@ -304,7 +315,7 @@ struct Bindings {
             return JS_UNDEFINED;
         }
         if (JKControl* c = FindControl(host, static_cast<uint16_t>(id))) {
-            c->SetText(ToUtf8(ctx, argv[1]));
+            c->SetText(ToWidgetText(ctx, argv[1]));
             c->Invalidate();
         }
         return JS_UNDEFINED;
@@ -319,7 +330,9 @@ struct Bindings {
         }
         if (const JKControl* c =
                 FindControl(host, static_cast<uint16_t>(id))) {
-            const std::string& text = c->GetText();
+            // 위젯 저장 텍스트는 KSSM(JKEdit 입력 포함) — JS에는 UTF-8로.
+            const std::string text =
+                jk::KssmToUtf8(c->GetText().c_str());
             return JS_NewStringLen(ctx, text.data(), text.size());
         }
         return JS_NewString(ctx, "");

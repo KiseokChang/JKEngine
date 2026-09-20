@@ -73,7 +73,10 @@ PC 팔레트/채팅도 동일 도구. 사용자는 한국어로 바람만 말함
 | 파일 | 변경 |
 |---|---|
 | `engine/src/apps/JKAppModule_script.cpp` | MANI `scriptfile=`/`watch=` 해석 — 외부 스크립트 경로를 SetScriptInfo에 전달, watch 강제. 없으면 템플릿 자동 시드(EnsureParentDirs) |
-| `engine/include/apps/ClientScriptApp.h` | `SetHotWatch()`(MANI watch 강제) + `SyncReload()`(동기 리로드, 에러 반환) + StartScript 실패 시 에러 라벨 + `WorkshopScriptApp`(도구 등록·get_script/set_script 서빙, 256KiB 캡) + FileMtime를 GetFileAttributesExA 100ns FILETIME으로 교체 |
+| `engine/include/apps/ClientScriptApp.h` | `SetHotWatch()`(MANI watch 강제) + `SyncReload()`(동기 리로드, 에러 반환) + StartScript 실패 시 에러 라벨 + `WorkshopScriptApp`(도구 등록·get_script/set_script 서빙, 256KiB 캡) + FileMtime는 `JKPlatform::FileMtime100ns` 위임(§7 — 수기 GetFileAttributesExA는 세그폴트 원인으로 삭제) |
+| `engine/include/JKPlatform.h` + `engine/src/JKPlatform_win32.cpp` | `FileMtime100ns()` 신설 — 100ns FILETIME 뮤테이터, windows.h-clean TU (§7) |
+| `engine/src/script/JKScriptHost.cpp` | `ToWidgetText()` — 위젯 경계 UTF-8→KSSM 변환 5곳 + getText 역변 KssmToUtf8 (§7) |
+| `engine/include/JKHangulUtil.h` + `engine/src/JKHangulUtil.cpp` | `KssmToUtf8()` 신설 — 역인덱스 지연 구축 + CP949↔UTF-8 |
 | `engine/include/JKJkxFile.h` + `engine/src/JKJkxFile.cpp` | JkxManifest에 `scriptfile`/`watch` 필드 신설 (스펙 목록에 없었던 추가 — 모듈이 side manifest를 파싱하려면 컨테이너 파서가 필드를 보존해야 함) |
 | `engine/scripts/apps/workshop/manifest.txt` | 워크숍 MANI (`scriptfile=state/scripts/myapp.js`, `watch=1`) |
 | `engine/scripts/apps/workshop/app.js` | 템플릿 (SCRI 항목 — 워크숍 모드는 무시, 참고용) |
@@ -148,3 +151,43 @@ PC 팔레트/채팅도 동일 도구. 사용자는 한국어로 바람만 말함
 7. **프로브 스폰은 .cmd 배치**: probe가 GUI 클라이언트를 띄우는 유일한 패턴 —
    `Start-Process -FilePath $bat -WindowStyle Hidden` + stdout 리다이렉트로
    클라 콘솔 로그(핫 리로드/스크립트 실패 문구)를 판정재로 쓴다.
+
+## 7. 라이브 결함 2건 — 한글 깨짐 + 워크숍 클라 세그폴트 (2026-09-20 오후, 사용자 보고 "글자는 깨지지만")
+
+**증상**: 워크숍 창은 뜨는데 한글이 전부 깨짐(조합형 비트맵 폰트 경로에 UTF-8 원문
+직투입). **경로**: JS 문자열은 UTF-8, 위젯(JKStatic/JKButton/JKEdit/JKMessageBox)은
+KSSM 조합형(JKDC 비트맵 폰트) — 위젯 경계 변환이 없었다.
+
+**픽스**: `JKScriptHost.cpp`에 `ToWidgetText()` 헬퍼 — 인바운드 5곳(라벨/버튼/에디트/
+SetText/messageBox)을 `jk::Utf8ToKssm` 경유로. 아웃바운드 `getText`는 `KssmToUtf8`
+역변. `JKHangulUtil`에 `KssmToUtf8` 신설 — wCodeTable/SingleHan/한자 산술 매핑의
+역인덱스를 지연 1회 구축(순방향 도메인 순회라 왕복 일치 보장) 후 CP949↔UTF-8.
+
+**2차 결함 (변환 픽스 직후)**: 워크숍 클라가 `StartScript()+976`에서 세그폴트
+(`mov %rax,0x150(%rdx)`, rdx=0x216). **이분법**: ToWidgetText 되돌려도 크래시,
+FileMtime만 스텁하면 생존 → **원인 = ClientScriptApp.h의 수기
+GetFileAttributesExA 선언 경로**. 같은 세그폴트가 FileMtime 호출 시점(StartScript의
+lastMtime_ 초기화와 watch 타이머 틱 양쪽)에서 재현.
+
+**픽스**: FileMtime 구현을 windows.h-clean 코어 TU로 이전 — `JKPlatform::
+FileMtime100ns(path)` 신설(JKPlatform_win32.cpp, 이 TU는 엔진 헤더 전에
+windows.h를 인클루드하므로 SDK의 WIN32_FILE_ATTRIBUTE_DATA를 그대로 쓴다).
+ClientScriptApp.h의 수기 JkFileAttrData/GetFileAttributesExA/_WINBASE_ 센티넬
+블록 전량 삭제 — 헤더 체인에서 windows.h류가 완전히 사라짐.
+
+**검증**: probe_workshop 16체크 ×2 + probe_app_tools ×2 ALL PASS(신바이너리),
+capture_window 실측 — 템플릿 "안녕하세요!" / "눌러 보세요" 정상 렌더링
+(state/screenshots 실물 확인).
+
+**레슨**:
+1. **수기 WIN32 선언(관례)에도 한계가 있다** — 선언 자체가 맞아도 스택 레이아웃
+   등 미묘한 불일치가 세그폴트로 온다(docs/56의 WIN32_FIND_DATAA 팩 사례의
+   반대쪽 교훈). windows.h가 필요하면 **windows.h를 이미 안전하게 포함하는 TU로
+   함수를 옮기는 편이 수기 선언보다 낫다** — 헤더 체인 오염 억제와 SDK 정확성을
+   동시에 얻는다.
+2. **이분법은 한 번에 하나의 변수** — ToWidgetText 되돌림은 무효였고 FileMtime
+   스텁만이 생존. 두 픽스(KSSM 변환+FileMtime 이전)를 동시 넣고 프로브로 회귀
+   확인한 뒤 capture_window로 최종 판정.
+3. **한글 깨짐은 파이프라인 언어 경계** — JKDC 비트맵 폰트 파이프라인은 KSSM,
+   JS/ImGui는 UTF-8. 위젯 경계에서 변환하는 게 정답이고, 역변환은 순방향 매핑의
+   역인덱스로 자동 구성해 왕복 일치를 보장.

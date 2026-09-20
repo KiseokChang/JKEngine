@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+#include <string>
+
 struct SDL_Window;
 
 namespace jk {
@@ -44,6 +46,16 @@ public:
     static int GetDisplayCount();
     static bool GetDisplayInfo(int displayIndex, DisplayInfo& out);
     static int GetWindowDisplayIndex(SDL_Window* window);
+
+    // ---------------------------------------------------------------------
+    // File system (testing / watchers)
+    // ---------------------------------------------------------------------
+    // Return the file's last-write time in 100ns FILETIME units, or 0 on
+    // failure. 100ns (not _stat64's 1-second) resolution is required by
+    // watchers that must distinguish two saves within the same second —
+    // _stat64::st_mtime aliases rapid back-to-back edits and the watcher
+    // never fires (probe_workshop c5, docs/60).
+    static long long FileMtime100ns(const std::string& path);
 
     // ---------------------------------------------------------------------
     // Window handle / placement / DPI

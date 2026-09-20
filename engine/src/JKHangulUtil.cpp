@@ -2,6 +2,7 @@
 #include <wancode.h>
 #include <cstring>
 #include <cstdint>
+#include <unordered_map>
 #include <vector>
 
 #ifndef CP_UTF8
@@ -85,6 +86,79 @@ std::string Utf8ToKssm(const char* utf8) {
     return out;
 #else
     return utf8 ? utf8 : "";
+#endif
+}
+
+std::string KssmToUtf8(const char* kssm) {
+#ifdef _WIN32
+    if (!kssm || !kssm[0]) return {};
+
+    // 역인덱스 지연 1회 구축: KSSM 코드 → EUC-KR 2바이트. Utf8ToKssm이 쓰는
+    // wCodeTable/SingleHan/한자 산술 매핑을 순방향 도메인 순회로 뒤집으므로
+    // 왕복 일치가 보장된다.
+    static const std::unordered_map<uint16_t, uint16_t> inverse = [] {
+        std::unordered_map<uint16_t, uint16_t> m;
+        m.reserve(NUMHANGUL + SINGLEHAN + 512);
+        for (int idx = 0; idx < NUMHANGUL; ++idx) {
+            const uint16_t k = wCodeTable[idx];
+            if (k) {
+                const uint16_t euc = static_cast<uint16_t>(
+                    ((0xB0 + idx / 94) << 8) | (0xA1 + idx % 94));
+                m[k] = euc;
+            }
+        }
+        for (int i = 0; i < SINGLEHAN; ++i) {
+            const uint16_t k = SingleHan[i];
+            if (k) m[k] = static_cast<uint16_t>((0xA4 << 8) | (0xA1 + i));
+        }
+        // 한자: Utf8ToKssm의 산술 매핑 역 — 순방향과 같은 tmp 순회로 채운다.
+        for (int tmp = 0; tmp < 52 * 94; ++tmp) {
+            const uint8_t kc1 = static_cast<uint8_t>(0xE0 + tmp / 188);
+            const uint8_t raw = static_cast<uint8_t>(0x31 + tmp % 188);
+            const uint8_t kc2 = static_cast<uint8_t>(raw + (raw > 0x7E ? 18 : 0));
+            const uint16_t euc = static_cast<uint16_t>(
+                ((0xCA + tmp / 94) << 8) | (0xA1 + tmp % 94));
+            m[static_cast<uint16_t>((kc1 << 8) | kc2)] = euc;
+        }
+        return m;
+    }();
+
+    std::string euc;
+    euc.reserve(std::strlen(kssm));
+    for (size_t i = 0; kssm[i]; ) {
+        const unsigned char c1 = static_cast<unsigned char>(kssm[i]);
+        if (c1 < 0x80) {
+            euc.push_back(static_cast<char>(c1));
+            ++i;
+            continue;
+        }
+        if (!kssm[i + 1]) break;  // 잘린 리드 바이트 — 폐기
+        const uint16_t k =
+            static_cast<uint16_t>((c1 << 8) | static_cast<unsigned char>(kssm[i + 1]));
+        const auto it = inverse.find(k);
+        if (it != inverse.end()) {
+            euc.push_back(static_cast<char>(it->second >> 8));
+            euc.push_back(static_cast<char>(it->second & 0xFF));
+        } else {
+            euc.push_back('?');
+        }
+        i += 2;
+    }
+
+    // EUC-KR(CP949) -> UTF-8.
+    int wlen = MultiByteToWideChar(949, 0, euc.c_str(), -1, nullptr, 0);
+    if (wlen <= 0) return {};
+    std::vector<wchar_t> wbuf(static_cast<size_t>(wlen));
+    MultiByteToWideChar(949, 0, euc.c_str(), -1, wbuf.data(), wlen);
+    int ulen = WideCharToMultiByte(CP_UTF8, 0, wbuf.data(), -1, nullptr, 0,
+                                   nullptr, nullptr);
+    if (ulen <= 0) return {};
+    std::string out(static_cast<size_t>(ulen) - 1, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, wbuf.data(), -1, &out[0], ulen, nullptr,
+                        nullptr);
+    return out;
+#else
+    return kssm ? kssm : "";
 #endif
 }
 

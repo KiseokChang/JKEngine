@@ -112,6 +112,23 @@ int JKPlatform::GetWindowDisplayIndex(SDL_Window* window) {
 }
 
 // ---------------------------------------------------------------------------
+// File system (testing / watchers)
+// ---------------------------------------------------------------------------
+// This TU already includes <windows.h> before any engine headers, so the
+// SDK's WIN32_FILE_ATTRIBUTE_DATA is used directly here. ClientScriptApp.h
+// used to carry a 수기 GetFileAttributesExA declaration for this, but that
+// path segfaulted the workshop client (StartScript+976, docs/60 §7) — the
+// implementation lives in this windows.h-clean TU instead.
+long long JKPlatform::FileMtime100ns(const std::string& path) {
+    WIN32_FILE_ATTRIBUTE_DATA fa{};
+    if (!GetFileAttributesExA(path.c_str(), GetFileExInfoStandard, &fa)) {
+        return 0;
+    }
+    return (static_cast<long long>(fa.ftLastWriteTime.dwHighDateTime) << 32) |
+           static_cast<long long>(fa.ftLastWriteTime.dwLowDateTime);
+}
+
+// ---------------------------------------------------------------------------
 // Native window / frame metrics
 // ---------------------------------------------------------------------------
 PlatformWindow* JKPlatform::GetNativeWindow(SDL_Window* window) {
@@ -341,6 +358,8 @@ void JKPlatform::DetachIme(SDL_Window* window) {
 
 #include <SDL.h>
 
+#include <sys/stat.h>
+
 namespace jk {
 
 void JKPlatform::InitializeProcessDpiAwareness() {}
@@ -371,6 +390,13 @@ int JKPlatform::GetWindowDisplayIndex(SDL_Window* window) {
     if (!window) return 0;
     int idx = SDL_GetWindowDisplayIndex(window);
     return (idx >= 0) ? idx : 0;
+}
+
+// Non-Windows: POSIX stat (1-second resolution — fine for non-watch builds).
+long long JKPlatform::FileMtime100ns(const std::string& path) {
+    struct stat st = {};
+    if (::stat(path.c_str(), &st) != 0) return 0;
+    return static_cast<long long>(st.st_mtime);
 }
 
 PlatformWindow* JKPlatform::GetNativeWindow(SDL_Window*) { return nullptr; }
