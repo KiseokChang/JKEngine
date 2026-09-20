@@ -1,10 +1,12 @@
 // jktext_probe — 데스크탑 벡터 폰트(docs/63) 로직 단위 프로브.
 // T1: KSSM 코드포인트 → 유니코드 변환 (Task 1).
 // T2: 폰트 로드+셀 메트릭. T3: 래스터라이즈 잉크. T4: 폰트 커버리지.
-// T5: 캐시 등록 계약. (JKDC 배선은 Task 3.)
+// T5: 캐시 등록 계약.
+// T6-T8: JKDC 배선 — 아틀라스 우선/비트맵 폴백/메트릭 불변 (Task 3).
 #include <JKHangulUtil.h>
 #include <JKTextAtlas.h>
 #include <JKResourceCache.h>
+#include <JKDC.h>
 #include <cstdint>
 #include <cstdio>
 #include <string>
@@ -35,6 +37,39 @@ jk::JKResourceCache::GetImage(const std::string&) const {
 void jk::JKResourceCache::FlushUploads(jk::JKRenderBackend*) {}
 
 using namespace jk;
+
+// T6-T8: JKDC 배선 — 녹화 백엔드로 BlitTexture/DrawPixel을 관찰한다.
+namespace {
+class RecordingBackend : public jk::JKRenderBackend {
+public:
+    void* GetNativeHandle() const override { return nullptr; }
+    void SetScale(float, float) override {}
+    void GetOutputSize(int& w, int& h) override { w = 640; h = 480; }
+    void SetDrawColor(uint8_t, uint8_t, uint8_t, uint8_t) override {}
+    void Clear() override {}
+    void Present() override {}
+    void SetClipRect(const jk::JKRect*) override {}
+    void DrawRect(const JKRect&) override {}
+    void FillRect(const JKRect&) override {}
+    void DrawLine(int32_t, int32_t, int32_t, int32_t) override {}
+    void DrawPixel(int32_t, int32_t) override { ++drawPixels; }
+    void DrawPoints(const jk::JKPoint*, size_t) override {}
+    void DrawPolygon(const std::vector<jk::JKPoint>&) override {}
+    jk::JKRenderBackend::TextureHandle CreateTargetTexture(int, int) override {
+        return reinterpret_cast<jk::JKRenderBackend::TextureHandle>(0x2);
+    }
+    void DestroyTexture(jk::JKRenderBackend::TextureHandle) override {}
+    void SetRenderTarget(jk::JKRenderBackend::TextureHandle) override {}
+    void BlitTexture(jk::JKRenderBackend::TextureHandle texture,
+                     const jk::JKRect* src, const jk::JKRect& dst,
+                     uint8_t) override {
+        blits.push_back({ texture, src ? *src : jk::JKRect{0, 0, 0, 0}, dst });
+    }
+    struct Blit { void* tex; jk::JKRect src; jk::JKRect dst; };
+    std::vector<Blit> blits;
+    int drawPixels = 0;
+};
+} // namespace
 
 static int g_pass = 0, g_fail = 0;
 #define CHECK(cond, msg)                       \
@@ -112,6 +147,48 @@ int main() {
     // 폰트에 없는 cp는 false — 콜러 폴백 계약(헤더 주석).
     CHECK(!atlas.EnsureGlyph(&cache, 0xCCCCCC, 0x10FFFF),
           "T5 미커버 cp -> false (폴백 계약)");
+
+    // T6: 아틀라스 장착 → TextOut("가A") = 블릿 2회(한글 16px + 영문 8px),
+    // DrawPixel 스톰 없음.
+    {
+        RecordingBackend be;
+        JKDC dc(&be);
+        JKResourceCache cache(&be);
+        JKTextAtlas a2;
+        if (!a2.Init(text::ResolveDesktopFontPath(), 8, 16, 16)) {
+            std::printf("SKIP: vector font init failed (%s)\n",
+                        fontPath.c_str());
+            return 77;
+        }
+        dc.SetTextAtlas(&a2, &cache);
+        dc.SetTextColor(0x33, 0x66, 0x99);
+        dc.TextOut(JKPoint{10, 10}, Utf8ToKssm("가A").c_str());
+        CHECK(be.blits.size() == 2, "T6 two glyph blits");
+        if (be.blits.size() == 2) {
+            CHECK(be.blits[0].dst.w == 16 && be.blits[0].dst.h == 16,
+                  "T6 wide glyph cell 16x16");
+            CHECK(be.blits[1].dst.w == 8 && be.blits[1].dst.h == 16,
+                  "T6 ascii glyph cell 8x16");
+        }
+        CHECK(be.drawPixels < 10, "T6 no bitmap pixel storm");
+        CHECK(a2.GlyphSrc(0x336699, 0xAC00).w == 16, "T6 fg baked key");
+    }
+    // T7: 아틀라스 미장착 → 기존 비트맵 경로 (DrawPixel 스톰).
+    {
+        RecordingBackend be;
+        JKDC dc(&be);
+        dc.SetTextColor(0, 0, 0);
+        dc.TextOut(JKPoint{10, 10}, "A");
+        CHECK(be.blits.empty(), "T7 no atlas -> no blits");
+        CHECK(be.drawPixels > 0, "T7 bitmap path still active");
+    }
+    // T8: MeasureText 불변 회귀 — KSSM 완성형 쌍 16px, ASCII 8px, 높이 16.
+    {
+        const std::string mixed = Utf8ToKssm("가나AB");
+        CHECK(JKDC::MeasureText(mixed.c_str()).x == 16 * 2 + 8 * 2,
+              "T8 metrics unchanged");
+        CHECK(JKDC::MeasureText(mixed.c_str()).y == 16, "T8 cell height 16");
+    }
 
     std::printf("PASS %d FAIL %d\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;

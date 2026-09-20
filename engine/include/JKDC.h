@@ -11,6 +11,8 @@
 namespace jk {
 
 class HangulManager;
+class JKTextAtlas;
+class JKResourceCache;
 
 class JKDC {
 public:
@@ -89,6 +91,10 @@ public:
     void SetHangulManager(HangulManager* hm) { fontMan_ = hm; }
     HangulManager* GetHangulManager() const { return fontMan_; }
 
+    // Vector-font path (docs/63). When both pointers are set, EngPutCh/
+    // HanPutCh draw atlas glyphs and fall back to the bitmap path per glyph.
+    void SetTextAtlas(JKTextAtlas* atlas, JKResourceCache* cache);
+
     JKRenderBackend* GetBackend() const { return backend_; }
 
     uint8_t GetTextColorR() const { return textR_; }
@@ -98,6 +104,8 @@ public:
 private:
     JKRenderBackend* backend_ = nullptr;
     HangulManager* fontMan_ = nullptr;
+    JKTextAtlas* textAtlas_ = nullptr;
+    JKResourceCache* textCache_ = nullptr;
 
     uint8_t textR_ = 0;
     uint8_t textG_ = 0;
@@ -109,6 +117,10 @@ private:
     std::vector<JKRect> clipStack_;
 
     void TextOutInRect(const JKRect& rect, JKPoint p, size_t n, const char* str);
+    // Tries the vector-font atlas for one glyph; false = bitmap fallback.
+    // cp: Unicode codepoint (ASCII for the 8px stride, KSSM-decoded Hangul
+    // for the 16px stride). stride: 8 or 16 — the bitmap cell advance.
+    bool DrawGlyph(JKPoint p, uint32_t cp, int stride);
     void PutEngGlyph8x8(JKPoint p, uint8_t ch);
     void PutEngGlyph8x16(JKPoint p, const uint8_t* image);
     void PutHanGlyph16x16(JKPoint p, const uint8_t* buffer);

@@ -1,11 +1,19 @@
 #include <JKDC.h>
 #include <JKHangulManager.h>
 #include <JKBitmapFont8x8.h>
+#include <JKHangulUtil.h>
+#include <JKResourceCache.h>
+#include <JKTextAtlas.h>
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 
 namespace jk {
+
+namespace {
+// 비트맵 폰트 셀과 동일 — MeasureText 계약(8x8 ASCII / 16x16 한글 셀).
+constexpr int kTextCellH = 16;
+} // namespace
 
 JKDC::JKDC(JKRenderBackend* backend) : backend_(backend) {
 }
@@ -175,7 +183,34 @@ void JKDC::PutHanGlyph16x16(JKPoint p, const uint8_t* buffer) {
     }
 }
 
+void JKDC::SetTextAtlas(JKTextAtlas* atlas, JKResourceCache* cache) {
+    textAtlas_ = atlas;
+    textCache_ = cache;
+}
+
+bool JKDC::DrawGlyph(JKPoint p, uint32_t cp, int stride) {
+    if (!textAtlas_ || !textCache_ || !backend_) return false;
+    const uint32_t fg =
+        (static_cast<uint32_t>(textR_) << 16) |
+        (static_cast<uint32_t>(textG_) << 8) | static_cast<uint32_t>(textB_);
+    // 래스터라이즈는 (fg, cp) 조합당 1회 — 이후 조회는 등록 여부 스캔만.
+    if (!textAtlas_->EnsureGlyph(textCache_, fg, cp)) return false;
+    auto tex = textCache_->GetImage(textAtlas_->PageKey(fg, cp));
+    if (!tex) {
+        // 승인 배너류는 렌더 스레드 업로드 플러시 이전에 동기 그린다
+        // (docs/63 §8) — 즉시 플러시 후 1회 재시도.
+        textCache_->FlushUploads(backend_);
+        tex = textCache_->GetImage(textAtlas_->PageKey(fg, cp));
+        if (!tex) return false;
+    }
+    backend_->BlitTexture(tex, nullptr,
+                          JKRect{ p.x, p.y, stride, kTextCellH }, 255);
+    return true;
+}
+
 void JKDC::EngPutCh(JKPoint p, uint8_t ch) {
+    // 아틀라스 우선 (docs/63) — 실패 시 기존 비트맵 경로 그대로.
+    if (DrawGlyph(p, static_cast<uint32_t>(ch), 8)) return;
     uint8_t image[16];
     if (fontMan_ && fontMan_->GetEnglishImage(image, ch)) {
         PutEngGlyph8x16(p, image);
@@ -185,6 +220,10 @@ void JKDC::EngPutCh(JKPoint p, uint8_t ch) {
 }
 
 void JKDC::HanPutCh(JKPoint p, uint8_t first, uint8_t second) {
+    // 아틀라스 우선 (docs/63) — KSSM 쌍을 유니코드로 디코드해 글리프 조회.
+    // 매핑 없는 쌍(cp==0)은 비트맵 폴백. 변환은 글리프 그리기당 1회.
+    const uint32_t cp = KssmCodepointToUnicode(first, second);
+    if (cp != 0 && DrawGlyph(p, cp, 16)) return;
     uint8_t buffer[32];
     if (fontMan_ && fontMan_->GetWORDImage(buffer, first, second)) {
         PutHanGlyph16x16(p, buffer);
