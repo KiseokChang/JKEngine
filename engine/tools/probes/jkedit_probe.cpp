@@ -169,8 +169,29 @@ int main() {
               " gg=" + std::to_string(HangulAutomata::ToStandaloneKssm(0xC4)));
     }
 
-    // T9-T12: 조합 연쇄 — End1/End2가 트리거 키를 다음 조합의 씨앗으로 심는지
-    // (docs/61 §10). 옛 동작은 새 자모를 독립 배출해 받침 뒤 조합이 끊겼다.
+    // T13: 겹받침 분리 — "랄가" = ㄹㅏㄹㄱㅏ (f k f r k): 랄+ㄱ이 랅(랄ㄺ)으로
+    // 조합된 후 모음이 오면 첫 받침 ㄹ만 남긴 랄 플러시+ㄱ 새 초성(라가가 아니라
+    // 랄가). 옛 코드는 curHanState가 End2로 덮인 뒤 DJongsung을 판정해 항상
+    // ELSE 분기로 받침을 탈락시켰다 (docs/61 §12).
+    {
+        JKEdit e(JKRect{ 0, 0, 400, 24 });
+        e.SetHangulMode(true);
+        for (int k : { SDLK_f, SDLK_k, SDLK_f, SDLK_r, SDLK_k })
+            SendKey(e, k);
+        Check("T13-double-jong-split", KssmToUtf8(e.GetText().c_str()) == "랄가",
+              "got=" + KssmToUtf8(e.GetText().c_str()));
+    }
+
+    // T14: Shift 겹자모+모음 — Shift+r + k = "까".
+    {
+        JKEdit e(JKRect{ 0, 0, 400, 24 });
+        e.SetHangulMode(true);
+        SendKey(e, SDLK_r, KMOD_SHIFT);
+        SendKey(e, SDLK_k);
+        Check("T14-shift-kka", KssmToUtf8(e.GetText().c_str()) == "까",
+              "got=" + KssmToUtf8(e.GetText().c_str()));
+    }
+
     {
         // T9: "한국어" = ㅎㅏㄴ ㄱㅜ ㄹ ㅇㅓ — 받침 뒤 새 음절이 조합돼야 한다.
         {

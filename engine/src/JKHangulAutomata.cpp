@@ -75,6 +75,9 @@ bool HangulAutomata::Automata(uint16_t key) {
         charCode = 0x8441;
         oldKey   = 0;
     }
+    // 종료 상태(End1/End2) 판정에 쓰는 "이번 키 직전"의 상태 — 첫 번째
+    // switch가 curHanState를 End1/End2로 덮기 전에 저장해야 한다.
+    uint16_t prevState = curHanState;
 
     uint16_t keyCode = key;
     switch (curHanState) {
@@ -168,7 +171,7 @@ bool HangulAutomata::Automata(uint16_t key) {
             // 종성+모음: 받침을 다음 글자의 초성으로 넘긴다(학+ㅗ → 하+고).
             // 플러시는 종성을 뗀 음절(겹받침이면 첫 받침만 남긴다), 씨앗은
             // 받침 자음(oldKey)의 초성 코드. inpSP--는 원본 잔해 — 제거.
-            if (curHanState == static_cast<uint16_t>(HanStatus::DJongsung) && inpSP >= 2) {
+            if (prevState == static_cast<uint16_t>(HanStatus::DJongsung) && inpSP >= 2) {
                 uint16_t firstJong = inpStack[inpSP - 2].key;
                 outStack[outSP++] = static_cast<uint16_t>(
                     (charCode & 0xFFE0) | (Cho2Jong[firstJong - 0x82] - 0xC0));
