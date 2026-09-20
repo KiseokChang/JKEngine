@@ -288,6 +288,10 @@ void JKClientSurface::ReadLoop() {
                     ev.editStart = static_cast<int32_t>(payload.detail);
                     ev.editLength = static_cast<int32_t>(payload.option);
                     break;
+                case ipc::InputEventType::ImeChanged:
+                    ev.type = JKEventType::ImeChanged;
+                    ev.option = payload.option;
+                    break;
                 default:                              ev.type = JKEventType::None; break;
             }
 

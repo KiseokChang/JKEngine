@@ -17,6 +17,9 @@ enum class JKEventType : uint16_t {
     KeyUp,
     Char,
     TextEditing,
+    // Server-polled OS IME conversion-mode change (option = JKPlatform::ImeMode).
+    // 한/영 key never reaches SDL (docs/61 §16) — the state change is the signal.
+    ImeChanged,
     Paint,
     Timer,
     Command,

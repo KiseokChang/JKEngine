@@ -116,6 +116,8 @@ private:
     void MoveCursorPageDown();
     void ProcessReturn();
     void ProcessHangulKey(uint16_t keyCode, uint16_t modifier = 0);
+    // 내부 오토마타 조합을 확정하고 상태를 비운다 (한/영 전환 핸드오버, docs/61 §16).
+    void FinishInternalComposition();
     void ScrollToCursor();
 
     void UpdateSelection(size_t oldPos, bool shift);

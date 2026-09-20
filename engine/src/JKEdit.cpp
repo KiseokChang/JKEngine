@@ -422,6 +422,20 @@ void JKEdit::RespondMessage(const JKEvent& ev) {
         }
     } else if (ev.type == JKEventType::Timer) {
         if (focused_) showCaret_ = !showCaret_;
+    } else if (ev.type == JKEventType::ImeChanged) {
+        // 서버가 폴링한 OS IME 변환 상태 변화(docs/61 §16) — 한/영 전환키는
+        // OS IME가 삼켜 SDL에 도달하지 않으므로 상태 변화가 유일한 관측점.
+        // Unknown은 정보 없음, 조합 중(OS IME 조합)엔 상태를 건드리지 않는다.
+        JKPlatform::ImeMode mode = static_cast<JKPlatform::ImeMode>(ev.option);
+        if (mode == JKPlatform::ImeMode::Unknown || imeComposing_)
+            return;
+        const bool hangul = (mode == JKPlatform::ImeMode::Hangul);
+        if (inputMode_ == InputMode::InternalHangul) {
+            // 내부 오토마타 모드: OS IME가 방금 전환했다(한/영 키의 일반 효과)
+            // — 진행 중 조합을 확정하고 OS IME 경로를 따른다.
+            FinishInternalComposition();
+        }
+        inputMode_ = hangul ? InputMode::ImeHangul : InputMode::Ascii;
     } else if (ev.type == JKEventType::MouseWheel) {
         // 멀티라인 휠 스크롤 (docs/61 §2) — dy>0 = 위(이전 라인).
         if (multiLine_) {
@@ -654,6 +668,16 @@ void JKEdit::InsertKssmText(const char* text) {
     ClearSelection();
     ScrollToCursor();
     showCaret_ = true;
+}
+
+// 내부 오토마타 조합을 마친다(docs/61 §16): 조합 중이던 글자를 확정해 버퍼에
+// 남기고 자동사 상태를 비운다 — 한/영 전환 등 내부 모드에서 손을 뗄 때 쓴다.
+void JKEdit::FinishInternalComposition() {
+    if (!composing_ && automata_.curHanState && automata_.charCode != 0x8441)
+        InsertKssmChar(automata_.charCode);   // 씨앗 상태만 남은 경우 확정
+    // composing_면 조합 쌍이 이미 버퍼에 있다 — 확정(상태 해제)만 하면 된다.
+    automata_.InitAutomata();
+    composing_ = false;
 }
 
 void JKEdit::ProcessHangulKey(uint16_t keyCode, uint16_t modifier) {

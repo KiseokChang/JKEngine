@@ -3,6 +3,7 @@
 // server; GetScreenRect falls back to the control's own rect.
 #include <JKEdit.h>
 #include <JKEvent.h>
+#include <JKPlatform.h>
 #include <JKHangulUtil.h>
 #include <SDL.h>
 #include <cstdio>
@@ -225,6 +226,31 @@ int main() {
         SendKey(e, static_cast<int>(SDLK_SCANCODE_MASK | SDL_SCANCODE_LANG1));
         Check("T17b-haneng-internal-off",
               e.GetInputMode() != JKEdit::InputMode::InternalHangul,
+              "mode=" + std::to_string(static_cast<int>(e.GetInputMode())));
+    }
+
+    // T18: ImeChanged 핸드오버(docs/61 §16) — 서버 폴링이 감지한 OS IME
+    // 변환 상태 변화. 내부 모드에서 Hangul 전환 이벤트가 오면 진행 중 조합을
+    // 확정하고 OS IME 경로를 따른다(한/영 키 자체는 SDL에 도달하지 않음).
+    {
+        JKEdit e(JKRect{ 0, 0, 400, 24 });
+        e.SetHangulMode(true);
+        for (int k : { SDLK_r, SDLK_k }) SendKey(e, k);   // "가" 조합 중
+        JKEvent ev{};
+        ev.type = JKEventType::ImeChanged;
+        ev.option = static_cast<uint32_t>(JKPlatform::ImeMode::Hangul);
+        e.RespondMessage(ev);
+        Check("T18a-handover-mode",
+              e.GetInputMode() == JKEdit::InputMode::ImeHangul,
+              "mode=" + std::to_string(static_cast<int>(e.GetInputMode())));
+        Check("T18b-handover-committed",
+              KssmToUtf8(e.GetText().c_str()) == "가",
+              "got=" + KssmToUtf8(e.GetText().c_str()));
+        // Ascii 전환 이벤트도 수용한다.
+        ev.option = static_cast<uint32_t>(JKPlatform::ImeMode::Ascii);
+        e.RespondMessage(ev);
+        Check("T18c-handover-ascii",
+              e.GetInputMode() == JKEdit::InputMode::Ascii,
               "mode=" + std::to_string(static_cast<int>(e.GetInputMode())));
     }
 

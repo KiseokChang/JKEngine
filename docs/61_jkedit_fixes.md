@@ -306,3 +306,32 @@ DetectWindowsImeState로 현재 변환 상태를 다시 읽어 동기화한다. 
 — 현재 동작을 사실대로 확인하고(코드 근거) 유저가 기대하는 표준 키를
 즉시 지원으로 답한다.** 키코드는 스캔코드 기반 특수 코드(0x40000000|146)라
 소문자 범위 검사류에 안 걸린다 — 커스텀 키는 검사 범위 밖임을 상기.
+
+## 16. 여덟 번째 보고 — "한/영 키는 작동하지 않아요" = OS IME가 키를 삼킨다(실측) → 서버 폴링 브로드캐스트
+
+§15의 LANG1 핸들러는 라이브에서 발화하지 않았다. **SDL 진단 앱으로 실측**
+(haneng_sdl_diag.cpp — SDL 윈도우 + SendInput VK_HANGUL/VK_HANJA): **키
+이벤트(KEYDOWN/KEYUP) 0건**, VK_HANGUL 직후 빈 TEXTEDITING 2건만(IME가
+토글에 반응한 흔적). 한/영 키는 IME가 VK_PROCESSKEY로 가로채 앱에 도달하지
+않는다. 유저 질문("IME가 가로챘다면 한글 코드가 왔어야 하는 거 아니야?")에
+대해: 타이핑 코드는 정상 — 한글 모드면 조합 한글이 TEXTINPUT/TEXTEDITING으로
+온다. **문제는 편집창 내부 모드 상태가 변화를 모른다는 것** — 내부 오토마타는
+영문 키코드로 계속 자체 조합한다. 그리고 SDL의 TEXTEDITING은 조합 문자열만
+담고 변환 모드는 안 담는다 — SDL 차원엔 "모드가 바뀌었다"는 신호가 없다.
+
+**픽스(배관 5단)**: ①서버가 Run 루프에서 300ms마다
+`JKPlatform::GetCurrentConversionMode(window_)` 폴링, 변화 시 포커스 클라에
+`InputEventType::ImeChanged`(option=ImeMode) 푸시(첫 관측은 기준값) ②클라가
+`JKEventType::ImeChanged`로 번역 ③JKEdit 핸들러 — Unknown 무시, OS IME 조합
+중엔 무시, 내부 모드면 `FinishInternalComposition()`(진행 중 조합 확정+상태
+해제) 후 OS IME 경로 추종 ④`FinishInternalComposition` 신설(씨앗 상태만
+남은 경우 InsertKssmChar 확정) ⑤LANG1 핸들러는 키가 안 삼켜지는 환경용으로
+유지. 프로브 T18(핸드오버 3체크) 신설, 24체크 ×2 ALL PASS.
+
+**레슨 20. IME가 삼키는 키는 "이벤트 부재"가 아니라 "상태 변화"로만 관측된다
+— SDL 이벤트 스트림엔 모드 정보가 없으니 플랫폼 API 폴링이 유일한 관측점.
+"입력은 되는데 전환만 안 먹는다"면 키 전달이 아니라 상태 동기화를 의심한다.**
+알려진 한계: F2 내부 모드 진입 시의 "OS IME를 영문으로 강제"는 클라 모드에서
+무효(IME는 서버 창에 붙어 있고 클라의 SetConversionMode는 클라 자체 창에
+적용) — 내부 모드 중 OS IME가 한글이면 이중 조합 위험, 클라→서버 IME 강제
+채널이 백로그.

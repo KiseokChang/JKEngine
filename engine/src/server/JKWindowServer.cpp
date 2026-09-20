@@ -611,6 +611,31 @@ void JKWindowServer::Run() {
         }
         if (!running_) break;
 
+        // 한/영 전환키는 OS IME가 삼켜 SDL에 도달하지 않는다(docs/61 §16
+        // 실측 — VK_HANGUL에 KEYDOWN/KEYUP이 없다). 대신 변환 상태를 주기
+        // 폴링해 변화를 포커스 클라에 브로드캐스트한다. 첫 관측은 기준값
+        // 으로만 쓴다(기동 시점 노이즈 브로드캐스트 방지).
+        {
+            uint32_t now = SDL_GetTicks();
+            if (now - lastImePoll_ >= 300) {
+                lastImePoll_ = now;
+                int mode = static_cast<int>(jk::JKPlatform::GetCurrentConversionMode(window_));
+                if (mode != static_cast<int>(jk::JKPlatform::ImeMode::Unknown)) {
+                    if (lastImeMode_ != -1 && mode != lastImeMode_) {
+                        JKClientConnection* client = FindClientById(focusedClientId_);
+                        if (client) {
+                            ipc::InputEventPayload payload{};
+                            payload.surfaceId = client->Id();
+                            payload.type      = ipc::InputEventType::ImeChanged;
+                            payload.option    = static_cast<uint32_t>(mode);
+                            SendInputEvent(*client, payload);
+                        }
+                    }
+                    lastImeMode_ = mode;
+                }
+            }
+        }
+
         ProcessPendingClients();
         ProcessPendingMessages();
         Composite();

@@ -217,7 +217,12 @@ enum class InputEventType : uint32_t {
     KeyDown    = 5,
     KeyUp      = 6,
     Char       = 7,
-    TextEditing= 8
+    TextEditing= 8,
+    // S -> C: the server polled a change in the OS IME conversion mode
+    // (option = JKPlatform::ImeMode). The 한/영 toggle key is swallowed by
+    // the OS IME and never reaches SDL (docs/61 §16 measured — VK_HANGUL
+    // produces no KEYDOWN/KEYUP), so the state is the only observable.
+    ImeChanged = 9
 };
 
 struct InputEventPayload {

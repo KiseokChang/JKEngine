@@ -212,6 +212,13 @@ private:
     SDL_Window* window_ = nullptr;
     SDL_Renderer* renderer_ = nullptr;
 
+    // IME conversion-mode polling (docs/61 §16): the 한/영 toggle key is
+    // swallowed by the OS IME and never reaches SDL, so the server watches
+    // the conversion state itself and pushes ImeChanged to the focus client.
+    // -1 = first observation (baseline only, no broadcast).
+    int      lastImeMode_ = -1;
+    uint32_t lastImePoll_ = 0;
+
     std::unique_ptr<JKMessageBus> messageBus_;
     std::unique_ptr<JKAudioThread> audioThread_;
     std::unique_ptr<JKCompositor> compositor_;
