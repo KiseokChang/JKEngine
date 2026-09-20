@@ -87,7 +87,6 @@ private:
     size_t GetLineStart(size_t line) const;
     size_t GetLineEnd(size_t line) const;
     size_t GetLineFromPos(size_t pos) const;
-    size_t GetColFromPos(size_t pos) const;
 
     // 표시 셀 매핑 (docs/60 §10): JKDC 비트맵 폰트는 ASCII 8px / KSSM 2바이트
     // 16px로 전진하므로 바이트 인덱스×charWidth_는 한글에서 캐럿·선택을 밀어낸다.

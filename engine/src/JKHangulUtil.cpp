@@ -91,13 +91,11 @@ std::string Utf8ToKssm(const char* utf8) {
 #endif
 }
 
-std::string KssmToUtf8(const char* kssm) {
-#ifdef _WIN32
-    if (!kssm || !kssm[0]) return {};
-
-    // 역인덱스 지연 1회 구축: KSSM 코드 → EUC-KR 2바이트. Utf8ToKssm이 쓰는
-    // wCodeTable/SingleHan/한자 산술 매핑을 순방향 도메인 순회로 뒤집으므로
-    // 왕복 일치가 보장된다.
+// 역인덱스 지연 1회 구축: KSSM 코드 → EUC-KR 2바이트. Utf8ToKssm이 쓰는
+// wCodeTable/SingleHan/한자 산술 매핑을 순방향 도메인 순회로 뒤집으므로
+// 왕복 일치가 보장된다. KssmCharLenAt/KssmPrevBoundary도 유효성 판정에
+// 같은 표를 쓴다(docs/61 §23).
+static const std::unordered_map<uint16_t, uint16_t>& KssmInverse() {
     static const std::unordered_map<uint16_t, uint16_t> inverse = [] {
         std::unordered_map<uint16_t, uint16_t> m;
         m.reserve(NUMHANGUL + SINGLEHAN + 512);
@@ -124,6 +122,46 @@ std::string KssmToUtf8(const char* kssm) {
         }
         return m;
     }();
+    return inverse;
+}
+
+size_t KssmCharLenAt(const char* s, size_t len, size_t i) {
+    if (!s || i >= len) return 1;
+    const unsigned char b1 = static_cast<unsigned char>(s[i]);
+    if (b1 < 0x80) return 1;                       // ASCII
+    if (i + 1 >= len) return 1;                    // 쌍이 범위를 넘는다
+    const unsigned char b2 = static_cast<unsigned char>(s[i + 1]);
+    return KssmInverse().count(static_cast<uint16_t>((b1 << 8) | b2)) ? 2 : 1;
+}
+
+size_t KssmPrevBoundary(const char* s, size_t len, size_t i) {
+    if (!s || i == 0) return 0;
+    if (i > len) i = len;
+    size_t boundary = 0;
+    size_t pos = 0;
+    while (pos < i) {
+        boundary = pos;
+        pos += KssmCharLenAt(s, len, pos);
+    }
+    return boundary;
+}
+
+size_t KssmSnapBoundary(const char* s, size_t len, size_t i) {
+    if (!s) return 0;
+    if (i >= len) return len;
+    size_t pos = 0;
+    while (pos < len) {
+        if (pos >= i) return pos;   // 스캔이 i에 정확히 도달 = i는 경계
+        pos += KssmCharLenAt(s, len, pos);
+    }
+    return len;
+}
+
+std::string KssmToUtf8(const char* kssm) {
+#ifdef _WIN32
+    if (!kssm || !kssm[0]) return {};
+
+    const auto& inverse = KssmInverse();
 
     std::string euc;
     euc.reserve(std::strlen(kssm));

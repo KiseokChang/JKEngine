@@ -412,6 +412,81 @@ int main() {
         }
     }
 
+    // T23 (docs/61 §23): KSSM 쌍 경계 판정 — "바이트 >= 0x80 = 첫 바이트"
+    // 휴리스틱은 둘째 바이트가 0x80+인 실제 코드(wCodeTable 0x88a1류)에서
+    // 오판한다. 둘째 바이트 >= 0x80인 음절 X를 자동 선별해 증상 3종을 잠근다:
+    // ① 백스페이스가 X+ASCII를 통째로 지움 ② Left가 쌍 중간에 진입(제자리→
+    // 2셀 점프) ③ Up/Down이 바이트 컬럼을 건네 쌍 중간에 떨어진다.
+    {
+        // 선별: U+AC00..부터 처음 만나는 "KSSM 둘째 바이트 >= 0x80" 음절.
+        std::string hi;   // 둘째 바이트 >= 0x80 음절
+        for (uint32_t u = 0xAC00; u <= 0xD7A3 && hi.empty(); ++u) {
+            char utf8[5] = { static_cast<char>(0xE0 | (u >> 12)),
+                             static_cast<char>(0x80 | ((u >> 6) & 0x3F)),
+                             static_cast<char>(0x80 | (u & 0x3F)), 0 };
+            const std::string k = Utf8ToKssm(utf8);
+            if (k.size() == 2 &&
+                static_cast<unsigned char>(k[1]) >= 0x80)
+                hi = utf8;
+        }
+        Check("T23a-pick", !hi.empty(),
+              "둘째 바이트>=0x80 음절 선별 실패 — Utf8ToKssm 표 점검");
+        if (!hi.empty()) {
+            const std::string kssmHi = Utf8ToKssm(hi.c_str());
+            // ② Left: "X a Y"(한글 ASCII 한글) 끝에서 Left 2회 = 'a' 시작 경계.
+            //   옛 코드는 buffer_[cursor-2]를 무조건 쌍 첫 바이트로 가정 —
+            //   이전 글자가 ASCII면 2칸 뒤는 Y-1 ASCII가 아니라 X.second(>=0x80)
+            //   이 되어 X 둘째 바이트(쌍 중간)로 진입한다.
+            {
+                JKEdit e(JKRect{ 0, 0, 400, 24 });
+                e.SetText(kssmHi + "a" + kssmHi);
+                SendKey(e, SDLK_END);
+                SendKey(e, SDLK_LEFT, KMOD_SHIFT);   // 선택 확장으로 커서 관측
+                SendKey(e, SDLK_LEFT, KMOD_SHIFT);
+                Check("T23b-left-boundary", e.GetSelectedText() == "a" + kssmHi,
+                      "sel len=" + std::to_string(e.GetSelectedText().size()) +
+                      " want 3 (쌍 중간 진입이면 4)");
+            }
+            // ① Backspace: "X 1" 끝에서 백스페이스 = '1'만 삭제.
+            //   옛 코드: buffer_[1]=X.second(>=0x80)를 쌍으로 오판 →
+            //   X 둘째 바이트+1 같이 삭제(2글자 삭제).
+            {
+                JKEdit e(JKRect{ 0, 0, 400, 24 });
+                e.SetText(kssmHi + "1");
+                SendKey(e, SDLK_END);
+                SendKey(e, SDLK_BACKSPACE);
+                Check("T23c-backspace-ascii", e.GetText() == kssmHi,
+                      "len=" + std::to_string(e.GetText().size()) + " want 2");
+                // 이어서 타이핑 — 쌍 중간 커서에 삽입되면 쌍이 쪼개진다.
+                SendChar(e, "2");
+                Check("T23d-type-after-backspace",
+                      KssmToUtf8(e.GetText().c_str()) == hi + "2",
+                      "got=" + KssmToUtf8(e.GetText().c_str()));
+            }
+            // ③ Up/Down: 1행=X(2셀), 2행="abc". 2행 'a' 뒤(byte col 1)에서 Up
+            //   — 옛 코드는 바이트 컬럼 1을 그대로 1행에 적용해 쌍 중간에
+            //   떨어진다. 올바른 것은 표시 셀 컬럼(1셀 → 쌍 통째 전진 = 2바이트).
+            {
+                JKEdit e(JKRect{ 0, 0, 400, 120 }, 0, 256, true);
+                e.SetText(kssmHi + "\nabc");
+                e.SetSelection(0, 4);            // 2행 'a' 뒤
+                SendKey(e, SDLK_UP, KMOD_SHIFT); // 선택 확장으로 커서 관측
+                Check("T23e-up-cellcol", e.GetSelectedText() == kssmHi,
+                      "sel len=" + std::to_string(e.GetSelectedText().size()) +
+                      " want 2 (쌍 중간이면 1)");
+            }
+            // 방어선: Delete도 경계 스캔 — 쌍 시작의 Forward 삭제는 2바이트 통째.
+            {
+                JKEdit e(JKRect{ 0, 0, 400, 24 });
+                e.SetText(kssmHi + "1");
+                SendKey(e, SDLK_HOME);
+                SendKey(e, SDLK_DELETE);
+                Check("T23f-deletefwd-boundary", e.GetText() == "1",
+                      "len=" + std::to_string(e.GetText().size()) + " want 1");
+            }
+        }
+    }
+
     std::printf(g_fail == 0 ? "RESULT: ALL PASS\n" : "RESULT: %d FAIL\n", g_fail);
     return g_fail == 0 ? 0 : 1;
 }

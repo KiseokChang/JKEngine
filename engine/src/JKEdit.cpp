@@ -38,6 +38,11 @@ void JKEdit::SetText(const std::string& text) {
 void JKEdit::SetSelection(size_t start, size_t end) {
     if (start > buffer_.size()) start = buffer_.size();
     if (end > buffer_.size()) end = buffer_.size();
+    // 경계 방어 (docs/61 §23): 호출부가 쌍 중간 좌표를 넘겨도 경계로 스냅한다
+    // — 쌍 중간 커서는 이후 모든 이동·삭제를 오염시킨다. 스냅은 "첫 경계 ≥ i"
+    // (PixelToPos의 쌍 통째 전진 관례).
+    start = KssmSnapBoundary(buffer_.data(), buffer_.size(), start);
+    end = KssmSnapBoundary(buffer_.data(), buffer_.size(), end);
     selAnchor_ = start;
     cursorPos_ = end;
     hasSelection_ = (start != end);
@@ -96,21 +101,18 @@ size_t JKEdit::GetLineFromPos(size_t pos) const {
     return line;
 }
 
-size_t JKEdit::GetColFromPos(size_t pos) const {
-    size_t start = GetLineStart(GetLineFromPos(pos));
-    return pos - start;
-}
-
 // 표시 셀 매핑 (docs/60 §10). 셀 = 8px 한 칸: ASCII 바이트 1개 = 1셀,
-// KSSM 2바이트 쌍 = 2셀(JKDC::TextOut이 16px 전진). 범위 경계가 쌍 중간에
-// 걸리면 그 바이트는 1셀로 계산된다(호출부는 쌍 경계 좌표만 넘긴다).
+// KSSM 2바이트 쌍 = 2셀(JKDC::TextOut이 16px 전진). 쌍 판정은 0x80 휴리스틱이
+// 아니라 유효성 역인덱스 — 조합형 코드는 둘째 바이트가 0x80+인 것도 있다
+// (docs/61 §23).
 size_t JKEdit::DisplayCells(const std::string& buf, size_t from, size_t to) {
     if (to > buf.size()) to = buf.size();
     size_t cells = 0;
     size_t i = from;
     while (i < to) {
-        if (static_cast<uint8_t>(buf[i]) >= 0x80) { cells += 2; i += 2; }
-        else { cells += 1; i += 1; }
+        const size_t step = KssmCharLenAt(buf.data(), to, i);
+        cells += (step == 2) ? 2 : 1;
+        i += step;
     }
     return cells;
 }
@@ -122,8 +124,9 @@ size_t JKEdit::PosFromCells(const std::string& buf, size_t from, size_t to, size
     size_t i = from;
     size_t c = 0;
     while (i < to && c < cells) {
-        if (static_cast<uint8_t>(buf[i]) >= 0x80) { c += 2; i += 2; }
-        else { c += 1; i += 1; }
+        const size_t step = KssmCharLenAt(buf.data(), to, i);
+        c += (step == 2) ? 2 : 1;
+        i += step;
     }
     return (i > to) ? to : i;
 }
@@ -758,10 +761,10 @@ bool JKEdit::DeleteSelection() {
     return true;
 }
 
-// KSSM characters are stored as 2-byte pairs where the first byte is >= 0x80.
-// ASCII bytes (< 0x80) are single-byte units. The second byte of a KSSM pair
-// may be anywhere in 0x00..0xFF, so deletion and cursor movement must look at
-// the previous byte to decide whether it is a KSSM first byte.
+// KSSM 조합형 코드는 첫 바이트 >= 0x80인 2바이트 쌍, ASCII는 1바이트 단위.
+// 둘째 바이트도 0x00..0xFF 전 범위라(0x88a1류) 0x80 휴리스틱은 둘째 바이트를
+// 첫 바이트로 오판한다 — 이동·삭제의 경계 판정은 유효성 역인덱스 스캔
+// (JKHangulUtil::KssmCharLenAt/KssmPrevBoundary, docs/61 §23)으로 통일했다.
 void JKEdit::DeleteBackward() {
     if (DeleteSelection()) return;
     if (cursorPos_ == 0) return;
@@ -794,12 +797,11 @@ void JKEdit::DeleteBackward() {
         showCaret_ = true;
         return;
     }
-    size_t prev = cursorPos_ - 1;
-    // If the byte before the cursor is preceded by a KSSM first byte, the pair
-    // ends right before the cursor; delete both bytes.
-    if (prev >= 1 && static_cast<uint8_t>(buffer_[prev - 1]) >= 0x80) {
-        prev = prev - 1;
-    }
+    // 경계 스캔 (docs/61 §23): "직전 바이트가 쌍 둘째 바이트인가"를 0x80
+    // 휴리스틱으로 판정하면 둘째 바이트 >= 0x80인 코드(0x88a1류)에서 쌍 둘째
+    // 바이트+ASCII를 같이 지워 커서가 쌍 중간에 남았다. 유효성 역인덱스로
+    // 직전 경계를 찾는다.
+    const size_t prev = KssmPrevBoundary(buffer_.data(), buffer_.size(), cursorPos_);
     buffer_.erase(prev, cursorPos_ - prev);
     cursorPos_ = prev;
     ScrollToCursor();
@@ -809,8 +811,8 @@ void JKEdit::DeleteBackward() {
 void JKEdit::DeleteForward() {
     if (DeleteSelection()) return;
     if (cursorPos_ >= buffer_.size()) return;
-    // If the byte at the cursor is a KSSM first byte, delete the whole pair.
-    size_t len = (static_cast<uint8_t>(buffer_[cursorPos_]) >= 0x80) ? 2 : 1;
+    // 경계 스캔 (docs/61 §23): 유효 KSSM 쌍만 통째로 삭제한다.
+    const size_t len = KssmCharLenAt(buffer_.data(), buffer_.size(), cursorPos_);
     buffer_.erase(cursorPos_, len);
     ScrollToCursor();
     showCaret_ = true;
@@ -818,21 +820,18 @@ void JKEdit::DeleteForward() {
 
 void JKEdit::MoveCursorLeft() {
     if (cursorPos_ == 0) return;
-    // If the byte two positions back is a KSSM first byte, we are at the end
-    // of a KSSM pair; jump over the whole pair.
-    if (cursorPos_ >= 2 && static_cast<uint8_t>(buffer_[cursorPos_ - 2]) >= 0x80) {
-        cursorPos_ -= 2;
-    } else {
-        --cursorPos_;
-    }
+    // 경계 스캔 (docs/61 §23): 이전 글자가 ASCII일 때 buffer_[cursorPos_-2]는
+    // 쌍 둘째 바이트(0x80+ 실재)라 옛 휴리스틱은 쌍 중간으로 진입했다 —
+    // 화살표 한 번은 제자리, 다음은 2셀 점프 증상의 근원.
+    cursorPos_ = KssmPrevBoundary(buffer_.data(), buffer_.size(), cursorPos_);
     ScrollToCursor();
     showCaret_ = true;
 }
 
 void JKEdit::MoveCursorRight() {
     if (cursorPos_ >= buffer_.size()) return;
-    // If the byte at the cursor is a KSSM first byte, jump over the pair.
-    cursorPos_ += (static_cast<uint8_t>(buffer_[cursorPos_]) >= 0x80) ? 2 : 1;
+    // 유효 KSSM 쌍만 통째로 전진한다 (docs/61 §23).
+    cursorPos_ += KssmCharLenAt(buffer_.data(), buffer_.size(), cursorPos_);
     ScrollToCursor();
     showCaret_ = true;
 }
@@ -854,10 +853,12 @@ void JKEdit::MoveCursorUp() {
     size_t line = GetLineFromPos(cursorPos_);
     if (line == 0) { cursorPos_ = 0; }
     else {
-        size_t col = GetColFromPos(cursorPos_);
+        // 줄 간 이동은 표시 셀 컬럼을 보존한다 — 바이트 컬럼은 한글(2바이트
+        // 2셀) 혼합 줄에서 다른 줄의 쌍 중간에 떨어진다 (docs/61 §23).
+        size_t colCells = DisplayCells(buffer_, GetLineStart(line), cursorPos_);
         size_t prevStart = GetLineStart(line - 1);
         size_t prevEnd = GetLineEnd(line - 1);
-        cursorPos_ = std::min(prevStart + col, prevEnd);
+        cursorPos_ = std::min(PosFromCells(buffer_, prevStart, prevEnd, colCells), prevEnd);
     }
     ScrollToCursor();
     showCaret_ = true;
@@ -867,10 +868,11 @@ void JKEdit::MoveCursorDown() {
     size_t line = GetLineFromPos(cursorPos_);
     if (line + 1 >= GetLineCount()) { cursorPos_ = buffer_.size(); }
     else {
-        size_t col = GetColFromPos(cursorPos_);
+        // 표시 셀 컬럼 보존 (docs/61 §23 — MoveCursorUp 주석 참조).
+        size_t colCells = DisplayCells(buffer_, GetLineStart(line), cursorPos_);
         size_t nextStart = GetLineStart(line + 1);
         size_t nextEnd = GetLineEnd(line + 1);
-        cursorPos_ = std::min(nextStart + col, nextEnd);
+        cursorPos_ = std::min(PosFromCells(buffer_, nextStart, nextEnd, colCells), nextEnd);
     }
     ScrollToCursor();
     showCaret_ = true;
@@ -923,15 +925,10 @@ size_t JKEdit::PixelToPos(int32_t x, int32_t y) const {
                       static_cast<size_t>(std::max(0, x - inner.x) / charWidth_);
         pos = PosFromCells(buffer_, 0, buffer_.size(), cell);
     }
-    // Snap to a valid character boundary: if the cursor landed between the two
-    // bytes of a KSSM pair, move it to the start of the pair. This prevents
-    // later DeleteBackward/DeleteForward from removing only half a Hangul
-    // character and corrupting the buffer.
-    if (pos > 0 && pos < buffer_.size() &&
-        static_cast<uint8_t>(buffer_[pos - 1]) >= 0x80) {
-        --pos;
-    }
-    return pos;
+    // 경계 스냅 (docs/61 §23): 쌍 중간에 떨어지면 그 바이트 자체가 경계다
+    // (PosFromCells가 이미 쌍 통째 전진). 레거시 0x80 휴리스틱 스냅은
+    // "ASCII 직후 쌍 첫 바이트"를 쌍 중간으로 오판했다 — 유효성 역인덱스로.
+    return KssmSnapBoundary(buffer_.data(), buffer_.size(), pos);
 }
 
 void JKEdit::UpdateSelection(size_t oldPos, bool shift) {
