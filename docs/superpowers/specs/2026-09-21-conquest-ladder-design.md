@@ -3,7 +3,7 @@
 - 날짜: 2026-09-21
 - 원안: docs/superpowers/specs/2026-09-09-desktop-agent-platform-design.md §6.6 (앱 정복 사다리, scenarios Part 8)
 - 토대: docs/58_app_tool_hub.md (앱 도구 허브, 2026-09-20 완결) — MCP 도구 등록·릴레이·게이트
-- 상태: 설계 합의 완료(2026-09-21 사용자 "네 아주 좋아요"), 구현 미착수
+- 상태: M1 구현 완료(2026-09-21), minesweeper 코드 정복 — 프로브 공식런+회귀 스윕 배치 대기, LLM 실전 체크리스트는 docs/62 §6 (as-built: docs/62)
 
 ## 1. 왜 이것인가
 
@@ -112,5 +112,5 @@ taskbar.
 | 판정 주체 | 프로브 + LLM 실전 **둘 다** (사용자 확정) |
 | drive 수단 | MCP 우선, send_input 폴백 이중 트랙 (사용자 확정) |
 | 프로브 작성 원칙 | 도구 표면만 — OS SendInput 금지 (사용자 합의 3에서 유도) |
-| send_input 기본 권한 | ask 제안 — **사용자 검토 항목** |
+| send_input 기본 권한 | ask (2026-09-21 사용자 승인) |
 | 첫 목표 | minesweeper (템플릿 확립) |

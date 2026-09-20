@@ -27,6 +27,15 @@
 | `99_file_inventory.md` | 주요 소스/헤더/리소스 파일 인벤토리 | ★★☆ | 265 |
 | `README.md` | 본 문서 | ★★★ | 93 |
 
+### 에이전트 플랫폼 as-built (docs/28~62)
+
+docs/28 이후의 기능 문서는 위 표에 누적되지 않는다 — 스펙/플랜은
+`docs/superpowers/specs`·`plans`, as-built는 번호 문서로 기록한다. 최신 as-built:
+
+| 파일 | 한 줄 요약 |
+|------|-----------|
+| `62_conquest_ladder.md` | 앱 정복 사다리 M1 — send_input 도구(ask 게이트+승인 재실행)+minesweeper 코드 정복(정복 프로브 템플릿 확립) as-built |
+
 ### 빠른 참조: 어떤 문서를 먼저 볼까
 
 - **처음 접할 때**: `01_overview.md` → `03_jkwindow.md` → `02_jkdbase.md`
