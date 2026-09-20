@@ -97,3 +97,31 @@ OS 통합 기능(전체화면 OSD, 파일 대화상자, 캡처)에만 쓰임. �
 - **"Linux on DeX"는 삼성이 서비스 종료** — DeX 실현 경로는 Termux 얹기(2단계) 또는
   네이티브 APK(3단계) 사실상 2갈래.
 - **스펙 위치**: 이 프로젝트 관례(docs/NN)를 따라 docs/62로. 스킬 기본 경로보다 관례 우선.
+
+## 8. 착수 전 조사 결과 (2026-09-21, 3분도 조사 — 이 스펙의 비용 추정 정정)
+
+§2의 "어댑터 신설" 추정 중 상당수가 이미 구현돼 있었다 (docs/43 분할 때 심어놓은 경계):
+
+1. **전송 경계 이미 완성** — 모든 프레임이 `IWireTransport::{Write,Read}` 2시그니처만 통과
+   (`include/ipc/JKWireProtocol.h:255`). Win32 파이프 API 직접 접촉은 `JKPipeTransport_win32.cpp`
+   하나뿐이고 `JKPipeTransport_posix.cpp`는 62줄 스텁. **"36파일 IPC 수술"은 "posix 스텁 완성"으로 축소**.
+   흠 2건: ①`CancelPendingIo()`가 인터페이스 밖 콘크리트 메서드로 새서
+   `JKClientConnection.cpp:116`이 구체 클래스를 직접 부름 — 인터페이스 승격 필요
+   ②`ReadMessage`가 길이 상한 검사 없이 `assign(header.length, 0)` — 페이로드 캡 필요.
+2. **파일 대화상자 이미 플랫폼 무관** — JKFileDialog는 Win32 API 미사용 수기 브라우저,
+   vplayer도 에이전트 채널 경유(ClientFileDialogApp).
+3. **전체화면/캡처 이미 컴포지터 내부** — `engine/src`에 SetWindowPos/HWND_TOPMOST 0건.
+   레이어 플래그(JKCompositorLayer)+이벤트만 존재. 플랫폼 어댑터 불요.
+4. **ConPTY 단일 TU** — JKConPtyBridge가 이미 깨끗한 바이트 스트림 인터페이스
+   (Start/DrainOutput/WriteInput/Resize/Stop)+비윈도우 스텁 보유. 파일 분할만 필요.
+5. **vplayer에 엔진 소유 D3D11이 아예 없음** — 표시가 이미 SDL 일반
+   (SDL_CreateTexture(NV12)+SDL_UpdateNVTexture+ImGui::Image, 픽셀은 shm 경유).
+   **§2의 `VideoPresent` 어댑터 불요 — YAGNI로 소각**. D3D11 소유자는 SDL2 내부 백엔드뿐.
+6. **암호 4개소는 수기 SHA-256 헬퍼 1개로 흡수** — BCrypt SHA-256×3
+   (jkctl/jktriggers/JKDesktopShell, 포맷 "sha256:"+64hex 교차 일치 요구)+
+   CSPRNG×1(jkbridge GenToken). jkbridge에 수기 SHA-1+셀프테스트 선례 존재.
+7. **JKPlatform 헤더에 이미 OS별 분기 설계 존재** ("OS-specific .cpp" 명시),
+   비윈도우 스텁 상당수 실구현(FileMtime100ns은 ::stat 실측).
+
+→ 1단계(경계 수술)는 인터페이스 신설이 아니라 **기존 경계의 잔여 흠 수선(①②)+암호 통합+pty 파일 분할**.
+2단계의 실질 작업은 posix 전송(Unix socket)·flock 가드·posix pty 구현이 본체.
