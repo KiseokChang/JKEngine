@@ -316,11 +316,19 @@ function Stop-MyPids {
 # PIDs (this probe's server tree) are excluded. Returns $false and FAILs
 # (fail fast) when anything foreign is alive - the caller skips the nested run.
 function Test-ForeignFree([string]$tag) {
+    # Re-sync our tree FIRST: the server's taskbar child can spawn after the
+    # one-shot Add-TreePids at setup (spawn is async relative to server-up
+    # detection) — without this, OUR OWN taskbar is flagged foreign and every
+    # nested run is skipped (2026-09-20: 4 fails ×2 runs on this alone).
+    if ($script:serverPid -gt 0) { Add-TreePids $script:serverPid }
     $inv = @()
     foreach ($img in @("jkdesktop", "jkbridge", "jkwinserver", "jkchat", "jkapp_vplayer")) {
         $inv += (Get-Process $img -ErrorAction SilentlyContinue |
                  Where-Object { $script:myPids -notcontains $_.Id } |
-                 ForEach-Object { "$img(pid=$($_.Id))" })
+                 ForEach-Object {
+                     $wmi = Get-CimInstance Win32_Process -Filter "ProcessId=$($_.Id)" -ErrorAction SilentlyContinue
+                     "$img(pid=$($_.Id),ppid=$($wmi.ParentProcessId),cmd=$($wmi.CommandLine))"
+                 })
     }
     if ($inv) {
         Check ("setup-foreign-midrun-" + $tag) $false ("foreign re-appeared before the nested run: " + ($inv -join ", ") + " - nested run SKIPPED")
@@ -701,7 +709,17 @@ try {
     $script:myPids += $pT.Id
     Start-Sleep -Seconds 6
     Check "c12b-jkdesktop-test-alive" (-not $pT.HasExited) $(if ($pT.HasExited) { "exit=" + $pT.ExitCode } else { "alive" })
-    Stop-Process -Id $pT.Id -Force -ErrorAction SilentlyContinue
+    # Tree kill: test mode spawns a taskbar child; a bare parent kill leaves
+    # the orphan alive and the next Test-ForeignFree flags it as foreign
+    # (2026-09-20 run2: 4 nested-run SKIPPED on exactly this). Kill pT's
+    # descendants FIRST, then the parent - myPids (server tree) is untouched.
+    function Stop-Tree([int]$root) {
+        foreach ($c in (Get-CimInstance Win32_Process -Filter "Name='jkdesktop.exe'" -ErrorAction SilentlyContinue)) {
+            if ($c.ParentProcessId -eq $root) { Stop-Tree $c.ProcessId }
+        }
+        Stop-Process -Id $root -Force -ErrorAction SilentlyContinue
+    }
+    Stop-Tree $pT.Id
     # Nested regression probes - each manages its own server lifecycle, kills
     # its own tree, and restores its own permissions baseline. Run LAST: they
     # tear this probe's server down too (same exclusive pipe - by design).

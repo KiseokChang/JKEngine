@@ -410,12 +410,22 @@ Check "slot-reclaim" ($hello8 -ne $null -and $hello8 -match '"type":"hello"' -an
 $c8.Close()
 
 # --- 9. resume memo: hello with the stub session id → pending_result -------
-$c10 = New-Sock "127.0.0.1" 8899
-[void](WsHandshake $c10 "probetoken0123456789abcdef")
-WsSend $c10 '{"type":"hello","resume_session":"stub-1"}'
-$hello10 = WsRecv $c10 5000
+# Retry-tolerant connect: stage 7's five sockets may still be draining when
+# we get here (2s sleep is not a guarantee) — a refused c10 gets the cap
+# error frame, not hello. That is a harness race, not a product defect, so
+# reconnect until hello actually arrives (2026-09-20 flake: resume-memo
+# FAIL ×3 → DBG instrumentation PASS → cap-frame cause).
+$hello10 = $null
+foreach ($try in 1..5) {
+    $c10 = New-Sock "127.0.0.1" 8899
+    [void](WsHandshake $c10 "probetoken0123456789abcdef")
+    WsSend $c10 '{"type":"hello","resume_session":"stub-1"}'
+    $hello10 = WsRecv $c10 5000
+    $c10.Close()
+    if ($hello10 -ne $null -and $hello10 -match '"type":"hello"') { break }
+    Start-Sleep -Seconds 2
+}
 Check "resume-memo" ($hello10 -ne $null -and $hello10 -match '"pending_result":"stub ok"')
-$c10.Close()
 
 # --- 9b. QR startup output (console QR for phone camera scan) ----------------
 # --qr-debug: 0/1 matrix dump (verifier interface); --qr-print: half-block

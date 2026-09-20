@@ -80,7 +80,15 @@ if ($hadTheme) { Copy-Item $themeFile (Join-Path $env:TEMP "theme_pre_files.json
 Get-Process jkdesktop -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Seconds 1
 Start-Process -FilePath $exe -ArgumentList "--server" -WorkingDirectory $root -WindowStyle Hidden
-Start-Sleep -Seconds 4
+# Readiness poll, not a fixed sleep: agentctl before the pipe exists fails
+# with CreateFileA(2) and the first checks record bogus FAILs (2026-09-20
+# nested run: checks 1-2 died on a server that needed >4s to open the pipe).
+$up = $false
+foreach ($i in 1..40) {
+    Start-Sleep -Milliseconds 500
+    if ((Invoke-Agentctl '{"tool":"ping","args":{}}') -match '"ok"\s*:\s*true') { $up = $true; break }
+}
+if (-not $up) { Write-Host "FAIL: server never came up"; exit 1 }
 
 # checks 1-8 run with explicit allow (control-only agentctl, no parking);
 # checks 9/10 exercise ask/deny file values.

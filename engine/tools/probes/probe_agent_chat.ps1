@@ -30,11 +30,15 @@ if ($chat -match '"ok\\?":true' -and $chatProc) { Write-Host "launch_chat: PASS"
 else { Write-Host "launch_chat: FAIL ($chat / proc=$($chatProc -ne $null))"; exit 1 }
 
 $launch = Invoke-Agentctl '{"tool":"launch_app","args":{"app":"minesweeper"}}'
-Start-Sleep -Seconds 2
-$list = Invoke-Agentctl '{"tool":"list_windows","args":{}}'
+# Retry-tolerant window wait: spawn→window creation can exceed the fixed 2s
+# under load (2026-09-20 nested run: list_windows came back empty windows[]).
 $id = $null
-if ($list -match '"id\\?":(\d+),"title":"Minesweeper"') { $id = $Matches[1] }
-if (-not $id) { Write-Host "minesweeper: FAIL ($list)"; exit 1 }
+foreach ($i in 1..15) {
+    Start-Sleep -Milliseconds 800
+    $list = Invoke-Agentctl '{"tool":"list_windows","args":{}}'
+    if ($list -match '"id\\?":(\d+),"title":"Minesweeper"') { $id = $Matches[1]; break }
+}
+if (-not $id) { Write-Host "minesweeper: FAIL"; exit 1 }
 
 # close under ask mode BLOCKS until approved — run as a job. The events
 # subscription must exist BEFORE the close fires (pushes are not replayed):

@@ -608,7 +608,9 @@ try {
     # window) and restores permissions itself, so c16/c17 rebuild after it.
     Get-Process jkbridge -ErrorAction SilentlyContinue | Stop-Process -Force
     Start-Sleep -Seconds 2
-    $hlLog = Join-Path $env:TEMP "probe_app_tools_highlight_nested.log"
+    # Unique per parent PID: a fixed name let run2's ALL PASS overwrite
+    # run1's failing log — the failure detail was unrecoverable (2026-09-20).
+    $hlLog = Join-Path $env:TEMP "probe_app_tools_highlight_nested_$PID.log"
     $ho = (& powershell -NoProfile -ExecutionPolicy Bypass `
         -File "I:\progwork\JKENGINE\engine\tools\probes\probe_app_tools_highlight.ps1") 2>&1
     $ho | Out-File -FilePath $hlLog -Encoding ASCII
