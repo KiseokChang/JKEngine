@@ -106,8 +106,11 @@ static std::string ExeDirA() {
 }
 
 // ---------------------------------------------------------------------------
-// Bridge config: state/jkbridge.json {token, port} — first run generates the
-// token (CSPRNG) and prints the bookmarkable URLs.
+// Bridge config: state/jkbridge.json {token, port, bind} — first run
+// generates the token (CSPRNG) and prints the bookmarkable URLs. bind is
+// optional ("192.168.1.23") — docs/57 §9 백로그: INADDR_ANY는 PC가 붙은 모든
+// 인터페이스(사내망 포함)에 노출되므로, 특정 인터페이스로 좁히고 싶을 때
+// 지정한다. 미지정 = 기존 INADDR_ANY(토큰이 실질 게이트 — 기존 동작 유지).
 // ---------------------------------------------------------------------------
 static const int kDefaultPort = 8790;
 
@@ -122,6 +125,7 @@ static uint32_t RandU32() {
 struct BridgeConfig {
     std::string token;  // 32-hex
     int port = kDefaultPort;
+    std::string bindIp;  // 빈 문자열 = INADDR_ANY (기존 동작)
 };
 
 static std::string GenToken() {
@@ -147,6 +151,19 @@ static BridgeConfig LoadBridgeConfig() {
             cfg.token = v;
             if (j.GetInt("port", port) && port > 0 && port < 65536) {
                 cfg.port = port;
+            }
+            std::string bind;
+            if (j.GetStr("bind", bind) && !bind.empty()) {
+                // fail-closed: 오탈자 bind는 ANY로 폴백하면 의도(축소)가
+                // 확장으로 반전된다 — 루프백으로 좁히고 경고 (폰 접속은
+                // 끊기지만 콘솔에 원인이 보인다).
+                if (inet_addr(bind.c_str()) == INADDR_NONE) {
+                    OutW("[!] state\\jkbridge.json의 bind가 유효한 IPv4가 "
+                         "아님(" + bind + ") — 루프백으로 좁힌다");
+                    cfg.bindIp = "127.0.0.1";
+                } else {
+                    cfg.bindIp = bind;
+                }
             }
             return cfg;
         }
@@ -1762,7 +1779,11 @@ int main(int argc, char** argv) {
     SOCKET listener = socket(AF_INET, SOCK_STREAM, 0);
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = INADDR_ANY;  // LAN + loopback — token is the gate
+    // bind 미지정 = INADDR_ANY(전 인터페이스 — LAN + loopback, 토큰이 게이트;
+    // docs/57 §9 기존 동작). 지정 시 그 인터페이스만 — 사내망 노출 봉쇄.
+    addr.sin_addr.s_addr = cfg.bindIp.empty()
+                               ? INADDR_ANY
+                               : inet_addr(cfg.bindIp.c_str());
     addr.sin_port = htons(static_cast<u_short>(cfg.port));
     BOOL reuse = TRUE;
     setsockopt(listener, SOL_SOCKET, SO_REUSEADDR,
@@ -1775,7 +1796,12 @@ int main(int argc, char** argv) {
     }
 
     OutW("jkbridge — phone web gateway");
-    const std::string url = "http://" + PrimaryIp() + ":" +
+    if (!cfg.bindIp.empty()) {
+        OutW("  bind: " + cfg.bindIp + " (전 인터페이스가 아니라 이 인터페이스만)");
+    }
+    // bind 지정 시 URL도 그 IP 기준 — PrimaryIp() 자동탐지는 ANY일 때만.
+    const std::string urlHost = cfg.bindIp.empty() ? PrimaryIp() : cfg.bindIp;
+    const std::string url = "http://" + urlHost + ":" +
                             std::to_string(cfg.port) + "/?token=" + cfg.token;
     OutW("  URL: " + url);
     OutW("  (같은 Wi-Fi의 폰 브라우저에서 위 URL 열기 — 토큰은 state\\jkbridge.json)");

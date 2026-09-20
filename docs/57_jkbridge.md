@@ -128,7 +128,10 @@ resume-memo(stub-1 → pending_result) / rate-limit(11회 → 403, 마지막 배
   localhost가 아닌 origin의 http WS를 허용하므로 동작하나 평문).
 - **INADDR_ANY 바인딩** — "LAN 한정"은 PC가 붙은 모든 네트워크 인터페이스
   (사내망 포함)에 노출된다는 뜻. 방화벽(Windows가 기본으로 공용 네트워크
-  차단)이 실질 경계. 특정 인터페이스 바인딩은 백로그.
+  차단)이 실질 경계. 특정 인터페이스 바인딩은 백로그. **(2026-09-20 해소 —
+  state/jkbridge.json의 옵션 `"bind":"<IPv4>"` 필드로 특정 인터페이스만
+  바인딩. 미지정 = 기존 ANY. 오탈자 IP는 fail-closed 루프백+경고 — ANY
+  폴백은 축소 의도를 확장으로 반전시킨다. docs/59 §16)**
 - 1세션 = 1 에이전트 파이프 연결 — 서버 파이프 접속 예산과 공유.
 - 웹 UI는 눈확인 항목(폰 실기기 레이아웃/터치).
 - 확장: tool 프레임이 generic이라 files/notes 등 서버 도구 추가 시

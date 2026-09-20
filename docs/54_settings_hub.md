@@ -161,9 +161,13 @@ close_window/trust_request/run_console_app/trust_revoke 4종뿐).
 - audio.master의 코어 적용은 전역 마스터 볼륨 — 앱별 볼륨(트리거 소스와 무관한
   개별 제어)은 미범위(스펙 §3 YAGNI). **vplayer는 자체 SDL 오디오라 미적용**
   (JKSoundManager 소비자는 게임/런처 — GUI 힌트 표시, opus MINOR-2).
-- 레이아웃 목록 열거는 exe-dir layout_*.json FindFirstFileA — state로 이전
-  시 SettingsKvPath와 같은 경로 정리 레저.
-- receipt 프룬은 전체 읽기(파일이 커지면 스트리밍 프룬 레저).
+- ~~레이아웃 목록 열거는 exe-dir layout_*.json FindFirstFileA — state로
+  이전 시 SettingsKvPath와 같은 경로 정리 레저~~ **(스테일 표기 — 실제 코드는
+  cf0d828(2026-09-10)부터 state\layout_*.json 저장/열거. 코드 변경 불요,
+  2026-09-20 확인)**.
+- ~~receipt 프룬은 전체 읽기~~ **(2026-09-20 스트리밍화 — 행 단위 `.new`
+  복사, `.new` 완성 전까지 원본 무손상, M5 rename 댄스 규약 유지.
+  docs/59 §16)**.
 - 캡처 게이트는 **flip 방식**(docs/54 §11 opus M2): "ask"는 건별 승인이 아니라
   승인 파킹이 "allow"로 뒤집을 때까지 거부 — 건별 승인 UX는 미범위.
 

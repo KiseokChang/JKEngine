@@ -101,6 +101,11 @@ private:
     // app_tool. 키 부재 폴백 = allow (스펙 §0 결정 3).
     AgentDecision AppToolAllowed(const std::string& app, const std::string& tool) const;
     void ReplyAppToolError(const InflightAppTool& inf, const char* err);
+    // 파킹 플러드 상한 (docs/56 §2b 백로그): 요청자별 미해결 승인 수가 상한에
+    // 도달했는가 — 초과 요청은 파킹하지 않고 approval_overflow로 거부한다
+    // (에이전트가 승인 스트립을 도배하는 노출 봉쇄; 파킹 종류 전체 공유).
+    // clientsMutex_ 보유 경로 전용 — 락을 잡지 않는다(레슨 35).
+    bool ApprovalParkingFull(uint32_t requesterId) const;
     void PublishAppToolsChanged();
     // Alt+Space (spec §6.2): focus the palette if one is open, else spawn it.
     void TogglePalette();

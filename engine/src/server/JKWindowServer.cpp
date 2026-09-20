@@ -2076,57 +2076,76 @@ static bool PruneReceipts(int retentionDays) {
     std::string stateDir = SettingsKvPath();
     stateDir = stateDir.substr(0, stateDir.find_last_of("\\/") + 1);
     const std::string path = stateDir + "receipts.jsonl";
+    const std::string newPath = path + ".new";
     std::FILE* f = std::fopen(path.c_str(), "rb");
     if (!f) return true;  // 파일 없음 = 정리할 것도 없음 (정상)
-    std::fseek(f, 0, SEEK_END);
-    const long size = std::ftell(f);
-    std::fseek(f, 0, SEEK_SET);
-    std::vector<char> buf(static_cast<size_t>(size) + 1);
-    const size_t n = std::fread(buf.data(), 1, size, f);
-    std::fclose(f);
-    buf[n] = '\0';
+    // 스트리밍 프룬 (docs/54 §10 레저): 전체 파일+kept를 메모리에 올리지
+    // 않고 행 단위로 .new에 복사한다 — 행당 메모리 = 최대 행 길이. 원본은
+    // .new가 완성될 때까지 건드리지 않으므로 실패 시 전 단계 무손상.
+    std::FILE* w = std::fopen(newPath.c_str(), "wb");
+    if (!w) {
+        std::fclose(f);
+        return false;
+    }
     const long long cutoff =
         static_cast<long long>(std::time(nullptr)) * 1000 -
         static_cast<long long>(retentionDays) * 86400 * 1000;
-    std::string kept;
-    size_t pos = 0;
-    while (pos < n) {
-        const char* begin = buf.data() + pos;
-        const char* nl =
-            static_cast<const char*>(std::memchr(begin, '\n', n - pos));
-        const size_t len = nl ? static_cast<size_t>(nl - begin) : (n - pos);
-        if (len > 0) {
-            const std::string line(begin, len);
-            const size_t tp = line.find("\"ts\":");
-            const long long ts = (tp == std::string::npos)
-                                     ? 0
-                                     : std::atoll(line.c_str() + tp + 5);
-            if (ts >= cutoff) {
-                kept += line + "\n";
+    auto writeKept = [&](const std::string& line) -> bool {
+        if (line.empty()) return true;
+        const size_t tp = line.find("\"ts\":");
+        const long long ts =
+            (tp == std::string::npos) ? 0 : std::atoll(line.c_str() + tp + 5);
+        if (ts < cutoff) return true;
+        if (std::fwrite(line.data(), 1, line.size(), w) != line.size())
+            return false;
+        if (std::fputc('\n', w) == EOF) return false;
+        return true;
+    };
+    std::vector<char> buf(65536);
+    std::string line;  // 청크 경계에 걸린 미완성 행
+    bool wfail = false;
+    size_t nread;
+    while (!wfail && (nread = std::fread(buf.data(), 1, buf.size(), f)) > 0) {
+        size_t pos = 0;
+        while (pos < nread) {
+            const char* nl =
+                static_cast<const char*>(std::memchr(buf.data() + pos, '\n',
+                                                     nread - pos));
+            if (!nl) {
+                line.append(buf.data() + pos, nread - pos);
+                break;
             }
+            line.append(buf.data() + pos,
+                        static_cast<size_t>(nl - (buf.data() + pos)));
+            pos += static_cast<size_t>(nl - (buf.data() + pos)) + 1;
+            if (!writeKept(line)) {
+                wfail = true;
+                break;
+            }
+            line.clear();
         }
-        pos += len + (nl ? 1 : 0);
     }
-    std::remove((path + ".bak").c_str());
+    if (!wfail && !line.empty() && !writeKept(line))  // 개행 없는 마지막 행
+        wfail = true;
+    std::fclose(f);
+    std::fclose(w);
+    if (wfail) {
+        std::remove(newPath.c_str());
+        return false;
+    }
     // opus 리뷰 M5 (docs/54 §11): rename 실패(예: 브로커가 append용으로
     // 열어둔 공유 위반 창)에도 진행하면 원본 절단 + .bak은 한 세대 전
     // 임파일러가 된다 — 실패 시 중단, 원본은 그대로(다음 set에서 재시도).
+    std::remove((path + ".bak").c_str());
     if (std::rename(path.c_str(), (path + ".bak").c_str()) != 0) {
+        std::remove(newPath.c_str());
         return false;
     }
-    std::FILE* w = std::fopen(path.c_str(), "wb");
-    if (!w) {
+    if (std::rename(newPath.c_str(), path.c_str()) != 0) {
         std::rename((path + ".bak").c_str(), path.c_str());  // 복원
         return false;
     }
-    const size_t wrote = std::fwrite(kept.data(), 1, kept.size(), w);
-    std::fclose(w);
-    // 쓰기 실패(부분 파일)도 복원 — .bak이 곧 원본.
-    if (wrote != kept.size()) {
-        std::remove(path.c_str());
-        std::rename((path + ".bak").c_str(), path.c_str());
-        return false;
-    }
+    // 성공 — .bak은 한 세대 전 원본 보존(1세대 규약).
     return true;
 }
 
@@ -2897,6 +2916,11 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                                             "\"error\":\"approval_unavailable\"}";
                                     break;
                                 }
+                                if (ApprovalParkingFull(client.Id())) {
+                                    reply = "{\"ok\":false,"
+                                            "\"error\":\"approval_overflow\"}";
+                                    break;
+                                }
                                 PendingApproval p;
                                 p.kind = "app_tool";
                                 p.requestId = nextApprovalId_++;
@@ -3031,6 +3055,10 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                         reply = "{\"ok\":false,\"error\":\"approval_unavailable\"}";
                         break;
                     }
+                    if (ApprovalParkingFull(client.Id())) {
+                        reply = "{\"ok\":false,\"error\":\"approval_overflow\"}";
+                        break;
+                    }
                     PendingApproval p;
                     p.requestId = nextApprovalId_++;
                     p.queryId = queryId;
@@ -3108,6 +3136,10 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                         reply = "{\"ok\":false,\"error\":\"approval_unavailable\"}";
                         break;
                     }
+                    if (ApprovalParkingFull(client.Id())) {
+                        reply = "{\"ok\":false,\"error\":\"approval_overflow\"}";
+                        break;
+                    }
                     PendingApproval p;
                     p.kind = "trust_request";
                     p.name = name;
@@ -3177,6 +3209,10 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                     if (!subscriber) {
                         reply = "{\"ok\":false,"
                                 "\"error\":\"approval_unavailable\"}";
+                        break;
+                    }
+                    if (ApprovalParkingFull(client.Id())) {
+                        reply = "{\"ok\":false,\"error\":\"approval_overflow\"}";
                         break;
                     }
                     PendingApproval p;
@@ -3267,6 +3303,10 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                                     "\"error\":\"approval_unavailable\"}";
                             break;
                         }
+                        if (ApprovalParkingFull(client.Id())) {
+                            reply = "{\"ok\":false,\"error\":\"approval_overflow\"}";
+                            break;
+                        }
                         PendingApproval p;
                         p.kind = "trust_revoke";
                         p.name = name.empty() ? "script" : name;
@@ -3355,6 +3395,10 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                     }
                     if (!subscriber) {
                         reply = "{\"ok\":false,\"error\":\"approval_unavailable\"}";
+                        break;
+                    }
+                    if (ApprovalParkingFull(client.Id())) {
+                        reply = "{\"ok\":false,\"error\":\"approval_overflow\"}";
                         break;
                     }
                     PendingApproval p;
@@ -3658,6 +3702,8 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                 }
                 if (!subscriber) {
                     reply = "{\"ok\":false,\"error\":\"approval_unavailable\"}";
+                } else if (ApprovalParkingFull(client.Id())) {
+                    reply = "{\"ok\":false,\"error\":\"approval_overflow\"}";
                 } else {
                     const std::string d = valInt ? "allow" : "ask";
                     PendingApproval p;
@@ -4578,6 +4624,8 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             }
             if (!subscriber) {
                 reply = "{\"ok\":false,\"error\":\"approval_unavailable\"}";
+            } else if (ApprovalParkingFull(client.Id())) {
+                reply = "{\"ok\":false,\"error\":\"approval_overflow\"}";
             } else {
                 PendingApproval p;
                 p.kind = "files_access";
@@ -4636,6 +4684,8 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             }
             if (!subscriber) {
                 reply = "{\"ok\":false,\"error\":\"approval_unavailable\"}";
+            } else if (ApprovalParkingFull(client.Id())) {
+                reply = "{\"ok\":false,\"error\":\"approval_overflow\"}";
             } else {
                 PendingApproval p;
                 p.kind = "files_access";
@@ -4902,6 +4952,10 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             // 상계(JsonEsc는 인용+백슬래시를 모두 늘리므로 보수적).
             if (JsonEsc(jsonArgs).size() > 1000) {
                 reply = "{\"ok\":false,\"error\":\"bad_request\"}";
+            } else if (ApprovalParkingFull(client.Id())) {
+                // 파킹 플러드 상한 (docs/56 §2b) — file_open도 승인 파킹의
+                // 한 종류라 동일 노출(1슬롯 dialog_busy 검사가 먼저 온다).
+                reply = "{\"ok\":false,\"error\":\"approval_overflow\"}";
             } else {
                 // 만료는 승인 파이프라인의 60s가 아니라 600s — 사용자가
                 // 다이얼로그에서 고민하는 시간을 감안한다. 요청자 연결이 먼저
@@ -5411,6 +5465,19 @@ AgentDecision JKWindowServer::AppToolAllowed(const std::string& app,
         }
     }
     return AgentDecision::Allow;
+}
+
+// 파킹 플러드 상한 (docs/56 §2b): 요청자(connection id)별 미해결 승인 상한.
+// 초과 요청은 파킹하지 않고 approval_overflow — 승인 스트립 도배 봉쇄.
+// close_window/trust_request/permission_set 등 파킹 종류 전체가 공유한다.
+bool JKWindowServer::ApprovalParkingFull(uint32_t requesterId) const {
+    constexpr size_t kMaxPerRequester = 8;
+    size_t n = 0;
+    for (const PendingApproval& p : pendingApprovals_) {
+        if (p.requesterId == requesterId && ++n >= kMaxPerRequester)
+            return true;
+    }
+    return false;
 }
 
 // <exeDir>/state — agent-created files (layout snapshots). CreateDirectoryA
