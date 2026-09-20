@@ -10,10 +10,13 @@
 // with a template, then runs the WorkshopScriptApp variant that registers
 // get_script/set_script agent tools. Built-in SCRI apps are unchanged.
 #include <apps/JKAppModule.h>
+// windows.h가 ClientScriptApp.h보다 먼저 와야 한다 — ClientScriptApp.h는
+// windows.h 미포함 TU용 수기 선언(GetFileAttributesExA)을 가지고, 포함 TU에서는
+// _WINBASE_ 센티넬로 SDK 선언을 그대로 쓴다. 순서를 뒤집으면 선언 충돌
+// (2026-09-20 빌드 실측).
+#include <windows.h>
 #include <apps/ClientScriptApp.h>
 #include <JKJkxFile.h>
-
-#include <windows.h>
 
 #include <cstdio>
 #include <string>

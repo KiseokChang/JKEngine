@@ -2848,11 +2848,15 @@ static int RunMain(int argc, char* argv[]) {
 
     if (runServer) {
         jk::server::JKWindowServer server;
+        // 단일 인스턴스 가드(docs/59 §10) — Init 전에 봉쇄: 가드가 Init 뒤에
+        // 있으면 거부 인스턴스가 앱 설치+아이콘 로드를 전부 수행한 뒤 죽는다
+        // (2026-09-20 사용자 붙여넣기 로그 실측 — 낭비+로그 혼란).
+        if (!server.TryAcquireSingleInstanceGuard(jk::ipc::kWindowServerPipeName)) {
+            return 1;
+        }
         if (!server.Init("JKENGINE Window Server", 1280, 720)) {
             return 1;
         }
-        // 단일 인스턴스 가드(docs/59 §10): 이미 서버가 살아 있으면 즉답 거부 —
-        // 조용한 인스턴스 갈림(빈 서버 절반) 대신 명시적 실패.
         if (!server.StartAcceptor(jk::ipc::kWindowServerPipeName)) {
             return 1;
         }

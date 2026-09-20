@@ -19,6 +19,11 @@ int main(int argc, char* argv[]) {
     // theme.json 프리셋 로딩 (P2 단계 2) — 파일 없으면 다크 기본값 유지
     jk::theme::loadPresetFromFile(jk::theme::DefaultThemePath());
     jk::server::JKWindowServer server;
+    // 단일 인스턴스 가드 — Init 전에 봉쇄 (main.cpp --server 경로와 동일.
+    // Init 이후면 거부 인스턴스가 앱 설치+아이콘 로드를 먼저 수행한다).
+    if (!server.TryAcquireSingleInstanceGuard(jk::ipc::kWindowServerPipeName)) {
+        return 1;   // 다른 서버가 파이프 점유 중
+    }
     if (!server.Init("JKENGINE Window Server", 1280, 720)) {
         return 1;
     }

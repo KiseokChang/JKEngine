@@ -292,7 +292,7 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
     return true;
 }
 
-bool JKWindowServer::StartAcceptor(const std::string& pipeName) {
+bool JKWindowServer::TryAcquireSingleInstanceGuard(const std::string& pipeName) {
 #ifdef _WIN32
     // 단일 인스턴스 가드 (2026-09-20, docs/59 §10 유보 ②): 파이프 인스턴스는
     // PIPE_UNLIMITED_INSTANCES라 두 서버가 같은 이름을 열면 클라이언트가
@@ -302,6 +302,8 @@ bool JKWindowServer::StartAcceptor(const std::string& pipeName) {
     // 해제라 크래시 후 재기동 자유) ②파이프 프로브 벨트(가드 없는 구
     // 바이너리가 파이프를 이미 점유 중이어도 WaitNamedPipeA로 잡아낸다 —
     // 자기 인스턴스 생성 전 검사라 오탐 없음; ERROR_FILE_NOT_FOUND만 통과).
+    // Init 이전 봉쇄(2026-09-20 실측): 가드가 Init 뒤에 있으면 거부 인스턴스가
+    // 앱 설치+아이콘 로드를 전부 수행한 뒤 죽는다 — 낭비+로그 혼란.
     {
         std::string guard = pipeName;
         const size_t slash = guard.find_last_of("\\/");
@@ -335,6 +337,17 @@ bool JKWindowServer::StartAcceptor(const std::string& pipeName) {
             return false;
         }
         serverGuardMutex_ = static_cast<void*>(m);
+    }
+#endif
+    return true;
+}
+
+bool JKWindowServer::StartAcceptor(const std::string& pipeName) {
+#ifdef _WIN32
+    // 가드는 통상 TryAcquireSingleInstanceGuard가 Init 전에 취득 — 여기서는
+    // 미취득 시에만 (직접 호출자 방어선) 취득을 시도한다.
+    if (!serverGuardMutex_ && !TryAcquireSingleInstanceGuard(pipeName)) {
+        return false;
     }
 #endif
     pipeName_ = pipeName;

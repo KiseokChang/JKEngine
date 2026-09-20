@@ -4,7 +4,24 @@
 #include <JKApplicationHost.h>
 #ifdef _WIN32
 // FileMtime's GetFileAttributesExA (docs/60: 100ns mtime for the watch poll).
-#include <windows.h>
+// 수기 선언 (관례): windows.h/fileapi.h 둘 다 이 헤더 체인에선 안전하지 않다 —
+// windows.h의 wingdi TextOut 매크로가 main.cpp의 JKDC::TextOut 사용부를
+// 오염하고, fileapi.h의 CreateDirectoryA 등은 wancode 레거시 선언과 충돌한다
+// (둘 다 2026-09-20 빌드 실측). windows.h가 먼저 온 TU에서는 SDK 선언을 그대로 쓴다.
+struct JkFileAttrData {
+    unsigned long attributes;       // dwFileAttributes (@0)
+    unsigned long long createTime;  // ftCreationTime (@8)
+    unsigned long long lastWriteTime;
+    unsigned long long fileSize;
+};
+static_assert(sizeof(JkFileAttrData) == 32, "WIN32_FILE_ATTRIBUTE_DATA layout");
+#ifndef _WINBASE_  // windows.h가 선행 인클루드됐으면 SDK 선언이 이미 있다
+extern "C" __declspec(dllimport) int __stdcall GetFileAttributesExA(
+    const char* lpFileName, int fInfoLevelId, void* lpFileInformation);
+constexpr int kGetFileExInfoStandard = 0;  // winbase.h
+#else
+constexpr auto kGetFileExInfoStandard = ::GetFileExInfoStandard;
+#endif
 #endif
 #include <JKEvent.h>
 #include <JKStatic.h>
@@ -141,12 +158,11 @@ protected:
         // resolution, so two saves within the same second (rapid notepad
         // edits / probe back-to-back writes) alias to the same stamp and the
         // watcher never fires (probe_workshop c5, first live run).
-        WIN32_FILE_ATTRIBUTE_DATA fa = {};
-        if (!GetFileAttributesExA(path.c_str(), GetFileExInfoStandard, &fa)) {
+        JkFileAttrData fa = {};
+        if (!GetFileAttributesExA(path.c_str(), kGetFileExInfoStandard, &fa)) {
             return 0;
         }
-        return (static_cast<long long>(fa.ftLastWriteTime.dwHighDateTime) << 32) |
-               fa.ftLastWriteTime.dwLowDateTime;
+        return static_cast<long long>(fa.lastWriteTime);
 #else
         struct stat st = {};
         if (::stat(path.c_str(), &st) != 0) return 0;

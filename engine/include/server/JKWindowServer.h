@@ -45,9 +45,18 @@ public:
 
     bool Init(const std::string& title, int width, int height);
 
+    // Single-instance guard only (no acceptor). Call BEFORE Init: the guard
+    // must refuse a second server before Init's heavy work (app scan, icon
+    // decode) runs — measured 2026-09-20 (docs/59 §11): a refused instance
+    // printed 26 installs + launcher icon loads before tripping. Acquired
+    // mutex is kept in serverGuardMutex_; StartAcceptor reuses it.
+    bool TryAcquireSingleInstanceGuard(const std::string& pipeName);
+
     // Start the background acceptor thread. Must be called before Run().
     // Returns false when the single-instance guard trips (another server
     // already owns the pipe) — the acceptor is not started in that case.
+    // Acquires the guard itself only if TryAcquireSingleInstanceGuard was
+    // not called earlier (main paths always call it before Init).
     bool StartAcceptor(const std::string& pipeName);
 
     // Run the server main loop. This thread owns the SDL renderer and must
