@@ -164,6 +164,17 @@ void ClientSettingsApp::ApplyRead(const std::string& json) {
         volumeTemp_ = it != kv_.end() ? std::atoi(it->second.c_str()) : 80;
     }
     retentionSel_ = -1;   // 콤보는 kv_로부터 재계산
+    // 보조 폰트 버퍼 1회 시드 — **첫 settings_read 도착 시점**(리뷰 fix-2).
+    // kv_가 채워진 지금이 curFb의 진실원 시점이다(첫 프레임 래치는 답신 전
+    // 공백을 근거로 래치했다). 래치 후 재시드 없음 — 사용자 삭제 원본 유지.
+    if (!fallbackSeeded_) {
+        fallbackSeeded_ = true;
+        const auto fb = kv_.find("text.font_fallback");
+        if (fb != kv_.end() && !fb->second.empty()) {
+            std::snprintf(fallbackFontBuf_, sizeof(fallbackFontBuf_), "%s",
+                          fb->second.c_str());
+        }
+    }
 }
 
 void ClientSettingsApp::ApplyReply(Query kind, const std::string& json,
@@ -381,21 +392,13 @@ void ClientSettingsApp::BuildUi(int w, int h) {
 
         // 보조 폰트 체인 (docs/63 §6 2단계): 미커버 cp의 승계 폰트 — 빈 값 =
         // 해제 허용(text_font_path와 반대). 현재값과 다를 때만 전송(빈 Enter
-        // 스팸 방지).
+        // 스팸 방지). 버퍼 시드는 ApplyRead(첫 settings_read 도착)에서 1회 —
+        // 프레임 시점 시드는 답신 전 kv_ 공백을 근거로 삼는 사각(리뷰 fix-2).
         const std::string curFb = KvStr("text.font_fallback", "");
         ImGui::TextDisabled(
             "%s: %s",
             koreanFont_ ? "보조 폰트" : "fallback font",
             (curFb.empty() ? std::string("(none)") : curFb).c_str());
-        if (!fallbackSeeded_) {
-            // 1회 시드(리뷰 MINOR) — 빈 버퍼 조건부 재시드는 삭제 직후 원복해
-            // 빈 값=해제 전송을 막는다. 첫 프레임에만 현재값을 심는다.
-            fallbackSeeded_ = true;
-            if (!curFb.empty()) {
-                std::snprintf(fallbackFontBuf_, sizeof(fallbackFontBuf_), "%s",
-                              curFb.c_str());
-            }
-        }
         ImGui::SetNextItemWidth(-FLT_MIN);
         if (ImGui::InputText(koreanFont_ ? "보조 폰트(재시작 적용, 빈 값=해제)"
                                          : "fallback font (restart, empty=off)",

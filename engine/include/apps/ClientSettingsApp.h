@@ -68,8 +68,10 @@ private:
     // 캡과 동일(초과치는 bad_value).
     char textFontBuf_[300] = {};
     // 보조 폰트 체인 경로 입력 (docs/63 §6 2단계) — 빈 값 = 해제(서버가 허용).
-    // 1회 시드 플래그 — 매 프레임 재시드하면 삭제가 curFb로 되돌아가
-    // 빈 값=해제 전송이 사각이 된다(리뷰 MINOR).
+    // 1회 시드 플래그 — **첫 settings_read 도착 시**(ApplyRead)에 래치한다.
+    // 첫 UI 프레임 래치는 kv_ 공백(비동기 답신 도착 전)을 근거로 삼아
+    // 설정된 경로의 영구 미표시=사용자 Enter로 해제 전송 사각이 됐다
+    // (리뷰 fix-2). 래치 후에는 재시드 없음 — 삭제 원본 유지.
     char fallbackFontBuf_[300] = {};
     bool fallbackSeeded_ = false;
     std::vector<std::pair<uint32_t, PendingQuery>> pending_;
