@@ -130,8 +130,9 @@
 
 - (해소 2026-09-21) 클라 모드 settings.json 읽기 — 앱은 jkdesktop 단일 프로세스
   (jkapp_*.dll 로드), exe-dir + `state\settings.json` 공용 경로로 서버/클라 동일
-- fg 색 폭증 시 글리프 텍스처 수 상한 — 필요 시 LRU 폐기(백로그). 클라 앱 호스트의
-  `resourceCache_` 글리프 텍스처도 동일 백로그 대상(배너 `bannerCache_`만이 아님)
+- fg 색 폭증 시 글리프 텍스처 수 상한 — (해소 2026-09-21, 2단계 Task 1 §9.5)
+  `kMaxGlyphTextures = 1024` + `registered_` LRU 폐기. 배너 `bannerCache_`도
+  같은 JKTextAtlas 인스턴스라 동일 상한이 적용된다(호스트당 ~1MB)
 - 번들 폰트 선정(Noto Sans CJK KR vs 나눔고딕, 용량/포맷 .ttc vs .otf) — 리눅스 착수
   시점에 확정, Windows 1단계에는 불요
 
@@ -235,3 +236,26 @@ Task 4 시점(ninja [80/80]) 이후 Task 5/6이 착지해 라이브 데스크탑
   사용자 "좋네요" 확인. 1단계 종결. (재기동 절차 기록: 구 서버 정지 → ninja 링크
   해소 29/29 → `jkdesktop.exe --server`; 구 서버 살아 있으면 단일 인스턴스 가드가
   신규 기동을 거부하는 것은 정상 동작)
+
+### 9.5 글리프 텍스처 LRU/상한 (2단계 Task 1, 2026-09-21)
+
+- **상한** `JKTextAtlas::kMaxGlyphTextures = 1024` — 글리프당 ~1KB → 호스트당
+  ~1MB. 초과 등록 시 맨 앞(최장 미사용) 키를 폐기:
+  `EvictOldest(cache)`가 `cache->UnloadImage(PageKey(fg, cp))` 후 `registered_`
+  제거. 재요청은 자동 재등록(EnsureGlyph 계약 무수정).
+- **LRU 터치** — EnsureGlyph 기존 히트 시 해당 키를 벡터 끝(MRU)으로 이동 → 폐기
+  순서가 실사용을 따른다. `registered_`는 여전히 선형 스캔(상한 1024가 O(n) 봉쇄 —
+  1단계 백로그의 registered_ 해시는 제외, 계획서 ruling).
+- **UnloadImage 의미론 실측(픽스 불요)** — `JKResourceCache::UnloadImage`는
+  `images_`(업로드된 텍스처 handle을 `pendingDestroys_` 큐 → 다음 `FlushUploads`에서
+  백엔드 `DestroyTexture`)와 `pending_`(미업로드 — RGBA 버퍼/Surface 해제, 텍스처
+  존재하지 않음)를 둘 다 올바르게 제거한다. 결함 없음.
+- **링크 보충(레슨 28 후속)** — `EnsureGlyph`가 `UnloadImage`를 참조하게 되어
+  JKResourceCache.o를 링크하지 않는 독립 프로브(jktext_probe,
+  terminal_jamo_atlas_probe)의 캐시 스텁에 `UnloadImage` 정의 보충.
+  docs/63 §9.2의 jamo 링크 목록은 소스 목록 변동 없음(스텁은 probe TU 내부).
+- **프로브** — jktext_probe 26→33체크: (a) fg 12색 × ASCII 94cp = 1128 등록 후
+  살아있는 글리프 수 == 1024, (b) 최연장 (fg,cp) 폐기(GlyphSrc 빈 rect +
+  UnloadImage 기록) → 재 EnsureGlyph true + GlyphSrc 복원 + 상한 유지.
+  ×2 GREEN. jktext_view_probe(실 렌더러 경로), terminal_jamo_atlas_probe 9/9도
+  ×2 GREEN.

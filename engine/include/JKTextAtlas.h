@@ -36,6 +36,13 @@ std::string ResolveDesktopFontPath();
 
 class JKTextAtlas {
 public:
+    // Glyph-texture ceiling (docs/63 §6): each glyph is one small per-cell
+    // texture (~stride x cellH, a few hundred bytes to ~1KB) — at 1024 the
+    // per-host cost is ~1MB. Beyond the cap the oldest (least-recently-used)
+    // (fg, cp) texture is unloaded from the cache and lazily re-registered on
+    // demand, so the live set tracks what the frame actually draws.
+    static constexpr size_t kMaxGlyphTextures = 1024;
+
     JKTextAtlas();
     ~JKTextAtlas();
 
@@ -65,6 +72,10 @@ private:
     // Rasterizes cp into rgba (stride x cellH, baked fg, baseline aligned).
     bool RasterizeGlyph(uint32_t fg, uint32_t cp, std::vector<uint8_t>* rgba);
 
+    // Unloads the least-recently-used registered glyph texture from `cache`
+    // and drops it from registered_ (keeps size <= kMaxGlyphTextures).
+    void EvictOldest(JKResourceCache* cache);
+
     std::vector<uint8_t> fontData_;
     std::unique_ptr<stbtt_fontinfo> info_;
     float engScale_ = 0.0f;
@@ -75,7 +86,8 @@ private:
     int   hanCellW_ = 16;
     int   cellH_ = 16;
 
-    // Registered (fg, cp) set — mirrors what the cache holds.
+    // Registered (fg, cp) keys, LRU-ordered: front = least recently used,
+    // back = most recently used. Mirrors what the cache holds.
     std::vector<uint64_t> registered_;   // (fg << 32) | cp
 };
 

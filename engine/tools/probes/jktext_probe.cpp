@@ -2,6 +2,7 @@
 // T1: KSSM 코드포인트 → 유니코드 변환 (Task 1).
 // T2: 폰트 로드+셀 메트릭. T3: 래스터라이즈 잉크+AA(중간 알파>0=벡터). T4: 폰트 커버리지.
 // T5: 캐시 등록 계약.
+// T9: 글리프 텍스처 상한+LRU 폐기 (docs/63 §6, 2단계 Task 1).
 // T6-T8: JKDC 배선 — 아틀라스 우선/비트맵 폴백/메트릭 불변 (Task 3).
 #include <JKHangulUtil.h>
 #include <JKTextAtlas.h>
@@ -17,12 +18,22 @@
 
 // JKResourceCache 스텁 — 링크만 충족(레일즈: 프로브는 실 캐시를 링크하지 않는다).
 static std::vector<std::string> g_created;
+static std::vector<std::string> g_evicted;
 jk::JKResourceCache::JKResourceCache(jk::JKRenderBackend*) {}
 jk::JKResourceCache::~JKResourceCache() = default;
 bool jk::JKResourceCache::CreateImageFromRGBA(const std::string& key, int, int,
                                               const std::vector<uint8_t>&) {
     g_created.push_back(key);
     return true;
+}
+void jk::JKResourceCache::UnloadImage(const std::string& key) {
+    for (size_t i = 0; i < g_created.size(); ++i) {
+        if (g_created[i] == key) {
+            g_created.erase(g_created.begin() + static_cast<ptrdiff_t>(i));
+            break;
+        }
+    }
+    g_evicted.push_back(key);
 }
 bool jk::JKResourceCache::HasImage(const std::string& key) const {
     for (const auto& k : g_created) if (k == key) return true;
@@ -149,6 +160,56 @@ int main() {
     // 폰트에 없는 cp는 false — 콜러 폴백 계약(헤더 주석).
     CHECK(!atlas.EnsureGlyph(&cache, 0xCCCCCC, 0x10FFFF),
           "T5 미커버 cp -> false (폴백 계약)");
+
+    // T9: 글리프 텍스처 상한+LRU (docs/63 §6) — fg 12색 x ASCII 0x21..0x7E(94개)
+    // = 1128 등록 > kMaxGlyphTextures(1024). 폐기는 등록 순서 기준 LRU(front).
+    {
+        JKTextAtlas a3;
+        if (!a3.Init(fontPath, 8, 16, 16)) {
+            std::printf("SKIP: vector font init failed (%s)\n", fontPath.c_str());
+            return 77;
+        }
+        static const uint32_t kFg[12] = {
+            0x000000, 0xFFFFFF, 0xFF0000, 0x00FF00, 0x0000FF, 0xFFFF00,
+            0x00FFFF, 0xFF00FF, 0x808080, 0x336699, 0xCCCCCC, 0x556677
+        };
+        const size_t kFill = sizeof(kFg) / sizeof(kFg[0]);
+        bool allOk = true;
+        for (size_t f = 0; f < kFill && allOk; ++f) {
+            for (uint32_t cp = 0x21; cp <= 0x7E; ++cp) {
+                if (!a3.EnsureGlyph(&cache, kFg[f], cp)) { allOk = false; break; }
+            }
+        }
+        CHECK(allOk, "T9 배치 EnsureGlyph 전부 성공");
+        const size_t cap = JKTextAtlas::kMaxGlyphTextures;
+        size_t live = 0;
+        for (size_t f = 0; f < kFill; ++f) {
+            for (uint32_t cp = 0x21; cp <= 0x7E; ++cp) {
+                if (a3.GlyphSrc(kFg[f], cp).w != 0) ++live;
+            }
+        }
+        CHECK(live == cap, "T9(a) 상한 — 등록 글리프 수 == kMaxGlyphTextures(1024)");
+
+        // (b) LRU 순서: 가장 먼저 등록한 (kFg[0], 0x21)이 폐기되어 GlyphSrc 비었고,
+        // 재 EnsureGlyph는 true(재등록) — 폐기 기록은 캐시 스텁에 남는다.
+        const std::string oldestKey = a3.PageKey(kFg[0], 0x21);
+        CHECK(a3.GlyphSrc(kFg[0], 0x21).w == 0, "T9(b) 최연장 글리프 폐기 — GlyphSrc 빈 rect");
+        bool evictedRecorded = false;
+        for (const auto& k : g_evicted) {
+            if (k == oldestKey) { evictedRecorded = true; break; }
+        }
+        CHECK(evictedRecorded, "T9(b) 최연장 키 UnloadImage 기록");
+        CHECK(a3.EnsureGlyph(&cache, kFg[0], 0x21), "T9(b) 폐기 후 재등록 true");
+        CHECK(a3.GlyphSrc(kFg[0], 0x21).w == 8 && cache.HasImage(oldestKey),
+              "T9(b) 재등록 후 GlyphSrc 복원+캐시 재등록");
+        size_t live2 = 0;
+        for (size_t f = 0; f < kFill; ++f) {
+            for (uint32_t cp = 0x21; cp <= 0x7E; ++cp) {
+                if (a3.GlyphSrc(kFg[f], cp).w != 0) ++live2;
+            }
+        }
+        CHECK(live2 == cap, "T9(b) 재등록 후에도 상한 유지(재폐기 1건)");
+    }
 
     // T6: 아틀라스 장착 → TextOut("가A") = 블릿 2회(한글 16px + 영문 8px),
     // DrawPixel 스톰 없음.

@@ -235,8 +235,15 @@ JKRect JKTextAtlas::GlyphSrc(uint32_t fg, uint32_t cp) const {
 bool JKTextAtlas::EnsureGlyph(JKResourceCache* cache, uint32_t fg, uint32_t cp) {
     if (!cache || !info_) return false;
     const uint64_t key = (static_cast<uint64_t>(fg) << 32) | cp;
-    for (uint64_t r : registered_) {
-        if (r == key) return true;
+    for (size_t i = 0; i < registered_.size(); ++i) {
+        if (registered_[i] == key) {
+            // LRU 터치: 기존 히트는 MRU(끝)로 이동 — 폐기 순서가 실사용을 따른다.
+            if (i + 1 != registered_.size()) {
+                registered_.erase(registered_.begin() + static_cast<ptrdiff_t>(i));
+                registered_.push_back(key);
+            }
+            return true;
+        }
     }
     std::vector<uint8_t> rgba;
     if (!RasterizeGlyph(fg, cp, &rgba)) return false;
@@ -245,7 +252,21 @@ bool JKTextAtlas::EnsureGlyph(JKResourceCache* cache, uint32_t fg, uint32_t cp) 
         return false;
     }
     registered_.push_back(key);
+    // 상한(docs/63 §6): 초과분은 가장 오래된(최근 미사용) 글리프부터 폐기 —
+    // 필요 시 같은 (fg,cp) 재요청이 다시 등록한다.
+    while (registered_.size() > kMaxGlyphTextures) {
+        EvictOldest(cache);
+    }
     return true;
+}
+
+void JKTextAtlas::EvictOldest(JKResourceCache* cache) {
+    if (!cache || registered_.empty()) return;
+    const uint64_t key = registered_.front();
+    const uint32_t fg = static_cast<uint32_t>(key >> 32);
+    const uint32_t cp = static_cast<uint32_t>(key & 0xFFFFFFFFu);
+    cache->UnloadImage(PageKey(fg, cp));
+    registered_.erase(registered_.begin());
 }
 
 } // namespace jk

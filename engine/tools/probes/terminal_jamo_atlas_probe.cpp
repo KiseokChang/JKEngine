@@ -14,12 +14,14 @@
 using namespace jk;
 
 // 캐시 스텁 — JKGlyphAtlas의 EnsurePrimaryPage 참조를 충족. 렌더러 없이
-// RasterizeFallbackPageForTest 경로만 운전한다.
+// RasterizeFallbackPageForTest 경로만 운전한다. UnloadImage는 docs/63 §6 LRU로
+// JKTextAtlas가 참조하므로 스텁이 필요(링크 목록 보충 — 레슨 28).
 JKResourceCache::~JKResourceCache() = default;
 bool JKResourceCache::CreateImageFromRGBA(const std::string&, int, int,
                                           const std::vector<uint8_t>&) {
     return false;
 }
+void JKResourceCache::UnloadImage(const std::string&) {}
 
 static int g_pass = 0, g_fail = 0;
 #define CHECK(cond, msg)                                                   \
