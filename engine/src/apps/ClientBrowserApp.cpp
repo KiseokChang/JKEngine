@@ -318,7 +318,11 @@ uint32_t SdlModsToCef(int kmod) {
 
 // SDL_Keycode -> Windows VK (demo scope: printable ASCII + navigation keys).
 int SdlKeyToVk(int k) {
+    // 라이브 SDL은 shift를 키코드에 반영해 'R'(대문자)로 온다(docs/61 §13) —
+    // 소문자만 검사하면 shift+letter가 VK 변환에 탈락한다. VK는 대소문자
+    // 무관이라 같은 VK로 매핑하면 된다.
     if (k >= 'a' && k <= 'z') return k - 'a' + 0x41;
+    if (k >= 'A' && k <= 'Z') return k - 'A' + 0x41;
     if (k >= '0' && k <= '9') return k - '0' + 0x30;
     switch (k) {
         case SDLK_SPACE: return 0x20;

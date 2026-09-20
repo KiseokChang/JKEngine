@@ -433,3 +433,48 @@ info->vkCode == VK_HANGUL`로 수정. 서버 측에 훅 발화+전달 대상 로
 두 번 반복되면(§16 폴링→§17 훅) 관측점 파이프라인 전체를 처음부터 단계별로
 재검증한다: 콜백 진입 조건(여기서 파산)→SDL 푸시→서버 전달→클라 번역.**
 라이브 증거는 서버 로그(`[ime] toggle -> client N`)로 남긴다.
+
+## 20. 뿌리 결함 교차검토 — "이 결함들의 원인이 다른 데도 영향 줬나?"
+
+유저 요청 검토. 뿌리 결함별로 같은 패턴의 잠복 결함을 전수 확인했다:
+
+1. **LL 훅 wParam/vkCode(§19)** — LL 훅은 코드베이스에 JKImeHook 하나뿐. 타
+   영향 없음. ✓
+2. **SDL 전역 모디파이어 직독(§14)** — 클라 모드에서 전역이 죽는 클래스. 직독자
+   20여 곳(RecogApp/IconEditApp/VectorApp/VectorFontApp의 Alt+X, 브라우저,
+   터미널, imgui 백엔드 등) 전부 커버 확인 — §14 픽스가 JKClientSurface에서
+   키/마우스 이벤트마다 SDL_SetModState 미러링하므로 시스템적 해결.
+   imgui 백엔드는 이미 ev.option 직용(문서화돼 있음). ✓
+3. **소문자 범위 검사만 있는 키코드 블록(§13 계열)** — JKEdit는 픽스, 터미널
+   Ctrl+letter는 애초 대소문자 양쪽 처리(764-785행). **ClientBrowserApp
+   SdlKeyToVk만 소문자 전용** — 라이브 shift+letter('R')가 VK 변환 탈락.
+   → 대문자 범위 추가 픽스(VK는 대소문자 무관). 서버의 나머지 a-z 검사는
+   지문/토픽 문자열 파싱이라 무관. ✓
+4. **★OS IME 조합 불능의 진짜 원인 — 우리가 의도적으로 뗐었다**: 서버 Init의
+   `JKPlatform::DetachIme(window_)`(9cade2d, 2026-09-06)가
+   ImmAssociateContext(hwnd, NULL)로 서버 창의 IME 컨텍스트를 떼어낸다.
+   사유(주석): IME가 붙으면 Enter/Esc/letters가 VK_PROCESSKEY로 가로채져
+   클라가 원시 키다운을 못 받는다. **§18의 "OS IME가 불능인 미스터리"는 기계
+   특성이 아니라 이 설계였다**(§18 문서 정정). 그리고 이 설계의 희생자가
+   하나 있다:
+   - **터미널은 데스크톱에서 한글 입력이 처음부터 죽어 있다** — 터미널은 OS IME
+     커밋(Char/TEXTEDITING, docs/26 단계 5)에 의존하는데 서버 창엔 IME가
+     없다. 영어/Ctrl은 원시 키 전달이라 살아 있어 지금까지 미감지.
+     jkedit/testwin의 내부 오토마타는 원시 키로 조합하므로 무사 — 터미널만
+     OS IME 의존이 유일했다.
+   - **수정 방향 = 터미널에 내부 오토마타 이식**: HangulAutomata 재사용 +
+     preEdit_ 오버레이(조합 표시) + BackspaceJamo(자소 백스페이스). IME를
+     다시 붙이는 방향은 VK_PROCESSKEY 스왈로우가 원시 키 전달을 깨므로 부적.
+     "내부 오토마타가 데스크톱의 한국어를 전부 소유"하는 §18 아키텍처의
+     완결. 별도 작업(pty 상호작용 엣지: 조합 중 리턴/붙여넣기/포커스 상실).
+   - vplayer 경로 필드 등은 ASCII 전용, jkchat/폰 브리지는 독자 창·프로세스라
+     자체 IME 소유 — 무관.
+5. **NUL-in-buffer(§8)** — 슬롯 코드 소비자는 JKEdit뿐(JKHangulManager는 폰트
+   렌더링 전용). ✓
+6. **JKWindow 이벤트 디스패치 누락(§17-1)** — TextEditing 소비자는 JKEdit와
+   TerminalView뿐, 둘 다 이제 포커스 디스패치로 커버. ✓
+
+**레슨 24. "뿌리 결함 교차검토"는 결함 수리 후 정기 의제다 — 한 뿌리가 여러
+증상을 낳는 경우, 유저가 아직 만나지 못한 증상(latent)이 가장 위험하다. 검토
+출력은 ①같은 패턴의 직독자 전수 ②그 패턴의 유일 소비자 ③설계상 의도된
+동작이 다른 기능의 전제를 깨는가(IME detach vs 터미널)의 세 축으로.**
