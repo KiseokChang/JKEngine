@@ -120,9 +120,11 @@ function Invoke-ConquestCycle([string]$tag) {
     if ($null -eq $win) { $script:win = $null; $script:cycleOk = $false; return }
     $script:win = $win
     # (2) observe: list_windows fields (id/title/pid/geometry) non-degenerate
-    #     + capture_window hash non-empty.
-    Check "$tag-observe-fields" ($win.id -gt 0 -and $win.pid -gt 0 -and $win.w -gt 0 -and $win.h -gt 0)
-    if ($win.id -le 0 -or $win.w -le 0) { $script:cycleOk = $false }
+    #     + title is the minesweeper window (maximize precedent -match 'Mine')
+    #     + capture_window hash non-empty. The aggregate $script:cycleOk
+    #     mirrors the stage Check exactly (review round 1 NIT-1/2).
+    Check "$tag-observe-fields" ($win.id -gt 0 -and $win.pid -gt 0 -and $win.w -gt 0 -and $win.h -gt 0 -and $win.title -match 'Mine')
+    if (-not ($win.id -gt 0 -and $win.pid -gt 0 -and $win.w -gt 0 -and $win.h -gt 0 -and $win.title -match 'Mine')) { $script:cycleOk = $false }
     $h0 = Capture-Hash $win.id
     Check "$tag-observe-capture" ($h0 -ne "")
     # (3) drive: send_input click at the board center - LOGICAL desktop coords
@@ -178,13 +180,28 @@ try {
     Check "launch-window-created-event" ($createdEvent -match 'window\.created')
 
     # (5) recover: kill the client by PID -> app.crashed -> relaunch ->
-    #     full cycle again. Subscribe BEFORE the kill (lesson 28). Soft
-    #     check only: the hard gate is cycle2-after-recover.
+    #     full cycle again. Subscribe BEFORE the kill (lesson 28). Hard
+    #     gate: recover-gone (pid leaves list_windows) + cycle2-after-recover.
     $job2 = Watch-Events 15
     Start-Sleep -Seconds 2
+    $gone = $false
     if ($null -ne $script:win) {
         Stop-Process -Id $script:win.pid -Force -ErrorAction SilentlyContinue
+        # recover hard gate (review round 1 FIX): the killed pid must leave
+        # list_windows before the relaunch - otherwise cycle2's Get-MineWindow
+        # (first window in the list) can silently match the stale window. Same
+        # polling pattern as the launch stage; if the pid never disappears,
+        # the Check stays FAILed and the doomed relaunch is skipped.
+        for ($i = 0; $i -lt 20; $i++) {
+            Start-Sleep -Milliseconds 500
+            [void](Get-MineWindow)   # refreshes $script:lastList
+            if (-not ($script:lastList -match ('\\"pid\\":' + $script:win.pid + '(?![0-9])'))) {
+                $gone = $true
+                break
+            }
+        }
     }
+    Check "recover-gone" $gone
     Start-Sleep -Seconds 2
     $crashedEvent = (Receive-Job -Job $job2 -Wait 2>&1) | Out-String
     # soft check: app.crashed event observed after the forced kill
@@ -196,8 +213,12 @@ try {
     $sm = [regex]::Match($stats, '"topic":"app\.crashed"[^}]*"fired":(\d+)')
     Check "recover-app-crashed-stat" ($sm.Success -and ([int]$sm.Groups[1].Value) -ge 1)
     Start-Sleep -Seconds 1   # spawn throttle is 500ms (docs/28) - 1s headroom
-    Invoke-ConquestCycle "cycle2"         # 2nd cycle after recovery
-    Check "cycle2-after-recover" $script:cycleOk
+    if ($gone) {
+        Invoke-ConquestCycle "cycle2"     # 2nd cycle after recovery
+        Check "cycle2-after-recover" $script:cycleOk
+    } else {
+        Write-Output "DIAG cycle2-skipped: stale pid $($script:win.pid) still in list_windows"
+    }
 } finally {
     Stop-ProbeProcs
     Copy-Item "$perm.probe_bak" $perm -Force
