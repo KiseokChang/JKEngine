@@ -645,3 +645,74 @@ jkedit_probe ×2, vpt13/vpt14 각 PASS. 라이브 환경 복구: jkdesktop 기�
 스폰하면 자식 stderr는 소실기로 가고 로그는 그냥 사라진다. 클라 로그가
 비어 있으면 미러 파일을 의심하기 전에 핸들 자체를 의심하라(-RedirectStandard
 Error가 답).**
+
+## 23. "화살표 2칸 점프/위치 어긋남" — KSSM 쌍 경계 0x80 휴리스틱의 붕괴
+
+유저 보고(2026-09-21): "쓴 글을 지우거나 하다보면 화살표 키로 왔다갔다 할때
+2칸씩 가거나 위치가 이상할 경우가 있네요."
+
+### 근본 원인
+
+JKEdit 버퍼는 KSSM(조합형) 2바이트 쌍. 전 커서·삭제 코드가
+`바이트 >= 0x80 = KSSM 첫 바이트` 휴리스틱으로 쌍 경계를 판정했는데,
+wCodeTable의 실제 코드 중 **둘째 바이트가 0x80+인 것이 다수 실재**한다
+(0x88a1, 0x8a81, 0x90a1, … — 한자 산술 매핑 kc2는 0xEC까지). 둘째 바이트를
+첫 바이트로 오판해:
+
+1. **백스페이스 2글자 삭제**: "X1"(X=둘째 바이트 0x80+ 음절) 끝에서
+   Backspace → `buffer_[prev-1] >= 0x80`가 X.second를 쌍 첫 바이트로 오판 →
+   X.second+'1'을 같이 지우고 커서가 X.first 하나만 남은 **쌍 중간**에 고립.
+2. **화살표 제자리→2셀 점프**: "X a Y"에서 Left 2회 — 첫 Left는 정상(3),
+   둘째 Left가 buffer_[cursor-2]=X.second 오판으로 X 둘째 바이트로 진입
+   (렌더 셀은 같은 자리) → 셋째 Left에 2셀 점프.
+3. **타이핑 쌍 쪼갬**: 쌍 중간 커서에 삽입 → [X.first, '2', …] — 유효성
+   역인덱스가 (X.first,'2')를 무효 쌍으로 읽어 '?' 렌더.
+4. **Up/Down 쌍 중간 착지**: 바이트 컬럼을 줄 간 전달 — 한글 혼합 줄에서
+   다른 줄의 쌍 중간에 착지.
+
+### 픽스 — 유효성 역인덱스 경계 스캔
+
+`JKHangulUtil`에 3종 신설(KssmToUtf8의 역인덱스를 `KssmInverse()` 공유
+접근자로 뽑아 재사용):
+
+- `KssmCharLenAt(s,len,i)` — (b_i,b_i+1)이 유효 KSSM 쌍이면 2, 아니면 1.
+- `KssmPrevBoundary(s,len,i)` — i 직전(<i) 경계. 순방향 스캔만 결정적.
+- `KssmSnapBoundary(s,len,i)` — 경계면 그대로, 아니면 첫 경계(쌍 끝).
+  PixelToPos의 "쌍 통째 전진" 관례와 같은 방향.
+
+적용: `DisplayCells`/`PosFromCells`(유효성 스텝), `MoveCursorLeft`
+(PrevBoundary), `MoveCursorRight`(CharLenAt), `DeleteBackward` 비조합 경로
+(PrevBoundary), `DeleteForward`(CharLenAt), `MoveCursorUp/Down`(**바이트
+컬럼 → 표시 셀 컬럼** 보존), `SetSelection`/`PixelToPos`(SnapBoundary 방어).
+`GetColFromPos`는 바이트 컬럼 개념 자체가 폐기 대상이라 삭제. 렌더러
+(JKDC::TextOut)는 무효 쌍이 생기지 않는 유효 버퍼에서 기존 파싱과 동일하므로
+무수정.
+
+### 프로브
+
+`jkedit_probe` T23 계열 신설(둘째 바이트 0x80+ 음절은 U+AC00 순회로 자동
+선별 — 하드코드 없음): T23a 선별/T23b Left 경계/T23c 백스페이스 1글자/
+T23d 쪼갬 후 타이핑/T23e Up 셀컬럼/T23f Delete 경계. 픽스 전 4 FAIL →
+픽스 후 **49체크 ×2 ALL PASS**. 회귀: terminal_hangul_probe 33/33 ×2,
+terminal_hangul_view_probe 18/18 ×2, jkedit_render_probe ×2 DONE.
+worktree 풀링크(jkdesktop/jkwinserver/주요 앱 DLL/jkchat/jkbridge/jkagentd/
+jkctl) 전부 성공.
+
+### 프로브 빌드 레시피(무 ninja 타깃 — ad hoc)
+
+```
+export PATH=/c/msys64/ucrt64/bin:$PATH
+g++ -std=c++20 -c -Iengine/include -Iengine/legacy/wancode \
+    -I/c/msys64/ucrt64/include/SDL2 engine/src/JKEdit.cpp -o JKEdit.o
+# (JKControl JKDC JKEvent JKHangulAutomata JKHangulUtil WANCODE.CPP 동일)
+g++ JKEdit.o … jkedit_probe.cpp.o engine/build/libjkcore.a -lSDL2 -lSDL2_mixer \
+    -limm32 -lwinmm -lole32 -luuid -loleaut32 -lws2_32 -lshlwapi -ldbghelp \
+    -o jkedit_probe.exe
+```
+자신의 수정 .o를 아카이브 앞세우면 스테일 jkcore 멤버가 팔리지 않는다
+(아카이브 멤버는 미정의 심볼이 있을 때만 팔린다).
+
+**레슨 33. 인코딩 런타임이 있으면 파서를 "값 범위 휴리스틱"으로 쓰지 마라 —
+테이블이 스스로 경계를 말해준다. KSSM 둘째 바이트는 0x00..0xFF 전역이고
+wCodeTable에 유효 쌍이 그 증거다(레슨 1의 "유명한 값도 검증"의 이면:
+테이블 원문을 찍어보는 게 판정의 끝판).**
