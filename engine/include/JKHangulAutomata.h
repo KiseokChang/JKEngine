@@ -42,6 +42,12 @@ public:
     uint16_t JongsungPair(uint16_t& key);
     bool Automata(uint16_t key);
 
+    // 8비트 자모 슬롯 코드(ConvertKey 출력, 0x82-0xB4)를 독립 KSSM 2바이트
+    // 코드로 변환한다. 자동사 End1/End2 플러시와 InsertKssmChar 방어선이 쓴다.
+    // outStack에 원본 슬롯 코드를 넣으면 {0x00,XX} NUL 쌍이 버퍼에 기록돼
+    // 렌더가 c_str() 절단으로 통째로 사라졌다(docs/61 §8).
+    static uint16_t ToStandaloneKssm(uint16_t key8);
+
     struct InpStack {
         uint16_t curHanState = 0;
         uint16_t key = 0;

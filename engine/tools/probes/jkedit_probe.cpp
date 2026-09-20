@@ -126,6 +126,49 @@ int main() {
               "sel=" + std::to_string(e.GetSelectedText().size()));
     }
 
+    // T7: 자동사 End1/End2 플러시 — 8비트 슬롯 코드가 {0x00,XX} NUL 쌍으로
+    // 기록돼 한글 줄이 통째로 안 보였던 결함 (docs/61 §8). 조합 중 다음 자모가
+    // 못 붙으면 완성 음절+새 자모가 독립 KSSM으로 나와야 한다.
+    {
+        JKEdit e(JKRect{ 0, 0, 400, 24 });
+        e.SetHangulMode(true);
+        // "한"(g k s) 후 ㄱ(r) — ㄱ은 받침이 안 돼 End1 플러시.
+        // 옛 코드: "한"이 지워지고 {0x00,0x83} 기록 → NUL.
+        SendKey(e, SDLK_g);
+        SendKey(e, SDLK_k);
+        SendKey(e, SDLK_s);
+        SendKey(e, SDLK_r);
+        const std::string& buf = e.GetText();
+        bool noNul = buf.find('\0') == std::string::npos;
+        Check("T7-no-nul", noNul,
+              "len=" + std::to_string(buf.size()));
+        // "한"(D0 65) + 독립 ㄱ(88 41) → 4바이트, 전부 KSSM 쌍(첫 바이트 >= 0x80).
+        Check("T7-han-kept", buf.size() == 4 &&
+                  static_cast<unsigned char>(buf[0]) == 0xD0 &&
+                  static_cast<unsigned char>(buf[1]) == 0x65 &&
+                  static_cast<unsigned char>(buf[2]) == 0x88 &&
+                  static_cast<unsigned char>(buf[3]) == 0x41,
+              "first4=" + std::to_string(static_cast<unsigned char>(buf[0])) + "," +
+              std::to_string(static_cast<unsigned char>(buf[1])) + "," +
+              std::to_string(static_cast<unsigned char>(buf[2])) + "," +
+              std::to_string(static_cast<unsigned char>(buf[3])));
+        // KSSM 왕복: 버퍼(조합형) → UTF-8이 "한ㄱ"이어야 한다.
+        Check("T7-roundtrip", KssmToUtf8(buf.c_str()) == "한ㄱ",
+              "got bytes=" + std::to_string(KssmToUtf8(buf.c_str()).size()));
+    }
+
+    // T8: 같은 시나리오에서 NUL 유입 전면 차단 — InsertKssmChar 방어선.
+    // 자음 뒤 자음(gk → "하" 조합 중 d(ㅇ)이 못 붙는 경우는 없으므로
+    // ConvertKey 직접 변환값으로 독립 코드 검증: ㄱ=0x8841, ㅏ=0x8461, ㄳ=0x8444).
+    {
+        Check("T8-slot-cons", HangulAutomata::ToStandaloneKssm(0x82) == 0x8841 &&
+                  HangulAutomata::ToStandaloneKssm(0xA3) == 0x8461 &&
+                  HangulAutomata::ToStandaloneKssm(0xC4) == 0x8444,
+              "gig=" + std::to_string(HangulAutomata::ToStandaloneKssm(0x82)) +
+              " a=" + std::to_string(HangulAutomata::ToStandaloneKssm(0xA3)) +
+              " gg=" + std::to_string(HangulAutomata::ToStandaloneKssm(0xC4)));
+    }
+
     std::printf(g_fail == 0 ? "RESULT: ALL PASS\n" : "RESULT: %d FAIL\n", g_fail);
     return g_fail == 0 ? 0 : 1;
 }

@@ -581,6 +581,11 @@ void JKEdit::InsertText(const char* text) {
 }
 
 void JKEdit::InsertKssmChar(uint16_t code) {
+    // 방어선 (docs/61 §8): 8비트 슬롯 코드가 그대로 오면 {0x00,XX} NUL 쌍이
+    // 버퍼에 기록돼 c_str() 렌더가 절단된다(한글 줄 통째로 안 보임). 자동사
+    // End1/End2 플러시 원인은 근본 픽스됐으나, NUL 유입은 전면 침묵이라 여기서도
+    // 1회 변환해 막는다.
+    if (code < 0x8000) code = HangulAutomata::ToStandaloneKssm(code & 0xFF);
     if (buffer_.size() + 2 > maxLength_) return;
     char pair[2] = { static_cast<char>(code >> 8), static_cast<char>(code & 0xFF) };
     buffer_.insert(cursorPos_, pair, 2);

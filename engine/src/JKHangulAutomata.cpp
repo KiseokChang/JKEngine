@@ -135,11 +135,17 @@ bool HangulAutomata::Automata(uint16_t key) {
             charCode = (charCode & 0xFFE0) | (keyCode - 0xC0);
             break;
         case static_cast<uint16_t>(HanStatus::End1):
-            outStack[outSP++] = key;
+            // charCode = 지금까지 조합된 글자(초성 단독 자모 또는 음절), key =
+            // 조합에 못 붙은 새 자모(8비트 슬롯 코드). 둘 다 독립 KSSM으로
+            // 플러시한다. 원본은 key만 내보내 (a) 슬롯 코드가 {0x00,XX} NUL 쌍으로
+            // 기록돼 렌더 절단, (b) charCode(완성 음절) 소실의 두 결함이 있었다.
+            outStack[outSP++] = charCode;
+            outStack[outSP++] = ToStandaloneKssm(key);
             return true;
         case static_cast<uint16_t>(HanStatus::End2):
-            outStack[outSP++] = key;
-            outStack[outSP++] = oldKey;
+            // 종성 포함 완성 음절 + 새 모음은 다음 글자의 독립 자모.
+            outStack[outSP++] = charCode;
+            outStack[outSP++] = ToStandaloneKssm(key);
             inpSP--;
             return true;
     }
@@ -148,6 +154,19 @@ bool HangulAutomata::Automata(uint16_t key) {
     inpStack[inpSP].charCode    = charCode;
     inpStack[inpSP++].key       = key;
     return false;
+}
+
+// 8비트 슬롯 코드 → 독립 KSSM 2바이트 코드. 슬롯 배치는 ConvertKey의 역:
+// 자음 = 0x8041|(slot<<10), 모음 = 0x8401|(slot<<5), 겹받침 = 0x8440|jong.
+// 검증: ㄱ(0x82)→0x8841, ㅏ(0xA3)→0x8461, ㄳ(0xC4)→0x8444 — SingleHan과 일치.
+uint16_t HangulAutomata::ToStandaloneKssm(uint16_t key8) {
+    if ((key8 & 0x60) == 0x20) {
+        return static_cast<uint16_t>(0x8401 | ((key8 - 0xA0) << 5));
+    }
+    if (key8 >= 0xC0) {
+        return static_cast<uint16_t>(0x8440 | (key8 - 0xC0));
+    }
+    return static_cast<uint16_t>(0x8041 | ((key8 - 0x80) << 10));
 }
 
 uint16_t HangulAutomata::ConvertKey(uint16_t key, uint16_t modifier) {
