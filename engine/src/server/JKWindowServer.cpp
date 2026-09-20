@@ -236,6 +236,11 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
     // (vplayer path field stayed empty under synthetic typing).
     SDL_StartTextInput();
 
+    // 배너 벡터 글리프 (docs/63 Task 6): 서버에는 JKApplication의 렌더 스레드
+    // 백엔드 같은 영구 백엔드가 없다 — renderer_ 위의 영구 백엔드를 만들어
+    // bannerCache_의 등록(CreateImageFromRGBA)/플러시 소유자로 삼는다.
+    bannerBackend_ = std::make_unique<JKSDLRenderBackend>(renderer_);
+
     compositor_ = std::make_unique<JKCompositor>(renderer_);
     // 승인 대상 시각화 (스펙 2026-09-19-app-tool-hub §5 1단): 컴포지트 패스의
     // 최상위 드로잉 단계를 서버 쪽 멤버 함수로 연결한다(의존성 역전 — 컴포지터는
@@ -733,15 +738,15 @@ void JKWindowServer::Stop() {
     }
     approvalBannerTexs_.clear();
     // 배너 벡터 글리프 캐시 (docs/63 Task 6): 승인 배너 텍스처와 동일 소유
-    // 순서 — renderer_가 살아 있을 때 글리프 텍스처를 회수한다. 캐시 소유
-    // backend 포인터는 비워뒀으므로(nullptr) 이후 소멸자는 플러시 없이 끝난다.
-    if (bannerCache_ && renderer_) {
-        JKSDLRenderBackend backend(renderer_);
+    // 순서 — renderer_가 살아 있을 때 글리프 텍스처를 회수한다(영구
+    // bannerBackend_가 플러시 주체 — 캐시 소멸은 그 뒤).
+    if (bannerCache_ && bannerBackend_) {
         bannerCache_->UnloadAllImages();
-        bannerCache_->FlushUploads(&backend);
+        bannerCache_->FlushUploads(bannerBackend_.get());
     }
     bannerAtlas_.reset();
     bannerCache_.reset();
+    bannerBackend_.reset();
     approvalFont_.reset();
     compositor_.reset();
 
@@ -5840,12 +5845,16 @@ SDL_Texture* JKWindowServer::ApprovalBannerTexture(const std::string& bannerUtf8
         }
     }
     // 승인 배너 벡터 글리프 (docs/63 Task 6): approvalFont_와 동일 지연 초기화
-    // (서버 루프 스레드 전용 — 락 없음). 캐시 소유 backend 포인터는 비워두고
-    // DrawGlyph의 즉시 FlushUploads 폴백이 살아 있는 지역 백엔드를 넘긴다
-    // (헤더 주석 참조). Init 실패는 atlas 유지(IsLoaded()==false) — 비트맵
+    // (서버 루프 스레드 전용 — 락 없음). 캐시는 Init에서 채운 영구
+    // bannerBackend_를 소유한다 — EnsureGlyph의 등록 경로(CreateImageFromRGBA)
+    // 와 소멸자 플러시가 모두 캐시 소유 backend_에 의존하므로(nullptr이면 등록이
+    // 막혀 벡터 경로가 조용히 죽는다). 업로드는 DrawGlyph의 즉시 FlushUploads
+    // 폴백이 bannerBackend_.get()을 넘겨 처리 — 배너는 렌더 타깃에 동기 그리므로
+    // 별도 플러시 호출 불요. Init 실패는 atlas 유지(IsLoaded()==false) — 비트맵
     // 폴백 유지 + 경고 1회, 배너마다 재시도·로그 반복을 만들지 않는다.
-    if (!bannerCache_) {
-        bannerCache_ = std::make_unique<jk::JKResourceCache>(nullptr);
+    if (!bannerCache_ && bannerBackend_) {
+        bannerCache_ =
+            std::make_unique<jk::JKResourceCache>(bannerBackend_.get());
     }
     if (!bannerAtlas_) {
         bannerAtlas_ = std::make_unique<jk::JKTextAtlas>();
@@ -5888,8 +5897,8 @@ SDL_Texture* JKWindowServer::ApprovalBannerTexture(const std::string& bannerUtf8
     }
     // 벡터 글리프 장착 (docs/63 Task 6): 실패한 Init(IsLoaded()==false)은
     // 미장착 — EngPutCh/HanPutCh의 글리프 단위 비트맵 폴백이 그대로 쓰인다.
-    // 업로드는 DrawGlyph의 즉시 FlushUploads 폴백(&backend) — 동기 그리기라
-    // 별도 플러시 호출은 불요.
+    // 업로드는 DrawGlyph의 즉시 FlushUploads 폴백이 bannerCache_의 소유 백엔드
+    // (bannerBackend_)로 올린다 — 동기 그리기라 별도 플러시 호출은 불요.
     if (bannerAtlas_ && bannerAtlas_->IsLoaded() && bannerCache_) {
         dc.SetTextAtlas(bannerAtlas_.get(), bannerCache_.get());
     }

@@ -26,6 +26,7 @@ class JKAudioThread;
 class HangulManager;
 class JKTextAtlas;
 class JKResourceCache;
+class JKSDLRenderBackend;
 struct LoadedImage;
 
 namespace desktop { class JKDesktopShell; }
@@ -474,12 +475,18 @@ private:
     // IsLoaded()==false — SetTextAtlas 미장착으로 비트맵 폴백(재시도·로그 반복
     // 없음, 클라 크롬의 "Init 실패 = 비트맵 유지" 규약 동일).
     std::unique_ptr<JKTextAtlas> bannerAtlas_;
-    // 배너 전용 글리프 텍스처 캐시. 배너는 렌더 타깃에 동기 그리므로(렌더 스레드
-    // 플러시 캐댄스 없음) DrawGlyph의 즉시 FlushUploads 폴백(JKDC.cpp)이 매번
-    // 살아 있는 지역 JKSDLRenderBackend를 직접 넘겨 업로드한다 — 캐시 소유
-    // backend 포인터는 비워둔다(nullptr). 지역 백엔드 포인터를 저장하면 함수
-    // 반환 뒤 소멸자 플러시가 댕글링한다.
+    // 배너 전용 글리프 텍스처 캐시. JKResourceCache의 등록 경로
+    // (CreateImageFromRGBA — JKTextAtlas::EnsureGlyph의 유일 등록 길)와 소멸자
+    // 플러시가 모두 캐시 소유 backend_에 의존한다 — nullptr이면 등록 자체가
+    // 막혀 벡터 경로가 조용히 죽는다. 서버에는 JKApplication의 렌더 스레드
+    // 백엔드 같은 영구 백엔드가 없어 renderer_ 위의 bannerBackend_를 준다.
+    // 배너는 렌더 타깃에 동기 그리므로(렌더 스레드 플러시 캐댄스 없음) 업로드는
+    // DrawGlyph의 즉시 FlushUploads 폴백(JKDC.cpp)이 처리한다.
     std::unique_ptr<JKResourceCache> bannerCache_;
+    // renderer_ 위의 서버 측 영구 렌더 백엔드 — bannerCache_의 등록/플러시
+    // 소유자. Init에서 renderer_ 생성 직후 채우고, Stop()에서 renderer_ 소멸
+    // 전에 폐기한다(승인 배너 텍스처와 동일 소유 순서).
+    std::unique_ptr<JKSDLRenderBackend> bannerBackend_;
 
     // Throttle launcher icon double-clicks / rapid spawns to one per app per
     // 500 ms. Stores the last spawn time keyed by app name.
