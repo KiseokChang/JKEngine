@@ -91,18 +91,29 @@ bool HangulAutomata::Automata(uint16_t key) {
                 curHanState = static_cast<uint16_t>(HanStatus::End1);
             break;
         case static_cast<uint16_t>(HanStatus::Joongsung):
-            if (canBeJongsung)
-                curHanState = static_cast<uint16_t>(HanStatus::Jongsung);
-            else if (JoongsungPair(keyCode))
+            if (canBeJongsung) {
+                // 단독 모음(초성 없음, 상위 바이트 < 0x88)은 받침을 못 붙인다 —
+                // 모음을 플러시하고 자음이 새 글자의 초성이 된다. 옛 동작은
+                // 채움 초성 음절로 조합해 "강아지"의 ㅈ이 받침에 붙었다.
+                if ((charCode >> 8) < 0x88)
+                    curHanState = static_cast<uint16_t>(HanStatus::End1);
+                else
+                    curHanState = static_cast<uint16_t>(HanStatus::Jongsung);
+            } else if (JoongsungPair(keyCode)) {
                 curHanState = static_cast<uint16_t>(HanStatus::DJoongsung);
-            else
+            } else {
                 curHanState = static_cast<uint16_t>(HanStatus::End1);
+            }
             break;
         case static_cast<uint16_t>(HanStatus::DJoongsung):
-            if (canBeJongsung)
-                curHanState = static_cast<uint16_t>(HanStatus::Jongsung);
-            else
+            if (canBeJongsung) {
+                if ((charCode >> 8) < 0x88)
+                    curHanState = static_cast<uint16_t>(HanStatus::End1);
+                else
+                    curHanState = static_cast<uint16_t>(HanStatus::Jongsung);
+            } else {
                 curHanState = static_cast<uint16_t>(HanStatus::End1);
+            }
             break;
         case static_cast<uint16_t>(HanStatus::Jongsung):
             if (chKind == static_cast<int16_t>(HanChKind::Consonant) && JongsungPair(keyCode))
@@ -135,18 +146,45 @@ bool HangulAutomata::Automata(uint16_t key) {
             charCode = (charCode & 0xFFE0) | (keyCode - 0xC0);
             break;
         case static_cast<uint16_t>(HanStatus::End1):
-            // charCode = 지금까지 조합된 글자(초성 단독 자모 또는 음절), key =
-            // 조합에 못 붙은 새 자모(8비트 슬롯 코드). 둘 다 독립 KSSM으로
-            // 플러시한다. 원본은 key만 내보내 (a) 슬롯 코드가 {0x00,XX} NUL 쌍으로
-            // 기록돼 렌더 절단, (b) charCode(완성 음절) 소실의 두 결함이 있었다.
+            // 종료: 지금까지 조합된 글자를 플러시하고 트리거 키로 새 조합을
+            // 시드한다(Start 진입과 동일하게 inpStack에 적재). 옛 코드는
+            // key(8비트 슬롯 코드)를 outStack에 그대로 넣어 {0x00,XX} NUL 쌍이
+            // 됐고(docs/61 §8), 1차 픽스는 완성 글자+새 자모를 독립 배출해
+            // 받침 뒤 조합이 끊겼다 — 새 자모는 다음 글자의 시작이므로 씨앗.
             outStack[outSP++] = charCode;
-            outStack[outSP++] = ToStandaloneKssm(key);
+            if (chKind == static_cast<int16_t>(HanChKind::Consonant)) {
+                curHanState = static_cast<uint16_t>(HanStatus::Chosung);
+                charCode    = static_cast<uint16_t>(0x8041 | ((keyCode - 0x80) << 10));
+            } else {
+                curHanState = static_cast<uint16_t>(HanStatus::Joongsung);
+                charCode    = static_cast<uint16_t>(0x8401 | ((keyCode - 0xA0) << 5));
+            }
+            inpStack[0].curHanState = curHanState;
+            inpStack[0].charCode    = charCode;
+            inpStack[0].key         = key;
+            inpSP = 1;
             return true;
         case static_cast<uint16_t>(HanStatus::End2):
-            // 종성 포함 완성 음절 + 새 모음은 다음 글자의 독립 자모.
-            outStack[outSP++] = charCode;
-            outStack[outSP++] = ToStandaloneKssm(key);
-            inpSP--;
+            // 종성+모음: 받침을 다음 글자의 초성으로 넘긴다(학+ㅗ → 하+고).
+            // 플러시는 종성을 뗀 음절(겹받침이면 첫 받침만 남긴다), 씨앗은
+            // 받침 자음(oldKey)의 초성 코드. inpSP--는 원본 잔해 — 제거.
+            if (curHanState == static_cast<uint16_t>(HanStatus::DJongsung) && inpSP >= 2) {
+                uint16_t firstJong = inpStack[inpSP - 2].key;
+                outStack[outSP++] = static_cast<uint16_t>(
+                    (charCode & 0xFFE0) | (Cho2Jong[firstJong - 0x82] - 0xC0));
+            } else {
+                outStack[outSP++] = static_cast<uint16_t>((charCode & 0xFFE0) | 0x01);
+            }
+            curHanState = static_cast<uint16_t>(HanStatus::Joongsung);
+            charCode    = static_cast<uint16_t>(0x8041 | ((oldKey - 0x80) << 10));
+            // 트리거 모음을 새 글자의 중성으로 즉시 조합한다(학+ㅗ → 하+고).
+            charCode = static_cast<uint16_t>((charCode & 0xFC1F) | ((keyCode - 0xA0) << 5));
+            // 새 조합은 0번부터 다시 적재한다 — 옛 inpStack은 폐기(연쇄 End1에서
+            // 경계 초과 방지).
+            inpStack[0].curHanState = curHanState;
+            inpStack[0].charCode    = charCode;
+            inpStack[0].key         = keyCode;
+            inpSP = 1;
             return true;
     }
 

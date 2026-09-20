@@ -389,6 +389,12 @@ void JKEdit::RespondMessage(const JKEvent& ev) {
         }
 
         size_t oldPos = cursorPos_;
+        // 조합 중 클릭으로 캐럿이 옮겨지면 자동사를 마친다 — 씨앗 위치가
+        // 어긋난 채 다음 키를 조합하면 엉뚱한 바이트를 덮어쓴다.
+        if (composing_) {
+            composing_ = false;
+            automata_.InitAutomata();
+        }
         cursorPos_ = PixelToPos(ev.x, ev.y);
         bool shift = (SDL_GetModState() & KMOD_SHIFT) != 0;
         if (shift) {
@@ -485,7 +491,8 @@ void JKEdit::RespondMessage(const JKEvent& ev) {
         } else if (inputMode_ == InputMode::InternalHangul &&
                    !imeComposing_ &&
                    ev.keyCode >= SDLK_a && ev.keyCode <= SDLK_z) {
-            ProcessHangulKey(static_cast<uint16_t>(ev.keyCode));
+            ProcessHangulKey(static_cast<uint16_t>(ev.keyCode),
+                             (shift != static_cast<bool>(mod & KMOD_CAPS)) ? 0x0040 : 0);
         } else {
             // While the OS IME is composing, let the IME own navigation and
             // editing keys. Handling them ourselves would delete or move the
@@ -509,6 +516,20 @@ void JKEdit::RespondMessage(const JKEvent& ev) {
                 }
             }
             size_t oldPos = cursorPos_;
+            // 조합 중 커서를 옮기거나 지우면 자동사를 마친다 — 씨앗 위치가
+            // 어긋난 채 다음 키를 조합하면 엉뚱한 바이트를 덮어쓴다.
+            if (composing_) {
+                switch (ev.keyCode) {
+                    case SDLK_LEFT: case SDLK_RIGHT: case SDLK_UP: case SDLK_DOWN:
+                    case SDLK_HOME: case SDLK_END: case SDLK_PAGEUP:
+                    case SDLK_PAGEDOWN: case SDLK_DELETE: case SDLK_RETURN:
+                    case SDLK_KP_ENTER:
+                        composing_ = false;
+                        automata_.InitAutomata();
+                        break;
+                    default: break;
+                }
+            }
             switch (ev.keyCode) {
                 case SDLK_LEFT:     MoveCursorLeft(); break;
                 case SDLK_RIGHT:    MoveCursorRight(); break;
@@ -552,8 +573,18 @@ void JKEdit::RespondMessage(const JKEvent& ev) {
             // is not silently dropped.
             unsigned char c = static_cast<unsigned char>(ev.text[0]);
             if (c < 0x80 && !std::isalpha(static_cast<int>(c))) {
+                // 조합 중 공백/구두점이 오면 자동사를 마친다 — 마치지 않으면
+                // 다음 조합 키가 방금 삽입된 바이트를 덮어쓴다(docs/61 §10).
+                if (composing_) {
+                    composing_ = false;
+                    automata_.InitAutomata();
+                }
                 InsertText(ev.text);
             } else if (c >= 0x80) {
+                if (composing_) {
+                    composing_ = false;
+                    automata_.InitAutomata();
+                }
                 InsertKssmText(Utf8ToKssm(ev.text).c_str());
             }
         } else {
@@ -611,10 +642,10 @@ void JKEdit::InsertKssmText(const char* text) {
     showCaret_ = true;
 }
 
-void JKEdit::ProcessHangulKey(uint16_t keyCode) {
+void JKEdit::ProcessHangulKey(uint16_t keyCode, uint16_t modifier) {
     // 타이핑은 선택을 대체한다 (docs/60 §10).
     if (hasSelection_) DeleteSelection();
-    uint16_t converted = automata_.ConvertKey(keyCode, 0);
+    uint16_t converted = automata_.ConvertKey(keyCode, modifier);
     bool complete = automata_.Automata(converted);
 
     if (complete) {
@@ -628,7 +659,13 @@ void JKEdit::ProcessHangulKey(uint16_t keyCode) {
         for (uint16_t i = 0; i < automata_.outSP; ++i) {
             InsertKssmChar(automata_.outStack[i]);
         }
-        automata_.InitAutomata();
+        // End1/End2는 트리거 키를 다음 조합의 씨앗으로 심고 돌아온다 —
+        // 살아 있는 상태는 유지하고 아래 블록이 씨앗 글자를 삽입한다.
+        // (InitAutomata는 시드를 지워 받침 뒤 조합을 끊는다.)
+        if (!automata_.curHanState || automata_.charCode == 0x8441)
+            automata_.InitAutomata();
+        else
+            automata_.outSP = 0;  // 시드 유지 — 플러시 버퍼만 비운다
     }
 
     if (automata_.curHanState && automata_.charCode != 0x8441) {

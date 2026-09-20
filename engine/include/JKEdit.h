@@ -115,7 +115,7 @@ private:
     void MoveCursorPageUp();
     void MoveCursorPageDown();
     void ProcessReturn();
-    void ProcessHangulKey(uint16_t keyCode);
+    void ProcessHangulKey(uint16_t keyCode, uint16_t modifier = 0);
     void ScrollToCursor();
 
     void UpdateSelection(size_t oldPos, bool shift);

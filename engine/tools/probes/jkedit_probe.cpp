@@ -169,6 +169,48 @@ int main() {
               " gg=" + std::to_string(HangulAutomata::ToStandaloneKssm(0xC4)));
     }
 
+    // T9-T12: 조합 연쇄 — End1/End2가 트리거 키를 다음 조합의 씨앗으로 심는지
+    // (docs/61 §10). 옛 동작은 새 자모를 독립 배출해 받침 뒤 조합이 끊겼다.
+    {
+        // T9: "한국어" = ㅎㅏㄴ ㄱㅜ ㄹ ㅇㅓ — 받침 뒤 새 음절이 조합돼야 한다.
+        {
+            JKEdit e(JKRect{ 0, 0, 400, 24 });
+            e.SetHangulMode(true);
+            for (int k : { SDLK_g, SDLK_k, SDLK_s, SDLK_r, SDLK_n, SDLK_r, SDLK_d, SDLK_j })
+                SendKey(e, k);
+            Check("T9-hangul-word", KssmToUtf8(e.GetText().c_str()) == "한국어",
+                  "got=" + KssmToUtf8(e.GetText().c_str()));
+        }
+        // T10: 종성 넘기기 — "하고" = ㅎㅏㄱㅗ: 학 조합 후 모음이 오면 받침 ㄱ이
+        // 다음 글자 초성으로 넘어가 하+고가 된다.
+        {
+            JKEdit e(JKRect{ 0, 0, 400, 24 });
+            e.SetHangulMode(true);
+            for (int k : { SDLK_g, SDLK_k, SDLK_r, SDLK_h })
+                SendKey(e, k);
+            Check("T10-jong-carry", KssmToUtf8(e.GetText().c_str()) == "하고",
+                  "got=" + KssmToUtf8(e.GetText().c_str()));
+        }
+        // T11: 단독 모음 후 자음 — ㅓ+ㄴ+ㅏ: 채움 초성 음절 대신 ㅓ 플러시+새 초성.
+        {
+            JKEdit e(JKRect{ 0, 0, 400, 24 });
+            e.SetHangulMode(true);
+            for (int k : { SDLK_j, SDLK_s, SDLK_k })
+                SendKey(e, k);
+            Check("T11-lone-vowel", KssmToUtf8(e.GetText().c_str()) == "ㅓ나",
+                  "got=" + KssmToUtf8(e.GetText().c_str()));
+        }
+        // T12: Shift 자모 — Shift+t = ㅆ (옛 코드는 modifier=0라 대문자 표가 죽어
+        // ㅅ이 나왔다).
+        {
+            JKEdit e(JKRect{ 0, 0, 400, 24 });
+            e.SetHangulMode(true);
+            SendKey(e, SDLK_t, KMOD_SHIFT);
+            Check("T12-shift-jamo", KssmToUtf8(e.GetText().c_str()) == "ㅆ",
+                  "got=" + KssmToUtf8(e.GetText().c_str()));
+        }
+    }
+
     std::printf(g_fail == 0 ? "RESULT: ALL PASS\n" : "RESULT: %d FAIL\n", g_fail);
     return g_fail == 0 ? 0 : 1;
 }
