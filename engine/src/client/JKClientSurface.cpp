@@ -1,6 +1,7 @@
 #include <client/JKClientSurface.h>
 
 #include <agent/JKAgentJson.h>
+#include <SDL.h>
 #include <cstdio>
 #include <cstring>
 #ifdef _WIN32
@@ -246,6 +247,14 @@ void JKClientSurface::ReadLoop() {
                 case ipc::InputEventType::MouseMove:  ev.type = JKEventType::MouseMove; break;
                 case ipc::InputEventType::MouseDown:
                 case ipc::InputEventType::MouseUp: {
+                    // 서버가 실어 온 모디파이어를 SDL 전역 상태에 미러링한다
+                    // (docs/61 §14). 컨트롤 라이브러리(JKEdit 등)는
+                    // SDL_GetModState()를 직접 읽는데, 클라 모드에서는 키/마우스
+                    // 이벤트가 이 프로세스의 SDL 펌프를 통과하지 않아 상태가
+                    // 갱신되지 않는다 — 싱글 프로세스와 동일하게 보이게 한다.
+                    // TEXTINPUT/TEXTEDITING은 option이 모디파이어가 아니므로
+                    // 미러링하지 않는다(shift 유지 중 0 덮어쓰기 방지).
+                    SDL_SetModState(static_cast<SDL_Keymod>(payload.option));
                     ev.type = (payload.type == ipc::InputEventType::MouseDown)
                                   ? JKEventType::MouseDown
                                   : JKEventType::MouseUp;
@@ -261,9 +270,18 @@ void JKClientSurface::ReadLoop() {
                     ev.keyCode = payload.detail;   // click count
                     break;
                 }
-                case ipc::InputEventType::MouseWheel: ev.type = JKEventType::MouseWheel; break;
-                case ipc::InputEventType::KeyDown:    ev.type = JKEventType::KeyDown; break;
-                case ipc::InputEventType::KeyUp:      ev.type = JKEventType::KeyUp; break;
+                case ipc::InputEventType::MouseWheel:
+                    SDL_SetModState(static_cast<SDL_Keymod>(payload.option));
+                    ev.type = JKEventType::MouseWheel;
+                    break;
+                case ipc::InputEventType::KeyDown:
+                    SDL_SetModState(static_cast<SDL_Keymod>(payload.option));
+                    ev.type = JKEventType::KeyDown;
+                    break;
+                case ipc::InputEventType::KeyUp:
+                    SDL_SetModState(static_cast<SDL_Keymod>(payload.option));
+                    ev.type = JKEventType::KeyUp;
+                    break;
                 case ipc::InputEventType::Char:       ev.type = JKEventType::Char; break;
                 case ipc::InputEventType::TextEditing:
                     ev.type = JKEventType::TextEditing;
