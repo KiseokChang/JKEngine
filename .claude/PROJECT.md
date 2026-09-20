@@ -25,8 +25,8 @@
 ## 3. Build / Run
 
 - Always run `prototype\sdl2_jkwindow\build_sdl2_jkwindow.bat` (calls `build_with_temp.sh`).
-- The build copies the source tree to `C:\temp_jkdesktop`, builds there with CMake+Ninja (UCRT64), and copies only the `.exe` back to `I:\...\prototype\sdl2_jkwindow\build\`.
-- Do **not** run cmake/ninja directly inside the I: drive build directory — MinGW fails writing object files there.
+- The build copies the source tree to `I:\temp_jkdesktop`, builds there with CMake+Ninja (UCRT64), and copies only the `.exe` back to `I:\...\prototype\sdl2_jkwindow\build\`. (Formerly `C:\temp_jkdesktop` — moved to I: 2026-09-20; the old "MinGW fails writing object files on I:" constraint is stale, verified by direct `engine/build` builds.)
+- Direct incremental builds in `engine\build` (`cmake --build . --target <T>`) are the current daily practice and work on I:.
 - Run: `prototype\sdl2_jkwindow\run_sdl2_jkwindow.bat [mode]`.
 - Modes: (none)=main demo, `test`=self-test, `jango`, `occ`, `pcx FILE`, `vector`, `iconedit`, `recog`, `vfont`, `vpres`.
 

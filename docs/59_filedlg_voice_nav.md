@@ -663,3 +663,21 @@ docs/56 §2b + docs/57 §9 + docs/54 §10 백로그 소각. 회귀 프로브는
   실패 모드는 항상 "의도의 반전"을 의심 — bind 오탈자의 자연 폴백(ANY)은
   요청의 반대다 ③구 rename 후 쓰기 → 쓰기 후 rename으로 순서만 바꿔도
   복원 경로가 필요 없어진다 (실패 가능 지점을 원본 파괴 전으로 모은다).
+
+## 17. 빌드 temp C:→I: 이전 — "MinGW가 I:(exFAT)에 못 쓴다" 스테일 제약 소각 (2026-09-20)
+
+C: 97% 압박 — temp_jkdesktop(1.5G)·temp_jkdesktop_wt(1.3G)·
+temp_jkdesktop_agentmgr(420M)·temp_jkdesktop_build·temp_jkproto_sdl2_jkwindow
+삭제(약 3.3G 회수). build_with_temp.sh의 TEMP를 /i/temp_jkdesktop으로.
+
+근거 실측: ①본 세션 내내 engine/build(I:)에서 직접 `cmake --build` 성공
+②I: temp에서 configure+ninja 풀빌드 [157/157] 성공 — **exFAT 쓰기 제약은
+재현 불가(스테일)**. docs/10의 "재현되면 빌드 트리만 C:로 분리"는
+컨틴전시 플랜으로 유지. temp_jkwin_verify(2.2M)만 유지 — docs/15 검증
+플레이북이 스크린샷 경로로 참조.
+
+- **레슨**: ①빌드 temp는 전량 I:로 — C:에 소스 사본을 두지 않는다(사본은
+  반드시 스테일이 된다 — docs/57 §8과 같은 뿌리) ②"못 쓴다"류 드라이브
+  제약은 주기적으로 재실측 — 환경(msys2/드라이브)이 바뀌면 제약은 유령이
+  된다 ③ninja ld 일시 실패(exit 67) 재확인 — 1차 실패→재실행 회복, 파이프
+  `tail`이 실패 지점을 잘라 재현에 2번 들었다(파일 리다이렉트 레슨 재확인).

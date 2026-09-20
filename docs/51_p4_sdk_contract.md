@@ -180,6 +180,10 @@ worktree 세션의 빌드는 커밋된 build_with_temp.sh로 부족하다:
 - **third_party/cef는 gitignored** — worktree 소스 복사본에 없어
   `jkapp_browser missing`이 뜬다. 본 트리에서 `cp -R third_party/cef/.`
   (tracked README 위 내용 겹침 — `/.`로 중첩 방지)
-- temp를 본 트리와 **별도 디렉토리**(`temp_jkdesktop_wt`)로 — 상호 파괴 방지
+- temp를 본 트리와 **별도 디렉토리**로 — 상호 파괴 방지. **(2026-09-20
+  갱신: temp는 C:가 아니라 I: 루트(`/i/temp_jkdesktop`)로 — I: exFAT 쓰기
+  제약은 스테일 판명(engine/build 직접 빌드 상시 실측), C: 공간 회수.
+  `temp_jkdesktop_wt`·`temp_jkdesktop_agentmgr`는 완료된 워크트리의
+  스테일 사본 — 삭제. docs/59 §17)**
 - 빌드 산출 복사는 exe/dll뿐 아니라 **runtime DLL 141개**도 필요
   (`CopyRuntimeDlls` 산출 — 없으면 SDL2_mixer 로드 실패로 즉사)

@@ -4,9 +4,12 @@ set -e
 export PATH=/c/msys64/ucrt64/bin:$PATH
 
 SRC=/i/progwork/JKENGINE/engine
-TEMP=/c/temp_jkdesktop
+TEMP=/i/temp_jkdesktop
 
-# 1. 소스를 C: 드라이브로 동기화 (MinGW가 I: 드라이브에 쓰지 못하는 문제 회피)
+# 1. 소스를 temp로 동기화. 예전엔 C:를 썼다(2026-09-20 이전) — 당시
+# "MinGW가 I:(exFAT)에 obj를 못 쓴다"는 회피. 이후 I: 직접 빌드가
+# 전 세션에서 정상 실측돼 스테일 제약으로 판명 — I:로 이전해 C: 공간 회수
+# (docs/59 §17, engine/build는 I:에서 상시 configure 빌드 중).
 rm -rf "$TEMP"
 mkdir -p "$TEMP"
 cp -R "$SRC"/. "$TEMP"/
