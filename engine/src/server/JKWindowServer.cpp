@@ -179,7 +179,7 @@ namespace server {
 // 설정 허브 KV 헬퍼 — 본문은 WritePermissionsEntry 뒤(§2.2). Init의 부팅
 // 로드가 쓴다(정의가 뒤에 있으므로 네임스페이스 내 전방선언).
 static void LoadSettingsKv(bool& mute, int& volume, int& retention,
-                           std::string& fontPath);
+                           std::string& fontPath, std::string& fontFallback);
 
 JKWindowServer::JKWindowServer() = default;
 
@@ -297,7 +297,7 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
     // 설정 허브 KV (스펙 2026-09-18-settings-hub §2.2): 재시작 복원 —
     // audio.master/retention은 이 값이 진실원(파일 없으면 기본값 유지).
     LoadSettingsKv(audioMasterMute_, audioMasterVolume_, receiptRetentionDays_,
-                   textFontPath_);
+                   textFontPath_, textFontFallback_);
 
     return true;
 }
@@ -2237,11 +2237,14 @@ static std::string WritePermissionsEntry(const std::string& permTool,
 
 // ---- 설정 허브 KV (스펙 2026-09-18-settings-hub §2.2) --------------------
 // state/settings.json: {"audio":{"mute":0/1,"volume":int},
-// "retention":{"days":int},"text":{"font_path":"..."}}. StateDir()는 멤버
+// "retention":{"days":int},"text":{"font_path":"...","font_fallback":"..."}}.
+// StateDir()는 멤버
 // 메서드라 static 헬퍼는 exe-dir 인라인 계산(WritePermissionsEntry/
 // RevokeTrustRecord 선례). 실패는 조용한 소실 없이 write_failed로 표면화
-// (docs/52 리뷰 규약). text.font_path는 데스크탑 벡터 폰트 경로(docs/63 §4)
-// — JKTextAtlas::ResolveDesktopFontPath가 기동 시 같은 키를 원독한다.
+// (docs/52 리뷰 규약). text.font_path는 데스크탑 벡터 폰트 경로(docs/63 §4),
+// font_fallback은 보조 폰트 체인 경로(docs/63 §6 2단계)
+// — JKTextAtlas::ResolveDesktopFontPath/ResolveDesktopFallbackPath가 기동 시
+// 같은 키를 원독한다.
 static std::string SettingsKvPath() {
     char exePath[1024] = {};
     GetModuleFileNameA(nullptr, exePath, sizeof(exePath));
@@ -2252,7 +2255,7 @@ static std::string SettingsKvPath() {
 }
 
 static void LoadSettingsKv(bool& mute, int& volume, int& retention,
-                           std::string& fontPath) {
+                           std::string& fontPath, std::string& fontFallback) {
     std::FILE* f = std::fopen(SettingsKvPath().c_str(), "rb");
     if (!f) return;
     std::string text;
@@ -2275,17 +2278,25 @@ static void LoadSettingsKv(bool& mute, int& volume, int& retention,
         s.size() <= 300) {
         fontPath = s;
     }
+    // text.font_fallback (docs/63 §6 2단계): 보조 폰트 체인 — 기본값 없음
+    // (빈 값 = 미설정 유지). 상한 300 동일.
+    if (json.GetObjStr("text", "font_fallback", s) && !s.empty() &&
+        s.size() <= 300) {
+        fontFallback = s;
+    }
 }
 
 static bool WriteSettingsKv(bool mute, int volume, int retention,
-                            const std::string& fontPath) {
+                            const std::string& fontPath,
+                            const std::string& fontFallback) {
     // 고정 char 버퍼 대신 문자열 조립 — fontPath 300자가 JsonEsc로 제어문자
     // 6배 확장(\\uXXXX)까지 갈 수 있어 512 버퍼는 조용한 절단이 나온다.
     const std::string out =
         std::string("{\"audio\":{\"mute\":") + (mute ? "1" : "0") +
         ",\"volume\":" + std::to_string(volume) + "},\"retention\":{\"days\":" +
         std::to_string(retention) + "},\"text\":{\"font_path\":\"" +
-        JsonEsc(fontPath) + "\"}}";
+        JsonEsc(fontPath) + "\",\"font_fallback\":\"" +
+        JsonEsc(fontFallback) + "\"}}";
     const std::string kvPath = SettingsKvPath();
     // .bak 1세대 (opus 리뷰 MINOR-1): 비원자 쓰기 중간 절단 시 부팅 로더가
     // 기본값으로 조용히 리셋한다 — 직전 KV를 복구 원본으로 남긴다.
@@ -3809,6 +3820,13 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                       "\"value\":\"%s\"}",
                       JsonEsc(textFontPath_).c_str());
         out += item;
+        // text.font_fallback (docs/63 §6 2단계): 보조 폰트 체인 — 빈 문자열 =
+        // 미설정(체인 없음).
+        std::snprintf(item, sizeof(item),
+                      ",{\"key\":\"text.font_fallback\",\"kind\":\"string\","
+                      "\"value\":\"%s\"}",
+                      JsonEsc(textFontFallback_).c_str());
+        out += item;
         // triggers: state/triggers.json 플래그(trigger_toggle의 진실원).
         {
             std::FILE* f =
@@ -3958,7 +3976,8 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             if (!hasInt || valInt < 7) {
                 reply = "{\"ok\":false,\"error\":\"bad_value\"}";
             } else if (!WriteSettingsKv(audioMasterMute_, audioMasterVolume_,
-                                        valInt, textFontPath_)) {
+                                        valInt, textFontPath_,
+                                        textFontFallback_)) {
                 reply = "{\"ok\":false,\"error\":\"write_failed\"}";
             } else {
                 receiptRetentionDays_ = valInt;
@@ -3985,7 +4004,8 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             }
             if (reply.empty()) {
                 if (!WriteSettingsKv(audioMasterMute_, audioMasterVolume_,
-                                     receiptRetentionDays_, textFontPath_)) {
+                                     receiptRetentionDays_, textFontPath_,
+                                     textFontFallback_)) {
                     reply = "{\"ok\":false,\"error\":\"write_failed\"}";
                 } else {
                     char ev[160];
@@ -4013,12 +4033,32 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                 valStr.size() > 300) {
                 reply = "{\"ok\":false,\"error\":\"bad_value\"}";
             } else if (!WriteSettingsKv(audioMasterMute_, audioMasterVolume_,
-                                        receiptRetentionDays_, valStr)) {
+                                        receiptRetentionDays_, valStr,
+                                        textFontFallback_)) {
                 reply = "{\"ok\":false,\"error\":\"write_failed\"}";
             } else {
                 textFontPath_ = valStr;
                 reply = std::string("{\"ok\":true,\"applied\":{"
                                     "\"text_font_path\":\"") +
+                        JsonEsc(valStr) + "\"},\"note\":\"applies_on_restart\"}";
+            }
+        } else if (key == "text_font_fallback") {
+            // docs/63 §6 2단계: 보조 폰트 체인 경로. 재시작 적용(text_font_path와
+            // 동일 — 아틀라스는 기동 시 InitFallback이
+            // ResolveDesktopFallbackPath로 합성). 상한 300자 동일. **빈 값은
+            // 해제 허용**(font_path와 반대 — 체인의 기본 상태가 "없음"이라
+            // 빈 값이 유효한 목표 상태다).
+            std::string valStr;
+            if (!req.GetObjStr("args", "value", valStr) || valStr.size() > 300) {
+                reply = "{\"ok\":false,\"error\":\"bad_value\"}";
+            } else if (!WriteSettingsKv(audioMasterMute_, audioMasterVolume_,
+                                        receiptRetentionDays_, textFontPath_,
+                                        valStr)) {
+                reply = "{\"ok\":false,\"error\":\"write_failed\"}";
+            } else {
+                textFontFallback_ = valStr;
+                reply = std::string("{\"ok\":true,\"applied\":{"
+                                    "\"text_font_fallback\":\"") +
                         JsonEsc(valStr) + "\"},\"note\":\"applies_on_restart\"}";
             }
         } else if (key == "capture_allow") {
@@ -6119,6 +6159,16 @@ SDL_Texture* JKWindowServer::ApprovalBannerTexture(const std::string& bannerUtf8
                          "[server] approval banner: vector font init failed "
                          "(%s), staying on bitmap glyphs\n",
                          fp.c_str());
+        } else {
+            // 보조 폰트 체인 (docs/63 §6 2단계): 미설정(빈)이면 체인 없음 —
+            // Init 실패는 경고 1줄, 체인 없이 계속(치명 아님).
+            const std::string fb = jk::text::ResolveDesktopFallbackPath();
+            if (!fb.empty() && !bannerAtlas_->InitFallback(fb)) {
+                std::fprintf(stderr,
+                             "[server] approval banner: fallback font init "
+                             "failed (%s), glyph chain disabled\n",
+                             fb.c_str());
+            }
         }
     }
     // 크롬 타이틀의 LegacyFontTitle 선례: KSSM 변환이 빈 결과면 원문을 쓴다

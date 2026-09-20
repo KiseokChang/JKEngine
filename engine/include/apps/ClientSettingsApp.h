@@ -67,6 +67,8 @@ private:
     // 텍스트 폰트 경로 입력 (docs/63 §4) — Enter 시 settings_set. 300은 서버
     // 캡과 동일(초과치는 bad_value).
     char textFontBuf_[300] = {};
+    // 보조 폰트 체인 경로 입력 (docs/63 §6 2단계) — 빈 값 = 해제(서버가 허용).
+    char fallbackFontBuf_[300] = {};
     std::vector<std::pair<uint32_t, PendingQuery>> pending_;
 };
 

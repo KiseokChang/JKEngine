@@ -378,6 +378,33 @@ void ClientSettingsApp::BuildUi(int w, int h) {
                           Query::Set, "text_font_path");
             }
         }
+
+        // 보조 폰트 체인 (docs/63 §6 2단계): 미커버 cp의 승계 폰트 — 빈 값 =
+        // 해제 허용(text_font_path와 반대). 현재값과 다를 때만 전송(빈 Enter
+        // 스팸 방지).
+        const std::string curFb = KvStr("text.font_fallback", "");
+        ImGui::TextDisabled(
+            "%s: %s",
+            koreanFont_ ? "보조 폰트" : "fallback font",
+            (curFb.empty() ? std::string("(none)") : curFb).c_str());
+        if (fallbackFontBuf_[0] == '\0' && !curFb.empty()) {
+            std::snprintf(fallbackFontBuf_, sizeof(fallbackFontBuf_), "%s",
+                          curFb.c_str());
+        }
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::InputText(koreanFont_ ? "보조 폰트(재시작 적용, 빈 값=해제)"
+                                         : "fallback font (restart, empty=off)",
+                             fallbackFontBuf_, sizeof(fallbackFontBuf_),
+                             ImGuiInputTextFlags_EnterReturnsTrue)) {
+            const std::string v(fallbackFontBuf_);
+            if (v != curFb) {
+                SendQuery("settings_set",
+                          std::string("{\"key\":\"text_font_fallback\","
+                                      "\"value\":\"") +
+                              EscapeJson(v) + "\"}",
+                          Query::Set, "text_font_fallback");
+            }
+        }
     }
 
     // ---- 3. 데이터 ----

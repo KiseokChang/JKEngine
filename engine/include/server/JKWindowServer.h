@@ -481,6 +481,9 @@ private:
     // settings_set이 쓴다. 적용 시점은 재시작(아틀라스는 Init에서 합성 —
     // JKTextAtlas::ResolveDesktopFontPath가 파일 원독).
     std::string textFontPath_;
+    // text.font_fallback (docs/63 §6 2단계): 보조 폰트 체인 경로 — 빈 문자열 =
+    // 미설정(체인 없음). text_font_path와 동일 수명(재시작 적용, 상한 300자).
+    std::string textFontFallback_;
 
     // In-process privileged shell (P1 ③): owns the launcher grid + desktop
     // background. Wired in Init, torn down in the destructor.

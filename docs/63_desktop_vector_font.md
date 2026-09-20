@@ -124,6 +124,7 @@
 - **보조 폰트 체인** (`text.font_fallback`, 미설정=끔) — 1차 폰트에 없는 글자를 보조 폰트로,
   그래도 없으면 비트맵. 터미널 `InitFallback`이 선례. 리눅스(맑은 고딕 부재)·사용자가
   좁은 폰트를 골랐을 때의 안전망. 현재 머신 실측(§4.1)상 필수 아님
+  — (해소 2026-09-21, 2단계 Task 2 §9.6)
 - 비례폭 텍스트 API — 별도 설계 (전진 규칙이 달라져 좌표 계산 재작성 수반)
 
 ## 7. 미결/열린 질문
@@ -259,3 +260,49 @@ Task 4 시점(ninja [80/80]) 이후 Task 5/6이 착지해 라이브 데스크탑
   UnloadImage 기록) → 재 EnsureGlyph true + GlyphSrc 복원 + 상한 유지.
   ×2 GREEN. jktext_view_probe(실 렌더러 경로), terminal_jamo_atlas_probe 9/9도
   ×2 GREEN.
+
+### 9.6 보조 폰트 체인 text.font_fallback (2단계 Task 2, 2026-09-21)
+
+- **Face 리팩터링** — `JKTextAtlas` 내부 `struct Face { data, info,
+  engScale/hanScale, engBaseline/hanBaseline }` 도입, `primary_`/`fallback_` 두
+  면. Init의 메트릭 산출 블록(로드+'M'/0xAC00 스케일+em 캡+베이스라인)을
+  `LoadFace(path, Face*, engCellW, cellH, hanCellW)` static 헬퍼로 추출 —
+  primary 로드 계약 불변. 셀 격자(engCellW_/hanCellW_/cellH_)는 두 면 공유.
+  한글 글리프 없는 폰트(consola)는 0xAC00 전진 0 → 영문 스케일 2배 폴백(기존
+  레시피 그대로, em 캡이 뒤따름).
+- **InitFallback** — Init 성공 후 호스트가 1회 호출. 실패 = false(체인 없음,
+  경고 1줄, 치명 아님). **재 Init은 체인을 해제한다**(호스트가 재시도).
+- **체인** — `EnsureGlyph(cache, fg, cp, useFallbackPage=false)` / `PageKey(fg,
+  cp, useFallbackPage=false)` / `GlyphSrc(fg, cp, useFallbackPage=false)` /
+  `RasterizeGlyphForTest(..., useFallbackPage=false)` — 기본 인자 false로 기존
+  호출부 무수정. `JKDC::DrawGlyph`: 1차 EnsureGlyph 실패 → `EnsureGlyph(...,
+  true)` → 성공이면 fallback 키로 블릿, 둘 다 실패 = 비트맵 폴백(호출부 계약
+  무수정). RasterizeGlyph의 커버리지 검사는 선택된 면 기준(보조 면도 미커버면
+  false).
+- **캐시 키 분리** — fallback 페이지 접두어 `desktextf_%08x_%06x`(1차
+  `desktext_`와 충돌 봉쇄). `registered_` 키 확장: `(fg << 34) | (cp << 1) | fb`
+  (fg는 24비트 RGB라 58비트에 수렴) — 같은 (fg,cp)가 두 면에 공존. EvictOldest가
+  이 인코딩을 복원하는 유일한 지점(cp는 `(key >> 1) & 0x7FFFFFFF` 마스크 필수 —
+  fg 고위 비트 유입 차단).
+- **설정** — `text_font_fallback` settings_set(빈 값 = 해제 **허용**,
+  font_path와 반대 — 체인의 기본 상태가 "없음"이라 빈 값이 유효 목표 상태,
+  >300 bad_value, applies_on_restart 에코) + settings_read `text.font_fallback`
+  + Load/WriteSettingsKv `"text"."font_fallback"`. `ResolveDesktopFallbackPath()`
+  는 settings 직독, **기본값 없음**(빈 = 체인 미설정). GUI: 설정 앱 텍스트 섹션
+  2행(현재값 표시 + InputText, 현재값과 다를 때만 전송).
+- **호스트 배선 3곳** — JKApplication/JKClientApplication(Init 성공 후) + 배너
+  (JKWindowServer bannerAtlas_ Init 성공 후): `ResolveDesktopFallbackPath()`가
+  비어있지 않으면 `InitFallback` 시도, 실패는 경고 1줄+체인 없이 계속.
+- **프로브** — jktext_probe 33→54체크: T9(c) LRU≠FIFO(채움 1128 후 폐기 104건 =
+  fg0 전체+fg1 0x21..0x2A → 최연장 생존 (fg1,0x2B)를 터치 → 신규 3건 → 터치 키
+  생존 + (fg1,0x2C) 폐기 — 1단계 리뷰 MINOR 보충), T10 체인(consola 1차 — '가'
+  미커버를 Rasterize 선체크로 확인 후 사용, fallback=맑은 고딕: 1차 실패 →
+  fallback 등록 true + `desktextf_` 접두어 + 1차 키 불변 + 체인 미설정 false +
+  InitFallback 파일 부재 false + ASCII 1차 성공) ×2 GREEN. probe_textfont.ps1
+  7→9체크: text_font_fallback set→read 왕복 + 빈 값 해제 허용 ×2 GREEN(기존
+  settings.json 백업/바이트동일 검증 재사용). 회귀: jkedit_probe ALL PASS,
+  terminal_hangul_probe 33/33, terminal_jamo_atlas_probe 9/9, jktext_view_probe
+  GREEN.
+- **운영 실측** — 폰트 체인 없는 설정(기본)에서 기동: 기존 동작과 동일(체인
+  미개입). 사용자 눈확인 대기: settings 앱에서 text.font_fallback = consola.ttf
+  저장 → 재기동 → 한글 텍스트가 consola 1차+맑은 고딕 승계로 렌더되는지.

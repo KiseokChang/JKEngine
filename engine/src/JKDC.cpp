@@ -193,14 +193,20 @@ bool JKDC::DrawGlyph(JKPoint p, uint32_t cp, int stride) {
     const uint32_t fg =
         (static_cast<uint32_t>(textR_) << 16) |
         (static_cast<uint32_t>(textG_) << 8) | static_cast<uint32_t>(textB_);
-    // 래스터라이즈는 (fg, cp) 조합당 1회 — 이후 조회는 등록 여부 스캔만.
-    if (!textAtlas_->EnsureGlyph(textCache_, fg, cp)) return false;
-    auto tex = textCache_->GetImage(textAtlas_->PageKey(fg, cp));
+    // 래스터라이즈는 (fg, cp, face) 조합당 1회 — 이후 조회는 등록 여부 스캔만.
+    bool fallbackPage = false;
+    if (!textAtlas_->EnsureGlyph(textCache_, fg, cp)) {
+        // 1차 폰트 미커버 — 보조 폰트 체인 (docs/63 §6 2단계). 체인도 실패
+        // (보조 미설정/미커버)면 false — 호출부가 비트맵 폴백으로 그린다.
+        if (!textAtlas_->EnsureGlyph(textCache_, fg, cp, true)) return false;
+        fallbackPage = true;
+    }
+    auto tex = textCache_->GetImage(textAtlas_->PageKey(fg, cp, fallbackPage));
     if (!tex) {
         // 승인 배너류는 렌더 스레드 업로드 플러시 이전에 동기 그린다
         // (docs/63 §8) — 즉시 플러시 후 1회 재시도.
         textCache_->FlushUploads(backend_);
-        tex = textCache_->GetImage(textAtlas_->PageKey(fg, cp));
+        tex = textCache_->GetImage(textAtlas_->PageKey(fg, cp, fallbackPage));
         if (!tex) return false;
     }
     backend_->BlitTexture(tex, nullptr,

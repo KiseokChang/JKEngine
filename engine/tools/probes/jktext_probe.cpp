@@ -2,7 +2,8 @@
 // T1: KSSM 코드포인트 → 유니코드 변환 (Task 1).
 // T2: 폰트 로드+셀 메트릭. T3: 래스터라이즈 잉크+AA(중간 알파>0=벡터). T4: 폰트 커버리지.
 // T5: 캐시 등록 계약.
-// T9: 글리프 텍스처 상한+LRU 폐기 (docs/63 §6, 2단계 Task 1).
+// T9: 글리프 텍스처 상한+LRU 폐기 (docs/63 §6, 2단계 Task 1) + T9(c) LRU≠FIFO.
+// T10: 보조 폰트 체인 — 미커버 cp 승계+캐시 키 접두어 분리 (2단계 Task 2).
 // T6-T8: JKDC 배선 — 아틀라스 우선/비트맵 폴백/메트릭 불변 (Task 3).
 #include <JKHangulUtil.h>
 #include <JKTextAtlas.h>
@@ -209,6 +210,101 @@ int main() {
             }
         }
         CHECK(live2 == cap, "T9(b) 재등록 후에도 상한 유지(재폐기 1건)");
+    }
+
+    // T9(c): LRU가 FIFO가 아님 — 터치 이벤트가 폐기 순서를 바꾼다(1단계 리뷰
+    // MINOR 보충). 채움(12색×94=1128) 후 폐기 104건 = (fg0 전체 94건 +
+    // (fg1, 0x21..0x2A)) → 최연장 생존 키 = (fg1, 0x2B). 그 키를 터치(MRU 이동)
+    // → 신규 등록 3건. LRU면 터치된 키가 생존하고 터치 시점의 다음
+    // front((fg1, 0x2C))가 폐기된다. FIFO였다면 터치가 무시되어 (fg1, 0x2B)
+    // 자체가 폐기됐을 것이다.
+    {
+        JKTextAtlas a4;
+        if (!a4.Init(fontPath, 8, 16, 16)) {
+            std::printf("SKIP: vector font init failed (%s)\n", fontPath.c_str());
+            return 77;
+        }
+        static const uint32_t kFg2[12] = {
+            0x000000, 0xFFFFFF, 0xFF0000, 0x00FF00, 0x0000FF, 0xFFFF00,
+            0x00FFFF, 0xFF00FF, 0x808080, 0x336699, 0xCCCCCC, 0x556677
+        };
+        for (size_t f = 0; f < 12; ++f) {
+            for (uint32_t cp = 0x21; cp <= 0x7E; ++cp) {
+                if (!a4.EnsureGlyph(&cache, kFg2[f], cp)) break;
+            }
+        }
+        const uint32_t kTouchedFg = kFg2[1];
+        const uint32_t kTouchedCp = 0x2B;   // 채움 후 live front(폐기 104건)
+        CHECK(a4.GlyphSrc(kTouchedFg, kTouchedCp).w != 0,
+              "T9(c) 사전조건 — 터치 대상이 최연장 생존 키");
+        const size_t evBase = g_evicted.size();
+        CHECK(a4.EnsureGlyph(&cache, kTouchedFg, kTouchedCp),
+              "T9(c) 터치 히트 true");
+        // 터치 후 신규 등록 3건 — 기존 fg 집합에 없던 색+ASCII(커버 확정).
+        for (uint32_t cp = 0x61; cp <= 0x63; ++cp) {
+            CHECK(a4.EnsureGlyph(&cache, 0x123456, cp), "T9(c) 신규 등록 true");
+        }
+        CHECK(a4.GlyphSrc(kTouchedFg, kTouchedCp).w != 0,
+              "T9(c) 터치 키 생존 — LRU가 FIFO가 아님");
+        bool frontEvicted = false, touchedEvicted = false;
+        for (size_t i = evBase; i < g_evicted.size(); ++i) {
+            if (g_evicted[i] == a4.PageKey(kFg2[1], 0x2C)) frontEvicted = true;
+            if (g_evicted[i] == a4.PageKey(kTouchedFg, kTouchedCp)) touchedEvicted = true;
+        }
+        CHECK(frontEvicted, "T9(c) 터치 후 최연장(front) 폐기 — 터치가 순서를 바꿈");
+        CHECK(!touchedEvicted, "T9(c) 터치 키 미폐기");
+    }
+
+    // T10: 보조 폰트 체인 (docs/63 §6 2단계 Task 2) — primary=consola.ttf
+    // (한글 글리프 없음 — 하드코딩 가정 금지, FindGlyphIndex 경유 선체크),
+    // fallback=맑은 고딕(기본 경로). 체인: 1차 EnsureGlyph 실패 → fallback 페이지
+    // 등록(키 접두어 desktextf_ — 1차 키와 충돌 봉쇄).
+    {
+        JKTextAtlas ac;
+        if (!ac.Init("C:/Windows/Fonts/consola.ttf", 8, 16, 16)) {
+            std::printf("SKIP: consola.ttf unavailable — T10 not exercised\n");
+        } else {
+            JKResourceCache cache2(nullptr);
+            // 선체크: consola가 '가'를 커버한다면 체인 전제가 깨진다 — 스킵.
+            {
+                std::vector<uint8_t> rgba;
+                int w = 0, h = 0;
+                if (ac.RasterizeGlyphForTest(0x000000, 0xAC00, &rgba, &w, &h)) {
+                    std::printf("SKIP: primary covers Hangul — chain premise "
+                                "violated, T10 not exercised\n");
+                } else {
+                    CHECK(!ac.EnsureGlyph(&cache2, 0xCCCCCC, 0xAC00),
+                          "T10 선체크 — consola '가' 미커버(Rasterize false)");
+                    // 체인 미설정(InitFallback 전): fallback 요청도 false.
+                    CHECK(!ac.EnsureGlyph(&cache2, 0xCCCCCC, 0xAC00, true),
+                          "T10 체인 미설정 — fallback 요청 false");
+                    CHECK(!ac.InitFallback("C:\\nonexistent_font_dir\\x.ttf"),
+                          "T10 InitFallback 파일 부재 -> false(체인 없음)");
+                    CHECK(ac.InitFallback(fontPath),
+                          "T10 InitFallback(맑은 고딕) true");
+                    CHECK(ac.IsLoaded() && ac.IsFallbackLoaded(),
+                          "T10 두 면 로드");
+                    CHECK(!ac.EnsureGlyph(&cache2, 0xCCCCCC, 0xAC00),
+                          "T10(a) 1차 '가' 실패(consola 미커버)");
+                    CHECK(ac.EnsureGlyph(&cache2, 0xCCCCCC, 0xAC00, true),
+                          "T10(b) fallback '가' 등록 true");
+                    CHECK(ac.GlyphSrc(0xCCCCCC, 0xAC00).w == 0,
+                          "T10 1차 등록 아님 — face 키 분리");
+                    CHECK(ac.GlyphSrc(0xCCCCCC, 0xAC00, true).w == 16,
+                          "T10(c) fallback GlyphSrc 16px");
+                    CHECK(ac.PageKey(0xCCCCCC, 0xAC00, true) ==
+                              std::string("desktextf_00cccccc_00ac00"),
+                          "T10(c) fallback 키 접두어 desktextf_");
+                    CHECK(ac.PageKey(0xCCCCCC, 'A') ==
+                              std::string("desktext_00cccccc_000041"),
+                          "T10 1차 키 접두어 불변");
+                    CHECK(ac.EnsureGlyph(&cache2, 0xCCCCCC, 'A'),
+                          "T10(d) ASCII는 1차 성공(체인 미개입)");
+                    CHECK(ac.GlyphSrc(0xCCCCCC, 'A').w == 8,
+                          "T10(d) ASCII 1차 등록(8px)");
+                }
+            }
+        }
     }
 
     // T6: 아틀라스 장착 → TextOut("가A") = 블릿 2회(한글 16px + 영문 8px),

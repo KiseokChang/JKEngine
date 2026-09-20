@@ -210,6 +210,23 @@ SendQuery $p ([uint32]$qid) '{"tool":"settings_set","args":{"key":"text_font_pat
 $r = Wait-Reply $p $qid 5000
 CHECK ($null -ne $r -and $r -match '"error":"bad_value"') "T4 empty rejected"
 
+# T6/T7/T8 (docs/63 §6 2단계): text_font_fallback roundtrip. Unlike
+# text_font_path the empty value is ACCEPTED (empty = chain disabled).
+$qid = 6
+SendQuery $p ([uint32]$qid) '{"tool":"settings_set","args":{"key":"text_font_fallback","value":"C:\\Windows\\Fonts\\consola.ttf"}}'
+$r = Wait-Reply $p $qid 5000
+CHECK ($null -ne $r -and $r -match '"ok":true' -and $r -match 'applies_on_restart') "T6 fallback set ok + restart note"
+
+$qid = 7
+SendQuery $p ([uint32]$qid) '{"tool":"settings_read","args":{}}'
+$r = Wait-Reply $p $qid 5000
+CHECK ($null -ne $r -and $r -match '"key":"text\.font_fallback"' -and $r -match 'consola\.ttf') "T7 read echoes text.font_fallback"
+
+$qid = 8
+SendQuery $p ([uint32]$qid) '{"tool":"settings_set","args":{"key":"text_font_fallback","value":""}}'
+$r = Wait-Reply $p $qid 5000
+CHECK ($null -ne $r -and $r -match '"ok":true' -and $r -match 'applies_on_restart') "T8 empty fallback = clear (allowed)"
+
 # T5 (restore): write the original text.font_path back when one existed
 if ($origFont -ne "") {
     $qid = 5

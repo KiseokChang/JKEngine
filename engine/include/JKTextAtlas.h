@@ -9,7 +9,8 @@
 // terminal JKGlyphAtlas — the render backend has no per-blit tint).
 // One font file, two scales: 'M' advance fills the 8px English stride, a
 // Hangul syllable's advance fills the 16px stride (JKGlyphAtlas::InitFallback
-// recipe).
+// recipe). docs/63 §6 2단계: a second (fallback) face can be loaded for
+// codepoints the primary face does not cover — cache keys are face-separated.
 
 struct stbtt_fontinfo;
 
@@ -32,6 +33,12 @@ namespace text {
 // candidates). Empty return = caller stays on the bitmap path.
 std::string ResolveDesktopFontPath();
 
+// 보조 폰트 체인 경로 (docs/63 §6 2단계): settings.json `text.font_fallback`
+// 직독(ResolveDesktopFontPath의 settings 직독 선례). **기본값 없음** — 빈
+// 문자열 반환 = 체인 미설정(호스트는 InitFallback을 시도하지 않고 1차 폰트만
+// 쓴다). 상한 300자는 font_path와 같은 캡.
+std::string ResolveDesktopFallbackPath();
+
 } // namespace text
 
 class JKTextAtlas {
@@ -39,8 +46,8 @@ public:
     // Glyph-texture ceiling (docs/63 §6): each glyph is one small per-cell
     // texture (~stride x cellH, a few hundred bytes to ~1KB) — at 1024 the
     // per-host cost is ~1MB. Beyond the cap the oldest (least-recently-used)
-    // (fg, cp) texture is unloaded from the cache and lazily re-registered on
-    // demand, so the live set tracks what the frame actually draws.
+    // (fg, cp, face) texture is unloaded from the cache and lazily
+    // re-registered on demand, so the live set tracks what the frame draws.
     static constexpr size_t kMaxGlyphTextures = 1024;
 
     JKTextAtlas();
@@ -48,47 +55,77 @@ public:
 
     bool Init(const std::string& fontPath, int engCellW = 8, int cellH = 16,
               int hanCellW = 16);
-    bool IsLoaded() const { return info_ != nullptr; }
+    bool IsLoaded() const { return primary_.info != nullptr; }
+
+    // 보조 폰트 체인 (docs/63 §6 2단계): Init 성공 후 1회 — 동일 셀 메트릭으로
+    // fallback_ 면을 로드한다. 실패(파일 부재/파손)는 false = 체인 없이 계속
+    // (호스트가 경고 1줄을 남기고 1차 폰트만 사용). 재 Init은 체인을 해제한다
+    // (호스트가 InitFallback을 다시 시도한다).
+    bool InitFallback(const std::string& fontPath);
+    bool IsFallbackLoaded() const { return fallback_.info != nullptr; }
 
     // Lazily rasterizes cp baked with `fg` and registers it in `cache`.
     // False when the font has no glyph for cp (caller falls back per glyph).
-    bool EnsureGlyph(JKResourceCache* cache, uint32_t fg, uint32_t cp);
+    // useFallbackPage=true는 1차 폰트 미커버 cp의 보조 폰트 페이지 — 캐시 키가
+    // 접두어(desktextf_)로 분리돼 1차 등록과 충돌하지 않는다. 기본 false =
+    // 기존 1차 경로(기존 호출부 무수정).
+    bool EnsureGlyph(JKResourceCache* cache, uint32_t fg, uint32_t cp,
+                     bool useFallbackPage = false);
 
-    // Cache key of the (fg, cp) glyph texture — valid after EnsureGlyph.
-    std::string PageKey(uint32_t fg, uint32_t cp) const;
+    // Cache key of the (fg, cp, face) glyph texture — valid after EnsureGlyph.
+    std::string PageKey(uint32_t fg, uint32_t cp,
+                        bool useFallbackPage = false) const;
 
-    // Source rect for (fg, cp); empty when not registered.
-    JKRect GlyphSrc(uint32_t fg, uint32_t cp) const;
+    // Source rect for (fg, cp, face); empty when not registered.
+    JKRect GlyphSrc(uint32_t fg, uint32_t cp,
+                    bool useFallbackPage = false) const;
 
     // Test hook: rasterizes the single glyph into stride x cellH RGBA,
     // no resource cache involved. False when the font has no glyph.
     bool RasterizeGlyphForTest(uint32_t fg, uint32_t cp,
-                               std::vector<uint8_t>* rgba, int* w, int* h);
+                               std::vector<uint8_t>* rgba, int* w, int* h,
+                               bool useFallbackPage = false);
 
 private:
-    int  StrideOf(uint32_t cp) const;
-    float ScaleOf(uint32_t cp) const;
-    int  BaselineOf(uint32_t cp) const;
+    // 한 폰트 파일 = 한 면. primary_/fallback_ 두 면이 같은 셀 격자(공유
+    // engCellW_/hanCellW_/cellH_)를 쓰고 스케일/베이스라인만 면별로 갖는다.
+    struct Face {
+        std::vector<uint8_t> data;
+        std::unique_ptr<stbtt_fontinfo> info;
+        float engScale = 0.0f;
+        float hanScale = 0.0f;
+        int   engBaseline = 0;
+        int   hanBaseline = 0;
+    };
+
+    int  StrideOf(uint32_t cp) const;   // 셀 폭은 면과 무관(공유 격자)
     // Rasterizes cp into rgba (stride x cellH, baked fg, baseline aligned).
-    bool RasterizeGlyph(uint32_t fg, uint32_t cp, std::vector<uint8_t>* rgba);
+    // useFallbackPage=true면 fallback_ 면으로 래스터라이즈한다(1차가 미커버일
+    // 때만 호출된다 — 커버리지 검사도 선택된 면 기준).
+    bool RasterizeGlyph(uint32_t fg, uint32_t cp, std::vector<uint8_t>* rgba,
+                        bool useFallbackPage);
+    // 폰트 파일 로드+셀 메트릭 산출(Init 본체에서 추출 — primary/fallback 공용).
+    // 성공 시 face를 채우고 true, 실패 시 face는 비어있는 상태로 false.
+    static bool LoadFace(const std::string& fontPath, Face* face,
+                         int engCellW, int cellH, int hanCellW);
 
     // Unloads the least-recently-used registered glyph texture from `cache`
     // and drops it from registered_ (keeps size <= kMaxGlyphTextures).
     void EvictOldest(JKResourceCache* cache);
 
-    std::vector<uint8_t> fontData_;
-    std::unique_ptr<stbtt_fontinfo> info_;
-    float engScale_ = 0.0f;
-    float hanScale_ = 0.0f;
-    int   engBaseline_ = 0;
-    int   hanBaseline_ = 0;
+    Face  primary_;
+    Face  fallback_;
     int   engCellW_ = 8;
     int   hanCellW_ = 16;
     int   cellH_ = 16;
 
-    // Registered (fg, cp) keys, LRU-ordered: front = least recently used,
+    // Registered glyph keys, LRU-ordered: front = least recently used,
     // back = most recently used. Mirrors what the cache holds.
-    std::vector<uint64_t> registered_;   // (fg << 32) | cp
+    // 키 인코딩 (docs/63 §6 2단계 — 보조 폰트 체인): (fg << 34) | (cp << 1) | fb
+    // — fg는 24비트 RGB라 34 시프트 후 58비트에 들어온다. fb 비트가 보조 폰트
+    // 페이지 구분(같은 (fg,cp)가 두 면에 공존 가능). EvictOldest가 이 인코딩을
+    // 복원하는 유일한 지점이다.
+    std::vector<uint64_t> registered_;
 };
 
 } // namespace jk

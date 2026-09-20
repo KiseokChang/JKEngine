@@ -124,6 +124,15 @@ bool JKApplication::Init(const std::string& title, int width, int height) {
     const std::string fontPath = jk::text::ResolveDesktopFontPath();
     if (!fontPath.empty() && textAtlas_->Init(fontPath, 8, 16, 16)) {
         dc_.SetTextAtlas(textAtlas_.get(), resourceCache_.get());
+        // 보조 폰트 체인 (docs/63 §6 2단계): 미설정(빈)이면 체인 없음 — 1차만.
+        // Init 실패는 경고 1줄, 체인 없이 계속(치명 아님).
+        const std::string fbPath = jk::text::ResolveDesktopFallbackPath();
+        if (!fbPath.empty() && !textAtlas_->InitFallback(fbPath)) {
+            std::fprintf(stderr,
+                "Warning: fallback font init failed (%s); glyph chain "
+                "disabled.\n",
+                fbPath.c_str());
+        }
     } else if (fontPath.empty()) {
         std::fprintf(stderr,
             "Warning: no vector font configured (text.font_path empty); "
