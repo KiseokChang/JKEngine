@@ -65,19 +65,21 @@ private:
     // 보존기간 콤보 — settings_read value와 동기(사용자 조작 중엔 임시 유지).
     int retentionSel_ = -1;
     // 텍스트 폰트 경로 입력 (docs/63 §4) — Enter 시 settings_set. 300은 서버
-    // 캡과 동일(초과치는 bad_value).
-    char textFontBuf_[300] = {};
+    // 캡과 동일(초과치는 bad_value). **+1은 NUL 포함** — 301이어야 300자 값이
+    // 잘리지 않고 수용된다(1단계 리뷰 유보, docs/63 §6).
+    char textFontBuf_[301] = {};
     // 보조 폰트 체인 경로 입력 (docs/63 §6 2단계) — 빈 값 = 해제(서버가 허용).
     // 1회 시드 플래그 — **첫 settings_read 도착 시**(ApplyRead)에 래치한다.
     // 첫 UI 프레임 래치는 kv_ 공백(비동기 답신 도착 전)을 근거로 삼아
     // 설정된 경로의 영구 미표시=사용자 Enter로 해제 전송 사각이 됐다
     // (리뷰 fix-2). 래치 후에는 재시드 없음 — 삭제 원본 유지.
-    char fallbackFontBuf_[300] = {};
+    char fallbackFontBuf_[301] = {};   // +1 NUL 포함 — textFontBuf_와 동일 규약
     bool fallbackSeeded_ = false;
     // 셀 확대 배율 입력 (docs/63 §6 Task 3) — 숫자 문자열(1.0–3.0), Enter 시
     // settings_set. 시드는 fallbackFontBuf_와 동일 **첫 settings_read 도착
     // 시**(ApplyRead) 1회 래치 — 키 부재 시 기본 "1.0" 표시.
-    char scaleBuf_[16] = {};
+    char scaleBuf_[32] = {};   // 16→32: 유한 double 문자열 최대치 수용 — 16에서는
+                               // 긴 소수가 무음 절단돼 검증 전 값이 변질됐다
     bool scaleSeeded_ = false;
     std::vector<std::pair<uint32_t, PendingQuery>> pending_;
 };
