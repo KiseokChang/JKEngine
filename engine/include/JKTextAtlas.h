@@ -71,9 +71,13 @@ class JKTextAtlas {
 public:
     // Glyph-texture ceiling (docs/63 §6): each glyph is one small per-cell
     // texture (~stride x cellH, a few hundred bytes to ~1KB) — at 1024 the
-    // per-host cost is ~1MB. Beyond the cap the oldest (least-recently-used)
-    // (fg, cp, face) texture is unloaded from the cache and lazily
-    // re-registered on demand, so the live set tracks what the frame draws.
+    // per-host cost is ~1MB AT THE DEFAULT CELL SIZE (scale 1.0). text.font_scale
+    // scales cellH too, so the bound is scale-dependent: at scale 3.0 a wide
+    // glyph is 48x48x4 ≈ 9.2KB → up to ~10MB per host. Still acceptable; do not
+    // state ~1MB as scale-invariant. Beyond the cap the oldest
+    // (least-recently-used) (fg, cp, face) texture is unloaded from the cache
+    // and lazily re-registered on demand, so the live set tracks what the
+    // frame draws.
     static constexpr size_t kMaxGlyphTextures = 1024;
 
     JKTextAtlas();

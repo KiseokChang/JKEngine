@@ -149,6 +149,11 @@ bool JKTextAtlas::Init(const std::string& fontPath, int engCellW, int cellH,
     cellH_ = std::max(8, cellH);
     primary_ = Face{};    // 재 Init은 보조 체인까지 해제 — 호스트가 재시도한다
     fallback_ = Face{};
+    // 최종리뷰 NIT: registered_.clear()는 추적만 지운다 — 이전 (fg,cp) 글리프
+    // 텍스처는 호스트 캐시에 남는다. Init은 cache 핸들을 받지 않아 UnloadImage가
+    // 불가하지만, 프로덕션에선 호스트가 Init/InitFallback을 수명당 1회만 호출
+    // (설정은 apply_on_restart)해 도달 불가 + CreateImageFromRGBA가 같은 키를
+    // 먼저 UnloadImage하므로 재등록 시 자가 치유. 핫스왑 경로 신설 시 정리 필요.
     registered_.clear();
     return LoadFace(fontPath, &primary_, engCellW_, cellH_, hanCellW_);
 }
@@ -158,6 +163,7 @@ bool JKTextAtlas::InitFallback(const std::string& fontPath) {
     // 재진입 사각 방지(리뷰 NIT): 이전 보조 면의 등록 기록(fb=1 엔트리)을
     // 제거한다 — 남겨두면 GlyphSrc(...,true)가 새 면의 PageKey와 어긋나는
     // 스테일 rect를 보고한다. (1차 엔트리는 보조 면과 무관해 유지.)
+    // 위 Init의 NIT 주석과 동일 — fb 텍스처의 캐시 UnloadImage는 없다.
     registered_.erase(std::remove_if(registered_.begin(), registered_.end(),
                                      [](uint64_t k) { return (k & 1u) != 0; }),
                       registered_.end());

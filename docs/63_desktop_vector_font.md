@@ -388,7 +388,7 @@ Task 4 시점(ninja [80/80]) 이후 Task 5/6이 착지해 라이브 데스크탑
 
 | 기능 | 커밋 | 요약 |
 |---|---|---|
-| 글리프 텍스처 LRU/상한 | 55221a7 | `kMaxGlyphTextures=1024` + `EvictOldest`(`UnloadImage`) — 기존 히트는 MRU 터치, 신규 등록 후 초과 시 최연장 키 폐기(재요청 자동 재등록). 호스트당 ~1MB 상한 |
+| 글리프 텍스처 LRU/상한 | 55221a7 | `kMaxGlyphTextures=1024` + `EvictOldest`(`UnloadImage`) — 기존 히트는 MRU 터치, 신규 등록 후 초과 시 최연장 키 폐기(재요청 자동 재등록). 호스트당 ~1MB 상한(**scale 1.0 기준** — §11 MINOR-2) |
 | 보조 폰트 체인 `text.font_fallback` | 74c4f39 (+b49fce8, 4c1ce1e) | 1차 미커버 cp만 2차 승계(그래도 미커버=비트맵). 캐시 키 접두어 `desktextf_` 분리 + `registered_` 키 `(fg<<34)|(cp<<1)|fb` 패킹 + `InitFallback` 재진입 시 fb 엔트리 정리 |
 | 셀 확대 `text.font_scale` | e4b5f69 (+1e0c3ef) | `GetCellMetrics()`/`ComputeCellMetrics(s)` 메트릭 진실원 — JKDC 리터럴 8/16 치환 + 코어 위젯 `charWidth_`/`itemHeight_` 배선 + settings 분기(`applies_on_restart` 에코) |
 
@@ -408,6 +408,14 @@ Task 4 시점(ninja [80/80]) 이후 Task 5/6이 착지해 라이브 데스크탑
 - **비트맵 폴백 글리프 1× 고정** — 변환 실패/양쪽 폰트 모두 미커버 글자의 기존
   KSSM 비트맵 경로는 scale이 커져도 1× 크기로 큰 셀 안에 그려진다(셀과 글리프
   크기 불일치 — 비트맵 폴백은 스케일 대상 아님).
+- **승인 배너 텍스트 수직 절단 (scale ≳1.6)** — 배너 글리프 높이는
+  `MeasureText().y == cellH`인데 밴드 높이는 `kChromeTitleBar(24)×레이어 스케일`
+  로 고정(JKWindowServer.cpp:6109)라 cellH>24부터 클립. scale 1.5까지 정확히
+  수용(24=16×1.5), 2.0에서 문자 하단 절단 — scale>1 환경에서 배너 사용은
+  §11 MINOR-1 기록, 픽스는 백로그(밴드 높이를 cellH 유도로).
+- **LRU 상한 메모리는 scale 종속** — "~1MB/호스트"는 scale 1.0 기준. scale 3.0에서
+  너비 글리프 48×48×4≈9.2KB → 호스트당 최대 ~10MB(배너 호스트 합산 ~19MB).
+  수용 가능하지만 불변값이 아니라 §11 MINOR-2로 기록(JKTextAtlas.h 주석 갱신).
 
 **(3) 전체 회귀 ×2 (`tools/probes/reg8_*.log`, 두 라운드 동일)**
 
@@ -440,3 +448,31 @@ Task 4 시점(ninja [80/80]) 이후 Task 5/6이 착지해 라이브 데스크탑
    `text.font_fallback=malgun.ttf` → 재기동 → 영문은 consola, 한글은 맑은 고딕
    승계로 렌더 확인. (체인이 꺼진 기본 상태에서는 1차 미커버 글자가 비트맵 폴백 —
    §9.6 운영 실측과 동일.)
+3. **승인 배너 (scale>1 시)** — scale 2.0 상태에서 승인 파킹 → 배너 문자 하단
+   절단 확인(§10(2) 한계 수용 여부 판정 — 밴드 높이 픽스 백로그 선정 자료).
+
+### 11. 최종리뷰 (opus, 2026-09-21) — APPROVE WITH NITS
+
+범위 = 2단계 10 커밋(fefa5cb..0c04f8a), 병합 2건(eadc87c/1779f0e)은 각자
+리뷰 완료로 범위 밖. CRITICAL/IMPORTANT 0건. 통합 상태 실증: 키 패킹
+`(fg<<34)|(cp<<1)|fb` 복원 디코드 정확(cp 비트31 마스크 불요 — R1 픽스가 옳음),
+폐기→재등록이 같은 프레임에서도 `pendingDestroys_→pending_` 순서로 자가 치유,
+fallback 면이 공유 셀 격자 재사용, 병합(eadc87c jkedit)과 메트릭 치환 직교,
+설정 캡 300/빈값허용/[1.0,3.0]이 게이트·직독·GUI 버퍼 전 경로 일치.
+
+남은 4건 — 전부 문서/주석 수준, controller 직접 적용(커밋):
+
+1. **MINOR-1 배너 절단 미문서화** → §10(2) 한계 추가 + 눈확인 3번 신설.
+   픽스(밴드 높이를 cellH 유도로)는 백로그 — scale>1 + 배너 조합이 드묾.
+2. **MINOR-2 LRU 상한 "~1MB"가 scale 1.0 전용인데 불변 기술** → §10 표·(2)·
+   JKTextAtlas.h 주석에 scale 종속 명기(scale 3.0 최대 ~10MB/호스트).
+3. **NIT-3 Init/InitFallback purge가 UnloadImage 없이 registered_만 정리** →
+   프로덕션 도달 불가(수명당 1회 호출 + apply_on_restart + CreateImageFromRGBA
+   선-unload 자가 치유). 코드 주석으로 한계 명기 — 핫스왑 경로 신설 시 정리.
+4. **NIT-4 프로브 환경 전제 미기록** — T11(b) `GetCellMetrics()=={8,16,16}`과
+   view probe phase-1 span 창은 probe exe 옆에 `state\settings.json`이 없는
+   것을 전제(exe가 engine/tools/probes/에 있어 오늘 성립). **engine/build/
+   에서 프로브 exe를 돌리면 라이브 settings.json을 직독해 오판(예정된
+   font_scale 눈확인이 1.25를 쓰면 즉시 오판)** — view probe 절반은 이미
+   Task 4 유보 NIT, T11(b) 절반은 여기에 기록. 레슨: 프로브의 설정 진실원
+   가정은 실행 디렉터리와 함께 기록한다.
