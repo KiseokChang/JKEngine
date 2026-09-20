@@ -2,6 +2,8 @@
 #include <wancode.h>
 #include <cstring>
 #include <cstdint>
+#include <mutex>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -186,9 +188,11 @@ uint32_t Utf8FirstCodepoint(const char* s) {
 
 } // namespace
 
-uint32_t jk::KssmCodepointToUnicode(uint8_t first, uint8_t second) {
-    // 기존 검증된 역인덱스(KssmToUtf8)를 글자 단위로 재사용 — 신규 매핑 테이블
-    // 금지(docs/60 §7: 산술 매핑 이중 유지는 결함의 온상).
+namespace {
+// 실계산부 — 기존 검증된 역인덱스(KssmToUtf8)를 글자 단위로 재사용. 신규 매핑
+// 테이블 금지(docs/60 §7: 산술 매핑 이중 유지는 결함의 온상). 캐시 채움 경로.
+uint32_t ComputeKssmCodepoint(uint8_t first, uint8_t second) {
+#ifdef _WIN32
     const char bytes[3] = { static_cast<char>(first), static_cast<char>(second), 0 };
     const std::string utf8 = jk::KssmToUtf8(bytes);
     if (utf8.empty()) return 0u;
@@ -196,4 +200,34 @@ uint32_t jk::KssmCodepointToUnicode(uint8_t first, uint8_t second) {
     // 쌍으로 돌아오는 경우만 실제 매핑으로 인정한다 — 그 외는 0으로 폴백 신호.
     if (jk::Utf8ToKssm(utf8.c_str()) != std::string(bytes)) return 0u;
     return Utf8FirstCodepoint(utf8.c_str());
+#else
+    // 비(非)Windows 포트 함정(최종리뷰 MINOR-1): Utf8ToKssm이 항등이라 왕복 가드가
+    // 항상 통과해 raw KSSM 바이트를 쓰레기 UTF-8 코드포인트로 해독한다. 포트
+    // 시점에는 0(비트맵 폴백)을 반환하도록 봉쇄 — 변환기를 이식할 때 함께 고친다.
+    (void)first;
+    (void)second;
+    return 0u;
+#endif
+}
+} // namespace
+
+uint32_t jk::KssmCodepointToUnicode(uint8_t first, uint8_t second) {
+    // 메모이즈(최종리뷰 IMP-2): 같은 KSSM 쌍은 리페인트마다 반복 호출되므로 쌍 단위
+    // 캐시 — 캐시 히트면 문자열 할당 2건+왕복 변환을 모두 건너뛴다. 0(매핑 없음)도
+    // 결과로 캐시 — 계약(0=폴백 신호) 불변.
+    static std::mutex mu;
+    static std::unordered_map<uint16_t, uint32_t> memo;
+    const uint16_t key =
+        static_cast<uint16_t>((static_cast<uint16_t>(first) << 8) | second);
+    {
+        std::lock_guard<std::mutex> lock(mu);
+        const auto it = memo.find(key);
+        if (it != memo.end()) return it->second;
+    }
+    const uint32_t cp = ComputeKssmCodepoint(first, second);
+    {
+        std::lock_guard<std::mutex> lock(mu);
+        memo[key] = cp;
+    }
+    return cp;
 }

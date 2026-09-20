@@ -68,7 +68,9 @@
    - stb_truetype 래스터라이즈 → 셀 크기(한글 16×16/영문 8×16) 스케일 → fg색 채움 +
      AA 알파 (BlitTexture의 텍스처 알파 블렌딩은 터미널이 이미 증명)
 4. `GlyphSrc(cp)` rect를 `BlitTexture`로 dst 셀 위치에 블릿 — 글자당 블릿 1회
-   (현행 픽셀 루프 대비 빠름, 래스터라이즈는 최초 1회)
+   (현행 픽셀 루프 대비 빠름, 래스터라이즈는 최초 1회). [as-built 2026-09-21]
+   구현은 `PageKey(fg,cp)`로 텍스처를 직접 조회해 블릿 — `GlyphSrc`는 현재
+   프로브 전용 단정 인터페이스
 5. **글리프 단위 폴백**: ①KSSM→cp 변환 실패 ②폰트에 cp 없음 → 그 글자만 기존 비트맵 경로
 
 메모리: fg 색 가짓수가 터미널보다 많음 → 색당 페이지. 페이지 512×512×4B ≈ 1MB 내외로
@@ -128,7 +130,8 @@
 
 - (해소 2026-09-21) 클라 모드 settings.json 읽기 — 앱은 jkdesktop 단일 프로세스
   (jkapp_*.dll 로드), exe-dir + `state\settings.json` 공용 경로로 서버/클라 동일
-- fg 색 폭증 시 글리프 텍스처 수 상한 — 필요 시 LRU 폐기(백로그)
+- fg 색 폭증 시 글리프 텍스처 수 상한 — 필요 시 LRU 폐기(백로그). 클라 앱 호스트의
+  `resourceCache_` 글리프 텍스처도 동일 백로그 대상(배너 `bannerCache_`만이 아님)
 - 번들 폰트 선정(Noto Sans CJK KR vs 나눔고딕, 용량/포맷 .ttc vs .otf) — 리눅스 착수
   시점에 확정, Windows 1단계에는 불요
 
@@ -171,7 +174,7 @@ Task 4 시점(ninja [80/80]) 이후 Task 5/6이 착지해 라이브 데스크탑
 - **ninja 29/29 GREEN** — 링크 3건(jkdesktop.exe, jkwinserver.exe, jkapp_taskbar.dll)
   전부 성공. 링크 보류 0. (컴파일 결함 아닌 잠금 보류였음이 확인됨)
 
-회귀 7종 **×2 연속 전부 GREEN** (`tools/probes/reg7_*.log`):
+회귀 9종 **×2 연속 전부 GREEN** (`tools/probes/reg7_*.log`):
 
 | 프로브 | 결과(×2 동일) |
 |---|---|
@@ -184,6 +187,9 @@ Task 4 시점(ninja [80/80]) 이후 Task 5/6이 착지해 라이브 데스크탑
 | probe_textfont.ps1 | 7 PASS / 0 FAIL (server-up PASS, settings 복원 byte-identical) |
 | probe_settings.ps1 | 17 ok — RESULT: ALL PASS |
 | probe_approval_overflow.ps1 | parked-1..8 + reply + events(8) — PASS (배너 파이프라인 무수정 회귀) |
+
+- `probe_settings.ps1`/`probe_approval_overflow.ps1`는 `jkdesktop --server`를 자가 스폰하므로
+  **싱글 인스턴스 가드(docs/59 §11)에 걸리지 않도록 `jkwinserver.exe`가 내려간 상태에서** 실행한다.
 
 - `terminal_jamo_atlas_probe` 재컴파일: JKGlyphAtlas.cpp의
   `STB_TRUETYPE_IMPLEMENTATION`이 JKTextAtlas.cpp로 이동해 단독 링크에 보충 필요.
@@ -201,7 +207,10 @@ Task 4 시점(ninja [80/80]) 이후 Task 5/6이 착지해 라이브 데스크탑
    작음. 메모리 글리프당 ~1KB.
 2. **KssmCodepointToUnicode 왕복 가드** — KssmToUtf8이 매핑 없는 쌍을 '?'로 치환하므로,
    Utf8ToKssm 왕복이 원래 쌍으로 돌아올 때만 실제 매핑으로 인정(아니면 0=폴백 신호).
-   신규 매핑 테이블 금지(docs/60 §7) 원칙으로 기존 역인덱스 재사용.
+   신규 매핑 테이블 금지(docs/60 §7) 원칙으로 기존 역인덱스 재사용. [최종리뷰 픽스
+   2026-09-21] 이 위에 쌍 단위 메모이즈(0도 캐시, 계약 불변)를 얹었다 — 리페인트마다
+   반복되던 문자열 할당 2건+왕복 변환 제거. 비(非)Windows는 Utf8ToKssm이 항등이라
+   왕복 가드가 무효 → 0(비트맵 폴백) 봉쇄(포트 시점 함정 주석).
 3. **배너 영구 백엔드** — 배너 캐시의 등록/플러시 소유자로 `bannerBackend_`를 서버
    수명 동안 유지. 배너 텍스처 풀(`approvalBannerTexs_`)은 Stop에서 폐기.
 4. **`DrawGlyph` 즉시 FlushUploads 폴백** — 텍스처 조회 실패 시 1회 플러시 후 재시도
@@ -215,9 +224,12 @@ Task 4 시점(ninja [80/80]) 이후 Task 5/6이 착지해 라이브 데스크탑
   비트맵 경로(계단진 그대로).
 - **배너 글리프 텍스처 누적** — bannerCache_ 글리프 텍스처는 Stop까지 누적(LRU 폐기
   백로그, §7).
-- **malformed 후행 하이바이트 스퀘시 엣지** — TextOut 루프에서 문자열 끝에 홀로 남은
-  하이바이트(`i+1 >= n`인 `c & 0x80`)는 영문 경로(EngPutCh)로 그려진다 — 잘린
-  KSSM 조각은 잘못된 글자 1개로 표시. 정상 문자열에서는 발생하지 않는 에지(원래
-  비트맵 경로도 동일 동작 — 본 과제에서 새로 만든 결함 아님).
+- **malformed 후행 하이바이트 엣지(최종리뷰 IMP-1 픽스)** — TextOut 루프에서 문자열
+  끝에 홀로 남은 하이바이트(`i+1 >= n`인 `c & 0x80`)는 `EngPutCh`로 갔는데, 벡터
+  경로는 `StrideOf`가 16을 돌려 16px 글리프 텍스처를 8px dst로 눌러 그리는 왜곡이
+  생겼다(원래 비트맵 경로는 `FONT_8X8[ch&0x7f]` ASCII 폴백으로 8×8이었음 — 즉 이
+  왜곡은 본 과제가 새로 만든 결함). 픽스: `EngPutCh`는 `ch < 0x80`일 때만 아틀라스를
+  시도하고 하이바이트는 비트맵 폴백(ASCII 8×8 폴백 글리프)으로 라우팅 — 잘린 KSSM
+  조각은 잘못된 글자 1개로 표시(정상 문자열에서는 발생하지 않는 에지).
 - **눈확인 대기**: 데스크탑 재기동 후 전체 UI 텍스트가 벡터 폰트로 렌더되는지
   사용자 확인(1단계 종결 조건).

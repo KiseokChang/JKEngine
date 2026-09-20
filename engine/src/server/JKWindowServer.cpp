@@ -5861,7 +5861,11 @@ SDL_Texture* JKWindowServer::ApprovalBannerTexture(const std::string& bannerUtf8
         const std::string fp = textFontPath_.empty()
                                    ? jk::text::ResolveDesktopFontPath()
                                    : textFontPath_;
-        if (!bannerAtlas_->Init(fp, 8, 16, 16)) {
+        if (fp.empty()) {
+            std::fprintf(stderr,
+                         "[server] approval banner: no vector font configured "
+                         "(text.font_path empty), staying on bitmap glyphs\n");
+        } else if (!bannerAtlas_->Init(fp, 8, 16, 16)) {
             std::fprintf(stderr,
                          "[server] approval banner: vector font init failed "
                          "(%s), staying on bitmap glyphs\n",

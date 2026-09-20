@@ -209,8 +209,10 @@ bool JKDC::DrawGlyph(JKPoint p, uint32_t cp, int stride) {
 }
 
 void JKDC::EngPutCh(JKPoint p, uint8_t ch) {
-    // 아틀라스 우선 (docs/63) — 실패 시 기존 비트맵 경로 그대로.
-    if (DrawGlyph(p, static_cast<uint32_t>(ch), 8)) return;
+    // 아틀라스 우선 (docs/63) — 실패 시 기존 비트맵 경로 그대로. ASCII(ch<0x80)만
+    // 블릿 — 잘린 KSSM 트레일 바이트(ch>=0x80)는 16px 글리프 텍스처를 8px dst로
+    // 눌러 그리는 왜곡이 생기므로 비트맵 폴백으로 라우팅한다(최종리뷰 IMP-1).
+    if (ch < 0x80 && DrawGlyph(p, static_cast<uint32_t>(ch), 8)) return;
     uint8_t image[16];
     if (fontMan_ && fontMan_->GetEnglishImage(image, ch)) {
         PutEngGlyph8x16(p, image);
@@ -221,9 +223,13 @@ void JKDC::EngPutCh(JKPoint p, uint8_t ch) {
 
 void JKDC::HanPutCh(JKPoint p, uint8_t first, uint8_t second) {
     // 아틀라스 우선 (docs/63) — KSSM 쌍을 유니코드로 디코드해 글리프 조회.
-    // 매핑 없는 쌍(cp==0)은 비트맵 폴백. 변환은 글리프 그리기당 1회.
-    const uint32_t cp = KssmCodepointToUnicode(first, second);
-    if (cp != 0 && DrawGlyph(p, cp, 16)) return;
+    // 매핑 없는 쌍(cp==0)은 비트맵 폴백. 변환 자체는 JKHangulUtil 내부에서
+    // 쌍 단위 메모이즈되므로 쌍당 실계산 1회. 아틀라스 미장착(비트맵 폴백 모드,
+    // Init 실패 등)이면 변환 없이 비트맵으로 곧장 — cp가 필요 없는 경로.
+    if (textAtlas_ && textCache_) {
+        const uint32_t cp = KssmCodepointToUnicode(first, second);
+        if (cp != 0 && DrawGlyph(p, cp, 16)) return;
+    }
     uint8_t buffer[32];
     if (fontMan_ && fontMan_->GetWORDImage(buffer, first, second)) {
         PutHanGlyph16x16(p, buffer);

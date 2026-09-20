@@ -1,6 +1,6 @@
 // jktext_probe — 데스크탑 벡터 폰트(docs/63) 로직 단위 프로브.
 // T1: KSSM 코드포인트 → 유니코드 변환 (Task 1).
-// T2: 폰트 로드+셀 메트릭. T3: 래스터라이즈 잉크. T4: 폰트 커버리지.
+// T2: 폰트 로드+셀 메트릭. T3: 래스터라이즈 잉크+AA(중간 알파>0=벡터). T4: 폰트 커버리지.
 // T5: 캐시 등록 계약.
 // T6-T8: JKDC 배선 — 아틀라스 우선/비트맵 폴백/메트릭 불변 (Task 3).
 #include <JKHangulUtil.h>
@@ -110,7 +110,8 @@ int main() {
     }
     CHECK(atlas.IsLoaded(), "T2 loaded");
 
-    // T3: 래스터라이즈 잉크+AA — 한글 음절/한자/영문.
+    // T3: 래스터라이즈 잉크+AA — 한글 음절/한자/영문. 반환값: 0=잉크 없음/미커버,
+    // 1=잉크 있으나 중간 알파 없음(비트맵형 계단), 2=잉크+AA(벡터 래스터라이즈).
     auto HasInk = [&](uint32_t cp, int stride) {
         std::vector<uint8_t> rgba;
         int w = 0, h = 0;
@@ -121,18 +122,19 @@ int main() {
             if (rgba[i] > 0) ++ink;
             if (rgba[i] > 8 && rgba[i] < 247) ++aa;   // 중간값 = 안티에일리어싱
         }
-        return (ink > 0) ? 1 : 0;
+        if (ink == 0) return 0;
+        return (aa > 0) ? 2 : 1;
     };
-    CHECK(HasInk(0xAC00, 16) == 1, "T3 가 ink (16px stride)");
-    CHECK(HasInk(0x6F22, 16) == 1, "T3 漢 ink");
-    CHECK(HasInk('A', 8) == 1, "T3 'A' ink (8px stride)");
+    CHECK(HasInk(0xAC00, 16) == 2, "T3 가 ink+AA (16px stride)");
+    CHECK(HasInk(0x6F22, 16) == 2, "T3 漢 ink+AA");
+    CHECK(HasInk('A', 8) == 2, "T3 'A' ink+AA (8px stride)");
 
     // T4: 폰트에 없는 글자 → false. 뷁(KS X 1002)은 커버 여부를 폰트가 결정.
     const int bbaelk = HasInk(0xBDF7, 16);
     if (bbaelk == 0) {
         std::printf("INFO: 뷁 U+BDF7 not covered — no-glyph false path\n");
     } else {
-        CHECK(bbaelk == 1, "T4 뷁 ink (맑은 고딕 KS X 1002)");
+        CHECK(bbaelk >= 1, "T4 뷁 ink (맑은 고딕 KS X 1002)");
     }
 
     // T5: 캐시 등록 계약 — (fg,cp) 유니크 키, 재요청 멱등.

@@ -198,6 +198,10 @@ bool JKClientApplication::Init(const std::string& title, int width, int height,
     const std::string fontPath = jk::text::ResolveDesktopFontPath();
     if (!fontPath.empty() && textAtlas_->Init(fontPath, 8, 16, 16)) {
         dc_.SetTextAtlas(textAtlas_.get(), resourceCache_.get());
+    } else if (fontPath.empty()) {
+        std::fprintf(stderr,
+            "Warning: no vector font configured (text.font_path empty); "
+            "staying on bitmap glyphs.\n");
     } else {
         std::fprintf(stderr,
             "Warning: vector font init failed (%s); staying on bitmap glyphs.\n",
