@@ -356,3 +356,25 @@ Task 4 시점(ninja [80/80]) 이후 Task 5/6이 착지해 라이브 데스크탑
   되지 않는다(문서화 수용). scale>1.0 실물 렌더는 눈확인 유예(옵트인, 기본
   1.0이라 회귀 없음). fractional scale에서 hanW ≠ 2×engW가 될 수 있어
   JKEdit의 표시 셀 매핑(쌍=2셀×engW)은 근사 — engW 스케일을 따른다.
+
+### 9.8 리뷰 유보 소각 — GUI 301 버퍼 + view probe 음성 통제 자동화 (2단계 Task 4, 2026-09-21)
+
+- **GUI 버퍼 NUL 규약** — ClientSettingsApp.h `textFontBuf_`/`fallbackFontBuf_`
+  300→**301**(NUL 포함 — 300자 경로 값이 잘리지 않고 수용된다. 1단계 리뷰
+  유보). 모든 사용처가 `sizeof(buf)`라 선언만으로 전파. scaleBuf_는 16→32
+  (유한 double 문자열 최대치 — 16에서는 16자 초과 소수가 무음 절단돼 서버
+  검증 전 값이 변질됐다). jkapp_settings.dll 재링크 GREEN(라이브 데스크탑
+  무정지 — 설정 앱 DLL 미로드 실측).
+- **view probe 2페이즈** — 페이즈 1(아틀라스 장착) 단정 전량 유지(ink/aa/span
+  기준선 ink=189 aa=172 span=[9..61] 불변). **글리프 span 단정 신설**: 글리프를
+  하나씩 따로 찍어 잉크 사각 폭 ≤ 셀 전진(가/나 ≤ hanW, A/B/C ≤ engW) —
+  이웃 셀 침범 글리프를 픽셀로 봉쇄(1단계 리뷰 유보). 실측 가=나=11, A=6,
+  B=5, C=6 — 전부 여유 있음.
+- **페이즈 2(음성 통제 자동화)** — 기존 수동 "비트맵 경로면 AA 0" 확인을
+  프로브로 흡수: `dc.SetTextAtlas(nullptr, nullptr)`(비트맵 폴백으로 내려가는
+  유일한 공식 스위치 — 나쁜 경로 재Init보다 결정론적) 후 같은 문장 재촬영 →
+  aa==0(비트맵 계단)+ink>0(비트맵 글리프는 여전히 그려진다, 실측 203) 단정.
+- **빌드 선례** — jktext_view_probe는 저장소 빌드 스크립트 부재(레슨 28:
+  링크 오류는 입력 파일 목록부터) → g++ 단독 라인 재구성·기준선 재현으로
+  검증: jktext_probe 라인에 `JKResourceCache.cpp JKSDLRenderBackend.cpp
+  JKImageLoader.cpp` 추가(JKHangulManager는 동일). ×2 연속 PASS.
