@@ -61,8 +61,8 @@ CellMetrics ComputeCellMetrics(float s);
 // (이름 규약 주의: 같은 스코프에 struct CellMetrics와 CellMetrics() 함수가
 // 공존하면 함수 이름이 클래스 이름을 가린다(C++ 기본 탐색 규칙 — 검증:
 // `struct Foo{}; const Foo& Foo();` 후 `Foo x;` 파산) — 그래서 접근자는
-// GetCellMetrics로 접두어를 붙였다. brief의 `text::GetCellMetrics()` 이름은
-// 이 규칙과 충돌해 채택 불가.)
+// GetCellMetrics로 접두어를 붙였다. brief의 `text::CellMetrics()`(구조체와
+// 동명) 이름은 이 규칙과 충돌해 채택 불가.)
 const CellMetrics& GetCellMetrics();
 
 } // namespace text

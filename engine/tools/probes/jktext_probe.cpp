@@ -371,7 +371,7 @@ int main() {
               "T11(a) ComputeCellMetrics(99) == 상한 클램프 {24,48,48}");
         const jk::text::CellMetrics& live = jk::text::GetCellMetrics();
         CHECK(live.engW == 8 && live.hanW == 16 && live.cellH == 16,
-              "T11(b) CellMetrics() 미설정 기본 {8,16,16}");
+              "T11(b) GetCellMetrics() 미설정 기본 {8,16,16}");
     }
 
     std::printf("PASS %d FAIL %d\n", g_pass, g_fail);
