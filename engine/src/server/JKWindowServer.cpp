@@ -1595,7 +1595,12 @@ std::string JKWindowServer::ExecuteSendInputOp(const SendInputOp& op) {
         }
     }
     if (!client) return "window_not_found";
-    if (client->IsShell()) return "bad_target";
+    // 셸 + 캡처 오버레이 쌍검사 (최종리뷰 Important 픽스): 캡처 오버레이는
+    // 셸과 별개 실존 연결 — 배제 선례는 IsShell() || Title()==kCaptureOverlayTitle
+    // 쌍검사(560·1054·5888). 러버밴드 캡처 진행 중 오버레이 id로 합성
+    // click/key가 들어오면 러버밴드·ESC 처리가 오염된다.
+    if (client->IsShell() || client->Title() == kCaptureOverlayTitle)
+        return "bad_target";
     ipc::InputEventPayload p{};
     p.surfaceId = op.target;
     if (op.op == "click") {
