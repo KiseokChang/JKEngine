@@ -214,6 +214,20 @@ int main() {
               "got=" + KssmToUtf8(e.GetText().c_str()));
     }
 
+    // T17: 한/영 전환키(IME LANG1 스캔코드, docs/61 §15) — 내부 모드에서 이
+    // 키를 누르면 내부 오토마타에서 손을 뗀다(콘솔 프로브에는 OS IME가
+    // 없으므로 DetectWindowsImeState는 no-op, 내부 모드 해제만 검증).
+    {
+        JKEdit e(JKRect{ 0, 0, 400, 24 });
+        e.SetHangulMode(true);
+        Check("T17a-internal", e.GetInputMode() == JKEdit::InputMode::InternalHangul,
+              "mode=" + std::to_string(static_cast<int>(e.GetInputMode())));
+        SendKey(e, static_cast<int>(SDLK_SCANCODE_MASK | SDL_SCANCODE_LANG1));
+        Check("T17b-haneng-internal-off",
+              e.GetInputMode() != JKEdit::InputMode::InternalHangul,
+              "mode=" + std::to_string(static_cast<int>(e.GetInputMode())));
+    }
+
     {
         // T9: "한국어" = ㅎㅏㄴ ㄱㅜ ㄹ ㅇㅓ — 받침 뒤 새 음절이 조합돼야 한다.
         {

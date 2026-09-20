@@ -488,6 +488,16 @@ void JKEdit::RespondMessage(const JKEvent& ev) {
                     if (window) JKPlatform::SetConversionMode(window, JKPlatform::ImeMode::Ascii);
                 }
             }
+        } else if (ev.keyCode == (SDLK_SCANCODE_MASK | SDL_SCANCODE_LANG1)) {
+            // 한/영 전환키(IME LANG1, docs/61 §15): OS IME가 이미 토글했다.
+            // 내부 오토마타 모드면 손을 내리고(OS IME가 방금 전환한 상태를
+            // 따라간다), OS IME 경로면 현재 변환 상태를 다시 읽어 동기화한다.
+            // 옛 코드는 이 키에 대한 처리가 없어 F2만 응답했다.
+            if (!imeComposing_) {
+                if (inputMode_ == InputMode::InternalHangul)
+                    inputMode_ = InputMode::Ascii;
+                DetectWindowsImeState();
+            }
         } else if (inputMode_ == InputMode::InternalHangul &&
                    !imeComposing_ &&
                    ((ev.keyCode >= SDLK_a && ev.keyCode <= SDLK_z) ||
