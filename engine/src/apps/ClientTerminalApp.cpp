@@ -6,6 +6,7 @@
 
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 
 namespace jk {
 
@@ -70,6 +71,13 @@ void ClientTerminalApp::OnInit() {
 
     SetMainWindow(std::move(main));
     SetTimerInterval(530);   // cursor blink
+    // 프로브 진입점(docs/61 §22.3): 클라 모드 LL 훅은 서버 쪽이지만 프로브가
+    // 한/영 키를 합성하기 어려운 환경 대비 — env로 내부 조합 모드 강제.
+    if (std::getenv("JKTERM_FORCE_HANGUL") && view_) {
+        JKEvent ev{};
+        ev.type = JKEventType::ImeToggle;
+        view_->RespondMessage(ev);
+    }
 }
 
 void ClientTerminalApp::OnClose() {

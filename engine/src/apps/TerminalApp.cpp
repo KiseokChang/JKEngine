@@ -10,6 +10,7 @@
 #include <theme/JKTheme.h>
 
 #include <cstdio>
+#include <cstdlib>
 
 namespace jk {
 
@@ -68,6 +69,13 @@ void TerminalApp::OnInit() {
     // 지연 상한이자 펌프 주기; 깜빡임은 틱 카운터로 ~540ms (클라의 530ms와
     // 동등). 별도 AddTimer보다 winId 디스패치가 없는 쪽이 단순하다.
     SetTimerInterval(30);
+    // 프로브 진입점(docs/61 §22.3): 단일 모드엔 LL 훅이 없어 한/영 키가
+    // 조합 불능 IME 환경에서 도달하지 않는다 — env로 내부 조합 모드 강제.
+    if (std::getenv("JKTERM_FORCE_HANGUL") && view_) {
+        JKEvent ev{};
+        ev.type = JKEventType::ImeToggle;
+        view_->RespondMessage(ev);
+    }
 }
 
 void TerminalApp::OnClose() {

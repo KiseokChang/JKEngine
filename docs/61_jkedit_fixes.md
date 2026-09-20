@@ -602,3 +602,46 @@ PASS, jkedit_probe ×2 + terminal_hangul_probe 33/33 회귀 GREEN.
 테스트 가능해지면 배선은 "이제 테스트 불가"가 아니라 로직의 소비자(호출부)
 를 최소 의존으로 운전하는 뷰 레벨 프로브를 만든다. 오토마타 33체크가 있어도
 호출부가 매 키를 확정하고 있으면 제품은 망가진다.**
+
+### 22.3 "조합 과정이 안보이는" — 클라 경로 전수 검증 + terminal.json 2주 잠복 소실
+
+§22.2 픽스 후 유저 보고 "잘 찍히기는 하는데 조합 과정이 안보이는건 그대로".
+조합(완성 송출)은 된다는 것이므로 용의선상은 preEdit 오버레이의
+렌더링이다. 이판사판 이분법으로 두 리그를 만들었다.
+
+**vpt13(단일 프로세스)**: `jkdesktop.exe terminal`을 JKTERM_PREEDIT_DBG=1
+(단계별 stderr 로그 — 이벤트 유입/오토마타 전이/paint 진입/fallback 징후)
++ JKTERM_FORCE_HANGUL=1로 스폰, ImmAssociateContext(0)로 OS IME 탈착 후
+스크린샷 diff. **오버레이 정상 렌더** — 이벤트→preEdit→paint 사슬 실측.
+
+**vpt14(클라 경로 = 유저 실제 스택)**: `jkdesktop.exe --client terminal`(
+서버가 런처에서 스폰하는 것과 동일, JKWindowServer.cpp:6115)을 라이브 서버
+파이프에 접속, PostMessage WM_KEYDOWN(이 리그에서 SendInput 봉쇄 실측)으로
+r/k 주입. **여기서도 오버레이 정상 렌더** — client_terminal.log에
+`result preEdit="ㄱ"` → `paint` → `result preEdit="가"` → `paint` 전 사슬,
+diff bbox에서 녹색 글리프 픽셀 실측. 이전 런에서 로그가 비어있던 것은
+MirrorClientStderr가 "stderr 무효일 때만" 미러링하기 때문 — 프로브가
+-RedirectStandardError 없이 Hidden 기동하면 stderr가 소실기로 간다. 픽스:
+RedirectStandardError 부착.
+
+**진짜 결함은 렌더링이 아니라 설정이었다**: engine/build의 유저 설정 파일이
+`terminal_.json`으로改名돼 있었다(mtime 2026-09-06 — 2주 전, 프로브 state
+백업류의 이름변경 잔재로 추정). JKTerminalConfig::DefaultPath는
+`terminal.json`을 읽으므로 **그동안 모든 터미널이 기본 테마(흑백)로
+구동**됐고, 기본색 오버레이는 #3C3C3C 스트립에 #CCCCCC 글리프라 실물 크기에서
+사실상 식별 불능이었다. 복구 후 같은 오버레이가 유저 테마(다크레드/#39ff14)로
+밝은 녹색 "가"로 렌더됨을 vpt14 스크린샷+녹색 픽셀 카운트(65개)로 확정.
+
+회귀: terminal_hangul_probe 33/33 ×2, terminal_hangul_view_probe 18/18 ×2,
+jkedit_probe ×2, vpt13/vpt14 각 PASS. 라이브 환경 복구: jkdesktop 기동 1개
+(좀비 0), 서버·브리지는 현빌드 유지.
+
+**레슨 31. "안보인다"의 첫 용의자는 렌더러가 아니라 설정이다 — 유저가 본
+것은 깨진 렌더가 아니라 테마 상실로 인한 저대비였다. 설정 파일의 존재·이름
+·mtime을 렌더링 추적보다 먼저 확인하라. 프로브가 state 파일을 백업할 때
+이름변경을 쓰면 반드시 복원을 보장하거나 사본을 쓴다(§16 레슨의 확장).**
+
+**레슨 32. 클라 stderr는 "무효일 때만" 미러링된다 — 프로브가 Hidden 기동으로
+스폰하면 자식 stderr는 소실기로 가고 로그는 그냥 사라진다. 클라 로그가
+비어 있으면 미러 파일을 의심하기 전에 핸들 자체를 의심하라(-RedirectStandard
+Error가 답).**

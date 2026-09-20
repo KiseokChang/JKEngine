@@ -6,11 +6,21 @@
 #include <JKApplicationHost.h>
 #include <SDL.h>
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace jk {
 
 namespace {
+
+// 조합 파이프라인 단계별 증거 채널(docs/61 §22.3 — 라이브 파산 국소화).
+// JKTERM_PREEDIT_DBG=1일 때만 출력: 이벤트 유입 → 오토마타 preEdit 전이 →
+// 오버레이 페인트 → 폴백 글리프(아틀라스 블리트 실패 징후)까지 4단계.
+bool PreEditDbg() {
+    static const bool on = std::getenv("JKTERM_PREEDIT_DBG") != nullptr;
+    return on;
+}
 
 // Theme (docs/22 §5): near-black background, light gray default text. The
 // values are instance members now (terminal.json overrides, docs/26 단계 5);
@@ -227,6 +237,11 @@ void TerminalView::OnPaintClient(JKDC& dc) {
 }
 
 void TerminalView::PaintPreEdit(JKDC& dc, const JKRect& client) {
+    if (PreEditDbg()) {
+        std::fprintf(stderr, "[preedit] paint preEdit=\"%s\" cursor=(%d,%d)\n",
+                     preEdit_.c_str(), grid_->GetCursor().x, grid_->GetCursor().y);
+        std::fflush(stderr);
+    }
     const auto& cursor = grid_->GetCursor();
     const std::vector<uint32_t> cps = DecodeUtf8(preEdit_);
     // Fixed blend: 25% of themeFg mixed into themeBg — a slightly bright
@@ -329,6 +344,11 @@ void TerminalView::PaintGlyph(JKDC& dc, const JKRect& cellRect, uint32_t cp,
 // subset ConPTY repaints and a placeholder for everything else.
 void TerminalView::PaintFallbackGlyph(JKDC& dc, const JKRect& cellRect,
                                       uint32_t cp, uint32_t fg) {
+    if (PreEditDbg() && !(cp >= 0x2500 && cp <= 0x259F)) {
+        std::fprintf(stderr, "[preedit] fallback glyph cp=0x%X (atlas blit 실패 징후)\n",
+                     cp);
+        std::fflush(stderr);
+    }
     dc.SetColor(static_cast<uint8_t>((fg >> 16) & 0xFF),
                 static_cast<uint8_t>((fg >> 8) & 0xFF),
                 static_cast<uint8_t>(fg & 0xFF), 255);
@@ -392,6 +412,14 @@ void TerminalView::PaintFallbackGlyph(JKDC& dc, const JKRect& cellRect,
 }
 
 void TerminalView::RespondMessage(const JKEvent& ev) {
+    if (PreEditDbg() &&
+        (ev.type == JKEventType::KeyDown || ev.type == JKEventType::Char ||
+         ev.type == JKEventType::TextEditing || ev.type == JKEventType::ImeToggle)) {
+        std::fprintf(stderr, "[preedit] ev type=%d key=0x%X text=\"%.6s\" mod=0x%X\n",
+                     static_cast<int>(ev.type), static_cast<unsigned>(ev.keyCode),
+                     ev.text, static_cast<unsigned>(ev.option));
+        std::fflush(stderr);
+    }
     // 한/영 전환(서버 LL 훅 ImeToggle, docs/61 §19): 터미널 내부 조합 모드를
     // 토글한다. 꺼지는 방향에서는 진행 조합을 확정해 pty로 보낸다. LANG1
     // 키코드가 정통 도달하는 환경용 분기는 HandleKeyDown 쪽에 있다.
@@ -634,6 +662,12 @@ void TerminalView::HandleMouseReport(const JKEvent& ev) {
 // 오버레이로. preEdit가 빈 채 돌아오면(자소 팝 소진/토글 확정) 오버레이를
 // 지운다 — 오버레이와 오토마타 상태가 한 곳(TerminalHangulInput)에서만 정해진다.
 void TerminalView::SendHangulResult(const TerminalHangulInput::Result& r) {
+    if (PreEditDbg()) {
+        std::fprintf(stderr,
+                     "[preedit] result preEdit=\"%s\" send=%zu bytes\n",
+                     r.preEdit.c_str(), r.send.size());
+        std::fflush(stderr);
+    }
     if (preEdit_ != r.preEdit) {
         preEdit_ = r.preEdit;
         if (grid_) grid_->MarkAllDirty();
@@ -646,6 +680,10 @@ void TerminalView::SendHangulResult(const TerminalHangulInput::Result& r) {
 
 void TerminalView::ClearPreEdit() {
     if (preEdit_.empty()) return;
+    if (PreEditDbg()) {
+        std::fprintf(stderr, "[preedit] clear (was \"%s\")\n", preEdit_.c_str());
+        std::fflush(stderr);
+    }
     preEdit_.clear();
     if (grid_) grid_->MarkAllDirty();   // drop the overlay this frame
 }
