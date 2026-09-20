@@ -170,6 +170,17 @@ WsSend $c1 '{"type":"hello","resume_session":""}'
 $hello = WsRecv $c1 5000
 Check "ws-hello-ok" ($hello -ne $null -and $hello -match '"type":"hello"' -and $hello -match '"ok":1')
 
+# --- 3b. frames must be VALID JSON (2026-09-20 live defect: the ts wrapper
+# glued the ts value to the rest with no comma, so every frame failed the
+# phone's JSON.parse — "bridge never answers" while tools kept executing.
+# Regex matching alone let it through; this check is the wire-truth guard.)
+$helloJsonOk = $false
+try {
+    $hj = $hello | ConvertFrom-Json
+    $helloJsonOk = ($hj.type -eq "hello") -and ($hj.ok -eq 1) -and ($hj.ts -gt 0)
+} catch { $helloJsonOk = $false }
+Check "ws-hello-valid-json" $helloJsonOk ("raw=" + $hello)
+
 # --- 4. stub chat: done arrives with the stub result -------------------------
 WsSend $c1 '{"type":"chat","text":"stub hello"}'
 $chatDone = $null

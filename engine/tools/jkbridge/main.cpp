@@ -634,7 +634,10 @@ struct BridgeSession {
             stamped.reserve(json.size() + 16);
             stamped += "{\"ts\":";
             stamped += std::to_string(static_cast<long long>(time(nullptr)));
-            stamped += json.substr(1);  // 선두 '{' 뒤를 이어붙인다
+            stamped += ',';             // 쉼표 없이 이어붙이면 모든 프레임이
+            stamped += json.substr(1);  // JSON 파산 (2026-09-20 라이브 실측 —
+                                        // 폰 JSON.parse 전멸, "브리지가 대답을
+                                        // 안 한다"로 보인 근본 원인)
         } else {
             stamped = json;
         }
