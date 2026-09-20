@@ -43,6 +43,9 @@ public:
 
     bool IsCaretVisible() const { return focused_ && showCaret_; }
 
+    // 화면 픽셀 → 바이트 위치 (마우스 히트 테스트용 public API).
+    size_t PixelToPos(int32_t x, int32_t y) const;
+
     // 선택 영역
     void SetSelection(size_t start, size_t end);
     void ClearSelection();
@@ -71,6 +74,8 @@ private:
     size_t firstVisibleLine_ = 0;
     int32_t lineHeight_ = 16;
     int32_t charWidth_ = 8;
+    // 한 줄 편집 수평 스크롤 (표시 셀 단위 — ASCII 1셀=8px, KSSM 1글자=2셀=16px).
+    size_t firstVisibleCol_ = 0;
 
     // 선택 영역
     bool hasSelection_ = false;
@@ -83,6 +88,12 @@ private:
     size_t GetLineEnd(size_t line) const;
     size_t GetLineFromPos(size_t pos) const;
     size_t GetColFromPos(size_t pos) const;
+
+    // 표시 셀 매핑 (docs/60 §10): JKDC 비트맵 폰트는 ASCII 8px / KSSM 2바이트
+    // 16px로 전진하므로 바이트 인덱스×charWidth_는 한글에서 캐럿·선택을 밀어낸다.
+    // 셀 = ASCII 바이트 1개 또는 KSSM 쌍 1개의 점유 폭(8px 단위).
+    static size_t DisplayCells(const std::string& buf, size_t from, size_t to);
+    static size_t PosFromCells(const std::string& buf, size_t from, size_t to, size_t cells);
 
     void InsertText(const char* text);
     void InsertKssmChar(uint16_t code);
@@ -107,7 +118,6 @@ private:
     void ProcessHangulKey(uint16_t keyCode);
     void ScrollToCursor();
 
-    size_t PixelToPos(int32_t x, int32_t y) const;
     void UpdateSelection(size_t oldPos, bool shift);
     void CopyToClipboard();
     void CutToClipboard();

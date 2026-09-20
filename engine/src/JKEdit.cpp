@@ -28,6 +28,7 @@ void JKEdit::SetText(const std::string& text) {
     if (buffer_.size() > maxLength_) buffer_.resize(maxLength_);
     cursorPos_ = 0;
     firstVisibleLine_ = 0;
+    firstVisibleCol_ = 0;
     showCaret_ = true;
     composing_ = false;
     automata_.InitAutomata();
@@ -40,6 +41,8 @@ void JKEdit::SetSelection(size_t start, size_t end) {
     selAnchor_ = start;
     cursorPos_ = end;
     hasSelection_ = (start != end);
+    ScrollToCursor();
+    showCaret_ = true;
 }
 
 void JKEdit::ClearSelection() {
@@ -98,10 +101,45 @@ size_t JKEdit::GetColFromPos(size_t pos) const {
     return pos - start;
 }
 
+// 표시 셀 매핑 (docs/60 §10). 셀 = 8px 한 칸: ASCII 바이트 1개 = 1셀,
+// KSSM 2바이트 쌍 = 2셀(JKDC::TextOut이 16px 전진). 범위 경계가 쌍 중간에
+// 걸리면 그 바이트는 1셀로 계산된다(호출부는 쌍 경계 좌표만 넘긴다).
+size_t JKEdit::DisplayCells(const std::string& buf, size_t from, size_t to) {
+    if (to > buf.size()) to = buf.size();
+    size_t cells = 0;
+    size_t i = from;
+    while (i < to) {
+        if (static_cast<uint8_t>(buf[i]) >= 0x80) { cells += 2; i += 2; }
+        else { cells += 1; i += 1; }
+    }
+    return cells;
+}
+
+// [from, to) 바이트 구간에서 cells셀 만큼 전진한 바이트 위치. KSSM 쌍은
+// 통째로 전진하므로 반환값은 항상 글리프 경계(쌍 중간에 걸리지 않음).
+size_t JKEdit::PosFromCells(const std::string& buf, size_t from, size_t to, size_t cells) {
+    if (to > buf.size()) to = buf.size();
+    size_t i = from;
+    size_t c = 0;
+    while (i < to && c < cells) {
+        if (static_cast<uint8_t>(buf[i]) >= 0x80) { c += 2; i += 2; }
+        else { c += 1; i += 1; }
+    }
+    return (i > to) ? to : i;
+}
+
 void JKEdit::ScrollToCursor() {
-    if (!multiLine_) return;
-    size_t line = GetLineFromPos(cursorPos_);
     const JKRect client = GetScreenClientRect();
+    if (!multiLine_) {
+        // 수평 스크롤: 캐럿 셀이 표시 밴드 밖이면 밴드를 민다 (docs/60 §10).
+        int32_t visibleCells = std::max(1, (client.w - 4) / charWidth_);
+        size_t caretCell = DisplayCells(buffer_, 0, cursorPos_);
+        if (caretCell < firstVisibleCol_) firstVisibleCol_ = caretCell;
+        if (caretCell >= firstVisibleCol_ + static_cast<size_t>(visibleCells))
+            firstVisibleCol_ = caretCell - static_cast<size_t>(visibleCells) + 1;
+        return;
+    }
+    size_t line = GetLineFromPos(cursorPos_);
     int32_t visibleLines = std::max(1, client.h / lineHeight_);
     if (line < firstVisibleLine_) firstVisibleLine_ = line;
     if (line >= firstVisibleLine_ + static_cast<size_t>(visibleLines))
@@ -129,46 +167,57 @@ void JKEdit::OnPaintClient(JKDC& dc) {
     dc.SetTextColor(textR_, textG_, textB_);
     if (!multiLine_) {
         int32_t textY = inner.y + (inner.h - 16) / 2;
+        // 수평 스크롤 오프셋: 화면의 첫 바이트 off, x는 off 기준 셀 수로 환산
+        // (docs/60 §10 — 바이트×charWidth_는 KSSM에서 밀린다).
+        size_t off = PosFromCells(buffer_, 0, buffer_.size(), firstVisibleCol_);
+        auto xOf = [&](size_t bytePos) -> int32_t {
+            return inner.x + static_cast<int32_t>(
+                       DisplayCells(buffer_, off, bytePos) * static_cast<size_t>(charWidth_));
+        };
         size_t selA = std::min(selAnchor_, cursorPos_);
         size_t selB = std::max(selAnchor_, cursorPos_);
 
         if (hasSelection_ && selB > selA) {
-            int32_t selX = inner.x + static_cast<int32_t>(selA * charWidth_);
-            int32_t selW = static_cast<int32_t>((selB - selA) * charWidth_);
-            if (selX < inner.x) {
-                selW -= (inner.x - selX);
-                selX = inner.x;
-            }
-            if (selX + selW > inner.x + inner.w) {
-                selW = inner.x + inner.w - selX;
-            }
-            if (selW > 0) {
-                dc.SetColor(t.selectionBg.r, t.selectionBg.g, t.selectionBg.b, 255);
-                dc.FillRect(JKRect{ selX, textY, selW, 16 });
-            }
+            // 선택 밴드 — off 이전/이후 부분 잘라내기.
+            if (selA < off) selA = off;
+            if (selB < off) selB = off;
+            if (selB > selA) {
+                int32_t selX = xOf(selA);
+                int32_t selW = static_cast<int32_t>(
+                    (DisplayCells(buffer_, selA, selB)) * static_cast<size_t>(charWidth_));
+                if (selX + selW > inner.x + inner.w)
+                    selW = inner.x + inner.w - selX;
+                if (selW > 0) {
+                    dc.SetColor(t.selectionBg.r, t.selectionBg.g, t.selectionBg.b, 255);
+                    dc.FillRect(JKRect{ selX, textY, selW, 16 });
+                }
 
-            const char* buf = buffer_.c_str();
-            dc.SetTextColor(textR_, textG_, textB_);
-            if (selA > 0) {
-                dc.TextOut(jk::JKPoint{ inner.x, textY }, selA, buf);
-            }
-            dc.SetTextColor(t.selectionText.r, t.selectionText.g, t.selectionText.b);
-            dc.TextOut(jk::JKPoint{ inner.x + static_cast<int32_t>(selA * charWidth_), textY },
-                       selB - selA, buf + selA);
-            dc.SetTextColor(textR_, textG_, textB_);
-            if (selB < buffer_.size()) {
-                dc.TextOut(jk::JKPoint{ inner.x + static_cast<int32_t>(selB * charWidth_), textY },
-                           buffer_.size() - selB, buf + selB);
+                const char* buf = buffer_.c_str();
+                dc.SetTextColor(textR_, textG_, textB_);
+                if (off < selA) {
+                    dc.TextOut(jk::JKPoint{ inner.x, textY }, selA - off, buf + off);
+                }
+                dc.SetTextColor(t.selectionText.r, t.selectionText.g, t.selectionText.b);
+                dc.TextOut(jk::JKPoint{ xOf(selA), textY }, selB - selA, buf + selA);
+                dc.SetTextColor(textR_, textG_, textB_);
+                if (selB < buffer_.size()) {
+                    dc.TextOut(jk::JKPoint{ xOf(selB), textY },
+                               buffer_.size() - selB, buf + selB);
+                }
+            } else {
+                // 선택이 완전히 좌측 밖 — 일반 렌더로 폴백.
+                dc.TextOut(jk::JKPoint{ inner.x, textY }, buffer_.c_str() + off);
             }
         } else {
             dc.SetTextColor(textR_, textG_, textB_);
-            dc.TextOut(jk::JKPoint{ inner.x, textY }, buffer_.c_str());
+            dc.TextOut(jk::JKPoint{ inner.x, textY }, buffer_.c_str() + off);
         }
 
         // Draw IME composition string at the caret position.
         if (focused_ && !compText_.empty()) {
-            int32_t compX = inner.x + static_cast<int32_t>(cursorPos_ * charWidth_);
-            int32_t compW = static_cast<int32_t>(compText_.size()) * charWidth_;
+            int32_t compX = xOf(cursorPos_);
+            int32_t compW = static_cast<int32_t>(
+                DisplayCells(compText_, 0, compText_.size()) * static_cast<size_t>(charWidth_));
             // IME 조합 배경 — 토큰 rgb, 알파 64 고정 보존 (스펙 §1c).
             dc.SetColor(t.imeCompositionBg.r, t.imeCompositionBg.g, t.imeCompositionBg.b, 64);
             dc.FillRect(JKRect{ compX, textY, compW, 16 });
@@ -177,14 +226,15 @@ void JKEdit::OnPaintClient(JKDC& dc) {
         }
 
         if (focused_ && showCaret_) {
-            int32_t caretX = inner.x + static_cast<int32_t>(cursorPos_ * charWidth_);
+            int32_t caretX = xOf(cursorPos_);
             int32_t caretY = textY;
             dc.SetColor(t.widgetText.r, t.widgetText.g, t.widgetText.b, 255);
             dc.DrawLine(caretX, caretY, caretX, caretY + 12);
 
             // Additional caret inside the composition string.
             if (!compText_.empty()) {
-                int32_t compCaretX = caretX + static_cast<int32_t>(compCursor_ * charWidth_);
+                int32_t compCaretX = caretX + static_cast<int32_t>(
+                    DisplayCells(compText_, 0, compCursor_) * static_cast<size_t>(charWidth_));
                 dc.SetColor(t.imeCaret.r, t.imeCaret.g, t.imeCaret.b, 255);
                 dc.DrawLine(compCaretX, caretY, compCaretX, caretY + 12);
             }
@@ -193,20 +243,52 @@ void JKEdit::OnPaintClient(JKDC& dc) {
         int32_t visibleLines = std::max(1, inner.h / lineHeight_);
         size_t lineCount = GetLineCount();
         size_t lastLine = std::min(lineCount, firstVisibleLine_ + static_cast<size_t>(visibleLines));
+        size_t selA = std::min(selAnchor_, cursorPos_);
+        size_t selB = std::max(selAnchor_, cursorPos_);
         for (size_t line = firstVisibleLine_; line < lastLine; ++line) {
             size_t start = GetLineStart(line);
             size_t end = GetLineEnd(line);
-            std::string_view view(buffer_.data() + start, end - start);
-            dc.TextOut(jk::JKPoint{ inner.x, inner.y + static_cast<int32_t>((line - firstVisibleLine_) * lineHeight_) },
-                       std::string(view).c_str());
+            int32_t lineY = inner.y + static_cast<int32_t>((line - firstVisibleLine_) * lineHeight_);
+            // 선택 렌더 (docs/60 §10 — 대장 기존 결함: 멀티라인은 선택을
+            // 렌더하지 않았다). 라인과 선택 구간의 교집합을 3분할 색상으로.
+            size_t a = selA, b = selB;
+            if (a < start) a = start;
+            if (b > end) b = end;
+            if (hasSelection_ && a < b) {
+                auto xOf = [&](size_t bytePos) -> int32_t {
+                    return inner.x + static_cast<int32_t>(
+                               DisplayCells(buffer_, start, bytePos) * static_cast<size_t>(charWidth_));
+                };
+                const char* buf = buffer_.c_str();
+                dc.SetTextColor(textR_, textG_, textB_);
+                if (start < a) {
+                    dc.TextOut(jk::JKPoint{ inner.x, lineY }, a - start, buf + start);
+                }
+                int32_t selX = xOf(a);
+                int32_t selW = static_cast<int32_t>(
+                    DisplayCells(buffer_, a, b) * static_cast<size_t>(charWidth_));
+                dc.SetColor(t.selectionBg.r, t.selectionBg.g, t.selectionBg.b, 255);
+                dc.FillRect(JKRect{ selX, lineY, selW, lineHeight_ });
+                dc.SetTextColor(t.selectionText.r, t.selectionText.g, t.selectionText.b);
+                dc.TextOut(jk::JKPoint{ selX, lineY }, b - a, buf + a);
+                dc.SetTextColor(textR_, textG_, textB_);
+                if (b < end) {
+                    dc.TextOut(jk::JKPoint{ xOf(b), lineY }, end - b, buf + b);
+                }
+            } else {
+                std::string_view view(buffer_.data() + start, end - start);
+                dc.TextOut(jk::JKPoint{ inner.x, lineY }, std::string(view).c_str());
+            }
         }
         // Draw IME composition string at the caret position.
         if (focused_ && !compText_.empty()) {
             size_t line = GetLineFromPos(cursorPos_);
-            size_t col = GetColFromPos(cursorPos_);
-            int32_t compX = inner.x + static_cast<int32_t>(col * charWidth_);
+            size_t lineStart = GetLineStart(line);
+            int32_t compX = inner.x + static_cast<int32_t>(
+                DisplayCells(buffer_, lineStart, cursorPos_) * static_cast<size_t>(charWidth_));
             int32_t compY = inner.y + static_cast<int32_t>((line - firstVisibleLine_) * lineHeight_) + 2;
-            int32_t compW = static_cast<int32_t>(compText_.size()) * charWidth_;
+            int32_t compW = static_cast<int32_t>(
+                DisplayCells(compText_, 0, compText_.size()) * static_cast<size_t>(charWidth_));
             // IME 조합 배경 — 토큰 rgb, 알파 64 고정 보존 (스펙 §1c).
             dc.SetColor(t.imeCompositionBg.r, t.imeCompositionBg.g, t.imeCompositionBg.b, 64);
             dc.FillRect(JKRect{ compX, compY, compW, 16 });
@@ -216,14 +298,16 @@ void JKEdit::OnPaintClient(JKDC& dc) {
 
         if (focused_ && showCaret_) {
             size_t line = GetLineFromPos(cursorPos_);
-            size_t col = GetColFromPos(cursorPos_);
-            int32_t caretX = inner.x + static_cast<int32_t>(col * charWidth_);
+            size_t lineStart = GetLineStart(line);
+            int32_t caretX = inner.x + static_cast<int32_t>(
+                DisplayCells(buffer_, lineStart, cursorPos_) * static_cast<size_t>(charWidth_));
             int32_t caretY = inner.y + static_cast<int32_t>((line - firstVisibleLine_) * lineHeight_) + 2;
             dc.SetColor(t.widgetText.r, t.widgetText.g, t.widgetText.b, 255);
             dc.DrawLine(caretX, caretY, caretX, caretY + 12);
 
             if (!compText_.empty()) {
-                int32_t compCaretX = caretX + static_cast<int32_t>(compCursor_ * charWidth_);
+                int32_t compCaretX = caretX + static_cast<int32_t>(
+                    DisplayCells(compText_, 0, compCursor_) * static_cast<size_t>(charWidth_));
                 dc.SetColor(t.imeCaret.r, t.imeCaret.g, t.imeCaret.b, 255);
                 dc.DrawLine(compCaretX, caretY, compCaretX, caretY + 12);
             }
@@ -487,6 +571,9 @@ void JKEdit::InsertKssmChar(uint16_t code) {
 
 void JKEdit::InsertKssmText(const char* text) {
     if (!text || !text[0]) return;
+    // KSSM 삽입 경로도 선택을 지운다 (docs/60 §10): InsertText(ASCII)와 달리
+    // 누락돼 한글 타이핑 시 선택이 살아 남았다.
+    DeleteSelection();
     size_t len = std::strlen(text);
     if (buffer_.size() + len > maxLength_) {
         len = maxLength_ - buffer_.size();
@@ -500,6 +587,8 @@ void JKEdit::InsertKssmText(const char* text) {
 }
 
 void JKEdit::ProcessHangulKey(uint16_t keyCode) {
+    // 타이핑은 선택을 대체한다 (docs/60 §10).
+    if (hasSelection_) DeleteSelection();
     uint16_t converted = automata_.ConvertKey(keyCode, 0);
     bool complete = automata_.Automata(converted);
 
@@ -580,6 +669,7 @@ void JKEdit::DeleteForward() {
     // If the byte at the cursor is a KSSM first byte, delete the whole pair.
     size_t len = (static_cast<uint8_t>(buffer_[cursorPos_]) >= 0x80) ? 2 : 1;
     buffer_.erase(cursorPos_, len);
+    ScrollToCursor();
     showCaret_ = true;
 }
 
@@ -682,15 +772,13 @@ size_t JKEdit::PixelToPos(int32_t x, int32_t y) const {
         if (line >= lineCount) line = lineCount - 1;
         size_t start = GetLineStart(line);
         size_t end = GetLineEnd(line);
-        int32_t col = std::max(0, relX / charWidth_);
-        pos = start + static_cast<size_t>(col);
-        if (pos > end) pos = end;
+        // 셀 단위 역매핑 (docs/60 §10): KSSM 쌍은 통째로 건너뛰므로 반환값이
+        // 자연히 글리프 경계에 스냅된다(쌍 중간 클릭 방지).
+        pos = PosFromCells(buffer_, start, end, static_cast<size_t>(std::max(0, relX) / charWidth_));
     } else {
-        int32_t relX = x - inner.x;
-        int32_t col = relX / charWidth_;
-        if (col < 0) col = 0;
-        pos = static_cast<size_t>(col);
-        if (pos > buffer_.size()) pos = buffer_.size();
+        size_t cell = firstVisibleCol_ +
+                      static_cast<size_t>(std::max(0, x - inner.x) / charWidth_);
+        pos = PosFromCells(buffer_, 0, buffer_.size(), cell);
     }
     // Snap to a valid character boundary: if the cursor landed between the two
     // bytes of a KSSM pair, move it to the start of the pair. This prevents
@@ -721,7 +809,10 @@ void JKEdit::UpdateSelection(size_t oldPos, bool shift) {
 void JKEdit::CopyToClipboard() {
     std::string selected = GetSelectedText();
     if (!selected.empty()) {
-        SDL_SetClipboardText(selected.c_str());
+        // 버퍼는 KSSM — 클립보드는 UTF-8 (docs/60 §10). 무변환 복사는 한글을
+        // CP949 바이트로 클립보드에 밀어 넣어 붙여넣기 측에서 오염됐다.
+        std::string utf8 = KssmToUtf8(selected.c_str());
+        SDL_SetClipboardText(utf8.c_str());
     }
 }
 
@@ -734,7 +825,10 @@ void JKEdit::PasteFromClipboard() {
     if (SDL_HasClipboardText()) {
         char* text = SDL_GetClipboardText();
         if (text) {
-            InsertText(text);
+            // 클립보드는 UTF-8 — 버퍼(KSSM)로 변환해 삽입. 무변환 삽입은
+            // UTF-8 바이트가 그대로 버퍼에 들어가 렌더·커서 로직을 깬다.
+            std::string kssm = Utf8ToKssm(text);
+            InsertText(kssm.c_str());
             SDL_free(text);
         }
     }
