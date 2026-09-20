@@ -163,3 +163,37 @@ std::string KssmToUtf8(const char* kssm) {
 }
 
 } // namespace jk
+
+namespace {
+
+// UTF-8 첫 코드포인트 디코드. 기형이면 0. (KssmToUtf8 산출은 정상 UTF-8.)
+uint32_t Utf8FirstCodepoint(const char* s) {
+    const auto* u = reinterpret_cast<const unsigned char*>(s);
+    if (!u[0]) return 0;
+    if (u[0] < 0x80) return u[0];
+    uint32_t cp = 0;
+    int len = 0;
+    if ((u[0] & 0xE0) == 0xC0) { cp = u[0] & 0x1F; len = 2; }
+    else if ((u[0] & 0xF0) == 0xE0) { cp = u[0] & 0x0F; len = 3; }
+    else if ((u[0] & 0xF8) == 0xF0) { cp = u[0] & 0x07; len = 4; }
+    else return 0;
+    for (int i = 1; i < len; ++i) {
+        if ((u[i] & 0xC0) != 0x80) return 0;
+        cp = (cp << 6) | static_cast<uint32_t>(u[i] & 0x3F);
+    }
+    return cp;
+}
+
+} // namespace
+
+uint32_t jk::KssmCodepointToUnicode(uint8_t first, uint8_t second) {
+    // 기존 검증된 역인덱스(KssmToUtf8)를 글자 단위로 재사용 — 신규 매핑 테이블
+    // 금지(docs/60 §7: 산술 매핑 이중 유지는 결함의 온상).
+    const char bytes[3] = { static_cast<char>(first), static_cast<char>(second), 0 };
+    const std::string utf8 = jk::KssmToUtf8(bytes);
+    if (utf8.empty()) return 0u;
+    // KssmToUtf8은 매핑 없는 쌍을 '?'로 치환하므로, 왕복(Utf8ToKssm)이 원래
+    // 쌍으로 돌아오는 경우만 실제 매핑으로 인정한다 — 그 외는 0으로 폴백 신호.
+    if (jk::Utf8ToKssm(utf8.c_str()) != std::string(bytes)) return 0u;
+    return Utf8FirstCodepoint(utf8.c_str());
+}

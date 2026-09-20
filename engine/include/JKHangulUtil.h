@@ -1,6 +1,7 @@
 #ifndef JKHANGULUTIL_H
 #define JKHANGULUTIL_H
 
+#include <cstdint>
 #include <string>
 
 namespace jk {
@@ -14,6 +15,10 @@ std::string Utf8ToKssm(const char* utf8);
 // lazily built inverse of the same wancode tables (docs/60: the script app
 // getText roundtrip — JKEdit stores KSSM, JS strings are UTF-8).
 std::string KssmToUtf8(const char* kssm);
+
+// KSSM 2바이트 조합형 쌍을 유니코드 코드포인트로. 매핑 없는 쌍은 0.
+// (docs/63 데스크탑 벡터 폰트 — JKDC::HanPutCh가 글리프 조회에 쓴다.)
+uint32_t KssmCodepointToUnicode(uint8_t first, uint8_t second);
 
 } // namespace jk
 
