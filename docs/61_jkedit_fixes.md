@@ -497,3 +497,60 @@ T21 신설(캡스 소문자/캡스 대문자 키코드/Shift 우승 3체크), 38
 된다 — keycode가 대소문자를 이미 담고 있으면(라이브 SDL) 플래그는 오직
 키코드에 없는 정보(shift 의도)만 운반해야 한다. XOR로 두 근원을 합치면 한
 근원(caps)이 다른 의미를 끌어온다.**
+
+## 22. 터미널 내부 한글 조합 — DetachIme 설계의 마지막 피해자 복구
+
+유저 확인 질문 "터미널에서도 한글 입력 잘 되는 건가요?" (실증 입력
+`to tptusdptj wkrdjqgkrlfh gody` = 2벌식 "세션에서 작업하기로 해요" 원문) —
+터미널은 분할(docs/43) 전 OS IME 커밋(docs/26 단계 5)에 의존했는데, §20에서
+판명한 DetachIme 설계가 커밋 경로 자체를 떼어냈으므로 분할 이후 터미널
+한글은 죽어 있었다. §18의 JKEdit 내부 오토마타(§19 자소 백스페이스 포함)를
+터미널로 이식한다.
+
+**설계**:
+- `TerminalHangulInput`(engine/include/apps/TerminalHangulInput.h + src) —
+  창 의존 0 순수 로직 클래스. HangulAutomata 래핑, `Result{send, preEdit}`:
+  send = pty로 나갈 UTF-8 바이트(완성 음절), preEdit = 커서 오버레이 문자열.
+  조합 중 음절은 아직 pty에 안 갔으므로 백스페이스는 로컬 팝(BackspaceJamo),
+  조합 없는 백스페이스는 \x7f(pty 삭제) — 원래 경로와 동일.
+- `TerminalView` 배선(docs/26 단계 5의 preEdit_ 오버레이 재사용):
+  - 문자 키다운: 한글 모드+순수 문자(ctl/alt/gui 없음)면 오토마타 소비 후
+    조기 반환. 수용 판정은 조합 진행 여부가 아니라 키 모양으로 — 진행
+    여부로 판정하면 ctrl+letter 같은 거부 키까지 삼켜 SIGINT 경로가 죽는다.
+  - 비문자 키(Enter/Tab/이동/F키): 진행 조합 먼저 확정 — pty 바이트 순서가
+    입력 순서를 따른다. BACKSPACE는 확정이 아니라 자소 팝.
+  - ImeToggle 이벤트(서버 LL 훅, §19) + LANG1 스캔코드(HandleKeyDown) 양선.
+    터미널 F2는 \x1bOQ 이스케이프라 토글로 못 쓴다(JKEdit와의 차이).
+  - Char(원시 TEXTINPUT): 한글 모드에선 영문은 버리고(KeyDown이 이미 소비),
+    공백/구두점은 진행 조합 확정 후 전송 — 단일 소유 규칙(§18) 이식.
+  - TextEditing 선조합은 한글 모드에선 버린다(단일 소유). ClearPreEdit는
+    오토마타를 리셋하지 않는다 — 키다운마다 호출되므로 리셋하면 확정
+    분기가 조합을 잃는다; 오버레이-상태 동기는 SendHangulResult 한 곳에서.
+- 겹자모 플래그 = 물리 Shift만(§21), 캡스는 tolower 정규화 흡수 — 재사용.
+- CMakeLists jkdesktop/jkapp_terminal 양 타깃에 TerminalHangulInput.cpp 추가.
+
+**시험**: terminal_hangul_probe 신설(순수 로직 직접 운전 — 서버/pty 불요) 33
+체크 ×2 ALL PASS: 기본 영문 모드 무시+DEL, 토글 양방향+재진입 조합, r→ㄱ /
+rk→가 / rkr→각 preEdit, 각+ㄹ End 캐리(각 송출+ㄹ 씨앗), 자소 백스페이스
+가→ㄱ→빔→pty DEL + 랄→라→ㄹ→빔, Shift=ㄲ / Caps=ㄱ(§21), ctrl 거부+조합
+생존, Enter 앞 확정, 문장 가나다(rkskek — End2 캐리가 받침을 새 초성으로
+옮기며 기저 송출), Reset. 회귀 jkedit_probe ×2 ALL PASS.
+
+**레슨 26. "오토마타가 받아들였는가"의 판정은 결과가 아니라 입력으로
+하라 — 진행 조합이 살아 있으면 거부 키(ctrl+letter)까지 수신으로 오판해
+본래 경로(SIGINT)를 삼킨다. 빈 Result는 "변화 없음"이지 "거부"가 아니다,
+판정에 쓰려면 별도 신호가 필요하다.**
+
+**레슨 27. 헤더가 SDL.h를 포함하는 라이브러리 TU는 SDL_main.h의
+`main→SDL_main` 치환을 클라이언트에게 전파한다 — 콘솔 프로브는 SDL.h 포함
+전에 SDL_MAIN_HANDLED하거나(포함 후면 늦다), `#ifdef main #undef main`으로
+되돌린다. jkedit_probe의 후자 패턴이 정답이었다.**
+
+**레슨 28. 링크 오류는 입력 파일 목록부터 보라 — "undefined reference to
+내 클래스"는 그 .cpp를 링크에 안 넣었다는 뜻이고, `wancode.h not found`는
+-I가 헤더의 부모 디렉토리(legacy/wancode)를 못 가리켰다는 뜻이다. CMake
+target_include_directories가 진짜 경로 목록이다.**
+
+**한계(백로그)**: End2 캐리 뒤 받침 재부착 불가(§19와 공유 — 터미널도 학+ㅗ
+뒤 백스페이스가 고 씨앗만 팝), 조합 중 스크롤백/선택 시작 시 오버레이는
+지워지지만 오토마타는 살아 있어 다음 문자에 이어짐(표준 IME도 유사 동작).

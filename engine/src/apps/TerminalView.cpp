@@ -392,10 +392,20 @@ void TerminalView::PaintFallbackGlyph(JKDC& dc, const JKRect& cellRect,
 }
 
 void TerminalView::RespondMessage(const JKEvent& ev) {
+    // 한/영 전환(서버 LL 훅 ImeToggle, docs/61 §19): 터미널 내부 조합 모드를
+    // 토글한다. 꺼지는 방향에서는 진행 조합을 확정해 pty로 보낸다. LANG1
+    // 키코드가 정통 도달하는 환경용 분기는 HandleKeyDown 쪽에 있다.
+    if (ev.type == JKEventType::ImeToggle) {
+        SendHangulResult(hangul_.Toggle());
+        return;
+    }
     // IME composition (docs/26 단계 5, spec §3): TextEditing carries the UTF-8
     // pre-edit string while the OS IME is composing. Stored for the cursor
     // overlay and dropped on commit (Char) or any key/paste/selection start.
+    // 내부 조합 모드에선 조합 표시권이 오토마타에 있다 — 외부 선조합은 버린다
+    // (docs/61 §22 단일 소유).
     if (ev.type == JKEventType::TextEditing) {
+        if (hangul_.HangulMode()) return;
         preEdit_ = ev.text;
         if (grid_) grid_->MarkAllDirty();   // repaint through the frame gate
     }
@@ -408,10 +418,23 @@ void TerminalView::RespondMessage(const JKEvent& ev) {
             // e.g. SendKeys/IME commit). NUL and DEL are never meaningful.
             const unsigned char b0 = static_cast<unsigned char>(ev.text[0]);
             if (b0 != 0x00 && b0 != 0x7F) {
-                ClearPreEdit();   // the commit replaces the composition (§3)
-                ClearSelection();   // any text input drops the selection
-                scrollOffset_ = 0;   // typing returns to the live view
-                onInput_(ev.text, std::strlen(ev.text));
+                if (hangul_.HangulMode()) {
+                    // 단일 소유 규칙(docs/61 §18/§22): 내부 조합 모드에선
+                    // 영문 자모는 KeyDown 오토마타가 소비했다 — Char(원시
+                    // TEXTINPUT)의 영문은 버린다. 공백/구두점은 진행 조합을
+                    // 확정한 뒤 전송한다.
+                    if (!std::isalpha(static_cast<int>(b0))) {
+                        SendHangulResult(hangul_.Commit());
+                        ClearSelection();
+                        scrollOffset_ = 0;
+                        onInput_(ev.text, std::strlen(ev.text));
+                    }
+                } else {
+                    ClearPreEdit();   // the commit replaces the composition (§3)
+                    ClearSelection();   // any text input drops the selection
+                    scrollOffset_ = 0;   // typing returns to the live view
+                    onInput_(ev.text, std::strlen(ev.text));
+                }
             }
         }
     }
@@ -607,6 +630,20 @@ void TerminalView::HandleMouseReport(const JKEvent& ev) {
     onInput_(seq.data(), seq.size());
 }
 
+// 내부 한글 조합 결과 반영(docs/61 §22): send는 pty로, preEdit는 커서 셀
+// 오버레이로. preEdit가 빈 채 돌아오면(자소 팝 소진/토글 확정) 오버레이를
+// 지운다 — 오버레이와 오토마타 상태가 한 곳(TerminalHangulInput)에서만 정해진다.
+void TerminalView::SendHangulResult(const TerminalHangulInput::Result& r) {
+    if (preEdit_ != r.preEdit) {
+        preEdit_ = r.preEdit;
+        if (grid_) grid_->MarkAllDirty();
+    }
+    if (!r.send.empty() && onInput_) {
+        scrollOffset_ = 0;   // typing returns to the live view
+        onInput_(r.send.data(), r.send.size());
+    }
+}
+
 void TerminalView::ClearPreEdit() {
     if (preEdit_.empty()) return;
     preEdit_.clear();
@@ -652,6 +689,9 @@ void TerminalView::PasteClipboard() {
     const std::string data =
         SanitizeClipboardPaste(raw, parser_ && parser_->BracketedPaste());
     SDL_free(raw);
+    if (hangul_.Composing()) {
+        SendHangulResult(hangul_.Commit());   // 붙여넣기 앞 진행 조합 확정
+    }
     ClearPreEdit();   // pasting drops the composition (spec §3)
     ClearSelection();   // pasting drops the selection (spec §2)
     if (!data.empty()) {
@@ -692,6 +732,43 @@ void TerminalView::HandleKeyDown(const JKEvent& ev) {
         key == SDLK_LGUI || key == SDLK_RGUI;
     if (!clipboardChord && !modifierKey) {
         ClearSelection();
+    }
+
+    // 한/영 전환키(LANG1 스캔코드, docs/61 §15/§22) — ImeToggle 이벤트가 오지
+    // 않는 환경(단일 프로세스 등)에서 키코드 정통 도달분을 맞는다.
+    if (key == static_cast<SDL_Keycode>(SDLK_SCANCODE_MASK | SDL_SCANCODE_LANG1)) {
+        SendHangulResult(hangul_.Toggle());
+        return;
+    }
+
+    // Backspace(docs/61 §19 이식): 조합 중이면 자소 1개 되돌림(로컬 팝 —
+    // 아직 pty에 안 보낸 음절이므로), 조합 없으면 기존대로 \x7f를 pty로.
+    if (key == SDLK_BACKSPACE && hangul_.HangulMode()) {
+        SendHangulResult(hangul_.Backspace());
+        return;
+    }
+
+    // 비문자 키(Enter/Tab/이동/F키) 앞에서 진행 조합 확정 — pty로 가는 바이트
+    // 순서가 입력 순서를 따른다. 이 지점은 ClearPreEdit 뒤라 오버레이는 이미
+    // 비었고, 확정 바이트만 뒤따라 나간다.
+    if (hangul_.Composing()) {
+        SendHangulResult(hangul_.Commit());
+    }
+
+    // 영문 자모 키다운 → 내부 오토마타(docs/61 §22). 오토마타가 받아들이면
+    // 여기서 소비(조합 진행은 preEdit 오버레이, 완성분은 send)하고 끝낸다 —
+    // printable이 Char로 새는 통상 경로와 겹치지 않는다. ctrl/alt/gui가 붙거나
+    // 문자가 아니면 빈 Result로 거부 → 아래 기존 경로(ctrl+letter 제어바이트
+    // 등)를 그대로 계속한다.
+    if (hangul_.HangulMode()) {
+        const bool isLetter =
+            (key >= SDLK_a && key <= SDLK_z) || (key >= 'A' && key <= 'Z');
+        // 수용 판정은 키 모양으로 먼저 — 조합 진행 여부로 판정하면 ctrl+letter
+        // 같은 거부 키까지 삼켜 SIGINT 경로가 죽는다.
+        if (isLetter && !(mod & (KMOD_CTRL | KMOD_ALT | KMOD_GUI))) {
+            SendHangulResult(hangul_.Letter(key, mod));
+            return;
+        }
     }
 
     // docs/22 §6.1 input mapping.

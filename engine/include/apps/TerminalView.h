@@ -9,6 +9,7 @@
 #include <JKWindow.h>
 #include <terminal/JKTerminalGrid.h>
 #include <apps/JKTermSelection.h>
+#include <apps/TerminalHangulInput.h>
 #include <functional>
 #include <string>
 
@@ -116,6 +117,12 @@ private:
     // as an overlay at the live grid cursor cell until a commit (Char) or a
     // key/paste/selection-start clears it.
     std::string preEdit_;
+
+    // 내부 한글 조합(docs/61 §22): 서버 창은 IME 컨텍스트가 떼어져 있어
+    // OS IME 조합/커밋이 절대 오지 않는다 — 자모 키다운을 오토마타로 조합해
+    // 확정 시점에 pty로 보낸다. 조합 중 음절은 preEdit_ 오버레이로 표시.
+    TerminalHangulInput hangul_;
+    void SendHangulResult(const TerminalHangulInput::Result& r);
 };
 
 } // namespace jk

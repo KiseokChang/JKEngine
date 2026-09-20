@@ -272,6 +272,7 @@ add_executable(jkdesktop
     # jkapp_terminal; jkcore does not carry it, so the exe needs its own copy.
     src/apps/TerminalApp.cpp
     src/apps/TerminalView.cpp
+    src/apps/TerminalHangulInput.cpp
 )
 
 target_link_libraries(jkdesktop PRIVATE jkcore jkserver jkclient)
@@ -399,6 +400,7 @@ add_library(jkapp_terminal SHARED
     src/apps/JKAppModule_terminal.cpp
     src/apps/ClientTerminalApp.cpp
     src/apps/TerminalView.cpp
+    src/apps/TerminalHangulInput.cpp
 )
 target_compile_definitions(jkapp_terminal PRIVATE JKAPP_MODULE_BUILD)
 target_link_libraries(jkapp_terminal PRIVATE jkclient)
