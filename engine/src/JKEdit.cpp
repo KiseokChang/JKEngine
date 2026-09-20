@@ -245,15 +245,19 @@ void JKEdit::OnPaintClient(JKDC& dc) {
         size_t lastLine = std::min(lineCount, firstVisibleLine_ + static_cast<size_t>(visibleLines));
         size_t selA = std::min(selAnchor_, cursorPos_);
         size_t selB = std::max(selAnchor_, cursorPos_);
+        // 가로 클리핑 (docs/61 §2): 상자보다 긴 라인이 경계 밖으로 흘러넘치지
+        // 않게 표시 셀 폭으로 렌더 범위를 절단한다(멀티라인은 가로 스크롤 없음).
+        const size_t maxCells = static_cast<size_t>(std::max(1, inner.w / charWidth_));
         for (size_t line = firstVisibleLine_; line < lastLine; ++line) {
             size_t start = GetLineStart(line);
             size_t end = GetLineEnd(line);
+            size_t clipEnd = PosFromCells(buffer_, start, end, maxCells);
             int32_t lineY = inner.y + static_cast<int32_t>((line - firstVisibleLine_) * lineHeight_);
             // 선택 렌더 (docs/60 §10 — 대장 기존 결함: 멀티라인은 선택을
             // 렌더하지 않았다). 라인과 선택 구간의 교집합을 3분할 색상으로.
             size_t a = selA, b = selB;
             if (a < start) a = start;
-            if (b > end) b = end;
+            if (b > clipEnd) b = clipEnd;
             if (hasSelection_ && a < b) {
                 auto xOf = [&](size_t bytePos) -> int32_t {
                     return inner.x + static_cast<int32_t>(
@@ -272,11 +276,11 @@ void JKEdit::OnPaintClient(JKDC& dc) {
                 dc.SetTextColor(t.selectionText.r, t.selectionText.g, t.selectionText.b);
                 dc.TextOut(jk::JKPoint{ selX, lineY }, b - a, buf + a);
                 dc.SetTextColor(textR_, textG_, textB_);
-                if (b < end) {
-                    dc.TextOut(jk::JKPoint{ xOf(b), lineY }, end - b, buf + b);
+                if (b < clipEnd) {
+                    dc.TextOut(jk::JKPoint{ xOf(b), lineY }, clipEnd - b, buf + b);
                 }
             } else {
-                std::string_view view(buffer_.data() + start, end - start);
+                std::string_view view(buffer_.data() + start, clipEnd - start);
                 dc.TextOut(jk::JKPoint{ inner.x, lineY }, std::string(view).c_str());
             }
         }
@@ -412,6 +416,22 @@ void JKEdit::RespondMessage(const JKEvent& ev) {
         }
     } else if (ev.type == JKEventType::Timer) {
         if (focused_) showCaret_ = !showCaret_;
+    } else if (ev.type == JKEventType::MouseWheel) {
+        // 멀티라인 휠 스크롤 (docs/61 §2) — dy>0 = 위(이전 라인).
+        if (multiLine_) {
+            size_t lineCount = GetLineCount();
+            if (ev.dy > 0) {
+                if (firstVisibleLine_ > static_cast<size_t>(ev.dy))
+                    firstVisibleLine_ -= static_cast<size_t>(ev.dy);
+                else
+                    firstVisibleLine_ = 0;
+            } else if (ev.dy < 0) {
+                size_t scroll = static_cast<size_t>(-ev.dy);
+                size_t maxFirst = (lineCount > 1) ? lineCount - 1 : 0;
+                firstVisibleLine_ = std::min(firstVisibleLine_ + scroll, maxFirst);
+            }
+            showCaret_ = true;
+        }
     } else if (ev.type == JKEventType::KeyDown) {
         SDL_Keymod mod = SDL_GetModState();
         bool ctrl = (mod & KMOD_CTRL) != 0;

@@ -443,6 +443,15 @@ void JKWindow::RespondMessage(const JKEvent& ev) {
         return;
     }
 
+    // 마우스 휠은 좌표가 없어 히트테스트할 수 없다(docs/61 §2) — 키 입력처럼
+    // 포커스 컨트롤로 전달한다(편집 상자 휠 스크롤). 미처리 컨트롤은 무시.
+    if (ev.type == JKEventType::MouseWheel) {
+        if (focusChild_) {
+            focusChild_->RespondMessage(ev);
+        }
+        return;
+    }
+
     if (ev.type == JKEventType::MouseDown ||
         ev.type == JKEventType::MouseUp ||
         ev.type == JKEventType::MouseMove) {
