@@ -581,3 +581,85 @@ tools/list failed ([{"code":"invalid_value","values":["object"],
   반드시 인용 이스케이프 — prompt 선례와 같은 CRT 규칙 ③이미지 단위
   Stop-Process를 하는 프로브는 실행 중 라이브 프로세스와 공존 불가 —
   회귀는 프로세스 정지창에 예약.
+
+## 15. 회귀 창 소각 + 프로브 타이밍 플레이크 4종 (2026-09-20, a755ff9)
+
+눈확인(노트·files 창) 완료 후 데스크탑 정지창에 §14 회귀 3종 실행 — 전부
+2연속 GREEN: probe_jkbridge 28체크 ×2, smoke_llm_stream 3/3, 
+probe_filedlg_voice 60체크 ×2(중첩 probe_app_tools ×2·probe_files·
+probe_agent_chat·highlight 포함), probe_agent_chat 단독 ×2.
+
+프로브 4종의 하네스 결함(제품 결함 아님 — 전부 타이밍 플레이크):
+
+- **probe_jkbridge resume-memo FAIL ×3**: 직전 세션 캡 단계가 소켓 5개를
+  닫고 2초 대기인데 드레인이 늦으면 다음 접속이 "too many sessions" 캡
+  에러 프레임을 받는다 — hello 자체가 안 옴. 재시도 접속 루프로 해소.
+  DBG 1줄만 넣어도 통과하던 미스터리는 캡 프레임 수신이 우연히 늦은 것.
+- **probe_filedlg_voice foreign 오탐 ×2종**: ①Test-ForeignFree가 **자기
+  서버의 태스크바 자식**(`--client taskbar`)을 foreign으로 잡아 중첩
+  회귀 전량 SKIPPED — Add-TreePids가 셋업에 1회뿐인데 태스크바 스폰이
+  server-up 감지보다 늦으면 myPids에 못 들어간다. 체크 직전 트리
+  재수집으로 해소. ②c12b 테스트 인스턴스를 부모만 Stop-Process하면
+  고아가 남지만(실측: test 모드는 자식 없음 — 방어만) 트리 kill로 정리.
+  foreign 진단에 ppid/cmdline 출력 추가 — 이 출력이 범인 특정의 결정타.
+- **probe_agent_chat minesweeper**: 창 생성 대기 고정 2초 부족(빈
+  windows[]) → 15회 폴링.
+- **probe_files 서버 기동**: 4초 고정 슬립 — 파이프가 늦으면 첫 2체크가
+  CreateFileA(2)로 사망 → ping 폴링. 중첩 로그도 유니크 파일명(run2의
+  ALL PASS가 run1 실패 로그를 덮어 판독 불가였던 것).
+- **레슨**: ①프로브 FAIL 재현 불명이면 먼저 "어떤 프레임을 받았나"를
+  출력해 확인 — resume-memo는 캡 에러 프레임이었다 ②foreign 판정은
+  ppid/cmdline 없이는 단서가 안 된다 ③중첩 프로브의 고정 슬립은 전부
+  readiness 폴링으로 — 파이프 존재는 서버 응답으로만 확증 ④회귀 프로브
+  2연속 원칙은 플레이크 폭로 장치로 기능한다(1회 PASS는 반칙).
+
+## 15.1 프로브 state 누출 — 라이브 토큰 사망 (2026-09-20, 6138e42)
+
+재기동한 브리지 콘솔에 토큰이 `probetoken0123456789abcdef`로 찍혔다 —
+프로브 토큰이 라이브 `state/jkbridge.json`을 대체해 **폰의 저장 URL이
+401로 사망**. probe_jkbridge는 백업·복구 코드가 이미 있었지만 복구가
+파일 끝(클린 완료 경로)에만 존재 — 본문 중간 크래시(probes 디렉의
+bash.exe.stackdump 실존)가 복구를 건너뛰면 누출된다. 이후 실행들은
+누출된 파일을 "원본"으로 백업해 누출을 영구화(백업이 오염을 상속).
+픽스=cleanup+restore 전체를 finally로 — 모든 탈출 경로 보장. 유저 토큰은
+복구 불가(백업 없음) → 32hex 신규 발급, 폰 QR 재스캔 필요.
+
+- **레슨**: ①프로브의 state 복구는 "코드 끝"이 아니라 **finally** —
+  클린 경로 복구는 복구가 아니다 ②누출된 state를 백업하는 후속 실행은
+  오염을 상속해 영구화한다 — 백업 시점에 이미 오염돼 있을 가능성을
+  의심 ③라이브 소비자(브리지) 재기동 시 토큰·포트 같은 "유저가 저장한
+  연결 수단"을 콘솔 출력으로 즉시 확인 — 프로브 창 직후 재기동은 특히.
+
+## 16. 레저 소액 소각 4건 (2026-09-20, 무커밋→커밋)
+
+docs/56 §2b + docs/57 §9 + docs/54 §10 백로그 소각. 회귀 프로브는
+사용자 선택으로 후속(데스크탑 정지창 필요 — 살아있는 데스크탑과 파이프
+충돌). 빌드 전부 GREEN(jkwinserver/jkbridge).
+
+1. **파킹 플러드 상한 (docs/56 §2b)** — pendingApprovals_ 요청자(connection
+   id)별 미해결 승인 8개 상한. 초과 파킹 시도는 파킹하지 않고
+   `approval_overflow` 즉시 응답. 파킹 사이트 10곳 전부 가드
+   (close_window/trust_request/permission_set/trust_revoke/run_console_app/
+   capture_allow/files_access 3곳/app_tool/file_open) — 가드가 사이트별로
+   흩어져 있어 한 곳이라 빠뜨리면 그 종류만 뚫린다(형태 3종: break형
+   if-gate 6곳, if/else형 else-if 3곳, file_open 1곳).
+2. **jkbridge 인터페이스 바인딩 (docs/57 §9)** — state/jkbridge.json 옵션
+   `"bind":"<IPv4>"`. 미지정 = 기존 INADDR_ANY(토큰 게이트). 오탈자 IP는
+   fail-closed 루프백+경고 — **ANY 폴백은 "축소하려는 의도"를 "확장"으로
+   반전시킨다** (URL 표시도 bind 지정 시 그 IP 기준).
+3. **레이아웃 경로 (docs/54 §10)** — 코드 변경 불요. 저장/열거 전부
+   cf0d828(2026-09-10)부터 `state\` 기준 — docs 표기가 스테일. **레슨:
+   백로그 문서도 코드와 대조 확인 후 소각 — "exe-dir 열거"는 이미 10일 전
+   해소된 내용이었다.**
+4. **receipt 프룬 스트리밍화 (docs/54 §10)** — 전체 파일+kept 문자열 메모리
+   적재 → 64KiB 청크 행 스캔 + 행 단위 `.new` 복사. 행당 메모리 = 최대 행
+   길이. **픽스 구조: `.new`가 완성될 때까지 원본 무손상(쓰기 실패 시
+   remove(.new)만) — 구 구현은 rename 후 쓰기라 쓰기 실패에 복원 댄스가
+   필요했는데, 순서를 바꾸면 복원 경로 자체가 사라진다.** M5 rename 댄스
+   (브로커 append 창 공유 위반 → 중단) 규약 유지, .bak 1세대 보존 유지.
+
+- **레슨**: ①플러드 가드는 게이트 결과 응답이 아니라 **파킹 직전**에 —
+  승인 이벤트 방송 후에 걸면 스트립 도배는 이미 일어났다 ②제한 설정의
+  실패 모드는 항상 "의도의 반전"을 의심 — bind 오탈자의 자연 폴백(ANY)은
+  요청의 반대다 ③구 rename 후 쓰기 → 쓰기 후 rename으로 순서만 바꿔도
+  복원 경로가 필요 없어진다 (실패 가능 지점을 원본 파괴 전으로 모은다).
