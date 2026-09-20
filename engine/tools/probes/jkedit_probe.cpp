@@ -345,6 +345,33 @@ int main() {
               "got=" + KssmToUtf8(e.GetText().c_str()));
     }
 
+    // T21: 캡스락 상태의 한글 조합(docs/61 §21) — 캡스락은 쌍자음 의도가
+    // 아니다. 옛 shift XOR caps는 캡스락 상태에서 평자모 키를 겹자모 행으로
+    // 보냈다(유저 보고 "캡스락에서 한글 입력시 쌍자음"). 겹자모 플래그는
+    // 물리 Shift만 따르고, 캡스락의 대소문자는 ConvertKey의 tolower
+    // 정규화가 흡수한다.
+    {
+        JKEdit e(JKRect{ 0, 0, 400, 24 });
+        e.SetHangulMode(true);
+        SendKey(e, SDLK_r, KMOD_CAPS);         // 소문자 키코드+캡스 → 평자모
+        SendKey(e, SDLK_k);
+        Check("T21a-caps-lower",
+              KssmToUtf8(e.GetText().c_str()) == "가",
+              "got=" + KssmToUtf8(e.GetText().c_str()));
+        JKEdit e2(JKRect{ 0, 0, 400, 24 });
+        e2.SetHangulMode(true);
+        SendKey(e2, 'R', KMOD_CAPS);           // 대문자 키코드+캡스 → 평자모
+        Check("T21b-caps-upper-keycode",
+              KssmToUtf8(e2.GetText().c_str()) == "ㄱ",
+              "got=" + KssmToUtf8(e2.GetText().c_str()));
+        JKEdit e3(JKRect{ 0, 0, 400, 24 });
+        e3.SetHangulMode(true);
+        SendKey(e3, 'R', static_cast<SDL_Keymod>(KMOD_SHIFT | KMOD_CAPS));
+        Check("T21c-shift-wins",               // Shift+캡스는 겹자모
+              KssmToUtf8(e3.GetText().c_str()) == "ㄲ",
+              "got=" + KssmToUtf8(e3.GetText().c_str()));
+    }
+
     {
         // T9: "한국어" = ㅎㅏㄴ ㄱㅜ ㄹ ㅇㅓ — 받침 뒤 새 음절이 조합돼야 한다.
         {

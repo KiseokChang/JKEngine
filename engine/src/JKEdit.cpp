@@ -543,8 +543,12 @@ void JKEdit::RespondMessage(const JKEvent& ev) {
             // 라이브 SDL은 shift를 키코드에 반영해 'R'(대문자)로 온다 —
             // 소문자 범위만 검사하면 쌍자음 키가 아예 조합에 못 들어간다
             // (docs/61 §13).
+            // 겹자모(쌍자음) 플래그는 물리 Shift만 따른다(docs/61 §21) —
+            // 옛 shift XOR caps는 캡스락 상태에서 평자모 키가 겹자모 행으로
+            // 들어갔다(유저 보고 "캡스락에서 한글 입력시 쌍자음"). 캡스락의
+            // 대소문자는 keycode와 ConvertKey의 tolower 정규화가 처리한다.
             ProcessHangulKey(static_cast<uint16_t>(ev.keyCode),
-                             (shift != static_cast<bool>(mod & KMOD_CAPS)) ? 0x0040 : 0);
+                             (mod & KMOD_SHIFT) ? 0x0040 : 0);
         } else {
             // While the OS IME is composing, let the IME own navigation and
             // editing keys. Handling them ourselves would delete or move the
