@@ -387,9 +387,14 @@ void ClientSettingsApp::BuildUi(int w, int h) {
             "%s: %s",
             koreanFont_ ? "보조 폰트" : "fallback font",
             (curFb.empty() ? std::string("(none)") : curFb).c_str());
-        if (fallbackFontBuf_[0] == '\0' && !curFb.empty()) {
-            std::snprintf(fallbackFontBuf_, sizeof(fallbackFontBuf_), "%s",
-                          curFb.c_str());
+        if (!fallbackSeeded_) {
+            // 1회 시드(리뷰 MINOR) — 빈 버퍼 조건부 재시드는 삭제 직후 원복해
+            // 빈 값=해제 전송을 막는다. 첫 프레임에만 현재값을 심는다.
+            fallbackSeeded_ = true;
+            if (!curFb.empty()) {
+                std::snprintf(fallbackFontBuf_, sizeof(fallbackFontBuf_), "%s",
+                              curFb.c_str());
+            }
         }
         ImGui::SetNextItemWidth(-FLT_MIN);
         if (ImGui::InputText(koreanFont_ ? "보조 폰트(재시작 적용, 빈 값=해제)"

@@ -68,7 +68,10 @@ private:
     // 캡과 동일(초과치는 bad_value).
     char textFontBuf_[300] = {};
     // 보조 폰트 체인 경로 입력 (docs/63 §6 2단계) — 빈 값 = 해제(서버가 허용).
+    // 1회 시드 플래그 — 매 프레임 재시드하면 삭제가 curFb로 되돌아가
+    // 빈 값=해제 전송이 사각이 된다(리뷰 MINOR).
     char fallbackFontBuf_[300] = {};
+    bool fallbackSeeded_ = false;
     std::vector<std::pair<uint32_t, PendingQuery>> pending_;
 };
 

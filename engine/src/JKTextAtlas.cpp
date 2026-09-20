@@ -117,6 +117,12 @@ bool JKTextAtlas::Init(const std::string& fontPath, int engCellW, int cellH,
 
 bool JKTextAtlas::InitFallback(const std::string& fontPath) {
     if (fontPath.empty() || primary_.info == nullptr) return false;
+    // 재진입 사각 방지(리뷰 NIT): 이전 보조 면의 등록 기록(fb=1 엔트리)을
+    // 제거한다 — 남겨두면 GlyphSrc(...,true)가 새 면의 PageKey와 어긋나는
+    // 스테일 rect를 보고한다. (1차 엔트리는 보조 면과 무관해 유지.)
+    registered_.erase(std::remove_if(registered_.begin(), registered_.end(),
+                                     [](uint64_t k) { return (k & 1u) != 0; }),
+                      registered_.end());
     fallback_ = Face{};
     return LoadFace(fontPath, &fallback_, engCellW_, cellH_, hanCellW_);
 }
@@ -317,7 +323,9 @@ void JKTextAtlas::EvictOldest(JKResourceCache* cache) {
     if (!cache || registered_.empty()) return;
     const uint64_t key = registered_.front();
     const uint32_t fg = static_cast<uint32_t>(key >> 34);
-    const uint32_t cp = static_cast<uint32_t>((key >> 1) & 0x7FFFFFFFu);
+    // uint32 캐스트가 fg 고위 비트(fg<<33는 비트 33..)를 절단하고 fb는 >>1로
+    // 떨어진다 — 마스크 불요(리뷰 NIT; 마스크는 cp 비트 31을 잘랐다).
+    const uint32_t cp = static_cast<uint32_t>(key >> 1);
     const bool fb = (key & 1u) != 0;
     cache->UnloadImage(PageKey(fg, cp, fb));
     registered_.erase(registered_.begin());

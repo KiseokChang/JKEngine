@@ -282,8 +282,9 @@ Task 4 시점(ninja [80/80]) 이후 Task 5/6이 착지해 라이브 데스크탑
 - **캐시 키 분리** — fallback 페이지 접두어 `desktextf_%08x_%06x`(1차
   `desktext_`와 충돌 봉쇄). `registered_` 키 확장: `(fg << 34) | (cp << 1) | fb`
   (fg는 24비트 RGB라 58비트에 수렴) — 같은 (fg,cp)가 두 면에 공존. EvictOldest가
-  이 인코딩을 복원하는 유일한 지점(cp는 `(key >> 1) & 0x7FFFFFFF` 마스크 필수 —
-  fg 고위 비트 유입 차단).
+  이 인코딩을 복원하는 유일한 지점(cp 복원은 `(uint32_t)(key >> 1)` — uint32
+  캐스트가 fg 고위 비트(비트 33..)를 절단하고 >>1이 fb를 떨어뜨려 마스크 불요;
+  마스크는 오히려 cp 비트 31을 잘랐다 — 리뷰 NIT 정정).
 - **설정** — `text_font_fallback` settings_set(빈 값 = 해제 **허용**,
   font_path와 반대 — 체인의 기본 상태가 "없음"이라 빈 값이 유효 목표 상태,
   >300 bad_value, applies_on_restart 에코) + settings_read `text.font_fallback`
