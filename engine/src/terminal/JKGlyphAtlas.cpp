@@ -22,6 +22,9 @@ constexpr int kFbChunk = 512;          // glyphs per chunk page
 constexpr int kFbCols = 32;            // slots per row in the page texture
 constexpr FallbackRange kFbRanges[] = {
     { 0x1100, 0x11FF },   // Hangul Jamo
+    { 0x3130, 0x318F },   // Hangul Compatibility Jamo (docs/61 §22 — 내부
+                          // 조합의 자모 preEdit가 이 블록으로 온다; 없으면
+                          // 슬롯 0이라 플레이스홀더 바가 그려졌다)
     { 0x2E80, 0xD7A3 },   // CJK radicals .. Hangul syllables
     { 0xF900, 0xFAFF },   // CJK compatibility ideographs
     { 0xFF00, 0xFF6F },   // Fullwidth / halfwidth forms
