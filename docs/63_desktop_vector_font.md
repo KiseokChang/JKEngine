@@ -378,3 +378,65 @@ Task 4 시점(ninja [80/80]) 이후 Task 5/6이 착지해 라이브 데스크탑
   링크 오류는 입력 파일 목록부터) → g++ 단독 라인 재구성·기준선 재현으로
   검증: jktext_probe 라인에 `JKResourceCache.cpp JKSDLRenderBackend.cpp
   JKImageLoader.cpp` 추가(JKHangulManager는 동일). ×2 연속 PASS.
+
+### 10. as-built (2단계, 2026-09-21) — 종결
+
+2단계 3종 전부 착지, 회귀 9종 ×2 연속 GREEN. 기능별 상세는
+§9.5(LRU)/§9.6(보조 체인)/§9.7(font_scale)/§9.8(minors+view probe 2페이즈).
+
+**(1) 3 기능 착지 요약**
+
+| 기능 | 커밋 | 요약 |
+|---|---|---|
+| 글리프 텍스처 LRU/상한 | 55221a7 | `kMaxGlyphTextures=1024` + `EvictOldest`(`UnloadImage`) — 기존 히트는 MRU 터치, 신규 등록 후 초과 시 최연장 키 폐기(재요청 자동 재등록). 호스트당 ~1MB 상한 |
+| 보조 폰트 체인 `text.font_fallback` | 74c4f39 (+b49fce8, 4c1ce1e) | 1차 미커버 cp만 2차 승계(그래도 미커버=비트맵). 캐시 키 접두어 `desktextf_` 분리 + `registered_` 키 `(fg<<34)|(cp<<1)|fb` 패킹 + `InitFallback` 재진입 시 fb 엔트리 정리 |
+| 셀 확대 `text.font_scale` | e4b5f69 (+1e0c3ef) | `GetCellMetrics()`/`ComputeCellMetrics(s)` 메트릭 진실원 — JKDC 리터럴 8/16 치환 + 코어 위젯 `charWidth_`/`itemHeight_` 배선 + settings 분기(`applies_on_restart` 에코) |
+
+- **접근자 개명 편차** — brief 지정 `text::CellMetrics()`는 구조체 이름 가림으로
+  컴파일 불가(§9.7 실측) → `GetCellMetrics()`로 개명. struct/순수 함수 이름은
+  brief 그대로. 구현자 판정, 리뷰 확인 완료.
+
+**(2) 문서화된 한계 (수용)**
+
+- **기하 무스케일** — 창·태스크바·데스크탑 기하(창 크기/기본 위치/아이콘 격자)는
+  스케일하지 않는다(계획서 ruling — 텍스트 셀·텍스트 인지 레이아웃만). scale>1.25에서
+  레거시 앱(OccUI/Jango/Insa 등 수제 레이아웃) 넘침 가능.
+- **fractional scale의 JKEdit 쌍 매핑 드리프트** — 반올림 산출식상 소수 scale에서
+  `hanW ≠ 2×engW`가 되는 값이 있다(예: 1.2 → hanW 19 vs engW×2 20) — JKEdit의
+  쌍=2셀×engW 매핑이 근사가 되어 최대 1px/쌍 드리프트(engW 스케일을 따른다, §9.7).
+  **정수성 scale(1.0/2.0/3.0)은 정확**.
+- **비트맵 폴백 글리프 1× 고정** — 변환 실패/양쪽 폰트 모두 미커버 글자의 기존
+  KSSM 비트맵 경로는 scale이 커져도 1× 크기로 큰 셀 안에 그려진다(셀과 글리프
+  크기 불일치 — 비트맵 폴백은 스케일 대상 아님).
+
+**(3) 전체 회귀 ×2 (`tools/probes/reg8_*.log`, 두 라운드 동일)**
+
+| 프로브 | 결과(×2 동일) |
+|---|---|
+| jktext_probe | PASS 60 FAIL 0 |
+| jktext_view_probe | exit 0 — phase1 ink=189 aa=172 span=[9..61], glyph span(가/나 11≤16, A 6/B 5/C 6≤8), phase2 ink=203 aa=0 |
+| jkedit_probe | RESULT: ALL PASS |
+| terminal_hangul_probe | 33/33 checks passed |
+| terminal_hangul_view_probe | 18/18 checks passed |
+| terminal_jamo_atlas_probe | 9/9 checks passed (링크 목록 §9.2 준수) |
+| probe_textfont.ps1 | 14 pass / 0 fail — settings.json byte-identical 복원 ×2 |
+| probe_settings.ps1 | 17 ok — RESULT: ALL PASS |
+| probe_approval_overflow.ps1 | parked-1..8 + reply + events(8) — PASS |
+
+- **실행 환경(§9.2 패턴 재현)** — 라이브 데스크탑(`jkdesktop --server` PID 25680 +
+  자가 스폰 taskbar 클라 21360)을 정지(taskkill 무/F — 정상 종료, 클라 동반 소멸,
+  강제 종료 불요) → **ninja 풀빌드 [32/32] GREEN, 링크 보류 0**(Task 3 유보의
+  jkapp_taskbar.dll 링크는 이미 08:14 완료 상태였음 재확인) → 회귀 9종 ×2 →
+  재기동(`jkdesktop --server`, stderr 0바이트 — 폰트 경고 없음, taskbar 클라
+  자가 스폰 확인). `probe_textfont`/`probe_settings`/`probe_approval_overflow`
+  3종은 jkwinserver 내려간 상태에서 실행(싱글 인스턴스 가드, docs/59 §11) —
+  settings.json은 하네스 백업/복원(byte-identical 검증) 외 무접촉.
+
+**(4) 눈확인 항목 (사용자 확인 대기)**
+
+1. **font_scale 실물** — settings GUI에서 `text.font_scale=1.25` 저장 → 재기동 →
+   데스크탑 텍스트 셀 확대 확인(기본 1.0은 오늘과 픽셀동일 — 회귀 없음).
+2. **폰트별 fallback 동작** — `text.font_path=consola.ttf`(1차, 한글 미커버) +
+   `text.font_fallback=malgun.ttf` → 재기동 → 영문은 consola, 한글은 맑은 고딕
+   승계로 렌더 확인. (체인이 꺼진 기본 상태에서는 1차 미커버 글자가 비트맵 폴백 —
+   §9.6 운영 실측과 동일.)
