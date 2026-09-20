@@ -699,3 +699,42 @@ trust_request 8회 파킹+9번째 approval_overflow+승인 이벤트 8회 실측
   files_list/files_read/files_audit/file_open). 어젯밤 mgr_t1류 검증
   프로브의 Remove-Item 패턴이 유력 원인 — **프로브가 유저 런타임 파일을
   소유·삭제할 때 백업+콘솔 고지 필수**.
+
+## 18. vplayer open 실패가 에이전트 표면에서 증발 (2026-09-20)
+
+폰 브리지 제보: "vplayer가 영상을 안 열어요" — `open` 앱 도구가
+`accepted:true`를 돌려주고 `get_status`는 `opened=false`만 반복
+(`openFailed=false`, `error=""`), vplayer 재시작 후에도 동일. LLM은
+원인을 알 방법이 없어 수동 Ctrl+O 안내로 끝났다.
+
+**원인 1 — 파일이 손상됐다(제품 결함 아님).** `I:\@keep\SAME-234ch.mp4`
+(4.77GB)와 `SAME-220\hhd800.com@SAME-220.mp4` (4.2GB) 모두 순정
+ffprobe(FFmpeg 8.1.1 풀빌드)도 "moov atom not found"로 거부. 전체
+파일 스캔 결과 'moov' fourcc가 어디에도 없고, mdat 뒤에 moov **몸통**
+(trak/tkhd/stbl/stsz/co64/udta)은 있지만 **헤더(size+'moov'+mvhd)가
+소실**되고 그 자리에 영상 데이터 ~2.4MB가 덮여 있음 — 다운로드 조립
+불량형 손상(두 파일 mtime이 세션 직전 13:26/13:37, 이후 크기 불변).
+vplayer의 판정(`open: Invalid data found when processing input`)은
+정확했다. 4GiB 경계/32비트 오프셋 가설은 ffprobe 재현으로 기각.
+
+**원인 2 — 진짜 결함: 실패가 get_status에서 증발.** BuildUi는
+`st.openFailed` 스냅을 openError_로 옮기고 즉시 ClosePlayer하므로
+(1프레임 내) 실패 후 `player_`가 null → get_status가 `Snap{}` 기본값
+(전부 false, error "")을 반환. 폰 LLM은 "수락됐는데 아무 일도 없음"만
+보고 영원히 폴링했다. **교훈: 비동기 오픈의 실패 상태가 UI 소비 경로에서
+파괴되면, 에이전트 표면은 성공/실패 이외 제3의 상태(침묵)를 보게 된다 —
+실패 기록은 표면이 아니라 소유자가 보존해야 한다.**
+
+**픽스** — `ClientVPlayerApp::OnAgentToolCall` get_status: `player_`
+부재 시 openError_가 마지막 open의 유일한 생존 기록이므로 이를 그대로
+보고(`openFailed`: openError_ 비어있지 않으면 true, `error`:
+EscapeJson(openError_)). 코어 해체 설계는 유지(리소스 회수 정상)하고
+표면만 복원 — 최소 변경. **프로브**: probe_app_tools에 c3b 신설
+(손상 픽스처 tmp/vpt1_trunc_tail.mp4 → get_status openFailed+error
+실측) ×2 ALL PASS(63체크). 라이브 재검증: 같은 파일이
+`{"openFailed":true,"error":"open: Invalid data found when processing
+input"}` 반환 확인.
+
+- 참고: 진단 중 MCP `app_tool`의 중첩 인자 파라미터명을 잘못 줘
+  bad_args가 2회 발생 — vplayer의 bad_args 응답은 이렇게도 도달성
+  확인에 쓰였다(에러가 앱까지 살아서 돌아오면 중계 경로는 정상).

@@ -3,6 +3,8 @@
 #   1  catalog: vplayer spawn -> list_app_tools 6 rows (name/description/windowId>0)
 #   2  seek e2e: open clip -> poll get_status opened -> seek 1 -> pos < 2.0
 #   3  error surface: unknown app -> unknown_app_tool; seek w/o seconds -> app bad_args
+#   3b open failure visibility: corrupt file -> get_status openFailed+error
+#      (no silent decay to idle all-false - docs/59 §18)
 #   4  multi-instance: 2nd vplayer -> 12 rows; no windowId -> ambiguous+candidates(2);
 #      windowId of instance 1 -> success; close 2nd
 #   5  auto-cleanup: subscriber first, close_window -> catalog cleared +
@@ -309,6 +311,24 @@ try {
     Check "c3-unknown-app-tool" ($e1 -match '"error":"unknown_app_tool"') $e1
     $e2 = (AppTool "vplayer" "seek" "")
     Check "c3-bad-args-passthrough" ($e2 -match '"error":\{"error":"bad_args"') $e2
+
+    # ---- check 3b: open failure visibility (docs/59 §18) ------------------------
+    # A corrupt file (truncated no-moov mp4 fixture) must surface its classified
+    # failure through get_status (openFailed + non-empty error). The defect:
+    # BuildUi adopts the failure into openError_ and ClosePlayer's the core
+    # within one frame, so get_status decayed to all-false + "" - the phone
+    # bridge LLM watched accepted=true then silence forever.
+    $bad = "I:/progwork/JKENGINE/tmp/vpt1_trunc_tail.mp4"
+    $ob = (AppTool "vplayer" "open" ('{"path":"' + $bad + '"}'))
+    Check "c3b-open-corrupt-accepted" ($ob -match '"accepted":true') $ob
+    $fb = ""
+    foreach ($i in 1..25) {
+        Start-Sleep -Milliseconds 400
+        $fb = (AppTool "vplayer" "get_status" "")
+        if ($fb -match '"openFailed":true') { break }
+    }
+    Check "c3b-open-failure-surface" ($fb -match '"openFailed":true' -and
+                                      $fb -match '"error":"[^"]+"') $fb
 
     # ---- check 4: multi-instance + ambiguity -----------------------------------
     Set-Perms '{"close_window":"allow"}'   # close_window defaults deny w/o file

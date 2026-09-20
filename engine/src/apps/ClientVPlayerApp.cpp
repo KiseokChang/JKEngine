@@ -2144,8 +2144,23 @@ bool ClientVPlayerApp::OnAgentToolCall(const std::string& tool,
                                        std::string& out) {
     jk::agent::AgentJson args(argsJson);
     if (tool == "get_status") {
-        const PlayerCore::Snap st =
-            player_ ? player_->SnapNow() : PlayerCore::Snap{};
+        // 코어 부재 = (a) 열기 시도가 아직 없거나 (b) 열기 실패가 UI에 이미
+        // 흡수된 뒤다. BuildUi는 openFailed 스냅을 openError_로 옮기고 즉시
+        // ClosePlayer하므로(1프레임 내), 실패 후 get_status는 Snap{} 기본값
+        // — 전부 false에 error "" — 를 반환해 마지막 open의 분류된 실패가
+        // 에이전트 표면에서 통째로 증발했다(폰 브리지에서 accepted=true 뒤
+        // 영구 침묵으로 관측). 코어가 없으면 openError_가 실패 여부의 유일한
+        // 생존 기록 — 이를 그대로 보고한다.
+        if (!player_) {
+            out = std::string("{\"opened\":false,\"opening\":false,"
+                              "\"openFailed\":") +
+                  (openError_.empty() ? "false" : "true") +
+                  ",\"paused\":false,\"ended\":false,\"pos\":0.000,"
+                  "\"dur\":0.000,\"volume\":0.80,\"error\":\"" +
+                  EscapeJson(openError_) + "\"}";
+            return true;
+        }
+        const PlayerCore::Snap st = player_->SnapNow();
         char buf[512];
         std::snprintf(buf, sizeof(buf),
             "{\"opened\":%s,\"opening\":%s,\"openFailed\":%s,\"paused\":%s,"
