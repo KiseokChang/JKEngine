@@ -141,3 +141,83 @@
   기존 ImGui 앱들은 범위 배열 관행 유지 중(동작 확인) → 본 과제와 무관하게 현행 유지.
 - 벡터 폰트 전환(JKTextAtlas)은 아예 범위 배열이 아닌 **코드포인트 수요 시 조회** 모델 —
   이 클래스의 문제가 애초에 발생하지 않는 구조.
+
+## 9. as-built (2026-09-21, head 324a55b — 1단계 완결)
+
+### 9.1 배선 지점 (실측)
+
+`JKDC::SetTextAtlas(atlas, cache)` 관문 세터(src/JKDC.cpp:186)를 거치는 장착 지점 —
+설계 §2의 3개 생성 지점 그대로:
+
+| 호스트 | 지점 | 비고 |
+|---|---|---|
+| `JKClientApplication` | src/client/JKClientApplication.cpp:200 | 클라 앱(데스크탑 셸 포함) |
+| `JKApplication` | src/JKApplication.cpp:126 | 싱글 프로세스 앱(minesweeper 등) |
+| `JKWindowServer` (승인 배너) | src/server/JKWindowServer.cpp:5855-5906 | 배너 전용 `bannerAtlas_`+`bannerCache_`+영구 `bannerBackend_` |
+
+- 두 앱 호스트 모두 `jk::text::ResolveDesktopFontPath()`가 `state\settings.json`의
+  `text.font_path`를 직독(기본 `C:\Windows\Fonts\malgun.ttf`) — 서버 KV 파이프 불요.
+- Init 실패(`IsLoaded()==false`)는 미장착 + stderr 경고 1줄 → 글리프 단위 비트맵 폴백(§3.5).
+- 서버 배너는 Task 6 리뷰 픽스(324a55b)로 **영구 `bannerBackend_`**를 캐시 소유자로 부여 —
+  nullptr 캐시로 등록되는 경로 봉쇄. 동기 그리기 경로라 `DrawGlyph`의 즉시
+  `FlushUploads` 폴백이 이 백엔드로 올린다.
+
+### 9.2 링크 보류 백로그 소각 + 전체 회귀 실측
+
+Task 4 시점(ninja [80/80]) 이후 Task 5/6이 착지해 라이브 데스크탑이 구 exe/dll을 쥐고
+있었다(링크 보류). 라이브 데스크탑(jkdesktop+jkwinserver) 정지 → 풀빌드 → 회귀 →
+재기동 복원 순으로 소각:
+
+- **ninja 29/29 GREEN** — 링크 3건(jkdesktop.exe, jkwinserver.exe, jkapp_taskbar.dll)
+  전부 성공. 링크 보류 0. (컴파일 결함 아닌 잠금 보류였음이 확인됨)
+
+회귀 7종 **×2 연속 전부 GREEN** (`tools/probes/reg7_*.log`):
+
+| 프로브 | 결과(×2 동일) |
+|---|---|
+| jktext_probe | PASS 26 FAIL 0 |
+| jktext_view_probe | exit 0 — ink=189 aa=172 span=[9..61] |
+| jkedit_probe | RESULT: ALL PASS |
+| terminal_hangul_probe | 33/33 checks passed |
+| terminal_hangul_view_probe | 18/18 checks passed |
+| terminal_jamo_atlas_probe (재컴파일) | 9/9 checks passed |
+| probe_textfont.ps1 | 7 PASS / 0 FAIL (server-up PASS, settings 복원 byte-identical) |
+| probe_settings.ps1 | 17 ok — RESULT: ALL PASS |
+| probe_approval_overflow.ps1 | parked-1..8 + reply + events(8) — PASS (배너 파이프라인 무수정 회귀) |
+
+- `terminal_jamo_atlas_probe` 재컴파일: JKGlyphAtlas.cpp의
+  `STB_TRUETYPE_IMPLEMENTATION`이 JKTextAtlas.cpp로 이동해 단독 링크에 보충 필요.
+  **실측 소스 목록**(계획서의 3파일 목록에 2개 보강 — 레슨 28 링크 오류는 입력 파일
+  목록부터): `terminal_jamo_atlas_probe.cpp src/terminal/JKGlyphAtlas.cpp
+  src/JKTextAtlas.cpp src/agent/JKAgentJson.cpp src/terminal/JKTerminalGrid.cpp
+  src/terminal/JKVtParser.cpp build/libquickjs.a` — include에 `-Ithird_party/quickjs-ng`
+  (JKTextAtlas의 settings 직독이 JKAgentJson를 끈다).
+
+### 9.3 원설계 대비 편차 (전부 §3/커밋 메시지에 기록된 것 — 요약)
+
+1. **글리프당 소형 텍스처** — 원설계 "fg 색당 tightly-packed 페이지" → 글리프당
+   텍스처(캐시 키 `desktext_%08x_%06x`). 근거: JKResourceCache 동일 키 재등록
+   재업로드 의미론 미보장 + 데스크탑 텍스트는 프레임당 수십 글자라 페이지 압축 이득
+   작음. 메모리 글리프당 ~1KB.
+2. **KssmCodepointToUnicode 왕복 가드** — KssmToUtf8이 매핑 없는 쌍을 '?'로 치환하므로,
+   Utf8ToKssm 왕복이 원래 쌍으로 돌아올 때만 실제 매핑으로 인정(아니면 0=폴백 신호).
+   신규 매핑 테이블 금지(docs/60 §7) 원칙으로 기존 역인덱스 재사용.
+3. **배너 영구 백엔드** — 배너 캐시의 등록/플러시 소유자로 `bannerBackend_`를 서버
+   수명 동안 유지. 배너 텍스처 풀(`approvalBannerTexs_`)은 Stop에서 폐기.
+4. **`DrawGlyph` 즉시 FlushUploads 폴백** — 텍스처 조회 실패 시 1회 플러시 후 재시도
+   (동기 그리기 배너 경로 보호).
+
+### 9.4 알려진 한계 (수용 — 1단계 범위 밖)
+
+- **기존 ImGui 앱 폰트 경로 미변경** — imgui 범위 배열 관행 유지(§8). 본 과제와 무관.
+- **설정 재시작 적용** — `text.font_path` 변경은 기동 시 읽힘(핫스왑 없음).
+- **글리프 단위 비트맵 폴백은 계단 유지** — 변환 실패/폰트 부재 글자만 기존 KSSM
+  비트맵 경로(계단진 그대로).
+- **배너 글리프 텍스처 누적** — bannerCache_ 글리프 텍스처는 Stop까지 누적(LRU 폐기
+  백로그, §7).
+- **malformed 후행 하이바이트 스퀘시 엣지** — TextOut 루프에서 문자열 끝에 홀로 남은
+  하이바이트(`i+1 >= n`인 `c & 0x80`)는 영문 경로(EngPutCh)로 그려진다 — 잘린
+  KSSM 조각은 잘못된 글자 1개로 표시. 정상 문자열에서는 발생하지 않는 에지(원래
+  비트맵 경로도 동일 동작 — 본 과제에서 새로 만든 결함 아님).
+- **눈확인 대기**: 데스크탑 재기동 후 전체 UI 텍스트가 벡터 폰트로 렌더되는지
+  사용자 확인(1단계 종결 조건).
