@@ -349,6 +349,16 @@ void JKEdit::UpdateTextInputRect() {
     SDL_SetTextInputRect(&rect);
 }
 
+void JKEdit::SilenceOsIme() {
+    // 내부 오토마타가 한글을 소유하는 동안 OS IME를 ASCII로 눌러 닫는다 —
+    // 두 체계가 동시에 조합하면 글자가 이중으로 찍힌다. 클라이언트 모드에선
+    // 호스트 창이 없어 no-op(백로그: client→server IME 강제 채널).
+    if (g_jkAppHost) {
+        SDL_Window* window = g_jkAppHost->GetSdlWindow();
+        if (window) JKPlatform::SetConversionMode(window, JKPlatform::ImeMode::Ascii);
+    }
+}
+
 void JKEdit::DetectWindowsImeState() {
 #ifdef _WIN32
     if (!g_jkAppHost) return;
@@ -439,13 +449,16 @@ void JKEdit::RespondMessage(const JKEvent& ev) {
     } else if (ev.type == JKEventType::ImeToggle) {
         // 서버 저수준 훅이 물리 한/영 키를 관측(docs/61 §16.1 — OS IME가 키를
         // 삼키고 신식 IME는 IMM 변환 플래그를 갱신하지 않아 절대 상태를 읽을
-        // 방법이 없다). 기능적으로 중요한 건 내부 모드만 손을 떼는 것: OS IME가
-        // 방금 언어를 전환했고 조합/커밋은 TEXTINPUT/TEXTEDITING 경로로 오므로
-        // OS IME를 따르면 된다. 절대 모드 판정은 포커스 시점의
-        // DetectWindowsImeState가 IMM이 살아 있는 환경에서 보정한다.
-        if (inputMode_ == InputMode::InternalHangul && !imeComposing_) {
-            FinishInternalComposition();
-            inputMode_ = InputMode::ImeHangul;
+        // 방법이 없다). 라이브 관측(docs/61 §18): 이 데스크톱 창엔 OS IME의
+        // 조합 내용(TEXTEDITING/TEXTINPUT)이 도달하지 않는다 — "한글 상태에서도
+        // 영문 코드가 왔다". 그러므로 ImeHangul로 손을 떼면 타이핑이 사망하고,
+        // ImeHangul/Ascii에선 이 핸들러가 no-op라 한/영으로 한국어를 다시 켤
+        // 방법이 없었다. 한/영은 F2와 동일한 내부 모드 양방향 토글로 동작한다.
+        if (!imeComposing_) {
+            if (inputMode_ == InputMode::InternalHangul)
+                FinishInternalComposition();
+            ToggleHangulMode();
+            SilenceOsIme();
         }
     } else if (ev.type == JKEventType::MouseWheel) {
         // 멀티라인 휠 스크롤 (docs/61 §2) — dy>0 = 위(이전 라인).
@@ -504,24 +517,24 @@ void JKEdit::RespondMessage(const JKEvent& ev) {
             PasteFromClipboard();
         } else if (ev.keyCode == SDLK_F2) {
             if (!imeComposing_) {
+                if (inputMode_ == InputMode::InternalHangul)
+                    FinishInternalComposition();
                 ToggleHangulMode();
                 // When the user switches to the internal automata, force the OS
                 // IME into ASCII mode so both systems do not compose at the same
                 // time and create duplicate characters.
-                if (inputMode_ == InputMode::InternalHangul && g_jkAppHost) {
-                    SDL_Window* window = g_jkAppHost->GetSdlWindow();
-                    if (window) JKPlatform::SetConversionMode(window, JKPlatform::ImeMode::Ascii);
-                }
+                SilenceOsIme();
             }
         } else if (ev.keyCode == (SDLK_SCANCODE_MASK | SDL_SCANCODE_LANG1)) {
-            // 한/영 전환키(IME LANG1, docs/61 §15): OS IME가 이미 토글했다.
-            // 내부 오토마타 모드면 손을 내리고(OS IME가 방금 전환한 상태를
-            // 따라간다), OS IME 경로면 현재 변환 상태를 다시 읽어 동기화한다.
-            // 옛 코드는 이 키에 대한 처리가 없어 F2만 응답했다.
+            // 한/영 전환키(IME LANG1, docs/61 §15). 키코드가 정통 도달하는
+            // 환경용 — ImeToggle(저수준 훅)과 동일한 내부 모드 양방향 토글
+            // (docs/61 §18). 옛 코드는 내부→Ascii 한 방향만 지원해 토글이
+            // 아니었다.
             if (!imeComposing_) {
                 if (inputMode_ == InputMode::InternalHangul)
-                    inputMode_ = InputMode::Ascii;
-                DetectWindowsImeState();
+                    FinishInternalComposition();
+                ToggleHangulMode();
+                SilenceOsIme();
             }
         } else if (inputMode_ == InputMode::InternalHangul &&
                    !imeComposing_ &&
@@ -588,6 +601,8 @@ void JKEdit::RespondMessage(const JKEvent& ev) {
         }
     } else if (ev.type == JKEventType::TextEditing) {
         if (readOnly_) return;
+        if (inputMode_ == InputMode::InternalHangul)
+            return;  // 내부 오토마타가 한글을 소유 — OS IME 선조합은 버린다(§18).
         // SDL IME composition event. Convert the UTF-8 pre-edit string to KSSM
         // and store it for rendering. The actual commit happens on TEXTINPUT.
         compText_ = Utf8ToKssm(ev.text);
@@ -620,11 +635,8 @@ void JKEdit::RespondMessage(const JKEvent& ev) {
                 }
                 InsertText(ev.text);
             } else if (c >= 0x80) {
-                if (composing_) {
-                    composing_ = false;
-                    automata_.InitAutomata();
-                }
-                InsertKssmText(Utf8ToKssm(ev.text).c_str());
+                // 비ASCII Char는 OS IME 커밋뿐이다 — 내부 모드에선 이중 조합이
+                // 되므로 버린다(§18 단일 소유 규칙).
             }
         } else {
             InsertKssmText(Utf8ToKssm(ev.text).c_str());

@@ -102,6 +102,7 @@ private:
     // IME / text-input helpers
     void UpdateTextInputRect();
     void DetectWindowsImeState();
+    void SilenceOsIme();
     void CommitComposition();
     void DeleteBackward();
     void DeleteForward();

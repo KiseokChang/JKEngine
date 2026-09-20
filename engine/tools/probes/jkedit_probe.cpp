@@ -254,9 +254,11 @@ int main() {
               "mode=" + std::to_string(static_cast<int>(e.GetInputMode())));
     }
 
-    // T19: ImeToggle(서버 저수준 훅 관측, docs/61 §16.1) — 내부 모드에서
-    // 토글 이벤트가 오면 진행 중 조합을 확정하고 OS IME 경로로 핸드오버.
-    // OS IME 모드(Ascii/ImeHangul)면 할 일이 없다.
+    // T19: ImeToggle(서버 저수준 훅 관측, docs/61 §18) — 한/영은 F2와 동일한
+    // 내부 모드 양방향 토글이다. 옛 코드는 내부→ImeHangul 한 방향 핸드오버라
+    // OS IME 조합이 불능인 데스크톱(라이브 실측: "한글 상태에서도 영문 코드가
+    // 온다")에서 한국어를 다시 켤 방법이 없었다. T19d/e: 내부 모드는 OS IME
+    // 콘텐츠(TEXTEDITING 선조합/비ASCII 커밋)를 버리는 단일 소유 규칙.
     {
         JKEdit e(JKRect{ 0, 0, 400, 24 });
         e.SetHangulMode(true);
@@ -264,17 +266,37 @@ int main() {
         JKEvent ev{};
         ev.type = JKEventType::ImeToggle;
         e.RespondMessage(ev);
-        Check("T19a-toggle-handover",
-              e.GetInputMode() == JKEdit::InputMode::ImeHangul,
+        Check("T19a-toggle-off",
+              e.GetInputMode() == JKEdit::InputMode::Ascii,
               "mode=" + std::to_string(static_cast<int>(e.GetInputMode())));
         Check("T19b-toggle-committed",
               KssmToUtf8(e.GetText().c_str()) == "가",
               "got=" + KssmToUtf8(e.GetText().c_str()));
-        // OS IME 경로(ImeHangul)에서의 토글은 내부 모드가 아니므로 무시된다.
+        // 두 번째 토글: Ascii → InternalHangul (한국어 재진입 — 옛 코드 사망점).
         e.RespondMessage(ev);
-        Check("T19c-toggle-ime-noop",
-              e.GetInputMode() == JKEdit::InputMode::ImeHangul,
+        Check("T19c-toggle-on",
+              e.GetInputMode() == JKEdit::InputMode::InternalHangul,
               "mode=" + std::to_string(static_cast<int>(e.GetInputMode())));
+        // 재진입 후 조합이 살아있는지 — ㅂ+ㅏ = "바".
+        SendKey(e, SDLK_q);
+        SendKey(e, SDLK_k);
+        Check("T19c2-compose-after-reentry",
+              KssmToUtf8(e.GetText().c_str()) == "가바",
+              "got=" + KssmToUtf8(e.GetText().c_str()));
+        // 단일 소유 규칙: 내부 모드에선 TEXTEDITING 선조합과 비ASCII 커밋(Char)을
+        // 모두 버린다 — OS IME가 살아 있는 환경에서 이중 조합을 막는 방어선.
+        JKEvent ed{};
+        ed.type = JKEventType::TextEditing;
+        std::snprintf(ed.text, sizeof(ed.text), "%s", "나");
+        e.RespondMessage(ed);
+        JKEvent ch{};
+        ch.type = JKEventType::Char;
+        std::snprintf(ch.text, sizeof(ch.text), "%s", "나");
+        e.RespondMessage(ch);
+        Check("T19d-single-owner",
+              KssmToUtf8(e.GetText().c_str()) == "가바" &&
+                  e.GetInputMode() == JKEdit::InputMode::InternalHangul,
+              "got=" + KssmToUtf8(e.GetText().c_str()));
     }
 
     {
