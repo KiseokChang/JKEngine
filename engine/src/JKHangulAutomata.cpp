@@ -227,8 +227,16 @@ uint16_t HangulAutomata::ConvertKey(uint16_t key, uint16_t modifier) {
     };
 
     if (hanKbdState && (key > 32 && key < 127)) {
-        if ((modifier & 0x0040) && std::isalpha(static_cast<int>(key)))
-            key = key ^ 0x20;
+        if (std::isalpha(static_cast<int>(key))) {
+            // keycode 대소문자와 shift 플래그를 정규화한다(docs/61 §13).
+            // 라이브 SDL은 shift를 이미 키코드에 반영해 'R'(대문자)로 오고,
+            // 하니스는 소문자 'r'+shift 플래그로 온다 — 둘 다 먼저 소문자로
+            // 통일한 뒤 shift 플래그로 겹자모 행(대문자 행)을 조회한다.
+            // 옛 XOR-only는 'R'+shift를 'r'로 되돌려 평자모 ㄱ을 냈다.
+            key = static_cast<uint16_t>(std::tolower(static_cast<int>(key)));
+            if (modifier & 0x0040)
+                key = key ^ 0x20;
+        }
         key = HanKbrdTable[key - 32] & 0xFF;
     }
     return key;

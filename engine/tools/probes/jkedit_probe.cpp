@@ -182,13 +182,35 @@ int main() {
               "got=" + KssmToUtf8(e.GetText().c_str()));
     }
 
-    // T14: Shift 겹자모+모음 — Shift+r + k = "까".
+    // T14: Shift 겹자모+모음 — Shift+r + k = "까" (하니스 형태: 소문자+플래그).
     {
         JKEdit e(JKRect{ 0, 0, 400, 24 });
         e.SetHangulMode(true);
         SendKey(e, SDLK_r, KMOD_SHIFT);
         SendKey(e, SDLK_k);
         Check("T14-shift-kka", KssmToUtf8(e.GetText().c_str()) == "까",
+              "got=" + KssmToUtf8(e.GetText().c_str()));
+    }
+
+    // T15: 라이브 형태 — SDL은 shift를 키코드에 반영해 대문자 'R'로 온다.
+    // 옛 코드는 대문자 범위를 한글 분기에서 거부해 조합 자체가 안 시작됐고
+    // (유저 보고 "쌍자음은 처음부터 입력이 안됨"), ConvertKey의 XOR-only는
+    // 'R'+shift를 'r'로 되돌려 평자모 ㄱ을 냈다 (docs/61 §13).
+    {
+        JKEdit e(JKRect{ 0, 0, 400, 24 });
+        e.SetHangulMode(true);
+        SendKey(e, 'R', KMOD_SHIFT);
+        SendKey(e, SDLK_k);
+        Check("T15-live-uppercase-shift", KssmToUtf8(e.GetText().c_str()) == "까",
+              "got=" + KssmToUtf8(e.GetText().c_str()));
+    }
+
+    // T16: 대문자 키코드 무시(shift 없음 — capslock 경로) → 평자모 ㄱ.
+    {
+        JKEdit e(JKRect{ 0, 0, 400, 24 });
+        e.SetHangulMode(true);
+        SendKey(e, 'R');
+        Check("T16-uppercase-noshift", KssmToUtf8(e.GetText().c_str()) == "ㄱ",
               "got=" + KssmToUtf8(e.GetText().c_str()));
     }
 

@@ -490,7 +490,11 @@ void JKEdit::RespondMessage(const JKEvent& ev) {
             }
         } else if (inputMode_ == InputMode::InternalHangul &&
                    !imeComposing_ &&
-                   ev.keyCode >= SDLK_a && ev.keyCode <= SDLK_z) {
+                   ((ev.keyCode >= SDLK_a && ev.keyCode <= SDLK_z) ||
+                    (ev.keyCode >= 'A' && ev.keyCode <= 'Z'))) {
+            // 라이브 SDL은 shift를 키코드에 반영해 'R'(대문자)로 온다 —
+            // 소문자 범위만 검사하면 쌍자음 키가 아예 조합에 못 들어간다
+            // (docs/61 §13).
             ProcessHangulKey(static_cast<uint16_t>(ev.keyCode),
                              (shift != static_cast<bool>(mod & KMOD_CAPS)) ? 0x0040 : 0);
         } else {
