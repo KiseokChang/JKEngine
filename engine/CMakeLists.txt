@@ -161,6 +161,7 @@ add_library(jkcore STATIC
     src/agent/JKAgentJson.cpp
     src/agent/JKLlmEngine.cpp
     src/JKHangulManager.cpp
+    src/JKTextAtlas.cpp
     src/JKResourceCache.cpp
     src/JKSoundManager.cpp
     # JKConPtyBridge stays in jkcore (deviation from the task-3 brief): jkagentd's

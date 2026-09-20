@@ -1,4 +1,5 @@
-#define STB_TRUETYPE_IMPLEMENTATION
+// STB_TRUETYPE_IMPLEMENTATION moved to JKTextAtlas.cpp (docs/63 Task 2) —
+// single definition in jkcore; this TU includes the header only.
 
 #include <terminal/JKGlyphAtlas.h>
 #include <terminal/JKTerminalGrid.h>
