@@ -95,13 +95,32 @@ constexpr const char* kLlmDenySettings =
     "\"Bash(wmic process:*)\",\"Bash(Stop-Service:*)\","
     "\"Bash(net stop:*)\"]}}";
 
+// 폰 채팅 턴 프리앰블 (docs/60 실전 ⑥, 2026-09-21): 모델이 최종 답변 앞에
+// 사고 과정 내레이션("먼저 ~를 확인하겠습니다"류)과 마크다운 문법(코드펜스,
+// 헤딩, 굵게, 인라인 백틱)을 그대로 흘려 보내는 실측 — 폰 웹 UI는 출력을
+// 플레인 텍스트로 렌더링하므로 문법 문자가 그대로 노출된다. 모든 엔진 턴의
+// 프롬프트 앞에 고정 지시문을 붙여 최종 답변만·플레인 텍스트로 내보내게 한다.
+// stub 엔진은 프롬프트를 무시하므로 무영향. 이스케이프 루프는 따옴표만
+// 건드리므로 상수에 따옴표·백슬래시를 넣지 않는다(CRT argv 재파싱 안전).
+constexpr const char* kLlmTurnPreamble =
+    "[시스템 지시] 아래 사용자 요청에 대해 최종 답변만 출력한다. "
+    "사고 과정이나 계획, 진행 안내를 말하지 않는다. "
+    "먼저 무엇을 확인하겠다는 식의 서두도 쓰지 않는다. "
+    "출력은 플레인 텍스트로 전달되므로 마크다운 문법을 쓰지 않는다. "
+    "코드펜스(백틱 3개), 헤딩(#), 굵게(**), 인라인 백틱 모두 금지다. "
+    "도구 사용이 필요하면 조용히 실행하고 결과만 간결하게 보고한다. "
+    "[사용자] ";
+
 // claude_wrapper guide §2.2: ollama launch claude --model <m> -- [claude args]
 std::wstring BuildEngineCmd(const ChatConfig& cfg,
                             const std::string& prompt,
                             const std::string& resumeSessionId) {
+    // Every turn gets the fixed Korean preamble (CoT/markdown leak guard,
+    // above) prepended to the raw prompt, before quote escaping.
+    const std::string fullPrompt = kLlmTurnPreamble + prompt;
     // -p argument escaping: only quotes (the rest reaches claude verbatim).
     std::string esc;
-    for (char ch : prompt) {
+    for (char ch : fullPrompt) {
         if (ch == '"') esc += "\\\"";
         else esc += ch;
     }
