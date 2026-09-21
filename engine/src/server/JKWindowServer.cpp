@@ -3426,6 +3426,17 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                                 inf.targetConnId = conn->Id();
                                 inf.windowId = m->windowId;
                                 inf.expiresAt = std::time(nullptr) + 10;
+                                // MINOR-3 — reset act 즉시 allow 경로: ok 회송
+                                // 시 커서 정의 전이((0,0)) 리셋(스펙 §4).
+                                if (m->cursor.valid && toolName == "act") {
+                                    jk::agent::AgentJson a(argsRaw.empty()
+                                                               ? "{}"
+                                                               : argsRaw);
+                                    std::string kind;
+                                    if (a.GetStr("kind", kind))
+                                        inf.resetCursorOnOk =
+                                            (kind == "reset");
+                                }
                                 inflightAppTools_[reqId] = inf;
                                 std::string callJson = "{\"app\":\"" + JsonEsc(app) +
                                     "\",\"tool\":\"" + JsonEsc(toolName) +
@@ -5479,6 +5490,10 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                             inf.targetConnId = target->Id();
                             inf.windowId = mit->second.windowId;
                             inf.expiresAt = std::time(nullptr) + 10;
+                            // MINOR-3 — reset act 승인 경로: ok 회송 시 커서
+                            // 정의 전이((0,0)) 리셋(스펙 §4).
+                            inf.resetCursorOnOk =
+                                it->semCell && it->semKind == "reset";
                             inflightAppTools_[reqId] = inf;
                             ipc::WriteAgentToolCall(
                                 target->Transport(), reqId,
@@ -6159,7 +6174,7 @@ void JKWindowServer::HandleToolRegister(JKClientConnection& client,
             ac.description =
                 "Semantic act on the cursor cell (kind enum from the app's "
                 "cursor declaration). Approval-gated (ask default); the app "
-                "owns the game transition.";
+                "owns the game transition. reset ignores row/col (send 0,0).";
             ac.inputSchema =
                 "{\"type\":\"object\",\"properties\":{\"kind\":{\"type\":"
                 "\"string\",\"enum\":" + kinds + "},\"row\":{\"type\":"
@@ -6203,6 +6218,15 @@ void JKWindowServer::HandleToolResult(JKClientConnection& client,
     }
     for (auto& c : clients_) {
         if (c && c->Id() == it->second.requesterConnId && !c->IsDisconnected()) {
+            // MINOR-3 — reset act가 ok로 끝나면 커서를 정의 전이(좌상단
+            // (0,0))으로 리셋(스펙 §4 — 게임 리셋=정의 전이, 커서 상태는
+            // 플랫폼 소유). 앱 에러(bad_state 등)에는 리셋하지 않는다.
+            if (ok && it->second.resetCursorOnOk) {
+                auto mit = appToolManifests_.find(it->second.targetConnId);
+                if (mit != appToolManifests_.end() && mit->second.cursor.valid)
+                    mit->second.cursorState.Reset(mit->second.cursor.rows,
+                                                  mit->second.cursor.cols);
+            }
             std::string reply;
             // 의미 커서 read (스펙 §3): 앱 snapshot 결과를 커서 헤더로 조립해
             // 회송한다. 앱이 ok=0(자체 에러)로 답해도 커서 필드는 유지 —

@@ -449,6 +449,10 @@ private:
         // 의미 커서 read (스펙 2026-09-22-semantic-cursor §3): 앱 snapshot
         // 결과를 그대로 회송하지 않고 커서 헤더로 조립한다.
         bool composeCursorRead = false;
+        // MINOR-3 — reset act가 ok로 끝나면 커서를 정의 전이(좌상단 (0,0))
+        // 으로 리셋(스펙 §4 — 플랫폼이 커서 상태를 소유). 승인 해소 경로(
+        // semCell 파킹)와 즉시 allow 경로 모두에서 설정.
+        bool resetCursorOnOk = false;
     };
     std::map<uint32_t, AppToolManifest> appToolManifests_;  // connId → 매니페스트
     std::map<uint32_t, InflightAppTool> inflightAppTools_;  // reqId → 중계

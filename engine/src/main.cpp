@@ -1378,6 +1378,68 @@ static int RunAppSelfTest() {
         check(game.ChordReveal(1, 1), "chord reveal opens neighbors");
         check(game.IsRevealed(0, 2), "chord reveals top-right safe cell");
         check(game.IsWon(), "chord reveals all safe cells and wins");
+
+        // --- Semantic cursor act/snapshot logic layer (스펙 2026-09-22
+        // -semantic-cursor §3/§8, fix round 1 MINOR-1/MINOR-2 논리 층).
+        {
+            jk::MineSweeperGame agame;
+
+            agame.NewGameWithMines(9, 9, {{0, 0}});
+            auto o = agame.Act("reveal", 0, 0);
+            check(o.ok && o.opened == 1 && agame.Status() == std::string("lost"),
+                  "act reveal on a known mine loses with opened=1");
+            o = agame.Act("reveal", 5, 5);
+            check(!o.ok && std::string(o.error) == "bad_state",
+                  "act reveal after game over is bad_state");
+            o = agame.Act("flag", 5, 5);
+            check(!o.ok && std::string(o.error) == "bad_state",
+                  "act flag after game over is bad_state");
+
+            // MINOR-1 논리층 — reset은 언제든 유효 전이(스펙 §8). 죽은 게임
+            // 위의 reset 뒤 전이가 정상 플레이로 돌아온다(뷰 래치 리셋은
+            // MineGameWindow::Impl::ResetViewState — 뷰 레벨, e2e 프로브).
+            o = agame.Act("reset", 0, 0);
+            check(o.ok && !agame.IsGameOver() &&
+                      agame.Status() == std::string("playing"),
+                  "act reset recovers a dead game");
+            o = agame.Act("reveal", 5, 5);
+            check(o.ok, "act reveal after reset plays normally");
+            o = agame.Act("reveal", 5, 5);
+            check(!o.ok && std::string(o.error) == "bad_state",
+                  "act reveal on an opened cell is bad_state");
+
+            // MINOR-2 직렬화 규약 — 마크가 지뢰 공개보다 우선(SnapshotLines).
+            agame.NewGameWithMines(9, 9, {{0, 0}, {8, 8}});
+            check(agame.Act("question", 0, 0).ok, "act question sets the mark");
+            check(agame.Act("reveal", 8, 8).ok &&
+                      agame.Status() == std::string("lost"),
+                  "unmarked mine boom enters loss reveal");
+            auto lines = agame.SnapshotLines();
+            check(lines.size() == 9, "snapshot has one line per row");
+            check(lines[0][0] == '?',
+                  "question-marked mine serializes as ? (MINOR-2)");
+            check(lines[8][8] == '*', "unmarked mine serializes as * after loss");
+
+            agame.NewGameWithMines(9, 9, {{0, 0}, {4, 4}});
+            check(agame.Act("flag", 0, 0).ok, "act flag sets the mark");
+            check(agame.Act("reveal", 4, 4).ok, "boom with flagged mine present");
+            lines = agame.SnapshotLines();
+            check(lines[0][0] == 'F',
+                  "flag-marked mine keeps F after loss (standard notation)");
+
+            agame.Act("reset", 0, 0);
+            auto fresh = agame.SnapshotLines();
+            bool allClosed = fresh.size() == 9;
+            for (const std::string& l : fresh) {
+                for (char ch : l) if (ch != '#') allClosed = false;
+            }
+            check(allClosed, "reset board serializes all-closed");
+
+            jk::MineSweeperGame::ActKind parsed = jk::MineSweeperGame::ActKind::Reveal;
+            check(!jk::MineSweeperGame::ParseActKind("detonate", parsed),
+                  "unknown act kind token rejected");
+            check(!agame.Act("detonate", 0, 0).ok, "act rejects unknown kind");
+        }
     }
 
     // .jkx container roundtrip: pack, reopen, verify manifest and payloads.

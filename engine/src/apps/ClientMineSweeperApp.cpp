@@ -5,6 +5,7 @@
 #include <JKResourceCache.h>
 #include <JKWindow.h>
 #include <client/JKClientSurface.h>
+#include <cstdio>
 
 namespace jk {
 
@@ -100,14 +101,78 @@ std::vector<uint8_t> CreateQuestionIcon() {
     return data;
 }
 
+// NIT-5 — JKClientSurface의 JsonEsc는 TU 로컬이라 재사용 불가. unsupported_tool
+// 에코에 외래 토큰을 실을 때 JSON 구조 파괴/주입 봉쇄용 최소 이스케이퍼.
+std::string JsonEsc(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 8);
+    for (char ch : s) {
+        switch (ch) {
+            case '"':  out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\b': out += "\\b"; break;
+            case '\f': out += "\\f"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default:
+                if (static_cast<unsigned char>(ch) < 0x20) {
+                    char buf[8];
+                    std::snprintf(buf, sizeof(buf), "\\u%04x", ch);
+                    out += buf;
+                } else {
+                    out += ch;
+                }
+        }
+    }
+    return out;
+}
+
 } // anonymous namespace
 
 class ClientMineSweeperApp::Impl {
 public:
     std::unique_ptr<MineGameWindow> mineWindow;
     bool iconsLoaded = false;
+    ClientMineSweeperApp* app = nullptr;
 
     static constexpr int kTimerMs = 100;
+
+    // 의미 커서 등록 (스펙 2026-09-22-semantic-cursor §2): 자기 도구(act/
+    // snapshot) + 실측 격자 선언서를 AgentToolRegister로 등록한다 — vplayer
+    // 선례 (ClientVPlayerApp.cpp :1687). MINOR-4 — 난이도 변경이 격자
+    // 지오메트리(rows/cols)를 바꾸므로 MineGameWindow::SetCursorDeclChangedCb
+    // 콜백으로 재등록한다(서버 upsert = cursorState (0,0) 리셋 — 새 격자의
+    // 좌상단이므로 정확한 정의 전이). 선언서는 렌더 코드의 실측 보고
+    // (MineGrid::GetBoardGeometry — HitTestCell/OnPaintClient와 동일 산식)다.
+    // 레이아웃 미완으로 선언이 비면 등록을 아예 건너뛴다 — 커서 없는 act는
+    // 게이트 ask 보장(cursorOwner 계약)이 깨지므로 도구만 등록하는 혼종을
+    // 만들지 않는다(fail-closed).
+    void RegisterAgentTools(jk::client::JKClientSurface* surface) {
+        if (!app || !mineWindow || !surface) return;
+        const std::string cursorDecl = mineWindow->CursorDeclJson();
+        if (!surface || cursorDecl.empty()) return;
+        using Decl = jk::client::JKClientSurface::AgentToolDecl;
+        std::vector<Decl> tools = {
+            {"act",
+             "Minesweeper semantic act on the cursor cell: reveal (flood-fill "
+             "open, echoes opened), flag/question/clear (cell mark), reset "
+             "(new board; reset ignores row/col - send 0,0). Echoes "
+             "kind/row/col/opened/status; invalid transitions return "
+             "error=bad_state.",
+             "{\"type\":\"object\",\"properties\":{\"kind\":{\"type\":"
+             "\"string\",\"enum\":[\"reveal\",\"flag\",\"question\",\"clear\","
+             "\"reset\"]},\"row\":{\"type\":\"integer\"},\"col\":{\"type\":"
+             "\"integer\"}},\"required\":[\"kind\",\"row\",\"col\"]}"},
+            {"snapshot",
+             "Serialize the minesweeper board: 9 text lines (one per row, "
+             "'#' closed / 'F' flag / '?' question / digit opened / '*' mine "
+             "exposed after game over) plus status/mine/flag/opened counts. "
+             "Cursor-independent (the cursor header is added by the server).",
+             "{\"type\":\"object\",\"properties\":{}}"},
+        };
+        surface->SendAgentToolRegister("minesweeper", tools, false, cursorDecl);
+    }
 
     void LoadIcons(JKResourceCache* cache) {
         if (iconsLoaded || !cache) return;
@@ -127,6 +192,7 @@ ClientMineSweeperApp::ClientMineSweeperApp() : impl_(std::make_unique<Impl>()) {
 ClientMineSweeperApp::~ClientMineSweeperApp() = default;
 
 void ClientMineSweeperApp::OnInit() {
+    impl_->app = this;
     auto main = std::make_unique<JKWindow>("Minesweeper");
     main->SetWindowRect(JKRect{ 0, 0, 320, 380 });
 
@@ -145,44 +211,18 @@ void ClientMineSweeperApp::OnInit() {
     gameWin->SetWindowRect(JKRect{ 0, 0, clientArea.w, clientArea.h });
     gameWin->SetDock(DOCK_FILL);
     impl_->mineWindow->NewGame();
+    // MINOR-4 — 난이도 변경(메뉴 클릭) 후 재등록. OnInit은 JKClientApplication
+    // ::Init의 surface_->Connect() 이후에 불린다 — 연결 전 "조용한 false" 경로
+    // 회피.
+    impl_->mineWindow->SetCursorDeclChangedCb(
+        [this]() { impl_->RegisterAgentTools(Surface()); });
 
     SetMainWindow(std::move(main));
     SetTimerInterval(Impl::kTimerMs);
 
     impl_->LoadIcons(GetResourceCache());
 
-    // 의미 커서 (스펙 2026-09-22-semantic-cursor §2): 자기 도구(act/snapshot)
-    // + 실측 격자 선언서를 AgentToolRegister로 등록한다 — vplayer 선례
-    // (ClientVPlayerApp.cpp :1687; OnInit은 JKClientApplication::Init의
-    // surface_->Connect() 이후에 불린다 — 연결 전 "조용한 false" 경로 회피).
-    // 선언서는 렌더 코드의 실측 보고(MineGrid::GetBoardGeometry — HitTestCell/
-    // OnPaintClient와 동일 산식)다. 레이아웃 미완으로 선언이 비면 등록을 아예
-    // 건너뛴다 — 커서 없는 act는 게이트 ask 보장(cursorOwner 계약)이 깨지므로
-    // 도구만 등록하는 혼종을 만들지 않는다(fail-closed).
-    jk::client::JKClientSurface* surface = Surface();
-    const std::string cursorDecl =
-        impl_->mineWindow ? impl_->mineWindow->CursorDeclJson() : std::string();
-    if (surface && !cursorDecl.empty()) {
-        using Decl = jk::client::JKClientSurface::AgentToolDecl;
-        std::vector<Decl> tools = {
-            {"act",
-             "Minesweeper semantic act on the cursor cell: reveal (flood-fill "
-             "open, echoes opened), flag/question/clear (cell mark), reset "
-             "(new board). Echoes kind/row/col/opened/status; invalid "
-             "transitions return error=bad_state.",
-             "{\"type\":\"object\",\"properties\":{\"kind\":{\"type\":"
-             "\"string\",\"enum\":[\"reveal\",\"flag\",\"question\",\"clear\","
-             "\"reset\"]},\"row\":{\"type\":\"integer\"},\"col\":{\"type\":"
-             "\"integer\"}},\"required\":[\"kind\",\"row\",\"col\"]}"},
-            {"snapshot",
-             "Serialize the minesweeper board: 9 text lines (one per row, "
-             "'#' closed / 'F' flag / '?' question / digit opened / '*' mine "
-             "exposed after game over) plus status/mine/flag/opened counts. "
-             "Cursor-independent (the cursor header is added by the server).",
-             "{\"type\":\"object\",\"properties\":{}}"},
-        };
-        surface->SendAgentToolRegister("minesweeper", tools, false, cursorDecl);
-    }
+    impl_->RegisterAgentTools(Surface());
 }
 
 bool ClientMineSweeperApp::OnAgentToolCall(const std::string& tool,
@@ -211,7 +251,7 @@ bool ClientMineSweeperApp::OnAgentToolCall(const std::string& tool,
         return true;
     }
     resultJson = "{\"ok\":true,\"error\":\"unsupported_tool\",\"tool\":\"" +
-                 tool + "\"}";
+                 JsonEsc(tool) + "\"}";
     return true;
 }
 

@@ -301,6 +301,36 @@ if ($rd3 -ne $null) {
 }
 Check "t4-read-flag-cell" $flagOk $rd3
 
+# --- question mark reads through (MINOR-2 serialization pin, e2e side) ----------
+# The question-marked-MINE pixel case cannot be driven deterministically here
+# (mine positions are unknown pre-loss), so the render/serialize precedence is
+# pinned in the console logic harness (jkdesktop.exe minesweeper); this e2e
+# check pins that a question mark reaches the read reply as '?'.
+$qr = -1; $qc = -1
+if ($rd3 -ne $null) {
+    try {
+        $snap3b = ($rd3 | ConvertFrom-Json).snapshot
+        for ($r = 0; $r -lt 9; $r++) {
+            $idx = $snap3b.lines[$r].IndexOf('#')
+            if ($idx -ge 0 -and -not ($r -eq $fr -and $idx -eq $fc)) { $qr = $r; $qc = $idx; break }
+        }
+    } catch {}
+}
+Check "t4-question-target-found" ($qr -ge 0) ("rd3=" + $rd3)
+$null = Approve-Act "question" $qr $qc
+$script:qid++
+SendQuery $agent $script:qid '{"tool":"app_tool","args":{"app":"minesweeper","tool":"read","args":{}}}'
+$rd3q = Read-Reply $agent $script:qid 12000
+$qOk = $false
+if ($rd3q -ne $null) {
+    try {
+        $snap3q = ($rd3q | ConvertFrom-Json).snapshot
+        $qOk = ($snap3q.status -eq "playing" -and $qr -ge 0 -and
+                $snap3q.lines[$qr][$qc] -eq '?')
+    } catch { $qOk = $false }
+}
+Check "t4-read-question-cell" $qOk $rd3q
+
 # --- reset transition: fresh board, status playing ------------------------------
 $act4 = Approve-Act "reset" 0 0
 Check "t4-reset-echo" ($act4 -ne $null -and $act4 -match '"kind":"reset"' -and $act4 -match '"status":"playing"') $act4
@@ -317,6 +347,14 @@ if ($rd4 -ne $null) {
     } catch { $resetOk = $false }
 }
 Check "t4-read-after-reset" $resetOk $rd4
+
+# --- MINOR-3: approved reset moves the platform cursor to the origin ------------
+# The reset act resolves allow with an ok app reply -> the server resets its
+# cursor state to (0,0) (spec §4: game reset = definition transition, the
+# cursor state is platform-owned). The next read must show the reset header.
+$cur0 = $false
+if ($rd4 -ne $null) { $cur0 = ($rd4 -match '"cursor":\{"row":0,"col":0\}') }
+Check "t4-reset-cursor-origin" $cur0 $rd4
 
 # --- teardown -------------------------------------------------------------------
 Get-Process jkdesktop, jkwinserver, jkbridge -ErrorAction SilentlyContinue |

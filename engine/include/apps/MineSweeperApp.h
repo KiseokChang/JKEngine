@@ -191,6 +191,11 @@ public:
     // 의미 커서 선언서 (스펙 §2) — GetBoardGeometry 실측값을 담은 cursor 블록
     // 원문 JSON. 레이아웃 미완이면 빈 문자열(선언 생략 = 미선언 앱 동작).
     std::string CursorDeclJson() const;
+    // MINOR-4 — 난이도 변경은 rows/cols(=격자 지오메트리)를 바꾼다. 선언서가
+    // 변하면 등록 앱(ClientMineSweeperApp)이 AgentToolRegister를 재전송해
+    // 서버 캐시를 upsert한다(upsert가 cursorState를 (0,0)으로 리셋 — 새 격자
+    // 좌상단이므로 정확한 정의 전이). 레이아웃 변경 후 콜백 발화.
+    void SetCursorDeclChangedCb(std::function<void()> cb);
 
 private:
     class Impl;

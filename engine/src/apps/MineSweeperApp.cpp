@@ -622,8 +622,10 @@ void MineGrid::DrawCell(JKDC& dc, int row, int col, const JKRect& cell) const {
         // 게임 종료 후 지뢰 전체 공개 (SnapshotLines의 '*' 규약과 동일 — 픽셀과
         // 직렬화가 같은 진실원). 기존 DrawCell의 공개 분기(:522)는 열린 칸만
         // 봐서 도달 불능이었다 — 닫힌 지뢰 칸도 공개해야 표준 패배 화면이다.
-        // 깃발 칸은 유지(정확한 깃발 식별 — 표준 표기).
-        if (game_.IsGameOver() && isMine && mark != MineSweeperGame::Mark::Flag) {
+        // MINOR-2 — 깃발/물음표 마크는 지뢰 공개보다 우선(SnapshotLines가
+        // 마크 검사를 지뢰 검사보다 앞두는 것과 동일 순서 — 표준 표기: 정확한
+        // 깃발은 F, 물음표는 ? 유지).
+        if (game_.IsGameOver() && isMine && mark == MineSweeperGame::Mark::None) {
             dc.SetColor(192, 192, 192, 255);
             dc.FillRect(cell);
             dc.SetColor(128, 128, 128, 255);
@@ -852,9 +854,18 @@ public:
     bool timerRunning = false;
     int elapsedSeconds = 0;
     int mineTickCounter = 0;
+    std::function<void()> cursorDeclChangedCb;   // MINOR-4 — 난이도 변경 알림
 
     void NewGame() {
         game.NewGame();
+        ResetViewState();
+    }
+
+    // 뷰 상태 동기화 — game.NewGame()은 상태 머신만 리셋한다. 에이전트 reset
+    // 경로(MINOR-1, docs 스펙 §4)는 game.Act만 거치므로 뷰 쪽 타이머/모달 래치/
+    // 코드 상태가 죽은 게임에 남는다 — 네이티브 NewGame과 같은 뷰 리셋을
+    // 보장하기 위해 game 전이 후 이 헬퍼를 부른다.
+    void ResetViewState() {
         elapsedSeconds = 0;
         mineTickCounter = 0;
         timerRunning = false;
@@ -868,6 +879,7 @@ public:
         game.SetDifficulty(diff);
         ResizeMineWindow();
         NewGame();
+        if (cursorDeclChangedCb) cursorDeclChangedCb();   // MINOR-4 재등록
     }
 
     void ResizeMineWindow() {
@@ -975,6 +987,10 @@ public:
                 if (!wasStarted && game.IsStarted()) {
                     OnFirstOpen();
                 }
+            } else {
+                // MINOR-1 — 에이전트 reset도 뷰 리셋을 거친다(타이머 0/모달
+                // 래치 해제/코드 상태 리셋). 네이티브 NewGame과 동일 뷰 상태.
+                ResetViewState();
             }
             if (grid) grid->Invalidate();   // 플러드 필/리셋 = 전체 무효화
             UpdateLabels();
@@ -1103,6 +1119,10 @@ bool MineGameWindow::Act(const std::string& kind, int row, int col,
 
 bool MineGameWindow::Snapshot(std::string& resultJson) {
     return impl_->Snapshot(resultJson);
+}
+
+void MineGameWindow::SetCursorDeclChangedCb(std::function<void()> cb) {
+    impl_->cursorDeclChangedCb = std::move(cb);
 }
 
 std::string MineGameWindow::CursorDeclJson() const {
