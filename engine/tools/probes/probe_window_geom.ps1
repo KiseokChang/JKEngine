@@ -101,7 +101,7 @@ try {
     }
     Check "setup-server-up" $up ""
     if (-not $up) { throw "server never came up" }
-    Write-Output "NOTICE: the live desktop server was stopped for the probe run"
+    Write-Output "NOTICE: the live desktop server was stopped for the probe run (jkbridge also stopped - phone web link down)"
 
     # ---- setup: spawn minesweeper (320x380) ---------------------------------
     Invoke-Agentctl '{"tool":"launch_app","args":{"app":"minesweeper"}}' | Out-Null
@@ -205,7 +205,7 @@ try {
     }
 } finally {
     Stop-ProbeProcs
-    Write-Output "NOTICE: the desktop server is left stopped - restart jkdesktop.exe --server to resume the live desktop"
+    Write-Output "NOTICE: the live desktop server AND jkbridge were stopped for the probe run - restart jkdesktop.exe --server AND jkbridge.exe to resume (phone web link dies silently without jkbridge)"
 }
 Write-Output ("RESULT: " + $(if ($script:fail -eq 0) { "ALL PASS" } else { "$($script:fail) FAILURE(S)" }))
 exit $(if ($script:fail -eq 0) { 0 } else { 1 })

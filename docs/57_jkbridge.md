@@ -309,10 +309,10 @@ probe_jkbridge ×2 ALL PASS(정리 함수 탑재 후 전체 회귀 무손상).
 
 | 건 | 변경 | 검증 |
 |---|---|---|
-| ① app_tool args 앞단 캡 8KiB→256KiB | JKWindowServer.cpp :3037 — 워크숍 set_script가 앱 측 256KiB 백스톱을 두고 있어 8KiB 앞단이 병목. 앱 백스톱과 정렬. **result 16KiB 캡은 건드리지 않음(별도 백로그)** | probe_app_tools c3c-args-cap-256k-passes(10.25KiB args + 미등록 도구 → `unknown_app_tool` — 구 8KiB 캡이면 `args_too_large`가 먼저였으므로 에러 순서로 캡 통과 간접 단정) ×2 |
-| ② window_move / window_resize 서버 도구 | window_fullscreen 뼈대 복계(:3008-3095). 대상 선정(생략=자기 창, 명시 id=연결 존재 판정)/거절 체계: `no_window`(control-only 생략형)/`window_not_found`(shell·캡처 오버레이·control-only 타깃)/`window_maximized`(preMaxRects_)/`window_fullscreen_state`/`bad_args`. move는 클램프 없음(Windows 동작 — 화면 밖 허용)+±32768 범위 검사, resize는 **[80,8192] 범위 검사(클램프 아님 — 범위 밖 bad_args)**, 동일 픽셀 크기 no-op ok, fit-scaled 레이어(ScaleX/Y≠1)는 표시 크기 dispW/H를 `lround(w*ScaleX)` 산출로 넘겨 scale 보존(ResizeLayer가 scale을 1로 리셋). 위치는 `SetLayerPosition`+`SetPosition` BOTH 쌍수술(docs/28 — 합성 입력이 client->X()/Y() 직독)+`PushWindowListUnsafe`(태스크바 동기). 게이트 **kPermMatrix none→allow**(window_fullscreen 분류 승계 — 화면 상태 변경일 뿐 승인 행위 아님). 브로커 4곳 등록(tools/list 정적부·IsKnownTool·LoadPermissions·릴레이 args 원문 패스스루) | probe_window_geom 신설 29체크 ×2 — 기하 단정(list_windows x/y/w/h 대응 축), bad_args 5종, 생략형 no_window, fullscreen-state 거절+rect 복원, jkagentd MCP tools/list 노출+tools/call 릴레이 e2e |
+| ① app_tool args 앞단 캡 8KiB→256KiB | JKWindowServer.cpp :3125 — 워크숍 set_script가 앱 측 256KiB 백스톱을 두고 있어 8KiB 앞단이 병목. 앱 백스톱과 정렬(근사치 — argsRaw는 프레이밍·이스케이프 팽창을 포함한 내부 args 원문이라 앱 캡 경계의 소스가 앞단에서 먼저 막힐 수 있음). **result 16KiB 캡은 건드리지 않음(별도 백로그)** | probe_app_tools c3c-args-cap-256k-passes(10250바이트(십진 10.25 kB) args + 미등록 도구 → `unknown_app_tool` — 구 8KiB 캡이면 `args_too_large`가 먼저였으므로 에러 순서로 캡 통과 간접 단정) ×2 |
+| ② window_move / window_resize 서버 도구 | window_fullscreen 뼈대 복계(:2998-3095). 대상 선정(생략=자기 창, 명시 id=연결 존재 판정)/거절 체계: `no_window`(control-only 생략형)/`window_not_found`(shell·캡처 오버레이·control-only 타깃)/`window_maximized`(preMaxRects_)/`window_fullscreen_state`/`bad_args`. move는 클램프 없음(Windows 동작 — 화면 밖 허용)+±32768 범위 검사, resize는 **[80,8192] 범위 검사(클램프 아님 — 범위 밖 bad_args)**, 동일 픽셀 크기 no-op ok, fit-scaled 레이어(ScaleX/Y≠1)는 표시 크기 dispW/H를 `lround(w*ScaleX)` 산출로 넘겨 scale 보존(ResizeLayer가 scale을 1로 리셋). 위치는 `SetLayerPosition`+`SetPosition` BOTH 쌍수술(docs/28 — 합성 입력이 client->X()/Y() 직독)+`PushWindowListUnsafe`(태스크바 동기). 게이트 **kPermMatrix none→allow**(window_fullscreen 분류 승계 — 화면 상태 변경일 뿐 승인 행위 아님). 브로커 4곳 등록(tools/list 정적부·IsKnownTool·LoadPermissions·릴레이 args 원문 패스스루) | probe_window_geom 신설 29체크 ×2 — 기하 단정(list_windows x/y/w/h 대응 축), bad_args 5종, 생략형 no_window, fullscreen-state 거절+rect 복원, jkagentd MCP tools/list 노출+tools/call 릴레이 e2e |
 | ③ kLlmTurnPreamble | JKLlmEngine.cpp :100-110 상수 신설 + BuildEngineCmd가 escape 루프 앞에서 매 턴 접두(한국어 3지시문: 최종 답변만 출력/마크다운 문법 금지/도구는 조용히 실행하고 결과만 보고, 접미 `[사용자] `). 따옴표·백슬래시 0개로 기존 escape 루프와 CRT argv 재파싱에 안전. stub/claude/ollama 3분기 앞단이라 전 실엔진 턴 적용, `--resume` 턴도 동일 | 실엔진 1턴 실측(kimi-k2.7-code:cloud, 도구 유도형 프롬프트): 응답 `2026-09-21 06:46:33` 1줄 — CoT 내레이션 0, 마크다운 0, 도구 조용 실행. smoke_llm_stream 3/3 ×2(스트리밍 경로 무손상)+probe_agent_chat 7/7 ×2 |
-| ④ window.focused 디바운스 | FocusClient 선두 **last-pushed-id 방식**(`lastFocusedPushed_`, JKWindowServer.h:248) — `surfaceId == lastFocusedPushed_` 조기귀환, push가 **resolve된 경우에만** 갱신. 같은 id 재포커스 무push(스팸 봉쇄 유지)+스폰 인테이크(push 없음) 이후 그 창의 첫 명시 포커스 1회 push 보존. 1차 구현(focusedClientId_ 비교)은 인테이크가 push 전 focusedClientId_만 세팅하는 구조(:587/:589 → push_back :597) 탓에 스폰 창 첫 포커스를 삼켜 개정(badc136) | probe_agent_events 8/8 ×2 — refocus 불변/스폰 첫 포커스 +1/즉시 재포커스 불변/포커스 변화 +1 전 단정 |
+| ④ window.focused 디바운스 | FocusClient 선두 **last-pushed-id 방식**(`lastFocusedPushed_`, JKWindowServer.h:250) — `surfaceId == lastFocusedPushed_` 조기귀환, push가 **resolve된 경우에만** 갱신. 같은 id 재포커스 무push(스팸 봉쇄 유지)+스폰 인테이크(push 없음) 이후 그 창의 첫 명시 포커스 1회 push 보존. 1차 구현(focusedClientId_ 비교)은 인테이크가 push 전 focusedClientId_만 세팅하는 구조(:587/:589 → push_back :597) 탓에 스폰 창 첫 포커스를 삼켜 개정(badc136) | probe_agent_events 8/8 ×2 — refocus 불변/스폰 첫 포커스 +1/즉시 재포커스 불변/포커스 변화 +1 전 단정 |
 
 ### 13.1 회귀 실측 (×2 연속, 전부 GREEN — 데스크탑 정지 후 본트리 빌드)
 
@@ -356,6 +356,18 @@ probe_jkbridge ×2 ALL PASS(정리 함수 탑재 후 전체 회귀 무손상).
    반환 무시). 실패 가시화는 별도 과제.
 5. **result 16KiB 캡(get_script 대형 스크립트 원문 잘림)은 별도 백로그 유지**
    (docs/60 §5).
+6. **args 캡 256KiB 상한 경계는 어느 프로브도 직접 단정 불가** — agentctl은
+   CreateProcess 32K 명령행 한계라 256KiB args를 실을 수 없고 c3c의 10KiB 간접
+   단정이 한계. 직접 경계 테스트(200KiB 통과/300KiB args_too_large)는
+   probe_approval_overflow류 raw 파이프 하네스가 필요.
+7. **window_maximized 거절과 fit-scaled(ScaleX/Y≠1) resize dispW 산출은 런타임
+   미단정** — 전자는 최대화를 배열할 도구가 없어 하네스 불가(코드 리뷰 검증),
+   후자는 프로브 환경이 스케일 1 레이어뿐(CommitChromeResize 주석 정합 커버).
+8. **probe_agent_events 4b는 라이브 유저 데스크탑 fired 카운터를 300-500ms
+   윈도 ±1 정밀 단정** — 프로브 실행 중 유저 클릭 1회가 FAIL로 반전 가능(플레이크
+   소지). 자각 기록된 한계.
+9. **probe_window_geom Stop-ProbeProcs는 라이브 jkbridge까지 강제 종료** —
+   NOTICE 문구에 jkbridge 종료 고지 반영(최종리뷰 반영). 폰 링크 무고지 사망 방지.
 
 ### 13.4 레슨
 

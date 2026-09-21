@@ -857,9 +857,9 @@ std::string HandleLine(const std::string& line, bool& isResponse) {
         } else if (tool == "window_move" || tool == "window_resize") {
             // 창 기하 2종 (스펙 2026-09-21-phone-practical-improvements): args
             // 원문 패스스루 — 스키마가 넓고(id 선택/좌표·크기 int) 재조립 파서
-            // 계약(send_input 선례)이 낫다. id 생략 호출은 raw가 "{}"라
-            // argsJson 기본 "{}" 그대로 — 서버가 control-only 호출자에게
-            // no_window로 즉답한다.
+            // 계약(send_input 선례)이 낫다. raw "{}" 생략형은 서버가 필수 인자
+            // 검사(좌표/크기)를 대상 선정에 선행하므로 control-only 판정 전에
+            // bad_args로 즉답한다(no_window가 아님 — JKWindowServer :3021).
             std::string raw;
             if (req.GetObjRaw("params", "arguments", raw) && !raw.empty() &&
                 raw != "{}") {
