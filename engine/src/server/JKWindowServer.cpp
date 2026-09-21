@@ -6216,17 +6216,19 @@ void JKWindowServer::HandleToolResult(JKClientConnection& client,
         inflightAppTools_.erase(it);
         return;
     }
+    // MINOR-3 — reset act가 ok로 끝나면 커서를 정의 전이(좌상단 (0,0))으로
+    // 리셋(스펙 §4 — 게임 리셋=정의 전이, 커서 상태는 플랫폼 소유). 앱 에러
+    // (bad_state 등)에는 리셋하지 않는다. 요청자 발견 분석 밖에서 실행 —
+    // 요청자 연결이 파킹~결과 사이 소실해도(게임 리셋은 이미 일어났으니)
+    // 플랫폼 커서가 이전 칸에 남는 낙차를 막는다(NIT-2 최종리뷰).
+    if (ok && it->second.resetCursorOnOk) {
+        auto mit = appToolManifests_.find(it->second.targetConnId);
+        if (mit != appToolManifests_.end() && mit->second.cursor.valid)
+            mit->second.cursorState.Reset(mit->second.cursor.rows,
+                                          mit->second.cursor.cols);
+    }
     for (auto& c : clients_) {
         if (c && c->Id() == it->second.requesterConnId && !c->IsDisconnected()) {
-            // MINOR-3 — reset act가 ok로 끝나면 커서를 정의 전이(좌상단
-            // (0,0))으로 리셋(스펙 §4 — 게임 리셋=정의 전이, 커서 상태는
-            // 플랫폼 소유). 앱 에러(bad_state 등)에는 리셋하지 않는다.
-            if (ok && it->second.resetCursorOnOk) {
-                auto mit = appToolManifests_.find(it->second.targetConnId);
-                if (mit != appToolManifests_.end() && mit->second.cursor.valid)
-                    mit->second.cursorState.Reset(mit->second.cursor.rows,
-                                                  mit->second.cursor.cols);
-            }
             std::string reply;
             // 의미 커서 read (스펙 §3): 앱 snapshot 결과를 커서 헤더로 조립해
             // 회송한다. 앱이 ok=0(자체 에러)로 답해도 커서 필드는 유지 —
@@ -6508,9 +6510,11 @@ bool JKWindowServer::HandleCursorAppTool(JKClientConnection& client,
     // app_tool.<app>.<tool>/app_tool.<app>/app_tool 키가 "deny"면 거부.
     // 무키 폴백 = allow(스펙 §3 무해 이동/읽기 — window_move 분류), 명시
     // "ask"도 승인 행위가 아닌 이동/읽기라 allow로 소화한다(코디네이터 룰링:
-    // 명시 deny만 거부).
+    // 명시 deny만 거부). 거부 응답도 move/read 에러 규약을 따라 이동 전 위치를
+    // 에코한다(MoveErrorReply — 모든 move/read 에러의 {row, col} 일관).
+    // NIT-4 최종리뷰.
     if (AppToolAllowed(app, toolName) == AgentDecision::Deny) {
-        reply = "{\"ok\":false,\"error\":\"denied\"}";
+        reply = MoveErrorReply(m->cursorState, "denied");
         return true;
     }
     if (toolName == "act") {
@@ -6681,15 +6685,6 @@ std::string JKWindowServer::ComposeCursorRead(uint32_t connId,
                (snapshot.empty() ? std::string("\"unknown\"") : snapshot) + "}";
     }
     return out;
-}
-
-// 커서 선언 앱 조회 (스펙 §5 — 하이라이트 Task 3 소비).
-const JKWindowServer::AppToolManifest* JKWindowServer::SemanticCursorFor(
-    const std::string& app) const {
-    for (const auto& kv : appToolManifests_) {
-        if (kv.second.app == app && kv.second.cursor.valid) return &kv.second;
-    }
-    return nullptr;
 }
 
 // 의미 커서 (스펙 2026-09-22-semantic-cursor §3): 승인 시점 재선언 재검증
@@ -6988,8 +6983,9 @@ void JKWindowServer::DrawSemanticCursorCells(float outputScale) {
     if (!renderer_ || !compositor_) {
         return;
     }
-    // 계층 1 — 커서 셀: 커서 선언 매니페스트 전체 순회(창 단위 소비자는
-    // windowId로 변별 — SemanticCursorFor의 "복수 인스턴스 = 첫 매칭" 주석).
+    // 계층 1 — 커서 셀: 커서 선언 매니페스트 전체 순회 — 매니페스트는 연결
+    // (connId) 단위라 복수 인스턴스가 있어도 각자 자기 창(windowId)의 셀을
+    // 그린다(창 단위 소비자는 windowId로 변별).
     for (const auto& kv : appToolManifests_) {
         const AppToolManifest& m = kv.second;
         if (!m.cursor.valid || m.windowId == 0) {

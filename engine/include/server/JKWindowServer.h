@@ -109,8 +109,8 @@ private:
     // (InflightAppTool 정의는 §4.1 멤버 블록 — 매개변수 자리는 전방선언만
     //  요구한다. 멤버 블록이 클래스 뒤쪽이라 여기서 이름이 아직 없다.)
     struct InflightAppTool;
-    struct AppToolManifest;   // §4.1 멤버 블록 — SemanticCursorFor 반환 자리의
-                              // 전방선언(InflightAppTool 선례)
+    struct AppToolManifest;   // §4.1 멤버 블록 — 전방선언(멤버 블록이 클래스
+                              // 뒤쪽이라, InflightAppTool 선례)
     void HandleToolRegister(JKClientConnection& client, const std::string& json);
     void HandleToolResult(JKClientConnection& client, const ipc::Message& msg);
     // app_tool 3단 키 게이트: app_tool.<app>.<tool> > app_tool.<app> >
@@ -140,10 +140,6 @@ private:
     std::string ComposeCursorRead(uint32_t connId, uint32_t windowId, bool ok,
                                   const std::string& snapshot,
                                   const char* transportErr);
-    // 커서 선언 앱 조회 (스펙 §5 — 하이라이트 Task 3 소비): app 이름의 커서
-    // 선언 매니페스트. 복수 인스턴스 = 첫 매칭(창 단위 소비자는 windowId로
-    // 변별). clientsMutex_ 보유 경로 전용(레슨 35).
-    const AppToolManifest* SemanticCursorFor(const std::string& app) const;
     struct PendingApproval;   // § 멤버 블록 — CursorActStale 매개변수 자리의
                               // 전방선언(InflightAppTool 선례)
     // 의미 커서 (스펙 2026-09-22-semantic-cursor §3): 승인 시점 재선언
