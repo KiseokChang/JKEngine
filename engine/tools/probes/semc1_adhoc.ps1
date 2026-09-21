@@ -1,12 +1,17 @@
 # semc1_adhoc.ps1 - semantic cursor Task 1 ad-hoc smoke (spec
 # 2026-09-22-semantic-cursor). ASCII-only (PS5.1). Fake app declares a cursor
 # grid over a raw pipe; checks declaration parsing, synthesized catalog rows
-# (act kinds enum), platform move (absolute/relative/steps/bad_grid/bad_args),
-# read assembly (snapshot compose + snapshot failure + tool_timeout), fail-
-# closed registration rejections (cursor_owner_unsupported / cursor_name_conflict
-# / bad_cursor), and act ask-parking -> cross approve -> relay to the app's own
-# act tool. Helper functions are copied from probe_app_tools.ps1 (raw pipe
-# idiom, PS5.1 argv trap workaround).
+# (act kinds enum), platform move (absolute/relative/steps/bad_grid/bad_args +
+# server-side step pre-validation echoes), read assembly (snapshot compose +
+# snapshot failure + tool_timeout), fail-closed registration rejections
+# (cursor_owner_unsupported / cursor_name_conflict / bad_cursor /
+# cursor_window_required for control-only declares), own-act kind-enum merge
+# (MINOR-1), no-snapshot immediate unknown_app_tool (NIT-7), empty-snapshot
+# unknown (NIT-5), and explicit permissions.json deny on move (MINOR-4) with
+# backup + finally-restore (probe_app_tools idiom). Fake apps connect as
+# window clients (Hello + CreateSurface) since fix round 1 rejects cursor
+# declarations from control-only connections. Helper functions are copied
+# from probe_app_tools.ps1 (raw pipe idiom, PS5.1 argv trap workaround).
 $ErrorActionPreference = "Continue"
 $exe = "I:\progwork\JKENGINE\engine\build\jkdesktop.exe"
 $root = Split-Path $exe
@@ -37,7 +42,7 @@ function SendMsg([System.IO.Pipes.NamedPipeClientStream]$s, [int]$type, [byte[]]
     if ($payload.Length -gt 0) { $s.Write($payload, 0, $payload.Length) }
     $s.Flush()
 }
-function New-Pipe([int]$subscriber) {
+function New-Pipe([int]$subscriber, [bool]$window) {
     $p = New-Object System.IO.Pipes.NamedPipeClientStream(".", "JKWindowServerPipe",
         [System.IO.Pipes.PipeDirection]::InOut)
     $p.Connect(5000)
@@ -45,6 +50,30 @@ function New-Pipe([int]$subscriber) {
     [BitConverter]::GetBytes([uint32]2).CopyTo($hello, 0)
     [BitConverter]::GetBytes([uint32]$PID).CopyTo($hello, 4)
     SendMsg $p 1 $hello
+    if ($window) {
+        # Window client (Hello + CreateSurface) - the server requires a surface
+        # owner for a cursor declaration (NIT-8 rejects control-only declares).
+        # SurfaceCreatePayload: {int32 w, int32 h, char title[128]}.
+        $w = 64; $h = 64
+        $pl = New-Object byte[] (8 + 128)
+        [BitConverter]::GetBytes([int32]$w).CopyTo($pl, 0)
+        [BitConverter]::GetBytes([int32]$h).CopyTo($pl, 4)
+        $title = [Text.Encoding]::ASCII.GetBytes("fakegrid")
+        [Array]::Copy($title, 0, $pl, 8, $title.Length)
+        SendMsg $p 3 $pl
+        # Drain the SurfaceCreated (type 4) ack - payload is shm info we ignore.
+        $created = Read-Frame $p 5000
+        if ($created -eq $null -or $created.type -ne 4) {
+            Write-Host "FAIL: newpipe-surfacecreated"
+            $script:fail++
+        }
+        if ($subscriber -ne 0) {
+            $sub = New-Object byte[] 4
+            [BitConverter]::GetBytes([uint32]$subscriber).CopyTo($sub, 0)
+            SendMsg $p 19 $sub
+        }
+        return $p
+    }
     $sub = New-Object byte[] 4
     [BitConverter]::GetBytes([uint32]$subscriber).CopyTo($sub, 0)
     SendMsg $p 19 $sub
@@ -167,7 +196,30 @@ $cursorJson = '{"app":"fakegrid","tools":[{"name":"snapshot","description":"boar
     '"cursor":{"type":"cell-grid","coordSpace":"client","origin":{"x":12,"y":44},"cellW":16,"cellH":16,' +
     '"rows":9,"cols":9,"cursorOwner":"platform","act":{"kinds":["reveal","flag","question"],"gate":"ask"}}}'
 
+# --- permissions.json (MINOR-4 deny check): backup + finally-restore ---------
+# User runtime state (docs/59 §16.1 incident class): back up with a stale-
+# residue guard first, apply the deny key for the c-den section, restore in a
+# try/finally no matter how the probe ends.
+$permFile = Join-Path $root "permissions.json"
+$stale = Get-ChildItem (Join-Path $env:TEMP "perm_pre_semc1_*.json") -ErrorAction SilentlyContinue
+if ($stale) {
+    Write-Host ("FAIL: setup-stale-residue -- " + (($stale | ForEach-Object { $_.Name }) -join ", "))
+    Write-Host "      stale residue from a killed run - restore engine/build/permissions.json manually, delete the leftover(s) in TEMP, re-run"
+    exit 1
+}
+$permBakFile = Join-Path $env:TEMP ("perm_pre_semc1_" + $PID + ".json")
+$hadPerm = Test-Path $permFile
+if ($hadPerm) { Copy-Item $permFile $permBakFile -Force }
+function Set-Perms([string]$json) {
+    [IO.File]::WriteAllText($permFile, $json, (New-Object System.Text.UTF8Encoding($false)))
+}
+function Restore-Perms {
+    if ($hadPerm) { Copy-Item $permBakFile $permFile -Force }
+    else { Remove-Item $permFile -ErrorAction SilentlyContinue }
+}
+
 # --- server lifecycle --------------------------------------------------------
+try {
 Get-Process jkdesktop -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Seconds 1
 Start-Process -FilePath $exe -ArgumentList "--server" -WorkingDirectory $root -WindowStyle Hidden
@@ -178,14 +230,14 @@ foreach ($i in 1..30) {
 }
 Check "sm-up" $up "ping"
 
-# --- register the fake cursor app -------------------------------------------
-$app = New-Pipe 1
+# --- register the fake cursor app (window client - NIT-8) --------------------
+$app = New-Pipe 1 $true
 Send-ToolRegister $app $cursorJson
 $ack = Read-Frame $app 3000
 Check "sm-register-ack" ($ack -ne $null -and $ack.text -match '"ok":true') $ack.text
 
 # --- catalog: synthesized rows + act kinds enum ------------------------------
-$agent = New-Pipe 1
+$agent = New-Pipe 1 $false
 $script:qid = 100
 $script:qid++
 SendQuery $agent $script:qid '{"tool":"list_app_tools","args":{}}'
@@ -199,6 +251,20 @@ Check "sm-catalog-read" $hasRead ""
 Check "sm-catalog-act" $hasAct ""
 Check "sm-catalog-enum" $hasEnum ""
 
+# --- own-act kind-enum merge (MINOR-1): app registers its own act tool -------
+$appOwn = New-Pipe 1 $true
+Send-ToolRegister $appOwn ('{"app":"fakegrid2","tools":[{"name":"act","description":"my act","inputSchema":{"type":"object","properties":{"kind":{"type":"string"},"row":{"type":"integer"}},"required":["kind","row"]}},{"name":"snapshot","description":"x","inputSchema":{"type":"object","properties":{}}}],' +
+    '"cursor":{"type":"cell-grid","coordSpace":"client","origin":{"x":0,"y":0},"cellW":16,"cellH":16,"rows":4,"cols":4,"cursorOwner":"platform","act":{"kinds":["reveal","flag"],"gate":"ask"}}}')
+$ackOwn = Read-Frame $appOwn 3000
+Check "sm-ownact-register" ($ackOwn -ne $null -and $ackOwn.text -match '"ok":true') $ackOwn.text
+$script:qid++
+SendQuery $agent $script:qid '{"tool":"list_app_tools","args":{}}'
+$cat2 = Read-Reply $agent $null $script:qid 5000 ""
+# The merged enum lives inside the kind schema object - match across the
+# whole catalog text.
+$mergedEnum = $cat2 -match '(?s)"app":"fakegrid2","name":"act".*?"kind":\{"type":"string","enum":\["reveal","flag"\]\}'
+Check "sm-ownact-enum-merged" $mergedEnum $cat2
+
 # --- move: absolute / relative / steps / bad_grid / bad_args -----------------
 function Move-Tool([string]$argsJson) {
     $script:qid++
@@ -208,27 +274,38 @@ function Move-Tool([string]$argsJson) {
 $r = Move-Tool '{"to_row":8,"to_col":8}'
 Check "sm-move-abs" ($r -match '"ok":true' -and $r -match '"row":8' -and $r -match '"col":8') $r
 $r = Move-Tool '{"to_row":9,"to_col":0}'
-Check "sm-move-badgrid" ($r -match '"ok":false' -and $r -match 'bad_grid') $r
+# MINOR-2: bad_grid echoes the pre-move position (8,8).
+Check "sm-move-badgrid" ($r -match '"ok":false' -and $r -match 'bad_grid' -and $r -match '"row":8' -and $r -match '"col":8') $r
 $r = Move-Tool '{"to_row":-1,"to_col":0}'
-Check "sm-move-badargs-neg" ($r -match '"ok":false' -and $r -match 'bad_args') $r
+Check "sm-move-badargs-neg" ($r -match '"ok":false' -and $r -match 'bad_args' -and $r -match '"row":8' -and $r -match '"col":8') $r
 $r = Move-Tool '{"dr":0,"dc":-100}'
 Check "sm-move-rel-clamp" ($r -match '"ok":true' -and $r -match '"row":8' -and $r -match '"col":0') $r
-$r = Move-Tool '{"steps":[{"dc":3},{"dr":5},{"dc":-50}]}'
-# from (8,0): dc 3 -> (8,3); dr 5 would reach 13 - clamped to the boundary row
-# 8 and the run stops there (first boundary). Echo = reached cell (8,3).
+$r = Move-Tool '{"steps":[{"dc":3},{"dr":50}]}'
+# from (8,0): dc 3 -> (8,3); dr 50 would pass the row boundary (8) and the run
+# stops there (first boundary). Echo = reached cell (8,3).
 Check "sm-move-steps-boundary" ($r -match '"ok":true' -and $r -match '"row":8' -and $r -match '"col":3') $r
+# MINOR-3: negative step delta is pre-validated server-side - bad_args with the
+# pre-move position echo (8,3, unchanged by the rejected run), nothing applied.
+$r = Move-Tool '{"steps":[{"dc":-50}]}'
+Check "sm-move-steps-neg" ($r -match '"ok":false' -and $r -match 'bad_args' -and $r -match '"row":8' -and $r -match '"col":3') $r
 $r = Move-Tool '{"steps":[{"dc":1}]}'
 Check "sm-move-steps-shortstep" ($r -match '"ok":true' -and $r -match '"row":8' -and $r -match '"col":4') $r
 $r = Move-Tool '{"steps":[]}'
-Check "sm-move-steps-empty" ($r -match '"ok":false' -and $r -match 'bad_args') $r
+Check "sm-move-steps-empty" ($r -match '"ok":false' -and $r -match 'bad_args' -and $r -match '"row":8' -and $r -match '"col":4') $r
 $r = Move-Tool '{}'
-Check "sm-move-noargs" ($r -match '"ok":false' -and $r -match 'bad_args') $r
+Check "sm-move-noargs" ($r -match '"ok":false' -and $r -match 'bad_args' -and $r -match '"row":8' -and $r -match '"col":4') $r
 
 # --- read: snapshot compose --------------------------------------------------
 $script:qid++
 SendQuery $agent $script:qid '{"tool":"app_tool","args":{"app":"fakegrid","tool":"read","args":{}}}'
 $rd = Read-Reply $agent $app $script:qid 8000 '{"ok":true,"board":["1","*","3"],"status":"playing"}'
 Check "sm-read-compose" ($rd -match '"ok":true' -and $rd -match '"cursor":\{"row":8,"col":4\}' -and $rd -match '"rows":9' -and $rd -match '"cols":9' -and $rd -match '"snapshot":\{"ok":true,"board"') $rd
+
+# --- NIT-5: app answers ok=1 with an EMPTY result -> snapshot "unknown" -------
+$script:qid++
+SendQuery $agent $script:qid '{"tool":"app_tool","args":{"app":"fakegrid","tool":"read","args":{}}}'
+$rdEmpty = Read-Reply $agent $app $script:qid 8000 ''
+Check "sm-read-empty-unknown" ($rdEmpty -match '"ok":true' -and $rdEmpty -match '"snapshot":"unknown"' -and $rdEmpty -match '"cursor":\{"row":8,"col":4\}') $rdEmpty
 
 # --- read failure: app answers ok=0 -> cursor + explicit error ---------------
 $script:appFailOnce = $true
@@ -238,7 +315,7 @@ $rdFail = Read-Reply $agent $app $script:qid 8000 '{"ok":true,"board":["1"]}'
 Check "sm-read-fail-compose" ($rdFail -match '"ok":false' -and $rdFail -match '"error":"snapshot_failed"' -and $rdFail -match '"detail":\{"error":"board_gone"\}' -and $rdFail -match '"cursor":\{"row":8,"col":4\}') $rdFail
 
 # --- read timeout: silent cursor app -> composed tool_timeout ----------------
-$appSilent = New-Pipe 1
+$appSilent = New-Pipe 1 $true
 Send-ToolRegister $appSilent '{"app":"fakegridt","tools":[{"name":"snapshot","description":"x","inputSchema":{"type":"object","properties":{}}}],"cursor":{"type":"cell-grid","coordSpace":"client","origin":{"x":0,"y":0},"cellW":16,"cellH":16,"rows":4,"cols":4,"cursorOwner":"platform","act":{"kinds":["reveal"],"gate":"ask"}}}'
 $ackSilent = Read-Frame $appSilent 3000
 Check "sm-silent-register" ($ackSilent -ne $null -and $ackSilent.text -match '"ok":true') $ackSilent.text
@@ -248,11 +325,27 @@ SendQuery $agent $script:qid '{"tool":"app_tool","args":{"app":"fakegridt","tool
 # scan -> ReplyAppToolError composed with the cursor header.
 $rdTo = Read-Reply $agent $null $script:qid 15000 '{"ok":true}'
 Check "sm-read-timeout-compose" ($rdTo -match '"ok":false' -and $rdTo -match '"error":"tool_timeout"' -and $rdTo -match '"rows":4' -and $rdTo -match '"cursor"') $rdTo
+
+# --- NIT-7: cursor app with NO snapshot tool -> immediate unknown_app_tool ---
+$appNs = New-Pipe 1 $true
+Send-ToolRegister $appNs '{"app":"fakegridns","tools":[{"name":"ping","description":"x","inputSchema":{"type":"object","properties":{}}}],"cursor":{"type":"cell-grid","coordSpace":"client","origin":{"x":0,"y":0},"cellW":16,"cellH":16,"rows":4,"cols":4,"cursorOwner":"platform","act":{"kinds":["reveal"],"gate":"ask"}}}'
+$ackNs = Read-Frame $appNs 3000
+Check "sm-ns-register" ($ackNs -ne $null -and $ackNs.text -match '"ok":true') $ackNs.text
+$script:qid++
+SendQuery $agent $script:qid '{"tool":"app_tool","args":{"app":"fakegridns","tool":"read","args":{}}}'
+# No pump: a 10s relay would time out long after this short read - only an
+# immediate unknown_app_tool reply can satisfy this check.
+$rdNs = Read-Reply $agent $null $script:qid 4000 '{"ok":true}'
+Check "sm-ns-read-unknown" ($rdNs -match '"ok":false' -and $rdNs -match 'unknown_app_tool') $rdNs
+$appNs.Dispose()
 $appSilent.Dispose()
 
 # --- registration rejections (fail-closed) -----------------------------------
+# Window clients - a cursor declaration from a control-only connection is
+# rejected outright (NIT-8, checked separately below), so the parse-error
+# rejections must come from a surface owner to reach the cursor parser.
 function Try-Register([string]$json) {
-    $p = New-Pipe 1
+    $p = New-Pipe 1 $true
     Send-ToolRegister $p $json
     $a = Read-Frame $p 3000
     $p.Dispose()
@@ -268,6 +361,13 @@ $rej = Try-Register ('{"app":"fakegrid2","tools":[{"name":"t","description":"x"}
 Check "sm-reject-badspace" ($rej -match '"ok":false' -and $rej -match 'bad_cursor') $rej
 $rej = Try-Register ('{"app":"fakegrid2","tools":[{"name":"t","description":"x"}],"cursor":{"type":"cell-grid","coordSpace":"client","origin":{"x":0,"y":0},"cellW":16,"cellH":16,"rows":4,"cols":4,"cursorOwner":"platform","act":{"kinds":["reveal"],"gate":"allow"}}}')
 Check "sm-reject-badgate" ($rej -match '"ok":false' -and $rej -match 'bad_cursor') $rej
+# NIT-8: control-only connection declaring a cursor -> rejected at declaration
+# time (fail-closed, ack(false) style).
+$pCtl = New-Pipe 1 $false
+Send-ToolRegister $pCtl '{"app":"fakegridctl","tools":[{"name":"t","description":"x"}],"cursor":{"type":"cell-grid","coordSpace":"client","origin":{"x":0,"y":0},"cellW":16,"cellH":16,"rows":4,"cols":4,"cursorOwner":"platform","act":{"kinds":["reveal"],"gate":"ask"}}}'
+$rejCtl = Read-Frame $pCtl 3000
+$pCtl.Dispose()
+Check "sm-reject-controlonly" ($rejCtl -ne $null -and $rejCtl.text -match '"ok":false' -and $rejCtl.text -match 'cursor_window_required') $rejCtl.text
 
 # --- act: ask parking (no permissions.json key = ask default) -----------------
 $script:qid++
@@ -299,7 +399,35 @@ SendQuery $agent $script:qid '{"tool":"app_tool","args":{"app":"vplayer","tool":
 $und = Read-Reply $agent $null $script:qid 5000 ""
 Check "sm-undeclared-unknown" ($und -match 'unknown_app_tool') $und
 
+# --- MINOR-4: explicit permissions.json deny on move -> denied ----------------
+# The gate file is read per call, so swapping it while the server is live is
+# enough. Deny key at tier 1 (app_tool.<app>.<tool>).
+Set-Perms '{"app_tool.fakegrid.move":"deny"}'
+$r = Move-Tool '{"to_row":2,"to_col":2}'
+Check "sm-deny-move" ($r -match '"ok":false' -and $r -match '"error":"denied"') $r
+# read is also gated - deny both with the tier-3 key for fakegrid.
+Set-Perms '{"app_tool.fakegrid":"deny"}'
+$script:qid++
+SendQuery $agent $script:qid '{"tool":"app_tool","args":{"app":"fakegrid","tool":"read","args":{}}}'
+$rdDeny = Read-Reply $agent $null $script:qid 4000 '{"ok":true}'
+Check "sm-deny-read" ($rdDeny -match '"ok":false' -and $rdDeny -match '"error":"denied"') $rdDeny
+# Restore the pre-probe state: without a key the move is allowed again (no key
+# = allow). Note: if the live user file had full-allow keys they come back via
+# Restore-Perms in the finally block - this intermediate state only proves the
+# gate reads the file, so write the minimal allow-absent baseline.
+if ($hadPerm) { Copy-Item $permBakFile $permFile -Force }
+else { Remove-Item $permFile -ErrorAction SilentlyContinue }
+$r = Move-Tool '{"to_row":2,"to_col":2}'
+Check "sm-deny-move-after-restore" ($r -match '"ok":true' -and $r -match '"row":2' -and $r -match '"col":2') $r
+
 # --- cleanup ------------------------------------------------------------------
 $app.Dispose()
+$appOwn.Dispose()
 $agent.Dispose()
 Write-Host ("RESULT: " + ($(if ($script:fail -eq 0) { "ALL PASS" } else { "FAIL " + $script:fail })))
+exit ($script:fail)
+}
+finally {
+    Restore-Perms
+    Remove-Item $permBakFile -ErrorAction SilentlyContinue
+}

@@ -5745,6 +5745,126 @@ static bool ValidAppToolToken(const std::string& s, size_t maxLen) {
     return true;
 }
 
+// MINOR-3 (fix round 1): 서버 측 스텝 델타 상한 — JKSemanticCursor의
+// kMaxDelta는 익명 namespace라 미수출. 동일 값을 서버가 자체 보유해 move
+// 사전 검증에서 사용(이중 방어의 서버 쪽 — 수치 일치는 클래스 헤더 주석의
+// 계약).
+namespace { constexpr int kCursorMaxDelta = 1 << 20; }
+
+// MINOR-2 (fix round 1): move 에러 응답에 이동 전 위치 에코(스펙 §4 —
+// 상태 직렬화). 파싱 실패(bad_args)도 현재 위치를 실어 LLM 재시도 힌트를
+// 준다. error는 신뢰 토큰(서버 상수)만 들어온다 — 문자열 이스케이프 불요.
+static std::string MoveErrorReply(const JKSemanticCursor& cur,
+                                  const char* error) {
+    std::string out = "{\"ok\":false,\"error\":\"";
+    out += error;
+    out += "\",\"row\":";
+    out += std::to_string(cur.Row());
+    out += ",\"col\":";
+    out += std::to_string(cur.Col());
+    out += "}";
+    return out;
+}
+
+// MINOR-1 (fix round 1): 앱이 자기 act 도구를 이미 등록한 경우 — 선언 커서
+// 블록의 kinds를 앱 자체 act 스키마의 "kind" enum에 병합해 카탈로그
+// tools/list가 kinds를 보이게 한다(플래그십 경로 — minesweeper가
+// tools:[act,snapshot]+cursor를 함께 선언).
+// AgentJson throwaway 런타임 재파싱 대신 문자열 인지 브레이스 매처(원문
+// 보존 — 스키마는 2KiB 상한이라 상수 비용). 병합 불가(비객체 스키마/결과
+// 2KiB 초과)면 스키마를 그대로 둔다 — 등록 실패로 끌어내리지 않는다(선언
+// 자체는 유효).
+// schema는 in/out(참조 치환). kinds는 이미 검증 토큰(ValidAppToolToken).
+static void InjectKindsEnum(std::string& schema,
+                            const std::vector<std::string>& kinds) {
+    std::string kindObj = "{\"type\":\"string\",\"enum\":[";
+    for (size_t i = 0; i < kinds.size(); ++i) {
+        if (i) kindObj += ",";
+        kindObj += "\"" + kinds[i] + "\"";
+    }
+    kindObj += "]}";
+
+    // 문자열 리터럴을 건너뛰는 브레이스 매처 — i는 '{' 또는 '[' 위.
+    auto matchBrace = [](const std::string& s, size_t i) -> size_t {
+        const char open = s[i];
+        const char close = (open == '{') ? '}' : ']';
+        int depth = 0;
+        bool inStr = false;
+        for (; i < s.size(); ++i) {
+            char c = s[i];
+            if (inStr) {
+                if (c == '\\') { ++i; continue; }
+                if (c == '"') inStr = false;
+                continue;
+            }
+            if (c == '"') { inStr = true; continue; }
+            if (c == open) ++depth;
+            else if (c == close && --depth == 0) return i;
+        }
+        return std::string::npos;
+    };
+
+    // 1) "properties" 객체 위치.
+    size_t p = schema.find("\"properties\"");
+    size_t propsOpen, propsClose;
+    if (p == std::string::npos) {
+        // properties 없는(비객체 포함) 스키마 — 표준 형태로 전면 교체.
+        schema = "{\"type\":\"object\",\"properties\":{\"kind\":" + kindObj +
+                 "},\"required\":[\"kind\",\"row\",\"col\"]}";
+        return;
+    }
+    p = schema.find('{', p);
+    if (p == std::string::npos) return;
+    propsOpen = p;
+    propsClose = matchBrace(schema, propsOpen);
+    if (propsClose == std::string::npos) return;
+
+    // 2) props 깊이 1에서 "kind" 키 탐색.
+    size_t kindOpen = std::string::npos, kindClose = std::string::npos;
+    {
+        int depth = 0;
+        bool inStr = false;
+        for (size_t i = propsOpen + 1; i < propsClose; ++i) {
+            char c = schema[i];
+            if (inStr) {
+                if (c == '\\') { ++i; continue; }
+                if (c == '"') inStr = false;
+                continue;
+            }
+            if (c == '"') { inStr = true; continue; }
+            if (c == '{') { ++depth; continue; }
+            if (c == '}') { --depth; continue; }
+            if (depth == 0 && c == '"' && i + 6 < propsClose &&
+                schema.compare(i, 6, "\"kind\"") == 0) {
+                size_t v = schema.find(':', i + 6);
+                if (v == std::string::npos) return;
+                do { ++v; } while (v < propsClose &&
+                                   (schema[v] == ' ' || schema[v] == '\t'));
+                if (v >= propsClose || schema[v] != '{') return;
+                kindOpen = v;
+                kindClose = matchBrace(schema, kindOpen);
+                if (kindClose == std::string::npos ||
+                    kindClose >= propsClose)
+                    return;
+                break;
+            }
+        }
+    }
+    std::string out;
+    if (kindOpen != std::string::npos) {
+        // 3a) kind 존재 — 값 객체 전체를 치환(기존 enum을 선언 kinds로
+        // 통일 — 카탈로그는 서버가 아는 진실원).
+        out = schema.substr(0, kindOpen) + kindObj +
+              schema.substr(kindClose + 1);
+    } else {
+        // 3b) kind 부재 — props 머리에 주입.
+        out = schema.substr(0, propsOpen + 1) + "\"kind\":" + kindObj + "," +
+              schema.substr(propsOpen + 1);
+    }
+    if (out.size() > 2 * 1024) return;   // 등록 상한 초과 — 병합 보류
+    schema = std::move(out);
+}
+
 // 스펙 §4.1: 등록 검증 — bad_app/bad_name/too_many_tools/schema_too_large/
 // namespace_conflict. 셸 특권 연결의 등록은 봉쇄(셸 도구 표면 오염 방지).
 // ack는 AgentReply 재사용(queryId=0 상수 — 앱 쿼리 id는 1부터 시작하는
@@ -5804,6 +5924,13 @@ void JKWindowServer::HandleToolRegister(JKClientConnection& client,
     std::string cursorRaw;
     if (req.GetRaw("cursor", cursorRaw) && !cursorRaw.empty() &&
         cursorRaw != "null") {
+        // NIT-8 (fix round 1): 컨트롤 전용 연결의 커서 선언은 등록 시점 거부
+        // (fail-closed) — windowId==0은 커서 규약의 소유 창 자격이 없고
+        // read 중계 대상(snapshot 도구)도 세이프 존 밖. ack(false) 관용구.
+        if (client.IsControlOnly()) {
+            ack(false, "cursor_window_required");
+            return;
+        }
         if (cursorRaw.size() > 4 * 1024) { ack(false, "bad_cursor"); return; }
         jk::agent::AgentJson cb(cursorRaw);
         std::string ty, space, owner;
@@ -5933,6 +6060,15 @@ void JKWindowServer::HandleToolRegister(JKClientConnection& client,
                 "\"integer\"},\"col\":{\"type\":\"integer\"}},\"required\":"
                 "[\"kind\",\"row\",\"col\"]}";
             m.tools.push_back(std::move(ac));
+        } else {
+            // MINOR-1 (fix round 1): 앱이 자기 act 도구를 등록한 경로 —
+            // 선언 kinds를 앱 자체 act 스키마의 "kind" enum에 병합(카탈로그
+            // tools/list가 kinds를 보이게 — 플래그십 minesweeper 경로).
+            for (AppToolDef& t : m.tools) {
+                if (t.name != "act") continue;
+                InjectKindsEnum(t.inputSchema, cd.actKinds);
+                break;
+            }
         }
         m.cursor = cd;
         m.cursorState.Reset(cd.rows, cd.cols);   // 커서는 (0,0)에서 시작
@@ -6234,14 +6370,24 @@ bool JKWindowServer::HandleCursorAppTool(JKClientConnection& client,
         return true;
     }
     AppToolManifest* m = cands.front();
+    // MINOR-4 (fix round 1): 명시 deny 존중 — permissions.json의
+    // app_tool.<app>.<tool>/app_tool.<app>/app_tool 키가 "deny"면 거부.
+    // 무키 폴백 = allow(스펙 §3 무해 이동/읽기 — window_move 분류), 명시
+    // "ask"도 승인 행위가 아닌 이동/읽기라 allow로 소화한다(코디네이터 룰링:
+    // 명시 deny만 거부).
+    if (AppToolAllowed(app, toolName) == AgentDecision::Deny) {
+        reply = "{\"ok\":false,\"error\":\"denied\"}";
+        return true;
+    }
     if (toolName == "move") {
-        // 게이트 없음(none-allow, window_move 분류 — 스펙 §3 무해 이동).
+        // 게이트 없음(none-allow, window_move 분류 — 스펙 §3 무해 이동;
+        // 위의 명시 deny만 예외).
         jk::agent::AgentJson a(argsRaw.empty() ? "{}" : argsRaw);
         JKSemanticCursor::Result r;
         int stepCount = 0;
         if (a.GetArraySize("steps", stepCount)) {
             if (stepCount <= 0 || stepCount > 32) {
-                reply = "{\"ok\":false,\"error\":\"bad_args\"}";
+                reply = MoveErrorReply(m->cursorState, "bad_args");
                 return true;
             }
             std::vector<std::pair<int, int>> steps;
@@ -6252,6 +6398,14 @@ bool JKWindowServer::HandleCursorAppTool(JKClientConnection& client,
                 int dr = 0, dc = 0;
                 a.GetArrInt("steps", i, "dr", dr);
                 a.GetArrInt("steps", i, "dc", dc);
+                // MINOR-3 (fix round 1): 전 스텝 사전 검증 — 음수/과대 델타는
+                // 무적용 bad_args(원자성: RunSteps 도중의 부분 적용이 요청자에
+                // 보이지 않게 한다). 클래스 자체 가드는 유지(이중 방어).
+                if (dr < 0 || dc < 0 || dr > kCursorMaxDelta ||
+                    dc > kCursorMaxDelta) {
+                    reply = MoveErrorReply(m->cursorState, "bad_args");
+                    return true;
+                }
                 steps.emplace_back(dr, dc);
             }
             r = m->cursorState.RunSteps(steps);
@@ -6266,7 +6420,7 @@ bool JKWindowServer::HandleCursorAppTool(JKClientConnection& client,
             } else if (hasDr && hasDc) {
                 r = m->cursorState.MoveRelative(dr, dc);
             } else {
-                reply = "{\"ok\":false,\"error\":\"bad_args\"}";
+                reply = MoveErrorReply(m->cursorState, "bad_args");
                 return true;
             }
         }
@@ -6274,12 +6428,24 @@ bool JKWindowServer::HandleCursorAppTool(JKClientConnection& client,
             reply = "{\"ok\":true,\"row\":" + std::to_string(r.row) +
                     ",\"col\":" + std::to_string(r.col) + "}";
         } else {
-            reply = std::string("{\"ok\":false,\"error\":\"") + r.error + "\"}";
+            // MINOR-2 (fix round 1): 에러도 에코(스펙 §4 — 상태 직렬화) —
+            // Result의 위치(이동 전 상태 불변)를 실어 보낸다.
+            reply = MoveErrorReply(m->cursorState, r.error);
         }
         return true;
     }
     // toolName == "read" — 앱 snapshot 중계 + 커서 헤더 조립. 무승인(none-
     // allow)이지만 앱 연결 생존은 필요하다(중계 대상).
+    // NIT-7 (fix round 1): snapshot 도구를 선언하지 않은 커서 앱은 즉답 —
+    // 중계해 봐야 10s tool_timeout 확정 실패(카탈로그 계약 위반을 조기
+    // 표면화).
+    bool hasSnapshot = false;
+    for (const AppToolDef& t : m->tools)
+        if (t.name == "snapshot") { hasSnapshot = true; break; }
+    if (!hasSnapshot) {
+        reply = "{\"ok\":false,\"error\":\"unknown_app_tool\"}";
+        return true;
+    }
     JKClientConnection* conn = nullptr;
     for (const auto& c : clients_) {
         if (c && c->Id() == m->connId && !c->IsDisconnected()) {
@@ -6335,7 +6501,11 @@ std::string JKWindowServer::ComposeCursorRead(uint32_t connId,
     if (transportErr && *transportErr) {
         out += std::string("\"error\":\"") + transportErr + "\"}";
     } else if (ok) {
-        out += "\"snapshot\":" + snapshot + "}";
+        // NIT-5 (fix round 1): 앱 빈 결과 = snapshot 부재 — "unknown"으로
+        // 대체(빈 문자열 그대로면 JSON 파산 {"snapshot":}).
+        out += "\"snapshot\":" +
+               (snapshot.empty() ? std::string("\"unknown\"") : snapshot) +
+               "}";
     } else {
         out += "\"error\":\"snapshot_failed\",\"detail\":" +
                (snapshot.empty() ? std::string("\"unknown\"") : snapshot) + "}";
