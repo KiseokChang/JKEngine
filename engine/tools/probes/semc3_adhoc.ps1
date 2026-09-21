@@ -20,6 +20,10 @@
 #                    overlays are live on the cursor app
 #   t3-decl-gone     cursor block dropped (re-register without it): accent gone,
 #                    layer still alive (exclusion/teardown guard)
+#   t3-clamp         grid larger than the surface (fix round 1 MINOR-1): the
+#                    ring on a partial corner cell (4,7) is CLAMPED to the
+#                    window rect - visible sliver shows the ring, the outside
+#                    bands show zero delta (cursor layer AND parked-act layer)
 #   t3-capture-excl  a "Region Capture" titled client with a cursor declaration
 #                    draws nothing (capture-overlay exclusion guard intact)
 # Run: powershell -File semc3_adhoc.ps1 "> log 2>&1" (file redirect - lesson 42).
@@ -486,6 +490,96 @@ $stillThere = Get-Layer "fakegrid3"
 Check "t3-drop-layer-alive" ($stillThere -ne $null) "list_windows"
 $dropCell = Sample-Cell $lyr2 74 68 16 16 0 "cell34_dropped"
 Check "t3-decl-dropped-no-accent" ($dropCell.blue -eq 0) ("blue=$($dropCell.blue) of $($dropCell.total)")
+
+# --- MINOR-1 (fix round 1): grid LARGER than the surface - ring clamped ----------
+# Re-declare a 9x9 grid (origin (10,20), cell 16) on the same 128x96 surface:
+# the grid extends past the right edge (10+9*16=154>128) and the bottom
+# (20+9*16=164>96). The parser validates origin/cell/rows independently but NOT
+# origin+rows*cell fitting inside the surface (a grid bigger than the surface is
+# legal), so the render clamp to the window rect is the only guard: cell (4,7)
+# client rect = (122,84,16,16) is a partial corner cell - visible sliver 6x12,
+# and the ring must NOT leak past the window edge (outside-band delta = 0).
+$cursorBig = '{"app":"fakegrid3","tools":[{"name":"snapshot","description":"board snapshot","inputSchema":{"type":"object","properties":{}}}],' +
+    '"cursor":{"type":"cell-grid","coordSpace":"client","origin":{"x":10,"y":20},"cellW":16,"cellH":16,' +
+    '"rows":9,"cols":9,"cursorOwner":"platform","act":{"kinds":["reveal","flag","question"],"gate":"ask"}}}'
+Send-ToolRegister $app $cursorBig
+$ackBig = Read-Ack $app 3000
+Check "t3-biggrid-ack" ($ackBig -ne $null -and $ackBig.text -match '"ok":true') $ackBig.text
+Start-Sleep -Milliseconds 500
+$lyr3 = Get-Layer "fakegrid3"
+Check "t3-biggrid-layer" ($lyr3 -ne $null) "list_windows"
+# Outside bands (right of / below the window rect, around cell (4,7)'s extent).
+$edgeX = [int][math]::Round($script:ox + ($lyr3.x + 128) * $script:scale)
+$bandY = [int][math]::Round($script:oy + ($lyr3.y + 80) * $script:scale)
+$bandH = [int][math]::Round(24 * $script:scale)
+$edgeY = [int][math]::Round($script:oy + ($lyr3.y + 96) * $script:scale)
+$bandX = [int][math]::Round($script:ox + ($lyr3.x + 118) * $script:scale)
+$bandW = [int][math]::Round(26 * $script:scale)
+$baseRight = Sample-Region ($edgeX + 2) $bandY 8 $bandH "big_base_right"
+$baseBottom = Sample-Region $bandX ($edgeY + 2) $bandH 8 "big_base_bottom"
+# Cursor reset to (0,0) by the redeclaration (upsert reset rule) - visible again.
+$cell00b = Sample-Cell $lyr3 10 20 16 16 0 "big_cell00"
+Check "t3-biggrid-cursor-reset" ($cell00b.blue -ge 12) ("blue=$($cell00b.blue)")
+# Move the cursor to the partial corner cell (4,7).
+$script:qid++
+SendQuery $agent $script:qid '{"tool":"app_tool","args":{"app":"fakegrid3","tool":"move","args":{"to_row":4,"to_col":7}}}'
+$mvBig = $null
+$sw = [System.Diagnostics.Stopwatch]::StartNew()
+while ($sw.ElapsedMilliseconds -lt 5000) {
+    $f = Read-Frame $agent 300
+    if ($f -ne $null -and $f.type -eq 18) { $mvBig = $f.text; break }
+}
+Check "t3-biggrid-move-echo" ($mvBig -ne $null -and $mvBig -match '"row":4' -and $mvBig -match '"col":7') "$mvBig"
+Start-Sleep -Milliseconds 500
+# Inside the visible sliver the clamped ring is drawn (positive control).
+$sliver = Sample-Cell $lyr3 121 83 8 14 0 "big_sliver"
+Check "t3-cursor-clamp-inside" ($sliver.blue -ge 20) ("blue=$($sliver.blue) of $($sliver.total)")
+# Outside the window rect the ring must NOT appear (delta vs baseline = 0).
+$aftRight = Sample-Region ($edgeX + 2) $bandY 8 $bandH "big_after_right"
+$aftBottom = Sample-Region $bandX ($edgeY + 2) $bandH 8 "big_after_bottom"
+Check "t3-cursor-clamp-no-leak" ($aftRight.blue -eq $baseRight.blue -and
+                                 $aftRight.amber -eq $baseRight.amber -and
+                                 $aftBottom.blue -eq $baseBottom.blue -and
+                                 $aftBottom.amber -eq $baseBottom.amber) ("right blue $($baseRight.blue)->$($aftRight.blue) amber $($baseRight.amber)->$($aftRight.amber); bottom blue $($baseBottom.blue)->$($aftBottom.blue) amber $($baseBottom.amber)->$($aftBottom.amber)")
+# Layer 2 clamp: park an act on the SAME partial cell with the cursor parked
+# elsewhere - the amber ring must also stay inside the window rect.
+$script:qid++
+SendQuery $agent $script:qid '{"tool":"app_tool","args":{"app":"fakegrid3","tool":"move","args":{"to_row":0,"to_col":0}}}'
+$mvBack = $null
+$sw = [System.Diagnostics.Stopwatch]::StartNew()
+while ($sw.ElapsedMilliseconds -lt 5000) {
+    $f = Read-Frame $agent 300
+    if ($f -ne $null -and $f.type -eq 18) { $mvBack = $f.text; break }
+}
+Check "t3-move-back-echo" ($mvBack -ne $null -and $mvBack -match '"row":0') "$mvBack"
+$script:qid++
+$ev = Park-Act $agent $script:qid '{"kind":"flag","row":4,"col":7}'
+$okBig = ($ev -ne $null -and $ev.text -match '"name":"fakegrid3\.flag at \(4,7\)"')
+$reqBig = 0
+if ($ev -ne $null -and $ev.text -match '"request":(\d+)') { $reqBig = [int]$Matches[1] }
+Check "t3-bigpark-banner" ($okBig -and $reqBig -gt 0) ($(if ($ev) { $ev.text } else { "no event" }))
+Start-Sleep -Milliseconds 500
+$sliverA = Sample-Cell $lyr3 121 83 8 14 0 "big_sliver_amber"
+Check "t3-park-clamp-inside" ($sliverA.amber -ge 20) ("amber=$($sliverA.amber) of $($sliverA.total)")
+$aftRight2 = Sample-Region ($edgeX + 2) $bandY 8 $bandH "big_after_right2"
+$aftBottom2 = Sample-Region $bandX ($edgeY + 2) $bandH 8 "big_after_bottom2"
+Check "t3-park-clamp-no-leak" ($aftRight2.blue -eq $baseRight.blue -and
+                               $aftRight2.amber -eq $baseRight.amber -and
+                               $aftBottom2.blue -eq $baseBottom.blue -and
+                               $aftBottom2.amber -eq $baseBottom.amber) ("right blue $($baseRight.blue)->$($aftRight2.blue) amber $($baseRight.amber)->$($aftRight2.amber); bottom blue $($baseBottom.blue)->$($aftBottom2.blue) amber $($baseBottom.amber)->$($aftBottom2.amber)")
+# Resolve the parked act - the amber sliver ring clears.
+$apBig = Invoke-Agentctl ('{"tool":"approve","args":{"request":' + $reqBig + ',"decision":"allow"}}')
+Check "t3-bigpark-approve" ($apBig -match '"approved":true') $apBig
+$relBig = Read-Relay $agent $app $script:qid 8000 '{"ok":false,"error":"no_act_impl"}'
+Check "t3-bigpark-relay" ($relBig -ne $null -and $relBig -match '"result"') "$relBig"
+$goneBig = $false
+$sliverGone = $null
+foreach ($i in 1..10) {
+    Start-Sleep -Milliseconds 300
+    $sliverGone = Sample-Cell $lyr3 121 83 8 14 0 "big_sliver_gone"
+    if ($sliverGone.amber -eq 0) { $goneBig = $true; break }
+}
+Check "t3-bigpark-ring-gone" ($goneBig -and $sliverGone.amber -eq 0) ("amber=$($sliverGone.amber)")
 
 # --- capture-overlay exclusion: "Region Capture" client draws nothing -------------
 $cap = New-Pipe 1 $true "Region Capture"

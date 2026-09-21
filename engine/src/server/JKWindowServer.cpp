@@ -6813,6 +6813,22 @@ void JKWindowServer::Composite(bool present) {
     compositor_->Composite(present);
 }
 
+// 3중 링 스트로크 공용 헬퍼 (Task 3 fix round 1 NIT-2): "1px씩 안으로 들어가는
+// 3중 사각형" 기법이 DrawApprovalHighlights(창 링)와 DrawSemanticCursorCells
+// (커서 셀/승인 셀) 3곳에 복사돼 있던 것을 한 곳으로 — 동작 불변(작은 rect는
+// 자동 축소 break, 색 지정 포함).
+static void DrawRing3(SDL_Renderer* renderer, const SDL_Rect& rect,
+                      int r, int g, int b) {
+    SDL_SetRenderDrawColor(renderer, r, g, b, 255);
+    for (int i = 0; i < 3; ++i) {
+        SDL_Rect ring{rect.x + i, rect.y + i, rect.w - 2 * i, rect.h - 2 * i};
+        if (ring.w <= 0 || ring.h <= 0) {
+            break;
+        }
+        SDL_RenderDrawRect(renderer, &ring);
+    }
+}
+
 // 승인 대상 시각화 (스펙 2026-09-19-app-tool-hub §5 1단): 파킹된 승인의 대상
 // 창 위에 호박색 링 + 상단 배너 "에이전트 승인 대기: <name>". DrawCloseOverlay
 // 와 같은 컴포지트 패스의 최상위(레이어 루프 후) 단계 — 오버레이 훅을 통해
@@ -6878,16 +6894,10 @@ void JKWindowServer::DrawApprovalHighlights(float outputScale) {
             continue;
         }
         // 호박 (230,140,40) — 스펙 §5 1단 고정값(테마 무관, 승인 알림 식별색).
-        SDL_SetRenderDrawColor(renderer_, 230, 140, 40, 255);
         // 링: DrawCloseOverlay의 SDL_RenderDrawRect 스트로크 기법 그대로 —
         // 1px씩 안으로 들어가는 3중 사각형으로 두꺼운 테두리를 만든다.
-        for (int i = 0; i < 3; ++i) {
-            SDL_Rect ring{rc.x + i, rc.y + i, rc.w - 2 * i, rc.h - 2 * i};
-            if (ring.w <= 0 || ring.h <= 0) {
-                break;
-            }
-            SDL_RenderDrawRect(renderer_, &ring);
-        }
+        // (fix round 1 NIT-2: 3중 스트로크 루프는 DrawRing3 공용 헬퍼로)
+        DrawRing3(renderer_, rc, 230, 140, 40);
         // 상단 배너 밴드: 크롬 타이틀바(kChromeTitleBar)와 같은 두께로 대상 창의
         // 상단 스트립을 덮는다(링 안쪽 1px에 맞춰 겹침 방지).
         const int bandH = std::min(
@@ -6994,22 +7004,23 @@ void JKWindowServer::DrawSemanticCursorCells(float outputScale) {
             (m.cursor.originY + m.cursorState.Row() * m.cursor.cellH) * sy));
         const int cw = static_cast<int>(std::lround(m.cursor.cellW * sx));
         const int ch = static_cast<int>(std::lround(m.cursor.cellH * sy));
-        // 선언 origin이 표면 밖이면 셀도 창 밖 — 인접 창 위에 낙서가 되므로
-        // 물리 창 rect와의 교차가 없으면 스킵(방어적: 파서가 origin을 검증
-        // 하지 않는 것은 아니다만, 렌더는 창 밖 픽셀을 절대 쓰지 않는다).
-        if (cw <= 0 || ch <= 0 || cx + cw <= rc.x || cy + ch <= rc.y ||
-            cx >= rc.x + rc.w || cy >= rc.y + rc.h) {
+        if (cw <= 0 || ch <= 0) {
             continue;
         }
-        SDL_SetRenderDrawColor(renderer_, 0, 120, 212, 255);
-        // 링: 승인 링과 같은 3중 1px 스트로크(작은 셀에서는 자동 축소).
-        for (int i = 0; i < 3; ++i) {
-            SDL_Rect ring{cx + i, cy + i, cw - 2 * i, ch - 2 * i};
-            if (ring.w <= 0 || ring.h <= 0) {
-                break;
-            }
-            SDL_RenderDrawRect(renderer_, &ring);
+        // 창 rect 절단 (fix round 1 MINOR-1): 교차 없음뿐 아니라 "일부만 보이는"
+        // 셀(부분 교차)도 링 픽셀이 창 밖으로 새지 않게 물리 창 rect로
+        // 클램프한다. 선언 파서는 origin/cell 크기/rows·cols를 각각 검증하지만
+        // origin+rows×cellW/H가 표면 안에 맞는지는 검증하지 않는다(격자가
+        // 표면보다 큰 선언 = 합법) — 렌더가 창 밖 픽셀을 절대 쓰지 않게 하는
+        // 유일한 방어선은 이 절단이다. 교차 없음 = 그릴 것 없음(스킵).
+        SDL_Rect cell{cx, cy, cw, ch};
+        SDL_Rect clipped{};
+        if (!SDL_IntersectRect(&cell, &rc, &clipped) || clipped.w <= 0 ||
+            clipped.h <= 0) {
+            continue;
         }
+        // 링: 승인 링과 같은 3중 1px 스트로크(작은 셀에서는 자동 축소).
+        DrawRing3(renderer_, clipped, 0, 120, 212);
     }
     // 계층 2 — 승인 대상 셀: semCell 파킹의 고정 rect에 호박 3중 링. 창 링은
     // DrawApprovalHighlights가 계속 그린다(기존 정책 — 승인 대상 창 식별).
@@ -7038,19 +7049,21 @@ void JKWindowServer::DrawSemanticCursorCells(float outputScale) {
         const int cy = rc.y + static_cast<int>(std::lround(p.semRectY * sy));
         const int cw = static_cast<int>(std::lround(p.semRectW * sx));
         const int ch = static_cast<int>(std::lround(p.semRectH * sy));
-        if (cw <= 0 || ch <= 0 || cx + cw <= rc.x || cy + ch <= rc.y ||
-            cx >= rc.x + rc.w || cy >= rc.y + rc.h) {
+        if (cw <= 0 || ch <= 0) {
+            continue;
+        }
+        // 창 rect 절단 (fix round 1 MINOR-1): 승인 셀도 동일 — 파킹 rect는
+        // 파킹 시점 고정이라 그 이후의 재선언/리사이즈로 창 밖으로 밀릴 수
+        // 있다(승인 시점 CursorActStale이 기하 불일치를 거부하지만, 승인 전
+        // 파킹 표시 기간엔 이 절단이 유일한 방어선).
+        SDL_Rect cell{cx, cy, cw, ch};
+        SDL_Rect clipped{};
+        if (!SDL_IntersectRect(&cell, &rc, &clipped) || clipped.w <= 0 ||
+            clipped.h <= 0) {
             continue;
         }
         // 호박 (230,140,40) — 승인 링 고정색과 동일(같은 승인 사건의 시각).
-        SDL_SetRenderDrawColor(renderer_, 230, 140, 40, 255);
-        for (int i = 0; i < 3; ++i) {
-            SDL_Rect ring{cx + i, cy + i, cw - 2 * i, ch - 2 * i};
-            if (ring.w <= 0 || ring.h <= 0) {
-                break;
-            }
-            SDL_RenderDrawRect(renderer_, &ring);
-        }
+        DrawRing3(renderer_, clipped, 230, 140, 40);
     }
 }
 
