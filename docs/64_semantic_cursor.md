@@ -44,8 +44,8 @@ RunSteps` → `Result{row,col,error}`(:42-:51). 상대·스텝은 격자 경계 
   (마크는 지뢰 공개보다 우선 — 깃발 `F`/물음표 `?` 유지).
 - **음수 델타 합법** — 스텝/상대 음수는 정상 이동(경계 클램프), 사전검증은 `|delta| > 1<<20`만
   bad_args(부호비교, abs(INT_MIN) UB 회피). 스텝 원소 축 생략 = 0(무이동, 관대 파싱).
-- **선언 게이트** — origin 0..100000, cell 1..4096, rows≤1024, kinds≤32 토큰 검증, 스키마 2KiB 캡,
-  control-only 거부.
+- **선언 게이트** — origin 0..100000, cell 1..4096, rows≤1024, kinds≤32 토큰 검증, 커서 선언 4KiB 캡
+  (`bad_cursor`; 2KiB는 act 스키마 enum 병합 캡 — §3.11), control-only 거부.
 
 ## 3. 스펙/브리프와의 편차 (전부 문서화된 결정)
 
@@ -109,7 +109,8 @@ RunSteps` → `Result{row,col,error}`(:42-:51). 상대·스텝은 격자 경계 
 - 환경 주의(제품 결함 아님): probe_app_tools의 내부 highlight 중첩 프로브는 자기 서버를 가시
   기동하므로 라이브 jkwinserver 생존 시 단일 인스턴스 가드(docs/59 §11)로 c15만 FAIL —
   회귀 스윕 전 라이브 서버 정지가 전제.
-- 라이브 반영: 재빌드 후 jkwinserver+클라(서버가 taskbar 클라 자기 스폰)+jkbridge 재기동 —
+- 라이브 반영: 재빌드 불요(HEAD 3cd68c3 = Task 5가 ninja 최신 확인한 바이너리) — jkwinserver+
+  클라(서버가 taskbar 클라 자기 스폰)+jkbridge 재기동 —
   ping ok / 8899 LISTENING / HTTP 200 / 토큰 불변(폰 QR 재스캔 불요).
 
 ## 5. 백로그 (수집 — 구현 중 기각/이월 전체)
