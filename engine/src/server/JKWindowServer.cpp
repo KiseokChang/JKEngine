@@ -247,6 +247,10 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
     // 최상위 드로잉 단계를 서버 쪽 멤버 함수로 연결한다(의존성 역전 — 컴포지터는
     // pendingApprovals_를 모른다). outputScale 인자로 Composite의 스케일을 전달.
     compositor_->SetOverlayHook([this](float outputScale) {
+        // 의미 커서 셀 (스펙 2026-09-22-semantic-cursor §5, Task 3) — 커서
+        // 계층은 승인 파킹과 무관하게 매 프레임 그려지므로 별개 함수로 먼저
+        // 그린다(승인 링/배너가 최상단을 유지하는 기존 정책 유지).
+        DrawSemanticCursorCells(outputScale);
         DrawApprovalHighlights(outputScale);
     });
     UpdateOutputBounds();
@@ -6922,6 +6926,130 @@ void JKWindowServer::DrawApprovalHighlights(float outputScale) {
             it = approvalBannerTexs_.erase(it);
         } else {
             ++it;
+        }
+    }
+}
+
+// 의미 커서 셀 하이라이트 (스펙 2026-09-22-semantic-cursor §5, Task 3) — 2계층:
+//  1) 커서 셀(지속): 커서 선언 앱의 최신 선언(origin/cell 크기)+플랫폼 커서
+//     상태로 셀 rect를 매 프레임 산출해 액센트색 테두리. 앱 표면 무접촉
+//     (앱 크래시/무응답에도 표시 생존), window_move 추종(실시간 계산),
+//     비상호작용(그리기만 — 클릭은 그대로 통과). 커서가 한 번도 움직이지
+//     않아도 (0,0) 표시(상태 존재 = 표시 — 초기 (0,0) 규약, 스펙 §4).
+//  2) 승인 대상 셀(파킹 시): semCell 파킹의 고정 rect(client 좌표 — 파킹
+//     시점 고정, 승인 시점 CursorActStale 재검증은 Task 2)에 기존 호박 3중
+//     링 산식을 그대로 적용. 배너는 기존 창 링+밴드가 p.name으로 이미 그린다
+//     (DrawApprovalHighlights — 여기선 셀 링만 보태다). 커서 셀은 살아 있는
+//     상태를, 승인 셀은 파킹 시점의 사진을 보여준다 — 재선언으로 격자가
+//     바뀌면 둘이 어긋나는 게 정상(거부 판정 자료).
+// 색: 커서 셀 = 선택 액센트 파랑 (0,120,212) — JKTheme kDefault/kLight의
+// selectionBg 값(테마 무관 고정 — 승인 호박(230,140,40)과 같은 "식별색 고정"
+// 규약, 승인 링이 테마를 따르지 않는 선례). 호박과 채널 거리가 충분해 2계층이
+// 한 프레임에 겹쳐 보여도(같은 셀에 act 파킹) 식별된다.
+// 스레드 규약: DrawApprovalHighlights와 동일 — 서버 루프 스레드 전용.
+// appToolManifests_·pendingApprovals_는 ProcessPendingMessages/HandleAgentQuery
+// (같은 스레드)만 쓰므로 컴포지트 패스 읽기와 경쟁이 생기지 않는다(락 없음 —
+// DrawApprovalHighlights의 pendingApprovals_ 규약 선례).
+void JKWindowServer::DrawSemanticCursorCells(float outputScale) {
+    if (!renderer_ || !compositor_) {
+        return;
+    }
+    // 계층 1 — 커서 셀: 커서 선언 매니페스트 전체 순회(창 단위 소비자는
+    // windowId로 변별 — SemanticCursorFor의 "복수 인스턴스 = 첫 매칭" 주석).
+    for (const auto& kv : appToolManifests_) {
+        const AppToolManifest& m = kv.second;
+        if (!m.cursor.valid || m.windowId == 0) {
+            continue;  // 제어 연결 매니페스트(창 없음)는 그릴 곳이 없다
+        }
+        JKCompositorLayer* layer = compositor_->FindLayerById(m.windowId);
+        if (!layer || !layer->IsVisible()) {
+            continue;
+        }
+        // 면제: shell(docs/28)과 캡처 오버레이(docs/35) —
+        // DrawApprovalHighlights의 크롬 면제 목록과 동일 조건.
+        if (layer->IsShell() || layer->Title() == kCaptureOverlayTitle) {
+            continue;
+        }
+        // 격자 밖 커서(축소 재선언 직후 상태 등)는 rect 산출 불가 — 스킵
+        // (CursorActStale의 격자 판정과 동일 기준).
+        if (m.cursorState.Row() < 0 || m.cursorState.Row() >= m.cursor.rows ||
+            m.cursorState.Col() < 0 || m.cursorState.Col() >= m.cursor.cols) {
+            continue;
+        }
+        // client → 물리 변환 (DrawApprovalHighlights와 같은 사슬 — 논리 레이어
+        // rect × outputScale, client 픽셀 × 레이어 Scale × outputScale).
+        const SDL_Rect rc{
+            static_cast<int>(layer->X() * outputScale),
+            static_cast<int>(layer->Y() * outputScale),
+            static_cast<int>(layer->Width() * layer->ScaleX() * outputScale),
+            static_cast<int>(layer->Height() * layer->ScaleY() * outputScale)};
+        if (rc.w <= 0 || rc.h <= 0) {
+            continue;
+        }
+        const float sx = layer->ScaleX() * outputScale;
+        const float sy = layer->ScaleY() * outputScale;
+        const int cx = rc.x + static_cast<int>(std::lround(
+            (m.cursor.originX + m.cursorState.Col() * m.cursor.cellW) * sx));
+        const int cy = rc.y + static_cast<int>(std::lround(
+            (m.cursor.originY + m.cursorState.Row() * m.cursor.cellH) * sy));
+        const int cw = static_cast<int>(std::lround(m.cursor.cellW * sx));
+        const int ch = static_cast<int>(std::lround(m.cursor.cellH * sy));
+        // 선언 origin이 표면 밖이면 셀도 창 밖 — 인접 창 위에 낙서가 되므로
+        // 물리 창 rect와의 교차가 없으면 스킵(방어적: 파서가 origin을 검증
+        // 하지 않는 것은 아니다만, 렌더는 창 밖 픽셀을 절대 쓰지 않는다).
+        if (cw <= 0 || ch <= 0 || cx + cw <= rc.x || cy + ch <= rc.y ||
+            cx >= rc.x + rc.w || cy >= rc.y + rc.h) {
+            continue;
+        }
+        SDL_SetRenderDrawColor(renderer_, 0, 120, 212, 255);
+        // 링: 승인 링과 같은 3중 1px 스트로크(작은 셀에서는 자동 축소).
+        for (int i = 0; i < 3; ++i) {
+            SDL_Rect ring{cx + i, cy + i, cw - 2 * i, ch - 2 * i};
+            if (ring.w <= 0 || ring.h <= 0) {
+                break;
+            }
+            SDL_RenderDrawRect(renderer_, &ring);
+        }
+    }
+    // 계층 2 — 승인 대상 셀: semCell 파킹의 고정 rect에 호박 3중 링. 창 링은
+    // DrawApprovalHighlights가 계속 그린다(기존 정책 — 승인 대상 창 식별).
+    for (const PendingApproval& p : pendingApprovals_) {
+        if (!p.semCell || p.targetId == 0) {
+            continue;
+        }
+        JKCompositorLayer* layer = compositor_->FindLayerById(p.targetId);
+        if (!layer || !layer->IsVisible()) {
+            continue;
+        }
+        if (layer->IsShell() || layer->Title() == kCaptureOverlayTitle) {
+            continue;
+        }
+        const SDL_Rect rc{
+            static_cast<int>(layer->X() * outputScale),
+            static_cast<int>(layer->Y() * outputScale),
+            static_cast<int>(layer->Width() * layer->ScaleX() * outputScale),
+            static_cast<int>(layer->Height() * layer->ScaleY() * outputScale)};
+        if (rc.w <= 0 || rc.h <= 0) {
+            continue;
+        }
+        const float sx = layer->ScaleX() * outputScale;
+        const float sy = layer->ScaleY() * outputScale;
+        const int cx = rc.x + static_cast<int>(std::lround(p.semRectX * sx));
+        const int cy = rc.y + static_cast<int>(std::lround(p.semRectY * sy));
+        const int cw = static_cast<int>(std::lround(p.semRectW * sx));
+        const int ch = static_cast<int>(std::lround(p.semRectH * sy));
+        if (cw <= 0 || ch <= 0 || cx + cw <= rc.x || cy + ch <= rc.y ||
+            cx >= rc.x + rc.w || cy >= rc.y + rc.h) {
+            continue;
+        }
+        // 호박 (230,140,40) — 승인 링 고정색과 동일(같은 승인 사건의 시각).
+        SDL_SetRenderDrawColor(renderer_, 230, 140, 40, 255);
+        for (int i = 0; i < 3; ++i) {
+            SDL_Rect ring{cx + i, cy + i, cw - 2 * i, ch - 2 * i};
+            if (ring.w <= 0 || ring.h <= 0) {
+                break;
+            }
+            SDL_RenderDrawRect(renderer_, &ring);
         }
     }
 }

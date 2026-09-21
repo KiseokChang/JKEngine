@@ -223,6 +223,12 @@ private:
     // 대상 창 위 호박색 링 + 상단 배너. 컴포지터의 오버레이 훅으로 호출된다 —
     // DrawCloseOverlay와 같은 컴포지트 패스, 레이어 루프 후 최상위 단계.
     void DrawApprovalHighlights(float outputScale);
+    // 의미 커서 셀 하이라이트 (스펙 2026-09-22-semantic-cursor §5, Task 3):
+    // 2계층 — 커서 셀(지속, 액센트 테두리: 최신 선언+커서 상태를 매 프레임
+    // 산출) + 승인 대상 셀(파킹 시, 고정 rect에 기존 호박 3중 링). 같은
+    // 컴포지트 패스의 오버레이 훅에서 DrawApprovalHighlights와 짝을 이룬다
+    // (커서 계층은 승인 파킹과 무관하게 그려야 하므로 별개 함수).
+    void DrawSemanticCursorCells(float outputScale);
     // 배너 텍스트를 크롬 타이틀과 동일한 비트맵 글리프 경로(Utf8ToKssm → JKDC
     // 한글/영문 폰트)로 한 번 레스터라이즈해 캐시한다(성공만 캐시 — 실패는
     // null 엔트리로 기록해 매 프레임 재시도를 막는다). w/h는 글리프 픽셀 크기.
