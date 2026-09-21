@@ -413,26 +413,39 @@ static void HandleEvent(const jk::agent::AgentEvent& ev) {
             // 정직하게 표기 — close_window 재용은 기만적이다(docs/56 레슨).
             // target이 오면 "[<app> 창 #<windowId>] <tool> 실행할까요?",
             // 부재(구버전 서버)는 name 문구 유지 — 하위호환.
-            std::string app, tool;
-            int windowId = 0;
-            if (e.GetObjStr("target", "app", app) &&
-                e.GetObjStr("target", "tool", tool) &&
-                e.GetObjInt("target", "windowId", windowId) && windowId > 0) {
-                wchar_t buf[512];
-                _snwprintf_s(buf, _TRUNCATE, L"[%s 창 #%u] %s 실행할까요?",
-                             Utf8ToWide(app).c_str(), windowId,
-                             Utf8ToWide(tool).c_str());
-                EnqueueApproval(static_cast<uint32_t>(request), buf);
-                Log("[앱 도구] " + app + "." + tool + " → 창 #" +
-                    std::to_string(windowId));
-            } else {
-                std::string name;
-                e.GetStr("name", name);
+            // 의미 커서 (스펙 2026-09-22-semantic-cursor §8, fix round 1):
+            // 파킹 name은 서버가 확정한 배너 진실원 — 커서 선언 앱의 act는
+            // "<app>.<kind> at (r,c)"(승인자가 행위+칸을 본다), 무선언 앱은
+            // 기존 "<app>.<tool>". 있으면 name 선호, 부재만 target 폴백.
+            std::string name;
+            e.GetStr("name", name);
+            if (!name.empty()) {
                 wchar_t buf[512];
                 _snwprintf_s(buf, _TRUNCATE, L"[앱 도구] %s 실행할까요?",
                              Utf8ToWide(name).c_str());
                 EnqueueApproval(static_cast<uint32_t>(request), buf);
                 Log("[앱 도구] " + name);
+            } else {
+                std::string app, tool;
+                int windowId = 0;
+                if (e.GetObjStr("target", "app", app) &&
+                    e.GetObjStr("target", "tool", tool) &&
+                    e.GetObjInt("target", "windowId", windowId) &&
+                    windowId > 0) {
+                    wchar_t buf[512];
+                    _snwprintf_s(buf, _TRUNCATE, L"[%s 창 #%u] %s 실행할까요?",
+                                 Utf8ToWide(app).c_str(), windowId,
+                                 Utf8ToWide(tool).c_str());
+                    EnqueueApproval(static_cast<uint32_t>(request), buf);
+                    Log("[앱 도구] " + app + "." + tool + " → 창 #" +
+                        std::to_string(windowId));
+                } else {
+                    wchar_t buf[512];
+                    _snwprintf_s(buf, _TRUNCATE, L"[앱 도구] %s 실행할까요?",
+                                 Utf8ToWide(name).c_str());
+                    EnqueueApproval(static_cast<uint32_t>(request), buf);
+                    Log("[앱 도구] " + name);
+                }
             }
         } else {
             std::string title;

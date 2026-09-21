@@ -146,6 +146,17 @@ Check "bridge-app-tool-strip" ($ui -match "k === 'app_tool'" -and
                                $ui -match ("' " + $krChang + " #'") -and
                                $ui -match ($krShil + "\?") -and
                                $ui -match $krChaRe)
+# MINOR-2 (fix round 1, semantic cursor spec §8): the parked name is the
+# server's banner truth ("fakegrid.flag at (3,5)" for declared act parking,
+# "fakegrid.tool" for undeclared apps) - the strip must PREFER e.name over
+# the target composition (fallback only). Positional check inside the
+# app_tool branch slice - ASCII needles only.
+$ati = $ui.IndexOf("k === 'app_tool'")
+$atSlice = ""
+if ($ati -ge 0) { $atSlice = $ui.Substring($ati, [Math]::Min(700, $ui.Length - $ati)) }
+$prefAt = $atSlice.IndexOf("if (e.name)")
+$targetAt = $atSlice.IndexOf("t.windowId")
+Check "bridge-app-tool-name-pref" ($prefAt -ge 0 -and $targetAt -gt $prefAt) ("slice=" + $atSlice)
 try {
     Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:8899/bogus" -TimeoutSec 5 | Out-Null
     $code = 200

@@ -505,7 +505,12 @@ function approvalText(e) {
   // 픽스 — jkchat과 동일하게 대상 창을 정직하게 표기한다. target 있으면
   // "[<app> 창 #<windowId>] <tool> 실행할까요?", 부재(구버전 서버)는 name
   // 문구 하위호환. close_window(마지막 폴백) 문구는 그대로 유지.
+  // 의미 커서 (스펙 2026-09-22-semantic-cursor §8, fix round 1): 파킹 name은
+  // 서버가 확정한 배너 진실원 — 커서 선언 앱의 act는 "<app>.<kind> at (r,c)"
+  // (승인자가 행위+칸을 본다), 무선언 앱은 기존 "<app>.<tool>". 있으면
+  // name 선호, 부재(구버전 서버)만 target 조합 폴백.
   if (k === 'app_tool') {
+    if (e.name) return '[앱 도구] '+e.name+' 실행할까요?';
     const t = e.target || {};
     if (t.windowId > 0 && t.app && t.tool)
       return '['+t.app+' 창 #'+t.windowId+'] '+t.tool+' 실행할까요?';

@@ -383,6 +383,48 @@ $rejReply = Read-Reply $agent $null $script:qid 5000
 Check "t2-dropped-reject" ($rejReply -match '"ok":false' -and $rejReply -match '"error":"bad_grid"') $rejReply
 Check "t2-dropped-no-relay" ($script:lastAppCall -eq "") "appCall=$($script:lastAppCall)"
 
+# --- MINOR-1 (fix round 1): kind-shifted same-geometry redeclaration ----------
+# Park act kind A while the declaration includes A; re-declare the SAME
+# geometry with kinds WITHOUT A; approval must reject (the parking-time kind
+# validation judged against the old declaration - approval time re-asks).
+# Same geometry is essential: the rect must stay identical so ONLY the kind
+# enum shift can reject.
+$cursorNoFlag = '{"app":"fakegrid","tools":[{"name":"snapshot","description":"board snapshot","inputSchema":{"type":"object","properties":{}}}],' +
+    '"cursor":{"type":"cell-grid","coordSpace":"client","origin":{"x":12,"y":44},"cellW":16,"cellH":16,' +
+    '"rows":9,"cols":9,"cursorOwner":"platform","act":{"kinds":["reveal","question"],"gate":"ask"}}}'
+# restore the full declaration (case C left it dropped) - flag is back
+Send-ToolRegister $app $cursorSame
+$ackBack = Read-Ack $app 3000
+Check "t2-kindshift-restore-ack" ($ackBack -ne $null -and $ackBack.text -match '"ok":true') $ackBack.text
+$script:qid++
+$ev = Park-Act $agent $script:qid '{"kind":"flag","row":5,"col":5}'
+$reqId = 0
+if ($ev -ne $null -and $ev.text -match '"request":(\d+)') { $reqId = [int]$Matches[1] }
+Check "t2-kindshift-park" ($ev -ne $null -and $ev.text -match '"name":"fakegrid.flag at \(5,5\)"' -and $reqId -gt 0) ($(if ($ev) { $ev.text } else { "no event" }))
+Send-ToolRegister $app $cursorNoFlag
+$ackNF = Read-Ack $app 3000
+Check "t2-kindshift-ack" ($ackNF -ne $null -and $ackNF.text -match '"ok":true') $ackNF.text
+$script:lastAppCall = ""
+$ap = Invoke-Agentctl ('{"tool":"approve","args":{"request":' + $reqId + ',"decision":"allow"}}')
+$rejReply = Read-Reply $agent $null $script:qid 5000
+Check "t2-kindshift-reject" ($rejReply -match '"ok":false' -and $rejReply -match '"error":"bad_grid"') $rejReply
+Check "t2-kindshift-no-relay" ($script:lastAppCall -eq "") "appCall=$($script:lastAppCall)"
+$ev = Wait-Event $agent '"topic":"agent.approval_resolved"' 5000
+Check "t2-kindshift-resolved" ($ev -ne $null -and $ev.text -match '"decision":"allow"') $(if ($ev) { $ev.text } else { "no event" })
+
+# --- MINOR-1 control: kind still in the shifted enum -> approval proceeds ------
+$script:qid++
+$ev = Park-Act $agent $script:qid '{"kind":"reveal","row":6,"col":6}'
+$reqId = 0
+if ($ev -ne $null -and $ev.text -match '"request":(\d+)') { $reqId = [int]$Matches[1] }
+Check "t2-kindshift-control-park" ($ev -ne $null -and $ev.text -match '"name":"fakegrid.reveal at \(6,6\)"' -and $reqId -gt 0) ($(if ($ev) { $ev.text } else { "no event" }))
+$script:lastAppCall = ""
+$ap = Invoke-Agentctl ('{"tool":"approve","args":{"request":' + $reqId + ',"decision":"allow"}}')
+$actReply = Read-Reply $agent $app $script:qid 8000
+Check "t2-kindshift-control-relay" ($actReply -match '"error":"no_act_impl"' -and
+                                    $script:lastAppCall -match '"kind":"reveal"' -and
+                                    $script:lastAppCall -match '"row":6') ("appCall=" + $script:lastAppCall + " | reply=" + $actReply)
+
 # --- undeclared app unchanged: parked plain app_tool keeps "<app>.<tool>" -------
 # Explicit ask key (semc1 idiom) - plain app_tool has no cursor, so the banner
 # name must stay the pre-Task-2 form (vplayer/workshop regression).

@@ -6669,9 +6669,15 @@ const JKWindowServer::AppToolManifest* JKWindowServer::SemanticCursorFor(
 // - 선언 소실(앱이 cursor 블록을 뺀 재등록): 파킹 때 승인받은 계약이 사라졌다
 //   — 거부(배너가 보여준 칸이 이제 어느 칸인지 앱이 알 바 없다).
 // - 격자 밖(row/col이 새 격자를 벗어남): rect 산출 불가 — 거부.
+// - kind가 새 선언의 act.kinds enum 밖(MINOR-1 fix round 1): 동일 기하
+//   재선언이 어휘만 바꿨으면("flag"→"reveal") 배너가 보여준 행위가 이제
+//   앱이 수용하지 않는 행위다 — 거부(파킹 시점 검증은 당시 선언 기준이므로
+//   승인 시점에 다시 물어본다).
 // - rect 불일치(origin/cell 크기가 바뀜): 배너가 가리킨 픽셀 칸이 아니다 —
 //   거부. 격자 변경만으로는 거부하지 않는다(스펙 §3 — "재검증 후 어긋나면
 //   거부"): 재선언이 기하를 그대로 두면 rect 항등이라 통과한다.
+// 거부 토큰은 resolve 경로가 단일 bad_grid로 통일(재검증 실패 = 승인된 칸이
+// 무효라는 한 사건 — 사인 세분화는 백로그).
 // clientsMutex_ 보유 경로 전용(승인 resolve — HandleAgentQuery 호출사슬,
 // 락을 잡지 않는다 — 레슨 35).
 bool JKWindowServer::CursorActStale(const AppToolManifest& m,
@@ -6681,6 +6687,13 @@ bool JKWindowServer::CursorActStale(const AppToolManifest& m,
     }
     if (p.semRow < 0 || p.semRow >= m.cursor.rows ||
         p.semCol < 0 || p.semCol >= m.cursor.cols) {
+        return true;
+    }
+    bool known = false;
+    for (const std::string& k : m.cursor.actKinds) {
+        if (k == p.semKind) { known = true; break; }
+    }
+    if (!known) {
         return true;
     }
     const int x = m.cursor.originX + p.semCol * m.cursor.cellW;

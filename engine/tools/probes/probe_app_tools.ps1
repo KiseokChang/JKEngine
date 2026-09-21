@@ -715,29 +715,32 @@ try {
               $magic[5] -eq 0x0A -and $magic[6] -eq 0x1A -and $magic[7] -eq 0x0A)
     Check "c16-thumb-png-magic" $pngOk (($magic | ForEach-Object { $_.ToString("X2") }) -join " ")
 
-    # c17: strip wording on the real jkchat UI. Strip prompt (106) must be the
-    # exact target-present string; the transcript line (103) must carry the
-    # app-tool label + window tag. Korean needles from codepoints (ASCII-only
-    # file): chang=window, "aap do"=the [..] label, "sil-hal-kka-yo"=exec ask.
+    # c17: strip wording on the real jkchat UI. Task 2 fix round 1 (semantic
+    # cursor spec §8): jkchat now PREFERs the parked name - the server's banner
+    # truth. This app (vplayer) declares no cursor, so the name is the plain
+    # "vplayer.play_pause" form (a cursor app would show
+    # "<app>.<kind> at (r,c)"). The old target composition is the fallback for
+    # name-less (old-server) events only. Strip prompt (106) must be the exact
+    # name form; the transcript line (103) carries the label + name. Korean
+    # needles from codepoints (ASCII-only file): "aep do-gu" = the [..] label,
+    # "sil-hal-kka-yo" = exec ask.
     function U([int[]]$c) { return (-join ($c | ForEach-Object { [char]$_ })) }
-    $krChang = U @(0xCC3D)                                    # chang (window)
     $krAapDo = U @(0xC571, 0x0020, 0xB3C4, 0xAD6C)            # aep do-gu label
     $krExe   = U @(0xC2E4, 0xD589, 0xD560, 0xAE4C, 0xC694)    # sil-hal-kka-yo
-    $stripWant = "[vplayer " + $krChang + " #" + $wcur + "] play_pause " + $krExe + "?"
+    $stripWant = "[" + $krAapDo + "] vplayer.play_pause " + $krExe + "?"
     $strip = ""
     foreach ($i in 1..12) {
         Start-Sleep -Milliseconds 400
         $strip = Read-Ctrl $chatHwnd 106
         if ($strip -match "play_pause") { break }
     }
-    Check "c17-strip-target-wording" ($strip -eq $stripWant) ("strip=[$strip] want=[$stripWant]")
+    Check "c17-strip-name-wording" ($strip -eq $stripWant) ("strip=[$strip] want=[$stripWant]")
     $logTxt = Read-Ctrl $chatHwnd 103
     $logTail = ""
     if ($logTxt.Length -gt 300) { $logTail = $logTxt.Substring($logTxt.Length - 300) } else { $logTail = $logTxt }
     # .Contains, not -match: the needles contain literal "[" (regex class open).
     $lineWant = "[" + $krAapDo + "] vplayer.play_pause"
-    Check "c17-transcript-line" ($logTxt.Contains($lineWant) -and
-                                 $logTxt.Contains($krChang + " #" + $wcur)) ("log=[$logTail]")
+    Check "c17-transcript-line" ($logTxt.Contains($lineWant)) ("log=[$logTail]")
 
     # resolve the parked ask (cross approve) + thumb cleanup
     $ap16 = (Invoke-Agentctl ('{"tool":"approve","args":{"request":' + $reqId16 + ',"decision":"allow"}}'))
