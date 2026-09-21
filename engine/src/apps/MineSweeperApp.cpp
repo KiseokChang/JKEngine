@@ -873,6 +873,19 @@ public:
         if (grid) grid->ResetChordState();
         UpdateLabels();
         if (grid) grid->SetFocus();
+        // 에이전트 reset은 사용자 클릭 없이 여기로 오므로, 열려 있는 게임오버
+        // 모달을 직접 내려야 한다(폰 "새 게임" 후 다이얼로그 잔존 실측 —
+        // docs/64 §7). 사용자 Ok 경로는 onResult_ 실행 중 Close()를 지난
+        // 뒤 여기로 들어오므로 이미 RequestClose된 박스는 건드리지 않는다
+        // (실행 중 std::function 파괴 방지).
+        if (gameOverBox && !gameOverBox->IsCloseRequested()) {
+            gameOverBox->SetOnResult(nullptr);   // NewGame 재진입 봉쇄
+            gameOverBox->RequestClose();         // 등록 해제+Hide
+            if (g_jkAppHost &&
+                g_jkAppHost->GetModalWindow() == gameOverBox.get()) {
+                g_jkAppHost->SetModalWindow(window);
+            }
+        }
     }
 
     void SetDifficulty(MineSweeperGame::Difficulty diff) {
