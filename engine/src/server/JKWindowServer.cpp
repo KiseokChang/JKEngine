@@ -1749,12 +1749,18 @@ JKClientConnection* JKWindowServer::FindClientById(uint32_t surfaceId) {
 }
 
 void JKWindowServer::FocusClient(uint32_t surfaceId) {
+    // 무변화 디바운스 (docs/57 §12.6 ⑦): 포커스 id가 바뀌지 않은
+    // FocusClient 호출마다 window.focused를 push하면 폰 WS에서 초당 수회의
+    // 스팸이었다 — prev 캡처 후 실제 변화만 push. 첫 포커스(prev 미지정/다른
+    // 창)는 push 유지 — spawn 포커스 이벤트 계약 불변.
+    const uint32_t prev = focusedClientId_;
     focusedClientId_ = surfaceId;
     if (compositor_) {
         compositor_->FocusLayer(surfaceId);
     }
     // Desktop Agent event (spec §4). Resolves nothing when the id is not (yet)
     // in the table (e.g. focus at spawn intake, before push_back).
+    if (surfaceId == prev) return;
     for (auto& c : clients_) {
         if (c && c->Id() == surfaceId) {
             PushAgentEvent("window.focused", surfaceId, c->Title(), c->Pid());
@@ -3028,8 +3034,11 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         req.GetObjStr("args", "app", app);
         req.GetObjStr("args", "tool", toolName);
         req.GetObjRaw("args", "args", argsRaw);
-        if (argsRaw.size() > 8 * 1024) {
+        if (argsRaw.size() > 256 * 1024) {
             // 스펙 §4.1 호출 경로 상한 (result 16KiB는 HandleToolResult가).
+            // 256KiB로 상향 (docs/60 §5 백로그 소각, docs/57 §12.6): 워크숍
+            // set_script가 256KiB 백스톱을 두고 있어 8KiB 앞단이 병목이었다 —
+            // 앱 측 백스톱과 정렬. result 16KiB 캡은 별도 백로그로 유지.
             reply = "{\"ok\":false,\"error\":\"args_too_large\"}";
         } else if (app.empty() || toolName.empty()) {
             reply = "{\"ok\":false,\"error\":\"unknown_app_tool\"}";

@@ -3,6 +3,9 @@
 #   1  catalog: vplayer spawn -> list_app_tools 6 rows (name/description/windowId>0)
 #   2  seek e2e: open clip -> poll get_status opened -> seek 1 -> pos < 2.0
 #   3  error surface: unknown app -> unknown_app_tool; seek w/o seconds -> app bad_args
+#   3c args cap: ~10KiB args + unknown tool -> unknown_app_tool (the old 8KiB
+#      front cap answered args_too_large first; lifted to 256KiB = workshop
+#      set_script backstop alignment, task-1 / docs/60 §5 backlog)
 #   3b open failure visibility: corrupt file -> get_status openFailed+error
 #      (no silent decay to idle all-false - docs/59 §18)
 #   4  multi-instance: 2nd vplayer -> 12 rows; no windowId -> ambiguous+candidates(2);
@@ -311,6 +314,19 @@ try {
     Check "c3-unknown-app-tool" ($e1 -match '"error":"unknown_app_tool"') $e1
     $e2 = (AppTool "vplayer" "seek" "")
     Check "c3-bad-args-passthrough" ($e2 -match '"error":\{"error":"bad_args"') $e2
+
+    # ---- check 3c: args cap 256KiB (task-1, docs/60 §5 backlog) -----------------
+    # ~10KiB nested args + a NONEXISTENT tool name: the old 8KiB front cap
+    # answered args_too_large before the name lookup ever ran; with the lifted
+    # cap the lookup runs and answers unknown_app_tool. Error ordering proves
+    # the cap passed (indirect, harmless call). The 16KiB RESULT cap
+    # (HandleToolResult) is a separate backlog item - untouched here.
+    $pad = '{"pad":"' + ('a' * 10240) + '"}'
+    $e3c = (AppTool "nope" "x" $pad)
+    $e3cHead = ""
+    if ($e3c.Length -gt 120) { $e3cHead = $e3c.Substring(0, 120) } else { $e3cHead = $e3c }
+    Check "c3c-args-cap-256k-passes" ($e3c -match '"error":"unknown_app_tool"' -and
+                                      $e3c -notmatch 'args_too_large') ("argsLen=" + $pad.Length + " " + $e3cHead)
 
     # ---- check 3b: open failure visibility (docs/59 §18) ------------------------
     # A corrupt file (truncated no-moov mp4 fixture) must surface its classified
