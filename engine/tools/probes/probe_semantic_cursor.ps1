@@ -10,7 +10,9 @@
 #      minesweeper.move/read/act with the kinds enum the LLM sees
 #   2  move: absolute echo / relative clamp / steps (first-boundary stop +
 #      reached echo) / negative deltas legal / oversize delta = bad_args
-#      (pre-move echo, atomic) / missing args = bad_args / out-of-grid
+#      (pre-move echo, nothing applied - reject-before-apply, NOT multi-step
+#      atomicity: partial application within a multi-step run is intentional,
+#      JKSemanticCursor.cpp:65) / missing args = bad_args / out-of-grid
 #      absolute = bad_grid (requested-cell echo)
 #   3  read serialization: cursor header + rows/cols + 9x9 board (9 lines of
 #      [#F?0-9*]) + status field, fresh board all '#'
@@ -137,6 +139,7 @@ function Read-Frame([System.IO.Pipes.NamedPipeClientStream]$s, [int]$timeoutMs) 
     $head0 = 0
     if ($type -eq 20 -or $type -eq 22) { $hs = 4 }
     elseif ($type -eq 17 -or $type -eq 23) { $hs = 8; $head0 = [BitConverter]::ToUInt32($pl, 0) }
+    elseif ($type -eq 18) { $head0 = [BitConverter]::ToUInt32($pl, 0) }   # AgentReplyHeader.queryId
     $text = ""
     if ($len -gt $hs) { $text = [Text.Encoding]::UTF8.GetString($pl, $hs, $len - $hs) }
     return @{ type = $type; len = $len; text = $text; head0 = [uint32]$head0 }
@@ -153,16 +156,19 @@ function Wait-Event([System.IO.Pipes.NamedPipeClientStream]$agent,
     }
     return $null
 }
-# Send an app_tool query and return the final AgentReply (type 18 ONLY - the
-# agent pipe subscribes to events, a single-frame read is a flake not a
-# product fault; lesson 30). Parked acts resolve after the approve call, so
-# the caller keeps draining until the reply lands.
+# Send an app_tool query and return the final AgentReply (type 18 ONLY, and
+# ONLY the frame whose AgentReplyHeader.queryId matches the sent qid - a
+# delayed reply from a previous query must not be consumed by the next reader
+# (false-PASS direction flake). The agent pipe subscribes to events, a
+# single-frame read is a flake not a product fault; lesson 30). Parked acts
+# resolve after the approve call, so the caller keeps draining until the
+# matching reply lands.
 function Read-Reply([System.IO.Pipes.NamedPipeClientStream]$agent, [uint32]$qid,
                     [int]$timeoutMs) {
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     while ($sw.ElapsedMilliseconds -lt $timeoutMs) {
         $f = Read-Frame $agent 200
-        if ($f -ne $null -and $f.type -eq 18) { return $f.text }
+        if ($f -ne $null -and $f.type -eq 18 -and $f.head0 -eq $qid) { return $f.text }
     }
     return $null
 }
@@ -259,7 +265,22 @@ Check "sc-catalog-read" ($cat -match '"app":"minesweeper","name":"read"') ""
 Check "sc-catalog-act" ($cat -match '"app":"minesweeper","name":"act"') ""
 Check "sc-catalog-snapshot" ($cat -match '"app":"minesweeper","name":"snapshot"') ""
 # The declared kinds drive the enum the LLM sees (server merge, spec §2).
-Check "sc-catalog-act-enum" ($cat -match '"kind":\{"type":"string","enum":\["reveal","flag","question","clear","reset"\]\}') $cat
+# MINOR-2 (fix round 1): read the enum from PARSED catalog data, not a regex
+# on raw text (docs/59 §12 lesson) - the synthesized act row's inputSchema is
+# embedded raw JSON, so the parsed object exposes properties.kind.enum.
+$enumParsed = ""
+$enumOk = $false
+try {
+    $catObj = $cat | ConvertFrom-Json
+    $actRow = $catObj.tools | Where-Object { $_.app -eq "minesweeper" -and $_.name -eq "act" } |
+        Select-Object -First 1
+    if ($actRow -ne $null -and $actRow.inputSchema -ne $null -and
+        $actRow.inputSchema.properties -ne $null -and $actRow.inputSchema.properties.kind -ne $null) {
+        $enumParsed = ($actRow.inputSchema.properties.kind.enum -join ",")
+        $enumOk = ($enumParsed -eq "reveal,flag,question,clear,reset")
+    }
+} catch { $enumParsed = "parse: " + $_.Exception.Message }
+Check "sc-catalog-act-enum" $enumOk ("parsed enum=" + $enumParsed + " | " + $cat)
 
 # --- 2: platform move --------------------------------------------------------------
 function Move-Tool([string]$argsJson) {
@@ -268,28 +289,44 @@ function Move-Tool([string]$argsJson) {
     return (Read-Reply $agent $script:qid 8000)
 }
 # Declaration upsert resets the cursor to (0,0) - absolute move first.
+# MINOR-2 (fix round 1): the echo contract is asserted from PARSED reply data
+# (ok/row/col), not only a raw-text regex (docs/59 §12 lesson).
 $script:qid++
 Send-AppTool $agent $script:qid "minesweeper" "move" '{"to_row":4,"to_col":4}'
 $mv0 = Read-Reply $agent $script:qid 8000
-Check "sc-move-init-abs" ($mv0 -ne $null -and $mv0 -match '"ok":true' -and $mv0 -match '"row":4' -and $mv0 -match '"col":4') $mv0
+$absOk = $false
+$absDetail = ""
+if ($mv0 -ne $null) {
+    try {
+        $o = $mv0 | ConvertFrom-Json
+        $absOk = ($o.ok -eq $true -and $o.row -eq 4 -and $o.col -eq 4)
+    } catch { $absDetail = "parse: " + $_.Exception.Message }
+} else { $absDetail = "no reply" }
+Check "sc-move-init-abs" $absOk ("reply=" + $mv0 + " " + $absDetail)
 # Relative: negative delta is legal movement and clamps at the boundary.
 $r = Move-Tool '{"dr":0,"dc":-100}'
 Check "sc-move-rel-clamp" ($r -match '"ok":true' -and $r -match '"row":4' -and $r -match '"col":0') $r
-# Multi-step: the run stops at the FIRST boundary and echoes the reached cell
-# (from (4,0): dc+3 -> (4,3); dr+50 passes the row-8 boundary -> (8,3)).
-$r = Move-Tool '{"steps":[{"dc":3},{"dr":50}]}'
-Check "sc-move-steps-boundary" ($r -match '"ok":true' -and $r -match '"row":8' -and $r -match '"col":3') $r
-# Negative step deltas are legal movement (dr:-5 = up).
+# Multi-step break semantics (MAJOR-1 fix round 1): the boundary-reaching step
+# must come FIRST or break-at-first-boundary and break-at-end are
+# indistinguishable. From (4,0): [{"dr":50},{"dc":3}] - dr+50 would pass the
+# row-8 boundary, so break-at-first-boundary stops there = (8,0) (dc+3 NOT
+# applied); break-at-end would land (8,3). Assert (8,0).
+$r = Move-Tool '{"steps":[{"dr":50},{"dc":3}]}'
+Check "sc-move-steps-boundary" ($r -match '"ok":true' -and $r -match '"row":8' -and $r -match '"col":0') $r
+# Negative step deltas are legal movement (dr:-5 = up) - from (8,0) -> (3,0).
 $r = Move-Tool '{"steps":[{"dr":-5}]}'
-Check "sc-move-steps-negative" ($r -match '"ok":true' -and $r -match '"row":3' -and $r -match '"col":3') $r
+Check "sc-move-steps-negative" ($r -match '"ok":true' -and $r -match '"row":3' -and $r -match '"col":0') $r
 # Only absurd magnitudes pre-validate (|delta| > 1<<20) -> bad_args with the
-# pre-move echo, nothing applied (atomicity).
+# pre-move echo, nothing applied. Single-step payload: this pins
+# reject-before-apply for the pre-validated case, NOT multi-step atomicity -
+# partial application WITHIN a multi-step run is intentional (the run stops at
+# the first boundary and echoes the reached cell, JKSemanticCursor.cpp:65).
 $r = Move-Tool '{"steps":[{"dr":-1048577}]}'
-Check "sc-move-oversize-badargs" ($r -match '"ok":false' -and $r -match '"error":"bad_args"' -and $r -match '"row":3' -and $r -match '"col":3') $r
+Check "sc-move-oversize-badargs" ($r -match '"ok":false' -and $r -match '"error":"bad_args"' -and $r -match '"row":3' -and $r -match '"col":0') $r
 $r = Move-Tool '{}'
-Check "sc-move-noargs-badargs" ($r -match '"ok":false' -and $r -match '"error":"bad_args"' -and $r -match '"row":3' -and $r -match '"col":3') $r
+Check "sc-move-noargs-badargs" ($r -match '"ok":false' -and $r -match '"error":"bad_args"' -and $r -match '"row":3' -and $r -match '"col":0') $r
 $r = Move-Tool '{"to_row":9,"to_col":0}'
-Check "sc-move-outgrid-badgrid" ($r -match '"ok":false' -and $r -match '"error":"bad_grid"' -and $r -match '"row":3' -and $r -match '"col":3') $r
+Check "sc-move-outgrid-badgrid" ($r -match '"ok":false' -and $r -match '"error":"bad_grid"' -and $r -match '"row":3' -and $r -match '"col":0') $r
 
 # --- 3: read serialization ----------------------------------------------------------
 $script:qid++
@@ -297,7 +334,7 @@ $b = Read-Board $agent $script:qid
 $readOk = ($b -ne $null -and $b.snap.status -eq "playing" -and
            $b.obj.rows -eq 9 -and $b.obj.cols -eq 9 -and $b.snap.lines.Count -eq 9)
 Check "sc-read-ok" $readOk $(if ($b) { $b.raw } else { "no reply" })
-Check "sc-read-cursor-header" ($readOk -and $b.raw -match '"cursor":\{"row":3,"col":3\}') ""
+Check "sc-read-cursor-header" ($readOk -and $b.raw -match '"cursor":\{"row":3,"col":0\}') ""
 $glyphOk = $readOk
 foreach ($l in $b.snap.lines) {
     if ($l.Length -ne 9 -or -not ($l -match '^[#F?0-9*]{9}$')) { $glyphOk = $false }
@@ -333,7 +370,7 @@ $b2 = Read-Board $agent $script:qid
 $closed1 = $(if ($b2) { (Count-Chars $b2.snap.board '#') } else { 81 })
 Check "sc-reveal-board-changed" ($b2 -ne $null -and $closed1 -lt 81) ("closed=" + $closed1)
 # Act does not move the cursor (spec §4 - the cursor state survives act).
-Check "sc-cursor-after-act" ($b2 -ne $null -and $b2.raw -match '"cursor":\{"row":3,"col":3\}') $(if ($b2) { $b2.raw } else { "no reply" })
+Check "sc-cursor-after-act" ($b2 -ne $null -and $b2.raw -match '"cursor":\{"row":3,"col":0\}') $(if ($b2) { $b2.raw } else { "no reply" })
 
 # --- 5: bad_state (invalid transitions echo) -----------------------------------------
 $act2 = Approve-Act "flag" 4 4
@@ -469,7 +506,7 @@ Check "sc-after-badargs-alive" ($b5 -ne $null -and $b5.snap.status -eq "playing"
 
 # --- teardown ----------------------------------------------------------------------------
 $agent.Dispose()
-Get-Process jkdesktop, jkwinserver, jkbridge -ErrorAction SilentlyContinue |
+Get-Process jkdesktop, jkwinserver, jkbridge, jkagentd -ErrorAction SilentlyContinue |
     Stop-Process -Force
 Write-Output "NOTICE: the desktop server is left stopped - restart jkwinserver.exe (and jkbridge.exe) to resume the live desktop"
 Write-Host ("RESULT: " + ($(if ($script:fail -eq 0) { "ALL PASS" } else { "FAIL " + $script:fail })))

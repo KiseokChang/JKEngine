@@ -345,44 +345,48 @@ $r = Move-Tool '{"to_row":-1,"to_col":0}'
 Check "sm-move-badargs-neg" ($r -match '"ok":false' -and $r -match 'bad_args' -and $r -match '"row":8' -and $r -match '"col":8') $r
 $r = Move-Tool '{"dr":0,"dc":-100}'
 Check "sm-move-rel-clamp" ($r -match '"ok":true' -and $r -match '"row":8' -and $r -match '"col":0') $r
-$r = Move-Tool '{"steps":[{"dc":3},{"dr":50}]}'
-# from (8,0): dc 3 -> (8,3); dr 50 would pass the row boundary (8) and the run
-# stops there (first boundary). Echo = reached cell (8,3).
-Check "sm-move-steps-boundary" ($r -match '"ok":true' -and $r -match '"row":8' -and $r -match '"col":3') $r
+$r = Move-Tool '{"steps":[{"dr":50},{"dc":3}]}'
+# Fix round 2 (task-5 review): the boundary-reaching step must come FIRST or
+# break-at-first-boundary and break-at-end are indistinguishable. From (8,0):
+# dr 50 would pass the row boundary (8) and the run stops there (first
+# boundary) = (8,0); break-at-end would land (8,3). Echo = reached cell (8,0).
+Check "sm-move-steps-boundary" ($r -match '"ok":true' -and $r -match '"row":8' -and $r -match '"col":0') $r
 # Fix round 2 ruling: negative step deltas are LEGAL movement (dr:-1 = up).
 $r = Move-Tool '{"steps":[{"dr":-5}]}'
-Check "sm-move-steps-neg-up" ($r -match '"ok":true' -and $r -match '"row":3' -and $r -match '"col":3') $r
-$r = Move-Tool '{"steps":[{"dc":-10}]}'
-Check "sm-move-steps-neg-clamp" ($r -match '"ok":true' -and $r -match '"row":3' -and $r -match '"col":0') $r
+Check "sm-move-steps-neg-up" ($r -match '"ok":true' -and $r -match '"row":3' -and $r -match '"col":0') $r
+# Down/right first so the dc clamp still has room to bite (5,3) -> clamp (5,0).
+$r = Move-Tool '{"steps":[{"dr":2},{"dc":3},{"dc":-10}]}'
+Check "sm-move-steps-neg-clamp" ($r -match '"ok":true' -and $r -match '"row":5' -and $r -match '"col":0') $r
 # Only absurd magnitudes are pre-validated (|delta| > 1<<20) -> bad_args with
-# the pre-move echo (3,0), nothing applied.
+# the pre-move echo (5,0), nothing applied (reject-before-apply for the
+# pre-validated case - NOT multi-step atomicity, see probe_semantic_cursor).
 $r = Move-Tool '{"steps":[{"dr":-1048577}]}'
-Check "sm-move-steps-oversize" ($r -match '"ok":false' -and $r -match 'bad_args' -and $r -match '"row":3' -and $r -match '"col":0') $r
+Check "sm-move-steps-oversize" ($r -match '"ok":false' -and $r -match 'bad_args' -and $r -match '"row":5' -and $r -match '"col":0') $r
 $r = Move-Tool '{"steps":[{"dc":1}]}'
-Check "sm-move-steps-shortstep" ($r -match '"ok":true' -and $r -match '"row":3' -and $r -match '"col":1') $r
+Check "sm-move-steps-shortstep" ($r -match '"ok":true' -and $r -match '"row":5' -and $r -match '"col":1') $r
 $r = Move-Tool '{"steps":[]}'
-Check "sm-move-steps-empty" ($r -match '"ok":false' -and $r -match 'bad_args' -and $r -match '"row":3' -and $r -match '"col":1') $r
+Check "sm-move-steps-empty" ($r -match '"ok":false' -and $r -match 'bad_args' -and $r -match '"row":5' -and $r -match '"col":1') $r
 $r = Move-Tool '{}'
-Check "sm-move-noargs" ($r -match '"ok":false' -and $r -match 'bad_args' -and $r -match '"row":3' -and $r -match '"col":1') $r
+Check "sm-move-noargs" ($r -match '"ok":false' -and $r -match 'bad_args' -and $r -match '"row":5' -and $r -match '"col":1') $r
 
 # --- read: snapshot compose --------------------------------------------------
 $script:qid++
 SendQuery $agent $script:qid '{"tool":"app_tool","args":{"app":"fakegrid","tool":"read","args":{}}}'
 $rd = Read-Reply $agent $app $script:qid 8000 '{"ok":true,"board":["1","*","3"],"status":"playing"}'
-Check "sm-read-compose" ($rd -match '"ok":true' -and $rd -match '"cursor":\{"row":3,"col":1\}' -and $rd -match '"rows":9' -and $rd -match '"cols":9' -and $rd -match '"snapshot":\{"ok":true,"board"') $rd
+Check "sm-read-compose" ($rd -match '"ok":true' -and $rd -match '"cursor":\{"row":5,"col":1\}' -and $rd -match '"rows":9' -and $rd -match '"cols":9' -and $rd -match '"snapshot":\{"ok":true,"board"') $rd
 
 # --- NIT-5: app answers ok=1 with an EMPTY result -> snapshot "unknown" -------
 $script:qid++
 SendQuery $agent $script:qid '{"tool":"app_tool","args":{"app":"fakegrid","tool":"read","args":{}}}'
 $rdEmpty = Read-Reply $agent $app $script:qid 8000 ''
-Check "sm-read-empty-unknown" ($rdEmpty -match '"ok":true' -and $rdEmpty -match '"snapshot":"unknown"' -and $rdEmpty -match '"cursor":\{"row":3,"col":1\}') $rdEmpty
+Check "sm-read-empty-unknown" ($rdEmpty -match '"ok":true' -and $rdEmpty -match '"snapshot":"unknown"' -and $rdEmpty -match '"cursor":\{"row":5,"col":1\}') $rdEmpty
 
 # --- read failure: app answers ok=0 -> cursor + explicit error ---------------
 $script:appFailOnce = $true
 $script:qid++
 SendQuery $agent $script:qid '{"tool":"app_tool","args":{"app":"fakegrid","tool":"read","args":{}}}'
 $rdFail = Read-Reply $agent $app $script:qid 8000 '{"ok":true,"board":["1"]}'
-Check "sm-read-fail-compose" ($rdFail -match '"ok":false' -and $rdFail -match '"error":"snapshot_failed"' -and $rdFail -match '"detail":\{"error":"board_gone"\}' -and $rdFail -match '"cursor":\{"row":3,"col":1\}') $rdFail
+Check "sm-read-fail-compose" ($rdFail -match '"ok":false' -and $rdFail -match '"error":"snapshot_failed"' -and $rdFail -match '"detail":\{"error":"board_gone"\}' -and $rdFail -match '"cursor":\{"row":5,"col":1\}') $rdFail
 
 # --- read timeout: silent cursor app -> composed tool_timeout ----------------
 $appSilent = New-Pipe 1 $true
