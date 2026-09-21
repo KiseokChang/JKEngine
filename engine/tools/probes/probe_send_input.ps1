@@ -3,8 +3,10 @@
 # escaped tool-text regex), lesson 42 (pid-only client kill), ASCII-only
 # PS5.1, "> log 2>&1" redirect. The probe edits permissions.json -> backup,
 # restore in finally, console notice (docs/59 s16.1 lesson).
+# 2026-09-21: path moved to the main build - conquest-ladder was merged to
+# main (1779f0e) and the worktree is a dev environment, not regression truth.
 $ErrorActionPreference = "Continue"
-$build = "I:\progwork\JKENGINE\.claude\worktrees\conquest-ladder\engine\build"
+$build = "I:\progwork\JKENGINE\engine\build"
 $exe   = "$build\jkdesktop.exe"
 $agnt  = "$build\jkagentd.exe"
 $perm  = "$build\permissions.json"

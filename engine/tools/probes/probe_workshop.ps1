@@ -10,8 +10,10 @@
 #      reload closed loop - a deferred two-phase reload could not report an
 #      error in the same response) + truth source on disk is the broken write
 #   3b recover: set_script good again -> ok:true (agent self-fix loop)
-#   4  server args_too_large: 9KiB source -> args_too_large (server layer,
-#      8KiB - the app's 256KiB cap is a backstop that stays behind it)
+#   4  args cap lifted (2026-09-21 phone-practical task-1, docs/57 §13):
+#      9KiB source -> ok:true - the server front cap was 8KiB (args_too_large)
+#      and is now 256KiB, aligned with the app's 256KiB backstop; a 9KiB
+#      payload must pass through, NOT answer args_too_large
 #   5  watch path: DISK edit (not via tools) -> client log
 #      "[script] app.js changed - hot reload" within 3s
 #   6  cleanup: close_window -> catalog rows 3 -> 0
@@ -164,13 +166,13 @@ try {
     $r4 = (SetScript $src3)
     Check "c3b-recovered" ($r4 -match '"ok":true') $r4
 
-    # ---- check 4: server args cap (8KiB) -> args_too_large -------------------------
+    # ---- check 4: args cap lifted to 256KiB -> 9KiB passes (docs/57 §13) ----------
     $big = "var x = 1;"
-    while ($big.Length -lt 9216) { $big += " // padding for the 8KiB server cap" }
+    while ($big.Length -lt 9216) { $big += " // padding for the lifted args cap" }
     $r5 = (SetScript $big)
     $r5s = $r5
     if ($r5s.Length -gt 300) { $r5s = $r5s.Substring(0, 300) }
-    Check "c4-args-too-large" ($r5 -match '"error":"args_too_large"') $r5s
+    Check "c4-args-cap-256k-passes" (($r5 -match '"ok') -and ($r5 -notmatch 'args_too_large')) $r5s
 
     # ---- check 5: watch path - DISK edit reloads without tools ---------------------
     # AppendAllText + UTF8-no-BOM: PS5.1 Add-Content -Encoding UTF8 injects a

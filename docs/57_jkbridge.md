@@ -301,3 +301,70 @@ python" → ```python 펜스 그대로 스트리밍).
 chat_done 비스트리밍 결과와 재접속 pending_result에도 동일 적용.
 
 probe_jkbridge ×2 ALL PASS(정리 함수 탑재 후 전체 회귀 무손상).
+
+## 13. 폰 실전 개선 4건 — args 캡·창 기하 도구·턴 프리앰블·focused 디바운스 (2026-09-21)
+
+§12.6 백로그 4건 소각 (스펙 `.superpowers/sdd/2026-09-21-phone-practical-improvements`,
+커밋 `c9b7e75..3c57127`, 작업 1-3 + 회귀 스윕 본 절).
+
+| 건 | 변경 | 검증 |
+|---|---|---|
+| ① app_tool args 앞단 캡 8KiB→256KiB | JKWindowServer.cpp :3037 — 워크숍 set_script가 앱 측 256KiB 백스톱을 두고 있어 8KiB 앞단이 병목. 앱 백스톱과 정렬. **result 16KiB 캡은 건드리지 않음(별도 백로그)** | probe_app_tools c3c-args-cap-256k-passes(10.25KiB args + 미등록 도구 → `unknown_app_tool` — 구 8KiB 캡이면 `args_too_large`가 먼저였으므로 에러 순서로 캡 통과 간접 단정) ×2 |
+| ② window_move / window_resize 서버 도구 | window_fullscreen 뼈대 복계(:3008-3095). 대상 선정(생략=자기 창, 명시 id=연결 존재 판정)/거절 체계: `no_window`(control-only 생략형)/`window_not_found`(shell·캡처 오버레이·control-only 타깃)/`window_maximized`(preMaxRects_)/`window_fullscreen_state`/`bad_args`. move는 클램프 없음(Windows 동작 — 화면 밖 허용)+±32768 범위 검사, resize는 **[80,8192] 범위 검사(클램프 아님 — 범위 밖 bad_args)**, 동일 픽셀 크기 no-op ok, fit-scaled 레이어(ScaleX/Y≠1)는 표시 크기 dispW/H를 `lround(w*ScaleX)` 산출로 넘겨 scale 보존(ResizeLayer가 scale을 1로 리셋). 위치는 `SetLayerPosition`+`SetPosition` BOTH 쌍수술(docs/28 — 합성 입력이 client->X()/Y() 직독)+`PushWindowListUnsafe`(태스크바 동기). 게이트 **kPermMatrix none→allow**(window_fullscreen 분류 승계 — 화면 상태 변경일 뿐 승인 행위 아님). 브로커 4곳 등록(tools/list 정적부·IsKnownTool·LoadPermissions·릴레이 args 원문 패스스루) | probe_window_geom 신설 29체크 ×2 — 기하 단정(list_windows x/y/w/h 대응 축), bad_args 5종, 생략형 no_window, fullscreen-state 거절+rect 복원, jkagentd MCP tools/list 노출+tools/call 릴레이 e2e |
+| ③ kLlmTurnPreamble | JKLlmEngine.cpp :100-110 상수 신설 + BuildEngineCmd가 escape 루프 앞에서 매 턴 접두(한국어 3지시문: 최종 답변만 출력/마크다운 문법 금지/도구는 조용히 실행하고 결과만 보고, 접미 `[사용자] `). 따옴표·백슬래시 0개로 기존 escape 루프와 CRT argv 재파싱에 안전. stub/claude/ollama 3분기 앞단이라 전 실엔진 턴 적용, `--resume` 턴도 동일 | 실엔진 1턴 실측(kimi-k2.7-code:cloud, 도구 유도형 프롬프트): 응답 `2026-09-21 06:46:33` 1줄 — CoT 내레이션 0, 마크다운 0, 도구 조용 실행. smoke_llm_stream 3/3 ×2(스트리밍 경로 무손상)+probe_agent_chat 7/7 ×2 |
+| ④ window.focused 디바운스 | FocusClient 선두 **last-pushed-id 방식**(`lastFocusedPushed_`, JKWindowServer.h:248) — `surfaceId == lastFocusedPushed_` 조기귀환, push가 **resolve된 경우에만** 갱신. 같은 id 재포커스 무push(스팸 봉쇄 유지)+스폰 인테이크(push 없음) 이후 그 창의 첫 명시 포커스 1회 push 보존. 1차 구현(focusedClientId_ 비교)은 인테이크가 push 전 focusedClientId_만 세팅하는 구조(:587/:589 → push_back :597) 탓에 스폰 창 첫 포커스를 삼켜 개정(badc136) | probe_agent_events 8/8 ×2 — refocus 불변/스폰 첫 포커스 +1/즉시 재포커스 불변/포커스 변화 +1 전 단정 |
+
+### 13.1 회귀 실측 (×2 연속, 전부 GREEN — 데스크탑 정지 후 본트리 빌드)
+
+| 프로브 | run1 | run2 |
+|---|---|---|
+| probe_app_tools.ps1 | ALL PASS (64/0) | ALL PASS (64/0) |
+| probe_agent_events.ps1 | 8/8 | 8/8 |
+| probe_window_geom.ps1 (신설, task-2) | 29/29 | 29/29 |
+| smoke_llm_stream.ps1 | 3/3 | 3/3 |
+| probe_agent_chat.ps1 | 7/7 | 7/7 |
+| probe_workshop.ps1 | ALL PASS | ALL PASS |
+| probe_send_input.ps1 | ALL PASS | ALL PASS |
+| jkdesktop test | 0 failure | 0 failure |
+
+### 13.2 하네스 정합 2건 (제품 결함 아님)
+
+1. **probe_workshop c4 스테일 기대** — `c4-args-too-large`(9KiB set_script →
+   args_too_large)는 ①의 캡 상향으로 무효화된 기대치. `c4-args-cap-256k-passes`
+   (9KiB → ok)로 개정. 회귀 FAIL은 결함 판정 전에 스펙 변화를 먼저 본다.
+2. **probe_send_input.ps1 $build가 conquest-ladder worktree에 박혀 있던 것** —
+   병합(1779f0e) 후 본트리가 진실원이라 main build 경로로 이동. 프로브 경로가
+   worktree에 박혀 있으면 병합 후 본트리 회귀가 조용히 누락된다.
+
+부수: probe_agent_chat이 permissions.json을 소거하는 패턴(§16.1 사건 동형) 재확인 —
+실행 전 백업+후 원문 복원(전면 allow 9키)으로 운용. probe_agent_events의 [theme]
+오염 JSON 행 필터는 task-1에서 이미 반영.
+
+### 13.3 백로그 이월
+
+1. **move/resize ±32768 가드는 GetDeepInt(int) 기반** — 내부가 JS_ToInt64 후
+   `static_cast<int>` 축소 캐스트라 랩어라웃한 int64(예: 2^32+100)로 가드 우회
+   여지. GetObjInt64 기반 검사 승격 후보 — **플랫폼 전역 파서 계약**(개별 도구
+   임시방편이 아니라 AgentJson 축소 캐스트 총정리).
+2. **probe_window_geom은 docs/28 BOTH 쌍의 client 절반만 고정** — 서버 레이어
+   위치는 외부 관측 불가(하네스 한계). list_windows가 보고하는 서버페이스 축으로
+   대응 단정한 것이 한계 안의 최선.
+3. **intake-focus 그림자 엣지** — 스폰 인테이크 focus는 push하지 않는다(구 동작
+   보존). last-pushed 디바운스 설계 고유의 그림자이며 미러 수렴은 정상. 장기는
+   인테이크 push 여부 자체의 재설계 후보.
+4. **CommitChromeResize 실패도 ok:true** — 정규 리사이즈 경로와 선례 일치(실패
+   반환 무시). 실패 가시화는 별도 과제.
+5. **result 16KiB 캡(get_script 대형 스크립트 원문 잘림)은 별도 백로그 유지**
+   (docs/60 §5).
+
+### 13.4 레슨
+
+1. **계층 캡은 정합으로 소각된다** — 서버 앞단 캡이 앱 백스톱의 병목인 구조에서는
+   백스톱이 와이어로 도달 불가라 존재 가치가 없다. 앞단을 앱 캡에 맞춰 들어 올리는
+   한 줄이 워크숍 대형 스크립트 원문 통로를 연다(docs/60 §4 표 3행·레슨 6 갱신).
+2. **디바운스는 "직전 상태"가 아니라 "마지막으로 알린 값"과 비교하라** —
+   스폰 인테이크가 상태를 먼저 세팅하고 push가 나중에 일어나면, 상태 기준 비교는
+   그 사이의 진짜 변화를 삼킨다. last-pushed-id + resolve 시에만 갱신이 정답.
+3. **프로브가 스펙을 먼저 먹는다** — 캡 상향 같은 의도된 계약 변경은 기존 프로브의
+   기대치를 스테일로 만든다. 회귀 FAIL 시 결함 가설보다 "어느 태스크가 이 기대를
+   바꿨는가"를 먼저 대조.
