@@ -2128,6 +2128,10 @@ static const AgentPermRow kPermMatrix[] = {
     {"list_windows", "none", "allow"},
     {"focus_window", "none", "allow"},
     {"window_fullscreen", "none", "allow"},
+    // 창 기하 2종 (스펙 2026-09-21-phone-practical-improvements): fullscreen
+    // 과 같은 none/allow 분류 — 화면 상태 변경일 뿐 승인 행위가 아니다.
+    {"window_move", "none", "allow"},
+    {"window_resize", "none", "allow"},
     {"launch_app", "none", "allow"},
     {"save_layout", "none", "allow"},
     {"restore_layout", "none", "allow"},
@@ -3000,6 +3004,87 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             ToggleFullscreen(*target, *fsLayer, on);
             reply = std::string("{\"ok\":true,\"fullscreen\":") +
                     (fsLayer->IsFullscreen() ? "true" : "false") + "}";
+        }
+    } else if (tool == "window_move" || tool == "window_resize") {
+        // 폰 실전 개선 태스크 2 (스펙 2026-09-21-phone-practical-improvements):
+        // 창 기하 서버 조작 2종 — 폰 채팅 LLM이 창을 옮기고 크기를 바꾼다.
+        // 대상 선정/거절 뼈대는 window_fullscreen 복제: id 생략 = 호출자 자기
+        // 창(윈도 클라), control-only 생략형 = no_window. 명시 id로 shell
+        // (태스크바)/캡처 오버레이/control-only 연결을 노리면 window_not_found
+        // (shell은 '창'이 아니라는 opus MINOR-2 분류 승계).
+        int id = 0;
+        JKClientConnection* target = nullptr;
+        if (req.GetObjInt("args", "id", id)) {
+            for (auto& c : clients_) {
+                if (c && c->Id() == static_cast<uint32_t>(id)) { target = c.get(); break; }
+            }
+        } else if (!client.IsControlOnly()) {
+            target = &client;
+        }
+        int x = 0, y = 0, w = 0, h = 0;
+        const bool hasXY = req.GetObjInt("args", "x", x) &&
+                           req.GetObjInt("args", "y", y);
+        const bool hasWH = req.GetObjInt("args", "w", w) &&
+                           req.GetObjInt("args", "h", h);
+        // 인자 유효성을 대상 판정보다 먼저 — 인자가 잘못된 호출은 대상이
+        // 있든 없든 bad_args가 정직한 답.
+        if (tool == "window_move" && !hasXY) {
+            reply = "{\"ok\":false,\"error\":\"bad_args\"}";
+        } else if (tool == "window_resize" && !hasWH) {
+            reply = "{\"ok\":false,\"error\":\"bad_args\"}";
+        } else if (!target) {
+            reply = "{\"ok\":false,\"error\":\"no_window\"}";
+        } else if (target->IsControlOnly() || target->IsShell() ||
+                   target->Title() == kCaptureOverlayTitle || !compositor_) {
+            reply = "{\"ok\":false,\"error\":\"window_not_found\"}";
+        } else {
+            JKCompositorLayer* layer = compositor_->FindLayerById(target->Id());
+            if (!layer) {
+                reply = "{\"ok\":false,\"error\":\"window_not_found\"}";
+            } else if (preMaxRects_.count(layer->Id()) != 0) {
+                // 최대화 중 기하 조작은 preMaxRects_ 진실원(저장 rect)과
+                // 충돌한다 — 복원 후 조작하라는 거절.
+                reply = "{\"ok\":false,\"error\":\"window_maximized\"}";
+            } else if (layer->IsFullscreen()) {
+                // 전체화면 레이어는 상태 전용(위치 0,0/출력 전체 크기) —
+                // 복원 후 조작(preFsRects_ 저장 rect 보호, window_fullscreen
+                // 토글로 복원).
+                reply = "{\"ok\":false,\"error\":\"window_fullscreen_state\"}";
+            } else if (tool == "window_move") {
+                // 좌표 클램프 없음(Windows 동작 — 화면 밖 허용), int 범위만.
+                if (x < -32768 || x > 32768 || y < -32768 || y > 32768) {
+                    reply = "{\"ok\":false,\"error\":\"bad_args\"}";
+                } else {
+                    // BOTH required (docs/28 lesson): input mapping reads
+                    // client->X()/Y() while the draw path reads the layer.
+                    compositor_->SetLayerPosition(target->Id(), x, y);
+                    target->SetPosition(x, y);
+                    PushWindowListUnsafe();  // focus_window 선례 — 태스크바 동기
+                    reply = "{\"ok\":true}";
+                }
+            } else {
+                // resize: 인자 클램프가 아니라 범위 검사 — 범위 밖은 bad_args.
+                if (w < 80 || w > 8192 || h < 80 || h > 8192) {
+                    reply = "{\"ok\":false,\"error\":\"bad_args\"}";
+                } else if (w == layer->Width() && h == layer->Height()) {
+                    reply = "{\"ok\":true}";  // no-op — 동일 픽셀 크기
+                } else {
+                    // CommitChromeResize의 ResizeLayer가 layer scale을 1로
+                    // 리셋한다(JKWindowServer.cpp 주석 참조). fit-scaled
+                    // 레이어(픽셀 크기≠표시 크기)는 기존 ScaleX/Y를 반영한
+                    // 표시 크기를 넘겨 scale이 보존되게 한다 — 스케일 1 레이어는
+                    // dispW/H=자기(정규 경로와 동일, SetLayerScale 스킵).
+                    int dispW = w, dispH = h;
+                    const float sx = layer->ScaleX(), sy = layer->ScaleY();
+                    if (sx != 1.0f || sy != 1.0f) {
+                        dispW = static_cast<int>(std::llround(w * sx));
+                        dispH = static_cast<int>(std::llround(h * sy));
+                    }
+                    CommitChromeResize(*target, target->Id(), w, h, dispW, dispH);
+                    PushWindowListUnsafe();  // 태스크바 크기 표기 동기
+                    reply = "{\"ok\":true}";
+                }
+            }
         }
     } else if (tool == "list_app_tools") {
         // 앱 도구 허브 (스펙 2026-09-19-app-tool-hub §4.4): 평면 행 카탈로그

@@ -55,6 +55,8 @@ const char* kCoreToolsListJson =
 "{\"name\":\"run_console_app\",\"description\":\"Spawn an installed console app (apps/<name>/manifest.json) in a terminal window (permission-gated, P4 SDK)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}},"
 "{\"name\":\"focus_window\",\"description\":\"Focus (and restore) a window by id\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"integer\"}},\"required\":[\"id\"]}},"
 "{\"name\":\"window_fullscreen\",\"description\":\"Toggle a window's fullscreen layer state (vplayer theater mode; id omitted = caller's own window; on=0/1, omitted=invert)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"integer\"},\"on\":{\"type\":\"integer\",\"enum\":[0,1]}}}},"
+"{\"name\":\"window_move\",\"description\":\"Move a window to desktop-logical (x,y) - off-screen allowed (Windows behavior). Rejected while maximized (window_maximized) or fullscreen (window_fullscreen_state)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"integer\"},\"x\":{\"type\":\"integer\"},\"y\":{\"type\":\"integer\"}},\"required\":[\"x\",\"y\"]}},"
+"{\"name\":\"window_resize\",\"description\":\"Resize a window surface to w x h pixels (80..8192). Rejected while maximized (window_maximized) or fullscreen (window_fullscreen_state)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"integer\"},\"w\":{\"type\":\"integer\"},\"h\":{\"type\":\"integer\"}},\"required\":[\"w\",\"h\"]}},"
 "{\"name\":\"close_window\",\"description\":\"Close a window by id (permission-gated)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"integer\"}},\"required\":[\"id\"]}},"
 "{\"name\":\"save_layout\",\"description\":\"Snapshot current window positions to state/layout_<name>.json\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}},"
 "{\"name\":\"restore_layout\",\"description\":\"Restore window positions from a layout snapshot (matched by title)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}},"
@@ -88,6 +90,9 @@ bool IsKnownTool(const std::string& name) {
     static const char* kNames[] = {
         "list_windows", "launch_app", "run_console_app", "focus_window",
         "window_fullscreen",
+        // 창 기하 2종 (스펙 2026-09-21-phone-practical-improvements) — 미등록
+        // 시 tools/call이 동적 역매칭으로 새고 unknown_tool(file_open 주석 선례).
+        "window_move", "window_resize",
         "close_window", "save_layout", "restore_layout", "read_log",
         "read_events", "terminal_exec", "trust_list", "theme_set",
         "agent_permissions", "permission_set", "trust_revoke",
@@ -133,6 +138,9 @@ std::map<std::string, bool> LoadPermissions() {
     static const char* kNames[] = {
         "list_windows", "launch_app", "run_console_app", "focus_window",
         "window_fullscreen",
+        // 창 기하 2종 (스펙 2026-09-21-phone-practical-improvements) — 서버
+        // 게이트도 none/allow라 브로커 기본 allow가 정합.
+        "window_move", "window_resize",
         "close_window", "save_layout", "restore_layout", "read_log",
         "read_events", "terminal_exec", "trust_list", "theme_set",
         "agent_permissions", "permission_set", "trust_revoke",
@@ -846,6 +854,17 @@ std::string HandleLine(const std::string& line, bool& isResponse) {
                 raw != "{}") {
                 argsJson = raw;
             }
+        } else if (tool == "window_move" || tool == "window_resize") {
+            // 창 기하 2종 (스펙 2026-09-21-phone-practical-improvements): args
+            // 원문 패스스루 — 스키마가 넓고(id 선택/좌표·크기 int) 재조립 파서
+            // 계약(send_input 선례)이 낫다. id 생략 호출은 raw가 "{}"라
+            // argsJson 기본 "{}" 그대로 — 서버가 control-only 호출자에게
+            // no_window로 즉답한다.
+            std::string raw;
+            if (req.GetObjRaw("params", "arguments", raw) && !raw.empty() &&
+                raw != "{}") {
+                argsJson = raw;
+            }
         } else if (tool == "send_input") {
             // 앱 정복 사다리 (스펙 2026-09-21-conquest-ladder §3.1): args 원문
             // 패스스루 — 스키마가 넓고(id/op/좌표/키/텍스트…) 재조립 파서
@@ -956,6 +975,15 @@ int RunSelfTest() {
     // 서버가 살아 있으면 tools/call file_open이 진짜 파킹 쿼리를 날려 셀프테스트
     // 가 600s 블록된다(실측). wait:event 주입은 BuildFileOpenArgs 직접 검증.
     if (!IsKnownTool("file_open") || IsKnownTool("file_openX")) ++failures;
+    // 창 기하 2종 (스펙 2026-09-21-phone-practical-improvements): tools/list
+    // 정적부 노출 + 등록 — 미등록이면 tools/call이 동적 역매칭으로 새어
+    // unknown_tool이 된다(file_open 주석 선례).
+    if (!IsKnownTool("window_move") || !IsKnownTool("window_resize") ||
+        IsKnownTool("window_moveX")) ++failures;
+    r = HandleLine("{\"jsonrpc\":\"2.0\",\"id\":14,\"method\":\"tools/list\"}",
+                   isResp);
+    if (!isResp || r.find("window_move") == std::string::npos ||
+        r.find("window_resize") == std::string::npos) ++failures;
     {
         const char* calls[] = {
             "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"tools/call\","
@@ -975,7 +1003,8 @@ int RunSelfTest() {
     // 동적부 합성 (스펙 §6, 2026-09-20 실측 결함 회귀): 카탈로그 3행을
     // 스크립트로 주입 — 조립 결과가 온전한 JSON인지(행 경계 쉼표 포함)
     // AgentJson으로 직접 검증한다. 라이브 서버 부재 환경에서도 조립 전
-    // 경로가 커버된다. 코어 29(send_input 포함) + 유효 동적 3 = 32행.
+    // 경로가 커버된다. 코어 31(send_input+창 기하 2종 포함) + 유효 동적 3
+    // = 34행.
     {
         const char* cat =
             "{\"tools\":["
@@ -988,7 +1017,7 @@ int RunSelfTest() {
         const std::string composed = ComposeToolsListJsonFromReply(cat);
         jk::agent::AgentJson c(composed);
         int tc = 0;
-        if (!c.ok() || !c.GetArraySize("tools", tc) || tc != 32) ++failures;
+        if (!c.ok() || !c.GetArraySize("tools", tc) || tc != 34) ++failures;
         if (composed.find("appx_t2") == std::string::npos ||
             composed.find("appy_t3") == std::string::npos) ++failures;
         // 스키마 정규화: t2의 빈 {}는 MCP SDK zod 필수 조건(type=="object")
