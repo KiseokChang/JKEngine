@@ -198,3 +198,57 @@ reveal (0,0)(배너 `minesweeper.reveal at (0,0)` → 승인 → opened:19 에�
 관찰(픽스 불요): 거부 응답의 원시 토큰 `denied_by_user`가 LLM 답변에 그대로 노출
 (JKWindowServer.cpp:5373 와이어 토큰 — LLM 문구 다듬기는 백로그). 폰 LLM 세션은
 `--resume`으로 턴 간 대화 이력 유지(폰 localStorage 세션 id, `/new`로 리셋, 재접속 복구).
+
+## 9. 그려지는 격자와 오버레이 박스 불일치(2026-09-22 픽스, 5fca652)
+
+사용자 보고: "그려지는 그리드와 오버레이의 박스가 일치하지 않아요. 실제 그려지는 그리드가
+클라이언트 영역을 벗어날 때가 많아요."
+
+### 근원 — 3중 지오메트리의 실체
+
+픽셀 분석으로는 3개 지오메트리 상태가 한 텍스처에 겹쳐 보여 오판 연쇄(격자 높이 340
+오버플로 가설 등). 임시 계측(msgeom.log — declare/paint/winrect 라인)으로 클라 춤춤을
+직접 관측해 확정:
+
+- 등록 시점 선언 origin (16,75) — 격자 rect {12,70,296,298} (정확)
+- 첫 레이아웃 패스 뒤 페인트 origin (16,57) — 격자 rect {10,10,296,334} (툴바 침범+클라
+  영역 하단 초과)
+- 난이도 B 클릭 후 pitch 24 재페인트 (ResizeMineWindow kCellSize=24 리사이즈 경로)
+
+### 진범 — JKControl::PerformLayout의 blanket 자식 재귀
+
+`JKControl::PerformLayout` 끝이 모든 자식에게 무조건 `child->PerformLayout(전체
+클라이언트)`를 재귀했다. JKWindow::OnRectChanged는 도크 인식 3패스(edge-docked 먼저
+remaining 축소 → DOCK_FILL은 잔여 영역 → DOCK_NONE)로 배치하는데, 그 직후 blanket
+재귀가 DOCK_FILL 자식(지뢰찾기 격자)에게 **윈도우 전체 클라이언트 {0,0,316,354}를 다시
+뿌려** 도크 배치를 덮어썼다 — 격자가 툴바 밑으로 미끄러지고 마진이 사라짐.
+OnRectChanged 주석(:77-81)이 경고하던 바로 그 이중 적용 트랩.
+
+### 픽스 (5fca652)
+
+1. **LayoutChildren 가상화** — `JKControl::LayoutChildren()` 신설(기존 blanket 재귀
+   이관), `JKWindow`는 **no-op 오버라이드**(자식 배치는 OnRectChanged 도크 패스 전담).
+   PerformLayout 꼬리는 `SetRect(desired); LayoutChildren();`
+2. **격자 기하 라이브 재선언** — MineGrid에 `SetOnGeometryChanged` 훅+`OnRectChanged`
+   오버라이드(소유자는 dirty 플래그만 세움 — 레이아웃 도중 선언 발신 봉쇄),
+   MineGameWindow::Impl::OnTimer에서 `CheckCursorDecl()`: `GetBoardGeometry` 실측을
+   마지막 선언 캐시와 대조, 변화 시 `cursorDeclChangedCb()` 재발신. 서버 주도 리사이즈
+   등 `SetDifficulty` 밖 경로도 100ms 안에 추종(MINOR-4 재선언의 일반화).
+3. **클라 act 스키마 enum에 chord 누락 픽스** — ClientMineSweeperApp 하드코딩 enum에
+   chord 추가(§6 픽스에서 서버/게임은 chord 지원했는데 클라 선언 스키마만 빠짐).
+
+### 검증
+
+- probe_semantic_cursor ×2 ALL PASS (59체크), semc4_adhoc ×2 ALL PASS (33체크)
+- capture_window 실물: 격자가 툴바 아래 마진과 함께 배치, 클라 영역 내 수납 확인
+
+### 레슨 추가
+
+9. **공용 레이아웃 베이스의 "관례 재귀"는 오버라이드 지점부터 의심** — 베이스
+   PerformLayout이 꼬리에서 무조건 자식 재배치하는 구조는, 배치를 다른 훅(OnRectChanged
+   도크 패스)에 위임하는 파생 클래스와 조합하면 이중 적용이 된다. 자식 재귀를 가상
+   메서드로 분리해 파생이 끌 수 있게 하는 게 정답.
+10. **픽셀 포렌식 3연속 오판 후 계측 전환** — 한 텍스처에 여러 시점의 지오메트리가
+    누적되면 픽셀 분석은 반증 불능. 렌더 산식 소유자(클라)에 임시 로거를 달아 춤춤을
+    관측하는 편이 한 방.
+
