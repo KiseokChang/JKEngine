@@ -176,3 +176,25 @@ RunSteps` → `Result{row,col,error}`(:42-:51). 상대·스텝은 격자 경계 
 
 확인 포인트: 파란 커서 셀 표시/이동, 승인 배너 `minesweeper.reveal at (r,c)` 문구+호박 셀 링,
 read 스냅샷 기반 LLM의 칸 지칭, 깃발 act의 셀 하이라이트.
+
+## 8. 폰 실전 1판 실측(2026-09-22 07:34-07:36) — 전 흐름 통과+픽스 2건
+
+폰 시나리오 실측: 기동("지뢰찾기 띄워줘" → 창 스폰) → read(9줄 보드+커서 (0,0) 응답) →
+reveal (0,0)(배너 `minesweeper.reveal at (0,0)` → 승인 → opened:19 에코) → flag (2,1)
+(배너 표기+사용자 거부 → deny 응답) → reveal (1,2)(지뢰 → lost). 승인 배너 셀 표기,
+파킹→승인→판 변화, 거부, 폭발+status lost 전부 계약대로 동작.
+
+실측에서 나온 제품 결함/개선 2건(즉시 픽스 — 커밋 bb04beb/891430f):
+
+1. **게임오버 모달 잔존** — 다이얼로그가 뜬 상태에서 폰 reset act → 판은 리셋되지만
+   "Game Over" 모달이 화면에 남음(T4 뷰 리셋 픽스 5df153d가 래치/타이머만 커버).
+   픽스: `ResetViewState`에서 열려 있는 박스를 프로그래매틱 해제(`SetOnResult(nullptr)`
+   +`RequestClose()`+모달 복원 — 사용자 Ok 경로는 이미 RequestClose된 박스를 만나
+   건너뛴다: 실행 중 std::function 파괴 방지).
+2. **act 후 상태 재동기 습관** — 이전 턴 act 응답(opened:N 숫자뿐)만 믿고 다음 행동을
+   read 없이 실행 → 맹목 개방. 대화 기억(`--resume`)과 별개 — 프리앰블에 "상태를 바꾸는
+   도구를 썼다면 다음 행동 전에 상태 읽기" 1문장 추가(kLlmTurnPreamble).
+
+관찰(픽스 불요): 거부 응답의 원시 토큰 `denied_by_user`가 LLM 답변에 그대로 노출
+(JKWindowServer.cpp:5373 와이어 토큰 — LLM 문구 다듬기는 백로그). 폰 LLM 세션은
+`--resume`으로 턴 간 대화 이력 유지(폰 localStorage 세션 id, `/new`로 리셋, 재접속 복구).
