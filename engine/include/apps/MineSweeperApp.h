@@ -21,9 +21,10 @@ public:
     enum class Difficulty { Beginner, Intermediate, Expert };
     // 의미 커서 act 어휘 (스펙 2026-09-22-semantic-cursor §2/§8) — 문자열은
     // 선언 kinds enum과 정확히 일치한다("reset" 포함 — 상태 머신 리셋 전이).
-    enum class ActKind { Reveal, Flag, Question, Clear, Reset };
+    enum class ActKind { Reveal, Flag, Question, Clear, Chord, Reset };
     // act 결과: ok=false면 error에 유효 전이 토큰, opened = 이 행위가 연 칸수
-    // (reveal = 플러드 필 확산 보고, flag/question/clear = 1, reset = 0).
+    // (reveal = 플러드 필 확산 보고, flag/question/clear = 1, reset = 0,
+    // chord = 펼쳐진 이웃 수).
     struct ActOutcome {
         bool ok = false;
         const char* error = nullptr;  // "bad_state" | "bad_grid" | "bad_args"

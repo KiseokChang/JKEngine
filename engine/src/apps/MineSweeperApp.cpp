@@ -390,6 +390,7 @@ bool MineSweeperGame::ParseActKind(const std::string& kind, ActKind& out) {
     if (kind == "flag")     { out = ActKind::Flag;     return true; }
     if (kind == "question") { out = ActKind::Question; return true; }
     if (kind == "clear")    { out = ActKind::Clear;    return true; }
+    if (kind == "chord")    { out = ActKind::Chord;    return true; }
     if (kind == "reset")    { out = ActKind::Reset;    return true; }
     return false;
 }
@@ -439,6 +440,22 @@ MineSweeperGame::ActOutcome MineSweeperGame::Act(const std::string& kind,
         }
         r.ok = true;
         r.opened = revealedCount_ - before;   // 플러드 필 확산 보고 (스펙 §3)
+        return r;
+    }
+    if (k == ActKind::Chord) {
+        // 펼치기(스펙 §3 "앱이 kind: chord 선언하면 수용") — 열린 숫자 칸의
+        // 주변 깃발 수가 숫자와 일치할 때 무마크 닫힌 이웃을 연다(네이티브
+        // ChordReveal과 동일 규칙). 닫힌/마크 칸, 숫자 0 칸, 깃발 수 불일치,
+        // 열어낼 이웃이 없으면 명시 bad_state(무시와 실패를 구별 — reveal
+        // 주석과 동일 원칙). 이웃에 지뢰가 있으면 폭발도 정상 전이(reveal과
+        // 동일 — boom=ok+lost, 에코 status가 lost로 보고).
+        const int before = revealedCount_;
+        if (!ChordReveal(row, col)) {
+            r.error = "bad_state";
+            return r;
+        }
+        r.ok = true;
+        r.opened = revealedCount_ - before;
         return r;
     }
     // flag/question/clear — 닫힌 칸의 마크 설정/제거(멱등 — 이미 같은 마크면
@@ -1152,7 +1169,7 @@ std::string MineGameWindow::CursorDeclJson() const {
                   "\"origin\":{\"x\":%d,\"y\":%d},\"cellW\":%d,\"cellH\":%d,"
                   "\"rows\":%d,\"cols\":%d,\"cursorOwner\":\"platform\","
                   "\"act\":{\"kinds\":[\"reveal\",\"flag\",\"question\","
-                  "\"clear\",\"reset\"],\"gate\":\"ask\"}}",
+                  "\"clear\",\"chord\",\"reset\"],\"gate\":\"ask\"}}",
                   originX, originY, cellW, cellH,
                   impl_->game.GetRows(), impl_->game.GetCols());
     return buf;

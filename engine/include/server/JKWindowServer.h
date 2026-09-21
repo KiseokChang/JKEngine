@@ -342,9 +342,11 @@ private:
         // "<app>.<kind> at (r,c)"와 승인 하이라이트의 진실원). 승인 시점에
         // 재선언으로 격자/기하가 바뀌면 CursorActStale 재검증에서 거부한다 —
         // 배너가 보여준 칸과 다른 칸을 때리는 승인 봉쇄(files_access의 승인
-        // 시점 재검증 선례). act 파킹만 설정(semCell=false = 기존 app_tool).
-        bool semCell = false;      // act 파킹(커서 선언 앱) 여부
-        std::string semKind;       // act kind (선언 enum 검증 토큰)
+        // 시점 재검증 선례). act 파킹만 설정(semCell=false = 기존 app_tool;
+        // reset류 위치 무의미 kind는 링/배너 좌표 생략 — semKind는 여전히
+        // 설정돼 재검증·커서 리셋은 유효).
+        bool semCell = false;      // act 파킹 셀 링/좌표 표기 여부
+        std::string semKind;       // act kind (비어 있으면 커서 act 아님)
         int semRow = 0, semCol = 0;
         int semRectX = 0, semRectY = 0;  // 셀 rect (client 좌표 — 스펙 §2 좌표계)
         int semRectW = 0, semRectH = 0;  // cellW/cellH (rect 크기 진실원)

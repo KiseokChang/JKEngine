@@ -196,7 +196,7 @@ Check "t4-catalog-read"   ($cat -match '"app":"minesweeper","name":"read"') $cat
 Check "t4-catalog-act"    ($cat -match '"app":"minesweeper","name":"act"') $cat
 Check "t4-catalog-snapshot" ($cat -match '"app":"minesweeper","name":"snapshot"') $cat
 # The declared kinds drive the enum the LLM sees (server merge).
-$enumOk = ($cat -match '"kind":\{"type":"string","enum":\["reveal","flag","question","clear","reset"\]\}')
+$enumOk = ($cat -match '"kind":\{"type":"string","enum":\["reveal","flag","question","clear","chord","reset"\]\}')
 Check "t4-catalog-act-enum" $enumOk $cat
 $script:qid = [uint32]300
 
@@ -240,7 +240,12 @@ Check "t4-read-fresh-board" ($closed -eq 81) ("closed=" + $closed)
 function Approve-Act([string]$kind, [int]$row, [int]$col) {
     $script:qid++
     $ev = Park-Act $agent $script:qid $kind $row $col
-    $okPark = ($ev -ne $null -and $ev.text -match ('"name":"minesweeper\.' + $kind + ' at \(' + $row + ',' + $col + '\)"'))
+    # docs/64 §8: 위치 무의미한 kind(reset)는 배너에 좌표 표기가 없다.
+    if ($kind -eq "reset") {
+        $okPark = ($ev -ne $null -and $ev.text -match '"name":"minesweeper\.reset"')
+    } else {
+        $okPark = ($ev -ne $null -and $ev.text -match ('"name":"minesweeper\.' + $kind + ' at \(' + $row + ',' + $col + '\)"'))
+    }
     Check ("t4-park-" + $kind + "-" + $row + "-" + $col) $okPark ($(if ($ev) { $ev.text } else { "no approval_request event" }))
     $reqId = Get-ReqId $ev
     if ($reqId -le 0) { return $null }

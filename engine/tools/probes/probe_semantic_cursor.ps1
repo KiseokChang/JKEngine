@@ -277,7 +277,7 @@ try {
     if ($actRow -ne $null -and $actRow.inputSchema -ne $null -and
         $actRow.inputSchema.properties -ne $null -and $actRow.inputSchema.properties.kind -ne $null) {
         $enumParsed = ($actRow.inputSchema.properties.kind.enum -join ",")
-        $enumOk = ($enumParsed -eq "reveal,flag,question,clear,reset")
+        $enumOk = ($enumParsed -eq "reveal,flag,question,clear,chord,reset")
     }
 } catch { $enumParsed = "parse: " + $_.Exception.Message }
 Check "sc-catalog-act-enum" $enumOk ("parsed enum=" + $enumParsed + " | " + $cat)
@@ -347,7 +347,12 @@ Check "sc-read-status-field" ($readOk -and $b.raw -match '"status":"playing"') "
 function Approve-Act([string]$kind, [int]$row, [int]$col) {
     $script:qid++
     $ev = Park-Act $agent $script:qid $kind $row $col
-    $okName = ($ev -ne $null -and $ev.text -match ('"name":"minesweeper\.' + $kind + ' at \(' + $row + ',' + $col + '\)"'))
+    # docs/64 §8: 위치 무의미한 kind(reset)는 배너에 좌표 표기가 없다.
+    if ($kind -eq "reset") {
+        $okName = ($ev -ne $null -and $ev.text -match '"name":"minesweeper\.reset"')
+    } else {
+        $okName = ($ev -ne $null -and $ev.text -match ('"name":"minesweeper\.' + $kind + ' at \(' + $row + ',' + $col + '\)"'))
+    }
     Check ("sc-park-" + $kind + "-" + $row + "-" + $col) $okName $(if ($ev) { $ev.text } else { "no approval_request event" })
     # Phone-bridge surface: the parked event must carry the fields the bridge
     # relays to the phone (kind + banner name + request id + target identity).

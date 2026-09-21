@@ -1439,6 +1439,24 @@ static int RunAppSelfTest() {
             check(!jk::MineSweeperGame::ParseActKind("detonate", parsed),
                   "unknown act kind token rejected");
             check(!agame.Act("detonate", 0, 0).ok, "act rejects unknown kind");
+
+            // chord act (폰 실전 2판: 열린 숫자 칸의 펼치기 요구 — docs/64 §8).
+            // 3x3 지뢰 (0,0), 중앙 (1,1) 개방 = 숫자 1. 이웃 8칸 중 (0,0) 빼고
+            // 전부 무마크 닫힘 — 깃발 성립 후 chord면 7칸 일괄 개방 + 승리.
+            agame.NewGameWithMines(3, 3, {{0, 0}});
+            agame.OpenCell(1, 1);
+            check(agame.GetAdjacent(1, 1) == 1, "chord act target is number 1");
+            o = agame.Act("chord", 1, 1);
+            check(!o.ok && std::string(o.error) == "bad_state",
+                  "chord without satisfied flags is bad_state");
+            check(agame.Act("flag", 0, 0).ok, "flag the mine for chord");
+            o = agame.Act("chord", 1, 1);
+            check(o.ok && o.opened == 7 &&
+                      agame.Status() == std::string("won"),
+                  "chord opens satisfied neighbors and wins");
+            check(agame.ParseActKind("chord", parsed) &&
+                      parsed == jk::MineSweeperGame::ActKind::Chord,
+                  "chord parses to the Chord token");
         }
     }
 

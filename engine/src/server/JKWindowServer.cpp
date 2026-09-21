@@ -3337,7 +3337,16 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                                     if (a.GetStr("kind", kind) &&
                                         a.GetInt("row", row) &&
                                         a.GetInt("col", col)) {
-                                        p.semCell = true;
+                                        // reset은 위치 무의미한 정의 전이
+                                        // (스펙 §4 리셋=좌상단) — 앱도 좌표를
+                                        // 무시하므로 셀 링/배너 좌표 표기 없음
+                                        // (폰 실전 1판: "reset at (0,0)"이
+                                        // 오해를 산 실측 — docs/64 §8). LLM 인자
+                                        // 스키마는 계약 유지(row/col 필수 —
+                                        // 자리 채움값만 배너에 안 나온다).
+                                        const bool positionless =
+                                            (kind == "reset");
+                                        p.semCell = !positionless;
                                         p.semKind = kind;
                                         p.semRow = row;
                                         p.semCol = col;
@@ -3349,10 +3358,11 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                                             row * m->cursor.cellH;
                                         p.semRectW = m->cursor.cellW;
                                         p.semRectH = m->cursor.cellH;
-                                        p.name = app + "." + kind +
-                                                 " at (" +
-                                                 std::to_string(row) + "," +
-                                                 std::to_string(col) + ")";
+                                        p.name = positionless
+                                            ? app + "." + kind
+                                            : app + "." + kind + " at (" +
+                                                  std::to_string(row) + "," +
+                                                  std::to_string(col) + ")";
                                     }
                                 }
                                 p.appToolApp = app;
@@ -5470,7 +5480,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                             // 앱이 아니라 슬롯 진실원 pendingFileDialog_
                             // .dialogConnId가 한다.
                             result = "{\"ok\":false,\"error\":\"tool_gone\"}";
-                        } else if (it->semCell &&
+                        } else if (!it->semKind.empty() &&
                                    CursorActStale(mit->second, *it)) {
                             // 의미 커서 (스펙 2026-09-22-semantic-cursor §3
                             // act, Task 2): 승인 시점 재선언 재검증 — 파킹 시
@@ -5493,7 +5503,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                             // MINOR-3 — reset act 승인 경로: ok 회송 시 커서
                             // 정의 전이((0,0)) 리셋(스펙 §4).
                             inf.resetCursorOnOk =
-                                it->semCell && it->semKind == "reset";
+                                (it->semKind == "reset");
                             inflightAppTools_[reqId] = inf;
                             ipc::WriteAgentToolCall(
                                 target->Transport(), reqId,
