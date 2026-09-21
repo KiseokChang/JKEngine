@@ -247,6 +247,26 @@ bool AgentJson::GetArrInt(const char* key, int idx, const char* field, int& out)
     return got;
 }
 
+bool AgentJson::GetArrValStr(const char* key, int idx, std::string& out) const {
+    if (!ok_) return false;
+    JSValue arr = JS_GetPropertyStr(ctx_, root_, key);
+    bool got = false;
+    if (JS_IsArray(arr)) {
+        JSValue item = JS_GetPropertyUint32(ctx_, arr, static_cast<uint32_t>(idx));
+        if (JS_IsString(item)) {
+            const char* s = JS_ToCString(ctx_, item);
+            if (s) {
+                out = s;
+                got = true;
+            }
+            JS_FreeCString(ctx_, s);
+        }
+        JS_FreeValue(ctx_, item);
+    }
+    JS_FreeValue(ctx_, arr);
+    return got;
+}
+
 bool AgentJson::GetArrRaw(const char* key, int idx, const char* field,
                           std::string& out) const {
     if (!ok_) return false;

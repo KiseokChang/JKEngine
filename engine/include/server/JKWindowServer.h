@@ -3,6 +3,7 @@
 
 #include <server/JKClientConnection.h>
 #include <server/JKCompositor.h>
+#include <server/JKSemanticCursor.h>
 #include <agent/JKAgentJson.h>
 #include <JKAudioCommand.h>
 #include <JKTypes.h>
@@ -108,12 +109,38 @@ private:
     // (InflightAppTool 정의는 §4.1 멤버 블록 — 매개변수 자리는 전방선언만
     //  요구한다. 멤버 블록이 클래스 뒤쪽이라 여기서 이름이 아직 없다.)
     struct InflightAppTool;
+    struct AppToolManifest;   // §4.1 멤버 블록 — SemanticCursorFor 반환 자리의
+                              // 전방선언(InflightAppTool 선례)
     void HandleToolRegister(JKClientConnection& client, const std::string& json);
     void HandleToolResult(JKClientConnection& client, const ipc::Message& msg);
     // app_tool 3단 키 게이트: app_tool.<app>.<tool> > app_tool.<app> >
-    // app_tool. 키 부재 폴백 = allow (스펙 §0 결정 3).
-    AgentDecision AppToolAllowed(const std::string& app, const std::string& tool) const;
+    // app_tool. 키 부재 폴백 = dflt (기본 Allow, 스펙 §0 결정 3 — 의미 커서
+    // act는 ask 기본으로 호출한다).
+    AgentDecision AppToolAllowed(const std::string& app, const std::string& tool,
+                                 AgentDecision dflt = AgentDecision::Allow) const;
     void ReplyAppToolError(const InflightAppTool& inf, const char* err);
+    // 의미 커서 (스펙 2026-09-22-semantic-cursor §3): 앱 도구 릴레이에서 커서
+    // 선언 앱의 합성 도구를 인터셉트한다 — move는 플랫폼 동기 구현(JKSemanticCursor
+    // 상태 갱신+에코), read는 앱 snapshot 중계를 시작하고 HandleToolResult가
+    // 커서 헤더를 조립해 회송한다(composeCursorRead). act는 인터셉트하지 않고
+    // 기존 릴레이로 간다(게이트만 ask 기본). true = 이 호출의 응답 책임을
+    // 가져갔다(reply 확정 또는 replied=false). clientsMutex_ 보유 경로 전용.
+    bool HandleCursorAppTool(JKClientConnection& client, uint32_t queryId,
+                             const std::string& app,
+                             const std::string& toolName,
+                             const std::string& argsRaw, std::string& reply,
+                             bool& replied);
+    // 커서 read 조립: 커서 헤더 + 앱 snapshot 원문. connId 매니페스트가 커서
+    // 선언을 잃었으면 빈 문자열(호출부가 기존 전송 형태로 폴백). snapshot
+    // 실패/타임아웃은 ok=false + 명시 에러 — 커서 필드는 항상 실린다
+    // (부분 성공 위장 금지 — 코디네이터 룰링).
+    std::string ComposeCursorRead(uint32_t connId, uint32_t windowId, bool ok,
+                                  const std::string& snapshot,
+                                  const char* transportErr);
+    // 커서 선언 앱 조회 (스펙 §5 — 하이라이트 Task 3 소비): app 이름의 커서
+    // 선언 매니페스트. 복수 인스턴스 = 첫 매칭(창 단위 소비자는 windowId로
+    // 변별). clientsMutex_ 보유 경로 전용(레슨 35).
+    const AppToolManifest* SemanticCursorFor(const std::string& app) const;
     // 파킹 플러드 상한 (docs/56 §2b 백로그): 요청자별 미해결 승인 수가 상한에
     // 도달했는가 — 초과 요청은 파킹하지 않고 approval_overflow로 거부한다
     // (에이전트가 승인 스트립을 도배하는 노출 봉쇄; 파킹 종류 전체 공유).
@@ -367,6 +394,21 @@ private:
         bool modal = false;      // 쿼리-수명 모달(filedlg) — app_tool 중계 시
                                  // 슬롯 소유 재검증 (스펙 §4)
         std::vector<AppToolDef> tools;
+        // 의미 커서 (스펙 2026-09-22-semantic-cursor §2): AgentToolRegister의
+        // 선택 cursor 블록 — 부재 = valid=false (미선언 앱, 기존 동작 불변).
+        // 매니페스트와 동일 수명(연결 닫힘에 소멸 — 허브 자동 제거 룰 편승).
+        struct CursorDecl {
+            bool valid = false;
+            int originX = 0, originY = 0;  // (0,0)칸의 client 좌표
+            int cellW = 0, cellH = 0;
+            int rows = 0, cols = 0;
+            std::vector<std::string> actKinds;  // tools/list enum (≤32)
+        };
+        CursorDecl cursor;
+        // 플랫폼 소유 커서 상태 — 초기 (0,0) 좌상단(코디네이터 룰링), 재선언
+        // (upsert)마다 리셋. appToolManifests_ 동일 규약 — 서버 루프 스레드
+        // 전용, 락 없음.
+        JKSemanticCursor cursorState;
     };
     // 중계 대기 중인 도구 호출 — 앱의 AgentToolResult를 기다린다(10s 만료).
     struct InflightAppTool {
@@ -376,6 +418,9 @@ private:
         uint32_t targetConnId = 0;
         uint32_t windowId = 0;
         time_t expiresAt = 0;
+        // 의미 커서 read (스펙 2026-09-22-semantic-cursor §3): 앱 snapshot
+        // 결과를 그대로 회송하지 않고 커서 헤더로 조립한다.
+        bool composeCursorRead = false;
     };
     std::map<uint32_t, AppToolManifest> appToolManifests_;  // connId → 매니페스트
     std::map<uint32_t, InflightAppTool> inflightAppTools_;  // reqId → 중계

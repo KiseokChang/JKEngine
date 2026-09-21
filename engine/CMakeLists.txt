@@ -208,6 +208,7 @@ endif()
 add_library(jkserver STATIC
     src/server/JKClientConnection.cpp
     src/server/JKWindowServer.cpp
+    src/server/JKSemanticCursor.cpp
     src/server/JKCompositor.cpp
     src/server/JKCompositorOutput.cpp
 )

@@ -2180,6 +2180,10 @@ static const AgentPermRow kPermMatrix[] = {
     // 수단 — 대상 창 합성 입력. ask 기본(2026-09-21 사용자 승인): 매 호출이
     // 승인 파킹으로 들어간다. 자동화 편의는 permissions.json에서 allow로.
     {"send_input", "server", "ask"},
+    // 의미 커서 (스펙 2026-09-22-semantic-cursor §3): 합성 <app>.move/read/
+    // act는 행 없음 — 앱 도구 허브 3단 키(app_tool.*)와 동일 분류. move/read는
+    // 플랫폼 구현 무승인(window_move 분류), act는 앱 릴레이(커서 선언 앱 한정
+    // 기본 ask — permissions.json의 app_tool.* 키가 이긴다).
 };
 
 // permissions.json RMW (스펙 §2.2): 알려진 도구 키 전부 명시 기록 — 없던 키는
@@ -3122,7 +3126,15 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         req.GetObjStr("args", "app", app);
         req.GetObjStr("args", "tool", toolName);
         req.GetObjRaw("args", "args", argsRaw);
-        if (argsRaw.size() > 256 * 1024) {
+        // 의미 커서 (스펙 2026-09-22-semantic-cursor §3): 커서 선언 앱의
+        // <app>.move/read는 플랫폼 구현 — 릴레이 체인 전에 인터셉트한다
+        // (move 동기 에코 / read는 snapshot 중계+커서 헤더 조립 지연응답).
+        // 미선언 앱과 act는 false를 돌려 기존 릴레이 경로가 그대로 간다.
+        if ((toolName == "move" || toolName == "read") &&
+            HandleCursorAppTool(client, queryId, app, toolName, argsRaw,
+                                reply, replied)) {
+            // 인터셉트됨 — 응답 완료(move) 또는 중계 지연(read).
+        } else if (argsRaw.size() > 256 * 1024) {
             // 스펙 §4.1 호출 경로 상한 (result 16KiB는 HandleToolResult가).
             // 256KiB로 상향 (docs/60 §5 백로그 소각, docs/57 §12.6): 워크숍
             // set_script가 256KiB 백스톱을 두고 있어 8KiB 앞단이 병목이었다 —
@@ -3250,7 +3262,16 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                         // tool_gone과 동일 수명 사건 (스펙 §9).
                         reply = "{\"ok\":false,\"error\":\"unknown_app_tool\"}";
                     } else {
-                        switch (AppToolAllowed(app, toolName)) {
+                        // 의미 커서 act (스펙 §3): 커서 선언 앱의 act는 게이트
+                        // 기본값 ask(파킹) — permissions.json의 app_tool.* 키
+                        // (allow/ask/deny)가 있으면 그 값이 이긴다(스펙 §8
+                        // "앱별 act allow 선택지는 permissions.json 운용").
+                        AgentDecision gate = AppToolAllowed(
+                            app, toolName,
+                            (m->cursor.valid && toolName == "act")
+                                ? AgentDecision::Ask
+                                : AgentDecision::Allow);
+                        switch (gate) {
                             case AgentDecision::Deny:
                                 // 스펙 §9 게이트 표면 — capture_ask 선례의 "denied".
                                 reply = "{\"ok\":false,\"error\":\"denied\"}";
@@ -5775,6 +5796,65 @@ void JKWindowServer::HandleToolRegister(JKClientConnection& client,
             }
         }
     }
+    // 의미 커서 (스펙 2026-09-22-semantic-cursor §2): 선택 cursor 블록.
+    // 부재 = 미선언(기존 동작 불변). 파싱 실패/미지원 값은 등록 전체 거부
+    // (fail-closed — "등록 성공 + 커서만 유실" 혼종 봉쇄: 커서 선언은 런타임
+    // 재전송 가능하므로 앱은 cursor 블록을 빼고 재시도할 수 있다).
+    AppToolManifest::CursorDecl cd;
+    std::string cursorRaw;
+    if (req.GetRaw("cursor", cursorRaw) && !cursorRaw.empty() &&
+        cursorRaw != "null") {
+        if (cursorRaw.size() > 4 * 1024) { ack(false, "bad_cursor"); return; }
+        jk::agent::AgentJson cb(cursorRaw);
+        std::string ty, space, owner;
+        if (!cb.ok() || !cb.GetStr("type", ty) || ty != "cell-grid") {
+            ack(false, "bad_cursor"); return;
+        }
+        // coordSpace 부재 = client (v1 유일 좌표계 — 스펙 §2).
+        if (cb.GetStr("coordSpace", space) && space != "client") {
+            ack(false, "bad_cursor"); return;
+        }
+        // cursorOwner 부재 = platform (v1 유일 소유권 — "app"은 명시되어야
+        // 거절된다: 네이티브 커서 앱의 무성의 선언을 조용히 플랫폼으로 뒤집지
+        // 않는 것이 fail-closed).
+        if (cb.GetStr("cursorOwner", owner) && owner != "platform") {
+            ack(false, "cursor_owner_unsupported"); return;
+        }
+        if (!cb.GetObjInt("origin", "x", cd.originX) || cd.originX < 0 ||
+            cd.originX > 100000 ||
+            !cb.GetObjInt("origin", "y", cd.originY) || cd.originY < 0 ||
+            cd.originY > 100000 ||
+            !cb.GetInt("cellW", cd.cellW) || cd.cellW < 1 ||
+            cd.cellW > 4096 ||
+            !cb.GetInt("cellH", cd.cellH) || cd.cellH < 1 ||
+            cd.cellH > 4096 ||
+            !cb.GetInt("rows", cd.rows) || cd.rows < 1 || cd.rows > 1024 ||
+            !cb.GetInt("cols", cd.cols) || cd.cols < 1 || cd.cols > 1024) {
+            ack(false, "bad_cursor"); return;
+        }
+        // act.kinds는 3단 배열 — AgentJson의 2단 리더로는 못 읽는다(레슨 39):
+        // act 원문을 재파싱해 읽는다.
+        std::string actRaw;
+        if (!cb.GetRaw("act", actRaw)) { ack(false, "bad_cursor"); return; }
+        jk::agent::AgentJson actj(actRaw);
+        std::string gate;
+        if (!actj.ok() || !actj.GetStr("gate", gate) || gate != "ask") {
+            ack(false, "bad_cursor"); return;   // v1 act 게이트 ask 고정(스펙 §2)
+        }
+        int kinds = 0;
+        if (!actj.GetArraySize("kinds", kinds) || kinds < 1 || kinds > 32) {
+            ack(false, "bad_cursor"); return;
+        }
+        for (int i = 0; i < kinds; ++i) {
+            std::string k;
+            if (!actj.GetArrValStr("kinds", i, k) ||
+                !ValidAppToolToken(k, 24)) {
+                ack(false, "bad_cursor"); return;
+            }
+            cd.actKinds.push_back(std::move(k));
+        }
+        cd.valid = true;
+    }
     AppToolManifest m;
     m.connId = client.Id();
     m.app = app;
@@ -5797,6 +5877,65 @@ void JKWindowServer::HandleToolRegister(JKClientConnection& client,
             d.inputSchema.clear();
         if (d.inputSchema.size() > 2 * 1024) { ack(false, "schema_too_large"); return; }
         m.tools.push_back(std::move(d));
+    }
+    // 의미 커서 (스펙 §3): 선언 존재 시 합성 도구 3종을 매니페스트에 등록한다
+    // — 카탈로그(list_app_tools → tools/list 동적부)와 app_tool 릴레이 후보
+    // 수집이 자동으로 흘러간다. 앱 자체 도구와의 충돌은 move/read만 봉쇄
+    // (플랫폼 구현이 앱 자체 도구를 가리는 혼종 방지) — act는 앱 자체 act가
+    // 있으면 그 도구로 중계(스펙 §2의 앱 계약), 없으면 합성 act(이름만 — 앱이
+    // act를 아직 선언하지 않으면 중계가 앱 측 에러를 돌려준다).
+    if (cd.valid) {
+        auto hasTool = [&](const char* n) {
+            for (const AppToolDef& t : m.tools)
+                if (t.name == n) return true;
+            return false;
+        };
+        if (hasTool("move") || hasTool("read")) {
+            ack(false, "cursor_name_conflict"); return;
+        }
+        AppToolDef mv;
+        mv.name = "move";
+        mv.description =
+            "Semantic cursor move on the declared cell grid: to_row/to_col | "
+            "dr/dc | steps[{dr,dc}] (<=32, stops at the first boundary). "
+            "Echoes the reached cell. Platform-owned, no approval.";
+        mv.inputSchema =
+            "{\"type\":\"object\",\"properties\":{\"to_row\":{\"type\":"
+            "\"integer\"},\"to_col\":{\"type\":\"integer\"},\"dr\":{\"type\":"
+            "\"integer\"},\"dc\":{\"type\":\"integer\"},\"steps\":{\"type\":"
+            "\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"dr\":"
+            "{\"type\":\"integer\"},\"dc\":{\"type\":\"integer\"}}}}}}";
+        m.tools.push_back(std::move(mv));
+        AppToolDef rd;
+        rd.name = "read";
+        rd.description =
+            "Read the semantic cursor cell plus the app's snapshot board "
+            "serialization (cursor is platform-owned). Snapshot failure is an "
+            "explicit error, not a silent partial read.";
+        rd.inputSchema = "{\"type\":\"object\",\"properties\":{}}";
+        m.tools.push_back(std::move(rd));
+        if (!hasTool("act")) {
+            std::string kinds = "[";
+            for (size_t i = 0; i < cd.actKinds.size(); ++i) {
+                if (i) kinds += ",";
+                kinds += "\"" + JsonEsc(cd.actKinds[i]) + "\"";
+            }
+            kinds += "]";
+            AppToolDef ac;
+            ac.name = "act";
+            ac.description =
+                "Semantic act on the cursor cell (kind enum from the app's "
+                "cursor declaration). Approval-gated (ask default); the app "
+                "owns the game transition.";
+            ac.inputSchema =
+                "{\"type\":\"object\",\"properties\":{\"kind\":{\"type\":"
+                "\"string\",\"enum\":" + kinds + "},\"row\":{\"type\":"
+                "\"integer\"},\"col\":{\"type\":\"integer\"}},\"required\":"
+                "[\"kind\",\"row\",\"col\"]}";
+            m.tools.push_back(std::move(ac));
+        }
+        m.cursor = cd;
+        m.cursorState.Reset(cd.rows, cd.cols);   // 커서는 (0,0)에서 시작
     }
     appToolManifests_[client.Id()] = m;   // upsert
     ack(true, "");
@@ -5822,9 +5961,18 @@ void JKWindowServer::HandleToolResult(JKClientConnection& client,
     }
     for (auto& c : clients_) {
         if (c && c->Id() == it->second.requesterConnId && !c->IsDisconnected()) {
-            std::string reply = std::string("{\"ok\":true,\"windowId\":") +
-                std::to_string(it->second.windowId) + "," +
-                (ok ? "\"result\":" + json : "\"error\":" + json) + "}";
+            std::string reply;
+            // 의미 커서 read (스펙 §3): 앱 snapshot 결과를 커서 헤더로 조립해
+            // 회송한다. 앱이 ok=0(자체 에러)로 답해도 커서 필드는 유지 —
+            // 명시 에러만 추가(부분 성공 위장 금지).
+            if (it->second.composeCursorRead)
+                reply = ComposeCursorRead(it->second.targetConnId,
+                                          it->second.windowId, ok != 0, json,
+                                          nullptr);
+            if (reply.empty())
+                reply = std::string("{\"ok\":true,\"windowId\":") +
+                    std::to_string(it->second.windowId) + "," +
+                    (ok ? "\"result\":" + json : "\"error\":" + json) + "}";
             ipc::WriteAgentJson(c->Transport(), ipc::MsgType::AgentReply,
                                 it->second.queryId, ok, reply);
             break;
@@ -5841,8 +5989,16 @@ void JKWindowServer::ReplyAppToolError(const InflightAppTool& inf,
                                        const char* err) {
     for (auto& c : clients_) {
         if (c && c->Id() == inf.requesterConnId && !c->IsDisconnected()) {
-            std::string reply = std::string("{\"ok\":false,\"windowId\":") +
-                std::to_string(inf.windowId) + ",\"error\":\"" + err + "\"}";
+            // 의미 커서 read (스펙 §3): 전송 계열 실패(타임아웃/과대/회수)도
+            // 커서 헤더를 유지한 명시 에러로 회송한다.
+            std::string reply;
+            if (inf.composeCursorRead)
+                reply = ComposeCursorRead(inf.targetConnId, inf.windowId,
+                                          false, std::string(), err);
+            if (reply.empty())
+                reply = std::string("{\"ok\":false,\"windowId\":") +
+                    std::to_string(inf.windowId) + ",\"error\":\"" + err +
+                    "\"}";
             ipc::WriteAgentJson(c->Transport(), ipc::MsgType::AgentReply,
                                 inf.queryId, 0, reply);
             return;
@@ -5991,7 +6147,8 @@ AgentDecision JKWindowServer::AgentToolAllowed(const std::string& tool) const {
 // 핫리드는 AgentToolAllowed 기존 계약(호출마다 읽음) 유지. 클라이언트 락 없음
 // (레슨 35 — HandleAgentQuery 보유 중 호출).
 AgentDecision JKWindowServer::AppToolAllowed(const std::string& app,
-                                             const std::string& tool) const {
+                                             const std::string& tool,
+                                             AgentDecision dflt) const {
     std::string k0 = "app_tool." + app + "." + tool;
     std::string k1 = "app_tool." + app;
     const char* keys[3] = {k0.c_str(), k1.c_str(), "app_tool"};
@@ -6001,13 +6158,13 @@ AgentDecision JKWindowServer::AppToolAllowed(const std::string& app,
     const size_t slash = dir.find_last_of("\\/");
     if (slash != std::string::npos) dir = dir.substr(0, slash);
     std::FILE* f = std::fopen((dir + "\\permissions.json").c_str(), "rb");
-    if (!f) return AgentDecision::Allow;
+    if (!f) return dflt;
     char buf[4096] = {};
     const size_t n = std::fread(buf, 1, sizeof(buf) - 1, f);
     std::fclose(f);
     buf[n] = '\0';
     jk::agent::AgentJson perm(buf);
-    if (!perm.ok()) return AgentDecision::Allow;
+    if (!perm.ok()) return dflt;
     for (const char* k : keys) {
         std::string v;
         if (perm.GetStr(k, v)) {
@@ -6016,7 +6173,183 @@ AgentDecision JKWindowServer::AppToolAllowed(const std::string& app,
             if (v == "deny") return AgentDecision::Deny;
         }
     }
-    return AgentDecision::Allow;
+    return dflt;
+}
+
+// ---- 의미 커서 (스펙 2026-09-22-semantic-cursor §3) -----------------------
+// 앱 도구 릴레이의 커서 선언 앱 합성 도구 인터셉트. clientsMutex_ 보유 경로
+// 전용(HandleAgentQuery 호출사슬) — 락을 잡지 않는다(레슨 35).
+//
+//   move — 플랫폼 동기 구현: 인자(to_row/to_col | dr/dc | steps[])를 검증해
+//          JKSemanticCursor 상태를 갱신하고 도달 칸을 에코. 무승인(무해 — 판
+//          상태 불변). 앱 연결 무접촉(앱 무응답에도 이동 성립 — 스펙 §5).
+//   read — 플랫폼 조립(비동기): 앱의 snapshot app_tool 중계를 시작하고
+//          HandleToolResult가 커서 헤더를 붙여 회송한다(composeCursorRead).
+//   act  — 인터셉트 안 한다(false → 기존 릴레이; 게이트만 ask 기본).
+bool JKWindowServer::HandleCursorAppTool(JKClientConnection& client,
+                                         uint32_t queryId,
+                                         const std::string& app,
+                                         const std::string& toolName,
+                                         const std::string& argsRaw,
+                                         std::string& reply, bool& replied) {
+    if (argsRaw.size() > 256 * 1024) return false;   // args_too_large는 기존 경로
+    // 후보 수집 — app_tool 릴레이와 동일 규약(app+도구명 역매칭).
+    std::vector<AppToolManifest*> cands;
+    for (auto& kv : appToolManifests_) {
+        AppToolManifest& m = kv.second;
+        if (m.app != app || !m.cursor.valid) continue;
+        bool has = false;
+        for (const AppToolDef& t : m.tools)
+            if (t.name == toolName) { has = true; break; }
+        if (!has) continue;
+        cands.push_back(&m);
+    }
+    if (cands.empty()) return false;
+    // windowId 변별 (스펙 §4.2) — 릴레이와 동일 규약.
+    {
+        jk::agent::AgentJson a(argsRaw.empty() ? "{}" : argsRaw);
+        int windowIdArg = 0;
+        if (a.GetInt("windowId", windowIdArg) && windowIdArg > 0) {
+            std::vector<AppToolManifest*> filtered;
+            for (AppToolManifest* c : cands)
+                if (c->windowId == static_cast<uint32_t>(windowIdArg))
+                    filtered.push_back(c);
+            cands.swap(filtered);
+            if (cands.empty()) {
+                reply = "{\"ok\":false,\"error\":\"unknown_app_tool\"}";
+                return true;
+            }
+        }
+    }
+    if (cands.size() > 1) {
+        // 복수 인스턴스 — 묵시적 추측 라우팅 금지(스펙 §4.2, 릴레이 동일).
+        std::string list = "[";
+        for (size_t i = 0; i < cands.size(); ++i) {
+            if (i) list += ",";
+            list += "{\"windowId\":" + std::to_string(cands[i]->windowId) +
+                    ",\"title\":\"" + JsonEsc(cands[i]->title) + "\"}";
+        }
+        reply = "{\"ok\":false,\"error\":\"ambiguous\",\"candidates\":" +
+                list + "]}";
+        return true;
+    }
+    AppToolManifest* m = cands.front();
+    if (toolName == "move") {
+        // 게이트 없음(none-allow, window_move 분류 — 스펙 §3 무해 이동).
+        jk::agent::AgentJson a(argsRaw.empty() ? "{}" : argsRaw);
+        JKSemanticCursor::Result r;
+        int stepCount = 0;
+        if (a.GetArraySize("steps", stepCount)) {
+            if (stepCount <= 0 || stepCount > 32) {
+                reply = "{\"ok\":false,\"error\":\"bad_args\"}";
+                return true;
+            }
+            std::vector<std::pair<int, int>> steps;
+            steps.reserve(static_cast<size_t>(stepCount));
+            for (int i = 0; i < stepCount; ++i) {
+                // 축 생략 = 0(무이동) — 단축 스텝 {"dc":3}도 수용(관대 파싱,
+                // LLM 인자 관용 — GetInt 계약과 동일).
+                int dr = 0, dc = 0;
+                a.GetArrInt("steps", i, "dr", dr);
+                a.GetArrInt("steps", i, "dc", dc);
+                steps.emplace_back(dr, dc);
+            }
+            r = m->cursorState.RunSteps(steps);
+        } else {
+            int toR = 0, toC = 0, dr = 0, dc = 0;
+            const bool hasToR = a.GetInt("to_row", toR);
+            const bool hasToC = a.GetInt("to_col", toC);
+            const bool hasDr = a.GetInt("dr", dr);
+            const bool hasDc = a.GetInt("dc", dc);
+            if (hasToR && hasToC) {
+                r = m->cursorState.MoveTo(toR, toC);
+            } else if (hasDr && hasDc) {
+                r = m->cursorState.MoveRelative(dr, dc);
+            } else {
+                reply = "{\"ok\":false,\"error\":\"bad_args\"}";
+                return true;
+            }
+        }
+        if (r.ok()) {
+            reply = "{\"ok\":true,\"row\":" + std::to_string(r.row) +
+                    ",\"col\":" + std::to_string(r.col) + "}";
+        } else {
+            reply = std::string("{\"ok\":false,\"error\":\"") + r.error + "\"}";
+        }
+        return true;
+    }
+    // toolName == "read" — 앱 snapshot 중계 + 커서 헤더 조립. 무승인(none-
+    // allow)이지만 앱 연결 생존은 필요하다(중계 대상).
+    JKClientConnection* conn = nullptr;
+    for (const auto& c : clients_) {
+        if (c && c->Id() == m->connId && !c->IsDisconnected()) {
+            conn = c.get();
+            break;
+        }
+    }
+    if (!conn) {
+        // 매니페스트는 살아 있지만 연결이 끊김 — 릴레이와 동일 수명 사건.
+        reply = "{\"ok\":false,\"error\":\"unknown_app_tool\"}";
+        return true;
+    }
+    const uint32_t reqId = nextToolReqId_++;
+    InflightAppTool inf;
+    inf.reqId = reqId;
+    inf.queryId = queryId;
+    inf.requesterConnId = client.Id();
+    inf.targetConnId = conn->Id();
+    inf.windowId = m->windowId;
+    inf.expiresAt = std::time(nullptr) + 10;
+    inf.composeCursorRead = true;
+    inflightAppTools_[reqId] = inf;
+    // snapshot 인자는 호출자 args 원문 패스스루(빈 args = {}). read 자체에는
+    // 정의된 인자가 없다 — 앱 계약 확장 여지(포맷 옵션류)만 남긴다.
+    std::string callJson = "{\"app\":\"" + JsonEsc(app) +
+                           "\",\"tool\":\"snapshot\",\"args\":" +
+                           (argsRaw.empty() ? "{}" : argsRaw) + "}";
+    ipc::WriteAgentToolCall(conn->Transport(), reqId, callJson);
+    replied = false;   // HandleToolResult(조립)가 응답한다
+    return true;
+}
+
+// 커서 read 조립 (스펙 §3 read): 커서 헤더 + 앱 snapshot 원문. 성공 =
+// {"ok":true,...,"snapshot":<원문>}; 실패 = ok:false + 커서 필드 유지 + 명시
+// 에러(부분 성공 위장 금지 — 코디네이터 룰링: read 실패 = 커서 + 명시 에러).
+std::string JKWindowServer::ComposeCursorRead(uint32_t connId,
+                                              uint32_t windowId, bool ok,
+                                              const std::string& snapshot,
+                                              const char* transportErr) {
+    auto it = appToolManifests_.find(connId);
+    if (it == appToolManifests_.end() || !it->second.cursor.valid) {
+        return std::string();
+    }
+    const AppToolManifest& m = it->second;
+    char head[256];
+    std::snprintf(head, sizeof(head),
+                  "{\"ok\":%s,\"windowId\":%u,\"cursor\":{\"row\":%d,"
+                  "\"col\":%d},\"rows\":%d,\"cols\":%d,",
+                  ok ? "true" : "false", windowId, m.cursorState.Row(),
+                  m.cursorState.Col(), m.cursorState.Rows(),
+                  m.cursorState.Cols());
+    std::string out = head;
+    if (transportErr && *transportErr) {
+        out += std::string("\"error\":\"") + transportErr + "\"}";
+    } else if (ok) {
+        out += "\"snapshot\":" + snapshot + "}";
+    } else {
+        out += "\"error\":\"snapshot_failed\",\"detail\":" +
+               (snapshot.empty() ? std::string("\"unknown\"") : snapshot) + "}";
+    }
+    return out;
+}
+
+// 커서 선언 앱 조회 (스펙 §5 — 하이라이트 Task 3 소비).
+const JKWindowServer::AppToolManifest* JKWindowServer::SemanticCursorFor(
+    const std::string& app) const {
+    for (const auto& kv : appToolManifests_) {
+        if (kv.second.app == app && kv.second.cursor.valid) return &kv.second;
+    }
+    return nullptr;
 }
 
 // 파킹 플러드 상한 (docs/56 §2b): 요청자(connection id)별 미해결 승인 상한.

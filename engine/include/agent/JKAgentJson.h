@@ -53,6 +53,9 @@ public:
     bool GetArrStr(const char* key, int idx, const char* field,
                    std::string& out) const;
     bool GetArrInt(const char* key, int idx, const char* field, int& out) const;
+    // GetArrStr의 원소-값 형제 — 배열 원소가 객체가 아니라 "문자열 그 자체"
+    //일 때 (의미 커서 act.kinds enum, 스펙 2026-09-22-semantic-cursor §2).
+    bool GetArrValStr(const char* key, int idx, std::string& out) const;
     // GetArrStr/GetArrInt의 raw 형제 — 배열 원소 안 필드를 원문 JSON으로
     // 돌려준다 (앱 도구 inputSchema/args 패스스루용).
     bool GetArrRaw(const char* key, int idx, const char* field, std::string& out) const;
