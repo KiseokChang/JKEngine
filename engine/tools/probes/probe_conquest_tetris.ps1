@@ -12,7 +12,7 @@
 # Conventions: probe_send_input.ps1 (lifecycle/MCP/capture hash), lesson 28
 # (subscribe-first event jobs), lesson 42 (pid-only kill).
 $ErrorActionPreference = "Continue"
-$build = "I:\progwork\JKENGINE\.claude\worktrees\conquest-ladder\engine\build"
+$build = "I:\progwork\JKENGINE\engine\build"
 $exe = "$build\jkdesktop.exe"; $agnt = "$build\jkagentd.exe"
 $ctl = $exe   # probe_agent_events.ps1 names the exe $ctl - the verbatim
               # Invoke-Ctl helper below references that spelling.

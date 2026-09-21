@@ -10,7 +10,7 @@
 # control-only subscribe=0 - measured in JKAgentClient.cpp:20).
 # ASCII-only PS5.1 (lesson 50), "> log 2>&1" redirect, pid-only client kill.
 $ErrorActionPreference = "Continue"
-$build = "I:\progwork\JKENGINE\.claude\worktrees\conquest-ladder\engine\build"
+$build = "I:\progwork\JKENGINE\engine\build"
 $exe   = "$build\jkdesktop.exe"
 $agnt  = "$build\jkagentd.exe"
 $perm  = "$build\permissions.json"
