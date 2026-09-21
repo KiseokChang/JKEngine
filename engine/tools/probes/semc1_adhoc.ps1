@@ -2,16 +2,19 @@
 # 2026-09-22-semantic-cursor). ASCII-only (PS5.1). Fake app declares a cursor
 # grid over a raw pipe; checks declaration parsing, synthesized catalog rows
 # (act kinds enum), platform move (absolute/relative/steps/bad_grid/bad_args +
-# server-side step pre-validation echoes), read assembly (snapshot compose +
-# snapshot failure + tool_timeout), fail-closed registration rejections
-# (cursor_owner_unsupported / cursor_name_conflict / bad_cursor /
-# cursor_window_required for control-only declares), own-act kind-enum merge
-# (MINOR-1), no-snapshot immediate unknown_app_tool (NIT-7), empty-snapshot
-# unknown (NIT-5), and explicit permissions.json deny on move (MINOR-4) with
-# backup + finally-restore (probe_app_tools idiom). Fake apps connect as
-# window clients (Hello + CreateSurface) since fix round 1 rejects cursor
-# declarations from control-only connections. Helper functions are copied
-# from probe_app_tools.ps1 (raw pipe idiom, PS5.1 argv trap workaround).
+# server-side step magnitude pre-validation, negative deltas legal and
+# clamped), read assembly (snapshot compose + snapshot failure + tool_timeout),
+# fail-closed registration rejections (cursor_owner_unsupported /
+# cursor_name_conflict / bad_cursor / cursor_window_required for control-only
+# declares), own-act kind-enum merge (MINOR-1 - STRICT: exactly one "kind" key,
+# ConvertFrom-Json parsed, covering replace-in-place / empty-properties /
+# description-containing-"properties" schemas), no-snapshot immediate
+# unknown_app_tool (NIT-7), empty-snapshot unknown (NIT-5), and explicit
+# permissions.json deny on move (MINOR-4) with backup + finally-restore
+# (probe_app_tools idiom). Fake apps connect as window clients (Hello +
+# CreateSurface) since fix round 1 rejects cursor declarations from
+# control-only connections. Helper functions are copied from
+# probe_app_tools.ps1 (raw pipe idiom, PS5.1 argv trap workaround).
 $ErrorActionPreference = "Continue"
 $exe = "I:\progwork\JKENGINE\engine\build\jkdesktop.exe"
 $root = Split-Path $exe
@@ -252,18 +255,78 @@ Check "sm-catalog-act" $hasAct ""
 Check "sm-catalog-enum" $hasEnum ""
 
 # --- own-act kind-enum merge (MINOR-1): app registers its own act tool -------
+# Strict checks (fix round 2): the round-1 regex was a FALSE PASS - it matched
+# the first (shadowed) "kind" occurrence when the merge injected a duplicate
+# key. Here: parse the catalog with ConvertFrom-Json, take the app's act row,
+# parse its inputSchema with ConvertFrom-Json, and assert exactly ONE "kind"
+# key AND that occurrence carries the declared enum.
+function Test-MergedAct([string]$app, [string]$kindsCsv, [string]$catalogText) {
+    try {
+        # Strict parse 1: the whole catalog must be valid JSON (a trailing
+        # comma anywhere in the merge throws here).
+        $cat = $catalogText | ConvertFrom-Json
+        $row = $cat.tools | Where-Object { $_.app -eq $app -and $_.name -eq "act" } | Select-Object -First 1
+        if ($row -eq $null) { return @{ ok = $false; why = "no act row"; detail = $catalogText } }
+        # Exactly ONE "kind" key - counted on the RAW embedded schema text
+        # (ConvertFrom-Json silently last-wins duplicate keys, so the count
+        # must happen on the raw bytes; "required":["kind",...] has no colon
+        # and is not counted).
+        $m = [regex]::Match($catalogText,
+            ('"app":"' + [regex]::Escape($app) + '","name":"act".*?"inputSchema":(\{.*?\}),"windowId"'))
+        if (-not $m.Success) { return @{ ok = $false; why = "no raw slice"; detail = $catalogText } }
+        $kindKeyCount = ([regex]::Matches($m.Groups[1].Value, '"kind"\s*:')).Count
+        # Strict parse 2: the parsed schema object must carry the declared
+        # enum on its (single) kind key.
+        $enumCsv = ($row.inputSchema.properties.kind.enum -join ",")
+        return @{ ok = ($kindKeyCount -eq 1 -and $enumCsv -eq $kindsCsv);
+                  why = ("kindKeys=" + $kindKeyCount + " enum=" + $enumCsv);
+                  detail = $m.Groups[1].Value }
+    } catch {
+        return @{ ok = $false; why = ("parse: " + $_.Exception.Message); detail = $catalogText }
+    }
+}
+
 $appOwn = New-Pipe 1 $true
 Send-ToolRegister $appOwn ('{"app":"fakegrid2","tools":[{"name":"act","description":"my act","inputSchema":{"type":"object","properties":{"kind":{"type":"string"},"row":{"type":"integer"}},"required":["kind","row"]}},{"name":"snapshot","description":"x","inputSchema":{"type":"object","properties":{}}}],' +
     '"cursor":{"type":"cell-grid","coordSpace":"client","origin":{"x":0,"y":0},"cellW":16,"cellH":16,"rows":4,"cols":4,"cursorOwner":"platform","act":{"kinds":["reveal","flag"],"gate":"ask"}}}')
 $ackOwn = Read-Frame $appOwn 3000
 Check "sm-ownact-register" ($ackOwn -ne $null -and $ackOwn.text -match '"ok":true') $ackOwn.text
+# kind already declared -> replace-in-place path (3a): exactly ONE kind key,
+# its object carries the declared enum, other schema members survive.
 $script:qid++
 SendQuery $agent $script:qid '{"tool":"list_app_tools","args":{}}'
 $cat2 = Read-Reply $agent $null $script:qid 5000 ""
-# The merged enum lives inside the kind schema object - match across the
-# whole catalog text.
-$mergedEnum = $cat2 -match '(?s)"app":"fakegrid2","name":"act".*?"kind":\{"type":"string","enum":\["reveal","flag"\]\}'
-Check "sm-ownact-enum-merged" $mergedEnum $cat2
+$t2 = Test-MergedAct "fakegrid2" "reveal,flag" $cat2
+Check "sm-ownact-enum-merged" $t2.ok ($t2.why + " | " + $t2.detail)
+
+# 3b-i: own act schema with EMPTY properties ({} -> no trailing comma) and no
+# kind key - the merge must yield strict-parseable JSON (round-1 emitted a
+# trailing comma, CLI JSON.parse failure class).
+$appOwn3 = New-Pipe 1 $true
+Send-ToolRegister $appOwn3 ('{"app":"fakegrid3","tools":[{"name":"act","description":"empty props","inputSchema":{"type":"object","properties":{}}}],' +
+    '"cursor":{"type":"cell-grid","coordSpace":"client","origin":{"x":0,"y":0},"cellW":16,"cellH":16,"rows":4,"cols":4,"cursorOwner":"platform","act":{"kinds":["reveal"],"gate":"ask"}}}')
+$ackOwn3 = Read-Frame $appOwn3 3000
+Check "sm-ownact3-register" ($ackOwn3 -ne $null -and $ackOwn3.text -match '"ok":true') $ackOwn3.text
+$script:qid++
+SendQuery $agent $script:qid '{"tool":"list_app_tools","args":{}}'
+$cat3 = Read-Reply $agent $null $script:qid 5000 ""
+$t3 = Test-MergedAct "fakegrid3" "reveal" $cat3
+Check "sm-ownact3-emptyprops-strict" $t3.ok ($t3.why + " | " + $t3.detail)
+
+# 3b-ii + NIT (string-aware properties locator): the act schema's description
+# text contains the literal "properties" and a { brace - the round-1 find()
+# entry point would have matched inside the string literal and injected into a
+# wrong object. The locator must skip string literals.
+$appOwn4 = New-Pipe 1 $true
+Send-ToolRegister $appOwn4 ('{"app":"fakegrid4","tools":[{"name":"act","description":"tricky","inputSchema":{"type":"object","description":"mentions \"properties\" and { here","properties":{"row":{"type":"integer"}}}}],' +
+    '"cursor":{"type":"cell-grid","coordSpace":"client","origin":{"x":0,"y":0},"cellW":16,"cellH":16,"rows":4,"cols":4,"cursorOwner":"platform","act":{"kinds":["reveal","question"],"gate":"ask"}}}')
+$ackOwn4 = Read-Frame $appOwn4 3000
+Check "sm-ownact4-register" ($ackOwn4 -ne $null -and $ackOwn4.text -match '"ok":true') $ackOwn4.text
+$script:qid++
+SendQuery $agent $script:qid '{"tool":"list_app_tools","args":{}}'
+$cat4 = Read-Reply $agent $null $script:qid 5000 ""
+$t4 = Test-MergedAct "fakegrid4" "reveal,question" $cat4
+Check "sm-ownact4-strlitprops" $t4.ok ($t4.why + " | " + $t4.detail)
 
 # --- move: absolute / relative / steps / bad_grid / bad_args -----------------
 function Move-Tool([string]$argsJson) {
@@ -284,35 +347,40 @@ $r = Move-Tool '{"steps":[{"dc":3},{"dr":50}]}'
 # from (8,0): dc 3 -> (8,3); dr 50 would pass the row boundary (8) and the run
 # stops there (first boundary). Echo = reached cell (8,3).
 Check "sm-move-steps-boundary" ($r -match '"ok":true' -and $r -match '"row":8' -and $r -match '"col":3') $r
-# MINOR-3: negative step delta is pre-validated server-side - bad_args with the
-# pre-move position echo (8,3, unchanged by the rejected run), nothing applied.
-$r = Move-Tool '{"steps":[{"dc":-50}]}'
-Check "sm-move-steps-neg" ($r -match '"ok":false' -and $r -match 'bad_args' -and $r -match '"row":8' -and $r -match '"col":3') $r
+# Fix round 2 ruling: negative step deltas are LEGAL movement (dr:-1 = up).
+$r = Move-Tool '{"steps":[{"dr":-5}]}'
+Check "sm-move-steps-neg-up" ($r -match '"ok":true' -and $r -match '"row":3' -and $r -match '"col":3') $r
+$r = Move-Tool '{"steps":[{"dc":-10}]}'
+Check "sm-move-steps-neg-clamp" ($r -match '"ok":true' -and $r -match '"row":3' -and $r -match '"col":0') $r
+# Only absurd magnitudes are pre-validated (|delta| > 1<<20) -> bad_args with
+# the pre-move echo (3,0), nothing applied.
+$r = Move-Tool '{"steps":[{"dr":-1048577}]}'
+Check "sm-move-steps-oversize" ($r -match '"ok":false' -and $r -match 'bad_args' -and $r -match '"row":3' -and $r -match '"col":0') $r
 $r = Move-Tool '{"steps":[{"dc":1}]}'
-Check "sm-move-steps-shortstep" ($r -match '"ok":true' -and $r -match '"row":8' -and $r -match '"col":4') $r
+Check "sm-move-steps-shortstep" ($r -match '"ok":true' -and $r -match '"row":3' -and $r -match '"col":1') $r
 $r = Move-Tool '{"steps":[]}'
-Check "sm-move-steps-empty" ($r -match '"ok":false' -and $r -match 'bad_args' -and $r -match '"row":8' -and $r -match '"col":4') $r
+Check "sm-move-steps-empty" ($r -match '"ok":false' -and $r -match 'bad_args' -and $r -match '"row":3' -and $r -match '"col":1') $r
 $r = Move-Tool '{}'
-Check "sm-move-noargs" ($r -match '"ok":false' -and $r -match 'bad_args' -and $r -match '"row":8' -and $r -match '"col":4') $r
+Check "sm-move-noargs" ($r -match '"ok":false' -and $r -match 'bad_args' -and $r -match '"row":3' -and $r -match '"col":1') $r
 
 # --- read: snapshot compose --------------------------------------------------
 $script:qid++
 SendQuery $agent $script:qid '{"tool":"app_tool","args":{"app":"fakegrid","tool":"read","args":{}}}'
 $rd = Read-Reply $agent $app $script:qid 8000 '{"ok":true,"board":["1","*","3"],"status":"playing"}'
-Check "sm-read-compose" ($rd -match '"ok":true' -and $rd -match '"cursor":\{"row":8,"col":4\}' -and $rd -match '"rows":9' -and $rd -match '"cols":9' -and $rd -match '"snapshot":\{"ok":true,"board"') $rd
+Check "sm-read-compose" ($rd -match '"ok":true' -and $rd -match '"cursor":\{"row":3,"col":1\}' -and $rd -match '"rows":9' -and $rd -match '"cols":9' -and $rd -match '"snapshot":\{"ok":true,"board"') $rd
 
 # --- NIT-5: app answers ok=1 with an EMPTY result -> snapshot "unknown" -------
 $script:qid++
 SendQuery $agent $script:qid '{"tool":"app_tool","args":{"app":"fakegrid","tool":"read","args":{}}}'
 $rdEmpty = Read-Reply $agent $app $script:qid 8000 ''
-Check "sm-read-empty-unknown" ($rdEmpty -match '"ok":true' -and $rdEmpty -match '"snapshot":"unknown"' -and $rdEmpty -match '"cursor":\{"row":8,"col":4\}') $rdEmpty
+Check "sm-read-empty-unknown" ($rdEmpty -match '"ok":true' -and $rdEmpty -match '"snapshot":"unknown"' -and $rdEmpty -match '"cursor":\{"row":3,"col":1\}') $rdEmpty
 
 # --- read failure: app answers ok=0 -> cursor + explicit error ---------------
 $script:appFailOnce = $true
 $script:qid++
 SendQuery $agent $script:qid '{"tool":"app_tool","args":{"app":"fakegrid","tool":"read","args":{}}}'
 $rdFail = Read-Reply $agent $app $script:qid 8000 '{"ok":true,"board":["1"]}'
-Check "sm-read-fail-compose" ($rdFail -match '"ok":false' -and $rdFail -match '"error":"snapshot_failed"' -and $rdFail -match '"detail":\{"error":"board_gone"\}' -and $rdFail -match '"cursor":\{"row":8,"col":4\}') $rdFail
+Check "sm-read-fail-compose" ($rdFail -match '"ok":false' -and $rdFail -match '"error":"snapshot_failed"' -and $rdFail -match '"detail":\{"error":"board_gone"\}' -and $rdFail -match '"cursor":\{"row":3,"col":1\}') $rdFail
 
 # --- read timeout: silent cursor app -> composed tool_timeout ----------------
 $appSilent = New-Pipe 1 $true
@@ -423,6 +491,8 @@ Check "sm-deny-move-after-restore" ($r -match '"ok":true' -and $r -match '"row":
 # --- cleanup ------------------------------------------------------------------
 $app.Dispose()
 $appOwn.Dispose()
+$appOwn3.Dispose()
+$appOwn4.Dispose()
 $agent.Dispose()
 Write-Host ("RESULT: " + ($(if ($script:fail -eq 0) { "ALL PASS" } else { "FAIL " + $script:fail })))
 exit ($script:fail)

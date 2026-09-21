@@ -5774,7 +5774,34 @@ static std::string MoveErrorReply(const JKSemanticCursor& cur,
 // 보존 — 스키마는 2KiB 상한이라 상수 비용). 병합 불가(비객체 스키마/결과
 // 2KiB 초과)면 스키마를 그대로 둔다 — 등록 실패로 끌어내리지 않는다(선언
 // 자체는 유효).
+// fix round 2: 전 구간 문자열 인지 스캔으로 재작성 — (NIT) 라운드 1의
+// find("properties") 진입점은 스키마 문자열 리터럴 내부의 "properties"/"{"
+// (description 텍스트 등)를 착진했고, (MAJOR) kind 키 스캔은 여는 따옴표를
+// 먼저 소비한 뒤 테스트하는 순서라 도달 불가 — kind 선언 스키마에
+// 중복 "kind" 키를 주입(JSON.parse last-wins로 앱 원 enum 승리, 선언
+// kinds 유실). 키 검사는 따옴표 소비 전에 수행하고, 라운드 2에서
+// 빈 properties 삽입 시 쉼표를 생략(트레일링 콤마 → CLI JSON.parse
+// 파산 방지, docs/59 §12). 위치가 어긋나면(닫힘 불가/비객체 값) 무변경.
 // schema는 in/out(참조 치환). kinds는 이미 검증 토큰(ValidAppToolToken).
+static size_t JsonMatchBrace(const std::string& s, size_t i) {
+    const char open = s[i];
+    const char close = (open == '{') ? '}' : ']';
+    int depth = 0;
+    bool inStr = false;
+    for (; i < s.size(); ++i) {
+        char c = s[i];
+        if (inStr) {
+            if (c == '\\') { ++i; continue; }
+            if (c == '"') inStr = false;
+            continue;
+        }
+        if (c == '"') { inStr = true; continue; }
+        if (c == open) ++depth;
+        else if (c == close && --depth == 0) return i;
+    }
+    return std::string::npos;
+}
+
 static void InjectKindsEnum(std::string& schema,
                             const std::vector<std::string>& kinds) {
     std::string kindObj = "{\"type\":\"string\",\"enum\":[";
@@ -5784,70 +5811,92 @@ static void InjectKindsEnum(std::string& schema,
     }
     kindObj += "]}";
 
-    // 문자열 리터럴을 건너뛰는 브레이스 매처 — i는 '{' 또는 '[' 위.
-    auto matchBrace = [](const std::string& s, size_t i) -> size_t {
-        const char open = s[i];
-        const char close = (open == '{') ? '}' : ']';
-        int depth = 0;
-        bool inStr = false;
-        for (; i < s.size(); ++i) {
-            char c = s[i];
-            if (inStr) {
-                if (c == '\\') { ++i; continue; }
-                if (c == '"') inStr = false;
-                continue;
-            }
-            if (c == '"') { inStr = true; continue; }
-            if (c == open) ++depth;
-            else if (c == close && --depth == 0) return i;
-        }
-        return std::string::npos;
-    };
+    // 1) 루트 객체 확인 — 비객체 스키마는 무변경(잘못된 대상에 주입 금지).
+    const size_t start = schema.find_first_not_of(" \t\r\n");
+    if (start == std::string::npos || schema[start] != '{') return;
 
-    // 1) "properties" 객체 위치.
-    size_t p = schema.find("\"properties\"");
-    size_t propsOpen, propsClose;
-    if (p == std::string::npos) {
-        // properties 없는(비객체 포함) 스키마 — 표준 형태로 전면 교체.
-        schema = "{\"type\":\"object\",\"properties\":{\"kind\":" + kindObj +
-                 "},\"required\":[\"kind\",\"row\",\"col\"]}";
-        return;
-    }
-    p = schema.find('{', p);
-    if (p == std::string::npos) return;
-    propsOpen = p;
-    propsClose = matchBrace(schema, propsOpen);
-    if (propsClose == std::string::npos) return;
-
-    // 2) props 깊이 1에서 "kind" 키 탐색.
-    size_t kindOpen = std::string::npos, kindClose = std::string::npos;
+    // 2) 문자열 인지 루트 스캔 — 루트 직속(깊이 1) 키 중 "properties" 탐색.
+    //    스키마 내부 문자열 리터럴(예: description에 든 "properties")은
+    //    inStr로 건너뛴다.
+    size_t propsOpen = std::string::npos, propsClose = std::string::npos;
     {
-        int depth = 0;
+        int depth = 1;
         bool inStr = false;
-        for (size_t i = propsOpen + 1; i < propsClose; ++i) {
+        for (size_t i = start + 1; i < schema.size(); ++i) {
             char c = schema[i];
             if (inStr) {
                 if (c == '\\') { ++i; continue; }
                 if (c == '"') inStr = false;
                 continue;
             }
-            if (c == '"') { inStr = true; continue; }
-            if (c == '{') { ++depth; continue; }
-            if (c == '}') { --depth; continue; }
-            if (depth == 0 && c == '"' && i + 6 < propsClose &&
-                schema.compare(i, 6, "\"kind\"") == 0) {
-                size_t v = schema.find(':', i + 6);
-                if (v == std::string::npos) return;
-                do { ++v; } while (v < propsClose &&
-                                   (schema[v] == ' ' || schema[v] == '\t'));
-                if (v >= propsClose || schema[v] != '{') return;
-                kindOpen = v;
-                kindClose = matchBrace(schema, kindOpen);
-                if (kindClose == std::string::npos ||
-                    kindClose >= propsClose)
-                    return;
-                break;
+            if (c == '"') {
+                if (depth == 1 && i + 12 <= schema.size() &&
+                    schema.compare(i, 12, "\"properties\"") == 0) {
+                    size_t v = schema.find(':', i + 12);
+                    if (v == std::string::npos) return;
+                    do { ++v; }
+                    while (v < schema.size() &&
+                           (schema[v] == ' ' || schema[v] == '\t'));
+                    if (v >= schema.size() || schema[v] != '{') return;
+                    propsOpen = v;
+                    propsClose = JsonMatchBrace(schema, propsOpen);
+                    if (propsClose == std::string::npos) return;
+                    break;
+                }
+                inStr = true;
+                continue;
             }
+            if (c == '{' || c == '[') ++depth;
+            else if (c == '}' || c == ']') {
+                --depth;
+                if (depth == 0) break;   // 루트 종료
+            }
+        }
+    }
+    if (propsOpen == std::string::npos) {
+        // properties 없는(루트 객체는 확인된) 스키마 — 표준 형태로 전면 교체.
+        schema = "{\"type\":\"object\",\"properties\":{\"kind\":" + kindObj +
+                 "},\"required\":[\"kind\",\"row\",\"col\"]}";
+        return;
+    }
+
+    // 3) props 직속(상대 깊이 0) 키 중 "kind" 탐색 — 키 검사는 따옴표를
+    //    소비하기 전에(라운드 1 결함: 소비 후 검사라 도달 불가).
+    size_t kindOpen = std::string::npos, kindClose = std::string::npos;
+    bool propsEmpty = true;
+    {
+        int depth = 0;
+        bool inStr = false;
+        for (size_t i = propsOpen + 1; i < propsClose; ++i) {
+            char c = schema[i];
+            if (!inStr && c != ' ' && c != '\t' && c != '\r' && c != '\n')
+                propsEmpty = false;
+            if (inStr) {
+                if (c == '\\') { ++i; continue; }
+                if (c == '"') inStr = false;
+                continue;
+            }
+            if (c == '"') {
+                if (depth == 0 && i + 6 <= propsClose &&
+                    schema.compare(i, 6, "\"kind\"") == 0) {
+                    size_t v = schema.find(':', i + 6);
+                    if (v == std::string::npos || v >= propsClose) return;
+                    do { ++v; }
+                    while (v < propsClose &&
+                           (schema[v] == ' ' || schema[v] == '\t'));
+                    if (v >= propsClose || schema[v] != '{') return;
+                    kindOpen = v;
+                    kindClose = JsonMatchBrace(schema, kindOpen);
+                    if (kindClose == std::string::npos ||
+                        kindClose >= propsClose)
+                        return;
+                    break;
+                }
+                inStr = true;
+                continue;
+            }
+            if (c == '{') ++depth;
+            else if (c == '}') --depth;
         }
     }
     std::string out;
@@ -5856,8 +5905,12 @@ static void InjectKindsEnum(std::string& schema,
         // 통일 — 카탈로그는 서버가 아는 진실원).
         out = schema.substr(0, kindOpen) + kindObj +
               schema.substr(kindClose + 1);
+    } else if (propsEmpty) {
+        // 3b-i) 빈 properties — 뒤 내용이 없어 쉼표 없이(트레일링 콤마 금지).
+        out = schema.substr(0, propsOpen + 1) + "\"kind\":" + kindObj +
+              schema.substr(propsClose);
     } else {
-        // 3b) kind 부재 — props 머리에 주입.
+        // 3b-ii) kind 부재 — props 머리에 주입(뒤 내용이 있으므로 쉼표).
         out = schema.substr(0, propsOpen + 1) + "\"kind\":" + kindObj + "," +
               schema.substr(propsOpen + 1);
     }
@@ -6398,11 +6451,15 @@ bool JKWindowServer::HandleCursorAppTool(JKClientConnection& client,
                 int dr = 0, dc = 0;
                 a.GetArrInt("steps", i, "dr", dr);
                 a.GetArrInt("steps", i, "dc", dc);
-                // MINOR-3 (fix round 1): 전 스텝 사전 검증 — 음수/과대 델타는
-                // 무적용 bad_args(원자성: RunSteps 도중의 부분 적용이 요청자에
-                // 보이지 않게 한다). 클래스 자체 가드는 유지(이중 방어).
-                if (dr < 0 || dc < 0 || dr > kCursorMaxDelta ||
-                    dc > kCursorMaxDelta) {
+                // MINOR-3 (fix round 1) → 룰링 정정 (fix round 2): 스텝
+                // 형식의 음수 델타는 정상 이동(dr:-1 = 위, dc:-1 = 왼쪽 —
+                // RunSteps가 경계 클램프). 사전 검증은 과대 크기만 —
+                // |dr|/|dc| > 1<<20은 무적용 bad_args(원자성: RunSteps
+                // 도중의 부분 적용이 요청자에 보이지 않게 한다). abs(INT_MIN)
+                // 오버플로를 피하려 abs() 대신 부호 있는 비교. 클래스 자체
+                // 가드는 유지(이중 방어).
+                if (dr > kCursorMaxDelta || dr < -kCursorMaxDelta ||
+                    dc > kCursorMaxDelta || dc < -kCursorMaxDelta) {
                     reply = MoveErrorReply(m->cursorState, "bad_args");
                     return true;
                 }
