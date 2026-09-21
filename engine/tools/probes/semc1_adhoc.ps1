@@ -15,6 +15,8 @@
 # CreateSurface) since fix round 1 rejects cursor declarations from
 # control-only connections. Helper functions are copied from
 # probe_app_tools.ps1 (raw pipe idiom, PS5.1 argv trap workaround).
+# Task 2 update: the parked act approval_request name is the banner form
+# "<app>.<kind> at (r,c)" (semc2_adhoc.ps1 covers the full act relay set).
 $ErrorActionPreference = "Continue"
 $exe = "I:\progwork\JKENGINE\engine\build\jkdesktop.exe"
 $root = Split-Path $exe
@@ -441,14 +443,16 @@ Check "sm-reject-controlonly" ($rejCtl -ne $null -and $rejCtl.text -match '"ok":
 $script:qid++
 SendQuery $agent $script:qid '{"tool":"app_tool","args":{"app":"fakegrid","tool":"act","args":{"kind":"flag","row":3,"col":5}}}'
 # drain events until the approval_request lands (app_tools_changed from the
-# silent-app registration can arrive first).
+# silent-app registration can arrive first). Task 2: the parked act carries
+# the banner name "<app>.<kind> at (r,c)" (spec 2026-09-22-semantic-cursor
+# §3/§8) - the pre-Task-2 name was "fakegrid.act".
 $ev = $null
 $evSw = [System.Diagnostics.Stopwatch]::StartNew()
 while ($evSw.ElapsedMilliseconds -lt 10000) {
     $f = Read-Frame $agent 300
     if ($f -ne $null -and $f.type -eq 20 -and
         $f.text -match '"topic":"agent.approval_request"' -and
-        $f.text -match '"name":"fakegrid.act"') { $ev = $f; break }
+        $f.text -match '"name":"fakegrid.flag at \(3,5\)"') { $ev = $f; break }
 }
 $okPark = ($ev -ne $null -and $ev.text -match '"kind":"app_tool"')
 $reqId = 0

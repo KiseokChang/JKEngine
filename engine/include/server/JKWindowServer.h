@@ -122,8 +122,11 @@ private:
     // 의미 커서 (스펙 2026-09-22-semantic-cursor §3): 앱 도구 릴레이에서 커서
     // 선언 앱의 합성 도구를 인터셉트한다 — move는 플랫폼 동기 구현(JKSemanticCursor
     // 상태 갱신+에코), read는 앱 snapshot 중계를 시작하고 HandleToolResult가
-    // 커서 헤더를 조립해 회송한다(composeCursorRead). act는 인터셉트하지 않고
-    // 기존 릴레이로 간다(게이트만 ask 기본). true = 이 호출의 응답 책임을
+    // 커서 헤더를 조립해 회송한다(composeCursorRead). act는 인터셉트해 서버
+    // 측 사전 검증(kind가 선언 enum 밖/인자 누락 = bad_args, 격자 밖 =
+    // bad_grid — 앱 도달 전)만 하고 false를 돌려 기존 릴레이로 간다(게이트
+    // ask 기본+파킹; 유효 요청은 kind/row/col 원문 패스스루). true = 이
+    // 호출의 응답 책임을
     // 가져갔다(reply 확정 또는 replied=false). clientsMutex_ 보유 경로 전용.
     bool HandleCursorAppTool(JKClientConnection& client, uint32_t queryId,
                              const std::string& app,
@@ -141,6 +144,14 @@ private:
     // 선언 매니페스트. 복수 인스턴스 = 첫 매칭(창 단위 소비자는 windowId로
     // 변별). clientsMutex_ 보유 경로 전용(레슨 35).
     const AppToolManifest* SemanticCursorFor(const std::string& app) const;
+    struct PendingApproval;   // § 멤버 블록 — CursorActStale 매개변수 자리의
+                              // 전방선언(InflightAppTool 선례)
+    // 의미 커서 (스펙 2026-09-22-semantic-cursor §3): 승인 시점 재선언
+    // 재검증 — 파킹 시 고정한 셀 rect를 최신 선언으로 재산출해 비교한다.
+    // 선언 소실(앱이 cursor 블록을 뺀 재등록)/격자 밖/rect 불일치 = true
+    // (거부). 선언 불변 = rect 항등(무변경 통과). clientsMutex_ 보유 경로
+    // 전용(승인 resolve — HandleAgentQuery 호출사슬, 락을 잡지 않는다).
+    bool CursorActStale(const AppToolManifest& m, const PendingApproval& p) const;
     // 파킹 플러드 상한 (docs/56 §2b 백로그): 요청자별 미해결 승인 수가 상한에
     // 도달했는가 — 초과 요청은 파킹하지 않고 approval_overflow로 거부한다
     // (에이전트가 승인 스트립을 도배하는 노출 봉쇄; 파킹 종류 전체 공유).
@@ -324,6 +335,17 @@ private:
         // ExecuteSendInputOp를 다시 태운다(files_access의 파킹-재실행 선례,
         // app_toolArgs의 원문-보관 선례).
         std::string sendArgs;        // send_input: args 원문 JSON (패스스루)
+        // 의미 커서 (스펙 2026-09-22-semantic-cursor §3): 커서 선언 앱의 act
+        // 파킹 — 파킹 시점에 최신 선언으로 셀 rect를 고정한다(배너 문구
+        // "<app>.<kind> at (r,c)"와 승인 하이라이트의 진실원). 승인 시점에
+        // 재선언으로 격자/기하가 바뀌면 CursorActStale 재검증에서 거부한다 —
+        // 배너가 보여준 칸과 다른 칸을 때리는 승인 봉쇄(files_access의 승인
+        // 시점 재검증 선례). act 파킹만 설정(semCell=false = 기존 app_tool).
+        bool semCell = false;      // act 파킹(커서 선언 앱) 여부
+        std::string semKind;       // act kind (선언 enum 검증 토큰)
+        int semRow = 0, semCol = 0;
+        int semRectX = 0, semRectY = 0;  // 셀 rect (client 좌표 — 스펙 §2 좌표계)
+        int semRectW = 0, semRectH = 0;  // cellW/cellH (rect 크기 진실원)
     };
     std::vector<PendingApproval> pendingApprovals_;
     uint32_t nextApprovalId_ = 1;

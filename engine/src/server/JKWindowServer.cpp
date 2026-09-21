@@ -3129,8 +3129,10 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         // 의미 커서 (스펙 2026-09-22-semantic-cursor §3): 커서 선언 앱의
         // <app>.move/read는 플랫폼 구현 — 릴레이 체인 전에 인터셉트한다
         // (move 동기 에코 / read는 snapshot 중계+커서 헤더 조립 지연응답).
-        // 미선언 앱과 act는 false를 돌려 기존 릴레이 경로가 그대로 간다.
-        if ((toolName == "move" || toolName == "read") &&
+        // act도 인터셉트해 사전 검증(kind enum/인자/격자)만 하고 — 유효
+        // 요청은 false를 돌려 기존 릴레이 경로가 그대로 간다(kind/row/col
+        // 원문, 게이트 ask 기본). 미선언 앱은 false(기존 릴레이).
+        if ((toolName == "move" || toolName == "read" || toolName == "act") &&
             HandleCursorAppTool(client, queryId, app, toolName, argsRaw,
                                 reply, replied)) {
             // 인터셉트됨 — 응답 완료(move) 또는 중계 지연(read).
@@ -3312,6 +3314,43 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                                 // 삼는다 — 그리는 쪽에서 app/tool을 다시 조립하지
                                 // 않게 app+"."+tool을 파킹 시점에 확정.
                                 p.name = app + "." + toolName;
+                                // 의미 커서 (스펙 2026-09-22-semantic-cursor
+                                // §3 act, Task 2): 파킹 시점에 최신 선언으로
+                                // 셀 rect를 고정한다 — 배너 문구
+                                // "<app>.<kind> at (r,c)"와 승인 하이라이트의
+                                // 진실원. 유효성(kind enum/인자/격자 내)은
+                                // HandleCursorAppTool이 앱 도달 전 검증하므로
+                                // 이 분기는 항상 성공한다(파싱 실패 시 기존
+                                // <app>.<tool> 유지 — 방어적 폴백, rect 고정
+                                // 없이는 승인 시점 재검증이 선언 불변으로
+                                // 통과시켜 릴레이가 원문을 때리므로 안전).
+                                if (m->cursor.valid && toolName == "act") {
+                                    jk::agent::AgentJson a(argsRaw.empty()
+                                                               ? "{}"
+                                                               : argsRaw);
+                                    std::string kind;
+                                    int row = 0, col = 0;
+                                    if (a.GetStr("kind", kind) &&
+                                        a.GetInt("row", row) &&
+                                        a.GetInt("col", col)) {
+                                        p.semCell = true;
+                                        p.semKind = kind;
+                                        p.semRow = row;
+                                        p.semCol = col;
+                                        p.semRectX =
+                                            m->cursor.originX +
+                                            col * m->cursor.cellW;
+                                        p.semRectY =
+                                            m->cursor.originY +
+                                            row * m->cursor.cellH;
+                                        p.semRectW = m->cursor.cellW;
+                                        p.semRectH = m->cursor.cellH;
+                                        p.name = app + "." + kind +
+                                                 " at (" +
+                                                 std::to_string(row) + "," +
+                                                 std::to_string(col) + ")";
+                                    }
+                                }
                                 p.appToolApp = app;
                                 p.appToolTool = toolName;
                                 p.appToolArgs = argsRaw;
@@ -3344,15 +3383,14 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                                               "{\"topic\":\"agent.approval_request\","
                                               "\"request\":%u,\"tool\":\"app_tool\","
                                               "\"kind\":\"app_tool\","
-                                              "\"name\":\"%s.%s\","
+                                              "\"name\":\"%s\","
                                               "\"target_id\":%u,\"title\":\"%s\","
                                               "\"target\":{\"app\":\"%s\","
                                               "\"tool\":\"%s\",\"windowId\":%u,"
                                               "\"title\":\"%s\"}"
                                               "%s%s%s,"
                                               "\"ts\":%lld}",
-                                              p.requestId, JsonEsc(app).c_str(),
-                                              JsonEsc(toolName).c_str(),
+                                              p.requestId, JsonEsc(p.name).c_str(),
                                               m->windowId,
                                               JsonEsc(m->title).c_str(),
                                               JsonEsc(app).c_str(),
@@ -5417,6 +5455,17 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                             // 앱이 아니라 슬롯 진실원 pendingFileDialog_
                             // .dialogConnId가 한다.
                             result = "{\"ok\":false,\"error\":\"tool_gone\"}";
+                        } else if (it->semCell &&
+                                   CursorActStale(mit->second, *it)) {
+                            // 의미 커서 (스펙 2026-09-22-semantic-cursor §3
+                            // act, Task 2): 승인 시점 재선언 재검증 — 파킹 시
+                            // 고정한 셀 rect가 최신 선언과 어긋나면(재선언으로
+                            // 격자/기하가 바뀜) 승인해도 배너가 보여준 칸과
+                            // 다른 칸을 때린다 — 거부(files_access의 승인
+                            // 시점 재검증 선례). 해소 기록은 아래 공통 경로의
+                            // approval_resolved 이벤트가 계속 발행해 보인다.
+                            result =
+                                "{\"ok\":false,\"error\":\"bad_grid\"}";
                         } else {
                             const uint32_t reqId = nextToolReqId_++;
                             InflightAppTool inf;
@@ -6374,7 +6423,11 @@ AgentDecision JKWindowServer::AppToolAllowed(const std::string& app,
 //          상태 불변). 앱 연결 무접촉(앱 무응답에도 이동 성립 — 스펙 §5).
 //   read — 플랫폼 조립(비동기): 앱의 snapshot app_tool 중계를 시작하고
 //          HandleToolResult가 커서 헤더를 붙여 회송한다(composeCursorRead).
-//   act  — 인터셉트 안 한다(false → 기존 릴레이; 게이트만 ask 기본).
+//   act  — 사전 검증만(스펙 §3 act, Task 2): kind가 선언 enum 밖/인자 누락 =
+//          bad_args, 격자 밖 인덱스 = bad_grid(요청 칸 에코) — 앱 도달 전
+//          거부(앱이 자체 act를 등록한 경로도 선언 enum으로 검증한다).
+//          유효 요청은 false → 기존 릴레이(kind/row/col 원문 패스스루,
+//          게이트 ask 기본+파킹 시 셀 rect 고정).
 bool JKWindowServer::HandleCursorAppTool(JKClientConnection& client,
                                          uint32_t queryId,
                                          const std::string& app,
@@ -6431,6 +6484,38 @@ bool JKWindowServer::HandleCursorAppTool(JKClientConnection& client,
     if (AppToolAllowed(app, toolName) == AgentDecision::Deny) {
         reply = "{\"ok\":false,\"error\":\"denied\"}";
         return true;
+    }
+    if (toolName == "act") {
+        // 스펙 §3 act (Task 2): 앱 도달 전 서버 검증 — 릴레이는 args를 원문
+        // 패스스루하므로 유효 요청의 kind/row/col은 무변화(위장 개입 금지).
+        // 거절만 여기서 흡수한다(에코 규약 — 격자 밖은 요청 칸을 실어 회신).
+        jk::agent::AgentJson a(argsRaw.empty() ? "{}" : argsRaw);
+        std::string kind;
+        int row = 0, col = 0;
+        if (!a.GetStr("kind", kind) || !a.GetInt("row", row) ||
+            !a.GetInt("col", col)) {
+            reply = "{\"ok\":false,\"error\":\"bad_args\"}";
+            return true;
+        }
+        bool known = false;
+        for (const std::string& k : m->cursor.actKinds) {
+            if (k == kind) { known = true; break; }
+        }
+        if (!known) {
+            // 선언 enum 밖 kind — 앱(게임 전이 소유자)이 아닌 서버가 거부.
+            reply = "{\"ok\":false,\"error\":\"bad_args\"}";
+            return true;
+        }
+        if (row < 0 || row >= m->cursorState.Rows() ||
+            col < 0 || col >= m->cursorState.Cols()) {
+            // 격자 밖 인덱스 — 파킹해도 셀 rect를 고정할 수 없다(스펙 §3 act).
+            // 인자는 도달했으니 요청 칸을 에코(MINOR-2 move 에코 선례).
+            reply = "{\"ok\":false,\"error\":\"bad_grid\",\"row\":" +
+                    std::to_string(row) + ",\"col\":" + std::to_string(col) +
+                    "}";
+            return true;
+        }
+        return false;   // 유효 — 기존 릴레이(파킹/중계)가 그대로 간다
     }
     if (toolName == "move") {
         // 게이트 없음(none-allow, window_move 분류 — 스펙 §3 무해 이동;
@@ -6577,6 +6662,31 @@ const JKWindowServer::AppToolManifest* JKWindowServer::SemanticCursorFor(
         if (kv.second.app == app && kv.second.cursor.valid) return &kv.second;
     }
     return nullptr;
+}
+
+// 의미 커서 (스펙 2026-09-22-semantic-cursor §3): 승인 시점 재선언 재검증
+// (Task 2) — 파킹 시 고정한 셀 rect를 최신 선언으로 재산출해 비교한다.
+// - 선언 소실(앱이 cursor 블록을 뺀 재등록): 파킹 때 승인받은 계약이 사라졌다
+//   — 거부(배너가 보여준 칸이 이제 어느 칸인지 앱이 알 바 없다).
+// - 격자 밖(row/col이 새 격자를 벗어남): rect 산출 불가 — 거부.
+// - rect 불일치(origin/cell 크기가 바뀜): 배너가 가리킨 픽셀 칸이 아니다 —
+//   거부. 격자 변경만으로는 거부하지 않는다(스펙 §3 — "재검증 후 어긋나면
+//   거부"): 재선언이 기하를 그대로 두면 rect 항등이라 통과한다.
+// clientsMutex_ 보유 경로 전용(승인 resolve — HandleAgentQuery 호출사슬,
+// 락을 잡지 않는다 — 레슨 35).
+bool JKWindowServer::CursorActStale(const AppToolManifest& m,
+                                    const PendingApproval& p) const {
+    if (!m.cursor.valid) {
+        return true;
+    }
+    if (p.semRow < 0 || p.semRow >= m.cursor.rows ||
+        p.semCol < 0 || p.semCol >= m.cursor.cols) {
+        return true;
+    }
+    const int x = m.cursor.originX + p.semCol * m.cursor.cellW;
+    const int y = m.cursor.originY + p.semRow * m.cursor.cellH;
+    return x != p.semRectX || y != p.semRectY ||
+           m.cursor.cellW != p.semRectW || m.cursor.cellH != p.semRectH;
 }
 
 // 파킹 플러드 상한 (docs/56 §2b): 요청자(connection id)별 미해결 승인 상한.
