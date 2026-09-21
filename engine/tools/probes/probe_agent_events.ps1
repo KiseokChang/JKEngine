@@ -3,9 +3,11 @@
 # has topic/source/fields, stats keys (fired/last_ts) present, subscribers
 # is a number, window.created present (server-internal topic, always
 # cataloged) and its fired reflects at least one spawn in this probe run.
-# 4b (task-1, docs/57 §12.6 ⑦): window.focused debounce — re-focus of the
-# already-focused id must NOT re-push (old code: +2 per re-focus), a real
-# focus change must still push (+1).
+# 4b (task-1 round 1, docs/57 §12.6 ⑦): window.focused debounce on
+# lastFocusedPushed_ — same-id re-focus must NOT re-push (old code: +2 per
+# re-focus), a focus change must push (+1), and a spawned window's FIRST
+# explicit focus_window must push (+1 — intake focuses without a push) with
+# its immediate re-focus flat.
 # Run from engine/: powershell -File tools/probes/probe_agent_events.ps1
 # PowerShell 5.1 compatible.
 
@@ -72,46 +74,75 @@ $after = ($raw2.events | Where-Object { $_.topic -eq 'window.created' }).fired
 $statOk = ($launch.ok -eq $true) -and ($after -gt $before)
 Write-Output ("live-stats(spawn: fired {0}→{1}): {2}" -f $before, $after, $(if ($statOk) {'PASS'} else {'FAIL'}))
 
-# --- 4b. window.focused debounce (task-1) ---------------------------------
-#     Discriminator: two focus_window calls on the ALREADY-focused id must
-#     leave the fired counter flat (old code pushed on every FocusClient
-#     call: +2). Counts are read immediately around the calls — the live
-#     desktop is a real user desktop, so the window is kept tight.
+# --- 4b. window.focused debounce, last-pushed-id (task-1 + round 1) -------
+#     FocusClient debounces on lastFocusedPushed_ (the id actually pushed
+#     last), not focusedClientId_: spawn intake focuses the new window
+#     WITHOUT a push (client not in the table yet), so a focusedClientId_-
+#     based debounce swallowed the spawned window's first explicit focus.
+#     Contract: same-id re-focus = flat (old pre-debounce code: +2 per call),
+#     focus change = +1, spawned window's FIRST explicit focus_window = +1
+#     then its immediate re-focus = flat. Counts are read immediately around
+#     the calls — the live desktop is a real user desktop, keep it tight.
 function Get-FocusedFired {
     $r = Invoke-Ctl '{"tool":"events_list","args":{}}' | ConvertFrom-Json
     return [int]($r.events | Where-Object { $_.topic -eq 'window.focused' }).fired
 }
 $fl = Invoke-Ctl '{"tool":"list_windows","args":{}}' | ConvertFrom-Json
 $cur = $fl.windows | Where-Object { $_.focused } | Select-Object -First 1
-if (-not $cur) {
-    # No focused window (edge): establish one first — that focus CHANGE is
-    # allowed to push, so re-baseline the counter afterwards.
-    $cur = $fl.windows | Select-Object -First 1
+if (-not $cur) { $cur = $fl.windows | Select-Object -First 1 }
+$debOk = ($null -ne $cur)
+if ($debOk) {
+    # Establish: the FIRST explicit focus on an intake-focused window is
+    # allowed to push (lastFocusedPushed_ not there yet) — re-baseline after
+    # it, then the x2 same-id re-focus must be flat.
     [void](Invoke-Ctl ('{"tool":"focus_window","args":{"id":' + $cur.id + '}}'))
     Start-Sleep -Milliseconds 300
+    $f0 = Get-FocusedFired
+    [void](Invoke-Ctl ('{"tool":"focus_window","args":{"id":' + $cur.id + '}}'))
+    [void](Invoke-Ctl ('{"tool":"focus_window","args":{"id":' + $cur.id + '}}'))
+    $f1 = Get-FocusedFired
+    $debOk = ($f1 -eq $f0)
+    Write-Output ("refocus-debounce(same id x2: fired {0}->{1}): {2}" -f $f0, $f1, $(if ($debOk) {'PASS'} else {'FAIL'}))
+} else {
+    Write-Output "refocus-debounce: FAIL (no windows)"
 }
-$f0 = Get-FocusedFired
-[void](Invoke-Ctl ('{"tool":"focus_window","args":{"id":' + $cur.id + '}}'))
-[void](Invoke-Ctl ('{"tool":"focus_window","args":{"id":' + $cur.id + '}}'))
-$f1 = Get-FocusedFired
-$debOk = ($null -ne $cur) -and ($f1 -eq $f0)
-Write-Output ("refocus-debounce(same id x2: fired {0}->{1}): {2}" -f $f0, $f1, $(if ($debOk) {'PASS'} else {'FAIL'}))
 
-#     Focus CHANGE must still push. Spawn a 2nd minesweeper: its intake focus
-#     sets focusedClientId_ without a push (client not in the client table
-#     yet — pre-existing), then re-focusing window 1 is a real id change →
-#     exactly one window.focused push.
+#     Spawned-window edge + focus CHANGE. Spawn a 2nd minesweeper: its intake
+#     focus sets focusedClientId_ without a push (client not in the table yet
+#     — pre-existing). Under the last-pushed debounce: the FIRST explicit
+#     focus_window on the spawned window pushes (+1 — the edge the earlier
+#     focusedClientId_-based debounce swallowed), its immediate re-focus is
+#     flat (+0), and focusing window 1 back is a real id change → +1.
 $spawn2 = Invoke-Ctl '{"tool":"launch_app","args":{"app":"minesweeper"}}' | ConvertFrom-Json
 Start-Sleep -Seconds 3
 $chgOk = ($spawn2.ok -eq $true)
+$edgeOk = $false
+$f2 = $f1
 if ($chgOk) {
-    [void](Invoke-Ctl ('{"tool":"focus_window","args":{"id":' + $cur.id + '}}'))
-    Start-Sleep -Milliseconds 500
-    $f2 = Get-FocusedFired
-    $chgOk = ($f2 -eq ($f1 + 1))
-    Write-Output ("focus-change-push(2nd spawn + refocus: fired {0}->{1}): {2}" -f $f1, $f2, $(if ($chgOk) {'PASS'} else {'FAIL'}))
+    $fl2 = Invoke-Ctl '{"tool":"list_windows","args":{}}' | ConvertFrom-Json
+    $spawned = $fl2.windows | Where-Object { $_.focused } | Select-Object -First 1
+    $edgeOk = ($null -ne $spawned)
+    if ($edgeOk) {
+        [void](Invoke-Ctl ('{"tool":"focus_window","args":{"id":' + $spawned.id + '}}'))
+        Start-Sleep -Milliseconds 500
+        $f3 = Get-FocusedFired
+        $edgeOk = ($f3 -eq ($f2 + 1))
+        Write-Output ("spawn-first-focus-push(spawned id {0}: fired {1}->{2}): {3}" -f $spawned.id, $f2, $f3, $(if ($edgeOk) {'PASS'} else {'FAIL'}))
+        [void](Invoke-Ctl ('{"tool":"focus_window","args":{"id":' + $spawned.id + '}}'))
+        Start-Sleep -Milliseconds 300
+        $f4 = Get-FocusedFired
+        $edgeOk = $edgeOk -and ($f4 -eq $f3)
+        Write-Output ("spawn-refocus-debounce(same id again: fired {0}->{1}): {2}" -f $f3, $f4, $(if ($f4 -eq $f3) {'PASS'} else {'FAIL'}))
+        [void](Invoke-Ctl ('{"tool":"focus_window","args":{"id":' + $cur.id + '}}'))
+        Start-Sleep -Milliseconds 500
+        $f5 = Get-FocusedFired
+        $chgOk = ($f5 -eq ($f4 + 1))
+        Write-Output ("focus-change-push(spawned -> window 1: fired {0}->{1}): {2}" -f $f4, $f5, $(if ($chgOk) {'PASS'} else {'FAIL'}))
+    } else {
+        Write-Output "spawn-first-focus-push: FAIL (no focused window after spawn)"
+    }
 } else {
-    Write-Output ("focus-change-push(2nd spawn + refocus): FAIL -- " + $spawn2)
+    Write-Output ("focus-change-push + spawn edge: FAIL -- " + $spawn2)
 }
 
 # --- 5. subscriber counting: probe's control connection is not a ----------
@@ -132,6 +163,6 @@ foreach ($w in $list.windows) {
     }
 }
 
-$total = @($shapeOk, $schemaOk, $wcOk, $statOk, $debOk, $chgOk, $subOk).Where({ $_ }).Count
-Write-Output ("events: {0}/{1} {2}" -f $total, 7, $(if ($total -eq 7) {'PASS'} else {'FAIL'}))
-if ($total -eq 7) { exit 0 } else { exit 1 }
+$total = @($shapeOk, $schemaOk, $wcOk, $statOk, $debOk, $chgOk, $edgeOk, $subOk).Where({ $_ }).Count
+Write-Output ("events: {0}/{1} {2}" -f $total, 8, $(if ($total -eq 8) {'PASS'} else {'FAIL'}))
+if ($total -eq 8) { exit 0 } else { exit 1 }

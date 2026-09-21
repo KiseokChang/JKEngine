@@ -1749,21 +1749,24 @@ JKClientConnection* JKWindowServer::FindClientById(uint32_t surfaceId) {
 }
 
 void JKWindowServer::FocusClient(uint32_t surfaceId) {
-    // 무변화 디바운스 (docs/57 §12.6 ⑦): 포커스 id가 바뀌지 않은
-    // FocusClient 호출마다 window.focused를 push하면 폰 WS에서 초당 수회의
-    // 스팸이었다 — prev 캡처 후 실제 변화만 push. 첫 포커스(prev 미지정/다른
-    // 창)는 push 유지 — spawn 포커스 이벤트 계약 불변.
-    const uint32_t prev = focusedClientId_;
+    // 무변화 디바운스 (docs/57 §12.6 ⑦): 비교/갱신 대상은 focusedClientId_가
+    // 아니라 lastFocusedPushed_ (마지막으로 실제 push한 id). 스폰 인테이크는
+    // 클라 테이블 등록 전이라 push 없이 focusedClientId_만 세팅하므로,
+    // focusedClientId_ 기준 비교는 그 창의 첫 명시 포커스 이벤트를 삼켰다 —
+    // lastFocusedPushed_ 기준이면 같은 id 재포커스는 무push(폰 WS 초당 수회
+    // 스팸 봉쇄) + 스폰 창의 첫 명시 포커스는 1회 push(구 동작 복원).
     focusedClientId_ = surfaceId;
     if (compositor_) {
         compositor_->FocusLayer(surfaceId);
     }
     // Desktop Agent event (spec §4). Resolves nothing when the id is not (yet)
-    // in the table (e.g. focus at spawn intake, before push_back).
-    if (surfaceId == prev) return;
+    // in the table (e.g. focus at spawn intake, before push_back) — push가
+    // resolve된 경우에만 lastFocusedPushed_를 갱신한다.
+    if (surfaceId == lastFocusedPushed_) return;
     for (auto& c : clients_) {
         if (c && c->Id() == surfaceId) {
             PushAgentEvent("window.focused", surfaceId, c->Title(), c->Pid());
+            lastFocusedPushed_ = surfaceId;
             break;
         }
     }

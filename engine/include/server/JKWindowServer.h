@@ -244,6 +244,10 @@ private:
 
     uint32_t nextSurfaceId_ = 1;
     uint32_t focusedClientId_ = 0;
+    // 마지막으로 이벤트를 push한 포커스 id — 무변화 재push 스팸 봉쇄 +
+    // 스폰 인테이크(focus 테이블 미등록 시점)의 push 없이 세팅된 포커스도
+    // 첫 명시 포커스에서 1회 push 보장.
+    uint32_t lastFocusedPushed_ = 0;
 
     // Pending approval (M2 chat): an "ask"-gated AgentQuery parked until the
     // chat window (any agent-event subscriber) resolves it with the approve
