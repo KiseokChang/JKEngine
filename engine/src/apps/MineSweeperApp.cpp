@@ -379,6 +379,117 @@ void MineSweeperGame::CheckWin() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// MineSweeperGame — 의미 커서 act/snapshot (스펙 2026-09-22-semantic-cursor §3)
+// 순수 게임 전이(뷰 배선은 MineGameWindow::Act) — TerminalHangulInput 선례의
+// 로직/뷰 분리. 커서는 플랫폼 소유라 게임은 좌표 인자만 소비한다(스펙 §4).
+// ---------------------------------------------------------------------------
+
+bool MineSweeperGame::ParseActKind(const std::string& kind, ActKind& out) {
+    if (kind == "reveal")   { out = ActKind::Reveal;   return true; }
+    if (kind == "flag")     { out = ActKind::Flag;     return true; }
+    if (kind == "question") { out = ActKind::Question; return true; }
+    if (kind == "clear")    { out = ActKind::Clear;    return true; }
+    if (kind == "reset")    { out = ActKind::Reset;    return true; }
+    return false;
+}
+
+const char* MineSweeperGame::Status() const {
+    if (!gameOver_) return "playing";
+    return won_ ? "won" : "lost";
+}
+
+MineSweeperGame::ActOutcome MineSweeperGame::Act(const std::string& kind,
+                                                 int row, int col) {
+    ActOutcome r;
+    ActKind k;
+    if (!ParseActKind(kind, k)) {
+        r.error = "bad_args";
+        return r;
+    }
+    if (k == ActKind::Reset) {
+        // 상태 머신 리셋 전이 (스펙 §8) — 언제든 유효(게임 오버 포함).
+        // 첫 개방 때 지뢰를 다시 생성하므로 status는 playing으로 돌아온다.
+        // row/col 무시(서버 act 계약상 필수라 (0,0)로 온다).
+        NewGame();
+        r.ok = true;
+        return r;
+    }
+    if (!IsValid(row, col)) {
+        r.error = "bad_grid";   // 서버가 이미 걸러내는 방어선
+        return r;
+    }
+    if (gameOver_) {
+        // 리셋 외 전이는 게임 오버 봉쇄(네이티브 RespondMessage와 동일 규약).
+        r.error = "bad_state";
+        return r;
+    }
+    if (k == ActKind::Reveal) {
+        // 개방은 닫힘+무마크 칸만 — 네이티브 좌클릭 경로(OpenCell)와 동일 규칙.
+        // 마크 칸의 개방 요청은 조용한 무시가 아니라 명시 bad_state(에이전트는
+        // 무시와 실패를 구별해야 한다).
+        if (revealed_[row][col] || marks_[row][col] != Mark::None) {
+            r.error = "bad_state";
+            return r;
+        }
+        const int before = revealedCount_;
+        if (!OpenCell(row, col)) {
+            r.error = "bad_state";
+            return r;
+        }
+        r.ok = true;
+        r.opened = revealedCount_ - before;   // 플러드 필 확산 보고 (스펙 §3)
+        return r;
+    }
+    // flag/question/clear — 닫힌 칸의 마크 설정/제거(멱등 — 이미 같은 마크면
+    // 무변화 ok; CycleMark의 3상 순환과 달리 kind가 목표 상태를 직접 말한다 —
+    // LLM 인자는 의미라 목표 상태가 명시인 편이 재시도 안전하다).
+    if (revealed_[row][col]) {
+        r.error = "bad_state";
+        return r;
+    }
+    const Mark target = k == ActKind::Flag     ? Mark::Flag
+                        : k == ActKind::Question ? Mark::Question
+                                                 : Mark::None;
+    if (marks_[row][col] != target) {
+        if (marks_[row][col] == Mark::Flag) --flagCount_;
+        if (target == Mark::Flag) ++flagCount_;
+        marks_[row][col] = target;
+    }
+    r.ok = true;
+    r.opened = 1;   // 행위 대상 칸 1개(스펙 — flag/question 계열은 1)
+    return r;
+}
+
+std::vector<std::string> MineSweeperGame::SnapshotLines() const {
+    std::vector<std::string> lines;
+    lines.reserve(static_cast<size_t>(rows_));
+    for (int r = 0; r < rows_; ++r) {
+        std::string line;
+        line.reserve(static_cast<size_t>(cols_));
+        for (int c = 0; c < cols_; ++c) {
+            if (revealed_[r][c]) {
+                // 폭발 칸 포함 — 지뢰 칸이 열리는 유일한 경로가 게임 오버다.
+                line.push_back(mines_[r][c] ? '*'
+                                            : static_cast<char>('0' + adjacent_[r][c]));
+            } else if (marks_[r][c] == Mark::Flag) {
+                line.push_back('F');
+            } else if (marks_[r][c] == Mark::Question) {
+                line.push_back('?');
+            } else if (gameOver_ && mines_[r][c]) {
+                // 게임 종료 후 지뢰 전체 공개 (스펙 §3 read — 패배는 물론
+                // 승리 후 미마크 지뢰도; 표준 지뢰찾기 사후 진실원). 깃발 칸은
+                // 위의 F가 이긴다(정확한 깃발 식별 — 표준 표기).
+                line.push_back('*');
+            } else {
+                line.push_back('#');
+            }
+        }
+        lines.push_back(std::move(line));
+    }
+    return lines;
+}
+
 bool MineSweeperGame::IsMine(int row, int col) const {
     return IsValid(row, col) && mines_[row][col];
 }
@@ -440,6 +551,23 @@ bool MineGrid::HitTestCell(int x, int y, int& row, int& col, JKRect* outCellRect
     return true;
 }
 
+bool MineGrid::GetBoardGeometry(int& originX, int& originY,
+                                int& cellW, int& cellH) const {
+    // OnPaintClient/HitTestCell과 동일 산식 — 선언서는 렌더 코드의 실측 보고
+    // (스펙 §2 "선언은 정적 설정이 아니라 현재 공간 지식의 보고").
+    const JKRect client = GetScreenClientRect();
+    const int cols = game_.GetCols();
+    const int rows = game_.GetRows();
+    if (cols <= 0 || rows <= 0) return false;
+    const int cellSize = std::min(client.w / cols, client.h / rows);
+    if (cellSize <= 0) return false;
+    originX = client.x + (client.w - cellSize * cols) / 2;
+    originY = client.y + (client.h - cellSize * rows) / 2;
+    cellW = cellSize;
+    cellH = cellSize;
+    return true;
+}
+
 void MineGrid::OnPaintClient(JKDC& dc) {
     const JKRect client = GetScreenClientRect();
     dc.SetColor(192, 192, 192, 255);
@@ -491,6 +619,24 @@ void MineGrid::DrawCell(JKDC& dc, int row, int col, const JKRect& cell) const {
     }
 
     if (!revealed) {
+        // 게임 종료 후 지뢰 전체 공개 (SnapshotLines의 '*' 규약과 동일 — 픽셀과
+        // 직렬화가 같은 진실원). 기존 DrawCell의 공개 분기(:522)는 열린 칸만
+        // 봐서 도달 불능이었다 — 닫힌 지뢰 칸도 공개해야 표준 패배 화면이다.
+        // 깃발 칸은 유지(정확한 깃발 식별 — 표준 표기).
+        if (game_.IsGameOver() && isMine && mark != MineSweeperGame::Mark::Flag) {
+            dc.SetColor(192, 192, 192, 255);
+            dc.FillRect(cell);
+            dc.SetColor(128, 128, 128, 255);
+            dc.DrawRect(cell);
+            if (cache) {
+                auto tex = cache->GetImage("mine");
+                dc.DrawSpriteX(cell, tex, kIconSize, kIconSize, ADJ_XYCENTER);
+            } else {
+                dc.SetTextColor(0, 0, 0);
+                dc.TextOutX(cell, "*", ADJ_XYCENTER, false);
+            }
+            return;
+        }
         // Covered cell with raised border.
         dc.Box3D(cell, 2, 192, 192, 192, 255, 255, 255, 0, 0, 0);
         if (mark == MineSweeperGame::Mark::Flag) {
@@ -784,6 +930,86 @@ public:
             }
         }
     }
+
+    // 에코 빌더 — 성공/실패 공통 필드 순서 (스펙 §3 에코 규약, filedlg
+    // docs/58 레슨 f 선례: 앱 실패도 ok:true, 에러는 필드). kind는 서버가
+    // 선언 enum으로 검증해 오지만(스펙 §3 act) 여기서 ParseActKind를 다시
+    // 통과한 토큰만 JSON에 실는다(외래 문자열의 JSON 주입 봉쇄).
+    std::string ActEcho(const std::string& kind, int row, int col,
+                        const MineSweeperGame::ActOutcome& o) {
+        char buf[288];
+        if (o.ok) {
+            std::snprintf(buf, sizeof(buf),
+                          "{\"ok\":true,\"kind\":\"%s\",\"row\":%d,\"col\":%d,"
+                          "\"opened\":%d,\"status\":\"%s\"}",
+                          kind.c_str(), row, col, o.opened, game.Status());
+        } else {
+            std::snprintf(buf, sizeof(buf),
+                          "{\"ok\":true,\"error\":\"%s\",\"kind\":\"%s\","
+                          "\"row\":%d,\"col\":%d,\"opened\":%d,"
+                          "\"status\":\"%s\"}",
+                          o.error, kind.c_str(), row, col, o.opened,
+                          game.Status());
+        }
+        return buf;
+    }
+
+    bool Act(const std::string& kind, int row, int col, std::string& resultJson) {
+        // 미지원 kind는 kind 에코 없이 즉답(외래 문자열의 JSON 주입 봉쇄).
+        MineSweeperGame::ActKind parsed;
+        if (!MineSweeperGame::ParseActKind(kind, parsed)) {
+            resultJson = "{\"ok\":true,\"error\":\"bad_args\"}";
+            return true;
+        }
+        const bool wasStarted = game.IsStarted();
+        const MineSweeperGame::ActOutcome o = game.Act(kind, row, col);
+        if (o.ok) {
+            // 뷰 배선 — 네이티브 마우스 경로(RespondMessage)와 동일 순서:
+            // 사운드 → 첫 개방 타이머 → 무효화/라벨 → 게임오버 모달.
+            if (kind != "reset") {
+                if (!game.IsGameOver()) {
+                    JKSoundManager::GetInstance().PlaySFX(
+                        kind == "reveal" ? "mine_open" : "button_click",
+                        kAudioBusMine);
+                }
+                if (!wasStarted && game.IsStarted()) {
+                    OnFirstOpen();
+                }
+            }
+            if (grid) grid->Invalidate();   // 플러드 필/리셋 = 전체 무효화
+            UpdateLabels();
+            OnChanged();   // 게임 오버 모달(기존 선례) — 실패해도 무해
+        }
+        resultJson = ActEcho(kind, row, col, o);
+        return true;
+    }
+
+    bool Snapshot(std::string& resultJson) {
+        const std::vector<std::string> lines = game.SnapshotLines();
+        // lines 배열 = 직렬화 정본, board = "\n" 조인 편의 필드(내용 문자는
+        // [#F?0-9*]뿐이라 JSON 이스케이프 무관).
+        std::string linesArr = "[";
+        std::string board;
+        for (size_t i = 0; i < lines.size(); ++i) {
+            if (i) {
+                linesArr += ",";
+                board += "\\n";
+            }
+            linesArr += "\"" + lines[i] + "\"";
+            board += lines[i];
+        }
+        linesArr += "]";
+        char buf[256];
+        std::snprintf(buf, sizeof(buf),
+                      "{\"ok\":true,\"status\":\"%s\",\"rows\":%d,\"cols\":%d,"
+                      "\"mines\":%d,\"flags\":%d,\"opened\":%d,\"lines\":",
+                      game.Status(), game.GetRows(), game.GetCols(),
+                      game.GetMineCount(), game.GetFlagCount(),
+                      game.GetRevealedCount());
+        resultJson = std::string(buf) + linesArr + ",\"board\":\"" + board +
+                     "\"}";
+        return true;
+    }
 };
 
 MineGameWindow::MineGameWindow() : impl_(std::make_unique<Impl>()) {}
@@ -864,6 +1090,39 @@ void MineGameWindow::NewGame() {
 
 void MineGameWindow::OnTimer(uint32_t deltaMs) {
     impl_->OnTimer(deltaMs);
+}
+
+// ---------------------------------------------------------------------------
+// MineGameWindow — 의미 커서 앱 도구 (스펙 2026-09-22-semantic-cursor §2-§3)
+// ---------------------------------------------------------------------------
+
+bool MineGameWindow::Act(const std::string& kind, int row, int col,
+                         std::string& resultJson) {
+    return impl_->Act(kind, row, col, resultJson);
+}
+
+bool MineGameWindow::Snapshot(std::string& resultJson) {
+    return impl_->Snapshot(resultJson);
+}
+
+std::string MineGameWindow::CursorDeclJson() const {
+    int originX = 0, originY = 0, cellW = 0, cellH = 0;
+    if (!impl_->grid || !impl_->grid->GetBoardGeometry(originX, originY,
+                                                       cellW, cellH)) {
+        return std::string();   // 레이아웃 미완 — 선언 생략(미선언 앱 동작)
+    }
+    // kinds는 MineSweeperGame::ParseActKind의 어휘와 정확히 일치해야 한다
+    // (선언 enum이 곧 서버 검증 집합 — 스펙 §2/§8). reset 포함(리셋 전이).
+    char buf[384];
+    std::snprintf(buf, sizeof(buf),
+                  "{\"type\":\"cell-grid\",\"coordSpace\":\"client\","
+                  "\"origin\":{\"x\":%d,\"y\":%d},\"cellW\":%d,\"cellH\":%d,"
+                  "\"rows\":%d,\"cols\":%d,\"cursorOwner\":\"platform\","
+                  "\"act\":{\"kinds\":[\"reveal\",\"flag\",\"question\","
+                  "\"clear\",\"reset\"],\"gate\":\"ask\"}}",
+                  originX, originY, cellW, cellH,
+                  impl_->game.GetRows(), impl_->game.GetCols());
+    return buf;
 }
 
 // ---------------------------------------------------------------------------

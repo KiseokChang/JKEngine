@@ -19,6 +19,16 @@ class MineSweeperGame {
 public:
     enum class Mark { None, Flag, Question };
     enum class Difficulty { Beginner, Intermediate, Expert };
+    // 의미 커서 act 어휘 (스펙 2026-09-22-semantic-cursor §2/§8) — 문자열은
+    // 선언 kinds enum과 정확히 일치한다("reset" 포함 — 상태 머신 리셋 전이).
+    enum class ActKind { Reveal, Flag, Question, Clear, Reset };
+    // act 결과: ok=false면 error에 유효 전이 토큰, opened = 이 행위가 연 칸수
+    // (reveal = 플러드 필 확산 보고, flag/question/clear = 1, reset = 0).
+    struct ActOutcome {
+        bool ok = false;
+        const char* error = nullptr;  // "bad_state" | "bad_grid" | "bad_args"
+        int opened = 0;
+    };
 
     struct Settings {
         int rows = 0;
@@ -53,6 +63,26 @@ public:
     // flags, open all non-flagged covered neighbors. Returns true if any
     // neighbor was opened.
     bool ChordReveal(int row, int col);
+
+    // 의미 커서 act (스펙 §3): 순수 게임 전이 — 뷰(사운드/무효화/라벨/모달)는
+    // MineGameWindow::Act 배선이 한다. 유효 전이 규약:
+    //   reveal  — 닫힘+무마크 칸만(열림/마크 칸 = bad_state; 플러드 필 내포,
+    //             첫 개방이면 지뢰 생성 — 네이티브 클릭 경로와 동일). 폭발 =
+    //             status lost(지뢰 전체 공개 — 직렬화는 SnapshotLines).
+    //   flag/question — 닫힘 칸의 마크 설정(멱등 — 이미 같은 마크면 무변화
+    //             ok). 열린 칸 = bad_state.
+    //   clear   — 마크 제거(멱등). 열린 칸 = bad_state.
+    //   reset   — 언제든 유효(게임 오버 포함) — 새 판 + status playing.
+    //             row/col은 무시(서버 계약상 act는 row/col 필수라 (0,0)로 온다).
+    //             커서는 플랫폼 소유 — 게임은 커서를 모른다(스펙 §4).
+    ActOutcome Act(const std::string& kind, int row, int col);
+    static bool ParseActKind(const std::string& kind, ActKind& out);
+    // "playing" | "lost" | "won" — 게임 오버 전은 항상 playing.
+    const char* Status() const;
+    // 보드 직렬화 (스펙 §3 read): 위→아래 각 행 하나의 문자열. 닫힘 '#',
+    // 깃발 'F', 물음표 '?', 열린 칸 = 인접 숫자('0' 포함), 패배 후 지뢰 전체
+    // 공개 '*'. 커서와 무관(커서 헤더는 서버가 조립).
+    std::vector<std::string> SnapshotLines() const;
 
     int GetRows() const { return rows_; }
     int GetCols() const { return cols_; }
@@ -108,6 +138,11 @@ public:
 
     void ResetChordState();
 
+    // 의미 커서 (스펙 §2): 렌더 산식(OnPaintClient/HitTestCell과 동일)으로
+    // 실측한 보드 격자 기하를 client 표면 좌표로 보고한다 — origin = (0,0)칸의
+    // 표면 좌표, cellW/cellH = 렌더 칸 크기. 레이아웃 미완(칸 0)이면 false.
+    bool GetBoardGeometry(int& originX, int& originY, int& cellW, int& cellH) const;
+
 private:
     MineSweeperGame& game_;
     std::function<void()> onChanged_;
@@ -143,6 +178,19 @@ public:
     void OnTimer(uint32_t deltaMs);
     JKWindow* GetWindow() const;
     MineSweeperGame& Game();
+
+    // 의미 커서 (스펙 §3): 앱 도구 act/snapshot 핸들러 — 게임 전이(MineSweeperGame::Act)
+    // + 뷰 배선(사운드/무효화/라벨/첫 개방 타이머/게임오버 모달)을 한 곳에서.
+    // resultJson = 에코 {"ok":true,"kind","row","col","opened","status"} 또는
+    // {"ok":true,"error":...,"kind","row","col","opened","status"}(filedlg
+    // docs/58 레슨 f 선례 — 앱 실패도 ok:true, 에러는 필드).
+    bool Act(const std::string& kind, int row, int col, std::string& resultJson);
+    // snapshot 결과: {"ok":true,"status","rows","cols","mines","flags",
+    // "opened","lines":[행 문자열...],"board":"\\n 조인"}.
+    bool Snapshot(std::string& resultJson);
+    // 의미 커서 선언서 (스펙 §2) — GetBoardGeometry 실측값을 담은 cursor 블록
+    // 원문 JSON. 레이아웃 미완이면 빈 문자열(선언 생략 = 미선언 앱 동작).
+    std::string CursorDeclJson() const;
 
 private:
     class Impl;

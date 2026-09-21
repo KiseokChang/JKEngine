@@ -126,11 +126,16 @@ public:
     };
     bool SendAgentToolRegister(const std::string& app,
                                const std::vector<AgentToolDecl>& tools,
-                               bool modal = false);
+                               bool modal = false,
+                               const std::string& cursorJson = std::string());
         // modal (스펙 2026-09-19-filedlg-voice-nav §0 결정 3/§4): 쿼리-수명
         // 모달 앱(filedlg) 표기 — top-level "modal":true (부재=false). 서버
         // HandleToolRegister가 GetInt("modal")로 판독(quickjs가 JSON bool을
         // 0/1로 수용). 기존 발신자(vplayer)는 기본 false라 와이어 무변경.
+        // cursorJson (스펙 2026-09-22-semantic-cursor §2): 선택 cursor 블록
+        // 원문 JSON(객체). 부재(빈 문자열) = 미선언 — 기존 발신자 와이어
+        // 무변경. 서버가 top-level "cursor"를 GetRaw로 판독하므로 원문 그대로
+        // 실는다(파싱 실패/미지원 값은 서버가 등록 전체 거부 — fail-closed).
     bool PollToolCall(AgentToolCallMsg& out);
     bool SendAgentToolResult(uint32_t reqId, bool ok, const std::string& resultJson);
 

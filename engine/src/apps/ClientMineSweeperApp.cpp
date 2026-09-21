@@ -1,8 +1,10 @@
 #include <apps/ClientMineSweeperApp.h>
 
+#include <agent/JKAgentJson.h>
 #include <apps/MineSweeperApp.h>
 #include <JKResourceCache.h>
 #include <JKWindow.h>
+#include <client/JKClientSurface.h>
 
 namespace jk {
 
@@ -148,6 +150,69 @@ void ClientMineSweeperApp::OnInit() {
     SetTimerInterval(Impl::kTimerMs);
 
     impl_->LoadIcons(GetResourceCache());
+
+    // 의미 커서 (스펙 2026-09-22-semantic-cursor §2): 자기 도구(act/snapshot)
+    // + 실측 격자 선언서를 AgentToolRegister로 등록한다 — vplayer 선례
+    // (ClientVPlayerApp.cpp :1687; OnInit은 JKClientApplication::Init의
+    // surface_->Connect() 이후에 불린다 — 연결 전 "조용한 false" 경로 회피).
+    // 선언서는 렌더 코드의 실측 보고(MineGrid::GetBoardGeometry — HitTestCell/
+    // OnPaintClient와 동일 산식)다. 레이아웃 미완으로 선언이 비면 등록을 아예
+    // 건너뛴다 — 커서 없는 act는 게이트 ask 보장(cursorOwner 계약)이 깨지므로
+    // 도구만 등록하는 혼종을 만들지 않는다(fail-closed).
+    jk::client::JKClientSurface* surface = Surface();
+    const std::string cursorDecl =
+        impl_->mineWindow ? impl_->mineWindow->CursorDeclJson() : std::string();
+    if (surface && !cursorDecl.empty()) {
+        using Decl = jk::client::JKClientSurface::AgentToolDecl;
+        std::vector<Decl> tools = {
+            {"act",
+             "Minesweeper semantic act on the cursor cell: reveal (flood-fill "
+             "open, echoes opened), flag/question/clear (cell mark), reset "
+             "(new board). Echoes kind/row/col/opened/status; invalid "
+             "transitions return error=bad_state.",
+             "{\"type\":\"object\",\"properties\":{\"kind\":{\"type\":"
+             "\"string\",\"enum\":[\"reveal\",\"flag\",\"question\",\"clear\","
+             "\"reset\"]},\"row\":{\"type\":\"integer\"},\"col\":{\"type\":"
+             "\"integer\"}},\"required\":[\"kind\",\"row\",\"col\"]}"},
+            {"snapshot",
+             "Serialize the minesweeper board: 9 text lines (one per row, "
+             "'#' closed / 'F' flag / '?' question / digit opened / '*' mine "
+             "exposed after game over) plus status/mine/flag/opened counts. "
+             "Cursor-independent (the cursor header is added by the server).",
+             "{\"type\":\"object\",\"properties\":{}}"},
+        };
+        surface->SendAgentToolRegister("minesweeper", tools, false, cursorDecl);
+    }
+}
+
+bool ClientMineSweeperApp::OnAgentToolCall(const std::string& tool,
+                                           const std::string& argsJson,
+                                           std::string& resultJson) {
+    // 의미 커서 act/snapshot (스펙 §3) — 서버가 move/read를 플랫폼 구현으로
+    // 흡수하므로 앱이 받는 중계는 act(파킹 승인 후)와 snapshot뿐이다.
+    if (!impl_->mineWindow) {
+        resultJson = "{\"ok\":true,\"error\":\"window_gone\"}";
+        return true;
+    }
+    if (tool == "act") {
+        const agent::AgentJson args(argsJson.empty() ? "{}" : argsJson);
+        std::string kind;
+        int row = 0, col = 0;
+        if (!args.ok() || !args.GetStr("kind", kind) ||
+            !args.GetInt("row", row) || !args.GetInt("col", col)) {
+            resultJson = "{\"ok\":true,\"error\":\"bad_args\"}";
+            return true;
+        }
+        impl_->mineWindow->Act(kind, row, col, resultJson);
+        return true;
+    }
+    if (tool == "snapshot") {
+        impl_->mineWindow->Snapshot(resultJson);
+        return true;
+    }
+    resultJson = "{\"ok\":true,\"error\":\"unsupported_tool\",\"tool\":\"" +
+                 tool + "\"}";
+    return true;
 }
 
 bool ClientMineSweeperApp::PreProcessMessage(const JKEvent& ev) {
