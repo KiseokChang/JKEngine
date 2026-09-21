@@ -190,6 +190,17 @@ Write-Output "NOTICE: main-tree permissions.json restored"
 판정: 각 로그에서 `FAIL` 0 + `ALL PASS`(정복 프로브는 `CONQUEST PASS`) 확인.
 probe_agent_e2e만 PASS/FAIL을 exit 코드로 보고한다.
 
+**배치 공식런 완료 (2026-09-22, main 머지 후 — 프로브를 main 빌드로 재지정, 99e2928)**:
+사다리가 main에 머지됐으므로 공식런도 main 빌드로 수행이 옳아 4종 프로브의 `$build`
+하드코딩을 `engine\build`로 변경(영구 — worktree 경로 소각). 절차 전순 준수:
+step0 permissions.json 백업 → (1) send_input_ask ×2(7체크 ALL PASS — 문서 표기 11은
+착시, 실제 체크 행 7)/conquest_minesweeper ×2(19체크 CONQUEST PASS)/conquest_tetris ×2
+(19체크 CONQUEST PASS) → (2) app_tools ×2(64체크 ALL PASS)+agent_e2e ×1(PASS, restore/
+receipts/final 전부) → (3) `jkdesktop test` exit 0 → (4) permissions.json 복원(9키
+전면 allow 동일) → 라이브 복원(메인 빌드 경로 — jkwinserver+jkbridge 기동, pong+8899
+LISTENING+taskbar 클라 1개 확인). 런그 1(minesweeper)+런그 2(tetris) **코드 정복
+판정 완료** — 잔여 판정 = LLM 실전 세션(§6)만.
+
 **라이브 서버 복원 의무 — 반드시 메인 빌드 경로에서**: 배치가 남기는 결손은
 teardown이 전부 정지시킨 jkwinserver / jkdesktop(--client taskbar) / jkbridge다.
 복원을 워크트리 build로 하면 안 된다 — state 디렉토리는 exe 경로를 추종하고
@@ -211,9 +222,8 @@ Start-Process -FilePath I:\progwork\JKENGINE\engine\build\jkbridge.exe -WorkingD
 
 | 단 | 상태 |
 |---|---|
-| **minesweeper** | **코드 정복 완료** — send_input 도구 + 정복 프로브 템플릿 확립. 프로브 공식런+회귀 스윕은 배치 대기(§4). 남은 판정 = 배치 런 + LLM 실전 세션(§6) |
-| tetris | **코드 정복 완료** — probe_conquest_tetris.ps1(템플릿 복제+키 드라이브,
-  런 시 19체크). 공식런 ×2는 배치 대기(§4) |
+| **minesweeper** | **코드 정복 완료+공식런 GREEN(2026-09-22 배치, §4)** — send_input 도구 + 정복 프로브 템플릿 확립. 잔여 판정 = LLM 실전 세션(§6) |
+| tetris | **코드 정복 완료+공식런 GREEN(2026-09-22 배치, 19체크 ×2)** — probe_conquest_tetris.ps1(템플릿 복제+키 드라이브) |
 | scriptdemo | 대기 |
 | taskmgr | 대기 |
 | terminal | 대기 |
