@@ -540,6 +540,13 @@ MineGrid::MineGrid(const JKRect& rect, MineSweeperGame& game,
     SetFocusable(true);
 }
 
+void MineGrid::OnRectChanged(const JKRect& rect) {
+    JKControl::OnRectChanged(rect);
+    // 소유자는 dirty 플래그만 세운다 — 선언서 갱신은 타이머 틱에서 지연
+    // (레이아웃 도중 발신 방지, docs/64 §8).
+    if (onGeometryChanged_) onGeometryChanged_();
+}
+
 bool MineGrid::HitTestCell(int x, int y, int& row, int& col, JKRect* outCellRect) const {
     const JKRect client = GetScreenClientRect();
     int cols = game_.GetCols();
@@ -873,6 +880,35 @@ public:
     int mineTickCounter = 0;
     std::function<void()> cursorDeclChangedCb;   // MINOR-4 — 난이도 변경 알림
 
+    // 라이브 재선언 (docs/64 §8): 격자 기하 변화는 SetRect마다 dirty만 세우고
+    // 타이머 틱에서 실측 대조 후 재선언 — 서버 링이 항상 실제 그려지는 격자를
+    // 따라간다(서버 주도 리사이즈 등 SetDifficulty 밖 경로도 커버).
+    bool geomDirty = false;
+    bool declValid = false;   // 마지막 선언 캐시 — 미선언 상태에서 시작해 첫 대조 수렴
+    int declOriginX = 0;
+    int declOriginY = 0;
+    int declCellW = 0;
+    int declCellH = 0;
+
+    void CheckCursorDecl() {
+        geomDirty = false;
+        if (!grid) return;
+        int ox, oy, cw, ch;
+        if (!grid->GetBoardGeometry(ox, oy, cw, ch)) {
+            declValid = false;
+            return;
+        }
+        if (!declValid || ox != declOriginX || oy != declOriginY ||
+            cw != declCellW || ch != declCellH) {
+            declValid = true;
+            declOriginX = ox;
+            declOriginY = oy;
+            declCellW = cw;
+            declCellH = ch;
+            if (cursorDeclChangedCb) cursorDeclChangedCb();
+        }
+    }
+
     void NewGame() {
         game.NewGame();
         ResetViewState();
@@ -963,6 +999,9 @@ public:
 
     void OnTimer(uint32_t deltaMs) {
         (void)deltaMs;
+        if (geomDirty) {
+            CheckCursorDecl();
+        }
         if (timerRunning) {
             ++mineTickCounter;
             if (mineTickCounter >= 10) {
@@ -1073,6 +1112,7 @@ void MineGameWindow::Build(JKControl* parent, const JKRect& rect) {
         [this]() { impl_->OnFirstOpen(); });
     g->SetDock(DOCK_FILL);
     g->SetMargins(kMargin, kMargin, kMargin, kMargin);
+    g->SetOnGeometryChanged([this]() { impl_->geomDirty = true; });
     impl_->grid = g.get();
     win->AddControl(std::move(g));
 

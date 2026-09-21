@@ -156,14 +156,15 @@ public:
         std::vector<Decl> tools = {
             {"act",
              "Minesweeper semantic act on the cursor cell: reveal (flood-fill "
-             "open, echoes opened), flag/question/clear (cell mark), reset "
+             "open, echoes opened), flag/question/clear (cell mark), chord "
+             "(open neighbors around a flagged number cell), reset "
              "(new board; reset ignores row/col - send 0,0). Echoes "
              "kind/row/col/opened/status; invalid transitions return "
              "error=bad_state.",
              "{\"type\":\"object\",\"properties\":{\"kind\":{\"type\":"
              "\"string\",\"enum\":[\"reveal\",\"flag\",\"question\",\"clear\","
-             "\"reset\"]},\"row\":{\"type\":\"integer\"},\"col\":{\"type\":"
-             "\"integer\"}},\"required\":[\"kind\",\"row\",\"col\"]}"},
+             "\"chord\",\"reset\"]},\"row\":{\"type\":\"integer\"},\"col\":"
+             "{\"type\":\"integer\"}},\"required\":[\"kind\",\"row\",\"col\"]}"},
             {"snapshot",
              "Serialize the minesweeper board: 9 text lines (one per row, "
              "'#' closed / 'F' flag / '?' question / digit opened / '*' mine "

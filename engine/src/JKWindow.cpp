@@ -127,6 +127,12 @@ void JKWindow::OnRectChanged(const JKRect& rect) {
     }
 }
 
+void JKWindow::LayoutChildren() {
+    // 자식 배치는 OnRectChanged의 도크 패스가 전담한다 — blanket 재귀는
+    // DOCK_FILL 자식에게 전체 클라이언트를 다시 뿌려 도크 배치를 덮어썼다
+    // (지뢰찾기 격자가 툴바 밑으로 미끄러진 실측 — docs/64 §8).
+}
+
 void JKWindow::SetWindowRect(const JKRect& rect) {
     // SDL 논리 좌표를 그대로 사용: 테두리 2pt, 타이틀 24pt를 고정한다.
     // SDL_RenderSetScale()이 물리 픽셀로 확대/축소한다.

@@ -70,6 +70,11 @@ protected:
     // Recompute the client area for border/title and relayout children.
     void OnRectChanged(const JKRect& rect) override;
 
+    // No-op: OnRectChanged (fired by every SetRect) already lays children out
+    // with the dock-aware passes; the blanket recursion would clobber it
+    // (docs/64 §8).
+    void LayoutChildren() override;
+
     JKRect GetCloseButtonRect() const;
 
     JKRect GetScreenClientRect() const override;

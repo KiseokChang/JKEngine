@@ -172,6 +172,14 @@ protected:
     // override to recompute their client area or relayout children.
     virtual void OnRectChanged(const JKRect& rect);
 
+    // Child recursion of PerformLayout. Default re-lays every child against
+    // this control's full client rect. JKWindow overrides this to a no-op —
+    // its children are laid out by OnRectChanged's dock passes (edge-docked
+    // first, DOCK_FILL in the remainder); the blanket recursion would re-lay
+    // DOCK_FILL children against the whole client and clobber that dock
+    // layout (docs/64 §8: minesweeper grid slid under its toolbar).
+    virtual void LayoutChildren();
+
     // 멤버 기본값도 테마 토큰에서 가져온다 (생성 시점 평가 — 기동 로딩 후
     // 생성되는 위젯은 활성 프리셋을 따름; 스펙 §1 단일 진실원).
     uint8_t textR_ = jk::theme::current().widgetText.r;

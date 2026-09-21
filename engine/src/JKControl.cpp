@@ -277,6 +277,10 @@ void JKControl::PerformLayout(const JKRect& parentClient) {
 
     SetRect(desired);
 
+    LayoutChildren();
+}
+
+void JKControl::LayoutChildren() {
     for (auto& child : children_) {
         child->PerformLayout(GetClientRect());
     }

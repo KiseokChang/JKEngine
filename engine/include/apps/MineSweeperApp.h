@@ -144,11 +144,18 @@ public:
     // 표면 좌표, cellW/cellH = 렌더 칸 크기. 레이아웃 미완(칸 0)이면 false.
     bool GetBoardGeometry(int& originX, int& originY, int& cellW, int& cellH) const;
 
+    // 격자 기하가 변할 수 있는 시점(레이아웃)에 발화 — 소유자는 dirty 플래그만
+    // 세우고 타이머 틱에서 지연 재선언한다(레이아웃 도중 선언서 발신 방지).
+    void SetOnGeometryChanged(std::function<void()> cb) { onGeometryChanged_ = std::move(cb); }
+
+    void OnRectChanged(const JKRect& rect) override;
+
 private:
     MineSweeperGame& game_;
     std::function<void()> onChanged_;
     std::function<void(bool)> onGameOver_;
     std::function<void()> onFirstOpen_;
+    std::function<void()> onGeometryChanged_;
     int cellSize_ = 20;
 
     bool leftDown_ = false;
