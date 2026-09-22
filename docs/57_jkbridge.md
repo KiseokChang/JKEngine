@@ -342,10 +342,15 @@ probe_jkbridge ×2 ALL PASS(정리 함수 탑재 후 전체 회귀 무손상).
 
 ### 13.3 백로그 이월
 
-1. **move/resize ±32768 가드는 GetDeepInt(int) 기반** — 내부가 JS_ToInt64 후
-   `static_cast<int>` 축소 캐스트라 랩어라웃한 int64(예: 2^32+100)로 가드 우회
-   여지. GetObjInt64 기반 검사 승격 후보 — **플랫폼 전역 파서 계약**(개별 도구
-   임시방편이 아니라 AgentJson 축소 캐스트 총정리).
+1. **✅ 소각 (2026-09-22, 7620c5a 이후 커밋)** — AgentJson에
+   GetInt64/GetObjInt64/GetDeepInt64를 플랫폼 파서 계약으로 신설하고 가드가
+   읽는 값 전부 이관(window_move/resize 좌표·크기, settings_set idle_minutes/
+   receipt_retention_days/audio_master, LoadSettingsKv mute/volume/retention).
+   식별·인덱스 조회(id/request/row/col)는 랩어웃이 유효 범위 밖으로 빠져 조회
+   실패에 그치므로 int 리더 유지 — 분류 근거는 헤더 주석. jkagentd의 lines/
+   timeoutSec 가드는 자체 클램프형(래핑해도 유효값 내 수렴)이라 대상 아님.
+   실물: move x=4294967396/resize w=2^32+300/idle_minutes=2^32+100 전부
+   거부, 정상값 통과. probe_window_geom 29×2+probe_settings ×2+self-test PASS.
 2. **probe_window_geom은 docs/28 BOTH 쌍의 client 절반만 고정** — 서버 레이어
    위치는 외부 관측 불가(하네스 한계). list_windows가 보고하는 서버페이스 축으로
    대응 단정한 것이 한계 안의 최선.
