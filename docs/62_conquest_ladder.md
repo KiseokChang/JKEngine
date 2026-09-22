@@ -190,6 +190,15 @@ Write-Output "NOTICE: main-tree permissions.json restored"
 판정: 각 로그에서 `FAIL` 0 + `ALL PASS`(정복 프로브는 `CONQUEST PASS`) 확인.
 probe_agent_e2e만 PASS/FAIL을 exit 코드로 보고한다.
 
+**런그 3 — probe_conquest_vplayer.ps1 (트랙 A 시제, 2026-09-22, 23체크 ×2 CONQUEST
+PASS)**: 템플릿 골격(사이클/aggregate `$script:cycleOk`/recover 하드 게이트) 원문
+유지, drive만 send_input → **app_tool**(앱 자기 도구)로 교체 — open(비동기라
+진실원은 get_status.opened 폴링)→play_pause(paused:true)→seek(pos<2.0).
+verify-hash는 유휴 창 해시 → 재생 창 해시 변화(재생이 픽셀을 움직였다). 차이 2건:
+①drive가 도구 릴레이라 **permissions.json 무편집**(app_tool 기본 게이트 allow,
+kPermMatrix 행 — 사용자 런타임 파일 그대로 통과) ②teardown에
+jkapp_vplayer 전용 이미지명 추가(레슨 42 — jkdesktop 공유명이 아니라 안전).
+
 **배치 공식런 완료 (2026-09-22, main 머지 후 — 프로브를 main 빌드로 재지정, 99e2928)**:
 사다리가 main에 머지됐으므로 공식런도 main 빌드로 수행이 옳아 4종 프로브의 `$build`
 하드코딩을 `engine\build`로 변경(영구 — worktree 경로 소각). 절차 전순 준수:
@@ -227,7 +236,7 @@ Start-Process -FilePath I:\progwork\JKENGINE\engine\build\jkbridge.exe -WorkingD
 | scriptdemo | 대기 |
 | taskmgr | 대기 |
 | terminal | 대기 |
-| vplayer | 대기 — MCP 도구 6개 기보유, 트랙 A(도구 릴레이) 시제 케이스 |
+| vplayer | **코드 정복 완료+공식런 GREEN(2026-09-22, 런그 3 — 트랙 A 시제)** — drive가 send_input이 아니라 앱 자기 도구(app_tool open/play_pause/seek/get_status)로 갈아타는 첫 케이스. 잔여 판정 = LLM 실전 세션 |
 | browser | 대기 |
 | taskbar | 대기 — 최종 관문(셸 자체 정복). **send_input 불가 단** — 셸은 대상
   배제 설계(`IsShell()` → `bad_target`, §2)라 트랙 B로 정복할 수 없다. 최종 러닝은
