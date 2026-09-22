@@ -10,8 +10,14 @@ Start-Sleep -Seconds 1
 
 # M1 approval model: there is no approval UI, so permissions.json next to the
 # broker IS the approval act. Grant close_window for the close step, restore
-# the default (deny) at the end.
+# the ORIGINAL file at the end (docs/59 s16.1 lesson: this probe used to
+# DELETE the user's runtime permissions.json - backup + notice + restore).
 $permFile = Join-Path (Split-Path $exe) "permissions.json"
+$permBak = "$permFile.probe_e2e_bak"
+if (Test-Path $permFile) {
+    Copy-Item $permFile $permBak -Force
+    Write-Host "NOTICE: permissions.json backed up to permissions.json.probe_e2e_bak"
+}
 '{"close_window":"allow"}' | Set-Content -Path $permFile -Encoding ASCII
 
 Start-Process -FilePath $exe -ArgumentList "--server" `
@@ -48,7 +54,13 @@ $r5 = Invoke-Mcp '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name"
 $r6 = Invoke-Mcp '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"restore_layout","arguments":{"name":"e2e_final"}}}'
 
 Get-Process jkdesktop -ErrorAction SilentlyContinue | Stop-Process -Force
-Remove-Item $permFile -ErrorAction SilentlyContinue   # back to default deny
+if (Test-Path $permBak) {
+    Copy-Item $permBak $permFile -Force
+    Remove-Item $permBak -Force
+    Write-Host "NOTICE: permissions.json restored from backup"
+} else {
+    Remove-Item $permFile -ErrorAction SilentlyContinue   # probe created it
+}
 
 $ok = $true
 # Tool results ride inside the envelope, quotes escaped: \"ok\":true.

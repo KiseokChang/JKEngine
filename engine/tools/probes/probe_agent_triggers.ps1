@@ -9,8 +9,15 @@ $chat = "I:\progwork\JKENGINE\engine\build\jkchat.exe"
 Get-Process jkdesktop,jktriggers,jkchat -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Seconds 1
 
-# close_window allow (step 3 graceful close), restore default at the end.
+# close_window allow (step 3 graceful close), restore the ORIGINAL file at the
+# end (docs/59 s16.1 lesson: this probe used to DELETE the user's runtime
+# permissions.json - backup + console notice + restore is mandatory).
 $permFile = Join-Path (Split-Path $exe) "permissions.json"
+$permBak = "$permFile.probe_trig_bak"
+if (Test-Path $permFile) {
+    Copy-Item $permFile $permBak -Force
+    Write-Host "NOTICE: permissions.json backed up to permissions.json.probe_trig_bak"
+}
 '{"close_window":"allow"}' | Set-Content -Path $permFile -Encoding ASCII
 
 Start-Process -FilePath $exe -ArgumentList "--server" `
@@ -119,7 +126,13 @@ $transcriptAfter = if ($hLog -ne [IntPtr]::Zero) { [W8]::EditWindowText($hLog) }
 Get-Process jkdesktop,jktriggers,jkchat -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Seconds 1
 Remove-Item (Join-Path (Split-Path $exe) "state\idle_minutes") -ErrorAction SilentlyContinue
-Remove-Item $permFile -ErrorAction SilentlyContinue   # back to default deny
+if (Test-Path $permBak) {
+    Copy-Item $permBak $permFile -Force
+    Remove-Item $permBak -Force
+    Write-Host "NOTICE: permissions.json restored from backup"
+} else {
+    Remove-Item $permFile -ErrorAction SilentlyContinue   # probe created it
+}
 
 # --- judge ---
 $ok = $true

@@ -199,6 +199,38 @@ verify-hash는 유휴 창 해시 → 재생 창 해시 변화(재생이 픽셀�
 kPermMatrix 행 — 사용자 런타임 파일 그대로 통과) ②teardown에
 jkapp_vplayer 전용 이미지명 추가(레슨 42 — jkdesktop 공유명이 아니라 안전).
 
+**런그 4 — probe_conquest_terminal.ps1 (트랙 B, 2026-09-23, 25체크 ×2 CONQUEST
+PASS)**: terminal(800×500, pty) — drive가 send_input **type+key**(SDLK_RETURN=13)
+조합: `echo <마커>` 타이핑+엔터 → pty가 셸을 실행시킨다. verify가 2중:
+①**terminal.output 이벤트**(앱 자기 토픽, data.text에 마커) ②캡처 해시 변화.
+recover는 템플릿 동일(pid 강제 종료 → recover-gone 하드 게이트 → app.crashed →
+cycle2). 이 런그가 **정복 사다리 최초의 실제 제품 결함**을 잡았다:
+
+- **c9ba8bf reserved-topic 회귀(docs/54 NIT-3 픽스의 부작용, 2026-09-18~23)** —
+  kReservedTopicPrefixes의 규칙은 "카탈로그 **server** 행 접두"인데 `terminal.`
+  이 포함됐고, 유일한 terminal.* 토픽인 terminal.output의 카탈로그 행은
+  `source:"app"`(터미널 앱이 publish_event로 직접 발행 — M2b)이다. 접두 일괄
+  봉쇄가 정당 발행자를 `reserved_topic`으로 죽였고, 피해는 4건:
+  (a) 터미널 앱의 terminal.output 발행 전멸(앱이 응답 무시 fire-and-forget이라
+  5일간 무음) (b) jktriggers desktop.notify(agent.notify 발행) 사망 — 트리거
+  액션 전체가 조용히 무력화 (c) probe_agent_triggers 3체크 FAIL (d)
+  probe_agent_triggerctl on-resumes FAIL. **진단 경로가 교훈 그 자체**: 프로브의
+  이벤트 드레인 실패 → agent-events CLI stdout 완전 버퍼링(probe_agent_trust
+  레슨 1 재확인) → fired 카운터 0(publish 미도달 확정) → 앱 SendAgentQuery
+  계측(send=1) → **앱 측 reply 프린트가 결판**(`reserved_topic` 회신).
+  **픽스**: publish 게이트 topicReserved에 source:"app" 카탈로그 행 2개의
+  **정확-토픽 면제**(terminal.output, agent.notify) — 접두 예약 자체는 유지
+  (window./audio. 특권 서버 소비자 스푸핑 봉쇄가 존재 이유), 공유 표
+  (HandleToolRegister namespace 검사)는 건드리지 않는다. 스푸핑 노출은 트리거
+  오타동/가짜 알림뿐 — 스크립트 신뢰 등급에서 허용. 회귀 실측: conquest
+  terminal 25×2 + probe_agent_triggers **7/7 완전 회복** + triggerctl 5체크
+  PASS + probe_agent_notify ×2 PASS.
+- 부수 하네스 픽스: probe_agent_triggers/probe_agent_e2e가 permissions.json을
+  **백업 없이 덮고 Remove-Item으로 삭제**하는 §16.1 동형 결함(런그 4 진단 중
+  유저 런타임 파일 실제 소실 피해) → 백업+NOTICE+복원 패턴 적용(두 프로브 다시
+  실측 PASS+복원 확인). conquest 프로브의 RMW도 파일 부재 시 조용히 실패하지
+  않게 존재 가드+DIAG.
+
 **배치 공식런 완료 (2026-09-22, main 머지 후 — 프로브를 main 빌드로 재지정, 99e2928)**:
 사다리가 main에 머지됐으므로 공식런도 main 빌드로 수행이 옳아 4종 프로브의 `$build`
 하드코딩을 `engine\build`로 변경(영구 — worktree 경로 소각). 절차 전순 준수:
@@ -235,7 +267,7 @@ Start-Process -FilePath I:\progwork\JKENGINE\engine\build\jkbridge.exe -WorkingD
 | tetris | **코드 정복 완료+공식런 GREEN(2026-09-22 배치, 19체크 ×2)** — probe_conquest_tetris.ps1(템플릿 복제+키 드라이브) |
 | scriptdemo | 대기 |
 | taskmgr | 대기 |
-| terminal | 대기 |
+| terminal | **코드 정복 완료+공식런 GREEN(2026-09-23, 런그 4 — 25체크 ×2)** — type+key 드라이브, verify=앱 자기 토픽 이벤트+캡처 해시 2중. **정복 사다리가 첫 실제 제품 결함(reserved-topic 회귀)을 잡은 단** |
 | vplayer | **코드 정복 완료+공식런 GREEN(2026-09-22, 런그 3 — 트랙 A 시제)** — drive가 send_input이 아니라 앱 자기 도구(app_tool open/play_pause/seek/get_status)로 갈아타는 첫 케이스. 잔여 판정 = LLM 실전 세션 |
 | browser | 대기 |
 | taskbar | 대기 — 최종 관문(셸 자체 정복). **send_input 불가 단** — 셸은 대상

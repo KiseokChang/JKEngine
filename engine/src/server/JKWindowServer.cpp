@@ -2929,6 +2929,13 @@ static std::string RevokeTrustRecord(const std::string& fingerprint) {
 // 이 표를 공유한다. events_list 카탈로그 "server" 행의 접두와 동일 집합
 // (window/app/agent/terminal/audio/triggers/file) — 카탈로그에 서버 토픽을
 // 추가하면 여기도 손으로 넣는다(두 표가 한 파일 안에 있다).
+// 함정(2026-09-23 실측): 표의 규칙은 "server 행 접두"인데 카탈로그에는 예약
+// 접두 아래 사는 source:"app" 행이 2개 있다 — terminal.output(터미널 앱 M2b
+// 직접 발행)와 agent.notify(jktriggers desktop.notify — 트리거 액션 경로).
+// c9ba8bf가 두 접두를 넣으면서 정당 발행자를 reserved_topic으로 죽였고(양쪽
+// 발행자 모두 응답을 무시하는 fire-and-forget이라 발견 5일 지연) publish
+// 게이트는 이 둘의 정확-토픽 면제로 회복한다(아래 topicReserved).
+// 스푸핑 노출 = 트리거 오타동/가짜 알림뿐 — 스크립트 신뢰 등급에서 허용.
 static const char* kReservedTopicPrefixes[] = {
     "window.", "agent.", "app.", "terminal.", "audio.", "triggers.", "file.",
 };
@@ -4452,6 +4459,13 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         // 람다로 이동해 게이트를 살린다 (file.open_result 스푸핑 봉쇄 —
         // 스펙 2026-09-19-filedlg-voice-nav 결정 6이 이 게이트에 의존).
         auto topicReserved = [](const std::string& t) {
+            // 앱 발행 카탈로그 행의 정확-토픽 면제 — 접두 일괄 봉쇄는
+            // source:"app" 행의 정당 발행자까지 죽인다(표 주석의 함정 기록).
+            // 면제 목록 = 예약 접두 아래 사는 "app" 행: terminal.output(터미널
+            // 앱 M2b), agent.notify(jktriggers desktop.notify — 트리거 액션).
+            // 접두 예약 자체는 유지: window./audio. 등 특권 서버 소비자
+            // (vplayer 미러/코어 펌프)의 스푸핑 봉쇄가 이 게이트의 존재 이유.
+            if (t == "terminal.output" || t == "agent.notify") return false;
             for (const char* p : kReservedTopicPrefixes) {
                 if (t.compare(0, std::strlen(p), p) == 0) return true;
             }
