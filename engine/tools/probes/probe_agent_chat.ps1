@@ -11,7 +11,15 @@ Start-Sleep -Seconds 1
 
 # ask mode IS the approval act for this probe
 $permFile = Join-Path (Split-Path $exe) "permissions.json"
+# Backup the user runtime file BEFORE overwriting and restore it in finally
+# (docs/59 §16.1 precedent: a probe deleting the live permissions.json killed
+#  the bridge token / permission state - this probe had no finally restore).
+$permBak = Join-Path (Split-Path $exe) "permissions.json.bak_probe_chat"
+Copy-Item $permFile $permBak -Force -ErrorAction SilentlyContinue
+Write-Host "NOTICE: permissions.json backed up to permissions.json.bak_probe_chat"
 '{"close_window":"ask"}' | Set-Content -Path $permFile -Encoding ASCII
+
+try {
 
 Start-Process -FilePath $exe -ArgumentList "--server" `
     -WorkingDirectory (Split-Path $exe) -WindowStyle Hidden
@@ -118,8 +126,15 @@ else { $ok = $false; Write-Host "deny-result: FAIL $denyOut" }
 if ($list4 -match ('"id\\?":' + $tetId + '\b')) { Write-Host "deny-survives: PASS" }
 else { $ok = $false; Write-Host "deny-survives: FAIL" }
 
-Get-Process jkdesktop -ErrorAction SilentlyContinue | Stop-Process -Force
-Get-Process jkchat -ErrorAction SilentlyContinue | Stop-Process -Force
-Remove-Item $permFile -ErrorAction SilentlyContinue
+} finally {
+    Get-Process jkdesktop -ErrorAction SilentlyContinue | Stop-Process -Force
+    Get-Process jkchat -ErrorAction SilentlyContinue | Stop-Process -Force
+    Remove-Item $permFile -ErrorAction SilentlyContinue
+    if (Test-Path $permBak) {
+        Copy-Item $permBak $permFile -Force
+        Remove-Item $permBak -Force
+        Write-Host "NOTICE: permissions.json restored from backup"
+    }
+}
 
 if ($ok) { Write-Host "PASS: agent chat"; exit 0 } else { Write-Host "FAIL: agent chat"; exit 1 }
