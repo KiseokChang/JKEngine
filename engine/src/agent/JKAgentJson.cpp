@@ -58,6 +58,17 @@ bool AgentJson::GetInt(const char* key, int& out) const {
     return got;
 }
 
+bool AgentJson::GetInt64(const char* key, int64_t& out) const {
+    if (!ok_) return false;
+    JSValue v = JS_GetPropertyStr(ctx_, root_, key);
+    int64_t i = 0;
+    bool got = !JS_IsException(v) && !JS_IsUndefined(v) &&
+               JS_ToInt64(ctx_, &i, v) == 0;
+    JS_FreeValue(ctx_, v);
+    if (got) out = i;
+    return got;
+}
+
 bool AgentJson::GetRaw(const char* key, std::string& out) const {
     if (!ok_) return false;
     JSValue v = JS_GetPropertyStr(ctx_, root_, key);
@@ -180,6 +191,44 @@ bool AgentJson::GetDeepInt(const char* a, const char* b, const char* key,
                   JS_ToInt64(ctx_, &i, v) == 0;
             JS_FreeValue(ctx_, v);
             if (got) out = static_cast<int>(i);
+        }
+        JS_FreeValue(ctx_, pb);
+    }
+    JS_FreeValue(ctx_, pa);
+    return got;
+}
+
+bool AgentJson::GetObjInt64(const char* obj, const char* key,
+                            int64_t& out) const {
+    if (!ok_) return false;
+    JSValue o = JS_GetPropertyStr(ctx_, root_, obj);
+    bool got = false;
+    if (JS_IsObject(o)) {
+        JSValue v = JS_GetPropertyStr(ctx_, o, key);
+        int64_t i = 0;
+        got = !JS_IsException(v) && !JS_IsUndefined(v) &&
+              JS_ToInt64(ctx_, &i, v) == 0;
+        JS_FreeValue(ctx_, v);
+        if (got) out = i;
+    }
+    JS_FreeValue(ctx_, o);
+    return got;
+}
+
+bool AgentJson::GetDeepInt64(const char* a, const char* b, const char* key,
+                             int64_t& out) const {
+    if (!ok_) return false;
+    JSValue pa = JS_GetPropertyStr(ctx_, root_, a);
+    bool got = false;
+    if (JS_IsObject(pa)) {
+        JSValue pb = JS_GetPropertyStr(ctx_, pa, b);
+        if (JS_IsObject(pb)) {
+            JSValue v = JS_GetPropertyStr(ctx_, pb, key);
+            int64_t i = 0;
+            got = !JS_IsException(v) && !JS_IsUndefined(v) &&
+                  JS_ToInt64(ctx_, &i, v) == 0;
+            JS_FreeValue(ctx_, v);
+            if (got) out = i;
         }
         JS_FreeValue(ctx_, pb);
     }

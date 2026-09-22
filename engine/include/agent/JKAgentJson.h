@@ -48,6 +48,16 @@ public:
     bool GetDeepInt(const char* a, const char* b, const char* key,
                     int& out) const;
 
+    // 64비트 리더 — 범위 가드가 있는 값은 int32 축소 캐스트 전에 검사해야
+    // 한다: JS_ToInt64 후 static_cast<int>는 랩어라웃(2^32+100 → 100)으로
+    // ±32768류 가드를 우회시킨다(docs/57 §13.3 — 플랫폼 파서 계약: 가드가
+    // 읽는 값은 int64 리더로). id/idx 같은 식별·인덱스 조회는 랩어웃이 유효
+    // 범위 밖으로 빠져 조회 실패에 그치므로 int 리더를 유지한다.
+    bool GetInt64(const char* key, int64_t& out) const;
+    bool GetObjInt64(const char* obj, const char* key, int64_t& out) const;
+    bool GetDeepInt64(const char* a, const char* b, const char* key,
+                      int64_t& out) const;
+
     // Array traversal: <key> must be a JSON array of objects (layout files).
     bool GetArraySize(const char* key, int& out) const;
     bool GetArrStr(const char* key, int idx, const char* field,

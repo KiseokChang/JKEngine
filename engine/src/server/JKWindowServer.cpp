@@ -2298,12 +2298,16 @@ static void LoadSettingsKv(bool& mute, int& volume, int& retention,
     std::fclose(f);
     jk::agent::AgentJson json(text);
     if (!json.ok()) return;
-    int v = 0;
-    if (json.GetObjInt("audio", "mute", v) && (v == 0 || v == 1)) {
+    // 가드가 읽는 값은 int64 리더로 (docs/57 §13.3 파서 계약 — 축소 캐스트
+    // 랩어라웃이 [0,100]/[7,∞) 가드를 우회하는 것을 봉쇄).
+    int64_t v = 0;
+    if (json.GetObjInt64("audio", "mute", v) && (v == 0 || v == 1)) {
         mute = (v == 1);
     }
-    if (json.GetObjInt("audio", "volume", v) && v >= 0 && v <= 100) volume = v;
-    if (json.GetObjInt("retention", "days", v) && v >= 7) retention = v;
+    if (json.GetObjInt64("audio", "volume", v) && v >= 0 && v <= 100)
+        volume = static_cast<int>(v);
+    if (json.GetObjInt64("retention", "days", v) && v >= 7)
+        retention = static_cast<int>(v);
     // text.font_path (docs/63 §4): 상한 300 — settings_set 및
     // ResolveDesktopFontPath와 같은 캡(초과치는 폐기, 기본 폰트로 폴백).
     std::string s;
@@ -3029,11 +3033,13 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         } else if (!client.IsControlOnly()) {
             target = &client;
         }
-        int x = 0, y = 0, w = 0, h = 0;
-        const bool hasXY = req.GetObjInt("args", "x", x) &&
-                           req.GetObjInt("args", "y", y);
-        const bool hasWH = req.GetObjInt("args", "w", w) &&
-                           req.GetObjInt("args", "h", h);
+        // 가드가 읽는 값은 int64 리더로 (docs/57 §13.3 — int32 축소 캐스트는
+        // 2^32+100 → 100 랩어라웃으로 ±32768/[80,8192] 가드를 우회시킨다).
+        int64_t x = 0, y = 0, w = 0, h = 0;
+        const bool hasXY = req.GetObjInt64("args", "x", x) &&
+                           req.GetObjInt64("args", "y", y);
+        const bool hasWH = req.GetObjInt64("args", "w", w) &&
+                           req.GetObjInt64("args", "h", h);
         // 인자 유효성을 대상 판정보다 먼저 — 인자가 잘못된 호출은 대상이
         // 있든 없든 bad_args가 정직한 답.
         if (tool == "window_move" && !hasXY) {
@@ -3065,8 +3071,10 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                 } else {
                     // BOTH required (docs/28 lesson): input mapping reads
                     // client->X()/Y() while the draw path reads the layer.
-                    compositor_->SetLayerPosition(target->Id(), x, y);
-                    target->SetPosition(x, y);
+                    compositor_->SetLayerPosition(target->Id(),
+                                                  static_cast<int>(x),
+                                                  static_cast<int>(y));
+                    target->SetPosition(static_cast<int>(x), static_cast<int>(y));
                     PushWindowListUnsafe();  // focus_window 선례 — 태스크바 동기
                     reply = "{\"ok\":true}";
                 }
@@ -3082,13 +3090,14 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                     // 레이어(픽셀 크기≠표시 크기)는 기존 ScaleX/Y를 반영한
                     // 표시 크기를 넘겨 scale이 보존되게 한다 — 스케일 1 레이어는
                     // dispW/H=자기(정규 경로와 동일, SetLayerScale 스킵).
-                    int dispW = w, dispH = h;
+                    int dispW = static_cast<int>(w), dispH = static_cast<int>(h);
                     const float sx = layer->ScaleX(), sy = layer->ScaleY();
                     if (sx != 1.0f || sy != 1.0f) {
                         dispW = static_cast<int>(std::llround(w * sx));
                         dispH = static_cast<int>(std::llround(h * sy));
                     }
-                    CommitChromeResize(*target, target->Id(), w, h, dispW, dispH);
+                    CommitChromeResize(*target, target->Id(), static_cast<int>(w),
+                                       static_cast<int>(h), dispW, dispH);
                     PushWindowListUnsafe();  // 태스크바 크기 표기 동기
                     reply = "{\"ok\":true}";
                 }
@@ -4155,13 +4164,15 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         // 파킹(kind "capture_allow") — 에이전트/GUI 불문 전 경로, 승인은
         // jkchat 스트립(§2.2 키별 게이트 — 도구별 askCapable과 달리).
         std::string key;
-        int valInt = 0;
-        const bool hasInt = req.GetObjInt("args", "value", valInt);
+        // 가드가 읽는 값은 int64 리더로 (docs/57 §13.3 파서 계약).
+        int64_t val64 = 0;
+        const bool hasInt = req.GetObjInt64("args", "value", val64);
+        const int valInt = static_cast<int>(val64);
         req.GetObjStr("args", "key", key);
         if (key.empty()) {
             reply = "{\"ok\":false,\"error\":\"bad_key\"}";
         } else if (key == "idle_minutes") {
-            if (!hasInt || valInt < 0 || valInt > 1440) {
+            if (!hasInt || val64 < 0 || val64 > 1440) {
                 reply = "{\"ok\":false,\"error\":\"bad_value\"}";
             } else {
                 std::FILE* f = std::fopen(
@@ -4180,7 +4191,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             // 호출의 감사 증적 — 어느 경로에서든 하한 아래로 절단 불가.
             // (0 = 무기한은 현재값(관행) — set 불가(§2.2 표). GUI 콤보가
             // 제시하는 최소 프리셋도 7이므로 GUI 기능 손실 없음.)
-            if (!hasInt || valInt < 7) {
+            if (!hasInt || val64 < 7) {
                 reply = "{\"ok\":false,\"error\":\"bad_value\"}";
             } else if (!WriteSettingsKv(audioMasterMute_, audioMasterVolume_,
                                         valInt, textFontPath_,
@@ -4200,11 +4211,11 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             }
         } else if (key == "audio_master_mute" || key == "audio_master_volume") {
             if (key == "audio_master_mute" && hasInt &&
-                (valInt == 0 || valInt == 1)) {
-                audioMasterMute_ = (valInt == 1);
+                (val64 == 0 || val64 == 1)) {
+                audioMasterMute_ = (val64 == 1);
             } else if (key == "audio_master_volume" && hasInt &&
-                       valInt >= 0 && valInt <= 100) {
-                audioMasterVolume_ = valInt;
+                       val64 >= 0 && val64 <= 100) {
+                audioMasterVolume_ = static_cast<int>(val64);
                 audioMasterMute_ = false;  // 볼륨 조작은 음소거 해제 의미
             } else {
                 reply = "{\"ok\":false,\"error\":\"bad_value\"}";
