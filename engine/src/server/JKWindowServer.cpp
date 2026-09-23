@@ -1642,6 +1642,13 @@ std::string JKWindowServer::ExecuteSendInputOp(const SendInputOp& op) {
         // 합성 마우스에도 실시간 경로와 동일한 mods 스탬프(최종리뷰 Minor 3) —
         // 마우스 구조체는 mods 필드가 없고 option으로 실린다(단계 3 선례).
         p.option = SDL_GetModState();
+        // 선행 MouseMove 필수 — ImGui 백엔드는 MouseMove에서만 MousePos를
+        // 갱신한다(imgui_impl_jkwindow.cpp:219, MouseDown은 좌표를 안 실음).
+        // 이동 없이 Down/Up만 보내면 합성 클릭이 마지막 MousePos에 착지해
+        // ImGui 앱(taskmgr 등)에서 클릭이 무력했다(런그 5 실측 — JKDC
+        // 커스텀 렌더링 앱은 이벤트 좌표를 직독해 런그 1이 통과했던 것).
+        p.type = ipc::InputEventType::MouseMove;
+        SendInputEvent(*client, p);
         p.type = ipc::InputEventType::MouseDown;
         SendInputEvent(*client, p);
         p.type = ipc::InputEventType::MouseUp;

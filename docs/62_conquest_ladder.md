@@ -231,6 +231,34 @@ cycle2). 이 런그가 **정복 사다리 최초의 실제 제품 결함**을 �
   실측 PASS+복원 확인). conquest 프로브의 RMW도 파일 부재 시 조용히 실패하지
   않게 존재 가드+DIAG.
 
+**런그 5 — probe_conquest_taskmgr.ps1 (트랙 B, 2026-09-23, 27체크 ×2 CONQUEST
+PASS)**: taskmgr(ImGui 앱, 900×620) — drive는 2단 클릭: ①Minesweeper 행(1행,
+표면 y≈57) 싱글 클릭으로 선택 → ②Activate 버튼(표면 ≈38,509) 클릭.
+verify는 **list_windows focused 플래그 플립**(Minesweeper true/Task Manager
+false — 상태 기반 강한 게이트)+window.focused fired 카운터. **캡처 해시는 이
+앱에서 검증기가 될 수 없다** — taskmgr는 CPU%/ImPlot 히스토리를 상시 리드로우해
+무드라이브에도 해시가 바뀐다(실측 HASH-IDLE-CHANGED: True). 이 런그가 두 번째
+**실제 제품 결함**을 잡았다:
+
+- **send_input 클릭이 ImGui 앱에서 무력(런그 5 신규 결함)** — ExecuteSendInputOp
+  클릭 경로가 MouseDown+MouseUp만 보냈는데, ImGui 백엔드는 **MouseMove에서만
+  MousePos를 갱신한다**(imgui_impl_jkwindow.cpp:219 — MouseDown은 좌표를 안
+  실음). 이동 없는 합성 클릭은 마지막 MousePos에 착지해 taskmgr에서 클릭이
+  전면 무반응. 런그 1 minesweeper가 통과한 것은 JKDC 커스텀 렌더링이라 이벤트
+  좌표를 직독하기 때문 — ImGui 앱(taskmgr·launcher 등)은 전부 해당.
+  **픽스**: 클릭 경로에 선행 MouseMove 주입(JKWindowServer.cpp:1645, 실시간
+  경로와 동일한 좌표 변환식 재사용). 회귀 실측: conquest_minesweeper ×2 +
+  probe_send_input ALL PASS(런그 1 무손상).
+- **부수 진단 결판 2건**: ①행 매핑 — taskmgr 표는 PID 값 정렬이 아니라
+  **스폰(삽입) 순서**로 행을 나열한다(실측: 큰 pid가 1행인 케이스 관측). pid
+  대소로 행을 추정하면 자기 행을 골라 Activate가 서버 셀프 가드
+  (surfaceId==client.Id(), :2012)로 무음 무시된다 — 프로브는 minesweeper를
+  먼저 스폰해 행 1을 고정한다. ②좌표 기준 — list_windows rect == 클라 표면
+  (크롬은 그 밖에 합성), send_input 논리 좌표 변환식과 일치: 표면 (cx,cy) =
+  논리 (win.x+cx, win.y+cy), **크롬 오프셋 없음**(Input dump 헤더 클릭으로
+  실증). observe-focus-baseline은 등장 폴링이 즉시 break해 포커스 인계가 늦게
+  확정되는 레이스가 있어 settle 재폴링으로 픽스(1차 런 4 FAIL의 전부).
+
 **배치 공식런 완료 (2026-09-22, main 머지 후 — 프로브를 main 빌드로 재지정, 99e2928)**:
 사다리가 main에 머지됐으므로 공식런도 main 빌드로 수행이 옳아 4종 프로브의 `$build`
 하드코딩을 `engine\build`로 변경(영구 — worktree 경로 소각). 절차 전순 준수:
@@ -266,7 +294,7 @@ Start-Process -FilePath I:\progwork\JKENGINE\engine\build\jkbridge.exe -WorkingD
 | **minesweeper** | **코드 정복 완료+공식런 GREEN(2026-09-22 배치, §4)** — send_input 도구 + 정복 프로브 템플릿 확립. 잔여 판정 = LLM 실전 세션(§6) |
 | tetris | **코드 정복 완료+공식런 GREEN(2026-09-22 배치, 19체크 ×2)** — probe_conquest_tetris.ps1(템플릿 복제+키 드라이브) |
 | scriptdemo | 대기 |
-| taskmgr | 대기 |
+| taskmgr | **코드 정복 완료+공식런 GREEN(2026-09-23, 런그 5 — 27체크 ×2)** — 첫 ImGui 앱 정복. drive=행 선택+Activate 버튼 2단 클릭, verify=focused 플래그 플립. **send_input 클릭 MouseMove 결함을 잡은 단** |
 | terminal | **코드 정복 완료+공식런 GREEN(2026-09-23, 런그 4 — 25체크 ×2)** — type+key 드라이브, verify=앱 자기 토픽 이벤트+캡처 해시 2중. **정복 사다리가 첫 실제 제품 결함(reserved-topic 회귀)을 잡은 단** |
 | vplayer | **코드 정복 완료+공식런 GREEN(2026-09-22, 런그 3 — 트랙 A 시제)** — drive가 send_input이 아니라 앱 자기 도구(app_tool open/play_pause/seek/get_status)로 갈아타는 첫 케이스. 잔여 판정 = LLM 실전 세션 |
 | browser | 대기 |
