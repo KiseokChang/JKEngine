@@ -3820,15 +3820,59 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         std::string app, jkx;
         req.GetObjStr("args", "app", app);
         req.GetObjStr("args", "jkx", jkx);
+        // 런치 진실성 (2026-09-24 LLM 실전 발각): 스폰 전 존재 검증. 스폰은
+        // 비동기 사망한다 — app은 jkapp_<app>.dll이 없으면 자식이 즉시 exit,
+        // jkx는 경로가 없으면 jkx.Open 실패 exit — 그런데도 무조건 ok:true는
+        // "accepted 후 침묵"(docs/59 §13 폰 플로우 실측) 동형 결함이었다.
+        // LLM이 스키마의 jkx 키를 골라 죽은 스폰을 ok:true로 받고 침묵하는
+        // 실측이 정확히 이 구멍이다.
+        //   app: jkapp_<app>.dll 존재 검사(런처와 같은 exeDir 기준) — 단
+        //        terminal:/filedlg: 접두 관례(스폰 전용 경로)는 검사 면제.
+        //   jkx: 주어진 경로 우선, 없으면 exeDir/apps/<bare>.jkx 폴백 해석
+        //        (런처의 apps/ 열거와 같은 기준 — bare 이름을 쓰는 LLM을
+        //        살리는 쪽). 둘 다 없으면 unknown_jkx.
+        char exePath[1024] = {};
+        std::string exeDir;
+        if (GetModuleFileNameA(nullptr, exePath, sizeof(exePath)) > 0) {
+            char* lastSlash = exePath;
+            for (char* p = exePath; *p; ++p) {
+                if (*p == '\\' || *p == '/') lastSlash = p;
+            }
+            *lastSlash = '\0';
+            exeDir = exePath;
+        }
+        auto fileExistsFn = [](const std::string& p) {
+            return GetFileAttributesA(p.c_str()) != kInvalidFileAttributes;
+        };
         if (!app.empty()) {
-            // docs/35: pair the capture overlay with the client that asked
-            // for it (see overlaySpawner_ member comment).
-            pendingSnapSpawnerConnId_ = (app == "snap") ? client.Id() : 0;
-            SpawnClient(app.c_str(), false);
-            reply = "{\"ok\":true}";
+            if (app.find(':') == std::string::npos && !exeDir.empty() &&
+                !fileExistsFn(exeDir + "\\jkapp_" + app + ".dll")) {
+                reply = "{\"ok\":false,\"error\":\"unknown_app\",\"app\":\"" +
+                        app + "\"}";
+            } else {
+                // docs/35: pair the capture overlay with the client that asked
+                // for it (see overlaySpawner_ member comment).
+                pendingSnapSpawnerConnId_ = (app == "snap") ? client.Id() : 0;
+                SpawnClient(app.c_str(), false);
+                reply = "{\"ok\":true}";
+            }
         } else if (!jkx.empty()) {
-            SpawnClient(jkx.c_str(), true);
-            reply = "{\"ok\":true}";
+            std::string resolved = jkx;
+            if (!fileExistsFn(resolved) && resolved.find_first_of("/\\") ==
+                                               std::string::npos &&
+                !exeDir.empty()) {
+                // bare 이름 → 런처의 apps/ 컨테이너 기준으로 해석
+                const std::string candidate = exeDir + "\\apps\\" + resolved +
+                                              ".jkx";
+                if (fileExistsFn(candidate)) resolved = candidate;
+            }
+            if (!fileExistsFn(resolved)) {
+                reply = "{\"ok\":false,\"error\":\"unknown_jkx\",\"jkx\":\"" +
+                        jkx + "\"}";
+            } else {
+                SpawnClient(resolved.c_str(), true);
+                reply = "{\"ok\":true}";
+            }
         } else {
             reply = "{\"ok\":false,\"error\":\"missing_app\"}";
         }
