@@ -315,7 +315,7 @@ private:
         "{"
         "\"contract\":\"engine/scripts/jk.d.ts (full reference; additive only)\","
         "\"charset\":\"위젯 텍스트는 ASCII+한글만 안전 — 기호(■□●◆)·이모지는 ?로 렌더됨\","
-        "\"events\":\"전역 함수 onClick(id)를 정의하면 모든 클릭이 id와 함께 전달된다\","
+        "\"events\":\"전역 함수 onClick(id)를 정의하면 모든 클릭이 id와 함께 전달된다; 캔버스용 onMouse(type,x,y,canvasId)/onWheel(dy,x,y)/onKey(key,down)도 전역 함수로 정의하면 캔버스 입력이 전달된다 — 정의 없으면 무시\","
         "\"layout\":\"좌표는 패널 클라이언트 픽셀; 창이 리사이즈되어도 위젯은 재배치되지 않는다\","
         "\"functions\":["
         "{\"sig\":\"log(text)\",\"desc\":\"콘솔 로그\"},"
@@ -339,9 +339,16 @@ private:
         "{\"sig\":\"dialogAddButton(dialog, rect, text)\",\"desc\":\"다이얼로그 버튼\"},"
         "{\"sig\":\"dialogShow(dialog)\",\"desc\":\"다이얼로그 표시\"},"
         "{\"sig\":\"dialogClose(dialog, result)\",\"desc\":\"다이얼로그 닫기\"},"
-        "{\"sig\":\"readConfig(key)\",\"desc\":\"스크립트 옆 설정 파일 읽기\"}"
+        "{\"sig\":\"readConfig(key)\",\"desc\":\"스크립트 옆 설정 파일 읽기\"},"
+        "{\"sig\":\"createCanvas(rect)\",\"desc\":\"그리기 캔버스 (포커스 가능), id 반환 — 게임·토이용\"},"
+        "{\"sig\":\"canvasClear(id, color?)\",\"desc\":\"캔버스 전체 지우기+바탕색 — 애니메이션은 프레임마다 호출 (옵 상한 4096)\"},"
+        "{\"sig\":\"canvasRect(id, x,y,w,h, color, filled?)\",\"desc\":\"사각형 — filled 생략 시 외곽선\"},"
+        "{\"sig\":\"canvasPixel(id, x,y, color)\",\"desc\":\"픽셀 1개\"},"
+        "{\"sig\":\"canvasLine(id, x1,y1,x2,y2, color)\",\"desc\":\"선\"},"
+        "{\"sig\":\"canvasCircle(id, x,y,r, color, filled?)\",\"desc\":\"원 — filled는 스캔라인 근사\"},"
+        "{\"sig\":\"canvasText(id, x,y, text, color)\",\"desc\":\"텍스트 (한글 안전)\"}"
         "],"
-        "\"note\":\"createListBox/createCheckbox 같은 목록·체크 위젯은 아직 없다 — 목록은 라벨+버튼 조합으로 구성\""
+        "\"note\":\"createListBox/createCheckbox 같은 목록·체크 위젯은 아직 없다 — 목록은 라벨+버튼 조합으로 구성; 색은 0xRRGGBB 숫자 또는 '#rrggbb' 문자열; 캔버스 좌표는 캔버스 로컬 픽셀\""
         "}";
 
     static std::string JsonEsc(const std::string& s) {

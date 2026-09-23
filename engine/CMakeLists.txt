@@ -175,6 +175,7 @@ add_library(jkcore STATIC
     src/JKJkxFile.cpp
     src/JKVectorFont.cpp
     src/script/JKScriptHost.cpp
+    src/script/JKScriptCanvas.cpp
     legacy/wancode/WANCODE.CPP
 )
 

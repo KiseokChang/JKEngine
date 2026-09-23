@@ -8,6 +8,7 @@
 #include <JKEvent.h>
 #include <JKHangulUtil.h>
 #include <JKMessageBox.h>
+#include <JKScriptCanvas.h>
 #include <JKStatic.h>
 #include <JKWindow.h>
 #include <apps/AppUtil.h>
@@ -705,6 +706,190 @@ struct Bindings {
         }
         return JS_DupValue(ctx, val.value());
     }
+
+    // --- host API v5 — canvas + input events (docs/60 §10) ----------------
+    // Retained-mode canvas control (JKScriptCanvas): draw bindings append ops,
+    // OnPaintClient replays them. Input: the canvas's sink funnels events to
+    // the script's onMouse/onWheel/onKey globals via the DispatchCanvas*
+    // methods. Colors are 0xRRGGBB numbers or "#rrggbb"/"#rgb" strings.
+
+    // Color arg -> (r,g,b). Accepts a number (0xRRGGBB) or a hex string.
+    static bool ColorFromArg(JSContext* ctx, JSValueConst v, uint8_t out[3]) {
+        if (JS_IsNumber(v)) {
+            int32_t c = 0;
+            if (JS_ToInt32(ctx, &c, v)) return false;
+            out[0] = static_cast<uint8_t>((c >> 16) & 0xFF);
+            out[1] = static_cast<uint8_t>((c >> 8) & 0xFF);
+            out[2] = static_cast<uint8_t>(c & 0xFF);
+            return true;
+        }
+        if (JS_IsString(v)) {
+            std::string s = ToUtf8(ctx, v);
+            if (!s.empty() && s[0] == '#') s.erase(0, 1);
+            const bool short3 = (s.size() == 3);
+            if (s.size() != 6 && !short3) return false;
+            unsigned val = 0;
+            for (char c : s) {
+                int d = (c >= '0' && c <= '9') ? c - '0'
+                      : (c >= 'a' && c <= 'f') ? c - 'a' + 10
+                      : (c >= 'A' && c <= 'F') ? c - 'A' + 10 : -1;
+                if (d < 0) return false;
+                val = val * 16 + static_cast<unsigned>(d);
+            }
+            if (short3) {
+                out[0] = static_cast<uint8_t>((val >> 8) & 0xF) * 17;
+                out[1] = static_cast<uint8_t>((val >> 4) & 0xF) * 17;
+                out[2] = static_cast<uint8_t>(val & 0xF) * 17;
+            } else {
+                out[0] = static_cast<uint8_t>((val >> 16) & 0xFF);
+                out[1] = static_cast<uint8_t>((val >> 8) & 0xFF);
+                out[2] = static_cast<uint8_t>(val & 0xFF);
+            }
+            return true;
+        }
+        return false;
+    }
+
+    static JKScriptCanvas* CanvasOf(JKScriptHost* host, JSContext* ctx,
+                                    JSValueConst idArg) {
+        int32_t id = 0;
+        if (!host || JS_ToInt32(ctx, &id, idArg) || id < 0 || id > 0xFFFF) {
+            return nullptr;
+        }
+        JKControl* c = FindControl(host, static_cast<uint16_t>(id));
+        return c ? dynamic_cast<JKScriptCanvas*>(c) : nullptr;
+    }
+
+    static JSValue CreateCanvas(JSContext* ctx, JSValueConst, int argc,
+                                JSValueConst* argv) {
+        JKScriptHost* host = HostOf(ctx);
+        if (!host || !host->window_ || argc < 1) return JS_EXCEPTION;
+        bool ok = false;
+        const JKRect rect = RectFromArg(ctx, argv[0], &ok);
+        if (!ok) return JS_EXCEPTION;
+        auto* canvas = new JKScriptCanvas(rect, 0);
+        const uint16_t id =
+            ResolveControlId(host, ctx, argc >= 2 ? argv[1] : JS_UNDEFINED);
+        canvas->SetControlId(id);
+        canvas->SetInputSink([host, id](const JKScriptCanvas::InputEvent& in) {
+            switch (in.kind) {
+                case 3:
+                    host->DispatchCanvasWheel(id, in.detail, in.x, in.y);
+                    break;
+                case 4:
+                    host->DispatchCanvasKey(static_cast<uint32_t>(in.detail),
+                                            true);
+                    break;
+                case 5:
+                    host->DispatchCanvasKey(static_cast<uint32_t>(in.detail),
+                                            false);
+                    break;
+                default:  // 0 down, 1 up, 2 move
+                    host->DispatchCanvasMouse(id, in.kind, in.x, in.y);
+                    break;
+            }
+        });
+        host->controls_.emplace_back(id, canvas);
+        host->window_->AddControl(std::unique_ptr<JKScriptCanvas>(canvas));
+        return JS_NewInt32(ctx, static_cast<int32_t>(id));
+    }
+
+    static JSValue CanvasClear(JSContext* ctx, JSValueConst, int argc,
+                               JSValueConst* argv) {
+        JKScriptHost* host = HostOf(ctx);
+        if (!host || argc < 1) return JS_UNDEFINED;
+        uint8_t col[3] = { 32, 32, 32 };
+        if (argc >= 2) ColorFromArg(ctx, argv[1], col);
+        if (JKScriptCanvas* c = CanvasOf(host, ctx, argv[0])) {
+            c->Clear(col[0], col[1], col[2]);
+        }
+        return JS_UNDEFINED;
+    }
+
+    static JSValue CanvasRect(JSContext* ctx, JSValueConst, int argc,
+                              JSValueConst* argv) {
+        JKScriptHost* host = HostOf(ctx);
+        int32_t x = 0, y = 0, w = 0, h = 0;
+        if (!host || argc < 6 || JS_ToInt32(ctx, &x, argv[1]) ||
+            JS_ToInt32(ctx, &y, argv[2]) || JS_ToInt32(ctx, &w, argv[3]) ||
+            JS_ToInt32(ctx, &h, argv[4])) {
+            return JS_UNDEFINED;
+        }
+        uint8_t col[3] = { 255, 255, 255 };
+        if (!ColorFromArg(ctx, argv[5], col)) return JS_UNDEFINED;
+        bool filled = (argc >= 7 && JS_ToBool(ctx, argv[6]) == 1);
+        if (JKScriptCanvas* c = CanvasOf(host, ctx, argv[0])) {
+            c->DrawRectOp(x, y, w, h, col[0], col[1], col[2], filled);
+        }
+        return JS_UNDEFINED;
+    }
+
+    static JSValue CanvasPixel(JSContext* ctx, JSValueConst, int argc,
+                               JSValueConst* argv) {
+        JKScriptHost* host = HostOf(ctx);
+        int32_t x = 0, y = 0;
+        if (!host || argc < 4 || JS_ToInt32(ctx, &x, argv[1]) ||
+            JS_ToInt32(ctx, &y, argv[2])) {
+            return JS_UNDEFINED;
+        }
+        uint8_t col[3] = { 255, 255, 255 };
+        if (!ColorFromArg(ctx, argv[3], col)) return JS_UNDEFINED;
+        if (JKScriptCanvas* c = CanvasOf(host, ctx, argv[0])) {
+            c->DrawPixel(x, y, col[0], col[1], col[2]);
+        }
+        return JS_UNDEFINED;
+    }
+
+    static JSValue CanvasLine(JSContext* ctx, JSValueConst, int argc,
+                              JSValueConst* argv) {
+        JKScriptHost* host = HostOf(ctx);
+        int32_t x1 = 0, y1 = 0, x2 = 0, y2 = 0;
+        if (!host || argc < 6 || JS_ToInt32(ctx, &x1, argv[1]) ||
+            JS_ToInt32(ctx, &y1, argv[2]) || JS_ToInt32(ctx, &x2, argv[3]) ||
+            JS_ToInt32(ctx, &y2, argv[4])) {
+            return JS_UNDEFINED;
+        }
+        uint8_t col[3] = { 255, 255, 255 };
+        if (!ColorFromArg(ctx, argv[5], col)) return JS_UNDEFINED;
+        if (JKScriptCanvas* c = CanvasOf(host, ctx, argv[0])) {
+            c->DrawLineOp(x1, y1, x2, y2, col[0], col[1], col[2]);
+        }
+        return JS_UNDEFINED;
+    }
+
+    static JSValue CanvasCircle(JSContext* ctx, JSValueConst, int argc,
+                                JSValueConst* argv) {
+        JKScriptHost* host = HostOf(ctx);
+        int32_t cx = 0, cy = 0, r = 0;
+        if (!host || argc < 5 || JS_ToInt32(ctx, &cx, argv[1]) ||
+            JS_ToInt32(ctx, &cy, argv[2]) || JS_ToInt32(ctx, &r, argv[3])) {
+            return JS_UNDEFINED;
+        }
+        uint8_t col[3] = { 255, 255, 255 };
+        if (!ColorFromArg(ctx, argv[4], col)) return JS_UNDEFINED;
+        bool filled = (argc >= 6 && JS_ToBool(ctx, argv[5]) == 1);
+        if (JKScriptCanvas* c = CanvasOf(host, ctx, argv[0])) {
+            c->DrawCircle(cx, cy, r, col[0], col[1], col[2], filled);
+        }
+        return JS_UNDEFINED;
+    }
+
+    static JSValue CanvasText(JSContext* ctx, JSValueConst, int argc,
+                              JSValueConst* argv) {
+        JKScriptHost* host = HostOf(ctx);
+        int32_t x = 0, y = 0;
+        if (!host || argc < 5 || JS_ToInt32(ctx, &x, argv[1]) ||
+            JS_ToInt32(ctx, &y, argv[2])) {
+            return JS_UNDEFINED;
+        }
+        uint8_t col[3] = { 255, 255, 255 };
+        if (!ColorFromArg(ctx, argv[4], col)) return JS_UNDEFINED;
+        if (JKScriptCanvas* c = CanvasOf(host, ctx, argv[0])) {
+            c->DrawText(x, y, ToWidgetText(ctx, argv[3]),
+                        col[0], col[1], col[2]);
+        }
+        return JS_UNDEFINED;
+    }
 };
 
 } // namespace script_detail
@@ -822,6 +1007,13 @@ bool JKScriptHost::Start(const std::string& entryPath) {
     bind("dialogShow", Bindings::DialogShow, 1);
     bind("dialogClose", Bindings::DialogClose, 2);
     bind("readConfig", Bindings::ReadConfig, 1);
+    bind("createCanvas", Bindings::CreateCanvas, 2);
+    bind("canvasClear", Bindings::CanvasClear, 2);
+    bind("canvasRect", Bindings::CanvasRect, 7);
+    bind("canvasPixel", Bindings::CanvasPixel, 4);
+    bind("canvasLine", Bindings::CanvasLine, 6);
+    bind("canvasCircle", Bindings::CanvasCircle, 6);
+    bind("canvasText", Bindings::CanvasText, 5);
 
     // readConfig resolves files next to the entry script — the path must be
     // known BEFORE evaluation and onCreate() run (the script may call it in
@@ -970,6 +1162,77 @@ void JKScriptHost::DispatchDialogClose(uint32_t dialogId, int result) {
     JsValue call(ctx, JS_Call(ctx, fn.value(), JS_UNDEFINED, 1, argv));
     if (JS_IsException(call.value())) {
         std::printf("[script] dialog %u onClose error: %s\n", dialogId,
+                    DumpPendingException(ctx).c_str());
+        std::fflush(stdout);
+    }
+}
+
+// --- canvas input dispatchers (docs/60 §10) ---------------------------------
+// The JKScriptCanvas sink funnels events here. The script's global callbacks
+// run when defined; exceptions log and the script continues (DispatchClick
+// precedent). The kind string mirrors the .d.ts contract.
+
+void JKScriptHost::DispatchCanvasMouse(uint16_t canvasId, int kind,
+                                       int32_t x, int32_t y) {
+    if (!ctx_) return;
+    static const char* kKinds[] = { "down", "up", "move" };
+    if (kind < 0 || kind > 2) return;
+    JSContext* ctx = static_cast<JSContext*>(ctx_);
+    JsValue global(ctx, JS_GetGlobalObject(ctx));
+    JsValue onMouse(ctx, JS_GetPropertyStr(ctx, global.value(), "onMouse"));
+    if (!JS_IsFunction(ctx, onMouse.value())) return;
+    JsValue argvs[4] = {
+        JsValue(ctx, JS_NewString(ctx, kKinds[kind])),
+        JsValue(ctx, JS_NewInt32(ctx, x)),
+        JsValue(ctx, JS_NewInt32(ctx, y)),
+        JsValue(ctx, JS_NewInt32(ctx, static_cast<int32_t>(canvasId))),
+    };
+    JSValueConst argv[4] = { argvs[0].value(), argvs[1].value(),
+                             argvs[2].value(), argvs[3].value() };
+    JsValue call(ctx, JS_Call(ctx, onMouse.value(), JS_UNDEFINED, 4, argv));
+    if (JS_IsException(call.value())) {
+        std::printf("[script] onMouse error: %s\n",
+                    DumpPendingException(ctx).c_str());
+        std::fflush(stdout);
+    }
+}
+
+void JKScriptHost::DispatchCanvasWheel(uint16_t canvasId, int32_t dy,
+                                       int32_t x, int32_t y) {
+    if (!ctx_) return;
+    JSContext* ctx = static_cast<JSContext*>(ctx_);
+    JsValue global(ctx, JS_GetGlobalObject(ctx));
+    JsValue onWheel(ctx, JS_GetPropertyStr(ctx, global.value(), "onWheel"));
+    if (!JS_IsFunction(ctx, onWheel.value())) return;
+    JsValue argvs[3] = {
+        JsValue(ctx, JS_NewInt32(ctx, dy)),
+        JsValue(ctx, JS_NewInt32(ctx, x)),
+        JsValue(ctx, JS_NewInt32(ctx, y)),
+    };
+    JSValueConst argv[3] = { argvs[0].value(), argvs[1].value(),
+                             argvs[2].value() };
+    JsValue call(ctx, JS_Call(ctx, onWheel.value(), JS_UNDEFINED, 3, argv));
+    if (JS_IsException(call.value())) {
+        std::printf("[script] onWheel error: %s\n",
+                    DumpPendingException(ctx).c_str());
+        std::fflush(stdout);
+    }
+}
+
+void JKScriptHost::DispatchCanvasKey(uint32_t key, bool down) {
+    if (!ctx_) return;
+    JSContext* ctx = static_cast<JSContext*>(ctx_);
+    JsValue global(ctx, JS_GetGlobalObject(ctx));
+    JsValue onKey(ctx, JS_GetPropertyStr(ctx, global.value(), "onKey"));
+    if (!JS_IsFunction(ctx, onKey.value())) return;
+    JsValue argvs[2] = {
+        JsValue(ctx, JS_NewInt32(ctx, static_cast<int32_t>(key))),
+        JsValue(ctx, down ? JS_TRUE : JS_FALSE),
+    };
+    JSValueConst argv[2] = { argvs[0].value(), argvs[1].value() };
+    JsValue call(ctx, JS_Call(ctx, onKey.value(), JS_UNDEFINED, 2, argv));
+    if (JS_IsException(call.value())) {
+        std::printf("[script] onKey error: %s\n",
                     DumpPendingException(ctx).c_str());
         std::fflush(stdout);
     }

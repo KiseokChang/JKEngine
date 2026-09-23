@@ -1,8 +1,9 @@
-// jk.d.ts v4 — host API contract (docs/27_scripting_quickjs_bridge.md §4).
+// jk.d.ts v5 — host API contract (docs/27_scripting_quickjs_bridge.md §4).
 // v1: 단계 1 최소 증명 세트 / v2: 단계 2 UI 자동화 API (findControl, click,
 // injectMouse, injectKey, assert, assertEq — additive) / v3: 단계 3 모달
 // 다이얼로그 (createDialog, dialogAdd*, dialogShow, dialogClose — additive) /
-// v4: 단계 4 설정 주입 (readConfig).
+// v4: 단계 4 설정 주입 (readConfig) / v5: 캔버스 그리기 + 키·마우스 이벤트
+// (createCanvas, canvas*, onMouse/onWheel/onKey — additive, docs/60 §10).
 //
 // 이 파일은 실행되지 않는 TypeScript 선언 파일이다. QuickJS-ng가 실행하는
 // 것은 app.js(JavaScript)이며, 이 선언은 (1) 스크립트를 작성하는 에이전트가
@@ -198,12 +199,73 @@ declare function dialogClose(dialogId: number, result: number): void;
 declare function readConfig(fileName: string): any;
 
 // ---------------------------------------------------------------------------
+// v5 — 캔버스 그리기 + 입력 이벤트 (docs/60 §10, 게임·토이 층). 캔버스는
+// 유지(retained) 모드다: 그리기 호출마다 옵이 캔버스에 쌓이고 매 paint마다
+// 리플레이된다. 애니메이션은 setInterval 콜백에서 canvasClear 후 다시 그리는
+// 주기로 옵 리스트를 유지한다.
+// ---------------------------------------------------------------------------
+
+/**
+ * 캔버스 컨트롤을 만들어 controlId를 반환한다. 포커스 가능 — 클릭하면 키
+ * 이벤트가 이 캔버스로 온다(onKey). 바탕색은 테마 앱 배경, 어두운 테두리가
+ * 그려져 실존이 눈에 보인다.
+ */
+declare function createCanvas(rect: JKRect, id?: number): number;
+
+/**
+ * 캔버스 옵을 전부 지우고 바탕색을 다시 칠한다. color 생략 시 기본 바탕색.
+ *
+ * @note [AI Agent] 옵 상한은 캔버스당 4096 — 초과 시 새 그리기 호출이 폐기되고
+ *   한 번 경고 로그가 남는다. 애니메이션은 프레임마다 canvasClear로 시작할 것.
+ */
+declare function canvasClear(canvasId: number, color?: number | string): void;
+
+/**
+ * 캔버스에 사각형을 그린다 (좌표는 캔버스 로컬 픽셀). filled=true면 채우기,
+ * 생략하면 외곽선.
+ */
+declare function canvasRect(canvasId: number, x: number, y: number, w: number, h: number,
+                            color: number | string, filled?: boolean): void;
+
+/** 캔버스에 픽셀 하나를 찍는다. */
+declare function canvasPixel(canvasId: number, x: number, y: number,
+                             color: number | string): void;
+
+/** 캔버스에 선을 긋는다. */
+declare function canvasLine(canvasId: number, x1: number, y1: number,
+                            x2: number, y2: number, color: number | string): void;
+
+/**
+ * 캔버스에 원을 그린다. filled=true는 스캔라인 근사 채우기, 생략하면 외곽선.
+ */
+declare function canvasCircle(canvasId: number, x: number, y: number, radius: number,
+                              color: number | string, filled?: boolean): void;
+
+/**
+ * 캔버스에 텍스트를 그린다 (한글 안전 — 위젯 텍스트와 같은 인코딩 경로).
+ * (x, y)는 텍스트 원점 좌상단.
+ */
+declare function canvasText(canvasId: number, x: number, y: number,
+                            text: string, color: number | string): void;
+
+// ---------------------------------------------------------------------------
 // 스크립트 콜백 (전역 함수로 정의하면 호스트가 호출한다 — 선언 충돌을 피하려고
 // .d.ts ambient var로 선언하지 않는다; 아래 주석이 계약이다)
 //
 //   function onCreate()          — 선택. 스크립트 적재 직후 1회.
 //   function onClick(controlId)  — 선택. 버튼 클릭마다.
 //   function onExit()            — 선택. 컨텍스트 해체 직전(종료/리로드).
+//
+// 캔버스 입력 (v5, docs/60 §10 — 캔버스 위젯에서 온다):
+//   function onMouse(type, x, y, canvasId) — 선택. 캔버스 위 마우스. type은
+//     "down"|"up"|"move", (x, y)는 캔버스 로컬 픽셀. 드래그 중에도 move가 온다
+//     (다운 시 캡처).
+//   function onWheel(dy, x, y)             — 선택. 휠. dy>0 = 위(양수 방향).
+//     휠 이벤트에는 좌표가 없어 포커스 컨트롤(캔버스)로 간다 — x, y는 마지막
+//     마우스 위치.
+//   function onKey(key, down)              — 선택. 포커스를 가진 캔버스의 키
+//     이벤트. key는 SDL 키코드(injectKey와 동일 규약), down은 true/false.
+//     에디트 등 다른 컨트롤이 포커스 중이면 그 컨트롤이 먹는다 — 정상.
 //
 // 예외 정책 (docs/27 §3.2): 미처리 예외는 메시지 + JS 스택 트레이스가 로그에
 // 덤프되고 앱은 정상 종료한다. 로그만 읽고 스스로 고칠 수 있게 쓸 것.

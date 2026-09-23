@@ -2363,6 +2363,41 @@ static int RunAppSelfTest() {
               "dispatchclick drives script onclick");
         host.Stop();
 
+        // 1b) Canvas + input events (docs/60 §10): createCanvas registers a
+        //     focusable JKScriptCanvas; draw bindings accept its id; the
+        //     DispatchCanvas* dispatchers drive the script's globals with
+        //     the documented signatures.
+        writeScript("test_script_canvas.js",
+            "var clabel = createLabel({x:0,y:0,w:120,h:20}, \"m-\");\n"
+            "var klabel = createLabel({x:0,y:24,w:120,h:20}, \"k-\");\n"
+            "var cv = createCanvas({x:0,y:48,w:100,h:80});\n"
+            "function onCreate(){ canvasRect(cv, 5,5, 20,10, 0xFF0000, true); "
+            "canvasPixel(cv, 1,1, \"#00ff00\"); canvasLine(cv, 0,0, 9,9, 255); "
+            "canvasCircle(cv, 50,50, 8, \"#abc\", true); "
+            "canvasText(cv, 2,2, \"AB\", \"fff\"); }\n"
+            "function onMouse(type, x, y, cid){ if (cid === cv) "
+            "setText(clabel, type + \":\" + x + \",\" + y); }\n"
+            "function onKey(key, down){ setText(klabel, \"k\" + key + \":\" + down); }\n");
+        jk::JKWindow cwin("ScriptCanvasTest");
+        cwin.SetWindowRect(jk::JKRect{ 0, 0, 320, 240 });
+        jk::JKScriptHost chost;
+        chost.Attach(&cwin);
+        check(chost.Start("test_script_canvas.js"),
+              "canvas script boots (bindings + color strings)");
+        const uint16_t canvasId = 1002;  // after clabel/klabel
+        jk::JKControl* ccv = cwin.FindControlByControlId(canvasId);
+        check(ccv && ccv->IsFocusable(),
+              "createCanvas registers a focusable control");
+        chost.DispatchCanvasMouse(canvasId, 0, 5, 7);
+        jk::JKControl* clb = cwin.FindControlByControlId(1000);
+        check(clb && clb->GetText() == "down:5,7",
+              "dispatchcanvasmouse drives script onmouse");
+        chost.DispatchCanvasKey(100, true);
+        jk::JKControl* klb = cwin.FindControlByControlId(1001);
+        check(klb && klb->GetText() == "k100:true",
+              "dispatchcanvaskey drives script onkey");
+        chost.Stop();
+
         // 2) setInterval claims a winId from the script range and manual
         //    dispatch runs the interval callback.
         writeScript("test_script_timer.js",

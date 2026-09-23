@@ -82,6 +82,14 @@ public:
     void DispatchClick(uint16_t controlId);
     void DispatchTimerAt(uint32_t scriptTimerId);
     void DispatchDialogClose(uint32_t dialogId, int result);
+    // Canvas input dispatchers (docs/60 §10): the JKScriptCanvas input sink
+    // funnels events here; the script's global onMouse(type,x,y,canvasId) /
+    // onWheel(dy,x,y) / onKey(key,down) run when defined (absent = ignored).
+    // kind: 0=down, 1=up, 2=move; key=SDL keycode, down=1/0.
+    void DispatchCanvasMouse(uint16_t canvasId, int kind, int32_t x, int32_t y);
+    void DispatchCanvasWheel(uint16_t canvasId, int32_t dy, int32_t x,
+                             int32_t y);
+    void DispatchCanvasKey(uint32_t key, bool down);
 
     // Introspection (self-test, docs/27 §2.4): the property names actually
     // visible to the script via Object.getOwnPropertyNames(globalThis).

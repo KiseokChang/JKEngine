@@ -128,8 +128,8 @@ PC 팔레트/채팅도 동일 도구. 사용자는 한국어로 바람만 말함
   들어온 스크립트의 JSON 이스케이프 결과는 argsRaw와 동일 형태라 256KiB 안에서
   왕복 보장. 실측: 100KiB 단일행 스크립트 set_script→get_script 왕복 100,205자
   완전 복원. probe_workshop 17체크 + probe_app_tools 64체크 ×2 ALL PASS 회귀.
-- 그리기(캔버스)/키보드/마우스 이벤트 API — 게임·토이용 (첫 위젯이 API v1으로
-  되는지 확인 후)
+- **[소각 2026-09-24] 그리기(캔버스)/키보드/마우스 이벤트 API** — §10 캔버스 API
+  v5로 소각 (첫 위젯이 v1으로 충분함이 실측된 후 게임·토이 층 개설)
 - 복수 슬롯 (myapp2.js 등 여러 앱 동시 워크숍)
 - **스크립트 앱 declareCursor** — 의미 커서(2026-09-22, docs/64)의 워크숍 재선언
   (`agent.declareCursor()`, 스펙 §6): 말로 만든 앱이 커서 조작을 즉시 획득. v1은
@@ -246,3 +246,72 @@ probe_workshop 17체크 ×2 ALL PASS(api-catalog 포함, 미러 부착 상태 �
 2. **플러드 내용 판독이 최단 루트** — 리플레이 형태(같은 스타트업 문단 반복)
    자체가 "생산자 무한 루프가 아니라 소비-재기입 루프"라는 뜻이었다.
 3. **이분법 env 스위치 한 빌드**(JK_MIRROR_NOCON/NOFILE)로 세 갈래를 한 번에.
+
+## 10. 그리기(캔버스)·키보드·마우스 이벤트 API — v5 (2026-09-24, 백로그 ① 소각)
+
+**배경**: §5 백로그 ① "그리기(캔버스)/키보드/마우스 이벤트 API — 게임·토이용".
+첫 실용 위젯이 v1(버튼/라벨/에디트)으로 충분함이 실측되었으므로(할일 판), 이제
+게임·토이 층을 연다. 애니메이션 토이(공 튀기기, 스네이크)는 (1) 픽셀 그리기 +
+(2) 타이머(이미 setInterval로 있음) + (3) 키/마우스 입력 — 세 재료 중 앞·뒤가
+없었다.
+
+**결정된 설계**:
+
+1. **캔버스 = 유지(retained) 옵 리스트 컨트롤** — `JKScriptCanvas`(jkcore,
+   `include/JKScriptCanvas.h`). 스크립트가 그리기 호출을 할 때마다 `Op` 구조체가
+   캔버스에 쌓이고 `OnPaintClient`가 매 paint마다 `GetScreenClientRect()` 원점
+   오프셋으로 리플레이한다(리테인드 모드 — 즉시 모드가 아닌 이유: 프레임워크의
+   그리기는 dirty-rect 무효화 기반이라 리페인트가 자주 재호출되고, 컨트롤이 자기
+   장면을 소유해야 재현된다 — JKButton 선례). 옵 상한 4096 — 초과 시 새 옵은
+   폐기+한 번 경고. 애니메이션은 `canvasClear()` 후 다시 그리는 주기로 옵 리스트를
+   유지한다(문서화).
+2. **그리기 바인딩**: `createCanvas(rect)`(id 반환, 포커스 가능) /
+   `canvasClear(id, color?)` / `canvasRect(id, x,y,w,h, color, filled?)` /
+   `canvasPixel(id, x,y, color)` / `canvasLine(id, x1,y1,x2,y2, color)` /
+   `canvasCircle(id, x,y,r, color, filled?)` / `canvasText(id, x,y, text, color)`.
+   색은 `0xRRGGBB` 숫자 또는 `"#rrggbb"` 문자열. 좌표는 캔버스 로컬 픽셀.
+   canvasText는 위젯 텍스트와 같은 KSSM 경로(Utf8ToKssm) — 한글 안전.
+3. **이벤트 콜백(스크립트가 전역 함수로 정의, 정의 없으면 무시 — additive)**:
+   `onMouse(type, x, y, canvasId)` — type은 `"down"|"up"|"move"`, 좌표 캔버스
+   로컬. `onWheel(dy, x, y)` — dy는 휠 델타(양수=위), 좌표는 마지막 마우스 위치
+   (프레임워크의 휠 이벤트는 좌표가 없어 포커스 컨트롤로 간다 — JKWindow::RespondMessage
+   실측). `onKey(key, down)` — key는 SDL 키코드, down은 1/0. 키 이벤트는 포커스를
+   가진 캔버스로만 간다(에디트 포커스 중이면 에디트가 먹는다 — 정상).
+4. **이벤트 경로는 컨트롤 표준을 따른다**: MouseDown에서 SetFocus +
+   `g_jkAppHost->SetCapture(this)`(드래그 중 move 계속 수신 — JKButton 선례),
+   MouseUp에서 ReleaseCapture. 응답된 이벤트 좌표는 스크린 공간이므로 캔버스가
+   `GetScreenClientRect()` 원점으로 로컬 변환 후 호스트에 전달.
+5. **호스트 디스패처**: `JKScriptHost::DispatchCanvasMouse(id, kind, x, y)` /
+   `DispatchCanvasWheel(id, dy, x, y)` / `DispatchCanvasKey(key, down)` — 전역
+   onMouse/onWheel/onKey를 호출. DispatchClick 선례와 같은 예외 정책(예외는
+   [script] 로그로 덤프, 스크립트 계속).
+6. **계약 동기화**: 바인딩 추가는 jk.d.ts(v5)와 kApiCatalog(§8) 둘 다에 반영 —
+   main.cpp §2.4 자기검사(d.ts 선언 ⊆ 런타임 BoundNames)가 한쪽을 지키고,
+   카탈로그는 `api` 도구 소비 LLM을 지킨다.
+
+**의도적으로 제외**: Char/TextEditing 콜백(타이핑 게임은 v6로 — 텍스트 조합은
+JKEdit가 이미 잘 한다), 다중 버튼 마우스(좌클릭만), 캔버스 리사이즈 재스케일.
+
+**검증 계획**: (1) main.cpp 스크립트 자기검사에 캔버스 케이스 추가 — createCanvas
+컨트롤 실존 + 옵 리플레이는 캡처로. (2) 라이브 프로브 probe_workshop_canvas:
+set_script로 캔버스+이벤트 스크립트 설치 → send_input 클릭/키 주입 → capture_window
+해시 변화로 그려짐 검증, ×2. (3) 회귀 probe_workshop + test-script(§2.4 d.ts
+대조) ×2.
+
+### 10.1 검증 (as-built, 2026-09-24)
+
+- **단위**: `jkdesktop test` 292 PASS / 0 실패 — 신설 캔버스 케이스 4건
+  (canvas script boots / createCanvas registers a focusable control /
+  dispatchcanvasmouse drives script onmouse / dispatchcanvaskey drives script
+  onkey) + §2.4 d.ts 대조 (jk.d.ts declared functions all bound).
+- **라이브**: probe_workshop_canvas ×2 ALL PASS — c1 스크립트 설치, c2 onCreate
+  장면 캡처 해시, c3 injectMouse 이벤트가 그림, c4 injectKey 이벤트가 그림
+  (스크립트 자기 주입 경로 = 실 RespondMessage 라우팅, permissions.json 무편집),
+  c5 api 카탈로그 캔버스 등재, c6 정리+진실원 복원. 회귀 probe_workshop 17체크
+  ×2 ALL PASS.
+- **첫 런이 잡은 배포 함정**: jkdesktop.exe만 재빌드해도 workshop.jkx 속
+  jkapp_script.dll은 옛날 것 — `createCanvas is not defined`로 스크립트 실패.
+  JKScriptHost를 건드리는 바인딩 추가에는 **jkapp_script.dll 재빌드 +
+  pack_workshop.ps1 재팩**이 세트다. 레슨 §6.4(jkctl pack이 신필드를 떨구는
+  문제)와 짝 — 컨테이너 안 DLL의 진부함은 컴파일 오류가 아니라 런타임
+  "is not defined"로만 나타난다.
