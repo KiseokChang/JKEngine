@@ -259,6 +259,32 @@ false — 상태 기반 강한 게이트)+window.focused fired 카운터. **캡�
   실증). observe-focus-baseline은 등장 폴링이 즉시 break해 포커스 인계가 늦게
   확정되는 레이스가 있어 settle 재폴링으로 픽스(1차 런 4 FAIL의 전부).
 
+**런그 6 — probe_conquest_workshop.ps1 (트랙 A+B 복합, 2026-09-23, 26체크 ×2
+CONQUEST PASS)**: 스크립트 앱 단. **트랙 판정(스펙 §3.2의 재량)**: scriptdemo
+자체(SCRI 내장, 시계 스크립트)는 도구·이벤트 표면이 0이고 1Hz 자체 리드로우라
+정복 계약의 drive/verify가 도구 표면에서 성립하지 않는다 — 대상을 같은
+jkapp_script 모듈의 정복 가능 형태인 **workshop**(get_script/set_script 등록,
+docs/60)으로 판정. scriptdemo는 관찰 기록으로 남는다(런그 5의 "ImGui 해시
+무효"와 동형: 시계가 해시 검증기를 무효화).
+
+- **드라이브는 사다리 최초 복합 트랙**: (A) app_tool set_script → SyncReload
+  (동일 연결 in-place, id 불변 — ClientScriptApp.h:182) → get_script 왕복+
+  리로드 후 캡처 해시로 검증 → (B) send_input 클릭으로 **재작성된 스크립트의**
+  카운터 버튼을 때려 해시 변화로 검증. 재작성 스크립트를 무시계(정적)로 쓰는
+  것이 핵심 설계 — 정적 표면에서만 해시가 유효 검증기가 된다(verify-static-hash
+  체크가 그 전제를 매 런 증명).
+- **부수 진단 결판 3건**: ①agentctl+공백 = argv 분열(레슨 26의 app_tool 확장) —
+  set_script 페이로드가 `var x = 1;`만 돼도 bad_request(공백 없는 `varx=1;`는
+  통과, MCP 채널은 공백 있어도 정상). probe_workshop의 소형 페이로드가 이를
+  가려왔다. **공백 가능성 있는 app_tool 페이로드는 MCP 채널 의무**. ②스크립트
+  위젯은 선언 좌표 그대로 렌더되지 않는다 — x20,y60 버튼의 실측 표면 중심은
+  (97,128)(패널 내부 오프셋). 캡처 기준 좌표로 때려야 한다. ③verify A의
+  get_script 왕복 인자는 반드시 `{}` 리터럴 — 빈 문자열은 `"args":}`로 죽는다.
+- **사용자 파일 보호 확장**: state/scripts/myapp.js는 워크숍의 살아있는 진실원
+  (폰 세션 콘텐츠) — permissions.json 동형의 백업+finally 복원+콘솔 고지를
+  스크립트 파일에도 적용. probe_workshop 회귀(ALL PASS, c7 진실원 복원 체크
+  포함)로 복원 이중 확인.
+
 **배치 공식런 완료 (2026-09-22, main 머지 후 — 프로브를 main 빌드로 재지정, 99e2928)**:
 사다리가 main에 머지됐으므로 공식런도 main 빌드로 수행이 옳아 4종 프로브의 `$build`
 하드코딩을 `engine\build`로 변경(영구 — worktree 경로 소각). 절차 전순 준수:
@@ -293,7 +319,8 @@ Start-Process -FilePath I:\progwork\JKENGINE\engine\build\jkbridge.exe -WorkingD
 |---|---|
 | **minesweeper** | **코드 정복 완료+공식런 GREEN(2026-09-22 배치, §4)** — send_input 도구 + 정복 프로브 템플릿 확립. 잔여 판정 = LLM 실전 세션(§6) |
 | tetris | **코드 정복 완료+공식런 GREEN(2026-09-22 배치, 19체크 ×2)** — probe_conquest_tetris.ps1(템플릿 복제+키 드라이브) |
-| scriptdemo | 대기 |
+| scriptdemo | **판정 완료(2026-09-23, 런그 6)** — 도구·이벤트 표면 0+시계 자체 리드로우로 verify 불능. 대상을 workshop으로 판정(아래 행), scriptdemo는 관찰 기록 |
+| workshop | **코드 정복 완료+공식런 GREEN(2026-09-23, 런그 6 — 26체크 ×2)** — 사다리 최초 복합 트랙(A app_tool set_script + B send_input 클릭). **agentctl+공백 argv 분열(app_tool 판)을 잡은 단** |
 | taskmgr | **코드 정복 완료+공식런 GREEN(2026-09-23, 런그 5 — 27체크 ×2)** — 첫 ImGui 앱 정복. drive=행 선택+Activate 버튼 2단 클릭, verify=focused 플래그 플립. **send_input 클릭 MouseMove 결함을 잡은 단** |
 | terminal | **코드 정복 완료+공식런 GREEN(2026-09-23, 런그 4 — 25체크 ×2)** — type+key 드라이브, verify=앱 자기 토픽 이벤트+캡처 해시 2중. **정복 사다리가 첫 실제 제품 결함(reserved-topic 회귀)을 잡은 단** |
 | vplayer | **코드 정복 완료+공식런 GREEN(2026-09-22, 런그 3 — 트랙 A 시제)** — drive가 send_input이 아니라 앱 자기 도구(app_tool open/play_pause/seek/get_status)로 갈아타는 첫 케이스. 잔여 판정 = LLM 실전 세션 |
