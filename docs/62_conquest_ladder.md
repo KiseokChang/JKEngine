@@ -306,6 +306,37 @@ PASS)**: browser(CEF 오프스크린, 960×640). drive는 3단 조합: URL 바 �
   type+key가 InputText로 착지한다. Ctrl+A 선택 후 재타이핑 경로는 불안정
   (버퍼 잔재) — 프로브는 사이클2 재스폰으로 동일 드라이브를 반복해 대체.
 
+**런그 8 — probe_conquest_taskbar.ps1 (최종 관문, 2026-09-23, 27체크 ×2 CONQUEST
+PASS)**: taskbar/데스크톱 셸 단. **판정(스펙 §3.2 재량 — 트랙 B 불가의 구조적 근거
+확인 후)**: 셸은 send_input 대상 배제 설계(IsShell() → bad_target, 2026-09-21
+사용자 승인)이고 list_windows도 셸을 제외한다(:2963) — 표준 트랙 B의
+launch→observe→drive가 도구 표면에서 성립하지 않는다. 셸의 정당한 조작 채널은
+**셸 프로토콜 그 자체**(docs/28 — WindowList 스냅샷 푸시)이므로 drive를
+창 수명주기 도구(launch_app/pid kill)로 대체하고 셸 자신의 픽셀로 검증하는
+**셸 프로토콜 프록시 드라이브**로 정복. 캡처_window는 컴포지터 레이어 직접
+조회라 셸 배제가 없어(:822, 레이어 조회만) 셸 표면 캡처가 가능 — observe의
+유일한 창구. 진단 결판:
+
+- **taskbar는 해시 유효 앱** — ClientTaskbarApp는 WindowListChanged/SizeChanged
+  때만 다시 그린다(시계·자체 리드로우 없음, 런그 5 taskmgr와 반대). 정적 해시가
+  검증기로 성립: h0(버튼 0) → launch_app tetris → h1(버튼 1) → kill →
+  **h2==h0 exact**(버튼 폭이 kButtonMaxWidth=180 캡이라 1·2개 창 레이아웃 동일).
+- **셸 레이어 id 발견** — list_windows에 없으므로 capture_window의 레이어
+  직접 조회로 id 1..N을 스캔해 1280×40 단층을 찾는다. **스캔 상한은 프로브
+  수명 동안 계속 커야 한다**: agentctl/MCP 호출마다 control-only 클라가 같은
+  카운터에서 id를 소모한다(실측 diag_tb8e — ~35 호출 뒤 재스폰 taskbar가 id 25).
+  1..16 고정 스캔은 cycle2에서 영원히 못 찾는다(1차 런 FAIL의 원인 — 제품
+  결함 아님).
+- **셸 사망 후 재등록** — kill해도 서버는 셸 없이 생존(실측), `launch_app
+  {"app":"taskbar"}` → `--client taskbar` 스폰 → first-wins ShellRegister로
+  셸 역할 재획득(실측 stderr "shell register accepted"). recover-gone 하드
+  게이트는 list_windows 대신 **capture_window → window_not_found 폴링**.
+- **설계 배제 검증이 drive 2단** — send_input on shell → `bad_target`(게이트
+  ask라면 승인 오류로 가려지므로 도달하려면 allow RMW 필요), list_windows에
+  "Taskbar" 부재 — 배제 설계 자체를 매 런 증명.
+- cycle2 결정성: 재등록 셸의 h0·재드라이브 h1이 cycle1과 전부 exact 일치
+  (정적 렌더 — 테마/지오메트리 불변).
+
 **배치 공식런 완료 (2026-09-22, main 머지 후 — 프로브를 main 빌드로 재지정, 99e2928)**:
 사다리가 main에 머지됐으므로 공식런도 main 빌드로 수행이 옳아 4종 프로브의 `$build`
 하드코딩을 `engine\build`로 변경(영구 — worktree 경로 소각). 절차 전순 준수:
@@ -346,9 +377,7 @@ Start-Process -FilePath I:\progwork\JKENGINE\engine\build\jkbridge.exe -WorkingD
 | terminal | **코드 정복 완료+공식런 GREEN(2026-09-23, 런그 4 — 25체크 ×2)** — type+key 드라이브, verify=앱 자기 토픽 이벤트+캡처 해시 2중. **정복 사다리가 첫 실제 제품 결함(reserved-topic 회귀)을 잡은 단** |
 | vplayer | **코드 정복 완료+공식런 GREEN(2026-09-22, 런그 3 — 트랙 A 시제)** — drive가 send_input이 아니라 앱 자기 도구(app_tool open/play_pause/seek/get_status)로 갈아타는 첫 케이스. 잔여 판정 = LLM 실전 세션 |
 | browser | **코드 정복 완료+공식런 GREEN(2026-09-23, 런그 7 — 32체크 ×2)** — 첫 CEF 앱 정복. drive=URL 바 클릭+type+RETURN 3단, verify=해시+교차 사이클 결정성 |
-| taskbar | 대기 — 최종 관문(셸 자체 정복). **send_input 불가 단** — 셸은 대상
-  배제 설계(`IsShell()` → `bad_target`, §2)라 트랙 B로 정복할 수 없다. 최종 러닝은
-  트랙 A(도구 릴레이) 또는 스펙 개정이 필요하다 |
+| taskbar | **코드 정복 완료+공식런 GREEN(2026-09-23, 런그 8 — 27체크 ×2)** — 최종 관문. **셸 프로토콜 프록시 드라이브**(창 수명주기 도구로 drive, 셸 표면 캡처로 verify) + 설계 배제(bad_target/list_windows 제외) 매 런 검증. send_input 표준 트랙 B는 셸 배제 설계상 부적합 판정. **사다리 8단 전부 코드 정복 완료** |
 
 ## 6. LLM 실전 체크리스트 (minesweeper)
 
