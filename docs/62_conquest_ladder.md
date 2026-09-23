@@ -285,6 +285,27 @@ docs/60)으로 판정. scriptdemo는 관찰 기록으로 남는다(런그 5의 "
   스크립트 파일에도 적용. probe_workshop 회귀(ALL PASS, c7 진실원 복원 체크
   포함)로 복원 이중 확인.
 
+**런그 7 — probe_conquest_browser.ps1 (트랙 B, 2026-09-23, 32체크 ×2 CONQUEST
+PASS)**: browser(CEF 오프스크린, 960×640). drive는 3단 조합: URL 바 클릭(표면
+≈300,54) → **type**(file:// URL) → **key RETURN(13)** — InputText 커밋 경로. verify는
+2중: ①캡처 해시(다크 홈 페이지 → 프로브 소유 밝은 페이지 state/conq7_page.html,
+프로브가 생성·finally 삭제) ②**교차 사이클 해시 결정성** — h0·h1이 사이클1/2와
+캘리브레이션 3런에서 전부 동일 값 재현(CC8070C9…/AA103F7A…). 진단 결판:
+
+- **about:blank 불가** — Navigate()가 `://` 없는 문자열에 https:// 접두를 붙여
+  `https://about:blank`가 되고 네트워크 오류 페이지로 랜드(LAN 의존 플레이크).
+  검증 페이지는 file:// 로컬로.
+- **클릭 후 셋틀 800ms 필수** — 클릭 400ms 후 타이핑하면 텍스트가 안 찍힌다
+  (첫 캘리브레이션 실패의 전부). InputText 활성화 레이스.
+- **exact h2==h0 금지** — Home 클릭 라운드트립 후 표면은 홈이지만 URL 바 버퍼에
+  home URL이 남아(Home이 urlBuf_를 쓴다) 포커스/버퍼 렌더가 fresh h0와 다르다.
+  라운드트립 판정은 "h2≠h1 + 정적 해시"로 하고, exact-match 판정은 cycle2의
+  재드라이브(h1c2==h1c1)로 승격 — 이 형태가 캐럿/버퍼 상태 오염에 면역.
+- 전제 확인: 앱이 PreProcessMessage에서 **모든 이벤트를 ImGui 백엔드에 먼저**
+  흘려보내므로(WantTextInput 게이트는 CEF 전달만 제어) URL 바 포커스 상태의
+  type+key가 InputText로 착지한다. Ctrl+A 선택 후 재타이핑 경로는 불안정
+  (버퍼 잔재) — 프로브는 사이클2 재스폰으로 동일 드라이브를 반복해 대체.
+
 **배치 공식런 완료 (2026-09-22, main 머지 후 — 프로브를 main 빌드로 재지정, 99e2928)**:
 사다리가 main에 머지됐으므로 공식런도 main 빌드로 수행이 옳아 4종 프로브의 `$build`
 하드코딩을 `engine\build`로 변경(영구 — worktree 경로 소각). 절차 전순 준수:
@@ -324,7 +345,7 @@ Start-Process -FilePath I:\progwork\JKENGINE\engine\build\jkbridge.exe -WorkingD
 | taskmgr | **코드 정복 완료+공식런 GREEN(2026-09-23, 런그 5 — 27체크 ×2)** — 첫 ImGui 앱 정복. drive=행 선택+Activate 버튼 2단 클릭, verify=focused 플래그 플립. **send_input 클릭 MouseMove 결함을 잡은 단** |
 | terminal | **코드 정복 완료+공식런 GREEN(2026-09-23, 런그 4 — 25체크 ×2)** — type+key 드라이브, verify=앱 자기 토픽 이벤트+캡처 해시 2중. **정복 사다리가 첫 실제 제품 결함(reserved-topic 회귀)을 잡은 단** |
 | vplayer | **코드 정복 완료+공식런 GREEN(2026-09-22, 런그 3 — 트랙 A 시제)** — drive가 send_input이 아니라 앱 자기 도구(app_tool open/play_pause/seek/get_status)로 갈아타는 첫 케이스. 잔여 판정 = LLM 실전 세션 |
-| browser | 대기 |
+| browser | **코드 정복 완료+공식런 GREEN(2026-09-23, 런그 7 — 32체크 ×2)** — 첫 CEF 앱 정복. drive=URL 바 클릭+type+RETURN 3단, verify=해시+교차 사이클 결정성 |
 | taskbar | 대기 — 최종 관문(셸 자체 정복). **send_input 불가 단** — 셸은 대상
   배제 설계(`IsShell()` → `bad_target`, §2)라 트랙 B로 정복할 수 없다. 최종 러닝은
   트랙 A(도구 릴레이) 또는 스펙 개정이 필요하다 |
