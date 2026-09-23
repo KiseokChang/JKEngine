@@ -359,12 +359,18 @@ probe_jkbridge ×2 ALL PASS(정리 함수 탑재 후 전체 회귀 무손상).
    인테이크 push 여부 자체의 재설계 후보.
 4. **CommitChromeResize 실패도 ok:true** — 정규 리사이즈 경로와 선례 일치(실패
    반환 무시). 실패 가시화는 별도 과제.
-5. **result 16KiB 캡(get_script 대형 스크립트 원문 잘림)은 별도 백로그 유지**
-   (docs/60 §5).
-6. **args 캡 256KiB 상한 경계는 어느 프로브도 직접 단정 불가** — agentctl은
-   CreateProcess 32K 명령행 한계라 256KiB args를 실을 수 없고 c3c의 10KiB 간접
-   단정이 한계. 직접 경계 테스트(200KiB 통과/300KiB args_too_large)는
-   probe_approval_overflow류 raw 파이프 하네스가 필요.
+5. **✅ 소각 (2026-09-23, docs/60 §5)** — HandleToolResult 결과 상한 16KiB→256KiB
+   상향(args 캡과 대칭). 100KiB 단일행 스크립트 set_script→get_script 왕복
+   100,205자 완전 복원 실측. probe_workshop 17체크+probe_app_tools 64체크 ×2.
+6. **✅ 소각 (2026-09-23, probe_args_boundary 신설)** — 예측대로 raw 파이프
+   하네스로 직접 단정 완료. agentctl이 못 실던 이유도 실증(CRT 32K 명령행
+   한계 — 256KiB 페이로드는 와이어로만 운반 가능). 에러 순서가 증인: 캡 검사가
+   후보 매칭보다 앞이라 존재하지 않는 앱("nope")이 경계 하회 시
+   unknown_app_tool(캡 통과=룩업 실행), 초과 시 args_too_large(룩업 전 거부).
+   실측 ×2 ALL PASS: 200KiB 통과 / 300KiB args_too_large / **정확 경계**
+   내부 args 원문 `{"pad":"a"*n}` = 10+n 바이트 — n=262134(262144B, 캡은
+   `>`라 통과) / n=262135(262145B, 거부) 1바이트 양쪽 단정. 와이어 무상한
+   확인도 부수 실측: 파이프 전송 계층(JKPipeTransport)엔 프레임 상한이 없다.
 7. **window_maximized 거절과 fit-scaled(ScaleX/Y≠1) resize dispW 산출은 런타임
    미단정** — 전자는 최대화를 배열할 도구가 없어 하네스 불가(코드 리뷰 검증),
    후자는 프로브 환경이 스케일 1 레이어뿐(CommitChromeResize 주석 정합 커버).
