@@ -6253,7 +6253,11 @@ void JKWindowServer::HandleToolResult(JKClientConnection& client,
     // reqId를 추측해 >16KiB를 보내면 진짜 요청자의 대기 호출을
     // result_too_large로 소멸시키는 주입이 됐다(리뷰 Important 1).
     if (it->second.targetConnId != client.Id()) return;
-    if (json.size() > 16 * 1024) {   // 결과 상한 (스펙 §4.1)
+    // 결과 상한 (스펙 §4.1 — 16KiB→256KiB 상향, docs/60 §5 백로그 소각):
+    // get_script가 대형 스크립트 원문을 result로 반환하며 16KiB에서 잘렸다.
+    // args 캡(:3166, 256KiB)과 대칭 — set_script로 들어온 스크립트의
+    // JSON 이스케이프 결과는 argsRaw와 동일 형태라 256KiB 안에서 왕복 보장.
+    if (json.size() > 256 * 1024) {
         ReplyAppToolError(it->second, "result_too_large");
         inflightAppTools_.erase(it);
         return;

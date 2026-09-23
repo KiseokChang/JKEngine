@@ -122,8 +122,12 @@ PC 팔레트/채팅도 동일 도구. 사용자는 한국어로 바람만 말함
 - **[소각 2026-09-21] args 앞단 캡 병목** — 위 §4 표 3행·레슨 6의 "서버 8KiB args
   캡이 앞이라 앱 256KiB 백스톱이 와이어로 도달 불가"는 폰 실전 개선 task-1에서
   서버 앞단 캡을 8KiB→256KiB로 들어 올려 해소. 앱 백스톱과 정렬 — **docs/57 §13 ①**
-  참조. probe_workshop c4도 ok 기대로 개정. result 16KiB 캡(get_script 대형
-  스크립트 잘림)은 여전히 백로그 유지.
+  참조. probe_workshop c4도 ok 기대로 개정.
+- **[소각 2026-09-23] result 16KiB 캡(get_script 대형 스크립트 잘림)** —
+  HandleToolResult의 결과 상한을 16KiB→256KiB로 상향(args 캡과 대칭). set_script로
+  들어온 스크립트의 JSON 이스케이프 결과는 argsRaw와 동일 형태라 256KiB 안에서
+  왕복 보장. 실측: 100KiB 단일행 스크립트 set_script→get_script 왕복 100,205자
+  완전 복원. probe_workshop 17체크 + probe_app_tools 64체크 ×2 ALL PASS 회귀.
 - 그리기(캔버스)/키보드/마우스 이벤트 API — 게임·토이용 (첫 위젯이 API v1으로
   되는지 확인 후)
 - 복수 슬롯 (myapp2.js 등 여러 앱 동시 워크숍)
