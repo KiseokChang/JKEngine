@@ -339,6 +339,11 @@ launch→observe→drive가 도구 표면에서 성립하지 않는다. 셸의 �
 
 **배치 공식런 완료 (2026-09-22, main 머지 후 — 프로브를 main 빌드로 재지정, 99e2928)**:
 사다리가 main에 머지됐으므로 공식런도 main 빌드로 수행이 옳아 4종 프로브의 `$build`
+
+**전체 배치 공식런 완료 (2026-09-24, 8프로브 ×2 연통 — 신규 4종 합류 후 첫 전체 배치)**:
+minesweeper/tetris/vplayer/terminal/taskmgr/workshop/taskbar ×2 전부 CONQUEST PASS.
+browser만 2런 전부 FAIL(고정 대기 타이밍 플레이크 — 위 표) → Wait-ChangedStable
+픽스 후 ×2 재실행 GREEN. 결론: **main 최종 상태에서 사다리 8단 전부 ×2 공식 통과**.
 하드코딩을 `engine\build`로 변경(영구 — worktree 경로 소각). 절차 전순 준수:
 step0 permissions.json 백업 → (1) send_input_ask ×2(7체크 ALL PASS — 문서 표기 11은
 착시, 실제 체크 행 7)/conquest_minesweeper ×2(19체크 CONQUEST PASS)/conquest_tetris ×2
@@ -346,7 +351,7 @@ step0 permissions.json 백업 → (1) send_input_ask ×2(7체크 ALL PASS — �
 receipts/final 전부) → (3) `jkdesktop test` exit 0 → (4) permissions.json 복원(9키
 전면 allow 동일) → 라이브 복원(메인 빌드 경로 — jkwinserver+jkbridge 기동, pong+8899
 LISTENING+taskbar 클라 1개 확인). 런그 1(minesweeper)+런그 2(tetris) **코드 정복
-판정 완료** — 잔여 판정 = LLM 실전 세션(§6)만.
+판정 완료** — LLM 실전 세션도 PASS ×2 완료(2026-09-24, §6.1). **정복 사다리 전 항목 완결.**
 
 **라이브 서버 복원 의무 — 반드시 메인 빌드 경로에서**: 배치가 남기는 결손은
 teardown이 전부 정지시킨 jkwinserver / jkdesktop(--client taskbar) / jkbridge다.
@@ -369,14 +374,14 @@ Start-Process -FilePath I:\progwork\JKENGINE\engine\build\jkbridge.exe -WorkingD
 
 | 단 | 상태 |
 |---|---|
-| **minesweeper** | **코드 정복 완료+공식런 GREEN(2026-09-22 배치, §4)** — send_input 도구 + 정복 프로브 템플릿 확립. 잔여 판정 = LLM 실전 세션(§6) |
+| **minesweeper** | **정복 완결(2026-09-22 배치 §4 + LLM 실전 PASS ×2 2026-09-24 §6.1)** — send_input 도구 + 정복 프로브 템플릿 확립 |
 | tetris | **코드 정복 완료+공식런 GREEN(2026-09-22 배치, 19체크 ×2)** — probe_conquest_tetris.ps1(템플릿 복제+키 드라이브) |
 | scriptdemo | **판정 완료(2026-09-23, 런그 6)** — 도구·이벤트 표면 0+시계 자체 리드로우로 verify 불능. 대상을 workshop으로 판정(아래 행), scriptdemo는 관찰 기록 |
 | workshop | **코드 정복 완료+공식런 GREEN(2026-09-23, 런그 6 — 26체크 ×2)** — 사다리 최초 복합 트랙(A app_tool set_script + B send_input 클릭). **agentctl+공백 argv 분열(app_tool 판)을 잡은 단** |
 | taskmgr | **코드 정복 완료+공식런 GREEN(2026-09-23, 런그 5 — 27체크 ×2)** — 첫 ImGui 앱 정복. drive=행 선택+Activate 버튼 2단 클릭, verify=focused 플래그 플립. **send_input 클릭 MouseMove 결함을 잡은 단** |
 | terminal | **코드 정복 완료+공식런 GREEN(2026-09-23, 런그 4 — 25체크 ×2)** — type+key 드라이브, verify=앱 자기 토픽 이벤트+캡처 해시 2중. **정복 사다리가 첫 실제 제품 결함(reserved-topic 회귀)을 잡은 단** |
-| vplayer | **코드 정복 완료+공식런 GREEN(2026-09-22, 런그 3 — 트랙 A 시제)** — drive가 send_input이 아니라 앱 자기 도구(app_tool open/play_pause/seek/get_status)로 갈아타는 첫 케이스. 잔여 판정 = LLM 실전 세션 |
-| browser | **코드 정복 완료+공식런 GREEN(2026-09-23, 런그 7 — 32체크 ×2)** — 첫 CEF 앱 정복. drive=URL 바 클릭+type+RETURN 3단, verify=해시+교차 사이클 결정성 |
+| vplayer | **정복 완결(2026-09-22 런그 3 §4 + LLM 실전 PASS ×2 2026-09-24 §6.1)** — drive가 send_input이 아니라 앱 자기 도구(app_tool open/play_pause/seek/get_status)로 갈아타는 첫 케이스 |
+| browser | **코드 정복 완료+공식런 GREEN(2026-09-23, 런그 7 — 32체크 ×2; 2026-09-24 배치 재확인 ×2)** — 첫 CEF 앱 정복. drive=URL 바 클릭+type+RETURN 3단, verify=해시+교차 사이클 결정성. **2026-09-24 전체 배치(8프로브×2)에서 유일 FAIL(2런 전부) — 고정 3초 대기가 배치 조건(서버 연속 재기동, 시스템 부하)의 CEF 네비게이션+렌더를 못 기다렸고, 변경 폴링만으로도 전이 중 해시를 잡아 home-static 2차 FAIL. 픽스=Wait-ChangedStable(변경 감지 후 2연속 동일 안정화) 후 ×2 CONQUEST PASS. 단정이 아니라 도착 대기를 고친 것 — 단정은 전부 불변** |
 | taskbar | **코드 정복 완료+공식런 GREEN(2026-09-23, 런그 8 — 27체크 ×2)** — 최종 관문. **셸 프로토콜 프록시 드라이브**(창 수명주기 도구로 drive, 셸 표면 캡처로 verify) + 설계 배제(bad_target/list_windows 제외) 매 런 검증. send_input 표준 트랙 B는 셸 배제 설계상 부적합 판정. **사다리 8단 전부 코드 정복 완료** |
 
 ## 6. LLM 실전 체크리스트 (minesweeper)
@@ -386,6 +391,43 @@ Start-Process -FilePath I:\progwork\JKENGINE\engine\build\jkbridge.exe -WorkingD
 2. "한 칸 열어 줘" → send_input click (승인 스트립에서 허용)
 3. 결과 확인: 창 상태 응답 or 스크린샷
 ```
+
+2번의 승인은 기본 ask 게이트를 걷는다 — 승인 스트립(GUI)에서 허용하면 파킹된
+원 요청이 재실행되어 클릭이 착지한다(§2). 런타임 permissions.json을 allow로
+바꾸면 승인 없이 통과한다. 앱마다 이 형식으로 § 한 줄씩 누적한다.
+
+### 6.1 LLM 실전 공식판정 — PASS ×2 (2026-09-24)
+
+**`probe_llm_conquest.ps1`(라이브 부착형)이 진짜 LLM 에이전트 세션을 브리지 WS로
+구동, 14체크 ×2 연통 LLM CONQUEST PASS.** 시나리오 5턴(A 테트리스 켜기 / B 열린
+창 관찰 응답 / C 닫기 / D 한 턴 다단계 "지뢰찾기 켜고 확인하고 테트리스도 켜기" /
+E 전부 닫기)을 한국어 지시로 내리고, 검증은 사다리 자체 증거 사슬로 한다:
+서버 진실(list_windows)+events_list fired 카운터+receipts.jsonl 도구 호출 원문.
+
+**실전이 잡은 세 번째 실제 제품 결함 — launch_app 가짜 ok:true.** 픽스 전 런 2:
+LLM이 `launch_app {"jkx":"tetris"}`로 호출(스키마가 app/jkx 둘 다 열어두어 키를
+잘못 고름) → 서버는 스폰 실패(`--jkx` bare 경로 jkx.Open 실패, 자식 즉시 사망,
+창 없음)임에도 무조건 `{"ok":true}` 응답 → LLM 혼란. docs/59 §13 폰 플로우의
+"accepted:true 후 침묵"과 동형 결함. 픽스 2건:
+
+1. **서버 진실(JKWindowServer.cpp launch_app)**: 스폰 전 존재 검증 — app은
+   `jkapp_<app>.dll` 존재검사(런처와 같은 exeDir 기준, terminal:/filedlg: 접두
+   면제), 실패 시 `{"ok":false,"error":"unknown_app"}`; jkx는 주어진 경로 우선,
+   없으면 `apps/<bare>.jkx` 폴백 해석(런처의 apps/ 열거 기준), 둘 다 없으면
+   `{"ok":false,"error":"unknown_jkx"}`.
+2. **스키마 계약(jkagentd launch_app description)**: 유횴 내장 앱 이름 예시
+   (minesweeper/tetris/browser/…)을 명시하고 "내장 앱 이름을 jkx로 넘기지 말 것"
+   경고 — LLM의 키 선택을 계약 텍스트로 유도.
+
+**픽스 효과는 receipts가 증언**: 픽스 전 `{"args":{"jkx":"tetris"},"result":{"ok":true}}`
+(가짜) → 픽스 후 `{"args":{"app":"tetris"},"result":{"ok":true}}`(진짜, 창 실측).
+bare jkx 폴백 덕에 LLM의 원래 호출 형태 `jkx:"tetris"`도 이제 apps/ 해석으로
+성공한다 — 진실 회복과 관대함을 동시에 얻은 케이스.
+
+프로브 구조: 라이브 부착형(teardown 아님) — 사용자 스택의 실 토큰으로 브리지 WS
+접속(RFC 6455 마스크 프레임 필수, 미마스크 접속은 브리지가 즉단 — 런 1 실측),
+하트비트 pong 응답 필수(45s 무pong 강제단절, LLM 턴은 분 단위). 정리는 LLM
+자신(E 턴) + agentctl 백스톱. 트랜스크립트는 %TEMP%에만 저장(비커밋).
 
 2번의 승인은 기본 ask 게이트를 걷는다 — 승인 스트립(GUI)에서 허용하면 파킹된
 원 요청이 재실행되어 클릭이 착지한다(§2). 런타임 permissions.json을 allow로
