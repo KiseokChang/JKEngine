@@ -74,22 +74,45 @@ std::string ToUtf8(JSContext* ctx, JSValueConst v) {
     return out;
 }
 
-// {x, y, w, h} object -> JKRect. Returns false when the argument is not an
-// object or any property fails to convert.
+// Binding guard failures must THROW a real exception, not bare-return
+// JS_EXCEPTION: with no pending exception QuickJS surfaces garbage
+// ("thrown value: [uninitialized]", 2026-09-24 receipts) and the set_script
+// talk-to-fix loop feeds the agent an error it cannot act on. JS_ThrowTypeError
+// sets the pending exception AND returns JS_EXCEPTION, so each site stays a
+// one-line return.
+JSValue ThrowTypeError(JSContext* ctx, const char* what, const char* why) {
+    return JS_ThrowTypeError(ctx, "%s: %s", what, why);
+}
+
+// {x, y, w, h} object or [x, y, w, h] array -> JKRect. The array form is
+// accepted because agent-written scripts naturally guess it (2026-09-24
+// receipts: the model twice wrote createCanvas([10,10,W,H]) / createLabel
+// ([10,10,200,20]) while the docs only show the object form). A missing
+// component must FAIL, not fall back to 0: quickjs converts undefined to
+// int 0 without error (JS_ToIntegerFree's JS_TAG_UNDEFINED case), so a
+// malformed rect silently became a 0x0 invisible control and set_script
+// reported ok:true — the talk-to-fix closed loop never fired. Returns false
+// when the argument is neither shape or any component is missing / fails
+// to convert.
 JKRect RectFromArg(JSContext* ctx, JSValueConst v, bool* ok) {
     *ok = false;
-    if (!JS_IsObject(v)) return JKRect{};
-    JsValue px(ctx, JS_GetPropertyStr(ctx, v, "x"));
-    JsValue py(ctx, JS_GetPropertyStr(ctx, v, "y"));
-    JsValue pw(ctx, JS_GetPropertyStr(ctx, v, "w"));
-    JsValue ph(ctx, JS_GetPropertyStr(ctx, v, "h"));
-    int32_t x = 0, y = 0, w = 0, h = 0;
-    if (JS_ToInt32(ctx, &x, px.value()) || JS_ToInt32(ctx, &y, py.value()) ||
-        JS_ToInt32(ctx, &w, pw.value()) || JS_ToInt32(ctx, &h, ph.value())) {
-        return JKRect{};
+    static const char* kKeys[4] = { "x", "y", "w", "h" };
+    static const char* kIdx[4] = { "0", "1", "2", "3" };
+    const bool isArr = JS_IsArray(v);
+    if (!isArr && !JS_IsObject(v)) return JKRect{};
+    JsValue comp[4];
+    for (int i = 0; i < 4; i++) {
+        comp[i] = JsValue(ctx, JS_GetPropertyStr(ctx, v, isArr ? kIdx[i]
+                                                               : kKeys[i]));
+        // Absent key/element (undefined) rejects — see comment above.
+        if (JS_IsUndefined(comp[i].value())) return JKRect{};
+    }
+    int32_t n[4];
+    for (int i = 0; i < 4; i++) {
+        if (JS_ToInt32(ctx, &n[i], comp[i].value())) return JKRect{};
     }
     *ok = true;
-    return JKRect{ x, y, w, h };
+    return JKRect{ n[0], n[1], n[2], n[3] };
 }
 
 // Formats the pending exception (message + JS stack trace, docs/27 §3.2 — the
@@ -259,10 +282,12 @@ struct Bindings {
     static JSValue CreateButton(JSContext* ctx, JSValueConst, int argc,
                                 JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
-        if (!host || !host->window_ || argc < 2) return JS_EXCEPTION;
+        if (!host || !host->window_ || argc < 2)
+            return ThrowTypeError(ctx, "createButton", "needs (rect, text)");
         bool ok = false;
         const JKRect rect = RectFromArg(ctx, argv[0], &ok);
-        if (!ok) return JS_EXCEPTION;
+        if (!ok) return ThrowTypeError(ctx, "createButton",
+            "rect must be {x,y,w,h} or [x,y,w,h] with numbers");
         auto* btn = new JKButton(rect, 0);
         const uint16_t id =
             ResolveControlId(host, ctx, argc >= 3 ? argv[2] : JS_UNDEFINED);
@@ -277,10 +302,12 @@ struct Bindings {
     static JSValue CreateLabel(JSContext* ctx, JSValueConst, int argc,
                                JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
-        if (!host || !host->window_ || argc < 2) return JS_EXCEPTION;
+        if (!host || !host->window_ || argc < 2)
+            return ThrowTypeError(ctx, "createLabel", "needs (rect, text)");
         bool ok = false;
         const JKRect rect = RectFromArg(ctx, argv[0], &ok);
-        if (!ok) return JS_EXCEPTION;
+        if (!ok) return ThrowTypeError(ctx, "createLabel",
+            "rect must be {x,y,w,h} or [x,y,w,h] with numbers");
         auto* label = new JKStatic(rect, 0);
         const uint16_t id =
             ResolveControlId(host, ctx, argc >= 3 ? argv[2] : JS_UNDEFINED);
@@ -294,10 +321,12 @@ struct Bindings {
     static JSValue CreateEdit(JSContext* ctx, JSValueConst, int argc,
                               JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
-        if (!host || !host->window_ || argc < 2) return JS_EXCEPTION;
+        if (!host || !host->window_ || argc < 2)
+            return ThrowTypeError(ctx, "createEdit", "needs (rect, text)");
         bool ok = false;
         const JKRect rect = RectFromArg(ctx, argv[0], &ok);
-        if (!ok) return JS_EXCEPTION;
+        if (!ok) return ThrowTypeError(ctx, "createEdit",
+            "rect must be {x,y,w,h} or [x,y,w,h] with numbers");
         auto* edit = new JKEdit(rect, 0, 256, false);
         const uint16_t id =
             ResolveControlId(host, ctx, argc >= 3 ? argv[2] : JS_UNDEFINED);
@@ -343,12 +372,18 @@ struct Bindings {
                                JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
         int32_t ms = 0;
-        if (!host || argc < 2 || JS_ToInt32(ctx, &ms, argv[0]) || ms <= 0 ||
-            !JS_IsFunction(ctx, argv[1]) || !host->timers_.start) {
-            return JS_EXCEPTION;
+        // JS contract: setInterval(fn, ms) — argv[0] is the callback, argv[1] ms.
+        // Contract is setInterval(fn, ms) — the browser API order. Agent
+        // scripts guess setInterval(ms, fn) often enough that the refusal
+        // must name the order (2026-09-24: setInterval(16, fn) reached the
+        // agent as "thrown value: [uninitialized]" and it could not recover).
+        if (!host || argc < 2 || !JS_IsFunction(ctx, argv[0]) ||
+            JS_ToInt32(ctx, &ms, argv[1]) || ms <= 0 || !host->timers_.start) {
+            return JS_ThrowTypeError(ctx,
+                "setInterval: needs (fn, ms) — callback first, delay second");
         }
         if (host->impl_->nextTimerId >= JKScriptHost::Impl::kScriptTimerLimit) {
-            return JS_EXCEPTION;  // registry exhausted
+            return JS_ThrowRangeError(ctx, "setInterval: timer registry exhausted");
         }
         const uint32_t id = host->impl_->nextTimerId++;
         // winId range claimed for script timers — the app routes Timer events
@@ -358,7 +393,7 @@ struct Bindings {
             host->timers_.start(winId, static_cast<uint32_t>(ms));
         JKScriptHost::Impl::TimerEntry entry;
         entry.appHandle = handle;
-        entry.fn = JS_DupValue(ctx, argv[1]);  // borrowed argv -> own a ref
+        entry.fn = JS_DupValue(ctx, argv[0]);  // borrowed argv -> own a ref
         host->impl_->timers.emplace_back(id, std::move(entry));
         return JS_NewInt32(ctx, static_cast<int32_t>(id));
     }
@@ -525,11 +560,13 @@ struct Bindings {
                                 JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
         if (!host || argc < 3 || !JS_IsFunction(ctx, argv[2])) {
-            return JS_EXCEPTION;
+            return JS_ThrowTypeError(ctx,
+                "dialogCreate: needs (title, rect, onClose)");
         }
         bool ok = false;
         const JKRect rect = RectFromArg(ctx, argv[1], &ok);
-        if (!ok) return JS_EXCEPTION;
+        if (!ok) return JS_ThrowTypeError(ctx, "dialogCreate",
+            "rect must be {x,y,w,h} or [x,y,w,h] with numbers");
         auto window = std::make_unique<JKDialog>(ToUtf8(ctx, argv[0]));
         window->SetWindowRect(rect);
         // Legacy dialogs are draggable by their title bar (JangoUI:
@@ -763,10 +800,12 @@ struct Bindings {
     static JSValue CreateCanvas(JSContext* ctx, JSValueConst, int argc,
                                 JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
-        if (!host || !host->window_ || argc < 1) return JS_EXCEPTION;
+        if (!host || !host->window_ || argc < 1)
+            return ThrowTypeError(ctx, "createCanvas", "needs (rect[, id])");
         bool ok = false;
         const JKRect rect = RectFromArg(ctx, argv[0], &ok);
-        if (!ok) return JS_EXCEPTION;
+        if (!ok) return ThrowTypeError(ctx, "createCanvas",
+            "rect must be {x,y,w,h} or [x,y,w,h] with numbers");
         auto* canvas = new JKScriptCanvas(rect, 0);
         const uint16_t id =
             ResolveControlId(host, ctx, argc >= 2 ? argv[1] : JS_UNDEFINED);
