@@ -258,7 +258,7 @@ struct ClientVPlayerApp::PlayerCore {
     // (never evict the frame under/just behind jogTargetPts); the byte cap
     // is absolute. m-protected (same domain as videoQ).
     static constexpr double kJogRingMaxSecs = 16.0;   // was 10.0 — spec 2026-09-24 §3.1
-    static constexpr size_t kJogRingMaxBytes = (size_t)1536 * 1024 * 1024; // unchanged — the real bound (4K binds first, ~4s)
+    static constexpr size_t kJogRingMaxBytes = (size_t)6144 * 1024 * 1024; // was 1.5GB — user-approved 2026-09-24: 4K now fills the full 16s span (6GB ≈ 4K NV12 ×16s) instead of ~4s
     std::deque<VideoFrame> jogRing;
     size_t jogRingBytes = 0;
     // Live jog dial target (UI time). -1 = no frame-scrub session. Written
