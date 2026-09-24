@@ -4015,16 +4015,33 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             return GetFileAttributesA(p.c_str()) != kInvalidFileAttributes;
         };
         if (!app.empty()) {
-            if (app.find(':') == std::string::npos && !exeDir.empty() &&
-                !fileExistsFn(exeDir + "\\jkapp_" + app + ".dll")) {
-                reply = "{\"ok\":false,\"error\":\"unknown_app\",\"app\":\"" +
-                        app + "\"}";
-            } else {
+            const bool prefixed = app.find(':') != std::string::npos;
+            const std::string dllPath =
+                exeDir + "\\jkapp_" + app + ".dll";
+            if (prefixed || exeDir.empty() || fileExistsFn(dllPath)) {
                 // docs/35: pair the capture overlay with the client that asked
                 // for it (see overlaySpawner_ member comment).
                 pendingSnapSpawnerConnId_ = (app == "snap") ? client.Id() : 0;
                 SpawnClient(app.c_str(), false);
                 reply = "{\"ok\":true}";
+            } else {
+                // app→jkx 폴백 (2026-09-24 폰 눈확인 발각): 워크숍 등 .jkx
+                // 패키지 앱을 스키마의 내장 앱 이름 목록과 혼동해
+                // {"app":"workshop"}으로 부르는 실측이 있다 — jkapp_<app>.dll이
+                // 없어도 apps/<app>.jkx가 있으면 컨테이너로 스폰해 두 호출
+                // 형태를 모두 살린다(설명 드리프트가 LLM을 막히게 하지 않는다).
+                const std::string jkxCandidate =
+                    exeDir + "\\apps\\" + app + ".jkx";
+                if (fileExistsFn(jkxCandidate)) {
+                    SpawnClient(jkxCandidate.c_str(), true);
+                    reply = "{\"ok\":true,\"via\":\"jkx\"}";
+                } else {
+                    reply = "{\"ok\":false,\"error\":\"unknown_app\",\"app\":\"" +
+                            app +
+                            "\",\"hint\":\"not a built-in app and no apps/<app>"
+                            ".jkx package exists — use jkx with a path or a "
+                            "bare package name\"}";
+                }
             }
         } else if (!jkx.empty()) {
             std::string resolved = jkx;

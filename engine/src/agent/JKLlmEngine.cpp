@@ -111,6 +111,9 @@ constexpr const char* kLlmTurnPreamble =
     "도구 사용이 필요하면 조용히 실행하고 결과만 간결하게 보고한다. "
     "이전 턴에 상태를 바꾸는 도구를 썼다면, 다음 행동 전에 상태 읽기 도구로 "
     "최신 상태를 확인한다(이전 턴의 응답만 믿고 행동하지 않는다). "
+    "사용자가 앱·게임·토이·도구를 새로 만들어 달라고 하면 워크숍 앱으로 "
+    "만든다: launch_app에서 jkx를 workshop으로 지정해 띄운 뒤 app_tool의 "
+    "api 도구로 함수 목록을 확인하고 set_script로 스크립트를 쓴다. "
     "[사용자] ";
 
 // claude_wrapper guide §2.2: ollama launch claude --model <m> -- [claude args]
