@@ -400,3 +400,45 @@ kimi-k2.7-code:cloud → **glm-5.3-flash:cloud** (2026-09-24). state/chat.json
 재점검이 절차다. (b) WsConnect가 접속 거부를 **예외로** 던지면 s1 체크가
 건너뛰어져 **가짜 ALL PASS**가 뜬다(실측) — 접속 실패는 반드시 null로
 정규화해 체크가 실패를 세게 한다.
+
+### 12.1 v4 판정균 3일 공방의 종결 — 전부 하니스 인코딩 오염이었다 (2026-09-24 오후)
+
+v4(ball-animates)가 런 2·3 연속 FAIL. 격리 재현을 3단으로 쪼개 판정 —
+**엔진 무죄, 결함은 전부 프로브 하니스에 있었다.**
+
+**런 2 (오프뷰 정지)**: LLM 스크립트가 캔버스 640×400을 창 360×280에 얹음 —
+공이 y≈384(화면 밖)에 앉아 클릭 전 5샘플이 전부 동일. 단일 클릭 폴백
+(window+210,110)이 닿지 않음. 격리 재현(동일 물리 변주)에서 클릭 킥 정상 —
+엔진 정상. 픽스 = v4 폴백을 **4점 산개 클릭**(210,110/100,60/280,200/60,220,
+각 0.8s 샘플)으로 강화 — 클릭 스폰형·클릭 킥형 전부 커버.
+
+**런 3 (결정적)**: LLM 스크립트에 한국어가 있었다
+('클릭하면 공이 추가됩니다'). get_script로 소스를 왕복시켜 myapp.js에
+재기록하는 v4 리로드 트릭에서 **한국어가 mojibake로 오염**되고, 워크숍 부트가
+`Unexpected end of input at 1:53`로 사망 → 캔버스 정적 + 클릭 무반응.
+이진 탐색(주석/문자열 분리)에서 **엔진 쪽 한국어는 전부 무죄**임이 확인됐다:
+
+- myapp.js 파일 읽기(fread binary → JS_Eval): UTF-8 한국어 주석·문자열 정상
+- agentctl set_script/get_script: 한국어 왕복 정상
+- 브리지 WS `{type:'tool'}` set_script: UTF-8 프레임 왕복 정상
+- 캔버스 canvasText 한국어 렌더: 정상 (숫자 색 0xRRGGBB도 ColorFromArg가 이미 수용)
+
+**진짜 오염원 2건 — 둘 다 PS 5.1의 인코딩 함정**:
+
+1. **PS가 UTF-8(BOM 없음) .ps1 소스를 ANSI로 읽는다** — here-string의
+   한국어가 CP949로 오독되고, **개행이 더블바이트 트레일로 삼켜진다**
+   (`바운스\nvar` → `바운??var`) → 주석이 코드 라인을 덮어 "Unexpected end of
+   input". 한국어가 들어간 PS 소스는 BOM을 달거나 bash가 바이트를 쓰고 PS는
+   실행만 해야 한다.
+2. **ProcessStartInfo 리다이렉트 출력의 디폴트 디코딩이 ANSI** — 엔진은
+   UTF-8로 출력하므로 get_script 결과의 한국어가 캡처 단계에서 mojibake.
+   실측: hangul=False(디폴트) → hangul=True(`StandardOutputEncoding=UTF8`).
+   양 프로브의 Invoke-Agentctl에 픽스. `&` 직접 호출은 PS 인용 버그로
+   따옴표 포함 JSON이 쪼개져 bad_request가 난다 — ProcessStartInfo 수동
+   인용(docs/55 레슨 3)이 계속 정답.
+
+판정 실험 규율(레슨): 멀티바이트를 다루는 재현은 **(1) 바이트는 bash가 쓰고
+PS는 실행만, (2) 캡처는 StandardOutputEncoding=UTF8, (3) 문자열·주석을 분리한
+이진 탐색** — 이 3점이 없으면 엔진 결함과 하니스 결함을 못 가른다.
+최종: probe_workshop_ball ×2 ALL PASS(런 4·5), probe_workshop_canvas ×2
+ALL PASS(UTF8 픽스 회귀 확인), 라이브 스택 복구 확인(ping+8899).

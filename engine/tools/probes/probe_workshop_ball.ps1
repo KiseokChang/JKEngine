@@ -32,8 +32,20 @@ function Check([string]$name, [bool]$cond, [string]$detail) {
     else { Write-Output "FAIL $name  ($detail)"; $script:fail++ }
 }
 function Invoke-Agentctl([string]$json) {
-    $escaped = $json -replace '"', '\"'
-    $out = (& $exe agentctl $escaped 2>$null) -join "`n"
+    # StandardOutputEncoding=UTF8 is load-bearing: the engine prints UTF-8 and
+    # the redirected-stream default decode is ANSI, so Korean script source
+    # round-tripped through get_script was mojibaked and the rewritten
+    # myapp.js failed to boot ("Unexpected end of input", run-3 DIAG) (docs/60).
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $exe
+    $psi.Arguments = 'agentctl "' + ($json -replace '"', '\"') + '"'
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.StandardOutputEncoding = [Text.Encoding]::UTF8
+    $psi.CreateNoWindow = $true
+    $p = [System.Diagnostics.Process]::Start($psi)
+    $out = $p.StandardOutput.ReadToEnd()
+    $p.WaitForExit()
     $idx = $out.IndexOf('{')
     if ($idx -lt 0) { return "" }
     return $out.Substring($idx)
@@ -196,15 +208,20 @@ try {
                 Start-Sleep -Milliseconds 1000
             }
             if (@($hs | Select-Object -Unique).Count -lt 2) {
+                # Multi-point click fallback (2026-09-24 run-2 DIAG): a single
+                # click misses variants that (a) only react to clicks near the
+                # ball, or (b) settle with the ball off-view (640x400 canvas in
+                # a 360x280 window, rest at y~384). Four spread points cover
+                # click-to-spawn and kick-toward-click styles alike.
                 $wm = [regex]::Match($lw, '\{"id":(\d+),"title":"Workshop","pid":\d+,"x":(-?\d+),"y":(-?\d+)')
                 if ($wm.Success) {
-                    $cx = [int]$wm.Groups[2].Value + 210
-                    $cy = [int]$wm.Groups[3].Value + 110
-                    [void](Invoke-Agentctl ('{"tool":"send_input","args":{"id":' + $wid +
-                        ',"op":"click","x":' + $cx + ',"y":' + $cy + '}}'))
-                    for ($i = 0; $i -lt 3; $i++) {
+                    $wx = [int]$wm.Groups[2].Value; $wy = [int]$wm.Groups[3].Value
+                    $pts = @(@(210,110), @(100,60), @(280,200), @(60,220))
+                    foreach ($pt in $pts) {
+                        [void](Invoke-Agentctl ('{"tool":"send_input","args":{"id":' + $wid +
+                            ',"op":"click","x":' + ($wx + $pt[0]) + ',"y":' + ($wy + $pt[1]) + '}}'))
+                        Start-Sleep -Milliseconds 800
                         $hs += (Capture-Hash $wid)
-                        Start-Sleep -Milliseconds 1000
                     }
                 }
             }

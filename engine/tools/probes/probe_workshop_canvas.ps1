@@ -30,11 +30,14 @@ function Check([string]$name, [bool]$ok, [string]$detail) {
     if ($detail) { Write-Host ("      " + $detail) }
 }
 function Invoke-Agentctl([string]$json) {
+    # StandardOutputEncoding=UTF8: the engine prints UTF-8; the default
+    # redirected decode is ANSI and mojibakes Korean (docs/60, 2026-09-24).
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $exe
     $psi.Arguments = 'agentctl "' + ($json -replace '"', '\"') + '"'
     $psi.UseShellExecute = $false
     $psi.RedirectStandardOutput = $true
+    $psi.StandardOutputEncoding = [Text.Encoding]::UTF8
     $psi.CreateNoWindow = $true
     $p = [System.Diagnostics.Process]::Start($psi)
     $out = $p.StandardOutput.ReadToEnd()
