@@ -306,6 +306,10 @@ Check "S2: no crash" (VPlayer-Alive) ""
 # ---------- S2 pacing gate (docs/50 sec 10 review) ----------
 # The [vpt11] rev pos= stderr lines (1/s while reverseActive_) make cadence
 # machine-checkable — frame-number verdicts off shots stay manual (lesson 19).
+# Line format since the smooth-scrub rewire (docs/50 sec 11, 2026-09-24):
+#   [vpt11] rev pos=%.3f D=%.3f fps=%.1f
+# The pos= prefix is unchanged (regex below still parses); the new D field is
+# the display clock, consumed by the vpt13_smooth_scrub.ps1 flow gate.
 $revLines = @()
 if (Test-Path $log) {
     $revLines = Select-String -Path $log -Pattern '\[vpt11\] rev pos=([0-9.]+)' |

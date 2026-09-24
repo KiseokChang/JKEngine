@@ -1,13 +1,17 @@
 # vpt9 e2e: jog dial = silent frame-scrub (docs/50 section 8, spec 2026-09-15).
 # Harness recipe = vpt4_e2e.ps1 (DPI-aware, full-layer crop, measured geometry).
 #
-# Mechanism under test (commits 6a03dd1/eaf6e1f): the jog dial (knob drag +
-# wheel scrub) is now a frame-scrub. Session start auto-pauses + SetJog(true)
-# (audio decode skipped = fully silent); the video thread's clock gate decodes
-# to the dial target (jogTargetPts); the UI displays the newest decoded frame
-# <= target from the jog history ring (10 s / 1.5 GB caps). Crossing the ring
-# start falls back to the old 40 ms-debounced keyframe SeekScrub; release does
-# the precision seek (finishScrub) and restores the pre-scrub pause state.
+# Mechanism under test (commits 6a03dd1/eaf6e1f; smooth-scrub rewire docs/50
+# sec 11, 2026-09-24): the jog dial (knob drag + wheel scrub) is a frame-scrub.
+# Session start auto-pauses + SetJog(true) (audio decode skipped = fully
+# silent); inputs own a TARGET T and the display clock D chases it at up to
+# kFlowMax frames per UI frame (JKScrubClock::Chase, JogTo per moved D --
+# no seeks in the hot path). Frames come from the jog history ring (16 s /
+# 1.5 GB caps) extended BACKWARD by the GOP-chain refill; the keyframe
+# SeekScrub fires ONLY as the 250 ms stall fallback when the chain cannot
+# serve the position. Release does the precision seek (finishScrub) and
+# restores the pre-scrub pause state. Flow evidence: [vpt13] D= T= lo= stderr
+# lines (100 ms throttle) -- the official flow gate is vpt13_smooth_scrub.ps1.
 #
 # NOTE (documented-only): audio silence during a jog session is guaranteed by
 # construction (jogging skips audio RingPush + paused device) and has no
@@ -36,12 +40,17 @@
 #    Verdict (from shots): burned frame number advances ~7/tick (~56/round),
 #    monotonically, no keyframe-scale random jumps.
 # S2 reverse inside the ring is IMMEDIATE: 5 ticks down, shot taken with no
-#    settle -> frame number already ~35 lower. A fallback seek would show a
-#    landing delay instead (no settle = old frame).
-# S3 ring-boundary fallback from a LONG forward scrub: paused seek to 15 s,
+#    settle -> frame number already ~35 lower (D-chase: the display clock has
+#    converged within one tick interval). A fallback seek would show a landing
+#    delay instead (no settle = old frame).
+# S3 long reverse pull (was "ring-boundary fallback"): paused seek to 15 s,
 #    wheel up 60 ticks (~+14 s, ring trimmed to ~[19,29]) then 60 ticks down
-#    (~-14 s -> target 15 s < ring start) -> fallback keyframe seek lands
-#    near the target; playback state (paused) maintained after release.
+#    (~-14 s). Expectation refresh (docs/50 sec 11 smooth-scrub): the 16 s
+#    ring + backward GOP-chain refill now SERVE the whole pull in-ring -- the
+#    40 ms-debounced keyframe fallback is gone; the keyframe SeekScrub only
+#    fires as the 250 ms stall fallback when the chain cannot keep up. The
+#    machine checks stay structure-only (responsive, alive): the flow verdict
+#    for this path lives in vpt13_smooth_scrub.ps1 S2/S3.
 # S4 release: wheel session from PLAYING -> mid-shot shows auto-pause, after
 #    400 ms idle the release precision-seeks (clock = snap frame) and playing
 #    resumes (clock advances ~2 s by the last shot).
