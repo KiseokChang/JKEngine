@@ -315,3 +315,42 @@ set_script로 캔버스+이벤트 스크립트 설치 → send_input 클릭/키 
   pack_workshop.ps1 재팩**이 세트다. 레슨 §6.4(jkctl pack이 신필드를 떨구는
   문제)와 짝 — 컨테이너 안 DLL의 진부함은 컴파일 오류가 아니라 런타임
   "is not defined"로만 나타난다.
+
+### 11. 폰 실전 3중 결함 — 라우팅·무음 0·암호 오류 (2026-09-24 오전, 사용자 보고)
+
+사용자 폰 눈확인("> 공튀기는 앱 만들어줘" → "워크숍 앱을 찾을 수 없습니다")에서
+출발해 판정하던 중, 프로브 재현이 **3층 결함**을 순차적으로 드러냈다. 전부
+커밋 96a0bfc / 6577865로 픽스, probe_workshop_ball ×2 ALL PASS(런 11·12).
+
+**1층 — 라우팅(사용자 보고 그 자체)**: jkagentd의 launch_app 설명이 workshop을
+내장 앱 이름 목록에 넣은 실수(워크숍은 .jkx 패키지) + "앱 만들어줘=워크숍"
+안내 부재. LLM은 `{"app":"workshop"}`을 쓰고 새로 생긴 스폰 전 검증의
+unknown_app에 낙오 → "런처가 인식하지 못합니다"라고 보고한 것. 픽스 3중:
+서버 launch_app의 app→jkx 폴백(스키마 설명 드리프트를 앱 차원이 흡수),
+설명 교정, 턴 프리앰블에 워크숍 라우팅 지시.
+
+**2층 — 무음 0(프로브 v4 실패에서 역추적)**: LLM이 `createCanvas([10,10,W,H])`
+**배열 형태**를 쓰면(문서는 객체 형태만) quickjs가 undefined를 예외 없이 int 0으로
+바꾸므로(JS_ToIntegerFree의 JS_TAG_UNDEFINED) RectFromArg가 조용히
+rect{0,0,0,0}을 돌려주고 **set_script는 ok:true** — 0×0 보이지 않는 캔버스.
+영수증을 뒤져야만 보이는 결함이었고, 폐곡선이 ok:false를 내지 않았으므로
+LLM은 자가수선할 근거가 없었다. 픽스: RectFromArg가 배열 형태를 수용하고
+누락 컴포넌트는 실패. 교훈 — **"성공했는데 아무것도 없다"는 실패 보고보다
+깊다**: 인자 파서의 침묵 폴백은 폐곡선 자체를 무력화한다.
+
+**3층 — 암호 오류**: `setInterval(16, fn)` 순서 착오(정답은 `setInterval(fn,
+16)`)가 `thrown value: [uninitialized]`로 보고 — 예외 미설정 JS_EXCEPTION
+반환에 QuickJS가 쓰레기를 붙인 것. run 6·8의 LLM은 ok:false를 받고도
+메시지를 해석 못 해 같은 스크립트를 재제출했다. 바인딩 가드 전부를
+JS_ThrowTypeError로 바꾸고 setInterval 오류는 (fn, ms) 순서를 명시.
+
+**재발한 배포 함정(§10.1 재실측)**: 내가 `jkx-pack workshop`으로 재팩했다가
+패커가 MANI를 재생성해 `scriptfile=`/`watch=1`을 떨궜다(§6 레슨 그대로) —
+워크숍이 일반 SCRI 모드로 떨어져 에이전트 도구 등록 자체가 사라짐
+(unknown_app_tool). 정식 경로는 **tools/pack_workshop.ps1**뿐.
+
+**사고 기록(투명 공개)**: 수동 set_script 검증 도중 myapp.js(사용자 진실원,
+261바이트)를 백업 없이 덮어써 원본 분실 — 영수증·세션 트랜스크립트 휩쓸기로도
+복구 불가, docs/60 §2.1 공식 시드 템플릿으로 재시드(248바이트). 백업 의무
+규칙은 프로브뿐 아니라 **수동 ad-hoc 검증에도** 적용된다. 사용자가 갖고 있던
+원본은 폰 채팅으로 한마디("워크숍에서 ~ 만들어줘")면 재생성된다.
