@@ -253,9 +253,11 @@ struct ClientVPlayerApp::PlayerCore {
     // Contiguous decoded pixels — keyframe boundaries do NOT clear it (only
     // a seek does, stage (a)); GOP is a FALLBACK-path concept only. Trimmed
     // at push time to kJogRingMaxSecs / kJogRingMaxBytes; no backpressure —
-    // the caps are the bound. m-protected (same domain as videoQ).
-    static constexpr double kJogRingMaxSecs = 10.0;
-    static constexpr size_t kJogRingMaxBytes = (size_t)1536 * 1024 * 1024;
+    // the caps are the bound. The span cap yields to display protection
+    // (never evict the frame under/just behind jogTargetPts); the byte cap
+    // is absolute. m-protected (same domain as videoQ).
+    static constexpr double kJogRingMaxSecs = 16.0;   // was 10.0 — spec 2026-09-24 §3.1
+    static constexpr size_t kJogRingMaxBytes = (size_t)1536 * 1024 * 1024; // unchanged — the real bound (4K binds first, ~4s)
     std::deque<VideoFrame> jogRing;
     size_t jogRingBytes = 0;
     // Live jog dial target (UI time). -1 = no frame-scrub session. Written
@@ -1317,19 +1319,45 @@ struct ClientVPlayerApp::PlayerCore {
         cv.notify_all();
     }
 
-    // m held. Retain one decoded frame in the jog ring and trim the caps
-    // (time from the newest pts, bytes). The ring has NO backpressure: the
+    // m held. Trim the jog ring to its caps. The span cap yields to display
+    // protection (the chain keeps ~2s ahead of D, so the 1s margin behind D
+    // is normally untouched); the byte cap is absolute and always binds
+    // (spec §5 — memory bound is sacred). The ring has NO backpressure: the
     // trim IS the bound, so the caller never parks on it.
+    void TrimRing() {
+        while (!jogRing.empty()) {
+            const double span = jogRing.back().pts - jogRing.front().pts;
+            const bool overSpan = span > kJogRingMaxSecs;
+            const bool overBytes = jogRingBytes > kJogRingMaxBytes;
+            if (!overSpan && !overBytes) break;
+            if (overSpan && !overBytes &&
+                !(jogTargetPts < 0.0 ||
+                  jogRing.front().pts < jogTargetPts - 1.0))
+                break; // display-protection: the span cap waits for D to move on
+            jogRingBytes -= FrameBytes(jogRing.front());
+            jogRing.pop_front();
+        }
+    }
+
+    // m held. Retain one decoded frame in the jog ring (append at the back,
+    // the live-play direction) and trim the caps (time span, bytes).
     void JogRingPushLocked(VideoFrame vf) {
         const size_t fb = FrameBytes(vf);
         jogRing.push_back(std::move(vf));
         jogRingBytes += fb;
-        while (!jogRing.empty() &&
-               (jogRing.back().pts - jogRing.front().pts > kJogRingMaxSecs ||
-                jogRingBytes > kJogRingMaxBytes)) {
-            jogRingBytes -= FrameBytes(jogRing.front());
-            jogRing.pop_front();
-        }
+        TrimRing();
+    }
+
+    // m held. Chain-refill sink: prepend a decoded frame from the GOP
+    // *before* the ring front (Task 3). Same caps, mirrored accounting —
+    // TrimRing reads the same jogTargetPts display guard, so a prepend that
+    // overflows the span cap cannot evict the frame the display is standing
+    // on either.
+    void JogRingPushFrontLocked(VideoFrame vf) {
+        const size_t fb = FrameBytes(vf);
+        jogRing.push_front(std::move(vf));
+        jogRingBytes += fb;
+        TrimRing();
     }
 
     // Returns false when decoding should stop (seek/stop requested).
