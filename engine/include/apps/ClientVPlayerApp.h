@@ -2,6 +2,7 @@
 #define APPS_CLIENTVPLAYERAPP_H
 
 #include <client/JKClientApplication.h>
+#include <apps/JKScrubClock.h>
 #include <chrono>
 #include <cstdint>
 #include <memory>
@@ -115,24 +116,38 @@ private:
     int renderHz_ = 0;              // last completed window's rate
 
     // Mouse-wheel scrub (spec 1d/D5): wheel ticks over the knob drive the
-    // same jogTarget_ frame-scrub pump (ring hit = JogTo, ring-miss =
-    // debounced SeekScrub fallback); there is no wheel-release event,
+    // same jogTarget_/scrubClock_ frame-scrub pump (D chase + stall-only
+    // SeekScrub fallback); there is no wheel-release event,
     // so the session ends 400 ms after the last tick (idle timeout).
     bool wheelScrubbing_ = false;
     std::chrono::steady_clock::time_point wheelLastTick_{};
 
     // Reverse auto-play (spec 2026-09-15 section 7 v2): the jog ring walked
-    // backward at content fps by the UI cadence (Task 3); ring exhaustion
-    // falls back to the debounced keyframe SeekScrub (GOP-boundary stutter
-    // accepted by spec). The session opens/closes exactly like a drag/wheel
-    // scrub (auto-pause + SetJog(true) = silent), so the same finishScrub
-    // precision-seek contract applies on every exit.
+    // backward at content fps by the UI cadence (Task 3); T feeds the shared
+    // D-chase pump, and a chain-refill stall falls back to the keyframe
+    // SeekScrub (GOP-boundary stutter accepted by spec). The session
+    // opens/closes exactly like a drag/wheel scrub (auto-pause +
+    // SetJog(true) = silent), so the same finishScrub precision-seek
+    // contract applies on every exit.
     bool reverseActive_ = false;
     double reverseAcc_ = 0.0; // fractional-frame cadence carry (seconds)
     std::chrono::steady_clock::time_point reverseLastTick_{};
     // [vpt11] pacing-log throttle — once per second while reverseActive_
     // (probe cadence gate; structure-only checks cannot see pacing).
     std::chrono::steady_clock::time_point reverseLastLog_{};
+
+    // Position-tracking display clock (docs/50 §11, spec 2026-09-24 §3.2):
+    // drag/wheel/reverse inputs feed a target T; the display position D
+    // chases it at up to kFlowMax frames per UI frame — JogTo(D) each frame
+    // D moved, no seeks in the hot path. Reset seeds D at the session entry
+    // position (drag/wheel/<< fresh entries); takeovers keep D continuous
+    // (SetTarget only). The pump's stall fallback (ring-refill progress via
+    // jogRingLo) and the [vpt13] flow-evidence log (100 ms throttle) use the
+    // two timers below.
+    jk::JKScrubClock scrubClock_;
+    std::chrono::steady_clock::time_point scrubStallSince_{};
+    std::chrono::steady_clock::time_point scrubLastLog_{};
+    double scrubLastRingLo_ = -1.0;
 };
 
 } // namespace jk

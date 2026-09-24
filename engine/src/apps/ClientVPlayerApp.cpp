@@ -1,5 +1,6 @@
 #include <apps/ClientVPlayerApp.h>
 
+#include <apps/JKScrubClock.h>
 #include <agent/JKAgentJson.h>
 #include <imgui_impl_jkwindow.h>
 #include <imgui.h>
@@ -2951,7 +2952,8 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
                 if (!takeover) jogWasPlaying_ = !st.paused && !st.ended;
                 if (jogWasPlaying_ && st.paused == false) p->SetPaused(true);
                 p->SetJog(true);
-                jogTarget_ = st.pos;
+                if (!takeover) { scrubClock_.Reset(st.pos); jogTarget_ = st.pos; }
+                else scrubClock_.SetTarget(jogTarget_);
                 jogLastSent_ = -1;
                 jogLastSeek_ = std::chrono::steady_clock::now();
             }
@@ -2984,7 +2986,8 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
             if (!takeover) jogWasPlaying_ = !st.paused && !st.ended;
             if (jogWasPlaying_ && st.paused == false) p->SetPaused(true);
             p->SetJog(true);
-            if (!takeover) jogTarget_ = st.pos;
+            if (!takeover) { scrubClock_.Reset(st.pos); jogTarget_ = st.pos; }
+            else scrubClock_.SetTarget(jogTarget_);
             jogLastSent_ = -1;
             knobCX_ = c.x; knobCY_ = c.y;
             jogMouseX_ = io.MousePos.x; jogMouseY_ = io.MousePos.y;
@@ -3035,7 +3038,8 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
                 if (!takeover) jogWasPlaying_ = !st.paused && !st.ended;
                 if (jogWasPlaying_ && st.paused == false) p->SetPaused(true);
                 p->SetJog(true);
-                if (!takeover) jogTarget_ = st.pos;
+                if (!takeover) { scrubClock_.Reset(st.pos); jogTarget_ = st.pos; }
+                else scrubClock_.SetTarget(jogTarget_);
                 jogLastSent_ = -1;
                 jogLastSeek_ = std::chrono::steady_clock::now();
             }
@@ -3079,39 +3083,57 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
             // Once per second, stderr, same convention as seek failures.
             if (now - reverseLastLog_ >= std::chrono::seconds(1)) {
                 reverseLastLog_ = now;
-                std::fprintf(stderr, "[vpt11] rev pos=%.3f fps=%.1f\n",
-                             jogTarget_, fps);
+                std::fprintf(stderr, "[vpt11] rev pos=%.3f D=%.3f fps=%.1f\n",
+                             jogTarget_, scrubClock_.Pos(), fps);
                 std::fflush(stderr);
             }
         }
 
-        // Frame-scrub pump: inside the retained ring the dial is zero-blocking
-        // (JogTo per moved target — decode runs to it, JogFrame displays it).
-        // Crossing the ring start falls back to the keyframe scrub seek
-        // (blocking I/O — keeps the 40 ms latest-wins debounce; SeekCommon's
-        // scrub branch feeds jogTargetPts so the fallback display is
-        // frame-smooth too). The single jogTargetPts slot coalesces both.
+        // Frame-scrub pump: drag/wheel/reverse all feed the shared target T;
+        // the display clock D chases it (zero-blocking — JogTo per moved D,
+        // decode runs to it). The 16 s ring + backward GOP-chain refill
+        // supply the frames; the keyframe scrub seek fires ONLY as a stall
+        // fallback when the chain cannot serve the position. The single
+        // jogTargetPts slot coalesces both.
         if ((jogActive_ && !activated) || (wheelScrubbing_ && !jogActive_) ||
             reverseActive_) {
-            const double halfFrame = fps > 0.0 ? 0.5 / fps : 0.0;
-            const bool ringHit = st.jogRingLo >= 0.0 &&
-                                 jogTarget_ >= st.jogRingLo - halfFrame;
-            if (ringHit) {
-                if (jogTarget_ != jogLastSent_) {
-                    p->JogTo(jogTarget_);
-                    jogLastSent_ = jogTarget_;
-                    // Arm the fallback debounce too: a later ring-miss must
-                    // not burst-seek through every missed frame.
-                    jogLastSeek_ = std::chrono::steady_clock::now();
-                }
-            } else {
+            // Position-tracking flow (spec §3.2): inputs own T, the display clock D
+            // chases it at up to kFlowMax frames per UI frame; JogTo(D) each frame
+            // D moved. The decode gate + chain buffer supply the frames — no seeks
+            // in the hot path.
+            constexpr double kFlowMax = 8.0;
+            scrubClock_.SetTarget(jogTarget_);
+            const double d = scrubClock_.Chase(fps, kFlowMax, dur);
+            if (d != jogLastSent_) {
+                p->JogTo(d);
+                jogLastSent_ = d;
+            }
+            // Stuck fallback ONLY (chain refills backward; forward decode creeps —
+            // a D pinned at the ring front with the target far below means the
+            // chain cannot serve this position, e.g. no earlier keyframe): fire the
+            // legacy keyframe scrub seek after 250 ms of no progress.
+            const bool ringMiss = st.jogRingLo >= 0.0 && d < st.jogRingLo - 0.5 / (fps > 0.0 ? fps : 30.0);
+            if (ringMiss) {
                 const auto now = std::chrono::steady_clock::now();
-                if (std::chrono::duration<double>(now - jogLastSeek_).count() >= 0.040 &&
-                    jogTarget_ != jogLastSent_) {
-                    p->SeekScrub(jogTarget_);
-                    jogLastSent_ = jogTarget_;
-                    jogLastSeek_ = now;
+                if (st.jogRingLo == scrubLastRingLo_) {
+                    if (std::chrono::duration<double>(now - scrubStallSince_).count() >= 0.250 &&
+                        jogTarget_ != jogLastSent_) {
+                        p->SeekScrub(jogTarget_);
+                        jogLastSent_ = jogTarget_;
+                        scrubStallSince_ = now; // re-arm — one fallback per stall
+                    }
+                } else {
+                    scrubStallSince_ = now; // ring moved — chain is making progress
                 }
+                scrubLastRingLo_ = st.jogRingLo;
+            }
+            // vpt13 flow evidence (docs/50 §11 probe gate): 100 ms throttle.
+            const auto now = std::chrono::steady_clock::now();
+            if (now - scrubLastLog_ >= std::chrono::milliseconds(100)) {
+                scrubLastLog_ = now;
+                std::fprintf(stderr, "[vpt13] D=%.3f T=%.3f lo=%.3f\n",
+                             d, jogTarget_, st.jogRingLo);
+                std::fflush(stderr);
             }
         }
 
