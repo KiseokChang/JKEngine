@@ -43,6 +43,7 @@ extern "C" __declspec(dllimport) int __stdcall GetDiskFreeSpaceExA(
 #include <terminal/JKConPtyBridge.h>
 #include <terminal/JKGlyphAtlas.h>
 #include <apps/JKTermSelection.h>
+#include <apps/JKScrubClock.h>
 #include <apps/JKTermInput.h>
 
 #include <stb_truetype.h>
@@ -2036,6 +2037,37 @@ static int RunAppSelfTest() {
                       overflow[3] == 0xFFFD && overflow[4] == 'A',
                   "termselect: >U+10FFFF utf8 decodes as FFFD + resync");
         }
+    }
+
+    // Scrub clock pure logic (docs/50 §11, JKScrubClock.h): chase rate clamp,
+    // direction flips, target landing, session reset seeding.
+    {
+        jk::JKScrubClock c;
+        c.Reset(10.0);
+        check(c.Pos() == 10.0 && c.Target() == 10.0, "scrubclock: reset seeds D=T");
+        c.SetTarget(11.0);
+        check(c.Chase(30.0, 8.0, 120.0) > 10.0 && c.Pos() < 11.0,
+              "scrubclock: chase advances but does not overshoot");
+        for (int i = 0; i < 100; ++i) c.Chase(30.0, 8.0, 120.0);
+        check(c.Pos() == 11.0, "scrubclock: chase lands exactly on target");
+        c.SetTarget(9.0);
+        c.Chase(30.0, 8.0, 120.0);
+        check(c.Pos() < 11.0, "scrubclock: chase retreats backward");
+        // Rate clamp: one UI frame moves at most flowMax frames.
+        c.Reset(0.0);
+        c.SetTarget(100.0);
+        const double d0 = c.Chase(30.0, 8.0, 120.0);
+        check(d0 - 0.0 <= 8.0 / 30.0 + 1e-9, "scrubclock: rate clamped to flowMax/fps");
+        // Unknown fps falls back to 30.
+        c.Reset(0.0);
+        c.SetTarget(100.0);
+        const double d1 = c.Chase(0.0, 8.0, 120.0);
+        check(d1 <= 8.0 / 30.0 + 1e-9, "scrubclock: fps<=0 quantizes at 30");
+        // Duration clamp.
+        c.Reset(0.0);
+        c.SetTarget(1000.0);
+        for (int i = 0; i < 10000; ++i) c.Chase(30.0, 8.0, 50.0);
+        check(c.Pos() == 50.0, "scrubclock: D clamps into [0,dur]");
     }
 
     // Terminal mouse-report + DECSCUSR parser tracking (docs/26 단계 3,
