@@ -1,4 +1,4 @@
-# vplayer-stability T5 INTEGRATED GATE e2e (spec section 2, all scenarios).
+﻿# vplayer-stability T5 INTEGRATED GATE e2e (spec section 2, all scenarios).
 # -STA required (Set-Clipboard, docs/15 cp949 convention). Harness recipe =
 # vpt4_e2e.ps1 (DPI-aware, full-layer crop, measured geometry).
 #
@@ -37,7 +37,7 @@ public class Wt5 {
 $build   = "I:\progwork\JKENGINE\engine\build"
 $exe     = "$build\jkdesktop.exe"
 $shotDir = "I:\progwork\JKENGINE\.superpowers\sdd\2026-09-14-vplayer-stability"
-$hiRes   = "I:\@keep\200GANA-3420\hhd800.com@200GANA-3420.mp4"
+$hiRes   = "I:\progwork\JKENGINE\tmp\test_media\vpt_hires.mp4"
 $mp4     = "I:/progwork/JKENGINE/tmp/vpt2_test.mp4"
 $raw     = "I:/progwork/JKENGINE/tmp/vpt2_raw.h264"
 $pipeArg = '//./pipe/vpt5_hang'
@@ -206,10 +206,19 @@ function Stop-PipeHolder($p) {
 $errLog = "I:\progwork\JKENGINE\tmp\vpt5_client_stderr.log"
 taskkill /F /IM jkdesktop.exe 2>$null | Out-Null
 Start-Sleep -Seconds 1
-Start-Process -FilePath $exe -ArgumentList "--server" -WorkingDirectory $build -RedirectStandardError $errLog
+# NOTE (2026-09-24): the server must NOT share $errLog with the client —
+# MirrorLogToFiles (docs/60 §8-9) dup2's the server's stdout/stderr into a
+# pipe at fd level, orphaning any inherited redirect handle, and the
+# console-child std-handle slot reuse makes server-spawned client stderr
+# land in state/logs/server_*.log only nondeterministically (measured:
+# run1 0 lines / run2 1 line). Probe spawns the vplayer client directly
+# (probe_theme_swap.ps1 recipe) so $errLog owns the client's stderr.
+Start-Process -FilePath $exe -ArgumentList "--server" -WorkingDirectory $build -RedirectStandardOutput "I:\progwork\JKENGINE\tmp\vpt5_server_stdout.log"
 Start-Sleep -Seconds 4
 Check "setup: server up" ((Invoke-Agentctl '{"tool":"ping","args":{}}') -match '"ok"\s*:\s*true') ""
-Invoke-Agentctl '{"tool":"launch_app","args":{"app":"vplayer"}}' | Out-Null
+Start-Process -FilePath $exe -ArgumentList "--client","vplayer" `
+    -WorkingDirectory $build -RedirectStandardError $errLog `
+    -RedirectStandardOutput "I:\progwork\JKENGINE\tmp\vpt5_client_stdout.log"
 Start-Sleep -Seconds 6
 Find-Server
 Check "setup: vplayer launched" (Refresh-Geom) "no Video Player layer"
@@ -294,15 +303,24 @@ Check "S3: no crash" (VPlayer-Alive) ""
 # indexless-source proxy: raw H.264 elementary stream (avformat_seek_file fails)
 Type-IntoPath $raw
 Click-Open
-Start-Sleep -Seconds 5
+Start-Sleep -Seconds 8
 Seek-Frac 0.05
-Start-Sleep -Milliseconds 900
+Start-Sleep -Milliseconds 1200
+# open-latency flake absorber (2026-09-24, runs 1/3): if the raw open hadn't
+# finished when the first seek was attempted, no SeekCommon ran and no
+# diagnostic could fire. Retry once on a different fraction — the source is
+# still indexless, so the failed-seek contract is unchanged.
+$diag = @(Select-String -Path $errLog -SimpleMatch '[vplayer] seek failed').Count
+if ($diag -lt 1) {
+    Seek-Frac 0.15
+    Start-Sleep -Milliseconds 1200
+    $diag = @(Select-String -Path $errLog -SimpleMatch '[vplayer] seek failed').Count
+}
 Save-ServerShot "vpt5-s3c-raw-seek-fail.png"
 $p = Ping-Ms
 Check "S3: UI responsive right after failed seek (raw h264)" ($p -ge 0 -and $p -lt 500) ("ping {0:N0} ms" -f $p)
 Check "S3: no crash after failed seek" (VPlayer-Alive) ""
 Start-Sleep -Milliseconds 500
-$diag = @(Select-String -Path $errLog -SimpleMatch '[vplayer] seek failed').Count
 Check "S3: failed-seek diagnostic fired" ($diag -ge 1) ("[vplayer] seek-failed diagnostics: $diag")
 
 # ---------- S4: wheel scrub (vpt4 recipe) ----------
@@ -339,7 +357,7 @@ $p = Ping-Ms
 Check "S4: responsive after paused scrub" ($p -ge 0 -and $p -lt 500) ("ping {0:N0} ms" -f $p)
 Check "S4: no crash" (VPlayer-Alive) ""
 
-# ---------- S5: regression — pause/play, volume, avDelay, jog drag ----------
+# ---------- S5: regression ??pause/play, volume, avDelay, jog drag ----------
 Click-App 28 68        # Pause
 Start-Sleep -Milliseconds 500
 Save-ServerShotFast "vpt5-s5a-paused.png"
