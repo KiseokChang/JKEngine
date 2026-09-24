@@ -7,7 +7,7 @@
 # silent); inputs own a TARGET T and the display clock D chases it at up to
 # kFlowMax frames per UI frame (JKScrubClock::Chase, JogTo per moved D --
 # no seeks in the hot path). Frames come from the jog history ring (16 s /
-# 1.5 GB caps) extended BACKWARD by the GOP-chain refill; the keyframe
+# 6 GB caps) extended BACKWARD by the GOP-chain refill; the keyframe
 # SeekScrub fires ONLY as the 250 ms stall fallback when the chain cannot
 # serve the position. Release does the precision seek (finishScrub) and
 # restores the pre-scrub pause state. Flow evidence: [vpt13] D= T= lo= stderr

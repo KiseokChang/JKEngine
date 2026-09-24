@@ -22,6 +22,12 @@
 # while sub-bound sample deltas ride the input quantum (one wheel tick =
 # sPerRev/16 = 0.469 s on a 60 s clip) and cannot be finer.
 #
+# MODEL NOTE (final-review Minor 5): maxJump models "D moves at most kFlowMax
+# frames per 100 ms SAMPLE", but the implementation caps at kFlowMax frames per
+# UI FRAME -- the legal 60 Hz-UI bound is ~1.6 s/sample. This gate is only
+# valid at the script's stimulus speed (S1 drag ~3.8 s/s, S2 one tick per
+# 250 ms), not as a general invariant.
+#
 # Mechanism under test: inputs own T; D chases T (JogTo per moved D, decode
 # runs to it -- no seeks in the hot path). The 16 s ring + backward GOP-chain
 # refill supply the frames; the keyframe SeekScrub fires ONLY as the 250 ms
@@ -58,7 +64,8 @@
 #    off the [vpt13] stream: >=8 samples, every |dD| <= flow bound, D never
 #    moves backward, T advanced >= 3 s, last sample D within 0.5 s of T.
 # S2 reverse pull inside the ring (PAUSED, hires, ~-5 s = 11 wheel ticks at
-#    250 ms): D recedes continuously (every dD <= +0.05, |dD| <= flow bound),
+#    250 ms): D recedes continuously (every dD <= +0.05, |dD| <= maxJumpS2 =
+#    0.83 s -- tighter than the S1 flow bound, see MODEL NOTE above),
 #    chain refill evidence = at least one lo-decreasing step >= 0.05 s AND
 #    min(lo) <= first lo - 1.0, ends with |D - T| <= 0.5.
 # S3 reverse OUTSIDE the ring (PAUSED, longgop, -30 s = 64 wheel ticks at
@@ -113,7 +120,12 @@ New-Item -ItemType Directory -Force -Path $shotDir | Out-Null
 $kFlowMax = 8.0     # Chase cap, frames per UI frame (source constant)
 $fps      = 30.0    # both clips are 30 fps
 $kTickSec = 7.5 / 16.0   # sPerRev/16 = 0.469 s per wheel notch (60 s clip)
-$maxJump  = $kFlowMax * 0.1 + (1.0 / $fps) + 0.2   # ~= 1.03 s per 100 ms sample
+$maxJump  = $kFlowMax * 0.1 + (1.0 / $fps) + 0.2   # ~= 1.03 s per 100 ms sample (S1)
+# S2-only tighter cap: the S2 stimulus moves at most one wheel tick = 0.469 s
+# per sample (250 ms ticks on a 60 s clip), so any single-sample |dD| > 0.83 s
+# (~ 1 tick + half-tick slack) is a snap pop even though it rides under the
+# generic 1.033 s bound -- this closes the 1-GOP snap (1.0 s) pass-through hole.
+$maxJumpS2 = 0.83
 
 $knobX = 888.0; $knobY = 582.0
 $revX  = 755.0; $revY  = 582.0
@@ -454,7 +466,7 @@ Check "S2: samples captured" ($s2.Count -ge 8) ("got {0} [vpt13] samples" -f $s2
 $s2ok = $true; $s2why = ""
 for ($i = 1; $i -lt $s2.Count; $i++) {
     $dd = [math]::Abs($s2[$i].d - $s2[$i - 1].d)
-    if ($dd -gt $maxJump) { $s2ok = $false; $s2why = "sample {0}: |dD|={1:N3} > {2:N3} (snap pop)" -f $i, $dd, $maxJump; break }
+    if ($dd -gt $maxJumpS2) { $s2ok = $false; $s2why = "sample {0}: |dD|={1:N3} > {2:N3} (snap pop)" -f $i, $dd, $maxJumpS2; break }
     if ($s2[$i].d -gt $s2[$i - 1].d + 0.05) { $s2ok = $false; $s2why = "sample {0}: D jumped forward {1:N3} during reverse" -f $i, ($s2[$i].d - $s2[$i - 1].d); break }
 }
 $tBack = 0.0

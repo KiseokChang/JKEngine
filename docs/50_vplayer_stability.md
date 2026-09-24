@@ -824,7 +824,7 @@ specs/2026-09-24-vplayer-smooth-scrub-design.md, 진행·태스크 리포트는
 `.superpowers/sdd/2026-09-24-vplayer-smooth-scrub/`. 게이트 프로브는
 `engine/tools/probes/vpt13_smooth_scrub.ps1`(4e6eeb5).
 
-### 12.1 커밋 (실측 `git log --oneline aed0b7d..HEAD` — worktree 7커밋)
+### 12.1 커밋 (실측 `git log --oneline aed0b7d..HEAD` — worktree 9커밋; 표는 코드 커밋 7행, fe42bfe·61f2939 문서 커밋 2건은 표 밖)
 
 | 커밋 | 내용 |
 |---|---|
@@ -840,7 +840,8 @@ specs/2026-09-24-vplayer-smooth-scrub-design.md, 진행·태스크 리포트는
 
 - **§3.2 위치 추적 = JKScrubClock D 체이스**: UI 펌프가
   `scrubClock_.SetTarget(jogTarget_)` + `Chase(fps, kFlowMax, dur)`로 표시
-  시계 D를 T쪽으로 흐르게 전진(`kFlowMax = 8.0` 프레임/초 상한, 실측 튜닝값),
+  시계 D를 T쪽으로 흐르게 전진(UI 프레임당 최대 8프레임, `kFlowMax = 8.0` —
+  실측 튜닝값, 단위는 프레임/초가 아니라 프레임/UI프레임),
   D가 움직였을 때만 `JogTo(d)`(jogLastSent_ 비교). 세션 진입 3곳(`<<` 토글온/
   드래그 시작/휠)에 Reset 시딩, 테이크오버 분기는 `SetTarget`만(세션 승계 시
   D 연속 유지 — §10.6 ② "인수는 재시드가 아니라 보존"의 연장). 전진·후진·
