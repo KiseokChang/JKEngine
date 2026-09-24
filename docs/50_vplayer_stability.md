@@ -845,7 +845,7 @@ specs/2026-09-24-vplayer-smooth-scrub-design.md, 진행·태스크 리포트는
   드래그 시작/휠)에 Reset 시딩, 테이크오버 분기는 `SetTarget`만(세션 승계 시
   D 연속 유지 — §10.6 ② "인수는 재시드가 아니라 보존"의 연장). 전진·후진·
   `<<` 역재생이 전부 같은 펌프를 탄다.
-- **§3.1 버퍼 = 16s/6GB 링**: `kScrubMaxSecs = 16.0`, 바이트 캡 6GB(3fc288e,
+- **§3.1 버퍼 = 16s/6GB 링**: `kJogRingMaxSecs = 16.0`, 바이트 캡 6GB(3fc288e,
   승인 경위는 스펙 §5). push-trim 구조와 락 도메인(videoQ와 같은 m)은 jogRing
   계승, 역방향 재료는 `RingPushFront`로 앞머리에 prepend.
 - **체인 리필**: 표시 위치가 링 앞머리에 도달하면 워커가 직전 GOP 키프레임부터
@@ -925,5 +925,8 @@ specs/2026-09-24-vplayer-smooth-scrub-design.md, 진행·태스크 리포트는
 - **F4/F5 프로브 위생** — `Save-ServerShotFast` 캐시 기하(재측정 규약 불일치),
   stderr 로그를 빌드 디렉터리에 생성(tmp 관례 이탈), Probe-Pos의 +1틱 부작용
   미문서화, 말미 개행·teardown 클라 정리.
+- **스테일 "docs/50 §11" 문서 참조** — 선행 커밋(61d1cdb..3fc288e) 제목과
+  코드 주석의 "docs/50 §11" 참조는 as-built 착지 전 §11(OSD 절) 부재 시절의
+  작성물로, 착지 후에는 OSD 절을 가리킨다. 향후 문서 참조는 §12로 정정 대상.
 - F3(S3의 250ms 임계 미측정 — miss+rebuild 구조 서명 대체)은 설계 판정으로
   수용(관측 한계 반영, 리뷰어 동의) — 후속 아님.

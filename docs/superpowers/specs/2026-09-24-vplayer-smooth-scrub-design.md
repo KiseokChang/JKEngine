@@ -33,8 +33,8 @@
 
 - `scrubWin`: 현재 스크럽 앵커 뒤로 GOP 체인을 연결해 놓은 프레임 버퍼
   (연속 pts 구간 [lo, anchor]). jogRing을 대체하되 push-trim 구조와 락 도메인(videoQ와
-  같은 m)은 계승. 캡: `kScrubMaxSecs = 16.0` / 바이트 캡 기존 1.5GB 유지
-  (1080p NV12 ~3.1MB/프레임 × 30fps ≈ 16.1s — secs 캡만 상향, 바이트 캡이 실제 한도).
+  같은 m)은 계승. 캡: `kJogRingMaxSecs = 16.0` / 바이트 캡 6GB
+  (사용자 승인 2026-09-24; 4K NV12 12.4MB×30fps 기준 16s 전체 스팬 — §5 참조).
 - 체인 리필: 표시 위치가 `lo + kRefillAhead`에 도달하면 워커가 직전 GOP 키프레임부터
   전진 디코드해 앞에 붙인다 (seek stage (a)와 같은 경로, vSeekSeq 세대 보호 재사용).
 - 정방향도 같은 버퍼: 앵커 앞은 기존 디코드 크리프 게이트가 버퍼로 흘려보낸다.
