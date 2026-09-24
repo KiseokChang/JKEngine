@@ -301,6 +301,10 @@ declare function declareCursor(decl: JKCursorDecl): void;
 //     승인된 호출만 도달). kind는 선언한 kinds 중 하나. 반환값이 act 도구의
 //     결과 JSON이 된다: 문자열=JSON 원문, 객체=JSON.stringify, 없음=
 //     {"ok":true}. 정의 없이 act가 오면 도구가 error로 응답한다.
+//   function onSnapshot()                  — 선택. 커서 read의 snapshot
+//     직렬화(에이전트가 read 도구로 상태를 읽을 때). 객체 반환=
+//     JSON.stringify로 커서 헤더와 함께 조립된다. 정의하지 않으면 read는
+//     unknown_app_tool로 즉답(정상).
 //
 // 예외 정책 (docs/27 §3.2): 미처리 예외는 메시지 + JS 스택 트레이스가 로그에
 // 덤프되고 앱은 정상 종료한다. 로그만 읽고 스스로 고칠 수 있게 쓸 것.

@@ -1451,6 +1451,62 @@ bool JKScriptHost::DispatchAgentAct(const std::string& kind, int row, int col,
     return true;
 }
 
+bool JKScriptHost::DispatchAgentSnapshot(bool& ok, std::string& resultJson) {
+    ok = false;
+    if (!ctx_) return false;
+    JSContext* ctx = static_cast<JSContext*>(ctx_);
+    JsValue global(ctx, JS_GetGlobalObject(ctx));
+    JsValue fn(ctx, JS_GetPropertyStr(ctx, global.value(), "onSnapshot"));
+    if (!JS_IsFunction(ctx, fn.value())) {
+        // snapshot 도구는 등록됐지만 콜백이 없다 — 도구 응답으로 표면화
+        // (act 중계 선례 — 조용한 눌먹기 금지).
+        resultJson = "{\"error\":\"no_onSnapshot\"}";
+        return true;
+    }
+    JsValue call(ctx, JS_Call(ctx, fn.value(), JS_UNDEFINED, 0, nullptr));
+    if (JS_IsException(call.value())) {
+        const std::string dump = DumpPendingException(ctx);
+        std::printf("[script] onSnapshot error: %s\n", dump.c_str());
+        std::fflush(stdout);
+        resultJson = "{\"error\":\"onSnapshot_exception\"}";
+        return true;
+    }
+    if (JS_IsString(call.value())) {
+        resultJson = ToUtf8(ctx, call.value());
+        if (resultJson.empty()) {
+            resultJson = "{\"error\":\"onSnapshot_empty\"}";
+            return true;
+        }
+        ok = true;
+        return true;
+    }
+    if (JS_IsObject(call.value())) {
+        JsValue g(ctx, JS_GetGlobalObject(ctx));
+        JsValue jsonFn(ctx, JS_GetPropertyStr(ctx, g.value(), "JSON"));
+        JsValue stringify(ctx, JS_GetPropertyStr(ctx, jsonFn.value(),
+                                                 "stringify"));
+        if (JS_IsFunction(ctx, stringify.value())) {
+            JSValueConst sarg[1] = { call.value() };
+            JsValue out(ctx, JS_Call(ctx, stringify.value(), JS_UNDEFINED, 1,
+                                     sarg));
+            if (JS_IsString(out.value())) {
+                resultJson = ToUtf8(ctx, out.value());
+                if (resultJson.empty()) {
+                    resultJson = "{\"error\":\"onSnapshot_empty\"}";
+                    return true;
+                }
+                ok = true;
+                return true;
+            }
+        }
+        resultJson = "{\"error\":\"onSnapshot_object_not_stringifiable\"}";
+        return true;
+    }
+    // undefined/숫자 등 — 직렬화 없음을 명시(빈 결과를 "unknown"으로 위장 금지).
+    resultJson = "{\"error\":\"onSnapshot_empty\"}";
+    return true;
+}
+
 std::vector<std::string> JKScriptHost::BoundNames() const {
     std::vector<std::string> names;
     if (!ctx_) return names;

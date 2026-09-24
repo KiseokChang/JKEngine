@@ -495,3 +495,26 @@ all bound at runtime" PASS. 라이브 스택 복구 확인(ping+8899+사용자 �
 **레슨**: 프로브의 JS 소스에 이중따옴표를 넣지 마라(§6 레슨 3의 확장) — PS 측은
 `\"` 이스케이프가 문자 단위로 파열되므로, act 반환 JSON도 JS 객체 리터럴로 쓰면
 인용 계층이 아예 없어진다. 이 판정은 JSON.stringify 객체 경로도 덤으로 검증한다.
+
+### §13.1 read snapshot 중계 소각 — 스크립트 `onSnapshot()` (2026-09-24 오후)
+
+§13 v1 절제선(read = NIT-7 즉답 unknown_app_tool)의 후속 소각. 서버 무수정 —
+앱 측 배관만:
+
+- **JKScriptHost** — `DispatchAgentSnapshot(ok, resultJson)`: 전역 `onSnapshot()`
+  호출, 반환 계약은 onAgentAct와 동일(문자열=원문, 객체=JSON.stringify). 부재/
+  빈 결과/예외는 모두 ok=false + 명시 에러(`no_onSnapshot`/`onSnapshot_empty`/
+  `onSnapshot_exception` — 빈 문자열을 "unknown"으로 위장하는 서버 NIT-5 관용에
+  의존하지 않는다).
+- **WorkshopScriptApp** — decl 존재+`HasGlobalFn("onSnapshot")` 조건으로
+  `snapshot` 도구 등록(카탈로그 노출 → 서버 hasSnapshot 검사 통과);
+  OnAgentToolCall "snapshot" 중계. 결과 원문이 ComposeCursorRead의 "snapshot"
+  필드에 그대로 실린다(와이어 계약 변화 없음).
+- **삼중 동기화** — jk.d.ts 콜백 블록+events 카탈로그 갱신. 자기테스트 PASS.
+
+**판정**: probe_workshop_cursor 26체크로 확장 — 재선언 스크립트(src2)에
+`onSnapshot` 추가, `wc-redeclare-catalog-snapshot`(카탈로그에 snapshot 도구) +
+`wc-snapshot-read-relay`(read → ok:true + 커서 헤더 row3/col3 + rows/cols 4 +
+스냅샷 board 직렬화 — 파싱 판정) 신설. src1은 무 onSnapshot 유지로 NIT-7 즉답
+체크(`wc-read-no-snapshot`)를 그대로 보존 — 두 경로가 한 프로브에 공존.
+×2 ALL PASS(런 3·4). 라이브 스택 복구 확인.

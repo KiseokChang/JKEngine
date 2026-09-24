@@ -344,9 +344,14 @@ Check "wc-act-badgrid" ($badGrid -ne $null -and $badGrid -match '"ok":false' -an
                         $badGrid -match '"row":8' -and $badGrid -match '"col":9') $badGrid
 
 # --- 7: re-declaration (set_script a different grid - latest wins, reset) -------------
+# src2 also defines onSnapshot (docs/60 s13 follow-up): the read relay gains
+# the app snapshot path - ComposeCursorRead assembles the script's
+# serialization with the cursor header (v1 kept read = explicit error).
 $src2 = "declareCursor({origin:{x:0,y:0}, cellW:10, cellH:10, rows:4, cols:4," +
         " kinds:['paint','erase']});" +
-        "function onAgentAct(kind,row,col) { return {ok:true, kind:kind}; }"
+        "function onAgentAct(kind,row,col) { return {ok:true, kind:kind}; }" +
+        "function onSnapshot() { return {board:'................', at:16," +
+        " rows:4, cols:4}; }"
 $r2 = (SetScript $src2)
 Check "wc-redeclare-set" ($r2 -match '"ok":true') $r2
 $cat2Ok = $false
@@ -365,6 +370,9 @@ for ($i = 0; $i -lt 20; $i++) {
     }
 }
 Check "wc-redeclare-enum-merged" $cat2Ok $cat2
+# onSnapshot registered the app snapshot tool -> the catalog must show it
+# (the read relay candidate).
+Check "wc-redeclare-catalog-snapshot" ($cat2 -match '"app":"workshop","name":"snapshot"') $cat2
 # Old grid was 8x10 - row 7 is inside the OLD grid, out of the NEW 4x4 one:
 # a stale-cursor world would reveal it; the reset world rejects it (bad_grid).
 $script:qid++
@@ -381,6 +389,23 @@ if ($mvNew -ne $null) {
     catch { $mvNew = "parse: " + $_.Exception.Message }
 }
 Check "wc-redeclare-move-newgrid" $mvNewOk $mvNew
+# onSnapshot read relay: cursor at (3,3) on the 4x4 grid - ComposeCursorRead
+# assembles ok + cursor header + the script's serialization (parsed, docs/59
+# s12 lesson).
+$script:qid++
+Send-AppTool $agent $script:qid "workshop" "read" "{}"
+$rdSnap = Read-Reply $agent $script:qid 10000
+$snapOk = $false
+$snapDetail = ""
+if ($rdSnap -ne $null) {
+    try {
+        $so = $rdSnap | ConvertFrom-Json
+        $snapOk = ($so.ok -eq $true -and $so.cursor.row -eq 3 -and
+                   $so.cursor.col -eq 3 -and $so.rows -eq 4 -and $so.cols -eq 4 -and
+                   $so.snapshot.board -eq '................' -and $so.snapshot.at -eq 16)
+    } catch { $snapDetail = "parse: " + $_.Exception.Message }
+} else { $snapDetail = "no reply" }
+Check "wc-snapshot-read-relay" $snapOk ($rdSnap + " " + $snapDetail)
 
 # --- 8: non-cursor script clears the declaration (fail-closed hygiene) ----------------
 $r3 = (SetScript "var L = createLabel({x:10,y:10,w:120,h:20},'no cursor here');")

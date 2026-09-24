@@ -294,6 +294,16 @@ protected:
                  "{\"type\":\"integer\"}},\"required\":[\"kind\",\"row\","
                  "\"col\"]}"});
         }
+        if (!decl.empty() && host_->HasGlobalFn("onSnapshot")) {
+            // 앱 자체 snapshot 도구 (docs/60 §13 후속) — 커서 read 중계의
+            // 조립 원문(스펙 §3). NIT-7 즉답 대신 스크립트 직렬화로 응답.
+            tools.push_back(
+                {"snapshot",
+                 "Board snapshot serialization for the semantic cursor read "
+                 "(the script's onSnapshot). Read composes it with the cursor "
+                 "header.",
+                 "{\"type\":\"object\",\"properties\":{}}"});
+        }
         // cursorJson: 봉합 원문(빈 문자열 = 미선언 — 재등록 시 커서 해제).
         surface->SendAgentToolRegister(agentAppName_, tools, false, decl);
         lastSentDeclJson_ = decl;
@@ -368,6 +378,16 @@ protected:
             }
             return actOk;
         }
+        if (tool == "snapshot") {
+            // 커서 read의 snapshot 중계 (docs/60 §13 후속): 결과 원문이
+            // ComposeCursorRead의 "snapshot" 필드에 그대로 실린다(ok=true).
+            bool snapOk = false;
+            if (!host_->DispatchAgentSnapshot(snapOk, out)) {
+                out = "{\"error\":\"host_stopped\"}";
+                return false;
+            }
+            return snapOk;
+        }
         // Unreachable through the server (reverse matching answers
         // unknown_app_tool first) — defensive, same as vplayer.
         out = "{\"error\":\"unknown_tool\",\"tool\":\"" + tool + "\"}";
@@ -387,7 +407,7 @@ private:
         "{"
         "\"contract\":\"engine/scripts/jk.d.ts (full reference; additive only)\","
         "\"charset\":\"위젯 텍스트는 ASCII+한글만 안전 — 기호(■□●◆)·이모지는 ?로 렌더됨\","
-        "\"events\":\"전역 함수 onClick(id)를 정의하면 모든 클릭이 id와 함께 전달된다; 캔버스용 onMouse(type,x,y,canvasId,button)/onWheel(dy,x,y)/onKey(key,down)도 전역 함수로 정의하면 캔버스 입력이 전달된다 — 정의 없으면 무시. onMouse의 type은 down/up/move이고 button은 SDL 버튼 번호(1=왼쪽, 2=중간, 3=오른쪽, move는 0) — 좌/우 구분은 button으로 한다(2026-09-24 v5.1). onAgentAct(kind,row,col)를 정의하면 의미 커서 act 호출이 전달된다(declareCursor 필수; 문자열/객체 반환은 act 도구 결과 JSON)\","
+        "\"events\":\"전역 함수 onClick(id)를 정의하면 모든 클릭이 id와 함께 전달된다; 캔버스용 onMouse(type,x,y,canvasId,button)/onWheel(dy,x,y)/onKey(key,down)도 전역 함수로 정의하면 캔버스 입력이 전달된다 — 정의 없으면 무시. onMouse의 type은 down/up/move이고 button은 SDL 버튼 번호(1=왼쪽, 2=중간, 3=오른쪽, move는 0) — 좌/우 구분은 button으로 한다(2026-09-24 v5.1). onAgentAct(kind,row,col)를 정의하면 의미 커서 act 호출이 전달된다(declareCursor 필수; 문자열/객체 반환은 act 도구 결과 JSON). onSnapshot()를 정의하면 read 도구의 snapshot 직렬화를 제공한다(객체 반환=JSON.stringify)\","
         "\"layout\":\"좌표는 패널 클라이언트 픽셀; 창이 리사이즈되어도 위젯은 재배치되지 않는다\","
         "\"functions\":["
         "{\"sig\":\"log(text)\",\"desc\":\"콘솔 로그\"},"

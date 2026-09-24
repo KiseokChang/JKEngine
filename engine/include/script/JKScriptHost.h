@@ -111,6 +111,10 @@ public:
     // 반환값: false = 컨텍스트 소멸(호출 불가), true = 결과 봉합 완료.
     bool DispatchAgentAct(const std::string& kind, int row, int col,
                           bool& ok, std::string& resultJson);
+    // snapshot 중계 (docs/60 §13 후속): 커서 read의 앱 snapshot 직렬화를
+    // 스크립트의 전역 onSnapshot()으로 제공. 반환 계약은 DispatchAgentAct와
+    // 동일(문자열=원문, 객체=JSON.stringify). 빈 결과/부재/예외는 ok=false.
+    bool DispatchAgentSnapshot(bool& ok, std::string& resultJson);
 
     // Introspection (self-test, docs/27 §2.4): the property names actually
     // visible to the script via Object.getOwnPropertyNames(globalThis).
