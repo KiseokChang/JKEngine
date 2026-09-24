@@ -139,8 +139,43 @@ extern "C" __declspec(dllimport) void __stdcall Sleep(unsigned long dwMillisecon
 
 extern "C" __declspec(dllimport) unsigned long __stdcall GetFileAttributesA(
     const char* lpFileName);
+extern "C" __declspec(dllimport) unsigned long __stdcall GetCurrentProcessId();
+extern "C" __declspec(dllimport) void* __stdcall OpenProcess(
+    unsigned long dwDesiredAccess, int bInheritHandle, unsigned long dwProcessId);
+extern "C" __declspec(dllimport) int __stdcall TerminateProcess(
+    void* hProcess, unsigned int uExitCode);
 
 constexpr unsigned long kInvalidFileAttributes = 0xFFFFFFFF;
+
+// 가드 보유자 표시 (2026-09-24 사용자 보고 "자주 반복되는데"): 거부 메시지가
+// "close it first"만 하고 무엇을 닫을지 알려주지 않아 매번 프로세스 탐색이
+// 필요했다 — 라이브 스택 서버는 jkwinserver.exe인데 사용자가 띄우는 건
+// jkdesktop.exe --server라 이름도 달라 더 헷갈린다. Toolhelp 스냅샷 수기
+// 선언(이 TU는 windows.h를 끌지 않는 관례 유지).
+extern "C" __declspec(dllimport) void* __stdcall CreateToolhelp32Snapshot(
+    unsigned long dwFlags, unsigned long th32ProcessID);
+extern "C" __declspec(dllimport) int __stdcall Process32FirstW(
+    void* hSnapshot, void* lppe);
+extern "C" __declspec(dllimport) int __stdcall Process32NextW(
+    void* hSnapshot, void* lppe);
+constexpr unsigned long kTh32CsSnapProcess = 0x2;  // winutil.h
+
+// PROCESSENTRY32W — 기본 정렬(8) 레이아웃(ULONG_PTR 멤버가 8바이트 정렬):
+// dwSize 0 / cntUsage 4 / th32ProcessID 8 / th32DefaultHeap 16 / th32ModuleID 24
+// / cntThreads 28 / th32ParentProcessID 32 / pcPriClassBase 36 / dwFlags 40
+// / szExeFile 44. FindFileDataA와 달리 pack(4)이 아니라 자연 정렬이 정답.
+struct ProcEntry32W {
+    unsigned long dwSize = 0;
+    unsigned long cntUsage = 0;
+    unsigned long th32ProcessID = 0;
+    unsigned long long th32DefaultHeap = 0;
+    unsigned long th32ModuleID = 0;
+    unsigned long cntThreads = 0;
+    unsigned long th32ParentProcessID = 0;
+    long pcPriClassBase = 0;
+    unsigned long dwFlags = 0;
+    wchar_t szExeFile[260] = {};
+};
 
 // settings_read의 layout_*.json 열거 (설정 허브 스펙 §2.2) — 이 TU는
 // windows.h를 끌지 않으므로(JKENGINE 레거시 typedef 충돌) 수기 선언.
@@ -307,7 +342,87 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
     return true;
 }
 
-bool JKWindowServer::TryAcquireSingleInstanceGuard(const std::string& pipeName) {
+// 서버 프로세스 후보 스캔 — 서버 이미지명은 둘뿐이다: 라이브 스택 서버
+// jkwinserver.exe(진짜 보유자, 종료 겨냥 가능)와 구형/개발 경로 jkdesktop.exe
+// --server(명령행은 Toolhelp로 읽을 수 없고 태스크바 클라·단일 프로세스 앱과
+// 이미지명이 같아 종료 겨냥 불가 — 표기만).
+struct ServerCandidateScan {
+    std::vector<unsigned long> wserver;
+    std::vector<unsigned long> desktop;
+};
+
+static ServerCandidateScan ScanServerCandidates(unsigned long excludePid) {
+    ServerCandidateScan s;
+    void* snap = CreateToolhelp32Snapshot(kTh32CsSnapProcess, 0);
+    if (!snap || snap == (void*)(long long)-1 /*INVALID_HANDLE_VALUE*/) return s;
+    ProcEntry32W e;
+    e.dwSize = sizeof(ProcEntry32W);
+    if (Process32FirstW(snap, &e)) {
+        do {
+            // wchar→ascii 소문자 이미지명 (ASCII만 비교 — 이미지명은 ASCII)
+            std::string exe;
+            for (const wchar_t* p = e.szExeFile; *p; ++p) {
+                char c = (*p >= 0 && *p < 128) ? static_cast<char>(*p) : '?';
+                if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+                exe.push_back(c);
+            }
+            if (e.th32ProcessID == excludePid) continue;  // 자기 자신 제외
+            if (exe == "jkwinserver.exe") s.wserver.push_back(e.th32ProcessID);
+            else if (exe == "jkdesktop.exe") s.desktop.push_back(e.th32ProcessID);
+        } while (Process32NextW(snap, &e));
+    }
+    CloseHandle(snap);
+    return s;
+}
+
+static std::string JoinPids(const std::vector<unsigned long>& pids) {
+    std::string r;
+    for (unsigned long pid : pids) {
+        char buf[24];
+        std::snprintf(buf, sizeof(buf), "%lu", pid);
+        if (!r.empty()) r += ", ";
+        r += buf;
+    }
+    return r;
+}
+
+static std::string FindGuardHolderHint(const ServerCandidateScan& scan) {
+    if (!scan.wserver.empty()) {
+        std::string hint =
+            "holder candidates: jkwinserver.exe PID " + JoinPids(scan.wserver) +
+            " (the live-stack server) — close it first, e.g. `taskkill /F /PID " +
+            std::to_string(scan.wserver.front()) + "`";
+        if (!scan.desktop.empty()) {
+            hint += "; jkdesktop.exe PID " + JoinPids(scan.desktop) +
+                    " (a --server holder or the --client taskbar shell)";
+        }
+        return hint;
+    }
+    if (!scan.desktop.empty()) {
+        return "holder candidates (image name only): jkdesktop.exe PID " +
+               JoinPids(scan.desktop) + " — the '--server' one owns the guard "
+               "('--client taskbar' is its shell client)";
+    }
+    return "";
+}
+
+// 접 처리 (2026-09-24 사용자 지시 "직접"): 보유자 서버를 직접 종료한다 —
+// 보유자는 눈에 보이지 않아(숨김 기동) "닫으라"고만 하면 매번 프로세스
+// 탐색이 필요했다(사용자 보고). jkwinserver.exe만 겨냥 — jkdesktop.exe는
+// 클라/앱과 이미지명이 같아 겨냥 금지.
+static bool KillServerHolders(const ServerCandidateScan& scan) {
+    bool any = false;
+    for (unsigned long pid : scan.wserver) {
+        void* h = OpenProcess(0x0001 /*PROCESS_TERMINATE*/, 0, pid);
+        if (!h) continue;
+        if (TerminateProcess(h, 1)) any = true;
+        CloseHandle(h);
+    }
+    return any;
+}
+
+bool JKWindowServer::TryAcquireSingleInstanceGuard(const std::string& pipeName,
+                                                   bool takeover) {
 #ifdef _WIN32
     // 단일 인스턴스 가드 (2026-09-20, docs/59 §10 유보 ②): 파이프 인스턴스는
     // PIPE_UNLIMITED_INSTANCES라 두 서버가 같은 이름을 열면 클라이언트가
@@ -319,11 +434,26 @@ bool JKWindowServer::TryAcquireSingleInstanceGuard(const std::string& pipeName) 
     // 자기 인스턴스 생성 전 검사라 오탐 없음; ERROR_FILE_NOT_FOUND만 통과).
     // Init 이전 봉쇄(2026-09-20 실측): 가드가 Init 뒤에 있으면 거부 인스턴스가
     // 앱 설치+아이콘 로드를 전부 수행한 뒤 죽는다 — 낭비+로그 혼란.
+    //
+    // 접 처리(2026-09-24 사용자 지시 "직접"): 보유자가 jkwinserver.exe면
+    // 거부 대신 직접 종료하고 인수한다(takeover 기본 ON — 서버 기동은 곧
+    // "새 서버를 원한다"는 뜻). 단일 인스턴스 원칙은 유지: 죽이고 나서
+    // 취득하므로 갈림은 생기지 않는다. 고아 클라(태스크바)는 자가 종료
+    // (407af96)하므로 인수 후 새 태스크바와 일시 중복만 있고 정리된다.
     {
         std::string guard = pipeName;
         const size_t slash = guard.find_last_of("\\/");
         if (slash != std::string::npos) guard = guard.substr(slash + 1);
         guard = "Local\\jkdesktop-server-" + guard;
+
+        auto refuse = [&](const char* why) {
+            std::fprintf(stderr, "JKWindowServer: %s '%s' — close it first\n",
+                         why, pipeName.c_str());
+            const std::string hint =
+                FindGuardHolderHint(ScanServerCandidates(GetCurrentProcessId()));
+            if (!hint.empty()) std::fprintf(stderr, "  %s\n", hint.c_str());
+        };
+
         void* m = CreateMutexA(nullptr, 1 /* TRUE: initial owner */, guard.c_str());
         if (!m) {
             std::fprintf(stderr,
@@ -333,11 +463,25 @@ bool JKWindowServer::TryAcquireSingleInstanceGuard(const std::string& pipeName) 
         }
         if (GetLastError() == kErrorAlreadyExists) {
             CloseHandle(m);
-            std::fprintf(stderr,
-                         "JKWindowServer: another window server already holds the "
-                         "single-instance guard for '%s' — close it first\n",
-                         pipeName.c_str());
-            return false;
+            m = nullptr;
+            ServerCandidateScan scan = ScanServerCandidates(GetCurrentProcessId());
+            if (takeover && !scan.wserver.empty() && KillServerHolders(scan)) {
+                std::fprintf(stderr,
+                             "JKWindowServer: takeover — killed holder "
+                             "jkwinserver.exe PID %s, re-acquiring guard\n",
+                             JoinPids(scan.wserver).c_str());
+                std::fflush(stderr);
+                for (int i = 0; i < 12; ++i) {  // 커널 뮤텍스 해제 대기 최대 ~3s
+                    Sleep(250);
+                    m = CreateMutexA(nullptr, 1, guard.c_str());
+                    if (m && GetLastError() != kErrorAlreadyExists) break;
+                    if (m) { CloseHandle(m); m = nullptr; }
+                }
+            }
+            if (!m) {
+                refuse("another window server already holds the single-instance guard for");
+                return false;
+            }
         }
         if (WaitNamedPipeA(pipeName.c_str(), 50) ||
             GetLastError() == kErrorPipeBusy) {
@@ -345,14 +489,40 @@ bool JKWindowServer::TryAcquireSingleInstanceGuard(const std::string& pipeName) 
             // 가드 이전 바이너리의 서버다. 두 인스턴스 갈림을 막기 위해 거부.
             ReleaseMutex(m);
             CloseHandle(m);
-            std::fprintf(stderr,
-                         "JKWindowServer: a live pipe instance is already serving '%s' "
-                         "(single-instance guard) — close it first\n",
-                         pipeName.c_str());
-            return false;
+            m = nullptr;
+            ServerCandidateScan scan = ScanServerCandidates(GetCurrentProcessId());
+            if (takeover && !scan.wserver.empty() && KillServerHolders(scan)) {
+                std::fprintf(stderr,
+                             "JKWindowServer: takeover — killed pre-guard holder "
+                             "jkwinserver.exe PID %s, waiting for pipe to clear\n",
+                             JoinPids(scan.wserver).c_str());
+                std::fflush(stderr);
+                bool cleared = false;
+                for (int i = 0; i < 12; ++i) {  // 파이프 인스턴스 소멸 대기 최대 ~3s
+                    Sleep(250);
+                    if (WaitNamedPipeA(pipeName.c_str(), 50)) continue;
+                    if (GetLastError() == kErrorPipeBusy) continue;
+                    cleared = true;  // ERROR_FILE_NOT_FOUND — 파이프 소멸
+                    break;
+                }
+                if (cleared) {
+                    m = CreateMutexA(nullptr, 1, guard.c_str());
+                    if (m && GetLastError() == kErrorAlreadyExists) {
+                        CloseHandle(m);
+                        m = nullptr;
+                    }
+                }
+            }
+            if (!m) {
+                refuse("a live pipe instance is already serving (single-instance guard) on");
+                return false;
+            }
         }
         serverGuardMutex_ = static_cast<void*>(m);
     }
+#else
+    (void)pipeName;
+    (void)takeover;
 #endif
     return true;
 }

@@ -55,7 +55,12 @@ public:
     // decode) runs — measured 2026-09-20 (docs/59 §11): a refused instance
     // printed 26 installs + launcher icon loads before tripping. Acquired
     // mutex is kept in serverGuardMutex_; StartAcceptor reuses it.
-    bool TryAcquireSingleInstanceGuard(const std::string& pipeName);
+    // takeover (2026-09-24 사용자 지시 "직접"): 보유자가 jkwinserver.exe면
+    // 거부 대신 직접 종료하고 인수한다(기본 ON — 서버 기동 = 새 서버 요청).
+    // jkdesktop.exe 보유자는 클라/앱과 이미지명이 같아 겨냥하지 않는다 —
+    // 그 경우에만 보유자 PID + taskkill 명령 힌트를 stderr로 알려준다.
+    bool TryAcquireSingleInstanceGuard(const std::string& pipeName,
+                                       bool takeover = true);
 
     // Start the background acceptor thread. Must be called before Run().
     // Returns false when the single-instance guard trips (another server
