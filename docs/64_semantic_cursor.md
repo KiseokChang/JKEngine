@@ -138,8 +138,11 @@ RunSteps` → `Result{row,col,error}`(:42-:51). 상대·스텝은 격자 경계 
   `cursor_owner_unsupported` 거부로 fail-closed). 스펙 §7 절제선: 소비자 2개 통과 후
   추상화 고정.
 - **P4 SDK(.jkx manifest) 승격** — 위 절제선 통과 후.
-- **스크립트 앱 declareCursor** — 스펙 §6 `agent.declareCursor()`(워크숍 재선언 — "말로 만든
-  앱이 커서 조작을 즉시 획득"). v1 미범위 → docs/60 §5 백로그에도 기록.
+- **스크립트 앱 declareCursor** — [소각 2026-09-24, docs/60 §13] 스펙 §6 재선언이
+  워크숍 스크립트 바인딩 `declareCursor(decl)`로 실현(스펙 가칭 `agent.declareCursor()`
+  대신 전역 함수 — 스크립트 호스트의 기존 바인딩 관용을 따랐다). "말로 만든 앱이 커서
+  조작을 즉시 획득" — move/read 합성+act 중계는 서버 v1 그대로, 앱 쪽은 스크립트
+  전역 `onAgentAct(kind,row,col)` 콜백 1함수.
 
 ## 6. 레슨 (구현 세션 실측)
 

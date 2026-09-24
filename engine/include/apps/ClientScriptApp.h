@@ -79,6 +79,14 @@ protected:
         if (watch_) watchTimer_ = this->AddTimer(kWatchTimerWinId, 500, true);
     }
 
+    // Script-start hook (의미 커서, docs/60 §5): every fresh script evaluation
+    // (boot, hot reload, SyncReload) ends here so a registration that depends
+    // on what the new script just did (declareCursor / onAgentAct) re-runs.
+    // Fires after EVERY Start attempt — a failed reload leaves the host's
+    // declared cursor empty, and the hook must re-register WITHOUT it so a
+    // dead script's cursor does not linger on the server manifest.
+    virtual void OnScriptStarted() {}
+
     void RouteMessage(const JKEvent& ev) override {
         if (ev.type == JKEventType::Timer) {
             if (ev.winId == kWatchTimerWinId) {
@@ -136,6 +144,7 @@ protected:
             panel_->AddControl(std::unique_ptr<JKStatic>(label));
         }
         lastMtime_ = FileMtime(scriptPath_);
+        OnScriptStarted();
     }
 
     static long long FileMtime(const std::string& path) {
@@ -223,6 +232,14 @@ using ClientScriptApp = ScriptAppT<JKClientApplication>;
 // this class only registers the tools and serves them.
 class WorkshopScriptApp : public ScriptAppT<JKClientApplication> {
 public:
+    WorkshopScriptApp() {
+        // 의미 커서 (docs/60 §5 백로그 소각): declareCursor가 봉합될 때마다
+        // (최초 평가 포함 — 스크립트는 onCreate/전역 코드에서 선언한다) 등록을
+        // 재송신한다. SendToolRegister의 내용 동일 dedupe가 재선언 홍수를 막는다.
+        host_->SetCursorDeclChanged(
+            [this](const std::string&) { SendToolRegister(); });
+    }
+
     // App token for AgentToolRegister — must match the MANI name so the
     // broker's composed MCP names (<app>_<tool>) line up. Set before Init().
     void SetAgentAppName(const std::string& name) { agentAppName_ = name; }
@@ -230,28 +247,62 @@ public:
 protected:
     void OnInit() override {
         ScriptAppT<JKClientApplication>::OnInit();
-        // Registration timing (docs/58 §5.1): OnInit runs after the surface
+        // The register itself rides OnScriptStarted (fired from StartScript
+        // right after the script evaluated — a declareCursor in global code /
+        // onCreate is already sealed by then, so the first register carries
+        // the cursor). Timing (docs/58 §5.1): OnInit runs after the surface
         // Connect, so a register here never hits the "before-connect silent
-        // false" path. No reconnect path exists — one registration suffices.
-        if (agentAppName_.empty() || scriptPath_.empty()) return;
-        if (jk::client::JKClientSurface* surface = this->Surface()) {
-            using Decl = jk::client::JKClientSurface::AgentToolDecl;
-            std::vector<Decl> tools = {
-                {"get_script", "Read the workshop script source", "{}"},
-                {"set_script",
-                 "Replace the workshop script and reload it synchronously — "
-                 "a script error comes back in the same response",
-                 "{\"type\":\"object\",\"properties\":{\"source\":{\"type\":"
-                 "\"string\"}},\"required\":[\"source\"]}"},
-                {"api",
-                 "List the workshop script API: function signatures and "
-                 "constraints (charset, timers, events). Call this before "
-                 "writing a script",
-                 "{}"},
-            };
-            surface->SendAgentToolRegister(agentAppName_, tools);
-        }
+        // false" path.
     }
+
+    // Tool register (앱 도구 허브 docs/58 §5.1 + 의미 커서 docs/60 §5). Called
+    // from OnScriptStarted (every script start — reloads included) and from
+    // the declareCursor callback (runtime re-declaration). Dedupes by declared
+    // cursor content: the callback fires during eval and the hook fires again
+    // right after, so the same declaration must not hit the server twice
+    // (재선언 홍수 방지 — 서버 upsert는 커서를 (0,0)으로 리셋한다).
+    void SendToolRegister() {
+        if (agentAppName_.empty() || scriptPath_.empty()) return;
+        jk::client::JKClientSurface* surface = this->Surface();
+        if (!surface) return;
+        const std::string decl = host_->DeclaredCursorJson();
+        if (!decl.empty() && decl == lastSentDeclJson_) return;
+        using Decl = jk::client::JKClientSurface::AgentToolDecl;
+        std::vector<Decl> tools = {
+            {"get_script", "Read the workshop script source", "{}"},
+            {"set_script",
+             "Replace the workshop script and reload it synchronously — "
+             "a script error comes back in the same response",
+             "{\"type\":\"object\",\"properties\":{\"source\":{\"type\":"
+             "\"string\"}},\"required\":[\"source\"]}"},
+            {"api",
+             "List the workshop script API: function signatures and "
+             "constraints (charset, timers, events). Call this before "
+             "writing a script",
+             "{}"},
+        };
+        if (!decl.empty() && host_->HasGlobalFn("onAgentAct")) {
+            // 앱 자체 act 도구 — 서버가 선언 kinds를 이 스키마의 enum에 병합하고
+            // act 중계가 스크립트의 전역 onAgentAct(kind,row,col)로 간다
+            // (스펙 2026-09-22-semantic-cursor §2의 앱 계약).
+            tools.push_back(
+                {"act",
+                 "Semantic act on the declared cursor cell (kind enum from the "
+                 "script's declareCursor). Runs the script's onAgentAct.",
+                 "{\"type\":\"object\",\"properties\":{\"kind\":{\"type\":"
+                 "\"string\"},\"row\":{\"type\":\"integer\"},\"col\":"
+                 "{\"type\":\"integer\"}},\"required\":[\"kind\",\"row\","
+                 "\"col\"]}"});
+        }
+        // cursorJson: 봉합 원문(빈 문자열 = 미선언 — 재등록 시 커서 해제).
+        surface->SendAgentToolRegister(agentAppName_, tools, false, decl);
+        lastSentDeclJson_ = decl;
+    }
+
+    // 의미 커서 훅 (docs/60 §5): every script start re-registers with whatever
+    // the fresh script declared (a failed start declares nothing — the hook
+    // then registers WITHOUT the cursor, clearing a dead script's declaration).
+    void OnScriptStarted() override { SendToolRegister(); }
 
     bool OnAgentToolCall(const std::string& tool, const std::string& argsJson,
                          std::string& out) override {
@@ -296,6 +347,27 @@ protected:
                   "\",\"hint\":\"call the api tool for the function list\"}";
             return false;
         }
+        if (tool == "act") {
+            // 의미 커서 act 중계 (스펙 2026-09-22-semantic-cursor §2, docs/60
+            // §5): 서버가 kind/row/col을 사전 검증한 뒤 원문 패스스루한다.
+            // 결과는 DispatchAgentAct 계약 — onAgentAct 반환(문자열=원문,
+            // 객체=JSON.stringify, 없음={"ok":true}).
+            jk::agent::AgentJson args(argsJson);
+            std::string kind;
+            int row = 0, col = 0;
+            if (!args.ok() || !args.GetStr("kind", kind) ||
+                !args.GetInt("row", row) || !args.GetInt("col", col)) {
+                out = "{\"error\":\"bad_args\",\"need\":\"kind,row,col\"}";
+                return false;
+            }
+            bool actOk = false;
+            if (!host_->DispatchAgentAct(kind, row, col, actOk, out)) {
+                // 호스트 정지(리로드 경합 등) — 도구 실패로 회신.
+                out = "{\"error\":\"host_stopped\"}";
+                return false;
+            }
+            return actOk;
+        }
         // Unreachable through the server (reverse matching answers
         // unknown_app_tool first) — defensive, same as vplayer.
         out = "{\"error\":\"unknown_tool\",\"tool\":\"" + tool + "\"}";
@@ -315,7 +387,7 @@ private:
         "{"
         "\"contract\":\"engine/scripts/jk.d.ts (full reference; additive only)\","
         "\"charset\":\"위젯 텍스트는 ASCII+한글만 안전 — 기호(■□●◆)·이모지는 ?로 렌더됨\","
-        "\"events\":\"전역 함수 onClick(id)를 정의하면 모든 클릭이 id와 함께 전달된다; 캔버스용 onMouse(type,x,y,canvasId,button)/onWheel(dy,x,y)/onKey(key,down)도 전역 함수로 정의하면 캔버스 입력이 전달된다 — 정의 없으면 무시. onMouse의 type은 down/up/move이고 button은 SDL 버튼 번호(1=왼쪽, 2=중간, 3=오른쪽, move는 0) — 좌/우 구분은 button으로 한다(2026-09-24 v5.1)\","
+        "\"events\":\"전역 함수 onClick(id)를 정의하면 모든 클릭이 id와 함께 전달된다; 캔버스용 onMouse(type,x,y,canvasId,button)/onWheel(dy,x,y)/onKey(key,down)도 전역 함수로 정의하면 캔버스 입력이 전달된다 — 정의 없으면 무시. onMouse의 type은 down/up/move이고 button은 SDL 버튼 번호(1=왼쪽, 2=중간, 3=오른쪽, move는 0) — 좌/우 구분은 button으로 한다(2026-09-24 v5.1). onAgentAct(kind,row,col)를 정의하면 의미 커서 act 호출이 전달된다(declareCursor 필수; 문자열/객체 반환은 act 도구 결과 JSON)\","
         "\"layout\":\"좌표는 패널 클라이언트 픽셀; 창이 리사이즈되어도 위젯은 재배치되지 않는다\","
         "\"functions\":["
         "{\"sig\":\"log(text)\",\"desc\":\"콘솔 로그\"},"
@@ -346,7 +418,8 @@ private:
         "{\"sig\":\"canvasPixel(id, x,y, color)\",\"desc\":\"픽셀 1개\"},"
         "{\"sig\":\"canvasLine(id, x1,y1,x2,y2, color)\",\"desc\":\"선\"},"
         "{\"sig\":\"canvasCircle(id, x,y,r, color, filled?)\",\"desc\":\"원 — filled는 스캔라인 근사\"},"
-        "{\"sig\":\"canvasText(id, x,y, text, color)\",\"desc\":\"텍스트 (한글 안전)\"}"
+        "{\"sig\":\"canvasText(id, x,y, text, color)\",\"desc\":\"텍스트 (한글 안전)\"},"
+        "{\"sig\":\"declareCursor(decl)\",\"desc\":\"의미 커서 선언 — {origin:{x,y}, cellW, cellH, rows, cols, kinds:[..]} (origin은 패널 픽셀 좌상단). 서버가 move/read 플랫폼 도구를 합성하고 act(kind,row,col)를 onAgentAct로 중계; 재호출=재선언(커서 리셋)\"}"
         "],"
         "\"note\":\"createListBox/createCheckbox 같은 목록·체크 위젯은 아직 없다 — 목록은 라벨+버튼 조합으로 구성; 색은 0xRRGGBB 숫자 또는 '#rrggbb' 문자열; 캔버스 좌표는 캔버스 로컬 픽셀\""
         "}";
@@ -395,6 +468,7 @@ private:
     }
 
     std::string agentAppName_;
+    std::string lastSentDeclJson_;  // SendToolRegister dedupe (재선언 홍수 방지)
 };
 
 } // namespace jk

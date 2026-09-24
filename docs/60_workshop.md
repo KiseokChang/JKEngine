@@ -130,10 +130,10 @@ PC 팔레트/채팅도 동일 도구. 사용자는 한국어로 바람만 말함
   완전 복원. probe_workshop 17체크 + probe_app_tools 64체크 ×2 ALL PASS 회귀.
 - **[소각 2026-09-24] 그리기(캔버스)/키보드/마우스 이벤트 API** — §10 캔버스 API
   v5로 소각 (첫 위젯이 v1으로 충분함이 실측된 후 게임·토이 층 개설)
+- **[소각 2026-09-24] 스크립트 앱 declareCursor** — §13으로 소각 (스크립트 앱이
+  `declareCursor(decl)` 한 호출로 커서 조작 도구(move/read/act)를 획득 — 말로
+  만든 앱을 말로 조작하는 마지막 배관).
 - 복수 슬롯 (myapp2.js 등 여러 앱 동시 워크숍)
-- **스크립트 앱 declareCursor** — 의미 커서(2026-09-22, docs/64)의 워크숍 재선언
-  (`agent.declareCursor()`, 스펙 §6): 말로 만든 앱이 커서 조작을 즉시 획득. v1은
-  네이티브 앱(지뢰찾기)만 지원 — 앱 도구 허브 선언 경로에 cursor 블록이 그대로 합류.
 - 폰 미러 (창 상태를 폰에서 보기)
 - 보안/트러스트: 프로토타입 완성 후 재검토 — 배포(.jkx 설치) 트러스트는
   기존 모델 유지, 워크숍 디렉터리 무승인의 경계 명문화
@@ -442,3 +442,56 @@ PS는 실행만, (2) 캡처는 StandardOutputEncoding=UTF8, (3) 문자열·주�
 이진 탐색** — 이 3점이 없으면 엔진 결함과 하니스 결함을 못 가른다.
 최종: probe_workshop_ball ×2 ALL PASS(런 4·5), probe_workshop_canvas ×2
 ALL PASS(UTF8 픽스 회귀 확인), 라이브 스택 복구 확인(ping+8899).
+
+## 13. 스크립트 앱 declareCursor — 말로 만든 앱이 커서 조작을 즉시 획득 (2026-09-24, 백로그 소각)
+
+**배경**: §5 백로그 잔여 중 유일한 소각 규모 — "스크립트 앱 declareCursor"(의미 커서
+2026-09-22, docs/64의 워크숍 재선언, 스펙 §6 가칭 `agent.declareCursor()`). v1까지는
+네이티브 앱(지뢰찾기)만 커서를 선언했다. 워크숍 스크립트는 서버에 이미 AgentToolRegister
+경로가 있고(cursorJson 슬롯 2026-09-22에 와이어까지 깔려 있었다), 서버 파서도 살아 있었다 —
+앱 쪽 배관이 비어 있었을 뿐.
+
+**구현 3층**:
+1. **JKScriptHost** — `declareCursor(decl)` 전역 바인딩. decl은 작성 형태
+   `{origin:{x,y}, cellW, cellH, rows, cols, kinds:[...]}` — 서버 계약 고정값
+   (type:"cell-grid"/coordSpace:"client"/cursorOwner:"platform"/act.gate:"ask")은
+   호스트가 봉합한다(스크립트 작성자가 서버 어휘를 몰라도 되게). 검증은 서버
+   HandleToolRegister 판정과 동일 범위(유효 범위 밖은 TypeError throw — 조용한
+   false 반환은 talk-to-fix 폐곡선). 성공 시 cursor 블록 원문 봉합 +
+   `SetCursorDeclChanged` 콜백(앱이 AgentToolRegister 재송신). Start/Stop마다
+   선언 리셋 — 이전 스크립트의 선언이 새 스크립트에 잔존하지 않는다.
+   `DispatchAgentAct(kind,row,col)` = act 중계 → 전역 `onAgentAct`: 반환 문자열=
+   결과 JSON 원문, 객체=JSON.stringify, 없음={"ok":true}; 콜백 부재/예외는
+   도구 응답으로 표면화(`no_onAgentAct`/`onAgentAct_exception` — 로그 덤프 선례).
+2. **WorkshopScriptApp** — 등록을 `SendToolRegister()`로 추출해 OnScriptStarted 훅
+   (모든 스크립트 기동 — 부트/핫리로드/SyncReload — 마다 재등록) + declareCursor
+   콜백(런타임 재선언) 두 진입으로 통합. **내용 동일 dedupe**(`lastSentDeclJson_`)가
+   재선언 홍수 방지 — 콜백(평가 중)과 훅(평가 직후)이 같은 선언을 두 번 보내는 것을
+   흡수. 서버 upsert는 커서를 (0,0)으로 리셋하므로 dedupe는 위치 보존 효과도 있다.
+   실패 리로드는 선언 없음 → 커서 없이 재등록(죽은 스크립트의 커서 잔존 봉쇄).
+   act 도구는 decl 존재+`HasGlobalFn("onAgentAct")` 조건 등록 — 서버가 선언 kinds를
+   이 스키마 enum에 병합(InjectKindsEnum)하고 중계가 onAgentAct로 간다.
+3. **삼중 동기화** — jk.d.ts(`declareCursor`/`JKCursorDecl` 인터페이스+onAgentAct 계약
+   주석) + kApiCatalog(함수 1행+events 필드 확장) + main.cpp 자기테스트의 d.ts
+   인트로스펙션 검사(선언된 함수 전부 바인딩 확인) 전부 갱신.
+
+**와이어 무변경**: SendAgentToolRegister의 cursorJson 슬롯과 서버 파서는 v1 그대로 —
+이번 작업은 순수 앱·호스트 층. 서버 무수정.
+
+**v1 절제선**: read의 snapshot 중계는 미선언(NIT-7 즉답 unknown_app_tool — 10s
+타임아웃 없음). 스크립트 앱 read = 커서 헤더만의 명시 에러; snapshot 커스텀은 필요
+되면 후속(스크립트 전역 onSnapshot 1함수면 충분).
+
+**판정**: probe_workshop_cursor.ps1 신설(공식 probe_semantic_cursor의 raw 파이프
+하니스 + probe_workshop_canvas의 .jkx 스폰, 24체크) — ①부트 무커서(3행), ②선언 즉시
+catalog 6행+act enum=선언 kinds(파싱 판정), ③move 플랫폼 에코, ④read no-snapshot
+즉답, ⑤act 파킹(배너 "workshop.paint at (2,3)"+브리지 필드)→승인→onAgentAct 릴레이
+(객체 반환=JSON.stringify 결과), ⑥선언 밖 kind/인자 누락/구격자 bad_grid 앱 도달 전
+거부, ⑦set_script 재선언(다른 격자) — 최신 선언 우선(구 격자 코너 bad_grid, 신 격자
+이동 성공)+enum 재병합, ⑧비커서 스크립트 설치 시 move/read/act 소멸(선언 해제).
+×2 ALL PASS(런 1·2, 24체크). jkdesktop test 자기테스트: "jk.d.ts declared functions
+all bound at runtime" PASS. 라이브 스택 복구 확인(ping+8899+사용자 파일 무손상).
+
+**레슨**: 프로브의 JS 소스에 이중따옴표를 넣지 마라(§6 레슨 3의 확장) — PS 측은
+`\"` 이스케이프가 문자 단위로 파열되므로, act 반환 JSON도 JS 객체 리터럴로 쓰면
+인용 계층이 아예 없어진다. 이 판정은 JSON.stringify 객체 경로도 덤으로 검증한다.

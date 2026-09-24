@@ -249,6 +249,32 @@ declare function canvasText(canvasId: number, x: number, y: number,
                             text: string, color: number | string): void;
 
 // ---------------------------------------------------------------------------
+// 의미 커서 (스펙 2026-09-22-semantic-cursor, 워크숍 확장 docs/60 §5)
+// ---------------------------------------------------------------------------
+
+/** declareCursor 인자 — 격자 그리드 선언 (origin은 패널 클라이언트 픽셀). */
+interface JKCursorDecl {
+  /** 칸 (0,0)의 좌상단 — 패널 클라이언트 픽셀. */
+  origin: { x: number; y: number };
+  /** 칸 크기 (픽셀, 1..4096). */
+  cellW: number;
+  cellH: number;
+  /** 격자 크기 (1..1024). */
+  rows: number;
+  cols: number;
+  /** act 종류 목록 (1..32개, [A-Za-z0-9_] 24자 이하 — 예: ["paint"]). */
+  kinds: string[];
+}
+
+/**
+ * [AI Agent] 이 창 위에 의미 커서 격자를 선언한다. 서버가 move/read 플랫폼
+ * 도구를 합성하고 act(kind,row,col) 호출을 전역 onAgentAct로 중계한다.
+ * createCanvas 격자 위에 origin/rows/cols를 맞추면 에이전트가 셀 좌표로
+ * 조작한다. 재호출 = 재선언(커서 위치 (0,0) 리셋). 검증 실패는 TypeError.
+ */
+declare function declareCursor(decl: JKCursorDecl): void;
+
+// ---------------------------------------------------------------------------
 // 스크립트 콜백 (전역 함수로 정의하면 호스트가 호출한다 — 선언 충돌을 피하려고
 // .d.ts ambient var로 선언하지 않는다; 아래 주석이 계약이다)
 //
@@ -268,6 +294,13 @@ declare function canvasText(canvasId: number, x: number, y: number,
 //   function onKey(key, down)              — 선택. 포커스를 가진 캔버스의 키
 //     이벤트. key는 SDL 키코드(injectKey와 동일 규약), down은 true/false.
 //     에디트 등 다른 컨트롤이 포커스 중이면 그 컨트롤이 먹는다 — 정상.
+//
+// 의미 커서 act (docs/60 §5 — declareCursor 선언 앱만):
+//   function onAgentAct(kind, row, col)    — declareCursor로 격자를 선언하면
+//     에이전트의 act(kind,row,col) 호출이 여기로 온다(승인 게이트 ask —
+//     승인된 호출만 도달). kind는 선언한 kinds 중 하나. 반환값이 act 도구의
+//     결과 JSON이 된다: 문자열=JSON 원문, 객체=JSON.stringify, 없음=
+//     {"ok":true}. 정의 없이 act가 오면 도구가 error로 응답한다.
 //
 // 예외 정책 (docs/27 §3.2): 미처리 예외는 메시지 + JS 스택 트레이스가 로그에
 // 덤프되고 앱은 정상 종료한다. 로그만 읽고 스스로 고칠 수 있게 쓸 것.

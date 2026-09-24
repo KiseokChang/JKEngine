@@ -930,6 +930,98 @@ struct Bindings {
         }
         return JS_UNDEFINED;
     }
+
+    // declareCursor(decl) — 워크숍 스크립트 앱의 의미 커서 선언 (스펙
+    // 2026-09-22-semantic-cursor, docs/60 §5 백로그 소각). decl = 작성 형태
+    // {origin:{x,y}, cellW, cellH, rows, cols, kinds:[...]} — 서버 계약 고정값
+    // (type:"cell-grid", coordSpace:"client", cursorOwner:"platform",
+    // act.gate:"ask")은 호스트가 봉합한다. 검증 실패는 TypeError throw(레슨:
+    // 조용한 실패는 talk-to-fix 폐곡선을 망가뜨린다 — ThrowTypeError 선례).
+    // 성공 시 서버 cursor 블록 원문으로 봉합 + DeclaredCursorChanged 알림
+    // (앱이 AgentToolRegister를 재송신 — 최신 선언 우선, 커서 (0,0) 리셋).
+    // 유효 범위는 서버 HandleToolRegister 판정과 동일(양측 fail-closed).
+    static JSValue DeclareCursor(JSContext* ctx, JSValueConst, int argc,
+                                 JSValueConst* argv) {
+        JKScriptHost* host = HostOf(ctx);
+        if (!host || argc < 1 || !JS_IsObject(argv[0]))
+            return ThrowTypeError(ctx, "declareCursor",
+                "needs one object {origin:{x,y}, cellW, cellH, rows, cols, kinds}");
+        // origin.{x,y} — 서버가 0..100000으로 검증.
+        int32_t ox = 0, oy = 0;
+        {
+            JsValue origin(ctx, JS_GetPropertyStr(ctx, argv[0], "origin"));
+            if (!JS_IsObject(origin.value()))
+                return ThrowTypeError(ctx, "declareCursor",
+                    "origin must be {x, y}");
+            JsValue xv(ctx, JS_GetPropertyStr(ctx, origin.value(), "x"));
+            JsValue yv(ctx, JS_GetPropertyStr(ctx, origin.value(), "y"));
+            if (JS_ToInt32(ctx, &ox, xv.value()) || JS_ToInt32(ctx, &oy, yv.value()))
+                return ThrowTypeError(ctx, "declareCursor",
+                    "origin.x/origin.y must be numbers");
+            if (ox < 0 || ox > 100000 || oy < 0 || oy > 100000)
+                return ThrowTypeError(ctx, "declareCursor",
+                    "origin must be within 0..100000");
+        }
+        auto intField = [&](const char* key, int32_t& out, int32_t lo,
+                            int32_t hi) -> bool {
+            JsValue v(ctx, JS_GetPropertyStr(ctx, argv[0], key));
+            if (JS_ToInt32(ctx, &out, v.value())) return false;
+            return out >= lo && out <= hi;
+        };
+        int32_t cellW = 0, cellH = 0, rows = 0, cols = 0;
+        if (!intField("cellW", cellW, 1, 4096) || !intField("cellH", cellH, 1, 4096))
+            return ThrowTypeError(ctx, "declareCursor",
+                "cellW/cellH must be integers within 1..4096");
+        if (!intField("rows", rows, 1, 1024) || !intField("cols", cols, 1, 1024))
+            return ThrowTypeError(ctx, "declareCursor",
+                "rows/cols must be integers within 1..1024");
+        // kinds: 필수, 1..32개, 각 항목은 [A-Za-z0-9_] 토큰 (<=24자 — 서버
+        // ValidAppToolToken 선검증; 서버도 최종 fail-closed).
+        JsValue kinds(ctx, JS_GetPropertyStr(ctx, argv[0], "kinds"));
+        if (!JS_IsArray(kinds.value()))
+            return ThrowTypeError(ctx, "declareCursor", "kinds must be an array");
+        int32_t kindsCount = 0;
+        JsValue lenV(ctx, JS_GetPropertyStr(ctx, kinds.value(), "length"));
+        if (JS_ToInt32(ctx, &kindsCount, lenV.value()) ||
+            kindsCount < 1 || kindsCount > 32) {
+            return ThrowTypeError(ctx, "declareCursor",
+                "kinds must have 1..32 entries");
+        }
+        std::string kindsJson = "[";
+        for (int32_t i = 0; i < kindsCount; ++i) {
+            JsValue k(ctx, JS_GetPropertyUint32(ctx, kinds.value(),
+                                                static_cast<uint32_t>(i)));
+            if (!JS_IsString(k.value()))
+                return ThrowTypeError(ctx, "declareCursor",
+                    "every kind must be a string");
+            const std::string ks = ToUtf8(ctx, k.value());
+            if (ks.empty() || ks.size() > 24)
+                return ThrowTypeError(ctx, "declareCursor",
+                    "kind length must be 1..24");
+            for (char c : ks) {
+                if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                      (c >= '0' && c <= '9') || c == '_')) {
+                    return ThrowTypeError(ctx, "declareCursor",
+                        "kind chars must be [A-Za-z0-9_]");
+                }
+            }
+            if (i) kindsJson += ",";
+            kindsJson += "\"" + ks + "\"";
+        }
+        kindsJson += "]";
+
+        // 서버 cursor 블록 원문 봉합 (MineSweeperApp::CursorDeclJson 형태).
+        char buf[512];
+        std::snprintf(buf, sizeof(buf),
+                      "{\"type\":\"cell-grid\",\"coordSpace\":\"client\","
+                      "\"origin\":{\"x\":%d,\"y\":%d},\"cellW\":%d,\"cellH\":%d,"
+                      "\"rows\":%d,\"cols\":%d,\"cursorOwner\":\"platform\","
+                      "\"act\":{\"kinds\":%s,\"gate\":\"ask\"}}",
+                      ox, oy, cellW, cellH, rows, cols, kindsJson.c_str());
+        host->cursorDeclJson_ = buf;
+        if (host->cursorDeclChanged_) host->cursorDeclChanged_(buf);
+        return JS_TRUE;
+    }
 };
 
 } // namespace script_detail
@@ -1015,6 +1107,9 @@ bool JKScriptHost::Start(const std::string& entryPath) {
     nextControlId_ = 1000;
     assertChecks_ = 0;
     assertFailures_ = 0;
+    // 의미 커서: 새 스크립트 평가마다 미선언에서 시작 — 이전 스크립트의
+    // 선언이 새 스크립트에 잔존하지 않는다(재등록은 앱 훅이 맡는다).
+    cursorDeclJson_.clear();
 
     // Host API v1 + v2 (docs/27 §4). Global functions — the .d.ts contract
     // (engine/scripts/jk.d.ts) is generated from exactly this set; the
@@ -1054,6 +1149,7 @@ bool JKScriptHost::Start(const std::string& entryPath) {
     bind("canvasLine", Bindings::CanvasLine, 6);
     bind("canvasCircle", Bindings::CanvasCircle, 6);
     bind("canvasText", Bindings::CanvasText, 5);
+    bind("declareCursor", Bindings::DeclareCursor, 1);
 
     // readConfig resolves files next to the entry script — the path must be
     // known BEFORE evaluation and onCreate() run (the script may call it in
@@ -1146,6 +1242,7 @@ void JKScriptHost::Stop() {
         rt_ = nullptr;
     }
     entryPath_.clear();
+    cursorDeclJson_.clear();
 }
 
 bool JKScriptHost::Reload() {
@@ -1280,6 +1377,78 @@ void JKScriptHost::DispatchCanvasKey(uint32_t key, bool down) {
                     DumpPendingException(ctx).c_str());
         std::fflush(stdout);
     }
+}
+
+// --- 의미 커서 (declareCursor / act 중계, docs/60 §5 백로그 소각) -------------
+
+bool JKScriptHost::HasGlobalFn(const char* name) const {
+    if (!ctx_) return false;
+    JSContext* ctx = static_cast<JSContext*>(ctx_);
+    JsValue global(ctx, JS_GetGlobalObject(ctx));
+    JsValue fn(ctx, JS_GetPropertyStr(ctx, global.value(), name));
+    return JS_IsFunction(ctx, fn.value());
+}
+
+bool JKScriptHost::DispatchAgentAct(const std::string& kind, int row, int col,
+                                    bool& ok, std::string& resultJson) {
+    ok = false;
+    if (!ctx_) return false;
+    JSContext* ctx = static_cast<JSContext*>(ctx_);
+    JsValue global(ctx, JS_GetGlobalObject(ctx));
+    JsValue fn(ctx, JS_GetPropertyStr(ctx, global.value(), "onAgentAct"));
+    if (!JS_IsFunction(ctx, fn.value())) {
+        // act 도구는 등록됐지만 콜백이 없다 — 스크립트 계약 위반이 도구 응답
+        // 으로 표면화(릴레이 ok:false — 조용한 눌먹기 금지).
+        resultJson = "{\"error\":\"no_onAgentAct\"}";
+        return true;
+    }
+    JsValue argvs[3] = {
+        JsValue(ctx, JS_NewStringLen(ctx, kind.data(), kind.size())),
+        JsValue(ctx, JS_NewInt32(ctx, row)),
+        JsValue(ctx, JS_NewInt32(ctx, col)),
+    };
+    JSValueConst argv[3] = { argvs[0].value(), argvs[1].value(),
+                             argvs[2].value() };
+    JsValue call(ctx, JS_Call(ctx, fn.value(), JS_UNDEFINED, 3, argv));
+    if (JS_IsException(call.value())) {
+        // 스크립트 예외는 로그 덤프(선례) + 도구 실패로 표면화 — 에이전트가
+        // 로그와 도구 응답에서 모두 본다.
+        const std::string dump = DumpPendingException(ctx);
+        std::printf("[script] onAgentAct error: %s\n", dump.c_str());
+        std::fflush(stdout);
+        resultJson = "{\"error\":\"onAgentAct_exception\"}";
+        return true;
+    }
+    // onAgentAct 반환 계약: 문자열 = 결과 원문, 객체 = JSON.stringify, 그 외
+    // (undefined 포함) = {"ok":true}. 문자열은 JSON 텍스트여야 한다 — 파싱
+    // 가능 여부는 서버/요청자 몫(원문 패스스루, 위장 개입 금지).
+    if (JS_IsString(call.value())) {
+        resultJson = ToUtf8(ctx, call.value());
+        if (resultJson.empty()) resultJson = "{\"ok\":true}";
+        ok = true;
+        return true;
+    }
+    if (JS_IsObject(call.value())) {
+        JsValue g(ctx, JS_GetGlobalObject(ctx));
+        JsValue jsonFn(ctx, JS_GetPropertyStr(ctx, g.value(), "JSON"));
+        JsValue stringify(ctx, JS_GetPropertyStr(ctx, jsonFn.value(),
+                                                 "stringify"));
+        if (JS_IsFunction(ctx, stringify.value())) {
+            JSValueConst sarg[1] = { call.value() };
+            JsValue out(ctx, JS_Call(ctx, stringify.value(), JS_UNDEFINED, 1,
+                                     sarg));
+            if (JS_IsString(out.value())) {
+                resultJson = ToUtf8(ctx, out.value());
+                ok = true;
+                return true;
+            }
+        }
+        resultJson = "{\"error\":\"onAgentAct_object_not_stringifiable\"}";
+        return true;
+    }
+    resultJson = "{\"ok\":true}";
+    ok = true;
+    return true;
 }
 
 std::vector<std::string> JKScriptHost::BoundNames() const {

@@ -93,6 +93,25 @@ public:
                              int32_t y);
     void DispatchCanvasKey(uint32_t key, bool down);
 
+    // 의미 커서 (스펙 2026-09-22-semantic-cursor, 워크숍 확장 docs/60 §5):
+    // declareCursor 바인딩이 검증해 봉합한 선언 원문(서버 cursor 블록 JSON).
+    // 빈 문자열 = 미선언 — Start/Stop마다 리셋(새 스크립트가 선언하지 않으면
+    // 이전 스크립트의 커서가 잔존하지 않는다).
+    const std::string& DeclaredCursorJson() const { return cursorDeclJson_; }
+    // 선언 봉합 시(재선언 포함) 알림 — 앱이 AgentToolRegister를 재송신한다.
+    // 스크립트 평가 중(메인 스레드)에만 호출된다.
+    void SetCursorDeclChanged(std::function<void(const std::string& json)> cb) {
+        cursorDeclChanged_ = std::move(cb);
+    }
+    // 전역 함수 정의 여부 (선언 시점 계약 판정 — act 도구 등록 조건 등).
+    bool HasGlobalFn(const char* name) const;
+    // act 중계 (서버 앱 도구 릴레이가 도착한 kind/row/col을 스크립트의 전역
+    // onAgentAct로 전달). onAgentAct 부재/예외도 도구 응답으로 표면화한다
+    // (talk-to-fix 폐곡선 — 조용한 눌먹기 금지). ok=false = 도구 실패.
+    // 반환값: false = 컨텍스트 소멸(호출 불가), true = 결과 봉합 완료.
+    bool DispatchAgentAct(const std::string& kind, int row, int col,
+                          bool& ok, std::string& resultJson);
+
     // Introspection (self-test, docs/27 §2.4): the property names actually
     // visible to the script via Object.getOwnPropertyNames(globalThis).
     std::vector<std::string> BoundNames() const;
@@ -132,6 +151,10 @@ private:
 
     std::string entryPath_;
     std::string lastError_;
+
+    // 의미 커서 (declareCursor 봉합 원문; 빈 문자열 = 미선언).
+    std::string cursorDeclJson_;
+    std::function<void(const std::string& json)> cursorDeclChanged_;
 
     int assertChecks_ = 0;
     int assertFailures_ = 0;
