@@ -64,7 +64,11 @@ $jb = (Get-Content (Join-Path $state "jkbridge.json") -Raw | ConvertFrom-Json)
 $token = $jb.token
 $port = $jb.port
 function WsConnect([string]$tok, [int]$portNo) {
-    $c = New-Object System.Net.Sockets.TcpClient("127.0.0.1", $portNo)
+    # A refused connection must surface as a NULL, not a thrown exception —
+    # an exception would skip the s1 check entirely and print a spurious
+    # ALL PASS (2026-09-24 실측: dead bridge → connect throw → ALL PASS).
+    try { $c = New-Object System.Net.Sockets.TcpClient("127.0.0.1", $portNo) }
+    catch { Write-Output "DIAG connect failed: $_"; return $null }
     $req = "GET /ws?token=$tok HTTP/1.1`r`nHost: localhost`r`nUpgrade: websocket`r`n" +
            "Connection: Upgrade`r`nSec-WebSocket-Key: c3Byb3plcHJvYmUxMjM0NQ==`r`n" +
            "Sec-WebSocket-Version: 13`r`n`r`n"

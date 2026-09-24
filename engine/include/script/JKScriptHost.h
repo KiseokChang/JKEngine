@@ -83,10 +83,12 @@ public:
     void DispatchTimerAt(uint32_t scriptTimerId);
     void DispatchDialogClose(uint32_t dialogId, int result);
     // Canvas input dispatchers (docs/60 §10): the JKScriptCanvas input sink
-    // funnels events here; the script's global onMouse(type,x,y,canvasId) /
+    // funnels events here; the script's global onMouse(type,x,y,canvasId,button) /
     // onWheel(dy,x,y) / onKey(key,down) run when defined (absent = ignored).
-    // kind: 0=down, 1=up, 2=move; key=SDL keycode, down=1/0.
-    void DispatchCanvasMouse(uint16_t canvasId, int kind, int32_t x, int32_t y);
+    // kind: 0=down, 1=up, 2=move; button: SDL 1=left 2=middle 3=right (0 on
+    // move); key=SDL keycode, down=1/0.
+    void DispatchCanvasMouse(uint16_t canvasId, int kind, int32_t x, int32_t y,
+                             int32_t button);
     void DispatchCanvasWheel(uint16_t canvasId, int32_t dy, int32_t x,
                              int32_t y);
     void DispatchCanvasKey(uint32_t key, bool down);

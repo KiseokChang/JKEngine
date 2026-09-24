@@ -315,7 +315,7 @@ private:
         "{"
         "\"contract\":\"engine/scripts/jk.d.ts (full reference; additive only)\","
         "\"charset\":\"위젯 텍스트는 ASCII+한글만 안전 — 기호(■□●◆)·이모지는 ?로 렌더됨\","
-        "\"events\":\"전역 함수 onClick(id)를 정의하면 모든 클릭이 id와 함께 전달된다; 캔버스용 onMouse(type,x,y,canvasId)/onWheel(dy,x,y)/onKey(key,down)도 전역 함수로 정의하면 캔버스 입력이 전달된다 — 정의 없으면 무시\","
+        "\"events\":\"전역 함수 onClick(id)를 정의하면 모든 클릭이 id와 함께 전달된다; 캔버스용 onMouse(type,x,y,canvasId,button)/onWheel(dy,x,y)/onKey(key,down)도 전역 함수로 정의하면 캔버스 입력이 전달된다 — 정의 없으면 무시. onMouse의 type은 down/up/move이고 button은 SDL 버튼 번호(1=왼쪽, 2=중간, 3=오른쪽, move는 0) — 좌/우 구분은 button으로 한다(2026-09-24 v5.1)\","
         "\"layout\":\"좌표는 패널 클라이언트 픽셀; 창이 리사이즈되어도 위젯은 재배치되지 않는다\","
         "\"functions\":["
         "{\"sig\":\"log(text)\",\"desc\":\"콘솔 로그\"},"

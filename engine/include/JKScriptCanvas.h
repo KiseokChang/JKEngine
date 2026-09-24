@@ -36,6 +36,10 @@ public:
         int32_t x = 0;
         int32_t y = 0;
         int32_t detail = 0;
+        int32_t button = 0;  // down/up: SDL button (1 left, 2 middle, 3 right;
+                             // ev.detail convention). 0 on move/wheel/key —
+                             // 2026-09-24 폰 실전: 좌/우 구분 API 부재로 LLM이
+                             // 6턴 소모 (onMouse 5번째 인자로 노출).
     };
     using InputSink = std::function<void(const InputEvent&)>;
 
@@ -59,7 +63,9 @@ public:
     void OnPaintClient(JKDC& dc) override;
     void RespondMessage(const JKEvent& ev) override;
 
-    // Ops beyond this cap are dropped (one console warning). Animations keep
+    // Ops beyond this cap evict the oldest (ring behavior — trail scripts
+    // that never canvasClear keep rendering their newest ops; 2026-09-24 폰
+    // 실전에서 drop-new가 잔상을 죽이는 함정으로 확인). Animations still keep
     // the list bounded by canvasClear() per frame (docs/60 §10).
     static constexpr size_t kMaxOps = 4096;
 

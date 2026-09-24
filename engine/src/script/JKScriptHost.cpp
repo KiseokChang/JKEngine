@@ -824,7 +824,8 @@ struct Bindings {
                                             false);
                     break;
                 default:  // 0 down, 1 up, 2 move
-                    host->DispatchCanvasMouse(id, in.kind, in.x, in.y);
+                    host->DispatchCanvasMouse(id, in.kind, in.x, in.y,
+                                              in.button);
                     break;
             }
         });
@@ -1212,7 +1213,7 @@ void JKScriptHost::DispatchDialogClose(uint32_t dialogId, int result) {
 // precedent). The kind string mirrors the .d.ts contract.
 
 void JKScriptHost::DispatchCanvasMouse(uint16_t canvasId, int kind,
-                                       int32_t x, int32_t y) {
+                                       int32_t x, int32_t y, int32_t button) {
     if (!ctx_) return;
     static const char* kKinds[] = { "down", "up", "move" };
     if (kind < 0 || kind > 2) return;
@@ -1220,15 +1221,19 @@ void JKScriptHost::DispatchCanvasMouse(uint16_t canvasId, int kind,
     JsValue global(ctx, JS_GetGlobalObject(ctx));
     JsValue onMouse(ctx, JS_GetPropertyStr(ctx, global.value(), "onMouse"));
     if (!JS_IsFunction(ctx, onMouse.value())) return;
-    JsValue argvs[4] = {
+    // 5th arg = SDL button (2026-09-24 폰 실전: 좌/우 구분 부재로 6턴 소모).
+    // Additive — 4-arg callbacks keep working (extra args are ignored).
+    JsValue argvs[5] = {
         JsValue(ctx, JS_NewString(ctx, kKinds[kind])),
         JsValue(ctx, JS_NewInt32(ctx, x)),
         JsValue(ctx, JS_NewInt32(ctx, y)),
         JsValue(ctx, JS_NewInt32(ctx, static_cast<int32_t>(canvasId))),
+        JsValue(ctx, JS_NewInt32(ctx, button)),
     };
-    JSValueConst argv[4] = { argvs[0].value(), argvs[1].value(),
-                             argvs[2].value(), argvs[3].value() };
-    JsValue call(ctx, JS_Call(ctx, onMouse.value(), JS_UNDEFINED, 4, argv));
+    JSValueConst argv[5] = { argvs[0].value(), argvs[1].value(),
+                             argvs[2].value(), argvs[3].value(),
+                             argvs[4].value() };
+    JsValue call(ctx, JS_Call(ctx, onMouse.value(), JS_UNDEFINED, 5, argv));
     if (JS_IsException(call.value())) {
         std::printf("[script] onMouse error: %s\n",
                     DumpPendingException(ctx).c_str());

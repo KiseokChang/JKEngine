@@ -20,7 +20,8 @@ struct LlmTurnResult {
 // state/chat.json — user tunables (workbench config.json convention).
 struct ChatConfig {
     std::string engine = "ollama";  // "ollama" | "claude" | "stub"
-    std::string model = "kimi-k2.7-code:cloud";
+    std::string model = "glm-5.3-flash:cloud";  // 2026-09-24 사용자 지정 디폴트
+                                                // (구 kimi-k2.7-code:cloud)
     bool skipPermissions = true;    // workbench default; headless auto-denies
                                     // tool consent when off
     std::string directory =

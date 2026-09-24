@@ -142,9 +142,9 @@ try {
            "canvasCircle(cv,150,30,20,'#4080ff',true);" +
            "canvasText(cv,10,116,'CANVAS OK','#ffffff'); }" +
            "function onCreate() { draw();" +
-           "var t1 = setInterval(2500, function(){ clearInterval(t1); injectMouse(60,70); });" +
-           "var t2 = setInterval(4500, function(){ clearInterval(t2); injectKey(65); }); }" +
-           "function onMouse(type,x,y,cid) { if (type==='down' && cid===cv) { setText(lg,'down:'+x+','+y); canvasPixel(cv,x,y,'#ffff00'); } }" +
+           "var t1 = setInterval(function(){ clearInterval(t1); injectMouse(60,70); }, 2500);" +
+           "var t2 = setInterval(function(){ clearInterval(t2); injectKey(65); }, 4500); }" +
+           "function onMouse(type,x,y,cid,btn) { if (type==='down' && cid===cv) { setText(lg,'down:'+x+','+y); canvasPixel(cv,x,y,'#ffff00'); } }" +
            "function onKey(key,down) { if (down) { setText(lg,'key:'+key); canvasLine(cv,(key%200),0,(key%200),119,'#ffff00'); } }"
     $r1 = (SetScript $src)
     Check "c1-canvas-script-set" ($r1 -match '"ok":true') $r1
@@ -173,7 +173,7 @@ try {
     $apiOk = ($api -match '"sig":"createCanvas\(rect\)"') -and
              ($api -match '"sig":"canvasClear\(id, color\?\)"') -and
              ($api -match '"sig":"canvasText') -and
-             ($api -match 'onMouse\(type,x,y,canvasId\)')
+             ($api -match 'onMouse\(type,x,y,canvasId,button\)')
     Check "c5-api-catalog-canvas" $apiOk ($api.Substring(0, [Math]::Min(160, $api.Length)))
 } finally {
     if ($workshopRan) {

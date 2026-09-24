@@ -2388,10 +2388,15 @@ static int RunAppSelfTest() {
         jk::JKControl* ccv = cwin.FindControlByControlId(canvasId);
         check(ccv && ccv->IsFocusable(),
               "createCanvas registers a focusable control");
-        chost.DispatchCanvasMouse(canvasId, 0, 5, 7);
+        chost.DispatchCanvasMouse(canvasId, 0, 5, 7, 1);
         jk::JKControl* clb = cwin.FindControlByControlId(1000);
         check(clb && clb->GetText() == "down:5,7",
               "dispatchcanvasmouse drives script onmouse");
+        // v5.1 button arg (2026-09-24 폰 실전: 좌/우 구분) — right click
+        // reaches the script with button=3.
+        chost.DispatchCanvasMouse(canvasId, 0, 9, 9, 3);
+        check(clb && clb->GetText() == "down:9,9",
+              "dispatchcanvasmouse right-button reaches onmouse");
         chost.DispatchCanvasKey(100, true);
         jk::JKControl* klb = cwin.FindControlByControlId(1001);
         check(klb && klb->GetText() == "k100:true",
@@ -2403,8 +2408,10 @@ static int RunAppSelfTest() {
         writeScript("test_script_timer.js",
             "var tick = 0;\n"
             "var tlabel = createLabel({x:0,y:0,w:80,h:20}, \"t0\");\n"
-            "function onCreate(){ setInterval(50, function(){ tick++; "
-            "setText(tlabel, \"t\" + tick); }); }\n");
+            // setInterval contract is (fn, ms) — callback first (2026-09-24
+            // guard change; the LLM-familiar browser order).
+            "function onCreate(){ setInterval(function(){ tick++; "
+            "setText(tlabel, \"t\" + tick); }, 50); }\n");
         jk::JKWindow twin("ScriptTimerTest");
         twin.SetWindowRect(jk::JKRect{ 0, 0, 320, 240 });
         jk::JKScriptHost thost;

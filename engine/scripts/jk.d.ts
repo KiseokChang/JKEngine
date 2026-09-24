@@ -257,9 +257,11 @@ declare function canvasText(canvasId: number, x: number, y: number,
 //   function onExit()            — 선택. 컨텍스트 해체 직전(종료/리로드).
 //
 // 캔버스 입력 (v5, docs/60 §10 — 캔버스 위젯에서 온다):
-//   function onMouse(type, x, y, canvasId) — 선택. 캔버스 위 마우스. type은
-//     "down"|"up"|"move", (x, y)는 캔버스 로컬 픽셀. 드래그 중에도 move가 온다
-//     (다운 시 캡처).
+//   function onMouse(type, x, y, canvasId, button) — 선택. 캔버스 위 마우스.
+//     type은 "down"|"up"|"move", (x, y)는 캔버스 로컬 픽셀. 드래그 중에도
+//     move가 온다 (다운 시 캡처). button은 SDL 버튼 번호 — down/up에서
+//     1=왼쪽, 2=중간, 3=오른쪽 (2026-09-24 v5.1, 폰 실전 좌/우 구분 요구);
+//     move에는 0. 구분이 필요 없으면 인자를 무시하면 된다(호환).
 //   function onWheel(dy, x, y)             — 선택. 휠. dy>0 = 위(양수 방향).
 //     휠 이벤트에는 좌표가 없어 포커스 컨트롤(캔버스)로 간다 — x, y는 마지막
 //     마우스 위치.

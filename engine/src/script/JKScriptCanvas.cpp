@@ -19,13 +19,20 @@ JKScriptCanvas::JKScriptCanvas(const JKRect& rect, uint16_t controlId) {
 
 void JKScriptCanvas::AddOp(Op op) {
     if (ops_.size() >= kMaxOps) {
+        // Ring behavior (2026-09-24 폰 실전): trail-style scripts never call
+        // canvasClear, so at the cap they used to lose their NEWEST ops — the
+        // ball froze while old frames kept replaying. Evict the oldest op
+        // instead: trails keep rendering, canvasClear-per-frame scenes are
+        // unchanged (they never reach the cap), and a malformed static scene
+        // degrades the same way it already did (oldest strokes go first).
         if (!warnedCap_) {
             warnedCap_ = true;
-            std::printf("[canvas] op cap %zu reached - dropping new ops "
-                        "(call canvasClear per frame)\n", kMaxOps);
+            std::printf("[canvas] op cap %zu reached - evicting oldest ops "
+                        "(trail scripts: fine; static scenes: too many ops)\n",
+                        kMaxOps);
             std::fflush(stdout);
         }
-        return;
+        ops_.erase(ops_.begin());
     }
     ops_.push_back(std::move(op));
     Invalidate();
@@ -158,6 +165,9 @@ void JKScriptCanvas::DispatchLocal(const JKEvent& ev, int kind) {
         in.x = p.x;
         in.y = p.y;
         in.detail = ev.dy;  // wheel delta; mouse events pass 0
+        // down/up carry the SDL button (ev.detail convention — single-process
+        // TranslateSDLEvent and the client wire remap both put it there).
+        in.button = (kind <= 1) ? static_cast<int32_t>(ev.detail) : 0;
         sink_(in);
     }
 }

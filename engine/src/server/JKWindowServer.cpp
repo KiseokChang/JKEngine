@@ -4044,16 +4044,37 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                 }
             }
         } else if (!jkx.empty()) {
-            std::string resolved = jkx;
-            if (!fileExistsFn(resolved) && resolved.find_first_of("/\\") ==
-                                               std::string::npos &&
-                !exeDir.empty()) {
-                // bare 이름 → 런처의 apps/ 컨테이너 기준으로 해석
-                const std::string candidate = exeDir + "\\apps\\" + resolved +
-                                              ".jkx";
-                if (fileExistsFn(candidate)) resolved = candidate;
+            // 경로 표기 변주 수용 (2026-09-24 폰 실전 2차 발각): 같은 패키지를
+            // LLM이 "workshop" / "workshop.jkx" / "apps/workshop.jkx"로 번갈아
+            // 불렀다 — bare 이름만 해석하던 첫 폴백은 나머지 두 형태를
+            // unknown_jkx로 죽였다(원본 트랜스크립트 실측). 정규화:
+            // '/'→'\\', 끝 .jkx 탈락, 선두 apps\ 탈락 후 후보 4종 순차 검사.
+            std::string norm = jkx;
+            for (char& ch : norm) {
+                if (ch == '/') ch = '\\';
             }
-            if (!fileExistsFn(resolved)) {
+            const size_t n = norm.size();
+            if (n > 4 && norm[n - 4] == '.' &&
+                (norm[n - 3] == 'j' || norm[n - 3] == 'J') &&
+                (norm[n - 2] == 'k' || norm[n - 2] == 'K') &&
+                (norm[n - 1] == 'x' || norm[n - 1] == 'X')) {
+                norm = norm.substr(0, n - 4);
+            }
+            if (norm.rfind("apps\\", 0) == 0) norm = norm.substr(5);
+            std::string resolved;
+            const std::string candidates[4] = {
+                jkx,                                   // 원문 (절대 경로 등)
+                exeDir + "\\" + jkx,                   // exeDir 기준 원문
+                exeDir + "\\apps\\" + norm + ".jkx",   // 정규화 이름
+                exeDir + "\\" + norm + ".jkx",
+            };
+            for (const auto& c : candidates) {
+                if (!c.empty() && fileExistsFn(c)) {
+                    resolved = c;
+                    break;
+                }
+            }
+            if (resolved.empty()) {
                 reply = "{\"ok\":false,\"error\":\"unknown_jkx\",\"jkx\":\"" +
                         jkx + "\"}";
             } else {
