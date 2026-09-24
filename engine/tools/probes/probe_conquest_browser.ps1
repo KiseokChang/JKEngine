@@ -86,6 +86,27 @@ function Capture-Hash([int]$wid) {
     }
     return (Get-FileHash $p -Algorithm SHA256).Hash
 }
+# Wait for the page to CHANGE away from $baseline and then SETTLE: the
+# changed hash is only returned once two consecutive captures agree. The
+# change-poll alone is not enough - the first differing capture can be a
+# mid-render transition state (measured batch_browser_fix1: home-static
+# FAILed because the settle happened between the two captures).
+function Wait-ChangedStable([int]$wid, [string]$baseline) {
+    $c = ""
+    for ($i = 0; $i -lt 30; $i++) {
+        Start-Sleep -Milliseconds 500
+        $c = Capture-Hash $wid
+        if ($c -ne "" -and $c -ne $baseline) { break }
+    }
+    if ($c -eq "" -or $c -eq $baseline) { return "" }
+    for ($i = 0; $i -lt 20; $i++) {
+        $c2 = Capture-Hash $wid
+        if ($c2 -ne "" -and $c2 -eq $c) { return $c }
+        if ($c2 -eq "") { return $c }
+        $c = $c2
+    }
+    return $c
+}
 # CEF readiness: poll until two consecutive captures agree (the page area
 # flips from "starting Chromium..." text to the loaded page texture).
 function Wait-Ready([int]$wid) {
@@ -137,16 +158,22 @@ function Invoke-ConquestCycle([string]$tag) {
     if ($h0 -eq "") { $script:cycleOk = $false; return }
     # (3)+(4) drive + verify: navigate to the probe page.
     Drive-Navigate $win
-    $h1 = Capture-Hash $win.id
+    # Poll for the hash CHANGE and settle (Wait-ChangedStable) instead of one
+    # capture after a fixed wait: the batch official run (2026-09-24)
+    # measured CEF nav+render exceeding the old 3 s under back-to-back
+    # server restarts, and even the bare change-poll grabbed a mid-render
+    # transition as the home target. The assertions are unchanged - a
+    # different, stable hash - only the arrival wait is.
+    $h1 = Wait-ChangedStable $win.id $h0
     Check "$tag-verify-nav-hash" ($h1 -ne "" -and $h1 -ne $h0)
+    if ($h1 -eq "") { $script:cycleOk = $false; return }
     # the probe page is static - the hash must hold (validates the verify).
     $h1b = Capture-Hash $win.id
     Check "$tag-verify-nav-static" ($h1b -ne "" -and $h1b -eq $h1)
     # Home round-trip: click Home (surface ~(849,58)), page returns home.
     $r4 = Invoke-Mcp ('{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"send_input","arguments":{"id":' + $win.id + ',"op":"click","x":' + ($win.x + 849) + ',"y":' + ($win.y + 58) + '}}}')
     Check "$tag-drive-home-click" ($r4 -match 'sent\\":true')
-    Start-Sleep -Seconds 3
-    $h2 = Capture-Hash $win.id
+    $h2 = Wait-ChangedStable $win.id $h1
     Check "$tag-verify-home-hash" ($h2 -ne "" -and $h2 -ne $h1)
     $h2b = Capture-Hash $win.id
     Check "$tag-verify-home-static" ($h2b -ne "" -and $h2b -eq $h2)
