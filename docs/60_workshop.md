@@ -518,3 +518,28 @@ all bound at runtime" PASS. 라이브 스택 복구 확인(ping+8899+사용자 �
 스냅샷 board 직렬화 — 파싱 판정) 신설. src1은 무 onSnapshot 유지로 NIT-7 즉답
 체크(`wc-read-no-snapshot`)를 그대로 보존 — 두 경로가 한 프로브에 공존.
 ×2 ALL PASS(런 3·4). 라이브 스택 복구 확인.
+
+### §13.2 프로브 캡처 배관 레슨 — 서버 리다이렉트 핸들은 크래시 설비가 먹는다 (2026-09-24 오후)
+
+vpt5 공식런 S3c("시크 실패 진단 발화")가 오늘부터 1 FAIL — 진단은 실제로
+발화했는데 `$errLog`(서버 `Start-Process -RedirectStandardError`)가 0바이트.
+
+**원인 3단**(전부 실측 확정):
+1. §9 MirrorLogToFiles가 서버 시작 시 stdout/stderr를 fd 수준에서 파이프로
+   dup2 — 프로브가 건넨 리다이렉트 핸들은 fd2에서 떼어져 고아. 서버 진단은
+   이후 전부 `state/logs/server_<ts>.log`(미러 데몬)로 착지.
+2. 클라(stderr가 서버 스폰)는 콘솔 자식 std 핸들 슬롯 재사용 경합으로 서버
+   파이프 쓰기 끝을 별명으로 받거나 빠지는 **비결정** 동작 — 실측 run1 0건/
+   run2 1건. `client_<app>.log` 미러(main.cpp MirrorClientStderr)는 stderr가
+   유효하면 미발동이라 구원도 안 됨.
+3. 별개로 S3c 시나리오 자체에 open 대기 지연 플레이크(raw h264 open 완료 전
+   시크 시도 소실 — 진단 미발사, 어느 로그에도 흔적 없음).
+
+**해법**(1fe966b): 서버는 stdout 분리만, vplayer 클라는 프로브가 직접
+`Start-Process --client vplayer` 스폰(probe_theme_swap 레시피)해 errLog가
+클라 stderr를 확실히 소유 + S3c 재시크 1회 흡수. 공식런 ×2 연속 ALL PASS.
+
+**레슨**: 콘솔 자식의 stderr 캡처 목적 프로브는 서버 리다이렉트에 절대
+의존하지 말 것 — 클라를 프로브가 직접 스폰한다(레슨 7 .cmd 배치의
+Start-Process 변형). 크래시 설비 도입(§9) 이후 서버 쪽 리다이렉트 기대는
+전면 재검토 대상.
