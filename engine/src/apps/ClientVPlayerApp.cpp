@@ -265,6 +265,35 @@ struct ClientVPlayerApp::PlayerCore {
     // (UI thread). (The fallback scrub seek — SeekCommon scrub branch —
     // feeds it too, armed with the UI switch: Task 3.)
     double jogTargetPts = -1;
+    // Backward chain refill (Task 3, docs/50 §11): when the dial comes within
+    // kRefillAheadSecs of the ring front, the video worker decodes the GOP
+    // *before* the front and prepends it (ScrubChainExtend), so backward
+    // scrubbing walks decoded frames instead of falling back to a keyframe
+    // seek. kChainBackSecs is how far below the front the demuxer lands for
+    // that decode — the landing rewind the decode must crawl forward through.
+    // Both 2.0 s: the refill triggers while the dial is still ~2 s above the
+    // front, so the extension is ready before the dial reaches it.
+    static constexpr double kRefillAheadSecs = 2.0;
+    static constexpr double kChainBackSecs = 2.0;
+    // Chain-refill handshake (video thread -> worker -> video thread), all
+    // under m. The demuxer (fmt) is worker-owned, so the backward seek runs
+    // on the WORKER loop top — serialized with DoSeekStages by that loop, the
+    // only place either seek can start, so fmt is never touched by two
+    // threads at once. chainReq is armed by ScrubChainExtend (video thread);
+    // the worker answers with DoChainSeekStage: drain vPktQ, flush codecs,
+    // avformat_seek_file backward (m released — stage-(b) precedent), then
+    // chainArmed (chainFail on a failed seek). NOT a user seek: vSeekSeq is
+    // never bumped, the clock/audio domains never move, jogRing is never
+    // cleared — a superseding user seek invalidates the refill purely via
+    // the vSeekSeq/wantSeek aborts ScrubChainExtend checks per packet.
+    bool chainReq = false, chainArmed = false, chainFail = false;
+    // Anti-seek-spam guard: lo of the last chain attempt. A retry with the
+    // front unmoved lands the SAME keyframe (the landing is position-based),
+    // so a front that cannot move backward (no earlier keyframe — documented
+    // cap behavior, the display just stalls at lo) must not re-seek every
+    // 10 ms gate poll. Reset wherever the ring is rebuilt (user seek) or a
+    // session ends, so a later attempt at the same lo gets a fresh chance.
+    double chainTriedLo = -1;
 
     // Pixel buffer pool for decoded frames (NV12, or RGBA for odd dims;
     // video-thread-only state): see the VideoFrame comment. Slots whose
@@ -567,6 +596,7 @@ struct ClientVPlayerApp::PlayerCore {
         if (!j) {
             std::lock_guard<std::mutex> lk(m);
             jogTargetPts = -1; // stale gate input must not outlive the session
+            chainTriedLo = -1; // the next session gets a fresh refill chance
         }
     }
 
@@ -636,6 +666,10 @@ struct ClientVPlayerApp::PlayerCore {
         // frames out of both queues at push time).
         jogRing.clear();
         jogRingBytes = 0;
+        // The ring rebuilt from the landing position: a chain-refill attempt
+        // against the old front says nothing about the new one (chainTriedLo
+        // docs — the anti-spam guard must not block the post-seek front).
+        chainTriedLo = -1;
         // vctx is decoded on the video decode thread now (demux/decode
         // split): serialize the flush against its send/receive. The hold is
         // bounded by one packet's decode (~20 ms); DecodeVideoPacket releases
@@ -808,6 +842,243 @@ struct ClientVPlayerApp::PlayerCore {
         seekError.clear();
         seekInFlight = false;
         return SeekResult::Ok;
+    }
+
+    // Backward chain-refill demuxer stage (Task 3, docs/50 §11). Runs on the
+    // WORKER loop top — the same place DoSeekStages starts, so the two seek
+    // paths are serialized by the loop and fmt is never touched concurrently.
+    // Answer to the video thread's chainReq (ScrubChainExtend): move the
+    // demuxer below the ring front WITHOUT the user-seek side effects — the
+    // jog ring stays, vSeekSeq is not bumped, the clock/audio domains do not
+    // move. lk is taken held (loop top) and released for the I/O, exactly the
+    // DoSeekStages stage-(b) shape.
+    void DoChainSeekStage(std::unique_lock<std::mutex>& lk) {
+        // Re-validate at execution time under m: the request may be stale
+        // (the session ended, a user seek just rebuilt the ring). The target
+        // is recomputed from the CURRENT front, so a request that waited out
+        // a superseding seek still aims at the live ring.
+        double lo = 0.0;
+        const bool valid = jogging.load(std::memory_order_relaxed) &&
+                           jogTargetPts >= 0 && !wantSeek && !stop &&
+                           !jogRing.empty() &&
+                           (lo = jogRing.front().pts, lo > 0.05);
+        if (!valid) {
+            chainArmed = true; // release the waiting video thread (it aborts)
+            chainFail = true;
+            cv.notify_all();
+            return;
+        }
+        // ---- m RELEASED — the blocking disk I/O first (stage-(b) shape). ---
+        // The I/O runs BEFORE any flush/drain: on a failed seek nothing has
+        // been touched (no queue drain, no codec flush, no in-hand packet
+        // invalidated), so the quiet failure costs nothing. Between the seek
+        // and the flush below nobody decodes — the video thread is parked in
+        // ScrubChainExtend's armed wait, and the worker is here.
+        double t = lo - kChainBackSecs;
+        if (t < 0) t = 0; // the front is already near the file start
+        const int64_t ts = (int64_t)((t + ptsOrigin) / av_q2d(videoTb));
+        lk.unlock();
+        // AVSEEK_FLAG_BACKWARD: land on a keyframe <= the chain target — the
+        // same mid-GOP hazard SeekCommon's stage (b) documents (flags=0 can
+        // park mkv/webm mid-GOP and every following frame fails to decode).
+        // A failed seek is quiet here: the refill simply does not happen and
+        // the display stalls at lo (documented cap behavior) — the video
+        // thread's per-packet aborts unwind it, no fallback wedge.
+        const int r = avformat_seek_file(fmt, videoStream,
+                                         INT64_MIN, ts, ts,
+                                         AVSEEK_FLAG_BACKWARD);
+        lk.lock();
+        if (r < 0) {
+            // Arm with chainFail: the video thread unwinds quietly and keeps
+            // its in-hand packet (the demuxer never moved, nothing was
+            // flushed — a later attempt may still succeed).
+            chainArmed = true;
+            chainFail = true;
+            cv.notify_all();
+            return;
+        }
+        // Seek landed below the front. Flush the codecs + drop queued
+        // packets: they belong to the pre-chain-seek demux position, and the
+        // video thread decodes only post-armed packets. The video thread is
+        // parked in the armed wait (m released, vdecM free) while this runs,
+        // so the vdecM flush cannot invert against it (stage-(a) shape).
+        {
+            std::lock_guard<std::mutex> lkV(vPktM);
+            while (!vPktQ.empty()) {
+                av_packet_unref(vPktQ.front());
+                av_packet_free(&vPktQ.front());
+                vPktQ.pop_front();
+            }
+            vPktQBytes = 0;
+            vPktCv.notify_all();
+        }
+        {
+            std::lock_guard<std::mutex> lkDec(vdecM);
+            if (vctx) avcodec_flush_buffers(vctx);
+        }
+        if (actx) avcodec_flush_buffers(actx);
+        // The demuxer moved backward out of an EOF park (a jog can sit at the
+        // file end when the refill arms): reading resumes below the front.
+        // Only a quiet park clears — a read-error/decode-fail park (lastError
+        // set) stays ended, resuming would mask a dead stream.
+        if (lastError.empty()) {
+            ended = false;
+            audioEof.store(false, std::memory_order_relaxed);
+        }
+        // Arm the video thread (it waits on cv for exactly this).
+        chainArmed = true;
+        chainFail = false;
+        cv.notify_all();
+    }
+
+    // Video decode thread: pull one packet from vPktQ for the backward chain
+    // refill. Bounded wait — the demuxer feeds this queue, but an EOF park or
+    // a slow read must end the refill quietly instead of parking the display
+    // thread (the refill runs inside the gate-hold budget, single exit).
+    // Frees a queue slot, so the parked-enqueuer notification is required —
+    // same shape as VideoLoop's dequeue notify.
+    AVPacket* ScrubPullPacket() {
+        AVPacket* p = nullptr;
+        {
+            std::unique_lock<std::mutex> lk(vPktM);
+            vPktCv.wait_for(lk, std::chrono::milliseconds(50), [&] {
+                return stop || wantSeek || !vPktQ.empty();
+            });
+            if (!vPktQ.empty()) {
+                p = vPktQ.front();
+                vPktQ.pop_front();
+                vPktQBytes -= (size_t)p->size + sizeof(AVPacket);
+            }
+        }
+        vPktCv.notify_all(); // a worker parked on the now-freed slot
+        return p;
+    }
+
+    // Backward GOP-chain extend (docs/50 §11, spec §3.1): decode the GOP
+    // before the ring front and prepend it, so backward scrubbing walks
+    // decoded frames instead of keyframe-seeking. Runs on the video decode
+    // thread INSTEAD of the forward gate hold — the ring's single writer, so
+    // the only ring concurrency is TrimRing's caps. The demuxer rewind is
+    // delegated to the worker (fmt is worker-owned; DoChainSeekStage runs on
+    // the worker loop top, serialized with DoSeekStages), and the only
+    // aborting concurrency is a UI SeekCommon superseding us, checked per
+    // packet (contract 4). Returns true when the demuxer MOVED — the
+    // caller's in-hand packet is pre-chain-seek and must be dropped (the
+    // refill re-reads its region in order); false leaves the pipeline
+    // untouched (seek failed / request never ran — the caller decodes on).
+    bool ScrubChainExtend() {
+        AVFrame* work = av_frame_alloc();
+        if (!work) return false; // OOM: quiet end, demuxer untouched
+        double lo = 0.0;
+        uint64_t gen = 0;
+        {
+            std::lock_guard<std::mutex> lk(m);
+            // Call condition (contract 1): a live frame-scrub session with
+            // the dial within kRefillAheadSecs of the ring front, no pending
+            // user seek. The gate-hold context already established !stop.
+            if (jogRing.empty() || wantSeek || jogTargetPts < 0 ||
+                !jogging.load(std::memory_order_relaxed)) {
+                av_frame_free(&work);
+                return false;
+            }
+            lo = jogRing.front().pts;
+            if (lo <= 0.05 ||                    // front at the file start (contract 6)
+                jogTargetPts - lo >= kRefillAheadSecs) { // forward decode owns the headway
+                av_frame_free(&work);
+                return false;
+            }
+            if (chainTriedLo >= 0 && lo >= chainTriedLo) {
+                // This front already had its attempt and has not moved below
+                // it since: a retry lands the same keyframe (chainTriedLo
+                // docs) — quiet return, the display stalls at lo.
+                av_frame_free(&work);
+                return false;
+            }
+            chainTriedLo = lo;
+            gen = vSeekSeq.load(std::memory_order_relaxed);
+            chainReq = true;
+            chainArmed = false;
+            chainFail = false;
+        }
+        cv.notify_all();
+        {
+            // Lock order m -> vPktM (SeekCommon precedent): a worker parked
+            // on a full queue must wake to consume the request.
+            std::lock_guard<std::mutex> lk2(vPktM);
+            vPktCv.notify_all();
+        }
+        bool armed = false, failed = false;
+        {
+            std::unique_lock<std::mutex> lk(m);
+            // Bounded: a wedged worker must not park the display thread. The
+            // abort keys are the refill's per-packet set (contract 4) — a UI
+            // seek bumps vSeekSeq under m in stage (a) before its I/O, so it
+            // is seen here even without wantSeek propagating.
+            cv.wait_for(lk, std::chrono::milliseconds(250), [&] {
+                return stop || wantSeek || chainArmed || chainFail ||
+                       jogTargetPts < 0 ||
+                       vSeekSeq.load(std::memory_order_relaxed) != gen;
+            });
+            armed = chainArmed;
+            failed = chainFail;
+            // Timeout revoke: the worker never consumed the request (worst
+            // case it consumes a revoked flag and the stage re-validates
+            // under m anyway — a no-op either way).
+            chainReq = false;
+        }
+        if (!armed || failed) {
+            av_frame_free(&work);
+            return false; // demuxer never moved — in-hand packet stays valid
+        }
+        // Backward decode (contract 3): consume the post-seek packets, decode
+        // forward, prepend everything below lo, and stop once a frame lands
+        // at/above lo + seamGuard. Frames in [lo, lo + seamGuard) are decoded
+        // and DISCARDED — B-frames sitting just before lo reference frames
+        // after it, so the decode must cross the seam for their references to
+        // resolve (spec §3.1); they are not ring content.
+        const double seamGuard = fps > 0.0 ? 2.0 / fps : 0.07;
+        bool crossed = false;
+        while (true) {
+            {
+                std::lock_guard<std::mutex> lk(m);
+                if (stop || wantSeek || jogTargetPts < 0 ||
+                    vSeekSeq.load(std::memory_order_relaxed) != gen)
+                    break; // superseded (contract 4): demuxer moved, drop in-hand
+            }
+            AVPacket* p = ScrubPullPacket();
+            if (!p) break; // starved/EOF park: quiet end, front keeps what landed
+            std::deque<VideoFrame> ready;
+            const bool ok = DecodeVideoFrames(p, work, ready);
+            av_packet_unref(p);
+            av_packet_free(&p);
+            if (!ok) break; // codec rejected the packet — DecodeFail owns the streak
+            {
+                std::lock_guard<std::mutex> lk(m);
+                if (stop || wantSeek || jogTargetPts < 0 ||
+                    vSeekSeq.load(std::memory_order_relaxed) != gen)
+                    break; // re-check AFTER decode: nothing stale may be pushed
+                for (VideoFrame& vf : ready) {
+                    if (vf.pts >= lo + seamGuard) {
+                        crossed = true; // seam reached — refill done
+                        continue;       // the guard frame itself is discarded
+                    }
+                    if (vf.pts < lo) {
+                        // TrimRing may have slid the front up under us (cap
+                        // pressure): only prepend while genuinely below the
+                        // CURRENT front, else the ring's pts order breaks.
+                        if (jogRing.empty() || vf.pts < jogRing.front().pts)
+                            JogRingPushFrontLocked(std::move(vf));
+                        else
+                            crossed = true;
+                    }
+                    // pts in [lo, lo + seamGuard): decoded for the references,
+                    // discarded — the ring already holds this span.
+                }
+            }
+            if (crossed) break;
+        }
+        av_frame_free(&work);
+        return true; // the demuxer moved: the caller's in-hand packet is stale
     }
 
     // UI thread, returns immediately. Arms the interrupt callback on a
@@ -1174,7 +1445,9 @@ struct ClientVPlayerApp::PlayerCore {
                 while (true) {
                     {
                         std::unique_lock<std::mutex> lk(m);
-                        cv.wait(lk, [&] { return stop || wantSeek || !ended; });
+                        cv.wait(lk, [&] {
+                            return stop || wantSeek || chainReq || !ended;
+                        });
                         if (stop) break;
                         if (wantSeek) {
                             // Consume this request BEFORE the unlocked I/O so
@@ -1194,6 +1467,16 @@ struct ClientVPlayerApp::PlayerCore {
                             // the next pass re-arms audio decode, and a
                             // pre-seek "audio produces nothing" verdict is
                             // stale.
+                        }
+                        if (chainReq) {
+                            // Backward chain refill (Task 3, DoChainSeekStage):
+                            // the video decode thread asked the demuxer to
+                            // step below the ring front. Consumed here BEFORE
+                            // any read so no pre-chain-seek packet can be
+                            // enqueued after the stage's queue drain.
+                            chainReq = false;
+                            DoChainSeekStage(lk);
+                            continue; // resume reads from the new position
                         }
                     }
                     const int r = av_read_frame(fmt, pkt);
@@ -1365,8 +1648,16 @@ struct ClientVPlayerApp::PlayerCore {
     // packet, then push the frames under m. vdecM covers only the codec
     // calls — released before any m acquisition so DoSeekStages' stage-(a)
     // flush (m -> vdecM) can never invert against us.
-    bool DecodeVideoPacket(AVPacket* pkt, AVFrame* frame) {
-        std::deque<VideoFrame> ready;
+    // Decode one packet into `ready`: send/receive + pts conversion (the
+    // frame->pts * videoTb - ptsOrigin idiom, NOPTS rejected) + pooled NV12/
+    // RGBA conversion. vdecM is taken inside and released before any m
+    // acquisition — callers push under m afterwards. Pure extraction of
+    // DecodeVideoPacket's decode body so the backward chain refill
+    // (ScrubChainExtend) shares the exact pipeline instead of duplicating it;
+    // VideoLoop's behavior is unchanged. Returns false when the codec
+    // rejected the packet (DecodeFail already classified the streak).
+    bool DecodeVideoFrames(AVPacket* pkt, AVFrame* frame,
+                           std::deque<VideoFrame>& ready) {
         // Pipeline-delay sample for the clock gate (vPipeDelay): the sent
         // packet's pts minus the received frame's pts. Only valid when both
         // pts are known; the EMA tracks the decoder's steady-state depth.
@@ -1420,6 +1711,17 @@ struct ClientVPlayerApp::PlayerCore {
                 ready.push_back(std::move(vf));
             }
         } // vdecM released — the seek flush can proceed while we push
+        return true;
+    }
+
+    // Returns false when decoding should stop (seek/stop requested).
+    // Runs on the video decode thread (VideoLoop). Decode + convert one
+    // packet, then push the frames under m. vdecM covers only the codec
+    // calls — released before any m acquisition so DoSeekStages' stage-(a)
+    // flush (m -> vdecM) can never invert against us.
+    bool DecodeVideoPacket(AVPacket* pkt, AVFrame* frame) {
+        std::deque<VideoFrame> ready;
+        if (!DecodeVideoFrames(pkt, frame, ready)) return true;
         for (VideoFrame& vf : ready) {
             std::unique_lock<std::mutex> lk(m);
             if (stop || wantSeek) return false;
@@ -1435,6 +1737,16 @@ struct ClientVPlayerApp::PlayerCore {
             const bool jogFrameMode = jogging.load(std::memory_order_relaxed) &&
                                       jogTargetPts >= 0;
             if (jogFrameMode) {
+                // Chain-refill re-read guard: after ScrubChainExtend moved
+                // the demuxer below the ring front, the demuxer RE-READS the
+                // GOP the ring already holds on its way back past it — those
+                // frames arrive with pts at or below the ring back. Appending
+                // them would break the ring's pts ordering (JogFrame walks it
+                // backwards from the newest frame). Normal forward decode is
+                // strictly pts-increasing (decoders emit presentation order),
+                // so this never trips outside a post-refill re-read.
+                if (!jogRing.empty() && vf.pts <= jogRing.back().pts)
+                    continue;
                 JogRingPushLocked(std::move(vf));
                 continue;
             }
@@ -1472,9 +1784,18 @@ struct ClientVPlayerApp::PlayerCore {
             // is parked here must reach the loop top (SeekCommon notifies
             // vPktCv under vPktM).
             vPktCv.wait(lk, [&] {
-                return stop || wantSeek || vPktQBytes < kVPktQMaxBytes;
+                return stop || wantSeek || chainReq ||
+                       vPktQBytes < kVPktQMaxBytes;
             });
-            if (stop || wantSeek) { av_packet_free(&copy); return; }
+            // chainReq in the predicate AND the drop below: a packet read
+            // before the chain request was observed is pre-chain-seek —
+            // enqueueing it after DoChainSeekStage's drain would put a stale
+            // forward packet in front of the refill stream. Dropped here it
+            // never reaches the queue (the refill region is re-read anyway).
+            if (stop || wantSeek || chainReq) {
+                av_packet_free(&copy);
+                return;
+            }
             vPktQBytes += (size_t)copy->size + sizeof(AVPacket);
             vPktQ.push_back(copy);
         }
@@ -1536,6 +1857,17 @@ struct ClientVPlayerApp::PlayerCore {
                     if (pts < 0 ||
                         pts <= gateClock + kVideoLead + vPipeDelay + clumpLead)
                         break;
+                    // Forward decode is caught up (hold) — spend the idle on
+                    // the backward chain refill (Task 3, ScrubChainExtend).
+                    // Single exit: the extend completes or aborts, then the
+                    // gate re-evaluates. True = the demuxer moved, so the
+                    // in-hand packet is pre-chain-seek (the refill re-reads
+                    // its region in order): drop it like a seek abort and
+                    // dequeue fresh.
+                    if (ScrubChainExtend()) {
+                        seekAbort = true;
+                        break;
+                    }
                     std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 }
                 if (!stop && !seekAbort) {
