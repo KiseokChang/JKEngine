@@ -69,6 +69,11 @@ std::string Utf8ToKssm(const char* utf8) {
             if (idx >= 0 && idx < NUMHANGUL) kssm = wCodeTable[idx];
         } else if (c1 == 0xA4 && c2 >= 0xA1 && c2 < 0xA1 + SINGLEHAN) {
             kssm = SingleHan[c2 - 0xA1];
+        } else if ((c1 == 0xA1 || c1 == 0xA2) && c2 >= 0xA1 && c2 <= 0xFE) {
+            // 기호 행(KS X 1001 A1-A2: ■□●◆·일반 문장부호)은 조합형과
+            // 완성형이 바이트 동일 — 등가 매핑(docs/65 O5). CP949 인코딩이
+            // 불가한 이모지는 여전히 '?'(도메인 한계).
+            kssm = static_cast<uint16_t>((c1 << 8) | c2);
         } else if (c1 >= 0xCA && c1 <= 0xFD && c2 >= 0xA1 && c2 <= 0xFE) {
             // EUC-KR Hanja -> KSSM Hanja (inverse of KSSM2KS).
             int tmp = (c1 - 0xCA) * 94 + (c2 - 0xA1);
@@ -110,6 +115,15 @@ static const std::unordered_map<uint16_t, uint16_t>& KssmInverse() {
         for (int i = 0; i < SINGLEHAN; ++i) {
             const uint16_t k = SingleHan[i];
             if (k) m[k] = static_cast<uint16_t>((0xA4 << 8) | (0xA1 + i));
+        }
+        // 기호 행(KS X 1001 A1-A2 ↔ 조합형 동일 배치) — Utf8ToKssm의 등가
+        // 매핑 역(docs/65 O5). KssmCharLenAt의 쌍 유효성 판정도 이 표를 쓰므로
+        // 기호 쌍이 1바이트로 오판되지 않는다.
+        for (int c1 = 0xA1; c1 <= 0xA2; ++c1) {
+            for (int c2 = 0xA1; c2 <= 0xFE; ++c2) {
+                m[static_cast<uint16_t>((c1 << 8) | c2)] =
+                    static_cast<uint16_t>((c1 << 8) | c2);
+            }
         }
         // 한자: Utf8ToKssm의 산술 매핑 역 — 순방향과 같은 tmp 순회로 채운다.
         for (int tmp = 0; tmp < 52 * 94; ++tmp) {

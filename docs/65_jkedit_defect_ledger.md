@@ -56,6 +56,10 @@ JKEdit에 기록된 결함의 단일 통합 대장. 출발점은 docs/46 §7의 
 - `terminal_hangul_probe` ×2 — **38/38** (O3 터미널 경로 T11 5체크 신설,
   이전 33체크 기록 대비), `terminal_hangul_view_probe` ×2 — 18/18 회귀 무변.
   로그: `tmp/o3_term_r{1,2}.log`, `tmp/o3_termview_r{1,2}.log`.
+- `jktext_probe` ×2 — **73체크 PASS + `RESULT: ALL PASS`**(2026-09-26, O4/O5
+  게이트: T11(c) fractional 불변식 7체크+T12 기호 왕복 6체크 신설로 60→73).
+  JKHangulUtil·JKTextAtlas 변경의 회귀 게이트로 jkedit_probe ×2+terminal ×2
+  재실행 — 전부 동일 통과.
 - `jkedit_render_probe`는 exe 부재(소스만) — 이전 오토마타 수술(docs/61 §19)
   에도 미빌드로, 본 수술(DeleteBackward 치환 경로)도 미커버. BMP 눈확인은
   §3 틈새에 그대로 유효.
@@ -95,8 +99,8 @@ case5=사용자 시나리오(멀티라인 한글 타이핑+드래그 — §4 보
 | O1 | 한자 키(LANG2) 미처리 — LANG1만 핸들링 | docs/61:303,367,402 / engine/src/JKEdit.cpp:546 |
 | O2 | 클라→서버 IME 강제 채널 부재 — 클라 모드 SilenceOsIme no-op, F2 진입 시 OS IME 영문 강제 무효(이중 조합 위험) | **실측 봉합(2026-09-25)** — 이중 조합 미발생. 서버 창은 DetachIme(JKWindowServer.cpp:329-335)로 IMM 컨텍스트가 없어 OS IME 조합 채널이 구조적으로 닫힘: 내부 ASCII 모드에서 원문 키코드 도달(type=9=0), 내부 한글 모드에서 프리에디트 오버레이 단일("한"), TextEditing 0건. 양성 대조군(컨텍스트 있는 프로브 창 강제 한국 모드 → GCS_COMPSTR "하") ×2로 조합 채널 생존 별도 입증 — 방어는 구조(컨텍스트 부재)가 아니라 그 부재 자체. o2_double_compose.ps1 ×2 ALL PASS | docs/61:334-337, 402-403 → tmp/o2_r{1,2}_*.png·log |
 | O3 | 받침 넘김(학+ㅗ→하+고) 뒤 백스페이스 — 받침 재부착 불가(End2 플러시 이력 미보유, MS IME와 다름) | **수술 완결(2026-09-25, 929114a)** — HangulAutomata::Handover: End2가 플러시 음절의 inpStack 이력을 보관하고 씨앗 pop 시 이력 복원+받침 재부착. 호출부 계약 3값 확장(BackspaceResult: Jamo=쌍 재기록/Reattach=플러시 쌍+조합 쌍 4바이트→2바이트 치환/Empty=쌍 삭제) — JKEdit 버퍼 치환, 터미널 pty DEL+오버레이. End1/Init 무효화(즉시 재부착만). jkedit_probe 57체크 ×2+terminal 38/38 ×2+view 18/18 ×2 ALL PASS | docs/61:417-420 → tmp/o3_*.log |
-| O4 | fractional scale에서 JKEdit 쌍=2셀×engW 매핑 근사 — 최대 1px/쌍 드리프트(정수 scale은 정확) | docs/63:404-407 |
-| O5 | 위젯 텍스트 기호(■□●◆)·이모지 → ? 렌더 (Utf8ToKssm 도메인 한계) | docs/60:213-215 |
+| O4 | fractional scale에서 JKEdit 쌍=2셀×engW 매핑 근사 — 최대 1px/쌍 드리프트(정수 scale은 정확) | **수술 완결(2026-09-26)** — 뿌리는 ComputeCellMetrics의 독자 반올림(engW=round(8s), hanW=round(16s))이 소수 scale에서 hanW≠2×engW(1.2: 19 vs 20)로 어긋난 것. 셀 모델 진실("KSSM 쌍 = eng 셀 2개")로 hanW를 engW 유도(2×)로 단일화 — JKDC 전진(m.hanW)과 JKEdit 쌍 매핑이 전 scale에서 정합. 구현 함정: CellMetrics 초기자 순서 {engW, hanW, cellH} — 높이를 hanW 슬롯에 넣어 1회 미스. jktext_probe T11(c) fractional 불변식 7 scale ×2 ALL PASS | docs/63:404-407 |
+| O5 | 위젯 텍스트 기호(■□●◆)·이모지 → ? 렌더 (Utf8ToKssm 도메인 한계) | **수술 완결(2026-09-26)** — KS X 1001 A1-A2 기호 행은 조합형(KSSM)과 완성형이 바이트 동일: Utf8ToKssm에 등가 매핑+EUC-KR 역인덱스에 항등 루프 신설(KssmCharLenAt 쌍 유효성도 이 표 경유). KssmCodepointToUnicode는 왕복 가드가 자동 승계 — 아틀라스 벡터 경로로 렌더. 이모지는 CP949 불가 한계 유지: UTF-16 서러게이트 2유닛이 각각 '?' 치환 → `??` 2바이트(kApiCatalog charset 문구 갱신). jktext_probe T12 6체크 ×2 ALL PASS | docs/60:213-215 |
 | O6 | 터미널 조합 중 스크롤백/선택 — 오버레이는 지워지지만 오토마타 유지(표준 IME 유사, 수용) | docs/61:555-556 |
 
 의도 유지(결함 아님, 문서화): 단독 모음+받침 불가 자음 → 채움 초성 음절(원본
@@ -145,3 +149,11 @@ IME 동작으로 전환). docs/46 §7의 나머지 후속(JKMenu 팝업 스모�
    두벌식 키 실수도 이중 함정: t는 ㅅ(ㄷ는 e), ㅗ+ㅣ는 ㅢ 쌍모음이라 End1이 안
    일어난다 — 기대값이 아니라 코드가 틀렸다는 가정부터 뒤집어 보라(이번엔
    코드가 맞고 기대값이 틀렸다).
+6. **프로브 재링크는 멤버 구성까지 복기한다(O4)** — 스테일 메트릭의 첫 용의자는
+   링크 스테일이었으나 실제는 CellMetrics 초기자 필드 순서 미스였고, 그 검증
+   과정에서 terminal 프로브를 o3_JKHangulAutomata.o 없이 재링크해 34/38로
+   소동: libjkcore.a의 아카이브 멤버는 O3 이전 구형이어서 o3_*.o 명시 링크가
+   필수. ad hoc 링크 레시피의 객체 목록은 "어떤 멤버를 libjkcore보다 앞세웠는지"
+   까지 진실원이다. 인프라 레슨(별도): 세션 환경 블록이 커지면 cc1plus 스폰이
+   무출력 exit 1로 죽는다(bash.exe.stackdump 동반) — `engine/build/mgxx.sh`
+   최소 env 래퍼로 회피.

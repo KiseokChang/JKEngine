@@ -372,6 +372,40 @@ int main() {
         const jk::text::CellMetrics& live = jk::text::GetCellMetrics();
         CHECK(live.engW == 8 && live.hanW == 16 && live.cellH == 16,
               "T11(b) GetCellMetrics() 미설정 기본 {8,16,16}");
+        // (c) fractional 불변식(docs/65 O4): hanW는 engW 유도(2×) — 독자
+        // 반올림이던 옛 산출식은 1.2에서 hanW=19 vs 2×engW=20으로 어긋나
+        // JKEdit 쌍 매핑이 셀당 최대 1px 표류했다. 정수·비정수 전역 단정.
+        for (float fs : { 1.05f, 1.2f, 1.6f, 1.7f, 2.1f, 2.5f, 2.9f }) {
+            const jk::text::CellMetrics c = ComputeCellMetrics(fs);
+            if (c.hanW != 2 * c.engW) {
+                std::printf("INFO: scale %.2f engW=%d hanW=%d\n", fs, c.engW,
+                            c.hanW);
+            }
+            CHECK(c.hanW == 2 * c.engW,
+                  "T11(c) ComputeCellMetrics hanW == 2*engW (fractional)");
+        }
+    }
+
+    // T12: 기호 행 왕복(docs/65 O5) — KS X 1001 A1-A2 기호(■□●◆)는 조합형과
+    // 바이트 동일이라 Utf8ToKssm이 등가 매핑한다. 옛 코드는 A1-A2 행 미매핑으로
+    // 위젯 텍스트가 ?로 렌더됐다. 이모지는 CP949 인코딩 불가 — UTF-16
+    // 서러게이트 2유닛이 각각 '?'로 치환돼 "??"(2바이트)가 된다(문서화 한계).
+    {
+        const std::string kSym = Utf8ToKssm("■□●◆");
+        CHECK(kSym.size() == 8, "T12 symbols -> 4 kssm pairs");
+        CHECK(KssmToUtf8(kSym.c_str()) == "■□●◆", "T12 kssm -> utf8 round trip");
+        CHECK(KssmCodepointToUnicode(static_cast<uint8_t>(kSym[0]),
+                                     static_cast<uint8_t>(kSym[1])) == 0x25A0,
+              "T12 ■ -> U+25A0 (atlas vector path)");
+        const char symPair[3] = { static_cast<char>(kSym[0]),
+                                  static_cast<char>(kSym[1]), 0 };
+        CHECK(KssmCharLenAt(symPair, 2, 0) == 2,
+              "T12 symbol pair is one valid cell-pair (caret boundary)");
+        const std::string mixed = Utf8ToKssm("가■A");
+        CHECK(KssmToUtf8(mixed.c_str()) == "가■A", "T12 hangul+symbol+ascii mixed");
+        CHECK(Utf8ToKssm("\xF0\x9F\x98\x80") == "??",
+              "T12 emoji (CP949-unencodable surrogate pair) -> '??' "
+              "(documented limit)");
     }
 
     std::printf("PASS %d FAIL %d\n", g_pass, g_fail);

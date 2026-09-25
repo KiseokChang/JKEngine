@@ -48,7 +48,8 @@ struct CellMetrics {
 };
 
 // 순수 산출 함수 (프로브 단정용 — 설정 파싱 개입 없음). 산출식:
-// engW=max(4, round(8*s)), hanW=max(8, round(16*s)), cellH=max(8, round(16*s)).
+// engW=max(4, round(8*s)), hanW=2*engW(유도 — docs/65 O4, 소수 scale에서
+// 독자 반올림 hanW≠2×engW가 JKEdit 쌍 매핑 1px 표류), cellH=max(8, round(16*s)).
 // s는 허용 범위 [1.0, 3.0]으로 클램프한다(파싱 단계의 범위 검사가 정문 게이트 —
 // 여기는 방어선 클램프로, 0.5 같은 하한 미달 입력도 {8,16,16}로 수렴).
 CellMetrics ComputeCellMetrics(float s);

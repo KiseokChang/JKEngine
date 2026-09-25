@@ -102,12 +102,18 @@ std::string text::ResolveDesktopFallbackPath() {
 jk::text::CellMetrics jk::text::ComputeCellMetrics(float s) {
     // 허용 범위 [1.0, 3.0] 클램프 — settings_set 파싱 단계가 정문 게이트
     // (범위 밖은 bad_value 거부)이고 이 함수는 방어선. 하한 클램프 덕에
-    // 0.5 같은 입력도 기본 셀 {8,16,16}로 수렴한다.
+    // 0.5 같은 입력도 기본 셀 {8,16,16}으로 수렴한다.
     if (s < 1.0f) s = 1.0f;
     if (s > 3.0f) s = 3.0f;
+    // hanW는 engW 유도(2×) — 독자 반올림(lround(16s))하면 소수 scale에서
+    // hanW ≠ 2×engW가 돼 JKEdit의 "쌍=2셀×engW" 매핑이 셀당 최대 1px
+    // 표류했다(docs/65 O4). 셀 모델의 진실은 "KSSM 쌍 = eng 셀 2개"다.
+    // (주의: CellMetrics 필드 순서는 {engW, hanW, cellH} — hanW 슬롯에
+    // 높이를 넣지 않도록 초기자 순서를 지킨다.)
+    const int engW = std::max(4, static_cast<int>(std::lround(8.0f * s)));
     return CellMetrics{
-        std::max(4, static_cast<int>(std::lround(8.0f * s))),
-        std::max(8, static_cast<int>(std::lround(16.0f * s))),
+        engW,
+        2 * engW,
         std::max(8, static_cast<int>(std::lround(16.0f * s))),
     };
 }
