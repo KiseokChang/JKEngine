@@ -49,9 +49,16 @@ JKEdit에 기록된 결함의 단일 통합 대장. 출발점은 docs/46 §7의 
 
 ## 2. 현재 검증 (2026-09-25 실측)
 
-- `engine/build/jkedit_probe.exe` ×2 — run 1·run 2 전부 **48체크 PASS +
-  `RESULT: ALL PASS`**, 두 로그 내용 동일(정렬 diff 0).
-  - 로그: `I:/progwork/JKENGINE/tmp/led_jkedit_probe_r1.log`, `..._r2.log`
+- `engine/build/jkedit_probe.exe` ×2 — run 1·run 2 전부 **57체크 PASS +
+  `RESULT: ALL PASS`** (docs/61 §23의 "49"/이전 세션의 "48"에 이어 O3 재부착
+  게이트 T20h-T20o 9체크 신설로 48→57).
+  - 로그: `I:/progwork/JKENGINE/tmp/o3_jkedit_r1.log`, `..._r2.log`
+- `terminal_hangul_probe` ×2 — **38/38** (O3 터미널 경로 T11 5체크 신설,
+  이전 33체크 기록 대비), `terminal_hangul_view_probe` ×2 — 18/18 회귀 무변.
+  로그: `tmp/o3_term_r{1,2}.log`, `tmp/o3_termview_r{1,2}.log`.
+- `jkedit_render_probe`는 exe 부재(소스만) — 이전 오토마타 수술(docs/61 §19)
+  에도 미빌드로, 본 수술(DeleteBackward 치환 경로)도 미커버. BMP 눈확인은
+  §3 틈새에 그대로 유효.
 - exe 신선도: build-dir exe 2026-09-21 08:15:30 > JKEdit.cpp 08:12:58 >
   JKEdit.h 08:09:12 > jkedit_probe.cpp 07:35:18 — 소스 대비 스테일 아님.
   `engine/tools/probes/jkedit_probe.exe`(2026-09-20 22:36, ad hoc 빌드 잔재)는
@@ -87,7 +94,7 @@ case5=사용자 시나리오(멀티라인 한글 타이핑+드래그 — §4 보
 |---|---|---|
 | O1 | 한자 키(LANG2) 미처리 — LANG1만 핸들링 | docs/61:303,367,402 / engine/src/JKEdit.cpp:546 |
 | O2 | 클라→서버 IME 강제 채널 부재 — 클라 모드 SilenceOsIme no-op, F2 진입 시 OS IME 영문 강제 무효(이중 조합 위험) | **실측 봉합(2026-09-25)** — 이중 조합 미발생. 서버 창은 DetachIme(JKWindowServer.cpp:329-335)로 IMM 컨텍스트가 없어 OS IME 조합 채널이 구조적으로 닫힘: 내부 ASCII 모드에서 원문 키코드 도달(type=9=0), 내부 한글 모드에서 프리에디트 오버레이 단일("한"), TextEditing 0건. 양성 대조군(컨텍스트 있는 프로브 창 강제 한국 모드 → GCS_COMPSTR "하") ×2로 조합 채널 생존 별도 입증 — 방어는 구조(컨텍스트 부재)가 아니라 그 부재 자체. o2_double_compose.ps1 ×2 ALL PASS | docs/61:334-337, 402-403 → tmp/o2_r{1,2}_*.png·log |
-| O3 | 받침 넘김(학+ㅗ→하+고) 뒤 백스페이스 — 받침 재부착 불가(End2 플러시 이력 미보유, MS IME와 다름) | docs/61:417-420, 554-556 |
+| O3 | 받침 넘김(학+ㅗ→하+고) 뒤 백스페이스 — 받침 재부착 불가(End2 플러시 이력 미보유, MS IME와 다름) | **수술 완결(2026-09-25, 929114a)** — HangulAutomata::Handover: End2가 플러시 음절의 inpStack 이력을 보관하고 씨앗 pop 시 이력 복원+받침 재부착. 호출부 계약 3값 확장(BackspaceResult: Jamo=쌍 재기록/Reattach=플러시 쌍+조합 쌍 4바이트→2바이트 치환/Empty=쌍 삭제) — JKEdit 버퍼 치환, 터미널 pty DEL+오버레이. End1/Init 무효화(즉시 재부착만). jkedit_probe 57체크 ×2+terminal 38/38 ×2+view 18/18 ×2 ALL PASS | docs/61:417-420 → tmp/o3_*.log |
 | O4 | fractional scale에서 JKEdit 쌍=2셀×engW 매핑 근사 — 최대 1px/쌍 드리프트(정수 scale은 정확) | docs/63:404-407 |
 | O5 | 위젯 텍스트 기호(■□●◆)·이모지 → ? 렌더 (Utf8ToKssm 도메인 한계) | docs/60:213-215 |
 | O6 | 터미널 조합 중 스크롤백/선택 — 오버레이는 지워지지만 오토마타 유지(표준 IME 유사, 수용) | docs/61:555-556 |
@@ -109,7 +116,7 @@ IME 동작으로 전환). docs/46 §7의 나머지 후속(JKMenu 팝업 스모�
   결함은 유닛 프로브에 원리적으로 닿지 않는다.
 - ~~**O2가 가장 큰 레저**~~ — 실측으로 해소(§4 O2 행). 이중 조합은 DetachIme
   구조 방어로 발발하지 않으며, 채널 공사는 하지 않기로 봉합(2026-09-25). 남은
-  열림 결함 중 실제 이중 입력 위험은 없다 — O1/O3/O4/O5는 렌더·경계류, O6는 수용.
+  열림 결함 중 실제 이중 입력 위험은 없다 — O1/O4/O5는 렌더·경계류, O6는 수용.
 
 ## 6. 레슨
 
@@ -133,3 +140,8 @@ IME 동작으로 전환). docs/46 §7의 나머지 후속(JKMenu 팝업 스모�
    "실제 미발발"로 읽힌다. 구조 방어(DetachIme)는 코드 인용만으로는 닫히지 않는다.
    (프로브 설비 교훈: x64 SendInput INPUT 공용체는 MOUSEINPUT 크기 40바이트여야
    키 입력이 통한다 — KEYBDINPUT 크기로 쓰면 무응답.)
+5. **한글 기대값은 완성형(KS X 1001) 표 내 글자로 검증한다**(O3) — 걸+ㄺ(걺)은
+   wCodeTable 밖이라 KssmToUtf8 왕복이 `?`를 냈다. 오토마타 코드 자체는 옳았다.
+   두벌식 키 실수도 이중 함정: t는 ㅅ(ㄷ는 e), ㅗ+ㅣ는 ㅢ 쌍모음이라 End1이 안
+   일어난다 — 기대값이 아니라 코드가 틀렸다는 가정부터 뒤집어 보라(이번엔
+   코드가 맞고 기대값이 틀렸다).
