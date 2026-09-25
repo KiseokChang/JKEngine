@@ -140,6 +140,29 @@ int main() {
         CHECK(b4.send == "\x7f", "T9 empty -> pty DEL");
     }
 
+    // T11: 받침 넘김 재부착(docs/65 O3 이식) — 학+ㅗ → "하" 송출+고 씨앗 뒤
+    // 백스페이스는 고를 지우는 대신 넘어간 받침 ㄱ을 재부착해 학으로 되돌린다
+    // (MS IME 동일). 연속: 학→하→(빔), 빔 이후는 pty DEL.
+    {
+        TerminalHangulInput t;
+        t.Toggle();
+        Type(t, "gkrh");                 // 학+ㅗ → "하" 송출, 고 조합 중
+        auto b1 = t.Backspace();
+        std::printf("T11 b1 preEdit=\"%s\" send-len=\"%zu\"\n",
+                    b1.preEdit.c_str(), b1.send.size());
+        // 재부착: pty에서 넘김 직전에 송출된 "하"를 DEL로 지우고 오버레이는 학.
+        CHECK(b1.send == "\x7f" && b1.preEdit == "학",
+              "T11 carry reattach hak");
+        auto b2 = t.Backspace();
+        CHECK(b2.send.empty() && b2.preEdit == "하", "T11 strip jong -> ha");
+        auto b3 = t.Backspace();
+        CHECK(b3.send.empty() && b3.preEdit == "ㅎ", "T11 strip vowel -> jamo");
+        auto b4 = t.Backspace();
+        CHECK(b4.send.empty() && b4.preEdit.empty(), "T11 jamo -> empty");
+        auto b5 = t.Backspace();
+        CHECK(b5.send == "\x7f", "T11 empty -> pty DEL");
+    }
+
     // T10: Shift → 겹자모(docs/61 §21 — 물리 Shift만), Caps는 평자모.
     {
         TerminalHangulInput t;

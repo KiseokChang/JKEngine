@@ -788,11 +788,28 @@ void JKEdit::DeleteBackward() {
     // 날아갔다(유저 보고).
     if (composing_ && cursorPos_ >= 2) {
         uint16_t restored = 0;
-        if (automata_.BackspaceJamo(restored)) {
+        BackspaceResult res = automata_.BackspaceJamo(restored);
+        if (res == BackspaceResult::Jamo) {
             // 자소 1개 제거 — 조합 쌍을 되돌린 코드로 다시 쓴다.
             cursorPos_ -= 2;
             buffer_[cursorPos_]     = static_cast<char>(restored >> 8);
             buffer_[cursorPos_ + 1] = static_cast<char>(restored & 0xFF);
+            cursorPos_ += 2;
+        } else if (res == BackspaceResult::Reattach) {
+            // 받침 넘김 재부착(docs/65 O3): End2가 플러시한 음절 쌍(하) + 조합
+            // 쌍(고) 4바이트를 재부착 음절(학) 2바이트로 치환한다 — MS IME는
+            // 하고 → 학으로 붙여쓴다. 플러시 쌍이 maxLength 압력으로 유입
+            // 실패한 드문 경우엔 조합 쌍 재기록만 한다.
+            if (cursorPos_ >= 4) {
+                cursorPos_ -= 4;
+                buffer_[cursorPos_] = static_cast<char>(restored >> 8);
+                buffer_[cursorPos_ + 1] = static_cast<char>(restored & 0xFF);
+                buffer_.erase(cursorPos_ + 2, 2);
+            } else {
+                cursorPos_ -= 2;
+                buffer_[cursorPos_] = static_cast<char>(restored >> 8);
+                buffer_[cursorPos_ + 1] = static_cast<char>(restored & 0xFF);
+            }
             cursorPos_ += 2;
         } else {
             // 조합이 비었다 — 쌍을 제거하고 자동사를 초기화한다.

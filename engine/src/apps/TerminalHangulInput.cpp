@@ -53,8 +53,16 @@ TerminalHangulInput::Result TerminalHangulInput::Backspace() {
         return r;
     }
     uint16_t restored = 0;
-    if (hangul_.BackspaceJamo(restored))
+    BackspaceResult res = hangul_.BackspaceJamo(restored);
+    if (res == BackspaceResult::Reattach) {
+        // 받침 넘김 재부착(docs/65 O3): 넘김 직전에 송출된 받침-없는 음절(하)을
+        // pty에서 삭제하고 오버레이는 재부착 음절(학) — 화면상 MS IME와 동일.
+        r.send    = "\x7f";
         r.preEdit = KssmCodeToUtf8(restored);
+    } else if (res == BackspaceResult::Jamo) {
+        r.preEdit = KssmCodeToUtf8(restored);
+    }
+    // Empty: r 그대로 — 조합 종료, 다음 Backspace가 pty DEL을 보낸다.
     return r;
 }
 

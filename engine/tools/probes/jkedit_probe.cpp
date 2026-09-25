@@ -335,12 +335,57 @@ int main() {
         SendKey(e, SDLK_BACKSPACE);
         Check("T20g-empty2", e.GetText().empty(),
               "len=" + std::to_string(e.GetText().size()));
-        // 받침 넘김(학+ㅗ → 하+고) 뒤 백스페이스: 고 씨앗만 pop → 하.
-        // 넘어간 받침 ㄱ의 재부착(학 복원)은 자동사가 플러시 이력을 갖지 않아
-        // 불가 — 한계 문서화(docs/61 §19).
+        // 받침 넘김 재부착(docs/65 O3): 학+ㅗ → 하+고 뒤 백스페이스는 고를 지우는
+        // 대신 넘어간 받침 ㄱ을 재부착해 학으로 되돌린다(MS IME 동일). 옛 코드는
+        // 고 씨앗만 pop해 "하"가 남았다(docs/61 §19 한계 → O3로 수술). 재부착
+        // 뒤 이력 스택도 복원돼 연속 백스페이스가 학→하→(빈)으로 이어진다.
         for (int k : { SDLK_g, SDLK_k, SDLK_r, SDLK_h }) SendKey(e, k);
         SendKey(e, SDLK_BACKSPACE);
-        Check("T20h-carry-limit",
+        Check("T20h-carry-reattach",
+              KssmToUtf8(e.GetText().c_str()) == "학",
+              "got=" + KssmToUtf8(e.GetText().c_str()));
+        SendKey(e, SDLK_BACKSPACE);
+        Check("T20i-reattach-strip-jong",
+              KssmToUtf8(e.GetText().c_str()) == "하",
+              "got=" + KssmToUtf8(e.GetText().c_str()));
+        SendKey(e, SDLK_BACKSPACE);
+        // 재부착 뒤 마지막 ㅏ pop은 조합 쌍을 ㅎ 단독으로 남긴다(T20f 전례 동일).
+        Check("T20j-reattach-strip-vowel",
+              KssmToUtf8(e.GetText().c_str()) == "ㅎ",
+              "got=" + KssmToUtf8(e.GetText().c_str()));
+        SendKey(e, SDLK_BACKSPACE);
+        Check("T20j2-reattach-chain-empty", e.GetText().empty(),
+              "len=" + std::to_string(e.GetText().size()));
+        // 겹받침 넘김 재부착: 닭+ㅗ → 달+고 뒤 백스페이스 → 닭 복원(둘째 받침
+        // ㄺ 통째로 재부착 — 플러시는 첫 받침 ㄹ만 남긴 달이었어도 이력은
+        // 닭 전체). 완성형 표 내 글자로 검증(KSSM 왕복 가능).
+        for (int k : { SDLK_e, SDLK_k, SDLK_f, SDLK_r, SDLK_h }) SendKey(e, k);
+        SendKey(e, SDLK_BACKSPACE);
+        Check("T20k-djongsung-carry-reattach",
+              KssmToUtf8(e.GetText().c_str()) == "닭",
+              "got=" + KssmToUtf8(e.GetText().c_str()));
+        SendKey(e, SDLK_BACKSPACE);
+        Check("T20l-djongsung-strip-second-jong",
+              KssmToUtf8(e.GetText().c_str()) == "달",
+              "got=" + KssmToUtf8(e.GetText().c_str()));
+        SendKey(e, SDLK_BACKSPACE);
+        Check("T20m-djongsung-strip-first-jong",
+              KssmToUtf8(e.GetText().c_str()) == "다",
+              "got=" + KssmToUtf8(e.GetText().c_str()));
+        SendKey(e, SDLK_BACKSPACE);
+        Check("T20m2-djongsung-strip-vowel",
+              KssmToUtf8(e.GetText().c_str()) == "ㄷ",
+              "got=" + KssmToUtf8(e.GetText().c_str()));
+        SendKey(e, SDLK_BACKSPACE);
+        Check("T20n-djongsung-chain-empty", e.GetText().empty(),
+              "len=" + std::to_string(e.GetText().size()));
+        // 핸드오버 무효: 넘김 뒤 새 플러시(End1)가 이력을 갈아치우면 재부착
+        // 대신 일반 pop — 하고+ㅔ → 하고애 뒤 백스페이스 ×2 → 하. 쌍모음
+        // (ㅗ+ㅏ=ㅘ, ㅗ+ㅣ=ㅢ)은 End1을 안 일으키므로 쌍 아닌 모음 ㅔ 사용.
+        for (int k : { SDLK_g, SDLK_k, SDLK_r, SDLK_h, SDLK_p }) SendKey(e, k);
+        SendKey(e, SDLK_BACKSPACE);
+        SendKey(e, SDLK_BACKSPACE);
+        Check("T20o-stale-handover-invalidated",
               KssmToUtf8(e.GetText().c_str()) == "하",
               "got=" + KssmToUtf8(e.GetText().c_str()));
     }

@@ -11,6 +11,8 @@ void HangulAutomata::InitAutomata() {
     inpSP = 0;
     outSP = 0;
     curHanState = 0;
+    handover.active = false;
+    handover.count  = 0;
 }
 
 uint16_t HangulAutomata::JoongsungPair(uint16_t& key) {
@@ -154,6 +156,8 @@ bool HangulAutomata::Automata(uint16_t key) {
             // key(8비트 슬롯 코드)를 outStack에 그대로 넣어 {0x00,XX} NUL 쌍이
             // 됐고(docs/61 §8), 1차 픽스는 완성 글자+새 자모를 독립 배출해
             // 받침 뒤 조합이 끊겼다 — 새 자모는 다음 글자의 시작이므로 씨앗.
+            // 새 플러시가 이력을 갈아치우므로 보류 핸드오버는 무효(docs/65 O3).
+            handover.active = false;
             outStack[outSP++] = charCode;
             if (chKind == static_cast<int16_t>(HanChKind::Consonant)) {
                 curHanState = static_cast<uint16_t>(HanStatus::Chosung);
@@ -183,7 +187,12 @@ bool HangulAutomata::Automata(uint16_t key) {
             // 트리거 모음을 새 글자의 중성으로 즉시 조합한다(학+ㅗ → 하+고).
             charCode = static_cast<uint16_t>((charCode & 0xFC1F) | ((keyCode - 0xA0) << 5));
             // 새 조합은 0번부터 다시 적재한다 — 옛 inpStack은 폐기(연쇄 End1에서
-            // 경계 초과 방지).
+            // 경계 초과 방지). 단, 폐기 전에 플러시된 음절의 이력을 핸드오버로
+            // 보관한다(docs/65 O3) — 백스페이스가 받침을 재부착할 수 있도록.
+            handover.active = true;
+            handover.count  = inpSP < 6 ? inpSP : 6;
+            for (uint16_t i = 0; i < handover.count; ++i)
+                handover.history[i] = inpStack[i];
             inpStack[0].curHanState = curHanState;
             inpStack[0].charCode    = charCode;
             inpStack[0].key         = keyCode;
@@ -199,26 +208,44 @@ bool HangulAutomata::Automata(uint16_t key) {
 
 // 조합 중 백스페이스(docs/61 §19): inpStack이 키마다 "적용 후" 상태 스냅샷을
 // 쌓으므로 한 칸 pop하면 마지막 자소가 정확히 제거된다 — 되돌린 상태는
-// inpStack[inpSP-1](직전 키 적용 후). 팩트: End1/End2는 플러시 후 inpStack[0]을
-// 재시드하므로 현재 음절의 역사만 스택에 남는다 — 넘어간 받침(하고의 ㄱ)은
-// 재부착 불가(한계, MS IME와 다른 점).
-bool HangulAutomata::BackspaceJamo(uint16_t& restoredCode) {
+// inpStack[inpSP-1](직전 키 적용 후). End1/End2는 플러시 후 inpStack[0]을
+// 재시드하므로 현재 음절의 역사만 스택에 남는다. 받침 넘김(학+ㅗ → 하+고,
+// docs/65 O3)은 플러시된 음절의 이력을 핸드오버로 보관했다가 시드 pop 시
+// 받침을 재부착해 복원한다(학) — MS IME와 동일. 넘김 뒤 새 키가 End1을
+// 일으켰으면 플러시가 이력을 갈아치웠으므로 무효(Automata가 해제).
+BackspaceResult HangulAutomata::BackspaceJamo(uint16_t& restoredCode) {
     restoredCode = 0;
     if (inpSP == 0) {
         curHanState = 0;
-        return false;
+        return BackspaceResult::Empty;
     }
     --inpSP;
     if (inpSP == 0) {
-        // 시드뿐 — 조합이 비었다. 호출자가 버퍼 쌍을 지운다.
+        // 시드뿐 — 받침 넘김 핸드오버가 살아 있으면 지우기 대신 재부착: 이력을
+        // inpStack에 되살리고(연속 백스페이스가 자소 pop을 계속한다)
+        // 되돌린 코드는 받침이 다 붙은 음절(학/걺). 넘김 직전 플러시가 버퍼에
+        // 이미 커밋돼 있으므로 호출자는 치환 계약(Reattach)으로 담당한다.
+        if (handover.active && handover.count >= 2) {
+            for (uint16_t i = 0; i < handover.count; ++i)
+                inpStack[i] = handover.history[i];
+            inpSP         = handover.count;
+            curHanState   = inpStack[inpSP - 1].curHanState;
+            charCode      = inpStack[inpSP - 1].charCode;
+            restoredCode  = charCode;
+            handover.active = false;
+            return BackspaceResult::Reattach;
+        }
+        // 조합이 비었다. 호출자가 버퍼 쌍을 지운다.
         curHanState = 0;
         charCode    = 0;
-        return false;
+        return BackspaceResult::Empty;
     }
     curHanState = inpStack[inpSP - 1].curHanState;
     charCode    = inpStack[inpSP - 1].charCode;
     restoredCode = charCode;
-    return curHanState != 0 && charCode != 0x8441;
+    return (curHanState != 0 && charCode != 0x8441)
+               ? BackspaceResult::Jamo
+               : BackspaceResult::Empty;
 }
 
 // 8비트 슬롯 코드 → 독립 KSSM 2바이트 코드. 슬롯 배치는 ConvertKey의 역:
