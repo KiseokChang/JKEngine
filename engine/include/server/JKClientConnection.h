@@ -51,6 +51,11 @@ public:
     const std::string& Title() const { return title_; }
     // MsgType::WindowTitle (C->S): client-driven title update (docs/33 badge).
     void SetTitle(const std::string& t) { title_ = t; }
+    // MsgType::TitlePassthrough (C->S): 타이틀 바 안에서 크롬 그랩을 금지한
+    // surface 로컬 사각형(수신 시점 clamp 완료 — docs/67 단 2). 접속 소멸 시
+    // 함께 사라진다. 비어 있으면 패스스루 없음(기존 동작).
+    const JKRect& TitlePassthrough() const { return titlePassthrough_; }
+    void SetTitlePassthrough(const JKRect& r) { titlePassthrough_ = r; }
     int X() const { return x_; }
     int Y() const { return y_; }
     void SetPosition(int x, int y) { x_ = x; y_ = y; }
@@ -127,6 +132,7 @@ private:
     int width_ = 0;
     int height_ = 0;
     std::string title_;
+    JKRect titlePassthrough_{};  // docs/67 단 2 — 비어 있으면 패스스루 없음
     int x_ = 0;
     int y_ = 0;
     bool shell_ = false;   // desktop-shell (taskbar) role, granted on request

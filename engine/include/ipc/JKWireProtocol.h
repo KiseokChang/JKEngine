@@ -54,7 +54,12 @@ enum class MsgType : uint32_t {
     // 도구를 선언하고, 서버가 에이전트의 도구 호출을 중계한다.
     AgentToolRegister = 22, // C -> S: {jsonLen + JSON {app, tools:[{name, description, inputSchema}]}}
     AgentToolCall     = 23, // S -> C: {reqId + jsonLen + JSON {app, tool, args}}
-    AgentToolResult   = 24  // C -> S: AgentReplyHeader와 동일 레이아웃 {reqId, ok, jsonLen}
+    AgentToolResult   = 24, // C -> S: AgentReplyHeader와 동일 레이아웃 {reqId, ok, jsonLen}
+    // C -> S: 타이틀 바 패스스루 선언 (docs/67 단 2). surface 로컬 px 사각형 —
+    // 이 안의 MouseDown은 크롬 그랩(이동/더블클릭 최대화)을 시작하지 않고 클라로
+    // 전달된다. 서버가 수신 시 리사이즈 링·닫기/최대화 박스를 잘라낸다(fail-closed).
+    // 레거시 enum 호환(docs/65 교훈) — 끝에만 추가.
+    TitlePassthrough  = 25
 };
 
 #pragma pack(push, 1)
@@ -206,6 +211,17 @@ struct AgentToolCallHeader {
 
 struct AgentEventSubscribePayload {
     uint32_t subscribe = 0;
+};
+
+// Client -> server with MsgType::TitlePassthrough (docs/67 단 2). Surface-
+// local px. w==0 || h==0 이면 해제. 사각형 1개만 유지(재선언 = 교체). 서버가
+// 리사이즈 링·닫기/최대화 박스를 잘라내므로 클라가 크롬을 침벑해 선언해도
+// fail-closed로 보호된다.
+struct TitlePassthroughPayload {
+    int32_t x = 0;
+    int32_t y = 0;
+    int32_t w = 0;
+    int32_t h = 0;
 };
 
 enum class InputEventType : uint32_t {

@@ -1307,6 +1307,24 @@ bool JKWindowServer::TryChromeGrab(int mx, int my, float scale, int clicks) {
         return true;
     }
 
+    // 1m) 타이틀 바 패스스루 (docs/67 단 2): 클라가 선언한 스트립 사각형 안의
+    // 클릭은 크롬 그랩 없이 클라로 흘러간다 — 일반 경로로 복귀하면 포커스/캡처/
+    // InputEvent 전부 평소 클릭과 동일하게 따라온다. 선언 수신 시 clamp로 링·
+    // 닫기/최대화를 이미 제외했으므로 containment만 본다. 현재 w로 우변을 다시
+    // 자른다 — 선언 뒤 창이 작아지면 저장 rect가 박스를 침벑할 수 있다. 더블클릭
+    // (clicks==2)도 흘려보낸다 — 콤보 위 빠른 더블클릭이 창을 최대화해선 안 된다
+    // (클릭 수는 payload.detail로 클라가 받는다). zone 1c보다 먼저다(D3).
+    const JKRect& pr = client->TitlePassthrough();
+    if (!pr.IsEmpty()) {
+        const int maxBtnX0Now = w - kChromeCloseMargin - kChromeCloseSize -
+                                kChromeMaximizeGap - kChromeMaximizeSize;
+        const int right = std::min(pr.x + pr.w, maxBtnX0Now);
+        if (lx >= pr.x && lx < right &&
+            ly >= pr.y && ly < std::min(pr.y + pr.h, kChromeTitleBar)) {
+            return false;
+        }
+    }
+
     // 1c) Title double-click toggles maximize/restore (docs/39) — checked
     // before the deferred restore is armed in zone 1d, so a maximized
     // window's double-click (second click, still maximized) toggles exactly
@@ -1601,6 +1619,15 @@ void JKWindowServer::UpdateChromeHoverCursor(int mx, int my, float scale) {
                                  kChromeMaximizeGap - kChromeMaximizeSize;
             const bool inMaxX = (lx >= maxBtnX0) &&
                                 (lx < maxBtnX0 + kChromeMaximizeSize);
+            // 타이틀 바 패스스루(스트립 위젯, docs/67 단 2) — 리사이즈 커서 대신
+            // 화살표 고정(위젯이 자기 호버를 그린다). clamp로 링을 안 침벑하므로
+            // 링 커서 판정과 무충돌.
+            const JKRect& stripPassthrough = client->TitlePassthrough();
+            if (!stripPassthrough.IsEmpty() &&
+                stripPassthrough.Contains(lx, ly)) {
+                SetChromeCursor(CursorShape::Arrow);
+                return;
+            }
             if (!(inCloseX && inCloseY) && !(inMaxX && inCloseY)) {
                 shape = ChromeCursorFromEdges(lx < kResizeHotspot,
                                               lx >= w - kResizeHotspot,
@@ -1683,7 +1710,24 @@ void JKWindowServer::HandleSDLEvent(const SDL_Event& ev) {
                 return;
             }
         }
-        if (!client) return;
+        if (!client) {
+            // 런처 호버 툴팁 (docs/67 후속): 클라이언트 표면에 가려지지 않은
+            // 빈 데스크톱 위에서만. 모션은 히트 인덱스 중계(300ms 지연·텍스처
+            // 렌더는 셸 내부), 클릭은 지연 없이 즉시 숨김.
+            if (shell_) {
+                if (ev.type == SDL_MOUSEMOTION) {
+                    shell_->UpdateHover(shell_->HitTest(mx, my));
+                } else if (ev.type == SDL_MOUSEBUTTONDOWN) {
+                    shell_->ClearHover();
+                }
+            }
+            return;
+        }
+        // 클라이언트 표면 위 모션 — 툴팁 숨김(호버 상태만 리셋, 렌더 무관한
+        // 저비용 호출).
+        if (ev.type == SDL_MOUSEMOTION && shell_) {
+            shell_->ClearHover();
+        }
 
         // mx/my are physical client px. The client surface is client->Width() x
         // client->Height() surface pixels, stretched by outputScale when drawn
@@ -2135,6 +2179,20 @@ void JKWindowServer::ProcessPendingMessages() {
     }
 }
 
+// 타이틀 바 패스스루 선언 clamp (docs/67 단 2): 리사이즈 링(6px)과 닫기/최대화
+// 박스를 침벑하는 선언은 잘라낸다 — 버그·악의 선언이 크롬 전체를 먹는 것을 막는
+// 규약(타이틀 바 y<kChromeTitleBar 한정). 무효화(빈 rect) = 해제.
+static JKRect ClampTitlePassthrough(const JKClientConnection& c, JKRect r) {
+    const int maxBtnX0 = c.Width() - kChromeCloseMargin - kChromeCloseSize -
+                         kChromeMaximizeGap - kChromeMaximizeSize;
+    if (r.x < kResizeHotspot) { r.w -= kResizeHotspot - r.x; r.x = kResizeHotspot; }
+    if (r.y < kResizeHotspot) { r.h -= kResizeHotspot - r.y; r.y = kResizeHotspot; }
+    if (r.y + r.h > kChromeTitleBar) r.h = kChromeTitleBar - r.y;
+    if (r.x + r.w > maxBtnX0) r.w = maxBtnX0 - r.x;
+    if (r.w <= 0 || r.h <= 0) return JKRect{};
+    return r;
+}
+
 void JKWindowServer::ProcessClientMessage(JKClientConnection& client, const ipc::Message& msg) {
     if (msg.type == ipc::MsgType::CommitSurface) {
         if (msg.payload.size() >= sizeof(ipc::CommitSurfaceHeader)) {
@@ -2245,6 +2303,16 @@ void JKWindowServer::ProcessClientMessage(JKClientConnection& client, const ipc:
         if (!msg.payload.empty() && msg.payload.size() <= 96) {
             client.SetTitle(std::string(msg.payload.begin(), msg.payload.end()));
             PushWindowListUnsafe();  // taskbar button text follows (mutex held)
+        }
+    } else if (msg.type == ipc::MsgType::TitlePassthrough) {
+        // C -> S 타이틀 바 패스스루 선언 (docs/67 단 2). 수신 시점에 크롬을
+        // 침벑하는 부분을 잘라낸다(fail-closed) — 버그·악의 선언이 닫기/
+        // 최대화/리사이즈 링을 먹지 않는다. 빈 rect(무효화) = 해제.
+        if (msg.payload.size() >= sizeof(ipc::TitlePassthroughPayload)) {
+            ipc::TitlePassthroughPayload payload{};
+            std::memcpy(&payload, msg.payload.data(), sizeof(payload));
+            client.SetTitlePassthrough(ClampTitlePassthrough(
+                client, JKRect{ payload.x, payload.y, payload.w, payload.h }));
         }
     } else if (msg.type == ipc::MsgType::AgentQuery) {
         uint32_t queryId = 0, ok = 0;
