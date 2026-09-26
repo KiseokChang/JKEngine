@@ -51,7 +51,10 @@ public:
     bool IsVisible() const;
 
     virtual void PaintWindow(JKDC& dc);
-    void PaintClient(JKDC& dc);
+    // virtual화 (docs/67 단 2 T2): JKWindow가 스트립 선언 시 클립을 창 전체로
+    // 넓히기 위해 오버라이드한다. 기존 서브클래스에 PaintClient 선언이 없어
+    // 가상화는 additive 무영향.
+    virtual void PaintClient(JKDC& dc);
     virtual void OnPaintClient(JKDC& dc);
     virtual void RespondMessage(const JKEvent& ev);
 

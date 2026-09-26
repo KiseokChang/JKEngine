@@ -48,6 +48,17 @@ public:
     void OnPaintClient(JKDC& dc) override;
     void OnClose() override;
     void RespondMessage(const JKEvent& ev) override;
+    // 타이틀 바 스트립 (docs/67 단 2): 클라이언트 좌표 사각형(음수 y = 타이틀 바
+    // 안). 이 안의 자식은 프레임 위에 그려지고 히트테스트된다. 비어 있으면 기존
+    // 동작 그대로 — 타 앱 영향 0.
+    void SetFrameStripRect(const JKRect& rect) { frameStripRect_ = rect; }
+    const JKRect& GetFrameStripRect() const { return frameStripRect_; }
+    // 와이어용 surface 로컬 좌표(메인 창이 surface를 채우므로 창 로컬 == surface
+    // 로컬). clientRect_ 오프셋(kBorder/kTitle)을 여기서 더한다 — 상수 포킹 금지.
+    JKRect GetFrameStripSurfaceRect() const;
+    // JKControl::PaintClient는 screen CLIENT rect로 클립한다 — 음수 y 스트립
+    // 자식이 타이틀 바에서 잘린다. 스트립 선언 시에만 클립을 창 전체로 넓힌다.
+    void PaintClient(JKDC& dc) override;
 
     // Dirty-region management for partial redraw.
     void AddDirtyRect(const JKRect& screenRect);
@@ -58,6 +69,13 @@ public:
 protected:
     std::string title_;
     JKControl* focusChild_ = nullptr;
+    // 프레임 스트립 클라이언트 좌표(음수 y 가능). 비어 있으면 패스스루/클립/
+    // 히트테스트 확장 전부 무효(docs/67 단 2).
+    JKRect frameStripRect_{};
+
+    // 스크린 좌표계의 스트립 사각형 — HitTest/HitTestRegion/PaintWindow가
+    // 같은 산식을 쓰므로 한 곳에서 뽑는다.
+    JKRect FrameStripScreenRect() const;
 
     bool dragging_ = false;
     JKPoint dragStartMouse_;

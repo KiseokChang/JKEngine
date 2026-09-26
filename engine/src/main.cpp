@@ -764,6 +764,29 @@ static int RunAppSelfTest() {
         if (!cond) ++failures;
     };
 
+    // 프레임 스트립 (docs/67 단 2 T2): 음수 y 자식이 타이틀 바 안에서 히트된다.
+    {
+        auto win = std::make_unique<JKWindow>("strip-selftest");
+        win->SetWindowRect(JKRect{ 0, 0, 320, 240 });
+        const JKRect strip{ 50, -21, 160, 22 };  // 클라이언트 좌표
+        win->SetFrameStripRect(strip);
+        auto combo = std::make_unique<JKComboBox>(strip, 0);
+        JKComboBox* raw = combo.get();
+        win->AddControl(std::move(combo));
+        // 콤보 화면 좌표 = {52, 3, 160, 22}(surface y 3..25) — 중앙 y=14.
+        check(win->HitTest(130, 14) == raw,  // strip 중앙 → 콤보
+              "strip: hit reaches caption child");
+        check(win->HitTestRegion(130, 14) == JKWindow::WindowRegion::Client,
+              "strip: region is Client");
+        check(win->HitTestRegion(130, 1) == JKWindow::WindowRegion::TitleBar,
+              "strip: outside strip stays TitleBar");
+        const JKRect s = win->GetFrameStripSurfaceRect();
+        check(s.x == 52 && s.y == 3 && s.w == 160 && s.h == 22,
+              "strip: surface rect = client + (kBorder,kTitle)");
+        check(win->HitTest(10, 1) == win.get(),  // 타이틀 빈칸 → 자기 자신
+              "strip: title gap still window");
+    }
+
     // 1. Equip24DataManager
     {
         Equip24DataManager man;

@@ -171,6 +171,23 @@ void JKWindow::ResizeWindow(int32_t dx, int32_t dy) {
     SetWindowRect(r);
 }
 
+JKRect JKWindow::GetFrameStripSurfaceRect() const {
+    if (frameStripRect_.IsEmpty()) return JKRect{};
+    // 메인 창이 surface를 채우므로 창 로컬 == surface 로컬 — 클라 좌표에
+    // clientRect_ 오프셋(kBorder/kTitle)을 더한다 (docs/67 단 2, 상수 미러).
+    return JKRect{ clientRect_.x + frameStripRect_.x,
+                   clientRect_.y + frameStripRect_.y,
+                   frameStripRect_.w, frameStripRect_.h };
+}
+
+JKRect JKWindow::FrameStripScreenRect() const {
+    if (frameStripRect_.IsEmpty()) return JKRect{};
+    const JKRect screen = GetScreenRect();
+    return JKRect{ screen.x + clientRect_.x + frameStripRect_.x,
+                   screen.y + clientRect_.y + frameStripRect_.y,
+                   frameStripRect_.w, frameStripRect_.h };
+}
+
 JKWindow::WindowRegion JKWindow::HitTestRegion(int32_t screenX, int32_t screenY) const {
     const JKRect screenRect = GetScreenRect();
     if (!screenRect.Contains(screenX, screenY)) {
@@ -183,6 +200,11 @@ JKWindow::WindowRegion JKWindow::HitTestRegion(int32_t screenX, int32_t screenY)
     if (screenClient.Contains(screenX, screenY)) {
         return WindowRegion::Client;
     }
+    // 프레임 스트립(docs/67 단 2)은 클라이언트 취급 — 이 안의 클릭은 드래그를
+    // 시작하지 않고 자식으로 간다.
+    if (FrameStripScreenRect().Contains(screenX, screenY)) {
+        return WindowRegion::Client;
+    }
     if (screenY < screenRect.y + clientRect_.y) {
         return WindowRegion::TitleBar;
     }
@@ -191,7 +213,10 @@ JKWindow::WindowRegion JKWindow::HitTestRegion(int32_t screenX, int32_t screenY)
 
 JKControl* JKWindow::HitTest(int32_t x, int32_t y) {
     const JKRect screenClient = GetScreenClientRect();
-    if (screenClient.Contains(x, y)) {
+    // 클라이언트 밖이어도 스트립 안이면 자식을 내려본다(타이틀 바 위젯 —
+    // docs/67 단 2).
+    const JKRect strip = FrameStripScreenRect();
+    if (screenClient.Contains(x, y) || strip.Contains(x, y)) {
         for (auto it = children_.rbegin(); it != children_.rend(); ++it) {
             if (!(*it)->IsVisible()) continue;
             JKControl* found = (*it)->HitTest(x, y);
@@ -220,6 +245,22 @@ JKRect JKWindow::GetCloseButtonRect() const {
         kButtonSize,
         kButtonSize
     };
+}
+
+void JKWindow::PaintClient(JKDC& dc) {
+    // JKControl::PaintClient는 screen CLIENT rect로 클립한다 — 음수 y 스트립
+    // 자식이 타이틀 바에서 잘린다(docs/67 단 2). 스트립 선언 시에만 클립을 창
+    // 전체로 넓힌다. 자식은 각자 자기 rect로 재클립되므로 DOCK_FILL 패널 등
+    // 타 자식은 여전히 클라이언트 안에 갇혀 있다 — 영향 확대 없음.
+    if (frameStripRect_.IsEmpty() || HasAttrFlag(WA_CHROMELESS) ||
+        GetScreenRect().IsEmpty()) {
+        JKControl::PaintClient(dc);
+        return;
+    }
+    dc.PushClipRect(GetScreenRect());
+    OnPaintClient(dc);
+    PaintFocus(dc);
+    dc.PopClipRect();
 }
 
 void JKWindow::PaintWindow(JKDC& dc) {
@@ -253,9 +294,18 @@ void JKWindow::PaintWindow(JKDC& dc) {
         dc.SetTextColor(t.chromeTitleText.r, t.chromeTitleText.g, t.chromeTitleText.b);
         dc.SetBackColor(t.chromeTitleBg.r, t.chromeTitleBg.g, t.chromeTitleBg.b);
         JKRect textRect = titleBar;
-        // 안쪽 여백 4px, 닫기 버튼이 있으면 우측 여유를 추가한다.
-        textRect.x += 4;
-        textRect.w -= 8 + closeReserve;
+        // 스트립이 있으면 타이틀 텍스트는 스트립 우변 + 8px 여백부터 시작한다
+        // (docs/67 단 2 — 캡션에 얹힌 위젯과 겹치지 않게). 없으면 기존 4px
+        // 좌측 인셋.
+        const JKRect strip = FrameStripScreenRect();
+        if (!strip.IsEmpty()) {
+            textRect.x = strip.x + strip.w + 8;
+        } else {
+            textRect.x += 4;
+        }
+        const int32_t textEnd = screenRect.x + screenRect.w - 8 - closeReserve;
+        textRect.w = textEnd - textRect.x;
+        if (textRect.w < 0) textRect.w = 0;
         dc.TextOutX(textRect, titleKssm.c_str(), ADJ_YCENTER | ADJ_LEFT, false);
     }
 
