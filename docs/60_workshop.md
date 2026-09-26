@@ -84,6 +84,10 @@ PC 팔레트/채팅도 동일 도구. 사용자는 한국어로 바람만 말함
 | `engine/tools/pack_workshop.ps1` | 수기 JKX1 패커 — **jkctl pack/jkx-pack은 MANI를 재생성해 `scriptfile=`/`watch=`를 탈락**시키므로 불가 (레슨 §6) |
 | `build/apps/workshop.jkx` | MANI+MODL+SCRI 3항목 컨테이너 |
 | `engine/tools/probes/probe_workshop.ps1` | 신설 — setup+15체크, permissions.json 미접촉 |
+| `engine/include/script/JKWorkshopStore.h` + `engine/src/script/JKWorkshopStore.cpp` | **단 1**(docs/67): 슬롯·세대 파일 스토어 — 슬롯명 검증/ListSlots(도트 접두 비가시)/세대 스냅샷 사다리(20세대 캡 최오소 프룬)/ReadGen/.current_<appName> 영속. 이 TU만 windows.h(SDK FindFirstFileA — §7 수기 선언 금지 레슨 적용) |
+| `engine/tools/probes/workshop_slot_probe.cpp` | **단 1** — 유닛 프로브 50체크 (docs/61:708 빌드 레시피, 프로브 소유 temp dir) |
+| `engine/tools/probes/probe_workshop_stage1.ps1` | **단 1** — 라이브 게이트 16체크 (USER FILE 가드 — myapp.js 백업/복원) |
+| `engine/scripts/jk.d.ts` | v6 — onSaveState/onRestoreState 훅+슬롯·리본 도구 계약 주석 (카탈로그 동시 갱신 규칙) |
 
 ## 4. 검증 (프로브, 2연속 원칙) — **실측 결과 (2026-09-20)**
 
@@ -133,10 +137,15 @@ PC 팔레트/채팅도 동일 도구. 사용자는 한국어로 바람만 말함
 - **[소각 2026-09-24] 스크립트 앱 declareCursor** — §13으로 소각 (스크립트 앱이
   `declareCursor(decl)` 한 호출로 커서 조작 도구(move/read/act)를 획득 — 말로
   만든 앱을 말로 조작하는 마지막 배관).
-- 복수 슬롯 (myapp2.js 등 여러 앱 동시 워크숍)
-- 폰 미러 (창 상태를 폰에서 보기)
+- **[소각 2026-09-26] 복수 슬롯+버전 리본+상태 보존(폴백 경로)** — docs/67 단 1
+  §14로 소각: 슬롯 도구 7종·버전 리본(.history/<slot>/NNNN.js, 20세대 캡)·
+  상태 보존 리로드(위젯 스냅샷+onSaveState/onRestoreState 훅). **라이브 패치
+  (컨텍스트 생존 정의 재평가)는 잔여** — 사훈 1의 본체, 단 1 리파인 후보.
+- 폰 미러 (창 상태를 폰에서 보기) — **사용자 결정 2026-09-26: 단 1 다음
+  리파인으로** (단 1 범위에서 제외)
 - 보안/트러스트: 프로토타입 완성 후 재검토 — 배포(.jkx 설치) 트러스트는
-  기존 모델 유지, 워크숍 디렉터리 무승인의 경계 명문화
+  기존 모델 유지, 워크숍 디렉터리 무승인의 경계 명문화 (docs/67 단 2의
+  트러스트 문으로 승계)
 
 ## 6. 레슨 (구현 세션 실측, 2026-09-20)
 
@@ -543,3 +552,32 @@ vpt5 공식런 S3c("시크 실패 진단 발화")가 오늘부터 1 FAIL — 진
 의존하지 말 것 — 클라를 프로브가 직접 스폰한다(레슨 7 .cmd 배치의
 Start-Process 변형). 크래시 설비 도입(§9) 이후 서버 쪽 리다이렉트 기대는
 전면 재검토 대상.
+
+## 14. 워크숍 단 1 — 레슨 (2026-09-26, docs/67 단 1 구현 세션 실측)
+
+1. **UCRT `std::rename`은 대상 존재 시 실패한다(POSIX와 다름)** — `.new→rename`
+   사다리는 "이름 고유"일 때만 안전. `.current_<appName>` 영속 파일처럼 같은
+   이름을 재쓰는 경로는 첫 쓰기는 성공하고 **재쓰기는 조용히 눌먹음**(c3 슬롯
+   전환 쓰기 성공 → c4 복귀 쓰기 실패 → 파일에 옛 값 잔존, probe_workshop_stage1
+   c7이 잡음). tmp 완성 후 remove+rename — 부분 쓰기 방어는 유지. 유닛 프로브가
+   못 잡은 이유: 테스트가 스토어 함수가 아니라 raw WriteFile을 썼음 — **게이트는
+   제품 경로 그대로를 걸어야 한다**(a8 덮어쓰기 체크로 보강).
+2. **Start 서두의 상태 클리어는 호출자의 직전 적재를 흡수한다** —
+   `SetPendingRestoreState` 직후 `Start()`가 서두에서 pending을 클리어하면
+   JS 상태 복원이 영원히 안 켜진다(유닛 프로브 c4가 라이브 전에 잡은 잠복
+   결함). 불변 = **pending 1건 ↔ Start 1회** — 적재는 항상 Start 직전(빈 원문
+   적재 = 훅 무해 통과로 잔존 pending 오염 방지), Start는 클리어하지 않는다.
+   "초기화"가 습관적으로 들어가는 자리가 오히려 배관을 끊는 사례.
+3. **라이브 패치의 폴백 경로를 먼저 완성하라** — 컨텍스트 생존 재평가(사훈 1
+   본체) 대신 위젯 스냅샷+onSaveState/onRestoreState 훅으로 상태 보존을 먼저
+   성립시켰다. 결과: 폴백 경로가 이미 도구·게이트·스트립에 걸려 있어서 리로드
+   경로의 잠복 이중 기동(`!panel_` 가드)도 같은 틀에서 봉합됐다. 본체(라이브
+   패치)는 이제 폴백과의 동일성 게이트로 안전하게 착수 가능.
+4. **카탈로그 편집의 꼬리 흡수 재발** — kApiCatalog에 `"functions":[` 행이
+   2번 중복(T4 편집 실수 — old/new_string 경계에서 행 끝이 삼켜짐). 컴파일은
+   통과하고 런타임에만 드러난다(중복 키). 문자열 상수 조립 편집 후에는 **행 수
+   비교**가 가장 싼 검증.
+5. **pack_workshop.ps1 재팩 규율 재확인(§10.1 레슨의 상용화)** — jkcore
+   (JKWorkshopStore)와 jkapp_script.dll(ClientScriptApp.h) 양쪽을 건드리는
+   단 1 작업 내내 **빌드 녹색 → 재팩 → 라이브 게이트**가 고정 순서. 한 번이라도
+   빼면 옛 DLL이 컨테이너에 잔존한다.
