@@ -315,14 +315,20 @@ protected:
         // Connect, so a register here never hits the "before-connect silent
         // false" path.
 
-        // 슬롯 스트립 (docs/67 단 1): 메인 창의 직접 자식 — V2 결정. 컨테이너
-        // 컨트롤 금지: JKControl::PaintClient가 자식 재귀 전체에 PushClipRect
-        // 하므로 콤보 팝업이 28px 스트립에 클립된다. 패널은 DOCK_FILL에 상단
-        // 마진 28로 — 리사이즈에도 PerformLayout가 여백을 유지한다.
+        // 슬롯 스트립 (docs/67 단 2 — 캡션 임베딩): 스트립은 타이틀 바 안으로
+        // 올라갔다. 패널 DOCK_FILL 마진은 0 — 클라이언트 영역 28px을 회수한다.
+        // 컨테이너 컨트롤 금지는 유지: 팝업은 여전히 메인 창 직접 자식이어야
+        // PushClipRect 클립을 피한다.
         JKWindow* main = this->GetMainWindow();
         if (!main) return;
-        if (panel_) panel_->SetMargins(0, 28, 0, 0);
+        if (panel_) panel_->SetMargins(0, 0, 0, 0);
         main->PerformLayout(main->GetClientRect());
+        // 콤보만 패스스루 선언 — 라벨·타이틀 텍스트 위 더블클릭은 최대화 토글을
+        // 유지한다(네이티브 관습). surface 좌표 변환은 JKWindow 몫(상수 미러).
+        main->SetFrameStripRect(kStripComboRect);
+        if (jk::client::JKClientSurface* surface = this->Surface()) {
+            surface->SendTitlePassthrough(main->GetFrameStripSurfaceRect());
+        }
         BuildStrip();
     }
 
@@ -429,11 +435,14 @@ protected:
     void BuildStrip() {
         JKWindow* main = this->GetMainWindow();
         if (!main) return;
-        auto label = std::make_unique<JKStatic>(JKRect{ 8, 6, 38, 18 }, 0);
+        // 캡션 임베딩 (docs/67 단 2): 부모-클라이언트 y는 음수 — 화면상
+        // surface y 3..25(콤보)·6..24(라벨)로 타이틀 바에 얹힌다. rect는
+        // ANCHOR_NONE 기본이라 리사이즈 재배치에도 그대로다(JKControl.cpp).
+        auto label = std::make_unique<JKStatic>(JKRect{ 8, -18, 38, 18 }, 0);
         label->SetText(jk::Utf8ToKssm("슬롯:"));
         slotLabel_ = label.get();
         main->AddControl(std::move(label));
-        auto combo = std::make_unique<JKComboBox>(JKRect{ 50, 3, 160, 22 }, 0);
+        auto combo = std::make_unique<JKComboBox>(kStripComboRect, 0);
         slotCombo_ = combo.get();
         slotCombo_->SetOnSelectionChanged(
             [this](int32_t idx) { OnStripSelect(idx); });
@@ -476,6 +485,10 @@ protected:
 
     JKComboBox* slotCombo_ = nullptr;
     JKStatic* slotLabel_ = nullptr;
+    // 캡션 임베딩 (docs/67 단 2): 부모-클라이언트 y는 음수 — 화면상 surface
+    // y 3..25(콤보)·6..24(라벨)로 타이틀 바에 얹힌다. 단일 모드/클라 모드 공유
+    // 진실원 — 좌표 조정은 이 1곳만.
+    static constexpr JKRect kStripComboRect{ 50, -21, 160, 22 };
 
     bool OnAgentToolCall(const std::string& tool, const std::string& argsJson,
                          std::string& out) override {

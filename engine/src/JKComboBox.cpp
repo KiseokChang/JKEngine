@@ -67,7 +67,11 @@ void JKComboBox::ToggleDropDown() {
     // hit-tests above the combo's siblings.
     JKControl* parent = GetParent();
     if (!parent) return;
-    JKRect popupRect{ rc.x, rc.y + rc.h, rc.w, h };
+    // 캡션 임베딩 (docs/67 단 2): 콤보가 음수 y(타이틀 바)에 있어도 팝업 top은
+    // 클라이언트 y>=0 이하로 clamp — 팝업이 surface 위로 삐져나오지 않는다.
+    // 산술상 {50,-21,22} 콤보의 팝업 top = 클라 y 1로 이미 안전하지만, 미래의
+    // 다른 스트립 위젯을 위한 1줄 보험.
+    JKRect popupRect{ rc.x, std::max(rc.y + rc.h, 0), rc.w, h };
     auto list = std::make_unique<JKListBox>(popupRect, 0);
     for (const auto& s : items_) list->AddString(s);
     list->SetSelectedIndex(selectedIndex_);

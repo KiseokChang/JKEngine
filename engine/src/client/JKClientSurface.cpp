@@ -515,6 +515,17 @@ bool JKClientSurface::SendWindowTitle(const std::string& utf8) {
         std::vector<uint8_t>(utf8.begin(), utf8.end()));
 }
 
+bool JKClientSurface::SendTitlePassthrough(const JKRect& surfaceRect) {
+    if (!IsConnected()) return false;
+    ipc::TitlePassthroughPayload payload{};
+    payload.x = surfaceRect.x;
+    payload.y = surfaceRect.y;
+    payload.w = surfaceRect.w;
+    payload.h = surfaceRect.h;
+    return ipc::WriteMessage(*transport_, ipc::MsgType::TitlePassthrough,
+                             &payload, sizeof(payload));
+}
+
 bool JKClientSurface::PollAgentReply(AgentReply& out) {
     std::lock_guard<std::mutex> lock(agentReplyMutex_);
     if (pendingAgentReplies_.empty()) return false;

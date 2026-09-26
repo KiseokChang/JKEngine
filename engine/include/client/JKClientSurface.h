@@ -100,6 +100,10 @@ public:
     // 96-byte cap). Drives the taskbar button text — the notification
     // center's unread badge uses it (docs/33).
     bool SendWindowTitle(const std::string& utf8);
+    // C -> S: 타이틀 바 패스스루 선언 (docs/67 단 2). surface 로컬 px — 이 안의
+    // MouseDown은 서버 크롬 그랩을 거치지 않고 클라로 온다. 닫기/최대화/리사이즈
+    // 링은 서버가 clamp해 보호한다(선언을 아무리 넓게 해도). 빈 rect 전송 = 해제.
+    bool SendTitlePassthrough(const JKRect& surfaceRect);
     // Main-thread only: copy of the latest window-list snapshot.
     bool GetWindowList(std::vector<ShellWindowInfo>& out) const;
 
