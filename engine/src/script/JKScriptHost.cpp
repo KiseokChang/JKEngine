@@ -1050,9 +1050,11 @@ void JKScriptHost::SetTimerServices(JKScriptTimerServices services) {
 
 bool JKScriptHost::Start(const std::string& entryPath) {
     lastError_.clear();
-    // 죽은 리로드가 오래된 복원을 물고 오지 않게 — pending은 Start 서두에서
-    // 소멸(재적재는 SetPendingRestoreState로 다시 적재한다, docs/67 단 1).
-    pendingRestoreJson_.clear();
+    // pendingRestoreJson_는 여기서 클리어하지 않는다(2026-09-26 유닛 프로브
+    // c4 실측): 호출자(StartScript)가 Start 직전에 적재하므로 서두 클리어가
+    // 그 적재를 흡수해 버린다. 불변 = pending 1건 ↔ Start 1회 — 적재는 항상
+    // 직전에, 소비는 onCreate 직후(후반 블록). 실패 리로드의 잔존 pending은
+    // 다음 StartScript가 항상 덮어쓴다(빈 원문도 적재 — 무해 통과).
 
     if (!window_) {
         lastError_ = "JKScriptHost::Start: no window attached";

@@ -140,11 +140,14 @@ protected:
         // (마지막에 이긴다). 실패 리로드는 스냅샷을 보존한다 — 소비(erase)는
         // 성공 Start 뒤에만.
         std::string widgetJson;
-        if (auto it = stateByPath_.find(scriptPath_); it != stateByPath_.end()) {
+        // pending은 "빈 원문도 항상 적재" — 이전 리로드의 잔존 pending이
+        // 새 Start에 유입되지 않게(불변: pending 1건 ↔ Start 1회).
+        if (auto it = stateByPath_.find(scriptPath_); it != stateByPath_.end())
             widgetJson = it->second.widgetJson;
-            if (!it->second.jsState.empty())
-                host_->SetPendingRestoreState(it->second.jsState);
-        }
+        host_->SetPendingRestoreState(
+            stateByPath_.count(scriptPath_)
+                ? stateByPath_[scriptPath_].jsState
+                : std::string());
         if (!host_->Start(scriptPath_)) {
             std::printf("[script] start failed: %s\n",
                         host_->LastError().c_str());
@@ -755,7 +758,6 @@ private:
         "\"layout\":\"좌표는 패널 클라이언트 픽셀; 창이 리사이즈되어도 위젯은 재배치되지 않는다\","
         "\"state\":\"리로드는 상태를 보존한다 — 편집창(텍스트·한/영 모드)은 자동 복원; onSaveState()를 정의하면 임의 JS 상태를 직렬화해 보존하고 onRestoreState(saved)로 복귀한다(정의 없으면 편집창만). 라벨·캔버스는 스크립트 소유 파생 출력이라 새 스크립트가 다시 그린다\","
         "\"slots\":\"여러 슬롯(<scriptsDir>/<slot>.js) 지원 — 도구 list_slots/use_slot/script_history/restore_script; set_script의 slot 인자=해당 슬롯에 쓰고 자동 전환. 도구로 덮어쓰면 직전 원문이 .history/<slot>/NNNN.js로 자동 스냅샷(20세대 캡); 메모장 수기 편집은 리본을 우회한다\","
-        "\"functions\":["
         "\"functions\":["
         "{\"sig\":\"log(text)\",\"desc\":\"콘솔 로그\"},"
         "{\"sig\":\"messageBox(title, text)\",\"desc\":\"모달 메시지 박스(비동기, JS 비차단)\"},"

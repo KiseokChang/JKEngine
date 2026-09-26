@@ -136,7 +136,9 @@ public:
     // 반환: false = 컨텍스트 소멸, true = 봉합 완료(예외 포함).
     bool DispatchRestoreState(const std::string& json);
     // 리로드 직전 캡처한 JS 상태를 Start 후반(onCreate 직후)에 소비하도록
-    // 적재. Start 서두에서 클리어 — 죽은 리로드가 오래된 복원을 물고 온다.
+    // 적재. 불변 = pending 1건 ↔ Start 1회 — 적재는 항상 Start 직전에
+    // (Start 서두에서 클리어하지 않는다: 적재가 흡수된다 — 2026-09-26 유닛
+    // 프로브 c4 실측). 빈 원문 적재 = 훅 무해 통과.
     void SetPendingRestoreState(const std::string& json) {
         pendingRestoreJson_ = json;
     }
@@ -186,7 +188,7 @@ private:
     std::function<void(const std::string& json)> cursorDeclChanged_;
 
     // 상태 보존 리로드 (docs/67 단 1): 리로드 직전 캡처한 JS 상태 원문.
-    // Start 서두·소비 후 클리어(§ DispatchRestoreState).
+    // 소비 후 클리어(Start 후반 블록) — 불변 = pending 1건 ↔ Start 1회.
     std::string pendingRestoreJson_;
 
     int assertChecks_ = 0;
