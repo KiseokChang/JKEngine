@@ -1050,6 +1050,9 @@ void JKScriptHost::SetTimerServices(JKScriptTimerServices services) {
 
 bool JKScriptHost::Start(const std::string& entryPath) {
     lastError_.clear();
+    // 죽은 리로드가 오래된 복원을 물고 오지 않게 — pending은 Start 서두에서
+    // 소멸(재적재는 SetPendingRestoreState로 다시 적재한다, docs/67 단 1).
+    pendingRestoreJson_.clear();
 
     if (!window_) {
         lastError_ = "JKScriptHost::Start: no window attached";
@@ -1190,6 +1193,15 @@ bool JKScriptHost::Start(const std::string& entryPath) {
     if (createFailed) {
         Stop();
         return false;
+    }
+
+    // pendingRestoreJson_ 소비 (docs/67 단 1 복원 순서 계약): onCreate 성공
+    // 직후 스크립트 훅(onRestoreState) 먼저 — 위젯 복원(RestoreWidgetState,
+    // 호출자)이 그 다음에 와서 마지막에 이긴다. 소비 후 클리어.
+    if (!pendingRestoreJson_.empty()) {
+        const std::string saved = std::move(pendingRestoreJson_);
+        pendingRestoreJson_.clear();
+        DispatchRestoreState(saved);
     }
 
     return true;
@@ -1504,6 +1516,175 @@ bool JKScriptHost::DispatchAgentSnapshot(bool& ok, std::string& resultJson) {
     }
     // undefined/숫자 등 — 직렬화 없음을 명시(빈 결과를 "unknown"으로 위장 금지).
     resultJson = "{\"error\":\"onSnapshot_empty\"}";
+    return true;
+}
+
+// --- 상태 보존 리로드 (docs/67 단 1 — 사훈 1의 폴백 경로) --------------------
+
+namespace {
+// 위젯 스냅샷 JSON 이스케이프: 따옴표·역슬래시·제어문자(<0x20)만. UTF-8
+// 원문 바이트(한글 포함)는 그대로 — JSON 허용. \u 이스케이프는 0x20 미만
+// 1바이트에만 쓰므로 파서도 단일 바이트 코드포인트로만 디코드하면 된다.
+std::string JsonEscape(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 8);
+    char buf[8];
+    for (char ch : s) {
+        switch (ch) {
+        case '"': out += "\\\""; break;
+        case '\\': out += "\\\\"; break;
+        case '\n': out += "\\n"; break;
+        case '\r': out += "\\r"; break;
+        case '\t': out += "\\t"; break;
+        default:
+            if (static_cast<unsigned char>(ch) < 0x20) {
+                std::snprintf(buf, sizeof(buf), "\\u%04X",
+                              static_cast<unsigned char>(ch));
+                out += buf;
+            } else {
+                out += ch;
+            }
+        }
+    }
+    return out;
+}
+} // namespace
+
+bool JKScriptHost::CaptureWidgetState(std::string& outJson) const {
+    outJson.clear();
+    if (!window_) return false;
+    int n = 0;
+    std::string edits;
+    for (const auto& entry : controls_) {
+        const JKEdit* edit = dynamic_cast<const JKEdit*>(entry.second);
+        if (!edit) continue;
+        if (!edits.empty()) edits += ",";
+        // 저장 텍스트는 KSSM(JKEdit 입력 포함) — 스냅샷은 UTF-8로(경계 규약,
+        // GetText 바인딩 선례).
+        edits += "{\"i\":" + std::to_string(n) + ",\"t\":\"" +
+                 JsonEscape(jk::KssmToUtf8(edit->GetText().c_str())) +
+                 "\",\"m\":" +
+                 std::to_string(static_cast<int>(edit->GetInputMode())) + "}";
+        ++n;
+    }
+    if (n == 0) return false;  // 편집창 없음 — 스냅샷 대상 없음
+    outJson = "{\"v\":1,\"edits\":[" + edits + "]}";
+    return true;
+}
+
+bool JKScriptHost::RestoreWidgetState(const std::string& json) {
+    if (!ctx_ || !window_ || json.empty()) return false;
+    JSContext* ctx = static_cast<JSContext*>(ctx_);
+    // 파싱은 QuickJS JSON.parse — 복원 시점은 Start 후(ctx 생존)뿐이고
+    // 이스케이프(멀티라인 개행 등) 수기 파싱은 실링 위험.
+    JsValue global(ctx, JS_GetGlobalObject(ctx));
+    JsValue jsonHost(ctx, JS_GetPropertyStr(ctx, global.value(), "JSON"));
+    JsValue parse(ctx, JS_GetPropertyStr(ctx, jsonHost.value(), "parse"));
+    if (!JS_IsFunction(ctx, parse.value())) return false;
+    JsValue arg(ctx, JS_NewStringLen(ctx, json.data(), json.size()));
+    JSValueConst parg[1] = { arg.value() };
+    JsValue val(ctx, JS_Call(ctx, parse.value(), JS_UNDEFINED, 1, parg));
+    if (JS_IsException(val.value())) {
+        std::printf("[script] state restore: parse error: %s\n",
+                    DumpPendingException(ctx).c_str());
+        std::fflush(stdout);
+        return false;
+    }
+    if (!JS_IsObject(val.value())) return false;
+    JsValue edits(ctx, JS_GetPropertyStr(ctx, val.value(), "edits"));
+    if (!JS_IsArray(edits.value())) return false;
+    int32_t total = 0;
+    {
+        JsValue len(ctx, JS_GetPropertyStr(ctx, edits.value(), "length"));
+        JS_ToInt32(ctx, &total, len.value());
+    }
+
+    // 복원 매칭: 새 controls_의 j번째 JKEdit ↔ edits[j](편집창 생성순서 접두 —
+    // 컨트롤 id는 Start마다 1000 리셋이므로 순번이 유일한 안정 키).
+    int fresh = 0;
+    int restored = 0;
+    for (const auto& entry : controls_) {
+        JKEdit* edit = dynamic_cast<JKEdit*>(entry.second);
+        if (!edit) continue;
+        if (fresh < total) {
+            JsValue e(ctx, JS_GetPropertyUint32(ctx, edits.value(),
+                                                static_cast<uint32_t>(fresh)));
+            if (JS_IsObject(e.value())) {
+                JsValue t(ctx, JS_GetPropertyStr(ctx, e.value(), "t"));
+                JsValue m(ctx, JS_GetPropertyStr(ctx, e.value(), "m"));
+                if (JS_IsString(t.value())) {
+                    // 경계 역변환: UTF-8 스냅샷 → 위젯 저장 KSSM.
+                    edit->SetText(jk::Utf8ToKssm(ToUtf8(ctx, t.value()).c_str()));
+                    edit->Invalidate();
+                    ++restored;
+                }
+                int32_t mode = 0;
+                if (!JS_ToInt32(ctx, &mode, m.value()) && mode >= 0 && mode <= 2) {
+                    edit->SetInputMode(static_cast<JKEdit::InputMode>(mode));
+                }
+            }
+        }
+        ++fresh;
+    }
+    std::printf("[script] state restore: %d/%d edits\n", restored, total);
+    std::fflush(stdout);
+    return true;
+}
+
+bool JKScriptHost::DispatchSaveState(std::string& jsonOut) {
+    jsonOut.clear();
+    if (!ctx_) return false;
+    JSContext* ctx = static_cast<JSContext*>(ctx_);
+    JsValue global(ctx, JS_GetGlobalObject(ctx));
+    JsValue fn(ctx, JS_GetPropertyStr(ctx, global.value(), "onSaveState"));
+    if (!JS_IsFunction(ctx, fn.value())) return false;
+    JsValue call(ctx, JS_Call(ctx, fn.value(), JS_UNDEFINED, 0, nullptr));
+    if (JS_IsException(call.value())) {
+        // 예외 = 상태 없음으로 봉합 — 리로드 폐곡선이 계속된다(브릭 금지).
+        std::printf("[script] onSaveState error: %s\n",
+                    DumpPendingException(ctx).c_str());
+        std::fflush(stdout);
+        return false;
+    }
+    // onAgentAct/onSnapshot 반환 계약 동일: 문자열=원문, 객체=JSON.stringify.
+    if (JS_IsString(call.value())) {
+        jsonOut = ToUtf8(ctx, call.value());
+        return !jsonOut.empty();
+    }
+    if (JS_IsObject(call.value())) {
+        JsValue g(ctx, JS_GetGlobalObject(ctx));
+        JsValue jsonFn(ctx, JS_GetPropertyStr(ctx, g.value(), "JSON"));
+        JsValue stringify(ctx, JS_GetPropertyStr(ctx, jsonFn.value(),
+                                                 "stringify"));
+        if (JS_IsFunction(ctx, stringify.value())) {
+            JSValueConst sarg[1] = { call.value() };
+            JsValue out(ctx, JS_Call(ctx, stringify.value(), JS_UNDEFINED, 1,
+                                     sarg));
+            if (JS_IsString(out.value())) {
+                jsonOut = ToUtf8(ctx, out.value());
+                return !jsonOut.empty();
+            }
+        }
+        return false;
+    }
+    return false;
+}
+
+bool JKScriptHost::DispatchRestoreState(const std::string& json) {
+    if (!ctx_ || json.empty()) return false;
+    JSContext* ctx = static_cast<JSContext*>(ctx_);
+    JsValue global(ctx, JS_GetGlobalObject(ctx));
+    JsValue fn(ctx, JS_GetPropertyStr(ctx, global.value(), "onRestoreState"));
+    if (!JS_IsFunction(ctx, fn.value())) return true;  // additive 훅 — 부재 무사
+    JsValue arg(ctx, JS_NewStringLen(ctx, json.data(), json.size()));
+    JSValueConst argv[1] = { arg.value() };
+    JsValue call(ctx, JS_Call(ctx, fn.value(), JS_UNDEFINED, 1, argv));
+    if (JS_IsException(call.value())) {
+        // 로그 덤프하고 계속 — 복원 실패가 리로드를 죽이지 않는다(브릭 금지).
+        std::printf("[script] onRestoreState error: %s\n",
+                    DumpPendingException(ctx).c_str());
+        std::fflush(stdout);
+    }
     return true;
 }
 

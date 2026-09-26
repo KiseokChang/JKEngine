@@ -116,6 +116,31 @@ public:
     // 동일(문자열=원문, 객체=JSON.stringify). 빈 결과/부재/예외는 ok=false.
     bool DispatchAgentSnapshot(bool& ok, std::string& resultJson);
 
+    // --- 상태 보존 리로드 (docs/67 단 1 — 사훈 1의 폴백 경로) ---------------
+    // 캡처: 편집창(JKEdit)만 — 텍스트(KSSM→UTF-8 경계 변환)+입력모드(한/영).
+    // 라벨은 스크립트 소유 파생 출력이라 복원하지 않는다(한계 문서화).
+    // 형식 {"v":1,"edits":[{"i":N,"t":"...","m":M},...]} — i=편집창 생성순번.
+    // 편집창이 하나도 없으면 false(스냅샷 대상 없음 — 호출자 생략).
+    bool CaptureWidgetState(std::string& outJson) const;
+    // 복원: 새 controls_의 j번째 JKEdit ↔ edits[j](편집창 생성순서 접두 매칭 —
+    // 컨트롤 id는 Start마다 1000 리셋이므로 순번이 유일한 안정 키). 초과분
+    // 무시·부족분 신규 기본값 — 양쪽 모두 "[script] state restore: n/m edits"
+    // 로그로 표면화(조용한 눌먹기 금지 — 상태 동일성 게이트가 이 로그 단정).
+    // Start 후(ctx 생존)에만 호출 가능(QuickJS JSON.parse 사용).
+    bool RestoreWidgetState(const std::string& json);
+    // 스크립트의 onSaveState() 호출. 반환 계약은 onSnapshot과 동일(문자열=원문,
+    // 객체=JSON.stringify). 훅 부재·예외·빈 결과 = jsonOut ""(false).
+    bool DispatchSaveState(std::string& jsonOut);
+    // 스크립트의 onRestoreState(saved) 호출 — additive 훅(부재=무사). 예외는
+    // 로그 덤프하고 계속한다(브릭 금지 — 복원 실패가 리로드를 죽이지 않는다).
+    // 반환: false = 컨텍스트 소멸, true = 봉합 완료(예외 포함).
+    bool DispatchRestoreState(const std::string& json);
+    // 리로드 직전 캡처한 JS 상태를 Start 후반(onCreate 직후)에 소비하도록
+    // 적재. Start 서두에서 클리어 — 죽은 리로드가 오래된 복원을 물고 온다.
+    void SetPendingRestoreState(const std::string& json) {
+        pendingRestoreJson_ = json;
+    }
+
     // Introspection (self-test, docs/27 §2.4): the property names actually
     // visible to the script via Object.getOwnPropertyNames(globalThis).
     std::vector<std::string> BoundNames() const;
@@ -159,6 +184,10 @@ private:
     // 의미 커서 (declareCursor 봉합 원문; 빈 문자열 = 미선언).
     std::string cursorDeclJson_;
     std::function<void(const std::string& json)> cursorDeclChanged_;
+
+    // 상태 보존 리로드 (docs/67 단 1): 리로드 직전 캡처한 JS 상태 원문.
+    // Start 서두·소비 후 클리어(§ DispatchRestoreState).
+    std::string pendingRestoreJson_;
 
     int assertChecks_ = 0;
     int assertFailures_ = 0;
