@@ -91,6 +91,48 @@
 - **잔여**: 라이브 패치(사훈 1 본체)·폰 미러(사용자 결정)·사훈 3(위젯→코드
   점프)·사훈 4(반응형 결속) — 후자 2건은 계약 v2(단 3) 예약 자리 유지.
 
+#### 단 2 리파인 as-built (2026-09-27) — 캡션 임베딩: 슬롯 스트립을 타이틀 바로
+
+사용자 설계 질문 "슬롯을 client 영역에 그리나요? 프레임 바 같은 걸로 배치해야
+하지 않나요?" → 확정 "당연 2로 진행" (프레임 바 배치). 슬롯 스트립(라벨+
+JKComboBox)을 클라 영역 28px 헤더 밴드에서 **창 타이틀 바 안**으로 옮기고
+패널이 28px를 반납해 클라 영역 전체 회수.
+
+- **기제 — 선언형 패스스루 존**: 신규 와이어 `MsgType::TitlePassthrough`(25,
+  `a9ef58f`) — 클라가 surface 로컬 사각형 1개를 선언하면 서버 `TryChromeGrab`
+  이 그 안의 MouseDown을 크롬 그랩(이동·더블클릭 최대화) 대신 클라로 흘려보냄
+  (zone 1m — 최대화(zone 1b) 뒤, 더블클릭 최대화(zone 1c) **앞**). 저장은
+  `JKClientConnection`(title_ 선례, 접속 소멸 시 자동 해제).
+- **fail-closed clamp**: 수신 시 리사이즈 링(6px)·타이틀 바(y<24) 밖·닫기/
+  최대화 박스를 절단, 그랩 시점에 현재 `w` 기준 우변 재절단(선언 뒤 창이
+  작아진 경우). 패스스루 위 호버 커서 = Arrow 고정.
+- **블로커 4개**: ①서버 이동 그랩이 ly<24 MouseDown 흡수(zone 1m 해결)
+  ②클라 `JKWindow::HitTest/HitTestRegion` 게이트(스트립→Client widening)
+  ③**페인트 클립** — `JKControl::PaintClient`가 screen CLIENT rect로 클립해
+  음수 y 자식이 잘림 → `JKWindow::PaintClient` 오버라이드(스트립 선언 시에만
+  클립을 창 전체로, `JKControl::PaintClient` virtual화 — 기존 서브클래스
+  선언 0건 확인 후 additive) ④더블클릭 최대화(패스스루가 zone 1c보다 먼저).
+- **측정 좌표(진실원 1곳 `kStripComboRect{50,-21,160,22}` 클라 좌표)**:
+  → surface `{52,3,160,22}`. 콤보 화살표 존 = surface x≥194(우측 18px만
+  드롭다운 토글 — `JKComboBox::RespondMessage`). 팝업 top = 클라 y 1 =
+  surface y 25(`ToggleDropDown`에 `max(rc.y+rc.h,0)` 방어 clamp 보험).
+- **레이아웃 생존**: 스트립 자식 rect는 ANCHOR_NONE 기본이라 리사이즈·최대화에도
+  제자리 — 재선언/재전송 불필요(실증). 타이틀 텍스트는 스트립 우변 뒤로 밈.
+- **게이트 ×2**: `probe_title_strip.ps1`(신규 e2e: 캡션 콤보 클릭→드롭다운
+  페인트→행 클릭으로 슬롯 전환 list_slots 단정→close_window 크롬 생존, USER
+  FILE 가드) ×3 ALL PASS + 회귀 probe_agent_maximize/probe_workshop(7 rows)/
+  probe_conquest_workshop ×2 + AppSelfTest 0 fail(스트립 5체크 신설).
+- **커밋**: a9ef58f(T1 서버)·d347c64(T2 단일 모드 미러)·3dec368(T3 클라)·
+  316ed7d(T4 프로브).
+- **레슨**: ①jkapp_script.dll 재빌드 뒤 **workshop.jkx 재팩 필수** — 실행 중
+  클라가 jkx를 물어 IOException, 프로세스 정지 선행. stale jkx에선 캡션 클릭
+  테스트가 조용히 구버전으로 통과(기존 프로브는 캡션 클릭을 안 건드려 감지
+  불가). ②JKComboBox 토글 함정 — 드롭다운이 열린 채 화살표를 다시 클릭하면
+  **닫힘**(ToggleDropDown 토글). ③`verify_fixwin3.ps1`는 폐게이트 — 존재하지
+  않는 prototype 빌드를 대상으로 함, AppSelfTest로 대체.
+- **수용**: 승인 배너가 스트립을 일시 가림(서버가 kChromeTitleBar를 덧그림) —
+  docs/19 §7.1 명기. 잔여: 라이브 패치·폰 미러는 단 1 리파인 후보로 이월.
+
 ### 단 2 — 출하·나눔 (앞에 트러스트 문)
 - **트러스트 문(선결)**: 워크숍 무승인 경계 명문화 + 배포 트러스트 모델. 후보 =
   능력(capability) 선언형 — manifest가 쓰는 API를 선언, 엔진이 게이트.
@@ -141,6 +183,9 @@
 
 - **[갱신 2026-09-26] 단 1 완결**(§4 as-built) — 잔여: 라이브 패치+폰 미러
   (단 1 리파인 후보, 사용자 "리파인은 여러 번 반복해도 좋다") → 그다음 단 2.
+- **[갱신 2026-09-27] 단 2 리파인 완결** — 캡션 임베딩(§4 단 2 리파인
+  as-built): 슬롯 스트립을 타이틀 바로, 패스스루 존 신설, 클라 28px 회수.
+  잔여(라이브 패치·폰 미러)는 단 1 리파인 후보로 이월 → 그다음 단 2 본편.
 - 단 1 착수 시: 플랜 모드에서 **복수 슬롯+버전 리본+상태 보존 리로드를 한
   설계로**. 사훈 3(점프)·4(결속)는 단 1 설계에 자리만 예약(포인터 저장,
   구현은 후 단). — 완료. 다음 착수 시: 단 2는 **트러스트 문 설계가 선결**

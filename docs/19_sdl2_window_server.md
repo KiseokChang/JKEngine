@@ -71,6 +71,7 @@
 | `WindowActivate` | C→S | `WindowActivatePayload{surfaceId}` | 창 포커스(+최소화 상태면 복귀) |
 | `ShellRegisterAck` | S→C | `ShellRegisterAckPayload{accepted}` | 셸 등록 승인/거부 — 거부 시 셸 후보는 inert |
 | `WindowMinimizeToggle` | C→S | `WindowActivatePayload{surfaceId}` | 창 표시/숨김 토글(서버가 레이어 가시성만 전환) |
+| `TitlePassthrough` | C→S | `TitlePassthroughPayload{x,y,w,h}` (surface 로컬 px, 2026-09-27 추가) | 타이틀 바 안 크롬 그랩 면제 사각형 선언 — §7.1 패스스루 존 (docs/67 단 2) |
 
 - 닫기 버튼: 서버가 `Close`를 **S→C로** 보내면 클라 `JKClientSurface::ReadLoop`가 `JKEventType::Quit`로 변환 → 클라가 정상 종료 루프를 타고 C→S `Close` 전송 → 서버 `CleanupDisconnectedClients`가 레이어 제거.
 
@@ -167,10 +168,14 @@ outputScale = SDL_GetRendererOutputSize().w / SDL_GetWindowSize().w   (=DPI 배�
 | 영역 | rect | 동작 |
 |------|------|------|
 | 닫기 | `x∈[W-22, W-2), y∈[2, 22)` | `Close` S→C 전송 → 클라 정상 종료 → disconnect → 레이어 제거 |
+| 최대화/복원 | `x∈[W-44, W-24), y∈[2, 22)` (docs/39) | `ToggleMaximize` |
+| 타이틀 패스스루 | 클라가 선언한 사각형 1개 (`TitlePassthrough`, 아래) | **크롬 그랩 회피** — MouseDown이 클라로 전달됨 (docs/67 단 2) |
 | 리사이즈 | 4면 6px inset (`kResizeHotspot`), 모서리는 대각 리사이즈 — **TR 코너는 닫기 X 우선** | 드래그 중 `SetLayerScale` 늘리기 프리뷰(반대편 엣지 고정) → MouseUp에 커밋 |
-| 타이틀 | `y∈[6, 24)` (위 영역 제외) | 드래그 이동. 이동 중 입력은 클라에 전달되지 않음 |
+| 타이틀 | `y∈[6, 24)` (위 영역 제외) | 드래그 이동. 이동 중 입력은 클라에 전달되지 않음. 더블클릭(`clicks==2`)은 최대화 토글 |
 
-- 판정 순서: 닫기 → 리사이즈 → 타이틀. 왼쪽 버튼만 크롬으로 처리한다.
+- 판정 순서(2026-09-27 갱신): **닫기 → 최대화 → 타이틀 패스스루 → 더블클릭 최대화 → 리사이즈 → 타이틀 이동**. 모든 마우스 버튼이 크롬 판정을 통과한다(2026-09-27 문서 정정 — 구문 "왼쪽 버튼만"은 코드와 불일치였다, `HandleSDLEvent`는 버튼 필터 없이 `TryChromeGrab`을 통과시킴).
+- **타이틀 바 패스스루 존 (docs/67 단 2)**: 클라가 `MsgType::TitlePassthrough`(25)로 surface 로컬 사각형 1개를 선언하면 그 안의 MouseDown은 크롬 그랩(이동·더블클릭 최대화)을 시작하지 않고 클라로 흘러간다. 서버는 수신 시 **fail-closed clamp** — 리사이즈 링(6px)·타이틀 바(y<24) 밖·닫기/최대화 박스를 침벑한 부분을 잘라낸다. 그랩 시점에도 현재 `w` 기준 우변을 재절단(선언 뒤 창이 작아진 경우). 패스스루 위 호버 커서는 화살표 고정(위젯이 자기 호버를 그린다). 접속 소멸 시 자동 해제. 소비자: 워크숍 슬롯 콤보(캡션 임베딩 — docs/67 단 2). **승인 배너는 이 스트립을 일시 가린다(수용 — 서버가 kChromeTitleBar를 덧그림).**
+- **단일 모드 미러**: `JKWindow::frameStripRect_`(클라이언트 좌표, 음수 y 가능) — `HitTest`/`HitTestRegion`이 스트립을 클라이언트 취급하고 `PaintClient`가 클립을 창 전체로 넓히며 `PaintWindow` 타이틀 텍스트는 스트립 우변 뒤로 민다. surface 좌표 변환은 `GetFrameStripSurfaceRect()`가 `clientRect_` 오프셋으로 수행(상수 포킹 금지).
 - 최소 크기 clamp 64×48 (단일 모드 `JKWindow`와 동일).
 - 이동 clamp: 창 밖으로 완전히 나가지 않도록 제한.
 - **호버 피드백(2026-09-06)**: 리사이즈 핫스팟 위에서 SDL system cursor를 방향 커서로 교체
