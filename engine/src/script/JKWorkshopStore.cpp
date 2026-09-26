@@ -28,7 +28,10 @@ bool ReadFileAll(const std::string& path, std::string& out) {
 
 bool WriteFileAll(const std::string& path, const std::string& data) {
     // .new→rename 사다리(JKWindowServer.cpp:2620-2629 1세대 규약의 다세대 확장):
-    // 부분 쓰기가 진짜 이름으로 도달하지 않는다.
+    // 부분 쓰기가 진짜 이름으로 도달하지 않는다. UCRT rename은 대상 존재 시
+    // 실패한다(POSIX와 다름 — 2026-09-26 라이브 게이트 c7 실측: 슬롯 재전환의
+    // .current 재쓰기가 조용히 눌먹음). tmp 완성 후 remove+rename — 부분 쓰기
+    // 방어는 그대로 유지된다.
     const std::string tmp = path + ".new";
     std::FILE* f = nullptr;
     if (fopen_s(&f, tmp.c_str(), "wb") != 0 || !f) return false;
@@ -38,6 +41,7 @@ bool WriteFileAll(const std::string& path, const std::string& data) {
         std::remove(tmp.c_str());
         return false;
     }
+    std::remove(path.c_str());  // 존재하지 않아도 무해 — rename 선결조건
     if (std::rename(tmp.c_str(), path.c_str()) != 0) {
         std::remove(tmp.c_str());
         return false;
