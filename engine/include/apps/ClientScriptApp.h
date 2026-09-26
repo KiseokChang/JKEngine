@@ -18,6 +18,7 @@
 #include <script/JKScriptHost.h>
 
 #include <cstdio>
+#include <map>
 #include <vector>
 
 #include <memory>
@@ -80,7 +81,7 @@ protected:
     }
 
     // Script-start hook (의미 커서, docs/60 §5): every fresh script evaluation
-    // (boot, hot reload, SyncReload) ends here so a registration that depends
+    // (boot, hot reload, ReloadNow) ends here so a registration that depends
     // on what the new script just did (declareCursor / onAgentAct) re-runs.
     // Fires after EVERY Start attempt — a failed reload leaves the host's
     // declared cursor empty, and the hook must re-register WITHOUT it so a
@@ -130,6 +131,17 @@ protected:
         host_->SetTimerServices(std::move(services));
 
         host_->Attach(panel_);
+        // 상태 복원 적재 (docs/67 단 1): 같은 경로의 직전 리로드가 보관한
+        // 스냅샷이 있으면 JS 훅 원문을 pending으로 적재 — Start 후반
+        // (onCreate 직후)의 onRestoreState가 먼저, 위젯 복원이 그 다음
+        // (마지막에 이긴다). 실패 리로드는 스냅샷을 보존한다 — 소비(erase)는
+        // 성공 Start 뒤에만.
+        std::string widgetJson;
+        if (auto it = stateByPath_.find(scriptPath_); it != stateByPath_.end()) {
+            widgetJson = it->second.widgetJson;
+            if (!it->second.jsState.empty())
+                host_->SetPendingRestoreState(it->second.jsState);
+        }
         if (!host_->Start(scriptPath_)) {
             std::printf("[script] start failed: %s\n",
                         host_->LastError().c_str());
@@ -142,6 +154,11 @@ protected:
                 JKRect{ 8, 8, cr.w > 16 ? cr.w - 16 : cr.w, 24 });
             label->SetText("[script error] " + host_->LastError());
             panel_->AddControl(std::unique_ptr<JKStatic>(label));
+        } else {
+            // 복원 2단: 위젯(JKEdit 텍스트+입력모드) — onCreate+onRestoreState
+            // 후에 와서 마지막에 이긴다(위젯 복원 우선, 라벨은 복원 금지).
+            if (!widgetJson.empty()) host_->RestoreWidgetState(widgetJson);
+            stateByPath_.erase(scriptPath_);  // 성공만 소비
         }
         lastMtime_ = FileMtime(scriptPath_);
         OnScriptStarted();
@@ -161,6 +178,10 @@ protected:
     void OnWatchTick() {
         if (reloadPending_) {
             reloadPending_ = false;
+            // 이중 기동 가드 (docs/67 단 1 — 잠복 결함 봉합): 도구 경로
+            // (ReloadNow)가 틱 사이에 이미 패널을 새로 지었으면 pending은
+            // 유령이 된다 — 무조건 StartScript하던 2단이 만들던 패널 중복.
+            if (panel_) return;
             StartScript();
             return;
         }
@@ -169,6 +190,19 @@ protected:
         lastMtime_ = mtime;
         std::printf("[script] app.js changed - hot reload\n");
         std::fflush(stdout);
+        RequestReload();
+    }
+
+    // --- 통합 리로드 경로 (docs/67 단 1) -------------------------------------
+    // 감시 핫 리로드·도구 동기 리로드·슬롯 전환이 같은 문(TeardownLiveScript)을
+    // 지난다 — 상태 캡처의 누락 경로가 없다. 캡처는 Stop 전(onSaveState →
+    // onExit 순서 계약), 복원은 Start 후 onCreate 직후(§ StartScript).
+    void TeardownLiveScript() {
+        ScriptSavedState saved;
+        host_->CaptureWidgetState(saved.widgetJson);
+        host_->DispatchSaveState(saved.jsState);
+        if (!saved.widgetJson.empty() || !saved.jsState.empty())
+            stateByPath_[scriptPath_] = std::move(saved);
         host_->Stop();
         if (g_jkAppHost) {
             g_jkAppHost->SetModalWindow(nullptr);
@@ -178,26 +212,25 @@ protected:
             panel_->RequestClose();
             panel_ = nullptr;
         }
+    }
+
+    // 감시 핫 리로드 1단: 패널만 닫고 다음 틱에서 재기동(이벤트 드레인 후
+    // RemoveClosedChildren가 파산 청산 — 기존 2단 사다리 유지).
+    void RequestReload() {
+        TeardownLiveScript();
         reloadPending_ = true;
     }
 
-    // Synchronous reload (docs/60 §2.3): Stop + panel teardown + immediate
-    // rebuild, returning whether the fresh script booted (LastError() has the
-    // error otherwise). Only valid on the frame thread — agent tool calls run
+    // 동기 리로드/슬롯 전환 (docs/60 §2.3 SyncReload의 후신): 즉시 재기동,
+    // returning whether the fresh script booted (LastError() has the error
+    // otherwise). Only valid on the frame thread — agent tool calls run
     // inside JKClientApplication::Run's sweep (app-tool-hub §8.2), the same
     // main/UI thread as every event handler, so QuickJS's main-thread-only
     // rule (docs/27 §3.2) holds. The sweep calls RemoveClosedChildren a few
     // lines after the tool poll; doing it inline here first is idempotent.
-    bool SyncReload() {
-        host_->Stop();
-        if (g_jkAppHost) {
-            g_jkAppHost->SetModalWindow(nullptr);
-            g_jkAppHost->ReleaseCapture();
-        }
-        if (panel_) {
-            panel_->RequestClose();
-            panel_ = nullptr;
-        }
+    bool ReloadNow() {
+        TeardownLiveScript();
+        reloadPending_ = false;
         if (JKWindow* main = this->GetMainWindow()) {
             main->RemoveClosedChildren();
         }
@@ -209,6 +242,16 @@ protected:
     std::string scriptPath_;
     std::unique_ptr<JKScriptHost> host_;
     JKWindow* panel_ = nullptr;  // owned by the main window's child list
+
+    // 상태 보존 리로드 (docs/67 단 1 — 사훈 1의 폴백 경로): 리로드 간 수송
+    // 수단일 뿐 진실원이 아니다(파일화=리로드마다 쓰기+크래시 부패 부활+
+    // state/scripts 잡음 — in-memory가 맞다). key = scriptPath_. 슬롯 전환은
+    // 이 map이 무료로 상태를 보존한다(스위치 아웃→구 경로 키, 복귀→복원).
+    struct ScriptSavedState {
+        std::string widgetJson;  // {"v":1,"edits":[...]} (JKScriptHost 캡처)
+        std::string jsState;     // onSaveState() 원문
+    };
+    std::map<std::string, ScriptSavedState> stateByPath_;
 
     // Hot reload state (dev-only). The mtime poll rides an internal app timer
     // at kWatchTimerWinId so the reload path is identical on both bases;
@@ -345,7 +388,7 @@ protected:
                 out = "{\"error\":\"write_failed\"}";
                 return false;
             }
-            if (SyncReload()) {
+            if (ReloadNow()) {
                 out = "{\"ok\":true}";
                 return true;
             }
