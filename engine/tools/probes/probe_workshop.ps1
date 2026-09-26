@@ -1,7 +1,8 @@
 # probe_workshop.ps1 - workshop regression (docs/60 §4). ASCII-only (PS5.1).
 # Checks (setup + 9):
 #   s1 server up (probe-owned lifecycle: fresh --server)
-#   s2 spawn workshop.jkx -> get_script/set_script/api registered (3 rows)
+#   s2 spawn workshop.jkx -> 7 tools registered (docs/67 stage 1: +list_slots/
+#      use_slot/script_history/restore_script)
 #   s3 template seeded: state/scripts/myapp.js exists + has createButton
 #   1  get_script roundtrip: ok:true + source contains createButton
 #   2  set_script good source -> ok:true + DISK file actually written +
@@ -16,7 +17,7 @@
 #      payload must pass through, NOT answer args_too_large
 #   5  watch path: DISK edit (not via tools) -> client log
 #      "[script] app.js changed - hot reload" within 3s
-#   6  cleanup: close_window -> catalog rows 3 -> 0
+#   6  cleanup: close_window -> catalog rows 7 -> 0
 #   7  truth source restored to the template (clean state for the eye check)
 # permissions.json is NEVER touched by this probe (docs/59 §16.1 incident):
 # app_tool defaults to allow without keys, and close_window allowance comes
@@ -91,14 +92,18 @@ try {
         Start-Sleep -Milliseconds 500
         $cat = Catalog
         $rows = [regex]::Matches($cat, '"app":"workshop"').Count
-        if ($rows -eq 3) { break }
+        if ($rows -eq 7) { break }
     }
     $head = $cat
     if ($head.Length -gt 300) { $head = $head.Substring(0, 300) }
-    Check "s2-spawn-3-rows" ($rows -eq 3) ("rows=$rows / " + $head)
+    Check "s2-spawn-7-rows" ($rows -eq 7) ("rows=$rows / " + $head)
     $namesOk = ($cat -match '"app":"workshop","name":"get_script"') -and
                ($cat -match '"app":"workshop","name":"set_script"') -and
-               ($cat -match '"app":"workshop","name":"api"')
+               ($cat -match '"app":"workshop","name":"api"') -and
+               ($cat -match '"name":"list_slots"') -and
+               ($cat -match '"name":"use_slot"') -and
+               ($cat -match '"name":"script_history"') -and
+               ($cat -match '"name":"restore_script"')
     Check "s2-catalog-names" $namesOk ""
 
     # ---- s3: template seeded on first boot --------------------------------------

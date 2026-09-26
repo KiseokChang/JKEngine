@@ -16,6 +16,7 @@
 #include <client/JKClientApplication.h>
 #include <client/JKClientSurface.h>
 #include <script/JKScriptHost.h>
+#include <script/JKWorkshopStore.h>
 
 #include <cstdio>
 #include <map>
@@ -289,6 +290,18 @@ public:
 
 protected:
     void OnInit() override {
+        // 마지막 슬롯 영속 (docs/67 단 1): .current_<appName>이 유효한 슬롯을
+        // 가리키면 그 파일로 부팅(파일=진실원), 무효·부재·파일 부재면 MANI
+        // 스템(myapp) 유지. ScriptAppT::OnInit가 StartScript하므로 경로 교체는
+        // 그 전에.
+        std::string slot;
+        const std::string dir = jk::workshop::DirOf(scriptPath_);
+        if (jk::workshop::ReadCurrentSlotFile(dir, agentAppName_, slot) &&
+            jk::workshop::IsValidSlotName(slot)) {
+            std::string probe;  // 존재 확인 겸용 — 읽은 내용은 버린다
+            if (ReadTextFile(dir + "\\" + slot + ".js", probe))
+                scriptPath_ = dir + "\\" + slot + ".js";
+        }
         ScriptAppT<JKClientApplication>::OnInit();
         // The register itself rides OnScriptStarted (fired from StartScript
         // right after the script evaluated — a declareCursor in global code /
@@ -312,17 +325,43 @@ protected:
         if (!decl.empty() && decl == lastSentDeclJson_) return;
         using Decl = jk::client::JKClientSurface::AgentToolDecl;
         std::vector<Decl> tools = {
-            {"get_script", "Read the workshop script source", "{}"},
+            {"get_script",
+             "Read the workshop script source (slot optional — default is "
+             "the current slot)",
+             "{\"type\":\"object\",\"properties\":{\"slot\":{\"type\":"
+             "\"string\"}}}"},
             {"set_script",
              "Replace the workshop script and reload it synchronously — "
-             "a script error comes back in the same response",
+             "a script error comes back in the same response. slot optional: "
+             "writes another slot and auto-switches; the pre-write source is "
+             "snapshotted to the version ribbon (.history/<slot>/NNNN.js)",
              "{\"type\":\"object\",\"properties\":{\"source\":{\"type\":"
-             "\"string\"}},\"required\":[\"source\"]}"},
+             "\"string\"},\"slot\":{\"type\":\"string\"}},\"required\":"
+             "[\"source\"]}"},
             {"api",
              "List the workshop script API: function signatures and "
              "constraints (charset, timers, events). Call this before "
              "writing a script",
              "{}"},
+            {"list_slots",
+             "List workshop slots (script files). Each slot is its own "
+             "workspace; widget/JS state is preserved per slot",
+             "{\"type\":\"object\",\"properties\":{}}"},
+            {"use_slot",
+             "Switch to another slot and reload it (state preserved)",
+             "{\"type\":\"object\",\"properties\":{\"slot\":{\"type\":"
+             "\"string\"}},\"required\":[\"slot\"]}"},
+            {"script_history",
+             "Version ribbon: list saved generations (NNNN.js snapshots) of a "
+             "slot, oldest first",
+             "{\"type\":\"object\",\"properties\":{\"slot\":{\"type\":"
+             "\"string\"}}}"},
+            {"restore_script",
+             "Restore a slot to a saved generation. The pre-restore content "
+             "becomes a new generation, so a restore is itself undoable",
+             "{\"type\":\"object\",\"properties\":{\"slot\":{\"type\":"
+             "\"string\"},\"gen\":{\"type\":\"integer\"}},\"required\":"
+             "[\"gen\"]}"},
         };
         if (!decl.empty() && host_->HasGlobalFn("onAgentAct")) {
             // 앱 자체 act 도구 — 서버가 선언 kinds를 이 스키마의 enum에 병합하고
@@ -364,41 +403,194 @@ protected:
             return true;
         }
         if (tool == "get_script") {
-            std::string source;
-            if (!ReadTextFile(scriptPath_, source)) {
-                out = "{\"error\":\"read_failed\"}";
+            jk::agent::AgentJson args(argsJson);
+            std::string slotArg;
+            if (args.ok()) (void)args.GetStr("slot", slotArg);
+            std::string slot, path;
+            if (!ResolveSlot(slotArg, slot, path)) {
+                out = R"({"error":"bad_slot","rule":"[A-Za-z0-9_-]{1,32}"})";
                 return false;
             }
-            out = "{\"ok\":true,\"source\":\"" + JsonEsc(source) + "\"}";
+            std::string source;
+            if (!ReadTextFile(path, source)) {
+                out = "{\"error\":\"read_failed\",\"slot\":\"" +
+                      JsonEsc(slot) + "\"}";
+                return false;
+            }
+            out = "{\"ok\":true,\"slot\":\"" + JsonEsc(slot) +
+                  "\",\"source\":\"" + JsonEsc(source) + "\"}";
             return true;
         }
         if (tool == "set_script") {
             jk::agent::AgentJson args(argsJson);
-            std::string source;
+            std::string source, slotArg;
             if (!args.ok() || !args.GetStr("source", source)) {
                 out = "{\"error\":\"bad_args\",\"need\":\"source:string\"}";
                 return false;
             }
+            (void)args.GetStr("slot", slotArg);  // 옵션 — 있으면 자동 전환
             if (source.size() > kMaxScriptBytes) {
                 out = "{\"error\":\"too_large\",\"cap\":" +
                       std::to_string(kMaxScriptBytes) + "}";
                 return false;
             }
-            if (!WriteTextFile(scriptPath_, source)) {
+            std::string slot, path;
+            if (!ResolveSlot(slotArg, slot, path)) {
+                out = R"({"error":"bad_slot","rule":"[A-Za-z0-9_-]{1,32}"})";
+                return false;
+            }
+            // 버전 리본 (docs/67 단 1): 도구 매개 덮어쓰기 직전 원문 스냅샷.
+            // 대상 부재(신규 슬롯 첫 쓰기)는 스냅샷 없음(gen 0) — 스냅샷 실패는
+            // 진실원 불접촉(원칙 1: 부분 실패가 진실원을 오염시키지 않는다).
+            std::string prev;
+            int gen = 0;
+            if (ReadTextFile(path, prev)) {
+                gen = jk::workshop::AppendSnapshot(
+                    jk::workshop::DirOf(scriptPath_), slot, prev);
+                if (gen == 0) {
+                    out = "{\"error\":\"snapshot_failed\"}";
+                    return false;
+                }
+            }
+            if (!WriteTextFile(path, source)) {
                 out = "{\"error\":\"write_failed\"}";
                 return false;
             }
-            if (ReloadNow()) {
-                out = "{\"ok\":true}";
+            // 같은 슬롯 = 동기 리로드(폐곡선), 다른 슬롯 = 기록 후 자동 전환.
+            // 응답은 리로드 성패와 무관하게 gen을 포함한다(폐곡선 유지).
+            const bool reloadOk =
+                (scriptPath_ == path) ? ReloadNow() : SwitchToSlot(slot);
+            if (!reloadOk) {
+                out = "{\"ok\":false,\"slot\":\"" + JsonEsc(slot) +
+                      "\",\"gen\":" + std::to_string(gen) + ",\"error\":\"" +
+                      JsonEsc(host_->LastError()) +
+                      "\",\"hint\":\"call the api tool for the function list\"}";
+                return false;
+            }
+            out = "{\"ok\":true,\"slot\":\"" + JsonEsc(slot) +
+                  "\",\"gen\":" + std::to_string(gen) + "}";
+            return true;
+        }
+        if (tool == "list_slots") {
+            std::vector<std::string> slots;
+            jk::workshop::ListSlots(jk::workshop::DirOf(scriptPath_), slots);
+            std::string body;
+            for (const auto& s : slots) {
+                if (!body.empty()) body += ",";
+                body += "\"" + JsonEsc(s) + "\"";
+            }
+            out = "{\"ok\":true,\"current\":\"" + JsonEsc(CurrentSlotName()) +
+                  "\",\"slots\":[" + body + "]}";
+            return true;
+        }
+        if (tool == "use_slot") {
+            jk::agent::AgentJson args(argsJson);
+            std::string slotArg;
+            if (!args.ok() || !args.GetStr("slot", slotArg)) {
+                out = "{\"error\":\"bad_args\",\"need\":\"slot:string\"}";
+                return false;
+            }
+            if (!jk::workshop::IsValidSlotName(slotArg)) {
+                out = R"({"error":"bad_slot","rule":"[A-Za-z0-9_-]{1,32}"})";
+                return false;
+            }
+            if (slotArg == CurrentSlotName()) {
+                out = "{\"ok\":true,\"slot\":\"" + JsonEsc(slotArg) + "\"}";
                 return true;
             }
-            // The closed loop (docs/60 §2.3): the failing script's error text
-            // travels back inside the tool response so the agent fixes itself.
-            // The api hint turns "createListBox is not defined" style failures
-            // into a one-turn fix (docs/60 §8 — 폰 세션 실측: 추측 3턴 소모).
-            out = "{\"ok\":false,\"error\":\"" + JsonEsc(host_->LastError()) +
-                  "\",\"hint\":\"call the api tool for the function list\"}";
-            return false;
+            std::string probe;
+            if (!ReadTextFile(jk::workshop::DirOf(scriptPath_) + "\\" +
+                                  slotArg + ".js",
+                              probe)) {
+                out = "{\"error\":\"no_such_slot\",\"slot\":\"" +
+                      JsonEsc(slotArg) + "\"}";
+                return false;
+            }
+            if (!SwitchToSlot(slotArg)) {
+                // 전환·기동은 성립했고 새 슬롯의 실패 라벨이 패널에 표시된다 —
+                // 오류를 폐곡선으로 회신(조용한 눌먹기 금지).
+                out = "{\"ok\":false,\"slot\":\"" + JsonEsc(slotArg) +
+                      "\",\"error\":\"" + JsonEsc(host_->LastError()) +
+                      "\",\"hint\":\"call the api tool for the function list\"}";
+                return false;
+            }
+            out = "{\"ok\":true,\"slot\":\"" + JsonEsc(slotArg) + "\"}";
+            return true;
+        }
+        if (tool == "script_history") {
+            jk::agent::AgentJson args(argsJson);
+            std::string slotArg;
+            if (args.ok()) (void)args.GetStr("slot", slotArg);
+            std::string slot, path;
+            if (!ResolveSlot(slotArg, slot, path)) {
+                out = R"({"error":"bad_slot","rule":"[A-Za-z0-9_-]{1,32}"})";
+                return false;
+            }
+            std::vector<jk::workshop::HistoryEntry> gens;
+            if (!jk::workshop::ListHistory(jk::workshop::DirOf(scriptPath_),
+                                           slot, gens)) {
+                gens.clear();  // 세대 없음(첫 스냅샷 전) — 빈 목록이 정답
+            }
+            std::string body;
+            for (const auto& g : gens) {
+                if (!body.empty()) body += ",";
+                body += "{\"gen\":" + std::to_string(g.gen) +
+                        ",\"bytes\":" + std::to_string(g.bytes) +
+                        ",\"mtime\":" + std::to_string(g.mtimeSecs) + "}";
+            }
+            out = "{\"ok\":true,\"slot\":\"" + JsonEsc(slot) +
+                  "\",\"gens\":[" + body + "]}";
+            return true;
+        }
+        if (tool == "restore_script") {
+            jk::agent::AgentJson args(argsJson);
+            int gen = 0;
+            std::string slotArg;
+            if (!args.ok() || !args.GetInt("gen", gen)) {
+                out = "{\"error\":\"bad_args\",\"need\":\"gen:int\"}";
+                return false;
+            }
+            (void)args.GetStr("slot", slotArg);
+            std::string slot, path;
+            if (!ResolveSlot(slotArg, slot, path)) {
+                out = R"({"error":"bad_slot","rule":"[A-Za-z0-9_-]{1,32}"})";
+                return false;
+            }
+            const std::string dir = jk::workshop::DirOf(scriptPath_);
+            std::string source;
+            if (!jk::workshop::ReadGen(dir, slot, gen, source)) {
+                out = "{\"error\":\"no_such_gen\",\"slot\":\"" +
+                      JsonEsc(slot) + "\",\"gen\":" + std::to_string(gen) +
+                      "}";
+                return false;
+            }
+            // 복원 자체도 undoable — 직전 원문이 새 세대로 스냅샷된다.
+            int snapshotGen = 0;
+            std::string prev;
+            if (ReadTextFile(path, prev)) {
+                snapshotGen = jk::workshop::AppendSnapshot(dir, slot, prev);
+                if (snapshotGen == 0) {
+                    out = "{\"error\":\"snapshot_failed\"}";
+                    return false;
+                }
+            }
+            if (!WriteTextFile(path, source)) {
+                out = "{\"error\":\"write_failed\"}";
+                return false;
+            }
+            const bool reloadOk =
+                (scriptPath_ == path) ? ReloadNow() : SwitchToSlot(slot);
+            if (!reloadOk) {
+                out = "{\"ok\":false,\"slot\":\"" + JsonEsc(slot) +
+                      "\",\"gen\":" + std::to_string(gen) +
+                      ",\"snapshotGen\":" + std::to_string(snapshotGen) +
+                      ",\"error\":\"" + JsonEsc(host_->LastError()) + "\"}";
+                return false;
+            }
+            out = "{\"ok\":true,\"slot\":\"" + JsonEsc(slot) +
+                  "\",\"gen\":" + std::to_string(gen) + ",\"snapshotGen\":" +
+                  std::to_string(snapshotGen) + "}";
+            return true;
         }
         if (tool == "act") {
             // 의미 커서 act 중계 (스펙 2026-09-22-semantic-cursor §2, docs/60
@@ -440,6 +632,45 @@ protected:
 private:
     static constexpr size_t kMaxScriptBytes = 256 * 1024;  // docs/60 §2.3
 
+    // 현재 슬롯명 = scriptPath_ 스템(myapp 등) — 응답·영속의 표시 이름.
+    std::string CurrentSlotName() const {
+        const std::string dir = jk::workshop::DirOf(scriptPath_);
+        std::string stem = scriptPath_;
+        if (dir != ".") stem = scriptPath_.substr(dir.size() + 1);
+        const size_t dot = stem.find_last_of('.');
+        if (dot != std::string::npos) stem = stem.substr(0, dot);
+        return stem;
+    }
+
+    // 슬롯 인자 해석 (docs/67 단 1): 있으면 [A-Za-z0-9_-]{1,32} 검증 후
+    // <dirOf(scriptPath_)>\<slot>.js, 없으면 현재. 검증 실패 = bad_slot.
+    bool ResolveSlot(const std::string& slotArg, std::string& slotOut,
+                     std::string& pathOut) const {
+        if (slotArg.empty()) {
+            slotOut = CurrentSlotName();
+            pathOut = scriptPath_;
+            return true;
+        }
+        if (!jk::workshop::IsValidSlotName(slotArg)) return false;
+        slotOut = slotArg;
+        pathOut = jk::workshop::DirOf(scriptPath_) + "\\" + slotArg + ".js";
+        return true;
+    }
+
+    // 슬롯 전환 (docs/67 단 1): 상태는 stateByPath_가 무료로 보존한다
+    // (스위치 아웃 → 구 경로 키 보관, 복귀 → 복원). 사전 조건: 슬롯 파일이
+    // 존재한다(호출자 검증). 영속은 전환마다 재기록.
+    bool SwitchToSlot(const std::string& slot) {
+        const std::string dir = jk::workshop::DirOf(scriptPath_);
+        const std::string target = dir + "\\" + slot + ".js";
+        if (scriptPath_ == target) return true;  // 이미 현재
+        TeardownLiveScript();  // 구 경로 키로 상태 보존 — 경로 교체 전에
+        if (!agentAppName_.empty())
+            jk::workshop::WriteCurrentSlotFile(dir, agentAppName_, slot);
+        scriptPath_ = target;
+        return ReloadNow();
+    }
+
     // Workshop API digest (docs/60 §8): the phone LLM guessed at bindings
     // (createListBox 헛다리 — 2026-09-20 폰 세션 실측) because the contract
     // lived only in scripts/jk.d.ts, which the agent never sees. This digest
@@ -452,6 +683,9 @@ private:
         "\"charset\":\"위젯 텍스트는 ASCII+한글+기호(■□●◆ 등) 안전 — 이모지는 ??로 렌더됨(CP949 인코딩 불가, UTF-16 서러게이트당 ? 1개)\","
         "\"events\":\"전역 함수 onClick(id)를 정의하면 모든 클릭이 id와 함께 전달된다; 캔버스용 onMouse(type,x,y,canvasId,button)/onWheel(dy,x,y)/onKey(key,down)도 전역 함수로 정의하면 캔버스 입력이 전달된다 — 정의 없으면 무시. onMouse의 type은 down/up/move이고 button은 SDL 버튼 번호(1=왼쪽, 2=중간, 3=오른쪽, move는 0) — 좌/우 구분은 button으로 한다(2026-09-24 v5.1). onAgentAct(kind,row,col)를 정의하면 의미 커서 act 호출이 전달된다(declareCursor 필수; 문자열/객체 반환은 act 도구 결과 JSON). onSnapshot()를 정의하면 read 도구의 snapshot 직렬화를 제공한다(객체 반환=JSON.stringify)\","
         "\"layout\":\"좌표는 패널 클라이언트 픽셀; 창이 리사이즈되어도 위젯은 재배치되지 않는다\","
+        "\"state\":\"리로드는 상태를 보존한다 — 편집창(텍스트·한/영 모드)은 자동 복원; onSaveState()를 정의하면 임의 JS 상태를 직렬화해 보존하고 onRestoreState(saved)로 복귀한다(정의 없으면 편집창만). 라벨·캔버스는 스크립트 소유 파생 출력이라 새 스크립트가 다시 그린다\","
+        "\"slots\":\"여러 슬롯(<scriptsDir>/<slot>.js) 지원 — 도구 list_slots/use_slot/script_history/restore_script; set_script의 slot 인자=해당 슬롯에 쓰고 자동 전환. 도구로 덮어쓰면 직전 원문이 .history/<slot>/NNNN.js로 자동 스냅샷(20세대 캡); 메모장 수기 편집은 리본을 우회한다\","
+        "\"functions\":["
         "\"functions\":["
         "{\"sig\":\"log(text)\",\"desc\":\"콘솔 로그\"},"
         "{\"sig\":\"messageBox(title, text)\",\"desc\":\"모달 메시지 박스(비동기, JS 비차단)\"},"

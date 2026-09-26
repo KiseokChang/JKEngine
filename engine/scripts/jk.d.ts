@@ -3,7 +3,9 @@
 // injectMouse, injectKey, assert, assertEq — additive) / v3: 단계 3 모달
 // 다이얼로그 (createDialog, dialogAdd*, dialogShow, dialogClose — additive) /
 // v4: 단계 4 설정 주입 (readConfig) / v5: 캔버스 그리기 + 키·마우스 이벤트
-// (createCanvas, canvas*, onMouse/onWheel/onKey — additive, docs/60 §10).
+// (createCanvas, canvas*, onMouse/onWheel/onKey — additive, docs/60 §10) /
+// v6: 상태 보존 리로드 훅(onSaveState/onRestoreState — additive, docs/67 단 1)
+// + 워크숍 슬롯·버전 리본 도구(에이전트 도구 층, 이 파일은 커멘트만).
 //
 // 이 파일은 실행되지 않는 TypeScript 선언 파일이다. QuickJS-ng가 실행하는
 // 것은 app.js(JavaScript)이며, 이 선언은 (1) 스크립트를 작성하는 에이전트가
@@ -305,6 +307,21 @@ declare function declareCursor(decl: JKCursorDecl): void;
 //     직렬화(에이전트가 read 도구로 상태를 읽을 때). 객체 반환=
 //     JSON.stringify로 커서 헤더와 함께 조립된다. 정의하지 않으면 read는
 //     unknown_app_tool로 즉답(정상).
+//
+// 상태 보존 리로드 (docs/67 단 1 — additive, 정의 없어도 무해):
+//   function onSaveState()                 — 선택. 리로드(핫 리로드·도구
+//     set_script·슬롯 전환 포함) 직전에 호출된다. 반환 문자열/객체(객체=
+//     JSON.stringify)가 in-memory로 보존되고, 새 스크립트의 onCreate 직후
+//     onRestoreState(saved)로 돌아온다. 편집창(텍스트·한/영 모드)은 훅 없이도
+//     자동 복원 — 훅은 편집창 밖의 임의 JS 상태(변수·카운터)를 위한 것.
+//   function onRestoreState(saved)         — 선택. 위 저장 원문의 복귀점.
+//     예외는 로그 덤프되고 리로드는 계속된다(브릭 금지).
+//
+// 워크숍 도구 v6 (docs/67 단 1 — 슬롯·버전 리본, 위젯 바인딩 아님):
+//   list_slots / use_slot / script_history / restore_script + get_script,
+//   set_script의 slot 인자(다른 슬롯에 쓰면 자동 전환). 도구 덮어쓰기는
+//   직전 원문을 .history/<slot>/NNNN.js로 자동 스냅샷(20세대) — 메모장 수기
+//   편집은 리본을 우회한다(한계).
 //
 // 예외 정책 (docs/27 §3.2): 미처리 예외는 메시지 + JS 스택 트레이스가 로그에
 // 덤프되고 앱은 정상 종료한다. 로그만 읽고 스스로 고칠 수 있게 쓸 것.

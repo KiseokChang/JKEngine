@@ -6,7 +6,7 @@
 # HitTest -> canvas -> sink -> onMouse/onKey), and each event draws. Verify is
 # capture_window hash deltas, the conquest ladder's verify primitive.
 #   s1 server up (probe-owned lifecycle: fresh --server, docs/60 s4 template)
-#   s2 spawn workshop.jkx -> 3 catalog rows (get_script/set_script/api)
+#   s2 spawn workshop.jkx -> 7 catalog rows (docs/67 stage 1)
 #   c1 canvas script set_script -> ok:true (sync reload; parse+boot proves
 #      createCanvas + all canvas* bindings + color strings exist)
 #   c2 capture hash changes after install (canvas drew the onCreate scene)
@@ -127,10 +127,10 @@ try {
     foreach ($i in 1..30) {
         Start-Sleep -Milliseconds 500
         $rows = [regex]::Matches((Catalog), '"app":"workshop"').Count
-        if ($rows -eq 3) { break }
+        if ($rows -eq 7) { break }
     }
-    Check "s2-spawn-3-rows" ($rows -eq 3) ("rows=$rows")
-    if ($rows -ne 3) { throw "workshop client did not come up" }
+    Check "s2-spawn-7-rows" ($rows -eq 7) ("rows=$rows")
+    if ($rows -ne 7) { throw "workshop client did not come up" }
     $workshopRan = $true
 
     # ---- c1: install the canvas+event script ---------------------------------------

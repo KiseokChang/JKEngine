@@ -231,10 +231,10 @@ $rows = 0
 foreach ($i in 1..30) {
     Start-Sleep -Milliseconds 500
     $rows = [regex]::Matches((Invoke-Agentctl '{"tool":"list_app_tools","args":{}}'), '"app":"workshop"').Count
-    if ($rows -eq 3) { break }
+    if ($rows -eq 7) { break }
 }
-Check "wc-spawn-3-rows" ($rows -eq 3) ("rows=$rows")
-if ($rows -ne 3) { throw "workshop client did not come up" }
+Check "wc-spawn-7-rows" ($rows -eq 7) ("rows=$rows")
+if ($rows -ne 7) { throw "workshop client did not come up" }
 # The boot script declares nothing - move/read/act must be ABSENT until a
 # declareCursor script is installed (fail-closed default = old behavior).
 $cat0 = Invoke-Agentctl '{"tool":"list_app_tools","args":{}}'
