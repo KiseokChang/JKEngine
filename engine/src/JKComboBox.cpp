@@ -43,6 +43,13 @@ const std::string& JKComboBox::GetSelectedString() const {
     return items_[selectedIndex_];
 }
 
+void JKComboBox::SelectItem(int32_t index) {
+    if (index < -1 || index >= static_cast<int32_t>(items_.size())) return;
+    if (selectedIndex_ == index) return;  // 무변화 — 콜백 재발화 루프 금지
+    selectedIndex_ = index;
+    if (onSelectionChanged_) onSelectionChanged_(index);
+}
+
 void JKComboBox::ToggleDropDown() {
     if (readOnly_) return;
     if (dropped_) { CloseDropDown(); return; }
@@ -65,7 +72,7 @@ void JKComboBox::ToggleDropDown() {
     for (const auto& s : items_) list->AddString(s);
     list->SetSelectedIndex(selectedIndex_);
     list->SetOnSelect([this](int32_t idx) {
-        selectedIndex_ = idx;
+        SelectItem(idx);
         CloseDropDown();
     });
     popup_ = list.get();
@@ -138,11 +145,11 @@ void JKComboBox::RespondMessage(const JKEvent& ev) {
         }
         switch (ev.keyCode) {
             case SDLK_UP:
-                if (selectedIndex_ > 0) SetSelectedIndex(selectedIndex_ - 1);
+                if (selectedIndex_ > 0) SelectItem(selectedIndex_ - 1);
                 return;
             case SDLK_DOWN:
                 if (selectedIndex_ + 1 < static_cast<int32_t>(items_.size()))
-                    SetSelectedIndex(selectedIndex_ + 1);
+                    SelectItem(selectedIndex_ + 1);
                 return;
             case SDLK_RETURN:
             case SDLK_SPACE:

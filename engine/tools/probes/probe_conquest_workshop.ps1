@@ -230,6 +230,14 @@ try {
     }
 } finally {
     Stop-ProbeProcs
+    # docs/67 stage 1: probe-driven set_script snapshots + slot switching
+    # leave ribbon/persistence state behind — the user's live workshop must
+    # not carry probe slots or a probe .current pointer.
+    Remove-Item "$build\state\scripts\.current_workshop" -Force -ErrorAction SilentlyContinue
+    if (Test-Path "$build\state\scripts\.history") {
+        Remove-Item "$build\state\scripts\.history" -Recurse -Force
+        Write-Output "NOTICE: .history ribbon removed"
+    }
     if ($myappExisted -and (Test-Path "$myapp.probe_bak")) {
         Copy-Item "$myapp.probe_bak" $myapp -Force
         Remove-Item "$myapp.probe_bak" -Force

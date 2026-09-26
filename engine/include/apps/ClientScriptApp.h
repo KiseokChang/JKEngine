@@ -9,7 +9,9 @@
 // typedefs (both measured 2026-09-20); the first 수기 GetFileAttributesExA
 // attempt also segfaulted the workshop client (docs/60 §7).
 #include <JKPlatform.h>
+#include <JKComboBox.h>
 #include <JKEvent.h>
+#include <JKHangulUtil.h>
 #include <JKStatic.h>
 #include <JKWindow.h>
 #include <agent/JKAgentJson.h>
@@ -309,6 +311,16 @@ protected:
         // the cursor). Timing (docs/58 §5.1): OnInit runs after the surface
         // Connect, so a register here never hits the "before-connect silent
         // false" path.
+
+        // 슬롯 스트립 (docs/67 단 1): 메인 창의 직접 자식 — V2 결정. 컨테이너
+        // 컨트롤 금지: JKControl::PaintClient가 자식 재귀 전체에 PushClipRect
+        // 하므로 콤보 팝업이 28px 스트립에 클립된다. 패널은 DOCK_FILL에 상단
+        // 마진 28로 — 리사이즈에도 PerformLayout가 여백을 유지한다.
+        JKWindow* main = this->GetMainWindow();
+        if (!main) return;
+        if (panel_) panel_->SetMargins(0, 28, 0, 0);
+        main->PerformLayout(main->GetClientRect());
+        BuildStrip();
     }
 
     // Tool register (앱 도구 허브 docs/58 §5.1 + 의미 커서 docs/60 §5). Called
@@ -394,7 +406,63 @@ protected:
     // 의미 커서 훅 (docs/60 §5): every script start re-registers with whatever
     // the fresh script declared (a failed start declares nothing — the hook
     // then registers WITHOUT the cursor, clearing a dead script's declaration).
-    void OnScriptStarted() override { SendToolRegister(); }
+    // 슬롯 스트립 갱신도 여기 — 모든 Start(부트·리로드·슬롯 전환)가 지나는
+    // 문이므로 도구·전환 어느 경로로 슬롯이 바뀌어도 콤보가 따라온다.
+    void OnScriptStarted() override {
+        SendToolRegister();
+        RefreshStrip();
+    }
+
+    // --- 슬롯 스트립 (docs/67 단 1 — 네이티브 헤더 스트립) -------------------
+
+    void BuildStrip() {
+        JKWindow* main = this->GetMainWindow();
+        if (!main) return;
+        auto label = std::make_unique<JKStatic>(JKRect{ 8, 6, 38, 18 }, 0);
+        label->SetText(jk::Utf8ToKssm("슬롯:"));
+        main->AddControl(std::move(label));
+        auto combo = std::make_unique<JKComboBox>(JKRect{ 50, 3, 160, 22 }, 0);
+        slotCombo_ = combo.get();
+        slotCombo_->SetOnSelectionChanged(
+            [this](int32_t idx) { OnStripSelect(idx); });
+        RefreshStrip();
+        main->AddControl(std::move(combo));
+    }
+
+    // 스트립 갱신: ListSlots 스템 목록 + 현재 선택. 직접 SetSelectedIndex는
+    // 콜백을 발화하지 않으므로(§ JKComboBox 주석) 전환 루프가 없다.
+    void RefreshStrip() {
+        if (!slotCombo_) return;
+        const std::string current = CurrentSlotName();
+        std::vector<std::string> slots;
+        jk::workshop::ListSlots(jk::workshop::DirOf(scriptPath_), slots);
+        slotCombo_->Clear();
+        int32_t sel = -1;
+        for (size_t i = 0; i < slots.size(); ++i) {
+            slotCombo_->AddString(jk::Utf8ToKssm(slots[i].c_str()));
+            if (slots[i] == current) sel = static_cast<int32_t>(i);
+        }
+        slotCombo_->SetSelectedIndex(sel);
+    }
+
+    // 콤보 선택 = 슬롯 전환. 상태는 stateByPath_가 보존한다(SwitchToSlot).
+    // 콤보 목록은 스토어 목록이 진실원 — 파일이 사라진 선택은 조용히 무시.
+    void OnStripSelect(int32_t idx) {
+        if (!slotCombo_ || idx < 0) return;
+        const std::string slot =
+            jk::KssmToUtf8(slotCombo_->GetSelectedString().c_str());
+        if (slot.empty() || slot == CurrentSlotName()) return;
+        std::string probe;
+        if (!ReadTextFile(jk::workshop::DirOf(scriptPath_) + "\\" + slot +
+                              ".js",
+                          probe)) {
+            RefreshStrip();
+            return;
+        }
+        SwitchToSlot(slot);  // ReloadNow + RefreshStrip 포함
+    }
+
+    JKComboBox* slotCombo_ = nullptr;
 
     bool OnAgentToolCall(const std::string& tool, const std::string& argsJson,
                          std::string& out) override {
@@ -668,7 +736,9 @@ private:
         if (!agentAppName_.empty())
             jk::workshop::WriteCurrentSlotFile(dir, agentAppName_, slot);
         scriptPath_ = target;
-        return ReloadNow();
+        const bool ok = ReloadNow();
+        RefreshStrip();  // 실패 시에도 콤보가 실제 상태를 따르게
+        return ok;
     }
 
     // Workshop API digest (docs/60 §8): the phone LLM guessed at bindings
