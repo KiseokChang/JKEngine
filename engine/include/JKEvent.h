@@ -22,6 +22,10 @@ enum class JKEventType : uint16_t {
     ImeChanged,
     // Low-level hook observed a physical 한/영 toggle key (docs/61 §16.1).
     ImeToggle,
+    // Low-level hook observed a physical 한자 키 (LANG2/VK_HANJA, docs/66 —
+    // O1 한자 변환 진입). The OS IME swallows this key too (docs/61:313).
+    // option unused.
+    ImeHanja,
     Paint,
     Timer,
     Command,

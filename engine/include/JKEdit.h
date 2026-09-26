@@ -3,7 +3,9 @@
 
 #include <JKControl.h>
 #include <JKHangulAutomata.h>
+#include <cstdint>
 #include <string>
+#include <vector>
 
 namespace jk {
 
@@ -70,6 +72,17 @@ private:
     size_t compCursor_ = 0;
     bool imeComposing_ = false;
 
+    // 한자 후보 모드 (docs/66 — O1): 직전 완성 음절의 한자 후보 팝업.
+    // 모달 창 금지 — SetModalWindow가 포커스를 뺏어 OnKillFocus가 조합을
+    // 플러시한다(docs/66 §B3 클립 발견과 함께 인라인 오버레이로만).
+    bool hanjaActive_ = false;
+    std::vector<uint16_t> hanjaList_; // KSSM 쌍 후보들 (first<<8|second)
+    size_t hanjaPage_ = 0;            // 페이지 (9개/페이지)
+    size_t hanjaSel_ = 0;             // 페이지 내 선택 인덱스
+    size_t hanjaPos_ = 0;             // 대상 쌍의 버퍼 오프셋
+    uint16_t hanjaOrig_ = 0;          // 커밋 가드용 원본 쌍
+    bool hanjaSwallow_ = false;       // Enter 커밋 직후 Char '\r' 1회 흡수
+
     // 멀티라인 / 스크롤 상태 — 기본값은 비트맵 셀(16/8). 두 ctor가 셀 메트릭
     // 진실원(jk::text::CellMetrics, docs/63 §6 text.font_scale)으로 채운다.
     size_t firstVisibleLine_ = 0;
@@ -120,6 +133,18 @@ private:
     // 내부 오토마타 조합을 확정하고 상태를 비운다 (한/영 전환 핸드오버, docs/61 §16).
     void FinishInternalComposition();
     void ScrollToCursor();
+
+    // 한자 변환 (docs/66): 한자키(LANG2) 진입 — 직전 완성 음절 1자의 한자
+    // 후보 팝업. 숫자 1-9로 확정(Char 경유 단일 커밋점), Enter 확정,
+    // Esc/그 밖 키 취소, Backspace 취소+흡수.
+    void EnterHanjaMode();
+    void CancelHanjaMode();
+    void CommitHanja(size_t globalIndex);
+    bool HandleHanjaKey(const JKEvent& ev);
+    bool HandleHanjaChar(const JKEvent& ev);
+    // 인라인 오버레이 렌더: 멀티라인=캐럿 라인 아래 세로 목록(잔여 2행 미만
+    // 이면 위 플립), 한 줄=텍스트 밴드 위 1행 스트립(클립 한계 — docs/66 §B3).
+    void PaintHanjaPopup(JKDC& dc, const JKRect& inner);
 
     void UpdateSelection(size_t oldPos, bool shift);
     void CopyToClipboard();

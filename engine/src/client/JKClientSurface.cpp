@@ -295,6 +295,9 @@ void JKClientSurface::ReadLoop() {
                 case ipc::InputEventType::ImeToggle:
                     ev.type = JKEventType::ImeToggle;
                     break;
+                case ipc::InputEventType::ImeHanja:
+                    ev.type = JKEventType::ImeHanja;
+                    break;
                 default:                              ev.type = JKEventType::None; break;
             }
 

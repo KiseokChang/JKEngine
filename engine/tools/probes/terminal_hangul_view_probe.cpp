@@ -7,6 +7,8 @@
 #include <apps/TerminalView.h>
 #include <terminal/JKVtParser.h>
 #include <terminal/JKTerminalGrid.h>
+#include <JKHangulUtil.h>
+#include <JKHanjaDict.h>
 #ifdef main
 #undef main
 #endif
@@ -55,6 +57,11 @@ struct Feed {
     void Toggle() {
         JKEvent ev{};
         ev.type = JKEventType::ImeToggle;
+        view.RespondMessage(ev);
+    }
+    void Hanja() {
+        JKEvent ev{};
+        ev.type = JKEventType::ImeHanja;
         view.RespondMessage(ev);
     }
     void Char(const char* utf8) {
@@ -175,6 +182,76 @@ int main() {
         CHECK(f.sent == "가\r" + std::string("r"),
               "T9 LANG1 toggled out to english, got=" + f.sent);
     }
+
+    // T10: 한자 후보 모드 배선 (docs/66 B4). 사전은 가짜 프로바이더 주입 —
+    // 배선(게이트 순서/커밋 단일점/흡수)만 본다. 후보[0]=韓 고정.
+    jk::hanja::SetProviderForTest([](uint16_t, std::vector<uint16_t>* out) {
+        const std::string k = Utf8ToKssm("韓");
+        out->clear();
+        out->push_back(static_cast<uint16_t>(
+            (static_cast<uint16_t>(static_cast<unsigned char>(k[0])) << 8) |
+            static_cast<unsigned char>(k[1])));
+        return true;
+    });
+    {
+        // a: 비조합 ImeHanja no-op — 팝업이 열리지 않으면 Char 숫자는 본래
+        // 경로("1")로 흐른다(열렸다면 커밋으로 "韓"이 나간다).
+        Feed f;
+        f.Toggle();
+        f.Hanja();
+        f.Char("1");
+        CHECK(f.sent == "1", "T10a non-composing hanja no-op, got=" + f.sent);
+    }
+    {
+        // b: 조합 중 진입 + KeyDown 숫자 흡수. KeyDown 숫자는 본래 경로에서도
+        // 무송출이지만, 흡수(취소 아님)여야 c의 Char 커밋이 "韓"이 된다 —
+        // 게이트가 취소+통과였다면 c는 "가1"이 된다.
+        Feed f;
+        f.Toggle();
+        f.Key('r'); f.Key('k');   // 가 조합 중
+        f.Hanja();
+        f.Key(SDLK_1);
+        CHECK(f.sent.empty(), "T10b composing open absorbs digit, got=" + f.sent);
+        // c: Char 숫자 커밋 단일점 — 후보[0]=韓 pty 송출.
+        f.Char("1");
+        CHECK(f.sent == "韓", "T10c char digit commits hanja, got=" + f.sent);
+    }
+    {
+        // d: Esc 취소 → 팝업 닫힘, 이후 Char 숫자는 본래 경로(조합 확정+숫자).
+        Feed f;
+        f.Toggle();
+        f.Key('r'); f.Key('k');
+        f.Hanja();
+        f.Key(SDLK_ESCAPE);
+        f.Char("1");
+        CHECK(f.sent == "가1", "T10d esc closes, digit passes, got=" + f.sent);
+    }
+    {
+        // e: Backspace 취소+흡수 — 조합(가)이 훼손되지 않는다. 통과라면 자소
+        // 팝으로 ㄱ만 남아 Enter가 "ㄱ\r"을 보낸다.
+        Feed f;
+        f.Toggle();
+        f.Key('r'); f.Key('k');
+        f.Hanja();
+        f.Key(SDLK_BACKSPACE);
+        CHECK(f.sent.empty(), "T10e backspace absorbed, got=" + f.sent);
+        f.Key(SDLK_RETURN);
+        CHECK(f.sent == "가\r", "T10e composition intact after absorb, got=" + f.sent);
+    }
+    {
+        // f: Enter 커밋 + Char '\r' 흡수(1회) — 셸 엔터 유출 차단.
+        Feed f;
+        f.Toggle();
+        f.Key('r'); f.Key('k');
+        f.Hanja();
+        f.Key(SDLK_RETURN);
+        CHECK(f.sent == "韓", "T10f enter commits hanja, got=" + f.sent);
+        f.Char("\r");
+        CHECK(f.sent == "韓", "T10f trailing CR swallowed, got=" + f.sent);
+        f.Char("\r");
+        CHECK(f.sent == "韓\r", "T10f second CR passes, got=" + f.sent);
+    }
+    jk::hanja::SetProviderForTest(nullptr);   // 시스템 사전 복귀
 
     std::printf("%d/%d checks passed\n", g_pass, g_pass + g_fail);
     return g_fail == 0 ? 0 : 1;

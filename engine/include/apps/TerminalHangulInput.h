@@ -49,6 +49,14 @@ public:
     // 진행 중 조합을 확정해 pty 바이트로 돌려준다(조합 없으면 빈 send).
     Result Commit();
 
+    // 조합 중 음절의 KSSM 쌍 (docs/66 B4): 한자 변환 대상 조회. 조합이
+    // 없거나 슬롯 코드(0x8441)면 0 — 호출자는 no-op.
+    uint16_t ComposingSyllable() const;
+
+    // 한자 확정 (docs/66 B4): 조합을 해제하고 한자 1자(KSSM 쌍)를 pty
+    // 바이트로 돌려준다. 조합이 없으면 빈 Result — 커밋점은 View 한 곳.
+    Result CommitHanja(uint16_t kssmHanja);
+
 private:
     HangulAutomata hangul_;
     bool hangulMode_ = false;

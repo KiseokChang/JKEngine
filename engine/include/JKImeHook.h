@@ -26,4 +26,8 @@ void JkUninstallImeKeyHook();
 // 토글 관측 시 SDL_PushEvent로 밀어 넣는 사용자 이벤트 타입(미설치면 0).
 uint32_t JkImeToggleEventType();
 
+// 한자키(LANG2/VK_HANJA, docs/66) 관측 시 SDL_PushEvent로 밀어 넣는 사용자
+// 이벤트 타입(미설치면 0).
+uint32_t JkImeHanjaEventType();
+
 #endif // JKIMEHOOK_H

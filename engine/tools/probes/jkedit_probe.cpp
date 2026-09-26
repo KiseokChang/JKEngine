@@ -5,6 +5,7 @@
 #include <JKEvent.h>
 #include <JKPlatform.h>
 #include <JKHangulUtil.h>
+#include <JKHanjaDict.h>
 #include <SDL.h>
 #include <cstdio>
 #include <cstring>
@@ -38,6 +39,30 @@ static void SendChar(JKEdit& e, const char* text) {
 }
 
 // hangul "한글" in KSSM 완성형 (0xB0A1..): Utf8ToKssm gives the exact bytes.
+
+// T24 한자 모드용 가짜 프로바이더(docs/66 O1): 앞 5개는 실측 '한' 후보(docs/66
+// §3.5)를 Utf8ToKssm로 만든 결정론 목록, 뒤 7개는 페이지 내비 테스트용 필러
+// KSSM 쌍. 후보 12 = 2페이지.
+static uint16_t kssmPairOf(const char* utf8) {
+    const std::string k = Utf8ToKssm(utf8);
+    return k.size() == 2
+               ? static_cast<uint16_t>((static_cast<uint16_t>(
+                                            static_cast<unsigned char>(k[0]))
+                                        << 8) |
+                                       static_cast<unsigned char>(k[1]))
+               : 0;
+}
+static bool FakeProvider(uint16_t, std::vector<uint16_t>* out) {
+    const uint16_t real[] = { kssmPairOf("韓"), kssmPairOf("漢"),
+                              kssmPairOf("限"), kssmPairOf("寒"),
+                              kssmPairOf("翰") };
+    out->clear();
+    for (uint16_t v : real)
+        if (v) out->push_back(v);
+    for (uint16_t v = 0xB1A1; v <= 0xB1A7; ++v) out->push_back(v);
+    return true;
+}
+
 int main() {
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         std::printf("SDL init failed: %s\n", SDL_GetError());
@@ -530,6 +555,325 @@ int main() {
                       "len=" + std::to_string(e.GetText().size()) + " want 1");
             }
         }
+    }
+
+    // T24: 한자 후보 모드 (docs/66 O1). 모드 로직은 가짜 프로바이더 주입으로
+    // 결정론 돈다(docs/65 O2 양성 대조군 철학) — 실제 사전 채널은 별도 구조
+    // 프로브(probe_hanja_dict5)가 측정했다. 후보 12개(2페이지) 주입.
+    {
+        jk::hanja::SetProviderForTest(&FakeProvider);
+        Check("T24m1-injected-available", jk::hanja::Available(),
+              "주입 중 Available()=true여야 한다");
+        {
+            std::vector<uint16_t> a, b;
+            const bool ok = jk::hanja::Candidates(0xB0A1 /*한*/, &a) &&
+                            jk::hanja::Candidates(0xB0A1, &b) && a == b &&
+                            a.size() == 12 && a[0] == kssmPairOf("韓");
+            Check("T24m2-injected-candidates", ok,
+                  "주입 리스트 왕복+결정론+첫 후보=韓");
+        }
+
+        const std::string kssmHan  = Utf8ToKssm("한");
+        const std::string kssmMa   = Utf8ToKssm("마");
+        const std::string kssmHanja0 = Utf8ToKssm("韓");   // 후보 [0]
+        const std::string kssmHanja1 = Utf8ToKssm("漢");   // 후보 [1]
+        const std::string kssmHanja2 = Utf8ToKssm("限");   // 후보 [2]
+        const std::string kssmHanja4 = Utf8ToKssm("寒");   // 후보 [4]
+        const std::string kssmHanja9 = { static_cast<char>(0xB1),
+                                         static_cast<char>(0xA5) }; // 후보 [9] 필러
+
+        auto openHanja = [&](JKEdit& e) {   // 진입 헬퍼: ImeHanja 이벤트
+            JKEvent ev{};
+            ev.type = JKEventType::ImeHanja;
+            e.RespondMessage(ev);
+        };
+
+        // a 진입 — 조합 중 대상(조합은 먼저 확정) + 숫자 이중 게이트 + 커서.
+        {
+            JKEdit e(JKRect{ 0, 0, 400, 24 });
+            e.OnSetFocus();
+            e.SetHangulMode(true);
+            SendKey(e, SDLK_a);        // ㅁ 조합
+            SendKey(e, SDLK_k);        // 마 조합 중(버퍼에 쌍 유지)
+            openHanja(e);
+            SendKey(e, SDLK_1);        // KeyDown 숫자 = 흡수만
+            Check("T24a1-enter-open-absorb",
+                  KssmToUtf8(e.GetText().c_str()) == "마",
+                  "got=" + KssmToUtf8(e.GetText().c_str()) +
+                  " (팝업 미오픈이면 '1'이 삽입된다)");
+            SendChar(e, "1");          // Char 경유 커밋 단일점 — 후보[0]=韓
+            Check("T24a2-composing-commit",
+                  e.GetText() == kssmHanja0,
+                  "got len=" + std::to_string(e.GetText().size()));
+            SendChar(e, "8");          // ASCII 후행 삽입 — 커서는 쌍 뒤
+            Check("T24a3-cursor-after-pair",
+                  KssmToUtf8(e.GetText().c_str()) == "韓8",
+                  "got=" + KssmToUtf8(e.GetText().c_str()));
+        }
+        // b 완성 음절 대상 + 대상 부재 가드.
+        {
+            JKEdit e(JKRect{ 0, 0, 400, 24 });
+            e.OnSetFocus();
+            e.SetHangulMode(true);
+            e.SetText(Utf8ToKssm("ab한"));
+            SendKey(e, SDLK_END);
+            openHanja(e);
+            SendChar(e, "2");
+            Check("T24b1-complete-syllable",
+                  e.GetText() == "ab" + kssmHanja1,
+                  "got len=" + std::to_string(e.GetText().size()));
+        }
+        {
+            JKEdit e(JKRect{ 0, 0, 400, 24 });
+            e.OnSetFocus();
+            e.SetHangulMode(true);
+            e.SetText(kssmHan + "ab");
+            SendKey(e, SDLK_HOME);     // 커서 앞 — 직전 쌍 없음
+            openHanja(e);
+            SendChar(e, "5");          // 팝업 미오픈 — 숫자는 본래 삽입 경로
+            Check("T24b2-no-target-noop",
+                  e.GetText() == "5" + kssmHan + "ab",
+                  "got len=" + std::to_string(e.GetText().size()));
+        }
+        // c 숫자 커밋 — 치환(길이 불변)+흡수 순서.
+        {
+            JKEdit e(JKRect{ 0, 0, 400, 24 });
+            e.OnSetFocus();
+            e.SetHangulMode(true);
+            e.SetText(kssmHan);
+            SendKey(e, SDLK_END);
+            openHanja(e);
+            SendKey(e, SDLK_3);        // KeyDown 흡수
+            Check("T24c1-digit-absorbed", e.GetText() == kssmHan,
+                  "got len=" + std::to_string(e.GetText().size()));
+            SendChar(e, "3");          // Char 커밋 — 후보[2]=限
+            Check("T24c2-char-commit", e.GetText() == kssmHanja2,
+                  "got len=" + std::to_string(e.GetText().size()));
+            Check("T24c3-inplace-2byte", e.GetText().size() == 2,
+                  "len=" + std::to_string(e.GetText().size()) +
+                  " want 2 (삽입이면 3)");
+            SendChar(e, "8");
+            Check("T24c4-caret-after",
+                  KssmToUtf8(e.GetText().c_str()) == "限8",
+                  "got=" + KssmToUtf8(e.GetText().c_str()));
+        }
+        // d Esc 취소 무변.
+        {
+            JKEdit e(JKRect{ 0, 0, 400, 24 });
+            e.OnSetFocus();
+            e.SetHangulMode(true);
+            e.SetText(kssmHan);
+            SendKey(e, SDLK_END);
+            openHanja(e);
+            SendKey(e, SDLK_ESCAPE);
+            Check("T24d1-esc-unchanged", e.GetText() == kssmHan,
+                  "got len=" + std::to_string(e.GetText().size()));
+            SendChar(e, "1");          // 팝업 닫힘 — 이제 숫자가 삽입된다
+            Check("T24d2-esc-closed",
+                  KssmToUtf8(e.GetText().c_str()) == "한1",
+                  "got=" + KssmToUtf8(e.GetText().c_str()));
+        }
+        // e 내비게이션 — Right/Left ±1, PageDown/Up 페이지(12 후보=2페이지).
+        {
+            JKEdit e(JKRect{ 0, 0, 400, 24 });
+            e.OnSetFocus();
+            e.SetHangulMode(true);
+            e.SetText(kssmHan);
+            SendKey(e, SDLK_END);
+            openHanja(e);
+            SendKey(e, SDLK_RIGHT);    // 전역 선택 1
+            SendKey(e, SDLK_RETURN);   // Enter 커밋 — 후보[1]=漢
+            Check("T24e1-right-enter",
+                  e.GetText() == kssmHanja1,
+                  "got len=" + std::to_string(e.GetText().size()));
+            SendChar(e, "\r");         // swallow 플래그 — 개행 무출
+            Check("T24e2-enter-swallow-cr", e.GetText() == kssmHanja1,
+                  "got len=" + std::to_string(e.GetText().size()));
+        }
+        {
+            JKEdit e(JKRect{ 0, 0, 400, 24 });
+            e.OnSetFocus();
+            e.SetHangulMode(true);
+            e.SetText(kssmHan);
+            SendKey(e, SDLK_END);
+            openHanja(e);
+            SendKey(e, SDLK_LEFT);     // 전역 0에서 Left — 고정
+            SendKey(e, SDLK_PAGEDOWN); // 2페이지 — 전역 9
+            SendKey(e, SDLK_RETURN);
+            {
+                std::string hex;
+                for (unsigned char b : e.GetText())
+                    hex += std::to_string(b) + " ";
+                Check("T24e3-pagedown-commit",
+                      e.GetText() == kssmHanja9,
+                      "got bytes=" + hex);
+            }
+        }
+        {
+            JKEdit e(JKRect{ 0, 0, 400, 24 });
+            e.OnSetFocus();
+            e.SetHangulMode(true);
+            e.SetText(kssmHan);
+            SendKey(e, SDLK_END);
+            openHanja(e);
+            SendKey(e, SDLK_PAGEUP);   // 0페이지에서 Up — 고정
+            SendKey(e, SDLK_DOWN);     // 2페이지
+            SendKey(e, SDLK_PAGEUP);   // 되돌아 0페이지 head — 전역 0=韓
+            SendKey(e, SDLK_RETURN);
+            Check("T24e4-pageup-commit",
+                  e.GetText() == kssmHanja0,
+                  "got len=" + std::to_string(e.GetText().size()));
+        }
+        // f Backspace 취소+흡수 — 두 번째 Backspace만 실제 삭제.
+        {
+            JKEdit e(JKRect{ 0, 0, 400, 24 });
+            e.OnSetFocus();
+            e.SetHangulMode(true);
+            e.SetText(kssmHan);
+            SendKey(e, SDLK_END);
+            openHanja(e);
+            SendKey(e, SDLK_BACKSPACE);
+            Check("T24f1-bs-absorbed", e.GetText() == kssmHan,
+                  "got len=" + std::to_string(e.GetText().size()));
+            SendKey(e, SDLK_BACKSPACE);   // 팝업 닫힌 뒤 — 실제 삭제
+            Check("T24f2-bs-real-after", e.GetText().empty(),
+                  "len=" + std::to_string(e.GetText().size()));
+        }
+        // g 기타 키 = 취소 후 본래 경로 통과.
+        {
+            JKEdit e(JKRect{ 0, 0, 400, 24 });
+            e.OnSetFocus();
+            e.SetHangulMode(true);
+            e.SetText(kssmHan);
+            SendKey(e, SDLK_END);
+            openHanja(e);
+            SendKey(e, SDLK_F3);       // 그 밖 키 = 취소+통과(HOME/END/DELETE는
+                                       // 커밋 대상 보호 흡수 — docs/66 §B3)
+            SendChar(e, "5");          // 커서 END 삽입 — 통과 증명
+            Check("T24g1-otherkey-passthrough",
+                  KssmToUtf8(e.GetText().c_str()) == "한5",
+                  "got=" + KssmToUtf8(e.GetText().c_str()));
+        }
+        {
+            JKEdit e(JKRect{ 0, 0, 400, 24 });
+            e.OnSetFocus();
+            e.SetHangulMode(true);
+            e.SetText(kssmHan);
+            SendKey(e, SDLK_END);
+            openHanja(e);
+            SendKey(e, SDLK_F1);       // 취소만 — F1 자체는 무동작
+            SendChar(e, "1");
+            Check("T24g2-otherkey-cancel",
+                  KssmToUtf8(e.GetText().c_str()) == "한1",
+                  "got=" + KssmToUtf8(e.GetText().c_str()));
+        }
+        // h Char 게이트 — 숫자 커밋 + 기타 문자 취소 후 삽입.
+        {
+            JKEdit e(JKRect{ 0, 0, 400, 24 });
+            e.OnSetFocus();
+            e.SetHangulMode(true);
+            e.SetText(kssmHan);
+            SendKey(e, SDLK_END);
+            openHanja(e);
+            SendChar(e, "4");          // 후보[3]=寒
+            Check("T24h1-char-digit-commit", e.GetText() == kssmHanja4,
+                  "got len=" + std::to_string(e.GetText().size()));
+        }
+        {
+            JKEdit e(JKRect{ 0, 0, 400, 24 });
+            e.OnSetFocus();
+            e.SetHangulMode(true);
+            e.SetText(kssmHan);
+            SendKey(e, SDLK_END);
+            openHanja(e);
+            SendChar(e, "q");          // 취소 — 알파벳 Char는 한글 모드에서
+                                       // 자동소유라 삽입되지 않는다(엔진 모델)
+            Check("T24h2-char-other-cancel", e.GetText() == kssmHan,
+                  "got len=" + std::to_string(e.GetText().size()));
+            SendChar(e, "1");          // 팝업 닫힘 증명 — 이제 숫자 삽입
+            Check("T24h2b-cancel-closed",
+                  KssmToUtf8(e.GetText().c_str()) == "한1",
+                  "got=" + KssmToUtf8(e.GetText().c_str()));
+        }
+        // i 모드 가드 — ImeHangul(OS IME 소유)·Ascii no-op.
+        {
+            JKEdit e(JKRect{ 0, 0, 400, 24 });
+            e.OnSetFocus();
+            e.SetInputMode(JKEdit::InputMode::ImeHangul);
+            e.SetText(kssmHan);
+            SendKey(e, SDLK_END);
+            openHanja(e);
+            SendChar(e, "1");
+            Check("T24i1-imehangul-noop",
+                  KssmToUtf8(e.GetText().c_str()) == "한1",
+                  "got=" + KssmToUtf8(e.GetText().c_str()));
+        }
+        {
+            JKEdit e(JKRect{ 0, 0, 400, 24 });
+            e.OnSetFocus();            // 기본 Ascii
+            e.SetText(kssmHan);
+            SendKey(e, SDLK_END);
+            openHanja(e);
+            SendChar(e, "1");
+            Check("T24i2-ascii-noop",
+                  KssmToUtf8(e.GetText().c_str()) == "한1",
+                  "got=" + KssmToUtf8(e.GetText().c_str()));
+        }
+        // j 대상 가드 — 이미 한자·ASCII no-op.
+        {
+            JKEdit e(JKRect{ 0, 0, 400, 24 });
+            e.OnSetFocus();
+            e.SetHangulMode(true);
+            e.SetText(kssmHanja1);     // 漢 — 역방향 사전 미지원 v1 no-op
+            SendKey(e, SDLK_END);
+            openHanja(e);
+            SendChar(e, "1");
+            Check("T24j1-hanja-target-noop",
+                  e.GetText() == kssmHanja1 + "1",
+                  "got len=" + std::to_string(e.GetText().size()));
+        }
+        {
+            JKEdit e(JKRect{ 0, 0, 400, 24 });
+            e.OnSetFocus();
+            e.SetHangulMode(true);
+            e.SetText("ab");
+            SendKey(e, SDLK_END);
+            openHanja(e);
+            SendChar(e, "1");
+            Check("T24j2-ascii-target-noop", e.GetText() == "ab1",
+                  "got=" + e.GetText());
+        }
+        // k readOnly.
+        {
+            JKEdit e(JKRect{ 0, 0, 400, 24 });
+            e.OnSetFocus();
+            e.SetHangulMode(true);
+            e.SetReadOnly(true);
+            e.SetText(kssmHan);
+            SendKey(e, SDLK_END);
+            openHanja(e);
+            SendKey(e, SDLK_1);
+            Check("T24k-readonly-noop", e.GetText() == kssmHan,
+                  "got len=" + std::to_string(e.GetText().size()));
+        }
+        // l 마우스다운 취소.
+        {
+            JKEdit e(JKRect{ 0, 0, 400, 24 });
+            e.OnSetFocus();
+            e.SetHangulMode(true);
+            e.SetText(kssmHan);
+            SendKey(e, SDLK_END);
+            openHanja(e);
+            JKEvent md{};
+            md.type = JKEventType::MouseDown;
+            md.x = 20; md.y = 12;
+            e.RespondMessage(md);
+            SendChar(e, "1");
+            Check("T24l-mousedown-cancel",
+                  KssmToUtf8(e.GetText().c_str()) == "한1",
+                  "got=" + KssmToUtf8(e.GetText().c_str()));
+        }
+        jk::hanja::SetProviderForTest(nullptr);   // 시스템 사전 복귀
     }
 
     std::printf(g_fail == 0 ? "RESULT: ALL PASS\n" : "RESULT: %d FAIL\n", g_fail);

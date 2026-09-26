@@ -228,7 +228,13 @@ enum class InputEventType : uint32_t {
     // it never reaches SDL, and the modern Korean IME never updates the
     // legacy IMM conversion flags, leaving no readable absolute state).
     // option unused.
-    ImeToggle  = 10
+    ImeToggle  = 10,
+    // S -> C: the server's low-level keyboard hook observed a physical 한자
+    // key (LANG2 / VK_HANJA 0x19, docs/66 — O1 한자 변환 진입). Swallowed by
+    // the OS IME like VK_HANGUL (docs/61:313), so this hook is the only
+    // observable. option unused. Appended at END to keep stale .o files with
+    // the old enumeration compatible (docs/65 lesson).
+    ImeHanja   = 11
 };
 
 struct InputEventPayload {

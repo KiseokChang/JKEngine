@@ -3,6 +3,7 @@
 // 한다. send = pty로 나갈 바이트, preEdit = 커서 오버레이. 기대치는 한글
 // 리터럴로 비교 — 수기 UTF-8 이스케이프는 오탐 3연쇄의 전례(docs/57 §11).
 #include <apps/TerminalHangulInput.h>
+#include <JKHangulUtil.h>
 #include <SDL.h>
 #ifdef main
 #undef main   // SDL.h defines main to SDL_main; we use plain main()
@@ -218,6 +219,44 @@ int main() {
         t.Reset();
         CHECK(!t.Composing(), "T14 reset clears state");
         CHECK(t.Commit().send.empty(), "T14 commit empty after reset");
+    }
+
+    // T15: ComposingSyllable (docs/66 B4) — 조합 중 음절의 KSSM 쌍 조회.
+    // 비조합=0, 조합 중=charCode 쌍(한자 변환 대상).
+    {
+        TerminalHangulInput t;
+        t.Toggle();
+        CHECK(t.ComposingSyllable() == 0, "T15 idle syllable = 0");
+        Type(t, "rk");   // 가 조합 중
+        const std::string kssmGa = Utf8ToKssm("가");
+        const uint16_t gaPair =
+            static_cast<uint16_t>((static_cast<uint16_t>(
+                                       static_cast<unsigned char>(kssmGa[0]))
+                                   << 8) |
+                                  static_cast<unsigned char>(kssmGa[1]));
+        CHECK(t.ComposingSyllable() == gaPair,
+              "T15 composing syllable = ga pair");
+        // 슬롯 코드(0x8441) 가드는 Commit과 동일 조건식 — 비조합 0 검증으로
+        // 커버(조합형 오토마타 내부 상태 직접 구성은 단위 범위 밖).
+        CHECK(t.Composing(), "T15 still composing after query");
+    }
+
+    // T16: CommitHanja (docs/66 B4) — 조합 해제 + 한자 1자 pty 바이트.
+    {
+        TerminalHangulInput t;
+        t.Toggle();
+        Type(t, "rk");   // 가 조합 중
+        const std::string kssmHan = Utf8ToKssm("韓");
+        const uint16_t hanPair =
+            static_cast<uint16_t>((static_cast<uint16_t>(
+                                       static_cast<unsigned char>(kssmHan[0]))
+                                   << 8) |
+                                  static_cast<unsigned char>(kssmHan[1]));
+        auto r = t.CommitHanja(hanPair);
+        CHECK(r.send == "韓", "T16 commit hanja sends utf8 han");
+        CHECK(!t.Composing(), "T16 idle after hanja commit");
+        auto r2 = t.CommitHanja(hanPair);   // 비조합 — 빈 Result
+        CHECK(r2.send.empty() && r2.preEdit.empty(), "T16 idle commit empty");
     }
 
     std::printf("%d/%d checks passed\n", g_pass, g_pass + g_fail);

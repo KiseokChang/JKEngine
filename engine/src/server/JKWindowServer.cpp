@@ -811,6 +811,23 @@ void JKWindowServer::Run() {
                 }
                 continue;
             }
+            if (JkImeHanjaEventType() != 0 && ev.type == JkImeHanjaEventType()) {
+                // 한자키(docs/66): 포커스 클라로 ImeHanja 푸시 — ImeToggle과
+                // 동일 한계(포커스 클라로만).
+                JKClientConnection* client = FindClientById(focusedClientId_);
+                std::fprintf(stderr, "[ime] hanja -> client %u (%s)\n",
+                             focusedClientId_, client ? "sent" : "no-focus-client");
+                // 라이브 프로브가 리다이렉트 파일을 확정히 읽도록 즉시
+                // 플러시(stdout/stderr 리다이렉트 시 블록 버퍼 유실 방지).
+                std::fflush(nullptr);
+                if (client) {
+                    ipc::InputEventPayload payload{};
+                    payload.surfaceId = client->Id();
+                    payload.type      = ipc::InputEventType::ImeHanja;
+                    SendInputEvent(*client, payload);
+                }
+                continue;
+            }
             HandleSDLEvent(ev);
         }
         if (!running_) break;

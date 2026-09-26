@@ -4,6 +4,8 @@
 #include <terminal/JKGlyphAtlas.h>
 #include <JKResourceCache.h>
 #include <JKApplicationHost.h>
+#include <JKHangulUtil.h>
+#include <JKHanjaDict.h>
 #include <SDL.h>
 #include <algorithm>
 #include <cstdio>
@@ -234,6 +236,11 @@ void TerminalView::OnPaintClient(JKDC& dc) {
     if (!preEdit_.empty() && off == 0) {
         PaintPreEdit(dc, client);
     }
+    // 한자 후보 팝업 (docs/66 B4): 조합 오버레이가 남아 있어 대상 음절이
+    // 보이는 상태에서 목록을 덧그린다. 라이브 뷰에서만(preEdit과 동일 게이트).
+    if (hanjaActive_ && off == 0) {
+        PaintHanjaPopup(dc, client);
+    }
 }
 
 void TerminalView::PaintPreEdit(JKDC& dc, const JKRect& client) {
@@ -414,7 +421,8 @@ void TerminalView::PaintFallbackGlyph(JKDC& dc, const JKRect& cellRect,
 void TerminalView::RespondMessage(const JKEvent& ev) {
     if (PreEditDbg() &&
         (ev.type == JKEventType::KeyDown || ev.type == JKEventType::Char ||
-         ev.type == JKEventType::TextEditing || ev.type == JKEventType::ImeToggle)) {
+         ev.type == JKEventType::TextEditing || ev.type == JKEventType::ImeToggle ||
+         ev.type == JKEventType::ImeHanja)) {
         std::fprintf(stderr, "[preedit] ev type=%d key=0x%X text=\"%.6s\" mod=0x%X\n",
                      static_cast<int>(ev.type), static_cast<unsigned>(ev.keyCode),
                      ev.text, static_cast<unsigned>(ev.option));
@@ -426,6 +434,35 @@ void TerminalView::RespondMessage(const JKEvent& ev) {
     if (ev.type == JKEventType::ImeToggle) {
         SendHangulResult(hangul_.Toggle());
         return;
+    }
+    // 한자 변환 (docs/66 B4): 한자키(LL 훅 ImeHanja / LANG2 키코드는
+    // HandleKeyDown 분기). 조합 중일 때만 팝업 — 비조합이면 변환 대상이
+    // 존재하지 않으므로 no-op.
+    if (ev.type == JKEventType::ImeHanja) {
+        EnterHanjaMode();
+        return;
+    }
+    // 한자 후보 모드 Char 게이트 (docs/66 B4): 숫자 '1'-'9'가 커밋 단일점.
+    // KeyDown 숫자는 HandleHanjaKey가 흡수만 하므로 여기서 확정된다. 그 밖
+    // 문자는 취소 후 본래 경로 통과(IME 관행 — 편집기 모드와 동일).
+    if (hanjaActive_ && ev.type == JKEventType::Char) {
+        const unsigned char b0 = static_cast<unsigned char>(ev.text[0]);
+        if (b0 >= '1' && b0 <= '9') {
+            CommitHanja(hanjaPage_ * 9 + (b0 - '1'));
+            return;
+        }
+        CancelHanjaMode();
+    }
+    // Enter 커밋 직후 늦게 도착하는 Char '\r' 1회 흡수 (hanjaSwallow_,
+    // docs/66 B4) — 통과시키면 셸에 엔터가 나가 명령이 실행된다.
+    if (hanjaSwallow_ && ev.type == JKEventType::Char &&
+        static_cast<unsigned char>(ev.text[0]) == '\r') {
+        hanjaSwallow_ = false;
+        return;
+    }
+    // 마우스다운 = 팝업 취소 후 본래 경로(선택 시작) 계속.
+    if (hanjaActive_ && ev.type == JKEventType::MouseDown) {
+        CancelHanjaMode();
     }
     // IME composition (docs/26 단계 5, spec §3): TextEditing carries the UTF-8
     // pre-edit string while the OS IME is composing. Stored for the cursor
@@ -663,9 +700,17 @@ void TerminalView::HandleMouseReport(const JKEvent& ev) {
 // 지운다 — 오버레이와 오토마타 상태가 한 곳(TerminalHangulInput)에서만 정해진다.
 void TerminalView::SendHangulResult(const TerminalHangulInput::Result& r) {
     if (PreEditDbg()) {
+        // send 바이트를 16진으로 남긴다 — 3바이트는 조합 확정(한)과 한자
+        // 커밋(韓)을 가려낼 수 없다(라이브 e2e 오탐 레슨, docs/66).
+        std::string hex;
+        for (unsigned char c : r.send) {
+            char b[4];
+            std::snprintf(b, sizeof(b), "%02X ", c);
+            hex += b;
+        }
         std::fprintf(stderr,
-                     "[preedit] result preEdit=\"%s\" send=%zu bytes\n",
-                     r.preEdit.c_str(), r.send.size());
+                     "[preedit] result preEdit=\"%s\" send=%zu bytes [%s]\n",
+                     r.preEdit.c_str(), r.send.size(), hex.c_str());
         std::fflush(stderr);
     }
     if (preEdit_ != r.preEdit) {
@@ -686,6 +731,151 @@ void TerminalView::ClearPreEdit() {
     }
     preEdit_.clear();
     if (grid_) grid_->MarkAllDirty();   // drop the overlay this frame
+}
+
+// ---- 한자 변환 (docs/66 B4) ----------------------------------------------
+
+void TerminalView::EnterHanjaMode() {
+    if (hanjaActive_) return;
+    // 비조합 no-op: 변환 대상은 아직 pty에 가지 않은 조합 중 음절 하나뿐.
+    if (!hangul_.HangulMode() || !hangul_.Composing()) return;
+    const uint16_t syl = hangul_.ComposingSyllable();
+    if (!syl) return;   // 슬롯 코드(0x8441) — 완성 음절 아님
+    std::vector<uint16_t> cands;
+    if (!hanja::Candidates(syl, &cands) || cands.empty()) return;
+    hanjaList_ = std::move(cands);
+    hanjaActive_ = true;
+    hanjaPage_ = 0;
+    hanjaSel_ = 0;
+    hanjaSwallow_ = false;
+    if (grid_) grid_->MarkAllDirty();
+}
+
+void TerminalView::CancelHanjaMode() {
+    if (!hanjaActive_) return;
+    hanjaActive_ = false;
+    hanjaList_.clear();
+    if (grid_) grid_->MarkAllDirty();
+}
+
+void TerminalView::CommitHanja(size_t globalIndex) {
+    if (globalIndex >= hanjaList_.size()) return;
+    const uint16_t hanja = hanjaList_[globalIndex];
+    CancelHanjaMode();   // 리스트 해제 — 조합 오버레이는 커밋이 지운다
+    SendHangulResult(hangul_.CommitHanja(hanja));
+    ClearPreEdit();
+}
+
+bool TerminalView::HandleHanjaKey(const JKEvent& ev) {
+    const SDL_Keycode key = static_cast<SDL_Keycode>(ev.keyCode);
+    constexpr size_t kPerPage = 9;
+    if (key == SDLK_ESCAPE) {
+        CancelHanjaMode();
+        return true;
+    }
+    if (key == SDLK_RETURN || key == SDLK_KP_ENTER) {
+        // 커밋 후 늦게 도착하는 Char '\r' 흡수 — 셸에 엔터 유출 차단.
+        hanjaSwallow_ = true;
+        CommitHanja(hanjaPage_ * kPerPage + hanjaSel_);
+        return true;
+    }
+    if (key == SDLK_LEFT || key == SDLK_RIGHT) {
+        const int idx = static_cast<int>(hanjaPage_ * kPerPage + hanjaSel_) +
+                        (key == SDLK_RIGHT ? 1 : -1);
+        if (idx >= 0 && idx < static_cast<int>(hanjaList_.size())) {
+            hanjaPage_ = static_cast<size_t>(idx) / kPerPage;
+            hanjaSel_ = static_cast<size_t>(idx) % kPerPage;
+        }
+        return true;
+    }
+    if (key == SDLK_UP || key == SDLK_DOWN ||
+        key == SDLK_PAGEUP || key == SDLK_PAGEDOWN) {
+        const size_t pages = (hanjaList_.size() + kPerPage - 1) / kPerPage;
+        if (key == SDLK_UP || key == SDLK_PAGEUP) {
+            if (hanjaPage_ > 0) --hanjaPage_;
+        } else if (hanjaPage_ + 1 < pages) {
+            ++hanjaPage_;
+        }
+        hanjaSel_ = 0;
+        return true;
+    }
+    if (key == SDLK_BACKSPACE) {
+        // 조합 중 진입이라 BackspaceJamo 경로는 닫혀 있다 — 통과시키면
+        // 완성 예정 음절이 통째로 사라지므로 취소+흡수.
+        CancelHanjaMode();
+        return true;
+    }
+    // 숫자는 Char에서 커밋한다(KeyDown+Char 이중 게이트) — 흡수만.
+    if (key >= SDLK_1 && key <= SDLK_9) return true;
+    if (key == SDLK_HOME || key == SDLK_END || key == SDLK_DELETE) return true;
+    // 그 밖 키 = 취소 후 본래 경로 통과(IME 관행).
+    CancelHanjaMode();
+    return false;
+}
+
+void TerminalView::PaintHanjaPopup(JKDC& dc, const JKRect& client) {
+    const auto& cursor = grid_->GetCursor();
+    constexpr size_t kPerPage = 9;
+    const size_t pageFirst = hanjaPage_ * kPerPage;
+    if (pageFirst >= hanjaList_.size()) return;
+    const size_t rowCount = std::min(kPerPage, hanjaList_.size() - pageFirst);
+
+    // 행 배치: 기본은 커서 아래. 아래 잔여 2행 미만이면 위로 플립하고,
+    // 플립해도 부족하면 표시 행수를 잘라낸다(전면 캔버스 안전망).
+    const int anchorX = client.x + cursor.x * kTermCellW;
+    const int anchorY = client.y + cursor.y * kTermCellH;
+    const int rowsBelow =
+        (client.y + client.h - anchorY - kTermCellH) / kTermCellH;
+    int y;
+    size_t show = rowCount;
+    if (rowsBelow >= 2) {
+        y = anchorY + kTermCellH + 2;
+        if (rowsBelow < static_cast<int>(show))
+            show = static_cast<size_t>(rowsBelow);
+    } else {
+        show = std::min(show, static_cast<size_t>(
+                                  std::max(0, (anchorY - client.y) / kTermCellH)));
+        y = anchorY - static_cast<int>(show) * kTermCellH - 2;
+    }
+    if (show == 0 || y < client.y) return;
+
+    auto setColor = [&dc](uint32_t rgb) {
+        dc.SetColor(static_cast<uint8_t>((rgb >> 16) & 0xFF),
+                    static_cast<uint8_t>((rgb >> 8) & 0xFF),
+                    static_cast<uint8_t>(rgb & 0xFF), 255);
+    };
+    // 팝업 바탕 = 38% 밝힘(선택 행은 반전). preEdit의 25% 블렌드와 구분되는
+    // 강도로 목록 영역임을 보인다.
+    const uint32_t popupBg = MixRgb(RgbOf(themeBg_), RgbOf(themeFg_), 96);
+    for (size_t i = 0; i < show; ++i) {
+        const bool sel = (i == hanjaSel_);
+        const uint32_t bg = sel ? RgbOf(themeFg_) : popupBg;
+        const uint32_t fg = sel ? RgbOf(themeBg_) : RgbOf(themeFg_);
+        const int rowY = y + static_cast<int>(i) * kTermCellH;
+        setColor(bg);
+        dc.FillRect(JKRect{ anchorX, rowY, kTermCellW * 3, kTermCellH });
+        PaintGlyph(dc, JKRect{ anchorX, rowY, kTermCellW, kTermCellH },
+                   static_cast<uint32_t>(L'1' + i), fg, false);
+        const uint16_t pair = hanjaList_[pageFirst + i];
+        const uint32_t cp = KssmCodepointToUnicode(
+            static_cast<uint8_t>(pair >> 8), static_cast<uint8_t>(pair & 0xFF));
+        PaintGlyph(dc, JKRect{ anchorX + kTermCellW, rowY, kTermCellW * 2,
+                               kTermCellH },
+                   cp, fg, false);
+    }
+    // 페이지 표시 "n/m" — 앵커 행 우측(셸 내용 위 오버레이, 1페이지면 생략).
+    const size_t pages = (hanjaList_.size() + kPerPage - 1) / kPerPage;
+    if (pages > 1) {
+        const int px = anchorX + kTermCellW * 3 + 4;
+        const uint32_t fg = RgbOf(themeFg_);
+        PaintGlyph(dc, JKRect{ px, anchorY, kTermCellW, kTermCellH },
+                   static_cast<uint32_t>(L'1' + hanjaPage_), fg, false);
+        PaintGlyph(dc, JKRect{ px + kTermCellW, anchorY, kTermCellW, kTermCellH },
+                   static_cast<uint32_t>('/'), fg, false);
+        PaintGlyph(dc,
+                   JKRect{ px + kTermCellW * 2, anchorY, kTermCellW, kTermCellH },
+                   static_cast<uint32_t>(L'0' + pages), fg, false);
+    }
 }
 
 void TerminalView::ClearSelection() {
@@ -740,6 +930,11 @@ void TerminalView::PasteClipboard() {
 
 void TerminalView::HandleKeyDown(const JKEvent& ev) {
     const SDL_Keycode key = static_cast<SDL_Keycode>(ev.keyCode);
+    // 한자 후보 모드 게이트 (docs/66 B4): 아무 키나 조합을 지우는
+    // ClearPreEdit(바로 아래)보다 앞에서 팝업 키를 소비한다 — 통과시키면
+    // 방향키/숫자가 조합을 강제 확정해 팝업이 깎인다.
+    hanjaSwallow_ = false;
+    if (hanjaActive_ && HandleHanjaKey(ev)) return;
     // The forwarded modifier state travels in ev.option (server mode) and is
     // filled by TranslateSDLEvent (single-process mode). SDL_GetModState() is
     // the local window's state, which is always empty for piped-in input.
@@ -776,6 +971,15 @@ void TerminalView::HandleKeyDown(const JKEvent& ev) {
     // 않는 환경(단일 프로세스 등)에서 키코드 정통 도달분을 맞는다.
     if (key == static_cast<SDL_Keycode>(SDLK_SCANCODE_MASK | SDL_SCANCODE_LANG1)) {
         SendHangulResult(hangul_.Toggle());
+        return;
+    }
+
+    // 한자키(LANG2 스캔코드, docs/66 B4) — ImeHanja 이벤트가 오지 않는
+    // 환경(단일 프로세스 등)에서 키코드 정통 도달분을 맞는다. LANG1 선례와
+    // 동일한 이중 채널. 팝업이 이미 열려 있으면 재진입 루프 대신 취소.
+    if (key == static_cast<SDL_Keycode>(SDLK_SCANCODE_MASK | SDL_SCANCODE_LANG2)) {
+        if (hanjaActive_) CancelHanjaMode();
+        else EnterHanjaMode();
         return;
     }
 

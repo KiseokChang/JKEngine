@@ -75,4 +75,19 @@ TerminalHangulInput::Result TerminalHangulInput::Commit() {
     return r;
 }
 
+uint16_t TerminalHangulInput::ComposingSyllable() const {
+    if (hangul_.curHanState && hangul_.charCode != 0x8441)
+        return hangul_.charCode;
+    return 0;
+}
+
+TerminalHangulInput::Result TerminalHangulInput::CommitHanja(uint16_t kssmHanja) {
+    Result r;
+    if (hangul_.curHanState && hangul_.charCode != 0x8441) {
+        r.send = KssmCodeToUtf8(kssmHanja);
+        hangul_.InitAutomata();
+    }
+    return r;
+}
+
 } // namespace jk

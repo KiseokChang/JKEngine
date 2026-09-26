@@ -437,7 +437,8 @@ void JKWindow::RespondMessage(const JKEvent& ev) {
         ev.type == JKEventType::Char ||
         ev.type == JKEventType::TextEditing ||
         ev.type == JKEventType::ImeChanged ||
-        ev.type == JKEventType::ImeToggle) {
+        ev.type == JKEventType::ImeToggle ||
+        ev.type == JKEventType::ImeHanja) {
         if (focusChild_) {
             focusChild_->RespondMessage(ev);
             return;

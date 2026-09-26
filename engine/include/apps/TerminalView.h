@@ -10,8 +10,10 @@
 #include <terminal/JKTerminalGrid.h>
 #include <apps/JKTermSelection.h>
 #include <apps/TerminalHangulInput.h>
+#include <cstdint>
 #include <functional>
 #include <string>
+#include <vector>
 
 namespace jk {
 
@@ -81,6 +83,17 @@ private:
     void PaintPreEdit(JKDC& dc, const JKRect& client);
     void ClearPreEdit();
 
+    // 한자 변환 (docs/66 B4): 조합 중 음절의 한자 후보 팝업. 진입은 조합 중
+    // 일 때만(비조합 no-op — 변환 대상이 pty 밖에 없다), 커밋은 숫자
+    // Char '1'-'9' 단일점, 그 밖 키는 취소 후 본래 경로 통과.
+    void EnterHanjaMode();
+    void CancelHanjaMode();
+    void CommitHanja(size_t globalIndex);
+    bool HandleHanjaKey(const JKEvent& ev);
+    // 커서 셀 앵커 세로 목록(최대 9행), 하단 잔여 2행 미만이면 위 플립 —
+    // 터미널은 전면 캔버스라 JKEdit의 한 줄 클립 한계가 없다.
+    void PaintHanjaPopup(JKDC& dc, const JKRect& client);
+
     JKVtParser* parser_ = nullptr;
     JKTerminalGrid* grid_ = nullptr;
     JKGlyphAtlas* atlas_ = nullptr;
@@ -123,6 +136,15 @@ private:
     // 확정 시점에 pty로 보낸다. 조합 중 음절은 preEdit_ 오버레이로 표시.
     TerminalHangulInput hangul_;
     void SendHangulResult(const TerminalHangulInput::Result& r);
+
+    // 한자 후보 모드 (docs/66 B4): KSSM 쌍 후보 목록 + 페이지(9개)/선택.
+    // hanjaSwallow_는 Enter 커밋 직후 늦게 도착하는 Char '\r' 1회 흡수 —
+    // 통과시키면 셸에 엔터가 나가 명령이 실행된다.
+    bool hanjaActive_ = false;
+    std::vector<uint16_t> hanjaList_;   // KSSM 쌍 후보 (first<<8|second)
+    size_t hanjaPage_ = 0;
+    size_t hanjaSel_ = 0;
+    bool hanjaSwallow_ = false;
 };
 
 } // namespace jk

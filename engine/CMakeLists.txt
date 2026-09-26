@@ -132,6 +132,7 @@ add_library(jkcore STATIC
     src/JKEdit.cpp
     src/JKHangulAutomata.cpp
     src/JKHangulUtil.cpp
+    src/JKHanjaDict.cpp
     src/JKPlatform_win32.cpp
     src/JKImeHook_win32.cpp
     src/JKCrashHandler_win32.cpp

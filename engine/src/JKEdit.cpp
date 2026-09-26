@@ -3,11 +3,13 @@
 #include <JKWindow.h>
 #include <JKApplication.h>
 #include <JKHangulUtil.h>
+#include <JKHanjaDict.h>
 #include <JKPlatform.h>
 #include <JKTextAtlas.h>
 #include <theme/JKTheme.h>
 #include <SDL.h>
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 
 namespace jk {
@@ -336,6 +338,9 @@ void JKEdit::OnPaintClient(JKDC& dc) {
         }
     }
 
+    // 한자 후보 팝업 (docs/66) — 텍스트 위 오버레이로 마지막에 렌더.
+    PaintHanjaPopup(dc, inner);
+
     JKControl::OnPaintClient(dc);
 }
 
@@ -349,6 +354,11 @@ void JKEdit::OnSetFocus() {
 void JKEdit::OnKillFocus() {
     focused_ = false;
     showCaret_ = false;
+    if (hanjaActive_) {
+        // 포커스 상실은 팝업 취소(docs/66) — 모달이 아니라 오버레이라 포커스
+        // 이동이 일어날 수 있고, 닫힌 뒤 커밋 대상이 어긋난다.
+        CancelHanjaMode();
+    }
     if (imeComposing_ && g_jkAppHost) {
         // Ask the OS IME to flush the composed string first, then fall back to
         // a local commit if the OS did not deliver a TEXTINPUT event in time.
@@ -405,6 +415,13 @@ void JKEdit::CommitComposition() {
 
 void JKEdit::RespondMessage(const JKEvent& ev) {
     if (ev.type == JKEventType::MouseDown) {
+        // 한자 후보 팝업이 열려 있으면 클릭은 취소로 먼저 소진(docs/66 —
+        // 팝업 밖 클릭은 취소가 IME 관행; 이후 클릭 동작은 통과시킨다).
+        if (hanjaActive_) {
+            CancelHanjaMode();
+            Invalidate();
+            return;
+        }
         SetFocus();
         focused_ = true;
         showCaret_ = true;
@@ -478,6 +495,11 @@ void JKEdit::RespondMessage(const JKEvent& ev) {
             ToggleHangulMode();
             SilenceOsIme();
         }
+    } else if (ev.type == JKEventType::ImeHanja) {
+        // 서버 저수준 훅이 물리 한자키를 관측(docs/66): 직전 완성 음절 1자의
+        // 한자 후보 팝업 진입. 가드는 전부 EnterHanjaMode 내부(readOnly,
+        // 비포커스, OS IME 소유 모드, 조합 중, 선택 활성) — 여기선 위임.
+        EnterHanjaMode();
     } else if (ev.type == JKEventType::MouseWheel) {
         // 멀티라인 휠 스크롤 (docs/61 §2) — dy>0 = 위(이전 라인).
         if (multiLine_) {
@@ -498,6 +520,12 @@ void JKEdit::RespondMessage(const JKEvent& ev) {
         SDL_Keymod mod = SDL_GetModState();
         bool ctrl = (mod & KMOD_CTRL) != 0;
         bool shift = (mod & KMOD_SHIFT) != 0;
+        // Enter 커밋의 '\r' Char 흡수 플래그는 새 KeyDown에서 소진 — 다음
+        // 물리 Enter의 Char를 삼키지 않는다(docs/66 단일 커밋점).
+        hanjaSwallow_ = false;
+        // 한자 후보 모드 키 게이트(docs/66): 이중 게이트의 KeyDown 쪽.
+        // true=흡수, false=취소 후 본래 경로 통과.
+        if (hanjaActive_ && HandleHanjaKey(ev)) return;
 
         if (readOnly_) {
             // Read-only edits allow navigation and copy, but no modification.
@@ -554,6 +582,11 @@ void JKEdit::RespondMessage(const JKEvent& ev) {
                 ToggleHangulMode();
                 SilenceOsIme();
             }
+        } else if (ev.keyCode == (SDLK_SCANCODE_MASK | SDL_SCANCODE_LANG2)) {
+            // 한자키(IME LANG2 스캔코드 145, docs/66 — docs/61:308의 "146"은
+            // 기록 편차). 키코드가 정통 도달하는 환경용 단일 프로세스 폴백 —
+            // 저수준 훅 ImeHanja 이벤트와 동일한 진입.
+            EnterHanjaMode();
         } else if (inputMode_ == InputMode::InternalHangul &&
                    !imeComposing_ &&
                    ((ev.keyCode >= SDLK_a && ev.keyCode <= SDLK_z) ||
@@ -634,6 +667,16 @@ void JKEdit::RespondMessage(const JKEvent& ev) {
         showCaret_ = true;
         UpdateTextInputRect();
     } else if (ev.type == JKEventType::Char) {
+        // Enter 커밋 직후 '\r' 흡수(docs/66 단일 커밋점) — 커밋으로
+        // hanjaActive_가 이미 내려가도 플래그는 살아 있다. active 게이트보다
+        // 앞에서 소진하지 않으면 '\r'이 개행으로 삽입된다(T24e2 실측 결함).
+        if (ev.text[0] == '\r' && hanjaSwallow_) {
+            hanjaSwallow_ = false;
+            return;
+        }
+        // 한자 후보 모드 문자 게이트(docs/66): 이중 게이트의 Char 쪽 —
+        // 숫자 '1'..'9'가 커밋점이다(KeyDown 숫자는 흡수만).
+        if (hanjaActive_ && HandleHanjaChar(ev)) return;
         if (readOnly_) return;
         // SDL_TEXTINPUT carries the IME's committed string. It replaces any
         // pending composition state, so clear the pre-edit visual state without
@@ -723,6 +766,247 @@ void JKEdit::FinishInternalComposition() {
     // composing_면 조합 쌍이 이미 버퍼에 있다 — 확정(상태 해제)만 하면 된다.
     automata_.InitAutomata();
     composing_ = false;
+}
+
+// ---- 한자 변환 (docs/66 O1 Phase B3) ----
+
+void JKEdit::EnterHanjaMode() {
+    if (hanjaActive_) return;                  // 이미 열림
+    if (readOnly_ || !focused_) return;
+    // OS IME 소유 모드(ImeHangul)·비한글(Ascii)은 no-op — OS IME가 변환을
+    // 소유하는 환경에서 이중 후보 창이 되지 않게(docs/66 위험 6).
+    if (inputMode_ != InputMode::InternalHangul) return;
+    if (imeComposing_) return;
+    if (hasSelection_) return;                 // 대상이 커서 직전 쌍이어야
+    if (!hanja::Available()) return;           // 사전 채널 부재 graceful no-op
+    // 진행 중인 내부 조합은 먼저 확정해 대상 쌍을 확보한다.
+    if (composing_) FinishInternalComposition();
+    if (cursorPos_ < 2) return;
+    const uint8_t c1 = static_cast<uint8_t>(buffer_[cursorPos_ - 2]);
+    const uint8_t c2 = static_cast<uint8_t>(buffer_[cursorPos_ - 1]);
+    const uint32_t cp = KssmCodepointToUnicode(c1, c2);
+    // 완성 한글 음절만 변환 대상 — 이미 한자인 대상은 v1 no-op(역방향 사전
+    // 미지원, docs/66 위험 5), ASCII·조합 자모도 no-op.
+    if (cp < 0xAC00 || cp > 0xD7A3) return;
+    const uint16_t pair = static_cast<uint16_t>((static_cast<uint16_t>(c1) << 8) | c2);
+    std::vector<uint16_t> cands;
+    if (!hanja::Candidates(pair, &cands) || cands.empty()) return;
+    hanjaActive_ = true;
+    hanjaList_ = std::move(cands);
+    hanjaPage_ = 0;
+    hanjaSel_ = 0;
+    hanjaPos_ = cursorPos_ - 2;
+    hanjaOrig_ = pair;
+    showCaret_ = true;
+    Invalidate();
+}
+
+void JKEdit::CancelHanjaMode() {
+    if (!hanjaActive_) return;
+    hanjaActive_ = false;
+    hanjaList_.clear();
+    hanjaPage_ = 0;
+    hanjaSel_ = 0;
+    Invalidate();
+}
+
+void JKEdit::CommitHanja(size_t globalIndex) {
+    if (!hanjaActive_ || globalIndex >= hanjaList_.size()) {
+        CancelHanjaMode();
+        return;
+    }
+    const uint16_t pair = hanjaList_[globalIndex];
+    if (hanjaPos_ + 2 <= buffer_.size()) {
+        // 커밋 가드: 팝업이 열린 뒤 버퍼가 바뀌면(흡수 안 된 키 유출 등) 무효.
+        const uint16_t cur = static_cast<uint16_t>(
+            (static_cast<uint16_t>(static_cast<uint8_t>(buffer_[hanjaPos_])) << 8) |
+            static_cast<uint8_t>(buffer_[hanjaPos_ + 1]));
+        if (cur == hanjaOrig_) {
+            // 2바이트 제자리 치환 — 길이 불변(maxLength 불변, 레거시
+            // Proc_Hanja 동형; legacy/JKEDIT.CPP:1171).
+            buffer_[hanjaPos_] = static_cast<char>(pair >> 8);
+            buffer_[hanjaPos_ + 1] = static_cast<char>(pair & 0xFF);
+            cursorPos_ = hanjaPos_ + 2;
+            selAnchor_ = cursorPos_;
+            hasSelection_ = false;
+            ScrollToCursor();
+        }
+    }
+    hanjaActive_ = false;
+    hanjaList_.clear();
+    showCaret_ = true;
+    Invalidate();
+}
+
+bool JKEdit::HandleHanjaKey(const JKEvent& ev) {
+    const size_t perPage = 9;
+    const size_t globalSel = hanjaPage_ * perPage + hanjaSel_;
+    switch (ev.keyCode) {
+        case SDLK_ESCAPE:
+            CancelHanjaMode();
+            return true;
+        case SDLK_RETURN:
+        case SDLK_KP_ENTER:
+            CommitHanja(globalSel);
+            hanjaSwallow_ = true;   // 바로 뒤에 오는 Char '\r' 흡수
+            return true;
+        case SDLK_LEFT:
+            if (globalSel > 0) {
+                hanjaPage_ = (globalSel - 1) / perPage;
+                hanjaSel_ = (globalSel - 1) % perPage;
+            }
+            Invalidate();
+            return true;
+        case SDLK_RIGHT: {
+            if (globalSel + 1 < hanjaList_.size()) {
+                hanjaPage_ = (globalSel + 1) / perPage;
+                hanjaSel_ = (globalSel + 1) % perPage;
+            }
+            Invalidate();
+            return true;
+        }
+        case SDLK_PAGEUP:
+        case SDLK_UP:
+            if (hanjaPage_ > 0) {
+                --hanjaPage_;
+                hanjaSel_ = 0;
+            }
+            Invalidate();
+            return true;
+        case SDLK_PAGEDOWN:
+        case SDLK_DOWN:
+            if ((hanjaPage_ + 1) * perPage < hanjaList_.size()) {
+                ++hanjaPage_;
+                hanjaSel_ = 0;
+            }
+            Invalidate();
+            return true;
+        case SDLK_BACKSPACE:
+            // 취소+흡수 — 통과시키면 DeleteBackward가 완성 쌍을 통째로
+            // 지운다(진입 시 조합 확정 완료로 BackspaceJamo 경로는 닫혀 있다,
+            // docs/66 §B3).
+            CancelHanjaMode();
+            return true;
+        case SDLK_1: case SDLK_2: case SDLK_3: case SDLK_4: case SDLK_5:
+        case SDLK_6: case SDLK_7: case SDLK_8: case SDLK_9:
+            // 숫자 KeyDown은 흡수만 — 커밋은 Char 경유 단일 커밋점(docs/66:
+            // 숫자 키는 KeyDown+Char로 이중 도달한다).
+            return true;
+        case SDLK_HOME: case SDLK_END: case SDLK_DELETE:
+            return true;   // 커밋 대상을 어긋나게 하는 편집 키도 흡수
+        default:
+            if (ev.keyCode == (SDLK_SCANCODE_MASK | SDL_SCANCODE_LANG2)) {
+                // 한자키 재누름 = 취소(플랜 B3 — 다시 열리는 반죽음 방지).
+                CancelHanjaMode();
+                return true;
+            }
+            // 그 밖의 키: 취소 후 본래 경로 통과(IME 관행).
+            CancelHanjaMode();
+            return false;
+    }
+}
+
+bool JKEdit::HandleHanjaChar(const JKEvent& ev) {
+    // '\r'+swallow 흡수는 RespondMessage Char 선두(커밋으로 active가 내려간
+    // 뒤에도 소진되게)로 옮겨졌다 — 여기는 active 중 문자 게이트만.
+    const unsigned char c = static_cast<unsigned char>(ev.text[0]);
+    if (c >= '1' && c <= '9') {
+        CommitHanja(hanjaPage_ * 9 + static_cast<size_t>(c - '1'));
+        return true;
+    }
+    // 기타 문자: 취소 후 본래 경로(삽입) — IME 관행.
+    CancelHanjaMode();
+    return false;
+}
+
+void JKEdit::PaintHanjaPopup(JKDC& dc, const JKRect& inner) {
+    if (!hanjaActive_ || hanjaList_.empty()) return;
+    const auto& t = jk::theme::current();
+    const size_t perPage = 9;
+    const size_t begin = hanjaPage_ * perPage;
+    const size_t count = std::min<size_t>(perPage, hanjaList_.size() - begin);
+    if (count == 0) return;
+
+    const size_t line = GetLineFromPos(hanjaPos_);
+    if (line < firstVisibleLine_) return;   // 대상 라인이 화면 밖 — 팝업 생략
+    const size_t lineStart = GetLineStart(line);
+    const int32_t lineY = inner.y + static_cast<int32_t>(
+        (line - firstVisibleLine_) * lineHeight_);
+    // 대상 음절 커밋 위치(hanjaPos_+2) 앵커 — 팝업은 커서 옆에서 연다.
+    const int32_t anchorX = inner.x + static_cast<int32_t>(
+        DisplayCells(buffer_, lineStart, hanjaPos_ + 2) *
+        static_cast<size_t>(charWidth_));
+    // 토큰 폭 = 숫자 1셀 + 한자 쌍 2셀 + 여백 1셀. 페이지 지시자 " N/M" 4셀.
+    const int32_t tokenW = 4 * charWidth_;
+    const bool paged = hanjaList_.size() > perPage;
+    const int32_t pageW = paged ? 4 * charWidth_ : 0;
+
+    auto drawToken = [&](int32_t x, int32_t y, size_t i) {
+        const size_t idx = begin + i;
+        const bool sel = (i == hanjaSel_);
+        dc.SetColor(sel ? t.selectionBg.r : t.widgetFace.r,
+                    sel ? t.selectionBg.g : t.widgetFace.g,
+                    sel ? t.selectionBg.b : t.widgetFace.b, 255);
+        dc.FillRect(JKRect{ x, y, tokenW, lineHeight_ });
+        const char label[2] = { static_cast<char>('1' + i), '\0' };
+        const char glyph[3] = { static_cast<char>(hanjaList_[idx] >> 8),
+                                static_cast<char>(hanjaList_[idx] & 0xFF), '\0' };
+        dc.SetTextColor(sel ? t.selectionText.r : t.widgetText.r,
+                        sel ? t.selectionText.g : t.widgetText.g,
+                        sel ? t.selectionText.b : t.widgetText.b);
+        dc.TextOut(JKPoint{ x + 1, y }, 1, label);
+        dc.TextOut(JKPoint{ x + 1 + charWidth_, y }, 2, glyph);
+    };
+
+    if (multiLine_) {
+        // 세로 목록: 아래 잔여 2행 미만이면 위 플립, 부족하면 표시 행수 클램프.
+        const int32_t availBelow = (inner.y + inner.h) - (lineY + lineHeight_);
+        const int32_t availAbove = lineY - inner.y;
+        const bool below = availBelow >= 2 * lineHeight_;
+        const int32_t avail = below ? availBelow : availAbove;
+        size_t show = count;
+        if (avail < static_cast<int32_t>(show * lineHeight_))
+            show = std::max<size_t>(
+                1, static_cast<size_t>(avail) / static_cast<size_t>(lineHeight_));
+        const int32_t y0 = below ? lineY + lineHeight_
+                                 : lineY - static_cast<int32_t>(show) * lineHeight_;
+        int32_t x0 = std::min(anchorX, inner.x + inner.w - tokenW);
+        if (x0 < inner.x) x0 = inner.x;
+        for (size_t i = 0; i < show; ++i) drawToken(x0, y0 + static_cast<int32_t>(i) * lineHeight_, i);
+        dc.Box3D(JKRect{ x0, y0, tokenW, static_cast<int32_t>(show) * lineHeight_ }, 1,
+                 t.bevelLight.r, t.bevelLight.g, t.bevelLight.b,
+                 t.bevelDark.r, t.bevelDark.g, t.bevelDark.b);
+        return;
+    }
+
+    // 한 줄: 텍스트 밴드 위 1행 스트립(수직 공간 0 — 클라 클립이 라인 밖을
+    // 잘라내므로 밴드를 덮는다, docs/66 §B3 클립 발견). 토큰 수를 폭에 맞춘
+    // 뒤 우측 클램프 좌시프트.
+    const int32_t textY = inner.y + (inner.h - lineHeight_) / 2;
+    size_t show = count;
+    int32_t totalW = static_cast<int32_t>(show) * tokenW + pageW;
+    if (totalW > inner.w) {
+        const int32_t budget = inner.w - pageW;
+        show = std::max<size_t>(1, static_cast<size_t>(budget) / static_cast<size_t>(tokenW));
+        totalW = static_cast<int32_t>(show) * tokenW + pageW;
+    }
+    int32_t x0 = std::min(anchorX, inner.x + inner.w - totalW);
+    if (x0 < inner.x) x0 = inner.x;
+    dc.SetColor(t.widgetFace.r, t.widgetFace.g, t.widgetFace.b, 255);
+    dc.FillRect(JKRect{ x0, textY, totalW, lineHeight_ });
+    for (size_t i = 0; i < show; ++i) drawToken(x0 + static_cast<int32_t>(i) * tokenW, textY, i);
+    if (paged) {
+        const size_t totalPages = (hanjaList_.size() + perPage - 1) / perPage;
+        char page[8] = {};
+        std::snprintf(page, sizeof(page), "%u/%u",
+                      static_cast<unsigned>(hanjaPage_ + 1),
+                      static_cast<unsigned>(totalPages));
+        dc.SetTextColor(t.widgetText.r, t.widgetText.g, t.widgetText.b);
+        dc.TextOut(JKPoint{ x0 + static_cast<int32_t>(show) * tokenW, textY }, page);
+    }
+    dc.Box3D(JKRect{ x0, textY, totalW, lineHeight_ }, 1,
+             t.bevelLight.r, t.bevelLight.g, t.bevelLight.b,
+             t.bevelDark.r, t.bevelDark.g, t.bevelDark.b);
 }
 
 void JKEdit::ProcessHangulKey(uint16_t keyCode, uint16_t modifier) {
