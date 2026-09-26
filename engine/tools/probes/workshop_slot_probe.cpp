@@ -360,6 +360,29 @@ static void TestAppTools(const fs::path& dir) {
     Check("d8d-bad-args", !ok && out.find("bad_args") != std::string::npos, out);
 }
 
+// --- (f) 스트립 z-order 게이트 (2026-09-26 라이브 결함 — "슬롯 선택 먹통") ----
+// children_ 순서가 곧 z-order(페인트·HitTest 모두 후순 우선) — HitTest의
+// 스크린 좌표 매핑은 헤드리스 프로브가 신뢰할 수 없어 순서를 직접 단정한다.
+
+static void TestZOrder() {
+    JKWindow win("probe");
+    win.SetWindowRect(JKRect{ 0, 0, 320, 240 });
+    auto* a = new JKStatic(JKRect{ 0, 0, 50, 20 }, 0);    // 스트립 콤보 자리
+    win.AddControl(std::unique_ptr<JKControl>(a));
+    auto* c = new JKStatic(JKRect{ 0, 0, 320, 240 }, 0);  // 리로드 패널(DOCK_FILL 자리)
+    win.AddControl(std::unique_ptr<JKControl>(c));
+    // 패널이 나중에 얹혀 스트립이 가려진 상태 — 라이브 증상의 구조.
+    Check("f1-covered", win.GetChildren().back().get() == c);
+    win.MoveChildToTop(a);
+    Check("f2-raised", win.GetChildren().back().get() == a);
+    Check("f3-still-own", a->GetParent() == &win &&
+                              win.GetChildren().size() == 2);
+    // 이미 맨 뒤(위)면 no-op — 소유권 이동 없이 안전.
+    win.MoveChildToTop(a);
+    Check("f4-noop", win.GetChildren().back().get() == a &&
+                         win.GetChildren().size() == 2);
+}
+
 int main() {
     const fs::path base = fs::temp_directory_path() / "jk_workshop_slot_probe";
     fs::remove_all(base);
@@ -372,6 +395,7 @@ int main() {
         TestHostState(hostDir);
         fs::create_directories(appDir);
         TestAppTools(appDir);
+        TestZOrder();
     } catch (const std::exception& e) {
         std::printf("FAIL: exception -- %s\n", e.what());
         ++g_fail;

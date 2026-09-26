@@ -389,6 +389,19 @@ void JKControl::AddControl(std::unique_ptr<JKControl> child) {
     }
 }
 
+void JKControl::MoveChildToTop(JKControl* child) {
+    if (!child) return;
+    const auto it = std::find_if(children_.begin(), children_.end(),
+                                 [child](const auto& c) { return c.get() == child; });
+    if (it == children_.end() || std::next(it) == children_.end()) return;
+    // erase가 먼저여야 한다 — push_back이 재할당하면 it가 무효(erase(it)가
+    // 세그폴트 — 2026-09-26 유닛 프로브 d7 실측). 소유권은 로컬로 잠시 봉인.
+    auto node = std::move(*it);            // 유니크 소유권 인계
+    children_.erase(it);
+    children_.push_back(std::move(node));  // parent는 그대로(this)
+    children_.back()->PerformLayout(GetClientRect());
+}
+
 JKControl* JKControl::FindControlById(uint32_t winId) {
     if (winId_ == winId) {
         return this;

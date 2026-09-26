@@ -414,6 +414,14 @@ protected:
     void OnScriptStarted() override {
         SendToolRegister();
         RefreshStrip();
+        // 라이브 결함 봉합 (2026-09-26 사용자 보고 — "슬롯 선택이 먹통"):
+        // StartScript의 새 패널(DOCK_FILL)이 AddControl로 맨 뒤(=z-order 최상,
+        // HitTest 역순)에 추가되어 리로드마다 스트립을 페인트·클릭 양쪽에서
+        // 가렸다. 모든 Start가 지나는 이 문에서 스트립을 다시 맨 위로.
+        if (JKWindow* main = this->GetMainWindow()) {
+            if (slotLabel_) main->MoveChildToTop(slotLabel_);
+            if (slotCombo_) main->MoveChildToTop(slotCombo_);
+        }
     }
 
     // --- 슬롯 스트립 (docs/67 단 1 — 네이티브 헤더 스트립) -------------------
@@ -423,6 +431,7 @@ protected:
         if (!main) return;
         auto label = std::make_unique<JKStatic>(JKRect{ 8, 6, 38, 18 }, 0);
         label->SetText(jk::Utf8ToKssm("슬롯:"));
+        slotLabel_ = label.get();
         main->AddControl(std::move(label));
         auto combo = std::make_unique<JKComboBox>(JKRect{ 50, 3, 160, 22 }, 0);
         slotCombo_ = combo.get();
@@ -466,6 +475,7 @@ protected:
     }
 
     JKComboBox* slotCombo_ = nullptr;
+    JKStatic* slotLabel_ = nullptr;
 
     bool OnAgentToolCall(const std::string& tool, const std::string& argsJson,
                          std::string& out) override {

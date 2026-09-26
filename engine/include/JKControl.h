@@ -123,6 +123,12 @@ public:
     void PaintFocus(JKDC& dc) const;
 
     void AddControl(std::unique_ptr<JKControl> child);
+    // z-order 상향 (additive, docs/67 단 1 실측): children_ 순서가 곧 z-order
+    // (페인트·HitTest 모두 후순=마지막 자식이 위)이므로 기존 자식을 맨 뒤로
+    // 보낸다. 리로드마다 새 패널(DOCK_FILL)이 AddControl로 맨 뒤에 추가되면
+    // 이전에 얹은 오버레이(워크숍 슬롯 스트립)를 페인트·클릭 양쪽에서 가린다
+    // — 기동 후 패널 재빌드마다 오버레이를 다시 맨 뒤(위)로 올리는 용도.
+    void MoveChildToTop(JKControl* child);
     JKControl* FindControlById(uint32_t winId);
     JKControl* FindControlByControlId(uint16_t controlId);
 
