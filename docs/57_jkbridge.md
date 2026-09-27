@@ -528,3 +528,37 @@ probe_jkbridge ×2 ALL PASS(정리 함수 탑재 후 전체 회귀 무손상).
   trust.json 불사용) — 팩 전용 스토어 재기록에서 소실돼도 무영향.
 - 레슨: 감사 자체도 게이트를 거친다 — 분류는 가설이고 ×2 실측이 판정.
   "레코드가 있으니 잔여" 추정(①)과 "있으니 정상" 추정(②) 모두 틀릴 수 있다.
+
+### 14.10 폰 빈 응답 3겹 결함 — stub 세션 잔여 resume 연쇄 (2026-09-27 사용자 보고 즉시 봉합)
+
+- 폰 "지뢰찾기 띄워주세요" → **(빈 응답)** ×2. chat.json ollama 픽스 후에도.
+- **결함 사슬 3겹**: ①stub 엔진이 남긴 `session_id:"stub-1"`이 브리지 메모리에
+  상주(chat.json 픽스는 프로세스 메모리를 못 고침) → 매 턴
+  `--resume "stub-1"` ②claude CLI는 `--print` 모드의 무효 resume에서
+  `type:"result", is_error:true, errors[]` 라인을 stdout으로 내고 종료 —
+  파서는 `type=="result"`만 보고 `ok=true` 마킹, `result` 필드는 없어
+  **빈 성공** ③레거시 EOF 폴백이 `stdoutBuf`(연결된 스트림 라인)를
+  재파싱해 실패 판정을 `ok=true`로 되돌림 + 오류 라인의 신규 UUID를
+  session_id로 심어 **다음 턴 resume도 연쇄 오염**(오류 UUID도 resume 불가).
+- **픽스(JKLlmEngine.cpp)**: ①에러 결과 라인 판정
+  (`subtype=="error_during_execution" || errors[0]`) → ok=false,
+  `errors[0]` 문면을 result로, sessionId 공란(오류 라인의 UUID는 재개 불가
+  대화) — 단락 평가로 추출이 생략되는 자체 버그도 봉합(항상 추출)
+  ②`sawResult` 게이트 — 스트림 result 라인을 본 적 있으면 레거시 폴백
+  불가(stub 엔진의 단일 echo-JSON 경로는 유지) ③**idle 킬 + job 트리** —
+  기존 10분 타임아웃은 EOF *이후*에만 검사돼 ReadFile이 막힌 채 영영
+  불발; PeekNamedPipe 폴링 루프로 stdout/stderr 동시 읽기( stderr
+  파이프 채움 교착 제거)+10분 무데이터 시 TerminateJobObject(손자가 파이프를
+  쥐고 살아남는 유출 근절 — KILL_ON_JOB_CLOSE).
+- **픽스(jkbridge)**: OnLlmDone 실패 턴은 resumeSession_ 공란(자가 치유 —
+  오염 id로 매 턴 재실패하지 않음, 다음 턴 신규 세션); 폰도 chat_done
+  ok:0이면 저장한 세션 폐기.
+- 실측(진단 스크립트 ×2 런, 실제 ollama 턴): 오염 resume 1턴=ok:0+claude
+  오류 문면+세션 공란 → 2턴=신규 세션 ok:1 실답(≈7-10s). probe_jkbridge
+  ×2 PASS(stub 레거시 경로 무손상). 커밋 (이 세션).
+- 레슨: **프로세스 메모리 상주 상태는 파일 픽스로 치유 안 된다** —
+  config 픽스 후에도 세션 id 같은 런타임 상태가 이전 엔진의 흔적을 물고
+  재발시킨다. 게다가 claude CLI의 실패도 type:"result"로 온다 — 성공/실패
+  판별은 is_error/errors 필드로. 진단 중 발견: 신규 세션에 맥락 없는
+  질문("방금 답한 숫자는?")은 모델이 도구를 헤매며 수분 소모 — 진단
+  질문은 도구 유혹 없는 단순 형태로.

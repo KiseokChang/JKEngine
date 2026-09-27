@@ -13,6 +13,8 @@ namespace agent {
 struct LlmTurnResult {
     bool ok = false;
     bool streamed = false;
+    bool sawResult = false;  // a type:"result" stream line was seen (success
+                             // or error) — gates the legacy EOF re-parse
     std::string result;     // the reply JSON's "result" field
     std::string sessionId;  // its "session_id" field ("" on parse failure)
 };

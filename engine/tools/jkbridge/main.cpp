@@ -504,7 +504,8 @@ function route(msg, j) {
   if (msg.type === 'chat_queued_start') { add('[대기열] 대기 중이던 메시지 실행 시작', 'sys', msg.ts); return; }
   if (msg.type === 'chat_done') {
     if (streamEl) streamEl = null;
-    if (msg.session_id) { claudeSession = msg.session_id; localStorage.setItem('jkbridge_session', msg.session_id); }
+    if (msg.ok && msg.session_id) { claudeSession = msg.session_id; localStorage.setItem('jkbridge_session', msg.session_id); }
+    else if (!msg.ok && claudeSession) { claudeSession = ''; localStorage.removeItem('jkbridge_session'); }  // 실패 턴의 재개 id 폐기 — 서버와 함께 자가 치유
     if (msg.ok && !msg.streamed) add(clean(msg.result) || '(빈 응답)', 'llm', msg.ts);
     else if (!msg.ok) add('[!] LLM 응답 실패 — ' + (msg.result||''), 'err', msg.ts);
     else add('[LLM 완료]', 'sys', msg.ts);
@@ -1047,9 +1048,16 @@ static void OnLlmDelta(const std::string& utf8, void* user) {
 
 static void OnLlmDone(jk::agent::LlmTurnResult&& r, void* user) {
     auto* keep = static_cast<std::shared_ptr<BridgeSession>*>(user);
-    if (!r.sessionId.empty()) {
+    if (r.ok && !r.sessionId.empty()) {
         std::lock_guard<std::mutex> lock((*keep)->resumeMtx_);
         (*keep)->resumeSession_ = r.sessionId;
+    } else if (!r.ok) {
+        // Self-heal (2026-09-27 빈 응답): a failed turn's resume id is
+        // untrustworthy — a stale id (engine switch, pruned history) would
+        // re-fail EVERY turn via --resume. Drop it; the next turn starts
+        // fresh and chat_done's empty session_id resets the phone too.
+        std::lock_guard<std::mutex> lock((*keep)->resumeMtx_);
+        (*keep)->resumeSession_.clear();
     }
     std::string frame = "{\"type\":\"chat_done\",\"ok\":";
     frame += r.ok ? "1" : "0";

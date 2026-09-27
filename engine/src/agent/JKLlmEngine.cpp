@@ -204,6 +204,24 @@ bool ParseStreamLine(const std::string& line, LlmTurnResult* out,
         return true;
     }
     if (type == "result") {
+        // claude CLI failure paths STILL emit a type:"result" line — with
+        // is_error:true / errors[] and NO "result" field (e.g. --resume of
+        // an unknown session id). Treating it as ok produced silent empty
+        // replies (2026-09-27 폰 빈 응답: stub 잔여 세션 id가 매 턴
+        // resume 실패). Fail closed and surface the errors[0] text; clear
+        // the session id — the error line's fresh UUID is not a resumable
+        // conversation, and propagating it would poison the next resume.
+        std::string subtype, err0;
+        j.GetStr("subtype", subtype);
+        j.GetArrValStr("errors", 0, err0);  // 단락 금지 — subtype 참이어도 추출
+        if (subtype == "error_during_execution" || !err0.empty()) {
+            out->ok = false;
+            out->result = err0.empty() ? subtype : err0;
+            out->sawResult = true;
+            out->sessionId.clear();
+            return false;
+        }
+        out->sawResult = true;
         out->ok = true;
         j.GetStr("result", out->result);
     }
@@ -276,41 +294,101 @@ DWORD WINAPI LlmTurnThread(LPVOID param) {
         Finish(true);
         return 0;
     }
-    // Read stdout to EOF (cmd /c echo paths exit immediately; claude turns
-    // can take minutes). Complete lines are parsed AS THEY LAND so stream
-    // deltas reach the consumer while claude is still generating. stdoutBuf
-    // stays intact — the line scan advances a separate offset (the stub
-    // engine's plain echo-JSON needs the whole buffer in the EOF fallback
-    // below).
+    // Kill-on-close job: the engine tree (cmd → ollama → claude → its MCP
+    // children) dies with the turn. Without it, grandchildren survive the
+    // 10-min TerminateProcess (the wrapper is not the pipe holder) and leak
+    // — and a surviving grandchild holding the stdout pipe makes ReadFile
+    // block FOREVER, which is how a hung turn used to dead-lock the busy
+    // gate until a bridge restart.
+    const HANDLE jobTree = CreateJobObjectW(nullptr, nullptr);
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION jobLim{};
+    jobLim.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    SetInformationJobObject(jobTree, JobObjectExtendedLimitInformation,
+                            &jobLim, sizeof(jobLim));
+    AssignProcessToJobObject(pi.hProcess, jobTree);
+
+    // Read stdout+stderr CONCURRENTLY with an idle deadline. The old design
+    // read stdout to EOF before touching stderr (stderr pipe could fill and
+    // stall the child) and checked its 10-min timeout only AFTER EOF —
+    // unreachable while ReadFile was stuck on a pipe a grandchild held open.
+    // Complete lines are parsed AS THEY LAND so stream deltas reach the
+    // consumer while claude is still generating. stdoutBuf stays intact —
+    // the line scan advances a separate offset (the stub engine's plain
+    // echo-JSON needs the whole buffer in the EOF fallback below).
+    const ULONGLONG tTurn = GetTickCount64();
+    constexpr ULONGLONG kTurnIdleKillMs = 600000;  // 10 min (bridge convention)
+    bool outOpen = true, errOpen = true;
     std::string stdoutBuf, stderrBuf;
     size_t lineScan = 0;
     char chunk[4096];
-    DWORD got = 0;
-    while (ReadFile(readOut, chunk, sizeof(chunk), &got, nullptr) && got > 0) {
-        stdoutBuf.append(chunk, got);
-        size_t nl;
-        while ((nl = stdoutBuf.find('\n', lineScan)) != std::string::npos) {
-            std::string line = stdoutBuf.substr(lineScan, nl - lineScan);
-            lineScan = nl + 1;
-            if (!line.empty() && line.back() == '\r') line.pop_back();
-            if (!line.empty()) ParseStreamLine(line, out, *job);
+    while (outOpen || errOpen) {
+        bool progressed = false;
+        if (outOpen) {
+            DWORD avail = 0;
+            if (PeekNamedPipe(readOut, nullptr, 0, nullptr, &avail, nullptr) &&
+                avail > 0) {
+                DWORD got = 0;
+                if (ReadFile(readOut, chunk, sizeof(chunk), &got, nullptr) &&
+                    got > 0) {
+                    progressed = true;
+                    stdoutBuf.append(chunk, got);
+                    size_t nl;
+                    while ((nl = stdoutBuf.find('\n', lineScan)) !=
+                           std::string::npos) {
+                        std::string line = stdoutBuf.substr(lineScan,
+                                                            nl - lineScan);
+                        lineScan = nl + 1;
+                        if (!line.empty() && line.back() == '\r') line.pop_back();
+                        if (!line.empty()) ParseStreamLine(line, out, *job);
+                    }
+                } else {
+                    outOpen = false;
+                }
+            } else if (GetLastError() == ERROR_BROKEN_PIPE) {
+                outOpen = false;
+            }
+        }
+        if (errOpen) {
+            DWORD avail = 0;
+            if (PeekNamedPipe(readErr, nullptr, 0, nullptr, &avail, nullptr) &&
+                avail > 0) {
+                DWORD got = 0;
+                if (ReadFile(readErr, chunk, sizeof(chunk), &got, nullptr) &&
+                    got > 0) {
+                    progressed = true;
+                    stderrBuf.append(chunk, got);
+                } else {
+                    errOpen = false;
+                }
+            } else if (GetLastError() == ERROR_BROKEN_PIPE) {
+                errOpen = false;
+            }
+        }
+        if (!progressed) {
+            // No data flowing — the kill criterion. A turn streaming deltas
+            // (the user SEES it live) is never killed by the deadline.
+            if (GetTickCount64() - tTurn >= kTurnIdleKillMs) {
+                TerminateJobObject(jobTree, 1);
+                break;
+            }
+            Sleep(20);
         }
     }
     CloseHandle(readOut);
-    while (ReadFile(readErr, chunk, sizeof(chunk), &got, nullptr) && got > 0) {
-        stderrBuf.append(chunk, got);
-    }
     CloseHandle(readErr);
-    // Turn timeout: kill a hung engine after 10 minutes (bridge convention).
-    if (WaitForSingleObject(pi.hProcess, 600000) == WAIT_TIMEOUT) {
-        TerminateProcess(pi.hProcess, 1);
-    }
+    // Reap the wrapper; the job close below kills any stragglers (claude's
+    // MCP children) — per-turn processes, not the user's ollama daemon.
+    WaitForSingleObject(pi.hProcess, 5000);
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
+    CloseHandle(jobTree);
 
-    if (!out->ok) {
+    if (!out->ok && !out->sawResult) {
         // No stream result line (stub engine echoes plain JSON) — legacy
-        // whole-buffer parse of the reply object.
+        // whole-buffer parse of the reply object. sawResult gates it: the
+        // buffer holds CONCATENATED stream lines and the lenient parse of
+        // the first object re-OKed failed turns (2026-09-27 빈 응답 —
+        // init 라인의 session_id가 오류 라인을 덮어 다음 resume을 오염).
         AgentJson reply(stdoutBuf);
         out->ok = reply.ok();
         if (!out->ok && stderrBuf.size() > 0) {
