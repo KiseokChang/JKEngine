@@ -399,10 +399,15 @@ static const char kWebUi[] = R"JKUI(<!doctype html>
           background:#1c1f24; color:#e8e8ea; }
   #mirror { display:none; position:fixed; inset:0; z-index:10; background:rgba(10,11,13,.97);
             flex-direction:column; gap:6px; padding:8px; padding-top:max(8px,env(safe-area-inset-top)); }
-  /* 분할 모드 — 채팅과 미러 동시 보기 (2026-09-27 사용자 요청): 미러를 화면
-     아래 절반으로, 위쪽엔 채팅(log+입력)이 남아 계속 대화 가능. */
-  #mirror.split { top:45%; }
+  /* 채팅 열 — 기본은 body 전체(flex column), 분할 시 왼쪽 절반.
+     세로 분할(2026-09-27 사용자 요청 — 가로 분할은 입력창이 미러에 가림):
+     채팅=왼쪽 절반(입력창 포함), 미러=오른쪽 절반. */
+  #chatcol { display:flex; flex-direction:column; flex:1; min-height:0; }
+  body.msplit { flex-direction:row; }
+  body.msplit #chatcol { width:50%; border-right:1px solid #26292f; }
+  #mirror.split { inset:0 0 0 50%; }
   #mirror.split #mpick { max-height:18vh; }
+  #mirror.split #mbar { flex-wrap:wrap; }
   #mbar { display:flex; gap:6px; align-items:center; }
   #mbar button, #mpick button { font-size:14px; padding:7px 14px; border-radius:6px;
             border:1px solid #555; background:#1c1f24; color:#e8e8ea; }
@@ -415,12 +420,14 @@ static const char kWebUi[] = R"JKUI(<!doctype html>
           touch-action:none; }
 </style></head>
 <body>
+<div id="chatcol">
 <div id="hdr"><span>jkbridge</span><span id="stat">연결 중…</span><button id="mbtn">미러</button></div>
 <div id="log"></div>
 <div id="appr"><div id="aptext"></div>
   <div><button id="bAllow">허용</button><button id="bDeny">거부</button></div></div>
 <div id="inrow"><input id="txt" autocomplete="off" placeholder="자연어 → LLM / 슬래시 커맨드">
   <button id="send">보내기</button></div>
+</div>
 <div id="mirror">
   <div id="mbar"><button id="mclose">닫기</button><button id="mpause">정지</button>
     <button id="mrefresh">새로고침</button>
@@ -804,6 +811,7 @@ mrc.onclick = () => {
 const mspl = document.getElementById('msplit');
 mspl.onclick = () => {
   const on = mirEl.classList.toggle('split');
+  document.body.classList.toggle('msplit', on);   // 채팅 열 → 왼쪽 절반
   mspl.style.background = on ? '#274b6d' : '';
 };
 mImg.addEventListener('click', (e) => {
