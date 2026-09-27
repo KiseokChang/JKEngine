@@ -490,3 +490,17 @@ probe_jkbridge ×2 ALL PASS(정리 함수 탑재 후 전체 회귀 무손상).
   다음). 미러 중 창이 닫히면(window_not_found) mWin 해제+즉시 목록 재수집
   유도. 바에 새로고침 버튼, 선택 행 sel 강조. 게이트: probe_phone_mirror
   ×2 ALL PASS + probe_jkbridge PASS.
+
+### 14.8 라이브 chat.json stub 잔여 — 폰 자연어 사망 (2026-09-27 사용자 보고 즉시 봉합)
+
+- 폰에서 "지뢰찾기 띄워줘요" → "stub ok" (stub 엔진의 대답). 라이브
+  `state\chat.json`이 `{"engine":"stub"}`로 고정 — 초기 jkbridge 기계 시험
+  잔여가 그대로 살아있었다(프로브 스왑·복원은 정상, 원본이 stub).
+- 픽스: `{"engine":"ollama"}` 기록 — LoadChatConfig는 **턴마다 재조회**
+  (LlmTurnThread 첫 줄)라 브리지 재시작 불필요, 폰에서 즉시 재시도 가능.
+  연기 실측: `ollama launch claude --model glm-5.3-flash:cloud` 실제 턴 성공
+  (result 도달). `[claude-code:unrecognized_model]` 경고는 stderr 파이프로
+  분리 수집 — 파서 무영향(엔진이 이미 분리 설계).
+- 레슨: **config 잔여는 프로브 스왑·복원으로 잡히지 않는다** — 원본 자체가
+  비정상이면 모든 게이트가 녹색으로 통과한다. 라이브 구성 파일(chat.json 등)
+  변경은 사용자 보고 대응 때 원본부터 확인.
