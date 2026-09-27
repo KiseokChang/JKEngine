@@ -456,6 +456,11 @@ private:
         // 으로 리셋(스펙 §4 — 플랫폼이 커서 상태를 소유). 승인 해소 경로(
         // semCell 파킹)와 즉시 allow 경로 모두에서 설정.
         bool resetCursorOnOk = false;
+        // 폰 실전 (2026-09-27, docs/64 §8): act가 ok로 끝나면 커서를 acted
+        // 칸으로 이동 — "거기"가 마지막 행위 칸을 자연히 가리킨다. reset류는
+        // 정의 전이(resetCursorOnOk 분기). 앱 에러(bad_state 등)는 커서 불변.
+        bool semAct = false;
+        int semRow = 0, semCol = 0;
     };
     std::map<uint32_t, AppToolManifest> appToolManifests_;  // connId → 매니페스트
     std::map<uint32_t, InflightAppTool> inflightAppTools_;  // reqId → 중계

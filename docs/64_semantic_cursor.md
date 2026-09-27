@@ -202,6 +202,28 @@ reveal (0,0)(배너 `minesweeper.reveal at (0,0)` → 승인 → opened:19 에�
 (JKWindowServer.cpp:5373 와이어 토큰 — LLM 문구 다듬기는 백로그). 폰 LLM 세션은
 `--resume`으로 턴 간 대화 이력 유지(폰 localStorage 세션 id, `/new`로 리셋, 재접속 복구).
 
+## 8b. 폰 실전 2판(2026-09-27 라이브 패치 세션) — act 커서 이동+승인 운용 확정
+
+라이브 패치 눈확인(3판정 PASS) 후 지뢰찾기 실전에서 발견 3건 — 사용자 확정(2026-09-27):
+
+1. **act 성공 시 커서가 acted 칸으로 이동**(스펙 규약 갱신) — 기존 "act 후 커서 유지"는
+   커서가 launch 리셋 위치 (0,0)에 남아 "거기 깃발"이 (0,0)에 놓이는 실측("거기"의 자연
+   해석=마지막 행위 칸). 구현: InflightAppTool에 semAct/semRow/semCol — 즉시 allow 경로
+   +승인 해소 경로 양쪽에서 설정, HandleAppToolResult에서 ok 시 `cursorState.MoveTo`
+   (resetCursorOnOk 옆). reset은 여전 정의 전이(좌상단) 분기. 앱 에러(bad_state)는
+   커서 불변 — "에러에 리셋하지 않는다" 규약과 동형. probe sc-cursor-after-act 재편
+   ((3,0) 불변 → (4,4) acted 칸).
+2. **act 승인 ask 고정 → permissions.json 운용** — 1판 10탭 승인 피로 실측(거부 2탭
+   포함). `AppToolAllowed`의 키 체계(`app_tool.<app>.<tool>` 우선) 실측 확인 후
+   permissions.json에 `app_tool.minesweeper.act: allow` — 런타임 핫리드(호출마다
+   읽음)라 재기동 불요. 하이라이트 셀 보며 1탭 게임 성립(docs/64 §7 권장안 채택).
+3. **프리앰블 교육 2문장** — 커서 위치 질문("지금 어디?"가 창 목록으로 답한 실측)은
+   read 도구로, 판 상태 진술은 read 결과 근거("2,3"을 (2,4)로 옮겼다가 스스로 정정한
+   추론 혼돈 실측), act 성공 시 커서=마지막 act 칸("거기" 해석).
+
+관찰(백로그): 위젯 버튼 색 지정 API 부재 — 워크숍 "버튼 색 바꿔 줘"가 캔버스 교체(풀
+리로드)로 우회됨. 버튼 색/스타일 API가 생기면 플래그십 문구가 진짜 라이브 패치로 성립.
+
 ## 9. 그려지는 격자와 오버레이 박스 불일치(2026-09-22 픽스, 5fca652)
 
 사용자 보고: "그려지는 그리드와 오버레이의 박스가 일치하지 않아요. 실제 그려지는 그리드가

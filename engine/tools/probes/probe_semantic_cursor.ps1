@@ -18,8 +18,9 @@
 #      [#F?0-9*]) + status field, fresh board all '#'
 #   4  act park -> banner name "<app>.<kind> at (r,c)" -> approve -> opened
 #      echo + board change; parked event carries the bridge surface fields
-#      (kind=app_tool + name + request id + target identity); cursor stays
-#      after act (spec §4 - act does not move the cursor)
+#      (kind=app_tool + name + request id + target identity); act moves the
+#      cursor to the acted cell on ok (2026-09-27 phone-session ruling,
+#      docs/64 §8 - reset is the exception: definition transition)
 #   5  bad_state: reveal an opened cell / flag an opened cell
 #   5b flag serialization 'F' in the snapshot + flags count
 #   5c question-mark cycle: question -> read '?' -> clear -> read '#'
@@ -374,8 +375,9 @@ $script:qid++
 $b2 = Read-Board $agent $script:qid
 $closed1 = $(if ($b2) { (Count-Chars $b2.snap.board '#') } else { 81 })
 Check "sc-reveal-board-changed" ($b2 -ne $null -and $closed1 -lt 81) ("closed=" + $closed1)
-# Act does not move the cursor (spec §4 - the cursor state survives act).
-Check "sc-cursor-after-act" ($b2 -ne $null -and $b2.raw -match '"cursor":\{"row":3,"col":0\}') $(if ($b2) { $b2.raw } else { "no reply" })
+# Act moves the cursor to the acted cell on ok (2026-09-27 ruling, docs/64
+# §8) - the reveal above acted at (4,4), so the read header must carry it.
+Check "sc-cursor-after-act" ($b2 -ne $null -and $b2.raw -match '"cursor":\{"row":4,"col":4\}') $(if ($b2) { $b2.raw } else { "no reply" })
 
 # --- 5: bad_state (invalid transitions echo) -----------------------------------------
 $act2 = Approve-Act "flag" 4 4

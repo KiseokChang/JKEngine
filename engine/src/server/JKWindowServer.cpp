@@ -3871,9 +3871,19 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                                                                ? "{}"
                                                                : argsRaw);
                                     std::string kind;
-                                    if (a.GetStr("kind", kind))
-                                        inf.resetCursorOnOk =
-                                            (kind == "reset");
+                                    int row = 0, col = 0;
+                                    if (a.GetStr("kind", kind)) {
+                                        if (kind == "reset") {
+                                            inf.resetCursorOnOk = true;
+                                        } else if (a.GetInt("row", row) &&
+                                                   a.GetInt("col", col)) {
+                                            // 폰 실전 — act 성공 시 커서가
+                                            // acted 칸으로 이동(docs/64 §8).
+                                            inf.semAct = true;
+                                            inf.semRow = row;
+                                            inf.semCol = col;
+                                        }
+                                    }
                                 }
                                 inflightAppTools_[reqId] = inf;
                                 std::string callJson = "{\"app\":\"" + JsonEsc(app) +
@@ -6101,6 +6111,14 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                             // 정의 전이((0,0)) 리셋(스펙 §4).
                             inf.resetCursorOnOk =
                                 (it->semKind == "reset");
+                            // 폰 실전 — 일반 act는 acted 칸 이동(위 즉시
+                            // allow 경로와 동일 규약, docs/64 §8).
+                            if (!it->semKind.empty() &&
+                                it->semKind != "reset") {
+                                inf.semAct = true;
+                                inf.semRow = it->semRow;
+                                inf.semCol = it->semCol;
+                            }
                             inflightAppTools_[reqId] = inf;
                             ipc::WriteAgentToolCall(
                                 target->Transport(), reqId,
@@ -6837,6 +6855,15 @@ void JKWindowServer::HandleToolResult(JKClientConnection& client,
         if (mit != appToolManifests_.end() && mit->second.cursor.valid)
             mit->second.cursorState.Reset(mit->second.cursor.rows,
                                           mit->second.cursor.cols);
+    } else if (ok && it->second.semAct) {
+        // 폰 실전 (2026-09-27, docs/64 §8): act 성공 시 커서를 acted 칸으로
+        // 이동 — "거기"가 마지막 행위 칸을 자연히 가리킨다. 커서는 플랫폼
+        // 소유라 서버가 이동(resetCursorOnOk와 동일 자리). 앱 에러(bad_state
+        // 등)는 커서 불변 — 에러에 리셋하지 않는 기존 규약과 동형.
+        auto mit = appToolManifests_.find(it->second.targetConnId);
+        if (mit != appToolManifests_.end() && mit->second.cursor.valid)
+            mit->second.cursorState.MoveTo(it->second.semRow,
+                                           it->second.semCol);
     }
     for (auto& c : clients_) {
         if (c && c->Id() == it->second.requesterConnId && !c->IsDisconnected()) {

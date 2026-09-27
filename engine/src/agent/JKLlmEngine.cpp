@@ -119,6 +119,9 @@ constexpr const char* kLlmTurnPreamble =
     "이미 만든 워크숍 앱의 작은 수정은 set_script에 live:1로 "
     "라이브 패치한다(앱이 계속 살아 있다); 위젯 추가·삭제 같은 구조 변경은 "
     "live 없이 다시 쓴다. "
+    "의미 커서 앱의 커서 위치 질문(지금 어디?)과 판 상태 진술은 read 도구 "
+    "결과를 근거로 답한다(이전 추론으로 말하지 않는다). "
+    "act가 성공하면 커서는 그 칸으로 이동하므로 '거기'는 마지막 act 칸이다. "
     "[사용자] ";
 
 // claude_wrapper guide §2.2: ollama launch claude --model <m> -- [claude args]
