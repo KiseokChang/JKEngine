@@ -21,6 +21,17 @@ $exe = "$build\jkdesktop.exe"; $agnt = "$build\jkagentd.exe"
 $ctl = $exe
 $perm = "$build\permissions.json"
 $myapp = "$build\state\scripts\myapp.js"
+# SLOT ISOLATION (2026-09-27, probe_workshop 동일 사고 봉합): 마지막 슬롯 영속
+# (.current_<app>) 때문에 부팅 슬롯이 사용자 실슬롯이면 프로브 스크립트가 그
+# 슬롯에 기록된다. 구 finally의 .history 전체 삭제는 사용자 버전 리본을 파괴한다
+# (docs/59 s16.1급 사고). 프로브 전면 probe-ws 전용 슬롯(set_script slot 인자=
+# 생성+자동 전환), 포인터는 백업→finally 원복.
+$probeSlot = "probe-ws"
+$slotFile = "$build\state\scripts\probe-ws.js"
+$histDir = "$build\state\scripts\.history\probe-ws"
+$currentFile = "$build\state\scripts\.current_workshop"
+$hadCur = Test-Path $currentFile
+if ($hadCur) { $curBak = [System.IO.File]::ReadAllBytes($currentFile) }
 $marker1 = "CONQSEED2623"
 $marker2 = "CONQSEED2624"
 $script:fail = 0
@@ -102,6 +113,12 @@ function Set-Script([string]$source) {
     $esc = $source -replace '"', '\"'
     return (Invoke-AppTool "set_script" ('{"source":"' + $esc + '"}'))
 }
+# set_script into the probe-owned slot (creates it + auto-switches) — every
+# probe write lands in probe-ws, never in the boot slot (사용자 슬롯 격리).
+function Set-ScriptSlot([string]$source) {
+    $esc = $source -replace '"', '\"'
+    return (Invoke-AppTool "set_script" ('{"slot":"' + $probeSlot + '","source":"' + $esc + '"}'))
+}
 $script:cycleOk = $false
 function Invoke-ConquestCycle([string]$tag, [string]$seed) {
     $script:cycleOk = $true
@@ -124,8 +141,10 @@ function Invoke-ConquestCycle([string]$tag, [string]$seed) {
     if (-not $obs) { $script:cycleOk = $false }
     $h0 = Capture-Hash $win.id
     Check "$tag-observe-capture" ($h0 -ne "")
-    # (3) drive A (track A): set_script -> synchronous reload (same id).
-    $r1 = Set-Script (New-ScriptSource $seed)
+    # (3) drive A (track A): set_script into the probe-owned slot ->
+    #     synchronous reload (same id). slot 인자=생성+자동 전환 — 부팅 슬롯
+    #     (사용자 실슬롯일 수 있음)은 접촉하지 않는다.
+    $r1 = Set-ScriptSlot (New-ScriptSource $seed)
     Check "$tag-drive-set-script" ($r1 -match 'ok\\":true')
     # (4) verify A1: get_script round-trip carries the new source (tool truth).
     #     (args must be a literal "{}" - an empty string dies as bad JSON.)
@@ -232,11 +251,15 @@ try {
     Stop-ProbeProcs
     # docs/67 stage 1: probe-driven set_script snapshots + slot switching
     # leave ribbon/persistence state behind — the user's live workshop must
-    # not carry probe slots or a probe .current pointer.
-    Remove-Item "$build\state\scripts\.current_workshop" -Force -ErrorAction SilentlyContinue
-    if (Test-Path "$build\state\scripts\.history") {
-        Remove-Item "$build\state\scripts\.history" -Recurse -Force
-        Write-Output "NOTICE: .history ribbon removed"
+    # not carry probe slots. SLOT ISOLATION 원복: 프로브 소유분(probe-ws.js+
+    # .history/probe-ws)만 소각하고 .current 포인터는 부팅 전 값으로 복원한다
+    # (.history 전체 삭제는 사용자 버전 리본 파괴 — 금지).
+    if (Test-Path $slotFile) { Remove-Item $slotFile -Force -ErrorAction SilentlyContinue }
+    if (Test-Path $histDir) { Remove-Item $histDir -Recurse -Force -ErrorAction SilentlyContinue }
+    if ($hadCur) {
+        [System.IO.File]::WriteAllBytes($currentFile, $curBak)
+    } else {
+        Remove-Item $currentFile -Force -ErrorAction SilentlyContinue
     }
     if ($myappExisted -and (Test-Path "$myapp.probe_bak")) {
         Copy-Item "$myapp.probe_bak" $myapp -Force
