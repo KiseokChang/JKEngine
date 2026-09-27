@@ -19,6 +19,11 @@
 > jkapp_script.dll 재빌드+workshop.jkx 재팩 완료 — 실행 중 데스크톱 스택은
 > 픽스 전 dll. **눈확인 대기**: 사용자 폰 실기기 "버튼 색 바꿔 줘"류 실전
 > (재기동 후, 맨 뒤) → 그다음 단 2 본편 트러스트 문.
+>
+> **최종 리뷰(opus): Ready to merge YES** (0C 2I 5minor — Important 1 이중
+> 실패 경로 live:false+liveErr 에코는 픽스 웨이브 40d3411로 해소, 스코프
+> 재검토 ALL FINDINGS ADDRESSED; Important 2 기억창고 갱신=이 상태 블록
+> 갱신으로 이행). 잔여 minor는 merge 후속(parked).
 
 ## 1. 한 줄 그림
 
