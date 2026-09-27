@@ -563,12 +563,18 @@ protected:
                 gen = jk::workshop::AppendSnapshot(
                     jk::workshop::DirOf(scriptPath_), slot, prev);
                 if (gen == 0) {
-                    out = "{\"error\":\"snapshot_failed\"}";
+                    // 라이브 흐름 내 에이전트에게 자격 부여 라벨(additive —
+                    // 비라이브 요청은 기존 형태 그대로).
+                    out = liveCapable
+                        ? "{\"error\":\"snapshot_failed\",\"live\":true}"
+                        : "{\"error\":\"snapshot_failed\"}";
                     return false;
                 }
             }
             if (!WriteTextFile(path, source)) {
-                out = "{\"error\":\"write_failed\"}";
+                out = liveCapable
+                    ? "{\"error\":\"write_failed\",\"live\":true}"
+                    : "{\"error\":\"write_failed\"}";
                 return false;
             }
             // 같은 슬롯: live 요청이면 라이브 재평가, 아니면 동기 리로드(폐곡선).
@@ -603,12 +609,18 @@ protected:
                                                  : SwitchToSlot(slot);
             }
             if (!reloadOk) {
-                // 기존 경로와 동일한 에러 응답(live 필드만 추가 — additive).
-                out = "{\"ok\":false,\"live\":" +
-                      std::string(liveCapable ? "true" : "false") +
-                      ",\"slot\":\"" + JsonEsc(slot) +
-                      "\",\"gen\":" + std::to_string(gen) + ",\"error\":\"" +
-                      JsonEsc(host_->LastError()) +
+                // 실패 하위경로의 live 라벨: 리로드 실패 시 컨텍스트는 살아남지
+                // 못했다(스펙 §4 흐름 4 — 낙하는 Start 재평가). live:false가
+                // 사실이고, 패치 에러+리로드 에러를 양쪽 노출한다(폐곡선).
+                std::string errText;
+                if (liveCapable && !liveErr.empty()) {
+                    errText = liveErr + " / full-reload: " + host_->LastError();
+                } else {
+                    errText = host_->LastError();
+                }
+                out = "{\"ok\":false,\"live\":false,\"slot\":\"" +
+                      JsonEsc(slot) + "\",\"gen\":" + std::to_string(gen) +
+                      ",\"error\":\"" + JsonEsc(errText) +
                       "\",\"hint\":\"call the api tool for the function list\"}";
                 return false;
             }

@@ -88,8 +88,8 @@ JSValue ThrowTypeError(JSContext* ctx, const char* what, const char* why) {
 // 교육한다(폐곡선) — 어디로 옮길지를 말해 준다.
 JSValue PatchBlocked(JSContext* ctx, const char* what) {
     return ThrowTypeError(ctx, what,
-        "not allowed during a live patch - move creation into onCreate, "
-        "or use a full reload (live:0)");
+        "bad_patch: not allowed during a live patch - move creation into "
+        "onCreate, or use a full reload (live:0)");
 }
 
 // {x, y, w, h} object or [x, y, w, h] array -> JKRect. The array form is
@@ -290,7 +290,7 @@ struct Bindings {
     static JSValue CreateButton(JSContext* ctx, JSValueConst, int argc,
                                 JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
-        if (host->IsPatching()) return PatchBlocked(ctx, "createButton");
+        if (host && host->IsPatching()) return PatchBlocked(ctx, "createButton");
         if (!host || !host->window_ || argc < 2)
             return ThrowTypeError(ctx, "createButton", "needs (rect, text)");
         bool ok = false;
@@ -311,7 +311,7 @@ struct Bindings {
     static JSValue CreateLabel(JSContext* ctx, JSValueConst, int argc,
                                JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
-        if (host->IsPatching()) return PatchBlocked(ctx, "createLabel");
+        if (host && host->IsPatching()) return PatchBlocked(ctx, "createLabel");
         if (!host || !host->window_ || argc < 2)
             return ThrowTypeError(ctx, "createLabel", "needs (rect, text)");
         bool ok = false;
@@ -331,7 +331,7 @@ struct Bindings {
     static JSValue CreateEdit(JSContext* ctx, JSValueConst, int argc,
                               JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
-        if (host->IsPatching()) return PatchBlocked(ctx, "createEdit");
+        if (host && host->IsPatching()) return PatchBlocked(ctx, "createEdit");
         if (!host || !host->window_ || argc < 2)
             return ThrowTypeError(ctx, "createEdit", "needs (rect, text)");
         bool ok = false;
@@ -382,7 +382,7 @@ struct Bindings {
     static JSValue SetInterval(JSContext* ctx, JSValueConst, int argc,
                                JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
-        if (host->IsPatching()) return PatchBlocked(ctx, "setInterval");
+        if (host && host->IsPatching()) return PatchBlocked(ctx, "setInterval");
         int32_t ms = 0;
         // JS contract: setInterval(fn, ms) — argv[0] is the callback, argv[1] ms.
         // Contract is setInterval(fn, ms) — the browser API order. Agent
@@ -571,7 +571,7 @@ struct Bindings {
     static JSValue CreateDialog(JSContext* ctx, JSValueConst, int argc,
                                 JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
-        if (host->IsPatching()) return PatchBlocked(ctx, "dialogCreate");
+        if (host && host->IsPatching()) return PatchBlocked(ctx, "dialogCreate");
         if (!host || argc < 3 || !JS_IsFunction(ctx, argv[2])) {
             return JS_ThrowTypeError(ctx,
                 "dialogCreate: needs (title, rect, onClose)");
@@ -652,7 +652,7 @@ struct Bindings {
     static JSValue DialogAddLabel(JSContext* ctx, JSValueConst, int argc,
                                   JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
-        if (host->IsPatching()) return PatchBlocked(ctx, "dialogAddLabel");
+        if (host && host->IsPatching()) return PatchBlocked(ctx, "dialogAddLabel");
         const JKControl* c = DialogAddControl(host, ctx, argc, argv, 0);
         return c ? JS_NewInt32(ctx, c->GetControlId()) : JS_EXCEPTION;
     }
@@ -660,7 +660,7 @@ struct Bindings {
     static JSValue DialogAddEdit(JSContext* ctx, JSValueConst, int argc,
                                  JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
-        if (host->IsPatching()) return PatchBlocked(ctx, "dialogAddEdit");
+        if (host && host->IsPatching()) return PatchBlocked(ctx, "dialogAddEdit");
         const JKControl* c = DialogAddControl(host, ctx, argc, argv, 1);
         return c ? JS_NewInt32(ctx, c->GetControlId()) : JS_EXCEPTION;
     }
@@ -668,7 +668,7 @@ struct Bindings {
     static JSValue DialogAddButton(JSContext* ctx, JSValueConst, int argc,
                                    JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
-        if (host->IsPatching()) return PatchBlocked(ctx, "dialogAddButton");
+        if (host && host->IsPatching()) return PatchBlocked(ctx, "dialogAddButton");
         const JKControl* c = DialogAddControl(host, ctx, argc, argv, 2);
         return c ? JS_NewInt32(ctx, c->GetControlId()) : JS_EXCEPTION;
     }
@@ -816,7 +816,7 @@ struct Bindings {
     static JSValue CreateCanvas(JSContext* ctx, JSValueConst, int argc,
                                 JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
-        if (host->IsPatching()) return PatchBlocked(ctx, "createCanvas");
+        if (host && host->IsPatching()) return PatchBlocked(ctx, "createCanvas");
         if (!host || !host->window_ || argc < 1)
             return ThrowTypeError(ctx, "createCanvas", "needs (rect[, id])");
         bool ok = false;
