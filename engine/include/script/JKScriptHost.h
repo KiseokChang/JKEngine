@@ -74,6 +74,16 @@ public:
     // entry path. Returns false when Start was never successful.
     bool Reload();
 
+    // 라이브 패치 (docs/67 단 1 리파인 3호, 스펙 §5): 컨텍스트를 죽이지 않고
+    // 정의만 재평가. CompileGate는 COMPILE_ONLY로 문법만 판정(부작용·상태
+    // 변화 없음), PatchEval은 프리패스→재평가. 실패 이원화(문법=무손상 에코 /
+    // 런타임=풀 리로드 낙하)는 호출자(ClientScriptApp)의 몫이다.
+    bool CompileGate(const std::string& source, std::string* error = nullptr);
+    bool PatchEval(const std::string& source, std::string* error = nullptr);
+    // PatchEval의 재평가 구간 표식 — 생성류 바인딩(Bindings::PatchBlocked)이
+    // 읽어 bad_patch로 막는다.
+    bool IsPatching() const { return patching_; }
+
     // Dispatchers (main thread). DispatchClick is invoked by buttons the
     // script created; DispatchTimerAt by the app for a Timer event whose
     // winId is a script timer id (see ScriptTimerWinIdBase);
@@ -185,6 +195,8 @@ private:
 
     // 의미 커서 (declareCursor 봉합 원문; 빈 문자열 = 미선언).
     std::string cursorDeclJson_;
+
+    bool patching_ = false;  // PatchEval 재평가 구간 — 생성류 바인딩이 bad_patch로 막는다
     std::function<void(const std::string& json)> cursorDeclChanged_;
 
     // 상태 보존 리로드 (docs/67 단 1): 리로드 직전 캡처한 JS 상태 원문.

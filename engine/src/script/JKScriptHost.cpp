@@ -84,6 +84,14 @@ JSValue ThrowTypeError(JSContext* ctx, const char* what, const char* why) {
     return JS_ThrowTypeError(ctx, "%s: %s", what, why);
 }
 
+// 라이브 패치 재평가 중 생성류 차단 (스펙 §3 bad_patch). 에러 문구가 규약을
+// 교육한다(폐곡선) — 어디로 옮길지를 말해 준다.
+JSValue PatchBlocked(JSContext* ctx, const char* what) {
+    return ThrowTypeError(ctx, what,
+        "not allowed during a live patch - move creation into onCreate, "
+        "or use a full reload (live:0)");
+}
+
 // {x, y, w, h} object or [x, y, w, h] array -> JKRect. The array form is
 // accepted because agent-written scripts naturally guess it (2026-09-24
 // receipts: the model twice wrote createCanvas([10,10,W,H]) / createLabel
@@ -282,6 +290,7 @@ struct Bindings {
     static JSValue CreateButton(JSContext* ctx, JSValueConst, int argc,
                                 JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (host->IsPatching()) return PatchBlocked(ctx, "createButton");
         if (!host || !host->window_ || argc < 2)
             return ThrowTypeError(ctx, "createButton", "needs (rect, text)");
         bool ok = false;
@@ -302,6 +311,7 @@ struct Bindings {
     static JSValue CreateLabel(JSContext* ctx, JSValueConst, int argc,
                                JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (host->IsPatching()) return PatchBlocked(ctx, "createLabel");
         if (!host || !host->window_ || argc < 2)
             return ThrowTypeError(ctx, "createLabel", "needs (rect, text)");
         bool ok = false;
@@ -321,6 +331,7 @@ struct Bindings {
     static JSValue CreateEdit(JSContext* ctx, JSValueConst, int argc,
                               JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (host->IsPatching()) return PatchBlocked(ctx, "createEdit");
         if (!host || !host->window_ || argc < 2)
             return ThrowTypeError(ctx, "createEdit", "needs (rect, text)");
         bool ok = false;
@@ -371,6 +382,7 @@ struct Bindings {
     static JSValue SetInterval(JSContext* ctx, JSValueConst, int argc,
                                JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (host->IsPatching()) return PatchBlocked(ctx, "setInterval");
         int32_t ms = 0;
         // JS contract: setInterval(fn, ms) — argv[0] is the callback, argv[1] ms.
         // Contract is setInterval(fn, ms) — the browser API order. Agent
@@ -559,6 +571,7 @@ struct Bindings {
     static JSValue CreateDialog(JSContext* ctx, JSValueConst, int argc,
                                 JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (host->IsPatching()) return PatchBlocked(ctx, "dialogCreate");
         if (!host || argc < 3 || !JS_IsFunction(ctx, argv[2])) {
             return JS_ThrowTypeError(ctx,
                 "dialogCreate: needs (title, rect, onClose)");
@@ -639,6 +652,7 @@ struct Bindings {
     static JSValue DialogAddLabel(JSContext* ctx, JSValueConst, int argc,
                                   JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (host->IsPatching()) return PatchBlocked(ctx, "dialogAddLabel");
         const JKControl* c = DialogAddControl(host, ctx, argc, argv, 0);
         return c ? JS_NewInt32(ctx, c->GetControlId()) : JS_EXCEPTION;
     }
@@ -646,6 +660,7 @@ struct Bindings {
     static JSValue DialogAddEdit(JSContext* ctx, JSValueConst, int argc,
                                  JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (host->IsPatching()) return PatchBlocked(ctx, "dialogAddEdit");
         const JKControl* c = DialogAddControl(host, ctx, argc, argv, 1);
         return c ? JS_NewInt32(ctx, c->GetControlId()) : JS_EXCEPTION;
     }
@@ -653,6 +668,7 @@ struct Bindings {
     static JSValue DialogAddButton(JSContext* ctx, JSValueConst, int argc,
                                    JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (host->IsPatching()) return PatchBlocked(ctx, "dialogAddButton");
         const JKControl* c = DialogAddControl(host, ctx, argc, argv, 2);
         return c ? JS_NewInt32(ctx, c->GetControlId()) : JS_EXCEPTION;
     }
@@ -800,6 +816,7 @@ struct Bindings {
     static JSValue CreateCanvas(JSContext* ctx, JSValueConst, int argc,
                                 JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (host->IsPatching()) return PatchBlocked(ctx, "createCanvas");
         if (!host || !host->window_ || argc < 1)
             return ThrowTypeError(ctx, "createCanvas", "needs (rect[, id])");
         bool ok = false;
@@ -1264,6 +1281,73 @@ bool JKScriptHost::Reload() {
     const std::string path = entryPath_;
     Stop();
     return Start(path);
+}
+
+// ---------------------------------------------------------------------------
+// 라이브 패치 (스펙 §4-§5): 컨텍스트 생존 정의 재평가. 리로드(Stop+Start)와
+// 별도 경로 — Stop()/Start()는 무수정. 실패 이원화는 호출자 몫: 문법 실패는
+// 컨텍스트 무접촉, 런타임 예외는 컨텍스트가 살아 있되 호출자가 풀 리로드로
+// 회수한다.
+// ---------------------------------------------------------------------------
+
+// 컴파일 게이트 — COMPILE_ONLY(quickjs.h:457)로 문법만 판정. 컴파일 산출물은
+// 즉시 폐기(무부작용), 전역 오염 없다. 실패 시 pending exception은 소비해
+// 마른다(이후 Dispatch*가 오염되지 않게).
+bool JKScriptHost::CompileGate(const std::string& source,
+                               std::string* error) {
+    lastError_.clear();
+    if (!ctx_) {
+        lastError_ = "JKScriptHost::CompileGate: not running";
+        if (error) *error = lastError_;
+        return false;
+    }
+    JSValue fn = JS_Eval(static_cast<JSContext*>(ctx_), source.c_str(),
+                         source.size(), "<patch-gate>",
+                         JS_EVAL_TYPE_GLOBAL | JS_EVAL_FLAG_COMPILE_ONLY);
+    if (JS_IsException(fn)) {
+        const std::string dump =
+            DumpPendingException(static_cast<JSContext*>(ctx_));
+        if (error) *error = dump;
+        lastError_ = dump;
+        return false;
+    }
+    JS_FreeValue(static_cast<JSContext*>(ctx_), fn);
+    return true;
+}
+
+// 재평가 — 프리패스 바이트코드를 같은 컨텍스트에서 JS_EvalFunction
+// (quickjs.h:1278)으로 실행. onCreate/onExit는 호출하지 않고 cursorDeclJson_은
+// 보존한다(Start와 다름 — 패치는 창 수명 안의 조작, docs/64 "창 닫힘에만
+// 소멸"). 재평가 구간엔 patching_을 세워 생성류 바인딩을 막는다(스펙 §3).
+bool JKScriptHost::PatchEval(const std::string& source, std::string* error) {
+    lastError_.clear();
+    if (!ctx_) {
+        lastError_ = "JKScriptHost::PatchEval: not running";
+        if (error) *error = lastError_;
+        return false;
+    }
+    JSContext* ctx = static_cast<JSContext*>(ctx_);
+    JSValue fn = JS_Eval(ctx, source.c_str(), source.size(), "<patch>",
+                         JS_EVAL_TYPE_GLOBAL | JS_EVAL_FLAG_COMPILE_ONLY);
+    if (JS_IsException(fn)) {
+        const std::string dump = DumpPendingException(ctx);
+        if (error) *error = dump;
+        lastError_ = dump;
+        return false;
+    }
+    // JS_EvalFunction은 fn 소유를 넘겨받는다(quickjs.h:1278) — 자유점수 이전.
+    patching_ = true;
+    JSValue rv = JS_EvalFunction(ctx, fn);
+    patching_ = false;
+    if (JS_IsException(rv)) {
+        // 예외는 소비 — 컨텍스트는 살아 있다(낙하 판단은 호출자 몫).
+        const std::string dump = DumpPendingException(ctx);
+        if (error) *error = dump;
+        lastError_ = dump;
+        return false;
+    }
+    JS_FreeValue(ctx, rv);
+    return true;
 }
 
 void JKScriptHost::DispatchClick(uint16_t controlId) {

@@ -383,6 +383,127 @@ static void TestZOrder() {
                          win.GetChildren().size() == 2);
 }
 
+// --- (라이브 패치 — 컨텍스트 생존 정의 재평가, 스펙 §6 게이트 ①) ---
+// 생존 단위: 위젯(native)·글로벌 프로퍼티·의미 커서 선언. 교체: top-level
+// function 정의. 차단: 패치 평가 중 생성류(bad_patch). 미호출: onCreate/onExit.
+// 텍스트 판독은 CaptureWidgetState(편집창 텍스트만 수록 — 라벨·버튼은 스크립트
+// 소유 파생 출력)로 한다 — 기존 b2/b2b 체크와 같은 판독 경로.
+static void TestLivePatch(const fs::path& dir) {
+    JKWindow win("livepatch-probe");
+    JKScriptHost host;
+    host.Attach(&win);
+    JKScriptTimerServices noop;
+    noop.start = [](uint32_t, uint32_t) -> uint64_t { return 1; };
+    noop.stop = [](uint64_t) {};
+    host.SetTimerServices(noop);
+
+    // S를 어휘(let/const) 바인딩으로 선언해야 f16의 const 재선언이
+    // SyntaxError가 된다 — globalThis.S(설정 가능 프로퍼티)면 const 재선언이
+    // ES 규약상 합법이라 성공해 버린다(2026-09-27 유닛 실측).
+    WriteFile(dir / "live_a.js",
+        "const S = {count: 1};\n"
+        "var btn = createButton({x:0,y:0,w:120,h:24}, 'v1');\n"
+        "var ed = createEdit({x:0,y:30,w:160,h:22}, '');\n"
+        "function onClick(id){ S.count = S.count + 1; setText(ed, 'hit' + S.count); }\n");
+    Check("f1-start", host.Start((dir / "live_a.js").string()),
+          host.LastError());
+
+    // 구 정의 클릭 — 상태 시드: count 1→2, 편집창 "hit2".
+    // (controls_는 private — 창 children이 스크립트 생성 컨트롤과 1:1이다:
+    // 이 창은 빈 채로 시작하므로 children이 곧 카운터. TestZOrder 접근 경로.)
+    const uint16_t btnId = win.GetChildren().front()->GetControlId();
+    host.DispatchClick(btnId);
+    std::string snap;
+    Check("f2-seed-click", host.CaptureWidgetState(snap) &&
+                               snap.find("hit2") != std::string::npos, snap);
+
+    // 컴파일 게이트: 통과는 무부작용, 실패는 컨텍스트 무손상(스펙 §4 흐름 1).
+    // 베이스라인 위젯 = 버튼+편집창 = 2 — 게이트가 위젯을 만들지 않는다.
+    Check("f3-gate-ok", host.CompileGate(
+        "function onClick(id){ S.count = S.count + 10; "
+        "setText(ed, 'patched' + S.count); }\n"));
+    Check("f4-gate-noop", host.IsRunning() && win.GetChildren().size() == 2);
+    Check("f5-gate-syntax-fail", !host.CompileGate(
+        "function onClick(id { setText(id, 'x'); }\n"),
+        host.LastError());
+    Check("f6-gate-fail-intact", host.IsRunning() &&
+                                     win.GetChildren().size() == 2);
+
+    // 재평가 성공 — 위젯 수 불변, 새 정의가 전역 조회로 해석된다.
+    Check("f7-patch-ok", host.PatchEval(
+        "function onClick(id){ S.count = S.count + 10; "
+        "setText(ed, 'patched' + S.count); }\n"), host.LastError());
+    Check("f8-patch-alive", host.IsRunning() && win.GetChildren().size() == 2);
+    host.DispatchClick(btnId);
+    std::string snap2;
+    Check("f9-state-survives", host.CaptureWidgetState(snap2) &&
+                                   snap2.find("patched12") != std::string::npos,
+          snap2);  // 구 상태(2) 생존 + 새 정의(+10)
+
+    // 재평가 중 생성류 차단 — bad_patch 에러가 규약을 교육한다(폐곡선).
+    Check("f10-patch-create-blocked", !host.PatchEval(
+        "createButton({x:0,y:60,w:20,h:20}, 'dup');\n"), host.LastError());
+    Check("f11-block-error-text",
+          host.LastError().find("live patch") != std::string::npos,
+          host.LastError());
+    Check("f12-no-dup-widget", win.GetChildren().size() == 2);
+
+    // 패치 중 문법 실패 — 컨텍스트 무손상, 구 정의가 그대로 바인딩.
+    Check("f13-patch-syntax-fail", !host.PatchEval(
+        "function onClick(id { setText(id, 'x'); }\n"), host.LastError());
+    Check("f14-syntax-fail-alive", host.IsRunning());
+    host.DispatchClick(btnId);
+    std::string snap3;
+    // 구 정의(=f7 패치의 +10 정의)가 그대로 바인딩 — 실패 패치가 정의를
+    // 갈아치웠다면 'patched' 접두가 아닌 'x'가 찍힌다. 12+10=22.
+    Check("f15-old-def-still-bound", host.CaptureWidgetState(snap3) &&
+                                         snap3.find("patched22") !=
+                                             std::string::npos, snap3);
+
+    // top-level const 재선언 — 재평가 시 SyntaxError → 호출자가 낙하 판단.
+    // 호스트는 죽지 않고(스펙 §4 유수정) 구 정의가 살아 남는다.
+    Check("f16-const-redecl-fails", !host.PatchEval("const S = {count: 0};\n"),
+          host.LastError());
+    Check("f17-const-fail-alive", host.IsRunning());
+    host.DispatchClick(btnId);
+    std::string snap4;
+    // S 무손상(22) + 구 정의(+10) → 32.
+    Check("f18-old-def-after-const", host.CaptureWidgetState(snap4) &&
+                                         snap4.find("patched32") !=
+                                             std::string::npos, snap4);
+
+    // 커서 선언 보존 — 패치는 cursorDeclJson_을 클리어하지 않는다(스펙 §3).
+    WriteFile(dir / "live_cursor.js",
+        "declareCursor({origin:{x:10,y:10}, cellW:30, cellH:25, rows:8, "
+        "cols:10, kinds:['paint']});\n"
+        "function onAgentAct(kind,row,col){ return '{\\\"ok\\\":true}'; }\n");
+    Check("f19-cursor-start", host.Start((dir / "live_cursor.js").string()),
+          host.LastError());
+    const std::string decl0 = host.DeclaredCursorJson();
+    Check("f20-decl-seeded", !decl0.empty(), decl0);
+    Check("f21-patch-act-fn", host.PatchEval(
+        "function onAgentAct(kind,row,col){ "
+        "return '{\\\"ok\\\":true,\\\"patched\\\":true}'; }\n"),
+        host.LastError());
+    Check("f22-decl-preserved", host.DeclaredCursorJson() == decl0,
+          host.DeclaredCursorJson());
+    Check("f23-patch-redeclare", host.PatchEval(
+        "declareCursor({origin:{x:10,y:10}, cellW:30, cellH:25, rows:8, "
+        "cols:10, kinds:['paint','chord']});\n"), host.LastError());
+    Check("f24-decl-updated",
+          host.DeclaredCursorJson().find("chord") != std::string::npos,
+          host.DeclaredCursorJson());
+
+    // 풀 리로드 회귀 — Stop+Start 경로는 무수정(라이브 경로가 옆길일 뿐).
+    // 리로드 후 커서 선언은 파일의 것으로 리셋 — 패치로 추가한 'chord'는
+    // Start마다 리셋 계약(:1134)에 따라 소멸한다.
+    Check("f25-full-reload-works", host.Reload());
+    Check("f26-reload-fresh-cursor",
+          host.DeclaredCursorJson().find("paint") != std::string::npos &&
+              host.DeclaredCursorJson().find("chord") == std::string::npos,
+          host.DeclaredCursorJson());
+}
+
 int main() {
     const fs::path base = fs::temp_directory_path() / "jk_workshop_slot_probe";
     fs::remove_all(base);
@@ -393,6 +514,11 @@ int main() {
         TestStore(storeDir);
         fs::create_directories(hostDir);
         TestHostState(hostDir);
+        {
+            const fs::path lp = hostDir / "livepatch";
+            fs::create_directories(lp);
+            TestLivePatch(lp);
+        }
         fs::create_directories(appDir);
         TestAppTools(appDir);
         TestZOrder();
