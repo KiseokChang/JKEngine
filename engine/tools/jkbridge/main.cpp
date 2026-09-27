@@ -420,7 +420,7 @@ static const char kWebUi[] = R"JKUI(<!doctype html>
 <div id="mirror">
   <div id="mbar"><button id="mclose">닫기</button><button id="mpause">정지</button>
     <button id="mrefresh">새로고침</button>
-    <button id="mup">▲</button><button id="mdn">▼</button><span id="mstat">창을 선택하세요</span></div>
+    <button id="mrc">우클릭</button><button id="mup">▲</button><button id="mdn">▼</button><span id="mstat">창을 선택하세요</span></div>
   <div id="mpick"></div>
   <img id="mimg" alt="미러" draggable="false">
 </div>
@@ -753,13 +753,14 @@ function mirrorRect() {
            top:  r.top  + (r.height - ih*scale) / 2,
            width: iw*scale, height: ih*scale };
 }
-function mirrorTap(e, op) {
+function mirrorTap(e, op, button) {
   if (!mWin || mPaused) return;
   const r = mirrorRect();
   if (!r) return;
   const fx = (e.clientX - r.left) / r.width, fy = (e.clientY - r.top) / r.height;
   if (fx < 0 || fx >= 1 || fy < 0 || fy >= 1) return;
-  mirrorSend(op, fx, fy, 0);
+  mirrorSend(op, fx, fy, 0, button);
+  mStat.textContent = '#'+mWin.id+' '+(button === 3 ? '우클릭' : '클릭');
 }
 function mirrorWheel(dy) {
   // ▲/▼ 휠 — 버튼이 mImg 밖이라 좌표 수학과 분리(창 중심 비율). 서버 wheel은
@@ -784,15 +785,26 @@ mpause.onclick = () => { mPaused = !mPaused; mpause.textContent = mPaused ? '재
   if (!mPaused) mirrorPoll(); };
 document.getElementById('mup').onclick = () => mirrorWheel(-1);   // ▲ = 위로
 document.getElementById('mdn').onclick = () => mirrorWheel(1);
+// ---- 우클릭 토글 — 길눳 제스처 외의 확정 경로 (2026-09-27 사용자 요청:
+// "편법이 아니라 직접 오른쪽 클릭 이벤트" — 양쪽 클릭 모두 가능하게). ---------
+let mArmR = false;
+const mrc = document.getElementById('mrc');
+mrc.onclick = () => {
+  mArmR = !mArmR;
+  mrc.style.background = mArmR ? '#5a3c14' : '';
+  mStat.textContent = mArmR ? '다음 탭 = 오른쪽 클릭' : '왼쪽 클릭';
+};
 mImg.addEventListener('click', (e) => {
   if (lpFired) { lpFired = false; return; }   // 길게 누름 우클릭 뒤 합성 click 삼킴
-  mirrorTap(e, 'click');
+  const button = mArmR ? 3 : 1;
+  if (mArmR) { mArmR = false; mrc.style.background = ''; }   // 1회용 — 모드 잊음 방어
+  mirrorTap(e, 'click', button);
 });
 // ---- 우클릭 (폰은 우클릭 버튼이 없다 — 2026-09-27 사용자 보고) ---------------
 // 길게 누름 500ms = 오른쪽 클릭. 데스크톱 브라우저는 그냥 탭(좌클릭)만 —
 // 우클릭이 필요한 앱(지뢰찾기 깃발)은 길게 누른다. touchmove=손가락 미끄러짐은
 // 취소(오조작 방지). 브라우저 기본 길눳 컨텍스트 메뉴는 억제.
-let lpTimer = null, lpFired = false;
+let lpTimer = null, lpFired = false, lpX = 0, lpY = 0;
 function mirrorTapAt(x, y, button) {
   const r = mirrorRect();
   if (!r) return;
@@ -805,10 +817,18 @@ mImg.addEventListener('touchstart', (e) => {
   if (!mWin || mPaused || e.touches.length !== 1) return;
   const t = e.touches[0];
   lpFired = false;
+  lpX = t.clientX; lpY = t.clientY;
   lpTimer = setTimeout(() => { lpFired = true; mirrorTapAt(t.clientX, t.clientY, 3); }, 500);
 }, {passive: true});
 const lpCancel = () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } };
-mImg.addEventListener('touchmove', lpCancel, {passive: true});
+// 미세 떨림 용인 — 실제 폰은 길게 누르는 동안 1px급 touchmove가 거의 항상
+// 온다(2026-09-27 사용자 재보고: 좌표는 잡혔는데 길눳 우클릭만 안 됨).
+// 임계치 초과 이동(손가락 미끄러짐)만 취소한다.
+mImg.addEventListener('touchmove', (e) => {
+  if (!lpTimer) return;
+  const t = e.touches[0];
+  if (Math.abs(t.clientX - lpX) > 10 || Math.abs(t.clientY - lpY) > 10) lpCancel();
+}, {passive: true});
 mImg.addEventListener('touchend', lpCancel, {passive: true});
 mImg.addEventListener('touchcancel', lpCancel, {passive: true});
 mImg.addEventListener('contextmenu', (e) => e.preventDefault());

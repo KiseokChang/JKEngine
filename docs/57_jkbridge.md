@@ -601,3 +601,21 @@ probe_jkbridge ×2 ALL PASS(정리 함수 탑재 후 전체 회귀 무손상).
 - 게이트: probe_phone_mirror ×2 ALL PASS + probe_jkbridge PASS.
   레슨: **CSS object-fit이 좌표 수학의 일부다** — 렌더 사각형과 DOM 상자는
   다른 진실원이며, 비율 좌표를 파는 쪽은 렌더 진실원을 직접 계산해야 한다.
+
+## 14.12 길눳 미세 떨림 + 우클릭 토글 (2026-09-27, 사용자 재보고 2연속)
+
+§14.11 배포 후 사용자 재보고: "좌표는 잡혔는데 길게 눌러 우클릭 보내기가 안 된다".
+전선·서버·앱 역직렬화 전 경로 실측상 정상(p.keyCode=3 → 클라 역직렬화에서
+`ev.detail=payload.keyCode` 스왑 → ImGui 백엔드 RIGHT 매핑) — 결함은 폰 제스처
+자체였다: touchmove **1px 미세 떨림에도** 타이머 취소 → 실제 폰은 길게 누르는
+동안 1px급 touchmove가 거의 항상 온다.
+
+- **슬롭 임계치**: 터치 시작점 기록(lpX/lpY), touchmove에서 10px 초과 이동
+  (손가락 미끄러짐)만 취소 — 미세 떨림은 관용. 수학 검증: ≤10px TOLERATE,
+  11px CANCEL.
+- **우클릭 토글(사용자 요청 — "편법이 아니라 직접 오른쪽 클릭 이벤트")**:
+  미러 바에 `우클릭` 버튼 — 켜면 다음 탭 1회가 `button:3`으로 발사되고
+  자동 해제(모드 잊음 방어). 꺼져 있으면 탭=왼쪽이라 양쪽 클릭 모두 가능.
+  길눳(슬롭 픽스)은 자연 제스처 경로로 병존. iOS는 브라우저 contextmenu
+  합성이 불안정해 토글이 확정 경로.
+- 게이트: probe_phone_mirror ×2 ALL PASS + probe_jkbridge PASS.
