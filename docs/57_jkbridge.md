@@ -692,3 +692,9 @@ probe_jkbridge ×2 ALL PASS(정리 함수 탑재 후 전체 회귀 무손상).
   id=-1→bad_request로 교체 + c8-desktop-frame(ok+desktop:1+dw/dh+SOI)+
   c9c 데스크톱 탭(창 중심 ok / 빈 공간 window_not_found) 2체크 추가.
   probe_phone_mirror ×2 ALL PASS + probe_jkbridge PASS + jkdesktop test 0.
+
+### §14.15 정정 — 픽커 선택 토글화 (사용자 요청)
+
+선택된 앱을 픽커에서 다시 탭하면 해제 → 데스크톱 와이드 뷰 복귀(mWin=null,
+sel 강조 즉시 해제). 이제 픽커·`데스크톱` 버튼·창 닫힘(window_not_found)
+세 경로 전부 데스크톱 뷰로 귀환. UI 전용 — 프로브 생략(서버 무접촉).

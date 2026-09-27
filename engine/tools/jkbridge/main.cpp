@@ -655,9 +655,19 @@ function onReply(label, j) {
       // 픽커는 textContent 전용 — 창 제목(XSS 포스트)에 태그가 와도 안전.
       b.textContent = '#'+w.id+' '+(w.title||'(무제)');
       if (mWin && w.id === mWin.id) b.className = 'sel';
-      b.onclick = () => { mWin = w; mPaused = false; mpause.textContent = '정지';
+      b.onclick = () => {
+        if (mWin && w.id === mWin.id) {
+          // 토글 해제 (2026-09-27 사용자 요청) — 선택된 앱 재탭=데스크톱 뷰
+          b.classList.remove('sel');
+          mWin = null; mBusy = false;
+          mStat.textContent = '데스크톱 뷰';
+          mirrorPoll();
+          return;
+        }
+        mWin = w; mPaused = false; mpause.textContent = '정지';
         mStat.textContent = '#'+w.id+' '+(w.title||'(무제)');
-        mBusy = false; mirrorPoll(); };
+        mBusy = false; mirrorPoll();
+      };
       mPick.appendChild(b);
     }
     return;
