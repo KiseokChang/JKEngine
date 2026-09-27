@@ -504,3 +504,27 @@ probe_jkbridge ×2 ALL PASS(정리 함수 탑재 후 전체 회귀 무손상).
 - 레슨: **config 잔여는 프로브 스왑·복원으로 잡히지 않는다** — 원본 자체가
   비정상이면 모든 게이트가 녹색으로 통과한다. 라이브 구성 파일(chat.json 등)
   변경은 사용자 보고 대응 때 원본부터 확인.
+
+### 14.9 라이브 잔여 감사 전수 + 프로브 경화 2라운드 (2026-09-27)
+
+- 사용자 요청("또다른 잔여가 없는지") 전수 감사 — 라이브 config/state 파일
+  분류: 정상(theme/terminal/settings/jkbridge/bookmarks/notes/chat.json=
+  ollama/permissions.json 전면 allow=사용자 설정/permission_set 기록 형식,
+  trust trig_* 3팩+rate_probe, triggers_loaded 동기, layout_auto_idle=
+  trig_idle 정상 산출물) / 잔여 소각(layout_e2e_final·layout_probe_e2e·
+  tmp_smoke·toolsdump·bash.exe.stackdump 5종).
+- **프로브 경화**: ①probe_agent_e2e/mcp save_layout 산출물 소각(사용자
+  /restore 네임스페이스 오염) ②probe_agent_mcp deny 체크가 라이브 전면
+  allow permissions.json에서 거짓 실패 — 권한 상태 프로브 소유(백업→프로브
+  파일→finally 원복) ③probe_agent_trust 동일 클래스 — 라이브
+  `trust_request:"allow"`면 서버가 ask 파이프라인을 생략하고 ok:true
+  (:3927 Allow 분기)라 approval-request 체크가 영구 실패. try/finally
+  원복로 5개 exit 경로 전부 커버. ×2 ALL PASS.
+- **감사 오탈 2건 자기 교정**(검증 라운드에서 실측): ①rate_probe 행은
+  잔여가 아니라 **정착 상태** — CMake가 build/apps/triggers/rate_probe.jkx를
+  항상 패킹하고 팩 레코드 4종 유지가 프로브 설계 정착 상태. 필터하면
+  팩·레코드 불일치로 신뢰 게이트에 걸림 → ratelimit 필터 블록 철회.
+  ②sampletodo trust 레코드는 유령(대상 스크립트 소멸, 콘솔 앱 승인은
+  trust.json 불사용) — 팩 전용 스토어 재기록에서 소실돼도 무영향.
+- 레슨: 감사 자체도 게이트를 거친다 — 분류는 가설이고 ×2 실측이 판정.
+  "레코드가 있으니 잔여" 추정(①)과 "있으니 정상" 추정(②) 모두 틀릴 수 있다.

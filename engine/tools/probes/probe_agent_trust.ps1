@@ -26,6 +26,19 @@ $state = "I:\progwork\JKENGINE\engine\build\state"
 $trustFile = "$state\trust.json"
 $devDir = "$state\triggers"
 
+# Permission state is PROBE-OWNED (2026-09-27 audit round 2): the pipeline
+# under test is the "ask" path, but if the live permissions.json says
+# trust_request:"allow" the server short-circuits to ok:true before parking
+# any approval (JKWindowServer.cpp trust_request Allow branch) and the
+# probe's approval-request check can never pass. Backup + probe file +
+# restore in finally ONLY (same class as probe_agent_mcp's deny check).
+$perm = "I:\progwork\JKENGINE\engine\build\permissions.json"
+$hadPerm = Test-Path $perm
+if ($hadPerm) { $permBak = [System.IO.File]::ReadAllBytes($perm) }
+'{}' | Set-Content -Path $perm -Encoding ASCII
+
+try {
+
 Get-Process jkdesktop,jktriggers -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Seconds 1
 
@@ -234,3 +247,9 @@ Write-PackOnlyStore | Out-Null
 
 Write-Host "PASS: agent trust"
 exit 0
+
+} finally {
+    # live permissions.json restoration — runs on every exit path incl. FAIL.
+    if ($hadPerm) { [System.IO.File]::WriteAllBytes($perm, $permBak) }
+    elseif (Test-Path $perm) { Remove-Item $perm -Force -ErrorAction SilentlyContinue }
+}

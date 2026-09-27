@@ -5,6 +5,16 @@ $ErrorActionPreference = "Continue"
 $exe  = "I:\progwork\JKENGINE\engine\build\jkdesktop.exe"
 $agnt = "I:\progwork\JKENGINE\engine\build\jkagentd.exe"
 
+# Permission state is PROBE-OWNED (2026-09-27 잔여 감사): the deny check needs
+# close_window NOT in the allow file (default ask -> MCP deny). The user's
+# live permissions.json is all-allow by design — without a swap the probe
+# reads "window_not_found" instead of "permission_denied". Backup + probe
+# file + restore ONLY here (docs/59 s16.1 discipline).
+$perm = "I:\progwork\JKENGINE\engine\build\permissions.json"
+$hadPerm = Test-Path $perm
+if ($hadPerm) { $permBak = [System.IO.File]::ReadAllBytes($perm) }
+'{"send_input":"allow"}' | Set-Content -Path $perm -Encoding ASCII
+
 # Fresh server (kill leftovers first).
 Get-Process jkdesktop -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Seconds 1
@@ -27,6 +37,10 @@ $r4 = Invoke-Mcp '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name"
 
 Get-Process jkdesktop -ErrorAction SilentlyContinue | Stop-Process -Force
 
+# live permissions.json 원복 (finally 관례 — USER FILE 가드)
+if ($hadPerm) { [System.IO.File]::WriteAllBytes($perm, $permBak) }
+elseif (Test-Path $perm) { Remove-Item $perm -Force -ErrorAction SilentlyContinue }
+
 $ok = $true
 # Tool results ride INSIDE the MCP envelope as content[0].text, so quotes are
 # backslash-escaped in the wire text: \"ok\":true — match that form.
@@ -41,5 +55,9 @@ if ((Test-Path $receipts) -and ((Get-Content $receipts).Count -ge 4)) {
 } else {
     $ok = $false; Write-Host "receipts: FAIL (missing or <4 records)"
 }
+
+# probe residue cleanup (2026-09-27 잔여 감사): save_layout 산출물이 사용자
+# /restore 네임스페이스에 남는다 — 프로브 소유분만 소각.
+Remove-Item (Join-Path (Split-Path $exe) "state\layout_probe_e2e.json") -Force -ErrorAction SilentlyContinue
 
 if ($ok) { Write-Host "PASS: agent mcp e2e"; exit 0 } else { Write-Host "FAIL: agent mcp e2e"; exit 1 }

@@ -82,4 +82,8 @@ if ((Test-Path $receipts) -and ((Get-Content $receipts).Count -ge 5)) {
     $ok = $false; Write-Host "receipts: FAIL (missing or <5 records)"
 }
 
+# probe residue cleanup (2026-09-27 잔여 감사): save_layout 산출물이 사용자
+# /restore 네임스페이스에 남는다 — 프로브 소유분만 소각.
+Remove-Item (Join-Path (Split-Path $exe) "state\layout_e2e_final.json") -Force -ErrorAction SilentlyContinue
+
 if ($ok) { Write-Host "PASS: agent e2e final"; exit 0 } else { Write-Host "FAIL: agent e2e final"; exit 1 }

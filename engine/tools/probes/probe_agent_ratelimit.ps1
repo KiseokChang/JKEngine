@@ -232,5 +232,11 @@ $regTrust = $LASTEXITCODE
 if ($regTriggers -eq 0 -and $regTrust -eq 0) { Write-Host "regression: PASS" }
 else { Write-Host "regression: FAIL (triggers=$regTriggers trust=$regTrust)"; exit 1 }
 
+# rate_probe pack rows in trust.json / triggers_loaded.json are the STEADY
+# state, not residue (2026-09-27 audit correction): CMake always packs
+# build/apps/triggers/rate_probe.jkx and the loader trusts it from boot —
+# filtering the record while the container exists strands it at the trust
+# gate. The pack-only restore above is the final word.
+
 Write-Host "PASS: agent ratelimit"
 exit 0
