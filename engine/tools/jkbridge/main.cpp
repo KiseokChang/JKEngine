@@ -393,14 +393,33 @@ static const char kWebUi[] = R"JKUI(<!doctype html>
          background:#1b1e23; color:#e8e8ea; }
   #send { font-size:15px; padding:8px 18px; border-radius:8px; border:1px solid #3b6ea5;
           background:#274b6d; color:#fff; }
+  /* 미러 패널 (폰 미러, docs/67 단 1 리파인): 전체 화면 오버레이 — 트랜스크립트
+     레이아웃 불변. 폰 세로 화면에서 이미지가 남는 공간을 전부 쓴다. */
+  #mbtn { font-size:12px; padding:4px 10px; border-radius:6px; border:1px solid #555;
+          background:#1c1f24; color:#e8e8ea; }
+  #mirror { display:none; position:fixed; inset:0; z-index:10; background:rgba(10,11,13,.97);
+            flex-direction:column; gap:6px; padding:8px; padding-top:max(8px,env(safe-area-inset-top)); }
+  #mbar { display:flex; gap:6px; align-items:center; }
+  #mbar button, #mpick button { font-size:14px; padding:7px 14px; border-radius:6px;
+            border:1px solid #555; background:#1c1f24; color:#e8e8ea; }
+  #mstat { font-size:12px; color:#8a8f98; flex:1; word-break:break-all; }
+  #mpick { display:flex; flex-wrap:wrap; gap:6px; max-height:30vh; overflow-y:auto; }
+  #mimg { flex:1; min-height:0; width:100%; object-fit:contain; background:#0c0d0f;
+          border:1px solid #26292f; }
 </style></head>
 <body>
-<div id="hdr"><span>jkbridge</span><span id="stat">연결 중…</span></div>
+<div id="hdr"><span>jkbridge</span><span id="stat">연결 중…</span><button id="mbtn">미러</button></div>
 <div id="log"></div>
 <div id="appr"><div id="aptext"></div>
   <div><button id="bAllow">허용</button><button id="bDeny">거부</button></div></div>
 <div id="inrow"><input id="txt" autocomplete="off" placeholder="자연어 → LLM / 슬래시 커맨드">
   <button id="send">보내기</button></div>
+<div id="mirror">
+  <div id="mbar"><button id="mclose">닫기</button><button id="mpause">정지</button>
+    <button id="mup">▲</button><button id="mdn">▼</button><span id="mstat">창을 선택하세요</span></div>
+  <div id="mpick"></div>
+  <img id="mimg" alt="미러">
+</div>
 <script>
 const token = new URLSearchParams(location.search).get('token') || '';
 const logEl = document.getElementById('log');
@@ -454,6 +473,8 @@ function connect() {
   document.getElementById('stat').textContent='연결 중…';
   ws = new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws?token='+encodeURIComponent(token));
   ws.onopen = () => { document.getElementById('stat').textContent='연결됨';
+    mBusy = false;   // 재접속 — 끊긴 폴링의 in-flight 가드 해제
+    if (mirrorOpen) mirrorPickList();
     ws.send(JSON.stringify({type:'hello', resume_session:claudeSession})); };
   ws.onclose = () => { document.getElementById('stat').textContent='끊김 — 재접속…';
     streamEl = null; setTimeout(connect, 2000); };
@@ -487,7 +508,15 @@ function route(msg, j) {
     else add('[LLM 완료]', 'sys', msg.ts);
     return;
   }
-  if (msg.type === 'reply') { add('['+(msg.label||'?')+'] '+(j?JSON.stringify(j):'?'), 'sys', msg.ts); onReply(msg.label, j); return; }
+  if (msg.type === 'reply') {
+    // 미러 프레임 가로채기 (폰 미러, docs/67 단 1 리파인, load-bearing):
+    // window_frame reply의 base64(100KB대)가 매 폴링 트랜스크립트에 적립되면
+    // /report 256KiB 캡이 순식간에 붕괴한다. 'mirror ' 라벨 프리픽스면
+    // 기록 없이 onReply만 — 폴링 뷰는 미러 패널 상태(#mstat/#mimg)가 진실원.
+    const lb = msg.label || '';
+    if (lb.indexOf('mirror ') === 0) { onReply(lb, j); return; }
+    add('['+(msg.label||'?')+'] '+(j?JSON.stringify(j):'?'), 'sys', msg.ts); onReply(msg.label, j); return;
+  }
   if (msg.type === 'event') { onEvent(msg.topic, j, msg.ts); return; }
   if (msg.type === 'error') { add('[!] '+(msg.text||''), 'err', msg.ts); return; }
 }
@@ -566,6 +595,35 @@ function onReply(label, j) {
     const p = pendingUndo; pendingUndo = null;
     if (j && j.ok === true) sendTool(p.tool, p.args, p.label);
     else add('[!] 스냅샷 실패 — 파괴적 커맨드 취소', 'err');
+    return;
+  }
+  // ---- 미러 패널 (폰 미러) ------------------------------------------------
+  if (label === 'mirror list') {
+    mPick.textContent = '';
+    if (!j || !j.windows || !j.windows.length) {
+      const s = document.createElement('span'); s.textContent = '(창 없음)';
+      mPick.appendChild(s); return;
+    }
+    for (const w of j.windows) {
+      const b = document.createElement('button');
+      // 픽커는 textContent 전용 — 창 제목(XSS 포스트)에 태그가 와도 안전.
+      b.textContent = '#'+w.id+' '+(w.title||'(무제)');
+      b.onclick = () => { mWin = w; mPaused = false; mpause.textContent = '정지';
+        mStat.textContent = '#'+w.id+' '+(w.title||'(무제)');
+        mBusy = false; mirrorPoll(); };
+      mPick.appendChild(b);
+    }
+    return;
+  }
+  if (label === 'mirror f') {
+    mBusy = false;
+    if (!mirrorOpen || !mWin) return;
+    if (j && j.ok && j.data) {
+      if (mirrorSetSrc(j.data)) mStat.textContent = '#'+mWin.id+' '+j.w+'×'+j.h;
+    } else {
+      mStat.textContent = '프레임 오류: '+((j && j.error) || '알 수 없음');
+    }
+    return;
   }
 }
 function submit() {
@@ -585,6 +643,7 @@ function submit() {
     add('/list /launch <app> /close <id> /chat /notify /shot /triggers /trust','sys');
     add('/trigger <name> on|off /events /theme dark|light|classic /save <name> /restore <name>','sys');
     add('/undo /new /report — 대화 기록을 파일로 저장(PC 진단용)','sys');
+    add('/mirror — 창 미러(탭=클릭, ▲▼=휠, 800ms 폴링)','sys');
   }
   else if (cmd==='new') { claudeSession=''; localStorage.removeItem('jkbridge_session'); add('새 LLM 세션','sys');
     if (ws && ws.readyState===1) ws.send(JSON.stringify({type:'hello', resume_session:''})); }
@@ -612,12 +671,77 @@ function submit() {
   else if (cmd==='events') sendTool('events_list', {}, 'events');
   else if (cmd==='trust') sendTool('trust_list', {}, 'trust');
   else if (cmd==='chat') sendTool('launch_chat', {}, 'chat');
+  else if (cmd==='mirror') mbtn.onclick();
   else if (cmd==='trigger') { const sp2=arg.indexOf(' '); if(sp2<0){add('사용법: /trigger <name> on|off','sys');return;}
     const n=arg.slice(0,sp2), mode=arg.slice(sp2+1);
     if(!n||n.includes('"')||(mode!=='on'&&mode!=='off')){add('사용법: /trigger <name> on|off','sys');return;}
     sendTool('trigger_toggle', {name:n, on:mode==='on'}, 'trigger '+n+' '+mode); }
   else add('알 수 없는 커맨드 — /help 참고', 'sys');
 }
+// ---- 미러 패널 (폰 미러, docs/67 단 1 리파인) --------------------------------
+// 폰이 800ms 폴링으로 window_frame(JPEG b64)을 받아 그린다. 탭은 비율 기반
+// 좌표 수학 — 축소(maxw)와 무관하게 서면 정확 픽셀 착지:
+//   fx = (clientX-rect.left)/rect.width  →  데스크톱 점 = win.x + fx*win.dw
+//   서버가 (x-X())/ScaleX 역변환 → fx*w 서면 px. 1:1 가정 없음.
+const M_POLL = 800;                 // 펌프 400ms 폴링 → 실효 ~1fps (서버 인코딩 비용 계약)
+let mirrorOpen = false, mPaused = false, mBusy = false, mTimer = null, mWin = null;
+const mirEl = document.getElementById('mirror');
+const mImg = document.getElementById('mimg');
+const mPick = document.getElementById('mpick');
+const mStat = document.getElementById('mstat');
+const mpause = document.getElementById('mpause');
+const mclose = document.getElementById('mclose');
+const mbtn = document.getElementById('mbtn');
+
+function mirrorPickList() { sendTool('list_windows', {}, 'mirror list'); }
+function mirrorPoll() {
+  if (!mirrorOpen || mPaused || mBusy || !mWin || !ws || ws.readyState !== 1) return;
+  mBusy = true;                                  // in-flight 가드 — 중복 프레임 금지
+  sendTool('window_frame', {id: mWin.id, maxw: 960}, 'mirror f');
+}
+function mirrorSetSrc(d) {
+  // data: URL은 이미지 mime 한정 + base64 문자셋 선검 — XSS 포스트(textContent
+  // 전용) 유지. 문자셋이 깨진 프레임은 src에 넣지 않는다.
+  if (!/^[A-Za-z0-9+/=]+$/.test(d)) { mStat.textContent = '프레임 인코딩 이상'; return false; }
+  mImg.src = 'data:image/jpeg;base64,' + d;
+  return true;
+}
+function mirrorSend(op, fx, fy, dy) {
+  const dw = mWin.dw || mWin.w, dh = mWin.dh || mWin.h;   // 구 서버(무 dw/dh) 폴백
+  sendTool('send_input', {id: mWin.id, op, dx: 0, dy: dy || 0,
+    x: Math.round(mWin.x + fx*dw), y: Math.round(mWin.y + fy*dh)}, 'mirror '+op);
+}
+function mirrorTap(e, op) {
+  if (!mWin || mPaused) return;
+  const r = mImg.getBoundingClientRect();
+  if (!r.width || !r.height) return;
+  const fx = (e.clientX - r.left) / r.width, fy = (e.clientY - r.top) / r.height;
+  if (fx < 0 || fx >= 1 || fy < 0 || fy >= 1) return;
+  mirrorSend(op, fx, fy, 0);
+}
+function mirrorWheel(dy) {
+  // ▲/▼ 휠 — 버튼이 mImg 밖이라 좌표 수학과 분리(창 중심 비율). 서버 wheel은
+  // dx/dy만 소비하므로 좌표는 창 중심이면 충분.
+  if (!mWin || mPaused) return;
+  mirrorSend('wheel', 0.5, 0.5, dy);
+}
+mbtn.onclick = () => {
+  mirrorOpen = true; mPaused = false; mpause.textContent = '정지';
+  mirEl.style.display = 'flex';
+  mirrorPickList();
+  if (!mTimer) mTimer = setInterval(mirrorPoll, M_POLL);
+};
+mclose.onclick = () => {
+  mirrorOpen = false;
+  if (mTimer) { clearInterval(mTimer); mTimer = null; }
+  mirEl.style.display = 'none';
+};
+mpause.onclick = () => { mPaused = !mPaused; mpause.textContent = mPaused ? '재생' : '정지';
+  if (!mPaused) mirrorPoll(); };
+document.getElementById('mup').onclick = () => mirrorWheel(-1);   // ▲ = 위로
+document.getElementById('mdn').onclick = () => mirrorWheel(1);
+mImg.addEventListener('click', (e) => mirrorTap(e, 'click'));
+
 document.getElementById('send').onclick = submit;
 txt.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
 if (!token) add('[!] 토큰 없음 — URL의 ?token= 필요', 'err');
