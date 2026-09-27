@@ -408,6 +408,21 @@ static const char kWebUi[] = R"JKUI(<!doctype html>
   #mirror.split { inset:0 0 0 50%; }
   #mirror.split #mpick { max-height:18vh; }
   #mirror.split #mbar { flex-wrap:wrap; }
+  /* 키패드 오버레이 — 이미지 하단에 겹침 (2026-09-27 사용자 요청: 키보드 앱
+     지원). #mwrap은 좌표 진실원(mirrorRect)에 영향 없음 — mImg rect만 쓴다. */
+  #mwrap { position:relative; flex:1; min-height:0; display:flex; }
+  #pad { position:absolute; left:0; right:0; bottom:0; display:none;
+         flex-direction:column; gap:5px; padding:6px;
+         background:rgba(16,18,22,.72); border-top:1px solid #26292f; }
+  #pad #prow { display:flex; gap:5px; }
+  #ptxt { flex:1; min-width:0; font-size:15px; padding:8px 10px; border-radius:6px;
+          border:1px solid #33373d; background:#1b1e23; color:#e8e8ea; }
+  #psend { font-size:14px; padding:6px 12px; border-radius:6px; border:1px solid #3b6ea5;
+           background:#274b6d; color:#fff; }
+  #pkeys { display:flex; gap:5px; justify-content:center; }
+  #pkeys button { flex:1; font-size:18px; padding:10px 0; border-radius:6px;
+                  border:1px solid #555; background:#1c1f24; color:#e8e8ea;
+                  touch-action:none; }
   #mbar { display:flex; gap:6px; align-items:center; }
   #mbar button, #mpick button { font-size:14px; padding:7px 14px; border-radius:6px;
             border:1px solid #555; background:#1c1f24; color:#e8e8ea; }
@@ -431,9 +446,18 @@ static const char kWebUi[] = R"JKUI(<!doctype html>
 <div id="mirror">
   <div id="mbar"><button id="mclose">닫기</button><button id="mpause">정지</button>
     <button id="mrefresh">새로고침</button>
-    <button id="mrc">우클릭</button><button id="msplit">분할</button><button id="mup">▲</button><button id="mdn">▼</button><span id="mstat">창을 선택하세요</span></div>
+    <button id="mrc">우클릭</button><button id="msplit">분할</button><button id="mpad">키패드</button><button id="mup">▲</button><button id="mdn">▼</button><span id="mstat">창을 선택하세요</span></div>
   <div id="mpick"></div>
-  <img id="mimg" alt="미러" draggable="false">
+  <div id="mwrap"><img id="mimg" alt="미러" draggable="false">
+    <div id="pad" style="display:none">
+      <div id="prow"><input id="ptxt" autocomplete="off" placeholder="한/영 텍스트 — Enter=전송"><button id="psend">전송</button></div>
+      <div id="pkeys">
+        <button data-k="1073741904">◀</button><button data-k="1073741906">▲</button>
+        <button data-k="1073741905">▼</button><button data-k="1073741903">▶</button>
+        <button data-k="32">␣</button><button data-k="13">⏎</button><button data-k="8">⌫</button>
+      </div>
+    </div>
+  </div>
 </div>
 <script>
 const token = new URLSearchParams(location.search).get('token') || '';
@@ -814,6 +838,42 @@ mspl.onclick = () => {
   document.body.classList.toggle('msplit', on);   // 채팅 열 → 왼쪽 절반
   mspl.style.background = on ? '#274b6d' : '';
 };
+// ---- 키패드 — 키보드 앱 조작 (2026-09-27 사용자 요청) ----------------------
+// D-pad: 터치 down→key down, 뗌→key up — 홀드(소프트 드롭) 지원. 서버 key op는
+// action down/up 분리가 이미 있음(docs/62 §3.1). 텍스트: 폰 IME 조합 완료
+// 문자열을 'type' op로 — PC 한글 자판 상태와 무관한 완성형 진입(서버는 UTF-8
+// Char 63B 분할 실측). 키 코드는 SDL 키코드 규약.
+let mPadOn = false;
+const padEl = document.getElementById('pad');
+document.getElementById('mpad').onclick = () => {
+  mPadOn = !mPadOn;
+  padEl.style.display = mPadOn ? 'flex' : 'none';
+};
+function sendKey(k, act) {
+  if (!mWin || mPaused) return;
+  sendTool('send_input', {id: mWin.id, op: 'key', key: k, action: act}, 'mirror key');
+}
+document.querySelectorAll('#pkeys button').forEach((b) => {
+  const k = +b.dataset.k;
+  const down = (e) => { e.preventDefault(); sendKey(k, 'down'); };
+  const up   = (e) => { e.preventDefault(); sendKey(k, 'up'); };
+  b.addEventListener('touchstart', down, {passive: false});
+  b.addEventListener('touchend', up, {passive: false});
+  b.addEventListener('touchcancel', up, {passive: false});
+  b.addEventListener('mousedown', down);
+  b.addEventListener('mouseup', up);
+});
+const ptxt = document.getElementById('ptxt');
+function padSend() {
+  const t = ptxt.value;
+  if (!t || !mWin || mPaused) return;
+  sendTool('send_input', {id: mWin.id, op: 'type', text: t}, 'mirror type');
+  ptxt.value = '';
+}
+document.getElementById('psend').onclick = padSend;
+ptxt.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); padSend(); }
+});
 mImg.addEventListener('click', (e) => {
   if (lpFired) { lpFired = false; return; }   // 길게 누름 우클릭 뒤 합성 click 삼킴
   const button = mArmR ? 3 : 1;
