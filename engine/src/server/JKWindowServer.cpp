@@ -999,6 +999,73 @@ bool WritePng(const std::string& path, int w, int h, const uint8_t* px) {
     return stbi_write_png(path.c_str(), w, h, 4, px, w * 4) != 0;
 }
 
+// Base64 (RFC 4648 표준 테이블 — jkbridge의 static B64와 동일). 서버가
+// base64 헬퍼가 없어서 폰 미러(window_frame)용으로 신설. 출력은 base64
+// 문자셋이라 JSON 이스케이프가 불요하다.
+std::string B64Encode(const uint8_t* data, size_t len) {
+    static const char kT[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    out.reserve(((len + 2) / 3) * 4);
+    for (size_t i = 0; i < len; i += 3) {
+        const uint32_t b0 = data[i];
+        const uint32_t b1 = (i + 1 < len) ? data[i + 1] : 0;
+        const uint32_t b2 = (i + 2 < len) ? data[i + 2] : 0;
+        const uint32_t n = (b0 << 16) | (b1 << 8) | b2;
+        out += kT[(n >> 18) & 63];
+        out += kT[(n >> 12) & 63];
+        out += (i + 1 < len) ? std::string(1, kT[(n >> 6) & 63]) : std::string("=");
+        out += (i + 2 < len) ? std::string(1, kT[n & 63]) : std::string("=");
+    }
+    return out;
+}
+
+// 폰 미러 프레임 인코더 (스펙 2026-09-27-phone-mirror): RGBA32 서면 픽셀 →
+// 최근접-이웃 축소(RGBA→RGB) → JPEG(q75, 예산 초과 시 60→45 하단) → base64.
+// WS 프레임 캡 1MiB 안쪽 방어선 — b64 길이×4/3이 900KiB 예산을 넘으면 품질을
+// 내리고, 전부 넘으면 false(frame_too_large). 축소는 비율 기반 수학과 무관하게
+// 표시 전용이다(탭 좌표는 dw/dh 비율로 되돌아온다).
+constexpr size_t kMirrorFrameBudget = 900 * 1024;
+
+bool EncodeLayerJpegB64(const std::vector<uint8_t>& px, int w, int h,
+                        int maxw, std::string* b64Out, int* encW, int* encH) {
+    int dw = w, dh = h;
+    if (maxw > 0 && w > maxw) {
+        dw = maxw;
+        dh = std::max(1, static_cast<int>(std::llround(
+                             static_cast<double>(h) * maxw / w)));
+    }
+    std::vector<uint8_t> rgb(static_cast<size_t>(dw) * dh * 3);
+    for (int y = 0; y < dh; ++y) {
+        const uint8_t* src = px.data() +
+            static_cast<size_t>(std::min(h - 1, y * h / dh)) * w * 4;
+        uint8_t* dst = rgb.data() + static_cast<size_t>(y) * dw * 3;
+        for (int x = 0; x < dw; ++x) {
+            const int sx = std::min(w - 1, x * w / dw);
+            dst[x * 3 + 0] = src[sx * 4 + 0];
+            dst[x * 3 + 1] = src[sx * 4 + 1];
+            dst[x * 3 + 2] = src[sx * 4 + 2];
+        }
+    }
+    static const int kQ[] = {75, 60, 45};
+    for (int q : kQ) {
+        std::vector<uint8_t> jpg;
+        auto sink = [](void* ctx, void* d, int n) {
+            auto* v = static_cast<std::vector<uint8_t>*>(ctx);
+            const auto* p = static_cast<const uint8_t*>(d);
+            v->insert(v->end(), p, p + n);
+        };
+        if (!stbi_write_jpg_to_func(sink, &jpg, dw, dh, 3, rgb.data(), q))
+            return false;
+        if (jpg.size() * 4 / 3 > kMirrorFrameBudget) continue;
+        *b64Out = B64Encode(jpg.data(), jpg.size());
+        *encW = dw;
+        *encH = dh;
+        return true;
+    }
+    return false;
+}
+
 } // anonymous namespace
 
 // capture_window 본문 추출 (스펙 2026-09-19-app-tool-hub §5 3단): docs/35의
@@ -2407,6 +2474,10 @@ static const AgentPermRow kPermMatrix[] = {
     // "allow"로 뒤집을 때까지. 기본값(파일 없음)은 allow 유지.
     {"capture_window", "server(flip)", "allow"},
     {"capture_region", "server(flip)", "allow"},
+    // 폰 미러 (스펙 2026-09-27-phone-mirror): 캡처 쌍과 동일 server(flip)
+    // 분류 — 디스크 기록 없는 JPEG b64 프레임이므로 캡처보다 위험이 낮다.
+    // 파일 "ask"는 capture_ask 하드거부(승인 파킹 아님), "deny"는 전 거부.
+    {"window_frame", "server(flip)", "allow"},
     {"trigger_toggle", "none", "allow"},
     {"theme_set", "none", "allow"},
     {"open_notify", "none", "allow"},
@@ -3216,12 +3287,26 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         bool first = true;
         for (auto& c : clients_) {
             if (!c || c->IsDisconnected() || c->IsControlOnly() || c->IsShell()) continue;
-            char item[640];
+            // dw/dh (폰 미러 스펙 2026-09-27): 표시 크기 = 서면×layer scale.
+            // 캡처(window_frame)는 서면 px이므로 폰 탭은 x + fx*dw로 데스크톱
+            // 점을 얻는다 — 1:1 레이어에서 dw==w, fit-scale에서도 정확.
+            char item[760];
+            JKCompositorLayer* lay =
+                compositor_ ? compositor_->FindLayerById(c->Id()) : nullptr;
+            const int dw = lay ? static_cast<int>(std::llround(
+                                     static_cast<double>(c->Width()) *
+                                     lay->ScaleX()))
+                               : c->Width();
+            const int dh = lay ? static_cast<int>(std::llround(
+                                     static_cast<double>(c->Height()) *
+                                     lay->ScaleY()))
+                               : c->Height();
             std::snprintf(item, sizeof(item),
                 "%s{\"id\":%u,\"title\":\"%s\",\"pid\":%u,\"x\":%d,\"y\":%d,"
-                "\"w\":%d,\"h\":%d,\"focused\":%s,\"minimized\":%s}",
+                "\"w\":%d,\"h\":%d,\"dw\":%d,\"dh\":%d,"
+                "\"focused\":%s,\"minimized\":%s}",
                 first ? "" : ",", c->Id(), JsonEsc(c->Title()).c_str(), c->Pid(),
-                c->X(), c->Y(), c->Width(), c->Height(),
+                c->X(), c->Y(), c->Width(), c->Height(), dw, dh,
                 focusedClientId_ == c->Id() ? "true" : "false",
                 (compositor_ && !compositor_->IsLayerVisible(c->Id()))
                     ? "true" : "false");
@@ -5003,6 +5088,50 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                         reply = "{\"ok\":false,\"error\":\"write_failed\"}";
                     }
                 }
+            }
+        }
+        }
+    } else if (tool == "window_frame") {
+        // 폰 미러 (스펙 2026-09-27-phone-mirror): capture_window와 같은 shm
+        // 서면 readback이지만 디스크 기록 대신 JPEG b64를 답한다 — 폰 폴링이
+        // screenshots 폴더를 쓰레기로 채우지 않는다. 레이어 fit-scale은 무시
+        // (서면 px) — 폰은 dw/dh 비율로 좌표를 되돌린다. 게이트는 캡처 쌍과
+        // 동일 server(flip) 분류 (docs/54 §11 opus M2 선례).
+        const AgentDecision gateF = AgentToolAllowed("window_frame");
+        if (gateF == AgentDecision::Ask) {
+            reply = "{\"ok\":false,\"error\":\"capture_ask\"}";
+        } else if (gateF == AgentDecision::Deny) {
+            reply = "{\"ok\":false,\"error\":\"permission_denied\"}";
+        } else {
+        int id = 0, maxw = 0;
+        req.GetObjInt("args", "id", id);
+        req.GetObjInt("args", "maxw", maxw);
+        JKCompositorLayer* layer =
+            compositor_ ? compositor_->FindLayerById(static_cast<uint32_t>(id))
+                        : nullptr;
+        if (id <= 0) {
+            reply = "{\"ok\":false,\"error\":\"bad_request\"}";
+        } else if (!layer || !layer->Pixels() || layer->Width() <= 0 ||
+                   layer->Height() <= 0) {
+            reply = "{\"ok\":false,\"error\":\"window_not_found\"}";
+        } else {
+            // 서면 px 1회 복사 (capture_window 선례) — 클라가 인코딩 중에
+            // shm에 커밋할 수 있다.
+            std::vector<uint8_t> px(
+                layer->Pixels(),
+                layer->Pixels() + static_cast<size_t>(layer->Width()) *
+                                       layer->Height() * 4);
+            std::string b64;
+            int ew = 0, eh = 0;
+            if (EncodeLayerJpegB64(px, layer->Width(), layer->Height(), maxw,
+                                   &b64, &ew, &eh)) {
+                reply = "{\"ok\":true,\"w\":" + std::to_string(ew) +
+                        ",\"h\":" + std::to_string(eh) +
+                        ",\"sw\":" + std::to_string(layer->Width()) +
+                        ",\"sh\":" + std::to_string(layer->Height()) +
+                        ",\"data\":\"" + b64 + "\"}";
+            } else {
+                reply = "{\"ok\":false,\"error\":\"frame_too_large\"}";
             }
         }
         }
