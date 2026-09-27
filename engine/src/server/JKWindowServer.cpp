@@ -2481,6 +2481,9 @@ static const AgentPermRow kPermMatrix[] = {
     // 과 같은 none/allow 분류 — 화면 상태 변경일 뿐 승인 행위가 아니다.
     {"window_move", "none", "allow"},
     {"window_resize", "none", "allow"},
+    // 최소화/복원 (docs/57 §14.16) — 태스크바가 이미 하던 상태 변경의 에이전트
+    // 노출이라 같은 none/allow 분류.
+    {"window_minimize", "none", "allow"},
     {"launch_app", "none", "allow"},
     {"save_layout", "none", "allow"},
     {"restore_layout", "none", "allow"},
@@ -3472,6 +3475,52 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                     reply = "{\"ok\":true}";
                 }
             }
+        }
+    } else if (tool == "window_minimize") {
+        // 최소화/복원 (docs/57 §14.16, 사용자 보고 "지뢰찾기 최소화" 무도구):
+        // 태스크바 WindowMinimizeToggle과 동일 의미론 — 레이어 가시성 토글 +
+        // 숨김 시 포커스 인계(다음 최상위로). 복원은 활성화까지(태스크바 클릭
+        // 착지감). 대상 선정 뼈대는 window_fullscreen 복제 — 명시 id /
+        // 생략 = 자기 창(control-only 생략형 no_window), shell은 창이 아니라
+        // window_not_found(opus MINOR-2 승계). on=1 최소화 / on=0 복원 /
+        // 생략 = 반전.
+        int id = 0;
+        JKClientConnection* target = nullptr;
+        if (req.GetObjInt("args", "id", id)) {
+            for (auto& c : clients_) {
+                if (c && c->Id() == static_cast<uint32_t>(id)) { target = c.get(); break; }
+            }
+        } else if (!client.IsControlOnly()) {
+            target = &client;
+        }
+        JKCompositorLayer* mnLayer = nullptr;
+        if (target && !target->IsControlOnly() && !target->IsShell() && compositor_) {
+            mnLayer = compositor_->FindLayerById(target->Id());
+        }
+        if (!mnLayer) {
+            reply = (target ? "{\"ok\":false,\"error\":\"window_not_found\"}"
+                            : "{\"ok\":false,\"error\":\"no_window\"}");
+        } else {
+            int onArg = -1;
+            bool minimize = mnLayer->IsVisible();   // 생략 = 현재 상태 반전
+            if (req.GetObjInt("args", "on", onArg) &&
+                (onArg == 0 || onArg == 1)) {
+                minimize = (onArg == 1);
+            }
+            if (minimize) {
+                compositor_->SetLayerVisible(target->Id(), false);
+                // 숨김이 포커스를 잃는다 — 다음 최상위 앱 창에 인계
+                // (WindowMinimizeToggle 셸 경로와 동일 폴백).
+                if (focusedClientId_ == target->Id()) {
+                    FocusClient(compositor_->TopmostLayerId());
+                }
+            } else {
+                compositor_->SetLayerVisible(target->Id(), true);
+                FocusClient(target->Id());   // 복원 = 활성화(restore-on-activate)
+            }
+            PushWindowListUnsafe();  // minimized flag follows visibility
+            reply = std::string("{\"ok\":true,\"minimized\":") +
+                    (mnLayer->IsVisible() ? "false" : "true") + "}";
         }
     } else if (tool == "list_app_tools") {
         // 앱 도구 허브 (스펙 2026-09-19-app-tool-hub §4.4): 평면 행 카탈로그

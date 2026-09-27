@@ -698,3 +698,26 @@ probe_jkbridge ×2 ALL PASS(정리 함수 탑재 후 전체 회귀 무손상).
 선택된 앱을 픽커에서 다시 탭하면 해제 → 데스크톱 와이드 뷰 복귀(mWin=null,
 sel 강조 즉시 해제). 이제 픽커·`데스크톱` 버튼·창 닫힘(window_not_found)
 세 경로 전부 데스크톱 뷰로 귀환. UI 전용 — 프로브 생략(서버 무접촉).
+
+## 14.16 window_minimize — 최소화/복원 에이전트 도구 (2026-09-27, 사용자 보고)
+
+"지뢰찾기 최소화"에 응답 없음+턴 대기열 누적 — 뿌리는 **최소화 도구 부재**:
+서버는 WindowMinimizeToggle(셸 경로)로 최소화 의미론을 이미 갖고 있었지만
+에이전트 도구면이 비어 있어 LLM이 방법을 못 찾고 헤매며 턴이 길어졌다.
+
+- **window_minimize** {id, on?}: on=1 숨김, on=0 복원(활성화까지 — 태스크바
+  클릭 착지감), 생략=반전. WindowMinimizeToggle과 동일 의미론 — 레이어
+  가시성 토글+숨김 시 포커스 인계(다음 최상위). 대상 선정/거절 뼈대는
+  window_fullscreen 복제(shell은 window_not_found — opus MINOR-2 승계).
+  권한 none/allow(태스크바가 이미 하던 상태 변경의 노출).
+- **3중 등록**: kPermMatrix 행 + jkagentd 스키마/IsKnownTool/permissions
+  (docs/53:14 삼각) + probe 단정.
+- **probe_agent_maximize 4b 체크**: on=1→list_windows minimized:true,
+  on=0→창 복귀, 생략 반전 사이클. ×2 ALL PASS + jkdesktop test 0 +
+  probe_phone_mirror ×2 ALL PASS.
+- **레슨**: dblclick-restore가 2런 연속 FAIL(실제 마우스 간섭 — 사용자 조작
+  중 합성 더블클릭이 흔들림) 후 2런 PASS — 합성 입력 프로브는 사용자가
+  기기를 쓰는 동안 재현성이 떨어진다. FAIL 판정 전 간섭 여부 확인.
+- **도구 면 총교훈**: "최소화는 안되나요?" 같은 자연어 요청이 도구 빈면에서
+  LLM 방황으로 번진다 — 창 상태 동사(최소화/복원)는 셸이 이미 구현한
+  의미론의 노출 누락인지 먼저 본다.

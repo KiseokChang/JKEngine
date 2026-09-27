@@ -57,6 +57,7 @@ const char* kCoreToolsListJson =
 "{\"name\":\"window_fullscreen\",\"description\":\"Toggle a window's fullscreen layer state (vplayer theater mode; id omitted = caller's own window; on=0/1, omitted=invert)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"integer\"},\"on\":{\"type\":\"integer\",\"enum\":[0,1]}}}},"
 "{\"name\":\"window_move\",\"description\":\"Move a window to desktop-logical (x,y) - off-screen allowed (Windows behavior). Rejected while maximized (window_maximized) or fullscreen (window_fullscreen_state)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"integer\"},\"x\":{\"type\":\"integer\"},\"y\":{\"type\":\"integer\"}},\"required\":[\"x\",\"y\"]}},"
 "{\"name\":\"window_resize\",\"description\":\"Resize a window surface to w x h pixels (80..8192). Rejected while maximized (window_maximized) or fullscreen (window_fullscreen_state)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"integer\"},\"w\":{\"type\":\"integer\"},\"h\":{\"type\":\"integer\"}},\"required\":[\"w\",\"h\"]}},"
+"{\"name\":\"window_minimize\",\"description\":\"Minimize (hide) or restore a window; on=1 minimize, on=0 restore, omitted=invert. Minimized windows keep running and come back via focus_window or restore (on=0). id omitted = caller's own window\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"integer\"},\"on\":{\"type\":\"integer\",\"enum\":[0,1]}}}},"
 "{\"name\":\"close_window\",\"description\":\"Close a window by id (permission-gated)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"integer\"}},\"required\":[\"id\"]}},"
 "{\"name\":\"save_layout\",\"description\":\"Snapshot current window positions to state/layout_<name>.json\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}},"
 "{\"name\":\"restore_layout\",\"description\":\"Restore window positions from a layout snapshot (matched by title)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}},"
@@ -93,7 +94,7 @@ bool IsKnownTool(const std::string& name) {
         "window_fullscreen",
         // 창 기하 2종 (스펙 2026-09-21-phone-practical-improvements) — 미등록
         // 시 tools/call이 동적 역매칭으로 새고 unknown_tool(file_open 주석 선례).
-        "window_move", "window_resize",
+        "window_move", "window_resize", "window_minimize",
         "close_window", "save_layout", "restore_layout", "read_log",
         "read_events", "terminal_exec", "trust_list", "theme_set",
         "agent_permissions", "permission_set", "trust_revoke",
@@ -144,7 +145,7 @@ std::map<std::string, bool> LoadPermissions() {
         "window_fullscreen",
         // 창 기하 2종 (스펙 2026-09-21-phone-practical-improvements) — 서버
         // 게이트도 none/allow라 브로커 기본 allow가 정합.
-        "window_move", "window_resize",
+        "window_move", "window_resize", "window_minimize",
         "close_window", "save_layout", "restore_layout", "read_log",
         "read_events", "terminal_exec", "trust_list", "theme_set",
         "agent_permissions", "permission_set", "trust_revoke",

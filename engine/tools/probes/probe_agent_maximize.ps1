@@ -352,6 +352,28 @@ if ($ok) {
     }
 }
 
+# --- 4b. window_minimize — agent-path minimize/restore (docs/57 §14.16) ------
+# on=1 hide, on=0 restore (comes back focused), omit = invert. The minimized
+# flag follows layer visibility in list_windows.
+$mnA = Invoke-Agentctl ('{"tool":"window_minimize","args":{"id":' + $mine.id + ',"on":1}}')
+$mnAOk = ($mnA -match '"ok":true' -and $mnA -match '"minimized":true')
+$mnList = Invoke-Agentctl '{"tool":"list_windows","args":{}}'
+Invoke-Agentctl ('{"tool":"window_minimize","args":{"id":' + $mine.id + ',"on":0}}')
+$mnBack = Get-MineWindow
+$mnR = Invoke-Agentctl ('{"tool":"window_minimize","args":{"id":' + $mine.id + ',"on":1}}')
+$mnR2 = Invoke-Agentctl ('{"tool":"window_minimize","args":{"id":' + $mine.id + '}}')
+$mnF = Invoke-Agentctl ('{"tool":"window_minimize","args":{"id":' + $mine.id + ',"on":0}}')
+if ($mnAOk -and $mnList -match '"minimized":true' -and $mnBack -ne $null -and
+    $mnR -match '"minimized":true' -and $mnR2 -match '"minimized":false' -and $mnF -match '"minimized":false') {
+    Write-Host ("minimize: PASS (hide -> list minimized=true, restore -> window back, invert cycle ok)")
+} else {
+    $ok = $false
+    Write-Host ("minimize: FAIL (on1={0}, list={1}, back={2}, invert1={3}, invert2={4}, final={5})" -f
+        $mnAOk, ($mnList -match '"minimized":true'), ($null -ne $mnBack),
+        ($mnR -match '"minimized":true'), ($mnR2 -match '"minimized":false'),
+        ($mnF -match '"minimized":false'))
+}
+
 # --- 5. cleanup -------------------------------------------------------------
 # Remove bonus-capture artifacts so the tree is left as found (probe_agent_shot
 # re-creates and re-cleans the dir itself).
