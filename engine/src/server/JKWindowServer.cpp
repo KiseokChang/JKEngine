@@ -6869,6 +6869,12 @@ AgentDecision JKWindowServer::AgentToolAllowed(const std::string& tool) const {
                              // (설정 허브 캡처 스위치의 승인 파킹이 flip).
                              tool == "capture_window" ||
                              tool == "capture_region" ||
+                             // 폰 미러 (스펙 2026-09-27-phone-mirror):
+                             // window_frame도 캡처 쌍과 동일 — 파일값 "ask"를
+                             // Allow로 열화하지 않는다(실측 결함: 프로브 c11이
+                             // 열화를 잡음). 도구 분기가 Ask를 capture_ask
+                             // 거부로 소비.
+                             tool == "window_frame" ||
                              // 파일 허브 (스펙 2026-09-18-file-hub §2.2):
                              // 파일 2종도 파일값 "ask"를 Allow로 열화하지
                              // 않는다 — 도구 분기가 FilesPermRaw로 소비
