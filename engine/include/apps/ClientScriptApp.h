@@ -579,6 +579,13 @@ protected:
             if (liveCapable) {
                 std::string patchErr;
                 if (host_->PatchEval(source, &patchErr)) {
+                    // 감시 억제 (e2e 실측 — probe_workshop_livepatch c1):
+                    // 도구의 자기 쓰기를 lastMtime_에 반영하지 않으면 500ms
+                    // 감시 틱이 그 쓰기를 수기 편집으로 오판해 풀 리로드
+                    // 낙하(타이머·클로저 증발 — 라이브 패치의 생존 계약을
+                    // 무력화). 풀 경로는 StartScript가 갱신하므로 조용했던
+                    // 것 — 라이브 경로도 같은 불변식을 따른다.
+                    lastMtime_ = FileMtime(scriptPath_);
                     std::printf("[script] live patch: gen %d\n", gen);
                     std::fflush(stdout);
                     out = "{\"ok\":true,\"live\":true,\"slot\":\"" +
