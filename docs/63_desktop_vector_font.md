@@ -476,3 +476,34 @@ fallback 면이 공유 셀 격자 재사용, 병합(eadc87c jkedit)과 메트릭
    font_scale 눈확인이 1.25를 쓰면 즉시 오판)** — view probe 절반은 이미
    Task 4 유보 NIT, T11(b) 절반은 여기에 기록. 레슨: 프로브의 설정 진실원
    가정은 실행 디렉터리와 함께 기록한다.
+
+---
+
+## 11. 후속 소비처 — 런처 호버 툴팁 (2026-09-26)
+
+서버 사이드 텍스트 렌더의 두 번째 소비처. 승인 배너(§9 Task 6)의
+`ApprovalBannerTexture` 레시피(JKDC + JKTextAtlas + JKResourceCache 지연
+초기화, KSSM 변환, 비트맵 폴백)를 `JKDesktopShell`이 재용한다.
+
+- **동작**: 서버 SDL 마우스 경로가 클라이언트 표면 밖 모션의 런처 히트
+  인덱스를 `shell_->UpdateHover()`로 중계. 활성화 판정은 `Draw()`가 매
+  프레임 한다 — **SDL 모션은 커서가 움직일 때만 도착하므로** 정지 커서도
+  300ms 경과 후 툴팁이 떠야 한다(초기 설계 결함을 프로브 설계 중 발견).
+  300ms 지연, 셀 아래 4pt, 바닥 클램프 시 위로 뒤집기. 클릭(실행)·클라이언트
+  표면 위 모션·셀 이탈은 즉시 숨김.
+- **텍스처 캐시**: 표시명별 1회 렌더 후 `tooltipTexs_` 캐시, 렌더 시 stderr
+  로그 1줄(`[shell] tooltip: texture '<title>' rendered`) — 프로브 단정
+  지점이자 캐시 적중 재호버 무로그 보증.
+- **표시명 소스**: .jkx는 매니페스트 `title`, 콘솔 앱은 manifest.json
+  `desc`(기존 파싱 후 폐기되던 필드를 `LauncherIcon.title`로 승격), 내장/
+  터미널 셀은 고정 문자열. 빈 값이면 appName 폴백.
+- **크기 산식**: 텍스처는 셀 메트릭 크기, 드로잉 dst는 ×outputScale —
+  `Draw()`의 나머지 rect와 일관(승인 배너의 raw 드로잉과 의도적으로 다름).
+- **셸 자립 유지**: 툴팁 지연 부품(atlas/cache/backend/한글 매니저)은 셸이
+  자체 소유 — 서버의 `bannerAtlas_` 계열과 키·수명 분리, 셸의
+  jkserver 무포함 규칙 불변.
+- **검증**: `engine/tools/probes/probe_launcher_tooltip.ps1` ×2 ALL PASS —
+  ①호버 300ms 후 박스 렌더(픽셀 히트 3443) ②셀 이동 시 내용 교체(4470) ③
+  이탈+빈 데스크톱 클릭 후 소거(112) ④서버 종료 후 state 로그에서 표시명별
+  1회 렌더·2종 확인. 로그 단정은 서버 생존 중 불가(파일 잠금+버퍼) —
+  종료 후 읽기가 정문. 눈확인: `diag_tooltip_{1,2,3}.png`.

@@ -5,12 +5,18 @@
 #include <SDL.h>
 
 #include <functional>
+#include <map>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
 namespace jk {
 struct LoadedImage;
+class JKTextAtlas;
+class JKResourceCache;
+class JKSDLRenderBackend;
+class HangulManager;
 }
 
 namespace jk {
@@ -37,6 +43,8 @@ public:
     // Scan apps/*.jkx, add built-in fallbacks, load the background photo,
     // lay the grid out and draw once (the per-frame draw happens via Draw
     // from Composite).
+    JKDesktopShell();
+    ~JKDesktopShell();
     void Init(const ShellHost& host);
 
     // Frame background painter — the server's Composite() calls this before
@@ -47,6 +55,13 @@ public:
 
     // Physical-pixel hit test → launcher icon index, or -1.
     int HitTest(int x, int y) const;
+
+    // 마우스 호버 툴팁 (docs/67 후속): 서버 SDL 마우스 경로가 런처 영역의
+    // 물리 픽셀 히트 인덱스를 중계한다. 인덱스가 바뀌면 지연 타이머를 리셋하고,
+    // 300ms 머무르면 Draw()가 아이콘 아래에 툴팁을 렌더한다. 아이콘 밖(-1)이나
+    // 클라이언트 표면 위에서는 ClearHover로 즉시 숨긴다.
+    void UpdateHover(int hitIndex);
+    void ClearHover();
 
     // Launcher click dispatch (server SDL mouse path): hit-tests (x, y) and,
     // on a hit, invokes the ShellHost launch callback with the icon's spawn
@@ -71,6 +86,9 @@ private:
     struct LauncherIcon {
         JKRect rect;
         std::string appName;   // spawn key / display name
+        // 툴팁 표시명 (docs/67 후속): .jkx는 매니페스트 title, 콘솔 앱은
+        // manifest.json desc. 빈 값이면 그리기 때 appName로 폴백.
+        std::string title;
         std::string jkxPath;   // non-empty → spawn "--jkx <path>"
         // 콘솔 앱 kind (P4 SDK §3): 비었으면 .jkx/내장 앱 셀. cmd는 서버
         // cwd(engine/build) 기준 상대경로 — 인용 겹침 방지(453a327).
@@ -78,6 +96,21 @@ private:
         std::string consoleDir;
         SDL_Texture* texture = nullptr;
     };
+
+    // 툴팁 텍스처 (표시명별 1회 렌더 후 캐시 — 승인 배너 approvalBannerTexs_
+    // 선례). 표시명별 가로·세로는 물리 픽셀 크기.
+    struct TooltipTex {
+        SDL_Texture* tex = nullptr;
+        int w = 0;
+        int h = 0;
+    };
+
+    // 표시명 UTF-8 → 지연 부품(JKTextAtlas/JKResourceCache/백엔드/한글
+    // 매니저)으로 배경·테두리·글자를 실은 텍스처 1장 렌더. 실패는 빈 항목을
+    // 캐시해 매 프레임 재시도하지 않는다(배너 선례).
+    SDL_Texture* TooltipTexture(const std::string& utf8, int* w, int* h);
+    // 호버 중인 아이콘 셀 아래(바닥에 닿으면 위) 툴팁을 물리 픽셀로 렌더.
+    void DrawTooltip(SDL_Renderer* renderer, const LauncherIcon& icon);
 
     void ScanJkxApps();
     void ScanConsoleApps();
@@ -87,6 +120,20 @@ private:
     ShellHost host_;
     std::vector<LauncherIcon> launcherIcons_;
     SDL_Texture* backgroundTexture_ = nullptr;
+
+    // 호버 상태: hoverIndex_는 최근 모션의 런처 히트 인덱스(-1 = 런처 밖).
+    // 같은 아이콘에 kTooltipHoverDelayMs 이상 머무르면 hoverActive_가 서고
+    // Draw()가 툴팁을 렌더한다. 텍스처 캐시와 렌더 지연 부품은 툴팁 전용 —
+    // 서버의 승인 배너 부품(bannerAtlas_ 등)과 키·수명이 분리된다.
+    static constexpr Uint32 kTooltipHoverDelayMs = 300;
+    int hoverIndex_ = -1;
+    Uint32 hoverStartMs_ = 0;
+    bool hoverActive_ = false;
+    std::map<std::string, TooltipTex> tooltipTexs_;
+    std::unique_ptr<JKTextAtlas> tooltipAtlas_;
+    std::unique_ptr<JKResourceCache> tooltipCache_;
+    std::unique_ptr<JKSDLRenderBackend> tooltipBackend_;
+    std::unique_ptr<HangulManager> tooltipFont_;
 };
 
 } // namespace desktop

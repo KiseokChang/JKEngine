@@ -2,8 +2,14 @@
 
 #include "theme/JKTheme.h"
 
+#include <JKDC.h>
+#include <JKHangulManager.h>
+#include <JKHangulUtil.h>
 #include <JKImageLoader.h>
 #include <JKJkxFile.h>
+#include <JKResourceCache.h>
+#include <JKSDLRenderBackend.h>
+#include <JKTextAtlas.h>
 
 #include <quickjs.h>
 
@@ -63,6 +69,11 @@ extern "C" __declspec(dllimport) int __stdcall CreateDirectoryA(
 
 namespace jk {
 namespace desktop {
+
+JKDesktopShell::JKDesktopShell() = default;
+
+// 툴팁 지연 부품(unique_ptr 멤버)은 전방선언 타입이라 소멸자를 cpp에서 정의.
+JKDesktopShell::~JKDesktopShell() = default;
 
 namespace {
 
@@ -279,24 +290,29 @@ void JKDesktopShell::Init(const ShellHost& host) {
     if (!hasJkx("minesweeper")) {
         LauncherIcon icon;
         icon.appName = "minesweeper";
+        icon.title = "Minesweeper";
         launcherIcons_.push_back(icon);
     }
     if (!hasJkx("tetris")) {
         LauncherIcon icon;
         icon.appName = "tetris";
+        icon.title = "Tetris";
         launcherIcons_.push_back(icon);
     }
     // Phase A TUI 흡수 (docs/44): 콘솔 앱은 appName "terminal:<cmdline>" 관례로
     // 터미널 위에 띄운다 (SpawnClient가 접두사를 해석). 상대경로는 jkdesktop
     // cwd(engine/build) 기준. 전용 아이콘 아트는 이후 폴리싱 — fallback 아트.
+    // 툴팁 표시명은 exe 이름(접두어·경로 제거).
     if (!hasJkx("terminal:apps-bin/lf/lf.exe")) {
         LauncherIcon icon;
         icon.appName = "terminal:apps-bin/lf/lf.exe";
+        icon.title = "lf";
         launcherIcons_.push_back(icon);
     }
     if (!hasJkx("terminal:apps-bin/helix/hx.exe")) {
         LauncherIcon icon;
         icon.appName = "terminal:apps-bin/helix/hx.exe";
+        icon.title = "hx";
         launcherIcons_.push_back(icon);
     }
 
@@ -311,18 +327,43 @@ void JKDesktopShell::Init(const ShellHost& host) {
     for (auto& icon : launcherIcons_) {
         if (icon.texture) continue;   // .jkx apps carry their own icon texture
 
-        // Built-in apps: assets/icons/launcher_<pfx>; legacy cell layout kept
-        // for them so the flat-placeholder fallback still matches by name.
-        // terminal: 셀은 각 TUI 앱의 전용 아이콘 (docs/44).
+        // Per-app icon art: assets/icons/launcher_<appName>. .jkx 앱이 컨테이너
+        // ICON 엔트리를 빠뜨렸거나 콘솔 앱에 icon@{2x,1x}.png가 없어도 전용
+        // 아이콘 PNG만 놓아두면 테트리스 공용 플레이스홀더에 겹치지 않는다.
+        // terminal: 셀은 각 TUI 앱의 전용 아이콘 (docs/44). 아트가 없으면
+        // 테트리스 플레이스홀더로 폴백.
+        char nameBase[160];
         const char* base = "assets/icons/launcher_tetris";
+        bool hasDedicated = false;
         if (icon.appName == "minesweeper") {
             base = "assets/icons/launcher_mine";
+            hasDedicated = true;
         } else if (icon.appName == "terminal:apps-bin/lf/lf.exe") {
             base = "assets/icons/launcher_lf";
+            hasDedicated = true;
         } else if (icon.appName == "terminal:apps-bin/helix/hx.exe") {
             base = "assets/icons/launcher_helix";
+            hasDedicated = true;
+        } else {
+            // appName은 .jkx 매니페스트 문자열이라 경로 특수문자 방지 — 안전한
+            // 이름만 자산 경로로 쓴다.
+            bool safe = !icon.appName.empty() && icon.appName.size() < 100;
+            for (char c : icon.appName) {
+                const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                                (c >= '0' && c <= '9') || c == '_';
+                if (!ok) { safe = false; break; }
+            }
+            if (safe) {
+                std::snprintf(nameBase, sizeof(nameBase), "assets/icons/launcher_%s",
+                              icon.appName.c_str());
+                base = nameBase;
+                hasDedicated = true;
+            }
         }
         icon.texture = LoadTextureScaled(base);
+        if (!icon.texture && hasDedicated) {
+            icon.texture = LoadTextureScaled("assets/icons/launcher_tetris");
+        }
         if (icon.texture) {
             std::fprintf(stderr, "JKWindowServer: launcher icon '%s' loaded\n", base);
         }
@@ -384,6 +425,8 @@ void JKDesktopShell::ScanJkxApps() {
 
         LauncherIcon icon;
         icon.appName = mani.name;
+        // 툴팁 표시명: 매니페스트 title 우선, 없으면 스폰 키.
+        icon.title = !mani.title.empty() ? mani.title : mani.name;
         icon.jkxPath = path;
 
         // Icon entry: prefer @2x on high-scale displays.
@@ -480,6 +523,8 @@ void JKDesktopShell::ScanConsoleApps() {
 
         LauncherIcon icon;
         icon.appName = name;
+        // 툴팁 표시명: manifest.json desc가 있으면 그걸 쓴다(이름보다 정보량).
+        icon.title = desc;
         icon.consoleDir = std::string("apps\\") + dirName;
         icon.consoleCmd = cmd;
 
@@ -564,6 +609,18 @@ void JKDesktopShell::Draw(SDL_Renderer* renderer) {
             SDL_RenderDrawRect(renderer, &rc);
         }
     }
+
+    // 호버 툴팁 (docs/67 후속): 300ms 머문 아이콘 셀 위에 마지막으로 얹는다 —
+    // 아이콘·배경 위에 항상 깔리도록 그리기 순서상 맨 뒤. 활성화 판정은 여기서
+    // (정지 커서 승격 — UpdateHover 주석 참조).
+    if (hoverIndex_ >= 0 && !hoverActive_ &&
+        SDL_GetTicks() - hoverStartMs_ >= kTooltipHoverDelayMs) {
+        hoverActive_ = true;
+    }
+    if (hoverActive_ && hoverIndex_ >= 0 &&
+        hoverIndex_ < static_cast<int>(launcherIcons_.size())) {
+        DrawTooltip(renderer, launcherIcons_[static_cast<size_t>(hoverIndex_)]);
+    }
 }
 
 void JKDesktopShell::Destroy() {
@@ -578,6 +635,24 @@ void JKDesktopShell::Destroy() {
         SDL_DestroyTexture(backgroundTexture_);
         backgroundTexture_ = nullptr;
     }
+    // 툴팁 텍스처 캐시 + 렌더 지연 부품 (캐시가 소유 백엔드에 의존하므로
+    // 텍스처 파괴 후 플러시 순 — 승인 배너 정리 경로 선례).
+    for (auto& kv : tooltipTexs_) {
+        if (kv.second.tex) {
+            SDL_DestroyTexture(kv.second.tex);
+            kv.second.tex = nullptr;
+        }
+    }
+    tooltipTexs_.clear();
+    ClearHover();
+    if (tooltipCache_ && tooltipBackend_) {
+        tooltipCache_->UnloadAllImages();
+        tooltipCache_->FlushUploads(tooltipBackend_.get());
+    }
+    tooltipAtlas_.reset();
+    tooltipCache_.reset();
+    tooltipBackend_.reset();
+    tooltipFont_.reset();
 }
 
 int JKDesktopShell::HitTest(int x, int y) const {
@@ -596,9 +671,153 @@ int JKDesktopShell::HitTest(int x, int y) const {
     return -1;
 }
 
+// 마우스 호버 툴팁 (docs/67 후속): 서버 마우스 경로가 모션마다 히트 인덱스를
+// 중계한다. 인덱스 변화(이동·벗어남)는 지연 타이머를 리셋한다. 활성화 판정은
+// Draw()가 매 프레임 한다 — SDL 모션은 커서가 움직일 때만 도착하므로 정지
+// 커서는 추가 모션 없이 머무름만으로 300ms 경과 후 툴팁이 떠야 한다.
+void JKDesktopShell::UpdateHover(int hitIndex) {
+    if (hitIndex != hoverIndex_) {
+        hoverIndex_ = hitIndex;
+        hoverStartMs_ = SDL_GetTicks();
+        hoverActive_ = false;
+    }
+}
+
+void JKDesktopShell::ClearHover() {
+    hoverIndex_ = -1;
+    hoverActive_ = false;
+}
+
+SDL_Texture* JKDesktopShell::TooltipTexture(const std::string& utf8, int* w, int* h) {
+    *w = 0;
+    *h = 0;
+    auto it = tooltipTexs_.find(utf8);
+    if (it != tooltipTexs_.end()) {
+        *w = it->second.w;
+        *h = it->second.h;
+        return it->second.tex;
+    }
+    if (!host_.renderer || !SDL_RenderTargetSupported(host_.renderer)) {
+        // 렌더 타깃 미지원 백엔드 — 툴팁 없이 계속(사실상 안 쓰는 가지, 배너 선례).
+        tooltipTexs_[utf8] = TooltipTex{};
+        return nullptr;
+    }
+    // 렌더 지연 부품 (승인 배너 ApprovalBannerTexture 선례): 한글 매니저는
+    // 생성 실패해도 JKDC 내장 ASCII 폴백으로 계속. 캐시는 등록 경로와 소멸자
+    // 플러시가 소유 백엔드에 의존하므로 수명까지 소유한다.
+    if (!tooltipFont_) {
+        tooltipFont_ = std::make_unique<HangulManager>();
+    }
+    if (!tooltipBackend_) {
+        tooltipBackend_ = std::make_unique<JKSDLRenderBackend>(host_.renderer);
+    }
+    if (!tooltipCache_) {
+        tooltipCache_ = std::make_unique<JKResourceCache>(tooltipBackend_.get());
+    }
+    if (!tooltipAtlas_) {
+        tooltipAtlas_ = std::make_unique<jk::JKTextAtlas>();
+        // 셀 메트릭 진실원 (docs/63 §6 text.font_scale).
+        const jk::text::CellMetrics m = jk::text::GetCellMetrics();
+        const std::string fp = jk::text::ResolveDesktopFontPath();
+        if (fp.empty()) {
+            std::fprintf(stderr,
+                         "[shell] tooltip: no vector font configured, staying "
+                         "on bitmap glyphs\n");
+        } else if (!tooltipAtlas_->Init(fp, m.engW, m.cellH, m.hanW)) {
+            std::fprintf(stderr,
+                         "[shell] tooltip: vector font init failed (%s), "
+                         "staying on bitmap glyphs\n",
+                         fp.c_str());
+        } else {
+            const std::string fb = jk::text::ResolveDesktopFallbackPath();
+            if (!fb.empty() && !tooltipAtlas_->InitFallback(fb)) {
+                std::fprintf(stderr,
+                             "[shell] tooltip: fallback font init failed (%s), "
+                             "glyph chain disabled\n",
+                             fb.c_str());
+            }
+        }
+    }
+    // 크롬 타이틀 LegacyFontTitle 선례: KSSM 변환이 빈 결과면 원문을 쓴다.
+    std::string kssm = Utf8ToKssm(utf8.c_str());
+    if (kssm.empty()) {
+        kssm = utf8;
+    }
+    const JKPoint m = JKDC::MeasureText(kssm.c_str());
+    constexpr int kPad = 5;
+    const int texW = m.x + kPad * 2;
+    const int texH = (m.y > 0 ? m.y : 16) + kPad * 2;
+    SDL_Texture* tex = SDL_CreateTexture(host_.renderer, SDL_PIXELFORMAT_RGBA8888,
+                                         SDL_TEXTUREACCESS_TARGET, texW, texH);
+    if (!tex) {
+        tooltipTexs_[utf8] = TooltipTex{};
+        return nullptr;
+    }
+    SDL_Texture* prev = SDL_GetRenderTarget(host_.renderer);
+    SDL_SetRenderTarget(host_.renderer, tex);
+    // 어두운 툴팁 박스 + 밝은 테두리 — 데스크톱 사진 위에서도 읽히는 고정 대비색.
+    SDL_SetRenderDrawColor(host_.renderer, 26, 26, 30, 255);
+    SDL_RenderClear(host_.renderer);
+    SDL_SetRenderDrawColor(host_.renderer, 130, 130, 140, 255);
+    SDL_Rect border{ 0, 0, texW, texH };
+    SDL_RenderDrawRect(host_.renderer, &border);
+    JKSDLRenderBackend backend(host_.renderer);
+    JKDC dc(&backend);
+    if (tooltipFont_) {
+        dc.SetHangulManager(tooltipFont_.get());
+    }
+    // 벡터 글리프 장착 — Init 실패(IsLoaded()==false)면 비트맵 폴백이 그대로.
+    if (tooltipAtlas_ && tooltipAtlas_->IsLoaded() && tooltipCache_) {
+        dc.SetTextAtlas(tooltipAtlas_.get(), tooltipCache_.get());
+    }
+    dc.SetTextColor(235, 235, 240);
+    dc.TextOut(JKPoint{kPad, kPad}, kssm.c_str());
+    SDL_SetRenderTarget(host_.renderer, prev);
+    tooltipTexs_[utf8] = TooltipTex{tex, texW, texH};
+    // 프로브 단정 지점: 표시명별 텍스처는 1회만 렌더되므로 로그에도 1회만
+    // 찍힌다(캐시 적중 재호버는 무로그).
+    std::fprintf(stderr, "[shell] tooltip: texture '%s' rendered (%dx%d)\n",
+                 utf8.c_str(), texW, texH);
+    *w = texW;
+    *h = texH;
+    return tex;
+}
+
+void JKDesktopShell::DrawTooltip(SDL_Renderer* renderer, const LauncherIcon& icon) {
+    const float s = host_.outputScale ? host_.outputScale() : 1.0f;
+    const std::string& label = !icon.title.empty() ? icon.title : icon.appName;
+    if (label.empty()) return;
+    int tw = 0;
+    int th = 0;
+    SDL_Texture* tex = TooltipTexture(label, &tw, &th);
+    if (!tex || tw <= 0 || th <= 0) return;
+
+    // 셀 아래 4pt 간격(논리 좌표). 데스크톱 바닥에 닿으면 셀 위로 뒤집고,
+    // 오른쪽/왼쪽 클램프로 화면 밖을 막는다. 최종 좌표·크기는 물리 픽셀 —
+    // Draw()의 나머지(rect × outputScale)와 같은 산식. 텍스처는 셀 메트릭
+    // 크기라 스케일 >1에선 늘어나 그려진다(승인 배너의 raw 드로잉과 달리
+    // 주변 UI와 크기를 맞춘다).
+    int pw = 0;
+    int ph = 0;
+    SDL_GetRendererOutputSize(renderer, &pw, &ph);
+    const int dw = static_cast<int>(tw * s);
+    const int dh = static_cast<int>(th * s);
+    int px = static_cast<int>(icon.rect.x * s);
+    int py = static_cast<int>((icon.rect.y + icon.rect.h + 4) * s);
+    if (px + dw > pw) px = pw - dw;
+    if (px < 0) px = 0;
+    if (py + dh > ph) {
+        py = static_cast<int>(icon.rect.y * s) - dh - 4;
+    }
+    if (py < 0) py = 0;
+    SDL_Rect dst{ px, py, dw, dh };
+    SDL_RenderCopy(renderer, tex, nullptr, &dst);
+}
+
 bool JKDesktopShell::LaunchAt(int x, int y) {
     const int icon = HitTest(x, y);
     if (icon < 0) return false;
+    ClearHover();  // 실행 직후 툴팁 즉시 숨김
     const LauncherIcon& item = launcherIcons_[static_cast<size_t>(icon)];
     if (!item.consoleCmd.empty()) {
         // 콘솔 앱 kind (P4 SDK §3): 터미널 위에 스폰 — cwd는 앱 폴더.
