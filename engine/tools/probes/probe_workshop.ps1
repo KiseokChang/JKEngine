@@ -1,4 +1,9 @@
 # probe_workshop.ps1 - workshop regression (docs/60 §4). ASCII-only (PS5.1).
+# SLOT ISOLATION (2026-09-27 실측 사고 픽스): 마지막 슬롯 영속(.current_<app>,
+# docs/67 단 1) 때문에 부팅 슬롯이 사용자 실슬롯(bang-gu)인 경우 프로브가 사용자
+# 스크립트를 읽고 그 슬롯에 기록하는 사고 발생. 프로브는 전면 프로브 전용 슬롯
+# probe-ws에서 동작한다(set_script slot 인자=생성+자동 전환). 사용자 슬롯·
+# .current 포인터는 finally에서 원복.
 # Checks (setup + 9):
 #   s1 server up (probe-owned lifecycle: fresh --server)
 #   s2 spawn workshop.jkx -> 7 tools registered (docs/67 stage 1: +list_slots/
@@ -28,6 +33,11 @@ $exe = "I:\progwork\JKENGINE\engine\build\jkdesktop.exe"
 $root = Split-Path $exe
 $jkx = Join-Path $root "apps\workshop.jkx"
 $myapp = Join-Path $root "state\scripts\myapp.js"
+$slotFile = Join-Path $root "state\scripts\probe-ws.js"          # probe-owned slot
+$histDir  = Join-Path $root "state\scripts\.history\probe-ws"   # probe-owned history
+$currentFile = Join-Path $root "state\scripts\.current_workshop" # last-slot pointer (scripts dir — DirOf(scriptPath_))
+$hadCur = Test-Path $currentFile
+if ($hadCur) { $curBak = [System.IO.File]::ReadAllBytes($currentFile) }
 $clientLog = Join-Path $root "workshop_client.log"
 $script:fail = 0
 
@@ -60,6 +70,11 @@ function AppTool([string]$app, [string]$tool, [string]$argsJson) {
 function SetScript([string]$js) {
     $esc = $js -replace '"', '\"'
     return (AppTool "workshop" "set_script" ('{"source":"' + $esc + '"}'))
+}
+# set_script into a named slot (creates it + auto-switches — docs/67 stage 1).
+function SetScriptSlot([string]$slot, [string]$js) {
+    $esc = $js -replace '"', '\"'
+    return (AppTool "workshop" "set_script" ('{"slot":"' + $slot + '","source":"' + $esc + '"}'))
 }
 function Catalog {
     return (Invoke-Agentctl '{"tool":"list_app_tools","args":{}}')
@@ -116,6 +131,16 @@ try {
     if ($seeded) { $body = [IO.File]::ReadAllText($myapp) }
     Check "s3-template-seeded" ($seeded -and $body -match "createButton") ("myapp bytes=" + $body.Length)
 
+    # ---- s4: probe-owned slot (slot 인자 = 생성+자동 전환, docs/67 단 1) ----------
+    # 부팅 슬롯이 무엇이든(사용자 실슬롯 포함) 이 시점부터 모든 쓰기/읽기는
+    # probe-ws에서만 일어난다. 시드 원문에 createButton을 심어 c1 라운드트립이
+    # 템플릿 시드와 동일한 단정을 유지한다.
+    if (Test-Path $slotFile) { Remove-Item $slotFile -Force }
+    if (Test-Path $histDir) { Remove-Item -Recurse -Force $histDir }
+    $seed = "var btn0 = createButton({ x: 20, y: 20, w: 140, h: 34 }, 'probe seed'); function onClick(id) { if (id === btn0) { setText(btn0, 'clicked'); } }"
+    $r0 = (SetScriptSlot "probe-ws" $seed)
+    Check "s4-probe-slot-created" ($r0 -match '"ok":true') $r0
+
     # ---- check 1: get_script roundtrip -------------------------------------------
     $g1 = (AppTool "workshop" "get_script" "")
     $g1s = $g1
@@ -141,7 +166,7 @@ try {
     $r2 = (SetScript $src2)
     Check "c2-set-ok" ($r2 -match '"ok":true') $r2
     $disk = ""
-    if (Test-Path $myapp) { $disk = [IO.File]::ReadAllText($myapp) }
+    if (Test-Path $slotFile) { $disk = [IO.File]::ReadAllText($slotFile) }
     Check "c2-disk-written" ($disk -match "V2 button") ("disk bytes=" + $disk.Length)
     $g2 = (AppTool "workshop" "get_script" "")
     $g2s = $g2
@@ -163,7 +188,7 @@ try {
     Check "c3-broken-error" $errOk $r3s
     # Truth source reflects the write (the agent must fix it - by design).
     $diskBad = ""
-    if (Test-Path $myapp) { $diskBad = [IO.File]::ReadAllText($myapp) }
+    if (Test-Path $slotFile) { $diskBad = [IO.File]::ReadAllText($slotFile) }
     Check "c3-truth-source-is-broken" ($diskBad -match "h: 34\s*$") ("disk tail=" + $diskBad.Substring([Math]::Max(0, $diskBad.Length - 60)))
 
     # ---- check 3b: recover (self-fix loop) ----------------------------------------
@@ -190,7 +215,7 @@ try {
     $seen = $false
     for ($try = 1; $try -le 3 -and -not $seen; $try++) {
         Start-Sleep -Seconds 2
-        [IO.File]::AppendAllText($myapp, "`r`n// WS-WATCH-MARK-$try",
+        [IO.File]::AppendAllText($slotFile, "`r`n// WS-WATCH-MARK-$try",
             (New-Object System.Text.UTF8Encoding($false)))
         foreach ($i in 1..12) {
             Start-Sleep -Milliseconds 300
@@ -217,21 +242,29 @@ try {
     Check "c6-catalog-cleared" ($gone -and $cl -match '"ok":true') ("close=" + $cl + " gone=" + $gone)
 
     # ---- leave a clean truth source for the user's eye check ----------------------
-    # The client is dead by now; copy the real template (Korean, UTF-8 no BOM)
-    # over the probe-worn truth source. state/scripts/myapp.js is app-seeded
-    # state - the next workshop boot keeps using it.
+    # The client is dead by now. With slot isolation the probe never touched
+    # myapp.js (the client re-seeded it in s3); restore it anyway (defensive)
+    # and wipe the probe-owned slot so the user's slot list stays clean.
     $tpl = Join-Path $root "..\scripts\apps\workshop\app.js"
     $tplText = [IO.File]::ReadAllText($tpl)
     $tplText = ($tplText -replace '(?m)^//.*[\r\n]*', '' -replace '\r?\n', ' ').Trim()
     if (Test-Path $myapp) {
         [IO.File]::WriteAllText($myapp, $tplText + "`r`n", (New-Object System.Text.UTF8Encoding($false)))
     }
+    if (Test-Path $slotFile) { Remove-Item $slotFile -Force -ErrorAction SilentlyContinue }
+    if (Test-Path $histDir) { Remove-Item -Recurse -Force $histDir -ErrorAction SilentlyContinue }
     Check "c7-truth-source-restored" (Test-Path $myapp) ""
 } finally {
     # probe-owned server + the workshop client process (both are jkdesktop
     # processes) die here; the client log file stays for triage.
     Get-Process jkdesktop -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     Remove-Item (Join-Path $env:TEMP ("ws_client_" + $PID + ".cmd")) -Force -ErrorAction SilentlyContinue
+    # last-slot pointer 원복 (USER FILE 가드 — finally에서만): 프로브가 probe-ws로
+    # 전환시킨 .current_workshop을 부팅 전 값으로 되돌린다.
+    if ($hadCur) { [System.IO.File]::WriteAllBytes($currentFile, $curBak) }
+    elseif (Test-Path $currentFile) { Remove-Item $currentFile -Force -ErrorAction SilentlyContinue }
+    if (Test-Path $slotFile) { Remove-Item $slotFile -Force -ErrorAction SilentlyContinue }
+    if (Test-Path $histDir) { Remove-Item -Recurse -Force $histDir -ErrorAction SilentlyContinue }
 }
 
 if ($script:fail -eq 0) { Write-Host "RESULT: ALL PASS" }
