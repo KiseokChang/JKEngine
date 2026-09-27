@@ -391,3 +391,83 @@ probe_jkbridge ×2 ALL PASS(정리 함수 탑재 후 전체 회귀 무손상).
 3. **프로브가 스펙을 먼저 먹는다** — 캡 상향 같은 의도된 계약 변경은 기존 프로브의
    기대치를 스테일로 만든다. 회귀 FAIL 시 결함 가설보다 "어느 태스크가 이 기대를
    바꿨는가"를 먼저 대조.
+
+## 14. 폰 미러 — 대화형 창 미러 + 탭→클릭 좌표 수학 (2026-09-27, docs/67 단 1 리파인)
+
+**스펙 원장**: docs/67_workshop_vision.md §4 단 1 리파인 예약(§14로 소각). 사용자
+결정: **대화형 미러**(폰이 창을 보고 탭이 실제 클릭으로 착지) + **모든 창 선택
+가능**(워크숍 전용 아님). 원칙: **jkbridge 세션 모델에 얹기 — 새 채널 금지**
+(docs/67 §6: 폰 미러를 새 채널로 만들면 jkbridge 이중화).
+
+### 14.1 구조 — 도구 2종 + 웹 UI 패널
+
+- **서버 도구 `window_frame`** (JKWindowServer): 창 표면을 JPEG base64로
+  반환 — **디스크 기록 없음**(폰이 800ms 폴링하면 screenshots 디렉터리가
+  쓰레기로 덮이는 capture_window 계약과 분리). 인자 `{id 필수, maxw 옵션}`.
+  응답 `{"ok":true,"w","h","sw","sh","data":"<b64>"}`. 인코딩은
+  `stbi_write_jpg_to_func`로 메모리 싱크(품질 75→60→45 하단, 900KiB b64
+  예산 초과 시 하단, 전부 초과 시 `frame_too_large`). 축소는 최근접-이웃
+  RGBA→RGB. 서면 픽셀은 1회 복사(클라 커밋 레이스 방지, capture 선례).
+- **`list_windows` 확장키 `dw/dh`** — 표시 크기(display)=
+  `llround(Width()*ScaleX)`(레이어 lookup, 무레이어면 Width 폴백). 기존
+  `w/h`=서면 px **비파괴 유지**. item 버퍼 640→760.
+- **jkagentd 3중 등록**(docs/53:14 삼각): kCoreToolsListJson 스키마+IsKnownTool+
+  permissions 기본 allow+릴레이 args raw passthrough(게이트는 서버 몫). 셀프테스트
+  34→35행.
+- **kWebUi `#mirror` 오버레이**: 헤더 미러 버튼 + 픽커(list_windows,
+  **textContent 전용** — 창 제목에 태그가 와도 안전) + ▲▼ 휠(dy=±1, dx=0) +
+  800ms 폴링+in-flight 가드(mBusy) + `data:image/jpeg;base64` src
+  (**base64 문자셋 선검** — data: URL은 이미지 mime 한정, XSS 포스트 유지).
+  `/mirror` 슬래시 커맨드. 재접속 시 mBusy 해제.
+
+### 14.2 좌표 수학 (착지 정확성의 전부 — 검증 완료)
+
+- 캡처 픽셀은 **서면(surface) px** — 레이어 fit-scale 무시.
+  `list_windows` x,y = 클라 논리 데스크톱 원점, w/h = 서면 px, **dw/dh = 표시 px**.
+- `send_input`은 논리 데스크톱 점을 받아 `((x - X())/ScaleX)`로 서면 px 역변환.
+- 폰 탭: `fx = (clientX-rect.left)/rect.width` → 데스크톱 점 = `win.x + fx*win.dw`.
+- 서버 도달: `(fx*dw)/sx = fx*w` — **서면 정확 픽셀 착지, maxw 축소와 무관,
+  1:1 가정 없음**(fit-scaled 레이어에도 정확). 구 서버(무 dw/dh) 폴백 `dw||w`.
+- 프로브 c9가 서버 단정: `x = list.x + floor(dw*0.5)` → send_input ok.
+
+### 14.3 결정들
+
+| 항목 | 결정 | 근거 |
+|---|---|---|
+| 도구명 | `window_frame` | capture_window는 디스크 기록+shot 뷰어 계약 — 비접촉 구속, 별도 도구 |
+| 인코딩 | JPEG q75→60→45 하단 | PNG 200-400KB×b64 1.33 → 1MiB 프레임 캡 위험; JPEG 60-150KB |
+| 축소 | 서버 `maxw<=0`=원본, 폰이 `maxw:960` 명시 | 도구 순수성 — 데스크톱 에이전트는 원본 비전 리드백 가능 |
+| 폴링 | 폰 800ms+in-flight 가드 | 펌프 400ms 폴링 → 실효 ~1fps, 서버 메인 스레드 인코딩 비용 계약(docs/58:319) |
+| 프레임 상한 | kMaxFrame 불변+900KiB 예산 | 송신 경로는 64-bit length 지원 — 방어선만 |
+| 권한 | kPermMatrix `allow` + **askCapable 편입** | capture_window/region과 동일 캡처 쌍 — 파일값 "ask"는 capture_ask 하드거부(승인 파킹 아님) |
+| 트랜스크립트 | `mirror ` 라벨 프리픽스 reply 미기록 | base64가 매 폴링 적립되면 /report 256KiB 캡 붕괴 — **load-bearing** |
+
+### 14.4 실측 레슨
+
+1. **bridge WS 세션이 열리면 agentctl이 응답 없음** — 세션 슬롯 점유. 세션
+   성립 후 도구 확인은 전부 WS 릴레이 프레임으로(probe c3-c11 일원화).
+2. **askCapable 누락은 조용히 열화된다** — permissions 파일값 "ask"가
+   askCapable 밖 도구에서 Allow로 열화(실측 결함, 프로브 c11이 잡음). 캡처류
+   신설 시 askCapable 편입을 체크리스트화.
+3. **프로브가 스펙을 먹는다(재현)** — probe_workshop/probe_conquest_workshop이
+   마지막 슬롯 영속(단 1)과 충돌: 부팅 슬롯=사용자 실슬롯이면 프로브가 사용자
+   슬롯에 기록. probe_workshop 18체크·probe_conquest_workshop에 **probe-ws
+   전용 슬롯 격리** 픽스(conquest의 구 finally `.history` 전체 삭제는 사용자
+   버전 리본 파괴 — 금지). 레슨: 슬롯 접촉 프로브는 전면 프로브 전용 슬롯+
+   포인터 finally 원복.
+4. **`.current_<app>` 위치** — scripts 디렉토리 안(DirOf(scriptPath_)). 프로브
+   원복 경로를 state\로 잡으면 조용히 원복 실패(실측).
+
+### 14.5 게이트
+
+- probe_phone_mirror.ps1 신설 19체크 ×2 ALL PASS — list_windows strict
+  JSON+dw/dh, JPEG SOI/문자셋/960·320 축소, 프레임 예산, bad id 2종,
+  **탭 수학 서버 단정**, capture_window 무손상, permissions ask→capture_ask,
+  rate-limit 맨 끝.
+- 회귀 ×2: probe_jkbridge·probe_workshop(18체크, 격리 픽스 후)·
+  probe_conquest_workshop(×2 CONQUEST PASS, 격리 픽스 후)·probe_agent_maximize
+  + AppSelfTest 0 fail. 임베드 웹 JS node --check 통과.
+- 커밋: 88f9551(T1 서버)·0154ce7(askCapable 픽스)·0a89832(T3 프로브)·
+  1e102dc(T4 kWebUi)·b6bcced/c02e407(프로브 격리 픽스).
+- **잔여**: 폰 실기기 눈확인(픽커→미러→탭 착지→휠→ask 승인 스트립) — 사용자,
+  맨 뒤.
