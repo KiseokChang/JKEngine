@@ -322,6 +322,14 @@ try {
     $r1s = $r1
     if ($r1s.Length -gt 300) { $r1s = $r1s.Substring(0, 300) }
     Check "c1-live-response" $r1Ok $r1s
+    # review hardening: c1-live-response carries the slot claim (slot -eq
+    # 'probe-ws'). If it failed, every later set_script (c2/c3/c4/c5) is
+    # slot-LESS and would patch whatever slot is currently open - abort
+    # (finally still runs its cleanup on exit, PS 5.1 measured).
+    if (-not $r1Ok) {
+        Write-Output "ABORT: slot claim unverified (not probe-ws) - refusing further slot-less set_script calls"
+        exit 1
+    }
     $lpLog = Wait-Log '\[script\] live patch: gen [0-9]+' 5000
     Check "c1-live-patch-log" ($lpLog -ne $null) ("matched=" + $lpLog)
     # counter continues: the FIRST post-patch n= must exceed the pre-patch
@@ -463,6 +471,9 @@ try {
         return $c
     }
     function Read-Until-Limit([System.Net.Sockets.NetworkStream]$s) {
+        # a bridge that accepts but never replies must not hang the run
+        # (WsRecv sets its own timeout per call; the handshake path needs one)
+        $s.ReadTimeout = 3000
         $buf = New-Object byte[] 4096
         $text = ""
         while ($text.Length -lt 8192 -and -not $text.Contains("`r`n`r`n")) {
