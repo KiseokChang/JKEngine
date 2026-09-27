@@ -4,6 +4,22 @@
 > 선행: 단 1(상태 보존 리로드=폴백 경로) 완결(docs/67 §4) — 원장 §6 "게이트 없이
 > 착수 금지" 조건 해소. 승인 결정 3건은 §2.
 
+> **상태: 구현 완료 (2026-09-27)** — as-built 커밋 edb0690(라이브 패치 코어:
+> CompileGate COMPILE_ONLY 프리패스·PatchEval JS_EvalFunction·생성류 9
+> 바인딩 bad_patch 게이트)·2ee0b19(set_script live:1 분기 4 응답 형태+
+> kApiCatalog "patch"+kLlmTurnPreamble 라우팅+jk.d.ts v7)·53682f9(**감시
+> 억제 픽스 포함** — PatchEval 성공 분기 lastMtime_ 갱신 누락으로 도구 자기
+> 쓰기를 수기 편집으로 오판한 mtime 감시가 패치 성공 ~1초 뒤 풀 리로드를
+> 쏴서 패치가 자가 소멸; 픽스=갱신 1줄)·c449884(e2e 프로브
+> probe_workshop_livepatch.ps1)·02814e2(프로브 경화). 게이트: e2e
+> **31체크 ×2 ALL PASS**(공식 런 2026-09-27 21:36:01·21:36:19, 5시나리오) +
+> 유닛 workshop_slot_probe 80체크 ×2 + 회귀 5종(workshop·cursor·canvas·
+> conquest_workshop·app_tools) ×2 ALL PASS. 플랜:
+> docs/superpowers/plans/2026-09-27-workshop-livepatch.md. 라이브 배포:
+> jkapp_script.dll 재빌드+workshop.jkx 재팩 완료 — 실행 중 데스크톱 스택은
+> 픽스 전 dll. **눈확인 대기**: 사용자 폰 실기기 "버튼 색 바꿔 줘"류 실전
+> (재기동 후, 맨 뒤) → 그다음 단 2 본편 트러스트 문.
+
 ## 1. 한 줄 그림
 
 `set_script {source, slot?, live:1}` → **QuickJS 컨텍스트를 죽이지 않고 정의만

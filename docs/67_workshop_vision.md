@@ -192,8 +192,36 @@ JKComboBox)을 클라 영역 28px 헤더 밴드에서 **창 타이틀 바 안**�
   §14 소각): 대화형 미러+모든 창, jkbridge 세션 모델 얹기 원칙 준수.
   부수 실측 결함 3건 봉합: askCapable ask 열화(window_frame 누락)·
   probe_workshop/probe_conquest_workshop 사용자 슬롯 오염(probe-ws 격리,
-  conquest .history 전체 삭제 금지). 잔여: **라이브 패치(사훈 1 본체)만**
-  → 그다음 단 2 본편 트러스트 문. 폰 실기기 눈확인 대기(사용자, 맨 뒤).
+  conquest .history 전체 삭제 금지). 잔여: **라이브 패치(사훈 1 본체)만** →
+  그다음 단 2 본편 트러스트 문. 폰 실기기 눈확인 대기(사용자, 맨 뒤).
+- **[갱신 2026-09-27] 라이브 패치 완결** — 단 1 리파인 3호(사훈 1 본체 — 설계
+  docs/superpowers/specs/2026-09-27-workshop-livepatch-design.md, 플랜
+  docs/superpowers/plans/2026-09-27-workshop-livepatch.md): `set_script
+  {live:1}`이 QuickJS 컨텍스트를 죽이지 않고 정의만 재평가 — 타이머 카운터·
+  클로저 생존, 폴백(상태 보존 리로드)과 이원화. 게이트: e2e
+  probe_workshop_livepatch **31체크 ×2 ALL PASS**(5시나리오 — 라이브 성공+
+  타이머 카운터 생존 실측/문법 실패 무손상/bad_patch 낙하·상태 복원/런타임
+  예외 낙하/브리지 WS 회귀) + 유닛 workshop_slot_probe 80체크 ×2 + 회귀 5종
+  (workshop·cursor·canvas·conquest_workshop·app_tools) ×2 ALL PASS. 커밋
+  5건: edb0690(코어 — CompileGate COMPILE_ONLY 프리패스·PatchEval
+  JS_EvalFunction·생성류 9 바인딩 bad_patch 게이트)·2ee0b19(set_script live
+  분기 4 응답 형태+kApiCatalog "patch"+프리앰블 라우팅+jk.d.ts v7)·
+  53682f9(감시 억제 픽스)·c449884(e2e 프로브)·02814e2(프로브 경화).
+  **발굴 결함(감시 오판 자가 소멸)**: PatchEval 성공 분기가 mtime을 갱신하지
+  않아 도구 자기 쓰기를 수기 편집으로 오판한 감시가 패치 성공 ~1초 뒤 풀
+  리로드를 쏴서 패치가 스스로 소멸 — 런 1 로그 실측(세대 n=5..77 연속 증가
+  후 낙하). 픽스=성공 분기 lastMtime_ 갱신 1줄 — "도구가 쓴 것은 감시하지
+  않는다"가 라이브 패치의 새 전제(수기 편집 감시와 공존). 측정 발견 4건:
+  ①bare top-level throw 패치 원문은 낙하 리로드(같은 파일 재평가)에서도
+  예외 재발 — 낙하 회복 관측엔 라이브 컨텍스트 전용 가드(liveMark) 필요
+  ②NTFS 동명 터널링+lazy mtime — 로그 신선도 판정을 존재-기반으로 재편
+  ③패널 클릭 오프셋 실측(선언+2,+48 — 사훈 3 위젯→코드 점프 연결 때
+  재활용) ④onRestoreState 계약=저장 원문 문자열(훅 내 JSON.parse —
+  jk.d.ts v7과 일치). 문서화 한계 5건은 스펙 §7 그대로 이월(카탈로그·
+  jk.d.ts v7로 교육). 라이브 배포: jkapp_script.dll 재빌드+workshop.jkx
+  재팩 완료 — 실행 중 스택은 픽스 전 dll. 잔여: **사용자 눈확인(폰 실기기
+  "버튼 색 바꿔 줘"류, 맨 뒤)** → 그다음 **단 2 본편 트러스트 문만**(§7
+  질문 1 사용자 결정).
 - 단 1 착수 시: 플랜 모드에서 **복수 슬롯+버전 리본+상태 보존 리로드를 한
   설계로**. 사훈 3(점프)·4(결속)는 단 1 설계에 자리만 예약(포인터 저장,
   구현은 후 단). — 완료. 다음 착수 시: 단 2는 **트러스트 문 설계가 선결**
