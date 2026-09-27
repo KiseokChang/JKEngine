@@ -471,3 +471,13 @@ probe_jkbridge ×2 ALL PASS(정리 함수 탑재 후 전체 회귀 무손상).
   1e102dc(T4 kWebUi)·b6bcced/c02e407(프로브 격리 픽스).
 - **잔여**: 폰 실기기 눈확인(픽커→미러→탭 착지→휠→ask 승인 스트립) — 사용자,
   맨 뒤.
+
+### 14.6 우클릭 — 길게 누름 (2026-09-27 사용자 보고 즉시 봉합)
+
+- 폰 브라우저에 우클릭 수단이 없다(지뢰찾기 깃발류). 서버 `click` op의
+  `button` 인자(3=오른쪽, MouseDown/Up keyCode로 실림)는 기존 계약 — 서버
+  무수정, 폰 UI에 **길게 누름 500ms = 우클릭** 제스처 추가(커밋 89d126d).
+- 방어: touchmove=손가락 미끄러짐 취소(오조작 방지), 브라우저 길눳
+  contextmenu 억제, 길눳 발동 뒤 합성 click 이벤트 삁. /mirror 헬프 갱신.
+- probe_phone_mirror c9b 신설(button:3 와이어 계약 서버 단정) — 20체크 ×2
+  ALL PASS + probe_jkbridge PASS.
