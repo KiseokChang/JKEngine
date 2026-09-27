@@ -1,11 +1,13 @@
-// jk.d.ts v5 — host API contract (docs/27_scripting_quickjs_bridge.md §4).
+// jk.d.ts v7 — host API contract (docs/27_scripting_quickjs_bridge.md §4).
 // v1: 단계 1 최소 증명 세트 / v2: 단계 2 UI 자동화 API (findControl, click,
 // injectMouse, injectKey, assert, assertEq — additive) / v3: 단계 3 모달
 // 다이얼로그 (createDialog, dialogAdd*, dialogShow, dialogClose — additive) /
 // v4: 단계 4 설정 주입 (readConfig) / v5: 캔버스 그리기 + 키·마우스 이벤트
 // (createCanvas, canvas*, onMouse/onWheel/onKey — additive, docs/60 §10) /
 // v6: 상태 보존 리로드 훅(onSaveState/onRestoreState — additive, docs/67 단 1)
-// + 워크숍 슬롯·버전 리본 도구(에이전트 도구 층, 이 파일은 커멘트만).
+// + 워크숍 슬롯·버전 리본 도구(에이전트 도구 층, 이 파일은 커멘트만) /
+// v7: 라이브 패치 계약 (set_script live:1, docs/67 단 1 리파인 3호 — 이 파일은
+// 도구 표면을 다루지 않으므로 작성 규약만): top-level은 function 정의만 권장.
 //
 // 이 파일은 실행되지 않는 TypeScript 선언 파일이다. QuickJS-ng가 실행하는
 // 것은 app.js(JavaScript)이며, 이 선언은 (1) 스크립트를 작성하는 에이전트가
@@ -325,4 +327,17 @@ declare function declareCursor(decl: JKCursorDecl): void;
 //
 // 예외 정책 (docs/27 §3.2): 미처리 예외는 메시지 + JS 스택 트레이스가 로그에
 // 덤프되고 앱은 정상 종료한다. 로그만 읽고 스스로 고칠 수 있게 쓸 것.
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// 라이브 패치 작성 규약 (jk.d.ts v7 — set_script live:1)
+// 라이브 패치는 컨텍스트를 죽이지 않고 top-level 정의만 재평가한다.
+//  - top-level에는 function 정의만 권장 — top-level const/let 재선언은
+//    재평가 시 SyntaxError로 풀 리로드 낙하한다.
+//  - 위젯(create*)·타이머(setInterval) 생성은 onCreate에서 — 패치 평가 중
+//    생성류 호출은 TypeError(bad_patch)로 막힌다.
+//  - 타이머가 호출하는 전역 콜백은 패치 후 새 정의로 해석된다(전역 객체
+//    조회). 클로저가 캡처한 지역 상태는 구 코드 그대로다(stale closure 수용).
+//  - 타이머 간격·위젯 구조 변경은 라이브 불가 — live 없이 set_script(풀
+//    리로드).
 // ---------------------------------------------------------------------------

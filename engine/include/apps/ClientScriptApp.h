@@ -355,10 +355,13 @@ protected:
              "Replace the workshop script and reload it synchronously — "
              "a script error comes back in the same response. slot optional: "
              "writes another slot and auto-switches; the pre-write source is "
-             "snapshotted to the version ribbon (.history/<slot>/NNNN.js)",
+             "snapshotted to the version ribbon (.history/<slot>/NNNN.js). "
+             "live:1 = patch the running context instead of a full reload "
+             "(widget/timer state survives) — same slot only; use it for "
+             "small edits of callback bodies",
              "{\"type\":\"object\",\"properties\":{\"source\":{\"type\":"
-             "\"string\"},\"slot\":{\"type\":\"string\"}},\"required\":"
-             "[\"source\"]}"},
+             "\"string\"},\"slot\":{\"type\":\"string\"},\"live\":{\"type\":"
+             "\"number\"}},\"required\":[\"source\"]}"},
             {"api",
              "List the workshop script API: function signatures and "
              "constraints (charset, timers, events). Call this before "
@@ -523,6 +526,8 @@ protected:
                 return false;
             }
             (void)args.GetStr("slot", slotArg);  // 옵션 — 있으면 자동 전환
+            int live = 0;
+            (void)args.GetInt("live", live);
             if (source.size() > kMaxScriptBytes) {
                 out = "{\"error\":\"too_large\",\"cap\":" +
                       std::to_string(kMaxScriptBytes) + "}";
@@ -532,6 +537,22 @@ protected:
             if (!ResolveSlot(slotArg, slot, path)) {
                 out = R"({"error":"bad_slot","rule":"[A-Za-z0-9_-]{1,32}"})";
                 return false;
+            }
+            // 라이브 패치 (스펙 §4): 같은 슬롯+호스트 러닝 조건에서만. 그 외는
+            // live 요청 무시하고 기존 경로(응답에 live:false 표기). 게이트 실패
+            // = 스냅샷·기록 모두 스킵(파일·컨텍스트 무손상 — 원칙 1).
+            const bool liveCapable =
+                live != 0 && scriptPath_ == path && host_->IsRunning();
+            if (liveCapable) {
+                std::string gateErr;
+                if (!host_->CompileGate(source, &gateErr)) {
+                    out = "{\"ok\":false,\"live\":true,\"slot\":\"" +
+                          JsonEsc(slot) + "\",\"error\":\"" +
+                          JsonEsc(gateErr) +
+                          "\",\"hint\":\"fix the syntax and retry live:1, or "
+                          "drop live for a full reload\"}";
+                    return false;
+                }
             }
             // 버전 리본 (docs/67 단 1): 도구 매개 덮어쓰기 직전 원문 스냅샷.
             // 대상 부재(신규 슬롯 첫 쓰기)는 스냅샷 없음(gen 0) — 스냅샷 실패는
@@ -550,18 +571,50 @@ protected:
                 out = "{\"error\":\"write_failed\"}";
                 return false;
             }
-            // 같은 슬롯 = 동기 리로드(폐곡선), 다른 슬롯 = 기록 후 자동 전환.
-            // 응답은 리로드 성패와 무관하게 gen을 포함한다(폐곡선 유지).
-            const bool reloadOk =
-                (scriptPath_ == path) ? ReloadNow() : SwitchToSlot(slot);
+            // 같은 슬롯: live 요청이면 라이브 재평가, 아니면 동기 리로드(폐곡선).
+            // 라이브 성공엔 리본 gen을 그대로 실는다(스냅샷·기록은 게이트 통과
+            // 후에도 했다 — 이후 낙하해도 파일=진실원 회복).
+            bool reloadOk = true;
+            std::string liveErr;
+            if (liveCapable) {
+                std::string patchErr;
+                if (host_->PatchEval(source, &patchErr)) {
+                    std::printf("[script] live patch: gen %d\n", gen);
+                    std::fflush(stdout);
+                    out = "{\"ok\":true,\"live\":true,\"slot\":\"" +
+                          JsonEsc(slot) + "\",\"gen\":" + std::to_string(gen) +
+                          "}";
+                    return true;
+                }
+                // 런타임 예외 → 자동 풀 리로드 낙하(스펙 §4 흐름 4). 파일엔
+                // 이미 새 원문이 기록됐다(파일=진실원 회복 경로). 폐곡선:
+                // 에러를 응답에 실어 돌려보낸다.
+                liveErr = patchErr;
+                reloadOk = ReloadNow();
+            } else {
+                reloadOk = (scriptPath_ == path) ? ReloadNow()
+                                                 : SwitchToSlot(slot);
+            }
             if (!reloadOk) {
-                out = "{\"ok\":false,\"slot\":\"" + JsonEsc(slot) +
+                // 기존 경로와 동일한 에러 응답(live 필드만 추가 — additive).
+                out = "{\"ok\":false,\"live\":" +
+                      std::string(liveCapable ? "true" : "false") +
+                      ",\"slot\":\"" + JsonEsc(slot) +
                       "\",\"gen\":" + std::to_string(gen) + ",\"error\":\"" +
                       JsonEsc(host_->LastError()) +
                       "\",\"hint\":\"call the api tool for the function list\"}";
                 return false;
             }
-            out = "{\"ok\":true,\"slot\":\"" + JsonEsc(slot) +
+            // 라이브 재평가 실패 후 낙하 성공 — 앱은 살아 있고(위젯 스냅샷+
+            // onSaveState 수송) 에러는 폐곡선으로 노출된다(스펙 §4 흐름 4).
+            if (liveCapable) {
+                out = "{\"ok\":true,\"live\":false,\"slot\":\"" +
+                      JsonEsc(slot) + "\",\"gen\":" + std::to_string(gen) +
+                      ",\"error\":\"" + JsonEsc(liveErr) +
+                      "\",\"note\":\"recovered by full reload\"}";
+                return true;
+            }
+            out = "{\"ok\":true,\"live\":false,\"slot\":\"" + JsonEsc(slot) +
                   "\",\"gen\":" + std::to_string(gen) + "}";
             return true;
         }
@@ -780,6 +833,7 @@ private:
         "\"events\":\"전역 함수 onClick(id)를 정의하면 모든 클릭이 id와 함께 전달된다; 캔버스용 onMouse(type,x,y,canvasId,button)/onWheel(dy,x,y)/onKey(key,down)도 전역 함수로 정의하면 캔버스 입력이 전달된다 — 정의 없으면 무시. onMouse의 type은 down/up/move이고 button은 SDL 버튼 번호(1=왼쪽, 2=중간, 3=오른쪽, move는 0) — 좌/우 구분은 button으로 한다(2026-09-24 v5.1). onAgentAct(kind,row,col)를 정의하면 의미 커서 act 호출이 전달된다(declareCursor 필수; 문자열/객체 반환은 act 도구 결과 JSON). onSnapshot()를 정의하면 read 도구의 snapshot 직렬화를 제공한다(객체 반환=JSON.stringify)\","
         "\"layout\":\"좌표는 패널 클라이언트 픽셀; 창이 리사이즈되어도 위젯은 재배치되지 않는다\","
         "\"state\":\"리로드는 상태를 보존한다 — 편집창(텍스트·한/영 모드)은 자동 복원; onSaveState()를 정의하면 임의 JS 상태를 직렬화해 보존하고 onRestoreState(saved)로 복귀한다(정의 없으면 편집창만). 라벨·캔버스는 스크립트 소유 파생 출력이라 새 스크립트가 다시 그린다\","
+        "\"patch\":\"작은 수정(콜백 몸통 교체)은 도구 set_script live:1 — 컨텍스트가 살아 있고 위젯·타이머·글로벌 상태·의미 커서 선언이 보존된다. 패치 안전 형태: top-level은 function 정의만 (top-level const/let 재선언은 에러 → 풀 리로드 낙하); 위젯·타이머 생성은 onCreate에서 — 패치 평가 중 생성은 bad_patch 에러. 타이머 간격·위젯 구조 변경은 live 불가 → live:0 풀 리로드\","
         "\"slots\":\"여러 슬롯(<scriptsDir>/<slot>.js) 지원 — 도구 list_slots/use_slot/script_history/restore_script; set_script의 slot 인자=해당 슬롯에 쓰고 자동 전환. 도구로 덮어쓰면 직전 원문이 .history/<slot>/NNNN.js로 자동 스냅샷(20세대 캡); 메모장 수기 편집은 리본을 우회한다\","
         "\"functions\":["
         "{\"sig\":\"log(text)\",\"desc\":\"콘솔 로그\"},"

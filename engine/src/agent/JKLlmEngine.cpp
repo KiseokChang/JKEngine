@@ -116,6 +116,9 @@ constexpr const char* kLlmTurnPreamble =
     "사용자가 앱·게임·토이·도구를 새로 만들어 달라고 하면 워크숍 앱으로 "
     "만든다: launch_app에서 jkx를 workshop으로 지정해 띄운 뒤 app_tool의 "
     "api 도구로 함수 목록을 확인하고 set_script로 스크립트를 쓴다. "
+    "이미 만든 워크숍 앱의 작은 수정은 set_script에 live:1로 "
+    "라이브 패치한다(앱이 계속 살아 있다); 위젯 추가·삭제 같은 구조 변경은 "
+    "live 없이 다시 쓴다. "
     "[사용자] ";
 
 // claude_wrapper guide §2.2: ollama launch claude --model <m> -- [claude args]
