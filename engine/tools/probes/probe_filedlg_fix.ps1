@@ -1,5 +1,5 @@
 # filedlg fix-round probe: spawn desktop, open filedlg via file_open with the
-# Windows-label filter over the user's real folder, capture the dialog PNG via
+# Windows-label filter over the engine test-media folder, capture the dialog PNG via
 # the capture_window agent tool (server framebuffer — no Win32 visibility
 # dependency; ImGui apps are not WM_GETTEXT-readable, lesson 34).
 $ErrorActionPreference = "Continue"
@@ -10,7 +10,7 @@ $dong  = -join [char[]](0xB3D9,0xC601,0xC0C1)                 # dong-yeong-sang
 $pildo = -join [char[]](0xD30C,0xC77C,0x20,0xC5F4,0xAE30)     # title
 $filter = "$dong (*" + ".mp4;*.mkv;*.avi;*.webm;*.mov)"
 $bs = [string][char]92
-$start = 'I:' + $bs + '@keep' + $bs + '200GANA-3420'
+$start = 'I:' + $bs + 'progwork' + $bs + 'JKENGINE' + $bs + 'tmp' + $bs + 'test_media'
 $startEsc = $start.Replace($bs, $bs + $bs)
 
 function Invoke-Agentctl([string]$json) {

@@ -764,8 +764,8 @@ trust_request 8회 파킹+9번째 approval_overflow+승인 이벤트 8회 실측
 (`openFailed=false`, `error=""`), vplayer 재시작 후에도 동일. LLM은
 원인을 알 방법이 없어 수동 Ctrl+O 안내로 끝났다.
 
-**원인 1 — 파일이 손상됐다(제품 결함 아님).** `I:\@keep\SAME-234ch.mp4`
-(4.77GB)와 `SAME-220\hhd800.com@SAME-220.mp4` (4.2GB) 모두 순정
+**원인 1 — 파일이 손상됐다(제품 결함 아님).** 사용자 로컬 폴더의 대형
+영상 파일 2개(4.77GB, 4.2GB — 파일명 비공개 처리) 모두 순정
 ffprobe(FFmpeg 8.1.1 풀빌드)도 "moov atom not found"로 거부. 전체
 파일 스캔 결과 'moov' fourcc가 어디에도 없고, mdat 뒤에 moov **몸통**
 (trak/tkhd/stbl/stsz/co64/udta)은 있지만 **헤더(size+'moov'+mvhd)가

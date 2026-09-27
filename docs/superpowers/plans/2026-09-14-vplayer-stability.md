@@ -77,7 +77,7 @@ git commit -m "fix(vplayer): seek I/O outside the state mutex + failed-seek cloc
 
 - [ ] **Step 1: 오디오 우선 리필** — 워커 루프: 링 버퍼 수위 < 저수위(200ms 상당 바이트)면 오디오 패킷을 연속 디코드·푸시(디먹스 진행)해 고수위(600ms)까지 충전, 그 사이 비디오 디코드 건너뜀. videoQ 백프레셔 대기(:511) 중에도 오디오 리필 진행. jogging 중엔 기존대로 오디오 디코드 생략(:479).
 - [ ] **Step 2: 언더런 카운터 + 가시화** — AudioCallbackC 무음 분기(:446) 카운트(atomic). 상태 라인(디버그 표시 — 기존 UI 우하단 영역 재사용) "underrun: N". SDL 오디오 오픈 실패 시 상태 텍스트 "오디오 장치를 열 수 없음(무음 재생)" 노출(stderr만이던 :385 교체).
-- [ ] **Step 3: 빌드 + 셀프테스트 + 실측** — exit 0 + 0 failures. 실측: 고해상도 mp4(200GANA-3420의 것) 재생 중 underrun 카운터 픽스 전/후 비교 보고, 시크 직후 오디오 회복 확인.
+- [ ] **Step 3: 빌드 + 셀프테스트 + 실측** — exit 0 + 0 failures. 실측: 고해상도 mp4(엔진 합성 클립 tmp/test_media/vpt_hires.mp4, 1920x1080) 재생 중 underrun 카운터 픽스 전/후 비교 보고, 시크 직후 오디오 회복 확인.
 - [ ] **Step 4: 커밋**
 
 ```bash
