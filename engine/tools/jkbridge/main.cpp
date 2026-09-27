@@ -404,6 +404,7 @@ static const char kWebUi[] = R"JKUI(<!doctype html>
             border:1px solid #555; background:#1c1f24; color:#e8e8ea; }
   #mstat { font-size:12px; color:#8a8f98; flex:1; word-break:break-all; }
   #mpick { display:flex; flex-wrap:wrap; gap:6px; max-height:30vh; overflow-y:auto; }
+  #mpick button.sel { border-color:#3b6ea5; background:#274b6d; color:#fff; }
   #mimg { flex:1; min-height:0; width:100%; object-fit:contain; background:#0c0d0f;
           border:1px solid #26292f; }
 </style></head>
@@ -416,6 +417,7 @@ static const char kWebUi[] = R"JKUI(<!doctype html>
   <button id="send">보내기</button></div>
 <div id="mirror">
   <div id="mbar"><button id="mclose">닫기</button><button id="mpause">정지</button>
+    <button id="mrefresh">새로고침</button>
     <button id="mup">▲</button><button id="mdn">▼</button><span id="mstat">창을 선택하세요</span></div>
   <div id="mpick"></div>
   <img id="mimg" alt="미러">
@@ -474,7 +476,7 @@ function connect() {
   ws = new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws?token='+encodeURIComponent(token));
   ws.onopen = () => { document.getElementById('stat').textContent='연결됨';
     mBusy = false;   // 재접속 — 끊긴 폴링의 in-flight 가드 해제
-    if (mirrorOpen) mirrorPickList();
+    if (mirrorOpen) { mListKey = ''; mirrorPickList(); }
     ws.send(JSON.stringify({type:'hello', resume_session:claudeSession})); };
   ws.onclose = () => { document.getElementById('stat').textContent='끊김 — 재접속…';
     streamEl = null; setTimeout(connect, 2000); };
@@ -599,15 +601,22 @@ function onReply(label, j) {
   }
   // ---- 미러 패널 (폰 미러) ------------------------------------------------
   if (label === 'mirror list') {
+    const wins = (j && j.windows) || [];
+    const key = wins.map(w => w.id+':'+(w.title||'')).join('|');
+    // 픽커 자동 갱신 (2026-09-27 사용자 보고): 미러 중 앱 리스트가 변해도
+    // 닫았다 다시 열 필요 없게 — 집합 변화시에만 재렌더(탭 도중 흔들림 방지).
+    if (key === mListKey && mPick.childNodes.length) return;
+    mListKey = key;
     mPick.textContent = '';
-    if (!j || !j.windows || !j.windows.length) {
+    if (!wins.length) {
       const s = document.createElement('span'); s.textContent = '(창 없음)';
       mPick.appendChild(s); return;
     }
-    for (const w of j.windows) {
+    for (const w of wins) {
       const b = document.createElement('button');
       // 픽커는 textContent 전용 — 창 제목(XSS 포스트)에 태그가 와도 안전.
       b.textContent = '#'+w.id+' '+(w.title||'(무제)');
+      if (mWin && w.id === mWin.id) b.className = 'sel';
       b.onclick = () => { mWin = w; mPaused = false; mpause.textContent = '정지';
         mStat.textContent = '#'+w.id+' '+(w.title||'(무제)');
         mBusy = false; mirrorPoll(); };
@@ -620,6 +629,11 @@ function onReply(label, j) {
     if (!mirrorOpen || !mWin) return;
     if (j && j.ok && j.data) {
       if (mirrorSetSrc(j.data)) mStat.textContent = '#'+mWin.id+' '+j.w+'×'+j.h;
+    } else if (j && j.error === 'window_not_found') {
+      // 미러 중 창이 닫김 — 즉시 목록 재수집으로 유도 (픽커 자동 갱신 경로).
+      mWin = null;
+      mStat.textContent = '창이 닫혔습니다 — 목록에서 다시 선택';
+      sendTool('list_windows', {}, 'mirror list');
     } else {
       mStat.textContent = '프레임 오류: '+((j && j.error) || '알 수 없음');
     }
@@ -694,10 +708,20 @@ const mclose = document.getElementById('mclose');
 const mbtn = document.getElementById('mbtn');
 
 function mirrorPickList() { sendTool('list_windows', {}, 'mirror list'); }
+// 픽커 자동 갱신: 5폴링마다(≈4s) 목록 재수집 — 미러 중 앱 실행/종료가 픽커에
+// 반영된다. mListKey 집합 비교로 변화 없으면 재렌더 생략.
+let mTick = 0, mListKey = '';
 function mirrorPoll() {
-  if (!mirrorOpen || mPaused || mBusy || !mWin || !ws || ws.readyState !== 1) return;
-  mBusy = true;                                  // in-flight 가드 — 중복 프레임 금지
-  sendTool('window_frame', {id: mWin.id, maxw: 960}, 'mirror f');
+  if (!mirrorOpen || mPaused || !ws || ws.readyState !== 1) return;
+  const tick = (++mTick % 5 === 0);
+  if (mWin) {
+    if (mBusy) return;                           // in-flight 가드 — 중복 프레임 금지
+    if (tick) mirrorPickList();
+    mBusy = true;
+    sendTool('window_frame', {id: mWin.id, maxw: 960}, 'mirror f');
+  } else if (tick) {                             // 미선택 중에도 목록은 살아있게
+    mirrorPickList();
+  }
 }
 function mirrorSetSrc(d) {
   // data: URL은 이미지 mime 한정 + base64 문자셋 선검 — XSS 포스트(textContent
@@ -730,9 +754,11 @@ function mirrorWheel(dy) {
 mbtn.onclick = () => {
   mirrorOpen = true; mPaused = false; mpause.textContent = '정지';
   mirEl.style.display = 'flex';
+  mListKey = '';                                 // 강제 재렌더 — 열 때는 항상 최신
   mirrorPickList();
   if (!mTimer) mTimer = setInterval(mirrorPoll, M_POLL);
 };
+document.getElementById('mrefresh').onclick = () => { mListKey = ''; mirrorPickList(); };
 mclose.onclick = () => {
   mirrorOpen = false;
   if (mTimer) { clearInterval(mTimer); mTimer = null; }
