@@ -82,7 +82,8 @@ const char* kCoreToolsListJson =
 "{\"name\":\"file_open\",\"description\":\"Open a file picker dialog (filter/start/title optional; start = initial directory). Returns parked immediately — the resolution arrives as the file.open_result desktop event (poll read_events)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"filter\":{\"type\":\"string\"},\"start\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"}}}},"
 "{\"name\":\"list_app_tools\",\"description\":\"List registered app tools (app/name/inputSchema/windowId rows) — the app tool hub catalog (spec 2026-09-19-app-tool-hub)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}},"
 "{\"name\":\"app_tool\",\"description\":\"Call a registered app tool directly (app, tool, args; windowId disambiguates instances). The per-app-tool 3-tier gate still applies\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"app\":{\"type\":\"string\"},\"tool\":{\"type\":\"string\"},\"args\":{},\"windowId\":{\"type\":\"integer\"}}}},"
-"{\"name\":\"send_input\",\"description\":\"Send synthetic input to a window: click/key/type/wheel. Coordinates are logical desktop points; the server converts to the target surface. Default gate is ask (approval strip)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"integer\"},\"op\":{\"type\":\"string\",\"enum\":[\"click\",\"key\",\"type\",\"wheel\"]},\"x\":{\"type\":\"integer\"},\"y\":{\"type\":\"integer\"},\"key\":{\"type\":\"integer\"},\"mods\":{\"type\":\"integer\"},\"button\":{\"type\":\"integer\"},\"clicks\":{\"type\":\"integer\"},\"dx\":{\"type\":\"integer\"},\"dy\":{\"type\":\"integer\"},\"text\":{\"type\":\"string\"},\"action\":{\"type\":\"string\",\"enum\":[\"tap\",\"down\",\"up\"]}},\"required\":[\"id\",\"op\"]}}"
+"{\"name\":\"send_input\",\"description\":\"Send synthetic input to a window: click/key/type/wheel. Coordinates are logical desktop points; the server converts to the target surface. Default gate is ask (approval strip)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"integer\"},\"op\":{\"type\":\"string\",\"enum\":[\"click\",\"key\",\"type\",\"wheel\"]},\"x\":{\"type\":\"integer\"},\"y\":{\"type\":\"integer\"},\"key\":{\"type\":\"integer\"},\"mods\":{\"type\":\"integer\"},\"button\":{\"type\":\"integer\"},\"clicks\":{\"type\":\"integer\"},\"dx\":{\"type\":\"integer\"},\"dy\":{\"type\":\"integer\"},\"text\":{\"type\":\"string\"},\"action\":{\"type\":\"string\",\"enum\":[\"tap\",\"down\",\"up\"]}},\"required\":[\"id\",\"op\"]}},"
+"{\"name\":\"window_frame\",\"description\":\"Capture a window surface as a JPEG (base64, no disk write) for the phone mirror. Pixels are surface px; maxw (optional) downscales for display. Pairs with list_windows dw/dh: desktop point = x + fx*dw\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"integer\"},\"maxw\":{\"type\":\"integer\"}},\"required\":[\"id\"]}}"
 "]}";
 
 // Known tool names.
@@ -109,7 +110,10 @@ bool IsKnownTool(const std::string& name) {
         // file_open (filedlg 음성 내비게이션, 스펙 §7): 분기 부재로 MCP 경로가
         // unknown_tool로 떨어지던 잠복 결함 — IsKnownTool 등록이 재조립 분기의
         // 전제다(미등록 시 tools/call이 동적 역매칭 → 즉시 unknown_tool).
-        "file_open"
+        "file_open",
+        // 폰 미러 (스펙 2026-09-27-phone-mirror): 서버 window_frame — args
+        // 원문 패스스루(window_move 선례), 게이트는 서버 server(flip).
+        "window_frame"
     };
     for (const char* n : kNames) {
         if (name == n) return true;
@@ -158,7 +162,10 @@ std::map<std::string, bool> LoadPermissions() {
         "send_input",
         // file_open — 서버 게이트도 none/allow(JKWindowServer kToolMatrix)라
         // 브로커 기본 allow가 정합. 다이얼로그 해소는 사람 몫이라 ask 불요.
-        "file_open"
+        "file_open",
+        // 폰 미러 (스펙 2026-09-27-phone-mirror) — 서버 게이트도
+        // server(flip)/allow(capture_window 분류)라 브로커 기본 allow 정합.
+        "window_frame"
     };
     std::map<std::string, bool> perms;
     for (const char* n : kNames) perms[n] = true;
@@ -875,6 +882,14 @@ std::string HandleLine(const std::string& line, bool& isResponse) {
                 raw != "{}") {
                 argsJson = raw;
             }
+        } else if (tool == "window_frame") {
+            // 폰 미러 (스펙 2026-09-27-phone-mirror): args 원문 패스스루 —
+            // window_move 선례. 게이트는 서버 server(flip)(capture_ask).
+            std::string raw;
+            if (req.GetObjRaw("params", "arguments", raw) && !raw.empty() &&
+                raw != "{}") {
+                argsJson = raw;
+            }
         }
 
         // 동적 앱 도구 중계 (스펙 §6): 성공/앱 보고 실패 모두 원문 통과 —
@@ -1003,8 +1018,8 @@ int RunSelfTest() {
     // 동적부 합성 (스펙 §6, 2026-09-20 실측 결함 회귀): 카탈로그 3행을
     // 스크립트로 주입 — 조립 결과가 온전한 JSON인지(행 경계 쉼표 포함)
     // AgentJson으로 직접 검증한다. 라이브 서버 부재 환경에서도 조립 전
-    // 경로가 커버된다. 코어 31(send_input+창 기하 2종 포함) + 유효 동적 3
-    // = 34행.
+    // 경로가 커버된다. 코어 32(send_input+창 기하 2종+window_frame 포함) +
+    // 유효 동적 3 = 35행.
     {
         const char* cat =
             "{\"tools\":["
@@ -1017,7 +1032,7 @@ int RunSelfTest() {
         const std::string composed = ComposeToolsListJsonFromReply(cat);
         jk::agent::AgentJson c(composed);
         int tc = 0;
-        if (!c.ok() || !c.GetArraySize("tools", tc) || tc != 34) ++failures;
+        if (!c.ok() || !c.GetArraySize("tools", tc) || tc != 35) ++failures;
         if (composed.find("appx_t2") == std::string::npos ||
             composed.find("appy_t3") == std::string::npos) ++failures;
         // 스키마 정규화: t2의 빈 {}는 MCP SDK zod 필수 조건(type=="object")
