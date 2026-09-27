@@ -1,0 +1,99 @@
+# docs/68 — 리눅스 포팅 1단계(플랫폼 경계 수술) 실행 플랜 (2026-09-28, 착수 전 문서)
+
+상위 스펙: docs/62 (3단계 로드맵 §3, 착수 전 조사 §8) — 이 문서는 그 **1단계의
+작업 목록을 Gemini 인벤토리(docs/gemout_platform_inventory.md §5 검증 부록 포함)와
+합쳐 봉합한 것**. 10월 첫 세션에서 이 문서 순서대로 수술한다.
+
+**1단계의 정의(docs/62 §3):** 어댑터 경계를 인터페이스로 뽑고 Win32 구현을 그 자리에
+유지. 리눅스 구현은 하지 않는다. 완료 판정 = **기존 Win32 회귀 프로브 전부 GREEN(동작
+변화 0 증명)** — 기능 추가·변경 없음이 원칙.
+
+## 1. 작업 목록 (의존 순)
+
+### W1 — 전송 경계 잔여 흠 2건 수선 (docs/62 §8-①②, 최우선)
+- `CancelPendingIo()` 인터페이스 승격: `include/ipc/JKWireProtocol.h`의 IWireTransport에
+  가상 메서드 추가 → `JKClientConnection.cpp:116`의 구체 클래스 직접 호출 해소.
+- `ReadMessage` 페이로드 캡: 길이 상한 검사 후 `assign` (현행 무상한 assign).
+- 게이트: probe_app_tools·probe_semantic_cursor 회귀(전송 경로 스모크).
+
+### W2 — 암호 통합 (docs/62 §8-6 + 인벤토리 §1-4)
+- BCrypt SHA-256×3(jkctl/jktriggers/JKDesktopShell — jkctl·jktriggers는 tools 소속이라
+  Gemini 인벤토리 누락, docs/62 §8-6이 이미 파악했던 것) + jkbridge CSPRNG×1을
+  **수기 SHA-256 헬퍼 1개로 흡수**(포맷 "sha256:"+64hex 교차 일치 유지, jkbridge SHA-1
+  선례+셀프테스트 확장). JKDesktopShell.cpp:52-120의 BCrypt 4개소가 본체.
+- 게이트: trust/permissions 관련 프로브(permissions.json 소유 프로브)+jkctl 스모크.
+
+### W3 — pty 파일 분할 (docs/62 §8-4)
+- `JKConPtyBridge`(Start/DrainOutput/WriteInput/Resize/Stop 바이트 스트림 인터페이스
+  유지)를 플랫폼 TU로 분리 — 윈도우 ConPTY 구현 유지, 비윈도우 스텁 기존 것 승계.
+- 게이트: terminal_hangul_probe 33/33 + 터미널 스모크.
+
+### W4 — 프로세스 스폰 어댑터 신설 (인벤토리 §1-1 본체)
+- `jk::process` 인터페이스 신설: SpawnProcess·CreateStdioPipe·PeekPipeData·
+  KillProcess·TerminateProcessTree(=Win32 JobObject에 대응하는 프로세스 그룹 추상).
+- 접촉점 3TU: JKLlmEngine.cpp(CreateProcess/Pipe/Peek/Job 전부)·JKWindowServer.cpp
+  (스폰+Terminate)·JKConPtyBridge.cpp(스폰+Terminate). **Win32 JobObject는 1단계에선
+  윈도우 구현으로 유지** — 리눅스의 pdeathsig/cgroups 대응은 2단계.
+- LLM 턴의 cmd.exe 하드코딩(JKLlmEngine.cpp:90,167,273)은 2단계에서 셸 추상으로
+  치환 예정 — 1단계는 인벤토리 §1-1의 main.cpp:2603 행처럼 **테스트 리터럴 오인 없도록
+  접촉점만 마킹**.
+- 게이트: probe_jkbridge(LLM 턴 경로)+probe_agent_events.
+
+### W5 — 파일시스템·경로 정리 (인벤토리 §6+§4 본체)
+- `jk::fs::GetExecutablePath` 신설 → GetModuleFileName 4TU 흡수(JKWindowServer/
+  JKDesktopShell/JKLlmEngine/ClientBrowserApp — readlink("/proc/self/exe")는 2단계).
+- **폰트 경로 추상화**: `C:\Windows\Fonts\malgun.ttf`·`consola.ttf` 하드코딩(클라 앱
+  6파일+JKTextAtlas)을 탐색 체계로 — **docs/63 데스크톱 벡터 폰트의 폴백 체인과 통합
+  설계**(desktextf_ 폴백이 이미 있으므로 "폰트 후보 경로 리스트" 어댑터 1개 추가).
+- `C:\` 하드코딩 소각: JKApplication.cpp:38(검증 로그), ClientFilesApp.cpp:94·
+  ClientFileDialogApp.cpp:138(기본 경로 → exe-dir/config 주도).
+- 게이트: 런처·노트·파일 앱 스모크+probe_filedlg 계열.
+
+### W6 — 시간·스레드 표준화 (인벤토리 §7-8)
+- `GetTickCount64`→`std::chrono::steady_clock`(JKLlmEngine 2곳),
+  `CreateThread`→`std::thread`(JKLlmEngine/JKCrashHandler 2곳 — JKCrashHandler는
+  windows.h-clean TU라 인클루드 최소 침범).
+- 게이트: 빌드+probe_jkbridge.
+
+### W7 — IME·입력·DPI 경계 확인 (인벤토리 §9-10)
+- SendInput·Imm*·SetProcessDpiAwarenessContext는 이미 `JKPlatform_win32.cpp` 단일 TU에
+  있고 `JKPlatform.h`에 OS별 분기 설계 존재(docs/62 §8-7) — **신설 불요, 인터페이스
+  이름만 확정**(jk::input::InjectSyntheticEvent·jk::ime::·jk::window::EnableHighDpiAwareness).
+- 리눅스 IME는 §18 단일 소유 원칙상 OS IME 미개입이 정답 — 어댑터는 스텁만.
+- 게이트: 불요(수술 없음).
+
+### W8 — tools 5종 보완 조사+정리 (인벤토리 §5-3 교정, 지시문 스코프 누락 해소)
+- jkagentd/jkchat/jktriggers/jkctl/jkbridge의 windows.h 접촉점 전수 조사 — 본 문서가
+  이미 W2(jkctl·jktriggers 해시)·W4(스폰류)로 흡수한 것 외 잔여 목록화.
+- **jkbridge WSAStartup(main.cpp:2285, 8899 HTTP+WS 서버)**은 네트워크 어댑터의 실질
+  대상 — `jk::net` 인터페이스(서버 리슨·accept·recv/send) 정의만 1단계에서,
+  구현은 Winsock 유지·Unix socket은 2단계.
+- 게이트: probe_jkbridge·jkagentd 스모크.
+
+### W9 — 완료 게이트 (docs/62 §3·§5)
+- **Win32 회귀 프로브 전부 GREEN ×2 연속**(라이브 스택 정지 후 공식 런) — 이것이
+  1단계 완료 판정 전부. .ps1 하네스는 Win32 전용 명문화 유지.
+- jkdesktop 셀프테스트(지뢰찾기 논리층 16건 포함) 1회.
+
+## 2. 순서와 근거
+
+W1→W2→W3→W4→W5→W6→W7→W8→W9. 난이도 랭킹(인벤토리 §2)은 **2단계 구현의 난이도**지
+1단계 수술 순서가 아니므로 역으로 참조만: 1단계는 난이도 높은 것(ConPTY·SendInput·IME)
+부터 건드리지 않고, 인터페이스 존재 확인(W3·W7)까지만 하고 리눅스 구현은 남긴다.
+기계적 치환(GetModuleFileName·GetTickCount64·CreateThread)은 1단계에서 미리 끝내
+2단계의 실질 작업을 posix 전송·pty·flock 가드·폰트 탐색 4가지로 좁힌다(docs/62 §8 결론 승계).
+
+## 3. 10월 세션 착수 순서
+
+1. 본 문서 검토(스코프 확정 — tools W8 포함) → 2. W1 수술(흠 2건) → 3. W2-W6 순차
+수술+각 게이트 → 4. W9 전체 회귀 ×2 → 5. 2단계(Termux/리눅스 머신) 착수 판단.
+토큰 배분상 SDD 플랜 분할 권장: W1-W3(경계 수선)와 W4-W6(어댑터 신설)로 2 플랜.
+
+## 4. 리스크 보강 (docs/62 §6 외)
+
+- **W5 폰트 추상화가 가장 "설계 스며"가 크다** — 클라 앱 6파일+아틀라스에 박힌 경로는
+  docs/63 폴백 체인과 겹치므로, 두 체계를 한 어댑터로 흡수해야 이중 관리를 피한다.
+- W4의 JobObject 추상화를 섣불리 "프로세스 그룹"으로 일반화하면 리눅스 구현 시
+  권한·상속 문제로 곱절 낭비 — 1단계는 **윈도우 전용 구현 유지+인터페이스만**.
+- CreateThread→std::thread는 JKLlmEngine의 kill-on-close Job 트리와 상호작용 —
+  스레드 교체 시 JobObject 소유 구조를 바꾸지 말 것(동작 변화 0 원칙).
