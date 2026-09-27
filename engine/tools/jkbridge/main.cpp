@@ -935,6 +935,12 @@ struct BridgeSession {
     jk::agent::JKLlmEngine engine_;           // one turn at a time
     std::mutex resumeMtx_;                    // LLM worker ↔ dispatcher
     std::string resumeSession_;               // consumer-owned claude session
+    // Silent resume-retry state (docs/57 §14.10) — what the current turn
+    // was launched with, so OnLlmDone can retry a stale-resume failure
+    // fresh. Written at every StartTurn call site, read in OnLlmDone.
+    std::mutex turnMtx_;
+    std::string lastTurnText_;
+    std::string lastTurnResume_;
 };
 
 // Reads one frame. Continuation frames are refused (our protocol is
@@ -1054,10 +1060,33 @@ static void OnLlmDone(jk::agent::LlmTurnResult&& r, void* user) {
     } else if (!r.ok) {
         // Self-heal (2026-09-27 빈 응답): a failed turn's resume id is
         // untrustworthy — a stale id (engine switch, pruned history) would
-        // re-fail EVERY turn via --resume. Drop it; the next turn starts
-        // fresh and chat_done's empty session_id resets the phone too.
+        // re-fail EVERY turn via --resume. Drop it.
         std::lock_guard<std::mutex> lock((*keep)->resumeMtx_);
         (*keep)->resumeSession_.clear();
+    }
+    // Silent resume retry (docs/57 §14.10): a stale resume id fails during
+    // claude's ARG VALIDATION — before any generation or tool action — so
+    // retrying the same prompt fresh once is side-effect-free. The phone
+    // never sees the first failure; the retry's chat_done is the only one.
+    std::string retryText;
+    bool retry = false;
+    if (!r.ok) {
+        std::lock_guard<std::mutex> lock((*keep)->turnMtx_);
+        retry = !(*keep)->lastTurnResume_.empty() &&
+                (r.result.find("No conversation found") != std::string::npos ||
+                 r.result.find("--resume requires") != std::string::npos);
+        if (retry) {
+            retryText = (*keep)->lastTurnText_;
+            (*keep)->lastTurnResume_.clear();  // the retry runs with no resume
+        }
+    }
+    if (retry) {
+        if ((*keep)->engine_.StartTurn(retryText, "", OnLlmDelta, OnLlmDone,
+                                       keep)) {
+            return;  // same keep ownership — the retry's done path proceeds
+        }
+        // StartTurn failed (re-entry race) — fall through to the failure
+        // frame below rather than dropping the turn silently.
     }
     std::string frame = "{\"type\":\"chat_done\",\"ok\":";
     frame += r.ok ? "1" : "0";
@@ -1089,6 +1118,11 @@ static void OnLlmDone(jk::agent::LlmTurnResult&& r, void* user) {
         {
             std::lock_guard<std::mutex> lock((*keep)->resumeMtx_);
             resume = (*keep)->resumeSession_;
+        }
+        {
+            std::lock_guard<std::mutex> tlock((*keep)->turnMtx_);
+            (*keep)->lastTurnText_ = next;
+            (*keep)->lastTurnResume_ = resume;
         }
         (*keep)->SendText("{\"type\":\"chat_queued_start\"}");
         if (!(*keep)->engine_.StartTurn(next, resume, OnLlmDelta,
@@ -1234,6 +1268,11 @@ static void SessionRun(std::shared_ptr<BridgeSession> s) {
             {
                 std::lock_guard<std::mutex> lock(s->resumeMtx_);
                 resumeAtChat = s->resumeSession_;
+            }
+            {
+                std::lock_guard<std::mutex> lock(s->turnMtx_);
+                s->lastTurnText_ = text;
+                s->lastTurnResume_ = resumeAtChat;
             }
             auto* keep = new std::shared_ptr<BridgeSession>(s);
             if (!s->engine_.StartTurn(text, resumeAtChat, OnLlmDelta,

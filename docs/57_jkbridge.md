@@ -562,3 +562,13 @@ probe_jkbridge ×2 ALL PASS(정리 함수 탑재 후 전체 회귀 무손상).
   판별은 is_error/errors 필드로. 진단 중 발견: 신규 세션에 맥락 없는
   질문("방금 답한 숫자는?")은 모델이 도구를 헤매며 수분 소모 — 진단
   질문은 도구 유혹 없는 단순 형태로.
+- **2차 보강 — 조용한 resume 재시도**: 자가 치유 설계는 "스테일 기기당
+  1회 실패 후 회복"이었는데 그 1회 실패도 보이지 않게 — resume 실패는
+  claude **인자 검증 단계**(생성·도구 동작 전)에서 죽으므로 같은 프롬프트를
+  신규 세션으로 1회 재시도해도 부작용 없음. OnLlmDone에서
+  "No conversation found"/"--resume requires" 서명 검출 → 같은 턴을
+  resume 없이 재시작, 첫 실패 chat_done은 미전송(폰은 성공 1건만 봄).
+  재시도 턴은 lastTurnResume_ 공란이라 재귀 없음. BridgeSession에
+  lastTurnText_/lastTurnResume_ 신설(모든 StartTurn 호출점에서 기록).
+  실측: 오염 resume 턴이 실패 프레임 없이 ok:1 실답(진단 ×2), 
+  probe_jkbridge PASS.
