@@ -481,3 +481,12 @@ probe_jkbridge ×2 ALL PASS(정리 함수 탑재 후 전체 회귀 무손상).
   contextmenu 억제, 길눳 발동 뒤 합성 click 이벤트 삁. /mirror 헬프 갱신.
 - probe_phone_mirror c9b 신설(button:3 와이어 계약 서버 단정) — 20체크 ×2
   ALL PASS + probe_jkbridge PASS.
+
+### 14.7 미러 중 픽커 자동 갱신 (2026-09-27 사용자 보고 즉시 봉합)
+
+- 미러 중 앱 실행/종료가 픽커에 반영 안 돼 패널을 닫았다 다시 여는 불편. 폴링
+  5회마다(≈4s) list_windows 재수집 — **집합(id+title) 비교로 변화시에만
+  재렌더**(재렌더 도중 탭 흔들림 방지), 미선택 중에도 목록은 살아있게(커밋
+  다음). 미러 중 창이 닫히면(window_not_found) mWin 해제+즉시 목록 재수집
+  유도. 바에 새로고침 버튼, 선택 행 sel 강조. 게이트: probe_phone_mirror
+  ×2 ALL PASS + probe_jkbridge PASS.
