@@ -1910,10 +1910,26 @@ void JKWindowServer::SendInputEvent(JKClientConnection& client, const ipc::Input
 // 순회한다(ProcessClientMessage의 2696-2697 선례 주석).
 std::string JKWindowServer::ExecuteSendInputOp(const SendInputOp& op) {
     JKClientConnection* client = nullptr;
-    for (auto& c : clients_) {
-        if (c && c->Id() == op.target && !c->IsDisconnected()) {
-            client = c.get();
-            break;
+    if (op.target == 0) {
+        // 데스크톱 와이드 모드 (docs/57 §14.15): id=0 탭은 논리 데스크톱 점을
+        // 히트테스트해 최상위 클라이언트에 전달한다 — 폰 미러 전체 화면 뷰의
+        // 착지 경로. clientsMutex_ 보유 경로라 FindClientById(자체 락) 대신
+        // 직접 순회 — 레슨 35(비재귀 뮤텍스 자체-락 헬퍼 데드락).
+        if (!compositor_) return "window_not_found";
+        JKCompositorLayer* layer = compositor_->HitTest(op.x, op.y);
+        if (!layer) return "window_not_found";
+        for (auto& c : clients_) {
+            if (c && c->Id() == layer->Id() && !c->IsDisconnected()) {
+                client = c.get();
+                break;
+            }
+        }
+    } else {
+        for (auto& c : clients_) {
+            if (c && c->Id() == op.target && !c->IsDisconnected()) {
+                client = c.get();
+                break;
+            }
         }
     }
     if (!client) return "window_not_found";
@@ -1924,7 +1940,7 @@ std::string JKWindowServer::ExecuteSendInputOp(const SendInputOp& op) {
     if (client->IsShell() || client->Title() == kCaptureOverlayTitle)
         return "bad_target";
     ipc::InputEventPayload p{};
-    p.surfaceId = op.target;
+    p.surfaceId = client->Id();   // 데스크톱 모드(target=0)에서도 실제 수신자 id
     if (op.op == "click") {
         float sx = 1.0f, sy = 1.0f;
         if (compositor_) {
@@ -2021,7 +2037,7 @@ std::string JKWindowServer::BuildSendInputOp(
     args.GetStr("action", action);
     if (op != "click" && op != "key" && op != "type" && op != "wheel")
         return "bad_op";
-    if (id <= 0) return "bad_target";
+    if (id < 0) return "bad_target";   // id=0 = 데스크톱 와이드 히트테스트 모드
     if (action.empty()) action = "tap";
     if (action != "tap" && action != "down" && action != "up") return "bad_action";
     SendInputOp& o = *out;
@@ -5109,7 +5125,41 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         JKCompositorLayer* layer =
             compositor_ ? compositor_->FindLayerById(static_cast<uint32_t>(id))
                         : nullptr;
-        if (id <= 0) {
+        if (id == 0) {
+            // 데스크톱 와이드 뷰 (docs/57 §14.15, 사용자 요청): 미선택 미러의
+            // 기본 화면 — 합성 프레임버퍼 전체 readback(capture_region 파이프
+            // 라인의 크롭 없음 변형). 폰은 dw/dh(논리 데스크톱) 비율로
+            // id=0 send_input을 되돌리고 서버가 히트테스트로 최상위 클라이언트
+            // 에 전달한다(ExecuteSendInputOp 데스크톱 분기).
+            const int outW = compositor_ ? compositor_->OutputWidth() : 0;
+            const int outH = compositor_ ? compositor_->OutputHeight() : 0;
+            if (outW <= 0 || outH <= 0) {
+                reply = "{\"ok\":false,\"error\":\"bad_request\"}";
+            } else {
+                const float dsc = compositor_->OutputScale();
+                const int fw = static_cast<int>(outW * dsc);
+                const int fh = static_cast<int>(outH * dsc);
+                Composite(false);   // clear + draw, no present (capture_region 선례)
+                std::vector<uint8_t> px(static_cast<size_t>(fw) * fh * 4);
+                SDL_Rect fr{0, 0, fw, fh};
+                const int got = SDL_RenderReadPixels(
+                    renderer_, &fr, SDL_PIXELFORMAT_RGBA32, px.data(), fw * 4);
+                Composite(false);
+                std::string b64;
+                int ew = 0, eh = 0;
+                if (got != 0) {
+                    reply = "{\"ok\":false,\"error\":\"read_failed\"}";
+                } else if (EncodeLayerJpegB64(px, fw, fh, maxw, &b64, &ew, &eh)) {
+                    reply = "{\"ok\":true,\"desktop\":1,\"w\":" +
+                            std::to_string(ew) + ",\"h\":" + std::to_string(eh) +
+                            ",\"dw\":" + std::to_string(outW) +
+                            ",\"dh\":" + std::to_string(outH) +
+                            ",\"data\":\"" + b64 + "\"}";
+                } else {
+                    reply = "{\"ok\":false,\"error\":\"frame_too_large\"}";
+                }
+            }
+        } else if (id < 0) {
             reply = "{\"ok\":false,\"error\":\"bad_request\"}";
         } else if (!layer || !layer->Pixels() || layer->Width() <= 0 ||
                    layer->Height() <= 0) {

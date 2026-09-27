@@ -203,10 +203,21 @@ Send-Tool $c1 "window_frame" '{"id":99999}' "fbad"
 $rbad = $null
 foreach ($i in 1..10) { $r = WsRecv $c1 6000; if ($r -match '"label":"fbad"') { $rbad = $r; break } }
 Check "c8-window-not-found" ($rbad -match 'window_not_found') ($rbad.Substring(0, [Math]::Min(160, $rbad.Length)))
-Send-Tool $c1 "window_frame" '{"id":0}' "fzero"
-$rzero = $null
-foreach ($i in 1..10) { $r = WsRecv $c1 6000; if ($r -match '"label":"fzero"') { $rzero = $r; break } }
-Check "c8-id-zero-bad-request" ($rzero -match 'bad_request') ($rzero.Substring(0, [Math]::Min(160, $rzero.Length)))
+Send-Tool $c1 "window_frame" '{"id":-1}' "fneg"
+$rneg = $null
+foreach ($i in 1..10) { $r = WsRecv $c1 6000; if ($r -match '"label":"fneg"') { $rneg = $r; break } }
+Check "c8-id-neg-bad-request" ($rneg -match 'bad_request') ($rneg.Substring(0, [Math]::Min(160, $rneg.Length)))
+# id=0 = desktop-wide view (docs/57 §14.15): composited full framebuffer as
+# JPEG b64 + logical dw/dh. The probe taps it via send_input id=0 (c9b).
+Send-Tool $c1 "window_frame" '{"id":0,"maxw":960}' "fdesk"
+$rdesk = $null
+foreach ($i in 1..15) { $r = WsRecv $c1 6000; if ($r -match '"label":"fdesk"') { $rdesk = $r; break } }
+$fd = $null
+try { $fd = ($rdesk | ConvertFrom-Json).json } catch { $fd = $null }
+$deskOk = ($fd -ne $null -and $fd.ok -and $fd.desktop -eq 1 -and $fd.dw -gt 0 -and $fd.dh -gt 0 -and $fd.data.Length -gt 100)
+Check "c8-desktop-frame" $deskOk "w=$($fd.w) dw=$($fd.dw) dh=$($fd.dh) len=$($fd.data.Length)"
+$deskB64ok = ($fd -ne $null -and $fd.data -match '^[A-Za-z0-9+/=]+$' -and [Convert]::FromBase64String($fd.data.Substring(0,4))[0] -eq 0xFF)
+Check "c8-desktop-jpeg-soi" $deskB64ok "head=$($fd.data.Substring(0,4))"
 
 # --- c9: TAP MATH — server-verified landing -------------------------------------
 # desktop point = list.x + fx*dw ; fx=0.5 -> x + dw/2. send_input must accept
@@ -226,6 +237,22 @@ Send-Tool $c1 "send_input" ('{"id":' + $mineId + ',"op":"click","button":3,"x":'
 $rtr = $null
 foreach ($i in 1..10) { $r = WsRecv $c1 6000; if ($r -match '"label":"rtap"') { $rtr = $r; break } }
 Check "c9b-right-click-ok" ($rtr -match '"label":"rtap"' -and ($rtr -match '"ok\\?"\s*:\s*(true|1)' -or $rtr -match '"sent\\?"\s*:\s*(true|1)')) ($rtr.Substring(0, [Math]::Min(160, $rtr.Length)))
+
+# --- c9c: DESKTOP-WIDE TAP — id=0 hit-test dispatch (docs/57 §14.15) -----------
+# The phone's desktop view taps the LOGICAL DESKTOP point of a window center
+# with id=0; the server hit-tests and forwards to the topmost client. The
+# minesweeper window center is occupied by its own layer -> must be accepted.
+Send-Tool $c1 "send_input" ('{"id":0,"op":"click","x":' + $tapX + ',"y":' + $tapY + '}') "dtap"
+$dtr = $null
+foreach ($i in 1..10) { $r = WsRecv $c1 6000; if ($r -match '"label":"dtap"') { $dtr = $r; break } }
+Check "c9c-desktop-tap-ok" ($dtr -match '"label":"dtap"' -and ($dtr -match '"ok\\?"\s*:\s*(true|1)' -or $dtr -match '"sent\\?"\s*:\s*(true|1)')) ($dtr.Substring(0, [Math]::Min(160, $dtr.Length)))
+# desktop tap on empty space -> window_not_found (no layer under the point)
+Send-Tool $c1 "send_input" '{"id":0,"op":"click","x":2,"y":2}' "dmiss"
+$dmr = $null
+foreach ($i in 1..10) { $r = WsRecv $c1 6000; if ($r -match '"label":"dmiss"') { $dmr = $r; break } }
+$dmOk = $false
+try { $dmOk = (($dmr | ConvertFrom-Json).json.error -eq 'window_not_found') } catch { $dmOk = $false }
+Check "c9c-desktop-tap-miss" $dmOk ($dmr.Substring(0, [Math]::Min(160, $dmr.Length)))
 
 # --- c10: capture_window untouched guard (WS relay frame — agentctl is
 # unreachable once the bridge WS session holds the agent slot) ---------------------

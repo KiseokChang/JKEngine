@@ -668,3 +668,27 @@ probe_jkbridge ×2 ALL PASS(정리 함수 탑재 후 전체 회귀 무손상).
 행=전장을 정확히 가리고, 플로팅은 어느 자리에 놓든 결국 화면을 가린다+
 드래그 오조작. 재배치: 패드를 **이미지 아래 별도 flex 영역**으로 — 이미지가
 스스로 줄어 겹침 0, 위치 항상 고정(손 기억), 엄지 도달 유지.
+
+## 14.15 데스크톱 와이드 뷰 — 미선택 미러의 기본 화면 + id=0 히트테스트 탭 (2026-09-27, 사용자 제안)
+
+"앱 선택 안 했을 때 jkdesktop 전체 화면을 보여주면 어때?" — 채택. 텍스트 픽커
+만으로는 "지금 뭐가 떠 있는지" 안 보이므로 미선택 상태의 기본 화면을 데스크톱
+와이드 프레임으로.
+
+- **서버 window_frame id=0**: capture_region 파이프라인의 크롭 없음 변형 —
+  Composite(false)+SDL_RenderReadPixels 전체 프레임버퍼 → EncodeLayerJpegB64
+  재사용. 응답에 `"desktop":1` + 논리 데스크톱 dw/dh. 디스크 기록 없음 유지.
+- **서버 send_input id=0 = 히트테스트 전달**: 논리 데스크톱 점을
+  compositor HitTest → 최상위 클라이언트에 click/wheel 전달. p.surfaceId는
+  `client->Id()`로(데스크톱 모드 수신자), BuildSendInputOp는 id=0 허용
+  (음수만 bad_target). clientsMutex_ 보유 경로라 직접 순회(레슨 35).
+  셸(태스크바)·캡처 오버레이는 기존 쌍검사 그대로 배제 — **태스크바 클릭은
+  미지원**(선결제: 크롬 상태 오염 위험, 앱 실행은 픽커/LLM 경로).
+- **폰**: 미선택 폴링이 `window_frame {id:0}` — mDeskW/H 저장, 탭 수학은
+  fx*mDeskW. 스테일 프레임 이중 가드(픽 도중 도착한 데스크톱 프레임/선택
+  해제 직후 도착한 창 프레임 폐기). `데스크톱` 버튼=선택 해제·복귀. 창이
+  닫히면 기존 window_not_found 경로가 자동으로 데스크톱 뷰로 떨어짐.
+- **프로브 갱신**: c8 id=0 bad_request 단정은 계약 변경(데스크톱 뷰)으로
+  id=-1→bad_request로 교체 + c8-desktop-frame(ok+desktop:1+dw/dh+SOI)+
+  c9c 데스크톱 탭(창 중심 ok / 빈 공간 window_not_found) 2체크 추가.
+  probe_phone_mirror ×2 ALL PASS + probe_jkbridge PASS + jkdesktop test 0.

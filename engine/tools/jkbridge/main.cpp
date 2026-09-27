@@ -447,7 +447,7 @@ static const char kWebUi[] = R"JKUI(<!doctype html>
 <div id="mirror">
   <div id="mbar"><button id="mclose">닫기</button><button id="mpause">정지</button>
     <button id="mrefresh">새로고침</button>
-    <button id="mrc">우클릭</button><button id="msplit">분할</button><button id="mpad">키패드</button><button id="mup">▲</button><button id="mdn">▼</button><span id="mstat">창을 선택하세요</span></div>
+    <button id="mrc">우클릭</button><button id="msplit">분할</button><button id="mpad">키패드</button><button id="mdesk">데스크톱</button><button id="mup">▲</button><button id="mdn">▼</button><span id="mstat">창을 선택하세요</span></div>
   <div id="mpick"></div>
   <div id="mwrap"><img id="mimg" alt="미러" draggable="false"></div>
   <div id="pad" style="display:none">
@@ -664,9 +664,19 @@ function onReply(label, j) {
   }
   if (label === 'mirror f') {
     mBusy = false;
-    if (!mirrorOpen || !mWin) return;
+    if (!mirrorOpen) return;
     if (j && j.ok && j.data) {
-      if (mirrorSetSrc(j.data)) mStat.textContent = '#'+mWin.id+' '+j.w+'×'+j.h;
+      if (j.desktop) {
+        // 데스크톱 와이드 프레임 — 픽 도중 창을 골랐으면 스테일 프레임 폐기.
+        if (!mWin && mirrorSetSrc(j.data)) {
+          mDeskW = j.dw || j.w; mDeskH = j.dh || j.h;
+          mStat.textContent = '데스크톱 — 탭하면 그 창으로 갑니다';
+        }
+      } else {
+        // 스테일 창 프레임(선택 해제 직후 도착) 폐기.
+        if (!mWin) return;
+        if (mirrorSetSrc(j.data)) mStat.textContent = '#'+mWin.id+' '+j.w+'×'+j.h;
+      }
     } else if (j && j.error === 'window_not_found') {
       // 미러 중 창이 닫김 — 즉시 목록 재수집으로 유도 (픽커 자동 갱신 경로).
       mWin = null;
@@ -737,6 +747,7 @@ function submit() {
 //   서버가 (x-X())/ScaleX 역변환 → fx*w 서면 px. 1:1 가정 없음.
 const M_POLL = 800;                 // 펌프 400ms 폴링 → 실효 ~1fps (서버 인코딩 비용 계약)
 let mirrorOpen = false, mPaused = false, mBusy = false, mTimer = null, mWin = null;
+let mDeskW = 0, mDeskH = 0;   // 데스크톱 와이드 뷰의 논리 크기 (미선택 모드)
 const mirEl = document.getElementById('mirror');
 const mImg = document.getElementById('mimg');
 const mPick = document.getElementById('mpick');
@@ -757,8 +768,11 @@ function mirrorPoll() {
     if (tick) mirrorPickList();
     mBusy = true;
     sendTool('window_frame', {id: mWin.id, maxw: 960}, 'mirror f');
-  } else if (tick) {                             // 미선택 중에도 목록은 살아있게
-    mirrorPickList();
+  } else {                                       // 미선택 = 데스크톱 와이드 뷰
+    if (tick) mirrorPickList();                  // 미선택 중에도 목록은 살아있게
+    if (mBusy) return;
+    mBusy = true;
+    sendTool('window_frame', {id: 0, maxw: 960}, 'mirror f');
   }
 }
 function mirrorSetSrc(d) {
@@ -769,11 +783,18 @@ function mirrorSetSrc(d) {
   return true;
 }
 function mirrorSend(op, fx, fy, dy, button) {
-  const dw = mWin.dw || mWin.w, dh = mWin.dh || mWin.h;   // 구 서버(무 dw/dh) 폴백
   // button: SDL 규약 1=왼쪽/2=중간/3=오른쪽 — 서버 click op가 MouseDown/Up의
   // keyCode로 실어 보낸다(지뢰찾기 깃발 같은 보조 클릭 계약).
-  sendTool('send_input', {id: mWin.id, op, dx: 0, dy: dy || 0, button: button || 1,
-    x: Math.round(mWin.x + fx*dw), y: Math.round(mWin.y + fy*dh)}, 'mirror '+op);
+  if (mWin) {
+    const dw = mWin.dw || mWin.w, dh = mWin.dh || mWin.h;   // 구 서버 폴백
+    sendTool('send_input', {id: mWin.id, op, dx: 0, dy: dy || 0, button: button || 1,
+      x: Math.round(mWin.x + fx*dw), y: Math.round(mWin.y + fy*dh)}, 'mirror '+op);
+  } else {
+    // 데스크톱 와이드 모드 — id=0, 논리 데스크톱 점. 서버가 히트테스트로
+    // 최상위 클라이언트에 전달한다(셸/캡처 오버레이는 서버가 배제).
+    sendTool('send_input', {id: 0, op, dx: 0, dy: dy || 0, button: button || 1,
+      x: Math.round(fx*mDeskW), y: Math.round(fy*mDeskH)}, 'mirror '+op);
+  }
 }
 function mirrorRect() {
   // object-fit:contain의 좌표 진실원 (2026-09-27 사용자 보고 — 좌표 불일치+
@@ -789,18 +810,19 @@ function mirrorRect() {
            width: iw*scale, height: ih*scale };
 }
 function mirrorTap(e, op, button) {
-  if (!mWin || mPaused) return;
+  if (mPaused || (!mWin && !mDeskW)) return;
   const r = mirrorRect();
   if (!r) return;
   const fx = (e.clientX - r.left) / r.width, fy = (e.clientY - r.top) / r.height;
   if (fx < 0 || fx >= 1 || fy < 0 || fy >= 1) return;
   mirrorSend(op, fx, fy, 0, button);
-  mStat.textContent = '#'+mWin.id+' '+(button === 3 ? '우클릭' : '클릭');
+  mStat.textContent = (mWin ? '#'+mWin.id+' ' : '데스크톱 ') +
+                       (button === 3 ? '우클릭' : '클릭');
 }
 function mirrorWheel(dy) {
   // ▲/▼ 휠 — 버튼이 mImg 밖이라 좌표 수학과 분리(창 중심 비율). 서버 wheel은
   // dx/dy만 소비하므로 좌표는 창 중심이면 충분.
-  if (!mWin || mPaused) return;
+  if (mPaused || (!mWin && !mDeskW)) return;
   mirrorSend('wheel', 0.5, 0.5, dy);
 }
 mbtn.onclick = () => {
@@ -811,6 +833,12 @@ mbtn.onclick = () => {
   if (!mTimer) mTimer = setInterval(mirrorPoll, M_POLL);
 };
 document.getElementById('mrefresh').onclick = () => { mListKey = ''; mirrorPickList(); };
+// 데스크톱 뷰 복귀 — 창 선택 해제 (docs/57 §14.15)
+document.getElementById('mdesk').onclick = () => {
+  mWin = null; mBusy = false; mDeskW = 0; mDeskH = 0;
+  mStat.textContent = '데스크톱 뷰';
+  mirrorPoll();
+};
 mclose.onclick = () => {
   mirrorOpen = false;
   if (mTimer) { clearInterval(mTimer); mTimer = null; }
@@ -886,15 +914,17 @@ mImg.addEventListener('click', (e) => {
 // 취소(오조작 방지). 브라우저 기본 길눳 컨텍스트 메뉴는 억제.
 let lpTimer = null, lpFired = false, lpX = 0, lpY = 0;
 function mirrorTapAt(x, y, button) {
+  if (mPaused || (!mWin && !mDeskW)) return;
   const r = mirrorRect();
   if (!r) return;
   const fx = (x - r.left) / r.width, fy = (y - r.top) / r.height;
   if (fx < 0 || fx >= 1 || fy < 0 || fy >= 1) return;
   mirrorSend('click', fx, fy, 0, button);
-  mStat.textContent = '#'+mWin.id+' '+(button === 3 ? '우클릭' : '클릭');
+  mStat.textContent = (mWin ? '#'+mWin.id+' ' : '데스크톱 ') +
+                       (button === 3 ? '우클릭' : '클릭');
 }
 mImg.addEventListener('touchstart', (e) => {
-  if (!mWin || mPaused || e.touches.length !== 1) return;
+  if (mPaused || (!mWin && !mDeskW) || e.touches.length !== 1) return;
   const t = e.touches[0];
   lpFired = false;
   lpX = t.clientX; lpY = t.clientY;
