@@ -572,3 +572,32 @@ probe_jkbridge ×2 ALL PASS(정리 함수 탑재 후 전체 회귀 무손상).
   lastTurnText_/lastTurnResume_ 신설(모든 StartTurn 호출점에서 기록).
   실측: 오염 resume 턴이 실패 프레임 없이 ok:1 실답(진단 ×2), 
   probe_jkbridge PASS.
+
+## 14.11 미러 탭 좌표 진실원 — 레터박스 재계산 + 길눳 경합 정리 (2026-09-27)
+
+사용자 실전 보고: "지뢰찾기하는데 마우스 좌표 안맞는 것 같고, 길게 눌렀을 때
+오른쪽 버튼 인식이 안 되는 것 같다". 두 증상의 공통 뿌리는 하나였다.
+
+- **뿌리 — object-fit:contain 상자=이미지 착각**: `#mimg`가
+  `flex:1; width:100%; object-fit:contain`이라 가로폭 창+세로폰 화면에서
+  상하 레터박스가 크게 생기는데, 탭 수학이 `getBoundingClientRect()`(상자)를
+  써 fx/fy가 그림이 아니라 레터박스 포함 상자 기준이 됨 → 탭이 어긋나고,
+  길눳 우클릭도 **발사는 되지만 엉킨 곳에 착지**해서 "안 되는 것"으로 보임.
+- **픽스 — `mirrorRect()` 진실원**: 자연 크기(naturalWidth/Height)와 상자의
+  min 비율로 실제 렌더 영역을 재계산
+  (`left: r.left+(r.width-iw*scale)/2` …). 첫 프레임 로드 전(natural 0)은
+  탭 무시. mirrorTap·mirrorTapAt(길눳/▲▼) 전부 이 진실원으로 통일.
+  수학 검증: 상자 390×500+이미지 800×600 → rect
+  {left:0, top:103.75, w:390, h:292.5}; 이미지 좌상단 탭 fx:0 fy:0,
+  우하단 ≈1.0/1.0, 레터박스 탭 fy −0.29로 **범위 밖 무시**(레터박스 유령
+  클릭도 사라짐).
+- **길눳 경합 방어 보강**: preventDefault(touchstart)는 클릭 생성까지 죽여
+  일반 탭을 망침 — 하지 않고, 억제는 CSS로
+  (`-webkit-touch-callout:none; user-select:none; touch-action:none;`) +
+  `draggable="false"`. contextmenu preventDefault(크롬 이미지 길눳 메뉴
+  억제)는 기존 그대로 — touch-action:none이어도 클릭은 생성됨 실측.
+- **부수 — `Cache-Control: no-store`**: 폰 브라우저가 서빙 HTML을 캐싱해
+  브리지 갱신 후 스테일 UI를 먹는 사고 1건 — HttpReply 헤더에 추가.
+- 게이트: probe_phone_mirror ×2 ALL PASS + probe_jkbridge PASS.
+  레슨: **CSS object-fit이 좌표 수학의 일부다** — 렌더 사각형과 DOM 상자는
+  다른 진실원이며, 비율 좌표를 파는 쪽은 렌더 진실원을 직접 계산해야 한다.

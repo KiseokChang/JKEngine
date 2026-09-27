@@ -406,7 +406,9 @@ static const char kWebUi[] = R"JKUI(<!doctype html>
   #mpick { display:flex; flex-wrap:wrap; gap:6px; max-height:30vh; overflow-y:auto; }
   #mpick button.sel { border-color:#3b6ea5; background:#274b6d; color:#fff; }
   #mimg { flex:1; min-height:0; width:100%; object-fit:contain; background:#0c0d0f;
-          border:1px solid #26292f; }
+          border:1px solid #26292f;
+          -webkit-touch-callout:none; -webkit-user-select:none; user-select:none;
+          touch-action:none; }
 </style></head>
 <body>
 <div id="hdr"><span>jkbridge</span><span id="stat">연결 중…</span><button id="mbtn">미러</button></div>
@@ -420,7 +422,7 @@ static const char kWebUi[] = R"JKUI(<!doctype html>
     <button id="mrefresh">새로고침</button>
     <button id="mup">▲</button><button id="mdn">▼</button><span id="mstat">창을 선택하세요</span></div>
   <div id="mpick"></div>
-  <img id="mimg" alt="미러">
+  <img id="mimg" alt="미러" draggable="false">
 </div>
 <script>
 const token = new URLSearchParams(location.search).get('token') || '';
@@ -738,10 +740,23 @@ function mirrorSend(op, fx, fy, dy, button) {
   sendTool('send_input', {id: mWin.id, op, dx: 0, dy: dy || 0, button: button || 1,
     x: Math.round(mWin.x + fx*dw), y: Math.round(mWin.y + fy*dh)}, 'mirror '+op);
 }
+function mirrorRect() {
+  // object-fit:contain의 좌표 진실원 (2026-09-27 사용자 보고 — 좌표 불일치+
+  // 길눳 우클릭 엉킨 착지의 공통 뿌리): getBoundingClientRect는 상자를 돌려
+  // 준다 — 레터박스 포함. 실제 렌더된 이미지 영역을 자연 크기 비율로 재계산
+  // 해야 fx/fy가 그림에 맞는다. 첫 프레임 로드 전(naturalWidth 0)은 무시.
+  const r = mImg.getBoundingClientRect();
+  const iw = mImg.naturalWidth, ih = mImg.naturalHeight;
+  if (!iw || !ih || !r.width || !r.height) return null;
+  const scale = Math.min(r.width / iw, r.height / ih);
+  return { left: r.left + (r.width - iw*scale) / 2,
+           top:  r.top  + (r.height - ih*scale) / 2,
+           width: iw*scale, height: ih*scale };
+}
 function mirrorTap(e, op) {
   if (!mWin || mPaused) return;
-  const r = mImg.getBoundingClientRect();
-  if (!r.width || !r.height) return;
+  const r = mirrorRect();
+  if (!r) return;
   const fx = (e.clientX - r.left) / r.width, fy = (e.clientY - r.top) / r.height;
   if (fx < 0 || fx >= 1 || fy < 0 || fy >= 1) return;
   mirrorSend(op, fx, fy, 0);
@@ -779,8 +794,8 @@ mImg.addEventListener('click', (e) => {
 // 취소(오조작 방지). 브라우저 기본 길눳 컨텍스트 메뉴는 억제.
 let lpTimer = null, lpFired = false;
 function mirrorTapAt(x, y, button) {
-  const r = mImg.getBoundingClientRect();
-  if (!r.width || !r.height) return;
+  const r = mirrorRect();
+  if (!r) return;
   const fx = (x - r.left) / r.width, fy = (y - r.top) / r.height;
   if (fx < 0 || fx >= 1 || fy < 0 || fy >= 1) return;
   mirrorSend('click', fx, fy, 0, button);
@@ -1497,7 +1512,8 @@ static void HttpReply(SOCKET s, int code, const char* body, size_t bodyLen,
     char head[256];
     std::snprintf(head, sizeof(head),
                   "HTTP/1.1 %d %s\r\nContent-Length: %zu\r\n"
-                  "Content-Type: %s\r\nConnection: close\r\n\r\n",
+                  "Content-Type: %s\r\nCache-Control: no-store\r\n"
+                  "Connection: close\r\n\r\n",
                   code, reason, bodyLen, contentType);
     SendAll(s, head, std::strlen(head));
     if (bodyLen) SendAll(s, body, bodyLen);
