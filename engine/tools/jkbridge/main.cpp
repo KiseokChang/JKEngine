@@ -643,7 +643,7 @@ function submit() {
     add('/list /launch <app> /close <id> /chat /notify /shot /triggers /trust','sys');
     add('/trigger <name> on|off /events /theme dark|light|classic /save <name> /restore <name>','sys');
     add('/undo /new /report — 대화 기록을 파일로 저장(PC 진단용)','sys');
-    add('/mirror — 창 미러(탭=클릭, ▲▼=휠, 800ms 폴링)','sys');
+    add('/mirror — 창 미러(탭=클릭, 길게 누름=우클릭, ▲▼=휠, 800ms 폴링)','sys');
   }
   else if (cmd==='new') { claudeSession=''; localStorage.removeItem('jkbridge_session'); add('새 LLM 세션','sys');
     if (ws && ws.readyState===1) ws.send(JSON.stringify({type:'hello', resume_session:''})); }
@@ -706,9 +706,11 @@ function mirrorSetSrc(d) {
   mImg.src = 'data:image/jpeg;base64,' + d;
   return true;
 }
-function mirrorSend(op, fx, fy, dy) {
+function mirrorSend(op, fx, fy, dy, button) {
   const dw = mWin.dw || mWin.w, dh = mWin.dh || mWin.h;   // 구 서버(무 dw/dh) 폴백
-  sendTool('send_input', {id: mWin.id, op, dx: 0, dy: dy || 0,
+  // button: SDL 규약 1=왼쪽/2=중간/3=오른쪽 — 서버 click op가 MouseDown/Up의
+  // keyCode로 실어 보낸다(지뢰찾기 깃발 같은 보조 클릭 계약).
+  sendTool('send_input', {id: mWin.id, op, dx: 0, dy: dy || 0, button: button || 1,
     x: Math.round(mWin.x + fx*dw), y: Math.round(mWin.y + fy*dh)}, 'mirror '+op);
 }
 function mirrorTap(e, op) {
@@ -740,7 +742,34 @@ mpause.onclick = () => { mPaused = !mPaused; mpause.textContent = mPaused ? '재
   if (!mPaused) mirrorPoll(); };
 document.getElementById('mup').onclick = () => mirrorWheel(-1);   // ▲ = 위로
 document.getElementById('mdn').onclick = () => mirrorWheel(1);
-mImg.addEventListener('click', (e) => mirrorTap(e, 'click'));
+mImg.addEventListener('click', (e) => {
+  if (lpFired) { lpFired = false; return; }   // 길게 누름 우클릭 뒤 합성 click 삼킴
+  mirrorTap(e, 'click');
+});
+// ---- 우클릭 (폰은 우클릭 버튼이 없다 — 2026-09-27 사용자 보고) ---------------
+// 길게 누름 500ms = 오른쪽 클릭. 데스크톱 브라우저는 그냥 탭(좌클릭)만 —
+// 우클릭이 필요한 앱(지뢰찾기 깃발)은 길게 누른다. touchmove=손가락 미끄러짐은
+// 취소(오조작 방지). 브라우저 기본 길눳 컨텍스트 메뉴는 억제.
+let lpTimer = null, lpFired = false;
+function mirrorTapAt(x, y, button) {
+  const r = mImg.getBoundingClientRect();
+  if (!r.width || !r.height) return;
+  const fx = (x - r.left) / r.width, fy = (y - r.top) / r.height;
+  if (fx < 0 || fx >= 1 || fy < 0 || fy >= 1) return;
+  mirrorSend('click', fx, fy, 0, button);
+  mStat.textContent = '#'+mWin.id+' '+(button === 3 ? '우클릭' : '클릭');
+}
+mImg.addEventListener('touchstart', (e) => {
+  if (!mWin || mPaused || e.touches.length !== 1) return;
+  const t = e.touches[0];
+  lpFired = false;
+  lpTimer = setTimeout(() => { lpFired = true; mirrorTapAt(t.clientX, t.clientY, 3); }, 500);
+}, {passive: true});
+const lpCancel = () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } };
+mImg.addEventListener('touchmove', lpCancel, {passive: true});
+mImg.addEventListener('touchend', lpCancel, {passive: true});
+mImg.addEventListener('touchcancel', lpCancel, {passive: true});
+mImg.addEventListener('contextmenu', (e) => e.preventDefault());
 
 document.getElementById('send').onclick = submit;
 txt.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });

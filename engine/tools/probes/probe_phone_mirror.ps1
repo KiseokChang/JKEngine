@@ -219,6 +219,14 @@ $tr = $null
 foreach ($i in 1..10) { $r = WsRecv $c1 6000; if ($r -match '"label":"tap"') { $tr = $r; break } }
 Check "c9-tap-click-ok" ($tr -match '"label":"tap"' -and ($tr -match '"ok\\?"\s*:\s*(true|1)' -or $tr -match '"sent\\?"\s*:\s*(true|1)')) ($tr.Substring(0, [Math]::Min(160, $tr.Length)))
 
+# --- c9b: RIGHT CLICK — the flag button of minesweeper-class apps -------------
+# button:3 (SDL: 1=left/2=middle/3=right) rides the click op as the MouseDown/
+# MouseUp keyCode. The phone UI sends this from the long-press gesture.
+Send-Tool $c1 "send_input" ('{"id":' + $mineId + ',"op":"click","button":3,"x":' + $tapX + ',"y":' + $tapY + '}') "rtap"
+$rtr = $null
+foreach ($i in 1..10) { $r = WsRecv $c1 6000; if ($r -match '"label":"rtap"') { $rtr = $r; break } }
+Check "c9b-right-click-ok" ($rtr -match '"label":"rtap"' -and ($rtr -match '"ok\\?"\s*:\s*(true|1)' -or $rtr -match '"sent\\?"\s*:\s*(true|1)')) ($rtr.Substring(0, [Math]::Min(160, $rtr.Length)))
+
 # --- c10: capture_window untouched guard (WS relay frame — agentctl is
 # unreachable once the bridge WS session holds the agent slot) ---------------------
 Send-Tool $c1 "capture_window" ('{"id":' + $mineId + '}') "capw"
