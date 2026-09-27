@@ -399,6 +399,10 @@ static const char kWebUi[] = R"JKUI(<!doctype html>
           background:#1c1f24; color:#e8e8ea; }
   #mirror { display:none; position:fixed; inset:0; z-index:10; background:rgba(10,11,13,.97);
             flex-direction:column; gap:6px; padding:8px; padding-top:max(8px,env(safe-area-inset-top)); }
+  /* 분할 모드 — 채팅과 미러 동시 보기 (2026-09-27 사용자 요청): 미러를 화면
+     아래 절반으로, 위쪽엔 채팅(log+입력)이 남아 계속 대화 가능. */
+  #mirror.split { top:45%; }
+  #mirror.split #mpick { max-height:18vh; }
   #mbar { display:flex; gap:6px; align-items:center; }
   #mbar button, #mpick button { font-size:14px; padding:7px 14px; border-radius:6px;
             border:1px solid #555; background:#1c1f24; color:#e8e8ea; }
@@ -420,7 +424,7 @@ static const char kWebUi[] = R"JKUI(<!doctype html>
 <div id="mirror">
   <div id="mbar"><button id="mclose">닫기</button><button id="mpause">정지</button>
     <button id="mrefresh">새로고침</button>
-    <button id="mrc">우클릭</button><button id="mup">▲</button><button id="mdn">▼</button><span id="mstat">창을 선택하세요</span></div>
+    <button id="mrc">우클릭</button><button id="msplit">분할</button><button id="mup">▲</button><button id="mdn">▼</button><span id="mstat">창을 선택하세요</span></div>
   <div id="mpick"></div>
   <img id="mimg" alt="미러" draggable="false">
 </div>
@@ -793,6 +797,14 @@ mrc.onclick = () => {
   mArmR = !mArmR;
   mrc.style.background = mArmR ? '#5a3c14' : '';
   mStat.textContent = mArmR ? '다음 탭 = 오른쪽 클릭' : '왼쪽 클릭';
+};
+// ---- 분할 토글 — 채팅과 미러 동시 보기 (2026-09-27 사용자 요청) ------------
+// 미러를 화면 아래 55%로 줄여 위쪽에 채팅(log+입력)을 남긴다. 탭 좌표는
+// mirrorRect()가 실렌더 사각형을 매번 다시 계산하므로 레이아웃 무관 정확.
+const mspl = document.getElementById('msplit');
+mspl.onclick = () => {
+  const on = mirEl.classList.toggle('split');
+  mspl.style.background = on ? '#274b6d' : '';
 };
 mImg.addEventListener('click', (e) => {
   if (lpFired) { lpFired = false; return; }   // 길게 누름 우클릭 뒤 합성 click 삼킴
