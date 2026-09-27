@@ -408,12 +408,13 @@ static const char kWebUi[] = R"JKUI(<!doctype html>
   #mirror.split { inset:0 0 0 50%; }
   #mirror.split #mpick { max-height:18vh; }
   #mirror.split #mbar { flex-wrap:wrap; }
-  /* 키패드 오버레이 — 이미지 하단에 겹침 (2026-09-27 사용자 요청: 키보드 앱
-     지원). #mwrap은 좌표 진실원(mirrorRect)에 영향 없음 — mImg rect만 쓴다. */
+  /* 키패드 — 이미지 **아래** 별도 영역 (2026-09-27 사용자 질문 "플로팅 vs
+     하단": 겹침은 게임 하단 행=전장을 가리고, 플로팅은 어느 자리든 결국
+     가린다 — 이미지가 스스로 줄어 겹침 0인 하단 고정이 정답). #mwrap은
+     좌표 진실원(mirrorRect)에 영향 없음 — mImg rect만 쓴다. */
   #mwrap { position:relative; flex:1; min-height:0; display:flex; }
-  #pad { position:absolute; left:0; right:0; bottom:0; display:none;
-         flex-direction:column; gap:5px; padding:6px;
-         background:rgba(16,18,22,.72); border-top:1px solid #26292f; }
+  #pad { display:none; flex-direction:column; gap:5px; padding:6px;
+         border-top:1px solid #26292f; }
   #pad #prow { display:flex; gap:5px; }
   #ptxt { flex:1; min-width:0; font-size:15px; padding:8px 10px; border-radius:6px;
           border:1px solid #33373d; background:#1b1e23; color:#e8e8ea; }
@@ -448,14 +449,13 @@ static const char kWebUi[] = R"JKUI(<!doctype html>
     <button id="mrefresh">새로고침</button>
     <button id="mrc">우클릭</button><button id="msplit">분할</button><button id="mpad">키패드</button><button id="mup">▲</button><button id="mdn">▼</button><span id="mstat">창을 선택하세요</span></div>
   <div id="mpick"></div>
-  <div id="mwrap"><img id="mimg" alt="미러" draggable="false">
-    <div id="pad" style="display:none">
-      <div id="prow"><input id="ptxt" autocomplete="off" placeholder="한/영 텍스트 — Enter=전송"><button id="psend">전송</button></div>
-      <div id="pkeys">
-        <button data-k="1073741904">◀</button><button data-k="1073741906">▲</button>
-        <button data-k="1073741905">▼</button><button data-k="1073741903">▶</button>
-        <button data-k="32">␣</button><button data-k="13">⏎</button><button data-k="8">⌫</button>
-      </div>
+  <div id="mwrap"><img id="mimg" alt="미러" draggable="false"></div>
+  <div id="pad" style="display:none">
+    <div id="prow"><input id="ptxt" autocomplete="off" placeholder="한/영 텍스트 — Enter=전송"><button id="psend">전송</button></div>
+    <div id="pkeys">
+      <button data-k="1073741904">◀</button><button data-k="1073741906">▲</button>
+      <button data-k="1073741905">▼</button><button data-k="1073741903">▶</button>
+      <button data-k="32">␣</button><button data-k="13">⏎</button><button data-k="8">⌫</button>
     </div>
   </div>
 </div>
