@@ -32,6 +32,8 @@
 - **R-C1:** docs/68 W8 원문은 "jk::net 인터페이스 **정의만**, 구현은 Winsock 유지"다. 그러나 jkbridge는 이미 전 TU가 tools 전용 windows TU이고 접촉이 Winsock API 11종으로 완결되어 있어, "정의만+Winsock 유지"와 "전면 흡수"의 차이가 사실상 헤더 파일 존재 여부뿐이다. **판정: 전면 흡수로 한다(ListenTcp/Accept/RecvAll/Send/SetTimeouts/ShutdownBoth/Close/PrimaryIp/Startup)** — 이유: 흡수하지 않으면 jkbridge의 SOCKET형이 그대로 남아 어댑터 헤더가 소비자를 못 걷어내고, 2단계의 unix 소켓 작업이 "헤더 신설"과 "TU 치환" 2중이 된다. 동작 변화 0은 각 함수가 원 API 시맨틱의 얇은 래퍼임으로 유지. 비용: 흡수 diff가 커져 리뷰 부담 — 대가는 1회 리뷰, 대응은 C-T2 게이트.
 - **R-C2:** send 루프(WsSendFrame/SendAll) 2곳은 실패 의미론이 다르다(bool↔void). 어댑터는 **raw `int Send(Socket, const void*, int)`만** 내보내고 루프는 bridge에 원형 보존한다(원 코드 모양 최소 침해). RecvAll 1곳은 의미론이 단일하므로 어댑터로 통째 이전.
 - **R-C3:** WSACleanup은 원문이 부르지 않으므로 어댑터에도 두지 않는다(YAGNI — 존재하지 않는 계약을 신설하지 않는다).
+- **R-C4(설계 중 추가):** ListenTcp에 `std::uint16_t* boundPortOut = nullptr` 4번째 파라미터 추가 — port=0(임시 포트)을 쓰는 2단계 서버와 셀프테스트 케이스 15가 실제 바인드된 포트를 알아야 함(getsockname 보고). 원문 시그니처(3파라미터)는 콜사이트가 아닌 헤더 기본값으로 확장되어 기존 호출 무영향.
+- **R-C5(설계 중 추가):** 셀프테스트 TU(engine/src/main.cpp)는 windows.h-clean 선례(main.cpp 상단 수기 dllimport 선언 블록, 케이스 14 하드코딩 상수)가 존재 — 케이스 15의 원시 클라이언트 쪽도 winsock 헤더 없이 구현: `sockaddr_in`을 로컬 ABI-안정 구조(2ushort+in_addr+8pad, family=2=AF_INET)로 로컬 정의 + `socket/connect/send/closesocket`의 수기 dllimport 4건 + 링크는 jkcore `PUBLIC ws2_32`(WIN32 가드) → jkdesktop에 전파. 이것으로 어댑터 TU만 winsock 헤더를 소유한다는 규약이 온전히 유지된다.
 
 ## Files
 
@@ -143,7 +145,10 @@ bool Startup();
 // socket(AF_INET,SOCK_STREAM)+SO_REUSEADDR(TRUE)+bind+listen(backlog).
 // bindIp empty = INADDR_ANY (LAN+loopback, token gate — docs/57 §9);
 // non-empty = inet_addr(bindIp). kInvalidSocket on any failure.
-Socket ListenTcp(const std::string& bindIp, std::uint16_t port, int backlog);
+// boundPortOut (nullable) reports the actual bound port via getsockname —
+// port=0 (ephemeral) callers (stage-2 servers, selftest case 15) need it.
+Socket ListenTcp(const std::string& bindIp, std::uint16_t port, int backlog,
+                 std::uint16_t* boundPortOut = nullptr);
 // accept(listener) — kInvalidSocket on failure. Consumer loop stays
 // detached-thread-per-conn (docs/57 as-built).
 Socket Accept(Socket listener);
