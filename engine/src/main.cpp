@@ -2807,9 +2807,16 @@ static int RunAppSelfTest() {
         constexpr int kErrBrokenPipe = 109;      // ERROR_BROKEN_PIPE
         constexpr int kErrNoData = 232;          // ERROR_NO_DATA (pipe closed)
         constexpr uint32_t kStillActiveExit = 259;  // STILL_ACTIVE
-        auto drainPipe = [](void* pipe, std::string* sink) {
+        // Returns true iff the drain ended on an OBSERVED EOF/broken verdict
+        // (review carry from the jk::process absorption — a contract-(a)
+        // violation, i.e. the parent keeping a write end, is invisible to the
+        // round-trip check: the child's output still arrives but stdout never
+        // EOFs, and only the iters safety bail would end the loop. The safety
+        // bail now fails the check below instead of passing silently.)
+        auto drainPipe = [](void* pipe, std::string* sink) -> bool {
             char buf[4096];
             bool open = true;
+            bool closed = false;
             int iters = 0;  // safety bail — EOF must land at iter 1-2 here
             while (open) {
                 if (++iters > 500) break;
@@ -2825,16 +2832,19 @@ static int RunAppSelfTest() {
                         continue;
                     }
                     open = false;  // read==0/-1 -> "this pipe is done"
+                    closed = true;
                 } else if (broken == kErrBrokenPipe || broken == kErrNoData) {
                     // peer write end closed: PeekNamedPipe reports
                     // ERROR_BROKEN_PIPE(109) (observed here; ERROR_NO_DATA
                     // (232) is the alternate closed-pipe report).
                     open = false;
+                    closed = true;
                 } else {
                     std::this_thread::sleep_for(
                         std::chrono::milliseconds(20));
                 }
             }
+            return closed;
         };
 
         // A) inherited-stdio spawn + stdout round-trip.
@@ -2848,12 +2858,15 @@ static int RunAppSelfTest() {
         check(r.stdoutRead && r.stderrRead,
               "process spawn returns both parent pipe read ends");
         std::string out, errOut;
-        drainPipe(r.stdoutRead, &out);
-        drainPipe(r.stderrRead, &errOut);
+        const bool outEof = drainPipe(r.stdoutRead, &out);
+        const bool errEof = drainPipe(r.stderrRead, &errOut);
         // Quote-shape tolerant: cmd may or may not keep the inner quotes.
         check(out.find("ok") != std::string::npos &&
                   out.find("true") != std::string::npos,
               "stub child stdout round-trips through adapter pipes");
+        check(outEof && errEof,
+              "EOF observed on both pipes (contract a: parent holds read "
+              "ends only)");
         uint32_t code = 0;
         bool exited = false;
         for (int i = 0; i < 500; ++i) {  // 10s budget — echo exits at once

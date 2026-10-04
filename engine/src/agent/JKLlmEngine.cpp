@@ -8,41 +8,27 @@
 #include <agent/JKLlmEngine.h>
 #include <agent/JKAgentJson.h>
 #include <fs/JKFs.h>
+#include <process/JKProcess.h>
 
-#include <windows.h>
-
+#include <chrono>
 #include <cstdio>
-#include <vector>
+#include <thread>
+
+// stage-1 남은 Win32 시간·스레드 접촉(전부 W6/B-T5 표준화 치환 대상) — windows.h
+// 미 include 관례(JKWindowServer.cpp 선례)의 수기 dllimport. 스폰·파이프·Job
+// 계열은 jk::process 어댑터(docs/68 W4)로 흡수 완료 — 이 TU는 kernel32 dllimport
+// 류 선언만 남는다(어댑터 TU가 본래의 windows.h 소유). 가드 없음: 원문
+// windows.h 무가드 include와 동일한 윈도우 전용 TU 상태(stage 2에서 파일 분할).
+extern "C" __declspec(dllimport) unsigned long long __stdcall GetTickCount64();
+extern "C" __declspec(dllimport) void* __stdcall CreateThread(
+    void* lpThreadAttributes, unsigned long dwStackSize,
+    unsigned long(__stdcall* lpStartAddress)(void*), void* lpParameter,
+    unsigned long dwCreationFlags, unsigned long* lpThreadId);
+extern "C" __declspec(dllimport) unsigned long __stdcall WaitForSingleObject(
+    void* hHandle, unsigned long dwMilliseconds);
 
 namespace jk {
 namespace agent {
-
-namespace {
-
-// UTF-8 <-> UTF-16 (source is UTF-8; the Win32 W API wants UTF-16). Local to
-// the engine — jkchat keeps its own UI-side copies untouched.
-std::wstring Utf8ToWide(const std::string& s) {
-    if (s.empty()) return std::wstring();
-    const int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(),
-                                      static_cast<int>(s.size()), nullptr, 0);
-    std::wstring w(static_cast<size_t>(n), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), static_cast<int>(s.size()),
-                        &w[0], n);
-    return w;
-}
-
-static std::string WideToUtf8(const std::wstring& w) {
-    if (w.empty()) return std::string();
-    const int n = WideCharToMultiByte(CP_UTF8, 0, w.c_str(),
-                                      static_cast<int>(w.size()), nullptr, 0,
-                                      nullptr, nullptr);
-    std::string s(static_cast<size_t>(n), '\0');
-    WideCharToMultiByte(CP_UTF8, 0, w.c_str(), static_cast<int>(w.size()),
-                        &s[0], n, nullptr, nullptr);
-    return s;
-}
-
-} // namespace
 
 ChatConfig LoadChatConfig() {
     ChatConfig cfg;
@@ -122,9 +108,13 @@ constexpr const char* kLlmTurnPreamble =
     "[사용자] ";
 
 // claude_wrapper guide §2.2: ollama launch claude --model <m> -- [claude args]
-std::wstring BuildEngineCmd(const ChatConfig& cfg,
-                            const std::string& prompt,
-                            const std::string& resumeSessionId) {
+// UTF-8 in/out (docs/68 W4 흡수): 커맨드라인은 UTF-8 문자열로 어댑터 계약
+// (commandLineUtf8)에 전달되고 와이딩은 어댑터가 소유 — 이 TU의 UTF-8↔UTF-16
+// 헬퍼(Utf8ToWide/WideToUtf8)는 소각됐다. prompt는 UTF-8 원문(StartTurn이
+// 받은 promptUtf8을 그대로 — 와일드 왕복 변환은 무손실이라 동일 관측).
+std::string BuildEngineCmd(const ChatConfig& cfg,
+                           const std::string& prompt,
+                           const std::string& resumeSessionId) {
     // Every turn gets the fixed Korean preamble (CoT/markdown leak guard,
     // above) prepended to the raw prompt, before quote escaping.
     const std::string fullPrompt = kLlmTurnPreamble + prompt;
@@ -160,6 +150,8 @@ std::wstring BuildEngineCmd(const ChatConfig& cfg,
     std::string cmd;
     if (cfg.engine == "stub") {
         // No-network machinery test: emits a valid reply JSON.
+        // stage-1 marking: shell literal, docs/68 W4 — stub 테스트 리터럴
+        // (기계 검증용 무연결 왕복 데이터), 2단계 셸 추상 치환 대상 아님.
         cmd =
             "cmd.exe /c echo {\"result\":\"stub ok\",\"session_id\":\"stub-1\"}";
     } else if (cfg.engine == "claude") {
@@ -168,7 +160,7 @@ std::wstring BuildEngineCmd(const ChatConfig& cfg,
         cmd = "ollama launch claude --model \"" + cfg.model + "\" -- " +
               claudeArgs;
     }
-    return Utf8ToWide(cmd);
+    return cmd;
 }
 
 // The heap job: everything the worker thread needs (void* user is opaque
@@ -177,7 +169,7 @@ std::wstring BuildEngineCmd(const ChatConfig& cfg,
 // pointer stays valid for the turn's lifetime.
 struct TurnJob {
     std::atomic<int>* busy = nullptr;
-    std::wstring prompt;
+    std::string prompt;         // UTF-8 원문 — 흡수 전 wstring 왕복 변환은 무손실이라 동일 관측
     std::string resumeSession;  // snapshot of the engine's session id
     JKLlmEngine::DeltaFn onDelta = nullptr;
     JKLlmEngine::DoneFn onDone = nullptr;
@@ -231,7 +223,7 @@ bool ParseStreamLine(const std::string& line, LlmTurnResult* out,
     return false;
 }
 
-DWORD WINAPI LlmTurnThread(LPVOID param) {
+unsigned long __stdcall LlmTurnThread(void* param) {
     // param = heap-allocated job (owned and freed here)
     TurnJob* job = static_cast<TurnJob*>(param);
     const ChatConfig cfg = LoadChatConfig();
@@ -247,72 +239,48 @@ DWORD WINAPI LlmTurnThread(LPVOID param) {
         delete job;
     };
 
-    SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
-    // stdout and stderr get SEPARATE pipes: claude CLI prints warnings (e.g.
-    // "[claude-code:unrecognized_model] {...}") to stderr, and merging them
-    // into stdout would break the reply-JSON parse.
-    HANDLE readOut = nullptr, writeOut = nullptr;
-    HANDLE readErr = nullptr, writeErr = nullptr;
-    if (!CreatePipe(&readOut, &writeOut, &sa, 0) ||
-        !CreatePipe(&readErr, &writeErr, &sa, 0)) {
-        // Partial success must not leak the first pair (opus NIT-2).
-        if (readOut) CloseHandle(readOut);
-        if (writeOut) CloseHandle(writeOut);
-        if (readErr) CloseHandle(readErr);
-        if (writeErr) CloseHandle(writeErr);
-        Finish(true);
-        return 0;
-    }
-    // Our read ends must NOT be inherited by the child.
-    SetHandleInformation(readOut, HANDLE_FLAG_INHERIT, 0);
-    SetHandleInformation(readErr, HANDLE_FLAG_INHERIT, 0);
-
-    std::wstring full = L"cmd.exe /c " + BuildEngineCmd(cfg, WideToUtf8(job->prompt),
-                                                        job->resumeSession);
-    std::vector<wchar_t> mutableCmd(full.begin(), full.end());
-    mutableCmd.push_back(L'\0');
-    STARTUPINFOW si{};
-    si.cb = sizeof(si);
-    si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
-    si.wShowWindow = SW_HIDE;
-    si.hStdOutput = writeOut;
-    si.hStdError = writeErr;
-    PROCESS_INFORMATION pi{};
+    // Spawn through the jk::process adapter (docs/68 W4): the pipe pair
+    // creation, STARTUPINFO, CreateProcessW, write-end handover and the
+    // read-end non-inheritance live in JKProcess_win32.cpp now. Contracts
+    // carried verbatim — (a) the parent keeps READ ends only (the adapter
+    // closes the write ends right after spawn, so stdout EOFs) and stdout/
+    // stderr stay SEPARATE pipes (merging them would break the reply-JSON
+    // parse, :251-256 comment above), (b) the job handle below is
+    // "close == tree death". Exactly-once DoneFn (Finish) is untouched.
+    jk::process::SpawnOptions opt;
+    // stage-1 marking: shell literal, docs/68 W4 — cmd.exe 접두는 2단계 셸
+    // 추상(engine별 cfg) 치환 대상, 1단계는 원문 유지.
+    opt.commandLineUtf8 =
+        "cmd.exe /c " + BuildEngineCmd(cfg, job->prompt, job->resumeSession);
     // Session history binds to cwd (claude --resume lookup); cfg.directory
     // pins it (default: repo root where .mcp.json lives).
-    const std::wstring cwd = cfg.directory.empty()
-                                 ? std::wstring()
-                                 : Utf8ToWide(cfg.directory);
-    const BOOL spawned = CreateProcessW(nullptr, mutableCmd.data(), nullptr,
-                                        nullptr, TRUE, CREATE_NO_WINDOW,
-                                        nullptr,
-                                        cwd.empty() ? nullptr : cwd.c_str(),
-                                        &si, &pi);
-    CloseHandle(writeOut);  // the child holds its end now
-    CloseHandle(writeErr);
-
-    if (!spawned) {
-        CloseHandle(readOut);
-        CloseHandle(readErr);
+    opt.workingDir = cfg.directory;
+    opt.hideWindow = true;            // CREATE_NO_WINDOW + SW_HIDE
+    opt.inheritedStdioPipes = true;   // separate stdout/stderr parent pipes
+    const jk::process::SpawnResult spawned = jk::process::Spawn(opt);
+    if (!spawned.ok) {
+        // Partial-success pipe cleanup is the adapter's job now (opus NIT-2
+        // moved inside Spawn); Finish keeps the exactly-once DoneFn contract.
         Finish(true);
         return 0;
     }
+    void* readOut = spawned.stdoutRead;
+    void* readErr = spawned.stderrRead;
+
     // Kill-on-close job: the engine tree (cmd → ollama → claude → its MCP
     // children) dies with the turn. Without it, grandchildren survive the
     // 10-min TerminateProcess (the wrapper is not the pipe holder) and leak
     // — and a surviving grandchild holding the stdout pipe makes ReadFile
     // block FOREVER, which is how a hung turn used to dead-lock the busy
-    // gate until a bridge restart.
-    const HANDLE jobTree = CreateJobObjectW(nullptr, nullptr);
-    JOBOBJECT_EXTENDED_LIMIT_INFORMATION jobLim{};
-    jobLim.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-    SetInformationJobObject(jobTree, JobObjectExtendedLimitInformation,
-                            &jobLim, sizeof(jobLim));
-    // (2026-10-05 결함 픽스 — 플랜 B 조사 중 TDD 셀프테스트가 포획: 기존 호출은
-    // 인자 스왑(job↔process)이라 AssignProcessToJobObject가 FALSE(err=6)로
-    // 실패했고, kill-on-close 계약(아래 주석)이 실재로 성립하지 않았다. 올바른
-    // 순서 = (job, process).)
-    AssignProcessToJobObject(jobTree, pi.hProcess);
+    // gate until a bridge restart. Creation (KILL_ON_JOB_CLOSE) lives in the
+    // adapter; the handle-close == tree-death contract is preserved (close
+    // at the end of this function is still the kill).
+    void* jobTree = jk::process::CreateKillOnCloseJob();
+    // (2026-10-05 결함 픽스 e373339 수선 승계 — 플랜 B 조사 중 TDD 셀프테스트가
+    // 포획한 인자 스왑(job↔process, FALSE err=6 — kill-on-close 계약 무효 운용)
+    // 는 어댑터 AssignToJob의 (job, process) 시그니처 계약으로 흡수 완료. 원문과
+    // 같이 반환값은 무시한다.)
+    jk::process::AssignToJob(jobTree, spawned);
 
     // Read stdout+stderr CONCURRENTLY with an idle deadline. The old design
     // read stdout to EOF before touching stderr (stderr pipe could fill and
@@ -322,23 +290,30 @@ DWORD WINAPI LlmTurnThread(LPVOID param) {
     // consumer while claude is still generating. stdoutBuf stays intact —
     // the line scan advances a separate offset (the stub engine's plain
     // echo-JSON needs the whole buffer in the EOF fallback below).
-    const ULONGLONG tTurn = GetTickCount64();
-    constexpr ULONGLONG kTurnIdleKillMs = 600000;  // 10 min (bridge convention)
+    const unsigned long long tTurn = GetTickCount64();
+    constexpr unsigned long long kTurnIdleKillMs = 600000;  // 10 min (bridge convention)
     bool outOpen = true, errOpen = true;
     std::string stdoutBuf, stderrBuf;
     size_t lineScan = 0;
     char chunk[4096];
+    // Peer-closed verdict values — the adapter reports the old
+    // GetLastError()==ERROR_BROKEN_PIPE predicate through brokenError
+    // (109 observed; 232 is the alternate closed-pipe report — same contract
+    // as selftest case 14).
+    constexpr int kErrBrokenPipe = 109;  // ERROR_BROKEN_PIPE
+    constexpr int kErrNoData = 232;      // ERROR_NO_DATA (pipe closed)
     while (outOpen || errOpen) {
         bool progressed = false;
         if (outOpen) {
-            DWORD avail = 0;
-            if (PeekNamedPipe(readOut, nullptr, 0, nullptr, &avail, nullptr) &&
+            uint32_t avail = 0;
+            int broken = 0;
+            if (jk::process::PeekPipeAvail(readOut, &avail, &broken) &&
                 avail > 0) {
-                DWORD got = 0;
-                if (ReadFile(readOut, chunk, sizeof(chunk), &got, nullptr) &&
-                    got > 0) {
+                const int got =
+                    jk::process::ReadPipeData(readOut, chunk, sizeof(chunk));
+                if (got > 0) {
                     progressed = true;
-                    stdoutBuf.append(chunk, got);
+                    stdoutBuf.append(chunk, static_cast<size_t>(got));
                     size_t nl;
                     while ((nl = stdoutBuf.find('\n', lineScan)) !=
                            std::string::npos) {
@@ -349,25 +324,26 @@ DWORD WINAPI LlmTurnThread(LPVOID param) {
                         if (!line.empty()) ParseStreamLine(line, out, *job);
                     }
                 } else {
-                    outOpen = false;
+                    outOpen = false;  // read==0 (EOF) / -1 — this pipe is done
                 }
-            } else if (GetLastError() == ERROR_BROKEN_PIPE) {
+            } else if (broken == kErrBrokenPipe || broken == kErrNoData) {
                 outOpen = false;
             }
         }
         if (errOpen) {
-            DWORD avail = 0;
-            if (PeekNamedPipe(readErr, nullptr, 0, nullptr, &avail, nullptr) &&
+            uint32_t avail = 0;
+            int broken = 0;
+            if (jk::process::PeekPipeAvail(readErr, &avail, &broken) &&
                 avail > 0) {
-                DWORD got = 0;
-                if (ReadFile(readErr, chunk, sizeof(chunk), &got, nullptr) &&
-                    got > 0) {
+                const int got =
+                    jk::process::ReadPipeData(readErr, chunk, sizeof(chunk));
+                if (got > 0) {
                     progressed = true;
-                    stderrBuf.append(chunk, got);
+                    stderrBuf.append(chunk, static_cast<size_t>(got));
                 } else {
-                    errOpen = false;
+                    errOpen = false;  // read==0 (EOF) / -1 — this pipe is done
                 }
-            } else if (GetLastError() == ERROR_BROKEN_PIPE) {
+            } else if (broken == kErrBrokenPipe || broken == kErrNoData) {
                 errOpen = false;
             }
         }
@@ -375,20 +351,21 @@ DWORD WINAPI LlmTurnThread(LPVOID param) {
             // No data flowing — the kill criterion. A turn streaming deltas
             // (the user SEES it live) is never killed by the deadline.
             if (GetTickCount64() - tTurn >= kTurnIdleKillMs) {
-                TerminateJobObject(jobTree, 1);
+                jk::process::TerminateJobTree(jobTree, 1);
                 break;
             }
-            Sleep(20);
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
     }
-    CloseHandle(readOut);
-    CloseHandle(readErr);
+    jk::process::CloseHandleLike(readOut);
+    jk::process::CloseHandleLike(readErr);
     // Reap the wrapper; the job close below kills any stragglers (claude's
     // MCP children) — per-turn processes, not the user's ollama daemon.
-    WaitForSingleObject(pi.hProcess, 5000);
-    CloseHandle(pi.hProcess);
-    CloseHandle(pi.hThread);
-    CloseHandle(jobTree);
+    WaitForSingleObject(spawned.process, 5000);
+    jk::process::CloseHandleLike(spawned.process);
+    // The primary thread handle is closed inside Spawn (adapter-owned
+    // handover) — no separate hThread close here anymore.
+    jk::process::CloseHandleLike(jobTree);  // close IS the kill (contract b)
 
     if (!out->ok && !out->sawResult) {
         // No stream result line (stub engine echoes plain JSON) — legacy
@@ -421,19 +398,19 @@ bool JKLlmEngine::StartTurn(const std::string& promptUtf8,
     if (busy_.exchange(1) == 1) return false;
     TurnJob* job = new TurnJob;
     job->busy = &busy_;
-    job->prompt = Utf8ToWide(promptUtf8);
+    job->prompt = promptUtf8;  // UTF-8 그대로 — 와이드 왕복 변환 소각(무손실)
     job->resumeSession = resumeSessionId;
     job->onDelta = onDelta;
     job->onDone = onDone;
     job->user = user;
-    const HANDLE h = CreateThread(nullptr, 0, LlmTurnThread, job, 0, nullptr);
+    void* h = CreateThread(nullptr, 0, LlmTurnThread, job, 0, nullptr);
     if (!h) {
         // The thread is the busy flag's releaser — no thread, no turn.
         delete job;
         busy_ = 0;
         return false;
     }
-    CloseHandle(h);
+    jk::process::CloseHandleLike(h);
     return true;
 }
 
