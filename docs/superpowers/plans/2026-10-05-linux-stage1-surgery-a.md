@@ -450,31 +450,52 @@ git commit -m "feat(crypto): 플랫폼 중립 SHA-256+CSPRNG 헬퍼 (docs/68 W2a
 
 - [ ] **Step 1: jkctl — 로컬 해시 함수 몸체를 헬퍼 호출로**
 
-jkctl/main.cpp의 BCrypt 함수(~:220)가 Sha256Hex 형태라면 그대로 얇은 위임 유지:
+jkctl/main.cpp의 로컬 Sha256Hex(~:225)는 **접두사 포함 "sha256:"+64hex를 반환한다**
+(실측 확인 — 접두사 결합은 함수 내부). 몸체 교체 후에도 서명·반환 형식 불변:
 
 ```cpp
-    return jk::crypto::Sha256Hex(data.data(), data.size());
+std::string Sha256Hex(const std::string& data) {
+    return "sha256:" + jk::crypto::Sha256Hex(data.data(), data.size());
+}
 ```
 
-+ `#include <crypto/JKSha256.h>`, 로컬 BCrypt 호출부/extern 선언이 있으면 삭제.
-BCryptOpen...Provider 등 선언이 파일 내에 있으면 전부 제거.
+(빈 입력도 해시 — 기존 BCrypt 경로와 동일. 실패 시 "" 분기는 제거 — 순수 함수는
+실패가 없다. BCrypt는 빈 입력 해시가 항상 성공했으므로 관찰 불변.)
+
++ `#include <crypto/JKSha256.h>`, 파일 내 BCrypt extern/호출 잔여는 전부 제거.
 (jkctl이 jkcore를 링크하는지 확인 — CMakeLists의 jkctl target_link_libraries에
 jkcore 없으면 추가. 헬퍼는 jkcore 소속.)
 
 - [ ] **Step 2: jktriggers — 동일 교체**
 
-jktriggers/main.cpp:145의 BCrypt 블록 → Task 3 헬퍼 호출. jkctl과 동일 링크 확인.
+jktriggers/main.cpp:145의 BCrypt 블록(Sha256Hex — 접두사 포함 여부 실측 확인 필수,
+jkctl과 동일 형식이라면 동일하게 `"sha256:" + jk::crypto::Sha256Hex(...)`) → Task 3
+헬퍼 호출. jkctl과 동일 링크 확인.
 
 - [ ] **Step 3: JKDesktopShell — 로컬 extern BCrypt 2벌 제거+헬퍼 호출**
 
  JKDesktopShell.cpp:49-125의 BCrypt extern 선언(§ 위 Read 참조 — FindFirstFileA
  dllimport 블록 속 bcrypt 주석+선언 7행)은 **bcrypt 부분만** 제거(FindFirstFileA·
- CreateDirectoryA 유지). 해시 호출 2개소(jkctl 지문 검증 경로)는
- `jk::crypto::Sha256Hex(...)`로 교체, 포맷 접두사 "sha256:" 결합 위치 유지.
+ CreateDirectoryA 유지). 해시 호출 2개소(cmd 지문/검증)는
+ `"sha256:" + jk::crypto::Sha256Hex(...)`로 교체 — **서버 EnsureTrustRecord가 남기는
+ 지문과 바이트 일치 요구**(jkctl 주석 기준)라 접두사 형식 절대 불변.
 
 - [ ] **Step 4: jkbridge — GenToken을 헬퍼로**
 
-jkbridge/main.cpp:118-135의 BCryptGenRandom 사용 → `jk::crypto::RandomBytes`.
+jkbridge/main.cpp:117-124의 RandU32(BCryptGenRandom) → jk::crypto::RandomBytes로:
+기존은 실패 시 b가 0으로 남는(무시) 동작 — **동작 변화 0 원칙상 실패 무시 유지**:
+
+```cpp
+static uint32_t RandU32() {
+    unsigned char b[4] = {};
+    jk::crypto::RandomBytes(b, sizeof(b));  // 실패 시 0 유지 — 기존 BCrypt 동작 동일
+    return (static_cast<uint32_t>(b[0])) | (static_cast<uint32_t>(b[1]) << 8) |
+           (static_cast<uint32_t>(b[2]) << 16) |
+           (static_cast<uint32_t>(b[3]) << 24);
+}
+```
+
+(BCryptGenRandom extern 선언 잔여는 제거. jkbridge의 jkcore 링크 확인.)
 
 - [ ] **Step 5: 빌드+런 (전체 타깃 — tools 포함)**
 
