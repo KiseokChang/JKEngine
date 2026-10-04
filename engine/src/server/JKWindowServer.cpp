@@ -18,6 +18,7 @@
 #include <JKTextAtlas.h>
 #include <JKPlatform.h>
 #include <fs/JKFs.h>
+#include <process/JKProcess.h>
 #include <theme/JKTheme.h>
 
 #include <cstdio>
@@ -38,83 +39,25 @@
 #include <stb_image_write.h>
 
 #ifdef _WIN32
-// Minimal Windows API declarations for spawning client processes without
-// pulling in the full Windows headers (which conflict with legacy JKENGINE
-// typedefs in other translation units).
-struct LauncherStartupInfoA {
-    unsigned long cb = 0;
-    char* lpReserved = nullptr;
-    char* lpDesktop = nullptr;
-    char* lpTitle = nullptr;
-    unsigned long dwX = 0;
-    unsigned long dwY = 0;
-    unsigned long dwXSize = 0;
-    unsigned long dwYSize = 0;
-    unsigned long dwXCountChars = 0;
-    unsigned long dwYCountChars = 0;
-    unsigned long dwFillAttribute = 0;
-    unsigned long dwFlags = 0;
-    unsigned short wShowWindow = 0;
-    unsigned short cbReserved2 = 0;
-    unsigned char* lpReserved2 = nullptr;
-    void* hStdInput = nullptr;
-    void* hStdOutput = nullptr;
-    void* hStdError = nullptr;
-};
-
-struct LauncherProcessInformation {
-    void* hProcess = nullptr;
-    void* hThread = nullptr;
-    unsigned long dwProcessId = 0;
-    unsigned long dwThreadId = 0;
-};
-
-// W variant (docs/48 후속 CP949 레저): the A variants round-trip the command
-// line through CP_ACP (CP949 on Korean Windows), mangling UTF-8 args — the
-// filedlg json filter/title Korean labels arrived corrupted. Spawn wide:
-// convert UTF-8 args to UTF-16 here and let the child's wmain entry
-// (main.cpp) convert back with CP_UTF8.
-struct LauncherStartupInfoW {
-    unsigned long cb = 0;
-    wchar_t* lpReserved = nullptr;
-    wchar_t* lpDesktop = nullptr;
-    wchar_t* lpTitle = nullptr;
-    unsigned long dwX = 0;
-    unsigned long dwY = 0;
-    unsigned long dwXSize = 0;
-    unsigned long dwYSize = 0;
-    unsigned long dwXCountChars = 0;
-    unsigned long dwYCountChars = 0;
-    unsigned long dwFillAttribute = 0;
-    unsigned long dwFlags = 0;
-    unsigned short wShowWindow = 0;
-    unsigned short cbReserved2 = 0;
-    unsigned char* lpReserved2 = nullptr;
-    void* hStdInput = nullptr;
-    void* hStdOutput = nullptr;
-    void* hStdError = nullptr;
-};
-
-extern "C" __declspec(dllimport) int __stdcall CreateProcessW(
-    const wchar_t* lpApplicationName,
-    wchar_t* lpCommandLine,
-    void* lpProcessAttributes,
-    void* lpThreadAttributes,
-    int bInheritHandles,
-    unsigned long dwCreationFlags,
-    void* lpEnvironment,
-    const wchar_t* lpCurrentDirectory,
-    LauncherStartupInfoW* lpStartupInfo,
-    LauncherProcessInformation* lpProcessInformation);
-
+// Minimal Windows API declarations without pulling in the full Windows
+// headers (which conflict with legacy JKENGINE typedefs in other translation
+// units). The spawn block (LauncherStartupInfoA/W·LauncherProcessInformation·
+// CreateProcessW·GetExitCodeProcess ~50행) is 소각됐다 — jk::process 어댑터
+// (docs/68 W4)가 소유하며 SpawnProcess/CleanupDisconnectedClients는 어댑터
+// 호출로 흡수됐다. 남는 것은 파이프·프로세스 스폰 밖 접촉뿐.
 extern "C" __declspec(dllimport) int __stdcall MultiByteToWideChar(
     unsigned int codePage, unsigned long dwFlags, const char* lpMultiByteStr,
     int cbMultiByte, wchar_t* lpWideCharStr, int cchWideChar);
+// UTF-16 → UTF-8 (SpawnProcess 어댑터 계약 — commandLineUtf8/workingDir는
+// UTF-8 1문자열이고 어댑터가 와이딩한다).
+extern "C" __declspec(dllimport) int __stdcall WideCharToMultiByte(
+    unsigned int codePage, unsigned long dwFlags, const wchar_t* lpWideCharStr,
+    int cchWideChar, char* lpMultiByteStr, int cbMultiByte,
+    const char* lpDefaultChar, int* lpUsedDefaultChar);
 
 extern "C" __declspec(dllimport) int __stdcall CloseHandle(void* hObject);
-extern "C" __declspec(dllimport) int __stdcall GetExitCodeProcess(
-    void* hProcess, unsigned long* lpExitCode);
-static const unsigned long kStillActiveExit = 259;  // STILL_ACTIVE
+// STILL_ACTIVE — crash 분류(crash path), 어댑터 헤더 계약상 유지(kStillActiveExit=259).
+static const unsigned long kStillActiveExit = 259;
 
 // GetModuleFileNameA/W 수기 선언은 소각됐다 — exe-dir는 jk::fs::GetExecutablePath
 // 어댑터(src/fs/JKFs_win32.cpp)가 소유(docs/68 W5). 이 TU는 windows.h를 끌지
@@ -421,6 +364,9 @@ static std::string FindGuardHolderHint(const ServerCandidateScan& scan) {
 // 보유자는 눈에 보이지 않아(숨김 기동) "닫으라"고만 하면 매번 프로세스
 // 탐색이 필요했다(사용자 보고). jkwinserver.exe만 겨냥 — jkdesktop.exe는
 // 클라/앱과 이미지명이 같아 겨냥 금지.
+// stage-1 marking: OpenProcess/TerminateProcess 보유자 절단은 jk::process
+// 계약 밖(OpenProcess API가 어댑터에 없다 — 본 흡수 유지, TerminateProcess
+// 접촉 잔존) — W8(jkwinserver)/2단계 대상, docs/68 W4.
 static bool KillServerHolders(const ServerCandidateScan& scan) {
     bool any = false;
     for (unsigned long pid : scan.wserver) {
@@ -7905,12 +7851,17 @@ void JKWindowServer::CleanupDisconnectedClients() {
                     bool crashed = false;
                     auto sh = spawnedClients_.find(client->Pid());
                     if (sh != spawnedClients_.end()) {
-                        unsigned long code = 0;
-                        if (GetExitCodeProcess(sh->second, &code) &&
+                        // spawnedClients_ 핸들 = 어댑터 계약 밖 자원: Spawn이
+                        // 반환한 자식 hProcess를 맵이 직접 소유한다(어댑터는
+                        // 장기 레지스트리를 갖지 않는다) — 소멸 정리는 여기서
+                        // CloseHandleLike로 직접. KillServerHolders 쪽은
+                        // OpenProcess 핸들(어댑터 밖 자원)이라 마찬가지.
+                        uint32_t code = 0;
+                        if (jk::process::GetExitCode(sh->second, &code) &&
                             code != kStillActiveExit && code != 0) {
                             crashed = true;
                         }
-                        CloseHandle(sh->second);
+                        jk::process::CloseHandleLike(sh->second);
                         spawnedClients_.erase(sh);
                     }
                     PushAgentEvent(crashed ? "app.crashed" : "window.destroyed",
@@ -7972,6 +7923,25 @@ SDL_Texture* JKWindowServer::TextureFromRGBA(const jk::LoadedImage& img, const c
     return texture;
 }
 
+#ifdef _WIN32
+// UTF-16 → UTF-8 (docs/68 W4 어댑터 계약): SpawnProcess는 커맨드라인/cwd를
+// 와이드로 조립(원문 규약 — dirW는 A형 exe-dir의 CP_ACP 역변환)하므로, 어댑터
+// commandLineUtf8/workingDir(UTF-8 1문자열, 어댑터가 CP_UTF8 와이딩)에 넘기기
+// 위한 최소 헬퍼. 와이드→UTF-8→와이드는 무손실 왕복이다. JKLlmEngine 공용
+// 헬퍼 복각과 동일 형태(공용화는 후속 웨이브).
+static std::string WideToUtf8(const std::wstring& w) {
+    if (w.empty()) return std::string();
+    const int n = WideCharToMultiByte(65001, 0, w.c_str(),
+                                      static_cast<int>(w.size()), nullptr, 0,
+                                      nullptr, nullptr);
+    std::string s(static_cast<size_t>(n > 0 ? n : 0), '\0');
+    if (n > 0)
+        WideCharToMultiByte(65001, 0, w.c_str(), static_cast<int>(w.size()),
+                            &s[0], n, nullptr, nullptr);
+    return s;
+}
+#endif
+
 // Launch an arbitrary exe from the server's directory (SpawnClient core).
 // throttleKey defaults to exeName; SpawnClient keeps the per-app key so two
 // DIFFERENT apps can still launch back-to-back.
@@ -8024,10 +7994,12 @@ bool JKWindowServer::SpawnProcess(const char* exeName, const std::string& args,
         if (dirWide > 0) dirW.resize(static_cast<size_t>(dirWide));
         else dirW.clear();
     }
-    const wchar_t* workDir = haveDir ? dirW.c_str() : nullptr;
 
-    // Wide command line, UTF-8 args converted with CP_UTF8 (see the W-variant
-    // note above). 2048 chars upper-bounds the ANSI version's byte budget.
+    // Wide command line, UTF-8 args converted with CP_UTF8. W변형 근거(docs/48
+    // 후속 CP949 레저): A형 스폰은 커맨드라인이 CP_ACP(CP949)로 왕복해 UTF-8
+    // 인자가 망가졌다(filedlg json filter의 한글 label 실측) — 스폰은 wide로
+    // 조립하고 자식의 wmain(main.cpp)이 CP_UTF8로 되돌린다. 2048 chars
+    // upper-bounds the ANSI version's byte budget.
     std::wstring cmdLine;
     cmdLine.reserve(2048);
     cmdLine += L"\"";
@@ -8060,14 +8032,39 @@ bool JKWindowServer::SpawnProcess(const char* exeName, const std::string& args,
         cmdLine += argsW;
     }
 
-    LauncherStartupInfoW si{};
-    si.cb = sizeof(si);
-    LauncherProcessInformation pi{};
+    // jk::process 어댑터 흡수 (docs/68 W4): CreateProcessW·자체 복각 구조체
+    // (LauncherStartupInfoW/LauncherProcessInformation)는 소각 — GUI형 스폰
+    // (inherit FALSE·stdio 리다이렉트 없음·NO_WINDOW 없음)은 어댑터 기본값
+    // (hideWindow=false·inheritedStdioPipes=false)이 원문과 동일하다.
+    // 위 조립 결과(dirW CP_ACP 역변환 포함 와이드)를 CP_UTF8로 인코딩해 어댑터
+    // 계약(commandLineUtf8)에 넘긴다 — 와이드→UTF-8→와이드 무손실 왕복이라
+    // CreateProcessW가 받는 바이트열은 원문과 동일. (dirA를 그대로 넘기면
+    // 어댑터가 CP_ACP 바이트를 UTF-8로 오해해 비 ASCII 설치 dir가 망가진다.)
+    int utf8Len = WideCharToMultiByte(65001, 0, cmdLine.c_str(),
+                                      static_cast<int>(cmdLine.size()),
+                                      nullptr, 0, nullptr, nullptr);
+    if (utf8Len <= 0) {
+        // 도달 불가 방어선: cmdLine은 유효 UTF-16(dirA의 CP_ACP 역변환+65001
+        // 변환값)이라 UTF-8 인코딩이 실패하지 않는다.
+        std::fprintf(stderr,
+                     "JKWindowServer: cmd line UTF-8 encode failed for %s\n",
+                     exeName);
+        return false;
+    }
+    std::string cmdLineUtf8(static_cast<size_t>(utf8Len), '\0');
+    WideCharToMultiByte(65001, 0, cmdLine.c_str(),
+                        static_cast<int>(cmdLine.size()), &cmdLineUtf8[0],
+                        utf8Len, nullptr, nullptr);
 
     // Set the child's working directory to the executable directory so it can
     // locate the assets/ folder regardless of where the server was launched from.
-    if (!CreateProcessW(nullptr, cmdLine.data(), nullptr, nullptr, 0, 0,
-                        nullptr, workDir, &si, &pi)) {
+    // (dirW 변환 실패로 dirW가 빈 극단 경로는 CP_ACP 와이딩이 fail 불가라
+    // 도달 불가 — 어댑터는 빈 workingDir를 cwd 상속으로 처리한다.)
+    jk::process::SpawnOptions opt;
+    opt.commandLineUtf8 = cmdLineUtf8;
+    opt.workingDir = haveDir ? WideToUtf8(dirW) : std::string();
+    const jk::process::SpawnResult spawned = jk::process::Spawn(opt);
+    if (!spawned.ok) {
         std::fprintf(stderr, "JKWindowServer: CreateProcessW failed for %s\n", exeName);
         return false;
     }
@@ -8075,9 +8072,10 @@ bool JKWindowServer::SpawnProcess(const char* exeName, const std::string& args,
     // Keep the child's process handle for crash classification (M2b): when
     // the spawned client disconnects, CleanupDisconnectedClients checks the
     // exit code and emits app.crashed for non-zero exits. The thread handle
-    // is never needed again.
-    if (pi.hProcess) spawnedClients_[pi.dwProcessId] = pi.hProcess;
-    if (pi.hThread) CloseHandle(pi.hThread);
+    // is never needed again — the adapter closes it inside Spawn (SpawnResult
+    // 는 프로세스 핸들만 노출; spawnedClients_ 소유 구조도 void* 그대로 유지 —
+    // 이 맵이 자식 hProcess의 소유자이고 어댑터는 장기 레지스트리를 갖지 않는다).
+    if (spawned.process) spawnedClients_[spawned.pid] = spawned.process;
 
     std::fprintf(stderr, "JKWindowServer: spawned %s %s\n", exeName, args.c_str());
     return true;
