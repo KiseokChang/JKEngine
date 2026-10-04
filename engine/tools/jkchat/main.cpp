@@ -14,6 +14,8 @@
 #include <agent/JKAgentJson.h>
 #include <agent/JKLlmEngine.h>
 
+// Non-portable by design: Win32 GUI app (docs/31) — not a stage-1 target
+// (docs/68 W8 as-built). The include here is the app's windowing plumbing.
 #include <windows.h>
 
 #include <cstdint>

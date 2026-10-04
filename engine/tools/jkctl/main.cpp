@@ -205,7 +205,9 @@ int Ask(const AskRequest& req) {
     }
 
     STARTUPINFOW si = {};
-    si.cb = sizeof(si);
+    // stage-2 marking: docs/68 W8 — CreateProcessW → jk::process::Spawn 흡수
+    // 대상(CP949 인자 레슨 docs/48, wmain/CRT 진입 문제와 결부 — docs/68 W4의
+    // 셸 추상 결정 시점과 동일). 1단계는 원문 유지.
     PROCESS_INFORMATION pi = {};
     if (!CreateProcessW(nullptr, cmd.empty() ? nullptr : cmd.data(), nullptr,
                         nullptr, TRUE, 0, nullptr, nullptr, &si, &pi)) {
@@ -778,6 +780,8 @@ int InstallJkx(const std::string& path) {
 
 } // namespace
 
+// stage-2 marking: docs/68 W8 — wmain 자체는 2단계 CRT 진입 문제(POSIX argv)
+// 와 결부; 계약 문서는 상단 6-8행의 docs/48 레슨 주석.
 int wmain(int argc, wchar_t* argv[]) {
     if (argc < 3) {
         std::fprintf(stderr,
