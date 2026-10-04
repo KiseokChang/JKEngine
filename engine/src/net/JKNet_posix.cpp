@@ -1,3 +1,4 @@
+#ifndef _WIN32
 // jk::net posix STUB (docs/68 W8 stage-1, plan C task 3). Every public
 // header symbol is covered (plan B W3 lesson: a missed stub member is the
 // latent trap that resurfaces in stage 2). Stage 2 replaces this TU with the
@@ -8,6 +9,9 @@
 // Startup()==true, ListenTcp/Accept==kInvalidSocket, RecvAll==false,
 // Send==-1, SetTimeouts/ShutdownBoth==no-op, PrimaryIp=="?" — i.e. "net not
 // wired yet", never a silent half-open socket.
+// The _WIN32 guard keeps this TU compile-empty on Windows (JKFs_posix.cpp /
+// JKProcess_posix.cpp precedent) — the two net TUs must never both define
+// the 9 strong symbols in one link.
 #include <net/JKNet.h>
 
 #include <string>
@@ -56,3 +60,4 @@ void Close(Socket s) { (void)s; }
 std::string PrimaryIp() { return "?"; }
 
 }  // namespace jk::net
+#endif  // _WIN32

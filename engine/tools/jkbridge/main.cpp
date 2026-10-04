@@ -34,8 +34,9 @@
 // address-format function left over is hand-carried — R-C5 dllimport style.
 extern "C" __declspec(dllimport) const char* __stdcall inet_ntop(
     int af, const void* src, char* dst, size_t cnt);
-// ws2tcpip.h macro substitute — IPv4 dotted quad is 15+NUL; the absorbed
-// buffer was 22 (same purpose, pure over-allocation).
+// ws2tcpip.h macro substitute — exactly INET_ADDRSTRLEN (IPv4 15+NUL; mingw's
+// ws2tcpip.h widens the macro to 22, pure over-allocation — the absorbed
+// `char buf[INET_ADDRSTRLEN]` sites never wrote past 16). No widening change.
 constexpr size_t kInetAddrStrlen = 16;
 
 #include <algorithm>
