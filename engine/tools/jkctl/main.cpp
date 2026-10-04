@@ -8,10 +8,13 @@
 // cmd.exe std::system으로 넘기면 인코딩이 파손되므로 유니코드 경로로 간다.
 #include <agent/JKAgentClient.h>
 #include <crypto/JKSha256.h>
+#include <fs/JKFs.h>
 #include <JKJkxFile.h>
 #include <miniz.h>
 #include <miniz_zip.h>
 
+// stage-2 marking: docs/68 W8 — CreateProcessW/WaitForSingleObject/CloseHandle/
+// GetLastError, MultiByteToWideChar/WideCharToMultiByte, CreateDirectoryA, Sleep
 #include <windows.h>
 
 #include <algorithm>
@@ -27,9 +30,10 @@
 namespace {
 
 std::string ExeDirA() {
-    char path[1024] = {};
-    GetModuleFileNameA(nullptr, path, sizeof(path));
-    const std::string full(path);
+    // docs/68 W8a: GMFN 1024 버퍼를 jk::fs::GetExecutablePath(CP_ACP)로 치환 —
+    // 버퍼 선언 소각. 실패 시 빈 문자열 폴백 → 원문의 슬래시 부재 폴백 ".\"
+    // 경로를 그대로 밟는다 — 관측 동일. 절단 규약(뒤 "\\" 유지) 원문 유지.
+    const std::string full = jk::fs::GetExecutablePath();
     const size_t slash = full.find_last_of("\\/");
     return (slash == std::string::npos) ? std::string(".\\") : full.substr(0, slash + 1);
 }
@@ -260,8 +264,11 @@ bool ValidAppName(const std::string& name) {
 // 한다(jkctl은 quickjs에 링크하지 않는다 — 서브스트링 규약으로 충분).
 void TrustPreRecord(const std::string& fingerprint, const std::string& name) {
     if (fingerprint.empty()) return;
-    char exePath[1024] = {};
-    if (!GetModuleFileNameA(nullptr, exePath, sizeof(exePath))) return;
+    // docs/68 W8a: GMFN 1024 버퍼를 jk::fs::GetExecutablePath로 치환 — 버퍼
+    // 선언 소각. 실패 시 빈 문자열 폴백 = 원문의 !GMFN early-return을 검사로
+    // 대체(같은 자리에서 조용히 관두는 폴백 — 관측 동일). 절단 규약 원문 유지.
+    const std::string exePath = jk::fs::GetExecutablePath();
+    if (exePath.empty()) return;
     std::string exeDir = exePath;
     const size_t slash = exeDir.find_last_of("\\/");
     if (slash == std::string::npos) return;

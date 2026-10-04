@@ -17,8 +17,12 @@
 #include <agent/JKAgentJson.h>
 #include <agent/JKLlmEngine.h>
 #include <crypto/JKSha256.h>
+#include <fs/JKFs.h>
 #include <JKCrashHandler.h>
 
+// stage-2 marking: docs/68 W8 — MultiByteToWideChar, GetStdHandle,
+// WriteConsoleW, WriteFile, SetConsoleTextAttribute, Sleep (winsock2/ws2tcpip
+// 어댑터는 jk::net W8로 별도 흡수)
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
@@ -98,9 +102,10 @@ static std::string JsonEsc(const std::string& s) {
 }
 
 static std::string ExeDirA() {
-    char path[1024] = {};
-    GetModuleFileNameA(nullptr, path, sizeof(path));
-    std::string dir = path;
+    // docs/68 W8a: GMFN 1024 버퍼를 jk::fs::GetExecutablePath(CP_ACP)로 치환 —
+    // 버퍼 선언 소각. 실패 시 빈 문자열 폴백(원문: 미사용 0 버퍼로 "" 반환 —
+    // 관측 동일). 절단 규약(뒤 "\\" 제거, 슬래시 부재 시 전체 경로 반환) 원문 유지.
+    std::string dir = jk::fs::GetExecutablePath();
     const size_t slash = dir.find_last_of("\\/");
     if (slash != std::string::npos) dir = dir.substr(0, slash);
     return dir;

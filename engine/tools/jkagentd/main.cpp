@@ -9,8 +9,11 @@
 
 #include <agent/JKAgentClient.h>
 #include <agent/JKAgentJson.h>
+#include <fs/JKFs.h>
 #include <terminal/JKConPtyBridge.h>
 
+// stage-2 marking: docs/68 W8 — CreateDirectoryA, Sleep (ConPTY는
+// JKConPtyBridge 어댑터 TU가 windows.h 소유)
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -183,12 +186,13 @@ std::map<std::string, bool> LoadPermissions() {
 
     std::string dir = ".";
 #ifdef _WIN32
-    char exePath[MAX_PATH] = {};
-    if (GetModuleFileNameA(nullptr, exePath, MAX_PATH) > 0) {
-        dir = exePath;
-        const size_t slash = dir.find_last_of("\\/");
-        if (slash != std::string::npos) dir.resize(slash + 1);
-    }
+    // docs/68 W8a: GMFN+MAX_PATH 버퍼를 jk::fs::GetExecutablePath로 치환 —
+    // 버퍼 선언 소각. 실패 시 빈 문자열 폴백: 원문은 dir "." 유지
+    // ("./permissions.json"), 새 폴백은 "" ("permissions.json") — 같은 파일
+    // 대상이라 관측 동일. 슬래시 절단(뒤 "\\" 유지) 규약 원문 유지.
+    dir = jk::fs::GetExecutablePath();
+    const size_t slash = dir.find_last_of("\\/");
+    if (slash != std::string::npos) dir.resize(slash + 1);
 #endif
     std::FILE* f = std::fopen((dir + "permissions.json").c_str(), "rb");
     if (!f) return perms;
@@ -214,12 +218,13 @@ void WriteReceipt(const std::string& tool, const std::string& argsJson,
                   const std::string& resultJson) {
     std::string dir = ".";
 #ifdef _WIN32
-    char exePath[MAX_PATH] = {};
-    if (GetModuleFileNameA(nullptr, exePath, MAX_PATH) > 0) {
-        dir = exePath;
-        const size_t slash = dir.find_last_of("\\/");
-        if (slash != std::string::npos) dir.resize(slash + 1);
-    }
+    // docs/68 W8a: GMFN+MAX_PATH 버퍼 → jk::fs::GetExecutablePath 치환 —
+    // 버퍼 선언 소각. 실패 시 빈 문자열 폴백이 원문의 dir "." 폴백을 대체:
+    // 원문은 ".state" 디렉터리(의도와 다른 cwd 폴백), 새 폴백은 "" → "state"
+    // — 관측 확장(widened): 실패 시에도 원래 의도인 exe-cwd "state"에 쓴다.
+    dir = jk::fs::GetExecutablePath();
+    const size_t slash = dir.find_last_of("\\/");
+    if (slash != std::string::npos) dir.resize(slash + 1);
     dir += "state";
     CreateDirectoryA(dir.c_str(), nullptr);
     dir += "\\";
@@ -450,12 +455,13 @@ bool BrokerAppToolAllowed(const std::string& app, const std::string& tool) {
     const char* keys[3] = {k0.c_str(), k1.c_str(), "app_tool"};
     std::string dir = ".";
 #ifdef _WIN32
-    char exePath[MAX_PATH] = {};
-    if (GetModuleFileNameA(nullptr, exePath, MAX_PATH) > 0) {
-        dir = exePath;
-        const size_t slash = dir.find_last_of("\\/");
-        if (slash != std::string::npos) dir.resize(slash + 1);
-    }
+    // docs/68 W8a: GMFN+MAX_PATH 버퍼를 jk::fs::GetExecutablePath로 치환 —
+    // 버퍼 선언 소각. 실패 시 빈 문자열 폴백: 원문은 dir "." 유지
+    // ("./permissions.json"), 새 폴백은 "" ("permissions.json") — 같은 파일
+    // 대상이라 관측 동일. 슬래시 절단(뒤 "\\" 유지) 규약 원문 유지.
+    dir = jk::fs::GetExecutablePath();
+    const size_t slash = dir.find_last_of("\\/");
+    if (slash != std::string::npos) dir.resize(slash + 1);
 #endif
     std::FILE* f = std::fopen((dir + "permissions.json").c_str(), "rb");
     if (!f) return true;

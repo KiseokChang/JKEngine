@@ -10,9 +10,12 @@
 #include <agent/JKAgentClient.h>
 #include <agent/JKAgentJson.h>
 #include <crypto/JKSha256.h>
+#include <fs/JKFs.h>
 #include <JKJkxFile.h>
 #include <quickjs.h>
 
+// stage-2 marking: docs/68 W8 — CreateDirectoryA, FindFirstFileA/
+// FindNextFileA/FindClose(WIN32_FIND_DATAA), Sleep
 #include <windows.h>
 
 #include <chrono>
@@ -1147,15 +1150,14 @@ int PackMode(const std::string& srcDir, const std::string& outDir) {
 
 int main(int argc, char* argv[]) {
     // exeDir for state/triggers and apps/triggers.
-    char modulePath[1024] = {};
-    if (GetModuleFileNameA(nullptr, modulePath, sizeof(modulePath))) {
-        char* lastSlash = modulePath;
-        for (char* p = modulePath; *p; ++p) {
-            if (*p == '\\' || *p == '/') lastSlash = p;
-        }
-        *lastSlash = '\0';
-        g_exeDir = modulePath;
-    }
+    // docs/68 W8a: GMFN 1024 버퍼 → jk::fs::GetExecutablePath 치환 — 버퍼·
+    // 수동 슬래시 스캔 소각. 실패 시 빈 문자열 폴백: 원문은 g_exeDir 변경 없음
+    // (초기값 "") — 관측 동일. 절단 규약 원문 유지(마지막 슬래시에서 끊어 뒤
+    // "\\" 제거; 원문은 슬래시 부재 시 첫 문자 절단 = 빈 문자열, 동일 재현).
+    const std::string exePath = jk::fs::GetExecutablePath();
+    const size_t lastSlash = exePath.find_last_of("\\/");
+    if (lastSlash != std::string::npos) g_exeDir = exePath.substr(0, lastSlash);
+    else g_exeDir = "";  // 원문: 슬래시 부재 경로는 첫 문자 절단 = 빈 dir
 
     if (argc >= 4 && std::strcmp(argv[1], "--pack") == 0) {
         return PackMode(argv[2], argv[3]);
