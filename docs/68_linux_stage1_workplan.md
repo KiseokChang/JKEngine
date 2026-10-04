@@ -156,8 +156,47 @@
   대상 — `jk::net` 인터페이스(서버 리슨·accept·recv/send) 정의만 1단계에서,
   구현은 Winsock 유지·Unix socket은 2단계.
 - 게이트: probe_jkbridge·jkagentd 스모크.
+- **실측(플랜 C 태스크 2-4, 커밋 0f772cc·dd526f9·3ce840b·2c1bc7f·f6120d0):**
+  **W8a fs 흡수 2차 — GMFN 잔여 7건/4TU 전부 소각**(jkagentd ×3·jkbridge ×1·
+  jktriggers ×1·jkctl ×2 — W-API 사이트 0, 전부 A형). 우수 확장(widening)
+  2건 as-built 기록: (1) jkagentd WriteReceipt 실패 폴백이 원문 오탈자 dir
+  `.state`→의도 경로 `state`(프로세스 cwd 기준, 콜사이트 주석 정정
+  f6120d0) — 성공 경로 동일, 실패 경로 한정 교정이므로 동작 변화 0 예외
+  조항 내; (2) 원문 MAX_PATH 버퍼 3 사이트(jkagentd)의 절단 위험이 어댑터
+  1024→128KiB 동적 재시도로 소거(a6f4f67 계약 승계).
+  **예외: cefosr/osr_main.c:414 1건 미흡수** — C 파일이라 jk::fs C++ 계약
+  접근 불가 + 실험 CEF 데모(2단계 스코프 밖), 집계 제외.
+  **W8b jk::net 어댑터 신설+jkbridge 전면 흡수:** `engine/include/net/
+  JKNet.h`(Socket=u64·kInvalidSocket=~0) + `JKNet_win32.cpp`(winsock2.h
+  먼저 include 규칙) + posix 스텁 9함수 전수 커버 — 판정 R-C1(원문
+  "정의만"→전면 흡수: 2단계 TU 치환 2중 작업 방지)·R-C2(send 루프는 원형
+  보존, 어댑터는 raw int Send만)·R-C3(WSACleanup 미신설)·R-C4
+  (ListenTcp boundPortOut — getsockname 호스트오더)·R-C5(셀프테스트 원시
+  클라이언트도 windows.h-clean 수기 dllimport+로컬 ABI sockaddr_in).
+  ws2_32는 jkcore PUBLIC(WIN32 가드). 흡수: 소켓 접촉 ~20 사이트+실측 추가
+  4건(SendPong/SendWsPing send 2곳, ReadHttpHead가 1바이트 원시 recv였던
+  것→RecvAll(s,&c,1) 시맨틱 동일) = **SOCKET·윈속 헤더 잔여 0**. 셀프테스트
+  케이스 15 신설(Startup→ListenTcp(임시포트)→원시 클라 연결→Accept→
+  RecvAll 5바이트→Send 에코→클라 회수 — 7체크). windows.h는 jkbridge에
+  콘솔 API 잔여(MultiByteToWideChar·GetStdHandle 등 7종)로 유지+마킹.
+  **2단계 결정 대기 잔여(residual):** ① LoadBridgeConfig의
+  inet_addr==INADDR_NONE fail-closed 검증 :183-185(파싱 로직 — 어댑터로
+  흡수하려면 신규 parse API 필요라 마킹) ② getpeername+inet_ntop 피어
+  주소 :1721-1723 ③ jkctl CreateProcessW+wmain(2단계 CRT 진입·셸 추상과
+  결부, 마킹 2c1bc7f) ④ jkchat Win32 GUI(비이식 확정 마킹) ⑤ cefosr 1건.
+  **픽스 3ce840b(리뷰 HIGH):** JKNet_posix.cpp에 `#ifndef _WIN32` 가드
+  미설치였던 것(양 TU가 같은 9개 strong 심볼 정의 — GNU ld 소스 순서로만
+  우연 링크) — JKFs/JKProcess_posix 선례대로 가드 설치, nm 실측
+  posix.obj 0심볼/win32.obj 9심볼로 단일 정의 증명. 동일 패키지에서
+  kInetAddrStrlen 주석 22→16도 정정(=INET_ADDRSTRLEN, widening 아님).
+- **W9 실측(플랜 C 태스크 5, 2026-10-05):** 공식 회귀 **×2 연속 전부
+  GREEN** — 전체 빌드 에러 0, jkdesktop 셀프테스트 0 failure(케이스 13·14·15
+  포함), terminal_hangul_probe **44/44 ×2**, probe_app_tools ALL PASS ×2,
+  probe_jkbridge PASS ×2, probe_agent_events 8/8 ×2, probe_semantic_cursor
+  ALL PASS ×2, jkagentd liveness(ok:true) ×2, jkbridge HTTP 스모크
+  (curl root 200+토큰 페이지 웹루트 회수) ×2. **1단계 완료 판정 충족.**
 
-### W9 — 완료 게이트 (docs/62 §3·§5)
+### W9 — 완료 게이트 (docs/62 §3·§5) — **AS-BUILT 완료(2026-10-05)**
 - **Win32 회귀 프로브 전부 GREEN ×2 연속**(라이브 스택 정지 후 공식 런) — 이것이
   1단계 완료 판정 전부. .ps1 하네스는 Win32 전용 명문화 유지.
 - jkdesktop 셀프테스트(지뢰찾기 논리층 16건 포함) 1회.
@@ -193,6 +232,22 @@ probe_jkbridge PASS ×2·probe_agent_events 8/8 ×2·terminal_hangul_probe
 64타깃 에러 0. 셀프테스트가 포획한 실재 결함 1건(e373339 인자 스왑) 수선.
 **W7-W9 대기** — W7은 어댑터 인터페이스 이름 확정만, W9=전체 회귀 ×2(플랜 B와
 동일 게이트 세트면 재검증으로 대용 가능 검토 필요).
+
+**→ 플랜 C(W7-W9) 착수·완료 실측(2026-10-05)** — SDD 플랜
+docs/superpowers/plans/2026-10-05-linux-stage1-surgery-c.md로 실행. 커밋
+2cb7899(W7 docs)·0f772cc(W8a fs 2차 흡수)·dd526f9(W8b net 어댑터+bridge)·
+3ce840b(리뷰 HIGH 픽스)·f6120d0(C-T2 리뷰 LOW 픽스)·2c1bc7f(W8 마킹).
+게이트는 위 W9 실측 블록(×2 전부 GREEN). 각 태스크 리뷰 SPEC yes ×3,
+전체 판정은 opus 최종리뷰가 이 갱신 이후 커밋으로.
+
+**★ 리눅스 1단계(플랫폼 경계 수술) 완료 판정(2026-10-05):** 1단계 정의의
+완료 조건 = "어댑터 경계를 인터페이스로 뽑고 Win32 구현을 그 자리에 유지 +
+기존 Win32 회귀 프로브 전부 GREEN(동작 변화 0 증명)" — W1-W9 전부 as-built
+완료, 게이트 ×2 GREEN으로 충족. 잔여 Win32 접촉은 전부 2단계 결정 대기로
+마킹 완료(위 W8b residual 목록+W4·W5 결정 대기 건 누적). **2단계(Termux/
+리눅스 머신) 착수는 사용자 판정 사항** — 어댑터 인터페이스가 전범위 준비된
+상태이므로 2단계 작업은 posix 실구현(W1-W6 어댑터 전체)+전송·pty·flock
+가드·폰트 탐색+셸 추상 결정이다(docs/62 §8).
 
 ## 4. 리스크 보강 (docs/62 §6 외)
 
