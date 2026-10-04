@@ -17,6 +17,7 @@
 #include <JKSoundManager.h>
 #include <JKTextAtlas.h>
 #include <JKPlatform.h>
+#include <fs/JKFs.h>
 #include <theme/JKTheme.h>
 
 #include <cstdio>
@@ -115,11 +116,9 @@ extern "C" __declspec(dllimport) int __stdcall GetExitCodeProcess(
     void* hProcess, unsigned long* lpExitCode);
 static const unsigned long kStillActiveExit = 259;  // STILL_ACTIVE
 
-extern "C" __declspec(dllimport) unsigned long __stdcall GetModuleFileNameA(
-    void* hModule, char* lpFilename, unsigned long nSize);
-
-extern "C" __declspec(dllimport) unsigned long __stdcall GetModuleFileNameW(
-    void* hModule, wchar_t* lpFilename, unsigned long nSize);
+// GetModuleFileNameA/W 수기 선언은 소각됐다 — exe-dir는 jk::fs::GetExecutablePath
+// 어댑터(src/fs/JKFs_win32.cpp)가 소유(docs/68 W5). 이 TU는 windows.h를 끌지
+// 않는 관례 유지.
 
 extern "C" __declspec(dllimport) int __stdcall CreateDirectoryA(
     const char* lpPathName, void* lpSecurityAttributes);
@@ -216,6 +215,18 @@ namespace server {
 static void LoadSettingsKv(bool& mute, int& volume, int& retention,
                            std::string& fontPath, std::string& fontFallback,
                            std::string& fontScale);
+
+// exe-dir 흡수 (docs/68 W5): 이 TU에 복각돼 있던 GetModuleFileNameA 블록
+// (buf→find_last_of→substr — WritePermissionsEntry/SettingsKvPath/NotesPath/
+// FilesPermRaw/RevokeTrustRecord/AgentToolAllowed/AppToolAllowed/agent_permissions
+// 퍼미션 읽기)을 1헬퍼로 통일. 원문 절단 규약 = 뒤 "\\" 없음(dir + "\\permissions.json"
+// 결합 소비자) — 그대로 보존. 절단 취약점(MAX_PATH/1024 후단 절단)은 어댑터의
+// 동적 재시도로 동시 소거.
+static std::string ExeDirNoSlash() {
+    const std::string exe = jk::fs::GetExecutablePath();
+    const size_t cut = exe.find_last_of("\\/");
+    return cut == std::string::npos ? std::string() : exe.substr(0, cut);
+}
 
 JKWindowServer::JKWindowServer() = default;
 
@@ -549,15 +560,17 @@ bool JKWindowServer::StartAcceptor(const std::string& pipeName) {
         if (WaitNamedPipeA(pipeName_.c_str(), 20)) break;
         Sleep(10);
     }
-    char modulePath[1024] = {};
-    const unsigned long len = GetModuleFileNameA(nullptr, modulePath, sizeof(modulePath));
-    if (len > 0 && len < sizeof(modulePath)) {
-        char* lastSlash = modulePath;
-        for (char* p = modulePath; *p; ++p) {
-            if (*p == '\\' || *p == '/') lastSlash = p;
-        }
-        *lastSlash = '\0';
-        std::string dllPath = std::string(modulePath[0] ? modulePath : ".") + "\\jkapp_taskbar.dll";
+    // exe-dir는 jk::fs::GetExecutablePath 흡수 (docs/68 W5): 동적 재시도라
+    // 원문의 len<1024 절단 건너뛰기 조건은 소멸. 원문 절단 규약(뒤 "\\" 없음,
+    // 구분자 없을 때 "." 폴백) 그대로.
+    const std::string exePathAutoSpawn = jk::fs::GetExecutablePath();
+    if (!exePathAutoSpawn.empty()) {
+        const size_t autoCut = exePathAutoSpawn.find_last_of("\\/");
+        const std::string dirSelf =
+            autoCut == std::string::npos
+                ? std::string(".")
+                : exePathAutoSpawn.substr(0, autoCut);
+        std::string dllPath = dirSelf + "\\jkapp_taskbar.dll";
         if (GetFileAttributesA(dllPath.c_str()) != kInvalidFileAttributes) {
             SpawnClient("taskbar");
         } else {
@@ -2548,11 +2561,7 @@ static const AgentPermRow kPermMatrix[] = {
 // write_failed. kPermMatrix는 gate "server" 행의 기본값에도 쓰인다.
 static std::string WritePermissionsEntry(const std::string& permTool,
                                          const std::string& decision) {
-    char exePath[1024] = {};
-    GetModuleFileNameA(nullptr, exePath, sizeof(exePath));
-    std::string dir = exePath;
-    const size_t slash = dir.find_last_of("\\/");
-    if (slash != std::string::npos) dir = dir.substr(0, slash);
+    const std::string dir = ExeDirNoSlash();
     const std::string path = dir + "\\permissions.json";
 
     std::map<std::string, std::string> values;
@@ -2620,11 +2629,7 @@ static std::string WritePermissionsEntry(const std::string& permTool,
 // — JKTextAtlas::ResolveDesktopFontPath/ResolveDesktopFallbackPath가 기동 시
 // 같은 키를 원독한다.
 static std::string SettingsKvPath() {
-    char exePath[1024] = {};
-    GetModuleFileNameA(nullptr, exePath, sizeof(exePath));
-    std::string dir = exePath;
-    const size_t slash = dir.find_last_of("\\/");
-    if (slash != std::string::npos) dir = dir.substr(0, slash);
+    const std::string dir = ExeDirNoSlash();
     return dir + "\\state\\settings.json";
 }
 
@@ -2803,11 +2808,7 @@ struct NoteRow {
     bool isItem = false;
 };
 static std::string NotesPath() {
-    char exePath[1024] = {};
-    GetModuleFileNameA(nullptr, exePath, sizeof(exePath));
-    std::string dir = exePath;
-    const size_t slash = dir.find_last_of("\\/");
-    if (slash != std::string::npos) dir = dir.substr(0, slash);
+    const std::string dir = ExeDirNoSlash();
     return dir + "\\state\\notes.json";
 }
 // 바이트 절단은 UTF-8 후행 시퀀스를 자른다(substr는 바이트 단위 — opus
@@ -2974,11 +2975,7 @@ static bool WriteNotesFile(const std::vector<NoteRow>& notes,
 // (WritePermissionsEntry 선례의 exe-dir 인라인 — StateDir는 멤버라 static
 // 헬퍼 불가). AgentToolAllowed와 같은 4KiB 원문 상한.
 static std::string FilesPermRaw(const std::string& tool) {
-    char exePath[1024] = {};
-    GetModuleFileNameA(nullptr, exePath, sizeof(exePath));
-    std::string dir = exePath;
-    const size_t slash = dir.find_last_of("\\/");
-    if (slash != std::string::npos) dir = dir.substr(0, slash);
+    const std::string dir = ExeDirNoSlash();
     const std::string path = dir + "\\permissions.json";
     std::FILE* f = std::fopen(path.c_str(), "rb");
     if (!f) return "missing";
@@ -3213,11 +3210,7 @@ static bool TrustRecordText(const std::string& text,
 // trust.json에서 해당 지문 레코드 제거 + .bak 1회 보존(북마크 선례 — 최초
 // 덮어쓰기 시점 원본만). 반환: 빈 문자열 = 성공(제거 1건), 아니면 오류 문자열.
 static std::string RevokeTrustRecord(const std::string& fingerprint) {
-    char exePath[1024] = {};
-    GetModuleFileNameA(nullptr, exePath, sizeof(exePath));
-    std::string dir = exePath;
-    const size_t slash = dir.find_last_of("\\/");
-    if (slash != std::string::npos) dir = dir.substr(0, slash);
+    const std::string dir = ExeDirNoSlash();
     CreateDirectoryA((dir + "\\state").c_str(), nullptr);
     const std::string path = dir + "\\state\\trust.json";
 
@@ -4142,11 +4135,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             reply = "{\"ok\":false,\"error\":\"bad_fingerprint\"}";
         } else {
             std::string trustText;
-            char exePath[1024] = {};
-            GetModuleFileNameA(nullptr, exePath, sizeof(exePath));
-            std::string dir = exePath;
-            const size_t dslash = dir.find_last_of("\\/");
-            if (dslash != std::string::npos) dir = dir.substr(0, dslash);
+            const std::string dir = ExeDirNoSlash();
             if (std::FILE* f = std::fopen(
                     (dir + "\\state\\trust.json").c_str(), "rb")) {
                 // 전체 읽기 (docs/53 §9 잔여 — RevokeTrustRecord와 동일 근거):
@@ -4246,15 +4235,14 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         //   jkx: 주어진 경로 우선, 없으면 exeDir/apps/<bare>.jkx 폴백 해석
         //        (런처의 apps/ 열거와 같은 기준 — bare 이름을 쓰는 LLM을
         //        살리는 쪽). 둘 다 없으면 unknown_jkx.
-        char exePath[1024] = {};
+        // jk::fs::GetExecutablePath 흡수 (docs/68 W5). 원문 규약: 추출 실패/
+        // 구분자 없음 시 exeDir 빈값 유지.
         std::string exeDir;
-        if (GetModuleFileNameA(nullptr, exePath, sizeof(exePath)) > 0) {
-            char* lastSlash = exePath;
-            for (char* p = exePath; *p; ++p) {
-                if (*p == '\\' || *p == '/') lastSlash = p;
-            }
-            *lastSlash = '\0';
-            exeDir = exePath;
+        const std::string exePathLaunch = jk::fs::GetExecutablePath();
+        if (!exePathLaunch.empty()) {
+            const size_t launchCut = exePathLaunch.find_last_of("\\/");
+            if (launchCut != std::string::npos)
+                exeDir = exePathLaunch.substr(0, launchCut);
         }
         auto fileExistsFn = [](const std::string& p) {
             return GetFileAttributesA(p.c_str()) != kInvalidFileAttributes;
@@ -5504,11 +5492,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         // 스펙 §2.1: permissions.json + 기본값 병합. gate 뱃지로 게이트
         // 소비처를 정직 표기 — "none" 행의 파일값은 서버 무력(브로커만).
         // file은 "" = 오버라이드 없음 (AgentJson이 null을 못 읽는다).
-        char exePath[1024] = {};
-        GetModuleFileNameA(nullptr, exePath, sizeof(exePath));
-        std::string dir = exePath;
-        const size_t slash = dir.find_last_of("\\/");
-        if (slash != std::string::npos) dir = dir.substr(0, slash);
+        const std::string dir = ExeDirNoSlash();
         const std::string permPath = dir + "\\permissions.json";
         char pbuf[4096] = {};
         bool fileExists = false;
@@ -6972,11 +6956,7 @@ AgentDecision JKWindowServer::AgentToolAllowed(const std::string& tool) const {
     // allow로 바꿔두면 이후 모든 권한 변경이 무승인이 되는 2단 우회 봉쇄
     // (스펙 §2.2 핵심 안전 결정).
     if (tool == "permission_set") return AgentDecision::Ask;
-    char exePath[1024] = {};
-    GetModuleFileNameA(nullptr, exePath, sizeof(exePath));
-    std::string dir = exePath;
-    const size_t slash = dir.find_last_of("\\/");
-    if (slash != std::string::npos) dir = dir.substr(0, slash);
+    const std::string dir = ExeDirNoSlash();
     const std::string path = dir + "\\permissions.json";
     // Missing entry defaults: close_window denies (M1 rule), trust_request
     // ASKS (the gate would be pointless if unknown scripts loaded silently),
@@ -7064,11 +7044,7 @@ AgentDecision JKWindowServer::AppToolAllowed(const std::string& app,
     std::string k0 = "app_tool." + app + "." + tool;
     std::string k1 = "app_tool." + app;
     const char* keys[3] = {k0.c_str(), k1.c_str(), "app_tool"};
-    char exePath[1024] = {};
-    GetModuleFileNameA(nullptr, exePath, sizeof(exePath));
-    std::string dir = exePath;
-    const size_t slash = dir.find_last_of("\\/");
-    if (slash != std::string::npos) dir = dir.substr(0, slash);
+    const std::string dir = ExeDirNoSlash();
     std::FILE* f = std::fopen((dir + "\\permissions.json").c_str(), "rb");
     if (!f) return dflt;
     char buf[4096] = {};
@@ -7385,9 +7361,8 @@ bool JKWindowServer::ApprovalParkingFull(uint32_t requesterId) const {
 // <exeDir>/state — agent-created files (layout snapshots). CreateDirectoryA
 // fails harmlessly when the directory already exists.
 std::string JKWindowServer::StateDir() const {
-    char exePath[1024] = {};
-    GetModuleFileNameA(nullptr, exePath, sizeof(exePath));
-    std::string dir = exePath;
+    // jk::fs::GetExecutablePath 흡수 (docs/68 W5) — 원문 "." 폴백 규약 유지.
+    std::string dir = jk::fs::GetExecutablePath();
     const size_t slash = dir.find_last_of("\\/");
     dir = (slash == std::string::npos) ? std::string(".") : dir.substr(0, slash);
     dir += "\\state";
@@ -8023,23 +7998,32 @@ bool JKWindowServer::SpawnProcess(const char* exeName, const std::string& args,
     }
 
     // Assume the server executable is in the same directory as the target.
-    // Wide path: GetModuleFileNameA would break on non-ANSI install dirs.
-    wchar_t modulePathW[1024] = {};
-    const unsigned long len =
-        GetModuleFileNameW(nullptr, modulePathW, 1024);
-    if (len == 0 || len >= 1024) {
-        std::fprintf(stderr, "JKWindowServer: GetModuleFileNameW failed\n");
+    // 원문은 W형 GetModuleFileNameW — non-ANSI 설치 dir 안전이 취지였다. 어댑터
+    // 흡수(docs/68 W5)로 A형 std::string 통일: 어댑터 반환은 CP_ACP 바이트라
+    // CP_ACP→wide 역변환(CP_ACP=0)이 W형 원본과 동일한 char를 복원하고,
+    // CP_ACP로 표현 불가한 설치 dir는 다른 25개 A형 콜사이트와 같은 등급으로
+    // 균일화된다. 동적 재시도로 원문의 len>=1024 절단 실패 조건은 소멸.
+    const std::string exePathSpawn = jk::fs::GetExecutablePath();
+    if (exePathSpawn.empty()) {
+        std::fprintf(stderr, "JKWindowServer: GetExecutablePath failed\n");
         return false;
     }
 
-    // Find the directory component.
-    wchar_t* lastSlash = modulePathW;
-    for (wchar_t* p = modulePathW; *p; ++p) {
-        if (*p == L'\\' || *p == L'/') lastSlash = p;
+    // Find the directory component (dirW는 exe 앞 폴더까지 — 원문 규약 유지).
+    const size_t spawnCut = exePathSpawn.find_last_of("\\/");
+    const bool haveDir = (spawnCut != std::string::npos && spawnCut > 0);
+    const std::string dirA = haveDir ? exePathSpawn.substr(0, spawnCut)
+                                     : std::string();
+    std::wstring dirW;
+    if (!dirA.empty()) {
+        dirW.resize(dirA.size());
+        const int dirWide = MultiByteToWideChar(
+            0,  // CP_ACP — GetExecutablePath(A형)의 역변환
+            0, dirA.c_str(), static_cast<int>(dirA.size()), &dirW[0],
+            static_cast<int>(dirW.size()));
+        if (dirWide > 0) dirW.resize(static_cast<size_t>(dirWide));
+        else dirW.clear();
     }
-    // Leave a NUL after the directory; exe name is appended below.
-    const bool haveDir = (lastSlash != modulePathW);
-    std::wstring dirW(modulePathW, haveDir ? (lastSlash - modulePathW) : 0);
     const wchar_t* workDir = haveDir ? dirW.c_str() : nullptr;
 
     // Wide command line, UTF-8 args converted with CP_UTF8 (see the W-variant

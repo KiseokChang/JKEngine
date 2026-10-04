@@ -16,6 +16,7 @@
 // (2026-09-20 빌드 실측).
 #include <windows.h>
 #include <apps/ClientScriptApp.h>
+#include <fs/JKFs.h>
 #include <JKJkxFile.h>
 
 #include <cstdio>
@@ -36,11 +37,12 @@ std::string SideFilePath(const char* suffix) {
 }
 
 std::string ExeDir() {
-    char exe[MAX_PATH] = {};
-    if (!GetModuleFileNameA(nullptr, exe, MAX_PATH)) return {};
-    const std::string p(exe);
-    const size_t slash = p.find_last_of("\\/");
-    return slash == std::string::npos ? std::string(".") : p.substr(0, slash);
+    // jk::fs::GetExecutablePath 흡수 (docs/68 W5). 원문 규약: 추출 실패 시
+    // 빈값({}), 구분자 없을 시 ".", 뒤 "\\" 없음 — 그대로.
+    const std::string exe = jk::fs::GetExecutablePath();
+    if (exe.empty()) return {};
+    const size_t slash = exe.find_last_of("\\/");
+    return slash == std::string::npos ? std::string(".") : exe.substr(0, slash);
 }
 
 bool IsAbsolutePath(const std::string& p) {

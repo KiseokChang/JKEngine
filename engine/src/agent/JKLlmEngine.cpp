@@ -7,6 +7,7 @@
 // callback, so "exactly one DoneFn call" is a load-bearing promise.
 #include <agent/JKLlmEngine.h>
 #include <agent/JKAgentJson.h>
+#include <fs/JKFs.h>
 
 #include <windows.h>
 
@@ -41,21 +42,17 @@ static std::string WideToUtf8(const std::wstring& w) {
     return s;
 }
 
-static std::string ExeDirA() {
-    char path[1024] = {};
-    GetModuleFileNameA(nullptr, path, sizeof(path));
-    std::string dir = path;
-    const size_t slash = dir.find_last_of("\\/");
-    if (slash != std::string::npos) dir = dir.substr(0, slash);
-    return dir;
-}
-
 } // namespace
 
 ChatConfig LoadChatConfig() {
     ChatConfig cfg;
+    // chat.json 위치: exe-dir(뒤 "\\" 없음 — ExeDirA 원문 규약). GMFN 콜사이트는
+    // jk::fs::GetExecutablePath 어댑터로 흡수(docs/68 W5) — ExeDirA 소각.
+    std::string exeDir = jk::fs::GetExecutablePath();
+    const size_t cut = exeDir.find_last_of("\\/");
+    if (cut != std::string::npos) exeDir = exeDir.substr(0, cut);
     std::FILE* f =
-        std::fopen((ExeDirA() + "\\state\\chat.json").c_str(), "rb");
+        std::fopen((exeDir + "\\state\\chat.json").c_str(), "rb");
     if (!f) return cfg;
     char buf[4096] = {};
     const size_t n = std::fread(buf, 1, sizeof(buf) - 1, f);

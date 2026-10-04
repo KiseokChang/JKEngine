@@ -16,13 +16,7 @@
 #include <cstdarg>
 #include <string>
 
-#ifdef _WIN32
-#ifndef MAX_PATH
-#define MAX_PATH 260
-#endif
-extern "C" __declspec(dllimport) unsigned long __stdcall GetModuleFileNameA(
-    void* hModule, char* lpFilename, unsigned long nSize);
-#endif
+#include <fs/JKFs.h>
 
 namespace {
 
@@ -39,9 +33,12 @@ void UiStallReport(const char* fmt, ...) {
 #ifdef _WIN32
     static std::string logPath;
     if (logPath.empty()) {
-        char exePath[MAX_PATH];
-        if (GetModuleFileNameA(nullptr, exePath, sizeof(exePath)) == 0) return;
-        std::string dir = exePath;
+        // jk::fs::GetExecutablePath 흡수 (docs/68 W5) — 원문 규약(후행 '\' 유지,
+        // 실패/구분자 없음 시 조용히 중단), '\'만 자른다. exe 옆 착지: 클라/
+        // 서버가 같은 exe다 — 상태 파일 관례(bookmarks.json의 ExeDirSlash
+        // 패턴)와 동일.
+        std::string dir = jk::fs::GetExecutablePath();
+        if (dir.empty()) return;
         const size_t slash = dir.find_last_of('\\');
         if (slash == std::string::npos) return;
         dir.resize(slash + 1);

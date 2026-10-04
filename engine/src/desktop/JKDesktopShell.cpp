@@ -3,6 +3,7 @@
 #include "theme/JKTheme.h"
 
 #include <JKDC.h>
+#include <fs/JKFs.h>
 #include <JKHangulManager.h>
 #include <crypto/JKSha256.h>
 #include <JKHangulUtil.h>
@@ -24,9 +25,8 @@
 #ifdef _WIN32
 // Minimal Windows API declarations for the .jkx app scan — the same local
 // declaration style the server TU uses (full Windows headers conflict with
-// legacy JKENGINE typedefs in other translation units).
-extern "C" __declspec(dllimport) unsigned long __stdcall GetModuleFileNameA(
-    void* hModule, char* lpFilename, unsigned long nSize);
+// legacy JKENGINE typedefs in other translation units). GetModuleFileNameA
+// 선언은 소각 — exe-dir는 jk::fs::GetExecutablePath 어댑터가 소유(docs/68 W5).
 
 // .jkx app discovery (ScanJkxApps).
 struct JkxFindData {
@@ -105,12 +105,13 @@ std::string ConsoleAppFingerprint(const std::string& cmd) {
 // -쓰기 경쟁 최소화). 파손된 스토어는 덮어쓰지 않는다 — 기록 보존이 우선.
 void EnsureTrustRecord(const std::string& fingerprint, const std::string& name) {
 #ifdef _WIN32
-    char exePath[1024] = {};
-    if (!GetModuleFileNameA(nullptr, exePath, sizeof(exePath))) return;
-    std::string exeDir = exePath;
-    const size_t slash = exeDir.find_last_of("\\/");
+    // jk::fs::GetExecutablePath 흡수 (docs/68 W5) — 원문 규약: 실패/구분자
+    // 없음 시 조용히 중단, 뒤 "\\" 없음.
+    const std::string exe = jk::fs::GetExecutablePath();
+    if (exe.empty()) return;
+    const size_t slash = exe.find_last_of("\\/");
     if (slash == std::string::npos) return;
-    exeDir.resize(slash);
+    std::string exeDir = exe.substr(0, slash);
     CreateDirectoryA((exeDir + "\\state").c_str(), nullptr);
     const std::string path = exeDir + "\\state\\trust.json";
 
@@ -363,25 +364,25 @@ void JKDesktopShell::ScanJkxApps() {
 #ifdef _WIN32
     // Enumerate <exe-dir>/apps/*.jkx. Icon textures are decoded from the
     // container's ICON entries (no temp files); spawning uses --jkx <path>.
-    char basePath[1024] = {};
-    if (!GetModuleFileNameA(nullptr, basePath, sizeof(basePath))) return;
-    char* lastSlash = basePath;
-    for (char* p = basePath; *p; ++p) {
-        if (*p == '\\' || *p == '/') lastSlash = p;
-    }
-    *lastSlash = '\0';
+    // jk::fs::GetExecutablePath 흡수 (docs/68 W5) — basePath 규약(뒤 "\\" 없음)
+    // 유지.
+    const std::string exe = jk::fs::GetExecutablePath();
+    if (exe.empty()) return;
+    const size_t baseCut = exe.find_last_of("\\/");
+    if (baseCut == std::string::npos) return;
+    const std::string basePath = exe.substr(0, baseCut);
 
-    char pattern[1024];
-    std::snprintf(pattern, sizeof(pattern), "%s\\apps\\*.jkx", basePath);
+    const std::string pattern = basePath + "\\apps\\*.jkx";
     JkxFindData fd{};
-    void* find = FindFirstFileA(pattern, &fd);
+    void* find = FindFirstFileA(pattern.c_str(), &fd);
     if (!find) return;
 
     const float s = host_.outputScale ? host_.outputScale() : 1.0f;
 
     do {
         char path[1024];
-        std::snprintf(path, sizeof(path), "%s\\apps\\%s", basePath, fd.cFileName);
+        std::snprintf(path, sizeof(path), "%s\\apps\\%s",
+                      basePath.c_str(), fd.cFileName);
 
         jk::JKJkxFile jkx;
         if (!jkx.Open(path)) continue;
@@ -420,18 +421,17 @@ void JKDesktopShell::ScanJkxApps() {
 // 겹치면 .jkx가 이긴다(스캔 순서 + 명시적 스킵).
 void JKDesktopShell::ScanConsoleApps() {
 #ifdef _WIN32
-    char basePath[1024] = {};
-    if (!GetModuleFileNameA(nullptr, basePath, sizeof(basePath))) return;
-    char* lastSlash = basePath;
-    for (char* p = basePath; *p; ++p) {
-        if (*p == '\\' || *p == '/') lastSlash = p;
-    }
-    *lastSlash = '\0';
+    // jk::fs::GetExecutablePath 흡수 (docs/68 W5) — basePath 규약(뒤 "\\" 없음)
+    // 유지.
+    const std::string exe = jk::fs::GetExecutablePath();
+    if (exe.empty()) return;
+    const size_t baseCut = exe.find_last_of("\\/");
+    if (baseCut == std::string::npos) return;
+    const std::string basePath = exe.substr(0, baseCut);
 
-    char pattern[1024];
-    std::snprintf(pattern, sizeof(pattern), "%s\\apps\\*", basePath);
+    const std::string pattern = basePath + "\\apps\\*";
     JkxFindData fd{};
-    void* find = FindFirstFileA(pattern, &fd);
+    void* find = FindFirstFileA(pattern.c_str(), &fd);
     if (!find) return;
 
     constexpr unsigned long kDir = 0x10;  // FILE_ATTRIBUTE_DIRECTORY
@@ -440,7 +440,7 @@ void JKDesktopShell::ScanConsoleApps() {
 
         const std::string dirName = fd.cFileName;
         const std::string manifestPath =
-            std::string(basePath) + "\\apps\\" + dirName + "\\manifest.json";
+            basePath + "\\apps\\" + dirName + "\\manifest.json";
         std::vector<uint8_t> bytes;
         if (!ReadFileBytes(manifestPath, bytes)) continue;  // no manifest → not a console app
 

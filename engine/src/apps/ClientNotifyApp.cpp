@@ -8,6 +8,7 @@
 #include <imgui_impl_jkwindow.h>
 #include "theme/JKThemeImGui.h"
 #include <JKWindow.h>
+#include <fs/JKFs.h>
 #include <SDL.h>
 
 #include <chrono>
@@ -229,13 +230,11 @@ void ClientNotifyApp::ClearHistory() {
 // ---------------------------------------------------------------------------
 
 std::string ClientNotifyApp::StatePath(const char* name) {
-    std::string path;
-    char exePath[MAX_PATH] = {};
-    if (GetModuleFileNameA(nullptr, exePath, MAX_PATH) > 0) {
-        path = exePath;
-        const size_t slash = path.find_last_of("\\/");
-        if (slash != std::string::npos) path.resize(slash + 1);
-    }
+    // jk::fs::GetExecutablePath 흡수 (docs/68 W5). 원문 규약: 추출 실패 시 빈
+    // 접두(→ "\state\<name>"), 성공 시 후행 '\' 유지.
+    std::string path = jk::fs::GetExecutablePath();
+    const size_t slash = path.find_last_of("\\/");
+    if (slash != std::string::npos) path.resize(slash + 1);
     path += "state";
     CreateDirectoryA(path.c_str(), nullptr);   // harmless if it exists
     path += "\\";

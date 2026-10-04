@@ -2,6 +2,7 @@
 // terminal.json과 달리 quickjs를 띄우지 않는다: 키가 하나뿐이므로 문자열
 // 스캔이면 충분. 파일 없음/깨짐 → false, 활성 테마 불변 (기본값=다크).
 #include "theme/JKTheme.h"
+#include <fs/JKFs.h>
 
 #include <cstdio>
 #include <string>
@@ -41,14 +42,13 @@ bool loadPresetFromFile(const std::string& path) {
 }
 
 std::string DefaultThemePath() {
+    // jk::fs::GetExecutablePath 흡수 (docs/68 W5). 원문 규약: 추출 실패 시
+    // 빈 dir(dir + "theme.json"에서 상대 경로 폴백), 성공 시 후행 '\' 유지.
     std::string dir;
 #ifdef _WIN32
-    char exePath[MAX_PATH] = {};
-    if (GetModuleFileNameA(nullptr, exePath, MAX_PATH) > 0) {
-        dir = exePath;
-        const size_t slash = dir.find_last_of("\\/");
-        if (slash != std::string::npos) dir.resize(slash + 1);
-    }
+    dir = jk::fs::GetExecutablePath();
+    const size_t slash = dir.find_last_of("\\/");
+    if (slash != std::string::npos) dir.resize(slash + 1);
 #endif
     return dir + "theme.json";
 }

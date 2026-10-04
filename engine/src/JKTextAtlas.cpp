@@ -6,30 +6,25 @@
 #include <JKTextAtlas.h>
 #include <JKResourceCache.h>
 #include <agent/JKAgentJson.h>
+#include <fs/JKFs.h>
 #include <stb_truetype.h>
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 
-#ifdef _WIN32
-#include <windows.h>
-#endif
-
 namespace jk {
 
 namespace {
 
 std::string ExeDir() {
-#ifdef _WIN32
-    char exePath[1024] = {};
-    GetModuleFileNameA(nullptr, exePath, sizeof(exePath));
-    std::string dir = exePath;
-    const size_t slash = dir.find_last_of("\\/");
-    return slash == std::string::npos ? std::string() : dir.substr(0, slash + 1);
-#else
-    return std::string();   // Linux: settings override support arrives with the port (docs/62)
-#endif
+    // jk::fs::GetExecutablePath 흡수 (docs/68 W5). 원문 규약(후행 '\' 유지,
+    // 실패/구분자 없음 시 빈값) 유지 — 비윈도우는 어댑터 posix 스텁이 같은
+    // 빈값 계약을 소유한다(기존 #else의 "Linux: settings override support
+    // arrives with the port" 계약과 일치).
+    const std::string exe = jk::fs::GetExecutablePath();
+    const size_t slash = exe.find_last_of("\\/");
+    return slash == std::string::npos ? std::string() : exe.substr(0, slash + 1);
 }
 
 bool FileReadable(const std::string& path) {

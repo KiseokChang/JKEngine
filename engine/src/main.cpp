@@ -16,8 +16,8 @@ extern "C" __declspec(dllimport) int __stdcall CreateDirectoryA(
     const char* lpPathName, void* lpSecurityAttributes);
 extern "C" __declspec(dllimport) int __stdcall DeleteFileA(const char* lpFileName);
 extern "C" __declspec(dllimport) unsigned long __stdcall GetCurrentProcessId(void);
-extern "C" __declspec(dllimport) unsigned long __stdcall GetModuleFileNameA(
-    void* hModule, char* lpFilename, unsigned long nSize);
+// GetModuleFileNameA 수기 선언은 소각 — exe-dir는 jk::fs::GetExecutablePath
+// 어댑터가 소유(docs/68 W5).
 extern "C" __declspec(dllimport) void* __stdcall GetStdHandle(int nStdHandle);
 // PULARGE_INTEGER is really just a pointer to a 64-bit byte count; declaring
 // it as unsigned long long* keeps windows.h out of this translation unit.
@@ -31,6 +31,7 @@ extern "C" __declspec(dllimport) int __stdcall GetDiskFreeSpaceExA(
 #include <JKApplication.h>
 #include <JKCrashHandler.h>
 #include <JKWindow.h>
+#include <fs/JKFs.h>
 
 #include <client/JKClientSurface.h>
 #include <server/JKWindowServer.h>
@@ -404,19 +405,20 @@ static void MirrorClientStderr(const char* dllPath) {
     constexpr int kStdErrorHandle = -12; // STD_ERROR_HANDLE
     void* errH = GetStdHandle(kStdErrorHandle);
     if (errH && errH != (void*)(intptr_t)-1) return;
-    char exePath[520];
-    if (GetModuleFileNameA(nullptr, exePath, sizeof(exePath)) == 0) return;
-    char* slash = std::strrchr(exePath, '\\');
-    if (!slash) return;
-    *(slash + 1) = '\0';
+    // jk::fs::GetExecutablePath 흡수 (docs/68 W5) — 원문 규약(후행 '\' 유지,
+    // 실패/구분자 없음 시 조용히 중단) 유지.
+    const std::string exe = jk::fs::GetExecutablePath();
+    if (exe.empty()) return;
+    const size_t slash = exe.find_last_of('\\');
+    if (slash == std::string::npos) return;
+    const std::string exeDir = exe.substr(0, slash + 1);
     // jkapp_<app>.dll -> <app>
     const char* base = std::strstr(dllPath, "jkapp_");
     base = base ? base + 6 : dllPath;
     std::string app(base);
     const size_t dot = app.rfind(".dll");
     if (dot != std::string::npos) app.resize(dot);
-    const std::string logPath =
-        std::string(exePath) + "client_" + app + ".log";
+    const std::string logPath = exeDir + "client_" + app + ".log";
     std::FILE* f = std::fopen(logPath.c_str(), "rb");
     long size = 0;
     if (f) {

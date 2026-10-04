@@ -10,6 +10,7 @@
 #include "theme/JKThemeImGui.h"
 #include <agent/JKAgentJson.h>
 #include <JKWindow.h>
+#include <fs/JKFs.h>
 #include <SDL.h>
 
 #include <windows.h>
@@ -139,9 +140,9 @@ std::string JsonEsc(const std::string& s) {
 // computes (and caches) it on demand instead of depending on init order.
 const std::string& ExeDirSlash() {
     if (g_exeDirSlash.empty()) {
-        char exePath[MAX_PATH];
-        GetModuleFileNameA(NULL, exePath, MAX_PATH);
-        std::string dir = exePath;
+        // jk::fs::GetExecutablePath 흡수 (docs/68 W5). 이 헬퍼의 슬래시 정규화
+        // 변형(원문: find_last_of '\\' 절단 후 '\\'→'/' 치환 + 후행 '/') 유지.
+        std::string dir = jk::fs::GetExecutablePath();
         const size_t slash = dir.find_last_of('\\');
         if (slash != std::string::npos)
             dir = dir.substr(0, slash);
@@ -651,9 +652,8 @@ void ClientBrowserApp::InitCef() {
         return;
     }
 
-    char exePath[MAX_PATH];
-    GetModuleFileNameA(NULL, exePath, MAX_PATH);
-    std::string dir = exePath;
+    // exe-dir 재계산도 어댑터 사용 (docs/68 W5) — ExeDirSlash()와 동일 정규화.
+    std::string dir = jk::fs::GetExecutablePath();
     const size_t slash = dir.find_last_of('\\');
     if (slash != std::string::npos)
         dir = dir.substr(0, slash);

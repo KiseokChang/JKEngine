@@ -9,6 +9,7 @@
 #include <JKSoundManager.h>
 #include <JKTextAtlas.h>
 #include <JKTimerThread.h>
+#include <fs/JKFs.h>
 #include <theme/JKTheme.h>
 #include <chrono>
 #include <cstdio>
@@ -35,7 +36,14 @@ JKApplication::~JKApplication() {
 
 bool JKApplication::Init(const std::string& title, int width, int height) {
 #ifdef _WIN32
-    mouseLog_ = std::fopen("C:\\temp_jkwin_verify\\mouse.log", "w");
+    // 마우스 검증 로그 (마우스 수술 실측용): 하드코딩 C:\temp_jkwin_verify\
+    // mouse.log 소각 (docs/68 W5) — exe-dir 기반 state\mouse_verify.log로.
+    // 원문 동작 계약 보존: state 디렉터리가 없으면 fopen이 실패하고 로그는
+    // 조용히 건너뛴다(원문도 디렉터리 선존재 가정 + 실패 조용히 무시).
+    std::string mouseLogDir = jk::fs::GetExecutablePath();
+    const size_t mouseCut = mouseLogDir.find_last_of("\\/");
+    if (mouseCut != std::string::npos) mouseLogDir.resize(mouseCut + 1);
+    mouseLog_ = std::fopen((mouseLogDir + "state\\mouse_verify.log").c_str(), "w");
 #endif
 
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {

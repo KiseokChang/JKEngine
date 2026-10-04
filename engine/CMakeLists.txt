@@ -159,6 +159,11 @@ add_library(jkcore STATIC
     src/ipc/JKPipeTransport_posix.cpp
     src/ipc/JKSharedMemory_win32.cpp
     src/ipc/JKSharedMemory_posix.cpp
+    # jk::fs exe-dir adapter (docs/68 W5): the Win32 TU carries the dynamic-
+    # retry GetExecutablePath, the posix TU is an empty stub until stage 2.
+    # Both are listed unconditionally; each file guards its own body.
+    src/fs/JKFs_win32.cpp
+    src/fs/JKFs_posix.cpp
     src/agent/JKAgentClient.cpp
     src/agent/JKAgentJson.cpp
     src/agent/JKLlmEngine.cpp
@@ -205,6 +210,11 @@ if(WIN32)
     target_link_libraries(jkcore PUBLIC imm32)
     # Minidump on unhandled exceptions (JKCrashHandler_win32.cpp, docs/57 §13)
     target_link_libraries(jkcore PUBLIC dbghelp)
+    # BCrypt carry (docs/68 W2 plan-A carry, re-affirmed at W5): jkcore owns the
+    # jk::crypto::Sha256Hex dependency so jkcore-only targets link; the
+    # jkdesktop_shell/jkbridge/jktriggers/jkctl `-lbcrypt` lines are now
+    # redundant-but-harmless.
+    target_link_libraries(jkcore PUBLIC bcrypt)
 endif()
 
 # ---------------------------------------------------------------------------
@@ -235,6 +245,8 @@ target_include_directories(jkdesktop_shell PUBLIC
     include
     third_party/stb
 )
+# bcrypt: now owned by jkcore PUBLIC (docs/68 W2 carry) — kept for explicitness,
+# redundant-but-harmless.
 target_link_libraries(jkdesktop_shell PUBLIC jkcore bcrypt)
 target_link_libraries(jkserver PUBLIC jkdesktop_shell)
 
@@ -666,7 +678,7 @@ endif()
 # token; ws2_32 (TCP/WS), bcrypt (token CSPRNG). LAN IP print uses the
 # UDP-connect/getsockname trick — no iphlpapi.
 add_executable(jkbridge tools/jkbridge/main.cpp)
-target_link_libraries(jkbridge PRIVATE jkcore ws2_32 bcrypt)
+target_link_libraries(jkbridge PRIVATE jkcore ws2_32 bcrypt)  # bcrypt: jkcore PUBLIC carry redundancy — harmless keep
 if(WIN32)
     target_link_options(jkbridge PRIVATE -static-libstdc++ -static-libgcc)
 endif()
@@ -674,7 +686,7 @@ endif()
 # M2b trigger-script host: console process, no UI (outside JKWindow/SDL).
 # bcrypt: SHA-256 for the script trust model (docs/37 spec, CNG BCrypt).
 add_executable(jktriggers tools/jktriggers/main.cpp)
-target_link_libraries(jktriggers PRIVATE jkcore bcrypt)
+target_link_libraries(jktriggers PRIVATE jkcore bcrypt)  # bcrypt: jkcore PUBLIC carry redundancy — harmless keep
 if(WIN32)
     target_link_options(jktriggers PRIVATE -static-libstdc++ -static-libgcc)
 endif()
@@ -691,7 +703,7 @@ add_executable(jkctl tools/jkctl/main.cpp
     third_party/miniz/miniz_tinfl.c
     third_party/miniz/miniz_tdef.c)
 target_include_directories(jkctl PRIVATE third_party/miniz)
-target_link_libraries(jkctl PRIVATE jkcore bcrypt)
+target_link_libraries(jkctl PRIVATE jkcore bcrypt)  # bcrypt: jkcore PUBLIC carry redundancy — harmless keep
 if(WIN32)
     target_link_options(jkctl PRIVATE -municode -static-libstdc++ -static-libgcc)
 endif()

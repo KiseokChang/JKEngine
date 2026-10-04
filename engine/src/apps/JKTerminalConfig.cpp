@@ -3,6 +3,7 @@
 // so the config layer adds no dependency of its own. Every key falls back
 // independently — the doc's verification line is "잘못된 키는 기본값 폴백".
 #include <apps/JKTerminalConfig.h>
+#include <fs/JKFs.h>
 
 #include <quickjs.h>
 
@@ -173,14 +174,13 @@ bool JKTerminalConfig::Load(const std::string& path) {
 }
 
 std::string JKTerminalConfig::DefaultPath() {
+    // jk::fs::GetExecutablePath 흡수 (docs/68 W5). 원문 규약: 추출 실패 시
+    // 빈 dir(상대 경로 폴백), 성공 시 후행 '\' 유지.
     std::string dir;
 #ifdef _WIN32
-    char exePath[MAX_PATH] = {};
-    if (GetModuleFileNameA(nullptr, exePath, MAX_PATH) > 0) {
-        dir = exePath;
-        const size_t slash = dir.find_last_of("\\/");
-        if (slash != std::string::npos) dir.resize(slash + 1);
-    }
+    dir = jk::fs::GetExecutablePath();
+    const size_t slash = dir.find_last_of("\\/");
+    if (slash != std::string::npos) dir.resize(slash + 1);
 #endif
     return dir + "terminal.json";
 }
