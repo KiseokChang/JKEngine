@@ -33,8 +33,13 @@
   없는 64hex)/RandomBytes(win32 dllimport BCryptGenRandom flag 2, non-Win
   fail-closed), FIPS 180-4 수기, 셀프테스트 케이스 13: 빈·abc·55바이트 FIPS/실측 3벡터)
   +0acbfaa(4개소 흡수: jkctl·jktriggers·JKDesktopShell 래퍼는 "sha256:"+Sha256Hex
-  결합으로 형식 불변, jkbridge RandU32 실패 무시 동행 보존, dllimport BCrypt 6개
-  제거, bcrypt.h include 2건 제거). **리뷰 레슨: 라이브 BCrypt 호출은 JKSha256.cpp
+  결합으로 형식 불변, jkbridge RandU32 실패 무시 동행 보존, dllimport BCrypt
+  extern decl 제거합계 12건(JKDesktopShell 6+jkctl 6), bcrypt.h include 2건
+  제거). **2단계 예방 노트(최종리뷰 Minor ①): jkcore는 bcrypt를 링크하지 않는다
+  — RandomBytes의 __imp_BCryptGenRandom이 소비자 4곳의 잔존 -lbcrypt로 우연
+  해소 중. 다음 CMakeLists 접촉 시 `if(WIN32) target_link_libraries(jkcore
+  PUBLIC bcrypt) endif()` 추가 후 잔존 4곳 주석 갱신 — 안 하면 jkcore만
+  링크하는 신규 타깃에서 링크 파단.** **리뷰 레슨: 라이브 BCrypt 호출은 JKSha256.cpp
   단일 소유로 수렴 — 전 엔진 grep 재확인. TDD RED가 플랜 원문 코드 결함 2건
   (니블 루프 b<4, 워드 로드 p[i] 슬라이딩)을 포획 — 플랜은 16efef2로 정정**
   (hashlib 독립 참조 x55=d5e28568…4072). 게이트 probe_jkbridge PASS ×2
