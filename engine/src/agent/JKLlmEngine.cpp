@@ -308,7 +308,11 @@ DWORD WINAPI LlmTurnThread(LPVOID param) {
     jobLim.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
     SetInformationJobObject(jobTree, JobObjectExtendedLimitInformation,
                             &jobLim, sizeof(jobLim));
-    AssignProcessToJobObject(pi.hProcess, jobTree);
+    // (2026-10-05 결함 픽스 — 플랜 B 조사 중 TDD 셀프테스트가 포획: 기존 호출은
+    // 인자 스왑(job↔process)이라 AssignProcessToJobObject가 FALSE(err=6)로
+    // 실패했고, kill-on-close 계약(아래 주석)이 실재로 성립하지 않았다. 올바른
+    // 순서 = (job, process).)
+    AssignProcessToJobObject(jobTree, pi.hProcess);
 
     // Read stdout+stderr CONCURRENTLY with an idle deadline. The old design
     // read stdout to EOF before touching stderr (stderr pipe could fill and
