@@ -16,12 +16,12 @@
 #include <agent/JKAgentClient.h>
 #include <agent/JKAgentJson.h>
 #include <agent/JKLlmEngine.h>
+#include <crypto/JKSha256.h>
 #include <JKCrashHandler.h>
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
-#include <bcrypt.h>
 
 #include <algorithm>
 #include <atomic>
@@ -115,9 +115,15 @@ static std::string ExeDirA() {
 // ---------------------------------------------------------------------------
 static const int kDefaultPort = 8790;
 
+// docs/68 W2b: BCryptGenRandom → jk::crypto::RandomBytes. The old call ignored
+// failure (status unchecked, b stays zeroed) — behavior preserved verbatim:
+// RandomBytes' return is discarded, b stays zeroed on failure. Note that on
+// non-Windows RandomBytes returns false for now, so the token degenerates to
+// all-zero-hex there (stage 2 will give Linux a real impl; on Win32 nothing
+// changes — BCryptGenRandom system-preferred-RNG path is the same call).
 static uint32_t RandU32() {
     unsigned char b[4] = {};
-    BCryptGenRandom(nullptr, b, sizeof(b), BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+    jk::crypto::RandomBytes(b, sizeof(b));  // 실패 시 0 유지 — 기존 BCrypt 동작 동일
     return (static_cast<uint32_t>(b[0])) | (static_cast<uint32_t>(b[1]) << 8) |
            (static_cast<uint32_t>(b[2]) << 16) |
            (static_cast<uint32_t>(b[3]) << 24);

@@ -9,12 +9,11 @@
 
 #include <agent/JKAgentClient.h>
 #include <agent/JKAgentJson.h>
+#include <crypto/JKSha256.h>
 #include <JKJkxFile.h>
 #include <quickjs.h>
 
 #include <windows.h>
-
-#include <bcrypt.h>
 
 #include <chrono>
 #include <cstdio>
@@ -135,30 +134,16 @@ bool RateAllowAt(const std::string& source, uint64_t nowMs) {
 bool RateAllow(const std::string& source) { return RateAllowAt(source, NowMs()); }
 
 // ---------------------------------------------------------------------------
-// Script trust model (docs/37 spec): SHA-256 fingerprints via Windows CNG.
+// Script trust model (docs/37 spec): SHA-256 fingerprints.
 // ---------------------------------------------------------------------------
 
-// "sha256:<64 hex>" — the identity of a script (spec §2). Returns "" on
-// failure; an empty fingerprint never matches a trust record (fail-closed).
+// "sha256:<64 hex>" — the identity of a script (spec §2). docs/68 W2b: digest
+// is the platform-neutral jkcore helper (was Windows CNG BCrypt — digests are
+// byte-identical, selftest vectors prove it). The ""-on-failure contract is
+// now unreachable (pure function), kept so an empty fingerprint still never
+// matches a trust record (fail-closed).
 std::string Sha256Hex(const uint8_t* data, size_t len) {
-    BCRYPT_ALG_HANDLE alg = nullptr;
-    if (BCryptOpenAlgorithmProvider(&alg, BCRYPT_SHA256_ALGORITHM, nullptr, 0) != 0)
-        return "";
-    BCRYPT_HASH_HANDLE h = nullptr;
-    uint8_t digest[32] = {};
-    bool ok = BCryptCreateHash(alg, &h, nullptr, 0, nullptr, 0, 0) == 0;
-    if (ok && len > 0) ok = BCryptHashData(h, (PUCHAR)data, (ULONG)len, 0) == 0;
-    if (ok) ok = BCryptFinishHash(h, digest, sizeof(digest), 0) == 0;
-    if (h) BCryptDestroyHash(h);
-    BCryptCloseAlgorithmProvider(alg, 0);
-    if (!ok) return "";
-    static const char* kHex = "0123456789abcdef";
-    std::string out = "sha256:";
-    for (uint8_t b : digest) {
-        out += kHex[b >> 4];
-        out += kHex[b & 0xf];
-    }
-    return out;
+    return "sha256:" + jk::crypto::Sha256Hex(data, len);
 }
 
 // ---------------------------------------------------------------------------

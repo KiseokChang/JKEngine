@@ -7,6 +7,7 @@
 // wmain + CreateProcessW: docs/48 CP949 argv 레슨 — UTF-8 프롬프트를
 // cmd.exe std::system으로 넘기면 인코딩이 파손되므로 유니코드 경로로 간다.
 #include <agent/JKAgentClient.h>
+#include <crypto/JKSha256.h>
 #include <JKJkxFile.h>
 #include <miniz.h>
 #include <miniz_zip.h>
@@ -218,29 +219,13 @@ int Ask(const AskRequest& req) {
 
 // --- 패키지 매니저 공용 (docs/51 C 후보 잔여: zip 배포 + trust 선기록) ---
 
-// bcrypt SHA-256 → "sha256:"+64hex (docs/51 §3.4 ConsoleAppFingerprint와
-// 동일 형식·동일 CNG 구현 — 서버 EnsureTrustRecord가 남기는 지문과
-// 바이트 단위로 일치해야 한다). 빈 입력/실패 시 "" 반환.
+// SHA-256 → "sha256:"+64hex (docs/51 §3.4 ConsoleAppFingerprint와 동일 형식 —
+// 서버 EnsureTrustRecord가 남기는 지문과 바이트 단위로 일치해야 한다).
+// docs/68 W2b: digest는 플랫폼 중립 헬퍼(Pure C++ SHA-256, jkcore 소속)로
+// 교체 — BCrypt 소멸. 접두사 결합은 이 래퍼가 유지(빈 입력도 해시 — 기존
+// BCrypt 경로와 동일; 순수 함수라 실패 분기는 없다).
 std::string Sha256Hex(const std::string& data) {
-    void* alg = nullptr;
-    if (BCryptOpenAlgorithmProvider(&alg, L"SHA256", nullptr, 0) != 0) return "";
-    void* h = nullptr;
-    uint8_t digest[32] = {};
-    bool ok = BCryptCreateHash(alg, &h, nullptr, 0, nullptr, 0, 0) == 0;
-    if (ok && !data.empty())
-        ok = BCryptHashData(h, (unsigned char*)data.data(),
-                            (unsigned long)data.size(), 0) == 0;
-    if (ok) ok = BCryptFinishHash(h, digest, sizeof(digest), 0) == 0;
-    if (h) BCryptDestroyHash(h);
-    BCryptCloseAlgorithmProvider(alg, 0);
-    if (!ok) return "";
-    static const char* kHex = "0123456789abcdef";
-    std::string out = "sha256:";
-    for (uint8_t b : digest) {
-        out += kHex[b >> 4];
-        out += kHex[b & 0xf];
-    }
-    return out;
+    return "sha256:" + jk::crypto::Sha256Hex(data.data(), data.size());
 }
 
 // manifest.json에서 "key":"value" 추출 — install MVP의 문자열 스캔 관용구를

@@ -4,6 +4,7 @@
 
 #include <JKDC.h>
 #include <JKHangulManager.h>
+#include <crypto/JKSha256.h>
 #include <JKHangulUtil.h>
 #include <JKImageLoader.h>
 #include <JKJkxFile.h>
@@ -47,22 +48,8 @@ extern "C" __declspec(dllimport) int __stdcall FindNextFileA(
     void* hFindFile, JkxFindData* lpFindFileData);
 extern "C" __declspec(dllimport) int __stdcall FindClose(void* hFindFile);
 
-// bcrypt (cmd 지문, P4 SDK §3.4) — jktriggers Sha256Hex와 동일 CNG 호출.
-// long = NTSTATUS, wchar_t* = LPCWSTR (알고리즘 ID는 유니코드).
-extern "C" __declspec(dllimport) long __stdcall BCryptOpenAlgorithmProvider(
-    void** phAlgorithm, const wchar_t* pszAlgId, const wchar_t* pszImplementation,
-    unsigned long dwFlags);
-extern "C" __declspec(dllimport) long __stdcall BCryptCreateHash(
-    void* hAlgorithm, void** phHash, unsigned char* pbHashObject,
-    unsigned long cbHashObject, unsigned char* pbSecret, unsigned long cbSecret,
-    unsigned long dwFlags);
-extern "C" __declspec(dllimport) long __stdcall BCryptHashData(
-    void* hHash, unsigned char* pbInput, unsigned long cbInput, unsigned long dwFlags);
-extern "C" __declspec(dllimport) long __stdcall BCryptFinishHash(
-    void* hHash, unsigned char* pbOutput, unsigned long cbOutput, unsigned long dwFlags);
-extern "C" __declspec(dllimport) long __stdcall BCryptDestroyHash(void* hHash);
-extern "C" __declspec(dllimport) long __stdcall BCryptCloseAlgorithmProvider(
-    void* hAlgorithm, unsigned long dwFlags);
+// bcrypt externs (cmd 지문, P4 SDK §3.4)는 docs/68 W2b에서 제거 — 지문은
+// 플랫폼 중립 jk::crypto::Sha256Hex로 발행한다(BCrypt digest와 바이트 동일).
 extern "C" __declspec(dllimport) int __stdcall CreateDirectoryA(
     const char* lpPathName, void* lpSecurityAttributes);
 #endif // _WIN32
@@ -105,33 +92,11 @@ bool ReadFileBytes(const std::string& path, std::vector<uint8_t>& out) {
 }
 
 // 콘솔 앱 스폰 cmd 지문 (P4 SDK §3.4): docs/37 스킴 재사용 — jktriggers
-// Sha256Hex와 동일 형식("sha256:"+64hex)/동일 CNG 구현. 빈 문자열은 실패.
+// Sha256Hex와 동일 형식("sha256:"+64hex). docs/68 W2b: BCrypt CNG 호출을
+// 플랫폼 중립 헬퍼로 교체 — digest 바이트열 불변(서버 EnsureTrustRecord가
+// 남기는 지문과 일치). 빈 cmd도 해시된다(BCrypt 경로와 동일 관찰).
 std::string ConsoleAppFingerprint(const std::string& cmd) {
-#ifdef _WIN32
-    void* alg = nullptr;
-    // BCRYPT_SHA256_ALGORITHM == L"SHA256"
-    if (BCryptOpenAlgorithmProvider(&alg, L"SHA256", nullptr, 0) != 0) return "";
-    void* h = nullptr;
-    uint8_t digest[32] = {};
-    bool ok = BCryptCreateHash(alg, &h, nullptr, 0, nullptr, 0, 0) == 0;
-    if (ok && !cmd.empty())
-        ok = BCryptHashData(h, (unsigned char*)cmd.data(),
-                            (unsigned long)cmd.size(), 0) == 0;
-    if (ok) ok = BCryptFinishHash(h, digest, sizeof(digest), 0) == 0;
-    if (h) BCryptDestroyHash(h);
-    BCryptCloseAlgorithmProvider(alg, 0);
-    if (!ok) return "";
-    static const char* kHex = "0123456789abcdef";
-    std::string out = "sha256:";
-    for (uint8_t b : digest) {
-        out += kHex[b >> 4];
-        out += kHex[b & 0xf];
-    }
-    return out;
-#else
-    (void)cmd;
-    return "";
-#endif
+    return "sha256:" + jk::crypto::Sha256Hex(cmd.data(), cmd.size());
 }
 
 // trust ledger 보증 (P4 SDK §3.4): 스폰 cmd 지문을 state\trust.json에 upsert
