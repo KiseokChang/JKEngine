@@ -35,6 +35,7 @@ extern "C" __declspec(dllimport) int __stdcall GetDiskFreeSpaceExA(
 #include <client/JKClientSurface.h>
 #include <server/JKWindowServer.h>
 #include <agent/JKAgentClient.h>
+#include <crypto/JKSha256.h>
 #include <ipc/JKWireEndpoints.h>
 #include <ipc/JKWireProtocol.h>
 #include <theme/JKTheme.h>
@@ -2765,6 +2766,29 @@ static int RunAppSelfTest() {
         t.buf.insert(t.buf.end(), payload, payload + 8);
         check(jk::ipc::ReadMessage(t, m) && m.payload.size() == 8,
               "payload within cap round-trips");
+    }
+
+    // 13) hand-rolled SHA-256 (docs/68 W2a): FIPS vectors — the command
+    // fingerprints must stay byte-identical with the old BCrypt digests
+    // ("sha256:"+64hex format is unchanged at every call site, W2b).
+    // TDD: case added first → build RED (no <crypto/JKSha256.h>) → helper
+    // implemented → all three vectors PASS (GREEN, jkdesktop.exe test).
+    {
+        check(jk::crypto::Sha256Hex("", 0) ==
+                  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "sha256 empty vector");
+        check(jk::crypto::Sha256Hex("abc", 3) ==
+                  "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+              "sha256 abc vector");
+        // 55-byte boundary padding case: 55 + 1 (0x80) + 8 (bit length) is
+        // exactly one block — the single-block padding tail. The digest below
+        // is an observed value (cross-checked against an independent SHA-256
+        // implementation, python hashlib), not a FIPS vector — empty/abc
+        // above are the correctness anchors.
+        const std::string pad(55, 'x');
+        check(jk::crypto::Sha256Hex(pad.data(), pad.size()) ==
+                  "d5e285683cd4efc02d021a5c62014694958901005d6f71e89e0989fac77e4072",
+              "sha256 55-byte vector (observed, hashlib cross-checked)");
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);

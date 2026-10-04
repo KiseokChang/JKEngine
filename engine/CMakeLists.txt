@@ -153,6 +153,7 @@ add_library(jkcore STATIC
     src/JKRenderThread.cpp
     src/JKRenderCommandList.cpp
     src/JKApplication.cpp
+    src/crypto/JKSha256.cpp
     src/ipc/JKWireProtocol.cpp
     src/ipc/JKPipeTransport_win32.cpp
     src/ipc/JKPipeTransport_posix.cpp
