@@ -138,6 +138,16 @@
   이름만 확정**(jk::input::InjectSyntheticEvent·jk::ime::·jk::window::EnableHighDpiAwareness).
 - 리눅스 IME는 §18 단일 소유 원칙상 OS IME 미개입이 정답 — 어댑터는 스텁만.
 - 게이트: 불요(수술 없음).
+- **실측(플랜 C 태스크 1, 2026-10-05):** 신설 0건 확정 — `jk::Platform`
+  (JKPlatform.h, 162행)이 이미 IME·입력·DPI 경계의 단일 PAL이다:
+  DPI 2종(InitializeProcessDpiAwareness/IsPerMonitorDpiAware)·입력 2종
+  (SendSyntheticKey/SendSyntheticChar)·IME 5종(ImeMode enum+
+  GetCurrentConversionMode/SetConversionMode/CompleteComposition/DetachIme),
+  전부 "Non-Windows: no-op/Unknown" 헤더 계약 명문화. 원문이 제안한 신설
+  이름(jk::input::InjectSyntheticEvent/jk::ime::/jk::window::
+  EnableHighDpiAwareness)은 불요 — 어댑터 인터페이스 확정 작업은 실측상
+  완결돼 있었던 것으로 판정, 코드·이름 변경 0. 리눅스 IME는 §18 단일 소유
+  원칙상 스텁만이 정답이라는 원문 결론도 그대로 유지.
 
 ### W8 — tools 5종 보완 조사+정리 (인벤토리 §5-3 교정, 지시문 스코프 누락 해소)
 - jkagentd/jkchat/jktriggers/jkctl/jkbridge의 windows.h 접촉점 전수 조사 — 본 문서가
