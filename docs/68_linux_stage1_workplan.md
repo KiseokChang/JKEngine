@@ -60,7 +60,7 @@
   게이트 terminal_hangul_probe **44/44 ×2**(플랜 기재 33/33은 후속 세션에서 체크
   증가 — 실측값 기준) + jkdesktop 셀프테스트 0 failure.
 
-### W4 — 프로세스 스폰 어댑터 신설 (인벤토리 §1-1 본체)
+### W4 — 프로세스 스폰 어댑터 신설 (인벤토리 §1-1 본체) — **AS-BUILT 완료(2026-10-05)**
 - `jk::process` 인터페이스 신설: SpawnProcess·CreateStdioPipe·PeekPipeData·
   KillProcess·TerminateProcessTree(=Win32 JobObject에 대응하는 프로세스 그룹 추상).
 - 접촉점 3TU: JKLlmEngine.cpp(CreateProcess/Pipe/Peek/Job 전부)·JKWindowServer.cpp
@@ -70,8 +70,28 @@
   치환 예정 — 1단계는 인벤토리 §1-1의 main.cpp:2603 행처럼 **테스트 리터럴 오인 없도록
   접촉점만 마킹**.
 - 게이트: probe_jkbridge(LLM 턴 경로)+probe_agent_events.
+- **실측(플랜 B, 커밋 4c90a6e·21907f2·6db73eb·e373339):** 어댑터는
+  `engine/include/process/JKProcess.h`(56행)+`JKProcess_win32.cpp`(195행)+posix
+  스텁 — ConPTY 계열은 3번째 스폰 패밀리로 **배제**(JKConPtyBridge 보존, inventory
+  §3 실측 승계). 스폰 2계열만 흡수: stdio 상속형(SpawnOptions.inheritedStdioPipes)
+  +GUI 무stdio형. 계약 명문화: (a) 상속형 부모는 READ 끝만 보유, 스폰 직후 write 끝
+  폐기(자식 stdout EOF 보장) (b) Job 핸들 close==트리 사망
+  (JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE). PeekPipeAvail은 brokenError로
+  ERROR_BROKEN_PIPE(109)·ERROR_NO_DATA(232) 보고(상수는 WinSDK 값 하드코딩 —
+  어댑터 TU가 windows.h 소유, 소비 TU는 windows.h-clean 유지: JKLmEngine 직접
+  include 소각, JKWindowServer는 미 include 관례+수기 dllimport ~60행 소각).
+  셀프테스트 케이스 14 신설(echo 스폰 왕복+Job 스모크+GUI형+"양 파이프 EOF 관측"
+  단언 — 계약 (a) 위반이 ~20s 지연으로만 관측되는 것을 감별력 있게 잡음).
+- **★인자 스왑 결함 픽스 e373339**(동작 변화 0의 결함 수선 예외 2번째 — 플랜 A
+  ConsoleAppFingerprint 다음): JKLmEngine.cpp:311의
+  `AssignProcessToJobObject(pi.hProcess, jobTree)` 인자 스왑 — 항상 FALSE(err=6),
+  kill-on-close 계약이 무효 운용됐음(idle 킬·grandchild 정리가 사실상 미작동).
+  어댑터 AssignToJob(job, proc) 계약으로 수선. probe_jkbridge가 LLM 턴 경로에서
+  실재 검증.
+- 마킹 이행: BuildEngineCmd·stub 리터럴·cmd.exe 접두 :273에 "stage-1 marking:
+  shell literal, docs/68 W4" 주석 — 2단계 셸 추상 대상 명시(1단계 원문 유지).
 
-### W5 — 파일시스템·경로 정리 (인벤토리 §6+§4 본체)
+### W5 — 파일시스템·경로 정리 (인벤토리 §6+§4 본체) — **AS-BUILT 완료(2026-10-05, 잔여 2건=2단계 결정 대기)**
 - `jk::fs::GetExecutablePath` 신설 → GetModuleFileName 4TU 흡수(JKWindowServer/
   JKDesktopShell/JKLlmEngine/ClientBrowserApp — readlink("/proc/self/exe")는 2단계).
 - **폰트 경로 추상화**: `C:\Windows\Fonts\malgun.ttf`·`consola.ttf` 하드코딩(클라 앱
@@ -80,12 +100,33 @@
 - `C:\` 하드코딩 소각: JKApplication.cpp:38(검증 로그), ClientFilesApp.cpp:94·
   ClientFileDialogApp.cpp:138(기본 경로 → exe-dir/config 주도).
 - 게이트: 런처·노트·파일 앱 스모크+probe_filedlg 계열.
+- **실측(플랜 B 태스크 1, 커밋 a6f4f67):** `engine/include/fs/JKFs.h`+win32/posix
+  신설 — 동적 재시도(1024 시작→배증, 최대 8회)로 **MAX_PATH 절단 취약점 동시 소거**,
+  실패/비윈도우는 빈 문자열(기존 폴백 유지). 흡수 콜사이트 **실측 26건/11TU**(본
+  섹션 원문 "4TU"는 정정 — 소비자 전원 A형 경로 소비, :8029 W형→A형 균일화 1건
+  포함, 경로 파생 규약(뒤 "\\" 유무·파일명) 원문 유지). JKApplication.cpp:38 검증
+  로그를 exe-dir/state/mouse_verify.log로 소각(fopen 실패 조용히 무시 동일).
+  **ClientFilesApp `C:\` 기본 경로는 스펙 §2.3 충돌로 마킹만, 폰트 ImGui 앱 10파일
+  흡수는 제외** — 2단계 결정 대기 2건(3번째는 W4의 cmd.exe 셸 리터럴 마킹)
 
-### W6 — 시간·스레드 표준화 (인벤토리 §7-8)
+### W6 — 시간·스레드 표준화 (인벤토리 §7-8) — **AS-BUILT 완료(2026-10-05)**
 - `GetTickCount64`→`std::chrono::steady_clock`(JKLlmEngine 2곳),
   `CreateThread`→`std::thread`(JKLlmEngine/JKCrashHandler 2곳 — JKCrashHandler는
   windows.h-clean TU라 인클루드 최소 침범).
 - 게이트: 빌드+probe_jkbridge.
+- **실측(플랜 B 태스크 5, 커밋 b737788·c46f59e):** GetTickCount64는 steady_clock
+  **차분만** 소비(절대시각 미소비 — monotonic 동등), kTurnIdleKillMs=
+  `std::chrono::minutes{10}`로 원문 600000ms 정확 캐리. CreateThread→
+  `std::thread(LlmTurnThread, TurnJob*).detach()` — 시그니처 `unsigned long
+  __stdcall(void*)`→TurnJob* 직접형 전환(반환값 무소비 원문 유지), busy 롤백은
+  try/catch(std::system_error)로 "no thread, no turn" 계약 보존. JKCrashHandler
+  `std::thread(MirrorThread, ctx).detach()` — 원문이 CreateThread 실패도 무조건
+  return true였으므로 catch 후 동일 리크+return true 유지(throw가 크래시 미러
+  설치 중 프로세스 사망으로 에스컬레이션 방지 — 동일 관측 보존, windows.h-first
+  규약 유지). JKCrashHandler 실제 경로는 `engine/src/JKCrashHandler_win32.cpp`
+  (플랜 문서의 src/crash/ 오기 — 실측은 실제 경로로 수행). JKLlmEngine 잔여
+  Win32 접촉=WaitForSingleObject dllimport 1건(spawn reap — 2단계 마이그레이션
+  몫으로 명시 주석).
 
 ### W7 — IME·입력·DPI 경계 확인 (인벤토리 §9-10)
 - SendInput·Imm*·SetProcessDpiAwarenessContext는 이미 `JKPlatform_win32.cpp` 단일 TU에
@@ -127,7 +168,17 @@ docs/superpowers/plans/2026-10-05-linux-stage1-surgery-a.md로 실행. 커밋
 AS-BUILT 블록). 게이트: probe_app_tools ALL PASS ×2·probe_semantic_cursor
 ALL PASS ×2·probe_jkbridge PASS ×2·terminal_hangul_probe **44/44 ×2**(33/33은
 후속 세션에서 체크 수 증가)·jkdesktop 셀프테스트 0 failure·전체 빌드 에러 0.
-**W4-W6(플랜 B)+W7-W9 대기.**
+
+**→ 플랜 B(W4-W6) 착수·완료 실측(2026-10-05)** — SDD 플랜
+docs/superpowers/plans/2026-10-05-linux-stage1-surgery-b.md로 실행. 커밋
+a6f4f67(W5 fs)·4c90a6e(W4 어댑터)·e373339(인자 스왑 결함 픽스)·21907f2(W4
+LlmEngine 흡수)·6db73eb(W4 WindowServer 흡수)·b737788(W6)·c46f59e(스타일).
+게이트(라이브 스택 정지 후 공식 런 ×2): probe_app_tools ALL PASS ×2·
+probe_jkbridge PASS ×2·probe_agent_events 8/8 ×2·terminal_hangul_probe
+44/44·jkdesktop 셀프테스트 0 failure(케이스 14 스폰/잡 스모크 포함)·전체 빌드
+64타깃 에러 0. 셀프테스트가 포획한 실재 결함 1건(e373339 인자 스왑) 수선.
+**W7-W9 대기** — W7은 어댑터 인터페이스 이름 확정만, W9=전체 회귀 ×2(플랜 B와
+동일 게이트 세트면 재검증으로 대용 가능 검토 필요).
 
 ## 4. 리스크 보강 (docs/62 §6 외)
 
