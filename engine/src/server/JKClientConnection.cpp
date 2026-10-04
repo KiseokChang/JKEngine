@@ -7,7 +7,7 @@ namespace jk {
 namespace server {
 
 JKClientConnection::JKClientConnection(uint32_t id,
-                                       std::unique_ptr<ipc::JKPipeTransport> transport)
+                                       std::unique_ptr<ipc::IWireTransport> transport)
     : id_(id), transport_(std::move(transport)) {
 }
 

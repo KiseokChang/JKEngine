@@ -28,7 +28,7 @@ public:
     // reader parked in Read() wakes up and exits. Must be called BEFORE
     // joining the reader thread; Close() must only run once the reader has
     // joined (CloseHandle under in-flight overlapped I/O is UB).
-    void CancelPendingIo();
+    void CancelPendingIo() override;
 
 private:
 #if defined(_WIN32)

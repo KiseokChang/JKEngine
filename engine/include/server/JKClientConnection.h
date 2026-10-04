@@ -24,7 +24,7 @@ namespace server {
 // message queue fed by the per-client read thread.
 class JKClientConnection {
 public:
-    JKClientConnection(uint32_t id, std::unique_ptr<ipc::JKPipeTransport> transport);
+    JKClientConnection(uint32_t id, std::unique_ptr<ipc::IWireTransport> transport);
     ~JKClientConnection();
 
     JKClientConnection(const JKClientConnection&) = delete;
@@ -121,7 +121,7 @@ private:
     void ReadLoop();
 
     uint32_t id_ = 0;
-    std::unique_ptr<ipc::JKPipeTransport> transport_;
+    std::unique_ptr<ipc::IWireTransport> transport_;
     std::unique_ptr<ipc::JKSharedMemory> memory_;
     // Retired shared memory generations. The compositor layer's pixel pointer
     // may still reference a retired mapping until ResizeLayer swaps it, so

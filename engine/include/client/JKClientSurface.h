@@ -154,7 +154,7 @@ private:
     int width_ = 0;
     int height_ = 0;
 
-    std::unique_ptr<ipc::JKPipeTransport> transport_;
+    std::unique_ptr<ipc::IWireTransport> transport_;
     std::unique_ptr<ipc::JKSharedMemory> sharedMemory_;
     uint32_t surfaceId_ = 0;
 

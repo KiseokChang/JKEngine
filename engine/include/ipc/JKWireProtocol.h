@@ -289,6 +289,12 @@ public:
 
     // True if the transport is still connected.
     virtual bool IsConnected() const = 0;
+
+    // Abort any in-flight blocking I/O so a thread parked in Read() wakes up
+    // and reports failure (docs/68 W1a — was a concrete JKPipeTransport
+    // method; a socket transport has no overlapped I/O, hence the no-op
+    // default, matching the posix-socket close path).
+    virtual void CancelPendingIo() {}
 };
 
 // Send a single message. The payload may be empty.
