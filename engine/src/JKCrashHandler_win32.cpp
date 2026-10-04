@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <ctime>
 #include <string>
+#include <system_error>
 #include <thread>
 
 #pragma comment(lib, "dbghelp")
@@ -154,8 +155,19 @@ bool MirrorLogToFiles(const std::string& logDir, const std::string& tag) {
     setvbuf(stderr, nullptr, _IONBF, 0);
 
     MirrorCtx* ctx = new MirrorCtx{ pipeRead, consolePriv, path, file };
-    HANDLE t = CreateThread(nullptr, 0, MirrorThread, ctx, 0, nullptr);
-    if (t) CloseHandle(t);  // daemon: we only need the handle to not leak
+    // W6 standardization: std::thread replaces CreateThread. The detached
+    // mirror keeps its daemon contract — the owner holds no handle (the
+    // explicit CloseHandle went away with the std::thread temporarary) and
+    // the thread outlives this function, draining the pipe to the crash log.
+    // Spawn failure is ignored as in the original (CreateThread null handle
+    // fell through to the same `return true`): system_error does not get to
+    // escalate into a process death from inside the crash-mirror setup.
+    try {
+        std::thread(MirrorThread, ctx).detach();
+    } catch (const std::system_error&) {
+        // ctx ownership note: an unlaunched mirror leaks the pipe read end
+        // and the log file, exactly as the original null-handle path did.
+    }
     return true;
 }
 

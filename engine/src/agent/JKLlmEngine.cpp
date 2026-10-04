@@ -12,18 +12,16 @@
 
 #include <chrono>
 #include <cstdio>
+#include <system_error>  // std::system_error — thread spawn failure contract
 #include <thread>
 
-// stage-1 남은 Win32 시간·스레드 접촉(전부 W6/B-T5 표준화 치환 대상) — windows.h
-// 미 include 관례(JKWindowServer.cpp 선례)의 수기 dllimport. 스폰·파이프·Job
-// 계열은 jk::process 어댑터(docs/68 W4)로 흡수 완료 — 이 TU는 kernel32 dllimport
-// 류 선언만 남는다(어댑터 TU가 본래의 windows.h 소유). 가드 없음: 원문
-// windows.h 무가드 include와 동일한 윈도우 전용 TU 상태(stage 2에서 파일 분할).
-extern "C" __declspec(dllimport) unsigned long long __stdcall GetTickCount64();
-extern "C" __declspec(dllimport) void* __stdcall CreateThread(
-    void* lpThreadAttributes, unsigned long dwStackSize,
-    unsigned long(__stdcall* lpStartAddress)(void*), void* lpParameter,
-    unsigned long dwCreationFlags, unsigned long* lpThreadId);
+// stage-1 남은 Win32 접촉은 WaitForSingleObject 1건뿐(spawn reap, :364 —
+// 2단계 프로세스 마이그레이션 몫). 시간(GetTickCount64)·스레드(CreateThread)
+// 접촉은 W6 표준화로 std::chrono/std::thread 치환 완료. 스폰·파이프·Job 계열은
+// jk::process 어댑터(docs/68 W4)로 흡수 완료 — 이 TU는 kernel32 dllimport
+// 선언 1건만 남는다(어댑터 TU가 본래의 windows.h 소유, windows.h 미 include
+// 관례 따라 수기 선언). 가드 없음: 원문 windows.h 무가드 include와 동일한
+// 윈도우 전용 TU 상태(stage 2에서 파일 분할).
 extern "C" __declspec(dllimport) unsigned long __stdcall WaitForSingleObject(
     void* hHandle, unsigned long dwMilliseconds);
 
@@ -223,9 +221,13 @@ bool ParseStreamLine(const std::string& line, LlmTurnResult* out,
     return false;
 }
 
-unsigned long __stdcall LlmTurnThread(void* param) {
-    // param = heap-allocated job (owned and freed here)
-    TurnJob* job = static_cast<TurnJob*>(param);
+// std::thread direct form (W6 standardization) — the __stdcall/DWORD thread
+// entry point shape went out with CreateThread. The return value has no
+// consumer (the spawn site detaches; the legacy CreateThread discard applies
+// unchanged), so the signature carries the job pointer directly instead of
+// round-tripping through void*.
+int LlmTurnThread(TurnJob* job) {
+    // job = heap-allocated (owned and freed here)
     const ChatConfig cfg = LoadChatConfig();
     LlmTurnResult* out = new LlmTurnResult;
 
@@ -290,8 +292,11 @@ unsigned long __stdcall LlmTurnThread(void* param) {
     // consumer while claude is still generating. stdoutBuf stays intact —
     // the line scan advances a separate offset (the stub engine's plain
     // echo-JSON needs the whole buffer in the EOF fallback below).
-    const unsigned long long tTurn = GetTickCount64();
-    constexpr unsigned long long kTurnIdleKillMs = 600000;  // 10 min (bridge convention)
+    // W6 standardization: steady_clock replaces GetTickCount64 — same
+    // monotonic-ms semantics, portable to stage 2. The 10-min idle-kill
+    // contract (kTurnIdleKillMs) is unchanged.
+    const auto tTurn = std::chrono::steady_clock::now();
+    constexpr auto kTurnIdleKillMs = std::chrono::minutes{ 10 };  // bridge convention
     bool outOpen = true, errOpen = true;
     std::string stdoutBuf, stderrBuf;
     size_t lineScan = 0;
@@ -350,7 +355,8 @@ unsigned long __stdcall LlmTurnThread(void* param) {
         if (!progressed) {
             // No data flowing — the kill criterion. A turn streaming deltas
             // (the user SEES it live) is never killed by the deadline.
-            if (GetTickCount64() - tTurn >= kTurnIdleKillMs) {
+            if (std::chrono::steady_clock::now() - tTurn >=
+                kTurnIdleKillMs) {
                 jk::process::TerminateJobTree(jobTree, 1);
                 break;
             }
@@ -403,14 +409,21 @@ bool JKLlmEngine::StartTurn(const std::string& promptUtf8,
     job->onDelta = onDelta;
     job->onDone = onDone;
     job->user = user;
-    void* h = CreateThread(nullptr, 0, LlmTurnThread, job, 0, nullptr);
-    if (!h) {
+    // W6 standardization: std::thread replaces CreateThread. The legacy
+    // CreateThread failure contract ("no thread, no turn" — the thread is
+    // the busy flag's releaser) is preserved: std::thread reports spawn
+    // failure by throwing std::system_error instead of returning a null
+    // handle, so the rollback observes identically (job deleted, busy
+    // cleared, turn not started). Detach keeps the original handle-close —
+    // the owner takes no interest in the thread's lifetime.
+    try {
+        std::thread(LlmTurnThread, job).detach();
+    } catch (const std::system_error&) {
         // The thread is the busy flag's releaser — no thread, no turn.
         delete job;
         busy_ = 0;
         return false;
     }
-    jk::process::CloseHandleLike(h);
     return true;
 }
 
