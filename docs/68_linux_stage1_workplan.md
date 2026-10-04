@@ -10,23 +10,50 @@
 
 ## 1. 작업 목록 (의존 순)
 
-### W1 — 전송 경계 잔여 흠 2건 수선 (docs/62 §8-①②, 최우선)
+### W1 — 전송 경계 잔여 흠 2건 수선 (docs/62 §8-①②, 최우선) — **AS-BUILT 완료(2026-10-05)**
 - `CancelPendingIo()` 인터페이스 승격: `include/ipc/JKWireProtocol.h`의 IWireTransport에
   가상 메서드 추가 → `JKClientConnection.cpp:116`의 구체 클래스 직접 호출 해소.
 - `ReadMessage` 페이로드 캡: 길이 상한 검사 후 `assign` (현행 무상한 assign).
 - 게이트: probe_app_tools·probe_semantic_cursor 회귀(전송 경로 스모크).
+- **실측:** W1a 커밋 502987f(`virtual void CancelPendingIo() {}`를 IWireTransport에,
+  JKPipeTransport.h override+holder JKClientConnection.h:27·124·JKClientSurface.h:157
+  unique_ptr<ipc::IWireTransport> 확장, 잔여 접촉=팩토리+win32/posix 구현 TU만으로 수렴).
+  W1b 커밋 fa46a4a(kMaxWirePayload=64 MiB를 헤더로 승격, ReadMessage는 magic 검사 직후
+  assign **전** 거부 fail-closed, 셀프테스트 케이스 12 — cap+1 거부+실데이터 왕복, 우연
+  PASS 함정 payloadRead 플래그 봉합). 게이트 probe_app_tools ALL PASS ×2+
+  probe_semantic_cursor ALL PASS ×2.
 
-### W2 — 암호 통합 (docs/62 §8-6 + 인벤토리 §1-4)
+### W2 — 암호 통합 (docs/62 §8-6 + 인벤토리 §1-4) — **AS-BUILT 완료(2026-10-05)**
 - BCrypt SHA-256×3(jkctl/jktriggers/JKDesktopShell — jkctl·jktriggers는 tools 소속이라
   Gemini 인벤토리 누락, docs/62 §8-6이 이미 파악했던 것) + jkbridge CSPRNG×1을
   **수기 SHA-256 헬퍼 1개로 흡수**(포맷 "sha256:"+64hex 교차 일치 유지, jkbridge SHA-1
   선례+셀프테스트 확장). JKDesktopShell.cpp:52-120의 BCrypt 4개소가 본체.
 - 게이트: trust/permissions 관련 프로브(permissions.json 소유 프로브)+jkctl 스모크.
+- **실측:** 커밋 81cf020(include/crypto/JKSha256.h+.cpp — jk::crypto::Sha256Hex(접두사
+  없는 64hex)/RandomBytes(win32 dllimport BCryptGenRandom flag 2, non-Win
+  fail-closed), FIPS 180-4 수기, 셀프테스트 케이스 13: 빈·abc·55바이트 FIPS/실측 3벡터)
+  +0acbfaa(4개소 흡수: jkctl·jktriggers·JKDesktopShell 래퍼는 "sha256:"+Sha256Hex
+  결합으로 형식 불변, jkbridge RandU32 실패 무시 동행 보존, dllimport BCrypt 6개
+  제거, bcrypt.h include 2건 제거). **리뷰 레슨: 라이브 BCrypt 호출은 JKSha256.cpp
+  단일 소유로 수렴 — 전 엔진 grep 재확인. TDD RED가 플랜 원문 코드 결함 2건
+  (니블 루프 b<4, 워드 로드 p[i] 슬라이딩)을 포획 — 플랜은 16efef2로 정정**
+  (hashlib 독립 참조 x55=d5e28568…4072). 게이트 probe_jkbridge PASS ×2
+  (CSPRNG→토큰·지문 경로 스모크)+jkctl 샌드박스 install 실측 지문=hashlib
+  바이트 동일. 비-Windows 관찰 폭 widening 1건(ConsoleAppFingerprint ifdef 제거)
+  — 1단계 "동작 변화 0 예외 1건"으로 기록.
 
-### W3 — pty 파일 분할 (docs/62 §8-4)
+### W3 — pty 파일 분할 (docs/62 §8-4) — **AS-BUILT 완료(2026-10-05)**
 - `JKConPtyBridge`(Start/DrainOutput/WriteInput/Resize/Stop 바이트 스트림 인터페이스
   유지)를 플랫폼 TU로 분리 — 윈도우 ConPTY 구현 유지, 비윈도우 스텁 기존 것 승계.
 - 게이트: terminal_hangul_probe 33/33 + 터미널 스모크.
+- **실측:** 커밋 9098d9c(JKConPtyBridge.cpp → JKConPtyBridge_win32.cpp+posix.cpp,
+  win32 본문 = 원본과 단 `#else !_WIN32` 스텁 블록 13행 삭제만 — 원시 diff 확정,
+  CMakeLists 1행→2행 무조건 리스트). posix 스텁은 헤더 공개 멤버 8개 전수
+  커버 — **원본 잠복 결함(비윈도우 public ProcessExited·ReaderThread 미정의) 봉합**.
+  리눅스 ABI 실컴파일은 2단계 몫 — 합성 TU(`#ifndef _WIN32`→`#if 1`) ucrt64 g++
+  컴파일+nm 심볼 8개 전부 정의·미정의 0으로 대체 실측(리뷰어 독립 재현 확인).
+  게이트 terminal_hangul_probe **44/44 ×2**(플랜 기재 33/33은 후속 세션에서 체크
+  증가 — 실측값 기준) + jkdesktop 셀프테스트 0 failure.
 
 ### W4 — 프로세스 스폰 어댑터 신설 (인벤토리 §1-1 본체)
 - `jk::process` 인터페이스 신설: SpawnProcess·CreateStdioPipe·PeekPipeData·
@@ -88,6 +115,14 @@ W1→W2→W3→W4→W5→W6→W7→W8→W9. 난이도 랭킹(인벤토리 §2)�
 1. 본 문서 검토(스코프 확정 — tools W8 포함) → 2. W1 수술(흠 2건) → 3. W2-W6 순차
 수술+각 게이트 → 4. W9 전체 회귀 ×2 → 5. 2단계(Termux/리눅스 머신) 착수 판단.
 토큰 배분상 SDD 플랜 분할 권장: W1-W3(경계 수선)와 W4-W6(어댑터 신설)로 2 플랜.
+
+**→ 1단계 플랜 A(W1-W3) 착수·완료 실측(2026-10-05)** — SDD 플랜
+docs/superpowers/plans/2026-10-05-linux-stage1-surgery-a.md로 실행. 커밋
+502987f(W1a)·fa46a4a(W1b)·81cf020+0acbfaa(W2)·9098d9c(W3, 상세는 위 각 W의
+AS-BUILT 블록). 게이트: probe_app_tools ALL PASS ×2·probe_semantic_cursor
+ALL PASS ×2·probe_jkbridge PASS ×2·terminal_hangul_probe **44/44 ×2**(33/33은
+후속 세션에서 체크 수 증가)·jkdesktop 셀프테스트 0 failure·전체 빌드 에러 0.
+**W4-W6(플랜 B)+W7-W9 대기.**
 
 ## 4. 리스크 보강 (docs/62 §6 외)
 
