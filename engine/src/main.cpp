@@ -2929,6 +2929,10 @@ static int RunAppSelfTest() {
     // bound port (R-C4); a windows.h-clean RAW client (R-C5 — hand dllimports
     // above, no winsock headers in this TU) sends 5 bytes; adapter
     // Accept/RecvAll/Send(echo)/Close answer; bad bindIp must fail ListenTcp.
+    // Win32-only: the raw client rides guarded dllimports (top of this TU);
+    // on a first Linux build this block must compile away (opus final-review
+    // NIT-7 — loud compile error without the guard).
+#ifdef _WIN32
     {
         check(jk::net::Startup(), "net: WSAStartup succeeds");
         std::uint16_t boundPort = 0;
@@ -2986,6 +2990,7 @@ static int RunAppSelfTest() {
               "net: bad bindIp fails ListenTcp (bind observable)");
     }
 
+#endif  // _WIN32 — case 15 (net adapter) is win32-only by selftest convention
     std::printf("AppSelfTest: %d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;
 }

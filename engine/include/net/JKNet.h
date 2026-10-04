@@ -19,6 +19,8 @@ bool Startup();
 // non-empty = inet_addr(bindIp). kInvalidSocket on any failure.
 // boundPortOut (nullable) reports the actual bound port via getsockname —
 // port=0 (ephemeral) callers (stage-2 servers, selftest case 15) need it.
+// On getsockname failure the out-param is left untouched (caller must init
+// to 0 and treat 0 on success as "unknown" — opus final-review NIT-8).
 // (R-C4: added 2026-10-05 — original 3-param signature keeps working via
 // the default, so existing call sites are unaffected.)
 Socket ListenTcp(const std::string& bindIp, std::uint16_t port, int backlog,

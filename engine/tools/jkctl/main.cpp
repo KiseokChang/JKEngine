@@ -14,7 +14,8 @@
 #include <miniz_zip.h>
 
 // stage-2 marking: docs/68 W8 — CreateProcessW/WaitForSingleObject/CloseHandle/
-// GetLastError, MultiByteToWideChar/WideCharToMultiByte, CreateDirectoryA, Sleep
+// GetLastError/GetExitCodeProcess, MultiByteToWideChar/WideCharToMultiByte,
+// CreateDirectoryA, Sleep
 #include <windows.h>
 
 #include <algorithm>

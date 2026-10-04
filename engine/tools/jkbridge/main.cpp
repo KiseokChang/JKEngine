@@ -25,7 +25,10 @@
 // stage-2 marking: docs/68 W8 — the winsock2/ws2tcpip include block moved out
 // of this TU at W8b: every socket call site rides jk::net. Two real-winsock
 // residuals stay hand-listed for stage 2 (both windows.h-adjacent — this TU
-// keeps windows.h for the console APIs below, tools-TU 규약):
+// keeps windows.h for the console APIs below, tools-TU 규약. opus 최종리뷰
+// LOW-1: 잔여 콘솔 API는 8종 — MultiByteToWideChar·GetStdHandle·WriteConsoleW·
+// WriteFile·SetConsoleTextAttribute·GetConsoleMode·GetConsoleScreenBufferInfo·
+// Sleep):
 //   1. LoadBridgeConfig bind-string validation: inet_addr == INADDR_NONE.
 //   2. HandleConn peer-IP probe: getpeername + the dllimport inet_ntop below
 //      (ws2_32 exports it directly; ws2tcpip.h would only add the macro).
