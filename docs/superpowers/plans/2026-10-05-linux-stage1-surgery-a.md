@@ -303,8 +303,10 @@ struct Sha256Ctx {
 void Sha256Block(Sha256Ctx& c, const uint8_t* p) {
     uint32_t w[64];
     for (int i = 0; i < 16; ++i)
-        w[i] = (uint32_t(p[i]) << 24) | (uint32_t(p[i+1]) << 16) |
-               (uint32_t(p[i+2]) << 8) | uint32_t(p[i+3]);
+        w[i] = (uint32_t(p[4*i]) << 24) | (uint32_t(p[4*i+1]) << 16) |
+               (uint32_t(p[4*i+2]) << 8) | uint32_t(p[4*i+3]);
+    // (플랜 v1은 p[i] 슬라이딩 윈도우 오기였음 — 아래 ni블 루프 b<4와 함께
+    // TDD RED가 포획, 실측 hashlib 벡터로 확정: 진입 기록 progress.md)
     for (int i = 16; i < 64; ++i) {
         uint32_t s0 = rotr(w[i-15],7) ^ rotr(w[i-15],18) ^ (w[i-15] >> 3);
         uint32_t s1 = rotr(w[i-2],17) ^ rotr(w[i-2],19) ^ (w[i-2] >> 10);
@@ -364,7 +366,7 @@ std::string Sha256Hex(const void* data, size_t len) {
     static const char* kHex = "0123456789abcdef";
     std::string out(64, '0');
     for (int i = 0; i < 8; ++i)
-        for (int b = 0; b < 4; ++b) {
+        for (int b = 0; b < 8; ++b) {  // 8 nibbles per word (v1 b<4 오기 수정)
             const uint8_t nib = uint8_t(c.h[i] >> (28 - 4 * b)) & 0xF;
             out[i * 8 + b] = kHex[nib];
         }
