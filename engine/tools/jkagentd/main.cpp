@@ -221,7 +221,8 @@ void WriteReceipt(const std::string& tool, const std::string& argsJson,
     // docs/68 W8a: GMFN+MAX_PATH 버퍼 → jk::fs::GetExecutablePath 치환 —
     // 버퍼 선언 소각. 실패 시 빈 문자열 폴백이 원문의 dir "." 폴백을 대체:
     // 원문은 ".state" 디렉터리(의도와 다른 cwd 폴백), 새 폴백은 "" → "state"
-    // — 관측 확장(widened): 실패 시에도 원래 의도인 exe-cwd "state"에 쓴다.
+    // — 관측 확장(widened): 실은 프로세스 cwd 기준 "state"(원문은 ".state"
+    // 오탈자)로 확장 — exe-dir과 다를 수 있음(cwd≠exe-dir 기동 시).
     dir = jk::fs::GetExecutablePath();
     const size_t slash = dir.find_last_of("\\/");
     if (slash != std::string::npos) dir.resize(slash + 1);
