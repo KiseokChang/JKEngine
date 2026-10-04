@@ -174,13 +174,22 @@
   (ListenTcp boundPortOut — getsockname 호스트오더)·R-C5(셀프테스트 원시
   클라이언트도 windows.h-clean 수기 dllimport+로컬 ABI sockaddr_in).
   ws2_32는 jkcore PUBLIC(WIN32 가드). 흡수: 소켓 접촉 ~20 사이트+실측 추가
-  4건(SendPong/SendWsPing send 2곳, ReadHttpHead가 1바이트 원시 recv였던
-  것→RecvAll(s,&c,1) 시맨틱 동일) = **SOCKET·윈속 헤더 잔여 0**. 셀프테스트
-  케이스 15 신설(Startup→ListenTcp(임시포트)→원시 클라 연결→Accept→
-  RecvAll 5바이트→Send 에코→클라 회수 — 7체크). windows.h는 jkbridge에
-  콘솔 API 잔여(MultiByteToWideChar·GetStdHandle 등 7종)로 유지+마킹.
+  3건(SendPong·SendWsPing의 원시 send 2곳, ReadHttpHead가 1바이트 원시
+  recv였던 것→RecvAll(s,&c,1) 시맨틱 동일) = **SOCKET·윈속 헤더 잔여 0**.
+  셀프테스트 케이스 15 신설(Startup→ListenTcp(임시포트)→원시 클라 연결→
+  Accept→RecvAll 5바이트→Send 에코→클라 회수 — 7체크; windows.h-clean
+  수기 dllimport 원시 클라이언트, 블록은 `#ifdef _WIN32` 가드 — 첫 리눅스
+  빌드에서 컴파일아웃, 9618195). windows.h는 jkbridge에 콘솔 API 잔여
+  **8종**(MultiByteToWideChar·GetStdHandle·WriteConsoleW·WriteFile·
+  SetConsoleTextAttribute·GetConsoleMode·GetConsoleScreenBufferInfo·Sleep)으로
+  유지+마킹(마킹 주석에 열거 복원 — 9618195). **동작 변화 0 무영향 소각
+  2건(어댑터 주석 명문화):** ListenTcp bind/listen 실패 시 listener close
+  (원문은 누수 후 프로세스 즉사 — 관측 동일)·셀프테스트 원시 클라 socket()
+  실패 단락회로. RecvAll 강도 보강(5바이트는 루프백 1회 recv로 착지해 부분
+  수신 후 회귀류는 미포획 — **2단계에서 수백 바이트 패턴으로 강화**)과
+  클라가 connect 전 사망 시 Accept 무한블록도 2단계 후보 기재.
   **2단계 결정 대기 잔여(residual):** ① LoadBridgeConfig의
-  inet_addr==INADDR_NONE fail-closed 검증 :183-185(파싱 로직 — 어댑터로
+  inet_addr==INADDR_NONE fail-closed 검증 :184-186(파싱 로직 — 어댑터로
   흡수하려면 신규 parse API 필요라 마킹) ② getpeername+inet_ntop 피어
   주소 :1721-1723 ③ jkctl CreateProcessW+wmain(2단계 CRT 진입·셸 추상과
   결부, 마킹 2c1bc7f) ④ jkchat Win32 GUI(비이식 확정 마킹) ⑤ cefosr 1건.
@@ -237,8 +246,14 @@ probe_jkbridge PASS ×2·probe_agent_events 8/8 ×2·terminal_hangul_probe
 docs/superpowers/plans/2026-10-05-linux-stage1-surgery-c.md로 실행. 커밋
 2cb7899(W7 docs)·0f772cc(W8a fs 2차 흡수)·dd526f9(W8b net 어댑터+bridge)·
 3ce840b(리뷰 HIGH 픽스)·f6120d0(C-T2 리뷰 LOW 픽스)·2c1bc7f(W8 마킹).
-게이트는 위 W9 실측 블록(×2 전부 GREEN). 각 태스크 리뷰 SPEC yes ×3,
-전체 판정은 opus 최종리뷰가 이 갱신 이후 커밋으로.
+게이트는 위 W9 실측 블록(×2 전부 GREEN). 각 태스크 리뷰 SPEC yes ×3.
+**opus 최종리뷰(2026-10-05): READY TO MERGE YES — BLOCKER/HIGH 0, LOW 4+NIT 4.**
+독립 재증명(GMFN 잔여 0건+cefosr 예외 1건, bridge 윈속 잔여 ①②만, posix
+nm 실측, 셀프테스트 독립 재현) 포함. 픽스 웨이브 9618195(콘솔 잔여 8종 열거
+복원·jkctl GetExitCodeProcess 마킹·boundPortOut getsockname-실패 계약 문장·
+케이스 15 _WIN32 가드)+docs rider 본 커밋(진실 3건·4건 정정·residual 행번호
+:184-186·RecvAll 강화 후보 기재) — LOW 전부 소화, NIT-6(케이스 15 hang 경로)
+는 2단계 후보로 기재.
 
 **★ 리눅스 1단계(플랫폼 경계 수술) 완료 판정(2026-10-05):** 1단계 정의의
 완료 조건 = "어댑터 경계를 인터페이스로 뽑고 Win32 구현을 그 자리에 유지 +
