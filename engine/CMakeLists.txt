@@ -170,6 +170,12 @@ add_library(jkcore STATIC
     # Both are listed unconditionally; each file guards its own body.
     src/process/JKProcess_win32.cpp
     src/process/JKProcess_posix.cpp
+    # jk::net winsock adapter (docs/68 W8b): the Win32 TU owns winsock2.h
+    # (it must precede any windows.h include in its TU — MSDN rule), the posix
+    # TU is a full-symbol stub until stage 2 (unix sockets).
+    # Both are listed unconditionally; each file guards its own body.
+    src/net/JKNet_win32.cpp
+    src/net/JKNet_posix.cpp
     src/agent/JKAgentClient.cpp
     src/agent/JKAgentJson.cpp
     src/agent/JKLlmEngine.cpp
@@ -221,6 +227,11 @@ if(WIN32)
     # jkdesktop_shell/jkbridge/jktriggers/jkctl `-lbcrypt` lines are now
     # redundant-but-harmless.
     target_link_libraries(jkcore PUBLIC bcrypt)
+    # ws2_32 (docs/68 W8b): jkcore owns the jk::net adapter TU, so jkcore-only
+    # consumers (jkdesktop selftest case 15 raw client, future stage-1 net
+    # callers) link through this PUBLIC carry; the jkbridge `-lws2_32` line
+    # below is now redundant-but-harmless.
+    target_link_libraries(jkcore PUBLIC ws2_32)
 endif()
 
 # ---------------------------------------------------------------------------

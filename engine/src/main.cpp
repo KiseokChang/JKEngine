@@ -26,6 +26,22 @@ extern "C" __declspec(dllimport) int __stdcall GetDiskFreeSpaceExA(
     unsigned long long* lpFreeBytesAvailableToCaller,
     unsigned long long* lpTotalNumberOfBytes,
     unsigned long long* lpTotalNumberOfFreeBytes);
+// Case 15 raw client (R-C5, docs/68 W8b): the jk::net adapter TU owns
+// winsock2.h, so this TU hand-carries just the winsock exports the raw
+// selftest client needs — same precedent as the AllocConsole block above.
+extern "C" __declspec(dllimport) unsigned long long __stdcall socket(
+    int af, int type, int protocol);
+extern "C" __declspec(dllimport) int __stdcall connect(
+    unsigned long long s, const void* name, int namelen);
+extern "C" __declspec(dllimport) int __stdcall send(
+    unsigned long long s, const char* buf, int len, int flags);
+extern "C" __declspec(dllimport) int __stdcall recv(
+    unsigned long long s, char* buf, int len, int flags);
+extern "C" __declspec(dllimport) int __stdcall setsockopt(
+    unsigned long long s, int level, int optname, const char* optval,
+    int optlen);
+extern "C" __declspec(dllimport) int __stdcall closesocket(
+    unsigned long long s);
 #endif
 
 #include <JKApplication.h>
@@ -39,6 +55,7 @@ extern "C" __declspec(dllimport) int __stdcall GetDiskFreeSpaceExA(
 #include <crypto/JKSha256.h>
 #include <ipc/JKWireEndpoints.h>
 #include <ipc/JKWireProtocol.h>
+#include <net/JKNet.h>
 #include <process/JKProcess.h>
 #include <theme/JKTheme.h>
 
@@ -2906,6 +2923,67 @@ static int RunAppSelfTest() {
         check(killed, "terminate job tree kills the child tree");
         jk::process::CloseHandleLike(p.process);
         jk::process::CloseHandleLike(job);  // close IS the kill; child dead
+    }
+
+    // 15) jk::net winsock adapter (docs/68 W8b): ephemeral listen reports its
+    // bound port (R-C4); a windows.h-clean RAW client (R-C5 — hand dllimports
+    // above, no winsock headers in this TU) sends 5 bytes; adapter
+    // Accept/RecvAll/Send(echo)/Close answer; bad bindIp must fail ListenTcp.
+    {
+        check(jk::net::Startup(), "net: WSAStartup succeeds");
+        std::uint16_t boundPort = 0;
+        const jk::net::Socket listener =
+            jk::net::ListenTcp("127.0.0.1", 0, 1, &boundPort);
+        check(listener != jk::net::kInvalidSocket && boundPort > 0,
+              "net: ephemeral listen reports bound port");
+        if (listener != jk::net::kInvalidSocket) {
+            const std::string msg = "case5";
+            bool clientOk = false;
+            std::thread cli([&clientOk, boundPort, &msg] {
+                struct RawSockaddrIn {  // 16 bytes — R-C5 ABI-stable layout
+                    std::uint16_t family = 2, port = 0;  // AF_INET; net octets
+                    std::uint32_t addr = 0x0100007Fu;    // 127.0.0.1, net order
+                    std::uint8_t pad[8] = {};
+                };
+                RawSockaddrIn a;
+                const unsigned long long s = socket(2 /*AF_INET*/, 1, 0);
+                if (s == ~0ull) return;  // INVALID_SOCKET
+                a.port = static_cast<std::uint16_t>(
+                    ((boundPort & 0xFF) << 8) | (boundPort >> 8));
+                if (connect(s, &a, sizeof(a)) != 0) { closesocket(s); return; }
+                const int t = 5000;  // SOL_SOCKET 0xffff, SO_RCVTIMEO 0x1006
+                setsockopt(s, 0xffff, 0x1006,
+                           reinterpret_cast<const char*>(&t), sizeof(t));
+                if (send(s, msg.data(), (int)msg.size(), 0) != (int)msg.size())
+                    { closesocket(s); return; }
+                char back[5] = {};
+                int got = 0;
+                while (got < (int)msg.size()) {
+                    const int r =
+                        recv(s, back + got, (int)sizeof(back) - got, 0);
+                    if (r <= 0) { closesocket(s); return; }
+                    got += r;
+                }
+                clientOk = std::string(back, msg.size()) == msg;
+                closesocket(s);
+            });
+            const jk::net::Socket conn = jk::net::Accept(listener);
+            check(conn != jk::net::kInvalidSocket, "net: accept returns conn");
+            char buf[5] = {};
+            check(jk::net::RecvAll(conn, buf, sizeof(buf)) &&
+                      std::string(buf, sizeof(buf)) == msg,
+                  "net: RecvAll round-trips the 5 raw-client bytes");
+            check(jk::net::Send(conn, buf, (int)sizeof(buf)) > 0,
+                  "net: Send serves the raw-client echo");
+            jk::net::Close(conn);
+            jk::net::Close(listener);
+            cli.join();
+            check(clientOk, "net: raw client sees the echo and closes");
+        }
+        std::uint16_t deadPort = 0;
+        check(jk::net::ListenTcp("bogus-ip-for-bind-check", 0, 1, &deadPort) ==
+                  jk::net::kInvalidSocket,
+              "net: bad bindIp fails ListenTcp (bind observable)");
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);

@@ -20,12 +20,23 @@
 #include <fs/JKFs.h>
 #include <JKCrashHandler.h>
 
-// stage-2 marking: docs/68 W8 — MultiByteToWideChar, GetStdHandle,
-// WriteConsoleW, WriteFile, SetConsoleTextAttribute, Sleep (winsock2/ws2tcpip
-// 어댑터는 jk::net W8로 별도 흡수)
-#include <winsock2.h>
-#include <ws2tcpip.h>
+#include <net/JKNet.h>
+
+// stage-2 marking: docs/68 W8 — the winsock2/ws2tcpip include block moved out
+// of this TU at W8b: every socket call site rides jk::net. Two real-winsock
+// residuals stay hand-listed for stage 2 (both windows.h-adjacent — this TU
+// keeps windows.h for the console APIs below, tools-TU 규약):
+//   1. LoadBridgeConfig bind-string validation: inet_addr == INADDR_NONE.
+//   2. HandleConn peer-IP probe: getpeername + the dllimport inet_ntop below
+//      (ws2_32 exports it directly; ws2tcpip.h would only add the macro).
 #include <windows.h>
+// winsock.h rides windows.h; ws2tcpip.h is gone (JKNet TU owns it) so the one
+// address-format function left over is hand-carried — R-C5 dllimport style.
+extern "C" __declspec(dllimport) const char* __stdcall inet_ntop(
+    int af, const void* src, char* dst, size_t cnt);
+// ws2tcpip.h macro substitute — IPv4 dotted quad is 15+NUL; the absorbed
+// buffer was 22 (same purpose, pure over-allocation).
+constexpr size_t kInetAddrStrlen = 16;
 
 #include <algorithm>
 #include <atomic>
@@ -169,6 +180,8 @@ static BridgeConfig LoadBridgeConfig() {
                 // fail-closed: 오탈자 bind는 ANY로 폴백하면 의도(축소)가
                 // 확장으로 반전된다 — 루프백으로 좁히고 경고 (폰 접속은
                 // 끊기지만 콘솔에 원인이 보인다).
+                // stage-2 residual ① (docs/68 W8b): inet_addr dotted-quad
+                // gate — winsock.h rides windows.h; JKNet consumes later.
                 if (inet_addr(bind.c_str()) == INADDR_NONE) {
                     OutW("[!] state\\jkbridge.json의 bind가 유효한 IPv4가 "
                          "아님(" + bind + ") — 루프백으로 좁힌다");
@@ -301,19 +314,9 @@ static bool Sha1SelfTest() {
 // ---------------------------------------------------------------------------
 static const size_t kMaxFrame = 1 * 1024 * 1024;
 
-// Exact-size recv — TCP may fragment anywhere; every header read uses this.
-static bool RecvAll(SOCKET s, void* buf, size_t n) {
-    auto* p = static_cast<char*>(buf);
-    size_t got = 0;
-    while (got < n) {
-        const int r = recv(s, p + got, static_cast<int>(n - got), 0);
-        if (r <= 0) return false;
-        got += static_cast<size_t>(r);
-    }
-    return true;
-}
-
-static bool WsSendFrame(SOCKET s, const std::string& text) {
+// Exact-size recv moved into the adapter (docs/68 W8b): jk::net::RecvAll is
+// this loop verbatim — TCP may fragment anywhere; every header read uses it.
+static bool WsSendFrame(jk::net::Socket s, const std::string& text) {
     std::string frame;
     frame.reserve(text.size() + 10);
     frame += static_cast<char>(0x81);
@@ -334,7 +337,8 @@ static bool WsSendFrame(SOCKET s, const std::string& text) {
     const char* p = frame.data();
     size_t left = frame.size();
     while (left > 0) {
-        const int r = send(s, p, static_cast<int>(left), 0);
+        // R-C2: adapter exposes raw int Send; the loop shape stays here.
+        const int r = jk::net::Send(s, p, static_cast<int>(left));
         if (r <= 0) return false;
         p += r;
         left -= static_cast<size_t>(r);
@@ -977,7 +981,7 @@ connect();
 // pump thread mirrors jkchat's 400 ms ping pump (replies + events out).
 // ---------------------------------------------------------------------------
 struct BridgeSession {
-    explicit BridgeSession(SOCKET sock)
+    explicit BridgeSession(jk::net::Socket sock)
         : sock_(sock),
           lastPong_(static_cast<int64_t>(time(nullptr))) {}
 
@@ -1032,8 +1036,8 @@ struct BridgeSession {
             return;  // RFC caps control payloads at 125 — refuse, don't emit
         }
         frame += payload;
-        const int r = send(sock_, frame.data(),
-                           static_cast<int>(frame.size()), 0);
+        const int r = jk::net::Send(sock_, frame.data(),
+                                    static_cast<int>(frame.size()));
         if (r <= 0) Shutdown();
     }
 
@@ -1045,7 +1049,7 @@ struct BridgeSession {
         if (!alive_.load()) return;
         std::lock_guard<std::mutex> lock(wsMtx_);
         const unsigned char ping[2] = {0x89, 0x00};
-        const int r = send(sock_, reinterpret_cast<const char*>(ping), 2, 0);
+        const int r = jk::net::Send(sock_, reinterpret_cast<const char*>(ping), 2);
         if (r <= 0) Shutdown();
     }
 
@@ -1061,22 +1065,22 @@ struct BridgeSession {
         // the accept loop can then hand the same handle value to a new
         // session and stale sends write into its stream (opus MINOR-6).
         if (alive_.exchange(false)) {
-            shutdown(sock_, SD_BOTH);
+            jk::net::ShutdownBoth(sock_);
         }
     }
 
     ~BridgeSession() {
         if (alive_.exchange(false)) {
-            shutdown(sock_, SD_BOTH);
+            jk::net::ShutdownBoth(sock_);
         }
-        if (sock_ != INVALID_SOCKET) {
-            closesocket(sock_);
+        if (sock_ != jk::net::kInvalidSocket) {
+            jk::net::Close(sock_);
         }
     }
 
     bool Alive() const { return alive_.load(); }
 
-    SOCKET sock_;
+    jk::net::Socket sock_;
     std::mutex wsMtx_;       // serializes frame writes (3+ send() calls each)
     std::atomic<bool> alive_{true};
     std::atomic<int64_t> lastPong_;  // heartbeat: pump's WS pings / pongs back
@@ -1119,17 +1123,17 @@ struct BridgeSession {
 static int WsReadFrame(BridgeSession* s, std::string& out) {
     for (;;) {
         unsigned char hdr[2];
-        if (!RecvAll(s->sock_, hdr, 2)) return -1;
+        if (!jk::net::RecvAll(s->sock_, hdr, 2)) return -1;
         const unsigned char opcode = hdr[0] & 0x0F;
         const bool masked = (hdr[1] & 0x80) != 0;
         uint64_t len = hdr[1] & 0x7F;
         if (len == 126) {
             unsigned char ext[2] = {};
-            if (!RecvAll(s->sock_, ext, 2)) return -1;
+            if (!jk::net::RecvAll(s->sock_, ext, 2)) return -1;
             len = (static_cast<uint64_t>(ext[0]) << 8) | ext[1];
         } else if (len == 127) {
             unsigned char ext[8] = {};
-            if (!RecvAll(s->sock_, ext, 8)) return -1;
+            if (!jk::net::RecvAll(s->sock_, ext, 8)) return -1;
             len = 0;
             for (int i = 0; i < 8; i++) {
                 len = (len << 8) | ext[i];
@@ -1140,9 +1144,9 @@ static int WsReadFrame(BridgeSession* s, std::string& out) {
             // Control frame: consume mask + payload fully (RFC cap: 125).
             if (len > 125) return -1;
             unsigned char mask[4] = {};
-            if (masked && !RecvAll(s->sock_, mask, 4)) return -1;
+            if (masked && !jk::net::RecvAll(s->sock_, mask, 4)) return -1;
             std::string payload(static_cast<size_t>(len), '\0');
-            if (len > 0 && !RecvAll(s->sock_, &payload[0],
+            if (len > 0 && !jk::net::RecvAll(s->sock_, &payload[0],
                                     static_cast<size_t>(len))) {
                 return -1;
             }
@@ -1162,9 +1166,9 @@ static int WsReadFrame(BridgeSession* s, std::string& out) {
         if (!masked) return -1;        // RFC: clients MUST mask
         if (len > kMaxFrame) return -1;
         unsigned char mask[4];
-        if (!RecvAll(s->sock_, mask, 4)) return -1;
+        if (!jk::net::RecvAll(s->sock_, mask, 4)) return -1;
         out.resize(static_cast<size_t>(len));
-        if (len > 0 && !RecvAll(s->sock_, &out[0], out.size())) return -1;
+        if (len > 0 && !jk::net::RecvAll(s->sock_, &out[0], out.size())) return -1;
         for (size_t i = 0; i < out.size(); i++) {
             out[i] = static_cast<char>(out[i] ^ mask[i % 4]);
         }
@@ -1604,12 +1608,13 @@ static const int kMaxSessions = 4;
 // slow (heads are a few hundred bytes, once per connection) but exact: a
 // chunked read could swallow bytes past the terminator, and an unterminated
 // 8 KiB head must be a failure, not a valid request (slowloris is killed by
-// the socket read timeout, not here).
-static bool ReadHttpHead(SOCKET s, std::string& head) {
+// the socket read timeout, not here). jk::net::RecvAll with n==1 is that one
+// exact recv (loop runs once, r<=0 → false) — absorbed at W8b, semantics
+// identical.
+static bool ReadHttpHead(jk::net::Socket s, std::string& head) {
     char c;
     while (head.size() < 8192) {
-        const int r = recv(s, &c, 1, 0);
-        if (r <= 0) return false;
+        if (!jk::net::RecvAll(s, &c, 1)) return false;
         head += c;
         if (head.size() >= 4 && head.compare(head.size() - 4, 4, "\r\n\r\n") == 0) {
             return true;
@@ -1646,17 +1651,18 @@ static std::string HeaderValue(const std::string& head, const char* name) {
     return head.substr(v, e - v);
 }
 
-static void SendAll(SOCKET s, const char* p, size_t n) {
+static void SendAll(jk::net::Socket s, const char* p, size_t n) {
     while (n > 0) {
-        const int r = send(s, p, static_cast<int>(n), 0);
+        // R-C2: adapter raw Send; the loop shape stays here.
+        const int r = jk::net::Send(s, p, static_cast<int>(n));
         if (r <= 0) return;
         p += r;
         n -= static_cast<size_t>(r);
     }
 }
 
-static void HttpReply(SOCKET s, int code, const char* body, size_t bodyLen,
-                      const char* contentType) {
+static void HttpReply(jk::net::Socket s, int code, const char* body,
+                      size_t bodyLen, const char* contentType) {
     const char* reason = code == 200 ? "OK" : code == 404 ? "Not Found"
                                   : code == 403 ? "Forbidden"
                                                 : "Service Unavailable";
@@ -1670,28 +1676,8 @@ static void HttpReply(SOCKET s, int code, const char* body, size_t bodyLen,
     if (bodyLen) SendAll(s, body, bodyLen);
 }
 
-// The primary LAN IP for the printed URL (UDP-connect trick: no packets).
-static std::string PrimaryIp() {
-    SOCKET s = socket(AF_INET, SOCK_DGRAM, 0);
-    if (s == INVALID_SOCKET) return "?";
-    sockaddr_in dst{};
-    dst.sin_family = AF_INET;
-    dst.sin_port = htons(9);
-    dst.sin_addr.s_addr = htonl(0x0AFFFFFE);  // 10.255.255.254 — never sent
-    std::string ip = "?";
-    if (connect(s, reinterpret_cast<sockaddr*>(&dst), sizeof(dst)) == 0) {
-        sockaddr_in local{};
-        int len = sizeof(local);
-        if (getsockname(s, reinterpret_cast<sockaddr*>(&local), &len) == 0) {
-            char buf[INET_ADDRSTRLEN] = {};
-            if (inet_ntop(AF_INET, &local.sin_addr, buf, sizeof(buf))) {
-                ip = buf;
-            }
-        }
-    }
-    closesocket(s);
-    return ip;
-}
+// The primary LAN IP moved into the adapter (docs/68 W8b): jk::net::PrimaryIp
+// is the UDP-connect trick verbatim ("?" fallback included).
 
 // Token from the request target's query string.
 static std::string QueryParam(const std::string& target, const char* name) {
@@ -1712,19 +1698,15 @@ static std::string QueryParam(const std::string& target, const char* name) {
     return query.substr(v, e - v);
 }
 
-static void HandleConn(SOCKET conn, const BridgeConfig& cfg) {
+static void HandleConn(jk::net::Socket conn, const BridgeConfig& cfg) {
     // 30 s read/write timeouts on every connection: kills slowloris at the
     // HTTP stage, breaks a dead phone's blocked recv (slot leak — opus
     // MAJOR-3) and unblocks a wedged send. Healthy sessions stay fed by the
-    // pump's WS heartbeat below.
-    const DWORD timeoutMs = 30 * 1000;
-    setsockopt(conn, SOL_SOCKET, SO_RCVTIMEO,
-               reinterpret_cast<const char*>(&timeoutMs), sizeof(timeoutMs));
-    setsockopt(conn, SOL_SOCKET, SO_SNDTIMEO,
-               reinterpret_cast<const char*>(&timeoutMs), sizeof(timeoutMs));
+    // pump's WS heartbeat below (adapter: SO_RCVTIMEO + SO_SNDTIMEO both).
+    jk::net::SetTimeouts(conn, 30 * 1000);
     std::string head;
     if (!ReadHttpHead(conn, head)) {
-        closesocket(conn);
+        jk::net::Close(conn);
         return;
     }
     const size_t sp1 = head.find(' ');
@@ -1735,11 +1717,14 @@ static void HandleConn(SOCKET conn, const BridgeConfig& cfg) {
 
     if (target.rfind("/ws", 0) == 0) {
         // ---- WebSocket upgrade, token-gated ------------------------------
+        // stage-2 residual ② (docs/68 W8b): peer-IP probe for the rate gate —
+        // getpeername rides winsock.h (windows.h), inet_ntop is the hand
+        // dllimport above; both go to a jk::net peer-ip call in stage 2.
         const std::string ip = [&] {
             sockaddr_in a{};
             int len = sizeof(a);
             if (getpeername(conn, reinterpret_cast<sockaddr*>(&a), &len) == 0) {
-                char buf[INET_ADDRSTRLEN] = {};
+                char buf[kInetAddrStrlen] = {};
                 if (inet_ntop(AF_INET, &a.sin_addr, buf, sizeof(buf))) {
                     return std::string(buf);
                 }
@@ -1752,7 +1737,7 @@ static void HandleConn(SOCKET conn, const BridgeConfig& cfg) {
             } else {
                 HttpReply(conn, 401, "bad token", 9, "text/plain");
             }
-            closesocket(conn);
+            jk::net::Close(conn);
             return;
         }
         const std::string key = HeaderValue(head, "Sec-WebSocket-Key");
@@ -1762,7 +1747,7 @@ static void HandleConn(SOCKET conn, const BridgeConfig& cfg) {
         if (HeaderValue(head, "Upgrade") != "websocket" || key.size() < 16 ||
             key.size() > 64) {
             HttpReply(conn, 400, "not websocket", 13, "text/plain");
-            closesocket(conn);
+            jk::net::Close(conn);
             return;
         }
         uint8_t digest[20];
@@ -1782,7 +1767,7 @@ static void HandleConn(SOCKET conn, const BridgeConfig& cfg) {
             g_activeSessions.fetch_sub(1);
             WsSendFrame(conn,
                         "{\"type\":\"error\",\"text\":\"too many sessions\"}");
-            closesocket(conn);
+            jk::net::Close(conn);
             return;
         }
         auto s = std::make_shared<BridgeSession>(conn);
@@ -1797,7 +1782,7 @@ static void HandleConn(SOCKET conn, const BridgeConfig& cfg) {
     } else {
         HttpReply(conn, 404, "not found", 9, "text/plain");
     }
-    closesocket(conn);
+    jk::net::Close(conn);
 }
 
 // ---------------------------------------------------------------------------
@@ -2292,28 +2277,17 @@ int main(int argc, char** argv) {
         OutW("[!] SHA-1 self-test FAIL — 중단");
         return 1;
     }
-    WSADATA wsa;
-    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
+    if (!jk::net::Startup()) {
         OutW("[!] WSAStartup failed");
         return 1;
     }
     const BridgeConfig cfg = LoadBridgeConfig();
 
-    SOCKET listener = socket(AF_INET, SOCK_STREAM, 0);
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    // bind 미지정 = INADDR_ANY(전 인터페이스 — LAN + loopback, 토큰이 게이트;
-    // docs/57 §9 기존 동작). 지정 시 그 인터페이스만 — 사내망 노출 봉쇄.
-    addr.sin_addr.s_addr = cfg.bindIp.empty()
-                               ? INADDR_ANY
-                               : inet_addr(cfg.bindIp.c_str());
-    addr.sin_port = htons(static_cast<u_short>(cfg.port));
-    BOOL reuse = TRUE;
-    setsockopt(listener, SOL_SOCKET, SO_REUSEADDR,
-               reinterpret_cast<char*>(&reuse), sizeof(reuse));
-    if (bind(listener, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) !=
-            0 ||
-        listen(listener, 8) != 0) {
+    // bind 미지정 = INADDR_ANY(LAN+loopback, 토큰 게이트 — docs/57 §9):
+    // 계약 본문은 JKNet.h ListenTcp 주석이 소유하고 adapter가 그대로 실행.
+    const jk::net::Socket listener = jk::net::ListenTcp(
+        cfg.bindIp, static_cast<std::uint16_t>(cfg.port), 8);
+    if (listener == jk::net::kInvalidSocket) {
         OutW("[!] bind/listen failed — 포트 " + std::to_string(cfg.port));
         return 1;
     }
@@ -2323,7 +2297,8 @@ int main(int argc, char** argv) {
         OutW("  bind: " + cfg.bindIp + " (전 인터페이스가 아니라 이 인터페이스만)");
     }
     // bind 지정 시 URL도 그 IP 기준 — PrimaryIp() 자동탐지는 ANY일 때만.
-    const std::string urlHost = cfg.bindIp.empty() ? PrimaryIp() : cfg.bindIp;
+    const std::string urlHost =
+        cfg.bindIp.empty() ? jk::net::PrimaryIp() : cfg.bindIp;
     const std::string url = "http://" + urlHost + ":" +
                             std::to_string(cfg.port) + "/?token=" + cfg.token;
     OutW("  URL: " + url);
@@ -2337,8 +2312,8 @@ int main(int argc, char** argv) {
     OutW("  Ctrl+C 종료. 세션 상한 " + std::to_string(kMaxSessions) + ", 프레임 상한 1MiB.");
 
     for (;;) {
-        const SOCKET conn = accept(listener, nullptr, nullptr);
-        if (conn == INVALID_SOCKET) continue;
+        const jk::net::Socket conn = jk::net::Accept(listener);
+        if (conn == jk::net::kInvalidSocket) continue;
         std::thread(HandleConn, conn, cfg).detach();
     }
 }
