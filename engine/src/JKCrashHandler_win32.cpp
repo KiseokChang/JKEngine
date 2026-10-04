@@ -157,7 +157,7 @@ bool MirrorLogToFiles(const std::string& logDir, const std::string& tag) {
     MirrorCtx* ctx = new MirrorCtx{ pipeRead, consolePriv, path, file };
     // W6 standardization: std::thread replaces CreateThread. The detached
     // mirror keeps its daemon contract — the owner holds no handle (the
-    // explicit CloseHandle went away with the std::thread temporarary) and
+    // explicit CloseHandle went away with the std::thread temporary) and
     // the thread outlives this function, draining the pipe to the crash log.
     // Spawn failure is ignored as in the original (CreateThread null handle
     // fell through to the same `return true`): system_error does not get to
