@@ -81,7 +81,11 @@
   어댑터 TU가 windows.h 소유, 소비 TU는 windows.h-clean 유지: JKLmEngine 직접
   include 소각, JKWindowServer는 미 include 관례+수기 dllimport ~60행 소각).
   셀프테스트 케이스 14 신설(echo 스폰 왕복+Job 스모크+GUI형+"양 파이프 EOF 관측"
-  단언 — 계약 (a) 위반이 ~20s 지연으로만 관측되는 것을 감별력 있게 잡음).
+  단언 — 계약 (a) 위반이 ~20s 지연으로만 관측되는 것을 감별력 있게 잡음). 흡수는
+  원문과 미세 차이 3건이 의도적 개선: PeekPipeAvail SetLastError(0) 프리셋(stale
+  ERROR_BROKEN_PIPE 오판 고착 레이스 1건 소거 — 즉, "동일 관측"이 아니라 "동일
+  관측+레이스 소거")·ReadFile 부분 바이트 업스루프·부분 실패 파이프의 데이터
+  보존(opus 최종리뷰 finding 7).
 - **★인자 스왑 결함 픽스 e373339**(동작 변화 0의 결함 수선 예외 2번째 — 플랜 A
   ConsoleAppFingerprint 다음): JKLmEngine.cpp:311의
   `AssignProcessToJobObject(pi.hProcess, jobTree)` 인자 스왑 — 항상 FALSE(err=6),
