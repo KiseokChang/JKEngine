@@ -39,6 +39,7 @@ extern "C" __declspec(dllimport) int __stdcall GetDiskFreeSpaceExA(
 #include <crypto/JKSha256.h>
 #include <ipc/JKWireEndpoints.h>
 #include <ipc/JKWireProtocol.h>
+#include <process/JKProcess.h>
 #include <theme/JKTheme.h>
 
 #include <terminal/JKTerminalGrid.h>
@@ -2791,6 +2792,107 @@ static int RunAppSelfTest() {
         check(jk::crypto::Sha256Hex(pad.data(), pad.size()) ==
                   "d5e285683cd4efc02d021a5c62014694958901005d6f71e89e0989fac77e4072",
               "sha256 55-byte vector (observed, hashlib cross-checked)");
+    }
+
+    // 14) jk::process spawn adapter (docs/68 W4): a stub child echoes a reply
+    // JSON through inherited stdio pipes — the JKLlmEngine spawn contract in
+    // miniature (separate stdout/stderr pipes, parent keeps read ends,
+    // write ends closed inside Spawn so the child's stdout EOFs). The
+    // selftest is win32-only by convention and the cmd.exe stub child is a
+    // test literal (JKLlmEngine.cpp:167 class), so this case stays out of
+    // any posix port scope. Part B smokes the kill-on-close job trio.
+    {
+        // windows.h stays out of this TU, so the two Win32 constants the
+        // contract names are hand-carried here (values are ABI-stable).
+        constexpr int kErrBrokenPipe = 109;      // ERROR_BROKEN_PIPE
+        constexpr int kErrNoData = 232;          // ERROR_NO_DATA (pipe closed)
+        constexpr uint32_t kStillActiveExit = 259;  // STILL_ACTIVE
+        auto drainPipe = [](void* pipe, std::string* sink) {
+            char buf[4096];
+            bool open = true;
+            int iters = 0;  // safety bail — EOF must land at iter 1-2 here
+            while (open) {
+                if (++iters > 500) break;
+                uint32_t avail = 0;
+                int broken = 0;
+                const bool data =
+                    jk::process::PeekPipeAvail(pipe, &avail, &broken);
+                if (data && avail > 0) {
+                    const int got =
+                        jk::process::ReadPipeData(pipe, buf, sizeof(buf));
+                    if (got > 0) {
+                        sink->append(buf, static_cast<size_t>(got));
+                        continue;
+                    }
+                    open = false;  // read==0/-1 -> "this pipe is done"
+                } else if (broken == kErrBrokenPipe || broken == kErrNoData) {
+                    // peer write end closed: PeekNamedPipe reports
+                    // ERROR_BROKEN_PIPE(109) (observed here; ERROR_NO_DATA
+                    // (232) is the alternate closed-pipe report).
+                    open = false;
+                } else {
+                    std::this_thread::sleep_for(
+                        std::chrono::milliseconds(20));
+                }
+            }
+        };
+
+        // A) inherited-stdio spawn + stdout round-trip.
+        jk::process::SpawnOptions opt;
+        opt.commandLineUtf8 = "cmd.exe /c echo {\"ok\":true}";
+        opt.hideWindow = true;
+        opt.inheritedStdioPipes = true;
+        const jk::process::SpawnResult r = jk::process::Spawn(opt);
+        check(r.ok && r.process && r.pid != 0,
+              "process spawn returns process+pid");
+        check(r.stdoutRead && r.stderrRead,
+              "process spawn returns both parent pipe read ends");
+        std::string out, errOut;
+        drainPipe(r.stdoutRead, &out);
+        drainPipe(r.stderrRead, &errOut);
+        // Quote-shape tolerant: cmd may or may not keep the inner quotes.
+        check(out.find("ok") != std::string::npos &&
+                  out.find("true") != std::string::npos,
+              "stub child stdout round-trips through adapter pipes");
+        uint32_t code = 0;
+        bool exited = false;
+        for (int i = 0; i < 500; ++i) {  // 10s budget — echo exits at once
+            if (jk::process::GetExitCode(r.process, &code) &&
+                code != kStillActiveExit) {
+                exited = true;
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+        check(exited && code == 0, "stub child reaps cleanly (exit 0)");
+        jk::process::CloseHandleLike(r.stdoutRead);
+        jk::process::CloseHandleLike(r.stderrRead);
+        jk::process::CloseHandleLike(r.process);
+
+        // B) Job (contract b) smoke: CreateKillOnCloseJob -> AssignToJob ->
+        //    TerminateJobTree, then observe the tree actually dies.
+        jk::process::SpawnOptions slow;
+        slow.commandLineUtf8 = "cmd.exe /c ping -n 4 127.0.0.1 >nul";
+        slow.hideWindow = true;
+        const jk::process::SpawnResult p = jk::process::Spawn(slow);
+        check(p.ok && p.process, "job smoke child spawns (no stdio pipes)");
+        void* job = jk::process::CreateKillOnCloseJob();
+        check(job != nullptr && jk::process::AssignToJob(job, p),
+              "kill-on-close job assigns spawned process");
+        check(jk::process::TerminateJobTree(job, 1),
+              "terminate job tree reports success");
+        bool killed = false;
+        for (int i = 0; i < 300; ++i) {  // 6s budget — job kill is immediate
+            if (jk::process::GetExitCode(p.process, &code) &&
+                code != kStillActiveExit) {
+                killed = true;
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+        check(killed, "terminate job tree kills the child tree");
+        jk::process::CloseHandleLike(p.process);
+        jk::process::CloseHandleLike(job);  // close IS the kill; child dead
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);

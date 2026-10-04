@@ -164,6 +164,12 @@ add_library(jkcore STATIC
     # Both are listed unconditionally; each file guards its own body.
     src/fs/JKFs_win32.cpp
     src/fs/JKFs_posix.cpp
+    # jk::process spawn adapter (docs/68 W4): the Win32 TU carries the
+    # inherited-stdio spawn + KILL_ON_CLOSE job contracts (absorbed from
+    # JKLlmEngine), the posix TU is an empty stub until stage 2.
+    # Both are listed unconditionally; each file guards its own body.
+    src/process/JKProcess_win32.cpp
+    src/process/JKProcess_posix.cpp
     src/agent/JKAgentClient.cpp
     src/agent/JKAgentJson.cpp
     src/agent/JKLlmEngine.cpp
