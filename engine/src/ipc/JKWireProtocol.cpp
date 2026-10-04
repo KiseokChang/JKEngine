@@ -32,6 +32,12 @@ bool ReadMessage(IWireTransport& transport, Message& out) {
     if (header.magic != kWireMagic) {
         return false;
     }
+    // docs/68 W1b — a length above the cap is corrupt/hostile (largest
+    // legitimate payload is a capture reply, ≤ a few MiB). Fail closed before
+    // the assign: no allocate on a bogus length.
+    if (header.length > kMaxWirePayload) {
+        return false;
+    }
 
     out.type = static_cast<MsgType>(header.type);
     out.payload.assign(header.length, 0);

@@ -11,6 +11,12 @@ namespace ipc {
 // Wire format magic: "JK" version 1 (0x4A = 'J', 0x4B = 'K').
 constexpr uint32_t kWireMagic = 0x4A4B0001;
 
+// docs/68 W1b — a corrupt/hostile length in the wire header must not become a
+// huge allocation. The largest legitimate payload observed is a capture reply
+// (≤ a few MiB); 64 MiB leaves headroom without enabling alloc bombs. A header
+// length above this cap fails ReadMessage closed before any assign.
+constexpr uint32_t kMaxWirePayload = 64u * 1024 * 1024;
+
 enum class MsgType : uint32_t {
     Hello         = 1,
     HelloAck      = 2,

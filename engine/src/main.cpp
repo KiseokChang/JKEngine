@@ -36,6 +36,7 @@ extern "C" __declspec(dllimport) int __stdcall GetDiskFreeSpaceExA(
 #include <server/JKWindowServer.h>
 #include <agent/JKAgentClient.h>
 #include <ipc/JKWireEndpoints.h>
+#include <ipc/JKWireProtocol.h>
 #include <theme/JKTheme.h>
 
 #include <terminal/JKTerminalGrid.h>
@@ -2722,6 +2723,48 @@ static int RunAppSelfTest() {
             check(viewer->HasImage(), "pcx failed load keeps previous content");
             std::remove(pcxPath.string().c_str());
         }
+    }
+
+    // 12) wire payload cap (docs/68 W1b): a header claiming a length above
+    // kMaxWirePayload must fail ReadMessage closed — no huge assign
+    // allocation. The StubTransport carries the header bytes only, so after
+    // the cap check the protocol must not even attempt a payload Read
+    // (payloadRead stays false — that is the no-waste ground truth; a 1 GiB
+    // or 64 MiB+1 assign would also surface as a drained-but-false Read).
+    // Note: the selftest's "11" slot is the pcx viewer, so the brief's case
+    // number slides to 12.
+    {
+        struct StubTransport : public jk::ipc::IWireTransport {
+            std::vector<uint8_t> buf;
+            size_t pos = 0;
+            bool payloadRead = false;
+            bool Write(const void*, size_t) override { return true; }
+            bool Read(void* d, size_t l) override {
+                if (pos + l > buf.size()) { payloadRead = true; return false; }
+                std::memcpy(d, buf.data() + pos, l);
+                pos += l;
+                return true;
+            }
+            void Close() override {}
+            bool IsConnected() const override { return true; }
+        } t;
+        jk::ipc::WireHeader big{};
+        big.length = jk::ipc::kMaxWirePayload + 1;  // cap+1 — rejected
+        t.pos = 0;
+        t.buf.assign(reinterpret_cast<uint8_t*>(&big),
+                     reinterpret_cast<uint8_t*>(&big) + sizeof(big));
+        jk::ipc::Message m;
+        check(!jk::ipc::ReadMessage(t, m) && !t.payloadRead,
+              "cap+1 rejected with no payload read attempt");
+        jk::ipc::WireHeader ok{};
+        ok.length = 8;
+        const uint8_t payload[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+        t.pos = 0;
+        t.buf.assign(reinterpret_cast<uint8_t*>(&ok),
+                     reinterpret_cast<uint8_t*>(&ok) + sizeof(ok));
+        t.buf.insert(t.buf.end(), payload, payload + 8);
+        check(jk::ipc::ReadMessage(t, m) && m.payload.size() == 8,
+              "payload within cap round-trips");
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);
