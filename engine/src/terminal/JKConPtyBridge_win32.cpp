@@ -239,17 +239,4 @@ void JKConPtyBridge::Stop() {
 
 } // namespace jk
 
-#else  // !_WIN32 — non-Windows builds get an inert stub
-
-namespace jk {
-
-JKConPtyBridge::~JKConPtyBridge() = default;
-bool JKConPtyBridge::Start(const std::string&, int, int) { return false; }
-void JKConPtyBridge::DrainOutput(std::string&) {}
-void JKConPtyBridge::WriteInput(const char*, size_t) {}
-void JKConPtyBridge::Resize(int, int) {}
-void JKConPtyBridge::Stop() {}
-
-} // namespace jk
-
 #endif // _WIN32

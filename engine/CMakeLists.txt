@@ -170,7 +170,11 @@ add_library(jkcore STATIC
     # terminal_exec MCP tool drives it directly, and jkagentd must link jkcore
     # only (spec §2 — the daemon never links the client stack). The client
     # terminal stack still reaches it through jkclient's PUBLIC jkcore link.
-    src/terminal/JKConPtyBridge.cpp
+    # Platform split (docs/68 W3): the _win32 TU carries the ConPTY
+    # implementation, the _posix TU is an inert stub until stage 2. Both are
+    # listed unconditionally; each file guards its own body with _WIN32.
+    src/terminal/JKConPtyBridge_win32.cpp
+    src/terminal/JKConPtyBridge_posix.cpp
     src/theme/JKThemeConfig.cpp
     src/JKDataFile.cpp
     src/JKImageLoader.cpp
