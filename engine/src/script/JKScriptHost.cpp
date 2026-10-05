@@ -14,6 +14,8 @@
 #include <apps/AppUtil.h>
 #include <quickjs.h>
 
+#include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -90,6 +92,19 @@ JSValue PatchBlocked(JSContext* ctx, const char* what) {
     return ThrowTypeError(ctx, what,
         "bad_patch: not allowed during a live patch - move creation into "
         "onCreate, or use a full reload (live:0)");
+}
+
+// 워크숍 능력 게이트 (docs/74 결정 — fail-closed). 게이트가 활성(워크숍 앱)
+// 이고 토큰이 미선언이면 TypeError("capability '<tok>' not declared in
+// MANI")를 던진다. 문구는 고정 계약(스펙 §4.2) — 셀프테스트가 단언하고
+// jk.d.ts 주석이 문서화한다. 활성 아님(워크숍 앱 아님)이면 무조건 허용.
+bool GateCap(JKScriptHost* host, JSContext* ctx, const char* capability) {
+    if (!host || !host->GateActive() || host->HasCapability(capability)) {
+        return true;
+    }
+    JS_ThrowTypeError(ctx, "capability '%s' not declared in MANI",
+                      capability);
+    return false;
 }
 
 // {x, y, w, h} object or [x, y, w, h] array -> JKRect. The array form is
@@ -279,6 +294,7 @@ struct Bindings {
     static JSValue MessageBox(JSContext* ctx, JSValueConst, int argc,
                               JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (!GateCap(host, ctx, "widget")) return JS_EXCEPTION;
         if (!host || !host->window_ || argc < 2) return JS_UNDEFINED;
         apputil::ShowModalMessage(host->window_, host->msgboxSlot_,
                                   ToWidgetText(ctx, argv[0]),
@@ -290,6 +306,7 @@ struct Bindings {
     static JSValue CreateButton(JSContext* ctx, JSValueConst, int argc,
                                 JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (!GateCap(host, ctx, "widget")) return JS_EXCEPTION;
         if (host && host->IsPatching()) return PatchBlocked(ctx, "createButton");
         if (!host || !host->window_ || argc < 2)
             return ThrowTypeError(ctx, "createButton", "needs (rect, text)");
@@ -311,6 +328,7 @@ struct Bindings {
     static JSValue CreateLabel(JSContext* ctx, JSValueConst, int argc,
                                JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (!GateCap(host, ctx, "widget")) return JS_EXCEPTION;
         if (host && host->IsPatching()) return PatchBlocked(ctx, "createLabel");
         if (!host || !host->window_ || argc < 2)
             return ThrowTypeError(ctx, "createLabel", "needs (rect, text)");
@@ -331,6 +349,7 @@ struct Bindings {
     static JSValue CreateEdit(JSContext* ctx, JSValueConst, int argc,
                               JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (!GateCap(host, ctx, "widget")) return JS_EXCEPTION;
         if (host && host->IsPatching()) return PatchBlocked(ctx, "createEdit");
         if (!host || !host->window_ || argc < 2)
             return ThrowTypeError(ctx, "createEdit", "needs (rect, text)");
@@ -351,6 +370,7 @@ struct Bindings {
     static JSValue SetText(JSContext* ctx, JSValueConst, int argc,
                            JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (!GateCap(host, ctx, "widget")) return JS_EXCEPTION;
         int32_t id = 0;
         if (!host || argc < 2 || JS_ToInt32(ctx, &id, argv[0]) || id < 0) {
             return JS_UNDEFINED;
@@ -365,6 +385,7 @@ struct Bindings {
     static JSValue GetText(JSContext* ctx, JSValueConst, int argc,
                            JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (!GateCap(host, ctx, "widget")) return JS_EXCEPTION;
         int32_t id = 0;
         if (!host || argc < 1 || JS_ToInt32(ctx, &id, argv[0]) || id < 0) {
             return JS_NewString(ctx, "");
@@ -382,6 +403,7 @@ struct Bindings {
     static JSValue SetInterval(JSContext* ctx, JSValueConst, int argc,
                                JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (!GateCap(host, ctx, "timer")) return JS_EXCEPTION;
         if (host && host->IsPatching()) return PatchBlocked(ctx, "setInterval");
         int32_t ms = 0;
         // JS contract: setInterval(fn, ms) — argv[0] is the callback, argv[1] ms.
@@ -413,6 +435,7 @@ struct Bindings {
     static JSValue ClearInterval(JSContext* ctx, JSValueConst, int argc,
                                  JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (!GateCap(host, ctx, "timer")) return JS_EXCEPTION;
         int32_t id = 0;
         if (!host || argc < 1 || JS_ToInt32(ctx, &id, argv[0]) || id < 0) {
             return JS_UNDEFINED;
@@ -429,6 +452,7 @@ struct Bindings {
     static JSValue FindControlBinding(JSContext* ctx, JSValueConst, int argc,
                                       JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (!GateCap(host, ctx, "uiauto")) return JS_EXCEPTION;
         if (!host || !host->window_ || argc < 1) return JS_NULL;
         if (JS_IsNumber(argv[0])) {
             int32_t id = 0;
@@ -450,6 +474,7 @@ struct Bindings {
     static JSValue Click(JSContext* ctx, JSValueConst, int argc,
                          JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (!GateCap(host, ctx, "input")) return JS_EXCEPTION;
         int32_t id = 0;
         if (!host || argc < 1 || JS_ToInt32(ctx, &id, argv[0]) || id < 0 ||
             id > 0xFFFF) {
@@ -477,6 +502,7 @@ struct Bindings {
     static JSValue InjectMouse(JSContext* ctx, JSValueConst, int argc,
                                JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (!GateCap(host, ctx, "input")) return JS_EXCEPTION;
         int32_t x = 0, y = 0;
         if (!host || !host->window_ || argc < 2 ||
             JS_ToInt32(ctx, &x, argv[0]) || JS_ToInt32(ctx, &y, argv[1])) {
@@ -501,6 +527,7 @@ struct Bindings {
     static JSValue InjectKey(JSContext* ctx, JSValueConst, int argc,
                              JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (!GateCap(host, ctx, "input")) return JS_EXCEPTION;
         int32_t key = 0;
         if (!host || !host->window_ || argc < 1 ||
             JS_ToInt32(ctx, &key, argv[0])) {
@@ -571,6 +598,7 @@ struct Bindings {
     static JSValue CreateDialog(JSContext* ctx, JSValueConst, int argc,
                                 JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (!GateCap(host, ctx, "widget")) return JS_EXCEPTION;
         if (host && host->IsPatching()) return PatchBlocked(ctx, "dialogCreate");
         if (!host || argc < 3 || !JS_IsFunction(ctx, argv[2])) {
             return JS_ThrowTypeError(ctx,
@@ -652,6 +680,7 @@ struct Bindings {
     static JSValue DialogAddLabel(JSContext* ctx, JSValueConst, int argc,
                                   JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (!GateCap(host, ctx, "widget")) return JS_EXCEPTION;
         if (host && host->IsPatching()) return PatchBlocked(ctx, "dialogAddLabel");
         const JKControl* c = DialogAddControl(host, ctx, argc, argv, 0);
         return c ? JS_NewInt32(ctx, c->GetControlId()) : JS_EXCEPTION;
@@ -660,6 +689,7 @@ struct Bindings {
     static JSValue DialogAddEdit(JSContext* ctx, JSValueConst, int argc,
                                  JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (!GateCap(host, ctx, "widget")) return JS_EXCEPTION;
         if (host && host->IsPatching()) return PatchBlocked(ctx, "dialogAddEdit");
         const JKControl* c = DialogAddControl(host, ctx, argc, argv, 1);
         return c ? JS_NewInt32(ctx, c->GetControlId()) : JS_EXCEPTION;
@@ -668,6 +698,7 @@ struct Bindings {
     static JSValue DialogAddButton(JSContext* ctx, JSValueConst, int argc,
                                    JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (!GateCap(host, ctx, "widget")) return JS_EXCEPTION;
         if (host && host->IsPatching()) return PatchBlocked(ctx, "dialogAddButton");
         const JKControl* c = DialogAddControl(host, ctx, argc, argv, 2);
         return c ? JS_NewInt32(ctx, c->GetControlId()) : JS_EXCEPTION;
@@ -676,6 +707,7 @@ struct Bindings {
     static JSValue DialogShow(JSContext* ctx, JSValueConst, int argc,
                               JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (!GateCap(host, ctx, "widget")) return JS_EXCEPTION;
         int32_t id = 0;
         if (!host || argc < 1 || JS_ToInt32(ctx, &id, argv[0]) || id <= 0) {
             return JS_UNDEFINED;
@@ -691,6 +723,7 @@ struct Bindings {
     static JSValue DialogClose(JSContext* ctx, JSValueConst, int argc,
                                JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (!GateCap(host, ctx, "widget")) return JS_EXCEPTION;
         int32_t id = 0, result = JKDialog::ResultCancel;
         if (!host || argc < 1 || JS_ToInt32(ctx, &id, argv[0]) || id <= 0) {
             return JS_UNDEFINED;
@@ -712,6 +745,7 @@ struct Bindings {
     static JSValue ReadConfig(JSContext* ctx, JSValueConst, int argc,
                               JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (!GateCap(host, ctx, "fs")) return JS_EXCEPTION;
         if (!host || argc < 1 || host->entryPath_.empty()) return JS_NULL;
         const std::string name = ToUtf8(ctx, argv[0]);
         const bool rejected =
@@ -816,6 +850,7 @@ struct Bindings {
     static JSValue CreateCanvas(JSContext* ctx, JSValueConst, int argc,
                                 JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (!GateCap(host, ctx, "canvas")) return JS_EXCEPTION;
         if (host && host->IsPatching()) return PatchBlocked(ctx, "createCanvas");
         if (!host || !host->window_ || argc < 1)
             return ThrowTypeError(ctx, "createCanvas", "needs (rect[, id])");
@@ -854,6 +889,7 @@ struct Bindings {
     static JSValue CanvasClear(JSContext* ctx, JSValueConst, int argc,
                                JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (!GateCap(host, ctx, "canvas")) return JS_EXCEPTION;
         if (!host || argc < 1) return JS_UNDEFINED;
         uint8_t col[3] = { 32, 32, 32 };
         if (argc >= 2) ColorFromArg(ctx, argv[1], col);
@@ -866,6 +902,7 @@ struct Bindings {
     static JSValue CanvasRect(JSContext* ctx, JSValueConst, int argc,
                               JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (!GateCap(host, ctx, "canvas")) return JS_EXCEPTION;
         int32_t x = 0, y = 0, w = 0, h = 0;
         if (!host || argc < 6 || JS_ToInt32(ctx, &x, argv[1]) ||
             JS_ToInt32(ctx, &y, argv[2]) || JS_ToInt32(ctx, &w, argv[3]) ||
@@ -884,6 +921,7 @@ struct Bindings {
     static JSValue CanvasPixel(JSContext* ctx, JSValueConst, int argc,
                                JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (!GateCap(host, ctx, "canvas")) return JS_EXCEPTION;
         int32_t x = 0, y = 0;
         if (!host || argc < 4 || JS_ToInt32(ctx, &x, argv[1]) ||
             JS_ToInt32(ctx, &y, argv[2])) {
@@ -900,6 +938,7 @@ struct Bindings {
     static JSValue CanvasLine(JSContext* ctx, JSValueConst, int argc,
                               JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (!GateCap(host, ctx, "canvas")) return JS_EXCEPTION;
         int32_t x1 = 0, y1 = 0, x2 = 0, y2 = 0;
         if (!host || argc < 6 || JS_ToInt32(ctx, &x1, argv[1]) ||
             JS_ToInt32(ctx, &y1, argv[2]) || JS_ToInt32(ctx, &x2, argv[3]) ||
@@ -917,6 +956,7 @@ struct Bindings {
     static JSValue CanvasCircle(JSContext* ctx, JSValueConst, int argc,
                                 JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (!GateCap(host, ctx, "canvas")) return JS_EXCEPTION;
         int32_t cx = 0, cy = 0, r = 0;
         if (!host || argc < 5 || JS_ToInt32(ctx, &cx, argv[1]) ||
             JS_ToInt32(ctx, &cy, argv[2]) || JS_ToInt32(ctx, &r, argv[3])) {
@@ -934,6 +974,7 @@ struct Bindings {
     static JSValue CanvasText(JSContext* ctx, JSValueConst, int argc,
                               JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (!GateCap(host, ctx, "canvas")) return JS_EXCEPTION;
         int32_t x = 0, y = 0;
         if (!host || argc < 5 || JS_ToInt32(ctx, &x, argv[1]) ||
             JS_ToInt32(ctx, &y, argv[2])) {
@@ -960,6 +1001,7 @@ struct Bindings {
     static JSValue DeclareCursor(JSContext* ctx, JSValueConst, int argc,
                                  JSValueConst* argv) {
         JKScriptHost* host = HostOf(ctx);
+        if (!GateCap(host, ctx, "agent")) return JS_EXCEPTION;
         if (!host || argc < 1 || !JS_IsObject(argv[0]))
             return ThrowTypeError(ctx, "declareCursor",
                 "needs one object {origin:{x,y}, cellW, cellH, rows, cols, kinds}");
@@ -1224,6 +1266,35 @@ bool JKScriptHost::Start(const std::string& entryPath) {
     }
 
     return true;
+}
+
+void JKScriptHost::EnableCapabilities(std::string list) {
+    gateActive_ = true;
+    capabilities_.clear();
+    size_t pos = 0;
+    while (pos <= list.size()) {
+        size_t comma = list.find(',', pos);
+        if (comma == std::string::npos) comma = list.size();
+        const std::string raw = list.substr(pos, comma - pos);
+        const size_t b = raw.find_first_not_of(" \t\r\n");
+        if (b == std::string::npos) {
+            pos = comma + 1;
+            continue;  // 빈 토큰 무시 (스펙 §3.1)
+        }
+        const size_t e = raw.find_last_not_of(" \t\r\n");
+        std::string tok = raw.substr(b, e - b + 1);
+        for (char& c : tok) {
+            c = static_cast<char>(
+                std::tolower(static_cast<unsigned char>(c)));
+        }
+        capabilities_.push_back(std::move(tok));
+        pos = comma + 1;
+    }
+}
+
+bool JKScriptHost::HasCapability(const std::string& token) const {
+    return std::find(capabilities_.begin(), capabilities_.end(), token) !=
+           capabilities_.end();
 }
 
 void JKScriptHost::Stop() {

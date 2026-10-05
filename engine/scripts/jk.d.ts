@@ -8,6 +8,13 @@
 // + 워크숍 슬롯·버전 리본 도구(에이전트 도구 층, 이 파일은 커멘트만) /
 // v7: 라이브 패치 계약 (set_script live:1, docs/67 단 1 리파인 3호 — 이 파일은
 // 도구 표면을 다루지 않으므로 작성 규약만): top-level은 function 정의만 권장.
+// v8: 능력 게이트 (docs/74 결정 — 워크숍 스크립트 앱만, fail-closed): MANI
+// capabilities=에 선언된 토큰만 해당 API가 열린다. 토큰 = widget(위젯·다이얼로그)
+// / timer(setInterval·clearInterval) / canvas(canvas*) / agent(declareCursor)
+// / fs(readConfig) / input(injectMouse·injectKey·click) / uiauto(findControl)
+// / network(리저브 — 오늘은 대응 API 없음). **무조건 허용(선언 불요)**: log,
+// assert, assertEq. 미선언 호출은 "capability '<tok>' not declared in MANI"
+// TypeError로 막는다.
 //
 // 이 파일은 실행되지 않는 TypeScript 선언 파일이다. QuickJS-ng가 실행하는
 // 것은 app.js(JavaScript)이며, 이 선언은 (1) 스크립트를 작성하는 에이전트가

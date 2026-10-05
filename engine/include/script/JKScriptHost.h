@@ -61,6 +61,17 @@ public:
     // Wires the timer services (both callbacks required for setInterval).
     void SetTimerServices(JKScriptTimerServices services);
 
+    // 워크숍 능력 게이트 (docs/74 결정 — 스펙
+    // 2026-10-05-workshop-capability-gate §4): 컴마 목록 원문을 받아
+    // trim+소문자로 정규화해 보관. ""=능력 없음. 워크숍 앱만 Start 전 1회
+    // 부른다(SCRI 앱·셀프테스트는 미호출 → 게이트 비활성). 런타임 변경
+    // API 없음 — 선언은 MANI가 유일 원천(라이브 패치도 같은 선언 상속).
+    void EnableCapabilities(std::string list);
+    // 게이트 활성 여부 = EnableCapabilities가 불렸는지.
+    bool GateActive() const { return gateActive_; }
+    // 정규화된 토큰 보유 여부.
+    bool HasCapability(const std::string& token) const;
+
     // Loads and evaluates `entryPath` (UTF-8 app.js), then calls the script's
     // onCreate() when defined. Returns false on file or script errors — the
     // error (message + JS stack trace) is logged and kept in LastError().
@@ -197,6 +208,11 @@ private:
     std::string cursorDeclJson_;
 
     bool patching_ = false;  // PatchEval 재평가 구간 — 생성류 바인딩이 bad_patch로 막는다
+
+    // 능력 게이트 상태 (docs/74): 워크숍 앱만 활성. capabilities_는 정규화
+    // (trim+소문자)된 토큰 집합 — MANI 원문은 앱 쪽 배지가 보여 준다.
+    bool gateActive_ = false;
+    std::vector<std::string> capabilities_;
     std::function<void(const std::string& json)> cursorDeclChanged_;
 
     // 상태 보존 리로드 (docs/67 단 1): 리로드 직전 캡처한 JS 상태 원문.

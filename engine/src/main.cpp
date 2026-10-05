@@ -2594,6 +2594,65 @@ static int RunAppSelfTest() {
             return ts;
         };
 
+        // 1g) 워크숍 능력 게이트 (docs/74 결정, 스펙 §4/§6): fail-closed —
+        //     미선언 호출은 Start 실패 + 고정 문구. 선언되면 통과. log/assert
+        //     는 무조건 허용. 각 시나리오는 새 창을 소유한다(블록 원칙).
+        {
+            // (a) 미선언 차단 + 문구 단언
+            writeScript("test_script_gate.js",
+                "var tick = setInterval(function(){}, 16);\n");
+            jk::JKWindow gwin("ScriptGateTest");
+            gwin.SetWindowRect(jk::JKRect{ 0, 0, 320, 240 });
+            jk::JKScriptHost ghost;
+            ghost.Attach(&gwin);
+            std::vector<uint32_t> gateWinIds;
+            uint64_t gateSeq = 0;
+            ghost.SetTimerServices(makeTimerServices(gateWinIds, gateSeq));
+            ghost.EnableCapabilities("");  // 선언 없음 = 능력 없음
+            check(!ghost.Start("test_script_gate.js"),
+                  "capability gate blocks undeclared setInterval");
+            check(ghost.LastError().find(
+                      "capability 'timer' not declared in MANI") !=
+                      std::string::npos,
+                  "capability gate error names the token");
+            check(ghost.GateActive(),
+                  "gate active after EnableCapabilities");
+            ghost.Stop();
+
+            // (b) 정규화(대문자·공백) + 선언 통과 + 미지 토큰 보존
+            jk::JKWindow gwin2("ScriptGateNorm");
+            gwin2.SetWindowRect(jk::JKRect{ 0, 0, 320, 240 });
+            jk::JKScriptHost ghost2;
+            ghost2.Attach(&gwin2);
+            ghost2.SetTimerServices(makeTimerServices(gateWinIds, gateSeq));
+            ghost2.EnableCapabilities("Timer, input,network,weird ");
+            check(ghost2.HasCapability("timer") && ghost2.HasCapability("input") &&
+                      ghost2.HasCapability("network") && ghost2.HasCapability("weird") &&
+                      !ghost2.HasCapability("widget"),
+                  "capability list normalizes (trim+lowercase, unknown kept)");
+            check(ghost2.Start("test_script_gate.js"),
+                  "declared capability passes the gate");
+            check(gateWinIds.size() >= 1,
+                  "declared timer claims a timer winId");
+            ghost2.Stop();
+
+            // (c) 무조건 허용: 게이트 활성 상태에서 log/assert 통과
+            writeScript("test_script_free.js",
+                "log(\"gate-ok\");\n"
+                "assert(true, \"assert stays free\");\n");
+            jk::JKWindow fwin("ScriptGateFree");
+            fwin.SetWindowRect(jk::JKRect{ 0, 0, 320, 240 });
+            jk::JKScriptHost fhost;
+            fhost.Attach(&fwin);
+            fhost.EnableCapabilities("");
+            check(fhost.Start("test_script_free.js"),
+                  "log/assert stay free under an active gate");
+            fhost.Stop();
+
+            // (d) 게이트 비활성(EnableCapabilities 미호출)은 기존 셀프테스트
+            //     1·2가 회귀 검증으로 겸함 — 여기에 단언 없음(스펙 §6-5).
+        }
+
         // 1) Boot + onCreate + control creation + click dispatch.
         writeScript("test_script_app.js",
             "var label = createLabel({x:10,y:10,w:120,h:24}, \"idle\");\n"
