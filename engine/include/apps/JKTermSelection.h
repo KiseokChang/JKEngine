@@ -68,6 +68,11 @@ inline int ViewportRowToLive(int r, int off, int rows) {
 // 값 = hist - off + r. 클램프 없음: 선택 좌표는 저장 시점 그대로 두고
 // NormalizeSelFull이 단일 클램프 담당(마우스 리포트 경로의 ViewportRowToLive와
 // 좌표 공간 분리 — 리포트는 뷰포트 좌표 그대로).
+// 알려진 근사(v1, I3 리뷰 채택): scrollbackMax(1000) 초과 시 pop_front로
+// 최상단이 사라져 전체 인덱스가 한 칸 밀린다 — 선택 사각형은 클램프로만
+// 안전 보장(내용 오차, 크래시 없음). 리플로우/리사이즈에도 선택 사각형은
+// 무효화하지 않는다(RecalcCells 미연결) — 축소 후 빈 행을 가리키면 복사가
+// 빈 행이 되는 정도(동일 안전성). 재앙커링은 이후 작업 후보.
 inline int ViewportRowToFull(int r, int off, int hist) {
     return hist - off + r;
 }
