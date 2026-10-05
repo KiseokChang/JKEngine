@@ -37,6 +37,8 @@
 
 #ifndef _WIN32
 #include <unistd.h>  // ::getpid — 가드 힌트의 자기 PID (posix leg, task 5)
+#include <sys/socket.h>  // ::socket/::connect — 엔드포인트 live 홀더 프로브 (R1-1)
+#include <sys/un.h>      // sockaddr_un — 위 프로브
 #endif
 
 // stb_image_write (docs/35): single-TU implementation — STBIW_STATIC keeps
@@ -500,11 +502,36 @@ bool JKWindowServer::StartAcceptor(const std::string& pipeName) {
         Sleep(10);
     }
 #else
-    // posix(플랜 G3): unix socket 파일의 존재를 같은 상한(~200ms)으로 폴링 —
-    // 클라에 connect 재시도가 없는 것(win32 관측)을 동형으로 보존.
+    // posix(플랜 G3, 리뷰 R1-1 정정): break 조건은 "엔드포인트가 살아 있다".
+    // 본 태스크의 첫 판(단순 exists 폴링)은 crash 잔재를 오판했다 — 서버가
+    // pkill -9로 죽어도 소켓 파일은 디스크에 남는다(JKInstanceLock_posix는
+    // 뒷정리자가 아니다; win32 named pipe는 이런 잔재를 남기지 않는다).
+    // 오판 부트는 acceptor가 첫 파이프 인스턴스를 만들기 전에
+    // SpawnClient("taskbar")를 발사하고, connect-retry가 없는 클라는
+    // 조용히 셸 없이 부팅 실패한다(reviewer 시나리오: crash-then-restart).
+    // 그래서 검사를 connect 1회 프로브(live 홀더 판정)로 교체 —
+    // JKPipeTransport_posix.cpp anon-namespace의 LiveServerHoldsPath와
+    // 동형 triage지만 헤더에 노출되지 않아 여기서 재서술한다. 잔재 소각
+    // 코스는 서버 쪽을 바꾸지 않는다(CreateServer의 stale triage가
+    // 재bind 전에 이미 unlink한다). 프로브 connect가 곧 accept의 소비라
+    // backlog(backlog=1)와 진짜 클라가 다투지 않는다 — acceptor는 상시
+    // accept()에 블록이라 프로브는 즉시 수락(죽은 Hello → 즉시 재bind) 또는
+    // 즉시 ECONNREFUSED(무청취자, 잔재) 둘 중 하나다.
     for (int i = 0; i < 20; ++i) {
-        std::error_code waitEc;
-        if (std::filesystem::exists(jk::ipc::DefaultServerEndpointPath(), waitEc)) break;
+        bool liveHolder = false;
+        const int probe = ::socket(AF_UNIX, SOCK_STREAM, 0);
+        if (probe >= 0) {
+            sockaddr_un waitAddr{};
+            waitAddr.sun_family = AF_UNIX;
+            std::strncpy(waitAddr.sun_path, jk::ipc::DefaultServerEndpointPath(),
+                         sizeof(waitAddr.sun_path) - 1);
+            const bool connected =
+                ::connect(probe, reinterpret_cast<const sockaddr*>(&waitAddr),
+                          sizeof(waitAddr)) == 0;
+            ::close(probe);
+            liveHolder = connected;
+        }
+        if (liveHolder) break;
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 #endif

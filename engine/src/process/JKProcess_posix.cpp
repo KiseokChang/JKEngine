@@ -153,8 +153,12 @@ SpawnResult Spawn(const SpawnOptions& options) {
         // already holds that socket"로 영원히 실패 + 이후 클라 connect는
         // 상속된 listener의 만석 백로그에서 블록(agentd 타임아웃 실측).
         // stdio(0/1/2 — 위 dup2로 배선된 파이프 포함)만 남기고 전부 닫는다.
-        // EBADF는 정상 경로(close는 fd마다 정확히 닫힌다).
-        for (int fd = STDOUT_FILENO + 1; fd < 4096; ++fd) close(fd);
+        // EBADF는 정상 경로(close는 fd마다 정확히 닫힌다). 상한은
+        // getdtablesize()(리뷰 R1-2, <unistd.h>, _GNU_SOURCE 불요) — 고정
+        // 4096은 RLIMIT_NOFILE 소프트 상한이 더 큰 환경에서 그 바깥의 상속
+        // fd(대표: acceptor listener)를 계속 누출한다.
+        const int fdUpper = getdtablesize();
+        for (int fd = STDOUT_FILENO + 1; fd < fdUpper; ++fd) close(fd);
         if (!options.workingDir.empty() &&
             chdir(options.workingDir.c_str()) != 0) {
             _exit(127);
