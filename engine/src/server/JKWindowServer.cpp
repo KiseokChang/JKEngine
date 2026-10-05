@@ -509,7 +509,10 @@ bool JKWindowServer::StartAcceptor(const std::string& pipeName) {
                 ? std::string(".")
                 : exePathAutoSpawn.substr(0, autoCut);
         std::string dllPath = dirSelf + "\\jkapp_taskbar.dll";
-        if (std::filesystem::exists(std::filesystem::path(dllPath))) {
+        // ec 중립형(throwing 아님) — 원문 관측(존재 bool, 실패=false)과 동일하며
+        // 이 TU에는 try/catch가 없어 던지는 오버로드는 서버를 죽인다(review r1).
+        std::error_code existsEc;
+        if (std::filesystem::exists(std::filesystem::path(dllPath), existsEc)) {
             SpawnClient("taskbar");
         } else {
             std::fprintf(stderr, "JKWindowServer: no jkapp_taskbar.dll — desktop runs without a shell\n");
@@ -2989,6 +2992,7 @@ static std::string FilesListOpJson(const std::string& path) {
         return "{\"ok\":false,\"error\":\"not_found\"}";
     }
     const std::filesystem::directory_iterator end;
+    bool iterErr = false;  // 원문 FindNextFileA 실패 = 열거 종료(오류, capped 아님)
     while (it != end && rows.size() < 512) {
         const std::string name = it->path().filename().string();
         if (name != "." && name != "..") {  // directory_iterator는 내지 않음 — 원문 유지
@@ -3015,9 +3019,15 @@ static std::string FilesListOpJson(const std::string& path) {
         }
         std::error_code incEc;
         it.increment(incEc);
-        if (incEc) break;  // 원문: FindNextFile 실패 = 열거 종료 (capped 아님)
-    }
-    if (it != end && rows.size() >= 512) capped = true;
+        if (incEc) {  // FindNextFileA 실패 동형 — 열거 종료; capped 판정은
+            iterErr = true; break;  // 아래 우리 코드가 직접 한다(review r1
+        }                           // LOW 2: libstdc++ 오류시 iterator 상태에
+    }                               // 판정을 맡기지 않는다).
+    // 원문 capped 계산: 512행을 채운 뒤 FindNextFileA가 513번째를 또 성공했을
+    // 때만 true — 열거 오류 중단이면 false. 정확히 512개만 있으면 마지막
+    // FindNext가 실패(더 없음)라 false. 오류 시 libstdc++ 구현 세부(iterator를
+    // end로 둘지 여부)와 무관하게 이 불리언이 판정을 소유한다.
+    if (!iterErr && rows.size() >= 512 && it != end) capped = true;
     std::sort(rows.begin(), rows.end(),
               [](const Ent& a, const Ent& b) {
                   if (a.dir != b.dir) return a.dir;
@@ -3167,7 +3177,11 @@ static bool TrustRecordText(const std::string& text,
 // 덮어쓰기 시점 원본만). 반환: 빈 문자열 = 성공(제거 1건), 아니면 오류 문자열.
 static std::string RevokeTrustRecord(const std::string& fingerprint) {
     const std::string dir = ExeDirNoSlash();
-    std::filesystem::create_directory(std::filesystem::path(dir + "\\state"));
+    // 이미 있으면 no-op(false)/실패=false — 원문 bool 무시 관측 동형, throwing
+    // 오버로드 금지(이 TU 무 try/catch — review r1 HIGH).
+    std::error_code dirEc;
+    std::filesystem::create_directory(std::filesystem::path(dir + "\\state"),
+                                      dirEc);
     const std::string path = dir + "\\state\\trust.json";
 
     std::FILE* f = std::fopen(path.c_str(), "rb");
@@ -3758,8 +3772,9 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                                 {
                                     const std::string sdir =
                                         StateDir() + "\\screenshots";
+                                    std::error_code dirEc;
                                     std::filesystem::create_directory(
-                                        std::filesystem::path(sdir));
+                                        std::filesystem::path(sdir), dirEc);
                                     char tbuf[512];
                                     std::snprintf(tbuf, sizeof(tbuf),
                                                   "%s\\approval_%lld_%u.png",
@@ -4205,7 +4220,10 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             // 원문 관측: GetFileAttributesA는 속성 비트를 소비하지 않는다 —
             // 존재 bool만(INVALID_FILE_ATTRIBUTES가 아니면 참). std::
             // filesystem::exists 관측 동형(존재가 아닌 모든 stat 실패=false).
-            return std::filesystem::exists(std::filesystem::path(p));
+            // ec 중립형 필수 — p는 클라 문자열이 들어오고 이 TU는 무 try/catch
+            // (review r1 HIGH).
+            std::error_code existsEc;
+            return std::filesystem::exists(std::filesystem::path(p), existsEc);
         };
         if (!app.empty()) {
             const bool prefixed = app.find(':') != std::string::npos;
@@ -5012,7 +5030,8 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             reply = "{\"ok\":false,\"error\":\"window_not_found\"}";
         } else {
             const std::string dir = StateDir() + "\\screenshots";
-            std::filesystem::create_directory(std::filesystem::path(dir));
+            std::error_code dirEc;  // 실패 무시 — 원문 bool 무시 동형, non-throwing
+            std::filesystem::create_directory(std::filesystem::path(dir), dirEc);
             const long long ts =
                 std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::system_clock::now().time_since_epoch())
@@ -5103,8 +5122,9 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                                     static_cast<size_t>(fw) * 4);
                     }
                     const std::string dir = StateDir() + "\\screenshots";
+                    std::error_code dirEc;  // 실패 무시 — non-throwing (review r1)
                     std::filesystem::create_directory(
-                        std::filesystem::path(dir));
+                        std::filesystem::path(dir), dirEc);
                     const long long ts =
                         std::chrono::duration_cast<
                             std::chrono::milliseconds>(
@@ -7331,13 +7351,15 @@ bool JKWindowServer::ApprovalParkingFull(uint32_t requesterId) const {
 // fails harmlessly when the directory already exists. stage-3 task 5:
 // CreateDirectoryA → std::filesystem::create_directory — 이미 있으면
 // no-op(false), 폴더는 원문과 같이 마지막 성분만 만든다(성공 무시 동일).
+// ec 중립형(throwing 금지 — 핫 패스, 이 TU 무 try/catch — review r1 HIGH).
 std::string JKWindowServer::StateDir() const {
     // jk::fs::GetExecutablePath 흡수 (docs/68 W5) — 원문 "." 폴백 규약 유지.
     std::string dir = jk::fs::GetExecutablePath();
     const size_t slash = dir.find_last_of("\\/");
     dir = (slash == std::string::npos) ? std::string(".") : dir.substr(0, slash);
     dir += "\\state";
-    std::filesystem::create_directory(std::filesystem::path(dir));
+    std::error_code dirEc;
+    std::filesystem::create_directory(std::filesystem::path(dir), dirEc);
     return dir;
 }
 

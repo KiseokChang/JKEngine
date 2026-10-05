@@ -93,10 +93,9 @@ std::string HistoryDir(const std::string& scriptsDir, const std::string& slot) {
 
 // stage-3 task 5: 수기 FindFirstFileA("\\*") 열거 → directory_iterator.
 // 관측 동형: 파일만(속성 DIRECTORY 비트 부정 ↔ !is_directory), 이름 그대로,
-// Find 실패(진입 실패)=false. 차이 노트: 빈(존재하지만 항목 0) 디렉터리는
-// 원문 FindFirstFile이 ERROR_NO_MORE_FILES로 실패(false)를 냈지만
-// directory_iterator는 항목 0에 true — 두 소비자(ListSlots/ListHistory)는
-// 빈 결과와 false를 같은 "없음"으로 소비하므로 관측 불변.
+// 진입 실패(부재 등)=false. 빈(항목 0) 디렉터리도 동형 — 원문 FindFirstFileA는
+// 존재 디렉터리에서 "."을 반드시 매치하므로 성공이고(빈 목록 반환), directory_
+// iterator도 항목 0에 성공(review r1 NIT 1).
 bool ListSlots(const std::string& scriptsDir, std::vector<std::string>& out) {
     out.clear();
     std::error_code openEc;
@@ -169,9 +168,12 @@ int AppendSnapshot(const std::string& scriptsDir, const std::string& slot,
     const std::string dir = HistoryDir(scriptsDir, slot);
     // CreateDirectoryA는 마지막 성분만 만든다 — create_directory도 같다(두 층을
     // 각각 시도, 이미 있으면 no-op false — 원문 관측 동형; 오류 무시 유지).
+    // ec 중립형 필수 — 원문은 반환을 무시했고 던지는 오버로드는 무 try/catch
+    // 소비자를 죽인다(review r1 HIGH).
+    std::error_code dirEc;
     std::filesystem::create_directory(
-        std::filesystem::path(scriptsDir + "\\.history"));
-    std::filesystem::create_directory(std::filesystem::path(dir));
+        std::filesystem::path(scriptsDir + "\\.history"), dirEc);
+    std::filesystem::create_directory(std::filesystem::path(dir), dirEc);
 
     std::vector<HistoryEntry> gens;
     ListHistory(scriptsDir, slot, gens);

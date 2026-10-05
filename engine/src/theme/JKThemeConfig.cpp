@@ -55,11 +55,11 @@ std::string DefaultThemePath() {
 // Missing file counts as mtime 0, so deleting the file also registers and
 // re-runs the loader, which is fail-open on missing (keeps preset — docs/45).
 // stage-3 task 5: GetFileAttributesExA(WIN32_FILE_ATTRIBUTE_DATA) 수기 →
-// std::filesystem::last_write_time. 원문 반환은 FILETIME(1601 기준 100ns
-// ticks)을 64비트로 합친 것 — 변경 감지는 값 비교라 표현은 규약일 뿐, 같은
+// std::filesystem::last_write_time. 원문 반환은 FILETIME(1601 기준 100ns ticks)
+// raw 값(클램프 없음 — "과거=0" 절단 규약은 FilesListOpJson/ListHistory 쪽
+// 절단식의 것, 이곳 원문엔 없다 — review r1 LOW 1) — 변경 감지는 값 비교라 같은
 // 100ns-ticks-since-1601 수 형태를 clock_cast(system_clock ns)→/100→+1601
-// 오프셋으로 유지한다(msvc FILETIME과 같은 수로 온다). 실패(무파일 포함)=0
-// 관측 동형.
+// 오프셋으로 유지한다. 실패(무파일 포함)=0 관측 동형.
 static long long s_lastThemeMtime = -1;
 
 static long long ThemeFileMtime(const std::string& path) {
@@ -70,8 +70,8 @@ static long long ThemeFileMtime(const std::string& path) {
     const auto sys = std::chrono::clock_cast<std::chrono::system_clock>(ftw);
     const auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
                         sys.time_since_epoch()).count();
-    // 1970-01-01 이전 파일은 음수 절단이 아닌 0 (원문의 "실패/과거=0" 규약).
-    if (ns < 0) return 0;
+    // 원문 규약 유지: raw 값 반환(음수 ns — 1970 이전 mtime — 도 값 비교에
+    // 그대로 유효하다).
     return static_cast<long long>(ns / 100) + 116444736000000000LL;
 }
 
