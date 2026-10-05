@@ -12,6 +12,9 @@
 > 3. 적용 범위 = **워크숍 스크립트 앱만** (추천안 그대로)
 > — 사용자 근거: "아직은 개인 과제입니다"(나눔 범위 좁음 → 진위 보장보다
 > 능력 가시성 우선). §5 경로로 진행: 설계 스펙 → 플랜 → 구현.
+> **이행:** 스펙 docs/superpowers/specs/2026-10-05-workshop-capability-gate-design.md
+> + 플랜 docs/superpowers/plans/2026-10-05-workshop-capability-gate.md → 구현
+> 완결 (as-built: docs/76).
 
 ## 1. 문제
 
