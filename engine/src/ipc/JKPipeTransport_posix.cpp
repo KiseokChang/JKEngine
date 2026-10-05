@@ -144,10 +144,13 @@ std::unique_ptr<JKPipeTransport> JKPipeTransport::CreateServer(const std::string
                      name.c_str(), std::strerror(err));
         return nullptr;
     }
-    // backlog 8 (plan H — docs/70 §6 #4): 1이면 스태일/phantom connect 한
+    // backlog 8 (plan H — docs/70 §6 #5): 1이면 스태일/phantom connect 한
     // 개가 단일 대기 슬롯을 점유해 이후 클라 connect가 블록한다. 서버는
     // accept를 빠르게 소진하지만 부트 직후 taskbar 스폰+프루브 connect가
-    // 겹치는 순간을 커버한다.
+    // 겹치는 순간을 커버한다. (최종리뷰 라이더: §6 #4 오인 교정 — 이 항목의
+    // 소속은 §6 #5의 "전송 phantom 연결" 줄이다. R-D3 "one client at a
+    // time" 직렬 서빙 계약은 serial accept 루프가 그대로 유지 — backlog는
+    // 대기열 완충일 뿐 서빙 동시성을 넓히지 않는다.)
     if (::listen(listener, 8) != 0) {
         const int err = errno;
         ::close(listener);

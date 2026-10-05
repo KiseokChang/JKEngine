@@ -27,8 +27,8 @@ diff 크기                 posix TU 2 + selftest 1 — win32 관측 변화 0
 |---|---|---|---|---|
 | #5 job=단일 멤버(posix pgid 덮어쓰기 — 트리 킬 누락) | H1 | 080efc2 | `JobState.pgids: vector<pid_t>` — AssignToJob 적산(중복 assign 멱등), TerminateJobTree/CloseHandleLike가 전 멤버 `kill(-pgid, SIGKILL)`. win32 JobObject 복수 멤버 계약과 패리티. 셀프테스트 12a: 자식 2명 assign → 킬 → 양쪽 3s 내 사망 관측 | 없음 |
 | #5 자식 stdin 부모 상속(패리티 원하면 open("/dev/null")+dup2(0)) | H1 | 080efc2+bfcc84a | 자식 분기가 stdin을 `/dev/null`(O_RDONLY)로 상시 dup2 — win32 `hStdInput 미설정`(JKProcess_win32.cpp:77)과 같은 관측(자식이 stdin에서 블록하지 않고 부모 stdin 탈취가 구조적으로 불가). 12b: `read x; echo got:$x` 자식이 2s 내 EOF로 종료 | 없음 |
-| #5 조기 CloseHandleLike 좀비(init 회수 — 누수 아님) | H4 | 판정만 | 코드 변경 없음 — CloseHandleLike의 ProcState 분기는 WNOHANG 1회 리랩(조기 사망 시 즉시 회수)이고 미래 좀비는 init(WSL)이 회수. docs/70 원문 판정 유지, 여기 영속 기록 | 없음(판정 확정) |
-| #5 전송 phantom 연결(probe connect가 backlog 슬롯 소비) | H3 | 80a4370 | `listen(listener, 8)` — 스태일/phantom connect 한 개가 단일 대기 슬롯을 점유해 이후 클라 connect가 블록하는 상황 방어(서버 부트 직후 taskbar 스폰+프루브 connect 겹침 커버) | 없음 |
+| #5 조기 CloseHandleLike 좀비(init 회수 — 누수 아님) | H4 | 판정만 | 코드 변경 없음 — CloseHandleLike의 ProcState 분기는 WNOHANG 1회 리랩(조기 사망 시 즉시 회수). **판정 유지+정밀화(최종리뷰 MEDIUM 라이더):** "init 회수"는 부모 종료 시 성립 — 엔진 전역에 SIGCHLD 처분 0건이라 장수 부모 경로(JKLmEngine.cpp:403-411: WaitForExit 미스→proc close→job close-kill 뒤)에서는 ProcState 소멸 후 브리지 수명까지 좀비가 잔존한다. 리소스 누수(프로세스 표 항목 수개)가 아니라는 판정 자체는 유지 | 없음(판정 확정) |
+| #5 전송 phantom 연결(probe connect가 backlog 슬롯 소비) | H3 | 80a4370 | `listen(listener, 8)` — 스태일/phantom connect 한 개가 단일 대기 슬롯을 점유해 이후 클라 connect가 블록하는 상황 방어(서버 부트 직후 taskbar 스폰+프루브 connect 겹침 커버). **(최종리뷰 LOW 라이더)** 이 상향은 R-D3 "one client at a time" 코멘트를 대체 — serial accept 루프가 서빙 계약을 그대로 유지하므로 계약 파손 아니고 posix 전용 관측 직렬화 완화 | 없음 |
 | #7 수백 바이트 RecvAll 패턴 | H2 | 71b0f63 | 케이스 13a: 320B를 7청크(13·47·64·1·128·33·34, 청크 사이 10-20ms) 전송 → RecvAll true+memcmp 일치. 기존 케이스 3은 5바이트 단발이었음 | 없음 |
 | #7 Accept 무한블록 방어 | H2 | 71b0f63 | 케이스 13c: listening 소켓 SO_RCVTIMEO(300ms) → 무피어 Accept가 kInvalidSocket로 ~315ms 반환 실측(Linux는 accept에도 SO_RCVTIMEO 적용) + alarm(20) hang 방어막. 13b: 부분읽기 도중의 EAGAIN도 RecvAll을 false로 끝내는 **fail-closed 계약 봉합**(§3 룰링) | 없음 |
 | #6 vplayer 리눅스 실측·Termux/폰 실기기 | — | 이월 | libav-on-Linux 런타임·폰 실기기 필요 — docs/70 §6 유일 잔여로 이월 | 이월(사용자 판정) |
@@ -47,7 +47,10 @@ fd-0 재사용 엣지 — 부모의 fd 0이 닫힌 채(데몬화 서버·agentd 
 러너 stdin이 열린 fd일 때 성립(블랙박스 관측 한계), 12a의 exit-code 0 수용
 관용(단언력은 WaitForExit 쌍이 검). 구현자 룰링 2건: killed=ok 시맨틱
 (비-ESRCH 실패는 close-kill로 재시도 가능한 fail-correct), /dev/null open
-실패=무음 fail-open(win32 계열 관측 패리티).
+실패=무음 fail-open — **표현 정밀화(최종리뷰 LOW 라이더):** 이 경로에서
+자식은 부모 stdin을 그대로 물려받는다. win32 패리티가 아니라 봉합 대상 그
+자체의 잔존이고, 실전 도달은 /dev/null이 없는 비-Linux 뿐이라 사실상
+불가(판정: 치유 대상 실패, 무음 경로).
 
 **H2 (71b0f63, sonnet APPROVE)·H3 (80a4370, sonnet APPROVE).** 케이스 13의
 13b는 플랜 작성 중 계약 실측(JKNet_posix.cpp:104-118 `r<=0 → false`, EAGAIN
@@ -95,9 +98,21 @@ TerminalHangulInput·JKHangulUtil·JKTextConv_win32·legacy/wancode/WANCODE.CPP)
 **(3) WSLg f7_smoke** GREEN(플랜 G 스탠딩 스모크 — taskbar 스폰·Minesweeper
 왕복·재시작 leg).
 
-## 6. 최종리뷰
+## 6. 최종리뷰 (whole-branch, opus, c8920b3..31aab6c 패키지)
 
-- VERDICT: (대기 — 판정 확정 시 이 절에 기록)
+- VERDICT: **APPROVED WITH RIDERS**. 전문은
+  .superpowers/sdd/…/final-review-report.md. 로직 전부 올정동(kill 루프·
+  fd-0 엣지 픽스·12/13 단언 강도·소비자 무영향 — JKLmEngine.cpp:315-320·
+  main.cpp:2990 계약-b 스모크의 복수 멤버 영향 본검증·win32 diff 0 본검증).
+- 라이더 반영(라이더 커밋):
+  - MEDIUM — JKPipeTransport_posix.cpp backlog 코멘트의 "§6 #4" 오인을
+    "#5"로 교정(플랜 H3 근거 인수도 동일 오인이었으나 docs/73 §1 표는 정확).
+  - MEDIUM — 좀비 판정의 회수 시점 정밀화(§1 — 부모 종료 시 init 회수;
+    장수 부모 경로는 좀비 잔존하나 누수 판정은 유지, 코드 변경 없음 —
+    플랜 냉동 룰링 준수).
+  - LOW 2건 — §1 phantom 행에 R-D3 대체 기록, §2 fail-open 표현 정밀화.
+  - NIT 2건 — CloseHandleLike job 분기 코멘트 사문 개소 명시(코드 주석
+    라이더 반영), docs/73 끝 개행.
 
 ## 7. 커밋 원장 (이 플랜, BASE c8920b3→)
 
@@ -110,6 +125,7 @@ TerminalHangulInput·JKHangulUtil·JKTextConv_win32·legacy/wancode/WANCODE.CPP)
 | 71b0f63 | H2: posix_selftest 케이스 13 — RecvAll 청크+SetTimeouts 상한 계약 |
 | 80a4370 | H3: unix socket backlog 1→8 — phantom connect 슬롯 점유 방어 |
 | (docs) | docs/73 as-built (이 문서) |
+| (라이더) | 최종리뷰 라이더 — §6 #4→#5 인수 교정(backlog 코멘트)+close 분기 retryable 사문 주석+docs 라이더 정직화(§1·§2·§6·§7) |
 
 ## 8. 잔여와 승계
 

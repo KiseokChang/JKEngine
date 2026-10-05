@@ -358,7 +358,10 @@ void  CloseHandleLike(void* handle) {
                 for (pid_t pgid : j->pgids) {
                     if (kill(-pgid, SIGKILL) != 0 && errno != ESRCH) ok = false;
                 }
-                if (ok) j->killed = true;  // failed member stays retryable
+                if (ok) j->killed = true;
+                // (라이더 NIT) "retryable"은 TerminateJobTree 실패→이후 close
+                // 순서에서만 유의미 — close 경로는 이 직후 delete라 재시도 창
+                // 이 없다.
             }
             delete j;
             return;
