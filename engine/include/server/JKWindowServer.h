@@ -622,7 +622,11 @@ private:
 
     // Client host exe (P1 ③, SetClientHostExe). Defaults to jkdesktop.exe so
     // behavior is identical even if nobody injects a name.
+#ifdef _WIN32
     std::string clientHostExe_ = "jkdesktop.exe";
+#else
+    std::string clientHostExe_ = "jkdesktop";   // posix build: same ELF, no .exe
+#endif
 
     // Child process handles kept from SpawnProcess, keyed by pid, so a
     // disconnecting client can be classified as crashed (non-zero exit) vs

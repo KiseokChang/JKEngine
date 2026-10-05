@@ -8001,7 +8001,6 @@ static std::string WideToUtf8(const std::wstring& w) {
 // DIFFERENT apps can still launch back-to-back.
 bool JKWindowServer::SpawnProcess(const char* exeName, const std::string& args,
                                   const char* throttleKey) {
-#ifdef _WIN32
     const char* key = throttleKey ? throttleKey : exeName;
     // Throttle repeated spawns for the same key to avoid launching many
     // copies from a single double-click.
@@ -8021,6 +8020,7 @@ bool JKWindowServer::SpawnProcess(const char* exeName, const std::string& args,
         lastSpawnTimes_[key] = now;
     }
 
+#ifdef _WIN32
     // Assume the server executable is in the same directory as the target.
     // 원문은 W형 GetModuleFileNameW — non-ANSI 설치 dir 안전이 취지였다. 어댑터
     // 흡수(docs/68 W5)로 A형 std::string 통일: 어댑터 반환은 CP_ACP 바이트라
@@ -8133,30 +8133,53 @@ bool JKWindowServer::SpawnProcess(const char* exeName, const std::string& args,
 
     std::fprintf(stderr, "JKWindowServer: spawned %s %s\n", exeName, args.c_str());
     return true;
-#else
-    (void)exeName;
-    (void)args;
-    std::fprintf(stderr, "JKWindowServer: SpawnProcess is Windows-only in this prototype\n");
-    return false;
+#else  // posix — 플랜 F5: jk::process::Spawn의 /bin/sh -c leg를 통해 클라를 띄운다
+    // exe path resolve (win32 leg와 같은 jk::fs 흡수 — /bin/sh -c 문자라
+    // 설치 dir에 공백 가능: 단일인용으로 감싼다. `'` 포함 설치 경로는
+    // v1 범위 밖 — 주석 명문).
+    const std::string exePathP = jk::fs::GetExecutablePath();
+    if (exePathP.empty()) {
+        std::fprintf(stderr, "JKWindowServer: GetExecutablePath failed\n");
+        return false;
+    }
+    const size_t cutP = exePathP.find_last_of("\\/");
+    const std::string dirP =
+        (cutP != std::string::npos && cutP > 0) ? exePathP.substr(0, cutP)
+                                                : std::string(".");
+    std::string cmdP = "'" + dirP + "/" + exeName + "'";
+    if (!args.empty()) {
+        cmdP += " " + args;
+    }
+    jk::process::SpawnOptions optP;
+    optP.commandLineUtf8 = cmdP;
+    optP.workingDir = dirP;   // assets/ 위치 (win32 계약 동일)
+    const jk::process::SpawnResult spawnedP = jk::process::Spawn(optP);
+    if (!spawnedP.ok) {
+        std::fprintf(stderr, "JKWindowServer: posix spawn failed for %s (err=%u)\n",
+                     exeName, spawnedP.errorCode);
+        return false;
+    }
+    if (spawnedP.process) spawnedClients_[spawnedP.pid] = spawnedP.process;
+    std::fprintf(stderr, "JKWindowServer: spawned %s %s\n", exeName,
+                 args.c_str());
+    return true;
 #endif // _WIN32
 }
 
-bool JKWindowServer::SpawnClient(const char* appName, bool fromJkx) {
-#ifdef _WIN32
-    if (fromJkx) {
-        // A .jkx container path — may contain spaces, so quote it.
-        std::string arg = std::string("--jkx \"") + appName + "\"";
-        return SpawnProcess(clientHostExe_.c_str(), arg, appName);
-    }
+// (static helper — SpawnClient 위)
+// client spawn args composition — 플랫폼 무관 (win32/posix 모두 이 논리로
+// command line args를 만든다). Returns false only for the v1-excluded jkx
+// route on posix (caller short-circuits before composing).
+static void ComposeClientSpawnArgs(const std::string& appName,
+                                   std::string& argsOut) {
     // Phase A 흡수 (docs/44): appName "terminal:<cmdline>" — 콘솔 TUI 앱을
     // 터미널 위에 띄운다. 런처 fallback 셀이 이 관례를 쓴다.
     std::string name(appName);
     constexpr const char* kTermPrefix = "terminal:";
     if (name.rfind(kTermPrefix, 0) == 0) {
-        return SpawnProcess(clientHostExe_.c_str(),
-                            std::string("terminal --shell ") +
-                                name.substr(strlen(kTermPrefix)),
-                            appName);
+        argsOut = std::string("terminal --shell ") +
+                  name.substr(strlen(kTermPrefix));
+        return;
     }
     // 파일 열기 대화상자 (설계 specs/2026-09-13-file-dialog §1b): appName
     // "filedlg:<json args>" — terminal:과 같은 계열의 두 번째 접두 관례.
@@ -8166,21 +8189,38 @@ bool JKWindowServer::SpawnClient(const char* appName, bool fromJkx) {
     constexpr const char* kFileDlgPrefix = "filedlg:";
     if (name.rfind(kFileDlgPrefix, 0) == 0) {
         const std::string json = name.substr(strlen(kFileDlgPrefix));
-        std::string quoted = "--filedlg \"";
+        argsOut = "--filedlg \"";
         for (char ch : json) {
-            if (ch == '"') quoted += "\\\"";
-            else           quoted += ch;
+            if (ch == '"') argsOut += "\\\"";
+            else           argsOut += ch;
         }
-        quoted += "\"";
-        return SpawnProcess(clientHostExe_.c_str(), quoted, appName);
+        argsOut += "\"";
+        return;
     }
-    return SpawnProcess(clientHostExe_.c_str(),
-                        std::string("--client ") + appName, appName);
-#else
-    (void)appName;
-    (void)fromJkx;
-    std::fprintf(stderr, "JKWindowServer: SpawnClient is Windows-only in this prototype\n");
-    return false;
+    argsOut = std::string("--client ") + name;
+}
+
+bool JKWindowServer::SpawnClient(const char* appName, bool fromJkx) {
+#ifdef _WIN32
+    if (fromJkx) {
+        // A .jkx container path — may contain spaces, so quote it.
+        std::string arg = std::string("--jkx \"") + appName + "\"";
+        return SpawnProcess(clientHostExe_.c_str(), arg, appName);
+    }
+    std::string argsW;
+    ComposeClientSpawnArgs(appName, argsW);
+    return SpawnProcess(clientHostExe_.c_str(), argsW, appName);
+#else  // posix
+    if (fromJkx) {
+        // docs/70 §4 Linux v1 exclusion: no jkx containers without the
+        // Windows-only pack host.
+        std::fprintf(stderr,
+                     "JKWindowServer: jkx spawn unsupported on posix (v1)\n");
+        return false;
+    }
+    std::string argsP;
+    ComposeClientSpawnArgs(appName, argsP);
+    return SpawnProcess(clientHostExe_.c_str(), argsP, appName);
 #endif // _WIN32
 }
 
