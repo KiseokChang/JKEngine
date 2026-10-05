@@ -1203,6 +1203,179 @@ void TestJobMultiMemberAndStdinParity() {
     jk::process::CloseHandleLike(rd.process);
 }
 
+// Case 13 (plan H — docs/70 §6 #7): RecvAll 청크 패턴+부분읽기 timeout
+// 경계+Accept 상한 실측.
+//   A) 13a RecvAll 청크: 320B를 7개 불규칙 청크(13·47·64·1·128·33·34, 청크
+//      사이 10-20ms)로 보내면 RecvAll(s, buf, 320)이 전부 모아 memcmp 일치 —
+//      부분 recv 루프의 정확성 봉합(docs/68 승계 "수백 바이트 RecvAll 패턴";
+//      케이스 3은 5바이트 단발이라 다른 의미).
+//   B) 13b 부분읽기 이후 timeout 경계: posix RecvAll은 r<=0 → false로
+//      fail-closed(JKNet_posix.cpp:104-118, EINTR만 재시도 — EAGAIN 포함).
+//      피어가 64B 중 32B만 보내고 700ms 뒤 나머지를 보내면 SO_RCVTIMEO 400ms가
+//      부분읽기 도중의 recv를 EAGAIN으로 끊고 RecvAll은 정직하게 false.
+//      (케이스 3 D의 "무데이터 timeout"과 대비되는 부분읽기 경로.)
+//   C) 13c Accept 무한블록 방어 실측: Linux는 listening 소켓의 SO_RCVTIMEO를
+//      accept에도 적용 — 아무도 connect하지 않아도 Accept가 ~즉시
+//      kInvalidSocket을 반환해야 한다. hang 방어막 alarm(20): SIGALRM 기본
+//      동작=프로세스 사망이므로 hang은 조용한 붙잡힘이 아니라 요란한 적색.
+void TestNetRecvAllChunksTimeoutAcceptBound() {
+    // A) 13a — 320 bytes in 7 irregular chunks. Reference filler is shared
+    //    with the client thread (same buffer, same formula) so memcmp is the
+    //    only verdict needed.
+    std::vector<char> refA(320);
+    for (size_t i = 0; i < refA.size(); ++i)
+        refA[i] = static_cast<char>(i * 97 + 13);
+    static constexpr int kChunkSizes[7] = {13, 47, 64, 1, 128, 33, 34};
+    static constexpr int kChunkDelays[6] = {15, 10, 20, 12, 18, 10};  // ms
+
+    std::uint16_t portA = 0;
+    const jk::net::Socket lpA =
+        jk::net::ListenTcp("127.0.0.1", 0, 4, &portA);
+    Check(lpA != jk::net::kInvalidSocket,
+          "net13: chunk-test listener opens (backlog 4)");
+    Check(portA != 0, "net13: chunk-test listener reports its bound port");
+
+    struct ChunkClientResult {
+        int connectErr;
+        int sent;
+    } ca{-1, -1};
+    auto clientBodyA = [&ca, portA, &refA]() {
+        const int c = socket(AF_INET, SOCK_STREAM, 0);
+        if (c < 0) return;
+        sockaddr_in dst{};
+        dst.sin_family = AF_INET;
+        dst.sin_addr.s_addr = inet_addr("127.0.0.1");
+        dst.sin_port = htons(portA);
+        ca.connectErr = connect(c, reinterpret_cast<sockaddr*>(&dst),
+                                sizeof(dst));
+        if (ca.connectErr != 0) {
+            ::close(c);
+            return;
+        }
+        int sent = 0;
+        int off = 0;
+        for (int i = 0; i < 7; ++i) {
+            const int n = static_cast<int>(send(c, refA.data() + off,
+                                                kChunkSizes[i], 0));
+            if (n > 0) {
+                off += n;
+                sent += n;
+            }
+            if (i < 6) NapMs(kChunkDelays[i]);
+        }
+        ca.sent = sent;
+        sleep(1);  // hold open so the server's RecvAll sees data, not EOF
+        ::close(c);
+    };
+    std::thread clientA(clientBodyA);
+
+    const jk::net::Socket accA = jk::net::Accept(lpA);
+    Check(accA != jk::net::kInvalidSocket,
+          "net13: Accept returns the raw chunk client");
+    std::vector<char> gotA(320, 0);
+    Check(jk::net::RecvAll(accA, gotA.data(), 320),
+          "net13: RecvAll assembles 320 bytes across 7 irregular chunks");
+    Check(std::memcmp(gotA.data(), refA.data(), 320) == 0,
+          "net13: assembled 320 bytes match the reference pattern");
+    jk::net::Close(lpA);
+    jk::net::ShutdownBoth(accA);
+    jk::net::Close(accA);
+    clientA.join();
+    Check(ca.connectErr == 0 && ca.sent == 320,
+          "net13: raw client sent all 320 bytes in 7 chunks");
+
+    // B) 13b — partial read, then EAGAIN: RecvAll must be honest (false).
+    //    The client holds the connection ~2s AFTER its second send, so a
+    //    false can only come from SO_RCVTIMEO firing mid-loop — never EOF.
+    std::vector<char> refB(64);
+    for (size_t i = 0; i < refB.size(); ++i)
+        refB[i] = static_cast<char>(i * 97 + 13);
+
+    std::uint16_t portB = 0;
+    const jk::net::Socket lpB =
+        jk::net::ListenTcp("127.0.0.1", 0, 4, &portB);
+    Check(lpB != jk::net::kInvalidSocket,
+          "net13: timeout-test listener opens");
+    Check(portB != 0, "net13: timeout-test listener reports its bound port");
+
+    struct GapClientResult {
+        int connectErr;
+        int sent;
+    } cb{-1, -1};
+    auto clientBodyB = [&cb, portB, &refB]() {
+        const int c = socket(AF_INET, SOCK_STREAM, 0);
+        if (c < 0) return;
+        sockaddr_in dst{};
+        dst.sin_family = AF_INET;
+        dst.sin_addr.s_addr = inet_addr("127.0.0.1");
+        dst.sin_port = htons(portB);
+        cb.connectErr = connect(c, reinterpret_cast<sockaddr*>(&dst),
+                                sizeof(dst));
+        if (cb.connectErr != 0) {
+            ::close(c);
+            return;
+        }
+        cb.sent = static_cast<int>(send(c, refB.data(), 32, 0));
+        NapMs(700);  // > SO_RCVTIMEO 400 — induces EAGAIN mid RecvAll loop
+        cb.sent += static_cast<int>(send(c, refB.data() + 32, 32, 0));
+        sleep(2);  // hold open far past the server's check — no EOF escape
+        ::close(c);
+    };
+    std::thread clientB(clientBodyB);
+
+    const jk::net::Socket accB = jk::net::Accept(lpB);
+    Check(accB != jk::net::kInvalidSocket,
+          "net13: Accept returns the half-send client");
+    jk::net::SetTimeouts(accB, 400);
+    char bufB[64] = {};
+    const double tB = nowMs();
+    const bool fullRead = jk::net::RecvAll(accB, bufB, 64);
+    const double elapsedB = nowMs() - tB;
+    std::printf("  net13: partial-read RecvAll=false after %.0f ms\n",
+                elapsedB);
+    std::fflush(stdout);
+    Check(!fullRead,
+          "net13: RecvAll reports false on a mid-read EAGAIN (fail-closed "
+          "r<=0, EINTR-only retry)");
+    Check(elapsedB < 2500.0,
+          "net13: SO_RCVTIMEO 400 bounded the partial read (elapsed << the "
+          "client's 2s hold)");
+
+    // Teardown AFTER the client joins: its second send (at 700ms) must land
+    // on a live socket, not on a closed one (raw send lacks MSG_NOSIGNAL, so
+    // a racing close could SIGPIPE the harness itself).
+    clientB.join();
+    jk::net::Close(lpB);
+    jk::net::ShutdownBoth(accB);
+    jk::net::Close(accB);
+    Check(cb.connectErr == 0 && cb.sent == 64,
+          "net13: client sent 32+32 across the 700ms gap");
+
+    // C) 13c — Accept must not block forever: SO_RCVTIMEO applies to accept
+    //    on Linux. alarm(20) is the hang net; SIGALRM's default action ends
+    //    the process loudly, so a regression reads as an abrupt RED death,
+    //    not a silent parked run.
+    alarm(20);
+    std::uint16_t portC = 0;
+    const jk::net::Socket lpC =
+        jk::net::ListenTcp("127.0.0.1", 0, 4, &portC);
+    Check(lpC != jk::net::kInvalidSocket, "net13: 13c listener opens");
+    jk::net::SetTimeouts(lpC, 300);
+    const double tC = nowMs();
+    const jk::net::Socket nobody = jk::net::Accept(lpC);  // no client coming
+    const double elapsedC = nowMs() - tC;
+    alarm(0);  // timer off — no SIGALRM leak into later cases
+    std::printf("  net13: accept with no peer returned in %.0f ms\n",
+                elapsedC);
+    std::fflush(stdout);
+    Check(nobody == jk::net::kInvalidSocket,
+          "net13: Accept with no peer returns kInvalidSocket (SO_RCVTIMEO "
+          "bounds accept on Linux)");
+    Check(elapsedC < 2500.0,
+          "net13: unattended accept returns promptly (no infinite block)");
+    jk::net::Close(lpC);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -1219,6 +1392,7 @@ int main(int argc, char** argv) {
     TestLlmStubShell();
     TestLocaltimeS();
     TestJobMultiMemberAndStdinParity();
+    TestNetRecvAllChunksTimeoutAcceptBound();
     std::printf("PosixSelfTest: %d failure(s)\n", g_failures);
     return g_failures == 0 ? 0 : 1;
 }
