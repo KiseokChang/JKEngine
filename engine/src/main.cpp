@@ -468,12 +468,14 @@ static void MirrorClientStderr(const char*) {}
 // 다르다 — 빈(슬래시 없는) 이름은 LD_LIBRARY_PATH·ld.so 캐시·/lib만 보고
 // exe-dir도 cwd도 기본 검색하지 않는다. 그래서 클라 route leg는 exe-dir 접두로
 // 절대화한다(플랜 G3 서버 스폰과 동일 위치 관측). 접미는 G1 AppModuleSuffix()
-// — 단일 정의 원칙. 폴백: exe 경로를 못 얻으면 빈 접두(cwd 상대 그대로).
+// — 단일 정의 원칙. 폴백: exe 경로를 못 얻으면 "./" 접두(슬래시 없는 이름은
+// dlopen이 cwd도 검색하지 않아 확실히 실패 — 서버 선례(dirSelf 폴백 ".",
+// "./jkapp_...")와 동형으로 cwd 절대화한다).
 static std::string ClientModulePath(const char* appName) {
     const std::string exe = jk::fs::GetExecutablePath();
     const size_t slash = exe.find_last_of('/');
     const std::string prefix =
-        (slash == std::string::npos) ? std::string() : exe.substr(0, slash + 1);
+        (slash == std::string::npos) ? std::string("./") : exe.substr(0, slash + 1);
     return prefix + "jkapp_" + appName + jk::server::AppModuleSuffix();
 }
 #endif

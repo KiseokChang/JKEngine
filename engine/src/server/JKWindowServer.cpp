@@ -19,6 +19,7 @@
 #include <JKPlatform.h>
 #include <fs/JKFs.h>
 #include <fs/JKInstanceLock.h>
+#include <ipc/JKWireEndpoints.h>
 #include <process/JKProcess.h>
 #include <theme/JKTheme.h>
 
@@ -489,15 +490,24 @@ bool JKWindowServer::StartAcceptor(const std::string& pipeName) {
     running_ = true;
     acceptorThread_ = std::thread([this] { AcceptorLoop(); });
 
-#ifdef _WIN32
     // Auto-spawn the shell (docs/28): the taskbar is a privileged client, not
     // an app — the server boots it itself when its module is installed next
     // to the exe. Clients have no connect-retry, so wait for the acceptor's
     // first pipe instance before spawning (bounded ~200 ms).
+#ifdef _WIN32
     for (int i = 0; i < 20; ++i) {
         if (WaitNamedPipeA(pipeName_.c_str(), 20)) break;
         Sleep(10);
     }
+#else
+    // posix(플랜 G3): unix socket 파일의 존재를 같은 상한(~200ms)으로 폴링 —
+    // 클라에 connect 재시도가 없는 것(win32 관측)을 동형으로 보존.
+    for (int i = 0; i < 20; ++i) {
+        std::error_code waitEc;
+        if (std::filesystem::exists(jk::ipc::DefaultServerEndpointPath(), waitEc)) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+#endif
     // exe-dir는 jk::fs::GetExecutablePath 흡수 (docs/68 W5): 동적 재시도라
     // 원문의 len<1024 절단 건너뛰기 조건은 소멸. 원문 절단 규약(뒤 "\\" 없음,
     // 구분자 없을 때 "." 폴백) 그대로.
@@ -519,7 +529,6 @@ bool JKWindowServer::StartAcceptor(const std::string& pipeName) {
                          AppModuleSuffix());
         }
     }
-#endif
     return true;
 }
 
