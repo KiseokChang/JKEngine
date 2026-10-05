@@ -144,8 +144,11 @@ std::unique_ptr<JKPipeTransport> JKPipeTransport::CreateServer(const std::string
                      name.c_str(), std::strerror(err));
         return nullptr;
     }
-    // Backlog 1: a single-server transport, one client at a time (R-D3).
-    if (::listen(listener, 1) != 0) {
+    // backlog 8 (plan H — docs/70 §6 #4): 1이면 스태일/phantom connect 한
+    // 개가 단일 대기 슬롯을 점유해 이후 클라 connect가 블록한다. 서버는
+    // accept를 빠르게 소진하지만 부트 직후 taskbar 스폰+프루브 connect가
+    // 겹치는 순간을 커버한다.
+    if (::listen(listener, 8) != 0) {
         const int err = errno;
         ::close(listener);
         std::fprintf(stderr, "JKPipeTransport::CreateServer('%s') failed: "
