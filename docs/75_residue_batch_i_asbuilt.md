@@ -75,3 +75,33 @@
 1. **docs/74 트러스트 결정** (1-3항목) — 단 2 출하 라인 개통의 문.
 2. 눈확인 대기: 터미널 글리프 18 cp, close 버튼 호버, 지뢰찾기 E→B 축소.
 3. 결정 시 → docs/74 §5 경로(설계 스펙 → 플랜 → 능력 게이트+배지).
+## 3b. 라이더 — 서버 컴포지터 X 오버레이 호버 (f46f27b, 2026-10-05)
+
+사용자 눈확인 보고("X 에 호버 했는데 아무 변화 없는데요?") → 라이브 진단+수리.
+
+- **원인**: I4-1에서 closeHover_를 클라 페인트(JKWindow.cpp)에만 심고, 서버
+  모드(split)에서 보이는 X는 컴포지터 DrawCloseOverlay — 상태 없이 그려
+  호버 무변화. 본래 I4 원장의 "컴포지터 오버레이 복제 out-of-scope" 항목.
+- **수리**: 상태 판정은 서버(JKWindowServer::UpdateCloseHover — HitTest·
+  면제 검사·존 산식 전부 TryChromeGrab 존 1과 동일), 컴포지터는
+  SetCloseHoverLayer(id) 미러 그리기(docs/39 maximize 플래그 동일 방향).
+  전이 시에만 Composite() 1회. SDL_WINDOWEVENT_LEAVE에서 확정 소거
+  (서버 창 밖 이탈 = 모션 부재 프리즈 소각).
+- **실측**(diag_ch2.ps1, 마우스 모션 실전 주입): OUT→ON 픽셀 diff 108/169,
+  ON→OFF 108/169 — ON/OFF 대칭, 정상. 단일 프로세스 모드는 클라 closeHover_
+  (I4-1) 그대로.
+- **진단 트랩 원장(실측 프로브 렛슨 — 다음 대기 실측에 그대로 적용)**:
+  1. `capture_window`는 클라 shm 리드백 — 서버 그림 오버레이는 안 나온다.
+     서버 측 시각 검증은 실물 화면 캡처(shot.ps1 패턴)만 유효.
+  2. CopyFromScreen 캡처의 원점은 **윈도 rect** 좌상단(비클라 영역 포함,
+     125% 데스크톱에서 +9,+50) — 화면 좌표로 샘플하면 수십 px 어긋나
+     "변화 없음" 오판. image = screen - GetWindowRect 좌상단 수학 필수.
+  3. `-WindowStyle Hidden`으로 서버 기동하면 SDL 창까지 SW_HIDE 되어
+     GetClientRect 0x0 — 리다이렉트 캡처가 필요하면 **보통 창 +
+     -RedirectStandardError/StandardOutput**으로 기동. (로그는 stdout,
+     fprintf(stderr)는 .err 파일.)
+  4. SetCursorPos가 커서를 점프시킨 뒤 모션 이벤트는 1회(연속 유지 모션
+     없음) — 호버는 전이 1회 발화 후 프리즈가 정상 동작. 또한 이전 프로브
+     실행이 커서를 X 위에 남겨두면 다음 실행의 before 샷이 이미 호버 상태
+     (스폰 좌표 고정이라 동일 위치) — 비교 기준 샷은 "커서를 보드 중앙으로
+     옮긴 뒤" 찍는다.
