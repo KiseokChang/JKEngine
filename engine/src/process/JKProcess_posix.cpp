@@ -152,13 +152,17 @@ SpawnResult Spawn(const SpawnOptions& options) {
         // "살아" 보이고, 서버의 다음 acceptor 이터레이션은 "a live server
         // already holds that socket"로 영원히 실패 + 이후 클라 connect는
         // 상속된 listener의 만석 백로그에서 블록(agentd 타임아웃 실측).
-        // stdio(0/1/2 — 위 dup2로 배선된 파이프 포함)만 남기고 전부 닫는다.
+        // stdio 0/1/2 유지 — 스윕은 STDERR_FILENO+1(=3)부터 (R2: 첫 판의
+        // STDOUT_FILENO+1(=2)는 stderr를 희생 — dup2로 배선된 stderr 파이프
+        // 뒤에 close(2)가 먼저 닫아끊어 posix_selftest 2 FAIL 실측: 자식
+        // stderr 공백 + `echo >&2`가 EBADF로 sh exit 1). 불변명: 스윕은
+        // 0/1/2를 건드리지 않는다 — 위 dup2로 배선된 파이프 포함.
         // EBADF는 정상 경로(close는 fd마다 정확히 닫힌다). 상한은
         // getdtablesize()(리뷰 R1-2, <unistd.h>, _GNU_SOURCE 불요) — 고정
         // 4096은 RLIMIT_NOFILE 소프트 상한이 더 큰 환경에서 그 바깥의 상속
         // fd(대표: acceptor listener)를 계속 누출한다.
         const int fdUpper = getdtablesize();
-        for (int fd = STDOUT_FILENO + 1; fd < fdUpper; ++fd) close(fd);
+        for (int fd = STDERR_FILENO + 1; fd < fdUpper; ++fd) close(fd);
         if (!options.workingDir.empty() &&
             chdir(options.workingDir.c_str()) != 0) {
             _exit(127);
