@@ -150,30 +150,58 @@ SpawnResult Spawn(const SpawnOptions& options) {
     setpgid(pid, pid);
 
     // Contract (a): the child holds its write ends now — the parent MUST let
-    // go immediately after spawn, else the child's stdout never EOFs.
+    // go immediately after spawn, else the child's stdout never EOFs. The
+    // closed slots are cleared (-1) so a later failure-path cleanup loop can
+    // never double-close them.
     if (options.inheritedStdioPipes) {
         close(outPipe[1]);
         close(errPipe[1]);
+        outPipe[1] = -1;
+        errPipe[1] = -1;
     }
+
+    // Fail-closed allocation like the win32 partial-pipe guard: anything left
+    // after this point must unwind the whole spawn without throwing out of a
+    // void*-ABI adapter.
+    auto closePipeFds = [](int (&fds)[2]) {
+        for (int& fd : fds) {
+            if (fd >= 0) {
+                close(fd);
+                fd = -1;
+            }
+        }
+    };
 
     ProcState* proc = new (std::nothrow) ProcState{
         HandleState{kMagicProc}, pid, false, false, 0};
     if (!proc) {
         const int err = ENOMEM;
-        for (int fd : outPipe)
-            if (fd >= 0) close(fd);
-        for (int fd : errPipe)
-            if (fd >= 0) close(fd);
+        closePipeFds(outPipe);
+        closePipeFds(errPipe);
         waitpid(pid, nullptr, 0);  // reap ourselves, we created the child
         result.error = FailText(err, "alloc");
         return result;
     }
 
+    // Same nothrow/fail-closed discipline as ProcState — a throwing new here
+    // would unwind through the C-style void* handle contract.
     PipeState* outRead = nullptr;
     PipeState* errRead = nullptr;
     if (options.inheritedStdioPipes) {
-        outRead = new PipeState{HandleState{kMagicPipe}, outPipe[0]};
-        errRead = new PipeState{HandleState{kMagicPipe}, errPipe[0]};
+        outRead = new (std::nothrow)
+            PipeState{HandleState{kMagicPipe}, outPipe[0]};
+        errRead = new (std::nothrow)
+            PipeState{HandleState{kMagicPipe}, errPipe[0]};
+        if (!outRead || !errRead) {
+            const int err = ENOMEM;
+            delete outRead;
+            delete errRead;
+            closePipeFds(outPipe);
+            closePipeFds(errPipe);
+            waitpid(pid, nullptr, 0);  // reap ourselves, we created the child
+            result.error = FailText(err, "alloc");
+            return result;
+        }
     }
 
     result.ok = true;
@@ -220,7 +248,10 @@ int   ReadPipeData(void* pipe, char* buffer, int cap) {
     PipeState* p = AsPipe(pipe);
     if (!p || p->fd < 0) return -1;
     if (cap <= 0) return 0;  // win32 parity: ReadFile clamps cap to 0
-    const ssize_t got = read(p->fd, buffer, static_cast<size_t>(cap));
+    ssize_t got = 0;
+    do {  // EINTR is retryable — a stale signal must not read as a broken pipe
+        got = read(p->fd, buffer, static_cast<size_t>(cap));
+    } while (got < 0 && errno == EINTR);
     // got==0 -> peer closed: "this pipe is done" (same observation the win32
     // caller keeps); an error is -1 — the caller's read==0/-1 verdict holds.
     return static_cast<int>(got);
@@ -304,6 +335,21 @@ bool  KillProcess(void* process, uint32_t exitCode) {
                      // reports 128+9, still non-zero.
     ProcState* p = AsProc(process);
     if (!p) return false;
+    // Reap-check BEFORE any kill: if the child is already dead (or a WNOHANG
+    // poll just reaped it), the pid may have been recycled — killing it would
+    // hit an innocent process. Fail-closed, like TerminateProcess on a dead
+    // handle; the cached exit code stays readable via GetExitCode.
+    if (!p->reaped) {
+        int st = 0;
+        const pid_t w = waitpid(p->pid, &st, WNOHANG);
+        if (w == p->pid) {
+            p->reaped = true;
+            p->exitCode = WIFEXITED(st)
+                              ? static_cast<uint32_t>(WEXITSTATUS(st))
+                              : static_cast<uint32_t>(128 + WTERMSIG(st));
+        }
+    }
+    if (p->reaped) return false;
     return kill(p->pid, SIGKILL) == 0;
 }
 
