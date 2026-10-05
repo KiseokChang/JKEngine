@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.16)
-project(jkdesktop LANGUAGES C CXX RC)
+project(jkdesktop LANGUAGES C CXX)
+# RC (exe icon/metadata, jkdesktop.rc) is a Windows-only language — native
+# Linux has no RC compiler. Enabled below only where the OS has one.
+if(WIN32)
+    enable_language(RC)
+endif()
 
 set(CMAKE_CXX_STANDARD 20)  # GNU 16.2 지원 + JKTheme 지정 초기자(designated initializers) 요구
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -296,7 +301,7 @@ target_link_libraries(jkclient PUBLIC jkcore)
 # ---------------------------------------------------------------------------
 add_executable(jkdesktop
     src/main.cpp
-    src/jkdesktop.rc
+    $<$<PLATFORM_ID:Windows>:src/jkdesktop.rc>
     src/apps/JangoApp.cpp
     src/apps/JangoUI.cpp
     src/apps/Equip24App.cpp
