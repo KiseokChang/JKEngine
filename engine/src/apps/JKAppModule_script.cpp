@@ -116,6 +116,8 @@ const char kTemplateScript[] =
 // its main thread before anything else touches these).
 std::string g_scriptfile;
 bool g_watch = false;
+// 능력 선언 원문 (docs/74 능력 게이트 — 배지 문구와 게이트 주입의 유일 원천).
+std::string g_capabilities;
 
 } // namespace
 
@@ -142,6 +144,7 @@ JKAPP_EXPORT const jk::JKAppMeta* jk_app_meta() {
                 if (mani.height > 0) meta.height = mani.height;
                 g_scriptfile = mani.scriptfile;
                 g_watch = (mani.watch != 0);
+                g_capabilities = mani.capabilities;  // docs/74 능력 게이트
             }
         }
     }
@@ -179,6 +182,10 @@ JKAPP_EXPORT int jk_app_run_client(const char* pipeName) {
         app.SetScriptInfo(meta->title, path);
         app.SetHotWatch(g_watch);
         app.SetAgentAppName(meta->name);
+        // 능력 게이트 (docs/74 — 워크숍만): 빈값도 주입한다(선언 없음 =
+        // 능력 없음, 배지가 그대로 보여 준다). ClientScriptApp 분기는
+        // 주입하지 않는다 — 게이트 비활성 (결정 3).
+        app.SetEnabledCapabilities(g_capabilities);
         if (!app.Init(meta->title, meta->width, meta->height, pipeName)) {
             return 1;
         }

@@ -2672,6 +2672,12 @@ static int RunAppSelfTest() {
             //     1·2가 회귀 검증으로 겸함 — 여기에 단언 없음(스펙 §6-5).
         }
 
+        // 1c2) 능력 배지 문구 (docs/74 — 빈 선언도 숨기지 않는다, 스펙 §5).
+        check(jk::CapabilityBadgeText("agent,timer") == "능력: agent,timer",
+              "capability badge text with declaration");
+        check(jk::CapabilityBadgeText("") == "능력 없음",
+              "capability badge text without declaration");
+
         // 1) Boot + onCreate + control creation + click dispatch.
         writeScript("test_script_app.js",
             "var label = createLabel({x:10,y:10,w:120,h:24}, \"idle\");\n"

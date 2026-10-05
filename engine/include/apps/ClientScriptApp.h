@@ -274,6 +274,14 @@ protected:
 // Client-mode alias kept for the jkapp_script module (server mode).
 using ClientScriptApp = ScriptAppT<JKClientApplication>;
 
+// 능력 배지 문구 (docs/74 — 수신자 가시성, 스펙 §5). MANI capabilities=
+// 원문을 그대로 보여 준다(미지 토큰 포함 — 선언 자체가 문서화). 빈 선언도
+// 숨기지 않는다: 능력 없음이 표시되는 극단을 견뎌야 선언 문화가 성립.
+inline std::string CapabilityBadgeText(const std::string& rawCaps) {
+    if (rawCaps.empty()) return "능력 없음";
+    return "능력: " + rawCaps;
+}
+
 // Workshop script app (docs/60 §2.3) — a client-mode ScriptAppT that exposes
 // its script file as agent tools (app tool hub, docs/58): get_script returns
 // the source, set_script writes it and reloads synchronously, so a script
@@ -294,6 +302,13 @@ public:
     // broker's composed MCP names (<app>_<tool>) line up. Set before Init().
     void SetAgentAppName(const std::string& name) { agentAppName_ = name; }
 
+    // 능력 게이트 (docs/74 — 워크숍 앱만): MANI capabilities= 원문을 전달.
+    // 주입 자체는 OnInit에서(Start 전 1회 — 리로드·패치도 같은 호스트
+    // 인스턴스라 선언 상속). 빈값도 유의미(능력 없음 배지).
+    void SetEnabledCapabilities(std::string list) {
+        capabilitiesRaw_ = std::move(list);
+    }
+
 protected:
     void OnInit() override {
         // 마지막 슬롯 영속 (docs/67 단 1): .current_<appName>이 유효한 슬롯을
@@ -308,6 +323,9 @@ protected:
             if (ReadTextFile(dir + "\\" + slot + ".js", probe))
                 scriptPath_ = dir + "\\" + slot + ".js";
         }
+        // 능력 게이트 주입 (docs/74) — StartScript 전 1회. 빈 선언도
+        // EnableCapabilities를 부르므로 게이트는 활성(fail-closed).
+        host_->EnableCapabilities(capabilitiesRaw_);
         ScriptAppT<JKClientApplication>::OnInit();
         // The register itself rides OnScriptStarted (fired from StartScript
         // right after the script evaluated — a declareCursor in global code /
@@ -431,6 +449,7 @@ protected:
         if (JKWindow* main = this->GetMainWindow()) {
             if (slotLabel_) main->MoveChildToTop(slotLabel_);
             if (slotCombo_) main->MoveChildToTop(slotCombo_);
+            if (capBadge_) main->MoveChildToTop(capBadge_);
         }
     }
 
@@ -452,6 +471,19 @@ protected:
             [this](int32_t idx) { OnStripSelect(idx); });
         RefreshStrip();
         main->AddControl(std::move(combo));
+        // 능력 배지 (docs/74): 콤보 끝(클라 x 210)+6 오른쪽. X 버튼 침범
+        // 금지(오른쪽 여백 30)·최소 폭 60 — 어두운 창에서는 생략(문구 계약
+        // 은 셀프테스트가 단독 검증한다).
+        const JKRect cr = main->GetClientRect();
+        constexpr int kBadgeX = 216;
+        if (cr.w - kBadgeX - 30 >= 60) {
+            auto badge = std::make_unique<JKStatic>(
+                JKRect{ kBadgeX, -18, cr.w - kBadgeX - 30, 18 }, 0);
+            badge->SetText(jk::Utf8ToKssm(
+                CapabilityBadgeText(capabilitiesRaw_).c_str()));
+            capBadge_ = badge.get();
+            main->AddControl(std::move(badge));
+        }
     }
 
     // 스트립 갱신: ListSlots 스템 목록 + 현재 선택. 직접 SetSelectedIndex는
@@ -489,6 +521,9 @@ protected:
 
     JKComboBox* slotCombo_ = nullptr;
     JKStatic* slotLabel_ = nullptr;
+    JKStatic* capBadge_ = nullptr;
+    // MANI capabilities= 원문 — 배지 문구와 게이트 주입의 유일 원천.
+    std::string capabilitiesRaw_;
     // 캡션 임베딩 (docs/67 단 2): 부모-클라이언트 y는 음수 — 화면상 surface
     // y 3..25(콤보)·6..24(라벨)로 타이틀 바에 얹힌다. 단일 모드/클라 모드 공유
     // 진실원 — 좌표 조정은 이 1곳만.
