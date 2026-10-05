@@ -135,7 +135,7 @@ capability '<tok>' not declared in MANI
    반영 누락을 의심한다.
 2. **PowerShell native 전달은 PSI raw-Arguments 패턴**(docs/55 lesson 3
    재확인): agentctl JSON은 `& $exe agentctl $json` 파이핑이 임베디드
-   쿼트를 삼킨다. probe(dig_capgate)는 ProcessStartInfo.Arguments에
+   쿼트를 삼킨다. probe diag_capgate는 ProcessStartInfo.Arguments에
    이스케이프한 원문 명령줄을 직접 조립 + 소스값 내부의 이중 이스케이프는
    백슬래시 선이스케이프(`\`→`\\` 후 `"`→`\"`) — 아니면 CRT가
    `2bs+쿼트`를 인용 토글로 삼켜 쿼트 소실(argv 덤프 실측).
@@ -148,7 +148,7 @@ capability '<tok>' not declared in MANI
   MANI" + 배지 원문).
 - **슬롯 출하(.jkx) 도구가 개별 MANI를 좁게 선언하는 것** = 단 2 출하
   라인의 다음 문 — 워크숍 벤치 원본은 넓게 선언했지만, 출하 시 각자
-  (벤치 MANI가 총찬 성격의 원문임을 파일 주석에 명시).
+  (벤치 MANI가 총망라 성격의 원문임을 파일 주석에 명시).
 - 워크숍 템플릿에 capabilities 선언 예시 심기(첫 선언 경험 낮추기) —
   출하 도구 작업 때 같이.
 
