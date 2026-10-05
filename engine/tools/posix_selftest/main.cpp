@@ -25,6 +25,7 @@
 #include <ipc/JKWireEndpoints.h>
 #include <fs/JKInstanceLock.h>
 #include <net/JKNet.h>
+#include <port/JKCrtShim.h>
 #include <process/JKProcess.h>
 #include <terminal/JKConPtyBridge.h>
 
@@ -1045,6 +1046,30 @@ void TestLlmStubShell() {
     jk::process::CloseHandleLike(sp.stderrRead);
 }
 
+// Case 11 (plan F4): jk::crt::LocaltimeS errno_t contract lock — success == 0,
+// failure != 0. The FmtStamp call sites read this exact convention (docs/70
+// §6 #4 inverted boolean: `if (!LocaltimeS(...))` treated success as failure,
+// so the notes/files hub stamps were always empty). Also renders a stamp
+// through the same snprintf shape as FmtStamp so the fix locks both the errno
+// contract AND the renderable output (client-rendered, no automated probe).
+// A "-1 forced failure" case is intentionally dropped: a negative time_t does
+// not guarantee failure on every platform, so only the success==0 lock is real.
+void TestLocaltimeS() {
+    std::time_t t = std::time(nullptr);
+    std::tm lt{};
+    const int rc = jk::crt::LocaltimeS(&lt, &t);
+    Check(rc == 0, "crt: LocaltimeS success == 0 (errno_t contract)");
+    Check(lt.tm_year >= 126, "crt: LocaltimeS filled tm (year 2026+)");
+    char buf[24];
+    std::snprintf(buf, sizeof(buf), "%02d-%02d %02d:%02d",
+                  lt.tm_mon + 1, lt.tm_mday, lt.tm_hour, lt.tm_min);
+    std::printf("  crt: stamp=\"%s\"\n", buf);
+    std::fflush(stdout);
+    Check(std::strlen(buf) == 11, "crt: FmtStamp shape renders 11 chars");
+    Check(buf[2] == '-' && buf[5] == ' ',
+          "crt: FmtStamp separators render");
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -1059,6 +1084,7 @@ int main(int argc, char** argv) {
     TestProcessScan(argv);
     TestPipeEndpointMapping();
     TestLlmStubShell();
+    TestLocaltimeS();
     std::printf("PosixSelfTest: %d failure(s)\n", g_failures);
     return g_failures == 0 ? 0 : 1;
 }

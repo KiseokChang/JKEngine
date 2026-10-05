@@ -50,7 +50,7 @@ std::string FmtStamp(long long ts) {
     if (ts <= 0) return "";
     const std::time_t t = static_cast<std::time_t>(ts);
     std::tm lt{};
-    if (!jk::crt::LocaltimeS(&lt, &t)) return "";
+    if (jk::crt::LocaltimeS(&lt, &t) != 0) return "";
     char buf[24];
     std::snprintf(buf, sizeof(buf), "%02d-%02d %02d:%02d",
                   lt.tm_mon + 1, lt.tm_mday, lt.tm_hour, lt.tm_min);
