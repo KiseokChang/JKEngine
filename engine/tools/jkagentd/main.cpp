@@ -27,6 +27,7 @@
 #include <regex>
 #include <set>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -321,10 +322,9 @@ std::string ReadEvents() {
     return out + "]}";
 }
 
-// Run a command in a ConPTY session and return its output (spec §3 execute
-// tier). Windows only — POSIX builds have no ConPTY (JKConPtyBridge stub).
+// Run a command in a pty session and return its output (spec §3 execute
+// tier). posix rides the JKConPtyBridge posix pty (plan D; 플랜 F3 배선).
 std::string TerminalExec(const jk::agent::AgentJson& req) {
-#if defined(_WIN32)
     std::string cmd;
     if (!req.GetDeepStr("params", "arguments", "command", cmd) || cmd.empty()) {
         return "{\"ok\":false,\"error\":\"missing_command\"}";
@@ -352,24 +352,22 @@ std::string TerminalExec(const jk::agent::AgentJson& req) {
         // ShellExited = pipe closed (conhost); ProcessExited = the command
         // itself finished — the meaningful "ended" for one-shot commands.
         if (pty.ShellExited() || pty.ProcessExited()) {
-            Sleep(50);   // let the reader thread land the last bytes
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(50));   // let the reader thread land the last bytes
             std::string rest;
             pty.DrainOutput(rest);
             output += rest;
             exited = true;
             break;
         }
-        Sleep(30);   // TerminalApp's pump period (docs/27 단계 1)
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(30));   // TerminalApp's pump period (docs/27 단계 1)
     }
     pty.Stop();
     // JsonEsc escapes quotes and control chars — ANSI sequences in pty
     // output become  escapes, valid JSON.
     return "{\"ok\":true,\"ended\":\"" + std::string(exited ? "exited" : "timeout") +
            "\",\"output\":\"" + JsonEsc(output) + "\"}";
-#else
-    (void)req;
-    return "{\"ok\":false,\"error\":\"unsupported_platform\"}";
-#endif
 }
 
 // --- app tool hub (스펙 2026-09-19-app-tool-hub §6) -------------------------
