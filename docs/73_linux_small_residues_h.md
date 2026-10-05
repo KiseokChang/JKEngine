@@ -97,6 +97,11 @@ TerminalHangulInput·JKHangulUtil·JKTextConv_win32·legacy/wancode/WANCODE.CPP)
 **(2) WSL** ninja RC=0 + posix_selftest 13케이스 0 failures.
 **(3) WSLg f7_smoke** GREEN(플랜 G 스탠딩 스모크 — taskbar 스폰·Minesweeper
 왕복·재시작 leg).
+**(4) 라이더 웨이브 재검증** — 라이더는 posix TU 코멘트 2처+docs뿐이지만
+해당 TU는 win32 그래프(jkcore)에도 존재하므로 스택 정지→재빌드(RC=0)→
+복원 후 ②AppSelfTest 0 failures ⑧list_windows ok:true(windows 빈=정상)
+⑨root/health 200 재확인(③-⑦는 코멘트 전용·전처리 소거 TU라 동일 코드
+상태 — pre-rider 판정 승계).
 
 ## 6. 최종리뷰 (whole-branch, opus, c8920b3..31aab6c 패키지)
 
