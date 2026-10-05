@@ -761,6 +761,11 @@ static int RunJkxPack(const char* appName) {
     const bool hasIcon1 = ReadWholeFile(base + icon1Name, icon1Data);
     const bool hasIcon2 = ReadWholeFile(base + icon2Name, icon2Data);
 
+    // 아이콘 행은 병합 "이후"에 append된다(authored에 icon=이 이미 있으면
+    // 병합 결과에 이중 등재 — 파서 last-wins라 값은 pack 것이 이기지만 행은
+    // 남는다). 현행 authored manifest 3종(scriptdemo/workshop/passworddemo)
+    // 는 icon= 없음 — 실질 영향 0; 세대별 아이콘 커스텀 패턴이 생기면
+    // icon=을 regenerated에 심는 재배치 후보.
     if (hasIcon1) manifestText += "icon=launcher@1x.png\n";
     if (hasIcon2) manifestText += "icon2x=launcher@2x.png\n";
 
