@@ -2,7 +2,8 @@
 #define JKNET_H
 // jk::net — Winsock boundary adapter (docs/68 W8 stage-1). Winsock impl in
 // JKNet_win32.cpp (this TU owns winsock2.h — it must precede windows.h);
-// posix stubs in JKNet_posix.cpp (stage 2: unix sockets). Socket handles are
+// posix impl in JKNet_posix.cpp (stage 2 plan D: POSIX TCP; the unix-socket
+// transport lives in JKPipeTransport — this jk::net is AF_INET only). Socket handles are
 // u64 (SOCKET) so consumers stay windows.h-clean.
 #include <cstdint>
 #include <string>

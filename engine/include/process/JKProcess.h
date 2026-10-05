@@ -1,7 +1,8 @@
 #ifndef JKPROCESS_H
 #define JKPROCESS_H
 // jk::process — process/pipe boundary adapter (docs/68 W4 stage-1).
-// Win32 impl JKProcess_win32.cpp; posix stubs (stage 2: posix_spawn+poll).
+// Win32 impl JKProcess_win32.cpp; posix impl JKProcess_posix.cpp (stage 2, plan D:
+// fork+exec via sh -c + pgid tree kill — the posix_spawn+poll sketch was not used).
 // Design contracts carried from the absorbed call sites (do not change):
 //  (a) InheritedStdioPipes: parent keeps READ ends only — the write ends are
 //      closed immediately after spawn, else the child's stdout never EOFs.
@@ -39,7 +40,8 @@ int   ReadPipeData(void* pipe, char* buffer, int cap);
 void  CloseHandleLike(void* handle);
 
 // Job (KILL_ON_CLOSE contract) — LlmEngine only consumer. Interface only;
-// win32 impl keeps JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, posix returns nullptr.
+// win32 impl keeps JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, posix: heap pgid
+// handle, kill(-pgid, SIGKILL) on close (plan D).
 void* CreateKillOnCloseJob();
 bool  AssignToJob(void* job, const SpawnResult& proc);
 bool  TerminateJobTree(void* job, uint32_t exitCode);
