@@ -110,7 +110,22 @@
 - 배터리 방전→재부팅 후 sshd는 재실행 필요(사용자 수동 — 표준 부트 시트에
   추가: `sshd` + `termux-wake-lock`).
 
-### 4.6 남은 것
+### 4.6 폰 헤드리스 서버 부팅 영수증 (TX3 잔여 — 2026-10-06)
+
+- **서버+taskbar 자동 스폰 성공**: `(setsid nohup ./buildterm/jkdesktop
+  --server > ~/srv.log 2>&1 &)` — surface 1 "shell" 등록 + `[uistall] commit`
+  커밋까지(docs/72 WSLg 셸 부팅 표준의 폰 재현; X11 불요 헤드리스).
+- **ssh 세션 detach 생존 PASS**: 부팅 ssh 종료 후 신규 세션에서 서버+taskbar
+  살아 있음 — docs/70 §8 setsid 표준이 Termux ssh 세션에서도 성립(워크플랜
+  §2의 의심 항목 결제 — 의심 아니었음, 동일 원리).
+- jkctl agent ping `{"ok":true,"pong":true}`, list_windows `{"ok":true,
+  "windows":[]}` (앱 미런치 — 실앱 윈도우는 TX5).
+- 이 과정에서 봉합 2건 더: **단일 인스턴스 가드**가 `/tmp` 하드코딩(폰 EACCES)
+  → `JKInstanceLock_posix.cpp` `jk::fs::TempDir()` 기반, **유닉스 소켓 경로**
+  동일 문제 → `JKPipeTransport_posix.cpp::MapEndpointName` `/tmp/` →
+  `jk::fs::TempDir()`(가드 봉합과 같은 지주). WSL 회귀 재GREEN(0 failure).
+
+### 4.7 남은 것
 
 - **TX4 눈 부팅**: 폰에 CJK 폰트 미설정(bootstrap 후보 실패 — `pkg search`
   로 정식 패키지명 조사 또는 PC에서 폰트 복사) + Termux:X11 앱 열기
@@ -126,4 +141,5 @@
 | 커밋 | 내용 |
 |---|---|
 | 24be351 | (TX1) 워크플랜+termux_bootstrap.sh |
-| (본 커밋) | (TX2/TX3) ARM 봉합 12파일+as-built §4 |
+| 47e4c9f | (TX2/TX3) ARM 봉합 12파일+as-built §4 — 3축 selftest 0 failure |
+| (본 커밋) | (TX3 잔여) 가드/소켓 /tmp → TempDir 폴백 2건+폰 헤드리스 서버 영수증 §4.6 |

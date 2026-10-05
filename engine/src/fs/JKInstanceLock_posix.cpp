@@ -5,6 +5,7 @@
 // TU's guard-handle pattern (the same state the absorbed JKWindowServer call
 // site used to keep in its local m / serverGuardMutex_).
 #include "../../include/fs/JKInstanceLock.h"
+#include "../../include/fs/JKFs.h"  // TempDir — docs/78 TX3 폰 /tmp 부재 폴백
 
 #include <cerrno>
 #include <cstdio>
@@ -27,10 +28,14 @@ int g_fd = -1;
 
 }  // namespace
 
-// lockName maps to /tmp/<name>.lock (brief rule). The consumer name is
-// "Local\\jkdesktop-server-<pipe basename>" — backslashes are legal filename
-// bytes and stay literal, but any '/' folds to '_' so a path-shaped name can
-// never escape /tmp or create subdirectories ("../" collapses to ".._").
+// lockName maps to <TempDir>/<name>.lock. Original brief rule was /tmp/ —
+// docs/78 TX3 폰 실측: Android has no writable /tmp for an app uid (open
+// fails EACCES), so the adapter owns the base: jk::fs::TempDir() — $TMPDIR
+// (Termux: /data/data/com.termux/files/usr/tmp), else /tmp/ (glibc parity),
+// with the win32-parity "." fail-soft as the last rung. Backslashes in the
+// consumer name ("Local\\jkdesktop-server-<pipe>") stay legal filename
+// bytes, but any '/' folds to '_' so a path-shaped name can never escape
+// the base or create subdirectories ("../" collapses to ".._").
 // O_CLOEXEC matches the win32 mutex handle's non-inheritance: a spawned child
 // keeping the lock fd open after its parent dies would hold the flock and
 // block the parent's restart forever.
@@ -45,7 +50,8 @@ int g_fd = -1;
 bool AcquireInstanceLock(const std::string& lockName) {
     if (g_fd >= 0) return false;  // single slot — win32 parity: re-opening a
     // named mutex we already own reports ERROR_ALREADY_EXISTS, i.e. refusal.
-    std::string path = "/tmp/";
+    std::string path = TempDir();
+    if (path == ".") path = "./";  // TempDir fail-soft — needs the separator
     for (const char c : lockName) path += (c == '/') ? '_' : c;
     path += ".lock";
 

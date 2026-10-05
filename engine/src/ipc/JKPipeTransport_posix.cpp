@@ -12,6 +12,8 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+#include <fs/JKFs.h>  // TempDir — docs/78 TX3 폰 /tmp 부재 폴백(가드 봉합과 동일 지주)
+
 namespace jk {
 namespace ipc {
 
@@ -29,8 +31,12 @@ constexpr const char* kPipePrefix = "\\\\.\\pipe\\";
 // one place.
 //
 // Rule: a name with the `\\.\pipe\` prefix loses the prefix, any '/' folds to
-// '_' (no path traversal out of /tmp), and the result lands at
-// /tmp/<folded>.sock. Everything else ("...\\JKWindowServerPipe" style
+// '_' (no path traversal out of the socket base), and the result lands at
+// <base>/<folded>.sock. The base is jk::fs::TempDir(): docs/78 TX3 폰 실측 —
+// Android has no writable /tmp for an app uid (bind fails EACCES), so the
+// base follows the instance-lock seal (JKInstanceLock_posix.cpp) — $TMPDIR
+// (Termux: files/usr/tmp), else /tmp/ (glibc parity). Everything else
+// ("...\\JKWindowServerPipe" style
 // already-basename names included) is R-D3's caller-supplied socket PATH and
 // is used as-is — the plan-D "name used as-is" contract stays for those
 // (posix_selftest case 5 relies on it).
@@ -40,7 +46,7 @@ std::string MapEndpointName(const std::string& name) {
     std::string folded = name.substr(prefixLen);
     for (char& c : folded)
         if (c == '/') c = '_';
-    return "/tmp/" + folded + ".sock";
+    return jk::fs::TempDir() + folded + ".sock";
 }
 
 // Fill a sockaddr_un from a caller-supplied name. R-D3: the name is used
