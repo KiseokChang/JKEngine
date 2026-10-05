@@ -202,6 +202,20 @@ int Ask(const AskRequest& req) {
         if (c == '"') esc += "\\\"";
         else if (c == '\n') esc += "\\n";
         else if (c == '\r') esc += "\\r";
+#ifndef _WIN32
+        // posix leg executes via /bin/sh -c (jk::process posix mapping), and
+        // inside sh double quotes `\`, `$` and backtick stay LIVE (a lone
+        // backslash also acts as an escape character before these). Escape
+        // them backslash-prefixed so prompt/attachment text lands literally —
+        // otherwise `$(...)` or backticks from the question or attached file
+        // bytes would EXECUTE. Windows CreateProcessW never touches a shell,
+        // so the win32 leg keeps the original cases verbatim (동작 변화 0 —
+        // the escaped forms agree for the cases the two legs share: `\n`,
+        // `\r`, `"`; argv-vector exec is the plan-E follow-up).
+        else if (c == '\\') esc += "\\\\";
+        else if (c == '$') esc += "\\$";
+        else if (c == '`') esc += "\\`";
+#endif
         else esc += c;
     }
     const std::string cmdA = "ollama launch claude --model \"" + LoadModel() +
@@ -824,13 +838,15 @@ int wmain(int argc, wchar_t* argv[]) {
     for (int i = 0; i < argc; ++i) {
         int n = WideCharToMultiByte(65001 /* CP_UTF8 */, 0, argv[i], -1,
                                     nullptr, 0, nullptr, nullptr);
-        // 변환 실패(n<=0)는 원문의 "0 버퍼 → 빈 문자열" 폴백과 동일 — 빈
-        // 문자열로 놔두면 RunMain의 too-long/빈-서브커맨드 거부 분기가 받는다.
-        if (n <= 0) continue;
-        utf8[static_cast<size_t>(i)].resize(static_cast<size_t>(n) - 1);
-        WideCharToMultiByte(65001, 0, argv[i], -1,
-                            utf8[static_cast<size_t>(i)].data(), n,
-                            nullptr, nullptr);
+        // 변환 실패(n<=0, 사실상 도달 불가 — flags=0 WCTM은 실패에서만 0)도
+        // argv 자리를 nullptr로 남기지 않는다: 빈 문자열(항상 유효 NUL 종단)
+        // 을 놔두면 RunMain의 strlen 캡/빈-서브커맨드 검사가 정상 반응한다.
+        if (n > 1) {
+            utf8[static_cast<size_t>(i)].resize(static_cast<size_t>(n) - 1);
+            WideCharToMultiByte(65001, 0, argv[i], -1,
+                                utf8[static_cast<size_t>(i)].data(), n,
+                                nullptr, nullptr);
+        }
         ptrs[static_cast<size_t>(i)] = utf8[static_cast<size_t>(i)].data();
     }
     return RunMain(argc, ptrs.data());
