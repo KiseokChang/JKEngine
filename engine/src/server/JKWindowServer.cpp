@@ -508,14 +508,15 @@ bool JKWindowServer::StartAcceptor(const std::string& pipeName) {
             autoCut == std::string::npos
                 ? std::string(".")
                 : exePathAutoSpawn.substr(0, autoCut);
-        std::string dllPath = dirSelf + "/jkapp_taskbar.dll";
+        std::string dllPath = dirSelf + "/jkapp_taskbar" + AppModuleSuffix();
         // ec 중립형(throwing 아님) — 원문 관측(존재 bool, 실패=false)과 동일하며
         // 이 TU에는 try/catch가 없어 던지는 오버로드는 서버를 죽인다(review r1).
         std::error_code existsEc;
         if (std::filesystem::exists(std::filesystem::path(dllPath), existsEc)) {
             SpawnClient("taskbar");
         } else {
-            std::fprintf(stderr, "JKWindowServer: no jkapp_taskbar.dll — desktop runs without a shell\n");
+            std::fprintf(stderr, "JKWindowServer: no jkapp_taskbar%s — desktop runs without a shell\n",
+                         AppModuleSuffix());
         }
     }
 #endif
@@ -4230,8 +4231,10 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         };
         if (!app.empty()) {
             const bool prefixed = app.find(':') != std::string::npos;
+            // 접미만 플랫폼 값(JKWindowServer.h AppModuleSuffix) — 존재 bool 관측
+            // 동일. 주석 원문의 "jkapp_<app>.dll"은 win32 관측 그대로 유효.
             const std::string dllPath =
-                exeDir + "/jkapp_" + app + ".dll";
+                exeDir + "/jkapp_" + app + AppModuleSuffix();
             if (prefixed || exeDir.empty() || fileExistsFn(dllPath)) {
                 // docs/35: pair the capture overlay with the client that asked
                 // for it (see overlaySpawner_ member comment).

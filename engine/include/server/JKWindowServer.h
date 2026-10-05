@@ -39,6 +39,17 @@ namespace server {
 // Ask = park the query until the chat window's inline approval resolves it.
 enum class AgentDecision { Allow, Ask, Deny };
 
+// 클라 모듈 접미 — 플랜 E가 앱 모듈을 posix에 .so로 빌드했다(buildwsl
+// 실측 20종, jkapp_taskbar.so 포함), win32는 .dll(dllimport 계약 유지).
+// 스폰 전 "모듈 있나" 프로브(launch_app 핸들러·taskbar 자동스폰, JKWindow
+// Server.cpp)의 관측 동일성(존재 bool)은 그대로 — 접미만 플랫폼 값
+// (플랜 G3 자동스폰, G2 posix dlopen 로더가 이 접미를 소비).
+#ifdef _WIN32
+inline const char* AppModuleSuffix() { return ".dll"; }
+#else
+inline const char* AppModuleSuffix() { return ".so"; }
+#endif
+
 // Single-display window server.
 // Owns the SDL window and renderer, accepts clients over a named pipe,
 // creates shared-memory surfaces for them, and composites the surfaces to
