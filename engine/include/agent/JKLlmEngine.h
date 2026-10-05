@@ -7,6 +7,15 @@
 namespace jk {
 namespace agent {
 
+// stub 턴의 셸 명령 리터럴 — 윈32는 cmd.exe 접두 유지(플랜 F2), posix는
+// 접두 없는 sh echo. selftest 케이스 10(engine/tools/posix_selftest/main.cpp
+// TestLlmStubShell)도 같은 리터럴을 재실행하므로 한 곳에서 관리 — 3처 복제
+// 소각(docs/71 리뷰 MEDIUM).
+inline constexpr char kStubShellCmdWin32[] =
+    "cmd.exe /c echo {\"result\":\"stub ok\",\"session_id\":\"stub-1\"}";
+inline constexpr char kStubShellCmdPosix[] =
+    "echo '{\"result\":\"stub ok\",\"session_id\":\"stub-1\"}'";
+
 // One LLM turn outcome (jkchat docs/31 §6 lineage). "streamed" means at
 // least one text delta reached the delta callback — the consumer skips
 // re-printing the result when it has already typed itself in.

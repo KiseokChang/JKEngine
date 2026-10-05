@@ -21,6 +21,7 @@
 #include <netinet/in.h>  // posix-only, so it may include POSIX socket headers
 #include <sys/socket.h>  // directly; no windows.h-cleanliness constraint here)
 
+#include <agent/JKLlmEngine.h>  // kStubShellCmdPosix (case 10)
 #include <ipc/JKPipeTransport.h>
 #include <ipc/JKWireEndpoints.h>
 #include <fs/JKInstanceLock.h>
@@ -1007,9 +1008,9 @@ void TestLlmStubShell() {
 
     jk::process::SpawnOptions opt;
     // The stub line EXACTLY as JKLmEngine.cpp's posix branch composes it
-    // (single-quoted so /bin/sh keeps the inner double quotes verbatim).
-    opt.commandLineUtf8 =
-        "echo '{\"result\":\"stub ok\",\"session_id\":\"stub-1\"}'";
+    // (single-quoted so /bin/sh keeps the inner double quotes verbatim) —
+    // shared constant in agent/JKLlmEngine.h so the two stay in lockstep.
+    opt.commandLineUtf8 = jk::agent::kStubShellCmdPosix;
     opt.hideWindow = true;
     opt.inheritedStdioPipes = true;
     const jk::process::SpawnResult sp = jk::process::Spawn(opt);

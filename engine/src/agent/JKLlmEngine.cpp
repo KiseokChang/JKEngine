@@ -171,13 +171,11 @@ std::string BuildEngineCmd(const ChatConfig& cfg,
 #ifdef _WIN32
         // stage-1 marking: shell literal, docs/68 W4 — stub 테스트 리터럴
         // (기계 검증용 무연결 왕복 데이터), 2단계 셸 추상 치환 대상 아님.
-        cmd =
-            "cmd.exe /c echo {\"result\":\"stub ok\",\"session_id\":\"stub-1\"}";
+        cmd = kStubShellCmdWin32;
 #else
         // posix: jk::process::Spawn rides /bin/sh -c — single-quote keeps the
         // JSON verbatim. Same stub reply bytes, no cmd.exe.
-        cmd =
-            "echo '{\"result\":\"stub ok\",\"session_id\":\"stub-1\"}'";
+        cmd = kStubShellCmdPosix;
 #endif
     } else if (cfg.engine == "claude") {
         cmd = "claude " + claudeArgs;
