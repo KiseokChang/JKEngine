@@ -259,10 +259,13 @@ nm 실측, 셀프테스트 독립 재현) 포함. 픽스 웨이브 9618195(콘�
 완료 조건 = "어댑터 경계를 인터페이스로 뽑고 Win32 구현을 그 자리에 유지 +
 기존 Win32 회귀 프로브 전부 GREEN(동작 변화 0 증명)" — W1-W9 전부 as-built
 완료, 게이트 ×2 GREEN으로 충족. 잔여 Win32 접촉은 전부 2단계 결정 대기로
-마킹 완료(위 W8b residual 목록+W4·W5 결정 대기 건 누적). **2단계(Termux/
-리눅스 머신) 착수는 사용자 판정 사항** — 어댑터 인터페이스가 전범위 준비된
-상태이므로 2단계 작업은 posix 실구현(W1-W6 어댑터 전체)+전송·pty·flock
-가드·폰트 탐색+셸 추상 결정이다(docs/62 §8).
+마킹 완료(위 W8b residual 목록+W4·W5 결정 대기 건 누적). **2단계 착수
+완료(같은 날, 플랜 D)** — 어댑터 posix 본체 6종 실구현(as-built는
+docs/69_linux_stage2_posix_impls.md): jk::fs·jk::process·jk::net·pty·
+전송(unix socket)·flock 가드 — 검증은 이 머신 WSL2 Ubuntu-24.04 실 linux
+g++ 컴파일+런타임(별도 리눅스 머신 불요). 잔여(3단계 후보): 폰트 탐색
+체계·셸 추상(cmd.exe 리터럴)·wmain CRT 진입·전체 엔진 리눅스 CMake 빌드
+(SDL 패키지)·Termux 패키징.
 
 ## 4. 리스크 보강 (docs/62 §6 외)
 
