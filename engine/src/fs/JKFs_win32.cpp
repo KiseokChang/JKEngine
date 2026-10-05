@@ -5,6 +5,8 @@
 
 extern "C" __declspec(dllimport) unsigned long __stdcall
 GetModuleFileNameA(void* module, char* out, unsigned long size);
+extern "C" __declspec(dllimport) unsigned long __stdcall
+GetTempPathA(unsigned long nBufferLength, char* lpBuffer);
 
 namespace jk {
 namespace fs {
@@ -37,6 +39,26 @@ std::string GetExecutablePath() {
     // what we have rather than failing outright.
     const size_t nul = buf.find('\0');
     return nul == std::string::npos ? buf : buf.substr(0, nul);
+}
+
+// Temp dir with trailing '\' (stage-3 task 7), win32 leg = GetTempPathA 원문.
+// Buffer 196 — the call-site original pass (260-64) verbatim; GetTempPathA
+// returns the copied string length NOT counting the NUL and 0 on failure. A
+// return >= the requested size means truncation: only the first 195 bytes
+// landed in the buffer, and the original call sites proceeded with what fit
+// (tempDir kept whatever the API wrote) — mirror that, don't fail hard, the
+// caller then fails on the fopen of the constructed name exactly as before.
+std::string TempDir() {
+    char buf[260] = {};
+    const unsigned long n = GetTempPathA(196, buf);
+    if (n == 0) {
+        // Original call sites initialized tempDir to "." and only overwrote it
+        // on success — API failure keeps the same "." fallback.
+        return std::string(".");
+    }
+    // Success or truncation: the buffer carries min(n, 195) bytes + NUL — the
+    // original call sites proceeded with exactly what the API wrote.
+    return std::string(buf, static_cast<size_t>(n < 196 ? n : 195));
 }
 
 }  // namespace fs

@@ -18,6 +18,18 @@ namespace jk::fs {
 // readlink failure (fail-closed) — callers keep their existing empty-path
 // fallback.
 std::string GetExecutablePath();
+
+// Process temp directory, WITH a trailing native separator — the GetTempPathA
+// contract both absorbed call sites relied on ("C:\...\Temp\" append style,
+// main.cpp RunClientFromJkx + scriptdemo). GetTempPathA/GetCurrentProcessId →
+// TempDir()/pid (stage-3 task 7). Win32: GetTempPathA bytes verbatim (CP_ACP,
+// same A-path rules as the code above; original call sites also fed the result
+// straight to fopen/DeleteFileA) — on failure the original call sites' fallback
+// "." returns (tempDir[260] = "." init) so a rare API failure degrades to the
+// working directory exactly as before. Posix: $TMPDIR when set and an existing
+// directory (trailing '/' ensured), else "/tmp/" — and when even /tmp is not
+// accessible, the same "." fail-soft as win32.
+std::string TempDir();
 }  // namespace jk::fs
 
 #endif  // JKFS_H

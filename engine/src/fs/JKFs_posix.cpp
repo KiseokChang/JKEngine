@@ -5,6 +5,8 @@
 
 #include <string>
 
+#include <cstdlib>   // getenv
+#include <filesystem>
 #include <unistd.h>  // readlink
 
 namespace jk {
@@ -38,7 +40,35 @@ std::string GetExecutablePath() {
     return std::string();
 }
 
+// Temp dir with trailing '/' (stage-3 task 7), posix leg. $TMPDIR when set and
+// an existing directory, else /tmp — a TMPDIR that is set but unusable degrades
+// to /tmp rather than poisoning the extraction path; if even /tmp is not a
+// directory the win32 leg's fail-soft "." (the original call sites' initial
+// value) comes back. ec neutral-type only — no throwing overload (no
+// try/catch consumers of this TU).
+std::string TempDir() {
+    const char* env = std::getenv("TMPDIR");
+    std::string dir = (env != nullptr && env[0] != '\0') ? std::string(env)
+                                                         : std::string("/tmp");
+    if (dir.empty() || dir.back() != '/') dir += '/';
+    std::error_code ec;
+    const bool usable =
+        std::filesystem::is_directory(std::filesystem::path(dir), ec) && !ec;
+    if (!usable) {
+        if (dir != "/tmp/") {
+            std::error_code tmpEc;
+            if (std::filesystem::is_directory(std::filesystem::path("/tmp/"),
+                                              tmpEc) &&
+                !tmpEc)
+                return std::string("/tmp/");
+        }
+        return std::string(".");  // win32 leg fail-soft twin
+    }
+    return dir;
+}
+
 }  // namespace fs
 }  // namespace jk
 
 #endif  // _WIN32
+

@@ -12,7 +12,11 @@
 
 #include <algorithm>
 #include <cstdio>
-#include <windows.h>
+// windows.h는 소각됐다(stage-3 task 7) — 상태 폴더 열거(FindFirstFileA)는
+// std::filesystem::directory_iterator(ec 중립형), .png 대소문자 무시 비교는
+// jk::crt::Stricmp 셈(T2)이 소유한다.
+#include <filesystem>
+#include <port/JKCrtShim.h>
 
 namespace jk {
 namespace {
@@ -102,25 +106,36 @@ void ClientShotApp::RenderOverlay(SDL_Renderer* renderer, int w, int h) {
 
 void ClientShotApp::RefreshList() {
     files_.clear();
-    const std::string dir = ExeDir() + "state\\screenshots";
-    const std::string pattern = dir + "\\*.png";
-    WIN32_FIND_DATAA fd;
-    HANDLE find = FindFirstFileA(pattern.c_str(), &fd);
-    if (find == INVALID_HANDLE_VALUE) {
+    // FindFirstFileA("...\\*.png") → std::filesystem::directory_iterator
+    // (stage-3 task 7). 원문 계약: 없는 폴더 = INVALID_HANDLE_VALUE 경로(목록
+    // 비움+선택 해제), 디렉터리 성분 스킵, *.png 확장자(윈 패턴은 대소문자
+    // 무시 — Stricmp로 등가), 열거 실패 = 종료. ec 중립형 필수 — throwing
+    // 오버로드 금지(이 TU 무 try/catch).
+    const std::filesystem::path dirPath =
+        std::filesystem::path(ExeDir()) / "state" / "screenshots";
+    const std::string dir = dirPath.string();
+    std::error_code ec;
+    std::filesystem::directory_iterator it(dirPath, ec);
+    if (ec) {
         selectedPath_.clear();
         DropTexture();
         return;
     }
-    do {
-        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
-        files_.push_back(fd.cFileName);
-    } while (FindNextFileA(find, &fd));
-    FindClose(find);
+    for (const std::filesystem::directory_entry& entry : it) {
+        std::error_code entryEc;
+        const bool isDir = entry.is_directory(entryEc);
+        if (entryEc || isDir) continue;   // 열거 스캔 중 소멸 성분은 스킵
+        const std::string name = entry.path().filename().string();
+        if (jk::crt::Stricmp(entry.path().extension().string().c_str(),
+                             ".png") != 0)
+            continue;
+        files_.push_back(name);
+    }
     // shot_<epoch-ms>_... names sort lexically by time — reverse for
     // newest-first.
     std::sort(files_.begin(), files_.end(), std::greater<std::string>());
     // The shown file may have been deleted out from under the viewer.
-    if (!selectedPath_.empty() &&
+    if (!selectedPath_.empty() && selectedPath_.size() > dir.size() &&
         std::find(files_.begin(), files_.end(),
                   selectedPath_.substr(dir.size() + 1)) == files_.end()) {
         selectedPath_.clear();
@@ -207,7 +222,12 @@ void ClientShotApp::BuildUi(int w, int h) {
         if (ImGui::BeginChild("files", ImVec2(0, 0),
                               ImGuiChildFlags_Borders)) {
             for (const std::string& name : files_) {
-                const std::string full = ExeDir() + "state\\screenshots\\" + name;
+                // RefreshList와 같은 fs::path 합성 — 구분자가 플랫폼 몫이라
+                // selectedPath_ 비교(SelectFile)가 열거 경로와 정확히 일치한다.
+                const std::string full =
+                    (std::filesystem::path(ExeDir()) / "state" / "screenshots" /
+                     name)
+                        .string();
                 const bool selected = (full == selectedPath_);
                 if (ImGui::Selectable(name.c_str(), selected)) {
                     SelectFile(full);

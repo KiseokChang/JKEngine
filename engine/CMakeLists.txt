@@ -10,6 +10,16 @@ set(CMAKE_CXX_STANDARD 20)  # GNU 16.2 지원 + JKTheme 지정 초기자(designa
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# stage-3 task 7 (Linux 링크 게이트 봉합): jkapp_* SHARED 모듈은 정적 아카이브
+# (jkcore/jkclient/imgui/implot/quickjs)를 정적으로 흡수한다 — non-PIC 아카이브
+# 는 R_X86_64_TPOFF32 재배치를 그대로 나르고, 공유 객체 안에서 결합 불가
+# ("recompile with -fPIC" 실측 레슨). add_library 전에 변수를 세워 생산자
+# 전반이 -fPIC로 나온다. Windows 컴파일 라인은 그대로(WIN32는 변수 미설정 —
+# PE 정적 링크는 PIC를 요구하지 않는다).
+if(NOT WIN32)
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
+
 # SDL2: CMake config가 있으면 사용, 없으면 pkg-config fallback
 find_package(SDL2 QUIET)
 if(NOT TARGET SDL2::SDL2)
@@ -138,14 +148,17 @@ add_library(jkcore STATIC
     src/JKHangulAutomata.cpp
     src/JKHangulUtil.cpp
     src/JKHanjaDict.cpp
-    # Win32-only TUs (docs/69 stage-3 Task 1): each owns windows.h / manual
-    # dllimport declarations directly, so Linux excludes them at the build-list
-    # level instead of editing them. The adapter-style platform splits below
-    # (_win32/_posix pairs) are separate files listed unconditionally — these
-    # three are not part of that pattern yet.
-    $<$<PLATFORM_ID:Windows>:src/JKPlatform_win32.cpp>
-    $<$<PLATFORM_ID:Windows>:src/JKImeHook_win32.cpp>
-    $<$<PLATFORM_ID:Windows>:src/JKCrashHandler_win32.cpp>
+    # PAL TUs (stage-3 task 7 링크 봉합 — 진행장 룰링 "실패 시 그 태스크에서
+    # 봉합"): T1은 Linux에서 빌드 목록 수준 배제(genex)로 게이트했고 그때 각
+    # 소비 TU 컴파일이 windows.h-free임을 증명했다. 첫 jkdesktop Linux 링크
+    # (본 태스크)가 이 3 TU의 심벌(InitializeProcessDpiAwareness, ImeHook,
+    # CrashHandler/MirrorLog…)을 만나므로 무조건 목록에 넣는다 — 각 파일이
+    # 자기 본체를 _WIN32로 가드하는 어댑터 동일 관습(JKFs/JKProcess와 동일
+    # 패턴)으로 전환. JKPlatform/JKCrashHandler는 원문 #else posix leg를
+    # 원래 소유, JKImeHook는 본 태스크가 leg를 신설했다.
+    src/JKPlatform_win32.cpp
+    src/JKImeHook_win32.cpp
+    src/JKCrashHandler_win32.cpp
     src/JKScrollBar.cpp
     src/JKListBox.cpp
     src/JKComboBox.cpp
@@ -286,8 +299,14 @@ target_include_directories(jkdesktop_shell PUBLIC
     third_party/stb
 )
 # bcrypt: now owned by jkcore PUBLIC (docs/68 W2 carry) — kept for explicitness,
-# redundant-but-harmless.
-target_link_libraries(jkdesktop_shell PUBLIC jkcore bcrypt)
+# redundant-but-harmless. Windows 전용 시스템 lib — Win32에서만 걸어야 한다
+# (stage-3 task 7 실측: 무조건 PUBLIC이면 리눅스 jkdesktop 링크 라인이 -lbcrypt
+# 를 력어 "cannot find -lbcrypt"로 죽는다).
+if(WIN32)
+    target_link_libraries(jkdesktop_shell PUBLIC jkcore bcrypt)
+else()
+    target_link_libraries(jkdesktop_shell PUBLIC jkcore)
+endif()
 target_link_libraries(jkserver PUBLIC jkdesktop_shell)
 
 # ---------------------------------------------------------------------------

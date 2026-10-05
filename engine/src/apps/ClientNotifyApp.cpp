@@ -13,7 +13,10 @@
 
 #include <chrono>
 #include <cstdio>
-#include <windows.h>
+// windows.h는 소각됐다(stage-3 task 7) — directory 생성은 std::filesystem(ec
+// 중립형), localtime_s는 jk::crt::LocaltimeS 셈(T2)이 소유한다.
+#include <filesystem>
+#include <port/JKCrtShim.h>
 
 namespace jk {
 namespace {
@@ -106,7 +109,7 @@ namespace {
 std::string FormatEntry(const NotifyEntry& e) {
     time_t t = static_cast<time_t>(e.ts / 1000);
     struct tm lt;
-    localtime_s(&lt, &t);
+    jk::crt::LocaltimeS(&lt, &t);  // errno_t 규약 — 이 호출부는 반환을 무시한다(원문 동형)
     char hhmm[8];
     std::snprintf(hhmm, sizeof(hhmm), "%02d:%02d", lt.tm_hour, lt.tm_min);
     std::string line = std::string("[") + hhmm + "] ";
@@ -231,15 +234,19 @@ void ClientNotifyApp::ClearHistory() {
 
 std::string ClientNotifyApp::StatePath(const char* name) {
     // jk::fs::GetExecutablePath 흡수 (docs/68 W5). 원문 규약: 추출 실패 시 빈
-    // 접두(→ "\state\<name>"), 성공 시 후행 '\' 유지.
+    // 접두(→ "\state\<name>"), 성공 시 후행 '\' 유지. stage-3 task 7:
+    // CreateDirectoryA → std::filesystem::create_directory — 이미 있으면
+    // no-op(false), 폴더는 마지막 성분만 만든다(성공 무시, 원문 관측 동형).
+    // ec 중립형 필수 — throwing 오버로드 금지(TU 무 try/catch). 뒤이은 조립은
+    // fs::path 합성으로 구분자를 플랫폼 몫에 둔다(윈 '\'·리눅스 '/').
     std::string path = jk::fs::GetExecutablePath();
     const size_t slash = path.find_last_of("\\/");
     if (slash != std::string::npos) path.resize(slash + 1);
-    path += "state";
-    CreateDirectoryA(path.c_str(), nullptr);   // harmless if it exists
-    path += "\\";
-    path += name;
-    return path;
+    std::error_code dirEc;
+    std::filesystem::create_directory(
+        std::filesystem::path(path) / "state", dirEc);
+    dirEc.clear();
+    return (std::filesystem::path(path) / "state" / name).string();
 }
 
 void ClientNotifyApp::LoadConfig() {

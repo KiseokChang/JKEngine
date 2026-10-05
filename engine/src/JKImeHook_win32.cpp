@@ -1,5 +1,7 @@
 #include <JKImeHook.h>
 
+#ifdef _WIN32
+
 #include <SDL.h>
 #include <SDL_syswm.h>
 #define WIN32_LEAN_AND_MEAN
@@ -106,3 +108,21 @@ uint32_t JkImeToggleEventType() {
 uint32_t JkImeHanjaEventType() {
     return g_hanjaEvent;
 }
+
+#else // Non-Windows (stage-3 task 7 — 첫 jkdesktop Linux 링크에서의 봉합):
+      // Linux에는 VK_HANGUL 삼킴이 없다 — X IME의 한/영·한자 토글키가 SDL 키
+      // 이벤트로 그대로 도달한다(삼킴이 훅의 존재 이유, docs/61 §16). 저수준
+      // 관측점(WH_KEYBOARD_LL) 개념이 부재하므로 훅 없음 계약: 설치 no-op
+      // true, 이벤트 타입은 JKImeHook.h의 "미설치면 0" 계약 그대로 0. 소비자
+      // (JKWindowServer Run 루프)는 타입 0 이벤트를 생성하지 않으므로
+      // ev.type==0 비교는 무해 — 토글의 SDL keysym 경로 봉합은 후속 과제.
+
+bool JkInstallImeKeyHook(SDL_Window* watchWindow) {
+    (void)watchWindow;
+    return true;
+}
+void JkUninstallImeKeyHook() {}
+uint32_t JkImeToggleEventType() { return 0; }
+uint32_t JkImeHanjaEventType() { return 0; }
+
+#endif // _WIN32

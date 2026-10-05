@@ -42,6 +42,10 @@ extern "C" __declspec(dllimport) int __stdcall setsockopt(
     int optlen);
 extern "C" __declspec(dllimport) int __stdcall closesocket(
     unsigned long long s);
+#else
+// linux stage-3 task 7 — posix leg of the win32 hand-decl block above: chdir
+// is the SetCurrentDirectoryA twin for the terminal --cwd leg.
+#include <unistd.h>
 #endif
 
 #include <JKApplication.h>
@@ -3280,7 +3284,13 @@ static int RunMain(int argc, char* argv[]) {
             if (std::strcmp(argv[i], "--shell") == 0 && i + 1 < argc) {
                 shellOverride = argv[++i];
             } else if (std::strcmp(argv[i], "--cwd") == 0 && i + 1 < argc) {
+#ifdef _WIN32
                 SetCurrentDirectoryA(argv[++i]);
+#else
+                // posix twin(stage-3 task 7) — 반환 무시도 원문 동형(원문은
+                // BOOL을 검사하지 않았다).
+                chdir(argv[++i]);
+#endif
             }
         }
         jk::TerminalApp app;
@@ -3401,14 +3411,22 @@ static int RunMain(int argc, char* argv[]) {
         }
         // JKScriptHost::Start takes a file path — drop the payload in %TEMP%
         // under a per-pid name so reruns never collide (same scheme as --jkx).
-        char tempDir[260] = ".";
-        GetTempPathA(static_cast<unsigned long>(sizeof(tempDir) - 64), tempDir);
-        char scriptPath[324] = {};
-        std::snprintf(scriptPath, sizeof(scriptPath), "%sjkscript_%lu.app.js",
-                      tempDir, static_cast<unsigned long>(GetCurrentProcessId()));
-        std::FILE* sf = std::fopen(scriptPath, "wb");
+        // stage-3 task 7: GetTempPathA/GetCurrentProcessId → jk::fs::TempDir()
+        // (후행 구분자 포함 — GetTempPathA 계약 승계) + pid(win32 원문/
+        // posix getpid). TempDir 실패 폴백 "."도 원문 tempDir 초기값과 동일.
+        const std::string tempDir = jk::fs::TempDir();
+        const std::string scriptPath =
+            tempDir + "jkscript_" +
+#ifdef _WIN32
+            std::to_string(GetCurrentProcessId())
+#else
+            std::to_string(getpid())
+#endif
+            + ".app.js";
+        std::FILE* sf = std::fopen(scriptPath.c_str(), "wb");
         if (!sf) {
-            std::fprintf(stderr, "scriptdemo: cannot write '%s'\n", scriptPath);
+            std::fprintf(stderr, "scriptdemo: cannot write '%s'\n",
+                         scriptPath.c_str());
             return 1;
         }
         std::fwrite(appJs.data(), 1, appJs.size(), sf);
@@ -3470,5 +3488,13 @@ int wmain(int argc, wchar_t* argv[]) {
         ptrs[static_cast<size_t>(i)] = utf8[static_cast<size_t>(i)].data();
     }
     return RunMain(argc, ptrs.data());
+}
+#else
+// linux stage-3 task 7 — posix leg of the dual entry: exec already hands the
+// process byte-wise argv, and the window server process spawner passes UTF-8,
+// so RunMain consumes argv verbatim (no conversion leg — RunMain's encoding
+// contract is UTF-8 on both platforms, the wmain leg above is the converter).
+int main(int argc, char* argv[]) {
+    return RunMain(argc, argv);
 }
 #endif // _WIN32

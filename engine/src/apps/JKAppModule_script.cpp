@@ -10,16 +10,20 @@
 // with a template, then runs the WorkshopScriptApp variant that registers
 // get_script/set_script agent tools. Built-in SCRI apps are unchanged.
 #include <apps/JKAppModule.h>
-// windows.h가 ClientScriptApp.h보다 먼저 와야 한다 — ClientScriptApp.h는
-// windows.h 미포함 TU용 수기 선언(GetFileAttributesExA)을 가지고, 포함 TU에서는
-// _WINBASE_ 센티넬로 SDK 선언을 그대로 쓴다. 순서를 뒤집으면 선언 충돌
-// (2026-09-20 빌드 실측).
+// windows.h가 ClientScriptApp.h보다 먼저 와야 했다 — ClientScriptApp.h는
+// windows.h 미포함 TU용 수기 선언(GetFileAttributesExA)을 가졌었다. 그 수기
+// 선언은 JKPlatform::FileMtime100ns 흡수로 소각됐고(doc 60 §7 이력), stage-3
+// task 7에서 win32-leg만 windows.h를 유지한다(모듈-자기 DLL 경로가 아직 원문
+// API — SideFilePath 주석 참조). 리눅스-leg는 windows.h 없이 컴파일.
+#ifdef _WIN32
 #include <windows.h>
+#endif
 #include <apps/ClientScriptApp.h>
 #include <fs/JKFs.h>
 #include <JKJkxFile.h>
 
 #include <cstdio>
+#include <filesystem>
 #include <string>
 
 namespace {
@@ -27,6 +31,11 @@ namespace {
 // <path of this DLL><suffix> — the client host drops the manifest copy and
 // app.js beside the extracted DLL.
 std::string SideFilePath(const char* suffix) {
+#ifdef _WIN32
+    // GetModuleHandleExA+GetModuleFileNameA 원문 — 모듈(추출된 DLL) 측 경로가
+    // 계약(extract-next-to-DLL)이라 exe 경로 어댑터로의 치환이 관측을 바꾼다.
+    // 리눅스-leg만 jk::fs::GetExecutablePath 승계(brief; 리눅스는 아직 모듈
+    // 로딩 경로가 미배선 — build 디렉터리 안 .so가 exe와 동거하므로 동치).
     HMODULE self = nullptr;
     GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
                            GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
@@ -34,6 +43,9 @@ std::string SideFilePath(const char* suffix) {
     char dllPath[MAX_PATH] = {};
     if (!self || !GetModuleFileNameA(self, dllPath, MAX_PATH)) return {};
     return std::string(dllPath) + suffix;
+#else
+    return jk::fs::GetExecutablePath() + suffix;
+#endif
 }
 
 std::string ExeDir() {
@@ -52,7 +64,7 @@ bool IsAbsolutePath(const std::string& p) {
 
 bool ReadTextFile(const std::string& path, std::string& out) {
     FILE* f = nullptr;
-    fopen_s(&f, path.c_str(), "rb");
+    jk::crt::FopenS(&f, path.c_str(), "rb");
     if (!f) return false;
     char buf[4096];
     size_t n = 0;
@@ -63,7 +75,7 @@ bool ReadTextFile(const std::string& path, std::string& out) {
 
 bool WriteTextFile(const std::string& path, const std::string& data) {
     FILE* f = nullptr;
-    fopen_s(&f, path.c_str(), "wb");
+    jk::crt::FopenS(&f, path.c_str(), "wb");
     if (!f) return false;
     const size_t w = std::fwrite(data.data(), 1, data.size(), f);
     std::fclose(f);
@@ -72,8 +84,13 @@ bool WriteTextFile(const std::string& path, const std::string& data) {
 
 void EnsureParentDirs(const std::string& path) {
     size_t pos = 0;
+    // CreateDirectoryA → std::filesystem::create_directory(stage-3 task 7).
+    // 마지막 성분만 만드는 원문(이미 있으면 무해 no-op)과 동일 — ec 중립형,
+    // 실패는 원문 bool 무시 규약대로 흘려보낸다(throwing 금지).
     while ((pos = path.find_first_of("\\/", pos + 1)) != std::string::npos) {
-        CreateDirectoryA(path.substr(0, pos).c_str(), nullptr);
+        std::error_code dirEc;
+        std::filesystem::create_directory(
+            std::filesystem::path(path.substr(0, pos)), dirEc);
     }
 }
 
@@ -142,9 +159,12 @@ JKAPP_EXPORT int jk_app_run_client(const char* pipeName) {
         if (!IsAbsolutePath(path)) {
             std::string base = ExeDir();
             if (!base.empty() && base.back() != '\\' && base.back() != '/') {
-                base += '\\';
+                // stage-3 task 7: 구분자 붙이는 문(fs::path 합성) — 윈은 '\',
+                // 리눅스는 '/'로 플랫폼 몫(수기 '\\' 붙이기는 리눅스 경로
+                // 성분 안에 백슬래시를 박는다).
+                base = (std::filesystem::path(base) / g_scriptfile).string();
             }
-            path = base + g_scriptfile;
+            path = base;
         }
         std::string existing;
         if (!ReadTextFile(path, existing)) {
