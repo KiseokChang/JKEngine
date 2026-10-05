@@ -572,7 +572,18 @@ void JKWindowServer::AcceptorLoop() {
         // Expect Hello. Protocol v2 carries the client's OS pid; a v1 Hello
         // (4-byte payload) is accepted with pid = 0.
         ipc::Message hello;
-        if (!ipc::ReadMessage(*transport, hello) || hello.type != ipc::MsgType::Hello) {
+        // G3 재심 승계: ReadMessage 실패 시 type엔 아무것도 실려 오지 않았다
+        // (기본값 Close=9가 "got type=9"으로 인쇄되어 허위 진단 — 실패 근거가
+        // 아닌 기본값이 마치 상대가 Close를 보낸 것처럼 보였다). 읽기 실패
+        // (EOF/short)와 프로토콜 위반을 분리해 각각 정직하게 인쇄한다. stderr
+        // 진단 전용 — 통상 관측 바이트에 부합하는 경로는 아니다.
+        if (!ipc::ReadMessage(*transport, hello)) {
+            std::fprintf(stderr,
+                         "JKWindowServer::AcceptorLoop: Hello read failed "
+                         "(short/EOF) — dropping connection\n");
+            continue;
+        }
+        if (hello.type != ipc::MsgType::Hello) {
             std::fprintf(stderr, "JKWindowServer::AcceptorLoop: expected Hello, got type=%u\n",
                          static_cast<uint32_t>(hello.type));
             continue;
@@ -4237,12 +4248,14 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         req.GetObjStr("args", "app", app);
         req.GetObjStr("args", "jkx", jkx);
         // 런치 진실성 (2026-09-24 LLM 실전 발각): 스폰 전 존재 검증. 스폰은
-        // 비동기 사망한다 — app은 jkapp_<app>.dll이 없으면 자식이 즉시 exit,
+        // 비동기 사망한다 — app은 jkapp_<app><접미>(win32 .dll / posix .so —
+        // AppModuleSuffix())가 없으면 자식이 즉시 exit,
         // jkx는 경로가 없으면 jkx.Open 실패 exit — 그런데도 무조건 ok:true는
         // "accepted 후 침묵"(docs/59 §13 폰 플로우 실측) 동형 결함이었다.
         // LLM이 스키마의 jkx 키를 골라 죽은 스폰을 ok:true로 받고 침묵하는
         // 실측이 정확히 이 구멍이다.
-        //   app: jkapp_<app>.dll 존재 검사(런처와 같은 exeDir 기준) — 단
+        //   app: jkapp_<app><접미>(win32 .dll / posix .so — AppModuleSuffix())
+        //        존재 검사(런처와 같은 exeDir 기준) — 단
         //        terminal:/filedlg: 접두 관례(스폰 전용 경로)는 검사 면제.
         //   jkx: 주어진 경로 우선, 없으면 exeDir/apps/<bare>.jkx 폴백 해석
         //        (런처의 apps/ 열거와 같은 기준 — bare 이름을 쓰는 LLM을
@@ -4268,7 +4281,8 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         if (!app.empty()) {
             const bool prefixed = app.find(':') != std::string::npos;
             // 접미만 플랫폼 값(JKWindowServer.h AppModuleSuffix) — 존재 bool 관측
-            // 동일. 주석 원문의 "jkapp_<app>.dll"은 win32 관측 그대로 유효.
+            // 동일. 상단 주석의 접미 표기는 win32 .dll / posix .so로 정규화
+            // (G1 리뷰 승계).
             const std::string dllPath =
                 exeDir + "/jkapp_" + app + AppModuleSuffix();
             if (prefixed || exeDir.empty() || fileExistsFn(dllPath)) {
@@ -4280,14 +4294,25 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             } else {
                 // app→jkx 폴백 (2026-09-24 폰 눈확인 발각): 워크숍 등 .jkx
                 // 패키지 앱을 스키마의 내장 앱 이름 목록과 혼동해
-                // {"app":"workshop"}으로 부르는 실측이 있다 — jkapp_<app>.dll이
-                // 없어도 apps/<app>.jkx가 있으면 컨테이너로 스폰해 두 호출
+                // {"app":"workshop"}으로 부르는 실측이 있다 — jkapp_<app><접미>
+                // (win32 .dll / posix .so — AppModuleSuffix())가 없어도
+                // apps/<app>.jkx가 있으면 컨테이너로 스폰해 두 호출
                 // 형태를 모두 살린다(설명 드리프트가 LLM을 막히게 하지 않는다).
                 const std::string jkxCandidate =
                     exeDir + "/apps/" + app + ".jkx";
                 if (fileExistsFn(jkxCandidate)) {
-                    SpawnClient(jkxCandidate.c_str(), true);
+                    const bool spawned =
+                        SpawnClient(jkxCandidate.c_str(), true);
+#ifdef _WIN32
+                    (void)spawned;     // win32 관측 바이트 보존 — 스폰 실패도
                     reply = "{\"ok\":true,\"via\":\"jkx\"}";
+#else
+                    // posix(플랜 F5/F7): fromJkx는 v1 프리게이트로 false —
+                    // 거짓 ok:true 대신 실패를 보고한다(posix만).
+                    reply = spawned ? "{\"ok\":true,\"via\":\"jkx\"}"
+                        : std::string("{\"ok\":false,\"error\":\"spawn_failed\","
+                                      "\"jkx\":\"") + jkxCandidate + "\"}";
+#endif
                 } else {
                     reply = "{\"ok\":false,\"error\":\"unknown_app\",\"app\":\"" +
                             app +
@@ -4331,8 +4356,23 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                 reply = "{\"ok\":false,\"error\":\"unknown_jkx\",\"jkx\":\"" +
                         jkx + "\"}";
             } else {
-                SpawnClient(resolved.c_str(), true);
+#ifdef _WIN32
+                bool spawned = SpawnClient(resolved.c_str(), true);
+                (void)spawned;     // win32 관측 바이트 보존 — 스폰 실패도
+                                   // 기존 ok:true 유지(G4 계약)
                 reply = "{\"ok\":true}";
+#else
+                bool spawned = SpawnClient(resolved.c_str(), true);
+                // posix(플랜 F5/F7): fromJkx는 v1 프리게이트로 false — 거짓
+                // ok:true 대신 도구에 실패를 보고한다(posix만).
+                if (spawned) {
+                    reply = "{\"ok\":true}";   // 기존 성공 reply 보존
+                } else {
+                    reply = std::string(
+                        "{\"ok\":false,\"error\":\"spawn_failed\","
+                        "\"jkx\":\"") + resolved + "\"}";
+                }
+#endif
             }
         } else {
             reply = "{\"ok\":false,\"error\":\"missing_app\"}";
@@ -5951,8 +5991,14 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
     } else if (tool == "launch_chat") {
         // M2 chat: open the Win32 chat window (approval surface). One API,
         // many faces — MCP agents can open it too.
+#ifdef _WIN32
         SpawnProcess("jkchat.exe", "");
         reply = "{\"ok\":true}";
+#else
+        // posix는 jkchat을 CMake 게이트로 빌드하지 않는다(docs/70 §2 T1 —
+        // raw USER32/GDI, 전 대상 윈 전용) — 거짓 ok 대신 플랫폼을 보고한다.
+        reply = "{\"ok\":false,\"error\":\"unavailable_on_platform\"}";
+#endif
     } else if (tool == "approve") {
         // M2 chat: resolve one pending approval. The parked query's reply
         // goes to the ORIGINAL requester; the approver gets the ack below.
