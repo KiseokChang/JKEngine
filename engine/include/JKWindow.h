@@ -77,6 +77,11 @@ protected:
     // 같은 산식을 쓰므로 한 곳에서 뽑는다.
     JKRect FrameStripScreenRect() const;
 
+    // 닫기 버튼 호버 (I4 소박): MouseMove 전이 감지 → 전이 시에만 더티.
+    // 컴포지터 오버레이(JKCompositor.cpp:326)는 서버 측 복제 상태라 별도
+    // 원장(눈확인 대기) — 클라 페인트만 먼저 봉합.
+    bool closeHover_ = false;
+
     bool dragging_ = false;
     JKPoint dragStartMouse_;
     JKRect dragStartRect_;

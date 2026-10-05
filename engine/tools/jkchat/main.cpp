@@ -13,6 +13,7 @@
 #include <agent/JKAgentClient.h>
 #include <agent/JKAgentJson.h>
 #include <agent/JKLlmEngine.h>
+#include <text/JKTextConv.h>  // jk::text UTF-8↔UTF-16 공용 변환 (I4 공용화)
 
 // Non-portable by design: Win32 GUI app (docs/31) — not a stage-1 target
 // (docs/68 W8 as-built). The include here is the app's windowing plumbing.
@@ -31,27 +32,11 @@ using LlmTurnResult = jk::agent::LlmTurnResult;
 // ---------------------------------------------------------------------------
 // UTF-8 <-> UTF-16 (source is UTF-8; the Win32 W API wants UTF-16 — and unlike
 // the ImGui stack, the default GUI font renders hangul).
+// I4 공용화: 수기 복각(static Utf8ToWide/WideToUtf8, CP_UTF8 + 0 flags = 원문
+// WCTM과 동일 계약)을 jk::text로 소각 — 이 파일은 호출만 남긴다. 단
+// Utf8ToUtf16은 MB_ERR_INVALID_CHARS fail-closed (jk::text 공용 계약) —
+// 입력은 엔진 산출 UTF-8(유효 규약)이라 관측 차이 없음.
 // ---------------------------------------------------------------------------
-static std::wstring Utf8ToWide(const std::string& s) {
-    if (s.empty()) return std::wstring();
-    const int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(),
-                                      static_cast<int>(s.size()), nullptr, 0);
-    std::wstring w(static_cast<size_t>(n), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), static_cast<int>(s.size()),
-                        &w[0], n);
-    return w;
-}
-
-static std::string WideToUtf8(const std::wstring& w) {
-    if (w.empty()) return std::string();
-    const int n = WideCharToMultiByte(CP_UTF8, 0, w.c_str(),
-                                      static_cast<int>(w.size()), nullptr, 0,
-                                      nullptr, nullptr);
-    std::string s(static_cast<size_t>(n), '\0');
-    WideCharToMultiByte(CP_UTF8, 0, w.c_str(), static_cast<int>(w.size()),
-                        &s[0], n, nullptr, nullptr);
-    return s;
-}
 
 // ---------------------------------------------------------------------------
 // Control ids and shared state.
@@ -102,7 +87,7 @@ static void Log(const std::wstring& line) {
     SendMessageW(g_hLog, EM_SCROLLCARET, 0, 0);
 }
 
-static void Log(const std::string& utf8) { Log(Utf8ToWide(utf8)); }
+static void Log(const std::string& utf8) { Log(jk::text::Utf8ToUtf16(utf8)); }
 
 // Append without a leading newline — token-stream fragments keep typing into
 // the same transcript line.
@@ -148,7 +133,7 @@ static void EnqueueApproval(uint32_t request, const std::wstring& text) {
 static void ShowApproval(const std::string& title, uint32_t targetId,
                          uint32_t request) {
     wchar_t buf[512];
-    _snwprintf_s(buf, _TRUNCATE, L"[%s #%u] 창을 닫을까요?", Utf8ToWide(title).c_str(),
+    _snwprintf_s(buf, _TRUNCATE, L"[%s #%u] 창을 닫을까요?", jk::text::Utf8ToUtf16(title).c_str(),
                  targetId);
     EnqueueApproval(request, buf);
 }
@@ -163,8 +148,8 @@ static void ShowTrustApproval(const std::string& name, const std::string& origin
     wchar_t buf[512];
     _snwprintf_s(buf, _TRUNCATE,
                  L"[신뢰 요청] %s (%s) 해시 %s… 승인할까요?",
-                 Utf8ToWide(name).c_str(), Utf8ToWide(origin).c_str(),
-                 Utf8ToWide(fp8).c_str());
+                 jk::text::Utf8ToUtf16(name).c_str(), jk::text::Utf8ToUtf16(origin).c_str(),
+                 jk::text::Utf8ToUtf16(fp8).c_str());
     EnqueueApproval(request, buf);
 }
 
@@ -181,7 +166,7 @@ static void ShowFilesApproval(const std::string& tool, const std::string& path,
                               uint32_t request) {
     wchar_t buf[512];
     _snwprintf_s(buf, _TRUNCATE, L"[파일 요청] %s → %s 승인할까요?",
-                 Utf8ToWide(tool).c_str(), Utf8ToWide(path).c_str());
+                 jk::text::Utf8ToUtf16(tool).c_str(), jk::text::Utf8ToUtf16(path).c_str());
     EnqueueApproval(request, buf);
 }
 
@@ -192,8 +177,8 @@ static void ShowPermissionApproval(const std::string& targetTool,
                                    uint32_t request) {
     wchar_t buf[512];
     _snwprintf_s(buf, _TRUNCATE, L"[권한 변경] %s → %s 승인할까요?",
-                 Utf8ToWide(targetTool).c_str(),
-                 Utf8ToWide(decision).c_str());
+                 jk::text::Utf8ToUtf16(targetTool).c_str(),
+                 jk::text::Utf8ToUtf16(decision).c_str());
     EnqueueApproval(request, buf);
 }
 
@@ -205,7 +190,7 @@ static void ShowTrustRevokeApproval(const std::string& name,
         fingerprint.size() > 15 ? fingerprint.substr(0, 15) : fingerprint;
     wchar_t buf[512];
     _snwprintf_s(buf, _TRUNCATE, L"[신뢰 해지] %s (%s…) 승인할까요?",
-                 Utf8ToWide(name).c_str(), Utf8ToWide(fp8).c_str());
+                 jk::text::Utf8ToUtf16(name).c_str(), jk::text::Utf8ToUtf16(fp8).c_str());
     EnqueueApproval(request, buf);
 }
 
@@ -237,7 +222,7 @@ static jk::agent::JKLlmEngine g_llm;
 // thread hop to the UI thread, exactly what the pre-extraction LlmThread did.
 static void OnLlmDelta(const std::string& utf8, void*) {
     PostMessageW(g_hMain, WM_APP_LLM_DELTA, 0,
-                 reinterpret_cast<LPARAM>(new std::wstring(Utf8ToWide(utf8))));
+                 reinterpret_cast<LPARAM>(new std::wstring(jk::text::Utf8ToUtf16(utf8))));
 }
 
 static void OnLlmDone(LlmTurnResult&& r, void*) {
@@ -257,9 +242,9 @@ static void Submit() {
     wchar_t buf[512] = {};
     GetWindowTextW(g_hInput, buf, 512);
     SetWindowTextW(g_hInput, L"");
-    const std::string line = WideToUtf8(buf);
+    const std::string line = jk::text::Utf16ToUtf8(buf);
     if (line.empty()) return;
-    Log(L"> " + Utf8ToWide(line));
+    Log(L"> " + jk::text::Utf8ToUtf16(line));
 
     if (line[0] != '/') {
         StartLlmTurn(line);  // natural language → claude headless
@@ -424,7 +409,7 @@ static void HandleEvent(const jk::agent::AgentEvent& ev) {
             if (!name.empty()) {
                 wchar_t buf[512];
                 _snwprintf_s(buf, _TRUNCATE, L"[앱 도구] %s 실행할까요?",
-                             Utf8ToWide(name).c_str());
+                             jk::text::Utf8ToUtf16(name).c_str());
                 EnqueueApproval(static_cast<uint32_t>(request), buf);
                 Log("[앱 도구] " + name);
             } else {
@@ -436,15 +421,15 @@ static void HandleEvent(const jk::agent::AgentEvent& ev) {
                     windowId > 0) {
                     wchar_t buf[512];
                     _snwprintf_s(buf, _TRUNCATE, L"[%s 창 #%u] %s 실행할까요?",
-                                 Utf8ToWide(app).c_str(), windowId,
-                                 Utf8ToWide(tool).c_str());
+                                 jk::text::Utf8ToUtf16(app).c_str(), windowId,
+                                 jk::text::Utf8ToUtf16(tool).c_str());
                     EnqueueApproval(static_cast<uint32_t>(request), buf);
                     Log("[앱 도구] " + app + "." + tool + " → 창 #" +
                         std::to_string(windowId));
                 } else {
                     wchar_t buf[512];
                     _snwprintf_s(buf, _TRUNCATE, L"[앱 도구] %s 실행할까요?",
-                                 Utf8ToWide(name).c_str());
+                                 jk::text::Utf8ToUtf16(name).c_str());
                     EnqueueApproval(static_cast<uint32_t>(request), buf);
                     Log("[앱 도구] " + name);
                 }
@@ -669,7 +654,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM w, LPARAM l) {
                 // The text already typed itself in — just close the turn out.
                 Log(L"[LLM 완료]");
             } else {
-                Log(Utf8ToWide(r->result));
+                Log(jk::text::Utf8ToUtf16(r->result));
             }
             if (!r->sessionId.empty()) g_sessionId = r->sessionId;
             delete r;

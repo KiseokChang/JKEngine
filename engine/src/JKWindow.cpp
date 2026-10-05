@@ -309,9 +309,14 @@ void JKWindow::PaintWindow(JKDC& dc) {
         dc.TextOutX(textRect, titleKssm.c_str(), ADJ_YCENTER | ADJ_LEFT, false);
     }
 
-    // 닫기 버튼: 면/윤곽/글리프는 jk::theme::current() (P2).
+    // 닫기 버튼: 면/윤곽/글리프는 jk::theme::current() (P2). 호버면 면만
+    // chromeCloseHover로 (I4 소박 — Win11처럼 X 글리프는 유지).
+    // 원장: 컴포지터 오버레이(JKCompositor.cpp:326)는 서버 측 상태라 이
+    // 배치 밖 — 클라 호버와 오버레이 싱크는 후속 원장 기록.
     if (!closeBtn.IsEmpty()) {
-        dc.SetColor(t.chromeButtonFace.r, t.chromeButtonFace.g, t.chromeButtonFace.b, 255);
+        const auto& face =
+            closeHover_ ? t.chromeCloseHover : t.chromeButtonFace;
+        dc.SetColor(face.r, face.g, face.b, 255);
         dc.FillRect(closeBtn);
         dc.SetColor(t.chromeBorder.r, t.chromeBorder.g, t.chromeBorder.b, 255);
         dc.DrawRect(closeBtn);
@@ -547,6 +552,18 @@ void JKWindow::RespondMessage(const JKEvent& ev) {
                     resizeStartRect_ = GetRect();
                     return;
                 }
+            }
+        }
+
+        // 닫기 버튼 호버 전이 (I4 소박): 이전 상태와 비교해 전이할 때만 더티
+        // — MouseMove마다 전체 칠하는 낭비를 막는다. closeBtn은 GetScreenRect
+        // 기반 screen 좌표라 AddDirtyRect 좌표계와 같다(페인트도 screen 기준).
+        if (ev.type == JKEventType::MouseMove) {
+            const JKRect closeBtn = GetCloseButtonRect();
+            const bool hover = !closeBtn.IsEmpty() && closeBtn.Contains(ev.x, ev.y);
+            if (hover != closeHover_) {
+                closeHover_ = hover;
+                if (!closeBtn.IsEmpty()) AddDirtyRect(closeBtn);
             }
         }
 

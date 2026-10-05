@@ -11,6 +11,7 @@
 #include <JKImageLoader.h>
 #include <JKImeHook.h>
 #include <JKMessageBus.h>
+#include <text/JKTextConv.h>
 #include <JKSDLAudioBackend.h>
 #include <JKSDLRenderBackend.h>
 #include <JKResourceCache.h>
@@ -6672,7 +6673,17 @@ static void InjectKindsEnum(std::string& schema,
         out = schema.substr(0, propsOpen + 1) + "\"kind\":" + kindObj + "," +
               schema.substr(propsOpen + 1);
     }
-    if (out.size() > 2 * 1024) return;   // 등록 상한 초과 — 병합 보류
+    if (out.size() > 2 * 1024) {
+        // 등록 한도(=HandleToolRegister schema_too_large 2KB, docs/58 스펙
+        // 유지 — 한도 상향은 정책 변경이라 원장 기록 후 별도로): 병합하면
+        // 한도를 넘는 스키마는 이전까지 무음으로 보류됐다 — kind enum이
+        // 안 붙은 채 등록되는데 발화가 전혀 안 보였던 원인(가시화, I4 소박).
+        // 정책은 유지: 병합 보류하고 원본 스키마로 등록한다.
+        std::fprintf(stderr,
+                     "JKWindowServer::InjectKindsEnum: kind merge skipped — merged schema %zu > 2048 bytes, kept original\n",
+                     out.size());
+        return;
+    }
     schema = std::move(out);
 }
 
@@ -8062,25 +8073,6 @@ SDL_Texture* JKWindowServer::TextureFromRGBA(const jk::LoadedImage& img, const c
     return texture;
 }
 
-#ifdef _WIN32
-// UTF-16 → UTF-8 (docs/68 W4 어댑터 계약): SpawnProcess는 커맨드라인/cwd를
-// 와이드로 조립(원문 규약 — dirW는 A형 exe-dir의 CP_ACP 역변환)하므로, 어댑터
-// commandLineUtf8/workingDir(UTF-8 1문자열, 어댑터가 CP_UTF8 와이딩)에 넘기기
-// 위한 최소 헬퍼. 와이드→UTF-8→와이드는 무손실 왕복이다. JKLlmEngine 공용
-// 헬퍼 복각과 동일 형태(공용화는 후속 웨이브).
-static std::string WideToUtf8(const std::wstring& w) {
-    if (w.empty()) return std::string();
-    const int n = WideCharToMultiByte(65001, 0, w.c_str(),
-                                      static_cast<int>(w.size()), nullptr, 0,
-                                      nullptr, nullptr);
-    std::string s(static_cast<size_t>(n > 0 ? n : 0), '\0');
-    if (n > 0)
-        WideCharToMultiByte(65001, 0, w.c_str(), static_cast<int>(w.size()),
-                            &s[0], n, nullptr, nullptr);
-    return s;
-}
-#endif
-
 // Launch an arbitrary exe from the server's directory (SpawnClient core).
 // throttleKey defaults to exeName; SpawnClient keeps the per-app key so two
 // DIFFERENT apps can still launch back-to-back.
@@ -8201,7 +8193,9 @@ bool JKWindowServer::SpawnProcess(const char* exeName, const std::string& args,
     // 도달 불가 — 어댑터는 빈 workingDir를 cwd 상속으로 처리한다.)
     jk::process::SpawnOptions opt;
     opt.commandLineUtf8 = cmdLineUtf8;
-    opt.workingDir = haveDir ? WideToUtf8(dirW) : std::string();
+    // dirW → UTF-8: docs/68 W4 왕복 무손실 계약이 jk::text::Utf16ToUtf8
+    // (JKTextConv.h, CP_UTF8/0 동일 WCTM)로 승계 — 서버 TU의 복각 소각 (I4).
+    opt.workingDir = haveDir ? jk::text::Utf16ToUtf8(dirW) : std::string();
     const jk::process::SpawnResult spawned = jk::process::Spawn(opt);
     if (!spawned.ok) {
         std::fprintf(stderr, "JKWindowServer: CreateProcessW failed for %s\n", exeName);

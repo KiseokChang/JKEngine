@@ -2396,17 +2396,8 @@ void ClientVPlayerApp::TheaterUi(int w, int h) {
     if (active) osdLastActivity_ = now;
     osdShown_ = inBand &&
         std::chrono::duration<double>(now - osdLastActivity_).count() < 2.5;
-    // [vpt12] OSD gate debug — probe cadence gate (structure-only checks
-    // cannot see the fade). Once per second while TheaterUi runs.
-    static std::chrono::steady_clock::time_point osdDbgLast_{};
-    if (now - osdDbgLast_ >= std::chrono::milliseconds(1000)) {
-        osdDbgLast_ = now;
-        std::fprintf(stderr, "[vpt12] osd pos=(%.0f,%.0f) bandY=%.0f inBand=%d active=%d shown=%d alpha=%.2f fs=%d\n",
-                     io.MousePos.x, io.MousePos.y, bandY, inBand ? 1 : 0,
-                     active ? 1 : 0, osdShown_ ? 1 : 0, osdAlpha_,
-                     fullscreenUi_ ? 1 : 0);
-        std::fflush(stderr);
-    }
+    // [vpt12] 프로브 소유 탐점 — 구조 확인 완료 후 소각 (I4 소박). 페이드는
+    // 눈확인으로 본다 (프로브 구조 확인은 osd gate의 cadence 한계만 남김).
     const float dt = std::chrono::duration<float>(now - lastOsdTick_).count();
     lastOsdTick_ = now;
     const float target = osdShown_ ? 1.0f : 0.0f;

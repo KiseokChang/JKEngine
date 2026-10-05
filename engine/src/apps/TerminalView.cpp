@@ -419,6 +419,105 @@ void TerminalView::PaintFallbackGlyph(JKDC& dc, const JKRect& cellRect,
             dc.DrawLine(cellRect.x, my, cellRect.x + kTermCellW - 1, my);
             dc.DrawLine(mx, cellRect.y, mx, cellRect.y + kTermCellH - 1);
             return;
+        // 더블라인 (I4 소박): 이중선 = my±3 / mx±3 (8x16 셀 — 기존 싱글
+        // 케이스의 mx/my 중앙 산식을 그대로 3px 오프셋). 팔 시작점 규약:
+        // 팔 선은 만나는 상대 이중선 밴드의 바깥 선부터 잇는다(안 선은 교차로
+        // 접속 — 코너/티 전부 같은 규약).
+        case 0x2550:   // ═
+            dc.DrawLine(cellRect.x, my - 3, cellRect.x + kTermCellW - 1, my - 3);
+            dc.DrawLine(cellRect.x, my + 3, cellRect.x + kTermCellW - 1, my + 3);
+            return;
+        case 0x2551:   // ║
+            dc.DrawLine(mx - 3, cellRect.y, mx - 3, cellRect.y + kTermCellH - 1);
+            dc.DrawLine(mx + 3, cellRect.y, mx + 3, cellRect.y + kTermCellH - 1);
+            return;
+        case 0x2554:   // ╔ (우+하 팔)
+            dc.DrawLine(mx - 3, my - 3, cellRect.x + kTermCellW - 1, my - 3);
+            dc.DrawLine(mx - 3, my + 3, cellRect.x + kTermCellW - 1, my + 3);
+            dc.DrawLine(mx - 3, my - 3, mx - 3, cellRect.y + kTermCellH - 1);
+            dc.DrawLine(mx + 3, my - 3, mx + 3, cellRect.y + kTermCellH - 1);
+            return;
+        case 0x2557:   // ╗ (좌+하 팔)
+            dc.DrawLine(cellRect.x, my - 3, mx + 3, my - 3);
+            dc.DrawLine(cellRect.x, my + 3, mx + 3, my + 3);
+            dc.DrawLine(mx - 3, my - 3, mx - 3, cellRect.y + kTermCellH - 1);
+            dc.DrawLine(mx + 3, my - 3, mx + 3, cellRect.y + kTermCellH - 1);
+            return;
+        case 0x255A:   // ╚ (우+상 팔)
+            dc.DrawLine(mx - 3, my - 3, cellRect.x + kTermCellW - 1, my - 3);
+            dc.DrawLine(mx - 3, my + 3, cellRect.x + kTermCellW - 1, my + 3);
+            dc.DrawLine(mx - 3, cellRect.y, mx - 3, my + 3);
+            dc.DrawLine(mx + 3, cellRect.y, mx + 3, my + 3);
+            return;
+        case 0x255D:   // ╝ (좌+상 팔)
+            dc.DrawLine(cellRect.x, my - 3, mx + 3, my - 3);
+            dc.DrawLine(cellRect.x, my + 3, mx + 3, my + 3);
+            dc.DrawLine(mx - 3, cellRect.y, mx - 3, my + 3);
+            dc.DrawLine(mx + 3, cellRect.y, mx + 3, my + 3);
+            return;
+        case 0x2560:   // ╠ (세로 풀 + 우 팔)
+            dc.DrawLine(mx - 3, cellRect.y, mx - 3, cellRect.y + kTermCellH - 1);
+            dc.DrawLine(mx + 3, cellRect.y, mx + 3, cellRect.y + kTermCellH - 1);
+            dc.DrawLine(mx - 3, my - 3, cellRect.x + kTermCellW - 1, my - 3);
+            dc.DrawLine(mx - 3, my + 3, cellRect.x + kTermCellW - 1, my + 3);
+            return;
+        case 0x2563:   // ╣ (세로 풀 + 좌 팔)
+            dc.DrawLine(mx - 3, cellRect.y, mx - 3, cellRect.y + kTermCellH - 1);
+            dc.DrawLine(mx + 3, cellRect.y, mx + 3, cellRect.y + kTermCellH - 1);
+            dc.DrawLine(cellRect.x, my - 3, mx + 3, my - 3);
+            dc.DrawLine(cellRect.x, my + 3, mx + 3, my + 3);
+            return;
+        case 0x2566:   // ╦ (가로 풀 + 하 팔)
+            dc.DrawLine(cellRect.x, my - 3, cellRect.x + kTermCellW - 1, my - 3);
+            dc.DrawLine(cellRect.x, my + 3, cellRect.x + kTermCellW - 1, my + 3);
+            dc.DrawLine(mx - 3, my - 3, mx - 3, cellRect.y + kTermCellH - 1);
+            dc.DrawLine(mx + 3, my - 3, mx + 3, cellRect.y + kTermCellH - 1);
+            return;
+        case 0x2569:   // ╩ (가로 풀 + 상 팔)
+            dc.DrawLine(cellRect.x, my - 3, cellRect.x + kTermCellW - 1, my - 3);
+            dc.DrawLine(cellRect.x, my + 3, cellRect.x + kTermCellW - 1, my + 3);
+            dc.DrawLine(mx - 3, cellRect.y, mx - 3, my + 3);
+            dc.DrawLine(mx + 3, cellRect.y, mx + 3, my + 3);
+            return;
+        case 0x256C:   // ╬
+            dc.DrawLine(cellRect.x, my - 3, cellRect.x + kTermCellW - 1, my - 3);
+            dc.DrawLine(cellRect.x, my + 3, cellRect.x + kTermCellW - 1, my + 3);
+            dc.DrawLine(mx - 3, cellRect.y, mx - 3, cellRect.y + kTermCellH - 1);
+            dc.DrawLine(mx + 3, cellRect.y, mx + 3, cellRect.y + kTermCellH - 1);
+            return;
+        // 반쪽 블록: 셀 절반 채움 (0x2588 풀 채움의 절반 버젼).
+        case 0x2580:   // ▀ 상반
+            dc.FillRect(JKRect{cellRect.x, cellRect.y, kTermCellW, kTermCellH / 2});
+            return;
+        case 0x2584:   // ▄ 하반
+            dc.FillRect(JKRect{cellRect.x, my, kTermCellW, kTermCellH / 2});
+            return;
+        case 0x258C:   // ▌ 좌반
+            dc.FillRect(JKRect{cellRect.x, cellRect.y, kTermCellW / 2, kTermCellH});
+            return;
+        case 0x2590:   // ▐ 우반
+            dc.FillRect(JKRect{mx, cellRect.y, kTermCellW / 2, kTermCellH});
+            return;
+        // 셰이드 (I4 소박): ░ ~25% = 2px 간격 도트, ▒ ~50% = 2x2 체커,
+        // ▓ ~75% = ░ 보색(도트 자리만 비움). 픽셀 1개 FillRect 폴백 —
+        // 이 경로는 폰트/아틀라스 부재 시에만 도달하는 근사라 허용.
+        case 0x2591:   // ░
+        case 0x2592:   // ▒
+        case 0x2593:   // ▓
+        {
+            for (int py = cellRect.y; py < cellRect.y + kTermCellH; ++py) {
+                for (int px = cellRect.x; px < cellRect.x + kTermCellW; ++px) {
+                    const bool dot = (px & 1) == 0 && (py & 1) == 0;
+                    const bool on = cp == 0x2591
+                                        ? dot
+                                        : cp == 0x2592
+                                              ? ((px / 2 + py / 2) & 1) == 0
+                                              : !dot;
+                    if (on) dc.FillRect(JKRect{px, py, 1, 1});
+                }
+            }
+            return;
+        }
         case 0x2588:   // █
             dc.FillRect(cellRect);
             return;
@@ -426,7 +525,9 @@ void TerminalView::PaintFallbackGlyph(JKDC& dc, const JKRect& cellRect,
             break;
     }
     if (cp >= 0x2500 && cp <= 0x259F) {
-        // Double-line / shades: single mid line placeholder.
+        // 더블라인/셰이드/반쪽 블록은 위 케이스로 봉합 (I4 소박) — 이 한 줄
+        // placeholder는 아직 손대지 않은 cp만: 0x2596-0x2599 (분할 사분형),
+        // 0x256D-0x256F 등 박스 subset 나머지.
         dc.DrawLine(cellRect.x, my, cellRect.x + kTermCellW - 1, my);
         return;
     }
@@ -705,18 +806,22 @@ void TerminalView::HandleMouseReport(const JKEvent& ev) {
         }
         case JKEventType::MouseMove: {
             // 1000 (Normal): no motion events at all (xterm standard — motion
-            // only in 1002/1003). X10 has no motion form either (spec §2).
+            // only in 1002/1003).
             const TermMouseMode mode = parser_->MouseMode();
-            if (mode == TermMouseMode::Normal || !sgr) return;
+            if (mode == TermMouseMode::Normal) return;
             // 1002 (Button): only while a reported button is held.
             if (mode == TermMouseMode::Button && reportedButtons_ == 0) return;
             // Wire button byte: the lowest held button, 3 = no button (hover
             // motion in 1003 mode); the +32 motion offset is the encoder's.
+            // Classic (non-SGR) motion의 옛 갭("X10 has no motion form")은
+            // 봉합했다 — EncodeMouseX10도 같은 btn+32 경로 (I4 소박, docs/41
+            // §7 갭 기록 승계).
             int btn = 3;
             if (reportedButtons_ & 1u) btn = 0;
             else if (reportedButtons_ & 2u) btn = 1;
             else if (reportedButtons_ & 4u) btn = 2;
-            seq = EncodeMouseSgr(btn, x, y, MouseKind::Motion, mods);
+            seq = sgr ? EncodeMouseSgr(btn, x, y, MouseKind::Motion, mods)
+                      : EncodeMouseX10(btn, x, y, MouseKind::Motion);
             break;
         }
         default:

@@ -2508,9 +2508,14 @@ static int RunAppSelfTest() {
         check(jk::EncodeMouseX10(2, 223, 223, MouseKind::Press)[4] ==
                   static_cast<char>(255),
               "terminput: X10 max coordinate stays in one byte");
-        // Classic MOTION is an explicit v1 gap (docs/41 §7) — empty string.
-        check(jk::EncodeMouseX10(0, 10, 5, MouseKind::Motion).empty(),
-              "terminput: classic motion not reported (v1 gap)");
+        // Classic MOTION — 갭 봉합 (I4): Cb = btn+32로 나간다 (호버 btn 3 →
+        // Cb 35). 옛 v1 갭(docs/41 §7, empty) 검사는 여기로 승계.
+        check(static_cast<unsigned char>(
+                      jk::EncodeMouseX10(0, 10, 5, MouseKind::Motion)[3]) ==
+                  32 + 32 &&
+                  static_cast<unsigned char>(jk::EncodeMouseX10(
+                      3, 10, 5, MouseKind::Motion)[3]) == 32 + 35,
+              "terminput: classic motion = Cb btn+32 (hover 35)");
 
         // Arrows, no mods, normal cursor keys (CSI) — the legacy forms,
         // byte-for-byte.

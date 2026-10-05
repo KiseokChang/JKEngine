@@ -61,18 +61,23 @@ inline std::string EncodeMouseSgr(int btn, int x, int y, MouseKind kind,
 // ONLY is X10 COMPATIBILITY mode (DECSET 9) — a different, older mode we do
 // not implement. Coordinates are 1-based and clamped to 1..223 — the
 // 32-offset must stay inside one signed byte (255 max wire char).
-// Classic MOTION (Cb btn+32) exists on the wire but v1 does not report it —
-// Motion returns an empty string; the caller drops it (explicit gap,
-// docs/41 §7). Wheel in non-SGR tracking reports through EncodeWheelX10
-// below (the v1 non-SGR wheel gap was closed in I3 — docs/65 수용 잔여).
+// Classic MOTION (Cb btn+32): 봉합 (I4 소박) — 옛 v1 갭(docs/41 §7, Motion
+// 빈 문자열)을 닫았다. 클래식 모션도 press/release와 같은 출력 경로로 나간다;
+// 1002는 홀드 버튼 게이트, 1003은 btn=3(호버) → Cb 35 — 게이트는 호출자
+// (TerminalView::HandleMouseReport) 소관. Wheel in non-SGR tracking reports
+// through EncodeWheelX10 below (the v1 non-SGR wheel gap was closed in I3 —
+// docs/65 수용 잔여).
 inline std::string EncodeMouseX10(int btn, int x, int y, MouseKind kind) {
-    const int cb = (kind == MouseKind::Release)
-                       ? 3                                // generic release
-                       : std::clamp(btn, 0, 2);           // plain button press
+    int cb;
+    if (kind == MouseKind::Release) {
+        cb = 3;                                  // generic release
+    } else if (kind == MouseKind::Motion) {
+        cb = std::clamp(btn, 0, 3) + 32;         // motion — btn+32 (호버 35)
+    } else {
+        cb = std::clamp(btn, 0, 2);              // plain button press
+    }
     const auto clamp = [](int v) { return v < 1 ? 1 : (v > 223 ? 223 : v); };
-    std::string out;
-    if (kind == MouseKind::Motion) return out;   // v1 gap — not reported
-    out = "\x1b[M";
+    std::string out = "\x1b[M";
     out += static_cast<char>(32 + cb);
     out += static_cast<char>(32 + clamp(x));
     out += static_cast<char>(32 + clamp(y));
