@@ -146,6 +146,15 @@ SpawnResult Spawn(const SpawnOptions& options) {
             close(errPipe[0]);
             close(errPipe[1]);
         }
+        // fork 상속 fd 소각 (플랜 G3 WSLg 실측): fork는 exec 대상과 무관하게
+        // 열린 fd 전부를 복사한다 — 대표 사고는 서버 acceptor의 unix listener:
+        // taskbar 자동 스폰 직후 자식이 listener를 물려쥐어 소켓 파일이
+        // "살아" 보이고, 서버의 다음 acceptor 이터레이션은 "a live server
+        // already holds that socket"로 영원히 실패 + 이후 클라 connect는
+        // 상속된 listener의 만석 백로그에서 블록(agentd 타임아웃 실측).
+        // stdio(0/1/2 — 위 dup2로 배선된 파이프 포함)만 남기고 전부 닫는다.
+        // EBADF는 정상 경로(close는 fd마다 정확히 닫힌다).
+        for (int fd = STDOUT_FILENO + 1; fd < 4096; ++fd) close(fd);
         if (!options.workingDir.empty() &&
             chdir(options.workingDir.c_str()) != 0) {
             _exit(127);
