@@ -113,10 +113,15 @@ SpawnResult Spawn(const SpawnOptions& options) {
             for (int fd : errPipe)
                 if (fd >= 0) close(fd);
             result.error = FailText(err, "pipe");
+            result.errorCode = static_cast<uint32_t>(err);
             return result;
         }
     }
 
+    // inheritStdioHandles (task 8, jkctl absorb) needs no posix work: fork/exec
+    // inherits the parent's stdio fds naturally — the child already shares the
+    // console/redirected stdout the caller had. Only record the failure codes,
+    // same "(err=N)/(errno=N)" observation the consumers print.
     const pid_t pid = fork();
     if (pid < 0) {
         const int err = errno;
@@ -125,6 +130,7 @@ SpawnResult Spawn(const SpawnOptions& options) {
         for (int fd : errPipe)
             if (fd >= 0) close(fd);
         result.error = FailText(err, "fork");
+        result.errorCode = static_cast<uint32_t>(err);
         return result;
     }
 
@@ -187,6 +193,7 @@ SpawnResult Spawn(const SpawnOptions& options) {
         closePipeFds(errPipe);
         waitpid(pid, nullptr, 0);  // reap ourselves, we created the child
         result.error = FailText(err, "alloc");
+        result.errorCode = static_cast<uint32_t>(err);
         return result;
     }
 
@@ -207,6 +214,7 @@ SpawnResult Spawn(const SpawnOptions& options) {
             closePipeFds(errPipe);
             waitpid(pid, nullptr, 0);  // reap ourselves, we created the child
             result.error = FailText(err, "alloc");
+            result.errorCode = static_cast<uint32_t>(err);
             return result;
         }
     }

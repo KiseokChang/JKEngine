@@ -22,25 +22,35 @@
 
 #include <net/JKNet.h>
 
-// stage-2 marking: docs/68 W8 — the winsock2/ws2tcpip include block moved out
-// of this TU at W8b: every socket call site rides jk::net. Two real-winsock
-// residuals stay hand-listed for stage 2 (both windows.h-adjacent — this TU
-// keeps windows.h for the console APIs below, tools-TU 규약. opus 최종리뷰
-// LOW-1: 잔여 콘솔 API는 8종 — MultiByteToWideChar·GetStdHandle·WriteConsoleW·
-// WriteFile·SetConsoleTextAttribute·GetConsoleMode·GetConsoleScreenBufferInfo·
-// Sleep):
-//   1. LoadBridgeConfig bind-string validation: inet_addr == INADDR_NONE.
-//   2. HandleConn peer-IP probe: getpeername + the dllimport inet_ntop below
-//      (ws2_32 exports it directly; ws2tcpip.h would only add the macro).
+// linux stage-3 task 8: windows.h is OUT of this TU. The opus LOW-1 console
+// 8종 (MultiByteToWideChar·GetStdHandle·WriteConsoleW·WriteFile·
+// SetConsoleTextAttribute·GetConsoleMode·GetConsoleScreenBufferInfo·Sleep)
+// moved into verbatim-win32 / ANSI-posix legs below (Sleep rides
+// ../ConsoleShim.h). The two stage-2-marked winsock residuals (①
+// LoadBridgeConfig inet_addr gate, ② HandleConn getpeername+inet_ntop peer
+// probe) compile unchanged on BOTH platforms — the POSIX socket header set
+// carries the same functions the winsock.h-riding code called.
+#ifdef _WIN32
 #include <windows.h>
 // winsock.h rides windows.h; ws2tcpip.h is gone (JKNet TU owns it) so the one
 // address-format function left over is hand-carried — R-C5 dllimport style.
 extern "C" __declspec(dllimport) const char* __stdcall inet_ntop(
     int af, const void* src, char* dst, size_t cnt);
+// getpeername's size pointer — winsock takes an int* (POSIX: socklen_t*).
+using SockLen = int;
+#else
+#include <arpa/inet.h>   // inet_addr / INADDR_NONE gate + inet_ntop
+#include <netinet/in.h>  // sockaddr_in
+#include <sys/socket.h>  // getpeername
+#include <unistd.h>      // isatty (console/redirected split)
+using SockLen = socklen_t;
+#endif
 // ws2tcpip.h macro substitute — exactly INET_ADDRSTRLEN (IPv4 15+NUL; mingw's
 // ws2tcpip.h widens the macro to 22, pure over-allocation — the absorbed
 // `char buf[INET_ADDRSTRLEN]` sites never wrote past 16). No widening change.
 constexpr size_t kInetAddrStrlen = 16;
+
+#include "../ConsoleShim.h"
 
 #include <algorithm>
 #include <atomic>
@@ -60,6 +70,7 @@ constexpr size_t kInetAddrStrlen = 16;
 // UTF-8 <-> UTF-16 + console output (plain console app — WriteConsoleW so
 // hangul survives any codepage; CP949 lesson, docs/48).
 // ---------------------------------------------------------------------------
+#ifdef _WIN32
 static std::wstring Utf8ToWide(const std::string& s) {
     if (s.empty()) return std::wstring();
     const int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(),
@@ -88,6 +99,18 @@ static void OutW(const std::string& utf8) {
         WriteFile(out, "\r\n", 2, &wrote, nullptr);
     }
 }
+#else
+// posix leg (task 8): a Linux stdout is a byte stream — the console leg is
+// plain UTF-8 fwrite (the Linux console consumes UTF-8, so the CP949
+// WriteConsoleW detour has nothing to detour around). "\n" is the posix
+// newline; Windows keeps its verbatim leg (\r\n on the redirected side) and
+// its observations untouched.
+static void OutW(const std::string& utf8) {
+    std::fwrite(utf8.data(), 1, utf8.size(), stdout);
+    std::fputc('\n', stdout);
+    std::fflush(stdout);
+}
+#endif
 
 // JSON string escape (UTF-8 bytes ≥0x80 pass through — raw UTF-8 is legal
 // inside JSON strings, so hangul round-trips untouched).
@@ -185,7 +208,9 @@ static BridgeConfig LoadBridgeConfig() {
                 // 확장으로 반전된다 — 루프백으로 좁히고 경고 (폰 접속은
                 // 끊기지만 콘솔에 원인이 보인다).
                 // stage-2 residual ① (docs/68 W8b): inet_addr dotted-quad
-                // gate — winsock.h rides windows.h; JKNet consumes later.
+                // gate — resolved at task 8: winsock.h rode windows.h then;
+                // now arpa/inet.h (posix) / windows.h (win32) carries it and
+                // the call is verbatim on both legs.
                 if (inet_addr(bind.c_str()) == INADDR_NONE) {
                     OutW("[!] state\\jkbridge.json의 bind가 유효한 IPv4가 "
                          "아님(" + bind + ") — 루프백으로 좁힌다");
@@ -1334,7 +1359,7 @@ static void PumpLoop(BridgeSession* s) {
             connected = s->agent_.IsConnected();
         }
         if (s->Alive() && !connected) {
-            Sleep(400);
+            jkconsole::SleepMs(400);
             continue;
         }
         bool dead = false;
@@ -1388,10 +1413,10 @@ static void PumpLoop(BridgeSession* s) {
         if (dead) {
             s->SendText(
                 "{\"type\":\"error\",\"text\":\"server connection lost\"}");
-            Sleep(400);
+            jkconsole::SleepMs(400);
             continue;
         }
-        Sleep(400);
+        jkconsole::SleepMs(400);
     }
 }
 
@@ -1557,7 +1582,12 @@ static void SessionRun(std::shared_ptr<BridgeSession> s) {
             }
             char stamp[32];
             std::tm tmb{};
+#ifdef _WIN32
             localtime_s(&tmb, &now);
+#else
+            // posix leg: same local-time contract, the POSIX CRT spelling.
+            localtime_r(&now, &tmb);
+#endif
             std::strftime(stamp, sizeof(stamp), "%Y%m%d_%H%M%S", &tmb);
             const std::string path = ExeDirA() + "\\state\\bridge_report_" +
                                      stamp + ".txt";
@@ -1722,11 +1752,13 @@ static void HandleConn(jk::net::Socket conn, const BridgeConfig& cfg) {
     if (target.rfind("/ws", 0) == 0) {
         // ---- WebSocket upgrade, token-gated ------------------------------
         // stage-2 residual ② (docs/68 W8b): peer-IP probe for the rate gate —
-        // getpeername rides winsock.h (windows.h), inet_ntop is the hand
-        // dllimport above; both go to a jk::net peer-ip call in stage 2.
+        // resolved at task 8: getpeername + inet_ntop exist verbatim in the
+        // POSIX socket headers, so the probe body stayed untouched on both
+        // legs (only the size-pointer type got the SockLen alias — winsock
+        // int*, posix socklen_t*).
         const std::string ip = [&] {
             sockaddr_in a{};
-            int len = sizeof(a);
+            SockLen len = sizeof(a);
             if (getpeername(conn, reinterpret_cast<sockaddr*>(&a), &len) == 0) {
                 char buf[kInetAddrStrlen] = {};
                 if (inet_ntop(AF_INET, &a.sin_addr, buf, sizeof(buf))) {
@@ -2152,7 +2184,14 @@ static int Encode(const std::string& url, std::vector<uint8_t>* matrix,
 // (true dark-on-light, what phone cameras prefer). Two QR rows merge per
 // text row via the half-block glyphs (▀/▄) so a V4 symbol fits ~25 lines.
 // Redirected output (probe convention) skips the QR — --qr-debug covers it.
+// task 8 split: the win32 leg is the original body verbatim (QR bytes + color
+// codes identical); the posix leg prints the equivalent ANSI escapes —
+// SetConsoleTextAttribute(BG_R|BG_G|BG_B) is foreground=black(0)/background=
+// color-7(white), i.e. ESC[30;47m, and restore is ESC[0m (posix cannot read
+// the console's saved attribute pair, so it resets to the terminal default —
+// documented difference of the new leg). isatty is the GetConsoleMode twin.
 static void PrintConsole(const std::vector<uint8_t>& m, int n, bool force) {
+#ifdef _WIN32
     HANDLE out = GetStdHandle(STD_OUTPUT_HANDLE);
     DWORD mode = 0;
     const bool console = GetConsoleMode(out, &mode) != 0;
@@ -2167,6 +2206,11 @@ static void PrintConsole(const std::vector<uint8_t>& m, int n, bool force) {
         SetConsoleTextAttribute(
             out, BACKGROUND_RED | BACKGROUND_GREEN | BACKGROUND_BLUE);
     }
+#else
+    const bool console = ::isatty(STDOUT_FILENO) != 0;
+    if (!console && !force) return;
+    if (console) std::fputs("\x1b[30;47m", stdout);
+#endif
     const auto rowLine = [&](int top, int bottom) {
         std::string line(8, ' ');
         for (int c = 0; c < n; ++c) {
@@ -2198,7 +2242,14 @@ static void PrintConsole(const std::vector<uint8_t>& m, int n, bool force) {
         }
     }
     OutW(std::string(2 * n + 16, ' '));
+#ifdef _WIN32
     if (console) SetConsoleTextAttribute(out, saved);
+#else
+    if (console) {
+        std::fputs("\x1b[0m", stdout);
+        std::fflush(stdout);
+    }
+#endif
 }
 
 // Debug dump: version/mask header + matrix rows of '0'/'1' — python diffs

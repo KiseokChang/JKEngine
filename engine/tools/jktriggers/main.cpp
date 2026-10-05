@@ -14,14 +14,23 @@
 #include <JKJkxFile.h>
 #include <quickjs.h>
 
-// stage-2 marking: docs/68 W8 — CreateDirectoryA, FindFirstFileA/
-// FindNextFileA/FindClose(WIN32_FIND_DATAA), Sleep
-#include <windows.h>
+// linux stage-3 task 8: windows.h is OUT of this TU. The stage-2 marking
+// (docs/68 W8 — CreateDirectoryA·DeleteFileA, FindFirstFileA/FindNextFileA/
+// FindClose(WIN32_FIND_DATAA), Sleep) resolved: directory ops → std::filesystem
+// error_code overloads (fail-quiet parity — the original IGNORED the
+// CreateDirectory/DeleteFile returns and the fail-continue fopen shape), the
+// Find*File glob walks → directory_iterator (on Windows libstdc++'s iterator
+// delegates to the same FindFirstFile enumeration, so the NTFS name-order the
+// packer's TOC/trust-fingerprint depends on is unchanged), Sleep →
+// ../ConsoleShim.h.
+#include "../ConsoleShim.h"
 
 #include <chrono>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+#include <filesystem>
 #include <map>
 #include <string>
 #include <vector>
@@ -246,7 +255,8 @@ bool SaveTrustRecords(const std::string& path,
     const size_t slash = dir.find_last_of("\\/");
     if (slash != std::string::npos) {
         dir = dir.substr(0, slash);
-        CreateDirectoryA(dir.c_str(), nullptr);
+        std::error_code ec;  // CreateDirectoryA 반환 무시 계약 — fail-quiet 원문
+        std::filesystem::create_directories(dir, ec);
     }
     std::string out = "{\"records\":[";
     bool first = true;
@@ -428,7 +438,8 @@ int SelfTest() {
             LoadTrustRecords(tsPath, &tsBack);
             check(tsBack.size() == 1 && tsBack[0].ts == 2200000000,
                   "ts int64 roundtrip (2200000000 > INT32_MAX)");
-            DeleteFileA(tsPath.c_str());
+            std::error_code dec; // DeleteFileA 반환 무시 — fail-quiet 원문
+            std::filesystem::remove(tsPath, dec);
         }
         std::vector<TrustRecord> back;
         LoadTrustRecords(path, &back);
@@ -437,7 +448,8 @@ int SelfTest() {
         check(back.size() == 2 && back[0].source == "user" &&
                   back[0].ts == 400 && back[1].source == "user",
               "trust roundtrip + user record preserved");
-        DeleteFileA(path.c_str());
+        std::error_code dec; // DeleteFileA 반환 무시 — fail-quiet 원문
+        std::filesystem::remove(path, dec);
     }
     // Container fingerprint: MANI+SCRI in TOC order, deterministic, and
     // sensitive to script content (spec §2).
@@ -470,7 +482,8 @@ int SelfTest() {
             check(jkx2.Open(path), "fp test reopen");
             check(FingerprintContainer(jkx2) != fp1, "container fp content-bound");
         }
-        DeleteFileA(path.c_str());
+        std::error_code dec; // DeleteFileA 반환 무시 — fail-quiet 원문
+        std::filesystem::remove(path, dec);
     }
     // Rate limiter (docs/38): fixed-window boundary with the injected clock.
     // The 61st hit latches notified=true and fires the one-time notify —
@@ -778,7 +791,8 @@ void WriteLoadedManifest() {
                JsonEscapeStr(t.topic) + "\"}";
     }
     out += "]}";
-    CreateDirectoryA((g_exeDir + "\\state").c_str(), nullptr);
+    std::error_code ec;  // CreateDirectoryA 반환 무시 계약 — fail-quiet 원문
+    std::filesystem::create_directories(g_exeDir + "\\state", ec);
     FILE* f =
         std::fopen((g_exeDir + "\\state\\triggers_loaded.json").c_str(), "wb");
     if (!f) return;
@@ -961,14 +975,35 @@ void EvalScript(const std::string& code, const std::string& label) {
     RunPendingJobs();
 }
 
+// FindFirstFile glob-tail filter (task 8): the "*.js"/".jkx" pattern match,
+// case-insensitive like the FindFirstFile matcher. The dropped residual is
+// 8.3 short-name matching only (e.g. "x.js.bak" whose TRIGGER~1.JS short name
+// matched "*.js" — a matcher quirk, not a contract; real entries carry the
+// true suffix on both legs).
+bool GlobTail(const std::string& name, const char* tail) {
+    const size_t n = std::strlen(tail);
+    if (name.size() < n) return false;
+    const size_t base = name.size() - n;
+    for (size_t i = 0; i < n; ++i) {
+        if (std::tolower(static_cast<unsigned char>(name[base + i])) !=
+            std::tolower(static_cast<unsigned char>(tail[i])))
+            return false;
+    }
+    return true;
+}
+
 // Dev path: loose .js files next to the exe.
 void LoadJsDir() {
-    const std::string dir = g_exeDir + "\\state\\triggers\\*.js";
-    WIN32_FIND_DATAA fd{};
-    HANDLE h = FindFirstFileA(dir.c_str(), &fd);
-    if (h == INVALID_HANDLE_VALUE) return;
-    do {
-        const std::string path = g_exeDir + "\\state\\triggers\\" + fd.cFileName;
+    const std::string dir = g_exeDir + "\\state\\triggers";
+    std::error_code ec;
+    std::filesystem::directory_iterator it(dir, ec);
+    if (ec) return;  // 원문: FindFirstFile INVALID_HANDLE → 조용히 반환
+    for (const std::filesystem::directory_entry& entry : it) {
+        std::error_code ec2;
+        if (!entry.is_regular_file(ec2) || ec2) continue;
+        const std::string fileName = entry.path().filename().string();
+        if (!GlobTail(fileName, ".js")) continue;
+        const std::string path = entry.path().string();
         FILE* f = std::fopen(path.c_str(), "rb");
         if (!f) continue;
         std::string code;
@@ -978,14 +1013,13 @@ void LoadJsDir() {
             code.append(buf, got);
         std::fclose(f);
         if (!code.empty()) {
-            if (!TrustGate(std::string("state/") + fd.cFileName, "dev",
+            if (!TrustGate(std::string("state/") + fileName, "dev",
                            FingerprintBytes(std::vector<uint8_t>(
                                code.begin(), code.end()))))
                 continue;
-            EvalScript(code, std::string("state/") + fd.cFileName);
+            EvalScript(code, std::string("state/") + fileName);
         }
-    } while (FindNextFileA(h, &fd));
-    FindClose(h);
+    }
 }
 
 // Packaged path: <exeDir>\apps\triggers\*.jkx containers. Each container's
@@ -993,28 +1027,32 @@ void LoadJsDir() {
 // The manifest is parsed locally (name/trigger only) — the server never
 // sees these containers, so they stay out of the launcher grid.
 void LoadTriggerContainers() {
-    const std::string dir = g_exeDir + "\\apps\\triggers\\*.jkx";
-    WIN32_FIND_DATAA fd{};
-    HANDLE h = FindFirstFileA(dir.c_str(), &fd);
-    if (h == INVALID_HANDLE_VALUE) return;
-    do {
+    const std::string dir = g_exeDir + "\\apps\\triggers";
+    std::error_code ec;
+    std::filesystem::directory_iterator it(dir, ec);
+    if (ec) return;  // 원문: FindFirstFile INVALID_HANDLE → 조용히 반환
+    for (const std::filesystem::directory_entry& entry : it) {
+        std::error_code ec2;
+        if (!entry.is_regular_file(ec2) || ec2) continue;
+        const std::string fileName = entry.path().filename().string();
+        if (!GlobTail(fileName, ".jkx")) continue;
         // Container name (sans .jkx) tags every trigger its scripts register
         // — the enable/disable key for state/triggers.json (docs/34).
-        std::string container = fd.cFileName;
+        std::string container = fileName;
         const size_t dot = container.rfind(".jkx");
         if (dot != std::string::npos) container.resize(dot);
         g_currentSource = container;
-        const std::string path = g_exeDir + "\\apps\\triggers\\" + fd.cFileName;
+        const std::string path = entry.path().string();
         jk::JKJkxFile jkx;
         if (!jkx.Open(path)) {
-            HostLog(std::string("[triggers] cannot open ") + fd.cFileName);
+            HostLog(std::string("[triggers] cannot open ") + fileName);
             continue;
         }
         // Read manifest.txt (type MANI per the writer's convention).
         std::vector<uint8_t> mani;
         const int mi = jkx.FindEntry(nullptr, "manifest.txt");
         if (mi < 0 || !jkx.ReadEntry(mi, mani)) {
-            HostLog(std::string("[triggers] no manifest in ") + fd.cFileName);
+            HostLog(std::string("[triggers] no manifest in ") + fileName);
             continue;
         }
         const std::string maniText(mani.begin(), mani.end());
@@ -1047,17 +1085,16 @@ void LoadTriggerContainers() {
                     const int idx = jkx.FindEntry(nullptr, script);
                     if (idx >= 0 && jkx.ReadEntry(idx, code) && !code.empty()) {
                         EvalScript(std::string(code.begin(), code.end()),
-                                   std::string(fd.cFileName) + "/" + script);
+                                   std::string(fileName) + "/" + script);
                     } else {
                         HostLog(std::string("[triggers] entry not found: ") +
-                                fd.cFileName + "/" + script);
+                                fileName + "/" + script);
                     }
                 }
                 start = comma + 1;
             }
         }
-    } while (FindNextFileA(h, &fd));
-    FindClose(h);
+    }
 }
 
 void Shutdown() {
@@ -1076,32 +1113,33 @@ void Shutdown() {
 
 // --pack <srcDir> <outDir>: pack <srcDir>/<name>/ into <outDir>/<name>.jkx.
 int PackMode(const std::string& srcDir, const std::string& outDir) {
-    CreateDirectoryA(outDir.c_str(), nullptr);
-    const std::string glob = srcDir + "\\*";
-    WIN32_FIND_DATAA fd{};
-    HANDLE h = FindFirstFileA(glob.c_str(), &fd);
-    if (h == INVALID_HANDLE_VALUE) {
+    std::error_code ec;  // CreateDirectoryA 반환 무시 계약 — fail-quiet 원문
+    std::filesystem::create_directories(outDir, ec);
+    ec.clear();
+    std::filesystem::directory_iterator it(srcDir, ec);
+    if (ec) {
         // Empty bundle is fine (pre-Task-6 builds) — just leave a marker.
         HostLog("jktriggers: no trigger sources under " + srcDir);
         return 0;
     }
     int packed = 0;
-    do {
-        if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ||
-            std::strcmp(fd.cFileName, ".") == 0 ||
-            std::strcmp(fd.cFileName, "..") == 0)
-            continue;
-        const std::string base = srcDir + "\\" + fd.cFileName;
+    // directory_iterator doesn't yield "."/".." — the strcmp guards die with
+    // the Find* walk; the file filter below keeps the directory-only rule.
+    for (const std::filesystem::directory_entry& entry : it) {
+        std::error_code ec2;
+        if (!entry.is_directory(ec2) || ec2) continue;
+        const std::string name = entry.path().filename().string();
+        const std::string base = entry.path().string();  // 원문: srcDir\name
         std::vector<std::pair<std::string, std::vector<uint8_t>>> entries;
-        // manifest.txt + every *.js in the subdirectory.
-        const std::string inner = base + "\\*";
-        WIN32_FIND_DATAA fd2{};
-        HANDLE h2 = FindFirstFileA(inner.c_str(), &fd2);
-        if (h2 == INVALID_HANDLE_VALUE) continue;
-        do {
-            if (fd2.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
-            const std::string path = base + "\\" + fd2.cFileName;
-            FILE* f = std::fopen(path.c_str(), "rb");
+        // manifest.txt + every file in the subdirectory (원문 glob은 "*" —
+        // 디렉터만 제외하고 전부 수집).
+        std::error_code ec3;
+        std::filesystem::directory_iterator inner(base, ec3);
+        if (ec3) continue;  // 원문: h2 INVALID_HANDLE → continue
+        for (const std::filesystem::directory_entry& innerEntry : inner) {
+            std::error_code ec4;
+            if (!innerEntry.is_regular_file(ec4) || ec4) continue;
+            FILE* f = std::fopen(innerEntry.path().string().c_str(), "rb");
             if (!f) continue;
             std::vector<uint8_t> bytes;
             char buf[8192];
@@ -1109,11 +1147,11 @@ int PackMode(const std::string& srcDir, const std::string& outDir) {
             while ((got = std::fread(buf, 1, sizeof(buf), f)) > 0)
                 bytes.insert(bytes.end(), buf, buf + got);
             std::fclose(f);
-            entries.emplace_back(fd2.cFileName, std::move(bytes));
-        } while (FindNextFileA(h2, &fd2));
-        FindClose(h2);
+            entries.emplace_back(innerEntry.path().filename().string(),
+                                 std::move(bytes));
+        }
 
-        const std::string out = outDir + "\\" + fd.cFileName + ".jkx";
+        const std::string out = outDir + "\\" + name + ".jkx";
         if (jk::JKJkxFile::Write(out, entries)) {
             HostLog("jktriggers: packed " + out);
             ++packed;
@@ -1127,7 +1165,7 @@ int PackMode(const std::string& srcDir, const std::string& outDir) {
                 blob.insert(blob.end(), e.second.begin(), e.second.end());
             TrustRecord r;
             r.fingerprint = FingerprintBytes(blob);
-            r.name = fd.cFileName;
+            r.name = name;
             r.source = "pack";
             r.ts = static_cast<long long>(std::time(nullptr));
             if (!r.fingerprint.empty()) {
@@ -1140,8 +1178,7 @@ int PackMode(const std::string& srcDir, const std::string& outDir) {
         } else {
             HostLog("jktriggers: FAILED packing " + out);
         }
-    } while (FindNextFileA(h, &fd));
-    FindClose(h);
+    }
     HostLog("jktriggers: packed " + std::to_string(packed) + " container(s)");
     return 0;
 }
@@ -1174,7 +1211,7 @@ int main(int argc, char* argv[]) {
     // Spec §4.1: first-run approvals need the server — connect (best effort,
     // ~5 s) BEFORE loading. Trusted records still load offline; untrusted
     // scripts fail closed when the server never appears.
-    for (int i = 0; i < 10 && !g_agent.Connect(); ++i) Sleep(500);
+    for (int i = 0; i < 10 && !g_agent.Connect(); ++i) jkconsole::SleepMs(500);
     if (g_agent.IsConnected()) {
         g_agent.SubscribeEvents(true);
         HostLog("[triggers] connected to the window server");
@@ -1200,7 +1237,7 @@ int main(int argc, char* argv[]) {
                 if (subscribed)
                     HostLog("[triggers] connected to the window server");
             } else {
-                Sleep(1000);
+                jkconsole::SleepMs(1000);
                 continue;
             }
         }
@@ -1220,6 +1257,6 @@ int main(int argc, char* argv[]) {
             DispatchEvent(ev.topic, ev.json);
         }
         FireTimers();
-        Sleep(50);
+        jkconsole::SleepMs(50);
     }
 }

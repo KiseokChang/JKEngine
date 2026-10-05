@@ -55,6 +55,7 @@ SpawnResult Spawn(const SpawnOptions& options) {
             if (readErr) CloseHandle(readErr);
             if (writeErr) CloseHandle(writeErr);
             result.error = LastErrorText(err, "CreatePipe");
+            result.errorCode = static_cast<uint32_t>(err);
             return result;
         }
         // Our read ends must NOT be inherited by the child.
@@ -85,10 +86,16 @@ SpawnResult Spawn(const SpawnOptions& options) {
     DWORD creationFlags = 0;
     if (options.hideWindow) creationFlags |= CREATE_NO_WINDOW;
     PROCESS_INFORMATION pi{};
+    // inheritStdioHandles (task 8, jkctl absorb): bInheritHandles=TRUE with NO
+    // STARTF_USESTDHANDLES — the child shares the parent's console/redirected
+    // stdout (the original jkctl CreateProcessW call shape). No si.hStdX set,
+    // so nothing else changes; with inheritedStdioPipes only, bInheritHandles
+    // stays TRUE exactly as before (pipe ends need the inherit bit).
+    const BOOL inheritHandles =
+        (options.inheritedStdioPipes || options.inheritStdioHandles) ? TRUE
+                                                                    : FALSE;
     const BOOL spawned = CreateProcessW(nullptr, mutableCmd.data(), nullptr,
-                                        nullptr,
-                                        options.inheritedStdioPipes ? TRUE
-                                                                    : FALSE,
+                                        nullptr, inheritHandles,
                                         creationFlags, nullptr,
                                         cwd.empty() ? nullptr : cwd.c_str(),
                                         &si, &pi);
@@ -102,6 +109,7 @@ SpawnResult Spawn(const SpawnOptions& options) {
         CloseHandle(readOut);
         CloseHandle(readErr);
         result.error = LastErrorText(err, "CreateProcessW");
+        result.errorCode = static_cast<uint32_t>(err);
         return result;
     }
     // The primary thread handle is closed right away (JKWindowServer

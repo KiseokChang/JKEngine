@@ -30,6 +30,11 @@ struct SpawnOptions {
     std::string workingDir;        // empty = inherit
     bool hideWindow = false;       // CREATE_NO_WINDOW + STARTF_USESHOWWINDOW/SW_HIDE
     bool inheritedStdioPipes = false;  // create stdout/stderr parent-read pipes
+    // CreateProcessW bInheritHandles=TRUE with NO STARTF_USESTDHANDLES — the
+    // child shares the PARENT's console/redirected stdout, not adapter pipes
+    // (jkctl ask "응답이 jkctl의 stdout으로 통과한다" 원컷 계약; absorbed at
+    // stage-3 task 8). Posix: fork/exec inherits fds naturally — no-op.
+    bool inheritStdioHandles = false;
 };
 
 struct SpawnResult {
@@ -39,6 +44,10 @@ struct SpawnResult {
     uint32_t pid = 0;              // dwProcessId
     void* stdoutRead = nullptr;    // parent read end — valid iff inheritedStdioPipes
     void* stderrRead = nullptr;
+    // Last failure code — win32 GetLastError() / posix errno at the spawn
+    // surface (CreatePipe + CreateProcessW vs pipe/fork/exec/alloc). Consumers
+    // keep the original "(err=N)" stderr observation; ok==true leaves it 0.
+    uint32_t errorCode = 0;
 };
 
 SpawnResult Spawn(const SpawnOptions& options);

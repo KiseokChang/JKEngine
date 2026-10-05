@@ -745,16 +745,22 @@ endif()
 # token; ws2_32 (TCP/WS), bcrypt (token CSPRNG). LAN IP print uses the
 # UDP-connect/getsockname trick — no iphlpapi.
 add_executable(jkbridge tools/jkbridge/main.cpp)
-target_link_libraries(jkbridge PRIVATE jkcore ws2_32 bcrypt)  # bcrypt: jkcore PUBLIC carry redundancy — harmless keep
+target_link_libraries(jkbridge PRIVATE jkcore)
+# stage-3 task 8: ws2_32/bcrypt are windows-only system libs — unguarded here
+# failed the Linux link (stage-2 residual). jkcore PUBLIC-carries bcrypt+ws2_32
+# under WIN32 already; the explicit lines stay for the win32 leg.
 if(WIN32)
+    target_link_libraries(jkbridge PRIVATE ws2_32 bcrypt)
     target_link_options(jkbridge PRIVATE -static-libstdc++ -static-libgcc)
 endif()
 
 # M2b trigger-script host: console process, no UI (outside JKWindow/SDL).
 # bcrypt: SHA-256 for the script trust model (docs/37 spec, CNG BCrypt).
 add_executable(jktriggers tools/jktriggers/main.cpp)
-target_link_libraries(jktriggers PRIVATE jkcore bcrypt)  # bcrypt: jkcore PUBLIC carry redundancy — harmless keep
+target_link_libraries(jktriggers PRIVATE jkcore)
+# stage-3 task 8: bcrypt win32-only (jkcore PUBLIC carries it under WIN32).
 if(WIN32)
+    target_link_libraries(jktriggers PRIVATE bcrypt)
     target_link_options(jktriggers PRIVATE -static-libstdc++ -static-libgcc)
 endif()
 
@@ -770,8 +776,10 @@ add_executable(jkctl tools/jkctl/main.cpp
     third_party/miniz/miniz_tinfl.c
     third_party/miniz/miniz_tdef.c)
 target_include_directories(jkctl PRIVATE third_party/miniz)
-target_link_libraries(jkctl PRIVATE jkcore bcrypt)  # bcrypt: jkcore PUBLIC carry redundancy — harmless keep
+target_link_libraries(jkctl PRIVATE jkcore)
+# stage-3 task 8: bcrypt win32-only (jkcore PUBLIC carries it under WIN32).
 if(WIN32)
+    target_link_libraries(jkctl PRIVATE bcrypt)
     target_link_options(jkctl PRIVATE -municode -static-libstdc++ -static-libgcc)
 endif()
 

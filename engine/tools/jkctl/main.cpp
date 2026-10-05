@@ -4,19 +4,23 @@
 // (state\chat.json 설정 재사용, claude_wrapper guide §2.2).
 // pack/install: docs/51 C 후보 패키지 매니저 — zip 배포(miniz 벤더링) +
 // 설치 시 trust 지문 선기록(docs/51 §3.4, EnsureTrustRecord와 동일 규약).
-// wmain + CreateProcessW: docs/48 CP949 argv 레슨 — UTF-8 프롬프트를
+// W-main(이중 진입) + CreateProcessW: docs/48 CP949 argv 레슨 — UTF-8 프롬프트를
 // cmd.exe std::system으로 넘기면 인코딩이 파손되므로 유니코드 경로로 간다.
+// linux stage-3 task 8: windows.h는 이 TU에서 소멸 — CreateProcessW는
+// jk::process 흡수(win32 bInheritHandles=TRUE 원컷 계약은 SpawnOptions의
+// inheritStdioHandles), UTF-16 argv 변환은 src/main.cpp 태스크 7 이중 진입
+// 패턴 승계, CP949 파일 재인코딩은 jk::text 어댑터(win32 leg는 MBTW/WCTM
+// 원문 유지), 나머지는 std::filesystem/stdio 치환.
 #include <agent/JKAgentClient.h>
 #include <crypto/JKSha256.h>
 #include <fs/JKFs.h>
 #include <JKJkxFile.h>
 #include <miniz.h>
 #include <miniz_zip.h>
+#include <process/JKProcess.h>
+#include <text/JKTextConv.h>
 
-// stage-2 marking: docs/68 W8 — CreateProcessW/WaitForSingleObject/CloseHandle/
-// GetLastError/GetExitCodeProcess, MultiByteToWideChar/WideCharToMultiByte,
-// CreateDirectoryA, Sleep
-#include <windows.h>
+#include "../ConsoleShim.h"
 
 #include <algorithm>
 #include <cctype>
@@ -38,20 +42,16 @@ std::string ExeDirA() {
     const size_t slash = full.find_last_of("\\/");
     return (slash == std::string::npos) ? std::string(".\\") : full.substr(0, slash + 1);
 }
-
-std::wstring Utf8ToWide(const std::string& utf8) {
-    if (utf8.empty()) return std::wstring();
-    const int n = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, nullptr, 0);
-    std::wstring out(n > 0 ? n - 1 : 0, L'\0');
-    if (n > 0) MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, &out[0], n);
-    return out;
-}
+// task 8: Utf8ToWide(MBTW -1 계약) 소각 — CreateProcessW 직접 호출이 소멸하며
+// jk::process::Spawn이 commandLineUtf8을 받는다(어댑터가 넓힌다). 길이 검사는
+// Ask 쪽에서 jk::text::Utf8ToUtf16(동일 MBTW 경유 계약)의 size로 대체한다.
 
 // chat.json에서 model 읽기 (jkchat LoadChatConfig의 최소형 — 없으면 기본값).
 std::string LoadModel() {
     std::string model = "glm-5.3-flash:cloud";
-    FILE* f = nullptr;
-    if (fopen_s(&f, (ExeDirA() + "state\\chat.json").c_str(), "rb") != 0 || !f)
+    // task 8: fopen_s → std::fopen (관측 동일 — 실패 시 기본값 반환).
+    FILE* f = std::fopen((ExeDirA() + "state\\chat.json").c_str(), "rb");
+    if (!f)
         return model;
     char buf[4096] = {};
     const size_t n = fread(buf, 1, sizeof(buf) - 1, f);
@@ -153,8 +153,13 @@ int Ask(const AskRequest& req) {
                          p.c_str());
             return 2;
         }
-        // UTF-8 검증 실패 = ANSI/CP949 텍스트일 확률 — ACP 경유 정규화.
+        // UTF-8 검증 실패 = ANSI/CP949 텍스트일 확률 — ACP(=CP949, docs/48)
+        // 경유 정규화. task 8 분할: win32 leg는 MBTW/WCTM 원문 그대로, posix
+        // leg는 jk::text 어댑터(CP_ACP가 없는 대신 같은 코드페이지 CP949 —
+        // 컨트롤러 룰링 계약: 검증은 Utf8ToUtf16 빈 문자열 fail-closed).
+        // 양쪽 모두 재인코딩 실패 = 빈 raw(원문 WCTM 실패 폴백 동일).
         {
+#ifdef _WIN32
             const int wlen = MultiByteToWideChar(
                 CP_UTF8, MB_ERR_INVALID_CHARS, raw.c_str(),
                 static_cast<int>(raw.size()), nullptr, 0);
@@ -179,6 +184,12 @@ int Ask(const AskRequest& req) {
                 raw.assign(u8, 0, u8len > 0 ? static_cast<size_t>(u8len) - 1
                                             : 0);
             }
+#else
+            if (jk::text::Utf8ToUtf16(raw).empty() && !raw.empty()) {
+                // iconv leg는 종료 NUL을 남기지 않아 -1 폴백 절단이 없다.
+                raw = jk::text::Cp949ToUtf8(raw);
+            }
+#endif
         }
         std::string base = p;
         const size_t slash = base.find_last_of("\\/");
@@ -195,32 +206,41 @@ int Ask(const AskRequest& req) {
     }
     const std::string cmdA = "ollama launch claude --model \"" + LoadModel() +
                              "\" -- -p \"" + esc + "\"";
-    std::wstring cmd = Utf8ToWide(cmdA);
     // CreateProcessW cmdLine 상한 32767 wchar — 초과 시 CreateProcess 실패
-    // 원인을 알기 어렵다. 30000 여유로 미리 거부.
-    if (cmd.size() > 30000) {
+    // 원인을 알기 어렵다. 30000 여유로 미리 거부. 길이는 어댑터가 넓힐
+    // UTF-16 유닛 수로 잰다(원문 std::wstring cmd.size()와 동일 — win32
+    // Utf8ToUtf16은 동일 MBTW(CP_UTF8,0) 위임 계약). posix는 execve ARG_MAX가
+    // 단위라 코드포인트 수로 재는 근사 leg(원문 30000보다 작게만 잡힌다).
+#ifdef _WIN32
+    const size_t cmdWchars = jk::text::Utf8ToUtf16(cmdA).size();
+#else
+    const size_t cmdWchars = cmdA.size();
+#endif
+    if (cmdWchars > 30000) {
         std::fprintf(stderr,
                      "ask: prompt too large (%zu chars) — reduce attachments\n",
-                     cmd.size());
+                     cmdWchars);
         return 2;
     }
 
-    STARTUPINFOW si = {};
-    // stage-2 marking: docs/68 W8 — CreateProcessW → jk::process::Spawn 흡수
-    // 대상(CP949 인자 레슨 docs/48, wmain/CRT 진입 문제와 결부 — docs/68 W4의
-    // 셸 추상 결정 시점과 동일). 1단계는 원문 유지.
-    PROCESS_INFORMATION pi = {};
-    if (!CreateProcessW(nullptr, cmd.empty() ? nullptr : cmd.data(), nullptr,
-                        nullptr, TRUE, 0, nullptr, nullptr, &si, &pi)) {
+    // task 8: CreateProcessW/WaitForSingleObject/GetExitCodeProcess/CloseHandle
+    // → jk::process 흡수(docs/68 W4 어댑터). 원컷 계약 "응답이 jkctl의 stdout으로
+    // 통과한다"는 bInheritHandles=TRUE + STARTF_USESTDHANDLES 부재 — 어댑터의
+    // inheritStdioHandles가 그 원문 CreateProcessW(…, TRUE, 0, …, &si, &pi)와
+    // 동일 시퀀스를 소유한다(WaitForSingleObject INFINITE = 0xFFFFFFFF).
+    jk::process::SpawnOptions so;
+    so.commandLineUtf8 = cmdA;
+    so.inheritStdioHandles = true;
+    const jk::process::SpawnResult spawn = jk::process::Spawn(so);
+    if (!spawn.ok) {
         std::fprintf(stderr, "jkctl: LLM launch failed (err=%lu) — ollama/claude CLI 확인\n",
-                     GetLastError());
+                     static_cast<unsigned long>(spawn.errorCode));
         return 1;
     }
-    WaitForSingleObject(pi.hProcess, INFINITE);
-    DWORD code = 1;
-    GetExitCodeProcess(pi.hProcess, &code);
-    CloseHandle(pi.hThread);
-    CloseHandle(pi.hProcess);
+    jk::process::WaitForExit(spawn.process, 0xFFFFFFFFu /* INFINITE */);
+    uint32_t code = 1;
+    if (!jk::process::GetExitCode(spawn.process, &code)) code = 1;
+    jk::process::CloseHandleLike(spawn.process);
     return (code == 0) ? 0 : 1;
 }
 
@@ -276,7 +296,8 @@ void TrustPreRecord(const std::string& fingerprint, const std::string& name) {
     const size_t slash = exeDir.find_last_of("\\/");
     if (slash == std::string::npos) return;
     exeDir.resize(slash);
-    CreateDirectoryA((exeDir + "\\state").c_str(), nullptr);
+    std::error_code ec;  // CreateDirectoryA 반환 무시 계약 — fail-quiet 원문
+    std::filesystem::create_directories(exeDir + "\\state", ec);
     const std::string path = exeDir + "\\state\\trust.json";
     const std::string fpKey = "\"fingerprint\":\"" + fingerprint + "\"";
 
@@ -323,8 +344,9 @@ void TrustPreRecord(const std::string& fingerprint, const std::string& name) {
     } else {
         body = "{\"records\":[" + rec + "]}";
     }
-    FILE* wf = nullptr;
-    if (fopen_s(&wf, path.c_str(), "wb") != 0 || !wf) {
+    // task 8: fopen_s → std::fopen (관측 동일 — 실패 시 조용히 관두는 원문).
+    FILE* wf = std::fopen(path.c_str(), "wb");
+    if (!wf) {
         std::fprintf(stderr, "jkctl: cannot write trust.json — skipped pre-record\n");
         return;
     }
@@ -451,7 +473,7 @@ int InstallFromDir(const std::string& staged, bool fromZip,
             ec.clear();
             std::filesystem::remove_all(staged, ec);
             cleaned = !ec;
-            if (!cleaned) Sleep(300);
+            if (!cleaned) jkconsole::SleepMs(300);
         }
         if (!cleaned)
             std::fprintf(stderr,
@@ -781,9 +803,46 @@ int InstallJkx(const std::string& path) {
 
 } // namespace
 
-// stage-2 marking: docs/68 W8 — wmain 자체는 2단계 CRT 진입 문제(POSIX argv)
-// 와 결부; 계약 문서는 상단 6-8행의 docs/48 레슨 주석.
+// argv 인코딩 계약: UTF-8 (docs/48 레슨 — 원문 wmain이 UTF-16 argv를 CP_UTF8로
+// 정규화했던 자리). win32는 아래 wmain leg가 변환, posix는 exec가 바이트열
+// argv를 그대로 전달한다. 이중 진입은 태스크 7(src/main.cpp) 패턴 승계.
+static int RunMain(int argc, char* argv[]);
+
+#ifdef _WIN32
+// UTF-8 argv entry (T7 dual-entry pattern): the ANSI CRT startup would hand
+// CP_ACP bytes to main() — CP949 on Korean Windows — so korean ask prompts /
+// attach paths arrived mis-encoded. wmain (link -municode) receives the true
+// wide argv and converts to UTF-8 here.
+extern "C" __declspec(dllimport) int __stdcall WideCharToMultiByte(
+    unsigned int codePage, unsigned long dwFlags, const wchar_t* lpWideCharStr,
+    int cchWideChar, char* lpMultiByteStr, int cbMultiByte,
+    const char* lpDefaultChar, int* lpUsedDefaultChar);
+
 int wmain(int argc, wchar_t* argv[]) {
+    std::vector<std::string> utf8(static_cast<size_t>(argc > 0 ? argc : 1));
+    std::vector<char*> ptrs(static_cast<size_t>(argc > 0 ? argc : 1), nullptr);
+    for (int i = 0; i < argc; ++i) {
+        int n = WideCharToMultiByte(65001 /* CP_UTF8 */, 0, argv[i], -1,
+                                    nullptr, 0, nullptr, nullptr);
+        // 변환 실패(n<=0)는 원문의 "0 버퍼 → 빈 문자열" 폴백과 동일 — 빈
+        // 문자열로 놔두면 RunMain의 too-long/빈-서브커맨드 거부 분기가 받는다.
+        if (n <= 0) continue;
+        utf8[static_cast<size_t>(i)].resize(static_cast<size_t>(n) - 1);
+        WideCharToMultiByte(65001, 0, argv[i], -1,
+                            utf8[static_cast<size_t>(i)].data(), n,
+                            nullptr, nullptr);
+        ptrs[static_cast<size_t>(i)] = utf8[static_cast<size_t>(i)].data();
+    }
+    return RunMain(argc, ptrs.data());
+}
+#else
+// posix leg (T7 dual-entry): byte-wise argv is already the contract.
+int main(int argc, char* argv[]) {
+    return RunMain(argc, argv);
+}
+#endif // _WIN32
+
+static int RunMain(int argc, char* argv[]) {
     if (argc < 3) {
         std::fprintf(stderr,
                      "usage: jkctl notify \"<msg>\" | agent '<json>' | ask \"<q>\" [--attach <file>]...\n"
@@ -791,62 +850,51 @@ int wmain(int argc, wchar_t* argv[]) {
                      "       jkctl install \"<folder-or-package.zip-or-.jkx>\"\n");
         return 2;
     }
-    // argv를 UTF-8로 정규화 (docs/48 레슨 — 이후 모든 처리는 UTF-8).
+    // 정규화 상한 + 잘림 거부(m5) 원문 유지: 원문은 WCTM 버퍼 실패/절단이
+    // 두 거부 분기를 걸었고, 이 leg는 argv가 이미 UTF-8이므로 같은 512/4096
+    // 바이트 상한 검사가 같은 메시지·종료코드로 반응한다.
+    // 정규화 실패(길이 초과/무효 유니코드)를 조용한 빈 서브커맨드로
+    // 통과시키지 않는다(opus 최종리뷰 m5 — 잘린 인자가 엉뚱한
+    // 프롬프트/서브커맨드로 보내지는 것보다 즉시 거부가 낫다).
     char a1[512] = {};
     char a2[4096] = {};
-    WideCharToMultiByte(CP_UTF8, 0, argv[1], -1, a1, sizeof(a1), nullptr, nullptr);
-    WideCharToMultiByte(CP_UTF8, 0, argv[2], -1, a2, sizeof(a2), nullptr, nullptr);
-
-    const std::string sub = a1;
-    if (sub.empty() && argv[1] && argv[1][0]) {
-        // 정규화 실패(길이 초과/무효 유니코드)를 조용한 빈 서브커맨드로
-        // 통과시키지 않는다(opus 최종리뷰 m5 — 잘린 인자가 엉뚱한
-        // 프롬프트/서브커맨드로 보내지는 것보다 즉시 거부가 낫다).
+    if (std::strlen(argv[1]) >= sizeof(a1) ||
+        std::strlen(argv[2]) >= sizeof(a2)) {
         std::fprintf(stderr, "jkctl: argument too long or invalid UTF-16\n");
         return 2;
     }
-    // a2 정규화 검사(m5): 잘림이 있으면 usage 오류로 종료 — 조용한 절단 금지.
-    {
-        const int need = WideCharToMultiByte(
-            CP_UTF8, 0, argv[2], -1, nullptr, 0, nullptr, nullptr);
-        const int got = static_cast<int>(std::strlen(a2)) + 1;
-        if (need == 0 || got < need) {
-            std::fprintf(stderr, "jkctl: argument too long or invalid UTF-16\n");
-            return 2;
-        }
+    std::strcpy(a1, argv[1]);
+    std::strcpy(a2, argv[2]);
+
+    const std::string sub = a1;
+    if (sub.empty() && argv[1] && argv[1][0]) {
+        std::fprintf(stderr, "jkctl: argument too long or invalid UTF-16\n");
+        return 2;
     }
     if (sub == "notify") return Notify(a2);
     if (sub == "agent") return Agent(a2);
     if (sub == "ask") {
         AskRequest req;
         for (int i = 2; i < argc; ++i) {
-            char a8[1024] = {};
-            const int need = WideCharToMultiByte(
-                CP_UTF8, 0, argv[i], -1, nullptr, 0, nullptr, nullptr);
-            if (need == 0 || need > static_cast<int>(sizeof(a8))) {
+            if (std::strlen(argv[i]) >= 1024) {
                 // 잘림 대신 즉시 거부(m5) — 잘린 질문이 모델로 가지 않는다.
                 std::fprintf(stderr,
                              "ask: argument too long or invalid UTF-16\n");
                 return 2;
             }
-            WideCharToMultiByte(CP_UTF8, 0, argv[i], -1, a8, sizeof(a8),
-                                nullptr, nullptr);
+            const char* a8 = argv[i];
             if (std::strcmp(a8, "--attach") == 0) {
                 if (i + 1 >= argc) {
                     std::fprintf(stderr, "ask: --attach needs a path\n");
                     return 2;
                 }
-                char p8[1024] = {};
-                const int pNeed = WideCharToMultiByte(
-                    CP_UTF8, 0, argv[++i], -1, nullptr, 0, nullptr, nullptr);
-                if (pNeed == 0 || pNeed > static_cast<int>(sizeof(p8))) {
+                ++i;
+                if (std::strlen(argv[i]) >= 1024) {
                     std::fprintf(stderr,
                                  "ask: attach path too long or invalid UTF-16\n");
                     return 2;
                 }
-                WideCharToMultiByte(CP_UTF8, 0, argv[i], -1, p8,
-                                    sizeof(p8), nullptr, nullptr);
-                req.attaches.push_back(p8);
+                req.attaches.push_back(argv[i]);
             } else if (req.question.empty()) {
                 req.question = a8;
             } else {
