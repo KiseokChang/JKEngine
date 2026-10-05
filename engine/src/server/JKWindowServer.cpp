@@ -8167,9 +8167,9 @@ bool JKWindowServer::SpawnProcess(const char* exeName, const std::string& args,
 }
 
 // (static helper — SpawnClient 위)
-// client spawn args composition — 플랫폼 무관 (win32/posix 모두 이 논리로
-// command line args를 만든다). Returns false only for the v1-excluded jkx
-// route on posix (caller short-circuits before composing).
+// client spawn args composition — platform-neutral static (posix jkx route
+// gates before calling this).
+// win32/posix 모두 이 논리로 command line args를 만든다.
 static void ComposeClientSpawnArgs(const std::string& appName,
                                    std::string& argsOut) {
     // Phase A 흡수 (docs/44): appName "terminal:<cmdline>" — 콘솔 TUI 앱을
@@ -8197,7 +8197,7 @@ static void ComposeClientSpawnArgs(const std::string& appName,
         argsOut += "\"";
         return;
     }
-    argsOut = std::string("--client ") + name;
+    argsOut = std::string("--client ") + appName;
 }
 
 bool JKWindowServer::SpawnClient(const char* appName, bool fromJkx) {

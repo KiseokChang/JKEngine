@@ -620,8 +620,8 @@ private:
     // 500 ms. Stores the last spawn time keyed by app name.
     std::unordered_map<std::string, std::chrono::steady_clock::time_point> lastSpawnTimes_;
 
-    // Client host exe (P1 ③, SetClientHostExe). Defaults to jkdesktop.exe so
-    // behavior is identical even if nobody injects a name.
+    // client host subcommand target — "jkdesktop.exe" on win32, "jkdesktop"
+    // on posix (both single-arg subcommand style).
 #ifdef _WIN32
     std::string clientHostExe_ = "jkdesktop.exe";
 #else

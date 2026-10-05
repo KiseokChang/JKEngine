@@ -37,10 +37,11 @@ namespace {
 std::string ExeDirA() {
     // docs/68 W8a: GMFN 1024 버퍼를 jk::fs::GetExecutablePath(CP_ACP)로 치환 —
     // 버퍼 선언 소각. 실패 시 빈 문자열 폴백 → 원문의 슬래시 부재 폴백 ".\"
-    // 경로를 그대로 밟는다 — 관측 동일. 절단 규약(뒤 "\\" 유지) 원문 유지.
+    // 경로를 그대로 밟는다 — 관측 동일. 절단 규약(뒤 구분자 유지, 합성 리터럴은
+    // '/' 계약 — F1 원장) 원문 유지.
     const std::string full = jk::fs::GetExecutablePath();
     const size_t slash = full.find_last_of("\\/");
-    return (slash == std::string::npos) ? std::string(".\\") : full.substr(0, slash + 1);
+    return (slash == std::string::npos) ? std::string("./") : full.substr(0, slash + 1);
 }
 // task 8: Utf8ToWide(MBTW -1 계약) 소각 — CreateProcessW 직접 호출이 소멸하며
 // jk::process::Spawn이 commandLineUtf8을 받는다(어댑터가 넓힌다). 길이 검사는
@@ -50,7 +51,7 @@ std::string ExeDirA() {
 std::string LoadModel() {
     std::string model = "glm-5.3-flash:cloud";
     // task 8: fopen_s → std::fopen (관측 동일 — 실패 시 기본값 반환).
-    FILE* f = std::fopen((ExeDirA() + "state\\chat.json").c_str(), "rb");
+    FILE* f = std::fopen((ExeDirA() + "state/chat.json").c_str(), "rb");
     if (!f)
         return model;
     char buf[4096] = {};
@@ -324,8 +325,8 @@ void TrustPreRecord(const std::string& fingerprint, const std::string& name) {
     if (slash == std::string::npos) return;
     exeDir.resize(slash);
     std::error_code ec;  // CreateDirectoryA 반환 무시 계약 — fail-quiet 원문
-    std::filesystem::create_directories(exeDir + "\\state", ec);
-    const std::string path = exeDir + "\\state\\trust.json";
+    std::filesystem::create_directories(exeDir + "/state", ec);
+    const std::string path = exeDir + "/state/trust.json";
     const std::string fpKey = "\"fingerprint\":\"" + fingerprint + "\"";
 
     std::string body;
@@ -395,12 +396,12 @@ int Init(const std::string& name) {
             return 2;
         }
     }
-    const std::string tplDir = ExeDirA() + "templates\\console-app";
+    const std::string tplDir = ExeDirA() + "templates/console-app";
     const char* files[] = { "manifest.json", "README.md", "main.cmd" };
     // Template existence check BEFORE creating the target dir — a missing
     // template otherwise leaves a stray empty <name>\ in the cwd.
     for (const char* f : files) {
-        if (!std::filesystem::exists(tplDir + "\\" + f)) {
+        if (!std::filesystem::exists(tplDir + "/" + f)) {
             std::fprintf(stderr, "init: template not found: %s\\%s\n",
                          tplDir.c_str(), f);
             return 2;
@@ -414,7 +415,7 @@ int Init(const std::string& name) {
         return 2;
     }
     for (const char* f : files) {
-        std::ifstream in(tplDir + "\\" + f, std::ios::binary);
+        std::ifstream in(tplDir + "/" + f, std::ios::binary);
         if (!in) {
             std::fprintf(stderr, "init: template not found: %s\\%s\n",
                          tplDir.c_str(), f);
@@ -427,7 +428,7 @@ int Init(const std::string& name) {
         for (size_t p = body.find(token); p != std::string::npos;
              p = body.find(token, p + name.size()))
             body.replace(p, token.size(), name);
-        std::ofstream out(std::string(name) + "\\" + f, std::ios::binary);
+        std::ofstream out(std::string(name) + "/" + f, std::ios::binary);
         if (!out) {
             std::fprintf(stderr, "init: cannot write %s\\%s\n", name.c_str(),
                          f);
@@ -451,7 +452,7 @@ int Init(const std::string& name) {
 // 안내에 표시할 원본 경로(zip 설치 시 임시 언팩 경로 대신 원본을 보여준다).
 int InstallFromDir(const std::string& staged, bool fromZip,
                    const std::string& label) {
-    std::ifstream in(staged + "\\manifest.json", std::ios::binary);
+    std::ifstream in(staged + "/manifest.json", std::ios::binary);
     if (!in) {
         std::fprintf(stderr, "install: not a console app (missing %s\\manifest.json)\n",
                      staged.c_str());
@@ -473,7 +474,7 @@ int InstallFromDir(const std::string& staged, bool fromZip,
                      name.c_str());
         return 2;
     }
-    const std::string dst = ExeDirA() + "apps\\" + name;
+    const std::string dst = ExeDirA() + "apps/" + name;
     std::error_code ec;
     if (std::filesystem::exists(dst)) {
         std::fprintf(stderr, "install: already exists: %s (remove it first)\n",
@@ -523,7 +524,7 @@ int Pack(const std::string& folder) {
         std::fprintf(stderr, "pack: not a directory: %s\n", folder.c_str());
         return 2;
     }
-    std::ifstream in(folder + "\\manifest.json", std::ios::binary);
+    std::ifstream in(folder + "/manifest.json", std::ios::binary);
     if (!in) {
         std::fprintf(stderr, "pack: not a console app (missing %s\\manifest.json)\n",
                      folder.c_str());
@@ -614,7 +615,7 @@ int Install(const std::string& path) {
     // 임시 언팩 디렉터리 — <exeDir>\tmp\install_<zip basename>
     std::string base = std::filesystem::path(path).filename().string();
     const size_t dot = base.size() >= 4 ? base.size() - 4 : 0;
-    std::string tmp = ExeDirA() + "tmp\\install_" + base.substr(0, dot);
+    std::string tmp = ExeDirA() + "tmp/install_" + base.substr(0, dot);
     std::filesystem::remove_all(tmp, ec);  // 이전 실패 잔여 제거
     std::filesystem::create_directories(tmp, ec);
     if (ec) {
@@ -647,8 +648,10 @@ int Install(const std::string& path) {
             rc = 2;
             break;
         }
-        std::string outPath = tmp + "\\" + nm;
-        std::replace(outPath.begin(), outPath.end(), '/', '\\');
+        std::string outPath = tmp + "/" + nm;
+        // 구분자 정규화: '\'→'/' (양방향 대응 — win32 CRT는 '/'를 받고, posix는
+        // '\'를 구분자로 보지 않는다. zip-slip 가드의 '\'도 구분자 규약과 동일).
+        std::replace(outPath.begin(), outPath.end(), '\\', '/');
         if (st.m_is_directory) {
             std::filesystem::create_directories(outPath, ec);
             continue;
@@ -688,7 +691,7 @@ int Promote(const std::string& folder) {
         std::fprintf(stderr, "promote: not a directory: %s\n", folder.c_str());
         return 2;
     }
-    std::ifstream in(folder + "\\manifest.json", std::ios::binary);
+    std::ifstream in(folder + "/manifest.json", std::ios::binary);
     if (!in) {
         std::fprintf(stderr, "promote: not a console app (missing %s\\manifest.json)\n",
                      folder.c_str());
@@ -763,7 +766,7 @@ int InstallJkx(const std::string& path) {
     std::string base = std::filesystem::path(path).filename().string();
     if (base.size() >= 4 && base.substr(base.size() - 4) == ".jkx")
         base.resize(base.size() - 4);
-    const std::string tmp = ExeDirA() + "tmp\\install_" + base;
+    const std::string tmp = ExeDirA() + "tmp/install_" + base;
     std::error_code ec;
     std::filesystem::remove_all(tmp, ec);
     std::filesystem::create_directories(tmp, ec);
@@ -796,8 +799,9 @@ int InstallJkx(const std::string& path) {
             rc = 2;
             break;
         }
-        std::string outPath = tmp + "\\" + nm;
-        std::replace(outPath.begin(), outPath.end(), '/', '\\');
+        std::string outPath = tmp + "/" + nm;
+        // zip 설치 leg(Install)와 동일 — '\'→'/' 정규화 (posix '\' 비구분자).
+        std::replace(outPath.begin(), outPath.end(), '\\', '/');
         std::filesystem::create_directories(
             std::filesystem::path(outPath).parent_path(), ec);
         std::ofstream out(outPath, std::ios::binary);

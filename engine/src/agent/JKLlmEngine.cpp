@@ -33,7 +33,7 @@ ChatConfig LoadChatConfig() {
     const size_t cut = exeDir.find_last_of("\\/");
     if (cut != std::string::npos) exeDir = exeDir.substr(0, cut);
     std::FILE* f =
-        std::fopen((exeDir + "\\state\\chat.json").c_str(), "rb");
+        std::fopen((exeDir + "/state/chat.json").c_str(), "rb");
     if (!f) return cfg;
     char buf[4096] = {};
     const size_t n = std::fread(buf, 1, sizeof(buf) - 1, f);

@@ -188,7 +188,7 @@ static std::string GenToken() {
 static BridgeConfig LoadBridgeConfig() {
     BridgeConfig cfg;
     std::FILE* f =
-        std::fopen((ExeDirA() + "\\state\\jkbridge.json").c_str(), "rb");
+        std::fopen((ExeDirA() + "/state/jkbridge.json").c_str(), "rb");
     if (f) {
         char buf[1024] = {};
         const size_t n = std::fread(buf, 1, sizeof(buf) - 1, f);
@@ -227,7 +227,7 @@ static BridgeConfig LoadBridgeConfig() {
     cfg.token = GenToken();
     const std::string json = "{\"token\":\"" + cfg.token +
                              "\",\"port\":" + std::to_string(cfg.port) + "}";
-    f = std::fopen((ExeDirA() + "\\state\\jkbridge.json").c_str(), "wb");
+    f = std::fopen((ExeDirA() + "/state/jkbridge.json").c_str(), "wb");
     if (f) {
         std::fwrite(json.data(), 1, json.size(), f);
         std::fclose(f);
@@ -1589,7 +1589,7 @@ static void SessionRun(std::shared_ptr<BridgeSession> s) {
             localtime_r(&now, &tmb);
 #endif
             std::strftime(stamp, sizeof(stamp), "%Y%m%d_%H%M%S", &tmb);
-            const std::string path = ExeDirA() + "\\state\\bridge_report_" +
+            const std::string path = ExeDirA() + "/state/bridge_report_" +
                                      stamp + ".txt";
             std::FILE* fp = std::fopen(path.c_str(), "wb");
             bool wrote = false;
