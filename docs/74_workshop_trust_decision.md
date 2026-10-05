@@ -24,7 +24,7 @@
   `capabilities=agent,fs,network,timer`. 엔진이 실제 호출 대비 선언을 게이트.
 - 선례: **permissions.json 런타임 파일**(docs/57 레슨)·앱 도구 3단 게이트
   (docs/58)·trust_request 파이프라인(JKWindowServer :3986-4055, ask-capable
-  집합 :7033-7052) — 전부 이미 존재. 선언형은 그 위 **한 층 추가**다.
+  집합 :7044-7062) — 전부 이미 존재. 선언형은 그 위 **한 층 추가**다.
 - 장점: 저비고·즉시 도입 가능. 선언 자체가 문서화(수신자가 슬롯 스트립
   캡션에서 능력 목록을 본다). jkapp_script가 QuickJS 호스트 API를 통과시키는
   지점이 한 곳(JKScriptHost)이라 게이트 적용점이 좁다.
@@ -59,7 +59,7 @@
 
 ### 설계 스케치 (A 채택 시, 결정 전까지 비구속)
 - 선언 위치: MANI `capabilities=` (컴마 목록: widget/timer/canvas/agent/fs/
-  network …) — jkx-pack의 MANI 필드 보존 수리(docs/60 §6, 플랜 I 예정)와
+  network …) — jkx-pack의 MANI 필드 보존 수리(docs/60 §6, 플랜 I 완결 — b7a76a3)와
   연계: 재팩에도 선언이 살아남아야 한다.
 - 게이트 위치: JKScriptHost의 호스트 API 공용창 — 선언 없이 호출되면
   **차단+정직 에러**(fail-closed, "capability 'fs' not declared in MANI").
@@ -73,7 +73,7 @@
 1. 모델: **A 추천** — 채택/변경(B·C 혼합 등)을 결정해 주세요.
 2. fail-closed 정책: 미선언 API 호출 = 차단(추천) / 경고만 통과.
 3. 첫 적용 범위: 워크숍 스크립트 앱만(추천) / 모든 스크립트 앱.
-4. jkctl pack MANI 수리(플랜 I)는 A와 독립 — 결정을 기다리지 않고 진행.
+4. jkctl pack MANI 수리(플랜 I)는 A와 독립 — 본 메모 작성 세션에서 완결됨(b7a76a3; scriptfile=/watch= 잔존 실측). 결정 대기 항목은 1-3뿐.
 
 ## 5. 결정 후 경로
 
