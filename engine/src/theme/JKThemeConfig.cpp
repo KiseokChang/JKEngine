@@ -58,8 +58,8 @@ std::string DefaultThemePath() {
 // std::filesystem::last_write_time. 원문 반환은 FILETIME(1601 기준 100ns ticks)
 // raw 값(클램프 없음 — "과거=0" 절단 규약은 FilesListOpJson/ListHistory 쪽
 // 절단식의 것, 이곳 원문엔 없다 — review r1 LOW 1) — 변경 감지는 값 비교라 같은
-// 100ns-ticks-since-1601 수 형태를 clock_cast(system_clock ns)→/100→+1601
-// 오프셋으로 유지한다. 실패(무파일 포함)=0 관측 동형.
+// 100ns-ticks-since-1601 수 형태를 jk::fs::FileTimeToSys(system_clock
+// ns)→/100→+1601 오프셋으로 유지한다. 실패(무파일 포함)=0 관측 동형.
 static long long s_lastThemeMtime = -1;
 
 static long long ThemeFileMtime(const std::string& path) {
@@ -67,7 +67,7 @@ static long long ThemeFileMtime(const std::string& path) {
     const auto ftw = std::filesystem::last_write_time(
         std::filesystem::path(path), ec);
     if (ec) return 0;
-    const auto sys = std::chrono::clock_cast<std::chrono::system_clock>(ftw);
+    const auto sys = jk::fs::FileTimeToSys(ftw);
     const auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
                         sys.time_since_epoch()).count();
     // 원문 규약 유지: raw 값 반환(음수 ns — 1970 이전 mtime — 도 값 비교에

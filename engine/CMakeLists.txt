@@ -254,6 +254,28 @@ target_compile_definitions(jkcore PUBLIC
 
 target_link_libraries(jkcore PUBLIC quickjs SDL2::SDL2 SDL2_mixer::SDL2_mixer)
 
+# docs/78 TX2: bionic libc has NO iconv — the Termux libiconv package is a
+# separate library, and its iconv.h renames the symbols (iconv_open ->
+# libiconv_open) so jk::text (JKTextConv_posix.cpp CP949 leg) drags them to
+# the final jkdesktop link. WSL/glibc keeps iconv in libc itself — the Termux
+# cache carries no CMAKE_SYSTEM_NAME entry, so detect at configure time on
+# the unix branch: link -liconv only when a plain iconv_open link fails.
+if(NOT WIN32)
+    include(CheckCXXSourceCompiles)
+    check_cxx_source_compiles([=[
+#include <iconv.h>
+int main() {
+    iconv_t cd = iconv_open("UTF-8", "CP949");
+    iconv_close(cd);
+    return 0;
+}
+]=]
+        JK_HAVE_ICONV_IN_LIBC)
+    if(NOT JK_HAVE_ICONV_IN_LIBC)
+        target_link_libraries(jkcore PUBLIC iconv)
+    endif()
+endif()
+
 if(WIN32)
     target_link_libraries(jkcore PUBLIC imm32)
     # Minidump on unhandled exceptions (JKCrashHandler_win32.cpp, docs/57 §13)

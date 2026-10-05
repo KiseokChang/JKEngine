@@ -67,6 +67,26 @@ std::string TempDir() {
     return dir;
 }
 
+// clock_cast port, posix leg (docs/78 TX2): libstdc++ (WSL/glibc) implements
+// the C++20 original — but libc++ (Termux/bionic) never did, and there
+// file_clock's epoch is the Unix epoch with nanosecond ticks, making file→
+// system a plain duration cast that yields the same true wall-clock values
+// as clock_cast would. Either branch keeps every call site's numeric form.
+std::chrono::system_clock::time_point FileTimeToSys(
+    const std::filesystem::file_time_type& ft) {
+#if defined(_LIBCPP_VERSION)
+    // libc++: file_time_type is nanoseconds since the Unix epoch — a plain
+    // duration recast into a system_clock time_point is the whole conversion
+    // (std::time_point_cast refuses cross-clock per the standard's own
+    // same-clock requirement, so build the time_point from the duration).
+    return std::chrono::system_clock::time_point(
+        std::chrono::duration_cast<std::chrono::system_clock::duration>(
+            ft.time_since_epoch()));
+#else
+    return std::chrono::clock_cast<std::chrono::system_clock>(ft);
+#endif
+}
+
 }  // namespace fs
 }  // namespace jk
 

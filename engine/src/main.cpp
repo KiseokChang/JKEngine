@@ -127,7 +127,7 @@ using jk::Utf8ToKssm;
 #include <apps/JKTerminalConfig.h>
 #include <apps/JKWorkshopSeed.h>
 #include <JKJkxFile.h>
-#include "wancode.h"
+#include "WANCODE.H"
 #include <cstdint>
 #include <cmath>
 #ifndef M_PI
@@ -1999,6 +1999,13 @@ static int RunAppSelfTest() {
         }
 
         // --- Wide-glyph diagnostics (docs/26 단계 1) --------------------------
+        // docs/78 TX3 폰 실측: 아래 A/B/C는 모두 Windows 리터럴(C:/Windows/
+        // Fonts, ConPTY powershell.exe)을 먹는다 — 폰(Termux)에서는 존재하지
+        // 않는 것이 당연하므로 posix에서 스킵한다. WSL은 interop 덕에 우연히
+        // 통과하던 것(cmd.exe·powershell.exe가 그대로 부트) — interop 유무로
+        // 판정이 흔들리지 않게 _WIN32로 고정한다.
+#ifdef _WIN32
+        //
         // A. Malgun Gothic must rasterize a Hangul syllable at the scale
         // InitFallback computes (mirrors the formula; validates stbtt+font).
         {
@@ -2131,6 +2138,7 @@ static int RunAppSelfTest() {
                 check(false, "terminal: atlas inits for page raster test");
             }
         }
+#endif  // _WIN32 — 와이드글리프 진단 A/B/C는 Windows 리터럴 전용
     }
 
     // Terminal selection pure functions (docs/26 단계 2, JKTermSelection.h):
@@ -3280,6 +3288,11 @@ static int RunAppSelfTest() {
     // selftest is win32-only by convention and the cmd.exe stub child is a
     // test literal (JKLlmEngine.cpp:167 class), so this case stays out of
     // any posix port scope. Part B smokes the kill-on-close job trio.
+    // docs/78 TX3 폰 실측: "by convention"이 실제 가드가 없어 posix에서도
+    // 돌았다 — WSL은 interop(cmd.exe) 덕에 우연히 PASS, 폰은 FAIL. 리터럴이
+    // 없는 기기에서 스킵이 정답이므로 _WIN32로 고정한다.
+#ifdef _WIN32
+    //
     {
         // windows.h stays out of this TU, so the two Win32 constants the
         // contract names are hand-carried here (values are ABI-stable).
@@ -3386,6 +3399,7 @@ static int RunAppSelfTest() {
         jk::process::CloseHandleLike(p.process);
         jk::process::CloseHandleLike(job);  // close IS the kill; child dead
     }
+#endif  // _WIN32 — case 14(stub 자식·job 소박)는 Windows 리터럴 전용
 
     // 15) jk::net winsock adapter (docs/68 W8b): ephemeral listen reports its
     // bound port (R-C4); a windows.h-clean RAW client (R-C5 — hand dllimports

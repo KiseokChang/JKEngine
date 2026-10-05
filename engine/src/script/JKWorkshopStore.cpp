@@ -7,6 +7,8 @@
 // jkcore TU였다.
 #include <script/JKWorkshopStore.h>
 
+#include <fs/JKFs.h>
+
 #include <port/JKCrtShim.h>
 
 #include <algorithm>
@@ -65,7 +67,7 @@ long long EntryMtimeSecs(const std::filesystem::directory_entry& entry) {
     std::error_code ec;
     const auto ftw = entry.last_write_time(ec);
     if (ec) return 0;
-    const auto sys = std::chrono::clock_cast<std::chrono::system_clock>(ftw);
+    const auto sys = jk::fs::FileTimeToSys(ftw);
     const long long secs = std::chrono::duration_cast<std::chrono::seconds>(
                                sys.time_since_epoch()).count();
     return secs > 0 ? secs : 0;

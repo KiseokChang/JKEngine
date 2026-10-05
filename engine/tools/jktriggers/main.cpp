@@ -59,10 +59,11 @@ std::string g_currentSource;
 std::map<std::string, int> g_enabled;
 
 // Trust store in memory (spec §3) — loaded once at startup; approval
-// resolutions upsert into it and the file. (Struct defined in the trust
-// block below; vector-of-incomplete-type is fine for a declaration.)
-struct TrustRecord;
-std::vector<TrustRecord> g_trust;
+// resolutions upsert into it and the file. g_trust itself sits with the
+// struct below: the old "forward decl + vector-of-incomplete-type global"
+// relied on GCC's deferred instantiation — libc++ (Termux, docs/78 TX2)
+// instantiates ~vector eagerly at the namespace-scope variable and refuses
+// an incomplete type.
 
 struct Timer {
     int64_t id;
@@ -170,6 +171,8 @@ struct TrustRecord {
     std::string source;       // "pack" (packer self-attestation) | "user" (approval)
     long long ts = 0;         // epoch seconds
 };
+
+std::vector<TrustRecord> g_trust;
 
 // Defined below with the JSON string helpers (used by SaveTrustRecords).
 std::string JsonEscapeStr(const std::string& s);

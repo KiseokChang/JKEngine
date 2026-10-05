@@ -1,6 +1,6 @@
 #include <JKHangulUtil.h>
 #include <text/JKTextConv.h>
-#include <wancode.h>
+#include <WANCODE.H>
 #include <cstring>
 #include <cstdint>
 #include <mutex>

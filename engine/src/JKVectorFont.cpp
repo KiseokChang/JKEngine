@@ -1,6 +1,6 @@
 #include <JKVectorFont.h>
 
-#include <wancode.h>
+#include <WANCODE.H>
 
 #include <algorithm>
 #include <cmath>

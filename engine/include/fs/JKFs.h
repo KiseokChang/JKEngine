@@ -6,9 +6,20 @@
 // correction) — the MAX_PATH-truncation variants die together by returning
 // std::string.
 
+#include <chrono>
+#include <filesystem>
 #include <string>
 
 namespace jk::fs {
+// std::filesystem::file_time_type → std::chrono::system_clock time point —
+// a hand port of C++20 std::chrono::clock_cast: libc++ (Termux bionic,
+// docs/78 TX2) never implemented clock_cast (libstdc++/MSVC have it), and
+// all three file-clock call sites (JKThemeConfig hot-swap poll,
+// JKWindowServer FilesListOpJson, JKWorkshopStore EntryMtimeSecs) share
+// this exact conversion. libc++'s file_clock epoch is the Unix epoch
+// (nanoseconds since 1970), so there file→system is a plain duration cast
+// yielding the same true wall-clock values — every call site's downstream
+// arithmetic keeps its numeric form unchanged.
 // Full path of the current executable image, in the ANSI code page bytes
 // (CP_ACP — NOT UTF-8; docs/68 W5. All consumers are A-API path eaters — a
 // UTF-8 roundtrip would corrupt CP949-representation dirs, docs/48 lesson).
@@ -30,6 +41,9 @@ std::string GetExecutablePath();
 // directory (trailing '/' ensured), else "/tmp/" — and when even /tmp is not
 // accessible, the same "." fail-soft as win32.
 std::string TempDir();
+
+std::chrono::system_clock::time_point FileTimeToSys(
+    const std::filesystem::file_time_type& ft);
 }  // namespace jk::fs
 
 #endif  // JKFS_H

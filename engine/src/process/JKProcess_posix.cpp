@@ -186,10 +186,11 @@ SpawnResult Spawn(const SpawnOptions& options) {
         // stderr 공백 + `echo >&2`가 EBADF로 sh exit 1). 불변명: 스윕은
         // 0/1/2를 건드리지 않는다 — 위 dup2로 배선된 파이프 포함.
         // EBADF는 정상 경로(close는 fd마다 정확히 닫힌다). 상한은
-        // getdtablesize()(리뷰 R1-2, <unistd.h>, _GNU_SOURCE 불요) — 고정
-        // 4096은 RLIMIT_NOFILE 소프트 상한이 더 큰 환경에서 그 바깥의 상속
-        // fd(대표: acceptor listener)를 계속 누출한다.
-        const int fdUpper = getdtablesize();
+        // getdtablesize()(리뷰 R1-2, <unistd.h>, _GNU_SOURCE 불요; docs/78
+        // TX2 — bionic에 미실장, glibc 동일값 sysconf(_SC_OPEN_MAX)로
+        // 통일) — 고정 4096은 RLIMIT_NOFILE 소프트 상한이 더 큰 환경에서
+        // 그 바깥의 상속 fd(대표: acceptor listener)를 계속 누출한다.
+        const int fdUpper = sysconf(_SC_OPEN_MAX);
         for (int fd = STDERR_FILENO + 1; fd < fdUpper; ++fd) close(fd);
         if (!options.workingDir.empty() &&
             chdir(options.workingDir.c_str()) != 0) {

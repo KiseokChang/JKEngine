@@ -3107,8 +3107,7 @@ static std::string FilesListOpJson(const std::string& path) {
                 // FILETIME(1601 100ns) → epoch 초 — read_receipts의 초 절단
                 // 규약 동형. file_clock은 플랫폼마다 epoch가 다르므로
                 // clock_cast로 풀어서 절단; 1970 이전은 원문대로 0 클램프.
-                const auto sys =
-                    std::chrono::clock_cast<std::chrono::system_clock>(ftw);
+                const auto sys = jk::fs::FileTimeToSys(ftw);
                 const long long secs =
                     std::chrono::duration_cast<std::chrono::seconds>(
                         sys.time_since_epoch()).count();

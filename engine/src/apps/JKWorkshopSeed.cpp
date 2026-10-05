@@ -15,7 +15,13 @@
 namespace jk {
 namespace {
 // 원본: JKAppModule_script.cpp ReadTextFile — 읽기 실패(열기 실패)=빈, 성공=원문.
+// docs/78 TX3 폰 실측 추가: libc++ ifstream은 디렉터리까지 열어 성공한다
+// (bionic open(dir, O_RDONLY) 허용) — MSVC/libstdc++와 달리 "외부 파일 존재"
+// 오판으로 시딩이 무변(0)을 반환하고 1j-d가 뒤집힌다. 디렉터리는 읽기 실패로
+// 처리해 규약(외부=B진실원 "파일")을 모든 플랫폼에서 동형으로 맞춘다.
 bool ReadWhole(const std::string& path, std::string& out) {
+    std::error_code ec;
+    if (std::filesystem::is_directory(path, ec)) return false;
     std::ifstream f(path, std::ios::binary);
     if (!f) return false;
     std::ostringstream ss;

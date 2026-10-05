@@ -61,6 +61,13 @@ std::string TempDir() {
     return std::string(buf, static_cast<size_t>(n < 196 ? n : 195));
 }
 
+// clock_cast<FileTimeToSys> port, win32 leg: the MSVC STL has the C++20
+// original — call it straight through (same header contract, docs/78 TX2).
+std::chrono::system_clock::time_point FileTimeToSys(
+    const std::filesystem::file_time_type& ft) {
+    return std::chrono::clock_cast<std::chrono::system_clock>(ft);
+}
+
 }  // namespace fs
 }  // namespace jk
 
