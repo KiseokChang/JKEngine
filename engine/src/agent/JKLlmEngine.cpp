@@ -113,10 +113,24 @@ std::string BuildEngineCmd(const ChatConfig& cfg,
     // Every turn gets the fixed Korean preamble (CoT/markdown leak guard,
     // above) prepended to the raw prompt, before quote escaping.
     const std::string fullPrompt = kLlmTurnPreamble + prompt;
-    // -p argument escaping: only quotes (the rest reaches claude verbatim).
+    // -p argument escaping: quotes (the rest reaches claude verbatim), plus —
+    // posix only — the sh double-quote live characters (below).
     std::string esc;
     for (char ch : fullPrompt) {
         if (ch == '"') esc += "\\\"";
+#ifndef _WIN32
+        // posix leg executes via /bin/sh -c (jk::process posix mapping), and
+        // inside sh double quotes `\`, `$` and backtick stay LIVE (a lone
+        // backslash also acts as an escape character before these). Escape
+        // them backslash-prefixed so preamble+prompt text lands literally —
+        // otherwise `$(...)` or backticks from the user chat prompt or
+        // attached bytes would EXECUTE. Windows CreateProcessW never touches
+        // a shell, so the win32 leg keeps the original case verbatim (동작
+        // 변화 0 — the escaped forms agree for the shared case: `"`).
+        else if (ch == '\\') esc += "\\\\";
+        else if (ch == '$') esc += "\\$";
+        else if (ch == '`') esc += "\\`";
+#endif
         else esc += ch;
     }
     // Token streaming (docs/31 §6): stream-json + partial messages gives
