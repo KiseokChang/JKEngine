@@ -4,17 +4,21 @@
 // Convention mirrors the win32 in-app selftest (engine/src/main.cpp
 // RunAppSelfTest): one "[PASS]/[FAIL] <case>" line per check, the total as
 // "PosixSelfTest: <n> failure(s)", exit non-zero on any failure.
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <string>
 #include <thread>
+#include <vector>
 
-#include <unistd.h>  // access, R_OK, close, sleep
+#include <sys/stat.h>  // stat, S_ISSOCK (socket-file liveness triage below)
+#include <unistd.h>  // access, unlink, getpid, R_OK, close, sleep
 
 #include <arpa/inet.h>  // inet_addr, htons (raw client below — this TU is
 #include <netinet/in.h>  // posix-only, so it may include POSIX socket headers
 #include <sys/socket.h>  // directly; no windows.h-cleanliness constraint here)
 
+#include <ipc/JKPipeTransport.h>
 #include <net/JKNet.h>
 #include <process/JKProcess.h>
 #include <terminal/JKConPtyBridge.h>
@@ -484,6 +488,135 @@ void TestPtyBridge() {
     }
 }
 
+// Case 5 (JKPipeTransport): real unix-domain-socket transport (R-D3) —
+// mirrors the win32 observable contract in miniature: CreateServer BLOCKS
+// until a client connects (ConnectNamedPipe parity), ConnectClient reaches
+// the server through the name used as-is as the socket path, a 100-byte wire
+// round-trip in BOTH directions (the transport is byte-agnostic — pure pipe
+// semantics, no JKWireProtocol framing), CancelPendingIo wakes a reader
+// parked in Read and that Read must FAIL (win32 CancelIoEx parity: the
+// pending operation returns failure, never an innocent success), and Close
+// teardown is complete + idempotent. The stage-1 stub returns nullptr/false
+// for everything, so every check below fails until JKPipeTransport_posix.cpp
+// implements the mapping.
+void TestPipeTransport() {
+    // R-D3: the name is a socket path supplied by the caller, used as-is.
+    // Unique-per-run under /tmp (pid suffix); unlink first so a crashed prior
+    // run's stale file cannot block this run's own bind.
+    const std::string sockPath =
+        "/tmp/jkpipe_slftest_" + std::to_string(::getpid()) + ".sock";
+    ::unlink(sockPath.c_str());
+
+    // Server thread: CreateServer blocks inside accept until the client lands.
+    std::unique_ptr<jk::ipc::JKPipeTransport> server;
+    std::thread serverThread(
+        [&server, &sockPath]() {
+            server = jk::ipc::JKPipeTransport::CreateServer(sockPath);
+        });
+
+    // Poll for the socket FILE first (completion condition — the server bound
+    // its path), then connect; the retry loop also beats the bind/listen race
+    // between the file appearing and the backlog being open. No wall-clock
+    // deltas (D-T3 hygiene) — 10s completion budgets like cases 2-4.
+    std::unique_ptr<jk::ipc::JKPipeTransport> client;
+    struct stat st {};
+    for (int i = 0; i < 500 && !client; ++i) {  // 10s budget
+        if (::stat(sockPath.c_str(), &st) == 0 && S_ISSOCK(st.st_mode)) {
+            client = jk::ipc::JKPipeTransport::ConnectClient(sockPath);
+        }
+        if (!client) usleep(20 * 1000);
+    }
+    Check(client != nullptr,
+          "transport: ConnectClient connects through the socket path");
+    if (!client) {
+        // Stub RED (or a real failure): CreateServer would stay parked in
+        // accept forever — detach; process exit terminates it.
+        serverThread.detach();
+        return;
+    }
+    serverThread.join();
+    Check(server != nullptr,
+          "transport: CreateServer unblocks once the client connects");
+    if (!server) {  // keep the rest gated (same shape as case 4's startedA)
+        client->Close();
+        ::unlink(sockPath.c_str());
+        return;
+    }
+
+    // Byte filler: a printable marker at offset 0 (grep-friendly in logs) and
+    // a deterministic pattern over the rest.
+    auto fill = [](std::vector<uint8_t>& v, const char* tag, uint8_t salt) {
+        for (size_t i = 0; i < v.size(); ++i) {
+            v[i] = static_cast<uint8_t>(
+                (salt * (i + 1)) ^ (i * 31 + 7));
+        }
+        const std::string t(tag);
+        for (size_t i = 0; i < t.size() && i < v.size(); ++i) {
+            v[i] = static_cast<uint8_t>(t[i]);
+        }
+    };
+
+    // A) client -> server: 100-byte Write then exact Read.
+    std::vector<uint8_t> tx(100), rx(100, 0);
+    fill(tx, "JKPT-C2S-3361", 0x5A);
+    Check(client->Write(tx.data(), tx.size()),
+          "transport: client Write of 100 bytes succeeds");
+    Check(server->Read(rx.data(), rx.size()),
+          "transport: server Read of 100 bytes succeeds");
+    Check(rx == tx,
+          "transport: client->server 100 bytes round-trip exactly");
+
+    // B) reverse direction: server -> client.
+    std::vector<uint8_t> tx2(100), rx2(100, 0);
+    fill(tx2, "JKPT-S2C-3361", 0xA5);
+    Check(server->Write(tx2.data(), tx2.size()),
+          "transport: server Write of 100 bytes succeeds");
+    Check(client->Read(rx2.data(), rx2.size()),
+          "transport: client Read of 100 bytes succeeds");
+    Check(rx2 == tx2,
+          "transport: server->client 100 bytes round-trip exactly");
+    Check(client->IsConnected() && server->IsConnected(),
+          "transport: both ends report connected after the round-trip");
+
+    // C) CancelPendingIo wakes a reader parked inside Read and that Read must
+    //    FAIL (win32 parity — CancelIoEx makes the pending op return
+    //    failure). Same probe shape as case 4C: settle so the reader is truly
+    //    blocked inside recv, cancel, then completion-poll its verdict.
+    std::atomic<bool> entered{false};
+    std::atomic<int> verdict{-1};  // -1 pending, 1 success, 0 failure
+    std::thread reader([&server, &entered, &verdict]() {
+        uint8_t buf[16] = {};
+        entered = true;
+        verdict = server->Read(buf, sizeof(buf)) ? 1 : 0;
+    });
+    for (int i = 0; i < 500 && !entered; ++i) usleep(20 * 1000);
+    usleep(200 * 1000);  // settle: let the reader block inside recv
+    server->CancelPendingIo();
+    for (int i = 0; i < 500 && verdict == -1; ++i) usleep(20 * 1000);
+    reader.join();
+    Check(verdict == 0,
+          "transport: CancelPendingIo wakes the blocked Read with failure");
+    Check(!server->IsConnected(),
+          "transport: cancelled transport reads as disconnected (fail-closed)");
+
+    // D) Close teardown — full, and idempotent (IWireTransport: "Safe to call
+    //    multiple times").
+    client->Close();
+    server->Close();
+    Check(!client->IsConnected() && !server->IsConnected(),
+          "transport: Close disconnects both ends");
+    client->Close();
+    server->Close();
+    Check(!client->IsConnected() && !server->IsConnected(),
+          "transport: repeated Close is safe (idempotent)");
+
+    // Case-end cleanup of the server's socket file (name is caller-owned —
+    // the transport carries no name member, so unlink is the caller's job).
+    ::unlink(sockPath.c_str());
+    Check(::stat(sockPath.c_str(), &st) != 0,
+          "transport: socket file removed at case end");
+}
+
 }  // namespace
 
 int main() {
@@ -491,6 +624,7 @@ int main() {
     TestProcessAdapter();
     TestNetAdapter();
     TestPtyBridge();
+    TestPipeTransport();
     std::printf("PosixSelfTest: %d failure(s)\n", g_failures);
     return g_failures == 0 ? 0 : 1;
 }
