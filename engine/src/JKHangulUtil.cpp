@@ -6,7 +6,6 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
-#include <vector>
 
 // windows.h는 이 TU에서 다루지 않는다(windows.h-clean 규약). UTF-8↔CP949 두
 // 변환 leg는 jk::text 어댑터가 소유한다(stage-3 T4) — win32 본체는

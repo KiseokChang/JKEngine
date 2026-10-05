@@ -733,8 +733,8 @@ add_custom_command(TARGET jkwinserver POST_BUILD
 # a direct windows.h port, so the whole target sits out the Linux build.
 # ---------------------------------------------------------------------------
 if(WIN32)
-add_executable(jkchat WIN32 tools/jkchat/main.cpp)
-target_link_libraries(jkchat PRIVATE jkcore)
+    add_executable(jkchat WIN32 tools/jkchat/main.cpp)
+    target_link_libraries(jkchat PRIVATE jkcore)
     # -municode: wWinMain entry (the app is UTF-16 end-to-end for hangul).
     target_link_options(jkchat PRIVATE -municode -static-libstdc++ -static-libgcc)
 endif()

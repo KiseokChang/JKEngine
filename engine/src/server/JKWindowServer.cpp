@@ -752,7 +752,10 @@ void JKWindowServer::Run() {
                 running_ = false;
                 break;
             }
-            if (ev.type == JkImeToggleEventType()) {
+            if (JkImeToggleEventType() != 0 && ev.type == JkImeToggleEventType()) {
+                // != 0 가드(태스크 7 LOW-1 리더 — Hanja 비교 동형): posix leg에서
+                // SDL_RegisterEvents가 0을 줄 수 있어 SDL 폴링 나머지와 충돌 —
+                // Hanja 쪽과 같은 패리티 가드를 둔다(윈도우 관측 동일).
                 JKClientConnection* client = FindClientById(focusedClientId_);
                 // 라이브 진단 증거(docs/61 §19): 훅 발화+전달 대상을 로그에 남긴다.
                 std::fprintf(stderr, "[ime] toggle -> client %u (%s)\n",

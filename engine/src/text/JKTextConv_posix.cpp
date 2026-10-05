@@ -68,9 +68,13 @@ std::wstring Utf8ToUtf16(std::string_view utf8) {
         return L"";
     }
     // std::wstring is 4-byte wchar_t on Linux: repack UTF-16LE code units into
-    // scalar codepoints. A stray lone surrogate in the byte stream is an
-    // invalid sequence — fail-closed (the win32 MB TW observation never yields
-    // lone surrogates either, they come out as U+FFFD input -> invalid).
+    // scalar codepoints. A surrogate pair in the byte stream is folded back
+    // into one scalar; a lone or unpaired surrogate means the source UTF-8 was
+    // itself surrogate-encoded — the win32 leg (MBTW MB_ERR_INVALID_CHARS)
+    // REJECTS such input outright and returns EMPTY, never U+FFFD (U+FFFD
+    // belongs only to the flag-0 lenient path, which this adapter never runs),
+    // so every branch below fails closed to "" as the parity observation.
+    if (u16.size() % 2 != 0) return L"";  // stray trailing byte — not UTF-16
     std::wstring out;
     out.reserve(u16.size() / 2);
     for (size_t i = 0; i < u16.size(); i += 2) {
