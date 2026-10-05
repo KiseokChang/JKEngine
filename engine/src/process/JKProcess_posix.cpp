@@ -158,9 +158,15 @@ SpawnResult Spawn(const SpawnOptions& options) {
         // 룰링(플랜 H1): inheritedStdioPipes와 무관하게 무조건 적용 — win32
         // 스폰의 자식 stdin은 두 계열(pipes/handles) 모두 데이터 원 없음; terminal
         // 접두 pty는 이 어댑터가 아니라 JKConPtyBridge 소관이라 영향 0.
+        // fd-0 재사용 엣지(R1): 부모 fd 0이 이미 닫힌 컨텍스트(데몬화된 서버,
+        // agentd 연쇄 스폰 — 플랜 G fd 위생의 대표 코너)에서 open은 fd 0 자신을
+        // 돌려준다 — dup2는 equal-fd 부작용 없는 no-op이고(FD_CLOEXEC 미소거),
+        // 이어지는 close(nullFd)가 자식 fd 0을 통째로 닫아 stdin=/dev/null 계약이
+        // EBADF로 붕괴한다. O_CLOEXEC는 곧 닫을 원본 fd에 무의미 — 제거하고
+        // nullFd==0일 때는 dup/close 모두 생략한다.
         {
-            const int nullFd = ::open("/dev/null", O_RDONLY | O_CLOEXEC);
-            if (nullFd >= 0) {
+            const int nullFd = ::open("/dev/null", O_RDONLY);
+            if (nullFd >= 0 && nullFd != STDIN_FILENO) {
                 ::dup2(nullFd, STDIN_FILENO);
                 ::close(nullFd);
             }
