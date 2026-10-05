@@ -127,19 +127,70 @@
 
 ### 4.7 남은 것
 
-- **TX4 눈 부팅**: 폰에 CJK 폰트 미설정(bootstrap 후보 실패 — `pkg search`
-  로 정식 패키지명 조사 또는 PC에서 폰트 복사) + Termux:X11 앱 열기
-  (**사용자 조력**) + `setsid` 서버 부팅 ssh-detach 생존 실측(docs/70 §8
-  표준의 폰 재현).
-- TX5 앱 실측 — libavcodec 62 API 호환 포함.
 - TX6 출하 팩 `--jkx` 부팅 눈확인.
 - docs/70 §8.4 부수 관측 2건 판정(ended 조기 플립·서버 .ttc) — PC 쪽 대면.
+  (조기 플립은 §5 TX5에서 **WSL 24.4 / 폰 24.66 양쪽 재현** — 플랫폼 공통
+  현상으로 격상. 디먹스 EOF~프리젠테이션 괴리 추정은 유지.)
 - TX5 성능 메모: 폰 shm이 파일 유백($TMPDIR)인 상태의 vplayer 지연 관측.
+- 관측(비막음): X11 화면 부팅 상태 서버 CPU ~99%/클라 ~70-90% — 컴포지터
+  소등(vsync/pacing) 조사 후보. TX6 성능 메모.
 
-## 5. 커밋 원장
+## 5. TX4·TX5 as-built — 눈 부팅 + 앱 실측 (2026-10-06 실측)
+
+### 5.1 TX4 눈부팅 영수증
+
+- **폰 화면에 데스크톱 셸 육안 확인(사용자 "보여요")** — Termux:X11 앱 열기
+  (사용자 조력) → X 서버 `termux-x11 com.termux.x11 :1`(CLI) → 소켓
+  `$TMPDIR/.X11-unix/X1` → `DISPLAY=:1` 서버 부팅 → 태스크바 자동 스폰
+  (surfase 1 셸 등록, 1280x800/40) → **런처 아이콘 직접 탭으로
+  minesweeper 창 생성(사용자 조작)** — G 표준 셸 부팅의 폰 완결.
+- 절차: Termux 메인 repo에 CJK 폰트 패키지 부재(`pkg search noto` 빈 결과)
+  → **PC malgun.ttf(13.4MB)를 폰 `buildterm/state/fonts/`로 복사 +
+  settings.json `text.font_path` 오버라이드**(리졸버 1순위,
+  JKTextAtlas.cpp:59). Noto .ttc는 docs/70 §8.4의 init 실패 종류라 .ttf
+  선택. 폰 배치 노트: exe=`~/JKENGINE/engine/buildterm/jkdesktop` —
+  settings/terminal.json은 exe 옆 `buildterm/state/`·`buildterm/`.
+- 부팅 스크립트 `~/tx4_boot.sh`(pkill+setsid+`DISPLAY=:1`) — TX3 헤드리스
+  서버(부팅 후 수시간 생존 재확인)는 정상 절차로 교체.
+
+### 5.2 TX5 앱 실측 — 3앱 생존 + vplayer 재생 첫 영수증
+
+- **terminal**: 폰에서 창 생성 성공(800x500, list_windows 확인).
+- **minesweeper**: 사용자 런처 탭으로 창 생성+focused — 클라 3프로세스
+  (server+taskbar+app) 전부 생존.
+- **vplayer 재생(libavcodec 62.28.103 — 3면 API 진화의 폰면)**:
+  `launch_app` ok → `app_tool open`(클립 `~/tmp/vpt2_test.mp4`) →
+  `{"ok":true,"windowId":28,"accepted":true}` → get_status 폴링: pos 실시간
+  진행(3s 폴링당 ~3.4s), `dur:30.000, error:"", ended:true` 수령, pos 최종
+  **30.000 도달**(WSL 29.954보다 온전). **디코딩·프리젠테이션·EOF 전 정상 —
+  ARM 폰 소프트 디코딩 첫 영수증.**
+
+### 5.3 봉한 결함 1건 + 와이어 진단
+
+| 항목 | 내용 | 봉합 |
+|---|---|---|
+| 터미널 폰 즉사 | `JKTerminalConfig.h` 기본 셸이 `"powershell.exe -NoLogo"`(Win32 리터럴) — 폰에선 `mksh -c "powershell.exe -NoLogo"` = not found → 자식 127 → 클라 사망. **WSL은 interop으로 powershell.exe 실존 — 우연 생존 케이스 3번째** | posix branch 기본 셸 = `$SHELL` env(Termux 항상 설정), 미설정 `/bin/sh` 폴백 |
+| jkctl agent 와이어 | 도구 키는 `tool`(아님 name), 도구 인자는 `args`(아님 arguments) — `JKWindowServer.cpp:3361` GetStr("tool") | 원장 기록 (잊으면 bad_request/missing_app 진단 소모) |
+| vplayer 조작 와이어 | `{"tool":"app_tool","args":{"app":"vplayer","tool":"open","args":{"path":...}}}` — docs/70 §8.2 사이클 재사용 | probe `wsl_vp_cycle.sh` 선례 승계 |
+| 서버 소스 원장 | `/bin/sh`는 폰에도 동작(Android `/bin→/system/bin` 심볼릭링크, mksh) — `jk::process::ShellPath` 수정 불요 | 관측으로 정정(진단 중 오판 회피) |
+
+- 배포 레이어: 폰 `buildterm/terminal.json` 시딩 — shell=Termux bash 절대경로,
+  font/fontFallback=앞서 심은 malgun.ttf(Consolas 리터럴은 폰 부재 →
+  placeholder 열화 방지). **코드 아닌 배포 문인 이유: 지뢰는 죽음(셸)만
+  엔진 결함이고 폰트는 열화** — terminal.json이 이 폰트를 담당하는 문서화
+  스팟(docs/26 단계 5).
+- 좀비 관측: 죽은 클라가 서버 자식으로 `[jkdesktop] <defunct>` 잔류
+  (ppid=server) — CleanupDisconnectedClients 재aping 타이밍 후보, TX6
+  판정. 비막음.
+- 셀 스크립트 함정 추가: 유저딘 heredoc에서 `$CLI`가 원격 파싱 시점에
+  미리 확장 — **quoted heredoc(`<<"EOF"`) 표준**(wsl 인라인 따옴표 소각
+  레슨의 폰 재현).
+
+## 6. 커밋 원장
 
 | 커밋 | 내용 |
 |---|---|
 | 24be351 | (TX1) 워크플랜+termux_bootstrap.sh |
 | 47e4c9f | (TX2/TX3) ARM 봉합 12파일+as-built §4 — 3축 selftest 0 failure |
-| (본 커밋) | (TX3 잔여) 가드/소켓 /tmp → TempDir 폴백 2건+폰 헤드리스 서버 영수증 §4.6 |
+| fd257ed | (TX3 잔여) 가드/소켓 /tmp → TempDir 폴백 2건+폰 헤드리스 서버 영수증 §4.6 |
+| (본 커밋) | (TX5) 터미널 posix 기본 셸 $SHELL + TX4·TX5 as-built §5 |
