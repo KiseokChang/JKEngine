@@ -7,6 +7,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <ctime>  // nanosleep (D-T3 hygiene: nanosleep, not usleep)
 #include <string>
 #include <thread>
 #include <vector>
@@ -19,6 +20,7 @@
 #include <sys/socket.h>  // directly; no windows.h-cleanliness constraint here)
 
 #include <ipc/JKPipeTransport.h>
+#include <fs/JKInstanceLock.h>
 #include <net/JKNet.h>
 #include <process/JKProcess.h>
 #include <terminal/JKConPtyBridge.h>
@@ -46,6 +48,15 @@ double nowMs() {
     return std::chrono::duration<double, std::milli>(
                std::chrono::steady_clock::now().time_since_epoch())
         .count();
+}
+
+// nanosleep-based nap — the stage-2 timing-hygiene ruling (task 4 fix round,
+// commit aacaa66) says nanosleep, not usleep. Case-6 polling uses this.
+void NapMs(int ms) {
+    timespec ts{};
+    ts.tv_sec = ms / 1000;
+    ts.tv_nsec = (static_cast<long>(ms) % 1000L) * 1000000L;
+    nanosleep(&ts, nullptr);
 }
 
 // Case 1 (jk::fs): GetExecutablePath() must return the real path of this very
@@ -617,6 +628,136 @@ void TestPipeTransport() {
           "transport: socket file removed at case end");
 }
 
+// Case 6 (jk::fs::InstanceLock): the single-instance guard adapter —
+// flock(LOCK_EX|LOCK_NB) on the /tmp/<name>.lock file (docs/62 §8 flock 봉쇄,
+// plan D task 6). Contracts under test:
+//   A) same-process discipline: first acquire owns; a second acquire while
+//      holding is refused (win32 parity — re-opening a named mutex you already
+//      own reports ERROR_ALREADY_EXISTS); Release drops early; re-acquire owns
+//      again; the underlying lock file lives at /tmp/<name>.lock; release
+//      with nothing held is a safe no-op.
+//   B) cross-process exclusion via a jk::process-spawned flock(1) holder
+//      child: while the foreign holder owns the lock our acquire must fail,
+//      and once it dies the lock is acquirable again. Completion-condition
+//      polling everywhere (D-T3) — budgets only, no wall-clock delta asserts.
+//   C) name hygiene: a '/' in lockName cannot escape /tmp (folds to '_');
+//      backslashes (real consumer name "Local\jkdesktop-server-...") are
+//      legal filename bytes and stay literal.
+// The lock FILE is never unlinked by the adapter (unlink+flock inode race —
+// a second acquirer would create a fresh inode and hold a disjoint "lock");
+// stale files are harmless because flock dies with the holding fd, so the
+// HARNESS unlinks its own scratch names at case end (case-5 shape).
+void TestInstanceLock() {
+    constexpr uint32_t kStillActiveExit = 259;  // STILL_ACTIVE (win32 parity)
+    const std::string name = "jkinstance_slftest_" + std::to_string(::getpid());
+    const std::string lockPath = "/tmp/" + name + ".lock";
+    ::unlink(lockPath.c_str());  // pre-clean (unique name — no live holder)
+
+    // A) same-process acquire / refuse / release / re-acquire cycle.
+    Check(jk::fs::AcquireInstanceLock(name), "instance: first acquire owns");
+    Check(::access(lockPath.c_str(), F_OK) == 0,
+          "instance: lock file lives at /tmp/<name>.lock");
+    Check(!jk::fs::AcquireInstanceLock(name),
+          "instance: second acquire refused while held");
+    jk::fs::ReleaseInstanceLock();
+    Check(jk::fs::AcquireInstanceLock(name),
+          "instance: re-acquire after release succeeds");
+    jk::fs::ReleaseInstanceLock();  // drop for the cross-process probe
+    jk::fs::ReleaseInstanceLock();  // nothing held — must be a safe no-op
+
+    // B) cross-process exclusion. The holder child blocks in flock(1) until
+    //    the lock frees, then holds it 5s; its stderr flows through to the
+    //    harness output for hard-failure diagnostics (exit 3 = could not
+    //    take the lock within its own 20s wait).
+    jk::process::SpawnOptions holder;
+    holder.commandLineUtf8 =
+        "flock -w 20 " + lockPath + " -c 'sleep 5' || "
+        "{ echo 'jkinst_holder: could not acquire+hold the lock within "
+        "20s' >&2; exit 3; }";
+    const jk::process::SpawnResult h = jk::process::Spawn(holder);
+    Check(h.ok && h.process, "instance: lock-holder child spawns");
+    if (!(h.ok && h.process)) return;
+
+    // Wait for the child to actually OWN the lock: our acquire flips to false
+    // (completion condition — no wall-clock deltas). If we still manage to
+    // acquire during the start-up race, release again so the child's blocking
+    // flock can get in; a child that dies before taking the lock (flock
+    // timeout, missing utility) surfaces via its exit code below.
+    bool heldByChild = false;
+    for (int i = 0; i < 1500 && !heldByChild; ++i) {  // 30s ≫ holder's -w 20
+        uint32_t code = 0;
+        if (jk::process::GetExitCode(h.process, &code) &&
+            code != kStillActiveExit) {
+            break;  // holder left the game early
+        }
+        if (jk::fs::AcquireInstanceLock(name)) {
+            jk::fs::ReleaseInstanceLock();  // not held yet — try again later
+        } else {
+            heldByChild = true;
+        }
+        NapMs(20);
+    }
+    if (!heldByChild) {
+        uint32_t code = 0;
+        if (::jk::process::GetExitCode(h.process, &code)) {
+            std::fprintf(stderr, "  instance: holder child exited %u without "
+                                 "holding the lock\n",
+                         static_cast<unsigned>(code));
+        }
+        std::fflush(stderr);
+    }
+    Check(heldByChild,
+          "instance: spawned holder excludes our acquire (cross-process)");
+    if (heldByChild) {
+        Check(!jk::fs::AcquireInstanceLock(name),
+              "instance: acquire stays refused while the holder owns it");
+    }
+
+    // Wait for the holder to drop the lock by dying — completion poll with a
+    // generous budget (hold window is 5s).
+    uint32_t hcode = 0;
+    bool hGone = false;
+    for (int i = 0; i < 2500; ++i) {  // 50s ≫ sleep 5
+        if (jk::process::GetExitCode(h.process, &hcode) &&
+            hcode != kStillActiveExit) {
+            hGone = true;
+            break;
+        }
+        NapMs(20);
+    }
+    Check(hGone && hcode == 0,
+          "instance: holder child exits cleanly after its hold window");
+    jk::process::CloseHandleLike(h.process);
+
+    // C) after the holder is gone the lock is ours again, and the FILE
+    //    persists — the adapter never unlinks (TU comment: unlink+flock race).
+    Check(jk::fs::AcquireInstanceLock(name),
+          "instance: lock acquirable again once the holder is gone");
+    Check(::access(lockPath.c_str(), F_OK) == 0,
+          "instance: lock file persists across holders (never unlinked)");
+    jk::fs::ReleaseInstanceLock();
+
+    // D) name hygiene: a '/' in the name must not escape /tmp. The real win32
+    //    guard name is "Local\jkdesktop-server-<basename>" (backslashes —
+    //    legal bytes); the hostile shape is '../...' which folds to '.._...'.
+    const std::string pid = std::to_string(::getpid());
+    const std::string travName = "../jkinstance_slftest_trav_" + pid;
+    const std::string travPath = "/tmp/.._jkinstance_slftest_trav_" + pid + ".lock";
+    Check(jk::fs::AcquireInstanceLock(travName),
+          "instance: name with ../ acquires (folded flat)");
+    Check(::access(travPath.c_str(), F_OK) == 0,
+          "instance: ../ name stays inside /tmp (no traversal escape)");
+    jk::fs::ReleaseInstanceLock();
+
+    // Case-end cleanup — the adapter never unlinks, so the harness owns its
+    // scratch names (same shape as case 5's socket-file unlink).
+    ::unlink(lockPath.c_str());
+    ::unlink(travPath.c_str());
+    Check(::access(lockPath.c_str(), F_OK) != 0 &&
+              ::access(travPath.c_str(), F_OK) != 0,
+          "instance: harness scratch lock files removed at case end");
+}
+
 }  // namespace
 
 int main() {
@@ -625,6 +766,7 @@ int main() {
     TestNetAdapter();
     TestPtyBridge();
     TestPipeTransport();
+    TestInstanceLock();
     std::printf("PosixSelfTest: %d failure(s)\n", g_failures);
     return g_failures == 0 ? 0 : 1;
 }

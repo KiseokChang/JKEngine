@@ -164,6 +164,12 @@ add_library(jkcore STATIC
     # Both are listed unconditionally; each file guards its own body.
     src/fs/JKFs_win32.cpp
     src/fs/JKFs_posix.cpp
+    # jk::fs single-instance guard adapter (docs/62 §8 flock 봉쇄, docs/68 W6):
+    # the Win32 TU carries the CreateMutexA named-mutex acquisition absorbed
+    # from JKWindowServer.cpp:414, the posix TU is flock on /tmp/<name>.lock.
+    # Both are listed unconditionally; each file guards its own body.
+    src/fs/JKInstanceLock_win32.cpp
+    src/fs/JKInstanceLock_posix.cpp
     # jk::process spawn adapter (docs/68 W4): the Win32 TU carries the
     # inherited-stdio spawn + KILL_ON_CLOSE job contracts (absorbed from
     # JKLlmEngine), the posix TU is an empty stub until stage 2.

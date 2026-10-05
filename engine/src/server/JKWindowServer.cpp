@@ -18,6 +18,7 @@
 #include <JKTextAtlas.h>
 #include <JKPlatform.h>
 #include <fs/JKFs.h>
+#include <fs/JKInstanceLock.h>
 #include <process/JKProcess.h>
 #include <theme/JKTheme.h>
 
@@ -69,10 +70,11 @@ extern "C" __declspec(dllimport) int __stdcall CreateDirectoryA(
 extern "C" __declspec(dllimport) int __stdcall WaitNamedPipeA(
     const char* lpNamedPipeName, unsigned long nTimeOut);
 
-// 단일 인스턴스 가드 (StartAcceptor) — 수기 선언 관례 동일.
-extern "C" __declspec(dllimport) void* __stdcall CreateMutexA(
-    void* lpMutexAttributes, int bInitialOwner, const char* lpName);
-extern "C" __declspec(dllimport) int __stdcall ReleaseMutex(void* hMutex);
+// GetLastError — 이 TU가 그대로 접촉(가드 하드 실패 메시지, 파이프 벨트의
+// ERROR_FILE_NOT_FOUND/ERROR_PIPE_BUSY 판정). 단일 인스턴스 가드의
+// CreateMutexA·ReleaseMutex 수기 선언은 jk::fs::InstanceLock 어댑터(docs/68
+// W6, 플랜 D 태스크 6 — JKInstanceLock_win32.cpp)가 소유하며 소각됐다 —
+// ERROR_ALREADY_EXISTS 취득 판정도 어댑터가 대신한다.
 extern "C" __declspec(dllimport) unsigned long __stdcall GetLastError();
 constexpr unsigned long kErrorAlreadyExists = 183;   // winbase.h
 constexpr unsigned long kErrorPipeBusy = 231;        // winbase.h
@@ -177,7 +179,12 @@ JKWindowServer::~JKWindowServer() {
     Stop();
 #ifdef _WIN32
     if (serverGuardMutex_) {
-        CloseHandle(serverGuardMutex_);
+        // 가드 핸들은 jk::fs::InstanceLock 어댑터(JKInstanceLock_win32.cpp의
+        // TU-static)가 단독 소유한다 — serverGuardMutex_는 이제 실제 HANDLE이
+        // 아니라 '보유 마커'로만 쓴다(가드 취득 지점 참조). 해제 대행:
+        // ReleaseMutex+CloseHandle을 어댑터가 수행하고 미보유 호출은 no-op.
+        // (원문 파괴자는 CloseHandle만 했다 — 마지막 핸들 close가 곧 해제.)
+        jk::fs::ReleaseInstanceLock();
         serverGuardMutex_ = nullptr;
     }
 #endif
@@ -411,16 +418,24 @@ bool JKWindowServer::TryAcquireSingleInstanceGuard(const std::string& pipeName,
             if (!hint.empty()) std::fprintf(stderr, "  %s\n", hint.c_str());
         };
 
-        void* m = CreateMutexA(nullptr, 1 /* TRUE: initial owner */, guard.c_str());
-        if (!m) {
+        // 취득 인수는 jk::fs::InstanceLock 어댑터(docs/68 W6, 플랜 D 태스크 6)가
+        // 소유한다 — CreateMutexA(nullptr, 1 /* TRUE: initial owner */)와 취득
+        // 판정(ERROR_ALREADY_EXISTS면 false), 그리고 취득 핸들의 TU-static 보유가
+        // 어댑터로 이동했다. 어댑터가 false로 돌아올 때 GetLastError는
+        // CreateMutexA가 남긴 그대로(183=이미 보유, 그 외=하드 실패)라 원문의
+        // 하드 실패 메시지가 그대로 유효하다. 원문 414(!m)+421(GetLastError()
+        // ==183)의 2분할은 어댑터 치환으로 하나의 합동 판정으로 접힐 뿐 — 하드
+        // 실패와 이미보유는 상호배타(비뮤텍스 객체와의 이름 충돌은 183이 아닌
+        // 하드 실패 코드)라 관측 동일. 변수 m은 원문의 HANDLE이 아니라 보유
+        // 플래그(bool)가 된다.
+        bool m = jk::fs::AcquireInstanceLock(guard);
+        if (!m && GetLastError() != kErrorAlreadyExists) {
             std::fprintf(stderr,
                          "JKWindowServer: single-instance guard CreateMutex failed (%lu)\n",
                          GetLastError());
             return false;
         }
-        if (GetLastError() == kErrorAlreadyExists) {
-            CloseHandle(m);
-            m = nullptr;
+        if (!m) {
             ServerCandidateScan scan = ScanServerCandidates(GetCurrentProcessId());
             if (takeover && !scan.wserver.empty() && KillServerHolders(scan)) {
                 std::fprintf(stderr,
@@ -430,9 +445,8 @@ bool JKWindowServer::TryAcquireSingleInstanceGuard(const std::string& pipeName,
                 std::fflush(stderr);
                 for (int i = 0; i < 12; ++i) {  // 커널 뮤텍스 해제 대기 최대 ~3s
                     Sleep(250);
-                    m = CreateMutexA(nullptr, 1, guard.c_str());
-                    if (m && GetLastError() != kErrorAlreadyExists) break;
-                    if (m) { CloseHandle(m); m = nullptr; }
+                    m = jk::fs::AcquireInstanceLock(guard);
+                    if (m) break;  // 취득 실패(183 포함)의 핸들 정리는 어댑터가 대행
                 }
             }
             if (!m) {
@@ -444,9 +458,8 @@ bool JKWindowServer::TryAcquireSingleInstanceGuard(const std::string& pipeName,
             GetLastError() == kErrorPipeBusy) {
             // 뮤텍스는 우리가 갖지만 파이프에 살아있는 인스턴스가 응답 —
             // 가드 이전 바이너리의 서버다. 두 인스턴스 갈림을 막기 위해 거부.
-            ReleaseMutex(m);
-            CloseHandle(m);
-            m = nullptr;
+            jk::fs::ReleaseInstanceLock();  // 원문 ReleaseMutex+CloseHandle 치환
+            m = false;
             ServerCandidateScan scan = ScanServerCandidates(GetCurrentProcessId());
             if (takeover && !scan.wserver.empty() && KillServerHolders(scan)) {
                 std::fprintf(stderr,
@@ -463,11 +476,9 @@ bool JKWindowServer::TryAcquireSingleInstanceGuard(const std::string& pipeName,
                     break;
                 }
                 if (cleared) {
-                    m = CreateMutexA(nullptr, 1, guard.c_str());
-                    if (m && GetLastError() == kErrorAlreadyExists) {
-                        CloseHandle(m);
-                        m = nullptr;
-                    }
+                    // 원문: CreateMutexA 후 GetLastError()==ERROR_ALREADY_EXISTS면
+                    // CloseHandle+취득 무효 — 취득 판정과 핸들 정리가 어댑터 내부로.
+                    m = jk::fs::AcquireInstanceLock(guard);
                 }
             }
             if (!m) {
@@ -475,7 +486,11 @@ bool JKWindowServer::TryAcquireSingleInstanceGuard(const std::string& pipeName,
                 return false;
             }
         }
-        serverGuardMutex_ = static_cast<void*>(m);
+        // 가드 핸들은 어댑터 TU-static이 단독 소유(JKInstanceLock_win32.cpp) —
+        // serverGuardMutex_는 이제 실제 HANDLE이 아니라 보유 마커다(파괴자의
+        // CloseHandle도 ReleaseInstanceLock() 치환됐다). 어댑터 계약이 핸들을
+        // 노출하지 않으므로 마커 값 자체는 쓰이지 않는다.
+        serverGuardMutex_ = reinterpret_cast<void*>(1);
     }
 #else
     (void)pipeName;
