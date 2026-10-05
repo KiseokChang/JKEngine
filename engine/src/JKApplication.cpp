@@ -35,11 +35,13 @@ JKApplication::~JKApplication() {
 }
 
 bool JKApplication::Init(const std::string& title, int width, int height) {
-#ifdef _WIN32
     // 마우스 검증 로그 (마우스 수술 실측용): 하드코딩 C:\temp_jkwin_verify\
     // mouse.log 소각 (docs/68 W5) — exe-dir 기반 state\mouse_verify.log로.
+    // 개방은 Win32 전용 (리눅스 3단계 유니폼화): 멤버/GetMouseLog()/소비부는
+    // 무조건 컴파일되고 비-Win32에서는 mouseLog_가 nullptr로 남아 소비 무동작.
     // 원문 동작 계약 보존: state 디렉터리가 없으면 fopen이 실패하고 로그는
     // 조용히 건너뛴다(원문도 디렉터리 선존재 가정 + 실패 조용히 무시).
+#ifdef _WIN32
     std::string mouseLogDir = jk::fs::GetExecutablePath();
     const size_t mouseCut = mouseLogDir.find_last_of("\\/");
     if (mouseCut != std::string::npos) mouseLogDir.resize(mouseCut + 1);

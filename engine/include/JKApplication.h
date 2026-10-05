@@ -78,9 +78,10 @@ public:
     void GetScale(float& sx, float& sy) const;
     void GetLetterbox(int& x, int& y) const;
 
-#ifdef _WIN32
+    // Debug mouse verification log (docs/68 W5). Platform-uniform: on
+    // non-Windows the log is never opened, so this stays nullptr and every
+    // consumer's existing null branch makes it a silent no-op.
     FILE* GetMouseLog() const { return mouseLog_; }
-#endif
 
 protected:
     virtual void OnInit();
@@ -128,9 +129,9 @@ private:
     uint32_t legacyTimerWinId_ = 0;
     uint32_t legacyTimerInterval_ = 0;
 
-#ifdef _WIN32
+    // Debug mouse verification log. nullptr unless the Win32-only open below
+    // succeeded; consumers must null-check (all current ones do).
     FILE* mouseLog_ = nullptr;
-#endif
 
     bool ProcessOneEvent(const JKEvent& ev);
 
