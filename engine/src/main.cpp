@@ -701,16 +701,21 @@ static int RunJkxPack(const char* appName) {
                          appName);
             return 1;
         }
-        manifestText += "name=" +
+        // I2 필드 보존 (docs/67 단 2 룰링): 재생성 canonical 키를 조립한 뒤
+        // JkxManifestMerge로 authored 원문(text)에 심는다 — scriptfile=, watch=,
+        // 미래 키는 화이트리스트 폐기 대신 원문 행 위치 그대로 살아남는다.
+        std::string regenerated;
+        regenerated += "name=" +
             (authored.name.empty() ? std::string(appName) : authored.name) + "\n";
-        manifestText += "title=" +
+        regenerated += "title=" +
             (authored.title.empty() ? std::string(appName) : authored.title) + "\n";
-        manifestText += "width=" +
+        regenerated += "width=" +
             std::to_string(authored.width > 0 ? authored.width : 320) + "\n";
-        manifestText += "height=" +
+        regenerated += "height=" +
             std::to_string(authored.height > 0 ? authored.height : 240) + "\n";
-        manifestText += "module=jkapp_script.dll\n";
-        manifestText += "script=app.js\n";
+        regenerated += "module=jkapp_script.dll\n";
+        regenerated += "script=app.js\n";
+        manifestText = jk::JkxManifestMerge(text, regenerated);
         moduleName = "jkapp_script.dll";
     } else {
         const std::string dllPath = base + "jkapp_" + appName + ".dll";
@@ -1629,6 +1634,60 @@ static int RunAppSelfTest() {
         std::vector<uint8_t> iconBytes;
         check(read.ReadEntry(2, iconBytes) && iconBytes.size() == 64, "jkx ICON payload size");
         std::remove(path.c_str());
+    }
+
+    // I2 — JkxManifestMerge: 필드 보존 (docs/67 단 2 룰링 — 재생성 화이트리스트
+    // 폐기를 필드 보존으로). 슬롯 authored manifest의 scriptfile=/watch=/미래
+    // capabilities= 가 재팩에 살아남는 게 이 함수의 유일 존재 이유.
+    {
+        const std::string authored =
+            "name=slot1\n"
+            "title=슬롯1\n"
+            "width=320\n"
+            "height=240\n"
+            "module=jkapp_script.dll\n"
+            "scriptfile=../slots/slot1/app.js\n"
+            "watch=1\n"
+            "capabilities=agent,timer\n"
+            "\n"            // 빈 행 통과
+            "# comment\n";  // 주석 통과
+        const std::string regenerated =
+            "name=slot1\n"
+            "title=slot1\n"
+            "width=320\n"
+            "height=240\n"
+            "module=jkapp_script.dll\n"
+            "script=app.js\n";
+        const std::string merged = jk::JkxManifestMerge(authored, regenerated);
+        check(merged.find("scriptfile=../slots/slot1/app.js\n") != std::string::npos,
+              "JkxManifestMerge preserves scriptfile verbatim");
+        check(merged.find("watch=1\n") != std::string::npos,
+              "JkxManifestMerge preserves watch verbatim");
+        check(merged.find("capabilities=agent,timer\n") != std::string::npos,
+              "JkxManifestMerge preserves unknown keys (future capabilities)");
+        check(merged.find("# comment\n") != std::string::npos,
+              "JkxManifestMerge passes through comments");
+        check(merged.find("title=slot1\n") != std::string::npos &&
+              merged.find("title=슬롯1\n") == std::string::npos,
+              "canonical key replaced in place by regenerated value");
+        check(merged.find("script=app.js\n") != std::string::npos,
+              "authored-only missing regenerated key appended");
+        // 빈 authored → regenerated 원문
+        check(jk::JkxManifestMerge("", regenerated) == regenerated,
+              "empty authored -> regenerated verbatim");
+        // 행 순서 보존: 치환된 title은 authored 위치(2번째 행)에 있다.
+        {
+            size_t npos = std::string::npos;
+            size_t atTitle = merged.find("title=slot1\n");
+            size_t atName = merged.find("name=slot1\n");
+            size_t atScriptfile = merged.find("scriptfile=");
+            check(atTitle != npos && atName != npos && atScriptfile != npos &&
+                      atName < atTitle && atTitle < atScriptfile,
+                  "JkxManifestMerge keeps authored row order");
+        }
+        // 재팩 멱등: merged를 authored로 다시 병합해도 동일하다.
+        check(jk::JkxManifestMerge(merged, regenerated) == merged,
+              "JkxManifestMerge is idempotent");
     }
 
     // Terminal VT parser + grid (docs/22 §4/§5): golden scenarios.

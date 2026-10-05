@@ -59,6 +59,16 @@ struct JkxManifest {
     bool Parse(const std::string& text);
 };
 
+// I2 — MANI 필드 보존 (docs/67 단 2 룰링: jkx-pack의 화이트리스트 재생성이
+// authored 필드를 조용히 폐기하는 설계를 필드 보존으로 교체). authored 텍스트의
+// 행 순서·내용을 원문 보존하되, regenerated에 같은 키가 존재하는 authored 행은
+// regenerated의 첫 등장 "key=value" 행으로 치환(행 위치 유지). authored에 없는
+// regenerated 키는 regenerated 순서대로 뒤에 추가. 주석/빈 행은 통과. 키 탐색은
+// Parse와 동일 규칙(첫 '=' 이전 Trim). authored가 빈 문자열이면 regenerated를
+// 그대로 돌려준다. 순수 함수 — 파일 I/O 없음.
+std::string JkxManifestMerge(const std::string& authored,
+                             const std::string& regenerated);
+
 class JKJkxFile {
 public:
     struct Entry {

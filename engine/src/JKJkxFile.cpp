@@ -62,6 +62,89 @@ bool JkxManifest::Parse(const std::string& text) {
     return !name.empty() && !module.empty();
 }
 
+// I2 — 재생성 MANI에 authored 필드를 보존한다(docs/67 단 2 룰링: 화이트리스트
+// 설계 폐기). 규칙: authored 행 순서 유지, regenerated에 키가 있는 행은 그
+// 값(첫 등장 행)으로 치환, authored에 없는 regenerated 키는 뒤에 추가,
+// 주석/빈 행 통과. (레슨: 미래 필드 — capabilities= — 도 "unknown"이 아니라
+// 보존 대상이다.)
+//
+// 2-pass 행 재조립으로 구현 — 계획서 Step 3의 raw-offset replace 루프는 치환
+// 길이가 원 행과 다를 때 원본 eol 좌표가 어긋나 이후 중복 키 행을 놓칠 수
+// 있다(검토 룰링: 2-pass가 ruling). authored 행을 벡터로 쪼개고, 각 행을 reg
+// 키와 대조해 행 문자열만 교체, 마지막에 join + 미존재 reg 키 덧붙임.
+std::string JkxManifestMerge(const std::string& authored,
+                             const std::string& regenerated) {
+    if (authored.empty()) return regenerated;
+
+    // regenerated의 key -> 첫 등장 "key=value" 행 전체 (치환 소스, 순서 유지).
+    // reg 쪽 중복 키는 불법이므로 첫 등장만 살리고 이후는 무시.
+    struct RegEntry { std::string key; std::string line; bool replaced; };
+    std::vector<RegEntry> regEntries;
+    {
+        size_t pos = 0;
+        while (pos < regenerated.size()) {
+            size_t eol = regenerated.find('\n', pos);
+            if (eol == std::string::npos) eol = regenerated.size();
+            const std::string line = regenerated.substr(pos, eol - pos);
+            pos = eol + 1;
+            const std::string t = Trim(line);
+            if (t.empty() || t[0] == '#') continue;
+            const size_t eq = t.find('=');
+            if (eq == std::string::npos) continue;
+            const std::string key = Trim(t.substr(0, eq));
+            bool seen = false;
+            for (const RegEntry& re : regEntries) {
+                if (re.key == key) { seen = true; break; }
+            }
+            if (!seen) regEntries.push_back({key, t, false});
+        }
+    }
+
+    // authored 행 pass: 행을 쪼개 각 행을 reg 키와 대조, 치환은 행 교체뿐 —
+    // 오프셋 추적이 전혀 없으므로 치환 길이가 달라도 안전.
+    std::vector<std::string> lines;
+    {
+        size_t pos = 0;
+        while (pos < authored.size()) {
+            size_t eol = authored.find('\n', pos);
+            if (eol == std::string::npos) {
+                lines.push_back(authored.substr(pos));
+                break;
+            }
+            lines.push_back(authored.substr(pos, eol - pos));
+            pos = eol + 1;
+        }
+    }
+    for (std::string& line : lines) {
+        const std::string t = Trim(line);
+        if (t.empty() || t[0] == '#') continue;
+        const size_t eq = t.find('=');
+        if (eq == std::string::npos) continue;
+        const std::string key = Trim(t.substr(0, eq));
+        for (RegEntry& re : regEntries) {
+            if (re.key != key) continue;
+            // authored 중복 키 행은 각각 치환(간단·멱등). CRLF 파일이면 행의
+            // CR은 그대로 유지(내용만 교체).
+            std::string repl = re.line;
+            if (!line.empty() && line.back() == '\r') repl += '\r';
+            line = std::move(repl);
+            re.replaced = true;
+            break;
+        }
+    }
+
+    std::string out;
+    for (const std::string& l : lines) {
+        out += l;
+        out += '\n';
+    }
+    // authored에 없는 regenerated 키를 regenerated 순서대로 뒤에 추가.
+    for (const RegEntry& re : regEntries) {
+        if (!re.replaced) out += re.line + "\n";
+    }
+    return out;
+}
+
 JKJkxFile::~JKJkxFile() {
     if (file_) {
         std::fclose(static_cast<std::FILE*>(file_));
