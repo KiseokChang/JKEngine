@@ -168,10 +168,17 @@ std::string BuildEngineCmd(const ChatConfig& cfg,
     std::string cmd;
     if (cfg.engine == "stub") {
         // No-network machinery test: emits a valid reply JSON.
+#ifdef _WIN32
         // stage-1 marking: shell literal, docs/68 W4 — stub 테스트 리터럴
         // (기계 검증용 무연결 왕복 데이터), 2단계 셸 추상 치환 대상 아님.
         cmd =
             "cmd.exe /c echo {\"result\":\"stub ok\",\"session_id\":\"stub-1\"}";
+#else
+        // posix: jk::process::Spawn rides /bin/sh -c — single-quote keeps the
+        // JSON verbatim. Same stub reply bytes, no cmd.exe.
+        cmd =
+            "echo '{\"result\":\"stub ok\",\"session_id\":\"stub-1\"}'";
+#endif
     } else if (cfg.engine == "claude") {
         cmd = "claude " + claudeArgs;
     } else {  // "ollama" (default)
@@ -272,10 +279,18 @@ int LlmTurnThread(TurnJob* job) {
     // parse, :251-256 comment above), (b) the job handle below is
     // "close == tree death". Exactly-once DoneFn (Finish) is untouched.
     jk::process::SpawnOptions opt;
-    // stage-1 marking: shell literal, docs/68 W4 — cmd.exe 접두는 2단계 셸
-    // 추상(engine별 cfg) 치환 대상, 1단계는 원문 유지.
+    // Shell prefix (플랜 F2 — docs/70 §6 #2): win32 rides cmd.exe /c (shell
+    // literal 원문 유지); posix's jk::process::Spawn passes commandLineUtf8
+    // to /bin/sh -c directly, so no prefix. 2단계 셸 추상(engine별 cfg) 대상
+    // 이 아니라 플랫폼 접두 — 접두만 플랫폼 조건이어도 stub/engine 본선 전부
+    // 개통된다(셸 본체의 선택은 cfg가 소유).
+#ifdef _WIN32
     opt.commandLineUtf8 =
         "cmd.exe /c " + BuildEngineCmd(cfg, job->prompt, job->resumeSession);
+#else
+    opt.commandLineUtf8 =
+        BuildEngineCmd(cfg, job->prompt, job->resumeSession);
+#endif
     // Session history binds to cwd (claude --resume lookup); cfg.directory
     // pins it (default: repo root where .mcp.json lives).
     opt.workingDir = cfg.directory;

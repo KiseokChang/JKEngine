@@ -964,6 +964,87 @@ void TestPipeEndpointMapping() {
           "endpoint-map: mapped socket file removed at case end");
 }
 
+// Case 10 (플랜 F2 — docs/70 §6 #2): LLM stub shell round-trip — the posix
+// JKLmEngine stub branch emits `echo '{"result":"stub ok","session_id":
+// "stub-1"}'` with NO cmd.exe prefix (posix Spawn rides /bin/sh -c directly),
+// and the reply JSON must round-trip through the adapter pipes verbatim for
+// the legacy whole-buffer fallback parser. Same drain shape as case 2.
+void TestLlmStubShell() {
+    // Same drain shape as case 2's drainPipe: drains until an OBSERVED
+    // EOF/broken verdict; a contract-(a) violation only ends the loop on the
+    // safety bail and fails the check.
+    auto drainPipe = [](void* pipe, std::string* sink) -> bool {
+        char buf[4096];
+        bool open = true;
+        bool closed = false;
+        int iters = 0;  // safety bail
+        while (open) {
+            if (++iters > 500) break;
+            uint32_t avail = 0;
+            int broken = 0;
+            const bool data = jk::process::PeekPipeAvail(pipe, &avail, &broken);
+            if (data && avail > 0) {
+                const int got =
+                    jk::process::ReadPipeData(pipe, buf, sizeof(buf));
+                if (got > 0) {
+                    sink->append(buf, static_cast<size_t>(got));
+                    continue;
+                }
+                open = false;
+                closed = true;
+            } else if (broken == 109 || broken == 232) {
+                open = false;
+                closed = true;
+            } else {
+                usleep(20 * 1000);
+            }
+        }
+        return closed;
+    };
+
+    constexpr uint32_t kStillActiveExit = 259;  // STILL_ACTIVE (win32 parity)
+
+    jk::process::SpawnOptions opt;
+    // The stub line EXACTLY as JKLmEngine.cpp's posix branch composes it
+    // (single-quoted so /bin/sh keeps the inner double quotes verbatim).
+    opt.commandLineUtf8 =
+        "echo '{\"result\":\"stub ok\",\"session_id\":\"stub-1\"}'";
+    opt.hideWindow = true;
+    opt.inheritedStdioPipes = true;
+    const jk::process::SpawnResult sp = jk::process::Spawn(opt);
+    Check(sp.ok, "llm: stub spawn ok");
+    Check(sp.ok && sp.stdoutRead && sp.stderrRead,
+          "llm: stub spawn returns both parent pipe read ends");
+    if (!sp.ok) return;
+    std::string out, errOut;
+    const bool outEof = drainPipe(sp.stdoutRead, &out);
+    const bool errEof = drainPipe(sp.stderrRead, &errOut);
+    std::printf("  llm: stdout=\"%.200s\"\n", out.c_str());
+    std::fflush(stdout);
+    Check(out.find("\"result\":\"stub ok\"") != std::string::npos,
+          "llm: stub JSON round-trip");
+    Check(out.find("\"session_id\":\"stub-1\"") != std::string::npos,
+          "llm: stub session id round-trip");
+    Check(errOut.empty(), "llm: stub stderr empty");
+    Check(outEof && errEof,
+          "llm: EOF observed on both pipes (contract a: parent holds read "
+          "ends only)");
+    uint32_t code = 0;
+    bool exited = false;
+    for (int i = 0; i < 500; ++i) {  // 10s budget — echo exits at once
+        if (jk::process::GetExitCode(sp.process, &code) &&
+            code != kStillActiveExit) {
+            exited = true;
+            break;
+        }
+        usleep(20 * 1000);
+    }
+    Check(exited && code == 0, "llm: stub shell exits cleanly with 0");
+    jk::process::CloseHandleLike(sp.process);
+    jk::process::CloseHandleLike(sp.stdoutRead);
+    jk::process::CloseHandleLike(sp.stderrRead);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -977,6 +1058,7 @@ int main(int argc, char** argv) {
     TestTextConv();
     TestProcessScan(argv);
     TestPipeEndpointMapping();
+    TestLlmStubShell();
     std::printf("PosixSelfTest: %d failure(s)\n", g_failures);
     return g_failures == 0 ? 0 : 1;
 }
