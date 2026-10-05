@@ -1071,6 +1071,138 @@ void TestLocaltimeS() {
           "crt: FmtStamp separators render");
 }
 
+// Case 12 (plan H — docs/70 §6 #5): posix job 복수 멤버 + 자식 stdin /dev/null
+// 패리티.
+//   A) 12a job multi-member: TWO children assigned to one kill-on-close job
+//      must BOTH die on TerminateJobTree — the old single-pgid capture
+//      overwrote its only member, so the first child survived the tree kill
+//      (win32 JobObject keeps every AssignProcessToJobObject member).
+//   B) 12b stdin parity: win32 never sets si.hStdInput (JKProcess_win32.cpp:77)
+//      — a win32 child cannot read its parent's stdin. The posix child used to
+//      inherit fd 0; now it gets /dev/null, so `read` ends instantly on EOF
+//      and `echo got:$x` prints an empty value. A hang/timeout here means the
+//      posix child is STILL inheriting the parent's stdin.
+void TestJobMultiMemberAndStdinParity() {
+    constexpr uint32_t kStillActiveExit = 259;  // STILL_ACTIVE (win32 parity)
+
+    // Same drain shape as case 2's drainPipe: drains until an OBSERVED
+    // EOF/broken verdict; a contract-(a) violation only ends the loop on the
+    // safety bail and fails the check.
+    auto drainPipe = [](void* pipe, std::string* sink) -> bool {
+        char buf[4096];
+        bool open = true;
+        bool closed = false;
+        int iters = 0;  // safety bail
+        while (open) {
+            if (++iters > 500) break;
+            uint32_t avail = 0;
+            int broken = 0;
+            const bool data =
+                jk::process::PeekPipeAvail(pipe, &avail, &broken);
+            if (data && avail > 0) {
+                const int got =
+                    jk::process::ReadPipeData(pipe, buf, sizeof(buf));
+                if (got > 0) {
+                    sink->append(buf, static_cast<size_t>(got));
+                    continue;
+                }
+                open = false;
+                closed = true;
+            } else if (broken == 109 || broken == 232) {
+                open = false;
+                closed = true;
+            } else {
+                usleep(20 * 1000);
+            }
+        }
+        return closed;
+    };
+    auto trim = [](std::string s) -> std::string {
+        while (!s.empty() && (s.back() == '\n' || s.back() == '\r' ||
+                              s.back() == ' ' || s.back() == '\t'))
+            s.pop_back();
+        const size_t first = s.find_first_not_of(" \t\r\n");
+        return first == std::string::npos ? std::string()
+                                          : s.substr(first);
+    };
+
+    // A) 12a job multi-member — two sleepers, one job, one tree kill.
+    //    Marker output is unnecessary: the exit path IS the observation.
+    jk::process::SpawnOptions sleeper;
+    sleeper.commandLineUtf8 = "sleep 30";
+    sleeper.inheritedStdioPipes = true;
+    const jk::process::SpawnResult m1 = jk::process::Spawn(sleeper);
+    const jk::process::SpawnResult m2 = jk::process::Spawn(sleeper);
+    Check(m1.ok && m1.process && m2.ok && m2.process,
+          "job12: two multi-member job children spawn");
+    void* job3 = jk::process::CreateKillOnCloseJob();
+    Check(job3 != nullptr,
+          "job12: multi-member kill-on-close job handle is non-null");
+    Check(jk::process::AssignToJob(job3, m1) &&
+              jk::process::AssignToJob(job3, m2),
+          "job12: both children assign to the SAME job (accumulate, not "
+          "overwrite)");
+    Check(jk::process::AssignToJob(job3, m1),
+          "job12: re-assigning the same child is idempotent and true "
+          "(controller ruling)");
+    Check(jk::process::TerminateJobTree(job3, 1),
+          "job12: terminate kills every member tree (returns ok)");
+    // Brief shape: WaitForExit(3000) on BOTH members — the old overwrite left
+    // the first-assigned child running (it died 30s later, not here).
+    const bool w1 = jk::process::WaitForExit(m1.process, 3000);
+    const bool w2 = jk::process::WaitForExit(m2.process, 3000);
+    Check(w1 && w2,
+          "job12: BOTH members left after the single TerminateJobTree "
+          "(WaitForExit(3000) each)");
+    // 코드는 정상 종료(0) 또는 128+9(137) 둘 다 수용 — SIGKILL 도착 타이밍
+    // 무관(sleep은 신호 사망 137이 상통, ok만 단정).
+    uint32_t code1 = 0, code2 = 0;
+    Check(jk::process::GetExitCode(m1.process, &code1) &&
+              jk::process::GetExitCode(m2.process, &code2) &&
+              (code1 == 0 || code1 == 137) && (code2 == 0 || code2 == 137),
+          "job12: members report 0 or 128+9=137 (SIGKILL landing timing)");
+    Check(code1 != kStillActiveExit && code2 != kStillActiveExit,
+          "job12: reaped exit codes are stable (no 259 residue)");
+    jk::process::CloseHandleLike(m1.stdoutRead);
+    jk::process::CloseHandleLike(m1.stderrRead);
+    jk::process::CloseHandleLike(m1.process);
+    jk::process::CloseHandleLike(m2.stdoutRead);
+    jk::process::CloseHandleLike(m2.stderrRead);
+    jk::process::CloseHandleLike(m2.process);
+    jk::process::CloseHandleLike(job3);  // close IS the kill; already dead
+
+    // B) 12b stdin /dev/null parity — a reader child must NOT block forever.
+    jk::process::SpawnOptions reader;
+    reader.commandLineUtf8 = "read x; echo got:$x";
+    reader.inheritedStdioPipes = true;
+    const jk::process::SpawnResult rd = jk::process::Spawn(reader);
+    Check(rd.ok && rd.process && rd.stdoutRead,
+          "job12: stdin-parity reader spawns with pipes");
+    if (!(rd.ok && rd.process)) return;
+    // The parity observation: read hits /dev/null EOF instantly, echo prints
+    // the empty value, sh exits 0 — all well inside a 2s wait budget. A
+    // FAIL here means the posix child still holds the parent's stdin.
+    const bool readerExited = jk::process::WaitForExit(rd.process, 2000);
+    uint32_t code3 = 0;
+    jk::process::GetExitCode(rd.process, &code3);
+    std::string rdOut, rdErr;
+    const bool rdEof = drainPipe(rd.stdoutRead, &rdOut);
+    drainPipe(rd.stderrRead, &rdErr);
+    std::printf("  job12: reader exit=%u stdin-free out=\"%.200s\"\n",
+                static_cast<unsigned>(code3), rdOut.c_str());
+    std::fflush(stdout);
+    Check(readerExited,
+          "job12: reader exits inside 2000ms (stdin is /dev/null, never "
+          "the parent's stdin)");
+    Check(!rdEof || trim(rdOut) == "got:",
+          "job12: reader prints got: with an empty $x (EOF emptied the var)");
+    Check(rdEof, "job12: reader stdout EOF observed (contract a intact)");
+    Check(rdErr.empty(), "job12: reader stderr empty");
+    jk::process::CloseHandleLike(rd.stdoutRead);
+    jk::process::CloseHandleLike(rd.stderrRead);
+    jk::process::CloseHandleLike(rd.process);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -1086,6 +1218,7 @@ int main(int argc, char** argv) {
     TestPipeEndpointMapping();
     TestLlmStubShell();
     TestLocaltimeS();
+    TestJobMultiMemberAndStdinParity();
     std::printf("PosixSelfTest: %d failure(s)\n", g_failures);
     return g_failures == 0 ? 0 : 1;
 }

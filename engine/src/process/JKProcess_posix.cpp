@@ -61,9 +61,13 @@ struct ProcState : HandleState {
     uint32_t exitCode;
 };
 
+// Plan H1 (docs/70 §6 #5): win32 JobObject takes MULTIPLE members via
+// AssignProcessToJobObject and TerminateJobObject kills them all — the
+// single-pgid capture was an overwrite (a second AssignToJob silently
+// dropped the first member from the tree kill). Heap state accumulates
+// pgids instead, matching the win32 observation.
 struct JobState : HandleState {
-    pid_t pgid;   // literal pgid captured on AssignToJob (pgid == pid by setpgid)
-    bool bound;
+    std::vector<pid_t> pgids;  // 복수 멤버 — win32 JobObject 복수 계약 패리티
     bool killed;
 };
 
@@ -146,6 +150,24 @@ SpawnResult Spawn(const SpawnOptions& options) {
             close(errPipe[0]);
             close(errPipe[1]);
         }
+        // win32 parity (JKProcess_win32.cpp:77 hStdInput 미설정): 자식 stdin은
+        // 데이터 원이 없다 — 부모 stdin 상속은 posix 전용 이탈이었다(플랜 E 잔여
+        // docs/70 §6 #5: 패리티 원하면 open("/dev/null")+dup2(0)). /dev/null EOF는
+        // win32 NULL stdin 즉시 오류와 같은 관측 — 자식이 read에 영원히 블록하지
+        // 않고 부모(agentd 등)의 stdin을 훔치는 사고가 구조적으로 불가능해진다.
+        // 룰링(플랜 H1): inheritedStdioPipes와 무관하게 무조건 적용 — win32
+        // 스폰의 자식 stdin은 두 계열(pipes/handles) 모두 데이터 원 없음; terminal
+        // 접두 pty는 이 어댑터가 아니라 JKConPtyBridge 소관이라 영향 0.
+        {
+            const int nullFd = ::open("/dev/null", O_RDONLY | O_CLOEXEC);
+            if (nullFd >= 0) {
+                ::dup2(nullFd, STDIN_FILENO);
+                ::close(nullFd);
+            }
+        }
+        // 위에서 닫힌 nullFd 슬롯은 아래 스윕 범위(3+)에 순차 재사용될 수 있고
+        // 스윕의 close는 EBADF여도 무해하므로 순서 보장이 충분 — 불변명(스윕은
+        // 0/1/2를 건드리지 않는다)은 그대로 유지된다.
         // fork 상속 fd 소각 (플랜 G3 WSLg 실측): fork는 exec 대상과 무관하게
         // 열린 fd 전부를 복사한다 — 대표 사고는 서버 acceptor의 unix listener:
         // taskbar 자동 스폰 직후 자식이 listener를 물려쥐어 소켓 파일이
@@ -323,8 +345,14 @@ void  CloseHandleLike(void* handle) {
             JobState* j = static_cast<JobState*>(handle);
             // Contract (b): "handle close == tree death" — closing the job
             // handle IS the kill, even without a preceding TerminateJobTree.
-            if (j->bound && !j->killed) {
-                if (kill(-j->pgid, SIGKILL) == 0) j->killed = true;
+            // Plan H1: same loop as TerminateJobTree (every member pgid, ESRCH
+            // = already dead = success; `bound`는 소멸 — `killed`만이 게이트).
+            if (!j->killed) {
+                bool ok = true;
+                for (pid_t pgid : j->pgids) {
+                    if (kill(-pgid, SIGKILL) != 0 && errno != ESRCH) ok = false;
+                }
+                if (ok) j->killed = true;  // failed member stays retryable
             }
             delete j;
             return;
@@ -336,8 +364,8 @@ void  CloseHandleLike(void* handle) {
 
 void* CreateKillOnCloseJob() {
     JobState* job = new (std::nothrow) JobState{
-        HandleState{kMagicJob}, 0 /*pgid*/, false /*bound*/, false};
-    return job;  // pgid gets captured at AssignToJob time
+        HandleState{kMagicJob}, {} /*pgids: empty job*/, false};
+    return job;  // pgids get accumulated at AssignToJob time
 }
 
 bool  AssignToJob(void* job, const SpawnResult& proc) {
@@ -347,8 +375,12 @@ bool  AssignToJob(void* job, const SpawnResult& proc) {
     // setpgid(0,0) at spawn made the child its own group leader, so the pgid
     // literal is the pid — captured in heap state exactly like the win32 job
     // object captures process membership at AssignProcessToJobObject time.
-    j->pgid = p->pid;
-    j->bound = true;
+    // Plan H1: win32 JobObject takes MULTIPLE members and keeps them all —
+    // ACCUMULATE, never overwrite. Re-assigning the same proc is an
+    // idempotent no-op that still reports success (controller ruling).
+    for (pid_t pgid : j->pgids)
+        if (pgid == p->pid) return true;  // duplicate assign — already a member
+    j->pgids.push_back(p->pid);
     return true;
 }
 
@@ -356,9 +388,21 @@ bool  TerminateJobTree(void* job, uint32_t exitCode) {
     (void)exitCode;  // posix signal death cannot be forced to a specific code;
                      // the child reports 128+SIGKILL(9)=137, still non-zero.
     JobState* j = AsJob(job);
-    if (!j || !j->bound || j->killed) return false;
-    const bool ok = kill(-j->pgid, SIGKILL) == 0;
-    if (ok) j->killed = true;
+    if (!j || j->killed) return false;
+    // Plan H1: kill EVERY member's process group, not just the last assigned.
+    // kill()==ESRCH means the member is already dead — win32 TerminateJobObject
+    // on an empty/job-with-dead-members job still succeeds (controller
+    // ruling), so ESRCH is treated as success and ok stays true; only a kill
+    // failing with any other errno fails the call.
+    // An EMPTY job (no member ever assigned) succeeds just like win32's
+    // TerminateJobObject on a job with no processes — ok=true, killed=true.
+    bool ok = true;
+    for (pid_t pgid : j->pgids) {
+        if (kill(-pgid, SIGKILL) != 0 && errno != ESRCH) ok = false;
+    }
+    j->killed = ok;  // full success: no member left to re-kill (이중 킬 방지);
+                     // a real error keeps killed=false so CloseHandleLike's
+                     // close-kill can retry the failed member.
     return ok;
 }
 
