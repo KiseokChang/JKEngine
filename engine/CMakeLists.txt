@@ -850,6 +850,11 @@ endif()
 # jkdesktop POST_BUILD copy — i.e. never after an icons-only edit. Sync each
 # icon into the build tree as an explicit output so icon edits chain into
 # repacking (minesweeper uses the launcher_mine prefix).
+# Linux v1 exclusion: the jkx-pack host (jkdesktop's Windows-only subcommand)
+# cannot run on posix, so the whole auto-repack block — icon sync, per-app
+# containers, and the jkx_packages ALL target — is WIN32-gated. Linux builds
+# produce binaries without launcher containers (documented in docs/70 §제외).
+if(WIN32)
 set(JKX_ICON_APPS
     mine tetris testwin jango occ pcx vector iconedit recog vfont vpres
     terminal imguidemo taskmgr vplayer browser scriptdemo passworddemo
@@ -1077,3 +1082,4 @@ add_custom_target(jkx_packages ALL
             ${JKX_DEP_BROWSER}
             "${CMAKE_BINARY_DIR}/apps/scriptdemo.jkx"
             "${CMAKE_BINARY_DIR}/apps/passworddemo.jkx")
+endif()  # WIN32 — jkx auto-repack (above)
