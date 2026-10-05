@@ -18,11 +18,11 @@ Ubuntu-24.04에서 실 linux g++ 컴파일+런타임** — 별도 리눅스 머�
   failure(s)` 푸터 + 실패 시 비0 종료). 케이스: 1 fs·2 process·3 net·4 pty·
   5 transport·6 instance-lock — 전부 posix 네이티브 헤더(sys/socket.h 등)
   허용(윈도우 컴파일 대상 아님, windows.h-clean 제약 없음).
-- `build.sh` — `g++ -std=c++17 -Wall -Wextra -Wpedantic -pthread -lutil`
+- `build.sh` — `g++ -std=c++17 -Wall -Wextra -pthread -lutil -O1`
   무조건 플래그(컨트롤러 러링: -lutil은 T4 openpty 시점부터 실사용이지만
-  T1부터 고정 — 태스크 간 build.sh 흔들림 방지). 산출은
-  `engine/build/posix_selftest`(윈도우 CMake 디렉터 내부 — 리뷰어 LOW 판정
-  수용, gitignored+문서화).
+  T1부터 고정 — 태스크 간 build.sh 흔들림 방지; 실측 플래그열은 as-built
+  정정 — opus 최종리뷰 NIT). 산출은 `engine/build/posix_selftest`(윈도우
+  CMake 디렉터 내부 — 리뷰어 LOW 판정 수용, gitignored+문서화).
 - **레슨(WSL 실측 확보 경로):** 별도 리눅스 머신 없이도 이 머신의 WSL2
   (Ubuntu-24.04.4, `wsl.exe -u root` 패스워드리스)에 build-essential+cmake
   설치로 어댑터 TU만 묶는 스탠드얼론 하네스가 SDL 등 엔진 의존 제외하고 즉시
@@ -163,6 +163,24 @@ CMakeLists +6행(instance lock 등록만), JKWindowServer.cpp 59행(R-D 예외
 순수 치환 8 hunk — 리뷰어 전 hunk 검증), 그 밖 소비/테스트 TU 접촉 0.
 
 ## 4. 남는 것(3단계로 — 플랜 E 후보)
+
+**★ 어댑터 소비자 측 미접봉 공개(opus 최종리뷰 MEDIUM/LOW — posix 포트 시
+반드시 읽을 것):**
+- **flock 가드의 소비자 측 미접봉:** JKWindowServer의 `#else` (posix) 가드
+  분기는 스텁 관습 승계로 no-op true 반환 — JKInstanceLock 어댑터를 호출하지
+  않는다(헤더 §1 주석 참조). 또 AcceptorLoop/JKClientConnection의
+  wire(JKPipeTransport) 접속도 `\\.\pipe\` 이름 문자열이라 unix socket 경로
+  재정의가 필요 — 이 양쪽이 플랜 E 작업.
+- **job = 단일 멤버:** posix ProcState의 pgid는 마지막 AssignToJob로 덮어쓰임
+  (win32 job object는 전 assignee 보유) — 여러 자식을 job에 묶는 posix 포트는
+  마지막 assignee 외 트리 킬이 누락됨.
+- **자식 stdin 차이:** win32 자식 stdin=NULL(STARTF_USESTDHANDLES), posix 자식은
+  부모 fd 0 상속 — 콘솔 읽기/블록 가능. 패리티를 원하면 자식에서 open("/dev/null")
+  +dup2(0).
+- **조기 CloseHandleLike(proc) 좀비:** 부모가 달아나면 이후 사망 자식은 미회수(
+  init이 부모 사망 시 회수 — 누수 아님, win32 무상응).
+- **전송 phantom 연결:** LiveServerHoldsPath의 probe connect가 살아있는 서버의
+  backlog 슬롯을 소비할 수 있음(실제 acceptor에 유령 connect/EOF 도달 — 희귀).
 
 - 폰트 탐색 체계(docs/63 폴백 체인과의 통합 설계 — §8 본체 4중 유일 잔여)
 - cmd.exe 셸 리터럴(jk::process 셸 추상)+wmain CRT 진입(JKWindowServer 콘솔

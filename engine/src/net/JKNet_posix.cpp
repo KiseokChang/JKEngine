@@ -120,10 +120,13 @@ bool RecvAll(Socket s, void* buf, std::size_t n) {
 int Send(Socket s, const void* data, int len) {
     // R-C2: raw passthrough — one send() call, r<=0 means EOF/error. The
     // loop shape stays with the caller (WsSendFrame/SendAll). No EINTR
-    // retry: win32 Send has none either (parity over convenience).
+    // retry: win32 Send has none either (parity over convenience). MSG_NOSIGNAL
+    // so a peer-closed write cannot kill the process by SIGPIPE (a hazard
+    // win32 lacks — the transport TU already uses the same flag; opus
+    // final-review finding: jk::net on posix had none).
     return static_cast<int>(send(static_cast<int>(s),
                                  static_cast<const char*>(data),
-                                 static_cast<size_t>(len), 0));
+                                 static_cast<size_t>(len), MSG_NOSIGNAL));
 }
 
 void SetTimeouts(Socket s, std::uint32_t timeoutMs) {

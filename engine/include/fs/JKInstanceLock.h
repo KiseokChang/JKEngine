@@ -4,9 +4,11 @@
 // task 6). Win32 impl JKInstanceLock_win32.cpp (CreateMutexA named mutex — the
 // guard acquisition absorbed from JKWindowServer.cpp:414); posix impl
 // JKInstanceLock_posix.cpp (flock(LOCK_EX|LOCK_NB) on the /tmp/<name>.lock
-// file). Gives the posix port the same acquire/refuse contract instead of a
-// no-op guard while the win32 call site keeps its identical observable
+// file). Posix consumers get the same acquire/refuse contract (note: as of
+// plan D the posix JKWindowServer consumer-side wiring is still plan-E —
+// see docs/69 §4); the win32 call site keeps its identical observable
 // behavior (refusal messages, takeover logic, lifetime).
+
 
 // Single slot: one guard is held per process. A second AcquireInstanceLock
 // while holding — even with the same name — returns false (win32 parity:
