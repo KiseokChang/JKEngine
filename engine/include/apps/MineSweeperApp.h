@@ -204,6 +204,13 @@ public:
     // 서버 캐시를 upsert한다(upsert가 cursorState를 (0,0)으로 리셋 — 새 격자
     // 좌상단이므로 정확한 정의 전이). 레이아웃 변경 후 콜백 발화.
     void SetCursorDeclChangedCb(std::function<void()> cb);
+    // 클라 프로세스 배치(클라 앱) 전용 — SetDifficulty가 계산한 창 전체
+    // (w, h)를 전달한다. 윈도 서버가 표면 지오메트리의 진실원이므로 로컬
+    // SetWindowRect는 표면 밖으로 그리는 오버플로우만 만든다(2026-10-05
+    // 사용자 보고). 클라 앱은 이 콜백에서 서버에 self window_resize를
+    // 요청하고 ResizeSurface 에코로 릴레이아웃한다. 미설정(싱글 프로세스)
+    // 이면 기존 로컬 리사이즈 경로. 1-in-flight 가드는 콜백 속 주체 몫.
+    void SetSelfResizeRequestCb(std::function<void(int, int)> cb);
 
 private:
     class Impl;

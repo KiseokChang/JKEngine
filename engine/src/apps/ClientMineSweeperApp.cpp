@@ -135,6 +135,8 @@ public:
     std::unique_ptr<MineGameWindow> mineWindow;
     bool iconsLoaded = false;
     ClientMineSweeperApp* app = nullptr;
+    uint32_t nextResizeSeq_ = 0;
+    uint32_t resizeQueryInFlight_ = 0;   // 1-in-flight (RequestSelfResize)
 
     static constexpr int kTimerMs = 100;
 
@@ -173,6 +175,35 @@ public:
              "{\"type\":\"object\",\"properties\":{}}"},
         };
         surface->SendAgentToolRegister("minesweeper", tools, false, cursorDecl);
+    }
+
+    // self window_resize (2026-10-05 사용자 보고 수리): SetDifficulty가
+    // 계산한 창 전체 크기를 서버에 요청한다 — id 생략 = 호출자 자기 창
+    // (JKWindowServer HandleAgentQuery window_resize). CommitChromeResize가
+    // shm 리맵+ResizeSurface 푸시까지 하므로 클라는 SizeChanged 에코에서
+    // 릴레이아웃한다. window_fullscreen 선례 — 1-in-flight(중복 도착 클릭
+    // 무시), 응답은 정보성(실패도 재시도 없음 — 다음 클릭이 다시 요청).
+    void RequestSelfResize(int w, int h) {
+        jk::client::JKClientSurface* surface = app ? app->Surface() : nullptr;
+        if (!surface || !surface->IsConnected()) return;
+        if (resizeQueryInFlight_ != 0) return;
+        const uint32_t id =
+            0x5F000000u + nextResizeSeq_++;   // 툴 reqId 공간과 분리된 queryId
+        if (!surface->SendAgentQuery(id,
+                "{\"tool\":\"window_resize\",\"args\":{\"w\":" +
+                    std::to_string(w) + ",\"h\":" + std::to_string(h) + "}}"))
+            return;
+        resizeQueryInFlight_ = id;
+    }
+
+    // 타이머 틱에서 응답 큐를 비운다(레슨: 앱이 폴링 안 하면 큐 무한 성장).
+    void DrainAgentReplies() {
+        jk::client::JKClientSurface* surface = app ? app->Surface() : nullptr;
+        if (!surface) return;
+        jk::client::AgentReply reply;
+        while (surface->PollAgentReply(reply)) {
+            if (reply.queryId == resizeQueryInFlight_) resizeQueryInFlight_ = 0;
+        }
     }
 
     void LoadIcons(JKResourceCache* cache) {
@@ -217,6 +248,10 @@ void ClientMineSweeperApp::OnInit() {
     // 회피.
     impl_->mineWindow->SetCursorDeclChangedCb(
         [this]() { impl_->RegisterAgentTools(Surface()); });
+    // 클라 배치 자기 리사이즈 — SetDifficulty의 계산 크기를 서버 요청으로
+    // (SetSelfResizeRequestCb 계약 참조).
+    impl_->mineWindow->SetSelfResizeRequestCb(
+        [this](int w, int h) { impl_->RequestSelfResize(w, h); });
 
     SetMainWindow(std::move(main));
     SetTimerInterval(Impl::kTimerMs);
@@ -259,6 +294,7 @@ bool ClientMineSweeperApp::OnAgentToolCall(const std::string& tool,
 bool ClientMineSweeperApp::PreProcessMessage(const JKEvent& ev) {
     if (ev.type == JKEventType::Timer && impl_->mineWindow) {
         impl_->mineWindow->OnTimer(Impl::kTimerMs);
+        impl_->DrainAgentReplies();   // self-resize 응답 회수 (정보성)
     }
     return JKClientApplication::PreProcessMessage(ev);
 }

@@ -879,6 +879,9 @@ public:
     int elapsedSeconds = 0;
     int mineTickCounter = 0;
     std::function<void()> cursorDeclChangedCb;   // MINOR-4 — 난이도 변경 알림
+    // 클라 배치 자기 리사이즈 요청(MineGameWindow::SetSelfResizeRequestCb) —
+    // 설정자는 클라 앱(ClientMineSweeperApp), 소비처는 ResizeMineWindow.
+    std::function<void(int, int)> selfResizeRequestCb;
 
     // 라이브 재선언 (docs/64 §8): 격자 기하 변화는 SetRect마다 dirty만 세우고
     // 타이머 틱에서 실측 대조 후 재선언 — 서버 링이 항상 실제 그려지는 격자를
@@ -950,9 +953,22 @@ public:
 
     void ResizeMineWindow() {
         if (!window) return;
-        int w = std::max(kMinWindowWidth, kMargin * 2 + game.GetCols() * kCellSize);
+        // +4: 창 테두리 2×2 — 이전 산식은 grid 가용 폭이 cols*24보다 4px
+        // 작아 min-fit이 셀을 1px 축소했다. 4를 더해 모든 모드에서 정확히
+        // 맞는다.
+        int w = std::max(kMinWindowWidth, kMargin * 2 + 4 + game.GetCols() * kCellSize);
         int clientH = kButtonAreaHeight + kMargin + game.GetRows() * kCellSize + kMargin;
         int h = clientH + 24 + 2;
+        // 클라 프로세스 배치(docs/28)는 서버가 표면 지오메트리의 진실원 —
+        // 로컬 SetWindowRect는 내부 창만 커져 표면 밖으로 그려진다(2026-10-05
+        // 사용자 보고: B/I/E 전환 오버플로우, 수동 리사이즈로만 회복).
+        // 계산 크기를 콜백으로 넘기고 로컬 rect는 손대지 않는다 — 서버 응답
+        // 표준 리사이즈 에코(SizeChanged)가 루트를 키우고 도크 패스가 격자를
+        // 따라간다. 미설정(싱글 프로세스)은 기존 로컬 경로.
+        if (selfResizeRequestCb) {
+            selfResizeRequestCb(w, h);
+            return;
+        }
         JKRect r = window->GetRect();
         r.w = w;
         r.h = h;
@@ -1167,6 +1183,10 @@ JKWindow* MineGameWindow::GetWindow() const {
 
 MineSweeperGame& MineGameWindow::Game() {
     return impl_->game;
+}
+
+void MineGameWindow::SetSelfResizeRequestCb(std::function<void(int, int)> cb) {
+    impl_->selfResizeRequestCb = std::move(cb);
 }
 
 void MineGameWindow::NewGame() {
