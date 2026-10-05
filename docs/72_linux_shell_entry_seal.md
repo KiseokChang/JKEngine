@@ -18,8 +18,18 @@ windows 배열이 비어 있지 않게 됐다(docs/70 §6 #8의 원래 왕복 �
 윈도우 공식 9항목 게이트  GREEN (1회차 contiguous, @f1ffe38)
 WSL 빌드+posix_selftest   GREEN (ninja RC=0, 0 failure(s))
 WSLg 스모크 v3            GREEN (O-A~O-G: 소켓·taskbar 스폰·창 왕복·재시작 leg·정리)
-diff 크기                 8 파일 (+docs 1) — win32 동작 변화: stderr 문구 %s 접미 전환뿐(바이트 동일)
+diff 크기                 8 파일 (+docs 2) — win32 관측 변화는 §0.1의 승인 편차 2건뿐
 ```
+
+### 0.1 승인 편차 (win32 관측 변화 — 전부 최종리뷰 판정 기록)
+
+- **#1(G3, 무가드 Hello 인쇄 분할)** — :575-589. win32에서도 기존 유령
+  진단 "got type=9"(type 필드는 기본 멤버 초기자 MsgType::Close(=9)라
+  진성 불일치로도 9가 인쇄됐다)가 정직 문구 "Hello read failed (short/EOF)"
+  로 바뀐다. 오류 경로 전용·제어 흐름 동일 — 승인(리뷰 MEDIUM, docs 라이더
+  경로: 코드 반납 대신 명문화).
+- **#2(G1, stderr 문구 %s 접미 전환)** — "no jkapp_taskbar%s" 포맷;
+  win32 접미 ".dll"이므로 출력 바이트 동일 (관측 변화 0).
 
 ## 1. docs/71 §5 잔차 → 소각 매핑
 
@@ -28,7 +38,7 @@ diff 크기                 8 파일 (+docs 1) — win32 동작 변화: stderr �
 | #1 .dll/.so 접미 프로브 (plain route :4234 + taskbar :516) | G1 | d54f3d5 | `jk::server::AppModuleSuffix()` — win32 `".dll"` / posix `".so"`; stderr 문구는 `no jkapp_taskbar%s` 포맷으로 win32 바이트 동일 유지 | 없음 |
 | #2 posix --client route (main.cpp "Windows-only in this prototype") | G2 | 308b6e6+R1 72407f4 | `RunClientModule` dlopen(RTLD_NOW\|RTLD_LOCAL)+dlsym — **닫지 않음**(FreeLibrary 힙 손상 선례 계승); exe-dir 절대 경로 헬퍼 `ClientModulePath()`(bare 이름이 exe-dir을 검색하지 않는 실측 결함 — "cannot open shared object file"에서 R1으로 소각); --client/--filedlg 게이트 `#else` leg 개통 | --jkx route는 v1 게이트 유지(docs/70 §4) |
 | #3 taskbar 자동 스폰 `#ifdef _WIN32` 블록 | G3 | fa32565(+4467c38 수리, R1/R2) | 블록 개통 — posix 대기 leg는 `jk::ipc::DefaultServerEndpointPath()`(**신설, unix socket fold 규칙의 결정론 결과** /tmp/JKWindowServerPipe.sock — JKPipeTransport_posix.cpp:33-43 인용) | 없음 |
-| #3b jkx 핸들러 SpawnClient false 무시 → 정직 답변 | G4 | 827b3f4 | posix `{"ok":false,"error":"spawn_failed","jkx":"…"}` — 단 v1에서 **ScanJkxApps 갭**이 선행해 unknown_jkx(:4356)가 먼저 거부 → spawn_failed는 갭 해소 전 unreachable(스모크 §5 실측, 거짓 성공은 어느 경로도 0) | ScanJkxApps posix 갭(docs/71 #3 계열 — 냉동) |
+| #3b jkx 핸들러 SpawnClient false 무시 → 정직 답변 | G4 | 827b3f4 | posix `{"ok":false,"error":"spawn_failed","jkx":"…"}` — 단 v1에서 스폰 실패에 도달하기 전 **launch_app 핸들러의 후보 공진**(:4343-4356 fileExistsFn 계열 — posix exe-dir에 .jkx가 존재하지 않음)이 unknown_jkx로 먼저 거부 → spawn_failed는 후보 해석 성공 전 unreachable(스모크 §5 실측, 거짓 성공은 어느 경로도 0). 런처 열거 쪽 ScanJkxApps(JKDesktopShell.cpp:364)는 이 경로와 무관 | posix exe-dir의 .jkx 부재(docs/71 #3 계열 — 냉동) |
 | #4 launch_chat jkchat.exe 하드코드 | G4 | 827b3f4 | posix `{"ok":false,"error":"unavailable_on_platform"}`; agentd 스모크에서는 `unknown_tool` — **launch_chat이 jkagentd 등록줄에 없음**(tools/jkagentd/main.cpp:97·148, 클라이언트 사이드 등록만 :58 launch_app); 실 경로는 팔레트/폰(ClientPaletteApp:268 SendTool) | agentd 미등록은 agentd 전용 냉동 잔차(§5.2) |
 | #5 jkx 인수 `'/'→'\'` 폴드 | G4 실측 판정 | 827b3f4 내 기록 | **무재현 종결**: 폴드로 MISS 되는 입력 조합 집합은 공집합 — 후보 (1) 원문·(2) exeDir+원문이 posix 슬래시를 보호 | 수정 없음, 판정만 영속 |
 | (docs/71 리뷰 MEDIUM) stub 셸 리터럴 3처 복제 | G5 | ae376a2 | `jk::agent::kStubShellCmdWin32/kStubShellCmdPosix` inline constexpr(JKLmEngine.h, Llm — 파일 표기 주의 [[le저]] 참조); JKLmEngine.cpp :175·:180+posix_selftest 케이스 10 전부 상수 참조 | 없음 |
@@ -68,9 +78,9 @@ jkapp_taskbar%s — desktop runs without a shell"은 win32에서 접미가 .dll�
 결함: bare `jkapp_<name>.so` dlopen 실패 — 리눅스 dlopen은 exe-dir을
 검색하지 않는다. `ClientModulePath()`(exe-dir 절대 경로)로 소각.
 RTLD_LOCAL은 모듈 심볼의 전역 네임스페이스 유출 방지 원칙. dlerror 문구는
-dlerror()가 NULL 가능 → 주석으로 기록(포맷 보호). RunClientFromJkx의 temp
-합성은 getpid 기반으로 플랫폼 중립화(DeleteFileA→std::remove,
-temp_directory_path ec).
+최종리뷰 LOW-rider로 NULL 가드 신설(라이더 웨이브 — "%s에 NULL 전달 금지,
+`(no dlerror detail)` 마킹"). RunClientFromJkx의 temp 합성은 getpid 기반으로
+플랫폼 중립화(DeleteFileA→std::remove, temp_directory_path ec).
 
 **G3 (fa32565, sonnet APPROVE → R1/R2).** 블록 개통+대기 leg 신설.
 **리뷰 R1-1 판정:** 파일 존재 폴링은 스태일 소켓 오판 — connect-once
@@ -134,15 +144,22 @@ ClientPaletteApp 경로(:268)에는 존재하나 jkagentd 도구 등록줄(:97·
 win32 등록줄이 실제 변화하는 것(신규 도구 노출)이라 승인 관측 편차가 된다.
 **v1 유지·냉동** — 사용자 판정 시 해동.
 
-## 6. 최종리뷰 (whole-branch, opus, 7811f09..f1ffe38+docs 패키지)
+## 6. 최종리뷰 (whole-branch, opus, 7811f09..1e1615d 패키지)
 
-- **(대기 — 판정 확정 시 이 절에 기록)** VERDICT 형식: APPROVED /
-  APPROVED WITH RIDERS / CHANGES REQUIRED + severity. 라이더 있으면
-  반영 후 커밋.
-- 리뷰 체크 관측 목표: (a) win32 stderr문 %s 접미 전환의 바이트 동일
-  관측 유지·(b) RTLD_NOW|RTLD_LOCAL 상수·(c) fd 스윕 경계(STDERR_FILENO+1)
-  ·(d) DefaultServerEndpointPath의 fold 규칙 연동 주석·(e) 정직 답변의
-  posix-한정 #ifdef·(f) JKLmEngine 표기(Llm — 대소문자 주의).
+- VERDICT: **APPROVED WITH RIDERS**. 전문은
+  .superpowers/sdd/…/final-review-report.md.
+- MEDIUM 1건: Hello 인쇄 분할의 win32 무가드 문자열 변화 → **승인 편차
+  #3으로 명문화**(§0.1 — 오류 경로 전용·제어 흐름 동일).
+- LOW 3건 라이더 반영: ①dlerror NULL 가드 1줄(라이더 커밋, posix 한정 —
+  §2 G2) ②§1 #3b 기제 교정(ScanJkxApps→핸들러 후보 공진 fileExistsFn,
+  실제 프리게이트 :4343-4356) ③§7 커밋 귀속 정정 — "exe-dir 절대 경로"는
+  308b6e6, "`./` 폴백"은 fa32565에 실림(72407f4는 JKProcess_posix+
+  JKWindowServer만), Hello 인쇄 분할은 fa32565가 아니라 **827b3f4**.
+- NITS(비차단, 기록): fd 스윕 getdtablesize() 루프 비용(glibc 2.34
+  closefrom 후보)·posix 부트마다 probe의 죽은 Hello 1행(계속 폴링·
+  ENOENT/EACCES도 폴링 확인됨)·StartAcceptor의 DefaultServerEndpointPath
+  고정(커스텀 엔드포인트 시 fold 유도헬퍼 승격 후보)·stale/live triage
+  3복제(차기 리팩터 후보).
 
 ## 7. 커밋 원장 (이 플랜, BASE a842533→)
 
@@ -153,11 +170,12 @@ win32 등록줄이 실제 변화하는 것(신규 도구 노출)이라 승인 �
 | fa32565 | G3 taskbar 자동 스폰 posix 개통+Hello 인쇄 분할 |
 | d54f3d5 | G1 접미 플랫폼화+DefaultServerEndpointPath |
 | 308b6e6 | G2 dlopen 로더+--client/--filedlg 개통(G3의 fd 스윕 공용 파일 기초) |
-| 72407f4 | R1: exe-dir 절대 경로+connect-once 프루브+fd 스윕 주석+`./` 폴백 |
-| 827b3f4 | G4 정직 답변 2종+jkx 인수 폴드 무재현 판정 |
+| 72407f4 | R1: connect-once 프루브+fd 스윕 주석+getdtable 상한 (JKProcess_posix·JKWindowServer만) |
+| 827b3f4 | G4 정직 답변 2종+jkx 인수 폴드 무재현 판정+Hello 인쇄 분할 |
 | ae376a2 | G5 stub 셸 리터럴 공용화 |
 | f1ffe38 | R2: fd 스윕 오프바이원( STDERR_FILENO+1 교정 — selftest 2 FAIL에서 발각) |
-| (이 문서) | G6 as-built |
+| 1e1615d | G6 as-built (이 문서 초판) |
+| (라이더) | dlerror NULL 가드+이 문서 §0.1/§1/§2/§6/§7 라이더 정직화 |
 
 ## 8. 환경 교훈 (레저 → 기억)
 

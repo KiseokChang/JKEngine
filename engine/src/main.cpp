@@ -499,8 +499,12 @@ static int RunClientModule(const char* modulePath, const char* pipeName) {
 #ifdef _WIN32
         std::fprintf(stderr, "Cannot load app module '%s'\n", modulePath);
 #else
+        // dlerror()는 실패 세부를 1회만 보고하고 NULL을 반환할 수 있다(표준,
+        // 최종리뷰 LOW-rider) — NULL이면 "(no dlerror detail)"로 마킹해
+        // %s에 NULL을 건네지 않는다.
+        const char* dlErr = dlerror();
         std::fprintf(stderr, "Cannot load app module '%s' (%s)\n", modulePath,
-                     dlerror());
+                     dlErr ? dlErr : "(no dlerror detail)");
 #endif
         return 1;
     }
