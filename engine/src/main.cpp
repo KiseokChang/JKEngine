@@ -45,6 +45,10 @@ extern "C" __declspec(dllimport) int __stdcall closesocket(
 #else
 // linux stage-3 task 7 — posix leg of the win32 hand-decl block above: chdir
 // is the SetCurrentDirectoryA twin for the terminal --cwd leg.
+// 플랜 G2: RunClientModule posix leg의 모듈 로더 트리오는 dlopen/dlsym/dlerror
+// (win32의 LoadLibraryA/GetProcAddress 트리오 상대) — MinGW dlopen 아님,
+// dlfcn include는 이 #else 안에서만.
+#include <dlfcn.h>
 #include <unistd.h>
 #endif
 
@@ -423,7 +427,7 @@ static bool ReadWholeFile(const std::string& path, std::vector<uint8_t>& out) {
 // stderr가 무효일 때만 <exeDir>\client_<app>.log로 미러링한다 — 콘솔/프로브
 // 런치(RedirectStandardError 파이프)는 자기 stderr를 그대로 쓴다. 1MiB 초과
 // 시 open 시점에 잘라낸다(순환 버퍼 대신 최소 구현 — 스톨 판독은 최근분).
-static void MirrorClientStderr(const char* dllPath) {
+static void MirrorClientStderr(const char* modulePath) {
     constexpr int kStdErrorHandle = -12; // STD_ERROR_HANDLE
     void* errH = GetStdHandle(kStdErrorHandle);
     if (errH && errH != (void*)(intptr_t)-1) return;
@@ -435,8 +439,8 @@ static void MirrorClientStderr(const char* dllPath) {
     if (slash == std::string::npos) return;
     const std::string exeDir = exe.substr(0, slash + 1);
     // jkapp_<app>.dll -> <app>
-    const char* base = std::strstr(dllPath, "jkapp_");
-    base = base ? base + 6 : dllPath;
+    const char* base = std::strstr(modulePath, "jkapp_");
+    base = base ? base + 6 : modulePath;
     std::string app(base);
     const size_t dot = app.rfind(".dll");
     if (dot != std::string::npos) app.resize(dot);
@@ -454,31 +458,74 @@ static void MirrorClientStderr(const char* dllPath) {
     std::fprintf(stderr, "[clientlog] open %s %s", app.c_str(), std::ctime(&t));
     std::fflush(stderr);
 }
+#else
+// posix twin (플랜 G2): stderr 미러 자체가 win32 사정의 보상이다 — GUI
+// 서브시스템 스폰의 비상속 핸들 때문에 fprintf가 소실되는 일은 posix 셸/파이프
+// 런치에서 없으므로(콘솔/프로브 원문 런치와 동일 조건) 미러하지 않는다.
+static void MirrorClientStderr(const char*) {}
 
-// Loads an app module DLL and runs it through the C ABI in apps/JKAppModule.h.
-// All C++ (app construction, Init, Run, destruction) stays inside the module.
-static int RunClientModule(const char* dllPath, const char* pipeName) {
-    MirrorClientStderr(dllPath);
-    void* module = LoadLibraryA(dllPath);
+// posix route leg 전용(플랜 G2): dlopen은 검색 계약이 win32 LoadLibraryA와
+// 다르다 — 빈(슬래시 없는) 이름은 LD_LIBRARY_PATH·ld.so 캐시·/lib만 보고
+// exe-dir도 cwd도 기본 검색하지 않는다. 그래서 클라 route leg는 exe-dir 접두로
+// 절대화한다(플랜 G3 서버 스폰과 동일 위치 관측). 접미는 G1 AppModuleSuffix()
+// — 단일 정의 원칙. 폴백: exe 경로를 못 얻으면 빈 접두(cwd 상대 그대로).
+static std::string ClientModulePath(const char* appName) {
+    const std::string exe = jk::fs::GetExecutablePath();
+    const size_t slash = exe.find_last_of('/');
+    const std::string prefix =
+        (slash == std::string::npos) ? std::string() : exe.substr(0, slash + 1);
+    return prefix + "jkapp_" + appName + jk::server::AppModuleSuffix();
+}
+#endif
+
+// Loads an app module shared library (win32 jkapp_<app>.dll via LoadLibraryA,
+// posix jkapp_<app>.so via dlopen) and runs it through the C ABI in
+// apps/JKAppModule.h. All C++ (app construction, Init, Run, destruction) stays
+// inside the module.
+static int RunClientModule(const char* modulePath, const char* pipeName) {
+    MirrorClientStderr(modulePath);
+#ifdef _WIN32
+    void* module = LoadLibraryA(modulePath);
+#else
+    // RTLD_LOCAL: 모듈 심볼을 전역 네임스페이스에 흘려보내지 않는다 —
+    // 여러 앱을 한 프로세스가 잡는 일은 없지만(=client 모델) 단일 앱이라도
+    // 호스트 main의 심볼과 간섭하지 않는 게 원칙. 닫지 않는다(FreeLibrary
+    // 주석 — 힙 손상 선례; posix leg도 동일: 호스트가 곧 종료됨).
+    void* module = dlopen(modulePath, RTLD_NOW | RTLD_LOCAL);
+#endif
     if (!module) {
-        std::fprintf(stderr, "Cannot load app module '%s'\n", dllPath);
+#ifdef _WIN32
+        std::fprintf(stderr, "Cannot load app module '%s'\n", modulePath);
+#else
+        std::fprintf(stderr, "Cannot load app module '%s' (%s)\n", modulePath,
+                     dlerror());
+#endif
         return 1;
     }
+#ifdef _WIN32
     auto metaFn = reinterpret_cast<const jk::JKAppMeta* (*)()>(
         GetProcAddress(module, "jk_app_meta"));
     auto runFn = reinterpret_cast<int (*)(const char*)>(
         GetProcAddress(module, "jk_app_run_client"));
+#else
+    auto metaFn = reinterpret_cast<const jk::JKAppMeta* (*)()>(
+        dlsym(module, "jk_app_meta"));
+    auto runFn = reinterpret_cast<int (*)(const char*)>(
+        dlsym(module, "jk_app_run_client"));
+#endif
     if (!metaFn || !runFn) {
         std::fprintf(stderr,
                      "App module '%s' does not export jk_app_meta/jk_app_run_client\n",
-                     dllPath);
+                     modulePath);
+#ifdef _WIN32
         FreeLibrary(module);
+#endif
         return 1;
     }
 
     const jk::JKAppMeta* meta = metaFn();
     std::printf("[client] module '%s' loaded: app='%s' title='%s' size=%dx%d\n",
-                dllPath, meta->name, meta->title,
+                modulePath, meta->name, meta->title,
                 static_cast<int>(meta->width), static_cast<int>(meta->height));
     std::fflush(stdout);
     const int rc = runFn(pipeName);
@@ -510,6 +557,7 @@ static int RunClientFromJkx(const char* jkxPath, const char* pipeName) {
         return 1;
     }
 
+#ifdef _WIN32
     char tempDir[260] = ".";
     GetTempPathA(static_cast<unsigned long>(sizeof(tempDir) - 64), tempDir);
     // Unique temp name per process so several instances of the same .jkx can
@@ -518,6 +566,18 @@ static int RunClientFromJkx(const char* jkxPath, const char* pipeName) {
     std::snprintf(tempPath, sizeof(tempPath), "%sjkapp_%s_%lu.dll",
                   tempDir, mani.name.c_str(),
                   static_cast<unsigned long>(GetCurrentProcessId()));
+#else
+    // 플랜 G2 posix leg: GetTempPathA/GetCurrentProcessId → jk::fs::TempDir()
+    // +getpid() — docs/68 stage-3 task 7이 같은 승계(tempDir 어댑터)를 이미
+    // 했다: 후행 구분자 포함·실패 폴백 "."도 원문 tempDir 초기값과 동일 계약.
+    // 접미만 플랫폼 값(.so). route는 v1 게이트(:3453 win32)라 여기는 도달
+    // 불가하지만 몸통의 이식성은 확보한다(빌드/링크 성립용).
+    const std::string tempDirStr = jk::fs::TempDir();
+    long pid = static_cast<long>(getpid());
+    char tempPath[324] = {};
+    std::snprintf(tempPath, sizeof(tempPath), "%sjkapp_%s_%ld.so",
+                  tempDirStr.c_str(), mani.name.c_str(), pid);
+#endif
     std::FILE* f = std::fopen(tempPath, "wb");
     if (!f) {
         std::fprintf(stderr, "Cannot extract module to '%s'\n", tempPath);
@@ -529,6 +589,7 @@ static int RunClientFromJkx(const char* jkxPath, const char* pipeName) {
         // Short writes here are almost always a full temp volume (%TEMP% is
         // usually on C:), not a container bug — surface the free space so the
         // message is actionable instead of a bare "short write".
+#ifdef _WIN32
         unsigned long long freeBytes = 0, totalBytes = 0, totalFree = 0;
         if (GetDiskFreeSpaceExA(tempDir, &freeBytes, &totalBytes, &totalFree)) {
             std::fprintf(stderr,
@@ -541,6 +602,22 @@ static int RunClientFromJkx(const char* jkxPath, const char* pipeName) {
                          tempPath, written, dll.size());
         }
         DeleteFileA(tempPath);
+#else
+        // posix leg (플랜 G2): 여유 공간 조회만 플랫폼 분기 —
+        // std::filesystem::space는 ec 오버로드만(throw/try 없음), 실패 시 0으로
+        // 진단만 열화(원문 API 실패 폴백 문구와 같은 뜻). 삭제는 std::remove.
+        std::error_code spaceEc;
+        unsigned long long freeBytes = 0;
+        const std::filesystem::space_info si = std::filesystem::space(
+            std::filesystem::path(tempDirStr), spaceEc);
+        if (!spaceEc) freeBytes = si.available;
+        std::fprintf(stderr,
+                     "Short write extracting '%s' (wrote %zu of %zu bytes; "
+                     "%.1f GiB free on the temp volume)\n",
+                     tempPath, written, dll.size(),
+                     freeBytes / (1024.0 * 1024 * 1024));
+        std::remove(tempPath);
+#endif
         return 1;
     }
 
@@ -583,6 +660,7 @@ static int RunClientFromJkx(const char* jkxPath, const char* pipeName) {
     return rc;
 }
 
+#ifdef _WIN32
 // jkx-pack <app>: bundle jkapp_<app>.dll + launcher icon PNGs + a generated
 // manifest into apps/<app>.jkx. Metadata comes from the module's own
 // jk_app_meta (single source of truth); icons are optional.
@@ -3328,16 +3406,18 @@ static int RunMain(int argc, char* argv[]) {
         constexpr const char* kPipe = jk::ipc::kWindowServerPipeName;
         const char* clientApp = (argc > 2) ? argv[2] : "";
 
-        // Phase B: client apps are dynamically loaded modules (jkapp_<name>.dll).
-        // The module statically contains its core code and is driven purely
-        // through the C ABI in apps/JKAppModule.h — no C++ crosses the boundary.
+        // Phase B: client apps are dynamically loaded modules
+        // (win32 jkapp_<name>.dll / posix jkapp_<name>.so — 접미는
+        // JKWindowServer.h AppModuleSuffix()). The module statically contains
+        // its core code and is driven purely through the C ABI in
+        // apps/JKAppModule.h — no C++ crosses the boundary.
 #ifdef _WIN32
         const std::string dllName = std::string("jkapp_") + clientApp + ".dll";
         return RunClientModule(dllName.c_str(), kPipe);
 #else
-        (void)clientApp;
-        std::fprintf(stderr, "--client is Windows-only in this prototype\n");
-        return 1;
+        // posix 클라 route 개통(플랜 G2): 플랜 E가 앱 모듈 .so 20종을 이미
+        // 빌드하고 ABI jk_app_meta/jk_app_run_client 노출을 실측(nm -D GREEN).
+        return RunClientModule(ClientModulePath(clientApp).c_str(), kPipe);
 #endif
     }
 
@@ -3351,8 +3431,8 @@ static int RunMain(int argc, char* argv[]) {
 #ifdef _WIN32
         return RunClientModule("jkapp_filedlg.dll", kPipe);
 #else
-        std::fprintf(stderr, "--filedlg is Windows-only in this prototype\n");
-        return 1;
+        // posix 클라 route 개통(플랜 G2): 접미+위치만 플랫폼 값 — win32 원문 유지.
+        return RunClientModule(ClientModulePath("filedlg").c_str(), kPipe);
 #endif
     }
 
