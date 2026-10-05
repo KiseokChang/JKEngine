@@ -58,8 +58,10 @@ public:
 private:
     void RecalcCells();
     void HandleKeyDown(const JKEvent& ev);
-    // Mouse selection (docs/26 단계 2): left-drag box selection over the live
-    // grid rows. Called from RespondMessage BEFORE the JKWindow delegation —
+    // Mouse selection (docs/26 단계 2 + I3): left-drag box selection over the
+    // FULL line space — scrollback snapshots + live rows (ViewportRowToFull
+    // 인덱스, docs/65 O6 잔여 소각). Called from RespondMessage BEFORE the
+    // JKWindow delegation —
     // single-process mode drops client-area mouse events there (the HitTest
     // target is the window itself), client mode receives them as a DOCK_FILL
     // child but with the same window/surface coordinates.
@@ -69,6 +71,10 @@ private:
     // of the local selection path. Never touches selection state.
     void HandleMouseReport(const JKEvent& ev);
     JKPoint CellFromPoint(int32_t px, int32_t py) const;
+    // 선택 좌표(I3): CellFromPoint와 같은 클램프 산식 + 뷰포트 행을 전체 행
+    // 공간으로 올린다 — CellFromPoint의 라이브 리맵(스크롤백 행 → 라이브 0행
+    // 클램프) 없이. 마우스 리포트 경로는 계속 CellFromPoint(뷰포트 좌표).
+    JKPoint CellFromPointFull(int32_t px, int32_t py) const;
     void ClearSelection();
     void CopySelection();
     void PasteClipboard();
@@ -110,9 +116,9 @@ private:
     std::function<void(const char*, size_t)> onInput_;
     std::function<void(int, int)> onResize_;
 
-    // Selection state (docs/26 단계 2): live grid cell coords; x < 0 = none.
-    // v1 covers live screen rows only — scrollback snapshots are never
-    // selected and the rect does not follow shell output (spec §5).
+    // Selection state (docs/26 단계 2 + I3): FULL line space coords — 0 =
+    // scrollback top, hist + j = live row j (spec §5 v1 라이브 전용 제한
+    // 해제). x < 0 = none.
     JKPoint selAnchor_{ -1, -1 };
     JKPoint selEnd_{ -1, -1 };
     bool selDragging_ = false;   // left button held, drag in progress

@@ -63,8 +63,8 @@ inline std::string EncodeMouseSgr(int btn, int x, int y, MouseKind kind,
 // 32-offset must stay inside one signed byte (255 max wire char).
 // Classic MOTION (Cb btn+32) exists on the wire but v1 does not report it —
 // Motion returns an empty string; the caller drops it (explicit gap,
-// docs/41 §7, same reasoning as the non-SGR wheel gap). Wheel has no classic
-// form here either (see EncodeWheelAlt).
+// docs/41 §7). Wheel in non-SGR tracking reports through EncodeWheelX10
+// below (the v1 non-SGR wheel gap was closed in I3 — docs/65 수용 잔여).
 inline std::string EncodeMouseX10(int btn, int x, int y, MouseKind kind) {
     const int cb = (kind == MouseKind::Release)
                        ? 3                                // generic release
@@ -73,6 +73,22 @@ inline std::string EncodeMouseX10(int btn, int x, int y, MouseKind kind) {
     std::string out;
     if (kind == MouseKind::Motion) return out;   // v1 gap — not reported
     out = "\x1b[M";
+    out += static_cast<char>(32 + cb);
+    out += static_cast<char>(32 + clamp(x));
+    out += static_cast<char>(32 + clamp(y));
+    return out;
+}
+
+// 클래식 (비SGR) 휠 인코딩 (I3 — docs/65 O6 수용의 인정 편차 소각, spec §2):
+// 1000/1002/1003 트래킹(1006 협상 없음)에서도 xterm은 휠을 \x1b[M 클래식
+// 인코딩으로 보고한다 — 버튼 자리에 64(up)/65(down) + mods. 좌표는
+// EncodeMouseX10과 동일 1-based 1..223 클램프 (32 오프셋이 한부호바이트 안에
+// 있어야). 노치당 1회 반복·lastMouse 클라이언트 내부 게이트는 호출자
+// (TerminalView::HandleWheel) 소관 — SGR 휠 브랜치와 같은 계약.
+inline std::string EncodeWheelX10(bool up, int mods, int x, int y) {
+    const int cb = (up ? 64 : 65) + mods;
+    const auto clamp = [](int v) { return v < 1 ? 1 : (v > 223 ? 223 : v); };
+    std::string out = "\x1b[M";
     out += static_cast<char>(32 + cb);
     out += static_cast<char>(32 + clamp(x));
     out += static_cast<char>(32 + clamp(y));

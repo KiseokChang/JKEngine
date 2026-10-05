@@ -62,6 +62,35 @@ inline int ViewportRowToLive(int r, int off, int rows) {
     return gr < 0 ? 0 : (gr > rows - 1 ? rows - 1 : gr);
 }
 
+// 뷰포트 행 → 전체 행 (docs/65 O6 수용 → I3 잔여 소각): 스크롤백 히스토리와
+// 라이브 행을 하나의 인덱스로 통합한다 — 0 = 스크롤백 최상단(가장 오래된 행,
+// deque index 0), hist + j = 라이브 j행. 최상단 라인이 (hist - off)이므로
+// 값 = hist - off + r. 클램프 없음: 선택 좌표는 저장 시점 그대로 두고
+// NormalizeSelFull이 단일 클램프 담당(마우스 리포트 경로의 ViewportRowToLive와
+// 좌표 공간 분리 — 리포트는 뷰포트 좌표 그대로).
+inline int ViewportRowToFull(int r, int off, int hist) {
+    return hist - off + r;
+}
+
+// 전체 행 공간(스크롤백 hist + 라이브 rows) 정규화: 행 클램프 상한이
+// hist + rows - 1인 점만 NormalizeSel과 다르고 열 클램프/순서 정리는 동일.
+inline JKTermSelRect NormalizeSelFull(int ax, int ay, int bx, int by,
+                                      int cols, int hist, int rows) {
+    if (cols <= 0 || rows <= 0) return {};
+    const int maxX = cols - 1;
+    const int maxY = hist + rows - 1;   // 전체 행 히 = 마지막 라이브 행
+    const auto clamp = [maxX, maxY](int v, bool isCol) {
+        const int hi = isCol ? maxX : maxY;
+        return v < 0 ? 0 : (v > hi ? hi : v);
+    };
+    ax = clamp(ax, true);
+    bx = clamp(bx, true);
+    ay = clamp(ay, false);
+    by = clamp(by, false);
+    return JKTermSelRect{ std::min(ax, bx), std::min(ay, by),
+                          std::max(ax, bx), std::max(ay, by) };
+}
+
 // UTF-8 encoder — the mirror of JKVtParser's decoder (docs/22 §4): standard
 // 1-4 byte form, no BOM, no surrogate handling (cps are scalar values).
 inline void AppendUtf8(std::string& out, uint32_t cp) {
@@ -145,8 +174,8 @@ inline std::vector<uint32_t> DecodeUtf8(const std::string& text) {
 // non-empty cell.
 //
 // CellFn is a generic row-cell accessor: cellAt(col, row) -> const
-// JKTermCell&, so the view passes the live grid and the self-test a dummy
-// vector. (Scrollback selection is out of scope for v1 — spec §5.)
+// JKTermCell&, so the view passes the full line space and the self-test a
+// dummy vector. (전체 행 공간: I3부터 라이브 전용 제한 해제 — spec §5.)
 template <typename CellFn>
 std::string ExtractSelectedText(CellFn&& cellAt, const JKTermSelRect& sel) {
     std::string out;

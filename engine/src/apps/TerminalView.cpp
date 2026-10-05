@@ -79,19 +79,15 @@ void TerminalView::TickBlink() {
 void TerminalView::HandleWheel(int wheelY, uint32_t option) {
     if (!grid_) return;
     if (onInput_ && parser_ && wheelY != 0) {
-        // Mouse reporting ON (DECSET 1000/1002/1003, docs/26 단계 3 spec §3):
-        // the wheel belongs to the app — SGR 64 (up) / 65 (down) press
-        // reports with the same wire modifier bits HandleMouseReport uses
-        // (MouseMod enum — Shift=4/Meta=8/Ctrl=16, review MINOR-1: hardcoding
-        // 0 dropped Shift/Ctrl+wheel semantics for apps like less), NO local
-        // scrollback scroll. v1 limit (spec §3 letter): wheel is sent in SGR
-        // mode only. Real xterm ALSO reports the wheel in non-SGR normal
-        // tracking through the classic \x1b[M encoding (buttons 64/65 via the
-        // 32+button offset bytes), which we skip — an acknowledged gap, not
-        // an xterm behavior. One report per notch, capped like EncodeWheelAlt's
-        // 3. Gated on the last mouse position being inside the client: the
-        // wheel event itself carries no coordinates, so wheeling the title
-        // bar must not emit a clamped (1,1) cell report.
+        // 마우스 리포트 ON (DECSET 1000/1002/1003, docs/26 단계 3 spec §3):
+        // 휠은 앱 소유 — SGR 64(up)/65(down) press 리포트를 HandleMouseReport와
+        // 동일 wire 모디파이어 비트로 (MouseMod enum — Shift=4/Meta=8/Ctrl=16,
+        // 리뷰 MINOR-1: 0 고정은 Shift/Ctrl+휠 의미를 떨굼 — less 같은 앱),
+        // 로컬 스크롤백 스크롤 없음. 비SGR(1006 협상 없음)은 클래식 \x1b[M
+        // 인코딩 (버튼 자리 64/65) — v1은 건너뛰던 인정 편차를 I3에서 봉합
+        // (xterm 본래 동작). 노치당 1회 리포트, EncodeWheelAlt처럼 3 캡,
+        // 게이트는 lastMouse가 클라이언트 안일 때 — 휠 이벤트는 좌표를 안
+        // 싣는다(타이틀바 휠이 클램프된 (1,1) 리포트를 내지 않게).
         if (parser_->MouseMode() != TermMouseMode::Off) {
             const JKRect client = GetScreenClientRect();
             if (parser_->SgrMouse() && client.Contains(lastMouse_.x, lastMouse_.y)) {
@@ -112,7 +108,26 @@ void TerminalView::HandleWheel(int wheelY, uint32_t option) {
                     onInput_(seq.data(), seq.size());
                 }
             }
-            return;
+            // 비SGR 휠 (I3): SGR 브랜치와 동일 notches(≤3)·좌표 게이트,
+            // 클래식 인코딩만 다르다.
+            if (!parser_->SgrMouse() && client.Contains(lastMouse_.x, lastMouse_.y)) {
+                const JKPoint cell = CellFromPoint(lastMouse_.x, lastMouse_.y);
+                const int notches = std::min(wheelY < 0 ? -wheelY : wheelY, 3);
+                const SDL_Keymod mod = static_cast<SDL_Keymod>(option);
+                const int mods =
+                    ((mod & KMOD_SHIFT) ? int(MouseMod::Shift) : 0) |
+                    ((mod & KMOD_ALT) ? int(MouseMod::Meta) : 0) |
+                    ((mod & KMOD_CTRL) ? int(MouseMod::Ctrl) : 0);
+                std::string seq;
+                for (int i = 0; i < notches; ++i) {
+                    seq += EncodeWheelX10(wheelY > 0, mods, cell.x + 1,
+                                          cell.y + 1);
+                }
+                if (!seq.empty()) {
+                    onInput_(seq.data(), seq.size());
+                }
+            }
+            return;   // 리포트 ON은 로컬 스크롤 없음 — SGR과 동일 계약
         }
         // Reporting OFF + alt screen (docs/26 단계 3 spec §3): the wheel
         // scrolls the TUI app — vim/less receive arrow keys (Windows
@@ -154,14 +169,14 @@ void TerminalView::OnPaintClient(JKDC& dc) {
         lastHist_ = hist;
     }
 
-    // Selection (docs/26 단계 2) covers LIVE grid rows only — scrollback
-    // snapshots are never selected (spec §5 v1 restriction: no scroll-while-
-    // select). The anchor/end pair is normalized to an inclusive cell rect;
-    // a drag performed while scrolled back still targets live rows.
+    // Selection (docs/26 단계 2 + I3): anchor/end는 이제 전체 행 공간 좌표
+    // 저장본 — 0 = 스크롤백 최상단, hist + j = 라이브 j행. spec §5 v1 제한
+    // (라이브 전용 선택, 스크롤 중 선택 불가) 해제 기록. 정규화+클램프는
+    // NormalizeSelFull 한 곳(히 = hist + rows - 1).
     JKTermSelRect sel;   // Empty() until a selection exists
     if (selAnchor_.x >= 0) {
-        sel = NormalizeSel(selAnchor_.x, selAnchor_.y, selEnd_.x, selEnd_.y,
-                           grid_->Cols(), grid_->Rows());
+        sel = NormalizeSelFull(selAnchor_.x, selAnchor_.y, selEnd_.x, selEnd_.y,
+                               grid_->Cols(), hist, grid_->Rows());
     }
 
     // Viewport lines are indexed over scrollback + live grid: the top visible
@@ -177,8 +192,8 @@ void TerminalView::OnPaintClient(JKDC& dc) {
             // Scrollback snapshot — after a reflow every line is exactly the
             // current width, but a pre-reflow capture (alt-screen resize
             // fallback) may be narrower; cells past its width paint as
-            // default bg. Never selection-highlighted (see the sel comment
-            // above).
+            // default bg. 스냅샷 행도 전체 행 인덱스(I3)라 선택 rect가
+            // 그대로 하이라이트한다 — 라이브만 역전하던 v1 제한 해제.
             const auto& snap = grid_->ScrollbackLine(line);
             const int lineCols =
                 std::min<int>(static_cast<int>(snap.cells.size()), grid_->Cols());
@@ -187,7 +202,7 @@ void TerminalView::OnPaintClient(JKDC& dc) {
                                        kTermCellW, kTermCellH };
                 static const JKTermCell kEmpty{};
                 const JKTermCell& cell = (c < lineCols) ? snap.cells[c] : kEmpty;
-                PaintCell(dc, cellRect, cell, false);
+                PaintCell(dc, cellRect, cell, false, sel.Contains(c, line));
             }
         } else {
             const int gr = line - hist;
@@ -197,7 +212,7 @@ void TerminalView::OnPaintClient(JKDC& dc) {
                 const JKTermCell& cell = grid_->Cell(c, gr);
                 PaintCell(dc, cellRect, cell,
                           off == 0 && gr == cursor.y && c == cursor.x,
-                          sel.Contains(c, gr));
+                          sel.Contains(c, hist + gr));   // 라이브 행 = hist + gr
             }
         }
     }
@@ -528,14 +543,29 @@ JKPoint TerminalView::CellFromPoint(int32_t px, int32_t py) const {
     // a scroll offset: the top visible line is (history - offset), so live
     // grid row = viewport row - offset (same arithmetic as OnPaintClient's
     // gr = line - hist in the live branch). Viewport rows sitting over
-    // scrollback snapshots (r < off) clamp onto live row 0 — v1 selects live
-    // rows only (spec §5). Mapping lives in JKTermSelection.h so the
-    // self-test exercises the production formula.
+    // scrollback snapshots (r < off) clamp onto live row 0 — 마우스 리포트는
+    // 뷰포트 좌표 그대로 보고하는 계약이므로 이 경로는 유지(선택은
+    // CellFromPointFull로 분리, I3). Mapping lives in JKTermSelection.h so
+    // the self-test exercises the production formula.
     if (grid_) {
         const int off = std::min(scrollOffset_, grid_->ScrollbackLines());
         cy = ViewportRowToLive(cy, off, rows_);
     }
     return JKPoint{ cx, cy };
+}
+
+// 선택 좌표(I3, 전체 행 공간): px→cell 클램프 산식은 CellFromPoint와 동일,
+// 라이브 리맵만 없다 — 뷰포트 행을 전체 행으로 올린다 (hist - off + cy,
+// 하단 클램프 hist+rows-1 히; 이후 NormalizeSelFull이 단일 클램프).
+JKPoint TerminalView::CellFromPointFull(int32_t px, int32_t py) const {
+    const JKRect client = GetScreenClientRect();
+    const int cx = std::clamp((px - client.x) / kTermCellW, 0,
+                              std::max(0, cols_ - 1));
+    const int cy = std::clamp((py - client.y) / kTermCellH, 0,
+                              std::max(0, rows_ - 1));
+    const int hist = grid_ ? grid_->ScrollbackLines() : 0;
+    const int off = std::min(scrollOffset_, hist);
+    return JKPoint{ cx, std::min(hist - off + cy, hist + rows_ - 1) };
 }
 
 void TerminalView::HandleMouseEvent(const JKEvent& ev) {
@@ -590,7 +620,7 @@ void TerminalView::HandleMouseEvent(const JKEvent& ev) {
             // only clicked (no drag → no selection, spec §1).
             selDragging_ = true;
             ClearPreEdit();   // selection start drops the composition (§3)
-            selAnchor_ = CellFromPoint(ev.x, ev.y);
+            selAnchor_ = CellFromPointFull(ev.x, ev.y);   // 전체 행 좌표 (I3)
             selEnd_ = selAnchor_;
             grid_->MarkAllDirty();
             // Keep motion/release flowing outside the window while dragging
@@ -600,7 +630,7 @@ void TerminalView::HandleMouseEvent(const JKEvent& ev) {
         case JKEventType::MouseMove:
             if (!selDragging_) return;
             {
-                const JKPoint cell = CellFromPoint(ev.x, ev.y);
+                const JKPoint cell = CellFromPointFull(ev.x, ev.y);   // I3
                 if (cell.x != selEnd_.x || cell.y != selEnd_.y) {
                     selEnd_ = cell;
                     grid_->MarkAllDirty();   // repaint through the frame gate
@@ -895,14 +925,28 @@ void TerminalView::ClearSelection() {
 
 void TerminalView::CopySelection() {
     if (!grid_ || selAnchor_.x < 0) return;
-    const JKTermSelRect sel = NormalizeSel(selAnchor_.x, selAnchor_.y,
-                                           selEnd_.x, selEnd_.y,
-                                           grid_->Cols(), grid_->Rows());
-    // Live grid rows only (spec §5); the accessor keeps ExtractSelectedText
-    // independent of the grid type so the self-test can share it.
+    const JKTermSelRect sel = NormalizeSelFull(selAnchor_.x, selAnchor_.y,
+                                               selEnd_.x, selEnd_.y,
+                                               grid_->Cols(),
+                                               grid_->ScrollbackLines(),
+                                               grid_->Rows());
+    // 전체 행 공간 접근자(I3): L < hist → 스크롤백 스냅샷 셀(스냅샷이 더
+    // 좁으면 cp==0 빈 셀), 그 외는 라이브 그리드. ExtractSelectedText는
+    // generic CellFn 그대로 — 접근자만 새로 (self-test 공유 유지).
     const JKTerminalGrid* g = grid_;
+    const int hb = grid_->ScrollbackLines();
     const std::string text = ExtractSelectedText(
-        [g](int c, int r) -> const JKTermCell& { return g->Cell(c, r); }, sel);
+        [g, hb](int c, int r) -> const JKTermCell& {
+            // static const — read-only 공유(터미널 창이 둘 이상이어도 무해),
+            // C++11 init-safe.
+            static const JKTermCell emptyCell{};
+            if (r < hb) {
+                const auto& line = g->ScrollbackLine(r);
+                return (c >= 0 && c < static_cast<int>(line.cells.size()))
+                           ? line.cells[static_cast<size_t>(c)] : emptyCell;
+            }
+            return g->Cell(c, r - hb);
+        }, sel);
     if (!text.empty()) {
         SDL_SetClipboardText(text.c_str());   // JKEdit.cpp:716 precedent
     }

@@ -2192,6 +2192,31 @@ static int RunAppSelfTest() {
                   "termselect: paste drops C0 controls, keeps \\n and \\t");
         }
 
+        // I3 — 전체 행 공간 헬퍼 (O6 스크롤백 선택, docs/65 수용→잔여 소각).
+        {
+            check(jk::ViewportRowToFull(0, 0, 100) == 100 &&
+                  jk::ViewportRowToFull(3, 0, 100) == 103,
+                  "ViewportRowToFull: offset 0 -> live rows shifted by hist");
+            check(jk::ViewportRowToFull(2, 4, 100) == 98,
+                  "ViewportRowToFull: scrolled-back viewport row lands in scrollback");
+            const JKTermSelRect s = jk::NormalizeSelFull(5, 96, 1, 90, 20, 100, 6);
+            check(s.x0 == 1 && s.y0 == 90 && s.x1 == 5 && s.y1 == 96 &&
+                  !s.Empty() && s.Contains(3, 93),
+                  "NormalizeSelFull: orders+clamps into full line space");
+            check(jk::NormalizeSelFull(0, 0, 99, 299, 20, 100, 6)
+                      .y1 == 105,
+                  "NormalizeSelFull: rows clamp to hist+rows-1 (105)");
+            // 클래식 휠 (비SGR 신고 — acknowledged gap 소각)
+            check(jk::EncodeWheelX10(true, 0, 10, 5) ==
+                      std::string("\x1b[M") + char(32 + 64) + char(32 + 10) +
+                          char(32 + 5),
+                  "EncodeWheelX10: up = Cb 64 classic bytes");
+            check(jk::EncodeWheelX10(false, 16, 99, 250) ==
+                      std::string("\x1b[M") + char(32 + 65 + 16) +
+                          char(32 + 99) + char(32 + 223),
+                  "EncodeWheelX10: down+ctrl clamps x to 223");
+        }
+
         // IME pre-edit decode (docs/26 단계 5, spec §3): the pure UTF-8 ->
         // codepoint helper the TerminalView cursor overlay consumes.
         {
