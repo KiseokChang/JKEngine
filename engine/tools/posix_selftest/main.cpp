@@ -17,6 +17,7 @@
 
 #include <net/JKNet.h>
 #include <process/JKProcess.h>
+#include <terminal/JKConPtyBridge.h>
 
 #include "fs/JKFs.h"
 
@@ -343,12 +344,152 @@ void TestNetAdapter() {
     Check(cr.recved == 5 && cr.echoOk, "net: client receives its echo back");
 }
 
+// Case 4 (JKConPtyBridge): real posix pty machinery — mirrors the win32
+// bridge's observable contract (engine/src/terminal/JKConPtyBridge_win32.cpp,
+// close order per docs/22 §8.2). R-D2 mapping: Start(commandLine) executes
+// `/bin/sh -c <commandLine>` on an openpty() master, so the child's bytes come
+// back raw through DrainOutput, WriteInput bytes round-trip through the tty,
+// Resize(120, 30) must reach the slave side's winsize (`stty size` prints it
+// as "rows cols" — that makes ROWS/COLS argument order observable), and
+// ProcessExited() must report the spawned command's death (the win32 body's
+// process-handle-signal convention) — with the exit status observable through
+// the pty stream via an inner `sh -c 'exit 7'` echoed as "STATUS_7=$?".
+// The stage-1 stub returns false/no-op for everything, so every check below
+// fails until JKConPtyBridge_posix.cpp implements the mapping.
+void TestPtyBridge() {
+    // Drain loop shared by every marker check: completion-condition polling
+    // (drain-until-marker) with generous per-marker budgets — no wall-clock
+    // deltas (D-T3 timing hygiene). Each check gates on startedA/live so a
+    // stub RED run (Start false) skips the wait loops instead of burning
+    // them against an inert bridge.
+    auto drainUntil = [](jk::JKConPtyBridge& pty, const char* marker,
+                         int budgetIters, std::string* seen) -> bool {
+        for (int i = 0; i < budgetIters; ++i) {
+            std::string out;
+            pty.DrainOutput(out);
+            seen->append(out);
+            if (seen->find(marker) != std::string::npos) return true;
+            if (pty.ShellExited()) {
+                // The reader appends everything before setting the flag, but
+                // drain once more so a last-chunk race can not hide bytes.
+                std::string tail;
+                pty.DrainOutput(tail);
+                seen->append(tail);
+                return seen->find(marker) != std::string::npos;
+            }
+            usleep(20 * 1000);
+        }
+        return false;
+    };
+
+    // A) Spawn + byte-stream capture + process-death + exit-code
+    //    observability. The command is the plan's `echo HANGUL_TEST; exit 7`
+    //    with one indirection: an inner `sh -c 'exit 7'` carries the status
+    //    so it is observable BOTH ways — as "PSTATUS=7" through the pty byte
+    //    stream, and as the actual exit status of the bridge's own child
+    //    (`exit $?` propagates it), which ProcessExited() must report.
+    jk::JKConPtyBridge pty;
+    const bool startedA =
+        pty.Start("echo HANGUL_TEST; sh -c 'exit 7'; echo PSTATUS=$?; "
+                  "exit $?",
+                  80, 24);
+    Check(startedA, "pty: Start spawns sh -c in a pty (stub returns false)");
+    Check(pty.IsValid() == startedA, "pty: IsValid mirrors started_");
+    if (startedA) {
+        std::string seen;
+        Check(drainUntil(pty, "HANGUL_TEST", 500, &seen),
+              "pty: DrainOutput captures child bytes (HANGUL_TEST marker)");
+        std::printf("  pty: child output \"%.200s\"\n", seen.c_str());
+        std::fflush(stdout);
+        bool shellEof = false;
+        for (int i = 0; i < 500; ++i) {  // 10s budget — echo exits at once
+            if (pty.ShellExited()) {
+                shellEof = true;
+                break;
+            }
+            std::string tail;
+            pty.DrainOutput(tail);
+            seen.append(tail);
+            usleep(20 * 1000);
+        }
+        Check(shellEof,
+              "pty: ShellExited fires on pty read EOF/EIO (child gone)");
+        bool procDone = false;
+        for (int i = 0; i < 500; ++i) {  // 10s budget — exit 7 ends at once
+            if (pty.ProcessExited()) {
+                procDone = true;
+                break;
+            }
+            usleep(20 * 1000);
+        }
+        Check(procDone,
+              "pty: ProcessExited fires when the command ends (exit 7)");
+        Check(pty.ProcessExited(),
+              "pty: ProcessExited stays true across repeated calls (reap "
+              "cache)");
+        // Exit status the header can not expose directly (bool-only API, the
+        // win32 body's convention): watch it through the pty byte stream —
+        // the inner `sh -c 'exit 7'` status lands as "PSTATUS=7".
+        Check(seen.find("PSTATUS=7") != std::string::npos,
+              "pty: exit 7 observable through the pty stream (PSTATUS=7)");
+        pty.Stop();
+        Check(!pty.IsValid(), "pty: Stop clears started_");
+        pty.Stop();  // second call on an already-stopped bridge
+        Check(true, "pty: second Stop is a safe no-op (idempotent)");
+    }
+
+    // B) WriteInput round-trip + winsize observability. The child loops
+    //    `stty size` forever (rows-space-cols line), so the initial Start
+    //    size (24 80) is observable right away and a Resize(120, 30) shows
+    //    up as "30 120" — a direct check of TIOCSWINSZ and of the cols/rows
+    //    argument order. The echo of the written bytes proves WriteInput.
+    jk::JKConPtyBridge live;
+    const bool startedB =
+        live.Start("while :; do stty size; sleep 0.2; done", 80, 24);
+    Check(startedB, "pty: live bridge spawns a stty-size loop");
+    if (startedB) {
+        std::string liveSeen;
+        Check(drainUntil(live, "24 80", 300, &liveSeen),
+              "pty: Start(80, 24) sized the pty (stty size prints 24 80)");
+        live.Resize(120, 30);
+        live.WriteInput("jkpty-3361\n", 11);
+        Check(drainUntil(live, "jkpty-3361", 300, &liveSeen),
+              "pty: WriteInput round-trips (bytes echo back through the pty)");
+        Check(drainUntil(live, "30 120", 300, &liveSeen),
+              "pty: Resize(120, 30) reaches the tty (stty size prints 30 120)");
+        std::printf("  pty: live output \"%.200s\"\n", liveSeen.c_str());
+        std::fflush(stdout);
+        live.Stop();
+        Check(!live.IsValid(), "pty: live bridge stopped");
+    }
+
+    // C) docs/22 §8.2 close order on a STILL-RUNNING child: Stop must close
+    //    the pty, unblock the reader, bound the wait, and SIGKILL the pgid —
+    //    i.e. Stop must RETURN promptly instead of hanging in a join on a
+    //    reader stuck in read(). Generous upper bound only (8s), never a
+    //    wall-clock lower bound (D-T3 hygiene).
+    jk::JKConPtyBridge sleeper;
+    Check(sleeper.Start("sleep 30", 80, 24), "pty: stop-probe spawns sleep 30");
+    if (sleeper.IsValid()) {
+        usleep(300 * 1000);  // let the reader actually block inside read()
+        const double tStop = nowMs();
+        sleeper.Stop();
+        const double stopMs = nowMs() - tStop;
+        std::printf("  pty: Stop on a running child returned in %.0f ms\n",
+                    stopMs);
+        std::fflush(stdout);
+        Check(stopMs < 8000.0,
+              "pty: Stop on a running child returns bounded (no hung join)");
+    }
+}
+
 }  // namespace
 
 int main() {
     TestFsGetExecutablePath();
     TestProcessAdapter();
     TestNetAdapter();
+    TestPtyBridge();
     std::printf("PosixSelfTest: %d failure(s)\n", g_failures);
     return g_failures == 0 ? 0 : 1;
 }

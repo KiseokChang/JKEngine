@@ -26,6 +26,7 @@ g++ -std=c++17 -pthread -lutil -O1 -Wall -Wextra \
     "$SCRIPT_DIR/main.cpp" \
     "$ROOT/engine/src/fs/JKFs_posix.cpp" \
     "$ROOT/engine/src/process/JKProcess_posix.cpp" \
-    "$ROOT/engine/src/net/JKNet_posix.cpp"
+    "$ROOT/engine/src/net/JKNet_posix.cpp" \
+    "$ROOT/engine/src/terminal/JKConPtyBridge_posix.cpp"
 
 echo "posix_selftest build ok -> $OUT"
