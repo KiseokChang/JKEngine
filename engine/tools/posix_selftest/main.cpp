@@ -36,7 +36,7 @@ bool EndsWith(const std::string& s, const char* suffix) {
            s.compare(s.size() - tail.size(), tail.size(), tail) == 0;
 }
 
-// Wall-clock ms since an arbitrary epoch — read-timeout timing check only.
+// Monotonic ms since an arbitrary epoch — read-timeout timing check only.
 double nowMs() {
     return std::chrono::duration<double, std::milli>(
                std::chrono::steady_clock::now().time_since_epoch())

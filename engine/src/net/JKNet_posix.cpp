@@ -5,11 +5,12 @@
 // 2026-10-05-linux-stage1-surgery-c.md R-C1..R-C4):
 //  - Startup       = no-op true (WSAStartup has no posix analogue; R-C3 keeps
 //                    cleanup deliberately absent).
-//  - ListenTcp     = socket+SO_REUSEADDR(1)+bind+listen, win32 parity. Posix
-//                    difference: inet_addr("bad") returns INADDR_NONE (-1)
-//                    instead of the win32 value, but both end in bind failure
-//                    -> close + kInvalidSocket, so the fail-closed shape is
-//                    identical (selftest case 3B exercises it). boundPortOut
+//  - ListenTcp     = socket+SO_REUSEADDR(1)+bind+listen, win32 parity. A bad
+//                    bindIp string makes inet_addr return INADDR_NONE on BOTH
+//                    platforms, so both compute s_addr=255.255.255.255 — but
+//                    win32 bind() rejects that (WSAEADDRNOTAVAIL) while Linux
+//                    bind() ACCEPTS it, hence the explicit fail-closed guard
+//                    below (selftest case 3B exercises it). boundPortOut
 //                    (R-C4) reports the ACTUAL bound port via getsockname
 //                    (host order) and is untouched on any failure.
 //  - RecvAll       = same exact-size loop; Send = raw send() passthrough
@@ -33,7 +34,6 @@
 // the 9 strong symbols in one link.
 #include <arpa/inet.h>   // inet_addr, inet_ntop, htonl/htons/ntohs
 #include <netinet/in.h>  // sockaddr_in, INADDR_ANY
-#include <sys/socket.h>  // socket/bind/listen/accept/recv/send/shutdown
 #include <sys/socket.h>  // socket/bind/listen/accept/recv/send/shutdown
 #include <sys/time.h>    // timeval (SO_RCVTIMEO/SO_SNDTIMEO)
 #include <unistd.h>      // close
