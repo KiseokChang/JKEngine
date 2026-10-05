@@ -18,7 +18,9 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -50,8 +52,8 @@ extern "C" __declspec(dllimport) int __stdcall FindClose(void* hFindFile);
 
 // bcrypt externs (cmd 지문, P4 SDK §3.4)는 docs/68 W2b에서 제거 — 지문은
 // 플랫폼 중립 jk::crypto::Sha256Hex로 발행한다(BCrypt digest와 바이트 동일).
-extern "C" __declspec(dllimport) int __stdcall CreateDirectoryA(
-    const char* lpPathName, void* lpSecurityAttributes);
+// CreateDirectoryA extern도 소각 — EnsureTrustRecord의 state/ 보증은
+// std::filesystem::create_directory(ec 오버로드)로 교체(플랜 F1, docs/70 §6 #3).
 #endif // _WIN32
 
 namespace jk {
@@ -104,20 +106,23 @@ std::string ConsoleAppFingerprint(const std::string& cmd) {
 // 때 한 번만 쓴다. 이미 같은 지문이 있으면 파일을 건드리지 않는다(읽기-수정
 // -쓰기 경쟁 최소화). 파손된 스토어는 덮어쓰지 않는다 — 기록 보존이 우선.
 void EnsureTrustRecord(const std::string& fingerprint, const std::string& name) {
-#ifdef _WIN32
     // jk::fs::GetExecutablePath 흡수 (docs/68 W5) — 원문 규약: 실패/구분자
-    // 없음 시 조용히 중단, 뒤 "\\" 없음.
+    // 없음 시 조용히 중단, 뒤 구분자 없음. 플랜 F1: _WIN32 게이트 해제(posix에서
+    // 백슬래치 합성 파일명이 생기던 지점) + 조립은 '/' 단일 구분자
+    // (state/는 스폰 지문 trust ledger 규약 그대로). 이 TU는 무 try/catch —
+    // ec 중립형 필수(서버 :3186 선례).
     const std::string exe = jk::fs::GetExecutablePath();
     if (exe.empty()) return;
     const size_t slash = exe.find_last_of("\\/");
     if (slash == std::string::npos) return;
     std::string exeDir = exe.substr(0, slash);
-    CreateDirectoryA((exeDir + "\\state").c_str(), nullptr);
-    const std::string path = exeDir + "\\state\\trust.json";
+    std::error_code dirEc;
+    std::filesystem::create_directory(std::filesystem::path(exeDir + "/state"),
+                                      dirEc);
+    const std::string path = exeDir + "/state/trust.json";
 
     std::vector<uint8_t> bytes;
     std::vector<std::string> recs;  // 재조립용 레코드 JSON 문자열
-    bool corrupt = false;
     if (ReadFileBytes(path, bytes)) {
         JSRuntime* rt = JS_NewRuntime();
         if (!rt) return;
@@ -201,17 +206,13 @@ void EnsureTrustRecord(const std::string& fingerprint, const std::string& name) 
     }
     out += "]}";
 
-    FILE* wf = nullptr;
-    if (fopen_s(&wf, path.c_str(), "wb") == 0 && wf) {
+    std::FILE* wf = std::fopen(path.c_str(), "wb");
+    if (wf) {
         std::fwrite(out.data(), 1, out.size(), wf);
         std::fclose(wf);
         std::fprintf(stderr, "JKWindowServer: console app cmd fingerprint recorded (%s, '%s')\n",
                      fingerprint.substr(0, 15).c_str(), name.c_str());
     }
-#else
-    (void)fingerprint;
-    (void)name;
-#endif
 }
 
 } // namespace

@@ -88,7 +88,7 @@ std::string DirOf(const std::string& filePath) {
 }
 
 std::string HistoryDir(const std::string& scriptsDir, const std::string& slot) {
-    return scriptsDir + "\\.history\\" + slot;
+    return scriptsDir + "/.history/" + slot;
 }
 
 // stage-3 task 5: 수기 FindFirstFileA("\\*") 열거 → directory_iterator.
@@ -172,7 +172,7 @@ int AppendSnapshot(const std::string& scriptsDir, const std::string& slot,
     // 소비자를 죽인다(review r1 HIGH).
     std::error_code dirEc;
     std::filesystem::create_directory(
-        std::filesystem::path(scriptsDir + "\\.history"), dirEc);
+        std::filesystem::path(scriptsDir + "/.history"), dirEc);
     std::filesystem::create_directory(std::filesystem::path(dir), dirEc);
 
     std::vector<HistoryEntry> gens;
@@ -182,7 +182,7 @@ int AppendSnapshot(const std::string& scriptsDir, const std::string& slot,
 
     char name[16];
     std::snprintf(name, sizeof(name), "%04d.js", gen);
-    if (!WriteFileAll(dir + "\\" + name, prevSource)) return 0;
+    if (!WriteFileAll(dir + "/" + name, prevSource)) return 0;
 
     // 캡 프룬 — 최오소부터 지워 20세대를 유지.
     gens.clear();
@@ -190,7 +190,7 @@ int AppendSnapshot(const std::string& scriptsDir, const std::string& slot,
         int excess = static_cast<int>(gens.size()) - static_cast<int>(kMaxGens);
         for (int i = 0; excess > 0 && i < static_cast<int>(gens.size()); ++i, --excess) {
             std::snprintf(name, sizeof(name), "%04d.js", gens[i].gen);
-            std::remove((dir + "\\" + name).c_str());
+            std::remove((dir + "/" + name).c_str());
         }
     }
     return gen;
@@ -201,14 +201,14 @@ bool ReadGen(const std::string& scriptsDir, const std::string& slot, int gen,
     if (gen <= 0) return false;
     char name[16];
     std::snprintf(name, sizeof(name), "%04d.js", gen);
-    return ReadFileAll(HistoryDir(scriptsDir, slot) + "\\" + name, out);
+    return ReadFileAll(HistoryDir(scriptsDir, slot) + "/" + name, out);
 }
 
 bool ReadCurrentSlotFile(const std::string& scriptsDir,
                          const std::string& appName, std::string& slot) {
     if (appName.empty()) return false;
     std::string content;
-    if (!ReadFileAll(scriptsDir + "\\.current_" + appName, content)) return false;
+    if (!ReadFileAll(scriptsDir + "/.current_" + appName, content)) return false;
     // 공백 트림 — 메모장으로 고쳐도 살아남게.
     size_t a = 0, b = content.size();
     while (a < b && (content[a] == ' ' || content[a] == '\r' ||
@@ -222,7 +222,7 @@ bool ReadCurrentSlotFile(const std::string& scriptsDir,
 bool WriteCurrentSlotFile(const std::string& scriptsDir,
                           const std::string& appName, const std::string& slot) {
     if (appName.empty()) return false;
-    return WriteFileAll(scriptsDir + "\\.current_" + appName, slot);
+    return WriteFileAll(scriptsDir + "/.current_" + appName, slot);
 }
 
 } // namespace jk::workshop

@@ -111,9 +111,9 @@ static void LoadSettingsKv(bool& mute, int& volume, int& retention,
 // exe-dir 흡수 (docs/68 W5): 이 TU에 복각돼 있던 GetModuleFileNameA 블록
 // (buf→find_last_of→substr — WritePermissionsEntry/SettingsKvPath/NotesPath/
 // FilesPermRaw/RevokeTrustRecord/AgentToolAllowed/AppToolAllowed/agent_permissions
-// 퍼미션 읽기)을 1헬퍼로 통일. 원문 절단 규약 = 뒤 "\\" 없음(dir + "\\permissions.json"
-// 결합 소비자) — 그대로 보존. 절단 취약점(MAX_PATH/1024 후단 절단)은 어댑터의
-// 동적 재시도로 동시 소거.
+// 퍼미션 읽기)을 1헬퍼로 통일. 원문 절단 규약 = 뒤 구분자 없음(dir,
+// 소비자 결합이 '/'로 조립 — 플랜 F1 전역 규약, docs/64) — 그대로 보존.
+// 절단 취약점(MAX_PATH/1024 후단 절단)은 어댑터의 동적 재시도로 동시 소거.
 static std::string ExeDirNoSlash() {
     const std::string exe = jk::fs::GetExecutablePath();
     const size_t cut = exe.find_last_of("\\/");
@@ -508,7 +508,7 @@ bool JKWindowServer::StartAcceptor(const std::string& pipeName) {
             autoCut == std::string::npos
                 ? std::string(".")
                 : exePathAutoSpawn.substr(0, autoCut);
-        std::string dllPath = dirSelf + "\\jkapp_taskbar.dll";
+        std::string dllPath = dirSelf + "/jkapp_taskbar.dll";
         // ec 중립형(throwing 아님) — 원문 관측(존재 bool, 실패=false)과 동일하며
         // 이 TU에는 try/catch가 없어 던지는 오버로드는 서버를 죽인다(review r1).
         std::error_code existsEc;
@@ -2506,7 +2506,7 @@ static const AgentPermRow kPermMatrix[] = {
 static std::string WritePermissionsEntry(const std::string& permTool,
                                          const std::string& decision) {
     const std::string dir = ExeDirNoSlash();
-    const std::string path = dir + "\\permissions.json";
+    const std::string path = dir + "/permissions.json";
 
     std::map<std::string, std::string> values;
     if (std::FILE* f = std::fopen(path.c_str(), "rb")) {
@@ -2574,7 +2574,7 @@ static std::string WritePermissionsEntry(const std::string& permTool,
 // 같은 키를 원독한다.
 static std::string SettingsKvPath() {
     const std::string dir = ExeDirNoSlash();
-    return dir + "\\state\\settings.json";
+    return dir + "/state/settings.json";
 }
 
 // text.font_scale 유효성 (docs/63 §6 Task 3): 문자열 float 전체 소비 + 범위
@@ -2753,7 +2753,7 @@ struct NoteRow {
 };
 static std::string NotesPath() {
     const std::string dir = ExeDirNoSlash();
-    return dir + "\\state\\notes.json";
+    return dir + "/state/notes.json";
 }
 // 바이트 절단은 UTF-8 후행 시퀀스를 자른다(substr는 바이트 단위 — opus
 // MINOR-2: 한국어 3바이트 글자가 경계에 걸리면 mojibake). 마지막 완전한
@@ -2920,7 +2920,7 @@ static bool WriteNotesFile(const std::vector<NoteRow>& notes,
 // 헬퍼 불가). AgentToolAllowed와 같은 4KiB 원문 상한.
 static std::string FilesPermRaw(const std::string& tool) {
     const std::string dir = ExeDirNoSlash();
-    const std::string path = dir + "\\permissions.json";
+    const std::string path = dir + "/permissions.json";
     std::FILE* f = std::fopen(path.c_str(), "rb");
     if (!f) return "missing";
     char buf[4096] = {};
@@ -3183,9 +3183,9 @@ static std::string RevokeTrustRecord(const std::string& fingerprint) {
     // 이미 있으면 no-op(false)/실패=false — 원문 bool 무시 관측 동형, throwing
     // 오버로드 금지(이 TU 무 try/catch — review r1 HIGH).
     std::error_code dirEc;
-    std::filesystem::create_directory(std::filesystem::path(dir + "\\state"),
+    std::filesystem::create_directory(std::filesystem::path(dir + "/state"),
                                       dirEc);
-    const std::string path = dir + "\\state\\trust.json";
+    const std::string path = dir + "/state/trust.json";
 
     std::FILE* f = std::fopen(path.c_str(), "rb");
     if (!f) return "trust_store_unreadable";
@@ -3774,13 +3774,13 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                                 std::string thumb;
                                 {
                                     const std::string sdir =
-                                        StateDir() + "\\screenshots";
+                                        StateDir() + "/screenshots";
                                     std::error_code dirEc;
                                     std::filesystem::create_directory(
                                         std::filesystem::path(sdir), dirEc);
                                     char tbuf[512];
                                     std::snprintf(tbuf, sizeof(tbuf),
-                                                  "%s\\approval_%lld_%u.png",
+                                                  "%s/approval_%lld_%u.png",
                                                   sdir.c_str(),
                                                   static_cast<long long>(
                                                       std::time(nullptr)),
@@ -4112,7 +4112,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             std::string trustText;
             const std::string dir = ExeDirNoSlash();
             if (std::FILE* f = std::fopen(
-                    (dir + "\\state\\trust.json").c_str(), "rb")) {
+                    (dir + "/state/trust.json").c_str(), "rb")) {
                 // 전체 읽기 (docs/53 §9 잔여 — RevokeTrustRecord와 동일 근거):
                 // 64KB 캡이면 뒤쪽 레코드가 not_found로 미끄러져 해지가
                 // RMW까지 못 간다. 8MiB 상한 = 이상 파일 가드.
@@ -4231,7 +4231,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         if (!app.empty()) {
             const bool prefixed = app.find(':') != std::string::npos;
             const std::string dllPath =
-                exeDir + "\\jkapp_" + app + ".dll";
+                exeDir + "/jkapp_" + app + ".dll";
             if (prefixed || exeDir.empty() || fileExistsFn(dllPath)) {
                 // docs/35: pair the capture overlay with the client that asked
                 // for it (see overlaySpawner_ member comment).
@@ -4245,7 +4245,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                 // 없어도 apps/<app>.jkx가 있으면 컨테이너로 스폰해 두 호출
                 // 형태를 모두 살린다(설명 드리프트가 LLM을 막히게 하지 않는다).
                 const std::string jkxCandidate =
-                    exeDir + "\\apps\\" + app + ".jkx";
+                    exeDir + "/apps/" + app + ".jkx";
                 if (fileExistsFn(jkxCandidate)) {
                     SpawnClient(jkxCandidate.c_str(), true);
                     reply = "{\"ok\":true,\"via\":\"jkx\"}";
@@ -4278,9 +4278,9 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             std::string resolved;
             const std::string candidates[4] = {
                 jkx,                                   // 원문 (절대 경로 등)
-                exeDir + "\\" + jkx,                   // exeDir 기준 원문
-                exeDir + "\\apps\\" + norm + ".jkx",   // 정규화 이름
-                exeDir + "\\" + norm + ".jkx",
+                exeDir + "/" + jkx,                    // exeDir 기준 원문
+                exeDir + "/apps/" + norm + ".jkx",     // 정규화 이름
+                exeDir + "/" + norm + ".jkx",
             };
             for (const auto& c : candidates) {
                 if (!c.empty() && fileExistsFn(c)) {
@@ -4526,7 +4526,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         // triggers: state/triggers.json 플래그(trigger_toggle의 진실원).
         {
             std::FILE* f =
-                std::fopen((StateDir() + "\\triggers.json").c_str(), "rb");
+                std::fopen((StateDir() + "/triggers.json").c_str(), "rb");
             if (f) {
                 std::string text;
                 char chunk[8192];
@@ -4555,7 +4555,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         {
             int idle = 30;
             if (std::FILE* f =
-                    std::fopen((StateDir() + "\\idle_minutes").c_str(), "rb")) {
+                    std::fopen((StateDir() + "/idle_minutes").c_str(), "rb")) {
                 char buf[32] = {};
                 const size_t n = std::fread(buf, 1, sizeof(buf) - 1, f);
                 std::fclose(f);
@@ -4616,7 +4616,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         // (read_receipts의 상한 스캔과 같은 규모 — 이상 파일 가드).
         {
             long long rows = 0, lastTs = 0;
-            const std::string path = StateDir() + "\\receipts.jsonl";
+            const std::string path = StateDir() + "/receipts.jsonl";
             std::FILE* f = std::fopen(path.c_str(), "rb");
             if (f) {
                 std::fseek(f, 0, SEEK_END);
@@ -4668,7 +4668,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                 reply = "{\"ok\":false,\"error\":\"bad_value\"}";
             } else {
                 std::FILE* f = std::fopen(
-                    (StateDir() + "\\idle_minutes").c_str(), "wb");
+                    (StateDir() + "/idle_minutes").c_str(), "wb");
                 if (!f) {
                     reply = "{\"ok\":false,\"error\":\"write_failed\"}";
                 } else {
@@ -4868,7 +4868,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                 ++count;
             }
             snapshot += "]}";
-            const std::string path = StateDir() + "\\layout_" + name + ".json";
+            const std::string path = StateDir() + "/layout_" + name + ".json";
             std::FILE* f = std::fopen(path.c_str(), "wb");
             if (!f) {
                 reply = "{\"ok\":false,\"error\":\"write_failed\"}";
@@ -4883,7 +4883,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         if (!req.GetObjStr("args", "name", name) || name.empty()) {
             reply = "{\"ok\":false,\"error\":\"missing_name\"}";
         } else {
-            const std::string path = StateDir() + "\\layout_" + name + ".json";
+            const std::string path = StateDir() + "/layout_" + name + ".json";
             std::FILE* f = std::fopen(path.c_str(), "rb");
             if (!f) {
                 reply = "{\"ok\":false,\"error\":\"layout_not_found\"}";
@@ -5036,14 +5036,14 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             layer->Height() <= 0) {
             reply = "{\"ok\":false,\"error\":\"window_not_found\"}";
         } else {
-            const std::string dir = StateDir() + "\\screenshots";
+            const std::string dir = StateDir() + "/screenshots";
             std::error_code dirEc;  // 실패 무시 — 원문 bool 무시 동형, non-throwing
             std::filesystem::create_directory(std::filesystem::path(dir), dirEc);
             const long long ts =
                 std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::system_clock::now().time_since_epoch())
                     .count();
-            const std::string path = dir + "\\shot_" + std::to_string(ts) +
+            const std::string path = dir + "/shot_" + std::to_string(ts) +
                                      "_" + std::to_string(id) + ".png";
             if (CaptureLayerToPng(static_cast<uint32_t>(id), path)) {
                 reply = "{\"ok\":true,\"path\":\"" + JsonEsc(path) + "\"}";
@@ -5128,7 +5128,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                                          fx) * 4,
                                     static_cast<size_t>(fw) * 4);
                     }
-                    const std::string dir = StateDir() + "\\screenshots";
+                    const std::string dir = StateDir() + "/screenshots";
                     std::error_code dirEc;  // 실패 무시 — non-throwing (review r1)
                     std::filesystem::create_directory(
                         std::filesystem::path(dir), dirEc);
@@ -5139,7 +5139,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                                 .time_since_epoch())
                             .count();
                     const std::string path =
-                        dir + "\\shot_" + std::to_string(ts) + "_region.png";
+                        dir + "/shot_" + std::to_string(ts) + "_region.png";
                     if (WritePng(path, fw, fh, crop.data())) {
                         reply = "{\"ok\":true,\"path\":\"" + JsonEsc(path) +
                                 "\"}";
@@ -5239,7 +5239,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         if (name.empty() || on < 0) {
             reply = "{\"ok\":false,\"error\":\"missing_name\"}";
         } else {
-            const std::string path = StateDir() + "\\triggers.json";
+            const std::string path = StateDir() + "/triggers.json";
             std::map<std::string, int> flags;
             std::FILE* f = std::fopen(path.c_str(), "rb");
             if (f) {
@@ -5296,7 +5296,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         std::map<std::string, std::pair<std::vector<std::string>, int>> merged;
         auto readState = [&](const char* file, bool isManifest) {
             std::FILE* f =
-                std::fopen((StateDir() + "\\" + file).c_str(), "rb");
+                std::fopen((StateDir() + "/" + file).c_str(), "rb");
             if (!f) return;
             char buf[8192] = {};
             const size_t n = std::fread(buf, 1, sizeof(buf) - 1, f);
@@ -5344,7 +5344,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         // — trust_store_unreadable on fopen or parse failure; a valid file
         // with zero records still answers ok with an empty array.
         std::FILE* f =
-            std::fopen((StateDir() + "\\trust.json").c_str(), "rb");
+            std::fopen((StateDir() + "/trust.json").c_str(), "rb");
         if (!f) {
             reply = "{\"ok\":false,\"error\":\"trust_store_unreadable\"}";
         } else {
@@ -5489,7 +5489,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         // 소비처를 정직 표기 — "none" 행의 파일값은 서버 무력(브로커만).
         // file은 "" = 오버라이드 없음 (AgentJson이 null을 못 읽는다).
         const std::string dir = ExeDirNoSlash();
-        const std::string permPath = dir + "\\permissions.json";
+        const std::string permPath = dir + "/permissions.json";
         char pbuf[4096] = {};
         bool fileExists = false;
         if (std::FILE* f = std::fopen(permPath.c_str(), "rb")) {
@@ -5562,7 +5562,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         req.GetObjInt("args", "limit", limit);
         if (limit <= 0) limit = 50;
         if (limit > 200) limit = 200;
-        const std::string path = StateDir() + "\\receipts.jsonl";
+        const std::string path = StateDir() + "/receipts.jsonl";
         std::FILE* f = std::fopen(path.c_str(), "rb");
         if (!f) {
             reply = "{\"ok\":true,\"rows\":[]}";   // 브로커 미사용 = 정상
@@ -6953,7 +6953,7 @@ AgentDecision JKWindowServer::AgentToolAllowed(const std::string& tool) const {
     // (스펙 §2.2 핵심 안전 결정).
     if (tool == "permission_set") return AgentDecision::Ask;
     const std::string dir = ExeDirNoSlash();
-    const std::string path = dir + "\\permissions.json";
+    const std::string path = dir + "/permissions.json";
     // Missing entry defaults: close_window denies (M1 rule), trust_request
     // ASKS (the gate would be pointless if unknown scripts loaded silently),
     // run_console_app ASKS (P4 SDK §5 — the agent launching local apps is an
@@ -7041,7 +7041,7 @@ AgentDecision JKWindowServer::AppToolAllowed(const std::string& app,
     std::string k1 = "app_tool." + app;
     const char* keys[3] = {k0.c_str(), k1.c_str(), "app_tool"};
     const std::string dir = ExeDirNoSlash();
-    std::FILE* f = std::fopen((dir + "\\permissions.json").c_str(), "rb");
+    std::FILE* f = std::fopen((dir + "/permissions.json").c_str(), "rb");
     if (!f) return dflt;
     char buf[4096] = {};
     const size_t n = std::fread(buf, 1, sizeof(buf) - 1, f);
@@ -7364,7 +7364,7 @@ std::string JKWindowServer::StateDir() const {
     std::string dir = jk::fs::GetExecutablePath();
     const size_t slash = dir.find_last_of("\\/");
     dir = (slash == std::string::npos) ? std::string(".") : dir.substr(0, slash);
-    dir += "\\state";
+    dir += "/state";
     std::error_code dirEc;
     std::filesystem::create_directory(std::filesystem::path(dir), dirEc);
     return dir;

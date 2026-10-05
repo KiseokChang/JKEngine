@@ -358,7 +358,7 @@ bool TrustGate(const std::string& name, const char* origin,
     r.source = "user";
     r.ts = static_cast<long long>(std::time(nullptr));
     TrustUpsert(&g_trust, r);
-    SaveTrustRecords(g_exeDir + "\\state\\trust.json", g_trust);
+    SaveTrustRecords(g_exeDir + "/state/trust.json", g_trust);
     HostLog("[triggers] trusted + recorded: " + name);
     return true;
 }
@@ -382,7 +382,7 @@ int SelfTest() {
           "sha256 empty");
     // Trust store: upsert idempotency + user-record preservation (spec §3).
     {
-        const std::string path = g_exeDir + "\\state\\_selftest_trust.json";
+        const std::string path = g_exeDir + "/state/_selftest_trust.json";
         std::vector<TrustRecord> recs;
         TrustRecord pack;
         pack.fingerprint = "sha256:aaa1";
@@ -432,7 +432,7 @@ int SelfTest() {
             t64.source = "user";
             t64.ts = 2200000000;
             TrustUpsert(&big, t64);
-            const std::string tsPath = g_exeDir + "\\state\\_selftest_ts.json";
+            const std::string tsPath = g_exeDir + "/state/_selftest_ts.json";
             check(SaveTrustRecords(tsPath, big), "ts int64 save");
             std::vector<TrustRecord> tsBack;
             LoadTrustRecords(tsPath, &tsBack);
@@ -454,7 +454,7 @@ int SelfTest() {
     // Container fingerprint: MANI+SCRI in TOC order, deterministic, and
     // sensitive to script content (spec §2).
     {
-        const std::string path = g_exeDir + "\\state\\_selftest_fp.jkx";
+        const std::string path = g_exeDir + "/state/_selftest_fp.jkx";
         const char* maniText = "name=demo\ntrigger=a.js\n";
         std::vector<std::pair<std::string, std::vector<uint8_t>>> entries;
         entries.emplace_back(
@@ -534,7 +534,7 @@ bool Publish(const std::string& topic, const std::string& dataRawJson) {
 
 // exeDir-relative file read for trigger configuration.
 std::string ReadFileRelative(const std::string& rel, bool& ok) {
-    const std::string path = g_exeDir + "\\" + rel;
+    const std::string path = g_exeDir + "/" + rel;
     FILE* f = std::fopen(path.c_str(), "rb");
     if (!f) {
         ok = false;
@@ -749,7 +749,7 @@ void RunPendingJobs() {
 // — the server writes it (trigger_toggle); we re-read on triggers.reload.
 void ReloadTriggerFlags() {
     g_enabled.clear();
-    FILE* f = std::fopen((g_exeDir + "\\state\\triggers.json").c_str(), "rb");
+    FILE* f = std::fopen((g_exeDir + "/state/triggers.json").c_str(), "rb");
     if (!f) return;
     std::string buf;
     char chunk[4096];
@@ -792,9 +792,9 @@ void WriteLoadedManifest() {
     }
     out += "]}";
     std::error_code ec;  // CreateDirectoryA 반환 무시 계약 — fail-quiet 원문
-    std::filesystem::create_directories(g_exeDir + "\\state", ec);
+    std::filesystem::create_directories(g_exeDir + "/state", ec);
     FILE* f =
-        std::fopen((g_exeDir + "\\state\\triggers_loaded.json").c_str(), "wb");
+        std::fopen((g_exeDir + "/state/triggers_loaded.json").c_str(), "wb");
     if (!f) return;
     std::fwrite(out.data(), 1, out.size(), f);
     std::fclose(f);
@@ -994,7 +994,7 @@ bool GlobTail(const std::string& name, const char* tail) {
 
 // Dev path: loose .js files next to the exe.
 void LoadJsDir() {
-    const std::string dir = g_exeDir + "\\state\\triggers";
+    const std::string dir = g_exeDir + "/state/triggers";
     std::error_code ec;
     std::filesystem::directory_iterator it(dir, ec);
     if (ec) return;  // 원문: FindFirstFile INVALID_HANDLE → 조용히 반환
@@ -1027,7 +1027,7 @@ void LoadJsDir() {
 // The manifest is parsed locally (name/trigger only) — the server never
 // sees these containers, so they stay out of the launcher grid.
 void LoadTriggerContainers() {
-    const std::string dir = g_exeDir + "\\apps\\triggers";
+    const std::string dir = g_exeDir + "/apps/triggers";
     std::error_code ec;
     std::filesystem::directory_iterator it(dir, ec);
     if (ec) return;  // 원문: FindFirstFile INVALID_HANDLE → 조용히 반환
@@ -1151,7 +1151,7 @@ int PackMode(const std::string& srcDir, const std::string& outDir) {
                                  std::move(bytes));
         }
 
-        const std::string out = outDir + "\\" + name + ".jkx";
+        const std::string out = outDir + "/" + name + ".jkx";
         if (jk::JKJkxFile::Write(out, entries)) {
             HostLog("jktriggers: packed " + out);
             ++packed;
@@ -1170,9 +1170,9 @@ int PackMode(const std::string& srcDir, const std::string& outDir) {
             r.ts = static_cast<long long>(std::time(nullptr));
             if (!r.fingerprint.empty()) {
                 std::vector<TrustRecord> recs;
-                LoadTrustRecords(g_exeDir + "\\state\\trust.json", &recs);
+                LoadTrustRecords(g_exeDir + "/state/trust.json", &recs);
                 TrustUpsert(&recs, r, /*keepUserRecord=*/true);
-                if (SaveTrustRecords(g_exeDir + "\\state\\trust.json", recs))
+                if (SaveTrustRecords(g_exeDir + "/state/trust.json", recs))
                     HostLog("jktriggers: trust record (pack): " + r.name);
             }
         } else {
@@ -1216,7 +1216,7 @@ int main(int argc, char* argv[]) {
         g_agent.SubscribeEvents(true);
         HostLog("[triggers] connected to the window server");
     }
-    LoadTrustRecords(g_exeDir + "\\state\\trust.json", &g_trust);
+    LoadTrustRecords(g_exeDir + "/state/trust.json", &g_trust);
     LoadJsDir();
     LoadTriggerContainers();
     ReloadTriggerFlags();   // apply state/triggers.json before first dispatch
