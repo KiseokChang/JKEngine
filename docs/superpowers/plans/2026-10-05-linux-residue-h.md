@@ -130,20 +130,26 @@ JKConPtyBridge 소관이라 영향 0).
   - 13a RecvAll 청크: `ListenTcp("127.0.0.1", 0, 4, &boundPort)` → 자기
     클라 connect → **수백 바이트(예: 320B)를 7개 불규칙 청크**(13·47·64·1·
     128·33·34, 청크 사이 ~10-20ms sleep)로 전송 → `RecvAll(s, buf, 320)` →
-    true + 내용 전부 일치(memcmp). 부분 recv 루프의 정확성 봉합(docts/68
-    승계 "수백 바이트 RecvAll 패턴").
-  - 13b timeout 비파국: accept 후 `SetTimeouts(s, 400)` → 피어가 64B 중
-    절반 전송 → 700ms sleep(타이머 만료 유도) → 나머지 전송 → `RecvAll(64)`
-    → **true**(SO_RCVTIMEO는 블록 상한일 뿐, 한 번의 EAGAIN이RecvAll을
-    죽이면 안 된다 — 루프가 계속 recv해야 실패 없이 완성).
-    피어 측에서도 Send 전 SetTimeouts 보호.
-  - 13c 무한블록 방어 증명: 새 연결, 피어가 **아무것도 안 보내고** 서버가
-    `SetTimeouts(accepted, 400)` 후 `RecvAll` → 언젠가 false로 **반환**
-    (SO_RCVTIMEO 경로) — 5s 상한 시계로 감싸 영원히 블록하면 실패 처리
-    (Accept 무한블록 방어의 실측 형태: timeout이 설정된 소켓의 블로킹 연산은
-    상한이 있다는 계약 봉합). 이후 피어 close → 정리.
+    true + 내용 전부 일치(memcmp). 부분 recv 루프의 정확성 봉합(docs/68
+    승계 "수백 바이트 RecvAll 패턴"). 기존 케이스 3은 5바이트 단발 — 320B로
+    확장하는 의미만 있다(컨트롤러 룰링: 중복 아님).
+  - 13b 부분읽기 이후 timeout 경계(**컨트롤러 룰링으로 반전** — posix
+    RecvAll은 `r<=0 → false` fail-closed 계약(KJNet_posix.cpp:104-118,
+    EAGAIN 포함)라 "timeout 후에도 성공"은 계약 위반이다): 피어가 64B 중
+    절반(32B) 전송 → 700ms sleep(**SO_RCVTIMEO 400ms 만료 유도 → recv
+    EAGAIN**) → 그 뒤 나머지 전송 → `RecvAll(acc, buf, 64)` → **false**
+    (부분 읽기 도중의 EAGAIN도 RecvAll을 정직하게 거부한다 — 기존 케이스 3 D의
+    "무데이터 timeout"과 대비되는 부분읽기 경로 봉합). elapsed < 2500ms.
+  - 13c Accept 무한블록 방어 실측: 신설 listener에 `SetTimeouts(listener,
+    300)` 후 **아무도 connect하지 않은 상태**로 `Accept` → Linux는 listening
+    소켓의 SO_RCVTIMEO를 accept에도 적용 — kInvalidSocket이 ~1초 내 반환되면
+    통과. hang 방어막으로 13c 시작 전 `alarm(20)` + 통과 후 `alarm(0)`
+    (타이머 누출 방지, SIGALRM 기본 동작=프로세스 사망이므로 hang은 조용한
+    붙잡힘이 아니라 요란한 적색). 만약 WSL 환경에서 accept가 bound하지
+    않으면 구현자는 실패를 보고하고 컨트롤러가 룰링(계약 문서화로 소각) —
+    실패를 숨기지 않는다.
   - 케이스 헤더 주석: `// Case 13 (plan H — docs/70 §6 #7): RecvAll 청크
-    패턴+SetTimeouts 상한 계약(Accept 무한블록 방어 실측).`
+    패턴+부분읽기 timeout 경계+Accept 상한 실측.`
 - [ ] **Step 2: WSL 셀프테스트** — 재빌드+런 → 케이스 13 포함 0 failures.
 - [ ] **Step 3: 윈도우 빌드 RC=0** — selftest TU는 win32 빌드 미포함이지만
   변경이 없음을 상태로 확인(ninja up-to-date RC=0).
