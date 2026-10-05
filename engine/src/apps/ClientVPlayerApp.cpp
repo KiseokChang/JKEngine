@@ -5,6 +5,7 @@
 #include <imgui_impl_jkwindow.h>
 #include <imgui.h>
 #include "theme/JKThemeImGui.h"
+#include <JKTextAtlas.h>
 #include <JKWindow.h>
 #include <SDL.h>
 
@@ -2048,12 +2049,16 @@ void ClientVPlayerApp::OnInit() {
     ImGui::CreateContext();
     jk::theme::ApplyImGuiTheme(); // JKTheme 팔레트 봉합 (P2 단계 3)
     ImGui::GetIO().IniFilename = nullptr;
-    // Korean UI (열기... picker button) — Malgun Gothic like the shot/filedlg
-    // apps; failure degrades to the default font.
+    // Korean UI (열기... picker button) — desktop font resolver (docs/63
+    // §4.1, shot/filedlg 동일). 빈 해석은 커스텀 폰트 스킵(내장 기본
+    // 글리프) — 하드코딩 malgun은 리눅스에서 AddFont 시점 assert 사망
+    // (vplayer WSL 부팅 실측, docs/70 §6 #6 선행 블록).
     ImGuiIO& io = ImGui::GetIO();
-    io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\malgun.ttf", 16.0f,
-                                 nullptr,
-                                 io.Fonts->GetGlyphRangesKorean());
+    const std::string fontPath = jk::text::ResolveDesktopFontPath();
+    if (!fontPath.empty())
+        io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 16.0f,
+                                     nullptr,
+                                     io.Fonts->GetGlyphRangesKorean());
     lastFrame_ = std::chrono::steady_clock::now();
 
     // 앱 도구 허브 (스펙 2026-09-19-app-tool-hub §8.1): 자기 도구 선언 — 연결

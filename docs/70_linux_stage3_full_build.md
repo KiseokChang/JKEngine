@@ -150,8 +150,9 @@ posix 어댑터 자체는 2단계 실측되어 있으나 이 도구 배선은 �
    덮어쓰기 — 트리 킬 누락), **자식 stdin 부모 상속**(패리티 원하면
    open("/dev/null")+dup2(0)), **조기 CloseHandleLike 좀비**(init 회수 —
    누수 아님), **전송 phantom 연결**(probe connect가 backlog 슬롯 소비)
-6. **vplayer 리눅스 실재 동작**(libav 60.x 링크 확인 — 런타임 재생 실측은
-   별도), **Termux 패키징·폰 실기기 도달**(docs/62 §3 흐름)
+6. **vplayer 리눅스 실재 동작** — **§8로 결제(2026-10-05): 재생+EOF 수령
+   실측 완료**. 남은 것: **Termux 패키징·폰 실기기 도달**(docs/62 §3 흐름),
+   §8.4 부수 관측 2건 판정
 7. **selftest 강화 후보**(docs/68 승계): 수백 바이트 RecvAll 패턴·Accept
    무한블록 방어
 8. **셸리스 리눅스 서버(F7)** — posix 서버 SpawnClient는 스텁
@@ -179,3 +180,78 @@ posix 어댑터 자체는 2단계 실측되어 있으나 이 도구 배선은 �
 | 73819fd | T8b JKLmEngine 미니봉합 |
 | 65a4c3a | T9 라이더: jkx 재팩 WIN32 게이트 |
 | (본 문서) | docs/70 as-built |
+
+## 8. vplayer WSL 재생 실측 + 폰트 assert 봉합 (2026-10-05 후속, §6 #6 전반부 결제)
+
+### 8.1 폰트 assert 사망 봉합 (10-site)
+
+WSL 부팅 실측에서 폰트 assert 사망 확정: 클라이언트 ImGui 앱들이
+`C:\Windows\Fonts\malgun.ttf`를 하드코딩 — 리눅스에서
+`io.Fonts->AddFontFromFileTTF`가 **assert로 즉사**
+(`imgui_draw.cpp:3251 "Could not load font file!"`, 클라이언트 측
+null-check 가드는 assert가 imgui 내부에서 먼저 터져 무의미). docs/68 W5
+deferred 항목의 실재 사망. 봉합: **10 ImGui 앱 전부**
+`jk::text::ResolveDesktopFontPath()` 승계(docs/63 §4.1 계약 — settings.json
+`text.font_path` → Windows malgun → Linux Noto CJK 후보 배열) + **빈 해석
+시 커스텀 폰트 스킵**(내장 기본 글리프로 열화, 사망 아님).
+
+- 승계 10곳: agentmgr·browser·filedlg·files·notes·notify·settings·shot·
+  snap·vplayer (vplayer가 최초 사망 수사 발원지)
+- 커스텀 글리프 레인지 보존: browser의 `koreanWithStar`
+- if-가드 패턴(`koreanFont_ = true` 세팅 곳)은 반환값 검사로 확장:
+  `if (!fontPath.empty() && io.Fonts->AddFontFromFileTTF(...))`
+- Windows 회귀: BUILD RC=0 + `AppSelfTest: 0 failure(s)` (GREEN)
+
+### 8.2 재생 실측 영수증 (libav 60.x Linux 첫 실측)
+
+통제 사이클(`engine/tools/probes/wsl_vp_cycle.sh`)로 부팅→launch_app→
+open→폴링까지 한 세션에서 수행:
+
+- boot(G 표준) → `launch_app vplayer` ok:true → 서버+taskbar+vplayer
+  3프로세스 → `app_tool open` (`/mnt/i/progwork/JKENGINE/tmp/
+  vpt2_test.mp4`, 엔진 소유클립) → `{"ok":true,"windowId":3,
+  "accepted":true}`
+- get_status 폴링: pos 실시간 진행(2.97→6.08→…→29.954), `dur:30.000`,
+  `error:""`, **`ended:true` 수령** — 디코딩·디먹스·프리젠테이션·EOF
+  전 구간 정상. **리눅스에서의 첫 재생 성공.**
+- 종료 후 60초+ 폴링 전부 생존 — 재생 종료 자체는 어떤 사망도 유발하지
+  않음
+
+### 8.3 사망 트리아지 — 클립 종료가 아니라 wsl.exe 세션 detach 소각
+
+"클립 종료 시 전멸"은 오판이었다. 판별 실험
+(`engine/tools/probes/wsl_vp_soak.sh` — 부착 세션에서 240초 폴링):
+
+- 부착 세션 내내 3프로세스 생존(240초, 사망 무)
+- **소생 세션이 exit하자 7초 후 점검 시 전멸(0개)** — 재현 3회 동일
+- 커널 기록(dmesg)에 사망 신호 기록 **전무** — abort/crash가 아니라
+  WSL이 소스 세션 소멸 시 프로세스 트리를 소각하는 것이다(문서화된
+  `(env DISPLAY=:0 ./jkdesktop --server … &)` 부팅은 **부착 세션 수명에
+  종속** — docs/70 §5 표준 항목 교정)
+- dmesg의 signal 6 기록 2건(28999/29039)은 8.1의 폰트 assert 사망
+  (폰트 설치 전) — 리듀서 혼동 방지 명기
+
+**신규 표준 부팅 패턴(setsid 신세션 분리 — detach 소각 회피,
+`wsl_vp_setsid_boot.sh` 검증, +30초 생존 확인):**
+
+```sh
+pkill -9 -x jkdesktop; rm -f /tmp/JKWindowServerPipe.sock
+(env DISPLAY=:0 setsid ./jkdesktop --server >/tmp/srv.log 2>&1 &)
+sleep 6
+```
+
+### 8.4 부수 관측 (결함 확정 아님, 후속 판정)
+
+- **`ended:true` 조기 플립** — pos 24.4에서 flag 조기 세팅되고 pos는
+  29.954까지 계속 진행 → 29.954에서 정지(dur 30.000에 미달). 디먹스
+  EOF(마지막 비디오 패킷~24.4s)와 프리젠테이션 시간의 괴리 추정.
+  Windows 동일 클립 관측 비교 후 판정할 것
+- **서버측 벡터 폰트가 NotoSansCJK-Regular.ttc에서 init 실패** —
+  `Warning: vector font init failed (…/NotoSansCJK-Regular.ttc); staying
+  on bitmap glyphs`. .ttc 컬렉션 파싱 미지원 추정(Windows malgun.ttf는
+  정상). ImGui 클라이언트 폰트는 동일 .ttc에서 정상 로드 — 서버 아틀라스
+  경로만 열화(docs/63 계열 후속, 셧다운성 결함 아님)
+- **wsl.exe 인라인 따옴표 소각** — `bash -lc '…"{\"k\":…}"'`의 이스케이프
+  따옴표와 `$VAR` 확장이 wsl.exe Windows 인자 파서에서 유실됨 → 복잡한
+  WSL 진단은 반드시 **스크립트 파일**(probe)로 실행
+  (`bash /mnt/.../probe.sh`, Git Bash 호출엔 `MSYS_NO_PATHCONV=1`)

@@ -7,6 +7,7 @@
 #include <client/JKClientSurface.h>
 #include <imgui_impl_jkwindow.h>
 #include "theme/JKThemeImGui.h"
+#include <JKTextAtlas.h>
 #include <JKWindow.h>
 #include <SDL.h>
 
@@ -57,12 +58,15 @@ void ClientShotApp::OnInit() {
     ImGui::CreateContext();
     jk::theme::ApplyImGuiTheme(); // JKTheme 팔레트 봉합 (P2 단계 3)
     ImGui::GetIO().IniFilename = nullptr;
-    // Korean UI (새로고침/영역 캡처/empty-state text) — Malgun Gothic like
-    // the notify center; failure degrades to the default font.
+    // Korean UI (새로고침/영역 캡처/empty-state text) — desktop font resolver
+    // (docs/63 §4.1, notify 동일): 빈 해석은 커스텀 폰트 스킵(내장 기본
+    // 글리프 — AddFont 시점 assert 사망 대신 열화).
     ImGuiIO& io = ImGui::GetIO();
-    io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\malgun.ttf", 16.0f,
-                                 nullptr,
-                                 io.Fonts->GetGlyphRangesKorean());
+    const std::string fontPath = jk::text::ResolveDesktopFontPath();
+    if (!fontPath.empty())
+        io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 16.0f,
+                                     nullptr,
+                                     io.Fonts->GetGlyphRangesKorean());
 
     RefreshList();
 }

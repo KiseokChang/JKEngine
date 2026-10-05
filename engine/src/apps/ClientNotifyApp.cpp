@@ -7,6 +7,7 @@
 #include <agent/JKAgentJson.h>
 #include <imgui_impl_jkwindow.h>
 #include "theme/JKThemeImGui.h"
+#include <JKTextAtlas.h>
 #include <JKWindow.h>
 #include <fs/JKFs.h>
 #include <SDL.h>
@@ -55,7 +56,11 @@ void ClientNotifyApp::OnInit() {
     // default font is ASCII-only, so load Malgun Gothic with the Korean
     // ranges. Failure degrades to the default font (English-only UI).
     ImGuiIO& io = ImGui::GetIO();
-    if (io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\malgun.ttf", 16.0f,
+    // 한국어 폰트 리졸러 계약(docs/63 §4.1) 승계 — 빈 해석은 커스텀 폰트
+    // 스킵(내장 기본 글리프; 하드코딩 malgun은 리눅스 AddFont assert 사망).
+    const std::string fontPath = jk::text::ResolveDesktopFontPath();
+    if (!fontPath.empty() &&
+        io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 16.0f,
                                      nullptr,
                                      io.Fonts->GetGlyphRangesKorean())) {
         koreanFont_ = true;

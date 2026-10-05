@@ -9,6 +9,7 @@
 #include <imgui.h>
 #include "theme/JKThemeImGui.h"
 #include <agent/JKAgentJson.h>
+#include <JKTextAtlas.h>
 #include <JKWindow.h>
 #include <fs/JKFs.h>
 #include <SDL.h>
@@ -489,8 +490,10 @@ void ClientBrowserApp::OnInit() {
             0xFF00, 0xFFDC, // halfwidth/fullwidth forms
             0,
         };
-        io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\malgun.ttf", 16.0f,
-                                     nullptr, koreanWithStar);
+        const std::string fontPath = jk::text::ResolveDesktopFontPath();
+        if (!fontPath.empty())
+            io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 16.0f,
+                                         nullptr, koreanWithStar);
     }
 
     LoadBookmarks(); // task 2 step 4: one-shot restore at startup

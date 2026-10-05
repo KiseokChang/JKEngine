@@ -9,6 +9,7 @@
 #include <client/JKClientSurface.h>
 #include <imgui_impl_jkwindow.h>
 #include "theme/JKThemeImGui.h"
+#include <JKTextAtlas.h>
 #include <JKWindow.h>
 #include <SDL.h>
 
@@ -50,12 +51,17 @@ void ClientSnapApp::OnInit() {
     ImGui::CreateContext();
     jk::theme::ApplyImGuiTheme(); // JKTheme 팔레트 봉합 (P2 단계 3)
     ImGui::GetIO().IniFilename = nullptr;
-    // The hint line is Korean — load Malgun Gothic like the notify center;
-    // failure degrades to the default font (English-only UI).
+    // The hint line is Korean — load the resolved desktop font (docs/63 §4.1
+    // resolver: Windows default malgun, Linux Noto CJK candidates, settings
+    // override wins). An empty resolve (font missing everywhere) degrades to
+    // the ImGui default font — the hardcoded-malgun path aborted ImGui apps
+    // at AddFontFromFileTTF's load assert on Linux (vplayer WSL boot 실측).
     ImGuiIO& io = ImGui::GetIO();
-    io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\malgun.ttf", 16.0f,
-                                 nullptr,
-                                 io.Fonts->GetGlyphRangesKorean());
+    const std::string fontPath = jk::text::ResolveDesktopFontPath();
+    if (!fontPath.empty())
+        io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 16.0f,
+                                     nullptr,
+                                     io.Fonts->GetGlyphRangesKorean());
 }
 
 void ClientSnapApp::OnClose() {
