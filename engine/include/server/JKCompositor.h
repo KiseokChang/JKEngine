@@ -111,6 +111,13 @@ public:
     using OverlayHook = std::function<void(float outputScale)>;
     void SetOverlayHook(OverlayHook hook) { overlayHook_ = std::move(hook); }
 
+    // 닫기(X) 버튼 호버 (2026-10-05 사용자 눈확인 수리 — I4 원장 "컴포지터
+    // 오버레이 복제" 봉합): 서버가 마우스 커서가 어느 레이어의 X 존에
+    // 있는지 판정한 결과(레이어 id, 0=없음)를 그리는 쪽에 흘린다. 상태의
+    // 판정은 윈도 서버(TryChromeGrab 존 1과 동일 산식), 컴포지터는 미러
+    // 그리기만 — Docs 39의 maximize 플래그와 같은 방향.
+    void SetCloseHoverLayer(uint32_t id) { closeHoverLayerId_ = id; }
+
 private:
     SDL_Renderer* renderer_ = nullptr;
     JKCompositorOutput output_{0, JKRect{0, 0, 0, 0}, 1.0f};
@@ -118,6 +125,7 @@ private:
     std::mutex layersMutex_;
     std::vector<std::unique_ptr<JKCompositorLayer>> layers_;
     uint32_t focusedId_ = 0;
+    uint32_t closeHoverLayerId_ = 0;
 
     JKCompositorLayer* FindLayer(uint32_t id);
     void UpdateLayerTexture(JKCompositorLayer& layer);

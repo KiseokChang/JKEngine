@@ -342,7 +342,11 @@ void JKCompositor::DrawCloseOverlay(const JKCompositorLayer& layer, float scale)
     const int pad = static_cast<int>(5 * layer.ScaleX() * scale);
     const auto& t = jk::theme::current();
 
-    SDL_SetRenderDrawColor(renderer_, t.chromeButtonFace.r, t.chromeButtonFace.g, t.chromeButtonFace.b, 255);
+    // 호버면 chromeCloseHover로 치환(JKWindow.cpp 클라 페인트와 동일 계약 —
+    // 글리프 X 색은 유지). 상태 판정은 JKWindowServer::UpdateCloseHover.
+    const auto& face = (layer.Id() == closeHoverLayerId_)
+                           ? t.chromeCloseHover : t.chromeButtonFace;
+    SDL_SetRenderDrawColor(renderer_, face.r, face.g, face.b, 255);
     SDL_RenderFillRect(renderer_, &btn);
     SDL_SetRenderDrawColor(renderer_, t.chromeBorder.r, t.chromeBorder.g, t.chromeBorder.b, 255);
     SDL_RenderDrawRect(renderer_, &btn);

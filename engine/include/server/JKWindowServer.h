@@ -527,6 +527,12 @@ private:
     // window under the cursor.
     float chromeGrabFX_ = 0.0f;
     float chromeGrabFY_ = 0.0f;
+
+    // 닫기(X) 버튼 호버 레이어 (I4 원장 컴포지터 복제 봉합): 0 = 호버 없음.
+    // 판정은 서버 몫(TryChromeGrab 존 1과 동일 존 산식)이고 컴포지터는
+    // 칠하는 것만 — 전이 시에만 Composite() 1회.
+    uint32_t closeHoverLayerId_ = 0;
+    void UpdateCloseHover(int mx, int my, float scale);
     // Grab-start mouse position (logical points) — the deferred drag-restore
     // fires only past kResizeHotspot of accumulated motion from here, so a
     // hand's ~1px jitter between a double-click's clicks stays a click.

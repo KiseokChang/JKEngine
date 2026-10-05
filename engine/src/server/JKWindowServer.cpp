@@ -1712,12 +1712,58 @@ void JKWindowServer::UpdateChromeHoverCursor(int mx, int my, float scale) {
     SetChromeCursor(shape);
 }
 
+// I4 원장("컴포지터 쪽 closeHover 오버레이 복제") 봉합 — X 버튼 호버를
+// 서버가 그리는 닫기 오버레이에도 흘린다(2026-10-05 사용자 눈확인: 서버
+// 모드에서 호버 무변화). 판정 산식은 TryChromeGrab 존 1(닫기 클릭 존)과
+// 동일 — 클릭이 되는 존과 밝혀지는 존이 한 칸도 어긋나지 않는다. 전이
+// 시에만 Composite() 1회(모션마다 미세 재구성 없음).
+void JKWindowServer::UpdateCloseHover(int mx, int my, float scale) {
+    if (!compositor_) {
+        return;
+    }
+    uint32_t id = 0;
+    if (JKCompositorLayer* layer = compositor_->HitTest(mx, my)) {
+        JKClientConnection* client = FindClientById(layer->Id());
+        // DrawCloseOverlay/TryChromeGrab의 면제 규칙과 동일 — 셸·캡처
+        // 오버레이·전체화면 레이어는 X 버튼도 없다.
+        if (client && !client->IsShell() &&
+            client->Title() != kCaptureOverlayTitle && !layer->IsFullscreen()) {
+            const int lx = static_cast<int>(std::llround(
+                (mx / scale - layer->X()) / layer->ScaleX()));
+            const int ly = static_cast<int>(std::llround(
+                (my / scale - layer->Y()) / layer->ScaleY()));
+            const int w = layer->Width();
+            if (lx >= w - kChromeCloseSize - kChromeCloseMargin &&
+                lx < w - kChromeCloseMargin &&
+                ly >= kChromeCloseMargin &&
+                ly < kChromeCloseMargin + kChromeCloseSize) {
+                id = layer->Id();
+            }
+        }
+    }
+    if (id != closeHoverLayerId_) {
+        closeHoverLayerId_ = id;
+        compositor_->SetCloseHoverLayer(id);
+        Composite();
+    }
+}
+
 void JKWindowServer::HandleSDLEvent(const SDL_Event& ev) {
     if (ev.type == SDL_WINDOWEVENT &&
         (ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED ||
          ev.window.event == SDL_WINDOWEVENT_MOVED ||
          ev.window.event == SDL_WINDOWEVENT_DISPLAY_CHANGED)) {
         UpdateOutputBounds();
+    }
+    // 서버 창 밖으로 커서가 나가면 모션이 더 안 오므로 호버가 얼어붙는다
+    // (I3/I4 리뷰가 지적한 "표면 이탈 OUT 전이 지연"의 서버 쪽 정직 소각)
+    // — LEAVE에서 확정 소거한다.
+    if (ev.type == SDL_WINDOWEVENT &&
+        ev.window.event == SDL_WINDOWEVENT_LEAVE &&
+        closeHoverLayerId_ != 0) {
+        closeHoverLayerId_ = 0;
+        compositor_->SetCloseHoverLayer(0);
+        Composite();
     }
 
     if (ev.type == SDL_MOUSEMOTION || ev.type == SDL_MOUSEBUTTONDOWN ||
@@ -1752,6 +1798,7 @@ void JKWindowServer::HandleSDLEvent(const SDL_Event& ev) {
         // set at grab start and survives until the next free motion).
         if (ev.type == SDL_MOUSEMOTION) {
             UpdateChromeHoverCursor(mx, my, outputScale);
+            UpdateCloseHover(mx, my, outputScale);   // X 버튼 호버 (컴포지터)
         }
         if (ev.type == SDL_MOUSEBUTTONDOWN &&
             TryChromeGrab(mx, my, outputScale, ev.button.clicks)) {
