@@ -125,6 +125,7 @@ using jk::Utf8ToKssm;
 #include <apps/ClientScriptApp.h>
 #include <apps/JKAppModule.h>
 #include <apps/JKTerminalConfig.h>
+#include <apps/JKWorkshopSeed.h>
 #include <JKJkxFile.h>
 #include "wancode.h"
 #include <cstdint>
@@ -2721,6 +2722,59 @@ static int RunAppSelfTest() {
                     allBound = false;
             check(allBound, "1h-f 표↔BoundNames 전수 일치");
             hhost.Stop();
+        }
+
+        // 1j) 출하 시딩 원천 전환 (스펙 2026-10-05-slot-ship-tool §4/§5-3 —
+        //     파묻힌 SCRI 우선, 템플릿 회귀 유지, 외부 진실원 존중).
+        //     headless 파일 시나리오 — 임시 디렉터리 3+1 단계.
+        //     읽기는 위 ReadWholeFile 재용, 쓰기는 std::ofstream 구문
+        //     (1f2 파일 다이얼로그 블록 1150행과 동일 관습 — 새 헬퍼 신설 안 함).
+        {
+            namespace fs = std::filesystem;
+            const fs::path dir = fs::temp_directory_path() / "jk_seed_test";
+            fs::remove_all(dir);
+            fs::create_directories(dir);
+            const std::string ext = (dir / "ext.js").string();
+            const std::string ship = (dir / "ship.js").string();
+            const std::string tpl = "TEMPLATE";
+            std::string seedErr;
+            std::string got;
+            {
+                std::vector<uint8_t> bytes;
+                // (a) 파묻힌 SCRI 존재 + 외부 부재 → 외부 = SCRI 원문
+                { std::ofstream f(ship, std::ios::binary); f << "SHIPPED"; }
+                const int rc = jk::WorkshopSeedScript(ext, ship, tpl, seedErr);
+                bytes.clear();
+                if (ReadWholeFile(ext, bytes))
+                    got.assign(bytes.begin(), bytes.end());
+                check(rc == 1 && got == "SHIPPED", "1j-a 파묻힌 SCRI 시딩");
+            }
+            // (b) SCRI 부재 → 템플릿 (현행 회귀)
+            fs::remove(ext);
+            fs::remove(ship);
+            {
+                std::vector<uint8_t> bytes;
+                const int rc = jk::WorkshopSeedScript(ext, ship, tpl, seedErr);
+                bytes.clear();
+                if (ReadWholeFile(ext, bytes))
+                    got.assign(bytes.begin(), bytes.end());
+                check(rc == 2 && got == "TEMPLATE", "1j-b 템플릿 회귀");
+            }
+            // (c) 외부 존재 → 무변 (수신 기기 진실원 존중, 스펙 §1-3)
+            {
+                std::vector<uint8_t> bytes;
+                const int rc = jk::WorkshopSeedScript(ext, ship, tpl, seedErr);
+                bytes.clear();
+                if (ReadWholeFile(ext, bytes))
+                    got.assign(bytes.begin(), bytes.end());
+                check(rc == 0 && got == "TEMPLATE", "1j-c 외부 우선");
+            }
+            // (d) 쓰기 실패 → -1 (반환 계약의 오류 끝단 — 지정 경로가
+            //     디렉터리라 열리지 않는다; error에 원인 채움)
+            check(jk::WorkshopSeedScript(dir.string(), ship, tpl, seedErr) == -1 &&
+                      !seedErr.empty(),
+                  "1j-d 쓰기 실패=-1+오류");
+            fs::remove_all(dir);
         }
 
         // 1c2) 능력 배지 문구 (docs/74 — 빈 선언도 숨기지 않는다, 스펙 §5).

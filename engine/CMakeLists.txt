@@ -323,6 +323,9 @@ add_library(jkclient STATIC
     src/terminal/JKGlyphAtlas.cpp
     # (JKConPtyBridge remains in jkcore — see the note in the jkcore list.)
     src/apps/JKTerminalConfig.cpp
+    # 출하 시딩 원천 판정 (스펙 2026-10-05-slot-ship-tool §4) — 워크숍
+    # 모듈(jkapp_script)과 셀프테스트(jkdesktop) 양쪽이 링크하는 jkclient 소속.
+    src/apps/JKWorkshopSeed.cpp
 )
 target_link_libraries(jkclient PUBLIC jkcore)
 

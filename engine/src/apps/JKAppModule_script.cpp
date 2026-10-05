@@ -21,6 +21,7 @@
 #include <apps/ClientScriptApp.h>
 #include <fs/JKFs.h>
 #include <JKJkxFile.h>
+#include <apps/JKWorkshopSeed.h>
 
 #include <cstdio>
 #include <filesystem>
@@ -169,13 +170,16 @@ JKAPP_EXPORT int jk_app_run_client(const char* pipeName) {
             }
             path = base;
         }
-        std::string existing;
-        if (!ReadTextFile(path, existing)) {
-            EnsureParentDirs(path);
-            if (!WriteTextFile(path, kTemplateScript)) {
-                std::fprintf(stderr, "[workshop] cannot seed '%s'\n", path.c_str());
-                return 1;
-            }
+        // 시딩 출처 전환 (스펙 2026-10-05-slot-ship-tool §4 — 외부 진실원이
+        // 이미 있으면 아무것도 안 한다(수신 기기 존중, 현행 불변), 부재 시
+        // 파묻힌 SCRI(.app.js) 원문으로 시딩, 그것도 없으면 템플릿 회귀).
+        std::string seedError;
+        const int seeded = jk::WorkshopSeedScript(   // 스펙 slot-ship §4
+            path, SideFilePath(".app.js"), kTemplateScript, seedError);
+        if (seeded < 0) {
+            std::fprintf(stderr, "[workshop] cannot seed '%s': %s\n",
+                         path.c_str(), seedError.c_str());
+            return 1;
         }
 
         jk::WorkshopScriptApp app;
