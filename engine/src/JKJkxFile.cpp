@@ -57,6 +57,8 @@ bool JkxManifest::Parse(const std::string& text) {
         else if (key == "width") width = std::atoi(value.c_str());
         else if (key == "height") height = std::atoi(value.c_str());
         else if (key == "scriptfile") scriptfile = value;  // docs/60 §2.2
+        else if (key == "capabilities") capabilities = value;  // docs/74 —
+            // 원문 보존: 정규화는 소비자 몫(스펙 §3.2)
         else if (key == "watch") watch = std::atoi(value.c_str());
     }
     return !name.empty() && !module.empty();

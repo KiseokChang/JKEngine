@@ -1695,6 +1695,25 @@ static int RunAppSelfTest() {
               "JkxManifestMerge is idempotent");
     }
 
+    // docs/74 능력 게이트 — MANI capabilities= 파스 (스펙 §3.2 — 원문 보존,
+    // 토큰 분해는 소비자 JKScriptHost::EnableCapabilities 몫).
+    {
+        jk::JkxManifest m;
+        check(m.Parse("name=x\nmodule=jkapp_script.dll\n"
+                      "capabilities=Timer, input,network,weird\n"),
+              "mani parse with capabilities succeeds");
+        check(m.capabilities == "Timer, input,network,weird",
+              "mani capabilities stored verbatim");
+        jk::JkxManifest n;
+        check(n.Parse("name=x\nmodule=jkapp_script.dll\ncapabilities=\n") &&
+                  n.capabilities.empty(),
+              "mani empty capabilities = no declaration");
+        jk::JkxManifest o;
+        check(o.Parse("name=x\nmodule=jkapp_script.dll\n") &&
+                  o.capabilities.empty() && !o.scriptfile.empty() == false,
+              "mani without capabilities parses as before");
+    }
+
     // Terminal VT parser + grid (docs/22 §4/§5): golden scenarios.
     {
         jk::JKTerminalGrid grid;

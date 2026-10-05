@@ -53,6 +53,11 @@ struct JkxManifest {
     //     JK_SCRIPT_WATCH dev env switch. Built-in SCRI apps keep env-off.
     std::string scriptfile;
     int watch = 0;
+    // 능력 선언 (docs/74 결정 — 스펙 2026-10-05-workshop-capability-gate
+    // §3.2, 워크숍 스크립트 앱만 적용). 컴마 목록 원문 그대로 보존 — 토큰
+    // 분해(trim+소문자)는 소비자 JKScriptHost::EnableCapabilities 몫.
+    // ""=선언 없음.
+    std::string capabilities;
 
     // Parses "key=value" lines; unknown keys are ignored. Returns false when
     // the required keys (name, module) are missing.
