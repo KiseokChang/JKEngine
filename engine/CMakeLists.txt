@@ -180,6 +180,13 @@ add_library(jkcore STATIC
     # Both are listed unconditionally; each file guards its own body.
     src/fs/JKInstanceLock_win32.cpp
     src/fs/JKInstanceLock_posix.cpp
+    # jk::text charset adapter (docs stage-3 task 4): Utf8<->Utf16 (win32
+    # MBTW/WCTM delegation) + Utf8<->CP949. The Win32 TU owns windows.h
+    # (windows.h-first rule), the posix TU owns iconv.h (glibc CP949 verified
+    # — 테 round-trip spike). Both are listed unconditionally; each file guards
+    # its own body with _WIN32.
+    src/text/JKTextConv_win32.cpp
+    src/text/JKTextConv_posix.cpp
     # jk::process spawn adapter (docs/68 W4): the Win32 TU carries the
     # inherited-stdio spawn + KILL_ON_CLOSE job contracts (absorbed from
     # JKLlmEngine), the posix TU is an empty stub until stage 2.

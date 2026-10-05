@@ -1,4 +1,5 @@
 #include <JKHangulUtil.h>
+#include <text/JKTextConv.h>
 #include <wancode.h>
 #include <cstring>
 #include <cstdint>
@@ -7,45 +8,23 @@
 #include <unordered_map>
 #include <vector>
 
-#ifndef CP_UTF8
-#define CP_UTF8 65001
-#endif
-#ifndef MB_ERR_INVALID_CHARS
-#define MB_ERR_INVALID_CHARS 0x00000008
-#endif
-
-// Avoid pulling in <windows.h> in this translation unit; declare the two
-// conversion APIs (kernel32) directly. They are linked implicitly on Windows.
-extern "C" __stdcall int MultiByteToWideChar(unsigned int CodePage,
-                                             unsigned long dwFlags,
-                                             const char* lpMultiByteStr,
-                                             int cbMultiByte,
-                                             wchar_t* lpWideCharStr,
-                                             int cchWideChar);
-extern "C" __stdcall int WideCharToMultiByte(unsigned int CodePage,
-                                             unsigned long dwFlags,
-                                             const wchar_t* lpWideCharStr,
-                                             int cchWideChar,
-                                             char* lpMultiByteStr,
-                                             int cbMultiByte,
-                                             const char* lpDefaultChar,
-                                             int* lpUsedDefaultChar);
+// windows.h는 이 TU에서 다루지 않는다(windows.h-clean 규약). UTF-8↔CP949 두
+// 변환 leg는 jk::text 어댑터가 소유한다(stage-3 T4) — win32 본체는
+// JKTextConv_win32.cpp(MultiByteToWideChar/WideCharToMultiByte 원문 위임,
+// windows.h-first), posix 본체는 JKTextConv_posix.cpp(iconv). 이 파일의 실제
+// 지식은 EUC-KR(2바이트 완성형)→KSSM 결합형 wCodeTable leg뿐이며 플랫폼 중립
+// 본체로 남는다. 두 leg의 실패 계약은 어댑터가 소유(부적합 시퀀스=빈 문자열
+// fail-closed)한다.
 
 namespace jk {
 
 std::string Utf8ToKssm(const char* utf8) {
-#ifdef _WIN32
     if (!utf8 || !utf8[0]) return {};
 
-    // 1. UTF-8 -> EUC-KR (CP949) byte stream.
-    int wlen = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8, -1, nullptr, 0);
-    if (wlen <= 0) return {};
-    std::vector<wchar_t> wbuf(static_cast<size_t>(wlen));
-    MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8, -1, wbuf.data(), wlen);
-    int elen = WideCharToMultiByte(949, 0, wbuf.data(), -1, nullptr, 0, nullptr, nullptr);
-    if (elen <= 0) return {};
-    std::string euc(static_cast<size_t>(elen) - 1, '\0');
-    WideCharToMultiByte(949, 0, wbuf.data(), -1, &euc[0], elen, nullptr, nullptr);
+    // 1. UTF-8 -> EUC-KR (CP949) byte stream — jk::text 어댑터(stage-3 T4).
+    //    부적합 UTF-8 = 빈 문자열 fail-closed(MBTW MB_ERR_INVALID_CHARS 관측 승계).
+    const std::string euc = text::Utf8ToCp949(utf8);
+    if (euc.empty()) return {};
 
     // 2. EUC-KR completion form -> KSSM combination form via wCodeTable.
     std::string out;
@@ -91,9 +70,6 @@ std::string Utf8ToKssm(const char* utf8) {
         i += 2;
     }
     return out;
-#else
-    return utf8 ? utf8 : "";
-#endif
 }
 
 // 역인덱스 지연 1회 구축: KSSM 코드 → EUC-KR 2바이트. Utf8ToKssm이 쓰는
@@ -172,7 +148,6 @@ size_t KssmSnapBoundary(const char* s, size_t len, size_t i) {
 }
 
 std::string KssmToUtf8(const char* kssm) {
-#ifdef _WIN32
     if (!kssm || !kssm[0]) return {};
 
     const auto& inverse = KssmInverse();
@@ -199,21 +174,10 @@ std::string KssmToUtf8(const char* kssm) {
         i += 2;
     }
 
-    // EUC-KR(CP949) -> UTF-8.
-    int wlen = MultiByteToWideChar(949, 0, euc.c_str(), -1, nullptr, 0);
-    if (wlen <= 0) return {};
-    std::vector<wchar_t> wbuf(static_cast<size_t>(wlen));
-    MultiByteToWideChar(949, 0, euc.c_str(), -1, wbuf.data(), wlen);
-    int ulen = WideCharToMultiByte(CP_UTF8, 0, wbuf.data(), -1, nullptr, 0,
-                                   nullptr, nullptr);
-    if (ulen <= 0) return {};
-    std::string out(static_cast<size_t>(ulen) - 1, '\0');
-    WideCharToMultiByte(CP_UTF8, 0, wbuf.data(), -1, &out[0], ulen, nullptr,
-                        nullptr);
-    return out;
-#else
-    return kssm ? kssm : "";
-#endif
+    // EUC-KR(CP949) -> UTF-8 — jk::text 어댑터(stage-3 T4). 부적합 바이트열 =
+    // 빈 문자열 fail-closed(euc는 위 루프가 표 기반으로 조립한 유효 완성형+ASCII
+    // 만 담으므로 실측상 이 경로가 실패하는 입력은 없다).
+    return text::Cp949ToUtf8(euc);
 }
 
 } // namespace jk
@@ -244,7 +208,10 @@ namespace {
 // 실계산부 — 기존 검증된 역인덱스(KssmToUtf8)를 글자 단위로 재사용. 신규 매핑
 // 테이블 금지(docs/60 §7: 산술 매핑 이중 유지는 결함의 온상). 캐시 채움 경로.
 uint32_t ComputeKssmCodepoint(uint8_t first, uint8_t second) {
-#ifdef _WIN32
+    // 변환기 jk::text 어댑터 이식 완료(stage-3 T4) — 최종리뷰 MINOR-1 봉쇄 해제:
+    // Utf8ToKssm/KssmToUtf8이 두 플랫폼에서 모두 실변환이라 왕복 가드가
+    // 정상 작동한다(wCodeTable leg는 플랫폼 중립 본체 — 표 기반 왕복이라
+    // 어댑터와 무관하게 동일 관측).
     const char bytes[3] = { static_cast<char>(first), static_cast<char>(second), 0 };
     const std::string utf8 = jk::KssmToUtf8(bytes);
     if (utf8.empty()) return 0u;
@@ -252,14 +219,6 @@ uint32_t ComputeKssmCodepoint(uint8_t first, uint8_t second) {
     // 쌍으로 돌아오는 경우만 실제 매핑으로 인정한다 — 그 외는 0으로 폴백 신호.
     if (jk::Utf8ToKssm(utf8.c_str()) != std::string(bytes)) return 0u;
     return Utf8FirstCodepoint(utf8.c_str());
-#else
-    // 비(非)Windows 포트 함정(최종리뷰 MINOR-1): Utf8ToKssm이 항등이라 왕복 가드가
-    // 항상 통과해 raw KSSM 바이트를 쓰레기 UTF-8 코드포인트로 해독한다. 포트
-    // 시점에는 0(비트맵 폴백)을 반환하도록 봉쇄 — 변환기를 이식할 때 함께 고친다.
-    (void)first;
-    (void)second;
-    return 0u;
-#endif
 }
 } // namespace
 

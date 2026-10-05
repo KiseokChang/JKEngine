@@ -29,6 +29,7 @@ g++ -std=c++17 -pthread -lutil -O1 -Wall -Wextra \
     "$ROOT/engine/src/net/JKNet_posix.cpp" \
     "$ROOT/engine/src/terminal/JKConPtyBridge_posix.cpp" \
     "$ROOT/engine/src/ipc/JKPipeTransport_posix.cpp" \
-    "$ROOT/engine/src/fs/JKInstanceLock_posix.cpp"
+    "$ROOT/engine/src/fs/JKInstanceLock_posix.cpp" \
+    "$ROOT/engine/src/text/JKTextConv_posix.cpp"
 
 echo "posix_selftest build ok -> $OUT"

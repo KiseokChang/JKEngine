@@ -7,8 +7,9 @@
 namespace jk {
 
 // Convert a UTF-8 string to the KSSM 2-byte encoding used by JKDC's bitmap
-// font renderer. On Windows this uses CP949 -> KSSM via the legacy wancode
-// tables; on other platforms it currently returns the input unchanged.
+// font renderer. CP949 leg delegates to jk::text (stage-3 adapter — win32
+// MultiByteToWideChar, posix iconv; invalid input = empty, fail-closed);
+// the CP949 -> KSSM wCodeTable leg is platform-neutral table knowledge.
 std::string Utf8ToKssm(const char* utf8);
 
 // Inverse of Utf8ToKssm: KSSM combination-form codes back to UTF-8, via a

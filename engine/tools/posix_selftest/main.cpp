@@ -4,6 +4,7 @@
 // Convention mirrors the win32 in-app selftest (engine/src/main.cpp
 // RunAppSelfTest): one "[PASS]/[FAIL] <case>" line per check, the total as
 // "PosixSelfTest: <n> failure(s)", exit non-zero on any failure.
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -26,6 +27,7 @@
 #include <terminal/JKConPtyBridge.h>
 
 #include "fs/JKFs.h"
+#include "text/JKTextConv.h"
 
 namespace {
 
@@ -758,6 +760,88 @@ void TestInstanceLock() {
           "instance: harness scratch lock files removed at case end");
 }
 
+// Case 7 (jk::text): charset adapter, posix iconv leg (stage-3 full-build
+// task 4). Contracts under test:
+//   A) UTF-8 -> CP949 -> UTF-8 round-trip identity on three CP949-
+//      representable sentences covering the three payload classes the
+//      KSSM bitmap-font path feeds: hangul (wCodeTable leg input), hanja
+//      (0xCA-0xFD row arithmetic input), KS X 1001 symbol rows (identity
+//      pairs A1-A2, docs/65 O5).
+//   B) UTF-8 -> UTF-16 -> UTF-8 round-trips (posix wstring is 4-byte wchar_t
+//      — the surrogate-pair repacking must be invisible across a round-trip).
+//   C) fail-closed contract: any invalid/truncated sequence -> EMPTY string
+//      (win32 MBTW MB_ERR_INVALID_CHARS observation), both directions, all
+//      four entry points. No '?' substitution, no partial bytes.
+void TestTextConv() {
+    // A) three-sentence round trips.
+    const char* kSentences[3] = {
+        "한글 조합형 자소 완성형 123",      // hangul + ASCII
+        "漢字測試 一丁世界",                // hanja row (0xCA-0xFD)
+        "■□●◆·「」!?…",                    // KS X 1001 symbol rows A1-A2
+    };
+    for (int i = 0; i < 3; ++i) {
+        const std::string sent = kSentences[i];
+        const std::string euc = jk::text::Utf8ToCp949(sent);
+        Check(!euc.empty(), "text: sentence N utf8->cp949 non-empty");
+        Check(jk::text::Cp949ToUtf8(euc) == sent,
+              "text: sentence N cp949->utf8 round-trips identical");
+
+        // B) wstring round-trip on the same sentences (surrogate repacking).
+        const std::wstring w = jk::text::Utf8ToUtf16(sent);
+        Check(!w.empty(), "text: sentence N utf8->utf16 non-empty");
+        Check(jk::text::Utf16ToUtf8(w) == sent,
+              "text: sentence N utf16->utf8 round-trips identical");
+
+        // A supplementary observation: BMP codepoints must map 1 wchar_t =
+        // 1 UTF-16 unit (pair count sanity on the hangul sentence).
+        if (!w.empty()) {
+            const size_t bmpUnits =
+                static_cast<size_t>(std::count_if(sent.begin(), sent.end(),
+                    [](char c) { return (static_cast<unsigned char>(c) & 0xC0)
+                                       != 0x80; }));
+            Check(w.size() == bmpUnits,
+                  "text: BMP chars are 1:1 wstring codes (no phantom units)");
+        }
+    }
+
+    // C) fail-closed: every invalid sequence -> empty, no substitution.
+    Check(jk::text::Utf8ToCp949("\xED\xA0\x80hello").empty(),
+          "text: utf8 utf-16 surrogate leak -> empty cp949");
+    Check(jk::text::Utf8ToCp949("abc\xC3").empty(),
+          "text: utf8 truncated lead -> empty cp949");
+    Check(jk::text::Utf8ToCp949("abc\xE2\x82").empty(),
+          "text: utf8 truncated 3-byte -> empty cp949");
+    Check(jk::text::Utf8ToUtf16("abc\xC4").empty(),
+          "text: utf8 truncated lead -> empty utf16");
+    Check(jk::text::Cp949ToUtf8("\xB7").empty(),
+          "text: cp949 lone lead byte -> empty");
+    Check(jk::text::Cp949ToUtf8("\x81\x40").empty(),
+          "text: cp949 invalid trail byte -> empty");
+    Check(jk::text::Cp949ToUtf8("abc\xFE\x41").empty(),
+          "text: cp949 lead+ascii trail -> empty");
+
+    // utf16 direction fail-closed: a surrogate scalar in a wstring code is an
+    // invalid sequence (win32 Utf16ToUtf8 callers can never produce one).
+    Check(jk::text::Utf16ToUtf8(std::wstring(1, L'\xD800')).empty(),
+          "text: utf16 lone high surrogate scalar -> empty");
+    Check(jk::text::Utf16ToUtf8(std::wstring(1, L'\xDC00')).empty(),
+          "text: utf16 lone low surrogate scalar -> empty");
+
+    // Empty inputs keep the fail-closed observation ({} == {} everywhere).
+    Check(jk::text::Utf8ToCp949("").empty() &&
+              jk::text::Cp949ToUtf8("").empty() &&
+              jk::text::Utf8ToUtf16("").empty() &&
+              jk::text::Utf16ToUtf8(L"").empty(),
+          "text: empty in -> empty out on all four entry points");
+
+    // ASCII passthrough must survive byte-exactly (the KSSM loop leans on it).
+    Check(jk::text::Utf8ToCp949("abc def\n") == "abc def\n",
+          "text: ascii utf8->cp949 passthrough byte-exact");
+    Check(jk::text::Utf16ToUtf8(jk::text::Utf8ToUtf16("jk-3361")) ==
+              "jk-3361",
+          "text: ascii utf16 wstring round-trip byte-exact");
+}
+
 }  // namespace
 
 int main() {
@@ -767,6 +851,7 @@ int main() {
     TestPtyBridge();
     TestPipeTransport();
     TestInstanceLock();
+    TestTextConv();
     std::printf("PosixSelfTest: %d failure(s)\n", g_failures);
     return g_failures == 0 ? 0 : 1;
 }
