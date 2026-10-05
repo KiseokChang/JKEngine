@@ -17,6 +17,32 @@ namespace ipc {
 
 namespace {
 
+// The literal `\\.\pipe\` prefix of the shared wire-endpoint constant
+// (jk::ipc::kWindowServerPipeName) — 2 backslashes, a dot, a backslash.
+constexpr const char* kPipePrefix = "\\\\.\\pipe\\";
+
+// Win32 named-pipe name → unix socket path mapping (stage-3 full-build task
+// 5, docs/69 §4 consumer wiring ②). Posix-only: on _WIN32 this TU body does
+// not exist, so the mapping is inert there — call sites (JKWindowServer
+// acceptor, JKClientSurface/JKAgentClient clients, src/main.cpp, jkwinserver)
+// keep passing the shared constant UNCHANGED and both factories fold it in
+// one place.
+//
+// Rule: a name with the `\\.\pipe\` prefix loses the prefix, any '/' folds to
+// '_' (no path traversal out of /tmp), and the result lands at
+// /tmp/<folded>.sock. Everything else ("...\\JKWindowServerPipe" style
+// already-basename names included) is R-D3's caller-supplied socket PATH and
+// is used as-is — the plan-D "name used as-is" contract stays for those
+// (posix_selftest case 5 relies on it).
+std::string MapEndpointName(const std::string& name) {
+    const size_t prefixLen = std::strlen(kPipePrefix);
+    if (name.compare(0, prefixLen, kPipePrefix) != 0) return name;
+    std::string folded = name.substr(prefixLen);
+    for (char& c : folded)
+        if (c == '/') c = '_';
+    return "/tmp/" + folded + ".sock";
+}
+
 // Fill a sockaddr_un from a caller-supplied name. R-D3: the name is used
 // as-is as the socket path — no /tmp forcing, no state-dir logic. Returns
 // false (before touching any fd) when the path cannot fit sun_path, or is
@@ -62,7 +88,10 @@ JKPipeTransport::~JKPipeTransport() {
     Close();
 }
 
-std::unique_ptr<JKPipeTransport> JKPipeTransport::CreateServer(const std::string& name) {
+std::unique_ptr<JKPipeTransport> JKPipeTransport::CreateServer(const std::string& endpointName) {
+    // Single-point name→path fold (MapEndpointName above) — the body keeps the
+    // old `name` spelling and all diagnostics speak the mapped socket path.
+    const std::string name = MapEndpointName(endpointName);
     // Stale/live triage of a leftover socket file before bind (win32 parity:
     // a name owned by someone else must fail closed like a CreateNamedPipe
     // open failure):
@@ -149,7 +178,10 @@ std::unique_ptr<JKPipeTransport> JKPipeTransport::CreateServer(const std::string
     return std::unique_ptr<JKPipeTransport>(new JKPipeTransport(conn, true));
 }
 
-std::unique_ptr<JKPipeTransport> JKPipeTransport::ConnectClient(const std::string& name) {
+std::unique_ptr<JKPipeTransport> JKPipeTransport::ConnectClient(const std::string& endpointName) {
+    // Same single-point fold as CreateServer — both factories must see the
+    // same mapped path or server and client would part ways.
+    const std::string name = MapEndpointName(endpointName);
     sockaddr_un addr{};
     socklen_t addrLen = 0;
     if (!MakeUnixAddr(name, &addr, &addrLen)) {

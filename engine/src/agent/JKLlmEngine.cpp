@@ -15,15 +15,12 @@
 #include <system_error>  // std::system_error — thread spawn failure contract
 #include <thread>
 
-// stage-1 남은 Win32 접촉은 WaitForSingleObject 1건뿐(spawn reap, :364 —
-// 2단계 프로세스 마이그레이션 몫). 시간(GetTickCount64)·스레드(CreateThread)
-// 접촉은 W6 표준화로 std::chrono/std::thread 치환 완료. 스폰·파이프·Job 계열은
-// jk::process 어댑터(docs/68 W4)로 흡수 완료 — 이 TU는 kernel32 dllimport
-// 선언 1건만 남는다(어댑터 TU가 본래의 windows.h 소유, windows.h 미 include
-// 관례 따라 수기 선언). 가드 없음: 원문 windows.h 무가드 include와 동일한
-// 윈도우 전용 TU 상태(stage 2에서 파일 분할).
-extern "C" __declspec(dllimport) unsigned long __stdcall WaitForSingleObject(
-    void* hHandle, unsigned long dwMilliseconds);
+// stage-1 남은 Win32 접촉 1건(WaitForSingleObject spawn reap)은 stage-3
+// task 5에서 jk::process::WaitForExit 어댑터로 승계 — 시간(GetTickCount64)·
+// 스레드(CreateThread) 접촉은 W6 표준화로 std::chrono/std::thread 치환 완료.
+// 스폰·파이프·Job 계열은 jk::process 어댑터(docs/68 W4)로 흡수 완료 — 이 TU의
+// 수기 kernel32 dllimport 선언은 소각됐다(win32 본문은 어댑터 TU가 windows.h
+// 소유 관례로 이동; posix 본문은 waitpid WNOHANG 예산 루프).
 
 namespace jk {
 namespace agent {
@@ -367,7 +364,9 @@ int LlmTurnThread(TurnJob* job) {
     jk::process::CloseHandleLike(readErr);
     // Reap the wrapper; the job close below kills any stragglers (claude's
     // MCP children) — per-turn processes, not the user's ollama daemon.
-    WaitForSingleObject(spawned.process, 5000);
+    // WaitForSingleObject(5000) 원문 관측 = 기다리고 실패 무시 — WaitForExit
+    // (어댑터, stage-3 task 5)가 그대로 승계한다.
+    jk::process::WaitForExit(spawned.process, 5000);
     jk::process::CloseHandleLike(spawned.process);
     // The primary thread handle is closed inside Spawn (adapter-owned
     // handover) — no separate hThread close here anymore.

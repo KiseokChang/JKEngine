@@ -28,10 +28,15 @@
 #include <cmath>
 #include <algorithm>
 #include <chrono>
+#include <filesystem>
 #include <map>
 #include <set>
 #include <thread>
 #include <vector>
+
+#ifndef _WIN32
+#include <unistd.h>  // ::getpid — 가드 힌트의 자기 PID (posix leg, task 5)
+#endif
 
 // stb_image_write (docs/35): single-TU implementation — STBIW_STATIC keeps
 // the symbols file-local so other TUs (imgui) are unaffected.
@@ -57,15 +62,19 @@ extern "C" __declspec(dllimport) int __stdcall WideCharToMultiByte(
     const char* lpDefaultChar, int* lpUsedDefaultChar);
 
 extern "C" __declspec(dllimport) int __stdcall CloseHandle(void* hObject);
-// STILL_ACTIVE — crash 분류(crash path), 어댑터 헤더 계약상 유지(kStillActiveExit=259).
-static const unsigned long kStillActiveExit = 259;
+// STILL_ACTIVE — 어댑터 헤더가 소유(jk::process::kStillActiveExit=259, stage-3
+// task 5: 공용 코드 크래시 분류가 이 상수를 참조하므로 TU-static 복각 소각).
 
 // GetModuleFileNameA/W 수기 선언은 소각됐다 — exe-dir는 jk::fs::GetExecutablePath
 // 어댑터(src/fs/JKFs_win32.cpp)가 소유(docs/68 W5). 이 TU는 windows.h를 끌지
 // 않는 관례 유지.
 
-extern "C" __declspec(dllimport) int __stdcall CreateDirectoryA(
-    const char* lpPathName, void* lpSecurityAttributes);
+// CreateDirectoryA·GetFileAttributesA·FindFirstFileA 계열 수기 선언은 소각됐다
+// — stage-3 task 5(std::filesystem 치환): 존재 bool만 소비하는 콜사이트는
+// std::filesystem::exists/create_directory로, 디렉터리 열거 2곳은
+// directory_iterator로 승계되어 이 TU의 수기 Win32 접촉이 파이프 프로브
+// 벨트(WaitNamedPipeA)+보유자 절단(OpenProcess/TerminateProcess, plan D W4
+// marking 유지 — 어댑터에 open-by-pid가 없다)만 남는다.
 
 extern "C" __declspec(dllimport) int __stdcall WaitNamedPipeA(
     const char* lpNamedPipeName, unsigned long nTimeOut);
@@ -81,73 +90,11 @@ constexpr unsigned long kErrorPipeBusy = 231;        // winbase.h
 
 extern "C" __declspec(dllimport) void __stdcall Sleep(unsigned long dwMilliseconds);
 
-extern "C" __declspec(dllimport) unsigned long __stdcall GetFileAttributesA(
-    const char* lpFileName);
 extern "C" __declspec(dllimport) unsigned long __stdcall GetCurrentProcessId();
 extern "C" __declspec(dllimport) void* __stdcall OpenProcess(
     unsigned long dwDesiredAccess, int bInheritHandle, unsigned long dwProcessId);
 extern "C" __declspec(dllimport) int __stdcall TerminateProcess(
     void* hProcess, unsigned int uExitCode);
-
-constexpr unsigned long kInvalidFileAttributes = 0xFFFFFFFF;
-
-// 가드 보유자 표시 (2026-09-24 사용자 보고 "자주 반복되는데"): 거부 메시지가
-// "close it first"만 하고 무엇을 닫을지 알려주지 않아 매번 프로세스 탐색이
-// 필요했다 — 라이브 스택 서버는 jkwinserver.exe인데 사용자가 띄우는 건
-// jkdesktop.exe --server라 이름도 달라 더 헷갈린다. Toolhelp 스냅샷 수기
-// 선언(이 TU는 windows.h를 끌지 않는 관례 유지).
-extern "C" __declspec(dllimport) void* __stdcall CreateToolhelp32Snapshot(
-    unsigned long dwFlags, unsigned long th32ProcessID);
-extern "C" __declspec(dllimport) int __stdcall Process32FirstW(
-    void* hSnapshot, void* lppe);
-extern "C" __declspec(dllimport) int __stdcall Process32NextW(
-    void* hSnapshot, void* lppe);
-constexpr unsigned long kTh32CsSnapProcess = 0x2;  // winutil.h
-
-// PROCESSENTRY32W — 기본 정렬(8) 레이아웃(ULONG_PTR 멤버가 8바이트 정렬):
-// dwSize 0 / cntUsage 4 / th32ProcessID 8 / th32DefaultHeap 16 / th32ModuleID 24
-// / cntThreads 28 / th32ParentProcessID 32 / pcPriClassBase 36 / dwFlags 40
-// / szExeFile 44. FindFileDataA와 달리 pack(4)이 아니라 자연 정렬이 정답.
-struct ProcEntry32W {
-    unsigned long dwSize = 0;
-    unsigned long cntUsage = 0;
-    unsigned long th32ProcessID = 0;
-    unsigned long long th32DefaultHeap = 0;
-    unsigned long th32ModuleID = 0;
-    unsigned long cntThreads = 0;
-    unsigned long th32ParentProcessID = 0;
-    long pcPriClassBase = 0;
-    unsigned long dwFlags = 0;
-    wchar_t szExeFile[260] = {};
-};
-
-// settings_read의 layout_*.json 열거 (설정 허브 스펙 §2.2) — 이 TU는
-// windows.h를 끌지 않으므로(JKENGINE 레거시 typedef 충돌) 수기 선언.
-// WIN32_FIND_DATAA는 4바이트 팩(FILETIME 멤버가 8아니라 DWORD 정렬 —
-// cFileName 오프셋 44) — pack 없으면 패딩이 4 들어가 이름이 4바이트 밀린다
-// (파일 허브 files_list에서 발견 — settings_read 열거도 같은 결함).
-#pragma pack(push, 4)
-struct FindFileDataA {
-    unsigned long dwFileAttributes = 0;
-    unsigned long long ftCreationTime = 0;
-    unsigned long long ftLastAccessTime = 0;
-    unsigned long long ftLastWriteTime = 0;
-    unsigned long nFileSizeHigh = 0;
-    unsigned long nFileSizeLow = 0;
-    unsigned long dwReserved0 = 0;
-    unsigned long dwReserved1 = 0;
-    char cFileName[260] = {};
-    char cAlternateFileName[14] = {};
-};
-#pragma pack(pop)
-
-extern "C" __declspec(dllimport) void* __stdcall FindFirstFileA(
-    const char* lpFileName, FindFileDataA* lpFindFileData);
-extern "C" __declspec(dllimport) int __stdcall FindNextFileA(
-    void* hFindFile, FindFileDataA* lpFindFileData);
-extern "C" __declspec(dllimport) int __stdcall FindClose(void* hFindFile);
-// INVALID_HANDLE_VALUE (-1) — constexpr reinterpret_cast는 상수식이 아니라 함수로.
-static inline void* kInvalidFindHandle() { return reinterpret_cast<void*>(-1); }
 #endif // _WIN32
 
 // 설정 허브 KV 헬퍼 — 본문은 WritePermissionsEntry 뒤(§2.2). Init의 부팅
@@ -177,17 +124,16 @@ JKWindowServer::JKWindowServer() = default;
 
 JKWindowServer::~JKWindowServer() {
     Stop();
-#ifdef _WIN32
     if (serverGuardMutex_) {
-        // 가드 핸들은 jk::fs::InstanceLock 어댑터(JKInstanceLock_win32.cpp의
-        // TU-static)가 단독 소유한다 — serverGuardMutex_는 이제 실제 HANDLE이
-        // 아니라 '보유 마커'로만 쓴다(가드 취득 지점 참조). 해제 대행:
-        // ReleaseMutex+CloseHandle을 어댑터가 수행하고 미보유 호출은 no-op.
-        // (원문 파괴자는 CloseHandle만 했다 — 마지막 핸들 close가 곧 해제.)
+        // 가드 핸들은 jk::fs::InstanceLock 어댑터의 TU-static이 단독 소유한다
+        // — serverGuardMutex_는 '보유 마커'일 뿐이다(가드 취득 지점 참조).
+        // posix leg(task 5)도 같은 마커를 세우므로 해제는 공용 경로로 내린다.
+        // 해제 대행: ReleaseMutex+CloseHandle(win32) / flock LOCK_UN+close
+        // (posix)을 어댑터가 수행하고 미보유 호출은 no-op. (원문 파괴자는
+        // CloseHandle만 했다 — 마지막 핸들 close가 곧 해제.)
         jk::fs::ReleaseInstanceLock();
         serverGuardMutex_ = nullptr;
     }
-#endif
 }
 
 bool JKWindowServer::Init(const std::string& title, int width, int height) {
@@ -312,27 +258,34 @@ struct ServerCandidateScan {
     std::vector<unsigned long> desktop;
 };
 
+static unsigned long ThisProcessId() {
+#ifdef _WIN32
+    return GetCurrentProcessId();
+#else
+    return static_cast<unsigned long>(::getpid());
+#endif
+}
+
+// stage-3 task 5: Toolhelp 스냅샷 수기 열거는 jk::process::ListProcessImages
+// 어댑터가 소유(win32 본문 이동 — JKProcess_win32.cpp; posix는 /proc 스캔) —
+// 이 쪽엔 매칭만 남는다. 매칭 계약(원문 그대로): 소문자화한 이미지명 전체와
+// 정확히 == (LIKE/부분/접두 아님 — 자세한 것은 어댑터 헤더 계약 주석).
 static ServerCandidateScan ScanServerCandidates(unsigned long excludePid) {
     ServerCandidateScan s;
-    void* snap = CreateToolhelp32Snapshot(kTh32CsSnapProcess, 0);
-    if (!snap || snap == (void*)(long long)-1 /*INVALID_HANDLE_VALUE*/) return s;
-    ProcEntry32W e;
-    e.dwSize = sizeof(ProcEntry32W);
-    if (Process32FirstW(snap, &e)) {
-        do {
-            // wchar→ascii 소문자 이미지명 (ASCII만 비교 — 이미지명은 ASCII)
-            std::string exe;
-            for (const wchar_t* p = e.szExeFile; *p; ++p) {
-                char c = (*p >= 0 && *p < 128) ? static_cast<char>(*p) : '?';
-                if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
-                exe.push_back(c);
-            }
-            if (e.th32ProcessID == excludePid) continue;  // 자기 자신 제외
-            if (exe == "jkwinserver.exe") s.wserver.push_back(e.th32ProcessID);
-            else if (exe == "jkdesktop.exe") s.desktop.push_back(e.th32ProcessID);
-        } while (Process32NextW(snap, &e));
+    const std::vector<jk::process::ProcessImageInfo> all =
+        jk::process::ListProcessImages();
+    for (const jk::process::ProcessImageInfo& e : all) {
+        // wchar→ascii 소문자 이미지명 (ASCII만 비교 — 이미지명은 ASCII)
+        std::string exe;
+        for (const char cRaw : e.imageName) {
+            char c = cRaw;
+            if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+            exe.push_back(c);
+        }
+        if (e.pid == excludePid) continue;  // 자기 자신 제외
+        if (exe == "jkwinserver.exe") s.wserver.push_back(e.pid);
+        else if (exe == "jkdesktop.exe") s.desktop.push_back(e.pid);
     }
-    CloseHandle(snap);
     return s;
 }
 
@@ -372,8 +325,11 @@ static std::string FindGuardHolderHint(const ServerCandidateScan& scan) {
 // 탐색이 필요했다(사용자 보고). jkwinserver.exe만 겨냥 — jkdesktop.exe는
 // 클라/앱과 이미지명이 같아 겨냥 금지.
 // stage-1 marking: OpenProcess/TerminateProcess 보유자 절단은 jk::process
-// 계약 밖(OpenProcess API가 어댑터에 없다 — 본 흡수 유지, TerminateProcess
-// 접촉 잔존) — W8(jkwinserver)/2단계 대상, docs/68 W4.
+// 계약 밖(OpenProcess API가 어댑터에 없다 — 어댑터 정합 확인 완료: TerminateJobTree/
+// KillProcess는 어댑터가 Spawn한 자식만 손에 쥔다 — 승계하면 계약 위반이라
+// 원문 유지, stage-3 task 5에서 win32 가드 분기 전용으로 봉쇄). posix
+// 가드는 인수 없이 거부만 한다(아래 posix leg).
+#ifdef _WIN32
 static bool KillServerHolders(const ServerCandidateScan& scan) {
     bool any = false;
     for (unsigned long pid : scan.wserver) {
@@ -384,9 +340,20 @@ static bool KillServerHolders(const ServerCandidateScan& scan) {
     }
     return any;
 }
+#endif
 
 bool JKWindowServer::TryAcquireSingleInstanceGuard(const std::string& pipeName,
                                                    bool takeover) {
+    // 거부 메시지 원문 경로 (win32/posix 분기 공용 — task 5 posix leg가 같은
+    // why 문구와 보유자 힌트를 쓴다): ScanServerCandidates는 어댑터 치환
+    // (posix /proc 스캔)이라 양쪽 분기에서 관측 동일하게 돈다.
+    auto refuse = [&](const char* why) {
+        std::fprintf(stderr, "JKWindowServer: %s '%s' — close it first\n",
+                     why, pipeName.c_str());
+        const std::string hint =
+            FindGuardHolderHint(ScanServerCandidates(ThisProcessId()));
+        if (!hint.empty()) std::fprintf(stderr, "  %s\n", hint.c_str());
+    };
 #ifdef _WIN32
     // 단일 인스턴스 가드 (2026-09-20, docs/59 §10 유보 ②): 파이프 인스턴스는
     // PIPE_UNLIMITED_INSTANCES라 두 서버가 같은 이름을 열면 클라이언트가
@@ -410,14 +377,6 @@ bool JKWindowServer::TryAcquireSingleInstanceGuard(const std::string& pipeName,
         if (slash != std::string::npos) guard = guard.substr(slash + 1);
         guard = "Local\\jkdesktop-server-" + guard;
 
-        auto refuse = [&](const char* why) {
-            std::fprintf(stderr, "JKWindowServer: %s '%s' — close it first\n",
-                         why, pipeName.c_str());
-            const std::string hint =
-                FindGuardHolderHint(ScanServerCandidates(GetCurrentProcessId()));
-            if (!hint.empty()) std::fprintf(stderr, "  %s\n", hint.c_str());
-        };
-
         // 취득 인수는 jk::fs::InstanceLock 어댑터(docs/68 W6, 플랜 D 태스크 6)가
         // 소유한다 — CreateMutexA(nullptr, 1 /* TRUE: initial owner */)와 취득
         // 판정(ERROR_ALREADY_EXISTS면 false), 그리고 취득 핸들의 TU-static 보유가
@@ -436,7 +395,7 @@ bool JKWindowServer::TryAcquireSingleInstanceGuard(const std::string& pipeName,
             return false;
         }
         if (!m) {
-            ServerCandidateScan scan = ScanServerCandidates(GetCurrentProcessId());
+            ServerCandidateScan scan = ScanServerCandidates(ThisProcessId());
             if (takeover && !scan.wserver.empty() && KillServerHolders(scan)) {
                 std::fprintf(stderr,
                              "JKWindowServer: takeover — killed holder "
@@ -460,7 +419,7 @@ bool JKWindowServer::TryAcquireSingleInstanceGuard(const std::string& pipeName,
             // 가드 이전 바이너리의 서버다. 두 인스턴스 갈림을 막기 위해 거부.
             jk::fs::ReleaseInstanceLock();  // 원문 ReleaseMutex+CloseHandle 치환
             m = false;
-            ServerCandidateScan scan = ScanServerCandidates(GetCurrentProcessId());
+            ServerCandidateScan scan = ScanServerCandidates(ThisProcessId());
             if (takeover && !scan.wserver.empty() && KillServerHolders(scan)) {
                 std::fprintf(stderr,
                              "JKWindowServer: takeover — killed pre-guard holder "
@@ -493,20 +452,38 @@ bool JKWindowServer::TryAcquireSingleInstanceGuard(const std::string& pipeName,
         serverGuardMutex_ = reinterpret_cast<void*>(1);
     }
 #else
-    (void)pipeName;
+    // posix leg — docs/69 §4 소비자 미접봉 ① 봉합 (stage-3 task 5): 플랜 D의
+    // flock 가드 어댑터(JKInstanceLock_posix.cpp)를 실제 소비자로 접봉한다.
+    // 논리 동형: guard명도 win32 분기와 같은 유도(파이프명 basename 접두 —
+    // 어댑터가 '/tmp/<name>.lock'으로 매핑하고 '/'만 '_'로 접는다 — "Local\"
+    // 접두 백슬래시는 legal 파일명 바이트, 계약 문서화済). 파이프 프로브 벨트
+    // (WaitNamedPipeA)와 보유자 인수(takeover — KillServerHolders가 OpenProcess
+    // 의존, plan D W4 marking 유지)는 win32 전용: posix의 살아있는 서버 거절은
+    // 와이어 층 CreateServer의 live-triage(ECONNREFUSED triage)가 맡는다.
     (void)takeover;
+    {
+        std::string guard = pipeName;
+        const size_t slash = guard.find_last_of("\\/");
+        if (slash != std::string::npos) guard = guard.substr(slash + 1);
+        guard = "Local\\jkdesktop-server-" + guard;
+
+        if (!jk::fs::AcquireInstanceLock(guard)) {
+            refuse("another window server already holds the single-instance guard for");
+            return false;
+        }
+        serverGuardMutex_ = reinterpret_cast<void*>(1);
+    }
 #endif
     return true;
 }
 
 bool JKWindowServer::StartAcceptor(const std::string& pipeName) {
-#ifdef _WIN32
     // 가드는 통상 TryAcquireSingleInstanceGuard가 Init 전에 취득 — 여기서는
-    // 미취득 시에만 (직접 호출자 방어선) 취득을 시도한다.
+    // 미취득 시에만 (직접 호출자 방어선) 취득을 시도한다. posix leg(task 5)가
+    // 같은 마커를 세우므로 방어선은 win32 봉쇄 없이 공용이다.
     if (!serverGuardMutex_ && !TryAcquireSingleInstanceGuard(pipeName)) {
         return false;
     }
-#endif
     pipeName_ = pipeName;
     InitAudio();
     running_ = true;
@@ -532,7 +509,7 @@ bool JKWindowServer::StartAcceptor(const std::string& pipeName) {
                 ? std::string(".")
                 : exePathAutoSpawn.substr(0, autoCut);
         std::string dllPath = dirSelf + "\\jkapp_taskbar.dll";
-        if (GetFileAttributesA(dllPath.c_str()) != kInvalidFileAttributes) {
+        if (std::filesystem::exists(std::filesystem::path(dllPath))) {
             SpawnClient("taskbar");
         } else {
             std::fprintf(stderr, "JKWindowServer: no jkapp_taskbar.dll — desktop runs without a shell\n");
@@ -2985,6 +2962,15 @@ static bool ValidFilePath(const std::string& path) {
 // 이름 asc(바이트 순 — 탐색기와 다르나 결정적), 상한 512행(초과는 capped).
 // 와일드카드/리다이렉트 문자는 op에서 재거부(명시 — ValidFilePath가 못
 // 걸러낸다). 숨김 파일도 열거(MVP 단순 — 감사 친화).
+// stage-3 task 5: FindFirstFileA/Next/Close + WIN32_FIND_DATAA 수기 열거 →
+// std::filesystem::directory_iterator. 관측 동형: 이름(그대로)·dir(속성
+// DIRECTORY 비트 ↔ is_directory)·size(64비트 합성 ↔ file_size)·mtime(FILETIME
+// 1601→epoch 초 절단 ↔ clock_cast 후 절단, 1970 이전은 0 클램프)·정렬 전
+// 열거 순서(원문도 미정렬 순회 + 사후 sort). "."와 ".."는 directory_iterator가
+// 애초에 내지 않지만 원문의 dot 스킵을 무해하게 유지한다. Find 실패 관측
+// (열거 진입 자체의 실패=not_found)은 생성자 error_code 점검으로 승계 — 원문도
+// "속성 접근 실패"만 INVALID_HANDLE_VALUE로 뭉뚱그려 보았다. 와일드카드 패턴
+// ("\\*")은 사용부에 없다(전체 열거만) — 패턴 필터 불필요.
 static std::string FilesListOpJson(const std::string& path) {
     if (path.find_first_of("*?\"<>|") != std::string::npos) {
         return "{\"ok\":false,\"error\":\"bad_path\"}";
@@ -2997,32 +2983,41 @@ static std::string FilesListOpJson(const std::string& path) {
     };
     std::vector<Ent> rows;
     bool capped = false;
-    FindFileDataA fd;
-    void* h = FindFirstFileA((path + "\\*").c_str(), &fd);
-    if (h == kInvalidFindHandle()) {
+    std::error_code openEc;
+    std::filesystem::directory_iterator it(std::filesystem::path(path), openEc);
+    if (openEc) {
         return "{\"ok\":false,\"error\":\"not_found\"}";
     }
-    bool more = true;
-    while (more && rows.size() < 512) {
-        if (std::strcmp(fd.cFileName, ".") != 0 &&
-            std::strcmp(fd.cFileName, "..") != 0) {
+    const std::filesystem::directory_iterator end;
+    while (it != end && rows.size() < 512) {
+        const std::string name = it->path().filename().string();
+        if (name != "." && name != "..") {  // directory_iterator는 내지 않음 — 원문 유지
+            std::error_code stEc;
             Ent e;
-            e.name = fd.cFileName;
-            e.dir = (fd.dwFileAttributes & 0x10) != 0;   // DIRECTORY
-            e.size = (static_cast<long long>(fd.nFileSizeHigh) << 32) |
-                     fd.nFileSizeLow;
-            // FILETIME(1601 100ns) → epoch 초 — read_receipts의 초 절단 규약.
-            e.mtime = fd.ftLastWriteTime > 116444736000000000ULL
-                ? static_cast<long long>(
-                      (fd.ftLastWriteTime - 116444736000000000ULL) /
-                      10000000ULL)
-                : 0;
+            e.name = name;
+            e.dir = it->is_directory(stEc);  // 실패=false — 원문의 속성 비트 소실 동형
+            e.size = 0;
+            const std::uintmax_t sz = it->file_size(stEc);
+            if (!stEc) e.size = static_cast<long long>(sz);
+            const auto ftw = it->last_write_time(stEc);
+            if (!stEc) {
+                // FILETIME(1601 100ns) → epoch 초 — read_receipts의 초 절단
+                // 규약 동형. file_clock은 플랫폼마다 epoch가 다르므로
+                // clock_cast로 풀어서 절단; 1970 이전은 원문대로 0 클램프.
+                const auto sys =
+                    std::chrono::clock_cast<std::chrono::system_clock>(ftw);
+                const long long secs =
+                    std::chrono::duration_cast<std::chrono::seconds>(
+                        sys.time_since_epoch()).count();
+                e.mtime = secs > 0 ? secs : 0;
+            }
             rows.push_back(e);
         }
-        more = FindNextFileA(h, &fd) != 0;
+        std::error_code incEc;
+        it.increment(incEc);
+        if (incEc) break;  // 원문: FindNextFile 실패 = 열거 종료 (capped 아님)
     }
-    if (more) capped = true;
-    FindClose(h);
+    if (it != end && rows.size() >= 512) capped = true;
     std::sort(rows.begin(), rows.end(),
               [](const Ent& a, const Ent& b) {
                   if (a.dir != b.dir) return a.dir;
@@ -3172,7 +3167,7 @@ static bool TrustRecordText(const std::string& text,
 // 덮어쓰기 시점 원본만). 반환: 빈 문자열 = 성공(제거 1건), 아니면 오류 문자열.
 static std::string RevokeTrustRecord(const std::string& fingerprint) {
     const std::string dir = ExeDirNoSlash();
-    CreateDirectoryA((dir + "\\state").c_str(), nullptr);
+    std::filesystem::create_directory(std::filesystem::path(dir + "\\state"));
     const std::string path = dir + "\\state\\trust.json";
 
     std::FILE* f = std::fopen(path.c_str(), "rb");
@@ -3763,7 +3758,8 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                                 {
                                     const std::string sdir =
                                         StateDir() + "\\screenshots";
-                                    CreateDirectoryA(sdir.c_str(), nullptr);
+                                    std::filesystem::create_directory(
+                                        std::filesystem::path(sdir));
                                     char tbuf[512];
                                     std::snprintf(tbuf, sizeof(tbuf),
                                                   "%s\\approval_%lld_%u.png",
@@ -4206,7 +4202,10 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                 exeDir = exePathLaunch.substr(0, launchCut);
         }
         auto fileExistsFn = [](const std::string& p) {
-            return GetFileAttributesA(p.c_str()) != kInvalidFileAttributes;
+            // 원문 관측: GetFileAttributesA는 속성 비트를 소비하지 않는다 —
+            // 존재 bool만(INVALID_FILE_ATTRIBUTES가 아니면 참). std::
+            // filesystem::exists 관측 동형(존재가 아닌 모든 stat 실패=false).
+            return std::filesystem::exists(std::filesystem::path(p));
         };
         if (!app.empty()) {
             const bool prefixed = app.find(':') != std::string::npos;
@@ -4559,25 +4558,33 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             receiptRetentionDays_, audioMasterMute_ ? 1 : 0, audioMasterVolume_);
         out += item;
         // layouts: state/layout_*.json 열거 — key/value = 레이아웃 이름.
+        // stage-3 task 5: 수기 FindFirstFileA 와일드카드 열거 → directory_
+        // iterator + 접두/접미 필터. 원문 와일드카드 "layout_*.json"의 의미는
+        // "layout_"로 시작하고 ".json"으로 끝나는 파일명이다(가운데 '*'은 0자
+        // 이상 — win32 규약) → starts_with/ends_with 관측 동형, 소비자의
+        // name.size() > 12 게이트(빈 이름 컷)는 그대로 남는다.
         {
             const std::string dir = StateDir();
-            FindFileDataA fd;
-            void* h = FindFirstFileA((dir + "\\layout_*.json").c_str(), &fd);
-            while (h != kInvalidFindHandle()) {
-                std::string name = fd.cFileName;
-                // "layout_<name>.json" → <name> (7자 접두, 5자 확장자).
-                if (name.size() > 12) {
-                    name = name.substr(7, name.size() - 12);
-                    std::snprintf(item, sizeof(item),
-                                  ",{\"key\":\"layout.%s\",\"kind\":\"string\","
-                                  "\"value\":\"%s\"}",
-                                  JsonEsc(name).c_str(), JsonEsc(name).c_str());
-                    out += item;
+            std::error_code openEc;
+            std::filesystem::directory_iterator it(
+                std::filesystem::path(dir), openEc);
+            const std::filesystem::directory_iterator end;
+            while (!openEc && it != end) {
+                const std::string name = it->path().filename().string();
+                if (name.starts_with("layout_") && name.ends_with(".json")) {
+                    // "layout_<name>.json" → <name> (7자 접두, 5자 확장자).
+                    if (name.size() > 12) {
+                        std::string bare = name.substr(7, name.size() - 12);
+                        std::snprintf(item, sizeof(item),
+                                      ",{\"key\":\"layout.%s\",\"kind\":\"string\","
+                                      "\"value\":\"%s\"}",
+                                      JsonEsc(bare).c_str(), JsonEsc(bare).c_str());
+                        out += item;
+                    }
                 }
-                if (!FindNextFileA(h, &fd)) {
-                    FindClose(h);
-                    break;
-                }
+                std::error_code incEc;
+                it.increment(incEc);
+                if (incEc) break;  // 원문: FindNextFile 실패 = 열거 종료
             }
         }
         // receipts 통계: 총 행수 + 최근 ts(초). 꼬리 256KiB만 읽는다
@@ -5005,7 +5012,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             reply = "{\"ok\":false,\"error\":\"window_not_found\"}";
         } else {
             const std::string dir = StateDir() + "\\screenshots";
-            CreateDirectoryA(dir.c_str(), nullptr);
+            std::filesystem::create_directory(std::filesystem::path(dir));
             const long long ts =
                 std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::system_clock::now().time_since_epoch())
@@ -5096,7 +5103,8 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                                     static_cast<size_t>(fw) * 4);
                     }
                     const std::string dir = StateDir() + "\\screenshots";
-                    CreateDirectoryA(dir.c_str(), nullptr);
+                    std::filesystem::create_directory(
+                        std::filesystem::path(dir));
                     const long long ts =
                         std::chrono::duration_cast<
                             std::chrono::milliseconds>(
@@ -7320,14 +7328,16 @@ bool JKWindowServer::ApprovalParkingFull(uint32_t requesterId) const {
 }
 
 // <exeDir>/state — agent-created files (layout snapshots). CreateDirectoryA
-// fails harmlessly when the directory already exists.
+// fails harmlessly when the directory already exists. stage-3 task 5:
+// CreateDirectoryA → std::filesystem::create_directory — 이미 있으면
+// no-op(false), 폴더는 원문과 같이 마지막 성분만 만든다(성공 무시 동일).
 std::string JKWindowServer::StateDir() const {
     // jk::fs::GetExecutablePath 흡수 (docs/68 W5) — 원문 "." 폴백 규약 유지.
     std::string dir = jk::fs::GetExecutablePath();
     const size_t slash = dir.find_last_of("\\/");
     dir = (slash == std::string::npos) ? std::string(".") : dir.substr(0, slash);
     dir += "\\state";
-    CreateDirectoryA(dir.c_str(), nullptr);
+    std::filesystem::create_directory(std::filesystem::path(dir));
     return dir;
 }
 
@@ -7873,7 +7883,7 @@ void JKWindowServer::CleanupDisconnectedClients() {
                         // OpenProcess 핸들(어댑터 밖 자원)이라 마찬가지.
                         uint32_t code = 0;
                         if (jk::process::GetExitCode(sh->second, &code) &&
-                            code != kStillActiveExit && code != 0) {
+                            code != jk::process::kStillActiveExit && code != 0) {
                             crashed = true;
                         }
                         jk::process::CloseHandleLike(sh->second);

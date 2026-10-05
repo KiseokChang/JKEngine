@@ -11,8 +11,19 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace jk::process {
+
+// STILL_ACTIVE — the reserved win32 "process still running" poll code
+// (winbase.h). Both impls carry the 259 convention (win32 GetExitCodeProcess
+// verbatim; posix heap ProcState reports 259 from a WNOHANG poll that read
+// nothing — JKProcess_posix.cpp). Consumers: JKLlmEngine turn loop and
+// JKWindowServer's crash classifier (CleanupDisconnectedClients). The
+// per-TU static copy JKWindowServer.cpp carried (docs/68 W4 stage-1
+// marking) moved here at stage-3 task 5 so the common-code classifier
+// compiles platform-uniform.
+inline constexpr uint32_t kStillActiveExit = 259;
 
 struct SpawnOptions {
     std::string commandLineUtf8;   // full command line, UTF-8 (adapter widens)
@@ -50,8 +61,35 @@ bool  TerminateJobTree(void* job, uint32_t exitCode);
 // "TerminateProcessTree" docs/68 wording was a survey miscount: 1 real tree
 // site + this single-site consumer).
 bool KillProcess(void* process, uint32_t exitCode);
-// Exit classification (JKWindowServer crash path; kStillActiveExit=259 stays).
+// Exit classification (JKWindowServer crash path; kStillActiveExit owned by
+// this header now).
 bool GetExitCode(void* process, uint32_t* exitCode);
+
+// Bounded wait for a spawned child to exit (JKLlmEngine turn-reap consumer —
+// a 5s WaitForSingleObject before CloseHandleLike). true = exit observed (and
+// the exit code is readable via GetExitCode); false = still running after
+// timeoutMs, wait setup failed, or the handle is not a live process handle.
+// The caller's next GetExitCode/CloseHandleLike keeps today's poll semantics.
+bool WaitForExit(void* process, uint32_t timeoutMs);
+
+// Whole-system process image scan (JKWindowServer::ScanServerCandidates
+// consumer — the Toolhelp32 snapshot block absorbed verbatim on win32;
+// docs/68 W4 stage-1 marking named this site win32-residue). Posix impl
+// scans /proc/<pid>/cmdline (argv[0] basename) with a /proc/<pid>/comm
+// fallback for kernel threads that have no cmdline.
+//
+// Image-name MATCHING CONTRACT (extracted from the original scan loop, exact
+// semantics — NOT LIKE, NOT substring, NOT prefix): the consumer lowercases
+// everything ASCII and compares the FULL image name with == ("jkwinserver.exe"
+// / "jkdesktop.exe"). The adapter hands out raw names — win32 narrows UTF-16
+// per char to ASCII with a '?' fallback for non-ASCII (original conversion
+// kept verbatim); posix returns argv[0]/comm bytes as-is. Lowercasing stays
+// at the call site so non-ASCII bytes can never fold.
+struct ProcessImageInfo {
+    uint32_t pid = 0;
+    std::string imageName;
+};
+std::vector<ProcessImageInfo> ListProcessImages();
 
 }  // namespace jk::process
 

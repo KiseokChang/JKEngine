@@ -9,6 +9,7 @@
 #include "../../include/process/JKProcess.h"
 
 #include <windows.h>
+#include <tlhelp32.h>  // CreateToolhelp32Snapshot / Process32FirstW/NextW
 
 #include <string>
 #include <vector>
@@ -187,6 +188,42 @@ bool  GetExitCode(void* process, uint32_t* exitCode) {
     if (!GetExitCodeProcess(process, &code)) return false;
     if (exitCode) *exitCode = static_cast<uint32_t>(code);
     return true;
+}
+
+bool  WaitForExit(void* process, uint32_t timeoutMs) {
+    if (!process) return false;
+    // WAIT_OBJECT_0 / WAIT_ABANDONED both mean "exited, status readable";
+    // WAIT_TIMEOUT fails (callers keep their poll loops).
+    const DWORD w = WaitForSingleObject(process, timeoutMs);
+    return w == WAIT_OBJECT_0 || w == WAIT_ABANDONED;
+}
+
+// Whole-system image scan — the Toolhelp32 block moved verbatim from
+// JKWindowServer.cpp:317-336 (stage-3 task 5): snapshot, first/next walk,
+// CloseHandle. The wchar→ASCII narrowing of szExeFile keeps the original
+// per-char clamp (0-127 → char, else '?'); lowercasing stays at the call
+// site (see the header's matching contract). PROCESSENTRY32W comes from
+// <tlhelp32.h> in this TU (it owns windows.h by convention — the call site's
+// hand-carried struct was only windows.h-avoidance, same layout).
+std::vector<ProcessImageInfo> ListProcessImages() {
+    std::vector<ProcessImageInfo> out;
+    void* snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (!snap || snap == (void*)(long long)-1) return out;  // INVALID_HANDLE_VALUE
+    PROCESSENTRY32W e{};
+    e.dwSize = sizeof(e);
+    if (Process32FirstW(snap, &e)) {
+        do {
+            std::string exe;
+            for (const wchar_t* p = e.szExeFile; *p; ++p) {
+                const char c = (*p >= 0 && *p < 128) ? static_cast<char>(*p) : '?';
+                exe.push_back(c);
+            }
+            out.push_back(
+                {static_cast<uint32_t>(e.th32ProcessID), std::move(exe)});
+        } while (Process32NextW(snap, &e));
+    }
+    CloseHandle(snap);
+    return out;
 }
 
 }  // namespace process

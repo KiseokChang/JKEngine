@@ -12,9 +12,15 @@
 
 #include <cerrno>
 #include <csignal>
+#include <cstdio>   // std::snprintf
+#include <cstdlib>  // std::atol
+#include <cstring>  // std::memchr
 #include <new>
 #include <string>
+#include <vector>
 
+#include <dirent.h>
+#include <fcntl.h>
 #include <poll.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
@@ -27,7 +33,8 @@ namespace process {
 namespace {
 
 // Hand-carried Win32 constants the contract names, for posix parity.
-constexpr uint32_t kStillActiveExit = 259;  // STILL_ACTIVE
+// STILL_ACTIVE(259)는 헤더가 소유로 이동(stage-3 task 5) — 여기의 복각은
+// 소각(헤더 상수와 모호성 충돌). kErrBrokenPipe만 이 TU에 남는다.
 constexpr int kErrBrokenPipe = 109;         // ERROR_BROKEN_PIPE family sentinel
 
 // Every void* handle this TU hands out is a heap block tagged with a magic so
@@ -376,6 +383,87 @@ bool  GetExitCode(void* process, uint32_t* exitCode) {
     }
     if (exitCode) *exitCode = p->exitCode;
     return true;
+}
+
+bool  WaitForExit(void* process, uint32_t timeoutMs) {
+    ProcState* p = AsProc(process);
+    if (!p) return false;
+    // WNOHANG polling with a bounded budget (win32 WaitForSingleObject ms
+    // semantics): true = exit observed (GetExitCode reads the cached code),
+    // false = still running at budget end or wait setup failed. A cached
+    // reap short-circuits immediately.
+    while (!p->reaped) {
+        int st = 0;
+        const pid_t w = waitpid(p->pid, &st, WNOHANG);
+        if (w == p->pid) {
+            p->reaped = true;
+            p->exitCode = WIFEXITED(st)
+                              ? static_cast<uint32_t>(WEXITSTATUS(st))
+                              : static_cast<uint32_t>(128 + WTERMSIG(st));
+            return true;
+        }
+        if (w < 0) return false;  // ECHILD etc. — fail-closed
+        if (timeoutMs == 0) return false;
+        const uint32_t step = timeoutMs > 20 ? 20 : timeoutMs;
+        usleep(static_cast<useconds_t>(step) * 1000u);
+        timeoutMs -= step;
+    }
+    return true;
+}
+
+// Whole-system image scan — posix leg. Each /proc/<pid>/cmdline's argv[0]
+// basename is the closest analogue of the win32 szExeFile image name, with a
+// /proc/<pid>/comm fallback (kernel-truncated to 15 chars) for entries with
+// an empty cmdline. Name-less entries are skipped — matching is exact
+// equality at the consumer (header contract); posix bytes are returned
+// as-is (no ASCII clamp/non-ASCII '?' substitution here, no lowercasing).
+std::vector<ProcessImageInfo> ListProcessImages() {
+    std::vector<ProcessImageInfo> out;
+    DIR* const d = ::opendir("/proc");
+    if (!d) return out;
+    struct dirent* de = nullptr;
+    while ((de = ::readdir(d)) != nullptr) {
+        const char* const s = de->d_name;
+        if (s[0] < '0' || s[0] > '9') continue;  // numeric pid dirs only
+        const long pid = std::atol(s);
+        if (pid <= 0) continue;
+        char pathBuf[64];
+        std::snprintf(pathBuf, sizeof(pathBuf), "/proc/%ld/cmdline", pid);
+        std::string name;
+        const int fd = ::open(pathBuf, O_RDONLY | O_CLOEXEC);
+        if (fd >= 0) {
+            char buf[2048] = {};
+            const ssize_t n = ::read(fd, buf, sizeof(buf) - 1);
+            ::close(fd);
+            if (n > 0) {  // argv[0] = bytes up to the first NUL
+                const char* const nul =
+                    static_cast<const char*>(std::memchr(buf, '\0', (size_t)n));
+                name.assign(buf, nul ? (size_t)(nul - buf) : (size_t)n);
+                const size_t slash = name.find_last_of('/');
+                if (slash != std::string::npos) name = name.substr(slash + 1);
+            }
+        }
+        if (name.empty()) {  // kernel thread — comm fallback
+            std::snprintf(pathBuf, sizeof(pathBuf), "/proc/%ld/comm", pid);
+            const int cfd = ::open(pathBuf, O_RDONLY | O_CLOEXEC);
+            if (cfd >= 0) {
+                char buf[128] = {};
+                const ssize_t n = ::read(cfd, buf, sizeof(buf) - 1);
+                ::close(cfd);
+                if (n > 0) {
+                    name.assign(buf, (size_t)n);
+                    while (!name.empty() && (name.back() == '\n' ||
+                                             name.back() == '\0'))
+                        name.pop_back();
+                }
+            }
+        }
+        if (name.empty()) continue;
+        out.push_back(
+            {static_cast<uint32_t>(pid), std::move(name)});
+    }
+    ::closedir(d);
+    return out;
 }
 
 }  // namespace process

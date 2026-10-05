@@ -8,6 +8,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <cstring>  // std::memcmp
 #include <ctime>  // nanosleep (D-T3 hygiene: nanosleep, not usleep)
 #include <string>
 #include <thread>
@@ -21,6 +22,7 @@
 #include <sys/socket.h>  // directly; no windows.h-cleanliness constraint here)
 
 #include <ipc/JKPipeTransport.h>
+#include <ipc/JKWireEndpoints.h>
 #include <fs/JKInstanceLock.h>
 #include <net/JKNet.h>
 #include <process/JKProcess.h>
@@ -842,9 +844,130 @@ void TestTextConv() {
           "text: ascii utf16 wstring round-trip byte-exact");
 }
 
+// Case 8 (jk::process::ListProcessImages — posix /proc leg, stage-3 full-build
+// task 5): the Toolhelp32 snapshot block absorbed from JKWindowServer.cpp
+// needs a posix counterpart, and its only real consumer is the guard refusal
+// hint (ScanServerCandidates). Contracts under test:
+//   A) the scan yields entries (a /proc-less environment would be empty);
+//   B) THIS process is found — self-PID discovery, the brief's 실측 requirement;
+//   C) our image name equals the basename we were invoked with (argv[0] —
+//      the cmdline argv[0] basename mapping documented in JKProcess.h);
+//   D) the consumer-shape match (ASCII-lowercase FULL-name ==) finds us while
+//      an unrelated literal does NOT — exact-match contract, no substring/prefix
+//      bleed (the original loop's `exe == "jkwinserver.exe"` semantics).
+void TestProcessScan(char* const* argv) {
+    const std::vector<jk::process::ProcessImageInfo> scan =
+        jk::process::ListProcessImages();
+    std::printf("  process-scan: %zu image entries\n", scan.size());
+    std::fflush(stdout);
+    Check(!scan.empty(), "proc-scan: the scan yields entries (empty /proc?)");
+
+    const unsigned long self = static_cast<unsigned long>(::getpid());
+    const std::string invoked = argv[0] ? argv[0] : "";
+    const size_t invokedSlash = invoked.find_last_of('/');
+    const std::string invokedBase =
+        invokedSlash == std::string::npos ? invoked : invoked.substr(invokedSlash + 1);
+    auto lower = [](std::string s) {
+        for (char& c : s)
+            if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+        return s;
+    };
+
+    bool selfFound = false;
+    std::string selfName;
+    std::vector<unsigned long> selfMatches;  // consumer-shape exact match
+    for (const jk::process::ProcessImageInfo& e : scan) {
+        if (e.pid == self) {
+            selfFound = true;
+            selfName = e.imageName;
+        }
+        // The exact-match contract as ScanServerCandidates applies it.
+        if (lower(e.imageName) == lower(invokedBase))
+            selfMatches.push_back(e.pid);
+    }
+    std::printf("  process-scan: self pid=%lu image=\"%s\" (argv[0]=\"%s\")\n",
+                self, selfName.c_str(), invoked.c_str());
+    std::fflush(stdout);
+
+    Check(selfFound, "proc-scan: this process appears in the scan (self PID)");
+    Check(selfFound && selfName == invokedBase,
+          "proc-scan: image name equals the invoked basename (argv[0] leg)");
+    Check(std::find(selfMatches.begin(), selfMatches.end(), self) !=
+                  selfMatches.end(),
+          "proc-scan: exact-match contract finds self (consumer shape)");
+    if (self != 1) {  // a healthy /proc always carries pid 1 (init/systemd)
+        Check(std::any_of(scan.begin(), scan.end(),
+                          [](const jk::process::ProcessImageInfo& e) {
+                              return e.pid == 1;
+                          }),
+              "proc-scan: pid 1 (init) is among the entries");
+    }
+}
+
+// Case 9 (JKPipeTransport win32-pipe-name → unix-socket mapping, docs/69 §4
+// consumer wiring ② — stage-3 full-build task 5): the shared endpoint constant
+// jk::ipc::kWindowServerPipeName is the literal win32 named-pipe name
+// `\\.\pipe\JKWindowServerPipe`; the posix factories fold it ONCE
+// (MapEndpointName — prefix stripped, '/'→'_', /tmp/<folded>.sock) so every
+// call site keeps passing the constant unchanged. Under test:
+//   A) CreateServer(kWindowServerPipeName) lands its socket at
+//      /tmp/JKWindowServerPipe.sock (the fold actually fired);
+//   B) ConnectClient(the same constant) reaches THAT server and the wire
+//      round-trips bytes (both factories share one fold or clients part ways);
+//   C) teardown leaves the mapped file unlinkable (case-5 shape, scratch-free).
+// A real jkserver holding the constant's socket in this same WSL would make
+// the bind fail — the gate environment does not run one.
+void TestPipeEndpointMapping() {
+    const std::string mapped = "/tmp/JKWindowServerPipe.sock";
+    ::unlink(mapped.c_str());  // scratch-free start (unique-enough constant)
+
+    std::unique_ptr<jk::ipc::JKPipeTransport> server;
+    std::thread serverThread([&server]() {
+        server = jk::ipc::JKPipeTransport::CreateServer(
+            jk::ipc::kWindowServerPipeName);
+    });
+
+    std::unique_ptr<jk::ipc::JKPipeTransport> client;
+    struct stat st {};
+    for (int i = 0; i < 500 && !client; ++i) {  // 10s budget (case-5 shape)
+        if (::stat(mapped.c_str(), &st) == 0 && S_ISSOCK(st.st_mode)) {
+            client = jk::ipc::JKPipeTransport::ConnectClient(
+                jk::ipc::kWindowServerPipeName);
+        }
+        if (!client) usleep(20 * 1000);
+    }
+    Check(client != nullptr,
+          "endpoint-map: ConnectClient reaches the pipe-name constant");
+    if (!client) {
+        serverThread.detach();
+        return;
+    }
+    serverThread.join();
+    Check(server != nullptr,
+          "endpoint-map: CreateServer accepted through the constant");
+    if (!server) {
+        client->Close();
+        ::unlink(mapped.c_str());
+        return;
+    }
+
+    const uint8_t tx[8] = {'J', 'K', 'E', 'P', 'M', 'A', 'P', '1'};
+    uint8_t rx[8] = {};
+    Check(client->Write(tx, sizeof(tx)) && server->Read(rx, sizeof(rx)) &&
+              std::memcmp(rx, tx, sizeof(tx)) == 0,
+          "endpoint-map: constant-named connection round-trips bytes");
+
+    client->Close();
+    server->Close();
+    ::unlink(mapped.c_str());
+    Check(::stat(mapped.c_str(), &st) != 0,
+          "endpoint-map: mapped socket file removed at case end");
+}
+
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    (void)argc;
     TestFsGetExecutablePath();
     TestProcessAdapter();
     TestNetAdapter();
@@ -852,6 +975,8 @@ int main() {
     TestPipeTransport();
     TestInstanceLock();
     TestTextConv();
+    TestProcessScan(argv);
+    TestPipeEndpointMapping();
     std::printf("PosixSelfTest: %d failure(s)\n", g_failures);
     return g_failures == 0 ? 0 : 1;
 }

@@ -4,12 +4,10 @@
 #include "theme/JKTheme.h"
 #include <fs/JKFs.h>
 
+#include <chrono>
 #include <cstdio>
+#include <filesystem>
 #include <string>
-
-#ifdef _WIN32
-#include <windows.h>
-#endif
 
 namespace jk { namespace theme {
 
@@ -56,14 +54,25 @@ std::string DefaultThemePath() {
 // P3 hot-swap: poll theme.json mtime (the caller owns the cadence, 500ms).
 // Missing file counts as mtime 0, so deleting the file also registers and
 // re-runs the loader, which is fail-open on missing (keeps preset — docs/45).
+// stage-3 task 5: GetFileAttributesExA(WIN32_FILE_ATTRIBUTE_DATA) 수기 →
+// std::filesystem::last_write_time. 원문 반환은 FILETIME(1601 기준 100ns
+// ticks)을 64비트로 합친 것 — 변경 감지는 값 비교라 표현은 규약일 뿐, 같은
+// 100ns-ticks-since-1601 수 형태를 clock_cast(system_clock ns)→/100→+1601
+// 오프셋으로 유지한다(msvc FILETIME과 같은 수로 온다). 실패(무파일 포함)=0
+// 관측 동형.
 static long long s_lastThemeMtime = -1;
 
 static long long ThemeFileMtime(const std::string& path) {
-    WIN32_FILE_ATTRIBUTE_DATA fa{};
-    if (!GetFileAttributesExA(path.c_str(), GetFileExInfoStandard, &fa))
-        return 0;
-    return ((long long)fa.ftLastWriteTime.dwHighDateTime << 32) |
-            fa.ftLastWriteTime.dwLowDateTime;
+    std::error_code ec;
+    const auto ftw = std::filesystem::last_write_time(
+        std::filesystem::path(path), ec);
+    if (ec) return 0;
+    const auto sys = std::chrono::clock_cast<std::chrono::system_clock>(ftw);
+    const auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                        sys.time_since_epoch()).count();
+    // 1970-01-01 이전 파일은 음수 절단이 아닌 0 (원문의 "실패/과거=0" 규약).
+    if (ns < 0) return 0;
+    return static_cast<long long>(ns / 100) + 116444736000000000LL;
 }
 
 bool PollPresetFile() {
