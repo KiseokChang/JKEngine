@@ -138,9 +138,14 @@ add_library(jkcore STATIC
     src/JKHangulAutomata.cpp
     src/JKHangulUtil.cpp
     src/JKHanjaDict.cpp
-    src/JKPlatform_win32.cpp
-    src/JKImeHook_win32.cpp
-    src/JKCrashHandler_win32.cpp
+    # Win32-only TUs (docs/69 stage-3 Task 1): each owns windows.h / manual
+    # dllimport declarations directly, so Linux excludes them at the build-list
+    # level instead of editing them. The adapter-style platform splits below
+    # (_win32/_posix pairs) are separate files listed unconditionally — these
+    # three are not part of that pattern yet.
+    $<$<PLATFORM_ID:Windows>:src/JKPlatform_win32.cpp>
+    $<$<PLATFORM_ID:Windows>:src/JKImeHook_win32.cpp>
+    $<$<PLATFORM_ID:Windows>:src/JKCrashHandler_win32.cpp>
     src/JKScrollBar.cpp
     src/JKListBox.cpp
     src/JKComboBox.cpp
@@ -328,7 +333,10 @@ add_executable(jkdesktop
 target_link_libraries(jkdesktop PRIVATE jkcore jkserver jkclient)
 # wmain entry (docs/48 후속 CP949 레저): UTF-8 argv conversion shim in
 # main.cpp. Link-only so UNICODE/_UNICODE stay undefined for the TUs.
+# MinGW-only link flag — ld doesn't know -municode on Linux (stage-3 Task 1).
+if(WIN32)
 set_property(TARGET jkdesktop APPEND_STRING PROPERTY LINK_FLAGS " -municode")
+endif()
 
 # ---------------------------------------------------------------------------
 # App module DLLs (Phase B). Each exports the C ABI from include/apps/JKAppModule.h
@@ -614,9 +622,12 @@ set_target_properties(jkapp_filedlg PROPERTIES PREFIX "")
 # (GNU ld -l:libcef.dll, no import lib / no libcef_dll_wrapper — proven by the
 # tools/cefosr standalone demo), and cefosr.exe doubles as the CEF subprocess
 # worker (browser_subprocess_path). The whole block is gated on the vendored
-# binary distribution being fetched (third_party/cef/README.md).
+# binary distribution being fetched (third_party/cef/README.md). Stage-3
+# (docs/69): the CEF binary dist is a Windows build — Linux ANDs WIN32 into
+# the existing guard, keeping libcef.dll link assumptions (-l:libcef.dll)
+# Windows-only.
 # ---------------------------------------------------------------------------
-if(EXISTS "${CMAKE_SOURCE_DIR}/third_party/cef/Release/libcef.dll")
+if(WIN32 AND EXISTS "${CMAKE_SOURCE_DIR}/third_party/cef/Release/libcef.dll")
     set(CEF_DIR "${CMAKE_SOURCE_DIR}/third_party/cef")
 
     # Standalone OSR demo + subprocess worker for jkapp_browser. Kept as a C
@@ -692,10 +703,12 @@ add_custom_command(TARGET jkwinserver POST_BUILD
 # jkchat: Desktop Agent chat window (spec §6.2). Plain Win32 UI —
 # deliberately OUTSIDE the JKWindow/SDL system (user constraint; keeps the
 # door open for STT later). Links jkcore for the same JKAgentClient stack.
+# Windows-only (docs/68 W8 마킹, docs/69 stage-3): raw USER32/GDI calls need
+# a direct windows.h port, so the whole target sits out the Linux build.
 # ---------------------------------------------------------------------------
+if(WIN32)
 add_executable(jkchat WIN32 tools/jkchat/main.cpp)
 target_link_libraries(jkchat PRIVATE jkcore)
-if(WIN32)
     # -municode: wWinMain entry (the app is UTF-16 end-to-end for hangul).
     target_link_options(jkchat PRIVATE -municode -static-libstdc++ -static-libgcc)
 endif()
@@ -772,7 +785,10 @@ add_custom_command(TARGET jkdesktop POST_BUILD
 )
 
 # Ship the MinGW/SDL runtime DLL closure next to the executable (relink only)
-# so a fresh build tree runs without the MSYS bin dirs on PATH.
+# so a fresh build tree runs without the MSYS bin dirs on PATH. Windows-only
+# shipping step (stage-3): SEED_DLLS are PE names and objdump -p walks PE
+# import tables — Linux .so resolution needs none of it.
+if(WIN32)
 get_filename_component(JK_TOOLCHAIN_BIN "${CMAKE_CXX_COMPILER}" DIRECTORY)
 find_program(JK_OBJDUMP objdump HINTS "${JK_TOOLCHAIN_BIN}")
 if(JK_OBJDUMP)
@@ -785,6 +801,7 @@ if(JK_OBJDUMP)
             -DOBJDUMP="${JK_OBJDUMP}"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CopyRuntimeDlls.cmake"
     )
+endif()
 endif()
 
 # ---------------------------------------------------------------------------
@@ -962,7 +979,11 @@ add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/shot.jkx"
     COMMENT "Repacking apps/shot.jkx"
     VERBATIM)
 # Browser needs libcef.dll next to jkdesktop.exe at pack time (the packer
-# LoadLibraryA's the module), hence the cef_deploy dependency.
+# LoadLibraryA's the module), hence the cef_deploy dependency. Windows-only
+# (docs/69 stage-3): jkapp_browser/cefosr/cef_deploy are excluded from Linux,
+# and a DEPENDS on a vanished target would become a missing-file input that
+# hard-fails ninja planning, so the pack rule goes away with them.
+if(WIN32)
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/browser.jkx"
     COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack browser
     DEPENDS jkdesktop jkapp_browser cef_deploy
@@ -970,6 +991,7 @@ add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/browser.jkx"
         "${JKX_ICONS}/launcher_browser@2x.png"
     COMMENT "Repacking apps/browser.jkx"
     VERBATIM)
+endif()
 # Script packages: the script source itself is a payload dependency so an
 # app.js edit repacks without a rebuild.
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/scriptdemo.jkx"
@@ -990,6 +1012,11 @@ add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/passworddemo.jkx"
         "${JKX_ICONS}/launcher_passworddemo@2x.png"
     COMMENT "Repacking apps/passworddemo.jkx"
     VERBATIM)
+# browser.jkx is Windows-only (jkapp_browser excluded on Linux — see the
+# jkx-pack block above); the list entry collapses to nothing there.
+if(WIN32)
+    set(JKX_DEP_BROWSER "${CMAKE_BINARY_DIR}/apps/browser.jkx")
+endif()
 add_custom_target(jkx_packages ALL
     DEPENDS "${CMAKE_BINARY_DIR}/apps/minesweeper.jkx"
             "${CMAKE_BINARY_DIR}/apps/tetris.jkx"
@@ -1013,6 +1040,6 @@ add_custom_target(jkx_packages ALL
             "${CMAKE_BINARY_DIR}/apps/notes.jkx"
             "${CMAKE_BINARY_DIR}/apps/files.jkx"
             "${CMAKE_BINARY_DIR}/apps/agentmgr.jkx"
-            "${CMAKE_BINARY_DIR}/apps/browser.jkx"
+            ${JKX_DEP_BROWSER}
             "${CMAKE_BINARY_DIR}/apps/scriptdemo.jkx"
             "${CMAKE_BINARY_DIR}/apps/passworddemo.jkx")
