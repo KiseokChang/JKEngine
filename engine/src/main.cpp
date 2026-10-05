@@ -786,6 +786,67 @@ static int RunJkxPack(const char* appName) {
     return 0;
 }
 
+// slot-pack <slot> [out]: 워크숍 슬롯 → .jkx 출하 (스펙 2026-10-05-slot-ship
+// -tool §2). 출하=워크숍 모드(MANI scriptfile=)+파묻힌 SCRI 시딩(§1 결정) —
+// 수신 기기에서 게이트·배지·진실원 문화가 산다. jkctl pack(콘솔앱 zip 배포용,
+// engine/tools/jkctl/main.cpp)과는 다른 도구 — 건드리지 않는다.
+// 슬롯 파일은 읽기만 한다(쓰기·이력 접촉 금지 — 스펙 §2). 부재 시 오류 1
+// 종료: 출하는 진실원이 있는 것만 팩한다(시딩-재시도 경로 없음).
+static int RunSlotPack(const char* slotName, const char* outOverride) {
+    std::string base;
+    if (char* p = SDL_GetBasePath()) {
+        base = p;
+        SDL_free(p);
+    }
+
+    std::vector<uint8_t> script;
+    const std::string slotPath = base + "state\\scripts\\" + slotName + ".js";
+    if (!ReadWholeFile(slotPath, script)) {
+        std::fprintf(stderr, "slot-pack: no slot source '%s'\n",
+                     slotPath.c_str());
+        return 1;
+    }
+    std::vector<uint8_t> dll;
+    if (!ReadWholeFile(base + "jkapp_script.dll", dll)) {
+        std::fprintf(stderr, "slot-pack: cannot read 'jkapp_script.dll'\n");
+        return 1;
+    }
+
+    // 능력 선언 = 사용량 자동 분석 — 게이트 토큰 표 단일 출처 재용(스펙 §3).
+    // 도구가 표를 복제하지 않는다(표가 흔들리면 출하 선언도 같이 흔들린다).
+    const std::string source(script.begin(), script.end());
+    const std::vector<std::string> tokens =
+        jk::JKScriptHost::CapabilityTokensForScript(source);
+    std::string caps;
+    for (size_t i = 0; i < tokens.size(); ++i) {
+        if (i) caps += ",";
+        caps += tokens[i];
+    }
+    const std::string manifest = jk::SlotShipManifestText(slotName, tokens);
+
+    // 3엔트리: MANI(신작 원문) + MODL(공유 script DLL) + SCRI(슬롯 원문) —
+    // JkxFile::Write 레이아웃(pack_workshop.ps1과 동일 구조, docs/60 §3).
+    std::vector<std::pair<std::string, std::vector<uint8_t>>> entries;
+    entries.emplace_back("manifest.txt",
+                         std::vector<uint8_t>(manifest.begin(), manifest.end()));
+    entries.emplace_back("jkapp_script.dll", std::move(dll));
+    entries.emplace_back("app.js", std::move(script));
+
+    CreateDirectoryA((base + "apps").c_str(), nullptr);
+    const std::string outPath = (outOverride && outOverride[0])
+        ? std::string(outOverride) : base + "apps\\" + slotName + ".jkx";
+    if (!jk::JKJkxFile::Write(outPath, entries)) return 1;
+
+    // stale DLL 함정 — 재빌드 없이 팩하면 오래된 DLL이 파묻힌다(도구 출력에
+    // 빌드 규율 경고 인쇄 — 스펙 §2, docs/60:334-339).
+    std::fprintf(stderr,
+                 "[slot-pack] 빌드 규율: 팩 직전 jkapp_script.dll이 현재 "
+                 "소스인지 — stale DLL은 런타임 'is not defined'로만 발현 "
+                 "(docs/60:334)\n");
+    std::printf("packed %s (caps=%s)\n", outPath.c_str(), caps.c_str());
+    return 0;
+}
+
 // jkx-list <file>: print a container's header (version/codec) and TOC — the
 // developer counterpart to hexdumping the file (docs/21).
 static int RunJkxList(const char* path) {
@@ -798,6 +859,13 @@ static int RunJkxList(const char* path) {
         std::printf("  manifest: name=%s title=%s module=%s", m.name.c_str(),
                     m.title.c_str(), m.module.c_str());
         if (!m.script.empty()) std::printf(" script=%s", m.script.c_str());
+        // 출하 필드 인쇄(docs/74 — 슬롯 출하 라인, probe grep 몫): scriptfile=
+        // 은 워크숍 분기의 신호, capabilities=는 게이트 선언 원문. 기존 행
+        // 포맷 유지(개행은 width 뒤 한 번 — 기존 인쇄 체인 불변).
+        if (!m.scriptfile.empty())
+            std::printf(" scriptfile=%s", m.scriptfile.c_str());
+        if (!m.capabilities.empty())
+            std::printf(" capabilities=%s", m.capabilities.c_str());
         if (m.width > 0) std::printf(" %dx%d", m.width, m.height);
         std::printf("\n");
     }
@@ -2777,6 +2845,29 @@ static int RunAppSelfTest() {
             fs::remove_all(dir);
         }
 
+        // 1k) 출하 MANI 조립기 (스펙 2026-10-05-slot-ship-tool §3/§5.2 — docs/76
+        //     §9 이행). 8행 캐노니컬 + Parse 통과 + 빈 tokens=능력 없음
+        //     (fail-closed — 배지 "능력 없음" 그대로).
+        {
+            const std::string m =
+                jk::SlotShipManifestText("bang-gu", {"timer", "canvas"});
+            check(m ==
+                      "name=bang-gu\ntitle=bang-gu\nwidth=360\nheight=280\n"
+                      "module=jkapp_script.dll\nscript=app.js\n"
+                      "scriptfile=state/scripts/bang-gu.js\n"
+                      "capabilities=timer,canvas\n",
+                  "1k-a 출하 MANI 캐노니컬 원문");
+            jk::JkxManifest mm;
+            check(mm.Parse(m) &&
+                      mm.scriptfile == "state/scripts/bang-gu.js" &&
+                      mm.capabilities == "timer,canvas",
+                  "1k-b Parse 통과+선언 원문 재검");
+            jk::JkxManifest m0;
+            check(m0.Parse(jk::SlotShipManifestText("x", {})) &&
+                      m0.capabilities.empty(),
+                  "1k-c 빈 tokens=능력 없음(fail-closed)");
+        }
+
         // 1c2) 능력 배지 문구 (docs/74 — 빈 선언도 숨기지 않는다, 스펙 §5).
         check(jk::CapabilityBadgeText("agent,timer") == "능력: agent,timer",
               "capability badge text with declaration");
@@ -3470,6 +3561,7 @@ static int RunMain(int argc, char* argv[]) {
         std::printf("  --client tetris     Run Tetris as a window-server client\n");
         std::printf("  --jkx FILE  Run an app from a .jkx container\n");
         std::printf("  jkx-pack APP  Bundle jkapp_<APP>.dll + icons + manifest into apps/<APP>.jkx\n");
+        std::printf("  slot-pack SLOT [OUT]  Ship a workshop slot as a .jkx app (capability-declared MANI)\n");
         std::printf("  jkx-list FILE   Print a .jkx container's version/codec + TOC\n");
         std::printf("  jkx-extract FILE [ENTRY...]  Extract .jkx entries into <FILE>_x/\n");
         std::printf("  agentctl '<json>'  Send one Desktop Agent query to the server\n");
@@ -3518,6 +3610,19 @@ static int RunMain(int argc, char* argv[]) {
         return RunJkxPack(argv[2]);
 #else
         std::fprintf(stderr, "jkx-pack is Windows-only in this prototype\n");
+        return 1;
+#endif
+    }
+
+    if (argc > 1 && std::strcmp(argv[1], "slot-pack") == 0) {
+#ifdef _WIN32
+        if (argc < 3 || argc > 4) {
+            std::fprintf(stderr, "Usage: slot-pack <slot> [out]  (bundles state/scripts/<slot>.js + jkapp_script.dll into a workshop-mode .jkx)\n");
+            return 1;
+        }
+        return RunSlotPack(argv[2], argc > 3 ? argv[3] : nullptr);
+#else
+        std::fprintf(stderr, "slot-pack is Windows-only in this prototype\n");
         return 1;
 #endif
     }

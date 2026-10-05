@@ -147,6 +147,34 @@ std::string JkxManifestMerge(const std::string& authored,
     return out;
 }
 
+// 출하 MANI 조립 (스펙 2026-10-05-slot-ship-tool §3). 워크숍 벤치 MANI
+// (jk_app_run_client 쪽 원문)와 달리 출하본은 각자 좁은 capabilities 선언을
+// 싣는다 — tokens 컴마 조인은 표 순서(JKScriptHost 게이트 토큰 표)를 그대로
+// 유지. 빈 tokens → "capabilities=" 빈값(능력 없음 — fail-closed, 수신
+// 기기 badge가 "능력 없음"으로 보여 준다). 마지막 행 뒤 개행 1개: Parse는
+// last-wins 행 단위라 무충돌이고, 신작 원문이므로 workshop MANI의
+// "마지막 행 개행 없음" 패턴을 따르지 않는다(셀프테스트 1k-a가 원문 단언).
+// scriptfile 값 = exeDir 상대 state/scripts/<slot>.js — §1 결정: 출하=
+// 워크숍 모드(게이트·배지·진실원 문화 수신 기기에서 유지).
+std::string SlotShipManifestText(const std::string& slot,
+                                 const std::vector<std::string>& tokens) {
+    std::string caps;
+    for (size_t i = 0; i < tokens.size(); ++i) {
+        if (i) caps += ",";
+        caps += tokens[i];
+    }
+    std::string text;
+    text += "name=" + slot + "\n";
+    text += "title=" + slot + "\n";
+    text += "width=360\n";  // 워크숍 벤치 관습 (스펙 §3 — 슬롯별 커스텀은 YAGNI)
+    text += "height=280\n";
+    text += "module=jkapp_script.dll\n";
+    text += "script=app.js\n";
+    text += "scriptfile=state/scripts/" + slot + ".js\n";
+    text += "capabilities=" + caps + "\n";
+    return text;
+}
+
 JKJkxFile::~JKJkxFile() {
     if (file_) {
         std::fclose(static_cast<std::FILE*>(file_));

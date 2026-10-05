@@ -74,6 +74,14 @@ struct JkxManifest {
 std::string JkxManifestMerge(const std::string& authored,
                              const std::string& regenerated);
 
+// 출하 MANI 조립 (스펙 2026-10-05-slot-ship-tool §3 — docs/76 §9 이행).
+// 워크숍 슬롯 출하 팩의 매니페스트 원문 8행 캐노니컬. tokens는 분석기
+// (JKScriptHost::CapabilityTokensForScript, Task 1) 산출 — 컴마 조인, 표
+// 순서 유지. 빈 tokens = "capabilities=" 빈값(능력 없음 — 스펙 §3, badge가
+// 그대로 보여 준다). name+module 필수 파스 계약(JKJkxFile.h)을 만족.
+std::string SlotShipManifestText(const std::string& slot,
+                                 const std::vector<std::string>& tokens);
+
 class JKJkxFile {
 public:
     struct Entry {
