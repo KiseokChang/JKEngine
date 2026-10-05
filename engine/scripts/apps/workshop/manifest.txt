@@ -3,7 +3,7 @@ title=Workshop
 width=360
 height=280
 module=jkapp_script.dll
-# 능력 선언 (docs/74 fail-closed): 워크숍 벤치 슬롯 런타임의 합 유능력.
+# 능력 선언 (docs/74 fail-closed): 워크숍 벤치 슬롯 런타임의 합유능력.
 # 슬롯 출하(.jkx) MANI는 각자 좁게 선언한다 — 이 원본은 벤치 원문이다.
 # 미선언 토큰(input/uiauto/network)은 차단 — 슬롯이 쓰려면 이 파일에
 # 토큰을 추가하라(정직 에러가 어디를 고칠지 말해 준다: "not declared in MANI").

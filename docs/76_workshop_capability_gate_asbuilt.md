@@ -123,7 +123,11 @@ capability '<tok>' not declared in MANI
 - probe 격리: scratch 슬롯(gatescratch)이라 사용자 슬롯 파일·라이브 패치
   이력 불변. 선대 Workshop 창 청소는 idempotent(잔존 창이 있으면
   set_script가 ambiguous로 답하는 것 회피 — 단 사용자 Workshop 창도 닫는다,
-  잔여 ①).
+  잔여 ①). **단 최슬롯 포인터(`.current_workshop`)만은 probe가 `gatescratch`
+ 로 바꿔 놓았다** — 포인터 대상 파일이 없으면 부팅이 MANI 기본
+  (`myapp.js`)으로 자가 치유(ClientScriptApp::OnInit 판정), 런타임 위험
+ 없음. probe가 포인터를 원복하도록 개선할 것(잔여 ①과 같이 다음 probe 터치
+ 때).
 - **jkagentd.exe ping은 MCP 대응 도구 없음** — 실측 검증은
   `agentctl ping`(+read_events)로 한다(이번 실측 기록한 전제).
 
@@ -146,6 +150,16 @@ capability '<tok>' not declared in MANI
   능력 없음으로 게이트된다 — 미선언 API를 쓰던 슬롯은 **MANI 토큰 추가+
   repack** 필요. 정직 에러가 어디를 고칠지 말해 준다("not declared in
   MANI" + 배지 원문).
+- **명명 사례 (최종 리뷰 I-1, 2026-10-05)**: 슬롯 `bang-gu.js`가
+  `injectMouse`/`injectKey`(토큰 `input`)를 쓰는데 벤치 MANI가 `input`을
+  의도적으로 미선언 — 다음 부팅부터 첫 타이머 틱(2.5s)마다 정직 차단
+  (canvas 그리기·마우스 이벤트 수신은 계속 동작). **결정은 사용자 몫:
+  ① 벤치 MANI에 `input` 추가+repack(주입 계속) — 단 probe diag_capgate의
+  GATE-BLOCK 케이스가 PASS로 뒤집혀 실측 원장과 어긋나므로 probe 케이스를
+  바꿔야 한다(예: 미선언 토큰을 `uiauto`로 전환) ② 미선언 유지(차단 수용) —
+  fail-closed 자세와 실측 원장 유지.** 컨트롤러 판정: ②가 현 기본 —
+  fail-closed는 docs/74 사용자 확정 결정이고 probe·셀프테스트·원장이 이에
+  정렬돼 있다. ①은 사용자가 말하면 즉시 수리(토큰 1개+repack+probe 정정).
 - **슬롯 출하(.jkx) 도구가 개별 MANI를 좁게 선언하는 것** = 단 2 출하
   라인의 다음 문 — 워크숍 벤치 원본은 넓게 선언했지만, 출하 시 각자
   (벤치 MANI가 총망라 성격의 원문임을 파일 주석에 명시).
@@ -153,6 +167,11 @@ capability '<tok>' not declared in MANI
   출하 도구 작업 때 같이.
 
 ## 10. 잔여 (parked minors — 사용자 수요 없으면 소각 없음; 트라이아지는 최종 리뷰)
+
+**최종 리뷰 트라이아지 (2026-10-05, opus — 8건 전부 keep; ①만 must-track):**
+① probe 선대 청소(사용자 창도 닫음)+최슬롯 포인터 원복은 다음 probe 터치 때
+함께 수리(수리법 알려짐: 선존재 창 id 캡처→증분만 닫음). ③은 §7 정정으로
+봉합(끝). 나머지는 비행동적이며 원장화된 채 유지.
 
 1. probe 선대 청소가 사용자 Workshop 창도 닫는다 — probe에 주석 권고함.
 2. GATE-PASS 정규식(`"ok"\s*:\s*true`)이 느슨하다.
