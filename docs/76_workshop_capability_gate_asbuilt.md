@@ -123,11 +123,11 @@ capability '<tok>' not declared in MANI
 - probe 격리: scratch 슬롯(gatescratch)이라 사용자 슬롯 파일·라이브 패치
   이력 불변. 선대 Workshop 창 청소는 idempotent(잔존 창이 있으면
   set_script가 ambiguous로 답하는 것 회피 — 단 사용자 Workshop 창도 닫는다,
-  잔여 ①). **단 최슬롯 포인터(`.current_workshop`)만은 probe가 `gatescratch`
- 로 바꿔 놓았다** — 포인터 대상 파일이 없으면 부팅이 MANI 기본
-  (`myapp.js`)으로 자가 치유(ClientScriptApp::OnInit 판정), 런타임 위험
- 없음. probe가 포인터를 원복하도록 개선할 것(잔여 ①과 같이 다음 probe 터치
- 때).
+  잔여 ①). **단 최근 슬롯 포인터(`.current_workshop`)만은 probe가
+  `gatescratch`로 바꿔 놓았다** — 포인터 대상 파일이 없으면 부팅이 MANI
+  기본(`myapp.js`)으로 자가 치유(ClientScriptApp::OnInit 판정), 런타임
+  위험 없음. probe가 포인터를 원복하도록 개선할 것(잔여 ①과 같이 다음
+  probe 터치 때).
 - **jkagentd.exe ping은 MCP 대응 도구 없음** — 실측 검증은
   `agentctl ping`(+read_events)로 한다(이번 실측 기록한 전제).
 
@@ -169,7 +169,8 @@ capability '<tok>' not declared in MANI
 ## 10. 잔여 (parked minors — 사용자 수요 없으면 소각 없음; 트라이아지는 최종 리뷰)
 
 **최종 리뷰 트라이아지 (2026-10-05, opus — 8건 전부 keep; ①만 must-track):**
-① probe 선대 청소(사용자 창도 닫음)+최슬롯 포인터 원복은 다음 probe 터치 때
+① probe 선대 청소(사용자 창도 닫음)+최근 슬롯 포인터 원복은 다음 probe
+   터치 때
 함께 수리(수리법 알려짐: 선존재 창 id 캡처→증분만 닫음). ③은 §7 정정으로
 봉합(끝). 나머지는 비행동적이며 원장화된 채 유지.
 
