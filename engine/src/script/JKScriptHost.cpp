@@ -1868,4 +1868,78 @@ std::vector<std::string> JKScriptHost::BoundNames() const {
     return names;
 }
 
+// ---------------------------------------------------------------------------
+// 출하 선언 분석 (스펙 2026-10-05-slot-ship-tool §3 — 정적 표 + 어휘 경계).
+// 순수 정적 데이터/함수 — bind 호출 본체와 GateCap thunk는 무관(전역 제약 3:
+// 이 태스크는 라이브 런타임 계약을 바꾸지 않는다).
+// ---------------------------------------------------------------------------
+
+// 게이트 토큰 정적 표 — 능력 토큰 표(docs/76 §2)의 단일 출처 사본.
+// token이 nullptr이면 게이트 밖(무조건 허용 3 — log/assert/assertEq)으로
+// 선언 생성에 기여하지 않는다(전역 제약 2). network는 바인딩 없는 리저브
+// 토큰(docs/76 §2)이므로 표에 없다. bind 호출 본체와 이 표가 갈라지면
+// 셀프테스트 1h의 HostBindingNames↔BoundNames 핀이 찬다.
+struct BindToken { const char* bind; const char* token; };
+static const BindToken kCapabilityBindTokens[] = {
+    {"messageBox", "widget"},   {"createButton", "widget"},
+    {"createLabel", "widget"},  {"createEdit", "widget"},
+    {"setText", "widget"},      {"getText", "widget"},
+    {"createDialog", "widget"}, {"dialogAddLabel", "widget"},
+    {"dialogAddEdit", "widget"},{"dialogAddButton", "widget"},
+    {"dialogShow", "widget"},   {"dialogClose", "widget"},
+    {"setInterval", "timer"},   {"clearInterval", "timer"},
+    {"declareCursor", "agent"}, {"readConfig", "fs"},
+    {"injectMouse", "input"},   {"injectKey", "input"},
+    {"click", "input"},         {"findControl", "uiauto"},
+    {"createCanvas", "canvas"}, {"canvasClear", "canvas"},
+    {"canvasRect", "canvas"},   {"canvasPixel", "canvas"},
+    {"canvasLine", "canvas"},   {"canvasCircle", "canvas"},
+    {"canvasText", "canvas"},
+    {"log", nullptr}, {"assert", nullptr}, {"assertEq", nullptr},
+};
+
+namespace {
+// JS 식별자 구성 문자 — 어휘 경계 판정 (스펙 §3: [A-Za-z0-9_$]).
+bool IsIdentCharW(unsigned char c) {
+    return std::isdigit(c) || std::isalpha(c) || c == '_' || c == '$';
+}
+bool TokenUsedInSource(const std::string& source, const std::string& name) {
+    if (name.empty()) return false;
+    size_t pos = source.find(name);
+    while (pos != std::string::npos) {
+        const size_t end = pos + name.size();
+        const bool left = pos == 0 ||
+            !IsIdentCharW(static_cast<unsigned char>(source[pos - 1]));
+        const bool right = end >= source.size() ||
+            !IsIdentCharW(static_cast<unsigned char>(source[end]));
+        if (left && right) return true;
+        pos = source.find(name, pos + 1);
+    }
+    return false;
+}
+} // namespace
+
+std::vector<std::string> JKScriptHost::CapabilityTokensForScript(
+    const std::string& source) {
+    std::vector<std::string> tokens;   // 표 순서 유지 — 출하 MANI도 표 순
+    std::vector<std::string> seen;     // 동일 토큰 1회만 (중복 없음 계약)
+    for (const BindToken& entry : kCapabilityBindTokens) {
+        if (!entry.token || !entry.token[0]) continue;
+        if (!TokenUsedInSource(source, entry.bind)) continue;
+        const std::string tok(entry.token);
+        if (std::find(seen.begin(), seen.end(), tok) != seen.end()) continue;
+        seen.push_back(tok);
+        tokens.push_back(tok);
+    }
+    return tokens;
+}
+
+std::vector<std::string> JKScriptHost::HostBindingNames() {
+    std::vector<std::string> names;
+    for (const BindToken& entry : kCapabilityBindTokens) {
+        if (entry.bind) names.push_back(entry.bind);
+    }
+    return names;
+}
+
 } // namespace jk

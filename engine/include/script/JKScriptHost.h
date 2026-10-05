@@ -72,6 +72,16 @@ public:
     // 정규화된 토큰 보유 여부.
     bool HasCapability(const std::string& token) const;
 
+    // 출하 선언 분석 (스펙 2026-10-05-slot-ship-tool §3 — docs/76 §9의
+    // "개별 MANI 좁게 선언" 이행). 슬립 소스 어휘 경계 매치로 게이트 토큰
+    // 사용 집합을 돌려준다 — 표 순서·중복 없음. 주석·문자열 유사 표기는
+    // 오버 방향 오탐만 낸다(방향성 계약: 언더는 런타임 fail-closed가 잡는다).
+    static std::vector<std::string>
+    CapabilityTokensForScript(const std::string& source);
+    // 정적 표의 전체 바인딩 이름(30) — 셀프테스트가 시작 호스트 BoundNames와
+    // 대조해 표 흔들림을 핀다(표가 bind 호출과 갈라지는 재생산 방지).
+    static std::vector<std::string> HostBindingNames();
+
     // Loads and evaluates `entryPath` (UTF-8 app.js), then calls the script's
     // onCreate() when defined. Returns false on file or script errors — the
     // error (message + JS stack trace) is logged and kept in LastError().

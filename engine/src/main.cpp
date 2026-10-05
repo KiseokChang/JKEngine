@@ -2672,6 +2672,57 @@ static int RunAppSelfTest() {
             //     1·2가 회귀 검증으로 겸함 — 여기에 단언 없음(스펙 §6-5).
         }
 
+        // 1h) 출하 선언 분석기 (스펙 2026-10-05-slot-ship-tool §3 — docs/76 §9의
+        //     "개별 MANI 좁게 선언" 이행). 정적 순수 함수 — bind 호출 본체는
+        //     무변경(전역 제약 3). 스크립트 소스 어휘 경계([A-Za-z0-9_$]) 매치.
+        //     주석·문자열 유사 표기는 오버 방향 오탐만 낸다(방향성 계약: 언더는
+        //     런타임 fail-closed가 잡는다).
+        {
+            auto toks = jk::JKScriptHost::CapabilityTokensForScript(
+                "var t=setInterval(function(){clearInterval(t);},100);"
+                "var cv=createCanvas({x:0,y:0,w:10,h:10},'');"
+                "readConfig('cfg.json');declareCursor('x');");
+            check(toks.size() == 4 && toks[0] == "timer" && toks[1] == "agent" &&
+                      toks[2] == "fs" && toks[3] == "canvas",
+                  "1h-a 사용 집합=표 순");   // widget/input/uiauto 미사용 미선언
+            check(jk::JKScriptHost::CapabilityTokensForScript(
+                      "mysetInterval(a,1);xsetIntervalX(b);").empty(),
+                  "1h-b 어휘 경계 미적중");
+            check(jk::JKScriptHost::CapabilityTokensForScript(
+                      "setInterval(function(){},1);").size() == 1,
+                  "1h-b2 경계 적중");
+            check(jk::JKScriptHost::CapabilityTokensForScript(
+                      "// setInterval 주석 — 오버 방향 오탐(문서화 계약)")
+                      .size() == 1,
+                  "1h-c 주석 폴스포짓=오버 방향");
+            check(jk::JKScriptHost::CapabilityTokensForScript(
+                      "log('hi');assert(true);assertEq(1,1);").empty(),
+                  "1h-d 무조건 3은 선언 생성 않음");
+            // 표↔런타임 핀(1h-e/f): 정적 표의 30 이름이 시작 호스트의 실제
+            // 바인딩에 전부 존재 — 표가 bind 호출과 갈라지면 이 핀이 찬다.
+            // BoundNames는 ctx_ 존재 전제(없으면 빈 목록). 1g의 호스트들은
+            // 위 중괄호 스코프가 닫혀 Stop된 후라 재용 불가 — 1g의 시작 패턴
+            // (창+Attach+무선언 게이트+무조건 log 스크립트)을 그대로 재현해
+            // 새 호스트를 Start한다(브리프 주의 항 준수, bind 무변경).
+            writeScript("test_script_1h_pin.js", "log('1h pin');\n");
+            jk::JKWindow hwin("ScriptShipPin");
+            hwin.SetWindowRect(jk::JKRect{ 0, 0, 320, 240 });
+            jk::JKScriptHost hhost;
+            hhost.Attach(&hwin);
+            hhost.EnableCapabilities("");  // log는 무조건 허용 — 게이트 밖 통과
+            check(hhost.Start("test_script_1h_pin.js"), "1h-f0 핀 호스트 시작");
+            const std::vector<std::string> bound = hhost.BoundNames();
+            const std::vector<std::string> table =
+                jk::JKScriptHost::HostBindingNames();
+            check(table.size() == 30, "1h-e 정적 표=30");
+            bool allBound = true;
+            for (const auto& n : table)
+                if (std::find(bound.begin(), bound.end(), n) == bound.end())
+                    allBound = false;
+            check(allBound, "1h-f 표↔BoundNames 전수 일치");
+            hhost.Stop();
+        }
+
         // 1c2) 능력 배지 문구 (docs/74 — 빈 선언도 숨기지 않는다, 스펙 §5).
         check(jk::CapabilityBadgeText("agent,timer") == "능력: agent,timer",
               "capability badge text with declaration");
