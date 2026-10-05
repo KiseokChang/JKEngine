@@ -218,7 +218,20 @@ int Ask(const AskRequest& req) {
 #endif
         else esc += c;
     }
-    const std::string cmdA = "ollama launch claude --model \"" + LoadModel() +
+    // Final-review F1 (docs/70): the model name is dynamic text riding the
+    // same sh double-quote string as the prompt — same escape class, posix
+    // leg only (win32 keeps the raw value verbatim, 동작 변화 0).
+    std::string escModel;
+    for (const char c : LoadModel()) {
+        if (c == '"') escModel += "\\\"";
+#ifndef _WIN32
+        else if (c == '\\') escModel += "\\\\";
+        else if (c == '$') escModel += "\\$";
+        else if (c == '`') escModel += "\\`";
+#endif
+        else escModel += c;
+    }
+    const std::string cmdA = "ollama launch claude --model \"" + escModel +
                              "\" -- -p \"" + esc + "\"";
     // CreateProcessW cmdLine 상한 32767 wchar — 초과 시 CreateProcess 실패
     // 원인을 알기 어렵다. 30000 여유로 미리 거부. 길이는 어댑터가 넓힐

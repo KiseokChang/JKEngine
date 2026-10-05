@@ -4592,6 +4592,10 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             const std::filesystem::directory_iterator end;
             while (!openEc && it != end) {
                 const std::string name = it->path().filename().string();
+                // platform note: the win32 find-data wildcard match was
+                // case-insensitive; starts_with is case-SENSITIVE. Real
+                // layouts all write "layout_" lowercase, so accepted
+                // divergence (docs/70 §6 #9).
                 if (name.starts_with("layout_") && name.ends_with(".json")) {
                     // "layout_<name>.json" → <name> (7자 접두, 5자 확장자).
                     if (name.size() > 12) {

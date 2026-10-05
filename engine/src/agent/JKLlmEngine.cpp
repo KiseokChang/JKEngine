@@ -113,26 +113,33 @@ std::string BuildEngineCmd(const ChatConfig& cfg,
     // Every turn gets the fixed Korean preamble (CoT/markdown leak guard,
     // above) prepended to the raw prompt, before quote escaping.
     const std::string fullPrompt = kLlmTurnPreamble + prompt;
-    // -p argument escaping: quotes (the rest reaches claude verbatim), plus —
+    // Sh-double-quote escaper used for EVERY dynamic text that lands inside
+    // the command string — not just the prompt (final review F1: --resume's
+    // session id and the model name are dynamic text too). Quotes, plus —
     // posix only — the sh double-quote live characters (below).
-    std::string esc;
-    for (char ch : fullPrompt) {
-        if (ch == '"') esc += "\\\"";
+    auto EscDq = [](const std::string& s) {
+        std::string out;
+        for (char ch : s) {
+            if (ch == '"') out += "\\\"";
 #ifndef _WIN32
-        // posix leg executes via /bin/sh -c (jk::process posix mapping), and
-        // inside sh double quotes `\`, `$` and backtick stay LIVE (a lone
-        // backslash also acts as an escape character before these). Escape
-        // them backslash-prefixed so preamble+prompt text lands literally —
-        // otherwise `$(...)` or backticks from the user chat prompt or
-        // attached bytes would EXECUTE. Windows CreateProcessW never touches
-        // a shell, so the win32 leg keeps the original case verbatim (동작
-        // 변화 0 — the escaped forms agree for the shared case: `"`).
-        else if (ch == '\\') esc += "\\\\";
-        else if (ch == '$') esc += "\\$";
-        else if (ch == '`') esc += "\\`";
+            // posix leg executes via /bin/sh -c (jk::process posix mapping),
+            // and inside sh double quotes `\`, `$` and backtick stay LIVE (a
+            // lone backslash also acts as an escape character before these).
+            // Escape them backslash-prefixed so preamble+prompt text lands
+            // literally — otherwise `$(...)` or backticks from the user chat
+            // prompt or attached bytes would EXECUTE. Windows CreateProcessW
+            // never touches a shell, so the win32 leg keeps the original case
+            // verbatim (동작 변화 0 — the escaped forms agree for the shared
+            // case: `"`).
+            else if (ch == '\\') out += "\\\\";
+            else if (ch == '$') out += "\\$";
+            else if (ch == '`') out += "\\`";
 #endif
-        else esc += ch;
-    }
+            else out += ch;
+        }
+        return out;
+    };
+    std::string esc = EscDq(fullPrompt);
     // Token streaming (docs/31 §6): stream-json + partial messages gives
     // line-delimited events with content_block_delta text fragments. --verbose
     // is REQUIRED by stream-json in -p mode.
@@ -149,7 +156,9 @@ std::string BuildEngineCmd(const ChatConfig& cfg,
     }
     claudeArgs += " --settings \"" + escSettings + "\"";
     if (!resumeSessionId.empty()) {
-        claudeArgs += " --resume \"" + resumeSessionId + "\"";
+        // F1 (docs/70 final review): the session id is dynamic text too —
+        // same escaper class as the prompt (posix triple-escape inside).
+        claudeArgs += " --resume \"" + EscDq(resumeSessionId) + "\"";
     }
     // NOTE: claude CLI has no --directory flag (guide table was wrong for
     // CLI 2.1.x — only --add-dir exists). cfg.directory is applied as the
@@ -166,7 +175,9 @@ std::string BuildEngineCmd(const ChatConfig& cfg,
     } else if (cfg.engine == "claude") {
         cmd = "claude " + claudeArgs;
     } else {  // "ollama" (default)
-        cmd = "ollama launch claude --model \"" + cfg.model + "\" -- " +
+        // F1: cfg.model rides the same sh double-quote string — escape it
+        // like every other dynamic text (win32 keeps bare quotes verbatim).
+        cmd = "ollama launch claude --model \"" + EscDq(cfg.model) + "\" -- " +
               claudeArgs;
     }
     return cmd;

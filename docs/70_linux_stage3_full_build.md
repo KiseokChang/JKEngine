@@ -10,10 +10,13 @@
 
 **전체 엔진(jkcore/jkserver/jkclient/jkdesktop_shell + 앱 20여종 + 도구 4종)이 WSL2
 Ubuntu-24.04에서 CMake(ninja) 전체 빌드 에러 0.** 산출물: `jkdesktop` ELF PIE
-7,110,736B + 앱 .so 다수 + `jkbridge`/`jktriggers`/`jkctl`/`jkagentd` 4종.
+약 7.1MB(최종 재빌드 시점 7,110,640B) + 앱 .so 다수 +
+`jkbridge`/`jktriggers`/`jkctl`/`jkagentd` 4종.
 WSLg(DISPLAY=:0)에서 `jkdesktop --server` 기동 확인 — SDL 그래픽 초기화+
 unix socket(`/tmp/JKWindowServerPipe.sock`) 생성+`tools/call list_windows`
 IPC 왕복까지 실측. Windows 공식 9항목 게이트 ×2 그린 — **Win32 관측 무변화 증명**.
+(opus 최종리뷰: **APPROVE** — F1 주입 봉합 확장·문서 보강은 본 문서와 동일
+라이더에서 즉시 처리)
 
 빌드 환경: g++ 13.3, SDL2 2.30, SDL2_mixer 2.8, FFmpeg libav 60.x, cmake 3.28,
 ninja. 빌드 디렉 `engine/buildwsl`(drvfs). `jkdesktop`은 링크 완료(이 플랜 최초의
@@ -126,12 +129,20 @@ posix 어댑터 자체는 2단계 실측되어 있으나 이 도구 배선은 �
 
 1. **jkagentd terminal_exec posix 배선** — JKConPtyBridge posix 어댑터가
    있으나 jkagentd RunTerminalExec의 pty 구동부가 win32 전용
-   (`unsupported_platform` 즉답). 배선 태스크 후보
-2. **posix LLM 턴 셸 접미** — BuildEngineCmd의 `cmd.exe /c` 접두 남아
-   dash에서 not found(셸 추상 — jk::process 셸 계약) — docs/69 §4에서
-   승계된 잔여
-3. **JKWindowServer `dir + "\\state"` 수기 백슬래치 합성** — 리눅스에서
-   '\' 문자 성분 경로(런타임 결함, T7 리뷰 발견 — 후속 봉합)
+   (`unsupported_platform` 즉답, tools/jkagentd/main.cpp:371). 배선 태스크 후보
+2. **posix LLM 턴 셸 접두** — `cmd.exe /c` 접두는 stub 분기에만 존재;
+   claude/ollama 분기는 접두 없이 sh에서 실행 가능(WSL에 ollama가 있으면
+   유효 실행 경로). 즉 잔여의 위상은 "not found"가 아니라 **미봉쇄 실행
+   경로**(셸 추상 — jk::process 셸 계약 + argv-vector exec가 후속).
+   F1 라이더(동일 커밋)로 프롬프트·모델명·세션 id 삼중 이스케이프 완료 —
+   남은 것은 접두 추상만
+3. **수기 백슬래치 경로 합성 (F2 전수 열거)** — 리눅스에서 '\'가 파일명
+   성분 경로: ①JKWindowServer `dir + "\\state"` ②JKWorkshopStore
+   HistoryDir `scriptsDir + "\\.history\\" + slot` + AppendSnapshot
+   `dir + "\\" + name` ③jktriggers PackMode `outDir + "\\" + name +
+   ".jkx"`(런타임 pack 서브커맨드 — **관측급 파손**: pack→load 핸드셰이크
+   끊김). 후속 봉합 태스크 소관 — trust.json 합성 3처는 '\' 성분 포함
+   소비처 간 일치로 왕복 성립(오히려 일치 상태 유지 필요)
 4. **fmt 스탬프 localtime_s 역전 boolean**(win32 잠재 결함 — docs/68
    승계, T2 레저 재확인) + **BuildEngineCmd win32 백슬래시 누락**(별도
    결함 후보 — FmtStamp 선례)
@@ -143,6 +154,15 @@ posix 어댑터 자체는 2단계 실측되어 있으나 이 도구 배선은 �
    별도), **Termux 패키징·폰 실기기 도달**(docs/62 §3 흐름)
 7. **selftest 강화 후보**(docs/68 승계): 수백 바이트 RecvAll 패턴·Accept
    무한블록 방어
+8. **셸리스 리눅스 서버(F7)** — posix 서버 SpawnClient는 스텁
+   ("Windows-only in this prototype")이라 WSLg 서버가 taskbar 자동 스폰을
+   하지 않음(스모크에서 windows=[]로 관측된 이유). 클라 수동 기동/스폰
+   개통이 후속
+9. **관측 편차 기록(F4·F5)** — jktriggers GlobTail 8.3 단명 매칭 드롭
+   (FindFirstFile 와일드카드→directory_iterator, 코드 내 문서화된 의도
+   편차 — win32 관측 변화이나 도달면 좁아 승인), JKWindowServer
+   layout_*.json 스캔이 대소문자 구분으로 전환(와일드카드는 무시 —
+   실운용 파일명 일치로 무해, 주석 한 줄 권고)
 
 ## 7. 커밋 원장 (이 플랜, BASE 9549661→)
 
