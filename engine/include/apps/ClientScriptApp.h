@@ -19,6 +19,7 @@
 #include <client/JKClientSurface.h>
 #include <script/JKScriptHost.h>
 #include <script/JKWorkshopStore.h>
+#include <port/JKCrtShim.h>
 
 #include <cstdio>
 #include <map>
@@ -914,7 +915,7 @@ private:
 
     static bool ReadTextFile(const std::string& path, std::string& out) {
         std::FILE* f = nullptr;
-        fopen_s(&f, path.c_str(), "rb");
+        jk::crt::FopenS(&f, path.c_str(), "rb");
         if (!f) return false;
         char buf[4096];
         size_t n = 0;
@@ -925,7 +926,7 @@ private:
 
     static bool WriteTextFile(const std::string& path, const std::string& data) {
         std::FILE* f = nullptr;
-        fopen_s(&f, path.c_str(), "wb");
+        jk::crt::FopenS(&f, path.c_str(), "wb");
         if (!f) return false;
         const size_t w = std::fwrite(data.data(), 1, data.size(), f);
         std::fclose(f);

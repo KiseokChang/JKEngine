@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <port/JKCrtShim.h>
 #include <set>
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -40,7 +41,9 @@ uint64_t FileTimeToU64(const FILETIME& ft) {
     u.HighPart = ft.dwHighDateTime;
     return u.QuadPart;
 }
+#endif
 
+// FormatBytes는 순수 포맷팅 — 플랫폼 중립(게이트 제거, linux stage 3 task 2).
 const char* FormatBytes(uint64_t bytes, char (&buf)[32]) {
     if (bytes >= (1ull << 20)) {
         std::snprintf(buf, sizeof(buf), "%.1f MB",
@@ -51,7 +54,6 @@ const char* FormatBytes(uint64_t bytes, char (&buf)[32]) {
     }
     return buf;
 }
-#endif
 } // namespace
 
 ClientTaskmgrApp::~ClientTaskmgrApp() = default;
@@ -294,8 +296,8 @@ void ClientTaskmgrApp::BuildUi(int w, int h) {
                               int cmp = 0;
                               switch (s.ColumnUserID) {
                                   case 0:
-                                      cmp = _stricmp(a.title.c_str(),
-                                                     b.title.c_str());
+                                      cmp = jk::crt::Stricmp(a.title.c_str(),
+                                                             b.title.c_str());
                                       break;
                                   case 1:
                                       cmp = (a.pid < b.pid)   ? -1
