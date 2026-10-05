@@ -4,11 +4,18 @@
 // Convention mirrors the win32 in-app selftest (engine/src/main.cpp
 // RunAppSelfTest): one "[PASS]/[FAIL] <case>" line per check, the total as
 // "PosixSelfTest: <n> failure(s)", exit non-zero on any failure.
+#include <chrono>
 #include <cstdio>
 #include <string>
+#include <thread>
 
-#include <unistd.h>  // access, R_OK
+#include <unistd.h>  // access, R_OK, close, sleep
 
+#include <arpa/inet.h>  // inet_addr, htons (raw client below — this TU is
+#include <netinet/in.h>  // posix-only, so it may include POSIX socket headers
+#include <sys/socket.h>  // directly; no windows.h-cleanliness constraint here)
+
+#include <net/JKNet.h>
 #include <process/JKProcess.h>
 
 #include "fs/JKFs.h"
@@ -27,6 +34,13 @@ bool EndsWith(const std::string& s, const char* suffix) {
     const std::string tail(suffix);
     return s.size() >= tail.size() &&
            s.compare(s.size() - tail.size(), tail.size(), tail) == 0;
+}
+
+// Wall-clock ms since an arbitrary epoch — read-timeout timing check only.
+double nowMs() {
+    return std::chrono::duration<double, std::milli>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
 }
 
 // Case 1 (jk::fs): GetExecutablePath() must return the real path of this very
@@ -221,11 +235,120 @@ void TestProcessAdapter() {
     jk::process::CloseHandleLike(l.process);
 }
 
+// Case 3 (jk::net): real POSIX TCP machinery — mirrors the win32 adapter
+// (engine/src/net/JKNet_win32.cpp) contract in miniature: ephemeral listener
+// with getsockname bound-port report, a raw POSIX-socket client thread doing
+// a 5-byte echo round-trip, the SO_RCVTIMEO read-timeout actually firing,
+// shutdown(SHUT_RDWR), and the bind-failure path (kInvalidSocket with the
+// out-param untouched — R-C4). The stage-1 stub returns kInvalidSocket/false
+// for everything, so every check below fails until JKNet_posix.cpp
+// implements the mapping.
+void TestNetAdapter() {
+    Check(jk::net::Startup(), "net: Startup() true (non-Windows contract)");
+
+    // A) Ephemeral loopback listener: port=0 must yield a real listener and
+    //    the ACTUAL bound port via getsockname (host order, non-zero).
+    std::uint16_t boundPort = 0;
+    const jk::net::Socket lp =
+        jk::net::ListenTcp("127.0.0.1", 0, 1, &boundPort);
+    Check(lp != jk::net::kInvalidSocket,
+          "net: ListenTcp(127.0.0.1, 0, 1) opens a listener");
+    Check(boundPort != 0,
+          "net: boundPortOut reports the actual ephemeral port");
+    std::printf("  net: bound port = %u\n", static_cast<unsigned>(boundPort));
+    std::fflush(stdout);
+
+    // B) Bind-failure path (R-C4): "999.999.999.999" makes inet_addr return
+    //    INADDR_NONE on both platforms; win32 then fails bind(255.255.255.255)
+    //    (WSAEADDRNOTAVAIL) while Linux bind() would ACCEPT the broadcast
+    //    address, so the posix adapter checks INADDR_NONE explicitly and must
+    //    return kInvalidSocket AND leave the out-param untouched.
+    std::uint16_t untouched = 7777;
+    const jk::net::Socket bad =
+        jk::net::ListenTcp("999.999.999.999", 8080, 1, &untouched);
+    Check(bad == jk::net::kInvalidSocket,
+          "net: bad bindIp 999.999.999.999 -> kInvalidSocket");
+    Check(untouched == 7777,
+          "net: boundPortOut untouched on ListenTcp failure (R-C4)");
+
+    // Raw POSIX client thread (standard headers — this TU compiles natively
+    // under g++, no dllimport trick needed): connect, send "hello", expect
+    // the server echo, then HOLD the connection open 3s (so the server-side
+    // read-timeout check below can only pass via SO_RCVTIMEO firing, not via
+    // the client closing), then close.
+    struct ClientResult {
+        int connectErr;
+        int sent;
+        int recved;
+        bool echoOk;
+    } cr{-1, -1, -1, false};
+    auto clientBody = [&cr, boundPort]() {
+        const int c = socket(AF_INET, SOCK_STREAM, 0);
+        if (c < 0) return;
+        sockaddr_in dst{};
+        dst.sin_family = AF_INET;
+        dst.sin_addr.s_addr = inet_addr("127.0.0.1");
+        dst.sin_port = htons(boundPort);
+        cr.connectErr = connect(c, reinterpret_cast<sockaddr*>(&dst),
+                                sizeof(dst));
+        if (cr.connectErr != 0) {
+            ::close(c);
+            return;
+        }
+        cr.sent = static_cast<int>(send(c, "hello", 5, 0));
+        char echo[5] = {};
+        int got = 0;
+        while (got < 5) {
+            const int r = recv(c, echo + got, 5 - got, 0);
+            if (r <= 0) break;
+            got += r;
+        }
+        cr.recved = got;
+        cr.echoOk = got == 5 && std::string(echo, 5) == "hello";
+        sleep(3);  // hold open — the timeout check must beat this close
+        ::close(c);
+    };
+    std::thread client(clientBody);
+
+    // C) Accept the raw client and echo 5 bytes back through the adapter.
+    const jk::net::Socket acc = jk::net::Accept(lp);
+    Check(acc != jk::net::kInvalidSocket, "net: Accept returns a connection");
+    char buf[5] = {};
+    Check(jk::net::RecvAll(acc, buf, 5) && std::string(buf, 5) == "hello",
+          "net: RecvAll receives the client's 5 bytes");
+    Check(jk::net::Send(acc, buf, 5) == 5,
+          "net: Send echoes 5 bytes (raw passthrough)");
+    jk::net::Close(lp);  // listener done — accepted conn stays valid
+
+    // D) SetTimeouts must actually bound a read: no more data is coming and
+    //    the client holds the socket open for 3s, so only a firing
+    //    SO_RCVTIMEO (500ms) can end this RecvAll as false — and quickly.
+    jk::net::SetTimeouts(acc, 500);
+    const double t0 = nowMs();
+    const bool timedOut = !jk::net::RecvAll(acc, buf, 5);
+    const double elapsed = nowMs() - t0;
+    std::printf("  net: read-timeout RecvAll=false after %.0f ms\n", elapsed);
+    std::fflush(stdout);
+    Check(timedOut, "net: RecvAll reports false on read timeout");
+    Check(elapsed < 2500.0,
+          "net: timeout fired well before the client's 3s close");
+
+    // E) ShutdownBoth then Close on the accepted connection.
+    jk::net::ShutdownBoth(acc);
+    jk::net::Close(acc);
+
+    client.join();
+    Check(cr.connectErr == 0, "net: raw client connects to the bound port");
+    Check(cr.sent == 5, "net: raw client sends 5 bytes");
+    Check(cr.recved == 5 && cr.echoOk, "net: client receives its echo back");
+}
+
 }  // namespace
 
 int main() {
     TestFsGetExecutablePath();
     TestProcessAdapter();
+    TestNetAdapter();
     std::printf("PosixSelfTest: %d failure(s)\n", g_failures);
     return g_failures == 0 ? 0 : 1;
 }
