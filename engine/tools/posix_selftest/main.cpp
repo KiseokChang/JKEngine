@@ -353,7 +353,7 @@ void TestNetAdapter() {
 // as "rows cols" — that makes ROWS/COLS argument order observable), and
 // ProcessExited() must report the spawned command's death (the win32 body's
 // process-handle-signal convention) — with the exit status observable through
-// the pty stream via an inner `sh -c 'exit 7'` echoed as "STATUS_7=$?".
+// the pty stream via an inner `sh -c 'exit 7'` echoed as "PSTATUS=7".
 // The stage-1 stub returns false/no-op for everything, so every check below
 // fails until JKConPtyBridge_posix.cpp implements the mapping.
 void TestPtyBridge() {
@@ -435,7 +435,8 @@ void TestPtyBridge() {
         pty.Stop();
         Check(!pty.IsValid(), "pty: Stop clears started_");
         pty.Stop();  // second call on an already-stopped bridge
-        Check(true, "pty: second Stop is a safe no-op (idempotent)");
+        Check(!pty.IsValid(),
+              "pty: second Stop keeps the bridge inert (idempotent)");
     }
 
     // B) WriteInput round-trip + winsize observability. The child loops

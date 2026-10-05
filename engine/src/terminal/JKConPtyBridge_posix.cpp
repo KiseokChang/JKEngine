@@ -16,7 +16,8 @@
 // Stop follows the docs/22 §8.2 close order as carried by the win32 body:
 // pseudoconsole close → bounded shell wait → terminate → cleanup, mapped to
 // posix by the controller ruling: master close → bounded waitpid(WNOHANG)
-// polling (~2s) → SIGKILL pgid → final reap/cleanup.
+// polling (~2s) → SIGKILL pgid → final reap/cleanup. The consumer-observable
+// order is that same one — the pty is closed before the bounded shell wait.
 //
 // VERIFIED DESIGN POINT (this file's one big divergence from the win32 shape):
 // on Linux, closing the pty master does NOT wake a thread blocked in read()
@@ -27,14 +28,15 @@
 // concurrent blocked read() undefined, and Linux does not interrupt it). The
 // wakeup mechanism here is instead: (a) the reader polls the master with a
 // 100 ms timeout re-checking started_ on every iteration, and (b) Stop sets
-// started_ false FIRST, so the reader exits within one poll period. The
-// master close still happens before the join; it is safe because the reader
-// re-checks started_ after poll returns and never touches the fd again once
-// the flag flipped — no read() ever lands on a closed (and possibly fd-number
-// reused) master. The bounded waitpid window still gives the shell its
-// graceful-death chance: closing the last master fd hangs the pty up (SIGHUP
-// to the foreground group), which typically kills the shell before any
-// SIGKILL is needed.
+// started_ false FIRST, so the reader exits within one poll period — the
+// flag ALONE bounds the join, close-before-join buys nothing (close wakes no
+// Linux sleeper). Stop therefore JOINs the reader FIRST and closes the master
+// only afterwards: with the reader thread gone before close(), the
+// close-vs-blocked-read fd-reuse window is eliminated entirely (no reader can
+// hold a stale fd number), not merely narrowed by a re-check. The bounded
+// waitpid window still gives the shell its graceful-death chance: closing the
+// last master fd hangs the pty up (SIGHUP to the foreground group), which
+// typically kills the shell before any SIGKILL is needed.
 
 #include <cerrno>
 #include <csignal>
@@ -49,6 +51,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <termios.h>
+#include <time.h>      // nanosleep (Stop's bounded waitpid polling)
 #include <unistd.h>
 
 namespace jk {
@@ -159,16 +162,35 @@ bool JKConPtyBridge::Start(const std::string& commandLine, int cols, int rows) {
         // the controlling terminal, and all of stdio is the slave. No UTF-8
         // conversion step exists here: argv is byte-transparent on posix, so
         // the win32 CP_UTF8→UTF-16 conversion has no counterpart.
+        // Every hard-failure exit first scribbles a one-line note onto the
+        // SLAVE fd — the parent's reader sees exactly why the child went
+        // away, even though Start() itself keeps returning per the win32
+        // contract (the child's _exit code stays the real signal).
+        const auto die = [slave](const char* what, int code) {
+            char note[96];
+            const int n = std::snprintf(note, sizeof(note),
+                                        "JKConPtyBridge: child %s\r\n", what);
+            if (n > 0) {
+                // Best effort: if even the note is undeliverable, the exit
+                // code below is the only signal left. write()'s unused
+                // result is consumed to keep -Wall quiet.
+                const ssize_t sent = write(slave, note,
+                                           static_cast<size_t>(n));
+                (void)sent;
+            }
+            _exit(code);
+        };
         close(master);
-        if (setsid() < 0) _exit(126);
-        if (ioctl(slave, TIOCSCTTY, nullptr) < 0) _exit(126);
-        if (dup2(slave, STDIN_FILENO) < 0) _exit(126);
-        if (dup2(slave, STDOUT_FILENO) < 0) _exit(126);
-        if (dup2(slave, STDERR_FILENO) < 0) _exit(126);
+        if (setsid() < 0) die("setsid failed", 126);
+        if (ioctl(slave, TIOCSCTTY, nullptr) < 0) die("TIOCSCTTY failed", 126);
+        if (dup2(slave, STDIN_FILENO) < 0) die("dup2 stdin failed", 126);
+        if (dup2(slave, STDOUT_FILENO) < 0) die("dup2 stdout failed", 126);
+        if (dup2(slave, STDERR_FILENO) < 0) die("dup2 stderr failed", 126);
         if (slave > STDERR_FILENO) close(slave);
         execl("/bin/sh", "sh", "-c", commandLine.c_str(),
               static_cast<char*>(nullptr));
-        _exit(127);  // exec failed — same convention the process adapter uses
+        die("exec /bin/sh failed", 127);  // same convention the process adapter
+                                          // uses (_exit 127 on exec failure)
     }
 
     // The child owns the slave now — the parent lets go immediately, exactly
@@ -227,11 +249,13 @@ void JKConPtyBridge::ReaderThread() {
     }
     char buf[4096];
     for (;;) {
-        if (!started_.load()) return;  // Stop() asked for teardown
+        if (!started_.load()) return;  // Stop() asked for teardown — THE exit
+                                       // mechanism (close wakes no sleeper)
         // 100 ms-timeout poll instead of a bare blocking read: Linux does not
         // wake read() sleepers when the master fd is closed (probe-verified,
-        // see the header comment at top), so Stop() could strand a bare
-        // blocking read forever. The timeout re-enters the started_ check.
+        // see the header comment at top), so a bare blocking read could never
+        // observe the teardown flag — Stop() would strand it forever. The
+        // timeout re-enters the started_ check.
         pollfd pfd{master, static_cast<short>(POLLIN | POLLHUP | POLLERR), 0};
         const int pr = poll(&pfd, 1, kStopPollMs);
         if (pr < 0) {
@@ -240,7 +264,11 @@ void JKConPtyBridge::ReaderThread() {
             return;
         }
         if (pr == 0) continue;  // quiet period — re-check started_, poll again
-        if (!started_.load()) return;  // never read a master Stop() closed
+        // Second flag check before touching the fd. Stop joins BEFORE closing
+        // the master, so no close can land under this thread's feet today;
+        // the check is belt-and-braces, keeping the fd touched only while the
+        // flag still says the bridge is live.
+        if (!started_.load()) return;
         // Mirror of the win32 ReadFile loop: data appends, and ANY terminal
         // outcome (0 EOF, -EIO after the last slave closed, -EBADF after
         // teardown) marks the shell side exited. Only EINTR retries.
@@ -295,27 +323,39 @@ void JKConPtyBridge::Resize(int cols, int rows) {
 
 void JKConPtyBridge::Stop() {
     if (!started_) return;
-    started_ = false;  // FIRST: bounds the reader within one poll period
+    started_ = false;  // FIRST: the flag alone bounds the reader within one
+                       // poll period (verified: close() wakes no Linux sleeper)
 
-    const int master = MasterFd(hpcon_);
-    // (1) docs/22 §8.2: pseudoconsole close first — conhost analogue. Closing
-    // the last master fd hangs the pty up (SIGHUP to the shell's foreground
-    // group), which is what gives it the chance to die gracefully in (2).
-    if (master >= 0) {
-        close(master);
-        SetMasterFd(&hpcon_, -1);
-    }
+    // (1) Join the reader BEFORE touching the master fd. The reader exits via
+    // the started_ re-check ≤100 ms after the flag flip — no fd interaction
+    // needed — and joining first means no thread can ever hold a stale master
+    // fd number afterwards, eliminating the close-vs-blocked-read fd-reuse
+    // window entirely (the earlier close-before-join only narrowed it via a
+    // pre-read re-check; the reviewer ruling removes even that).
     if (reader_.joinable()) {
         reader_.join();
     }
 
-    // (2) Bounded shell wait: ~2s of waitpid(WNOHANG) polling per R-D2 (the
+    const int master = MasterFd(hpcon_);
+    // (2) docs/22 §8.2: pseudoconsole close — conhost analogue. Closing the
+    // last master fd hangs the pty up (SIGHUP to the shell's foreground
+    // group), which gives the shell its graceful-death chance in (3).
+    // Consumer-observable close order is unchanged: pty closed before the
+    // bounded shell wait.
+    if (master >= 0) {
+        close(master);
+        SetMasterFd(&hpcon_, -1);
+    }
+
+    // (3) Bounded shell wait: ~2s of waitpid(WNOHANG) polling per R-D2 (the
     // win32 body waits 3s on the handle, then falls back to TerminateProcess).
     const pid_t pid = ProcessId(proc_);
     ChildState* state = static_cast<ChildState*>(proc_);
     if (pid > 0) {
         bool reaped = false;
         int status = 0;
+        const timespec tick{0, 10 * 1000 * 1000};  // 10 ms — nanosleep, not
+                                                   // the deprecated usleep
         for (int waited = 0; waited < kStopWaitMs; waited += 10) {
             const pid_t w = waitpid(pid, &status, WNOHANG);
             if (w == pid) {
@@ -329,16 +369,19 @@ void JKConPtyBridge::Stop() {
                 reaped = true;
                 break;
             }
-            usleep(10 * 1000);
+            if (nanosleep(&tick, nullptr) != 0) {
+                // EINTR shortens one tick; the loop's own budget keeps the
+                // window bounded regardless.
+            }
         }
         if (!reaped) {
-            // (3) TerminateProcess analogue: kill the whole tree. setsid() at
+            // (4) TerminateProcess analogue: kill the whole tree. setsid() at
             // spawn made pid==pgid; if the group vanished (child exec'd away
             // from it), fall back to the lone pid.
             if (kill(-pid, SIGKILL) != 0) {
                 kill(pid, SIGKILL);
             }
-            waitpid(pid, &status, 0);  // (4) final reap — SIGKILL lands fast
+            waitpid(pid, &status, 0);  // (5) final reap — SIGKILL lands fast
         }
     }
     delete state;
