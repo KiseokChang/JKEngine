@@ -39,6 +39,14 @@ std::string ResolveDesktopFontPath();
 // 쓴다). 상한 300자는 font_path와 같은 캡.
 std::string ResolveDesktopFallbackPath();
 
+// sfnt face가 CFF(PostScript) 인상체인지 (docs/70 §8.4 판정 2 봉합).
+// stb_truetype의 CFF/CID 지원이 NotoSansCJK 계열에서 어설션 사망으로
+// 이어지므로(WSL 실측 — client abort rc=134, "offsize >= 1 && offsize <= 4"),
+// face-0 개방 전 걸러낸다: faceOffset의 sfnt 표 디렉터리를 걷어 'CFF '/'CFF2'
+// 표 존재를 확인. 단독 ttf·TrueType-flavor .ttc는 false → 정상 개방.
+// 디렉터리를 못 걷는 손상 데이터는 true(보수적 거부)로 둔다.
+bool SfntFaceHasCff(const uint8_t* data, size_t size, int faceOffset);
+
 // 셀 메트릭 진실원 (docs/63 §6 text.font_scale, 옵트인 셀 확대). 기본
 // scale 1.0 = 비트맵 셀과 동일 {8, 16, 16} — 기존 레이아웃·프로브 픽셀동일.
 struct CellMetrics {

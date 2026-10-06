@@ -56,6 +56,32 @@ static std::unique_ptr<jk::agent::AgentJson> LoadDesktopSettingsJson() {
 
 } // namespace
 
+bool text::SfntFaceHasCff(const uint8_t* data, size_t size, int faceOffset) {
+    // 표 디렉터리: version(4) numTables(2) ... 레코드 = tag(4) checksum(4)
+    // offset(4) length(4). tag 4바이트 대조는 big-endian 정수로 읽어 순수
+    // 비교('CFF '=0x43464620, 'CFF2'=0x43464632) — 구조체 정렬 불개입.
+    if (!data || size < 12 || faceOffset < 0 ||
+        static_cast<size_t>(faceOffset) + 12 > size) return true;
+    const uint8_t* base = data + faceOffset;
+    const uint16_t numTables =
+        static_cast<uint16_t>((base[4] << 8) | base[5]);
+    // 검사 범위: numTables 레코드. 손상 numTables(빈약한 상한) 절단 —
+    // 거짓 양성(false=개방)보다 보수적 거부 쪽이 스펙 fail-safe와 동향.
+    const size_t scan = numTables > 4096 ? 4096 : numTables;
+    for (size_t i = 0; i < scan; ++i) {
+        const size_t rec = faceOffset + 12 + i * 16;
+        if (rec + 16 > size) return true;
+        const uint32_t tag =
+            (static_cast<uint32_t>(data[rec]) << 24) |
+            (static_cast<uint32_t>(data[rec + 1]) << 16) |
+            (static_cast<uint32_t>(data[rec + 2]) << 8) |
+            static_cast<uint32_t>(data[rec + 3]);
+        if (tag == 0x43464620u /* 'CFF ' */ || tag == 0x43464632u /* 'CFF2' */)
+            return true;
+    }
+    return false;
+}
+
 std::string text::ResolveDesktopFontPath() {
     // 1) settings.json override (docs/54 hub).
     if (auto json = LoadDesktopSettingsJson()) {
@@ -197,7 +223,15 @@ bool JKTextAtlas::LoadFace(const std::string& fontPath, Face* face,
     if (read != face->data.size()) return false;
 
     face->info = std::make_unique<stbtt_fontinfo>();
-    if (!stbtt_InitFont(face->info.get(), face->data.data(), 0)) {
+    // .ttc 컬렉션 face-0 (docs/70 §8.4 판정 2 봉합): ttcf 헤더는 sfnt가
+    // 아니라 stbtt_InitFont가 거부한다 — 컬렉션 헤더를 걷는
+    // stbtt_GetFontOffsetForIndex(단독 ttf는 0, 수집 실패 -1)로 면 오프셋을
+    // 먼저 구한다. CFF 인상체(NotoSansCJK 계열)는 stb 어설션 사망 선행
+    // 회피를 위해 거부(SfntFaceHasCff — WSL 실측: 부재 시 client abort).
+    const int faceOff = stbtt_GetFontOffsetForIndex(face->data.data(), 0);
+    if (faceOff < 0 || text::SfntFaceHasCff(face->data.data(),
+                                             face->data.size(), faceOff) ||
+        !stbtt_InitFont(face->info.get(), face->data.data() + faceOff, 0)) {
         face->info.reset();
         return false;
     }

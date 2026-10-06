@@ -240,17 +240,29 @@ pkill -9 -x jkdesktop; rm -f /tmp/JKWindowServerPipe.sock
 sleep 6
 ```
 
-### 8.4 부수 관측 (결함 확정 아님, 후속 판정)
+### 8.4 부수 관측 (판정 문서화 — docs/78 §5에서 양측 실측 완료 후)
 
-- **`ended:true` 조기 플립** — pos 24.4에서 flag 조기 세팅되고 pos는
-  29.954까지 계속 진행 → 29.954에서 정지(dur 30.000에 미달). 디먹스
-  EOF(마지막 비디오 패킷~24.4s)와 프리젠테이션 시간의 괴리 추정.
-  Windows 동일 클립 관측 비교 후 판정할 것
-- **서버측 벡터 폰트가 NotoSansCJK-Regular.ttc에서 init 실패** —
-  `Warning: vector font init failed (…/NotoSansCJK-Regular.ttc); staying
-  on bitmap glyphs`. .ttc 컬렉션 파싱 미지원 추정(Windows malgun.ttf는
-  정상). ImGui 클라이언트 폰트는 동일 .ttc에서 정상 로드 — 서버 아틀라스
-  경로만 열화(docs/63 계열 후속, 셧다운성 결함 아님)
+- **`ended:true` 조기 플립 — 판정: 플랫폼 공통 재현 확정** —
+  WSL pos 24.4에서 flag 조기 세팅(pos는 29.954까지 진행), 폰(TX5) 같은
+  클립 pos 24.66 조기 플립, pos는 30.000 도달 — 두 리눅스 축 쌍 재현으로
+  **디먹스 EOF(마지막 비디오 패킷 ~24.4s)와 프리젠테이션 시간의 괴리로
+  확정**(플랫폼 특유 결함 아님; 데드라인 산이 demux EOF에서 조기 확정된
+  것). Windows 대조 관측은 서버 소유권이 사용자 콘솔이라 사용자 실측 대기
+  — 다만 쌍 재현 자체가 라인 판정(공통)으로는 충분. 열화 아님(플립만 조기,
+  재생은 온전) — 후속 개선은 vplayer 재설계 문서에서 조건부 소득.
+- **NotoSansCJK-Regular.ttc init 실패 — 판정: 뿌리 확정+가드 봉합(수리)**
+  — 뿌리는 ".ttc 컬렉션 파싱 미지원"(stbtt_InitFont는 ttcf 헤더를
+  sfnt로 못 읽음)이고, face-0 개방 수리로 한 뼘 더 밝혀졌다:
+  **NotoSansCJK ttc는 CFF(PostScript) 인상체라 stb_truetype의 CFF/CID
+  파서가 어설션 사망**(WSL 실측 — `stbtt__cff_get_index: Assertion
+  'offsize >= 1 && offsize <= 4'`, client abort rc=134). 봉합 =
+  `stbtt_GetFontOffsetForIndex` face-0 개방 + `jk::text::SfntFaceHasCff`
+  표 디렉터리 가드(CFF/CFF2면 옛 우아한 경고로 거부 — TrueType-flavor
+  ttc는 정상 개방, Windows batang.ttc 계열 이득). 셀프테스트가 합성
+  sfnt/ttcf로 가드 순수함수를 단언. **열린 문**: NotoSansCJK 계열(CFF)은
+  계속 비트맵 열화 — WSL CJK 벡터 폰트는 ttf-flavor 폰트 확보(배포 몫)나
+  FreeType 전환(별도 플랜) 필요. ImGui 클라 폰트는 동일 ttc에서 정상 —
+  서버 아틀라스 경로만 열화(현행 유지).
 - **wsl.exe 인라인 따옴표 소각** — `bash -lc '…"{\"k\":…}"'`의 이스케이프
   따옴표와 `$VAR` 확장이 wsl.exe Windows 인자 파서에서 유실됨 → 복잡한
   WSL 진단은 반드시 **스크립트 파일**(probe)로 실행

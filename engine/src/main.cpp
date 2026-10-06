@@ -54,6 +54,7 @@ extern "C" __declspec(dllimport) int __stdcall closesocket(
 
 #include <JKApplication.h>
 #include <JKCrashHandler.h>
+#include <JKTextAtlas.h>  // selftest: SfntFaceHasCff 가드 (docs/70 §8.4 판정 2)
 #include <JKWindow.h>
 #include <fs/JKFs.h>
 
@@ -2165,6 +2166,31 @@ static int RunAppSelfTest() {
             }
         }
 #endif  // _WIN32 — 와이드글리프 진단 A/B/C는 Windows 리터럴 전용
+
+        // docs/70 §8.4 판정 2 봉합 — .ttcface-0/CFF 가드(순수 함수, 메모리 유닛:
+        // 플랫폼 리터럴 없음 — ttf 실물 대신 합성 sfnt로 거리를 측정한다).
+        {
+            // 가짜 sfnt: version 1.0, numTables=1, 레코드 태그만 채운다.
+            std::vector<uint8_t> sfnt(28, 0);
+            sfnt[0] = 0x00; sfnt[1] = 0x01; sfnt[2] = 0x00; sfnt[3] = 0x00;
+            sfnt[4] = 0x00; sfnt[5] = 0x01;  // numTables=1
+            sfnt[12] = 'C'; sfnt[13] = 'F'; sfnt[14] = 'F'; sfnt[15] = ' ';
+            check(jk::text::SfntFaceHasCff(sfnt.data(), sfnt.size(), 0),
+                  "text: sfnt 'CFF ' face is rejected");
+            sfnt[15] = 'x';  // tag 'CFFx' — CFF 아님
+            check(!jk::text::SfntFaceHasCff(sfnt.data(), sfnt.size(), 0),
+                  "text: sfnt non-CFF face passes the guard");
+            sfnt[4] = 0x00; sfnt[5] = 0x02;  // numTables=2 — 레코드 1개 분량만
+            check(jk::text::SfntFaceHasCff(sfnt.data(), sfnt.size(), 0),
+                  "text: truncated sfnt dir is conservatively rejected");
+            // ttcf 컬렉션 헤더 걷기(stb 원문 함수) — face-0 오프셋=0 계약.
+            std::vector<uint8_t> ttcf(16, 0);
+            ttcf[0] = 't'; ttcf[1] = 't'; ttcf[2] = 'c'; ttcf[3] = 'f';
+            ttcf[5] = 0x01;                // version = 0x00010000 (stb 계약)
+            ttcf[11] = 1;                  // numFonts=1 (be)
+            const int off = stbtt_GetFontOffsetForIndex(ttcf.data(), 0);
+            check(off == 0, "text: synthetic ttcf face-0 offset walks");
+        }
     }
 
     // Terminal selection pure functions (docs/26 단계 2, JKTermSelection.h):

@@ -3,6 +3,7 @@
 
 #include <terminal/JKGlyphAtlas.h>
 #include <terminal/JKTerminalGrid.h>
+#include <JKTextAtlas.h>  // jk::text::SfntFaceHasCff — docs/70 §8.4 판정 2
 #include <JKResourceCache.h>
 #include <stb_truetype.h>
 #include <algorithm>
@@ -77,7 +78,13 @@ bool JKGlyphAtlas::Init(const std::string& fontPath, int cellW, int cellH) {
     if (read != fontData_.size()) return false;
 
     info_ = std::make_unique<stbtt_fontinfo>();
-    if (!stbtt_InitFont(info_.get(), fontData_.data(), 0)) {
+    // .ttc 컬렉션 face-0 (docs/70 §8.4 판정 2 봉합 — JKTextAtlas::LoadFace와
+    // 동일 레시피): ttcf 헤더는 stbtt_InitFont가 거부 — 면 오프셋 선행 필요.
+    // CFF 인상체 거부는 위 어설션 사망 선행 회피(SfntFaceHasCff).
+    const int faceOff = stbtt_GetFontOffsetForIndex(fontData_.data(), 0);
+    if (faceOff < 0 || jk::text::SfntFaceHasCff(fontData_.data(),
+                                                 fontData_.size(), faceOff) ||
+        !stbtt_InitFont(info_.get(), fontData_.data() + faceOff, 0)) {
         info_.reset();
         return false;
     }
@@ -131,7 +138,12 @@ bool JKGlyphAtlas::InitFallback(const std::string& fontPath) {
     if (read != fbFontData_.size()) { fbFontData_.clear(); return false; }
 
     fbInfo_ = std::make_unique<stbtt_fontinfo>();
-    if (!stbtt_InitFont(fbInfo_.get(), fbFontData_.data(), 0)) {
+    // 보조 면도 .ttc 컬렉션 face-0 허용 (docs/70 §8.4 판정 2 — 주 면과 동일).
+    const int fbFaceOff = stbtt_GetFontOffsetForIndex(fbFontData_.data(), 0);
+    if (fbFaceOff < 0 || jk::text::SfntFaceHasCff(fbFontData_.data(),
+                                                   fbFontData_.size(),
+                                                   fbFaceOff) ||
+        !stbtt_InitFont(fbInfo_.get(), fbFontData_.data() + fbFaceOff, 0)) {
         fbInfo_.reset();
         return false;
     }
