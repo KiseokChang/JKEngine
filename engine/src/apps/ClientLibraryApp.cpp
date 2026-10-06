@@ -257,13 +257,19 @@ void ClientLibraryApp::BuildUi(int w, int h) {
     // ---- 좌: 라이브러리 목록 ----
     ImGui::SetNextWindowPos(ImVec2(0, topY));
     ImGui::SetNextWindowSize(ImVec2(listW, bodyH));
-    // Begin-false여도 End()는 반드시 호출(imgui.h 계약 — docs/53 §9 잔여).
-    const bool open = ImGui::Begin(koreanFont_ ? "라이브러리" : "Library",
-                                   nullptr,
-                                   ImGuiWindowFlags_NoDecoration |
-                                       ImGuiWindowFlags_NoMove);
-    ImGui::End();
-    if (!open) return;
+    // settings ##settingsbody 형태: Begin-false면 End()만 하고 나간다, 본문은
+    // Begin/End **안**에서 그린다 — End 뒤에 그리면 implicit "Debug" 폴백 창으로
+    // 나간다(imgui.cpp:7521 — fix r1 CRITICAL). NoDecoration은 NoScrollbar를
+    // 포함한다 — 스크롤바는 명시 AlwaysVerticalScrollbar로(settings 우 창 선례
+    // — fix r1 2번).
+    if (!ImGui::Begin(koreanFont_ ? "라이브러리" : "Library",
+                      nullptr,
+                      ImGuiWindowFlags_NoDecoration |
+                          ImGuiWindowFlags_NoMove |
+                          ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
+        ImGui::End();
+        return;
+    }
 
     if (rows_.empty()) {
         ImGui::TextDisabled(koreanFont_ ? "(설치된 앱이 없습니다)"
@@ -333,6 +339,7 @@ void ClientLibraryApp::BuildUi(int w, int h) {
         }
         ImGui::EndTable();
     }
+    ImGui::End();
 
     // ---- 우: 상세 ----
     ImGui::SetNextWindowPos(ImVec2(listW, topY));
