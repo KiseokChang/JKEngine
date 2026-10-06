@@ -236,6 +236,10 @@ add_library(jkcore STATIC
     # imgui 무접촉 pure TU. CLI(library-list)·클라 앱(jkapp_library)·셀프테스트
     # (케이스 1m)이 같은 진실원을 먹는다.
     src/JKLibraryCatalog.cpp
+    # 채팅 명령 라우터 (스펙 2026-10-07-desktop-chat-app §1.3) — 창·imgui
+    # 무접촉 pure TU. jkapp_chat stub 백엔드·셀프테스트(케이스 1n)가 같은
+    # 어휘 표를 먹는다.
+    src/apps/ChatRouter.cpp
     src/JKVectorFont.cpp
     src/script/JKScriptHost.cpp
     src/script/JKScriptCanvas.cpp

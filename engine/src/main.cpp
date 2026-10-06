@@ -97,6 +97,7 @@ extern "C" __declspec(dllimport) int __stdcall closesocket(
 #include <JKPlatform.h>
 #include <JKJkxFile.h>
 #include <JKLibraryCatalog.h>  // selftest 1m — 라이브러리 카탈로그 3원 스캔
+#include <apps/ChatRouter.h>   // selftest 1n — 채팅 명령 라우터(스펙 §1.3)
 #include <script/JKScriptHost.h>
 #include <SDL.h>
 #include <filesystem>
@@ -3095,6 +3096,80 @@ static int RunAppSelfTest() {
             std::error_code ec2;
             check(std::filesystem::remove_all(base, ec2) > 0 && !ec2,
                   "1m-z 클린업");
+        }
+
+        // 1n) 채팅 명령 라우터 (스펙 2026-10-07-desktop-chat-app §1.3 — stub
+        //   턴 백엔드의 뇌). Offline pure 룩업 — 서버·창 무접촉으로 어휘 4종
+        //   +불인+별명 도표를 잠근다. 기대 계약(ChatRouter.h와 1:1):
+        //   a) "지뢰찾기 켜줘" → Launch, app=minesweeper(별명표 해소)
+        //   b) 표 밖 앱어 → 그대로 통과(fail-open — 서버 unknown_app 정직 회신)
+        //   c) 조사 절단·무공백 접어체("테트리스를 켜줘"/"테트리스켜줘")
+        //   d) 앱어 부재("켜줘") → Info+안내문(지시 불성립 — Launch 아님)
+        //   e) Close 무앱=app ""(포커스 창 위임), Close 앱어=해소 키
+        //   f) 인식 불가 → Info, 도구 지시 없음(app "")
+        {
+            jk::ChatAction a;
+            // (a) Launch 별명 — 한국어 → 라이브러리 appName 규약
+            std::string resp = jk::ChatRouterRoute("지뢰찾기 켜줘", a);
+            check(a.kind == jk::ChatAction::Launch && a.app == "minesweeper",
+                  "1n-1 별명 런치(지뢰찾기→minesweeper)");
+            check(resp.find("실행") != std::string::npos &&
+                      resp.find("지뢰찾기") != std::string::npos,
+                  "1n-2 런치 응답 확인법(한국어+발화어 반영)");
+            // 영문 스폰 키 직기입 + 응답은 발화어(키) 그대로
+            resp = jk::ChatRouterRoute("tetris 열어줘", a);
+            check(a.kind == jk::ChatAction::Launch && a.app == "tetris",
+                  "1n-3 영문 키 런치(tetris 항목 그대로)");
+            check(resp.find("tetris") != std::string::npos,
+                  "1n-3b 런치 응답에 영문 키 전승");
+            // (c) 조사+무공백 접어체 — 조사 절단과 byte 접미 매핑
+            (void)jk::ChatRouterRoute("테트리스를 켜줘", a);
+            check(a.kind == jk::ChatAction::Launch && a.app == "tetris",
+                  "1n-4a 조사 절단(테트리스를→tetris)");
+            (void)jk::ChatRouterRoute("지뢰찾기켜줘", a);
+            check(a.kind == jk::ChatAction::Launch && a.app == "minesweeper",
+                  "1n-4b 무공백 접어체(지뢰찾기켜줘)");
+            // (b) 표 밖 앱어 통과 — 카탈로그 appName 규약 그대로
+            resp = jk::ChatRouterRoute("계산기 켜줘", a);
+            check(a.kind == jk::ChatAction::Launch && a.app == "계산기",
+                  "1n-5 표 밖 앱어 통과(fail-open 계약)");
+            // (d) 앱어 부재 — Launch 오보 금지, Info+안내문
+            resp = jk::ChatRouterRoute("켜줘", a);
+            check(a.kind == jk::ChatAction::Info && a.app.empty() &&
+                      resp.find("명령") != std::string::npos,
+                  "1n-6 앱어 부재=Info(지시 불성립)");
+            // Close — 무앱=포커스 창 위임, 앱어=해소 키
+            resp = jk::ChatRouterRoute("꺼줘", a);
+            check(a.kind == jk::ChatAction::Close && a.app.empty(),
+                  "1n-7 Close 무앱(app=\"\" = 포커스 창 위임)");
+            (void)jk::ChatRouterRoute("테트리스 닫아줘", a);
+            check(a.kind == jk::ChatAction::Close && a.app == "tetris",
+                  "1n-8 Close 앱어+별명 해소");
+            // Focus 2형 — 트리거 긴 형이 짧은 형에 잡아먹히지 않음(표 순서)
+            (void)jk::ChatRouterRoute("창 포커스", a);
+            check(a.kind == jk::ChatAction::Focus && a.app.empty(),
+                  "1n-9a focus_window 지시");
+            (void)jk::ChatRouterRoute("앞으로 가져와", a);
+            check(a.kind == jk::ChatAction::Focus && a.app.empty(),
+                  "1n-9b 긴 트리거 우선(앞으로 가져와≠앞으로)");
+            // ListWindows 2형 — 접어체·띄어쓰기 변형 전부
+            (void)jk::ChatRouterRoute("창 목록", a);
+            check(a.kind == jk::ChatAction::ListWindows && a.app.empty(),
+                  "1n-10a list_windows 지시");
+            (void)jk::ChatRouterRoute("뭐 떠 있어", a);
+            check(a.kind == jk::ChatAction::ListWindows,
+                  "1n-10b 변형 트리거(뭐 떠 있어)");
+            // 공백·개행 정규화 — 채팅 입력 잔공백 흡수
+            (void)jk::ChatRouterRoute(" 창 목록 \n", a);
+            check(a.kind == jk::ChatAction::ListWindows,
+                  "1n-11 앞뒤 공백 정규화");
+            // (f) 불인 — 지시 없음+안내문이 어휘표 훑기에서 나온다
+            resp = jk::ChatRouterRoute("세상엔 채팅이 이렇게 어려웠나", a);
+            check(a.kind == jk::ChatAction::Info && a.app.empty(),
+                  "1n-12 불인=Info(app 빈값 — 도구 지시 없음)");
+            check(resp.find("켜줘") != std::string::npos &&
+                      resp.find("명령") != std::string::npos,
+                  "1n-13 Info 안내문이 어휘 표에서 조립");
         }
 
         // 1c2) 능력 배지 문구 (docs/74 — 빈 선언도 숨기지 않는다, 스펙 §5).
