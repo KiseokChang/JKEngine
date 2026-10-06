@@ -2971,7 +2971,7 @@ static int RunAppSelfTest() {
         //   b) 콘솔 dir + manifest.json(name/cmd/desc) → source=Console, appName
         //      = "terminal:<cmd>" 전체(런치 접두 면제 계약 — 1m-9/1m-18)
         //   c) .jkx와 동명 콘솔 → .jkx가 이긴다(스캔 순서 — 런처 규약)
-        //   d) 내장 minesweeper는 항상; lf/hx는 파일 부재 시 제외
+        //   d) 내장 minesweeper·tetris·chat는 항상; lf/hx는 파일 부재 시 제외
         //   e) MANI에 name/module 없는 컨테이너 → 스킵(Parse false 계약)
         {
             std::error_code ec;
@@ -3026,9 +3026,10 @@ static int RunAppSelfTest() {
             check(conOk && conJkxOk && badOk, "1m-0b 피스쳐 조립(콘솔+동명+무효)");
             // 정확 개수 — 여유 슬랙 없음: jkx 2(galapp·conapp) + 콘솔 1
             // (conapp2; 동명 conapp은 .jkx에 밀려 스킵) + 무효 bad 스킵 0 +
-            // 내장 2(minesweeper·tetris — 이 base엔 apps-bin이 없어 lf/hx
-            // 제외). = 5
-            check(n == 5, "1m-1 스캔 개수(jkx2+콘솔1+내장2, 무효·동명 스킵=5)");
+            // 내장 3(minesweeper·tetris·chat — 이 base엔 apps-bin이 없어
+            // lf/hx 제외). = 6 (chat 내장화는 스펙 2026-10-07-desktop-chat-app
+            // T2 — 실측으로 기대치 갱신)
+            check(n == 6, "1m-1 스캔 개수(jkx2+콘솔1+내장3, 무효·동명 스킵=6)");
             const jk::LibraryEntry* g = nullptr;
             const jk::LibraryEntry* c = nullptr;
             int badFound = 0;
@@ -3036,6 +3037,7 @@ static int RunAppSelfTest() {
             int terminalKeys = 0;
             const jk::LibraryEntry* mine = nullptr;
             const jk::LibraryEntry* tet = nullptr;
+            const jk::LibraryEntry* chat = nullptr;
             for (const auto& e : got) {
                 if (e.appName == "galapp") g = &e;
                 // 콘솔 발견 키 = "terminal:<cmd>" 전체(final review Item 1 —
@@ -3050,6 +3052,7 @@ static int RunAppSelfTest() {
                     e.source == jk::LibrarySource::Builtin) ++terminalKeys;
                 if (e.appName == "minesweeper") mine = &e;
                 if (e.appName == "tetris") tet = &e;
+                if (e.appName == "chat") chat = &e;
             }
             check(g != nullptr, "1m-2 jkx 발견");
             if (g) {
@@ -3086,11 +3089,14 @@ static int RunAppSelfTest() {
             }
             check(consoleWins == 0 && badFound == 0,
                   "1m-14 .jkx 우선(동명 콘솔 스킵)+무효 컨테이너 스킵");
-            check(mine != nullptr && tet != nullptr &&
+            check(mine != nullptr && tet != nullptr && chat != nullptr &&
                       mine->source == jk::LibrarySource::Builtin &&
+                      chat->source == jk::LibrarySource::Builtin &&
                       mine->title == "Minesweeper" && tet->title == "Tetris" &&
-                      mine->path.empty() && tet->sizeBytes == 0,
-                  "1m-15 내장 minesweeper·tetris 항상(Builtin)");
+                      chat->title == "Chat" &&
+                      mine->path.empty() && tet->sizeBytes == 0 &&
+                      chat->path.empty() && chat->sizeBytes == 0,
+                  "1m-15 내장 minesweeper·tetris·chat 항상(Builtin)");
             check(terminalKeys == 0,
                   "1m-16 lf/hx 파일 부재=제외(폰 기본값 경로)");
             std::error_code ec2;

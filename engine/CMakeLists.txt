@@ -640,6 +640,17 @@ target_compile_definitions(jkapp_library PRIVATE JKAPP_MODULE_BUILD)
 target_link_libraries(jkapp_library PRIVATE jkclient imgui)
 set_target_properties(jkapp_library PROPERTIES PREFIX "")
 
+# Chat app module (스펙 2026-10-07-desktop-chat-app): T1 stub 라우터 위의
+# 채팅 앱 — 서버 대면은 agent tool 지시(launch_app 등)뿐. A launcher .jkx 도
+# 가능하나 카탈로그 내장 chat이 같은 스폰 키를 보장한다.
+add_library(jkapp_chat SHARED
+    src/apps/JKAppModule_chat.cpp
+    src/apps/ClientChatApp.cpp
+)
+target_compile_definitions(jkapp_chat PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_chat PRIVATE jkclient imgui)
+set_target_properties(jkapp_chat PROPERTIES PREFIX "")
+
 # Region-capture overlay module (agent platform, docs/35 Task 3): the
 # rubber-band fullscreen layer behind /shot and the viewer's 영역 캡처
 # button. A launcher .jkx too (no icon — the packer treats icons as

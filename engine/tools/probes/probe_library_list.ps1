@@ -12,7 +12,7 @@
 #                   원문 전승 검증은 합성 jkx가 진실원 — probe_slot_ship 선례.)
 #   LIBRARY-ARG   — 임시 가짜 트리(apps/galapp/manifest.json 콘솔 1 + capgauge.jkx)
 #                   인수 기점 스캔 — source=console 파싱 + built-in 전폴백(minesweeper
-#                   ·tetris, apps-bin 부재라 lf/hx 없음) + count==name 행수 정확.
+#                   ·tetris·chat, apps-bin 부재라 lf/hx 없음) + count==name 행수 정확.
 #   LIBRARY-POSIX — (제거, 컨트롤러 판정 fix r1) Windows pwsh와 WSL pwsh는 별도
 #                   툴체인이고 $build/$exe가 Windows 절대경로라, .ps1은 posix 런을
 #                   정직하게 소유할 수 없다(WSL 런은 LIBRARY-BASE의 Run-Cli에서
@@ -109,22 +109,23 @@ if (-not $libCaps) { $failures++ }
 
 # ---- 3) LIBRARY-ARG — 임시 가짜 트리를 인수 기점으로 스캔 -------------------------
 # 콘솔 1(galapp: manifest.json name/cmd/desc) + capgauge.jkx 사본 → 콘솔 파싱·
-# .jkx 파싱·built-in 폴백(minesweeper+tetris — temp 트리엔 apps-bin이 없으므로
-# lf/hx 단말 내장은 절대 안 나온다) 3요소가 하나의 판정안에 담긴다. 기대 count = 4.
+# .jkx 파싱·built-in 폴백(minesweeper+tetris+chat — temp 트리엔 apps-bin이 없으
+# 므로 lf/hx 단말 내장은 절대 안 나온다) 3요소가 하나의 판정안에 담긴다.
+# 기대 count = 5 (chat 내장화 — 스펙 2026-10-07-desktop-chat-app T2 실측 갱신).
 $fakeBase = Join-Path ([System.IO.Path]::GetTempPath()) ("jk_lib_probe_" + [guid]::NewGuid().ToString("N").Substring(0, 8))
 New-Item -ItemType Directory -Force -Path (Join-Path $fakeBase "apps\galapp") | Out-Null
 # manifest.json은 ASCII만 — desc도 ASCII(한국어는 CRT 캡처 깨김 함정).
 $cliJson = '{"name":"galapp","cmd":"gal.cmd","desc":"Gallery probe scratch"}' + "`r`n"
 Set-Content -Path (Join-Path $fakeBase "apps\galapp\manifest.json") -Value $cliJson -Encoding ASCII
-$argExpectCount = 3    # 내장 2 + 콘솔 1
+$argExpectCount = 4    # 내장 3(minesweeper+tetris+chat) + 콘솔 1
 $argJkxName = ""
 if (Test-Path $gaugeJx) {
     Copy-Item $gaugeJx (Join-Path $fakeBase "apps\capgauge.jkx")
-    $argExpectCount = 4
+    $argExpectCount = 5
     $argJkxName = "capgauge"
 } elseif (Test-Path (Join-Path $appsDir "imguidemo.jkx")) {
     Copy-Item (Join-Path $appsDir "imguidemo.jkx") (Join-Path $fakeBase "apps\imguidemo.jkx")
-    $argExpectCount = 4
+    $argExpectCount = 5
     $argJkxName = "imguidemo"
 }
 $fakeArgs = Run-Cli ('library-list "' + $fakeBase + '"')
@@ -132,17 +133,23 @@ Write-Output ("--- library-list (arg fake tree) rc=" + $fakeArgs.rc + " ---")
 Write-Output $fakeArgs.out
 $fakeLines = Get-EntryLines $fakeArgs.out
 $fakeCount = Get-TrailerCount $fakeArgs.out
-$galHit = @($fakeLines | Where-Object { $_ -match 'name=galapp .*source=console' }).Count
+# 갤 콘솔 키 — appName 런치 계약(final review 49cc859)이 "terminal:"+cmd라
+# name=에 그 전체가 온다(셀프테스트 1m-9 동형 — 진실원 정합 수리).
+$galHit = @($fakeLines | Where-Object { $_ -match 'name=terminal:gal\.cmd .*source=console' }).Count
 $jkxHit = @($fakeLines | Where-Object { $_ -match ('name=' + $argJkxName + ' .*source=jkx') }).Count
 $biMine = @($fakeLines | Where-Object { $_ -match 'name=minesweeper .*source=builtin' }).Count
 $biTetris = @($fakeLines | Where-Object { $_ -match 'name=tetris .*source=builtin' }).Count
+$biChat = @($fakeLines | Where-Object { $_ -match 'name=chat .*source=builtin' }).Count
 $libArg = (($fakeArgs.rc -eq 0) -and
-           ($galHit -eq 1) -and ($jkxHit -eq 1) -and ($biMine -eq 1) -and ($biTetris -eq 1) -and
+           ($galHit -eq 1) -and ($jkxHit -eq 1) -and ($biMine -eq 1) -and
+           ($biTetris -eq 1) -and ($biChat -eq 1) -and
            ($fakeCount -eq $argExpectCount) -and ($fakeLines.Count -eq $argExpectCount) -and
-           (-not ($fakeArgs.out -match 'terminal:')))
+           # lf/hx 단말 내장 부재 단정 — "terminal: 전면 부재"(49cc859 전 stale 계약)
+           # 에서 "terminal:apps-bin 부재"로 수리(콘솔 키가 terminal:을 쓰므로).
+           (-not ($fakeArgs.out -match 'terminal:apps-bin')))
 Write-Output ("LIBRARY-ARG: " + (& {
-    if ($libArg) { "OK (expect=$argExpectCount got=$fakeCount galapp=console jkx=" + $argJkxName + " builtins=2)" }
-    else { "FAIL rc=" + $fakeArgs.rc + " expect=$argExpectCount got=$fakeCount gal=" + $galHit + " jkx=" + $jkxHit + " mine=" + $biMine + " tetris=" + $biTetris }
+    if ($libArg) { "OK (expect=$argExpectCount got=$fakeCount gal=terminal:cmd jkx=" + $argJkxName + " builtins=3)" }
+    else { "FAIL rc=" + $fakeArgs.rc + " expect=$argExpectCount got=$fakeCount gal=" + $galHit + " jkx=" + $jkxHit + " mine=" + $biMine + " tetris=" + $biTetris + " chat=" + $biChat }
 }))
 if (-not $libArg) { $failures++ }
 

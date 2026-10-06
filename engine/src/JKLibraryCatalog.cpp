@@ -196,10 +196,10 @@ int LibraryScan(const std::string& basePath, std::vector<LibraryEntry>& out) {
                      name.c_str(), cmd.c_str(), dirName.c_str());
     }
 
-    // ── 3원: 내장 (런처 Init 폴백 선례). minesweeper·tetris는 늘 후보 — 파일
-    // 존재로 게이트하지 않는다(lf/hx와의 차이). 단 설치앱(.jkx·콘솔)에 동명이
-    // 이미 있으면 스킵 — 내장은 "폴백 아이콘"(스펙 §2-3)이므로 동명 설치앱이
-    // 이기면 내장 자리가 없다(런처 hasJkx 규약 동일).
+    // ── 3원: 내장 (런처 Init 폴백 선례). minesweeper·tetris·chat는 늘 후보 —
+    // 파일 존재로 게이트하지 않는다(lf/hx와의 차이). 단 설치앱(.jkx·콘솔)에
+    // 동명이 이미 있으면 스킵 — 내장은 "폴백 아이콘"(스펙 §2-3)이므로 동명
+    // 설치앱이 이기면 내장 자리가 없다(런처 hasJkx 규약 동일).
     auto pushBuiltin = [&](const char* appName, const char* title) {
         if (TakenName(out, appName)) return;
         LibraryEntry e;
@@ -210,6 +210,7 @@ int LibraryScan(const std::string& basePath, std::vector<LibraryEntry>& out) {
     };
     pushBuiltin("minesweeper", "Minesweeper");
     pushBuiltin("tetris", "Tetris");
+    pushBuiltin("chat", "Chat");   // 스펙 2026-10-07-desktop-chat-app — T2
 
     // terminal: lf/hx — 파일 존재 시만(폰 기본값=부재 제외, 조용히). 접미는
     // 플랫폼 차: win32 .exe / posix 무접미.
