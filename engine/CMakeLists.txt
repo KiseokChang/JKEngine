@@ -793,6 +793,19 @@ if(WIN32)
     target_link_options(jkchat PRIVATE -municode -static-libstdc++ -static-libgcc)
 endif()
 
+# ---------------------------------------------------------------------------
+# jktalk: 단말 채팅 REPL (스펙 2026-10-07-desktop-chat-app §5 — X11 밖 입력 문).
+# 폰 Termux 등 X11 밖 단말의 발화를 T1 ChatRouterRoute로 해석해 창 서버에
+# JKAgentClient 도구 질의(launch_app 등)로 위임하는 콘솔 CLI — jkctl/jkagentd
+# 선준(jkcore 링크, UI 없음). REPL·원컷(--ask)·파이프·--route(서버 무접촉
+# 진단) 4모드. wmain(-municode): docs/48 CP949 argv 레슨 — 한국어 발화 UTF-8.
+# ---------------------------------------------------------------------------
+add_executable(jktalk tools/jktalk/main.cpp)
+target_link_libraries(jktalk PRIVATE jkcore)
+if(WIN32)
+    target_link_options(jktalk PRIVATE -municode -static-libstdc++ -static-libgcc)
+endif()
+
 # jkbridge: phone web gateway (spec docs/superpowers/specs/2026-09-18-jkbridge-design).
 # Console HTTP+WebSocket gateway — the phone's browser is the UI; jkbridge is
 # a generic relay (JKAgentClient pipe + JKLlmEngine turn runner). LAN + URL
