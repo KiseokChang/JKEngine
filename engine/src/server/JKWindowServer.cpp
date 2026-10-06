@@ -8337,11 +8337,15 @@ bool JKWindowServer::SpawnClient(const char* appName, bool fromJkx) {
     return SpawnProcess(clientHostExe_.c_str(), argsW, appName);
 #else  // posix
     if (fromJkx) {
-        // docs/70 §4 Linux v1 exclusion: no jkx containers without the
-        // Windows-only pack host.
-        std::fprintf(stderr,
-                     "JKWindowServer: jkx spawn unsupported on posix (v1)\n");
-        return false;
+        // docs/78 TX6 개방 — 원래 docs/70 §4의 v1 게이트("컨테이너는
+        // Windows-only 팩 호스트" 전제)였으나: 컨테이너 파서는 어댑터리,
+        // RunClientFromJkx 몸통은 플랜 G2 posix leg 확보, slot-pack도 posix로
+        // 개방되어 **팩 기기 자체가 MODL(서 자기 기기의 jkapp_script.so)을
+        // 파묻는다** — 전제 소멸. win32 leg의 `--jkx "<path>"`를 posix는
+        // 단일인용 계약으로(설치 dir 공백 케이스와 동일; `'` 포함 경로는
+        // v1 범위 밖 — 위 주석 회사).
+        std::string arg = std::string("--jkx '") + appName + "'";
+        return SpawnProcess(clientHostExe_.c_str(), arg, appName);
     }
     std::string argsP;
     ComposeClientSpawnArgs(appName, argsP);

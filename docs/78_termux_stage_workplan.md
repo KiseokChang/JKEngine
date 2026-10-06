@@ -26,7 +26,7 @@
 | TX3 | 헤드리스 실측 — 서버 부팅(X11 불요)+`test`(셀프테스트 인수 표기)+jkctl agent(list_windows/ping) | AppSelfTest 0 failure(s) — **aarch64 첫 영수증** |
 | TX4 | 눈 부팅 — Termux:X11 + setsid 서버 부팅 + taskbar 자동 스폰 | 폰 화면에 데스크톱 셸 육안 |
 | TX5 | 앱 실측 — launch_app: terminal(pty)·vplayer(엔진 소유클립 720p)·채팅/에이전트 PC 백엔드 연계(jkbridge) | 상태 폴링 영수증+육안 |
-| TX6 | 출하 팩 — slot-pack 산출물을 폰으로, `--jkx` 부팅 | 슬롯 창 모양 눈확인(대기 중인 눈확인 항목 결제) |
+| TX6 | 출하 팩 — slot-pack 산출물을 폰으로, `--jkx` 부팅 | 슬롯 창 모양 눈확인 — **기계 영수증 완결 §5.4(게이트 해체+SideFilePath dladdr 봉합, 폰 workshop 창 수령), 육안 결제만 대기** |
 
 ## 2. 환경 교훈 선승계 (docs/70 §5·§8 표준)
 
@@ -186,6 +186,47 @@
   미리 확장 — **quoted heredoc(`<<"EOF"`) 표준**(wsl 인라인 따옴표 소각
   레슨의 폰 재현).
 
+### 5.4 TX6 as-built — 출하 팩(--jkx) 게이트 해체 + 폰 워크숍 수령 (2026-10-06 실측)
+
+- **게이트 해체 원리**: 4종 라우트(--jkx·slot-pack·jkx-list·jkx-extract)는
+  순수 stdio+JKJkxFile(TOC 파서 어댑터리)이어서 개방 — RunJkxPack만
+  LoadLibraryA 메타 소싱이라 win32 전용 유지(`#endif` 이동; 옛 trailing
+  `#endif` 삭제 — 삭제 누락 한 번으로 `'#endif' without '#if'` 실측,
+  지역 이동 수술의 함정). server SpawnClient posix leg `--jkx '<path>'`
+  단일인용(설치 dir 공백 케이스와 동 계약). slot-pack posix 레그 —
+  슬래시 경로+`std::filesystem::create_directories` 치환(존재-ok 동형),
+  MODL 엔트리 이름 `"jkapp_script.dll"`은 매니팟 키 계약으로 유지,
+  **파묻히는 바이너리만 팩 기기의 `jkapp_script.so`**(전제 소멸 —
+  팩 기기 자체가 MODL을 파묻는다).
+- **★폰 실측 발각 신규 결함(봉합)**: `JKAppModule_script.cpp`
+  `SideFilePath()` posix leg가 exe 경로를 주는데 RunClientFromJkx는
+  사이드카를 **추출 모듈 옆**에 떨어뜨린다 → --jkx 부팅에서 MANI
+  미독 → 기본 meta(320x240 "Script App") 열화 → 워크숍 분기 미진입 →
+  `cannot open script '...buildterm/jkdesktop.app.js'`. 옛 주석의
+  "build .so가 exe와 동거하므로 동치" 가정이 jkx temp 추출 순간 파열 —
+  플랜 G2가 posix leg(temp 추출·dlopen)를 이미 깔아 둔 순간부터 잠복한
+  논리 결함. **수리 = `dladdr(&SideFilePath)`** =
+  GetModuleFileNameA(FROM_ADDRESS)의 정확한 posix 쌍, 실패 시 exe 경로
+  폴백(회귀 없음).
+- **함정 2건 기록**: ① 라우트에 `agent`라는 서브커맨드는 없다 —
+  **`agentctl '<json>'`이 정답**. `agent`로 치면 demo 앱 폴스루 →
+  200% CPU 무한 루프(진단 소모 3회 — 와이어 원장 §5.3에 합류).
+  ② **slot-pack은 파묻는 순간의 모듈 바이너리를 파묻는다** — 수리 뒤
+  .jkx 재생성 없이 재런치하면 옛 모듈(결함 포함)이 temp로 추출되어
+  같은 증상 재현 — 재팩(`slot-pack`) 필수, 그래야 새 manifest에
+  수리된 jkapp_script.so가 묻힌다.
+- **폰 영수증**: `slot-pack phoneprobe` RC=0(caps=widget,timer 자동
+  분석, MODL=aarch64 14,837,744B) → `launch_app {"jkx":"phoneprobe"}`
+  ok → **workshop 창 id 7 `title=phoneprobe 360x280`(MANI 표기 전승)**
+  + 로그 `[client] module '.../jkapp_phoneprobe_17101.so' loaded:
+  app='phoneprobe' title='phoneprobe' size=360x280` — 신규 `start
+  failed` 없음(Start 성공). 수리 전 시도의 창 id 4(기본 meta 열화본,
+  start-failed 라벨)는 agent close가 permission_denied라 잔존 —
+  수신 기기 reboot 시 소각(유저 자산 아님). WSL·Windows·폰 3축
+  selftest 전부 0 failure(s).
+- 셀 스크립트 함정 추가(폰): /tmp 직접 로그 파일 불가(Permission
+  denied) — **폰 리다이렉트는 ~/tmp/ 표준**.
+
 ## 6. 커밋 원장
 
 | 커밋 | 내용 |
@@ -194,3 +235,4 @@
 | 47e4c9f | (TX2/TX3) ARM 봉합 12파일+as-built §4 — 3축 selftest 0 failure |
 | fd257ed | (TX3 잔여) 가드/소켓 /tmp → TempDir 폴백 2건+폰 헤드리스 서버 영수증 §4.6 |
 | (본 커밋) | (TX5) 터미널 posix 기본 셸 $SHELL + TX4·TX5 as-built §5 |
+| (TX6 본 커밋) | 출하 팩 게이트 해체(라우트 4종 posix 개방+SpawnClient --jkx 승계)+slot-pack posix 레그+SideFilePath dladdr 봉합+TX6 as-built §5.4 — 폰 워크숍 수령 영수증 |

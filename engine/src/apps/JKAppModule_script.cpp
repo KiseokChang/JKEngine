@@ -17,6 +17,8 @@
 // API — SideFilePath 주석 참조). 리눅스-leg는 windows.h 없이 컴파일.
 #ifdef _WIN32
 #include <windows.h>
+#else
+#include <dlfcn.h>  // dladdr — SideFilePath posix leg (docs/78 TX6)
 #endif
 #include <apps/ClientScriptApp.h>
 #include <fs/JKFs.h>
@@ -35,8 +37,6 @@ std::string SideFilePath(const char* suffix) {
 #ifdef _WIN32
     // GetModuleHandleExA+GetModuleFileNameA 원문 — 모듈(추출된 DLL) 측 경로가
     // 계약(extract-next-to-DLL)이라 exe 경로 어댑터로의 치환이 관측을 바꾼다.
-    // 리눅스-leg만 jk::fs::GetExecutablePath 승계(brief; 리눅스는 아직 모듈
-    // 로딩 경로가 미배선 — build 디렉터리 안 .so가 exe와 동거하므로 동치).
     HMODULE self = nullptr;
     GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
                            GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
@@ -45,7 +45,20 @@ std::string SideFilePath(const char* suffix) {
     if (!self || !GetModuleFileNameA(self, dllPath, MAX_PATH)) return {};
     return std::string(dllPath) + suffix;
 #else
-    return jk::fs::GetExecutablePath() + suffix;
+    // docs/78 TX6 폰 실측 발각 봉합 — 원래 승계 GetExecutablePath()는
+    // **exe** 경로를 주는데, RunClientFromJkx는 사이드카를 추출 모듈 옆
+    // ($TMPDIR/jkapp_<name>_<pid>.so.manifest.txt)에 떨어뜨린다 → --jkx 부팅에서
+    // MANI를 못 읽어 기본 meta(320x240 Script App)로 열화 → 워크숍 분기 미진입.
+    // 옛 주석의 "build 디렉터리 .so가 exe와 동거하므로 동치" 가정은 모듈이
+    // exe와 다른 경로에 놓이는 순간(=jkx temp 추출) 깨진다. dladdr(&함수)=
+    // GetModuleFileNameA(FROM_ADDRESS)의 posix 쌍 — 모듈 측 .so 경로.
+    // dladdr 실패 시(정적 TU·호스트 예외) 옛 동작으로 폴백해 회귀 없음.
+    Dl_info info {};
+    if (dladdr(reinterpret_cast<void*>(&SideFilePath), &info) == 0 ||
+        !info.dli_fname || !info.dli_fname[0]) {
+        return jk::fs::GetExecutablePath() + suffix;
+    }
+    return std::string(info.dli_fname) + suffix;
 #endif
 }
 

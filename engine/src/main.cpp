@@ -785,6 +785,9 @@ static int RunJkxPack(const char* appName) {
     std::printf("packed %s\n", outPath.c_str());
     return 0;
 }
+#endif // _WIN32 — jkx-pack은 LoadLibraryA로 메타를 소싱해 win32 전용 유지;
+// 아래 slot-pack/jkx-list/jkx-extract는 순수 stdio+JKJkxFile(TOC 파서는
+// 어댑터리)이라 docs/78 TX6에서 posix로 개방한다.
 
 // slot-pack <slot> [out]: 워크숍 슬롯 → .jkx 출하 (스펙 2026-10-05-slot-ship
 // -tool §2). 출하=워크숍 모드(MANI scriptfile=)+파묻힌 SCRI 시딩(§1 결정) —
@@ -800,15 +803,29 @@ static int RunSlotPack(const char* slotName, const char* outOverride) {
     }
 
     std::vector<uint8_t> script;
+#ifdef _WIN32
     const std::string slotPath = base + "state\\scripts\\" + slotName + ".js";
+#else   // docs/78 TX6 posix leg — 슬래시 경로(WSL·폰 동일 레이아웃)
+    const std::string slotPath = base + "state/scripts/" + slotName + ".js";
+#endif
     if (!ReadWholeFile(slotPath, script)) {
         std::fprintf(stderr, "slot-pack: no slot source '%s'\n",
                      slotPath.c_str());
         return 1;
     }
+    // MODL 유실물 = *이 기기의* 공유 script 모듈(바이너리만 플랫폼 값).
+    // 컨테이너 엔트리 이름은 "jkapp_script.dll"로 유지 — MANI module=
+    // (SlotShipManifestText)과 소비 측 FindEntry("MODL", mani.module)의 키가
+    // 될 뿐 파일명이 아니고, RunClientFromJkx는 풀어낸 바이너리를 temp
+    // jkapp_<name>.<dll|so>에 넣어 로드하므로 키 이름은 플랫폼 무관 계약.
     std::vector<uint8_t> dll;
-    if (!ReadWholeFile(base + "jkapp_script.dll", dll)) {
-        std::fprintf(stderr, "slot-pack: cannot read 'jkapp_script.dll'\n");
+#ifdef _WIN32
+    constexpr const char kScriptModuleName[] = "jkapp_script.dll";
+#else
+    constexpr const char kScriptModuleName[] = "jkapp_script.so";
+#endif
+    if (!ReadWholeFile(base + kScriptModuleName, dll)) {
+        std::fprintf(stderr, "slot-pack: cannot read '%s'\n", kScriptModuleName);
         return 1;
     }
 
@@ -832,9 +849,18 @@ static int RunSlotPack(const char* slotName, const char* outOverride) {
     entries.emplace_back("jkapp_script.dll", std::move(dll));
     entries.emplace_back("app.js", std::move(script));
 
-    CreateDirectoryA((base + "apps").c_str(), nullptr);
+    // CreateDirectoryA → create_directories: exists-ok 계약 동형(존재 시 자동
+    // 통과, 실패 무음) — win32 도구 관측 출력에 변화 없음(TX6 개방 수반).
+    std::error_code appsDirEc;
+    (void)std::filesystem::create_directories(base + "apps", appsDirEc);
     const std::string outPath = (outOverride && outOverride[0])
-        ? std::string(outOverride) : base + "apps\\" + slotName + ".jkx";
+        ? std::string(outOverride) : base +
+#ifdef _WIN32
+        "apps\\" + slotName
+#else
+        "apps/" + slotName
+#endif
+        + ".jkx";
     if (!jk::JKJkxFile::Write(outPath, entries)) return 1;
 
     // stale DLL 함정 — 재빌드 없이 팩하면 오래된 DLL이 파묻힌다(도구 출력에
@@ -882,7 +908,8 @@ static int RunJkxExtract(const char* path, int nameCount, char** names) {
     jk::JKJkxFile f;
     if (!f.Open(path)) return 1;
     const std::string dir = std::string(path) + "_x";
-    CreateDirectoryA(dir.c_str(), nullptr);  // exists_ok
+    std::error_code xDirEc;
+    (void)std::filesystem::create_directories(dir, xDirEc);  // exists_ok
     int extracted = 0;
     for (int i = 0; i < f.EntryCount(); ++i) {
         const jk::JKJkxFile::Entry& e = f.Entries()[i];
@@ -914,7 +941,6 @@ static int RunJkxExtract(const char* path, int nameCount, char** names) {
     }
     return 0;
 }
-#endif // _WIN32
 
 // test-script <file> (docs/27 단계 2): run an automation scenario headlessly.
 // The script builds controls into a bare window and drives them through the
@@ -3103,7 +3129,14 @@ static int RunAppSelfTest() {
             jk::JKTerminalConfig bad;
             check(bad.Load("test_terminal.json"),
                   "malformed terminal config does not fail startup");
-            check(bad.shell == "powershell.exe -NoLogo" && bad.scrollback == 1000,
+            // docs/78 TX5: posix 기본 셸은 $SHELL(Win32 리터럴에서 승계) —
+            // 케이스 단언도 플랫폼 값과 동형으로.
+            check(bad.scrollback == 1000 &&
+#if defined(_WIN32)
+                      bad.shell == "powershell.exe -NoLogo",
+#else
+                      bad.shell == ::detail::TerminalShellDefault(),
+#endif
                   "malformed terminal config keeps defaults");
             std::remove("test_terminal.json");
             jk::JKTerminalConfig missing;
@@ -3629,42 +3662,30 @@ static int RunMain(int argc, char* argv[]) {
     }
 
     if (argc > 1 && std::strcmp(argv[1], "slot-pack") == 0) {
-#ifdef _WIN32
+        // docs/78 TX6 개방: body는 순수 stdio+JKJkxFile — posix 동형(플랜 G2
+        // RunClientFromJkx posix leg와 짝). win32 게이트 670 영역에서 나머지
+        // jkx 도구는 이미 개방.
         if (argc < 3 || argc > 4) {
-            std::fprintf(stderr, "Usage: slot-pack <slot> [out]  (bundles state/scripts/<slot>.js + jkapp_script.dll into a workshop-mode .jkx)\n");
+            std::fprintf(stderr, "Usage: slot-pack <slot> [out]  (bundles state/scripts/<slot>.js + jkapp_script.dll so into a workshop-mode .jkx)\n");
             return 1;
         }
         return RunSlotPack(argv[2], argc > 3 ? argv[3] : nullptr);
-#else
-        std::fprintf(stderr, "slot-pack is Windows-only in this prototype\n");
-        return 1;
-#endif
     }
 
     if (argc > 1 && std::strcmp(argv[1], "jkx-list") == 0) {
-#ifdef _WIN32
         if (argc < 3) {
             std::fprintf(stderr, "Usage: jkx-list <file.jkx>  (print container version/codec + TOC)\n");
             return 1;
         }
         return RunJkxList(argv[2]);
-#else
-        std::fprintf(stderr, "jkx-list is Windows-only in this prototype\n");
-        return 1;
-#endif
     }
 
     if (argc > 1 && std::strcmp(argv[1], "jkx-extract") == 0) {
-#ifdef _WIN32
         if (argc < 3) {
             std::fprintf(stderr, "Usage: jkx-extract <file.jkx> [entry ...]  (extract all/named entries into <file>_x/)\n");
             return 1;
         }
         return RunJkxExtract(argv[2], argc - 3, argv + 3);
-#else
-        std::fprintf(stderr, "jkx-extract is Windows-only in this prototype\n");
-        return 1;
-#endif
     }
 
     bool runJango = (argc > 1 && std::strcmp(argv[1], "jango") == 0);
@@ -3935,12 +3956,10 @@ static int RunMain(int argc, char* argv[]) {
             std::fprintf(stderr, "Usage: --jkx <container.jkx>\n");
             return 1;
         }
-#ifdef _WIN32
+        // docs/78 TX6 개방 — RunClientFromJkx 몸통은 플랜 G2 posix leg(temp
+        // 추출 .so·dlopen, short-write 진단)를 이미 갖고 있다 (원래 라우트만
+        // win32로 잠겨 있었다).
         return RunClientFromJkx(argv[2], kPipe);
-#else
-        std::fprintf(stderr, "--jkx is Windows-only in this prototype\n");
-        return 1;
-#endif
     }
 
     MyApp app;
