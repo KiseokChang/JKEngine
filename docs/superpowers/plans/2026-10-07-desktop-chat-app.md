@@ -70,15 +70,27 @@
 - [ ] **Step 1:** tar 재배포(변분 7종+신규 chat 3파일) → 폰 리빌드(~9-10분 정상) → 셀프테스트 → launch chat → list_windows(Chat 720x540 focused 단정) → 폰 소프트 키보드 입력 도달성: **자동 어설션 불가 분은 사용자 육안 게이트로 명시**(probe 종료 상태=서버 UP+Chat 창 유지). ninja NOUT 인쇄 보장·rc 전파 원장 승계.
 - [ ] **Step 2:** 커밋 `test(chat): 폰 실측 probe — aarch64 자립 + IME 육안 게이트 산출 (스펙 §1.4)`.
 
-### Task 6: 폰 ollama 설치 실험 (honest-fail 허용)
+### Task 6: jktalk CLI 대화 루프 (X11 밖 입력 문 — 스펙 §5 신설, 룰링 반영)
+
+**Files:**
+- Create: `engine/tools/jktalk/main.cpp`(기존 tools 구성 — jkctl 선준), Modify: `engine/CMakeLists.txt`(타깃 등록)
+
+**Interfaces:**
+- Consumes: `ChatRouterRoute`(T1), JKAgentClient→서버 소켓(jkagentd/main.cpp 선준 — posix $TMPDIR 경로 포함), JKLlmEngine(플러그 위치만 두고 기본=stub).
+- Produces: `jktalk` CLI — 대화 루프(프롬프트> 입력→라우트→도구→회신)·stdin 파이프 모드(`echo "..." | ./jktalk` — 자동화 경로)·`/exit`.
+
+- [ ] **Step 1: REPL 구현** — 루프+파이프 모드 1종·도구 실행은 서버 위임(스펙 §2 계약)·서버 미존재 시 fail-loud 정직 오류(영수증 대상)·stub 기본+(ollama/claude cfg 슬롯 주석 — T7 연결).
+- [ ] **Step 2: Windows 영수증** — 빌드 rc=0 + 서버 없는 컨텍스트에서 `--ask` 한 발(fail-loud 정직 오류 영수증) → 커밋 `feat(chat): jktalk CLI 대화 루프 — X11 밖 입력 문 (스펙 §5)`.
+
+### Task 7: 폰 ollama 설치 실험 + jktalk 실측 (honest-fail 허용)
 
 **Files:**
 - Create: `engine/tools/probes/phone_ollama_try.sh`
 
-- [ ] **Step 1:** `pkg install ollama`(또는 대안 경로 실측) → `ollama serve` → 소형 모델 pull(qwen2.5:0.5b 계열) → `ollama launch claude` 계열이 아니라 JKLlmEngine cfg(state/chat.json engine=ollama)로 실턴 1건 시도 → 발화→응답 시 초 실측. **실패해도 실패 영수증이 결과물** — 원인(패키지 부재/빌드 실패/메모리)을 로그로 남기고 유예 판정.
+- [ ] **Step 1:** 폰 실측 — `jktalk` 파이프 모드로 `echo "지뢰찾기 켜줘" | ./jktalk` 영수증(stub 턴 → 실제 창 생성 확인). 그 후 `pkg install ollama`(또는 대안 경로 실측) → `ollama serve` → 소형 모델 pull(qwen2.5:0.5b 계열) → JKLlmEngine cfg(engine=ollama)로 jktalk 실턴 1건 시도 → 발화→응답 시 초 실측. **실패해도 실패 영수증이 결과물** — 원인(패키지 부재/빌드 실패/메모리)을 로그로 남기고 유예 판정.
 - [ ] **Step 2:** 결과 기록 커밋 `test(chat): 폰 ollama 설치 실험 — 결과 영수증+승격 판정 (스펙 §1.2)`.
 
-### Task 7: as-built docs/80
+### Task 8: as-built docs/80
 
 **Files:**
 - Create: `docs/80_desktop_chat_asbuilt.md`
