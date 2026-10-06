@@ -7,7 +7,7 @@
 # → 서버·Library 창을 **켜 둔 채 종료**(사용자 눈확인 등장 — teardown은 probe 임시 파일만).
 #   실행법(윈도 Git Bash, 저장소 루트 어디서든):
 #     bash engine/tools/probes/phone_library.sh
-#   재실행 가능: 서버가 살아 있으면 선 절사(pkill -x) 후 재부팅. 영수증 하나라도
+#   재실행 가능: 서버가 살아 있으면 선 절사(pkill -f 'buildterm/[j]kdesktop') 후 재부팅. 영수증 하나라도
 #   빠지면 LIBRARY-PHONE-FAIL로 비정상 종료(rc=1).
 #   구조: 이 파일은 윈도 측 드라이버(배포본이 여기 있으므로). 폰 측 다행 절차는
 #   인라인 인용이 2줄 넘기면 찢어지는 실측(측정 노트)에 따라 이 스크립트가
@@ -157,8 +157,12 @@ $SSH 'stat -c "%n %s" ~/JKENGINE/engine/src/apps/JKAppModule_library.cpp \
   || FAIL "deployed files missing on phone"
 
 echo "=== 2. 폰 리빌드 (ninja -C buildterm -j4, aarch64) ==="
-$SSH 'cd ~/JKENGINE/engine && ninja -C buildterm -j4 2>&1 | tail -12; echo NINJA-RC=${PIPESTATUS[0]}' \
+# rc 봉합: 원격 복합문이 echo로 끝나면 종료코드가 항상 0이라 드라이버 ||FAIL이
+# 죽은 코드가 된다(리뷰 fix r1) — PIPESTATUS를 rc로 삼아 exit로 전파해야 실패가
+# 드라이버에 도달한다(스테일 .so 잔존 시 존재 게이트가 거짓통과하는 함정 차단).
+NOUT=$($SSH 'cd ~/JKENGINE/engine && ninja -C buildterm -j4 2>&1 | tail -12; rc=${PIPESTATUS[0]}; echo NINJA-RC=$rc; exit $rc') \
   || FAIL "ninja rebuild rc!=0 (aarch64 compile failure)"
+echo "$NOUT"
 $SSH 'cd ~/JKENGINE/engine; test -x buildterm/jkdesktop && test -e buildterm/jkapp_library.so \
       && ls -l buildterm/jkapp_library.so || { ls buildterm/jkapp* 2>&1; exit 1; }' \
   || FAIL "buildterm/jkapp_library.so did not come into existence (deploy did not register the module target?)"
@@ -170,9 +174,10 @@ R_RC=$?
 cat "$RLOG"
 [ "$R_RC" -eq 0 ] || FAIL "phone-side receipt script rc=$R_RC (see above)"
 grep -aq '^LIBRARY-PHONE-OK$' "$RLOG" || FAIL "receipt script did not emit LIBRARY-PHONE-OK"
-grep -aq 'LIBRARY-PHONE-FAIL' "$RLOG" && FAIL "receipt script emitted LIBRARY-PHONE-FAIL" || true
+if grep -aq 'LIBRARY-PHONE-FAIL' "$RLOG"; then FAIL "receipt script emitted LIBRARY-PHONE-FAIL"; fi
 
 echo ""
 echo "LIBRARY-PHONE-OK"
 echo "서버는 살아 있고 Library 창이 떠 있다 — 사용자 눈확인 대기. 서버를 끄지 마세요."
 exit 0
+# EOF — 끝 개행 유지(스크립트 산술 무해 습관).
