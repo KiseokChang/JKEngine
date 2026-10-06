@@ -27,7 +27,8 @@
 | TX4 | 눈 부팅 — Termux:X11 + setsid 서버 부팅 + taskbar 자동 스폰 | 폰 화면에 데스크톱 셸 육안 |
 | TX5 | 앱 실측 — launch_app: terminal(pty)·vplayer(엔진 소유클립 720p)·채팅/에이전트 PC 백엔드 연계(jkbridge) | 상태 폴링 영수증+육안 |
 | TX6 | 출하 팩 — slot-pack 산출물을 폰으로, `--jkx` 부팅 | 슬롯 창 모양 눈확인 — **기계 영수증 완결 §5.4(게이트 해체+SideFilePath dladdr 봉합, 폰 workshop 창 수령), 육안 결제만 대기** |
-| TX7 | CPU 소등(부산물 — §5.5): 페이싱+활동 게이트+좀비 reaping | WSL 영수증(135%→12%)+3축 selftest, 폰 재측정 대기 |
+| TX7 | CPU 소등(부산물 — §5.5): 페이싱+활동 게이트+좀비 reaping | WSL 영수증(135%→12%)+3축 selftest, 폰 재측정 완료(99→44.6/2.8/6.6%) |
+| TX8 | jkbridge 폰↔PC 연계(§5.6) | PC 게이트웨이+WSL 도달 영수증 완료; 폰→PC는 네트워토폴로지(환경) 불도달 — 폰 Wi-Fi 전환 후 사용자 몫 |
 
 ## 2. 환경 교훈 선승계 (docs/70 §5·§8 표준)
 
@@ -260,10 +261,37 @@
   win32는 핸들 닫힘=커널 정리라 no-op).
 - **WSL 영수증(Δ 3s /proc utime+stime)**: 서버 124→**8.7%**, 태스크바
   15.5→**1.3%**, 터미널 **1.7%** — idle 3프로세스 합계 ~135% → ~12%.
-  Windows·WSL·폰 3축 selftest 0 failure(s). 폰 재측정은 재배포 후.
-- 절차 교훈: wsl.exe 인자 파싱이 중첩 인용을 파열(작은따옴표 패턴 소실) —
-  **WSL 측 스크립트는 파일로 만들어 실행**이 표준. strace 부재 환경에선
-  /proc/stat·wchan·스레드 Δ가 strace 대체.
+  Windows·WSL·폰 3축 selftest 0 failure(s).
+- **폰 재측정 영수증(재배포 — b82c0f6 소스, 5s Δ/proc)**: 서버
+  99%→**44.6%**, 태스크바 90%→**2.8%**, 터미널→**6.6%**. 클라 소등 완전.
+  잔여 서버 44.6%의 성질: 폰 SW 합성 자체 코스트 — 폰 화면의 full-desktop
+  합성+present가 1회 ~200ms 수준이라 클라 폴백 커밋(2/s)만으로 40%대가
+  성립. 더 내리려면 **컴포지터 더티프리젠트(dirty-rect blit)** 별도 과제
+  — TX7 범위 밖, 백로그 등재.
+- 재팩 룰 재실측: CPU 수리 코드 재배포 후 `slot-pack phoneprobe` 재팩없이
+  재런치하면 옛 .so — 재팩 후 `launch_app {"jkx":"phoneprobe"}` 부팅
+  재확인(360x280 meta 전승, start-failed 없음). §5.4 함정 ②의 반복 확인.
+
+### 5.6 TX5 잔여 — jkbridge 폰↔PC 연계 실측 (2026-10-06, **환경 결함으로 부분 완결**)
+
+- 계약 재확인(docs/57): jkbridge.exe = PC 콘솔 게이트웨이(HTTP 8790 기본,
+  본 PC는 8899 지정) — 폰 브라우저가 WS로 접속, 세션당 JKAgentClient(에이전트
+  허브=PC 창 서버 파이프 ∖∖.\pipe\JKWindowServerPipe)+JKLlmEngine(LLM 서브
+  프로세스). 즉 **실 LLM 턴·툴 릴레이는 PC 창 서버(사용자 콘솔 소유)를
+  필요로 한다** — 클로드 기동 불가 제약(§3)과 마찬가지.
+- **기계 영수증(성립 분)**: ① PC `engine/build/jkbridge.exe` 기동(메인
+  빌드, 토큰 state/jkbridge.json 32hex, port 8899) — 콘솔에 URL+QR 인쇄 ✓
+  ② PC localhost /health="ok" ✓ ③ **WSL→PC:8899 /health="ok"** ✓ (외부
+  인터페이스 리슨+방화벽 통과 양쪽 확인 — 폰 실패가 PC 측 문제 아님을
+  분리하는 통제 실험).
+- **불도달 영수증(폐곡선 문서화)**: 폰→PC curl(8s) rc=28 타임아웃 +
+  폰→PC ping 100% loss. PC→폰은 ping 79ms·ssh 정상 — **비대칭**. 폰은
+  192.168.219.x(핫스팟 대역) 인터넷만 44ms로 도달, 192.168.11.x(home
+  router 대역)로의 신규 발신이 전부 무응답. 엔진 결함 아님(WSL 통제
+  실험에서 같은 URL ok). 해소는 사용자 물리 조작: **폰을 공유기
+  (192.168.11.x)와 같은 Wi-Fi에 붙인 뒤** 브라우저로
+  `http://192.168.11.130:8899/?token=<state/jkbridge.json의 token>` —
+  브리지는 기동 상태로 남겨 두었다(15h 자율 세션 말 기준).
 
 ## 6. 커밋 원장
 
