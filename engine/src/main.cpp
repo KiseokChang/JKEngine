@@ -2967,7 +2967,8 @@ static int RunAppSelfTest() {
         //   — 실 기기 apps/에 의존하지 않는 pure 케이스.
         // 기대 계약(JKLibraryCatalog.h와 1:1):
         //   a) .jkx(name/title/capabilities/ICON 유무) → source=Jkx
-        //   b) 콘솔 dir + manifest.json(name/cmd/desc) → source=Console
+        //   b) 콘솔 dir + manifest.json(name/cmd/desc) → source=Console, appName
+        //      = "terminal:<cmd>" 전체(런치 접두 면제 계약 — 1m-9/1m-18)
         //   c) .jkx와 동명 콘솔 → .jkx가 이긴다(스캔 순서 — 런처 규약)
         //   d) 내장 minesweeper는 항상; lf/hx는 파일 부재 시 제외
         //   e) MANI에 name/module 없는 컨테이너 → 스킵(Parse false 계약)
@@ -3036,11 +3037,16 @@ static int RunAppSelfTest() {
             const jk::LibraryEntry* tet = nullptr;
             for (const auto& e : got) {
                 if (e.appName == "galapp") g = &e;
-                if (e.appName == "conapp2") c = &e;
+                // 콘솔 발견 키 = "terminal:<cmd>" 전체(final review Item 1 —
+                // launch_app 접두 면제 계약; manifest 이름은 스폰 키가 아니다).
+                if (e.appName == "terminal:apps-bin/y") c = &e;
                 if (e.appName == "badapp") ++badFound;
                 if (e.source == jk::LibrarySource::Console &&
-                    e.appName == "conapp") ++consoleWins;
-                if (e.appName.rfind("terminal:", 0) == 0) ++terminalKeys;
+                    e.appName == "terminal:apps-bin/x") ++consoleWins;
+                // lf/hx 내장 terminal: 카운터 — 콘솔 엔트리도 terminal: 접두를
+                // 쓴다(1m-18 계약)라 내장(Builtin) 한정으로 센다.
+                if (e.appName.rfind("terminal:", 0) == 0 &&
+                    e.source == jk::LibrarySource::Builtin) ++terminalKeys;
                 if (e.appName == "minesweeper") mine = &e;
                 if (e.appName == "tetris") tet = &e;
             }
@@ -3055,8 +3061,12 @@ static int RunAppSelfTest() {
                 check(g->sizeBytes > 0, "1m-7 크기 수령");
                 check(g->path.find("galapp.jkx") != std::string::npos,
                       "1m-8 절대 경로");
+                check(g->manifestRaw.find("capabilities=widget,timer") !=
+                          std::string::npos &&
+                          !g->manifestRaw.empty(),
+                      "1m-17 MANI 원문 전승(비공백+원문 매치)");
             }
-            check(c != nullptr, "1m-9 콘솔 발견(name=conapp2)");
+            check(c != nullptr, "1m-9 콘솔 발견(appName=terminal:apps-bin/y)");
             if (c) {
                 check(c->source == jk::LibrarySource::Console,
                       "1m-10 source=Console");
@@ -3065,6 +3075,13 @@ static int RunAppSelfTest() {
                       "1m-12 콘솔 능력 빈값+크기 0 계약");
                 check(c->path.find("consoleapp") != std::string::npos,
                       "1m-13 콘솔 dir 절대 경로");
+                check(c->appName.rfind("terminal:", 0) == 0 &&
+                          c->appName.find("apps-bin/y") != std::string::npos,
+                      "1m-18 terminal: 접두+cmd 포함(런치 계약)");
+                check(!c->manifestRaw.empty() &&
+                          c->manifestRaw.find("\"cmd\":\"apps-bin/y\"") !=
+                              std::string::npos,
+                      "1m-19 콘솔 manifest.json 원문 전승");
             }
             check(consoleWins == 0 && badFound == 0,
                   "1m-14 .jkx 우선(동명 콘솔 스킵)+무효 컨테이너 스킵");

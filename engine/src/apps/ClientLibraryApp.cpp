@@ -368,6 +368,15 @@ void ClientLibraryApp::BuildUi(int w, int h) {
                 LaunchSelected();
             }
             if (!status_.empty()) ImGui::TextWrapped("%s", status_.c_str());
+            // MANI 원문(스펙 §3 "상세: 선택 항목의 MANI 원문·크기·경로") —
+            // 카탈로그에서 전승한 원문 그대로(.jkx=패키지 내 MANI 엔트리 bytes,
+            // 콘솔=manifest.json, 내장=공란 → 블록 숨김). 창은 스크롤 가능이라
+            // 여러 줄 무해 — TextUnformatted 1회(파싱·재조립 없음).
+            if (!row.cat.manifestRaw.empty()) {
+                ImGui::Separator();
+                ImGui::TextUnformatted(koreanFont_ ? "MANI 원문" : "MANI raw");
+                ImGui::TextUnformatted(row.cat.manifestRaw.c_str());
+            }
         } else {
             ImGui::TextDisabled(koreanFont_ ? "선택된 앱이 없습니다"
                                             : "no selection");

@@ -31,6 +31,10 @@ struct LibraryEntry {
                               // 내장) 표기(스펙 §2 — 라이브러리 목록의 출처 열)
     long long sizeBytes = 0;  // .jkx 파일 크기. 콘솔·내장 0.
     bool hasIcon = false;     // .jkx ICON 엔트리 존재(디코딩은 클라 몫).
+    std::string manifestRaw;  // 매니페스트 원문 — .jkx=패키지 내 MANI 엔트리
+                              // bytes, 콘솔=manifest.json bytes, 내장="". 스펙
+                              // §3 "상세: MANI 원문·크기·경로"의 원천(클라 상세
+                              // 창이 그대로 인쇄 — 가공·정규화 없음).
 };
 
 // basePath(규약: exe dir — 뒤 구분자 없음)의 apps/를 스캔. 반환 = out에 채운

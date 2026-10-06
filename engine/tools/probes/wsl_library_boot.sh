@@ -41,6 +41,12 @@ COUNT=$(printf '%s' "$COUNTLINE" | sed -n 's/^count=\([0-9]*\) .*$/\1/p')
 awk '/^name=/ { if ($0 !~ /title=/ || $0 !~ /source=/ || $0 !~ /caps=/ || $0 !~ /size=/ || $0 !~ /path=/) { print "malformed: " $0; exit 1 } }' /tmp/lib_list.out || FAIL "library-list name= line missing required fields (title/source/caps/size/path)"
 grep -aq 'source=builtin' /tmp/lib_list.out || echo "WARN: no source=builtin line (minesweeper/tetris) in catalog — non-fatal per brief's no-over-assert rule"
 
+# 어설션 헬퍼(final review Item 4 — `|| true` 관용 금지, 실패=FAIL 경로).
+# 서버는 compact JSON으로 답한다(JKWindowServer "ping"=`"ok":true,"pong":true`,
+# list_windows 항목=`{"id":..,"w":920,"h":640,..,"focused":true|false}) —
+# 실측 형태 그대로 잠근다.
+ASSERT_FIELD() { printf '%s' "$1" | grep -aq "$2" || FAIL "$3 — reply: $1"; }
+
 echo "=== 3. boot server (setsid nohup detached, WSLg :0) ==="
 pkill -f 'buildwsl/jkdesktop' 2>/dev/null
 rm -f /tmp/JKWindowServerPipe.sock
@@ -56,6 +62,7 @@ echo "server pids: $SRV_PIDS"
 PING_OUT=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"ping","args":{}}' 2>/dev/null | grep -a '{' | head -1)
 echo "ping reply: $PING_OUT"
 [ -n "$PING_OUT" ] || FAIL "agentctl ping got no reply JSON (server unresponsive)"
+ASSERT_FIELD "$PING_OUT" '"ok":true' "ping did not ok"
 
 echo "=== 4. launch_app {app:library} ==="
 LAUNCH_OUT=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"launch_app","args":{"app":"library"}}' 2>/dev/null | grep -a '{' | head -1)
@@ -63,12 +70,19 @@ echo "launch reply: $LAUNCH_OUT"
 [ -n "$LAUNCH_OUT" ] || FAIL "launch_app got no reply (server gone?)"
 grep -aq '"ok":true' <<< "$LAUNCH_OUT" || FAIL "launch_app did not ok — reply: $LAUNCH_OUT"
 
-echo "=== 5. list_windows — receipt: title=Library ==="
+echo "=== 5. list_windows — receipt: title=Library + geometry 920x640 + focused ==="
 sleep 8
 WIN_OUT=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"list_windows","args":{}}' 2>/dev/null | grep -a '{' | head -1)
 echo "list_windows: $WIN_OUT"
 [ -n "$WIN_OUT" ] || FAIL "list_windows got no reply"
-grep -aq '"title":"Library"' <<< "$WIN_OUT" || FAIL "list_windows has no title=Library window (spawn or module fallback lost)"
+# Library 창 오브젝트만 잘라 기하·포커스까지 잠근다(항목 오브젝트엔 중괄호가
+# 없어 [^}]* 절단이 안전하다). 실패 어설션은 그대로 FAIL — 관용 없음.
+LIB_WIN=$(printf '%s' "$WIN_OUT" | grep -aoE '\{"id":[^}]*"title":"Library"[^}]*\}' | head -1)
+[ -n "$LIB_WIN" ] || FAIL "list_windows has no Library window object (spawn or module fallback lost) — reply: $WIN_OUT"
+ASSERT_FIELD "$LIB_WIN" '"title":"Library"' "Library window title lost"
+ASSERT_FIELD "$LIB_WIN" '"w":920' "Library window w != 920"
+ASSERT_FIELD "$LIB_WIN" '"h":640' "Library window h != 640"
+ASSERT_FIELD "$LIB_WIN" '"focused":true' "Library window not focused"
 
 echo "=== 6. cleanup (pkill — WSL kill discipline) ==="
 pkill -f 'buildwsl/jkdesktop' 2>/dev/null

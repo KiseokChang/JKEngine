@@ -112,13 +112,18 @@ echo "launch reply: $LAUNCH"
 [ -n "$LAUNCH" ] || FAIL "launch_app got no reply (server gone?)"
 printf '%s' "$LAUNCH" | grep -aq '"ok":true' || FAIL "launch_app did not ok — $LAUNCH"
 
-echo "=== F. list_windows (영수증: title=Library) ==="
+echo "=== F. list_windows (영수증: title=Library + 기하 920x640 + focused) ==="
 sleep 15  # 폰은 클라 스폰(.so 16MB 로드+폰트 아틀라스)이 WSL보다 느리다
 WIN=$(timeout 12 ./buildterm/jkdesktop agentctl '{"tool":"list_windows","args":{}}' 2>/dev/null | grep -a '{' | head -1)
 echo "list_windows: $WIN"
 [ -n "$WIN" ] || FAIL "list_windows got no reply"
-printf '%s' "$WIN" | grep -aq '"title":"Library"' \
-  || FAIL "list_windows has no title=Library window (module fallback lost on aarch64?)"
+# Library 창 오브젝트 절단 후 id·기하·focus까지 잠근다(final review Item 4 —
+# 서버 compact JSON 실측 형태; 항목 오브젝트엔 중괄호가 없어 [^}]* 절단 안전).
+LIB=$(printf '%s' "$WIN" | grep -aoE '\{"id":[^}]*"title":"Library"[^}]*\}' | head -1)
+[ -n "$LIB" ] || FAIL "list_windows has no Library window object (module fallback lost on aarch64?) — reply: $WIN"
+printf '%s' "$LIB" | grep -aqE '"id":[0-9]+' || FAIL "Library window object missing id — $LIB"
+printf '%s' "$LIB" | grep -aq '"w":920,"h":640' || FAIL "Library window geometry not 920x640 — $LIB"
+printf '%s' "$LIB" | grep -aq '"focused":true' || FAIL "Library window not focused — $LIB"
 
 echo "=== G. 서버 로그 영수증 (srvx.log) ==="
 grep -a 'created (920x640)' ~/srvx.log | tail -2
@@ -160,9 +165,12 @@ echo "=== 2. 폰 리빌드 (ninja -C buildterm -j4, aarch64) ==="
 # rc 봉합: 원격 복합문이 echo로 끝나면 종료코드가 항상 0이라 드라이버 ||FAIL이
 # 죽은 코드가 된다(리뷰 fix r1) — PIPESTATUS를 rc로 삼아 exit로 전파해야 실패가
 # 드라이버에 도달한다(스테일 .so 잔존 시 존재 게이트가 거짓통과하는 함정 차단).
-NOUT=$($SSH 'cd ~/JKENGINE/engine && ninja -C buildterm -j4 2>&1 | tail -12; rc=${PIPESTATUS[0]}; echo NINJA-RC=$rc; exit $rc') \
-  || FAIL "ninja rebuild rc!=0 (aarch64 compile failure)"
+# 진단 보존(final review Item 5): NOUT을 FAIL 앞에 인쇄 — ninja 마지막 행들이
+# 실패 경로에도 도달한다(OLD: `|| FAIL`가 exit해 echo 미도달로 진단 유실).
+N_RC=0
+NOUT=$($SSH 'cd ~/JKENGINE/engine && ninja -C buildterm -j4 2>&1 | tail -12; rc=${PIPESTATUS[0]}; echo NINJA-RC=$rc; exit $rc') || N_RC=$?
 echo "$NOUT"
+[ "$N_RC" -eq 0 ] || FAIL "ninja rebuild rc=$N_RC (aarch64 compile failure — NINJA tail above)"
 $SSH 'cd ~/JKENGINE/engine; test -x buildterm/jkdesktop && test -e buildterm/jkapp_library.so \
       && ls -l buildterm/jkapp_library.so || { ls buildterm/jkapp* 2>&1; exit 1; }' \
   || FAIL "buildterm/jkapp_library.so did not come into existence (deploy did not register the module target?)"

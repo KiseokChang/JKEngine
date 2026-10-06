@@ -140,6 +140,37 @@ ping reply: {"ok":true,"pong":true}
 list_windows는 픽셀을 커버하지 않는다 — 목록·배지·상세·스크롤의 실제 렌더는
 사용자 눈확인 목표(WSLg 창 또는 폰 화면).
 
+### 2.5 final review 수리 런 (2026-10-07 — 리뷰 판정 "With fixes" 단일 수리 커밋)
+
+- **콘솔 런치 계약 복원**: 카탈로그 콘솔 엔트리 `appName = "terminal:" + cmd`
+  (launch_app 접두 면제 경로 — manifest 이름 원문이던 결함 상태 폐기. 이름이
+  그대로 가면 서버 존재 검증에서 unknown_app). library-list 실기 검증:
+  `name=terminal:sampletodo.cmd title=SDK 샘플 — 할 일 뷰어 + jkctl ask
+  source=console`. selftest 1m-9/1m-18이 `terminal:` 접두+cmd 포함 계약을 잠근다.
+- **MANI 원문(스펙 §3 구현)**: `LibraryEntry.manifestRaw` 신설 — jkx=패키지 내
+  첫 MANI형 엔트리 bytes / 콘솔=manifest.json bytes / 내장=""(블록 숨김). 상세
+  창 하단 "MANI 원문" 블록이 원문 그대로 인쇄(TextUnformatted, 가공 없음).
+- **셀프테스트 1m 확장**: 1m-17(jkx MANI 원문 비공백+매치)·1m-18(terminal: 접두)
+  ·1m-19(콘솔 manifest.json 원문) 추가 — Windows 전체 **395 PASS** (수리 전 392
+  +3).
+- **Windows 축**: `ninja -C engine/build -j3` rc=0 → `AppSelfTest: 0 failure(s)`
+  → `library-list` rc=0 **count=29**(계약 불변).
+- **WSL 축**: `ninja -C buildwsl -j3` rc=0 → `AppSelfTest: 0 failure(s)`(PASS
+  374 — Windows와 케이스 절 대 수 다른 것은 플랫폼 조건부 케이스 때문) →
+  `wsl_library_boot.sh` 전체 green. 어설션 강화 통과: ping
+  `{"ok":true,"pong":true}`에 `"ok":true` 잠금, list_windows의 Library 오브젝트
+  절단 후 `{"id":4,"title":"Library",...,"w":920,"h":640,...,"focused":true}`
+  단정 → `LIBRARY-BOOT-OK`. (§2.2의 T4 원 런 영수증은 어설션 강화 전 값이다.)
+- **폰 축**: `phone_library.sh` 재실행 전체 green — NINJA-RC=0, selftest rc=0
+  `AppSelfTest: 0 failure(s)`, library-list rc=0 count=3, launch ok, list_windows
+  id 4 Library 920x640 focused(신설 id·기하·focused 어설션 통과), srvx.log
+  `created (920x640)`+`[library] apps=3` → `LIBRARY-PHONE-OK`. 종료 상태=서버
+  UP+Library 창 유지(사용자 눈확인 대기 재산출).
+- **프로브 진단 보존(T5 잔여 ⑤ 소각)**: phone_library.sh ninja NOUT을 FAIL
+  판정보다 먼저 인쇄하는 순서로 교정 — 실패 경로에도 `tail -12` 진단이 도달한다.
+  wsl_library_boot.sh는 무해(ninja tail이 파이프로 직접 인쇄 — 실패 분기 유실
+  없음)여서 무수정.
+
 ## 3. 함정 원장 (전부 실측 — 재발 방지 표준)
 
 1. **toybox `pgrep -x` 폰 전면 거짓음성.** 폰에서 13시간 살아 있는 서버+클라 3개가

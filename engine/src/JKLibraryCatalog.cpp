@@ -21,6 +21,7 @@
 #include <cctype>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <string>
 #include <system_error>
@@ -97,6 +98,17 @@ int LibraryScan(const std::string& basePath, std::vector<LibraryEntry>& out) {
         // 능력 원문 대입 — 정규화 금지. 원문이 배지의 원천이다(docs/76: 컴마
         // 목록 원문 보존, 토큰 분해는 소비자 JKScriptHost 몫).
         e.capabilities = mani.capabilities;
+        // MANI 원문 전승(스펙 §3 상세 "MANI 원문") — 패키지 내 첫 MANI형 엔트리
+        // (TypeForName 규약상 manifest.txt·manifest.json 모두 MANI)의 bytes
+        // 그대로. 파싱 몫(JkxManifest)과 별개의 원문 — 정규화·재조립 없음.
+        for (size_t mi = 0; mi < jkx.Entries().size(); ++mi) {
+            if (std::strcmp(jkx.Entries()[mi].type, "MANI") != 0) continue;
+            std::vector<uint8_t> raw;
+            if (jkx.ReadEntry(static_cast<int>(mi), raw)) {
+                e.manifestRaw.assign(raw.begin(), raw.end());
+            }
+            break;  // 첫 MANI형 엔트리가 곧 진실원 — 컨테이너다 매니페스트 1개
+        }
         // ICON 유무: 런처 wanted 산식 재용(2x 우선) — 유무 판정이라 스케일 없음.
         const std::string wanted = !mani.icon2x.empty() ? mani.icon2x : mani.icon;
         e.hasIcon = !wanted.empty() && jkx.FindEntry("ICON", wanted) >= 0;
@@ -164,12 +176,20 @@ int LibraryScan(const std::string& basePath, std::vector<LibraryEntry>& out) {
 
         LibraryEntry e;
         e.source = LibrarySource::Console;
-        e.appName = name;
+        // 런치 계약 복원(final review Item 1 — 룰링 확정): 콘솔 엔트리 appName =
+        // "terminal:" + cmd. launch_app의 존재 검증(JKWindowServer)은
+        // jkapp_<app> 모듈 파일을 요구하므로 manifest 이름을 그대로 보내면
+        // unknown_app로 죽는다 — 접두 면제 경로(launch_app 규약, 내장 lf/hx와
+        // 동일 계약)로만 콘솔 앱이 스폰된다. 이름은 동명 스킵 판정 위에서만 쓴다.
+        e.appName = "terminal:" + cmd;
         // 표시명: manifest.json desc가 있으면 그걸 쓴다(이름보다 정보량 — 런처
         // 규약), 없으면 스폰 키 폴백.
         e.title = !desc.empty() ? desc : name;
         e.capabilities = "";  // 콘솔 매니페스트엔 능력 선언이 없다(""=선언 없음 배지)
         e.path = it->path().string();  // 콘솔 dir 절대 경로
+        // manifest.json 원문 그대로(스펙 §3 상세) — bytes의 끝 1바이트는 파싱용
+        // NUL이므로 제외 전승(ReadManifestBytes 계약).
+        e.manifestRaw.assign(bytes.begin(), bytes.end() - 1);
         out.push_back(std::move(e));
         // 콘솔 스캔만 stderr 1행/앱(launch_app 존재 검증 디버그 도움).
         std::fprintf(stderr, "JKLibraryCatalog: console app '%s' (cmd='%s', dir='%s')\n",
