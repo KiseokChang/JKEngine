@@ -4,8 +4,10 @@
 # ③ setsid 서버 부팅 생존 ④ agentctl launch_app {"app":"library"} ok:true
 # ⑤ list_windows에 "title":"Library" ⑥ 정리 후 LIBRARY-BOOT-OK.
 #   템플릿: wsl_cpu_pacing.sh 훅 그대로 — wsl.exe는 인라인 인용을 찢으니
-#   이 스크립트는 항상 파일로 실행한다:
-#     wsl.exe -d Ubuntu-24.04 -- bash /mnt/i/progwork/JKENGINE/engine/tools/probes/wsl_library_boot.sh
+#   이 스크립트는 항상 파일로 실행한다(Git Bash/MSYS 경로 변환이 /mnt/ 경로를
+#   C:/Program Files/Git/... 로 찢으니 MSYS_NO_PATHCONV=1 접두 필수 — 실측:
+#   접두 없으면 "No such file or directory"):
+#     MSYS_NO_PATHCONV=1 wsl.exe -d Ubuntu-24.04 -- bash /mnt/i/progwork/JKENGINE/engine/tools/probes/wsl_library_boot.sh
 #   agentctl 와이어(docs/78 §5.4 함정 ①): 서브커맨드는 'agentctl' —
 #   'agent'로 치면 demo 앱으로 넘어가 CPU 루프를 돈다. 키= tool/args.
 #   정리는 WSL 표준 pkill(cdb q kill은 윈도 프로브 패턴 — 여기서 금지).
