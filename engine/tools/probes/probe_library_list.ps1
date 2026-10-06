@@ -2,7 +2,7 @@
 # §6, probe_slot_ship.ps1 템플릿 재용). 서버 불요: library-list는 순수 stdio
 # 서브커맨드이므로 라이브 스택 접촉 없음 — 접미는 실제 기기 apps/의 진실원.
 #
-# 4정판:
+# 판정안(3정판 + CLEAN 소각 수령 — posix는 Task 4 몫, 아래 LIBRARY-POSIX 기록):
 #   LIBRARY-BASE  — 기본 기점(exe dir)에서 count>=1 + name=minesweeper 존재.
 #                   (주의: 이 build에는 minesweeper.jkx가 설치돼 있어 source=jkx가
 #                   이긴다 — built-in 단정은 격리 가짜 트리(LIBRARY-ARG)에서 함.)
@@ -13,8 +13,11 @@
 #   LIBRARY-ARG   — 임시 가짜 트리(apps/galapp/manifest.json 콘솔 1 + capgauge.jkx)
 #                   인수 기점 스캔 — source=console 파싱 + built-in 전폴백(minesweeper
 #                   ·tetris, apps-bin 부재라 lf/hx 없음) + count==name 행수 정확.
-#   LIBRARY-POSIX — (리눅스 런 시) 동일 CLI가 posix에서도 rc=0. Windows 런은 SKIPPED
-#                   표기 — WSL 검증은 컨트롤러가 별도 실행(스펙 §4 posix 본체).
+#   LIBRARY-POSIX — (제거, 컨트롤러 판정 fix r1) Windows pwsh와 WSL pwsh는 별도
+#                   툴체인이고 $build/$exe가 Windows 절대경로라, .ps1은 posix 런을
+#                   정직하게 소유할 수 없다(WSL 런은 LIBRARY-BASE의 Run-Cli에서
+#                   이미 죽는다 — 분기는 도달불능). WSL 검증 — Task 4
+#                   wsl_library_boot.sh가 소유 (이 ps1은 Windows 전용).
 #
 # PowerShell 전달 함정(docs/55 lesson 3, probe_slot_ship 선례): stdout/stderr는
 # PSI raw-Arguments + CP949 디코드로 정확히 잡는다. CRT 한국어(title)는 파이프
@@ -143,27 +146,14 @@ Write-Output ("LIBRARY-ARG: " + (& {
 }))
 if (-not $libArg) { $failures++ }
 
-# ---- 4) LIBRARY-POSIX — posix 런에서의 동일 CLI rc=0 -----------------------------
-# Windows PowerShell 5.1엔 $IsWindows가 없다($null) — Major 게이트가 먼저 와야
-# 한다(분기 함정). Windows 런은 SKIPPED로 통과 표기 — WSL 검증은 컨트롤러 몫.
-$posixRun = $false
-if ($PSVersionTable.PSVersion.Major -ge 6 -and -not $IsWindows) {
-    $posixExe = Join-Path $build "jkdesktop"
-    if (Test-Path $posixExe) {
-        $posixOut = & $posixExe library-list 2>$null
-        $posixOk = (($LASTEXITCODE -eq 0) -and (@($posixOut | Where-Object { $_ -like 'name=*' }).Count -gt 0))
-        Write-Output ("LIBRARY-POSIX: " + (& { if ($posixOk) { "OK (posix rc=0)" } else { "FAIL rc=" + $LASTEXITCODE } }))
-        $posixRun = -not $posixOk
-    } else {
-        Write-Output "LIBRARY-POSIX: FAIL (posix binary missing)"
-        $posixRun = $true
-    }
-} else {
-    Write-Output "LIBRARY-POSIX: SKIPPED (Windows run — WSL 검증은 컨트롤러 별도 실행, 스펙 §4 posix 본체)"
-}
-if ($posixRun) { $failures++ }
+# ---- WSL 검증 — Task 4 wsl_library_boot.sh가 소유 (이 ps1은 Windows 전용) --------
+# 컨트롤러 판정(fix r1): 본 ps1의 posix 분기는 수리가 아니라 제거 — $build/$exe가
+# Windows 절대경로여서 WSL 런은 LIBRARY-BASE의 Run-Cli에서 이미 죽고, 도달해도
+# Test-Path가 false로 "posix binary missing" FAIL을 골라먹는 도달불능 분기였다
+# (약속한 커버리지를 구조적으로 못 낸다). 이 스크립트의 판정안 = BASE/CAPS/ARG
+# 3정판 + CLEAN 소각 수령.
 
-# ---- 5) 소각 — scratch jkx + 슬롯 원천 + temp 트리 (사용자 apps/ 정합 유지) --------
+# ---- 4) 소각 — scratch jkx + 슬롯 원천 + temp 트리 (사용자 apps/ 정합 유지) --------
 if (Test-Path $gaugeJx) { Remove-Item $gaugeJx -Force }
 if (Test-Path $gaugeJs) { Remove-Item $gaugeJs -Force }
 Remove-Item $fakeBase -Recurse -Force -ErrorAction SilentlyContinue
