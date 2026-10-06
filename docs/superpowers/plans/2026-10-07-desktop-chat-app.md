@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** DeX 화면(폰 X11)에서 텍스트를 받아 에이전트 턴(stub 기본)으로 jkdesktop 앱을 조작하는 채팅 앱 + 백엔드 cfg 승격선 + 폰 ollama 설치 실험.
+**Goal:** DeX 화면(폰 X11)에서 텍스트를 받아 에이전트 턴(stub 기본)으로 jkdesktop 앱을 조작하는 채팅 앱 + X11 밖 입력(jktalk CLI, 폰 웹 채팅 jkweb) + 백엔드 cfg 승격선 + 폰 ollama 설치 실험.
 
 **Architecture:** `jkapp_chat`(ImGui 클라 앱 — settings/library 가족)이 턴 백엔드(JKLlmEngine cfg: stub/ollama/claude)를 플러그로 받고, 스텁의 명령 라우터가 도구 지시를 내보내면 앱이 SendAgentQuery로 서버 실행을 위임한다. 라우터는 jkcore pure 코드로 CLI·앱·셀프테스트가 같이 먹는다(앱 라이브러리 single-truth 선례 승계).
 
@@ -82,7 +82,20 @@
 - [ ] **Step 1: REPL 구현** — 루프+파이프 모드 1종·도구 실행은 서버 위임(스펙 §2 계약)·서버 미존재 시 fail-loud 정직 오류(영수증 대상)·stub 기본+(ollama/claude cfg 슬롯 주석 — T7 연결).
 - [ ] **Step 2: Windows 영수증** — 빌드 rc=0 + 서버 없는 컨텍스트에서 `--ask` 한 발(fail-loud 정직 오류 영수증) → 커밋 `feat(chat): jktalk CLI 대화 루프 — X11 밖 입력 문 (스펙 §5)`.
 
-### Task 7: 폰 ollama 설치 실험 + jktalk 실측 (honest-fail 허용)
+### Task 7: jkweb 폰 웹 채팅 (Termux 웹 서버 — 스펙 §5.1 룰링 3, 사용자 결정)
+
+**Files:**
+- Create: `engine/tools/jkweb/main.cpp`(정적 페이지=원문 문자열 내장, T6 jktalk 턴 코어 재용), Modify: `engine/CMakeLists.txt`(타깃 등록)
+
+**Interfaces:**
+- Consumes: `ChatRouterRoute`(T1), jktalk(T6)의 라우트→jkAgentClient 서버 위임 코어, posix 소켓 선례(jkbridge HTTP 패턴 — 폰 양쪽 빌드 필수).
+- Produces: `jkweb` CLI — `./jkweb [--port N]`: GET / = 채팅 페이지(입력 박스+대화 기록, 브라우저 네이티브 키보드), `POST /talk` {text} → 라우트 → 서버 위임 → JSON 결과. 서버 미존재 시 fail-loud(정직 500).
+
+- [ ] **Step 1: 구현** — HTTP 1.1 최소 파서(GET/POST만)+한 파일 정적 페이지+`/talk` 핸들러(T6 코어 재용 — 도구 실행은 서버 위임 계약, stub 기본+ollama 슬롯 주석). 백그라운드 스레드 1종 수준으로 최소 유지.
+- [ ] **Step 2: Windows 영수증** — 빌드 rc=0 → `./jkweb.exe` 기동 → curl POST /talk(서버 미존재 — 정직 오류 영수증, jkdesktop 스폰 금지) + GET / 인쇄 확인 → 커밋 `feat(chat): jkweb 폰 웹 채팅 서버 — Termux 브라우저 입력 문 (스펙 §5.1)`.
+- [ ] **Step 3: 폰 영수증 probe** — `engine/tools/probes/phone_web_chat.sh`: tar 배포→폰 리빌드→jkweb 기동(localhost)→폰 측 curl `POST /talk` "지뢰찾기 켜줘"→list_windows로 창 생성 단정→종료 상태=서버 UP+jkweb 유지(**사용자 육안 게이트: 폰 브라우저에서 실제 타작 원단 확인**) → 커밋 `test(chat): 폰 웹 채팅 probe — 브라우저 입력 육안 게이트 산출`.
+
+### Task 8: 폰 ollama 설치 실험 + jktalk 실측 (honest-fail 허용)
 
 **Files:**
 - Create: `engine/tools/probes/phone_ollama_try.sh`
@@ -90,10 +103,10 @@
 - [ ] **Step 1:** 폰 실측 — `jktalk` 파이프 모드로 `echo "지뢰찾기 켜줘" | ./jktalk` 영수증(stub 턴 → 실제 창 생성 확인). 그 후 `pkg install ollama`(또는 대안 경로 실측) → `ollama serve` → 소형 모델 pull(qwen2.5:0.5b 계열) → JKLlmEngine cfg(engine=ollama)로 jktalk 실턴 1건 시도 → 발화→응답 시 초 실측. **실패해도 실패 영수증이 결과물** — 원인(패키지 부재/빌드 실패/메모리)을 로그로 남기고 유예 판정.
 - [ ] **Step 2:** 결과 기록 커밋 `test(chat): 폰 ollama 설치 실험 — 결과 영수증+승격 판정 (스펙 §1.2)`.
 
-### Task 8: as-built docs/80
+### Task 9: as-built docs/80
 
 **Files:**
 - Create: `docs/80_desktop_chat_asbuilt.md`
 
-- [ ] **Step 1:** 배선·영수증 전수(3축)·함정 원장·deferred minors 표·커밋 원장 — T6 결과(stub 유지 or ollama 승격) 명기. 스펙 헤더 링크+푸시.
+- [ ] **Step 1:** 배선·영수증 전수(3축)·함정 원장·deferred minors 표·커밋 원장 — T6/T7/T8 결과(stub 유지 or ollama 승격) 명기. 스펙 헤더 링크+푸시.
 - [ ] **Step 2:** 커밋 `docs(chat): as-built 원장 docs/80 + 스펙 헤더 링크` + push(origin main 직행 관행).

@@ -94,8 +94,9 @@ InputText 도달이 이번 라인의 최대 불확실성. 폰 실측 태스크(T
 ## 4. 다음 = 구현 플랜
 
 T1 stub 라우터+셀프테스트 · T2 jkapp_chat 모듈+셀프테스트 · T3 Windows
-축 영수증(CLI) · T4 WSL 실측(부팅+launch) · T5 폰 실측(IME 포함) · T6
-폰 ollama 설치 실험(성공하면 cfg 승격 검토) · T7 as-built docs/80.
+축 영수증(CLI) · T4 WSL 실측(부팅+launch) · T5 폰 실측(IME 포함) ·
+T6 jktalk CLI 대화 루프(§5) · T7 jkweb 폰 웹 채팅(§5.1) · T8 폰 ollama
+설치 실험(성공하면 cfg 승격 검토) · T9 as-built docs/80.
 
 ## 5. 변경(2026-10-07 중반 — 사용자 결정): 입력 표면 = X11 밖 우선
 
@@ -117,3 +118,20 @@ T1 stub 라우터+셀프테스트 · T2 jkapp_chat 모듈+셀프테스트 · T3 
   JKLlmEngine cfg(engine=ollama)로 시도 — 성공하면 CLI와 창앱 양쪽 승격.
 - `jkapp_chat`의 IME 육안 게이트는 **보조 게이트로 강등**(본 경로는
   jktalk라 이후에도 막혀도 라인 전체는 성립).
+
+### 5.1 변경(2026-10-07): 폰 화면 웹 채팅 — jkweb (룰링 3, 사용자 결정)
+
+사용자 문의 "폰 화면에서 도는 별도 앱을 만들면 안돼? 웹이라도" → 서버
+위치·순서 확정(A): **Termux 웹 서버 `jkweb` — 폰 브라우저(localhost)에서
+채팅. jktalk 완료 직후 끼워넣기(플랜 Task 7), ollama 실험은 그 다음.**
+
+- 근거: 서버(jkdesktop)와 unix 소켓이 폰 로컬 — 웹 서버가 같은
+  JKAgentClient 경로를 재용하면 폰 화면 채팅→X11 jkdesktop 반응이 성립.
+  브라우저 키보드=안드로이드 네이티브(음성입력 포함) — IME 리스크 소멸.
+  PC 브라우저에서 폰 IP 접속도 가능(LAN ssh 성립 선례).
+- 형태: 신규 tool `jkweb` — 정적 채팅 페이지 1장(입력 박스+대화 기록,
+  원문 문자열 내장) + `POST /talk` {text} → ChatRouterRoute → 서버 위임
+  → 결과 JSON. jktalk의 턴 코어 재용(스펙 §2 계약 승계 — 도구 실행은
+  서버 위임, 권한 행렬 우회 없음, 진실원=ChatRouter 1개).
+- Android 네이티브 앱은 별도 문(NDK/패키징 설비 신설 — 백로그).
+- ollama 승격(§1.2)은 jktalk·jkweb 양쪽이 같이 받는다.
