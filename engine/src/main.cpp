@@ -944,6 +944,39 @@ static int RunJkxExtract(const char* path, int nameCount, char** names) {
     return 0;
 }
 
+// library-list [BASE]: 라이브러리 카탈로그 스캔 CLI(스펙 2026-10-06-app-library
+// §6 — 서버 불요 검증, jkx-list의 posix 개방 라우트 선례). jkapp_library 클라
+// 앱과 같은 jk::LibraryScan 진실원을 먹는다 — CLI가 늘어나면 클라가 변질된
+// 것(스캔 규약 서버리 검증). BASE 생략 = exe dir(런치 존재 검증과 같은 기점;
+// 뒤 구분자 없음 — LibraryScan 계약), exe 경로 미수령이면 cwd 폴백. 스캔
+// 부재(apps/ 없음)도 count=0으로 정당 상태라 실패가 아니다(JKLibraryCatalog.h
+// 계약 — 오류 전파 없음).
+static int RunLibraryList(int argc, char** argv) {
+    std::string base;
+    if (argc >= 3) {
+        base = argv[2];  // 인수 기점 — 셀프테스트 1m 가짜 트리 케이스 동형
+    } else {
+        const std::string exe = jk::fs::GetExecutablePath();
+        const size_t slash = exe.find_last_of("/\\");
+        base = (slash == std::string::npos) ? std::string(".") : exe.substr(0, slash);
+        if (base.empty()) base = ".";
+    }
+    std::vector<jk::LibraryEntry> out;
+    const int n = jk::LibraryScan(base, out);
+    for (const auto& e : out) {
+        // caps 빈값도 caps=로 인쇄 — 원문 계약: 빈 선언을 숨기지 않는다(docs/76
+        // 배지 계약 동형). 콘솔·내장은 능력 선언이 없어 늘 빈값이 온다.
+        std::printf("name=%s title=%s source=%s caps=%s size=%lld path=%s\n",
+                    e.appName.c_str(), e.title.c_str(),
+                    e.source == jk::LibrarySource::Jkx           ? "jkx"
+                        : e.source == jk::LibrarySource::Console ? "console"
+                                                                 : "builtin",
+                    e.capabilities.c_str(), e.sizeBytes, e.path.c_str());
+    }
+    std::printf("count=%d base=%s\n", n, base.c_str());
+    return 0;
+}
+
 // test-script <file> (docs/27 단계 2): run an automation scenario headlessly.
 // The script builds controls into a bare window and drives them through the
 // v2 bindings (findControl/click/inject*/setText/getText); assert/assertEq
@@ -3756,6 +3789,7 @@ static int RunMain(int argc, char* argv[]) {
         std::printf("  slot-pack SLOT [OUT]  Ship a workshop slot as a .jkx app (capability-declared MANI)\n");
         std::printf("  jkx-list FILE   Print a .jkx container's version/codec + TOC\n");
         std::printf("  jkx-extract FILE [ENTRY...]  Extract .jkx entries into <FILE>_x/\n");
+        std::printf("  library-list [BASE]  Scan the app library (.jkx/console/builtin), 1 line per app\n");
         std::printf("  agentctl '<json>'  Send one Desktop Agent query to the server\n");
         std::printf("  agent-events SEC   Subscribe to desktop events for SEC seconds\n");
         std::printf("  -h, --help, /?  Show this help message\n");
@@ -3831,6 +3865,12 @@ static int RunMain(int argc, char* argv[]) {
             return 1;
         }
         return RunJkxExtract(argv[2], argc - 3, argv + 3);
+    }
+
+    if (argc > 1 && std::strcmp(argv[1], "library-list") == 0) {
+        // 순수 stdio 라우트 — win32 게이트 없음: TX6 개방 선례(docs/78)로 posix
+        // 본체에서도 동일 동작(스펙 2026-10-06-app-library §4).
+        return RunLibraryList(argc, argv);
     }
 
     bool runJango = (argc > 1 && std::strcmp(argv[1], "jango") == 0);
