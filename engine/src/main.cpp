@@ -96,6 +96,7 @@ extern "C" __declspec(dllimport) int __stdcall closesocket(
 #include <JKHangulUtil.h>
 #include <JKPlatform.h>
 #include <JKJkxFile.h>
+#include <JKLibraryCatalog.h>  // selftest 1m — 라이브러리 카탈로그 3원 스캔
 #include <script/JKScriptHost.h>
 #include <SDL.h>
 #include <filesystem>
@@ -2926,6 +2927,124 @@ static int RunAppSelfTest() {
             check(m0.Parse(jk::SlotShipManifestText("x", {})) &&
                       m0.capabilities.empty(),
                   "1k-c 빈 tokens=능력 없음(fail-closed)");
+        }
+
+        // 1m) 라이브러리 카탈로그 스캔 (스펙 2026-10-06-app-library §2 — 3원+1
+        //   발견·.jkx 우선·능력 원문 보존). 가짜 apps/ 트리를 temp에서 조립
+        //   — 실 기기 apps/에 의존하지 않는 pure 케이스.
+        // 기대 계약(JKLibraryCatalog.h와 1:1):
+        //   a) .jkx(name/title/capabilities/ICON 유무) → source=Jkx
+        //   b) 콘솔 dir + manifest.json(name/cmd/desc) → source=Console
+        //   c) .jkx와 동명 콘솔 → .jkx가 이긴다(스캔 순서 — 런처 규약)
+        //   d) 내장 minesweeper는 항상; lf/hx는 파일 부재 시 제외
+        //   e) MANI에 name/module 없는 컨테이너 → 스킵(Parse false 계약)
+        {
+            std::error_code ec;
+            const std::string base =
+                (std::filesystem::temp_directory_path(ec)
+                 .append("jk_library_st_1m")).string();
+            std::filesystem::remove_all(base, ec);
+            std::filesystem::create_directories(base + "/apps/consoleapp", ec);
+            // (a) .jkx 컨테이너 — JKJkxFile::Write 선례로 조립
+            const std::string mani =
+                "name=galapp\ntitle=갤 앱\ntitle2=ignored\nmodule=jkapp_gal.dll\n"
+                "capabilities=widget,timer\nicon=icon@1x.png\n";
+            std::vector<uint8_t> maniBytes(mani.begin(), mani.end());
+            const bool jkxOk = jk::JKJkxFile::Write(
+                base + "/apps/galapp.jkx", {{"manifest.txt", maniBytes}});
+            // 콘솔 leg — ① 유니크 콘솔(name=conapp2, desc 표시명 전승 검증) +
+            // ② .jkx 동명 콘솔(name=conapp ↔ conapp.jkx — .jkx-wins 스킵 검증).
+            // manifest.json의 끝 개행은 파싱과 무관(길이 계약은 NUL 제외 전승).
+            const bool conOk =
+                std::filesystem::create_directories(base + "/apps/conapp", ec);
+            const std::string conJson =
+                "{\"name\":\"conapp2\",\"cmd\":\"apps-bin/y\",\"desc\":\"Console App\"}";
+            const std::string conJson2 = "{\"name\":\"conapp\",\"cmd\":\"apps-bin/x\"}";
+            {
+                std::ofstream f1(base + "/apps/consoleapp/manifest.json",
+                                 std::ios::binary);
+                f1.write(conJson.data(),
+                         static_cast<std::streamsize>(conJson.size()));
+                std::ofstream f2(base + "/apps/conapp/manifest.json",
+                                 std::ios::binary);
+                f2.write(conJson2.data(),
+                         static_cast<std::streamsize>(conJson2.size()));
+            }
+            // 동명 .jkx(conapp) + 무효 컨테이너(bad — name/module 부재,
+            // Parse false 계약 → name 비어 스킵). 모두 스폰 가능선은 검증 대상
+            // 아님 — 발견 규약만 검증한다.
+            const std::string conMani =
+                "name=conapp\ntitle=Con App\nmodule=jkapp_con.dll\n";
+            std::vector<uint8_t> conManiBytes(conMani.begin(), conMani.end());
+            const bool conJkxOk = jk::JKJkxFile::Write(
+                base + "/apps/conapp.jkx", {{"manifest.txt", conManiBytes}});
+            const std::string badMani = "title=nobody\ncapabilities=x\n";
+            std::vector<uint8_t> badBytes(badMani.begin(), badMani.end());
+            const bool badOk = jk::JKJkxFile::Write(
+                base + "/apps/bad.jkx", {{"manifest.txt", badBytes}});
+            std::vector<jk::LibraryEntry> got;
+            const int n =
+                (jkxOk && conOk && conJkxOk && badOk) ? jk::LibraryScan(base, got) : -1;
+            // 조립 검증 — Write 실패는 스캔 개수 판정을 오염시키므로 앞에서
+            // 따로 확정한다.
+            check(jkxOk, "1m-0 컨테이너 조립");
+            check(conOk && conJkxOk && badOk, "1m-0b 피스쳐 조립(콘솔+동명+무효)");
+            // 정확 개수 — 여유 슬랙 없음: jkx 2(galapp·conapp) + 콘솔 1
+            // (conapp2; 동명 conapp은 .jkx에 밀려 스킵) + 무효 bad 스킵 0 +
+            // 내장 2(minesweeper·tetris — 이 base엔 apps-bin이 없어 lf/hx
+            // 제외). = 5
+            check(n == 5, "1m-1 스캔 개수(jkx2+콘솔1+내장2, 무효·동명 스킵=5)");
+            const jk::LibraryEntry* g = nullptr;
+            const jk::LibraryEntry* c = nullptr;
+            int badFound = 0;
+            int consoleWins = 0;
+            int terminalKeys = 0;
+            const jk::LibraryEntry* mine = nullptr;
+            const jk::LibraryEntry* tet = nullptr;
+            for (const auto& e : got) {
+                if (e.appName == "galapp") g = &e;
+                if (e.appName == "conapp2") c = &e;
+                if (e.appName == "badapp") ++badFound;
+                if (e.source == jk::LibrarySource::Console &&
+                    e.appName == "conapp") ++consoleWins;
+                if (e.appName.rfind("terminal:", 0) == 0) ++terminalKeys;
+                if (e.appName == "minesweeper") mine = &e;
+                if (e.appName == "tetris") tet = &e;
+            }
+            check(g != nullptr, "1m-2 jkx 발견");
+            if (g) {
+                check(g->title == "갤 앱", "1m-3 MANI title 전승");
+                check(g->capabilities == "widget,timer",
+                      "1m-4 능력 원문 보존(정규화 없음)");
+                check(g->source == jk::LibrarySource::Jkx, "1m-5 source=Jkx");
+                check(!g->hasIcon,
+                      "1m-6 ICON 부재=hasIcon false(폰 기본값 경로)");
+                check(g->sizeBytes > 0, "1m-7 크기 수령");
+                check(g->path.find("galapp.jkx") != std::string::npos,
+                      "1m-8 절대 경로");
+            }
+            check(c != nullptr, "1m-9 콘솔 발견(name=conapp2)");
+            if (c) {
+                check(c->source == jk::LibrarySource::Console,
+                      "1m-10 source=Console");
+                check(c->title == "Console App", "1m-11 콘솔 desc 표시명 전승");
+                check(c->capabilities.empty() && c->sizeBytes == 0,
+                      "1m-12 콘솔 능력 빈값+크기 0 계약");
+                check(c->path.find("consoleapp") != std::string::npos,
+                      "1m-13 콘솔 dir 절대 경로");
+            }
+            check(consoleWins == 0 && badFound == 0,
+                  "1m-14 .jkx 우선(동명 콘솔 스킵)+무효 컨테이너 스킵");
+            check(mine != nullptr && tet != nullptr &&
+                      mine->source == jk::LibrarySource::Builtin &&
+                      mine->title == "Minesweeper" && tet->title == "Tetris" &&
+                      mine->path.empty() && tet->sizeBytes == 0,
+                  "1m-15 내장 minesweeper·tetris 항상(Builtin)");
+            check(terminalKeys == 0,
+                  "1m-16 lf/hx 파일 부재=제외(폰 기본값 경로)");
+            std::error_code ec2;
+            check(std::filesystem::remove_all(base, ec2) > 0 && !ec2,
+                  "1m-z 클린업");
         }
 
         // 1c2) 능력 배지 문구 (docs/74 — 빈 선언도 숨기지 않는다, 스펙 §5).

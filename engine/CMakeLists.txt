@@ -232,6 +232,10 @@ add_library(jkcore STATIC
     src/JKDataFile.cpp
     src/JKImageLoader.cpp
     src/JKJkxFile.cpp
+    # 라이브러리 카탈로그 3원 스캔 (스펙 2026-10-06-app-library §2) — 창·
+    # imgui 무접촉 pure TU. CLI(library-list)·클라 앱(jkapp_library)·셀프테스트
+    # (케이스 1m)이 같은 진실원을 먹는다.
+    src/JKLibraryCatalog.cpp
     src/JKVectorFont.cpp
     src/script/JKScriptHost.cpp
     src/script/JKScriptCanvas.cpp
