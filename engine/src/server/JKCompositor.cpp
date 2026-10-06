@@ -3,7 +3,9 @@
 #include "theme/JKTheme.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
+#include <cstdlib>
 
 namespace jk {
 namespace server {
@@ -270,6 +272,12 @@ void JKCompositor::Composite(bool present) {
 
     const float outputScale = output_.Scale();
 
+    // 합성 분해 계측 (docs/78 TX7 잔여 — 폰 합성 성질 규명: 레이어 blit 0.5ms
+    // vs present 140ms — 폰 present가 전부, 폰 SW 전환 후 70ms):
+    // 단계 소요를 JK_CPU_TRACE=1일 때만 stderr로. 벗기려면 이 블록만.
+    static const bool s_trace = std::getenv("JK_CPU_TRACE") != nullptr;
+    const auto ph0 = std::chrono::steady_clock::now();
+
     {
         std::lock_guard<std::mutex> lock(layersMutex_);
         for (auto& layer : layers_) {
@@ -314,12 +322,30 @@ void JKCompositor::Composite(bool present) {
     // 루프 밖(위의 layersMutex_ 스코프 해제 후)에서 부른다 — 훅이 레이어를
     // FindLayerById로 다시 찾으므로(layersMutex_ 재획득) 락 보유 중 호출이면
     // std::mutex 교착. present 전이라서 이번 프레임에 바로 화면에 오른다.
+    const auto ph1 = std::chrono::steady_clock::now();
     if (overlayHook_) {
         overlayHook_(outputScale);
     }
+    const auto ph2 = std::chrono::steady_clock::now();
 
     if (present) {
         SDL_RenderPresent(renderer_);
+    }
+    const auto ph3 = std::chrono::steady_clock::now();
+
+    // [tmp] docs/78 잔여 합성 분해 — 레이어 blit/오버레이/present 소요(ms).
+    // 레이어 스코프 진입(ph0) 이후 기준. shell draw는 서버 Composite() 측에서.
+    if (s_trace) {
+        const auto ms = [](const auto& a, const auto& b) {
+            return std::chrono::duration<double, std::milli>(b - a).count();
+        };
+        static int s_compCount = 0;
+        if (++s_compCount % 8 == 1) {
+            std::fprintf(stderr,
+                         "[compst] layers=%.1f overlay=%.1f present=%.1f\n",
+                         ms(ph0, ph1), ms(ph1, ph2), ms(ph2, ph3));
+            std::fflush(stderr);
+        }
     }
 }
 

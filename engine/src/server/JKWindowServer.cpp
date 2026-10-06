@@ -169,6 +169,16 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
         return false;
     }
 
+    // 폰(Termux/X11) 실측 (docs/78 TX7 잔여 소등): ACCELERATED 요청이 폰에서
+    // GL llvmpipe로 성립한다 — RenderCopy 인큐는 ~0.5ms이나 래스터는 워커 12개가
+    // SwapBuffers(present)에서 밀린 것을 몰아 그려 present가 ~140ms/회
+    // ([compst] 실측: layers 0.5 / present 140, WSL은 present ~3ms). SW
+    // 렌더러는 memcpy blit+윈도우 서피스 업로드라 폰에서 수배 빠르다.
+    // Windows·WSL은 ACCELERATED 유지(회귀 접촉 0).
+#ifdef __ANDROID__
+    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "software");
+#endif
+
     renderer_ = SDL_CreateRenderer(window_, -1,
         SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!renderer_) {
@@ -901,13 +911,14 @@ void JKWindowServer::Run() {
         }
 
         // 활동 게이트: 이번 이터레이션에 SDL 이벤트·클라 메시지·신규 접수가
-        // 있었거나 마지막 합성에서 1s 폴백이 지났을 때만 합성. 페이싱과 결합
-        // 되어 idle 서버는 1fps + 루프 60Hz 대기. 폴백은 이벤트로 승계되지 않는
-        // 느린 변화(승인 만료, 시간 기반 정리 등)의 최악 지연 상한을 묶는
-        // 안전망. 클라측 활동 게이트(JKClientApplication.cpp)로 이미 커밋이
-        // 희소해지므로 여기서도 거의 매 iteration skip이 정상 상태다.
+        // 있었거나 마지막 합성에서 watchdog 5s 가 지났을 때만 합성. 서버 화면의
+        // 모든 실변화는 클라 메시지(workTick_)나 SDL 이벤트로 도달한다 — 폴백은
+        // 양쪽 계기로 승계되지 않는 상태(belt-and-suspenders watchdog)라
+        // 상한을 넓혀도 기능 지연은 없다. 클라측 폴백 커밋 스킵(JKClient
+        // Application.cpp) 후 idle엔 커밋이 아예 오지 않으므로 폰에서 1s 폴백
+        // 합성(~200ms/회)이 idle 잔여 20%대의 근원이었다 — 5s로 상한 확대.
         const Uint32 nowMs = SDL_GetTicks();
-        const bool fallback = nowMs - lastCompositeMs >= 1000;
+        const bool fallback = nowMs - lastCompositeMs >= 5000;
         if (activity || fallback) {
             Composite();
             ++traceFrames;
@@ -7684,10 +7695,24 @@ void JKWindowServer::Composite(bool present) {
     // Draw the launcher desktop into the renderer first; the compositor will
     // layer client surfaces on top and then present once. The desktop shell
     // (P1 ③) owns that background; Draw no-ops on an empty desktop.
+    static const bool s_trace = std::getenv("JK_CPU_TRACE") != nullptr;  // [tmp] docs/78 잔여
+    const auto sh0 = std::chrono::steady_clock::now();
     if (shell_) {
         shell_->Draw(renderer_);
     }
+    const auto sh1 = std::chrono::steady_clock::now();
     compositor_->Composite(present);
+    // [tmp] docs/78 잔여 합성 분해 — shell draw 소요. 레이어/오버레이/present는
+    // JKCompositor.cpp [compst] 쪽. 폰 SW 전환 실측(shell 8-12ms)용.
+    if (s_trace) {
+        const double shellMs = std::chrono::duration<double, std::milli>(
+                                   sh1 - sh0).count();
+        static int s_shellCount = 0;
+        if (++s_shellCount % 8 == 1) {
+            std::fprintf(stderr, "[compst] shell=%.1f\n", shellMs);
+            std::fflush(stderr);
+        }
+    }
 }
 
 // 3중 링 스트로크 공용 헬퍼 (Task 3 fix round 1 NIT-2): "1px씩 안으로 들어가는
@@ -8178,6 +8203,9 @@ void JKWindowServer::CleanupDisconnectedClients() {
 
         // Shell protocol: the dead window disappears from the taskbar.
         if (!disconnected.empty()) {
+            // 활동 게이트 (docs/78 잔여 소등): 레이어 소탕은 곧 화면 변화 —
+            // workTick_ 없이는 watchdog 5s까지 고스트 창이 남는다.
+            ++workTick_;
             PushWindowListUnsafe();
         }
 

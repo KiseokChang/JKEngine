@@ -284,6 +284,8 @@ int JKClientApplication::Run() {
     // -1000 기점(activity 게이트): 첫 이터레이션에서 폴백 조건이 곧 참 —
     // 부팅 첫 프레임을 이벤트 없이도 즉시 그리게(Uint32 랩 산술로 안전).
     Uint32 lastRenderMs = frameStart - 1000;
+    // 폴백 스킵(아래): 첫 렌더는 더티와 무관하게 강제 — 부팅 즉시 1프레임.
+    bool renderedOnce = false;
     int traceTimer = 0, traceInput = 0, traceAgent = 0, traceTool = 0,
         traceTheme = 0, traceFrames = 0;  // [tmp] docs/78 CPU 소등 계측
     const bool trace = std::getenv("JK_CPU_TRACE") != nullptr;
@@ -377,11 +379,30 @@ int JKClientApplication::Run() {
         const auto t3 = std::chrono::steady_clock::now();
         const Uint32 nowMs = SDL_GetTicks();
         const bool fallback = nowMs - lastRenderMs >= 1000;
-        if (IsFrameDirty() || activity || fallback) {
+        // 폴백 스킵 (docs/78 CPU 소등 잔여): 폴백만이 유발한 렌더는 장면에
+        // 더티가 남아 있을 때만 이어간다. 더티가 비면 그리기+리드백+풀 커밋은
+        // 전부 무의미한 원천 — 커밋이 서버 full 합성(폰 1회 ~200ms)을 유발해
+        // idle 1fps 커밋 2클라만으로 서버 40%대가 성립했다. 첫 렌더만 더티와
+        // 무관하게 강제한다(부팅 시점 더티 상태를 보증하지 않는다). 스킵은
+        // 더티를 소각하지 않는다 — 유입된 더티는 다음 폴백에 그려진다.
+        bool wantRender = IsFrameDirty() || activity || !renderedOnce;
+        if (!wantRender && fallback) {
+            JKWindow* modal = windowManager_ ? windowManager_->GetModalWindow()
+                                             : nullptr;
+            const bool dirty = (mainWindow_ && mainWindow_->HasDirtyWindows())
+                               || (modal && modal->HasDirtyWindows());
+            if (dirty) {
+                wantRender = true;
+            } else {
+                lastRenderMs = nowMs;  // 스킵도 폴백 기점 리셋 — 다음 초 재검
+            }
+        }
+        if (wantRender) {
             RenderAndCommit();
             OnFrameCommitted();
             lastRenderMs = nowMs;
             ++traceFrames;
+            renderedOnce = true;
         }
         const auto t4 = std::chrono::steady_clock::now();
 

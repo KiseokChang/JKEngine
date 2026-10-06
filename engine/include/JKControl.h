@@ -58,6 +58,13 @@ public:
     virtual void OnPaintClient(JKDC& dc);
     virtual void RespondMessage(const JKEvent& ev);
 
+    // 활동 게이트 폴백 스킵 (docs/78 CPU 소등 잔여): 서브트리의 JKWindow들
+    // (dirtyRects_ 소유자) 중 하나라도 더티가 남아 있으면 true. 더티가 비어
+    // 있으면 지난 렌더와 그릴 것이 같다 — 폴백 렌더+리드백+커밋을 통째로
+    // 생략한다(클라 폴백 커밋이 서버 full 합성을 유발하던 것이 phone idle
+    // 잔여 44.6%의 근원). 스킵은 더티를 소각하지 않는다 — 소각은 페인트 몫.
+    bool HasDirtyWindows() const;
+
     uint32_t GetWinId() const { return winId_; }
     void SetControlId(uint16_t id) { controlId_ = id; }
     uint16_t GetControlId() const { return controlId_; }

@@ -453,6 +453,20 @@ void JKControl::RemoveClosedChildren() {
     children_.erase(it, children_.end());
 }
 
+bool JKControl::HasDirtyWindows() const {
+    if (const auto* w = dynamic_cast<const JKWindow*>(this)) {
+        if (w->HasDirtyRects()) {
+            return true;
+        }
+    }
+    for (const auto& child : children_) {
+        if (child && child->HasDirtyWindows()) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void JKControl::Invalidate() {
     InvalidateRect(JKRect{ 0, 0, rect_.w, rect_.h });
 }
