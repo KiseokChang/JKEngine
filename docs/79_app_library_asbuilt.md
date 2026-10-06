@@ -16,7 +16,7 @@ BASE=4f4ce5a(스펙 결제판·개명판). 원장 체인: docs/67:144 대전제(
 | §0 전제(로컬만·읽기 전용) | T1 카탈로그 — 스캔 함수는 어떤 파일도 생성·수정하지 않는다(try/catch 0) | Q2 스킵과 정합 |
 | §2 발견 규약 3원+1 | T1 `jk::LibraryScan` — .jkx/콘솔/built-in, 슬롯(Q3) 제외 | 발견 규약 테스트 = 케이스 1m |
 | §3 A 허브 앱 | T3 `jkapp_library` 모듈(스펙 Q1 A) | settings/notes/files 4호 멤버 |
-| §4 posix 개방 | T1(std::filesystem 처음부터 무게트라이)·T4(WSL 실측)·T5(폰 실측) | 런처 `#ifdef _WIN32` 무접촉 — 스펙 Q1 룰링 준수 |
+| §4 posix 개방 | T1(std::filesystem — 퍼블릭 경로 try/catch 0, 예외 전파 설비 없음)·T4(WSL 실측)·T5(폰 실측) | 런처 `#ifdef _WIN32` 무접촉 — 스펙 Q1 룰링 준수 |
 | §5 스코프 밖(uninstall 없음·런처 무접촉) | 접촉 0 실증 — T1 전 커밋에 JKDesktopShell.cpp 부재, T3 스테이지 검증 `git status --short` | |
 | §6 테스트 전략 | T1 셀프테스트 1m + T2 CLI probe + T4·T5 실측 | 갭 없음(플랜 self-review 대응) |
 | §7 결제 원장 | Q1 A = T3 · Q2 스킵 = 제거 도구 부재 · Q3 제외 = 카탈로그 슬롯 leg 없음 · 명칭 = jkapp_library·library-list·docs/79 | |
@@ -39,7 +39,7 @@ BASE=4f4ce5a(스펙 결제판·개명판). 원장 체인: docs/67:144 대전제(
   **복제가 아니라 `ClientScriptApp.h`의 `CapabilityBadgeText` 인라인 직접 include** —
   문구 단일 진실원("능력 없음"도 숨기지 않는다, docs/76 동형). 아이콘 텍스처는
   OnClose에서 해제(JKClientApplication.cpp:260 OnClose가 DestroyHiddenRenderer보다
-  먼저 블림 — ClientShotApp 선례 동형). 클라앱이 자기 기기 apps/를 읽는다 — 수신
+  먼저 불림 — ClientShotApp 선례 동형). 클라앱이 자기 기기 apps/를 읽는다 — 수신
   기기에서는 폰의 apps/가 진실원(스펙 §3 함정 원장 항목, 자동 성립).
 - **CLI(library-list, T2)**: `./jkdesktop library-list [base]` — 서버 불요 순수 stdio,
   `#ifdef` 게이트 없음(TX6 posix 개방 선례). 행 포맷
@@ -59,13 +59,14 @@ BASE=4f4ce5a(스펙 결제판·개명판). 원장 체인: docs/67:144 대전제(
 
 - 셀프테스트 케이스 1m: **전체 PASS**(1m-0·1m-0b·1m-1..1m-16·1m-z) — `.jkx 발견·MANI
   title 전승·능력 원문 보존·source=Jkx/Console·ICON 부재 폴백·크기·절대 경로·콘솔
-  6종·.jkx 우선(동명 콘솔 스킵)·무효 컨테이너 스킵·내장 항상·lf/hx 파일 부재 제외`.
+  계약(발견·source·desc 기반 title·빈 능력·절대 경로)·.jkx 우선(동명 콘솔
+  스킵)·무효 컨테이너 스킵·내장 항상·lf/hx 파일 부재 제외`.
   `AppSelfTest: 0 failure(s)`.
 - `library-list` 실기 base(exe dir=engine/build) **count=29** — 이 기기에는
   minesweeper.jkx 등이 설치돼 있어 `name=minesweeper`는 `source=jkx`가 이긴다
   → **built-in 단정은 격리 가짜 트리에서**(LIBRARY-ARG). workshop.jkx 실측
   `caps=widget,timer,canvas,agent,fs` — 실기 base에서도 능력 원문 전승 부수 영수증.
-- probe(probe_library_list.ps1): 본편 런 4정판+CLEAN 전부 OK →
+- probe(probe_library_list.ps1): 본편 런 3정판 OK+POSIX SKIP+CLEAN →
   fix r1(LIBRARY-POSIX 사망 분기 **제거** — ps1은 posix 런을 정직하게 소유할 수
   없고 WSL 검증 소유권은 T4 .sh로 이관, 컨트롤러 룰링) 후 재런이 canonical:
 
