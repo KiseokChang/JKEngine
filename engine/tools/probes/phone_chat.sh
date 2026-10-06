@@ -9,7 +9,7 @@
 # → 서버·Chat 창을 **켜 둔 채 종료**(IME 육안 게이트 — 사용자 등장).
 #   IME 게이트: Android 소프트 키보드 입력이 ImGui 입력 상자에 실도달하는지는
 #   어느 쪽 프로브도 자동 단정 불가 — 반드시 사용자가 Chat 창에 탭·타자하여
-#   확인한다(스펙 §1.4 게이트 조항). probe 산출物的 확인 조건은 최종 echo에 명시.
+#   확인한다(스펙 §1.4 게이트 조항). probe 산출물의 확인 조건은 최종 echo에 명시.
 #   실행법(윈도 Git Bash, 저장소 루트 어디서든):
 #     bash engine/tools/probes/phone_chat.sh
 #   재실행 가능: 서버가 살아 있으면 선 절사(pkill -f 'buildterm/[j]kdesktop') 후
@@ -100,6 +100,9 @@ printf '%s\n' "$PP" | grep -aq 'source=jkx' || FAIL "phoneprobe entry not source
 MS=$(grep -a '^name=minesweeper ' ~/tmp/ph_chat_lib_list.log | head -1)
 [ -n "$MS" ] || FAIL "library-list missing minesweeper entry (builtin 회귀)"
 printf '%s\n' "$MS" | grep -aq 'source=builtin' || FAIL "minesweeper entry not source=builtin — $MS"
+TT=$(grep -a '^name=tetris ' ~/tmp/ph_chat_lib_list.log | head -1)
+[ -n "$TT" ] || FAIL "library-list missing tetris entry (builtin 회귀)"
+printf '%s\n' "$TT" | grep -aq 'source=builtin' || FAIL "tetris entry not source=builtin — $TT"
 
 echo "=== C. boot server (bash ~/tx4_boot.sh — DISPLAY=:1 표준) ==="
 bash ~/tx4_boot.sh
