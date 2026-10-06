@@ -103,11 +103,16 @@ protected:
 
     // Run-loop hooks (docs/22 §5.3): OnIdle runs every loop iteration before
     // the frame gate — apps pump background sources there (terminal ConPTY).
-    // IsFrameDirty gates RenderAndCommit so idle apps do not burn CPU; the
-    // default keeps the legacy always-repaint behavior. OnFrameCommitted runs
+    // 활동 게이트 (docs/78 폰 실측 CPU 소등 — 계약 변경): Run 루프는 이번
+    // 이터레이션에 버스 활동(타이머/입력/에이전트/툴콜/테마)이 있었거나
+    // IsFrameDirty()==true 때만 RenderAndCommit한다. 기본값 false — 이벤트
+    // 구동 네이티브 앱(태스크바 등)은 idle에서 1fps 폴백(최악 1s 지연 상한)
+    // 로 조용한다. 연속 애니메이션 앱은 (a) setInterval 타이머로 activity를
+    // 만들거나 (b) IsFrameDirty를 오버라이드한다. 폰 SW 렌더러에서 readback
+    // 동기 비용(~14ms)×60fps가 풀코어를 점유했던 원장. OnFrameCommitted runs
     // after a render+commit so apps can clear dirty state.
     virtual void OnIdle() {}
-    virtual bool IsFrameDirty() const { return true; }
+    virtual bool IsFrameDirty() const { return false; }
     virtual void OnFrameCommitted() {}
     // P3 theme hot-swap (docs/52): called after the 500ms theme.json mtime
     // poll detected a preset swap and the widget tree was re-walked
@@ -180,8 +185,8 @@ private:
     void DestroyHiddenRenderer();
     bool ProcessOneEvent(const JKEvent& ev);
     void ApplyInputRouting(JKEvent& ev);
-    void DrainTimerChannel();
-    void DrainInputChannel();
+    int DrainTimerChannel();   // 소비 이벤트 수 반환 — 활동 게이트 (docs/78 CPU 소등)
+    int DrainInputChannel();   // 소비 이벤트 수 반환 — 활동 게이트 (docs/78 CPU 소등)
     void RenderAndCommit();
 };
 

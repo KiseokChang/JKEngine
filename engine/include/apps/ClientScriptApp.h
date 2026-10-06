@@ -898,7 +898,7 @@ private:
         "{\"sig\":\"createEdit(rect, text)\",\"desc\":\"한 줄 입력창\"},"
         "{\"sig\":\"setText(id, text)\",\"desc\":\"위젯 텍스트 변경\"},"
         "{\"sig\":\"getText(id)\",\"desc\":\"위젯 텍스트 읽기\"},"
-        "{\"sig\":\"setInterval(fn, ms)\",\"desc\":\"반복 타이머(자동 낙하/시계 등) — id 반환\"},"
+        "{\"sig\":\"setInterval(fn, ms)\",\"desc\":\"반복 타이머(자동 낙하/시계 등) — id 반환. 프레임 콜백은 없다: 캔버스 애니메이션은 이 타이머로 구동(약 16ms=60fps) — 타이머 없는 idle 렌더는 1fps 폴백만 돈다\","
         "{\"sig\":\"clearInterval(id)\",\"desc\":\"타이머 해제\"},"
         "{\"sig\":\"findControl(title)\",\"desc\":\"제목으로 위젯 탐색\"},"
         "{\"sig\":\"click(id)\",\"desc\":\"프로그래매틱 클릭\"},"

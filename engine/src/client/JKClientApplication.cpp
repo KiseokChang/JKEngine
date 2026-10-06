@@ -12,6 +12,7 @@
 #include <theme/JKTheme.h>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <cstdarg>
 #include <string>
@@ -274,14 +275,40 @@ int JKClientApplication::Run() {
     if (!running_ || !surface_ || !surface_->IsValid() || !mainWindow_) {
         return 1;
     }
+    // 프레임 페이싱 진실원 (docs/78 폰 실측 CPU 소등 — 서버 Run()과 동일
+    // 처방): always-dirty 앱(IsFrameDirty 기본 true — ImGui 계열과 태스크바
+    //·스크립트 앱)이 SW 렌더러(폰 X11)에서 vsync 블록 없이 돌면 SDL_Delay(1)
+    // 만으로 ~1000fps, idle 프로세스가 코어를 통째로 점유했다. vsync 플랫폼은
+    // present가 이미 스트라이드를 잠그므로 아래 절전은 no-op (관측 무변경).
+    Uint32 frameStart = SDL_GetTicks();
+    // -1000 기점(activity 게이트): 첫 이터레이션에서 폴백 조건이 곧 참 —
+    // 부팅 첫 프레임을 이벤트 없이도 즉시 그리게(Uint32 랩 산술로 안전).
+    Uint32 lastRenderMs = frameStart - 1000;
+    int traceTimer = 0, traceInput = 0, traceAgent = 0, traceTool = 0,
+        traceTheme = 0, traceFrames = 0;  // [tmp] docs/78 CPU 소등 계측
+    const bool trace = std::getenv("JK_CPU_TRACE") != nullptr;
+    Uint32 traceSince = frameStart;
 
     while (running_) {
+        // 활동 게이트 (docs/78 폰 실측 CPU 소등 2차 — always-dirty 앱): 이벤트가
+        // 하나도 없는 idle에서도 IsFrameDirty 기본(true)이 게이트 OR 첫 항으로
+        // 무력화돼 태스크바가 63fps를 계속 그렸다 — SW 렌더러(폰 X11)에서
+        // readback 동기 비용(~14ms) × 60fps ≈ 풀코어 + 서버 합성·llvmpipe도
+        // 따라 풀점유. 계약 변경(폰 실측 결정): IsFrameDirty 기본은 false —
+        // 게이트 = 이번 이터레이션에 메시지 버스 활동(타이머/입력/에이전트/
+        // 툴콜)이나 테마 변경이 있었거나 IsFrameDirty(오버라이드 앱 —
+        // vplayer·터미널·ImGui 계열)이거나 마지막 렌더에서 1s 폴백이 지났을
+        // 때만 렌더. 1s 폴백은 이벤트로 승계되지 않는 느린 변화(비동기
+        // Invalidate 등)의 최악 지연 상한을 묶는 안전망 — 폴백 1fps의 idle
+        // 비용은 무시 수준. 스크립트 앱의 애니메이션은 setInterval 타이머로
+        // 활동을 만든다(api 캐탈로그 계약 — 문서화 동기화 완료).
+        bool activity = false;
         const auto t0 = std::chrono::steady_clock::now();
-        DrainTimerChannel();
+        { const int n = DrainTimerChannel(); if (n > 0) { activity = true; traceTimer += n; } }
         const auto t1 = std::chrono::steady_clock::now();
         if (!running_) break;
 
-        DrainInputChannel();
+        { const int n = DrainInputChannel(); if (n > 0) { activity = true; traceInput += n; } }
 
         // 코어 에이전트 이벤트 펌프(스펙 2026-09-18-settings-hub §2.3): 유일
         // 소비자. audio.master는 코어가 직접 JKSoundManager 마스터 게인에
@@ -289,6 +316,8 @@ int JKClientApplication::Run() {
         {
             std::vector<std::string> events;
             if (surface_->DrainAgentEvents(events) > 0) {
+                activity = true;
+                traceAgent += static_cast<int>(events.size());
                 for (const std::string& js : events) {
                     if (js.find("\"topic\":\"audio.master\"") != std::string::npos) {
                         jk::agent::AgentJson body(js);
@@ -309,6 +338,8 @@ int JKClientApplication::Run() {
         {
             jk::client::JKClientSurface::AgentToolCallMsg tc;
             while (surface_ && surface_->PollToolCall(tc)) {
+                activity = true;
+                ++traceTool;
                 std::string resultJson;
                 const bool ok = OnAgentToolCall(tc.tool, tc.args, resultJson);
                 surface_->SendAgentToolResult(tc.reqId, ok, resultJson);
@@ -334,6 +365,8 @@ int JKClientApplication::Run() {
             if (now - s_themeLast >= std::chrono::milliseconds(500)) {
                 s_themeLast = now;
                 if (jk::theme::PollPresetFile()) {
+                    activity = true;
+                    ++traceTheme;
                     if (mainWindow_) mainWindow_->ApplyTheme();
                     OnThemeChanged();
                 }
@@ -342,9 +375,13 @@ int JKClientApplication::Run() {
 
         OnIdle();
         const auto t3 = std::chrono::steady_clock::now();
-        if (IsFrameDirty()) {
+        const Uint32 nowMs = SDL_GetTicks();
+        const bool fallback = nowMs - lastRenderMs >= 1000;
+        if (IsFrameDirty() || activity || fallback) {
             RenderAndCommit();
             OnFrameCommitted();
+            lastRenderMs = nowMs;
+            ++traceFrames;
         }
         const auto t4 = std::chrono::steady_clock::now();
 
@@ -372,26 +409,49 @@ int JKClientApplication::Run() {
                 totalMs - timerMs - inputMs - idleMs - renderMs);
         }
 
-        SDL_Delay(1);
+        // 프레임 페이싱 (서버 Run()과 동일 처방 — 60fps 하한 스트라이드,
+        // 늦은 프레임은 흘려보낸다): always-dirty 앱 렌더 빈도 상한.
+        const Uint32 frameWorked = SDL_GetTicks() - frameStart;
+        SDL_Delay(frameWorked < 16 ? 16 - frameWorked : 1);
+        frameStart = SDL_GetTicks();
+        if (trace) {
+            const Uint32 n = SDL_GetTicks();
+            if (n - traceSince >= 1000) {
+                traceSince = n;
+                std::fprintf(stderr,
+                             "[cpustat] timer=%d input=%d agent=%d tool=%d "
+                             "theme=%d frames=%d\n",
+                             traceTimer, traceInput, traceAgent, traceTool,
+                             traceTheme, traceFrames);
+                std::fflush(stderr);
+                traceTimer = traceInput = traceAgent = traceTool =
+                    traceTheme = traceFrames = 0;
+            }
+        }
     }
 
     return 0;
 }
 
-void JKClientApplication::DrainTimerChannel() {
+int JKClientApplication::DrainTimerChannel() {
+    int consumed = 0;  // 활동 게이트 (docs/78 CPU 소등) — 소비 수 반환
     JKMessageBus::Payload timerPayload;
     while (messageBus_->Pop(JKMessageBus::Channel::Timer, timerPayload)) {
+        ++consumed;
         if (!ProcessOneEvent(timerPayload.event)) {
             running_ = false;
             break;
         }
     }
+    return consumed;
 }
 
-void JKClientApplication::DrainInputChannel() {
+int JKClientApplication::DrainInputChannel() {
     // Input events arrive from the server via JKClientSurface, not the message bus.
+    int consumed = 0;  // 활동 게이트 (docs/78 CPU 소등) — 소비 수 반환
     JKEvent ev;
     while (surface_ && surface_->PollInputEvent(ev)) {
+        ++consumed;
         if (ev.type == JKEventType::Quit) {
             running_ = false;
             break;
@@ -401,6 +461,7 @@ void JKClientApplication::DrainInputChannel() {
             break;
         }
     }
+    return consumed;
 }
 
 bool JKClientApplication::ProcessOneEvent(const JKEvent& ev) {

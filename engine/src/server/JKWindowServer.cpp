@@ -25,6 +25,7 @@
 #include <theme/JKTheme.h>
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <cmath>
@@ -676,6 +677,9 @@ void JKWindowServer::ProcessPendingClients() {
         std::lock_guard<std::mutex> lock(clientsMutex_);
         existingCount = static_cast<int>(clients_.size());
     }
+    if (!newClients.empty()) {
+        ++workTick_;  // 활동 게이트 — 신규 클라 접수도 화면 변화 원인
+    }
 
     for (auto& client : newClients) {
         if (!client) continue;
@@ -783,6 +787,12 @@ void JKWindowServer::ProcessPendingClients() {
 void JKWindowServer::Run() {
     if (!renderer_) return;
     running_ = true;
+    // 프레임 페이싱 진실원 (docs/78 폰 실측 CPU 소등): 루프 시작 시각.
+    // vsync가 스트라이드를 잠아주는 플랫폼(가속 렌더러)에선 present가
+    // ~16ms 블록해 아래 절전은 no-op이 된다 — 기존 관측 무변경. 소프트웨어
+    // 렌더러(Termux:X11 — ZINK 실패, SW fallback)에선 present가 즉시 돌아와
+    // SDL_Delay(1)만으로 ~1000fps 루프(코어 1개 풀점유)를 돌았다.
+    Uint32 frameStart = SDL_GetTicks();
 
     // 한/영 토글키 저수준 훅(docs/61 §16.1): OS IME가 VK_HANGUL을 삼켜 앱에
     // 키 이벤트가 도달하지 않고 신식 IME는 IMM 변환 플래그도 갱신하지 않는다
@@ -790,9 +800,22 @@ void JKWindowServer::Run() {
     // 펌프(SDL_PollEvent)에서 발화해 SDL 사용자 이벤트로 되돌아온다.
     JkInstallImeKeyHook(window_);
 
+    // 활동 게이트 (docs/78 CPU 소등 — 서버 Run): idle에선 합성을 건너뛴다.
+    // 부팅 첫 프레임은 루프 진입 전 1회 즉시 합성(마지막 합성 시각 기준점).
+    Composite();
+    Uint32 lastCompositeMs = SDL_GetTicks();
+    int traceSdl = 0, traceMsg = 0, traceFrames = 0;  // [tmp] docs/78 CPU 소등 계측
+    const bool trace = std::getenv("JK_CPU_TRACE") != nullptr;
+    Uint32 traceSince = lastCompositeMs;
+
     while (running_) {
+        // 활동 판정: SDL 이벤트 1건이면 활동(입력·포커스·리사이즈·닫기 —
+        // 전부 합성 결과에 영향). + ProcessPendingClients/ProcessPendingMessages
+        // 소비는 workTick_ 티커로 감지(클라 커밋·접수·에이전트).
+        bool activity = false;
         SDL_Event ev;
         while (SDL_PollEvent(&ev)) {
+            if (trace && ev.type != SDL_QUIT) ++traceSdl;
             if (ev.type == SDL_QUIT) {
                 running_ = false;
                 break;
@@ -834,6 +857,7 @@ void JKWindowServer::Run() {
                 }
                 continue;
             }
+            activity = true;
             HandleSDLEvent(ev);
         }
         if (!running_) break;
@@ -863,12 +887,52 @@ void JKWindowServer::Run() {
             }
         }
 
+        const uint64_t tickBefore = workTick_;
         ProcessPendingClients();
         ProcessPendingMessages();
-        Composite();
         CleanupDisconnectedClients();
+        ReapSpawnedChildren();
+        if (workTick_ != tickBefore) {
+            activity = true;
+            if (trace) {
+                const uint64_t delta = workTick_ - tickBefore;
+                traceMsg += static_cast<int>(delta);
+            }
+        }
 
-        SDL_Delay(1);
+        // 활동 게이트: 이번 이터레이션에 SDL 이벤트·클라 메시지·신규 접수가
+        // 있었거나 마지막 합성에서 1s 폴백이 지났을 때만 합성. 페이싱과 결합
+        // 되어 idle 서버는 1fps + 루프 60Hz 대기. 폴백은 이벤트로 승계되지 않는
+        // 느린 변화(승인 만료, 시간 기반 정리 등)의 최악 지연 상한을 묶는
+        // 안전망. 클라측 활동 게이트(JKClientApplication.cpp)로 이미 커밋이
+        // 희소해지므로 여기서도 거의 매 iteration skip이 정상 상태다.
+        const Uint32 nowMs = SDL_GetTicks();
+        const bool fallback = nowMs - lastCompositeMs >= 1000;
+        if (activity || fallback) {
+            Composite();
+            ++traceFrames;
+            lastCompositeMs = nowMs;
+        }
+        if (trace) {
+            if (nowMs - traceSince >= 1000) {
+                traceSince = nowMs;
+                std::fprintf(stderr,
+                             "[cpustat] sdl=%d msg=%d composites=%d\n",
+                             traceSdl, traceMsg, traceFrames);
+                std::fflush(stderr);
+                traceSdl = traceMsg = traceFrames = 0;
+            }
+        }
+
+        // 프레임 페이싱 (CPU 소등 — docs/78 폰 실측): 이 루프의 스트라이드를
+        // 60fps(16ms)로 보장한다 — 순간 지연(대용량 이벤트 처리)이 있었다면
+        // 그대로 흘려보내고(절전 0) 빨리 도달했을 때만 남은 만큼 절전.
+        // vsync 블로킹 플랫폼: Composite 안의 present가 이미 16ms의 대부분을
+        // 쓰므로 실제 절전 1ms 이하 — 관측 동일. SW 렌더러 폰: ~1000fps →
+        // 60fps로 하향, 코어 점유 99% → ~7%(Composite 실작업 시간 소모분).
+        const Uint32 frameWorked = SDL_GetTicks() - frameStart;
+        SDL_Delay(frameWorked < 16 ? 16 - frameWorked : 1);
+        frameStart = SDL_GetTicks();
     }
 }
 
@@ -2330,6 +2394,10 @@ static JKRect ClampTitlePassthrough(const JKClientConnection& c, JKRect r) {
 }
 
 void JKWindowServer::ProcessClientMessage(JKClientConnection& client, const ipc::Message& msg) {
+    // 활동 게이트 (docs/78 CPU 소등 — 서버 Run): 클라→서버 메시지 1건 수필
+    // 자체가 활동. 커밋·리사이즈·에이전트 질의 등 어떤 메시지든 서버측 합성
+    // 결과가 바뀔 수 있다.
+    ++workTick_;
     if (msg.type == ipc::MsgType::CommitSurface) {
         if (msg.payload.size() >= sizeof(ipc::CommitSurfaceHeader)) {
             const auto* header = reinterpret_cast<const ipc::CommitSurfaceHeader*>(
@@ -2471,6 +2539,35 @@ void JKWindowServer::PushWindowList() {
 }
 
 // Caller must hold clientsMutex_: ProcessPendingMessages and
+// 좀비 reaping 스윕 (docs/78 TX5 폰 관측 봉합). 주석·게이트 계약은
+// JKWindowServer.h의 ReapSpawnedChildren 선언 원문을 따른다.
+void JKWindowServer::ReapSpawnedChildren() {
+    const auto now = std::chrono::steady_clock::now();
+    if (lastReapSweep_ != std::chrono::steady_clock::time_point::min()) {
+        const auto elapsed =
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                now - lastReapSweep_);
+        if (elapsed.count() < 5000) return;   // 스윕 주기 5s
+    }
+    lastReapSweep_ = now;
+#ifdef _WIN32
+    return;  // win32: 핸들 닫힘 시 커널 정리 — 좀비 없음 (헤더 주석)
+#else
+    for (auto it = spawnedClients_.begin(); it != spawnedClients_.end();) {
+        uint32_t code = 0;
+        // GetExitCode는 WNOHANG reap을 내장하므로 살아 있는 자식 비용 0,
+        // 죽은 자식은 이 순간 회수된다. kStillActiveExit = 살아 있음 유지.
+        if (jk::process::GetExitCode(it->second, &code) &&
+            code == jk::process::kStillActiveExit) {
+            ++it;
+            continue;
+        }
+        jk::process::CloseHandleLike(it->second);
+        it = spawnedClients_.erase(it);
+    }
+#endif
+}
+
 // CleanupDisconnectedClients iterate under it, and std::mutex is not
 // recursive.
 void JKWindowServer::PushWindowListUnsafe() {

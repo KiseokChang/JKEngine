@@ -649,6 +649,28 @@ private:
     // disconnecting client can be classified as crashed (non-zero exit) vs
     // graceful (M2b app.crashed detection). void* avoids <windows.h>.
     std::unordered_map<unsigned long, void*> spawnedClients_;
+
+    // 좀비 reaping 스윕 (docs/78 TX5 관측 — 죽은 클라 ppid=서버 defunct
+    // 잔존) 게이트용: 마지막 스윕 시각. posix 전용 스윕 — win32는 프로세스
+    // 핸들이 닫히면 커널이 사망 자원을 정리하므로 좀비라는 개념 자체가 없다.
+    std::chrono::steady_clock::time_point lastReapSweep_ =
+        std::chrono::steady_clock::time_point::min();
+
+    // posix 자식 회수 스윕 — 주기마다 spawnedClients_의 모든 핸들에
+    // GetExitCode(WNOHANG reap 내장)를 시도해 죽은 자식을 회수한다:
+    // ① disconnect 정리 시 자식이 아직 살아 있으면 CloseHandleLike의 일발
+    //   WNOHANG은 "아직 살아 있음"을 보고 지나가고, 이후 자식이 죽어도
+    //   아무도 reap하지 않는다(defunct 잔존 — TX5 폰 관측).
+    // ② 표 pid와 clients_의 Pid()가 어긋난 스폰(스폰 경유의 /bin/sh pid와
+    //   클라 자체 pid 불일치 등)은 어디서도 회수 사각지대라 맵이 누수된다.
+    // GetExitCode가 WNOHANG을 내장해 있으므로 살아 있는 자식에도 비용 0.
+    void ReapSpawnedChildren();
+
+    // 활동 게이트 (docs/78 CPU 소등 — 서버 Run 루프): 클라 메시지 1건 수필마다
+    // 증가(ProcessClientMessage 선두). 클라 커밋·리사이즈·에이전트 등 서버측
+    // 화면이 바뀔 수 있는 모든 원인은 여기로 흘러온다 — Run 루프는 이 티커
+    // 변화+SDL 이벤트 때만 Composite하고, idle에선 1s 폴백 1회만.
+    uint64_t workTick_ = 0;
 };
 
 } // namespace server

@@ -27,6 +27,7 @@
 | TX4 | 눈 부팅 — Termux:X11 + setsid 서버 부팅 + taskbar 자동 스폰 | 폰 화면에 데스크톱 셸 육안 |
 | TX5 | 앱 실측 — launch_app: terminal(pty)·vplayer(엔진 소유클립 720p)·채팅/에이전트 PC 백엔드 연계(jkbridge) | 상태 폴링 영수증+육안 |
 | TX6 | 출하 팩 — slot-pack 산출물을 폰으로, `--jkx` 부팅 | 슬롯 창 모양 눈확인 — **기계 영수증 완결 §5.4(게이트 해체+SideFilePath dladdr 봉합, 폰 workshop 창 수령), 육안 결제만 대기** |
+| TX7 | CPU 소등(부산물 — §5.5): 페이싱+활동 게이트+좀비 reaping | WSL 영수증(135%→12%)+3축 selftest, 폰 재측정 대기 |
 
 ## 2. 환경 교훈 선승계 (docs/70 §5·§8 표준)
 
@@ -227,6 +228,43 @@
 - 셀 스크립트 함정 추가(폰): /tmp 직접 로그 파일 불가(Permission
   denied) — **폰 리다이렉트는 ~/tmp/ 표준**.
 
+### 5.5 CPU 소등 as-built — 프레임 페이싱+활동 게이트+좀비 reaping (2026-10-06 실측)
+
+- **발각 경로**: TX5 폰 실측의 서버/클라 풀코어 스핀(~99%/~90%)을 WSL에서
+  재현·국소화. 3차 국소화: ① `SDL_Delay(1)`만 있는 루프(SW 렌더러는 present
+  블록 없음) → ~1000fps 스핀. ② 60fps 페이싱 결합 → 터미널 89→7.6%, 그러나
+  태스크바 89.6%/서버 103~124% 잔여. ③ `/proc/<pid>/task` 스레드별 Δ측정
+  (ps %cpu는 **수명 평균**이라 idle 판정 불가 — 측정 렛슨) → 서버 llvmpipe
+  풀 12스레드 × ~11% = ~125%(합성이 계속 돌고 있다는 신호), 본체 5.2%.
+- **계측 기법**: `JK_CPU_TRACE=1` → 서버가 `[cpustat] sdl/N msg/N
+  composites/N`, 클라가 `[cpustat] timer/N input/N agent/N tool/N theme/N
+  frames/N`을 초당 stderr로. 범인 확정: 태스크바 클라 `frames=63/s`인데
+  활동 소스 전부 0 — **`IsFrameDirty()` 기본 true가 게이트 OR 첫 항으로
+  무력화**돼 idle 63fps 렌더 → 커밋 63/s → 서버 합성 63/s → llvmpipe 풀점유.
+- **봉합 4종**(플랫폼 공통 — vsync 플랫폼은 무관측):
+  ① 서버 Run 60fps 하한 스트라이드(`frameWorked < 16 ? 16-frameWorked : 1`,
+  늦은 프레임 흘려보냄). ② 클라 Run 동일 스트라이드. ③ **활동 게이트
+  (계약 변경)**: 클라 `JKClientApplication::IsFrameDirty()` 기본값
+  **false** — Run은 이번 이터레이션에 버스 활동(타이머/입력/에이전트/
+  툴콜/테마)이 있었거나 IsFrameDirty(오버라이드 앱)거나 마지막 렌더에서
+  1s 폴백이 지났을 때만 RenderAndCommit. 이벤트 구동 네이티브 앱(태스크바
+  등 13종 무오버라이드 앱)은 idle 1fps 폴백으로 조용함 — 스크립트 앱의
+  캔버스 애니메이션은 `setInterval`(api 캐탈로그 동기 갱신 완료)로 활동을
+  만든다. 서버도 같은 게이트+1s 폴백(부팅 첫 프레임은 루프 진입 전 1회 합성,
+  클라는 lastRenderMs = frameStart-1000 기점으로 첫 이터레이션 즉시 렌더 —
+  Uint32 랩 산술). 서버 활동 원천=SDL 이벤트+`workTick_`(ProcessClientMessage
+  선두++·신규 접수) — 클라 메시지 1건 수필이 곧 활동. ④ **좀비 reaping**:
+  posix `CloseHandleLike`는 일발 WNOHANG이라 disconnect 정리 시 생존 자식을
+  놓치고 회수 사각지대(pid 불일치 스폰 포함) — 서버 Run 루프 5s 주기
+  `ReapSpawnedChildren()` 스윕(GetExitCode의 WNOHANG reap 내장 활용,
+  win32는 핸들 닫힘=커널 정리라 no-op).
+- **WSL 영수증(Δ 3s /proc utime+stime)**: 서버 124→**8.7%**, 태스크바
+  15.5→**1.3%**, 터미널 **1.7%** — idle 3프로세스 합계 ~135% → ~12%.
+  Windows·WSL·폰 3축 selftest 0 failure(s). 폰 재측정은 재배포 후.
+- 절차 교훈: wsl.exe 인자 파싱이 중첩 인용을 파열(작은따옴표 패턴 소실) —
+  **WSL 측 스크립트는 파일로 만들어 실행**이 표준. strace 부재 환경에선
+  /proc/stat·wchan·스레드 Δ가 strace 대체.
+
 ## 6. 커밋 원장
 
 | 커밋 | 내용 |
@@ -236,3 +274,4 @@
 | fd257ed | (TX3 잔여) 가드/소켓 /tmp → TempDir 폴백 2건+폰 헤드리스 서버 영수증 §4.6 |
 | (본 커밋) | (TX5) 터미널 posix 기본 셸 $SHELL + TX4·TX5 as-built §5 |
 | (TX6 본 커밋) | 출하 팩 게이트 해체(라우트 4종 posix 개방+SpawnClient --jkx 승계)+slot-pack posix 레그+SideFilePath dladdr 봉합+TX6 as-built §5.4 — 폰 워크숍 수령 영수증 |
+| (CPU 본 커밋) | CPU 소등 4종 봉합(페이싱 2+활동 게이트 2)+좀비 reaping+IsFrameDirty 계약 변경+as-built §5.5 + §8.4 ttc/CFF 가드(docs/70) |
