@@ -27,7 +27,7 @@
 | TX4 | 눈 부팅 — Termux:X11 + setsid 서버 부팅 + taskbar 자동 스폰 | 폰 화면에 데스크톱 셸 육안 |
 | TX5 | 앱 실측 — launch_app: terminal(pty)·vplayer(엔진 소유클립 720p)·채팅/에이전트 PC 백엔드 연계(jkbridge) | 상태 폴링 영수증+육안 |
 | TX6 | 출하 팩 — slot-pack 산출물을 폰으로, `--jkx` 부팅 | 슬롯 창 모양 눈확인 — **기계 영수증 완결 §5.4(게이트 해체+SideFilePath dladdr 봉합, 폰 workshop 창 수령), 육안 결제만 대기** |
-| TX7 | CPU 소등(부산물 — §5.5): 페이싱+활동 게이트+좀비 reaping | WSL 영수증(135%→12%)+3축 selftest, 폰 재측정 완료(99→44.6/2.8/6.6%) |
+| TX7 | CPU 소등(부산물 — §5.5·§5.7): 페이싱+활동 게이트+좀비 reaping+폴백 커밋 스킵+폰 SW 렌더러 | WSL 서버 124→6.7%+3축 selftest, 폰 99→34.4%(잔여=진짜 변화 3합성/s · present ~70ms — 더티프리젠트 백로그) |
 | TX8 | jkbridge 폰↔PC 연계(§5.6) | PC 게이트웨이+WSL 도달 영수증 완료; 폰→PC는 네트워토폴로지(환경) 불도달 — 폰 Wi-Fi 전환 후 사용자 몫 |
 
 ## 2. 환경 교훈 선승계 (docs/70 §5·§8 표준)
@@ -274,6 +274,7 @@
 
 ### 5.6 TX5 잔여 — jkbridge 폰↔PC 연계 실측 (2026-10-06, **환경 결함으로 부분 완결**)
 
+
 - 계약 재확인(docs/57): jkbridge.exe = PC 콘솔 게이트웨이(HTTP 8790 기본,
   본 PC는 8899 지정) — 폰 브라우저가 WS로 접속, 세션당 JKAgentClient(에이전트
   허브=PC 창 서버 파이프 ∖∖.\pipe\JKWindowServerPipe)+JKLlmEngine(LLM 서브
@@ -293,6 +294,43 @@
   `http://192.168.11.130:8899/?token=<state/jkbridge.json의 token>` —
   브리지는 기동 상태로 남겨 두었다(15h 자율 세션 말 기준).
 
+### 5.7 CPU 소등 잔여 — 잔여 분해+폰 SW 렌더러 전환 (2026-10-06 실측, 푸시 7661b66)
+
+- **잔여의 실체([compst] 신설 계측 — JK_CPU_TRACE에서 초당 아님, 8회마다 1인쇄)**:
+  폰 서버 idle 44.6%는 ①터미널 커서 블링크(진짜 변화, 2 커밋/s) ②기타
+  클라 폴백 커밋(무변화 1fps)이 유발한 full 합성이었고, 합성 1회의 비용
+  분해 = **레이어 blit 0.5ms vs present ~140ms** — 93%가 SDL_RenderPresent
+  (폰 X11 전체 프레임 업로드). 셸 draw(shell=)는 llvmpipe 비동기 인큐 탓에
+  0.0ms로 위장, SW 전환 후 실체 8-12ms.
+- **봉합 4종**:
+  ① **클라 폴백 커밋 스킵** — 폴백만 유발한 렌더는 서브트리 더티가 남아
+  있을 때만 이어간다. `JKControl::HasDirtyWindows()` 신설(dirtyRects_의
+  소유자는 JKWindow라 자기 mainWindow_만 보면 틀린다 — 컨트롤 트리 전수
+  dynamic_cast 검사). 무변화 폴백 커밋이 서버 full 합성을 유발하던 것
+  소각. 첫 렌더는 `renderedOnce` 플래그로 항상 강제(부팅 더티 상태
+  불보증). 스킵은 더티를 소각하지 않는다 — 소각은 페인트 몫.
+  ② **서버 합성 폴백 1s→5s watchdog** — 서버 화면의 실변화는 전부 클라
+  메시지(workTick_)+SDL 이벤트로 도달하므로 폴백은 안전망뿐. ③ 클라
+  disconnect 정리에 `++workTick_` — 고스트 창이 watchdog까지 생존하지
+  않게(레이어 소탕도 화면 변화). ④ **폰 SW 렌더러 강제**(`#ifdef
+  __ANDROID__` SDL_HINT_RENDER_DRIVER=software): ACCELERATED가 폰에서 GL
+  llvmpipe로 "성립"하는데 SwapBuffers에서 밀린 래스터를 워커 몰아처리해
+  present가 ~140ms — SW(memcpy blit+윈도우 서피스 업로드) 전환 후
+  present ~70ms. Windows·WSL은 ACCELERATED 유지(접촉 0).
+- **영수증**: WSL 서버 8.7→**6.7%**(taskbar 1.3·terminal 1.7) — idle
+  클라 cpustat `frames=0` 관측(스킵 동작 증명). 폰 서버 47.2→**34.4%**
+  (taskbar 2.4·terminal 8.2·probe 2.6) — 잔여 합성 3/s는 전부 **진짜
+  변화**(블링크 2+probe 시계 1). 3축 selftest 0 failure(s).
+- **잔여의 남은 본질**(백로그 정밀화): 합성당 present ~70ms(SW 전환 후)는
+  SDL SW 렌더러 present=X11 전체 업로드 구조 — 이를 더 내리려면 **더티
+  rect 부분 present**(SDL_UpdateWindowSurfaceRects 또는 X11 직접 경로)가
+  필요. 렌더러 백버퍼는 윈도우 서피스와 분리돼 있어 "렌더→부분 blit→
+  부분 업로드" 재구성이 필요 — 별도 과제.
+- **함정 원장**: fit-scale 레이어(1920x1080 surface 축소 표시)는 SW
+  렌더러에서 선형 필터(SDL_ScaleModeLinear)가 무시될 우려 — 폰 레이어는
+  전부 1:1이라 실측 무영향. 폰에서 fit-scale 앱(대형 surface 창) 쓸 때
+  눈확인 필수. llvmpipe 경로는 선형 보장.
+
 ## 6. 커밋 원장
 
 | 커밋 | 내용 |
@@ -303,3 +341,4 @@
 | (본 커밋) | (TX5) 터미널 posix 기본 셸 $SHELL + TX4·TX5 as-built §5 |
 | (TX6 본 커밋) | 출하 팩 게이트 해체(라우트 4종 posix 개방+SpawnClient --jkx 승계)+slot-pack posix 레그+SideFilePath dladdr 봉합+TX6 as-built §5.4 — 폰 워크숍 수령 영수증 |
 | (CPU 본 커밋) | CPU 소등 4종 봉합(페이싱 2+활동 게이트 2)+좀비 reaping+IsFrameDirty 계약 변경+as-built §5.5 + §8.4 ttc/CFF 가드(docs/70) |
+| 7661b66 | CPU 소등 잔여(§5.7): 폴백 커밋 스킵(HasDirtyWindows)+서버 watchdog 5s+disconnect workTick+폰 SW 렌더러+[compst] 계측 |
