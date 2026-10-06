@@ -626,6 +626,16 @@ target_compile_definitions(jkapp_files PRIVATE JKAPP_MODULE_BUILD)
 target_link_libraries(jkapp_files PRIVATE jkclient imgui)
 set_target_properties(jkapp_files PROPERTIES PREFIX "")
 
+# Library hub module (스펙 2026-10-06-app-library): 로컬 라이브러리만(Q1 A —
+# settings/notes/files 4호 멤버). A launcher .jkx(아이콘 없음 — 동일 폴백).
+add_library(jkapp_library SHARED
+    src/apps/JKAppModule_library.cpp
+    src/apps/ClientLibraryApp.cpp
+)
+target_compile_definitions(jkapp_library PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_library PRIVATE jkclient imgui)
+set_target_properties(jkapp_library PROPERTIES PREFIX "")
+
 # Region-capture overlay module (agent platform, docs/35 Task 3): the
 # rubber-band fullscreen layer behind /shot and the viewer's 영역 캡처
 # button. A launcher .jkx too (no icon — the packer treats icons as
