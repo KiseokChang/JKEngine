@@ -806,6 +806,22 @@ if(WIN32)
     target_link_options(jktalk PRIVATE -municode -static-libstdc++ -static-libgcc)
 endif()
 
+# ---------------------------------------------------------------------------
+# jkweb: 폰 웹 채팅 HTTP 서버 (스펙 2026-10-07-desktop-chat-app §5.1 — X11 밖
+# 입력 문의 웹 판). 폰 Termux 브라우저가 채팅 페이지(GET /, 단일 HTML 내장,
+# 브라우저 native 키보드)를 열고 발화하면 POST /talk로 라우트(T1
+# ChatRouterRoute 단일 진실원 — 어휘 2본 금지)해 창 서버에 JKAgentClient 도구
+# 질의로 위임하는 콘솔 서버 — jkbridge HTTP 기하 선준(jk::net adapter 양다리,
+# winsock은 jkcore PUBLIC이 소유). 서버 미기동 시 정직 500(fail-loud — 이
+# 서버는 jkdesktop --server를 기동하지 않는다). wmain(-municode): jktalk의
+# docs/48 CP949 argv 레슨 승계.
+# ---------------------------------------------------------------------------
+add_executable(jkweb tools/jkweb/main.cpp)
+target_link_libraries(jkweb PRIVATE jkcore)
+if(WIN32)
+    target_link_options(jkweb PRIVATE -municode -static-libstdc++ -static-libgcc)
+endif()
+
 # jkbridge: phone web gateway (spec docs/superpowers/specs/2026-09-18-jkbridge-design).
 # Console HTTP+WebSocket gateway — the phone's browser is the UI; jkbridge is
 # a generic relay (JKAgentClient pipe + JKLlmEngine turn runner). LAN + URL
