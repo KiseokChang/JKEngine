@@ -1,5 +1,6 @@
 {
   "name": "sampletodo",
   "cmd": "sampletodo.cmd",
+  "cmd_posix": "apps/sampletodo/sampletodo.sh",
   "desc": "SDK 샘플 — 할 일 뷰어 + jkctl ask"
 }

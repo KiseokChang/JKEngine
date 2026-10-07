@@ -58,7 +58,8 @@
 - Consumes: 카탈로그 파일 존재 게이트(JKLibraryCatalog.cpp:217-223) — .sh/.cmd 무접미 처리 이미 계약.
 - Produces: sampletodo(콘솔 트윈)·lf·hx가 WSL/폰(library-list)에 등장.
 
-- [ ] **Step 1:** sampletodo .sh 트윈 작성(.cmd 본문 1:1 셸 이식)+lf/hx posix 빌드 산출 경로 확인(빌드 설비에 이미 있는지 실측 — buildwsl/apps) → Windows 회귀 없음 실측(selftest 395 count) → 커밋 `feat(apps): sampletodo/lf/hx posix 설치 트윈 — 카탈로그 무접미 경로 실측`.
+- [x] **Step 1:** sampletodo .sh 트윈 작성(.cmd 본문 1:1 셸 이식)+lf/hx posix 빌드 산출 경로 확인(빌드 설비에 이미 있는지 실측 — buildwsl/apps) → Windows 회귀 없음 실측(selftest 395 count) → 커밋 `feat(apps): sampletodo/lf/hx posix 설치 트윈 — 카탈로그 무접미 경로 실측`.
+  (as-built: 카탈로그는 "무접미 경로 게이트 이미 계약"이 아니었다 — lf/hx leg(:217-223)만 무접미고 콘솔 스캔은 cmd 원문 전승. 확장 계약 = manifest `cmd_posix`(옵션, basePath 상대 키)+posix 존재 게이트 fail-closed+staging CMake `console_apps` 타겟. WSL count 실측 29→32, selftest 391→399; Windows count=30 불변, selftest 0 failure 유지. lf/hx linux 조달 = `engine/scripts/install_lf_helix_posix.sh`(lf r42/helix 25.07.1 핀 — Windows 패리티), 바이너리 git 밖.)
 
 ### Task 4: 폰 rollout probe
 

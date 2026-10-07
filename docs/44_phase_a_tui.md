@@ -10,6 +10,13 @@
 
 - **lf r42**, **helix 25.07.1** — `engine/build/apps-bin/{lf,helix}/`에 설치
   (스크립트 `engine/scripts/install_lf_helix.ps1`, git 밖 바이너리).
+- **posix 쌍대 설치기**(앱 커버리지 라인 Task 3, 2026-10-07):
+  `engine/scripts/install_lf_helix_posix.sh` — 동일 버전 핀(lf r42 /
+  helix 25.07.1, Windows 측 실측 패리티)을 `buildwsl/apps-bin/{lf/lf,
+  helix/hx}`에 확보한다. GitHub release 다운로드 사용(네트워크 — 원장
+  명시), 멱등(부재 시에만 조달), 바이너리 git 밖 동일 정책. 카탈로그는
+  무접미 경로를 이미 게이트했다(JKLibraryCatalog.cpp:217-223 win32
+  `.exe`/posix 무접미 — 본 라인 실측 확인).
 - **터미널 CLI**: `jkdesktop.exe terminal [--shell <cmdline>] [--cwd <dir>]`
   — terminal.json의 shell을 CLI로 오버라이드. lf/helix가 터미널 창 안에서 실행된다.
   사용자 GUI 검증 완료 (lf 창에서 마우스/키 동작 + `q` 종료까지).

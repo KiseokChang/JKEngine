@@ -922,6 +922,27 @@ endif()
 endif()
 
 # ---------------------------------------------------------------------------
+# Console app staging (앱 커버리지 Task 3 — 설치 트윈). engine/apps/<dir> is
+# the single source of truth for console apps (manifest.json + launcher
+# twins); the build tree needs a copy next to the exe so the catalog console
+# scan (JKLibraryCatalog.cpp — basePath = exe dir) finds it on both
+# platforms. Windows staged sampletodo by hand since 2026-09-16; this rule
+# replaces the hand copy (copy_if_different is a no-op when identical, so the
+# already-staged tree converges without churn). The catalog's spawn key comes
+# from the manifest itself ("cmd" on win32 / "cmd_posix" on posix), so the
+# staging is deliberately format-blind: ship the whole source dir.
+# ---------------------------------------------------------------------------
+add_custom_target(console_apps ALL
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/apps/sampletodo"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/apps/sampletodo/manifest.json"
+        "${CMAKE_SOURCE_DIR}/apps/sampletodo/sampletodo.cmd"
+        "${CMAKE_SOURCE_DIR}/apps/sampletodo/sampletodo.sh"
+        "${CMAKE_BINARY_DIR}/apps/sampletodo/"
+    COMMENT "Staging console apps (sampletodo manifest + .cmd/.sh twins)"
+    VERBATIM)
+
+# ---------------------------------------------------------------------------
 # .jkx auto-repack (Phase C). Client app code ships INSIDE apps/<app>.jkx
 # (MODL entry), so a plain `cmake --build` is not enough after touching app
 # sources — the containers must be regenerated. This custom target reruns

@@ -3148,6 +3148,102 @@ static int RunAppSelfTest() {
                   "1m-z 클린업");
         }
 
+        // 1m-t) 콘솔 설치 트윈 스폰 키 (앱 커버리지 Task 3 — manifest
+        //   "cmd_posix" 확장 계약). 가짜 apps/ 트리를 temp에서 별도 조립 —
+        //   1m 본 트리(n==6 계약)와 무접촉. 기대 계약(JKLibraryCatalog.cpp와
+        //   1:1):
+        //   a) cmd_posix 유+트윈 파일 존재 → posix 스폰 키 = "terminal:" +
+        //      cmd_posix(basePath 상대 — posix SpawnProcess child cwd=exe dir
+        //      실측 계약, 내장 lf 키와 같은 기점), win32는 cmd 원문(트윈 필드
+        //      무시 — Windows 카탈로그 계약 불변).
+        //   b) cmd_posix 유+트윈 파일 결손 → posix 스킵(fail-closed — lf/hx
+        //      파일 존재 게이트 동형), win32는 무게이트 카운트(계약 불변).
+        //   c) cmd_posix 무 → cmd 원문(1m leg 계약 — 무트윈 매니페스트 호환).
+        {
+            std::error_code ec;
+            const std::string base =
+                (std::filesystem::temp_directory_path(ec)
+                 .append("jk_library_st_1mt")).string();
+            std::filesystem::remove_all(base, ec);
+            std::filesystem::create_directories(base + "/apps/twincmdapp", ec);
+            std::filesystem::create_directories(base + "/apps/missingtwin", ec);
+            std::filesystem::create_directories(base + "/apps/barecmd", ec);
+            {
+                const std::string twinJson =
+                    "{\"name\":\"twincmd\",\"cmd\":\"twincmd.cmd\","
+                    "\"cmd_posix\":\"apps/twincmdapp/twincmd.sh\"}";
+                const std::string missingJson =
+                    "{\"name\":\"missingtwin\",\"cmd\":\"missingtwin.cmd\","
+                    "\"cmd_posix\":\"apps/missingtwin/missingtwin.sh\"}";
+                const std::string bareJson =
+                    "{\"name\":\"barecmd\",\"cmd\":\"apps-bin/bare\"}";
+                std::ofstream f1(base + "/apps/twincmdapp/manifest.json",
+                                 std::ios::binary);
+                f1.write(twinJson.data(), static_cast<std::streamsize>(
+                                              twinJson.size()));
+                // 트윈 파일 — 스캔은 존재만 본다(더미 원문으로 충분).
+                std::ofstream f2(base + "/apps/twincmdapp/twincmd.sh",
+                                 std::ios::binary);
+                f2.write("#!/bin/sh\n", 10);
+                std::ofstream f3(base + "/apps/missingtwin/manifest.json",
+                                 std::ios::binary);
+                f3.write(missingJson.data(), static_cast<std::streamsize>(
+                                                 missingJson.size()));
+                std::ofstream f4(base + "/apps/barecmd/manifest.json",
+                                 std::ios::binary);
+                f4.write(bareJson.data(), static_cast<std::streamsize>(
+                                              bareJson.size()));
+            }
+            std::vector<jk::LibraryEntry> got;
+            const int n = jk::LibraryScan(base, got);
+            // 개수 — 내장 3 + barecmd 1 은 양축 공통. 트윈 leg만 갈린다:
+            //   win32 = twincmd·missingtwin 전부 카운트(무게이트) = 6
+            //   posix = twincmd만(결손 트윈 스킵) = 5
+#ifdef _WIN32
+            check(n == 6, "1mt-0 스캔 개수(win32 = 내장3+barecmd+트윈2 = 6)");
+#else
+            check(n == 5, "1mt-0 스캔 개수(posix = 내장3+barecmd+트윈1 = 5)");
+#endif
+            const jk::LibraryEntry* t = nullptr;
+            const jk::LibraryEntry* m = nullptr;
+            const jk::LibraryEntry* b = nullptr;
+            for (const auto& e : got) {
+                if (e.source != jk::LibrarySource::Console) continue;
+                if (e.appName.find("twincmd") != std::string::npos)
+                    t = &e;  // 매치 — 키는 플랫폼별(아래에서 판정)
+                if (e.appName == "missingtwin" ||
+                    e.appName == "terminal:missingtwin.cmd")
+                    m = &e;
+                if (e.appName == "terminal:apps-bin/bare") b = &e;
+            }
+            check(t != nullptr, "1mt-1 트윈 존재 leg 발견");
+            if (t) {
+#ifdef _WIN32
+                check(t->appName == "terminal:twincmd.cmd",
+                      "1mt-2 win32 트윈 필드 무시(cmd 원문 키 — 계약 불변)");
+#else
+                check(t->appName == "terminal:apps/twincmdapp/twincmd.sh",
+                      "1mt-2 posix 트윈 스폰 키(terminal:+cmd_posix)");
+#endif
+                check(t->source == jk::LibrarySource::Console,
+                      "1mt-3 트윈 leg source=Console");
+                check(t->path.find("twincmdapp") != std::string::npos,
+                      "1mt-4 트윈 leg 콘솔 dir 절대 경로");
+            }
+#ifdef _WIN32
+            check(m != nullptr,
+                  "1mt-5a win32 결손 트윈 무게이트 카운트(계약 불변)");
+#else
+            check(m == nullptr,
+                  "1mt-5b posix 결손 트윈 스킵(fail-closed 존재 게이트)");
+#endif
+            check(b != nullptr && b->appName == "terminal:apps-bin/bare",
+                  "1mt-6 cmd_posix 무 매니페스트 = cmd 원문(1m leg 계약 유지)");
+            std::error_code ec3;
+            check(std::filesystem::remove_all(base, ec3) > 0 && !ec3,
+                  "1mt-z 클린업");
+        }
+
         // 1n) 채팅 명령 라우터 (스펙 2026-10-07-desktop-chat-app §1.3 — stub
         //   턴 백엔드의 뇌). Offline pure 룩업 — 서버·창 무접촉으로 어휘 4종
         //   +불인+별명 도표를 잠근다. 기대 계약(ChatRouter.h와 1:1):

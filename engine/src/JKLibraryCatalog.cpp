@@ -143,7 +143,7 @@ int LibraryScan(const std::string& basePath, std::vector<LibraryEntry>& out) {
         }
         JSValue root = JS_ParseJSON(ctx, reinterpret_cast<const char*>(bytes.data()),
                                     bytes.size() - 1, "manifest.json");
-        std::string name, cmd, desc;
+        std::string name, cmd, desc, cmdPosix;
         if (!JS_IsException(root) && JS_IsObject(root)) {
             auto getString = [&](const char* key, std::string* field) {
                 JSValue v = JS_GetPropertyStr(ctx, root, key);
@@ -160,6 +160,7 @@ int LibraryScan(const std::string& basePath, std::vector<LibraryEntry>& out) {
             getString("name", &name);
             getString("cmd", &cmd);
             getString("desc", &desc);
+            getString("cmd_posix", &cmdPosix);
         }
         JS_FreeValue(ctx, root);
         if (ctx) JS_FreeContext(ctx);
@@ -181,7 +182,40 @@ int LibraryScan(const std::string& basePath, std::vector<LibraryEntry>& out) {
         // jkapp_<app> 모듈 파일을 요구하므로 manifest 이름을 그대로 보내면
         // unknown_app로 죽는다 — 접두 면제 경로(launch_app 규약, 내장 lf/hx와
         // 동일 계약)로만 콘솔 앱이 스폰된다. 이름은 동명 스킵 판정 위에서만 쓴다.
-        e.appName = "terminal:" + cmd;
+        //
+        // 콘솔 설치 트윈 확장 계약 (앱 커버리지 Task 3 — manifest "cmd_posix"):
+        //   win32 = cmd 원문 그대로(런처 ScanConsoleApps 전용 계약 — spawnConsole
+        //           cwd=앱 폴더, JKWindowServer SpawnConsoleApp 주석. 불변 —
+        //           Windows 카탈로그 30행 계약 유지).
+        //   posix = cmd_posix(옵션 필드)를 스폰 키로 승격 — basePath 상대
+        //           "apps/<dir>/<file>" 형태가 정합이다: posix SpawnProcess가
+        //           child cwd를 exe dir로 고정(JKWindowServer.cpp posix leg
+        //           workingDir=dirP 실측 — 내장 lf의 "terminal:apps-bin/lf/lf"
+        //           키와 같은 기점 계약)하므로 bare 파일명은 PATH 밖으로 못 맞는
+        //           죽은 키가 된다. 파일 존재 게이트 fail-closed — 트윈 결손
+        //           스폰 키는 올리지 않고 스킵+stderr 1행(lf/hx 존재 게이트와
+        //           .jkx-wins 스킵의 중간 형태). cmd_posix 부재 매니페스트는
+        //           cmd 원문(위 런치 계약 1:1 — selftest 1m "apps-bin/y" leg).
+        // 트윈이 스폰되면 /bin/sh -c <키>로 실행된다(JKConPtyBridge_posix
+        // Start 계약) — 트윈 파일은 shebang+exec 비트가 전제(drvfs 기본 유지).
+#ifdef _WIN32
+        const std::string spawnKey = cmd;
+#else   // posix — cmd_posix 옵션 확장(존재 게이트)
+        std::string spawnKey = cmd;
+        if (!cmdPosix.empty()) {
+            std::error_code twinEc;
+            const std::string twinPath = basePath + "/" + cmdPosix;
+            if (!std::filesystem::exists(twinPath, twinEc) || twinEc) {
+                std::fprintf(stderr,
+                             "JKLibraryCatalog: console app '%s' skipped "
+                             "(posix spawn file missing: '%s')\n",
+                             name.c_str(), cmdPosix.c_str());
+                continue;
+            }
+            spawnKey = cmdPosix;
+        }
+#endif
+        e.appName = "terminal:" + spawnKey;
         // 표시명: manifest.json desc가 있으면 그걸 쓴다(이름보다 정보량 — 런처
         // 규약), 없으면 스폰 키 폴백.
         e.title = !desc.empty() ? desc : name;

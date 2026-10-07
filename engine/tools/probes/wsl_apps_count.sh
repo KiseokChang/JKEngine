@@ -1,17 +1,21 @@
 #!/usr/bin/env bash
 # WSL 앱 커버리지 probe (앱 커버리지 라인 Task 2 — wsl_chat_boot.sh 원준,
-# tmp/wsl_repack_receipt.sh 후속 영수증 대체).
-# 영수증 목표: ① WSL ninja 리빌드 ② WSL selftest 편승(391 기준선 무회귀)
-# ③ library-list count=29 + 구 jkx-pack 미제공이던 앱 행 source=jkx 실측
+# tmp/wsl_repack_receipt.sh 후속 영수증 대체. Task 3 갱신 — 설치 트윈).
+# 영수증 목표: ① WSL ninja 리빌드 ② WSL selftest 편승(399 기준선 무회귀 —
+# T2 실측 391 + T3 신설 1m-t 케이스 8행)
+# ③ library-list count=32 + 구 jkx-pack 미제공이던 앱 행 source=jkx 실측 +
+# Task 3 설치 트윈 3행(콘솔 sampletodo 1 + 내장 lf/hx 2) 실측
 # ④ 비ASCII 파일명 바이트 어설션(T1 리뷰 I1 수리 방법론 — tmp 영수증의
 # `od -c | grep -F '\ 3 4 5'` 공허 패턴 폐기, 실매치 카운트로 진단)
 # ⑤ jkx-pack negative path(nosuchapp → rc≠0 + dlerror 상세 1행)
 # ⑥ setsid 서버 부팅 → launch_app settings/notes(ok:true×2) → list_windows에
 # 창 2개 오브젝트 → 브래킷 pkill 철수 + 잔존 검사.
-# count 기대치=29의 근거(T1 룰링 원장 진술): auto-repack 기준선 — 24개
-# launcher .jkx + legacy drvfs 트리거 .jkx 4개 + chat builtin. workshop은
-# 어느 플랫폼에서도 auto-repack 산출이 아니므로(수동 pack 유산, count
-# 29↔30 소결은 별도 소유 결정) 여기서 기대하지 않는다.
+# count 기대치=32의 근거: T2 실측 29(auto-repack 기준선 — 24개 launcher .jkx
+# + legacy drvfs 트리거 .jkx 4개 + chat builtin) + Task 3 설치 트윈 3
+# (콘솔 sampletodo 트윈 1 — manifest cmd_posix 스폰 키 + 내장 lf/hx 2 —
+# buildwsl/apps-bin 조달, wsl_apps_bin_setup.sh가 확보. workshop은 어느
+# 플랫폼에서도 auto-repack 산출이 아니므로(수동 pack 유산) 여기서 기대하지
+# 않는다).
 #   템플릿 관습 그대로 — wsl.exe는 인라인 인용을 찢으니 이 스크립트는 항상
 #   파일로 실행한다(Git Bash/MSYS 경로 변환이 /mnt/ 경로를 찢으니
 #   MSYS_NO_PATHCONV=1 접두 필수 — 실측: 접두 없으면 "No such file or
@@ -38,7 +42,11 @@ echo "WSL-BUILD-RC=$BUILD_RC"
 [ "$BUILD_RC" -eq 0 ] || FAIL "ninja rebuild rc=$BUILD_RC"
 [ -x buildwsl/jkdesktop ] || FAIL "buildwsl/jkdesktop missing after rebuild"
 
-echo "=== 2. WSL selftest 편승 (T1 리뷰 carryover — 기준선 391 무회귀 기록) ==="
+echo "=== 1b. lf/hx posix 조달 (Task 3 설치 트윈 — 멱등, 부재 시에만 네트워크) ==="
+bash scripts/install_lf_helix_posix.sh \
+    || FAIL "apps-bin setup failed (lf/hx posix provisioning)"
+
+echo "=== 2. WSL selftest 편승 (T1 리뷰 carryover — 기준선 무회귀 기록) ==="
 timeout 300 ./buildwsl/jkdesktop test >/tmp/apps_st.log 2>&1
 ST_RC=$?
 echo "selftest rc=$ST_RC"
@@ -50,8 +58,9 @@ grep -aq 'AppSelfTest: 0 failure(s)' /tmp/apps_st.log \
     || FAIL "selftest summary missing 'AppSelfTest: 0 failure(s)' — log: /tmp/apps_st.log"
 [ "$ST_FAIL" -eq 0 ] || FAIL "selftest FAIL=$ST_FAIL (WSL축 회귀) — log: /tmp/apps_st.log"
 [ "$ST_RC" -eq 0 ] || FAIL "selftest rc=$ST_RC"
-# 하한 앵커=T2 실측 391 (T2 리뷰 M3 갱신 — 374은 과거 성장전 수치)
-[ "$ST_PASS" -ge 391 ] || FAIL "selftest PASS=$ST_PASS < 기준선 391 (WSL축 회귀)"
+# 하한 앵커=T3 실측 399 (T2 실측 391 + T3 신설 1m-t 콘솔 트윈 케이스 8행
+# 증분 — T2 리뷰 M3 하한 운용 계승)
+[ "$ST_PASS" -ge 399 ] || FAIL "selftest PASS=$ST_PASS < 기준선 399 (WSL축 회귀)"
 
 echo "=== 3. library-list (serverless catalog CLI) ==="
 timeout 30 ./buildwsl/jkdesktop library-list >/tmp/apps_lib_list.out 2>/tmp/apps_lib_list.err
@@ -67,8 +76,8 @@ COUNTLINE=$(grep -aE '^count=[0-9]+ base=' /tmp/apps_lib_list.out | head -1)
 [ -n "$COUNTLINE" ] || FAIL "library-list has no 'count=<n> base=' tail (malformed output)"
 COUNT=$(printf '%s' "$COUNTLINE" | sed -n 's/^count=\([0-9]*\) .*$/\1/p')
 [ "$NAMED" -eq "$COUNT" ] || FAIL "library-list line/count mismatch: name= lines=$NAMED count=$COUNT"
-echo "LIBRARY-COUNT=$COUNT (근거: auto-repack 기준 29 — 헤더 코멘트 원장 진술)"
-[ "$COUNT" -eq 29 ] || FAIL "library-list count=$COUNT expected 29 (자동 리팩 기준선 이탈)"
+echo "LIBRARY-COUNT=$COUNT (근거: T2 auto-repack 기준 29 + Task 3 설치 트윈 3 — 헤더 코멘트 원장 진술)"
+[ "$COUNT" -eq 32 ] || FAIL "library-list count=$COUNT expected 32 (T3 설치 트윈 반영 기준선 이탈)"
 
 # 신규 jkx-pack이 이전에 미제공이던 앱 행 실측 — source=jkx로 잠근다.
 for APP in settings notes terminal; do
@@ -76,6 +85,33 @@ for APP in settings notes terminal; do
     [ -n "$ROW" ] || FAIL "library-list has no source=jkx row for name=$APP — output: $(tr '\n' ' ' </tmp/apps_lib_list.out)"
     echo "row: $ROW"
 done
+
+# Task 3 설치 트윈 3행 실측 — 콘솔 sampletodo(1) + 내장 lf/hx(2).
+# 콘솔 스폰 키 계약 = manifest cmd_posix(basePath 상대) — 스폰되면
+# /bin/sh -c <키>로 살아난다(JKConPtyBridge_posix). 내장 lf/hx는 무접미 경로
+# (JKLibraryCatalog.cpp:217-223 플랫폼 접미 게이트 — win32 .exe / posix 무접미).
+TWIN_ROW=$(grep -aF 'name=terminal:apps/sampletodo/sampletodo.sh' /tmp/apps_lib_list.out | head -1)
+[ -n "$TWIN_ROW" ] || FAIL "library-list has no console twin row (name=terminal:apps/sampletodo/sampletodo.sh) — output: $(tr '\n' ' ' </tmp/apps_lib_list.out)"
+printf '%s' "$TWIN_ROW" | grep -aq ' source=console caps= size=0 ' \
+    || FAIL "console twin row is not source=console — row: $TWIN_ROW"
+echo "row: $TWIN_ROW"
+LF_ROW=$(grep -aF 'name=terminal:apps-bin/lf/lf title=lf source=builtin' /tmp/apps_lib_list.out | head -1)
+[ -n "$LF_ROW" ] || FAIL "library-list has no builtin lf row (posix 무접미 경로 게이트 미충족?) — output: $(tr '\n' ' ' </tmp/apps_lib_list.out)"
+echo "row: $LF_ROW"
+HX_ROW=$(grep -aF 'name=terminal:apps-bin/helix/hx title=hx source=builtin' /tmp/apps_lib_list.out | head -1)
+[ -n "$HX_ROW" ] || FAIL "library-list has no builtin hx row (posix 무접미 경로 게이트 미충족?) — output: $(tr '\n' ' ' </tmp/apps_lib_list.out)"
+echo "row: $HX_ROW"
+
+# 콘솔 트윈 존재 게이트 negative path — 트윈 .sh 파일이 없으면 카탈로그가
+# 스킵하는 것(fail-closed)을 잠근다: staged 트리의 .sh를 잠깐 옮겨 두었다가
+# 되돌려 두고, 그 사이 count가 31로 떨어졌다가 되돌아오는지 실측.
+mv buildwsl/apps/sampletodo/sampletodo.sh /tmp/apps_twin_hidden.sh
+HIDDEN_OUT=$(timeout 30 ./buildwsl/jkdesktop library-list 2>/dev/null | grep -aE '^count=' | head -1)
+mv /tmp/apps_twin_hidden.sh buildwsl/apps/sampletodo/sampletodo.sh
+echo "twin-hidden count line: $HIDDEN_OUT"
+[ "$(printf '%s' "$HIDDEN_OUT" | sed -n 's/^count=\([0-9]*\) .*$/\1/p')" = "31" ] \
+    || FAIL "twin-hidden negative path: count did not drop to 31 (fail-closed 게이트 미작동) — line: $HIDDEN_OUT"
+[ -x buildwsl/apps/sampletodo/sampletodo.sh ] || FAIL "twin-hidden restore failed (staged .sh lost)"
 
 echo "=== 4. 비ASCII 파일명 바이트 어설션 (WSL readdir 관점 — 총 0 히트) ==="
 ls -1 buildwsl/apps/*.jkx >/tmp/apps_names.txt
@@ -181,6 +217,31 @@ NOTES_WIN=$(printf '%s' "$WIN_OUT" | grep -aoE '\{"id":[^}]*"title":"Notes"[^}]*
 echo "settings window: $SETT_WIN"
 echo "notes window: $NOTES_WIN"
 
+echo "=== 8b. launch_app 콘솔 트윈 (Task 3 — sampletodo .sh 스폰 키 수신) ==="
+# 스폰된 트윈은 인수 없이 todo.txt 안내 한 줄 인쇄하고 끝난다 → PTY가 닫히고
+# 창이 곧 사라진다 — list_windows 단정은 경주형이라 하지 않고, 스폰 응답
+# ok:true만 잠근다(terminal: 접두는 jkapp_ 존재 검증 면제 계약 — 실제 실행은
+# /bin/sh -c apps/sampletodo/sampletodo.sh로 살아난다).
+LT_OUT=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"launch_app","args":{"app":"terminal:apps/sampletodo/sampletodo.sh"}}' 2>/dev/null | grep -a '{' | head -1)
+echo "launch twin: $LT_OUT"
+[ -n "$LT_OUT" ] || FAIL "launch_app twin got no reply (server gone?)"
+ASSERT_FIELD "$LT_OUT" '"ok":true' "launch_app twin (sampletodo .sh) did not ok"
+# 스폰이 실제 서버를 나갔는지 잠근다 — SpawnProcess의 stderr 스폰 1행
+# (launch_app ok:true는 접두 면제 계약상 스폰 성공 bool을 전승하지 않는다 —
+# 서버 로그 행이 그 진실원).
+sleep 2
+SPAWNED_LINE=$(grep -aF 'terminal --shell apps/sampletodo/sampletodo.sh' /tmp/apps_srv.log | tail -1)
+echo "spawned line: $SPAWNED_LINE"
+[ -n "$SPAWNED_LINE" ] || FAIL "server log has no spawn line for the twin (launch_app ok:true was not a spawn)"
+# 트윈 본문 수칙 실측(서버리) — 인수 없이는 todo.txt 안내 한 줄로 rc=0.
+# (= .cmd 본문 1:1 이식 검증 — 스폰된 터미널 창이 이 출력으로 곧 닫히는 것도
+# 같은 이유, list_windows 경주 어설션을 두지 않은 근거)
+TWIN_BODY=$(cd buildwsl && timeout 10 ./apps/sampletodo/sampletodo.sh 2>&1)
+TWIN_RC=$?
+echo "twin body rc=$TWIN_RC first line: $(printf '%s' "$TWIN_BODY" | head -1)"
+[ "$TWIN_RC" -eq 0 ] || FAIL "twin body rc=$TWIN_RC (expected 0)"
+printf '%s' "$TWIN_BODY" | grep -aq 'todo.txt not found' \
+    || FAIL "twin body missing todo.txt hint line — body: $(printf '%s' "$TWIN_BODY" | tr '\n' ' ')"
 echo "=== 9. cleanup (bracketed pkill — WSL kill discipline) ==="
 pkill -f 'buildwsl/jkdesktop' 2>/dev/null
 sleep 1
