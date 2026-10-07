@@ -42,8 +42,8 @@ constexpr const char* kCaptureOverlayTitle = "Region Capture";
 // 스레드 규약(T2 배선 — 서버 Run 루프 스레드 전용): 실측 원문 — 커밋 수신점
 // (MarkDirty/QueueCommitRects를 부르는 CommitSurface 핸들러,
 // JKWindowServer.cpp ProcessClientMessage)과 Composite는 모두
-// JKWindowServer::Run의 같은 스레드 위에 있다(ProcessPendingMessages는
-// Run:903, Composite는 Run:816/924 — 클라 리드 스레드는 PopMessage 큐까지만
+// JKWindowServer::Run의 같은 스레드 위에 있다(ProcessPendingMessages 호출은
+// Run:911, Composite는 Run:824/932 — 클라 리드 스레드는 PopMessage 큐까지만
 // 채운다). 그래서 FrameDirtyAccumulator(T1 계약 — 내부 뮤텍스 없음, 단일
 // 스레드 전제)를 그대로 쓴다. 예외는 커밋 rect 보류 큐 하나뿐 — 합정 원장
 // (brief 함정 ①)대로 전용 뮤텍스로 방어한다.
