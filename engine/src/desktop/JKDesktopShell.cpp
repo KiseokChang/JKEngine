@@ -583,9 +583,33 @@ void JKDesktopShell::Draw(SDL_Renderer* renderer) {
         SDL_GetTicks() - hoverStartMs_ >= kTooltipHoverDelayMs) {
         hoverActive_ = true;
     }
+    // (T2 fix r1 NT2-1) 툴팁 전이 = rect 사건 없는 동적 드로잉 — 이번 프레임에
+    // 실제 그린 dst와 마지막 표기를 비교해 전이(off→on·자리 이동·on→off)만
+    // onDynamicDraw로 흘린다(전이가 없는 프레임은 사건 0 — 스킵 이득 유지).
+    SDL_Rect tooltipNow{0, 0, 0, 0};
     if (hoverActive_ && hoverIndex_ >= 0 &&
         hoverIndex_ < static_cast<int>(launcherIcons_.size())) {
-        DrawTooltip(renderer, launcherIcons_[static_cast<size_t>(hoverIndex_)]);
+        tooltipNow = DrawTooltip(renderer,
+                                 launcherIcons_[static_cast<size_t>(hoverIndex_)]);
+    }
+    if (host_.onDynamicDraw) {
+        if (tooltipNow.w > 0) {
+            if (tooltipShownLast_ &&
+                (tooltipLastRect_.x != tooltipNow.x ||
+                 tooltipLastRect_.y != tooltipNow.y ||
+                 tooltipLastRect_.w != tooltipNow.w ||
+                 tooltipLastRect_.h != tooltipNow.h)) {
+                host_.onDynamicDraw(tooltipLastRect_);  // 이전 자리 소거 사건
+                host_.onDynamicDraw(tooltipNow);        // 새 자리 착지 사건
+            } else if (!tooltipShownLast_) {
+                host_.onDynamicDraw(tooltipNow);        // off→on
+            }
+            tooltipLastRect_ = tooltipNow;
+            tooltipShownLast_ = true;
+        } else if (tooltipShownLast_) {
+            host_.onDynamicDraw(tooltipLastRect_);  // on→off — 배경 재칠 사건
+            tooltipShownLast_ = false;
+        }
     }
 }
 
@@ -749,14 +773,18 @@ SDL_Texture* JKDesktopShell::TooltipTexture(const std::string& utf8, int* w, int
     return tex;
 }
 
-void JKDesktopShell::DrawTooltip(SDL_Renderer* renderer, const LauncherIcon& icon) {
+// (T2 fix r1 NT2-1) 반환 = 실제 그린 dst rect(물리 픽셀) — 못 그리면 0x0.
+// 판정은 Draw() 쪽 전이 블록이 반환값으로 한다(사건은 전이时만 — 매 프레임
+// 사건이면 스킵 이득 소멸).
+SDL_Rect JKDesktopShell::DrawTooltip(SDL_Renderer* renderer,
+                                     const LauncherIcon& icon) {
     const float s = host_.outputScale ? host_.outputScale() : 1.0f;
     const std::string& label = !icon.title.empty() ? icon.title : icon.appName;
-    if (label.empty()) return;
+    if (label.empty()) return SDL_Rect{0, 0, 0, 0};
     int tw = 0;
     int th = 0;
     SDL_Texture* tex = TooltipTexture(label, &tw, &th);
-    if (!tex || tw <= 0 || th <= 0) return;
+    if (!tex || tw <= 0 || th <= 0) return SDL_Rect{0, 0, 0, 0};
 
     // 셀 아래 4pt 간격(논리 좌표). 데스크톱 바닥에 닿으면 셀 위로 뒤집고,
     // 오른쪽/왼쪽 클램프로 화면 밖을 막는다. 최종 좌표·크기는 물리 픽셀 —
@@ -778,6 +806,7 @@ void JKDesktopShell::DrawTooltip(SDL_Renderer* renderer, const LauncherIcon& ico
     if (py < 0) py = 0;
     SDL_Rect dst{ px, py, dw, dh };
     SDL_RenderCopy(renderer, tex, nullptr, &dst);
+    return dst;
 }
 
 bool JKDesktopShell::LaunchAt(int x, int y) {

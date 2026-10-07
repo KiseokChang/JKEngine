@@ -244,6 +244,13 @@ void JKCompositor::RequestFullPresent() {
     frameDirty_.ForceFull();
 }
 
+// (T2 fix r1 NT2-1) 셸 동적 드로잉 사건 — 화면 좌표 rect를 프레임 더티에
+// 봉합(키 0 = desktop, 레이어 id 공간과 무관 — T1 AddDirtyLayerRect는 이미
+// 화면 좌표 계약). 정확 rect 사건이므로 SW 부분 경로의 부분 업로드 이득 유지.
+void JKCompositor::NotifyDynamicDraw(const SDL_Rect& rect) {
+    frameDirty_.AddDirtyLayerRect(0, rect);
+}
+
 void JKCompositor::SetOutput(const JKCompositorOutput& output) {
     output_ = output;
 }
@@ -462,7 +469,8 @@ void JKCompositor::Composite(bool present) {
     size_t nRects = 0;
     bool fullPath = false;
     if (present) {
-        // 첫 제시(renderedOnce) = 전체 — 이전 제시 상태가 없는 프레임(부트).
+        // 첫 제시(presentedOnce_ — fix r1 cosmetic: renderedOnce 표기 통일)
+        // = 전체 — 이전 제시 상태가 없는 프레임(부트).
         if (!presentedOnce_) {
             frameDirty_.ForceFull();
         }

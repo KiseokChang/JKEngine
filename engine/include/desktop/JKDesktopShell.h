@@ -38,6 +38,12 @@ public:
         // 위에 cmd를 띄운다 (cwd = 앱 폴더, 상대경로).
         std::function<void(const std::string& cmd, const std::string& cwd,
                            const std::string& name)> spawnConsole;
+        // (T2 fix r1 NT2-1) 동적 드로잉 토크백 — 셸이 합성기 위에 직접 그리는
+        // "rect 사건 없는" 변화(툴팁 on/off·자리 이동 — hoverActive_ 시간 기반
+        // 전이)를 물리 픽셀 rect 사건으로 서버에 흘린다. 더티프레젠트 스킵 분기가
+        // 이런 변화를 먹던 회귀의 봉합(overlayDrewThisFrame_ 패턴 동형). 미설정이면
+        // 사건 소각(기존 동작).
+        std::function<void(const SDL_Rect&)> onDynamicDraw;
     };
 
     // Scan apps/*.jkx, add built-in fallbacks, load the background photo,
@@ -110,7 +116,9 @@ private:
     // 캐시해 매 프레임 재시도하지 않는다(배너 선례).
     SDL_Texture* TooltipTexture(const std::string& utf8, int* w, int* h);
     // 호버 중인 아이콘 셀 아래(바닥에 닿으면 위) 툴팁을 물리 픽셀로 렌더.
-    void DrawTooltip(SDL_Renderer* renderer, const LauncherIcon& icon);
+    // 반환 = 실제 그린 dst rect(물리 픽셀; 못 그리면 0x0 — (T2 fix r1) 동적
+    // 드로잉 사건 판정을 Draw()가 반환값으로 한다).
+    SDL_Rect DrawTooltip(SDL_Renderer* renderer, const LauncherIcon& icon);
 
     void ScanJkxApps();
     void ScanConsoleApps();
@@ -129,6 +137,11 @@ private:
     int hoverIndex_ = -1;
     Uint32 hoverStartMs_ = 0;
     bool hoverActive_ = false;
+    // (T2 fix r1 NT2-1) 마지막 프레임의 툴팁 표기 — Draw()가 전이(off→on·
+    // 자리 이동·on→off)를 판정해 onDynamicDraw로 흘린다. Draw 전용 상태
+    // (서버 합성 스레드 — overlayDrewThisFrame_와 같은 스레드 규약).
+    bool tooltipShownLast_ = false;
+    SDL_Rect tooltipLastRect_{0, 0, 0, 0};
     std::map<std::string, TooltipTex> tooltipTexs_;
     std::unique_ptr<JKTextAtlas> tooltipAtlas_;
     std::unique_ptr<JKResourceCache> tooltipCache_;

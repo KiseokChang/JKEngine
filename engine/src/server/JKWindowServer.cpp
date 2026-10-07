@@ -242,6 +242,15 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
                                     const std::string& name) {
         SpawnConsoleApp(cmd, cwd, name);
     };
+    // (T2 fix r1 NT2-1) 셸 동적 드로잉 토크백 — 툴팁 전이 rect(물리 픽셀)를
+    // 프레임 더티로 봉합한다. 이 콜백은 ShellHost가 만들어진 뒤 shell_->Init
+    // 이전에 배선되므로 첫 Draw부터 유효; compositor_는 이미 살아 있다
+    // (Init 순서: compositor_ → shellHost 위 쪽 참조).
+    shellHost.onDynamicDraw = [this](const SDL_Rect& r) {
+        if (compositor_) {
+            compositor_->NotifyDynamicDraw(r);
+        }
+    };
     shell_ = std::make_unique<jk::desktop::JKDesktopShell>();
     shell_->Init(shellHost);
 
@@ -2264,6 +2273,12 @@ void JKWindowServer::UpdateOutputBounds() {
         lastDesktopW_ = logW;
         lastDesktopH_ = logH;
         if (!firstCall) {
+            // (T2 fix r1 NT2-4) 리사이즈 기준선 — 표면 재할당(DeX 표면 전이
+            // 등) 직후 화면 내용이 전부 무효다. dst 추적이 논리 크기 변동의
+            // 상당수를 잡지만(레이어 재배치 사건) 표면 자체 재할당은 rect 사건
+            // 없이 통과할 수 있다 — fail-safe로 전체 프레젠트 1점. 폰
+            // Termux:X11 고정 크기엔 미적용(변동 0) — 실비용 0.
+            compositor_->RequestFullPresent();
             size_t nMax = 0;
             if (!preMaxRects_.empty()) {
                 const int reserve = compositor_->ShellReserveHeight();
@@ -4794,6 +4809,13 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             reply = "{\"ok\":false,\"error\":\"bad_preset\"}";
         } else {
             jk::theme::setTheme(t);
+            // (T2 fix r1 NT2-1 가문) 테마 핫스왑 = 셸 색 재칠 — rect 사건이
+            // 없는 변화라 다음 합성이 스킵 분기로 먹는 회귀 봉합. 드문 사건이라
+            // 전체 프레젠트(리뷰 처방: "색 전체 재칠"). 클라 재칠은 각 poll
+            // ApplyTheme 몫(원문 유지).
+            if (compositor_) {
+                compositor_->RequestFullPresent();
+            }
             if (!jk::theme::WriteThemePresetFile(preset)) {
                 // Swap happened in-process but the truth file didn't land —
                 // clients' mtime poll would never follow. Fail loudly

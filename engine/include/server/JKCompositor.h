@@ -93,10 +93,17 @@ public:
                           size_t count);
 
     // (T2) 보수적 전체 프레젠트 강제 — 오버레이 훅(스펙 결정 2: 훅이 실제로
-    // 그린 프레임은 부분 rect가 부채질하는 회귀를 막는 안전망)·진단 회귀 등
-    // 바깥 사건이 한 점으로 부른다. 다음 TakeDirty가 화면 전체 rect 단건을
-    // 낸다(사건 유무 무관 — T1 ForceFull 계약).
+    // 그린 프레임은 부분 rect가 부채질하는 회귀를 막는 안전망)·테마 핫스왑,
+    // 출력 리사이즈(fix r1 NT2-4 fail-safe) 등 바깥 사건이 한 점으로 부른다.
+    // 다음 TakeDirty가 화면 전체 rect 단건을 낸다(사건 유무 무관 — T1
+    // ForceFull 계약).
     void RequestFullPresent();
+
+    // (T2 fix r1 NT2-1) 셸 동적 드로잉 사건 — 합성기 레이어가 아닌 직접
+    // 드로잉(런처 호버 툴팁 등)의 전이 rect를 화면 좌표(물리 픽셀)로 받아
+    // 프레임 더티에 봉합한다. AddDirtyLayerRect(0, rect) = 이미 화면 좌표
+    // 계약(T1) — desktop 키 0은 레이어 id 공간과 무관한 화면 좌표 사건.
+    void NotifyDynamicDraw(const SDL_Rect& rect);
 
     // Update output bounds (for now a single output covering the SDL window).
     void SetOutput(const JKCompositorOutput& output);
@@ -110,6 +117,9 @@ public:
 
     // Draw all visible layers into the framebuffer; present when asked.
     // capture_region (docs/35) draws without presenting to read pixels back.
+    // (T2 fix r1 NT2-3) JK_PRESENT_FORCE_FULL=1: 스킵 자체는 미제거 — rect가
+    // 있는 프레임만 full로 강제한다(변화 0 프레임은 여전히 제시 스킵). T3 A/B
+    // 실측에서 skip 혼입 주의 — full 건수 비교는 실제 제시 프레임 축으로.
     void Composite(bool present);
 
     // Id of the topmost visible layer (the focused one, or the last sorted
@@ -190,7 +200,8 @@ private:
     std::map<uint32_t, bool> commitRectSeen_;
     // 프레임 더티 계산기(T1 착지물 — 단일 스레드 규약).
     FrameDirtyAccumulator frameDirty_;
-    // 부트 첫 제시(renderedOnce) = 전체 — 이전 제시 상태가 없는 프레임.
+    // 부트 첫 제시(presentedOnce_ — fix r1 cosmetic: renderedOnce 표기 통일)
+    // = 전체 — 이전 제시 상태가 없는 프레임.
     bool presentedOnce_ = false;
     // 마지막 "제시된" 화면의 레이어 dst — skip 프레임(제시 스킵)에는 화면이
     // 그 제시 상태 그대로므로 갱신하지 않는다(화면 진실원 유지).

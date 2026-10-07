@@ -4830,23 +4830,26 @@ static int RunAppSelfTest() {
         check(two.TakeDirty(out) && out.size() == 2,
               "1p-7c 레이어 2종의 커밋 rect가 같은 프레임에 누적(레이어별 매핑)");
 
-        // 1p-8) T1 리뷰 F1 승계: 역치 면적 = 합집합(중복 가산 아님). 원장
-        // 산치(가산 5000 ≥ 4000 = full이나 합집합 3400 < 4000 = IsFull false).
-        // 합집합 3400 = 5000 − 중첩 1600 → 오프셋 (10,10)의 {10,10,50,50}
-        // (원장 표기 {30,30,50,50}은 중첩 400·합집합 4600이어서 산치와
-        // 어긋남 — 리포트 concern 원장 정정).
+        // 1p-8) T1 리뷰 F1 승계: 역치 면적 = 병합 목록 총합(중복 가산 아님).
+        // 원장 산치(fix r1 NT2-2 표기 정정 — 케이스 로직 무변경): 가산 5000
+        // ≥ 4000 = full이어야 답하나 **병합 목록 총합 3600**(rect 2건이 병합
+        // 되어 목록에 오르는 것은 merged-bbox {0,0,60,60} = 3600 / **정확
+        // 합집합 3400보다 bbox 과대 — full 조기 보수 방향**) < 4000 = IsFull
+        // false. 정확 합집합 3400 = 5000 − 중첩 1600 → 오프셋 (10,10)의
+        // {10,10,50,50}(원장 표기 {30,30,50,50}은 중첩 400·합집합 4600이어서
+        // 산치와 어긋남 — T2 리포트 concern 원장 정정).
         server::FrameDirtyAccumulator f1(100, 100);
         f1.AddDirtyLayerRect(1, {0, 0, 50, 50});
         f1.AddDirtyLayerRect(2, {10, 10, 50, 50});
         check(!f1.IsFull(),
-              "1p-8a 가산 5000이어도 합집합 3400 = IsFull false(F1 승계)");
+              "1p-8a 가산 5000이어도 병합 목록 총합 3600 = IsFull false(F1 승계)");
         check(f1.TakeDirty(out) && out.size() == 1 && out[0].x == 0 &&
                   out[0].y == 0 && out[0].w == 60 && out[0].h == 60,
-              "1p-8b 합집합 <역치 = 부분 제시(bbox 병합 목록 유지)");
+              "1p-8b 병합 총합 <역치 = 부분 제시(bbox 병합 목록 유지)");
         server::FrameDirtyAccumulator f2(100, 100);
         f2.AddDirtyLayerRect(1, {0, 0, 50, 50});
         f2.AddDirtyLayerRect(2, {0, 50, 50, 50});  // 인접·합집합 5000
-        check(f2.IsFull(), "1p-8c 합집합 5000 = full 전환(중첩 없는 합집합)");
+        check(f2.IsFull(), "1p-8c 병합 총합 5000(=합집합) = full 전환(중첩 없음)");
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);
