@@ -670,7 +670,6 @@ static int RunClientFromJkx(const char* jkxPath, const char* pipeName) {
     return rc;
 }
 
-#ifdef _WIN32
 // jkx-pack <app>: bundle jkapp_<app>.dll + launcher icon PNGs + a generated
 // manifest into apps/<app>.jkx. Metadata comes from the module's own
 // jk_app_meta (single source of truth); icons are optional.
@@ -678,6 +677,15 @@ static int RunClientFromJkx(const char* jkxPath, const char* pipeName) {
 // Script apps (docs/27 단계 1): when scripts/apps/<app>/{manifest.txt,app.js}
 // exists, the authored manifest is the metadata source and the shared
 // jkapp_script.dll rides in as the MODL entry — no per-app native module.
+//
+// posix leg (앱 커버리지 확대 1단 — docs/70 §제외의 jkx-pack 항목 재개):
+// 원래 win32 전용이던 LoadLibraryA 메타 소싱을 dlopen 트리오로 승계해 개방
+// (플랜 G2 RunClientModule posix leg 동형 — RTLD_NOW|RTLD_LOCAL·dlerror 세부).
+// 분기는 모듈 로드 함수뿐 — 매니페스트 조립·컨테이너 레이아웃·이름 규약은 양
+// 플랫폼 코드 공유. manifest module=와 MODL 엔트리명은 플랫폼 무관 ".dll"
+// 계약(slot-pack 선례 — RunClientFromJkx FindEntry("MODL", mani.module)의
+// *키*로만 소비되지, 추출 파일명은 플랫폼 temp 규약이 별도로 정한다); 디스크에서
+// 읽어 파묻는 바이너리만 AppModuleSuffix(.dll/.so) 단일 출처.
 static int RunJkxPack(const char* appName) {
     std::string base;
     if (char* p = SDL_GetBasePath()) {
@@ -717,12 +725,16 @@ static int RunJkxPack(const char* appName) {
             std::to_string(authored.width > 0 ? authored.width : 320) + "\n";
         regenerated += "height=" +
             std::to_string(authored.height > 0 ? authored.height : 240) + "\n";
-        regenerated += "module=jkapp_script.dll\n";
+        regenerated += "module=jkapp_script.dll\n";  // 플랫폼 무관 키 계약 — 아래 posix leg 주석
         regenerated += "script=app.js\n";
         manifestText = jk::JkxManifestMerge(text, regenerated);
         moduleName = "jkapp_script.dll";
     } else {
-        const std::string dllPath = base + "jkapp_" + appName + ".dll";
+        // 실제 파일 접미만 플랫폼 값(.dll/.so — JKWindowServer.h AppModuleSuffix
+        // 단일 출처); 경로 조립과 그 외 로직은 양 플랫폼 동일.
+        const std::string dllPath = base + "jkapp_" + appName +
+                                    jk::server::AppModuleSuffix();
+#ifdef _WIN32
         void* module = LoadLibraryA(dllPath.c_str());
         if (!module) {
             std::fprintf(stderr, "jkx-pack: cannot load '%s'\n", dllPath.c_str());
@@ -730,6 +742,20 @@ static int RunJkxPack(const char* appName) {
         }
         auto metaFn = reinterpret_cast<const jk::JKAppMeta* (*)()>(
             GetProcAddress(module, "jk_app_meta"));
+#else
+        // 플랜 G2 RunClientModule posix leg 동형: RTLD_NOW|RTLD_LOCAL. 닫지
+        // 않는다(FreeLibrary 힙손상 선례 — 팩커는 단명 프로세스). dlerror는
+        // 실패 세부를 1회만 보고하므로 NULL 가드(RunClientModule 동일 관습).
+        void* module = dlopen(dllPath.c_str(), RTLD_NOW | RTLD_LOCAL);
+        if (!module) {
+            const char* dlErr = dlerror();
+            std::fprintf(stderr, "jkx-pack: cannot load '%s' (%s)\n",
+                         dllPath.c_str(), dlErr ? dlErr : "(no dlerror detail)");
+            return 1;
+        }
+        auto metaFn = reinterpret_cast<const jk::JKAppMeta* (*)()>(
+            dlsym(module, "jk_app_meta"));
+#endif
         if (!metaFn) {
             std::fprintf(stderr, "jkx-pack: '%s' exports no jk_app_meta\n", dllPath.c_str());
             return 1;
@@ -748,9 +774,15 @@ static int RunJkxPack(const char* appName) {
     }
 
     std::vector<uint8_t> dll;
-    if (!ReadWholeFile(base + moduleName, dll)) {
-        std::fprintf(stderr, "jkx-pack: cannot read '%s'\n",
-                     (base + moduleName).c_str());
+    // 파묻힐 모듈 바이트는 *디스크의 실제 공유 모듈*(플랫폼 접미 — slot-pack
+    // kScriptModuleName 선례); 엔트리·manifest 키(moduleName, ".dll")는 플랫폼
+    // 무관 계약이라 모듈 stem에서 접미를 다시 붙여 읽는다.
+    const std::string moduleBytesPath =
+        base + (isScriptApp ? std::string("jkapp_script")
+                            : std::string("jkapp_") + appName) +
+        jk::server::AppModuleSuffix();
+    if (!ReadWholeFile(moduleBytesPath, dll)) {
+        std::fprintf(stderr, "jkx-pack: cannot read '%s'\n", moduleBytesPath.c_str());
         return 1;
     }
 
@@ -781,16 +813,28 @@ static int RunJkxPack(const char* appName) {
     if (hasIcon1) entries.emplace_back("launcher@1x.png", std::move(icon1Data));
     if (hasIcon2) entries.push_back({"launcher@2x.png", std::move(icon2Data)});
 
-    CreateDirectoryA((base + "apps").c_str(), nullptr);
-    const std::string outPath = base + "apps\\" + appName + ".jkx";
+    // CreateDirectoryA → create_directories: exists-ok 계약 동형(slot-pack
+    // 855-858 선례 — POSIX 개방 수반 시 동일 승계; 실패 무음 계약 유지).
+    std::error_code appsDirEc;
+    (void)std::filesystem::create_directories(base + "apps", appsDirEc);
+    // 출력 경로 구분자만 플랫폼 값 — win32 원문(역슬래시)·posix는 전진 구분자
+    // (drvfs U+F05x 이변 방지 — 인벤토리 (D) drvfs 경고: 역슬래시 성분이
+    // /mnt/i 쓰기에 그대로 새면 윈도 측에서 읽히지 않는 사유명이 나온다).
+    const std::string outPath = base +
+#ifdef _WIN32
+        "apps\\" + appName
+#else
+        "apps/" + appName
+#endif
+        + ".jkx";
     if (!jk::JKJkxFile::Write(outPath, entries)) return 1;
 
     std::printf("packed %s\n", outPath.c_str());
     return 0;
 }
-#endif // _WIN32 — jkx-pack은 LoadLibraryA로 메타를 소싱해 win32 전용 유지;
-// 아래 slot-pack/jkx-list/jkx-extract는 순수 stdio+JKJkxFile(TOC 파서는
-// 어댑터리)이라 docs/78 TX6에서 posix로 개방한다.
+// win32 전용 유지 주석은 폐기(위 posix leg) — 아래 slot-pack/jkx-list/
+// jkx-extract는 순수 stdio+JKJkxFile(TOC 파서는 어댑터리)이라 docs/78 TX6에서
+// 이미 posix 개방돼 있었다; jkx-pack이 그 라인에 승계됐다.
 
 // slot-pack <slot> [out]: 워크숍 슬롯 → .jkx 출하 (스펙 2026-10-05-slot-ship
 // -tool §2). 출하=워크숍 모드(MANI scriptfile=)+파묻힌 SCRI 시딩(§1 결정) —
@@ -3926,16 +3970,20 @@ static int RunMain(int argc, char* argv[]) {
     }
 
     if (argc > 1 && std::strcmp(argv[1], "jkx-pack") == 0) {
+        // posix leg(앱 커버리지 1단): 본체 공유, usage 접미 문구만 분기 —
+        // win32 원문 문구는 바이트 그대로(회귀 무수정 계약).
 #ifdef _WIN32
         if (argc < 3) {
             std::fprintf(stderr, "Usage: jkx-pack <app>  (bundles jkapp_<app>.dll + icons + manifest into apps/<app>.jkx)\n");
             return 1;
         }
-        return RunJkxPack(argv[2]);
 #else
-        std::fprintf(stderr, "jkx-pack is Windows-only in this prototype\n");
-        return 1;
+        if (argc < 3) {
+            std::fprintf(stderr, "Usage: jkx-pack <app>  (bundles jkapp_<app>.so + icons + manifest into apps/<app>.jkx)\n");
+            return 1;
+        }
 #endif
+        return RunJkxPack(argv[2]);
     }
 
     if (argc > 1 && std::strcmp(argv[1], "slot-pack") == 0) {

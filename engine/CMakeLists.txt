@@ -933,11 +933,14 @@ endif()
 # jkdesktop POST_BUILD copy — i.e. never after an icons-only edit. Sync each
 # icon into the build tree as an explicit output so icon edits chain into
 # repacking (minesweeper uses the launcher_mine prefix).
-# Linux v1 exclusion: the jkx-pack host (jkdesktop's Windows-only subcommand)
-# cannot run on posix, so the whole auto-repack block — icon sync, per-app
-# containers, and the jkx_packages ALL target — is WIN32-gated. Linux builds
-# produce binaries without launcher containers (documented in docs/70 §제외).
-if(WIN32)
+# Linux v1 exclusion is lifted for the pack host itself (앱 커버리지 확대 1단):
+# jkx-pack grew a posix leg (dlopen module loader twin of the 플랜 G2
+# RunClientModule leg — main.cpp RunJkxPack), so the auto-repack block is now
+# dual-path: CMake emits native separators on both (posix paths here are
+# forward-slash ${CMAKE_BINARY_DIR}/apps/... — the drvfs U+F05x warning in the
+# availability inventory requires forward separators only, which this form
+# satisfies). Only the browser rule stays WIN32-gated: it packs jkapp_browser
+# which links libcef.dll, a Windows-only dist (docs/70 §4).
 set(JKX_ICON_APPS
     mine tetris testwin jango occ pcx vector iconedit recog vfont vpres
     terminal imguidemo taskmgr vplayer browser scriptdemo passworddemo
@@ -1165,4 +1168,5 @@ add_custom_target(jkx_packages ALL
             ${JKX_DEP_BROWSER}
             "${CMAKE_BINARY_DIR}/apps/scriptdemo.jkx"
             "${CMAKE_BINARY_DIR}/apps/passworddemo.jkx")
-endif()  # WIN32 — jkx auto-repack (above)
+# (end dual-path jkx auto-repack — browser rule above carries the only WIN32
+# gate left in this block)
