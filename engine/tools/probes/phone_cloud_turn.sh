@@ -100,10 +100,14 @@ cat > "$SCRATCH/$RSRC_NAME" <<'PHONEEOF'
 set -u
 PLOG="${TMPDIR:-$HOME/tmp}"     # 폰 /tmp 쓰기 불가 — $TMPDIR(Termux 기본 존재)
 mkdir -p "$PLOG" "$HOME/JKENGINE" 2>/dev/null
-FAIL()   { echo "CLOUD-TURN-FAIL: $*"; exit 1; }  # hard receipt — probe rc=1
+FAIL()   { rm -f -- "$0" 2>/dev/null; echo "CLOUD-TURN-FAIL: $*"; exit 1; }  # hard receipt — probe rc=1 (자기 소각 후 라벨)
 HARD()   { echo "CLOUD-HARD-NOTE: $*"; }          # 정직 기록(라벨 근거)
-# finish: 라벨 1회 인쇄 + ollama serve 종료 상태 규칙(턴 성립 시에만 UP 유지).
+# finish: 라벨 1회 인쇄 + ollama serve 종료 상태 규칙(턴 성립 시에만 UP 유지)
+# + **폰 측 자기 소각**(rm -f $0 — 라벨 경로 전부 여기로 모여 있다; fix r1 R1
+# 실측 정정: 이전 3회 실행은 소각 코드가 없어 ~/JKENGINE 원격 임시 스크립트가
+# 잔존했다 — 자기 소각 선언을 코드로 뒷받친다).
 finish() {
+  rm -f -- "$0" 2>/dev/null
   if printf '%s' "$1" | grep -aq 'TURN-OK'; then
     echo "OLLAMA-SERVE-LEFT-UP: 턴 성립 — 후속 실측 보존(정지: pkill -f '[o]llama serve')"
   else
