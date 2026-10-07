@@ -3318,6 +3318,50 @@ static int RunAppSelfTest() {
                   "1n-13 Info 안내문이 어휘 표에서 조립");
         }
 
+        // 1n-s) close_window/focus_window 서버 타깃 해소 (채팅 F1 — plan
+        //   2026-10-08-chat-close-fix, docs/80 §4 귀속 백로그 착지). Resolver는
+        //   순수 로직(AgentWindowRef 스냅샷만 먹는다 — JKWindowServer.h 계약
+        //   전문)이라 서버 프로세스·컴포지터 무접촉으로 도표를 잠근다:
+        //   a) argless+포커스=그 창(폰 "닫아줘") · b) argless+무포커스=0
+        //   (window_not_found 정직 계약) · c) app 제목 매칭 대소문자 무시
+        //   (minesweeper→"Minesweeper") · d) 배지 제목 부분 일치("key (N)")
+        //   · e) 무매칭=0 · f) id 직접호출 계약 보존.
+        {
+            using jk::server::AgentWindowRef;
+            using jk::server::ResolveAgentWindowTarget;
+            const std::vector<AgentWindowRef> wins = {
+                {101, "Minesweeper", false},
+                {102, "Notes (3)", false},
+                {103, "chat", true},
+            };
+            // (a) argless = 포커스 창 — 채팅 얼굴 "닫아줘"의 본 경로
+            check(ResolveAgentWindowTarget(wins, false, 0, "") == 103,
+                  "1n-s1 argless=포커스 창 해소(닫아줘 — list_windows 근거)");
+            // (b) 포커스 없음 → 0 = window_not_found 승계(정직 회신 계약)
+            const std::vector<AgentWindowRef> noFocus = {
+                {101, "Minesweeper", false},
+                {102, "chat", false},
+            };
+            check(ResolveAgentWindowTarget(noFocus, false, 0, "") == 0,
+                  "1n-s2 argless 무포커스=0(window_not_found — 거짓 성공 없음)");
+            // (c) app 지명 — 라우터가 해소한 키(minesweeper)와 실제 창 제목
+            //     (Minesweeper)의 대소문자 무시 정확 일치
+            check(ResolveAgentWindowTarget(wins, false, 0, "minesweeper") == 101,
+                  "1n-s3 app 지명 제목 매칭(대소문자 무시 — minesweeper→Minesweeper)");
+            // (d) 부분 일치 — notify 배지 제목("key (N)")을 정확 키로 닫는다
+            check(ResolveAgentWindowTarget(wins, false, 0, "notes") == 102,
+                  "1n-s4 app 지명 부분 일치(notes→Notes (3) 배지 선례)");
+            // (e) 무매칭 → 0 = window_not_found 승계
+            check(ResolveAgentWindowTarget(wins, false, 0, "nosuchwindow") == 0,
+                  "1n-s5 app 무매칭=0(window_not_found 정직 계약)");
+            // (f) id 직접호출 계약 보존 — 존재 id는 그 id 그대로(제목 무관),
+            //     목록 밖 id는 0(기존 window_not_found와 동치)
+            check(ResolveAgentWindowTarget(wins, true, 102, "minesweeper") == 102,
+                  "1n-s6 id 직접호출 보존(존재 id 승계 — app 인자 무시)");
+            check(ResolveAgentWindowTarget(wins, true, 999, "") == 0,
+                  "1n-s7 id 미존재=0(기존 window_not_found 동치)");
+        }
+
         // 1c2) 능력 배지 문구 (docs/74 — 빈 선언도 숨기지 않는다, 스펙 §5).
         check(jk::CapabilityBadgeText("agent,timer") == "능력: agent,timer",
               "capability badge text with declaration");

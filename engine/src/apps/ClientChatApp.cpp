@@ -146,16 +146,21 @@ void ClientChatApp::Submit(const std::string& raw) {
             break;
         }
         case ChatAction::Close:
-            // 서버 계약 실측(JKWindowServer.cpp:4074): close_window는
-            // args.id(창 id) 한정 — 앱 지명 미지원, 무지정 id도 그냥
-            // window_not_found. 라우터의 app 키는 보낼 곳이 없으므로 argless
-            // 폼을 보낸다(앱→창 id 상관은 list_windows 합성 필요 — T6 과제).
-            SendQuery("close_window", "{}");
+            // 서버 계약 확장(채팅 F1 — 2026-10-08 착지, JKWindowServer.cpp
+            // close_window): 라우터가 해소한 app 키가 이제 보낼 곳이 있다 —
+            // 서버가 제목 매칭(대소문자 무시)으로 target을 고른다. 무앱(
+            // 1n-7 app="")은 argless 폼 → 서버 포커스 창(폰 "닫아줘" 계약).
+            // 부재·무매칭은 서버가 window_not_found로 정직 회신한다.
+            SendQuery("close_window", action.app.empty()
+                ? "{}"
+                : "{\"app\":\"" + EscapeJson(action.app) + "\"}");
             break;
         case ChatAction::Focus:
-            // 동일 계약(JKWindowServer.cpp:3505): focus_window도 args.id 한정
-            // — argless 폼(window_not_found 정직 회신).
-            SendQuery("focus_window", "{}");
+            // 동형 해소(JKWindowServer.cpp focus_window): app 지명 폴백 +
+            // argless = 포커스 창 — close와 같은 계약.
+            SendQuery("focus_window", action.app.empty()
+                ? "{}"
+                : "{\"app\":\"" + EscapeJson(action.app) + "\"}");
             break;
         case ChatAction::ListWindows:
             // 답신 JSON을 기록에 그대로 인쇄가 계약(스펙 §1.1) — PollReplies.

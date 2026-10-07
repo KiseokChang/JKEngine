@@ -29,6 +29,7 @@
 #include <cstring>
 #include <ctime>
 #include <cmath>
+#include <cctype>   // std::tolower — ResolveAgentWindowTarget 제목 매칭
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
@@ -3437,6 +3438,48 @@ static std::string RevokeTrustRecord(const std::string& fingerprint) {
     return wrote == out.size() ? std::string() : std::string("write_failed");
 }
 
+// close_window/focus_window 타깃 해소 (채팅 F1 — include/server/JKWindowServer.h
+// 블록 주석이 계약 전문). 순수 로직 — candidates는 호출부가 이미 list_windows와
+// 동일 필터(단절·control-only·shell 제외)를 통과시킨 스냅샷이다. 대소문자
+// 무시는 ASCII 등가만(UTF-8 바이트를 그대로 둔다 — tolower는 C 로케일에서
+// 0x80 이상 바이트를 건드리지 않는다).
+uint32_t ResolveAgentWindowTarget(const std::vector<AgentWindowRef>& windows,
+                                  bool hasId, uint32_t id,
+                                  const std::string& app) {
+    const auto lower = [](std::string s) {
+        for (char& ch : s) ch = static_cast<char>(
+            std::tolower(static_cast<unsigned char>(ch)));
+        return s;
+    };
+    if (hasId) {
+        for (const auto& w : windows) {
+            if (w.id == id) return id;   // 기존 id 계약 그대로 — 제목 무관
+        }
+        return 0;
+    }
+    if (!app.empty()) {
+        // 제목 매칭: 정확 일치(대소문자 무시) 우선, 없으면 부분 일치 —
+        // notify의 "key (N)" 배지 제목을 정확 키로 닫게 하려는 폴백
+        // (TitleMatchesToggleKey 선례 흡수, ToggleClientByTitleUnsafe 위).
+        const std::string key = lower(app);
+        const AgentWindowRef* exact = nullptr;
+        const AgentWindowRef* partial = nullptr;
+        for (const auto& w : windows) {
+            if (exact && partial) break;
+            const std::string title = lower(w.title);
+            if (!exact && title == key) exact = &w;
+            if (!partial && title.find(key) != std::string::npos) partial = &w;
+        }
+        if (exact) return exact->id;
+        if (partial) return partial->id;
+        return 0;
+    }
+    for (const auto& w : windows) {
+        if (w.focused) return w.id;   // argless = 포커스 창(list_windows 근거)
+    }
+    return 0;
+}
+
 // Desktop Agent API (spec §3): normally answers at once — the agent client
 // blocks on ReadMessage waiting for the reply with the matching queryId.
 // Exception (M2 chat): an "ask"-gated close_window parks its query and replies
@@ -3505,9 +3548,27 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
     } else if (tool == "focus_window") {
         int id = 0;
         JKClientConnection* target = nullptr;
-        if (req.GetObjInt("args", "id", id)) {
+        // close_window와 동형 해소(F1): args.id 직접호출 계약 보존 + args.app
+        // 제목 매칭 폴백(라우터 Focus.app) + argless = 포커스 창. 자기 창을
+        // 포커스하는 것도 ok:true(id 직접호출 계약과 동일 — 부작용 없음).
+        std::string appArg;
+        const bool hasId = req.GetObjInt("args", "id", id);
+        req.GetObjStr("args", "app", appArg);
+        if (hasId || !appArg.empty() || focusedClientId_ != 0) {
+            std::vector<AgentWindowRef> wins;
             for (auto& c : clients_) {
-                if (c && c->Id() == static_cast<uint32_t>(id)) { target = c.get(); break; }
+                if (!c || c->IsDisconnected() || c->IsControlOnly() || c->IsShell()) {
+                    continue;
+                }
+                wins.push_back(AgentWindowRef{
+                    c->Id(), c->Title(), focusedClientId_ == c->Id()});
+            }
+            const uint32_t resolved = ResolveAgentWindowTarget(
+                wins, hasId, hasId ? static_cast<uint32_t>(id) : 0, appArg);
+            if (resolved != 0) {
+                for (auto& c : clients_) {
+                    if (c && c->Id() == resolved) { target = c.get(); break; }
+                }
             }
         }
         if (target && !target->IsControlOnly()) {
@@ -4074,9 +4135,31 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
     } else if (tool == "close_window") {
         int id = 0;
         JKClientConnection* target = nullptr;
-        if (req.GetObjInt("args", "id", id)) {
+        // 타깃 해소 확장(채팅 F1 — plan 2026-10-08-chat-close-fix): 기존
+        // args.id 계약은 그대로(기존 프로브·도구의 주소 직접호출 보존)하고,
+        // id 미지정 시 chat 라우터가 이미 해소해 둔 args.app 제목 매칭 →
+        // 그것도 없으면 서버 포커스 창(폰 "닫아줘" — 창 부재 시 정직
+        // window_not_found 유지). 해소는 여기(target 선정)만 — 아래 권한
+        // 행렬(가능/평가/거부)은 원문 그대로 통과(우회 금지 계약). 후보는
+        // list_windows와 동일 필터(단절·control-only·shell 제외).
+        std::string appArg;
+        const bool hasId = req.GetObjInt("args", "id", id);
+        req.GetObjStr("args", "app", appArg);
+        if (hasId || !appArg.empty() || focusedClientId_ != 0) {
+            std::vector<AgentWindowRef> wins;
             for (auto& c : clients_) {
-                if (c && c->Id() == static_cast<uint32_t>(id)) { target = c.get(); break; }
+                if (!c || c->IsDisconnected() || c->IsControlOnly() || c->IsShell()) {
+                    continue;
+                }
+                wins.push_back(AgentWindowRef{
+                    c->Id(), c->Title(), focusedClientId_ == c->Id()});
+            }
+            const uint32_t resolved = ResolveAgentWindowTarget(
+                wins, hasId, hasId ? static_cast<uint32_t>(id) : 0, appArg);
+            if (resolved != 0) {
+                for (auto& c : clients_) {
+                    if (c && c->Id() == resolved) { target = c.get(); break; }
+                }
             }
         }
         if (!target || target->IsControlOnly()) {

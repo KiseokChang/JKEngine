@@ -39,6 +39,30 @@ namespace server {
 // Ask = park the query until the chat window's inline approval resolves it.
 enum class AgentDecision { Allow, Ask, Deny };
 
+// close_window/focus_window 타깃 해소 (채팅 F1 — docs/80 §4 귀속 백로그 착지,
+// plan 2026-10-08-chat-close-fix): 폰 브라우저 "닫아줘"가 argless
+// window_not_found로 사망한 실측(2026-10-08)의 수리. 해소는 **target 선정
+// 단계 전용** — AgentToolAllowed 권한 행렬(ask 파킹 포함)보다 앞서 창을
+// 고를 뿐 게이트는 그대로 통과한다(우회 금지 계약).
+//   hasId  = args.id 지정 → 기존 id 계약 그대로(목록에 있으면 그 id)
+//   app    = args.app 지명(라우터가 Close.app/Focus.app을 이미 해소) → 창
+//            제목 매칭 — 대소문자 무시 정확 일치 우선, 없으면 부분 일치
+//            (notify의 "key (N)" 배지 제목 선례를 흡수한다). 첫 매치 승계.
+//   둘 다 없음(채팅 얼굴 "닫아줘") → 서버가 추적하는 포커스 창
+//            (focusedClientId_ — list_windows focused:true의 근거).
+// 수불가(매칭 0)는 0을 돌려 호출부가 window_not_found로 정직 회신한다 —
+// 거짓 성공 없음. 순수 로직(창 목록 스냅샷만 먹는다)이라 selftest가 서버
+// 프로세스 없이 직접 단정한다(selftest 1n-14.. 승계).
+struct AgentWindowRef {
+    uint32_t id = 0;
+    std::string title;
+    bool focused = false;
+};
+// Returns the resolved window id, or 0 (window_not_found에 승계된다).
+uint32_t ResolveAgentWindowTarget(const std::vector<AgentWindowRef>& windows,
+                                  bool hasId, uint32_t id,
+                                  const std::string& app);
+
 // 클라 모듈 접미 — 플랜 E가 앱 모듈을 posix에 .so로 빌드했다(buildwsl
 // 실측 20종, jkapp_taskbar.so 포함), win32는 .dll(dllimport 계약 유지).
 // 스폰 전 "모듈 있나" 프로브(launch_app 핸들러·taskbar 자동스폰, JKWindow
