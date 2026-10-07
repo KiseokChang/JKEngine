@@ -22,7 +22,7 @@
 //
 // 백엔드 슬롯(스펙 §4 — 승격 판정=docs/80 §3, stub 유지): 아래 kBackendName
 // 주석 자리. 지금은 T1 stub 라우터(jk::ChatRouterRoute)만 꽂는다.
-// JKLmEngine은 이 CLI에서 아직 인스턴스화하지 않는다 — cfg 선택형 배선은
+// JKLlmEngine은 이 CLI에서 아직 인스턴스화하지 않는다 — cfg 선택형 배선은
 // 백로그(동기 브리지·액션 매핑·ollama HTTP 어댑터·chat.json directory).
 //
 // 인코딩 계약(docs/48 레슨 승계 — jkctl 이중 진입 선준): argv는 wmain이

@@ -221,7 +221,7 @@ T6 과제"는 **댕글링 표기였다**: T6 brief에 없었고(리뷰가 발각
 | T4(리뷰) | `w:720` 서브스트링 어설션은 이론적 dw 매치(720x540 고정이라 실해 없음) · teardown survivor WARN 인쇄 후 rc 0(소프트패스) · inline `bash -lc` PIPESTATUS 안티패턴 헤더 노트 미기재 | 전부 유예 — 2건째(softpass WARN→hard FAIL)가 probe 손때 후보(T4 계열 다음 손때 1차) |
 | T6(리뷰 I2·Minor 4) | I2=ClientChatApp.cpp:151 댕글링 표기 | **소각 — 제4절 귀속 봉합(본 원장이 소화)** |
 | T6(Minor 4 나머지) | resize UB형식(창 resize 시 UB 위험 형태 — 재현 실측 없음) · EscapeJson 제5호 편입(tools 소식체별 복제 집계 — 공용 헤더 호이스트 후보, docs/79 EscapeJson 3호 계열 레저 승계) · RunMain 주석 문언(설명과 실제 분기 어긋남 — 1행 주석 수리) · `--help` 미기재(CP949 수동 스위치 JKTALK_INPUT_CP949 사용법 헬프 누락) | 전부 유예 — RunMain 주석·--help 문언 2건은 1행 수리성으로 probe 손때 아닌 문서 손때 대상 |
-| T7(Minor 5) | 500 응답 reason phrase 미설정(HTTP 표준 문구 빈값 — curl 표시상 무차별) · 서러게이트(리뷰어 원장 용어 — 이스케이프 문맥 판정 항목: JsonEsc는 JSON 응답 문맥만 커버, 페이지 본문은 브라우저 textContent 무주입구 실측으로 방어됨) · CL 접두(Content-Length 접두 변형 헤더 대응 폭 — 본체는 대소문자 무시까지만 실장) · accept spin(연결 accept 비지 루프 — 30s 타임아웃 가드로 우회) · tar 표기(deploy list 주석의 산출물 개수 표기 관측) | 전부 유예 — probe 원격 pgrep 비브래킷 무해 nit 포함(실행 경로 접촉 0) |
+| T7(Minor 5) | 500 응답 reason phrase가 'Service Unavailable'(503 문구) 인쇄 — 문구 미학, 유예 · 서러게이트(리뷰어 원장 용어 — 이스케이프 문맥 판정 항목: JsonEsc는 JSON 응답 문맥만 커버, 페이지 본문은 브라우저 textContent 무주입구 실측으로 방어됨) · CL 접두(Content-Length 접두 변형 헤더 대응 폭 — 본체는 대소문자 무시까지만 실장) · accept spin(연결 accept 비지 루프 — 30s 타임아웃 가드로 우회) · tar 표기(deploy list 주석의 산출물 개수 표기 관측) | 전부 유예 — probe 원격 pgrep 비브래킷 무해 nit 포함(실행 경로 접촉 0) |
 | T8(M1-M4) | M1=probe RLOG에 콘솔측 영수증 미지속(폰 log에 Windows 측 근거 미수납 — 재확인이 원리포트 의존) · M2=열 스로틀 추정 라벨 분리(온도 미실측 — "열 스로틀"은 추정, 실측은 토큰간 간격 재확인만) · M3=probe EOF 개행 부재+헤더 주석 자가모순 · M4=OLLAMA-VERDICT vs 리포트 판정 분기 미봉합 | **M2·M4=본 원장 소각**(제3절·제6절) / M1·M3 유예 — **M3이 다음 probe 손때 1차 후보**(EOF 1바이트+주석 정합) |
 
 ## 6. 함정 원장 — 실측 신규(재발 방지 표준; 기존 원장=스펙 §3+docs/79 §3 승계 별기)
@@ -288,7 +288,8 @@ T6 과제"는 **댕글링 표기였다**: T6 brief에 없었고(리뷰가 발각
 | (병행) f5e720be69a3d35aa5a1c1b28f1c95850aa040e7 | 앱 커버리지 인벤토리 플랜 — 본 라인 밖(컨트롤러 병행 커밋, 체인 사이 삽입: 35b00ab..74b67ea 사이) |
 | (본 커밋) | docs/80 as-built 원장+스펙 헤더 as-built 링크 |
 
-전체 체인 = 5074375..e887703(본 라인 제품 커밋 15건 — 수정 2커밋 T6/T7 각
+전체 체인 = 5074375..e887703(본 라인 제품 커밋 13건 — 5074375..e887703 전 범위 15건 중 병행
+f5e720b 제외. 수정 2커밋 T6/T7 각
 1회·T5 fix 1회·docs 개편 2건) + 병행 1건 + 본 커밋. 리뷰 판정 8태스크 전부
 Spec PASS·Quality Approved/fix r1 경유 **CLEAN** — Critical 0, Important
 총 3건(T5 tetris 어설션·T6 I1 EOF/I2 귀속·T7 I1/I2) 전부 fix r1로 소각.

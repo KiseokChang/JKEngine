@@ -504,8 +504,6 @@ int main(int argc, char* argv[]) {
 }
 #endif // _WIN32
 
-// 본체: --port N(기본 8090) → bind 0.0.0.0(전 인터페이스 — PC 브라우저도 폰
-// IP로 도달) → 기동 인쇄는 localhost URL이 기준 → accept 루프.
 // 본체: --port N(기본 8090)·--bind(기본 loopback 127.0.0.1, all=INADDR_ANY
 // 옵트인) → listen → 기동 인쇄(활성 모드 명시, localhost URL 기준) → accept
 // 루프.

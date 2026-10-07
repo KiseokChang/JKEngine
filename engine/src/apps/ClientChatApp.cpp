@@ -1,7 +1,7 @@
 // 채팅 앱 클라 (스펙 2026-10-07-desktop-chat-app — library 허브 원준:
 // ClientLibraryApp 패턴의 요청-응답 폴링, 이벤트 구독 없음).
 //
-// 백엔드 슬롯(스펙 §4 — cfg 선택형 JKLmEngine; 승격 판정=docs/80 §3, stub
+// 백엔드 슬롯(스펙 §4 — cfg 선택형 JKLlmEngine; 승격 판정=docs/80 §3, stub
 // 유지): 지금은 T1 stub 라우터(jk::ChatRouterRoute)만 이 자리에 꽂는다(룰링 —
 // posix엔 claude/ollama CLI가 없어 지금 실장하면 폰에서 dead code). cfg가
 // 백엔드를 고르는 형태로 이 호출 자리를 갈아끼우면 된다 — 앱 나머지(기록·
