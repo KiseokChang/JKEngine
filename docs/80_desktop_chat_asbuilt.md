@@ -194,6 +194,23 @@ Receipt A+ollama 설치 성립까지가 게이트 범위), 리포트의 최종 �
 성립해야 승격)으로 **stub 유지**. 두 표기는 모순이 아니라 게이트 범위
 차이 — 본 원장이 리포트 판정을 진실원으로 봉합한다.
 
+**T8 판정 보완(2026-10-08 — 승격 라인 T5, cloud 실측 후 정정)**: 위 "stub
+유지" 판정이 세울 당시 가진 **폰 실측 근거는 근거 1(0.29 tok/s)뿐이었다**
+— 근거 1은 폰 **로컬** qwen2.5:0.5b의 값으로 cloud 턴이 측정되기 전의 것.
+그 후 승격 라인(2026-10-08-chat-llm-promotion)의 실측이 두 근거 모두를
+불통으로 갈았다: ① 근거 1 — 폰 cloud 턴(ollama /api/chat 직접 왕복)
+**1.3-2.0s 실측**(T1 — TURN-OK, signin 불요, docs/84)은 UX 성립이고,
+근거 2의 배선 갭 4건은 T3(동기 브리지 TurnSync+ollama-direct leg)·T4
+(jkweb/jktalk 뇌호출 배선)·chat.json opt-in(fileKnown 게이트)으로 전부
+폐쇄. 즉 본 판정은 **cloud 미측정 시기의 판정이며 cloud에 대해서는
+승격 가능** — 승격은 opt-in 가법(stub 라우터가 1차·비매치만 LLM)으로
+계속되고, 폰 기기의 결제는 chat.json 스테이지+폰 브라우저 실사용 육안
+(docs/84 §5)에 두었던 것. 원문(위 판정 본문)은 역사 문언으로 보존한다.
+   **T5 E2E 판정(패치 후 실측)**: 배선 자체는 성립 — 폰 E2E 4정판 3/4
+   (턴1 launch 0.025s·턴3 close 0.032s 즉발 OK, 턴2/턴4는 LLM 왕복 1.6s/3.4s
+   실측이나 모델이 enum 밖 action 값을 내놓아 파싱 fail-closed→stub 폴백 —
+   원인 진단 원문은 docs/84 §2.4, 영수증 docs/84 §2.2).
+
 ## 4. T9 귀속 봉합 (리뷰 T6 I2 — 댕글링 표기의 소화)
 
 `ClientChatApp.cpp:151`의 주석 "앱→창 id 상관은 list_windows 합성 필요 —
@@ -369,7 +386,7 @@ loopback 기본 바인드+`--bind all` 옵트인(§2.1 바인드 정책 블록 �
   결제 — probe 재런은 보조 증거(review M-4).
 - **폰 permissions.json 스테이지(I-1 — 사용자 결정)**: `close_window:allow`
   스테이지가 buildterm에 상시 잔존. 유지(Windows 패리티 근거) 또는 철수:
-  `ssh -p 8022 -i ~/.ssh/termux_jkengine u0_a4@192.168.219.109 'rm ~/JKENGINE/engine/buildterm/permissions.json'`
+  `ssh -p 8022 -i ~/.ssh/termux_jkengine u0_a4@$PHONE_HOST 'rm ~/JKENGINE/engine/buildterm/permissions.json'`
   — 어느 쪽이든 사용자 선언을 원장에 기입.
 - 결제 기록은 **사용자 선언을 받은 뒤에만** 본 원장에 기입한다 — probe
   출력만으로 "확인됨"이라 쓰지 않는다(계약 — T5/T7 리포트 게이트 조항 동일).
