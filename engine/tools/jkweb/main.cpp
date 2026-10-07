@@ -20,8 +20,12 @@
 //   - HTTP 1.1 최소 파서: GET·POST만, Content-Length 몸통, Connection: close
 //     (keep-alive 없음 — 요청 1건당 1연결, jkbridge HttpReply 규약 승계).
 //     요청줄 헤드 상한 8KiB·몸통 상한 64KiB — 초과는 정직 400/413.
-//   - --port N (기본 8090). bind는 0.0.0.0(INADDR_ANY — PC 브라우저도 폰 IP로
-//     도달 가능, LAN 근거리 한정)이고 기동 인쇄는 localhost URL이 기준.
+//   - --port N (기본 8090)·--bind (기본 loopback=127.0.0.1 | all=0.0.0.0).
+//     기본은 루프백(폰 브라우저 localhost 본선 — 육안 게이트 경로)이고,
+//     PC 브라우저가 폰 IP로 도달하는 LAN 접속은 --bind all 옵트인(최종
+//     리뷰 I1 — 무인증 /talk가 launch_app 권한을 여는 서버를 LAN에 기본
+//     개방하지 않게 한다; 공유기·사무실 Wi-Fi에서의 옆단 노출 차단. 토큰
+//     게이트는 백로그). 기동 인쇄는 활성 모드를 명시하고 localhost URL이 기준.
 //     스레드는 연결당 1개 detach(jkbridge HandleConn 동형 — 도구 질의 구간은
 //     직렬화 락, JKAgentClient 한 인스턴스의 동시 사용을 막는 최소 안전).
 //
@@ -502,12 +506,16 @@ int main(int argc, char* argv[]) {
 
 // 본체: --port N(기본 8090) → bind 0.0.0.0(전 인터페이스 — PC 브라우저도 폰
 // IP로 도달) → 기동 인쇄는 localhost URL이 기준 → accept 루프.
+// 본체: --port N(기본 8090)·--bind(기본 loopback 127.0.0.1, all=INADDR_ANY
+// 옵트인) → listen → 기동 인쇄(활성 모드 명시, localhost URL 기준) → accept
+// 루프.
 static int RunMain(int argc, char* argv[]) {
     int port = 8090;
+    bool bindAll = false;
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--port") == 0) {
             if (i + 1 >= argc) {
-                std::fprintf(stderr, "usage: jkweb [--port N]\n");
+                std::fprintf(stderr, "usage: jkweb [--port N] [--bind all]\n");
                 return 2;
             }
             port = std::atoi(argv[++i]);
@@ -515,13 +523,28 @@ static int RunMain(int argc, char* argv[]) {
                 std::fprintf(stderr, "jkweb: invalid port\n");
                 return 2;
             }
+        } else if (std::strcmp(argv[i], "--bind") == 0) {
+            if (i + 1 >= argc || std::strcmp(argv[i + 1], "all") != 0) {
+                std::fprintf(stderr, "jkweb: --bind는 all 만 받는다\n"
+                                     "(기본=127.0.0.1 루프백, 옵트인=--bind all)\n");
+                return 2;
+            }
+            ++i;
+            bindAll = true;
         } else if (std::strcmp(argv[i], "--help") == 0) {
-            std::printf("usage: jkweb [--port N]   폰 웹 채팅 HTTP 서버(기본 8090)\n"
+            std::printf("usage: jkweb [--port N] [--bind all]\n"
+                        "   폰 웹 채팅 HTTP 서버(기본 8090)\n"
                         "  GET /          채팅 페이지\n"
-                        "  POST /talk     {\"text\":\"...\"} → 라우트 → 창 서버 위임\n");
+                        "  POST /talk     {\"text\":\"...\"} → 라우트 → 창 서버 위임\n"
+                        "  --port N       수신 포트(기본 8090)\n"
+                        "  --bind all     0.0.0.0 수신(LAN 옵트인 — 같은 네트워크의\n"
+                        "                 브라우저가 http://<이 기기 IP>:N/ 로 접속.\n"
+                        "                 집 Wi-Fi 내 한정 권장). 기본은 127.0.0.1\n"
+                        "                 루프백 — 무인증 /talk가 launch_app 권한을\n"
+                        "                 여므로 기본 개방은 하지 않는다.\n");
             return 0;
         } else {
-            std::fprintf(stderr, "usage: jkweb [--port N]\n");
+            std::fprintf(stderr, "usage: jkweb [--port N] [--bind all]\n");
             return 2;
         }
     }
@@ -530,10 +553,12 @@ static int RunMain(int argc, char* argv[]) {
         std::fprintf(stderr, "jkweb: 소켓 초기화 실패 (WSAStartup)\n");
         return 1;
     }
-    // bind 미지정 = INADDR_ANY(LAN+loopback — PC 브라우저도 폰 IP로 도달 가능,
-    // 근거리 LAN 운용 계약 — 기동 인쇄는 localhost URL이 기준).
-    const jk::net::Socket listener =
-        jk::net::ListenTcp("", static_cast<std::uint16_t>(port), 8);
+    // bind 기본=루프백(127.0.0.1 — 폰 브라우저 localhost 본선). --bind all만
+    // INADDR_ANY(LAN+loopback — PC 브라우저도 폰 IP로 도달, 집 Wi-Fi 내 한정
+    // 옵트인). 이 서버는 무인증 /talk에서 launch_app 권한을 여므로 LAN 개방은
+    // 명시 스위치로 제한한다(최종 리뷰 I1 — 토큰 게이트는 백로그).
+    const jk::net::Socket listener = jk::net::ListenTcp(
+        bindAll ? "" : "127.0.0.1", static_cast<std::uint16_t>(port), 8);
     if (listener == jk::net::kInvalidSocket) {
         std::fprintf(stderr, "jkweb: bind/listen failed — 포트 %d\n", port);
         return 1;
@@ -541,8 +566,13 @@ static int RunMain(int argc, char* argv[]) {
 
     std::printf("jkweb — 폰 웹 채팅 서버\n");
     std::printf("  URL: http://localhost:%d/\n", port);
-    std::printf("  (0.0.0.0에서 수신 — 같은 네트워크의 브라우저는 "
-                "http://<이 기기 IP>:%d/ 로도 접속 가능)\n", port);
+    if (bindAll) {
+        std::printf("  bind: 0.0.0.0 (--bind all — 같은 네트워크의 브라우저는 "
+                    "http://<이 기기 IP>:%d/ 로도 접속 가능)\n", port);
+    } else {
+        std::printf("  bind: 127.0.0.1 (루프백 기본 — LAN 접속은 "
+                    "--bind all로 (집 Wi-Fi 내 한정))\n");
+    }
     std::printf("  GET / 채팅 페이지 · POST /talk {\"text\":\"...\"} · "
                 "도구 지시는 창 서버 위임(jkdesktop --server 미기동 시 정직 500)\n");
     std::fflush(stdout);
