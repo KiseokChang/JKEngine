@@ -262,10 +262,10 @@ Global Constraints가 인용한 "395/374"는 작성 시점 수치로 만료된 �
 | 63cf0625f16e7aa97337cc1e4517853e409990f2 | T3 — sampletodo/lf/hx posix 설치 트윈 + 카탈로그 cmd_posix 확장 계약 |
 | 6f4f29cae59e4669b2b86e790e1d576efc16883e | T5 본체 — taskmgr /proc posix leg + JKClientSurface Hello pid 보수(brief 밖) + probe |
 | 85661c8efdb7d14818fefb8c070d415d3c160d1a | T5 fix r1 — /proc stat 억제 11개 + CROSS-CHECK + probe minor 3건 |
-| (본 커밋) | docs/81 as-built 원장. 인벤토리 헤더 링크+task-2-report nit 2건(T2 M1) 편집은 **원문 그대로 본 커밋 밖** — .superpowers/ 전체가 무추적(T3 선례: 커밋 밖 작업 트리 편집) |
+| (본 커밋) aee21a67d8a141d9a0aca454617fdbe1c4355a73 | docs/81 as-built 원장(체인 마지막 = 본 docs 커밋 aee21a6+§5 행 실체 정정 1006601d17ff3a36830fbf295538669c73eafef2). 인벤토리 헤더 링크+task-2-report nit 2건(T2 M1) 편집은 **원문 그대로 본 커밋 밖** — .superpowers/ 전체가 무추적(T3 선례: 커밋 밖 작업 트리 편집) |
 
 체인 = 9a2174e..85661c8(T1-T5 — fix 2커밋 T2/T5, T3 fix 0건, T4 park 미dispatch)
-+ 본 커밋. 리뷰 경과: T1 Spec PASS/Quality Approved(I1=방법론 이월 — fix 불요)·
++ 본 docs 커밋 2건(aee21a6·1006601 — §5 행 실체 정정). 리뷰 경과: T1 Spec PASS/Quality Approved(I1=방법론 이월 — fix 불요)·
 T2 본체 I1 1건 → fix r1 → **re-review CLEAN 8/8**·T3 Critical 0/Important 0
 (Minor 4 — M4=본 원장 §2.0 캐논으로 결제)·T5 본체 Spec needs fixing(I1) → fix
 r1 → **re-review CLEAN 6/6**. 누적 Critical 0, Important 3건 전부 fix r1 소각.
