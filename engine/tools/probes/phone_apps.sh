@@ -13,9 +13,9 @@
 # ⑧ 서버·창을 **켜 둔 채 종료**(사용자 육안 게이트 — teardown은 probe 임시 파일만).
 #   실행법(윈도 Git Bash, 저장소 루트 어디서든):
 #     bash engine/tools/probes/phone_apps.sh
-#   접속 정보는 환경변수로 오버라이드 가능(기본값 = phone_library.sh 원장 값 —
-#   사내 전용, 이 값은 외부 문서에 쓰지 않는다):
-#     PHONE_HOST PHONE_PORT PHONE_USER PHONE_KEY
+#   접속 정보는 환경변수로(PHONE_HOST 필수 — 내부 IP는 커밋하지 않는다, fix r1
+#   M4 정화; PHONE_PORT PHONE_USER PHONE_KEY만 기본값 존재):
+#     PHONE_HOST=<폰 IP> bash engine/tools/probes/phone_apps.sh
 #   재실행 가능: 서버가 살아 있으면 선 절사(bracketed pkill — jkweb은 절사 안 함,
 #   preclean 전후 생존 어설션) 후 재부팅. 영수증 하나라도 빠지면 APPS-PHONE-FAIL
 #   (rc=1). 구조 = phone_library.sh 기계: 이 파일은 윈도 측 드라이버이고 폰 측
@@ -35,6 +35,10 @@ export MSYS_NO_PATHCONV=1  # MSYS가 ssh 인수의 posix 경로를 찢는 것 �
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$ROOT" || exit 1
+# git 네이티브(git.exe) 인수 경로 — MSYS_NO_PATHCONV=1 위에서도 유효한
+# Windows형 경로로 준다(run 5a/5b 실측: -C /i/... posix형은 git.exe가
+# "cannot change to"로 거부 → 게이트 오판 원인). cygpath 부재 시 조용한 폴백.
+GITROOT="$(cygpath -w "$ROOT" 2>/dev/null || echo "$ROOT")"
 SCRATCH="$ROOT/engine/tmp"
 mkdir -p "$SCRATCH"
 TARBALL="$SCRATCH/phone_apps.tar"
@@ -42,10 +46,13 @@ RLOG="$SCRATCH/phone_apps_run.log"
 RSRC_TAR_NAME="phone_apps_remote.sh"
 RSRC_PHONE="~/JKENGINE/$RSRC_TAR_NAME"   # 폰 측 삭제는 remote script 마지막 단계(임시 파일만)
 
-PHONE_HOST="${PHONE_HOST:-192.168.219.109}"
+PHONE_HOST="${PHONE_HOST:-}"
 PHONE_PORT="${PHONE_PORT:-8022}"
 PHONE_USER="${PHONE_USER:-u0_a4}"
 PHONE_KEY="${PHONE_KEY:-$HOME/.ssh/termux_jkengine}"
+# IP 정화(fix r1 M4 — 내부 IP는 커밋하지 않는다, phone_library.sh:32 3번째 사본
+# 회피): HOST 기본값 공백+미설정 FAIL — 실행은 `PHONE_HOST=<폰 IP> bash …`로.
+[ -n "$PHONE_HOST" ] || { echo "APPS-PHONE-FAIL: PHONE_HOST unset — 폰 IP를 환경변수로 지정하세요 (내부 IP는 커밋하지 않는다: fix r1 M4)"; exit 1; }
 SSH="ssh -p $PHONE_PORT -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=10 -i $PHONE_KEY $PHONE_USER@$PHONE_HOST"
 
 FAIL() { echo "APPS-PHONE-FAIL: $*"; exit 1; }
@@ -69,6 +76,55 @@ FILES=(
 for f in "${FILES[@]}"; do
   [ -f "$ROOT/$f" ] || FAIL "deploy source missing: $f"
 done
+
+# ── 배포 오염 게이트(T4 fix r1 — 병렬 세션 WIP 유입 봉합): 타 세션의 미커밋
+#    WIP를 타르에 실지 않는다. run 5 실측: 병렬 chat-close-fix 세션의 미커밋
+#    main.cpp(1n-s 블록 — AgentWindowRef 참조)가 폰의 커밋 상태 헤더
+#    (JKWindowServer.h — 배포 목록 밖, AgentWindowRef 미신설)와 어긋나 폰
+#    빌드를 깠다(NINJA-RC=1, undeclared identifier main.cpp:3332/3341).
+#    원칙: 배포 원천은 커밋 상태 — 워킹 카피가 더러우면 HEAD blob 스테이징.
+#    단 probe 본체(자기 파일)는 예외 — 워킹 카피를 실어 최신 수리본 유지.
+#    스테이징 원문은 타르 끝에 추가(-C)하여 추출 순서상 나중 항목이 이긴다.
+WIPPED=0
+STAGE_ARGS=()
+for f in "${FILES[@]}"; do
+  [ "$f" = "engine/tools/probes/phone_apps.sh" ] && continue
+  # git 판정 재시도(공유 repo — 병렬 세션의 index/commit-graph 쓰기 경합 가능,
+  # run 5a 실측: 일시 git 불능이 dirty 분기 진입+staging 실패로 이어짐).
+  # 분류는 rc로 — 0(클린)/1(더러움)은 정상, 2+는 git 불능 → 재시도 3회 후
+  # loud FAIL(오타 분류 아님; 경고행은 stderr에서 무해 통과 — commit-graph
+  # 경고가 상존하는 repo 실측). 판정 재시도 3회.
+  GIT_RC=9
+  GIT_OUT="unset"
+  for try in 1 2 3; do
+    if [ "$try" -gt 1 ]; then sleep 3; fi
+    GIT_OUT=$(git -C "$GITROOT" diff --quiet HEAD -- "$f" 2>&1 >/dev/null)
+    GIT_RC=$?
+    [ "$GIT_RC" -le 1 ] && break
+  done
+  [ "$GIT_RC" -le 1 ] \
+    || FAIL "git diff HEAD -- $f 판정 실패(재시도 3회) — rc=$GIT_RC: $(echo "$GIT_OUT" | tail -1)"
+  [ "$GIT_RC" -eq 1 ] || continue
+  if [ "$f" = "engine/src/main.cpp" ]; then
+    STAGE="$ROOT/engine/tmp/head_stage"
+    rm -rf "$STAGE"
+    mkdir -p "$STAGE/engine/src"
+    GS_OK=0
+    for try in 1 2 3; do
+      git -C "$GITROOT" show "HEAD:engine/src/main.cpp" > "$STAGE/engine/src/main.cpp" \
+        2>>"$SCRATCH/head_gshow.err" && { GS_OK=1; break; }
+      sleep 3
+    done
+    [ "$GS_OK" -eq 1 ] \
+      || FAIL "git show HEAD:engine/src/main.cpp 스테이징 실패(재시도 3회) — $(tail -1 "$SCRATCH/head_gshow.err")"
+    STAGE_ARGS=(-C "$STAGE" "engine/src/main.cpp")
+    WIPPED=1
+  else
+    FAIL "deploy source dirty — 타 세션 미커밋 WIP 의심, 수동 확인 필요: $f (원칙: 커밋 상태만 배포)"
+  fi
+done
+[ "$WIPPED" -eq 1 ] && \
+  echo "NOTE-WIP: main.cpp 워킹 카피는 미커밋 WIP(병렬 세션) — HEAD blob으로 배포(스테이징)"
 
 echo "=== 0. pre-clean (재실행 가능성) — wake-lock + 서버 절사(jkweb은 절사 안 함) ==="
 $SSH 'command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock || echo WARN-no-wake-lock' \
@@ -112,6 +168,7 @@ grep -aq 'AppSelfTest: 0 failure(s)' "$TMPD/ph_st.log" \
 
 echo "=== B. auto-repack 도달 판정 (태스크의 진실 질문 — 증거 2원) ==="
 # 증거 1원: ninja 로그의 Repacking 행(빌드 레일이 repack 스텝을 실행한 원문).
+RL=0
 if [ -f "$NLOG" ]; then
     RL=$(grep -ac 'Repacking apps/' "$NLOG")
     echo "AUTO-REPACK-NINJA-LOG-LINES=$RL"
@@ -127,6 +184,14 @@ for a in $LAUNCHERS; do
 done
 echo "AUTO-REPACK-JKX-N=$AUTO_N/24"
 echo "AUTO-REPACK-JKX-HAD:$AUTO_HAD"
+# 증거 2원 합의(fix r1 I1): 둘 다 단정 분기에 합류 — RL(ninja 로그 Repacking
+# 행)과 AUTO_N(.jkx 실재)가 합의(==)하지 않으면 hard FAIL.스테일 .jkx 잔존
+# 구가 레일 죽음을 오-REACHED로 남기는 단일원 채점 차단(레일이 산 것만
+# 카운트로 산다). 합의 실패는 폴백이 아니라 수동 확인 요구(증거 자체가 찢어짐).
+echo "EVIDENCE-CONSENSUS: ninja-log-RL=$RL vs jkx-FILE-N=$AUTO_N"
+if [ "$RL" -ne "$AUTO_N" ]; then
+    FAIL "AUTO-REPACK 증거 2원 불합의: ninja Repacking 행 RL=$RL != .jkx 실재 AUTO_N=$AUTO_N (스테일 .jkx/레일 이변 오채점 차단 — fix r1 I1, 수동 확인 필요)"
+fi
 if [ "$AUTO_N" -eq 24 ]; then
     echo "AUTO-REPACK=REACHED"
 elif [ "$AUTO_N" -gt 0 ]; then
@@ -355,7 +420,9 @@ exit 0
 PHONEEOF
 
 for r in 1 2 3; do
-  if tar -cf "$TARBALL" -C "$ROOT" "${FILES[@]}" -C "$SCRATCH" "$RSRC_TAR_NAME"; then
+  # STAGE_ARGS 비어 있으면 무소음(정상 워킹 배포), 채워지면 타르 마지막 항목
+  # 으로 main.cpp HEAD blob이 들어가 추출(후행 항목 승리) 시 스테이징본이 채택.
+  if tar -cf "$TARBALL" -C "$ROOT" "${FILES[@]}" -C "$SCRATCH" "$RSRC_TAR_NAME" "${STAGE_ARGS[@]+"${STAGE_ARGS[@]}"}"; then
     break
   elif [ "$r" -eq 3 ]; then
     FAIL "tar creation failed"
