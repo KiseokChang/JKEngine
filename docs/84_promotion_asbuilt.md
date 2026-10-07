@@ -149,4 +149,14 @@ probe/본 원장이 결제를 대신 기록하지 않는다 — 사용자 육안
 
 T1-T4 전체 SHA는 §1 표(rev-parse 실측). T5 커밋은 본 문서·docs/80 정정·docs/81 유예 갱신·
 `engine/tools/probes/phone_promote.sh`를 포함하는 커밋 — SHA는 git log가 진실원.
-커밋 전 IP 노출 재검사(grep 4-옥텟 패턴 — probe·docs·report 전부) 완료 예정.
+**T5 커밋 실측: `37a9bf6e695fce04fa5b705042ac35b0cfa07fe3`** (pushed 1297210..37a9bf6).
+
+**IP 스윕 범위 명시(T5 fix r1 — NR5-1)**: 커밋 전 IP 노출 재검사는 **본 커밋 신설/수정 행 +
+docs 한정**이었지 트리 전수 스윕이 아니었다 — 4-옥텟 패턴 grep 결과 신설/수정 행과
+`phone_promote.sh`·3개 docs는 **0건**(실측 grep rc=1). 추적 트리에는 이전 라인 착지품으로
+폰 IP(`$PHONE_HOST` 리터럴)가 **8회 5파일 잔존**(tracked `git grep` 실측 —
+phone_chat.sh 2·phone_web_chat.sh 2·phone_ollama_try.sh 2·phone_library.sh 1·
+docs/superpowers/plans/2026-10-07-desktop-chat-app.md 1). 본 커밋에서 docs/80·81의
+잔존 2건만 `$PHONE_HOST` 화법으로 레닥션했다; 나머지 후속 레닥션은 본 라인 밖 사용자
+가동 순서(#83 deferred 소각 라인)에 배정되어 별도 처분한다 — 본 문서의 스윕 계약은
+"커밋 스코프 행 전수"로 한정 확정한다.
