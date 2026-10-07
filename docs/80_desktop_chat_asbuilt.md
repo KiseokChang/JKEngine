@@ -229,15 +229,25 @@ target 선정을 한 곳에서 삼는다(단일 진실원, docs/80 §1 라우터
   삼 소식체 원장행("Close/Focus → argless {}")은 **서버 계약 확장으로 진단
   사망** — jktalk/jkweb의 argless 폼은 이제 포커스 창 해소로 산다(app 지명
   pass-through는 미연결로 유예 — §5 fix-row 참조).
-- 셀프테스트 캐논: 1n-s 7행 신설 — Windows 420→427·WSL 399→406 실측.
-  폰은 동증분 기대(리빌드·selftest·close 실측 = 미결 게이트 — 위 행).
+- 셀프테스트 캐논: 1n-s 7행 신설 — Windows 420→**427**·WSL 399→**406**·
+  **폰 406 실측**(T4 세션 run5c 리빌드 후 폰 selftest PASS=406 FAIL=0·
+  1n-s1..s7 측정 — 폰 1n-s 첫 기록, fix-report §2 표).
 - 실측: WSL probe `tools/probes/wsl_chat_close.sh` — argless close 소멸·
   app 지명 close 소멸·app 지명 focus 전이·무매칭 window_not_found·id 직접호출
-  보존 전부 GREEN. 폰 probe `tools/probes/phone_chat_close.sh` — 신변 2파일
-  tar·배포·pre-clean까지 성공, ninja 진행 중 ssh 단절(폰 Wi-Fi 불안)로 미결
-  — 병행 T4 세션과 phone lease 상호조정 후 재개 예정(fix-report §4·§5
-  원문). **폰 argless close 소멸 단정은 이 라인의 미결 게이트 — 커밋 이후
-  첫 폰 접속에서 라인 재개로 착지.**
+  보존 전부 GREEN(`CHAT-CLOSE-OK`). 폰 probe `tools/probes/phone_chat_close.sh`
+  — 신변 2파일 tar·배포·pre-clean까지 성공, ninja 진행 중 ssh 단절(폰 Wi-Fi
+  불안)로 드라이버 1차 런 미결 → **resume receipts로 착지**(아래 행).
+- **폰 착지(CHAT-CLOSE-PHONE-RESUME-OK, 2026-10-08)**: 병행 T4 세션 run5c가
+  폰 트리를 커밋 0e25762 내용으로 리빌드·부팅해 둔 상태에서 무재부팅·무재배포
+  — 살아 있는 서버(permissions.json 호출마다 핫리드 계약)에 직접 실측:
+  `PERM-STAGE=CREATED-AND-KEPT` → launch minesweeper(focused:true) →
+  close argless ok → `PHONE-GONE-AFTER-ARGLESS-CLOSE=OK` → close app 지명 ok →
+  `PHONE-GONE-AFTER-APP-NAMED-CLOSE=OK` → focus app=notes 전이 ok
+  (`PHONE-FOCUS-TRANSFERED-BY-APP=OK`) → window_not_found ×2 →
+  `PHONE-ID-LEG-PRESERVED=OK` → 종료 서버 UP+jkweb ALIVE+Settings/Notes 보존.
+  영수증 원문: `engine/tmp/phone_close_receipt_run.log`·fix-report §4b.
+  **폰 permissions.json 스테이지는 상시 유지 — 사용자 게이트**(철수 원함 시
+  `rm ~/JKENGINE/engine/buildterm/permissions.json`, §2.4 노트).
 
 ## 5. deferred minors 트라이아지 — 원장 명단 전수
 
@@ -250,7 +260,7 @@ target 선정을 한 곳에서 삼는다(단일 진실원, docs/80 §1 라우터
 | T1(리뷰) | 접미-중첩 주석 문서성 · Close+app 서버 타깃 계약 미실측(**T2 게이트 위탁 — 이미 소각: ClientChatApp.cpp:147-158 원장 주석+argless 폼 실측 채택**) · deferred 3(부사 스캔="다시 켜줘" 앱어 절단 fail-open·주석 정확화) | Close 타깃=소각 / 나머지 유예(부사 스캔=앱어·발화 순서 확장 백로그 소속) |
 | T2(리뷰) | **Minor 6건** — 컨트롤러 원장에 건수만 기록(개별 file:line 명단 미전달, 세션 패키지 diff에는 무존재) | 전부 유예 유지 — 명단 원문이 필요하면 전체 리뷰 때 리뷰어 원 판정 참조 |
 | T2(원장명단) | **T6 과제 2건** ①앱→창 id 상관(Close/Focus argless) ②백엔드 슬롯 실장(JKLmEngine 플러그) · **GUI 육안 4점**(창 뜸·한글 전각·스크롤 앵커·launch 전송) | ①=제4절 귀속 봉합 / ②=제3절 승격 판정 소유(장기) / 육안 4점=사용자 게이트 대기(§8) |
-| fix(2026-10-08-chat-close-fix, F1) | §4 귀속 백로그 ① 착지(**서버 해소 계약 확장** — §4b 원문) · ClientChatApp "T6 과제" 주석 정정(app 전송 계약 명기) · jktalk/jkweb argless 유지(포커스 해소로 산다 — app pass-through 유예)·캐논 420→427(Windows)·399→406(WSL)·폰 동증분 | ①=**소각** — §4b 착지 + probe 실측(wsl_chat_close.sh·phone_chat_close.sh) / jkweb·jktalk app pass-through=유예(다음 표면 손때) / 폰 permissions.json 스테이지=사용자 게이트 노트(§2.4) |
+| fix(2026-10-08-chat-close-fix, F1) | §4 귀속 백로그 ① 착지(**서버 해소 계약 확장** — §4b 원문) · ClientChatApp "T6 과제" 주석 정정(app 전송 계약 명기) · jktalk/jkweb argless 유지(포커스 해소로 산다 — app pass-through 유예)·캐논 420→427(Windows)·399→406(WSL)·**406(폰, run5c 실측)** | ①=**소각** — §4b 착지 + 3축 probe 실측(wsl_chat_close.sh GREEN·phone_chat_close.sh 드라이버 1차 런 ssh 단절→resume receipts CHAT-CLOSE-PHONE-RESUME-OK 착지) / jkweb·jktalk app pass-through=유예(다음 표면 손때) / 폰 permissions.json 스테이지=사용자 게이트 노트(§2.4·§4b) |
 | T4(리뷰) | `w:720` 서브스트링 어설션은 이론적 dw 매치(720x540 고정이라 실해 없음) · teardown survivor WARN 인쇄 후 rc 0(소프트패스) · inline `bash -lc` PIPESTATUS 안티패턴 헤더 노트 미기재 | 전부 유예 — 2건째(softpass WARN→hard FAIL)가 probe 손때 후보(T4 계열 다음 손때 1차) |
 | T6(리뷰 I2·Minor 4) | I2=ClientChatApp.cpp:151 댕글링 표기 | **소각 — 제4절 귀속 봉합(본 원장이 소화)** |
 | T6(Minor 4 나머지) | resize UB형식(창 resize 시 UB 위험 형태 — 재현 실측 없음) · EscapeJson 제5호 편입(tools 소식체별 복제 집계 — 공용 헤더 호이스트 후보, docs/79 EscapeJson 3호 계열 레저 승계) · RunMain 주석 문언(설명과 실제 분기 어긋남 — 1행 주석 수리) · `--help` 미기재(CP949 수동 스위치 JKTALK_INPUT_CP949 사용법 헬프 누락) | 전부 유예 — RunMain 주석·--help 문언 2건은 1행 수리성으로 probe 손때 아닌 문서 손때 대상 |
