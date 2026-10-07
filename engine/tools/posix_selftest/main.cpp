@@ -25,6 +25,7 @@
 #include <apps/ChatRouter.h>  // 자연어 승격 배선 (T4 — case 16 twin)
 #include <ipc/JKPipeTransport.h>
 #include <ipc/JKWireEndpoints.h>
+#include <server/JKFrameDirty.h>  // case 17 (T1) — 더티 계산기 순수 단정
 #include <fs/JKInstanceLock.h>
 #include <net/JKNet.h>
 #include <port/JKCrtShim.h>
@@ -1828,6 +1829,123 @@ void TestChatPromoteWiring() {
 }
 
 
+// Case 17 (T1 — 스펙 2026-10-08-dirty-present 설계 결정 4): 프레임 더티
+// 계산기의 순수 로직 단정. jkdesktop RunAppSelfTest의 1p 계열이 캐논 담당
+// (양축)이고 이 케이스는 어댑터 축의 분신 — 렌더러 생성 0(SDL_Rect 타입뿐)으로
+// 표면→화면 매핑(스케일·반올림·클램프)·합집합 병합·역치(40% full 전환)·빈
+// TakeDirty·AddLayerMove 이전∪새·ForceFull을 g++ 링크에서 잠근다. 케이스
+// 6종(plan verbatim)은 1p 캐논과 동일한 수형이다.
+void TestFrameDirty() {
+    using jk::server::FrameDirtyAccumulator;
+
+    // 1p-1) 매핑(+스케일 2.0): 표면 100x50, 스케일 2.0, 레이어 화면 원점
+    // (40, 60) — 표면 rect {10,20,20,10} → 화면 {60,100,40,20}.
+    {
+        FrameDirtyAccumulator acc(800, 600);
+        acc.AddSurfaceRect(7, 100, 50, 2.0f, 2.0f, 40, 60,
+                           jk::ipc::DirtyRect{10, 20, 20, 10});
+        std::vector<SDL_Rect> out;
+        Check(acc.TakeDirty(out) && out.size() == 1 && out[0].x == 60 &&
+                  out[0].y == 100 && out[0].w == 40 && out[0].h == 20,
+              "1p-1 매핑(+스케일 2.0) 표면rect→화면rect");
+        // 오버플레이·화면 경계 클램프: 표면을 초과하는 dirty는 레이어 dst까지
+        // 절단(레이어 바깥 화면 면적을 부채질하지 않는다).
+        FrameDirtyAccumulator over(800, 600);
+        over.AddSurfaceRect(7, 100, 50, 2.0f, 2.0f, 40, 60,
+                            jk::ipc::DirtyRect{0, 0, 200, 200});
+        Check(over.TakeDirty(out) && out.size() == 1 && out[0].x == 40 &&
+                  out[0].y == 60 && out[0].w == 200 && out[0].h == 100,
+              "1p-1b 오버플레이·화면 경계 클램프(dst 절단)");
+        // 반올림 좌표(스펙: 스케일 매핑 = 반올림) — 스케일 1.5, 원점 (0,0):
+        // {3,5,4,6} → {lround(4.5)=5, lround(7.5)=8, 6, 9}(half-away 반올림).
+        FrameDirtyAccumulator rnd(800, 600);
+        rnd.AddSurfaceRect(7, 100, 50, 1.5f, 1.5f, 0, 0,
+                           jk::ipc::DirtyRect{3, 5, 4, 6});
+        Check(rnd.TakeDirty(out) && out.size() == 1 && out[0].x == 5 &&
+                  out[0].y == 8 && out[0].w == 6 && out[0].h == 9,
+              "1p-1c 반올림 좌표 매핑(스케일 1.5, lround)");
+    }
+
+    // 1p-2) 합집합 병합: 인접+중첩은 하나로 뭉치고, 떨어진 rect는 유지.
+    {
+        FrameDirtyAccumulator merge(800, 600);
+        merge.AddDirtyLayerRect(1, {0, 0, 100, 100});
+        merge.AddDirtyLayerRect(2, {100, 0, 100, 100});  // 인접(1px 접촉)
+        merge.AddDirtyLayerRect(3, {50, 50, 100, 100});  // 중첩
+        merge.AddDirtyLayerRect(4, {500, 500, 10, 10});  // 떨어짐
+        std::vector<SDL_Rect> out;
+        Check(merge.TakeDirty(out) && out.size() == 2 && out[0].x == 0 &&
+                  out[0].y == 0 && out[0].w == 200 && out[0].h == 150 &&
+                  out[1].x == 500 && out[1].y == 500 && out[1].w == 10 &&
+                  out[1].h == 10,
+              "1p-2 합집합 병합(인접·중첩 정리, 이격 유지)");
+    }
+
+    // 1p-3) 역치(full 전환): 40% 경계 — 미만은 부분 rect 제시, 도달은 full.
+    {
+        FrameDirtyAccumulator thr(100, 100);
+        thr.AddDirtyLayerRect(1, {0, 0, 39, 99});  // 3861/10000 = 38.6% < 40%
+        std::vector<SDL_Rect> out;
+        Check(!thr.IsFull(), "1p-3a 역치 미만 = IsFull false");
+        Check(thr.TakeDirty(out) && out.size() == 1 && out[0].x == 0 &&
+                  out[0].y == 0 && out[0].w == 39 && out[0].h == 99,
+              "1p-3b 역치 미만 = 부분 rect 제시(제시 유지)");
+        thr.AddDirtyLayerRect(1, {0, 0, 50, 80});  // 4000/10000 = 정확 40%
+        Check(thr.IsFull(), "1p-3c 누적 40% 도달 = full 전환(>= 경계)");
+        Check(thr.TakeDirty(out) && out.size() == 1 && out[0].x == 0 &&
+                  out[0].y == 0 && out[0].w == 100 && out[0].h == 100,
+              "1p-3d full 전환 = 화면 전체 rect 단건");
+        Check(!thr.TakeDirty(out), "1p-3e TakeDirty 후 재초기화(빈=false)");
+    }
+
+    // 1p-4) 빈=TakeDirty false(제시 스킵 원료) — 오염된 out도 비운다.
+    {
+        FrameDirtyAccumulator none(800, 600);
+        std::vector<SDL_Rect> out{SDL_Rect{9, 9, 1, 1}};
+        Check(!none.TakeDirty(out) && out.empty(),
+              "1p-4 빈 계산기 = TakeDirty false(out 비움)");
+        none.ForceFull();
+        Check(none.TakeDirty(out) && out.size() == 1 && out[0].w == 800 &&
+                  out[0].h == 600,
+              "1p-4b 사건 0 + ForceFull = full rect(강제는 사건 무관)");
+    }
+
+    // 1p-5) AddLayerMove = 이전∪새(이동 궤적 양쪽 착지).
+    {
+        FrameDirtyAccumulator mv(800, 600);
+        mv.AddLayerMove(5, {0, 0, 10, 10}, {50, 50, 10, 10});
+        std::vector<SDL_Rect> out;
+        bool sawOld = false, sawNew = false;
+        Check(mv.TakeDirty(out) && out.size() == 2,
+              "1p-5a AddLayerMove = 이전∪새 두 후보 rect");
+        for (const SDL_Rect& r : out) {
+            if (r.x == 0 && r.y == 0 && r.w == 10 && r.h == 10) sawOld = true;
+            if (r.x == 50 && r.y == 50 && r.w == 10 && r.h == 10) sawNew = true;
+        }
+        Check(sawOld && sawNew,
+              "1p-5b 이전 dst·새 dst 모두 이동 사건에 있음");
+        // 인접 dst 무브는 합집합 정리로 한 rect에 뭉친다.
+        FrameDirtyAccumulator mv2(800, 600);
+        mv2.AddLayerMove(5, {0, 0, 16, 16}, {16, 0, 16, 16});
+        Check(mv2.TakeDirty(out) && out.size() == 1 && out[0].x == 0 &&
+                  out[0].y == 0 && out[0].w == 32 && out[0].h == 16,
+              "1p-5c 인접 dst 무브 = 단건 병합(이전∪새)");
+    }
+
+    // 1p-6) ForceFull: 포커스 재정렬/오버레이 훅 — 작은 rect에도 전체로.
+    {
+        FrameDirtyAccumulator ff(800, 600);
+        std::vector<SDL_Rect> out;
+        Check(!ff.IsFull(), "1p-6a 초기 IsFull false");
+        ff.AddDirtyLayerRect(1, {0, 0, 4, 4});
+        ff.ForceFull();
+        Check(ff.IsFull(), "1p-6b ForceFull = IsFull true");
+        Check(ff.TakeDirty(out) && out.size() == 1 && out[0].x == 0 &&
+                  out[0].y == 0 && out[0].w == 800 && out[0].h == 600,
+              "1p-6c ForceFull = 화면 전체 rect 단건(사건 상쇄 정리)");
+    }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -1847,6 +1965,7 @@ int main(int argc, char** argv) {
     TestLocaltimeS();
     TestJobMultiMemberAndStdinParity();
     TestNetRecvAllChunksTimeoutAcceptBound();
+    TestFrameDirty();
     std::printf("PosixSelfTest: %d failure(s)\n", g_failures);
     return g_failures == 0 ? 0 : 1;
 }

@@ -23,6 +23,10 @@
 # T4 (2026-10-08): ChatRouter.cpp 추가 — case 16(자연어 승격 배선)이
 # kRouteTable 단일 진실원에서 승격 프롬프트를 조립하고 배선 순서(트리거
 # 즉발→TurnSync→stub 폴백)를 sh 스폰 스터브로 잠근다.
+# T1 (2026-10-08): JKFrameDirty.cpp 추가 — case 17(프레임 더티 계산기)가
+# 렌더러 없이 매핑·합집합·역치를 단정한다. SDL 접촉은 SDL_Rect 타입뿐(링크
+# 심볼 없음)이라 잉크는 cflags(헤더 경로)만이고, pkg-config가 있으면 쓰고
+# 없으면 데비안 기본 경로로 떨어진다.
 set -e
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -46,12 +50,21 @@ for c in xsum dtoa libregexp libunicode cutils; do
     fi
 done
 
+SDL_CFLAGS=""
+if command -v pkg-config >/dev/null 2>&1 && pkg-config --exists sdl2; then
+    SDL_CFLAGS=$(pkg-config --cflags sdl2)
+else
+    SDL_CFLAGS="-I/usr/include/SDL2"
+fi
+
 g++ -std=c++20 -pthread -lutil -O1 -Wall -Wextra \
     -I"$ROOT/engine/include" \
     -I"$QJS" \
+    $SDL_CFLAGS \
     -o "$OUT" \
     "$SCRIPT_DIR/main.cpp" \
     "$ROOT/engine/src/apps/ChatRouter.cpp" \
+    "$ROOT/engine/src/server/JKFrameDirty.cpp" \
     "$ROOT/engine/src/agent/JKLlmEngine.cpp" \
     "$ROOT/engine/src/agent/JKAgentJson.cpp" \
     "$ROOT/engine/src/fs/JKFs_posix.cpp" \

@@ -59,6 +59,7 @@ extern "C" __declspec(dllimport) int __stdcall closesocket(
 #include <fs/JKFs.h>
 
 #include <client/JKClientSurface.h>
+#include <server/JKFrameDirty.h>  // selftest 1p — 더티 계산기 순수 단정 (T1)
 #include <server/JKWindowServer.h>
 #include <agent/JKAgentClient.h>
 #include <agent/JKLlmEngine.h>  // selftest 1n-d — 동기 턴 브리지+ollama-direct leg
@@ -4699,6 +4700,102 @@ static int RunAppSelfTest() {
             check(!ecF && !fsx::exists(cfgPath),
                   "1n-fz seeded chat.json removed (scratch-free teardown)");
         }
+    }
+
+    // 1p) 프레임 더티 계산기(T1 — 스펙 2026-10-08-dirty-present 설계 결정 4:
+    // 순수 로직 단정). 렌더러 생성 0 — 합집합/매핑/역치만 SDL_Rect 타입 위에서
+    // 단정한다. 케이스 6종(plan verbatim): 매핑(+스케일 2.0)·합집합 병합·
+    // 역치(full 전환)·빈=TakeDirty false·AddLayerMove 이전∪새·ForceFull.
+    {
+        // 1p-1) 매핑(+스케일 2.0): 표면 100x50, 스케일 2.0, 레이어 화면 원점
+        // (40, 60) — 표면 rect {10,20,20,10} → 화면 {60,100,40,20}.
+        server::FrameDirtyAccumulator acc(800, 600);
+        acc.AddSurfaceRect(7, 100, 50, 2.0f, 2.0f, 40, 60,
+                           ipc::DirtyRect{10, 20, 20, 10});
+        std::vector<SDL_Rect> out;
+        check(acc.TakeDirty(out) && out.size() == 1 && out[0].x == 60 &&
+                  out[0].y == 100 && out[0].w == 40 && out[0].h == 20,
+              "1p-1 매핑(+스케일 2.0) 표면rect→화면rect");
+        // 오버플레이·화면 경계 클램프: 표면을 초과하는 dirty는 레이어 dst까지
+        // 절단(레이어 바깥 화면 면적을 부채질하지 않는다).
+        server::FrameDirtyAccumulator over(800, 600);
+        over.AddSurfaceRect(7, 100, 50, 2.0f, 2.0f, 40, 60,
+                            ipc::DirtyRect{0, 0, 200, 200});
+        check(over.TakeDirty(out) && out.size() == 1 && out[0].x == 40 &&
+                  out[0].y == 60 && out[0].w == 200 && out[0].h == 100,
+              "1p-1b 오버플레이·화면 경계 클램프(dst 절단)");
+        // 반올림 좌표(스펙: 스케일 매핑 = 반올림) — 스케일 1.5, 원점 (0,0):
+        // {3,5,4,6} → {lround(4.5)=5, lround(7.5)=8, 6, 9}(half-away 반올림).
+        server::FrameDirtyAccumulator rnd(800, 600);
+        rnd.AddSurfaceRect(7, 100, 50, 1.5f, 1.5f, 0, 0,
+                           ipc::DirtyRect{3, 5, 4, 6});
+        check(rnd.TakeDirty(out) && out.size() == 1 && out[0].x == 5 &&
+                  out[0].y == 8 && out[0].w == 6 && out[0].h == 9,
+              "1p-1c 반올림 좌표 매핑(스케일 1.5, lround)");
+
+        // 1p-2) 합집합 병합: 인접+중첩은 하나로 뭉치고, 떨어진 rect는 유지.
+        server::FrameDirtyAccumulator merge(800, 600);
+        merge.AddDirtyLayerRect(1, {0, 0, 100, 100});
+        merge.AddDirtyLayerRect(2, {100, 0, 100, 100});  // 인접(1px 접촉)
+        merge.AddDirtyLayerRect(3, {50, 50, 100, 100});  // 중첩
+        merge.AddDirtyLayerRect(4, {500, 500, 10, 10});  // 떨어짐
+        check(merge.TakeDirty(out) && out.size() == 2 &&
+                  out[0].x == 0 && out[0].y == 0 && out[0].w == 200 &&
+                  out[0].h == 150 && out[1].x == 500 && out[1].y == 500 &&
+                  out[1].w == 10 && out[1].h == 10,
+              "1p-2 합집합 병합(인접·중첩 정리, 이격 유지)");
+
+        // 1p-3) 역치(full 전환): 40% 경계 — 미만은 부분 rect 제시, 도달은 full.
+        server::FrameDirtyAccumulator thr(100, 100);
+        thr.AddDirtyLayerRect(1, {0, 0, 39, 99});  // 3861/10000 = 38.6% < 40%
+        check(!thr.IsFull(), "1p-3a 역치 미만 = IsFull false");
+        check(thr.TakeDirty(out) && out.size() == 1 && out[0].x == 0 &&
+                  out[0].y == 0 && out[0].w == 39 && out[0].h == 99,
+              "1p-3b 역치 미만 = 부분 rect 제시(제시 유지)");
+        thr.AddDirtyLayerRect(1, {0, 0, 50, 80});  // 4000/10000 = 정확 40%
+        check(thr.IsFull(), "1p-3c 누적 40% 도달 = full 전환(≥ 경계)");
+        check(thr.TakeDirty(out) && out.size() == 1 && out[0].x == 0 &&
+                  out[0].y == 0 && out[0].w == 100 && out[0].h == 100,
+              "1p-3d full 전환 = 화면 전체 rect 단건");
+        check(!thr.TakeDirty(out), "1p-3e TakeDirty 후 재초기화(빈=false)");
+
+        // 1p-4) 빈=TakeDirty false(제시 스킵 원료) — 오염된 out도 비운다.
+        server::FrameDirtyAccumulator none(800, 600);
+        out.push_back(SDL_Rect{9, 9, 1, 1});
+        check(!none.TakeDirty(out) && out.empty(),
+              "1p-4 빈 계산기 = TakeDirty false(out 비움)");
+        none.ForceFull();
+        check(none.TakeDirty(out) && out.size() == 1 &&
+                  out[0].w == 800 && out[0].h == 600,
+              "1p-4b 사건 0 + ForceFull = full rect(강제는 사건 무관)");
+
+        // 1p-5) AddLayerMove = 이전∪새(이동 궤적 양쪽 착지).
+        server::FrameDirtyAccumulator mv(800, 600);
+        mv.AddLayerMove(5, {0, 0, 10, 10}, {50, 50, 10, 10});
+        bool sawOld = false, sawNew = false;
+        check(mv.TakeDirty(out) && out.size() == 2,
+              "1p-5a AddLayerMove = 이전∪새 두 후보 rect");
+        for (const SDL_Rect& r : out) {
+            if (r.x == 0 && r.y == 0 && r.w == 10 && r.h == 10) sawOld = true;
+            if (r.x == 50 && r.y == 50 && r.w == 10 && r.h == 10) sawNew = true;
+        }
+        check(sawOld && sawNew, "1p-5b 이전 dst·새 dst 모두 이동 사건에 있음");
+        // 인접 dst 무브는 합집합 정리로 한 rect에 뭉친다.
+        server::FrameDirtyAccumulator mv2(800, 600);
+        mv2.AddLayerMove(5, {0, 0, 16, 16}, {16, 0, 16, 16});
+        check(mv2.TakeDirty(out) && out.size() == 1 && out[0].x == 0 &&
+                  out[0].y == 0 && out[0].w == 32 && out[0].h == 16,
+              "1p-5c 인접 dst 무브 = 단건 병합(이전∪새)");
+
+        // 1p-6) ForceFull: 포커스 재정렬/오버레이 훅 — 작은 rect에도 전체로.
+        server::FrameDirtyAccumulator ff(800, 600);
+        check(!ff.IsFull(), "1p-6a 초기 IsFull false");
+        ff.AddDirtyLayerRect(1, {0, 0, 4, 4});
+        ff.ForceFull();
+        check(ff.IsFull(), "1p-6b ForceFull = IsFull true");
+        check(ff.TakeDirty(out) && out.size() == 1 && out[0].x == 0 &&
+                  out[0].y == 0 && out[0].w == 800 && out[0].h == 600,
+              "1p-6c ForceFull = 화면 전체 rect 단건(사건 상쇄 정리)");
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);

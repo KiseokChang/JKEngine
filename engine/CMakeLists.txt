@@ -312,6 +312,7 @@ add_library(jkserver STATIC
     src/server/JKSemanticCursor.cpp
     src/server/JKCompositor.cpp
     src/server/JKCompositorOutput.cpp
+    src/server/JKFrameDirty.cpp
 )
 target_link_libraries(jkserver PUBLIC jkcore)
 
