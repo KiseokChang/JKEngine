@@ -1795,8 +1795,15 @@ void TestChatPromoteWiring() {
     Check(Seed(jk::agent::kStubShellCmdPosix),
           "llm16: cfg re-seeded (stub-echo JSON, no action schema)");
     {
+        // T4 fix r2 (NR4R-1): 표지 미보정 재발 수리 — 이 수형의 단정 목표는
+        // "턴을 시도했는데 응답 파싱이 실패해 폴백"이다(게이트 차단이 아님).
+        // 시딩 파일(kStubShellCmdPosix echo)은 engine 키를 갖는 유효 JSON이라
+        // fileKnown=true가 참이고, 스키마 밖 회신은 **응답**만의 결함 —
+        // win 1n-f24의 posix 쌍둥이(NR4-1 원장 concern 1 동일 함정의 마지막
+        // 잔여 — 구성 mc 전수 재검토로 이 1건만 남았다).
         jk::agent::ChatConfig mc;
         mc.engine = "ollama-direct";
+        mc.fileKnown = true;   // 표지 — 개통돼야 턴 시도·파싱 실패가 성립
         jk::ChatAction a;
         bool used = true;
         const std::string guide =
