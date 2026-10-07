@@ -105,7 +105,7 @@ bool ReadProcCpuTicks(const char* path, uint64_t* ticksOut) {
     //               majflt cmajflt utime stime — 11개 억제 후 2개 수취.
     unsigned long long utime = 0, stime = 0;
     if (std::sscanf(body + 1,
-                    "%*s %*u %*u %*u %*u %*u %*u %*u %*u %*u %llu %llu",
+                    "%*s %*u %*u %*u %*u %*u %*u %*u %*u %*u %*u %llu %llu",
                     &utime, &stime) != 2) {
         return false;
     }

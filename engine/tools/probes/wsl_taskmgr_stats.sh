@@ -5,7 +5,9 @@
 # (클라 900x620) + **pid 0 아님**(JKClientSurface Hello posix leg 트립와이어 —
 # leg 이전 실측 pid:0) ④ 서버 capture_window 도구로 taskmgr 표를 PNG로 캡처해
 # 비어있지 않음을 산출(사람 육안은 PNG Read — probe는 파일 크기 하한만 잠근다)
-# ⑤ /proc Δ 산식 셸 검증(listed pid의 utime+stime 3초 대차) ⑥ 브래킷 pkill 철수.
+# ⑤ /proc Δ 산식 셸 검증(listed pid의 utime+stime 3초 대차) ⑥ 브래킷 pkill 철수
+# ⑦ 교차수치(fix r1 review 권장) — 셸 Δ%와 앱 표 CPU%(PNG 육안 교차판독)를
+#    영수증에 나란히 기록해 두 채널 독립 검증(누락이 fix r1 버그를 놓친 원인).
 #
 # 템플릿 관습(wsl_apps_count.sh) 그대로 — wsl.exe는 인라인 인용을 찢으니 파일로
 # 실행한다(Git Bash/MSYS 경로 변환이 /mnt/ 경로를 찢으니 MSYS_NO_PATHCONV=1 접두
@@ -21,7 +23,7 @@ cd /mnt/i/progwork/JKENGINE/engine
 FAIL() { echo "TASKMGR-FAIL: $*"; exit 1; }
 
 echo "=== 1. bracketed pre-clean (살아있는 jkdesktop이 재링크를 막는다 — 실측) ==="
-pkill -f 'buildwsl/jkdesktop' 2>/dev/null
+pkill -f 'buildwsl/[j]kdesktop' 2>/dev/null
 sleep 1
 pkill -9 -f 'buildwsl/[j]kdesktop' 2>/dev/null
 sleep 1
@@ -97,7 +99,9 @@ sleep 3
 T2=$(awk '{print $14+$15}' /proc/"$TM_PID"/stat 2>/dev/null) || FAIL "stat read 2 failed"
 [ -n "$T2" ] || FAIL "stat read 2 empty"
 DPROC=$((T2 - T1))
-echo "PROC-DELTA-TICKS=$DPROC (3s window, CLK_TCK=$(getconf CLK_TCK), cores=$(nproc))"
+CLK_TCK=$(getconf CLK_TCK)
+CORES=$(nproc)
+echo "PROC-DELTA-TICKS=$DPROC (3s window, CLK_TCK=$CLK_TCK, cores=$CORES)"
 [ "$DPROC" -gt 0 ] || FAIL "proc delta=0 over 3s (살아있는 프로세스가 유휴여도 렌더로 틱이 오른다 — Δ 경로 무음 의심)"
 RSS=$(grep -a 'VmRSS:' /proc/"$TM_PID"/status 2>/dev/null | awk '{print $2}')
 echo "RSS-KB=$RSS"
@@ -122,9 +126,17 @@ PY
 )
 echo "CAPTURE-WH=$CAP_WH (expected 900 620 — 클라 프레임버퍼 원형)"
 printf '%s' "$CAP_WH" | grep -aq '900 620' || FAIL "capture geometry not 900 620: $CAP_WH"
-echo "CAPTURE-WH=$CAP_WH (expected 900 620 — 클라 프레임버퍼 원형)"
-printf '%s' "$CAP_WH" | grep -aq '900 620' || FAIL "capture geometry not 900 620: $CAP_WH"
 echo "RECEIPT: $(ls -1 buildwsl/state/screenshots/shot_*.png | head -1)"
+
+# 교차수치(fix r1 review 권장): 셸 Δ채널 %와 앱 표 CPU%를 독립 채널로 영수증에
+# 나란히 둔다 — T5 fix r1(sscanf 억제 1개 누락: utime←cmajflt, stime←utime)
+# 이 안 잡힌 원인이 두 채널 독립 검증 부재였다. 앱 표 CPU%는 PNG 육안
+# (RECEIPT 경로) 교차판독으로 마감 — 자동 OCR은 현 단계 과다(대역 어설션은
+# 샘플 창 미정렬로 유령 실패만 산한다).
+CROSS_PCT=$(awk -v d="$DPROC" -v hz="$CLK_TCK" -v c="$CORES" \
+    'BEGIN{printf "%.1f", d/hz/3.0/c*100}')
+echo "CROSS-CHECK: shell Δ% of machine=$CROSS_PCT (Δticks=$DPROC/3s, CLK_TCK=$CLK_TCK) —"
+echo "             app 표 CPU%(capture PNG 육안 교차판독)는 같은 오더여야 한다(두 채널 독립)."
 
 echo "=== 8. cleanup (bracketed pkill — WSL kill discipline) ==="
 pkill -f 'buildwsl/jkdesktop' 2>/dev/null
