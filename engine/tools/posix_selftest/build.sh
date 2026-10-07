@@ -20,6 +20,9 @@
 # 직 링크로 TurnSync 동기 브리지+ollama-direct leg를 어댑터 축에서 잠근다.
 # quickjs-ng 인클루드 경로 — JKAgentJson.h가 <quickjs.h>를 들고 온다(링크 의존
 # 아님: quickjs 기호 참조 없이 통과한다).
+# T4 (2026-10-08): ChatRouter.cpp 추가 — case 16(자연어 승격 배선)이
+# kRouteTable 단일 진실원에서 승격 프롬프트를 조립하고 배선 순서(트리거
+# 즉발→TurnSync→stub 폴백)를 sh 스폰 스터브로 잠근다.
 set -e
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -48,6 +51,7 @@ g++ -std=c++20 -pthread -lutil -O1 -Wall -Wextra \
     -I"$QJS" \
     -o "$OUT" \
     "$SCRIPT_DIR/main.cpp" \
+    "$ROOT/engine/src/apps/ChatRouter.cpp" \
     "$ROOT/engine/src/agent/JKLlmEngine.cpp" \
     "$ROOT/engine/src/agent/JKAgentJson.cpp" \
     "$ROOT/engine/src/fs/JKFs_posix.cpp" \

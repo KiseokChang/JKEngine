@@ -4328,6 +4328,305 @@ static int RunAppSelfTest() {
 #endif  // _WIN32 — 1n-e3/e4 라이브 cmd 전용
     }
 
+    // 1n-f) 자연어 승격 배선 (T4 — 스펙 2026-10-08-chat-llm-promotion 설계
+    //   결정 3·4). jkweb HandleTalk·jktalk ProcessTurn의 뇌호출 자리가 먹는
+    //   jk::ChatRouteTurn의 배선 순서 도표: ① 정확 트리거 매치 → 기존 즉발
+    //   (LLM 왕복 0) ② 비매치 + cfg 구성 → TurnSync 동기 턴 + 행동 JSON
+    //   파싱 ③ LLM 실패/파싱 불가 → 기존 stub 안내문 폴백(원문 그대로).
+    //   스폰은 T3 direct_cmd 스터브 주입 재용(실 ollama 의존 금지 — 환경
+    //   의존 함정: 캐논이 그 기기의 ollama 설치/네트워크를 먹지 않게).
+    //   chat.json은 1n-d와 같은 백업→시딩→복원 계약(엔진 worker가 cfg를
+    //   재로드하므로 시딩이 필수 — ChatRouteTurn 인자 cfg는 배선 판정만
+    //   소관이라 실 스폰 leg는 파일의 engine/direct_cmd가 진실원).
+    {
+        using jk::agent::ChatConfig;
+        namespace fsx = std::filesystem;
+
+        const std::string exePath = jk::fs::GetExecutablePath();
+        const size_t sepF = exePath.find_last_of("\\/");
+        const std::string stateDir =
+            sepF == std::string::npos ? std::string("state")
+                                      : exePath.substr(0, sepF) + "/state";
+        const std::string cfgPath = stateDir + "/chat.json";
+        // 1n-d와 같은 무손실 백업(엔진 worker의 재로드가 이 파일을 먹는다).
+        std::string cfgBackupF;
+        bool hadCfgF = false;
+        if (std::FILE* bf = std::fopen(cfgPath.c_str(), "rb")) {
+            std::fseek(bf, 0, SEEK_END);
+            const long sz = std::ftell(bf);
+            std::fseek(bf, 0, SEEK_SET);
+            if (sz > 0) {
+                cfgBackupF.resize(static_cast<size_t>(sz));
+                const size_t n =
+                    std::fread(&cfgBackupF[0], 1, cfgBackupF.size(), bf);
+                cfgBackupF.resize(n);
+                hadCfgF = n > 0;
+            }
+            std::fclose(bf);
+        }
+        auto WriteCfgF = [&cfgPath](const std::string& json) -> bool {
+            std::FILE* f = std::fopen(cfgPath.c_str(), "wb");
+            if (!f) return false;
+            const size_t w = std::fwrite(json.data(), 1, json.size(), f);
+            std::fclose(f);
+            return w == json.size();
+        };
+        auto SeedF = [&WriteCfgF, &exePath](const std::string& directCmd,
+                                            const char* engine) -> bool {
+            // directory도 시딩 — cfg 기본값은 repo 절대 경로(chdir 실패 함정,
+            // 1n-d 렛슨). directCmd는 chat.json JSON 문자열 안에 실리므로
+            // 인용·백슬래시를 이중 이스케이프(수기 인게스트 경고 원문 —
+            // `directory "I:\\progwork\\JKENGINE"` 계약의 코드판).
+            std::string dirJ = exePath;
+            const size_t cut = dirJ.find_last_of("\\/");
+            if (cut != std::string::npos) dirJ = dirJ.substr(0, cut);
+            std::string dirEsc, cmdEsc;
+            for (char ch : dirJ) {
+                if (ch == '"') dirEsc += "\\\"";
+                else if (ch == '\\') dirEsc += "\\\\";
+                else dirEsc += ch;
+            }
+            for (char ch : directCmd) {
+                if (ch == '"' || ch == '\\') { cmdEsc += '\\'; cmdEsc += ch; }
+                else cmdEsc += ch;
+            }
+            return WriteCfgF(std::string(
+                       "{\"engine\":\"") +
+                       engine + "\",\"model\":\"glm-test-stub:cloud\","
+                       "\"directory\":\"" + dirEsc + "\",\"direct_cmd\":\"" +
+                       cmdEsc + "\"}");
+        };
+
+        std::error_code ecF;
+        check(fsx::create_directories(stateDir, ecF) || fsx::exists(stateDir),
+              "1n-f0 state dir ready (promotion wiring seam)");
+
+        // (a) 순수 파서 도표 — 코드펜스 감쌈·해설 혼입(T1 R4 3회 실측 재현)
+        //   + 스키마 검증(스킴 밖 값·무app launch는 정직 폴백 대상).
+        {
+            jk::ChatAction a;
+            std::string note;
+            check(jk::ChatLlmActionParse(
+                      "```json\n{\"action\":\"launch\",\"app\":\"minesweeper\","
+                      "\"text\":\"지뢰찾기를 실행합니다.\"}\n```", a, note) &&
+                      a.kind == jk::ChatAction::Launch &&
+                      a.app == "minesweeper" &&
+                      note.find("지뢰찾기를 실행합니다") != std::string::npos,
+                  "1n-f1 code-fenced action JSON parses (fence strip)");
+            check(jk::ChatLlmActionParse(
+                      "테트리스 열어드릴게요.\n{\"action\":\"launch\","
+                      "\"app\":\"tetris\",\"text\":\"테트리스를 실행합니다.\"}"
+                      "\n(오래 걸리면 말씀하세요)", a, note) &&
+                      a.kind == jk::ChatAction::Launch && a.app == "tetris" &&
+                      note.find("테트리스를 실행합니다") != std::string::npos &&
+                      note.find("열어드릴게요") != std::string::npos &&
+                      note.find("오래 걸리면") != std::string::npos,
+                  "1n-f2 JSON buried under commentary parses, both sides ride "
+                  "the guide (병기 계약)");
+            check(jk::ChatLlmActionParse(
+                      "{\"action\":\"talk\",\"text\":\"안녕하세요, 무엇을 도"
+                      "와줄까요?\"}", a, note) &&
+                      a.kind == jk::ChatAction::Info && a.app.empty() &&
+                      note == "안녕하세요, 무엇을 도와줄까요?",
+                  "1n-f3 talk=행동 없는 정보성(Info — text만 회신)");
+            check(!jk::ChatLlmActionParse("설명만 남긴 해설", a, note),
+                  "1n-f4 no JSON at all → parse fail (honest fallback feed)");
+            check(!jk::ChatLlmActionParse(
+                      "{\"action\":\"minesweeper\",\"app\":\"x\"}", a, note),
+                  "1n-f5 unknown action value → parse fail (schema guard)");
+            check(!jk::ChatLlmActionParse(
+                      "{\"action\":\"launch\"}", a, note) && a.kind ==
+                      jk::ChatAction::Info,
+                  "1n-f6 launch without app → parse fail (지시 불성립 — 라우터"
+                  " 1n-6 동형 판정)");
+            check(jk::ChatLlmActionParse(
+                      "{\"action\":\"close\"}", a, note) &&
+                      a.kind == jk::ChatAction::Close && a.app.empty(),
+                  "1n-f7 close without app keeps the argless form (포커스 창 —"
+                  " 서버 해소 계약)");
+        }
+
+        // (b) 프롬프트 본문 도표 — 트리거 표·별명 표·스키마가 라우터 단일
+        //   진실원에서 조립되고, 프리앰블을 복제하지 않는다(엔진 접두 단일
+        //   출처 계약 — kLlmTurnPreamble은 BuildEngineCmd가 한 번 붙인다).
+        {
+            const std::string body = jk::ChatLlmTurnPrompt("지뢰찾기 좀 띄워줘");
+            // 무따옴표·무파이프 스키마(ollama leg 재인용 층 실측 — ChatRouter
+            // 원장): 본문에 문자 " 와 | 가 없음이 곧 스키마 도표의 정직함.
+            check(body.find("action: launch / close / focus / list / talk") !=
+                          std::string::npos &&
+                      body.find('"') == std::string::npos &&
+                      body.find('|') == std::string::npos,
+                  "1n-f8 prompt body carries the schema line (quote·pipe "
+                  "free — ollama leg 재인용 수리 계약)");
+            check(body.find("켜줘") != std::string::npos &&
+                      body.find("앞으로 가져와") != std::string::npos &&
+                      body.find("닫아줘") != std::string::npos,
+                  "1n-f9 prompt body carries the trigger table (router 표 "
+                  "승계)");
+            check(body.find("지뢰찾기") != std::string::npos &&
+                      body.find("minesweeper") != std::string::npos,
+                  "1n-f10 prompt body carries the alias table (app key 승계)");
+            check(body.find("[발화] 지뢰찾기 좀 띄워줘") != std::string::npos,
+                  "1n-f11 prompt body ends with the utterance");
+            check(body.find("[시스템 지시]") == std::string::npos,
+                  "1n-f12 preamble NOT duplicated in the prompt body "
+                  "(engine preprends it once — 복제 금지 단일 출처)");
+        }
+
+        // (c) 배선 ① — 정확 트리거 매치는 LLM을 우회한다(TurnSync 0). cfg는
+        //   구성(ollama-direct)이고 스폰 스터브는 구분 가능한 Focus JSON을
+        //   내놓게 시딩 — LLM이 잘못 불렸다면 kind/app/guide가 전부 오염
+        //   된다(오염 관측 = 우회 단정의 무기). guide는 기존 라우터 guide
+        //   원문과의 동일 단정(폴백 계약 원문이 같은 검산기를 쓴다).
+        //   스터브 echo는 플랫폼 인용 규약 차(cmd는 인용 원문 인쇄, sh는
+        //   이중 따옴표 벗김 — 1n-e3 실측 좌표)로 갈린다.
+#ifdef _WIN32
+        const std::string seedBypass =
+            "echo {\"action\":\"focus\",\"text\":\"LLM-TOOK-THE-TURN-3361\"}";
+#else
+        const std::string seedBypass =
+            "echo '{\"action\":\"focus\",\"text\":\"LLM-TOOK-THE-TURN-3361\"}'";
+#endif
+        check(SeedF(seedBypass, "ollama-direct"),
+              "1n-f13 chat.json seeded (llm focus marker, ollama-direct)");
+        {
+            ChatConfig mc;               // 구성 — 엔진이 살아 있어야 우회가
+            mc.engine = "ollama-direct"; // 의미를 갖는다
+            mc.directCmd = seedBypass;
+            jk::ChatAction a;
+            bool used = true;            // 오염 증거 — 배선이 지우지 못하면 실패
+            const std::string guide =
+                jk::ChatRouteTurn("지뢰찾기 켜줘", a, mc, &used);
+            check(!used && a.kind == jk::ChatAction::Launch &&
+                      a.app == "minesweeper",
+                  "1n-f14 exact trigger match bypasses the LLM turn (cfg "
+                  "구성에도 — usedLlm=false)");
+            jk::ChatAction ar;
+            check(guide == jk::ChatRouterRoute("지뢰찾기 켜줘", ar),
+                  "1n-f15 bypass guide is the legacy router guide verbatim");
+        }
+
+        // (d) 배선 ③ — cfg 미구성(engine="stub"·미지 값)은 LLM 왕복·스포른
+        //   없이 즉발 폴백(기존 라우터 원문 그대로 — 지연 0 계약).
+        {
+            ChatConfig mc;          // 미구성 — 스폰 자체를 안 한다
+            mc.engine = "stub";
+            jk::ChatAction a;
+            bool used = true;
+            const std::string guide = jk::ChatRouteTurn(
+                "세상엔 채팅이 이렇게 어려웠나", a, mc, &used);
+            check(!used && a.kind == jk::ChatAction::Info,
+                  "1n-f16 unconfigured cfg (engine=stub) falls back with no "
+                  "LLM turn");
+            jk::ChatAction ar;
+            check(guide == jk::ChatRouterRoute("세상엔 채팅이 이렇게 어려웠나",
+                                               ar),
+                  "1n-f17 fallback guide is the legacy router guide verbatim");
+            check(guide.find("인식하지 못했습니다") != std::string::npos &&
+                      guide.find("켜줘") != std::string::npos,
+                  "1n-f18 fallback is the stub InfoGuide (trigger table "
+                  "안내문 원문)");
+            ChatConfig mb;               // 미지 값도 미구성 — 같은 즉발 폴백
+            mb.engine = "banana-wasm";
+            jk::ChatAction b;
+            bool usedB = true;
+            (void)jk::ChatRouteTurn("뜬금없는 말 3361", b, mb, &usedB);
+            check(!usedB && b.kind == jk::ChatAction::Info,
+                  "1n-f19 unknown engine value = unconfigured (same "
+                  "no-spawn fallback)");
+        }
+
+        // (e) 배선 ② — 비매치 + cfg 구성 → TurnSync 동기 턴 → 행동 JSON 파싱
+        //   → ChatAction. 스폰 스터브(echo)가 모델 응답 모양의 행동 JSON을
+        //   내놓는 실측 자리(실 ollama 의존 0).
+#ifdef _WIN32
+        const std::string seedLaunch =
+            "echo {\"action\":\"launch\",\"app\":\"tetris\","
+            "\"text\":\"TETRIS-LLM-GUIDE-3361\"}";
+#else
+        const std::string seedLaunch =
+            "echo '{\"action\":\"launch\",\"app\":\"tetris\","
+            "\"text\":\"TETRIS-LLM-GUIDE-3361\"}'";
+#endif
+        check(SeedF(seedLaunch, "ollama-direct"),
+              "1n-f20 chat.json re-seeded (launch JSON stub)");
+        {
+            ChatConfig mc;
+            mc.engine = "ollama-direct";
+            mc.directCmd = seedLaunch;
+            jk::ChatAction a;
+            bool used = false;
+            const std::string guide =
+                jk::ChatRouteTurn("테트리스 좀 부탁할게", a, mc, &used);
+            check(used && a.kind == jk::ChatAction::Launch &&
+                      a.app == "tetris",
+                  "1n-f21 non-match + configured cfg → LLM turn parses into "
+                  "a Launch action");
+            check(guide == "TETRIS-LLM-GUIDE-3361",
+                  "1n-f22 model text becomes the guide (안내문 병기 계약)");
+        }
+
+        // (f) 배선 ③ — 스폰은 개통돼도 응답 파싱이 불성립하면 stub 안내문
+        //   폴백. T3 stub 엔진 회신 모양(kStubShellCmd* 단일 출처 상수 —
+        //   "result"/"session_id"는 행동 스키마 밖)으로 정직 폴백을 증명.
+#ifdef _WIN32
+        check(SeedF(jk::agent::kStubShellCmdWin32, "ollama-direct"),
+              "1n-f23 chat.json re-seeded (stub-echo JSON, no action "
+              "schema)");
+#else
+        check(SeedF(jk::agent::kStubShellCmdPosix, "ollama-direct"),
+              "1n-f23 chat.json re-seeded (stub-echo JSON, no action "
+              "schema)");
+#endif
+        {
+            ChatConfig mc;
+            mc.engine = "ollama-direct";
+            jk::ChatAction a;
+            bool used = true;
+            const std::string guide =
+                jk::ChatRouteTurn("뜬금없는 발화 3361", a, mc, &used);
+            check(!used && a.kind == jk::ChatAction::Info,
+                  "1n-f24 unparsable engine reply falls back honestly");
+            jk::ChatAction ar;
+            check(guide == jk::ChatRouterRoute("뜬금없는 발화 3361", ar),
+                  "1n-f25 fallback guide is the legacy router guide verbatim");
+        }
+
+        // (g) 배선 ② talk — 행동 없는 정보성 응답은 text만 회신(스펙 결정 4
+        //   "정보성 응답에는 모델 텍스트를 안내문으로") — 도구 지시 0.
+#ifdef _WIN32
+        const std::string seedTalk =
+            "echo {\"action\":\"talk\",\"text\":\"TALK-GUIDE-3361\"}";
+#else
+        const std::string seedTalk =
+            "echo '{\"action\":\"talk\",\"text\":\"TALK-GUIDE-3361\"}'";
+#endif
+        check(SeedF(seedTalk, "ollama-direct"),
+              "1n-f26 chat.json re-seeded (talk JSON stub)");
+        {
+            ChatConfig mc;
+            mc.engine = "ollama-direct";
+            jk::ChatAction a;
+            bool used = false;
+            const std::string guide =
+                jk::ChatRouteTurn("오늘 기분은 어때", a, mc, &used);
+            check(used && a.kind == jk::ChatAction::Info && a.app.empty(),
+                  "1n-f27 talk turn stays on Info (no tool dispatch)");
+            check(guide == "TALK-GUIDE-3361",
+                  "1n-f28 talk reply text is the whole guide");
+        }
+
+        // 복원 — 시딩한 chat.json 정리(없던 기기는 소각, 있던 기기는 원문).
+        if (hadCfgF) {
+            check(WriteCfgF(cfgBackupF), "1n-fz chat.json restored verbatim");
+        } else {
+            fsx::remove(cfgPath, ecF);
+            check(!ecF && !fsx::exists(cfgPath),
+                  "1n-fz seeded chat.json removed (scratch-free teardown)");
+        }
+    }
+
     std::printf("AppSelfTest: %d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;
 }

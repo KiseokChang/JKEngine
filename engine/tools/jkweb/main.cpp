@@ -11,7 +11,9 @@
 //   - POST /talk {"text":"..."} → jk::ChatRouterRoute(T1)로 해석 → 도구 지시
 //     는 서버 위임(JKAgentClient — jktalk/jkctl과 같은 {"tool":...,"args":{}}
 //     질의 형태) → JSON {"ok":...,"reply":...,"kind":...,"app":...,
-//     "server":<회신 원문>} 회신. ok는 서버 회신의 "ok":true 유무 판정의 정직
+//     "server":<회신 원문>} 회신. T4 배선: 라우터 비매치 발화는 cfg.engine이
+//     구성되면 LLM 동기 턴으로 승격(아래 백엔드 슬롯 주석), 실패는 stub 폴백.
+//     ok는 서버 회신의 "ok":true 유무 판정의 정직
 //     신호(I1 fix r1 — argless close_window가 window_not_found로 돌아온 것을
 //     라우터 안내문만으로 덮어 거짓 성공으로 보지 않게 한다, jkdesktop
 //     JKWindowServer close_window args.id 한정 계약)이고, 서버 회신 원문은
@@ -34,17 +36,21 @@
 // jkdesktop --server를 기동하지 않는다(jkctl RunServerQuery의 "window server
 // not running" 형제, jktalk fail-loud 계약 승계).
 //
-// 백엔드 슬롯(스펙 §4 — jktalk의 kBackendName 블록 동형 주석): 지금은 T1 stub
-// 라우터(jk::ChatRouterRoute)만 꽂는다. JKLlmEngine은 이 서버에서 아직
-// 인스턴스화하지 않는다(룰링 — cfg 선택형 배선은 별도 과제, posix엔 ollama/
-// claude CLI가 없어 지금 실장하면 dead code — ClientChatApp.cpp 백엔드 슬롯
-// 동일 판정). 슬롯 자리는 HandleTalk의 ① 주석.
+// 백엔드 슬롯(스펙 §4 — jktalk의 kBackendName 블록 동형 주석) — T4 배선 착지
+// (스펙 2026-10-08-chat-llm-promotion 설계 결정 3·4): cfg(engine 선택 —
+// LoadChatConfig, 기본 chat.json 수기 인게스트)가 정확 트리거 매치(즉발 유지)
+// 가 아닌 발화의 뇌를 JKLmEngine::TurnSync(T3 동기 브리지)로 승격한다. LLM
+// 실패·파싱 불가·cfg 미구성("stub"/미지 값)은 기존 stub 라우터로 조용히 폴백.
+// 배선 본체는 jk::ChatRouteTurn 한 곳(jktalk과 공통 — 복제 금지)이라 이 TU는
+// JKLlmEngine을 직접 소유하지 않는다(엔진 수명·1턴 직렬화 계약은 그 쪽 소관).
+// 슬롯 자리는 HandleTalk의 ① 주석.
 //
 // 소켓 계약(jk::net adapter — docs/68 W8b): winsock/posix 양다리는
 // JKNet_win32.cpp / JKNet_posix.cpp가 소유한다. 이 TU는 winsock2.h를 만지지
 // 않는다 — HTTP 기하(RecvAll·Send·ListenTcp)만 adapter로 맞춘다.
 
 #include <agent/JKAgentClient.h>
+#include <agent/JKLlmEngine.h>  // 승격 배선의 cfg 원천(LoadChatConfig) — T4
 #include <apps/ChatRouter.h>
 #include <net/JKNet.h>
 
@@ -339,11 +345,15 @@ std::string HandleTalk(const std::string& body, int& code) {
     }
 
     jk::ChatAction action;
-    // 뇌호출 — 백엔드 슬롯(jktalk kBackendName 블록 동형). T7 이후 cfg 선택형
-    // 배선이 여기 JKLlmEngine을 인스턴스화한다(text → ChatAction + 안내문,
-    // 호출 계약 동일 — 나머지는 백엔드 무관으로 유지).
-    //   ① jk::JKLlmEngine llm; std::string guide = llm.Route(text, action);
-    const std::string guide = jk::ChatRouterRoute(text, action);
+    // 뇌호출 — 배선 순서 계약(스펙 설계 결정 4)이 jk::ChatRouteTurn 한 곳에
+    // 수행된다(jkweb·jktalk 공통 본체 — 복제 금지): (1) 정확 트리거 매치 →
+    // 기존 즉발 경로(LLM 왕복 0) (2) 비매치 + cfg.engine 구성("ollama"|
+    // "claude"|"ollama-direct") → TurnSync 동기 턴 → 응답에서 행동 JSON 파싱
+    // → ChatAction 구성(모델 텍스트·해설은 안내문으로 병기) (3) LLM 실패/
+    // 스폰 불가/파싱 불가 → 기존 stub 안내문 폴백. 아래 도구 지시·ServerMeta
+    // 계약은 백엔드 무관으로 유지 — ChatAction 파이프라인 원문 그대로.
+    const jk::agent::ChatConfig chatCfg = jk::agent::LoadChatConfig();
+    const std::string guide = jk::ChatRouteTurn(text, action, chatCfg);
     const std::string escKind = KindName(action.kind);
     const std::string escApp =
         action.kind == jk::ChatAction::Launch || action.kind == jk::ChatAction::Close

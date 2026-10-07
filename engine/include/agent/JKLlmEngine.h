@@ -37,7 +37,10 @@ struct ChatConfig {
     bool skipPermissions = true;    // workbench default; headless auto-denies
                                     // tool consent when off
     std::string directory =
-        "I:\\progwork\\JKENGINE";   // worker cwd: .mcp.json (jkagentd) lives here
+        "I:\\progwork\\JKENGINE";   // worker cwd: .mcp.json (jkagentd) lives here.
+                                    // chat.json은 수기 인게스트(코드 writer 0) —
+                                    // JSON 규약 그대로 백슬래시는 `\` 이중화 필수;
+                                    // 파스 실패는 기본값 폴백(T3 재실측).
     // ollama-direct 전용 스폰 명령 주입(empty = 기본 조립 BuildOllamaDirectCmd).
     // 셀프테스트 전용 씽크다: 기본 명령이 실 ollama를 쏘면 셀프테스트 캐논이
     // 그 기기의 ollama 설치/네트워크에 의존하게 된다(환경 의존 함정). echo

@@ -20,10 +20,15 @@
 // 서버 기동은 이 CLI의 몫이 아니다(룰링 — 프로브는 서버 기동·종료를 하지
 // 않는다).
 //
-// 백엔드 슬롯(스펙 §4 — 승격 판정=docs/80 §3, stub 유지): 아래 kBackendName
-// 주석 자리. 지금은 T1 stub 라우터(jk::ChatRouterRoute)만 꽂는다.
-// JKLlmEngine은 이 CLI에서 아직 인스턴스화하지 않는다 — cfg 선택형 배선은
-// 백로그(동기 브리지·액션 매핑·ollama HTTP 어댑터·chat.json directory).
+// 백엔드 슬롯(스펙 §4 — jkweb의 슬롯 주석 동형) — T4 배선 착지(스펙
+// 2026-10-08-chat-llm-promotion 설계 결정 3·4): cfg(state/chat.json 수기
+// 인게스트)의 engine이 비매치 발화의 뇌를 고른다. "stub"/미지 값(=미구성)이면
+// T1 stub 라우터(jk::ChatRouterRoute)가 전부 처리(지금 모양 보존),
+// "ollama"|"claude"|"ollama-direct"면 비매치 발화만 JKLmEngine::TurnSync(T3
+// 동기 브리지)로 승격 — 정확 트리거는 즉발(지연 최소), LLM 실패·스폰 불가·
+// 파싱 불가는 기존 stub 안내문으로 조용히 폴백. 배선 본체는 jk::ChatRouteTurn
+// 한 곳(jkweb과 공통 — 복제 금지)이라 이 CLI의 나머지(REPL·도구 전송·인쇄)는
+// 백엔드 무관으로 유지된다.
 //
 // 인코딩 계약(docs/48 레슨 승계 — jkctl 이중 진입 선준): argv는 wmain이
 // UTF-8로 정규화(-municode 링크). stdin은 UTF-8 바이트열이 기본(Git Bash/
@@ -32,6 +37,7 @@
 // (jk::text 어댑터 — 자동 판별은 불가라 명시 스위치로 정직하게).
 
 #include <agent/JKAgentClient.h>
+#include <agent/JKLlmEngine.h>  // 승격 배선의 cfg 원천(LoadChatConfig) — T4
 #include <apps/ChatRouter.h>
 #include <text/JKTextConv.h>
 
@@ -92,22 +98,22 @@ const char* KindName(jk::ChatAction::Kind kind) {
 }
 
 // ---------------------------------------------------------------------------
-// 백엔드 슬롯 (스펙 2026-10-07-desktop-chat-app §4 — 승격 판정=docs/80 §3)
+// 백엔드 슬롯 (스펙 2026-10-07-desktop-chat-app §4 — T4 승격 배선 착지)
 //
-// 현재 백엔드 = T1 stub 라우터(jk::ChatRouterRoute). 승격 판정은 stub 유지
-// (docs/80 §3 — 0.5B 폰 추론 0.29 tok/s UX 불성립+배선 갭). cfg(state/chat.json
-// 계열 설정)가 ollama/claude를 고르면 ProcessTurn의 ① 자리에서 JKLlmEngine을
-// 인스턴스화해 발화→ChatAction+응답문을 받는다. 배선 실장=백로그(docs/80 §3). 호출
-// 계약은 지금과 같다(text → ChatAction + 화면용 응답문) — 이 CLI의 나머지
-// (REPL·도구 전송·인쇄)는 백엔드 무관으로 유지된다.
+// 배선은 jk::ChatRouteTurn(스펙 2026-10-08-chat-llm-promotion 설계 결정 4)이
+// 소유한다 — (1) 정확 트리거 매치 → T1 즉발 경로(LLM 왕복 0) (2) 비매치 +
+// cfg.engine 구성("ollama"|"claude"|"ollama-direct") → TurnSync 동기 턴 →
+// 행동 JSON 파싱 → 기존 ChatAction 파이프라인(아래 ProcessTurn 원문 유지)
+// (3) LLM 실패/스폰 불가/파싱 불가 → 기존 stub 안내문 폴백. 엔진 수명(타임
+// 아웃 뒤 busy dangling)·연결당 스레드 1턴 직렬화 계약도 그 한 곳의 소관 —
+// 이 CLI는 엔진을 직접 소유하지 않는다. kBackendName은 배선 가족 표기(진단
+// 인쇄용 — 턴별 실 승격 여부는 ProcessTurn의 "[route] llm=..." 행이 진실).
 //
-//   ① 백엔드 플러그 자리(ProcessTurn 안):
-//     jk::JKLlmEngine llm;   // cfg 선택(ollama|claude) 배선 후
-//     std::string guide = llm.Route(text, action);   // stub 대체
-// 지금은 만들지 않는다 — "posix엔 claude/ollama CLI가 없어 지금 실장하면
-// dead code"(ClientChatApp.cpp 백엔드 슬롯 주석 동일 판정).
+//   ① 백엔드 플러그 자리(ProcessTurn 안) — jk::ChatRouteTurn(text, action,
+//     cfg, &usedLlm)으로 실장 완료(구 llm.Route() 상정 자리).
 // ---------------------------------------------------------------------------
-const char* const kBackendName = "stub-router(T1 ChatRouterRoute)";
+const char* const kBackendName =
+    "chat-router(T1 stub) + cfg-promote(T4 ChatRouteTurn)";
 
 // 도구 지시를 데스크톱 창 서버로 위임(jkagentd::SendServerQuery 축소판 —
 // 이 CLI는 로컬 도구가 없다, 전부 서버 질의). 연결 실패/파이프 사망은
@@ -149,20 +155,26 @@ int ProcessTurn(const std::string& rawLine, bool routeOnly) {
     if (text == "/exit" || text == "/quit") return -1;
 
     jk::ChatAction action;
-    // 뇌호출 — 백엔드 슬롯(위 kBackendName 블록 + ① 주석). 응답문은 도구
-    // 지시가 아니라 **사용자에게 보여질** 안내/확인문(ChatRouter.h 계약) —
-    // 채팅 앱이 기록에 인쇄하듯 이 CLI도 그대로 인쇄한다.
-    const std::string guide = jk::ChatRouterRoute(text, action);   // ① 백엔드 교체 자리(승격 판정=docs/80 §3)
+    // 뇌호출 — 배선 순서 계약(스펙 설계 결정 4)은 jk::ChatRouteTurn 한 곳
+    // (jkweb HandleTalk과 공통 본체 — 복제 금지): 정확 트리거=즉발, 비매치=
+    // cfg 구성 시 LLM 동기 턴(응답 텍스트는 안내문 병기), 실패=stub 안내문
+    // 폴백. 응답문 계약(위 주석)은 배선 무관으로 유지된다.
+    const jk::agent::ChatConfig chatCfg = jk::agent::LoadChatConfig();
+    bool usedLlm = false;
+    const std::string guide = jk::ChatRouteTurn(text, action, chatCfg, &usedLlm);
     std::printf("[시스템] %s\n", guide.c_str());
 
     if (routeOnly) {
         // --route: 라우터 판정만 인쇄하고 끝(서버 전송 없음 — 서버 없는
-        // 환경에서 라우터 경로의 성공 영수증을 뽑는 진단 모드).
-        std::printf("[route] kind=%s app=%s (backend=%s)\n",
+        // 환경에서 라우터 경로의 성공 영수증을 뽑는 진단 모드). llm= 표기는
+        // 비매치 발화가 실제로 LLM 턴을 탔는지의 정직 진단(승격 계약의
+        // 관측 얼굴 — usedLlm: 정확 트리거·미구성·폴백은 전부 off).
+        std::printf("[route] kind=%s app=%s (backend=%s, llm=%s)\n",
                     KindName(action.kind),
                     action.kind == jk::ChatAction::Launch
                         ? action.app.c_str() : "",
-                    kBackendName);
+                    kBackendName,
+                    usedLlm ? "on" : "off");
         std::fflush(stdout);
         return 0;
     }

@@ -22,6 +22,7 @@
 #include <sys/socket.h>  // directly; no windows.h-cleanliness constraint here)
 
 #include <agent/JKLlmEngine.h>  // kStubShellCmdPosix (case 10), TurnSync (case 15)
+#include <apps/ChatRouter.h>  // 자연어 승격 배선 (T4 — case 16 twin)
 #include <ipc/JKPipeTransport.h>
 #include <ipc/JKWireEndpoints.h>
 #include <fs/JKInstanceLock.h>
@@ -1601,6 +1602,166 @@ void TestLlmSyncOllamaDirect() {
     }
 }
 
+// Case 16 (T4 — 스펙 2026-10-08-chat-llm-promotion 설계 결정 3·4): 자연어
+// 승격 배선. jkdesktop RunAppSelfTest의 1n-f 계열이 캐논 담당(양축)이고 이
+// 케이스는 어댑터 축의 분신 — /bin/sh -c 스폰 경로에서 배선 순서를 잠근다:
+//   ① 정확 트리거 매치 = LLM 우회(TurnSync 0) ② 비매치 + cfg 구성 =
+//   TurnSync + 행동 JSON 파싱 ③ LLM 실패/파싱 불가·cfg 미구성 = stub
+//   안내문 폴백. 스폰은 direct_cmd echo 스터브 주입(실 ollama 의존 금지 —
+//   llm15의 같은 계약; sh는 이중 따옴표를 벗기므로 시딩은 인용 단일화).
+//   chat.json은 llm15와 같은 exe-dir 계약(engine/build/state — 본사 파일
+//   보존: 백업 원문 → 시딩 → 복원/소각).
+void TestChatPromoteWiring() {
+    using jk::agent::ChatConfig;
+    // (a) 순수 파서+게이트 — 플랫폼 무관 로직의 어댑터 축 도표.
+    {
+        jk::agent::ChatConfig mc;
+        mc.engine = "ollama-direct";
+        Check(jk::ChatLlmEngineConfigured(mc), "llm16: configured = ollama-direct");
+        ChatConfig ms;
+        ms.engine = "stub";
+        Check(!jk::ChatLlmEngineConfigured(ms), "llm16: configured = false for stub (미구성)");
+        jk::ChatAction a;
+        std::string note;
+        Check(jk::ChatLlmActionParse(
+                  "```json\n{\"action\":\"launch\",\"app\":\"minesweeper\","
+                  "\"text\":\"지뢰찾기를 실행합니다.\"}\n```", a, note) &&
+                  a.kind == jk::ChatAction::Launch &&
+                  a.app == "minesweeper",
+              "llm16: code-fenced action JSON parses (fence strip)");
+        Check(jk::ChatLlmActionParse(
+                  "{\"action\":\"talk\",\"text\":\"TALK-GUIDE-3361\"}", a,
+                  note) && a.kind == jk::ChatAction::Info &&
+                  note == "TALK-GUIDE-3361",
+              "llm16: talk = informational turn (Info, text rides the guide)");
+        Check(!jk::ChatLlmActionParse("행동 JSON 누락", a, note),
+              "llm16: no JSON at all → parse fail (honest fallback feed)");
+        Check(!jk::ChatLlmActionParse(
+                  "{\"action\":\"launch\"}", a, note),
+              "llm16: launch without app → parse fail");
+        const std::string body = jk::ChatLlmTurnPrompt("지뢰찾기 좀 띄워줘");
+        Check(body.find("action: launch / close / focus / list / talk") !=
+                          std::string::npos &&
+                      body.find('"') == std::string::npos &&
+                      body.find('|') == std::string::npos &&
+                      body.find("켜줘") != std::string::npos &&
+                      body.find("[발화] 지뢰찾기 좀 띄워줘") !=
+                          std::string::npos,
+              "llm16: prompt body carries quote·pipe-free schema+trigger "
+              "table+utterance (ollama leg re-quote 헤지)");
+        Check(body.find("[시스템 지시]") == std::string::npos,
+              "llm16: preamble NOT duplicated in the prompt body (엔진 접두 "
+              "단일 출처)");
+    }
+
+    // (b) wiring — chat.json 시딩(llm15의 exe-dir 계약 그대로) + echo 스터브.
+    const std::string exePath = jk::fs::GetExecutablePath();
+    const size_t sep = exePath.find_last_of('/');
+    std::string dir = exePath.substr(0, sep);
+    const std::string stateDir = dir + "/state";
+    const std::string cfgPath = stateDir + "/chat.json";
+    ::mkdir(stateDir.c_str(), 0755);
+    std::string cfgBackup;
+    bool hadCfg = false;
+    if (std::FILE* bf = std::fopen(cfgPath.c_str(), "rb")) {
+        std::fseek(bf, 0, SEEK_END);
+        const long sz = std::ftell(bf);
+        std::fseek(bf, 0, SEEK_SET);
+        if (sz > 0) {
+            cfgBackup.resize(static_cast<size_t>(sz));
+            const size_t n = std::fread(&cfgBackup[0], 1, cfgBackup.size(), bf);
+            cfgBackup.resize(n);
+            hadCfg = n > 0;
+        }
+        std::fclose(bf);
+    }
+    auto WriteCfg = [&cfgPath](const std::string& json) -> bool {
+        std::FILE* f = std::fopen(cfgPath.c_str(), "wb");
+        if (!f) return false;
+        const size_t w = std::fwrite(json.data(), 1, json.size(), f);
+        std::fclose(f);
+        return w == json.size();
+    };
+    auto Seed = [&WriteCfg](const std::string& directCmd) -> bool {
+        // /tmp directory(chdir 실패 함정 — llm15 동일) + 인용·백슬래시 이중
+        // 이스케이프(수기 인게스트 경고 원문의 코드판).
+        std::string cmdEsc;
+        for (char ch : directCmd) {
+            if (ch == '"' || ch == '\\') { cmdEsc += '\\'; cmdEsc += ch; }
+            else cmdEsc += ch;
+        }
+        return WriteCfg("{\"engine\":\"ollama-direct\",\"model\":"
+                        "\"glm-test-stub:cloud\",\"directory\":\"/tmp\","
+                        "\"direct_cmd\":\"" +
+                        cmdEsc + "\"}");
+    };
+    // sh는 이중 따옴표를 벗기므로(JSON에 다시 필요) 인용 전체를 홑따옴표로.
+    const std::string focusSeed =
+        "echo '{\"action\":\"focus\",\"text\":\"LLM-TOOK-THE-TURN-3361\"}'";
+    Check(Seed(focusSeed),
+          "llm16: chat.json seeded (llm focus marker, ollama-direct)");
+    {
+        jk::agent::ChatConfig mc;
+        mc.engine = "ollama-direct";
+        mc.directCmd = focusSeed;
+        jk::ChatAction a;
+        bool used = true;
+        const std::string guide =
+            jk::ChatRouteTurn("지뢰찾기 켜줘", a, mc, &used);
+        Check(!used && a.kind == jk::ChatAction::Launch &&
+                  a.app == "minesweeper",
+              "llm16: exact trigger match bypasses the LLM turn (usedLlm=false)");
+        jk::ChatAction ar;
+        Check(guide == jk::ChatRouterRoute("지뢰찾기 켜줘", ar),
+              "llm16: bypass guide is the legacy router guide verbatim");
+    }
+
+    const std::string launchSeed =
+        "echo '{\"action\":\"launch\",\"app\":\"tetris\","
+        "\"text\":\"TETRIS-LLM-GUIDE-3361\"}'";
+    Check(Seed(launchSeed), "llm16: cfg re-seeded (launch JSON stub)");
+    {
+        jk::agent::ChatConfig mc;
+        mc.engine = "ollama-direct";
+        jk::ChatAction a;
+        bool used = false;
+        const std::string guide =
+            jk::ChatRouteTurn("테트리스 좀 부탁할게", a, mc, &used);
+        Check(used && a.kind == jk::ChatAction::Launch && a.app == "tetris",
+              "llm16: non-match + configured cfg → LLM turn parses into a "
+              "Launch action (sh echo stub)");
+        Check(guide == "TETRIS-LLM-GUIDE-3361",
+              "llm16: model text becomes the guide");
+    }
+
+    Check(Seed(jk::agent::kStubShellCmdPosix),
+          "llm16: cfg re-seeded (stub-echo JSON, no action schema)");
+    {
+        jk::agent::ChatConfig mc;
+        mc.engine = "ollama-direct";
+        jk::ChatAction a;
+        bool used = true;
+        const std::string guide =
+            jk::ChatRouteTurn("뜬금없는 발화 3361", a, mc, &used);
+        Check(!used && a.kind == jk::ChatAction::Info,
+              "llm16: unparsable engine reply falls back honestly");
+        jk::ChatAction ar;
+        Check(guide == jk::ChatRouterRoute("뜬금없는 발화 3361", ar),
+              "llm16: fallback guide is the legacy router guide verbatim");
+        Check(guide.find("인식하지 못했습니다") != std::string::npos,
+              "llm16: fallback is the stub InfoGuide");
+    }
+
+    // 본사 파일 보존 — llm15와 같은 마무리(없던 기기는 소각).
+    if (hadCfg) {
+        Check(WriteCfg(cfgBackup), "llm16: chat.json restored verbatim");
+    } else {
+        ::unlink(cfgPath.c_str());
+        Check(::access(cfgPath.c_str(), F_OK) != 0,
+              "llm16: seeded chat.json removed at case end (was absent)");
+    }
+}
+
 
 }  // namespace
 
@@ -1617,6 +1778,7 @@ int main(int argc, char** argv) {
     TestPipeEndpointMapping();
     TestLlmStubShell();
     TestLlmSyncOllamaDirect();
+    TestChatPromoteWiring();
     TestLocaltimeS();
     TestJobMultiMemberAndStdinParity();
     TestNetRecvAllChunksTimeoutAcceptBound();

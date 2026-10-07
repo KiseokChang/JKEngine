@@ -181,7 +181,10 @@ docs/79 앱 라이브러리 → **채팅(본 문)** — jkapp_chat은 settings/l
      신규 어댑터 파선 필요.
    - cfg directory 재정의: LoadChatConfig 디폴트 chat.json이 `engine=ollama,
      directory I:\progwork\JKENGINE`(Windows 경로) — posix 로드 시 그대로
-     workingDir로 적용되므로 폰 배선 시 chat.json 전면 재정의 필수.
+     workingDir로 적용되므로 폰 배선 시 chat.json 전면 재정의 필수. **주의:
+     chat.json은 수기 인게스트 파일(코드 writer 0건)** — JSON 규약이라
+     백슬래시는 이중 이스케이프 필수(directory `"I:\\progwork\\JKENGINE"` 꼴).
+     파스 실패는 기본값 폴백으로 정직하게 지나간다(LoadChatConfig 계약).
    - (링크 자체는 무해 — JKLmEngine.cpp는 jkcore에 이미 포함, CMakeLists:217.)
 
 **T8 M4 봉합(분기 이유 한 줄)**: probe가 `OLLAMA-VERDICT: PROMOTE-CANDIDATE`
