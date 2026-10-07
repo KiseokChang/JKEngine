@@ -247,7 +247,7 @@ target 선정을 한 곳에서 삼는다(단일 진실원, docs/80 §1 라우터
   `PHONE-ID-LEG-PRESERVED=OK` → 종료 서버 UP+jkweb ALIVE+Settings/Notes 보존.
   영수증 원문: `engine/tmp/phone_close_receipt_run.log`·fix-report §4b.
   **폰 permissions.json 스테이지는 상시 유지 — 사용자 게이트**(철수 원함 시
-  `rm ~/JKENGINE/engine/buildterm/permissions.json`, §2.4 노트).
+  `rm ~/JKENGINE/engine/buildterm/permissions.json`, §4b 노트).
 
 ## 5. deferred minors 트라이아지 — 원장 명단 전수
 
@@ -260,7 +260,7 @@ target 선정을 한 곳에서 삼는다(단일 진실원, docs/80 §1 라우터
 | T1(리뷰) | 접미-중첩 주석 문서성 · Close+app 서버 타깃 계약 미실측(**T2 게이트 위탁 — 이미 소각: ClientChatApp.cpp:147-158 원장 주석+argless 폼 실측 채택**) · deferred 3(부사 스캔="다시 켜줘" 앱어 절단 fail-open·주석 정확화) | Close 타깃=소각 / 나머지 유예(부사 스캔=앱어·발화 순서 확장 백로그 소속) |
 | T2(리뷰) | **Minor 6건** — 컨트롤러 원장에 건수만 기록(개별 file:line 명단 미전달, 세션 패키지 diff에는 무존재) | 전부 유예 유지 — 명단 원문이 필요하면 전체 리뷰 때 리뷰어 원 판정 참조 |
 | T2(원장명단) | **T6 과제 2건** ①앱→창 id 상관(Close/Focus argless) ②백엔드 슬롯 실장(JKLmEngine 플러그) · **GUI 육안 4점**(창 뜸·한글 전각·스크롤 앵커·launch 전송) | ①=제4절 귀속 봉합 / ②=제3절 승격 판정 소유(장기) / 육안 4점=사용자 게이트 대기(§8) |
-| fix(2026-10-08-chat-close-fix, F1) | §4 귀속 백로그 ① 착지(**서버 해소 계약 확장** — §4b 원문) · ClientChatApp "T6 과제" 주석 정정(app 전송 계약 명기) · jktalk/jkweb argless 유지(포커스 해소로 산다 — app pass-through 유예)·캐논 420→427(Windows)·399→406(WSL)·**406(폰, run5c 실측)** | ①=**소각** — §4b 착지 + 3축 probe 실측(wsl_chat_close.sh GREEN·phone_chat_close.sh 드라이버 1차 런 ssh 단절→resume receipts CHAT-CLOSE-PHONE-RESUME-OK 착지) / jkweb·jktalk app pass-through=유예(다음 표면 손때) / 폰 permissions.json 스테이지=사용자 게이트 노트(§2.4·§4b) |
+| fix(2026-10-08-chat-close-fix, F1) | §4 귀속 백로그 ① 착지(**서버 해소 계약 확장** — §4b 원문) · ClientChatApp "T6 과제" 주석 정정(app 전송 계약 명기) · jktalk/jkweb argless 유지(포커스 해소로 산다 — app pass-through 유예)·캐논 420→427(Windows)·399→406(WSL)·**406(폰, run5c 실측)** | ①=**소각** — §4b 착지 + 3축 probe 실측(wsl_chat_close.sh GREEN·phone_chat_close.sh 드라이버 1차 런 ssh 단절→resume receipts CHAT-CLOSE-PHONE-RESUME-OK 착지) / jkweb·jktalk app pass-through=유예(다음 표면 손때) / 폰 permissions.json 스테이지=사용자 게이트 노트(§4b — §2.4 섹션은 미존재, 리뷰 M-3 정정) |
 | T4(리뷰) | `w:720` 서브스트링 어설션은 이론적 dw 매치(720x540 고정이라 실해 없음) · teardown survivor WARN 인쇄 후 rc 0(소프트패스) · inline `bash -lc` PIPESTATUS 안티패턴 헤더 노트 미기재 | 전부 유예 — 2건째(softpass WARN→hard FAIL)가 probe 손때 후보(T4 계열 다음 손때 1차) |
 | T6(리뷰 I2·Minor 4) | I2=ClientChatApp.cpp:151 댕글링 표기 | **소각 — 제4절 귀속 봉합(본 원장이 소화)** |
 | T6(Minor 4 나머지) | resize UB형식(창 resize 시 UB 위험 형태 — 재현 실측 없음) · EscapeJson 제5호 편입(tools 소식체별 복제 집계 — 공용 헤더 호이스트 후보, docs/79 EscapeJson 3호 계열 레저 승계) · RunMain 주석 문언(설명과 실제 분기 어긋남 — 1행 주석 수리) · `--help` 미기재(CP949 수동 스위치 JKTALK_INPUT_CP949 사용법 헬프 누락) | 전부 유예 — RunMain 주석·--help 문언 2건은 1행 수리성으로 probe 손때 아닌 문서 손때 대상 |
@@ -329,6 +329,9 @@ target 선정을 한 곳에서 삼는다(단일 진실원, docs/80 §1 라우터
 | ba786b394bec57362f7e233e7008a8dbcce3a779 | T7 fix r1 — 서버 회신 정직 승계(ok/server 필드)+probe EOF(리뷰 I1/I2) |
 | e8877032c8bb756385819a95bd63326499328f12 | T8 — 폰 ollama 설치 실험 probe(OLLAMA-TRY-OK)·승격 판정 stub 유지 |
 | (병행) f5e720be69a3d35aa5a1c1b28f1c95850aa040e7 | 앱 커버리지 인벤토리 플랜 — 본 라인 밖(컨트롤러 병행 커밋, 체인 사이 삽입: 35b00ab..74b67ea 사이) |
+| 0e25762 (fix 라인 2026-10-08-chat-close-fix, F1 본체) | close_window/focus_window 포커스 해소(ResolveAgentWindowTarget — argless→포커스·args.app 폴백)+셀프테스트 1n-s1..s7+3축 probe(캐논 427/406/406) |
+| 4800b36 (T4 fix r1 — 병행 앱 커버리지 라인, F1과 체인 공유) | phone_apps probe AUTO-REPACK EVIDENCE-CONSENSUS+배포 오염 게이트+IP 정화 |
+| e3d45b7 (F1 후속 docs) | docs/80 §4b 폰 착지 원장 — resume receipts·폰 캐논 406 |
 | (본 커밋) | docs/80 as-built 원장+스펙 헤더 as-built 링크 |
 
 전체 체인 = 5074375..e887703(본 라인 제품 커밋 13건 — 5074375..e887703 전 범위 15건 중 병행
@@ -357,5 +360,13 @@ loopback 기본 바인드+`--bind all` 옵트인(§2.1 바인드 정책 블록 �
 - **바인드 재개 주의(I1 수리 후)**: 폰 jkweb 기본 바인드는 127.0.0.1 루프백
   — 폰 브라우저 localhost:8090 게이트는 무영향이고, 다른 기기 도달은
   `--bind all`로 재기동해야 한다.
+- **"닫아줘" 재검증(F1 착지 — fix 라인 2026-10-08-chat-close-fix)**: 폰
+  jkweb에서 "닫아줘" → 포커스 창이 실제로 꺼지는지(수리 전 server
+  window_not_found). 폰 바이너리에 0e25762 반영판이 올라가면 육안 게이트로
+  결제 — probe 재런은 보조 증거(review M-4).
+- **폰 permissions.json 스테이지(I-1 — 사용자 결정)**: `close_window:allow`
+  스테이지가 buildterm에 상시 잔존. 유지(Windows 패리티 근거) 또는 철수:
+  `ssh -p 8022 -i ~/.ssh/termux_jkengine u0_a4@192.168.219.109 'rm ~/JKENGINE/engine/buildterm/permissions.json'`
+  — 어느 쪽이든 사용자 선언을 원장에 기입.
 - 결제 기록은 **사용자 선언을 받은 뒤에만** 본 원장에 기입한다 — probe
   출력만으로 "확인됨"이라 쓰지 않는다(계약 — T5/T7 리포트 게이트 조항 동일).
