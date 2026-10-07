@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # WSL 앱 커버리지 probe (앱 커버리지 라인 Task 2 — wsl_chat_boot.sh 원준,
 # tmp/wsl_repack_receipt.sh 후속 영수증 대체).
-# 영수증 목표: ① WSL ninja 리빌드 ② WSL selftest 편승(374 기준선 무회귀)
+# 영수증 목표: ① WSL ninja 리빌드 ② WSL selftest 편승(391 기준선 무회귀)
 # ③ library-list count=29 + 구 jkx-pack 미제공이던 앱 행 source=jkx 실측
 # ④ 비ASCII 파일명 바이트 어설션(T1 리뷰 I1 수리 방법론 — tmp 영수증의
 # `od -c | grep -F '\ 3 4 5'` 공허 패턴 폐기, 실매치 카운트로 진단)
@@ -22,9 +22,10 @@
 #   윈도 측(Git Bash) cat -A 실측은 그 바이트를 보여준다(triggersM-oM-^AM-^\...),
 #   그러나 WSL drvfs readdir은 0x5C로 투명 디코드해 돌려준다(T1 리뷰 I1 실측,
 #   2026-10-07 재실측 — WSL 측 ls-1은 전부 ASCII인 28행을 인쇄). 그러므로
-#   비ASCII 바이트 어설션은 WSL readdir 관점에서 총 0 히트가 정상이고
-#   auto-repack 신규 leg 산출 청결 단정이 된다; legacy 4개는 ASCII 관점
-#   파일명(triggers\<name>.jkx)으로 별도 카운트 기록한다.
+#   WSL 측 `ls|grep -P` 어설션은 drvfs 뷰의 ASCII 청결을 단정한다. U+F05x
+#   백슬래시 이름은 drvfs readdir가 투명 디코드해 이 어설션에 안 잡힌다 —
+#   Windows 측 직검 어설션(§4b)이 그 트립와이어다(T2 리뷰 I1 수리). legacy
+#   4개는 WSL ASCII 관점 파일명(triggers\<name>.jkx)으로 별도 카운트 기록.
 set -u
 cd /mnt/i/progwork/JKENGINE/engine
 
@@ -37,7 +38,7 @@ echo "WSL-BUILD-RC=$BUILD_RC"
 [ "$BUILD_RC" -eq 0 ] || FAIL "ninja rebuild rc=$BUILD_RC"
 [ -x buildwsl/jkdesktop ] || FAIL "buildwsl/jkdesktop missing after rebuild"
 
-echo "=== 2. WSL selftest 편승 (T1 리뷰 carryover — 기준선 374 무회귀 기록) ==="
+echo "=== 2. WSL selftest 편승 (T1 리뷰 carryover — 기준선 391 무회귀 기록) ==="
 timeout 300 ./buildwsl/jkdesktop test >/tmp/apps_st.log 2>&1
 ST_RC=$?
 echo "selftest rc=$ST_RC"
@@ -49,7 +50,8 @@ grep -aq 'AppSelfTest: 0 failure(s)' /tmp/apps_st.log \
     || FAIL "selftest summary missing 'AppSelfTest: 0 failure(s)' — log: /tmp/apps_st.log"
 [ "$ST_FAIL" -eq 0 ] || FAIL "selftest FAIL=$ST_FAIL (WSL축 회귀) — log: /tmp/apps_st.log"
 [ "$ST_RC" -eq 0 ] || FAIL "selftest rc=$ST_RC"
-[ "$ST_PASS" -ge 374 ] || FAIL "selftest PASS=$ST_PASS < 기준선 374 (WSL축 회귀)"
+# 하한 앵커=T2 실측 391 (T2 리뷰 M3 갱신 — 374은 과거 성장전 수치)
+[ "$ST_PASS" -ge 391 ] || FAIL "selftest PASS=$ST_PASS < 기준선 391 (WSL축 회귀)"
 
 echo "=== 3. library-list (serverless catalog CLI) ==="
 timeout 30 ./buildwsl/jkdesktop library-list >/tmp/apps_lib_list.out 2>/tmp/apps_lib_list.err
@@ -86,11 +88,48 @@ LEGACY_TRIG=$(ls -1 buildwsl/apps/*.jkx | grep -aF 'triggers\' | wc -l)
 echo "LEGACY-TRIGGER-FILES=$LEGACY_TRIG (drvfs 0x5C 투명 디코드 관점 파일명 — T1 실측 4개 기준선)"
 [ "$LEGACY_TRIG" -eq 4 ] || FAIL "legacy trigger .jkx count=$LEGACY_TRIG expected 4 (T1 실측 기준선 이탈 — 원장 진술 갱신 필요)"
 
+# --- 4b. Windows 측 바이트 직검 (T2 리뷰 I1 수리 — drvfs 투명 디코드 밖의
+# 트립와이어). WSL readdir은 U+F05C를 0x5C로 디코드해 §4 어설션에 안 잡히므로,
+# WSL interop으로 powershell.exe를 불러 NTFS 저장 이름을 직접 본다: 0x20-0x7E
+# 밖 문자만 U+XXXX 이스케이프해 인쇄. 히트가 legacy U+F05C 패밀리 4종이면
+# PASS(legacy 유산 — 위생 시 이 어설션과 함께 갱신), 그 외·초과면 hard FAIL.
+echo "=== 4b. Windows 측 바이트 직검 (U+F05x 트립와이어 — NTFS 저장 바이트 뷰) ==="
+PS_EXE=/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe
+[ -x "$PS_EXE" ] || FAIL "Windows interop powershell.exe 없음 (WSL interop 비활성 — Windows 측 직검 불가)"
+WIN_APPS=$(wslpath -w buildwsl/apps)
+[ -n "$WIN_APPS" ] || FAIL "wslpath -w buildwsl/apps returned empty"
+PS_CMD='[Console]::OutputEncoding=[System.Text.Encoding]::ASCII; Get-ChildItem -LiteralPath "'"$WIN_APPS"'" -Filter "*.jkx" | ForEach-Object { $n=$_.Name; $bad=[regex]::Matches($n,"[^\x20-\x7E]"); if ($bad.Count -gt 0) { [regex]::Replace($n,"[^\x20-\x7E]",{ param($m) ("U+{0:X4}" -f [int]$m.Value[0]) }) } }'
+WIN_HITS_RAW=$(timeout 60 "$PS_EXE" -NoProfile -Command "$PS_CMD")
+PS_RC=$?
+echo "WIN-BYTESCAN-RC=$PS_RC"
+[ "$PS_RC" -eq 0 ] || FAIL "powershell.exe byte scan rc=$PS_RC (Windows 측 직검 사망)"
+# powershell.exe 콘솔 출력은 CRLF — \r을 벗겨야 bash [ -eq ]·grep -E '$' 앵커가
+# 산다(fix r1 실측: \r 잔류 시 "숫자 표현이 아닙니다"로 전수 FAIL). WIN_HITS_RAW
+# 무가치화 방지용으로도 같은 경유.
+WIN_HITS=$(printf '%s' "$WIN_HITS_RAW" | tr -d '\r')
+# 공허 패턴 방지: Windows 뷰 총 .jkx 수와 WSL drvfs 뷰 행수가 동치여야 한다 —
+# PS가 조용히 실패해 빈 히트만 돌려도 여기서 잡힌다.
+WIN_TOTAL_RAW=$("$PS_EXE" -NoProfile -Command '[Console]::OutputEncoding=[System.Text.Encoding]::ASCII; (Get-ChildItem -LiteralPath "'"$WIN_APPS"'" -Filter "*.jkx").Count')
+[ $? -eq 0 ] || FAIL "powershell.exe total-count scan failed (Windows 측 직검 사망)"
+PS_TOTAL=$(printf '%s' "$WIN_TOTAL_RAW" | tr -d '\r\n')
+WIN_VIEW_COUNT=$(wc -l < /tmp/apps_names.txt)
+echo "WIN-VIEW-COUNT=$PS_TOTAL WSL-VIEW-COUNT=$WIN_VIEW_COUNT"
+[ "$PS_TOTAL" -eq "$WIN_VIEW_COUNT" ] || FAIL "Windows 뷰 .jkx 수=$PS_TOTAL != WSL 뷰=$WIN_VIEW_COUNT (직검이 전 집합을 못 봄 — 바이트 스캔 공허)"
+# grep rc=1(매치 0)은 정상 경로 — 단정 운반체는 인쇄된 카운트다.
+WIN_HIT_N=$(printf '%s\n' "$WIN_HITS" | grep -ac '.')
+FAM_MATCH_N=$(printf '%s\n' "$WIN_HITS" | grep -acE '^triggersU\+F05C(trig_build|trig_crash|trig_idle|rate_probe)\.jkx$')
+echo "WIN-NONASCII-HITS=$WIN_HIT_N (legacy U+F05C 패밀리 매치=$FAM_MATCH_N)"
+echo "--- Windows 측 히트 목록(U+XXXX 이스케이프 뷰):"
+echo "$WIN_HITS"
+[ "$WIN_HIT_N" -le 4 ] || FAIL "Windows 측 비ASCII 파일명 히트=$WIN_HIT_N > 4 (U+F05x 재발 또는 신규 비ASCII 이름 — NTFS 저장 바이트 기준) — hits: $(echo "$WIN_HITS" | tr '\n' ' ')"
+[ "$WIN_HIT_N" -eq "$FAM_MATCH_N" ] || FAIL "Windows 측 히트 중 legacy 4종(trig_build/trig_crash/trig_idle/rate_probe) 외 이름 존재 — hits: $(echo "$WIN_HITS" | tr '\n' ' ')"
+echo "WIN-NONASCII-OK (4=legacy 유산 — 위생 시 이 어설션과 함께 갱신)"
+
 echo "=== 5. jkx-pack negative path (nosuchapp — 정직한 실패 수신) ==="
 timeout 30 ./buildwsl/jkdesktop jkx-pack nosuchapp >/tmp/apps_neg.out 2>/tmp/apps_neg.err
 NEG_RC=$?
 echo "NEGATIVE-PATH-RC=$NEG_RC"
-echo "stderr: $(cat /tmp/apps_neg.err | tail -1)"
+echo "stderr: $(tail -1 /tmp/apps_neg.err)"
 [ "$NEG_RC" -ne 0 ] || FAIL "jkx-pack nosuchapp unexpectedly succeeded (rc=0) — negative path broken"
 grep -aq 'cannot load' /tmp/apps_neg.err \
     || FAIL "jkx-pack nosuchapp stderr missing 'cannot load' detail (dlerror 상세 소실) — stderr: $(cat /tmp/apps_neg.err | tr '\n' ' ')"
