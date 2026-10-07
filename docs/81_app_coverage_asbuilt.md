@@ -40,14 +40,15 @@ Q1 룰링: 런처 무접촉 유지) · **체화된 U+F05x trigger 4종 정리**(
   컨테이너 레이아웃·entry/manifest 키는 공유 — **플랫폼 분기는 모듈 로드 트리오만**
   win32 `LoadLibraryA`/`GetProcAddress` ↔ posix `dlopen(RTLD_NOW|RTLD_LOCAL)`/
   `dlsym`(플랜 G2 RunClientModule posix leg 쌍대, dlerror NULL 가드). dispatch
-  ~:3928 posix 진입("jkx-pack is Windows-only in this prototype" 메시지 폐기).
+  :4068 posix 진입(fix r1 현행 좌표 — "jkx-pack is Windows-only in this
+  prototype" 메시지 폐기).
 - **모듈 이름/접미 단일 출처**: 디스크 실물 = `jkapp_<app><AppModuleSuffix()>` —
   `JKWindowServer.h` `jk::server::AppModuleSuffix()`(.dll/.so) 1원. MODL 키·
   manifest `module=`은 양축 모두 플랫폼 중립 `jkapp_<app>.dll`(slot-pack 선례 —
   키는 RunClientFromJkx FindEntry 소비뿐, 파일명 아님) → **manifest 텍스트 양축
   바이트 동일**(jkx-list 실측), MODL 페이로드만 다름.
-- `CMakeLists.txt`: auto-repack 블록(icon sync :925-940+per-app 컨테이너 규칙
-  :941-1151+`jkx_packages ALL` :1126)의 `if(WIN32)` 해제 → dual-path. **browser
+- `CMakeLists.txt`: auto-repack 블록(icon sync :952-980+per-app 컨테이너 규칙
+  :981-1165+`jkx_packages ALL` :1166)의 `if(WIN32)` 해제 → dual-path. **browser
   규칙만 내부 `if(WIN32)` 유지**(libcef.dll pack-time 의존, docs/70 §4). CMake는
   네이티브 구분자 산출 → posix 전진 구분자 — U+F05x drvfs 체화 경로 재발 0
   (T1 실측 `ls | cat -A` 바이트 청결).
@@ -74,8 +75,9 @@ Q1 룰링: 런처 무접촉 유지) · **체화된 U+F05x trigger 4종 정리**(
 
 - **구현자 정정 기록(예측 → 실측)**: 인벤토리·플랜·brief의 "카탈로그 무수정 —
   무접미 게이트가 이미 계약" 예측은 **절반 틀렸다**.
-  - (사실이던 절반) **lf/hx leg** `JKLibraryCatalog.cpp:217-223` 플랫폼 접미
-    게이트(win32 `.exe`/posix 무접미)는 실측 유효 — 무수정 그대로.
+  - (사실이던 절반) **lf/hx leg** `JKLibraryCatalog.cpp:249-257` 플랫폼 접미
+    게이트(win32 `.exe`/posix 무접미 — fix r1 현행 좌표; T3 작성 시 :217-223은
+    콘솔 분기 삽입 전 구 좌표)는 실측 유효 — 무수정 그대로.
   - (틀린 절반) **콘솔 스캔**(:167-197)은 manifest `cmd`를 **원문 전승**한다 —
     Windows에서 그 `.cmd` 원문이 작동하는 이유는 win32 런처 spawnConsole
     cwd=앱 폴더 계약 전용이다(JKWindowServer SpawnConsoleApp 주석). posix가
@@ -123,7 +125,7 @@ Q1 룰링: 런처 무접촉 유지) · **체화된 U+F05x trigger 4종 정리**(
   보냈다**(leg 이전 실측). pid=0이면 ① 샘플러가 모든 행을 건너뛰어 /proc 리더가
   옳아도 표가 영구 "..."(태스크 Produces "프로세스 표 채움"의 구조적 불능) ②
   서버 좀비 판정 스윕 `spawnedClients_.find(client->Pid())`(JKWindowServer
-  .cpp:8170)가 영원히 미스. leg = **JKAgentClient.cpp:23-28 Hello getpid
+  .cpp:8170)가 영원히 미스. leg = **JKAgentClient.cpp:24-28 Hello getpid
   선례 패리티**(리뷰어 원장 대조 승인 — "보수 없이 태스크 불성립" 판정).
   부수 효과: posix crash-detection 경로 활성. 트립와이어 = probe §5 "pid 0
   아님" 어설션.
@@ -215,7 +217,8 @@ Global Constraints가 인용한 "395/374"는 작성 시점 수치로 만료된 �
 4. **powershell interop 출력 CRLF(T2 fix r1, 실측 FAIL → 봉합).** WSL interop
   으로 부른 powershell.exe의 표준출력은 CRLF — `\r` 잔류 시 bash 정수 비교가
    "정수 표현이 아닙니다"로 사망(실측 오판 `28 != 28` — 뷰는 28/28 동일). 봉합 =
-   **`tr -d '\r'`**(probe :108·:109·:114) — interop 채널 표준.
+   **`tr -d '\r'`**(probe :145·:150 — fix r1 현행 좌표; T2 fix r1 작성 시
+   :108·:109·:114는 프로브가 254행으로 성장하기 전 구 좌표) — interop 채널 표준.
 5. **/proc stat sscanf 억제 개수 오타(T5 I1 — fix r1 수리).** 10개 억제는
    utime←cmajflt·stime←utime 오염(합=cmajflt+utime, stime 누락). **표 CPU%(앱
    채널)와 셸 Δ(probe 채널)는 독립 구현이라 LIVE 영수증이 이 결함을 반증하지
@@ -249,7 +252,11 @@ Global Constraints가 인용한 "395/374"는 작성 시점 수치로 만료된 �
 | T1 concern | legacy drvfs trigger 4종 위생(위생 시 probe 어설션+원장 수치 29→25 동시 갱신 패키지)·workshop auto-repack 규칙 신설(현재=수동 유산 유지 소결) | 유예 — 소유자 결정 |
 | T3 concern | buildwsl/ `.gitignore` 1행 후보(`??` 노이즈 해소) | 유예 |
 | T5 concern | capture PNG 20KB 하한=약한 생존 프록시(내용 단정=사람 육안 — 자동화하려면 화면 문자 판독, 현 단계 과다) | 유예 |
-| **이전 라인 이월 합명** (docs/80 §5) | **JKLmEngine 오타 형제 전수** — 올바른 파일명은 `JKLlmEngine.h/.cpp`(Llm — `git ls-files` 실측; "JKLmEngine"이 오타). 잔존 실측(본 태스크 grep): phone_ollama_try.sh 4곳(:12·:245·:257·:295)·posix_selftest main.cpp 2곳(:970·:1010)·tmp/phone_ollama_try_remote.sh 3곳·docs/80 3곳(:171·:175·:185)·구문서 전수(docs/68 2·docs/70 2·docs/71 1·docs/72 1·docs/73 2·플랜 6건) | **이번에 소각 없음 — 정직 기록** |
+| **이전 라인 이월 합명** (docs/80 §5) | **JKLmEngine 오타 형제 전수** — 올바른 파일명은 `JKLlmEngine.h/.cpp`(Llm — `git ls-files` 실측; "JKLmEngine"이 오타). 잔존 실측(T6 작성 grep → **fix r1 2026-10-07 전수 재측정**): phone_ollama_try.sh 4곳(:12·:245·:257·:295)·posix_selftest main.cpp 2곳(:970·:1010)·**docs/80 4곳(:171·:175·:185·:220 — 구 3곳 표기에 :220 누락, T6 과제 ②백엔드 슬롯 실장 행 실측 정정)**·구문서 전수(docs/68 2·docs/70 2·docs/71 1·docs/72 1·docs/73 2·플랜 6건) = **합계 24곳**. tmp/phone_ollama_try_remote.sh 3곳은 무추적 scratch로 소멸(파일 부재 실측 — 구 표기 개산 26·docs/80 4건 보정 시 27에서 차감). progress 원장의 "22행"은 구측정치로 미정합 — 본 행 24곳이 정합 캐논(tracked `git grep` 전수 25 = 외부 실물 24 + 본 문 자신 1건) | **이번에 소각 없음 — 정직 기록** |
+| T6 리뷰 유예 1 | **§5 de2fa28 미기재** — 자기 커밋 SHA를 표에 기재한 커밋은 기재 시점마다 또 이월이 필요한 자기참조 구조적 residual(본 fix r1 커밋도 동일 구조로 §5 미기재) | 유예 — 다음 docs 손때에 §5 본 라인 3커밋(aee21a6·1006601·de2fa28)+fix r1을 통합 원장화 |
+| 최종 리뷰 유예 M1 | **jkx-pack appName 경로 이스케이프 잠재** — `../evil`은 rc=1 fail-closed 실측이나 세그먼트 성분(`..`·구분자 뒷마무리)은 정화 부재; 컨테이너 outPath(main.cpp:823-829)·icon 접두(:791-798)가 appName을 그대로 조립(선존재 승계 — 인벤토리 출하 이전부터) | 유예 — 다음 **jkx 도구 손때 코드**(basename/화이트리스트 정화 1함수 후보) |
+| 최종 리뷰 유예 M2 | **조달기 sha256 체크섬 핀 부재 + ALREADY-PRESENT 시 버전 무단정** — `install_lf_helix_posix.sh`는 버전 핀 문구만 있고 다운로드 무결성 검증이 없으며, 기조산물 존재 시 버전을 재단정하지 않음 | 유예 — 다음 **조달기 스크립트 손때**(핀 sha256 1행 후보) |
+| 최종 리뷰 유예 M3 | **wsl_apps_count.sh twin-hidden trap 부재** — 트윈 결손 스텝(§4 negative path)이 중간 FAIL로 죽으면 staged 트윈이 잔존해 후속 계측이 오염된 상태에서 시작 가능 | 유예 — 다음 **probe 손때**(trap·cleanup 브래킷 통일과 같은 손때 — T3 M1·T5 유예 편승) |
 
 ## 5. 커밋 원장 (전부 rev-parse 실측 값 — 본 원장 작성 시점 재확인)
 
@@ -268,7 +275,18 @@ Global Constraints가 인용한 "395/374"는 작성 시점 수치로 만료된 �
 + 본 docs 커밋 2건(aee21a6·1006601 — §5 행 실체 정정). 리뷰 경과: T1 Spec PASS/Quality Approved(I1=방법론 이월 — fix 불요)·
 T2 본체 I1 1건 → fix r1 → **re-review CLEAN 8/8**·T3 Critical 0/Important 0
 (Minor 4 — M4=본 원장 §2.0 캐논으로 결제)·T5 본체 Spec needs fixing(I1) → fix
-r1 → **re-review CLEAN 6/6**. 누적 Critical 0, Important 3건 전부 fix r1 소각.
+r1 → **re-review CLEAN 6/6**. 누적 Critical 0, Important 3건 처분 = **T2·T5
+2건만 fix r1 소각, T1 I1 1건은 fix 불요 — tmp 스크립트 방법론을 T2 이월로
+소화**(progress 원장 "I1은 tmp 스크립트 방법론으로 T2 이월, fix 불요" —
+fix r1 소각으로 집계하던 구 문언 정정).
+
+최종 전체 리뷰(opus, 9a2174e..de2fa28 9커밋): verdict **GO** — Critical 0 /
+Important 0 / Minor 4 → 처분: 수리 1(M4 — 본 §5 문구 정정, fix r1)·유예 3
+(M1 jkx-pack 경로 정화·M2 조달기 sha256 핀·M3 probe twin-hidden trap —
+§4 표 부기 원장화, 손때 소유자 명기). T6 리뷰 Minor 5도 흡수 — 수리 4
+(EOF 개행·§4 JKLmEngine :220·§6 문형·현행 좌표)+유예 1(§5 de2fa28
+자기참조 residual — §4 표 부기). fix r1 본 커밋 SHA는 자기참조 구조로 §5
+미기재(§4 residual 항목).
 
 ## 6. 사용자 게이트 상태 — **대기 중 (폰 sshd 회복 — 결제 기록 없음)**
 
@@ -281,8 +299,9 @@ r1 → **re-review CLEAN 6/6**. 누적 Critical 0, Important 3건 전부 fix r1 
   ```
 
 - **회복 후 T4 실행 게이트(plan Task 4 + T3/T5 이월)** — probe
-  `engine/tools/probes/phone_apps.sh` 신설(phone_library.sh 기계·tar-over-ssh,
-  신규 입자 전량 동반 — §3 #6), 순서:
+  `engine/tools/probes/phone_apps.sh` **예정** (실물 부재 — T4 미dispatch,
+  phone_library.sh 기계·tar-over-ssh로 작성 예정, 신규 입자 전량 동반 —
+  §3 #6), 순서:
   1. tar 배포 → 폰 리빌드(`ninja -C buildterm -j4`, ~9-10분 — NINJA-RC=0)
   2. selftest **0 failure**(폰 축 캐논 신설 — 현재 기록 0건, T4가 첫 실측)
   3. **jkx-pack 폰 실측** — auto-repack이 폰 CMake 레일을 도달하는지가 태스크의
