@@ -10,8 +10,13 @@
 //                한국어 UI, 입력 박스+대화 기록, fetch()로 POST /talk).
 //   - POST /talk {"text":"..."} → jk::ChatRouterRoute(T1)로 해석 → 도구 지시
 //     는 서버 위임(JKAgentClient — jktalk/jkctl과 같은 {"tool":...,"args":{}}
-//     질의 형태) → JSON {"reply":...,"kind":...,"app":...} 회신. 외부로 나가는
-//     모든 문자열은 JsonEsc 이스케이프(응답 몸통 전부).
+//     질의 형태) → JSON {"ok":...,"reply":...,"kind":...,"app":...,
+//     "server":<회신 원문>} 회신. ok는 서버 회신의 "ok":true 유무 판정의 정직
+//     신호(I1 fix r1 — argless close_window가 window_not_found로 돌아온 것을
+//     라우터 안내문만으로 덮어 거짓 성공으로 보지 않게 한다, jkdesktop
+//     JKWindowServer close_window args.id 한정 계약)이고, 서버 회신 원문은
+//     "server" 필드로 승계(jktalk "회신: 원문 인쇄" 규약 승계)된다. 외부로
+//     나가는 모든 문자열은 JsonEsc 이스케이프(응답 몸통 전부).
 //   - HTTP 1.1 최소 파서: GET·POST만, Content-Length 몸통, Connection: close
 //     (keep-alive 없음 — 요청 1건당 1연결, jkbridge HttpReply 규약 승계).
 //     요청줄 헤드 상한 8KiB·몸통 상한 64KiB — 초과는 정직 400/413.
@@ -241,10 +246,10 @@ const char* const kChatPage =
     "   .then(function(r){return r.json().then(function(j){\n"
     "     return {ok:r.ok, j:j};});})\n"
     "   .then(function(x){var j=x.j;\n"
-    "     if(x.ok){var meta=j.app?('kind='+j.kind+' app='+j.app):\n"
-    "       ('kind='+j.kind);add('bot',j.reply||'(빈 회신)',meta);}\n"
-    "     else{add('err',j.reply||j.error||('HTTP 오류 '+x.ok),\n"
-    "       j.kind?'kind='+j.kind:'');}})\n"
+    "     var meta=j.app?('kind='+j.kind+' app='+j.app):('kind='+j.kind);\n"
+    "     if(j.server)meta+=' | 서버 '+j.server;\n"
+    "     if(x.ok&&j.ok!==false){add('bot',j.reply||'(빈 회신)',meta);}\n"
+    "     else{add('err',j.reply||j.error||('HTTP 오류 '+x.ok),meta);}})\n"
     "   .catch(function(e){add('err','전송 실패: '+e,'');});\n"
     "  return false;}\n"
     "</script>\n"
@@ -325,7 +330,8 @@ std::string HandleTalk(const std::string& body, int& code) {
     const std::string text = TrimText(JsonGetString(body, "text"));
     if (text.empty()) {
         code = 400;
-        return "{\"reply\":\"빈 발화입니다.\",\"kind\":\"Error\",\"app\":\"\"}";
+        return "{\"ok\":false,\"reply\":\"빈 발화입니다.\",\"kind\":\"Error\","
+               "\"app\":\"\"}";
     }
 
     jk::ChatAction action;
@@ -363,28 +369,40 @@ std::string HandleTalk(const std::string& body, int& code) {
             break;
         case jk::ChatAction::Info:
             code = 200;
-            return "{\"reply\":\"" + JsonEsc(guide) + "\",\"kind\":\"" +
-                   escKind + "\",\"app\":\"\"}";
+            return "{\"ok\":true,\"reply\":\"" + JsonEsc(guide) +
+                   "\",\"kind\":\"" + escKind + "\",\"app\":\"\"}";
     }
 
     // 도구 지시 전송 — 전역 1인스턴스 직렬화(연결당 스레드 최소 안전).
     std::string reply;
-    bool ok;
+    bool sent;
     {
         const std::lock_guard<std::mutex> lock(g_turnMtx);
-        ok = SendServerQuery(tool, args, reply);
+        sent = SendServerQuery(tool, args, reply);
     }
-    if (!ok) {
+    if (!sent) {
         code = 500;
-        return "{\"reply\":\"데스크톱 창 서버 파이프(" + JsonEsc(tool) +
+        return "{\"ok\":false,\"reply\":\"데스크톱 창 서버 파이프(" +
+               JsonEsc(tool) +
                " 전송용)에 연결할 수 없습니다 — jkdesktop --server(또는 "
                "jkwinserver)가 기동 중인지 확인하세요. 이 서버는 창 서버를 "
                "기동하지 않습니다(fail-loud 계약).\""
                ",\"kind\":\"Error\",\"app\":\"\"}";
     }
+    // 정직 승계(I1 — fix r1): 서버 회신을 "server" 필드로 원문 승계(jktalk의
+    // "회신: 원문 인쇄" 규약, ClientChatApp "결과를 대화 기록에 반영" 계약의
+    // 형제)하고, ok 신호는 회신의 "ok":true 유무로 판정한다 — argless
+    // close_window가 서버의 window_not_found(JKWindowServer.cpp:4076 부근,
+    // close_window는 args.id 한정)를 돌려도 kind=Close 안내문만으로 브라우저에
+    // 거짓 성공이 되지 않게 한다. ok 필드가 없는 모양의 회신도 정직하게 false
+    // ("판정 못 하면 성공이라 부르지 않는다") — 서버 원문은 어느 경로든
+    // "server" 필드로 그대로 실려 숨김이 없다.
+    const bool serverOk = reply.find("\"ok\":true") != std::string::npos;
     code = 200;
-    return "{\"reply\":\"" + JsonEsc(guide) + "\",\"kind\":\"" + escKind +
-           "\",\"app\":\"" + JsonEsc(escApp) + "\"}";
+    return "{\"ok\":" + std::string(serverOk ? "true" : "false") +
+           ",\"reply\":\"" + JsonEsc(guide) + "\",\"kind\":\"" + escKind +
+           "\",\"app\":\"" + JsonEsc(escApp) + "\",\"server\":\"" +
+           JsonEsc(reply) + "\"}";
 }
 
 // 연결 1건 처리 — HTTP 1.1 GET/POST만, 나머지는 정직 404/400.
@@ -415,8 +433,9 @@ void HandleConn(jk::net::Socket conn) {
         // 몸통: Content-Length 만큼 읽는다(상한 64KiB — 발화는 수백 바이트).
         const std::string clStr = HeaderValue(head, "Content-Length");
         if (clStr.empty()) {
-            HttpReply(conn, 400, "{\"reply\":\"Content-Length 헤더가 없습니다."
-                                 "\",\"kind\":\"Error\",\"app\":\"\"}",
+            HttpReply(conn, 400, "{\"ok\":false,\"reply\":\"Content-Length "
+                                 "헤더가 없습니다.\",\"kind\":\"Error\","
+                                 "\"app\":\"\"}",
                       "application/json");
             jk::net::Close(conn);
             return;
@@ -424,8 +443,8 @@ void HandleConn(jk::net::Socket conn) {
         const size_t cl =
             static_cast<size_t>(std::strtoul(clStr.c_str(), nullptr, 10));
         if (cl > 65536) {
-            HttpReply(conn, 413, "{\"reply\":\"몸통이 너무 큽니다.\","
-                                 "\"kind\":\"Error\",\"app\":\"\"}",
+            HttpReply(conn, 413, "{\"ok\":false,\"reply\":\"몸통이 너무 "
+                                 "큽니다.\",\"kind\":\"Error\",\"app\":\"\"}",
                       "application/json");
             jk::net::Close(conn);
             return;
@@ -439,8 +458,9 @@ void HandleConn(jk::net::Socket conn) {
         const std::string resp = HandleTalk(body, code);
         HttpReply(conn, code, resp, "application/json");
     } else {
-        HttpReply(conn, 404, "{\"reply\":\"없는 경로입니다. (GET / 또는 "
-                             "POST /talk)\",\"kind\":\"Error\",\"app\":\"\"}",
+        HttpReply(conn, 404, "{\"ok\":false,\"reply\":\"없는 경로입니다. "
+                             "(GET / 또는 POST /talk)\",\"kind\":\"Error\","
+                             "\"app\":\"\"}",
                   "application/json");
     }
     jk::net::Close(conn);
