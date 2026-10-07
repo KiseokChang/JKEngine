@@ -4,7 +4,7 @@
 선행 조사: 2026-10-07 에이전트 턴 파이프라인 전수 조사(서브에이전트 보고 —
 도구 표면 JKWindowServer.cpp ~3471-6500, jkbridge WS SessionRun :1424,
 jkchat Win32 전용, Termux LLM 백엔드 부재) + as-built 원장 **docs/80**
-(실행 후).
+(docs/80_desktop_chat_asbuilt.md — 실행 완결, 2026-10-07).
 
 ## 0. 비전 맥락
 
