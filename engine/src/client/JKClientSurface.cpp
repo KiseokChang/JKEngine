@@ -6,6 +6,8 @@
 #include <cstring>
 #ifdef _WIN32
 #include <windows.h>
+#else
+#include <unistd.h>  // getpid — Hello pid posix parity (Task 5 receipt)
 #endif
 
 namespace jk {
@@ -61,6 +63,12 @@ bool JKClientSurface::Connect() {
         hello.protocolVersion = 2;
 #ifdef _WIN32
         hello.pid = ::GetCurrentProcessId();
+#else
+        // posix leg (app-coverage Task 5, 2026-10-07): Hello pid는 win32에서만
+        // 채워져 posix 창 목록이 pid=0을 보냈다(WSL list_windows 실측) —
+        // taskmgr /proc 샘플링과 서버 좀비 판정(spawnedClients_.find(Pid())
+        // both dead on arrival. JKAgentClient.cpp Hello와 같은 한 쌍.
+        hello.pid = static_cast<uint32_t>(::getpid());
 #endif
         if (!ipc::WriteMessage(*transport_, ipc::MsgType::Hello, hello)) {
             std::fprintf(stderr, "JKClientSurface: Hello write failed\n");
