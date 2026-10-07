@@ -4077,8 +4077,9 @@ static int RunAppSelfTest() {
                       cmd.find("[사용자] say") != std::string::npos,
                   "1n-d8 preamble rides the plain-text leg too");
 #ifdef _WIN32
-            check(cmd.find("say \\\"hi\\\" $(id)") != std::string::npos,
-                  "1n-d9a win32 keeps the quote escape + live $ verbatim");
+            check(cmd.find("say \"\"hi\"\" $(id)") != std::string::npos,
+                  "1n-d9a win32 composes doubled content quotes, keeps $ "
+                  "live (T3 fix r1)");
 #else
             check(cmd.find("say \\\"hi\\\" \\$(id)") != std::string::npos,
                   "1n-d9b posix escapes the sh-dollar before it executes");
@@ -4162,6 +4163,169 @@ static int RunAppSelfTest() {
             check(!ec2 && !fsx::exists(cfgPath),
                   "1n-d21 seeded chat.json removed (scratch-free teardown)");
         }
+    }
+
+    // 1n-e) F3-1 — cmd 토글 주입 수리 단정(T3 fix r1, 2026-10-08). 배경:
+    //   win32 leg(cmd.exe /c 접두)의 조립식은 cmd 토글 + CRT argv 재파싱의
+    //   이중 파서를 통과한다. 개선 전의 내용 따옴표 이스케이프(`\"`)는 CRT에는
+    //   리터럴이지만 cmd에는 그대로 토글이어서, 컨텐츠의 불균형 따옴표가 cmd의
+    //   인용 지역을 일찍 닫고 뒤따르는 & 를 살린다 — 실측(claude/ollama 양 leg,
+    //   probe_claude_leg A): stream-json 플래그가 전부 도둑맞고 echo가 별행
+    //   개통. 수리는 ShellDqEscape의 win32 분기를 이중화(`""`)로 갈아탔다:
+    //   cmd는 토글 짝(중립 — 지역이 끝까지 열려 메타문자 사망), node(msvc CRT
+    //   — claude.cmd 사슬)는 지역 안 리터럴 따옴표(원문 도달), shell32/Go
+    //   (ollama.exe)는 리터럴+토글(균형 인용 원문 도달 — probe_ollama_leg3 C2;
+    //   불균형은 첫 따옴표 뒤 안전 잘림이 남는다 — probe_ollama_leg S, 개선
+    //   전의 주입+플래그 도난보다 안전 우선). 케릿 갑옷은 F2 실측상 인용 안에서
+    //   리터럴로 살아 컨텐츠를 변형하므로 기각.
+    //   (a) 조립식 — 적대 컨텐츠의 메타문자가 cmd/sh 인용 국소에 전부 착지
+    //       (토글 시뮬레이션) + 수리 형태의 원문 단정. (b) 라이브 cmd — 양성
+    //       대조(주입 개통 자체)와 수리 형태의 무주입을 실 cmd.exe에서.
+    //       스폰 자식은 echo 셸 리터럴뿐 — 추가 바이너리 금지. posix는 무변
+    //   (조건부 실행 계약 c): sh 걷기 동형 단정 + 원문은 1n-d9b가 잠근다.
+    //   알려진 잔여(원장): `%VAR%`은 cmd가 인용 안에서도 사전 확장(F6 실측)하고
+    //   케릿이 인용 안 리터럴이라 갑옷 불가 — 확장 텍스트가 인용 파티티를 깨는
+    //   환경값 의존 벡터(공격자 머신 로컬)는 미커버, 재발 시 케릿 존을 벗어나는
+    //   별도 설계.
+    {
+        using jk::agent::ChatConfig;
+        // 적대 컨텐츠 — 불균형 인용 + cmd 메타문자 + sh 라이브 문자. %는 잔여로
+        // 남기고 본 단정 밖(위 원장 줄).
+        const std::string hostile =
+            "she said \"hi & echo INJECTED-MARKER-3361 <in|out> $(id)";
+
+        // 플랫폼 지역 걷기 — 조립식(빌드 이전 문자열) 단정: 인용 토글을
+        // 시뮬레이션해 컨텐츠 메타문자가 전부 "인용 국소"(state=1)에 착지하는지.
+        // win32: cmd 규약(따옴표 = 토글, 백슬래시는 이스케이프 아님 — 실측).
+        // posix: /bin/sh -c 규약(지역 안 `\\x` = 리터럴 x — 지역 유지). 조립식의
+        // "국소 외 메타문자 없음 + 종료 시 지역 닫힘"이 주입 방어 그 자체다.
+        auto MetaShielded = [](const std::string& composed,
+                               const std::string& metaSet,
+                               bool swallowBackslashPair) {
+            int state = 0;
+            for (size_t i = 0; i < composed.size(); ++i) {
+                const char ch = composed[i];
+                if (swallowBackslashPair && ch == '\\' && state == 1 &&
+                    i + 1 < composed.size()) {
+                    ++i;  // sh dq 지역 안 \x — 다음 문자와 함께 리터럴 소화
+                    continue;
+                }
+                if (ch == '"') state ^= 1;
+                else if (state == 0 && metaSet.find(ch) != std::string::npos)
+                    return false;
+            }
+            return state == 0;
+        };
+        ChatConfig cc;
+        cc.model = "glm-test:cloud";
+        const std::string cmd =
+            jk::agent::BuildOllamaDirectCmd(cc, hostile);
+#ifdef _WIN32
+        check(MetaShielded(cmd, "&|<>", false),
+              "1n-e1 composed region shields the hostile metacharacters "
+              "(cmd toggle walk)");
+#else
+        check(MetaShielded(cmd, "&|<>", true),
+              "1n-e1 composed region shields the hostile metacharacters "
+              "(sh region walk)");
+#endif
+#ifdef _WIN32
+        check(cmd.find("she said \"\"hi & echo INJECTED-MARKER-3361") !=
+                      std::string::npos &&
+                  cmd.find("$(id)") != std::string::npos &&
+                  cmd.find("\\\"") == std::string::npos,
+              "1n-e2 win32 composes doubled quotes, no bkslash-quote form");
+#else
+        check(cmd.find("she said \\\"hi & echo INJECTED-MARKER-3361") !=
+                      std::string::npos,
+              "1n-e2 posix keeps the sh bkslash-quote form (leg unchanged)");
+#endif
+
+#ifdef _WIN32
+        // 라이브 cmd — 같은 cmd.exe /c 셸 접두에 echo 자식을 태운다(추가
+        // 바이너리 금지). 검출기: 주입이 개통되면 마커가 별행으로 인쇄된다
+        // (양성 대조 캘리브레이션 실측: `INJECTED-MARKER-3361"` 단독 행).
+        auto DrainPipe = [](void* pipe, std::string* sink) {
+            char buf[8192];
+            bool open = true;
+            while (open) {
+                uint32_t avail = 0;
+                int broken = 0;
+                if (jk::process::PeekPipeAvail(pipe, &avail, &broken) &&
+                    avail > 0) {
+                    const int got =
+                        jk::process::ReadPipeData(pipe, buf, sizeof(buf));
+                    if (got > 0) {
+                        sink->append(buf, static_cast<size_t>(got));
+                        continue;
+                    }
+                    open = false;
+                } else if (broken == 109 || broken == 232) {
+                    open = false;
+                } else {
+                    std::this_thread::sleep_for(
+                        std::chrono::milliseconds(10));
+                }
+            }
+        };
+        auto SpawnAndDrain = [&DrainPipe](const std::string& cmdline,
+                                          std::string* out) -> bool {
+            jk::process::SpawnOptions o;
+            o.commandLineUtf8 = cmdline;
+            o.hideWindow = true;
+            o.inheritedStdioPipes = true;
+            const jk::process::SpawnResult r = jk::process::Spawn(o);
+            if (!r.ok) return false;
+            DrainPipe(r.stdoutRead, out);
+            jk::process::CloseHandleLike(r.stdoutRead);
+            jk::process::CloseHandleLike(r.stderrRead);
+            jk::process::WaitForExit(r.process, 5000);
+            jk::process::CloseHandleLike(r.process);
+            return true;
+        };
+        auto MarkerOwnLine = [](const std::string& out) {
+            // 마커로 시작하는 행이 존재하고 그 행이 프롬프트 컨텐츠(`she said`)
+            //를 실지 않으면 — 주입 별행(양성 대조의 모양, 캘리브레이션 실측).
+            size_t at = 0;
+            while ((at = out.find("INJECTED-MARKER-3361", at)) !=
+                   std::string::npos) {
+                const size_t bol = out.find_last_of('\n', at);
+                size_t next = out.find('\n', at);
+                if (next == std::string::npos) next = out.size();
+                const std::string line = out.substr(
+                    (bol == std::string::npos ? 0 : bol + 1),
+                    next - (bol == std::string::npos ? 0 : bol + 1));
+                if (line.compare(0, 20, "INJECTED-MARKER-3361") == 0)
+                    return true;
+                at += 20;
+            }
+            return false;
+        };
+
+        // 양성 대조 — 개선 전 수형(`\"` 토글)을 손수 적어 검출기가 주입을
+        // 보는 것을 먼저 증명한다(검출기 무기력이면 수리 단정이 공허).
+        std::string vuln;
+        check(SpawnAndDrain("cmd.exe /c echo \"she said \\\"hi & echo "
+                            "INJECTED-MARKER-3361\"",
+                            &vuln) &&
+                  MarkerOwnLine(vuln),
+              "1n-e3 live cmd: legacy bkslash shape injects (positive "
+              "control)");
+
+        // 수리 형태 — 조립식(BuildOllamaDirectCmd)의 실 스폰 형태 중 컨텐츠
+        // 지역을 그대로 echo 자식에 실어 실 cmd.exe에서 증명. 모델 스팬 뒤
+        // = `"..."` 프롬프트 지역 전체(첫따옴표부터 닫는따옴표까지).
+        const std::string modelSpan = "\"glm-test:cloud\" ";
+        const std::string region = cmd.substr(
+            cmd.find(modelSpan) + modelSpan.size());
+        std::string fixed;
+        check(SpawnAndDrain("cmd.exe /c echo " + region, &fixed) &&
+                  !MarkerOwnLine(fixed) &&
+                  fixed.find("she said \"") != std::string::npos &&
+                  fixed.find("INJECTED-MARKER-3361") != std::string::npos,
+              "1n-e4 live cmd: composed region carries the marker as "
+              "content, no injection");
+#endif  // _WIN32 — 1n-e3/e4 라이브 cmd 전용
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);

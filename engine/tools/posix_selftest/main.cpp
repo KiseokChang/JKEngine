@@ -1464,6 +1464,132 @@ void TestLlmSyncOllamaDirect() {
               "llm15: preamble rides the plain-text leg too");
     }
 
+    // F3-1 posix 대응 단정(T3 fix r1, 2026-10-08) — win의 cmd 토글 수리는
+    // posix 분기 원문 유지(계약 c)와 별개로, sh 지역 걷기(동형 단정)와 라이브
+    // sh 관측으로 posix leg의 주입 방어를 대등하게 증명한다. /bin/sh -c 규약:
+    // 이중 따옴표 지역 안 `\\x`는 리터럴 x(지역 유지)이므로 ShellDqEscape의
+    // `\ $ 백틱` 이스케이프가 컨텐츠 메타문자를 사망시킨다.
+    //
+    // 알려진 잔여(win과 같은 원장 줄): 인용 안 `%VAR%` 확장은 batch 컨텍스트
+    // 전용(cmd가 확장이지만 sh는 무관) — posix leg에는 % 확장 자체가 없다.
+    {
+        jk::agent::ChatConfig cc;
+        cc.model = "glm-test:cloud";
+        const std::string hostile =
+            "she said \"hi & echo INJECTED-MARKER-3361 <in|out> $(id)";
+        const std::string cmd =
+            jk::agent::BuildOllamaDirectCmd(cc, hostile);
+
+        // sh 지역 걷기 — 지역 안 백슬래시 짝을 한 스텝으로 소화하고, 지역 외
+        // 메타문자(& | < > ;)가 하나라도 착지하면 방어 실패. 종료 시 지역
+        // 닫힘까지 단정한다.
+        auto MetaShielded = [](const std::string& composed) {
+            int state = 0;
+            for (size_t i = 0; i < composed.size(); ++i) {
+                const char ch = composed[i];
+                if (ch == '\\' && state == 1 && i + 1 < composed.size()) {
+                    ++i;  // sh dq 지역 안 \x — 리터럴화
+                    continue;
+                }
+                if (ch == '"') state ^= 1;
+                else if (state == 0 && std::strchr("&|<>;", ch) != nullptr)
+                    return false;
+            }
+            return state == 0;
+        };
+        Check(MetaShielded(cmd),
+              "llm15: composed region shields the hostile metacharacters "
+              "(sh walk)");
+        Check(cmd.find("she said \\\"hi & echo INJECTED-MARKER-3361") !=
+                      std::string::npos,
+              "llm15: posix keeps the sh bkslash-quote form (leg unchanged)");
+
+        // 라이브 sh — echo 자식(추가 바이너리 금지; /bin/sh -c 접두는 어댑터
+        // 실 계약). 양성 대조(불균형 맨따옴표 — 지역 조기 닫힘 → 마커 별행)로
+        // 검출기 자체를 증명한 뒤, 조립식 지역의 무주입을 실 sh에서 증명.
+        auto MarkerOwnLine = [](const std::string& out) {
+            size_t at = 0;
+            while ((at = out.find("INJECTED-MARKER-3361", at)) !=
+                   std::string::npos) {
+                const size_t bol = out.find_last_of('\n', at);
+                size_t next = out.find('\n', at);
+                if (next == std::string::npos) next = out.size();
+                const size_t lineBegin =
+                    bol == std::string::npos ? 0 : bol + 1;
+                if (out.compare(lineBegin, 20, "INJECTED-MARKER-3361") == 0)
+                    return true;
+                at += 20;
+            }
+            return false;
+        };
+        auto RunSh = [](const std::string& cmdline,
+                        std::string* out) -> bool {
+            jk::process::SpawnOptions o;
+            o.commandLineUtf8 = cmdline;
+            o.inheritedStdioPipes = true;
+            const jk::process::SpawnResult r = jk::process::Spawn(o);
+            if (!r.ok) return false;
+            // TestProcessAdapter의 drainPipe 동형 — 관측 EOF/브로큰 판정.
+            char buf[4096];
+            bool open = true;
+            while (open) {
+                uint32_t avail = 0;
+                int broken = 0;
+                if (jk::process::PeekPipeAvail(r.stdoutRead, &avail,
+                                               &broken) &&
+                    avail > 0) {
+                    const int got = jk::process::ReadPipeData(
+                        r.stdoutRead, buf, sizeof(buf));
+                    if (got > 0) {
+                        out->append(buf, static_cast<size_t>(got));
+                        continue;
+                    }
+                    open = false;
+                } else if (broken == 109 || broken == 232) {
+                    open = false;
+                } else {
+                    usleep(10 * 1000);
+                }
+            }
+            uint32_t code = 0;
+            bool exited = false;
+            for (int i = 0; i < 500 && !exited; ++i) {  // 10s budget
+                if (jk::process::GetExitCode(r.process, &code) &&
+                    code != 259)
+                    exited = true;
+                else
+                    usleep(20 * 1000);
+            }
+            jk::process::CloseHandleLike(r.stdoutRead);
+            jk::process::CloseHandleLike(r.stderrRead);
+            jk::process::CloseHandleLike(r.process);
+            return exited && code == 0;
+        };
+
+        std::string vuln;
+        // 함정: sh(dash)는 닫히지 않은 인용에서 파싱 오류로 별행 개통 없이
+        // 즉사한다 — 양성 대조는 인용수를 짝수로 맞춰 실 주입 모양을 유지한다
+        // (개선 전 수형의 cmd와 같은 모양을 sh 규약으로 재현).
+        Check(RunSh("echo \"she said \"hi & echo INJECTED-MARKER-3361\"\"",
+                    &vuln) &&
+                  MarkerOwnLine(vuln),
+              "llm15: live sh: bare-quote shape injects (positive control)");
+        std::printf("  llm15: vuln out=[%s]\n", vuln.c_str());
+        std::fflush(stdout);
+
+        const std::string modelSpan = "\"glm-test:cloud\" ";
+        const std::string region =
+            cmd.substr(cmd.find(modelSpan) + modelSpan.size());
+        std::string fixedOut;
+        Check(RunSh("echo " + region, &fixedOut) &&
+                  !MarkerOwnLine(fixedOut) && fixedOut.find("she said \"") !=
+                                                   std::string::npos &&
+                  fixedOut.find("INJECTED-MARKER-3361") !=
+                      std::string::npos,
+              "llm15: live sh: composed region carries the marker as "
+              "content, no injection");
+    }
+
     // 본사 파일 보존 — 있던 기기는 원문 복구, 없던 기기만 소각(스크래치 없음).
     // "seeded chat.json removed"의 진실 조건은 시딩 전에도 없었다는 것.
     if (hadCfg) {

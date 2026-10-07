@@ -67,8 +67,8 @@ namespace {
 // 하에서도 deny 규칙은 강제된다(permission_denials로 차단, 직접·cmd /c +
 // ollama launch 경로 양쪽). 잔여 우회: powershell 래퍼 등 접두 외 경로는
 // 미커버 — 재발 시 전면 Bash 차단으로 상향(사용자 판정).
-// 인용: JSON 따옴표는 명령행 임베드를 위해 \" 로 이스케이프 — prompt의
-// -p 이스케이프와 같은 CRT 규칙(2026-09-20 cmd.exe 경로 실측).
+// 인용: 명령행 임베드는 ShellDqEscape 한 근원으로(prompt의 -p 이스케이프와
+// 동일 — T3 fix r1, F3-1 cmd 토글 주입 수리 계보 상동).
 constexpr const char* kLlmDenySettings =
     "{\"permissions\":{\"deny\":["
     "\"Bash(taskkill:*)\",\"Bash(taskkill.exe:*)\","
@@ -111,16 +111,53 @@ constexpr const char* kLlmTurnPreamble =
 // 헬퍼(Utf8ToWide/WideToUtf8)는 소각됐다. prompt는 UTF-8 원문(StartTurn이
 // 받은 promptUtf8을 그대로 — 와일드 왕복 변환은 무손실이라 동일 관측).
 
-// Sh-double-quote escaper used for EVERY dynamic text that lands inside
-// the command string — not just the prompt (final review F1: --resume's
-// session id and the model name are dynamic text too). Quotes, plus —
-// posix only — the sh double-quote live characters (below). EscDq 람다에서
-// 승격(T3): ollama-direct 조립식(BuildOllamaDirectCmd, 공개 계약 락)이 같은
-// 이스케이프를 재용해야 하므로 람다 밖으로 올렸다 — 복제 금지 계약과 같은 뿌리.
-std::string ShellDqEscape(const std::string& s) {
+// Escaper used for EVERY dynamic text that lands inside the command string —
+// not just the prompt (final review F1: --resume's session id and the model
+// name are dynamic text too). EscDq 람다에서 승격(T3): ollama-direct 조립식
+// (BuildOllamaDirectCmd, 공개 계약 락)이 같은 이스케이프를 재용해야 하므로
+// 람다 밖으로 올렸다 — 복제 금지 계약과 같은 뿌리.
+//
+// F3-1 (T3 fix r1, 2026-10-08): win32 leg는 cmd.exe /c 접두를 타므로 조립식의
+// 인용은 "cmd 토글"+"CRT argv 재파싱"의 이중 파서를 통과한다. 현행 `\"`는
+// CRT에겐 리터럴 따옴표지만 cmd에겐 그대로 토글이어서, 프롬프트 본문의
+// 불균형 따옴표가 cmd의 인용 지역을 일찍 닫아 뒤따르는 & | < > 를 살아있는
+// 메타문자로 만든다(실측: cmd.exe /c claude -p "she said \"hi & echo ..."에서
+// stream-json 플래그가 전부 도둑맞고 cmd2로 echo가 별행 개통 — 2026-10-08
+// probe_claude_leg A 영수증, claude/ollama 양 leg 공통 노출).
+//
+// 수리: win32 분기는 내용 따옴표를 `""` 로 두 배화한다 — 3 파서가 한 문자열을
+// 각기 다르게 읽는다(2026-10-08 argprn/probe 실측): cmd는 토글 짝(=중립,
+// 지역이 계속 열려 메타문자 사망), node(msvc CRT — claude.cmd 사슬)는 지역 안
+// 리터럴 따옴표(컨텐츠 원문), shell32/Go(ollama.exe)는 리터럴 따옴표+토글
+// (균형 인용 원문 도달, 2026-10-08 probe_ollama_leg3 C2 영수증). 불균형 인용
+// 컨텐츠는 Go 파서에서 지역을 일찍 닫아 첫 따옴표 뒤 잘림이 남는다(S 영수증)
+// — 개선 전의 "주입+플래그 도난"보다 안전이 우선이고, 잔여는 원장에 기록.
+// 케릿 갑옷(^&)은 F2 실측상 인용 안에서 리터럴로 살아남아 컨텐츠를 변형하므로
+// 기각 — 지역이 계속 열려 있어야 메타문자가 자연 사망한다.
+// posix 분기는 sh 이중 따옴표 라이브 문자(`\ $ ` 백틱) 이스케이프 — 본 수리와
+// 무관(조건부 실행 계약 c: posix 분기 원문 유지).
+//
+// winDoubled=false 분기(kLlmDenySettings 전용 — T3 fix r1 회귀 원장):
+// settings는 claudeArgs에 얹혀 ollama leg에서 ollama의 재인용 층을 한 번 더
+// 통과한다. 이중화 형태는 그 층에서 따옴표가 통째로 벗겨져 claude에
+// {"permissions:{deny:[Bash(taskkill:*),... 같은 무따옴표 잔해로 도달한다
+// (실측 probe_ollama_shape O1: "Error: Settings file not found", 전형 0 —
+// O2 legacy \" 제어 런은 전 스트림 생존). 상수라 주입 표면이 아니고, 인용
+// 짝이 균형이어서 cmd 토글 정수합(중립)+CRT/shell32 리터럴(`\"`)이므로 legacy
+// 형태가 3leg 전부 주입 없음 — prompt(동적 컨텐츠 = 주입 표면)만 이중화 모드,
+// 설정 상수는 legacy 모드로 한 함수 안에 두 계약을 공존시킨다(3leg 복제 금지
+// 계약은 유지).
+std::string ShellDqEscape(const std::string& s, bool winDoubled = true) {
     std::string out;
     for (char ch : s) {
-        if (ch == '"') out += "\\\"";
+        if (ch == '"') {
+#ifdef _WIN32
+            out += winDoubled ? "\"\""   // cmd 토글 중립 짝 + CRT/shell32 리터럴
+                              : "\\\"";  // legacy — settings(ollama 재인용 층 생존 형태)
+#else
+            out += "\\\"";  // sh 이중 따옴표 지역 안 리터럴 따옴표(기존 계약)
+#endif
+        }
 #ifndef _WIN32
         // posix leg executes via /bin/sh -c (jk::process posix mapping),
         // and inside sh double quotes `\`, `$` and backtick stay LIVE (a
@@ -154,14 +191,13 @@ std::string BuildEngineCmd(const ChatConfig& cfg,
         "-p \"" + esc +
         "\" --output-format stream-json --verbose --include-partial-messages";
     if (cfg.skipPermissions) claudeArgs += " --dangerously-skip-permissions";
-    // JSON 인용 이스케이프 — 원문 따옴표는 CRT argv 재파싱에서 스팬을 끊어
-    // claude가 파산 JSON을 받는다(prompt의 -p 이스케이프와 동일 규칙).
-    std::string escSettings;
-    for (const char* p = kLlmDenySettings; *p; ++p) {
-        if (*p == '"') escSettings += "\\\"";
-        else escSettings += *p;
-    }
-    claudeArgs += " --settings \"" + escSettings + "\"";
+    // JSON 인용 — 상수는 legacy `\"` 모드(ShellDqEscape 2차 인자 false). 이중
+    // 화(`""`)는 ollama leg의 재인용 층에서 따옴표가 통째로 벗겨져 claude가
+    // "Settings file not found"로 파산한다(실측 probe_ollama_shape O1/O2 —
+    // T3 fix r1 회귀 원장). 상수는 인용 균형+cmd 메타문자 0이어서 legacy 형태
+    // 도 cmd 토글 중립(정수합)+CRT 리터럴 — 주입 없음.
+    claudeArgs += " --settings \"" +
+                  ShellDqEscape(kLlmDenySettings, false) + "\"";
     if (!resumeSessionId.empty()) {
         // F1 (docs/70 final review): the session id is dynamic text too —
         // same escaper class as the prompt (posix triple-escape inside).
