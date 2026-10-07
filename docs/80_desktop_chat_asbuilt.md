@@ -91,6 +91,14 @@ docs/79 앱 라이브러리 → **채팅(본 문)** — jkapp_chat은 settings/l
   부수 증거). 빈 발화 400·미지 경로 404 부수 확인. fix r1판: `지뢰찾기 꺼줘`
   → 500이면서 `ok:false` body(§2.3 수락 테스트와 동형 — 서버 회신 정직
   승계, 리뷰 I1 소각).
+- **바인드 정책 룰링(최종 리뷰 I1 수리 — 코드 fix)**: 기본 바인드를
+  **127.0.0.1 루프백**으로 바꾸고 LAN 개방은 `--bind all` 옵트인. 이유:
+  jkweb은 무인증 `POST /talk`로 `launch_app` 권한을 여는 서버라 0.0.0.0
+  기본은 공유기·사무실 Wi-Fi의 옆단 노출(stale jkweb 방치시 임의 LAN 피어가
+  데스크톱 앱 기동). 폰 브라우저 `localhost:8090` 본선(육안 게이트 경로)은
+  무영향 — 루프백에 그대로 묶인다. PC→폰 LAN 도달은 명시 옵트인(집 Wi-Fi
+  내 한정 권장). 토큰 게이트는 백로그. 실측: PC 루프백 `127.0.0.1:PORT` 200
+  + PC LAN IP 접속 connect 거부 / `--bind all` 재기동 시 LAN IP 200.
 
 ### 2.2 WSL (T4 — CHAT-BOOT-OK, probe rc=0)
 
@@ -285,6 +293,11 @@ T6 과제"는 **댕글링 표기였다**: T6 brief에 없었고(리뷰가 발각
 Spec PASS·Quality Approved/fix r1 경유 **CLEAN** — Critical 0, Important
 총 3건(T5 tetris 어설션·T6 I1 EOF/I2 귀속·T7 I1/I2) 전부 fix r1로 소각.
 
+최종 전체 리뷰(opus, 라인 범위 24e0c54..56ee542) 판정 **GO** — Important
+I1(jkweb 0.0.0.0 바인드 무인증 LAN 노출)+Minor M1-M4/관찰 1건의 fix 2커밋
+(I1 코드+M1-M4 문서/주석)이 뒤에 붙는다. I1 수리안 룰링=컨트롤러 판정:
+loopback 기본 바인드+`--bind all` 옵트인(§2.1 바인드 정책 블록 참조).
+
 ## 8. 사용자 게이트 상태 — **대기 중 (결제 기록 없음 — 가짜 결제 금지)**
 
 - **본 게이트(스펙 §5.1)**: 폰 브라우저 `http://localhost:8090/` 열기 →
@@ -294,5 +307,11 @@ Spec PASS·Quality Approved/fix r1 경유 **CLEAN** — Critical 0, Important
 - **보조 게이트(강등 — 룰링 2·3 준수)**: jkapp_chat IME — 폰 DeX 화면의
   Chat 창 입력 상자 탭→소프트 키보드→타자→ImGui 입력 도달·한글 IME 조합
   통과. 본 경로(jktalk/jkweb)가 성립한 뒤라도 UI 멤버로서 확인 대기.
+- **폰 ollama serve 상태 재개 시트(M3)**: 폰에 `ollama serve`가 UP으로 남아
+  있다(pull된 qwen2.5:0.5b ~397MB 상주 — T8 실험 산출물, 의도 보존).
+  정지 원할 때: `pkill -f '[o]llama serve'`.
+- **바인드 재개 주의(I1 수리 후)**: 폰 jkweb 기본 바인드는 127.0.0.1 루프백
+  — 폰 브라우저 localhost:8090 게이트는 무영향이고, 다른 기기 도달은
+  `--bind all`로 재기동해야 한다.
 - 결제 기록은 **사용자 선언을 받은 뒤에만** 본 원장에 기입한다 — probe
   출력만으로 "확인됨"이라 쓰지 않는다(계약 — T5/T7 리포트 게이트 조항 동일).

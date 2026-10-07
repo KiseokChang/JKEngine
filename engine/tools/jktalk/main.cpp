@@ -20,9 +20,10 @@
 // 서버 기동은 이 CLI의 몫이 아니다(룰링 — 프로브는 서버 기동·종료를 하지
 // 않는다).
 //
-// 백엔드 슬롯(스펙 §4 — T7 연결 예정): 아래 kBackendName 주석 자리. 지금은
-// T1 stub 라우터(jk::ChatRouterRoute)만 꽂는다. JKLlmEngine은 이 CLI에서
-// 아직 인스턴스화하지 않는다(룰링 — cfg 선택형 배선은 T7).
+// 백엔드 슬롯(스펙 §4 — 승격 판정=docs/80 §3, stub 유지): 아래 kBackendName
+// 주석 자리. 지금은 T1 stub 라우터(jk::ChatRouterRoute)만 꽂는다.
+// JKLmEngine은 이 CLI에서 아직 인스턴스화하지 않는다 — cfg 선택형 배선은
+// 백로그(동기 브리지·액션 매핑·ollama HTTP 어댑터·chat.json directory).
 //
 // 인코딩 계약(docs/48 레슨 승계 — jkctl 이중 진입 선준): argv는 wmain이
 // UTF-8로 정규화(-municode 링크). stdin은 UTF-8 바이트열이 기본(Git Bash/
@@ -91,15 +92,16 @@ const char* KindName(jk::ChatAction::Kind kind) {
 }
 
 // ---------------------------------------------------------------------------
-// 백엔드 슬롯 (스펙 2026-10-07-desktop-chat-app §4 — T7 연결 예정, 룰링 반영)
+// 백엔드 슬롯 (스펙 2026-10-07-desktop-chat-app §4 — 승격 판정=docs/80 §3)
 //
-// 현재 백엔드 = T1 stub 라우터(jk::ChatRouterRoute). T7에서 cfg(state/chat.json
+// 현재 백엔드 = T1 stub 라우터(jk::ChatRouterRoute). 승격 판정은 stub 유지
+// (docs/80 §3 — 0.5B 폰 추론 0.29 tok/s UX 불성립+배선 갭). cfg(state/chat.json
 // 계열 설정)가 ollama/claude를 고르면 ProcessTurn의 ① 자리에서 JKLlmEngine을
-// 인스턴스화해 발화→ChatAction+응답문을 받는다(HangulRoute 교체 자리). 호출
+// 인스턴스화해 발화→ChatAction+응답문을 받는다. 배선 실장=백로그(docs/80 §3). 호출
 // 계약은 지금과 같다(text → ChatAction + 화면용 응답문) — 이 CLI의 나머지
 // (REPL·도구 전송·인쇄)는 백엔드 무관으로 유지된다.
 //
-//   ① T7 플러그 자리(ProcessTurn 안 — HangulRoute 주석 참조):
+//   ① 백엔드 플러그 자리(ProcessTurn 안):
 //     jk::JKLlmEngine llm;   // cfg 선택(ollama|claude) 배선 후
 //     std::string guide = llm.Route(text, action);   // stub 대체
 // 지금은 만들지 않는다 — "posix엔 claude/ollama CLI가 없어 지금 실장하면
@@ -150,7 +152,7 @@ int ProcessTurn(const std::string& rawLine, bool routeOnly) {
     // 뇌호출 — 백엔드 슬롯(위 kBackendName 블록 + ① 주석). 응답문은 도구
     // 지시가 아니라 **사용자에게 보여질** 안내/확인문(ChatRouter.h 계약) —
     // 채팅 앱이 기록에 인쇄하듯 이 CLI도 그대로 인쇄한다.
-    const std::string guide = jk::ChatRouterRoute(text, action);   // ① T7 교체 자리
+    const std::string guide = jk::ChatRouterRoute(text, action);   // ① 백엔드 교체 자리(승격 판정=docs/80 §3)
     std::printf("[시스템] %s\n", guide.c_str());
 
     if (routeOnly) {
