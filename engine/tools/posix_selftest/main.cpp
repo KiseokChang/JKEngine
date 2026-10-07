@@ -21,7 +21,7 @@
 #include <netinet/in.h>  // posix-only, so it may include POSIX socket headers
 #include <sys/socket.h>  // directly; no windows.h-cleanliness constraint here)
 
-#include <agent/JKLlmEngine.h>  // kStubShellCmdPosix (case 10)
+#include <agent/JKLlmEngine.h>  // kStubShellCmdPosix (case 10), TurnSync (case 15)
 #include <ipc/JKPipeTransport.h>
 #include <ipc/JKWireEndpoints.h>
 #include <fs/JKInstanceLock.h>
@@ -1376,6 +1376,106 @@ void TestNetRecvAllChunksTimeoutAcceptBound() {
     jk::net::Close(lpC);
 }
 
+// Case 15 (T3 — 스펙 2026-10-08-chat-llm-promotion 설계 결정 2·3): 동기 턴
+// 브리지(TurnSync) + ollama-direct leg. jkdesktop RunAppSelfTest의 1n-d 계열이
+// 캐논 담당(양축)이고 이 케이스는 어댑터 축의 정독용 분신이다 — agent TU를
+// 직접 링크해(빌드.sh) /bin/sh -c 스폰 경로에서 TurnSync의 본 계약을 잠근다:
+//   a) echo 스터브 stdout 원문 왕복(ok=true, sessionId="", streamed=0)
+//      — 실 ollama 의존 금지(환경 의존 함정): cfg의 direct_cmd로 스폰을 주입
+//   b) 비영(stdout 공백) → ok=false 정직
+//   c) 조립식 원문(BuildOllamaDirectCmd — 공개 계약 락) 단정
+// chat.json은 exe-dir의 state에 시딩 — GetExecutablePath는 파일 경로를 주므로
+// 이 하네스의 exe-dir는 engine/build이다(디테일 함정: "posix_selftest/state"
+// 가 아니라 실 사용자 jkdesktop의 state/chat.json에 닿는다 — 첫 실측에서 이
+// 경로 착각이 본사 chat.json을 시딩→소각으로 소멸시켰고, 복구 실측이 확인).
+// 그래서 본사 파일 보존이 계약이다: 백업 원문 → 시딩 → 복원(없던 기기는 소각),
+// jkdesktop RunAppSelfTest의 1n-d 블록과 같은 가드.
+void TestLlmSyncOllamaDirect() {
+    const std::string exePath = jk::fs::GetExecutablePath();
+    const size_t sep = exePath.find_last_of('/');
+    std::string dir = exePath.substr(0, sep);
+    const std::string stateDir = dir + "/state";
+    const std::string cfgPath = stateDir + "/chat.json";
+    ::mkdir(stateDir.c_str(), 0755);
+    std::string cfgBackup;
+    bool hadCfg = false;
+    if (std::FILE* bf = std::fopen(cfgPath.c_str(), "rb")) {
+        std::fseek(bf, 0, SEEK_END);
+        const long sz = std::ftell(bf);
+        std::fseek(bf, 0, SEEK_SET);
+        if (sz > 0) {
+            cfgBackup.resize(static_cast<size_t>(sz));
+            const size_t n = std::fread(&cfgBackup[0], 1, cfgBackup.size(), bf);
+            cfgBackup.resize(n);
+            hadCfg = n > 0;
+        }
+        std::fclose(bf);
+    }
+    auto WriteCfg = [&cfgPath](const std::string& json) -> bool {
+        std::FILE* f = std::fopen(cfgPath.c_str(), "wb");
+        if (!f) return false;
+        const size_t w = std::fwrite(json.data(), 1, json.size(), f);
+        std::fclose(f);
+        return w == json.size();
+    };
+    // directory=/tmp — cfg 기본값은 repo 절대 경로(chdir 실패 함정, 1n-d 동일
+    // 렛슨)이고 /tmp는 이 케이스의 어댑터가 이미 다녀간 실제 경로.
+    auto Seed = [&WriteCfg](const std::string& directCmd) -> bool {
+        return WriteCfg("{\"engine\":\"ollama-direct\",\"model\":"
+                        "\"glm-test-stub:cloud\",\"directory\":\"/tmp\","
+                        "\"direct_cmd\":\"" +
+                        directCmd + "\"}");
+    };
+
+    Check(Seed("echo jk-ollama-direct-stub-3361"),
+          "llm15: chat.json seeded (engine=ollama-direct + direct_cmd, "
+          "real-ollama-free)");
+    jk::agent::LlmTurnResult r;
+    {
+        jk::agent::JKLlmEngine eng;
+        Check(eng.TurnSync("안녕", r), "llm15: echo stub turn returns true");
+        Check(r.ok && r.result == "jk-ollama-direct-stub-3361",
+              "llm15: stdout collected verbatim, boundary-ws trimmed");
+        Check(r.sessionId.empty(),
+              "llm15: sessionId empty (plain-text leg contract)");
+        Check(!r.streamed,
+              "llm15: no delta on the plain-text leg (streamed=false)");
+    }
+
+    Check(Seed("true"),
+          "llm15: cfg re-seeded (empty-stdout stub, honest-fail 2형)");
+    {
+        jk::agent::JKLlmEngine eng;
+        Check(!eng.TurnSync("x", r) && !r.ok,
+              "llm15: empty stdout reports ok=false (spawn failure honesty)");
+    }
+
+    // 조립식 원문 — 스폰 대체 없이 컴포지션만 잠근다(kStubShellCmd* 선례).
+    {
+        jk::agent::ChatConfig cc;
+        cc.model = "glm-test:cloud";
+        const std::string cmd =
+            jk::agent::BuildOllamaDirectCmd(cc, "say \"hi\" $(id)");
+        Check(cmd.compare(0, 12, "ollama run \"") == 0 && cmd.back() == '"',
+              "llm15: composed cmd keeps the quote spans closed");
+        Check(cmd.find("say \\\"hi\\\" \\$(id)") != std::string::npos,
+              "llm15: posix escaper neutralizes the sh live characters");
+        Check(cmd.find("[사용자] say") != std::string::npos,
+              "llm15: preamble rides the plain-text leg too");
+    }
+
+    // 본사 파일 보존 — 있던 기기는 원문 복구, 없던 기기만 소각(스크래치 없음).
+    // "seeded chat.json removed"의 진실 조건은 시딩 전에도 없었다는 것.
+    if (hadCfg) {
+        Check(WriteCfg(cfgBackup), "llm15: chat.json restored verbatim");
+    } else {
+        ::unlink(cfgPath.c_str());
+        Check(::access(cfgPath.c_str(), F_OK) != 0,
+              "llm15: seeded chat.json removed at case end (was absent)");
+    }
+}
+
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -1390,6 +1490,7 @@ int main(int argc, char** argv) {
     TestProcessScan(argv);
     TestPipeEndpointMapping();
     TestLlmStubShell();
+    TestLlmSyncOllamaDirect();
     TestLocaltimeS();
     TestJobMultiMemberAndStdinParity();
     TestNetRecvAllChunksTimeoutAcceptBound();

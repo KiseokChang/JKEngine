@@ -61,6 +61,7 @@ extern "C" __declspec(dllimport) int __stdcall closesocket(
 #include <client/JKClientSurface.h>
 #include <server/JKWindowServer.h>
 #include <agent/JKAgentClient.h>
+#include <agent/JKLlmEngine.h>  // selftest 1n-d — 동기 턴 브리지+ollama-direct leg
 #include <crypto/JKSha256.h>
 #include <ipc/JKWireEndpoints.h>
 #include <ipc/JKWireProtocol.h>
@@ -1047,6 +1048,20 @@ static int RunScriptTestFile(const char* path) {
     std::fflush(stdout);
     return failures == 0 ? 0 : 1;
 }
+
+// selftest 1n-d(T3) 전용 Done 싱크 — busy 게이트 검증에서 StartTurn을 직접 잡을
+// 때 결과 도착을 기록한다(함수 포인터 계약이라 람다 캡처 대신 파일 스코프 함수).
+namespace selftest_llm {
+struct Sink {
+    std::string   result;
+    bool          done = false;
+};
+inline void SinkDone(jk::agent::LlmTurnResult&& r, void* user) {
+    Sink* s = static_cast<Sink*>(user);
+    s->result = std::move(r.result);
+    s->done = true;
+}
+}  // namespace selftest_llm
 
 // 포팅된 앱들의 데이터 관리자(Equip24DataManager/BombManager/PersonManager)
 // 로직을 검증하는 헤드리스 자기 테스트. "test" 인자로 실행한다.
@@ -3960,6 +3975,195 @@ static int RunAppSelfTest() {
     }
 
 #endif  // _WIN32 — case 15 (net adapter) is win32-only by selftest convention
+
+    // 1n-d) LLM 동기 턴 브리지 + ollama-direct leg (T3 — 스펙
+    //   2026-10-08-chat-llm-promotion 설계 결정 2·3). TurnSync는 StartTurn 위
+    //   condition_variable 래퍼일 뿐(스폰·파이프·stream-json 파서·kill 계약
+    //   재용 — 파서 복제 금지), ollama-direct는 stdout 일반 텍스트를 전부
+    //   수집해 결과로. 서버·창 무접촉 — chat.json(engine/direct_cmd)을
+    //   exe-dir state에 시딩해 스폰을 echo 스터브로 대체한다. 기본 조립식이
+    //   실 ollama를 쏘면 캐논이 그 기기의 설치/네트워크에 의존하게 되므로
+    //   실 ollama 의존 금지(환경 의존 함정) — 조립식은 BuildOllamaDirectCmd
+    //   원문 단정으로 잠그고 스폰은 스터브 대체. 기존 chat.json은 백업 후 복원
+    //   (실 소비자 jkbridge의 사용자 파일 보존).
+    {
+        using jk::agent::ChatConfig;
+        using jk::agent::JKLlmEngine;
+        using jk::agent::LlmTurnResult;
+        namespace fsx = std::filesystem;
+
+        const std::string exePath = jk::fs::GetExecutablePath();
+        const size_t sep = exePath.find_last_of("\\/");
+        const std::string stateDir =
+            sep == std::string::npos ? std::string("state")
+                                     : exePath.substr(0, sep) + "/state";
+        const std::string cfgPath = stateDir + "/chat.json";
+        // 무손실 백업 — LoadChatConfig는 4096바이트만 읽지만 복원은 원문 전체.
+        std::string cfgBackup;
+        bool hadCfg = false;
+        if (std::FILE* bf = std::fopen(cfgPath.c_str(), "rb")) {
+            std::fseek(bf, 0, SEEK_END);
+            const long sz = std::ftell(bf);
+            std::fseek(bf, 0, SEEK_SET);
+            if (sz > 0) {
+                cfgBackup.resize(static_cast<size_t>(sz));
+                const size_t n = std::fread(&cfgBackup[0], 1, cfgBackup.size(),
+                                            bf);
+                cfgBackup.resize(n);
+                hadCfg = n > 0;
+            }
+            std::fclose(bf);
+        }
+        auto WriteCfg = [&cfgPath](const std::string& json) -> bool {
+            std::FILE* f = std::fopen(cfgPath.c_str(), "wb");
+            if (!f) return false;
+            const size_t w = std::fwrite(json.data(), 1, json.size(), f);
+            std::fclose(f);
+            return w == json.size();
+        };
+        auto Seed = [&WriteCfg, &exePath](const std::string& directCmd) -> bool {
+            // directory도 시딩한다 — cfg 기본값은 repo 절대 경로(윈32 표기)라
+            // posix 어댑터의 chdir이 실패해 스폰 단정 자체가 묻힌다(WSL 실측
+            // 3 FAIL 함정). exe-dir는 양축이 다녀간 적 있는 실제 경로.
+            std::string dirJ = exePath;
+            const size_t cut2 = dirJ.find_last_of("\\/");
+            if (cut2 != std::string::npos) dirJ = dirJ.substr(0, cut2);
+            std::string dirEsc;
+            for (char ch : dirJ) {  // JSON 인용 이스케이프 — win32 백슬래시 경로
+                if (ch == '"') dirEsc += "\\\"";
+                else if (ch == '\\') dirEsc += "\\\\";
+                else dirEsc += ch;
+            }
+            return WriteCfg(std::string(
+                       "{\"engine\":\"ollama-direct\",\"model\":"
+                       "\"glm-test-stub:cloud\",\"directory\":\"") +
+                       dirEsc + "\",\"direct_cmd\":\"" + directCmd + "\"}");
+        };
+
+        std::error_code ec2;
+        check(fsx::create_directories(stateDir, ec2) || fsx::exists(stateDir),
+              "1n-d0 state dir ready (exe-dir chat.json seam)");
+
+        // (a) echo 스터브 stdout 원문 왕복 — plain-text leg의 본 계약.
+        //   echo 리터럴은 win32(cmd.exe /c 접두·worker가 붙인다)와 posix
+        //   (/bin/sh -c) 양축이 같은 문자열로 개통된다.
+        check(Seed("echo jk-ollama-direct-stub-3361"),
+              "1n-d0b chat.json seeded (engine=ollama-direct + direct_cmd)");
+        JKLlmEngine eng;  // 오타 대전(brief): JKLmEngine이 아닌 JKLlmEngine(docs/81 §4 유예)
+        LlmTurnResult r;
+        check(eng.TurnSync("안녕", r), "1n-d1 echo stub turn returns true");
+        check(r.ok && r.result == "jk-ollama-direct-stub-3361",
+              "1n-d2 stdout collected verbatim, boundary-ws trimmed");
+        check(r.sessionId.empty(), "1n-d3 sessionId empty (plain-text leg)");
+        check(!r.streamed, "1n-d4 plain-text leg raises no delta (streamed=0)");
+
+        // (b) 조립식 원문 단정(kStubShellCmd* 선례의 동형 — 스폰 대체 없이
+        //   컴포지션만 잠근다). 특수문자는 플랫폼 이스케이프 규약이 갈린다:
+        //   win32는 CRT argv 규칙(원문 보존), posix는 sh 이중 따옴표 라이브
+        //   문자(가역 이스케이프). 프리앰블 접두는 plain-text leg에도 공통
+        //   (docs/60 ⑥ 계약 유지).
+        {
+            ChatConfig cc;
+            cc.model = "glm-test:cloud";
+            const std::string cmd =
+                jk::agent::BuildOllamaDirectCmd(cc, "say \"hi\" $(id)");
+            check(cmd.compare(0, 12, "ollama run \"") == 0,
+                  "1n-d5 composed cmd prefix `ollama run \"`");
+            check(cmd.back() == '"',
+                  "1n-d6 composed cmd keeps the prompt quote span closed");
+            check(cmd.find("\"glm-test:cloud\"") != std::string::npos,
+                  "1n-d7 model lands inside its quoted span");
+            check(cmd.find("[시스템 지시]") != std::string::npos &&
+                      cmd.find("[사용자] say") != std::string::npos,
+                  "1n-d8 preamble rides the plain-text leg too");
+#ifdef _WIN32
+            check(cmd.find("say \\\"hi\\\" $(id)") != std::string::npos,
+                  "1n-d9a win32 keeps the quote escape + live $ verbatim");
+#else
+            check(cmd.find("say \\\"hi\\\" \\$(id)") != std::string::npos,
+                  "1n-d9b posix escapes the sh-dollar before it executes");
+#endif
+        }
+
+        // (c) 정직 실패 2형 — 비영(stdout 공백)과 미지 명령(stderr 근거).
+        //   exit 0/true는 win32(cmd.exe)/posix(sh) 모두 공백 stdout이고,
+        //   미지 명령은 양축 셸이 근거 문자열(jk-nosuch-cmd-3361)을 stderr로
+        //   보낸다 — 어댑터 스폰 불가 경로가 아닌 "셸 수준" 정직 계약.
+#ifdef _WIN32
+        check(Seed("exit 0"), "1n-d10 cfg re-seeded (empty-stdout stub)");
+#else
+        check(Seed("true"), "1n-d10 cfg re-seeded (empty-stdout stub)");
+#endif
+        check(!eng.TurnSync("x", r) && !r.ok,
+              "1n-d11 empty stdout reports ok=false (honest)");
+        check(Seed("jk-nosuch-cmd-3361"), "1n-d12a cfg re-seeded (dead cmd)");
+        check(!eng.TurnSync("x", r) && !r.ok &&
+                  r.result.find("jk-nosuch-cmd-3361") != std::string::npos,
+              "1n-d12b unknown command surfaces the shell's stderr evidence");
+
+        // (d) 타임아웃 — Done 미도착 = ok=false, 예산 준수, 그리고 지연 Done
+        //   흡수(worker가 살아 돌아가 busy를 사후에 푼다 — refcount 계약의
+        //   관측 가능한 얼굴). 중복 kill 없음: 자식은 StartTurn의
+        //   kill-on-close job 계약 안에서 자연 종료.
+        //   (a)~(c)와 같은 cfg 셋업에서 sleeper 스터브로 갈아탄다 — echo
+        //   스터브는 즉발이라 타임아웃을 유도할 수 없다. 3361 마커는 어디에도
+        //   인쇄되지 않는다.
+        const char* sleeper =
+#ifdef _WIN32
+            "ping -n 2 127.0.0.1 > nul";  // ≈1s — no stdin, console-free
+#else
+            "sleep 2";
+#endif
+        check(Seed(sleeper), "1n-d13 cfg re-seeded (sleeper stub)");
+        const auto tD = std::chrono::steady_clock::now();
+        check(!eng.TurnSync("x", r, 300), "1n-d14 timeout(300ms) reports false");
+        const double elapsedD =
+            std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - tD)
+                .count();
+        std::printf("  1n-d: timeout path returned after %.0f ms\n",
+                    elapsedD);
+        std::fflush(stdout);
+        check(elapsedD < 2500.0, "1n-d15 timeout honored the 300ms budget");
+        bool settled = false;
+        for (int i = 0; i < 500 && !settled; ++i) {  // 10s budget
+            settled = !eng.Busy();
+            if (!settled) std::this_thread::sleep_for(
+                               std::chrono::milliseconds(20));
+        }
+        check(settled && !r.ok,
+              "1n-d16 late Done absorbed, busy gate released (refcount "
+              "contract observable)");
+
+        // (e) busy 게이트 — StartTurn 진행 중인 엔진의 동기 브리지는 씽크다
+        //   없이 거부하고 사유를 실는다(스펙 fallback 원칙의 상면).
+        selftest_llm::Sink sink;
+        check(eng.StartTurn("hold", "", nullptr, &selftest_llm::SinkDone,
+                            &sink),
+              "1n-d17 async hold turn accepted (StartTurn direct)");
+        LlmTurnResult rb;
+        check(!eng.TurnSync("x", rb), "1n-d18 TurnSync refused while busy");
+        check(!rb.ok && rb.result.find("busy") != std::string::npos,
+              "1n-d19 busy refusal carries the honest reason");
+        bool holdDone = false;
+        for (int i = 0; i < 500 && !holdDone; ++i) {  // 10s budget
+            holdDone = sink.done && !eng.Busy();
+            if (!holdDone) std::this_thread::sleep_for(
+                                std::chrono::milliseconds(20));
+        }
+        check(holdDone, "1n-d20 hold turn settles (Done + busy released)");
+
+        // 복원 — 시딩한 chat.json을 정리한다(없었던 기기는 삭제, 있던 기기는
+        // 원문 복구 — selftest가 사용자 파일을 훼손하지 않는다).
+        if (hadCfg) {
+            check(WriteCfg(cfgBackup), "1n-d21 chat.json restored verbatim");
+        } else {
+            fsx::remove(cfgPath, ec2);
+            check(!ec2 && !fsx::exists(cfgPath),
+                  "1n-d21 seeded chat.json removed (scratch-free teardown)");
+        }
+    }
+
     std::printf("AppSelfTest: %d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;
 }

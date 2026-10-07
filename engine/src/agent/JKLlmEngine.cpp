@@ -11,7 +11,9 @@
 #include <process/JKProcess.h>
 
 #include <chrono>
+#include <condition_variable>  // TurnSync 동기 브리지 — Done 대기(T3)
 #include <cstdio>
+#include <mutex>
 #include <system_error>  // std::system_error — thread spawn failure contract
 #include <thread>
 
@@ -45,6 +47,7 @@ ChatConfig LoadChatConfig() {
         if (c.GetStr("engine", v)) cfg.engine = v;
         if (c.GetStr("model", v)) cfg.model = v;
         if (c.GetStr("directory", v)) cfg.directory = v;
+        if (c.GetStr("direct_cmd", v)) cfg.directCmd = v;
         int skip = -1;
         if (c.GetInt("skip_permissions", skip)) {
             cfg.skipPermissions = (skip != 0);
@@ -107,39 +110,43 @@ constexpr const char* kLlmTurnPreamble =
 // (commandLineUtf8)에 전달되고 와이딩은 어댑터가 소유 — 이 TU의 UTF-8↔UTF-16
 // 헬퍼(Utf8ToWide/WideToUtf8)는 소각됐다. prompt는 UTF-8 원문(StartTurn이
 // 받은 promptUtf8을 그대로 — 와일드 왕복 변환은 무손실이라 동일 관측).
+
+// Sh-double-quote escaper used for EVERY dynamic text that lands inside
+// the command string — not just the prompt (final review F1: --resume's
+// session id and the model name are dynamic text too). Quotes, plus —
+// posix only — the sh double-quote live characters (below). EscDq 람다에서
+// 승격(T3): ollama-direct 조립식(BuildOllamaDirectCmd, 공개 계약 락)이 같은
+// 이스케이프를 재용해야 하므로 람다 밖으로 올렸다 — 복제 금지 계약과 같은 뿌리.
+std::string ShellDqEscape(const std::string& s) {
+    std::string out;
+    for (char ch : s) {
+        if (ch == '"') out += "\\\"";
+#ifndef _WIN32
+        // posix leg executes via /bin/sh -c (jk::process posix mapping),
+        // and inside sh double quotes `\`, `$` and backtick stay LIVE (a
+        // lone backslash also acts as an escape character before these).
+        // Escape them backslash-prefixed so preamble+prompt text lands
+        // literally — otherwise `$(...)` or backticks from the user chat
+        // prompt or attached bytes would EXECUTE. Windows CreateProcessW
+        // never touches a shell, so the win32 leg keeps the original case
+        // verbatim (동작 변화 0 — the escaped forms agree for the shared
+        // case: `"`).
+        else if (ch == '\\') out += "\\\\";
+        else if (ch == '$') out += "\\$";
+        else if (ch == '`') out += "\\`";
+#endif
+        else out += ch;
+    }
+    return out;
+}
+
 std::string BuildEngineCmd(const ChatConfig& cfg,
                            const std::string& prompt,
                            const std::string& resumeSessionId) {
     // Every turn gets the fixed Korean preamble (CoT/markdown leak guard,
     // above) prepended to the raw prompt, before quote escaping.
     const std::string fullPrompt = kLlmTurnPreamble + prompt;
-    // Sh-double-quote escaper used for EVERY dynamic text that lands inside
-    // the command string — not just the prompt (final review F1: --resume's
-    // session id and the model name are dynamic text too). Quotes, plus —
-    // posix only — the sh double-quote live characters (below).
-    auto EscDq = [](const std::string& s) {
-        std::string out;
-        for (char ch : s) {
-            if (ch == '"') out += "\\\"";
-#ifndef _WIN32
-            // posix leg executes via /bin/sh -c (jk::process posix mapping),
-            // and inside sh double quotes `\`, `$` and backtick stay LIVE (a
-            // lone backslash also acts as an escape character before these).
-            // Escape them backslash-prefixed so preamble+prompt text lands
-            // literally — otherwise `$(...)` or backticks from the user chat
-            // prompt or attached bytes would EXECUTE. Windows CreateProcessW
-            // never touches a shell, so the win32 leg keeps the original case
-            // verbatim (동작 변화 0 — the escaped forms agree for the shared
-            // case: `"`).
-            else if (ch == '\\') out += "\\\\";
-            else if (ch == '$') out += "\\$";
-            else if (ch == '`') out += "\\`";
-#endif
-            else out += ch;
-        }
-        return out;
-    };
-    std::string esc = EscDq(fullPrompt);
+    std::string esc = ShellDqEscape(fullPrompt);
     // Token streaming (docs/31 §6): stream-json + partial messages gives
     // line-delimited events with content_block_delta text fragments. --verbose
     // is REQUIRED by stream-json in -p mode.
@@ -158,7 +165,7 @@ std::string BuildEngineCmd(const ChatConfig& cfg,
     if (!resumeSessionId.empty()) {
         // F1 (docs/70 final review): the session id is dynamic text too —
         // same escaper class as the prompt (posix triple-escape inside).
-        claudeArgs += " --resume \"" + EscDq(resumeSessionId) + "\"";
+        claudeArgs += " --resume \"" + ShellDqEscape(resumeSessionId) + "\"";
     }
     // NOTE: claude CLI has no --directory flag (guide table was wrong for
     // CLI 2.1.x — only --add-dir exists). cfg.directory is applied as the
@@ -179,11 +186,19 @@ std::string BuildEngineCmd(const ChatConfig& cfg,
 #endif
     } else if (cfg.engine == "claude") {
         cmd = "claude " + claudeArgs;
+    } else if (cfg.engine == "ollama-direct") {
+        // ollama-direct (스펙 2026-10-08 chat-llm-promotion 설계 결정 3) —
+        // stdout이 곧 답변인 일반 텍스트 턴(stream-json 아님). 폰에 claude
+        // CLI(node 스택)가 없어도 되는 1차 경로(T2 실측 NO-CLAUDE-CLI).
+        // direct_cmd 주입은 셀프테스트 전용 씽크다 — 기본 조립이 실 ollama를
+        // 쏘면 캐논이 그 기기의 설치/네트워크에 의존하게 된다(환경 의존 함정).
+        cmd = cfg.directCmd.empty() ? BuildOllamaDirectCmd(cfg, prompt)
+                                    : cfg.directCmd;
     } else {  // "ollama" (default)
         // F1: cfg.model rides the same sh double-quote string — escape it
         // like every other dynamic text (win32 keeps bare quotes verbatim).
-        cmd = "ollama launch claude --model \"" + EscDq(cfg.model) + "\" -- " +
-              claudeArgs;
+        cmd = "ollama launch claude --model \"" + ShellDqEscape(cfg.model) +
+              "\" -- " + claudeArgs;
     }
     return cmd;
 }
@@ -410,7 +425,36 @@ int LlmTurnThread(TurnJob* job) {
     // handover) — no separate hThread close here anymore.
     jk::process::CloseHandleLike(jobTree);  // close IS the kill (contract b)
 
-    if (!out->ok && !out->sawResult) {
+    if (cfg.engine == "ollama-direct") {
+        // stdout은 곧 답변인 일반 텍스트(stream-json 아님 — 설계 결정 3)라
+        // stream-json 파서의 경로를 타지 않는다: 경계 공백·개행만 잘라 수집한
+        // 전체를 결과로. 파서 복제 금지 계약 — stream-json leg와 공유하는 것은
+        // 스폰(어댑터)·파이프·kill 계약뿐이고 텍스트 해석은 얇게 유지한다.
+        std::string text = stdoutBuf;
+        auto TrimWsp = [](const std::string& s) {
+            const size_t b = s.find_first_not_of(" \t\r\n");
+            if (b == std::string::npos) return std::string();
+            const size_t e = s.find_last_not_of(" \t\r\n");
+            return s.substr(b, e - b + 1);
+        };
+        text = TrimWsp(text);
+        out->ok = !text.empty();  // 비영(stdout 공백) = 정직 실패
+        out->result = text;
+        if (!out->ok) {
+            // 진단 가능성 — stderr 꼬리를 실어 보낸다(legacy leg와 동일 관측).
+            out->result = stderrBuf.size() > 0
+                              ? "stderr: " +
+                                    stderrBuf.substr(
+                                        stderrBuf.size() > 400
+                                            ? stderrBuf.size() - 400
+                                            : 0)
+                              : std::string("ollama-direct: 빈 응답");
+        }
+        // plain-text leg에서 delta 콜백은 합법적으로 한 번도 안 온다 — 어떤
+        // 텍스트 조각이 우연히 stream-event JSON으로 해석됐더라도 전체 수집
+        // 결과가 진실이라 streamed는 지운다.
+        out->streamed = false;
+    } else if (!out->ok && !out->sawResult) {
         // No stream result line (stub engine echoes plain JSON) — legacy
         // whole-buffer parse of the reply object. sawResult gates it: the
         // buffer holds CONCATENATED stream lines and the lenient parse of
@@ -431,6 +475,36 @@ int LlmTurnThread(TurnJob* job) {
     }
     Finish(false);
     return 0;
+}
+
+// 동기 브리지(TurnSync)의 대기 상태 — 힙+refcount가 계약이다. StartTurn의 Done
+// 콜백은 "정확히 한 번"이 항상 온다(스폰 실패 포함), 그러나 TurnSync가
+// timeoutMs 안에 못 기다리고 돌아가면 대기자는 이미 사라졌다 — 지연 Done이
+// 죽은 스택을 건드리는 dangling을 막으려면 상태는 한 쪽의 수명이 아니라 마지막
+// 접근자의 수명을 따라야 한다. 호출자와 Done 콜백이 각자 1씩 놓아간다.
+struct SyncWaiter {
+    std::mutex m;
+    std::condition_variable cv;
+    LlmTurnResult r;
+    bool done = false;
+    std::atomic<int> refs{2};  // caller + worker(DoneFn)
+    void Release() {
+        if (refs.fetch_sub(1) == 1) delete this;
+    }
+};
+
+// DoneFn 시그니처(함수 포인터) 계약이라 람다 캡처 대신 자유 함수로 — user는
+// SyncWaiter*를 실어 온다. busy 지우기(=store(0))는 worker가 onDone 앞에서
+// 이미 했으므로 지연 Done 역시 후속 턴의 시작을 막지 않는다.
+void SyncWaiterDone(LlmTurnResult&& res, void* user) {
+    SyncWaiter* w = static_cast<SyncWaiter*>(user);
+    {
+        std::lock_guard<std::mutex> lk(w->m);
+        w->r = std::move(res);
+        w->done = true;
+    }
+    w->cv.notify_all();
+    w->Release();
 }
 
 } // namespace
@@ -462,6 +536,52 @@ bool JKLlmEngine::StartTurn(const std::string& promptUtf8,
         return false;
     }
     return true;
+}
+
+bool JKLlmEngine::TurnSync(const std::string& promptUtf8, LlmTurnResult& out,
+                           int timeoutMs) {
+    // 반환 값 = out.ok (헤더 계약) — false는 모든 실패 문(busy/스폰/타임아웃/
+    // 정직 턴 실패)을 하나로 통과시키고, 스펙의 fallback 원칙(조용한 폴백)은
+    // false를 보고 소비자가 수행한다.
+    out = LlmTurnResult();
+    SyncWaiter* w = new SyncWaiter;
+    if (!StartTurn(promptUtf8, "", nullptr, &SyncWaiterDone, w)) {
+        w->Release();  // StartTurn이 씽크다 소유권을 안 받았다 — 즉시 정산
+        out.result = "engine busy";
+        return false;
+    }
+    bool arrived = false;
+    {
+        std::unique_lock<std::mutex> lk(w->m);
+        arrived = w->cv.wait_for(lk, std::chrono::milliseconds(timeoutMs),
+                                 [&w] { return w->done; });
+    }
+    if (!arrived) {
+        // 타임아웃 — ok=false 정직. 자식 kill은 StartTurn 내부 계약(10분
+        // idle kill + kill-on-close job tree)이 소관이라 이 래퍼는 중복 kill
+        // 을 만들지 않는다; worker는 돌아가고 지연 Done은 refcount로 흡수된다
+        // (이 뒤에 w는 소유권 반납 — 더 이상 접근 없음).
+        out.ok = false;
+        out.result = "turn timeout (";
+        out.result += std::to_string(timeoutMs);
+        out.result += "ms)";
+        w->Release();
+        return false;
+    }
+    out = std::move(w->r);
+    w->Release();  // caller 몫 — Done 콜백 몫은 SyncWaiterDone이 놓아간다
+    return out.ok;
+}
+
+// ollama-direct의 기본 스폰 명령(공개 계약 락 — 헤더 선언의 정의 본체).
+// BuildEngineCmd의 비영 분기가 유일 런타임 소비자고, selftest가 같은 조립식
+// 원문을 단정한다(kStubShellCmd* 상수 선례 — 엔진 리터럴의 단일 근원, 3처
+// 복제 소각). 프리앰블은 plain-text leg에도 공통 적용: 폰 웹 회신이 플레인
+// 텍스트로 렌더링되는 실측(docs/60 ⑥)은 엔진 경로와 무관하다.
+std::string BuildOllamaDirectCmd(const ChatConfig& cfg,
+                                 const std::string& promptUtf8) {
+    return "ollama run \"" + ShellDqEscape(cfg.model) + "\" \"" +
+           ShellDqEscape(kLlmTurnPreamble + promptUtf8) + "\"";
 }
 
 } // namespace agent
