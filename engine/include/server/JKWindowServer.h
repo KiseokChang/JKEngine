@@ -266,6 +266,11 @@ private:
     // 컴포지트 패스의 오버레이 훅에서 DrawApprovalHighlights와 짝을 이룬다
     // (커서 계층은 승인 파킹과 무관하게 그려야 하므로 별개 함수).
     void DrawSemanticCursorCells(float outputScale);
+    // (T2) 이번 오버레이 훅이 실제로 그렸는지의 표지 — 훅 람다가 두 그리기
+    // 함수 호출 사이에서 지우고, 그리기 함수가 실제 픽셀을 찍을 때 세운다.
+    // 훅이 그린 프레임은 사다리의 보수적 전체 프레젠트(스펙 결정 2)로 간다.
+    // 스레드 규약: 서버 루프 스레드 전용(preMaxRects_ 동일 — 락 없음).
+    bool overlayDrewThisFrame_ = false;
     // 배너 텍스트를 크롬 타이틀과 동일한 비트맵 글리프 경로(Utf8ToKssm → JKDC
     // 한글/영문 폰트)로 한 번 레스터라이즈해 캐시한다(성공만 캐시 — 실패는
     // null 엔트리로 기록해 매 프레임 재시도를 막는다). w/h는 글리프 픽셀 크기.

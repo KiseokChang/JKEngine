@@ -200,7 +200,7 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
     // bannerCache_의 등록(CreateImageFromRGBA)/플러시 소유자로 삼는다.
     bannerBackend_ = std::make_unique<JKSDLRenderBackend>(renderer_);
 
-    compositor_ = std::make_unique<JKCompositor>(renderer_);
+    compositor_ = std::make_unique<JKCompositor>(renderer_, window_);
     // 승인 대상 시각화 (스펙 2026-09-19-app-tool-hub §5 1단): 컴포지트 패스의
     // 최상위 드로잉 단계를 서버 쪽 멤버 함수로 연결한다(의존성 역전 — 컴포지터는
     // pendingApprovals_를 모른다). outputScale 인자로 Composite의 스케일을 전달.
@@ -208,8 +208,16 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
         // 의미 커서 셀 (스펙 2026-09-22-semantic-cursor §5, Task 3) — 커서
         // 계층은 승인 파킹과 무관하게 매 프레임 그려지므로 별개 함수로 먼저
         // 그린다(승인 링/배너가 최상단을 유지하는 기존 정책 유지).
+        // (T2 스펙 결정 2): 훅이 실제로 그린 프레임만 보수적 전체 프레젠트 —
+        // 그리기를 마친 뒤에 판정한다(그림이 이미 백버퍼에 있으므로 이번
+        // 프레임의 사다리가 전체로 간다). 매 프레임 무조건 full이면
+        // 더티프레젠트의 이득 자체가 사라진다.
+        overlayDrewThisFrame_ = false;
         DrawSemanticCursorCells(outputScale);
         DrawApprovalHighlights(outputScale);
+        if (overlayDrewThisFrame_ && compositor_) {
+            compositor_->RequestFullPresent();
+        }
     });
     UpdateOutputBounds();
 
@@ -2420,6 +2428,20 @@ void JKWindowServer::ProcessClientMessage(JKClientConnection& client, const ipc:
                 client.MarkDirty();
                 if (compositor_) {
                     compositor_->MarkDirty(client.Id());
+                    if (header->dirtyCount > 0) {
+                        // (T2) 와이어 DirtyRect 원용(스펙 결정 2) — 폐기하던
+                        // DirtyRect[]를 컴포지터 보류 큐로 전달한다. 표면 좌표
+                        // 원문 그대로 — 표면→화면 매핑은 Composite 소비 시점의
+                        // AddSurfaceRect가 dst 산식으로 맡는다(JKCompositor
+                        // QueueCommitRects 주석). dirtyCount+배열은 expected
+                        // 검증으로 이미 사이다.
+                        compositor_->QueueCommitRects(
+                            client.Id(),
+                            reinterpret_cast<const ipc::DirtyRect*>(
+                                msg.payload.data() +
+                                sizeof(ipc::CommitSurfaceHeader)),
+                            header->dirtyCount);
+                    }
                 }
             }
         }
@@ -7882,6 +7904,7 @@ void JKWindowServer::DrawApprovalHighlights(float outputScale) {
         // 링: DrawCloseOverlay의 SDL_RenderDrawRect 스트로크 기법 그대로 —
         // 1px씩 안으로 들어가는 3중 사각형으로 두꺼운 테두리를 만든다.
         // (fix round 1 NIT-2: 3중 스트로크 루프는 DrawRing3 공용 헬퍼로)
+        overlayDrewThisFrame_ = true;  // (T2) 훅 실제 그림 — 이 프레임은 전체
         DrawRing3(renderer_, rc, 230, 140, 40);
         // 상단 배너 밴드: 크롬 타이틀바(kChromeTitleBar)와 같은 두께로 대상 창의
         // 상단 스트립을 덮는다(링 안쪽 1px에 맞춰 겹침 방지).
@@ -8006,6 +8029,7 @@ void JKWindowServer::DrawSemanticCursorCells(float outputScale) {
             continue;
         }
         // 링: 승인 링과 같은 3중 1px 스트로크(작은 셀에서는 자동 축소).
+        overlayDrewThisFrame_ = true;  // (T2) 훅 실제 그림 — 이 프레임은 전체
         DrawRing3(renderer_, clipped, 0, 120, 212);
     }
     // 계층 2 — 승인 대상 셀: semCell 파킹의 고정 rect에 호박 3중 링. 창 링은
@@ -8049,6 +8073,7 @@ void JKWindowServer::DrawSemanticCursorCells(float outputScale) {
             continue;
         }
         // 호박 (230,140,40) — 승인 링 고정색과 동일(같은 승인 사건의 시각).
+        overlayDrewThisFrame_ = true;  // (T2) 훅 실제 그림 — 이 프레임은 전체
         DrawRing3(renderer_, clipped, 230, 140, 40);
     }
 }

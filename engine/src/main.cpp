@@ -4796,6 +4796,57 @@ static int RunAppSelfTest() {
         check(ff.TakeDirty(out) && out.size() == 1 && out[0].x == 0 &&
                   out[0].y == 0 && out[0].w == 800 && out[0].h == 600,
               "1p-6c ForceFull = 화면 전체 rect 단건(사건 상쇄 정리)");
+
+        // 1p-7) 커밋 배선 수집(T2): posix case 18 쌍둥이 — CommitSurface가
+        // 폐기하던 DirtyRect[]를 보류 큐→Composite 소비 AddSurfaceRect 매핑으로
+        // 흘리는 배선의 계산기 단면(스펙 결정 2 "와이어 원용"). SDL 렌더러
+        // 없이 단정 — SW 부분 업로드 본체는 기계 실측.
+        server::FrameDirtyAccumulator wired(800, 600);
+        const jk::ipc::DirtyRect commitRects[3] = {
+            jk::ipc::DirtyRect{0, 0, 10, 10}, jk::ipc::DirtyRect{5, 5, 10, 10},
+            jk::ipc::DirtyRect{30, 40, 20, 15}};
+        for (const jk::ipc::DirtyRect& dr : commitRects) {
+            wired.AddSurfaceRect(11, 120, 80, 1.0f, 1.0f, 10, 20, dr);
+        }
+        check(wired.TakeDirty(out) && out.size() == 2 &&
+                  out[0].x == 10 && out[0].y == 20 && out[0].w == 15 &&
+                  out[0].h == 15 &&  // {0,0,10,10}∪{5,5,10,10} 병합
+                  out[1].x == 40 && out[1].y == 60 && out[1].w == 20 &&
+                  out[1].h == 15,
+              "1p-7 커밋 DirtyRect[] 수집→매핑→병합 목록(rect 개수 = out.size())");
+        // 배선 불변의 반쪽: 커밋 rect가 없는 dirty 레이어(이동·alpha 등)는 dst
+        // 전체 봉합 — AddDirtyLayerRect(이미 화면 좌표 계약).
+        server::FrameDirtyAccumulator fallback(800, 600);
+        fallback.AddDirtyLayerRect(11, {10, 20, 120, 80});
+        check(fallback.TakeDirty(out) && out.size() == 1 &&
+                  out[0].x == 10 && out[0].y == 20 && out[0].w == 120 &&
+                  out[0].h == 80,
+              "1p-7b 커밋 rect 없는 dirty = dst 전체 봉합(배선 불변 반쪽)");
+        server::FrameDirtyAccumulator two(800, 600);
+        two.AddSurfaceRect(11, 120, 80, 1.0f, 1.0f, 10, 20,
+                           jk::ipc::DirtyRect{0, 0, 10, 10});
+        two.AddSurfaceRect(12, 120, 80, 2.0f, 2.0f, 100, 100,
+                           jk::ipc::DirtyRect{0, 0, 10, 10});
+        check(two.TakeDirty(out) && out.size() == 2,
+              "1p-7c 레이어 2종의 커밋 rect가 같은 프레임에 누적(레이어별 매핑)");
+
+        // 1p-8) T1 리뷰 F1 승계: 역치 면적 = 합집합(중복 가산 아님). 원장
+        // 산치(가산 5000 ≥ 4000 = full이나 합집합 3400 < 4000 = IsFull false).
+        // 합집합 3400 = 5000 − 중첩 1600 → 오프셋 (10,10)의 {10,10,50,50}
+        // (원장 표기 {30,30,50,50}은 중첩 400·합집합 4600이어서 산치와
+        // 어긋남 — 리포트 concern 원장 정정).
+        server::FrameDirtyAccumulator f1(100, 100);
+        f1.AddDirtyLayerRect(1, {0, 0, 50, 50});
+        f1.AddDirtyLayerRect(2, {10, 10, 50, 50});
+        check(!f1.IsFull(),
+              "1p-8a 가산 5000이어도 합집합 3400 = IsFull false(F1 승계)");
+        check(f1.TakeDirty(out) && out.size() == 1 && out[0].x == 0 &&
+                  out[0].y == 0 && out[0].w == 60 && out[0].h == 60,
+              "1p-8b 합집합 <역치 = 부분 제시(bbox 병합 목록 유지)");
+        server::FrameDirtyAccumulator f2(100, 100);
+        f2.AddDirtyLayerRect(1, {0, 0, 50, 50});
+        f2.AddDirtyLayerRect(2, {0, 50, 50, 50});  // 인접·합집합 5000
+        check(f2.IsFull(), "1p-8c 합집합 5000 = full 전환(중첩 없는 합집합)");
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);

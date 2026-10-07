@@ -1946,6 +1946,78 @@ void TestFrameDirty() {
     }
 }
 
+// case 18 (T2): 커밋 rect 수집 배선의 계산기 단면 + T1 리뷰 F1 승계 케이스.
+// SDL 렌더러를 요구하지 않는 형태(brief Step 1 원문) — 배서 계산기(T1)에
+// CommitSurface → 보류 큐 → Composite 소비의 AddSurfaceRect 매핑을 재용해
+// 배선 모양의 산치를 단정한다. SDL 의존 본체(SW 부분 업로드)는 기계 실측.
+void TestFrameDirtyWiring() {
+    using jk::server::FrameDirtyAccumulator;  // case 17과 같은 사용 규약
+    // 1p-7) 커밋 배선 수집(T2 — 스펙 결정 2 "와이어 원용"의 계산기 수형):
+    // CommitSurface 핸들러가 폐기하던 DirtyRect[]를 보류 큐로 전달하고
+    // Composite 소비 시점에 AddSurfaceRect로 매핑하는 배선의 계산기 단면
+    // SDL 렌더러 없이 단정한다(레이어 표면→화면 매핑 = T1 계산기 재용 —
+    // SDL 렌더러 의존 본체는 수기 실측, brief Step 1 원문).
+    {
+        // 한 레이어의 커밋 1건 — 서로 겹치는 3 rect가 매핑+합집합 정리로
+        // 소송 병합 목록이 된다(제시 rect 개수의 원료 = TakeDirty out.size()).
+        // 레이어: 표면 120x80, 스케일 1.0, 화면 원점 (10, 20).
+        FrameDirtyAccumulator wired(800, 600);
+        const jk::ipc::DirtyRect commitRects[3] = {
+            {0, 0, 10, 10}, {5, 5, 10, 10}, {30, 40, 20, 15}};
+        for (const jk::ipc::DirtyRect& dr : commitRects) {
+            wired.AddSurfaceRect(11, 120, 80, 1.0f, 1.0f, 10, 20, dr);
+        }
+        std::vector<SDL_Rect> out;
+        Check(wired.TakeDirty(out) && out.size() == 2 &&
+                  out[0].x == 10 && out[0].y == 20 && out[0].w == 15 &&
+                  out[0].h == 15 &&
+                  out[1].x == 40 && out[1].y == 60 && out[1].w == 20 &&
+                  out[1].h == 15,
+              "1p-7 커밋 DirtyRect[] 수집→매핑→병합 목록(rect 개수 = out.size())");
+        // 배선 불변의 반쪽: 커밋 rect가 없는 dirty 레이어는 dst 전체 봉합
+        // (AddDirtyLayerRect = 이미 화면 좌표를 받는 계약 — dst 산식 원용).
+        FrameDirtyAccumulator fallback(800, 600);
+        fallback.AddDirtyLayerRect(11, {10, 20, 120, 80});
+        Check(fallback.TakeDirty(out) && out.size() == 1 &&
+                  out[0].x == 10 && out[0].y == 20 && out[0].w == 120 &&
+                  out[0].h == 80,
+              "1p-7b 커밋 rect 없는 dirty = dst 전체 봉합(배선 불변 반쪽)");
+        // 복수 레이어 커밋이 같은 프레임에 섞여도(스케일·원점이 레이어별) 각자
+        // 자기 매핑을 찍는다 — 큐 누적 모양(커밋 사이드별 스케일 2.0 대비).
+        FrameDirtyAccumulator two(800, 600);
+        two.AddSurfaceRect(11, 120, 80, 1.0f, 1.0f, 10, 20,
+                           jk::ipc::DirtyRect{0, 0, 10, 10});
+        two.AddSurfaceRect(12, 120, 80, 2.0f, 2.0f, 100, 100,
+                           jk::ipc::DirtyRect{0, 0, 10, 10});
+        Check(two.TakeDirty(out) && out.size() == 2,
+              "1p-7c 레이어 2종의 커밋 rect가 같은 프레임에 누적(레이어별 매핑)");
+    }
+
+    // 1p-8) T1 리뷰 F1 승계: 역치 면적은 합집합 — 중첩 중복 가산 아니다
+    // (컨트롤러 룰링 "역치 면적 = 무중첩 병합 총합(합집합)"). 원장 산치:
+    // 화면 100x100·가산 5000(50x50 x2)≥4000 = full이나 합집합 3400 <4000 =
+    // IsFull false 단정. 합집합 3400 = 5000 - 중첩 1600 — 중첩 40x40이 되려면
+    // 오프셋 (10,10)의 {10,10,50,50}이다(원장 표기 {30,30,50,50}은 중첩
+    // 400·합집합 4600이어서 산치 3400과 어긋남 — 리포트 concern 원장).
+    {
+        FrameDirtyAccumulator f1(100, 100);
+        f1.AddDirtyLayerRect(1, {0, 0, 50, 50});
+        f1.AddDirtyLayerRect(2, {10, 10, 50, 50});
+        Check(!f1.IsFull(),
+              "1p-8a 가산 5000이어도 합집합 3400 = IsFull false(F1 승계)");
+        std::vector<SDL_Rect> out;
+        Check(f1.TakeDirty(out) && out.size() == 1 && out[0].x == 0 &&
+                  out[0].y == 0 && out[0].w == 60 && out[0].h == 60,
+              "1p-8b 합집합 <역치 = 부분 제시(bbox 병합 목록 유지)");
+        // 가교: 중첩 없는 2 rect — 합집합 = 가산 ≥ 역치면 full 전환(산법
+        // 경계 — 가약이 아니라 진짜 합집합이 넘을 때만).
+        FrameDirtyAccumulator f2(100, 100);
+        f2.AddDirtyLayerRect(1, {0, 0, 50, 50});
+        f2.AddDirtyLayerRect(2, {0, 50, 50, 50});  // 인접·합집합 5000
+        Check(f2.IsFull(), "1p-8c 합집합 5000 = full 전환(중첩 없는 합집합)");
+    }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -1966,6 +2038,7 @@ int main(int argc, char** argv) {
     TestJobMultiMemberAndStdinParity();
     TestNetRecvAllChunksTimeoutAcceptBound();
     TestFrameDirty();
+    TestFrameDirtyWiring();
     std::printf("PosixSelfTest: %d failure(s)\n", g_failures);
     return g_failures == 0 ? 0 : 1;
 }
