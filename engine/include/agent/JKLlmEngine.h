@@ -46,9 +46,18 @@ struct ChatConfig {
     // 그 기기의 ollama 설치/네트워크에 의존하게 된다(환경 의존 함정). echo
     // 스터브로 스폰 단정을 대체한다. 실제 런타임에서는 쓰지 않는다.
     std::string directCmd;
+    // 승격 opt-in 표지 (T4 fix r1 — NR4-1 컨트롤러 룰링): 이 cfg가 실제
+    // chat.json 파일에서 읽혔고 engine 키가 명시됐을 때만 true. 파일 부재·
+    // 파스 실패·engine 키 누락은 전부 false — 자연어 승격(ChatRouteTurn 게이트)
+    // 의 "실제 구성" 판정 원료다. 기존 소비자(jkbridge·jkchat·LlmTurnThread)는
+    // 이 플래그를 읽지 않는다 — engine 기본값 "ollama" 원계약 무변(파일 부재
+    // 기기에서도 엔진 턴의 수동 소비는 지금 모양 그대로).
+    bool fileKnown = false;
 };
 
 // Reads ExeDir()\state\chat.json — falls back to the defaults above.
+// fileKnown은 파일 존재 + 파스 성공 + engine 키 명시의 3조건 성립 시만 true
+ // (엔진 턴 소비자 무영향 — 승격 게이트(ChatRouter.h)만 읽는다).
 ChatConfig LoadChatConfig();
 
 // ollama-direct 분기의 기본 스폰 명령 조립 — BuildEngineCmd(비공개)가 유일한

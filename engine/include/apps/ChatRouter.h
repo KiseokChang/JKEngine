@@ -40,9 +40,14 @@ std::string ChatRouterRoute(const std::string& text, ChatAction& out);
 // 계약 원문)은 엔진이 프롬프트에 한 번만 접두한다(BuildEngineCmd·
 // BuildOllamaDirectCmd) — 이 계약 쪽은 프리앰블을 다시 적지 않는다.
 
-// cfg.engine이 승격 배선을 켜는 구성 값인가: "ollama"|"claude"|"ollama-direct"
-// (설계 결정 3). "stub"과 미지 값은 **미구성** — LLM 왕복 없이 기존 라우터
-// 즉발 폴백(스포른 자체를 안 한다 — 폰·WSL 같이 엔진 없는 기기의 정직 지연 0).
+// cfg가 승격 배선을 켜는 구성 값인가 (설계 결정 3 + T4 fix r1 NR4-1 룰링):
+// **chat.json 파일이 실제 존재하고 engine 키가 명시**된 cfg(LoadChatConfig의
+// fileKnown 표지)이면서, 그 engine 값이 "ollama"|"claude"|"ollama-direct"
+// 중 하나. 파일 부재·파스 실패·engine 키 누락·"stub"·미지 값은 전부
+// **미구성** — LLM 왕복 없이 기존 라우터 즉발 폴백(스폰 자체를 안 한다 —
+// 승격은 opt-in 가법이고 폰·WSL 같이 chat.json이 없는 기기의 정직 지연 0).
+// 기본값만으로 구성을 쳐주지 않는 이유: ChatConfig.engine의 구조 기본값은
+// jkbridge/jkchat 원계약이 그대로기 때문(그 소비자는 이 게이트를 읽지 않는다).
 bool ChatLlmEngineConfigured(const agent::ChatConfig& cfg);
 
 // 비매치 발화를 LLM에 보낼 프롬프트 본문 — 트리거 표·앱 별명 표를

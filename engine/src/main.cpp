@@ -4492,7 +4492,8 @@ static int RunAppSelfTest() {
               "1n-f13 chat.json seeded (llm focus marker, ollama-direct)");
         {
             ChatConfig mc;               // 구성 — 엔진이 살아 있어야 우회가
-            mc.engine = "ollama-direct"; // 의미를 갖는다
+            mc.engine = "ollama-direct"; // 의미를 갖는다. fileKnown은 구성의
+            mc.fileKnown = true;         // 표지(파일 부재=미구성 — 1n-f29)
             mc.directCmd = seedBypass;
             jk::ChatAction a;
             bool used = true;            // 오염 증거 — 배선이 지우지 못하면 실패
@@ -4510,8 +4511,9 @@ static int RunAppSelfTest() {
         // (d) 배선 ③ — cfg 미구성(engine="stub"·미지 값)은 LLM 왕복·스포른
         //   없이 즉발 폴백(기존 라우터 원문 그대로 — 지연 0 계약).
         {
-            ChatConfig mc;          // 미구성 — 스폰 자체를 안 한다
-            mc.engine = "stub";
+            ChatConfig mc;          // 미구성 — 스폰 자체를 안 한다. fileKnown
+            mc.engine = "stub";     // 세움 = engine "값" 게이트만을 대상(표지
+            mc.fileKnown = true;    // 계약은 1n-f29에서 별도 단정).
             jk::ChatAction a;
             bool used = true;
             const std::string guide = jk::ChatRouteTurn(
@@ -4528,13 +4530,82 @@ static int RunAppSelfTest() {
                   "1n-f18 fallback is the stub InfoGuide (trigger table "
                   "안내문 원문)");
             ChatConfig mb;               // 미지 값도 미구성 — 같은 즉발 폴백
-            mb.engine = "banana-wasm";
+            mb.engine = "banana-wasm";   // (값 게이트 — 표지는 세우고 검증)
+            mb.fileKnown = true;
             jk::ChatAction b;
             bool usedB = true;
             (void)jk::ChatRouteTurn("뜬금없는 말 3361", b, mb, &usedB);
             check(!usedB && b.kind == jk::ChatAction::Info,
                   "1n-f19 unknown engine value = unconfigured (same "
                   "no-spawn fallback)");
+        }
+
+        // (e) NR4-1 (T4 fix r1) — 파일 부재·engine 키 누락 = 미구성(승격은
+        //   opt-in 가법 — 컨트롤러 룰링). ChatConfig.engine의 구조 기본값은
+        //   "ollama"(jkbridge/jkchat 원계약)라 값만 보면 파일 부재 기기를
+        //   구성으로 오인한다 — fileKnown 표지가 문을 잠근 것을 단정한다.
+        //   (a) 부재: 파일 소각 → LoadChatConfig → 표지 false·기본값 무변 →
+        //   비매치 발화 스폰 0건 + stub 안내문. (b) 키 누락 파일: 표지 false.
+        //   (c) 구성 파일: 표지 true → 같은 발화가 TurnSync 시도(스터브 마커
+        //   회신의 usedLlm=true가 시도의 영수증).
+        {
+            fsx::remove(cfgPath, ecF);
+            const ChatConfig absentF = jk::agent::LoadChatConfig();
+            check(!absentF.fileKnown && absentF.engine == "ollama",
+                  "1n-f29 chat.json absent → fileKnown=false (engine 기본값 "
+                  "원계약 무변 — jkbridge/jkchat 소비자 영향 0)");
+            check(!jk::ChatLlmEngineConfigured(absentF),
+                  "1n-f30 file-absent cfg = unconfigured (승격 opt-in "
+                  "가법 — NR4-1)");
+            jk::ChatAction a;
+            bool used = true;            // 오염 증거 — 스폰하면 지워지지 않음
+            const std::string guide =
+                jk::ChatRouteTurn("세상엔 채팅이 이렇게 어려웠나", a,
+                                  absentF, &used);
+            check(!used && a.kind == jk::ChatAction::Info,
+                  "1n-f31 file-absent non-match utterance spawns 0 LLM "
+                  "turns (stub fallback)");
+            jk::ChatAction ar;
+            check(guide == jk::ChatRouterRoute("세상엔 채팅이 이렇게"
+                                               " 어려웠나", ar),
+                  "1n-f32 file-absent fallback guide is the legacy router "
+                  "guide verbatim");
+            check(WriteCfgF("{\"model\":\"glm-mute:cloud\"}"),
+                  "1n-f33 chat.json seeded without engine key");
+            const ChatConfig noKeyF = jk::agent::LoadChatConfig();
+            check(!noKeyF.fileKnown && !jk::ChatLlmEngineConfigured(noKeyF),
+                  "1n-f34 engine key missing = unconfigured (engine 키 실제 "
+                  "구성 계약 — NR4-1)");
+            jk::ChatAction b;
+            bool usedB = true;
+            (void)jk::ChatRouteTurn("뜬금없는 말 3361", b, noKeyF, &usedB);
+            check(!usedB && b.kind == jk::ChatAction::Info,
+                  "1n-f35 engine-key-missing non-match spawns 0 LLM turns");
+            // (c) 구성된 cfg의 같은 발화 → TurnSync 실제 시도 — 시딩 파일로
+            //   LoadChatConfig을 재로드(진실원이 실 파일임을 함께 단정)하고
+            //   스터브 마커 회신의 usedLlm=true가 시도의 영수증이다.
+#ifdef _WIN32
+            const std::string seedOptIn =
+                "echo {\"action\":\"talk\",\"text\":\"OPT-IN-3361\"}";
+#else
+            const std::string seedOptIn =
+                "echo '{\"action\":\"talk\",\"text\":\"OPT-IN-3361\"}'";
+#endif
+            check(SeedF(seedOptIn, "ollama-direct"),
+                  "1n-f36 chat.json re-seeded (engine key back, stub marker)");
+            const ChatConfig fromFileF = jk::agent::LoadChatConfig();
+            check(fromFileF.fileKnown &&
+                      jk::ChatLlmEngineConfigured(fromFileF),
+                  "1n-f37 LoadChatConfig raises fileKnown for an engine-keyed "
+                  "file (gate opens — NR4-1의 반쪽)");
+            jk::ChatAction c;
+            bool usedC = false;
+            const std::string guideC =
+                jk::ChatRouteTurn("아무 말 3361", c, fromFileF, &usedC);
+            check(usedC && c.kind == jk::ChatAction::Info &&
+                      guideC == "OPT-IN-3361",
+                  "1n-f38 configured-from-file non-match attempts the "
+                  "TurnSync (stub marker = attempt receipt)");
         }
 
         // (e) 배선 ② — 비매치 + cfg 구성 → TurnSync 동기 턴 → 행동 JSON 파싱
@@ -4554,6 +4625,7 @@ static int RunAppSelfTest() {
         {
             ChatConfig mc;
             mc.engine = "ollama-direct";
+            mc.fileKnown = true;   // 구성 표지 — 게이트 개통(1n-f36 반쪽)
             mc.directCmd = seedLaunch;
             jk::ChatAction a;
             bool used = false;
@@ -4582,6 +4654,7 @@ static int RunAppSelfTest() {
         {
             ChatConfig mc;
             mc.engine = "ollama-direct";
+            mc.fileKnown = true;   // 개통돼야 턴이 시도되고 파싱이 실패한다
             jk::ChatAction a;
             bool used = true;
             const std::string guide =
@@ -4607,6 +4680,7 @@ static int RunAppSelfTest() {
         {
             ChatConfig mc;
             mc.engine = "ollama-direct";
+            mc.fileKnown = true;   // 구성 표지 — 턴 시도 계약(1n-f37 좌표)
             jk::ChatAction a;
             bool used = false;
             const std::string guide =

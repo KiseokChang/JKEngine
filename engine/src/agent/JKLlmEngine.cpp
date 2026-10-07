@@ -44,7 +44,13 @@ ChatConfig LoadChatConfig() {
     AgentJson c(buf);
     std::string v;
     if (c.ok()) {
-        if (c.GetStr("engine", v)) cfg.engine = v;
+        // fileKnown 계약(ChatConfig 멤버 주석): engine 키가 실제로 명시된
+        // 파일만 승격 opt-in 표지로 세운다 — 파일 부재·파스 실패·키 누락은
+        // 전부 false(데이타 기본값의 우연 일치를 구성으로 쳐주지 않는다).
+        if (c.GetStr("engine", v)) {
+            cfg.engine = v;
+            cfg.fileKnown = true;
+        }
         if (c.GetStr("model", v)) cfg.model = v;
         if (c.GetStr("directory", v)) cfg.directory = v;
         if (c.GetStr("direct_cmd", v)) cfg.directCmd = v;

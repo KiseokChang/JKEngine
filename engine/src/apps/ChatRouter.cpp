@@ -300,9 +300,16 @@ std::string DefaultActionGuide(const ChatAction& a) {
 
 } // namespace
 
+// NR4-1 (T4 fix r1) — 파일 부재=미구성: engine 값만 보면 구조 기본값
+// ("ollama")의 우연 일치를 실제 구성으로 쳐주는 오류가 됐다(컨트롤러 룰링 —
+// 승격은 opt-in 가법이고 chat.json이 없는 기기는 stub 폴백이 기본). fileKnown
+// 표지(JKLlmEngine.h — LoadChatConfig가 engine 키 명시 시만 세운다)가
+// 참여해야 문을 연다. 기존 엔진 소비자(jkbridge·jkchat·LlmTurnThread)는 이
+// 게이트를 읽지 않아 무영향.
 bool ChatLlmEngineConfigured(const agent::ChatConfig& cfg) {
-    return cfg.engine == "ollama" || cfg.engine == "claude" ||
-           cfg.engine == "ollama-direct";
+    return cfg.fileKnown &&
+           (cfg.engine == "ollama" || cfg.engine == "claude" ||
+            cfg.engine == "ollama-direct");
 }
 
 std::string ChatLlmTurnPrompt(const std::string& text) {

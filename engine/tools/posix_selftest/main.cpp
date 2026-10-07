@@ -1617,10 +1617,16 @@ void TestChatPromoteWiring() {
     {
         jk::agent::ChatConfig mc;
         mc.engine = "ollama-direct";
+        mc.fileKnown = true;
         Check(jk::ChatLlmEngineConfigured(mc), "llm16: configured = ollama-direct");
         ChatConfig ms;
         ms.engine = "stub";
+        ms.fileKnown = true;
         Check(!jk::ChatLlmEngineConfigured(ms), "llm16: configured = false for stub (미구성)");
+        ChatConfig mf;
+        Check(!jk::ChatLlmEngineConfigured(mf),
+              "llm16: default cfg (no file) = unconfigured — fileKnown gate "
+              "(NR4-1, opt-in 가법)");
         jk::ChatAction a;
         std::string note;
         Check(jk::ChatLlmActionParse(
@@ -1703,6 +1709,7 @@ void TestChatPromoteWiring() {
     {
         jk::agent::ChatConfig mc;
         mc.engine = "ollama-direct";
+        mc.fileKnown = true;
         mc.directCmd = focusSeed;
         jk::ChatAction a;
         bool used = true;
@@ -1723,6 +1730,7 @@ void TestChatPromoteWiring() {
     {
         jk::agent::ChatConfig mc;
         mc.engine = "ollama-direct";
+        mc.fileKnown = true;
         jk::ChatAction a;
         bool used = false;
         const std::string guide =
@@ -1732,6 +1740,56 @@ void TestChatPromoteWiring() {
               "Launch action (sh echo stub)");
         Check(guide == "TETRIS-LLM-GUIDE-3361",
               "llm16: model text becomes the guide");
+    }
+
+    // (b+) NR4-1 (T4 fix r1) — 파일 부재·engine 키 누락 = 미구성(opt-in
+    // 가법 — 컨트롤러 룰링). 파일 소각 → LoadChatConfig → 표지 false·engine
+    // 기본값 무변(jkbridge/jkchat 원계약) → 비매치 발화 스폰 0건 + stub
+    // 안내문. engine 키 누락 파일도 동일. 구성 파일은 표지 true → TurnSync
+    // 시도(스터브 마커 회신이 영수증).
+    {
+        ::unlink(cfgPath.c_str());
+        const jk::agent::ChatConfig absentF = jk::agent::LoadChatConfig();
+        Check(!absentF.fileKnown && absentF.engine == "ollama",
+              "llm16: chat.json absent → fileKnown=false (engine 기본값 무변 "
+              "— jkbridge/jkchat 소비자 영향 0)");
+        Check(!jk::ChatLlmEngineConfigured(absentF),
+              "llm16: file-absent cfg = unconfigured (승격 opt-in 가법)");
+        jk::ChatAction a;
+        bool used = true;   // 오염 증거 — 스폰하면 지워지지 않는다
+        const std::string guide = jk::ChatRouteTurn(
+            "세상엔 채팅이 이렇게 어려웠나", a, absentF, &used);
+        Check(!used && a.kind == jk::ChatAction::Info,
+              "llm16: file-absent non-match utterance spawns 0 LLM turns");
+        jk::ChatAction ar;
+        Check(guide == jk::ChatRouterRoute("세상엔 채팅이 이렇게 어려웠나", ar),
+              "llm16: file-absent fallback guide is the legacy router guide "
+              "verbatim");
+        Check(WriteCfg("{\"model\":\"glm-mute:cloud\"}"),
+              "llm16: chat.json seeded without engine key");
+        const jk::agent::ChatConfig noKeyF = jk::agent::LoadChatConfig();
+        Check(!noKeyF.fileKnown && !jk::ChatLlmEngineConfigured(noKeyF),
+              "llm16: engine key missing = unconfigured (engine 키 실제 구성 "
+              "계약)");
+        jk::ChatAction b;
+        bool usedB = true;
+        (void)jk::ChatRouteTurn("뜬금없는 말 3361", b, noKeyF, &usedB);
+        Check(!usedB && b.kind == jk::ChatAction::Info,
+              "llm16: engine-key-missing non-match spawns 0 LLM turns");
+        Check(Seed(focusSeed),
+              "llm16: cfg re-seeded (engine key back — opt-in half of NR4-1)");
+        const jk::agent::ChatConfig fromFileF = jk::agent::LoadChatConfig();
+        Check(fromFileF.fileKnown && jk::ChatLlmEngineConfigured(fromFileF),
+              "llm16: LoadChatConfig raises fileKnown for an engine-keyed "
+              "file (gate opens)");
+        jk::ChatAction c;
+        bool usedC = false;
+        const std::string guideC = jk::ChatRouteTurn(
+            "아무 말 3361", c, fromFileF, &usedC);
+        Check(usedC && c.kind == jk::ChatAction::Focus && guideC ==
+                  "LLM-TOOK-THE-TURN-3361",
+              "llm16: configured-from-file non-match attempts the TurnSync "
+              "(stub marker = attempt receipt)");
     }
 
     Check(Seed(jk::agent::kStubShellCmdPosix),
