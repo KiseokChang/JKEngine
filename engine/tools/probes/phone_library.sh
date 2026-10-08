@@ -29,7 +29,7 @@ RLOG="$SCRATCH/phone_library_run.log"
 RSRC_TAR_NAME="phone_library_remote.sh"
 RSRC_PHONE="~/JKENGINE/$RSRC_TAR_NAME"   # 폰 측 삭제는 remote script H단계(임시 파일만)
 
-SSH="ssh -p 8022 -o BatchMode=yes -o ConnectTimeout=15 -i $HOME/.ssh/termux_jkengine u0_a4@192.168.219.109"
+SSH="ssh -p 8022 -o BatchMode=yes -o ConnectTimeout=15 -i $HOME/.ssh/termux_jkengine u0_a4@${PHONE_HOST:?PHONE_HOST unset}"
 
 FAIL() { echo "LIBRARY-PHONE-FAIL: $*"; exit 1; }
 

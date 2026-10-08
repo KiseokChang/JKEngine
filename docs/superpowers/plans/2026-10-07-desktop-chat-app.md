@@ -17,7 +17,7 @@
 - Windows 서버 스폰 금지 — Windows 축은 빌드+셀프테스트+CLI, GUI 실측은 WSL/폰 probe 소유.
 - probe 품질 원장: 수신=어설션, `|| true` 금지, rc 전파 PIPESTATUS→exit $rc, 커밋 SHA는 rev-parse 실측.
 - ImGui 함정 원장(스펙 §3): 본문은 Begin/End **안**; 스크롤 창=AlwaysVerticalScrollbar; 16ms 항시 렌더=가족 계약(docs/78 백로그 주석).
-- 폰 절차 원장: ssh `u0_a4@192.168.219.109 -p 8022` + MSYS_NO_PATHCONV=1 + tar `-C ~/JKENGINE` + pkill/pgrep `-f 'buildterm/[j]kdesktop'` 브래킷.
+- 폰 절차 원장: ssh `u0_a4@$PHONE_HOST -p 8022` + MSYS_NO_PATHCONV=1 + tar `-C ~/JKENGINE` + pkill/pgrep `-f 'buildterm/[j]kdesktop'` 브래킷.
 
 ---
 

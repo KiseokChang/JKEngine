@@ -39,7 +39,7 @@
 // 백엔드 슬롯(스펙 §4 — jktalk의 kBackendName 블록 동형 주석) — T4 배선 착지
 // (스펙 2026-10-08-chat-llm-promotion 설계 결정 3·4): cfg(engine 선택 —
 // LoadChatConfig, 기본 chat.json 수기 인게스트)가 정확 트리거 매치(즉발 유지)
-// 가 아닌 발화의 뇌를 JKLmEngine::TurnSync(T3 동기 브리지)로 승격한다. LLM
+// 가 아닌 발화의 뇌를 JKLlmEngine::TurnSync(T3 동기 브리지)로 승격한다. LLM
 // 실패·파싱 불가·cfg 미구성("stub"/미지 값)은 기존 stub 라우터로 조용히 폴백.
 // 배선 본체는 jk::ChatRouteTurn 한 곳(jktalk과 공통 — 복제 금지)이라 이 TU는
 // JKLlmEngine을 직접 소유하지 않는다(엔진 수명·1턴 직렬화 계약은 그 쪽 소관).

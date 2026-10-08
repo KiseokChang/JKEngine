@@ -20,7 +20,7 @@ PC PC-브리지(jkbridge 8899)는 이미 보유 — 본 라인은 폰 지향.
    (engine/tools/jkweb/main.cpp:342-344: `text → ChatAction + 안내문`).
    LLM은 라우터의 **뇌 자리**를 대체한다(기존 tool dispatch·ServerMeta·페이지
    계약 무변) — claude CLI가 MCP로 도구를 직접 실행하는 폰 전재구축 아님.
-2. **동기 턴 브리지** — JKLmEngine::StartTurn은 비동기 콜백이다. jkweb은
+2. **동기 턴 브리지** — JKLlmEngine::StartTurn은 비동기 콜백이다. jkweb은
    연결당 1스레드(jkweb/main.cpp:581)이므로 **동기 래퍼**(StartTurn+CV 대기
    → LlmTurnResult)를 덧댄다. jktalk의 동기 ProcessTurn에도 같은 래퍼.
 3. **cfg 분기** — `state/chat.json`의 `engine`이 라우터를 이끈다:

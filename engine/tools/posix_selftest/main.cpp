@@ -969,7 +969,7 @@ void TestPipeEndpointMapping() {
 }
 
 // Case 10 (플랜 F2 — docs/70 §6 #2): LLM stub shell round-trip — the posix
-// JKLmEngine stub branch emits `echo '{"result":"stub ok","session_id":
+// JKLlmEngine stub branch emits `echo '{"result":"stub ok","session_id":
 // "stub-1"}'` with NO cmd.exe prefix (posix Spawn rides /bin/sh -c directly),
 // and the reply JSON must round-trip through the adapter pipes verbatim for
 // the legacy whole-buffer fallback parser. Same drain shape as case 2.
@@ -1009,7 +1009,7 @@ void TestLlmStubShell() {
     constexpr uint32_t kStillActiveExit = 259;  // STILL_ACTIVE (win32 parity)
 
     jk::process::SpawnOptions opt;
-    // The stub line EXACTLY as JKLmEngine.cpp's posix branch composes it
+    // The stub line EXACTLY as JKLlmEngine.cpp's posix branch composes it
     // (single-quoted so /bin/sh keeps the inner double quotes verbatim) —
     // shared constant in agent/JKLlmEngine.h so the two stay in lockstep.
     opt.commandLineUtf8 = jk::agent::kStubShellCmdPosix;

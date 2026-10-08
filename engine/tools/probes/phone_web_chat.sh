@@ -37,7 +37,7 @@ RLOG="$SCRATCH/phone_web_chat_run.log"
 RSRC_TAR_NAME="phone_web_chat_remote.sh"
 RSRC_PHONE="~/JKENGINE/$RSRC_TAR_NAME"   # 폰 측 삭제는 remote script I단계(임시 파일만)
 
-SSH="ssh -p 8022 -o BatchMode=yes -o ConnectTimeout=15 -i $HOME/.ssh/termux_jkengine u0_a4@192.168.219.109"
+SSH="ssh -p 8022 -o BatchMode=yes -o ConnectTimeout=15 -i $HOME/.ssh/termux_jkengine u0_a4@${PHONE_HOST:?PHONE_HOST unset}"
 
 FAIL() { echo "WEBCHAT-PHONE-FAIL: $*"; exit 1; }
 
@@ -58,7 +58,7 @@ for f in "${FILES[@]}"; do
 done
 
 echo "=== 0. pre-flight + pre-clean (재실행 가능성) — ssh 생존 + wake-lock + 서버·jkweb 절사 ==="
-$SSH 'echo PHONE-REACHABLE; uname -m' || FAIL "ssh failed (phone unreachable) — 접속 증거: ssh -p 8022 -i ~/.ssh/termux_jkengine u0_a4@192.168.219.109"
+$SSH 'echo PHONE-REACHABLE; uname -m' || FAIL "ssh failed (phone unreachable) — 접속 증거: ssh -p 8022 -i ~/.ssh/termux_jkengine u0_a4@${PHONE_HOST:?PHONE_HOST unset}"
 $SSH 'command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock || echo WARN-no-wake-lock' \
   || FAIL "ssh failed (phone unreachable?)"
 # 폰 pgrep 함정(실측) — -f 브래킷 계열. 서버와 이전 probe 잔존 jkweb 모두 절사.

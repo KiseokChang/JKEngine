@@ -62,7 +62,7 @@ JKDC·터미널 렌더 층)는 스파이크 시점에 이미 POSIX 컴파일 통
 | T5 서버 잔여 | a6c593e+edcba75 | JKWindowServer fs ops 15개 사용처→`std::error_code` ec 오버로드(리뷰 1판에서 throwing overload 9곳 FIX → r1 교체), Toolhelp→JKProcess_win32 이동+posix `/proc` 스캔, flock 가드 실물화, pipe 이름→unix socket 경로 fold 매핑, JKProcess 확장(SpawnResult.errorCode·kStillActiveExit 소유·케이스 8/9 신설). 리뷰 opus APPROVE |
 | T7 데스크톱+진입 | 4956299 | **최초 Linux 링크 성공**. 링크 봉합 4건: PIC no-WIN32 전역(R_X86_64_TPOFF32 실측), jkdesktop_shell bcrypt 게이트, PAL 3TU 무조건+JKImeHook posix 스텁(훅 없음 계약), 보류 게이트 컨트롤러 소관 |
 | T8 도구 3종 | b978864+627d992+62ebece | jkctl CreateProcessW→jk::process 흡수+wmain/main 이중 진입+`tools/ConsoleShim.h`(ANSI posix leg). posix ask 셸 주입 봉합(삼중 이스케이프, 주입 무해 실측). jkbridge/jktriggers도 포팅(Spawn 소비처 0 — 감사 실증) |
-| T8b 미니봉합 | 73819fd | JKLmEngine posix 프롬프트 경로 주입(라이브 모델 결합 텍스트가 `/bin/sh -c` 도달) — BuildEngineCmd posix leg 삼중 이스케이프. 리뷰어 실 sh(dash/bash) 재현 실증 |
+| T8b 미니봉합 | 73819fd | JKLlmEngine posix 프롬프트 경로 주입(라이브 모델 결합 텍스트가 `/bin/sh -c` 도달) — BuildEngineCmd posix leg 삼중 이스케이프. 리뷰어 실 sh(dash/bash) 재현 실증 |
 
 리뷰 정본: T2 sonnet APPROVE / T3 sonnet APPROVE / T4 opus APPROVE / T5 opus
 FIX REQUIRED→r1 APPROVE / T7 opus APPROVE / T8 opus FIX REQUIRED→r1 APPROVE /
@@ -177,7 +177,7 @@ posix 어댑터 자체는 2단계 실측되어 있으나 이 도구 배선은 �
 | 4956299 | T7 데스크톱+진입(최초 Linux 링크) |
 | b978864 + 627d992 | T8 도구 3종+라이더 |
 | 62ebece | T8 r1 픽스(주입 봉합) |
-| 73819fd | T8b JKLmEngine 미니봉합 |
+| 73819fd | T8b JKLlmEngine 미니봉합 |
 | 65a4c3a | T9 라이더: jkx 재팩 WIN32 게이트 |
 | (본 문서) | docs/70 as-built |
 

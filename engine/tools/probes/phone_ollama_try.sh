@@ -9,7 +9,7 @@
 #      카운트 증가는 보조 증거로 기록) ③ pkg/dpkg로 폰 ollama 원천·버전·아키텍처
 #      기록(honest: 패키지 부재/아키텍처 미지원이어도 그대로 영수증) ④ `ollama serve`
 #      백그라운드 기동+health ⑤ 소형 모델 pull(qwen2.5:0.5b, timeout 900) ⑥
-#      **통합 갭 정직 기록**: JKLmEngine::StartTurn은 비동기 콜백이고 jktalk의 ①
+#      **통합 갭 정직 기록**: JKLlmEngine::StartTurn은 비동기 콜백이고 jktalk의 ①
 #      슬롯 주석이 상정한 llm.Route(text,action) 메서드는 존재하지 않아 jktalk의
 #      동기 ProcessTurn에 "cfg만" 배선할 수 없다 — 코드 무수정 실턴은 불가, 대신
 #      curl 대체 영수증(/api/generate 발화→응답 초 실측, **대체 영수증으로만
@@ -43,7 +43,7 @@ RLOG="$SCRATCH/phone_ollama_try_run.log"
 RSRC_TAR_NAME="phone_ollama_try_remote.sh"
 RSRC_PHONE="~/JKENGINE/$RSRC_TAR_NAME"   # 폰 측 삭제는 remote script 마지막(임시 파일만)
 
-SSH="ssh -p 8022 -o BatchMode=yes -o ConnectTimeout=15 -i $HOME/.ssh/termux_jkengine u0_a4@192.168.219.109"
+SSH="ssh -p 8022 -o BatchMode=yes -o ConnectTimeout=15 -i $HOME/.ssh/termux_jkengine u0_a4@${PHONE_HOST:?PHONE_HOST unset}"
 
 FAIL() { echo "OLLAMA-TRY-FAIL: $*"; exit 1; }
 
@@ -62,7 +62,7 @@ for f in "${PARTICLES[@]}"; do
 done
 
 echo "=== 0. pre-flight — ssh 생존 + wake-lock + 창 서버·jkweb 상태(끊지 않는다) ==="
-$SSH 'echo PHONE-REACHABLE; uname -m' || FAIL "ssh failed (phone unreachable) — 접속 증거: ssh -p 8022 -i ~/.ssh/termux_jkengine u0_a4@192.168.219.109"
+$SSH 'echo PHONE-REACHABLE; uname -m' || FAIL "ssh failed (phone unreachable) — 접속 증거: ssh -p 8022 -i ~/.ssh/termux_jkengine u0_a4@${PHONE_HOST:?PHONE_HOST unset}"
 $SSH 'command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock || echo WARN-no-wake-lock' \
   || FAIL "ssh failed (phone unreachable?)"
 SRV_STATE=$($SSH "pgrep -f 'buildterm/[j]kdesktop' >/dev/null 2>&1 && echo SRV-UP || echo SRV-DOWN") || FAIL "server state check failed"
@@ -242,7 +242,7 @@ if [ "$SERVE_UP" -eq 1 ]; then
     SOFT "pull 실패(rc=$PULL_RC) — 원인은 로그 기록으로 유예 판정"
   fi
 
-  echo "--- B5. 엔진 명령 경로 유효성 (JKLmEngine ollama 경로 = ollama launch claude) ---"
+  echo "--- B5. 엔진 명령 경로 유효성 (JKLlmEngine ollama 경로 = ollama launch claude) ---"
   command -v claude || echo "GAP-EVIDENCE: 폰에 claude CLI 없음 (NO-CLAUDE-CLI)"
   timeout 10 ollama --help 2>&1 | grep -aE '^\s+[a-z]+' | head -12
   timeout 10 ollama --help 2>&1 | grep -aq 'launch' \
@@ -254,7 +254,7 @@ fi
 
 echo "=== C. ollama 턴 대체 영수증 (curl 직결 — jktalk 실턴은 통합 갭으로 불가, 정직 라벨) ==="
 # 정직 라벨: 이 영수증은 **jktalk 턴이 아니라** ollama HTTP API 단독 실측이다 —
-# jktalk의 ProcessTurn① 슬롯 주석이 상정한 llm.Route(text,action)는 JKLmEngine에
+# jktalk의 ProcessTurn① 슬롯 주석이 상정한 llm.Route(text,action)는 JKLlmEngine에
 # 존재하지 않고(실제 API는 비동기 StartTurn 콜백), ollama 경로 명령은 폰에 없는
 # claude CLI 프로토콜('ollama launch claude ... --output-format stream-json')을
 # 안다. cfg(engine=ollama)만으로 배선 불가 — 승격엔 실장 과제가 남는다.
@@ -292,7 +292,7 @@ REASONS=""
 [ "$SERVE_UP" -eq 1 ]  || REASONS="$REASONS serve 미성립;"
 [ "$PULLED" -eq 1 ]    || REASONS="$REASONS 모델 pull 미성립;"
 [ "$TURN_OK" -eq 1 ]   || REASONS="$REASONS 턴(curl 대체 영수증) 미성립;"
-REASONS="$REASONS 통합 갭: jktalk↔JKLmEngine 배선 부재(비동기 StartTurn·ollama launch claude 경로)"
+REASONS="$REASONS 통합 갭: jktalk↔JKLlmEngine 배선 부재(비동기 StartTurn·ollama launch claude 경로)"
 if [ "$TURN_OK" -eq 1 ]; then
   echo "OLLAMA-VERDICT: PROMOTE-CANDIDATE (모델 서빙·턴 실측 성립 — 단 curl 대체 영수증, jktalk 실장은 별도 과제)"
 else

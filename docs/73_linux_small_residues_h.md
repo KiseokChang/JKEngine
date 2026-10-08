@@ -27,7 +27,7 @@ diff 크기                 posix TU 2 + selftest 1 — win32 관측 변화 0
 |---|---|---|---|---|
 | #5 job=단일 멤버(posix pgid 덮어쓰기 — 트리 킬 누락) | H1 | 080efc2 | `JobState.pgids: vector<pid_t>` — AssignToJob 적산(중복 assign 멱등), TerminateJobTree/CloseHandleLike가 전 멤버 `kill(-pgid, SIGKILL)`. win32 JobObject 복수 멤버 계약과 패리티. 셀프테스트 12a: 자식 2명 assign → 킬 → 양쪽 3s 내 사망 관측 | 없음 |
 | #5 자식 stdin 부모 상속(패리티 원하면 open("/dev/null")+dup2(0)) | H1 | 080efc2+bfcc84a | 자식 분기가 stdin을 `/dev/null`(O_RDONLY)로 상시 dup2 — win32 `hStdInput 미설정`(JKProcess_win32.cpp:77)과 같은 관측(자식이 stdin에서 블록하지 않고 부모 stdin 탈취가 구조적으로 불가). 12b: `read x; echo got:$x` 자식이 2s 내 EOF로 종료 | 없음 |
-| #5 조기 CloseHandleLike 좀비(init 회수 — 누수 아님) | H4 | 판정만 | 코드 변경 없음 — CloseHandleLike의 ProcState 분기는 WNOHANG 1회 리랩(조기 사망 시 즉시 회수). **판정 유지+정밀화(최종리뷰 MEDIUM 라이더):** "init 회수"는 부모 종료 시 성립 — 엔진 전역에 SIGCHLD 처분 0건이라 장수 부모 경로(JKLmEngine.cpp:403-411: WaitForExit 미스→proc close→job close-kill 뒤)에서는 ProcState 소멸 후 브리지 수명까지 좀비가 잔존한다. 리소스 누수(프로세스 표 항목 수개)가 아니라는 판정 자체는 유지 | 없음(판정 확정) |
+| #5 조기 CloseHandleLike 좀비(init 회수 — 누수 아님) | H4 | 판정만 | 코드 변경 없음 — CloseHandleLike의 ProcState 분기는 WNOHANG 1회 리랩(조기 사망 시 즉시 회수). **판정 유지+정밀화(최종리뷰 MEDIUM 라이더):** "init 회수"는 부모 종료 시 성립 — 엔진 전역에 SIGCHLD 처분 0건이라 장수 부모 경로(JKLlmEngine.cpp:403-411: WaitForExit 미스→proc close→job close-kill 뒤)에서는 ProcState 소멸 후 브리지 수명까지 좀비가 잔존한다. 리소스 누수(프로세스 표 항목 수개)가 아니라는 판정 자체는 유지 | 없음(판정 확정) |
 | #5 전송 phantom 연결(probe connect가 backlog 슬롯 소비) | H3 | 80a4370 | `listen(listener, 8)` — 스태일/phantom connect 한 개가 단일 대기 슬롯을 점유해 이후 클라 connect가 블록하는 상황 방어(서버 부트 직후 taskbar 스폰+프루브 connect 겹침 커버). **(최종리뷰 LOW 라이더)** 이 상향은 R-D3 "one client at a time" 코멘트를 대체 — serial accept 루프가 서빙 계약을 그대로 유지하므로 계약 파손 아니고 posix 전용 관측 직렬화 완화 | 없음 |
 | #7 수백 바이트 RecvAll 패턴 | H2 | 71b0f63 | 케이스 13a: 320B를 7청크(13·47·64·1·128·33·34, 청크 사이 10-20ms) 전송 → RecvAll true+memcmp 일치. 기존 케이스 3은 5바이트 단발이었음 | 없음 |
 | #7 Accept 무한블록 방어 | H2 | 71b0f63 | 케이스 13c: listening 소켓 SO_RCVTIMEO(300ms) → 무피어 Accept가 kInvalidSocket로 ~315ms 반환 실측(Linux는 accept에도 SO_RCVTIMEO 적용) + alarm(20) hang 방어막. 13b: 부분읽기 도중의 EAGAIN도 RecvAll을 false로 끝내는 **fail-closed 계약 봉합**(§3 룰링) | 없음 |
@@ -107,7 +107,7 @@ TerminalHangulInput·JKHangulUtil·JKTextConv_win32·legacy/wancode/WANCODE.CPP)
 
 - VERDICT: **APPROVED WITH RIDERS**. 전문은
   .superpowers/sdd/…/final-review-report.md. 로직 전부 올정동(kill 루프·
-  fd-0 엣지 픽스·12/13 단언 강도·소비자 무영향 — JKLmEngine.cpp:315-320·
+  fd-0 엣지 픽스·12/13 단언 강도·소비자 무영향 — JKLlmEngine.cpp:315-320·
   main.cpp:2990 계약-b 스모크의 복수 멤버 영향 본검증·win32 diff 0 본검증).
 - 라이더 반영(라이더 커밋):
   - MEDIUM — JKPipeTransport_posix.cpp backlog 코멘트의 "§6 #4" 오인을

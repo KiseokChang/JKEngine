@@ -16,7 +16,7 @@
 # Usage (repo root /mnt/i/progwork/JKENGINE under WSL Ubuntu-24.04):
 #   sh engine/tools/posix_selftest/build.sh && ./engine/build/posix_selftest
 #
-# T3 (2026-10-08): agent TU 2건 추가(JKLmEngine/JKAgentJson) — case 15가
+# T3 (2026-10-08): agent TU 2건 추가(JKLlmEngine/JKAgentJson) — case 15가
 # 직 링크로 TurnSync 동기 브리지+ollama-direct leg를 어댑터 축에서 잠근다.
 # quickjs-ng 인클루드 경로 — JKAgentJson.h가 <quickjs.h>를 들고 온다(링크 의존
 # 아님: quickjs 기호 참조 없이 통과한다).

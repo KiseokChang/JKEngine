@@ -152,7 +152,7 @@ static std::string ExeDirA() {
 // ---------------------------------------------------------------------------
 // Bridge config: state/jkbridge.json {token, port, bind} — first run
 // generates the token (CSPRNG) and prints the bookmarkable URLs. bind is
-// optional ("192.168.1.23") — docs/57 §9 백로그: INADDR_ANY는 PC가 붙은 모든
+// optional ("192.0.2.10" — 문서용 예약 대역 예시) — docs/57 §9 백로그: INADDR_ANY는 PC가 붙은 모든
 // 인터페이스(사내망 포함)에 노출되므로, 특정 인터페이스로 좁히고 싶을 때
 // 지정한다. 미지정 = 기존 INADDR_ANY(토큰이 실질 게이트 — 기존 동작 유지).
 // ---------------------------------------------------------------------------

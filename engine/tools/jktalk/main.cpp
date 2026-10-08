@@ -24,7 +24,7 @@
 // 2026-10-08-chat-llm-promotion 설계 결정 3·4): cfg(state/chat.json 수기
 // 인게스트)의 engine이 비매치 발화의 뇌를 고른다. "stub"/미지 값(=미구성)이면
 // T1 stub 라우터(jk::ChatRouterRoute)가 전부 처리(지금 모양 보존),
-// "ollama"|"claude"|"ollama-direct"면 비매치 발화만 JKLmEngine::TurnSync(T3
+// "ollama"|"claude"|"ollama-direct"면 비매치 발화만 JKLlmEngine::TurnSync(T3
 // 동기 브리지)로 승격 — 정확 트리거는 즉발(지연 최소), LLM 실패·스폰 불가·
 // 파싱 불가는 기존 stub 안내문으로 조용히 폴백. 배선 본체는 jk::ChatRouteTurn
 // 한 곳(jkweb과 공통 — 복제 금지)이라 이 CLI의 나머지(REPL·도구 전송·인쇄)는

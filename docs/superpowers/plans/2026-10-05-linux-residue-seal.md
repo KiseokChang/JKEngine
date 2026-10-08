@@ -147,7 +147,7 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>" -q
 
 ---
 
-### Task F2: JKLmEngine 셸 접두 추상 (stub+본선 posix 개통)
+### Task F2: JKLlmEngine 셸 접두 추상 (stub+본선 posix 개통)
 
 **Files:**
 - Modify: `engine/src/agent/JKLlmEngine.cpp:168-183` (BuildEngineCmd stub 분기), `:274-278` (접두 합성부)
@@ -554,7 +554,7 @@ roadmap 원장 갱신 26(플랜 F 완결) + backlog 갱신 + MEMORY.md 인덱스
 ## Self-Review (컨트롤러 — 작성 후 자체 점검)
 
 1. **Spec 커버리지**: docs/70 §6의 #1(F3)·#2(F2)·#3(F1)·#4(F4 — fmt 역전만; BuildEngineCmd win32 백슬래치는 별도 결함 후보로 레저에 명시 — 이 플랜에서 다루지 않는다: docs/70이 "별도 결함 후보"로 분리해 두었다)·#8(F5)을 커버. #5(job/stdin/좀비/phantom)·#7(selftest 강화 — 단, 케이스 10/11 스핀오프로 일부 충족)·#6(vplayer/Termux)·#9(관측 편차 — 이미 코드 주석+문서로 기록)은 범위 밖 — "기능 개통 축+잠재 결함 축"으로 사용자 범위 확정(AskUserQuestion 답 2026-10-05).
-2. **플레이스홀더스캔**: 없음 — 전 지점 코드 검증 완료(JKWindowServer:8002-8185, JKLmEngine 160-310, jkagentd 324-373, WorkshopStore 85-230 실측).
+2. **플레이스홀더스캔**: 없음 — 전 지점 코드 검증 완료(JKWindowServer:8002-8185, JKLlmEngine 160-310, jkagentd 324-373, WorkshopStore 85-230 실측).
 3. **타입 일관성**: ComposeClientSpawnArgs는 F5 인터페이스 블록에 명시 — static helper, 파라미터 (const std::string& appName, std::string& argsOut) or (app, fromJkx, argsOut)로 구현자 최종 결정, 리뷰어가 원문 합성 불변 검증. posix_selftest 케이스 10/11은 기존 Check() 패턴 그대로.
 
 ---

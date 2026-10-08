@@ -58,7 +58,7 @@ diff 크기                 12 파일, +307/-137 (win32 동작 변화 = 승인 �
 (`cmd.exe /c ` 그대로). posix_selftest 케이스 10: stub 명령을 실제
 posix 어댑터(Spawn→pipe drain)로 구동해 JSON 왕복 — EOL 편차(LF)가
 AgentJson/JS_ParseJSON 후행 공백 수용으로 무해인 것을 실증. 리뷰 MEDIUM:
-케이스 10 stub 리터럴이 복제(JKLmEngine win32 분기 2곳과 동일 문자열 ×3)
+케이스 10 stub 리터럴이 복제(JKLlmEngine win32 분기 2곳과 동일 문자열 ×3)
 — 공용 상수로 후속 공용화 권고.
 
 **F3 (33cb501, sonnet APPROVE, 무결점).** win32 ConPTY leg와 posix pty leg가

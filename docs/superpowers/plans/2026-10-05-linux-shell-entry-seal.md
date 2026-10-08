@@ -207,17 +207,17 @@ static int RunClientModule(const char* modulePath, const char* pipeName) {
 ### Task G5: stub 리터럴 공용화
 
 **Files:**
-- Modify: `engine/src/agent/JKLmEngine.cpp` (stub 리터럴 2곳 — win32 문자열 그대로 상수로)
+- Modify: `engine/src/agent/JKLlmEngine.cpp` (stub 리터럴 2곳 — win32 문자열 그대로 상수로)
 - Modify: `engine/tools/posix_selftest/main.cpp` (케이스 10 — 같은 상수 참조)
 
-- [ ] **Step 1: 공용 상수 신설** — JKLmEngine.cpp 상단 파일-로컬:
+- [ ] **Step 1: 공용 상수 신설** — JKLlmEngine.cpp 상단 파일-로컬:
 
 ```cpp
 // stub LLM 턴의 셸 명령 — win32는 cmd.exe 접두(posix는 접두 없는 sh echo —
 // 플랜 F2). selftest 케이스 10이 같은 리터럴을 재실행하므로 한 곳에서 관리
 // (docs/71 리뷰 MEDIUM — 3처 복제 소각).
 ```
-win32 리터럴 `"cmd.exe /c echo {\"result\":\"stub ok\",\"session_id\":\"stub-1\"}"`과 posix 리터럴 각각을 상수로; posix_selftest는 posix 상수만 사용하므로 JKLmEngine.cpp 파일-로컬은 소용없다 — **공용 헤더 `engine/include/agent/JKLmEngine.h`에 inline constexpr** 두 개로 올린다(이름 `kStubShellCmdWin32`/`kStubShellCmdPosix`).
+win32 리터럴 `"cmd.exe /c echo {\"result\":\"stub ok\",\"session_id\":\"stub-1\"}"`과 posix 리터럴 각각을 상수로; posix_selftest는 posix 상수만 사용하므로 JKLlmEngine.cpp 파일-로컬은 소용없다 — **공용 헤더 `engine/include/agent/JKLlmEngine.h`에 inline constexpr** 두 개로 올린다(이름 `kStubShellCmdWin32`/`kStubShellCmdPosix`).
 - [ ] **Step 2: 소비치 3곳 치환 + posix_selftest build.sh 재빌드 확인** — `sh engine/tools/posix_selftest/build.sh && ./engine/build/posix_selftest` → 케이스 10 PASS 유지.
 - [ ] **Step 3: 커밋** `refactor(g5): stub 셸 리터럴 공용화 — 3처 복제 소각`
 

@@ -56,16 +56,16 @@
 
 **Files:**
 - Modify: `engine/include/agent/JKLlmEngine.h` (cfg 신설 모드 + 동기 래퍼 선언)
-- Modify: `engine/src/agent/JKLmEngine.cpp` — 오타 대전 주의: 실제 파일명 `JKLlmEngine.cpp` (docs/81 §4 JKLmEngine 오타 유예 유지 — 본 태스크에서 전수 정화하지 않는다)
+- Modify: `engine/src/agent/JKLlmEngine.cpp` — 오타 대전 주의: 실제 파일명 `JKLlmEngine.cpp` (docs/81 §4 JKLlmEngine 오타 유예 유지 — 본 태스크에서 전수 정화하지 않는다)
 - Test: `engine/tools/posix_selftest/main.cpp` (1n 계열 케이스)
 
 **Interfaces:**
-- Consumes: 기존 `BuildEngineCmd`(JKLmEngine.cpp:110-190), `LoadChatConfig`, stream-json 파서.
+- Consumes: 기존 `BuildEngineCmd`(JKLlmEngine.cpp:110-190), `LoadChatConfig`, stream-json 파서.
 - Produces: `jk::agent::LlmTurnSync(const std::string& promptUtf8, LlmTurnResult& out)` — 동기 1회 턴(스폰 실패 시 ok=false). cfg.engine=="ollama-direct" → `ollama run "<model>" "<promptEsc>"`(stdout 텍스트 → result) — 스폰 명령 원문은 selftest 단정에 들어간다.
 
 - [ ] **Step 1:** 실패 케이스 먼저: selftest에 `TestLlmSyncOllamaDirect` — chat.json(engine:"ollama-direct")을 임시 exe-dir에 시딩 → TurnSync 결과 파싱 단정(프로세스 스폰은 echo 스터브 명령으로 — 자식 스폰 불가 환경도 ok=false 정직).
 - [ ] **Step 2:** 동기 래퍼 구현: 내부 스레드에서 StartTurn 수행 + condition_variable로 Done 대기(타임아웃 120s — cloud 턴 3.2s의 40배 마진).
-- [ ] **Step 3:** win32+WSL selftest 실측(캐논 라인: Windows 427/WSL 406 — +N 계보 기록), 커밋 `feat(chat): JKLmEngine 동기 턴 브리지 + ollama-direct leg (T3)`
+- [ ] **Step 3:** win32+WSL selftest 실측(캐논 라인: Windows 427/WSL 406 — +N 계보 기록), 커밋 `feat(chat): JKLlmEngine 동기 턴 브리지 + ollama-direct leg (T3)`
 
 ---
 
@@ -96,7 +96,7 @@
 - Produces: E2E 영수증 + 사용자 육안 게이트.
 
 - [ ] **Step 1:** 폰 재배포(tar 오염 게이트 포함 — docs/81 §3 #11 계약 승계) → 리빌드 → jkweb 기동 → **E2E 4정판**: "지뢰찾기 켜줘"→launch ok+창 단정 / "창 목록 보여줘"→list_windows / "닫아줘"→close 해소단정 / 무의미 문자열→정직 회신 — 각 턴 경과초 기록(목표 <10s).
-- [ ] **Step 2:** 원장: docs/80 §5 T8 판정 보완 + docs/81 §4 deferred에 JKLmEngine 오타 유예 상태 갱신 + 신설 as-built 문서(§ 함정: signin 게이트·npm 용량·bionic).
+- [ ] **Step 2:** 원장: docs/80 §5 T8 판정 보완 + docs/81 §4 deferred에 JKLlmEngine 오타 유예 상태 갱신 + 신설 as-built 문서(§ 함정: signin 게이트·npm 용량·bionic).
 - [ ] **Step 3:** 사용자 결제 항목 산출: 폰 브라우저 localhost:8090에서 자연어 실사용("지뢰찾기 켜줘" 말고 다른 문장도) — 컨트롤러는 명령 블록만 전달, 결제 기록은 사용자 선언만.
 - [ ] **Step 4:** 커밋 `test(chat): 폰 자연어 E2E probe + 원장 착지 (T5)`
 

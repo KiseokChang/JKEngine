@@ -10,7 +10,7 @@
 | T1 | `cb7e72922bc46847960ad92f6bb06bbf3a2283b3` | probes(chat): 폰 cloud-model 턴 조달 실측 probe — /api/chat 직접 왕복 TURN-OK 1.3-2.0s, signin 불요 |
 | T1 fix r1 | `bfcf7908e904c622b26cc32043c584905d03c0e6` | phone_cloud_turn 원격 스크립트 자기 소각 + report 정정 |
 | T2 | `6739cfdb2bf8b64b581848ea346b09c6d8885a07` | probes(chat): 폰 claude CLI 조달 실측 — launch-claude 경로 판정(조달 불성립로 close) |
-| T3 | `95f1ca758d0d36b87ac170bea3263556a6d12bff` | feat(chat): JKLmEngine 동기 턴 브리지(TurnSync) + ollama-direct leg |
+| T3 | `95f1ca758d0d36b87ac170bea3263556a6d12bff` | feat(chat): JKLlmEngine 동기 턴 브리지(TurnSync) + ollama-direct leg |
 | T3 fix r1 | `507c0352c83aee4d949c7a844ef5742f98049675` | fix(chat): win32 cmd 토글 주입 수리 — 3leg 단일 출처 이스케이프 |
 | T4 | `5d31300ef572b1d687e45379b0c173e820417c96` | feat(chat): jkweb/jktalk 자연어 승격 배선 — cfg 선택형 + stub 폴백 |
 | T4 fix r1 | `c5e79d6ce37e6f969d455074f1a23cea7bc385d5` | fix(chat): chat.json 부재=미구성 — 승격 opt-in 계약 수리(fileKnown 게이트) |

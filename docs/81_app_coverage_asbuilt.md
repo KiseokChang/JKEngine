@@ -326,7 +326,7 @@ Global Constraints가 인용한 "395/374"는 작성 시점 수치로 만료된 �
 | T1 concern | legacy drvfs trigger 4종 위생(위생 시 probe 어설션+원장 수치 29→25 동시 갱신 패키지)·workshop auto-repack 규칙 신설(현재=수동 유산 유지 소결) | 유예 — 소유자 결정 |
 | T3 concern | buildwsl/ `.gitignore` 1행 후보(`??` 노이즈 해소) | 유예 |
 | T5 concern | capture PNG 20KB 하한=약한 생존 프록시(내용 단정=사람 육안 — 자동화하려면 화면 문자 판독, 현 단계 과다) | 유예 |
-| **이전 라인 이월 합명** (docs/80 §5) | **JKLmEngine 오타 형제 전수** — 올바른 파일명은 `JKLlmEngine.h/.cpp`(Llm — `git ls-files` 실측; "JKLmEngine"이 오타). 잔존 실측(T6 작성 grep → **fix r1 2026-10-07 전수 재측정**): phone_ollama_try.sh 4곳(:12·:245·:257·:295)·posix_selftest main.cpp 2곳(:970·:1010)·**docs/80 4곳(:171·:175·:185·:220 — 구 3곳 표기에 :220 누락, T6 과제 ②백엔드 슬롯 실장 행 실측 정정)**·구문서 전수(docs/68 2·docs/70 2·docs/71 1·docs/72 1·docs/73 2·플랜 6건) = **합계 24곳**. tmp/phone_ollama_try_remote.sh 3곳은 무추적 scratch로 소멸(파일 부재 실측 — 구 표기 개산 26·docs/80 4건 보정 시 27에서 차감). progress 원장의 "22행"은 구측정치로 미정합 — 본 행 24곳이 정합 캐논(tracked `git grep` 전수 25 = 외부 실물 24 + 본 문 자신 1건) | **이번에 소각 없음 — 정직 기록** · 상태 갱신(T5 2026-10-08 재측정): tracked `git grep` 전수 **38**(=파쇄 전 25 대비 +13 — 증분은 승격 라인 신설 문서(plan 4·spec 1)와 라인 배선 원장에 실측 이월이 전부이고, **코드·probe·신규 문서의 신설 표기 소각 0** — docs/80 +0(docs 2·plan 0), docs/84 신설 문서 JKLlmEngine 정형만), 유예 상태 **유지 — 소수 다음 doc 손때 원장의 것** |
+| **이전 라인 이월 합명** (docs/80 §5) | **JKLlmEngine 오타 형제 전수** — 올바른 파일명은 `JKLlmEngine.h/.cpp`(Llm — `git ls-files` 실측; "JKLlmEngine"이 오타). 잔존 실측(T6 작성 grep → **fix r1 2026-10-07 전수 재측정**): phone_ollama_try.sh 4곳(:12·:245·:257·:295)·posix_selftest main.cpp 2곳(:970·:1010)·**docs/80 4곳(:171·:175·:185·:220 — 구 3곳 표기에 :220 누락, T6 과제 ②백엔드 슬롯 실장 행 실측 정정)**·구문서 전수(docs/68 2·docs/70 2·docs/71 1·docs/72 1·docs/73 2·플랜 6건) = **합계 24곳**. tmp/phone_ollama_try_remote.sh 3곳은 무추적 scratch로 소멸(파일 부재 실측 — 구 표기 개산 26·docs/80 4건 보정 시 27에서 차감). progress 원장의 "22행"은 구측정치로 미정합 — 본 행 24곳이 정합 캐논(tracked `git grep` 전수 25 = 외부 실물 24 + 본 문 자신 1건) | **이번에 소각 없음 — 정직 기록** · 상태 갱신(T5 2026-10-08 재측정): tracked `git grep` 전수 **38**(=파쇄 전 25 대비 +13 — 증분은 승격 라인 신설 문서(plan 4·spec 1)와 라인 배선 원장에 실측 이월이 전부이고, **코드·probe·신규 문서의 신설 표기 소각 0** — docs/80 +0(docs 2·plan 0), docs/84 신설 문서 JKLlmEngine 정형만), 유예 상태 **유지 — 소수 다음 doc 손때 원장의 것** |
 | T6 리뷰 유예 1 | **§5 de2fa28 미기재** — 자기 커밋 SHA를 표에 기재한 커밋은 기재 시점마다 또 이월이 필요한 자기참조 구조적 residual(본 fix r1 커밋도 동일 구조로 §5 미기재) | 유예 — 다음 docs 손때에 §5 본 라인 3커밋(aee21a6·1006601·de2fa28)+fix r1을 통합 원장화 |
 | 최종 리뷰 유예 M1 | **jkx-pack appName 경로 이스케이프 잠재** — `../evil`은 rc=1 fail-closed 실측이나 세그먼트 성분(`..`·구분자 뒷마무리)은 정화 부재; 컨테이너 outPath(main.cpp:823-829)·icon 접두(:791-798)가 appName을 그대로 조립(선존재 승계 — 인벤토리 출하 이전부터) | 유예 — 다음 **jkx 도구 손때 코드**(basename/화이트리스트 정화 1함수 후보) |
 | 최종 리뷰 유예 M2 | **조달기 sha256 체크섬 핀 부재 + ALREADY-PRESENT 시 버전 무단정** — `install_lf_helix_posix.sh`는 버전 핀 문구만 있고 다운로드 무결성 검증이 없으며, 기조산물 존재 시 버전을 재단정하지 않음 | 유예 — 다음 **조달기 스크립트 손때**(핀 sha256 1행 후보) |
@@ -367,7 +367,7 @@ fix r1 소각으로 집계하던 구 문언 정정).
 Important 0 / Minor 4 → 처분: 수리 1(M4 — 본 §5 문구 정정, fix r1)·유예 3
 (M1 jkx-pack 경로 정화·M2 조달기 sha256 핀·M3 probe twin-hidden trap —
 §4 표 부기 원장화, 손때 소유자 명기). T6 리뷰 Minor 5도 흡수 — 수리 4
-(EOF 개행·§4 JKLmEngine :220·§6 문형·현행 좌표)+유예 1(§5 de2fa28
+(EOF 개행·§4 JKLlmEngine :220·§6 문형·현행 좌표)+유예 1(§5 de2fa28
 자기참조 residual — §4 표 부기). fix r1 본 커밋 SHA는 자기참조 구조로 §5
 미기재(§4 residual 항목).
 

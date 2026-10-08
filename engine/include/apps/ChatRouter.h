@@ -36,7 +36,7 @@ std::string ChatRouterRoute(const std::string& text, ChatAction& out);
 // ── 자연어 승격 배선 (스펙 2026-10-08-chat-llm-promotion 설계 결정 3·4 — T4) ──
 // jkweb HandleTalk과 jktalk ProcessTurn의 "뇌호출 자리"(백엔드 슬롯 — 슬롯
 // 주석 계약 이행)가 먹는 공통 본체. 복제 금지 계약: 두 소비 측은 이 함수
-// 하나만 부르고, 프리앰블(kLlmTurnPreamble — JKLmEngine.cpp의 다중 파서 수리
+// 하나만 부르고, 프리앰블(kLlmTurnPreamble — JKLlmEngine.cpp의 다중 파서 수리
 // 계약 원문)은 엔진이 프롬프트에 한 번만 접두한다(BuildEngineCmd·
 // BuildOllamaDirectCmd) — 이 계약 쪽은 프리앰블을 다시 적지 않는다.
 

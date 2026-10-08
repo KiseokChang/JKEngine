@@ -41,7 +41,7 @@ diff 크기                 8 파일 (+docs 2) — win32 관측 변화는 §0.1�
 | #3b jkx 핸들러 SpawnClient false 무시 → 정직 답변 | G4 | 827b3f4 | posix `{"ok":false,"error":"spawn_failed","jkx":"…"}` — 단 v1에서 스폰 실패에 도달하기 전 **launch_app 핸들러의 후보 공진**(:4343-4356 fileExistsFn 계열 — posix exe-dir에 .jkx가 존재하지 않음)이 unknown_jkx로 먼저 거부 → spawn_failed는 후보 해석 성공 전 unreachable(스모크 §5 실측, 거짓 성공은 어느 경로도 0). 런처 열거 쪽 ScanJkxApps(JKDesktopShell.cpp:364)는 이 경로와 무관 | posix exe-dir의 .jkx 부재(docs/71 #3 계열 — 냉동) |
 | #4 launch_chat jkchat.exe 하드코드 | G4 | 827b3f4 | posix `{"ok":false,"error":"unavailable_on_platform"}`; agentd 스모크에서는 `unknown_tool` — **launch_chat이 jkagentd 등록줄에 없음**(tools/jkagentd/main.cpp:97·148, 클라이언트 사이드 등록만 :58 launch_app); 실 경로는 팔레트/폰(ClientPaletteApp:268 SendTool) | agentd 미등록은 agentd 전용 냉동 잔차(§5.2) |
 | #5 jkx 인수 `'/'→'\'` 폴드 | G4 실측 판정 | 827b3f4 내 기록 | **무재현 종결**: 폴드로 MISS 되는 입력 조합 집합은 공집합 — 후보 (1) 원문·(2) exeDir+원문이 posix 슬래시를 보호 | 수정 없음, 판정만 영속 |
-| (docs/71 리뷰 MEDIUM) stub 셸 리터럴 3처 복제 | G5 | ae376a2 | `jk::agent::kStubShellCmdWin32/kStubShellCmdPosix` inline constexpr(JKLmEngine.h, Llm — 파일 표기 주의 [[le저]] 참조); JKLmEngine.cpp :175·:180+posix_selftest 케이스 10 전부 상수 참조 | 없음 |
+| (docs/71 리뷰 MEDIUM) stub 셸 리터럴 3처 복제 | G5 | ae376a2 | `jk::agent::kStubShellCmdWin32/kStubShellCmdPosix` inline constexpr(JKLlmEngine.h, Llm — 파일 표기 주의 [[le저]] 참조); JKLlmEngine.cpp :175·:180+posix_selftest 케이스 10 전부 상수 참조 | 없음 |
 
 **수리 2건(셸 경로의 은밀한 부작용):**
 

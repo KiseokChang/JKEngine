@@ -4050,7 +4050,7 @@ static int RunAppSelfTest() {
         //   (/bin/sh -c) 양축이 같은 문자열로 개통된다.
         check(Seed("echo jk-ollama-direct-stub-3361"),
               "1n-d0b chat.json seeded (engine=ollama-direct + direct_cmd)");
-        JKLlmEngine eng;  // 오타 대전(brief): JKLmEngine이 아닌 JKLlmEngine(docs/81 §4 유예)
+        JKLlmEngine eng;  // 파일 표기: Llm 대문자 L — docs/81 §4 오타 유예는 #83 전수 정화로 소각 (2026-10-09)
         LlmTurnResult r;
         check(eng.TurnSync("안녕", r), "1n-d1 echo stub turn returns true");
         check(r.ok && r.result == "jk-ollama-direct-stub-3361",

@@ -168,11 +168,11 @@ docs/79 앱 라이브러리 → **채팅(본 문)** — jkapp_chat은 settings/l
 1. **UX 부적합**: 0.5B 폰 순수 CPU 추론 ≈0.29 tok/s(발화→응답 101.8초) —
    채팅 UX 성립 불가. 스트림화(TTFB 4.1s)로 첫 토큰은 개선되나 완결 턴이
    수십~수백 초인 건 동일.
-2. **배선 갭 4건(jktalk↔JKLmEngine — "cfg만으로 배선 불가"의 정확한
+2. **배선 갭 4건(jktalk↔JKLlmEngine — "cfg만으로 배선 불가"의 정확한
    내역, 코드 변경 0 정직 유예 접수)**:
    - 동기 브리지: 슬롯 주석이 상정한 `llm.Route(text, action)`은 존재하지
      않는다 — 실 API `StartTurn(prompt, resumeSessionId, DeltaFn, DoneFn)`
-     비동기 스레드+콜백(JKLmEngine.h:56-67), ProcessTurn은 동기.
+     비동기 스레드+콜백(JKLlmEngine.h:56-67), ProcessTurn은 동기.
    - 액션 매핑 부재: LLM 결과는 자유 텍스트 — 텍스트→ChatAction 번역 경로가
      ChatRouterRoute(한국어 어휘 규칙)뿐, LLM판정→ChatAction 매핑 코드 없음.
    - ollama HTTP 어댑터 부재: BuildEngineCmd의 ollama 경로는 `ollama launch
@@ -185,7 +185,7 @@ docs/79 앱 라이브러리 → **채팅(본 문)** — jkapp_chat은 settings/l
      chat.json은 수기 인게스트 파일(코드 writer 0건)** — JSON 규약이라
      백슬래시는 이중 이스케이프 필수(directory `"I:\\progwork\\JKENGINE"` 꼴).
      파스 실패는 기본값 폴백으로 정직하게 지나간다(LoadChatConfig 계약).
-   - (링크 자체는 무해 — JKLmEngine.cpp는 jkcore에 이미 포함, CMakeLists:217.)
+   - (링크 자체는 무해 — JKLlmEngine.cpp는 jkcore에 이미 포함, CMakeLists:217.)
 
 **T8 M4 봉합(분기 이유 한 줄)**: probe가 `OLLAMA-VERDICT: PROMOTE-CANDIDATE`
 를 인쇄한 것은 **TURN_OK 게이트만 보는 probe의 자동 판정이고**(stub 턴
@@ -279,7 +279,7 @@ target 선정을 한 곳에서 삼는다(단일 진실원, docs/80 §1 라우터
 |---|---|---|
 | T1(리뷰) | 접미-중첩 주석 문서성 · Close+app 서버 타깃 계약 미실측(**T2 게이트 위탁 — 이미 소각: ClientChatApp.cpp:147-158 원장 주석+argless 폼 실측 채택**) · deferred 3(부사 스캔="다시 켜줘" 앱어 절단 fail-open·주석 정확화) | Close 타깃=소각 / 나머지 유예(부사 스캔=앱어·발화 순서 확장 백로그 소속) |
 | T2(리뷰) | **Minor 6건** — 컨트롤러 원장에 건수만 기록(개별 file:line 명단 미전달, 세션 패키지 diff에는 무존재) | 전부 유예 유지 — 명단 원문이 필요하면 전체 리뷰 때 리뷰어 원 판정 참조 |
-| T2(원장명단) | **T6 과제 2건** ①앱→창 id 상관(Close/Focus argless) ②백엔드 슬롯 실장(JKLmEngine 플러그) · **GUI 육안 4점**(창 뜸·한글 전각·스크롤 앵커·launch 전송) | ①=제4절 귀속 봉합 / ②=제3절 승격 판정 소유(장기) / 육안 4점=사용자 게이트 대기(§8) |
+| T2(원장명단) | **T6 과제 2건** ①앱→창 id 상관(Close/Focus argless) ②백엔드 슬롯 실장(JKLlmEngine 플러그) · **GUI 육안 4점**(창 뜸·한글 전각·스크롤 앵커·launch 전송) | ①=제4절 귀속 봉합 / ②=제3절 승격 판정 소유(장기) / 육안 4점=사용자 게이트 대기(§8) |
 | fix(2026-10-08-chat-close-fix, F1) | §4 귀속 백로그 ① 착지(**서버 해소 계약 확장** — §4b 원문) · ClientChatApp "T6 과제" 주석 정정(app 전송 계약 명기) · jktalk/jkweb argless 유지(포커스 해소로 산다 — app pass-through 유예)·캐논 420→427(Windows)·399→406(WSL)·**406(폰, run5c 실측)** | ①=**소각** — §4b 착지 + 3축 probe 실측(wsl_chat_close.sh GREEN·phone_chat_close.sh 드라이버 1차 런 ssh 단절→resume receipts CHAT-CLOSE-PHONE-RESUME-OK 착지) / jkweb·jktalk app pass-through=유예(다음 표면 손때) / 폰 permissions.json 스테이지=사용자 게이트 노트(§4b — §2.4 섹션은 미존재, 리뷰 M-3 정정) |
 | T4(리뷰) | `w:720` 서브스트링 어설션은 이론적 dw 매치(720x540 고정이라 실해 없음) · teardown survivor WARN 인쇄 후 rc 0(소프트패스) · inline `bash -lc` PIPESTATUS 안티패턴 헤더 노트 미기재 | 전부 유예 — 2건째(softpass WARN→hard FAIL)가 probe 손때 후보(T4 계열 다음 손때 1차) |
 | T6(리뷰 I2·Minor 4) | I2=ClientChatApp.cpp:151 댕글링 표기 | **소각 — 제4절 귀속 봉합(본 원장이 소화)** |

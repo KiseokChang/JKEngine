@@ -217,7 +217,7 @@ std::string TrimWsp(const std::string& raw) {
 //
 // **무따옴표·무파이프 계약(실측 원장 — probe_promote_turn ollama leg 영수증)**:
 // 본문에 문자 그대로의 " 와 | 를 금한다. ollama leg는 프롬프트가 ollama의
-// 재인용 층(JKLmEngine 원장 — BuildEngineCmd "settings는 ollama leg에서
+// 재인용 층(JKLlmEngine 원장 — BuildEngineCmd "settings는 ollama leg에서
 // ollama의 재인용 층을 한 번 더 통과")을 지나 claude.cmd 사슬로 도달하는데,
 // 재인용이 컨텐츠 따옴표를 \" 로 다시 세우면 그 아래 cmd가 지역을 일찍 닫아
 // JSON 필드값 launch|close|... 의 | 를 살아있는 파이프로 만든다(실측: cmd가
@@ -235,7 +235,7 @@ std::string ActionSchemaLine() {
 // 승격 프롬프트 본문 — 프리앰블 불포함(엔진 계약 소관 — 헤더 주석).
 //
 // **단일 행 계약(실측 원장 — T4 1차 배선 프루프)**: 본문에 실개행("\n" 바이트)
-// 을 넣으면 win32 leg(cmd.exe /c 접두 — JKLmEngine.cpp LlmTurnThread)에서
+// 을 넣으면 win32 leg(cmd.exe /c 접두 — JKLlmEngine.cpp LlmTurnThread)에서
 // cmd가 개행을 명령 분리로 먹어 claude가 아무 것도 받지 못하고(실측: stdout
 // 0B·deltas 0B·sawResult=0·ok=1의 공회전 왕복 — probe_promote_turn 영수증)
 // 파싱이 폴백한다. 엔진 프리앰블(kLlmTurnPreamble)이 개행 없는 단일 행인 것이

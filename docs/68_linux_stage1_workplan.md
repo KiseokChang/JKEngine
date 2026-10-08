@@ -78,7 +78,7 @@
   폐기(자식 stdout EOF 보장) (b) Job 핸들 close==트리 사망
   (JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE). PeekPipeAvail은 brokenError로
   ERROR_BROKEN_PIPE(109)·ERROR_NO_DATA(232) 보고(상수는 WinSDK 값 하드코딩 —
-  어댑터 TU가 windows.h 소유, 소비 TU는 windows.h-clean 유지: JKLmEngine 직접
+  어댑터 TU가 windows.h 소유, 소비 TU는 windows.h-clean 유지: JKLlmEngine 직접
   include 소각, JKWindowServer는 미 include 관례+수기 dllimport ~60행 소각).
   셀프테스트 케이스 14 신설(echo 스폰 왕복+Job 스모크+GUI형+"양 파이프 EOF 관측"
   단언 — 계약 (a) 위반이 ~20s 지연으로만 관측되는 것을 감별력 있게 잡음). 흡수는
@@ -87,7 +87,7 @@
   관측+레이스 소거")·ReadFile 부분 바이트 업스루프·부분 실패 파이프의 데이터
   보존(opus 최종리뷰 finding 7).
 - **★인자 스왑 결함 픽스 e373339**(동작 변화 0의 결함 수선 예외 2번째 — 플랜 A
-  ConsoleAppFingerprint 다음): JKLmEngine.cpp:311의
+  ConsoleAppFingerprint 다음): JKLlmEngine.cpp:311의
   `AssignProcessToJobObject(pi.hProcess, jobTree)` 인자 스왑 — 항상 FALSE(err=6),
   kill-on-close 계약이 무효 운용됐음(idle 킬·grandchild 정리가 사실상 미작동).
   어댑터 AssignToJob(job, proc) 계약으로 수선. probe_jkbridge가 LLM 턴 경로에서

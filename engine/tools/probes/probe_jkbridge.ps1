@@ -474,7 +474,7 @@ Check "resume-memo" ($hello10 -ne $null -and $hello10 -match '"pending_result":"
 # --- 9b. QR startup output (console QR for phone camera scan) ----------------
 # --qr-debug: 0/1 matrix dump (verifier interface); --qr-print: half-block
 # glyphs. Structural checks here; full decode verified via cv2/pyzbar (docs/57).
-$qrUrl = "http://192.168.0.34:8790/?token=a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"
+$qrUrl = "http://192.0.2.10:8790/?token=<jkbridge token placeholder>"
 $qrDebug1 = & $exe --qr-debug $qrUrl 2>&1
 $qrDebug2 = & $exe --qr-debug $qrUrl 2>&1
 $lines = @($qrDebug1 | ForEach-Object { "$_" })

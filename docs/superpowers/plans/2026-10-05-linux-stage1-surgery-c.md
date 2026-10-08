@@ -14,7 +14,7 @@
 
 - **동작 변화 0** — 1단계 원칙(docs/62 §3). 예외는 반드시 as-built에 명문화. (플랜 B 실적: 예외 2건 — ConsoleAppFingerprint ifdef 제거, e373339 결함 수선.)
 - **posix 구현은 스텁만** — 리눅스 실구현은 2단계. 스텁은 헤더 공개 멤버 전수 커버(플랜 B W3 레슨: 스텁 누락 멤버가 원본 잠복 결함이었다).
-- **파일명은 `git ls-files` 실측값 그대로** — 플랜 B 핵심 레슨: 플랜 문서 오기(src/crash/)·자체 철자 착각(JKLmEngine vs JKLlmEngine)이 유령 증상 5건을 낳았다. contact 전 항상 `git ls-files`로 실존 경로 확인. 파일명 변수화도 원칙.
+- **파일명은 `git ls-files` 실측값 그대로** — 플랜 B 핵심 레슨: 플랜 문서 오기(src/crash/)·자체 철자 착각(JKLlmEngine vs JKLlmEngine)이 유령 증상 5건을 낳았다. contact 전 항상 `git ls-files`로 실존 경로 확인. 파일명 변수화도 원칙.
 - **windows.h-clean 소비 TU 관례** — 소비 TU는 windows.h include 금지, 필요 Win32 상수/함수는 하드코딩+dllimport 수기 선언(어댑터 TU가 windows.h/winsock2.h 소유). 단, tools main.cpp들은 이미 windows를 include하는 전용 TU라 어댑터 include 자체로 windows.h 잔여가 소각될 때만 소각 — 억지 소각 금지(잔여는 마킹+as-built 목록화).
 - **CP949·CP_ACP 계약 존중** — fs 어댑터가 이미 명문화한 바: 경로 소비자 전원 A형. tools 흡수도 동일(A-API 사이트만 흡수, UTF-8 재인코딩 도입 금지).
 - **게이트는 라이브 스택 정지 후 공식 런 ×2** — docs/62 §4 배치 규약. 빌드: `cd /i/progwork/JKENGINE/engine/build && PATH="/c/msys64/ucrt64/bin:$PATH" cmake --build .` (PREPEND). probe .ps1은 forward-slash 경로.
