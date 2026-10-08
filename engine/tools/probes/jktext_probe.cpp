@@ -360,8 +360,9 @@ int main() {
     }
     // T11: 셀 메트릭 진실원 (docs/63 §6 Task 3, text.font_scale 옵트인).
     // (a) 순수 산출 함수 단정 — 설정 개입 없음. (b) 기본 경유 — 이 프로브 exe
-    // 옆 tools/probes/state/settings.json이 없어 font_scale 미설정 =
-    // DefaultFontScale(플랫폼 기본 — Win 1.0/posix 1.5; (b) 기대값은 축별).
+    // 옆 settings.json에 font_scale 키 부재 = 미설정 기본 소비 =
+    // DefaultFontScale(플랫폼 기본 — Win 1.0/posix 1.5; (b) 기대값은 축별;
+    // font_path만 기록된 settings가 있어도 키 부재면 기본이 소비된다).
     // (park-batch 2026-10-09: T2 리뷰 Minor — 구 기대 {8,16,16}은 posix 1.5
     // 승격 이전(1.0 시대) 산치로 posix 축 스테일이었다.)
     {

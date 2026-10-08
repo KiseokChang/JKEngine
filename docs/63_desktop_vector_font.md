@@ -378,6 +378,12 @@ Task 4 시점(ninja [80/80]) 이후 Task 5/6이 착지해 라이브 데스크탑
   링크 오류는 입력 파일 목록부터) → g++ 단독 라인 재구성·기준선 재현으로
   검증: jktext_probe 라인에 `JKResourceCache.cpp JKSDLRenderBackend.cpp
   JKImageLoader.cpp` 추가(JKHangulManager는 동일). ×2 연속 PASS.
+  - **어댑터화 이후 갱신(2026-10-09, park-batch M-r1 소각)** — WSL 축
+    jktext_probe는 위 레시피만으로는 undefined ref: `JKFs_posix.cpp·
+    JKAgentJson.cpp·JKTextConv_posix.cpp` + quickjs 4 C 소스(gcc로 별도 .o
+    먼저 핀 뒤 링크 — g++ 직컴파일은 dtoa.c fpermissive 실패). 현행 전체
+    링크 라인 원문 = .superpowers/sdd/2026-10-09-park-batch/report.md
+    §측정 중 발생 함정 기록.
 
 ### 10. as-built (2단계, 2026-09-21) — 종결
 
