@@ -19,9 +19,13 @@ namespace server {
 
 // Server-side window chrome geometry (logical points, surface-local).
 // MUST stay in sync with the frame painted by the client inside its surface:
-// src/JKWindow.cpp OnRectChanged (kBorder=2, kTitle=24) and
+// src/JKWindow.cpp OnRectChanged (kBorder=2, title bar =
+// jk::text::ChromeTitleBarHeight() — T3 스펙 2026-10-09-phone-text-scale 셀
+// 메트릭 연동; s=1.0에서 24 등호(Windows 픽셀동일), posix 1.5에서 32) and
 // GetCloseButtonRect (20x20 at 2px inset from the top-right).
-constexpr int kChromeTitleBar = 24;
+// (T3) 구 kChromeTitleBar=24 상수는 이 산식으로 승격 — 히트테스트 존·승인 배너
+// 밴드 두께가 클라 밴드와 같은 진실원을 쓴다(클라 밴드가 커져도 제목
+// 드래그/더블클릭 존이 어긋나지 않는다).
 constexpr int kChromeBorder = 2;
 constexpr int kChromeCloseSize = 20;
 constexpr int kChromeCloseMargin = 2;

@@ -1449,6 +1449,10 @@ bool JKWindowServer::TryChromeGrab(int mx, int my, float scale, int clicks) {
         (my / scale - layer->Y()) / layer->ScaleY()));
     const int w = layer->Width();
     const int h = layer->Height();
+    // (T3) 타이틀 밴드 높이 — 클라(표면 안의 크롬, JKWindow.cpp kTitle)와 같은
+    // 셀 메트릭 연동 산식. s=1.0에서 구 상수 24와 등호 — Windows 히트테스트
+    // 존 무변, posix 1.5에서는 클라 밴드(32)와 정합.
+    const int titleBarH = jk::text::ChromeTitleBarHeight();
 
     // 1) Close overlay (top-right of the title bar, server-drawn).
     const bool inCloseX = (lx >= w - kChromeCloseSize - kChromeCloseMargin) &&
@@ -1486,7 +1490,7 @@ bool JKWindowServer::TryChromeGrab(int mx, int my, float scale, int clicks) {
                                 kChromeMaximizeGap - kChromeMaximizeSize;
         const int right = std::min(pr.x + pr.w, maxBtnX0Now);
         if (lx >= pr.x && lx < right &&
-            ly >= pr.y && ly < std::min(pr.y + pr.h, kChromeTitleBar)) {
+            ly >= pr.y && ly < std::min(pr.y + pr.h, titleBarH)) {
             return false;
         }
     }
@@ -1496,7 +1500,7 @@ bool JKWindowServer::TryChromeGrab(int mx, int my, float scale, int clicks) {
     // window's double-click (second click, still maximized) toggles exactly
     // ONCE, Windows-like. The top resize strip stays a resize zone (a move
     // grab never starts there either).
-    if (ly >= kResizeHotspot && ly < kChromeTitleBar && clicks == 2) {
+    if (ly >= kResizeHotspot && ly < titleBarH && clicks == 2) {
         FocusClient(client->Id());
         PushWindowList();  // active highlight follows click focus
         ToggleMaximize(*client, *layer);
@@ -1542,9 +1546,9 @@ bool JKWindowServer::TryChromeGrab(int mx, int my, float scale, int clicks) {
         return true;
     }
 
-    // 3) Title bar: start a move grab (y ∈ [kResizeHotspot, kChromeTitleBar) —
+    // 3) Title bar: start a move grab (y ∈ [kResizeHotspot, titleBarH) —
     //    the top resize strip above returned first).
-    if (ly < kChromeTitleBar) {
+    if (ly < titleBarH) {
         FocusClient(client->Id());
         PushWindowList();  // active highlight follows click focus
         capturedClientId_ = 0;
@@ -2416,13 +2420,15 @@ void JKWindowServer::ProcessPendingMessages() {
 
 // 타이틀 바 패스스루 선언 clamp (docs/67 단 2): 리사이즈 링(6px)과 닫기/최대화
 // 박스를 침벑하는 선언은 잘라낸다 — 버그·악의 선언이 크롬 전체를 먹는 것을 막는
-// 규약(타이틀 바 y<kChromeTitleBar 한정). 무효화(빈 rect) = 해제.
+// 규약(타이틀 바 y<titleBarH 한정 — T3 셀 메트릭 연동 높이). 무효화(빈 rect) =
+// 해제.
 static JKRect ClampTitlePassthrough(const JKClientConnection& c, JKRect r) {
+    const int titleBarH = jk::text::ChromeTitleBarHeight();
     const int maxBtnX0 = c.Width() - kChromeCloseMargin - kChromeCloseSize -
                          kChromeMaximizeGap - kChromeMaximizeSize;
     if (r.x < kResizeHotspot) { r.w -= kResizeHotspot - r.x; r.x = kResizeHotspot; }
     if (r.y < kResizeHotspot) { r.h -= kResizeHotspot - r.y; r.y = kResizeHotspot; }
-    if (r.y + r.h > kChromeTitleBar) r.h = kChromeTitleBar - r.y;
+    if (r.y + r.h > titleBarH) r.h = titleBarH - r.y;
     if (r.x + r.w > maxBtnX0) r.w = maxBtnX0 - r.x;
     if (r.w <= 0 || r.h <= 0) return JKRect{};
     return r;
@@ -7858,6 +7864,24 @@ static void DrawRing3(SDL_Renderer* renderer, const SDL_Rect& rect,
     }
 }
 
+// (T3) 배너 텍스처 캐시 키 = 문자열 × 셀 크기(brief 계약 — "문자열×크기"):
+// 텍스처의 실제 픽셀 기하가 셀 메트릭(engW 전진·cellH 높이)의 함수이므로 키에
+// 크기를 반영한다. 현재 GetCellMetrics는 기동 시 settings 직독·프로세스당 1회
+// 고정(재시작 적용)이라 실행 중 크기가 변하지 않아 이 반영은 이론 방어선이지만
+// "키가 크기를 몰라 배율 바뀐 창이 스테일 텍스처를 재사용"하는 결함의 직결
+// 부품을 봉쇄한다(metrics가 언젠가 동적이 되는 날을 위한 무료 보험 + brief
+// 계약 이행). usedBanners(DrawApprovalHighlights)와 같은 형식을 쓴다 — 안
+// 그러면 수거 루프가 매 프레임 캐시를 폐기한다.
+static std::string BannerCacheKey(const std::string& bannerUtf8) {
+    const jk::text::CellMetrics m = jk::text::GetCellMetrics();
+    std::string key = bannerUtf8;
+    key += '\x1f';
+    key += std::to_string(m.engW);
+    key += 'x';
+    key += std::to_string(m.cellH);
+    return key;
+}
+
 // 승인 대상 시각화 (스펙 2026-09-19-app-tool-hub §5 1단): 파킹된 승인의 대상
 // 창 위에 호박색 링 + 상단 배너 "에이전트 승인 대기: <name>". DrawCloseOverlay
 // 와 같은 컴포지트 패스의 최상위(레이어 루프 후) 단계 — 오버레이 훅을 통해
@@ -7928,10 +7952,15 @@ void JKWindowServer::DrawApprovalHighlights(float outputScale) {
         // (fix round 1 NIT-2: 3중 스트로크 루프는 DrawRing3 공용 헬퍼로)
         overlayDrewThisFrame_ = true;  // (T2) 훅 실제 그림 — 이 프레임은 전체
         DrawRing3(renderer_, rc, 230, 140, 40);
-        // 상단 배너 밴드: 크롬 타이틀바(kChromeTitleBar)와 같은 두께로 대상 창의
-        // 상단 스트립을 덮는다(링 안쪽 1px에 맞춰 겹침 방지).
+        // 상단 배너 밴드: 크롬 타이틀바와 같은 두께로 대상 창의 상단 스트립을
+        // 덮는다(링 안쪽 1px에 맞춰 겹침 방지). T3 — 두께는 셀 메트릭 연동
+        // 밴드 높이(구 kChromeTitleBar 상수 승격 — jk::text::ChromeTitleBarHeight)
+        // — s=1.0 등호 24,
+        // posix 1.5에서 32(밟아 주는 배너 텍스트도 1.5 셀이므로 함께 커진다).
         const int bandH = std::min(
-            static_cast<int>(kChromeTitleBar * layer->ScaleY() * outputScale),
+            static_cast<int>(
+                static_cast<float>(jk::text::ChromeTitleBarHeight()) *
+                layer->ScaleY() * outputScale),
             rc.h - 3);
         if (bandH <= 0) {
             continue;
@@ -7941,7 +7970,8 @@ void JKWindowServer::DrawApprovalHighlights(float outputScale) {
         // 배너 문자열: p.name(비었으면 대상 레이어의 창 제목 — close_window류).
         std::string banner = "에이전트 승인 대기: ";
         banner += (kv.second.empty() ? layer->Title() : kv.second);
-        usedBanners.insert(banner);
+        usedBanners.insert(BannerCacheKey(banner));  // (T3) 캐시 키 형식 일치 —
+        // 안 그러면 수거 루프가 매 프레임 미사용 판정으로 캐시를 폐기한다.
         int tw = 0, th = 0;
         SDL_Texture* tex = ApprovalBannerTexture(banner, tw, th);
         if (tex && tw > 0 && th > 0) {
@@ -8110,7 +8140,8 @@ SDL_Texture* JKWindowServer::ApprovalBannerTexture(const std::string& bannerUtf8
                                                    int& w, int& h) {
     w = 0;
     h = 0;
-    auto it = approvalBannerTexs_.find(bannerUtf8);
+    const std::string cacheKey = BannerCacheKey(bannerUtf8);
+    auto it = approvalBannerTexs_.find(cacheKey);
     if (it != approvalBannerTexs_.end()) {
         w = it->second.w;
         h = it->second.h;
@@ -8120,7 +8151,7 @@ SDL_Texture* JKWindowServer::ApprovalBannerTexture(const std::string& bannerUtf8
         !SDL_RenderTargetSupported(renderer_)) {
         // 렌더 타깃 미지원 백엔드: 텍스트 없이 링+밴드만(하이라이트 식별은
         // 유지). SDL 가속 렌더러는 전부 타깃을 지원하므로 사실상 안 쓰는 가지.
-        approvalBannerTexs_[bannerUtf8] = ApprovalBannerTex{};
+        approvalBannerTexs_[cacheKey] = ApprovalBannerTex{};
         return nullptr;
     }
     if (!approvalFont_) {
@@ -8186,7 +8217,7 @@ SDL_Texture* JKWindowServer::ApprovalBannerTexture(const std::string& bannerUtf8
     SDL_Texture* tex = SDL_CreateTexture(renderer_, SDL_PIXELFORMAT_RGBA8888,
                                          SDL_TEXTUREACCESS_TARGET, texW, texH);
     if (!tex) {
-        approvalBannerTexs_[bannerUtf8] = ApprovalBannerTex{};
+        approvalBannerTexs_[cacheKey] = ApprovalBannerTex{};
         return nullptr;
     }
     // 글자만 실은 투명 배경 텍스처 — 밴드(호박 채움) 위에 블렌딩으로 얹는다.
@@ -8210,7 +8241,7 @@ SDL_Texture* JKWindowServer::ApprovalBannerTexture(const std::string& bannerUtf8
     dc.SetTextColor(34, 20, 4);  // 호박 밴드 위 진한 갈색 글자 (고정 대비색)
     dc.TextOut(JKPoint{kPad, kPad}, kssm.c_str());
     SDL_SetRenderTarget(renderer_, prev);
-    approvalBannerTexs_[bannerUtf8] = ApprovalBannerTex{tex, texW, texH};
+    approvalBannerTexs_[cacheKey] = ApprovalBannerTex{tex, texW, texH};
     w = texW;
     h = texH;
     return tex;

@@ -1076,23 +1076,31 @@ static int RunAppSelfTest() {
     };
 
     // 프레임 스트립 (docs/67 단 2 T2): 음수 y 자식이 타이틀 바 안에서 히트된다.
+    // (T3 계보 — kTitle은 셀 메트릭 연동으로 승격돼 플랫폼값이 베이크 상수가
+    // 아니다: Win s=1.0 등호 24·posix 1.5 = 32) 그래서 이 케이스의 좌표 기대를
+    // 창이 계산한 client rect(OnRectChanged가 세운 {kBorder, titleH})에서
+    // 파생한다 — 계약 자체는 불변("surface rect = client + (kBorder,kTitle)").
     {
         auto win = std::make_unique<JKWindow>("strip-selftest");
         win->SetWindowRect(JKRect{ 0, 0, 320, 240 });
+        const JKRect clientRect = win->GetClientRect();  // {2, titleH, ...}
         const JKRect strip{ 50, -21, 160, 22 };  // 클라이언트 좌표
         win->SetFrameStripRect(strip);
         auto combo = std::make_unique<JKComboBox>(strip, 0);
         JKComboBox* raw = combo.get();
         win->AddControl(std::move(combo));
-        // 콤보 화면 좌표 = {52, 3, 160, 22}(surface y 3..25) — 중앙 y=14.
-        check(win->HitTest(130, 14) == raw,  // strip 중앙 → 콤보
+        // 콤보 화면 좌표 = client + {50,-21,160,22}(surface y titleH-21..+1) —
+        // 중앙 y = titleH-10(원문 kTitle=24 관측 {52,3} 중앙 14).
+        const int comboCy = clientRect.y - 10;
+        check(win->HitTest(130, comboCy) == raw,  // strip 중앙 → 콤보
               "strip: hit reaches caption child");
-        check(win->HitTestRegion(130, 14) == JKWindow::WindowRegion::Client,
+        check(win->HitTestRegion(130, comboCy) == JKWindow::WindowRegion::Client,
               "strip: region is Client");
         check(win->HitTestRegion(130, 1) == JKWindow::WindowRegion::TitleBar,
               "strip: outside strip stays TitleBar");
         const JKRect s = win->GetFrameStripSurfaceRect();
-        check(s.x == 52 && s.y == 3 && s.w == 160 && s.h == 22,
+        check(s.x == clientRect.x + 50 && s.y == clientRect.y - 21 &&
+                  s.w == 160 && s.h == 22,
               "strip: surface rect = client + (kBorder,kTitle)");
         check(win->HitTest(10, 1) == win.get(),  // 타이틀 빈칸 → 자기 자신
               "strip: title gap still window");
@@ -4903,6 +4911,19 @@ static int RunAppSelfTest() {
                   jk::text::StretchNearestIndex(1, 8, 1) == 7 &&
                   jk::text::StretchNearestIndex(-1, 8, 8) == 0,
               "2t-f 2.0 확대 샘플 + 병적 입력 첫 샘플 수렴(방어선)");
+        // 3b) 크롬 타이틀 밴드 높이 산식 (T3 — 스펙 2026-10-09-phone-text-scale
+        // 결정 1): 현행 상수 24 = 비트맵 셀 16 + 여백 8(4+4)의 합이라는 원문
+        // 실측의 산치를 순수 부품으로 잠근다. 소비처 양축 — JKWindow.cpp
+        // kTitle(클라 표면 안의 밴드 그리기)·JKWindowServer.cpp 히트테스트 존+
+        // 승인 배너 밴드 두께(서버 크롬 — "MUST stay in sync").
+        check(jk::text::ComputeChromeTitleBarHeight(16) == 24,
+              "3b-a s=1.0 셀 16 → 밴드 24 (현행 상수와 정확 등호 — "
+              "Windows 창 타이틀 픽셀동일 산치)");
+        check(jk::text::ComputeChromeTitleBarHeight(24) == 32,
+              "3b-b posix 기본 1.5 셀 24 → 밴드 32 (1.5 타이틀 글리프 클립 방지)");
+        check(jk::text::ComputeChromeTitleBarHeight(8) == 24 &&
+                  jk::text::ComputeChromeTitleBarHeight(48) == 56,
+              "3b-c 최소 현행값 24 보장(하단 방어선) + 상단 s=3.0 셀 48 → 56");
         // KSSM 쌍 폴백은 반올림 좌표에서 4/9px 오차(8→15px 등 홀수 폭)를
         // 허용한다 — 비트맵 폴백 한계(스펙 fail-safe 명시; 벡터 아틀라스가
         // 정상 경로). 단정치 않고 수용 계약만 여기에 기록한다.

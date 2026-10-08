@@ -2068,6 +2068,20 @@ void TestTextScaleFix() {
     // KSSM 쌍 폴백은 반올림 좌표에서 4/9px 오차(8→15px 등 홀수 폭)를 허용한다
     // — 비트맵 폴백 한계(스펙 fail-safe 명시; 벡터 아틀라스가 정상 경로).
     // 단정치 않고 수용 계약만 여기에 기록한다.
+
+    // 3b) 크롬 타이틀 밴드 높이 산식 (T3 — 스펙 2026-10-09-phone-text-scale
+    // 결정 1): 현행 상수 24 = 비트맵 셀 16 + 여백 8의 합이라는 원문 실측의
+    // 산치. 소비처 양축 — JKWindow.cpp kTitle(클라 표면 안의 밴드)·
+    // JKWindowServer.cpp 히트테스트 존+승인 배너 밴드 두께(서버 크롬 —
+    // "MUST stay in sync"). 쌍둥이(engine/src/main.cpp 3b)와 동일 수형.
+    Check(jk::text::ComputeChromeTitleBarHeight(16) == 24,
+          "3b-a s=1.0 셀 16 → 밴드 24 (현행 상수와 정확 등호 — "
+          "Windows 창 타이틀 픽셀동일 산치)");
+    Check(jk::text::ComputeChromeTitleBarHeight(24) == 32,
+          "3b-b posix 기본 1.5 셀 24 → 밴드 32 (1.5 타이틀 글리프 클립 방지)");
+    Check(jk::text::ComputeChromeTitleBarHeight(8) == 24 &&
+              jk::text::ComputeChromeTitleBarHeight(48) == 56,
+          "3b-c 최소 현행값 24 보장(하단 방어선) + 상단 s=3.0 셀 48 → 56");
 }
 
 }  // namespace

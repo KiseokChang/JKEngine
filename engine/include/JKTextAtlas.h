@@ -122,6 +122,31 @@ inline int StretchNearestIndex(int dstIdx, int srcSpan, int dstSpan) {
 // 동명) 이름은 이 규칙과 충돌해 채택 불가.)
 const CellMetrics& GetCellMetrics();
 
+// 크롬 타이틀 밴드 높이 순수 산식 (T3 — 스펙 2026-10-09-phone-text-scale 결정
+// 1): 현행 상수 24 = "비트맵 글리프 셀 16px + 위 4px + 아래 4px 여백"의 합
+// (원문 실측 — JKWindow.cpp OnRectChanged kTitle=24·server/JKCompositor.h
+// kChromeTitleBar=24, 타이틀 텍스트는 TextOutX ADJ_YCENTER로 cellH를 세로
+// 중앙정렬했다). 그래서 산식 = cellH + 8(4+4 여백), 최소 현행값 24 보장.
+// **s=1.0에서 cellH=16 → 16+8=24 — 현행 상수와 정확히 등호**(Windows 창
+// 타이틀 픽셀동일 단정의 산치), posix 기본 1.5(cellH=24)에서는 32로 커져
+// 1.5 글리프가 클립되지 않는다. 호출부는 JKWindow.cpp(밴드 그리기 측 —
+// 클라 표면 안의 크롬)와 JKWindowServer.cpp(크롬 히트테스트 존·승인 배너
+// 밴드 두께 — "MUST stay in sync" 계약) 둘 다다.
+// cellH 하단 방어선: ComputeCellMetrics가 s∈[1,3]로 클램프하므로 cellH는
+// [16,48] — max()는 바인딩하지 않는 방어선(비정상 셀에서도 현행값 이하로
+// 밴드가 수축하지 않는다).
+inline int ComputeChromeTitleBarHeight(int cellH) {
+    constexpr int kLegacyTitleBar = 24;  // kTitle/kChromeTitleBar의 원문 현행값
+    constexpr int kTitlePad = 8;         // 글리프 셀 위 4px + 아래 4px (16+8=24)
+    return std::max(kLegacyTitleBar, cellH + kTitlePad);
+}
+
+// 적용 진실원 — 프로세스 메트릭을 소비한다(GetCellMetrics = 기동 시 settings
+// 직독, 프로세스당 1회 고정 → 재시작 적용 계약 그대로).
+inline int ChromeTitleBarHeight() {
+    return ComputeChromeTitleBarHeight(GetCellMetrics().cellH);
+}
+
 } // namespace text
 
 class JKTextAtlas {

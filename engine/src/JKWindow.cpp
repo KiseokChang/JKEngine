@@ -1,6 +1,7 @@
 #include <JKWindow.h>
 #include <JKApplication.h>
 #include <JKHangulUtil.h>
+#include <JKTextAtlas.h>
 
 #include "theme/JKTheme.h"
 
@@ -48,8 +49,15 @@ const std::string& JKWindow::GetTitle() const {
 void JKWindow::OnRectChanged(const JKRect& rect) {
     // JKControl::SetRect은 padding을 기반으로 clientRect_를 계산하지만,
     // JKWindow는 테두리/타이틀 크기를 유지한 클라이언트 영역을 직접 계산한다.
+    // 셀 메트릭 진실원 (docs/63 §6) — 기본 1.0 = {8,16,16}.
     constexpr int32_t kBorder = 2;
-    constexpr int32_t kTitle  = 24;
+    // 타이틀 밴드 높이 (T3 — 스펙 2026-10-09-phone-text-scale 결정 1): 고정
+    // 24 상수 → 셀 메트릭 연동 순수 산식으로 승격. s=1.0에서 정확히 24 등호
+    // (Windows 창 타이틀 픽셀동일), posix 기본 1.5(cellH=24)에서는 32 —
+    // 1.5 셀 타이틀 글리프가 밴드에 클립되지 않는다(사용자 관측 "밴드가
+    // 좁다"의 수리). 서버 크롬 히트테스트 존도 같은 산식을 소비한다
+    // (server/JKCompositor.h "MUST stay in sync" 계약).
+    const int32_t kTitle = jk::text::ChromeTitleBarHeight();
     JKRect client;
     if (HasAttrFlag(WA_CHROMELESS)) {
         // 크롬 없는 창: 클라이언트 영역이 전체 rect.
@@ -142,7 +150,9 @@ void JKWindow::SetWindowRect(const JKRect& rect) {
     const JKRect& client = GetClientRect();
     std::printf("[SetWindowRect] title='%s' border=%d titleH=%d "
                 "rect=(%d,%d %dx%d) client=(%d,%d %dx%d)\n",
-                title_.c_str(), 2, 24,
+                title_.c_str(),
+                static_cast<int>(clientRect_.x),
+                static_cast<int>(clientRect_.y),
                 rect.x, rect.y, rect.w, rect.h,
                 client.x, client.y, client.w, client.h);
 #endif
