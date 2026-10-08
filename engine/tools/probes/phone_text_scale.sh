@@ -103,14 +103,19 @@ PHONE_USER="${PHONE_USER:-u0_a4}"
 PHONE_KEY="${PHONE_KEY:-$HOME/.ssh/termux_jkengine}"
 PHONE_DISPLAY="${PHONE_DISPLAY:-:1}"
 
-# 풀 로그 — 드라이버 전체(tee; 원격 run은 RUNLOG로 한벌 승계).
-exec > >(tee "$RLOG") 2>&1
-
-FAIL() { echo "TS-PHONE-FAIL: $*"; exit 1; }
+# PHONE_HOST 필수 가드는 exec(tee)보다 **앞에** 둔다 — 가드가 tee 뒤에 있으면
+# PHONE_HOST unset 재실행 시 tee truncate로 마지막 실측 영수증 로그
+# (ptx_driver.log)를 통째로 덮어쓴다(T4 scoped re-review Minor M5 — 가드 검사
+# 선행으로 폐곡).
 if [ -z "$PHONE_HOST" ]; then
   echo "TS-PHONE-FAIL: PHONE_HOST not set — 기록 금지 계약상 기본값·스캔 폴백 없음 (환경변수로 폰 호스트를 지정)"
   exit 1
 fi
+
+# 풀 로그 — 드라이버 전체(tee; 원격 run은 RUNLOG로 한벌 승계).
+exec > >(tee "$RLOG") 2>&1
+
+FAIL() { echo "TS-PHONE-FAIL: $*"; exit 1; }
 echo "PHONE-HOST: 환경변수 지정 사용 (스캔 폴백 없음 — fail-closed 가드)"
 echo "HEAD: $(git -C "$(cygpath -w "$ROOT" 2>/dev/null || echo "$ROOT")" rev-parse HEAD 2>/dev/null || echo rev-parse-failed)"
 echo "BASE LINEAGE: 24d22a1..b651534 (T2 58861c3 + T3 8563263 + T3 fix r1 b651534)"
