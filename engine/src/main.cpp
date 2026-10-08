@@ -4924,6 +4924,15 @@ static int RunAppSelfTest() {
         check(jk::text::ComputeChromeTitleBarHeight(8) == 24 &&
                   jk::text::ComputeChromeTitleBarHeight(48) == 56,
               "3b-c 최소 현행값 24 보장(하단 방어선) + 상단 s=3.0 셀 48 → 56");
+        // (T3 fix r1) 앱 본문 상단 오프셋 = 밴드 산식 + 본문 여백 6 — ImGui
+        // 앱 9곳+minesweeper의 고정 리터럴(topY 30·밴드 24)의 분해가 소비
+        // 소스로 모였다. s=1.0 항등 단정 — 교체 후 Windows 무변의 산치.
+        check(jk::text::ComputeAppContentTopOffset(16) == 30,
+              "3b-d s=1.0 앱 상단 오프셋 = 밴드 24 + 여백 6 = 30 "
+              "(기존 ImGui topY 리터럴과 정확 등호 — Windows 무변 산치)");
+        check(jk::text::ComputeAppContentTopOffset(24) == 38,
+              "3b-e posix 기본 1.5 앱 상단 오프셋 38 — 본문이 밴드 32와 "
+              "겹치지 않는다(I-2 상단 사각지대 해소 산치)");
         // KSSM 쌍 폴백은 반올림 좌표에서 4/9px 오차(8→15px 등 홀수 폭)를
         // 허용한다 — 비트맵 폴백 한계(스펙 fail-safe 명시; 벡터 아틀라스가
         // 정상 경로). 단정치 않고 수용 계약만 여기에 기록한다.

@@ -262,9 +262,10 @@ void ClientFilesApp::BuildUi(int w, int h) {
     ImGui::End();
     if (!open) return;
 
-    // 서버 크롬이 상단 24pt를 먹는다(레슨 8) — 패널은 y>=30부터, 감사 패널은
+    // 서버 크롬이 상단 밴드를 먹는다(레슨 8) — 패널은 밴드+여백 6부터
+    // (T3 fix r1: 고정 30 → 밴드 산식 진실원; s=1.0 등호 30). 감사 패널은
     // 하단 24px 상태줄 위(140px) — 브라우저/미리보기 영역은 그 사이.
-    const float top = 30.0f;
+    const float top = static_cast<float>(jk::text::AppContentTopOffset());
     const float bottomPanel = 130.0f;
     const float bodyH = (float)h - top - bottomPanel - 24.0f;
     const int leftW = 360;

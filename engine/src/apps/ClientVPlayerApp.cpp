@@ -2702,10 +2702,11 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
                                 ImGuiWindowFlags_NoBringToFrontOnFocus;
     ImGui::Begin("vplayer", nullptr, wf);
 
-    // The server reserves the top 24pt of every surface as window chrome
-    // (title drag + close X, JKWindow kTitle) — clicks there start a move
-    // grab and never reach this app. Push the first row below the strip.
-    ImGui::SetCursorPosY(30.0f);
+    // The server reserves the top title band of every surface as window
+    // chrome (title drag + close X, JKWindow kTitle) — clicks there start a
+    // move grab and never reach this app. Push the first row below the
+    // band + 6px margin. (T3 fix r1: 고정 30 → 밴드 산식 진실원, s=1.0 등호 30.)
+    ImGui::SetCursorPosY(static_cast<float>(jk::text::AppContentTopOffset()));
 
     // Path row + Open + "열기..." (file_open picker, agent channel).
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 170);

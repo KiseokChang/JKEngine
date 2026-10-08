@@ -231,9 +231,11 @@ void ClientNotesApp::BuildUi(int w, int h) {
     ImGui::End();
     if (!open) return;
 
-    // 서버 크롬이 상단 24pt를 먹는다(레슨 8) — 탭바는 y>=30부터.
-    ImGui::SetNextWindowPos(ImVec2(0, 30));
-    ImGui::SetNextWindowSize(ImVec2((float)w, (float)h - 30));
+    // 서버 크롬이 상단 밴드를 먹는다(레슨 8) — 탭바는 밴드+여백 6부터
+    // (T3 fix r1: 고정 topY 30 → 밴드 산식 진실원; s=1.0 등호 30).
+    const float topY = static_cast<float>(jk::text::AppContentTopOffset());
+    ImGui::SetNextWindowPos(ImVec2(0, topY));
+    ImGui::SetNextWindowSize(ImVec2((float)w, (float)h - topY));
     // Begin-false여도 End()는 반드시 호출(imgui.h 계약 — docs/53 §9 잔여).
     ImGui::Begin("##notetabs", nullptr,
                  ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove);

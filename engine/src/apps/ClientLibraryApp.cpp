@@ -249,8 +249,9 @@ void ClientLibraryApp::LaunchSelected() {
 }
 
 void ClientLibraryApp::BuildUi(int w, int h) {
-    // 서버 크롬이 상단 24pt를 먹는다(settings 레슨 8) — 본문은 y>=30부터.
-    const float topY = 30.0f;
+    // 서버 크롬이 상단 밴드를 먹는다(settings 레슨 8) — 본문은 밴드+여백 6부터
+    // (T3 fix r1: 고정 30 → 밴드 산식 진실원; s=1.0 등호 30).
+    const float topY = static_cast<float>(jk::text::AppContentTopOffset());
     const float bodyH = static_cast<float>(h) - topY;
     const float listW = 600.0f;   // 920 서피스 기준 좌 600 / 우 320
 

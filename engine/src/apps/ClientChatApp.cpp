@@ -217,8 +217,9 @@ void ClientChatApp::PollReplies() {
 }
 
 void ClientChatApp::BuildUi(int w, int h) {
-    // 서버 크롬이 상단 24pt를 먹는다(settings 레슨 8 — library 본문 동일).
-    const float topY = 30.0f;
+    // 서버 크롬이 상단 밴드를 먹는다(settings 레슨 8 — library 본문 동일).
+    // T3 fix r1: 고정 30 → 밴드 산식 진실원(밴드+여백 6; s=1.0 등호 30).
+    const float topY = static_cast<float>(jk::text::AppContentTopOffset());
     const float inputH = 50.0f;   // 입력 1행 + 전송 버튼 + 상태 행
     const float transH = static_cast<float>(h) - topY - inputH;
 

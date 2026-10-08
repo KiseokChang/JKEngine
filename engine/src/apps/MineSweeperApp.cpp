@@ -8,6 +8,7 @@
 #include <JKMessageBox.h>
 #include <JKResourceCache.h>
 #include <JKSoundManager.h>
+#include <JKTextAtlas.h>   // ChromeTitleBarHeight (T3 fix r1 — 밴드 산식 진실원)
 #include <JKStatic.h>
 #include <JKWindow.h>
 #include <JKTypes.h>
@@ -958,7 +959,10 @@ public:
         // 맞는다.
         int w = std::max(kMinWindowWidth, kMargin * 2 + 4 + game.GetCols() * kCellSize);
         int clientH = kButtonAreaHeight + kMargin + game.GetRows() * kCellSize + kMargin;
-        int h = clientH + 24 + 2;
+        // 밴드 24 고정 리터럴 → 타이틀 밴드 산식 진실원(T3 fix r1 — 리뷰
+        // Important I-1). s=1.0에서 산식=24 항등(Windows 무변), posix 1.5에서
+        // 32로 커져 자기 리사이즈가 밴드를 정확히 예약한다(+2는 하단 테두리).
+        int h = clientH + jk::text::ChromeTitleBarHeight() + 2;
         // 클라 프로세스 배치(docs/28)는 서버가 표면 지오메트리의 진실원 —
         // 로컬 SetWindowRect는 내부 창만 커져 표면 밖으로 그려진다(2026-10-05
         // 사용자 보고: B/I/E 전환 오버플로우, 수동 리사이즈로만 회복).

@@ -879,11 +879,13 @@ void ClientBrowserApp::BuildUi(int w, int h) {
     ImGui::PopStyleVar();
     ImGui::End();
 
-    // URL bar row. The server reserves the top 24pt of every surface as
-    // window chrome — clicks there never reach this app, so the row starts
-    // at y=30 (docs/23 §11 app idiom).
-    ImGui::SetNextWindowPos(ImVec2(0, 30));
-    ImGui::SetNextWindowSize(ImVec2((float)w, (float)(pageY_ - 30)));
+    // URL bar row. The server reserves the top title band of every surface
+    // as window chrome — clicks there never reach this app, so the row
+    // starts below the band + 6px margin (docs/23 §11 app idiom; T3 fix r1:
+    // 고정 30 → 밴드 산식 진실원, s=1.0 등호 30).
+    const int topY = jk::text::AppContentTopOffset();
+    ImGui::SetNextWindowPos(ImVec2(0, (float)topY));
+    ImGui::SetNextWindowSize(ImVec2((float)w, (float)(pageY_ - topY)));
     const ImGuiWindowFlags barFlags =
         ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
         ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar;

@@ -147,6 +147,24 @@ inline int ChromeTitleBarHeight() {
     return ComputeChromeTitleBarHeight(GetCellMetrics().cellH);
 }
 
+// 앱 본문 상단 오프셋 순수 산식 (T3 fix r1 — 리뷰 Important I-2): ImGui 클라
+// 앱 9곳(AgentMgr/Browser/Chat/Files/Library/Notes/Settings/Shot/VPlayer)의
+// 고정 topY=30은 "밴드 24 + 본문 여백 6"(원문 주석 레슨 8 "서버 크롬이 상단
+// 24pt를 먹는다 — y>=30부터")의 분해 — 그래서 밴드 산식 위에 여백 6px를
+// 별도 상수로 얹는다(둘을 합쳐 재분해하지 않는다 — s=1.0 항등 보존: 밴드
+// 산식이 24 등호이므로 오프셋도 24+6=30 등호, Windows 무변). posix 기본
+// 1.5(밴드 32)에서는 38로 커져 본문이 밴드와 겹치지 않는다(I-2 상단
+// 사각지대 해소). 순수 함수 — selftest 쌍둥이가 어댑터 축에서 단정.
+inline int ComputeAppContentTopOffset(int cellH) {
+    constexpr int kContentTopMargin = 6;  // 밴드 아래 여백 (topY 30 − 밴드 24)
+    return ComputeChromeTitleBarHeight(cellH) + kContentTopMargin;
+}
+
+// 적용 진실원 — GetCellMetrics 소비(밴드 산식과 같은 재시작 적용 계약).
+inline int AppContentTopOffset() {
+    return ComputeAppContentTopOffset(GetCellMetrics().cellH);
+}
+
 } // namespace text
 
 class JKTextAtlas {
