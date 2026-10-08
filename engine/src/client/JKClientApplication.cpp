@@ -750,6 +750,19 @@ void JKClientApplication::ComposeScene() {
     auto cmdList = std::make_unique<JKRenderCommandList>();
     JKDC dc(cmdList.get());
     dc.SetHangulManager(hangulManager_.get());
+    // 결선 수리 (T2 — 스펙 2026-10-09-phone-text-scale, T1 원장 §결론 후보 ⑤
+    // 정단): 실제 그리기 dc는 이 지역 인스턴스다. Init의 dc_.SetTextAtlas는
+    // 그리기에 한 번도 쓰이지 않는 죽은 배선(멤버 dc_는 존재만)이었고, 그려진
+    // 글리프는 DrawGlyph 진입 불가 → 비트맵 폴백(T1 원장 §결선 지점 1 — legC
+    // 동형 3행 배선 실험에서 벡터 전환 영수증). 서버 배너(desktop shell 툴팁
+    // 포함)의 정착 배선과 같은 가드 조건으로 이곳을 결선한다. 텍스처 라이프
+    // 사이클: flush는 compose 전(RenderAndCommit)이라 EnsureGlyph가 compose 중
+    // 만든 pending은 다음 프레임에 실사용 — 첫 프레임 blit은 조용한 no-op,
+    // 프레임 2부터 벡터(컨트롤러 룰링: 1프레임 ≤16ms 블랭크 글리프 수용 —
+    // fail-safe, 다음 프레임 자기 수복).
+    if (textAtlas_ && textAtlas_->IsLoaded() && resourceCache_) {
+        dc.SetTextAtlas(textAtlas_.get(), resourceCache_.get());
+    }
 
     const auto& t = jk::theme::current();
     if (WantsTransparentSurface()) {

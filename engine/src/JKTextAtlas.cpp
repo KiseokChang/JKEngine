@@ -120,38 +120,27 @@ std::string text::ResolveDesktopFallbackPath() {
     return std::string();
 }
 
-jk::text::CellMetrics jk::text::ComputeCellMetrics(float s) {
-    // 허용 범위 [1.0, 3.0] 클램프 — settings_set 파싱 단계가 정문 게이트
-    // (범위 밖은 bad_value 거부)이고 이 함수는 방어선. 하한 클램프 덕에
-    // 0.5 같은 입력도 기본 셀 {8,16,16}으로 수렴한다.
-    if (s < 1.0f) s = 1.0f;
-    if (s > 3.0f) s = 3.0f;
-    // hanW는 engW 유도(2×) — 독자 반올림(lround(16s))하면 소수 scale에서
-    // hanW ≠ 2×engW가 돼 JKEdit의 "쌍=2셀×engW" 매핑이 셀당 최대 1px
-    // 표류했다(docs/65 O4). 셀 모델의 진실은 "KSSM 쌍 = eng 셀 2개"다.
-    // (주의: CellMetrics 필드 순서는 {engW, hanW, cellH} — hanW 슬롯에
-    // 높이를 넣지 않도록 초기자 순서를 지킨다.)
-    const int engW = std::max(4, static_cast<int>(std::lround(8.0f * s)));
-    return CellMetrics{
-        engW,
-        2 * engW,
-        std::max(8, static_cast<int>(std::lround(16.0f * s))),
-    };
-}
+// ComputeCellMetrics 본체는 헤더 inline으로 옮겨졌다 (T2, 2026-10-09-phone-
+// text-scale — posix selftest 쌍둥이가 g++ 직링크로 이 순수 부품을 단정; 산출식
+// 원문 그대로 이동). 이 cpp에는 settings를 소비하는 GetCellMetrics만 남는다.
 
 const jk::text::CellMetrics& jk::text::GetCellMetrics() {
     // 함수 로컬 static — C++11 스레드 안전 초기화, **프로세스당 1회** 산출.
     // MeasureText가 static이라 모든 텍스트 경로(MeasureText/TextOut/위젯)가
     // 이 경유하며, 설정 반영 시점은 재시작(스펙: text.font_scale 옵트인).
     static const CellMetrics m = []() -> CellMetrics {
-        float s = 1.0f;   // 미설정/파싱 실패/범위 밖 = 기본 1.0 (기각, 픽셀동일)
+        // 미설정/파싱 실패/범위 밖 = 소자 기본 배율 (컴파일타임 플랫폼 상수:
+        // Win 1.0 픽셀동일 승계 · posix 1.5 — 스펙 2026-10-09-phone-text-scale
+        // 사용자 확정. 이전까지의 1.0 전면 기각은 posix 클라 글리프 비트맵
+        // 고정 결함의 배경 — T1 원장 §결론 후보 ⑤).
+        float s = jk::text::DefaultFontScale();
         if (auto json = LoadDesktopSettingsJson()) {
             std::string v;
             if (json->GetObjStr("text", "font_scale", v) && !v.empty()) {
                 char* end = nullptr;
                 const double d = std::strtod(v.c_str(), &end);
                 // 전체 소비 + 숫자 + 허용 범위만 수용 — "1.5x"·"-2"·"abc"류는
-                // 전부 기각해 기본 1.0(비트맵 셀)으로 폴백한다.
+                // 전부 기각해 기본 배율(DefaultFontScale)로 폴백한다.
                 if (end != v.c_str() && *end == '\0' && d >= 1.0 && d <= 3.0) {
                     s = static_cast<float>(d);
                 }

@@ -15,6 +15,8 @@
 struct stbtt_fontinfo;
 
 #include <JKTypes.h>
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -47,12 +49,14 @@ std::string ResolveDesktopFallbackPath();
 // 디렉터리를 못 걷는 손상 데이터는 true(보수적 거부)로 둔다.
 bool SfntFaceHasCff(const uint8_t* data, size_t size, int faceOffset);
 
-// 셀 메트릭 진실원 (docs/63 §6 text.font_scale, 옵트인 셀 확대). 기본
-// scale 1.0 = 비트맵 셀과 동일 {8, 16, 16} — 기존 레이아웃·프로브 픽셀동일.
+// 셀 메트릭 진실원 (docs/63 §6 text.font_scale, 옵트인 셀 확대). scale 1.0 =
+// 비트맵 8x16/16x16 격자와 동일 {8, 16, 16}; 미설정 소자 기본은
+// DefaultFontScale()(Win 1.0 — 기존 픽셀동일 계약 승계, posix 1.5 — 스펙
+// 2026-10-09-phone-text-scale 사용자 확정).
 struct CellMetrics {
-    int engW;   // ASCII 셀 폭 (기본 8)
-    int hanW;   // KSSM 2바이트 쌍 셀 폭 (기본 16)
-    int cellH;  // 셀 높이 (기본 16)
+    int engW;   // ASCII 셀 폭 (scale 1.0 = 8)
+    int hanW;   // KSSM 2바이트 쌍 셀 폭 (scale 1.0 = 16)
+    int cellH;  // 셀 높이 (scale 1.0 = 16)
 };
 
 // 순수 산출 함수 (프로브 단정용 — 설정 파싱 개입 없음). 산출식:
@@ -60,7 +64,51 @@ struct CellMetrics {
 // 독자 반올림 hanW≠2×engW가 JKEdit 쌍 매핑 1px 표류), cellH=max(8, round(16*s)).
 // s는 허용 범위 [1.0, 3.0]으로 클램프한다(파싱 단계의 범위 검사가 정문 게이트 —
 // 여기는 방어선 클램프로, 0.5 같은 하한 미달 입력도 {8,16,16}로 수렴).
-CellMetrics ComputeCellMetrics(float s);
+// 헤더 inline으로 옮긴 이유 (T2, 2026-10-09-phone-text-scale): posix selftest
+// 쌍둥이(tools/posix_selftest)가 g++ 직링크다 — STB 구현 정의+JKResourceCache
+// 링크 체인을 안 얹어도 이 순수 부품을 어댑터 축에서 단정하기 위해. 산출식은
+// JKTextAtlas.cpp에서 이동한 원문 그대로.
+inline CellMetrics ComputeCellMetrics(float s) {
+    if (s < 1.0f) s = 1.0f;
+    if (s > 3.0f) s = 3.0f;
+    // hanW는 engW 유도(2×) — 독자 반올림(lround(16s))하면 소수 scale에서
+    // hanW ≠ 2×engW가 돼 JKEdit의 "쌍=2셀×engW" 매핑이 셀당 최대 1px
+    // 표류했다(docs/65 O4). 셀 모델의 진실은 "KSSM 쌍 = eng 셀 2개"다.
+    // (주의: CellMetrics 필드 순서는 {engW, hanW, cellH} — hanW 슬롯에
+    // 높이를 넣지 않도록 초기자 순서를 지킨다.)
+    const int engW = std::max(4, static_cast<int>(std::lround(8.0f * s)));
+    return CellMetrics{
+        engW,
+        2 * engW,
+        std::max(8, static_cast<int>(std::lround(16.0f * s))),
+    };
+}
+
+// 설정 미도달(settings.json 키 부재/파싱 실패/범위 밖) 시의 소자 기본 배율 —
+// 컴파일타임 플랫폼 상수 (스펙 2026-10-09-phone-text-scale 사용자 확정 2026-
+// 10-09): Windows 1.0(docs/78 픽셀동일 계약 승계 — Windows 무변), 그 밖 축
+// (posix/WSL/폰)은 1.5. GetCellMetrics의 미설정 분기가 소비하고, selftest
+// 쌍둥이(2t 계열)가 이 상수로 플랫폼 기대값을 직접 단정한다.
+inline float DefaultFontScale() {
+#if defined(_WIN32)
+    return 1.0f;
+#else
+    return 1.5f;
+#endif
+}
+
+// 비트맵 폴백 확대 매핑 순수 헬퍼 (스펙 결정 — 폴백 글리프 = 목표 셀 크기
+// nearest 좌표 확대, 텍스처 신설 불요 · DC 픽셀 드로잉 경로 유지): 목표 셀
+// 좌표 dstIdx ∈ [0, dstSpan)이 소스 비트맵의 어느 행/열 샘플을 복사할지
+// 잠가준다 — src = min(dstIdx*srcSpan/dstSpan, srcSpan-1). 성질:
+// srcSpan==dstSpan이면 **항등**(dstIdx 그대로 — 확대 배율 1.0의 Windows
+// 픽셀동일 단정 산치), dstSpan이 커지면 소스 전체가 목표 셀을 nearest
+// 격자로 채운다. 병적 입력(dstSpan<1, 음수 등)은 방어적으로 첫 샘플 0.
+inline int StretchNearestIndex(int dstIdx, int srcSpan, int dstSpan) {
+    if (dstIdx <= 0 || dstSpan <= 0 || srcSpan <= 0) return 0;
+    const int src = dstIdx * srcSpan / dstSpan;
+    return src >= srcSpan ? srcSpan - 1 : src;
+}
 
 // 설정 진실원: settings.json `text.font_scale`(문자열 float)을 **직독**해
 // 산출한다(ResolveDesktopFontPath의 settings 직독 선례). 함수 로컬 static —

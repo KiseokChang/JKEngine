@@ -470,6 +470,16 @@ void JKApplication::ComposeScene() {
     auto cmdList = std::make_unique<JKRenderCommandList>();
     JKDC dc(cmdList.get());
     dc.SetHangulManager(hangulManager_.get());
+    // 결선 수리 (T2 — 클라 ComposeScene과 동형 죽은 배선: 스펙 2026-10-09-
+    // phone-text-scale, T1 원장 §결선 지점 1·컨트롤러 룰링 둘 다 수리): 실제
+    // 그리기 dc는 이 지역 인스턴스 — Init의 dc_.SetTextAtlas(:138)는 그리기에
+    // 쓰이지 않는 죽은 배선이었다. 같은 가드로 결선. flush는 렌더 스레드가
+    // replay 전에 한다(JKRenderThread) — EnsureGlyph가 compose 중 만든 pending
+    // 은 다음 프레임에 실사용: 첫 프레임 blit은 조용한 no-op, 프레임 2부터 벡터
+    // (컨트롤러 룰링: 1프레임 ≤16ms 블랭크 글리프 수용 — fail-safe 자기 수복).
+    if (textAtlas_ && textAtlas_->IsLoaded() && resourceCache_) {
+        dc.SetTextAtlas(textAtlas_.get(), resourceCache_.get());
+    }
 
     // Desktop background.
     dc.SetColor(jk::theme::current().appClearBg.r,

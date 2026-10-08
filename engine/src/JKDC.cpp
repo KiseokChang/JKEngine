@@ -6,17 +6,37 @@
 #include <JKTextAtlas.h>
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 
 namespace jk {
 
 namespace {
-// 셀 메트릭 진실원 (docs/63 §6 text.font_scale): 기본 1.0 = 비트맵 셀과 동일
-// {8, 16, 16}. MeasureText가 static이라 정적 진실원
-// (jk::text::CellMetrics — 함수 로컬 static, 프로세스당 1회)을 경유한다.
-// 비트맵 글리프 내부(PutEngGlyph8x8/8x16·PutHanGlyph16x16의 픽셀 오프셋)와
-// 비트맵 폴백 고정 크기(EngPutCh/HanPutCh 폴백의 8x16/16x16)는 폰트 메트릭이
-// 아니라 그대로 둔다.
+// 셀 메트릭 진실원 (docs/63 §6 text.font_scale): 미설정 기본은
+// text::DefaultFontScale()(Win 1.0 = 비트맵 셀과 동일 {8,16,16} — 픽셀동일
+// 계약 승계, posix 1.5 = 스펙 2026-10-09-phone-text-scale 사용자 확정).
+// MeasureText가 static이라 정적 진실원(jk::text::CellMetrics — 함수 로컬
+// static, 프로세스당 1회)을 경유한다.
+
+// 스펙 결정 4 (2026-10-09-phone-text-scale) — 비계측 폴백의 가시화: 아틀라스
+// 미장착 dc가 비트맵 폴백을 그리기 시작하는 **첫 시점 1회**(프로세스당 static —
+// DrawGlyph 실패→폴백 반복 중 중복 인쇄 금지). 원인 단서: 이 라인은 "이 dc에는
+// 아틀라스가 장착되지 않았다"는 것만 말한다(설정 미도달/Init 실패의 근원은
+// 호스트의 vector font Init 경고 1줄이 이미 남긴다 — T1 원장 §결론 ①③의
+// 기존 진단 설비 재용). T1 결함의 결함의 일부였던 "경고가 조용히 죽음"의
+// 재발 방지 — 새 dc 그리기 지점이 결선을 빼먹으면 1줄로 보인다.
+void WarnVectorAtlasInactiveOnce() {
+    static bool warned = false;
+    if (warned) return;
+    warned = true;
+    const float fscale =
+        static_cast<float>(jk::text::GetCellMetrics().engW) / 8.0f;
+    std::fprintf(stderr,
+                 "Warning: vector atlas inactive; drawing stretched bitmap "
+                 "glyphs (font_scale=%.2f, atlas not attached)\n",
+                 fscale);
+    std::fflush(stderr);
+}
 } // namespace
 
 JKDC::JKDC(JKRenderBackend* backend) : backend_(backend) {
@@ -141,11 +161,23 @@ void JKDC::PutEngGlyph8x8(JKPoint p, uint8_t ch) {
     p.y = static_cast<int32_t>(std::llround(static_cast<double>(p.y)));
     const uint8_t* glyph = FONT_8X8[ch & 0x7f];
     SetColor(textR_, textG_, textB_, 255);
-    for (int32_t row = 0; row < 8; ++row) {
-        uint8_t bits = glyph[row];
-        for (int32_t col = 0; col < 8; ++col) {
+    // 비트맵 폴백 확대 (스펙 2026-10-09-phone-text-scale 결정): 고정 8x8 픽셀
+    // 드로잉 대신 목표 셀(engW × 세로 밴드)로 nearest 좌표 매핑 확대 —
+    // StretchNearestIndex(JKTextAtlas.h)를 그대로 소비, 텍스처 신설 불요.
+    // 소스 8행은 기본 셀 16의 절반(위쪽 절반)이므로 세로 밴드 = cellH/2 —
+    // s=1.0에서 cellH=16·engW=8 → 매핑 항등(기존 픽셀과 정확히 동일),
+    // s>1이면 글리프도 셀과 함께 1.5배가 된다(posix 기본 1.5의 목표 상태).
+    const text::CellMetrics m = text::GetCellMetrics();
+    const int32_t bandH = m.cellH / 2;
+    for (int32_t row = 0; row < bandH; ++row) {
+        const int srcRow = text::StretchNearestIndex(static_cast<int>(row),
+                                                     8, static_cast<int>(bandH));
+        uint8_t bits = glyph[srcRow];
+        for (int32_t col = 0; col < m.engW; ++col) {
             // font8x8: LSB is the leftmost pixel.
-            if ((bits >> col) & 1) {
+            const int srcCol = text::StretchNearestIndex(
+                static_cast<int>(col), 8, static_cast<int>(m.engW));
+            if ((bits >> srcCol) & 1) {
                 DrawPixel(p.x + col, p.y + row);
             }
         }
@@ -157,11 +189,18 @@ void JKDC::PutEngGlyph8x16(JKPoint p, const uint8_t* image) {
     p.x = static_cast<int32_t>(std::llround(static_cast<double>(p.x)));
     p.y = static_cast<int32_t>(std::llround(static_cast<double>(p.y)));
     SetColor(textR_, textG_, textB_, 255);
-    for (int32_t row = 0; row < 16; ++row) {
-        uint8_t bits = image[row];
-        for (int32_t col = 0; col < 8; ++col) {
+    // 비트맵 폴백 확대 (스펙 2026-10-09-phone-text-scale 결정): 8x16 소스 →
+    // 목표 셀 engW × cellH nearest 확대. s=1.0에서 매핑 항등(기존 픽셀 동일).
+    const text::CellMetrics m = text::GetCellMetrics();
+    for (int32_t row = 0; row < m.cellH; ++row) {
+        const int srcRow = text::StretchNearestIndex(
+            static_cast<int>(row), 16, static_cast<int>(m.cellH));
+        uint8_t bits = image[srcRow];
+        for (int32_t col = 0; col < m.engW; ++col) {
             // english.fnt: MSB is the leftmost pixel.
-            if ((bits >> (7 - col)) & 1) {
+            const int srcCol = text::StretchNearestIndex(
+                static_cast<int>(col), 8, static_cast<int>(m.engW));
+            if ((bits >> (7 - srcCol)) & 1) {
                 DrawPixel(p.x + col, p.y + row);
             }
         }
@@ -173,17 +212,24 @@ void JKDC::PutHanGlyph16x16(JKPoint p, const uint8_t* buffer) {
     p.x = static_cast<int32_t>(std::llround(static_cast<double>(p.x)));
     p.y = static_cast<int32_t>(std::llround(static_cast<double>(p.y)));
     SetColor(textR_, textG_, textB_, 255);
-    for (int32_t row = 0; row < 16; ++row) {
-        uint8_t left  = buffer[row * 2];
-        uint8_t right = buffer[row * 2 + 1];
-        for (int32_t col = 0; col < 8; ++col) {
-            if ((left >> (7 - col)) & 1) {
+    // 비트맵 폴백 확대 (스펙 2026-10-09-phone-text-scale 결정): 16x16 소스 →
+    // 목표 셀 hanW × cellH nearest 확대. s=1.0에서 매핑 항등(기존 픽셀 동일).
+    // KSSM 쌍은 반올림 좌표에서 4/9px 오차(8→15px 등 홀수 폭)를 허용한다 —
+    // 비트맵 폴백 한계(스펙 fail-safe 명시; 벡터 아틀라스가 정상 경로).
+    const text::CellMetrics m = text::GetCellMetrics();
+    for (int32_t row = 0; row < m.cellH; ++row) {
+        const int srcRow = text::StretchNearestIndex(
+            static_cast<int>(row), 16, static_cast<int>(m.cellH));
+        uint8_t left  = buffer[srcRow * 2];
+        uint8_t right = buffer[srcRow * 2 + 1];
+        for (int32_t col = 0; col < m.hanW; ++col) {
+            const int srcCol = text::StretchNearestIndex(
+                static_cast<int>(col), 16, static_cast<int>(m.hanW));
+            // 소스 좌/우 바이트(8픽셀씩) — 원문이 col·8+col 두 루프로 찍던
+            // 16열을 하나의 전진 루프로 통합(srcCol&7 = 좌/우 소스 열).
+            const uint8_t bits = srcCol < 8 ? left : right;
+            if ((bits >> (7 - (srcCol & 7))) & 1) {
                 DrawPixel(p.x + col, p.y + row);
-            }
-        }
-        for (int32_t col = 0; col < 8; ++col) {
-            if ((right >> (7 - col)) & 1) {
-                DrawPixel(p.x + 8 + col, p.y + row);
             }
         }
     }
@@ -227,10 +273,15 @@ void JKDC::EngPutCh(JKPoint p, uint8_t ch) {
     // 아틀라스 우선 (docs/63) — 실패 시 기존 비트맵 경로 그대로. ASCII(ch<0x80)만
     // 블릿 — 잘린 KSSM 트레일 바이트(ch>=0x80)는 한글 셀 텍스처를 영문 dst로
     // 눌러 그리는 왜곡이 생기므로 비트맵 폴백으로 라우팅한다(최종리뷰 IMP-1).
-    // 전진 8은 셀 메트릭 engW(docs/63 §6) — 폰트 메트릭이다.
+    // 전진은 셀 메트릭 engW(docs/63 §6) — 폰트 메트릭이다.
     if (ch < 0x80 &&
         DrawGlyph(p, static_cast<uint32_t>(ch), text::GetCellMetrics().engW)) {
         return;
+    }
+    // 폴백 진입 가시화 (스펙 결정 4) — 아틀라스 미장착 dc의 비트맵 폴백은
+    // 1회만 경고(장착된 dc의 글리프 단위 폴백 — 미커버 cp — 진행은 정상 경로).
+    if (!textAtlas_ || !textCache_) {
+        WarnVectorAtlasInactiveOnce();
     }
     uint8_t image[16];
     if (fontMan_ && fontMan_->GetEnglishImage(image, ch)) {
@@ -247,17 +298,22 @@ void JKDC::HanPutCh(JKPoint p, uint8_t first, uint8_t second) {
     // Init 실패 등)이면 변환 없이 비트맵으로 곧장 — cp가 필요 없는 경로.
     if (textAtlas_ && textCache_) {
         const uint32_t cp = KssmCodepointToUnicode(first, second);
-        // 전진 16은 셀 메트릭 hanW(docs/63 §6) — 폰트 메트릭이다.
+        // 전진은 셀 메트릭 hanW(docs/63 §6) — 폰트 메트릭이다.
         if (cp != 0 && DrawGlyph(p, cp, text::GetCellMetrics().hanW)) return;
+    } else {
+        // 폴백 진입 가시화 (스펙 결정 4) — EngPutCh와 동일 1회 계약.
+        WarnVectorAtlasInactiveOnce();
     }
     uint8_t buffer[32];
     if (fontMan_ && fontMan_->GetWORDImage(buffer, first, second)) {
         PutHanGlyph16x16(p, buffer);
     } else {
         // Fallback: draw an empty rectangle for missing glyph data.
-        // (비트맵 폴백 경로 — 16x16은 비트맵 글리프 고정 크기라 스케일 안 함.)
-        SetColor(textR_, textG_, textB_, 255);
-        DrawRect(JKRect{ p.x, p.y, 16, 16 });
+        // (비트맵 폴백 경로 — 16x16 tofu 박스도 셀 크기로 nearest 확대한다.
+        // s=1.0에서 {16,16} = 셀 그대로 → 기존 픽셀 정확 동일, s>1이면 셀을
+        // 채운다(1.5 셀 속의 작은 박스가 되지 않도록 — 스펙 fail-safe 동향).)
+        const text::CellMetrics m = text::GetCellMetrics();
+        DrawRect(JKRect{ p.x, p.y, m.hanW, m.cellH });
     }
 }
 

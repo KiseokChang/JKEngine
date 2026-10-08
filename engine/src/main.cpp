@@ -4852,6 +4852,62 @@ static int RunAppSelfTest() {
         check(f2.IsFull(), "1p-8c 병합 총합 5000(=합집합) = full 전환(중첩 없음)");
     }
 
+    // 2t) 텍스트 배율 결선 산치 (T2 — 스펙 2026-10-09-phone-text-scale):
+    // posix에서 셀 기하만 커지고 글리프는 비트맵 고정이던 결함(T1 원장 §결론
+    // 후보 ⑤)의 수리 부품을 순수 부품으로 잠근다. SDL 렌더러 0. GetCellMetrics
+    // 는 settings.json을 exe-dir 직독하므로(환경 의존 — 엔진 런타임 진실원)
+    // 여기선 단정 금지: 쌍둥이는 ComputeCellMetrics(명시 스케일)과 소자 기본
+    // 상수(DefaultFontScale), 확대 매핑 헬퍼만 잠근다.
+    {
+        // 2t-a) ComputeCellMetrics(1.5f) 산술 — posix 소자 기본 배율의 셀
+        // 격자(hanW=2×engW 불변식 — docs/65 O4).
+        const jk::text::CellMetrics c15 = jk::text::ComputeCellMetrics(1.5f);
+        check(c15.engW == 12 && c15.hanW == 24 && c15.cellH == 24,
+              "2t-a ComputeCellMetrics(1.5) == {12,24,24} (hanW=2×engW)");
+        // 2t-b) 미설정 기본 배율 플랫폼 단정 — DefaultFontScale은 컴파일타임
+        // 플랫폼 상수(스펙 사용자 확정: posix/WSL/폰 축 1.5, Win 축 1.0).
+        // 쌍둥이는 각자 기대 상수로 단정한다(하나의 케이스, 플랫폼별 진실).
+#if defined(_WIN32)
+        check(jk::text::DefaultFontScale() == 1.0f,
+              "2t-b Windows 미설정 기본 배율 = 1.0 (픽셀동일 계약 승계)");
+        const jk::text::CellMetrics cd =
+            jk::text::ComputeCellMetrics(jk::text::DefaultFontScale());
+        check(cd.engW == 8 && cd.hanW == 16 && cd.cellH == 16,
+              "2t-c Windows 미설정 셀 = 비트맵 격자 {8,16,16} (무변)");
+#else
+        check(jk::text::DefaultFontScale() == 1.5f,
+              "2t-b posix 미설정 기본 배율 = 1.5 (스펙 사용자 확정)");
+        const jk::text::CellMetrics cd =
+            jk::text::ComputeCellMetrics(jk::text::DefaultFontScale());
+        check(cd.engW == 12 && cd.hanW == 24 && cd.cellH == 24,
+              "2t-c posix 미설정 셀 = {12,24,24} (글리프도 함께 1.5)");
+#endif
+        // 2t-d) 확대 매핑 항등 — 소스 스팬 == 목표 스팬이면 모든 샘플이 자기
+        // 자신(Windows 폴백 픽셀동일 단정의 산치: s=1.0 셀 8x16/16x16에서
+        // srcW=8/16·srcH=8/16 → 매핑 항등).
+        check(jk::text::StretchNearestIndex(0, 8, 8) == 0 &&
+                  jk::text::StretchNearestIndex(7, 8, 8) == 7 &&
+                  jk::text::StretchNearestIndex(15, 16, 16) == 15,
+              "2t-d 확대 매핑 항등(스팬 동일 = 샘플 그대로, s=1.0 픽셀동일)");
+        // 2t-e) 1.5 확대 샘플: src 8 → dst 12 = idx*8/12; 세로 밴드 가교
+        // (8행 소스 ×1.5 → 24 — 8x8 폴백의 cellH/2 밴드 매핑).
+        check(jk::text::StretchNearestIndex(0, 8, 12) == 0 &&
+                  jk::text::StretchNearestIndex(3, 8, 12) == 2 &&
+                  jk::text::StretchNearestIndex(5, 8, 12) == 3 &&
+                  jk::text::StretchNearestIndex(11, 8, 12) == 7 &&
+                  jk::text::StretchNearestIndex(23, 8, 24) == 7,
+              "2t-e 1.5 확대 샘플 = idx*src/dst (nearest 격자)");
+        // 2t-f) 2.0 확대 샘플 + 병적 입력 방어선(0/1-스팬 수렴).
+        check(jk::text::StretchNearestIndex(0, 8, 16) == 0 &&
+                  jk::text::StretchNearestIndex(15, 8, 16) == 7 &&
+                  jk::text::StretchNearestIndex(1, 8, 1) == 7 &&
+                  jk::text::StretchNearestIndex(-1, 8, 8) == 0,
+              "2t-f 2.0 확대 샘플 + 병적 입력 첫 샘플 수렴(방어선)");
+        // KSSM 쌍 폴백은 반올림 좌표에서 4/9px 오차(8→15px 등 홀수 폭)를
+        // 허용한다 — 비트맵 폴백 한계(스펙 fail-safe 명시; 벡터 아틀라스가
+        // 정상 경로). 단정치 않고 수용 계약만 여기에 기록한다.
+    }
+
     std::printf("AppSelfTest: %d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;
 }
