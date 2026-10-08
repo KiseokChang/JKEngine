@@ -326,6 +326,11 @@
   rect 부분 present**(SDL_UpdateWindowSurfaceRects 또는 X11 직접 경로)가
   필요. 렌더러 백버퍼는 윈도우 서피스와 분리돼 있어 "렌더→부분 blit→
   부분 업로드" 재구성이 필요 — 별도 과제.
+  **후속: 더티프레젠트 라인 착지 — as-built docs/85(2026-10-08)**. 부분
+  경로 폰 실발화(면적 86% 절감)에도 present 71.20→68.58ms=4%뿐 — 폰 70ms는
+  rect 크기 무관 **per-present X11 업로드 고정비** 지배로 판명. 폰 idle
+  34.4→23.3%(조성 차)의 남은 몫 = X11 업로드 고정비 — **다음 소등 후보
+  별도 과제(docs/85 §4 D1)**.
 - **함정 원장**: fit-scale 레이어(1920x1080 surface 축소 표시)는 SW
   렌더러에서 선형 필터(SDL_ScaleModeLinear)가 무시될 우려 — 폰 레이어는
   전부 1:1이라 실측 무영향. 폰에서 fit-scale 앱(대형 surface 창) 쓸 때
