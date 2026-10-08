@@ -57,10 +57,11 @@
 #
 # 실행법(윈도 Git Bash, 저장소 루트 어디서든):
 #   PHONE_HOST=<폰 IP> bash engine/tools/probes/phone_text_scale.sh
-# PHONE_HOST unset이면 내부 대역(192.168.11/219 — 대역 표기만 유지) TCP 8022
-# 스캔 1회 — 히트가 1건뿐이면 그 호스트를 쓴다(단, 어떤 파일/로그/커밋에도
-# IPv4 리터럴을 두지 않는다 — 히트 수만 인쇄). PHONE_PORT PHONE_USER
-# PHONE_KEY PHONE_DISPLAY만 기본값. 풀 로그: engine/tmp/ptx_driver.log(tee).
+# **PHONE_HOST 필수 가드(fail-closed)** — unset이면 스캔 폴백 없이 즉시 FAIL
+# (동일일 레닥션 697db8b "phone probes는 PHONE_HOST 필수" 계약 — 형제 probe
+# phone_text_scale_ab.sh 전례; LAN 스캔 폴백·대역 리터럴은 T4 fix r1에서 제거).
+# 어떤 파일/로그/커밋에도 IPv4 리터럴·대역 표기를 두지 않는다. PHONE_PORT
+# PHONE_USER PHONE_KEY PHONE_DISPLAY만 기본값. 풀 로그: engine/tmp/ptx_driver.log(tee).
 #
 # 함정 원장(승계+신규):
 #   · 원격 스크립트는 scp 후 파일 기동 — ssh argv(heredoc)에 jkdesktop·jksrv
@@ -93,8 +94,9 @@ RUNLOG="$SCRATCH/ptx_phone_run.log"
 RSRC_TAR_NAME="ptx_phone_remote.sh"
 RSRC_PHONE="~/JKENGINE/$RSRC_TAR_NAME"   # 폰 측 삭제는 remote script 자기 소각
 
-# 접속 정보는 환경변수로(PHONE_HOST 미설정이면 LAN 스캔 — 스캔 히트 IP는
-# 인쇄/기록하지 않는다: 내부 IP는 커밋·문서·리포트·로그에 두지 않는다).
+# 접속 정보는 환경변수로(기록 금지 계약 — 내부 IP는 커밋·문서·리포트·로그에
+# 두지 않는다). PHONE_HOST는 필수 — 미설정이면 fail-closed로 즉시 FAIL
+# (697db8b "phone probes는 PHONE_HOST 필수" 계약 — 스캔 폴백 없음, T4 fix r1).
 PHONE_HOST="${PHONE_HOST:-}"
 PHONE_PORT="${PHONE_PORT:-8022}"
 PHONE_USER="${PHONE_USER:-u0_a4}"
@@ -105,41 +107,13 @@ PHONE_DISPLAY="${PHONE_DISPLAY:-:1}"
 exec > >(tee "$RLOG") 2>&1
 
 FAIL() { echo "TS-PHONE-FAIL: $*"; exit 1; }
-
+if [ -z "$PHONE_HOST" ]; then
+  echo "TS-PHONE-FAIL: PHONE_HOST not set — 기록 금지 계약상 기본값·스캔 폴백 없음 (환경변수로 폰 호스트를 지정)"
+  exit 1
+fi
+echo "PHONE-HOST: 환경변수 지정 사용 (스캔 폴백 없음 — fail-closed 가드)"
 echo "HEAD: $(git -C "$(cygpath -w "$ROOT" 2>/dev/null || echo "$ROOT")" rev-parse HEAD 2>/dev/null || echo rev-parse-failed)"
 echo "BASE LINEAGE: 24d22a1..b651534 (T2 58861c3 + T3 8563263 + T3 fix r1 b651534)"
-
-if [ -z "$PHONE_HOST" ]; then
-  echo "=== 0a. PHONE_HOST unset — LAN 8022 스캔 (히트 IP는 인쇄하지 않는다) ==="
-  SCANOUT=$(
-    for b in 11 219; do
-      for i in $(seq 2 240); do
-        ( timeout 1 bash -c "echo > /dev/tcp/192.168.$b.$i/$PHONE_PORT" 2>/dev/null \
-            && echo "H 192.168.$b.$i" ) &
-        while [ "$(jobs -rp | wc -l | tr -d ' ')" -ge 48 ]; do wait -n; done
-      done
-    done
-    wait
-  )
-  HITSEL=""
-  HIT_COUNT=0
-  for h in $SCANOUT; do
-    [ "$h" = "H" ] && continue
-    HITSEL="$HITSEL $h"
-    HIT_COUNT=$((HIT_COUNT+1))
-  done
-  echo "LAN-SCAN: open $PHONE_PORT hits=$HIT_COUNT (주소 원문은 기록 금지 계약 — 인쇄 생략)"
-  if [ "$HIT_COUNT" -eq 1 ]; then
-    PHONE_HOST=$HITSEL
-    echo "PHONE-HOST: 스캔 히트 1건 — 단일 후보로 진행 (다음 run은 환경변수 지정 권장)"
-  elif [ "$HIT_COUNT" -eq 0 ]; then
-    FAIL "LAN 스캔 히트 0 — 폰 Termux에서 sshd 기동 확인 또는 PHONE_HOST 지정"
-  else
-    FAIL "LAN 스캔 히트 $HIT_COUNT건 — 어느 것이 폰인지 스크립트가 판단할 수 없다: PHONE_HOST 환경변수로 지정"
-  fi
-else
-  echo "PHONE-HOST: 환경변수 지정 사용 (스캔 생략)"
-fi
 SSH="ssh -p $PHONE_PORT -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=10 -i $PHONE_KEY $PHONE_USER@$PHONE_HOST"
 
 # ── 배포 원천: 텍스트 스케일 라인(24d22a1..b651534)이 건드린 소스 전량 —
