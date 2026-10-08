@@ -274,7 +274,13 @@ private:
     // 배너 텍스트를 크롬 타이틀과 동일한 비트맵 글리프 경로(Utf8ToKssm → JKDC
     // 한글/영문 폰트)로 한 번 레스터라이즈해 캐시한다(성공만 캐시 — 실패는
     // null 엔트리로 기록해 매 프레임 재시도를 막는다). w/h는 글리프 픽셀 크기.
+    // 3인자형은 키를 내부 조립; 4인자형(T3 re-review M4, park-batch)은 draw
+    // 패스가 사전조립한 캐시 키를 소비해 프레임당 키 조립 1회를 만든다 — 키의
+    // 단일 진실원은 BannerCacheKey(JKWindowServer.cpp).
     SDL_Texture* ApprovalBannerTexture(const std::string& bannerUtf8,
+                                       int& w, int& h);
+    SDL_Texture* ApprovalBannerTexture(const std::string& bannerUtf8,
+                                       const std::string& cacheKey,
                                        int& w, int& h);
     void CleanupDisconnectedClients();
     void UnblockAcceptor();

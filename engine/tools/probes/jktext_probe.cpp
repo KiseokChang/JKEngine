@@ -5,7 +5,8 @@
 // T9: 글리프 텍스처 상한+LRU 폐기 (docs/63 §6, 2단계 Task 1) + T9(c) LRU≠FIFO.
 // T10: 보조 폰트 체인 — 미커버 cp 승계+캐시 키 접두어 분리 (2단계 Task 2).
 // T6-T8: JKDC 배선 — 아틀라스 우선/비트맵 폴백/메트릭 불변 (Task 3).
-// T11: 셀 메트릭 진실원 — ComputeCellMetrics 산출식+클램프, 기본 1.0 (Task 3).
+// T11: 셀 메트릭 진실원 — ComputeCellMetrics 산출식+클램프, 미설정 기본 =
+// 플랫폼 기본 배율(DefaultFontScale — Win 1.0/posix 1.5, T2 승계) (Task 3).
 #include <JKHangulUtil.h>
 #include <JKTextAtlas.h>
 #include <JKResourceCache.h>
@@ -325,10 +326,14 @@ int main() {
         dc.TextOut(JKPoint{10, 10}, Utf8ToKssm("가A").c_str());
         CHECK(be.blits.size() == 2, "T6 two glyph blits");
         if (be.blits.size() == 2) {
-            CHECK(be.blits[0].dst.w == 16 && be.blits[0].dst.h == 16,
-                  "T6 wide glyph cell 16x16");
-            CHECK(be.blits[1].dst.w == 8 && be.blits[1].dst.h == 16,
-                  "T6 ascii glyph cell 8x16");
+            // (park-batch) blit dst는 live 셀 진실원(GetCellMetrics)을 따른다 —
+            // 구 하드 {16,16}/{8,16}은 posix 1.5에서 스테일{24,24}/{12,24}.
+            // s=1.0(Windows)에서 live={8,16,16}이라 수치 등호(무변).
+            const text::CellMetrics live6 = text::GetCellMetrics();
+            CHECK(be.blits[0].dst.w == live6.hanW && be.blits[0].dst.h == live6.cellH,
+                  "T6 wide glyph blit = live cell {hanW,cellH}");
+            CHECK(be.blits[1].dst.w == live6.engW && be.blits[1].dst.h == live6.cellH,
+                  "T6 ascii glyph blit = live cell {engW,cellH}");
         }
         CHECK(be.drawPixels < 10, "T6 no bitmap pixel storm");
         CHECK(a2.GlyphSrc(0x336699, 0xAC00).w == 16, "T6 fg baked key");
@@ -342,16 +347,23 @@ int main() {
         CHECK(be.blits.empty(), "T7 no atlas -> no blits");
         CHECK(be.drawPixels > 0, "T7 bitmap path still active");
     }
-    // T8: MeasureText 불변 회귀 — KSSM 완성형 쌍 16px, ASCII 8px, 높이 16.
+    // T8: MeasureText 산치 회귀 — 규칙 불변(완성형 쌍 = hanW 전진, ASCII = engW,
+    // 높이 = cellH) — 수치는 live 진실원(GetCellMetrics) 경유. 구 하드 16/8/16은
+    // 1.0 시대 산치로 posix 1.5에서 스테일(park-batch 2026-10-09 축 갱신).
     {
         const std::string mixed = Utf8ToKssm("가나AB");
-        CHECK(JKDC::MeasureText(mixed.c_str()).x == 16 * 2 + 8 * 2,
-              "T8 metrics unchanged");
-        CHECK(JKDC::MeasureText(mixed.c_str()).y == 16, "T8 cell height 16");
+        const text::CellMetrics m8 = text::GetCellMetrics();
+        CHECK(JKDC::MeasureText(mixed.c_str()).x == m8.hanW * 2 + m8.engW * 2,
+              "T8 metric rule: pair=hanW, ascii=engW (live metrics)");
+        CHECK(JKDC::MeasureText(mixed.c_str()).y == m8.cellH,
+              "T8 cell height follows live cellH");
     }
     // T11: 셀 메트릭 진실원 (docs/63 §6 Task 3, text.font_scale 옵트인).
     // (a) 순수 산출 함수 단정 — 설정 개입 없음. (b) 기본 경유 — 이 프로브 exe
-    // 옆 tools/probes/state\settings.json이 없어 font_scale 미설정 = 1.0.
+    // 옆 tools/probes/state/settings.json이 없어 font_scale 미설정 =
+    // DefaultFontScale(플랫폼 기본 — Win 1.0/posix 1.5; (b) 기대값은 축별).
+    // (park-batch 2026-10-09: T2 리뷰 Minor — 구 기대 {8,16,16}은 posix 1.5
+    // 승격 이전(1.0 시대) 산치로 posix 축 스테일이었다.)
     {
         using jk::text::ComputeCellMetrics;
         const jk::text::CellMetrics c10 = ComputeCellMetrics(1.0f);
@@ -370,8 +382,16 @@ int main() {
         CHECK(cHi.engW == 24 && cHi.hanW == 48 && cHi.cellH == 48,
               "T11(a) ComputeCellMetrics(99) == 상한 클램프 {24,48,48}");
         const jk::text::CellMetrics& live = jk::text::GetCellMetrics();
+#if defined(_WIN32)
+        // Windows: 미설정 기본 1.0 = 비트맵 셀 {8,16,16} (픽셀동일 승계).
         CHECK(live.engW == 8 && live.hanW == 16 && live.cellH == 16,
-              "T11(b) GetCellMetrics() 미설정 기본 {8,16,16}");
+              "T11(b) GetCellMetrics() 미설정 기본 {8,16,16} (Win 1.0)");
+#else
+        // posix: 미설정 기본 1.5 = {12,24,24} (스펙 2026-10-09-phone-text-scale
+        // — T2 이후 계보; 구 기대 {8,16,16}은 1.0 시대 산치였다 — park-batch).
+        CHECK(live.engW == 12 && live.hanW == 24 && live.cellH == 24,
+              "T11(b) GetCellMetrics() 미설정 기본 {12,24,24} (posix 1.5)");
+#endif
         // (c) fractional 불변식(docs/65 O4): hanW는 engW 유도(2×) — 독자
         // 반올림이던 옛 산출식은 1.2에서 hanW=19 vs 2×engW=20으로 어긋나
         // JKEdit 쌍 매핑이 셀당 최대 1px 표류했다. 정수·비정수 전역 단정.
@@ -388,8 +408,10 @@ int main() {
 
     // T12: 기호 행 왕복(docs/65 O5) — KS X 1001 A1-A2 기호(■□●◆)는 조합형과
     // 바이트 동일이라 Utf8ToKssm이 등가 매핑한다. 옛 코드는 A1-A2 행 미매핑으로
-    // 위젯 텍스트가 ?로 렌더됐다. 이모지는 CP949 인코딩 불가 — UTF-16
-    // 서러게이트 2유닛이 각각 '?'로 치환돼 "??"(2바이트)가 된다(문서화 한계).
+    // 위젯 텍스트가 ?로 렌더됐다. 이모지는 CP949 인코딩 불가 — 결과는 두 축이
+    // 다르다(park-batch 2026-10-09 실측): win32 WCTM 기본 문자 치환 "??"(2바이트
+    // 문서화 한계)·posix iconv EILSEQ → 빈 문자열 fail-closed
+    // (JKTextConv_posix.cpp Utf8ToCp949 — '?'-치환 없음).
     {
         const std::string kSym = Utf8ToKssm("■□●◆");
         CHECK(kSym.size() == 8, "T12 symbols -> 4 kssm pairs");
@@ -403,9 +425,14 @@ int main() {
               "T12 symbol pair is one valid cell-pair (caret boundary)");
         const std::string mixed = Utf8ToKssm("가■A");
         CHECK(KssmToUtf8(mixed.c_str()) == "가■A", "T12 hangul+symbol+ascii mixed");
-        CHECK(Utf8ToKssm("\xF0\x9F\x98\x80") == "??",
-              "T12 emoji (CP949-unencodable surrogate pair) -> '??' "
-              "(documented limit)");
+        const std::string kEmoji = Utf8ToKssm("\xF0\x9F\x98\x80");
+#if defined(_WIN32)
+        CHECK(kEmoji == "??",
+              "T12 emoji (CP949-unencodable) -> '??' (win32 default-char)");
+#else
+        CHECK(kEmoji.empty(),
+              "T12 emoji (CP949-unencodable) -> fail-closed empty (posix iconv)");
+#endif
     }
 
     std::printf("PASS %d FAIL %d\n", g_pass, g_fail);

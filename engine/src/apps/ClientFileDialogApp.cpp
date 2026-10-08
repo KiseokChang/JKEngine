@@ -210,8 +210,9 @@ void ClientFileDialogApp::BuildUi(int w, int h) {
                        !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId);
 
     // Sit inside the client area the root chrome leaves us (kBorder=2,
-    // kTitle=24 — the server eats clicks in the title strip anyway, vplayer
-    // lesson 8), not over the whole surface like the chromeless apps do.
+    // kTitle = ChromeTitleBarHeight() — s=1.0 equal to 24; the server eats
+    // clicks in the title strip anyway, vplayer lesson 8), not over the
+    // whole surface like the chromeless apps do.
     JKRect client{ 0, 0, w, h };
     if (JKWindow* root = GetMainWindow()) {
         client = root->GetClientRect();

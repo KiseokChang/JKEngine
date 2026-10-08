@@ -1427,13 +1427,15 @@ bool JKWindowServer::TryChromeGrab(int mx, int my, float scale, int clicks) {
     // The shell has no window chrome (docs/28): no close X, no title drag,
     // no resize edges — clicks fall through to the shell's own UI. The
     // capture overlay (docs/35) likewise: a title-bar grab over its top
-    // strip would swallow the first 24 px of the rubber band.
+    // strip would swallow the title-band strip of the rubber band (metric-
+    // derived since T3 — 24 px at s=1.0).
     if (client->IsShell() || client->Title() == kCaptureOverlayTitle) {
         return false;
     }
 
-    // 전체화면 레이어(vplayer 스펙 §2.1)는 크롬이 없다 — 상단 24pt 포함 모든
-    // 클릭이 앱에 도달한다. 클릭 포커스는 1241행 일반 경로라 살아 있다.
+    // 전체화면 레이어(vplayer 스펙 §2.1)는 크롬이 없다 — 상단(타이틀 밴드
+    // 자리 포함) 모든 클릭이 앱에 도달한다. 클릭 포커스는 1241행 일반 경로라
+    // 살아 있다.
     if (layer->IsFullscreen()) {
         return false;
     }
@@ -2827,7 +2829,8 @@ static std::string SettingsKvPath() {
 
 // text.font_scale 유효성 (docs/63 §6 Task 3): 문자열 float 전체 소비 + 범위
 // [1.0, 3.0]. 부팅 로드(LoadSettingsKv)와 settings_set(정문 게이트)이 같은
-// 규약을 쓴다 — "1.5x"·"-2"·"abc"류는 전부 기각(기본 1.0 폴백/bad_value).
+// 규약을 쓴다 — "1.5x"·"-2"·"abc"류는 전부 기각(기본 배율 DefaultFontScale
+// 폴백 — Win 1.0/posix 1.5 — 또는 bad_value).
 static bool ValidFontScale(const std::string& v) {
     if (v.empty()) return false;
     char* end = nullptr;
@@ -7872,13 +7875,21 @@ static void DrawRing3(SDL_Renderer* renderer, const SDL_Rect& rect,
 // 부품을 봉쇄한다(metrics가 언젠가 동적이 되는 날을 위한 무료 보험 + brief
 // 계약 이행). usedBanners(DrawApprovalHighlights)와 같은 형식을 쓴다 — 안
 // 그러면 수거 루프가 매 프레임 캐시를 폐기한다.
-static std::string BannerCacheKey(const std::string& bannerUtf8) {
+static void BannerCacheKey(const std::string& bannerUtf8, std::string& keyOut) {
     const jk::text::CellMetrics m = jk::text::GetCellMetrics();
-    std::string key = bannerUtf8;
-    key += '\x1f';
-    key += std::to_string(m.engW);
-    key += 'x';
-    key += std::to_string(m.cellH);
+    keyOut = bannerUtf8;
+    keyOut += '\x1f';
+    keyOut += std::to_string(m.engW);
+    keyOut += 'x';
+    keyOut += std::to_string(m.cellH);
+}
+// (T3 re-review M4, park-batch 2026-10-09) out-param 형 — 키를 프레임당 1회만
+// 조립하려는 경로(draw 패스가 쓰는 사전조립 키 오버로드 — 아래
+// ApprovalBannerTexture)가 재조립 없이 재사용한다. 반환형 래퍼는 단발 호출부
+// 계약 유지.
+static std::string BannerCacheKey(const std::string& bannerUtf8) {
+    std::string key;
+    BannerCacheKey(bannerUtf8, key);
     return key;
 }
 
@@ -7970,10 +7981,16 @@ void JKWindowServer::DrawApprovalHighlights(float outputScale) {
         // 배너 문자열: p.name(비었으면 대상 레이어의 창 제목 — close_window류).
         std::string banner = "에이전트 승인 대기: ";
         banner += (kv.second.empty() ? layer->Title() : kv.second);
-        usedBanners.insert(BannerCacheKey(banner));  // (T3) 캐시 키 형식 일치 —
-        // 안 그러면 수거 루프가 매 프레임 미사용 판정으로 캐시를 폐기한다.
+        // (T3 re-review M4, park-batch) 캐시 키를 프레임당 1회만 조립 — 기존은
+        // usedBanners 등록과 ApprovalBannerTexture 내부에서 같은 키를 2회
+        // 조립했다(1kHz 컴포지트 배너당 문자열 할당 2회). 사전조립 키를 수거
+        // 등록과 텍스처 조회에 양쪽으로 소비 — "안 그러면 수거 루프가 매
+        // 프레임 미사용 판정으로 캐시를 폐기한다" 계약은 무변.
+        std::string cacheKey;
+        BannerCacheKey(banner, cacheKey);
+        usedBanners.insert(cacheKey);
         int tw = 0, th = 0;
-        SDL_Texture* tex = ApprovalBannerTexture(banner, tw, th);
+        SDL_Texture* tex = ApprovalBannerTexture(banner, cacheKey, tw, th);
         if (tex && tw > 0 && th > 0) {
             const int tx = band.x + 8;
             const int ty = band.y + std::max(0, (band.h - th) / 2);
@@ -8138,9 +8155,19 @@ void JKWindowServer::DrawSemanticCursorCells(float outputScale) {
 // 매 프레임 재시도·로그 스팸을 막는다(1kHz 컴포지트 전제).
 SDL_Texture* JKWindowServer::ApprovalBannerTexture(const std::string& bannerUtf8,
                                                    int& w, int& h) {
+    // 단발 경로 (draw 패스 밖 — 사전조립 키 없을 때만): 키를 여기서 조립.
+    return ApprovalBannerTexture(bannerUtf8, BannerCacheKey(bannerUtf8), w, h);
+}
+
+// 사전조립 키 소비 오버로드 (T3 re-review M4, park-batch — 키는 bannerUtf8과
+// GetCellMetrics engW×cellH로만 결정되므로 같은 프레임에서 draw 패스가 조립한
+// 키를 안전히 재사용해 프레임당 조립(배너당 문자열 할당) 2회 → 1회로 소각.
+// 키의 진실원(BannerCacheKey)은 하나 — 두 경로가 어긋날 수 없다.
+SDL_Texture* JKWindowServer::ApprovalBannerTexture(const std::string& bannerUtf8,
+                                                   const std::string& cacheKey,
+                                                   int& w, int& h) {
     w = 0;
     h = 0;
-    const std::string cacheKey = BannerCacheKey(bannerUtf8);
     auto it = approvalBannerTexs_.find(cacheKey);
     if (it != approvalBannerTexs_.end()) {
         w = it->second.w;
@@ -8178,7 +8205,8 @@ SDL_Texture* JKWindowServer::ApprovalBannerTexture(const std::string& bannerUtf8
     }
     if (!bannerAtlas_) {
         bannerAtlas_ = std::make_unique<jk::JKTextAtlas>();
-        // 셀 메트릭 진실원 (docs/63 §6 text.font_scale) — 기본 1.0 = {8,16,16}.
+        // 셀 메트릭 진실원 (docs/63 §6 text.font_scale) — 기본은
+        // DefaultFontScale(Win 1.0 = {8,16,16}, posix 1.5 = {12,24,24}).
         const jk::text::CellMetrics m = jk::text::GetCellMetrics();
         const std::string fp = textFontPath_.empty()
                                    ? jk::text::ResolveDesktopFontPath()

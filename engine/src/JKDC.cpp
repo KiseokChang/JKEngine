@@ -5,6 +5,7 @@
 #include <JKResourceCache.h>
 #include <JKTextAtlas.h>
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -26,9 +27,13 @@ namespace {
 // 기존 진단 설비 재용). T1 결함의 결함의 일부였던 "경고가 조용히 죽음"의
 // 재발 방지 — 새 dc 그리기 지점이 결선을 빼먹으면 1줄로 보인다.
 void WarnVectorAtlasInactiveOnce() {
-    static bool warned = false;
-    if (warned) return;
-    warned = true;
+    // 원자화 (park-batch 2026-10-09 항목 1 — T2 리뷰 Minor M1): check-then-set
+    // 비원자 bool은 규격상 data race. 도달은 프로세스당 단일 compose 스레드
+    // (클라 ComposeScene / 싱글 ComposeSurface — T2 리뷰 전수 실측)라 상호
+    // 배제 필요성은 현세계 도달 불가, atomic exchange로 규격 준수만 마친다 —
+    // 프로세스당 1회 경고 계약(스팸 방지)은 무변.
+    static std::atomic<bool> warned{false};
+    if (warned.exchange(true)) return;
     const float fscale =
         static_cast<float>(jk::text::GetCellMetrics().engW) / 8.0f;
     std::fprintf(stderr,

@@ -49,7 +49,8 @@ const std::string& JKWindow::GetTitle() const {
 void JKWindow::OnRectChanged(const JKRect& rect) {
     // JKControl::SetRect은 padding을 기반으로 clientRect_를 계산하지만,
     // JKWindow는 테두리/타이틀 크기를 유지한 클라이언트 영역을 직접 계산한다.
-    // 셀 메트릭 진실원 (docs/63 §6) — 기본 1.0 = {8,16,16}.
+    // 셀 메트릭 진실원 (docs/63 §6) — 기본은 DefaultFontScale(Win 1.0 =
+    // {8,16,16}, posix 1.5 = {12,24,24}).
     constexpr int32_t kBorder = 2;
     // 타이틀 밴드 높이 (T3 — 스펙 2026-10-09-phone-text-scale 결정 1): 고정
     // 24 상수 → 셀 메트릭 연동 순수 산식으로 승격. s=1.0에서 정확히 24 등호
@@ -142,7 +143,8 @@ void JKWindow::LayoutChildren() {
 }
 
 void JKWindow::SetWindowRect(const JKRect& rect) {
-    // SDL 논리 좌표를 그대로 사용: 테두리 2pt, 타이틀 24pt를 고정한다.
+    // SDL 논리 좌표를 그대로 사용: 테두리 2pt, 타이틀 밴드는 셀 메트릭 산식
+    // (ChromeTitleBarHeight — s=1.0 등호 24, T3).
     // SDL_RenderSetScale()이 물리 픽셀로 확대/축소한다.
     SetRect(rect);
 

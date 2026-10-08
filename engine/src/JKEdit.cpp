@@ -16,7 +16,8 @@ namespace jk {
 
 JKEdit::JKEdit() {
     // 셀 메트릭 진실원 (docs/63 §6 text.font_scale) — 수평 레이아웃은 전부
-    // charWidth_ 경유, 행은 lineHeight_. 기본 1.0 = {8, 16} 픽셀동일.
+    // charWidth_ 경유, 행은 lineHeight_. 기본은 DefaultFontScale(Win 1.0 =
+    // {8,16,16} 픽셀동일 승계, posix 1.5 = {12,24,24}).
     const text::CellMetrics& m = text::GetCellMetrics();
     charWidth_ = m.engW;
     lineHeight_ = m.cellH;
