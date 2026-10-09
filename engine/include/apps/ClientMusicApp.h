@@ -12,7 +12,28 @@
 // double-click on a track row sends the spec §4 query pair (launch_app vplayer
 // → app_tool open) via the library app's SendQuery/PollReplies idiom, with a
 // client-side bounded retry absorbing the cold-boot tool-registration race
-// (폴백 원존 — no new server part).
+// (폴백 원존 — no new server part). T2 (spatial leg line, spec
+// 2026-10-10-music-spatial-leg-design) adds the second playback channel: the
+// row [spatial] button fires audio_core (StreamPlayer — the brief's
+// BufferQueueStreamPlayer, actual class name in stream_player.h — + OpenAL Soft
+// — linked only when the SPATIAL_PLAYER_ROOT env var was set at configure
+// time, T1 fail-closed wiring) while the double-click delegation stays
+// untouched (D3 공존 계약 — two channels coexist).
+//
+// Idle contract (#89 docs/88) extension, spatial leg: the StreamPlayer pump()
+// is polled in OnIdle on every loop iteration (응답 펌프의 렌더 분리 수형 —
+// polling renders nothing by itself). The only extra dirty sources are the
+// displayed progress integer second crossing (진행 표기의 표기 변화 — the
+// displayed clock text advancing) and the terminal transitions (start/stop/
+// Eos/device-fail state lines). A stopped/failed leg dirties nothing.
+//
+// Honest-contract design (정직 계약): the [spatial] button is a T1-pure
+// notation-layer part, so it renders in every build; when the leg is absent
+// (env-unset or ALC device failure) a click lands on
+// music::leg::Apply(DeviceFailed) — the state row then draws
+// music::leg::kDelegationHint verbatim ("spatial leg 불가 — vplayer 위임
+// 이용"). env-unset and device-fail end at the same UI consequence (D2/D5
+// fail-closed — the notation never claims a leg that is not there).
 //
 // Async scan contract (brief: 갤러리 썸네일 워커 원문 계약 — the
 // vplayer/list arrival-dirty idiom is the actual template): a single parked
@@ -30,23 +51,37 @@
 // 2m-f asserts this display isomorphism against the same header functions.
 #include <client/JKClientApplication.h>
 #include <apps/MusicModel.h>
+#include <apps/MusicSpatialLeg.h>  // leg 순수 부품 소비(LegSupport/Apply/ToolJson
+                                   //   — T1, audio_core include 0계약이라 이
+                                   //   헤더도 env 미설정 축에서 컴파일된다)
 
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
 
+// audio_core(spatial-player 소비 — T1 CMake env 분기)의 완전형은 T2 cpp의
+// JK_MUSIC_SPATIAL_LEG 가드 include가 소유한다. 이 헤더는 불완전 전방선언만
+// 가진다(unique_ptr 멤버 — 완전형 가시 필요인 파괴는 원밖 소멸자 소유 수형).
+// **spatial-player 헤더 경로는 커밋 어디에도 기입하지 않는다**(env-only 규약).
+class SpatialEngine;
+class StreamPlayer;
+
 namespace jk {
 
 class ClientMusicApp : public JKClientApplication {
 public:
-    ClientMusicApp() = default;
-    // Out-of-line on purpose: the scan worker's std::thread must be joined
-    // (quit signal + cv wake) before the members die — the destructor in the
-    // cpp owns that handover (vplayer PlayerCore out-of-line delete 수형).
+    // Out-of-line on purpose (both directions): the scan worker's std::thread
+    // must be joined (quit signal + cv wake) before the members die, and the
+    // spatial leg unique_ptr members (T2 — incomplete SpatialEngine/
+    // StreamPlayer here) need complete types at the dtor/ctor point — both
+    // live in the cpp where the macro-guarded audio_core includes are visible
+    // (vplayer PlayerCore out-of-line delete 수형).
+    ClientMusicApp();
     ~ClientMusicApp() override;
 
 protected:
@@ -54,7 +89,12 @@ protected:
     void OnClose() override;
     void OnThemeChanged() override;  // ImGui palette re-apply (docs/52)
     bool PreProcessMessage(const JKEvent& ev) override;
-    void OnIdle() override;  // 스캔 결과 수취(도착 더티 — 유일 더티 원 #89)
+    void OnIdle() override;  // 스캔 결과 수취(도착 더티)+spatial pump 폴링(무더티)
+    // 앱 도구 허브 소비 쪽(스펙 2026-09-19-app-tool-hub §8.2 — vplayer
+    // OnAgentToolCall 원문 수형): spatial_play{path}/stop/status 3종. 등록은
+    // OnInit(SendAgentToolRegister — 연결 후 호출 계약 vplayer 배치 근거 원문).
+    bool OnAgentToolCall(const std::string& tool, const std::string& argsJson,
+                         std::string& resultJson) override;
     bool IsFrameDirty() const override { return frameDirty_; }
     void OnFrameCommitted() override;
     void RenderOverlay(SDL_Renderer* renderer, int w, int h) override;
@@ -115,6 +155,34 @@ private:
     void PollReplies();
     uint32_t SendQuery(const char* tool, const std::string& args);
 
+    // ---- spatial 재생 leg (T2 — 스펙 2026-10-10 §2, T1 MusicSpatialLeg.h 소비) ----
+    // 행 [spatial] 버튼과 spatial_play 도구의 단일 발사 경로. M-3 가드(경로
+    // 공문자 → 발사하지 않는다)가 선행하고, 아래로: leg 부재(env 미설정)는
+    // DeviceFailed 전이+표기(honest contract — D2/D5 파), leg 있으면 lazy
+    // SpatialEngine init(ALC 실패 → DeviceFailed)→Decoder 열기(4행 판별
+    // 판별식 — I-1 원장: .vorbis 리터럴은 표는 Supported지만 decoder는 거부;
+    // 열기 실패는 StopRequested 전이+원문 부기)→Start 전이+위치 반영+play.
+    // 반환 = 발사 성립(Start 전이까지 갔다) — 도구 경계(spatial_play)의 ok
+    // 판정 원문. 실패 시 status_에 고장 원문이 남는다.
+    bool SpatialStart(const music::Track& t);
+    // leg 정지(성공 종착 — player stop+StopRequested 전이). 재생 중에만 의미
+    // (idle leg의 정지는 무동작 — T1 StopRequested의 도구측 idempotent 수형).
+    void SpatialStop();
+    // StreamPlayer pump() 폴링(OnIdle 매 이터레이션 — vplayer 응답 펌프의 렌더
+    // 분리 수형: 폴링 자체는 무더티). 재생 중(active — 유일 근거)일 때만
+    // 접촉하며, 진행 표기의 정수초가 넘어갈 때만 더티(#89: 진행 표기 갱신만
+    // 더티 — 1초당 1프레임, vplayer의 프레임마다 더티[영상 예외 조항]와의
+    // 관용구 차이는 오디오 leg의 표기 분해가 정수초이기 때문). Eos(자연 종료)
+    // 판정도 여기가 진실원(is_playing false — pause는 이 leg가 부여하지 않는다).
+    void SpatialPump();
+    // 위치 슬라이더 3조의 변경 1발사(legAzimuth_/Distance_/Elevation_ →
+    // set_position 1회). 드래그=입력 이벤트라 더티는 게이트 원문(조작 없음).
+    void SpatialPositionChanged();
+    // 하단 spatial leg 패널(상태 행+진행+정지·모드+슬라이더 3조+D4 표기 1행)
+    // — 표기 데이터는 T1 LegState 원문+UI 상태뿐, leg 부재 빌드도 같은 패널이
+    // 안내로 응답한다(정직 계약 — 위 상단 원문).
+    void BuildSpatialPanel();
+
     bool frameDirty_ = true;   // 부팅 첫 렌더(게이트의 renderedOnce 경로) 보증
     bool imguiReady_ = false;
 
@@ -153,6 +221,25 @@ private:
     bool launchAborted_ = false;       // launch 미성립 표식 — 사후 open 답신 겹침
                                        //   가드(M-2): 무음 회수, status 납치 금지
     std::chrono::steady_clock::time_point openRetryAt_{};  // 재청구 가능 시각
+
+    // ---- spatial 재생 leg 상태 (T2) ----
+    // leg의 유일 진실원 = T1 LegState(전이는 Apply 원문 — 이 앱은 사건의
+    // 사실원만 관측해 LegEvent로 번역한다). 슬라이더 3조는 UI 상태(수형 float
+    // — set_position 인자 원문), legState_에 대응 멤버 없음(전이 계약 외
+    // 필드 — T1 헤더가 소유하지 않는다). 재생 중 활성(리 슬라이더 게이트).
+    music::leg::LegState legState_;
+    float legAzimuth_ = 0.0f;      // 방위각 -180..180(양=오른쪽 — spatial.h 좌표계)
+    float legDistance_ = 1.0f;     // 거리 0.5..20 m
+    float legElevation_ = 0.0f;    // 고도 -45..45
+    long long legShownSec_ = -1;   // 마지막 표기한 진행 정수초(표기 변화만 더티
+                                   //   — SpatialPump의 유일 더티 근거)
+#ifdef JK_MUSIC_SPATIAL_LEG
+    // 완전형은 cpp의 매크로 가드 include — unique_ptr 소멸은 원밖 소멸자
+    // (cpp, 완전형 가시점)가 처리한다. 선언 순서 파괴 계약: 엔진이 플레이어를
+    // 선행 생존(StreamPlayer가 SpatialEngine&를 유지 — stream_player.h 원문).
+    std::unique_ptr<SpatialEngine> legEngine_;
+    std::unique_ptr<StreamPlayer> legPlayer_;
+#endif
 };
 
 } // namespace jk

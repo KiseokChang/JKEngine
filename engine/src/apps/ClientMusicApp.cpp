@@ -11,7 +11,14 @@
 // delegation — a track-row double-click sends the spec §4 query pair
 // (① launch_app vplayer → ② app_tool open) through the library app's
 // SendQuery/PollReplies idiom; replies and exhausted retries are the only
-// extra dirty sources, a retry resend never dirties.
+// extra dirty sources, a retry resend never dirties. T2 (spatial leg line,
+// spec 2026-10-10-music-spatial-leg-design) adds the embedded spatial
+// playback channel behind JK_MUSIC_SPATIAL_LEG: audio_core (spatial-player
+// 소비 — StreamPlayer[brief: BufferQueueStreamPlayer]+SpatialEngine) is polled
+// through pump() in OnIdle, the row [spatial] button + position sliders form
+// the notation layer (T1 pure parts — renders in every build) and the app
+// tool trio spatial_play/stop/status is registered for the agent tool hub.
+// The delegation channel (double click → vplayer) is untouched (D3 공존).
 #include <apps/ClientMusicApp.h>
 
 #include <imgui_impl_jkwindow.h>
@@ -28,6 +35,15 @@
 // fix r1)이 소유한다. 여기선 fs::path 합성만 쓴다.
 #include <filesystem>
 #include <port/JKCrtShim.h>  // LocaltimeS — Win/posix 공용 시간 표기 수형
+#include <agent/JKAgentJson.h>  // OnAgentToolCall 인자 판독(도구 허브 §8.2 원문)
+
+#ifdef JK_MUSIC_SPATIAL_LEG
+// spatial leg — audio_core 소비(T1 CMake env 분기: SPATIAL_PLAYER_ROOT 설정
+// 빌드에서만 컴파일). 완전형 include는 이 가드 안에만 산다(header는 불완전형).
+// **spatial-player 경로는 어디에도 기입하지 않는다(env-only 규약)**.
+#include <spatial.h>         // SpatialEngine — ALC 디바이스+HRTF 컨텍스트 래퍼
+#include <stream_player.h>   // StreamPlayer — open/play/pump/set_position 계약
+#endif
 
 namespace jk {
 namespace {
@@ -93,7 +109,37 @@ void MtimeLabel(long long mtime, char* buf, size_t bufBytes) {
     const size_t n = std::strftime(buf, bufBytes, "%Y-%m-%d %H:%M", &lt);
     if (n == 0) std::snprintf(buf, bufBytes, "-");  // 버퍼 부족 등 = "-" 폴백
 }
+
+// spatial 진행 표기(정수초 — SpatialPump의 더티 근거와 같은 분해): "1:23" 계열.
+// 표기 분해가 정수초인 이유: 오디오 leg에는 프레임 이미지가 없어 1초당 1프레임
+// 갱신이면 충분(#89 — 진행 표기 갱신만 더티의 실측 수형).
+void FmtClock(long long secs, char* buf, size_t bufBytes) {
+    if (secs < 0) secs = 0;
+    std::snprintf(buf, bufBytes, "%lld:%02lld", secs / 60, secs % 60);
+}
+
+// JSON 문자열 이스케이프(D4 표기의 도구 결과 원문 — vplayer의 EscapeJson 원문
+// 수형: 따옴표·역슬래시·제어 바이트; spatial_status의 path/error 필드용).
+std::string EscapeJson(const std::string& in) {
+    std::string out;
+    for (char c : in) {
+        if (c == '"' || c == '\\') {
+            out += '\\';
+            out += c;
+        } else if (static_cast<unsigned char>(c) < 0x20) {
+            char buf[8];
+            std::snprintf(buf, sizeof(buf), "\\u%04x", c);
+            out += buf;
+        } else {
+            out += c;
+        }
+    }
+    return out;
+}
 } // namespace
+
+ClientMusicApp::ClientMusicApp() = default;  // 원밖 — leg unique_ptr의 완전형
+                                             //   가시점(cpp 가드 include 뒤)
 
 ClientMusicApp::~ClientMusicApp() {
     // 스캔 워커 join 수형(갤러리 썸네일 원문 계약 — 파괴 join). quit 경련+
@@ -138,11 +184,45 @@ void ClientMusicApp::OnInit() {
     // RequestScan의 우편함 1발만 만든다(스레드 재창설 없음).
     scan_ = std::thread([this] { ScanWorker(); });
 
+    // spatial leg — audio_core 소비는 매크로 가드(env 설정 빌드만)라 초기화는
+    // 첫 [spatial] 발사 시에 한다(무재생 부팅이 ALC 디바이스를 열지 않는다 —
+    // vplayer가 열기 전에 오디오 백엔드를 만들지 않는 것과 같은 지연 계약).
+    // 부팅 시점의 leg 부재(env 미설정)는 발사 시 DeviceFailed 표기로 흡수된다.
+
+    // 앱 도구 허브 등록 3종(스펙 2026-10-10-music-spatial-leg §2; T1 kTool*
+    // 원문 상수 소비 — vplayer OnInit 등록 원문 수형). 배치 근거(vplayer 원문
+    // 주석): OnInit은 JKClientApplication::Init의 Connect 이후에 불린다 —
+    // SendAgentToolRegister의 "연결 전 조용한 false" 경로에 걸리지 않는다.
+    // inputSchema는 MCP 그대로(broker tools/list 원문 계약).
+    if (jk::client::JKClientSurface* surface = Surface()) {
+        using Decl = jk::client::JKClientSurface::AgentToolDecl;
+        std::vector<Decl> tools = {
+            {music::leg::kToolPlay,
+             "Start spatial (HRTF positional) playback of a music file",
+             "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":"
+             "\"string\"}},\"required\":[\"path\"]}"},
+            {music::leg::kToolStop, "Stop spatial playback", "{}"},
+            {music::leg::kToolStatus,
+             "Spatial playback status (active/positional/deviceOk/pos/dur/"
+             "path/error)",
+             "{}"},
+        };
+        surface->SendAgentToolRegister("music", tools);
+    }
+
     ResolveDirs();
     RequestScan();
 }
 
 void ClientMusicApp::OnClose() {
+#ifdef JK_MUSIC_SPATIAL_LEG
+    // spatial leg 즉시 절단 — 소멸자(unique_ptr 멤버, ~ClientMusicApp)가 실제
+    // 철거를 소유하지만 소리는 창이 닫히는 이 프레임에 끊는다(vplayer
+    // ClosePlayer 수형에서 정지 측만 소비). 플레이어가 엔진보다 먼저
+    // 정리된다(선언 순서 파괴 계약 — StreamPlayer가 SpatialEngine& 유지).
+    legPlayer_.reset();
+    legEngine_.reset();
+#endif
     // 워커 join은 ~ClientMusicApp이 소유한다(Init 짝 원문 계약 — 생성 주기).
     if (imguiReady_) {
         ImGui_ImplJKWindow_Shutdown();
@@ -166,6 +246,14 @@ void ClientMusicApp::OnIdle() {
     // 렌더 분리" 수형): T3 재생 위임 답신(스캔 도착과 독립 폴링 — 남의 답신은
     // 흘려보낸다). 무도착 즉귀라 무비용.
     PollReplies();
+    // spatial leg pump 폴링 — 매 이터레이션(vplayer 응답 펌프의 렌더 분리
+    // 수형): 폴링 자체는 무더티고, 재생 중(active — 유일 근거) 진행 표기의
+    // 정수초가 넘어갈 때만 더티를 낸다(#89 진행 표기 갱신만 더티 — vplayer의
+    // "재생 중 프레임마다 더티"[영상 예외 조항] 수형과의 차이는 오디오 leg에
+    // 프레임 이미지가 없는 것 — 표기 분해 = 정수초로 승계). 무재생 leg는
+    // 접촉도 없다. 단말 전이(Stop/Eos)의 더티는 SpatialStart/SpatialStop과
+    // Eos 판정 지점이 소유한다.
+    SpatialPump();
     // open 재청구 pacing(콜드 부팅 경기 폴백) — 발사 1발만 만들고 더티를
     // 금한다(표기 변화는 답신 수령에만; 시평형 전이면 분기 원문만).
     if (openRetries_ > 0 && openId_ == 0 && !openPath_.empty() &&
@@ -449,6 +537,187 @@ void ClientMusicApp::PollReplies() {
     }
 }
 
+// ---- spatial 재생 leg (T2 — 스펙 2026-10-10 §2, T1 MusicSpatialLeg.h 소비) ----
+
+bool ClientMusicApp::SpatialStart(const music::Track& t) {
+    // 단일 발사 경로 — 행 [spatial] 버튼과 spatial_play 도구 모두 여기로.
+    // 사건의 사실원(디바이스/디코더 관측)을 LegEvent로 번역해 T1 Apply 원문에
+    // 넣는다(전이는 T1이 단독 소유).
+    // M-3 가드(T1 리뷰 — play path 공문자 발사 금지): 버튼은 지원 행에만
+    // 그려지지만 도구 경계는 인자 검증이 이 앱의 몫이라 동일 가드가 선행한다.
+    if (t.full.empty()) {
+        status_ = "[!] 재생 경로 없음";
+        frameDirty_ = true;
+        return false;
+    }
+    if (music::leg::LegSupport::OfExt(t.full) !=
+        music::leg::LegSupport::State::Supported) {
+        // D4 정직 표기 — 경로 셀의 버튼은 표 밖 행에 그려지지 않지만, 도구
+        // 경계에서 온 경로는 여기가 유일 게이트다.
+        status_ = "[!] spatial 미지원 포맷 — " + t.rel;
+        frameDirty_ = true;
+        return false;
+    }
+#ifndef JK_MUSIC_SPATIAL_LEG
+    // env 미설정 빌드(fail-closed 원장 — T1 배선): leg 부재는 DeviceFailed와
+    // 같은 UI 귀결(정직 계약). [spatial] 버튼은 표기 계층(T1 순수 부품)이라
+    // 그려지되, 발사는 고장 종착으로 끝나고 상태 행은 kDelegationHint를
+    // 그대로 라벨로 소비한다(D2/D5 — 표기가 없는 leg를 있는 것처럼 말하지
+    // 않는다).
+    legState_ = music::leg::Apply(legState_, music::leg::LegEvent::DeviceFailed);
+    status_ = legState_.err;  // kDelegationHint 원문 라벨 소비
+    frameDirty_ = true;
+    return false;
+#else
+    std::string err;
+    // ALC 디바이스 — lazy 1회 성립(부팅 무재생이 디바이스를 열지 않는다).
+    // 실패는 즉시 폐기(reset — 다음 클릭이 다시 연다)로 정직 재시도를 허용.
+    if (!legEngine_) {
+        legEngine_ = std::make_unique<SpatialEngine>();
+        if (!legEngine_->init(err)) {
+            legEngine_.reset();
+            legPlayer_.reset();
+            legState_ = music::leg::Apply(legState_, music::leg::LegEvent::DeviceFailed);
+            status_ = legState_.err;  // kDelegationHint 원문(디바이스 err 부기
+                                      //   없음 — 라벨 소비 계약의 원문 유지)
+            frameDirty_ = true;
+            return false;
+        }
+        legPlayer_ = std::make_unique<StreamPlayer>(*legEngine_);
+    }
+    // 디코더 열기 — 확장자 4행 판별(wav/mp3/flac/ogg)이 실제 진실원: D4 표는
+    // 5종을 말하지만 리터럴 .vorbis 파일은 여기서 "unsupported format"으로
+    // 거부된다(I-1 원장 — 표기 문구는 "ogg(vorbis 코덱)" 1행 정리로 해소).
+    if (!legPlayer_->open(t.full, err)) {
+        // 고장 종착은 ALC 전용(DeviceFailed — T1 전이 명세)이라 디코더 고장은
+        // 정지 종착(StopRequested — deviceOk 보존·active 해제)으로 분류하고
+        // 고장 원문은 status에 부기한다(사건 분류 = 이 앱의 몫).
+        if (legState_.active)
+            legState_ =
+                music::leg::Apply(legState_, music::leg::LegEvent::StopRequested);
+        status_ = "[!] spatial 열기 실패 — " + err;
+        frameDirty_ = true;
+        return false;
+    }
+    // Start의 전제(호출부가 미리 채워 넣는다 — T1 원문): path/dur는 전이 앞에.
+    legState_.path = t.full;
+    const int sr = legPlayer_->decoder().fmt().sample_rate;
+    legState_.durSec =
+        sr > 0
+            ? static_cast<double>(legPlayer_->decoder().fmt().total_frames) /
+                  static_cast<double>(sr)
+            : 0.0;  // durSec=0 = 길이 미상(MP3 — M-2: 표기 가드는 BuildUi 몫)
+    legState_ = music::leg::Apply(legState_, music::leg::LegEvent::Start);
+    legShownSec_ = -1;  // 표기 원점 재설정 — 다음 정수초 경계로 1프레임
+    legPlayer_->set_position(legAzimuth_, legDistance_, legElevation_);
+    legPlayer_->play();
+    status_ = "spatial 재생 — " + (t.rel.empty() ? t.full : t.rel);
+    frameDirty_ = true;
+    return true;
+#endif
+}
+
+void ClientMusicApp::SpatialStop() {
+    // 정지 성공 종착 — player stop(AL stop+큐 drain+처음 프레임 리와인드)와
+    // T1 StopRequested 전이(최후 위치 표기 보존). 정지는 고장이 아니다(M-3
+    // 아님 — idempotent: idle leg에 대한 stop도 성공 종착이다).
+    if (!legState_.active) return;
+#ifdef JK_MUSIC_SPATIAL_LEG
+    if (legPlayer_) legPlayer_->stop();
+#endif
+    legState_ = music::leg::Apply(legState_, music::leg::LegEvent::StopRequested);
+    legShownSec_ = -1;
+    status_ = "spatial 정지";
+    frameDirty_ = true;
+}
+
+void ClientMusicApp::SpatialPump() {
+#ifdef JK_MUSIC_SPATIAL_LEG
+    // 무재생 = 접촉도 없다(idle 계약 #89 — active가 pump 폴링의 유일 근거).
+    if (!legState_.active || !legPlayer_) return;
+    legPlayer_->pump();
+    const int sr = legPlayer_->decoder().fmt().sample_rate;  // open 성립 보장
+    legState_.posSec =
+        sr > 0 ? static_cast<double>(legPlayer_->current_frame()) /
+                     static_cast<double>(sr)
+               : legState_.posSec;
+    if (!legPlayer_->is_playing()) {
+        // 자연 종료(디코더 EOS — prefill 고갈 뒤 AL_STOPPED). pause는 이 leg가
+        // 부여하지 않아 is_playing false = Eos의 유일 사실원. 조기 종료
+        // (truncated 판정 — stream_player §5 원문)는 원문 부기.
+        if (legPlayer_->has_error())
+            status_ = "[!] spatial 재생 조기 종료 — " + legPlayer_->error();
+        legState_ = music::leg::Apply(legState_, music::leg::LegEvent::Eos);
+        legShownSec_ = -1;
+        frameDirty_ = true;  // 진행 표기의 마지막 변화(pos→dur 끝까지)
+        return;
+    }
+    // 진행 표기 갱신만 더티 — 표기 분해(정수초)가 넘어갈 때 1프레임.
+    const long long shown = static_cast<long long>(legState_.posSec);
+    if (shown != legShownSec_) {
+        legShownSec_ = shown;
+        frameDirty_ = true;
+    }
+#endif
+}
+
+// ---- 앱 도구 허브 소비 (spatial_play/stop/status — vplayer 원문 수형) ----
+
+bool ClientMusicApp::OnAgentToolCall(const std::string& tool,
+                                     const std::string& argsJson,
+                                     std::string& out) {
+    // 인자 검증은 앱이 한다(서버는 패스스루 계약 — vplayer OnAgentToolCall
+    // 원문 주석). 어느 경로도 블로킹 I/O를 넣지 않는다(프레임 루프 스톨 금지).
+    jk::agent::AgentJson args(argsJson);
+    if (tool == music::leg::kToolPlay) {
+        std::string path;
+        if (!args.ok() || !args.GetStr("path", path) || path.empty()) {
+            out = "{\"error\":\"bad_args\",\"need\":\"path\"}";  // M-3 원문 가드
+            return false;
+        }
+        music::Track t;
+        t.full = path;  // T1 ToolJson이 '\'→'/' 정규화해 실은 원문(도구 허브
+                        //   릴레이 파서 통과형 — 리뷰 §3 확증)
+        t.rel = std::filesystem::path(path).filename().string();
+        const bool started = SpatialStart(t);
+        if (!started) {
+            out = "{\"error\":\"start_failed\",\"detail\":\"" +
+                  EscapeJson(status_) + "\"}";
+            return false;
+        }
+        out = "{\"accepted\":true}";  // 비동기 — 진행은 spatial_status
+        return true;
+    }
+    if (tool == music::leg::kToolStop) {
+        if (!legState_.active) {
+            // idempotent 정지(정지는 고장이 아니다 — T1 StopRequested 계약의
+            // 도구측 수형: 이미 정지 상태의 stop도 성공 원문).
+            out = "{\"active\":false,\"idle\":true}";
+            return true;
+        }
+        SpatialStop();
+        out = "{\"active\":false}";
+        return true;
+    }
+    if (tool == music::leg::kToolStatus) {
+        // 관측 표면(스펙 §2 — probe/구두 조작 몫): T1 LegState의 필드 원문.
+        char buf[768];
+        std::snprintf(buf, sizeof(buf),
+            "{\"active\":%s,\"positional\":%s,\"deviceOk\":%s,"
+            "\"pos\":%.3f,\"dur\":%.3f,\"path\":\"%s\",\"error\":\"%s\"}",
+            legState_.active ? "true" : "false",
+            legState_.positional ? "true" : "false",
+            legState_.deviceOk ? "true" : "false",
+            legState_.posSec, legState_.durSec,
+            EscapeJson(legState_.path).c_str(),
+            EscapeJson(legState_.err).c_str());
+        out = buf;
+        return true;
+    }
+    out = "{\"error\":\"unknown_tool\"}";
+    return false;
+}
+
 void ClientMusicApp::BuildUi(int w, int h) {
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(ImVec2((float)w, (float)h));
@@ -508,7 +777,11 @@ void ClientMusicApp::BuildUi(int w, int h) {
         }
 
         ImGui::Separator();
-        if (ImGui::BeginChild("tracks", ImVec2(0, 0),
+        // 2분할 — 표(남는 높이)+spatial leg 패널(하단 고정 200px). 패널은
+        // env 무관하게 늘 그려진다(버튼=표기 계층 T1 순수 부품 — leg 불가
+        // 빌드의 발사는 DeviceFailed 고장 종착으로 끝나며 안내 원문이 그
+        // 차이를 말해준다 — 정직 계약, header 원문).
+        if (ImGui::BeginChild("tracks", ImVec2(0, -200.0f),
                               ImGuiChildFlags_Borders)) {
             if (scanBusy_) {
                 // 진행 표시 — 비동기 스캔의 도착 대기(비운 목록 위 1행).
@@ -524,8 +797,96 @@ void ClientMusicApp::BuildUi(int w, int h) {
             }
         }
         ImGui::EndChild();
+        // spatial leg 패널(T2 — 아래쪽 200px): 표의 남는 높이가 위 표 소유.
+        if (ImGui::BeginChild("spatial", ImVec2(0, 0),
+                              ImGuiChildFlags_Borders)) {
+            BuildSpatialPanel();
+        }
+        ImGui::EndChild();
     }
     ImGui::End();
+}
+
+void ClientMusicApp::BuildSpatialPanel() {
+    // [spatial] leg 패널 — 두 재생 채널의 표기 계층(스펙 §2 정직 귀속). 표기
+    // 데이터는 T1 LegState(유일 진실원)와 슬라이더 UI 상태뿐 — leg는 여기서
+    // 아무것도 주장하지 않는다(표밖 확장자·고장·env 미설정 전부 정직 분기).
+    ImGui::TextUnformatted("spatial leg");
+    // 미사용 leg의 상시 안내 1행(공존 계약 표기 — D3: 더블클릭=vplayer 위임,
+    // [spatial]=내장 leg).
+    if (!legState_.active && !legState_.deviceOk && legState_.err.empty() &&
+        legState_.posSec == 0.0) {
+        ImGui::TextWrapped("%s",
+            "행 더블클릭 = vplayer 위임 · 행 spatial 버튼 = 내장 spatial(HRTF 위치)");
+    }
+    // 고장 안내(DeviceFailed — kDelegationHint 원문 라벨 소비).
+    if (!legState_.err.empty())
+        ImGui::TextWrapped("%s", legState_.err.c_str());
+    // 진행 행 — M-2 가드(durSec=0 = 길이 미상, MP3 등: pos/0 표기를 만들지
+    // 않는다). 진행 막대는 dur 참값 있는 포맷에만(wav/flac/ogg) 그린다.
+    char posBuf[16];
+    FmtClock(static_cast<long long>(legState_.posSec), posBuf, sizeof(posBuf));
+    if (legState_.active && legState_.durSec > 0) {
+        char durBuf[16];
+        FmtClock(static_cast<long long>(legState_.durSec), durBuf, sizeof(durBuf));
+        ImGui::ProgressBar(
+            static_cast<float>(legState_.posSec / legState_.durSec),
+            ImVec2(-1.0f, 0.0f), "");
+        ImGui::TextDisabled("진행 %s / %s", posBuf, durBuf);
+    } else if (legState_.active) {
+        ImGui::TextDisabled("진행 %s · 길이 미상", posBuf);
+    } else if (legState_.posSec > 0.0 || legState_.durSec > 0.0) {
+        ImGui::TextDisabled("정지 — 최후 위치 %s", posBuf);
+    }
+    // 조작 행 — 정지(재생 중만)+모드 토글(POSITIONAL/STEREO — legState_.
+    // positional 소비; leg 성립 이력(deviceOk) 있어야).
+    ImGui::BeginDisabled(!legState_.active);
+    if (ImGui::Button("정지")) SpatialStop();
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!legState_.deviceOk);
+    bool wantPositional = legState_.positional;
+    if (ImGui::Checkbox("POSITIONAL", &wantPositional) &&
+        wantPositional != legState_.positional) {
+        legState_.positional = wantPositional;
+#ifdef JK_MUSIC_SPATIAL_LEG
+        if (legPlayer_) {
+            std::string merr;
+            legPlayer_->set_mode(wantPositional
+                                     ? PlaybackMode::Positional
+                                     : PlaybackMode::Stereo,
+                                 merr);
+            if (!merr.empty()) status_ = "[!] 모드 전환 실패 — " + merr;
+        }
+#endif
+    }
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("끄면 STEREO(위치 무시 통과) — 위치 슬라이더가 무시된다");
+    // 위치 3조(스펙 §2 — 재생 중 활성) — 값 변화 시 set_position 1회(드래그 =
+    // 입력 이벤트 자연 귀결, 더티 조작 없음).
+    ImGui::BeginDisabled(!legState_.active);
+    ImGui::PushItemWidth(200.0f);
+    if (ImGui::SliderFloat("방위각", &legAzimuth_, -180.0f, 180.0f, "%.0f°"))
+        SpatialPositionChanged();
+    if (ImGui::SliderFloat("거리", &legDistance_, 0.5f, 20.0f, "%.1f m"))
+        SpatialPositionChanged();
+    if (ImGui::SliderFloat("고도", &legElevation_, -45.0f, 45.0f, "%.0f°"))
+        SpatialPositionChanged();
+    ImGui::EndDisabled();
+    ImGui::PopItemWidth();
+    // D4 표기 1행 정리(I-1 원장 — 리터럴 .vorbis는 decoder 4행 판별에서
+    // 거부되므로 표기가 코덱 소속을 정직하게 말한다).
+    ImGui::TextDisabled("%s",
+        "지원: mp3 · flac · ogg(vorbis 코덱) · wav — m4a·aac·wma는 vplayer 위임");
+}
+
+void ClientMusicApp::SpatialPositionChanged() {
+#ifdef JK_MUSIC_SPATIAL_LEG
+    if (legPlayer_)
+        legPlayer_->set_position(legAzimuth_, legDistance_, legElevation_);
+#endif
+    // 드래그 자체는 입력 이벤트(게이트가 이미 프레임을 낸다 — 더티 조작 없음).
 }
 
 int ClientMusicApp::VisibleTrackCount() const {
@@ -545,7 +906,7 @@ void ClientMusicApp::BuildTrackTable() {
     // 기준(행 내부 아이템 1개 — 셀별 수형, 행 래퍼 Selectable 신설 금지).
     // 대상은 행 참조 t 그 자체라 필터 열외 순회와 무관하게 full이 정확하다.
     const std::string filter(filterBuf_);
-    if (ImGui::BeginTable("tracks", 3,
+    if (ImGui::BeginTable("tracks", 4,
                           ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
                               ImGuiTableFlags_SizingStretchProp)) {
         ImGui::TableSetupColumn("경로");  // rel(상대경로) — Stretch
@@ -553,6 +914,10 @@ void ClientMusicApp::BuildTrackTable() {
                                 84.0f);
         ImGui::TableSetupColumn("수정", ImGuiTableColumnFlags_WidthFixed,
                                 140.0f);
+        // spatial(T2 — 행별 [spatial] 버튼 열): 지원 행만 발사 가능. 버튼은
+        // 표기 계층(T1 순수 부품)이라 env 무관 그려진다.
+        ImGui::TableSetupColumn("spatial", ImGuiTableColumnFlags_WidthFixed,
+                                74.0f);
         ImGui::TableHeadersRow();
         for (size_t r = 0; r < tracks_.size(); ++r) {
             const music::Track& t = tracks_[r];
@@ -572,6 +937,24 @@ void ClientMusicApp::BuildTrackTable() {
             MtimeLabel(t.mtime, mtBuf, sizeof(mtBuf));
             ImGui::TableSetColumnIndex(2);
             ImGui::TextUnformatted(mtBuf);
+            ImGui::TableSetColumnIndex(3);
+            // [spatial] 버튼(T2 — LegSupport 표 소비): 지원 행만 발사, 미지원
+            // 행 회색+툴팁(D4 정직 계약). 버튼 표기 자체는 env 무근(표기 계층
+            // T1 순수 부품) — leg 불가 빌드의 발사는 SpatialStart의
+            // DeviceFailed 종착(kDelegationHint 라벨)으로 끝난다(정직 계약).
+            const bool spatialable =
+                music::leg::LegSupport::OfExt(t.full) ==
+                music::leg::LegSupport::State::Supported;
+            if (spatialable) {
+                if (ImGui::SmallButton("spatial")) SpatialStart(t);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("%s",
+                                      "spatial leg로 재생(POSITIONAL HRTF)");
+            } else {
+                ImGui::TextDisabled("-");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("미지원 포맷 — vplayer 위임으로 재생");
+            }
             ImGui::PopID();
         }
         ImGui::EndTable();
