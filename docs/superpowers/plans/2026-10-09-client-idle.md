@@ -26,7 +26,7 @@
 **Files:**
 - Modify: `engine/src/client/JKClientApplication.cpp:309` 부근(DrainTimerChannel activity 마킹 해제 — 주석 갱신)
 - Test: `engine/src/main.cpp`+`engine/tools/posix_selftest/main.cpp` — selftest `2i-a`: 타이머 틱 단독=렌더 유발 안 함(활동 게이트 원문 수형)·`2i-b`: 입력/에이전트/테마는 활동 유지 회귀
-- **Interfaces:** Consumes: 기존 activity 게이트(docs/78 원문). Produces: T2 스윕과 같이 소비하는 "타이머 틱≠활동" 새 계약 — 16 앱은 T2 전까지 폴백 1s로 후퇴(정적 UI 시각 등가 — 동일 픽셀), 폰 실측은 T3.
+- **Interfaces:** Consumes: 기존 activity 게이트(docs/78 원문). Produces: T2 스윕과 같이 소비하는 "타이머 틱≠활동" 새 계약. **T1 단독 상태: 16앱의 Timer→frameDirty 관용구(T2 미수행)가 여전히 IsFrameDirty() 게이트를 통과 — 렌더 케이던스 불변·스핀 불변(T1 리뷰 룰링 r1). 스핀 소각 실질=T2, 폰 idle 실측은 T3(T2 이후).**
 - [ ] **Step 1:** selftest 2i-a/b 먼저
 - [ ] **Step 2:** 게이트 수리+주석 갱신
 - [ ] **Step 3:** 3축 selftest(캐논 계보 표기)+Win 부팅 육안 스킵(리뷰어 몫)
