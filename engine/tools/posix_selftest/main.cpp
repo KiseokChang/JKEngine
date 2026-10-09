@@ -7,9 +7,12 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>  // std::abs (2g-c 산치)
 #include <cstdio>
 #include <cstring>  // std::memcmp
 #include <ctime>  // nanosleep (D-T3 hygiene: nanosleep, not usleep)
+#include <filesystem>  // 2g-e 폴더 열거 실측(임시 폴더)
+#include <fstream>  // 2g-e 스텁 이미지 생성
 #include <string>
 #include <thread>
 #include <vector>
@@ -23,6 +26,7 @@
 
 #include <agent/JKLlmEngine.h>  // kStubShellCmdPosix (case 10), TurnSync (case 15)
 #include <apps/ChatRouter.h>  // 자연어 승격 배선 (T4 — case 16 twin)
+#include <apps/GalleryModel.h>  // case 2g (T1) — 갤러리 순수 부품 직링크
 #include <JKTextAtlas.h>  // case 19 (T2) — 텍스트 배율 결선 순수 부품 단정
 #include <ipc/JKPipeTransport.h>
 #include <ipc/JKWireEndpoints.h>
@@ -2093,6 +2097,110 @@ void TestTextScaleFix() {
           "겹치지 않는다(I-2 상단 사각지대 해소 산치)");
 }
 
+// Gallery 모델 순수 부품 (T1 — 스펙 2026-10-09-gallery-design). jkdesktop
+// RunAppSelfTest의 2g 계열이 캐논 담당(양축)이고 이 케이스는 어댑터 축의
+// 분신 — 헤더 inline(apps/GalleryModel.h, jk::gallery)을 g++ 직링크로
+// 단정한다(2t 선례). backslash 정규화 수형은 Win 원문 계약이라 posix 쌍은
+// '/'-만 수형을 단정한다(exeDir 빈값 승계 수형 포함).
+void TestGalleryModel() {
+    using jk::gallery::GalleryDirList;
+    // 2g-a) 순수 리졸버 — settings 없음 = 기본 1건(fail-safe), dirs 2건 =
+    // 기본이 앞+유저 순서 보존, 중복 경로 제거, 파손/비배열 = 기본 1건.
+    const std::vector<std::string> noSettings = GalleryDirList("X:/exe", "");
+    Check(noSettings.size() == 1 &&
+              noSettings[0] == "X:/exe/state/screenshots",
+          "2g-a settings 없음 = 기본 1건(fail-safe)");
+    const std::vector<std::string> withDirs = GalleryDirList(
+        "X:/exe", R"({"gallery":{"dirs":["P:/pics","Q:/cam"]}})");
+    Check(withDirs.size() == 3 &&
+              withDirs[0] == "X:/exe/state/screenshots" &&
+              withDirs[1] == "P:/pics" && withDirs[2] == "Q:/cam",
+          "2g-a dirs 2건 = 기본이 앞+유저 순서 보존");
+    const std::vector<std::string> dup = GalleryDirList(
+        "X:/exe",
+        R"({"gallery":{"dirs":["X:/exe/state/screenshots","P:/pics"]}})");
+    Check(dup.size() == 2 && dup[0] == "X:/exe/state/screenshots" &&
+              dup[1] == "P:/pics",
+          "2g-a 기본 중복 유저 경로 제거(첫 등장 유지)");
+    const std::vector<std::string> broken =
+        GalleryDirList("X:/exe", R"json({"gallery":{"dirs":[)json");
+    Check(broken.size() == 1 && broken[0] == "X:/exe/state/screenshots",
+          "2g-a 파손 settings = 기본 1건(fail-safe)");
+    const std::vector<std::string> notArray =
+        GalleryDirList("X:/exe", R"({"gallery":{"dirs":"P:/pics"}})");
+    Check(notArray.size() == 1 && notArray[0] == "X:/exe/state/screenshots",
+          "2g-a dirs 비배열 = 무시, 기본 1건(원문 보존 소비)");
+    const std::vector<std::string> emptyExe = GalleryDirList("", "");
+    Check(emptyExe.size() == 1 && emptyExe[0] == "state/screenshots",
+          "2g-a exeDir 빈값 = 상대 기본 1건(jk::fs 빈값 계약 승계)");
+
+    // 2g-b) 경로 정규화 — 뒤 구분자 중복·빈 성분 제거·첫 등장 유지(posix 수형;
+    // backslash 수형은 Win 쌍둥이 소유 — '\'는 posix에서 성분 문자).
+    const std::vector<std::string> norm = jk::gallery::NormalizeDirs(
+        {"srv/share//", "", "/", "srv/share"});
+    Check(norm.size() == 1 && norm[0] == "srv/share",
+          "2g-b 뒤 구분자 중복+빈 성분 제거+첫 등장 유지(posix)");
+
+    // 2g-c) 썸네일 박스 산치 — FitThumb = min 축 지배 + s=1.0 상한(확대 금지).
+    const jk::gallery::FitSize same =
+        jk::gallery::FitThumb(160, 120, 160, 120);
+    Check(same.w == 160.f && same.h == 120.f, "2g-c 정합 입력 = s 1.0(원본)");
+    const jk::gallery::FitSize small =
+        jk::gallery::FitThumb(80, 60, 160, 120);
+    Check(small.w == 80.f && small.h == 60.f,
+          "2g-c 작은 원본 = 확대 금지(s 1.0 상한)");
+    const jk::gallery::FitSize big =
+        jk::gallery::FitThumb(3200, 2400, 160, 120);
+    Check(big.w == 160.f && big.h == 120.f, "2g-c 큰 원본 = 박스 정합 축소");
+    const jk::gallery::FitSize wide =
+        jk::gallery::FitThumb(10000, 10, 160, 120);
+    Check(wide.w == 160.f && std::abs(wide.h - 0.16f) < 1e-3f,
+          "2g-c 극단 가로 종횡비 = min 축 지배(비율 유지)");
+    const jk::gallery::FitSize tall =
+        jk::gallery::FitThumb(10, 10000, 160, 120);
+    Check(std::abs(tall.w - 0.12f) < 1e-3f && tall.h == 120.f,
+          "2g-c 극단 세로 종횡비 = min 축 지배(비율 유지)");
+    const jk::gallery::FitSize deg = jk::gallery::FitThumb(0, 100, 160, 120);
+    Check(deg.w == 0.f && deg.h == 0.f, "2g-c 퇴화 입력 = {0,0}");
+
+    // 2g-d) FNV-1a 캐시 키 — 결정론성+충돌 부재 3쌍+basis(구조 상수).
+    Check(jk::gallery::Fnv1a("a.png") == jk::gallery::Fnv1a("a.png"),
+          "2g-d 결정론성(같은 입력 = 같은 해시)");
+    Check(jk::gallery::Fnv1a("shot_1.png") != jk::gallery::Fnv1a("shot_2.png") &&
+              jk::gallery::Fnv1a("p1.jpg") != jk::gallery::Fnv1a("p1.jpeg") &&
+              jk::gallery::Fnv1a("a/b.png") != jk::gallery::Fnv1a("a/b.png "),
+          "2g-d 충돌 부재 3쌍(대쉬 1문자·형제 확장자·꼬리 공백)");
+    Check(jk::gallery::Fnv1a("") == 2166136261u,
+          "2g-d 빈 문자열 = offset basis(구조 상수)");
+
+    // 2g-e) 폴더 열거 — 없는 폴더/빈 폴더=목록 비움(ec 중립형), 실열거 =
+    // 최신순(mtime desc, 명시 세트 — 시계 분해능 무관)+비이미지/서브디렉터리
+    // 성분 스킵. 임시 폴더 실측(사후 소각 — 엔진 selftest 계약).
+    const std::filesystem::path gdir =
+        std::filesystem::temp_directory_path() / "jk_gallery_selftest";
+    std::filesystem::remove_all(gdir);
+    std::vector<std::string> out;
+    bool ok = true;
+    out = jk::gallery::ListImageFiles((gdir / "missing").string(), &ok);
+    Check(out.empty() && !ok, "2g-e 없는 폴더 = 목록 비움+ok false");
+    std::filesystem::create_directories(gdir);
+    out = jk::gallery::ListImageFiles(gdir.string(), &ok);
+    Check(out.empty() && ok, "2g-e 빈 폴더 = 목록 비움+ok true");
+
+    { std::ofstream f(gdir / "b.png"); f.put('x'); }
+    { std::ofstream f(gdir / "a.png"); f.put('x'); }
+    { std::ofstream f(gdir / "c.txt"); f.put('x'); }
+    std::filesystem::create_directories(gdir / "sub");
+    { std::ofstream f(gdir / "sub" / "in.png"); f.put('x'); }
+    const auto later =
+        std::filesystem::file_time_type::clock::now() + std::chrono::hours(1);
+    std::filesystem::last_write_time(gdir / "b.png", later);
+    out = jk::gallery::ListImageFiles(gdir.string(), &ok);
+    Check(ok && out.size() == 2 && out[0] == "b.png" && out[1] == "a.png",
+          "2g-e 열거 = 최신순(mtime desc)+비이미지/서브디렉터리 스킵");
+    std::filesystem::remove_all(gdir);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -2115,6 +2223,7 @@ int main(int argc, char** argv) {
     TestFrameDirty();
     TestFrameDirtyWiring();
     TestTextScaleFix();
+    TestGalleryModel();
     std::printf("PosixSelfTest: %d failure(s)\n", g_failures);
     return g_failures == 0 ? 0 : 1;
 }

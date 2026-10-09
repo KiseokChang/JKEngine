@@ -664,6 +664,19 @@ target_compile_definitions(jkapp_snap PRIVATE JKAPP_MODULE_BUILD)
 target_link_libraries(jkapp_snap PRIVATE jkclient imgui)
 set_target_properties(jkapp_snap PROPERTIES PREFIX "")
 
+# Gallery module (spec 2026-10-09-gallery-design Task 1): photo 모아보기 허브
+# 격자 뷰 골격 — resolves source dirs (state/screenshots default + settings
+# gallery.dirs) into a fixed-cell thumbnail grid. A launcher .jkx with the
+# program-generated 3x3 grid icon. Windows AND posix legs (no WIN32 gate —
+# the browser-class libcef link is the only gated one).
+add_library(jkapp_gallery SHARED
+    src/apps/JKAppModule_gallery.cpp
+    src/apps/ClientGalleryApp.cpp
+)
+target_compile_definitions(jkapp_gallery PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_gallery PRIVATE jkclient imgui)
+set_target_properties(jkapp_gallery PROPERTIES PREFIX "")
+
 # Screenshot viewer module (agent platform, docs/35 Task 4): lists
 # <exeDir>\state\screenshots newest-first, shows the selection, spawns the
 # snap overlay. A launcher .jkx with the amber camera icon.
@@ -966,7 +979,7 @@ add_custom_target(console_apps ALL
 set(JKX_ICON_APPS
     mine tetris testwin jango occ pcx vector iconedit recog vfont vpres
     terminal imguidemo taskmgr vplayer browser scriptdemo passworddemo
-    notify shot agentmgr)
+    notify shot agentmgr gallery)
 set(JKX_ICONS "${CMAKE_BINARY_DIR}/assets/icons")
 foreach(icon_app IN LISTS JKX_ICON_APPS)
     foreach(icon_px IN ITEMS 1x 2x)
@@ -1125,6 +1138,13 @@ add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/shot.jkx"
         "${JKX_ICONS}/launcher_shot@2x.png"
     COMMENT "Repacking apps/shot.jkx"
     VERBATIM)
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/gallery.jkx"
+    COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack gallery
+    DEPENDS jkdesktop jkapp_gallery
+        "${JKX_ICONS}/launcher_gallery@1x.png"
+        "${JKX_ICONS}/launcher_gallery@2x.png"
+    COMMENT "Repacking apps/gallery.jkx"
+    VERBATIM)
 # Browser needs libcef.dll next to jkdesktop.exe at pack time (the packer
 # LoadLibraryA's the module), hence the cef_deploy dependency. Windows-only
 # (docs/69 stage-3): jkapp_browser/cefosr/cef_deploy are excluded from Linux,
@@ -1183,6 +1203,7 @@ add_custom_target(jkx_packages ALL
             "${CMAKE_BINARY_DIR}/apps/notify.jkx"
             "${CMAKE_BINARY_DIR}/apps/snap.jkx"
             "${CMAKE_BINARY_DIR}/apps/shot.jkx"
+            "${CMAKE_BINARY_DIR}/apps/gallery.jkx"
             "${CMAKE_BINARY_DIR}/apps/settings.jkx"
             "${CMAKE_BINARY_DIR}/apps/notes.jkx"
             "${CMAKE_BINARY_DIR}/apps/files.jkx"
