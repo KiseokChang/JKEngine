@@ -292,7 +292,7 @@ SHOTS=buildterm/state/screenshots
 NLOG="$TMPD/pgal_ninja.log"
 STLOG="$TMPD/pgal_selftest.log"
 CANON_PHONE_PREV=506      # 폰 기존 캐논(텍스트 스케일 T4 실측 — 비교 원문)
-CANON_PHONE_EXPECT=546    # 506 + 2g 40건(T1-T3)
+CANON_PHONE_EXPECT=546    # 506 + 2g 40건(T1-T3) — F awk가 소비(단일 지점 갱신)
 
 echo "=== A. 진입 마커 — 배포 전 구판 상태 원문 ==="
 ENTRY_SRV=$(pgrep -f 'buildterm/[j]kdesktop --server' | tr '\n' ' ')
@@ -395,11 +395,11 @@ grep -aq 'AppSelfTest: 0 failure(s)' "$STLOG" || FAIL "AppSelfTest not 0 failure
 if [ "$P2G" -ne 40 ]; then
     echo "WARN: 2g 계열 실측 $P2G/40 — 갤러리 selftest 미반영 가능 (계보 원장)"
 fi
-awk -v p="$ST_PASS" -v g="$P2G" -v prev="$CANON_PHONE_PREV" 'BEGIN{
-    exp_new = prev + 40
+awk -v p="$ST_PASS" -v g="$P2G" -v prev="$CANON_PHONE_PREV" -v expect="$CANON_PHONE_EXPECT" 'BEGIN{
+    exp_new = expect
     if (p == exp_new) print "CANON-INCLUSION=GALLERY-FULL-T2G-40 (폰 캐논 " prev "→" p " 상승 — 2g " g "건 동반 실측)"
     else if (p == prev) print "CANON-INCLUSION=GALLERY-SELFTEST-MISSING (갤러리 selftest 쌍둥이 미반영 — 계보 결손 — 원장)"
-    else printf "CANON-INCLUSION=OTHER-N(%d — 기대 %d=506+40 · 2g=%d/40 — 계보 정산 원장)\n", p, exp_new, g
+    else printf "CANON-INCLUSION=OTHER-N(%d — 기대 %d=%d+40 · 2g=%d/40 — 계보 정산 원장)\n", p, exp_new, prev, g
 }'
 
 # ---------------------------------------------------------------- 레그 공통
@@ -412,7 +412,7 @@ CAPTURE() { # $1=출력png — x11grab 1920x1080 시도, 화면 크기 파싱 �
         SCR=$(ffmpeg -hide_banner -loglevel error -f x11grab -video_size 1920x1080 \
             -framerate 1 -i :1 -frames:v 1 /dev/null 2>&1 \
             | grep -aoE 'screen size [0-9]+x[0-9]+' | head -1 | sed 's/screen size //')
-        [ -n "$SCR" ] || SCR=1920x1005
+        [ -n "$SCR" ] || SCR=1920x1005   # 폴백 유래 실측 — pgal_phone_run.log CAPTURE-SIZE-ADJUST 1920x1005 6건+docs/86 §3 #12(docs/87 §3 #15): 폰 화면 1080 아님
         echo "CAPTURE-SIZE-ADJUST: $SCR"
         ffmpeg -hide_banner -loglevel error -f x11grab -video_size "$SCR" \
             -framerate 1 -i :1 -frames:v 1 "$OUT" >/dev/null 2>&1
@@ -612,7 +612,7 @@ if [ "$ENTRY_THUMBS" = "1" ]; then
     echo "THUMB-CACHE-KEPT: ENTRY에 존재했던 dir — 건드리지 않는다 (probe 소유 잔상 아님)"
 else
     rm -rf buildterm/state/gallery
-    [ -d buildterm/state/gallery ] && echo "WARN: state/gallery survived rm" \
+    [ -d buildterm/state/gallery ] && FAIL "WARN: state/gallery survived rm — thumb 캐시 소각 실패 (probe 소유 잔상 — seed 실패 FAIL과 동등 승격)" \
         || echo "THUMB-CACHE-BURIED: buildterm/state/gallery removed"
 fi
 if [ "$ENTRY_PERM" -eq 1 ]; then
