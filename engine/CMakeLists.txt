@@ -677,6 +677,21 @@ target_compile_definitions(jkapp_gallery PRIVATE JKAPP_MODULE_BUILD)
 target_link_libraries(jkapp_gallery PRIVATE jkclient imgui)
 set_target_properties(jkapp_gallery PROPERTIES PREFIX "")
 
+# Music module (spec 2026-10-09-music-library-design Task 2): 음악 모아보기
+# 허브 — resolves source dirs (state/music default + settings music.dirs) on
+# an async scan worker and lists the tracks (rel/size/mtime) with the name
+# filter. A launcher .jkx with no icon (the packer treats icons as optional
+# and the launcher falls back to flat drawing — snap 선례; launcher_music
+# assets는 아직 트리에 없다). Windows AND posix legs (no WIN32 gate —
+# the browser-class libcef link is the only gated one).
+add_library(jkapp_music SHARED
+    src/apps/JKAppModule_music.cpp
+    src/apps/ClientMusicApp.cpp
+)
+target_compile_definitions(jkapp_music PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_music PRIVATE jkclient imgui)
+set_target_properties(jkapp_music PROPERTIES PREFIX "")
+
 # Screenshot viewer module (agent platform, docs/35 Task 4): lists
 # <exeDir>\state\screenshots newest-first, shows the selection, spawns the
 # snap overlay. A launcher .jkx with the amber camera icon.
@@ -1145,6 +1160,11 @@ add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/gallery.jkx"
         "${JKX_ICONS}/launcher_gallery@2x.png"
     COMMENT "Repacking apps/gallery.jkx"
     VERBATIM)
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/apps/music.jkx"
+    COMMAND "$<TARGET_FILE:jkdesktop>" jkx-pack music
+    DEPENDS jkdesktop jkapp_music
+    COMMENT "Repacking apps/music.jkx"
+    VERBATIM)
 # Browser needs libcef.dll next to jkdesktop.exe at pack time (the packer
 # LoadLibraryA's the module), hence the cef_deploy dependency. Windows-only
 # (docs/69 stage-3): jkapp_browser/cefosr/cef_deploy are excluded from Linux,
@@ -1204,6 +1224,7 @@ add_custom_target(jkx_packages ALL
             "${CMAKE_BINARY_DIR}/apps/snap.jkx"
             "${CMAKE_BINARY_DIR}/apps/shot.jkx"
             "${CMAKE_BINARY_DIR}/apps/gallery.jkx"
+            "${CMAKE_BINARY_DIR}/apps/music.jkx"
             "${CMAKE_BINARY_DIR}/apps/settings.jkx"
             "${CMAKE_BINARY_DIR}/apps/notes.jkx"
             "${CMAKE_BINARY_DIR}/apps/files.jkx"

@@ -5509,6 +5509,35 @@ static int RunAppSelfTest() {
             check(!de && !fs::exists(cdir, de),
                   "2m-e 정리 = 링크 선제거 후 remove_all(사후 소각 — 무잔산)");
         }
+
+        // 2m-f) 스캔 워커 쌍둥이 케이스 (T2): ClientMusicApp의 표기 데이터 =
+        // ListAudioFiles 결과 벡터 **동형**(앱은 재정렬·파생 없이 그 벡터를
+        // 소비한다 — 필터는 순서 보존 열외만). 2m-c가 mtime desc를 이미
+        // 잠그지만 동점(mtime tie → rel asc tiebreak, T1 본문 재량 ③)은
+        // 미접촉 수형 — 앱 표기 순서의 결정론이 이 케이스의 소관이다. mtime을
+        // 명시 동일치로 세워(시계 분해능 무관 결정론 — 2m-c 원문 수형) 동점을
+        // 강제하고, rel asc 타이브레이크가 서열을 정하는 단정 1건(브리프 "신설
+        // 어설션 1건"). 지정 2m-e는 T1 fix r1이 순환 가드로 선점 — 브리프
+        // 원문 기록 2m-e는 이 케이스(2m-f)로 승계(리포트 §6 정정 부기).
+        const fs::path tdir = fs::temp_directory_path() / "jk_music_tie";
+        fs::remove_all(tdir);
+        {
+            fs::create_directories(tdir / "sub");
+            std::ofstream(tdir / "zz.mp3").put('x');
+            std::ofstream(tdir / "sub" / "aa.mp3").put('x');
+            const auto stamp =
+                fs::file_time_type::clock::now() - std::chrono::hours(2);
+            fs::last_write_time(tdir / "zz.mp3", stamp);
+            fs::last_write_time(tdir / "sub" / "aa.mp3", stamp);
+            const std::vector<jk::music::Track> out =
+                jk::music::ListAudioFiles(tdir.string());
+            check(out.size() == 2 && out[0].rel == "sub/aa.mp3" &&
+                      out[1].rel == "zz.mp3" &&
+                      out[0].mtime == out[1].mtime && out[0].size == 1,
+                  "2m-f 스캔 결과 = 표기 데이터 동형(mtime 동점 → rel asc, "
+                  "rel 열 원문)");
+            fs::remove_all(tdir);
+        }
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);
