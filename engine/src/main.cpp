@@ -103,6 +103,7 @@ extern "C" __declspec(dllimport) int __stdcall closesocket(
 #include <apps/ChatRouter.h>   // selftest 1n — 채팅 명령 라우터(스펙 §1.3)
 #include <apps/GalleryModel.h>  // selftest 2g — 갤러리 순수 부품(스펙 2026-10-09-gallery-design)
 #include <apps/MusicModel.h>  // selftest 2m — 뮤직 순수 부품(스펙 2026-10-09-music-library-design)
+#include <apps/MusicSpatialLeg.h>  // selftest 2n — 뮤직 spatial leg 순수 부품(스펙 2026-10-10-music-spatial-leg-design)
 #include <apps/ClientIdlePolicy.h>  // selftest 2i-c — 앱 Timer→더티 조건화 산치(#89 T2)
 #include <script/JKScriptHost.h>
 #include <SDL.h>
@@ -5594,6 +5595,120 @@ static int RunAppSelfTest() {
                   "2m-h 봉투 ok=1 원문 2건 = 본문 재판정(즉답 거부 → 실패+"
                   "unknown_app_tool 재청구 대상·핫 경로 → 성공) — 봉투 무신 "
                   "본문 진실원");
+        }
+
+        // 2n) spatial leg 골격 (T1 — 스펙 2026-10-10-music-spatial-leg-design):
+        // jk::music::leg 순수 부품 — ①OfExt(스펙 D4 표 — 지원 5·미지원 3)
+        // ②Apply 상태 머신 4전이 ③ToolJson app 도구 허브 요청 원문 3종
+        // (2m-g OpenRequestJson 쌍둥이) ④포맷 표 정합. audio_core 소비가 없는
+        // 순수 헤더 직링이라 **env 미설정(fail-closed) 빌드에서도 전부 컴파일/
+        // 실행된다** — 배선이 selftest를 조건부로 하지 않는 게 T1의 하드 계약.
+        {
+            using jk::music::leg::LegEvent;
+            using jk::music::leg::LegState;
+            using jk::music::leg::LegSupport;
+            using jk::music::leg::Apply;
+            using jk::music::leg::ToolJson;
+
+            // 2n-a) LegSupport::OfExt — D4 표(대소문자 무시·숨김 확장자·
+            // 빈 문자열·표 밖 확장자 — 보수 파 Unsupported).
+            check(LegSupport::OfExt("music/sub/song.mp3") ==
+                      LegSupport::State::Supported,
+                  "2n-a mp3 = 지원(D4 표원문 — [spatial] 활성군)");
+            check(LegSupport::OfExt("C:\\MUSIC\\song.FLaC") ==
+                      LegSupport::State::Supported,
+                  "2n-a 대소문자 무시(.FLaC) = 지원(ASCII fold — Stricmp)");
+            check(LegSupport::OfExt("b.OGG") ==
+                              LegSupport::State::Supported &&
+                          LegSupport::OfExt("b.vorbis") ==
+                              LegSupport::State::Supported &&
+                          LegSupport::OfExt("b.WAV") ==
+                              LegSupport::State::Supported,
+                  "2n-a ogg·vorbis·wav = 지원(컨테이너/코덱 표 합동)");
+            check(LegSupport::OfExt("a.m4a") == LegSupport::State::Unsupported,
+                  "2n-a m4a = 미지원(회색 정직 표기군)");
+            check(LegSupport::OfExt(".mp3") == LegSupport::State::Unsupported,
+                  "2n-a 숨김 파일(.mp3 도트포함 항목) = 미지원(확장자 없음 — "
+                  "extension() 공문자, 보수 파)");
+            check(LegSupport::OfExt("") == LegSupport::State::Unsupported &&
+                      LegSupport::OfExt("track") ==
+                          LegSupport::State::Unsupported &&
+                      LegSupport::OfExt("song.txt") ==
+                          LegSupport::State::Unsupported,
+                  "2n-a 빈 문자열·무확장자·표 밖 = 미지원(보수 파)");
+
+            // 2n-b) Apply 순수 전이 — 4전이+순수성(원본 무변조). UI 라벨 소비
+            // 계약: err는 kDelegationHint 원문 그대로 라벨로 그린다.
+            LegState idle;                       // 처음 — Idles
+            idle.path = "music/sub/song.mp3";
+            idle.durSec = 180.0;
+            idle.posSec = 0;
+            const LegState playing = Apply(idle, LegEvent::Start);
+            check(playing.active && playing.deviceOk &&
+                      playing.posSec == 0.0 && playing.err.empty() &&
+                      playing.path == "music/sub/song.mp3",
+                  "2n-b Start = 재생 개시(active·deviceOk 전제·pos 0·고장 "
+                  "표기 소멸·path 무변조)");
+            const LegState failed = Apply(playing, LegEvent::DeviceFailed);
+            check(!failed.active && !failed.deviceOk &&
+                      failed.err == jk::music::leg::kDelegationHint,
+                  "2n-b DeviceFailed = 고장 종착(active 해제·deviceOk 해제·"
+                  "안내 원문 — UI 라벨 소비 계약)");
+            const LegState stopped =
+                Apply(playing, LegEvent::StopRequested);
+            check(!stopped.active && stopped.deviceOk &&
+                      stopped.err.empty(),
+                  "2n-b StopRequested = 정지 성공 종착(deviceOk·고장 표기 "
+                  "보존 — 정지는 고장이 아니다)");
+            LegState mid = Apply(idle, LegEvent::Start);
+            mid.posSec = 12.5;
+            mid.durSec = 180.0;
+            const LegState eos = Apply(mid, LegEvent::Eos);
+            check(!eos.active && eos.posSec == eos.durSec,
+                  "2n-b Eos = 자연 종료(진행 표기 끝까지 — pos==dur)");
+            check(idle.active == false && idle.posSec == 0.0 &&
+                      idle.durSec == 180.0 && idle.err.empty(),
+                  "2n-b 순수성 = 입력 상태 무변조(값 반환이라 원본 보존 — "
+                  "전이는 사건 1건만 적용)");
+
+            // 2n-c) ToolJson — app 도구 허브 요청 원문 3종(2m-g 쌍둥이 형식 —
+            // {"app":"music","tool":...}). path 이스케이프 원문도 2m-g 수형
+            // 대조(공백·역슬래시).
+            check(ToolJson(jk::music::leg::kToolPlay,
+                           "my music/cold song.mp3") ==
+                      "{\"app\":\"music\",\"tool\":\"spatial_play\",\"args\":"
+                      "{\"path\":\"my music/cold song.mp3\"}}",
+                  "2n-c spatial_play = app_tool 요청 원문(app/music 도구 허브 "
+                  "릴레이 계약)");
+            check(ToolJson(jk::music::leg::kToolPlay, "C:\\music\\a.mp3") ==
+                      "{\"app\":\"music\",\"tool\":\"spatial_play\",\"args\":"
+                      "{\"path\":\"C:/music/a.mp3\"}}",
+                  "2n-c play 역슬래시 경로 = 슬래시 정규화(2m-g 원문 수형 — "
+                  "JSON 이스케이프 축적 없음)");
+            check(ToolJson(jk::music::leg::kToolStop) ==
+                      "{\"app\":\"music\",\"tool\":\"spatial_stop\",\"args\":"
+                      "{}}",
+                  "2n-c spatial_stop = 무인자(args {} 원문)");
+            check(ToolJson(jk::music::leg::kToolStatus) ==
+                      "{\"app\":\"music\",\"tool\":\"spatial_status\",\"args\":"
+                      "{}}",
+                  "2n-c spatial_status = 무인자(args {} 원문 — 관측 표면)");
+
+            // 2n-d) D4 표 정합 — 지원 5종(mp3/flac/ogg/vorbis/wav)·미지원
+            // 3종(m4a/aac/wma) 개수 등호(스펙 D4 원문 개수).
+            const char* const supported[] = {"s.mp3", "s.flac", "s.ogg",
+                                             "s.vorbis", "s.wav"};
+            const char* const unsupported[] = {"s.m4a", "s.aac", "s.wma"};
+            bool allSupported = true, allUnsupported = true;
+            for (const char* const p : supported)
+                if (LegSupport::OfExt(p) != LegSupport::State::Supported)
+                    allSupported = false;
+            for (const char* const p : unsupported)
+                if (LegSupport::OfExt(p) !=
+                    LegSupport::State::Unsupported)
+                    allUnsupported = false;
+            check(allSupported, "2n-d D4 지원군 5종 전원 = Supported");
+            check(allUnsupported, "2n-d D4 미지원군 3종 전원 = Unsupported");
         }
     }
 

@@ -692,6 +692,38 @@ target_compile_definitions(jkapp_music PRIVATE JKAPP_MODULE_BUILD)
 target_link_libraries(jkapp_music PRIVATE jkclient imgui)
 set_target_properties(jkapp_music PROPERTIES PREFIX "")
 
+# Spatial playback leg (spec 2026-10-10-music-spatial-leg-design, T1 —
+# fail-closed wiring, D2): the spatial-player repository (its audio_core
+# static lib — mp3/flac/ogg/wav streaming + POSITIONAL OpenAL Soft, which it
+# FetchContent's from source itself) is consumed **only when the
+# SPATIAL_PLAYER_ROOT environment variable is set**. Unset = the leg is not
+# built at all and the macro is not defined — the music app stays exactly the
+# vplayer-delegation app (v1 동작 무손상), and the selftest 2n pure parts
+# (apps/MusicSpatialLeg.h — 이 헤더는 audio_core includes가 없다) still
+# compile in every build. The T2 module gates its audio_core includes/sources
+# behind the JK_MUSIC_SPATIAL_LEG macro defined here. **SPATIAL_PLAYER_ROOT is
+# an environment-variable-only contract — the repository path is never
+# written to any committed source or manifest** (레포 규약 — IP 레포).
+if(DEFINED ENV{SPATIAL_PLAYER_ROOT})
+    # T1 compat (GNU 16.2 × openal-soft 1.23.1 — engine CMakeLists:10 "GNU
+    # 16.2 지원" 선례, env 분기에서만 — 미설정 빌드 무접촉):
+    # ①CMake 4(msys64)는 openal-soft의 cmake_minimum_required(3.0.2)를
+    #   거절한다 — add_subdirectory 전에 정책 바닥을 내려놓는다.
+    # ②openal-soft 1.23.1 alu.h:18 `enum CompatFlags : uint8_t`는 <bitset>이
+    #   <cstdint>를 전이 include하는 데 의존하는데 GNU 16.2는 <bitset>의
+    #   전이 include를 잘랐다 — 강제 -include cstdint로 봉합(원천 C++14 고정은
+    #   openal 쪽 손대지 않는다 — spatial-player 무변경 계약). C++20 상향은
+    #   오히려 alspan.h의 custom to_address가 std::to_address(C++20)와 ADL
+    #   충돌한다 — 상향 금지(실측 원장 — engine/tmp 풀 로그).
+    set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+    add_subdirectory("$ENV{SPATIAL_PLAYER_ROOT}"
+                     "${CMAKE_BINARY_DIR}/spatial-player-build"
+                     EXCLUDE_FROM_ALL)
+    target_link_libraries(jkapp_music PRIVATE audio_core)
+    target_compile_definitions(jkapp_music PRIVATE JK_MUSIC_SPATIAL_LEG)
+    set_target_properties(OpenAL PROPERTIES COMPILE_OPTIONS "-include;cstdint")
+endif()
+
 # Screenshot viewer module (agent platform, docs/35 Task 4): lists
 # <exeDir>\state\screenshots newest-first, shows the selection, spawns the
 # snap overlay. A launcher .jkx with the amber camera icon.
