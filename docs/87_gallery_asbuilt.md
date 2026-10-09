@@ -258,6 +258,10 @@ sent:true(좌클릭/←wrap/ESC)·leg dirs `SETTINGS-GATE-OK: gallery.dirs 주�
 
 ## §4. Deferred (소등 후보 — 유예 라인, docs/86 §4 문체 계승)
 
+> **형제 라인 포인터** — 갤러리 라인 밖에서 발생한 **클라 idle 스핀 수리(#89)의
+> as-built = `docs/88_client_idle_asbuilt.md`** (발단=docs/85 D1 리뷰 I-2 폰
+> 갤러리 클라 스핀 — 갤러리 앱이 진단 스파이크의 본판정 표본이 된 라인).
+
 | ID | 사항 | 근거 |
 | --- | --- | --- |
 | G1 | 회전/삭제/확대·팬(v1 YAGNI) | 스펙 결정 3 — FitFull s=1.0 상한 부재(T2 M1)는 shot 원문 동형·사용자 조작 계약으로 분리(2g-f "확대 허용"이 무상한 계약 명시 단정 아님 — T2 리뷰 원문) |
