@@ -12,10 +12,14 @@
 // This header must stay free of imgui/SDL/client types.
 
 #include <agent/JKAgentJson.h>
+#include <JKImageLoader.h>  // T3 MakeThumb/캐시 파이프라인 소비 — LoadedImage
+                            // (plain struct — imgui/SDL/client 타입 무접촉 계약 유지)
 #include <port/JKCrtShim.h>
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <string>
 #include <system_error>
@@ -28,6 +32,10 @@ namespace gallery {
 // below. T3 draws the decoded thumb inside the box; T1 draws the placeholder.
 inline constexpr int kCellW = 160;
 inline constexpr int kCellH = 120;
+// T3 in-memory thumb texture pool cap (LRU) — 스크롤 스코프 밖 재조명 재인코딩
+// 방지(텍스처 재생성 무깜빡 계약). 실보이는 셀 수(격자 한 화면)보다 넉넉히
+// 큰 상한이라 상한 초과는 수백 장 격자에서만 성립한다.
+inline constexpr int kThumbPoolMax = 96;
 // user dirs 상한 — settings 폭주 절단(방어선; 실사용은 1-3건이 현실).
 inline constexpr int kMaxUserDirs = 64;
 
@@ -150,6 +158,101 @@ inline std::vector<std::string> GalleryDirList(const std::string& exeDir,
     for (std::string& user : DirsFromSettings(settingsText))
         dirs.push_back(std::move(user));
     return NormalizeDirs(std::move(dirs));
+}
+
+// ---- T3 thumbnail pipeline (brief 2026-10-09-gallery/task-3) ----
+
+// 파일 스탬프 (T3 캐시 키 원료) — ec 중립형(last_write_time·file_size의
+// error_code 오버로드만, throwing 오버로드 금지 — 2g-e 계약 승계). 부재/읽기
+// 실패 = ok false (호출부는 키를 못 세우므로 실패 슬롯으로 열외).
+struct ThumbStamp {
+    bool ok = false;
+    long long size = 0;    // file_size (byte)
+    long long mtime = 0;   // last_write_time의 time_since_epoch().count() 정수열
+};
+inline ThumbStamp ThumbStampOf(const std::string& fullPath) {
+    ThumbStamp st;
+    std::error_code ec;
+    const std::filesystem::file_time_type t =
+        std::filesystem::last_write_time(std::filesystem::path(fullPath), ec);
+    if (ec) return ThumbStamp();  // ok=false (부재·권한·소멸 전부)
+    const auto n = t.time_since_epoch().count();
+    st.mtime = static_cast<long long>(n);  // 시계 정수열 — 같은 기기 안에서 안정
+    const uintmax_t sz = std::filesystem::file_size(
+        std::filesystem::path(fullPath), ec);
+    if (ec) return ThumbStamp();
+    st.size = static_cast<long long>(sz);
+    st.ok = true;
+    return st;
+}
+
+// T3 disk-cache key (selftest 2g-h): 전체 경로+size+mtime을 '|' 구분 원문으로
+// 묶어 Fnv1a(2g-d 소비) → 8자리 소문자 hex. 파일명만으로는 이름 같고 내용이
+// 다른 파일(재촬영 덮어쓰기)을 구분 못 하므로 크기+mtime을 키에 묶는다 —
+// 내용 변화 = 키 변화 = 새 캐시 파일(스메리 캐시 방지). mtime 시계 epoch는
+// 플랫폼 몫이지만 캐시 dir는 기기 귀속이라 같은 기기 안 결정론만 계약(2g-d의
+// 축 무관 결정론은 Fnv1a 원문 계약이 계속 소유).
+inline std::string ThumbKey(const std::string& fullPath, long long size,
+                            long long mtime) {
+    const std::string seed = fullPath + "|" + std::to_string(size) + "|" +
+                             std::to_string(mtime);
+    char buf[16] = {};
+    std::snprintf(buf, sizeof(buf), "%08x", Fnv1a(seed));
+    return buf;
+}
+
+// T3 disk-cache key of a live file — 스탬프 실패(부재 등) = 빈 문자열.
+inline std::string ThumbKeyFor(const std::string& fullPath) {
+    const ThumbStamp st = ThumbStampOf(fullPath);
+    if (!st.ok) return {};
+    return ThumbKey(fullPath, st.size, st.mtime);
+}
+
+// Disk-cache file path (brief 계약명): <exeDir>/state/gallery/thumbs/<key>.png.
+// empty key = 방어선(empty string — 호출부 무접촉). fs::path 합성+generic —
+// GalleryDirList와 같은 수형(폰/WSL의 '/' 표기).
+inline std::string GalleryThumbPath(const std::string& exeDir,
+                                    const std::string& cacheKey) {
+    if (cacheKey.empty()) return {};
+    return (std::filesystem::path(exeDir) / "state" / "gallery" / "thumbs" /
+            (cacheKey + ".png"))
+        .generic_string();
+}
+
+// Nearest downscale (T3 — T2 폴백 확대 동형 기법, 역방향): dst 픽셀 (x,y)는
+// sx=x*srcW/dstW·sy=y*srcH/dstH 소스 샘플 그대로(박스 축소 = 최근접 샘플).
+// dst 치수는 FitThumb 산치(s=min 축 지배, s>1.0 → 1.0 확대 금지)를 내림해
+// 1 이상 보정 — 1.5 요청도 상한에 눌려 s=1.0 항등(확대 아님)이 된다. 퇴화
+// 입력(빈 픽셀·치수 0 이하·박스 0 이하) = 빈 LoadedImage(호출부 placeholder
+// 유지 계약).
+inline LoadedImage MakeThumb(const LoadedImage& src, int maxW, int maxH) {
+    if (src.w <= 0 || src.h <= 0 || maxW <= 0 || maxH <= 0 ||
+        src.rgba.empty())
+        return LoadedImage();
+    const float s = std::min(
+        std::min(static_cast<float>(maxW) / static_cast<float>(src.w),
+                 static_cast<float>(maxH) / static_cast<float>(src.h)),
+        1.0f);
+    const int dstW = std::max(1, static_cast<int>(src.w * s));
+    const int dstH = std::max(1, static_cast<int>(src.h * s));
+    LoadedImage out;
+    out.w = dstW;
+    out.h = dstH;
+    out.rgba.assign(static_cast<size_t>(dstW) * dstH * 4, 0);
+    for (int y = 0; y < dstH; ++y) {
+        const int sy =
+            std::min(src.h - 1, y * src.h / dstH);  // nearest 역사상 (T2 동형)
+        const uint8_t* srcRow =
+            src.rgba.data() + static_cast<size_t>(sy) * src.w * 4;
+        uint8_t* dstRow =
+            out.rgba.data() + static_cast<size_t>(y) * dstW * 4;
+        for (int x = 0; x < dstW; ++x) {
+            const int sx = std::min(src.w - 1, x * src.w / dstW);
+            std::memcpy(dstRow + static_cast<size_t>(x) * 4,
+                        srcRow + static_cast<size_t>(sx) * 4, 4);
+        }
+    }
+    return out;
 }
 
 // Enumerate one dir's image files, newest first (mtime desc; tie = name desc,

@@ -5091,6 +5091,82 @@ static int RunAppSelfTest() {
         check(jk::gallery::WrapStep(0, 1, 0) == 0 &&
                   jk::gallery::WrapStep(0, -1, 0) == 0,
               "2g-f wrap = 빈 목록 무접촉(무변)");
+
+        // 2g-g) nearest 박스 축소 (T3 — T2 폴백 확대 동형 기법 역방향): dst
+        // (x,y) = src(x*srcW/dstW, y*srcH/dstH) 소스 샘플 그대로. s=1.0 항등
+        // 등호·0.5 축소 격자·1.5 요청(상한 눌림 = 항등)·퇴화 입력 방어선.
+        {
+            // 4x4 소스 — 픽셀 R채널 = 샘플 인덱스(x + y*4)로 식별 가능하게.
+            jk::LoadedImage src;
+            src.w = 4;
+            src.h = 4;
+            src.rgba.resize(16 * 4);
+            for (int y = 0; y < 4; ++y)
+                for (int x = 0; x < 4; ++x) {
+                    uint8_t* px = src.rgba.data() + (y * 4 + x) * 4;
+                    px[0] = static_cast<uint8_t>(x + y * 4);
+                    px[1] = 0;
+                    px[2] = 0;
+                    px[3] = 255;
+                }
+            const jk::LoadedImage id = jk::gallery::MakeThumb(src, 4, 4);
+            check(id.w == 4 && id.h == 4 &&
+                      std::memcmp(id.rgba.data(), src.rgba.data(), 16 * 4) == 0,
+                  "2g-g s=1.0 = 항등(치수+픽셀 정확 등호)");
+            const jk::LoadedImage half = jk::gallery::MakeThumb(src, 2, 2);
+            const uint8_t* hp = half.rgba.data();
+            check(half.w == 2 && half.h == 2 && hp[0] == 0 && hp[4] == 2 &&
+                      hp[8] == 8 && hp[12] == 10,
+                  "2g-g 0.5 축소 샘플 = x*src/dst 격자(사분면 0·2·8·10)");
+            const jk::LoadedImage up = jk::gallery::MakeThumb(src, 6, 6);
+            check(up.w == 4 && up.h == 4 &&
+                      std::memcmp(up.rgba.data(), src.rgba.data(), 16 * 4) == 0,
+                  "2g-g 1.5 요청 = s 1.0 상한 눌림 항등(확대 금지 — 2g-c 계약)");
+            const jk::LoadedImage degBox =
+                jk::gallery::MakeThumb(src, 0, 4);
+            const jk::LoadedImage degEmpty =
+                jk::gallery::MakeThumb(jk::LoadedImage(), 4, 4);
+            check(degBox.rgba.empty() && degBox.w == 0 && degBox.h == 0 &&
+                      degEmpty.rgba.empty(),
+                  "2g-g 퇴화 입력(박스 0·빈 픽셀) = 빈 LoadedImage(placeholder 유지)");
+        }
+
+        // 2g-h) 캐시 키 (T3 — 2g-d Fnv1a 소비): 경로+size+mtime 조합. 같은
+        // 이름·내용 변화(크기 또는 mtime) = 키 변화(스메리 캐시 방지), 스탬프
+        // 실패(부재) = 빈 키(열외), 캐시 파일 경로 합성 계약.
+        const std::string kBase =
+            jk::gallery::ThumbKey("P:/pics/a.png", 100, 5);
+        check(!kBase.empty() && kBase.size() == 8 &&
+                  kBase == jk::gallery::ThumbKey("P:/pics/a.png", 100, 5),
+              "2g-h 결정론성+8자리 hex 형식(빈 키 부재)");
+        check(jk::gallery::ThumbKey("P:/pics/a.png", 101, 5) != kBase &&
+                  jk::gallery::ThumbKey("P:/pics/a.png", 100, 6) != kBase,
+              "2g-h size 변화·mtime 변화 = 키 변화(내용 변화 반영)");
+        check(jk::gallery::ThumbKey("P:/pics/b.png", 100, 5) != kBase,
+              "2g-h 경로 변화 = 키 변화(이름·내용 같아도)");
+        check(jk::gallery::GalleryThumbPath("X:/exe", "0a1b2c3d") ==
+                      "X:/exe/state/gallery/thumbs/0a1b2c3d.png" &&
+                  jk::gallery::GalleryThumbPath("X:/exe", "").empty(),
+              "2g-h 캐시 경로 합성 = thumbs/<key>.png (빈 키 = 빈 경로 방어선)");
+        {
+            // 실측 한쌍 — 생존 파일은 키가 성립하고 2회차 조명도 같은 키(재부팅
+            // 재조명 방지의 가교), 부재 파일은 ec 중립형 열외(빈 키).
+            const fs::path tdir = fs::temp_directory_path() / "jk_gallery_key";
+            fs::remove_all(tdir);
+            fs::create_directories(tdir);
+            {
+                std::ofstream out(tdir / "a.png");
+                for (int i = 0; i < 10; ++i) out.put('a');
+            }
+            const std::string live =
+                jk::gallery::ThumbKeyFor((tdir / "a.png").string());
+            const std::string missed =
+                jk::gallery::ThumbKeyFor((tdir / "no.png").string());
+            check(missed.empty() && !live.empty() &&
+                      live == jk::gallery::ThumbKeyFor((tdir / "a.png").string()),
+                  "2g-h 실측 = 생존 파일 키 성립+재조명 동일, 부재 = 빈 키(열외)");
+            fs::remove_all(tdir);
+        }
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);
