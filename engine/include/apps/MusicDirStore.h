@@ -18,8 +18,9 @@
 // (audio·retention·장래 키)와 비UTF-8 바이트를 **바이트 그대로** 남긴다 —
 // "기존 키 무손상" 하드 계약의 충족 수형. 라이브러리 조달은 없다(순수 std).
 //
-// 원자적 쓰기 계약: 같은 폴더 settings.json.tmp에 완성본을 먼저 쓰고
-// fs::rename — 부분 쓰기가 진짜 이름으로 도달하지 않는다(JKWorkshopStore
+// 원자적 쓰기 계약: 같은 폴더 settings.json.<pid>.tmp(pid 접미 — fix r1 M-1,
+// 프로세스 간 임시파일 접점 소각)에 완성본을 먼저 쓰고 fs::rename — 부분 쓰기
+// 가 진짜 이름으로 도달하지 않는다(JKWorkshopStore
 // WriteFileAll 원문 계약 승계). 첫 수는 **교체 rename**(posix는 원자적 교체로
 // 통과)이고 실패만 2세대 사다리로 걷는다: Windows UCRT rename은 존재 대상
 // 교체에 실패한다(2026-09-26 워크숍 라이브 게이트 실측 원문) — 이때 원본을
@@ -47,9 +48,26 @@
 #include <system_error>
 #include <vector>
 
+#if !defined(_WIN32)
+#include <unistd.h>  // ::getpid — 임시파일 pid 접미(fix r1 M-1)
+#endif
+
 namespace jk {
 namespace music {
 namespace store {
+
+// PID (fix r1 M-1): 임시파일 프로세스별 접미 근거 — 서버 WriteSettingsKv와
+// 클라 music UI가 **같은** `settings.json.tmp`를 공유하던 프로세스 간 접점을
+// 소각한다(동시 쓰기 교차 시 한쪽 혼입 버퍼가 rename으로 출하되는 창 — M-1
+// 결함 원장). kernel32 단일 선언은 MusicModel.h GetFileAttributesW 원문 선례
+// 수형(windows.h 전개 금지 계약).
+#if defined(_WIN32)
+extern "C" __declspec(dllimport) unsigned long __stdcall
+    GetCurrentProcessId(void);
+inline unsigned long ThisProcessId() { return GetCurrentProcessId(); }
+#else
+inline unsigned long ThisProcessId() { return static_cast<unsigned long>(::getpid()); }
+#endif
 
 // 쓰기 결과 — ok=false면 err에 1행 사유(다른 표기 없음 — 브리프 계약).
 struct DirWriteResult {
@@ -398,7 +416,12 @@ inline bool ReadAll(const std::string& path, std::string& out) {
 // 복원 실패 전부 err(정직 — 조용한 눌먹음 금지, 워크숍 실측 원문 계약).
 inline bool WriteSettingsAtomic(const std::string& path,
                                 const std::string& data, std::string& err) {
-    const std::string tmp = path + ".tmp";  // 같은 폴더 — rename 원자성 계약
+    // tmp에 pid 접미(fix r1 M-1) — 같은 폴더(rename 원자성 계약)+프로세스별
+    // 접점. 규약상 충돌 없는 유니크 이름이라 동시 쓰기가 서로의 혼입 버퍼를
+    // 출하할 수 없다. 잔산 한계(정직 부기): 프로세스 크래시 시 pid별 tmp가
+    // 남는다(무해 잔산 — 다음 정상 쓰기가 자기 pid분만 건드린다).
+    const std::string tmp = path + "." + std::to_string(ThisProcessId()) +
+                            ".tmp";
     const std::string bak = path + ".bak";
     std::FILE* f = nullptr;
     if (jk::crt::FopenS(&f, tmp.c_str(), "wb") != 0 || !f) {

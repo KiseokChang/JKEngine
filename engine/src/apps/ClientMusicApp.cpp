@@ -865,7 +865,13 @@ bool ClientMusicApp::OnAgentToolCall(const std::string& tool,
         music::Track t;
         t.full = path;  // T1 ToolJson이 '\'→'/' 정규화해 실은 원문(도구 허브
                         //   릴레이 파서 통과형 — 리뷰 §3 확증)
-        t.rel = std::filesystem::path(path).filename().string();
+        // 말단 성분은 바이트 스캔(N-1 — T2 fix r1, terminate 4검 부기): 도구
+        // 인자는 UI 입력과 달리 서버 릴레이 외부 원문이라 CP949 바이트 주입이
+        // 가능하다 — fs::path narrow 계층은 UTF-8 기수라 CP949 바이트에
+        // filesystem_error를 던져(2o-f 실측) UI 스레드 terminate가 됐다.
+        // LastPathSegment는 유효 경로에서 fs::path filename과 동일 표기
+        // (표기 전용 필드 — 행 상태/도구 결과의 rel 몫).
+        t.rel = LastPathSegment(path);
         const bool started = SpatialStart(t);
         if (!started) {
             out = "{\"error\":\"start_failed\",\"detail\":\"" +

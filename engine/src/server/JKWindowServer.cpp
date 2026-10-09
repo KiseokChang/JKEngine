@@ -2862,7 +2862,17 @@ static void LoadSettingsKv(bool& mute, int& volume, int& retention,
     while ((n = std::fread(chunk, 1, sizeof(chunk), f)) > 0) text.append(chunk, n);
     std::fclose(f);
     jk::agent::AgentJson json(text);
-    if (!json.ok()) return;
+    if (!json.ok()) {
+        // I-1 (T2 fix r1 — 부팅 무음 리셋의 정직 표기): 부적합 원문(CP949 혼입
+        // 등)은 부팅 리더가 못 읽어 audio/retention/text가 기본값으로 떨어진
+        // 다 — 조용한 소실 없이 stderr 경고 1행(T2 리뷰 I-1 지시 "부팅 경고
+        // 로그"). 파일 자체는 무접촉(쓰기 거부는 WriteSettingsKv의 쪽).
+        std::fprintf(stderr,
+                     "JKWindowServer: settings.json 파싱 실패 — 기본값으로 기동"
+                     "(파일 무접촉) — 수기 치유 필요: %s\n",
+                     SettingsKvPath().c_str());
+        return;
+    }
     // 가드가 읽는 값은 int64 리더로 (docs/57 §13.3 파서 계약 — 축소 캐스트
     // 랩어라웃이 [0,100]/[7,∞) 가드를 우회하는 것을 봉쇄).
     int64_t v = 0;
@@ -2896,7 +2906,8 @@ static void LoadSettingsKv(bool& mute, int& volume, int& retention,
 static bool WriteSettingsKv(bool mute, int volume, int retention,
                             const std::string& fontPath,
                             const std::string& fontFallback,
-                            const std::string& fontScale) {
+                            const std::string& fontScale,
+                            std::string* errOut = nullptr) {
     // 관리 3키(audio/retention/text)의 새 값 원문 슬라이스 — C1 보존 합성과
     // 신설(무원문) 폴백 양쪽이 소비한다.
     const std::string audioJson =
@@ -2921,8 +2932,27 @@ static bool WriteSettingsKv(bool mute, int volume, int retention,
     std::string out;
     std::vector<jk::music::store::JsonField> fields;
     std::string original;
-    if (jk::music::store::ReadAll(SettingsKvPath(), original) &&
-        !original.empty() &&
+    const bool hadFile =
+        jk::music::store::ReadAll(SettingsKvPath(), original);
+    // I-1 (T2 fix r1 — C1 보존의 구조적 부작용 봉합, 리뷰 필수): 디스크 원문이
+    // **quickjs 부적합**이면(부팅 리더 LoadSettingsKv와 같은 판정 — 같은 파일
+    // 을 부팅도 settings_set도 같은 눈으로 봐야 하는 대칭 계약) 보존 재합성을
+    // 거부하고 **쓰지 않는다**. 거부 근거: C1 보존이 CP949 혼입 문서를 영구
+    // 잔존시키고(스캐너는 수용), 그 문서 위의 매번 settings_set 재합성은 부팅
+    // 리더의 기본값 무음 리셋을 계속 재생산한다 — 회복 경로(music 패널에서
+    // CP949 항목 제거 → 문서 순수 회귀)는 열려 있음. 정직 err 1행을
+    // settings_set 답신에 실어 사용자에게 보인다(무음 계약). 빈 파일은 관리
+    // 3키 신설(치유)로 통과 — 튕겨낼 데이터가 없다. 전각 치유(CP949 변환)는
+    // 별도 라인(원장 부기).
+    if (hadFile && !original.empty() && !jk::agent::AgentJson(original).ok()) {
+        if (errOut) *errOut = "settings.json 파싱 실패 — 수기 치유 필요";
+        std::fprintf(stderr,
+                     "JKWindowServer: settings_set 거부 — %s: %s\n",
+                     "settings.json 파싱 실패 — 수기 치유 필요",
+                     SettingsKvPath().c_str());
+        return false;
+    }
+    if (hadFile && !original.empty() &&
         jk::music::store::ScanTopLevelFields(original, fields)) {
         const std::vector<jk::music::store::JsonField> managed = {
             {"audio", audioJson},
@@ -2938,29 +2968,36 @@ static bool WriteSettingsKv(bool mute, int volume, int retention,
     // 파일 교체는 T1 WriteSettingsAtomic 재용(tmp 완성본+rename 사다리 —
     // 기존 fopen("wb")의 비원자 쓰기 중간 절단 창 소각; T1 리뷰 C1 "교차 중
     // 레이스 소각 지문도 같은 봉투에" 지시의 부분-상태 봉합 몫). 기존 .bak
-    // dance(선삭제+선대피)를 펴지 않은 이유: 사다리가 원문 자체를 보수
+    // dance(선삭제+선대피)를 펼치지 않은 이유: 사다리가 원문 자체를 보수
     // (복원)하는 형태라 선대피 뒤 3연속 실패 시 유일 잔존(.bak)이 사다리의
     // remove(bak)에서 소각되는 창이 생긴다 — 대신 아래에서 직전 원문 사본을
     // 성공 세대에만 쓴다(opus 리뷰 MINOR-1의 .bak 1세대 복구 원본 계약 유지;
-    // 사본 쓰기 실패는 무해 잔산 — .bak에 구세대 사본이 남는다, 안전측).
+    // 사본 쓰기 실패는 무해 잔산 — 정직 정정(M-4): Windows 사다리 경로는
+    // 구 .bak 존재 시 remove/rename으로 .bak.bak를 소각하므로 사본 재작성
+    // 실패 시 **.bak 부재**가 남을 수 있고(구세대 사본 잔존은 posix 1세대
+    // 교체 rename 경로에만), 본 쓰기는 이미 성립한 뒤인 안전측 — 방위 사본
+    // 실종은 방위 목적상 무해. 이 앱의 .bak은 직전 원문 스냅샷 사본이다).
     // 남는 한계(정직 부기): 두 작성자(서버 settings_set ↔ 클라 music 폴더
     // 관리) 사이의 프로세스 간 파일 락 시설이 부재라 교차 최종-승자 정합은
     // 읽고-고쳐쓰기 스냅샷 몫 — 미관리 키는 마지막 승자가 읽은 스냅샷이
     // 남는다. 관리 3키는 메모리 진실원이라 어떤 경로의 재쓰기에서도 회복되고;
     // 미관리 키 교차 소각 창은 쓰기 직전 재독(위 C1 배치)으로 스캔·전체
-    // 쓰기 ms 단위까지 축소되었다.
+    // 쓰기 ms 단위까지 축소되었다(임시파일 프로세스 접점은 pid 접미로 소각
+    // — MusicDirStore.h fix r1 M-1).
     const bool hadOriginal = !original.empty();  // 직전 원문 사본(.bak) 근거
     std::string werr;
     const bool ok = jk::music::store::WriteSettingsAtomic(kvPath, out, werr);
     if (!ok) {
-        // 실패도 조용한 소실 없이(문서 존재 로그 — return은 기존 계약 ok=false)
+        // 실패도 조용한 소실 없이(문서 존재 로그 — return은 기존 계약 ok=false;
+        // err는 settings_set 답신 detail로 표면화 — I-1의 정직 규약 승계)
+        if (errOut) *errOut = werr;
         std::fprintf(stderr,
                      "JKWindowServer: settings.json write failed — %s\n",
                      werr.c_str());
         return ok;
     }
     if (hadOriginal) {  // .bak 1세대 — 직전 원문 사본(사용 원문 = 위 읽는 스냅샷)
-        std::string bwerr;  // 사본 실패는 무해 잔산(안전측 — 조용히 무시)
+        std::string bwerr;
         jk::music::store::WriteSettingsAtomic(kvPath + ".bak", original, bwerr);
     }
     return ok;
@@ -5115,10 +5152,17 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             // 제시하는 최소 프리셋도 7이므로 GUI 기능 손실 없음.)
             if (!hasInt || val64 < 7) {
                 reply = "{\"ok\":false,\"error\":\"bad_value\"}";
-            } else if (!WriteSettingsKv(audioMasterMute_, audioMasterVolume_,
+            } else if (std::string kvErr;
+                       !WriteSettingsKv(audioMasterMute_, audioMasterVolume_,
                                         valInt, textFontPath_,
-                                        textFontFallback_, textFontScale_)) {
-                reply = "{\"ok\":false,\"error\":\"write_failed\"}";
+                                        textFontFallback_, textFontScale_,
+                                        &kvErr)) {
+                // I-1 (T2 fix r1) — 정직 err 1행: 거부 사유(detail)를 답신에
+                // 실어 사용자에게 보인다(무음 리셋 체인의 "보이게 하기" 몫).
+                reply = kvErr.empty()
+                            ? "{\"ok\":false,\"error\":\"write_failed\"}"
+                            : "{\"ok\":false,\"error\":\"write_failed\","
+                              "\"detail\":\"" + JsonEsc(kvErr) + "\"}";
             } else {
                 receiptRetentionDays_ = valInt;
                 // KV 성공 후 즉시 정리 — 정리 실패는 reply에 표면화(KV는
@@ -5143,10 +5187,16 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                 reply = "{\"ok\":false,\"error\":\"bad_value\"}";
             }
             if (reply.empty()) {
-                if (!WriteSettingsKv(audioMasterMute_, audioMasterVolume_,
+                if (std::string kvErr;
+                    !WriteSettingsKv(audioMasterMute_, audioMasterVolume_,
                                      receiptRetentionDays_, textFontPath_,
-                                     textFontFallback_, textFontScale_)) {
-                    reply = "{\"ok\":false,\"error\":\"write_failed\"}";
+                                     textFontFallback_, textFontScale_,
+                                     &kvErr)) {
+                    // I-1 (T2 fix r1) — 정직 err 1행(거부 사유 detail 실음).
+                    reply = kvErr.empty()
+                                ? "{\"ok\":false,\"error\":\"write_failed\"}"
+                                : "{\"ok\":false,\"error\":\"write_failed\","
+                                  "\"detail\":\"" + JsonEsc(kvErr) + "\"}";
                 } else {
                     char ev[160];
                     std::snprintf(ev, sizeof(ev),
@@ -5172,10 +5222,16 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             if (!req.GetObjStr("args", "value", valStr) || valStr.empty() ||
                 valStr.size() > 300) {
                 reply = "{\"ok\":false,\"error\":\"bad_value\"}";
-            } else if (!WriteSettingsKv(audioMasterMute_, audioMasterVolume_,
+            } else if (std::string kvErr;
+                       !WriteSettingsKv(audioMasterMute_, audioMasterVolume_,
                                         receiptRetentionDays_, valStr,
-                                        textFontFallback_, textFontScale_)) {
-                reply = "{\"ok\":false,\"error\":\"write_failed\"}";
+                                        textFontFallback_, textFontScale_,
+                                        &kvErr)) {
+                // I-1 (T2 fix r1) — 정직 err 1행(거부 사유 detail 실음).
+                reply = kvErr.empty()
+                            ? "{\"ok\":false,\"error\":\"write_failed\"}"
+                            : "{\"ok\":false,\"error\":\"write_failed\","
+                              "\"detail\":\"" + JsonEsc(kvErr) + "\"}";
             } else {
                 textFontPath_ = valStr;
                 reply = std::string("{\"ok\":true,\"applied\":{"
@@ -5191,10 +5247,15 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             std::string valStr;
             if (!req.GetObjStr("args", "value", valStr) || valStr.size() > 300) {
                 reply = "{\"ok\":false,\"error\":\"bad_value\"}";
-            } else if (!WriteSettingsKv(audioMasterMute_, audioMasterVolume_,
+            } else if (std::string kvErr;
+                       !WriteSettingsKv(audioMasterMute_, audioMasterVolume_,
                                         receiptRetentionDays_, textFontPath_,
-                                        valStr, textFontScale_)) {
-                reply = "{\"ok\":false,\"error\":\"write_failed\"}";
+                                        valStr, textFontScale_, &kvErr)) {
+                // I-1 (T2 fix r1) — 정직 err 1행(거부 사유 detail 실음).
+                reply = kvErr.empty()
+                            ? "{\"ok\":false,\"error\":\"write_failed\"}"
+                            : "{\"ok\":false,\"error\":\"write_failed\","
+                              "\"detail\":\"" + JsonEsc(kvErr) + "\"}";
             } else {
                 textFontFallback_ = valStr;
                 reply = std::string("{\"ok\":true,\"applied\":{"
@@ -5211,10 +5272,15 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             if (!req.GetObjStr("args", "value", valStr) ||
                 !ValidFontScale(valStr)) {
                 reply = "{\"ok\":false,\"error\":\"bad_value\"}";
-            } else if (!WriteSettingsKv(audioMasterMute_, audioMasterVolume_,
+            } else if (std::string kvErr;
+                       !WriteSettingsKv(audioMasterMute_, audioMasterVolume_,
                                         receiptRetentionDays_, textFontPath_,
-                                        textFontFallback_, valStr)) {
-                reply = "{\"ok\":false,\"error\":\"write_failed\"}";
+                                        textFontFallback_, valStr, &kvErr)) {
+                // I-1 (T2 fix r1) — 정직 err 1행(거부 사유 detail 실음).
+                reply = kvErr.empty()
+                            ? "{\"ok\":false,\"error\":\"write_failed\"}"
+                            : "{\"ok\":false,\"error\":\"write_failed\","
+                              "\"detail\":\"" + JsonEsc(kvErr) + "\"}";
             } else {
                 textFontScale_ = valStr;
                 reply = std::string("{\"ok\":true,\"applied\":{"
