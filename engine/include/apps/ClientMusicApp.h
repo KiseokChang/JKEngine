@@ -91,16 +91,19 @@ private:
     // 뒤져 unknown_app_tool로 떨어진다. 폴백 원존 원칙(스펙 §4 — 신규 서버
     // 부품 금지·기존 채널만): open 답신의 unknown_app_tool을 **클라 재청구**
     // (kOpenRetryMax × kOpenRetryMs 시간 pacing — OnIdle, 타이머 더티 아님)로
-    // 흡수한다 — 20회 소진 시 소진 표기 1행+더티 1회(fix r1 I-1 — 무음 침묵
-    // 방지). ok=false의 error 객체(앱-수준 도구 실패)는 재청구 대상 아님 —
-    // 즉시 종착(서버 HandleToolResult 조립 정합 — fix r1 I-2). 재선택(이미
-    // vplayer 창 존재 → 새 창 없이 open 1콜)은 서버가 launch_app을 무제한
-    // 별도 스폰으로 두고(존재 검증 원문 주석 — toggle 계열은 palette 전용
-    // 별도 툴) 클라엔 창 목록 수형 채널이 없어 v1 원문 쌍 쿼리 계약 우선
-    // (report 부기). 그 경로에서 2 인스턴스 등록이면 릴레이가 ambiguous+후보
-    // 목록(자기교정)을 준다 — 클라는 추측 없이 status 표기로만 흡수(스펙
-    // §4.2 봉인 승계). launch 미성립 시의 사후 open 답신은 겹침 가드로 무음
-    // 회수(fix r1 M-2 — 거부 안내 status 납치 방지).
+    // 흡수한다. 소진 크레딧(openRetries_)은 **답신 수취(PollReplies)에서만
+    // 감법**하고(발사인 OnIdle pace는 감법을 만들지 않는다), 0 도달 = 수취
+    // 시점 즉시 소진 전이(표기 1행+더티 1회 — fix r2 I-1: 감법이 OnIdle에
+    // 의존하면 마지막 답신 뒤 영구 실패·표기 dead code가 된다). ok=false의
+    // error 객체(앱-수준 도구 실패)는 재청구 대상 아님 — 즉시 종착(서버
+    // HandleToolResult 조립 정합 — fix r1 I-2). 재선택(이미 vplayer 창
+    // 존재 → 새 창 없이 open 1콜)은 서버가 launch_app을 무제한 별도 스폰으로
+    // 두고(존재 검증 원문 주석 — toggle 계열은 palette 전용 별도 툴) 클라엔
+    // 창 목록 수형 채널이 없어 v1 원문 쌍 쿼리 계약 우선(report 부기). 그
+    // 경로에서 2 인스턴스 등록이면 릴레이가 ambiguous+후보 목록(자기교정)을
+    // 준다 — 클라는 추측 없이 status 표기로만 흡수(스펙 §4.2 봉인 승계).
+    // launch 미성립 시의 사후 open 답신은 겹침 가드로 무음 회수(fix r1 M-2
+    // — 거부 안내 status 납치 방지).
     void PlaybackDelegate(const music::Track& t);
     // AgentQueryReply 폴백 소비(라이브러리 PollReplies 원문 쌍둥이 — 남의
     // 답신은 흘려보낸다): launch 답신 → 거부 시 폴백 종료, open 답신 → 성공/

@@ -337,7 +337,8 @@ void ClientMusicApp::PlaybackDelegate(const music::Track& t) {
         launchAborted_ = true;
         openRetries_ = 0;
         openPath_.clear();
-        if (openId_) openId_ = 0;
+        openId_ = 0;  // 사후 답신은 pending_ 정리 소각(mine 흡수 뒤 무사항 —
+                      //   launchId_ 0 대조 원문도 없다 — 겹침 가드가 소유)
     }
     if (!launchId_ || !openId_) frameDirty_ = true;  // 미성립 사유 표기 틱
 }
@@ -395,22 +396,30 @@ void ClientMusicApp::PollReplies() {
                 openPath_.clear();
                 openRetries_ = 0;
                 frameDirty_ = true;
-            } else if (hasErr && err == "unknown_app_tool" && openRetries_ > 0) {
-                // 콜드 부팅 경기 — 등록 전 릴레이(재청구 유일 대상 — 도구
-                // 등록 경기 흡수 계약). 다음 pacing 시각을 세우고 재청구
-                // 대기(OnIdle 재발사). 표기 변화 없음 — 더티 금지.
-                --openRetries_;
-                openRetryAt_ = std::chrono::steady_clock::now() +
-                               kOpenRetryDelayMs;
             } else if (hasErr && err == "unknown_app_tool") {
-                // fix r1 I-1 — 재청구 20회 소진. 사용자 관측 실패 안내가
-                // 없으면 무음 침묵(accepted 후 침묵 동형 결함 계열)이다 —
-                // 소진 표기 1행+이번 틱 더티 1회(상태 변칙 = 표기 계약 몫).
-                status_ = "[!] vplayer 응답 없음 — 재시도 " +
-                          std::to_string(kOpenRetryMax) + "회 소진";
-                openPath_.clear();
-                openRetries_ = 0;
-                frameDirty_ = true;
+                // 콜드 부팅 경기 — 등록 전 릴레이(재청구 유일 대상 — 도구
+                // 등록 경기 흡수 계약). 소진 크레딧(openRetries_)은 **답신
+                // 수취에서만 소모**하고(발사인 OnIdle pace는 감법을 만들지
+                // 않는다), 수취에서 0 도달 = 즉시 소진 전이(fix r2 I-1
+                // 재수형 — 감법이 OnIdle 분기에 의존하면 마지막 답신 뒤
+                // 영구 실패·표기 dead code가 된다): 소진 표기 1행+이번 틱
+                // 더티 1회(사용자 안내 = 상태 변칙 몫)를 **수취 시점에**.
+                if (openRetries_ > 0) {
+                    if (--openRetries_ == 0) {
+                        status_ = "[!] vplayer 응답 없음 — 재시도 " +
+                                  std::to_string(kOpenRetryMax) + "회 소진";
+                        openPath_.clear();  // 재발사 원문이 모두 막힌다
+                        frameDirty_ = true; //   (openRetries_>0·openPath_ 있음) —
+                    }                       //   openRetryAt_ 절화(시독 불요)
+                    else {
+                        // 다음 pacing 시각 갱신 — 재청구 대기(OnIdle 재발사),
+                        // 표기 변화 없음 — 더티 금지.
+                        openRetryAt_ = std::chrono::steady_clock::now() +
+                                       kOpenRetryDelayMs;
+                    }
+                }
+                // 크레딧 소진 뒤의 잔여 답신(방어선 — openPath_가 비어 재발사
+                // 원문이 막혀 있어 원론적으로 도착하지 않는다)은 무음 흡수.
             } else if (hasErr && err == "ambiguous") {
                 // 복수 후보(자기교정 원문 재용) — 추측 없이 표기로만.
                 status_ = "[!] vplayer 창이 복수 — 하나 닫고 다시 시도";
