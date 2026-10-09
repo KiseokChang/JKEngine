@@ -270,6 +270,10 @@ T3 리뷰 **APPROVE**(C0/I2/M3 — I1 소진 표기 부재·I2 reply.ok 원문 �
 
 ## §6. 커밋 원장 + IP grep 게이트
 
+- **형제 라인 포인터(2026-10-10)** — 본 문서 §4 D-7의 2단계 승계 라인(뮤직
+  spatial leg #91 — spatial-player audio_core를 music 앱 안 내장 leg로 연동·
+  D1 위임 지점은 무변조)의 as-built = `docs/90_music_spatial_leg_asbuilt.md`
+  (D-7의 "위임 대상 교체" park는 이 라인에서 소각).
 - 라인 체인 = **55a98fd..HEAD**(T6 실측): 55a98fd(플랜) → bb999df(T1) →
   08e56b2(T1 fix r1) → 3378e10(T2) → 3019d5d(T3) → cc7c24e(fix r1) →
   08ff396(fix r2) → 283502b(T4) → b2341c8(fix r3) → c4715c8(T5) → 본 T6 커밋
