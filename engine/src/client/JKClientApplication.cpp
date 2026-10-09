@@ -431,12 +431,21 @@ int JKClientApplication::Run() {
         // 영원히 미발화된다.
         bool wantRender = jk::client::GateWantRender(
             timerTick, inputActivity, agentActivity, toolCallActivity,
-            themeActivity, IsFrameDirty(), !renderedOnce, fallback, [this] {
+            themeActivity, IsFrameDirty(), renderedOnce, fallback, [this] {
                 JKWindow* modal = windowManager_ ? windowManager_->GetModalWindow()
                                                  : nullptr;
                 return (mainWindow_ && mainWindow_->HasDirtyWindows()) ||
                        (modal && modal->HasDirtyWindows());
             });
+        // #89 T1 fix r2 — 호출부 이중부정 수리(T3 WSL 실측 [idletrace] 원장):
+        // 1번째 인자 자리는 게이트 서명 그대로 `renderedOnce`를 넘겨야 한다.
+        // T1은 `!renderedOnce`를 넘겼고(게이트 본문 `!renderedOnce`와 이중
+        // 부정) — 첫 렌더 항이 뒤집혀 "첫 렌더 후"에 wantRender가 항시 참이
+        // 됐다: 부팅 첫 렌더 뒤 모든 idle 클라가 활동·더티 0에서도 매 틱
+        // 렌더(WSL 태스크바/갤러리 62fps, [idletrace] first=0 other=62
+        // skip=0 — 활동·더티·폴백 전무). 셀프테스트 2i는 게이트를 정방향
+        // 인자로 직접 단정해 못 잡는다(호출부만의 결함). 게이트 매개변수는
+        // "이미 한 프레임 그렸나"를 받는다 — 호출부는 원본 bool을 넘긴다.
         if (!wantRender && fallback) {
             // 폴백 스킵(더티 부재 → 게이트 false)도 폴백 기점 리셋 — 다음 초 재검.
             lastRenderMs = nowMs;

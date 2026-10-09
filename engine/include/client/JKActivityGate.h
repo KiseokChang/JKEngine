@@ -36,6 +36,12 @@ inline bool GateWantRender(bool timerDelivered, bool inputDrained,
                            bool frameDirty, bool renderedOnce, bool fallback,
                            DirtyProbe&& dirtyWindow) {
     (void)timerDelivered;  // #89 T1 — 타이머 틱은 배송 기록일 뿐, 활동이 아니다
+    // #89 T1 fix r2 — 인자 연결 계약(호출부 결함 원장 — JKClientApplication
+    // Run()): 7번째 매개변수는 "이미 한 프레임 그렸나"의 **원본 bool**이다.
+    // 본문에서 `!renderedOnce`(첫 번째 렌더 대기)로 단수 부정하므로, 호출부가
+    // `!renderedOnce`를 넘기면 이중 부정이 되어 first-render 항이 뒤집힌다 —
+    // 첫 렌더 1프레임은 안 나고(항목 반전) 프레임 뒤에는 wantRender 항시 참
+    // (idle 풀코어 스핀). 호출부 계약: 원본 bool만 넘긴다.
     const bool activity =
         inputDrained || agentEvent || toolCall || themeChanged;
     if (frameDirty || activity || !renderedOnce) {
