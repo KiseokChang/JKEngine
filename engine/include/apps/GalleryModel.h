@@ -275,6 +275,20 @@ inline int PickLruVictim(const std::vector<long long>& useFrames,
     return victim;
 }
 
+// Visible-cell cull (T3 fix r2 — selftest 2g-j): a grid cell is *requested*
+// from the LRU pool only when its interactive box's vertical span intersects
+// the child clip span; a cell that lies fully above or fully below is laid out
+// as before (InvisibleButton/draws keep their positions) but never requests a
+// slot — invisible cells would otherwise pin the pool to the newest 96 files
+// and permanently starve the rest (C2). Touch without overlap (top == clipBot)
+// is not visible — a 0-height intersection shows no pixels so it must not
+// request. Pure: the app computes the spans from the ImGui draw-list clip
+// bounds, the selftest asserts the interval semantics directly.
+inline bool ThumbRowVisible(float top, float bottom, float clipTop,
+                            float clipBot) {
+    return top < clipBot && bottom > clipTop;
+}
+
 // Enumerate one dir's image files, newest first (mtime desc; tie = name desc,
 // the shot_<epoch-ms>_ lexical order precedent). ec-neutral throughout (error
 // codes, no throwing overloads — 이 TU 무 try/catch, shot 앱 동일 계약):

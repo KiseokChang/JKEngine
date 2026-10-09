@@ -5177,6 +5177,22 @@ static int RunAppSelfTest() {
                   jk::gallery::PickLruVictim({9, 7, 7, 9}, 9) == 1 &&
                   jk::gallery::PickLruVictim({}, 9) == -1,
               "2g-i 퇴출 산치 = 동일 프레임 세대 전부 제외+최소 세대(동률 앞 인덱스)+후보 0 = -1");
+
+        // 2g-j) 컬 산치 (T3 fix r2 — C2 영구 기아 봉합): 셀 박스 수직 스팬이
+        // 클립 스팬과 **교차**할 때만 풀에 요청한다. 포함·위 절반·아래 절반
+        // 교차 = 가시(요청), 전체 위/아래 = 비가시(요청 없음 — 0 높이 교차는
+        // 픽셀이 없으므로 경계 접촉도 비가시). 이상 경계(가시 셀 > 96 = 풀
+        // 상한)는 동세대 접촉만 남아 후보 0 = -1 → placeholder 유지 계약이라
+        // 2g-i의 후보 0 수형과 연결(파괴 없음, 기아는 컬이 이미 봉합 — 가시>
+        // 96 극단만 placeholder).
+        check(jk::gallery::ThumbRowVisible(10.f, 130.f, 0.f, 200.f) &&
+                  jk::gallery::ThumbRowVisible(-50.f, 100.f, 0.f, 200.f) &&
+                  jk::gallery::ThumbRowVisible(100.f, 300.f, 0.f, 200.f) &&
+                  !jk::gallery::ThumbRowVisible(200.f, 300.f, 0.f, 200.f) &&
+                  !jk::gallery::ThumbRowVisible(-10.f, 0.f, 0.f, 200.f),
+              "2g-j 컬 산치 = 클립 교차 셀만 요청(경계 접촉 = 비가시 — 0 높이 교차 금지)");
+        check(jk::gallery::PickLruVictim({9, 9, 9, 9}, 9) == -1,
+              "2g-j 이상 경계(가시 셀 > 96 = 풀 상한) = 후보 0 → placeholder 유지(파괴 없음)");
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);

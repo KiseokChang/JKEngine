@@ -508,9 +508,27 @@ void ClientGalleryApp::BuildUi(int w, int h) {
                 // 파일이 다른 폴더에 있으면 서로 다른 원전이다. 텍스처 없는
                 // 셀(디코드 실패·상한 초과·지연 중)은 placeholder 면이 그대로
                 // 남는다(T1 수형).
-                const std::string cellPath =
-                    (std::filesystem::path(dirs_[dirIndex_]) / name).string();
-                const ThumbView view = ThumbTexture(cellPath);
+                //
+                // T3 fix r2 — 컬: 요청을 **보이는 셀로만** 한정한다. 셀의
+                // 인터랙 박스(p..q.y+labelH) 수직 스팬이 child 클립 스팬
+                // (dl->GetClipRectMin/Max)와 교차할 때만 풀에 요청한다 — 컬
+                // 없는 전수 요청은 매 프레임 최신 96장이 풀에 고정되어 나머지
+                // 가 영구 placeholder(C2 — LRU 촬영 잠금). 컬 산치는 순수
+                // 부품 ThumbRowVisible(2g-j 소비). 레이아웃
+                // (InvisibleButton·박스·라벨)은 컬 없이 전수 그대로 — 스크롤
+                // 범위·클릭 히트 영역 불변. 컬된 셀은 요청·접촉 없이
+                // placeholder 수형 유지(부팅 재조명 시 캐시 히트 — 무깜빡 계약).
+                const float boxTop = p.y;
+                const float boxBot = p.y + cellH + labelH;
+                ThumbView view;  // 컬 — 요청 없음, placeholder 유지
+                if (gallery::ThumbRowVisible(boxTop, boxBot,
+                                             dl->GetClipRectMin().y,
+                                             dl->GetClipRectMax().y)) {
+                    const std::string cellPath =
+                        (std::filesystem::path(dirs_[dirIndex_]) / name)
+                            .string();
+                    view = ThumbTexture(cellPath);
+                }
                 // Placeholder box uses the launcher cell tokens (docs/54
                 // 허브) — face/outline; selection highlight = selectionBg 면.
                 const ImU32 face =
