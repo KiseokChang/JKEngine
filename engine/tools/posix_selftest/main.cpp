@@ -25,6 +25,7 @@
 #include <sys/socket.h>  // directly; no windows.h-cleanliness constraint here)
 
 #include <agent/JKLlmEngine.h>  // kStubShellCmdPosix (case 10), TurnSync (case 15)
+#include <client/JKActivityGate.h>  // case 2i (T1) — 클라 활동 게이트 순수 부품
 #include <apps/ChatRouter.h>  // 자연어 승격 배선 (T4 — case 16 twin)
 #include <apps/GalleryModel.h>  // case 2g (T1) — 갤러리 순수 부품 직링크
 #include <JKTextAtlas.h>  // case 19 (T2) — 텍스트 배율 결선 순수 부품 단정
@@ -2336,6 +2337,85 @@ void TestGalleryModel() {
           "2g-j 이상 경계(가시 셀 > 96 = 풀 상한) = 후보 0 → placeholder 유지(파괴 없음)");
 }
 
+// Case 2i (T1 — 스펙 2026-10-09-client-idle): 클라 활동 게이트 순수 부품
+// (client/JKActivityGate.h). Run() 루프의 wantRender 판정이 렌더러·서버·SDL
+// 접촉 없이 단정된다. 근거 = .superpowers/sdd/2026-10-09-clt-spin/
+// spike-report.md §1a — Run()(JKClientApplication.cpp)이 타이머 채널 소비
+// 수>0을 활동으로 계수해 docs/78 게이트를 매 16ms 틱마다 무력화, 폰 갤러리
+// 클라 무변화 19fps 풀코어 100% 실측. 계약: **타이머 틱 = 배송일 뿐 활동이
+// 아니다** — 입력·에이전트·툴콜·테마만 활동 계수, 폴백 1s(장면 더티 게이트)
+// 안전망 유지. 캐논 계보(기존 Win 569/WSL 546/posix 277 — 2g 계열 다음 신설
+// 2i, 캐논 축 = engine/src/main.cpp RunAppSelfTest 2i).
+void TestActivityGate() {
+    // 2i-a) 타이머 틱 단독 = 렌더 유발 안 함(T1 핵심 수형)과 폴백/부팅/더티
+    // 구조 원문. 더티 조회 프레디케이트는 폴백 비도달(또는 게이트 선행 참)
+    // 동안 열람 0회(HasDirtyWindows 매 이터레이션 열람 방지 — Run() 원문).
+    const auto neverDirty = [] { return false; };
+    Check(!jk::client::GateWantRender(
+              /*timerDelivered=*/true, /*inputDrained=*/false,
+              /*agentEvent=*/false, /*toolCall=*/false,
+              /*themeChanged=*/false, /*frameDirty=*/false,
+              /*renderedOnce=*/true, /*fallback=*/false, neverDirty),
+          "2i-a 타이머 틱 단독 = 렌더 유발 안 함(활동 게이트 원문 수형)");
+
+    int probeCount = 0;
+    {
+        const auto probeAbsent = [&probeCount] {
+            ++probeCount;
+            return false;
+        };
+        const bool decided = jk::client::GateWantRender(
+            true, false, false, false, false, false, true, /*fallback=*/true,
+            probeAbsent);
+        Check(!decided && probeCount == 1,
+              "2i-a 폴백 도달+더티 부재 = 스킵(더티 조회 1회 원문)");
+    }
+    {
+        probeCount = 0;
+        const auto probePresent = [&probeCount] {
+            ++probeCount;
+            return true;
+        };
+        const bool decided = jk::client::GateWantRender(
+            true, false, false, false, false, false, true, /*fallback=*/true,
+            probePresent);
+        Check(decided && probeCount == 1,
+              "2i-a 폴백 도달+장면 더티 = 렌더(1s 폴백 안전망 유지)");
+    }
+    {
+        const bool firstFrame = jk::client::GateWantRender(
+            false, false, false, false, false, /*frameDirty=*/false,
+            /*renderedOnce=*/false, /*fallback=*/false, neverDirty);
+        Check(firstFrame, "2i-a 부팅 첫 프레임 = 이벤트 없이 즉시 렌더");
+        const bool dirtyFrame = jk::client::GateWantRender(
+            false, false, false, false, false, /*frameDirty=*/true,
+            /*renderedOnce=*/true, /*fallback=*/false, neverDirty);
+        Check(dirtyFrame, "2i-a frameDirty = 게이트 첫 항 원문 유지");
+    }
+
+    // 2i-b) 입력/에이전트/툴콜/테마 = 활동 유지 회귀(T1이 활동 계수를 죽이지
+    // 않음 — 각 채널 단독으로도 렌더).
+    const auto channel = [](bool i, bool a, bool t, bool th) {
+        return jk::client::GateWantRender(
+            /*timerDelivered=*/false, i, a, t, th, /*frameDirty=*/false,
+            /*renderedOnce=*/true, /*fallback=*/false, [] { return false; });
+    };
+    Check(channel(/*input=*/true, false, false, false),
+          "2i-b 입력 이벤트 = 활동(렌더 유지)");
+    Check(channel(false, /*agent=*/true, false, false),
+          "2i-b 에이전트 이벤트 = 활동(렌더 유지)");
+    Check(channel(false, false, /*toolCall=*/true, false),
+          "2i-b 에이전트 툴콜 = 활동(렌더 유지)");
+    Check(channel(false, false, false, /*theme=*/true),
+          "2i-b 테마 변경 = 활동(렌더 유지)");
+    Check(jk::client::GateWantRender(
+              /*timerDelivered=*/true, /*inputDrained=*/true,
+              /*agentEvent=*/false, /*toolCall=*/false,
+              /*themeChanged=*/false, /*frameDirty=*/false,
+              /*renderedOnce=*/true, /*fallback=*/false, neverDirty),
+          "2i-b 타이머 배송+입력 공존 = 활동(타이머 불참여가 활동을 누르지 않음)");
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -2356,6 +2436,7 @@ int main(int argc, char** argv) {
     TestJobMultiMemberAndStdinParity();
     TestNetRecvAllChunksTimeoutAcceptBound();
     TestFrameDirty();
+    TestActivityGate();
     TestFrameDirtyWiring();
     TestTextScaleFix();
     TestGalleryModel();

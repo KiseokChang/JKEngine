@@ -9,6 +9,7 @@
 #include <JKPlatform.h>
 #include <JKTextAtlas.h>
 #include <agent/JKAgentJson.h>
+#include <client/JKActivityGate.h>  // #89 T1 — 활동 게이트 순수 부품(2i 셀프테스트와 단일 진실원)
 #include <theme/JKTheme.h>
 #include <chrono>
 #include <cstdio>
@@ -297,20 +298,54 @@ int JKClientApplication::Run() {
         // 무력화돼 태스크바가 63fps를 계속 그렸다 — SW 렌더러(폰 X11)에서
         // readback 동기 비용(~14ms) × 60fps ≈ 풀코어 + 서버 합성·llvmpipe도
         // 따라 풀점유. 계약 변경(폰 실측 결정): IsFrameDirty 기본은 false —
-        // 게이트 = 이번 이터레이션에 메시지 버스 활동(타이머/입력/에이전트/
-        // 툴콜)이나 테마 변경이 있었거나 IsFrameDirty(오버라이드 앱 —
-        // vplayer·터미널·ImGui 계열)이거나 마지막 렌더에서 1s 폴백이 지났을
-        // 때만 렌더. 1s 폴백은 이벤트로 승계되지 않는 느린 변화(비동기
+        // 게이트 = 이번 이터레이션에 메시지 버스 활동(입력/에이전트/툴콜 —
+        // docs/78 원문은 타이머까지 활동으로 썼으나 #89 T1에서 배송으로
+        // 재계약, 아래 블록)이나 테마 변경이 있었거나 IsFrameDirty(오버라이드
+        // 앱 — vplayer·터미널·ImGui 계열)이거나 마지막 렌더에서 1s 폴백이
+        // 지났을 때만 렌더. 1s 폴백은 이벤트로 승계되지 않는 느린 변화(비동기
         // Invalidate 등)의 최악 지연 상한을 묶는 안전망 — 폴백 1fps의 idle
         // 비용은 무시 수준. 스크립트 앱의 애니메이션은 setInterval 타이머로
         // 활동을 만든다(api 캐탈로그 계약 — 문서화 동기화 완료).
-        bool activity = false;
+        //
+        // #89 T1(게이트 수리 — 스파이크 원장 .superpowers/sdd/2026-10-09-
+        // clt-spin/spike-report.md §1a): 타이머 채널은 **배송일 뿐 활동이
+        // 아니다** — 소비 수>0을 활동으로 계수해 docs/78 게이트를 매 16ms
+        // 틱마다 무력화했다(타이머가 자기 틱으로 자기 렌더를 부활시키던 수형,
+        // 폰 갤러리 클라 무변화 19fps 풀코어 100% 실측). 입력·에이전트·툴콜·
+        // 테마는 활동 유지(원문). 판정 식은 순수 부품
+        // client/JKActivityGate.h(GateWantRender)의 단일 진실원으로 뽑혀
+        // selftest 2i 계열(3축 쌍둥이)이 같은 수형을 단정한다.
+        //
+        // T1 재계약 부작용 원장: 위 "스크립트 앱 애니메이션 = setInterval
+        // 활동" 문장은 T1로부터 무효 — setInterval 콜백의 변화는 이제
+        // Invalidate 더티 → 폴백 1s(HasDirtyWindows)로 승계된다(간격 유지
+        // 애니메이션은 최악 1s 지연. 육안 게이트 소관). timer 채널 자체는
+        // 활동이 아니므로, 간격 유지 렌더가 필요한 앱은 자기 틱 콜백 내용이
+        // 변했을 때 스스로 더티를 낸다(T2의 앱별 조건화와 같은 계약).
+        //
+        // T2 전까지 16 ImGui 앱은 Timer→frameDirty 관용구(앱별)가 남아 있어
+        // 이벤트 폴백 후퇴 없이 매 틱 렌더가 유지된다(정적 UI 시각 등가 —
+        // 동일 픽셀, idle 부하도 T1에서 불변). 앱별 조건화는 T2 몫. terminal은
+        // 이미 더티 구동, taskbar는 레거시 타이머 없음 — 대조군(접촉 금지).
+        // 채널 유무 5원료 — GateWantRender의 인자. timerTick은 계측 전용
+        // (활동 마킹 아님).
+        bool timerTick = false, inputActivity = false, agentActivity = false,
+             toolCallActivity = false, themeActivity = false;
         const auto t0 = std::chrono::steady_clock::now();
-        { const int n = DrainTimerChannel(); if (n > 0) { activity = true; traceTimer += n; } }
+        {
+            const int n = DrainTimerChannel();
+            timerTick = n > 0;
+            traceTimer += n;
+        }
         const auto t1 = std::chrono::steady_clock::now();
         if (!running_) break;
 
-        { const int n = DrainInputChannel(); if (n > 0) { activity = true; traceInput += n; } }
+        {
+            const int n = DrainInputChannel();
+            if ((inputActivity = n > 0)) {
+                traceInput += n;
+            }
+        }
 
         // 코어 에이전트 이벤트 펌프(스펙 2026-09-18-settings-hub §2.3): 유일
         // 소비자. audio.master는 코어가 직접 JKSoundManager 마스터 게인에
@@ -318,7 +353,7 @@ int JKClientApplication::Run() {
         {
             std::vector<std::string> events;
             if (surface_->DrainAgentEvents(events) > 0) {
-                activity = true;
+                agentActivity = true;
                 traceAgent += static_cast<int>(events.size());
                 for (const std::string& js : events) {
                     if (js.find("\"topic\":\"audio.master\"") != std::string::npos) {
@@ -340,7 +375,7 @@ int JKClientApplication::Run() {
         {
             jk::client::JKClientSurface::AgentToolCallMsg tc;
             while (surface_ && surface_->PollToolCall(tc)) {
-                activity = true;
+                toolCallActivity = true;
                 ++traceTool;
                 std::string resultJson;
                 const bool ok = OnAgentToolCall(tc.tool, tc.args, resultJson);
@@ -367,7 +402,7 @@ int JKClientApplication::Run() {
             if (now - s_themeLast >= std::chrono::milliseconds(500)) {
                 s_themeLast = now;
                 if (jk::theme::PollPresetFile()) {
-                    activity = true;
+                    themeActivity = true;
                     ++traceTheme;
                     if (mainWindow_) mainWindow_->ApplyTheme();
                     OnThemeChanged();
@@ -385,17 +420,24 @@ int JKClientApplication::Run() {
         // idle 1fps 커밋 2클라만으로 서버 40%대가 성립했다. 첫 렌더만 더티와
         // 무관하게 강제한다(부팅 시점 더티 상태를 보증하지 않는다). 스킵은
         // 더티를 소각하지 않는다 — 유입된 더티는 다음 폴백에 그려진다.
-        bool wantRender = IsFrameDirty() || activity || !renderedOnce;
+        // 게이트 원문(wantRender = 더티 || 활동 || 첫 렌더 전, 폴백은 장면
+        // 더티가 남을 때만 이어간다)은 #89 T1에서 client/JKActivityGate.h
+        // GateWantRender 단일 진실원으로 뽑혔다 — selftest 2i가 같은 수형을
+        // 단정한다. 더티 조회(HasDirtyWindows)는 프레디케이트라 폴백 도달시에만
+        // 일어난다(원문 구조 — 매 이터레이션 열람 방지). 리셋 조건 원문 보존:
+        // 폴백 도달 후 스킵(더티 부재)일 때만 기점 리셋 — 아니 리셋하면 폴백이
+        // 영원히 미발화된다.
+        bool wantRender = jk::client::GateWantRender(
+            timerTick, inputActivity, agentActivity, toolCallActivity,
+            themeActivity, IsFrameDirty(), !renderedOnce, fallback, [this] {
+                JKWindow* modal = windowManager_ ? windowManager_->GetModalWindow()
+                                                 : nullptr;
+                return (mainWindow_ && mainWindow_->HasDirtyWindows()) ||
+                       (modal && modal->HasDirtyWindows());
+            });
         if (!wantRender && fallback) {
-            JKWindow* modal = windowManager_ ? windowManager_->GetModalWindow()
-                                             : nullptr;
-            const bool dirty = (mainWindow_ && mainWindow_->HasDirtyWindows())
-                               || (modal && modal->HasDirtyWindows());
-            if (dirty) {
-                wantRender = true;
-            } else {
-                lastRenderMs = nowMs;  // 스킵도 폴백 기점 리셋 — 다음 초 재검
-            }
+            // 폴백 스킵(더티 부재 → 게이트 false)도 폴백 기점 리셋 — 다음 초 재검.
+            lastRenderMs = nowMs;
         }
         if (wantRender) {
             RenderAndCommit();
@@ -455,7 +497,9 @@ int JKClientApplication::Run() {
 }
 
 int JKClientApplication::DrainTimerChannel() {
-    int consumed = 0;  // 활동 게이트 (docs/78 CPU 소등) — 소비 수 반환
+    // 소비 수 반환은 계측/디버그용 — 게이트 활동 마킹이 아니다(#89 T1: 타이머
+    // 틱 = 배송, Run() 루프의 활동 합산에서 제외. client/JKActivityGate.h 계약).
+    int consumed = 0;
     JKMessageBus::Payload timerPayload;
     while (messageBus_->Pop(JKMessageBus::Channel::Timer, timerPayload)) {
         ++consumed;

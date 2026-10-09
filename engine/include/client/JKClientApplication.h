@@ -185,7 +185,7 @@ private:
     void DestroyHiddenRenderer();
     bool ProcessOneEvent(const JKEvent& ev);
     void ApplyInputRouting(JKEvent& ev);
-    int DrainTimerChannel();   // 소비 이벤트 수 반환 — 활동 게이트 (docs/78 CPU 소등)
+    int DrainTimerChannel();   // 소비 이벤트 수 반환 — 배송 기록(계측)이지 활동 마킹이 아니다 (#89 T1; client/JKActivityGate.h 계약)
     int DrainInputChannel();   // 소비 이벤트 수 반환 — 활동 게이트 (docs/78 CPU 소등)
     void RenderAndCommit();
 };
