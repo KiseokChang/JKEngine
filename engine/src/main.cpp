@@ -5440,6 +5440,75 @@ static int RunAppSelfTest() {
               "2m-d 대소문자 무시 = ASCII fold만");
         check(jk::music::MatchFilter("가요1.mp3", "가요"),
               "2m-d 한글 = 이진 비교(fold 없이 부분일치)");
+
+        // 2m-e) 재귀 순환 가드 (T1 fix r1 — 리뷰 I-1): 심링크·junction
+        // 디렉터리 순환 트리에서 ListAudioFiles가 유한 시간에 종료하고(아래
+        // 수행 자체가 증거 — 무한 재귀면 테스트가 복귀하지 않는다) 링크
+        // 디렉터리가 이중 계수를 만들지 않는다. Windows는 junction(mklink /J
+        // — 특권 불요), posix는 create_directory_symlink(권한 무관) — 생성
+        // 실패는 skip 없이 FAIL(사유 명시 계약; 실패 조건 = mkrc/ec 원문).
+        const fs::path cdir = fs::temp_directory_path() / "jk_music_cycle";
+        // 시작 정리 — 이전 런 크래시 잔산(링크 포함)에도 안전한 선제거:
+        // 링크를 먼저 링크 자체로 제거해 remove_all의 junction 재귀를 회피.
+        std::error_code clec;
+        fs::remove(cdir / "sub" / "loop", clec);
+        fs::remove(cdir / "sub2", clec);
+        fs::remove_all(cdir, clec);
+        fs::create_directories(cdir / "sub");
+        std::ofstream(cdir / "a.mp3").put('x');
+        std::ofstream(cdir / "top.flac").put('x');
+        std::ofstream(cdir / "sub" / "w.wav").put('x');
+        {
+#if defined(_WIN32)
+            // mklink /J — junction은 일반 사용자 권한으로 성립(실측). 명령
+            // 출력은 콘솔 스폰으로 사라지므로 rc+존재로 판정한다.
+            const int mkrc = std::system(
+                ("cmd /c mklink /J \"" + (cdir / "sub" / "loop").string() +
+                 "\" \"" + cdir.string() + "\"")
+                    .c_str());
+            std::error_code mkEc;
+            check(mkrc == 0 && fs::exists(cdir / "sub" / "loop", mkEc),
+                  "2m-e 순환 링크 생성(sub/loop→루트 junction) 성립 — 실패는 FAIL"
+                  " (exFAT TEMP 등 비NTFS 볼륨에서 환경 실패 — 리포트 부기)");
+            const int mk2rc = std::system(
+                ("cmd /c mklink /J \"" + (cdir / "sub2").string() + "\" \"" +
+                  (cdir / "sub").string() + "\"")
+                    .c_str());
+            check(mk2rc == 0,
+                  "2m-e 링크 2(sub2→sub junction) 성립 — 이중 계수 가드 수형");
+#else
+            std::error_code ce;
+            fs::create_directory_symlink(cdir, cdir / "sub" / "loop", ce);
+            check(!ce,
+                  "2m-e 순환 링크 생성(sub/loop→루트 심링크) 성립 — 실패는 FAIL"
+                  " (fs가 symlink를 만들지 못하는 환경 실패 — 리포트 부기)");
+            std::error_code ce2;
+            fs::create_directory_symlink(cdir / "sub", cdir / "sub2", ce2);
+            check(!ce2, "2m-e 링크 2(sub2→sub 심링크) 성립 — 이중 계수 가드 수형");
+#endif
+            const std::vector<jk::music::Track> out =
+                jk::music::ListAudioFiles(cdir.string());
+            check(out.size() == 3,
+                  "2m-e 순환 트리 = 유한 종료+재귀 가드(링크 디렉터리 미재방문)");
+            int seenA = 0, seenTop = 0, seenW = 0;
+            for (const jk::music::Track& t : out) {
+                if (t.name == "a.mp3") ++seenA;
+                if (t.name == "top.flac") ++seenTop;
+                if (t.name == "w.wav") ++seenW;
+            }
+            check(seenA == 1 && seenTop == 1 && seenW == 1,
+                  "2m-e 이중 계수 0 = 각 트랙 정확 1회(링크 경유 재등장 무접수)");
+            // 정리 — 링크 디렉터리를 먼저 **링크 자체**로 제거한다:
+            // remove_all은 junction을 따라 재귀한다(libstdc++ 실측 — loop
+            // 경로가 소진될 때까지 파고들다 실패 throwable, fix r1 소각
+            // 과정 실측 원문). 링크 제거(follow 없이) 후 나머지 remove_all.
+            std::error_code de;
+            fs::remove(cdir / "sub" / "loop", de);
+            fs::remove(cdir / "sub2", de);
+            fs::remove_all(cdir, de);
+            check(!de && !fs::exists(cdir, de),
+                  "2m-e 정리 = 링크 선제거 후 remove_all(사후 소각 — 무잔산)");
+        }
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);

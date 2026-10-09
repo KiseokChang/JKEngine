@@ -12,6 +12,11 @@
 // (engine/src/main.cpp selftest 2m) assert these parts by direct link with no
 // extra TU, and the T2 module (ClientMusicApp) consumes the same functions.
 // This header must stay free of imgui/SDL/client types.
+//
+// T1 fix r1: the D3 recursion got a cycle guard — Windows skips reparse-point
+// (symlink/junction) directories via GetFileAttributesW, posix keeps a
+// (st_dev, st_ino) visited set (seeds the root). 2m-e asserts a looping tree
+// ends in finite time and is counted exactly once.
 
 #include <agent/JKAgentJson.h>
 #include <port/JKCrtShim.h>  // Stricmp — Win/posix 공용 ASCII 대소문자 무시 비교
@@ -19,9 +24,14 @@
 #include <algorithm>
 #include <cstdint>
 #include <filesystem>
+#include <set>
 #include <string>
 #include <system_error>
 #include <vector>
+
+#if !defined(_WIN32)
+#include <sys/stat.h>  // ::stat — (st_dev, st_ino) 방문 정체성 원문(fix r1)
+#endif
 
 namespace jk {
 namespace music {
@@ -131,13 +141,64 @@ struct Track {
     long long mtime = 0;
 };
 
+// ---- 재귀 순환 가드 (T1 fix r1 — 리뷰 I-1: 심링크 디렉터리 무한 재귀) ----
+
+// 방문 정체성 키. posix: 디렉터리 하드링크가 있어 심링크·하드링크 순환이 모두
+// 성립한다 — (st_dev, st_ino) 방문 집합이 순환 절단+동일 실제 폴더 이중 계수
+// 방지(링크 경유 재등장)를 동시에 봉합한다. Windows: 디렉터리 하드링크가 없어
+// 정체성 순환이 (심링크·junction 제외) 성립하지 않는다 — 키 자리는 문형 통일
+// 이 있으나 미소비(아래 reparse 가드가 대신 봉합).
+struct DirId {
+    unsigned long long dev = 0;
+    unsigned long long ino = 0;
+};
+inline bool operator<(const DirId& a, const DirId& b) {
+    return a.dev != b.dev ? a.dev < b.dev : a.ino < b.ino;
+}
+
+#if defined(_WIN32)
+// kernel32 단일 함수 선언 — windows.h 전개를 헤더에서 금한다(imgui/SDL/
+// client 무접촉 계약·include 오염 회피). fileapi.h 원문 형식과 호환 선언
+// (DWORD=unsigned long·LPCWSTR=const wchar_t* — windows.h 공존 TU도 무충돌).
+extern "C" __declspec(dllimport) unsigned long __stdcall
+    GetFileAttributesW(const wchar_t* fileName);
+// FILE_ATTRIBUTE_REPARSE_POINT (winnt.h) — 상수 로컬 복제(원문 형식 주석).
+inline constexpr unsigned long kFileAttributeReparsePoint = 0x400ul;
+
+// Windows: reparse point(심링크·junction) 디렉터리를 재귀 대상에서 뺀다 —
+// 이 가드 하나로 Windows 순환 전부 봉합. **순수 std 수형이 부족하다가 실측**:
+// MinGW libstdc++는 junction(IO_REPARSE_TAG_MOUNT_POINT)을
+// directory_entry::is_symlink()=**0**으로 놓치고(GetFileAttributesW는 링크
+// 자동 속성에서 REPARSE=**1**을 잡는다 — engine/tmp/reparse_probe 실측
+// 원문, 리포트 §2), canonical()도 junction을 해석하지 않아(항등 경로 실측)
+// 경로 문자열 키로도 순환을 자르지 못한다. 정체성 검사 실패(링크 소멸 레이스
+// 등) = 재귀 스킵(보수 파 — 못 읽으면 못 감, ec 중립형).
+inline bool IsReparseDir(const std::filesystem::path& dir) {
+    const unsigned long attr = GetFileAttributesW(dir.c_str());
+    if (attr == 0xFFFFFFFFul)  // INVALID_FILE_ATTRIBUTES
+        return true;
+    return (attr & kFileAttributeReparsePoint) != 0ul;
+}
+#else
+// posix: (st_dev, st_ino) 정체성 — ::stat가 심링크를 따른 값이라 정체성은
+// "실제 폴더" 기준(링크 경유 재등장도 같은 id로 접힌다 — 이중 계수 방지).
+inline bool DirIdOf(const std::filesystem::path& dir, DirId& out) {
+    struct ::stat st;
+    if (::stat(dir.c_str(), &st) != 0)
+        return false;  // 못 읽으면 못 감(보수 파 — ec 중립형)
+    out.dev = static_cast<unsigned long long>(st.st_dev);
+    out.ino = static_cast<unsigned long long>(st.st_ino);
+    return true;
+}
+#endif
+
 // Recursive scan worker — ListAudioFiles의 재귀 leg. ec 중립형(throwing
 // 오버로드 금지 — 갤러리/shot 원문 계약): dir 열기 실패 = 독립 실패(빈 목록,
 // 스펙 §2 "각 dir 독립 — 폴백 0건이어도 목록은 그린다"), 열거 중 소명 성분은
-// 스킵. 하위 디렉터리는 무제한 재귀(D3 — 전체 트리).
+// 스킵. 하위 디렉터리 재귀는 순환 가드(fix r1) 이후에만.
 inline void ScanAudioTree(const std::filesystem::path& dir,
                           const std::filesystem::path& root,
-                          std::vector<Track>& out) {
+                          std::set<DirId>& visited, std::vector<Track>& out) {
     std::error_code ec;
     const std::filesystem::directory_iterator it(dir, ec);
     if (ec) return;  // 이 브랜치만 실패 — 다른 dir의 트랙은 살아 있다
@@ -146,7 +207,17 @@ inline void ScanAudioTree(const std::filesystem::path& dir,
         const bool isDir = entry.is_directory(entryEc);
         if (entryEc) continue;  // 열거 스캔 중 소멸 성분은 스킵
         if (isDir) {
-            ScanAudioTree(entry.path(), root, out);
+#if defined(_WIN32)
+            // reparse 디렉터리(심링크·junction) = 미진입(fix r1 가드).
+            if (IsReparseDir(entry.path())) continue;
+#else
+            // 방문 집합 — 재방문(순환·링크 중복)은 스킵(fix r1 가드). 미삽입
+            // 실패(::stat 실패)도 못 감(보수 파).
+            DirId id;
+            if (!DirIdOf(entry.path(), id) || !visited.insert(id).second)
+                continue;
+#endif
+            ScanAudioTree(entry.path(), root, visited, out);
             continue;
         }
         const std::string ext = entry.path().extension().string();
@@ -183,7 +254,14 @@ inline std::vector<Track> ListAudioFiles(const std::string& root) {
     std::vector<Track> out;
     if (root.empty()) return out;  // 방어선(호출부 무접촉)
     const std::filesystem::path rootP(root);
-    ScanAudioTree(rootP, rootP, out);
+    std::set<DirId> visited;
+#if !defined(_WIN32)
+    // 루트 정체성 미리 시드 — sub/loop→루트 수형(재귀가 루트로 되돌아오는
+    // 순환)을 절단하는 원문(fix r1).
+    DirId rootId;
+    if (DirIdOf(rootP, rootId)) visited.insert(rootId);
+#endif
+    ScanAudioTree(rootP, rootP, visited, out);
     std::sort(out.begin(), out.end(),
               [](const Track& a, const Track& b) {
                   if (a.mtime != b.mtime) return a.mtime > b.mtime;
