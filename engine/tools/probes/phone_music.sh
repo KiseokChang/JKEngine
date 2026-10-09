@@ -21,7 +21,16 @@
 #     전조**(등록 전 app_tool open = unknown_app_tool 원문)·표행 합성 2탭
 #     더블클릭(위임 — pair 재시도·gap ms 원장)·**귀속 폴링**(직행 open을 넣기
 #     전 get_status 0.4s 폴링 — direct 온 전에 귀속 봉인)·직행 open+get_status
-#     2회(pos 증가 = 재생 진행 원문 1행).
+#     2회(pos 증가 = 재생 진행 원문 1행). + spatial 세그먼트(8b — spatial leg
+#     라인 T3): app_tool spatial_play/status/stop 직행 릴레이 수형. 폰은
+#     SPATIAL_PLAYER_ROOT 미정의를 **계약**으로 둔다(LEG-ENV unset 가드 —
+#     설정 런은 계약 위배 hard FAIL) — leg 미링크 .so(D5)에서 spatial_play는
+#     start_failed detail=kDelegationHint("spatial leg 불가 — vplayer 위임
+#     이용") 종착 = fail-closed 영수증. UI [spatial] 버튼 탭과 도구 발사는
+#     SpatialStart 단일 발사 경로로 합류(T2 원문) — 라벨 렌더 캡처가 정직
+#     귀속 원문. LEG-FALLBACK에서도 미활성 1행을 남긴다(T3 리뷰 I-2 승계 —
+#     재런 자기교정 원장행). leg 성립 실측은 WSL(T3 LEG-OK)이 소유 — 폰은
+#     배제의 정직 원문만 실측한다.
 #
 # 계약 교환(핵심 재량 — T4 리뷰 I-1 원장 수형):
 #   · **settings 주입 수형 교환** — T4 WSL probe의 "settings.json ENTRY 부재
@@ -55,6 +64,10 @@
 #   591 = 565 + 2m 26건(2m 상총 25 + 2m-h 1) — **WSL 591 등호**(dispatch 초산
 #   2m 21은 2m-e 5건 폰 미출력 추정이 틀린 것 — 1차 런이 OTHER-N(591)로 정산,
 #   2차 런에서 FULL 상수로 확정). 2m [PASS] 실측수 병기.
+#   → spatial leg 라인 T4 흡수 608 = 591 + 2n 17건(2n-a 6·2n-b 5·2n-c 4·
+#   2n-d 2 — LegSupport D4 표·Apply 순수 전이·ToolJson 3종·표 정합) —
+#   **WSL 608 등호**(신규 어설션 0 계약: 등호 승계만 — 2n은 T1 신설 어설션
+#   흡수다). 2n [PASS] 실측수 병기.
 #   런 계보(원장): 1차=OTHER-N(591) 정산+FULL-GIT-ARCHIVE 배포(PHONE_DEPLOY_BASE
 #   오타 — 원장)·2차=FULL receipt·3차(list2 캡처 신설)·4차=세션 단절로 중간
 #   사망(RETRY 수형 흡수 실측 — 자가 수복 행 PRIOR-ORIG-RECOVERED)·5차=최종
@@ -62,8 +75,10 @@
 #   4곡 행 실측 — sdcard 레그에도 동일 방어).
 #
 # 판정 사다리(라벨 계약 — wsl_music/phone_gallery 수형):
-#   MUS-PHONE-VERDICT: MUS-PHONE-OK = CANON MUSIC-FULL-2M-26 AND 캡처 6종
-#     비빈 AND 직행 open accepted AND get_status opened:true(pos 증가) AND
+#   MUS-PHONE-VERDICT: MUS-PHONE-OK = CANON MUSIC-FULL-2N-17 AND 캡처 7종
+#     비빈 AND 위임(폰 위임 open+재청구+직행) 성립 AND get_status
+#     opened:true(pos 증가) AND 폰 leg 배제 원문(spatial_play →
+#     start_failed detail=kDelegationHint·spatial_status 미활성 행) 성립 AND
 #     sdcard 스캔 유한(또는 권한 부재 빈 목록=정상). 위임 창·귀속은 원장행
 #     (MISS = 폰 스폰 시간 원장 — 판정 게이트에서 뺀 사유는 상단 원장 참조).
 #   MUS-PHONE-VERDICT: MUS-PHONE-FAIL(행별 이유) — 수치 미달=정직 원장 rc=0.
@@ -133,7 +148,7 @@ FAIL() { echo "MUSP-FAIL: $*"; exit 1; }
 echo "PHONE-HOST: 환경변수 지정 사용 (기록 금지 — 자리표시 PHONE_HOST=<폰>; 스캔 폴백 없음)"
 echo "HEAD: $(git -C "$GITROOT" rev-parse HEAD 2>/dev/null || echo rev-parse-failed)"
 echo "BASE-ANCHOR(마지막 폰 배포): $PHONE_DEPLOY_BASE"
-echo "LINEAGE(폰): selftest 565(2i 19·2g 40·2m 0) → 기대 591 = 565 + 2m 26(WSL 591 등호 — 1차 런 OTHER-N 정산)"
+echo "LINEAGE(폰): selftest 565(2i 19·2g 40·2m 0) → 591(2m 26 흡수) → 기대 608 = 591 + 2n 17(스페이셜 위임 leg 흡수 — 캐논 2m 보존)"
 SSH="ssh -p $PHONE_PORT -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=10 -i $PHONE_KEY $PHONE_USER@$PHONE_HOST"
 
 # ------------------------------------------------------------------ 0. 전수 sweep
@@ -248,10 +263,13 @@ echo "MUSIC-LIST-EXPECTED=4 (seed 3 root + 1 sub — 표행 수 관측 원문 1�
 # ------------------------------------------------------------------ 3. 원격 스크립트
 cat > "$SCRATCH/$RSRC_TAR_NAME" <<'PMUSEOF'
 #!/bin/bash
-# 폰 측 music 영수증 절차 (phone_music.sh가 생성 — music 라인 T5).
+# 폰 측 music 영수증 절차 (phone_music.sh가 생성 — music 라인 T5+
+# spatial leg 라인 T4).
 # settings 병합(시드 dirs) → cmake 재설정(자동)+ninja 리빌드 → selftest 캐논
-# (565→586 · 2m 21) → leg list(탭2 리스캔+캡처+콜드 접착제 전조+더블클릭 위임
-# +귀속 폴링+직행 open+get_status 재생 수치) → leg sdcard(M-5 재판정 — FUSE
+# (591→608 · 2m 26 보존 · 2n 17 흡수) → leg list(탭2 리스캔+캡처+콜드 접착제
+# 전조+spatial 배제 원문[LEG-ENV unset 가드 — spatial_play start_failed
+# kDelegationHint·UI [spatial] 탭 라벨 렌더]+더블클릭 위임+귀속 폴링+직행
+# open+get_status 재생 수치) → leg sdcard(M-5 재판정 — FUSE
 # 스캔 유한 종료 실측) → 복원(ORIG 바이트 등호+PERM 병합 원복+시드 소각)
 # → BOOT-OK(서버 UP+terminal 상시 — 클라 idle 라인 종료 상태 승계).
 # jkweb 절사 금지(기동 카운트 원문만).
@@ -268,14 +286,19 @@ NLOG="$TMPD/pmus_ninja.log"
 STLOG="$TMPD/pmus_selftest.log"
 ORIG="$TMPD/pmus_orig_settings.json"
 PERM_ORIG="$TMPD/pmus_orig_permissions.json"
-CANON_PHONE_PREV=565      # 폰 기존 캐논(클라 idle 라인 실측 — 비교 원문)
-CANON_PHONE_EXPECT=591    # 565 + 2m 26건(2m 상총 25+2m-h 1) — WSL 591 등호 실측 정산(단일 지점 갱신)
+CANON_PHONE_PREV=591      # 폰 기존 캐논(2m 26 흡수 실측 — 비교 원문)
+CANON_PHONE_EXPECT=608    # 591 + 2n 17건(2n-a 6·2n-b 5·2n-c 4·2n-d 2) — WSL 608 등호 (T4 단일 지점 갱신)
 CANON_PHONE_2M=26
+CANON_PHONE_2N=17
 CLK=$(getconf CLK_TCK 2>/dev/null); [ -n "$CLK" ] || CLK=100
 
 # 클릭·행 상수 — 창 상대 desktop 좌표(wsl_music T4 상수 승계, env 재보정).
 TAB2_X=${MUSP_TAB2_X:-90}    TAB2_Y=${MUSP_TAB2_Y:-77}      # dir 탭 스트립 2번째 탭(시드 dir)
 ROW0_X=${MUSP_ROW0_X:-50}    ROW0_Y=${MUSP_ROW0_Y:-132}     # 표행 0의 경로 셀
+SPAT_X=${MUSP_SPAT_X:-495}   SPAT_Y=${MUSP_SPAT_Y:-132}     # 표행 0의 [spatial] 버튼 열(4열 — 좌표 상수 추정:
+                                                             # 560 폭 − 우측 74 고정열 − 프레임/스크롤 여백.
+                                                             # 성립 판정은 캡처 라벨 렌더 육안 몫 — 도구
+                                                             # 발사가 같은 SpatialStart 종착을 먼저 증명)
 
 mkdir -p "$TMPD"
 echo "=== A. 진입 마커 — 배포 전 구판 상태 원문 ==="
@@ -403,6 +426,12 @@ for w in "$SEED"/*.wav "$SEED"/sub/*.wav; do
 done
 echo "SEED-4-COUNT-OK: bytes=$SBYTES (44.1kHz mono 16bit 8초 사인 — 주파수 식별 마크)"
 echo "MUSIC-LIST-EXPECTED=4 (seed 3 root + 1 sub — 표행 수 관측 원문 1행)"
+echo "=== E2. mp3 합성 여부 재실측 (T3 원문 수형 — 폰 ffmpeg 부재 → wav 단축) ==="
+if command -v ffmpeg >/dev/null 2>&1; then
+    echo "MUSP-AUDIO-MP3: ffmpeg 존재 — 그래도 wav 단축 계속(mp3 합성 실측은 WSL T3 원문 소유 — M-2 길이 미상 관측 몫)"
+else
+    echo "MUSP-AUDIO-MP3: ffmpeg 부재 (T3/T1 원문 승계) — wav 단축 (시드 4곡 유지)"
+fi
 
 echo "=== F. ninja 리빌드 (aarch64 — jkapp_music 신규 타깃, CMake mtimes로 RERUN_CMAKE 기대) ==="
 pkill -f '[j]kdesktop' 2>/dev/null
@@ -433,6 +462,17 @@ fi
 [ -f buildterm/jkapp_music.so ] || FAIL "buildterm/jkapp_music.so missing after rebuild (posix .so)"
 [ -f buildterm/jkapp_vplayer.so ] || FAIL "buildterm/jkapp_vplayer.so missing (위임 대상 배포 결손)"
 echo "MODULE-SO-PRESENT: jkapp_music.so=$(wc -c < buildterm/jkapp_music.so) bytes · jkapp_vplayer.so=$(wc -c < buildterm/jkapp_vplayer.so) bytes"
+# leg 배제 원문 전제(D5 — T4): 폰은 SPATIAL_PLAYER_ROOT를 정의하지 않는다.
+# CMake는 env 설정만 JK_MUSIC_SPATIAL_LEG 매크로+audio_core 링크를 먹인다
+# (fail-closed 배선 원문) — unset이면 [.so]에 AL 심볼이 없어야 정상이다.
+# 심볼 카운트는 nm 대신 바이너리 문자열 grep(Termux binutils 의존 0 — wsl
+# 8b ALCOUNT 수형의 최소 대응).
+echo "MUSP-LEG-ENV: ${SPATIAL_PLAYER_ROOT:+UNEXPECTED-SET}unset (폰 leg 자연 미링크 계약 — 배제 원문 실측 전제)"
+[ -z "${SPATIAL_PLAYER_ROOT:-}" ] || FAIL "phone build must not set SPATIAL_PLAYER_ROOT (T4 계약 위배 — 배제 원문이 아니라 성립 런이 되어버린다)"
+LEG_SYM=$(grep -aac 'alcOpenDevice' buildterm/jkapp_music.so 2>/dev/null || true)
+LEG_SYM=${LEG_SYM:-0}
+echo "MUSP-LEG-SYM: alcOpenDevice strings=$LEG_SYM (0 = leg 미링크 fail-closed 영수증 — LEG-ENV unset과 쌍둥이)"
+[ "$LEG_SYM" = "0" ] || FAIL "phone jkapp_music.so carries AL strings($LEG_SYM) — env 미정의인데 leg 링크(CMake fail-closed 배선 원장 대조 필요)"
 
 echo "=== G. 배포 마커 — HEAD 원천 실존 단정 ==="
 MM=$(grep -c 'ListAudioFiles' include/apps/MusicModel.h)
@@ -446,33 +486,38 @@ echo "MARKER-AFTER music_model($MM) cmake($MC) main_2m($MT) delegate_verdict($MP
 [ "$MT" -ge 1 ] || FAIL "2m selftest marker missing on phone main.cpp"
 [ "$MP" -ge 1 ] || FAIL "DelegationReplyVerdict marker missing on phone (fix r3 배포 결손)"
 
-echo "=== H. selftest — 폰 캐논 계보 판정 (원문: 565 = 클라 idle 최신 · 기대 591 = 565 + 2m 26건 — WSL 591 등호) ==="
+echo "=== H. selftest — 폰 캐논 계보 판정 (원문: 591 = 2m 26 흡수 전산 · 기대 608 = 591 + 2n 17건 — WSL 608 등호) ==="
 timeout 900 ./buildterm/jkdesktop test >"$STLOG" 2>&1
 S_RC=$?
 ST_PASS=$(grep -ac '^\[PASS\]' "$STLOG")
 ST_FAIL=$(grep -ac '^\[FAIL\]' "$STLOG")
 P2M=$(grep -ac '^\[PASS\] 2m' "$STLOG")
 P2MH=$(grep -ac '^\[PASS\] 2m-h' "$STLOG")
+P2N=$(grep -ac '^\[PASS\] 2n' "$STLOG")
 P2I=$(grep -ac '^\[PASS\] 2i' "$STLOG")
 P2G=$(grep -ac '^\[PASS\] 2g' "$STLOG")
-echo "PHONE-SELFTEST rc=$S_RC PASS=$ST_PASS FAIL=$ST_FAIL 2m=$P2M(2m-h=$P2MH) 2i=$P2I 2g=$P2G (music 라인 신설 2m 계열 — 캐논 +21분의 원료)"
+echo "PHONE-SELFTEST rc=$S_RC PASS=$ST_PASS FAIL=$ST_FAIL 2m=$P2M(2m-h=$P2MH) 2i=$P2I 2g=$P2G 2n=$P2N (music 라인 2m 계열 보존 + spatial leg 2n 계열 신설 — 캐논 +17분의 원료)"
 grep -a 'AppSelfTest' "$STLOG" | tail -2
 grep -aq 'AppSelfTest: 0 failure(s)' "$STLOG" || FAIL "AppSelfTest not 0 failure(s)"
 [ "$S_RC" -eq 0 ] || FAIL "selftest rc=$S_RC"
 [ "$ST_FAIL" -eq 0 ] || FAIL "selftest FAIL=$ST_FAIL (폰축 회귀)"
-awk -v p="$ST_PASS" -v m="$P2M" -v h="$P2MH" -v prev="$CANON_PHONE_PREV" \
-    -v expect="$CANON_PHONE_EXPECT" -v exm="$CANON_PHONE_2M" 'BEGIN{
-    if (p == expect && m == exm)
-        print "CANON-INCLUSION=MUSIC-FULL-2M-26 (폰 캐논 " prev "→" p " 상승 — 2m " m "건(2m-h " h " 포함) 흡수 실측 — WSL 591 등호)"
+awk -v p="$ST_PASS" -v m="$P2M" -v h="$P2MH" -v n="$P2N" -v prev="$CANON_PHONE_PREV" \
+    -v expect="$CANON_PHONE_EXPECT" -v exn="$CANON_PHONE_2N" -v mm="$CANON_PHONE_2M" 'BEGIN{
+    if (p == expect && n == exn)
+        print "CANON-INCLUSION=MUSIC-FULL-2N-17 (폰 캐논 " prev "→" p " 상승 — 2n " n "건 흡수(2m " mm "건[h " h " 포함] 보존) 실측 — WSL 608 등호)"
     else if (p == prev)
         print "CANON-INCLUSION=MUSIC-SELFTEST-MISSING (music selftest 쌍둥이 미반영 — 계보 결손 — 원장)"
     else
-        printf "CANON-INCLUSION=OTHER-N(%d — 기대 %d=%d+%d · 2m=%d(2m-h=%d) — 계보 정산 원장)\n", p, expect, prev, exm, m, h
+        printf "CANON-INCLUSION=OTHER-N(%d — 기대 %d=%d+2n%d · 2m=%d(2m-h=%d)·2n=%d — 계보 정산 원장)\n", p, expect, prev, exn, m, h, n
 }'
 
 # ---------------------------------------------------------------- 레그 공통
 ctl() { timeout 20 ./buildterm/jkdesktop agentctl "$1" 2>/dev/null | grep -a '{' | head -1; }
 ok()  { printf '%s' "${1:-}" | grep -aq '"ok":true'; }
+mtool() { # $1=tool $2=args-json — music 앱 직행 릴레이(wsl 8b atool 수형 —
+          #   도구 허브 릴레이 원문. music 창 등록 전제라 레그 list 내에서만 온다)
+    ctl "{\"tool\":\"app_tool\",\"args\":{\"app\":\"music\",\"tool\":\"$1\",\"args\":$2}}"
+}
 CAPTURE() { # $1=출력png — x11grab 1920x1080 시도, 화면 크기 파싱 재시도(import 금지 — libheif 파단 원문)
     local OUT=$1
     rm -f "$OUT"
@@ -607,6 +652,51 @@ OR0=$(ctl "{\"tool\":\"app_tool\",\"args\":{\"app\":\"vplayer\",\"tool\":\"open\
 echo "MUSICP-GLUE-COLD-REPLY: ${OR0:-none}"
 printf '%s' "$OR0" | grep -aq '"unknown_app_tool"' \
     || echo "MUSICP-FAIL-SOFT(glue-cold: 등록 전 릴레이가 unknown_app_tool이 아님 — 콜드 경기 전조 부정 — 원장: $OR0)"
+
+echo "=== J2. spatial leg 배제 원문 — 폰 SPATIAL_PLAYER_ROOT 미정의(D5 — T4 핵심 영수증) ==="
+# 계약: 폰은 env를 정의하지 않는다(F 섹션 가드) — leg 미링크 .so의 발사는
+# DeviceFailed 고장 종착(kDelegationHint 원문 라벨 소비 — SpatialStart의
+# #ifndef 분기)으로 끝난다. 도구 발사(spatial_play)와 UI [spatial] 버튼 탭은
+# SpatialStart 단일 발사 경로로 합류(T2 원문) — 양경로가 같은 귀결인 것이
+# 이 세그먼트의 원문이다. leg 성립 실측은 WSL(T3 LEG-OK)이 소유 — 폰은
+# 배제의 정직 원문만 실측한다.
+ST0=$(mtool spatial_status '{}')
+echo "MUSP-SPATIAL-STATUS-0: ${ST0:-none} (재생 전 기저 — 미활성 1행 원문)"
+if [ -n "$ST0" ]; then
+    printf '%s' "$ST0" | grep -aq '"active":false' \
+        || echo "MUSICP-FAIL-SOFT(spatial 기저가 active — leg-less 원문 대조 필요)"
+    printf '%s' "$ST0" | grep -aq '"deviceOk":false' \
+        || echo "MUSICP-FAIL-SOFT(spatial 기저 deviceOk true — leg-less 원문 대조 필요)"
+else
+    echo "MUSICP-FAIL-SOFT(spatial_status 기저 관측 실패 — 앱 도구 등록 3종 원문 참조)"
+fi
+SPAT_REPLY=$(mtool spatial_play "{\"path\":\"$SEED/a_seed.wav\"}")
+echo "MUSP-SPATIAL-PLAY-REPLY: $SPAT_REPLY"
+printf '%s' "$SPAT_REPLY" | grep -aq '"error":"start_failed"' \
+  && printf '%s' "$SPAT_REPLY" | grep -aq 'spatial leg 불가' \
+  && echo "MUSP-LEG-BARRED: OK — spatial_play = start_failed + detail kDelegationHint(leg-less fail-closed 영수증 — 폰 leg 배제 원문 성립)" \
+  || echo "MUSICP-FAIL-SOFT(leg 배제 원문 미성립 — reply 원문 대조: $SPAT_REPLY)"
+sleep 1   # 발사 귀결 frameDirty 렌더 도착 (도구 경로도 status_를 먹인다)
+ST1=$(mtool spatial_status '{}')
+echo "MUSP-SPATIAL-STATUS-1: $ST1"
+if printf '%s' "$ST1" | grep -aq '"active":false'; then
+    echo "MUSP-SPATIAL-POS: MISS(미활성 — pos 증가 미판정. T3 리뷰 I-2 승계 — LEG-FALLBACK에서도 이 MISS/미활성 1행을 남긴다: 재런에서 자기교정)"
+    SPATIAL_INACTIVE=1
+else
+    echo "MUSICP-FAIL-SOFT(spatial_status post-fire가 active — leg-less 계약 원문 대조 필요)"
+    SPATIAL_INACTIVE=0
+fi
+echo "--- UI [spatial] 버튼 탭(발사 경로 동일성 원문 — SpatialStart 단일 경로 합류) ---"
+SPATCLICK_X=$((MUS_X + SPAT_X))
+SPATCLICK_Y=$((MUS_Y + SPAT_Y))
+echo "CLICK-SPAT: id=$MUS_ID desk=($SPATCLICK_X,$SPATCLICK_Y) — 상수 SPAT_X=$SPAT_X SPAT_Y=$SPAT_Y (좌표 추정 — 성립은 캡처 라벨 렌더 육안 몫)"
+SCL=$(tap "$MUS_ID" "$SPATCLICK_X" "$SPATCLICK_Y" 1)
+ok "$SCL" || echo "NOTE-SPAT-TAP: send_input [spatial] 클릭 실패 — $SCL (도구 발사가 같은 DeviceFailed 종착을 이미 증명 — 원장행)"
+echo "[spatial] tap reply: $SCL"
+sleep 2
+ST2=$(mtool spatial_status '{}')
+echo "MUSP-SPATIAL-STATUS-2(post-tap): ${ST2:-none} (err=kDelegationHint 보존 원문 — 성공 시작이 없으면 소멸하지 않는다)"
+CAPTURE "$TMPD/mus_phone_spatial.png"
 
 echo "=== K. 표행 0 더블클릭 → vplayer 위임 (T3 실측 — 폰 스폰 페이싱 경기 포함) ==="
 CLICK_X=$((MUS_X + ROW0_X))
@@ -934,12 +1024,13 @@ PYEOF
 }
 recover "\$TMPDIR/mus_phone_list.png" "$SCRATCH/mus_phone_list.png"
 recover "\$TMPDIR/mus_phone_list2.png" "$SCRATCH/mus_phone_list2.png"
+recover "\$TMPDIR/mus_phone_spatial.png" "$SCRATCH/mus_phone_spatial.png"
 recover "\$TMPDIR/mus_phone_vp_delegate.png" "$SCRATCH/mus_phone_vp_delegate.png"
 recover "\$TMPDIR/mus_phone_delegate_status.png" "$SCRATCH/mus_phone_delegate_status.png"
 recover "\$TMPDIR/mus_phone_after.png" "$SCRATCH/mus_phone_after.png"
 recover "\$TMPDIR/mus_phone_sdcard.png" "$SCRATCH/mus_phone_sdcard.png"
-$SSH "rm -f \$TMPDIR/mus_phone_list.png \$TMPDIR/mus_phone_list2.png \$TMPDIR/mus_phone_vp_delegate.png \$TMPDIR/mus_phone_delegate_status.png \$TMPDIR/mus_phone_after.png \$TMPDIR/mus_phone_sdcard.png \$TMPDIR/pmus_orig_settings.json \$TMPDIR/pmus_orig_permissions.json"
-echo "CAPTURES-WRITTEN: mus_phone_{list,list2,vp_delegate,delegate_status,after,sdcard}.png → engine/tmp/"
+$SSH "rm -f \$TMPDIR/mus_phone_list.png \$TMPDIR/mus_phone_list2.png \$TMPDIR/mus_phone_spatial.png \$TMPDIR/mus_phone_vp_delegate.png \$TMPDIR/mus_phone_delegate_status.png \$TMPDIR/mus_phone_after.png \$TMPDIR/mus_phone_sdcard.png \$TMPDIR/pmus_orig_settings.json \$TMPDIR/pmus_orig_permissions.json"
+echo "CAPTURES-WRITTEN: mus_phone_{list,list2,spatial,vp_delegate,delegate_status,after,sdcard}.png → engine/tmp/"
 
 # ------------------------------------------------------------------ 8. 로컬 실측
 PYRUNLOG=$(cygpath -w "$RUNLOG" 2>/dev/null || echo "$RUNLOG")
@@ -990,6 +1081,7 @@ else:
     print("POS-EVIDENCE: get_status pos 파싱 실패(정직 원장) — p1=%s p2=%s" % (p1, p2))
 
 TAGS = (("mus_phone_list.png", "list"), ("mus_phone_list2.png", "list2"),
+        ("mus_phone_spatial.png", "spatial"),
         ("mus_phone_vp_delegate.png", "vp_delegate"),
         ("mus_phone_delegate_status.png", "delegate_status"), ("mus_phone_after.png", "after"),
         ("mus_phone_sdcard.png", "sdcard"))
@@ -1028,6 +1120,12 @@ if mt:
 sd = re.search(r"SCAN-FINITE: ([A-Za-z-]+)", txt)
 if sd:
     print("SCAN-LINE: SCAN-FINITE=%s" % sd.group(1))
+lg = re.search(r"MUSP-LEG-BARRED: (.*)", txt)
+if lg:
+    print("LEG-LINE: MUSP-LEG-BARRED=%s" % lg.group(1))
+li = re.search(r"MUSP-SPATIAL-POS: .*", txt)
+if li:
+    print("INACTIVE-LINE: %s" % li.group(0))
 ANALYSIS_EOF
 if [ $? -ne 0 ]; then
   echo "NOTE-ANALYSIS: local analysis failed (rc) — 캡처 원문은 회수 원문으로 육안 가능"
@@ -1036,7 +1134,7 @@ fi
 # ------------------------------------------------------------------ 9. 판정
 echo "=== 7. music 폰 실측 판정 (측정 원문은 상단 analysis 행 — 최종 결제는 육안 스탭) ==="
 CAP_OK=1
-for f in list list2 vp_delegate delegate_status after sdcard; do
+for f in list list2 spatial vp_delegate delegate_status after sdcard; do
     P="$SCRATCH/mus_phone_$f.png"
     if [ ! -s "$P" ]; then
         echo "MUSIC-PHONE-FAIL(capture missing/empty: $P)"
@@ -1046,7 +1144,7 @@ done
 CANON=$(grep -a '^CANON-INCLUSION=' "$RUNLOG" | tail -1 | sed 's/^CANON-INCLUSION=//' | tr -d '\r')
 CANON_OK=0
 case "$CANON" in
-  MUSIC-FULL-2M-26*) CANON_OK=1 ;;
+  MUSIC-FULL-2N-17*) CANON_OK=1 ;;
   *) echo "NOTE-CANON: 캐논 계보 ${CANON:-n/a} — 위 경고 행 참조" ;;
 esac
 GLUE_OK=0
@@ -1072,14 +1170,25 @@ case "$SCAN_LINE" in
 esac
 DELEG_LINE=$(grep -a '^MUSICP-DELEGATE: ' "$RUNLOG" | tail -1 | sed 's/^MUSICP-DELEGATE: //' | tr -d '\r')
 DOPEN_LINE=$(grep -a '^MUSICP-DELEGATE-OPEN: ' "$RUNLOG" | tail -1 | sed 's/^MUSICP-DELEGATE-OPEN: //' | tr -d '\r')
+# 폰 leg 배제 원문(T4 핵심 영수증 — D5): spatial_play의 start_failed +
+# kDelegationHint detail이 성립해야 한다(도구·UI 탭 양경로 같은 SpatialStart
+# 종착 — J2 원문). 성립 런(leg 있음)이면 배제 원문이 깨진 것 — verdict FAIL.
+SPATL=$(grep -a '^MUSP-SPATIAL-PLAY-REPLY: ' "$RUNLOG" | tail -1 | sed 's/^MUSP-SPATIAL-PLAY-REPLY: //' | tr -d '\r')
+INACT=$(grep -a '^MUSP-SPATIAL-POS: ' "$RUNLOG" | tail -1 | sed 's/^MUSP-SPATIAL-POS: //' | tr -d '\r')
+LEG_OK=0
+printf '%s' "${SPATL:-}" | grep -aq '"error":"start_failed"' \
+  && printf '%s' "${SPATL:-}" | grep -aq 'spatial leg 불가' \
+  && printf '%s' "${INACT:-}" | grep -aq 'MISS(미활성' \
+  && LEG_OK=1
+LEG_LINE=$(grep -a '^MUSP-LEG-BARRED: ' "$RUNLOG" | tail -1 | sed 's/^MUSP-LEG-BARRED: //' | tr -d '\r')
 if [ "$CAP_OK" -eq 1 ] && [ "$CANON_OK" -eq 1 ] && [ "$GLUE_OK" -eq 1 ] && [ "$PLAY_OK" -eq 1 ] \
-   && [ "$POS_OK" -eq 1 ] && [ "$SCAN_OK" -eq 1 ]; then
-    echo "MUSIC-PHONE-VERDICT: MUS-PHONE-OK(폰 selftest 계보 565→$CANON·list 탭 리스캔+캡처 6종 receipt·glue=accepted·get_status opened=true pos $POS1→$POS2·sdcard 스캔=$SCAN_LINE — 위임은 원장행: $DELEG_LINE / 귀속: $DOPEN_LINE — 육안 스탭 대기)"
+   && [ "$POS_OK" -eq 1 ] && [ "$SCAN_OK" -eq 1 ] && [ "$LEG_OK" -eq 1 ]; then
+    echo "MUSIC-PHONE-VERDICT: MUS-PHONE-OK(폰 selftest 계보 →$CANON·list 탭 리스캔+캡처 7종 receipt·glue=accepted·get_status opened=true pos $POS1→$POS2·폰 leg 배제 원문 성립(spatial_play=start_failed kDelegationHint·spatial 미활성 MISS 행=$INACT)·sdcard 스캔=$SCAN_LINE — 위임은 원장행: $DELEG_LINE / 귀속: $DOPEN_LINE — 육안 스탭 대기)"
 else
-    echo "MUSIC-PHONE-VERDICT: MUSIC-PHONE-FAIL(행별 사유는 위 각 행 — canon=$CANON_OK captures=$CAP_OK glue=$GLUE_OK play=$PLAY_OK pos=$POS_OK scan=$SCAN_LINE; 인프라 실패는 hard FAIL로 상단 중단, 수치·육안 미달은 rc=0 honest-fail)"
+    echo "MUSIC-PHONE-VERDICT: MUSIC-PHONE-FAIL(행별 사유는 위 각 행 — canon=$CANON_OK captures=$CAP_OK glue=$GLUE_OK play=$PLAY_OK pos=$POS_OK leg=$LEG_OK/${LEG_LINE:-n/a} scan=$SCAN_LINE; 인프라 실패는 hard FAIL로 상단 중단, 수치·육안 미달은 rc=0 honest-fail)"
 fi
 echo "MUSIC-WCAPTURES:"
-for f in list list2 vp_delegate delegate_status after sdcard; do
+for f in list list2 spatial vp_delegate delegate_status after sdcard; do
     P="$SCRATCH/mus_phone_$f.png"
     [ -s "$P" ] && echo "  $P ($(wc -c < "$P" | tr -d ' ') bytes)"
 done
@@ -1091,7 +1200,11 @@ echo "  ② 폰 위임(mus_phone_vp_delegate.png+delegate_status/after): Video P
 echo "     출현+music status 행 표기+get_status opened=true pos 증가 원문."
 echo "  ③ 폰 sdcard 스캔(mus_phone_sdcard.png): /sdcard 루트(FUSE) 재귀 스캔 유한"
 echo "     종료(M-5 재판정 — SCAN-FINITE 행) + 0음성이면 빈 목록 스펙 정상."
-echo "  ④ 폰 BOOT-OK(settings 원상 복원 — ORIG 바이트 등호): 종료 상태 서버 UP+terminal."
+echo "  ④ 폰 spatial leg 배제 원문(mus_phone_spatial.png+pmus_spatial_crop.png):"
+echo "     spatial leg 패널의 고장 안내 행이 kDelegationHint 원문 라벨"
+echo "     (\"spatial leg 불가 — vplayer 위임 이용\")으로 렌더 — [spatial] 발사의"
+echo "     DeviceFailed 종착 원문(D5 정직 계약 — leg는 WSL T3가 소유)."
+echo "  ⑤ 폰 BOOT-OK(settings 원상 복원 — ORIG 바이트 등호): 종료 상태 서버 UP+terminal."
 echo "  → EYES-PENDING: 위 항목에 대한 폰 실기기 육안 선언만 결제 — probe는 기록하지 않는다."
 echo "MUSIC-PHONE-END"
 # honest-fail 원칙: 수치 미달(MUSIC-PHONE-FAIL 라인)은 원장 목적이라 rc=0.
