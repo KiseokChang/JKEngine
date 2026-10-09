@@ -51,6 +51,8 @@
 // 2m-f asserts this display isomorphism against the same header functions.
 #include <client/JKClientApplication.h>
 #include <apps/MusicModel.h>
+#include <apps/MusicDirStore.h>  // 폴더 저장소(DirWriteResult — T1 원문 소비,
+                                 //   도구 3종·read leg가 같은 규약 수령)
 #include <apps/MusicSpatialLeg.h>  // leg 순수 부품 소비(LegSupport/Apply/ToolJson
                                    //   — T1, audio_core include 0계약이라 이
                                    //   헤더도 env 미설정 축에서 컴파일된다)
@@ -148,6 +150,20 @@ private:
     // 흡수(스펙 §4.2 봉인 승계). launch 미성립 시의 사후 open 답신은 겹침
     // 가드로 무음 회수(fix r1 M-2 — 거부 안내 status 납치 방지).
     void PlaybackDelegate(const music::Track& t);
+    // ---- 폴더 관리 (T2 — 플랜 2026-10-10-music-dirs-ui, MusicDirStore 소비) ----
+    // settings.json 원문 직독(ResolveDirs와 같은 leg — T2 fix: read leg는
+    // quickjs 원독 폐기, 저장소 스캐너 UserDirs 통일 — CP949 보존 문서에서도
+    // 항목이 보인다(보존-가시 — 표기는 바이트 그대로, 폰트가 깨는 것은 표기
+    // 한계 원장). 부재/파손 = 빈 목록(뷰 전용 — 오류 비표기 계약).
+    std::string SettingsText() const;
+    void RefreshUserDirs();
+    // [추가]/[제거]의 단일 경로 — UI 버튼과 music_dir_add/remove 도구가 같이
+    // 먹는다. 가드 2검(공문자·기본 폴더)→Store(성공=재스캔+목록 갱신, 실패=
+    // err 그대로 반환 — 표기는 호출부 몫). 호출부 '/' 정리 규약(fix r1 권고
+    // 상쇄): 뒤 구분자 '/'·'\' 전원 벗김(Slashize의 고바이트 뒤 '\' 미접기
+    // 한계 — NormalizeDirsPure는 '/'만 접으므로 호출부가 '\'도 접어 보낸다).
+    jk::music::DirWriteResult DirAddManaged(const std::string& path);
+    jk::music::DirWriteResult DirRemoveManaged(const std::string& path);
     // AgentQueryReply 폴백 소비(라이브러리 PollReplies 원문 쌍둥이 — 남의
     // 답신은 흘려보낸다): launch 답신 → 거부 시 폴백 종료, open 답신 → 성공/
     // 재청구(unknown_app_tool)/실패 판정(재청구 자체는 OnIdle pacing이 소유).
@@ -192,6 +208,14 @@ private:
                                        //   동형(재정렬·파생 없음 — 2m-f 계약)
     char filterBuf_[128] = {0};        // 이름 필터(MatchFilter — 타이핑 더티는
                                        //   입력 이벤트 자연 귀결, 조작 없음)
+
+    // ---- 폴더 관리 패널 상태 (T2) ----
+    // 목록은 UserDirs(T1 스캐너 — 사용자 dirs만; 기본 폴더는 리졸버가 자동
+    // 구성 원장 — music_dir_list 도구의 계약과 같다). 행 표기는 저장 바이트
+    // 그대로(레거시 CP949 항목 = 폰트 깨짐 — 표기 한계 원장, 데이터 무손상).
+    bool dirsUiOpen_ = false;          // [폴더 관리] 토글(스트립 옆 — 기본 닫힘)
+    std::vector<std::string> userDirs_;  // 패널 목록(RefreshUserDirs 갱신)
+    char dirPathBuf_[512] = {0};       // 새 폴더 경로 Edit(UTF-8 — 앱 도구 계약)
 
     // ---- 스캔 워커 상태 ----
     // 단일 상시 스레드(갤러리 썸네일 원문 계약 승계: 생성 = OnInit 1회,

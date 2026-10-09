@@ -319,41 +319,66 @@ inline std::string EscapeJsonStr(const std::string& in) {
     return out;
 }
 
-// 합성 — 기존 상위 키 원문을 슬라이스 그대로(바이트 보존) 두고, music는 같은
-// 자리에 재기입(부재 말미 신설). 읽던 자리 유지 = 재쓰기 diff 최소화(사람이
-// settings.json을 열어 보는 규약 존중). dirs는 슬래시 정규형 원문 수형.
-inline std::string ComposeMusicDirs(const std::vector<JsonField>& fields,
-                                    const std::vector<std::string>& dirs) {
-    std::string music = "\"music\":{\"dirs\":[";
-    for (size_t k = 0; k < dirs.size(); ++k) {
-        if (k) music += ',';
-        music += '"';
-        music += EscapeJsonStr(dirs[k]);
-        music += '"';
-    }
-    music += "]}";
+// 상위 기입 합성 — 관리 키 슬라이스(managed: key+완성 JSON 값 원문)를 기존
+// 자리에 재기입하고 미관리 키는 원문 슬라이스 그대로 둔다(부재 관리 키는 말미
+// 신설, 관리 키 원문 이중 등장 2회째는 원문 보존). T2 승격 수형: WriteSettingsKv
+// (JKWindowServer — T1 리뷰 C1 교차 작성자 소각 봉합)가 music/gallery 등
+// **미관리 상위 키**를 소각하지 않게 쓰는 공용 부품 — ComposeMusicDirs의
+// 일반형(같은 슬라이스 재합성 규약, 출력 바이트 동형 — selftest 2o-b/f 원문
+// 계보). 서버는 이 헤더의 스캐너+이 합성을 직소비(apps/ include 계약 —
+// JKWindowServer.cpp는 AppLauncherItem.h 선례 실측).
+inline std::string ComposeKeyed(const std::vector<JsonField>& fields,
+                                const std::vector<JsonField>& managed) {
     std::string out = "{";
     bool first = true;
-    bool musicEmitted = false;
-    for (const JsonField& f : fields) {
-        if (f.key == "music") musicEmitted = true;  // 재기입 자리 예약
+    std::vector<bool> emitted(managed.size(), false);
+    for (const JsonField& f : fields) {  // 기존 원문 순서·자리 유지(읽던 자리
+                                         //   재기입 — 재쓰기 diff 최소화 규약)
         if (!first) out += ',';
         first = false;
-        if (f.key == "music") {
-            out += music;
-        } else {
-            out += '"';
-            out += EscapeJsonStr(f.key);
-            out += "\":";
-            out += f.raw;  // 알 수 없는 상위 키 = 원문 그대로(무손상 계약)
+        const JsonField* m = nullptr;  // 관리 키 재기입 슬라이스(없으면 원문)
+        for (size_t k = 0; k < managed.size(); ++k) {
+            if (managed[k].key != f.key) continue;
+            if (!emitted[k]) {
+                m = &managed[k];
+                emitted[k] = true;
+            }
+            break;  // 관리 키 원문 이중 등장 2회째 = 원문 보존(독립 판정)
         }
+        out += '"';
+        out += EscapeJsonStr(f.key);
+        out += "\":";
+        out += m ? m->raw : f.raw;  // 미관리 키 = 원문 그대로(무손상 계약)
     }
-    if (!musicEmitted) {
+    for (size_t k = 0; k < managed.size(); ++k) {
+        if (emitted[k]) continue;
         if (!first) out += ',';
-        out += music;
+        first = false;
+        out += '"';
+        out += EscapeJsonStr(managed[k].key);
+        out += "\":";
+        out += managed[k].raw;  // 기존 문서에 없던 관리 키 = 말미 신설
     }
     out += '}';
     return out;
+}
+
+// 합성 — 기존 상위 키 원문을 슬라이스 그대로(바이트 보존) 두고, music는 같은
+// 자리에 재기입(부재 말미 신설). 읽던 자리 유지 = 재쓰기 diff 최소화(사람이
+// settings.json을 열어 보는 규약 존중). dirs는 슬래시 정규형 원문 수형.
+// (ComposeKeyed 일반형 위임 — 출력 바이트 동형, 2o-b/f 원문 계보 유지.)
+inline std::string ComposeMusicDirs(const std::vector<JsonField>& fields,
+                                    const std::vector<std::string>& dirs) {
+    std::string dirsRaw = "{\"dirs\":[";
+    for (size_t k = 0; k < dirs.size(); ++k) {
+        if (k) dirsRaw += ',';
+        dirsRaw += '"';
+        dirsRaw += EscapeJsonStr(dirs[k]);
+        dirsRaw += '"';
+    }
+    dirsRaw += "]}";
+    const JsonField music{"music", dirsRaw};
+    return ComposeKeyed(fields, {music});
 }
 
 // ---- 원자적 쓰기 ----
@@ -535,6 +560,17 @@ inline std::vector<std::string> UserDirs(const std::string& settingsText) {
 
 // ---- AddDir / RemoveDir ----
 
+// 입력 인코딩 규약(하드 — T2 승계, fix r1 I-1 수형 옵션 ②의 전제 명시):
+// path는 **UTF-8**이다(UI 도구 인자 — 앱 도구 허브 계약 T3 원문; ClientMusicApp
+// InputText/AgentJson GetStr은 UTF-8을 먹는다). 저장은 **바이트 투명** —
+// std::filesystem 계층의 narrow 기수는 이 툴체인 실측상 UTF-8 strict(Win:
+// CP949 바이트에 fs::path가 filesystem_error "Illegal byte sequence"를 던진다
+// — 2o-f 실측·프루브 재확인; posix/폰은 native가 애초 UTF-8)이라 UTF-8 원문이
+// 곧 전 축의 native형이고, 이를 받는 ListAudioFiles/fs::path 스캔 leg와
+// AgentJson/ImGui 표기 leg까지 한 표기로 묶인다. 레거시 CP949 항목이 저장 문서
+// 에 이미 있으면(다른 작성자 원문) 읽기 스캐너는 바이트 그대로 보존·표기한다
+// (보존-가시 — T2 read leg 통일 계약) — 단 그 바이트는 fs::path에 못 들어가
+// 스캔 leg는 호출부 가드에서 표기-한계 정직 분기(ClientMusicApp::RequestScan).
 inline DirWriteResult AddDir(const std::string& exeDir,
                              const std::string& path) {
     DirWriteResult r;

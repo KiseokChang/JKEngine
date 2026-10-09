@@ -5853,6 +5853,53 @@ static int RunAppSelfTest() {
             check(!h1.ok && h1.err == "default dir not appendable",
                   "2o-f AddDir 기본 폴더(state/music) = 저장소 거부(RemoveDir "
                   "방어선과 대칭)");
+
+            // 2o-g) T2 — 서버 보존 합성 수형 실측(캐논 계보: 서버 selftest 축이
+            // 부재라 순수 부품 자리에서 봉합 — JKWindowServer WriteSettingsKv가
+            // 같은 부품을 소비해 미관리 상위 키(music/gallery·장래 키)를
+            // 소각하지 않는다(T1 리뷰 C1 교차 작성자 충돌 봉합). 미관리 키는
+            // 원문 슬라이스 바이트 그대로(CP949 혼입 원문 포함), 관리 키는 같은
+            // 자리 재기입, 부재 관리 키는 말미 신설 — ComposeKeyed 계약.
+            std::vector<st::JsonField> svFields;
+            // 원문은 서버 기록형(관리 3키 선두+music/gallery 미관리)과 같은
+            // 자리 — 관리 3키 같은 자리 재기입+미관리 키 원문 슬라이스를 동시
+            // 단정한다(폰 CP949 문서 corpus와 동일 — T1 fix r1 원문).
+            const std::string svOrig =
+                std::string("{\"audio\":{\"mute\":1,\"volume\":30},") +
+                "\"retention\":{\"days\":7},"
+                "\"text\":{\"font_path\":\"\",\"font_fallback\":\"\","
+                "\"font_scale\":\"1.0\"},"
+                "\"music\":{\"dirs\":[\"" + cp949 + "\",\"W:/win\"]}," +
+                "\"gallery\":{\"x\":1}}";
+            const std::vector<st::JsonField> managed = {
+                {"audio", "{\"mute\":0,\"volume\":42}"},
+                {"retention", "{\"days\":14}"},
+                {"text", "{\"font_path\":\"\",\"font_fallback\":\"\","
+                         "\"font_scale\":\"1.0\"}"}};
+            check(st::ScanTopLevelFields(svOrig, svFields) &&
+                      st::ComposeKeyed(svFields, managed) ==
+                          std::string("{\"audio\":{\"mute\":0,\"volume\":42},") +
+                              "\"retention\":{\"days\":14},"
+                              "\"text\":{\"font_path\":\"\","
+                              "\"font_fallback\":\"\","
+                              "\"font_scale\":\"1.0\"},"
+                              "\"music\":{\"dirs\":[\"" + cp949 +
+                              "\",\"W:/win\"]},\"gallery\":{\"x\":1}}",
+                  "2o-g 서버 보존 합성 = 미관리 키(music/gallery) 원문 슬라이스 "
+                  "바이트 보존(CP949 포함)+관리 3키 같은 자리 재기입(C1 — "
+                  "WriteSettingsKv 소비 수형, 캐논 계보: 서버 축 부재로 여기 "
+                  "봉합)");
+            std::vector<st::JsonField> svFields2;
+            check(st::ScanTopLevelFields("{\"gallery\":{\"x\":1}}",
+                                         svFields2) &&
+                      st::ComposeKeyed(svFields2, managed) ==
+                          std::string("{\"gallery\":{\"x\":1},") +
+                              "\"audio\":{\"mute\":0,\"volume\":42},"
+                              "\"retention\":{\"days\":14},\"text\":{"
+                              "\"font_path\":\"\",\"font_fallback\":\"\","
+                              "\"font_scale\":\"1.0\"}}",
+                  "2o-g 보존 합성 부재 관리 키 = 원문 순서 유지+말미 신설(무원문 "
+                  "폴백 경로와 짝 — 미관리 키 원문 무변조)");
             fs::remove_all(odir);  // 사후 소각(무잔산 — 2m-c 원문 수형)
         }
     }

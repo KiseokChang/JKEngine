@@ -2,6 +2,12 @@
 #include <agent/JKAgentJson.h>
 
 #include <apps/AppLauncherItem.h>
+#include <apps/MusicDirStore.h>  // C1 — settings.json 보존 합성(ScanTopLevel
+                                 //   Fields/ComposeKeyed/WriteSettingsAtomic —
+                                 //   T2, 플랜 2026-10-10-music-dirs-ui. apps/
+                                 //   include 계약은 AppLauncherItem.h 선례 실측:
+                                 //   jkcore의 target_include_directories(include)
+                                 //   PUBLIC 전파 — 서버 TU 동일 include 루트)
 #include <desktop/JKDesktopShell.h>
 #include <JKAudioCommand.h>
 #include <JKAudioThread.h>
@@ -2891,26 +2897,73 @@ static bool WriteSettingsKv(bool mute, int volume, int retention,
                             const std::string& fontPath,
                             const std::string& fontFallback,
                             const std::string& fontScale) {
-    // 고정 char 버퍼 대신 문자열 조립 — fontPath 300자가 JsonEsc로 제어문자
-    // 6배 확장(\\uXXXX)까지 갈 수 있어 512 버퍼는 조용한 절단이 나온다.
-    const std::string out =
-        std::string("{\"audio\":{\"mute\":") + (mute ? "1" : "0") +
-        ",\"volume\":" + std::to_string(volume) + "},\"retention\":{\"days\":" +
-        std::to_string(retention) + "},\"text\":{\"font_path\":\"" +
-        JsonEsc(fontPath) + "\",\"font_fallback\":\"" +
-        JsonEsc(fontFallback) + "\",\"font_scale\":\"" +
-        JsonEsc(fontScale) + "\"}}";
+    // 관리 3키(audio/retention/text)의 새 값 원문 슬라이스 — C1 보존 합성과
+    // 신설(무원문) 폴백 양쪽이 소비한다.
+    const std::string audioJson =
+        std::string("{\"mute\":") + (mute ? "1" : "0") +
+        ",\"volume\":" + std::to_string(volume) + "}";
+    const std::string retentionJson =
+        "{\"days\":" + std::to_string(retention) + "}";
+    const std::string textJson =
+        std::string("{\"font_path\":\"") + JsonEsc(fontPath) +
+        "\",\"font_fallback\":\"" + JsonEsc(fontFallback) +
+        "\",\"font_scale\":\"" + JsonEsc(fontScale) + "\"}";
+    // C1 (T2 — T1 리뷰 C1 교차 작성자 소각 봉합, 플랜 2026-10-10-music-dirs-ui
+    // 필수 인계): 기존까지의 메모리 KV 재조립은 이 파일의 **미관리 상위 키**
+    // (music.dirs·gallery.dirs·장래 키)를 전량 소각했다 — music가 제2작성자가
+    // 된 순간(폴더 관리 T2) 볼륨 변경 1회가 폴더 목록을 지운다. 쓰기 직전
+    // 원문을 상위 스캐너(MusicDirStore.h — 원문 슬라이스 규약, CP949/비UTF-8
+    // 바이트 투명)로 읽어 ComposeKeyed 재부착: **미관리 키는 원문 슬라이스
+    // 그대로**, 관리 3키는 같은 자리 재기입, 부재 관리 키는 말미 신설. 부재·
+    // 빈 파일·부적합 원문은 보존 원문이 없어 관리 3키 신설(기존 동작 — 파손
+    // 문서에는 보존 원문이 없고 설정 허브 정문은 쓰기 성립해야 한다 — 정직
+    // 부기; 원본 파손 상태도 봉합하지 못한다).
+    std::string out;
+    std::vector<jk::music::store::JsonField> fields;
+    std::string original;
+    if (jk::music::store::ReadAll(SettingsKvPath(), original) &&
+        !original.empty() &&
+        jk::music::store::ScanTopLevelFields(original, fields)) {
+        const std::vector<jk::music::store::JsonField> managed = {
+            {"audio", audioJson},
+            {"retention", retentionJson},
+            {"text", textJson},
+        };
+        out = jk::music::store::ComposeKeyed(fields, managed);
+    } else {
+        out = "{\"audio\":" + audioJson + ",\"retention\":" + retentionJson +
+              ",\"text\":" + textJson + "}";
+    }
     const std::string kvPath = SettingsKvPath();
-    // .bak 1세대 (opus 리뷰 MINOR-1): 비원자 쓰기 중간 절단 시 부팅 로더가
-    // 기본값으로 조용히 리셋한다 — 직전 KV를 복구 원본으로 남긴다.
-    std::remove((kvPath + ".bak").c_str());
-    std::rename(kvPath.c_str(), (kvPath + ".bak").c_str());
-    std::FILE* f = std::fopen(kvPath.c_str(), "wb");
-    if (!f) return false;
-    const size_t len = out.size();
-    const size_t wrote = std::fwrite(out.c_str(), 1, len, f);
-    std::fclose(f);
-    return wrote == len;
+    // 파일 교체는 T1 WriteSettingsAtomic 재용(tmp 완성본+rename 사다리 —
+    // 기존 fopen("wb")의 비원자 쓰기 중간 절단 창 소각; T1 리뷰 C1 "교차 중
+    // 레이스 소각 지문도 같은 봉투에" 지시의 부분-상태 봉합 몫). 기존 .bak
+    // dance(선삭제+선대피)를 펴지 않은 이유: 사다리가 원문 자체를 보수
+    // (복원)하는 형태라 선대피 뒤 3연속 실패 시 유일 잔존(.bak)이 사다리의
+    // remove(bak)에서 소각되는 창이 생긴다 — 대신 아래에서 직전 원문 사본을
+    // 성공 세대에만 쓴다(opus 리뷰 MINOR-1의 .bak 1세대 복구 원본 계약 유지;
+    // 사본 쓰기 실패는 무해 잔산 — .bak에 구세대 사본이 남는다, 안전측).
+    // 남는 한계(정직 부기): 두 작성자(서버 settings_set ↔ 클라 music 폴더
+    // 관리) 사이의 프로세스 간 파일 락 시설이 부재라 교차 최종-승자 정합은
+    // 읽고-고쳐쓰기 스냅샷 몫 — 미관리 키는 마지막 승자가 읽은 스냅샷이
+    // 남는다. 관리 3키는 메모리 진실원이라 어떤 경로의 재쓰기에서도 회복되고;
+    // 미관리 키 교차 소각 창은 쓰기 직전 재독(위 C1 배치)으로 스캔·전체
+    // 쓰기 ms 단위까지 축소되었다.
+    const bool hadOriginal = !original.empty();  // 직전 원문 사본(.bak) 근거
+    std::string werr;
+    const bool ok = jk::music::store::WriteSettingsAtomic(kvPath, out, werr);
+    if (!ok) {
+        // 실패도 조용한 소실 없이(문서 존재 로그 — return은 기존 계약 ok=false)
+        std::fprintf(stderr,
+                     "JKWindowServer: settings.json write failed — %s\n",
+                     werr.c_str());
+        return ok;
+    }
+    if (hadOriginal) {  // .bak 1세대 — 직전 원문 사본(사용 원문 = 위 읽는 스냅샷)
+        std::string bwerr;  // 사본 실패는 무해 잔산(안전측 — 조용히 무시)
+        jk::music::store::WriteSettingsAtomic(kvPath + ".bak", original, bwerr);
+    }
+    return ok;
 }
 
 // receipts.jsonl 보존기간 정리 (스펙 §2.5): ts(epoch ms — read_receipts와

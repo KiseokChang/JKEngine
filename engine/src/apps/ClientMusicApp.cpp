@@ -36,6 +36,11 @@
 #include <filesystem>
 #include <port/JKCrtShim.h>  // LocaltimeS — Win/posix 공용 시간 표기 수형
 #include <agent/JKAgentJson.h>  // OnAgentToolCall 인자 판독(도구 허브 §8.2 원문)
+                                // 폴더 관리(T2): MusicDirStore.h는 헤더 선두의
+                                //   include가 소유(스캐너 read leg·DirWriteResult)
+                                // UTF-8 유효성 가드(Utf8ToUtf16 fail-closed 계약 —
+                                //   스캔 leg 진입 검사)의 소유 헤더:
+#include <text/JKTextConv.h>
 
 #ifdef JK_MUSIC_SPATIAL_LEG
 // spatial leg — audio_core 소비(T1 CMake env 분기: SPATIAL_PLAYER_ROOT 설정
@@ -136,6 +141,35 @@ std::string EscapeJson(const std::string& in) {
     }
     return out;
 }
+
+// ---- 폴더 관리 (T2) 공용 헬퍼 ----
+
+// 폴더 관리 도구 3종 계약명(브리프) — 앱 도구 허브 등록·핸들 공용 상수.
+constexpr const char* kToolDirAdd = "music_dir_add";
+constexpr const char* kToolDirRemove = "music_dir_remove";
+constexpr const char* kToolDirList = "music_dir_list";
+
+// 말단 경로 성분 — 바이트 스캔 수형(dir strip 라벨 공용). fs::path의 narrow
+// 계층은 이 툴체인에서 UTF-8 기수라 CP949 바이트에 던진다(2o-f 실측+프루브
+// 재확인 — filesystem_error "Illegal byte sequence") — dirs_ 표기에는
+// fs::path를 못 쓴다. '/'·'\' 전원을 성분 경계로 친다(UTF-8 연속 바이트는
+// 0x5C가 없어 무충돌; CP949 확장 한글의 후행 0x5C 파일명 문자가 성분말단으로
+// 오인될 수 있다 — 라벨 한계, 전문은 툴힌트/패널 행이 소유 — 표기 한계 원장).
+std::string LastPathSegment(const std::string& p) {
+    const size_t pos = p.find_last_of("/\\");
+    return pos == std::string::npos ? p : p.substr(pos + 1);
+}
+
+// 뒤 구분자 정리(호출부 '/' 정리 규약 — T1 fix r1 권고 상쇄): Slashize는
+// 고바이트 바로 뒤의 '\'를 리터럴로 두어(데이터 무손상 규약) 뒤 구분자가
+// '\'이고 그 앞이 고바이트면 접히지 않는다 — NormalizeDirsPure는 '/'만 접기
+// 때문에 호출부(이 앱)가 양쪽 형식을 벗겨 보내야 한다. 몸통의 '\'는 손대지
+// 않는다(Slashize의 0x5C 규약이 소유 — 호출부에서 더 접으면 데이터 손상).
+std::string TrimTrailSeparators(const std::string& p) {
+    std::string s = p;
+    while (!s.empty() && (s.back() == '/' || s.back() == '\\')) s.pop_back();
+    return s;
+}
 } // namespace
 
 ClientMusicApp::ClientMusicApp() = default;  // 원밖 — leg unique_ptr의 완전형
@@ -189,11 +223,15 @@ void ClientMusicApp::OnInit() {
     // vplayer가 열기 전에 오디오 백엔드를 만들지 않는 것과 같은 지연 계약).
     // 부팅 시점의 leg 부재(env 미설정)는 발사 시 DeviceFailed 표기로 흡수된다.
 
-    // 앱 도구 허브 등록 3종(스펙 2026-10-10-music-spatial-leg §2; T1 kTool*
-    // 원문 상수 소비 — vplayer OnInit 등록 원문 수형). 배치 근거(vplayer 원문
-    // 주석): OnInit은 JKClientApplication::Init의 Connect 이후에 불린다 —
+    // 앱 도구 허브 등록 6종(스펙 2026-10-10-music-spatial-leg §2의 3종+폴더
+    // 관리 3종 — 플랜 2026-10-10-music-dirs-ui T2; T1 kTool* 원문 상수 소비 —
+    // vplayer OnInit 등록 원문 수형). 배치 근거(vplayer 원문 주석): OnInit은
+    // JKClientApplication::Init의 Connect 이후에 불린다 —
     // SendAgentToolRegister의 "연결 전 조용한 false" 경로에 걸리지 않는다.
-    // inputSchema는 MCP 그대로(broker tools/list 원문 계약).
+    // inputSchema는 MCP 그대로(broker tools/list 원문 계약). **6종을 1회
+    // 발송** — 서버의 등록은 연결 단위 upsert(JKWindowServer
+    // HandleToolRegister: appToolManifests_[connId]=m — 제2호 호출이 매니페스트
+    // 전체를 치환한다)라 이전 3종이 2호에서 소각된다.
     if (jk::client::JKClientSurface* surface = Surface()) {
         using Decl = jk::client::JKClientSurface::AgentToolDecl;
         std::vector<Decl> tools = {
@@ -206,6 +244,22 @@ void ClientMusicApp::OnInit() {
              "Spatial playback status (active/positional/deviceOk/pos/dur/"
              "path/error)",
              "{}"},
+            // 폴더 관리 3종(T2) — path 인자는 **UTF-8**(앱 도구 허브 계약 T3
+            // 원문) — 저장소는 바이트 투명(std::filesystem native형 = UTF-8).
+            {kToolDirAdd,
+             "Add a user music directory (settings music.dirs; rescan "
+             "follows)",
+             "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":"
+             "\"string\",\"description\":\"UTF-8 directory path, slash "
+             "(/) separators recommended\"}},\"required\":[\"path\"]}"},
+            {kToolDirRemove, "Remove a user music directory (settings "
+                             "music.dirs; rescan follows)",
+             "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":"
+             "\"string\"}},\"required\":[\"path\"]}"},
+            {kToolDirList,
+             "List user music directories (settings music.dirs only — the "
+             "default state/music dir is resolver-owned and excluded)",
+             "{\"type\":\"object\",\"properties\":{}}"},
         };
         surface->SendAgentToolRegister("music", tools);
     }
@@ -300,26 +354,49 @@ void ClientMusicApp::RenderOverlay(SDL_Renderer* renderer, int w, int h) {
     // 요청(placeholder 재요청)이 없다 — 다음 프레임은 도착·입력·테마만 유발.
 }
 
-void ClientMusicApp::ResolveDirs() {
-    // exe-dir settings.json 직독 → MusicDirList에 **원문 텍스트**로 넘긴다:
-    // 리졸버는 순수 함수(디스크 I/O 없음)라 셀프테스트 쌍둥이가 같은 경로를
-    // 직단정한다(gallery ResolveDirs 수형 — settings.json 대상만 music으로).
+std::string ClientMusicApp::SettingsText() const {
+    // exe-dir state/settings.json 직독(ResolveDirs·RefreshUserDirs 공용 leg —
+    // 원문 텍스트를 순수 스캐너/리졸버에 건넨다 — gallery ResolveDirs 수형).
+    // 부재/읽기 실패 = 빈 텍스트 → 스캐너/리졸버가 기본 1건(fail-safe)으로
+    // 떨어진다.
+    const std::string kvPath =
+        (std::filesystem::path(ExeDir()) / "state" / "settings.json").string();
     std::string text;
-    {
-        const std::string kvPath =
-            (std::filesystem::path(ExeDir()) / "state" / "settings.json")
-                .string();
-        std::FILE* f = std::fopen(kvPath.c_str(), "rb");
-        if (f) {
-            char chunk[2048];
-            size_t n;
-            while ((n = std::fread(chunk, 1, sizeof(chunk), f)) > 0)
-                text.append(chunk, n);
-            std::fclose(f);
-        }
-        // 부재/읽기 실패 = 빈 텍스트 → 리졸버가 기본 1건(fail-safe)으로 떨어진다.
+    std::FILE* f = std::fopen(kvPath.c_str(), "rb");
+    if (f) {
+        char chunk[2048];
+        size_t n;
+        while ((n = std::fread(chunk, 1, sizeof(chunk), f)) > 0)
+            text.append(chunk, n);
+        std::fclose(f);
     }
-    dirs_ = music::MusicDirList(ExeDir(), text);
+    return text;
+}
+
+void ClientMusicApp::RefreshUserDirs() {
+    // 사용자 dirs만(기본 폴더는 리졸버가 자동 구성 — 원장 계약). T2 fix(M-2):
+    // read leg는 quickjs 원독 폐기 → 저장소 스캐너 UserDirs 통일 — 기존 CP949
+    // 문서의 항목도 수취된다(보존-가시; 표기는 바이트 그대로 — 폰트가 깨는
+    // 것은 표기 한계 원장). 파싱 실패 = 빈 목록(뷰 전용 — 오류 비표기 계약).
+    userDirs_ = music::store::UserDirs(SettingsText());
+}
+
+void ClientMusicApp::ResolveDirs() {
+    // exe-dir settings.json 직독 → resolved dirs(기본 폴더 먼저+유저 dirs).
+    // T2 fix(M-2 — read leg 인코딩 통일): quickjs 원독(DirsFromSettings) 대신
+    // 저장소 스캐너(UserDirs)로 유저 dirs를 수취한다 — quickjs는 CP949 바이트
+    // 혼입 문서를 전체 거부해 보존된 기존 항목이 무시됐다(보존-불-가시 — T1
+    // fix r1 원장). MusicDirList 원문은 리졸버 원존(2m-a 계보)으로 남기고 이
+    // 앱의 read leg만 쌍둥이 합성으로 통일 — 디폴트 선두+정규화 규약은
+    // NormalizeDirsPure(바이트 투명 쌍둥이 — Slashize된 입력에서 동형, 2o-f
+    // 실측 원문)로 승계한다. 표기는 바이트 그대로(레거시 CP949 항목 = 폰트
+    // 깨짐 — 표기 한계 원장).
+    const std::string text = SettingsText();
+    std::vector<std::string> dirs;
+    dirs.push_back(music::AudioDirFallback::Path(ExeDir()));
+    for (std::string& user : music::store::UserDirs(text))
+        dirs.push_back(std::move(user));
+    dirs_ = music::store::NormalizeDirsPure(std::move(dirs));
     if (dirIndex_ < 0 || dirIndex_ >= static_cast<int>(dirs_.size()))
         dirIndex_ = 0;
 }
@@ -334,6 +411,21 @@ void ClientMusicApp::RequestScan() {
         tracks_.clear();
         scanBusy_ = false;
         return;  // 방어선(탭 없음) — 빈 목록(독립 스캔 실패 계약과 동형 표기)
+    }
+    // fs::path 수용 가드(T2 — 표기 한계 원장의 스캔 leg 분기): narrow
+    // std::filesystem 계층은 바이트를 UTF-8로 기수해 CP949 바이트에
+    // filesystem_error를 던진다(2o-f 실측·프루브 재확인) — 워커 스레드
+    // terminate 방지. 비유효 UTF-8 루트(레거시 CP949 항목)는 목록 표기·
+    // 저장소 관리(추가/제거 — NormalizeDirsPure 왕복)는 계속되지만 스캔은
+    // 못 건다 — status 1행 정직(데이터는 무손상, 스캔 leg의 표기 한계).
+    // Utf8ToUtf16은 부적합 UTF-8 = 빈 문자열 fail-closed 계약이라 유효성
+    // 검사로 재용한다(빈 루트는 위 방어선이 선행).
+    if (jk::text::Utf8ToUtf16(dirs_[dirIndex_]).empty()) {
+        status_ = "[!] 스캔 미지원 인코딩 폴더(레거시 CP949) — 표기·관리만 가능";
+        tracks_.clear();
+        scanBusy_ = false;
+        frameDirty_ = true;  // 사유 표기 틱(내용 변화 계약 몫)
+        return;
     }
     {
         std::lock_guard<std::mutex> lk(scanM_);
@@ -365,7 +457,17 @@ void ClientMusicApp::ScanWorker() {
             scanRequestOpen_ = false;
             gen = scanSeq_;
         }
-        std::vector<music::Track> out = music::ListAudioFiles(root);
+        // 스캔 leg — throw 보호선(std::terminate 방어): narrow fs::path는
+        // UTF-8 기수(CP949 바이트에 던진다 — 2o-f 실측)라 원칙적으로 진입은
+        // RequestScan 가드가 막지만, 그 밖의 filesystem_error류(파일명 변질
+        // 등 플랫폼 엣지)에서도 워커 스레드 사망 전체 앱 terminate가 되지
+        // 않게 0건 표현(스캔 계약 "독립 실패 = 빈 목록")으로 흡수한다.
+        std::vector<music::Track> out;
+        try {
+            out = music::ListAudioFiles(root);
+        } catch (...) {
+            out.clear();
+        }
         {
             std::lock_guard<std::mutex> lk(scanM_);
             scanOut_ = std::move(out);
@@ -373,6 +475,78 @@ void ClientMusicApp::ScanWorker() {
         }
         scanDone_.store(true, std::memory_order_release);
     }
+}
+
+// ---- 폴더 관리 (T2 — MusicDirStore 소비) ----
+
+jk::music::DirWriteResult ClientMusicApp::DirAddManaged(const std::string& path) {
+    // UI [추가] 버튼과 music_dir_add 도구의 단일 경로. 입력 인코딩 규약
+    // (하드 — T2): path는 UTF-8(앱 도구 계약 T3 원문·InputText 자연형) —
+    // AddDir는 바이트 투명 저장(전 축의 std::filesystem native형 = UTF-8 —
+    // 헤더 원문 주석). 가드 2검은 저장소 방어선(기본 폴더·공문자 거부)의
+    // 호출부 쌍둥이 — 사유 표기를 사용자 표기로 먼저 만든다.
+    jk::music::DirWriteResult r;
+    const std::string p = TrimTrailSeparators(path);
+    const std::vector<std::string> one =
+        music::store::NormalizeDirsPure({music::Slashize(p)});
+    if (one.empty() || one[0].empty()) {
+        r.err = "empty dir";
+        status_ = "[!] 폴더 경로가 비어 있습니다";
+        frameDirty_ = true;
+        return r;
+    }
+    if (one[0] == music::AudioDirFallback::Path(ExeDir())) {
+        r.err = "default dir not appendable";
+        status_ = "[!] 기본 폴더(state/music)는 추가할 수 없습니다";
+        frameDirty_ = true;
+        return r;
+    }
+    r = music::store::AddDir(ExeDir(), p);
+    if (r.ok) {
+        status_ = "폴더 추가됨 — 목록 재스캔";
+        dirPathBuf_[0] = '\0';  // 성공 입력 소각 — 동일 경로 재추가 유도 방지
+        RefreshUserDirs();
+        ResolveDirs();
+        RequestScan();          // Store 성공 = 재스캔(브리프 계약)
+    } else {
+        status_ = "[!] 폴더 추가 실패 — " + r.err;  // Store err 1행 정직(무음 금지)
+    }
+    frameDirty_ = true;
+    return r;
+}
+
+jk::music::DirWriteResult
+ClientMusicApp::DirRemoveManaged(const std::string& path) {
+    // UI 행 [제거] 버튼과 music_dir_remove 도구의 단일 경로(DirAddManaged
+    // 쌍둥이 — 같은 가드·정직 규약). 기본 폴더는 패널 목록(UserDirs)에 애초
+    // 없지만 저장소 방어선과의 대칭으로 호출부 가드도 둔다.
+    jk::music::DirWriteResult r;
+    const std::string p = TrimTrailSeparators(path);
+    const std::vector<std::string> one =
+        music::store::NormalizeDirsPure({music::Slashize(p)});
+    if (one.empty() || one[0].empty()) {
+        r.err = "empty dir";
+        status_ = "[!] 폴더 경로가 비어 있습니다";
+        frameDirty_ = true;
+        return r;
+    }
+    if (one[0] == music::AudioDirFallback::Path(ExeDir())) {
+        r.err = "default dir not removable";
+        status_ = "[!] 기본 폴더(state/music)는 제거할 수 없습니다";
+        frameDirty_ = true;
+        return r;
+    }
+    r = music::store::RemoveDir(ExeDir(), p);
+    if (r.ok) {
+        status_ = "폴더 제거됨 — 목록 갱신";
+        RefreshUserDirs();
+        ResolveDirs();          // dirIndex_ 클램프 포함(삭제 탭이 활성이면 0)
+        RequestScan();
+    } else {
+        status_ = "[!] 폴더 제거 실패 — " + r.err;
+    }
+    frameDirty_ = true;
+    return r;
 }
 
 // ---- 재생 위임 (T3 — 스펙 §4 D1) ----
@@ -758,6 +932,61 @@ bool ClientMusicApp::OnAgentToolCall(const std::string& tool,
         out = buf;
         return true;
     }
+    // ---- 폴더 관리 도구 3종 (T2 — 브리프 계약, 브라우저 목적지 상태까지
+    // 앱이 소유한 정직 응답 규약: 성공 {"ok":true}·실패 ok=false+error 1행).
+    // **도구 호출도 단일 경로(DirAddManaged/DirRemoveManaged)로 들어온다** —
+    // 가드·재스캔·status 표기가 UI 버튼과 동일(표기 한계 힌트: 도구 발행
+    // 결과는 사용자 status 1행에도 남는다 — 정직 표기).
+    if (tool == kToolDirAdd) {
+        std::string path;  // UTF-8(앱 도구 계약 T3 원문 — quickjs가 UTF-8 원문
+                           //   회수, 이스케이프 복호 포함)
+        if (!args.ok() || !args.GetStr("path", path) || path.empty()) {
+            out = "{\"error\":\"bad_args\",\"need\":\"path\"}";
+            return false;
+        }
+        const jk::music::DirWriteResult r = DirAddManaged(path);
+        if (!r.ok) {
+            out = "{\"error\":\"add_failed\",\"detail\":\"" +
+                  music::store::EscapeJsonStr(r.err) + "\"}";
+            return false;
+        }
+        out = "{\"ok\":true,\"dir\":\"" + music::store::EscapeJsonStr(path) + "\"}";
+        return true;
+    }
+    if (tool == kToolDirRemove) {
+        std::string path;  // UTF-8(앱 도구 계약 T3 원문 — quickjs가 UTF-8 원문
+                           //   회수, 이스케이프 복호 포함)
+        if (!args.ok() || !args.GetStr("path", path) || path.empty()) {
+            out = "{\"error\":\"bad_args\",\"need\":\"path\"}";
+            return false;
+        }
+        const jk::music::DirWriteResult r = DirRemoveManaged(path);
+        if (!r.ok) {
+            out = "{\"error\":\"remove_failed\",\"detail\":\"" +
+                  music::store::EscapeJsonStr(r.err) + "\"}";
+            return false;
+        }
+        out = "{\"ok\":true}";
+        return true;
+    }
+    if (tool == kToolDirList) {
+        // 사용자 dirs만(기본 폴더는 리졸버가 자동 구성 — 원장 계약). read leg
+        // 은 T2 fix(M-2)로 스캐너 통일(quickjs 원독 폐기 — CP949 문서의 기존
+        // 항목도 수취). 경로 바이트는 원문 규약(EscapeJsonStr — 고바이트 뒤
+        // 0x5C 리터럴 — CP949 후행 바이트의 이중화 손상 없음; cpp local
+        // EscapeJson은 규약 밖이라 금지).
+        const std::vector<std::string> dirs =
+            music::store::UserDirs(SettingsText());
+        std::string reply = "{\"ok\":true,\"dirs\":[";
+        for (size_t k = 0; k < dirs.size(); ++k) {
+            if (k) reply += ',';
+            reply += '"';
+            reply += music::store::EscapeJsonStr(dirs[k]);
+            reply += '"';
+        }
+        out = reply + "]}";
+        return true;
+    }
     out = "{\"error\":\"unknown_tool\"}";
     return false;
 }
@@ -800,8 +1029,10 @@ void ClientMusicApp::BuildUi(int w, int h) {
         for (int i = 0; i < static_cast<int>(dirs_.size()); ++i) {
             if (i > 0) ImGui::SameLine();
             ImGui::PushID(i);
-            std::string tabLabel =
-                std::filesystem::path(dirs_[i]).filename().string();
+            // 말단 성분 라벨은 바이트 스캔(LastPathSegment) — fs::path 말단
+            // 성분은 narrow 계층이 UTF-8 기수라 CP949 바이트 항목에 던진다
+            // (2o-f 실측 — 표기 leg와 스캔 leg의 인코딩 경계, T2 원장).
+            std::string tabLabel = LastPathSegment(dirs_[i]);
             if (tabLabel.empty()) tabLabel = dirs_[i];
             const bool active = (i == dirIndex_);
             if (active)
@@ -819,6 +1050,46 @@ void ClientMusicApp::BuildUi(int w, int h) {
             if (active) ImGui::PopStyleColor();
             ImGui::PopID();
         }
+        // [폴더 관리] 토글(스트립 옆 — 브리프 계약): 열 때 목록 1회 갱신.
+        // 닫아도 목록 값은 남는다(다음 열 때 갱신 — Store 성공 경로도 갱신).
+        ImGui::SameLine();
+        if (ImGui::Button(dirsUiOpen_ ? "폴더 관리 ▾" : "폴더 관리 ▸"))
+            dirsUiOpen_ = !dirsUiOpen_;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("settings music.dirs 폴더 추가/제거 — "
+                              "music_dir_add/remove/list 도구와 같은 경로");
+        if (dirsUiOpen_) {
+            // 패널 — user dirs 목록(T2 fix M-2: 스캐너 read leg — 레거시 CP949
+            // 문서의 기존 항목도 보인다(보존-가시); 행 표기는 바이트 그대로,
+            // 폰트가 깨는 것은 표기 한계 원장)+경로 Edit(공문자·기본 폴더
+            // 가드 — DirAddManaged의 2검)+[추가].
+            if (ImGui::BeginChild("dirmg", ImVec2(0, 128.0f),
+                                  ImGuiChildFlags_Borders)) {
+                ImGui::TextUnformatted(
+                    "사용자 폴더 (settings music.dirs — 기본 폴더 제외)");
+                if (userDirs_.empty())
+                    ImGui::TextDisabled("사용자 폴더 없음 — 경로를 입력하고 "
+                                        "추가하세요");
+                for (size_t k = 0; k < userDirs_.size(); ++k) {
+                    ImGui::PushID(static_cast<int>(k));
+                    ImGui::BulletText("%s", userDirs_[k].c_str());
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("제거"))
+                        DirRemoveManaged(userDirs_[k]);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("%s", userDirs_[k].c_str());
+                    ImGui::PopID();
+                }
+            }
+            ImGui::EndChild();
+            ImGui::SetNextItemWidth(
+                ImGui::GetContentRegionAvail().x - 64.0f);
+            ImGui::InputTextWithHint("##addir", "폴더 경로 (예: D:/음악)",
+                                     dirPathBuf_, sizeof(dirPathBuf_));
+            ImGui::SameLine();
+            if (ImGui::Button("추가"))
+                DirAddManaged(dirPathBuf_);
+        }
 
         ImGui::Separator();
         // 2분할 — 표(남는 높이)+spatial leg 패널(하단 고정 200px). 패널은
@@ -835,7 +1106,7 @@ void ClientMusicApp::BuildUi(int w, int h) {
                 // 빈 상태(브리프 4) — 스캔 0건 계약 문구(독립 실패·빈 루트
                 // 구분 없음 — ListAudioFiles의 ok 플래그 불요 계약 승계).
                 ImGui::TextUnformatted(
-                    "트랙 없음 — settings music.dirs에 폴더를 추가하세요");
+                    "트랙 없음 — 위 [폴더 관리]에서 폴더를 추가하세요");
             } else {
                 BuildTrackTable();
             }
