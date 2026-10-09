@@ -103,6 +103,7 @@ extern "C" __declspec(dllimport) int __stdcall closesocket(
 #include <apps/ChatRouter.h>   // selftest 1n — 채팅 명령 라우터(스펙 §1.3)
 #include <apps/GalleryModel.h>  // selftest 2g — 갤러리 순수 부품(스펙 2026-10-09-gallery-design)
 #include <apps/MusicModel.h>  // selftest 2m — 뮤직 순수 부품(스펙 2026-10-09-music-library-design)
+#include <apps/MusicDirStore.h>  // selftest 2o — 뮤직 폴더 저장소(플랜 2026-10-10-music-dirs-ui)
 #include <apps/MusicSpatialLeg.h>  // selftest 2n — 뮤직 spatial leg 순수 부품(스펙 2026-10-10-music-spatial-leg-design)
 #include <apps/ClientIdlePolicy.h>  // selftest 2i-c — 앱 Timer→더티 조건화 산치(#89 T2)
 #include <script/JKScriptHost.h>
@@ -5709,6 +5710,112 @@ static int RunAppSelfTest() {
                     allUnsupported = false;
             check(allSupported, "2n-d D4 지원군 5종 전원 = Supported");
             check(allUnsupported, "2n-d D4 미지원군 3종 전원 = Unsupported");
+        }
+
+        // 2o) 폴더 저장소 (T1 — 플랜 2026-10-10-music-dirs-ui): jk::music::store
+        // — settings.json "music.dirs" 원자적 쓰기(같은 폴더 .tmp+fs::rename)
+        // 의 실측 봉합. ①부재 신설 원문 2건 ②기존 settings(audio·retention)
+        // 보존 원문 2건·music.dirs 합성 ③중복 Add no-op·Remove 미존재 no-op
+        // (정직) ④부적합 JSON 원본 보존+err 1행 ⑤UserDirs 파싱 2건 — 실파일
+        // leg라 2m-c 원문 수형으로 임시 폴더 실측(사후 소각).
+        {
+            namespace st = jk::music::store;
+            const fs::path odir =
+                fs::temp_directory_path() / "jk_music_dirs_store";
+            fs::remove_all(odir);  // 선제거 — 이전 런 잔산(2m-c 원문 수형)
+
+            // ①) 부재 파일 신설 — settings.json 원문 부재 = 신설 JSON 1건
+            // (music.dirs만·기본형). 경로는 역슬래시 원문 전달 — 저장은
+            // 슬래시 정규형(2m-g 원문 수형·기본 폴더와 동일 규약).
+            const std::string exeDir = (odir / "exe").string();
+            const std::string sp = st::SettingsPath(exeDir);
+            const jk::music::DirWriteResult a1 =
+                st::AddDir(exeDir, "P:\\sounds");
+            std::string created;
+            st::ReadAll(sp, created);
+            check(a1.ok && created ==
+                      "{\"music\":{\"dirs\":[\"P:/sounds\"]}}",
+                  "2o-a 부재 파일 신설 = dirs 1건 music.dirs만 기본형 원문"
+                  "(역슬래시 = 슬래시 정규화 — 2m-g 원문 수형)");
+            const jk::music::DirWriteResult a2 = st::AddDir(exeDir, "Q:/disc");
+            std::string grown;
+            st::ReadAll(sp, grown);
+            check(a2.ok &&
+                      st::UserDirs(grown).size() == 2 &&
+                      st::UserDirs(grown)[0] == "P:/sounds" &&
+                      st::UserDirs(grown)[1] == "Q:/disc",
+                  "2o-a 신설 문서 제2폴더 = music 키 유지+dirs 순서 보존"
+                  "(재독 파싱 — 기본형 유지)");
+
+            // ②) 기존 settings 보존 — audio·retention 상위 키는 원문 슬라이스
+            // 재조립으로 무손상(하드 계약 — build/state/settings.json 실측
+            // 원문 형식), music.dirs는 말미 신설.
+            const std::string exeDir2 = (odir / "exe2").string();
+            const std::string sp2 = st::SettingsPath(exeDir2);
+            fs::create_directories(fs::path(sp2).parent_path());
+            std::ofstream(sp2, std::ios::binary)
+                << "{\"audio\":{\"mute\":0,\"volume\":80},"
+                   "\"retention\":{\"days\":7}}";
+            const jk::music::DirWriteResult b1 = st::AddDir(exeDir2, "N:\\mix");
+            std::string kept;
+            st::ReadAll(sp2, kept);
+            check(b1.ok &&
+                      kept ==
+                          "{\"audio\":{\"mute\":0,\"volume\":80},"
+                          "\"retention\":{\"days\":7},"
+                          "\"music\":{\"dirs\":[\"N:/mix\"]}}",
+                  "2o-b 기존 settings = audio·retention 원문 보존(무손상 하드 "
+                  "계약)+music.dirs 말미 합성 원문");
+            std::string kept2;
+            st::ReadAll(sp2, kept2);
+            check(st::UserDirs(kept2).size() == 1 &&
+                      st::UserDirs(kept2)[0] == "N:/mix",
+                  "2o-b music.dirs 합성 = 재독 UserDirs 1건(정규형 순서)");
+
+            // ③) no-op 정직 — 중복(정규화 후 철자 상이) Add와 미존재 Remove는
+            // ok만 보고하고 파일 바이트를 건드리지 않는다.
+            std::string before5;
+            st::ReadAll(sp2, before5);
+            const jk::music::DirWriteResult c1 =
+                st::AddDir(exeDir2, "N:\\mix\\");  // 정규화 후 동일 철자
+            std::string after5;
+            st::ReadAll(sp2, after5);
+            check(c1.ok && after5 == before5,
+                  "2o-c 중복 Add(정규화 후 동일) = no-op ok+원문 무변조");
+            std::string before6;
+            st::ReadAll(sp2, before6);
+            const jk::music::DirWriteResult c2 =
+                st::RemoveDir(exeDir2, "R:/nowhere");
+            std::string after6;
+            st::ReadAll(sp2, after6);
+            check(c2.ok && after6 == before6,
+                  "2o-c Remove 미존재 = no-op ok(정직)+원문 무변조");
+
+            // ④) 부적합 JSON — 파손 원문은 손대지 않고(오염 금지 — 원본 보존
+            // 하드 계약) err 1행으로 정직 거부.
+            const std::string junk = "{\"music\":{\"dirs\":[";
+            std::ofstream(sp2, std::ios::binary) << junk;
+            const jk::music::DirWriteResult d1 =
+                st::AddDir(exeDir2, "S:/late");
+            std::string preserved;
+            st::ReadAll(sp2, preserved);
+            check(!d1.ok && !d1.err.empty() &&
+                      d1.err.find('\n') == std::string::npos,
+                  "2o-d 부적합 JSON = ok=false+err 1행(정직 거부)");
+            check(preserved == junk,
+                  "2o-d 부적합 JSON = 원본 바이트 보존(오염 금지)");
+
+            // ⑤) UserDirs 파싱 — 배열 원문 3건(중복·철자 상이 포함)의 순서
+            // 보존+정규화 접힘, 파손 원문은 빈 목록(뷰 전용 — 오류 비표기).
+            const std::vector<std::string> parsed = st::UserDirs(
+                R"({"music":{"dirs":["A:/m","N:\\v","A:/m/"]}})");
+            check(parsed.size() == 2 && parsed[0] == "A:/m" &&
+                      parsed[1] == "N:/v",
+                  "2o-e UserDirs 파싱 = 순서 보존+정규화 접힘(중복 철자 상이)");
+            check(st::UserDirs(R"json({"music":{"dirs":[)json").empty() &&
+                      st::UserDirs("").empty(),
+                  "2o-e UserDirs 파손·빈 원문 = 빈 목록(뷰 전용 — 오류 비표기)");
+            fs::remove_all(odir);  // 사후 소각(무잔산 — 2m-c 원문 수형)
         }
     }
 
