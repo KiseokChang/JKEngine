@@ -65,8 +65,11 @@ ZPIXMAP = 2
 ALL_PLANES = 0xFFFFFFFF
 GOT_ERROR = {"n": 0}
 OFF_WIDTH, OFF_HEIGHT, OFF_DATA = 0, 4, 16
-OFF_DEPTH, OFF_BPL = 40, 44
-OFF_RED, OFF_GREEN, OFF_BLUE = 48, 56, 64
+# XImage 구조체 오프셋(x86_64 — 3틀림 원장: 구판의 48/56/64는 bits_per_pixel을
+# red 마스크로 읽었다 — 40=depth·44=bytes_per_line·48=bits_per_pixel·
+# 56/64/72=R/G/B 마스크. wsl_gallery.sh T4 교정본과 동형.)
+OFF_DEPTH, OFF_BPL, OFF_BPP = 40, 44, 48
+OFF_RED, OFF_GREEN, OFF_BLUE = 56, 64, 72
 
 def err_handler(dpy, ev):
     GOT_ERROR["n"] += 1
@@ -149,26 +152,40 @@ def main():
             return 1
         depth = ctypes.c_int32.from_address(img + OFF_DEPTH).value
         bpl = ctypes.c_int32.from_address(img + OFF_BPL).value
+        bpp = ctypes.c_int32.from_address(img + OFF_BPP).value
         data_ptr = c_void_p.from_address(img + OFF_DATA).value
         red = ctypes.c_uint64.from_address(img + OFF_RED).value
         green = ctypes.c_uint64.from_address(img + OFF_GREEN).value
         blue = ctypes.c_uint64.from_address(img + OFF_BLUE).value
-        print("XSHOT hit: win=0x%x depth=%d %dx%d" % (w, depth, gw, gh))
-        bpp = bpl // gw if gw else 4
-        if bpp not in (3, 4):
+        print("XSHOT hit: win=0x%x depth=%d %dx%d bpp=%d masks r=%#x g=%#x b=%#x"
+              % (w, depth, gw, gh, bpp, red, green, blue))
+        bpp_bytes = (bpp + 7) // 8
+        if bpp_bytes not in (3, 4):
             print("XSHOT-FAIL: unsupported bpp=%d" % bpp)
             return 1
+        if not (red and green and blue):
+            print("XSHOT-FAIL: empty channel mask(s) r=%#x g=%#x b=%#x"
+                  % (red, green, blue))
+            return 1
+
+        def chan(v, mask):  # 마스크 비트폭 무관 확장(원장: 폭=bit_length 24는
+            # 3틀림 유발 — 연속 마스크 가정 하에 폭=popcount가 정답.
+            # wsl_gallery.sh T4 교정본과 동형.)
+            lsb = (mask & -mask).bit_length() - 1
+            span = bin(mask).count("1")
+            val = (v >> lsb) & ((1 << span) - 1)
+            return (val * 255) // ((1 << span) - 1) & 0xFF
         raw = ctypes.string_at(data_ptr, bpl * gh)
         rgb = bytearray(gw * gh * 3)
         for yy in range(gh):
             row = yy * bpl
             for xx in range(gw):
-                off = row + xx * bpp
-                v = int.from_bytes(raw[off:off + bpp], "little")
+                off = row + xx * bpp_bytes
+                v = int.from_bytes(raw[off:off + bpp_bytes], "little")
                 o = (yy * gw + xx) * 3
-                rgb[o] = ((v & red) * 255 // red if red else 0) & 0xFF
-                rgb[o + 1] = ((v & green) * 255 // green if green else 0) & 0xFF
-                rgb[o + 2] = ((v & blue) * 255 // blue if blue else 0) & 0xFF
+                rgb[o] = chan(v, red)
+                rgb[o + 1] = chan(v, green)
+                rgb[o + 2] = chan(v, blue)
         X11.XDestroyImage(img)
         write_png(out, gw, gh, bytes(rgb))
         print("XSHOT wrote %s" % out)
