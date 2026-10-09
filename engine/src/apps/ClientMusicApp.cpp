@@ -575,8 +575,11 @@ bool ClientMusicApp::SpatialStart(const music::Track& t) {
     if (!legEngine_) {
         legEngine_ = std::make_unique<SpatialEngine>();
         if (!legEngine_->init(err)) {
-            legEngine_.reset();
+            // 정리 순서 = 파괴 역선언순 원문(fix r1 I-1): 플레이어가 엔진을
+            // 먼저 정리한다 — StreamPlayer가 SpatialEngine&를 유지하며
+            // destroy_al은 컨텍스트 소멸 전에 소스를 떼어야 한다.
             legPlayer_.reset();
+            legEngine_.reset();
             legState_ = music::leg::Apply(legState_, music::leg::LegEvent::DeviceFailed);
             status_ = legState_.err;  // kDelegationHint 원문(디바이스 err 부기
                                       //   없음 — 라벨 소비 계약의 원문 유지)
@@ -591,10 +594,15 @@ bool ClientMusicApp::SpatialStart(const music::Track& t) {
     if (!legPlayer_->open(t.full, err)) {
         // 고장 종착은 ALC 전용(DeviceFailed — T1 전이 명세)이라 디코더 고장은
         // 정지 종착(StopRequested — deviceOk 보존·active 해제)으로 분류하고
-        // 고장 원문은 status에 부기한다(사건 분류 = 이 앱의 몫).
+        // 고장 원문은 status에 부기한다(사건 분류 = 이 앱의 몫). path 클리어
+        // (fix r1 I-2): open이 destroy_al로 이전 소스를 먼저 파괴하므로
+        // 실패 시점에 "열려 있는" 경로는 더 이상 없다 — 이전 재생 경로의
+        // 잔존 표기는 사실과 반대다(T1 Apply의 path 보존은 순수 전이 계약이고,
+        // 사실원인 이 앱이 사건 뒤 fact 정리를 소유한다).
         if (legState_.active)
             legState_ =
                 music::leg::Apply(legState_, music::leg::LegEvent::StopRequested);
+        legState_.path.clear();
         status_ = "[!] spatial 열기 실패 — " + err;
         frameDirty_ = true;
         return false;
@@ -667,7 +675,12 @@ bool ClientMusicApp::OnAgentToolCall(const std::string& tool,
                                      const std::string& argsJson,
                                      std::string& out) {
     // 인자 검증은 앱이 한다(서버는 패스스루 계약 — vplayer OnAgentToolCall
-    // 원문 주석). 어느 경로도 블로킹 I/O를 넣지 않는다(프레임 루프 스톨 금지).
+    // 원문 주석). fix r1 I-3 정직 정정 — vplayer 원문의 "블로킹 I/O 금지"를
+    // 그대로 옮기는 것은 과대: spatial_play는 디코더 open+최초 ALC 디바이스
+    // open을 프레임 스레드에서 한다(수십 ms급 실해 — 설계 의도: leg는 vplayer의
+    // 워커 스레드 열기와 다른 원장·스펙 §2 [spatial] 클릭 발사 원문). 그럼에도
+    // 무한 대기류(ALC 콜백·네트워크)는 없다 — 파일 I/O+디바이스 핸드셰이크만.
+    // play 실패 경로는 status_ 원문으로 종착한다.
     jk::agent::AgentJson args(argsJson);
     if (tool == music::leg::kToolPlay) {
         std::string path;
@@ -701,16 +714,47 @@ bool ClientMusicApp::OnAgentToolCall(const std::string& tool,
     }
     if (tool == music::leg::kToolStatus) {
         // 관측 표면(스펙 §2 — probe/구두 조작 몫): T1 LegState의 필드 원문.
+        // **절단 정직 가드(M-1 — fix r1)**: snprintf의 반환값은 "버퍼가 충분
+        // 했다면 쓰였을 바이트 수"(음수=포맷 고장)라 필요 크기가 산출된다 —
+        // 반환값 >= 버퍼 크기면 전문이 절단된 것(긴 path+이스케이프 2배 확장이
+        // 실측 침입 경로): 절단된 악형 JSON을 내보내지 않고 path 필드를
+        // 생략해 다시 조립하고 "truncated":true를 싣는다(정직 축소 전문 —
+        // 필드 누락 자체가 관측 원문에 남는다).
+        const char* act = legState_.active ? "true" : "false";
+        const char* posl = legState_.positional ? "true" : "false";
+        const char* dok = legState_.deviceOk ? "true" : "false";
+        const std::string ePath = EscapeJson(legState_.path);
+        const std::string eErr = EscapeJson(legState_.err);
         char buf[768];
-        std::snprintf(buf, sizeof(buf),
+        const int need = std::snprintf(
+            buf, sizeof(buf),
             "{\"active\":%s,\"positional\":%s,\"deviceOk\":%s,"
             "\"pos\":%.3f,\"dur\":%.3f,\"path\":\"%s\",\"error\":\"%s\"}",
-            legState_.active ? "true" : "false",
-            legState_.positional ? "true" : "false",
-            legState_.deviceOk ? "true" : "false",
-            legState_.posSec, legState_.durSec,
-            EscapeJson(legState_.path).c_str(),
-            EscapeJson(legState_.err).c_str());
+            act, posl, dok, legState_.posSec, legState_.durSec,
+            ePath.c_str(), eErr.c_str());
+        if (need < 0) {  // 포맷 고장 — 악형이 아닌 실패 원문(ok=false)
+            out = "{\"error\":\"status_format_failed\"}";
+            return false;
+        }
+        if (static_cast<size_t>(need) >= sizeof(buf)) {
+            // 절단 — path 생략 재조립(수치·플래그 필드만이라 상수 크기 —
+            // 필요 크기 산식 원문 유지).
+            char small[256];
+            const int need2 =
+                std::snprintf(small, sizeof(small),
+                              "{\"active\":%s,\"positional\":%s,\"deviceOk\":"
+                              "%s,\"pos\":%.3f,\"dur\":%.3f,\"truncated\":true}",
+                              act, posl, dok, legState_.posSec,
+                              legState_.durSec);
+            if (need2 < 0 || static_cast<size_t>(need2) >= sizeof(small)) {
+                // 이론 미도달(고정 분해 수치 2개+불리언 3개) — 방어선: 절단
+                // 표기만 남는 최소 전문.
+                out = "{\"error\":\"status_overflow\",\"truncated\":true}";
+                return true;
+            }
+            out = small;
+            return true;
+        }
         out = buf;
         return true;
     }
