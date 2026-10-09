@@ -18,6 +18,25 @@
 #     스캔 폴더는 **$TMPDIR(/tmp) 아래 임시 폴더** — WSL 클라가 직접 스캔.
 #   * idle 측정 불요 — 이 probe는 계약·모양·위임만(idle 영수증은 이 라인
 #     스코프 밖 — client_idle 계열 probe가 소유).
+#   * spatial leg 변형(T3 신설 — 스펙 2026-10-10-music-spatial-leg): leg 런타임
+#     실측의 최초 동작 실측이 되는 세그먼트. SPATIAL_PLAYER_ROOT env는
+#     **호출자 전달 축**으로만 쓴다(커밋 본문에 경로 리터럴을 쓰지 않는
+#     계약 — wsl.exe -- env SPATIAL_PLAYER_ROOT=<spatial-player 루트> bash ...).
+#       LEG_MODE=1(설정) — scratch(/tmp/mus_scratch) cmake+build로
+#         jkapp_music.so를 leg 있는 빌드로 만들어 buildwsl에 배포한다
+#         (시차 배치 — buildwsl 빌드/셀프테스트가 끝난 뒤 scratch 빌드.
+#         동시 -j는 공유 트리 I/O 경합 fail 실측 원장). END에서 relink+
+#         scratch 소각으로 원복(relink 후 AL 심볼 0 — 원복 강도 영수증).
+#       LEG_MODE=0(미설정) — leg-less .so 그대로: spatial_play는
+#         DeviceFailed 종착(kDelegationHint 원문 — fail-closed 영수증).
+#     어느 변형에서든 ALC 디바이스가 실패하면(WSLg 환경 가능성) start_failed
+#     detail=kDelegationHint의 라벨 표기가 **정상 영수증**이다 —
+#     LEG-FALLBACK-OK(폰 leg는 T4 몫).
+#   * 초장 경로 트랙(M-1 승계 — T2 review: spatial_status의 절단 정직 가드는
+#     path 이스케이프 768B 버퍼 초과 축에서만 도달): ~1KB 경로의 트랙 1건을
+#     시드하고 spatial_status가 truncated:true(정직 축소 전문)를 내는 원문을
+#     실측한다. 단 truncation은 legState_.path가 채워진 뒤(디코더 open 성공)
+#     봉합이므로, ALC 실패 런(path 미채움)에서는 MISS 원장이 정상이다.
 #   * 위임 접착제 — app_tool open/get_status는 **직행 2콜**로 검증한다(music
 #     앱을 경유하지 않는다 — app_tool은 남의 앱에 보내는 도구 허브 릴레이).
 #     music 창의 실제 더블클릭 위임은 send_input 2탭(합성 마우스 — 선행
@@ -58,7 +77,7 @@ cd /mnt/i/progwork/JKENGINE/engine
 FAIL() { echo "MUS-FAIL: $*"; exit 1; }
 LOGDIR=/tmp/mus
 mkdir -p "$LOGDIR"
-CANON_WSL_SELFTEST=590   # 캐논 WSL 축 (progress 원장 — T3 fix r2 재실측)
+CANON_WSL_SELFTEST=608   # 캐논 WSL 축 (spatial leg 라인 등호 승계 — T1 591+2n 17, T2 fix r1 3축 재실측 608 리뷰어 독립 확증)
 RECEIVE=/mnt/i/progwork/JKENGINE/engine/tmp
 SEED_DIR=/tmp/mus_seed
 SHOT_PY="$LOGDIR/mus_shot.py"
@@ -72,6 +91,23 @@ MUS_TAB2_X=${MUS_TAB2_X:-90}    MUS_TAB2_Y=${MUS_TAB2_Y:-77}
 MUS_FILTER_X=${MUS_FILTER_X:-250} MUS_FILTER_Y=${MUS_FILTER_Y:-42}
 MUS_ROW0_X=${MUS_ROW0_X:-50}    MUS_ROW0_Y=${MUS_ROW0_Y:-132}
 FILTER_TEXT="d_seed"
+
+# spatial leg 변형 디스패치(SPATIAL_PLAYER_ROOT env — 위 원문). 경로 원문은
+# 로그에도 무표기(엔진 tmp 로그 세척 원장 — 값이 아니라 상태만 기록한다).
+LEG_MODE=0
+case "${SPATIAL_PLAYER_ROOT:-}" in
+    "" )
+        echo "MUS-LEG-ENV: unset — fail-closed 변형 런(leg-less .so — spatial_play는 DeviceFailed 종착 전이 원문)" ;;
+    /* )
+        [ -f "$SPATIAL_PLAYER_ROOT/CMakeLists.txt" ] \
+            || FAIL "SPATIAL_PLAYER_ROOT set but no CMakeLists.txt at its root(경로 무표기 원칙 — 호출자 확인 몫)"
+        LEG_MODE=1
+        echo "MUS-LEG-ENV: set — scratch 빌드 변형 런(env 설정 빌드를 배포한다)" ;;
+    * )
+        FAIL "SPATIAL_PLAYER_ROOT는 WSL 절대경로(/mnt/... 축)로 전달하지 않은 것 같다(값 무표기 — 호출자 재확인)" ;;
+esac
+SCRATCH=${MUS_SCRATCH:-/tmp/mus_scratch}   # scratch 빌드 dir — END에서 소각
+LONG_SEG=$(printf 'x%.0s' $(seq 1 125))   # 125자 세그먼트(컴포넌트 255 상한 안전)
 
 # ---------------------------------------------------------------- fail-closed 가드
 if [ -z "${WSL_DISTRO_NAME:-}" ]; then
@@ -104,6 +140,19 @@ restore_and_exit() { # 정찰 런 등 중간 탈출 — 복원 다형(스텝 12�
     sleep 1
     rm -rf "$SEED_DIR"
     [ -d "$SEED_DIR" ] && FAIL "seed dir 소각 실패 — 수동 소각 필요" || echo "SEED-BURIED: $SEED_DIR removed"
+    if [ "$LEG_MODE" -eq 1 ]; then
+        # spatial leg 배포 원복(T3): leg-less .so로 relink — 재링크 뒤 AL 심볼
+        # 0이 원복 강도의 영수증이다(0이 아니면 leg 잔상 = hard FAIL).
+        rm -f buildwsl/jkapp_music.so
+        ninja -C buildwsl jkapp_music.so >"$LOGDIR/mus_relink.log" 2>&1 \
+            || FAIL "buildwsl jkapp_music.so relink failed — tail: $(tail -3 "$LOGDIR/mus_relink.log" | tr '\n' ' ')"
+        RELINK_SYM=$(ALCOUNT buildwsl/jkapp_music.so)
+        echo "MUS-LEG-RESTORE-SYM: alcOpenDevice refs=$RELINK_SYM (0 = leg-less 원복 성립)"
+        [ "$RELINK_SYM" -eq 0 ] || FAIL "relinked jkapp_music.so still carries AL symbols($RELINK_SYM) — 원복 불충분"
+        rm -rf "$SCRATCH"
+        [ -d "$SCRATCH" ] && FAIL "scratch dir 소각 실패 — 수동 소각 필요" \
+            || echo "SCRATCH-BURIED: scratch dir removed (트리 잔산 0)"
+    fi
     if [ "$ENTRY_SET" -eq 0 ]; then
         rm -f buildwsl/state/settings.json
         echo "SET-BURIED: settings.json removed (ENTRY 부재 원복)"
@@ -155,12 +204,53 @@ grep -aq 'AppSelfTest: 0 failure(s)' "$LOGDIR/mus_st.log" \
 ST2M=$(grep -ac '^\[PASS\] 2m' "$LOGDIR/mus_st.log")
 echo "SELFTEST-2M-CASES=$ST2M (music 라인 신설 2m 계열 — 캐논 +27분의 원료)"
 
+# === 3b. spatial 변형 빌드+배포 (T3 — 시차 배치 원장 준수) ===
+# 2n selftest는 main.cpp 하네스 TU 소비(빌드wsl 설정은 env 미설정으로 고착)
+# 이라 셀프테스트는 배포와 무관 — 배포 뒤 재실측 불요(T1 원문 계보 유지).
+echo "=== 3b. spatial leg 빌드+배포 (LEG_MODE=$LEG_MODE — buildwsl 빌드 완료 뒤 scratch — 시차 배치 원장) ==="
+COUNTER() { sed 's|/mnt/[^ ]*|<WSLPATH>|g'; }   # 로그 tail 열람 경로 위생 세척 원장
+ALCOUNT() { # $1=.so — AL 심볼 개수(nm symtab 우선 .symtab 부재 시 dynsym 폴백)
+    { nm "$1" 2>/dev/null || nm -D "$1" 2>/dev/null; } | grep -ac 'alcOpenDevice'
+}
+if [ "$LEG_MODE" -eq 0 ]; then
+    UNSET_SYM=$(ALCOUNT buildwsl/jkapp_music.so)
+    echo "MUS-LEG-UNSET-SYM: alcOpenDevice refs=$UNSET_SYM (0 = leg 부재 fail-closed 영수증)"
+    [ "$UNSET_SYM" -eq 0 ] || FAIL "env 미설정 buildwsl jkapp_music.so에 AL 심볼($UNSET_SYM) — fail-closed 배선 위반"
+else
+    rm -rf "$SCRATCH"
+    echo "SPATIAL-SCRATCH: /tmp/mus_scratch (소스=engine, 경로 env 전달 무표기)"
+    env SPATIAL_PLAYER_ROOT="$SPATIAL_PLAYER_ROOT" \
+        GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0='*' \
+        cmake -S . -B "$SCRATCH" -G Ninja >"$LOGDIR/mus_spatial_config.log" 2>&1
+    C_RC=${PIPESTATUS[0]}
+    echo "SPATIAL-CONFIG-RC=$C_RC"
+    [ "$C_RC" -eq 0 ] || FAIL "scratch configure rc=$C_RC — tail: $(COUNTER < <(tail -3 "$LOGDIR/mus_spatial_config.log") | tr '\n' ' ')"
+    grep -aq 'audio_core\|openal-soft' "$LOGDIR/mus_spatial_config.log" \
+        && echo "SPATIAL-CONFIG-SIGNAL: audio_core/openal 흡수 확인(전문은 /tmp 로그만)" \
+        || echo "WARN: spatial config log에 audio_core/openal 표식 0건 — 배선 재확인 몫"
+    env SPATIAL_PLAYER_ROOT="$SPATIAL_PLAYER_ROOT" \
+        GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0='*' \
+        ninja -C "$SCRATCH" jkapp_music.so -j4 >"$LOGDIR/mus_spatial_build.log" 2>&1
+    B2_RC=${PIPESTATUS[0]}
+    echo "SPATIAL-BUILD-RC=$B2_RC"
+    [ "$B2_RC" -eq 0 ] || FAIL "scratch jkapp_music.so build rc=$B2_RC — tail: $(COUNTER < <(tail -3 "$LOGDIR/mus_spatial_build.log") | tr '\n' ' ')"
+    [ -f "$SCRATCH/jkapp_music.so" ] || FAIL "scratch jkapp_music.so missing after build"
+    SET_SYM=$(ALCOUNT "$SCRATCH/jkapp_music.so")
+    echo "MUS-LEG-SYM-SET: alcOpenDevice refs=$SET_SYM (>=1 = leg 설정 축 영수증)"
+    [ "$SET_SYM" -ge 1 ] || FAIL "env 설정 jkapp_music.so에 AL 심볼 0건 — leg 배선 빠짐"
+    cp "$SCRATCH/jkapp_music.so" buildwsl/jkapp_music.so \
+        || FAIL "deploy scratch jkapp_music.so -> buildwsl failed"
+    DEP_SYM=$(ALCOUNT buildwsl/jkapp_music.so)
+    echo "MUS-LEG-DEPLOY: buildwsl/jkapp_music.so <- scratch (배포 뒤 AL 심볼 refs=$DEP_SYM — END relink 원복)"
+fi
+
 echo "=== 4. 합성 WAV 시드 + music.dirs 주입 (엔진 소유 — i:\\@keep 불접촉) ==="
 cat > "$LOGDIR/mus_seed.py" <<'PYEOF'
-# 시드 4곡 — python3 wave stdlib(의존 0): 44.1kHz mono 16bit 8초 사인.
-# 주파수 = 트랙 식별 마크(스펙트럼 구별 가능), 4곡 = 3곡 루트+1곡 sub(D3 재귀
-# 실측 몫 — rel열에 "sub/..." 원문 수형 확인). 생성 순서 = 트랙 정렬 계약
-# (mtime desc)에서 d_seed가 최신이 되게 한다.
+# 시드 5곡(+mp3 가변) — python3 wave stdlib(의존 0): 44.1kHz mono 16bit 8초
+# 사인. 주파수 = 트랙 식별 마크(스펙트럼 구별 가능), 4곡 = 3곡 루트+1곡 sub(D3
+# 재귀 실측 몫 — rel열에 "sub/..." 원문 수형 확인)+1곡 초장 경로(M-1 승계 —
+# ~1KB 경로: 7단 × 132자 세그먼트, 컴포넌트 255·PATH_MAX 상한 안전). 생성
+# 순서 = 트랙 정렬 계약(mtime desc)에서 l_seed가 최신이 되게 한다.
 import math, os, struct, sys, wave
 rate = 44100
 seconds = 8
@@ -181,12 +271,36 @@ write_wav(out + "/a_seed.wav", 220.0)
 write_wav(out + "/b_seed.wav", 330.0)
 write_wav(out + "/c_seed.wav", 440.0)
 write_wav(out + "/sub/d_seed.wav", 550.0)
+deep_file = sys.argv[2]
+os.makedirs(os.path.dirname(deep_file), exist_ok=True)
+write_wav(deep_file, 660.0)
 PYEOF
-python3 "$LOGDIR/mus_seed.py" "$SEED_DIR" || FAIL "seed WAV generation failed (python3)"
-SEEDED=$(find "$SEED_DIR" -name '*.wav' | wc -l)
-[ "$SEEDED" -eq 4 ] || FAIL "seeded $SEEDED wav files (need 4)"
+LONG_PATH="$SEED_DIR"
+for i in 1 2 3 4 5 6 7; do LONG_PATH="$LONG_PATH/deep_${i}_${LONG_SEG}"; done
+LONG_TRACK="$LONG_PATH/l_seed.wav"
+LONG_LEN=$(printf '%s' "$LONG_TRACK" | wc -c)
+echo "MUS-LONGTRACK-LEN=$LONG_LEN (M-1 승계 — >=700B 요구)"
+[ "$LONG_LEN" -ge 700 ] || FAIL "long track path $LONG_LEN B < 700 (M-1 truncation 축 미달)"
+python3 "$LOGDIR/mus_seed.py" "$SEED_DIR" "$LONG_TRACK" \
+    || FAIL "seed WAV generation failed (python3)"
+echo "=== 4b. mp3 합성 여부 실측 (ffmpeg+libmp3lame — 플랜 원문; 부재면 wav 단축) ==="
+if command -v ffmpeg >/dev/null 2>&1; then
+    if ffmpeg -loglevel error -f lavfi -i "sine=frequency=880:sample_rate=44100" \
+        -t 6 -codec:a libmp3lame -b:a 128k "$SEED_DIR/m_seed.mp3" \
+        >"$LOGDIR/mus_mp3.log" 2>&1 && [ -s "$SEED_DIR/m_seed.mp3" ]; then
+        echo "MUS-AUDIO-MP3: ffmpeg+libmp3lame 합성 OK ($(wc -c < "$SEED_DIR/m_seed.mp3") bytes — durSec 미상(M-2) 원문 관측 몫)"
+    else
+        echo "MUS-AUDIO-MP3: ffmpeg 있음·libmp3lame 인코딩 실패 — wav 단축 계속 ($(tail -1 "$LOGDIR/mus_mp3.log"))"
+    fi
+else
+    echo "MUS-AUDIO-MP3: ffmpeg 부재(T1/T4 원문 승계) — wav 단축 계속(플랜 원문 수형)"
+fi
+SEEDED=$(find "$SEED_DIR" \( -name '*.wav' -o -name '*.mp3' \) | wc -l)
+EXPECT_SEEDS=5
+[ -f "$SEED_DIR/m_seed.mp3" ] && EXPECT_SEEDS=6
+[ "$SEEDED" -eq "$EXPECT_SEEDS" ] || FAIL "seeded $SEEDED media files (need $EXPECT_SEEDS)"
 SEED_BYTES=$(find "$SEED_DIR" -name '*.wav' -printf '%s\n' | awk '{s+=$1} END{print s}')
-echo "MUSIC-LIST-EXPECTED=4 (seed 3 root + 1 sub — 표행 수 관측 원문 1행; 표기 일치는 캡처 육안 몫)"
+echo "MUSIC-LIST-EXPECTED=$EXPECT_SEEDS (seed 3 root + 1 sub + 1 초장 경로[+1 mp3 if any] — 표행 수 관측 원문 1행; 표기 일치는 캡처 육안 몫)"
 
 printf '{\n    "music": {\n        "dirs": ["/tmp/mus_seed"]\n    }\n}\n' \
     > buildwsl/state/settings.json
@@ -428,6 +542,69 @@ if [ "${MUS_RECON:-0}" = "1" ]; then
     exit 0
 fi
 
+# ==================================================================
+# 8b. spatial leg 실측 (T3 신설 — 스펙 2026-10-10 §2, 도구 3종 원문 계약)
+# ==================================================================
+atool() { # $1=tool $2=args-json — music 앱 직행(도구 허브 릴레이 원문 — music 창
+          #   등록 전제이므로 이 세그먼트는 launch_app music 뒤에만 온다)
+    timeout 15 ./buildwsl/jkdesktop agentctl \
+        "{\"tool\":\"app_tool\",\"args\":{\"app\":\"music\",\"tool\":\"$1\",\"args\":$2}}" \
+        2>/dev/null | grep -a '{' | head -1
+}
+spstatus() { sleep 1.5; atool spatial_status '{}'; }
+jpos() { # status JSON에서 pos 수치만 뽑는다
+    printf '%s' "$1" | sed -n 's/.*"pos":\([0-9][0-9.eE+\-]*\).*/\1/p'
+}
+
+echo "=== 8b. spatial leg 실측 (LEG_MODE=$LEG_MODE — app_tool 직행 릴레이) ==="
+ST0=$(atool spatial_status '{}')
+echo "MUS-SPATIAL-STATUS-0: ${ST0:-none} (재생 전 기저 — active:false·path 빈 원문)"
+PLAY1=$(atool spatial_play "{\"path\":\"$SEED_DIR/a_seed.wav\"}")
+echo "MUS-SPATIAL-PLAY-REPLY: ${PLAY1:-none}"
+sleep 1   # open(디코더+최초 ALC lazy — 프레임 스레드 수십 ms급 I-3 정직 원장)
+S1=$(atool spatial_status '{}')
+echo "MUS-SPATIAL-STATUS-1: ${S1:-none}"
+S2=$(spstatus)
+echo "MUS-SPATIAL-STATUS-2: ${S2:-none} (pos 증가 = 재생 진행 원문 1행)"
+POS1=$(jpos "$S1"); POS2=$(jpos "$S2")
+POS_DELTA=""
+if [ -n "$POS1" ] && [ -n "$POS2" ]; then
+    POS_DELTA=$(awk -v a="$POS1" -v b="$POS2" 'BEGIN{printf "%.3f", b - a}')
+fi
+echo "MUS-SPATIAL-POS: $POS1 -> $POS2 (delta=$POS_DELTA — 원문 등호는 리포트 몫)"
+shot mus_wsl_spatial.png   # spatial 패널(진행 bar·모드·디바이스 표기) — EYES 캡처
+
+STP=$(atool spatial_stop '{}')
+echo "MUS-SPATIAL-STOP-REPLY: ${STP:-none} (idempotent — idle leg도 {\"active\":false,\"idle\":true} 원문)"
+ST3=$(atool spatial_status '{}')
+echo "MUS-SPATIAL-STATUS-3(post-stop): ${ST3:-none} (active:false·직전 pos/path·deviceOk 보존 원문)"
+
+M1_TRUNC=0
+if [ "$LEG_MODE" -eq 1 ]; then
+    echo "--- 8b-2. 초장 경로 트랙 — M-1 절단 정직 가드 원문 실측 ---"
+    echo "MUS-LONGTRACK: len=$LONG_LEN (경로 원문 무단열 — /tmp/mus_seed 아래 deep_*)"
+    PLAY2=$(atool spatial_play "{\"path\":\"$LONG_TRACK\"}")
+    echo "MUS-SPATIAL-PLAY-LONG-REPLY: ${PLAY2:-none}"
+    sleep 1.5
+    SL1=$(atool spatial_status '{}')
+    echo "MUS-SPATIAL-STATUS-LONG: ${SL1:-none}"
+    printf '%s' "$SL1" | grep -aq '"truncated":true' \
+        && { M1_TRUNC=1; echo "MUS-M1-TRUNCATED: OK — 절단 시 path 생략+truncated:true 정직 축소 전문 원문 성립"; } \
+        || echo "MUS-M1-TRUNCATED: MISS(need>=768 미도달 또는 재생 성립 전 고장 — 사유는 위 PLAY-LONG·STATUS-LONG 원문)"
+    STP2=$(atool spatial_stop '{}')
+    echo "MUS-SPATIAL-STOP-LONG: ${STP2:-none}"
+    if [ -f "$SEED_DIR/m_seed.mp3" ]; then
+        echo "--- 8b-3. mp3 트랙 — durSec 미상(M-2) 원문 관측 ---"
+        PLAY3=$(atool spatial_play "{\"path\":\"$SEED_DIR/m_seed.mp3\"}")
+        echo "MUS-SPATIAL-PLAY-MP3-REPLY: ${PLAY3:-none}"
+        sleep 1.5
+        SM=$(atool spatial_status '{}')
+        echo "MUS-SPATIAL-STATUS-MP3: ${SM:-none} (dur:0.000 = 길이 미상 원문 — 진행 표기는 캡처 육안 몫)"
+        STP3=$(atool spatial_stop '{}')
+        echo "MUS-SPATIAL-STOP-MP3: ${STP3:-none}"
+    fi
+fi
+
 echo "=== 9. 접착제 콜드 전조 — 등록 전 app_tool open = unknown_app_tool 실측 ==="
 OR0=$(timeout 15 ./buildwsl/jkdesktop agentctl \
     '{"tool":"app_tool","args":{"app":"vplayer","tool":"open","args":{"path":"/tmp/mus_seed/a_seed.wav"}}}' \
@@ -549,10 +726,16 @@ LEFTS=$(ls "$LOGDIR" 2>/dev/null | wc -l)
 REMNANT_LIST=$(ls "$LOGDIR")
 echo "REMNANT-COUNT=$LEFTS (서버·빌드·셀프테스트·shot 로그만 잔존 — 원장 수형)"
 echo "$REMNANT_LIST" | sed 's/^/  /'
+if [ -d "$SCRATCH" ]; then
+    echo "MUS-FAIL: scratch dir remnant — 수동 소각 필요"
+else
+    echo "SCRATCH-REMNANT: 0 (트리 잔산 0)"
+fi
+[ -d "$SEED_DIR" ] && { echo "MUS-FAIL: seed dir remnant — 수동 소각 필요"; exit 1; }
 
 echo "=== 18. music 실측 판정 ==="
 CAP_OK=1
-for f in list filter vp_delegate delegate_status after; do
+for f in spatial list filter vp_delegate delegate_status after; do
     P="$RECEIVE/mus_wsl_$f.png"
     if [ ! -s "$P" ]; then
         echo "MUSIC-FAIL(capture missing/empty: $P)"
@@ -571,10 +754,42 @@ else
     echo "MUSIC-VERDICT: MUSIC-FAIL(행별 사유는 위 각 행 — delegate=$DEL_OK deleg-open=$DELEG_OPEN glue=$GLUE_OK play=$PLAY_OK captures=$CAP_OK; 인프라 실패는 hard FAIL로 상단 중단, 수치·육안 미달은 rc=0 honest-fail)"
 fi
 echo "MUSIC-WCAPTURES:"
-for f in list filter vp_delegate delegate_status after; do
+for f in spatial list filter vp_delegate delegate_status after; do
     P="$RECEIVE/mus_wsl_$f.png"
     [ -s "$P" ] && echo "  $P ($(wc -c < "$P") bytes)"
 done
+echo "=== 18b. spatial leg 판정 (T3 — rc는 0 유지, 원문은 위 각 행) ==="
+LEG_FALLBACK=0
+if printf '%s' "${PLAY1:-}" | grep -aq '"error":"start_failed"' \
+    && printf '%s' "${PLAY1:-}" | grep -aq 'vplayer 위임'; then
+    LEG_FALLBACK=1   # kDelegationHint 원문 라벨 — fail-closed 정상 영수증
+fi
+LEG_OK=0
+printf '%s' "${PLAY1:-}" | grep -aq '"accepted":true' \
+    && printf '%s' "${S2:-}" | grep -aq '"active":true' \
+    && printf '%s' "${S2:-}" | grep -aq '"deviceOk":true' \
+    && { [ -n "$POS_DELTA" ] && awk -v d="$POS_DELTA" 'BEGIN{exit (d > 0.05) ? 0 : 1}' \
+        && LEG_OK=1; }
+if [ "$LEG_MODE" -eq 1 ]; then
+    if [ "$LEG_OK" -eq 1 ]; then
+        echo "MUS-LEG-VERDICT: LEG-OK(env 설정 배포 런 — accepted+active:true+deviceOk:true+pos 진행 delta=$POS_DELTA·stop 원문 — 청안 게이트는 EYES 별도)"
+    elif [ "$LEG_FALLBACK" -eq 1 ]; then
+        echo "MUS-LEG-VERDICT: LEG-FALLBACK-OK(WSLg에서 ALC 디바이스 실패 — kDelegationHint 라벨 표기 = fail-closed 정상 영수증(rc=0) — 폰 leg는 T4 몫)"
+    else
+        echo "MUSIC-FAIL(leg verdict 미달 — LEG_MODE=1에서도 시작/진행/폴백 어느 성질도 관측 못함: play=${PLAY1:-none} status=${S2:-none})"
+    fi
+else
+    if [ "$LEG_FALLBACK" -eq 1 ]; then
+        echo "MUS-LEG-UNSET-VERDICT: LEG-UNSET-OK(leg-less .so의 spatial_play = DeviceFailed 종착 — kDelegationHint 원문 라벨 — fail-closed 영수증 성립)"
+    else
+        echo "MUSIC-FAIL(env 미설정 런에서 spatial_play의 DeviceFailed 종착이 관측되지 않음: ${PLAY1:-none} — fail-closed 배선 원장 대조 몫)"
+    fi
+fi
+if [ "$LEG_MODE" -eq 1 ] && [ "$LEG_OK" -eq 1 ]; then
+    [ "$M1_TRUNC" -eq 1 ] \
+        && echo "MUS-LEG-M1: OK — 초장 경로(~${LONG_LEN}B) spatial_status가 truncated:true를 냈다(절단 정직 가드 원문 실측)" \
+        || echo "MUS-LEG-M1: MISS — truncated 도달 실패(SL1 원문) — M-1 가드 런타임 실측 미충족(리포트 원장)"
+fi
 echo "MUSIC-END"
 exit 0
 # honest-fail 원칙: 수치·육안 대행 미달(MUSIC-FAIL 라인·DELEGATE MISS)은 원장
