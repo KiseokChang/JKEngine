@@ -25,6 +25,17 @@
 // 교체에 실패한다(2026-09-26 워크숍 라이브 게이트 실측 원문) — 이때 원본을
 // .bak로 대피해 rename 실패 시 복원(브리프 "실패 시 원본 유지" 계약 —
 // 워크숍 remove+rename 사다리의 복원 보강).
+//
+// T1 fix r1 (리뷰 I-1 필수 + M-1/M-2/M-3 동봉): quickjs 원독(DirsFromSettings)
+// 은 CP949 바이트 혼입 문서를 **전체 거부**해서 쓰기 경로가 기존 항목을
+// 무음 소각했다("기존 CP949 항목이 있는 settings에서 AddDir" — 빈 목록에서
+// 재합성+ok=true) — dirs 한정 자기 스캐너 수취(ReadDirs: ScanObjectFields+
+// ScanStringArray, 원문 슬라이스 규약)로 CP949 바이트 그대로 보존. 스캐너
+// 문자열은 고바이트 뒤 0x5C를 리터럴로 두는 규칙(CP949/UTF-8 투명성 — 확장
+// 한글 후행 0x5C는 파일명 문자; 이스케이프 복호는 ASCII 문맥 한정). 빈
+// 리터럴(`{"a": ,}`)은 공백만 몸통으로 셈 없이 부적합 출하(M-1 파서 단정).
+// Slashize는 MusicModel.h 본체로 승격(M-3 — 리졸버 MusicDirList 같은 규약
+// 승계, 전 축 통일).
 
 #include <apps/MusicModel.h>
 #include <port/JKCrtShim.h>  // FopenS — Win/posix 공용 파일 오픈
@@ -65,18 +76,33 @@ inline void SkipWs(const std::string& t, size_t& i) {
 // 문자열 원문 통과 — i는 여는 따옴표 자리, 닫는 따옴표 직후로 밀어준다.
 // 이스케이프 감식이 전부(\" 뒤의 따옴표는 끝이 아니다 — 중괄호·대괄호 깊이
 // 계산도 같은 사유로 이 통과를 먼저 돈다).
+//
+// fix r1 — 고바이트 뒤 0x5C는 리터럴: 인코딩 무관 원문 스캐너의 규약. 0x5C는
+// UTF-8 다중바이트 성분에 나타나지 않아(연속 바이트 전원 0x80 이상) ASCII
+// 뒤의 0x5C만 이스케이프로 읽으면 UTF-8 문서는 무접촉이고, CP949 확장 영역
+// (선단 0x81-A0)의 후행 0x5C 파일명 문자(뷁류)를 이스케이프로 오인해
+// 따옴표·깊이가 어긋나는 것을 봉한다. 한계(정직 표기): 고바이트 바로 뒤에
+// 의도된 `\\` 이스케이프가 오면(작성자가 역슬래시를 이중화한 원문) 복호
+// 어긋남 — 저장소 쓰기는 Slashize로 역슬래시를 먼저 접어 이 원문을 만들지
+// 않는다.
 inline bool ScanJsonString(const std::string& t, size_t& i) {
     if (i >= t.size() || t[i] != '"') return false;
     ++i;
+    bool prevHigh = false;
     while (i < t.size()) {
-        if (t[i] == '"') {
+        const unsigned char c = static_cast<unsigned char>(t[i]);
+        if (c == '"') {
             ++i;
             return true;
         }
-        if (t[i] == '\\') {
+        if (c == '\\' && !prevHigh) {
             ++i;
             if (i >= t.size()) return false;
+            prevHigh = false;  // 이스케이프 대상은 ASCII 1바이트
+            ++i;
+            continue;
         }
+        prevHigh = (c >= 0x80);
         ++i;
     }
     return false;  // 닫는 따옴표 없음 — 부적합
@@ -123,19 +149,28 @@ inline void AppendUtf8(std::string& out, unsigned cp) {
     }
 }
 
-// 키 복호화 — i는 여는 따옴표. 미지원 이스케이프 = 부적합(보수 파 — 원본
-// 보존이 우선이므로 애매한 원문은 손대지 않는다).
+// 키·문자열 원소 복호화 — i는 여는 따옴표(키, ScanStringArray 원소 공용).
+// fix r1: 고바이트 뒤 0x5C는 리터럴(ScanJsonString 원문 규약 — CP949 확장
+// 한글 후행이 복호 어긋남을 만드는 것 봉합). 미지원 이스케이프 = 부적합
+// (보수 파 — 원본 보존이 우선이므로 애매한 원문은 손대지 않는다).
 inline bool DecodeJsonKey(const std::string& t, size_t& i, std::string& key) {
     if (i >= t.size() || t[i] != '"') return false;
     ++i;
     key.clear();
+    bool prevHigh = false;
     while (i < t.size()) {
-        const char c = t[i++];
-        if (c == '"') return true;
-        if (c != '\\') {
-            key += c;
+        const unsigned char c = static_cast<unsigned char>(t[i]);
+        if (c == '"') {
+            ++i;
+            return true;
+        }
+        if (c != '\\' || prevHigh) {
+            key += t[i];
+            prevHigh = (c >= 0x80);
+            ++i;
             continue;
         }
+        ++i;  // ASCII 문맥의 이스케이프 — '\\' 소비
         if (i >= t.size()) return false;
         const char e = t[i++];
         switch (e) {
@@ -155,6 +190,8 @@ inline bool DecodeJsonKey(const std::string& t, size_t& i, std::string& key) {
         }
         default: return false;  // 미지원 이스케이프 = 부적합
         }
+        prevHigh = false;  // 이스케이프 출력은 ASCII 몫(\u 출력 다중바이트는
+                           //   휴면 경로 — CP949 원문과 무접촉)
     }
     return false;
 }
@@ -166,6 +203,7 @@ inline bool ScanJsonValue(const std::string& t, size_t start, size_t& end) {
     size_t i = start;
     SkipWs(t, i);
     if (i >= t.size()) return false;
+    const size_t body = i;  // 값 몸통 첫 바이트(선행 공백은 몸통이 아니다 — M-1)
     const char c = t[i];
     if (c == '"') return ScanJsonString(t, i) ? (end = i, true) : false;
     if (c == '{' || c == '[') {
@@ -195,7 +233,7 @@ inline bool ScanJsonValue(const std::string& t, size_t start, size_t& end) {
            t[i] != ' ' && t[i] != '\t' && t[i] != '\n' && t[i] != '\r')
         ++i;
     end = i;
-    return i > start;  // 빈 리터럴 = 부적합
+    return end > body;  // 몸통 없음(공백만 — `{"a": ,}`) = 부적합(M-1 출하)
 }
 
 // 상위 객체 스캔 — 키·원문 값 슬라이스(내부 공백 포함 그대로) 목록. 루트가
@@ -206,34 +244,51 @@ struct JsonField {
     std::string raw;
 };
 
-inline bool ScanTopLevelFields(const std::string& text,
-                               std::vector<JsonField>& out) {
+// 객체 필드 스캔 — start는 여는 '{' 자리(또는 그 앞 공백), 닫는 '}' 직후를
+// end로 돌려준다. 상위 문서와 music 내부 객체(fix r1 — I-1 dirs 한정 재합성)
+// 가 같은 이 스캔을 먹는다.
+inline bool ScanObjectFields(const std::string& t, size_t start, size_t& end,
+                             std::vector<JsonField>& out) {
     out.clear();
-    size_t i = 0;
-    SkipWs(text, i);
-    if (i >= text.size() || text[i] != '{') return false;
+    size_t i = start;
+    SkipWs(t, i);
+    if (i >= t.size() || t[i] != '{') return false;
     ++i;
-    SkipWs(text, i);
-    if (i < text.size() && text[i] == '}') return true;  // 빈 객체 — 정합
+    SkipWs(t, i);
+    if (i < t.size() && t[i] == '}') {  // 빈 객체 — 정합
+        ++i;
+        end = i;
+        return true;
+    }
     while (true) {
-        SkipWs(text, i);
+        SkipWs(t, i);
         std::string key;
-        if (!DecodeJsonKey(text, i, key)) return false;
-        SkipWs(text, i);
-        if (i >= text.size() || text[i] != ':') return false;
+        if (!DecodeJsonKey(t, i, key)) return false;
+        SkipWs(t, i);
+        if (i >= t.size() || t[i] != ':') return false;
         ++i;
         const size_t vstart = i;  // 값 원문 슬라이스 시작(선행 공백 포함 보존)
-        size_t end = 0;
-        if (!ScanJsonValue(text, i, end)) return false;
+        size_t vend = 0;
+        if (!ScanJsonValue(t, i, vend)) return false;
         out.push_back(JsonField{std::move(key),
-                                text.substr(vstart, end - vstart)});
-        i = end;
-        SkipWs(text, i);
-        if (i >= text.size()) return false;  // 쿨닫는 괄호 없음
-        if (text[i] == '}') return true;
-        if (text[i] != ',') return false;
+                                t.substr(vstart, vend - vstart)});
+        i = vend;
+        SkipWs(t, i);
+        if (i >= t.size()) return false;  // 닫는 괄호 없음 — 부적합
+        if (t[i] == '}') {
+            ++i;
+            end = i;
+            return true;
+        }
+        if (t[i] != ',') return false;
         ++i;  // 다음 키로 — 트레일링 콤마는 DecodeJsonKey가 거부
     }
+}
+
+inline bool ScanTopLevelFields(const std::string& text,
+                               std::vector<JsonField>& out) {
+    size_t end = 0;
+    return ScanObjectFields(text, 0, end, out);
 }
 
 // JSON 문자열 이스케이프(EscapeJson 쌍둥이 원문 수형 — ClientMusicApp.cpp:
@@ -242,17 +297,23 @@ inline bool ScanTopLevelFields(const std::string& text,
 // 꾸러미가 감싸므로 이스케이프 불요(2m-g 원문 계약).
 inline std::string EscapeJsonStr(const std::string& in) {
     std::string out;
-    for (char c : in) {
-        if (c == '"' || c == '\\') {
+    bool prevHigh = false;  // fix r1 — 고바이트 뒤 0x5C는 리터럴(CP949 확장
+                            //   한글 후행을 이중화해 원문을 갉아먹지 않는다 —
+                            //   ScanJsonString 복호 규약과 같은 짝)
+    for (char ch : in) {
+        const unsigned char c = static_cast<unsigned char>(ch);
+        if ((c == '"' || c == '\\') && !prevHigh) {
             out += '\\';
-            out += c;
-        } else if (static_cast<unsigned char>(c) < 0x20) {
+            out += ch;
+            prevHigh = false;
+        } else if (c < 0x20) {
             char buf[8];
-            std::snprintf(buf, sizeof(buf), "\\u%04x",
-                          static_cast<int>(static_cast<unsigned char>(c)));
+            std::snprintf(buf, sizeof(buf), "\\u%04x", static_cast<int>(c));
             out += buf;
+            prevHigh = false;
         } else {
-            out += c;
+            out += ch;  // 공백·멀티바이트·CP949 후행 0x5C = 원문 수용
+            prevHigh = (c >= 0x80);
         }
     }
     return out;
@@ -358,26 +419,118 @@ inline bool WriteSettingsAtomic(const std::string& path,
     return true;
 }
 
-// 역슬래시 슬래시 접기 — 2m-g 원문 수형(OpenRequestJsonPath의 문자 스캔).
-// fs::path 정규형만으로는 축이 분기한다: '\'는 Windows 축에서만 스페이퍼라
-// generic_string이 접지 않고, posix(폰·WSL) 축에서는 '\'가 그냥 파일명 문자
-// 남는다(2m-b 원문 계약 — "backslash 수형은 문자 스캔이 소유"). 저장소의
-// 모든 경로 입출력은 이 접기를 먼저 간다.
-inline std::string Slashize(const std::string& p) {
-    std::string s;
-    s.reserve(p.size());
-    for (char c : p) s += (c == '\\') ? '/' : c;
-    return s;
+// 배열 원소 추출 — dirs 배열 한정(fix r1 I-1): 각 원소가 문자열이면
+// DecodeJsonKey 복호 수취(CP949 후행 0x5C 리터럴 규약 포함), 아니면 원문
+// 스킵(DirsFromSettings 원문 계약 — 비문자열 성분 스킵). 배열 원문 부적합 =
+// false — 쓰기 경로는 err로 거부(원본 보존), 뷰는 빈 목록.
+inline bool ScanStringArray(const std::string& t, size_t start, size_t& end,
+                            std::vector<std::string>& out) {
+    out.clear();
+    size_t i = start;
+    SkipWs(t, i);
+    if (i >= t.size() || t[i] != '[') return false;
+    ++i;
+    SkipWs(t, i);
+    if (i < t.size() && t[i] == ']') {  // 빈 배열 — 0건(정합)
+        ++i;
+        end = i;
+        return true;
+    }
+    while (true) {
+        SkipWs(t, i);
+        if (i < t.size() && t[i] == '"') {
+            std::string v;
+            if (!DecodeJsonKey(t, i, v)) return false;
+            out.push_back(std::move(v));
+        } else {  // 비문자열 성분 — 원문 스킵
+            size_t vend = 0;
+            if (!ScanJsonValue(t, i, vend)) return false;
+            i = vend;
+        }
+        SkipWs(t, i);
+        if (i >= t.size()) return false;  // 닫는 괄호 없음 — 부적합
+        if (t[i] == ']') {
+            ++i;
+            end = i;
+            return true;
+        }
+        if (t[i] != ',') return false;
+        ++i;
+    }
 }
 
-// settings.json "music"."dirs"의 기록 뷰 — MusicModel::DirsFromSettings 승계
-// 쌍둥이에 정규화 접힘(뷰가 리졸버 MusicDirList의 유저 뒷성분과 같은 표기 —
-// 2m-b 규약; 역슬래시 원문 성분도 Slashize로 접어 축 무관 동일 표기). 파싱
-// 실패 = 빈 목록(뷰 전용 — 오류 비표기 브리프 계약).
+// 쓰기 경로의 dirs 수취 (fix r1 I-1 — ReadDirs): 상위 필드에서 music 객체를
+// 찾고(첫 등장 — NormalizeDirs의 첫-승규약과 같은 규약), 내부 "dirs"의 값을
+// 원문으로 판정한다. quickjs 원독 기각 — CP949 혼입 문서를 전체 거부해 쓰기
+// 경로가 기존 항목을 무음 소각했다. 읽기 원문: dirs 부재·비배열("P:/sounds"
+// 같은 문자열) = ok+빈 목록(2m-a 원문 계약 — 무시), dirs 배열 원문 파손만
+// ok=false(쓰기 거부 — 원본 보존; 조용한 절단 없음).
+struct DirsRead {
+    bool ok = false;                // false = 부적합 — 쓰기 거부(원본 보존)
+    std::vector<std::string> dirs;  // 정규화 전 원문 순서(호출자가 접는다)
+};
+
+inline DirsRead ReadDirs(const std::vector<JsonField>& fields) {
+    DirsRead rd;
+    rd.ok = true;
+    for (const JsonField& f : fields) {
+        if (f.key != "music") continue;
+        std::vector<JsonField> inner;
+        size_t iend = 0;
+        if (!ScanObjectFields(f.raw, 0, iend, inner)) {
+            return rd;  // music 비객체 = 무시 — ok(빈 목록, 2m-a fail-safe 계약)
+        }
+        for (const JsonField& g : inner) {
+            if (g.key != "dirs") continue;
+            size_t vi = 0;
+            SkipWs(g.raw, vi);
+            if (vi < g.raw.size() && g.raw[vi] == '[') {
+                size_t aend = 0;
+                if (!ScanStringArray(g.raw, 0, aend, rd.dirs)) {
+                    rd.dirs.clear();
+                    rd.ok = false;  // 배열 원문 파손 — 쓰기 거부
+                    return rd;
+                }
+            }
+            return rd;  // 첫 dirs 키만 — 부재·비배열 = ok(빈 목록)
+        }
+        return rd;  // dirs 키 부재 = ok(빈 목록)
+    }
+    return rd;  // music 필드 부재 = ok(빈 목록)
+}
+
+// 순수 정규화 — 2m-b NormalizeDirs의 바이트 투명 쌍둥이(fix r1): fs::path
+// 원문(MusicModel)은 Win 축(libstdc++)의 narrow 변환에 CP949 바이트를 못
+// 먹는다 — filesystem_error "Illegal byte sequence" 출하(2o-f 실측 원문).
+// dirs 왕복은 문자 조작만으로 같은 규약(뒤 구분자 접기+빈 성분 제거+중복
+// 철자 첫-승)을 흉내 낸다 — Slashize가 '\' 접기를 먼저 하므로 fs::path의
+// 스페이퍼 역할은 이행되고, Slashize된 입력에서 두 정규화는 동형이다.
+inline std::vector<std::string> NormalizeDirsPure(
+    const std::vector<std::string>& dirs) {
+    std::vector<std::string> out;
+    out.reserve(dirs.size());
+    for (const std::string& in : dirs) {
+        std::string p = in;  // 뒤 구분자 중복 — 몇 겹이어도 한 번에 벗긴다
+        while (!p.empty() && p.back() == '/') p.pop_back();
+        if (p.empty()) continue;  // 빈 성분 제거
+        if (std::find(out.begin(), out.end(), p) == out.end())
+            out.push_back(std::move(p));
+    }
+    return out;
+}
+
+// settings.json "music"."dirs"의 기록 뷰 — fix r1: dirs 한정 스캐너 수취로
+// 승격(quickjs 원독의 CP949 무음 소각 봉합). 뷰가 리졸버 MusicDirList의
+// 유저 뒷성분과 같은 표기 — Slashize+NormalizeDirsPure(2m-b 규약의 바이트
+// 투명 수형). 파싱 실패 = 빈 목록(뷰 전용 — 오류 비표기 브리프 계약).
 inline std::vector<std::string> UserDirs(const std::string& settingsText) {
-    std::vector<std::string> raw = DirsFromSettings(settingsText);
+    std::vector<JsonField> fields;
+    if (!ScanTopLevelFields(settingsText, fields)) return {};
+    const DirsRead rd = ReadDirs(fields);
+    if (!rd.ok) return {};
+    std::vector<std::string> raw = rd.dirs;
     for (std::string& d : raw) d = Slashize(d);
-    return NormalizeDirs(raw);
+    return NormalizeDirsPure(raw);
 }
 
 // ---- AddDir / RemoveDir ----
@@ -393,6 +546,12 @@ inline DirWriteResult AddDir(const std::string& exeDir,
         return r;
     }
     const std::string target = one[0];
+    // 기본 폴더는 대상 아님(fix r1 M-2 — RemoveDir 방어선과 대칭: 기본 폴더를
+    // dirs에 기록하면 리졸버의 중복 성분만 무의미하게 늘어난다).
+    if (target == AudioDirFallback::Path(exeDir)) {
+        r.err = "default dir not appendable";
+        return r;
+    }
     const std::string sp = SettingsPath(exeDir);
     std::error_code eec;
     const bool exists = fs::exists(sp, eec) && !eec;
@@ -409,7 +568,16 @@ inline DirWriteResult AddDir(const std::string& exeDir,
         }
         // 빈 파일 = 신설 취급(데이터 0바이트 — 손실 없음)
     }
-    std::vector<std::string> dirs = UserDirs(text);
+    // fix r1: dirs 수취는 자기 스캐너(ReadDirs) — quickjs 원독의 CP949 무음
+    // 소각 봉합. 배열 원문 파손만 거부(원본 보존).
+    const DirsRead rd = ReadDirs(fields);
+    if (!rd.ok) {
+        r.err = "music dirs unparsable";
+        return r;
+    }
+    std::vector<std::string> dirs = rd.dirs;
+    for (std::string& d : dirs) d = Slashize(d);
+    dirs = NormalizeDirsPure(dirs);
     if (std::find(dirs.begin(), dirs.end(), target) != dirs.end()) {
         r.ok = true;  // 중복(정규화 후) — no-op ok
         return r;
@@ -469,7 +637,14 @@ inline DirWriteResult RemoveDir(const std::string& exeDir,
         r.err = "settings json unparsable";
         return r;  // 원본 보존 — 부적합 원문은 손대지 않는다
     }
-    std::vector<std::string> dirs = UserDirs(text);
+    const DirsRead rd = ReadDirs(fields);  // fix r1 — 스캐너 수취(I-1 승계)
+    if (!rd.ok) {
+        r.err = "music dirs unparsable";
+        return r;
+    }
+    std::vector<std::string> dirs = rd.dirs;
+    for (std::string& d : dirs) d = Slashize(d);
+    dirs = NormalizeDirsPure(dirs);
     const auto it = std::find(dirs.begin(), dirs.end(), target);
     if (it == dirs.end()) {
         r.ok = true;  // 미존재 — no-op ok(정직)

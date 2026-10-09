@@ -87,6 +87,35 @@ inline std::vector<std::string> NormalizeDirs(
     return out;
 }
 
+// 역슬래시 슬래시 접기 (T1 fix r1 — 플랜 2026-10-10-music-dirs-ui M-3 승계):
+// 2m-g 원문 수형(OpenRequestJsonPath의 문자 스캔). fs::path 정규형만으로는
+// '\'가 Windows 축에서만 스페이퍼라 위 fs::path 접기가 축 분기한다 — posix
+// (폰·WSL) 축에서 '\'는 그냥 파일명 문자 남는다(2m-b 원문 계약 — "backslash
+// 수형은 문자 스캔이 소유"). 리졸버와 문서 스캐너(MusicDirStore.h)가 같은
+// 이 접기를 먼저 간다 — 본체는 리졸버 쪽(더 이른 소비).
+//
+// fix r1 — 고바이트 뒤 0x5C는 리터럴(데이터 무손상 승규약): CP949 확장 영역
+// (선단 0x81-A0)의 후행 0x5C 파일명 문자(뷁류)를 스페이퍼로 접으면 경로
+// 문자열 자체가 변질되고 재쓰기에서 소실한다. 한계: UTF-8 멀티바이트 바로
+// 뒤의 진짜 스페이퍼 '\'는 접히지 않는다("D:/가요\MPC" 표기 혼합 — 데이터는
+// 무손상, 정규화 철자만 혼합 — T2 UI가 호출부 슬래시 형식을 존중하는 규약).
+inline std::string Slashize(const std::string& p) {
+    std::string s;
+    s.reserve(p.size());
+    bool prevHigh = false;
+    for (char ch : p) {
+        const unsigned char c = static_cast<unsigned char>(ch);
+        if (c == '\\' && !prevHigh) {
+            s += '/';
+            prevHigh = false;
+            continue;
+        }
+        s += ch;
+        prevHigh = (c >= 0x80);
+    }
+    return s;
+}
+
 // settings.json "music"."dirs" — a JSON array of path strings (gallery.dirs와
 // 같은 구조·같은 정규화; 폰에서는 /sdcard/Music 등을 폰 settings에 직접 기록해
 // 켠다). 비문자열 성분은 스킵, 부재/파손/빈 배열 = 빈 목록(리졸버가 기본 폴더만
@@ -125,7 +154,7 @@ inline std::vector<std::string> MusicDirList(const std::string& exeDir,
     std::vector<std::string> dirs;
     dirs.push_back(AudioDirFallback::Path(exeDir));
     for (std::string& user : DirsFromSettings(settingsText))
-        dirs.push_back(std::move(user));
+        dirs.push_back(Slashize(user));  // fix r1 — 역슬래시 접기 승계(M-3)
     return NormalizeDirs(std::move(dirs));
 }
 

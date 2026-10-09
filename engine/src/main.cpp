@@ -5815,6 +5815,44 @@ static int RunAppSelfTest() {
             check(st::UserDirs(R"json({"music":{"dirs":[)json").empty() &&
                       st::UserDirs("").empty(),
                   "2o-e UserDirs 파손·빈 원문 = 빈 목록(뷰 전용 — 오류 비표기)");
+
+            // 2o-f) T1 fix r1 보강 — 리뷰 I-1 필수(CP949 무음 소각 봉합)+
+            // I-2(RemoveDir 성공 경로 최초 실측)+M-1(빈 리터럴 부적합 출하)+
+            // M-2(AddDir 기본 폴더 거부 — RemoveDir 방어선과 대칭). 기존
+            // 2o 10건 원문 무변조 — 추가만.
+            const std::string cp949 = std::string("\xB0\xA1\xBF\xE4");
+            const std::string exeDir3 = (odir / "exe3").string();
+            const std::string sp3 = st::SettingsPath(exeDir3);
+            fs::create_directories(fs::path(sp3).parent_path());
+            std::ofstream(sp3, std::ios::binary)
+                << std::string("{\"music\":{\"dirs\":[\"") + cp949 +
+                       "\",\"W:/win\"]}}";
+            const jk::music::DirWriteResult f1 = st::AddDir(exeDir3, "P:/new");
+            std::string cpAfter;
+            st::ReadAll(sp3, cpAfter);
+            check(f1.ok && cpAfter.find(cp949) != std::string::npos &&
+                      st::UserDirs(cpAfter).size() == 3,
+                  "2o-f CP949 기존 항목 = AddDir 후 바이트 원문 보존+dirs 수취"
+                  "(무음 소각 봉합 — dirs 한정 스캐너 재합성)");
+            const std::string exeDir4 = (odir / "exe4").string();
+            const jk::music::DirWriteResult g1a =
+                st::AddDir(exeDir4, "I:/in");
+            const jk::music::DirWriteResult g1 =
+                st::RemoveDir(exeDir4, "I:\\in");
+            std::string emptied;
+            st::ReadAll(st::SettingsPath(exeDir4), emptied);
+            check(g1a.ok && g1.ok && st::UserDirs(emptied).empty() &&
+                      emptied == "{\"music\":{\"dirs\":[]}}",
+                  "2o-f RemoveDir 성공 경로 = 등록→제거→원문 0건(music.dirs "
+                  "기본형 유지)");
+            std::vector<st::JsonField> strict;
+            check(!st::ScanTopLevelFields("{\"a\": ,}", strict),
+                  "2o-f 빈 리터럴({\"a\": ,}) = 재합성 부적합 출하(파서 단정)");
+            const jk::music::DirWriteResult h1 = st::AddDir(
+                exeDir2, jk::music::AudioDirFallback::Path(exeDir2));
+            check(!h1.ok && h1.err == "default dir not appendable",
+                  "2o-f AddDir 기본 폴더(state/music) = 저장소 거부(RemoveDir "
+                  "방어선과 대칭)");
             fs::remove_all(odir);  // 사후 소각(무잔산 — 2m-c 원문 수형)
         }
     }
