@@ -121,7 +121,6 @@ bool ClientFilesApp::PreProcessMessage(const JKEvent& ev) {
     // 원 = 입력·테마(게이트 활동)+에이전트 응답 수령(OnIdle 폴백 — 목록
     // 변경 틱만 더티).
     return true;
-    return true;
 }
 
 void ClientFilesApp::OnFrameCommitted() { frameDirty_ = false; }

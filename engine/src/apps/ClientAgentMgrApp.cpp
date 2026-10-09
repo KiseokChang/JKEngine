@@ -89,7 +89,6 @@ bool ClientAgentMgrApp::PreProcessMessage(const JKEvent& ev) {
     // (T1 게이트 재계약)이고 에이전트 관리자는 정적 UI다. 남는 렌더 원 =
     // 입력·테마(게이트 활동)·응답 수령(OnIdle 폴백 — 수령 틱만 더티).
     return true;
-    return true;
 }
 
 void ClientAgentMgrApp::OnFrameCommitted() { frameDirty_ = false; }

@@ -66,8 +66,9 @@ void ClientPaletteApp::OnClose() {
 }
 
 bool ClientPaletteApp::PreProcessMessage(const JKEvent& ev) {
-    // Every event goes to the backend before the next NewFrame consumes the
-    // input queue (docs/23 §5.2-3).
+    // 모든 이벤트는 다음 NewFrame이 입력 큐를 소비하기 전에 백엔드로 간다
+    // (docs/23 §5.2-3) — 팔레트의 유일 입력 경로(#89 T2 fix r1 복원).
+    ImGui_ImplJKWindow_ProcessJKEvent(ev);
     // #89 T2 — Timer 무조건 더티 관용구(frame clock — docs/23 §11.5 lesson 5)
     // 삭제: 타이머 틱은 활동이 아니다(T1 게이트 재계약)이고 팔레트는 정적
     // UI다. 남는 렌더 원 = 입력·테마(게이트 활동)+에이전트 이벤트/응답 수령

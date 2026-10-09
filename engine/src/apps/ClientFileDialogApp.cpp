@@ -160,8 +160,9 @@ void ClientFileDialogApp::OnClose() {
 }
 
 bool ClientFileDialogApp::PreProcessMessage(const JKEvent& ev) {
-    // Every event goes to the backend before the next NewFrame consumes the
-    // input queue (docs/23 §5.2-3).
+    // 모든 이벤트는 다음 NewFrame이 입력 큐를 소비하기 전에 백엔드로 간다
+    // (docs/23 §5.2-3) — 다이얼로그의 유일 입력 경로(#89 T2 fix r1 복원).
+    ImGui_ImplJKWindow_ProcessJKEvent(ev);
     // #89 T2 — Timer 무조건 더티 관용구(frame clock — palette idiom) 삭제:
     // 타이머 틱은 활동이 아니다(T1 게이트 재계약)이고 다이얼로그는 정적
     // UI다. 남는 렌더 원 = 입력·테마(게이트 활동)+params 응답 수령(OnIdle

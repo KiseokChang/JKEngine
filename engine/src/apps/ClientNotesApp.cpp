@@ -105,7 +105,6 @@ bool ClientNotesApp::PreProcessMessage(const JKEvent& ev) {
     // 테마(게이트 활동)+에이전트 응답 수령(OnIdle 폴백 — 상태/목록 변경
     // 틱만 더티). 텍스트 커서 블링크의 무입력 정지는 수용(스펙 결정 ③).
     return true;
-    return true;
 }
 
 void ClientNotesApp::OnFrameCommitted() { frameDirty_ = false; }
