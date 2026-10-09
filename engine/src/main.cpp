@@ -5052,6 +5052,45 @@ static int RunAppSelfTest() {
                   "2g-e 열거 = 최신순(mtime desc)+비이미지/서브디렉터리 스킵");
             fs::remove_all(gdir);
         }
+
+        // 2g-f) 전체 보기 핏 산치 (T2 — 스펙 결정 3 "핏 표시"): FitFull(w,h,
+        // vpW,vpH) = min 축 지배 순수 비율. 썸네일 산치(2g-c)와 달리 s=1.0
+        // 상한이 없다(작은 원본 확대 허용 — shot 표시 수형 동형), 화면 배율/
+        // 폰트 스케일 상태와 무관한 순수 비율 계산(fit-scale 함정 원장 존중).
+        const jk::gallery::FitSize half =
+            jk::gallery::FitFull(1920, 1080, 960, 540);
+        check(half.w == 960.f && half.h == 540.f,
+              "2g-f 절반 축소 = 뷰포트 정합(s=min 축 지배)");
+        const jk::gallery::FitSize up = jk::gallery::FitFull(80, 60, 160, 120);
+        check(up.w == 160.f && up.h == 120.f,
+              "2g-f 작은 원본 = 확대 허용(s 상한 부재 — 2g-c와 반대 수형)");
+        const jk::gallery::FitSize fwide =
+            jk::gallery::FitFull(10000, 10, 160, 120);
+        check(fwide.w == 160.f && std::abs(fwide.h - 0.16f) < 1e-3f,
+              "2g-f 극단 가로 종횡비 = min 축 지배(비율 유지)");
+        const jk::gallery::FitSize ftall =
+            jk::gallery::FitFull(10, 10000, 160, 120);
+        check(std::abs(ftall.w - 0.12f) < 1e-3f && ftall.h == 120.f,
+              "2g-f 극단 세로 종횡비 = min 축 지배(비율 유지)");
+        const jk::gallery::FitSize fdeg = jk::gallery::FitFull(0, 100, 160, 120);
+        const jk::gallery::FitSize fdegVp =
+            jk::gallery::FitFull(100, 100, 0.f, 120.f);
+        check(fdeg.w == 0.f && fdeg.h == 0.f && fdegVp.w == 0.f &&
+                  fdegVp.h == 0.f,
+              "2g-f 퇴화 입력(이미지·뷰포트) = {0,0}");
+        // 2g-f 이전/다음 wrap-around — 끝 지점 순환(전체 보기 이동 계약).
+        check(jk::gallery::WrapStep(0, -1, 3) == 2 &&
+                  jk::gallery::WrapStep(2, 1, 3) == 0,
+              "2g-f wrap = 끝 지점 순환(이전·다음)");
+        check(jk::gallery::WrapStep(1, 1, 3) == 2 &&
+                  jk::gallery::WrapStep(1, -1, 3) == 0,
+              "2g-f wrap = 범위 내 이동");
+        check(jk::gallery::WrapStep(5, 0, 3) == 2 &&
+                  jk::gallery::WrapStep(7, 1, 3) == 2,
+              "2g-f wrap = 범위 밖 인덱스 수렴(모듈로 정규화)");
+        check(jk::gallery::WrapStep(0, 1, 0) == 0 &&
+                  jk::gallery::WrapStep(0, -1, 0) == 0,
+              "2g-f wrap = 빈 목록 무접촉(무변)");
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);

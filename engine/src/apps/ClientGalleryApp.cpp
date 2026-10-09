@@ -1,14 +1,19 @@
-// Photo gallery hub (spec 2026-10-09-gallery-design, T1 skeleton) — photo
-// 모아보기 허브의 격자 뷰 골격. Structure mirrors ClientShotApp (dark root
-// window, 16 ms timer, ImGui over the surface, Korean font via the desktop
-// resolver, AppContentTopOffset band math, theme hot-swap re-apply).
-// T1 scope: dir tabs + fixed-cell grid (160x120 placeholder box + one label
-// row) + the selection path. Full-view entry is T2; thumbnail decode and the
+// Photo gallery hub (spec 2026-10-09-gallery-design) — photo 모아보기 허브.
+// Structure mirrors ClientShotApp (dark root window, 16 ms timer, ImGui over
+// the surface, Korean font via the desktop resolver, AppContentTopOffset band
+// math, theme hot-swap re-apply). T1: dir tabs + fixed-cell grid (160x120
+// placeholder box + one label row) + the selection path. T2 (this file's
+// full-view branch): grid click -> full view swap in the same window —
+// LoadImageFile decode into an SDL streaming texture (shot SelectFile 수형),
+// fit display via gallery::FitFull, prev/next with wrap-around via
+// gallery::WrapStep (buttons + left/right keys), filename+pixel-size meta row,
+// Esc/button back to grid. Thumbnail decode for the grid cells and the
 // state/gallery/thumbs disk cache are T3. Pure parts live in apps/
 // GalleryModel.h (jk::gallery) so the selftest twins and T3 share them.
 #include <apps/ClientGalleryApp.h>
 
 #include <client/JKClientSurface.h>
+#include <JKImageLoader.h>
 #include <imgui_impl_jkwindow.h>
 #include "theme/JKThemeImGui.h"
 #include <JKTextAtlas.h>
@@ -76,6 +81,7 @@ void ClientGalleryApp::OnInit() {
 }
 
 void ClientGalleryApp::OnClose() {
+    DropTexture();
     if (imguiReady_) {
         ImGui_ImplJKWindow_Shutdown();
         ImGui::DestroyContext();
@@ -102,6 +108,9 @@ void ClientGalleryApp::RenderOverlay(SDL_Renderer* renderer, int w, int h) {
         imguiReady_ = true;
     }
 
+    // 텍스처 업로드는 BuildUi에서 — SDL 렌더러가 존재하는 곳이 여기뿐이라
+    // 여기서 스태시(shot 동일 수형).
+    renderer_ = renderer;
     ImGui_ImplJKWindow_NewFrame(1.0f / 60.0f, w, h);
     ImGui::NewFrame();
     BuildUi(w, h);
@@ -141,18 +150,89 @@ void ClientGalleryApp::RefreshFiles() {
     files_ = gallery::ListImageFiles(dirs_[dirIndex_], &dirOk_);
     // 없는 폴더 = 목록 비움+dirOk_ false(ec 중립형 계약 — ListImageFiles).
     // 표시 문구는 BuildUi가 dirOk_로 갈린다(빈 폴더 vs 폴더 없음).
-    // 선택 파일이 열외되었으면 진입 경로를 비운다(T2 전체보기 선보관 계약).
+    // 선택 파일이 열외되었으면 진입 경로를 비운다(전체보기 선보관 계약).
     if (!selectedPath_.empty() &&
         std::find(files_.begin(), files_.end(),
                   std::filesystem::path(selectedPath_).filename().string()) ==
             files_.end()) {
         selectedPath_.clear();
     }
+    // 전체 보기 중 재스캔이면 인덱스를 재정렬한다 — 열려 있던 파일이 목록에
+    // 남아 있으면 mtime 정렬 변화만 반영(텍스처 보존), 사라졌으면 격자 복귀.
+    if (fullView_) {
+        if (selectedPath_.empty()) {
+            CloseFull();
+        } else {
+            const std::string name =
+                std::filesystem::path(selectedPath_).filename().string();
+            const auto it = std::find(files_.begin(), files_.end(), name);
+            fullIndex_ = (it == files_.end())
+                             ? -1
+                             : static_cast<int>(it - files_.begin());
+            if (fullIndex_ < 0) CloseFull();
+        }
+    }
+}
+
+// T2 full view — 격자 셀 클릭 진입. 범위 밖 인덱스는 격자로 되돌려 보낸다
+// (RefreshFiles 열거 계약과 같은 방어선).
+void ClientGalleryApp::OpenFull(int index) {
+    if (index < 0 || index >= static_cast<int>(files_.size())) {
+        CloseFull();
+        return;
+    }
+    fullView_ = true;
+    fullIndex_ = index;
+    LoadFull();
+}
+
+void ClientGalleryApp::CloseFull() {
+    fullView_ = false;
+    fullIndex_ = -1;
+    DropTexture();
+    // selectedPath_는 격자 선택 하이라이트로 남긴다 — RefreshFiles의 열외
+    // 제거 계약이 파일 사라짐만 정리한다.
+}
+
+void ClientGalleryApp::StepFull(int delta) {
+    if (!fullView_ || files_.empty()) return;
+    fullIndex_ = gallery::WrapStep(fullIndex_, delta,
+                                   static_cast<int>(files_.size()));
+    LoadFull();
+}
+
+void ClientGalleryApp::LoadFull() {
+    DropTexture();
+    if (fullIndex_ < 0 || fullIndex_ >= static_cast<int>(files_.size()) ||
+        dirIndex_ < 0 || dirIndex_ >= static_cast<int>(dirs_.size()))
+        return;
+    // fs::path 합성 — RefreshFiles 열거와 같은 플랫폼 몫 구분자 (shot 동일
+    // 계약: selectedPath_ 비교와 정확히 일치하는 수형).
+    selectedPath_ =
+        (std::filesystem::path(dirs_[dirIndex_]) / files_[fullIndex_])
+            .string();
+    // 실패(decode 불가) = 텍스처만 없음 — 앱은 사지 않는다(shot SelectFile
+    // 수형; DropTexture가 current_를 먼저 비운다 — LoadImageFile 실패 시
+    // out 무변경 계약이므로 찌꺼기 방지).
+    LoadImageFile(selectedPath_, current_);
+}
+
+void ClientGalleryApp::DropTexture() {
+    if (texture_) {
+        SDL_DestroyTexture(texture_);
+        texture_ = nullptr;
+    }
+    texW_ = 0;
+    texH_ = 0;
+    current_.rgba.clear();
+    current_.w = 0;
+    current_.h = 0;
 }
 
 void ClientGalleryApp::BuildUi(int w, int h) {
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(ImVec2((float)w, (float)h));
+    ImGuiIO& io = ImGui::GetIO();
     if (ImGui::Begin("gallery", nullptr,
                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove)) {
         // The server reserves the top title band of every surface as
@@ -160,6 +240,24 @@ void ClientGalleryApp::BuildUi(int w, int h) {
         // (vplayer lesson 8, shot 동일). First row starts below the strip
         // or its buttons are dead (밴드 산식 진실원 — s=1.0 등호 30).
         ImGui::SetCursorPosY(static_cast<float>(jk::text::AppContentTopOffset()));
+
+        // 키보드 처리(snap 원문 — IsKeyPressed는 NewFrame 안에서만 성립):
+        // 전체 보기에서 Esc=격자 복귀, ←/→=이전/다음. 텍스트 입력 없는 앱이나
+        // WantTextInput 방어선은 유지(vplayer 원문 계약).
+        if (fullView_ && !io.WantTextInput) {
+            if (ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+                CloseFull();
+            else if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false))
+                StepFull(-1);
+            else if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, false))
+                StepFull(+1);
+        }
+
+        if (fullView_) {
+            BuildFullViewUi();
+            ImGui::End();
+            return;
+        }
 
         if (ImGui::Button("새로고침")) {
             ResolveDirs();
@@ -170,29 +268,38 @@ void ClientGalleryApp::BuildUi(int w, int h) {
 
         // Dir tabs — resolved dirs in contract order (default capture dir
         // first, user dirs after; NormalizeDirs 중복·빈 성분 제거済).
+        // (T1 리뷰 C1 수리) 탭 라벨 = 폴더 말단 이름 — 전문 경로 라벨은 긴
+        // 경로에서 탭 행 오버플로. 전문 경로는 툴힌트로 본다. 말단 이름이
+        // 빈 수형(루트 "/")은 전문으로 남긴다(빈 라벨 방지).
         for (int i = 0; i < static_cast<int>(dirs_.size()); ++i) {
             if (i > 0) ImGui::SameLine();
             ImGui::PushID(i);
+            std::string tabLabel =
+                std::filesystem::path(dirs_[i]).filename().string();
+            if (tabLabel.empty()) tabLabel = dirs_[i];
             const bool active = (i == dirIndex_);
             if (active)
                 ImGui::PushStyleColor(ImGuiCol_Button,
                                       ImGui::GetStyleColorVec4(
                                           ImGuiCol_ButtonHovered));
-            if (ImGui::Button(dirs_[i].c_str())) {
+            if (ImGui::Button(tabLabel.c_str())) {
                 if (dirIndex_ != i) {
                     dirIndex_ = i;
+                    CloseFull();  // 탭 전환 = 모드 격자 복귀(텍스처 소각)
                     selectedPath_.clear();
                     RefreshFiles();
                 }
             }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("%s", dirs_[i].c_str());
             if (active) ImGui::PopStyleColor();
             ImGui::PopID();
         }
 
         // Grid: fixed cells — 160x120 thumbnail box + one clipped label row
-        // (T1 brief). The cell click target holds the selection path warm;
-        // T2 swaps the handler for the full-view enter, T3 fills the box
-        // with the decoded thumb (placeholder + filename text for now).
+        // (T1 brief). The cell click enters the full view (T2 — 같은 창 내
+        // 모드 스왑; OpenFull이 진입 경로를 합성+디코드한다). T3 fills the
+        // box with the decoded thumb (placeholder + filename text for now).
         ImGui::Separator();
         if (ImGui::BeginChild("grid", ImVec2(0, 0), ImGuiChildFlags_Borders)) {
             ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -230,9 +337,7 @@ void ClientGalleryApp::BuildUi(int w, int h) {
                 // (fs::path 합성 — RefreshFiles 열거와 같은 플랫폼 몫 구분자
                 // 라 selected 비교가 정확히 일치한다: shot 앱 동일 계약.)
                 if (clicked)
-                    selectedPath_ =
-                        (std::filesystem::path(dirs_[dirIndex_]) / name)
-                            .string();
+                    OpenFull(i);  // T2 — 진입 경로는 LoadFull이 합성한다
 
                 // Placeholder box uses the launcher cell tokens (docs/54
                 // 허브) — face/outline; selection highlight = selectionBg 면.
@@ -263,6 +368,67 @@ void ClientGalleryApp::BuildUi(int w, int h) {
         ImGui::EndChild();
     }
     ImGui::End();
+}
+
+// T2 full view (같은 root 창 내 모드 스왑 — 격자 대신 한 장을 뷰포트 핏으로):
+// 메타 행(파일명+원본 픽셀 크기) 1줄 + 핏 이미지(2g-f 소비). Esc/좌우 키는
+// BuildUi 상단에서 처리한다.
+void ClientGalleryApp::BuildFullViewUi() {
+    // 상단 행: 격자 복귀 버튼 + 이전/다음(brief 계약 — `<`=이전/`>`=다음).
+    if (ImGui::Button("격자로")) CloseFull();
+    ImGui::SameLine();
+    if (ImGui::Button("<")) StepFull(-1);
+    ImGui::SameLine();
+    if (ImGui::Button(">")) StepFull(+1);
+    ImGui::SameLine();
+    // 메타 행 1줄 — 파일명+원본 픽셀 크기(스펙 결정 3 "파일명·픽셀 크기
+    // 표시"). 창 우측 잘림은 ImGui 창 클립이 맡는다(격자 라벨과 동일 성질).
+    if (fullIndex_ >= 0 && fullIndex_ < static_cast<int>(files_.size())) {
+        if (current_.w > 0 && current_.h > 0)
+            ImGui::TextDisabled("%s  %dx%d",
+                                files_[fullIndex_].c_str(), current_.w,
+                                current_.h);
+        else
+            ImGui::TextDisabled("%s  (열 수 없음)",
+                                files_[fullIndex_].c_str());
+    } else {
+        ImGui::TextDisabled("사진이 없습니다");
+    }
+
+    // 지연 텍스처 업로드 — SDL 렌더러가 존재하는 RenderOverlay 이후에만 가능
+    // (shot 동일 수형: 선택 1장당 스트리밍 텍스처 1개).
+    if (!texture_ && !current_.rgba.empty() && current_.w > 0 &&
+        current_.h > 0 && renderer_) {
+        texture_ = SDL_CreateTexture(renderer_, SDL_PIXELFORMAT_RGBA32,
+                                     SDL_TEXTUREACCESS_STREAMING,
+                                     current_.w, current_.h);
+        if (texture_) {
+            SDL_UpdateTexture(texture_, nullptr, current_.rgba.data(),
+                              current_.w * 4);
+            texW_ = current_.w;
+            texH_ = current_.h;
+        }
+    }
+
+    // 핏 이미지 — FitFull(원본 w,h; 뷰포트 w,h)의 순수 비율 산치를 ImGui
+    // Image 스케일 그대로 쓴다(2g-f 소비 계약 — 화면 배율 상태 무접촉).
+    const float availW = ImGui::GetContentRegionAvail().x;
+    const float availH = ImGui::GetContentRegionAvail().y;
+    const gallery::FitSize fit =
+        gallery::FitFull(current_.w, current_.h, availW, availH);
+    if (texture_ && fit.w > 0 && fit.h > 0) {
+        // 뷰포트 중앙 정렬(남은 폭/높이의 절반 오프셋).
+        const float offX = (availW - fit.w) * 0.5f;
+        if (offX > 0.f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offX);
+        const float offY = (availH - fit.h) * 0.5f;
+        if (offY > 0.f) ImGui::SetCursorPosY(ImGui::GetCursorPosY() + offY);
+        ImGui::Image((ImTextureID)texture_, ImVec2(fit.w, fit.h));
+    } else if (!selectedPath_.empty()) {
+        // 디코드 실패 = 앱 상존(shot 수형), 문구만.
+        ImGui::TextUnformatted("이미지를 열 수 없습니다");
+    } else {
+        ImGui::TextUnformatted("사진이 없습니다");
+    }
 }
 
 // P3 theme hot-swap (docs/52): the palette was snapshotted into ImGuiStyle

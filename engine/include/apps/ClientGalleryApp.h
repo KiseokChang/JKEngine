@@ -1,19 +1,25 @@
 #ifndef CLIENTGALLERYAPP_H
 #define CLIENTGALLERYAPP_H
 
-// Photo gallery hub (spec 2026-10-09-gallery-design, T1 skeleton). Structure
-// mirrors ClientShotApp (dark root window, 16 ms timer, ImGui over the
-// surface, Korean desktop font, AppContentTopOffset band math, theme
-// hot-swap). T1 scope: dir tabs over the resolved source dirs
-// (state/screenshots default + settings.json gallery.dirs) + a fixed-cell
-// thumbnail grid (160x120 box + one label row) with the selection path. The
-// full view entry is T2 and the thumbnail decode/disk cache is T3 — both
-// consume the shared pure parts from apps/GalleryModel.h.
+// Photo gallery hub (spec 2026-10-09-gallery-design). Structure mirrors
+// ClientShotApp (dark root window, 16 ms timer, ImGui over the surface,
+// Korean desktop font, AppContentTopOffset band math, theme hot-swap). T1
+// scope: dir tabs over the resolved source dirs (state/screenshots default +
+// settings.json gallery.dirs) + a fixed-cell thumbnail grid (160x120 box +
+// one label row). T2 adds the full view: a 2-state view swap inside the same
+// root window (grid click -> full view), fit display (gallery::FitFull),
+// prev/next with wrap-around (gallery::WrapStep — buttons + left/right keys),
+// filename+pixel-size meta row, Esc/button back to grid. The thumbnail
+// decode/disk cache is T3 — both consume the shared pure parts from
+// apps/GalleryModel.h.
 
 #include <client/JKClientApplication.h>
 #include <apps/GalleryModel.h>
+#include <JKImageLoader.h>
 #include <string>
 #include <vector>
+
+struct SDL_Texture;
 
 namespace jk {
 
@@ -33,11 +39,27 @@ protected:
 
 private:
     void BuildUi(int w, int h);
+    // 전체 보기 분기 UI(BuildUi가 fullView_일 때 위임). 메타 행 1줄+
+    // 뷰포트 핏 이미지(2g-f FitFull 소비)+지연 텍스처 업로드(shot 수형).
+    void BuildFullViewUi();
+    // 전체 보기(T2) — 격자 셀 클릭 진입. fullIndex_+selectedPath_를 세우고
+    // 디코드한다(실패 = 텍스처만 없음 — "이미지를 열 수 없습니다" 문구).
+    void OpenFull(int index);
+    // 격자 복귀(Esc 키/버튼): 텍스처 소각+모드 해제. selectedPath_는 격자
+    // 선택 하이라이트로 남긴다.
+    void CloseFull();
+    // 이전/다음(delta ±1) — gallery::WrapStep 끝 지점 순환+재디코드.
+    void StepFull(int delta);
+    // fullIndex_의 파일을 디코드(shot SelectFile 수형 — 텍스처 업로드는
+    // RenderOverlay에서 지연).
+    void LoadFull();
+    void DropTexture();
     // exe-dir state/settings.json 직독 → GalleryDirList(기본 폴더+유저 dirs).
     // settings 부재/파손 = 기본 1건(fail-safe) — 앱이 죽지 않는다.
     void ResolveDirs();
     // 선택 중인 dir의 이미지 파일 열거(ListImageFiles — 최신순, ec 중립형).
-    // dirIndex_가 범위 밖이면 목록만 비운다.
+    // dirIndex_가 범위 밖이면 목록만 비운다. 전체 보기 중이면 열려 있던 파일이
+    // 목록에 남아 있는지 재정렬(사라졌으면 격자 복귀).
     void RefreshFiles();
     static std::string ExeDir();
 
@@ -49,7 +71,17 @@ private:
     bool dirOk_ = false;               // active dir enumerated OK (empty-folder
                                        //   vs missing-folder 문구 구분 — ec 중립)
     std::vector<std::string> files_;   // active dir's file names, newest first
-    std::string selectedPath_;         // T2 full-view entry path (kept warm)
+    std::string selectedPath_;         // full-view path (kept warm — 격자 하이라이트)
+
+    // T2 full view state.
+    bool fullView_ = false;            // 2-state view mode (grid / full view)
+    int fullIndex_ = -1;               // files_ index of the viewed file
+    LoadedImage current_;              // decoded pixels of selectedPath_
+    SDL_Texture* texture_ = nullptr;   // GPU copy of current_ (RGBA32)
+    int texW_ = 0;
+    int texH_ = 0;
+    SDL_Renderer* renderer_ = nullptr; // RenderOverlay's renderer, stashed
+                                       //   for the deferred texture upload
 };
 
 } // namespace jk

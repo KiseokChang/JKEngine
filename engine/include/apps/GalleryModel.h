@@ -58,6 +58,32 @@ inline FitSize FitThumb(int w, int h, float maxW, float maxH) {
     return FitSize{ static_cast<float>(w) * s, static_cast<float>(h) * s };
 }
 
+// Full-view fit (T2 brief 2g-f): s = min(vpW/w, vpH/h) — the pure ratio part
+// of the full-view display (픽셀 정합). 썸네일 산치(2g-c)와 달리 s=1.0 상한이
+// 없다 — 전체 보기는 뷰포트 정합(작은 원본 확대 포함; 사용자 확대·팬 조작은
+// v1 백로그 YAGNI, shot의 표시 수형과 동형). 화면 배율(font_scale/scale
+// 상태)과 전혀 무관한 순수 비율 계산 — fit-scale 함정 원장 존중: 렌더는 이
+// 결과를 ImGui::Image 스케일 그대로 쓴다. 퇴화 입력(0 이하)은 {0,0} (호출부
+// 무표시).
+inline FitSize FitFull(int w, int h, float vpW, float vpH) {
+    if (w <= 0 || h <= 0 || vpW <= 0.f || vpH <= 0.f) return FitSize();
+    const float s = std::min(vpW / static_cast<float>(w),
+                             vpH / static_cast<float>(h));
+    return FitSize{ static_cast<float>(w) * s, static_cast<float>(h) * s };
+}
+
+// Full-view prev/next with wrap-around (T2 brief): 끝 지점에서 순환 — index에
+// delta(±1=이전/다음)를 더한 뒤 count로 정규화한다. count<=0(빈 목록)은 0을
+// 돌려주고 아무것도 하지 않는다(호출부 no-op 계약).
+inline int WrapStep(int index, int delta, int count) {
+    if (count <= 0) return 0;
+    int i = index % count;
+    if (i < 0) i += count;
+    int r = (i + delta) % count;
+    if (r < 0) r += count;
+    return r;
+}
+
 // Path normalization (selftest 2g-b): generic separator form ('\\'→'/' — Win
 // 원문과 폰/WSL의 '/' 쓰기를 한 표기로 묶는다), duplicate trailing separators
 // stripped, and empty components ("", "/", "//") dropped. Dedupe is byte-exact

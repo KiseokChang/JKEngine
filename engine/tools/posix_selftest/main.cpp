@@ -2199,6 +2199,40 @@ void TestGalleryModel() {
     Check(ok && out.size() == 2 && out[0] == "b.png" && out[1] == "a.png",
           "2g-e 열거 = 최신순(mtime desc)+비이미지/서브디렉터리 스킵");
     std::filesystem::remove_all(gdir);
+
+    // 2g-f) 전체 보기 핏 산치 (T2 — 스펙 결정 3 "핏 표시"): FitFull(w,h,
+    // vpW,vpH) = min 축 지배 순수 비율 — 썸네일 산치(2g-c)와 달리 s=1.0 상한
+    // 부재(작은 원본 확대 허용 — shot 표시 수형 동형), 화면 배율 상태와 무관
+    // (fit-scale 함정 원장 존중). 쌍둥이(engine/src/main.cpp)와 동일 수형.
+    const jk::gallery::FitSize half = jk::gallery::FitFull(1920, 1080, 960, 540);
+    Check(half.w == 960.f && half.h == 540.f,
+          "2g-f 절반 축소 = 뷰포트 정합(s=min 축 지배)");
+    const jk::gallery::FitSize up = jk::gallery::FitFull(80, 60, 160, 120);
+    Check(up.w == 160.f && up.h == 120.f,
+          "2g-f 작은 원본 = 확대 허용(s 상한 부재 — 2g-c와 반대 수형)");
+    const jk::gallery::FitSize fwide = jk::gallery::FitFull(10000, 10, 160, 120);
+    Check(fwide.w == 160.f && std::abs(fwide.h - 0.16f) < 1e-3f,
+          "2g-f 극단 가로 종횡비 = min 축 지배(비율 유지)");
+    const jk::gallery::FitSize ftall = jk::gallery::FitFull(10, 10000, 160, 120);
+    Check(std::abs(ftall.w - 0.12f) < 1e-3f && ftall.h == 120.f,
+          "2g-f 극단 세로 종횡비 = min 축 지배(비율 유지)");
+    const jk::gallery::FitSize fdeg = jk::gallery::FitFull(0, 100, 160, 120);
+    const jk::gallery::FitSize fdegVp = jk::gallery::FitFull(100, 100, 0.f, 120.f);
+    Check(fdeg.w == 0.f && fdeg.h == 0.f && fdegVp.w == 0.f && fdegVp.h == 0.f,
+          "2g-f 퇴화 입력(이미지·뷰포트) = {0,0}");
+    // 2g-f 이전/다음 wrap-around — 끝 지점 순환(전체 보기 이동 계약).
+    Check(jk::gallery::WrapStep(0, -1, 3) == 2 &&
+              jk::gallery::WrapStep(2, 1, 3) == 0,
+          "2g-f wrap = 끝 지점 순환(이전·다음)");
+    Check(jk::gallery::WrapStep(1, 1, 3) == 2 &&
+              jk::gallery::WrapStep(1, -1, 3) == 0,
+          "2g-f wrap = 범위 내 이동");
+    Check(jk::gallery::WrapStep(5, 0, 3) == 2 &&
+              jk::gallery::WrapStep(7, 1, 3) == 2,
+          "2g-f wrap = 범위 밖 인덱스 수렴(모듈로 정규화)");
+    Check(jk::gallery::WrapStep(0, 1, 0) == 0 &&
+              jk::gallery::WrapStep(0, -1, 0) == 0,
+          "2g-f wrap = 빈 목록 무접촉(무변)");
 }
 
 }  // namespace
