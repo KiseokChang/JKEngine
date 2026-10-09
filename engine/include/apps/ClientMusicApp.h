@@ -8,8 +8,11 @@
 // AppContentTopOffset band math, theme hot-swap re-apply. T2 scope (this
 // line): dir strip over the resolved source dirs (state/music default +
 // settings.json music.dirs) + an async dir-scan worker + a track table
-// (rel / size / mtime) + the name filter. Playback delegation to vplayer is
-// T3 — rows are display-only here and no row reacts to clicks yet.
+// (rel / size / mtime) + the name filter. T3 adds the playback delegation —
+// double-click on a track row sends the spec §4 query pair (launch_app vplayer
+// → app_tool open) via the library app's SendQuery/PollReplies idiom, with a
+// client-side bounded retry absorbing the cold-boot tool-registration race
+// (폴백 원존 — no new server part).
 //
 // Async scan contract (brief: 갤러리 썸네일 워커 원문 계약 — the
 // vplayer/list arrival-dirty idiom is the actual template): a single parked
@@ -29,6 +32,7 @@
 #include <apps/MusicModel.h>
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <mutex>
 #include <string>
@@ -76,6 +80,31 @@ private:
     void ScanWorker();
     static std::string ExeDir();
 
+    // ---- 재생 위임 (T3 — 스펙 §4 D1, 라이브러리 ClientLibraryApp 원문 쌍둥이) ----
+    // 더블클릭 핸들: 쿼리 쌍 ①launch_app({"app":"vplayer"} — 리터럴, 라이브러리
+    // LaunchSelected 원문 재용) → ②이어서 같은 핸들 틱에 app_tool open(
+    // jk::music::OpenRequestJson 원문 꾸러미 — windowId 미기술; 같은 파이프
+    // 작성 순서 = 서버 처리 순서 ①→②). 서버의 app_tool 릴레이는 등록된
+    // (app,tool) 역매칭만 지원(vplayer는 OnInit에서 SendAgentToolRegister —
+    // 자기 연결 수명 동안)이라 **콜드 부팅 경기**가 실측 성립한다: launch_app의
+    // SpawnClient는 비동기라 프로세스 기동+연결+도구 등록이 open 릴레이보다
+    // 뒤져 unknown_app_tool로 떨어진다. 폴백 원존 원칙(스펙 §4 — 신규 서버
+    // 부품 금지·기존 채널만): open 답신의 unknown_app_tool을 **클라 재청구**
+    // (kOpenRetryMax × kOpenRetryMs 시간 pacing — OnIdle, 타이머 더티 아님)로
+    // 흡수한다. 재선택(이미 vplayer 창 존재 → 새 창 없이 open 1콜)은 서버가
+    // launch_app을 무제한 별도 스폰으로 두고(존재 검증 원문 주석 — toggle
+    // 계열은 palette 전용 별도 툴) 클라엔 창 목록 수형 채널이 없어 v1 원문
+    // 쌍 쿼리 계약 우선(report 부기). 그 경로에서 2 인스턴스 등록이면 릴레이가
+    // ambiguous+후보 목록(자기교정)을 준다 — 클라는 추측 없이 status 표기로만
+    // 흡수(스펙 §4.2 봉인 승계).
+    void PlaybackDelegate(const music::Track& t);
+    // AgentQueryReply 폴백 소비(라이브러리 PollReplies 원문 쌍둥이 — 남의
+    // 답신은 흘려보낸다): launch 답신 → 거부 시 폴백 종료, open 답신 → 성공/
+    // 재청구(unknown_app_tool)/실패 판정(재청구 자체는 OnIdle pacing이 소유).
+    // 표기 변화 수령 프레임에만 더티(#89 — 응답 수령 = 이번 틱 내용 변화).
+    void PollReplies();
+    uint32_t SendQuery(const char* tool, const std::string& args);
+
     bool frameDirty_ = true;   // 부팅 첫 렌더(게이트의 renderedOnce 경로) 보증
     bool imguiReady_ = false;
 
@@ -101,6 +130,17 @@ private:
     std::atomic<bool> scanDone_{false};          // 도착 표식(OnIdle 수취 트리거)
     std::atomic<bool> scanQuit_{false};          // 파괴 경련 — wait 폐기+루프 탈출
     bool scanBusy_ = false;            // 요청이 워커에 있고 결과 미도착(표시 몫)
+
+    // ---- 재생 위임 상태 (T3 — 라이브러리 답신 폴링 원문 쌍둥이) ----
+    std::string status_;               // 위임 결과 표기(빈값 = 표기 없음)
+    uint32_t nextQueryId_ = 1;
+    std::vector<uint32_t> pending_;    // AgentQueryReply 라운트트립 체(원문)
+    uint32_t launchId_ = 0;            // ① launch_app 답신 식별 → open 1발 트리거
+    uint32_t openId_ = 0;              // ② app_tool open 답신 식별
+    std::string openPath_;             // 재청구에 다시 전달할 경로(Track.full 사본
+                                       //   — 핸들 시점의 행 참조 죽음 무관)
+    int openRetries_ = 0;              // open 재청구 잔여(콜드 부팅 경기 폴백)
+    std::chrono::steady_clock::time_point openRetryAt_{};  // 재청구 가능 시각
 };
 
 } // namespace jk

@@ -7,13 +7,17 @@
 // displayed vector is the scan worker's ListAudioFiles output verbatim —
 // sorted (mtime desc, rel asc tie) and consumed without re-sort or derivation
 // (selftest 2m-f asserts that isomorphism). Arrival of a scan result is the
-// ONLY frameDirty_ source (#89 idle contract, docs/88). Playback delegation
-// is T3 — rows are display-only in this task.
+// ONLY frameDirty_ source (#89 idle contract, docs/88). T3 adds the playback
+// delegation — a track-row double-click sends the spec §4 query pair
+// (① launch_app vplayer → ② app_tool open) through the library app's
+// SendQuery/PollReplies idiom; replies and exhausted retries are the only
+// extra dirty sources, a retry resend never dirties.
 #include <apps/ClientMusicApp.h>
 
 #include <imgui_impl_jkwindow.h>
 #include <JKTextAtlas.h>
 #include <JKWindow.h>
+#include <agent/JKAgentJson.h>  // open 답신 error 판독(서버 app_tool 릴레이 표기)
 #include <fs/JKFs.h>  // FileTimeToSys — file_clock 수형 → 시간 표기(플랫폼 epoch 몫)
 #include "theme/JKThemeImGui.h"
 #include <SDL.h>
@@ -62,6 +66,14 @@ void HumanSize(long long bytes, char* buf, size_t bufBytes) {
 // 현지 시각(strftime 세부 — ClientSettingsApp::BuildUi 3 블록 원문 수형).
 // 부정 mtime(1970 이전·플랫폼 epoch 차액)은 셀 "-"(표기 부재 — 스탬프 부재와
 // 같은 열외 수형, WorkshopStore의 0 클램프 계열).
+// 재청구 폴백 상수(T3 — 콜드 부팅 경기 흡수): launch_app의 스폰은 비동기라
+// vplayer의 도구 등록(SendAgentToolRegister — 프로세스 기동+연결 뒤)이 open
+// 릴레이보다 뒤져 unknown_app_tool이 떨어진다. 서버 부품 신설 금지(폴백
+// 원존 원칙)라 클라가 기존 채널로 재청구한다 — 20 × 250ms = 5s 예산(기동
+// 실측 대비 큰 여유). 시간 기반 pacing이라 무더기 재청구가 없다.
+constexpr int kOpenRetryMax = 20;
+constexpr std::chrono::milliseconds kOpenRetryDelayMs{250};
+
 void MtimeLabel(long long mtime, char* buf, size_t bufBytes) {
     std::snprintf(buf, bufBytes, "-");
     if (mtime <= 0) return;
@@ -144,10 +156,25 @@ bool ClientMusicApp::PreProcessMessage(const JKEvent& ev) {
 void ClientMusicApp::OnFrameCommitted() { frameDirty_ = false; }
 
 void ClientMusicApp::OnIdle() {
-    // 스캔 결과 수취 — Run 루프의 매 이터레이션(vplayer/라이브러리 "응답 펌프의
-    // 렌더 분리" 수형): 워커의 도착 표식만 읽는다(뮤텍스 접촉은 수취 시 1회 —
-    // 무도착 무비용). **도착 = 유일 더티**(#89 계약): 수취한 결과가 현재 세대면
-    // 표기 갱신+frameDirty_=true, 세대 불일치(재청구가 이겼다)면 폐기만.
+    // 답신 펌프 — Run 루프의 매 이터레이션(vplayer/라이브러리 "응답 펌프의
+    // 렌더 분리" 수형): T3 재생 위임 답신(스캔 도착과 독립 폴링 — 남의 답신은
+    // 흘려보낸다). 무도착 즉귀라 무비용.
+    PollReplies();
+    // open 재청구 pacing(콜드 부팅 경기 폴백) — 발사 1발만 만들고 더티를
+    // 금한다(표기 변화는 답신 수령에만; 시평형 전이면 분기 원문만).
+    if (openRetries_ > 0 && openId_ == 0 && !openPath_.empty() &&
+        std::chrono::steady_clock::now() >= openRetryAt_) {
+        openId_ = SendQuery("app_tool", music::OpenRequestJsonPath(openPath_));
+        if (!openId_) {  // 전송 실패(미연결 등) = 폴백 종료 — 사유 표기가 생기므로
+            openRetries_ = 0;  //   이번 틱 더티(수취/내용 변화 계약의 사유 표기 몫)
+            openPath_.clear();
+            frameDirty_ = true;
+        }
+    }
+    // 스캔 결과 수취 — 워커의 도착 표식만 읽는다(뮤텍스 접촉은 수취 시 1회 —
+    // 무도착 무비용). **도착+답신 수취 = 유일 더티**(#89 계약): 수취한 결과가
+    // 현재 세대면 표기 갱신+frameDirty_=true, 세대 불일치(재청구가 이겼다)
+    // 면 폐기만.
     if (!scanDone_.load(std::memory_order_acquire)) return;
     bool adopted = false;
     {
@@ -254,6 +281,121 @@ void ClientMusicApp::ScanWorker() {
     }
 }
 
+// ---- 재생 위임 (T3 — 스펙 §4 D1) ----
+
+uint32_t ClientMusicApp::SendQuery(const char* tool, const std::string& args) {
+    // 위임 쿼리 발사 — ClientLibraryApp::SendQuery 원문 쌍둥이(라이브러리는
+    // launch_app 1종이라 kind/arg 메타 대신 id만 적립한다 — 동일 계약이
+    // music도 1종과 같다: launch_app+app_tool 둘 다 id 적립형). 0 = 미성립
+    // (미연결·전송 실패 — 사유 표기, 더티는 사유가 뜨는 이번 틱에만).
+    jk::client::JKClientSurface* surface = Surface();
+    if (!surface || !surface->IsConnected()) {
+        status_ = "[!] 서버에 연결되어 있지 않습니다";
+        return 0;
+    }
+    const std::string json =
+        "{\"tool\":\"" + std::string(tool) + "\",\"args\":" + args + "}";
+    const uint32_t id = nextQueryId_++;
+    if (!surface->SendAgentQuery(id, json)) {
+        status_ = "[!] 전송 실패";
+        return 0;
+    }
+    pending_.push_back(id);
+    return id;
+}
+
+void ClientMusicApp::PlaybackDelegate(const music::Track& t) {
+    // 더블클릭 핸들 — 브리프 T3 쿼리 쌍(스펙 §4 원문 재용): ① launch_app
+    //({"app":"vplayer"} 리터럴 — 라이브러리 LaunchSelected 원문 쌍둥이; 서버
+    //가 jkapp_vplayer<접미> 존재 검증을 소유) ② 이어서 app_tool open — 꾸러미
+    //는 순수 부품 jk::music::OpenRequestJson 원문(windowId 미기술 — 단일 후보
+    //= 직행). 두 요청은 같은 파이프에 ①→② 순서로 적힌다(작성 순서 = 서버 처리
+    //순서). 콜드 부팅 경기(vplayer 도구 등록이 스폰+연결 뒤)는 open 답신의
+    //unknown_app_tool 재청구 폴백(PollReplies)이 흡수한다. 쿼리 성립 자체는
+    //표기 변화 없음 — 더티는 답신 수령에만(더블클릭 자체는 입력 활동이라 게이트
+    //가 이미 프레임을 낸다). 재선택(이미 vplayer 창)도 이 원문 쌍이 그대로
+    //간다 — 서버 launch_app은 무제한 별도 스폰(존재 검증 원문 — toggle 계열은
+    //palette 전용 별도 툴), 2 인스턴스 중복 등록이면 릴레이의 ambiguous+후보
+    //목록(자기교정)이 답해 클라는 추측 없이 표기로만 흡수한다(스펙 §4.2).
+    if (t.full.empty()) {
+        status_ = "[!] 재생 경로 없음";   // 방어선(빈 full 행은 스캔 계약상 없다)
+        frameDirty_ = true;
+        return;
+    }
+    launchId_ = 0;
+    openId_ = 0;
+    openPath_ = t.full;               // 재청구 폴백에 다시 전달할 사본
+    openRetries_ = kOpenRetryMax;
+    openRetryAt_ = std::chrono::steady_clock::now();
+    launchId_ = SendQuery("launch_app", "{\"app\":\"vplayer\"}");
+    openId_ = SendQuery("app_tool", music::OpenRequestJson(t));
+    if (!launchId_ || !openId_) frameDirty_ = true;  // 미성립 사유 표기 틱
+}
+
+void ClientMusicApp::PollReplies() {
+    // 답신 소비 — ClientLibraryApp::PollReplies 원문 쌍둥이(남의 답신은
+    // 흘려보낸다 — 드레인 계약). 수령 틱의 표기 변화에만 더티(재청구 재발사는
+    // OnIdle pacing이 소유하고 무더티 — #89: 도착·내용 변화 외 더티 금지).
+    jk::client::JKClientSurface* surface = Surface();
+    if (!surface) return;
+    jk::client::AgentReply reply;
+    while (surface->PollAgentReply(reply)) {
+        bool mine = false;
+        for (auto it = pending_.begin(); it != pending_.end(); ++it) {
+            if (*it == reply.queryId) {
+                pending_.erase(it);
+                mine = true;
+                break;
+            }
+        }
+        if (!mine) continue;  // 우리 쿼리가 아니다 — 무시
+        if (reply.queryId == launchId_) {
+            launchId_ = 0;
+            // ① 답신 — ok면 open이 이미 나가 있고(재청구 pacing 계속), 거부면
+            // 런치 검증 실패(unknown_app — jkapp_vplayer 모듈 부재) 표기+
+            // 폴백 종료(open 재청구가 런치 성립을 전제한다 — 원문 쌍 계약).
+            if (!reply.ok) {
+                status_ = "[!] vplayer 실행 거부";
+                openPath_.clear();
+                openRetries_ = 0;
+                frameDirty_ = true;
+            }
+        } else if (reply.queryId == openId_) {
+            openId_ = 0;
+            jk::agent::AgentJson body(reply.json);
+            std::string err;
+            // ② 답신 판정 — relay 성공(앱의 accepted:true) / unknown_app_tool
+            //(도구 미등록 — 재청구) / ambiguous/그 밖(즉시 표기). 판독은
+            // server 릴레이의 error 원문 필드(AgentJson — vplayer get_status
+            // 답신 수용 수형).
+            if (reply.ok || !body.ok() || !body.GetStr("error", err)) {
+                status_ = "vplayer 재생 요청됨";   // 오픈은 비동기 — 진행은
+                                                  //   vplayer 표면(get_status)
+                openPath_.clear();
+                openRetries_ = 0;
+                frameDirty_ = true;
+            } else if (err == "unknown_app_tool" && openRetries_ > 0) {
+                // 콜드 부팅 경기 — 등록 전 릴레이. 다음 pacing 시각을 세우고
+                // 재청구 대기(OnIdle 재발사). 표기 변화 없음 — 더티 금지.
+                --openRetries_;
+                openRetryAt_ = std::chrono::steady_clock::now() +
+                               kOpenRetryDelayMs;
+            } else if (err == "ambiguous") {
+                // 복수 후보(자기교정 원문 재용) — 추측 없이 표기로만.
+                status_ = "[!] vplayer 창이 복수 — 하나 닫고 다시 시도";
+                openPath_.clear();
+                openRetries_ = 0;
+                frameDirty_ = true;
+            } else {
+                status_ = "[!] 재생 위임 실패";
+                openPath_.clear();
+                openRetries_ = 0;
+                frameDirty_ = true;
+            }
+        }
+    }
+}
+
 void ClientMusicApp::BuildUi(int w, int h) {
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(ImVec2((float)w, (float)h));
@@ -279,6 +421,10 @@ void ClientMusicApp::BuildUi(int w, int h) {
                                  sizeof(filterBuf_));
         ImGui::SameLine();
         ImGui::TextDisabled("%d곡", VisibleTrackCount());
+        ImGui::SameLine();
+        // 위임 결과 표기(T3 — 라이브러리 status 원문 수형 TextWrapped): 답신
+        // 수령 틱의 상태 전환만 채운다(라이브러리와 같은 수형).
+        if (!status_.empty()) ImGui::TextWrapped("%s", status_.c_str());
 
         // Dir strip — resolved dirs in contract order (default music dir
         // first, user dirs after; NormalizeDirs 중복·빈 성분 제거済).
@@ -341,8 +487,10 @@ int ClientMusicApp::VisibleTrackCount() const {
 void ClientMusicApp::BuildTrackTable() {
     // 표기 동형 계약: 행 데이터는 tracks_(ListAudioFiles 결과) 그대로 — 재정렬
     // 없음(최신순 유지), rel 열은 Track.rel 원문, 필터는 **열외만**(순서 보존 —
-    // 흡수 2m-f "정렬·rel 동형"의 UI측 절반). 행 선택은 T3(재생 위임) —
-    // 이번 태스크는 표시 전용(브리프 명시).
+    // 흡수 2m-f "정렬·rel 동형"의 UI측 절반). 행 더블클릭 = 재생 위임(T3 —
+    // 파일 dialogs의 IsItemHovered+IsMouseDoubleClicked 원문 수형): 경로 셀
+    // 기준(행 내부 아이템 1개 — 셀별 수형, 행 래퍼 Selectable 신설 금지).
+    // 대상은 행 참조 t 그 자체라 필터 열외 순회와 무관하게 full이 정확하다.
     const std::string filter(filterBuf_);
     if (ImGui::BeginTable("tracks", 3,
                           ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
@@ -360,6 +508,9 @@ void ClientMusicApp::BuildTrackTable() {
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
             ImGui::TextUnformatted(t.rel.c_str());
+            if (ImGui::IsItemHovered() &&
+                ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                PlaybackDelegate(t);  // 더블클릭 → vplayer 위임(T3 계약)
             char sizeBuf[32];
             HumanSize(t.size, sizeBuf, sizeof(sizeBuf));
             ImGui::TableSetColumnIndex(1);

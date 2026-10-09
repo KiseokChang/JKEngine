@@ -5538,6 +5538,41 @@ static int RunAppSelfTest() {
                   "rel 열 원문)");
             fs::remove_all(tdir);
         }
+
+        // 2m-g) 재생 위임 꾸러미 (T3): jk::music::OpenRequestJson — app_tool
+        // open 인자 전문 조립 원문(브리프 T3 순수 부품 — {"app":"vplayer",
+        // "tool":"open","args":{"path"<full>"}}), vplayer 도구 선언
+        // ("open" — path 필수)과 relay 후보 역매칭 계약에 정확히 맞춘 리터럴.
+        // windowId 미기술(단일 후보=직행 — 지정하지 않으므로 서버 추측 없음).
+        // 3케이스: 일반 경로·역슬래시 정규화·공백 경로(재청구 폴백이 쓰는
+        // 경로판 overload와의 등가도 동반 단정 — 같은 core 소비).
+        {
+            jk::music::Track t1;                      // 일반 경로
+            t1.full = "music/sub/song.mp3";
+            check(jk::music::OpenRequestJson(t1) ==
+                      "{\"app\":\"vplayer\",\"tool\":\"open\",\"args\":"
+                      "{\"path\":\"music/sub/song.mp3\"}}",
+                  "2m-g 일반 경로 = app_tool open 꾸러미 조립 원문(app/tool "
+                  "리터럴·windowId 미기술)");
+            jk::music::Track t2;                      // 역슬래시(Windows 수형)
+            t2.full = "C:\\music\\sub\\a.mp3";
+            check(jk::music::OpenRequestJson(t2) ==
+                      "{\"app\":\"vplayer\",\"tool\":\"open\",\"args\":"
+                      "{\"path\":\"C:/music/sub/a.mp3\"}}",
+                  "2m-g 역슬래시 경로 = 슬래시 정규화(JSON 이스케이프 축적 없음"
+                  " — generic_string 원형)");
+            jk::music::Track t3;                      // 공백 경로
+            t3.full = "my music/cold song.mp3";
+            check(jk::music::OpenRequestJson(t3) ==
+                      "{\"app\":\"vplayer\",\"tool\":\"open\",\"args\":"
+                      "{\"path\":\"my music/cold song.mp3\"}}",
+                  "2m-g 공백 경로 = 원문 수용(JSON 문자열 감싸기 — % 이스케이프"
+                  " 불요) + 경로판 재청구 overload 등가");
+            check(jk::music::OpenRequestJson(t3) ==
+                      jk::music::OpenRequestJsonPath(t3.full),
+                  "2m-g 재청구 경로판(OpenRequestJsonPath) = Track판 등가"
+                  "(폴백 재청구 1발 동기화)");
+        }
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);

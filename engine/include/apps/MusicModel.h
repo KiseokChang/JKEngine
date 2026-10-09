@@ -294,6 +294,49 @@ inline bool MatchFilter(const std::string& name, const std::string& filter) {
     return n.find(f) != std::string::npos;
 }
 
+// ---- 재생 위임 (T3 — 스펙 §4 D1) ----
+
+// 위임 꾸러미 조립 (selftest 2m-g — 브리프 T3 원문 부품): app_tool 대상 인자
+// 전문 {"app":"vplayer","tool":"open","args":{"path":"<full>"}} — app/tool은
+// vplayer 도구 선언 원문(ClientVPlayerApp.cpp "open" — path 필수) 리터럴.
+// **windowId 미기술**(서버 app_tool 릴레이 후보 수집 계약 — JKWindowServer
+// §4.2: 지정=직행, 미지정+단일 후보=직행, 미지정+복수=ambiguous+후보 목록
+// 자기교정 — vplayer 다중 인스턴스에서만 그 경로가 열리고, 클라는 추측 없이
+// 그 표기를 그대로 흡수한다). core는 경로 문자열판(답신 수령 후 사본 path로
+// 재청구하는 폴백이 소비), Track 판은 full 원문을 건네는 얇은 껍데기.
+// path 표기: '\'→'/' 정규화만(generic_string 원형 — MusicDirFallback/Track
+// 어느 쪽도 같은 표기, Windows 수형 경로가 JSON 이스케이프로 쌓이지 않고
+// 폰/WSL의 '/' 표기와 동형이 된다 — vplayer OpenPath는 fs::path로 다시
+// 접는다). 이어지는 이스케이프는 ClientLibraryApp::EscapeJson 쌍둥이 원문
+// 수형(따옴표·제어 문자 \uXXXX — 역슬래시는 정규화가 전부 먹는다). 런치
+// 인자 {"app":"vplayer"}는 이 부품의 대상이 아니다(핸들러 리터럴 — 라이브러
+// 리 LaunchSelected 원문 쌍둥이, 쌍 쿼리 ①launch_app ②app_tool).
+inline std::string OpenRequestJsonPath(const std::string& full) {
+    std::string out;
+    out.reserve(56 + full.size());
+    out += "{\"app\":\"vplayer\",\"tool\":\"open\",\"args\":{\"path\":\"";
+    for (const char ch : full) {
+        const unsigned char c = static_cast<unsigned char>(ch);
+        if (ch == '\\') {
+            out += '/';                    // 슬래시 정규화
+        } else if (ch == '"') {
+            out += "\\\"";
+        } else if (c < 0x20) {
+            char num[8];
+            std::snprintf(num, sizeof(num), "\\u%04x", static_cast<int>(c));
+            out += num;
+        } else {
+            out += ch;                     // 공백 포함 원문 수용 — JSON 문자열
+                                           //   꾸러미가 감싸므로 이스케이프 불요
+        }
+    }
+    out += "\"}}";
+    return out;
+}
+inline std::string OpenRequestJson(const Track& t) {
+    return OpenRequestJsonPath(t.full);
+}
+
 } // namespace music
 } // namespace jk
 
