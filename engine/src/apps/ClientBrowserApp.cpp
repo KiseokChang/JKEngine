@@ -40,6 +40,10 @@ namespace {
 SDL_Renderer* g_renderer = nullptr;
 SDL_Texture* g_tex = nullptr;
 int g_texW = 0, g_texH = 0;
+// #89 T2 — 이번 OnIdle 펌프에서 실제 on_paint가 도착했는지의 표식(동일
+// 스레드 — rh_on_paint가 채우고 OnIdle이 열람·리셋). 페이지 픽셀 도착만이
+// 프레임을 요구한다(정적 페이지 = 무렌더).
+volatile int g_painted = 0;
 
 cef_browser_t* g_browser = nullptr; // set in on_after_created
 int g_browserGone = 0;
@@ -249,6 +253,7 @@ void CEF_CALLBACK rh_on_paint(struct _cef_render_handler_t* /*self*/,
         for (int y = 0; y < height; ++y)
             memcpy(dst + (size_t)y * pitch, src + (size_t)y * stride, stride);
         SDL_UnlockTexture(g_tex);
+        g_painted = 1;   // #89 T2 — 도착 표식(OnIdle 펌프가 직후 더티화)
     }
 }
 
@@ -472,7 +477,7 @@ void ClientBrowserApp::OnInit() {
     main->SetAttrFlags(WA_CHROMELESS); // server close button only (docs/23 §9)
     SetMainWindow(std::move(main));
 
-    SetTimerInterval(16); // ~60 Hz frame cadence (CEF pump + repaint clock)
+    SetTimerInterval(16); // 틱 = 배송 채널(#89 T1/T2 — 활동·더티 아님)
 
     ImGui::CreateContext();
     jk::theme::ApplyImGuiTheme(); // JKTheme 팔레트 봉합 (P2 단계 3)
@@ -521,8 +526,11 @@ void ClientBrowserApp::OnClose() {
 
 bool ClientBrowserApp::PreProcessMessage(const JKEvent& ev) {
     ImGui_ImplJKWindow_ProcessJKEvent(ev);
-    if (ev.type == JKEventType::Timer)
-        frameDirty_ = true; // frame clock (docs/23 §11.5 lesson 5)
+    // #89 T2 — Timer 무조건 더티 관용구(frame clock 주석 — docs/23 §11.5
+    // lesson 5)는 스핀 진원(스파이크 원장 §1a)이라 삭제한다. 브라우저의
+    // 두 반쪽은 이제 분리된다: CEF 펌프는 OnIdle(매 이터레이션 — 렌더와
+    // 무관히 페이지 로드/JS 타이머가 진행)로, 프레임은 on_paint(페이지
+    // 픽셀 도착)가 있은 펌프만 요구한다 — 정적 페이지 = 무렌더.
 
     if (!cefReady_)
         return true;
@@ -627,8 +635,9 @@ void ClientBrowserApp::RenderOverlay(SDL_Renderer* renderer, int w, int h) {
 
     if (cefReady_) {
         g_renderer = renderer;
-        cef_do_message_loop_work(); // may fire on_paint -> g_tex update
-        // Pull display-handler state across the g_ bridge (same thread).
+        // 펌프는 OnIdle로 떠났다(#89 T2) — 이 렌더 프레임이 그리는 g_tex는
+        // 직전 OnIdle 펌프가 떠놓은 픽셀(이 이터레이션의 도착분 포함).
+        // 디스플레이 핸들러 상태는 g_ 브리지에서 동일 스레드로 당겨 쓴다.
         currentUrl_ = g_currentUrl;
         currentTitle_ = g_currentTitle;
     }
@@ -643,6 +652,18 @@ void ClientBrowserApp::RenderOverlay(SDL_Renderer* renderer, int w, int h) {
     BuildUi(w, h);
     ImGui::Render();
     ImGui_ImplJKWindow_RenderDrawData(ImGui::GetDrawData(), renderer);
+}
+
+void ClientBrowserApp::OnIdle() {
+    // #89 T2 — CEF 펌프의 렌더 분리: 펌프는 매 이터레이션 돈다(페이지
+    // 로드·JS 타이머·네트워크 진행이 렌더 유무와 분리). 이번 펌프에서
+    // on_paint(페이지 픽셀 도착 — rh_on_paint의 g_painted 표식)가 있었을
+    // 때만 프레임을 요구한다: 재생 중 상태와 동형(스펙 설계 3), 정적
+    // 페이지는 무렌더. 케이던스 등가 — 렌더도 16ms 스트라이드 상한이었다.
+    if (!cefReady_ || g_browserGone) return;
+    g_painted = 0;
+    cef_do_message_loop_work();
+    if (g_painted) frameDirty_ = true;
 }
 
 void ClientBrowserApp::InitCef() {

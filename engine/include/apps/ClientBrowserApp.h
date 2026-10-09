@@ -30,6 +30,7 @@ protected:
     bool IsFrameDirty() const override { return frameDirty_; }
     void OnFrameCommitted() override;
     void RenderOverlay(SDL_Renderer* renderer, int w, int h) override;
+    void OnIdle() override;  // #89 T2 — CEF 펌프의 렌더 분리(페인트 도착 더티)
 
 private:
     // One bookmark row in the bar. title is never empty on disk rows (load

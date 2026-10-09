@@ -2,6 +2,7 @@
 // list + self-sampled per-process stats. See ClientTaskmgrApp.h.
 #include <apps/ClientTaskmgrApp.h>
 
+#include <apps/ClientIdlePolicy.h>
 #include <imgui_impl_jkwindow.h>
 #include <implot.h>
 #include "theme/JKThemeImGui.h"
@@ -172,7 +173,7 @@ void ClientTaskmgrApp::OnInit() {
     main->SetAttrFlags(WA_CHROMELESS); // server close button only
     SetMainWindow(std::move(main));
 
-    SetTimerInterval(16); // ~60 Hz frame cadence (same clock as the demo)
+    SetTimerInterval(16); // 틱 = 배송 채널(#89 T1/T2 — 더티는 샘플 경계만)
 
     ImGui::CreateContext();
     jk::theme::ApplyImGuiTheme(); // JKTheme 팔레트 봉합 (P2 단계 3)
@@ -224,10 +225,19 @@ bool ClientTaskmgrApp::PreProcessMessage(const JKEvent& ev) {
     // input queue (docs/23 §5.2-3). Unhandled kinds are ignored inside the
     // backend, so blind feeding is safe.
     ImGui_ImplJKWindow_ProcessJKEvent(ev);
-    // The 16ms timer is the frame clock — re-arm the frame gate here (see the
-    // Phase 1 lesson, docs/23 §11.5).
     if (ev.type == JKEventType::Timer) {
-        frameDirty_ = true;
+        // #89 T2 — 내용 변화 틱만(초시계 규약의 저빈도 대응): 통계 샘플
+        // 경계(500ms — CPU%·메모리·플롯 스크롤이 바뀌는 유일 틱)와 창
+        // 목록 더티. 16ms 무변화 틱은 더티가 아니다(스파이크 원장 §1a —
+        // 프레임 클록 관용구의 조건화 수형; 산치 = jk::idle::SampleDue,
+        // selftest 2i-c가 같은 수형을 단정).
+        if (listDirty_ ||
+            jk::idle::SampleDue(static_cast<unsigned long long>(
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - lastSample_)
+                    .count()))) {
+            frameDirty_ = true;
+        }
     }
     if (ev.type == JKEventType::WindowListChanged) {
         listDirty_ = true;

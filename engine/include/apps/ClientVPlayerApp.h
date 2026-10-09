@@ -29,8 +29,14 @@ protected:
     bool IsFrameDirty() const override { return frameDirty_; }
     void OnFrameCommitted() override;
     void RenderOverlay(SDL_Renderer* renderer, int w, int h) override;
+    void OnIdle() override;  // #89 T2 — 응답 펌프의 렌더 분리(답신 수령+도착 더티)
 
 private:
+    // #89 T2 — 타이머 콜백의 진행 중 판정(재생·비동기 열기·스크럽·OSD
+    // 애니메이션). 산치 원문 = jk::idle::Progressing
+    // (include/apps/ClientIdlePolicy.h) — selftest 2i-c가 같은 수형을 단정.
+    bool FrameClockNeeded();
+
     void BuildUi(int w, int h);
     void SyncVideoTexture(SDL_Renderer* renderer);
     void OpenPath(const char* path);
@@ -84,6 +90,9 @@ private:
     std::unique_ptr<PlayerCore, PlayerCoreDeleter> player_;
 
     bool frameDirty_ = true;
+    // #89 T2 — 비동기 열기의 종료 경계 1프레임 래치(성공/실패 문구 착상 —
+    // 열기 도중 틱마다 FrameClockNeeded가 낳고, 종료 틱에 1회 더티).
+    bool openingLatched_ = false;
     bool imguiReady_ = false;
     std::chrono::steady_clock::time_point lastFrame_;
 

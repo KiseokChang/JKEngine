@@ -81,7 +81,7 @@ void ClientFilesApp::OnInit() {
     main->SetAttrFlags(WA_CHROMELESS);
     SetMainWindow(std::move(main));
 
-    SetTimerInterval(16);   // ~60 Hz frame cadence (agentmgr 선례)
+    SetTimerInterval(16);   // 틱 = 배송 채널(#89 T1/T2 — 활동·더티 아님)
 
     ImGui::CreateContext();
     jk::theme::ApplyImGuiTheme();
@@ -116,7 +116,11 @@ void ClientFilesApp::OnThemeChanged() {
 
 bool ClientFilesApp::PreProcessMessage(const JKEvent& ev) {
     ImGui_ImplJKWindow_ProcessJKEvent(ev);
-    if (ev.type == JKEventType::Timer) frameDirty_ = true;
+    // #89 T2 — Timer 무조건 더티 관용구(agentmgr 선례) 삭제: 타이머 틱은
+    // 활동이 아니다(T1 게이트 재계약)이고 파일 허브는 정적 UI다. 남는 렌더
+    // 원 = 입력·테마(게이트 활동)+에이전트 응답 수령(OnIdle 폴백 — 목록
+    // 변경 틱만 더티).
+    return true;
     return true;
 }
 
@@ -155,7 +159,10 @@ void ClientFilesApp::PollReplies() {
                 break;
             }
         }
-        if (found) ApplyReply(kind, reply.json);
+        if (found) {
+            ApplyReply(kind, reply.json);
+            frameDirty_ = true;   // #89 T2 — 수령한 응답 = 이번 틱 내용 변화
+        }
     }
 }
 
@@ -238,12 +245,18 @@ void ClientFilesApp::ApplyReply(Query kind, const std::string& json) {
     }
 }
 
+void ClientFilesApp::OnIdle() {
+    // #89 T2 — 응답 폴백의 렌더 분리: 수령이 렌더 프레임에만 일어나면
+    // 정적 화면(무렌더)에서 답신을 영원히 못 받는다 — 매 이터레이션 폴백,
+    // 수령분의 목록·상태가 UI 내용을 바꿀 때만 더티.
+    PollReplies();
+}
+
 void ClientFilesApp::RenderOverlay(SDL_Renderer* renderer, int w, int h) {
     if (!imguiReady_) {
         if (!ImGui_ImplJKWindow_Init(renderer)) return;
         imguiReady_ = true;
     }
-    PollReplies();
 
     ImGui_ImplJKWindow_NewFrame(1.0f / 60.0f, w, h);
     ImGui::NewFrame();

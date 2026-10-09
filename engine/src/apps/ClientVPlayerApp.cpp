@@ -1,5 +1,6 @@
 #include <apps/ClientVPlayerApp.h>
 
+#include <apps/ClientIdlePolicy.h>
 #include <apps/JKScrubClock.h>
 #include <agent/JKAgentJson.h>
 #include <imgui_impl_jkwindow.h>
@@ -2044,7 +2045,7 @@ void ClientVPlayerApp::OnInit() {
     main->SetAttrFlags(WA_CHROMELESS); // server close button only (docs/23 §9)
     SetMainWindow(std::move(main));
 
-    SetTimerInterval(16); // ~60 Hz frame cadence
+    SetTimerInterval(16); // 틱 = 배송 채널(#89 T1/T2 — 더티는 진행 중만)
 
     ImGui::CreateContext();
     jk::theme::ApplyImGuiTheme(); // JKTheme 팔레트 봉합 (P2 단계 3)
@@ -2112,9 +2113,51 @@ void ClientVPlayerApp::OnClose() {
 bool ClientVPlayerApp::PreProcessMessage(const JKEvent& ev) {
     ImGui_ImplJKWindow_ProcessJKEvent(ev);
     if (ev.type == JKEventType::Timer) {
-        frameDirty_ = true; // frame clock (docs/23 §11.5 lesson 5)
+        // #89 T2 —Timer 무조건 더티 관용구(스파이크 원장 §1a)의 조건화:
+        // 재생 중은 프레임마다 더티(동영상 — 스펙 예외 조항), 비재생 정지
+        // 화면은 무렌더(진행 중 판정은 FrameClockNeeded — 아래).
+        if (FrameClockNeeded()) frameDirty_ = true;
     }
     return true;
+}
+
+// 진행 중 판정(#89 T2 — 스펙 설계 3 "다음 프레임을 계속 필요로 하는 상태").
+// 산치 원문은 jk::idle::Progressing(include/apps/ClientIdlePolicy.h) 단일
+// 진실원 — selftest 2i-c가 같은 수형을 단정한다.
+bool ClientVPlayerApp::FrameClockNeeded() {
+    // 스크럽(조그 드래그·휠·시크 슬라이더·역재생 펌프) — 플레임 펌프 자체가
+    // 프레임을 진행시킨다.
+    if (reverseActive_ || jogActive_ || wheelScrubbing_ || seekingUi_) {
+        return true;
+    }
+    // 극장 모드 OSD — 하단 밴드 2.5s 카운트다운+200ms 페이드(스펙 §2.3).
+    // osdShown_/osdAlpha_는 TheaterUi의 BuildUi가 매 렌더 재계산한다 —
+    // 렌더가 멈춘 상태에서의 판정은 마지막 렌더 시점 값(카운트다운 소멸
+    // 프레임은 이 조건이 다시 렌더를 일으켜 재계산한다).
+    if (fullscreenUi_ &&
+        (osdShown_ || (osdAlpha_ > 0.02f && osdAlpha_ < 0.98f))) {
+        return true;
+    }
+    if (!player_) return false;
+    const PlayerCore::Snap st = player_->SnapNow();
+    if (st.opening) {
+        openingLatched_ = true;
+        return true;   // 비동기 열기 진행 중 — 스피너/진행 표시
+    }
+    if (openingLatched_) {
+        openingLatched_ = false;
+        return true;   // 열기 종료 경계 1프레임(성공/실패 문구 착상)
+    }
+    return jk::idle::Progressing(jk::idle::VplayerProgress{
+        /*opening=*/false, /*playing=*/st.opened && !st.paused && !st.ended,
+        /*scrubbing=*/false, /*osdAnimating=*/false });
+}
+
+void ClientVPlayerApp::OnIdle() {
+    // #89 T2 — 응답 펌프의 렌더 분리: 답신 수령이 렌더 프레임에만 일어나면
+    // 정지 화면(무렌더) 앱은 파커드 쿼리를 영원히 못 받는다 — 펌프는 매
+    // 이터레이션 돌고, 수령한 응답이 UI 상태를 바꿀 때만 더티를 낸다.
+    PumpAgentReplies();
 }
 
 void ClientVPlayerApp::OnFrameCommitted() {
@@ -2138,7 +2181,6 @@ void ClientVPlayerApp::RenderOverlay(SDL_Renderer* renderer, int w, int h) {
     ImGui_ImplJKWindow_NewFrame(dt, w, h);
     ImGui::NewFrame();
 
-    PumpAgentReplies();
     SyncVideoTexture(renderer);
     BuildUi(w, h);
 
@@ -2508,6 +2550,7 @@ void ClientVPlayerApp::PumpAgentReplies() {
                 const auto now = std::chrono::steady_clock::now();
                 osdLastActivity_ = now;
                 lastOsdTick_ = now;
+                frameDirty_ = true;   // #89 T2 — 거울 갱신 = 내용 변화
             }
             continue;
         }
@@ -2520,6 +2563,7 @@ void ClientVPlayerApp::PumpAgentReplies() {
         if (!body.ok() || !body.GetStr("path", path) || path.empty()) continue;
         // lastDir_ is recorded in OpenPath — every open site feeds it there.
         OpenPath(path.c_str());
+        frameDirty_ = true;   // #89 T2 — 파일 열기 = 내용 변화(재생 전환)
     }
 }
 

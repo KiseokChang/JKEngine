@@ -52,7 +52,7 @@ void ClientAgentMgrApp::OnInit() {
     main->SetAttrFlags(WA_CHROMELESS);
     SetMainWindow(std::move(main));
 
-    SetTimerInterval(16);   // ~60 Hz frame cadence (taskmgr clock)
+    SetTimerInterval(16);   // 틱 = 배송 채널(#89 T1/T2 — 활동·더티 아님)
 
     ImGui::CreateContext();
     jk::theme::ApplyImGuiTheme();
@@ -85,7 +85,10 @@ void ClientAgentMgrApp::OnThemeChanged() {
 
 bool ClientAgentMgrApp::PreProcessMessage(const JKEvent& ev) {
     ImGui_ImplJKWindow_ProcessJKEvent(ev);
-    if (ev.type == JKEventType::Timer) frameDirty_ = true;
+    // #89 T2 — Timer 무조건 더티 관용구 삭제: 타이머 틱은 활동이 아니다
+    // (T1 게이트 재계약)이고 에이전트 관리자는 정적 UI다. 남는 렌더 원 =
+    // 입력·테마(게이트 활동)·응답 수령(OnIdle 폴백 — 수령 틱만 더티).
+    return true;
     return true;
 }
 
@@ -152,7 +155,10 @@ void ClientAgentMgrApp::PollReplies() {
                 break;
             }
         }
-        if (found) ApplyReply(kind, reply.json);
+        if (found) {
+            ApplyReply(kind, reply.json);
+            frameDirty_ = true;   // #89 T2 — 수령한 응답 = 이번 틱 내용 변화
+        }
     }
 }
 
@@ -287,12 +293,16 @@ void ClientAgentMgrApp::ApplyReply(Query kind, const std::string& json) {
     }
 }
 
+void ClientAgentMgrApp::OnIdle() {
+    // #89 T2 — 응답 폴백의 렌더 분리(응답 도착 시 더티 — 수령 즉시 렌더).
+    PollReplies();
+}
+
 void ClientAgentMgrApp::RenderOverlay(SDL_Renderer* renderer, int w, int h) {
     if (!imguiReady_) {
         if (!ImGui_ImplJKWindow_Init(renderer)) return;
         imguiReady_ = true;
     }
-    PollReplies();
 
     ImGui_ImplJKWindow_NewFrame(1.0f / 60.0f, w, h);
     ImGui::NewFrame();

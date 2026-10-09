@@ -26,6 +26,7 @@
 
 #include <agent/JKLlmEngine.h>  // kStubShellCmdPosix (case 10), TurnSync (case 15)
 #include <client/JKActivityGate.h>  // case 2i (T1) — 클라 활동 게이트 순수 부품
+#include <apps/ClientIdlePolicy.h>  // case 2i-c (T2) — 앱 Timer→더티 조건화 산치
 #include <apps/ChatRouter.h>  // 자연어 승격 배선 (T4 — case 16 twin)
 #include <apps/GalleryModel.h>  // case 2g (T1) — 갤러리 순수 부품 직링크
 #include <JKTextAtlas.h>  // case 19 (T2) — 텍스트 배율 결선 순수 부품 단정
@@ -2414,6 +2415,45 @@ void TestActivityGate() {
               /*themeChanged=*/false, /*frameDirty=*/false,
               /*renderedOnce=*/true, /*fallback=*/false, neverDirty),
           "2i-b 타이머 배송+입력 공존 = 활동(타이머 불참여가 활동을 누르지 않음)");
+
+    // 2i-c) 16 ImGui 앱 Timer→더티 조건화 산치 (#89 T2 — 스펙 설계 2-3).
+    // 근거 = 스파이크 원장 §1a — "Timer 이벤트마다 frameDirty_=true" 무조건
+    // 관용구가 idle 스핀 진원. 산치 원문은 include/apps/ClientIdlePolicy.h
+    // (jk::idle) 단일 진실원 — 앱(gallery·vplayer·taskmgr·notify·imguidemo)
+    // 과 이 쌍둥이가 같은 수형을 소비한다. 정적 앱 11곳의 타이머 더티 분기
+    // 삭제는 자체 정적 계약(분기 부재 — 채널 유지 스윕 원문은 해당 .cpp),
+    // 무더티 정적 앱이 매 틱 렌더를 부활시키지 않음은 게이트 수형 2i-a가
+    // 단정한다 — 아래 합성 단정은 그 표 수형의 게이트 쪽 원문 재단정.
+    const auto prog = [](bool o, bool p, bool s, bool osd) {
+        return jk::idle::Progressing(jk::idle::VplayerProgress{o, p, s, osd});
+    };
+    Check(prog(true, false, false, false),
+          "2i-c vplayer 비동기 열기 = 진행 중(더티)");
+    Check(prog(false, true, false, false),
+          "2i-c vplayer 재생 중 = 프레임마다(스펙 예외 조항)");
+    Check(prog(false, false, true, false),
+          "2i-c vplayer 조그/휠/시크/역재생 = 진행 중");
+    Check(prog(false, false, false, true),
+          "2i-c vplayer 극장 OSD 페이드/카운트다운 = 진행 중");
+    Check(!prog(false, false, false, false),
+          "2i-c vplayer 일시정지/미개/종료 = 무더티(정지 화면 — 무렌더 의도)");
+    Check(!jk::idle::ToastFading(5000) && !jk::idle::ToastFading(2000) &&
+              jk::idle::ToastFading(1999) && jk::idle::ToastFading(1) &&
+              !jk::idle::ToastFading(0),
+          "2i-c notify 토스트 페이드 창 = [0,2000)만 진행 중(풀알파 3s 정적)");
+    Check(!jk::idle::SampleDue(499) && jk::idle::SampleDue(500) &&
+              jk::idle::SampleDue(501),
+          "2i-c taskmgr 샘플 경계 = 500ms 이상 틱만 더티(무변화 틱 제거)");
+    Check(!jk::client::GateWantRender(
+              /*timerDelivered=*/true, /*inputDrained=*/false,
+              /*agentEvent=*/false, /*toolCall=*/false,
+              /*themeChanged=*/false, /*frameDirty=*/false,
+              /*renderedOnce=*/true, /*fallback=*/false, neverDirty),
+          "2i-c 정적 앱 = 무변화 틱 무렌더(16앱 스윕의 게이트 합성 원문)");
+    Check(!jk::client::GateWantRender(
+              true, false, false, false, false, false, true,
+              /*fallback=*/true, [] { return false; }),
+          "2i-c 정적 앱 idle 1s+장면 클린 = 폴백도 스킵(자기유지 더티 소각)");
 }
 
 }  // namespace

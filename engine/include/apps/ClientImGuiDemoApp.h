@@ -37,6 +37,10 @@ private:
     bool showIo_ = false;
     float plotValues_[90] = {};
     int plotOffset_ = 0;
+    // #89 T2 — 롤링 웨이브의 샘플 기점: 타이머 콜백은 이 기점에서 200ms
+    // 경계(5fps)만 프레임을 요구한다(진행 중 산치 — 무입력 idle 60fps 관용구
+    // 소각). BuildUi가 실제 샘플을 찍은 렌더 프레임이 기점을 갱신한다.
+    std::chrono::steady_clock::time_point waveLast_{};
 };
 
 } // namespace jk

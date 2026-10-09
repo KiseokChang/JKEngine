@@ -102,6 +102,7 @@ extern "C" __declspec(dllimport) int __stdcall closesocket(
 #include <JKLibraryCatalog.h>  // selftest 1m — 라이브러리 카탈로그 3원 스캔
 #include <apps/ChatRouter.h>   // selftest 1n — 채팅 명령 라우터(스펙 §1.3)
 #include <apps/GalleryModel.h>  // selftest 2g — 갤러리 순수 부품(스펙 2026-10-09-gallery-design)
+#include <apps/ClientIdlePolicy.h>  // selftest 2i-c — 앱 Timer→더티 조건화 산치(#89 T2)
 #include <script/JKScriptHost.h>
 #include <SDL.h>
 #include <filesystem>
@@ -5284,6 +5285,57 @@ static int RunAppSelfTest() {
                   /*themeChanged=*/false, /*frameDirty=*/false,
                   /*renderedOnce=*/true, /*fallback=*/false, neverDirty),
               "2i-b 타이머 배송+입력 공존 = 활동(타이머 불참여가 활동을 누르지 않음)");
+    }
+
+    // 2i-c) 16 ImGui 앱 Timer→더티 조건화 산치 (#89 T2 — 스펙 설계 2-3).
+    // 근거 = 스파이크 원장 §1a — "Timer 이벤트마다 frameDirty_=true" 무조건
+    // 관용구가 idle 스핀 진원. 앱의 타이머 콜백은 **이번 틱에 실제로 바뀌는
+    // 내용(진행 중 상태)이 있을 때만** 더티를 내며, 산치 원문은
+    // include/apps/ClientIdlePolicy.h(jk::idle) 단일 진실원 — 앱(gallery·
+    // vplayer·taskmgr·notify·imguidemo)과 이 쌍둥이가 같은 수형을 소비한다.
+    // 정적 앱 11곳의 타이머 더티 분기 삭제는 자체 정적 계약(분기 부재)이고,
+    // 무더티 정적 앱이 매 틱 렌더를 부활시키지 않는 건 게이트 수형 2i-a가
+    // 단정한다 — 아래 합성 단정(타이머 틱+더티 부재 = 렌더 유발 안 함)은
+    // 그 표 수형의 게이트 쪽 원문 재단정이다.
+    {
+        // vplayer — 진행 중 상태 합산(스펙 설계 3). 재생·비동기 열기·스크럽
+        // ·OSD 애니메이션만 true, 정지(일시정지·미개·완결)는 false.
+        const auto prog = [](bool o, bool p, bool s, bool osd) {
+            return jk::idle::Progressing(
+                jk::idle::VplayerProgress{o, p, s, osd});
+        };
+        check(prog(true, false, false, false), "2i-c vplayer 비동기 열기 = 진행 중(더티)");
+        check(prog(false, true, false, false), "2i-c vplayer 재생 중 = 프레임마다(스펙 예외 조항)");
+        check(prog(false, false, true, false), "2i-c vplayer 조그/휠/시크/역재생 = 진행 중");
+        check(prog(false, false, false, true), "2i-c vplayer 극장 OSD 페이드/카운트다운 = 진행 중");
+        check(!prog(false, false, false, false),
+              "2i-c vplayer 일시정지/미개/종료 = 무더티(정지 화면 — 무렌더 의도)");
+        // notify — 토스트는 도착 프레임(풀알파 3s 정적), 말미 페이드 2s만
+        // 진행 중, 소멸 경계는 앱 래치로 1프레임(2i-a의 1fps 폴백 도합 원문).
+        check(!jk::idle::ToastFading(5000) && !jk::idle::ToastFading(2000) &&
+                  jk::idle::ToastFading(1999) && jk::idle::ToastFading(1) &&
+                  !jk::idle::ToastFading(0),
+              "2i-c notify 토스트 페이드 창 = [0,2000)만 진행 중(풀알파 3s 정적)");
+        // taskmgr — 500ms 샘플 경계만 내용(CPU%·플롯)이 바뀐다.
+        check(!jk::idle::SampleDue(499) && jk::idle::SampleDue(500) &&
+                  jk::idle::SampleDue(501),
+              "2i-c taskmgr 샘플 경계 = 500ms 이상 틱만 더티(무변화 틱 제거)");
+        // 정적 앱 11곳(gallery·files·notes·settings·chat·library·agentmgr·
+        // filedialog·imguidemo·palette·shot·snap — snap은 응답 대기 자기유지
+        // 만 조건 잔존, gallery는 썸네일 요 실패 조건 잔존): 타이머 콜백이
+        // "조건 없는 더티"가 아님의 게이트 쪽 합성 단정 — 내용 변화 없는
+        // 틱(frameDirty=false)은 어떤 틱 잔존으로도 렌더를 부활시키지 않는다.
+        check(!jk::client::GateWantRender(
+                  /*timerDelivered=*/true, /*inputDrained=*/false,
+                  /*agentEvent=*/false, /*toolCall=*/false,
+                  /*themeChanged=*/false, /*frameDirty=*/false,
+                  /*renderedOnce=*/true, /*fallback=*/false,
+                  [] { return false; }),
+              "2i-c 정적 앱 = 무변화 틱 무렌더(16앱 스윕의 게이트 합성 원문)");
+        check(!jk::client::GateWantRender(
+                  true, false, false, false, false, false, true,
+                  /*fallback=*/true, [] { return false; }),
+              "2i-c 정적 앱 idle 1s+장면 클린 = 폴백도 스킵(자기유지 더티 소각)");
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);

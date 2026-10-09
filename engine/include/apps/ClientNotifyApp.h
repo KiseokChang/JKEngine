@@ -69,6 +69,10 @@ private:
     // track, docs/33 §제한): the newest entry shows for 5 s, 2 s fade-out.
     NotifyEntry toastEntry_;
     uint64_t toastUntilMs_ = 0;
+    // #89 T2 — 소멸 경계 래치: 토스트가 살아 있는 사이(래치=참) 만료 틱에
+    // 1프레임만 더티(사라짐) — 풀알파 3s 구간과 소멸 후는 무더티. 산치 원문
+    // = jk::idle::ToastFading(include/apps/ClientIdlePolicy.h).
+    bool toastLatched_ = false;
     std::string badge_;   // last title sent — UpdateBadge skips no-ops
 };
 

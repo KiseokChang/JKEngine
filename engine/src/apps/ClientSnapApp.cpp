@@ -46,7 +46,7 @@ void ClientSnapApp::OnInit() {
     main->SetAttrFlags(WA_CHROMELESS);
     SetMainWindow(std::move(main));
 
-    SetTimerInterval(16); // ~60 Hz frame cadence (notify/palette idiom)
+    SetTimerInterval(16); // 틱 = 배송 채널(#89 T1/T2 — 활동·더티 아님)
 
     ImGui::CreateContext();
     jk::theme::ApplyImGuiTheme(); // JKTheme 팔레트 봉합 (P2 단계 3)
@@ -74,9 +74,10 @@ void ClientSnapApp::OnClose() {
 
 bool ClientSnapApp::PreProcessMessage(const JKEvent& ev) {
     ImGui_ImplJKWindow_ProcessJKEvent(ev);
-    if (ev.type == JKEventType::Timer) {
-        frameDirty_ = true;
-    }
+    // #89 T2 — Timer 무조건 더티 관용구 삭제: 드래그 밴드는 마우스 이동
+    // (입력 — 게이트 활동)이 프레임을 만들고, 마우스를 멈춘 순간은 화면도
+    // 변하지 않는다(정적). 남는 프레임 원은 응답 대기 중(아래 RenderOverlay
+    // 조건)과 ESC 등 입력.
     return true;
 }
 
@@ -112,7 +113,12 @@ void ClientSnapApp::RenderOverlay(SDL_Renderer* renderer, int w, int h) {
         BuildUi(w, h);
         ImGui::Render();
         ImGui_ImplJKWindow_RenderDrawData(ImGui::GetDrawData(), renderer);
-        frameDirty_ = true; // keep animating until the overlay is gone
+        // #89 T2 — 자기유지 더티의 조건화: 응답 대기 중(캡처 결과 도착 or
+        // 3s 사망선)만 프레임을 지속한다 — 폴백이 렌더 프레임에서만 폴백하면
+        // 수령 시점에 오버레이가 못 닫힌다. 드래그 자체는 마우스 이동
+        // (입력 활동)이 프레임을 만든다.
+        if (pendingQueryId_ != 0)
+            frameDirty_ = true; // keep animating until the overlay is gone
     }
 
     if (done) {

@@ -27,6 +27,7 @@ protected:
     bool IsFrameDirty() const override { return frameDirty_; }
     void OnFrameCommitted() override;
     void RenderOverlay(SDL_Renderer* renderer, int w, int h) override;
+    void OnIdle() override;  // #89 T2 — 응답 폴백의 렌더 분리(수령 시 더티)
 
 private:
     void BuildUi(int w, int h);

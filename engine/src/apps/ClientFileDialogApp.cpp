@@ -119,7 +119,7 @@ void ClientFileDialogApp::OnInit() {
                                            // the server close X resolves us too
     SetMainWindow(std::move(main));
 
-    SetTimerInterval(16); // ~60 Hz frame cadence (palette/snap idiom)
+    SetTimerInterval(16); // 틱 = 배송 채널(#89 T1/T2 — 활동·더티 아님)
 
     ImGui::CreateContext();
     jk::theme::ApplyImGuiTheme(); // JKTheme 팔레트 봉합 (P2 단계 3)
@@ -161,13 +161,20 @@ void ClientFileDialogApp::OnClose() {
 
 bool ClientFileDialogApp::PreProcessMessage(const JKEvent& ev) {
     // Every event goes to the backend before the next NewFrame consumes the
-    // input queue (docs/23 §5.2-3). The 16 ms timer is the frame clock —
-    // re-arm the frame gate here (palette idiom).
-    ImGui_ImplJKWindow_ProcessJKEvent(ev);
-    if (ev.type == JKEventType::Timer) {
-        frameDirty_ = true;
-    }
+    // input queue (docs/23 §5.2-3).
+    // #89 T2 — Timer 무조건 더티 관용구(frame clock — palette idiom) 삭제:
+    // 타이머 틱은 활동이 아니다(T1 게이트 재계약)이고 다이얼로그는 정적
+    // UI다. 남는 렌더 원 = 입력·테마(게이트 활동)+params 응답 수령(OnIdle
+    // 폴백 — 필터·시작폴더·제목 적용 틱만 더티).
     return true;
+}
+
+void ClientFileDialogApp::OnIdle() {
+    // #89 T2 — params 요청/폴백의 렌더 분리: 렌더 프레임에만 폴백하던
+    // params 수령은 정적 화면(무렌더)에서 영원히 못 받는다. 수령한 params가
+    // 목록·필터·제목을 바꿀 때만 더티.
+    RequestParams();
+    PumpReplies();
 }
 
 void ClientFileDialogApp::OnFrameCommitted() {
@@ -185,8 +192,8 @@ void ClientFileDialogApp::RenderOverlay(SDL_Renderer* renderer, int w, int h) {
     const float dt = std::chrono::duration<float>(now - lastFrame_).count();
     lastFrame_ = now;
 
-    RequestParams();
-    PumpReplies();
+    // params 요청/폴백은 OnIdle로 떠났다(#89 T2 — 렌더와 무관히 수령하며
+    // 수령 틱만 더티).
 
     ImGui_ImplJKWindow_NewFrame(dt, w, h);
     ImGui::NewFrame();
@@ -548,6 +555,7 @@ void ClientFileDialogApp::PumpReplies() {
         }
         // Sender correlation: remember who to echo in file_open_result.
         requesterConnId_ = static_cast<uint32_t>(reqConn);
+        frameDirty_ = true;   // #89 T2 — params 수령(필터/시작폴더/제목 변경)
         // 요청 타이틀 적용 (final-review MINOR-1) — params가 공백/부재면
         // 기본 "파일 열기"를 유지한다. KSSM 크롬 변환은 그리기 직전
         // (cbaa53c)이므로 여기선 UTF-8 원문만 세팅하면 된다.

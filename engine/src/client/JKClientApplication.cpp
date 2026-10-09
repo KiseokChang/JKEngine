@@ -323,12 +323,14 @@ int JKClientApplication::Run() {
         // 활동이 아니므로, 간격 유지 렌더가 필요한 앱은 자기 틱 콜백 내용이
         // 변했을 때 스스로 더티를 낸다(T2의 앱별 조건화와 같은 계약).
         //
-        // T2 전까지 16 ImGui 앱은 Timer→frameDirty 관용구(앱별)가 남아 있어
-        // 이벤트 폴백 후퇴 없이 매 틱 렌더가 유지된다(정적 UI 시각 등가 —
-        // 동일 픽셀, idle 부하도 T1에서 불변). 앱별 조건화는 T2 몫. terminal은
-        // 이미 더티 구동, taskbar는 레거시 타이머 없음 — 대조군(접촉 금지).
-        // 채널 유무 5원료 — GateWantRender의 인자. timerTick은 계측 전용
-        // (활동 마킹 아님).
+        // T2(16 ImGui 앱 스윕) 수행 완료: Timer→frameDirty 무조건 관용구는
+        // 앱별 조건화(진행 중 내용 틱만 — 재생·비동기 열기·토스트 페이드·
+        // 샘플 경계·페이지 페인트 도착) 또는 삭제(정적 UI — 응답 수령은
+        // 앱 OnIdle이 폴백하고 수령 틱만 더티)됐다. 응답 펌프는 RenderOverlay
+        // → OnIdle로 분리 — 렌더 프레임에서만 폴백하면 정적 화면이 답신을
+        // 영원히 못 받는다. terminal은 이미 더티 구동, taskbar는 레거시
+        // 타이머 없음 — 대조군(접촉 금지). 채널 유무 5원료 — GateWantRender의
+        // 인자. timerTick은 계측 전용(활동 마킹 아님).
         bool timerTick = false, inputActivity = false, agentActivity = false,
              toolCallActivity = false, themeActivity = false;
         const auto t0 = std::chrono::steady_clock::now();

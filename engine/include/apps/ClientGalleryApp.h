@@ -116,6 +116,10 @@ private:
     long long thumbFrame_ = 0;         // 프레임 세대(RenderOverlay마다 증가 —
                                        //   퇴출 후보의 동일 프레임 접촉 제외)
     unsigned long long scanGen_ = 0;   // RefreshFiles마다 증가(실패 재시도 세대)
+    // #89 T2 — 이번 프레임에서 placeholder로 남은 요청(풀 상한+동프레임
+    // 유보). 참인 동안만 프레임을 지속한다(썸네일 "도착 대기 중" — 도착
+    // 프레임이 곧 마지막; RenderOverlay 끝 자기유지 더티의 조건화 수형).
+    bool pendingThumbs_ = false;
 
     // T2 full view state.
     bool fullView_ = false;            // 2-state view mode (grid / full view)

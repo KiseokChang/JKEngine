@@ -53,7 +53,7 @@ void ClientShotApp::OnInit() {
     main->SetAttrFlags(WA_CHROMELESS);
     SetMainWindow(std::move(main));
 
-    SetTimerInterval(16); // ~60 Hz frame cadence (notify idiom)
+    SetTimerInterval(16); // 틱 = 배송 채널(#89 T1/T2 — 활동·더티 아님)
 
     ImGui::CreateContext();
     jk::theme::ApplyImGuiTheme(); // JKTheme 팔레트 봉합 (P2 단계 3)
@@ -82,9 +82,11 @@ void ClientShotApp::OnClose() {
 
 bool ClientShotApp::PreProcessMessage(const JKEvent& ev) {
     ImGui_ImplJKWindow_ProcessJKEvent(ev);
-    if (ev.type == JKEventType::Timer) {
-        frameDirty_ = true;
-    }
+    // #89 T2 — Timer 무조건 더티 관용구 삭제 + RenderOverlay 말단 자기유지
+    // 더티(:108) 삭제 — 완전 정적 UI(샷 목록·선택 미리보기). 남는 렌더 원 =
+    // 입력·테마(게이트 활동)·새 목록 요청(새로고침 버튼 등 입력). 서버가
+    // 새 스크린샷을 찍어도 목록은 사용자 새로고침 계약(원문 — OnInit/
+    // 버튼 클릭 RefreshList).
     return true;
 }
 
@@ -105,7 +107,9 @@ void ClientShotApp::RenderOverlay(SDL_Renderer* renderer, int w, int h) {
     BuildUi(w, h);
     ImGui::Render();
     ImGui_ImplJKWindow_RenderDrawData(ImGui::GetDrawData(), renderer);
-    frameDirty_ = true;
+    // #89 T2 — 자기유지 더티 소멸(원문 삭제): 렌더 후 무조건 더티는
+    // 스핀 진원(spike :127 동형). 정적 화면은 이 렌더가 마지막 — 입력/
+    // 테마 활동이 다음 프레임을 회복한다.
 }
 
 void ClientShotApp::RefreshList() {

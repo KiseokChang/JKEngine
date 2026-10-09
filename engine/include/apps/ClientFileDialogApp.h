@@ -43,6 +43,7 @@ protected:
     bool IsFrameDirty() const override { return frameDirty_; }
     void OnFrameCommitted() override;
     void RenderOverlay(SDL_Renderer* renderer, int w, int h) override;
+    void OnIdle() override;  // #89 T2 — params 요청/폴백의 렌더 분리(수령 시 더티)
 
 private:
     struct Entry {

@@ -48,7 +48,7 @@ void ClientImGuiDemoApp::OnInit() {
     main->SetAttrFlags(WA_CHROMELESS); // server close button only (docs/23 §9)
     SetMainWindow(std::move(main));
 
-    SetTimerInterval(16); // ~60 Hz frame cadence
+    SetTimerInterval(16); // 틱 = 배송 채널(#89 T1/T2 — 더티는 웨이브 경계만)
 
     ImGui::CreateContext();
     jk::theme::ApplyImGuiTheme(); // JKTheme 팔레트 봉합 (P2 단계 3)
@@ -77,11 +77,15 @@ bool ClientImGuiDemoApp::PreProcessMessage(const JKEvent& ev) {
     // NewFrame consumes the input queue (docs/23 §5.2-3). Unhandled kinds are
     // ignored inside the backend, so blind feeding is safe.
     ImGui_ImplJKWindow_ProcessJKEvent(ev);
-    // The 16ms timer is the frame clock: without re-arming here the first
-    // frame would be the last (OnFrameCommitted clears the flag and nothing
-    // else sets it — the run loop then idles forever).
+    // #89 T2 — Timer 무조건 더티 관용구(예전 "frame clock" 주석)의 조건화:
+    // 데모의 진행 중 내용은 패널 롤링 웨이브(sine+noise)뿐이라 200ms 샘플
+    // 경계(5fps)만 프레임 — 60fps 프레임 클록은 관용구 소각 대상(스파이크
+    // 원장 §1a). 부팅 첫 프레임은 frameDirty_ 기본 참+게이트
+    // !renderedOnce 원문이 보장한다(렌더 후 정지 — 입력/테마가 재개).
     if (ev.type == JKEventType::Timer) {
-        frameDirty_ = true;
+        const auto now = std::chrono::steady_clock::now();
+        if (now - waveLast_ >= std::chrono::milliseconds(200))
+            frameDirty_ = true;
     }
     return true;
 }
@@ -131,6 +135,9 @@ void ClientImGuiDemoApp::BuildUi(int w, int h) {
         plotValues_[plotOffset_] = 0.5f + 0.4f * sinf((float)ImGui::GetTime() * 2.2f)
                                  + 0.05f * ((rand() % 100) / 100.0f - 0.5f);
         plotOffset_ = (plotOffset_ + 1) % 90;
+        // #89 T2 — 샘플 기점 갱신: 웨이브가 실제로 진행한 렌더 프레임이
+        // 곧 기점(출력 — PreProcessMessage의 200ms 경계 판정을 소각).
+        waveLast_ = std::chrono::steady_clock::now();
         ImGui::PlotLines("wave", plotValues_, 90, plotOffset_, nullptr, 0.0f, 1.0f, ImVec2(-1, 60));
 
         if (showIo_) {

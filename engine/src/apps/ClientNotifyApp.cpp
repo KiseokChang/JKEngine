@@ -4,6 +4,7 @@
 // paints the dark clear color.
 #include <apps/ClientNotifyApp.h>
 
+#include <apps/ClientIdlePolicy.h>
 #include <agent/JKAgentJson.h>
 #include <imgui_impl_jkwindow.h>
 #include "theme/JKThemeImGui.h"
@@ -43,7 +44,7 @@ void ClientNotifyApp::OnInit() {
     main->SetAttrFlags(WA_CHROMELESS);
     SetMainWindow(std::move(main));
 
-    SetTimerInterval(16); // ~60 Hz frame cadence (taskmgr clock)
+    SetTimerInterval(16); // 틱 = 배송 채널(#89 T1/T2 — 활동·더티 아님)
 
     LoadConfig();
     LoadHistory();
@@ -83,7 +84,22 @@ void ClientNotifyApp::OnClose() {
 bool ClientNotifyApp::PreProcessMessage(const JKEvent& ev) {
     ImGui_ImplJKWindow_ProcessJKEvent(ev);
     if (ev.type == JKEventType::Timer) {
-        frameDirty_ = true;
+        // #89 T2 — Timer 무조건 더티 관용구(스파이크 원장 §1a)의 조건화.
+        // 토스트는 도착 프레임에서 그려진다(OnAgentEvent의 frameDirty_ —
+        // 에이전트 이벤트는 게이트 활동). 이후 풀알파 3s 구간은 정적 —
+        // 무더티. 진행 중(말미 페이드 2s — jk::idle::ToastFading)만 프레임,
+        // 소멸 경계 1프레임은 래치로 소각한다.
+        const uint64_t now = NowMs();
+        if (toastUntilMs_ != 0) {
+            if (now < toastUntilMs_) {
+                if (jk::idle::ToastFading(toastUntilMs_ - now))
+                    frameDirty_ = true;   // 페이드 애니메이션 진행 중
+            } else if (toastLatched_) {
+                frameDirty_ = true;       // 소멸 경계 — 1프레임(사라짐)
+                toastLatched_ = false;
+                toastUntilMs_ = 0;
+            }
+        }
     }
     return true;
 }
@@ -198,6 +214,7 @@ void ClientNotifyApp::OnAgentEvent(const std::string& eventJson) {
 
     toastEntry_ = entry;
     toastUntilMs_ = NowMs() + 5000;
+    toastLatched_ = true;   // #89 T2 — 소멸 경계 래치(만료 틱에 1프레임)
     UpdateBadge();
     frameDirty_ = true;
 }
@@ -228,6 +245,7 @@ void ClientNotifyApp::ClearHistory() {
     history_.clear();
     unread_ = 0;
     toastUntilMs_ = 0;
+    toastLatched_ = false;
     SaveHistory();
     UpdateBadge();
     frameDirty_ = true;

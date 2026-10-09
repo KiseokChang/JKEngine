@@ -66,7 +66,7 @@ void ClientGalleryApp::OnInit() {
     main->SetAttrFlags(WA_CHROMELESS);
     SetMainWindow(std::move(main));
 
-    SetTimerInterval(16); // ~60 Hz frame cadence (notify/shot idiom)
+    SetTimerInterval(16); // 틱 = 배송 채널(#89 T1/T2 — 활동·더티 아님)
 
     ImGui::CreateContext();
     jk::theme::ApplyImGuiTheme(); // JKTheme 팔레트 봉합 (P2 단계 3)
@@ -97,9 +97,12 @@ void ClientGalleryApp::OnClose() {
 
 bool ClientGalleryApp::PreProcessMessage(const JKEvent& ev) {
     ImGui_ImplJKWindow_ProcessJKEvent(ev);
-    if (ev.type == JKEventType::Timer) {
-        frameDirty_ = true;
-    }
+    // #89 T2 — Timer 무조건 더티 관용구 삭제(스파이크 원장 §1a — 폰 무변화
+    // 19fps 풀코어 스핀의 진원). 타이머 틱은 활동이 아니다(T1 게이트 재계약
+    // — client/JKActivityGate.h)이고 갤러리는 정적 UI다: 렌더 원 = 입력·테마
+    // (게이트 활동)+응답/썸네일 도착(아래 RenderOverlay 소멸 조건). 뷰모드
+    // 스왑·표시 갱신은 입력 경로가 활동을 이미 만든다(스펙 설계 2 — 뷰모드
+    // 스왑은 즉시 더티 1프레임이면 충분).
     return true;
 }
 
@@ -108,6 +111,7 @@ void ClientGalleryApp::OnFrameCommitted() {
 }
 
 void ClientGalleryApp::RenderOverlay(SDL_Renderer* renderer, int w, int h) {
+    pendingThumbs_ = false;
     ++thumbFrame_;  // T3 fix r1 — 이번 프레임의 요청 세대(퇴출 산치의 원자선;
                     //   BuildUi 셀 요청 전에 반드시 성립)
     if (!imguiReady_) {
@@ -124,7 +128,12 @@ void ClientGalleryApp::RenderOverlay(SDL_Renderer* renderer, int w, int h) {
     BuildUi(w, h);
     ImGui::Render();
     ImGui_ImplJKWindow_RenderDrawData(ImGui::GetDrawData(), renderer);
-    frameDirty_ = true;
+    // #89 T2 — 자기유지 더티 소멸(스파이크 :127 원문): 렌더 후 무조건 더티는
+    // OnFrameCommitted가 지워도 되돌려 스핀을 지켰다. 썸네일 요청은 BuildUi의
+    // 동기 파이프라인(캐시/디코드 → 같은 프레임 도착)이라 도착 완료 프레임이
+    // 곧 마지막 프레임이다. 진행 중(풀 상한+동프레임 유보로 placeholder가
+    // 남은 요청 — ThumbTexture의 유보 표식)만 재요청을 위해 1틱 뒤 프레임.
+    frameDirty_ = pendingThumbs_;
 }
 
 void ClientGalleryApp::ResolveDirs() {
@@ -363,7 +372,12 @@ ClientGalleryApp::ThumbView ClientGalleryApp::ThumbTexture(
     ThumbSlot* slot = FindThumbSlot(fullPath);
     if (!slot) {
         slot = AcquireThumbSlot(fullPath);
-        if (!slot) return ThumbView();  // 상한+동프레임 — placeholder 유지
+        if (!slot) {
+            // 풀 상한+동프레임 — placeholder 유지. 진행 중 표식: 다음 틱에
+            // 1프레임 재요청(#89 T2 자기유지 소멸 조건 — 도착하면 정지).
+            pendingThumbs_ = true;
+            return ThumbView();
+        }
         FillThumbSlot(*slot, fullPath);
     } else if (slot->failed && slot->failedGen != scanGen_) {
         // 실패 슬롯 재시도 — 스캔 세대가 바뀐 뒤 처음 조명에서 1회만.

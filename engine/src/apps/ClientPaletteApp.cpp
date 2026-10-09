@@ -43,7 +43,7 @@ void ClientPaletteApp::OnInit() {
     main->SetAttrFlags(WA_CHROMELESS);
     SetMainWindow(std::move(main));
 
-    SetTimerInterval(16); // ~60 Hz frame cadence (taskmgr clock)
+    SetTimerInterval(16); // 틱 = 배송 채널(#89 T1/T2 — 활동·더티 아님)
 
     ImGui::CreateContext();
     jk::theme::ApplyImGuiTheme(); // JKTheme 팔레트 봉합 (P2 단계 3)
@@ -67,13 +67,19 @@ void ClientPaletteApp::OnClose() {
 
 bool ClientPaletteApp::PreProcessMessage(const JKEvent& ev) {
     // Every event goes to the backend before the next NewFrame consumes the
-    // input queue (docs/23 §5.2-3). The 16 ms timer is the frame clock —
-    // re-arm the frame gate here (docs/23 §11.5 lesson 5).
-    ImGui_ImplJKWindow_ProcessJKEvent(ev);
-    if (ev.type == JKEventType::Timer) {
-        frameDirty_ = true;
-    }
+    // input queue (docs/23 §5.2-3).
+    // #89 T2 — Timer 무조건 더티 관용구(frame clock — docs/23 §11.5 lesson 5)
+    // 삭제: 타이머 틱은 활동이 아니다(T1 게이트 재계약)이고 팔레트는 정적
+    // UI다. 남는 렌더 원 = 입력·테마(게이트 활동)+에이전트 이벤트/응답 수령
+    // (이벤트는 토픽 구독 — 자체 더티, 응답은 OnIdle 폴백).
     return true;
+}
+
+void ClientPaletteApp::OnIdle() {
+    // #89 T2 — 응답 폴백의 렌더 분리: 파커드 툴콜 풀림(pendingQueryId_)·
+    // undo 스냅샷 연쇄가 렌더 프레임에만 일어나면 정지 화면에서 한 힌트도
+    // 못 받는다. 수령이 UI 내용(log/feed/연쇄 발화)을 바꿀 때 더티.
+    PumpReplies();
 }
 
 void ClientPaletteApp::OnFrameCommitted() {
@@ -90,8 +96,6 @@ void ClientPaletteApp::RenderOverlay(SDL_Renderer* renderer, int w, int h) {
     const auto now = std::chrono::steady_clock::now();
     const float dt = std::chrono::duration<float>(now - lastFrame_).count();
     lastFrame_ = now;
-
-    PumpReplies();
 
     ImGui_ImplJKWindow_NewFrame(dt, w, h);
     ImGui::NewFrame();
@@ -143,6 +147,7 @@ void ClientPaletteApp::BuildUi(int w, int h) {
 void ClientPaletteApp::AppendLog(const std::string& line) {
     log_.push_back(line);
     scrollDirty_ = true;
+    frameDirty_ = true;   // #89 T2 — 로그 도착(연쇄 응답·오류) = 내용 변화
 }
 
 // 코어 펌프 이관 (docs/54 §4, opus 리뷰 M1): 코어가 유일 드레이너 — 훅으로
@@ -159,6 +164,9 @@ void ClientPaletteApp::OnAgentEvent(const std::string& eventJson) {
                     (title.empty() ? "?" : title) +
                     " (#" + std::to_string(id) + ")");
     while (feed_.size() > 12) feed_.erase(feed_.begin());
+    // #89 T2 — 피드 도착 = 내용 변화(이벤트 채널은 게이트 활동이라 렌더는
+    // 이미 일어난다 — 정적 화면의 잔여 어커런시에도 더티를 직접 남긴다).
+    frameDirty_ = true;
 }
 
 std::string ClientPaletteApp::EscapeJson(const std::string& in) {
