@@ -94,16 +94,19 @@ private:
     // 흡수한다. 소진 크레딧(openRetries_)은 **답신 수취(PollReplies)에서만
     // 감법**하고(발사인 OnIdle pace는 감법을 만들지 않는다), 0 도달 = 수취
     // 시점 즉시 소진 전이(표기 1행+더티 1회 — fix r2 I-1: 감법이 OnIdle에
-    // 의존하면 마지막 답신 뒤 영구 실패·표기 dead code가 된다). ok=false의
-    // error 객체(앱-수준 도구 실패)는 재청구 대상 아님 — 즉시 종착(서버
-    // HandleToolResult 조립 정합 — fix r1 I-2). 재선택(이미 vplayer 창
-    // 존재 → 새 창 없이 open 1콜)은 서버가 launch_app을 무제한 별도 스폰으로
-    // 두고(존재 검증 원문 주석 — toggle 계열은 palette 전용 별도 툴) 클라엔
-    // 창 목록 수형 채널이 없어 v1 원문 쌍 쿼리 계약 우선(report 부기). 그
-    // 경로에서 2 인스턴스 등록이면 릴레이가 ambiguous+후보 목록(자기교정)을
-    // 준다 — 클라는 추측 없이 status 표기로만 흡수(스펙 §4.2 봉인 승계).
-    // launch 미성립 시의 사후 open 답신은 겹침 가드로 무음 회수(fix r1 M-2
-    // — 거부 안내 status 납치 방지).
+    // 의존하면 마지막 답신 뒤 영구 실패·표기 dead code가 된다). 답신의 대분법
+    // 은 봉투 ok를 무신하는 **본문 재판정**(fix r3 — music::DelegationReplyVerdict
+    // 소비): 서버 즉답 경로는 봉투 ok=1 고정(본문 거부와 무관 — T4 실측 결함
+    // "즉답 거부를 성공으로 읽어 폴백 크레딧 즉시 소멸"의 진원)이라 본문이
+    // 진실원 — 본문 ok=false+error(앱-수준 실패)는 unknown_app_tool만 재청구
+    // 대상(fix r1 I-2 계약의 본문계층 승격), 그 밖 즉시 종착+err 부기.
+    // 재선택(이미 vplayer 창 존재 → 새 창 없이 open 1콜)은 서버가 launch_app을
+    // 무제한 별도 스폰으로 두고(존재 검증 원문 주석 — toggle 계열은 palette
+    // 전용 별도 툴) 클라엔 창 목록 수형 채널이 없어 v1 원문 쌍 쿼리 계약
+    // 우선(report 부기). 그 경로에서 2 인스턴스 등록이면 릴레이가
+    // ambiguous+후보 목록(자기교정)을 준다 — 클라는 추측 없이 status 표기로만
+    // 흡수(스펙 §4.2 봉인 승계). launch 미성립 시의 사후 open 답신은 겹침
+    // 가드로 무음 회수(fix r1 M-2 — 거부 안내 status 납치 방지).
     void PlaybackDelegate(const music::Track& t);
     // AgentQueryReply 폴백 소비(라이브러리 PollReplies 원문 쌍둥이 — 남의
     // 답신은 흘려보낸다): launch 답신 → 거부 시 폴백 종료, open 답신 → 성공/

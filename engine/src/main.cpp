@@ -5573,6 +5573,28 @@ static int RunAppSelfTest() {
                   "2m-g 재청구 경로판(OpenRequestJsonPath) = Track판 등가"
                   "(폴백 재청구 1발 동기화)");
         }
+
+        // 2m-h) 위임 답신 본문 재판정 (T3 fix r3): music::DelegationReplyVerdict
+        // — 봉투 ok 고정 1에 무신하는 본문 진실원(T4 결함 원장 "폴백 자기
+        // 소멸" 봉합). 봉투 원문 2건(T4 위임 원장 원문 문자열) — ①즉답 거부
+        // 원문(sync 경로: 봉투 ok=1·본문 unknown_app_tool 거부 — 봉투만 믿으면
+        // 성공 오독) ②핫 경로 원문(지연응답: 본문 ok=true+result) — 각각 본문
+        // 판정 단정.
+        {
+            const jk::music::DelegationVerdict cold =
+                jk::music::DelegationReplyVerdict(
+                    true, "{\"ok\":false,\"error\":\"unknown_app_tool\"}");
+            const jk::music::DelegationVerdict hot =
+                jk::music::DelegationReplyVerdict(
+                    true,
+                    "{\"ok\":true,\"windowId\":37,\"result\":"
+                    "{\"accepted\":true}}");
+            check(!cold.ok && cold.err == "unknown_app_tool" && hot.ok &&
+                      hot.err.empty(),
+                  "2m-h 봉투 ok=1 원문 2건 = 본문 재판정(즉답 거부 → 실패+"
+                  "unknown_app_tool 재청구 대상·핫 경로 → 성공) — 봉투 무신 "
+                  "본문 진실원");
+        }
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);

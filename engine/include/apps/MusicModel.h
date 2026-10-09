@@ -338,6 +338,39 @@ inline std::string OpenRequestJson(const Track& t) {
     return OpenRequestJsonPath(t.full);
 }
 
+// ---- 위임 답신 본문 재판정 (T3 fix r3 — T4 결함 원장: 폴백 자기 소멸) ----
+
+// 위임 답신의 대분법. 클라 봉투(AgentReply.ok)는 전송원이 임의로 고정한 수가
+// 들어온다: 서버 즉답 경로(agent 쿼리의 sync 답신 — JKWindowServer.cpp
+// WriteAgentJson(..., 1, reply))는 봉투 ok=**1 고정**(본문
+// {"ok":false,"error":"unknown_app_tool"}와 무관 — T4 MUSIC-GLUE-COLD-REPLY
+// 실측), 릴레이 지연응답(HandleToolResult)은 봉투 ok=앱 결과 ok. 봉투만 믿으면
+// 즉답 거부를 성공으로 읽어 재청구 크레딧이 최초 거부에서 즉시 소멸한다(T3
+// fix r2까지의 클라 판정이 이 겉돌이로 T4 폴백 자기 소멸 실측). 진실원은
+// **본문 판정** — 본문이 "ok"를 기술하면 본문(봉투 무신), 미기술이면 봉투
+// 원문 fallback(fix r1 I-2 계약의 본문계층 승격). err는 본문 error 표기 원문(
+// "unknown_app_tool"=재청구 대상 — 도구 등록 경기, "ambiguous"=복수 후보
+// 자기교정, 그 밖=즉시 종착 부기).
+struct DelegationVerdict {
+    bool ok = false;       // 본문 기술 ok(봉투 무신) 또는 봉투 fallback
+    std::string err;       // 본문 "error" 원문(기술 시만 — 판정 보조 표기)
+};
+
+inline DelegationVerdict DelegationReplyVerdict(bool envelopeOk,
+                                                const std::string& replyJson) {
+    DelegationVerdict v;
+    const agent::AgentJson body(replyJson);
+    int bodyOk = 0;        // 본문 "ok"는 불리언(true/false) — Int 리더가
+                           // JS_ToInt64로 1/0을 읽는다(숫자 표기 원문 수용)
+    if (body.ok() && body.GetInt("ok", bodyOk)) {
+        v.ok = (bodyOk != 0);
+    } else {
+        v.ok = envelopeOk; // 본문 ok 미기술·파손 — 봉투 원문 fallback
+    }
+    if (!body.ok() || !body.GetStr("error", v.err)) v.err.clear();
+    return v;
+}
+
 } // namespace music
 } // namespace jk
 

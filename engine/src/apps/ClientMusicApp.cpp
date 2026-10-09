@@ -17,7 +17,6 @@
 #include <imgui_impl_jkwindow.h>
 #include <JKTextAtlas.h>
 #include <JKWindow.h>
-#include <agent/JKAgentJson.h>  // open 답신 error 판독(서버 app_tool 릴레이 표기)
 #include <fs/JKFs.h>  // FileTimeToSys — file_clock 수형 → 시간 표기(플랫폼 epoch 몫)
 #include "theme/JKThemeImGui.h"
 #include <SDL.h>
@@ -64,19 +63,26 @@ void HumanSize(long long bytes, char* buf, size_t bufBytes) {
 // file_clock epoch가 플랫폼마다 다르므로 jk::fs::FileTimeToSys 단일 수형으로
 // system_clock을 풀고(WorkshopStore::EntryMtimeSecs 동형) LocaltimeS shim으로
 // 현지 시각(strftime 세부 — ClientSettingsApp::BuildUi 3 블록 원문 수형).
-// 부정 mtime(1970 이전·플랫폼 epoch 차액)은 셀 "-"(표기 부재 — 스탬프 부재와
-// 같은 열외 수형, WorkshopStore의 0 클램프 계열).
+// **숫자 가드는 0만**(fix r3 부수 원장 ① — T4 WSL 실측): libstdc++(GCC 13)
+// file_clock epoch=2174라 last_write_time().time_since_epoch().count()가
+// **음수**로 나오고(실측 count=-4646113461279417845), 구판의 mtime<=0 가드는
+// 그 전행을 "-"로 오렸다. 음수는 FileTimeToSys 재구성(clock_cast)에서 정상
+// 시각(2026-10-09)으로 풀린다(같은 실측 — 변환 후 표기 부합). 0(스탬프 부재
+// — stat 실패 열외 수형)만 "-" 유지. 변환 실패(지지 시대 미만 등)는
+// LocaltimeS/strftime 실패 분기가 "-" 폴백을 소유한다(무음 계약 원문).
+// Windows·phone은 양수 epoch라 증상 없음(T4 실측 — 가드 정정의 관측 몫).
 // 재청구 폴백 상수(T3 — 콜드 부팅 경기 흡수): launch_app의 스폰은 비동기라
 // vplayer의 도구 등록(SendAgentToolRegister — 프로세스 기동+연결 뒤)이 open
 // 릴레이보다 뒤져 unknown_app_tool이 떨어진다. 서버 부품 신설 금지(폴백
 // 원존 원칙)라 클라가 기존 채널로 재청구한다 — 20 × 250ms = 5s 예산(기동
-// 실측 대비 큰 여유). 시간 기반 pacing이라 무더기 재청구가 없다.
+// 실측 대비 큰 여유). 시간 기반 pacing이라 무더기 재청구가 없다. 크레딧은
+// 답신 수취에서만 소모한다(fix r2/r3 원칙 — 감법 소재는 PollReplies 1곳).
 constexpr int kOpenRetryMax = 20;
 constexpr std::chrono::milliseconds kOpenRetryDelayMs{250};
 
 void MtimeLabel(long long mtime, char* buf, size_t bufBytes) {
     std::snprintf(buf, bufBytes, "-");
-    if (mtime <= 0) return;
+    if (mtime == 0) return;
     const std::chrono::system_clock::time_point sys =
         jk::fs::FileTimeToSys(
             std::filesystem::file_time_type::clock::time_point(
@@ -360,14 +366,22 @@ void ClientMusicApp::PollReplies() {
             }
         }
         if (!mine) continue;  // 우리 쿼리가 아니다 — 무시
+        // 대분법 — 봉투 ok 무신 본문 재판정(fix r3 I-1/진원 수형): 즉답 경로는
+        // 봉투 ok=1 고정(본문 거부와 무관), 지연응답만 봉투=앱 결과다 — 봉투만
+        // 믿는 판정(fix r2까지)은 콜드 거부를 성공으로 읽어 폴백 크레딧을
+        // 즉시 소멸시켰다(T4 결함 원장 — 폴백 자기 소멸). 대분법 자체는 순수
+        // 부품(music::DelegationReplyVerdict) 소비 — 2m-h 원문 실측.
+        const music::DelegationVerdict dv =
+            music::DelegationReplyVerdict(reply.ok, reply.json);
         if (reply.queryId == launchId_) {
             launchId_ = 0;
-            // ① 답신 — ok면 open이 이미 나가 있고(재청구 pacing 계속), 거부면
-            // 런치 검증 실패(unknown_app — jkapp_vplayer 모듈 부재) 표기+
-            // 폴백 종료(open 재청구가 런치 성립을 전제한다 — 원문 쌍 계약,
-            // fix r1 M-2: 사후 open 답신 겹침 가드도 여기서 세운다).
-            if (!reply.ok) {
-                status_ = "[!] vplayer 실행 거부";
+            // ① 답신 — 본문 ok면 open이 이미 나가 있고(재청구 pacing 계속),
+            // 거부면 런치 검증 실패(unknown_app — jkapp_vplayer 모듈 부재)
+            // 표기+폴백 종료(open 재청구가 런치 성립을 전제한다 — 원문 쌍
+            // 계약, fix r1 M-2: 사후 open 답신 겹침 가드도 여기서 세운다).
+            if (!dv.ok) {
+                status_ = dv.err.empty() ? "[!] vplayer 실행 거부"
+                                         : "[!] vplayer 실행 거부 — " + dv.err;
                 launchAborted_ = true;
                 openPath_.clear();
                 openRetries_ = 0;
@@ -383,27 +397,22 @@ void ClientMusicApp::PollReplies() {
                 openRetries_ = 0;
                 continue;
             }
-            jk::agent::AgentJson body(reply.json);
-            std::string err;
-            const bool hasErr = body.ok() && body.GetStr("error", err);
-            // ② 답신 판정 (fix r1 I-2 — 서버 HandleToolResult 조립 정합):
-            // ok=false의 error 객체는 앱-수준 실패다 — 성공 분류는 **reply.ok
-            // 원문만**이 소유한다(구판의 !body.ok()/error 부재 성공 폴은
-            // 삭제). ok=false인데판독 실패(파손 표기)도 실패 몫.
-            if (reply.ok) {
+            // ② 답신 판정 (fix r3 — 본문 진실원; fix r1 I-2 계약의 본문계층
+            // 승격): 본문 ok=false+error = 앱-수준 실패다 — 성공 분류는 본문
+            // 판정이 소유한다.
+            if (dv.ok) {
                 status_ = "vplayer 재생 요청됨";   // 오픈은 비동기 — 진행은
                                                   //   vplayer 표면(get_status)
                 openPath_.clear();
                 openRetries_ = 0;
                 frameDirty_ = true;
-            } else if (hasErr && err == "unknown_app_tool") {
+            } else if (dv.err == "unknown_app_tool") {
                 // 콜드 부팅 경기 — 등록 전 릴레이(재청구 유일 대상 — 도구
                 // 등록 경기 흡수 계약). 소진 크레딧(openRetries_)은 **답신
                 // 수취에서만 소모**하고(발사인 OnIdle pace는 감법을 만들지
                 // 않는다), 수취에서 0 도달 = 즉시 소진 전이(fix r2 I-1
-                // 재수형 — 감법이 OnIdle 분기에 의존하면 마지막 답신 뒤
-                // 영구 실패·표기 dead code가 된다): 소진 표기 1행+이번 틱
-                // 더티 1회(사용자 안내 = 상태 변칙 몫)를 **수취 시점에**.
+                // 재수형): 소진 표기 1행+이번 틱 더티 1회(사용자 안내 = 상태
+                // 변칙 몫)를 **수취 시점에**.
                 if (openRetries_ > 0) {
                     if (--openRetries_ == 0) {
                         status_ = "[!] vplayer 응답 없음 — 재시도 " +
@@ -420,17 +429,18 @@ void ClientMusicApp::PollReplies() {
                 }
                 // 크레딧 소진 뒤의 잔여 답신(방어선 — openPath_가 비어 재발사
                 // 원문이 막혀 있어 원론적으로 도착하지 않는다)은 무음 흡수.
-            } else if (hasErr && err == "ambiguous") {
+            } else if (dv.err == "ambiguous") {
                 // 복수 후보(자기교정 원문 재용) — 추측 없이 표기로만.
                 status_ = "[!] vplayer 창이 복수 — 하나 닫고 다시 시도";
                 openPath_.clear();
                 openRetries_ = 0;
                 frameDirty_ = true;
             } else {
-                // ok=false+error(도구 실패 — 폴백 흡수 대상 아님)·판독 실패 —
-                // 재청구 대상 아님, 즉시 종착(리트라이 무의미 — fix r1 I-2).
-                status_ = hasErr ? "[!] 재생 위임 실패 — " + err
-                                 : "[!] 재생 위임 실패";
+                // 본문 ok=false+그 밖 error(도구 실패 — 폴백 흡수 대상 아님)·
+                // 본문 판정 실패 — 재청구 대상 아님, 즉시 종착+err 부기
+                // (리트라이 무의미 — fix r1 I-2의 본문계층).
+                status_ = dv.err.empty() ? "[!] 재생 위임 실패"
+                                         : "[!] 재생 위임 실패 — " + dv.err;
                 openPath_.clear();
                 openRetries_ = 0;
                 frameDirty_ = true;
