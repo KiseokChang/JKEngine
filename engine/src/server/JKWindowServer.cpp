@@ -152,6 +152,13 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
     // which breaks "click title bar of a background surface to move it".
     SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1");
 
+    // D1(spike2 A/B 원장): 폰 X11은 창 프레임버퍼 텍스처 폴백(전역·비가역
+    // vtable 스왑)에 per-present ~56ms CPU 청구 — 이 힌트 "0"으로 X11
+    // 프레임버퍼 직행(폰 실측 full 56.40→5.09ms·rect 60→0.08ms). 힌트는
+    // 최초 창 표면 생성(스왑) 이전에만 유효 → Init 최전단 배선. Windows·WSL은
+    // 폴백 판정이 플랫폼 기본 FALSE라 무영향.
+    SDL_SetHint(SDL_HINT_FRAMEBUFFER_ACCELERATION, "0");
+
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) {
         std::fprintf(stderr, "JKWindowServer::Init: SDL_Init failed: %s\n", SDL_GetError());
         return false;
