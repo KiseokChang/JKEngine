@@ -444,7 +444,11 @@ fi
 
 echo "=== 4. REMNANT 검사 — 원격 스크립트 자기 소각 확인 (T1 NR1 계약) ==="
 $SSH "ls ~/JKENGINE/$RSRC_TAR_NAME" >/dev/null 2>&1
-echo "REMNANT-LS-RC=$?"
+REMNANT_RC=$?
+echo "REMNANT-LS-RC=$REMNANT_RC"
+# 2=ls 미발견(소각 성공) — rc 미게이트였던 T3 리뷰 I1 봉합: 리모트 잔존물 소각
+# 실패 시 리턴코드가 성공을 반영하지 않음.
+[ "$REMNANT_RC" -eq 2 ] || FAIL "REMNANT survived (원격 스크립트 자기 소각 실패 — rc=$REMNANT_RC)"
 $SSH "rm -f \$HOME/.idle_tree.txt \$HOME/.idle_sizes.txt" 2>/dev/null
 
 echo "PC-PHONE-END"

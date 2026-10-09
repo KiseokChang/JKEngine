@@ -629,7 +629,7 @@ LEG=boot
 echo "=== K. leg boot — settings 원상 복원(바이트 등호) BOOT-OK + 진입 상태 재현 ==="
 cp "$ORIG" "$SET" || FAIL "settings restore copy failed"
 cmp -s "$SET" "$ORIG" || FAIL "settings restore byte mismatch"
-echo "SETTINGS-RESTORED-BYTES: $(wc -c < "$SET") (ORIG=$(wc -c < "$ORIG") — 등어제로 원복)"
+echo "SETTINGS-RESTORED-BYTES: $(wc -c < "$SET") (ORIG=$(wc -c < "$ORIG") — 등호제로 원복)"
 if ! grep -aq 'font_path' "$SET"; then FAIL "restored settings lost font_path (복원 위반)"; fi
 echo "RESTORAGE-GATE-OK: font_path 유지 + ORIG 바이트 등호 (121B 스타일 원문)"
 boot_server boot
