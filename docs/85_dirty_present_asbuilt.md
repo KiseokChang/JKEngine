@@ -208,7 +208,7 @@ dst 전체 둘 중 하나로 반드시 채워진다**. `queueCommitRects` 보류
 
 | ID | 사항 | 근거 |
 | --- | --- | --- |
-| D1 | **X11 업로드 고정비 소거**(폰 present ~70ms = per-present 상수 — XShm/전송 결로·Termux:X11 플러시 구조 판명) | §3 #5 — 폰 idle 한 자릿수 유일 실현로, **다음 소등 후보(별도 과제 권고)** |
+| D1 | **X11 업로드 고정비 소거** — **소거 완료(2026-10-09, 3f76f21)**: 정체=SDL window-texture 폴백(창 프레임버퍼 vtable 영구 교체→UpdateTexture+RenderCopy llvmpipe — CPU 청구, 대기 블록 아님). `SDL_HINT_FRAMEBUFFER_ACCELERATION="0"` 1행+Init 최전단 배선 — 폰 present **71.74→6.52ms(−90.9%)**·rect 60→0.08·캐논 전 축 등호. 판명 원장=diagnosis spike 1-2(옵션 C X11 직제은 이득 3.7ms뿐 — 불요 판정). | §3 #5 — 리뷰 I-1 A-leg 인용(n=5 FSTAT 원천)+I-2 gallery 클라 스핀(별도 결함) 부기, **폰 육안 결제 대기** |
 | D2 | 그램파(셀) 단위 rect — CommitFull(클라 표면)보다 촘촘한 단위 | §3 #2 — 터미널 셀 단위는 v1 백로그(스펙 결정 5, YAGNI) |
 | D3 | 커서 그리기·블링크 rect 수준 최적화 | 스펙 범위 밖 — D2와 동일 계열 |
 | D4 | X11 직접 경로(XShm 등) — SDL 계약 밖 | 스펙 범위 밖(D1와 합침 가능) |
