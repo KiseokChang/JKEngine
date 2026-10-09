@@ -48,7 +48,8 @@ private:
         std::string key;           // disk-cache key ("" = 스탬프 실패)
         LoadedImage img;           // reduce 완료 픽셀(RGBA8, 최대 160x120)
         SDL_Texture* tex = nullptr;
-        long long lastUse = 0;     // LRU 스탬프(요청 단조 tick)
+        long long useFrame = 0;    // 마지막 접촉 프레임 세대(fix r1 — 퇴출 산치
+                                   //   GalleryModel.h PickLruVictim 소비)
         bool failed = false;       // 디코드/스탬프 실패 — 60Hz 재시도 방지
         unsigned long long failedGen = 0;  // 실패한 스캔 세대(재스캔에 재시도)
     };
@@ -61,8 +62,9 @@ private:
     // placeholder 박스가 남는다(T1 수형). 실패 슬롯은 스캔 세대가 바뀌어야 재시도.
     ThumbView ThumbTexture(const std::string& fullPath);
     // 풀에서 자리 확보 — 빈/실패 슬롯 재용 → 상한 미만이면 신설 → LRU 퇴출
-    // (이번 프레임 접촉분 제외 — 드로우리스트 소멸 텍스처 방지; 후보 없으면
-    // nullptr — 상한 초과분 셀은 placeholder 유지).
+    // (PickLruVictim — 이번 프레임 접촉분 전부 제외(fix r1 — 동일 프레임에
+    // 기록된 드로우리스트 텍스처의 파괴 방지); 후보 없으면 nullptr — 그 셀은
+    // placeholder 유지).
     ThumbSlot* AcquireThumbSlot(const std::string& fullPath);
     ThumbSlot* FindThumbSlot(const std::string& fullPath);
     // 슬롯 채우기 — 캐시 PNG 적중 = full 디코드 생략(비용 축 계약), 미적중 =
@@ -111,7 +113,8 @@ private:
 
     // T3 thumbnail pool state.
     std::vector<ThumbSlot> thumbs_;    // LRU pool (cap gallery::kThumbPoolMax)
-    long long thumbTick_ = 0;          // monotonic LRU stamp (요청 단위)
+    long long thumbFrame_ = 0;         // 프레임 세대(RenderOverlay마다 증가 —
+                                       //   퇴출 후보의 동일 프레임 접촉 제외)
     unsigned long long scanGen_ = 0;   // RefreshFiles마다 증가(실패 재시도 세대)
 
     // T2 full view state.

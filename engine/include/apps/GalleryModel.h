@@ -255,6 +255,26 @@ inline LoadedImage MakeThumb(const LoadedImage& src, int maxW, int maxH) {
     return out;
 }
 
+// LRU eviction arbiter (T3 fix r1 — selftest 2g-i): the pool's pure side of the
+// "same-frame destruction is forbidden" contract. useFrames[i] is slot i's
+// last-used frame generation. Slots touched in the *current* frame are
+// excluded from candidacy **entirely** — their textures are already recorded in
+// this frame's draw list, so destroying them before RenderDrawData is a
+// freed-texture render (the C1 defect — an earlier per-request tick guard only
+// excluded one entry, not the whole frame's touches). Among the candidates the
+// oldest generation wins; ties keep the first index (determinism). No
+// candidate → -1: the caller leaves the cell as a placeholder instead of
+// destroying a texture that is about to be drawn.
+inline int PickLruVictim(const std::vector<long long>& useFrames,
+                         long long curFrame) {
+    int victim = -1;
+    for (int i = 0; i < static_cast<int>(useFrames.size()); ++i) {
+        if (useFrames[i] == curFrame) continue;  // 이번 프레임 접촉분 — 전부 제외
+        if (victim < 0 || useFrames[i] < useFrames[victim]) victim = i;
+    }
+    return victim;
+}
+
 // Enumerate one dir's image files, newest first (mtime desc; tie = name desc,
 // the shot_<epoch-ms>_ lexical order precedent). ec-neutral throughout (error
 // codes, no throwing overloads — 이 TU 무 try/catch, shot 앱 동일 계약):

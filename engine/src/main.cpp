@@ -5167,6 +5167,16 @@ static int RunAppSelfTest() {
                   "2g-h 실측 = 생존 파일 키 성립+재조명 동일, 부재 = 빈 키(열외)");
             fs::remove_all(tdir);
         }
+
+        // 2g-i) LRU 퇴출 산치 (T3 fix r1 — 동일 프레임 기록 텍스처 파괴 방지):
+        // 이번 프레임(useFrame == curFrame) 접촉 슬롯은 후보에서 **전부** 제외,
+        // 후보 중 최소 세대, 동세대 동률 = 앞 인덱스, 후보 0 = -1(placeholder
+        // 유지). 예전 가드(`tick == cur` 1건)의 C1 결함 수형을 직단정한다.
+        check(jk::gallery::PickLruVictim({9, 9, 9}, 9) == -1 &&
+                  jk::gallery::PickLruVictim({9, 3, 9, 7}, 9) == 1 &&
+                  jk::gallery::PickLruVictim({9, 7, 7, 9}, 9) == 1 &&
+                  jk::gallery::PickLruVictim({}, 9) == -1,
+              "2g-i 퇴출 산치 = 동일 프레임 세대 전부 제외+최소 세대(동률 앞 인덱스)+후보 0 = -1");
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);

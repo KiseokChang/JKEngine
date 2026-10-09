@@ -108,6 +108,8 @@ void ClientGalleryApp::OnFrameCommitted() {
 }
 
 void ClientGalleryApp::RenderOverlay(SDL_Renderer* renderer, int w, int h) {
+    ++thumbFrame_;  // T3 fix r1 — 이번 프레임의 요청 세대(퇴출 산치의 원자선;
+                    //   BuildUi 셀 요청 전에 반드시 성립)
     if (!imguiReady_) {
         if (!ImGui_ImplJKWindow_Init(renderer))
             return;
@@ -265,20 +267,24 @@ ClientGalleryApp::ThumbSlot* ClientGalleryApp::AcquireThumbSlot(
         fresh->path = fullPath;
         return fresh;
     }
-    // LRU 퇴출 — 이번 프레임 접촉분은 후보에서 뺀다: 퇴출 파괴 텍스처가 이번
-    // 프레임 드로우리스트(ImGui::Image가 캔 ImTextureID)에 남으면 유령.
-    // 후보가 0이면(화면에 96+ 셀이 즉시 조명) 그 셀은 placeholder로 뺀다.
-    const long long cur = thumbTick_;
-    ThumbSlot* victim = nullptr;
-    for (ThumbSlot& s : thumbs_) {
-        if (s.lastUse == cur) continue;
-        if (!victim || s.lastUse < victim->lastUse) victim = &s;
-    }
-    if (!victim) return nullptr;
-    ReleaseThumbTexture(*victim);
-    *victim = ThumbSlot();
-    victim->path = fullPath;
-    return victim;
+    // LRU 퇴출(끝, fix r1) — **이번 프레임 접촉분은 후보에서 전부 제외한다**:
+    // 같은 프레임 안의 요청도 tick이 달라 예전 가드(`lastUse == cur` 1건)는
+    // 앞선 셀의 슬롯을 후보로 놓쳤고, victim의 텍스처는 이미 이번 프레임
+    // 드로우리스트(ImGui::Image가 캔 ImTextureID)에 기록된 상태 — 파괴하면
+    // `RenderDrawData`가 해방된 SDL 텍스처로 돈다(C1 — N>96 격자에서 프레임마다
+    // 발동). 프레임 세대 스탬프(useFrame)로 전체 제외하고, 후보가 0이면 그
+    // 요청은 텍스처를 못 받고 placeholder로 뺀다(산치는 순수 부품 PickLruVictim
+    // — 2g-i 소비, 퇴출 파괴는 다음 프레임 접촉 시점까지 미뤄진다).
+    std::vector<long long> useFrames;
+    useFrames.reserve(thumbs_.size());
+    for (const ThumbSlot& s : thumbs_) useFrames.push_back(s.useFrame);
+    const int victimIx = gallery::PickLruVictim(useFrames, thumbFrame_);
+    if (victimIx < 0) return nullptr;
+    ThumbSlot& victim = thumbs_[static_cast<size_t>(victimIx)];
+    ReleaseThumbTexture(victim);
+    victim = ThumbSlot();
+    victim.path = fullPath;
+    return &victim;
 }
 
 void ClientGalleryApp::ReleaseThumbTexture(ThumbSlot& slot) {
@@ -354,7 +360,6 @@ void ClientGalleryApp::FillThumbSlot(ThumbSlot& slot,
 
 ClientGalleryApp::ThumbView ClientGalleryApp::ThumbTexture(
     const std::string& fullPath) {
-    ++thumbTick_;  // LRU 스탬프 — 요청 1건당 1 tick(단조)
     ThumbSlot* slot = FindThumbSlot(fullPath);
     if (!slot) {
         slot = AcquireThumbSlot(fullPath);
@@ -365,7 +370,7 @@ ClientGalleryApp::ThumbView ClientGalleryApp::ThumbTexture(
         ResetThumbSlot(*slot);
         FillThumbSlot(*slot, fullPath);
     }
-    slot->lastUse = thumbTick_;
+    slot->useFrame = thumbFrame_;  // LRU 스탬프 — 프레임 세대(fix r1)
     if (slot->failed) return ThumbView();
     EnsureThumbTexture(*slot);  // 지연 업로드(renderer_ 스태시 수형 — 전체 보기)
     return ThumbView{ slot->tex, slot->img.w, slot->img.h };
