@@ -75,6 +75,7 @@ probe 실측 도중 발견된 계획 밖 결함 수형 — T1의 2차 fix이며 
 | T1 fix r2 `f341f00` | 588 | 565 | 296 | (546) | 0 (케이스 신설 없음) |
 | T3 `52699b8` (폰 축) | 588 | 565 | 296 | **565** | 폰 = 546+2i 19 |
 
+- (표기=갤러리 종착 기준치 — 최종 폰 캐논 565=506+2g 40+2i 19, §2 계보 표 참조)
 - **2i 19건 = 라인 전체 신설**(2i-a 5+2i-b 5 = T1·2i-c 9 = T2). 폰 565 = 텍스트
   스케일 506+갤러리 2g 40+2i 19 = 산치 등호(T3 원장 `CANON-INCLUSION=
   FULL-T1-T2-FIXR1`·래더 대조: pre-T1 546·T1만 556 — T3 리포트).
@@ -111,7 +112,7 @@ selftest 565 PASS/2i 19건·폰 트리 전수 sweep 복구 후 `SWEEP-DIFF=0 / 3
 | terminal(대조) | 36.00%·125.33fps | 1.50%·1.92fps(blink 유계) | 9.00%·2.08fps(blink 유계) |
 | notify 토스트 | 56.65%·125.10fps | 7.10%·6.35fps 유계 | 10.75%·1.80fps 유계 |
 | filedlg | 59.67%·125.17fps | 0.67%·0.00fps | 1.00%·0.00fps |
-| palette idle | (leg 없음) | 0.60%·0.00fps | 1.10%·0.00fps |
+| palette idle | paletteIdle leg 49.80%·124.90fps(run1 — T2 이전 관용구 유가정보) | 0.60%·0.00fps | 1.10%·0.00fps |
 | imguidemo | (leg 없음) | (별도 leg 없음) | 74.50%·5.42fps(§4 유계 관찰) |
 
 - "WSL 전"은 T3 probe의 변경 전 원문(
@@ -141,13 +142,14 @@ selftest 565 PASS/2i 19건·폰 트리 전수 sweep 복구 후 `SWEEP-DIFF=0 / 3
 1. `JKClientApplication.cpp:309 DrainTimerChannel` — 소비 수>0을 활동으로
    계수 → 타이머 틱 그 자체가 렌더 유발(spike §1a).
 2. 16개 ImGui 앱 `PreProcessMessage`: `Timer 이벤트→frameDirty_=true`(16곳
-   `SetTimerInterval` grep 실측 — gallery :100-102 등, spike §2).
+   `SetTimerInterval` grep 실측 — gallery :100-102 등, spike §2). 앱별
+   조건화/삭제/폴백 분리 처분 상세 = §3 표 A.
 3. `RenderOverlay` 끝 무조건 `frameDirty_=true`(gallery :127) — 렌더 후에도
    더티 유지(자기유지).
 
 기계적 붕괴 지점: `JKClientApplication.cpp:435-436` 페이싱 — 폰에서
-작업≈52ms → 루프 주기≈53ms·CPU≈98-100%·busy-wait(수면 부재 → `SDL_Delay(1)`
-폴백). D1 이후 빌드에서도 스핀 유지(100.1%) — **D1 폴백 힌트는 이 결함에
+작업≈52ms → `SDL_Delay(1)` 폴백 페이싱이 52ms>16ms에서 붕괴 → 루프
+주기≈53ms·CPU≈98-100%(스파이크 원장 정합). D1 이후 빌드에서도 스핀 유지(100.1%) — **D1 폴백 힌트는 이 결함에
 무영향**. 원진 분해의 [idletrace] 원문은 WSL /tmp 측 소각으로 미보존(T3 리뷰
 Minor 5 — 스크립트 idle_diag4b/4.sh만 보존 — §4.1·후속 원장 관행: /tmp 대항
 로그는 스크래치 이동 기록 권장).
@@ -162,6 +164,32 @@ D1=1프레임 present 비용, #89=프레임 빈도 자체(19fps 무변화 풀코
 는 본 라인 후에도 미실측 승계(§4).
 
 ## §3. 함정 원장 (T1-T3 리포트+리뷰 종합 — docs/87 §3 문체 계승)
+
+**표 A — 16 ImGui 앱별 Timer 더티 처분(T2)** — 원천:
+`.superpowers/sdd/2026-10-09-client-idle/task-2-report.md` §1 표 원문 그대로
+편성. 처분 구분: **조건화**(내용 변화 틱만 더티)/**삭제**(정적 의도 — Timer
+더티 원 소각)/**폴백 분리**(응답 폴백을 OnIdle로 이동+수령 시 더티).
+
+| # | 앱 | 타이머 콜백이 낳는 내용 변화 | 처분 | 코드 근거 |
+|---|---|---|---|---|
+| 1 | gallery | 썸네일 디코드는 BuildUi **동기**라 도착 프레임이 곧 마지막 프레임 — 유일 재요청 원은 풀 상한+동프레임 유보(AcquireThumbSlot==nullptr) | Timer 분기 삭제 + 말단 자기유지(:127)→`frameDirty_ = pendingThumbs_` | ClientGalleryApp.cpp:100(분기 소각), :136(조건화), ClientGalleryApp.h `pendingThumbs_` |
+| 2 | vplayer | 재생 중 프레임 클록·비동기 열기 스피너·역재생·조그/휠 스크럽·시크 UI·극장 OSD 페이드 | Timer 분기 조건화 `FrameClockNeeded()`(순수 원문=jk::idle::Progressing) + 열기 종료 경계 래치 | ClientVPlayerApp.cpp:2115-2151, ClientVPlayerApp.h:38(:FrameClockNeeded), :95(openingLatched_), ClientIdlePolicy.h VplayerProgress |
+| 3 | browser | 콜백 자체는 내용 변화 없음 — 실 내용 원=on_paint(페이지 픽셀 도착); CEF 펌프는 렌더와 무관히 돌아야 함 | Timer 더티 분기 삭제 + 펌프를 OnIdle로 분리, `g_painted` 표식 도착 프레임만 더티 | ClientBrowserApp.cpp:529(분기 소각), :46(g_painted), :256(표식), :657-666(OnIdle 펌프) |
+| 4 | taskmgr | 500ms 샘플 경계의 CPU%/플롯 스크롤 — 진짜 내용 변화지만 19fps 불요 | 조건화 `listDirty_ \|\| jk::idle::SampleDue(500ms)` (~2fps) | ClientTaskmgrApp.cpp:228-235, ClientIdlePolicy.h:52 |
+| 5 | notify | 토스트 페이드(마지막 2s alpha 램프) + 만료 순간 화면 복귀 1프레임; 풀알파 3s 구간은 정적 | 조건화 `jk::idle::ToastFading` + `toastLatched_` 만료 경계 1프레임 | ClientNotifyApp.cpp:86-99, :217(래치), :248(해제), ClientNotifyApp.h:75 |
+| 6 | imguidemo | 패널 롤링 웨이브(sine+noise) — 60fps 프레임 클록 불요, 5fps 샘플로 충분(WX 경계) | 조건화 200ms 샘플 경계(`waveLast_`는 실제 웨이브 렌더 프레임에 갱신 — 기점=출력) | ClientImGuiDemoApp.cpp:85-89, :140(기점 갱신), ClientImGuiDemoApp.h `waveLast_` |
+| 7 | shot | 없음 — 완전 정적 UI | Timer 분기 **삭제** + RenderOverlay 말단 무조건 더티 **삭제** | ClientShotApp.cpp:85 |
+| 8 | snap | 없음(드래그 밴드=마우스 이동=activity) — 단 응답 폴백(캡처 결과/3s 사망선)이 마우스업 뒤에 늦게 올 수 있어 폴백 루프 유지 필요 | Timer 분기 삭제 + 말단 자기유지→`pendingQueryId_ != 0`만 | ClientSnapApp.cpp:77(분기 소각), :99(조건화) |
+| 9 | files | 없음 — 에이전트 응답 수령 시에만 내용 변화 | Timer 분기 삭제 + **폴백 분리**: `PollReplies`를 RenderOverlay→`OnIdle()` 이동, 수령 시 더티 | ClientFilesApp.cpp:248 OnIdle |
+| 10 | notes | 없음 — 동 files | 동 files | ClientNotesApp.cpp:217 OnIdle |
+| 11 | settings | 없음 — 동 files | 동 files | ClientSettingsApp.cpp:96 OnIdle |
+| 12 | chat | 없음 — PollReplies가 :214에서 이미 수령 더티 보유(보존) | Timer 분기 삭제 + OnIdle 폴백 분리 | ClientChatApp.cpp:110 OnIdle |
+| 13 | library | 없음 — launchId 응답 도착 시 상태문 변화 | Timer 분기 삭제 + OnIdle 분리 + `reply.queryId==launchId_` 수령 더티 추가 | ClientLibraryApp.cpp:136 OnIdle |
+| 14 | agentmgr | 없음 — 동 files | 동 files | ClientAgentMgrApp.cpp:296 OnIdle |
+| 15 | palette | 없음 — 응답+피드/로그 도착 시에만 변화 | Timer 분기 삭제 + OnIdle 분리(`PumpReplies`) + `OnAgentEvent`/`AppendLog` 도착 더티 | ClientPaletteApp.cpp:71(소각), :78(OnIdle), OnAgentEvent/AppendLog 더티 |
+| 16 | filedialog | 없음 — params 승인·응답 수령 시에만 변화 | Timer 분기 삭제 + OnIdle 분리(`RequestParams`+`PumpReplies`, 승인 시 `requesterConnId_` 더티) | ClientFileDialogApp.cpp:165(소각), :172(OnIdle) |
+
+아래 번호 항목은 함정 서사(사건·렛슨) — 앱별 처분의 근거는 위 표 A로 봉합.
 
 1. **★3요소 관용구 — 관용구의 게이트 무력화(spike)** — docs/78 activity 게이트
    는 올바른 원리(이벤트 부재 시 렌더 스킵)였으나 관용구 3요소(§2.3)가
@@ -260,7 +288,7 @@ D1=1프레임 present 비용, #89=프레임 빈도 자체(19fps 무변화 풀코
 | C2 | vplayer 극장 OSD 페이드 말미 잔광 ≤2% | FrameClockNeeded 페이드 창 `osdAlpha_ > 0.02f` — 마지막 소각 프레임 미렌더 가능. 육안 실질 0 — 관찰 사항 |
 | C3 | 입력→렌더 유지 미증명 | 폰 permissions.json에 send_input allow 없음(`SEND-INPUT-SKIPPED: request id 확보 불가`)·palette resize는 툴 축 한계(`window_resize → {"error":"no_window"}` — 클라 pid≠창 id) → resize bounce leg는 idle 정지 재측정만 실측. 대변은 2i-b 입력 채널 활동 합산+게이트 케이스 뿐 — 승인 계약은 별도 사용자 결정 |
 | C4 | 스크립트 앱 애니메이션 폴백 1s 승계 | docs/78 "setInterval 활동 만들기" 문장이 T1으로부터 무효 — Invalidate 더티 → 폴백 1s(HasDirtyWindows) 승계(간격 유지 애니메이션 최악 1s 지연) — Run() 주석 재계약 수형 기록+EYES 게이트(§5 ③) |
-| C5 | 브라우저 주소줄 래그 상한 | 폴백은 `fallback && dirtyWindow()`(JKActivityGate.h:44)라 장면 더티 없으면 1s 폴백도 스킵 — **래그 상한="다음 on_paint/입력/테마 활동까지"(사실상 영구 래그)**. 실 노출 낮음(내비게이션·에러 페이지는 통상 페인트) — 1s 상한으로 기대 금지(T2 fix r1 정정 원문) |
+| C5 | 브라우저 주소줄 래그 상한 | 폴백은 `fallback && dirtyWindow()`(JKActivityGate.h:50)라 장면 더티 없으면 1s 폴백도 스킵 — **래그 상한="다음 on_paint/입력/테마 활동까지"(사실상 영구 래그)**. 실 노출 낮음(내비게이션·에러 페이지는 통상 페인트) — 1s 상한으로 기대 금지(T2 fix r1 정정 원문) |
 | C6 | 커서 블링크 무입력 정지·imguidemo FPS 표시 얼음·notify 풀알파 3s 무렌더 | 관용구 소각의 정상 귀결(스펙 결정 ③ 수용) — 육안 관찰 사항(T3 폰 육안 체크리스트) |
 | C7 | 폰 서버 프로세스 CPU 청구 | D1 리뷰 I-2 잔여 — 클라 스핀 소거 후에도 본 라인에서 재실측하지 않음(스펙 비-목표) — 별도 측정 시점 |
 | C8 | X11 업로드 고정비 D1 백로그(서버 축) | docs/85 §4 D1 승계 — 본 라인과 무관 |
