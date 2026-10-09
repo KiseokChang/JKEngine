@@ -324,11 +324,21 @@ void ClientMusicApp::PlaybackDelegate(const music::Track& t) {
     }
     launchId_ = 0;
     openId_ = 0;
+    launchAborted_ = false;
     openPath_ = t.full;               // 재청구 폴백에 다시 전달할 사본
     openRetries_ = kOpenRetryMax;
     openRetryAt_ = std::chrono::steady_clock::now();
     launchId_ = SendQuery("launch_app", "{\"app\":\"vplayer\"}");
     openId_ = SendQuery("app_tool", music::OpenRequestJson(t));
+    if (!launchId_) {
+        // launch 미성립(전송 실패·거부) = 위임 폴백 성립 전제 상실 — 재청구
+        // 상태는 여기서 취소(M-2). open이 나가 있다면 그 답신은 "사후 답신"
+        // 겹침 가드(launchAborted_)로 무음 흡수한다(status 납치 방지).
+        launchAborted_ = true;
+        openRetries_ = 0;
+        openPath_.clear();
+        if (openId_) openId_ = 0;
+    }
     if (!launchId_ || !openId_) frameDirty_ = true;  // 미성립 사유 표기 틱
 }
 
@@ -353,41 +363,65 @@ void ClientMusicApp::PollReplies() {
             launchId_ = 0;
             // ① 답신 — ok면 open이 이미 나가 있고(재청구 pacing 계속), 거부면
             // 런치 검증 실패(unknown_app — jkapp_vplayer 모듈 부재) 표기+
-            // 폴백 종료(open 재청구가 런치 성립을 전제한다 — 원문 쌍 계약).
+            // 폴백 종료(open 재청구가 런치 성립을 전제한다 — 원문 쌍 계약,
+            // fix r1 M-2: 사후 open 답신 겹침 가드도 여기서 세운다).
             if (!reply.ok) {
                 status_ = "[!] vplayer 실행 거부";
+                launchAborted_ = true;
                 openPath_.clear();
                 openRetries_ = 0;
                 frameDirty_ = true;
             }
         } else if (reply.queryId == openId_) {
             openId_ = 0;
+            if (launchAborted_) {
+                // M-2 겹침 가드 — 런치 거부 후 도착한 사후 답신. 폴백은 이미
+                // 종착(retries==0)이고 거부 안내가 status에 있다 — 이 답신은
+                // 무음 회수만(status 납치·소진 표기 오인 방지), 더티 없음.
+                openPath_.clear();
+                openRetries_ = 0;
+                continue;
+            }
             jk::agent::AgentJson body(reply.json);
             std::string err;
-            // ② 답신 판정 — relay 성공(앱의 accepted:true) / unknown_app_tool
-            //(도구 미등록 — 재청구) / ambiguous/그 밖(즉시 표기). 판독은
-            // server 릴레이의 error 원문 필드(AgentJson — vplayer get_status
-            // 답신 수용 수형).
-            if (reply.ok || !body.ok() || !body.GetStr("error", err)) {
+            const bool hasErr = body.ok() && body.GetStr("error", err);
+            // ② 답신 판정 (fix r1 I-2 — 서버 HandleToolResult 조립 정합):
+            // ok=false의 error 객체는 앱-수준 실패다 — 성공 분류는 **reply.ok
+            // 원문만**이 소유한다(구판의 !body.ok()/error 부재 성공 폴은
+            // 삭제). ok=false인데판독 실패(파손 표기)도 실패 몫.
+            if (reply.ok) {
                 status_ = "vplayer 재생 요청됨";   // 오픈은 비동기 — 진행은
                                                   //   vplayer 표면(get_status)
                 openPath_.clear();
                 openRetries_ = 0;
                 frameDirty_ = true;
-            } else if (err == "unknown_app_tool" && openRetries_ > 0) {
-                // 콜드 부팅 경기 — 등록 전 릴레이. 다음 pacing 시각을 세우고
-                // 재청구 대기(OnIdle 재발사). 표기 변화 없음 — 더티 금지.
+            } else if (hasErr && err == "unknown_app_tool" && openRetries_ > 0) {
+                // 콜드 부팅 경기 — 등록 전 릴레이(재청구 유일 대상 — 도구
+                // 등록 경기 흡수 계약). 다음 pacing 시각을 세우고 재청구
+                // 대기(OnIdle 재발사). 표기 변화 없음 — 더티 금지.
                 --openRetries_;
                 openRetryAt_ = std::chrono::steady_clock::now() +
                                kOpenRetryDelayMs;
-            } else if (err == "ambiguous") {
+            } else if (hasErr && err == "unknown_app_tool") {
+                // fix r1 I-1 — 재청구 20회 소진. 사용자 관측 실패 안내가
+                // 없으면 무음 침묵(accepted 후 침묵 동형 결함 계열)이다 —
+                // 소진 표기 1행+이번 틱 더티 1회(상태 변칙 = 표기 계약 몫).
+                status_ = "[!] vplayer 응답 없음 — 재시도 " +
+                          std::to_string(kOpenRetryMax) + "회 소진";
+                openPath_.clear();
+                openRetries_ = 0;
+                frameDirty_ = true;
+            } else if (hasErr && err == "ambiguous") {
                 // 복수 후보(자기교정 원문 재용) — 추측 없이 표기로만.
                 status_ = "[!] vplayer 창이 복수 — 하나 닫고 다시 시도";
                 openPath_.clear();
                 openRetries_ = 0;
                 frameDirty_ = true;
             } else {
-                status_ = "[!] 재생 위임 실패";
+                // ok=false+error(도구 실패 — 폴백 흡수 대상 아님)·판독 실패 —
+                // 재청구 대상 아님, 즉시 종착(리트라이 무의미 — fix r1 I-2).
+                status_ = hasErr ? "[!] 재생 위임 실패 — " + err
+                                 : "[!] 재생 위임 실패";
                 openPath_.clear();
                 openRetries_ = 0;
                 frameDirty_ = true;

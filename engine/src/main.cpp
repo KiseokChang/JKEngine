@@ -5541,7 +5541,7 @@ static int RunAppSelfTest() {
 
         // 2m-g) 재생 위임 꾸러미 (T3): jk::music::OpenRequestJson — app_tool
         // open 인자 전문 조립 원문(브리프 T3 순수 부품 — {"app":"vplayer",
-        // "tool":"open","args":{"path"<full>"}}), vplayer 도구 선언
+        // "tool":"open","args":{"path":"<full>"}}), vplayer 도구 선언
         // ("open" — path 필수)과 relay 후보 역매칭 계약에 정확히 맞춘 리터럴.
         // windowId 미기술(단일 후보=직행 — 지정하지 않으므로 서버 추측 없음).
         // 3케이스: 일반 경로·역슬래시 정규화·공백 경로(재청구 폴백이 쓰는
