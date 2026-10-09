@@ -256,6 +256,10 @@ T3 밴드 산식 승격, T4 폰 실측, T5 본 문서로 봉인.
 | T4 | coerce 분기 계약(진입 settings에 font_scale 있으면 키 제거 상태로 종료 — 진입 원문은 로그 행으로만 보존) | disclosure 원문 인쇄 이미 존재 — 계약 부기 |
 | T1 | WSL probe legD settings 잔존(M1) 등 probe 일회성 minors 5건 | T1 probe는 진단용 — 원장 그대로 |
 
+후속 라인 착지(2026-10-09): 갤러리(#82) as-built = `docs/87_gallery_asbuilt.md`
+— 폰 캐논 506→546(CANON-INCLUSION=GALLERY-FULL-T2G-40, 2g 40건) 등호 승계
+원장 포함.
+
 ## §5. 사용자 결제 게이트 (EYES-PENDING 봉인)
 
 **EYES-PENDING — 라인 최종 결제는 사용자 육안 선언만으로 성립한다. 본 문서와
