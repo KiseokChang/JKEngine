@@ -102,6 +102,7 @@ extern "C" __declspec(dllimport) int __stdcall closesocket(
 #include <JKLibraryCatalog.h>  // selftest 1m — 라이브러리 카탈로그 3원 스캔
 #include <apps/ChatRouter.h>   // selftest 1n — 채팅 명령 라우터(스펙 §1.3)
 #include <apps/GalleryModel.h>  // selftest 2g — 갤러리 순수 부품(스펙 2026-10-09-gallery-design)
+#include <apps/MusicModel.h>  // selftest 2m — 뮤직 순수 부품(스펙 2026-10-09-music-library-design)
 #include <apps/ClientIdlePolicy.h>  // selftest 2i-c — 앱 Timer→더티 조건화 산치(#89 T2)
 #include <script/JKScriptHost.h>
 #include <SDL.h>
@@ -5336,6 +5337,109 @@ static int RunAppSelfTest() {
                   true, false, false, false, false, false, true,
                   /*fallback=*/true, [] { return false; }),
               "2i-c 정적 앱 idle 1s+장면 클린 = 폴백도 스킵(자기유지 더티 소각)");
+    }
+
+    // 2m) 뮤직 순수 부품 (T1 — 스펙 2026-10-09-music-library-design): 모듈 골격
+    // 의 리졸버/정규화/재귀 열거/이름 필터를 헤더(jk::music, apps/MusicModel.h)
+    // 직소비로 잠근다. 갤러리 2g 쌍둥이 구성 — D2(파일명 스캔)·D3(재귀)·
+    // D1(재생은 vplayer 위임 — 이 블록 단정 범위 밖).
+    {
+        namespace fs = std::filesystem;
+        using jk::music::MusicDirList;
+        // 2m-a) 순수 리졸버 — settings 없음(빈 텍스트) → 기본 1건
+        // {exeDir/state/music}(fail-safe); music.dirs 배열 → 기본이 앞(기본
+        // 폴더 규약)·유저 폴더 뒤; "dirs" 비배열·파손 settings = 기본 1건.
+        const std::vector<std::string> withMusic = MusicDirList(
+            "X:/exe", R"({"music":{"dirs":["P:/sounds"]}})");
+        check(withMusic.size() == 2 &&
+                  withMusic[0] == "X:/exe/state/music" &&
+                  withMusic[1] == "P:/sounds",
+              "2m-a music.dirs 1건 = 기본 앞+유저 뒤");
+        const std::vector<std::string> noMusicSettings =
+            MusicDirList("X:/exe", "");
+        check(noMusicSettings.size() == 1 &&
+                  noMusicSettings[0] == "X:/exe/state/music",
+              "2m-a settings 없음 = 기본 1건(fail-safe)");
+        const std::vector<std::string> notArray =
+            MusicDirList("X:/exe", R"({"music":{"dirs":"P:/sounds"}})");
+        check(notArray.size() == 1 &&
+                  notArray[0] == "X:/exe/state/music",
+              "2m-a dirs 문자열(비배열) = 무시, 기본 1건(원문 보존 소비)");
+        const std::vector<std::string> broken =
+            MusicDirList("X:/exe", R"json({"music":{"dirs":[)json");
+        check(broken.size() == 1 && broken[0] == "X:/exe/state/music",
+              "2m-a 파손 settings = 기본 1건(fail-safe)");
+        check(jk::music::AudioDirFallback::Path("X:/exe") ==
+                      "X:/exe/state/music" &&
+                  jk::music::AudioDirFallback::Path("") == "state/music",
+              "2m-a AudioDirFallback = state/music 합성(빈 exeDir = 상대 1건)");
+
+        // 2m-b) 경로 정규화 — 중복 제거(첫 등장 유지)+빈 성분 제거+뒤 구분자
+        // 정규화. backslash 수형은 2g-b가 Win 축 원문 계약으로 이미 소유 —
+        // 이 쌍은 축 무관(슬래시만) 수형으로 중복 제거를 단정한다.
+        const std::vector<std::string> norm = jk::music::NormalizeDirs(
+            {"srv/mus//", "", "/", "srv/mus"});
+        check(norm.size() == 1 && norm[0] == "srv/mus",
+              "2m-b 뒤 구분자 정규화+빈 성분 제거+중복(첫 등장 유지)");
+        const std::vector<std::string> normTrail =
+            jk::music::NormalizeDirs({"A:/x", "A:/x/", "A:/x"});
+        check(normTrail.size() == 1 && normTrail[0] == "A:/x",
+              "2m-b 3중복(구분자 철자만 다름) = 1건");
+
+        // 2m-c) 오디오 열거 — 없는 루트=독립 실패(빈 목록), 실트리는 재귀 3건
+        // 수취+txt 제외+mtime desc(명시 세트 — 시계 분해능 무관 결정론)+rel에
+        // 하위폴더 슬래시 표기. 임시 폴더에서 실측(사후 소각).
+        const fs::path mdir = fs::temp_directory_path() / "jk_music_selftest";
+        fs::remove_all(mdir);
+        {
+            std::vector<jk::music::Track> out;
+            out = jk::music::ListAudioFiles((mdir / "missing").string());
+            check(out.empty(), "2m-c 없는 루트 = 목록 비움(독립 스캔 실패)");
+            fs::create_directories(mdir / "sub");
+            std::ofstream(mdir / "a.mp3").put('x');
+            std::ofstream(mdir / "b.MP3").put('x');  // 대문자 확장자 수형
+            std::ofstream(mdir / "c.txt").put('x');
+            std::ofstream(mdir / "sub" / "w.wav").put('x');
+            // mtime을 명시 세트 — a(+1h 최신)·b(지금)·sub/w(-1h 최구)로
+            // 분해능 무관한 desc 단정(동점 tiebreak 미접촉).
+            const long long past =
+                fs::file_time_type::clock::now().time_since_epoch().count();
+            fs::last_write_time(
+                mdir / "a.mp3",
+                fs::file_time_type::clock::now() + std::chrono::hours(1));
+            fs::last_write_time(
+                mdir / "sub" / "w.wav",
+                fs::file_time_type::clock::now() - std::chrono::hours(1));
+            out = jk::music::ListAudioFiles(mdir.string());
+            check(out.size() == 3 && out[0].name == "a.mp3" &&
+                      out[1].name == "b.MP3" && out[2].name == "w.wav",
+                  "2m-c 재귀 열거 = 트리 전체 3건 수취+mtime desc 최신순");
+            check(std::find_if(out.begin(), out.end(),
+                               [](const jk::music::Track& t) {
+                                   return t.name == "c.txt";
+                               }) == out.end(),
+                  "2m-c txt = 오디오 확장자 밖 열외(대문자 MP3는 포함)");
+            const jk::music::Track& sub = out[2];
+            check(sub.rel == "sub/w.wav" &&
+                      !sub.full.empty() && sub.size == 1 &&
+                      sub.mtime < past,
+                  "2m-c rel = 루트 기준 슬래시 표기+스탬프(size·mtime) 성립");
+            fs::remove_all(mdir);
+        }
+
+        // 2m-d) 이름 필터 — 빈 필터=전부 참, 대소문자 무시 부분일치(ASCII
+        // fold만), 한글은 이진 비교(그래서 부분일치 자체는 성립한다).
+        check(jk::music::MatchFilter("night_mix.mp3", "") &&
+                  jk::music::MatchFilter("", ""),
+              "2m-d 빈 필터 = 전부 참(필터 꺼짐)");
+        check(jk::music::MatchFilter("night_mix.mp3", "mix") &&
+                  !jk::music::MatchFilter("night_mix.mp3", "dawn"),
+              "2m-d 부분일치 = 어느 지점이든 히트·불일치는 열외");
+        check(jk::music::MatchFilter("MySong.mp3", "song") &&
+                  jk::music::MatchFilter("MYSONG.mp3", "song"),
+              "2m-d 대소문자 무시 = ASCII fold만");
+        check(jk::music::MatchFilter("가요1.mp3", "가요"),
+              "2m-d 한글 = 이진 비교(fold 없이 부분일치)");
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);
