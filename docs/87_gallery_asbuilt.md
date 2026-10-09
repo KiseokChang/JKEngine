@@ -261,6 +261,9 @@ sent:true(좌클릭/←wrap/ESC)·leg dirs `SETTINGS-GATE-OK: gallery.dirs 주�
 > **형제 라인 포인터** — 갤러리 라인 밖에서 발생한 **클라 idle 스핀 수리(#89)의
 > as-built = `docs/88_client_idle_asbuilt.md`** (발단=docs/85 D1 리뷰 I-2 폰
 > 갤러리 클라 스핀 — 갤러리 앱이 진단 스파이크의 본판정 표본이 된 라인).
+> **형제 라인 포인터 2(2026-10-10)** — 뮤직 라이브러리 라인(#90)의 as-built =
+> `docs/89_music_library_asbuilt.md` (아래 G3 백로그 승계 라인 — 본 갤러리
+> 원문 MusicModel/모듈/probe 3종 승계·재생=vplayer 위임).
 
 | ID | 사항 | 근거 |
 | --- | --- | --- |
