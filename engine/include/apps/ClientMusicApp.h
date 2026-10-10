@@ -238,9 +238,10 @@ private:
     // ---- 폴더 브라우저 상태 (#97 T2) ----
     // [찾아보기] 토글(dirsUiOpen_ 열림 아래 — 기본 닫힘)+현재 경로(개봉 =
     // dirs_[dirIndex_] 원문 — 계약 ⑤ 현재 탭 루트). 탐색·개봉·닫기·행 클릭은
-    // 전부 입력 이벤트 자연 귀결(게이트가 프레임을 낸다) — **신설 frameDirty
-    // 0**(더티는 DirAddManaged의 기존 계약 — 추가 성공/실패 status 표기 — 만이
-    // 브라우저에서 나온다, #89 idle 계약 승계).
+    // 전부 입력 이벤트 자연 귀결(게이트가 프레임을 낸다) — 남는 더티는
+    // **개봉 거부 사유 표기의 부하성 봉인 1곳**(status_의 신착은 BuildUi
+    // 선두 상태행의 다음 프레임 표기 계약 — fix r2 M2)과 DirAddManaged의
+    // 기존 계약(추가 성공/실패 status 표기)뿐(#89 idle 계약 승계).
     bool browseOpen_ = false;
     std::string browseCwd_;
 

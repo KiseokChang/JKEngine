@@ -1322,8 +1322,12 @@ void ClientMusicApp::BuildUi(int w, int h) {
                             browseCwd_ = root;
                         }
                     }
-                    if (browseCwd_.empty()) {
+                    if (browseCwd_.empty() || !deny.empty()) {
                         browseOpen_ = false;  // 개봉 거부 — 브라우저는 닫힌 채
+                        browseCwd_.clear();   // 거부 시 소각(fix r2 M1 — v1
+                                              //   거부 계약 복원): 토글 폐쇄
+                                              //   후 재개봉의 stale cwd(이전
+                                              //   탭 경로)로 열렸던 회귀 소각
                         status_ = deny;
                         // 더티의 성격(M1 fix r1 문어 정정 — 동작 무변경):
                         // **부하성** — status_는 BuildUi 선두의 상태행에
