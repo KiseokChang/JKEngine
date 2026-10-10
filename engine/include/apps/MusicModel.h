@@ -461,16 +461,29 @@ inline DirPage ListSubdirs(const std::string& cwd) {
 
 // 폴더 합성 — '/' 규약(#94): cwd의 말단 구분자를 접고 1슬래시로 붙인다.
 // 끝 슬래시 유무 무관 같은 결과(2r 수형). cwd의 '\'는 Slashize 접기(fix r1
-// — 고바이트 뒤 0x5C 리터럴 계약까지 원문 승계). 드라이브 루트 "C:"는
-// 표기 "C:/"로 되돌려 붙인다(narrow 드라이브-상대 경로 "C:name" 함정 회피 —
-// ListSubdirs("C:")가 드라이브 현재 디렉터리를 건드리는 것도 같은 이유).
+// — 고바이트 뒤 0x5C 리터럴 계약까지 원문 승계).
+// fix r1 — 루트 폼 2건(리뷰 M-1·M-2, 같은 3행의 같은 원인): ①드라이브
+// 루트 조건행(base.size()==2 → '/' 재부여)이 이어지는 무조건 `+= '/'`와
+// 겹쳐 "I://" 이중 슬래시를 만들었다(Win32가 directory_iterator("I://")를
+// ec=0로 받아들이는 실측 때문에 셀프테스트가 영원히 미검출 — 회귀 봉인
+// 2r-b). 조건행 삭제+무조건 1슬래시 하나로 충분("C:"+"/" = 드라이브-상대
+// 경로 "C:name" 함정 회피 원문 유지). ②posix 절대 루트 "/"는 말단 접기가
+// ""로 만들어 빈-cwd 분기에 빠져 상대명을 돌려주었다(ListSubdirs가 프로세스
+// cwd 기준으로 읽는 검사 무결성 위반 — 회귀 봉인 2r-c). 판정은 접기
+// **이전** 절대성 표지로 한다 — 슬래시뿐인 폼("/"·"///")은 접기 후 ""가 되
+// 어 접기 뒤 판정으로는 도달 불가("Parent(/sdcard)=/" 사다리가 "/"를 정당
+// cwd로 도달시키므로 루트는 반드시 열린다).
 inline std::string JoinDir(const std::string& cwd, const std::string& name) {
-    std::string base = Slashize(cwd);
+    const std::string s = Slashize(cwd);   // '\'→'/' 접기(원문 수형)
+    const std::string rest = Slashize(name);
+    // 절대성 표지 — 마커: 선단 '/' = 절대 경로 폼. 접기로 빈값이 되면
+    // 이 표지로 루트("/"+"name")와 빈 cwd(이름 원문)를 갈라낸다.
+    const bool absoluteRoot = (!s.empty() && s.front() == '/');
+    std::string base = s;
     while (!base.empty() && base.back() == '/') base.pop_back();
-    std::string rest = Slashize(name);
-    if (base.empty()) return rest;  // 빈 cwd — 이름 원문 그대로(상대 조립)
-    if (base.size() == 2 && base[1] == ':') base += '/';  // 드라이브 루트
-    base += '/';
+    if (base.empty())
+        return absoluteRoot ? "/" + rest : rest;  // 루트 보존 | 상대 조립
+    base += '/';  // 드라이브 루트 "C:"도 이 1슬래시로 "C:/name" 성립(fix r1)
     base += rest;
     return base;
 }

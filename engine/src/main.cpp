@@ -6115,6 +6115,20 @@ static int RunAppSelfTest() {
                   "2r-② JoinDir = 기존/끝 슬래시 cwd 등치·1슬래시 결합(슬래시 "
                   "규약 #94 — Slashize 재용·이중 구분자 0)");
 
+            // 루트 폼 회귀 봉인 2건(T1 fix r1 — 리뷰 M-1·M-2): Win32가
+            // "I://"를 접어(directory_iterator ec=0 실측) 셀프테스트가
+            // 이 폼을 영원히 미검출하던 이중 슬래시 + posix 절대 루트가 상대
+            // 조립에 흡수되던 폼. 문자 폼 단정 — 축(Win/posix) 무관.
+            check(jk::music::browse::JoinDir(std::string("C:/"), "sub") ==
+                      std::string("C:/sub"),
+                  "2r-b JoinDir 드라이브 루트 = C:/sub(이중 슬래시 0의 실증 "
+                  "폼 — I:// 회귀 봉인 — T1 fix r1 M-1)");
+            check(jk::music::browse::JoinDir(std::string("/"), "sub") ==
+                      std::string("/sub"),
+                  "2r-c JoinDir posix 절대 루트 = /sub(루트가 상대 조립에 흡수"
+                  "되던 폼 회귀 봉인 — 루트는 반드시 열리는 cwd — T1 fix r1 "
+                  "M-2)");
+
             // ③) Parent — 브리프 ③ 3케이스.
             // 중간: JoinDir 왕복이 cwd 원문 승계(".." 행의 실조작 수형).
             check(jk::music::browse::Parent(joined) == broot,
