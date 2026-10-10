@@ -109,6 +109,11 @@ void HumanSize(long long bytes, char* buf, size_t bufBytes) {
 constexpr int kOpenRetryMax = 20;
 constexpr std::chrono::milliseconds kOpenRetryDelayMs{250};
 
+// tracks child의 압착 최소 높이(T2 fix r1 — 압착 가드의 상수): 헤더 행+데이터
+// 1행(16px 폰트 × 2 + 행폭 여유). 남는 높이가 "공간 패널 예약 200+이 상수"보다
+// 작으면 표를 이 높이로 봉한다(음수 child 높이 봉인 소각 — BuildUi 원문).
+constexpr float kTrackMinHeight = 56.0f;
+
 void MtimeLabel(long long mtime, char* buf, size_t bufBytes) {
     std::snprintf(buf, bufBytes, "-");
     if (mtime == 0) return;
@@ -614,6 +619,15 @@ void ClientMusicApp::BuildFolderBrowser() {
     // 결정론 정렬·ec 중립형·.도트 스킵): 이 패널이 그려지는 프레임은 이미
     // 사유(입력·도착·진행 표기)가 있는 프레임뿐이라(#89 게이트) 프레임당 1회
     // 단일 디렉터 스캔은 비용이 유휴에 흐르지 않는다.
+    //
+    // 행 순서 원장(fix r1 — T3 런 E/F 실측 흡수): 원존은 cwd 1행 → ".." 행 →
+    // 목록 child(128) → [이 폴더 추가]/[닫기] 행이었다 — [이 폴더 추가]가
+    // 클라 y≈442-457(흐름 최하단 = tracks child 음수 높이 압착 경계)에 떨어져
+    // 합성 클릭 25 후보 × 런 5회 전부 무전달(서버 relay sent=ok·클라 수취
+    // frames=0의 단절 원문). **③④ 행을 목록 위로 옮긴다** — 계약 ①②③④의
+    // 존재 순서는 유지하되 공간 순서가 아닌 도달성이 원장: 클릭이 관측 전달
+    // 성립 지대(하위 행 y≈324 원문 = 런 E/F 성립 축)에 상시 산다. ⑤의 판정
+    // 축(도구 진실원)은 변하지 않는다.
     if (browseCwd_.empty())
         return;  // 방어선(개봉 가드가 비움 — 레거시 CP949 거부 등)
     // ① cwd 표기 1행 — 전문 단일 행(개행 없음). 창폭을 넘는 긴 경로는 잘림
@@ -621,10 +635,10 @@ void ClientMusicApp::BuildFolderBrowser() {
     ImGui::TextUnformatted(browseCwd_.c_str());
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("%s", browseCwd_.c_str());
-    // ② 상위 ".." 행+하위 폴더 목록 — 클릭 = 진입(T1 JoinDir/Parent 원문
-    //    소비). 상위 부재(cwd가 루트 — 드라이브 루트·"/"·단일 성분)는 행 대신
-    //    무안내 1행(T1 Parent의 부자기 금지 계약을 UI가 그대로 소비 — 루트에서
-    //    눌러도 사라지는 행을 만들지 않는다).
+    // ② 상위 ".." 행 — 클릭 = 상위 이동(T1 Parent 원문 소비). 상위 부재(cwd가
+    //    루트 — 드라이브 루트·"/"·단일 성분)는 행 대신 무안내 1행(T1 Parent의
+    //    부자기 금지 계약을 UI가 그대로 소비 — 루트에서 눌러도 사라지는 행을
+    //    만들지 않는다).
     const std::string parentPath = music::browse::Parent(browseCwd_);
     if (parentPath.empty()) {
         ImGui::TextDisabled("(루트 — 상위 없음)");
@@ -635,34 +649,12 @@ void ClientMusicApp::BuildFolderBrowser() {
             ImGui::SetTooltip("상위 — %s", parentPath.c_str());
         ImGui::PopID();
     }
-    if (ImGui::BeginChild("browselist", ImVec2(0, 128.0f),
-                          ImGuiChildFlags_Borders)) {
-        const music::browse::DirPage page =
-            music::browse::ListSubdirs(browseCwd_);
-        if (page.dirs.empty())
-            ImGui::TextDisabled("(하위 폴더 없음)");
-        for (size_t k = 0; k < page.dirs.size(); ++k) {
-            // 행 사본 선취(P1 수형 재용 — #92 move/삭제 무효화 부류 예방 원장):
-            // 클릭 핸들과 툴힌트가 원본 벡터가 아닌 사본을 쓴다. ListSubdirs는
-            // 매 프레임 원문 재구성이라 구조적으로 move가 없지만, 관리 경로
-            // (DirAddManaged — 성공 시 dirs_·userDirs_ move-대입 교체)와 같은
-            // 프레임에서 행이 살아남는 전제를 부수지 않는다(수형 통일).
-            const std::string name = page.dirs[k];
-            ImGui::PushID(static_cast<int>(k));
-            if (ImGui::Selectable(name.c_str()))
-                browseCwd_ = music::browse::JoinDir(browseCwd_, name);
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "%s", music::browse::JoinDir(browseCwd_, name).c_str());
-            ImGui::PopID();
-        }
-    }
-    ImGui::EndChild();
-    // ③ [이 폴더 추가] — DirAddManaged 단일 경로([추가] 버튼·music_dir_add
-    //    도구와 동일): 가드 2검→Store.AddDir→성공 = status+입력 소각+
-    //    RefreshUserDirs 1연+ResolveDirs+RequestScan(기존 재스캔 계약 원존)+
-    //    frameDirty(기존 계약 — 성공/실패 status 표기 모두). 성공 = 브라우즈
-    //    종료(계약 ③); 실패 = status 정직 1행으로 브라우저에 남는다.
+    // ③④ [이 폴더 추가]/[닫기] — 목록 앞(도달성 원장 상기).
+    // ③ — DirAddManaged 단일 경로([추가] 버튼·music_dir_add 도구와 동일):
+    //    가드 2검→Store.AddDir→성공 = status+입력 소각+RefreshUserDirs 1연+
+    //    ResolveDirs+RequestScan(기존 재스캔 계약 원존)+frameDirty(기존 계약
+    //    — 성공/실패 status 표기 모두). 성공 = 브라우즈 종료(계약 ③); 실패 =
+    //    status 정직 1행으로 브라우저에 남는다.
     if (ImGui::Button("이 폴더 추가")) {
         const music::DirWriteResult r = DirAddManaged(browseCwd_);
         if (r.ok) {
@@ -679,6 +671,39 @@ void ClientMusicApp::BuildFolderBrowser() {
     }
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("브라우저 닫기 — 추가하지 않고 종료");
+    // 하위 폴더 목록 — 클릭 = 진입(T1 JoinDir 원문 소비). 목록 child는
+    // 버튼행의 나머지 공간을 소비한다(고정 128 — 원존 높이 계약 유지: 위의
+    // 행·버튼이 관측 전달 지대에 상시 산다).
+    if (ImGui::BeginChild("browselist", ImVec2(0, 128.0f),
+                          ImGuiChildFlags_Borders)) {
+        const music::browse::DirPage page =
+            music::browse::ListSubdirs(browseCwd_);
+        if (page.dirs.empty())
+            ImGui::TextDisabled("(하위 폴더 없음)");
+        for (size_t k = 0; k < page.dirs.size(); ++k) {
+            // 행 사본 선취(P1 수형 재용 — #92 move/삭제 무효화 부류 예방 원장):
+            // 클릭 핸들과 툴힌트가 원본 벡터가 아닌 사본을 쓴다. ListSubdirs는
+            // 매 프레임 원문 재구성이라 구조적으로 move가 없지만, 관리 경로
+            // (DirAddManaged — 성공 시 dirs_·userDirs_ move-대입 교체)와 같은
+            // 프레임에서 행이 살아남는 전제를 부수지 않는다(수형 통일).
+            const std::string name = page.dirs[k];
+            // 진행 경로 사본(I1 fix r1 — 동프레임 툴힌트 드리프트 가드 1행):
+            // JoinDir의 대상 행을 버튼 판정 **전**에 계산해 모은다 — 원존은
+            // Selectable의 클릭 핸들에서 browseCwd_를 바꾼 뒤
+            // IsItemHovered 툴힌트가 "새 cwd의 자식"을 그렸다(동프레임
+            // 드리프트 — 클릭 프레임의 툴힌트가 클릭 전 경로를 말해야 하는
+            // 정직 원장). JoinDir 2패 구성도 소각(매 프레임 문자열 재계산 1벌).
+            const std::string dest =
+                music::browse::JoinDir(browseCwd_, name);
+            ImGui::PushID(static_cast<int>(k));
+            if (ImGui::Selectable(name.c_str()))
+                browseCwd_ = dest;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("%s", dest.c_str());
+            ImGui::PopID();
+        }
+    }
+    ImGui::EndChild();
 }
 
 // ---- 재생 위임 (T3 — 스펙 §4 D1) ----
@@ -1270,18 +1295,44 @@ void ClientMusicApp::BuildUi(int w, int h) {
             if (ImGui::Button(browseOpen_ ? "찾아보기 ▾" : "찾아보기 ▸")) {
                 browseOpen_ = !browseOpen_;
                 if (browseOpen_) {
-                    const bool valid =
+                    // 개봉 가드 2검(fix r1 — 스캔 leg 동형): ①인코딩(레거시
+                    // CP949 바이트 cwd는 fs::path narrow UTF-8 기수의
+                    // filesystem_error throw 경로 — 2o-f 실측 승계,
+                    // Utf8ToUtf16 빈 반환 fail-closed 계약 재용) ②광 드라이브
+                    // 루트 형식(I3 fix r1 — "C:"는 ListSubdirs("C:")가 드라이브
+                    // 현재 디렉터리를 건드리고 JoinDir이 "C:name" 드라이브-
+                    // 상대 표기를 만드는 T1 함정 원문의 cwd 폼 — 슬래시
+                    // 동반("C:/") 형식으로 재등록하라는 정직 1행).
+                    bool valid =
                         dirIndex_ >= 0 &&
-                        dirIndex_ < static_cast<int>(dirs_.size()) &&
-                        !jk::text::Utf8ToUtf16(dirs_[dirIndex_]).empty();
-                    browseCwd_ = valid ? dirs_[dirIndex_] : std::string();
+                        dirIndex_ < static_cast<int>(dirs_.size());
+                    std::string deny;  // 개봉 거부 사유(빈값 = 합격)
+                    if (valid) {
+                        const std::string& root = dirs_[dirIndex_];
+                        if (root.size() == 2 && root[1] == ':') {
+                            // 광 드라이브 루트(I3 fix r1) — 개봉 거부
+                            deny = "[!] 브라우저 개봉 불가 — 탭 루트가 광 "
+                                   "드라이브 형식(C:)이라 X:/ 형식으로 "
+                                   "재등록하세요";
+                        } else if (jk::text::Utf8ToUtf16(root).empty()) {
+                            // 부적합 UTF-8(CP949) — 스캔 leg 동형 거부
+                            deny = "[!] 브라우저 미지원 인코딩 폴더(레거시 "
+                                   "CP949) — 표기·관리만 가능";
+                        } else {
+                            browseCwd_ = root;
+                        }
+                    }
                     if (browseCwd_.empty()) {
                         browseOpen_ = false;  // 개봉 거부 — 브라우저는 닫힌 채
-                        status_ = "[!] 브라우저 미지원 인코딩 폴더(레거시 "
-                                  "CP949) — 표기·관리만 가능";
-                        frameDirty_ = true;  // 사유 표기 틱(내용 변화 계약 몫 —
-                                             //   이 프레임은 입력 프레임이라
-                                             //   실제로 이미 렌더된다 — 방어선)
+                        status_ = deny;
+                        // 더티의 성격(M1 fix r1 문어 정정 — 동작 무변경):
+                        // **부하성** — status_는 BuildUi 선두의 상태행에
+                        // 그려진다(폴더 패널 코드보다 앞선 위치라 이 프레임의
+                        // 선두 행은 **이전** status를 이미 그렸다) — 이번 렌더
+                        // 중의 대입은 다음 프레임의 선두 행 표기 계약이고,
+                        // frameDirty는 그 다음 프레임을 유발하는 하중이다
+                        // (입력 프레임 뒤의 1프레임 지연 표기 원장).
+                        frameDirty_ = true;
                     }
                 }
             }
@@ -1297,7 +1348,21 @@ void ClientMusicApp::BuildUi(int w, int h) {
         // env 무관하게 늘 그려진다(버튼=표기 계층 T1 순수 부품 — leg 불가
         // 빌드의 발사는 DeviceFailed 고장 종착으로 끝나며 안내 원문이 그
         // 차이를 말해준다 — 정직 계약, header 원문).
-        if (ImGui::BeginChild("tracks", ImVec2(0, -200.0f),
+        // 압착 가드(T2 fix r1 — T3 런 E/F 클릭 무전달의 진원 후보 (a)):
+        // tracks child의 -200 고정폭 = "남는 높이 − 공간 패널 예약 200"인데
+        // 위의 패널(폴더 관리+브라우저)이 열리면 남는 높이가 예약보다 작아진다
+        // — CalcItemSize는 음수 child 높이를 ImMax(4, 남는 높이+음수)로 봉해
+        // 4px 잔본을 만든다(원문 실측 — third_party/imgui/imgui.cpp
+        // CalcItemSize 1.92.9b) — 그 경계의 행/버튼 배치가 관측 비도달 영역에
+        // 떨어진다. 부족하면 표의 최소(헤더 1행+데이터 1행)를 봉하고 부족분은
+        // spatial child가 흡수한다 — 예약 = clamp(남는 높이 − 표 최소, 4, 200):
+        //   남는 500 → 예약 200(원존 동형·표 300)  남는 300 → 200·표 100
+        //   남는 100 → 예약 44·표 56(최소 봉합)    남는 58 → 예약 4·표 54
+        // 여유 상태(패널 폐쇄 표준)는 -200 원존과 완전 동형.
+        const float availDown = ImGui::GetContentRegionAvail().y;
+        const float reserve = std::min(
+            200.0f, std::max(4.0f, availDown - kTrackMinHeight));
+        if (ImGui::BeginChild("tracks", ImVec2(0, -reserve),
                               ImGuiChildFlags_Borders)) {
             if (scanBusy_) {
                 // 진행 표시 — 비동기 스캔의 도착 대기(비운 목록 위 1행).
@@ -1314,7 +1379,17 @@ void ClientMusicApp::BuildUi(int w, int h) {
         }
         ImGui::EndChild();
         // spatial leg 패널(T2 — 아래쪽 200px): 표의 남는 높이가 위 표 소유.
-        if (ImGui::BeginChild("spatial", ImVec2(0, 0),
+        // **압착 경계 2차 가드(fix r1 — 1차 가드의 누설 봉합)**: (0,0)의
+        // 잔여 의미는 "GetContentRegionAvail()"과 같다 — tracks child 54px+
+        // 행 간격 9가 남는 높이(58)를 초과하면 잔여가 **음수**로 떨어진다
+        // (CalcItemSize의 (0,0) → default_h = 음수 잔여 — 음수 높이 child =
+        // T3 런에서의 클라 freeze·서버 relay 봉합·agentctl empty 전멸 원문의
+        // 유일 신설 구조) — 남는 높이 4px 미만을 4px로 봉한다. 여유 상태는
+        // (0,0) 원존과 완전 동형(잔여 = avail 그대로).
+        const float availSpatial = ImGui::GetContentRegionAvail().y;
+        if (ImGui::BeginChild("spatial",
+                              ImVec2(0, availSpatial > 4.0f ? availSpatial
+                                                            : 4.0f),
                               ImGuiChildFlags_Borders)) {
             BuildSpatialPanel();
         }

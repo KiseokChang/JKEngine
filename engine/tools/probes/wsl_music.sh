@@ -138,10 +138,13 @@ FILTER_TEXT="d_seed"
 #     (3탭 ≈ x 220-290 — 후보 그리드가 정찰. 16c의 (130,70)은 2탭 산식).
 #   MUS_BBROW_* = [찾아보기] 토글 — 패널 고정 레이아웃(dirmg 128px → InputText
 #     행 → 찾아보기 행)이라 탭 수와 무관한 행 산식(≈ 클라 y 250-272).
-#   MUS_BSUB_*  = browselist child의 첫 하위 행(sub_a — ≈ 클라 y 326-346).
-#   MUS_BUP_*   = ".." 행(≈ 클라 y 300-318).
-#   MUS_BADD_*  = [이 폴더 추가](≈ 클라 y 458-482 — [닫기]는 SameLine 우측
-#     ≈ x 124 이후 — 후보 x상한이 겹치지 않게 왼쪽 유지).
+#   MUS_BSUB_*  = browselist child의 첫 하위 행(sub_a — ≈ 클라 y 340-360 —
+#     T2 fix r1 뒤: [이 폴더 추가]/[닫기] 행이 목록 위로 이동해 +24px).
+#   MUS_BUP_*   = ".." 행(≈ 클라 y 300-318 — fix r1 뒤에도 무이동).
+#   MUS_BADD_*  = [이 폴더 추가](≈ 클라 (~, 306-326) — fix r1: 목록 위 행,
+#     상위 ".." 행 바로 아래 — 원존 y 442-457은 T3 런 E/F 합성 클릭 무전달
+#     사건의 좌표(흐름 최하단 = tracks child 압착 경계 원장)라 클릭 도달
+#     가능 영역 밖 — [닫기]는 SameLine 우측 ≈ x 124 이후).
 MUS_BROWSE_TREE=${MUS_BROWSE_TREE:-/tmp/mus_browse}
 MUS_BTAB_X=${MUS_BTAB_X:-158}
 MUS_BTAB_YS=${MUS_BTAB_YS:-"82 76 88 70"}   # 스트립행(상태행 +17px 시프트로 67-93 — 16c 원장)
@@ -150,11 +153,11 @@ MUS_BTOG_YS=${MUS_BTOG_YS:-"70 64 76"}
 MUS_BBROW_XS=${MUS_BBROW_XS:-"58 44 30 70 20"}
 MUS_BBROW_YS=${MUS_BBROW_YS:-"262 256 268 250 274"}
 MUS_BSUB_XS=${MUS_BSUB_XS:-"64 86 42 106 30"}
-MUS_BSUB_YS=${MUS_BSUB_YS:-"324 318 330 336 312"}   # sub_a 행 317-331·sub_b행 332-346(런 D 실측)
+MUS_BSUB_YS=${MUS_BSUB_YS:-"348 342 354 356 360"}   # sub_a·sub_b 행 — T2 fix r1(압착 가드) 뒤의 산식(+24px: 버튼행이 목록 위로)
 MUS_BUP_XS=${MUS_BUP_XS:-"24 44 64 14"}
-MUS_BUP_YS=${MUS_BUP_YS:-"294 288 300 306"}   # ".." 행 = 클라 289-299(런 D 실측)
+MUS_BUP_YS=${MUS_BUP_YS:-"294 288 300 306"}   # ".." 행 = 클라 289-299(런 D 실측 — fix r1 뒤에도 무이동)
 MUS_BADD_XS=${MUS_BADD_XS:-"46 32 62 20 76"}
-MUS_BADD_YS=${MUS_BADD_YS:-"450 444 456 462 438"}   # [이 폴더 추가] = 클라 (11-68, 442-457)(런 D 실측)
+MUS_BADD_YS=${MUS_BADD_YS:-"321 315 327 333 318"}   # [이 폴더 추가] 행 전용(fix r1: 버튼 행 클라 ~316-336 — ".."행(289-310)과 겹치지 않게 303/309 배제 — 런 2 원장: (46,309) 탭이 ".." 행을 쳐 cwd를 루트로 되돌려 no-op 추가로 강도 축을 상실한 사건)
 MUS_BROW_TH=${MUS_BROW_TH:-15}    # 개봉/종료(레이아웃 전이 ~190px) 판정 행 임계
 MUS_BROW_TH_TEXT=${MUS_BROW_TH_TEXT:-2}   # 행 클릭(텍스트 교체) 판정 행 임계
 MUS_BROW_TH_ADD=${MUS_BROW_TH_ADD:-10}    # [이 폴더 추가] 종료 회귀 판정(텍스트 전이 ~4행과의 겹침 회피 — 중간 임계)
@@ -636,7 +639,13 @@ shot() { # $1 = 영수증 상대명 — /tmp 단열 → engine/tmp 단일 cp
     echo "CAPTURE: $RECEIVE/$NAME ($(wc -c < "$RECEIVE/$NAME") bytes)"
 }
 tap() { # $1=id $2=x $3=y — 합성 클릭 1탭(send_input — permissions allow 게이트)
-    timeout 12 ./buildwsl/jkdesktop agentctl \
+    # timeout 35 (T2 fix r1 — T3 런의 봉합 원장 승계): WSL agentctl 응답 지연은
+    # 원장 실측 ~33s(런 1-2의 ping 30×2s 창) — timeout 12는 지연 창의 텅빈
+    # 회수(무전달 오인의 2차 원인 — 본 라인 16b2 런의 btog 루프 18 전멸 원문)
+    # 라 원장 수치에 맞춘 상향. 무착탄 판정(차분 0+무음)은 tapsettle이 소유 —
+    # 이 타임아웃은 "회수 대기 상한"만 늘린다(기존 세그먼트 행동 동형 상위호환
+    # — 응답이 12s 내 오면 원존과 같은 시각).
+    timeout 35 ./buildwsl/jkdesktop agentctl \
         "{\"tool\":\"send_input\",\"args\":{\"op\":\"click\",\"id\":$1,\"x\":$2,\"y\":$3,\"button\":1,\"clicks\":1}}" \
         2>/dev/null | grep -a '{' | head -1
 }
@@ -1089,6 +1098,7 @@ MUS_X=$(printf '%s' "$MUSWIN" | sed -n 's/.*"x":\(-\?[0-9]*\),.*/\1/p')
 MUS_Y=$(printf '%s' "$MUSWIN" | sed -n 's/.*"y":\(-\?[0-9]*\),.*/\1/p')
 
 BR_STAGE=0
+BR_ADD_FAIL_HARD=0   # [T2 fix r1] ⑤ 무전달 hard 마커(18e 종결 rc=1)
 echo "--- 16b2-3. ② 탭 클릭 브래킷 (dirIndex_ = BTREE — 정찰-판정기) ---"
 python3 "$SHOT_PY" "$LOGDIR/mus_base16b2.png" >"$LOGDIR/mus_base16b2.log" 2>&1 \
     || FAIL "16b2 baseline capture failed — $(tail -2 "$LOGDIR/mus_base16b2.log" | tr '\n' ' ')"
@@ -1221,39 +1231,53 @@ if [ "$BR_STAGE" -eq 4 ]; then
     else
         echo "MUSIC-FAIL(browse-sub2: 무재진입 — MUS_BSUB 재보정 몫(mus_bc_bsub2 원문) — ⑤는 cwd 잔류 상태 계속(원장))"
     fi
-    echo "--- 16b2-8. ⑤ [이 폴더 추가] 원문 클릭 → 도구 진실원 판정 + 등록/종료 원문 ---"
-    # [런 1-2 원장(브라우저 세그먼트의 칼리브레이션 런) — 판정 축 교체]
-    # 컴포지트 프레젠트 지연(라이브 정찰 실측 ~2-4s+)으로 후보 캡처가 1-2
-    # 클릭 뒤의 스테일 프레임을 잡는다(16d "수 초 뒤" 원장 승계) — 캡처 차분
-    # 만으로는 [이 폴더 추가]의 착탄을 절단판정 못 한다.
-    # 그래서 판정 = **도구 진실원**(music_dir_list에서 sub_a 등장 = 클릭이
-    # DirAddManaged를 쐈다의 절단판정 — ④2의 cwd = 하위 폴더(sub_a/sub_b)가
-    # 전제, 그 이름은
-    # ①·도구 어느 경로로도 등록하지 않은 이름). 캡처 = EYES 원문 수급.
+    echo "--- 16b2-8. ⑤ [이 폴더 추가] 원문 클릭 → tapsettle 착탄+도구 진실원 판정 (T2 fix r1 — 재검) ---"
+    # [T2 fix r1 재검 원장 — ⑤ 무전달 재발 방지]: 원존 후보 지대(클라 y
+    # 442-457)의 클릭 = 런 5회 × 25 후보 전부 무전달(서버 relay sent=ok·클라
+    # 수취 frames=0의 단절 — task-3-report concern 1) — tracks child 음수
+    # 높이 압착 경계 원장. T2 fix r1(압착 가드+③④ 버튼행의 목록 위 이동)으로
+    # 클릭 지대가 상위 행 성립 축(런 E/F에서 전달 성립된 y≈294-324 원문)으로
+    # 이동했다 — MUS_BADD_* = fix r1 뒤의 산식. 판정 = **이중**: 착탄(tapsettle
+    # — 종료 전이 임계 MUS_BROW_TH_ADD)+도구 진실원(music_dir_list에서
+    # sub_[ab] 등장 = DirAddManaged 신규 등록의 절단판정 — cwd = 하위 폴더가
+    # 전제, 그 이름은 ①·도구 어느 경로로도 등록하지 않은 이름). 후보마다 폴
+    # 응답 원문을 남긴다(무음 실패 금지 원장). **클릭 실패(전 후보 미성립) =
+    # hard 마커(BR_ADD_FAIL_HARD — 18f 끝에서 rc=1 종결, 복귀 16b2-10 이후)**
+    # — honest-fail(rc 0 유지)에서 격상: 무전달 재발이 fix r1의 수리 실패
+    # 원장이 된다.
     BR_ADD=0
     BRADDEX=""
     BRADDY=""
+    BRADDFULL=0
     for ry in $MUS_BADD_YS; do
         for rx in $MUS_BADD_XS; do
-            R=$(tap "$MUS_ID" "$((MUS_X + rx))" "$((MUS_Y + ry))")
-            printf '%s' "$R" | grep -aq '"ok":true' \
-                || echo "  tap reply 비정상(전송 실패?): ${R:-empty}"
-            echo "BADD try: 클라($rx,$ry) — reply: ${R:-none}"
-            sleep 4.2
+            tapsettle "$LOGDIR/mus_bc_bsub2.png" "badd" "$rx" "$ry" "$MUS_BROW_TH_ADD" \
+                && { echo "  착탄(종료 전이 — 클라 ${rx},${ry} — 도달 시차 ${SETTLE_T}s diff=$SETTLE_DIFF)"; }
+            sleep 1
             BLP=$(atool music_dir_list '{}')
             echo "  BADD poll list: ${BLP:0:200}"
-            # 등록 패턴 = sub_a|sub_b — 클릭이 어느 하위 행으로 들어갔는지는
-            # 런 대조 원장(하위 행 y 격자 — sub_a 317-331·sub_b 332-346)이
-            # 소유하고 본 판정은 "하위 폴더가 등록됐다"의 절단판정만.
-            printf '%s' "$BLP" | grep -aqE 'sub_[ab]' 2>/dev/null \
-                && { BRADDEX=$rx; BRADDY=$ry; break; }
+            if printf '%s' "$BLP" | grep -aqE 'sub_[ab]' 2>/dev/null; then
+                BRADDEX=$rx; BRADDY=$ry; BRADDFULL=1; break
+            fi
+            if [ "${SETTLE_DIFF:-0}" -ge "$MUS_BROW_TH_ADD" ]; then
+                # 전달 원문(브라우즈 종료 전이) 성립 — 등록 미출현 = no-op 추가
+                # 계보(런 2 원장: cwd = 루트의 중복 no-op ok — Store 원문)라
+                # **전달 축 성립으로 종결**(등록 강도 축 = MUSIC-FAIL 원장행 —
+                # 무음 실패 금지·계속 후보 탐색 없음 — 종료 전이는 역전 불가)
+                BRADDEX=$rx; BRADDY=$ry; break
+            fi
         done
         [ -n "$BRADDEX" ] && break
     done
     if [ -n "$BRADDEX" ]; then
         BR_ADD=1
         BR_STAGE=8
-        echo "MUS-BROWSE-ADD-CLICK-OK: [이 폴더 추가] 착탄(클라 ${BRADDEX},${BRADDY}) — cwd = 하위 폴더 = **신규 등록**(DirAddManaged 단일 경로 — [추가] 버튼·music_dir_add 도구와 같은 경로 원문) — 성공 = 브라우즈 종료(계약 ③)"
+        if [ "$BRADDFULL" -eq 1 ]; then
+            echo "MUS-BROWSE-ADD-CLICK-OK(FULL): [이 폴더 추가] 착탄(클라 ${BRADDEX},${BRADDY}) — cwd = 하위 폴더 = **신규 등록**(DirAddManaged 단일 경로 — [추가] 버튼·music_dir_add 도구와 같은 경로 원문) — 성공 = 브라우즈 종료(계약 ③)"
+        else
+            echo "MUS-BROWSE-ADD-CLICK-OK(DELIVERED): [이 폴더 추가] 착탄(클라 ${BRADDEX},${BRADDY}) — 종료 전이(diff=$SETTLE_DIFF)+브라우즈 종료 — 단 등록 원문(sub_[ab]) 미출현 = no-op 추가 계보(cwd = 루트 — ④2·행 격자 계보 원장) — **전달 복원 = fix r1 계약 1항의 축**(무전달 소각)"
+            echo "MUSIC-FAIL(browse-add-reg: 등록 강도 축 미달 — no-op 원장 — 전달 축과 별개)"
+        fi
         sleep 3   # 추가 성공 = 재스캔+종료 렌더의 컴포지트 도착 여유(전윈도 원장)
         python3 "$SHOT_PY" "$LOGDIR/mus_bc_badd.png" >"$LOGDIR/mus_bc_badd.log" 2>&1 \
             || FAIL "badd capture failed — $(tail -2 "$LOGDIR/mus_bc_badd.log" | tr '\n' ' ')"
@@ -1274,14 +1298,18 @@ else:
 PYEOF
 ) || SUBCHK="SUB-MISS(python3 파서 실패)"
         echo "MUSIC-BROWSE-SUB-REG: $SUBCHK (독립 파서 — [이 폴더 추가] 클릭의 등록 원문)"
-        printf '%s' "$SUBCHK" | grep -aq 'SUB-OK' \
-            || echo "MUSIC-FAIL(browse-sub-reg: sub_a 실기록 원문 미달 — $SUBCHK)"
+        if [ "$BRADDFULL" -eq 1 ]; then
+            printf '%s' "$SUBCHK" | grep -aq 'SUB-OK' \
+                || echo "MUSIC-FAIL(browse-sub-reg: sub_a 실기록 원문 미달 — $SUBCHK)"
+        fi
     else
-        echo "MUSIC-FAIL(browse-add: [이 폴더 추가] 무착탄(도구 진실원 하위 미등장) — MUS_BADD_XS/YS 재보정 몫(16b2-5~8의 캡처 원문), 원장)"
+        BR_ADD_FAIL_HARD=1
+        echo "MUSIC-FAIL(browse-add: [이 폴더 추가] 무착탄(종료 전이 무성립 · 전 후보) — fix r1 좌표 재보정 몫(16b2-5~8 캡처), 원장)"
+        echo "MUS-BROWSE-HARD: ⑤ 무전달 재발 — [이 폴더 추가] 클릭의 종료 전이 둘 다 미성립(하드 마커 — 18e 뒤 rc=1 종결, 복귀 16b2-10 선행)"
     fi
 fi
 
-if [ "$BR_STAGE" -eq 8 ] && [ "$BR_ADD" -eq 1 ]; then
+if [ "$BR_STAGE" -eq 8 ] && [ "$BR_ADD" -ge 1 ]; then
     echo "--- 16b2-9. 6. 브라우즈 종료 원문 — 재스캔 정착 캡처 ---"
     sleep 3   # 추가 성공 = 재스캔(기존 계약 — 도착 더티 1프레임) + 컴포지트
               # 프레젠트 지연(런 정찰 ~1-4s — T3 클릭 전윈도 원장) 정착 렌더
@@ -2071,7 +2099,7 @@ for f in browse_open browse_subs browse_sub browse_up browse_sub2 browse_added b
 done
 echo "  구성: stage=${BR_STAGE:-0}/8(tab=${BR_TAB:-0}·tog=${BR_TOG:-0}·open=${BR_OPEN:-0}·sub=${BR_SUB:-0}·up=${BR_UP:-0}·sub2=${BR_SUB2:-0}·add=${BR_ADD:-0}) restore=${BR_RESTORE:-0} captures=${BR_CAP_OK}"
 if [ "$BR_ALL" -eq 1 ] && [ "$BR_CAP_OK" -eq 1 ]; then
-    echo "MUSIC-BROWSE-VERDICT: BROWSE-OK(②탭 클릭 브래킷+패널+[찾아보기] 개봉 캡처 2종·③JoinDir 진입·④Parent 복귀·④2 재진입·⑤[이 폴더 추가] 신규 등록 원문(list/settings)+종료·6. 재스캔 정착 캡처) — 육안 스탭 대기"
+    echo "MUSIC-BROWSE-VERDICT: BROWSE-OK(②탭 클릭 브래킷+패널+[찾아보기] 개봉 캡처 2종·③JoinDir 진입·④Parent 복귀·④2 재진입·⑤[이 폴더 추가] $( [ "${BRADDFULL:-0}" -eq 1 ] && echo "신규 등록 원문(list/settings) FULL" || echo "전달 성립(종료 전이+브라우즈 종료 — 등록 강도 = no-op 원장")+종료·6. 재스캔 정착 캡처) — 육안 스탭 대기"
 else
     echo "MUSIC-BROWSE-VERDICT: BROWSE-FAIL(honest-fail — 행별 사유는 16b2·단계 ${BR_STAGE:-0}, 원장)"
 fi
@@ -2088,6 +2116,13 @@ else
     echo "MUSIC-FAIL(browse-canon: 런 PASS=$ST_PASS != 캐논 $CANON_WSL_SELFTEST — 계보 재확인 몫)"
 fi
 echo "MUSIC-END"
+# [T2 fix r1] ⑤ 무전달 hard 마커종결 — MUSIC-END 원문 행 뒤의 유일 rc=1 출구.
+# 복귀(16b2-10 — remove 2콜+settings 바이트 등호+트리 소각)가 선행 완료된
+# 뒤이므로 원복 계약은 무손상.
+if [ "${BR_ADD_FAIL_HARD:-0}" -eq 1 ]; then
+    echo "MUS-BROWSE-HARD-EXIT: ⑤ 무전달 재발(hard) — [이 폴더 추가] 클릭 실패 rc=1(무전달 재발 방지 원장 — T2 fix r1 계약 4항)"
+    exit 1
+fi
 exit 0
 # honest-fail 원칙: 수치·육안 대행 미달(MUSIC-FAIL 라인·DELEGATE MISS)은 원장
 # 목적이라 rc=0. hard FAIL(가드·빌드·selftest·시드·settings 주입·부팅·ping·
