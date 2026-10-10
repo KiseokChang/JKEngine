@@ -6073,6 +6073,82 @@ static int RunAppSelfTest() {
             check(!uec2 && !fs::exists(udir, uec2),
                   "2q-b 사후 소각 = 잔산 0(REMNANT 0 — 2m-c/2p-⑤ 정리 수형)");
         }
+
+        // 2r) 폴더 브라우저 순수 부품 (#97 T1 — 플랜
+        // 2026-10-11-music-dir-browser): 내장 미니 브라우저(폴더 전용 — 플랜
+        // 결정 ②)의 모델 leg — browse::ListSubdirs/JoinDir/Parent 3부품.
+        // fs 수형 계약 승계: ec 중립형(throwing 금지)·'/' 규약(#94·Slashize
+        // 재용)·이름 오름차순 결정론·숨김 .도트 스킵. 2m/2n/2o/2p/2q 원존
+        // 무변조 — 추가만. 임시 leg = 2p-④ 재용(temp_directory_path+사후
+        // 소각 — engine/tmp 미사용).
+        {
+            // 임시 트리 — 폴더 3+파일 2+숨김 폴더 1(브리프 ① 수형). 파일명은
+            // 전부 ASCII — 오름차순 판정이 인코딩 축(Win/WSL) 무관 결정
+            // (2q 규약 — 한글 트리는 인코딩 사슬 전용).
+            const fs::path bdir = fs::temp_directory_path() / "jk_music_browse";
+            fs::remove_all(bdir);  // 선제거 — 이전 런 잔산(2m-c 원문 수형)
+            fs::create_directories(bdir / "alpha");
+            fs::create_directories(bdir / "beta");
+            fs::create_directories(bdir / "gamma");
+            fs::create_directories(bdir / ".hidden_dir");  // 숨김 — 스킵 대상
+            std::ofstream(bdir / "t1.mp3", std::ios::binary).put('x');  // 열외
+            std::ofstream(bdir / "t2.txt", std::ios::binary).put('x');  // 열외
+            check(fs::exists(bdir / "alpha") && fs::exists(bdir / ".hidden_dir") &&
+                      fs::file_size(bdir / "t1.mp3") == 1,
+                  "2r-a 임시 트리 구성(폴더 3+파일 2+숨김 1) = 성립(사후 소각 전제)");
+
+            // ①) ListSubdirs — 폴더 3건·이름 오름차순·파일/숨김 0건(브리프 ①).
+            const jk::music::browse::DirPage page =
+                jk::music::browse::ListSubdirs(bdir.generic_string());
+            check(page.dirs.size() == 3 && page.dirs[0] == "alpha" &&
+                      page.dirs[1] == "beta" && page.dirs[2] == "gamma",
+                  "2r-① ListSubdirs = 폴더 3건 이름 오름차순 결정론(파일 2건·"
+                  "숨김 .hidden_dir·상위 행 0건 — 폴더 전용·.도트 스킵)");
+
+            // ②) JoinDir — '/' 규약(브리프 ②): 기존 슬래시 cwd·끝 슬래시 cwd가
+            // 등치 1슬래시 결합(이중 슬래시 0).
+            const std::string broot = bdir.generic_string();
+            const std::string joined = jk::music::browse::JoinDir(broot, "sub");
+            const std::string joinedTrail =
+                jk::music::browse::JoinDir(broot + "/", "sub");
+            check(joined == broot + "/sub" && joinedTrail == joined,
+                  "2r-② JoinDir = 기존/끝 슬래시 cwd 등치·1슬래시 결합(슬래시 "
+                  "규약 #94 — Slashize 재용·이중 구분자 0)");
+
+            // ③) Parent — 브리프 ③ 3케이스.
+            // 중간: JoinDir 왕복이 cwd 원문 승계(".." 행의 실조작 수형).
+            check(jk::music::browse::Parent(joined) == broot,
+                  "2r-③ Parent 중간 = 1단 제거(JoinDir 왕복 == cwd 원문 — 상위 "
+                  "행 승계 수형)");
+            // 루트 표기: 드라이브 루트 유지+posix 절대 루트(스캔이 뒤에서도
+            // 성립하는 표기 — "I:" 드라이브-상대 함정 회피 원문).
+            check(jk::music::browse::Parent(std::string("I:/music")) ==
+                          std::string("I:/") &&
+                      jk::music::browse::Parent(std::string("/a")) ==
+                          std::string("/"),
+                  "2r-④ Parent 루트 표기 = 드라이브 루트 유지(I:/music→I:/ — "
+                  "드라이브-상대 함정 회피)+posix 절대 루트(/a→/)");
+            // 루트의 부모 — 부자기 금지(어샥션): 전부 빈 문자열.
+            check(jk::music::browse::Parent(std::string("alpha")).empty() &&
+                      jk::music::browse::Parent(std::string("/")).empty() &&
+                      jk::music::browse::Parent(std::string("C:/")).empty(),
+                  "2r-⑤ Parent 루트의 부모 = 빈 문자열(부자기 금지 — 단일 성분/"
+                  "/문자 루트/C:/ 3폼 전부 — fs::path::parent_path 자기 함정 "
+                  "회피)");
+
+            // ④) 존재하지 않는 cwd = 빈 페이지(브리프 ④ — ec 중립형).
+            const jk::music::browse::DirPage missing = jk::music::browse::
+                ListSubdirs((bdir / "no_such_dir").generic_string());
+            check(missing.dirs.empty(),
+                  "2r-⑥ 존재하지 않는 cwd = 빈 페이지(ec 중립형·crash 0 — "
+                  "독립 실패 원문 계약)");
+
+            // REMNANT 0 — 사후 소각(무잔산 — 2m-e/2p-⑤/2q-b 정리 수형 재용).
+            std::error_code bec;
+            fs::remove_all(bdir, bec);
+            check(!bec && !fs::exists(bdir, bec),
+                  "2r-⑦ 사후 소각 = 잔산 0(REMNANT 0 — 정리 수형 재용)");
+        }
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);

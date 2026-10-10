@@ -418,6 +418,82 @@ inline std::string OpenRequestJson(const Track& t) {
     return OpenRequestJsonPath(t.full);
 }
 
+// ---- 폴더 브라우저 순수 부품 (#97 T1 — 플랜 2026-10-11-music-dir-browser) ----
+//
+// 내장 미니 브라우저(플랜 결정 ①~⑤ — 별도 대화상자 창/AppTool 릴레이 없음,
+// 키보드 불요)의 모델 leg. cwd 한 겹의 **폴더 목록만** 책임진다: 브라우저는
+// 폴더 전용(결정 ② — 확장자 필터와의 혼동 방지)이라 파일은 목록에서 보이지
+// 않고, 상위 ".." 행은 UI 측 상수 행(모델이 내보내지 않는다 — UI가 Parent로
+// 경로만 계산). fs 접점 계약은 본 header 원문 승계: ec 중립형(throwing 금지 —
+// 갤러리/shot 원문 계약), '/' 규약(#94 — 모든 경로는 슬래시 표기,
+// Slashize 재용), 열기 실패 = 빈 페이지(빈 반환 — ok 플래그 없이 "없는 폴더"
+// 는 목록 0건으로 읽는다).
+namespace browse {
+
+// cwd의 subdir 원문만 담는 꾸러미 — 상위 이동·이 폴더 추가는 UI가
+// Parent/Store.AddDir로 조립(결정 ③)하므로 모델은 목록 원문만.
+struct DirPage {
+    std::vector<std::string> dirs;
+};
+
+// cwd의 폴더만(파일·상위 ".." ·숨김 제외), 이름 오름차순(byte asc — 결정론:
+// 재귀 열거 순서가 축(Win/WSL)마다 흔들리는 것과 같은 함정이므로 정렬로
+// 못 매 둔다 — ListAudioFiles tie 계약 원문 수형). 숨김 = 선단 '.' 도트
+// 이름(LibraryCatalog 수형 — ".git"/".hidden" 스킵, ".",".." 도 도트 런으로
+// 자연 스킵). 없는 cwd/빈 cwd = 빈 페이지(ec 중립형).
+inline DirPage ListSubdirs(const std::string& cwd) {
+    DirPage page;
+    if (cwd.empty()) return page;  // 방어선(호출부 무접촉)
+    std::error_code ec;
+    const std::filesystem::directory_iterator it(cwd, ec);
+    if (ec) return page;  // 열기 실패(부재 cwd 포함) = 빈 페이지(독립 실패)
+    for (const std::filesystem::directory_entry& entry : it) {
+        std::error_code entryEc;
+        const bool isDir = entry.is_directory(entryEc);
+        if (entryEc || !isDir) continue;  // 열거 중 소멸 성분·파일 = 스킵
+        const std::string name = entry.path().filename().string();
+        if (name.empty() || name.front() == '.') continue;  // 숨김 .도트 스킵
+        page.dirs.push_back(std::move(name));
+    }
+    std::sort(page.dirs.begin(), page.dirs.end());  // 바이트 오름차순 결정론
+    return page;
+}
+
+// 폴더 합성 — '/' 규약(#94): cwd의 말단 구분자를 접고 1슬래시로 붙인다.
+// 끝 슬래시 유무 무관 같은 결과(2r 수형). cwd의 '\'는 Slashize 접기(fix r1
+// — 고바이트 뒤 0x5C 리터럴 계약까지 원문 승계). 드라이브 루트 "C:"는
+// 표기 "C:/"로 되돌려 붙인다(narrow 드라이브-상대 경로 "C:name" 함정 회피 —
+// ListSubdirs("C:")가 드라이브 현재 디렉터리를 건드리는 것도 같은 이유).
+inline std::string JoinDir(const std::string& cwd, const std::string& name) {
+    std::string base = Slashize(cwd);
+    while (!base.empty() && base.back() == '/') base.pop_back();
+    std::string rest = Slashize(name);
+    if (base.empty()) return rest;  // 빈 cwd — 이름 원문 그대로(상대 조립)
+    if (base.size() == 2 && base[1] == ':') base += '/';  // 드라이브 루트
+    base += '/';
+    base += rest;
+    return base;
+}
+
+// 상위 한 단 — 1단 제거. 루트에서 상위 = 빈 문자열(최상위 부모는 자기 반환
+// 금지 — fs::path::parent_path는 루트("C:/", "/")에서 자기 자신을 돌려주는
+// 실측 함정이 있어 문자 스캔 승계): 루트/빈값/단일 성분 = 빈값, "/a" = "/"
+// (루트 표기 원문), 중간 단 = 1슬래시 앞 잘라 원문 승계. 말단 구분자는 접고
+// 계산한다("sub/" = "sub" — JoinDir 접기 수형 재용).
+inline std::string Parent(const std::string& cwd) {
+    std::string s = Slashize(cwd);
+    while (!s.empty() && s.back() == '/') s.pop_back();
+    if (s.empty()) return {};                     // 루트/빈값 — 상위 없음
+    const size_t pos = s.rfind('/');
+    if (pos == std::string::npos) return {};      // 단일 성분 — 상위 없음
+    if (pos == 0) return "/";                     // "/a" → 루트 표기 원문
+    std::string out = s.substr(0, pos);
+    if (out.size() == 2 && out[1] == ':') out += '/';  // 드라이브 루트 유지
+    return out;
+}
+
+} // namespace browse
+
 // ---- 위임 답신 본문 재판정 (T3 fix r3 — T4 결함 원장: 폴백 자기 소멸) ----
 
 // 위임 답신의 대분법. 클라 봉투(AgentReply.ok)는 전송원이 임의로 고정한 수가
