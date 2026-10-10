@@ -170,6 +170,36 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
         return false;
     }
 
+    // #96 r1 fit-to-display (스파이크 원장 .superpowers/sdd/2026-10-10-music-
+    // scan-cancel/phone-input-spike-report.md): 폰(Termux:X11 displayResolution
+    // Mode=native)에서 X 화면은 1920x1005인데 서버 창은 1280x720 @(320,142) —
+    // 터치 면적의 약 절반이 jkdesktop 밖(좌/우 320·상 141·하 ~126px)이라 그곳의
+    // 탭은 어떤 클라에도 도달하지 않는 클릭 사각지대(스파이크 §1 측광·§5 (c)
+    // 확정 — 증상 "첫 탭이 무음으로 사라진다"의 지리적 진원). 폰 축에서만
+    // 부팅 창을 X 디스플레이 native 크기로 채운다. 창을 **키우는 것**은 fit-
+    // scale(비율 맞춤 축소)이 아니다: UpdateOutputBounds의 scale =
+    // SDL_GetRendererOutputSize/SDL_GetWindowSize(=1)과 논리 px(런처 그리드
+    // 100px 피치·셀·클라 표면 크기)은 그대로 — "창을 키우면 UI 셀 크기는
+    // 픽셀 그대로" (DeX fit-scale 함정 원장 재실측 확정 — memory
+    // jkwindow_dpi_mouse). Win/WSL은 무접촉(Win 1280x720 부팅 크기 유지
+    // 계약 — jkwinserver_main.cpp:31·main.cpp:6410 둘 다 원문).
+#ifdef __ANDROID__
+    {
+        SDL_DisplayMode fitMode;
+        if (SDL_GetDesktopDisplayMode(0, &fitMode) == 0 &&
+            fitMode.w > 0 && fitMode.h > 0) {
+            const int nativeW = fitMode.w;
+            const int nativeH = fitMode.h;
+            width = nativeW;
+            height = nativeH;
+            std::fprintf(stderr,
+                         "JKWindowServer::Init: phone fit-to-display %dx%d (native X mode)\n",
+                         width, height);
+        }
+        std::fflush(stderr);
+    }
+#endif
+
     window_ = SDL_CreateWindow(
         title.c_str(),
         SDL_WINDOWPOS_CENTERED,
@@ -201,6 +231,22 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
         window_ = nullptr;
         return false;
     }
+
+#ifdef __ANDROID__
+    // #96 r1 fit-scale 함정 재실측 1행(관측 전용): 논리(SDL_GetWindowSize)↔
+    // 물리(SDL_GetRendererOutputSize)가 등호면 UpdateOutputBounds의 scale=1 —
+    // 창을 네이티브 크기로 키운 것이 "fit-scale 축소"(픽셀 재표본화)가 아니라
+    // **논리 캔버스 확장**(셀/창 픽셀 그대로)임을 부트 로그로 단정한다.
+    {
+        int logW = 0, logH = 0, phyW = 0, phyH = 0;
+        if (window_) SDL_GetWindowSize(window_, &logW, &logH);
+        SDL_GetRendererOutputSize(renderer_, &phyW, &phyH);
+        std::fprintf(stderr,
+                     "JKWindowServer::Init: fit-scale log=%dx%d phys=%dx%d (%s — 등호=셀 픽셀 불변)\n",
+                     logW, logH, phyW, phyH, (logW == phyW && logH == phyH) ? "equal" : "DIFF");
+        std::fflush(stderr);
+    }
+#endif
 
     // Client apps need SDL_TEXTINPUT (Char events) for text fields/IME. In
     // client/single-process modes the app starts text input itself; the
@@ -961,8 +1007,27 @@ void JKWindowServer::Run() {
                 std::fprintf(stderr,
                              "[cpustat] sdl=%d msg=%d composites=%d\n",
                              traceSdl, traceMsg, traceFrames);
+                // [tmp] #96 [input] 1초 창 — 릴레이 관문 대차 원장: sdl(n) =
+                // X11 종착, sent(n) = SendInputEvent(실시간+합성 합류), btn/
+                // keyNoClient = 종착했으나 어떤 클라에도 릴레이되지 않은 사건
+                // (차분: sent == sdl - noClient면 서버측 무실, 이때 클라
+                // [cpustat] input이 sent보다 작으면 소실이 클라 수취 축).
+                std::fprintf(stderr,
+                             "[input] sdl(m=%ld mdn=%ld mup=%ld whl=%ld kdn=%ld kup=%ld "
+                             "char=%ld te=%ld) sent(m=%ld mdn=%ld mup=%ld whl=%ld kdn=%ld "
+                             "kup=%ld char=%ld) swallow(btn=%ld key=%ld)\n",
+                             traceInputs_.sdlMotion, traceInputs_.sdlBtnDown,
+                             traceInputs_.sdlBtnUp, traceInputs_.sdlWheel,
+                             traceInputs_.sdlKeyDown, traceInputs_.sdlKeyUp,
+                             traceInputs_.sdlChar, traceInputs_.sdlTextEdit,
+                             traceInputs_.sentMotion, traceInputs_.sentBtnDown,
+                             traceInputs_.sentBtnUp, traceInputs_.sentWheel,
+                             traceInputs_.sentKeyDown, traceInputs_.sentKeyUp,
+                             traceInputs_.sentChar,
+                             traceInputs_.btnNoClient, traceInputs_.keyNoClient);
                 std::fflush(stderr);
                 traceSdl = traceMsg = traceFrames = 0;
+                traceInputs_ = InputGateCounters{};
             }
         }
 
@@ -1861,6 +1926,24 @@ void JKWindowServer::UpdateCloseHover(int mx, int my, float scale) {
 }
 
 void JKWindowServer::HandleSDLEvent(const SDL_Event& ev) {
+    // [tmp] #96 입력 릴레이 분절 계측 (관측 전용 — [input] 게이트 카운터):
+    // X11 종착 관문의 사건별 원장. 소각은 Run()의 1초 [cpustat] 창이 [input]
+    // 행으로 인쇄 — 서버 Send(아래 SendInputEvent)와 클라 수취([cpustat]
+    // input) 대차의 "이전" 축. 평시(static const 게이트) 0비용 평가.
+    static const bool s_inputGateTrace = std::getenv("JK_CPU_TRACE") != nullptr;
+    if (s_inputGateTrace) {
+        switch (ev.type) {
+            case SDL_MOUSEMOTION:    ++traceInputs_.sdlMotion;  break;
+            case SDL_MOUSEBUTTONDOWN: ++traceInputs_.sdlBtnDown; break;
+            case SDL_MOUSEBUTTONUP:  ++traceInputs_.sdlBtnUp;   break;
+            case SDL_MOUSEWHEEL:     ++traceInputs_.sdlWheel;   break;
+            case SDL_KEYDOWN:        ++traceInputs_.sdlKeyDown; break;
+            case SDL_KEYUP:          ++traceInputs_.sdlKeyUp;   break;
+            case SDL_TEXTINPUT:      ++traceInputs_.sdlChar;    break;
+            case SDL_TEXTEDITING:    ++traceInputs_.sdlTextEdit; break;
+            default: break;
+        }
+    }
     if (ev.type == SDL_WINDOWEVENT &&
         (ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED ||
          ev.window.event == SDL_WINDOWEVENT_MOVED ||
@@ -1901,9 +1984,22 @@ void JKWindowServer::HandleSDLEvent(const SDL_Event& ev) {
             my = static_cast<int>(std::llround(ev.button.y * outputScale));
         }
 
+        // [input] 원장 1행 (관측 전용): 버튼 down의 물리 착점 — 스파이크 §4-5
+        // "찍은 좌표가 아니라 직전 유효 좌표에 작용" 관측(스테일 포인터 좌표 가설)
+        // 의 직접 재판정 재료. down 1건당 1행 — trace 게이트라 평시 0행.
+        if (s_inputGateTrace && ev.type == SDL_MOUSEBUTTONDOWN) {
+            std::fprintf(stderr, "[input] down px=%d,%d\n", mx, my);
+        }
+
         // Server window chrome (title-bar move / close / border resize)
         // intercepts mouse input before anything reaches the client.
         if (HandleChromeGrab(ev, mx, my, outputScale)) {
+            // [input] 관문 원장: 버튼이 크롬(타이틀 바/리사이즈 보더)에 취식된
+            // 케이스 — 클릭 사각지대(예: 마진 위 탭)에서 나오는 대표 소실 모습.
+            if (s_inputGateTrace && ev.type != SDL_MOUSEMOTION) {
+                std::fprintf(stderr, "[input] swl(chrome) px=%d,%d\n", mx, my);
+                ++traceInputs_.btnNoClient;
+            }
             return;
         }
         // Hover feedback for chrome hotspots (drag-active cursor was already
@@ -1952,6 +2048,13 @@ void JKWindowServer::HandleSDLEvent(const SDL_Event& ev) {
                 } else if (ev.type == SDL_MOUSEBUTTONDOWN) {
                     shell_->ClearHover();
                 }
+            }
+            // [input] 관문 원장: 버튼이 데스크톱(바탕/마진)에 가라앉은 케이스 —
+            // 어떤 클라 표면에도 릴레이되지 않았다(유실이 아니라 "도달처 부재"의
+            // 정직 소각 — fit-to-display 전 마진 탭이 이 행으로 사라졌다).
+            if (s_inputGateTrace && ev.type != SDL_MOUSEMOTION) {
+                std::fprintf(stderr, "[input] swl(desktop) px=%d,%d\n", mx, my);
+                ++traceInputs_.btnNoClient;
             }
             return;
         }
@@ -2010,7 +2113,10 @@ void JKWindowServer::HandleSDLEvent(const SDL_Event& ev) {
         SendInputEvent(*client, payload);
     } else if (ev.type == SDL_MOUSEWHEEL) {
         JKClientConnection* client = FindClientById(focusedClientId_);
-        if (!client) return;
+        if (!client) {
+            if (s_inputGateTrace) ++traceInputs_.btnNoClient;
+            return;
+        }
         ipc::InputEventPayload payload{};
         payload.surfaceId = client->Id();
         payload.type = ipc::InputEventType::MouseWheel;
@@ -2028,7 +2134,10 @@ void JKWindowServer::HandleSDLEvent(const SDL_Event& ev) {
             return;
         }
         JKClientConnection* client = FindClientById(focusedClientId_);
-        if (!client) return;
+        if (!client) {
+            if (s_inputGateTrace) ++traceInputs_.keyNoClient;
+            return;
+        }
         ipc::InputEventPayload payload{};
         payload.surfaceId = client->Id();
         payload.type = (ev.type == SDL_KEYDOWN) ? ipc::InputEventType::KeyDown
@@ -2039,7 +2148,10 @@ void JKWindowServer::HandleSDLEvent(const SDL_Event& ev) {
         SendInputEvent(*client, payload);
     } else if (ev.type == SDL_TEXTINPUT) {
         JKClientConnection* client = FindClientById(focusedClientId_);
-        if (!client) return;
+        if (!client) {
+            if (s_inputGateTrace) ++traceInputs_.keyNoClient;
+            return;
+        }
         ipc::InputEventPayload payload{};
         payload.surfaceId = client->Id();
         payload.type = ipc::InputEventType::Char;
@@ -2047,7 +2159,10 @@ void JKWindowServer::HandleSDLEvent(const SDL_Event& ev) {
         SendInputEvent(*client, payload);
     } else if (ev.type == SDL_TEXTEDITING) {
         JKClientConnection* client = FindClientById(focusedClientId_);
-        if (!client) return;
+        if (!client) {
+            if (s_inputGateTrace) ++traceInputs_.keyNoClient;
+            return;
+        }
         ipc::InputEventPayload payload{};
         payload.surfaceId = client->Id();
         payload.type = ipc::InputEventType::TextEditing;
@@ -2059,6 +2174,40 @@ void JKWindowServer::HandleSDLEvent(const SDL_Event& ev) {
 }
 
 void JKWindowServer::SendInputEvent(JKClientConnection& client, const ipc::InputEventPayload& payload) {
+    // [input] 관문 원장 (관측 전용): 릴레이 송신 카운터 — 실시간(SDL 릴레이)·
+    // 합성(send_input) 양경로가 모두 이곳을 지나므로 "서버 Send"의 단일 진실원.
+    // 소각은 Run()의 1초 [cpustat]/[input] 창 — 클라 [cpustat] input 수취와
+    // 대차한다(보내었다 vs 받았다 — 원격 분재).
+    static const bool s_inputGateTrace = std::getenv("JK_CPU_TRACE") != nullptr;
+    if (s_inputGateTrace) {
+        switch (payload.type) {
+            case ipc::InputEventType::MouseMove:  ++traceInputs_.sentMotion;   break;
+            case ipc::InputEventType::MouseDown:  ++traceInputs_.sentBtnDown;  break;
+            case ipc::InputEventType::MouseUp:    ++traceInputs_.sentBtnUp;    break;
+            case ipc::InputEventType::MouseWheel: ++traceInputs_.sentWheel;    break;
+            case ipc::InputEventType::KeyDown:    ++traceInputs_.sentKeyDown;  break;
+            case ipc::InputEventType::KeyUp:      ++traceInputs_.sentKeyUp;    break;
+            case ipc::InputEventType::Char:       ++traceInputs_.sentChar;     break;
+            case ipc::InputEventType::TextEditing: break;
+            default: break;
+        }
+        // [input] 릴레이 원장 1행 — 버튼/키/문자 사건의 수신자·표면 좌표 단건
+        // 원문(모델: sdl→swl→relay의 수학 대차를 1행마다 재검할 수 있게 —
+        // "찍은 좌표가 아니라 직전 유효 좌표" 관측의 수신자·좌표 재판정 몫).
+        if (payload.type == ipc::InputEventType::MouseDown ||
+            payload.type == ipc::InputEventType::MouseUp ||
+            payload.type == ipc::InputEventType::KeyDown ||
+            payload.type == ipc::InputEventType::Char) {
+            std::fprintf(stderr,
+                         "[input] relay t=%d client=%u x=%d y=%d key=%lu detail=%lu%s%s\n",
+                         static_cast<int>(payload.type), client.Id(), payload.x,
+                         payload.y,
+                         static_cast<unsigned long>(payload.keyCode),
+                         static_cast<unsigned long>(payload.detail),
+                         payload.text[0] ? " text=" : "",
+                         payload.text[0] ? payload.text : "");
+        }
+    }
     client.Send(ipc::MsgType::InputEvent, &payload, sizeof(payload));
 }
 

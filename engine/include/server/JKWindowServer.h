@@ -613,6 +613,22 @@ private:
     int lastDesktopW_ = -1;
     int lastDesktopH_ = -1;
 
+    // [tmp] #96 입력 릴레이 분절 계측 (관측 전용 — Iron Law: 원인 확정 전 수리
+    // 없음 승계): 입력 관문 3층(X11 종착 사건 → 서버 릴레이 → 클라 수취)을
+    // 사건별로 갈라 센다. 소각 관문은 Run()의 [cpustat] 1초 창([input] 행
+    // 인쇄) — 서버 [input] sent vs 클라 [cpustat] input 대차로 "서버 Send 이전
+    // vs 클라 수취" 유실을 분절한다. 계측이 늘어난 자리: docs/78 [cpustat]
+    // [tmp] 계열 원문 수형(JK_CPU_TRACE 게이트 — 평시 0비용 평가).
+    struct InputGateCounters {
+        long sdlMotion = 0, sdlBtnDown = 0, sdlBtnUp = 0, sdlWheel = 0;
+        long sdlKeyDown = 0, sdlKeyUp = 0, sdlChar = 0, sdlTextEdit = 0;
+        long sentMotion = 0, sentBtnDown = 0, sentBtnUp = 0, sentWheel = 0;
+        long sentKeyDown = 0, sentKeyUp = 0, sentChar = 0;
+        long btnNoClient = 0;   // 버튼 사건이 어떤 클라에도 릴레이되지 않고 귀환
+        long keyNoClient = 0;   // 키/Char 사건의 포커스 클라 부재 귀환
+    };
+    InputGateCounters traceInputs_;
+
     // 설정 허브 KV (스펙 2026-09-18-settings-hub §2.2): state/settings.json의
     // 런타임 미러 — 부팅 로드(LoadSettingsKv), settings_set 쓰기.
     bool audioMasterMute_ = false;
