@@ -17,6 +17,13 @@
 // (symlink/junction) directories via GetFileAttributesW, posix keeps a
 // (st_dev, st_ino) visited set (seeds the root). 2m-e asserts a looping tree
 // ends in finite time and is counted exactly once.
+//
+// 취소 기구 (#93 T1 — 플랜 2026-10-10-music-scan-cancel): ScanCancelFn(참=
+// 취소)을 스캔 leg에 폭탄 전달 — 재귀 경계(진입)마다 `if (cancel()) return;`,
+// 엔트리 256개마다 보조 체크(단일 디렉터리가 수천 엔트리여도 취소에 응답).
+// 취소 시 부분 수집을 폐기하고 빈 목록을 반환한다(2p 원문). 무인자
+// ListAudioFiles 오버로드는 항상-false 콜백 위임 — 원존 시맨틱 무변조
+// (기존 캐논 케이스 전원 그대로 통과).
 
 #include <agent/JKAgentJson.h>
 #include <port/JKCrtShim.h>  // Stricmp — Win/posix 공용 ASCII 대소문자 무시 비교
@@ -25,6 +32,7 @@
 #include <cstdint>
 #include <cstdio>  // OpenRequestJsonPath의 snprintf — 전이 include 의존 봉합(M-1)
 #include <filesystem>
+#include <functional>
 #include <set>
 #include <string>
 #include <system_error>
@@ -222,17 +230,36 @@ inline bool DirIdOf(const std::filesystem::path& dir, DirId& out) {
 }
 #endif
 
+// Scan cancel callback (#93 T1): 참 = 취소 요청. 콜백은 재귀 경계에서만
+// 청구된다(진입 1회 + 엔트리 256개마다 보조 1회) — 경계당 최대 1회 원문
+// (2p-② 호출 상한 단정).
+using ScanCancelFn = std::function<bool()>;
+
 // Recursive scan worker — ListAudioFiles의 재귀 leg. ec 중립형(throwing
 // 오버로드 금지 — 갤러리/shot 원문 계약): dir 열기 실패 = 독립 실패(빈 목록,
 // 스펙 §2 "각 dir 독립 — 폴백 0건이어도 목록은 그린다"), 열거 중 소명 성분은
 // 스킵. 하위 디렉터리 재귀는 순환 가드(fix r1) 이후에만.
+//
+// 취소(#93 T1): 진입 체크가 "자식 재귀 직전" 경계를 겸한다 — 호출자가
+// 내려보내는 지점에서 callee 진입이 먼저 판정하므로 경계당 콜백 청구는
+// 정확히 1회(2p-c 상한 원리). 취소 시 즉시 복귀(이 브랜치만 절단 — 형제와
+// 상위의 나머지 열거는 계속되고, 최종 폐기는 ListAudioFiles 래치가 소관).
+// 엔트리 256개마다 보조 체크 — 단일 디렉터리 폭주(수천 엔트리)에서도 취소에
+// 응답한다(경계가 디렉터리마다뿐이면 폭주 leg를 끝까지 견딘다).
 inline void ScanAudioTree(const std::filesystem::path& dir,
                           const std::filesystem::path& root,
-                          std::set<DirId>& visited, std::vector<Track>& out) {
+                          std::set<DirId>& visited, std::vector<Track>& out,
+                          const ScanCancelFn& cancel) {
+    if (cancel()) return;  // 재귀 경계 — 진입(자식 재귀 직전 경계 포함)
     std::error_code ec;
     const std::filesystem::directory_iterator it(dir, ec);
     if (ec) return;  // 이 브랜치만 실패 — 다른 dir의 트랙은 살아 있다
+    int aux = 0;  // 엔트리 보조 취소 체크 계수기
     for (const std::filesystem::directory_entry& entry : it) {
+        if (++aux == 256) {  // 엔트리 256개마다 보조 체크(#93 T1)
+            aux = 0;
+            if (cancel()) return;
+        }
         std::error_code entryEc;
         const bool isDir = entry.is_directory(entryEc);
         if (entryEc) continue;  // 열거 스캔 중 소멸 성분은 스킵
@@ -247,7 +274,7 @@ inline void ScanAudioTree(const std::filesystem::path& dir,
             if (!DirIdOf(entry.path(), id) || !visited.insert(id).second)
                 continue;
 #endif
-            ScanAudioTree(entry.path(), root, visited, out);
+            ScanAudioTree(entry.path(), root, visited, out, cancel);
             continue;
         }
         const std::string ext = entry.path().extension().string();
@@ -280,24 +307,48 @@ inline void ScanAudioTree(const std::filesystem::path& dir,
 // 어휘 오름차순이 읽기 순서라 asc를 선택 — 구현 재량, 리포트 부기).
 // 없는 루트/빈 루트 = 빈 목록(독립 스캔 실패 — ok 플래그 없이 0건으로 표현,
 // 스펙 §2).
-inline std::vector<Track> ListAudioFiles(const std::string& root) {
+//
+// 취소판(#93 T1): cancel 참이 되는 즉시(래치) 스캔을 절단하고 **부분 수집을
+// 폐기한 빈 목록**을 반환한다(부분 결과 유출 금지 — 2p-①/② 원문). 콜백 청구
+// 경계는 ScanAudioTree 원문(진입 + 엔트리 256 보조) 그대로 — 래치는 해소 후
+// 재청구를 막아 경계당 1회를 보장한다(2p-② 호출 상한).
+inline std::vector<Track> ListAudioFiles(const std::string& root,
+                                         const ScanCancelFn& cancel) {
     std::vector<Track> out;
     if (root.empty()) return out;  // 방어선(호출부 무접촉)
     const std::filesystem::path rootP(root);
     std::set<DirId> visited;
+    bool fired = false;  // 취소 래치 — 콜백이 한 번 참이면 끝까지 참
+    auto latch = [&fired, &cancel]() -> bool {
+        if (fired) return true;
+        if (cancel()) {
+            fired = true;
+            return true;
+        }
+        return false;
+    };
 #if !defined(_WIN32)
     // 루트 정체성 미리 시드 — sub/loop→루트 수형(재귀가 루트로 되돌아오는
     // 순환)을 절단하는 원문(fix r1).
     DirId rootId;
     if (DirIdOf(rootP, rootId)) visited.insert(rootId);
 #endif
-    ScanAudioTree(rootP, rootP, visited, out);
+    ScanAudioTree(rootP, rootP, visited, out, latch);
+    if (fired)  // 취소 = 부분 수집 폐기(빈 목록 — 정렬도 생략)
+        return std::vector<Track>();
     std::sort(out.begin(), out.end(),
               [](const Track& a, const Track& b) {
                   if (a.mtime != b.mtime) return a.mtime > b.mtime;
                   return a.rel < b.rel;
               });
     return out;
+}
+
+// 원존 오버로드 (시맨틱 무변조 — #93 T1): 취소 불요 호출부(ClientMusicApp
+// 워커 포함)는 항상-false 콜백 위임 — 캐논 기존 케이스 전원이 그대로 통과
+// 하는 수형(2p-④).
+inline std::vector<Track> ListAudioFiles(const std::string& root) {
+    return ListAudioFiles(root, [] { return false; });
 }
 
 // ASCII fold (MatchFilter 유일 조작 — 한글은 이진 비교, v1 계약): 'A'-'Z'만
