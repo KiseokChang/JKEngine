@@ -15,6 +15,7 @@
 
 #include <quickjs.h>
 
+#include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -413,6 +414,67 @@ void JKDesktopShell::ScanJkxApps() {
                      launcherIcons_.back().texture ? "decoded" : "missing");
     } while (FindNextFileA(find, &fd));
     FindClose(find);
+#else  // posix leg (#95 개방): 폰/WSL 그리드가 내장 4셀만 점화하던 갭 수리
+    // — ScanJkxApps가 _WIN32 전용이면 posix 축에서 설치 .jkx(갤러리·뮤직
+    // 등)가 그리드에 아예 안 떴다. win32 FindFirstFileA 대응은
+    // directory_iterator — JKLibraryCatalog.cpp 1원 스캔 / JKWindowServer.cpp
+    // stage-3 task 5 / TX6 posix 레그의 완결 경로를 승계한다. 판정·순서·로그
+    // 행은 Win 원문 동형(캐논 등호) — 확장자 게이트만 NTFS 무시 패턴
+    // "*.jkx" 대응으로 대소문자 무시 소문자화를 얹는다.
+    //
+    // win32 브랜치는 원문 불변(무변조 원칙) — 본 leg는 posix에서만 컴파일.
+    const std::string exe = jk::fs::GetExecutablePath();
+    if (exe.empty()) return;
+    const size_t baseCut = exe.find_last_of("\\/");
+    if (baseCut == std::string::npos) return;
+    const std::string basePath = exe.substr(0, baseCut);
+
+    const std::string appsDir = basePath + "/apps";
+    std::error_code scanEc;
+    if (!std::filesystem::exists(appsDir, scanEc) || scanEc) return;
+
+    const float s = host_.outputScale ? host_.outputScale() : 1.0f;
+
+    for (std::filesystem::directory_iterator it(appsDir, scanEc), end;
+         !scanEc && it != end; it.increment(scanEc)) {
+        const std::string jkxName = it->path().filename().string();
+        std::string ext = it->path().extension().string();
+        for (char& c : ext) c = static_cast<char>(std::tolower((unsigned char)c));
+        if (ext != ".jkx") continue;
+
+        const std::string path = appsDir + "/" + jkxName;
+
+        jk::JKJkxFile jkx;
+        if (!jkx.Open(path)) continue;
+        const jk::JkxManifest& mani = jkx.Manifest();
+        if (mani.name.empty()) continue;
+
+        LauncherIcon icon;
+        icon.appName = mani.name;
+        // 툴팁 표시명: 매니페스트 title 우선, 없으면 스폰 키 — win32 동형.
+        icon.title = !mani.title.empty() ? mani.title : mani.name;
+        icon.jkxPath = path;
+
+        // Icon entry: prefer @2x on high-scale displays — win32 동형.
+        std::string wanted = (s >= 1.5f && !mani.icon2x.empty()) ? mani.icon2x : mani.icon;
+        if (wanted.empty()) wanted = !mani.icon2x.empty() ? mani.icon2x : mani.icon;
+        const int entry = wanted.empty() ? -1 : jkx.FindEntry("ICON", wanted);
+        std::vector<uint8_t> png;
+        jk::LoadedImage img;
+        if (entry >= 0 && jkx.ReadEntry(entry, png) &&
+            jk::LoadImageMemory(png.data(), png.size(), img)) {
+            icon.texture = host_.makeTexture(img, mani.name.c_str());
+        }
+
+        launcherIcons_.push_back(std::move(icon));
+        std::fprintf(stderr, "JKWindowServer: installed app '%s' from %s (icon %s)\n",
+                     mani.name.c_str(), jkxName.c_str(),
+                     launcherIcons_.back().texture ? "decoded" : "missing");
+    }
+    if (scanEc) {
+        std::fprintf(stderr, "JKDesktopShell: apps dir scan ended early (%s)\n",
+                     scanEc.message().c_str());
+    }
 #endif // _WIN32
 }
 
@@ -518,6 +580,131 @@ void JKDesktopShell::ScanConsoleApps() {
                      launcherIcons_.back().texture ? "decoded" : "missing");
     } while (FindNextFileA(find, &fd));
     FindClose(find);
+#else  // posix leg (#95 개방): ScanJkxApps leg와 동일 근거 — 콘솔 앱 폴더를
+    // posix 축에서도 스캔한다. win32 attribute 필터 대응은 is_directory +
+    // 숨김 dir 스킵(JKLibraryCatalog.cpp 2원 스캔 동형), 매니페스트 파싱
+    // 파트는 원문 그대로 승계. 스폰 키만 플랫폼 차를 얹는다:
+    //   win32 = cmd 원문 그대로(cwd=앱 폴더 — 런처 전용 계약, 불변)
+    //   posix = cmd_posix(옵션 필드)를 스폰 키로 승격 + 파일 존재 게이트
+    //           (fail-closed) — bare Windows cmd는 posix PATH 밖 죽은 키라는
+    //           카탈로그 판정의 1:1 승계(JKLibraryCatalog.cpp posix branch).
+    // spawn cwd "apps/<dir>"는 '/' 단일 구분자 — posix SpawnProcess의
+    // child cwd=exe dir 고정 실측 기준 상대키계약(내장 lf/hx 키와 동일
+    // 기점). 453a327 렛슨: cmd/cwd에 뒤따르는 백슬래시 없음.
+    const std::string exe = jk::fs::GetExecutablePath();
+    if (exe.empty()) return;
+    const size_t baseCut = exe.find_last_of("\\/");
+    if (baseCut == std::string::npos) return;
+    const std::string basePath = exe.substr(0, baseCut);
+
+    const std::string appsDir = basePath + "/apps";
+    std::error_code scanEc;
+    if (!std::filesystem::exists(appsDir, scanEc) || scanEc) return;
+
+    const float s = host_.outputScale ? host_.outputScale() : 1.0f;
+
+    for (std::filesystem::directory_iterator it(appsDir, scanEc), end;
+         !scanEc && it != end; it.increment(scanEc)) {
+        std::error_code dirEc;
+        if (!it->is_directory(dirEc) || dirEc) continue;
+        const std::string dirName = it->path().filename().string();
+        if (dirName.empty() || dirName[0] == '.') continue;
+
+        const std::string manifestPath = it->path().string() +
+                                         std::string("/manifest.json");
+        std::vector<uint8_t> bytes;
+        if (!ReadFileBytes(manifestPath, bytes)) continue;  // no manifest → not a console app
+
+        // Throwaway runtime — parse + field extraction, then it's gone.
+        // (win32 원문 동형 — cmd_posix까지만 추가 필드.)
+        JSRuntime* rt = JS_NewRuntime();
+        if (!rt) continue;
+        JSContext* ctx = JS_NewContext(rt);
+        if (!ctx) {
+            JS_FreeRuntime(rt);
+            continue;
+        }
+        JSValue root = JS_ParseJSON(ctx, reinterpret_cast<const char*>(bytes.data()),
+                                    bytes.size() - 1, "manifest.json");
+        std::string name, cmd, desc, cmdPosix;
+        if (!JS_IsException(root) && JS_IsObject(root)) {
+            auto getString = [&](const char* key, std::string* field) {
+                JSValue v = JS_GetPropertyStr(ctx, root, key);
+                if (JS_IsString(v)) {
+                    size_t len = 0;
+                    const char* sval = JS_ToCStringLen(ctx, &len, v);
+                    if (sval) {
+                        *field = std::string(sval, len);
+                        JS_FreeCString(ctx, sval);
+                    }
+                }
+                JS_FreeValue(ctx, v);
+            };
+            getString("name", &name);
+            getString("cmd", &cmd);
+            getString("desc", &desc);
+            getString("cmd_posix", &cmdPosix);
+        }
+        JS_FreeValue(ctx, root);
+        if (ctx) JS_FreeContext(ctx);
+        JS_FreeRuntime(rt);
+        if (name.empty() || cmd.empty()) continue;
+
+        // posix 스폰 키 — 카탈로그 posix branch 동형(존재 게이트 fail-closed).
+        std::string spawnKey = cmd;
+        if (!cmdPosix.empty()) {
+            std::error_code twinEc;
+            const std::string twinPath = basePath + "/" + cmdPosix;
+            if (!std::filesystem::exists(twinPath, twinEc) || twinEc) {
+                std::fprintf(stderr,
+                             "JKWindowServer: console app '%s' skipped "
+                             "(posix spawn file missing: '%s')\n",
+                             name.c_str(), cmdPosix.c_str());
+                continue;
+            }
+            spawnKey = cmdPosix;
+        }
+
+        // .jkx 우선: 같은 이름의 컨테이너가 이미 있으면 매니페스트 앱은 스킵 —
+        // 판정·로그 행 win32 원문 동형.
+        bool taken = false;
+        for (const auto& icon : launcherIcons_) taken |= (icon.appName == name);
+        if (taken) {
+            std::fprintf(stderr, "JKWindowServer: console app '%s' skipped (.jkx wins)\n",
+                         name.c_str());
+            continue;
+        }
+
+        LauncherIcon icon;
+        icon.appName = name;
+        // 툴팁 표시명: manifest.json desc가 있으면 그걸 쓴다 — win32 동형.
+        icon.title = desc;
+        icon.consoleDir = std::string("apps/") + dirName;
+        icon.consoleCmd = spawnKey;
+
+        // 스폰 cmd 지문 보증 (P4 SDK §3.4) — 실제 스폰 키 기준 해시.
+        const std::string fp = ConsoleAppFingerprint(spawnKey);
+        if (!fp.empty()) EnsureTrustRecord(fp, name);
+
+        // 아이콘(선택): apps/<name>/icon@{2x,1x}.png — 없으면 placeholder 사각형.
+        const char* pick = s >= 1.5f ? "icon@2x.png" : "icon@1x.png";
+        const std::string iconPath = it->path().string() + "/" + pick;
+        jk::LoadedImage img;
+        if (jk::LoadImageFile(iconPath, img)) {
+            icon.texture = host_.makeTexture(img, name.c_str());
+        }
+
+        launcherIcons_.push_back(std::move(icon));
+        std::fprintf(stderr,
+                     "JKWindowServer: console app '%s' (cmd='%s', dir='%s', icon %s)\n",
+                     name.c_str(), spawnKey.c_str(),
+                     launcherIcons_.back().consoleDir.c_str(),
+                     launcherIcons_.back().texture ? "decoded" : "missing");
+    }
+    if (scanEc) {
+        std::fprintf(stderr, "JKDesktopShell: apps dir scan ended early (%s)\n",
+                     scanEc.message().c_str());
+    }
 #endif // _WIN32
 }
 
