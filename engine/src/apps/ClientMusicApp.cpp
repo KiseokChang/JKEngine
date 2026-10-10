@@ -1059,8 +1059,11 @@ void ClientMusicApp::BuildUi(int w, int h) {
         // [폴더 관리] 토글(스트립 옆 — 브리프 계약): 열 때 목록 1회 갱신.
         // 닫아도 목록 값은 남는다(다음 열 때 갱신 — Store 성공 경로도 갱신).
         ImGui::SameLine();
-        if (ImGui::Button(dirsUiOpen_ ? "폴더 관리 ▾" : "폴더 관리 ▸"))
+        if (ImGui::Button(dirsUiOpen_ ? "폴더 관리 ▾" : "폴더 관리 ▸")) {
             dirsUiOpen_ = !dirsUiOpen_;
+            if (dirsUiOpen_)
+                RefreshUserDirs();  // 열림 프레임의 목록 = 파일 진실원(fix r2:
+        }                           //   [제거] 행이 존재하려면 반드시 필요)
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("settings music.dirs 폴더 추가/제거 — "
                               "music_dir_add/remove/list 도구와 같은 경로");
@@ -1077,13 +1080,25 @@ void ClientMusicApp::BuildUi(int w, int h) {
                     ImGui::TextDisabled("사용자 폴더 없음 — 경로를 입력하고 "
                                         "추가하세요");
                 for (size_t k = 0; k < userDirs_.size(); ++k) {
+                    // 행 사본 선취(fix r2 — T2 probe 실측 P1 크래시 수리): 관리
+                    // 경로가 성공 시 RefreshUserDirs()로 userDirs_를 **move-대입
+                    // 교체**한다(libstdc++ operator=(vector&&) = RHS 버퍼 수취+
+                    // 구버퍼 해제) — 사본 없이는 같은 프레임의 ①인자 바인딩 ②
+                    // SetTooltip(userDirs_[k].c_str())이 해제된 구버퍼의 파괴
+                    // 성분을 읽는다(tcache가 _M_p를 독살해 strlen 무은 주소를
+                    // 걷어 SEGSEGV — 세그폴트 원인 수형 실측, 리포트 원문).
+                    const std::string row = userDirs_[k];
                     ImGui::PushID(static_cast<int>(k));
-                    ImGui::BulletText("%s", userDirs_[k].c_str());
+                    ImGui::BulletText("%s", row.c_str());
                     ImGui::SameLine();
-                    if (ImGui::SmallButton("제거"))
-                        DirRemoveManaged(userDirs_[k]);
+                    if (ImGui::SmallButton("제거")) {
+                        DirRemoveManaged(row);
+                        ImGui::PopID();
+                        break;  // 제거 1회/프레임 — 남은 행은 다음 프레임의
+                    }           //   갱신된 userDirs_에서 다시 그린다(목록이
+                                //   관리 경로 안에서 줄어든 만큼 시프트)
                     if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("%s", userDirs_[k].c_str());
+                        ImGui::SetTooltip("%s", row.c_str());
                     ImGui::PopID();
                 }
             }
