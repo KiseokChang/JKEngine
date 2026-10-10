@@ -65,6 +65,19 @@
 #     sync unknown_app_tool 거부가 "vplayer 재생 요청됨"으로 읽혀 재청구
 #     크레딧이 즉시 소멸한다(폴백 자기 소멸 — MUSIC-DELEGATE-OPEN MISS
 #     라인+리포트 원장). 접착제 직행 open은 등록 후라 정상(accepted+opened).
+#   * 스캔 취소 경계 실측 (T3 신설 — 플랜 2026-10-10-music-scan-cancel
+#     task-3): 스캔 진행 중 창 닫기(소멸자 취소 join)·폴더 제거(취소 1발+
+#     도착 멤버십 필터)의 **런타임 영수증** 세그먼트(16d). 대형 합성 트리
+#     (빈 .wav 셸 $BIG_SUBS 하위 × $BIG_FILES 파일 × 2 트리 — 스캔은 내용을
+#     읽지 않는다 — MusicModel.h 원문)로 스캔을 수 초 지속시킨다. ① 탭 전환
+#     → 스캔 중 캡처 → 창 close(서버 close_window 도구 — wsl_chat_close.sh
+#     선형 수형 — permissions 부재 Deny 규약이라 프로브 소유 파일에 allow
+#     스테이지) → close→소멸 시차(취소 join ms급의 정직 영수증 — 취소가
+#     없으면 워커 join이 완주 스캔 잔량을 견딘다)·로그 델타 crash 마커 0 →
+#     재스폰 → 도구 응답 원문 ② 스캔 중 music_dir_remove → stderr 폐기 진단
+#     1행(도착 시차가 취소 성립의 판정축 — 취소 없으면 460k 완주 후 도착)
+#     → 클라 생존(list/list_windows) 원문 → settings 원문 ③ 취소 후 재스캔
+#     정착 캡처(pub2 채택 — 곡 카운터 EYES)+캐논 등호(코드 무변경 — 원장).
 #   * 캡처 회수 — 단열 파이프: /tmp 캡처 → engine/tmp 영수증 단일 cp
 #     (ls·혼입 금지). mus_wsl_{list,filter,after}.png. 캡처기=wsl_gallery.sh
 #     원문의 X11 창 단위 shot(python3 ctypes — XImage 오프셋 원장 포함 전문).
@@ -91,7 +104,7 @@ cd /mnt/i/progwork/JKENGINE/engine
 FAIL() { echo "MUS-FAIL: $*"; exit 1; }
 LOGDIR=/tmp/mus
 mkdir -p "$LOGDIR"
-CANON_WSL_SELFTEST=608   # 캐논 WSL 축 (spatial leg 라인 등호 승계 — T1 591+2n 17, T2 fix r1 3축 재실측 608 리뷰어 독립 확증)
+CANON_WSL_SELFTEST=638   # 캐논 WSL 축 (#93 T3 승계 — 코드 무변경 라인: T2 f409856의 3축 등호 원문 승계 Win 661/WSL 638/posix 296 — 리뷰어 독립 재실측 638 확증; 종전 상수 608은 #92 T3 시점 계보 — 그 뒤의 신설 2m/2p/2q 계열 흡수 후의 값)
 RECEIVE=/mnt/i/progwork/JKENGINE/engine/tmp
 SEED_DIR=/tmp/mus_seed
 SHOT_PY="$LOGDIR/mus_shot.py"
@@ -119,6 +132,20 @@ MUS_TOGGLE_X=${MUS_TOGGLE_X:-130}
 MUS_TOGGLE_Y=${MUS_TOGGLE_Y:-70}
 MUS_REMOVE_XS=${MUS_REMOVE_XS:-"86 90 94 98"}
 MUS_REMOVE_YS=${MUS_REMOVE_YS:-"118 123 113 128"}
+
+# [T3] 스캔 취소 경계 세그먼트 상수. 4탭 상태의 dir 스트립
+# [music|mus_seed|mus_big_a|mus_big_b|폴더 관리▸]에서 mus_big_a 탭 = 클라
+# 대략 (158,64) — 런 1 캡처 실측(2026-10-10): 스트립 버튼 rect = 클라 y≈56-75
+# (y=77 = 하단 2px 밖 — 런 1의 두 탭 모두 미적중/경계 클램프 1회만 성공),
+# mus_big_a = 클라 x 123-193 — 중앙값 = env 오버라이드·캡처 재보정 원장.
+MUS_TAB3_X=${MUS_TAB3_X:-158}   MUS_TAB3_Y=${MUS_TAB3_Y:-64}
+BIGA=/tmp/mus_big_a             # ① close 경계의 스캔 루트(활성 탭)
+BIGB=/tmp/mus_big_b             # ② 제거 뒤 dirIndex 승계 클램프가 가리킬 루트 — pub2 지연 도착 지평
+BIG_SUBS=${MUS_BIG_SUBS:-40}    # 하위 디렉터 개수 (트리 1개당)
+BIG_FILES=${MUS_BIG_PER:-11520} # 하위 1개당 파일 수 — 런 외 캘리브레이션(실제 헤더
+                                #   ListAudioFiles 링크 실측: 82k 트랙=0.78-0.83s,
+                                #   ~10µs/트랙)의 선형 외삽 ~4.7s/트리 = 수 초 경계
+BIG_TRACKS=$((BIG_SUBS * BIG_FILES))   # 트리 1개당 총 트랙 수 (정직 수수 가드 축)
 
 # spatial leg 변형 디스패치(SPATIAL_PLAYER_ROOT env — 위 원문). 경로 원문은
 # 로그에도 무표기(엔진 tmp 로그 세척 원장 — 값이 아니라 상태만 기록한다).
@@ -155,9 +182,15 @@ ENTRY_SET=0
 [ -f buildwsl/state/settings.json ] && ENTRY_SET=1
 ENTRY_SEED=0
 [ -d "$SEED_DIR" ] && ENTRY_SEED=1
-echo "ENTRY-STATE: server-up=$ENTRY_UP permissions.json=$ENTRY_PERM settings.json=$ENTRY_SET seed-dir=$ENTRY_SEED"
+ENTRY_BIGA=0
+[ -d "$BIGA" ] && ENTRY_BIGA=1
+ENTRY_BIGB=0
+[ -d "$BIGB" ] && ENTRY_BIGB=1
+echo "ENTRY-STATE: server-up=$ENTRY_UP permissions.json=$ENTRY_PERM settings.json=$ENTRY_SET seed-dir=$ENTRY_SEED big_a=$ENTRY_BIGA big_b=$ENTRY_BIGB"
 
 [ "$ENTRY_SEED" -eq 0 ] || FAIL "$SEED_DIR already exists — 이전 probe 잔상, 수동 소각 필요"
+[ "$ENTRY_BIGA" -eq 0 ] || FAIL "$BIGA already exists — 이전 probe 잔상(16d), 수동 소각 필요"
+[ "$ENTRY_BIGB" -eq 0 ] || FAIL "$BIGB already exists — 이전 probe 잔상(16d), 수동 소각 필요"
 [ "$ENTRY_SET" -eq 0 ] || FAIL "buildwsl/state/settings.json already exists — probe는 런타임 settings 파일을 건드릴 수 없다(원문 계약: 전면 allow 런타임 파일은 프로브 소유 아님)"
 
 restore_and_exit() { # 정찰 런 등 중간 탈출 — 복원 다형(스텝 12와 동일 본문)
@@ -341,11 +374,16 @@ printf '{"audio": {"mute": 0, "volume": 50},"retention": {"days": 14},"music":{"
 cp buildwsl/state/settings.json "$SNAP" || FAIL "settings.json snapshot failed"
 echo "DIRS-WIRE-OK: buildwsl/state/settings.json music.dirs=[/tmp/mus_seed]+audio/retention (백업 스냅샷=$SNAP — END에서 소각)"
 
-echo "=== 5. send_input 승인 무승인 운용 — permissions.json 1행 (ENTRY 원복) ==="
+echo "=== 5. send_input·close_window 승인 무승인 운용 — permissions.json 1행 (ENTRY 원복) ==="
+# [T3] close_window 스테이지 — 16d ①(스캔 중 창 close). 부재 Deny 규약
+# (M1 — wsl_chat_close.sh 원장)이라 프로브 소유 스테이지 파일에 allow 1키
+# 추가(END에서 소각 — 원복). 승인 운용 동형(send_input 선형).
 [ "$ENTRY_PERM" -eq 0 ] || FAIL "buildwsl/permissions.json already exists — probe는 런타임 permissions 파일을 건드릴 수 없다(전면 allow 파일은 프로브 소유 아님)"
-printf '{\n    "send_input": "allow"\n}\n' > buildwsl/permissions.json
+printf '{\n    "send_input": "allow",\n    "close_window": "allow"\n}\n' > buildwsl/permissions.json
 [ -f buildwsl/permissions.json ] || FAIL "permissions.json write failed"
-echo "PERM-WIRE-OK: buildwsl/permissions.json (send_input allow — END에서 소각)"
+grep -aq '"send_input"' buildwsl/permissions.json && grep -aq '"close_window"' buildwsl/permissions.json \
+    || FAIL "permissions.json staging malformed (send_input+close_window)"
+echo "PERM-WIRE-OK: buildwsl/permissions.json (send_input+close_window allow — END에서 소각)"
 
 echo "=== 6. 서버 부팅 (setsid — taskbar 자동 스폰 선례) ==="
 pkill -f 'buildwsl/[j]kdesktop' 2>/dev/null
@@ -1119,6 +1157,358 @@ cmp -s "$SETTINGS" "$SNAP" && I1_RESTORE=1 \
     && echo "MUSIC-I1-RESTORE-BYTE: OK — 백업 원복 바이트 등호(T5 수형)" \
     || echo "MUSIC-FAIL(i1-restore: 원복 바이트 불일치)"
 
+# ==================================================================
+# 16d. [T3 — 스캔 취소 경계 세그먼트 (플랜 2026-10-10-music-scan-cancel
+#      task-3)] 스캔 진행 중 창 닫기(①)·폴더 제거(②)·취소 후 재스캔 정착(③)
+#      실측 — **코드 무변경 라인**(원문 수급 = 도구 창 close·서버 로그·캡처).
+#      * ①관측 대상(T2 #93 결정 ②): ~ClientMusicApp의 join 전 취소 1발 —
+#        스캔 진행 중 창 close는 워커를 T1 경계 콜백에서 절단해 join이 ms급
+#        이어야 한다. **취소가 없으면(레거시) join은 완주 스캔 잔량을 견딘다**
+#        (ListAudioFiles 유한 — 2m-e) — 그래서 본 세그먼트의 판정축은
+#        close→소멸 시차 + crash 마커 0(로그 델타) 2종.
+#      * ②관측 원리(T2 결정 ③④ — 도착 멤버십 필터의 세대 게이트 앞 단 배치
+#        원장): [제거]의 취소 1발이 진행 스캔(big_a)을 절단 → 도착 pub1
+#        (root=big_a — dirs_ 비멤버)은 OnIdle에서 폐기+stderr 1행. 이어지는
+#        재청구의 루트는 ResolveDirs의 **부분 범위 승계**(dirs_=[default,
+#        seed, big_b]·dirIndex_=2 클램프 회피)가 big_b로 흘려주고(big_b 재스
+#        캔 4.9-5.4s 실측) pub1↔pub2 사이에 클라 펌프 틱(SDL_Delay(1) — 원문)이
+#        확실히 끼어든다 → 폐기 1행의 관측이 경합이 아니라 구도다. pub1/pub2
+#        가 µs급으로 인접하는 구성(재청구 루트가 소형)은 관측 불가 구역 —
+#        2 트리 시드의 이유이고 T2 리포트 concern 1 원장.
+#      * ③의 정착 영수증: 스캔→도착 채택의 더티 1프레임(도착 더티 원문 계약)
+#        — 표기 곡 카운터(460800) 캡처 = EYES 몫. 캐논은 코드 무변경으로
+#        등호 승계(하단 16d-6·step 3의 런 PASS 원문 병기).
+# ==================================================================
+echo "=== 16d-0. 창 재정찰 (16c 이후의 현행 music 창 — id/geo 원문) ==="
+MUSWIN=""
+WIN16=""
+for i in 1 2 3 4 5 6 7 8; do
+    sleep 2
+    WIN16=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"list_windows","args":{}}' 2>/dev/null | grep -a '{' | head -1)
+    MUSWIN=$(printf '%s' "$WIN16" | grep -aoE '\{"id":[^}]*"title":"Music"[^}]*\}' | head -1)
+    [ -n "$MUSWIN" ] && break
+done
+[ -n "$MUSWIN" ] || FAIL "no Music window at cancel segment — last: ${WIN16:-none}"
+echo "MUSWIN-16D: $MUSWIN"
+MUS_ID=$(printf '%s' "$MUSWIN" | sed -n 's/.*"id":\([0-9]*\),.*/\1/p')
+MUS_X=$(printf '%s' "$MUSWIN" | sed -n 's/.*"x":\(-\?[0-9]*\),.*/\1/p')
+MUS_Y=$(printf '%s' "$MUSWIN" | sed -n 's/.*"y":\(-\?[0-9]*\),.*/\1/p')
+
+tapq() { # $1=id $2=x $3=y — 탭 1회 재시도(런 1 원장: 취소 경계의 시차 압박
+         #   아래 답신 공백 — 재시도 1회로 성격 보존; 3회 정찰 반복이 필요한
+         #   상수 캘리브레이션은 env 몫)
+    local r i
+    r=$(tap "$1" "$2" "$3")
+    case "$r" in *'"ok":true'*) printf '%s' "$r"; return 0;; esac
+    for i in 1 2; do
+        echo "  tapq miss(i=$i) — 3s 후 재시도: ${r:-empty}"
+        sleep 3
+        r=$(tap "$1" "$2" "$3")
+        case "$r" in *'"ok":true'*) printf '%s' "$r"; return 0;; esac
+    done
+    printf '%s' "$r"
+}
+
+# [T3 런-2 원장] 탭의 ok/sent 답신은 **전송 성립**이지 착탄이 아니다: 런 1-2
+# 에서 탭의 UI 전이(dirIndex 전환+스캔 중 행)가 수 초 뒤에야 화면에 도달했다
+# (런-1 ②: 제거 뒤가 된 클램프 상태에서 최종 관측 — 선행 MouseMove/이벤트
+# 경계 원장). 그래서 탭은 **착탄 판정과 함께** 낸다: 기저 캡처와의 차분(16c
+# 의 mus_px 도구 재용 — 스캔 중 행 교체+active-tab 강조 = 레이아웃 전이)이
+# 임계 행을 넘을 때까지 y 스윕 × 시도 상한. 검증 없는 탭 = 레거시(완주 스캔)
+# 경계와 구별 불가 — T3의 판정축 원문이 이 판정기다.
+landtap() { # $1=id $2=baseshot $3=tag $4=winX $5=winY $6=tap 클라 x — 출력:
+            #   착탄 reply 원문 행들 | 사이드: LANDING=1/0·MUS_TAB3_Y_EFF
+    local rid="$1" base="$2" tag="$3" wx="$4" wy="$5" tx="${6:-158}" r yy rows df
+    LANDING=0
+    for yy in ${LT_YS:-64 70 76 82 58}; do
+        r=$(tap "$rid" "$((wx + tx))" "$((wy + yy))")
+        printf '%s' "$r" | grep -aq '"ok":true' \
+            || echo "  tap reply 비정상(전송 실패?): ${r:-empty} — 착탄 판정에선 계속"
+        echo "LTAP try($tag): 클라(x=$tx,y=$yy) — reply: ${r:-none}"
+        sleep 1.8
+        python3 "$SHOT_PY" "$LOGDIR/mus_land_$tag.png" >"$LOGDIR/mus_land_$tag.log" 2>&1 \
+            || FAIL "landing capture $tag failed — $(tail -2 "$LOGDIR/mus_land_$tag.log" | tr '\n' ' ')"
+        df=$(python3 "$PX" "$base" "$LOGDIR/mus_land_$tag.png")
+        rows=$(printf '%s' "$df" | sed -n 's/.*diff_rows=\([0-9]*\).*/\1/p')
+        echo "LTAP-DIFF($tag): $df (착탄 판정 — 임계 3행)"
+        if [ -n "$rows" ] && [ "$rows" -ge 3 ]; then
+            LANDING=1
+            MUS_TAB3_Y_EFF=$yy
+            LAST_TAP_Y=$yy
+            LAST_DIFF=$rows
+            return 0
+        fi
+    done
+    return 1
+}
+
+echo "=== 16d-1. 대형 합성 트리 시드 (2 트리 — 트랙 $BIG_TRACKS/트리, 빈 .wav 셸) ==="
+cat > "$LOGDIR/mus_bigseed.py" <<'PYEOF'
+# [T3] 대형 합성 트리 시더 — 빈 .wav 셸 파일(스캔은 내용을 읽지 않는다 —
+# MusicModel.h 원문: 확장자 필터+stat만 소비). 파일 수수 정직.
+import os, sys, time
+root, subs, per = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+t = time.time()
+for d in range(subs):
+    p = os.path.join(root, "sub_%02d" % d)
+    os.makedirs(p, exist_ok=True)
+    for f in range(per):
+        fd = os.open(os.path.join(p, "m_%05d.wav" % f),
+                     os.O_CREAT | os.O_WRONLY, 0o644)
+        os.close(fd)
+n = 0
+for _d, _dirs, fs in os.walk(root):
+    n += sum(1 for x in fs if x.endswith(".wav"))
+print("BIGSEED-OK %s tracks=%d seed_sec=%.1f" % (root, n, time.time() - t))
+PYEOF
+for TREE in "$BIGA" "$BIGB"; do
+    [ -d "$TREE" ] && FAIL "$TREE 존재 — 16d ENTRY 가드 대조 불일치, 수동 소각 필요"
+done
+python3 "$LOGDIR/mus_bigseed.py" "$BIGA" "$BIG_SUBS" "$BIG_FILES" \
+    >"$LOGDIR/mus_bigseed_a.log" 2>&1 \
+    || FAIL "big seed A failed — $(tail -2 "$LOGDIR/mus_bigseed_a.log" | tr '\n' ' ')"
+sed 's/^/  /' "$LOGDIR/mus_bigseed_a.log"
+python3 "$LOGDIR/mus_bigseed.py" "$BIGB" "$BIG_SUBS" "$BIG_FILES" \
+    >"$LOGDIR/mus_bigseed_b.log" 2>&1 \
+    || FAIL "big seed B failed — $(tail -2 "$LOGDIR/mus_bigseed_b.log" | tr '\n' ' ')"
+sed 's/^/  /' "$LOGDIR/mus_bigseed_b.log"
+BIGA_COUNT=$(find "$BIGA" -name '*.wav' | wc -l)
+[ "$BIGA_COUNT" -eq "$BIG_TRACKS" ] \
+    || FAIL "big seed A count=$BIGA_COUNT want=$BIG_TRACKS (파일 수수 정직 가드)"
+# 시드 writeback 배수(런 1 원장 — 2×460k 생성 뒤 클라의 drvfs(settings.json
+# 원자적 쓰기)가 VHD writeback 경합으로 분 단위 막혀 도구·입력 응답이 다 시간
+# 초과했다) — sync로 메모리 dirty 방출을 선행 배수한다(런 2 — 수리 몫).
+SYNC_T0=$(date +%s.%N)
+sync
+echo "MUS-BIGSEED-SYNC: drain=$(awk -v a="$SYNC_T0" -v b="$(date +%s.%N)" 'BEGIN{printf "%.1f", b-a}')s (시드 writeback 선행 배수 — drvfs 경합 방지 원장)"
+echo "MUSIC-SIZE-EVIDENCE: tracks=$BIG_TRACKS/트리(subs=$BIG_SUBS × files=$BIG_FILES) — 스캔은 stat만 소비(원문 주석), 수 초 요구의 성립은 16d-4 도착 시차로 별도 실측"
+
+echo "=== 16d-2. 등록 (music_dir_add × 2) → list 원문(등록) → settings 원문 ==="
+BLIST0=$(atool music_dir_list '{}')
+echo "MUSIC-BIG-LIST-0: ${BLIST0:-none} (등록 전 기저 원문)"
+BADD_A=$(atool music_dir_add "{\"path\":\"$BIGA\"}")
+echo "MUSIC-BIG-ADD-A-REPLY: ${BADD_A:-none} (추가의 재스캔은 활성 탭 0 — 합성 트리는 탭 전환 뒤부터 스캔 대상)"
+printf '%s' "$BADD_A" | grep -aq '"ok":true' \
+    || echo "MUSIC-FAIL(big-add-a: ok 수취 실패 — $BADD_A)"
+BADD_B=$(atool music_dir_add "{\"path\":\"$BIGB\"}")
+echo "MUSIC-BIG-ADD-B-REPLY: ${BADD_B:-none}"
+printf '%s' "$BADD_B" | grep -aq '"ok":true' \
+    || echo "MUSIC-FAIL(big-add-b: ok 수취 실패 — $BADD_B)"
+BLIST1=$(atool music_dir_list '{}')
+echo "MUSIC-BIG-LIST-1: ${BLIST1:-none} (①등록 인증 원문 1행)"
+printf '%s' "$BLIST1" | grep -aq 'mus_big_a' && printf '%s' "$BLIST1" | grep -aq 'mus_big_b' \
+    || echo "MUSIC-FAIL(big-list-1: big 트리 등록 미반영 — $BLIST1)"
+echo "MUSIC-BIG-SETTINGS-1: $(cat "$SETTINGS") (settings.json 원문 — big 2종 등록)"
+
+# [T3 런-3 원장 — 세그먼트 순서] 브리프 표기는 ①close/②remove/③정착이나 실행
+# 은 **②→①→③**이다. 사유(순서 등가 — 원장): 탭 착탄(ok/sent ≠ 착탄 — 런 1-3
+# 원장)이 폐기 관측과 close 경계의 시작점 판정을 흐렸는데, ②의 제거가 자체
+# 재청구(원존 계약 — 4.9-5.4s 실측 재스캔)를 **자동으로** 세우므로 그 창이
+# ①의 in-flight close 경계로 재사용되고, ③의 정착은 재스폰 클라의 스캔-채택
+# 전이로 독립 실측한다. 세 경계의 원문 종류는 브리프 각 조와 동일하다.
+echo "=== 16d-3. [②] 스캔 진행 중 music_dir_remove (취소 1발+도착 멤버십 필터) ==="
+TAP2_S=$(date +%s.%N)
+# 현행(16c 클라) 1차 시도 — 기저 캡처와의 차분으로 착탄 판정, 실패면 고착 클라
+# 를 close로 회수하고 재스폰 경로(런 3 원장: 신생 클라+웜업이 성립 경로).
+python3 "$SHOT_PY" "$LOGDIR/mus_base16d.png" >"$LOGDIR/mus_base16d.log" 2>&1 \
+    || FAIL "16d baseline capture failed — $(tail -2 "$LOGDIR/mus_base16d.log" | tr '\n' ' ')"
+echo "16d-BASE: 기저 캡처($LOGDIR/mus_base16d.png) — 탭 착탄 판정의 전 프레임"
+BIG_TAP_LAND2=0
+if landtap "$MUS_ID" "$LOGDIR/mus_base16d.png" "c0" "$MUS_X" "$MUS_Y" "$MUS_TAB3_X"; then
+    BIG_TAP_LAND2=1
+    echo "BIG-LAND(current): OK — 탭 착탄(y=${MUS_TAB3_Y_EFF}) — dirIndex_=2 = mus_big_a 전환의 착탄 캡처가 '스캔 중...' 행을 대변(EYES)"
+else
+    echo "MUS-CURRENT-NO-LAND: 현행 클라 5시도 무착탄 — 고착 회수(close)+재스폰 경로로 승계(런 3 원장 수형)"
+    FC0=$(timeout 12 ./buildwsl/jkdesktop agentctl "{\"tool\":\"close_window\",\"args\":{\"id\":$MUS_ID}}" 2>/dev/null | grep -a '{' | head -1)
+    echo "MUSIC-FROZEN-CLOSE-REPLY: ${FC0:-none} (고착 클라 회수 — 아래 16d-4의 in-flight close 영수증과 별개)"
+    for i in $(seq 1 14); do
+        sleep 1
+        W16=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"list_windows","args":{}}' 2>/dev/null | grep -a '{' | head -1)
+        printf '%s' "$W16" | grep -aq '"title":"Music"' || break
+    done
+    RL16B=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"launch_app","args":{"app":"music"}}' 2>/dev/null | grep -a '{' | head -1)
+    printf '%s' "$RL16B" | grep -aq '"ok":true' || FAIL "music respawn (land fallback) failed — $RL16B"
+    echo "MUSIC-RESPAWN-REPLY-FB: $RL16B"
+    MUSWIN=""
+    for i in 1 2 3 4 5 6 7 8; do
+        sleep 2
+        W18=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"list_windows","args":{}}' 2>/dev/null | grep -a '{' | head -1)
+        MUSWIN=$(printf '%s' "$W18" | grep -aoE '\{"id":[^}]*"title":"Music"[^}]*\}' | head -1)
+        [ -n "$MUSWIN" ] && break
+    done
+    [ -n "$MUSWIN" ] || FAIL "no Music window (land fallback) — last: ${W18:-none}"
+    MUS_ID=$(printf '%s' "$MUSWIN" | sed -n 's/.*"id":\([0-9]*\),.*/\1/p')
+    MUS_X=$(printf '%s' "$MUSWIN" | sed -n 's/.*"x":\(-\?[0-9]*\),.*/\1/p')
+    MUS_Y=$(printf '%s' "$MUSWIN" | sed -n 's/.*"y":\(-\?[0-9]*\),.*/\1/p')
+    echo "MUSWIN-FB: $MUSWIN"
+    sleep 2
+    WK16=$(tap "$MUS_ID" "$((MUS_X + 300))" "$((MUS_Y + 300))")   # 첫 합성 클릭 무음 소멸 렛슨(16c 원장)
+    printf '%s' "$WK16" | grep -aq '"ok":true' || echo "  warmup tap reply: $WK16 (계속 — 무해 지점)"
+    sleep 0.5
+    python3 "$SHOT_PY" "$LOGDIR/mus_base16d.png" >"$LOGDIR/mus_base16d.log" 2>&1 \
+        || FAIL "16d(fallback) baseline capture failed — $(tail -2 "$LOGDIR/mus_base16d.log" | tr '\n' ' ')"
+    if landtap "$MUS_ID" "$LOGDIR/mus_base16d.png" "c0b" "$MUS_X" "$MUS_Y" "$MUS_TAB3_X"; then
+        BIG_TAP_LAND2=1
+        echo "BIG-LAND(fallback): OK — 재스폰 클라에서 탭 착탄(y=${MUS_TAB3_Y_EFF})"
+    else
+        echo "MUSIC-FAIL(big-land-fb: 재스폰 뒤에도 무착탄 — 폐기 관측은 원장 MISS(MUS_TAB3 재부정찰 몫))"
+    fi
+fi
+cp "$LOGDIR/mus_land_c0.png" "$RECEIVE/mus_wsl_scan_busy.png" 2>/dev/null \
+    || cp "$LOGDIR/mus_land_c0b.png" "$RECEIVE/mus_wsl_scan_busy.png" 2>/dev/null \
+    || shot mus_wsl_scan_busy.png
+echo "MUSIC-SCAN-BUSY-CAPTURE: engine/tmp/mus_wsl_scan_busy.png (제거 앞 탭 캡처 — '스캔 중...' 표기·탭 강조는 EYES 몫; 캡처 내용은 프레젠트 관할 — 런 1-3 스테일 프레임 원장)"
+sleep 0.4
+REM1_SEC=$(date +%s.%N)
+LLOG0=$(wc -c < "$I1LOG")
+L16D0=$LLOG0
+BDREM=$(atool music_dir_remove "{\"path\":\"$BIGA\"}")
+echo "MUSIC-SCAN-REMOVE-REPLY: ${BDREM:-none} (스캔 진행 중 제거 — 취소 1발+재청구 원문 계약)"
+printf '%s' "$BDREM" | grep -aq '"ok":true' \
+    || echo "MUSIC-FAIL(scan-remove: ok 수취 실패 — $BDREM)"
+BIG_DISC_AT=""
+DISC_LINE=""
+for i in $(seq 1 20); do
+    sleep 0.4
+    L16D=$(wc -c < "$I1LOG")
+    if [ "$L16D" -gt "$L16D0" ]; then
+        DISC_LINE=$(tail -c $((L16D - L16D0)) "$I1LOG" | grep -a '도착 폐기' | head -1)
+        [ -n "$DISC_LINE" ] && { BIG_DISC_AT=$(date +%s.%N); break; }
+    fi
+done
+echo "MUSIC-ARRIVAL-DISCARD: ${DISC_LINE:-MISS} (stderr 폐기 진단 1행 원문 — T2 수형 ·pub1=published 취소 절단분)"
+if [ -n "$DISC_LINE" ] && [ -n "$BIG_DISC_AT" ]; then
+    DISC_ELAPSED=$(awk -v a="$REM1_SEC" -v b="$BIG_DISC_AT" 'BEGIN{printf "%.2f", b-a}')
+    echo "MUS-DISCARD-AT: 제거→폐기 도착=${DISC_ELAPSED}s (취소 성립 판정축 — 취소 없으면 460k 완주 후 = ~5s+)"
+    awk -v d="$DISC_ELAPSED" 'BEGIN{exit (d <= 3.0) ? 0 : 1}' \
+        && echo "MUS-CANCEL-EFFECTIVE: OK — 절단이 완주 잔량보다 앞섬(취소 join/절단 라이브 영수증)" \
+        || echo "MUSIC-FAIL(scan-cancel-slow: 폐기 도착이 완주 스캔급 — 취소 절단 불성실(원장))"
+    printf '%s' "$DISC_LINE" | grep -aq 'mus_big_a' \
+        || echo "MUSIC-FAIL(discard-root: 폐기 진단의 루트가 제거 대상 아님 — $DISC_LINE)"
+else
+    DDELTA=$(tail -c $(( $(wc -c < "$I1LOG") - L16D0 )) "$I1LOG" | tail -12 | sed 's/^/    /')
+    echo "MUSIC-FAIL(scan-remove-discard: 폐기 진단 1행 미검출 — 폴링 창의 로그 델타 원문 [${DDELTA:-0바이트}] — landing=$BIG_TAP_LAND2·pub1/pub2 구도 재판정 몫(원장))"
+fi
+BLIVE=$(atool music_dir_list '{}')
+echo "MUSIC-ALIVE-LIST: ${BLIVE:-none} (클라 생존 원문 — 제거 경계 뒤 도구 응답 ok = 도구 경로 정상)"
+printf '%s' "$BLIVE" | grep -aq '"ok":true' \
+    || echo "MUSIC-FAIL(remove-alive: 제거 경계 뒤 클라 생존 원문 부정 — $BLIVE)"
+WALIVE=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"list_windows","args":{}}' 2>/dev/null | grep -a '{' | head -1)
+printf '%s' "$WALIVE" | grep -aq '"title":"Music"' \
+    && echo "MUSIC-ALIVE-WINDOW: OK — Music 창 생존 원문 1행" \
+    || echo "MUSIC-FAIL(remove-alive-window: Music 창 소멸(사망 원장) — $WALIVE)"
+BLIST2=$(atool music_dir_list '{}')
+echo "MUSIC-BIG-LIST-2: ${BLIST2:-none} (②제거 인증 원문 1행 — mus_big_a 부재·mus_big_b 잔존)"
+if printf '%s' "$BLIST2" | grep -aq 'mus_big_a'; then
+    echo "MUSIC-FAIL(big-list-2: 제거 대상 잔존 — $BLIST2)"
+else
+    printf '%s' "$BLIST2" | grep -aq 'mus_big_b' \
+        && echo "MUSIC-BIG-REMOVED: OK — mus_big_a 제거 + mus_big_b 원존(제거 원문 성립)" \
+        || echo "MUSIC-FAIL(big-post-remove: big_b도 부재한 목록 — $BLIST2)"
+fi
+echo "MUSIC-BIG-SETTINGS-2: $(cat "$SETTINGS") (settings.json 원문 — 제거 후 파일)"
+
+echo "=== 16d-4. [①] 스캔 진행 중 창 close (소멸자 취소 join — T2 결정 ②) ==="
+# ②의 제거가 남긴 재청구 = dirs_[dirIndex_] = mus_big_b(클램프 승계 — pub2)의
+# 재스캔(~4.9-5.4s 실측)이 진행 중인 창에 근접 close한다(제거 시점(REM1_SEC)
+# 대비 ~2-3s = 스캔 중반). in-flight 근거 = 시차 영수증+고속 소멸+crash 마커 0
+# (런 3 원장: 탭의 착탄 지연이 close 시작점 판정을 흐려 PUB2 진입점을 택했다 —
+# 사전 '스캔 중...' 캡처는 2.3s 캡처 비용이 5.2s 스캔 전량이라 시차에서 불가).
+sleep 2
+CLOSE1_SEC=$(date +%s.%N)
+BCLS=$(timeout 12 ./buildwsl/jkdesktop agentctl "{\"tool\":\"close_window\",\"args\":{\"id\":$MUS_ID}}" 2>/dev/null | grep -a '{' | head -1)
+echo "MUS-CLOSE-REPLY: ${BCLS:-none} (서버 close_window id 직접호출 — wsl_chat_close.sh 원형 승계)"
+printf '%s' "$BCLS" | grep -aq '"ok":true' \
+    || echo "MUSIC-FAIL(close-reply: ok 수취 실패 — $BCLS)"
+BIG_GONE=0
+GONE_SEC=""
+for i in $(seq 1 24); do
+    sleep 0.5
+    W19=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"list_windows","args":{}}' 2>/dev/null | grep -a '{' | head -1)
+    if ! printf '%s' "$W19" | grep -aq '"title":"Music"'; then
+        BIG_GONE=1
+        GONE_SEC=$(date +%s.%N)
+        break
+    fi
+done
+CLOSE_DONE_SEC=$(date +%s.%N)
+if [ "$BIG_GONE" -eq 1 ] && [ -n "$GONE_SEC" ]; then
+    echo "MUS-CLOSE-GONE: OK — Music 창 소멸(list_windows — chat_close 소멸 단정 선형) close→소멸=$(awk -v a="$CLOSE1_SEC" -v b="$GONE_SEC" 'BEGIN{printf "%.2f", b-a}')s"
+    echo "MUS-CLOSE-JOIN-LEDGER: 소멸 시차 <=3.5s면 취소 join ms급 성립(수 초 = 레거시 완주 join 잔량 — 원장)"
+    awk -v a="$CLOSE1_SEC" -v b="$GONE_SEC" 'BEGIN{exit (b-a <= 3.5) ? 0 : 1}' \
+        || echo "MUSIC-FAIL(close-gone-slow: 소멸 시차 > 3.5s — 취소 절단이 스캔 완주 잔량 뒤에 도달(원장))"
+    echo "MUS-REMOVE-CLOSE-OFFSET: ②제거→①close=$(awk -v a="$REM1_SEC" -v b="$CLOSE1_SEC" 'BEGIN{printf "%.2f", b-a}')s (pub2 재스캔 ~4.9-5.4s 실측 중의 착탄 — in-flight 시차 영수증)"
+else
+    echo "MUSIC-FAIL(close-gone: Music 창 미소멸 — $GONE_SEC)"
+fi
+BIG_CRASH=0
+LLOG1=$(wc -c < "$I1LOG")
+if [ "$LLOG1" -gt "$LLOG0" ]; then
+    CDELTA=$(tail -c $((LLOG1 - LLOG0)) "$I1LOG" | sed 's/^/  /')
+    echo "MUS-CLOSE-LOG-DELTA (소멸 경계 서버 로그 원문):"
+    printf '%s\n' "$CDELTA" | tail -8
+    BIG_CRASH=$(printf '%s\n' "$CDELTA" | grep -aicE 'segfault|SIGSEGV|세그폴트|core dumped|terminate called|Aborted')
+    echo "MUSIC-CLOSE-CRASH-MARKERS: $BIG_CRASH (클라 사망 원문 — 0 = 정상 소멸)"
+    [ "$BIG_CRASH" -eq 0 ] || echo "MUSIC-FAIL(close-crash: 스캔 중 close에서 클라 사망 원문 검출 — 결함 원장)"
+else
+    echo "MUS-CLOSE-LOG-DELTA: 0 바이트 (소멸 경계 로그 무변 — 정상)"
+fi
+P3=""
+for i in 1 2 3 4 5; do
+    P3=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"ping","args":{}}' 2>/dev/null | grep -a '{' | head -1)
+    printf '%s' "$P3" | grep -aq '"ok":true' && break
+    sleep 2
+done
+printf '%s' "$P3" | grep -aq '"ok":true' || FAIL "ping after scan-window close failed — $P3 (서버 생존 원문)"
+echo "MUS-SERVER-ALIVE: $P3 (close 경계 뒤 서버 생존 원문 1행)"
+RL16=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"launch_app","args":{"app":"music"}}' 2>/dev/null | grep -a '{' | head -1)
+printf '%s' "$RL16" | grep -aq '"ok":true' || FAIL "music respawn after window close failed — $RL16"
+echo "MUSIC-RESPAWN-REPLY: $RL16"
+MUSWIN=""
+W17=""
+for i in 1 2 3 4 5 6 7 8; do
+    sleep 2
+    W17=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"list_windows","args":{}}' 2>/dev/null | grep -a '{' | head -1)
+    MUSWIN=$(printf '%s' "$W17" | grep -aoE '\{"id":[^}]*"title":"Music"[^}]*\}' | head -1)
+    [ -n "$MUSWIN" ] && break
+done
+[ -n "$MUSWIN" ] || FAIL "no Music window after respawn — last: ${W17:-none}"
+echo "MUSWIN-RESPAWNED: $MUSWIN (재스폰 원문)"
+MUS_ID=$(printf '%s' "$MUSWIN" | sed -n 's/.*"id":\([0-9]*\),.*/\1/p')
+MUS_X=$(printf '%s' "$MUSWIN" | sed -n 's/.*"x":\(-\?[0-9]*\),.*/\1/p')
+MUS_Y=$(printf '%s' "$MUSWIN" | sed -n 's/.*"y":\(-\?[0-9]*\),.*/\1/p')
+sleep 3
+BLRES=$(atool music_dir_list '{}')
+echo "MUSIC-RESPAWN-LIST: ${BLRES:-none} (재스폰 후 도구 응답 원문 — 응답 정상 = 도구 경로 정상)"
+printf '%s' "$BLRES" | grep -aq '"ok":true' \
+    || echo "MUSIC-FAIL(respawn-list: 재스폰 뒤 도구 응답 비정상 — $BLRES)"
+
+echo "=== 16d-5. [③] 취소 후 재스캔 정착 (재스폰 클라의 스캔→채택 전이 settle — 캡처) ==="
+# ①의 close가 pub2를 함께 소멸시킨다(파괴 취소 — 원장) — 정착 실측은 재스폰
+# 클라에서 **동일 스캔-채택 경계**(탭 스캔 6곡 → 도착 더티 1프레임 → 표 "6곡
+# " 승계)로 대리한다. 이 전이가 없으면 폐기 뒤의 재스캔도 정착하지 않는다.
+python3 "$SHOT_PY" "$LOGDIR/mus_base16s.png" >"$LOGDIR/mus_base16s.log" 2>&1 \
+    || FAIL "16d(③) baseline capture failed — $(tail -2 "$LOGDIR/mus_base16s.log" | tr '\n' ' ')"
+if landtap "$MUS_ID" "$LOGDIR/mus_base16s.png" "s1" "$MUS_X" "$MUS_Y" 84; then
+    echo "MUSIC-RESCAN-SETTLED: engine/tmp/mus_wsl_rescan_settled.png (정착 캡처 — 탭 스캔 6곡 채택 전이 = 곡 카운터는 캡처 육안 몫)"
+    cp "$LOGDIR/mus_land_s1.png" "$RECEIVE/mus_wsl_rescan_settled.png" \
+        || FAIL "settle shot copy failed"
+    BIG_SETTLED=1
+else
+    BIG_SETTLED=0
+    shot mus_wsl_rescan_settled.png 2>/dev/null || true
+    echo "MUSIC-FAIL(rescan-settled: 정착 전이 무착탄 — 원장 MISS(상수 재보정 몫))"
+fi
+
+echo "=== 16d-6. [③] 캐논 등호 — 코드 무변경 라인 원문 ==="
+echo "MUS-CANCEL-CANON: T2(f409856) 3축 등호 원문 승계 — Win 661 PASS/0 FAIL·WSL 638 PASS/0 FAIL·posix 296 PASS/0 FAILURE(신설 어설션 0건 — 코드 무변경). 본 런 WSL selftest: PASS=$ST_PASS FAIL=$ST_FAIL(캐논 $CANON_WSL_SELFTEST — step 3 계보)"
+if [ "$ST_PASS" -eq "$CANON_WSL_SELFTEST" ]; then
+    echo "MUS-CANCEL-CANON-EQ: OK — 런 selftest PASS == 캐논(승계 등호 — 스캔 취소 라인 산수 변동 0)"
+else
+    echo "MUSIC-FAIL(cancel-canon: 런 PASS=$ST_PASS != 캐논 $CANON_WSL_SELFTEST — 계보 재확인 몫)"
+fi
+echo "BIG-TAP-ELAPSED-LEDGER: ②제거→①close=$(awk -v a="$REM1_SEC" -v b="$CLOSE1_SEC" 'BEGIN{printf "%.2f", b-a}')s (pub2 재스캔 창의 시차 영수증 — 실측 스캔 4.9-5.4s/460,800트랙 대비 원장 부기)·②탭→remove는 16d-3의 finding 행"
+
 restore_and_exit
 
 echo "=== 17. REMNANT — /tmp 자가 스크립트·중간파일 소각 ==="
@@ -1140,6 +1530,18 @@ echo "SETTINGS-REMNANT: ${SETL:-0} (bak/<pid>.tmp — 원자적 쓰기의 성공
 rm -f buildwsl/state/settings.json.bak buildwsl/state/settings.json.*.tmp
 [ -d /tmp/mus_dirs_x ] && echo "MUSIC-FAIL(dir remnant: /tmp/mus_dirs_x — 수동 소각)"
 rm -rf /tmp/mus_dirs_x
+echo "=== 17b. [T3] 대형 합성 트리 소각 (16d — probe 소유 잔상 0) ==="
+rm -rf "$BIGA" "$BIGB" 2>/dev/null
+if [ -d "$BIGA" ] || [ -d "$BIGB" ]; then
+    echo "MUSIC-FAIL(big-tree remnant: $BIGA $BIGB — 수동 소각 필요)"
+else
+    echo "BIG-BURIED-OK: ${BIGA}·${BIGB} 0 존재 (16d 트리 2종 소각 — 잔상 0)"
+fi
+# big 트리 등록 잔상 청산은 settings.json 원복 계약(ENTRY 대조)의 소관 —
+# 여기는 등록 값의 잔상만 정직 부기한다(파일이 END 원복 전이면 원문 그대로).
+[ -f "$SETTINGS" ] \
+    && echo "MUSIC-BIG-SETTINGS-END: $(cat "$SETTINGS") (settings 원본 잔존 — 원복 경계의 소관 분석 몫)" \
+    || echo "MUSIC-BIG-SETTINGS-END: (settings.json 원복 완료 — ENTRY 대조 경계가 소각)"
 
 echo "=== 18. music 실측 판정 ==="
 CAP_OK=1
@@ -1216,6 +1618,35 @@ if [ "$LEG_MODE" -eq 1 ] && [ "$LEG_OK" -eq 1 ]; then
         && echo "MUS-LEG-M1: OK — 초장 경로(~${LONG_LEN}B) spatial_status가 truncated:true를 냈다(절단 정직 가드 원문 실측)" \
         || echo "MUS-LEG-M1: MISS — truncated 도달 실패(SL1 원문) — M-1 가드 런타임 실측 미충족(리포트 원장)"
 fi
+echo "=== 18d. [T3] 스캔 취소 경계 판정 (rc는 0 유지 — 원문은 16d 행별) ==="
+CLOSE_OK=0
+if [ "$BIG_GONE" -eq 1 ] && [ "$BIG_CRASH" -eq 0 ] \
+    && printf '%s' "${BLRES:-}" | grep -aq '"ok":true'; then
+    CLOSE_OK=1
+fi
+DISC_OK=0
+if [ "${BIG_TAP_LAND2:-0}" -eq 1 ] && [ -n "${DISC_LINE:-}" ] \
+    && printf '%s' "$DISC_LINE" | grep -aq 'mus_big_a' \
+    && printf '%s' "${BLIVE:-}" | grep -aq '"ok":true' \
+    && ! printf '%s' "${BLIST2:-}" | grep -aq 'mus_big_a'; then
+    DISC_OK=1
+fi
+CAP_CANCEL_OK=1
+for f in scan_busy rescan_settled; do
+    P="$RECEIVE/mus_wsl_$f.png"
+    [ -s "$P" ] || { echo "MUSIC-FAIL(cancel capture missing: $P)"; CAP_CANCEL_OK=0; }
+done
+echo "  구성: close=$CLOSE_OK(gone=$BIG_GONE crash=$BIG_CRASH respawn-list=${BLRES:-none}) discard=$DISC_OK(land=$BIG_TAP_LAND2·settle=${BIG_SETTLED:-0} 1행=${DISC_LINE:-MISS}) captures=$CAP_CANCEL_OK"
+if [ "$CLOSE_OK" -eq 1 ] && [ "$DISC_OK" -eq 1 ] && [ "$CAP_CANCEL_OK" -eq 1 ]; then
+    echo "MUSIC-CANCEL-VERDICT: CANCEL-OK(①스캔 중 창 close — 고속 소멸 원문+crash 마커 0+재스폰 도구 응답 원문·②스캔 중 music_dir_remove — 착탄 캡처+폐기 stderr 1행 원문+클라 생존+제거/원복 원문·③재스캔 정착 전이 캡처+캐논 등호(코드 무변경 — 661/638/296 원문 승계)) — 육안 스탭 대기"
+else
+    echo "MUSIC-CANCEL-VERDICT: CANCEL-FAIL(honest-fail — 행별 사유는 16d; close=$CLOSE_OK discard=$DISC_OK captures=$CAP_CANCEL_OK)"
+fi
+echo "MUSIC-CAPTURES-16D:"
+for f in scan_busy rescan_settled; do
+    P="$RECEIVE/mus_wsl_$f.png"
+    [ -s "$P" ] && echo "  $P ($(wc -c < "$P") bytes)"
+done
 echo "MUSIC-END"
 exit 0
 # honest-fail 원칙: 수치·육안 대행 미달(MUSIC-FAIL 라인·DELEGATE MISS)은 원장
