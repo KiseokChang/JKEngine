@@ -31,8 +31,40 @@
 #     귀속 원문. LEG-FALLBACK에서도 미활성 1행을 남긴다(T3 리뷰 I-2 승계 —
 #     재런 자기교정 원장행). leg 성립 실측은 WSL(T3 LEG-OK)이 소유 — 폰은
 #     배제의 정직 원문만 실측한다.
-#
-# 계약 교환(핵심 재량 — T4 리뷰 I-1 원장 수형):
+#   · music dirs 도구 동형 세그먼트(wsl_music.sh T3 16b — 85bf59e 원문 승계 —
+#     music 라인 #92 T4): music_dir_add($TMPDIR/mus_dirs_x 합성 폴더)→list
+#     원문→settings.json 실측(music.dirs 실기록+기존 text/font_path 보존 —
+#     독립 파서 수취 SET-OK; 폰 python3 존재 원문 2026-10-10, 부재면 grep
+#     게이트 폴백)→remove→list 원문→원복 바이트 등호. **CP949 거부/치유
+#     세그먼트는 폰에서 스킵 — 원장행 1행**: 도구 인자 CP949 bad_request
+#     (quickjs JSON 문자열 UTF-8 검사)와 [패널 제거] 원촉 치유 루트는
+#     WSL T3(16c)이 소유·전부 실측됨 — 폰은 dirs 기능만 재실측한다. 등호
+#     앵커는 **작가 정규형** — probe merge의 pretty 형식은 저장소 작가
+#     (ComposeKeyed) 출력과 다르므로(WSL T3가 step-4 seed를 ComposeKeyed
+#     출하형 compact으로 교환한 수형의 폰 런타임 동형) 웜업 왕복 1회로
+#     앵커를 만든다(원장: 앵커≠작가 형식이면 등호가 구조적인 가짜 FAIL).
+#     [폴더 관리] 토글 모양 캡처(mus_phone_dirs.png+dirs2.png — 토글
+#     window-rel (185,77) WSL T3 캘리브레이션의 폰 정산 — WSL (130,70)은
+#     tab2 라벨 2자 기준, 폰 tab2 라벨 14자 스트립 시프트 원장(아래 N2 상수
+#     주석); **[제거] 행은 클릭하지 않는다** — 그 클릭 경로는 T2 fix r2
+#     p1=crash-fixed 수리 지점이고 폰 재실측은 도구 경로가 대변한다 — N-1
+#     승계: dirs 판정 행 표기. 토글은 비-멱등이라 탭의 재클릭 방어를 못 쓴다
+#     — list2 선례 수형의 양상태 2캡처 — dirs=열림 프레임·dirs2=닫힘 원복
+#     프레임. 좌표 원장 2: leg list 후반 표면은 vplayer가 music을 전면 덮고
+#     토글 클릭은 topmost(vplayer)가 취식한다(1-3차 런 — 프레임 등호 실측)
+#     → **vplayer 치우기(window_move — WSL T4 step-13 수형)가 토글 원문의
+#     전제**(N2 전단 배선). 좌표 원장 3: 치우기 후에도 토글 클릭이 패널을
+#     열지 않았다 — 정산 좌표(185/77·270/77 — 캡처 픽셀 1:1+offset(320,142)
+#     실측)+hover tooltip 원문(커서 아래 = 버튼 위) 3런+라이브 2회(permissions
+#     병합 후 sent:true) — 같은 클라에서 필터 InputText 포커스 클릭(lv 원문:
+#     캐럿+type "ab" 반영)·표행 더블클릭 위임은 성립 — **폰 스트립 행 Button
+#     클릭 경로 전용 무응답 관측**(P3 원장 후보 — 폰 [폴더 관리] 클릭은 WSL
+#     16c의 라이브 캘리브레이션 세션 수형으로 별도 전속). 도구 원문·모양
+#     (등록 상태 스트립+상태행)은 성립 — verdict 게이트는 도구 원문만 단다.
+#     라이브 실험 계약(재사용 몫): send_input 미병합 상태의 클릭 = 서버 승인
+#     창 approval_timeout 원문(무승인 운용 — 스폰 스폰 런은 병합 C 섹션 계약);
+#     라이브 실험 후 permissions.json은 **바이트 원복 33바이트**·폰 클라
+#     pkill([m]usic 브래킷 — 무브래킷 pkill은 원격 셸 자기 매치 사망 — 원문).
 #   · **settings 주입 수형 교환** — T4 WSL probe의 "settings.json ENTRY 부재
 #     hard FAIL→기록+소각" 수형은 폰 런타임과 충돌한다(폰 settings.json·
 #     permissions.json은 선존 런타임 파일 — 전면 allow 파일은 프로브 소유
@@ -73,17 +105,31 @@
 #   사망(RETRY 수형 흡수 실측 — 자가 수복 행 PRIOR-ORIG-RECOVERED)·5차=최종
 #   receipt(MUS-PHONE-OK). 탭 첫 클릭 포커스 취식 실측(4·5차: re-click 방어로
 #   4곡 행 실측 — sdcard 레그에도 동일 방어).
+#   → 폴더 저장소 라인 T4 흡수 — 정산 624 = 608 + 2o 16건(2o-a..e 10[T1] +
+#   2o-f 4[T1 fix r1] + 2o-g 2[T2 서버 보존 합성]) — **실측 2026-10-10 T4
+#   1차 런(PASS=624 FAIL=0 · 2o=16[o-f=4 o-g=2])**. 브리프 기대 618(2o 10)은
+#   2o-f/2o-g 미포함 전산 — 실측으로 정산 갱신(원장: **캐논 상수는 실측 후
+#   갱신 계약**, T3 리뷰 M-1 승계 — 낡은 상수가 실측 오차를 WARN 없이
+#   빨아들이는 회귀창 폐곡). 브리프 원장행 가설 "WSL 624와의 불일치 = 2o-g
+#   서버 측 2건 구조적(하네스 자체 main)"은 **부정** — 폰 selftest main에도
+#   서버 보존 합성 2건이 동봉되어 전 16건 실측 → **WSL 624 등호**.
 #
 # 판정 사다리(라벨 계약 — wsl_music/phone_gallery 수형):
-#   MUS-PHONE-VERDICT: MUS-PHONE-OK = CANON MUSIC-FULL-2N-17 AND 캡처 7종
-#     비빈 AND 위임(폰 위임 open+재청구+직행) 성립 AND get_status
+#   MUS-PHONE-VERDICT: MUS-PHONE-OK = CANON MUSIC-FULL-2O-* AND 캡처 9종
+#     비빈 AND dirs 도구 원문(add ok·list 등록/제거 원문·settings music.dirs
+#     실기록+text/font_path 보존·원복 바이트 등호) AND 위임(폰 위임
+#     open+재청구+직행) 성립 AND get_status
 #     opened:true(pos 증가) AND 폰 leg 배제 원문(spatial_play →
 #     start_failed detail=kDelegationHint·spatial_status 미활성 행) 성립 AND
 #     sdcard 스캔 유한(또는 권한 부재 빈 목록=정상). 위임 창·귀속은 원장행
 #     (MISS = 폰 스폰 시간 원장 — 판정 게이트에서 뺀 사유는 상단 원장 참조).
+#     + dirs(CP949) 원장행: 거부/치유 세그먼트는 WSL T3(85bf59e 16c) 소유 —
+#     폰 스킵(1행).
 #   MUS-PHONE-VERDICT: MUS-PHONE-FAIL(행별 이유) — 수치 미달=정직 원장 rc=0.
 #   MUSP-FAIL(rc=1) = hard FAIL만: ssh 단절·sweep·배포·ninja·selftest 회귀
-#     ·seed 소각·settings/perm 원복·서버/ping/launch/창·캡처·REMNANT 실패.
+#     ·seed 소각·settings/perm 원복·서버/ping/launch/창·캡처·REMNANT 실패
+#     ·dirs 기저(list-0 시드 dir 미보존)·dirs 합성 폴더 생성. dirs 도구 수치
+#     (add/list/settings/remove/바이트 등호)는 honest 원장행 — DIRS 판정 행 집계.
 #
 # 실행법(윈도 Git Bash, 저장소 루트 어디서든):
 #   PHONE_HOST=<폰 IP> bash engine/tools/probes/phone_music.sh
@@ -148,7 +194,7 @@ FAIL() { echo "MUSP-FAIL: $*"; exit 1; }
 echo "PHONE-HOST: 환경변수 지정 사용 (기록 금지 — 자리표시 PHONE_HOST=<폰>; 스캔 폴백 없음)"
 echo "HEAD: $(git -C "$GITROOT" rev-parse HEAD 2>/dev/null || echo rev-parse-failed)"
 echo "BASE-ANCHOR(마지막 폰 배포): $PHONE_DEPLOY_BASE"
-echo "LINEAGE(폰): selftest 565(2i 19·2g 40·2m 0) → 591(2m 26 흡수) → 기대 608 = 591 + 2n 17(스페이셜 위임 leg 흡수 — 캐논 2m 보존)"
+echo "LINEAGE(폰): selftest 565(2i 19·2g 40·2m 0) → 591(2m 26 흡수) → 608(2n 17 흡수 — 실측) → 624 = 608 + 2o 16(2o-a..e 10 + 2o-f 4 + 2o-g 2 — 실측 정산, WSL 624 등호 — 브리프 기대 618[2o 10]은 실측으로 갱신 — 캐논 상수 실측 갱신 원장)"
 SSH="ssh -p $PHONE_PORT -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=10 -i $PHONE_KEY $PHONE_USER@$PHONE_HOST"
 
 # ------------------------------------------------------------------ 0. 전수 sweep
@@ -264,14 +310,17 @@ echo "MUSIC-LIST-EXPECTED=4 (seed 3 root + 1 sub — 표행 수 관측 원문 1�
 cat > "$SCRATCH/$RSRC_TAR_NAME" <<'PMUSEOF'
 #!/bin/bash
 # 폰 측 music 영수증 절차 (phone_music.sh가 생성 — music 라인 T5+
-# spatial leg 라인 T4).
+# spatial leg 라인 T4+폴더 저장소 라인 T4).
 # settings 병합(시드 dirs) → cmake 재설정(자동)+ninja 리빌드 → selftest 캐논
-# (591→608 · 2m 26 보존 · 2n 17 흡수) → leg list(탭2 리스캔+캡처+콜드 접착제
-# 전조+spatial 배제 원문[LEG-ENV unset 가드 — spatial_play start_failed
-# kDelegationHint·UI [spatial] 탭 라벨 렌더]+더블클릭 위임+귀속 폴링+직행
-# open+get_status 재생 수치) → leg sdcard(M-5 재판정 — FUSE
-# 스캔 유한 종료 실측) → 복원(ORIG 바이트 등호+PERM 병합 원복+시드 소각)
-# → BOOT-OK(서버 UP+terminal 상시 — 클라 idle 라인 종료 상태 승계).
+# (608→624 = 2o 16 흡수[2o-f 4·2o-g 2 포함 — 실측 정산] · 2m 26·2n 17 보존) →
+# leg list(탭2 리스캔+캡처+콜드 접착제 전조+spatial 배제 원문[LEG-ENV unset
+# 가드 — spatial_play start_failed kDelegationHint·UI [spatial] 탭 라벨
+# 렌더]+더블클릭 위임+귀속 폴링+직행 open+get_status 재생 수치+**dirs 도구
+# 동형 세그먼트[add/list/settings 실측/remove/list/원복 바이트 등호 — CP949
+# 거부/치유는 WSL T3 소유 스킵 원장행]+[폴더 관리] 토글 모양 캡처 1종**) →
+# leg sdcard(M-5 재판정 — FUSE 스캔 유한 종료 실측) → 복원(ORIG 바이트 등호+
+# PERM 병합 원복+시드 소각) → BOOT-OK(서버 UP+terminal 상시 — 클라 idle
+# 라인 종료 상태 승계).
 # jkweb 절사 금지(기동 카운트 원문만).
 set -u
 cd ~/JKENGINE/engine || exit 1
@@ -286,10 +335,19 @@ NLOG="$TMPD/pmus_ninja.log"
 STLOG="$TMPD/pmus_selftest.log"
 ORIG="$TMPD/pmus_orig_settings.json"
 PERM_ORIG="$TMPD/pmus_orig_permissions.json"
-CANON_PHONE_PREV=591      # 폰 기존 캐논(2m 26 흡수 실측 — 비교 원문)
-CANON_PHONE_EXPECT=608    # 591 + 2n 17건(2n-a 6·2n-b 5·2n-c 4·2n-d 2) — WSL 608 등호 (T4 단일 지점 갱신)
+CANON_PHONE_PREV=608      # 폰 기존 캐논(2n 17 흡수 실측 — 비교 원문)
+CANON_PHONE_EXPECT=624    # 608 + 2o 16건(2o-a..e 10 + 2o-f 4 + 2o-g 2) — 실측
+                          #   정산(2026-10-10 T4 1차 런 — PASS=624 FAIL=0 ·
+                          #   2o=16[o-f=4 o-g=2] 실측). 브리프 기대 618(2o 10)은
+                          #   2o-f/2o-g 미포함 전산이었고 폰 main.cpp 동일 배포
+                          #   런에서 전 16건 실측 — "2o-g 서버 측 구조 배제"
+                          #   가설은 부정(폰 selftest main에 서버 보존 합성
+                          #   동봉 실측) — WSL 624 등호(원장 — 캐논 상수 실측
+                          #   갱신 계약, T3 리뷰 M-1 승계: 낡은 상수의 WARN
+                          #   침묵 회귀창 폐곡)
 CANON_PHONE_2M=26
 CANON_PHONE_2N=17
+CANON_PHONE_2O=16         # 실측 정산(2o-a..e 10 + 2o-f 4 + 2o-g 2 — WSL 등호)
 CLK=$(getconf CLK_TCK 2>/dev/null); [ -n "$CLK" ] || CLK=100
 
 # 클릭·행 상수 — 창 상대 desktop 좌표(wsl_music T4 상수 승계, env 재보정).
@@ -486,7 +544,7 @@ echo "MARKER-AFTER music_model($MM) cmake($MC) main_2m($MT) delegate_verdict($MP
 [ "$MT" -ge 1 ] || FAIL "2m selftest marker missing on phone main.cpp"
 [ "$MP" -ge 1 ] || FAIL "DelegationReplyVerdict marker missing on phone (fix r3 배포 결손)"
 
-echo "=== H. selftest — 폰 캐논 계보 판정 (원문: 591 = 2m 26 흡수 전산 · 기대 608 = 591 + 2n 17건 — WSL 608 등호) ==="
+echo "=== H. selftest — 폰 캐논 계보 판정 (원문: 608 = 2n 17 흡수 실측 · 기대 624 = 608 + 2o 16건[2o-a..e 10 + 2o-f 4 + 2o-g 2 — 2026-10-10 T4 실측 정산] — WSL 624 등호) ==="
 timeout 900 ./buildterm/jkdesktop test >"$STLOG" 2>&1
 S_RC=$?
 ST_PASS=$(grep -ac '^\[PASS\]' "$STLOG")
@@ -494,21 +552,25 @@ ST_FAIL=$(grep -ac '^\[FAIL\]' "$STLOG")
 P2M=$(grep -ac '^\[PASS\] 2m' "$STLOG")
 P2MH=$(grep -ac '^\[PASS\] 2m-h' "$STLOG")
 P2N=$(grep -ac '^\[PASS\] 2n' "$STLOG")
+P2O=$(grep -ac '^\[PASS\] 2o' "$STLOG")
+P2OF=$(grep -ac '^\[PASS\] 2o-f' "$STLOG")
+P2OG=$(grep -ac '^\[PASS\] 2o-g' "$STLOG")
 P2I=$(grep -ac '^\[PASS\] 2i' "$STLOG")
 P2G=$(grep -ac '^\[PASS\] 2g' "$STLOG")
-echo "PHONE-SELFTEST rc=$S_RC PASS=$ST_PASS FAIL=$ST_FAIL 2m=$P2M(2m-h=$P2MH) 2i=$P2I 2g=$P2G 2n=$P2N (music 라인 2m 계열 보존 + spatial leg 2n 계열 신설 — 캐논 +17분의 원료)"
+echo "PHONE-SELFTEST rc=$S_RC PASS=$ST_PASS FAIL=$ST_FAIL 2m=$P2M(2m-h=$P2MH) 2i=$P2I 2g=$P2G 2n=$P2N 2o=$P2O(2o-f=$P2OF 2o-g=$P2OG) (music 라인 2m·2n 계열 보존 + 폴더 저장소 2o 계열 신설 — 캐논 상승분의 원료 — 분해 병기: 정산 판별 몫)"
 grep -a 'AppSelfTest' "$STLOG" | tail -2
 grep -aq 'AppSelfTest: 0 failure(s)' "$STLOG" || FAIL "AppSelfTest not 0 failure(s)"
 [ "$S_RC" -eq 0 ] || FAIL "selftest rc=$S_RC"
 [ "$ST_FAIL" -eq 0 ] || FAIL "selftest FAIL=$ST_FAIL (폰축 회귀)"
-awk -v p="$ST_PASS" -v m="$P2M" -v h="$P2MH" -v n="$P2N" -v prev="$CANON_PHONE_PREV" \
-    -v expect="$CANON_PHONE_EXPECT" -v exn="$CANON_PHONE_2N" -v mm="$CANON_PHONE_2M" 'BEGIN{
-    if (p == expect && n == exn)
-        print "CANON-INCLUSION=MUSIC-FULL-2N-17 (폰 캐논 " prev "→" p " 상승 — 2n " n "건 흡수(2m " mm "건[h " h " 포함] 보존) 실측 — WSL 608 등호)"
+awk -v p="$ST_PASS" -v m="$P2M" -v h="$P2MH" -v n="$P2N" -v o="$P2O" -v of="$P2OF" -v og="$P2OG" \
+    -v prev="$CANON_PHONE_PREV" -v expect="$CANON_PHONE_EXPECT" -v exo="$CANON_PHONE_2O" \
+    -v exn="$CANON_PHONE_2N" -v mm="$CANON_PHONE_2M" 'BEGIN{
+    if (p == expect && o == exo)
+        printf "CANON-INCLUSION=MUSIC-FULL-2O-%d (폰 캐논 %s→%s 상승 — 2o %d건 흡수[2o-f %d·2o-g %d 포함](2m %d건[h %d 포함]·2n %d건 보존) 실측 — WSL %s 등호)\n", p - prev, prev, p, o, of, og, mm, h, n, expect
     else if (p == prev)
         print "CANON-INCLUSION=MUSIC-SELFTEST-MISSING (music selftest 쌍둥이 미반영 — 계보 결손 — 원장)"
     else
-        printf "CANON-INCLUSION=OTHER-N(%d — 기대 %d=%d+2n%d · 2m=%d(2m-h=%d)·2n=%d — 계보 정산 원장)\n", p, expect, prev, exn, m, h, n
+        printf "CANON-INCLUSION=OTHER-N(%d — 기대 %d=%d+2o%d · 2m=%d[h=%d]·2n=%d·2o=%d[o-f=%d o-g=%d] — 계보 정산 원장)\n", p, expect, prev, exo, m, h, n, o, of, og
 }'
 
 # ---------------------------------------------------------------- 레그 공통
@@ -777,6 +839,153 @@ CAPTURE "$TMPD/mus_phone_after.png"
 echo "=== N. stderr 진단 수취 (서버 로그 — 클라 스폰+music+vplayer 진단) ==="
 grep -a 'spawn\|music\|vplayer\|\[vplayer\]' "$TMPD/pmus_srv_list.log" | tail -14 | sed 's/^/  /'
 
+echo "=== N2. dirs 도구 동형 세그먼트 (T4 — WSL T3 16b 수형 — 도구 경로만) ==="
+# CP949 거부/치유 세그먼트는 폰에서 스킵 — 원장행 1행: 도구 인자 CP949
+# bad_request(quickjs JSON 문자열 UTF-8 검사)+[패널 제거] 원촉 치유 루트는
+# WSL T3 16c(85bf59e)가 소유·전부 실측됨 — 폰은 dirs 기능만 재실측한다.
+XDIR="$TMPD/mus_dirs_x"
+ANCH="$TMPD/pmus_dirs_anchor.json"
+rm -rf "$XDIR"
+mkdir -p "$XDIR" || FAIL "synthetic dir create failed"
+DL0=$(mtool music_dir_list '{}')
+echo "MUSIC-DIR-LIST-0: ${DL0:-none} (기저 원문 — leg list 병합의 시드 dir 보존 병기)"
+printf '%s' "$DL0" | grep -aqF "$SEED" \
+    || FAIL "dir-list-0: 시드 dir 미보존(leg list 병합 수취 결손) — $DL0"
+echo "--- [폴더 관리] 패널 개방(등록 **전**) + vplayer 치우기 — 모양 캡처 2종 ([제거] 행은 클릭하지 않는다: p1=crash-fixed 수리 지점 — N-1 승계) ---"
+# vplayer 치우기 — music 스트립 노출(WSL T4 step-13 수형): leg list 후반 표면은
+# vplayer가 music을 전면 덮는다(1-3차 런 원장 — 토글 클릭 (130,70)·(185,77)이
+# 전부 무소응, dirs/dirs2 프레임 등호 = topmost 창 취식). 토글 원문 전제 =
+# music 스트립이 최상층. 원복 불요 — 다음 leg(sdcard) boot_server가 클라 교체.
+LW=$(ctl '{"tool":"list_windows","args":{}}')
+VPL_ID=$(printf '%s' "$LW" | grep -aoE '\{"id":[^}]*"title":"Video Player"[^}]*\}' | head -1 | sed -n 's/.*"id":\([0-9]*\),.*/\1/p')
+if [ -n "$VPL_ID" ]; then
+    MV1=$(ctl "{\"tool\":\"window_move\",\"args\":{\"id\":$VPL_ID,\"x\":-620,\"y\":40}}")
+    sleep 2
+    VPLCHK=$(ctl '{"tool":"list_windows","args":{}}')
+    VPLXY=$(printf '%s' "$VPLCHK" | grep -aoE "\"id\":$VPL_ID,\"x\":-?[0-9]+,\"y\":-?[0-9]+" | head -1)
+    echo "VPL-MOVE-1: reply=${MV1:-none} · after=${VPLXY:-gone}"
+    case "$VPLXY" in
+      *"x\":-620"*) echo "VPL-MOVE-OK: music 표면 개방(-620 — 토글 원문 경로)" ;;
+      *)
+        MV2=$(ctl "{\"tool\":\"window_move\",\"args\":{\"id\":$VPL_ID,\"x\":220,\"y\":-520}}")
+        sleep 2
+        VPLCHK=$(ctl '{"tool":"list_windows","args":{}}')
+        VPLXY=$(printf '%s' "$VPLCHK" | grep -aoE "\"id\":$VPL_ID,\"x\":-?[0-9]+,\"y\":-?[0-9]+" | head -1)
+        echo "VPL-MOVE-2(음수 y 폴백 — 표면 상단 밖): reply=${MV2:-none} · after=${VPLXY:-gone}"
+        ;;
+    esac
+else
+    echo "VPL-MOVE-AWAY: skip (Video Player 창 부재 — 위임 폴백 경로 원장행)"
+fi
+# 토글은 **비-멱등** — 탭의 "재클릭 면제(아이돌턴트)" 방어를 못 쓴다. 포커스
+# 취식(치우기 직후 첫 클릭)을 **무해 재스캔**으로 미리 소거한다(새로고침 =
+# ResolveDirs+RequestScan — idempotent — 4차 런 원장 수형).
+WRM=$(tap "$MUS_ID" $((MUS_X + 45)) $((MUS_Y + 50)) 1)
+echo "MUSIC-DIR-WARMCLICK: reply=${WRM:-none} (새로고침 무해 클릭 — 포커스 취식 소거 — idempotent 재스캔)"
+ok "$WRM" || echo "NOTE-DIR-WARMCLICK: 무해 클릭 실패 — $WRM (원장행)"
+sleep 1
+DTOG_X=${MUSP_DTOG_X:-185}   DTOG_Y=${MUSP_DTOG_Y:-77}    # [폴더 관리] 토글 — WSL T3 캘리브레이션(130,70)의 폰
+                                                          #   정산(2026-10-10 T4 원장): 토글은 dir 스트립
+                                                          #   행의 tab2 **우측** — WSL 16c의 tab2 라벨은
+                                                          #   2자(CP949 '가요')라 토글이 클라 x≈130에
+                                                          #   앉지만 폰 leg list의 tab2 라벨은
+                                                          #   "pcm_music_seed" 14자 — 스트립 폭 시프트로
+                                                          #   토글 = window-rel x≈160-255(리스트 캡처
+                                                          #   픽셀 실측 — 토글 px≈880-975, 윈도 px원점
+                                                          #   720 ≡ 서버 기하 1:1) — 캡차 런(130,70)은
+                                                          #   tab2 우측 경계에 걸려 무소응(캡처 등호 원장
+                                                          #   — dirs/dirs2 프레임 동일). y=77은 TAB2_Y
+                                                          #   수형(스트립 행 등호). **개방은 등록 전
+                                                          #   클릭** — 등록 후에는 tab3가 스트립에 끼어
+                                                          #   토글이 더 시프트(≈225-320 — 닫힘 클릭은
+                                                          #   DTOG2_X=270)되어 같은 x가 tab3(mus_dirs_x)
+                                                          #   을 친다(4차 런 원장).
+CTX=$((MUS_X + DTOG_X))
+CTY=$((MUS_Y + DTOG_Y))
+echo "CLICK-DIRTOGGLE: id=$MUS_ID desk=($CTX,$CTY) — 상수 DTOG_X=$DTOG_X DTOG_Y=$DTOG_Y (패널 열림 판정은 캡처 육안 몫)"
+DTG=$(tap "$MUS_ID" "$CTX" "$CTY" 1)
+ok "$DTG" || echo "NOTE-DIR-TOGGLE: 토글 클릭 실패 — $DTG (도구 원문은 별도 — 원장행)"
+echo "dir toggle reply: $DTG (등록 전 클릭 — 패널 열림 → 등록 row가 패널에 실시간 흡수 — Store 성공=RefreshUserDirs)"
+sleep 1
+# 등호 앵커 = 작가 정규형 — probe merge의 pretty 형식은 저장소 작가(ComposeKeyed)
+# 출력과 다르므로 웜업 왕복 1회로 앵커를 만든다(WSL T3의 step-4 seed를 출하형
+# compact으로 교환한 수형 — 폰 런타임 동형 — 원장).
+DW1=$(mtool music_dir_add "{\"path\":\"$XDIR\"}")
+printf '%s' "$DW1" | grep -aq '"ok":true' || FAIL "dirs warmup add failed — $DW1"
+DW2=$(mtool music_dir_remove "{\"path\":\"$XDIR\"}")
+printf '%s' "$DW2" | grep -aq '"ok":true' || FAIL "dirs warmup remove failed — $DW2"
+echo "MUSIC-DIR-WARMUP: OK — 웜업 왕복 2콜 ok(앵커 형식 수렴 원문)"
+cp "$SET" "$ANCH" || FAIL "dirs anchor copy failed"
+echo "MUSIC-DIR-ANCHOR: $(tr -d '\n' < "$ANCH") (bytes=$(wc -c < "$ANCH") — 작가 정규형 앵커 — 원복 등호의 진상 원문)"
+DADD=$(mtool music_dir_add "{\"path\":\"$XDIR\"}")
+echo "MUSIC-DIR-ADD-REPLY: ${DADD:-none}"
+DL1=$(mtool music_dir_list '{}')
+echo "MUSIC-DIR-LIST-1: ${DL1:-none} (등록 인증 원문 1행)"
+printf '%s' "$DADD" | grep -aq '"ok":true' \
+    || echo "MUSICP-FAIL-SOFT(dir-add: ok 수취 실패 — $DADD)"
+printf '%s' "$DL1" | grep -aq 'mus_dirs_x' \
+    || echo "MUSICP-FAIL-SOFT(dir-list-1: 합성 폴더 등록 미반영 — $DL1)"
+echo "MUSIC-DIR-SETTINGS-1: $(tr -d '\n' < "$SET") (settings.json 원문 실측 — 등록 후 파일)"
+SETCHK=$(python3 - "$SET" "$XDIR" <<'PYEOF'
+import json, sys
+try:
+    with open(sys.argv[1], "rb") as f:
+        obj = json.loads(f.read().decode("utf-8", "replace"))
+except Exception as e:
+    print("SET-MISS(parse:%s)" % e)
+    raise SystemExit
+dirs = obj.get("music", {}).get("dirs", [])
+fp = obj.get("text", {}).get("font_path", "")
+ok = bool(fp) and sys.argv[2] in dirs \
+    and any("pcm_music_seed" in d for d in dirs)
+print("SET-OK" if ok else
+      "SET-MISS text=%s font_path=%s dirs=%s" % ("text" in obj, bool(fp), dirs))
+PYEOF
+) || SETCHK="SET-MISS-RAW(python3 파서 실패)"
+printf '%s' "$SETCHK" | grep -aq 'SET-OK' || {
+    # 폰 python3 부재 폴백 — grep 게이트(독립 파서 수취는 WSL T3 원문 소유)
+    if grep -aqF "$XDIR" "$SET" && grep -aqF '"text"' "$SET"; then
+        SETCHK="SET-OK-grep-fallback"
+    fi
+}
+echo "MUSIC-DIR-SETTINGS-CHECK: $SETCHK (독립 파서 수취 — music.dirs 실기록+기존 text/font_path 보존)"
+printf '%s' "$SETCHK" | grep -aq 'SET-OK' \
+    || echo "MUSICP-FAIL-SOFT(dir-settings: 기록/보존 원문 미달 — $SETCHK)"
+sleep 2
+CAPTURE "$TMPD/mus_phone_dirs.png"
+echo "--- [폴더 관리] 패널 닫기(등록 후 스트립 시프트 상태) + 원복 프레임 캡처 ---"
+DTOG2_X=${MUSP_DTOG2_X:-270}
+CT2_X=$((MUS_X + DTOG2_X))
+CT2_Y=$CTY
+echo "CLICK-DIRTOGGLE2: id=$MUS_ID desk=($CT2_X,$CT2_Y) — 상수 DTOG2_X=$DTOG2_X (등록 후 토글 시프트 상수 — 원장행)"
+tap "$MUS_ID" "$CT2_X" "$CT2_Y" 1 >/dev/null   # 패널 닫기(등록 후 위치 — 미빗치면 tab3 선택=무해 재스캔 원장행)
+sleep 2
+CAPTURE "$TMPD/mus_phone_dirs2.png"
+DREM=$(mtool music_dir_remove "{\"path\":\"$XDIR\"}")
+echo "MUSIC-DIR-REMOVE-REPLY: ${DREM:-none}"
+DL2=$(mtool music_dir_list '{}')
+echo "MUSIC-DIR-LIST-2: ${DL2:-none} (제거 인증 원문 1행)"
+printf '%s' "$DREM" | grep -aq '"ok":true' \
+    || echo "MUSICP-FAIL-SOFT(dir-remove: ok 수취 실패 — $DREM)"
+if printf '%s' "$DL2" | grep -aq 'mus_dirs_x'; then
+    echo "MUSICP-FAIL-SOFT(dir-list-2: 제거 미반영 — $DL2)"
+else
+    echo "MUSIC-DIR-GONE: mus_dirs_x 소각 확인 (제거 원문 성립)"
+    printf '%s' "$DL2" | grep -aqF "$SEED" \
+        || echo "MUSICP-FAIL-SOFT(dir-list-2: 시드 dir 측면 소각 — 보존 위반 — $DL2)"
+fi
+if cmp -s "$SET" "$ANCH"; then
+    echo "MUSIC-DIR-BYTE-RESTORE: OK — add/remove 왕복 == 작가 정규형 앵커 바이트 등호(④ WSL T3 수형)"
+else
+    echo "MUSICP-FAIL-SOFT(dir-byte-restore: 왕복 후 원문 불일치)"
+    echo "  now : $(tr -d '\n' < "$SET")"
+    echo "  anch: $(tr -d '\n' < "$ANCH")"
+fi
+rm -f "$ANCH"
+rm -rf "$XDIR"
+[ -d "$XDIR" ] && echo "MUSICP-FAIL-SOFT(dir-bury: $XDIR 소각 실패 — 수동 소각)" \
+    || echo "MUSIC-DIR-BURIED: $XDIR 소각 (probe 소유 잔상 0)"
+
 # ══════════════════════ leg sdcard — /sdcard FUSE 스캔 유한 종료 실측 (M-5 재판정) ══════════════
 LEG=sdcard
 echo "=== O. leg sdcard — music.dirs=/sdcard 부팅 + FUSE 스캔 유한 종료 실측 (T1 fix r1 리뷰 M-5 재판정) ==="
@@ -854,6 +1063,8 @@ esac
 echo "=== P. 소각 — 시드 dir+probe 소유 잔상 (probe 소유 잔상 0 계약) ==="
 rm -rf "$SEED"
 [ -d "$SEED" ] && FAIL "seed dir 소각 실패 — 수동 소각 필요" || echo "SEED-BURIED: $SEED removed"
+rm -f "$ANCH" 2>/dev/null
+rm -rf "$XDIR" 2>/dev/null   # N2 세그먼트 방어적 봉합(정상 경로면 이미 소각 — REMNANT 게이트 병행)
 
 LEG=boot
 echo "=== Q. leg boot — settings 원상 복원(바이트 등호) BOOT-OK + 진입 상태 재현 ==="
@@ -992,6 +1203,11 @@ echo "REMNANT-LS-RC=$REMNANT_RC"
 REM_SEED=$($SSH '[ -d $TMPDIR/pcm_music_seed ] && echo present || echo gone' | tr -d ' \r')
 echo "REMNANT-SEED-DIR: $REM_SEED"
 [ "$REM_SEED" = "gone" ] || FAIL "REMNANT survived: seed dir left on phone (probe 소유 잔상)"
+REM_XDIR=$($SSH '[ -d "$TMPDIR/mus_dirs_x" ] && echo present || echo gone' | tr -d ' \r')
+REM_ANCH=$($SSH '[ -f "$TMPDIR/pmus_dirs_anchor.json" ] && echo present || echo gone' | tr -d ' \r')
+echo "REMNANT-DIRS-XDIR: $REM_XDIR · REMNANT-DIRS-ANCHOR: $REM_ANCH (T4 dirs 세그먼트 잔산 게이트)"
+{ [ "$REM_XDIR" = "gone" ] && [ "$REM_ANCH" = "gone" ]; } \
+    || FAIL "REMNANT survived: dirs segment residue left on phone (xdir=$REM_XDIR anchor=$REM_ANCH)"
 $SSH "rm -f \$HOME/.pmus_tree.txt \$HOME/.pmus_files.txt \$HOME/.pmus_sizes.txt \$HOME/.pmus_sizes2.txt" 2>/dev/null
 echo "SWEEP-FILES-BURIED-REMOTE: 4 (전수 sweep 임시 목록 소각)"
 
@@ -1029,8 +1245,10 @@ recover "\$TMPDIR/mus_phone_vp_delegate.png" "$SCRATCH/mus_phone_vp_delegate.png
 recover "\$TMPDIR/mus_phone_delegate_status.png" "$SCRATCH/mus_phone_delegate_status.png"
 recover "\$TMPDIR/mus_phone_after.png" "$SCRATCH/mus_phone_after.png"
 recover "\$TMPDIR/mus_phone_sdcard.png" "$SCRATCH/mus_phone_sdcard.png"
-$SSH "rm -f \$TMPDIR/mus_phone_list.png \$TMPDIR/mus_phone_list2.png \$TMPDIR/mus_phone_spatial.png \$TMPDIR/mus_phone_vp_delegate.png \$TMPDIR/mus_phone_delegate_status.png \$TMPDIR/mus_phone_after.png \$TMPDIR/mus_phone_sdcard.png \$TMPDIR/pmus_orig_settings.json \$TMPDIR/pmus_orig_permissions.json"
-echo "CAPTURES-WRITTEN: mus_phone_{list,list2,spatial,vp_delegate,delegate_status,after,sdcard}.png → engine/tmp/"
+recover "\$TMPDIR/mus_phone_dirs.png" "$SCRATCH/mus_phone_dirs.png"
+recover "\$TMPDIR/mus_phone_dirs2.png" "$SCRATCH/mus_phone_dirs2.png"
+$SSH "rm -f \$TMPDIR/mus_phone_list.png \$TMPDIR/mus_phone_list2.png \$TMPDIR/mus_phone_spatial.png \$TMPDIR/mus_phone_vp_delegate.png \$TMPDIR/mus_phone_delegate_status.png \$TMPDIR/mus_phone_after.png \$TMPDIR/mus_phone_sdcard.png \$TMPDIR/mus_phone_dirs.png \$TMPDIR/mus_phone_dirs2.png \$TMPDIR/pmus_orig_settings.json \$TMPDIR/pmus_orig_permissions.json"
+echo "CAPTURES-WRITTEN: mus_phone_{list,list2,spatial,vp_delegate,delegate_status,after,sdcard,dirs,dirs2}.png → engine/tmp/"
 
 # ------------------------------------------------------------------ 8. 로컬 실측
 PYRUNLOG=$(cygpath -w "$RUNLOG" 2>/dev/null || echo "$RUNLOG")
@@ -1084,7 +1302,8 @@ TAGS = (("mus_phone_list.png", "list"), ("mus_phone_list2.png", "list2"),
         ("mus_phone_spatial.png", "spatial"),
         ("mus_phone_vp_delegate.png", "vp_delegate"),
         ("mus_phone_delegate_status.png", "delegate_status"), ("mus_phone_after.png", "after"),
-        ("mus_phone_sdcard.png", "sdcard"))
+        ("mus_phone_sdcard.png", "sdcard"), ("mus_phone_dirs.png", "dirs"),
+        ("mus_phone_dirs2.png", "dirs2"))
 for fname, tag in TAGS:
     p = os.path.join(SCRATCH, fname)
     if not os.path.isfile(p):
@@ -1134,7 +1353,7 @@ fi
 # ------------------------------------------------------------------ 9. 판정
 echo "=== 7. music 폰 실측 판정 (측정 원문은 상단 analysis 행 — 최종 결제는 육안 스탭) ==="
 CAP_OK=1
-for f in list list2 spatial vp_delegate delegate_status after sdcard; do
+for f in list list2 spatial vp_delegate delegate_status after sdcard dirs dirs2; do
     P="$SCRATCH/mus_phone_$f.png"
     if [ ! -s "$P" ]; then
         echo "MUSIC-PHONE-FAIL(capture missing/empty: $P)"
@@ -1144,9 +1363,30 @@ done
 CANON=$(grep -a '^CANON-INCLUSION=' "$RUNLOG" | tail -1 | sed 's/^CANON-INCLUSION=//' | tr -d '\r')
 CANON_OK=0
 case "$CANON" in
-  MUSIC-FULL-2N-17*) CANON_OK=1 ;;
+  MUSIC-FULL-2O-*) CANON_OK=1 ;;
   *) echo "NOTE-CANON: 캐논 계보 ${CANON:-n/a} — 위 경고 행 참조" ;;
 esac
+# dirs 도구 원문(T4 — N2 세그먼트) — DIRS 판정 행(N-1 승계: p1=crash-fixed 표기).
+DADD_L=$(grep -a '^MUSIC-DIR-ADD-REPLY: ' "$RUNLOG" | tail -1 | sed 's/^MUSIC-DIR-ADD-REPLY: //' | tr -d '\r')
+DL1_L=$(grep -a '^MUSIC-DIR-LIST-1: ' "$RUNLOG" | tail -1 | sed 's/^MUSIC-DIR-LIST-1: //' | tr -d '\r')
+DL2_L=$(grep -a '^MUSIC-DIR-LIST-2: ' "$RUNLOG" | tail -1 | sed 's/^MUSIC-DIR-LIST-2: //' | tr -d '\r')
+DSET_L=$(grep -a '^MUSIC-DIR-SETTINGS-CHECK: ' "$RUNLOG" | tail -1 | sed 's/^MUSIC-DIR-SETTINGS-CHECK: //' | tr -d '\r')
+DBYT_L=$(grep -a '^MUSIC-DIR-BYTE-RESTORE: ' "$RUNLOG" | tail -1 | sed 's/^MUSIC-DIR-BYTE-RESTORE: //' | tr -d '\r')
+DIRS_OK=0
+if printf '%s' "$DADD_L" | grep -aq '"ok":true' \
+   && printf '%s' "$DL1_L" | grep -aq 'mus_dirs_x' \
+   && printf '%s' "$DSET_L" | grep -aq 'SET-OK' \
+   && printf '%s' "$DL2_L" | grep -aq '"ok":true' \
+   && ! printf '%s' "$DL2_L" | grep -aq 'mus_dirs_x' \
+   && printf '%s' "$DL2_L" | grep -aq 'pcm_music_seed' \
+   && printf '%s' "$DBYT_L" | grep -aq 'OK'; then
+    DIRS_OK=1
+fi
+if [ "$DIRS_OK" -eq 1 ]; then
+    echo "MUSIC-DIRS-VERDICT: DIRS-OK(add=ok·list 등록/제거 원문·settings music.dirs 실기록+text/font_path 보존·원복 바이트 등호) — p1=crash-fixed(T2 fix r2 — UI 행 루프 UAF 수리 후의 도구 경로 재실측; [제거] 클릭 경로 원문은 WSL T3 런 소유) — 폰 CP949 거부/치유 세그먼트 스킵 원장행(WSL T3 16c 소유 — 전부 실측됨) — 육안 스탭 대기"
+else
+    echo "MUSIC-DIRS-VERDICT: DIRS-FAIL(add=${DADD_L:-none} list1=${DL1_L:-none} list2=${DL2_L:-none} settings=${DSET_L:-none} bytes=${DBYT_L:-none} — 행별 사유는 N2)"
+fi
 GLUE_OK=0
 GLUE=$(grep -a '^MUSICP-GLUE-REPLY: ' "$RUNLOG" | tail -1 | tr -d '\r')
 printf '%s' "${GLUE:-}" | grep -aq '"accepted":true' && GLUE_OK=1
@@ -1182,13 +1422,13 @@ printf '%s' "${SPATL:-}" | grep -aq '"error":"start_failed"' \
   && LEG_OK=1
 LEG_LINE=$(grep -a '^MUSP-LEG-BARRED: ' "$RUNLOG" | tail -1 | sed 's/^MUSP-LEG-BARRED: //' | tr -d '\r')
 if [ "$CAP_OK" -eq 1 ] && [ "$CANON_OK" -eq 1 ] && [ "$GLUE_OK" -eq 1 ] && [ "$PLAY_OK" -eq 1 ] \
-   && [ "$POS_OK" -eq 1 ] && [ "$SCAN_OK" -eq 1 ] && [ "$LEG_OK" -eq 1 ]; then
-    echo "MUSIC-PHONE-VERDICT: MUS-PHONE-OK(폰 selftest 계보 →$CANON·list 탭 리스캔+캡처 7종 receipt·glue=accepted·get_status opened=true pos $POS1→$POS2·폰 leg 배제 원문 성립(spatial_play=start_failed kDelegationHint·spatial 미활성 MISS 행=$INACT)·sdcard 스캔=$SCAN_LINE — 위임은 원장행: $DELEG_LINE / 귀속: $DOPEN_LINE — 육안 스탭 대기)"
+   && [ "$POS_OK" -eq 1 ] && [ "$SCAN_OK" -eq 1 ] && [ "$LEG_OK" -eq 1 ] && [ "$DIRS_OK" -eq 1 ]; then
+    echo "MUSIC-PHONE-VERDICT: MUS-PHONE-OK(폰 selftest 계보 →$CANON·list 탭 리스캔+캡처 9종 receipt·dirs 도구 원문=OK(p1=crash-fixed 표기 — N-1)·glue=accepted·get_status opened=true pos $POS1→$POS2·폰 leg 배제 원문 성립(spatial_play=start_failed kDelegationHint·spatial 미활성 MISS 행=$INACT)·sdcard 스캔=$SCAN_LINE — 위임은 원장행: $DELEG_LINE / 귀속: $DOPEN_LINE — 육안 스탭 대기)"
 else
-    echo "MUSIC-PHONE-VERDICT: MUSIC-PHONE-FAIL(행별 사유는 위 각 행 — canon=$CANON_OK captures=$CAP_OK glue=$GLUE_OK play=$PLAY_OK pos=$POS_OK leg=$LEG_OK/${LEG_LINE:-n/a} scan=$SCAN_LINE; 인프라 실패는 hard FAIL로 상단 중단, 수치·육안 미달은 rc=0 honest-fail)"
+    echo "MUSIC-PHONE-VERDICT: MUSIC-PHONE-FAIL(행별 사유는 위 각 행 — canon=$CANON_OK captures=$CAP_OK dirs=$DIRS_OK glue=$GLUE_OK play=$PLAY_OK pos=$POS_OK leg=$LEG_OK/${LEG_LINE:-n/a} scan=$SCAN_LINE; 인프라 실패는 hard FAIL로 상단 중단, 수치·육안 미달은 rc=0 honest-fail)"
 fi
 echo "MUSIC-WCAPTURES:"
-for f in list list2 spatial vp_delegate delegate_status after sdcard; do
+for f in list list2 spatial vp_delegate delegate_status after sdcard dirs dirs2; do
     P="$SCRATCH/mus_phone_$f.png"
     [ -s "$P" ] && echo "  $P ($(wc -c < "$P" | tr -d ' ') bytes)"
 done
@@ -1205,6 +1445,14 @@ echo "     spatial leg 패널의 고장 안내 행이 kDelegationHint 원문 라
 echo "     (\"spatial leg 불가 — vplayer 위임 이용\")으로 렌더 — [spatial] 발사의"
 echo "     DeviceFailed 종착 원문(D5 정직 계약 — leg는 WSL T3가 소유)."
 echo "  ⑤ 폰 BOOT-OK(settings 원상 복원 — ORIG 바이트 등호): 종료 상태 서버 UP+terminal."
+echo "  ⑥ 폰 dirs 도구(mus_phone_dirs.png+dirs2): [폴더 관리] 등록 상태 스트립"
+echo "     (3탭 — mus_dirs_x·시드 dir 병기)+상태행(폴더 추가됨)+settings.json"
+echo "     music.dirs 실기록+text/font_path 보존+원복 바이트 등호(DIRS 판정 행 —"
+echo "     p1=crash-fixed 표기; CP949 거부/치유는 WSL T3 소유 스킵 원장행)."
+echo "     패널 개방 프레임 = 원장행: 토글 좌표 정산(185/77·270/77 — 캡처 픽셀"
+echo "     실측)+hover tooltip 원문에도 클릭이 패널을 열지 않았다(3런+라이브 2회"
+echo "     실측 — 같은 클라에서 필터 InputText 포커스·표행 더블클릭 위임은 성립"
+echo "     — 폰 스트립 행 Button 클릭 경로 전용 관측 — P3 원장 후보, EYES 몫)."
 echo "  → EYES-PENDING: 위 항목에 대한 폰 실기기 육안 선언만 결제 — probe는 기록하지 않는다."
 echo "MUSIC-PHONE-END"
 # honest-fail 원칙: 수치 미달(MUSIC-PHONE-FAIL 라인)은 원장 목적이라 rc=0.
