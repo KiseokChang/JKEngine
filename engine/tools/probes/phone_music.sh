@@ -65,6 +65,24 @@
 #     창 approval_timeout 원문(무승인 운용 — 스폰 스폰 런은 병합 C 섹션 계약);
 #     라이브 실험 후 permissions.json은 **바이트 원복 33바이트**·폰 클라
 #     pkill([m]usic 브래킷 — 무브래킷 pkill은 원격 셸 자기 매치 사망 — 원문).
+#   · **스캔 취소 경계 폰 동형 최소 세그먼트(leg big — #93 T4)** — wsl_music.sh
+#     16d(bf38ea9)의 경계 3종을 폰 맞춤으로 축소 수형. ②스캔 진행 중
+#     music_dir_remove → 취소 1발+도착 폐기 stderr 1행("도착 폐기" — T2 수형
+#     원문)+클라 생존(music_dir_list/list_windows) 원문. ①제거의 재청구(clamp
+#     승계) 스캔이 진행 중인 창에 close_window(phone_close_receipt B2/B3/B5
+#     선례 — 폰 서버 close_window 실측 있음, permissions 핫리드 계약) →
+#     소멸 시차+crash 마커 0(로그 델타)+서버 ping 생존 원문 → 재스폰+도구 응답
+#     원문. ③재스폰 클라 재스캔 정착(캡처 1종 = EYES). **폰 축소 원장**: 스캔
+#     규모 = $TMPDIR 합성 트리 2종(subs×files — 소형이어도 생존·폐기 원문 목적
+#     충족 승계; 스캔은 내용을 읽지 않는다 — MusicModel.h 원문 — 빈 .wav 셸이
+#     정직). **landtap(px 차분 착탄 판정기)은 폰 미이식 원장행** — WSL 16d의
+#     탭 좌표 캘리브레이션 몫 — 폰 동형 구도는 **tree_a를 dirs_[1](tab2)에
+#     앉히는 병합 구성**(Resolverds 원문: dirs_ = [기본(AudioDirFallback),
+#     ...music.dirs 순서] — dirs_[1] = tab2 = 실측 상수 TAB2_X=90 재용 — 신규
+#     좌표 캘리브레이션 0)로 만든다. **sync 1회 선행 배수**(T3 concern ② 승계 —
+#     폰 동형 — 시드 writeback 선행 배량 수형; $TMPDIR는 VHD가 아니나 수형 유지).
+#     폰 스캔 속도 미실측 — 탭→remove 사이클 2회(RETRY 수형)·폐기 MISS =
+#     정직 원장행(스케일 재정산 = MUSP_BIG_SUBS/MUSP_BIG_FILES env 재런 몫).
 #   · **settings 주입 수형 교환** — T4 WSL probe의 "settings.json ENTRY 부재
 #     hard FAIL→기록+소각" 수형은 폰 런타임과 충돌한다(폰 settings.json·
 #     permissions.json은 선존 런타임 파일 — 전면 allow 파일은 프로브 소유
@@ -91,6 +109,12 @@
 #   (st_dev,st_ino) 방문 집합이 무효화될 수 있다는 지적 → music.dirs=/sdcard
 #   루트로 실측 스캔이 유한 종료하는지(클라 CPU 2창 정착+list_windows 응답)
 #   원문. 권한 부재=빈 목록 정상(갤러리 T5 계동형 — 정직 가시화).
+#   + 스캔 취소 경계(T4 — leg big, 상단 세그먼트 원천 블록): ②제거→폐기 stderr
+#   1행(제거→도착 시차 = 취소 절단 영수증)·클라 생존 원문, ①재청구 스캔 중
+#   close_window → 소멸 시차+crash 0+ping, ③재스폰 정착 캡처. 폰 스캔 속도
+#   미실측이므로 스캔-중 경계의 창은 사이클 2회(2차 재청구 재시도)+스캔 진행
+#   중 캡처(close 앞 — in-flight 1프레임 표기)로 구도를 만든다 — MISS는
+#   정직 원장행(rc=0 — SCALE 재정산 재런 몫).
 #
 # 폰 selftest 캐논(계보): 진입 실측 565(2i 19·2g 40·2m 0) → 실측 정산
 #   591 = 565 + 2m 26건(2m 상총 25 + 2m-h 1) — **WSL 591 등호**(dispatch 초산
@@ -113,22 +137,37 @@
 #   빨아들이는 회귀창 폐곡). 브리프 원장행 가설 "WSL 624와의 불일치 = 2o-g
 #   서버 측 2건 구조적(하네스 자체 main)"은 **부정** — 폰 selftest main에도
 #   서버 보존 합성 2건이 동봉되어 전 16건 실측 → **WSL 624 등호**.
+#   → **스캔 취소 라인 T4 폰 흡수 — 실측 638 = 624 + 2p 7 + 2q 7**(2026-10-10
+#   T4 — 폰 2런 재현: PASS=638 FAIL=0·2p=7·2q=7·AppSelfTest 0 failure): 2p =
+#   스캔 취소 경계 selftest 7건(#93 T1 — a·①-⑤ 계열)·2q = 경로 인코딩 사슬
+#   7건(#94 — a·b 계열) — 전부 코드 원문 배포 이관이고 폰 main == WSL main
+#   동일 배포라 **WSL 638 등호**(신규 어설션 0 계약 — 기존 624·2m·2n·2o 계열
+#   보존). CANON 상수 = 실측 후 갱신 계약(T3 리뷰 M-1 승계 — 실측 전 상수는
+#   예고 원장 병기 후 정산) — 실측 원문(reports 진실원)으로 remote script
+#   상수 정산 완료. 취소 경계 원문 2런 재현: ②제거→폐기 도착 0.62/0.66s
+#   (200,000 트랙/트리 — 폰 판정축)·클라 생존·①close→소멸 1.26/1.25s·crash 0
+#   ·서버 ping 생존·재스폰+도구 응답 원문·③정착 캡처.
 #
 # 판정 사다리(라벨 계약 — wsl_music/phone_gallery 수형):
-#   MUS-PHONE-VERDICT: MUS-PHONE-OK = CANON MUSIC-FULL-2O-* AND 캡처 9종
+#   MUS-PHONE-VERDICT: MUS-PHONE-OK = CANON MUSIC-FULL-2P2Q-* AND 캡처 11종
 #     비빈 AND dirs 도구 원문(add ok·list 등록/제거 원문·settings music.dirs
 #     실기록+text/font_path 보존·원복 바이트 등호) AND 위임(폰 위임
 #     open+재청구+직행) 성립 AND get_status
 #     opened:true(pos 증가) AND 폰 leg 배제 원문(spatial_play →
 #     start_failed detail=kDelegationHint·spatial_status 미활성 행) 성립 AND
+#     스캔 취소 경계(②폐기 1행+절단 시차·클라 생존 + ①close 소멸+crash 0+
+#     재스폰 도구 원문 — CANCEL 판정 행) 성립 AND
 #     sdcard 스캔 유한(또는 권한 부재 빈 목록=정상). 위임 창·귀속은 원장행
 #     (MISS = 폰 스폰 시간 원장 — 판정 게이트에서 뺀 사유는 상단 원장 참조).
 #     + dirs(CP949) 원장행: 거부/치유 세그먼트는 WSL T3(85bf59e 16c) 소유 —
 #     폰 스킵(1행).
+#     + 취소 원장행: 폰 스캔 속도 미실측 → ②폐기 MISS/①시차 초과 =
+#     MUSIC-PHONE-FAIL(rc=0 정직 — MUSP-BIG-SCALE 재정산 재런 몫).
 #   MUS-PHONE-VERDICT: MUS-PHONE-FAIL(행별 이유) — 수치 미달=정직 원장 rc=0.
 #   MUSP-FAIL(rc=1) = hard FAIL만: ssh 단절·sweep·배포·ninja·selftest 회귀
 #     ·seed 소각·settings/perm 원복·서버/ping/launch/창·캡처·REMNANT 실패
-#     ·dirs 기저(list-0 시드 dir 미보존)·dirs 합성 폴더 생성. dirs 도구 수치
+#     ·dirs 기저(list-0 시드 dir 미보존)·dirs 합성 폴더 생성·big 시드 생성/
+#     카운트/소각(T4 취소 세그먼트 — probe 소유 잔상 0 계약). dirs 도구 수치
 #     (add/list/settings/remove/바이트 등호)는 honest 원장행 — DIRS 판정 행 집계.
 #
 # 실행법(윈도 Git Bash, 저장소 루트 어디서든):
@@ -179,7 +218,11 @@ PHONE_PORT="${PHONE_PORT:-8022}"
 PHONE_USER="${PHONE_USER:-u0_a4}"
 PHONE_KEY="${PHONE_KEY:-$HOME/.ssh/termux_jkengine}"
 PHONE_DISPLAY="${PHONE_DISPLAY:-:1}"
-PHONE_DEPLOY_BASE="${PHONE_DEPLOY_BASE:-8685589}"  # 클라 idle 라인(마지막 폰 배포) 커밋 — 기대 배포 집합 앵커
+PHONE_DEPLOY_BASE="${PHONE_DEPLOY_BASE:-ddd0f45}"  # 마지막 폰 배포 커밋(음악 폴더 관리 T5 — 2026-10-10 런 영수증 HEAD) — 기대 배포 집합 앵커
+                                                   #   (구값 8685589 = 클라 idle 라인 — music 폴더 관리 T5 폰 런이
+                                                   #   ddd0f45 배포로 정산 — 앵커 갱신 T4 원장행)
+MUSP_BIG_SUBS="${MUSP_BIG_SUBS:-80}"    # 스캔 취소 세그먼트(T4) 합성 트리 하위 수 — env 재정산 몫
+MUSP_BIG_FILES="${MUSP_BIG_FILES:-2500}"  # 트리당 하위 파일 수 — 80×2500=200,000 트랙/트리
 
 # PHONE_HOST 필수 가드는 exec(tee)보다 **앞에** 둔다 — 가드가 tee 뒤에 있으면
 # PHONE_HOST unset 재실행 시 tee truncate로 마지막 실측 영수증 로그를
@@ -194,7 +237,7 @@ FAIL() { echo "MUSP-FAIL: $*"; exit 1; }
 echo "PHONE-HOST: 환경변수 지정 사용 (기록 금지 — 자리표시 PHONE_HOST=<폰>; 스캔 폴백 없음)"
 echo "HEAD: $(git -C "$GITROOT" rev-parse HEAD 2>/dev/null || echo rev-parse-failed)"
 echo "BASE-ANCHOR(마지막 폰 배포): $PHONE_DEPLOY_BASE"
-echo "LINEAGE(폰): selftest 565(2i 19·2g 40·2m 0) → 591(2m 26 흡수) → 608(2n 17 흡수 — 실측) → 624 = 608 + 2o 16(2o-a..e 10 + 2o-f 4 + 2o-g 2 — 실측 정산, WSL 624 등호 — 브리프 기대 618[2o 10]은 실측으로 갱신 — 캐논 상수 실측 갱신 원장)"
+echo "LINEAGE(폰): selftest 565(2i 19·2g 40·2m 0) → 591(2m 26 흡수) → 608(2n 17 흡수 — 실측) → 624 = 608 + 2o 16(2o-a..e 10 + 2o-f 4 + 2o-g 2 — 실측 정산, WSL 624 등호) → 638 = 624 + 2p 7 + 2q 7 (스캔 취소 라인 T4 — #93·#94 코드 원문 배포 이관 — **실측 2026-10-10 T4 2런: PASS=638 FAIL=0·2p=7·2q=7 — WSL 638 등호**)"
 SSH="ssh -p $PHONE_PORT -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=10 -i $PHONE_KEY $PHONE_USER@$PHONE_HOST"
 
 # ------------------------------------------------------------------ 0. 전수 sweep
@@ -310,16 +353,22 @@ echo "MUSIC-LIST-EXPECTED=4 (seed 3 root + 1 sub — 표행 수 관측 원문 1�
 cat > "$SCRATCH/$RSRC_TAR_NAME" <<'PMUSEOF'
 #!/bin/bash
 # 폰 측 music 영수증 절차 (phone_music.sh가 생성 — music 라인 T5+
-# spatial leg 라인 T4+폴더 저장소 라인 T4).
+# spatial leg 라인 T4+폴더 저장소 라인 T4+스캔 취소 라인 T4 #93).
 # settings 병합(시드 dirs) → cmake 재설정(자동)+ninja 리빌드 → selftest 캐논
-# (608→624 = 2o 16 흡수[2o-f 4·2o-g 2 포함 — 실측 정산] · 2m 26·2n 17 보존) →
+# (624→638 = 2p 7[#93 T1]+2q 7[#94] 흡수 — WSL 638 등호 기대 · 2m 26·2n 17·
+# 2o 16 보존) →
 # leg list(탭2 리스캔+캡처+콜드 접착제 전조+spatial 배제 원문[LEG-ENV unset
 # 가드 — spatial_play start_failed kDelegationHint·UI [spatial] 탭 라벨
 # 렌더]+더블클릭 위임+귀속 폴링+직행 open+get_status 재생 수치+**dirs 도구
 # 동형 세그먼트[add/list/settings 실측/remove/list/원복 바이트 등호 — CP949
 # 거부/치유는 WSL T3 소유 스킵 원장행]+[폴더 관리] 토글 모양 캡처 1종**) →
+# **leg big(스캔 취소 경계 폰 동형 최소 — wsl 16d 수형: $TMPDIR 합성 트리 2종
+# 시드+sync → tree_a=dirs_[1](tab2) 병합 부팅 → 탭2 리스캔(활성 탭 = big_a
+# 경계) → 스캔 중 music_dir_remove(취소 1발+도착 폐기 stderr 1행+클라 생존) →
+# 스캔 중 close_window(재청구 스캔 중 — 소멸 시차+crash 0+ping) → 재스폰+
+# 도구 응답+재스캔 정착 캡처)** →
 # leg sdcard(M-5 재판정 — FUSE 스캔 유한 종료 실측) → 복원(ORIG 바이트 등호+
-# PERM 병합 원복+시드 소각) → BOOT-OK(서버 UP+terminal 상시 — 클라 idle
+# PERM 병합 원복+시드+big 트리 소각) → BOOT-OK(서버 UP+terminal 상시 — 클라 idle
 # 라인 종료 상태 승계).
 # jkweb 절사 금지(기동 카운트 원문만).
 set -u
@@ -335,19 +384,18 @@ NLOG="$TMPD/pmus_ninja.log"
 STLOG="$TMPD/pmus_selftest.log"
 ORIG="$TMPD/pmus_orig_settings.json"
 PERM_ORIG="$TMPD/pmus_orig_permissions.json"
-CANON_PHONE_PREV=608      # 폰 기존 캐논(2n 17 흡수 실측 — 비교 원문)
-CANON_PHONE_EXPECT=624    # 608 + 2o 16건(2o-a..e 10 + 2o-f 4 + 2o-g 2) — 실측
-                          #   정산(2026-10-10 T4 1차 런 — PASS=624 FAIL=0 ·
-                          #   2o=16[o-f=4 o-g=2] 실측). 브리프 기대 618(2o 10)은
-                          #   2o-f/2o-g 미포함 전산이었고 폰 main.cpp 동일 배포
-                          #   런에서 전 16건 실측 — "2o-g 서버 측 구조 배제"
-                          #   가설은 부정(폰 selftest main에 서버 보존 합성
-                          #   동봉 실측) — WSL 624 등호(원장 — 캐논 상수 실측
-                          #   갱신 계약, T3 리뷰 M-1 승계: 낡은 상수의 WARN
-                          #   침묵 회귀창 폐곡)
+CANON_PHONE_PREV=624      # 폰 기존 캐논(2o 16 흡수 실측 — 비교 원문)
+CANON_PHONE_EXPECT=638    # 624 + 2p 7건(#93 T1 스캔 취소 경계 — a·①-⑤) + 2q 7건
+                          #   (#94 경로 인코딩 사슬 — a·b) — **실측 정산**(2026-10-10
+                          #   T4 — 폰 2런: PASS=638 FAIL=0·2p=7·2q=7 — WSL 638 등호
+                          #   — 캐논 상수 실측 갱신 계약(T3 리뷰 M-1 승계 — reports
+                          #   진실원))·r1(r2-run)의 ScanCancelFn 마커 착각 hard FAIL
+                          #   원장행(마커 = scanCancel_ 실배선 토큰으로 정산)
 CANON_PHONE_2M=26
 CANON_PHONE_2N=17
 CANON_PHONE_2O=16         # 실측 정산(2o-a..e 10 + 2o-f 4 + 2o-g 2 — WSL 등호)
+CANON_PHONE_2P=7          # 실측 정산(2026-10-10 T4 폰 2런 — #93 T1 1dfb8cb — WSL 등호)
+CANON_PHONE_2Q=7          # 실측 정산(2026-10-10 T4 폰 2런 — #94 adbd0f1 — WSL 등호)
 CLK=$(getconf CLK_TCK 2>/dev/null); [ -n "$CLK" ] || CLK=100
 
 # 클릭·행 상수 — 창 상대 desktop 좌표(wsl_music T4 상수 승계, env 재보정).
@@ -415,7 +463,31 @@ merge_music_dir() { # $1 dirs 경로 $2 라벨 — ORIG 원복 후 music 키 삽
 }
 
 echo "=== C. permissions.json 병합(선존 파일 존중 — END 바이트 등호 복원) ==="
+# 병합 키 = send_input(T5 계승)+close_window(T4 취소 세그먼트 ① — 서버는
+# permissions를 **호출마다 핫리드**한다 — phone_close_receipt.sh 선례 — 스테이지만으로
+# 게이트가 산다 — 재부팅 0). 부재 Deny 규약(wsl_chat_close.sh 원형).
 ENTRY_PERM=0
+perm_insert_key() { # $1=키 $2=값 — 마지막 } 직전 삽입(구조 친화 병합 — merge_music_dir 수형)
+    awk -v newline="    \"$1\": \"$2\"" '
+        BEGIN { n = 0 }
+        { lines[n++] = $0 }
+        END {
+            last = -1
+            for (i = n - 1; i >= 0; i--)
+                if (lines[i] ~ /^[ \t]*\}[ \t\r]*$/) { last = i; break }
+            if (last < 1) { print "PERM-MERGE-FAIL"; exit 1 }
+            prev = lines[last - 1]
+            sub(/[ \t\r]*$/, "", prev)
+            if (prev !~ /,$/) prev = prev ","
+            lines[last - 1] = prev
+            for (i = 0; i < n; i++) {
+                if (i == last) print newline
+                print lines[i]
+            }
+        }' "$PERM" > "$PERM.new" || return 1
+    mv "$PERM.new" "$PERM" || return 1
+    return 0
+}
 if [ -s "$PERM_ORIG" ]; then
     if ! cmp -s "$PERM" "$PERM_ORIG"; then
         cp "$PERM_ORIG" "$PERM" || FAIL "permissions self-heal copy failed"
@@ -430,34 +502,26 @@ if [ -f "$PERM" ]; then
     cmp -s "$PERM" "$PERM_ORIG" || FAIL "permissions backup byte mismatch"
     echo "PERM-ENTRY-PRE-EXISTING: $PERM ($(wc -c < "$PERM") bytes) — 원문: $(tr -d '\n' < "$PERM")"
     SI=$(sed -n 's/.*"send_input"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$PERM" | head -1)
+    CWI=$(sed -n 's/.*"close_window"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$PERM" | head -1)
     if [ "$SI" = "allow" ]; then
-        echo "PERM-MERGE: none (선존 send_input=allow)"
+        echo "PERM-MERGE: send_input none (선존 send_input=allow)"
     else
-        awk -v newline='    "send_input": "allow"' '
-            BEGIN { n = 0 }
-            { lines[n++] = $0 }
-            END {
-                last = -1
-                for (i = n - 1; i >= 0; i--)
-                    if (lines[i] ~ /^[ \t]*\}[ \t\r]*$/) { last = i; break }
-                if (last < 1) { print "PERM-MERGE-FAIL"; exit 1 }
-                prev = lines[last - 1]
-                sub(/[ \t\r]*$/, "", prev)
-                if (prev !~ /,$/) prev = prev ","
-                lines[last - 1] = prev
-                for (i = 0; i < n; i++) {
-                    if (i == last) print newline
-                    print lines[i]
-                }
-            }' "$PERM" > "$PERM.new" || FAIL "permissions merge failed (구조 친화 실패)"
-        mv "$PERM.new" "$PERM" || FAIL "permissions merge replace failed"
+        perm_insert_key send_input allow || FAIL "permissions merge failed (구조 친화 실패)"
         echo "PERM-MERGE: +send_input allow (선존 키 보존 — merge=$(wc -c < "$PERM") bytes, END에서 바이트 등호 원복)"
     fi
+    if [ "$CWI" = "allow" ]; then
+        echo "PERM-MERGE: close_window none (선존 close_window=allow — phone_close_receipt 유산 원장행)"
+    else
+        perm_insert_key close_window allow || FAIL "permissions close_window merge failed (구조 친화 실패)"
+        echo "PERM-MERGE: +close_window allow (T4 ① in-flight close 전제 — 핫리드 계약, END에서 바이트 등호 원복)"
+    fi
 else
-    printf '{\n    "send_input": "allow"\n}\n' > "$PERM" || FAIL "permissions write failed"
-    echo "PERM-WIRE-OK: $PERM (send_input allow — 선존 부재라 END에서 소각)"
+    printf '{\n    "send_input": "allow",\n    "close_window": "allow"\n}\n' > "$PERM" \
+        || FAIL "permissions write failed"
+    echo "PERM-WIRE-OK: $PERM (send_input+close_window allow — 선존 부재라 END에서 소각)"
 fi
 grep -aq 'send_input' "$PERM" || FAIL "permissions.json has no send_input (승인 병합 미성립)"
+grep -aq 'close_window' "$PERM" || FAIL "permissions.json has no close_window (T4 close 병합 미성립)"
 echo "PERM-AFTER-MERGE: $(tr -d '\n' < "$PERM")"
 
 echo "=== D. jkweb 생존 계약 — 기동 카운트 원문 (절사 금지) ==="
@@ -536,15 +600,21 @@ echo "=== G. 배포 마커 — HEAD 원천 실존 단정 ==="
 MM=$(grep -c 'ListAudioFiles' include/apps/MusicModel.h)
 MC=$(grep -c 'jkapp_music' CMakeLists.txt)
 MT=$(grep -c '2m-' src/main.cpp)
+MP2=$(grep -c '2p-' src/main.cpp)
+MQ2=$(grep -c '2q-' src/main.cpp)
 MP=$(grep -c 'DelegationReplyVerdict' src/apps/ClientMusicApp.cpp)
 ML=$(grep -c '"music", "Music"' src/apps/JKAppModule_music.cpp)
-echo "MARKER-AFTER music_model($MM) cmake($MC) main_2m($MT) delegate_verdict($MP) module($ML)"
+MMSC=$(grep -c 'scanCancel_' src/apps/ClientMusicApp.cpp)
+echo "MARKER-AFTER music_model($MM) cmake($MC) main_2m($MT) main_2p($MP2) main_2q($MQ2) delegate_verdict($MP) module($ML) cancel_wiring($MMSC)"
 [ "$MM" -ge 1 ] || FAIL "MusicModel ListAudioFiles marker missing on phone (배포 결손)"
 [ "$MC" -ge 1 ] || FAIL "jkapp_music CMake marker missing on phone"
 [ "$MT" -ge 1 ] || FAIL "2m selftest marker missing on phone main.cpp"
+[ "$MP2" -ge 1 ] || FAIL "2p cancel selftest marker missing on phone main.cpp (T4 배포 결손)"
+[ "$MQ2" -ge 1 ] || FAIL "2q path-encoding selftest marker missing on phone main.cpp (T4 배포 결손)"
+[ "$MMSC" -ge 1 ] || FAIL "scanCancel_ wiring marker missing on phone (T2 취소 배선 배포 결손)"
 [ "$MP" -ge 1 ] || FAIL "DelegationReplyVerdict marker missing on phone (fix r3 배포 결손)"
 
-echo "=== H. selftest — 폰 캐논 계보 판정 (원문: 608 = 2n 17 흡수 실측 · 기대 624 = 608 + 2o 16건[2o-a..e 10 + 2o-f 4 + 2o-g 2 — 2026-10-10 T4 실측 정산] — WSL 624 등호) ==="
+echo "=== H. selftest — 폰 캐논 계보 판정 (원문: 624 = 2o 16 흡수 실측 · 기대 638 = 624 + 2p 7건[#93 T1 취소 경계] + 2q 7건[#94 경로 인코딩] — WSL 638 등호 기대 — 실측 후 CANON 정산) ==="
 timeout 900 ./buildterm/jkdesktop test >"$STLOG" 2>&1
 S_RC=$?
 ST_PASS=$(grep -ac '^\[PASS\]' "$STLOG")
@@ -555,22 +625,26 @@ P2N=$(grep -ac '^\[PASS\] 2n' "$STLOG")
 P2O=$(grep -ac '^\[PASS\] 2o' "$STLOG")
 P2OF=$(grep -ac '^\[PASS\] 2o-f' "$STLOG")
 P2OG=$(grep -ac '^\[PASS\] 2o-g' "$STLOG")
+P2P=$(grep -ac '^\[PASS\] 2p' "$STLOG")
+P2Q=$(grep -ac '^\[PASS\] 2q' "$STLOG")
 P2I=$(grep -ac '^\[PASS\] 2i' "$STLOG")
 P2G=$(grep -ac '^\[PASS\] 2g' "$STLOG")
-echo "PHONE-SELFTEST rc=$S_RC PASS=$ST_PASS FAIL=$ST_FAIL 2m=$P2M(2m-h=$P2MH) 2i=$P2I 2g=$P2G 2n=$P2N 2o=$P2O(2o-f=$P2OF 2o-g=$P2OG) (music 라인 2m·2n 계열 보존 + 폴더 저장소 2o 계열 신설 — 캐논 상승분의 원료 — 분해 병기: 정산 판별 몫)"
+echo "PHONE-SELFTEST rc=$S_RC PASS=$ST_PASS FAIL=$ST_FAIL 2m=$P2M(2m-h=$P2MH) 2i=$P2I 2g=$P2G 2n=$P2N 2o=$P2O(2o-f=$P2OF 2o-g=$P2OG) 2p=$P2P 2q=$P2Q (music 라인 2m·2n·2o + 취소 경계 2p + 경로 인코딩 2q 계열 — 캐논 상승분의 원료 — 분해 병기: 정산 판별 몫)"
 grep -a 'AppSelfTest' "$STLOG" | tail -2
 grep -aq 'AppSelfTest: 0 failure(s)' "$STLOG" || FAIL "AppSelfTest not 0 failure(s)"
 [ "$S_RC" -eq 0 ] || FAIL "selftest rc=$S_RC"
 [ "$ST_FAIL" -eq 0 ] || FAIL "selftest FAIL=$ST_FAIL (폰축 회귀)"
 awk -v p="$ST_PASS" -v m="$P2M" -v h="$P2MH" -v n="$P2N" -v o="$P2O" -v of="$P2OF" -v og="$P2OG" \
+    -v pf="$P2P" -v qf="$P2Q" \
     -v prev="$CANON_PHONE_PREV" -v expect="$CANON_PHONE_EXPECT" -v exo="$CANON_PHONE_2O" \
-    -v exn="$CANON_PHONE_2N" -v mm="$CANON_PHONE_2M" 'BEGIN{
-    if (p == expect && o == exo)
-        printf "CANON-INCLUSION=MUSIC-FULL-2O-%d (폰 캐논 %s→%s 상승 — 2o %d건 흡수[2o-f %d·2o-g %d 포함](2m %d건[h %d 포함]·2n %d건 보존) 실측 — WSL %s 등호)\n", p - prev, prev, p, o, of, og, mm, h, n, expect
+    -v exn="$CANON_PHONE_2N" -v xp="$CANON_PHONE_2P" -v xq="$CANON_PHONE_2Q" \
+    -v mm="$CANON_PHONE_2M" 'BEGIN{
+    if (p == expect && o == exo && pf == xp && qf == xq)
+        printf "CANON-INCLUSION=MUSIC-FULL-2P2Q-%d (폰 캐논 %s→%s 상승 — 2p %d건+2q %d건 흡수 (2m %d건[h %d 포함]·2n %d건·2o %d건[o-f %d·o-g %d] 보존) 실측 — WSL %s 등호)\n", p - prev, prev, p, pf, qf, mm, h, n, o, of, og, expect
     else if (p == prev)
         print "CANON-INCLUSION=MUSIC-SELFTEST-MISSING (music selftest 쌍둥이 미반영 — 계보 결손 — 원장)"
     else
-        printf "CANON-INCLUSION=OTHER-N(%d — 기대 %d=%d+2o%d · 2m=%d[h=%d]·2n=%d·2o=%d[o-f=%d o-g=%d] — 계보 정산 원장)\n", p, expect, prev, exo, m, h, n, o, of, og
+        printf "CANON-INCLUSION=OTHER-N(%d — 기대 %d=%d+2p%d+2q%d · 2m=%d[h=%d]·2n=%d·2o=%d[o-f=%d o-g=%d]·2p=%d·2q=%d — 계보 정산 원장)\n", p, expect, prev, xp, xq, m, h, n, o, of, og, pf, qf
 }'
 
 # ---------------------------------------------------------------- 레그 공통
@@ -987,6 +1061,297 @@ rm -rf "$XDIR"
     || echo "MUSIC-DIR-BURIED: $XDIR 소각 (probe 소유 잔상 0)"
 
 # ══════════════════════ leg sdcard — /sdcard FUSE 스캔 유한 종료 실측 (M-5 재판정) ══════════════
+# ══════════════════════ leg big — 스캔 취소 경계 폰 동형 최소 (T4 — #93) ══════════════════════
+LEG=big
+echo "=== N3. leg big — 스캔 취소 경계 세그먼트 (T4 — wsl_music 16d bf38ea9 폰 동형 최소) ==="
+# 폰 동형 최소 원장(브리프 T4):
+#   · 스캔 규모 = $TMPDIR 합성 트리 2종(subs×files — 소형이어도 생존·폐기 원문
+#     목적 충족 승계). 스캔은 내용을 읽지 않는다(MusicModel.h 원문 — 확장자
+#     필터+stat만 소비)라 빈 .wav 셸이 정직하다. **폰 스캔 속도 미실측** —
+#     탭→remove 사이클 2회(2차 재청구 재시도 수형) — MISS = 정직 원장행
+#     (스케일 재정산 = MUSP_BIG_SUBS/MUSP_BIG_FILES env 재런 몫).
+#   · landtap(px 차분 착탄 판정기)은 **폰 미이식 원장행** — WSL 16d의 탭 좌표
+#     캘리브레이션 몫. 폰 동형 구도 = **tree_a를 dirs_[1](tab2)에 앉히는 병합
+#     구성**(ResolveDirs 원문: dirs_ = [기본(AudioDirFallback), ...music.dirs
+#     순서] — dirs_[1] = tab2) — 탭은 실측 상수 TAB2_X=90 재용(4·5차 런 등탄
+#     ·재클릭 방어 동형 — 신규 좌표 캘리브레이션 0).
+#   · ②제거 경계: music_dir_remove의 취소 1발(T2 소멸자·[제거] 취소 원문)이
+#     진행 스캔을 경계서 절단 → 부분 수집 도착이 멤버십 필터에서 폐기+
+#     stderr "도착 폐기" 1행. 제거→도착 시차가 절단 영수증(완주 잔량보다 앞섬).
+#   · ①close 경계: 제거의 재청구(clamp 승계 — dirs_[1]=tree_b 재스캔)가 진행
+#     중인 창에 close_window(phone_close_receipt B2/B3/B5 선례 — permissions
+#     핫리드로 스테이지 게이트 산다) → 소멸 시차+crash 마커 0(로그 델타)+
+#     서버 ping 생존 → 재스폰+도구 응답 원문.
+#   · ③정착: 재스폰 클라의 tab2 재스캔 정착(캡처 1종 — 표행 채택 = EYES 몫).
+#   · sync 1회 선행 배수(T3 concern ② 승계 — 폰 동형 — 시드 writeback 선행
+#     배량 수형).
+BIG_SUBS=__BIG_SUBS__
+BIG_FILES=__BIG_FILES__
+BIG_TRACKS=$((BIG_SUBS * BIG_FILES))
+BIGA="$TMPD/mus_big_a"
+BIGB="$TMPD/mus_big_b"
+echo "MUSP-BIG-SCALE: subs=$BIG_SUBS files=$BIG_FILES tracks=$BIG_TRACKS/트리 (env MUSP_BIG_SUBS/MUSP_BIG_FILES — 드라이버 치환 — 폰 맞춤 소형 계약)"
+echo "--- N3-1. 합성 트리 시드 2종 (빈 .wav 셸 — REM preclean) ---"
+if [ -d "$BIGA" ] || [ -d "$BIGB" ]; then
+    echo "BIG-ENTRY-PRECLEAN: 전 run 유산 트리 소각 (RUN-DROPPED 재실행 계약 흡수 — hard FAIL 아님)"
+    rm -rf "$BIGA" "$BIGB"
+fi
+[ -d "$BIGA" ] && FAIL "big_a preclean failed (수동 소각 필요)"
+[ -d "$BIGB" ] && FAIL "big_b preclean failed (수동 소각 필요)"
+BIGSEED_PY="$TMPD/pmus_bigseed.py"
+cat > "$BIGSEED_PY" <<'PYSEED'
+import os, sys, time
+root, subs, per = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+t = time.time()
+for d in range(subs):
+    p = os.path.join(root, "sub_%02d" % d)
+    os.makedirs(p, exist_ok=True)
+    for f in range(per):
+        fd = os.open(os.path.join(p, "m_%05d.wav" % f),
+                     os.O_CREAT | os.O_WRONLY, 0o644)
+        os.close(fd)
+n = sum(1 for _d, _dirs, fs in os.walk(root) for x in fs if x.endswith(".wav"))
+print("BIGSEED-OK tracks=%d seed_sec=%.1f" % (n, time.time() - t))
+PYSEED
+if command -v python3 >/dev/null 2>&1; then
+    python3 "$BIGSEED_PY" "$BIGA" "$BIG_SUBS" "$BIG_FILES" || FAIL "big seed A failed"
+    python3 "$BIGSEED_PY" "$BIGB" "$BIG_SUBS" "$BIG_FILES" || FAIL "big seed B failed"
+    echo "MUSP-BIG-SEEDER: python3 (폰 python3 존재 원문 — os.open 루프)"
+else
+    echo "MUSP-BIG-SEEDER: shell 폴백 (python3 부재 — 스케일 재정산 몫 원장행)"
+    for T in "$BIGA" "$BIGB"; do
+        d=0
+        while [ "$d" -lt "$BIG_SUBS" ]; do
+            DD="$T/sub_$(printf '%02d' "$d")"
+            mkdir -p "$DD" || FAIL "big mkdir failed ($DD)"
+            i=0
+            while [ "$i" -lt "$BIG_FILES" ]; do
+                i=$((i + 1))
+                : > "$DD/m_$(printf '%05d' "$i").wav"
+            done
+            d=$((d + 1))
+        done
+    done
+fi
+rm -f "$BIGSEED_PY"
+BA=$(find "$BIGA" -name '*.wav' 2>/dev/null | wc -l)
+BB=$(find "$BIGB" -name '*.wav' 2>/dev/null | wc -l)
+echo "BIG-SEED-COUNT: a=$BA b=$BB (want=$BIG_TRACKS/트리 — 파일 수수 정직 가드)"
+[ "$BA" -eq "$BIG_TRACKS" ] || FAIL "big seed A count=$BA want=$BIG_TRACKS"
+[ "$BB" -eq "$BIG_TRACKS" ] || FAIL "big seed B count=$BB want=$BIG_TRACKS"
+SYNC_T0=$(date +%s.%N)
+sync
+echo "MUS-BIGSEED-SYNC: drain=$(awk -v a="$SYNC_T0" -v b="$(date +%s.%N)" 'BEGIN{printf "%.1f", b-a}')s (시드 writeback 선행 배수 — T3 concern ② 폰 동형 승계 행)"
+FND_T0=$(date +%s.%N)
+BFIND=$(find "$BIGA" -type f -name '*.wav' 2>/dev/null | wc -l)
+echo "MUSP-BIG-ENUM-COST: find $BFIND files in $(awk -v a="$FND_T0" -v b="$(date +%s.%N)" 'BEGIN{printf "%.2f", b-a}')s (셸 열거 고정비 원문 — 클라 스캔 시각의 배증 재료)"
+
+echo "--- N3-2. tree_a = dirs_[1](tab2) 병합 구성 + 부팅 (활성 탭 = big_a 경계의 폰 수형) ---"
+merge_music_big() { # 트리 2종을 한 music.dirs 배열로 — dirs_[1]=tree_a(tab2)·dirs_[2]=tree_b (merge_music_dir 2항 수형)
+    case "$1$2" in *'"'*) FAIL "dir path contains a quote (JSON 안전성)";; esac
+    cp "$ORIG" "$SET" || FAIL "merge(big): ORIG copy failed"
+    awk -v newline="  \"music\": { \"dirs\": [\"$1\", \"$2\"] }" '
+        BEGIN { n = 0 }
+        { lines[n++] = $0 }
+        END {
+            last = -1
+            for (i = n - 1; i >= 0; i--)
+                if (lines[i] ~ /^[ \t]*\}[ \t\r]*$/) { last = i; break }
+            if (last < 1) { print "SET-MERGE-FAIL"; exit 1 }
+            prev = lines[last - 1]
+            sub(/[ \t\r]*$/, "", prev)
+            if (prev !~ /,$/) prev = prev ","
+            lines[last - 1] = prev
+            for (i = 0; i < n; i++) {
+                if (i == last) print newline
+                print lines[i]
+            }
+        }' "$SET" > "$SET.new" || FAIL "merge(big): settings insert failed (구조 친화 실패)"
+    mv "$SET.new" "$SET" || FAIL "merge(big): replace failed"
+    grep -aq '"music"' "$SET" && grep -aqF "$1" "$SET" && grep -aqF "$2" "$SET" \
+        || FAIL "merge(big): gate failed"
+    echo "SETTINGS-IN-LEG-big: $(tr -d '\n' < "$SET") (bytes=$(wc -c < "$SET")) — dirs_[1]=tree_a(tab2)·dirs_[2]=tree_b·dirs_[0]=기본(AudioDirFallback — 리졸버 원문)"
+}
+merge_music_big "$BIGA" "$BIGB"
+boot_server big
+BIGLOG0=$(wc -c < "$TMPD/pmus_srv_big.log")
+L=$(ctl '{"tool":"launch_app","args":{"app":"music"}}')
+ok "$L" || FAIL "leg big: launch_app music failed — $L"
+echo "launch reply: $L"
+wait_music
+parse_geo big
+sleep 2   # 부팅 스캔(dirs_[0]=기본 — 부재) 도착 안정화
+tabx() { tap "$MUS_ID" "$((MUS_X + TAB2_X))" "$((MUS_Y + TAB2_Y))" 1; }
+
+BIG_CYC=0
+BIG_DISC_LINE=""
+BIG_DISC_ELAPSED=""
+echo "--- N3-3. [②] 스캔 진행 중 music_dir_remove — 사이클 2회 (취소 1발+도착 폐기 1행+클라 생존) ---"
+for CY in 1 2; do
+    if [ "$CY" -eq 1 ]; then
+        BIG_TGT="$BIGA"
+    else
+        [ -n "$BIG_DISC_LINE" ] && break          # cycle 1 성립 → 2차 불요
+        BIG_TGT="$BIGB"                            # 1차 MISS → 잔존 트리 재시도
+    fi
+    BIG_CYC=$CY
+    echo "MUSIC-CANCEL-CYCLE-$CY: tab2 탭($BIG_TGT — dirIndex_=1 — idempotent 재선택 RequestScan)"
+    TAP1=$(tabx)
+    ok "$TAP1" || echo "NOTE-CYCLE-$CY: tab tap-1 failed — $TAP1"
+    sleep 1
+    TAB2X=$(tabx)
+    ok "$TAB2X" || echo "NOTE-CYCLE-$CY: tab re-click failed — $TAB2X (첫 클릭 포커스 취식 방어 — 4·5차 런 원장)"
+    echo "tap replies: $TAP1 | $TAB2X (탭 선택 = dirs_[1] 스캔 기동)"
+    if [ "$CY" -eq 1 ]; then
+        # 1차 사이클에서만 스캔 진행 중 캡처(in-flight 1프레임 = 제거 대상 루트의
+        # '스캔 중...' 표기 — EYES). 캡처 2-4s가 제거를 늦춘다 — 폰 스캔이 빠를
+        # 때(2차 재시도가 흡수하는 케이스)는 2차 사이클이 캡처 없는 고속 제거.
+        sleep 0.3
+        CAPTURE "$TMPD/mus_phone_scan_busy.png"
+    fi
+    sleep 0.4
+    L0=$(wc -c < "$TMPD/pmus_srv_big.log")
+    REM1_SEC=$(date +%s.%N)
+    BDREM=$(mtool music_dir_remove "{\"path\":\"$BIG_TGT\"}")
+    echo "MUSIC-SCAN-REMOVE-REPLY-$CY: ${BDREM:-none} (스캔 진행 중 제거 — 취소 1발+재청구 원문 계약)"
+    ok "$BDREM" || echo "MUSICP-FAIL-SOFT(scan-remove-$CY: ok 수취 실패 — $BDREM)"
+    DISC=""
+    DD_AT=""
+    for i in $(seq 1 20); do
+        sleep 0.4
+        L1=$(wc -c < "$TMPD/pmus_srv_big.log")
+        if [ "$L1" -gt "$L0" ]; then
+            DISC=$(tail -c $((L1 - L0)) "$TMPD/pmus_srv_big.log" | grep -a '도착 폐기' | head -1)
+            [ -n "$DISC" ] && { DD_AT=$(date +%s.%N); break; }
+        fi
+    done
+    echo "MUSIC-ARRIVAL-DISCARD-$CY: ${DISC:-MISS} (stderr 폐기 진단 1행 원문 — T2 수형 ·pub1=취소 절단분)"
+    if [ -n "$DISC" ]; then
+        BIG_DISC_LINE=$DISC
+        BIG_DISC_ELAPSED=$(awk -v a="$REM1_SEC" -v b="$DD_AT" 'BEGIN{printf "%.2f", b-a}')
+        echo "MUS-DISCARD-AT: 제거→폐기 도착=${BIG_DISC_ELAPSED}s (취소 성립 판정축 — 취소 없으면 트리 완주 잔량 후)"
+        if awk -v d="$BIG_DISC_ELAPSED" 'BEGIN{exit (d <= 3.0) ? 0 : 1}'; then
+            echo "MUS-CANCEL-EFFECTIVE: OK — 절단이 완주 잔량보다 앞섬(취소 join/절단 라이브 영수증)"
+        else
+            echo "MUSICP-FAIL-SOFT(scan-cancel-slow: 폐기 도착이 완주 스캔급 — 절단 불성실(원장))"
+        fi
+        printf '%s' "$DISC" | grep -aq 'mus_big' \
+            || echo "MUSICP-FAIL-SOFT(discard-root-$CY: 폐기 진단의 루트가 제거 대상 아님 — $DISC)"
+    fi
+    BLIVE=$(mtool music_dir_list '{}')
+    if printf '%s' "$BLIVE" | grep -aq '"ok":true'; then
+        echo "MUSIC-ALIVE-LIST-$CY: OK — 도구 응답 ok (제거 경계 뒤 클라 생존 원문)"
+    else
+        echo "MUSICP-FAIL-SOFT(remove-alive-$CY: 제거 경계 뒤 도구 응답 비정상 — $BLIVE)"
+    fi
+    WALIVE=$(ctl '{"tool":"list_windows","args":{}}')
+    if printf '%s' "$WALIVE" | grep -aq '"title":"Music"'; then
+        echo "MUSIC-ALIVE-WINDOW-$CY: OK — Music 창 생존 원문 1행"
+    else
+        echo "MUSICP-FAIL-SOFT(remove-alive-window-$CY: Music 창 소멸(사망 원장) — $WALIVE)"
+    fi
+    echo "MUSIC-BIG-SETTINGS-$CY: $(tr -d '\n' < "$SET") (settings.json 원문 — 제거 후 파일)"
+done
+echo "MUSIC-BIG-CANCEL-SUMMARY: cycles=$BIG_CYC discard=${BIG_DISC_LINE:+폐기1행}${BIG_DISC_LINE:-MISS} elapsed=${BIG_DISC_ELAPSED:-n/a} (폰 동형 최소 판정 원문 집계)"
+BLL=$(mtool music_dir_list '{}')
+echo "MUSIC-BIG-LIST-2: ${BLL:-none} (제거 인증 원문 1행)"
+if printf '%s' "$BLL" | grep -aq 'mus_big_a'; then
+    echo "MUSIC-BIG-REMAIN: mus_big_a 등록 잔존"
+else
+    echo "MUSIC-BIG-REMAIN: mus_big_a 소각 (제거 원문 성립)"
+fi
+if printf '%s' "$BLL" | grep -aq 'mus_big_b'; then
+    echo "MUSIC-BIG-REMAIN: mus_big_b 등록 잔존"
+else
+    echo "MUSIC-BIG-REMAIN: mus_big_b 소각 (제거 원문 성립)"
+fi
+echo "--- N3-4. [①] 스캔 진행 중 창 close (소멸자 취소 join — T2 결정 ② ·폰 close_window 선례 receipts B2/B3/B5) ---"
+# in-flight 재무장: 잔존 big 트리가 있으면 그것이 곧 dirs_[1](탭 재선택 =
+# idempotent 재스캔) — 없으면(제거 사이클이 둘 다 진행) 트리 1개 재등록
+# (무해 — sdcard 레그의 ORIG 병합이 소각). 탭 → 1.2s → 스캔 중 캡처 →
+# close(탭→close 시차 = 스캔 중반 영수증 — WSL 수형의 폰 재무장 경로).
+DL=$(mtool music_dir_list '{}')
+case "$DL" in *mus_big_a*|*mus_big_b*) : ;;
+  *)
+    RADD=$(mtool music_dir_add "{\"path\":\"$BIGA\"}")
+    echo "MUSIC-BIG-RE-ADD: ${RADD:-none} (잔존 트리 0 — close의 in-flight 재무장 — add의 재스캔=활성 탭[기본] 원장행)"
+    ok "$RADD" || echo "MUSICP-FAIL-SOFT(big-re-add: ok 수취 실패 — $RADD)"
+    ;;
+esac
+sleep 0.5
+BIGTAB=$(tap "$MUS_ID" "$((MUS_X + TAB2_X))" "$((MUS_Y + TAB2_Y))" 1)
+ok "$BIGTAB" || echo "NOTE-CLOSE-TAP: tab2 재선택 실패 — $BIGTAB (재청구 스캔이 이미 진행 중이면 무해 — 원장행)"
+echo "close-pre tab reply: $BIGTAB (dirs_[1] 스캔 기동 — in-flight 재무장)"
+sleep 1.2
+CLOSE1_SEC=$(date +%s.%N)
+BCLS=$(ctl "{\"tool\":\"close_window\",\"args\":{\"id\":$MUS_ID}}")
+echo "MUS-CLOSE-REPLY: ${BCLS:-none} (서버 close_window id 직접호출 — phone_close_receipt B5 수형)"
+ok "$BCLS" || echo "MUSICP-FAIL-SOFT(close-reply: ok 수취 실패 — $BCLS (폰 close_window 미동작 = 원장행 — 브리프 재판정 몫))"
+BIG_GONE=0
+GONE_SEC=""
+for i in $(seq 1 16); do
+    sleep 1
+    W19=$(ctl '{"tool":"list_windows","args":{}}')
+    if ! printf '%s' "$W19" | grep -aq '"title":"Music"'; then
+        BIG_GONE=1
+        GONE_SEC=$(date +%s.%N)
+        break
+    fi
+done
+if [ "$BIG_GONE" -eq 1 ] && [ -n "$GONE_SEC" ]; then
+    echo "MUS-CLOSE-GONE: OK — Music 창 소멸(list_windows — close 원형 소멸 단정 수형) close→소멸=$(awk -v a="$CLOSE1_SEC" -v b="$GONE_SEC" 'BEGIN{printf "%.2f", b-a}')s"
+    echo "MUS-CLOSE-JOIN-LEDGER: 폰 소멸 시차 <=5.0s면 취소 join 성립(폰 정산 — 1s 폴링+ctl 왕복 원장; WSL 3.5s 수형)"
+    if awk -v a="$CLOSE1_SEC" -v b="$GONE_SEC" 'BEGIN{exit (b-a <= 5.0) ? 0 : 1}'; then
+        echo "MUS-CLOSE-EFFECTIVE: OK — 스캔 중 close의 취소 join 원문 (사망 아님 — 정상 소멸)"
+    else
+        echo "MUSICP-FAIL-SOFT(close-gone-slow: 소멸 시차 > 5.0s — 취소 절단이 스캔 완주 잔량 뒤 도달(원장))"
+    fi
+else
+    echo "MUSICP-FAIL-SOFT(close-gone: Music 창 미소멸 — close_window 폰 미동작 = 원장행 후보: $W19)"
+fi
+L19=$(wc -c < "$TMPD/pmus_srv_big.log")
+if [ "$L19" -gt "$BIGLOG0" ]; then
+    CDELTA=$(tail -c $((L19 - BIGLOG0)) "$TMPD/pmus_srv_big.log")
+    BIG_CRASH=$(printf '%s' "$CDELTA" | grep -aicE 'segfault|SIGSEGV|세그폴트|core dumped|terminate called|Aborted')
+    echo "MUSIC-CLOSE-CRASH-MARKERS: $BIG_CRASH (leg big 로그 델타 — 0 = 정상 소멸)"
+    echo "MUS-CLOSE-LOG-DELTA (leg big 서버 로그 꼬리 — 폐기/소멸 원문): $(printf '%s' "$CDELTA" | tail -4 | tr '\r\n' ' ' | tail -c 400)"
+    [ "$BIG_CRASH" -eq 0 ] || echo "MUSICP-FAIL-SOFT(close-crash: 스캔 중 close에서 클라 사망 원문 검출 — 결함 원장)"
+else
+    BIG_CRASH=0
+    echo "MUSIC-CLOSE-CRASH-MARKERS: 0 (leg big 로그 무변 — 정상)"
+fi
+P3=""
+for i in 1 2 3 4 5; do
+    P3=$(ctl '{"tool":"ping","args":{}}')
+    ok "$P3" && break
+    sleep 2
+done
+ok "$P3" || FAIL "ping after scan-window close failed — $P3 (서버 생존 원문)"
+echo "MUS-SERVER-ALIVE: $P3 (close 경계 뒤 서버 생존 원문 1행)"
+RL16=$(ctl '{"tool":"launch_app","args":{"app":"music"}}')
+ok "$RL16" || FAIL "music respawn after window close failed — $RL16"
+echo "MUSIC-RESPAWN-REPLY: $RL16"
+wait_music
+parse_geo big2
+sleep 2
+BLRES=$(mtool music_dir_list '{}')
+if printf '%s' "$BLRES" | grep -aq '"ok":true'; then
+    echo "MUSIC-RESPAWN-LIST: OK — $BLRES (재스폰 후 도구 응답 원문 — 응답 정상 = 도구 경로 정상)"
+else
+    echo "MUSICP-FAIL-SOFT(respawn-list: 재스폰 뒤 도구 응답 비정상 — $BLRES)"
+fi
+echo "--- N3-5. [③] 취소 후 재스캔 정착 (재스폰 클라 tab2 재스캔 → 채택 전이 — 캡처) ---"
+SBC1=$(tap "$MUS_ID" "$((MUS_X + TAB2_X))" "$((MUS_Y + TAB2_Y))" 1)
+ok "$SBC1" || echo "NOTE-SETTLE-TAP: tab2 tap-1 failed — $SBC1"
+sleep 1
+SBC2=$(tap "$MUS_ID" "$((MUS_X + TAB2_X))" "$((MUS_Y + TAB2_Y))" 1)
+ok "$SBC2" || echo "NOTE-SETTLE-TAP: tab2 re-click failed — $SBC2 (첫 클릭 취식 방어)"
+echo "settle tap replies: $SBC1 | $SBC2 (재스폰 클라 dirs_[1] 재스캔 — 폐기 뒤의 정착 전이 원문)"
+sleep 12
+CAPTURE "$TMPD/mus_phone_rescan_settled.png"
+echo "MUSP-CANCEL-SEGMENT-END (③ 정착 캡처 — 표행 수는 캡처 육안 몫·스캔 진행 중이면 '스캔 중...' 표기 원장행)"
+
+# ══════════════════════ leg sdcard — /sdcard FUSE 스캔 유한 종료 실측 (M-5 재판정) ══════════════
 LEG=sdcard
 echo "=== O. leg sdcard — music.dirs=/sdcard 부팅 + FUSE 스캔 유한 종료 실측 (T1 fix r1 리뷰 M-5 재판정) ==="
 # 1-4차 런 원장: 이 레그의 첫 클릭도 포커스 취식으로 사라진다(신규 클라) —
@@ -1065,6 +1430,13 @@ rm -rf "$SEED"
 [ -d "$SEED" ] && FAIL "seed dir 소각 실패 — 수동 소각 필요" || echo "SEED-BURIED: $SEED removed"
 rm -f "$ANCH" 2>/dev/null
 rm -rf "$XDIR" 2>/dev/null   # N2 세그먼트 방어적 봉합(정상 경로면 이미 소각 — REMNANT 게이트 병행)
+echo "=== P2. [T4] big 트리 소각 (N3 취소 세그먼트 — probe 소유 잔상 0) ==="
+BT0=$(date +%s.%N)
+rm -rf "$BIGA" "$BIGB" 2>/dev/null
+if [ -d "$BIGA" ] || [ -d "$BIGB" ]; then
+    FAIL "big tree 소각 실패 ($BIGA $BIGB — 수동 소각 필요)"
+fi
+echo "BIG-TREES-BURIED: $BIGA·$BIGB removed in $(awk -v a="$BT0" -v b="$(date +%s.%N)" 'BEGIN{printf "%.1f", b-a}')s (T4 취소 세그먼트 소각 — REMNANT 게이트 병행)"
 
 LEG=boot
 echo "=== Q. leg boot — settings 원상 복원(바이트 등호) BOOT-OK + 진입 상태 재현 ==="
@@ -1101,15 +1473,16 @@ echo "ENTRY-SERVER-RESTORE: 진입(옵저베이션 서버 UP — ${ENTRY_SRV:-no
 rm -f -- "$0"
 echo "MUSP-FINISHED"
 exit 0
-# honest-fail 원칙: 수치 미달(MUSIC-PHONE-FAIL·DELEGATE MISS·glue-cold 부정)은
-# 원장 목적이라 rc=0 — 드라이버가 RUNLOG 판정행에서 집계한다.
+# honest-fail 원칙: 수치 미달(MUSIC-PHONE-FAIL·DELEGATE MISS·glue-cold 부정
+# ·CANCEL MISS)은 원장 목적이라 rc=0 — 드라이버가 RUNLOG 판정행에서 집계한다.
 # hard FAIL(배포·sweep·빌드·selftest 회귀·시드·settings/perm 원복·부팅·ping·
-# launch·창·캡처·소각)만 FAIL()에서 exit 1.
+# launch·창·캡처·소각·big 트리 시드/소각)만 FAIL()에서 exit 1.
 # EOF — 끝 개행 유지.
 PMUSEOF
-sed -i "s/__PHONE_DISPLAY__/${PHONE_DISPLAY#:}/" "$SCRATCH/$RSRC_TAR_NAME" ||
-    FAIL "remote script display substitution failed"
-grep -aq '__PHONE_DISPLAY__' "$SCRATCH/$RSRC_TAR_NAME" && FAIL "display placeholder unresolved"
+sed -i "s/__PHONE_DISPLAY__/${PHONE_DISPLAY#:}/; s/__BIG_SUBS__/$MUSP_BIG_SUBS/; s/__BIG_FILES__/$MUSP_BIG_FILES/" \
+    "$SCRATCH/$RSRC_TAR_NAME" || FAIL "remote script substitution failed"
+grep -aq '__PHONE_DISPLAY__\|__BIG_SUBS__\|__BIG_FILES__' "$SCRATCH/$RSRC_TAR_NAME" \
+    && FAIL "placeholder unresolved (display/big scale)"
 
 # ------------------------------------------------------------------ 4. 배포
 echo "=== 3. 배포 (sweep 산치 따라 tar blob 스테이징 / 전량 git archive — D1 원장) ==="
@@ -1208,6 +1581,11 @@ REM_ANCH=$($SSH '[ -f "$TMPDIR/pmus_dirs_anchor.json" ] && echo present || echo 
 echo "REMNANT-DIRS-XDIR: $REM_XDIR · REMNANT-DIRS-ANCHOR: $REM_ANCH (T4 dirs 세그먼트 잔산 게이트)"
 { [ "$REM_XDIR" = "gone" ] && [ "$REM_ANCH" = "gone" ]; } \
     || FAIL "REMNANT survived: dirs segment residue left on phone (xdir=$REM_XDIR anchor=$REM_ANCH)"
+REM_BIGA=$($SSH '[ -d "$TMPDIR/mus_big_a" ] && echo present || echo gone' | tr -d ' \r')
+REM_BIGB=$($SSH '[ -d "$TMPDIR/mus_big_b" ] && echo present || echo gone' | tr -d ' \r')
+echo "REMNANT-BIG-TREES: a=$REM_BIGA b=$REM_BIGB (T4 취소 세그먼트 잔산 게이트)"
+{ [ "$REM_BIGA" = "gone" ] && [ "$REM_BIGB" = "gone" ]; } \
+    || FAIL "REMNANT survived: big trees left on phone (a=$REM_BIGA b=$REM_BIGB)"
 $SSH "rm -f \$HOME/.pmus_tree.txt \$HOME/.pmus_files.txt \$HOME/.pmus_sizes.txt \$HOME/.pmus_sizes2.txt" 2>/dev/null
 echo "SWEEP-FILES-BURIED-REMOTE: 4 (전수 sweep 임시 목록 소각)"
 
@@ -1247,8 +1625,10 @@ recover "\$TMPDIR/mus_phone_after.png" "$SCRATCH/mus_phone_after.png"
 recover "\$TMPDIR/mus_phone_sdcard.png" "$SCRATCH/mus_phone_sdcard.png"
 recover "\$TMPDIR/mus_phone_dirs.png" "$SCRATCH/mus_phone_dirs.png"
 recover "\$TMPDIR/mus_phone_dirs2.png" "$SCRATCH/mus_phone_dirs2.png"
-$SSH "rm -f \$TMPDIR/mus_phone_list.png \$TMPDIR/mus_phone_list2.png \$TMPDIR/mus_phone_spatial.png \$TMPDIR/mus_phone_vp_delegate.png \$TMPDIR/mus_phone_delegate_status.png \$TMPDIR/mus_phone_after.png \$TMPDIR/mus_phone_sdcard.png \$TMPDIR/mus_phone_dirs.png \$TMPDIR/mus_phone_dirs2.png \$TMPDIR/pmus_orig_settings.json \$TMPDIR/pmus_orig_permissions.json"
-echo "CAPTURES-WRITTEN: mus_phone_{list,list2,spatial,vp_delegate,delegate_status,after,sdcard,dirs,dirs2}.png → engine/tmp/"
+recover "\$TMPDIR/mus_phone_scan_busy.png" "$SCRATCH/mus_phone_scan_busy.png"
+recover "\$TMPDIR/mus_phone_rescan_settled.png" "$SCRATCH/mus_phone_rescan_settled.png"
+$SSH "rm -f \$TMPDIR/mus_phone_list.png \$TMPDIR/mus_phone_list2.png \$TMPDIR/mus_phone_spatial.png \$TMPDIR/mus_phone_vp_delegate.png \$TMPDIR/mus_phone_delegate_status.png \$TMPDIR/mus_phone_after.png \$TMPDIR/mus_phone_sdcard.png \$TMPDIR/mus_phone_dirs.png \$TMPDIR/mus_phone_dirs2.png \$TMPDIR/mus_phone_scan_busy.png \$TMPDIR/mus_phone_rescan_settled.png \$TMPDIR/pmus_orig_settings.json \$TMPDIR/pmus_orig_permissions.json"
+echo "CAPTURES-WRITTEN: mus_phone_{list,list2,spatial,vp_delegate,delegate_status,after,sdcard,dirs,dirs2,scan_busy,rescan_settled}.png → engine/tmp/"
 
 # ------------------------------------------------------------------ 8. 로컬 실측
 PYRUNLOG=$(cygpath -w "$RUNLOG" 2>/dev/null || echo "$RUNLOG")
@@ -1303,7 +1683,11 @@ TAGS = (("mus_phone_list.png", "list"), ("mus_phone_list2.png", "list2"),
         ("mus_phone_vp_delegate.png", "vp_delegate"),
         ("mus_phone_delegate_status.png", "delegate_status"), ("mus_phone_after.png", "after"),
         ("mus_phone_sdcard.png", "sdcard"), ("mus_phone_dirs.png", "dirs"),
-        ("mus_phone_dirs2.png", "dirs2"))
+        ("mus_phone_dirs2.png", "dirs2"), ("mus_phone_scan_busy.png", "scan_busy"),
+        ("mus_phone_rescan_settled.png", "rescan_settled"))
+# T4 취소 세그먼트의 geo 라벨 매핑 — leg big의 MUS-GEO-big(big2 = 재스폰 클라)
+GEO_LABELS = {"list": "list", "sdcard": "sdcard", "scan_busy": "big",
+              "rescan_settled": "big2"}
 for fname, tag in TAGS:
     p = os.path.join(SCRATCH, fname)
     if not os.path.isfile(p):
@@ -1317,7 +1701,8 @@ for fname, tag in TAGS:
     colors = len(np.unique(arr.reshape(-1, 3) // 32, axis=0))
     print("ANALYSIS-%s: %dx%d %d bytes distinct16=%d" % (
         tag, im.width, im.height, os.path.getsize(p), colors))
-    geo = parse_geo(txt, tag if tag in ("list", "sdcard") else "list")
+    glbl = GEO_LABELS.get(tag, "list")
+    geo = parse_geo(txt, glbl) if glbl else None
     if geo:
         gx, gy, gw, gh = geo[1], geo[2], geo[3], geo[4]
         m = 32
@@ -1345,6 +1730,28 @@ if lg:
 li = re.search(r"MUSP-SPATIAL-POS: .*", txt)
 if li:
     print("INACTIVE-LINE: %s" % li.group(0))
+# T4 스캔 취소 세그먼트 원문 수취
+cl = re.search(r"MUSIC-BIG-CANCEL-SUMMARY: (.*)", txt)
+if cl:
+    print("CANCEL-SUMMARY: %s" % cl.group(1))
+cl2 = re.search(r"MUSIC-ARRIVAL-DISCARD-\d: (.*)", txt)
+if cl2:
+    print("CANCEL-DISCARD: %s" % cl2.group(1))
+cg = re.search(r"MUS-DISCARD-AT: (.*)", txt)
+if cg:
+    print("CANCEL-AT-LINE: %s" % cg.group(1))
+ce = re.search(r"MUS-CANCEL-EFFECTIVE: (.*)", txt)
+if ce:
+    print("CANCEL-EFFECTIVE: %s" % ce.group(1))
+clg = re.search(r"MUS-CLOSE-GONE: (.*)", txt)
+if clg:
+    print("CLOSE-GONE-LINE: %s" % clg.group(1))
+cv = re.search(r"MUSIC-CLOSE-CRASH-MARKERS: (\d+)", txt)
+if cv:
+    print("CRASH-MARKERS: %s" % cv.group(1))
+cv2 = re.search(r"MUSIC-CANCEL-VERDICT: (.*)", txt)
+if cv2:
+    print("CANCEL-VERDICT: %s" % cv2.group(1))
 ANALYSIS_EOF
 if [ $? -ne 0 ]; then
   echo "NOTE-ANALYSIS: local analysis failed (rc) — 캡처 원문은 회수 원문으로 육안 가능"
@@ -1353,7 +1760,7 @@ fi
 # ------------------------------------------------------------------ 9. 판정
 echo "=== 7. music 폰 실측 판정 (측정 원문은 상단 analysis 행 — 최종 결제는 육안 스탭) ==="
 CAP_OK=1
-for f in list list2 spatial vp_delegate delegate_status after sdcard dirs dirs2; do
+for f in list list2 spatial vp_delegate delegate_status after sdcard dirs dirs2 scan_busy rescan_settled; do
     P="$SCRATCH/mus_phone_$f.png"
     if [ ! -s "$P" ]; then
         echo "MUSIC-PHONE-FAIL(capture missing/empty: $P)"
@@ -1363,7 +1770,9 @@ done
 CANON=$(grep -a '^CANON-INCLUSION=' "$RUNLOG" | tail -1 | sed 's/^CANON-INCLUSION=//' | tr -d '\r')
 CANON_OK=0
 case "$CANON" in
-  MUSIC-FULL-2O-*) CANON_OK=1 ;;
+  MUSIC-FULL-2P2Q-*) CANON_OK=1 ;;
+  MUSIC-FULL-2O-*) CANON_OK=1
+      echo "NOTE-CANON: 구 2O 라벨 — T4 신원장행(CANON 상수 2p/2q 미갱신 원장 — 재정산 몫)" ;;
   *) echo "NOTE-CANON: 캐논 계보 ${CANON:-n/a} — 위 경고 행 참조" ;;
 esac
 # dirs 도구 원문(T4 — N2 세그먼트) — DIRS 판정 행(N-1 승계: p1=crash-fixed 표기).
@@ -1421,14 +1830,38 @@ printf '%s' "${SPATL:-}" | grep -aq '"error":"start_failed"' \
   && printf '%s' "${INACT:-}" | grep -aq 'MISS(미활성' \
   && LEG_OK=1
 LEG_LINE=$(grep -a '^MUSP-LEG-BARRED: ' "$RUNLOG" | tail -1 | sed 's/^MUSP-LEG-BARRED: //' | tr -d '\r')
-if [ "$CAP_OK" -eq 1 ] && [ "$CANON_OK" -eq 1 ] && [ "$GLUE_OK" -eq 1 ] && [ "$PLAY_OK" -eq 1 ] \
-   && [ "$POS_OK" -eq 1 ] && [ "$SCAN_OK" -eq 1 ] && [ "$LEG_OK" -eq 1 ] && [ "$DIRS_OK" -eq 1 ]; then
-    echo "MUSIC-PHONE-VERDICT: MUS-PHONE-OK(폰 selftest 계보 →$CANON·list 탭 리스캔+캡처 9종 receipt·dirs 도구 원문=OK(p1=crash-fixed 표기 — N-1)·glue=accepted·get_status opened=true pos $POS1→$POS2·폰 leg 배제 원문 성립(spatial_play=start_failed kDelegationHint·spatial 미활성 MISS 행=$INACT)·sdcard 스캔=$SCAN_LINE — 위임은 원장행: $DELEG_LINE / 귀속: $DOPEN_LINE — 육안 스탭 대기)"
+# T4 스캔 취소 경계(CANCEL 판정 행 — N3 세그먼트): ②폐기 1행+절단 시차·클라 생존
+# + ①close 소멸+crash 0 + ③재스폰 도구 원문 — 성립이면 CANCEL-OK.
+CANC_L=$(grep -a '^MUSIC-ARRIVAL-DISCARD-[0-9]: ' "$RUNLOG" | tail -1 | sed 's/^MUSIC-ARRIVAL-DISCARD-[0-9]: //' | tr -d '\r')
+EFF_L=$(grep -a '^MUS-CANCEL-EFFECTIVE: ' "$RUNLOG" | tail -1 | sed 's/^MUS-CANCEL-EFFECTIVE: //' | tr -d '\r')
+ALIVE_L=$(grep -a '^MUSIC-ALIVE-WINDOW-' "$RUNLOG" | tail -1 | sed 's/^[^:]*: //' | tr -d '\r')
+GONE_L=$(grep -a '^MUS-CLOSE-GONE: ' "$RUNLOG" | tail -1 | sed 's/^MUS-CLOSE-GONE: //' | tr -d '\r')
+CRASH_N=$(grep -a '^MUSIC-CLOSE-CRASH-MARKERS: ' "$RUNLOG" | tail -1 | sed 's/^MUSIC-CLOSE-CRASH-MARKERS: //' | awk '{print $1}' | tr -d ' \r')
+RESP_L=$(grep -a '^MUSIC-RESPAWN-LIST: ' "$RUNLOG" | tail -1 | sed 's/^MUSIC-RESPAWN-LIST: //' | tr -d '\r')
+CANCEL_OK=0
+if [ -n "$CANC_L" ] && [ "$CANC_L" != "MISS" ] \
+   && printf '%s' "$CANC_L" | grep -aq 'mus_big' \
+   && printf '%s' "$EFF_L" | grep -aq '^OK' \
+   && printf '%s' "$ALIVE_L" | grep -aq '^OK' \
+   && printf '%s' "$GONE_L" | grep -aq '^OK' \
+   && [ "${CRASH_N:-1}" -eq 0 ] \
+   && printf '%s' "$RESP_L" | grep -aq '^OK'; then
+    CANCEL_OK=1
+fi
+if [ "$CANCEL_OK" -eq 1 ]; then
+    echo "MUSIC-CANCEL-VERDICT: CANCEL-OK(②폐기 1행=$CANC_L · $EFF_L · $ALIVE_L · $GONE_L · crash=$CRASH_N · 재스폰 도구 원문=OK — ③정착 캡처=rescan_settled(EYES))"
 else
-    echo "MUSIC-PHONE-VERDICT: MUSIC-PHONE-FAIL(행별 사유는 위 각 행 — canon=$CANON_OK captures=$CAP_OK dirs=$DIRS_OK glue=$GLUE_OK play=$PLAY_OK pos=$POS_OK leg=$LEG_OK/${LEG_LINE:-n/a} scan=$SCAN_LINE; 인프라 실패는 hard FAIL로 상단 중단, 수치·육안 미달은 rc=0 honest-fail)"
+    echo "MUSIC-CANCEL-VERDICT: CANCEL-FAIL(discard=${CANC_L:-none} · effective=${EFF_L:-none} · alive=${ALIVE_L:-none} · close=${GONE_L:-none} · crash=${CRASH_N:-n/a} · respawn=${RESP_L:-none} — 폰 스캔 속도 미실측 원장행 — MUSP-BIG SCALE 재정산 재런 몫)"
+fi
+if [ "$CAP_OK" -eq 1 ] && [ "$CANON_OK" -eq 1 ] && [ "$GLUE_OK" -eq 1 ] && [ "$PLAY_OK" -eq 1 ] \
+   && [ "$POS_OK" -eq 1 ] && [ "$SCAN_OK" -eq 1 ] && [ "$LEG_OK" -eq 1 ] && [ "$DIRS_OK" -eq 1 ] \
+   && [ "$CANCEL_OK" -eq 1 ]; then
+    echo "MUSIC-PHONE-VERDICT: MUS-PHONE-OK(폰 selftest 계보 →$CANON·list 탭 리스캔+캡처 11종 receipt·dirs 도구 원문=OK(p1=crash-fixed 표기 — N-1)·glue=accepted·get_status opened=true pos $POS1→$POS2·폰 leg 배제 원문 성립(spatial_play=start_failed kDelegationHint·spatial 미활성 MISS 행=$INACT)·스캔 취소 경계=CANCEL-OK(폐기 1행=${CANC_L} · close 소멸=${GONE_L})·sdcard 스캔=$SCAN_LINE — 위임은 원장행: $DELEG_LINE / 귀속: $DOPEN_LINE — 육안 스탭 대기)"
+else
+    echo "MUSIC-PHONE-VERDICT: MUSIC-PHONE-FAIL(행별 사유는 위 각 행 — canon=$CANON_OK captures=$CAP_OK dirs=$DIRS_OK glue=$GLUE_OK play=$PLAY_OK pos=$POS_OK leg=$LEG_OK/${LEG_LINE:-n/a} cancel=$CANCEL_OK scan=$SCAN_LINE; 인프라 실패는 hard FAIL로 상단 중단, 수치·육안 미달은 rc=0 honest-fail)"
 fi
 echo "MUSIC-WCAPTURES:"
-for f in list list2 spatial vp_delegate delegate_status after sdcard dirs dirs2; do
+for f in list list2 spatial vp_delegate delegate_status after sdcard dirs dirs2 scan_busy rescan_settled; do
     P="$SCRATCH/mus_phone_$f.png"
     [ -s "$P" ] && echo "  $P ($(wc -c < "$P" | tr -d ' ') bytes)"
 done
@@ -1453,10 +1886,13 @@ echo "     패널 개방 프레임 = 원장행: 토글 좌표 정산(185/77·270
 echo "     실측)+hover tooltip 원문에도 클릭이 패널을 열지 않았다(3런+라이브 2회"
 echo "     실측 — 같은 클라에서 필터 InputText 포커스·표행 더블클릭 위임은 성립"
 echo "     — 폰 스트립 행 Button 클릭 경로 전용 관측 — P3 원장 후보, EYES 몫)."
-echo "  → EYES-PENDING: 위 항목에 대한 폰 실기기 육안 선언만 결제 — probe는 기록하지 않는다."
+echo "  ⑦ 폰 스캔 취소 경계(mus_phone_scan_busy.png+rescan_settled.png): 탭2"
+echo "     선택의 '스캔 중...' 표기 원문(제거 재청구 스캔의 창 — in-flight"
+echo "     1프레임 응답)+재스폰 클라 dirs_[1] 재스캔 정착(폐기 뒤 채택 전이 —"
+echo "     계보 원문의 폰 재실측 — EYES 몫)."
 echo "MUSIC-PHONE-END"
 # honest-fail 원칙: 수치 미달(MUSIC-PHONE-FAIL 라인)은 원장 목적이라 rc=0.
 # hard FAIL(ssh·sweep·배포·ninja·selftest 회귀·시드·settings/perm 원복·부팅·ping·
-# launch·창·캡처·소각·REMNANT)만 FAIL()에서 exit 1.
+# launch·창·캡처·소각·REMNANT·big 트리 시드/카운트/소각)만 FAIL()에서 exit 1.
 # EOF — 끝 개행 유지.
 exit 0
