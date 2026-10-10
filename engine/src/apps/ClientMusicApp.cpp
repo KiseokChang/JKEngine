@@ -28,9 +28,11 @@
 #include "theme/JKThemeImGui.h"
 #include <SDL.h>
 
+#include <algorithm>  // std::find — 도착 멤버십 필터(#93 T2)의 dirs_ 열외 순회
 #include <chrono>
-#include <cstdio>
+#include <cstdio>    // stderr 진단 1행(도착 폐기 — 정직 계약)
 #include <ctime>
+#include <fstream>   // SettingsText 통독 수형(fs::path 개방 — #94 잠복 수리)
 // 폴더 스캔은 jk::music::ListAudioFiles(원문 규약 — ec 중립형, 재귀 가드
 // fix r1)이 소유한다. 여기선 fs::path 합성만 쓴다.
 #include <filesystem>
@@ -179,7 +181,13 @@ ClientMusicApp::~ClientMusicApp() {
     // 스캔 워커 join 수형(갤러리 썸네일 원문 계약 — 파괴 join). quit 경련+
     // cv 기상으로 wait를 깨고, 진행 중 스캔이 끝나기를 기다린다(ListAudioFiles
     //는 유한 — 2m-e 순환 가드 계약). 잔여 결과 박스는 소멸자 원의 소각.
-    scanQuit_.store(true);
+    // #93 T2(결정 ② — 파괴 join 무한 대기 소각): join **전에 취소 요청 1발** —
+    // 진행 중 스캔이 T1 경계 콜백(스캔CancelFn)에서 절단되고 부분 수집은 취소판
+    // 폐기 계약으로 버려져 join이 대략 ms급으로 돌아온다. 워커의 취소 리셋(요청
+    // 수취 시점 — ScanWorker)과의 경기는 콜백의 scanQuit_ 동시 체크가 봉합한다:
+    // 리셋이 이 지연 순간 이겨도 quit가 이미 참이라 다음 경계 1회 내 절단한다.
+    scanQuit_.store(true, std::memory_order_release);
+    scanCancel_.store(true, std::memory_order_release);
     scanCv_.notify_all();
     if (scan_.joinable()) scan_.join();
 }
@@ -327,7 +335,21 @@ void ClientMusicApp::OnIdle() {
     bool adopted = false;
     {
         std::lock_guard<std::mutex> lk(scanM_);
-        if (scanOutGen_ == scanSeq_) {
+        // 도착 멤버십 필터(#93 T2 — 결정 ④, 세대 게이트 앞 단): 도착 스냅샷
+        // 루트가 현재 dirs_에 없으면 **제거된 폴더의 지연 도착** — 폐기+stderr
+        // 진단 1행(정직 계약 — UI는 무변화·더티 없음). 세대 게이트(아래)는
+        // 재청구 최신식의 가드지만 [제거]의 재청구가 세대를 이미 소진한 뒤
+        // 도착하는 지연 결과는 세대 불일치로 무음 지나가는 길이 있어, 제거
+        // 경계의 정직 진단은 이 루트 멤버십이 세대에 앞서 소유한다(도착하는
+        // 모든 결과에 대해 검사 — 폐기 대상은 결과 박스 소각만, 채택 금지).
+        if (std::find(dirs_.begin(), dirs_.end(), scanOutRoot_) ==
+            dirs_.end()) {
+            std::fprintf(stderr,
+                         "[music] 도착 폐기 — 제거된 폴더의 스캔 결과(root=%s)\n",
+                         scanOutRoot_.c_str());
+            std::fflush(stderr);  // probe 파이프 원문 수급(버퍼 잔류 금지)
+            scanOut_.clear();
+        } else if (scanOutGen_ == scanSeq_) {
             tracks_ = std::move(scanOut_);
             scanOut_.clear();
             scanBusy_ = false;
@@ -358,17 +380,23 @@ std::string ClientMusicApp::SettingsText() const {
     // exe-dir state/settings.json 직독(ResolveDirs·RefreshUserDirs 공용 leg —
     // 원문 텍스트를 순수 스캐너/리졸버에 건넨다 — gallery ResolveDirs 수형).
     // 부재/읽기 실패 = 빈 텍스트 → 스캐너/리졸버가 기본 1건(fail-safe)으로
-    // 떨어진다.
-    const std::string kvPath =
-        (std::filesystem::path(ExeDir()) / "state" / "settings.json").string();
+    // 떨어진다. #94 리뷰 확정 잠복 결함 수리(#93 T2 동승 흡수): 원존의
+    // .string()+narrow fopen은 UTF-8 바이트를 Windows ACP로 재해석해 한글 exe
+    // 설치 디렉터에서 판독이 열리지 않았다 — fs::path를 그대로 ifstream에
+    // 건네는 통독 수형(#94 규약 "파일 터치점 = 네이티브": libstdc++ narrow→
+    // fs::path는 UTF-8 strict — 2o-f/T2 원장 실측 — 이라 와이드 개방이 네이티브
+    // 경로를 소유한다). 계약 무변조: 부재/개방 실패 = 빈 텍스트(fail-safe 동일).
+    const std::filesystem::path kvPath =
+        std::filesystem::path(ExeDir()) / "state" / "settings.json";
     std::string text;
-    std::FILE* f = std::fopen(kvPath.c_str(), "rb");
+    std::ifstream f(kvPath, std::ios::binary);
     if (f) {
         char chunk[2048];
-        size_t n;
-        while ((n = std::fread(chunk, 1, sizeof(chunk), f)) > 0)
-            text.append(chunk, n);
-        std::fclose(f);
+        // read 실패 시 gcount는 부분 수취 바이트(EOF 직전 청크) — 0이면 종료.
+        while (f.read(chunk, sizeof(chunk)) || f.gcount() > 0) {
+            text.append(chunk, static_cast<size_t>(f.gcount()));
+            if (!f) break;  // eof/failbit — 남은 read는 무수취(반복 무의미)
+        }
     }
     return text;
 }
@@ -457,6 +485,12 @@ void ClientMusicApp::ScanWorker() {
             scanRequestOpen_ = false;
             gen = scanSeq_;
         }
+        // 취소 요청 리셋 — 요청 수취 시점(#93 T2): [제거] 성공/파괴가 세운
+        // scanCancel_은 이전 세대 진행분만 절단해야 한다. UI 스레드가 취소 1발+
+        // 재청구를 한 흐름으로 세운다(같은 스레드 — 순서 보장)이고 워커의 리셋은
+        // 수취 뒤라 경합 없다. 파괴 경기(리셋 뒤에 quit가 세워지는 순간)는 콜백이
+        // scanQuit_도 함께 읽어 봉합 — 다음 경계 1회 내 절단(소멸자 주석 원문).
+        scanCancel_.store(false, std::memory_order_release);
         // 스캔 leg — throw 보호선(std::terminate 방어): narrow fs::path는
         // UTF-8 기수(CP949 바이트에 던진다 — 2o-f 실측)라 원칙적으로 진입은
         // RequestScan 가드가 막지만, 그 밖의 filesystem_error류(파일명 변질
@@ -464,13 +498,24 @@ void ClientMusicApp::ScanWorker() {
         // 않게 0건 표현(스캔 계약 "독립 실패 = 빈 목록")으로 흡수한다.
         std::vector<music::Track> out;
         try {
-            out = music::ListAudioFiles(root);
+            // 취소판 소비(#93 T2 — T1 ListAudioFiles(root, cancel) 계약):
+            // 콜백 = scanCancel_ ∥ scanQuit_(참=절단) — 경계(디렉터 진입+엔트리
+            // 256 보조)마다 읽히고 절단 시 부분 수집 폐기 → 빈 목록(도착 후의
+            // 세대·멤버십 폐기가 후속). **외부 삭제(스캔 중 디렉터 소멸)는 ec
+            // 중립형 원존 그대로**(ListAudioFiles가 이미 소유 — dir 열기 실패
+            // 독립 실패·열거 중 소멸 성분 스킵 — 2p-③·2m 원존, #93 결정 ⑤
+            // 접촉 없음).
+            out = music::ListAudioFiles(root, [this] {
+                return scanCancel_.load(std::memory_order_acquire) ||
+                       scanQuit_.load(std::memory_order_acquire);
+            });
         } catch (...) {
             out.clear();
         }
         {
             std::lock_guard<std::mutex> lk(scanM_);
             scanOut_ = std::move(out);
+            scanOutRoot_ = root;  // 도착 필터 동봉(#93 T2 — 루트 스냅샷)
             scanOutGen_ = gen;
         }
         scanDone_.store(true, std::memory_order_release);
@@ -539,6 +584,12 @@ ClientMusicApp::DirRemoveManaged(const std::string& path) {
     r = music::store::RemoveDir(ExeDir(), p);
     if (r.ok) {
         status_ = "폴더 제거됨 — 목록 갱신";
+        // 취소 1발(#93 T2 — 결정 ③): 진행 중 스캔을 경계서 절단한다. 워커가
+        // 요청 수취 때 리셋하므로 바로 뒤의 재청구(기존 RequestScan 계약그대로)
+        // 는 취소를 먹지 않는다. 제거된 루트의 지연 도착은 멤버십 필터(OnIdle)
+        // 가 폐기한다 — 여기는 절단 요청 1발이 전부(파괴 join 전 1발과 같은
+        // 수형 — 소멸자 주석 원문).
+        scanCancel_.store(true, std::memory_order_release);
         RefreshUserDirs();
         ResolveDirs();          // dirIndex_ 클램프 포함(삭제 탭이 활성이면 0)
         RequestScan();

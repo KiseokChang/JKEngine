@@ -46,6 +46,19 @@
 // 계약, docs/88): timer ticks and unchanged frames must not dirty, and the
 // filter typing dirties for free (it is an input event — the gate renders).
 //
+// Scan-cancel wiring (#93 T2 — plan 2026-10-10-music-scan-cancel): the worker
+// feeds the T1 cancel overload ListAudioFiles(root, cancel) — callback =
+// scanCancel_ || scanQuit_(참=절단; T1 ScanCancelFn 계약), read at the scan
+// boundaries(디렉터 진입+엔트리 256 보조). A successful [제거]
+// (DirRemoveManaged) and the destructor (before its join) each fire
+// scanCancel_ once — an in-flight scan is cut at the next boundary so the
+// join stays ms급; the worker resets the flag at request pickup. Arrival
+// results carry a root snapshot (scanOutRoot_); a snapshot root that has
+// left the resolved dirs set is dropped with a one-line stderr diagnosis
+// (도착 멤버십 필터 — the honest lane beside the generation gate, which
+// discards silently. 스캔 중 외부 삭제는 ec 중립형 원존 — ListAudioFiles가
+// 이미 소유, #93 결정 ⑤ 접촉 없음).
+//
 // The displayed table data is the ListAudioFiles vector verbatim (재정렬·
 // 파생 없음 — 정렬은 mtime desc/rel asc tie, rel 열은 그대로) — selftest
 // 2m-f asserts this display isomorphism against the same header functions.
@@ -228,9 +241,17 @@ private:
     unsigned long long scanSeq_ = 0;   // 요청 세대(우편함 유일 진실원)
     std::string scanRoot_;             // 미수취 요청 루트
     std::vector<music::Track> scanOut_;          // 결과 박스(scanM_)
+    std::string scanOutRoot_;                    // 도착 필터 동봉 루트(#93 T2 —
+                                                 //   결과 발행 시의 루트 스냅샷,
+                                                 //   OnIdle 멤버십 필터 소비)
     unsigned long long scanOutGen_ = 0;          // 결과 세대
     std::atomic<bool> scanDone_{false};          // 도착 표식(OnIdle 수취 트리거)
     std::atomic<bool> scanQuit_{false};          // 파괴 경련 — wait 폐기+루프 탈출
+    std::atomic<bool> scanCancel_{false};        // 취소 요청(#93 T2): [제거] 성공
+                                                 //   1발+파괴 join 전 1발 — 진행
+                                                 //   중 스캔이 경계서 절단(워커가
+                                                 //   요청 수취 때 리셋 — 콜백은
+                                                 //   이것과 scanQuit_의 OR)
     bool scanBusy_ = false;            // 요청이 워커에 있고 결과 미도착(표시 몫)
 
     // ---- 재생 위임 상태 (T3 — 라이브러리 답신 폴링 원문 쌍둥이) ----

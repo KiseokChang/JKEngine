@@ -5904,6 +5904,100 @@ static int RunAppSelfTest() {
             fs::remove_all(odir);  // 사후 소각(무잔산 — 2m-c 원문 수형)
         }
 
+        // 2p) 스캔 취소 (#93 T1 — 플랜 2026-10-10-music-scan-cancel):
+        // ListAudioFiles 취소판 — ScanCancelFn(참=취소)을 재귀 경계(진입 =
+        // 자식 재귀 직전 동일 경계 — callee 진입 판정이 그 경계를 소유)마다
+        // 청구하고, 엔트리 256개마다 보조 체크(단일 디렉터리 폭주 leg도 취소에
+        // 응답). 취소 = 부분 수집 폐기(빈 반환). 무인자 오버로드는 항상-false
+        // 위임(원존 시맨틱 무변조). 2m/2n/2o 원존 무변조 — 추가만.
+        {
+            const fs::path pdir = fs::temp_directory_path() / "jk_music_cancel";
+            fs::remove_all(pdir);  // 선제거 — 이전 런 잔산(2m-c 원문 수형)
+            fs::create_directories(pdir / "sub");
+            std::ofstream(pdir / "a.mp3").put('x');
+            std::ofstream(pdir / "sub" / "b.mp3").put('x');
+            for (int i = 0; i < 300; ++i) {  // 256 보조 체크 도달 트리(302 엔트리)
+                std::ofstream(pdir / ("n" + std::to_string(i) + ".flac"))
+                    .put('x');
+            }
+            check(fs::exists(pdir / "a.mp3") &&
+                      fs::exists(pdir / "sub" / "b.mp3") &&
+                      fs::exists(pdir / "n299.flac"),
+                  "2p-a 트리 구성 = 루트 1건+sub 1건+flac 300건 성립(사후 소각 전제)");
+
+            // ①) 사전 취소 — 콜백이 처음부터 참: 진입 경계 1회만 청구되고
+            // 트리 열거에 접촉하지 않는다(빈 반환 — 원문 단정).
+            int calls1 = 0;
+            const std::vector<jk::music::Track> c1 = jk::music::ListAudioFiles(
+                pdir.string(), [&calls1] { ++calls1; return true; });
+            check(c1.empty() && calls1 == 1,
+                  "2p-① 사전 취소 = 즉시 빈 반환(진입 경계 콜백 1회 원문 — "
+                  "트리 열거 미접촉)");
+
+            // ②) 카운터 콜백 — 경계 3회째(루트 진입+루트 256 보조+sub 진입)
+            // 에 참: 그 전에 이미 수 집된 부분 결과를 폐기해 빈 목록을 반환
+            // 하고, 콜백 청구는 첫 참에서 전체 해소 — 상한 = 경계 3곳.
+            int calls2 = 0;
+            const std::vector<jk::music::Track> c2 = jk::music::ListAudioFiles(
+                pdir.string(), [&calls2] { return ++calls2 >= 3; });
+            check(c2.empty(),
+                  "2p-② 경계 3회째 취소 = 빈 반환(부분 수집 폐기 — 중간 "
+                  "스캔 결과 유출 0)");
+            check(calls2 >= 2 && calls2 <= 3,
+                  "2p-② 호출 상한 = 경계 3곳(루트 진입+256 보조+sub 진입) "
+                  "이내(300 엔트리 트리 — 무경계 폭주 0·래치 해소 후 재청구 0)");
+
+            // ③) 루트 선삭제 — 스캔 개시 전에 루트가 사라진 트리: dir 열기
+            // 실패 = 독립 실패 원문(ec 중립형) 그대로 빈 반환·crash 0.
+            const fs::path qdir =
+                fs::temp_directory_path() / "jk_music_cancel_gone";
+            fs::create_directories(qdir / "d");
+            std::ofstream(qdir / "d" / "x.mp3").put('x');
+            fs::remove_all(qdir);  // 선삭제 — 스캔 시작 전 소멸(레이스 수형)
+            int calls3 = 0;
+            const std::vector<jk::music::Track> c3 = jk::music::ListAudioFiles(
+                qdir.string(), [&calls3] { ++calls3; return false; });
+            check(c3.empty() && calls3 == 1,
+                  "2p-③ 루트 선삭제 = 빈 반환(ec 중립 — crash 0, 콜백은 진입 "
+                  "1회 후 dir 열기 실패 복귀)");
+
+            // ④) 무인자 오버로드 계보 불변 — 항상-false 위임 수형: 본 트리
+            // 원문 수치(재귀 2건 수취+txt 열외+mtime desc — 2m-c 수형 재용).
+            const fs::path tdir = fs::temp_directory_path() / "jk_music_plain";
+            fs::remove_all(tdir);
+            {
+                fs::create_directories(tdir / "sub");
+                std::ofstream(tdir / "a.mp3").put('x');
+                std::ofstream(tdir / "c.txt").put('x');
+                std::ofstream(tdir / "sub" / "w.wav").put('x');
+                fs::last_write_time(
+                    tdir / "a.mp3",
+                    fs::file_time_type::clock::now() + std::chrono::hours(1));
+                fs::last_write_time(
+                    tdir / "sub" / "w.wav",
+                    fs::file_time_type::clock::now() - std::chrono::hours(1));
+                const std::vector<jk::music::Track> c4 =
+                    jk::music::ListAudioFiles(tdir.string());
+                check(c4.size() == 2 && c4[0].name == "a.mp3" &&
+                          c4[1].name == "w.wav" &&
+                          std::find_if(c4.begin(), c4.end(),
+                                       [](const jk::music::Track& t) {
+                                           return t.name == "c.txt";
+                                       }) == c4.end(),
+                      "2p-④ 무인자 오버로드 = 기존 수치 불변(2m-c 원문 수치 — "
+                      "항상-false 위임, 원존 시맨틱 0 변조)");
+                fs::remove_all(tdir);
+            }
+
+            // REMNANT 0 — 사후 소각(무잔산 — 2m-e 정리 수형 재용).
+            std::error_code pec;
+            fs::remove_all(pdir, pec);
+            check(!pec && !fs::exists(pdir, pec) &&
+                      !fs::exists(qdir, pec) && !fs::exists(tdir, pec),
+                  "2p-⑤ 사후 소각 = 잔산 0(REMNANT 0 — cancel·선삭제·무인자 "
+                  "3트리 전부)");
+        }
+
         // 2q) 경로 인코딩 사슬 (#94): 규약 — **와이어/저장/표기 = 항상
         // UTF-8, 파일 터치점 = 네이티브 변환**. 스캔 leg(MusicModel fs —
         // MinGW libstdc++ narrow 바이트는 UTF-8 strict, T2 원장 실측)가
@@ -5978,99 +6072,6 @@ static int RunAppSelfTest() {
             fs::remove_all(udir, uec2);
             check(!uec2 && !fs::exists(udir, uec2),
                   "2q-b 사후 소각 = 잔산 0(REMNANT 0 — 2m-c/2p-⑤ 정리 수형)");
-        }
-        // 2p) 스캔 취소 (#93 T1 — 플랜 2026-10-10-music-scan-cancel):
-        // ListAudioFiles 취소판 — ScanCancelFn(참=취소)을 재귀 경계(진입 =
-        // 자식 재귀 직전 동일 경계 — callee 진입 판정이 그 경계를 소유)마다
-        // 청구하고, 엔트리 256개마다 보조 체크(단일 디렉터리 폭주 leg도 취소에
-        // 응답). 취소 = 부분 수집 폐기(빈 반환). 무인자 오버로드는 항상-false
-        // 위임(원존 시맨틱 무변조). 2m/2n/2o 원존 무변조 — 추가만.
-        {
-            const fs::path pdir = fs::temp_directory_path() / "jk_music_cancel";
-            fs::remove_all(pdir);  // 선제거 — 이전 런 잔산(2m-c 원문 수형)
-            fs::create_directories(pdir / "sub");
-            std::ofstream(pdir / "a.mp3").put('x');
-            std::ofstream(pdir / "sub" / "b.mp3").put('x');
-            for (int i = 0; i < 300; ++i) {  // 256 보조 체크 도달 트리(302 엔트리)
-                std::ofstream(pdir / ("n" + std::to_string(i) + ".flac"))
-                    .put('x');
-            }
-            check(fs::exists(pdir / "a.mp3") &&
-                      fs::exists(pdir / "sub" / "b.mp3") &&
-                      fs::exists(pdir / "n299.flac"),
-                  "2p-a 트리 구성 = 루트 1건+sub 1건+flac 300건 성립(사후 소각 전제)");
-
-            // ①) 사전 취소 — 콜백이 처음부터 참: 진입 경계 1회만 청구되고
-            // 트리 열거에 접촉하지 않는다(빈 반환 — 원문 단정).
-            int calls1 = 0;
-            const std::vector<jk::music::Track> c1 = jk::music::ListAudioFiles(
-                pdir.string(), [&calls1] { ++calls1; return true; });
-            check(c1.empty() && calls1 == 1,
-                  "2p-① 사전 취소 = 즉시 빈 반환(진입 경계 콜백 1회 원문 — "
-                  "트리 열거 미접촉)");
-
-            // ②) 카운터 콜백 — 경계 3회째(루트 진입+루트 256 보조+sub 진입)
-            // 에 참: 그 전에 이미 수 집된 부분 결과를 폐기해 빈 목록을 반환
-            // 하고, 콜백 청구는 첫 참에서 전체 해소 — 상한 = 경계 3곳.
-            int calls2 = 0;
-            const std::vector<jk::music::Track> c2 = jk::music::ListAudioFiles(
-                pdir.string(), [&calls2] { return ++calls2 >= 3; });
-            check(c2.empty(),
-                  "2p-② 경계 3회째 취소 = 빈 반환(부분 수집 폐기 — 중간 "
-                  "스캔 결과 유출 0)");
-            check(calls2 >= 2 && calls2 <= 3,
-                  "2p-② 호출 상한 = 경계 3곳(루트 진입+256 보조+sub 진입) "
-                  "이내(300 엔트리 트리 — 무경계 폭주 0·래치 해소 후 재청구 0)");
-
-            // ③) 루트 선삭제 — 스캔 개시 전에 루트가 사라진 트리: dir 열기
-            // 실패 = 독립 실패 원문(ec 중립형) 그대로 빈 반환·crash 0.
-            const fs::path qdir =
-                fs::temp_directory_path() / "jk_music_cancel_gone";
-            fs::create_directories(qdir / "d");
-            std::ofstream(qdir / "d" / "x.mp3").put('x');
-            fs::remove_all(qdir);  // 선삭제 — 스캔 시작 전 소멸(레이스 수형)
-            int calls3 = 0;
-            const std::vector<jk::music::Track> c3 = jk::music::ListAudioFiles(
-                qdir.string(), [&calls3] { ++calls3; return false; });
-            check(c3.empty() && calls3 == 1,
-                  "2p-③ 루트 선삭제 = 빈 반환(ec 중립 — crash 0, 콜백은 진입 "
-                  "1회 후 dir 열기 실패 복귀)");
-
-            // ④) 무인자 오버로드 계보 불변 — 항상-false 위임 수형: 기존 트리
-            // 원문 수치(재귀 3건 수취+txt 열외+mtime desc — 2m-c 수형 재용).
-            const fs::path tdir = fs::temp_directory_path() / "jk_music_plain";
-            fs::remove_all(tdir);
-            {
-                fs::create_directories(tdir / "sub");
-                std::ofstream(tdir / "a.mp3").put('x');
-                std::ofstream(tdir / "c.txt").put('x');
-                std::ofstream(tdir / "sub" / "w.wav").put('x');
-                fs::last_write_time(
-                    tdir / "a.mp3",
-                    fs::file_time_type::clock::now() + std::chrono::hours(1));
-                fs::last_write_time(
-                    tdir / "sub" / "w.wav",
-                    fs::file_time_type::clock::now() - std::chrono::hours(1));
-                const std::vector<jk::music::Track> c4 =
-                    jk::music::ListAudioFiles(tdir.string());
-                check(c4.size() == 2 && c4[0].name == "a.mp3" &&
-                          c4[1].name == "w.wav" &&
-                          std::find_if(c4.begin(), c4.end(),
-                                       [](const jk::music::Track& t) {
-                                           return t.name == "c.txt";
-                                       }) == c4.end(),
-                      "2p-④ 무인자 오버로드 = 기존 수치 불변(2m-c 원문 수치 — "
-                      "항상-false 위임, 원존 시맨틱 0 변조)");
-                fs::remove_all(tdir);
-            }
-
-            // REMNANT 0 — 사후 소각(무잔산 — 2m-e 정리 수형 재용).
-            std::error_code pec;
-            fs::remove_all(pdir, pec);
-            check(!pec && !fs::exists(pdir, pec) &&
-                      !fs::exists(qdir, pec) && !fs::exists(tdir, pec),
-                  "2p-⑤ 사후 소각 = 잔산 0(REMNANT 0 — cancel·선삭제·무인자 "
-                  "3트리 전부)");
         }
     }
 
