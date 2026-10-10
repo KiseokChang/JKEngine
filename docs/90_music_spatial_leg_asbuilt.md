@@ -274,6 +274,25 @@ status 절단 악형) → T2 fix r1 re-review **APPROVE 재확정**(C0/I0/M0 —
 | T4 원장 ② | 토글 좌표 편차(WSL 토글 (130,70)은 2자 라벨 기준 — 폰 14자 라벨 스트립 시프트 → 캡처 픽셀 1:1+offset 실측 정산)·leg list 후반 vplayer 전면 덮음(topmost 취식 — window_move 치우기 전배선 수형) | N | env 재보정 열기 원장 — 좌표 재런 몫·치우기 이후 런 등호 성립 |
 | T4 원장 ③ | 폰 라이브 실험 계약: send_input 미병합 클릭=승인 창 `approval_timeout` 원문(무승인 운용 확인)·실험 후 permissions.json 바이트 원복(33바이트 등호)·폰 클라 pkill은 **`[m]usic` 브래킷 필수**(무브래킷 = 원격 셸 자기 매치로 사망 — 런 중 실측) | N(계약) | probe 재사용 몫 — probe 소유 잔산 소각(원장)·종료 상태 = 서버 UP+taskbar/terminal 유지 |
 
+### §4.1-2 신규 park 행(#93 스캔 안전화+#94 경로 인코딩 라인 — §7.7 승계 · **아래는 추가만, 기존 행 변형 금지**):
+
+| 출처 | 항목 | 등급 | 처분 근거 |
+| --- | --- | --- | --- |
+| T3 리뷰 M-1 | `mus_wsl_scan_busy.png` EYES 영수증 스테일 — cp 우선순위(폴백 경계 `mus_land_c0.png \|\| mus_land_c0b.png`)가 무착탄 c0 프레임을 우선 복사(런 4/5 둘 다 — 탭 강조 없는 0곡 프레임) | M | 착탄 프레임(c0b) 우선 cp 순서 수형 — 다음 런 몫·판정축(CANCEL-OK)은 land 플래그+로그 원문 소관이라 무영향 |
+| T3 리뷰 M-2 | big-tree REMNANT rc 계약 비대칭 — REMNANT는 MUSIC-FAIL(rc=0 honest)뿐, 시드는 hard FAIL(exit 1) — "probe 소유 잔상 0"의 동일 소관에 rc가 다름 | M | 완화: ENTRY 가드 big_a/big_b 잔존 hard FAIL이 무음 소멸 봉쇄 — 다음 접촉 rc 정합 수형 몫 |
+| T3 리뷰 M-3 | wsl_music.sh 16d-5 주석 "탭 스캔 6곡 → 표 '6곡'" — 실측 mus_seed 5곡(캡처 5행/5곡) — 주석 오자(T2 M-1 선형) | M | **미소각 — HEAD 97b2d8e 실측 잔존(wsl_music.sh :1488·:1493)** — 다음 접촉 커밋 병행 소각 |
+| T2 리뷰 M-1 | ClientMusicApp.cpp:185 소멸자 주석 오자 "(스캔CancelFn)" → "ScanCancelFn"(주석 전용 — 계약 무접촉) | M | **미소각 — HEAD 97b2d8e 실측 잔존(:185)** — 다음 접촉 커밋 병행 소각 |
+| T2 리뷰 I-1 | SettingsText 한글 exe 디렉터 **런타임 케이스(selftest) 부재** — fs화 수형은 착지(97b2d8e)하나 2q-계열 읽기 케이스 원장행 없음 | M | settings probe(한글 exe 설치 디렉터 settings.json 판독 케이스) 원장행 — 후속 probe 접촉 몫 |
+| T2 리뷰 I-2 | [제거] 취소 1발 = 진행 스캔 루트 대조 없는 **무조건 1발**(스캔 루트≠제거 대상인 제거도 절단+재청구 — 재비용 1회) | M | T3/T4 실측 후 재판정 대기 — T3/T4 3실측 전부 동일 루트 경계라 판정 불성립·park 유지(현 실규모 스캔 ms급 — 비용 원장성 낮음) |
+| T3 리뷰 I-2 | probe 사망 코드 — `tapq` 헬퍼 정의 전용(landtap이 대체 — 미호출) | M | 다음 접촉 소각 몫 |
+| T3 리뷰 I-3 | 런1 writeback 경합(도구 응답 15s×3 초과)의 **수치 원문 미보존** — 수리 수단(sync)의 효과는 run16d_2-5 drain 원문으로 실측 성립 | M | 후속 동형 라인 원장행 승계 시 원문 보존부터(T4 폰 원장행 · §7.7.2 부기) |
+| T3 리뷰 I-1 | 브리프 문언 "하위 40개×파일 30개" → 실측 40×11,520=460,800 — 캘리브레이션 커밋 주석 원장화+`MUSIC-SIZE-EVIDENCE` 정직 부기 | M | 승계 편차 수용 원장 — 재정산 노프(수형 원장 §7.7.2) |
+| #94 리뷰 C-2 | 수리 리포트 §4 grep 인용 흠집 — 인용 행(`770:` 주석)이 인용 명령 패턴과 불일치 | M | 결론 옳음(주석=코드 아님) — **재발시 인용-명령 일치 원칙** |
+| #94 리뷰 I-3 | 실측이 "커밋 트리 그대로 빌드"가 아님(작업트리 2p→2q 기반 — 블록 상호독립 등가) | M | 원칙상 커밋 트리 기준 빌드 차이 기록 — 병렬 수술 원장(§7.7.3 #7) |
+| T4 원장 ① | landtap 폰 미이식 — tab2 병합 구성(tree_a를 dirs_[1]에 앉힘·TAB2_X 상수 재용)으로 대체 | N | 원장행(§7.7.3 #5) — 신규 좌표 원장 0 원리 |
+| T4 원장 ② | 폰 MISS 시 2차 사이클(2차 = 캡처 없는 고속 탭→remove) 미실측 — 1차 사이클 직행 성립 | M | 폰 스캔이 캡처+ctl 왕복보다 빠른 기기에서만 유성 — MISS 수취 시 rc=0 honest(SCALE 재정산 재런 몫) |
+| T4 원장 ③ | close→소멸 임계 5.0s(WSL 3.5s 수형의 폰 정산 — 1s 폴링+ctl 왕복) — 실측 1.25-1.26s는 임계 0.75 미만 여유 | N | 다른 폰 기기 재정산 몫·MUSP_BIG_SUBS/MUSP_BIG_FILES env 재정산 몫 동봉 |
+
 ## §5. 사용자 결제 게이트 (EYES-PENDING 봉인)
 
 **EYES-PENDING — 라인 최종 결제는 사용자 육안/청안 선언만으로 성립한다. probe와
@@ -292,6 +311,10 @@ MUS-PHONE-OK는 수치 영수증 라인이지 육안/청안 선언 아님). 본 
 | ⑦ | **settings 실물 쓰기 확인 (§7)** | 폴더 추가 수동 동작 → settings.json에 `music.dirs` 실물 기록+audio/retention 보존 — 도구 경로는 C1-FILE-OK 실측(§7.2)·수동 동작 확인은 사용자 선언만 | **대기(수동 동작)** |
 | ⑧ | **[제거] 실수동 E2E — 사람 클릭 (§7)** | 행 [제거] 1회 클릭→쓰기 성립→목록 갱신 — 합성 입력 플레이크로 fix r2에서 최종 확정 미달(런 A/B 사망 0+기계 프루브+도구 차별 3점 보험 — §7.3 #1) | **대기(사람 클릭)** |
 | ⑨ | **CP949 항목 표기 수용 (§7 — 가능하면)** | 보존-가시 표기는 바이트 그대로 — 폰트 깨짐("????")은 표기-한계 원장(§7.3 #2) — 사용자 수용 판정 | **대기(육안·가능하면)** |
+| ⑩ | **스캔 안전화 캡처+체감 — WSL (§7.7)** | 스캔 진행 중 표기 캡처(`mus_wsl_scan_busy.png` — 리뷰 M-1: 무착탄 c0 프레임 폴백 복사 스테일 — 재런 c0b 우선 몫(§4.1-2))+재스폰 정착 캡처(`mus_wsl_rescan_settled.png` — 탭 강조·표 5행·5곡 카운터 — T3 리뷰 직접 열람)+실기기 체감(스캔 중 종료/제거의 스무스함 — **라인 최종 게이트 — 플랜 사용자 게이트 요약 1**) | **대기(육안·체감)** |
+| ⑪ | **스캔 안전화 캡처+체감 — 폰 (§7.7)** | `mus_phone_scan_busy.png`+`mus_phone_rescan_settled.png`(crop 2종 동봉 — 캡처 11종 보존 — 200,000/트리 실측)+close→소멸 1.25s·폐기 0.62s 경계의 체감 — 사용자 선언만 결제 | **대기(육안·체감)** |
+| ⑫ | **한글 트랙 재생 재시도 — #94 결제 (§7.7)** | 더블클릭(위임) 재생 **사용자 재시도** — 사용자 보고 문제("파일을 찾을 수 없습니다")의 실기기 결제 — vplayer fs 게이트+SpatialStart `Utf8ToAnsi` 네이티브 수취 수형의 최종 결제 | **대기(실기기)** |
+| ⑬ | **폰 Music 런처 아이콘 (§7.7 병행 — 배포)** | 사용자 "폰 화면에 뮤직 안 보임" — Music 런처 아이콘 설치 배치가 본 T5와 **병렬 dispatch**(배포 절차 계약 전부 — 본 라인 밖 소관·별도 원장) | **대기(별도 배치)** |
 
 ## §6. 커밋 원장 + IP grep 게이트
 
@@ -605,8 +628,11 @@ docs 전용) → T4 리뷰 **APPROVE**(C0/I1/M2 — 618 부정 정산 1:1(2o-g 2
 
 ### §7.6 커밋 원장 + IP grep 게이트 (#92 라인)
 
-- 라인 체인 = **7f66b81(플랜)..52f672c**+본 T5 커밋(§7.0 표 = rev-parse
-  전체 SHA) — push 전부 origin main 직행·amend 없음.
+- 라인 체인 = **7f66b81(플랜)..cf690c8**+본 T5 커밋(§7.0 표 = rev-parse
+  전체 SHA) — push 전부 origin main 직행·amend 없음. **스냅샷 갱신(통합
+  리뷰 M-1 소각 — 본 문서 최신 T5)**: 구 표기 `..52f672c`는 후속 T3
+  (85bf59e)·T4(**cf690c8**)를 미수록 — 체인 말미를 cf690c8로 정산
+  (§7.0 표와의 합일).
 - **IP·내부경로 리터럴 게이트(T5 실측)** — 본 커밋 원문에서
   `\b([0-9]{1,3}\.){3}[0-9]{1,3}\b` grep = **0건**·호스트 경로 표기
   (사용자 루트 폴더명·드라이브 글자·/mnt 계열 표기) grep = 적중 0건
@@ -615,5 +641,239 @@ docs 전용) → T4 리뷰 **APPROVE**(C0/I1/M2 — 618 부정 정산 1:1(2o-g 2
   fix r2·T3 원문 — §7.0 계보).
 - **본 T5 커밋은 docs 1파일(`docs/90_music_spatial_leg_asbuilt.md` — §7
   신설+§4.1/§5 추가만+§0 부기)로 한정** — git add 명시 경로만(#83 사건
-  레슨)·docs/89 무접촉. probe 런 로그·캡처 7종은 engine/tmp untracked —
-  커밋 금지 충족.
+  레슨)·docs/89 무접촉. probe 런 로그·캡처 9종(T4 cf690c8 회수)은
+  engine/tmp untracked — 커밋 금지 충족. **스냅샷 갱신(통합 리뷰 M-1
+  소각)**: 구 표기 "캡처 7종"은 T4(cf690c8)의 9종 회수 이전 산출 — 현행
+  9종으로 정산(§5 ⑥ 원문과의 합일).
+
+## §7.7 스캔 안전화+경로 인코딩 원장 (#93+#94 라인 — T1-T4, 2026-10-10)
+
+뮤직 스캔 안전화 라인(#93 — 사용자 요청 "스캔중 폴더 제거나 앱 종료시에
+문제 없게 해주세요" — #92 T2 park C1(파괴 join 대기)의 정식 소각 라인)과
+병렬 경로 인코딩 수리(#94 — 사용자 라이브 보고 "재생하려니 파일을 찾을 수
+없습니다" — 한글 트랙)를 한 원장에 봉한다 — 같은 창에 병렬 진행(같은
+main.cpp를 두 커밋이 나눠 쓴 인덱스 수술 원장 — §7.7.3 #7)이라 분리 표기가
+역사를 왜곡하기 때문. 플랜=`docs/superpowers/plans/2026-10-10-music-scan-cancel.md`
+(4473e8b — 결정 원장 5건=재량(§7.7.4)·실기기 체감=EYES), SDD 원장=
+`.superpowers/sdd/2026-10-10-music-scan-cancel/`(progress·task-1..4
+리포트 4종+review 4종+path-encoding brief/report/review·review diff 4종·
+런 로그 wsl_music_run16d_{1..5}.log·phone_music{,_run}.log — engine/tmp
+untracked **인용만이 진실원**). 이 라인의 원장 원리 이중: **와이어/저장/
+표기=UTF-8·파일 터치=네이티브(#94 규약)**·**경계 콜백 취소(#93 — 디렉터
+경계 1회+256 보조)**·소멸자 cancel∥quit OR·도착 멤버십 필터 세대 앞단
+·SettingsText fs화. T5는 docs 전용(engine/probe 무접촉) — selftest 재실행
+불요(§0 부기 원칙 — 건네받은 수치 Win 661/WSL 638/posix 296/폰 638 그대로
+봉합·`-F` 계수 룰링 승계). 서브에이전트 스폰 0건(T1-T4 각 리포트 선언
+·T5 실측)·worktree 미사용·main 직행.
+
+### §7.7.0 체인 (rev-parse 전체 SHA 실측 — T5 측정 · git log가 진실원)
+
+| 태스크 | 커밋(SHA — 실측 rev-parse) | 내용 |
+| --- | --- | --- |
+| 플랜(라인 BASE) | `4473e8bbe084759f5a59a1a93bb7b1dec31a0ef3` | docs(superpowers): music 스캔 안전화 플랜 T1-T5 (#93) |
+| T1 | `1dfb8cb36cdc7f97b2e70a0d8d45edde8365302c` | feat(apps): music 스캔 취소 기구 — 디렉터 경계 콜백 (T1) — MusicModel.h `ScanCancelFn`+경계 콜백+2p 7건 (2파일 +148/−4) |
+| #94(병렬 수리) | `adbd0f1edacbe64236ee8cbe1b398d6e08297a90` | fix(apps): 경로 인코딩 사슬 — 파일 터치 네이티브 변환+존재 검사 fs화 (#94) — 6파일 +157/−5 — jk::text Utf8ToAnsi/AnsiToUtf8 3축 동봉+vplayer fs 게이트+SpatialStart 네이티브 수취 (2q 7건) |
+| T2 | `f4098565259ce0773e110077b882ac8a18b83fac` | feat(apps): music 스캔 취소 배선 — 종료·제거 경계 안전화 (T2) — 4파일 +163/−90 — 소멸자 취소 join+[제거] 취소 1발+도착 멤버십 필터+SettingsText fs화(#94 동승) |
+| T3 | `bf38ea99c08a4f1d4008bb427fc4850b9e0e6a40` | test(probes): music WSL probe — 스캔 취소 경계 실측 (T3) — wsl_music.sh +436/−5 — **CANCEL-OK ×2**(0.60s 소멸·0.50s 폐기)+landtap 착탄 판정기 봉합 |
+| T4 | `97b2d8e3ee6d243501597c8bf120bf0e03ef18e7` | test(probes): music 폰 probe — 스캔 취소 동형 세그먼트 (T4) — phone_music.sh +499/−63 — **폰 캐논 624→638 흡수+MUS-PHONE-OK ×2**(1.25s 소멸·0.62/0.66s 폐기) |
+| T5 | 본 문서를 포함하는 커밋 | docs(apps): music 스캔 안전화+경로 인코딩 as-built 갱신 (T5) — SHA는 git log가 진실원 |
+
+폐곡 계보: T1 리뷰 **APPROVE**(C0/M0/M2 — WSL 독립 재실측 631 등호 확증·
+경계 1회+256 보조·원존 시맨틱 무변조 — M-1 주석 라벨/M-2 인용 수치는 T2
+병행 소각) → #94 리뷰 **APPROVE**(C2/I3/M0 — Win 661/WSL 638 독립 재실측
+(수정 TU 강재 재컴파일)·**2q-a가 Win에서 진짜 ACP 검증**(변환 바이트로 실제
+std::fopen 개방 단정 — WSL 항등과 분리된 진원 검증)·C-1 로캘 전제 원장행
+(§7.7.3 #3)) → T2 리뷰 **APPROVE**(C0/I2/M1 — WSL 전체 재빌드 638 PASS/0
+FAIL·2p↔2q 블록 이동 multiset 72/72 상쇄(신설 어설션 0건)·수명 3역산(취소
+∥quit OR·리셋 경합·래치 오표기) 안전 판정·**멤버십 필터 세대 앞단 배치
+PASS**) → T3 리뷰 **APPROVE**(C0/M3/I3 — CANCEL-OK ×2 런 로그 1:1·settled
+캡처 직접 열람 — M-1 스테일 캡처/M-2 REMNANT rc 비대칭/M-3 주석 "6곡"은
+§4.1-2 park) → T4 단독 리뷰는 **폐곡 통합 리뷰에 흡수**(ruling — 독립 리뷰
+1회 절감+T5 병렬 dispatch — T4 리포트 원장) → **통합 리뷰 M-1(§7.6 2행 —
+cf690c8 미수록·캡처 7종 현행 9종) = 본 T5에서 소각 완료**(§7.6 갱신).
+
+### §7.7.1 배선 원리 (원류 원문 1:1 수취 — 리포트/review 근거 · 코드 재실측 0)
+
+- **취소 기구(T1 — 순수 부품)** — `using ScanCancelFn = std::function<bool()>;`
+  (참=취소)+ScanAudioTree 폭탄 전달: 재귀 진입마다 `if (cancel()) return;`
+  (진입 체크가 "자식 재귀 직전" 경계를 겸는다 — **경계당 콜백 정확 1회**)
+  +**엔트리 256개마다 보조 체크**(단일 디렉터 폭주 leg의 취소 응답 상한 256
+  엔트리). `ListAudioFiles(root, cancel)`: 래치(`fired` — 콜백 1회 참이면
+  재청구 0)로 절단·취소 시 **부분 수집 폐기 후 빈 목록 반환**(정렬 생략 —
+  중간 결과 유출 0). 무인자 오버로드는 항상-false 콜백 위임 — 원존 시맨틱
+  0 변조(워커 호출부 무접촉). ec 중립형·순환 가드·독립 실패·mtime desc+
+  rel asc 정렬 원존 그대로.
+- **소멸자 취소 join(T2 결정 ②)** — join 전 `scanCancel_.store(true)` 1발 —
+  진행 중 스캔이 경계서 절단되어 join이 ms급으로 돌아온다(#92 T2 park C1
+  무한 대기 소각). **콜백 = `scanCancel_ ∥ scanQuit_`의 OR** — 워커의 취소
+  리셋(요청 수취 시점)이 소멸자의 cancel을 지우는 역산 경기에서도 quit는
+  누가 리셋하지 않아(일단적=true 상주) 다음 경계 1회 내 절단. T1 취소판
+  래치 폐기 계약(2p-①/②)이 원문이라 "완주 대기 원칙 완화"는 시맨틱 신규
+  아님(T2 리뷰 확인).
+- **[제거] 취소 1발(결정 ③)** — DirRemoveManaged 성공 경로에 취소 1발+
+  기존 재스캔 3연(RefreshUserDirs+ResolveDirs+RequestScan) 원문 그대로.
+  워커는 요청 수취 때 `scanCancel_=false` 리셋 — **재청구가 취소를 먹지
+  않는다**.
+- **도착 멤버십 필터(결정 ④)** — 도착 스냅샷 루트(신설 `scanOutRoot_` —
+  결과 박스 발행 때 동봉·스캔 시작 시점 dirs_ 성분과 바이트 동일 — 동일
+  lock)가 현재 dirs_에 없으면 폐기+stderr 진단 1행(`[music] 도착 폐기 —
+  제거된 폴더의 스캔 결과(root=…)`·fflush 포함). **세대 게이트 앞단 배치**
+  — [제거]의 재청구가 세대를 이미 소진한 뒤 도착하는 지연 결과는 세대
+  불일치로 무음 지나가는 길이 있어, 정직 진단은 루트 멤버십이 세대에 앞서
+  소유한다(세대 뒤 배치였으면 stderr 진단이 사망 코드 — T3 probe 관측 경로
+  그 자체. T2 리뷰: 앞 단 배치가 정직 계약의 배치 조건 — PASS). 정상 운행
+  도착(root ∈ dirs_ 항상)엔 영향 0.
+- **SettingsText fs화(#94 동승)** — `.string()`(UTF-8 바이트) narrow fopen
+  (ACP 재해석 — 한글 exe 설치 디렉터 settings 판독 실패 잠복 결함, #94
+  리뷰 전수 grep `:365` 확증) → `fs::path`를 `std::ifstream`에 직접(#94
+  규약 "파일 터치점 = 네이티브"의 소비 — 기존 스캔 leg와 같은 narrow→
+  fs::path 변환 수형). 부재/개방 실패 = 빈 텍스트 fail-safe 원존·`read/
+  gcount` 청크 루프 = 원 fread 반복 계약 동형.
+- **#94 수형 원문** — vplayer OpenStage: narrow fopen → `fs::status`+
+  `is_regular_file` ec-중립형(부재·디렉터·비정규 entry 공통 실패의 원
+  fopen 관측 보존 — 종착 문구 "파일을 찾을 수 없습니다" 무변조)·avformat
+  채널 무접촉(UTF-8 원래 기대). `jk::text::Utf8ToAnsi`(win32
+  MbToWide(CP_UTF8, MB_ERR_INVALID_CHARS)→WideToMb(CP_ACP, 0) — 부적합
+  UTF-8 = 빈 문자열 fail-closed·'?' 치환 관측은 Utf8ToCp949 원문 계약;
+  posix 항등 — Linux 경로 인코딩은 파일시스템 소유)+`AnsiToUtf8` 역변환
+  3축 동봉. SpatialStart 경계: `Decoder::open`에 `Utf8ToAnsi(t.full)`
+  수취(third_party dr_wav/dr_mp3/dr_flac/stb_vorbis 내부 narrow fopen과
+  정합 — spatial-player 무변경 계약)·표기/전이(`legState_.path = t.full`)
+  는 UTF-8 원문 유지·빈 변환 fail-closed는 `err="경로 인코딩 변환 실패"`
+  정직 종착.
+
+### §7.7.2 캐논 계보 (2p/2q 계열) + 경계 영수증
+
+| 커밋 | Win | WSL | posix | 폰 | 신설 |
+| --- | --- | --- | --- | --- | --- |
+| 기준(#92 종착 = §7.2 T4/T5 행) | 647 | 624 | 296 | 624 | — |
+| T1 `1dfb8cb` | **654** | **631** | 296 | (624) | 2p 7 — 하네스 TU 미링크 구조 등호(2p 전원 engine/src/main.cpp 소속 — T1 리뷰 build.sh TU 목록 실측) |
+| #94 `adbd0f1` | **661** | **638** | 296 | (624) | 2q 7 |
+| T2 `f409856` | 661 | 638 | 296 | (624) | 0 (3축 등호 — 신설 어설션 0 계약·posix는 정적 판독 재실측) |
+| T3 `bf38ea9` | (승계 등호) | 638 (런 등호 2런) | 296 | (624) | 0 (probe 전용 — `MUS-CANCEL-CANON-EQ: OK`) |
+| T4 `97b2d8e` | (승계 등호) | (승계 등호) | 296 | **638** | 폰 2p2q 14건 흡수 (624+14 — **WSL 등호**·`CANON-INCLUSION=MUSIC-FULL-2P2Q-14` — 2런 등호) |
+| T5 본 커밋 | 661 | 638 | 296 | 638 | — (docs 전용 — 재실행 불요) |
+
+- **2p 7의 분해** = 2p-a 트리 구성(setup 판정선 — 빈 목록 계약의 무공적
+  흡수 방지)+①사전 취소(즉시 빈 반환+콜백 1회 — 트리 열거 미접촉)+②경계
+  3회째 취소(302 엔트리 트리 — 열거 순서 무관 결정론)+②호출 상한(경계 3곳
+  이내 — 무경계 폭주 0)+③루트 선삭제(ec 중립·crash 0)+④무인자 계보 불변
+  (2m-c 원문 수치 재용)+⑤REMNANT 0.
+- **2q 7의 분해** = 2q-a(한글 더미 구성·fs status 수형 통과·Utf8ToAnsi/
+  AnsiToUtf8 왕복 보존·변환 바이트 narrow fopen 실개방)+2q-b(한글 폴더
+  루트 ListAudioFiles 수취+Track.full/rel UTF-8 유효 단정 — posix는 no-op
+  변환이라 왕복 단정으로 통과).
+- **posix 296 등호 = 하네스 TU 미링크 구조 등호**(§2.1 원리·§7.2 원리
+  승계 — T2 리뷰 정적 판독: tools/posix_selftest/main.cpp에 ClientMusicApp
+  ·music::·2p/2q 0건 grep 실측·build.sh RC=0+0 failure).
+
+**경계 영수증 표 (WSL run16d_4/5 — 2런 동치 · 폰 — 2런):**
+
+| 경계 | WSLg — 460,800/트리 (40×11,520·2트리) | 폰 — 200,000/트리 (80×2500·2트리) |
+| --- | --- | --- |
+| ② 스캔 중 music_dir_remove | `[music] 도착 폐기 — 제거된 폴더의 스캔 결과(root=/tmp/mus_big_a)` stderr 1행 — 제거→도착 **0.50s**(취소 없으면 460k 완주 후 ~5s+) — 클라 생존·제거/원복 원문 | 동형 원문(root=…/mus_big_a) — 제거→도착 **0.62/0.66s**(절단이 완주 잔량 앞섬 — `MUS-CANCEL-EFFECTIVE: OK`) — 클라 생존 |
+| ① 스캔 중 창 close | close→소멸 **0.60s**·crash 마커 0·재스폰+music_dir_list 응답 정상 — 임계 3.5s(`MUS-CLOSE-JOIN-LEDGER`: 소멸 시차 ≤3.5s면 취소 join ms급 성립) | close→소멸 **1.26/1.25s**·crash 0·재스폰 도구 응답 OK — 임계 5.0s(WSL 수형의 폰 정산 — 1s 폴링+ctl 왕복) |
+| ③ 재스폰 정착 | 재스폰 클라 스캔→채택 전이 — landtap 차분 30행·탭 강조+표 5행+"5곡" 카운터 캡처 | tab2 재스캔 정착 캡처(landtap 폰 미이식 — 탭 병합 구성 — §7.7.3 #5) |
+
+- 판정 라인: **`MUSIC-CANCEL-VERDICT: CANCEL-OK` ×2(WSL)**·**`MUS-PHONE-OK`
+  ×2(폰)** — 수치 영수증 라인이지 육안/체감 선언 아님(§5 — 결제 대기).
+- 부기(폰 제1런 수치 원문 미보존 — T3 리뷰 I-3 동형 원장행): 보존 런 로그
+  2종(phone_music{,_run}.log)은 0.66/1.25 런이고 0.62/1.26은 제1런(r1 —
+  마커 hard FAIL 런)의 리포트 원장 — 후속 동형 라인은 원문 보존부터.
+- 스칼라 규모 원장: WSL 시더 캘리브레이션(브리프 문언 "하위 40개×파일
+  30개"→실측 40×11,520 — 링크 실측 ~10µs/트랙 외삽 — 커밋 주석 원장화+
+  `MUSIC-SIZE-EVIDENCE` 정직 부기 — T3 리뷰 I-1 수용)·폰 시더 python3
+  16.6/18.1s(2×200k)+셸 find 200,000=0.57-0.58s(열거 고정비 원문 — 클라
+  스캔이 셸보다 수 배 느린 stat+Track 비용 = 폰 제거 창 성립의 근거)·
+  **VHD writeback sync 선행 배수**(§7.7.3 #2)·폰 1차 사이클 직행 성립
+  (2차 사이클 발동 0 — §4.1-2).
+- 병행 배치 병기(#94 — 스캔 leg 자체는 원래 UTF-8 일관): 한글 트랙 재생의
+  병목은 vplayer 존재 게이트(CP_ACP 재해석 fopen)와 spatial 디코더 경계뿐
+  — 실기기 결제 = §5 ⑫.
+- 병행 dispatch 병기: 폰 Music 런처 아이콘 설치 배치(사용자 "폰 화면에
+  뮤직 안 보임") — 본 T5와 병렬·배포 절차 계약 — §5 ⑬.
+
+### §7.7.3 함정 원장 (#93/#94 신규 — 봉쇄 레슨 축)
+
+1. **★tap 전송 ok ≠ 착탄(판정기 원장)** — 탭의 ok/sent 답신=전송 성립만.
+   UI 전이(dirIndex 전환+스캔 중 행)는 수 초 뒤 화면 도달(WSL 런 1-3 —
+   현행 클라 5시도 무착탄 → 재스폰 클라 3시도째 착탄). 착탄 판정기
+   **landtap**(기저 캡처 px 차분 임계 3행+y 스윕 5시도+고착 클라 close
+   회수→재스폰 경로)이 probe에 봉합된 뒤 판정 경계가 결정론화 — **높히
+   확신하는 정직 결함 원장행 후보 아님**(엔진 결함 라인 비신청 — 원인
+   추정은 프레젠트(화면 관할)와 이벤트 처리의 probe 내부 경계 — 판정기가
+   흡수). 레슨: **합성 입력의 "ok"는 도착 영수증이 아니다 — 픽셀 차분으로만
+   착탄을 말하라**.
+2. **★VHD writeback sync 선행** — 2×460k 파일 시드 직후 music_dir_add의
+   원자적 쓰기가 도구 응답 15s×3 초과(WSL 런 1 — 인프라 원장). `sync` 1회
+   선행 배수(drain 0.4-0.7s)로 런 2-5 소각 — 대형 트리 세그먼트를 도입하는
+   probe에 같은 배수 승계(폰 T4도 $TMPDIR가 VHD가 아니어도 동형 배량 수형
+   유지 — 원장행 승계).
+3. **★CP_ACP(949) 기기 전제(#94 리뷰 C-1)** — 2q-a 왕복/narrow fopen
+   실개방 단정군은 KS X 1001(한글 ACP) 기기에서만 통과 — EN-US ACP(1252)
+   기기면 '?' 치환으로 round-trip·개방 단정 FAIL. 사용자 실기기(CP949)
+   캐논은 유효하나 **타 ACP 기기의 캐논 재현성 = 로캘 전제 원장** — 수형
+   방향(로캘 게이트/CP_ACP 대조 선취) park(§4.1-2).
+4. **이(UTF-8) 모지/strict throw 흡수(#94 리뷰 I-1)** — openPath_에 부적합
+   UTF-8 진입 시 `fs::path(openPath_)` strict ctor가 throw 가능 —
+   WorkerLoop의 `catch(...)` 장벽이 흡수해 종착 문구가 "재생 중 내부
+   오류가 발생했습니다"로 갈림(원존 "파일을 찾을 수 없음") — 장벽 자체가
+   원장 계약(spec 1a-3)이라 **결함 아님·분류 미세편차 원장**.
+5. **landtap 폰 미이식 — tab2 병합 구성 대체 원장** — 폰 probe는 WSL의 px
+   차분 착탄 판정기+tab3 좌표 캘리브레이션을 이식하지 않았다(원장행). 대신
+   **tree_a를 dirs_[1](tab2)에 앉히는 병합 구성**(ResolveDirs 원문:
+   dirs_=[기본(AudioDirFallback), …music.dirs]) — 실측 상수 TAB2_X=90
+   재용으로 "활성 탭 = big tree" 경계를 **신규 좌표 원장 0**으로 재현.
+6. **★스캔 취소 마커 상수 오착(T4 r1 — hard FAIL 1회)** — probe 마커를
+   "ScanCancelFn"(주석 토큰)으로 쓰면 미검출("wiring marker missing" hard
+   FAIL) — **실배선 토큰은 `scanCancel_`**(식별자). 레슨: **마커 상수는
+   커밋 전 로컬 grep 실측으로 정산해야 한다** — r2/r3 정산 후 2런 재현
+   (배포는 이미 HEAD 동일 — 증분 무영향).
+7. **★병렬 커밋 수술 — 같은 main.cpp를 두 커밋이 나눠 쓰는 창** — T1(#93)
+   과 #94가 병렬 진행하며 동일 파일에 2p/2q 블록(+include 행)을 uncommitted
+   공유 — T1은 **인덱스 수술**(`git hash-object`+`update-index
+   --cacheinfo` — HEAD 원문+자기 2p만 스테이지·타 커밋 hunks는 작업트리
+   현행 보존)으로 분리 커밋하고, 후속 커밋이 나머지를 수취해 **2p→2q 블록
+   수렴**(T2 리뷰: diff removed/added **multiset 72/72 전부 상쇄** — 유일
+   잔차는 주석 2행 — 내용 등가·순서만 확정). 레슨: 병렬 태스크 동시 진입은
+   **인덱스 수술+작업트리 보존+multiset 등가 검증** 트리오로만 안전하다(#94
+   리뷰 I-3 = 빌드 표기의 정직 부기 — 커밋 트리 그대로 빌드 아님).
+8. **실행 순서 변경의 정직성(원장행)** — T3 세그먼트 실측 순서=②→①→③
+   (브리프 표기 ①②③ — **순서 등가 원장**): ②의 제거가 자체 재청구 창
+   (pub2 재스캔 ~5s)을 세우므로 그 창을 ①의 in-flight close 경계로
+   재사용·③은 재스폰 클라 대리(①의 close가 pub2를 소멸 — 파괴 취소 계약
+   이라 pub2의 채택 전이는 동 세그먼트 창에서 관측 불가 — 시차 원장; pub2의
+   채택은 런 1-2 원장의 간접 관측). probe 머리 주석+원장행으로 봉인 —
+   **순서 바꿈은 원장행으로 봉인하면 정직하다**(T3 리뷰 PASS).
+
+### §7.7.4 결정 원장 (재량 — 기각 시 즉시 수리 — 플랜 Global Constraints 원문)
+
+1. **취소 체크 단위 = 디렉터 경계**+엔트리 256 보조(결정 ① — 무경계 폭주
+   leg의 응답 상한 256 엔트리).
+2. **소멸자 = cancel 1발→join(무한 대기 소각 — 대체로 ms급)**·OR 봉합
+   (결정 ②).
+3. **[제거] 성공 = 취소+재스캔 1발**(결정 ③).
+4. **도착 폐기 = 멤버십 필터(세대 앞단)+stderr 진단 1행 — UI 무변화**(결정
+   ④ — 정직·무음 금지(D4) 계승).
+5. **외부 삭제 = ec 중립 유지**(결정 ⑤ — 이미 계약+2p-③ 원문 단정).
+6. **#94 규약 = 와이어/저장/표기=UTF-8·파일 터치=네이티브** (+Utf8ToAnsi
+   fail-closed 어댑터가 "빈 변환 =경로 인코딩 변환 실패" 정직 종착을
+   소유 — spatial-player 무변경 계약 위에서 JKEngine 측 경계만 수리).
+7. **멤버십 필터의 세대 게이트 앞단 배치** + [제거] 취소 1발의 무조건성
+   (루트 대조 없음) = 브리프 문언 직행 — 절약 변형은 park(§4.1-2 T2 I-2)
+   재판정 대기.
+
+### §7.7.5 커밋 원장 + IP/호스트 경로 게이트 (#93/#94 라인)
+
+- 라인 체인 = **4473e8b(플랜)..97b2d8e**+본 T5 커밋(§7.7.0 표 = rev-parse
+  전체 SHA) — push 전부 origin main 직행·amend 없음.
+- **IP·호스트 경로 리터럴 게이트(T5 실측)** — 본 커밋 원문에서
+  `\b([0-9]{1,3}\.){3}[0-9]{1,3}\b` grep = **0건**·호스트 경로 표기(사용자
+  루트 폴더명·드라이브 글자·/mnt 계열) grep = **0건**(커밋 전 staged/
+  `git show HEAD` 게이트 — §6 문구 동형). 라인 이전 커밋도 리포트/review
+  전원 IP grep 0건 실측(T1·#94·T2·T3·T4 각 리포트 — §7.7.0 계보).
+- **본 T5 커밋은 docs 1파일(`docs/90_music_spatial_leg_asbuilt.md` — §7.7
+  신설+§4.1-2/§5 추가만+§7.6 스냅샷 갱신)로 한정** — git add 명시 경로만
+  (#83 사건 레슨). probe 런 로그(run16d_{1..5}·phone_music{,_run}.log)·
+  캡처(mus_wsl_scan_busy·mus_wsl_rescan_settled·mus_phone_scan_busy·
+  mus_phone_rescan_settled+crops)는 engine/tmp untracked — 커밋 금지 충족.
