@@ -257,7 +257,8 @@ status 절단 악형) → T2 fix r1 re-review **APPROVE 재확정**(C0/I0/M0 —
 | T1 리뷰 M | .bak 사다리 3연속 실패 창(대피 성공+재치환 실패+복원 실패 — 원문 `.bak` 좌초) | M | err 표면화+원문 바이트 `.bak` 잔존의 수형 — 실사용 극저빈도·**수리 금지 판정** |
 | T2 리뷰 M-2 | ComposeKeyed 중복 관리 키 last-wins 편차(리더가 구치 읽기) | M | 외부 수기 원문 한정(자체 작성 원문 도달 불가) — 원장 |
 | T2 리뷰 M-5 | posix 296 등호 = 하네스 TU 미링크 **간접 근거만** | M | T1 계보 정합 수용 — 다음 posix 직접 실측 시 확인 |
-| T3 리뷰 M-1 | probe CANON 상수 608 진부(캐논 624와 미일 — 침묵 회귀창 16건) | M | **624 승격 — T4(dispatch 진행)에서 소각 확인** |
+| T3 리뷰 M-1 | probe CANON 상수 608 진부(캐논 624와 미일 — 침묵 회귀창 16건) | M | **소각 — T4(cf690c8)에서 624 실측 승격 완료**(WSL 등호 — §7.2) |
+| T4 원장 ① | dirs 등호 앵커 = 작가 정규형(저장소 작가 ComposeKeyed 출력형 — 웜업 왕복 1회) | N | WSL T3 "seed 출하형 교환" 수형의 폰 런타임 동형 원장 — probe 원문 동봉 |
 | T3 리뷰 M-2 | T3 리포트 수치 오기("probe 상수 604" — 실제 608) | M | 캐논 등호 본안 유효 — 원장 부기 |
 | T3 리뷰 M-3 | 브리프-구현 계약 2원화(부적합 주입 "probe에서 안 함" ↔ 16c probe 주입) | M | 상위 원문(T2 fix r1 재검 M-1r) 전입 정합 — 브리프 갱신 렛슨 |
 | T3 리뷰 N-1 | I1-OK 판정 1행에 P1 봉인(cure가 크래시+재스폰 분기) 미표기 | N | 판정 행 `p1=crash-observed` 동봉 — 다음 probe 접촉 |
@@ -266,6 +267,12 @@ status 절단 악형) → T2 fix r1 re-review **APPROVE 재확정**(C0/I0/M0 —
 | T2 fix r1 재검 원장 | AddDir의 invalid 문서 영속화 경로(쓰기 leg 잔여) | N | 패널 제거 치유 가능 — 전각 치유는 별도 라인 |
 | T2 fix r1 재검 원장 | 도구 인자 "C:" 표기 엣지(fs::path filename과 다른 반환) | N | 절대 경로 계약상 도달 불가 — 표기 전용 필드 |
 | T2 fix r2 재검 N-2r | break 도입의 신계약 "제거 1회/프레임"(연속 제거 시 행당 1프레임) | N | UX 원존과 동형(이전도 프레임당 1클릭)·관측상 무영향 |
+| T4 **P3 후보** | 폰 [폴더 관리] 토글 Button 클릭 **무응답**(정산 좌표+hover tooltip 원문 조건에서 3런 2회+라이브 2회 — 같은 클라에서 필터 InputText 포커스·표행 더블클릭은 성립 — **스트립 행 Button 클릭 경로 전용** 관측) | P3 | 코드 무변경 판정 — 폰 스트립 행 클릭 전용 캘리브레이션 세션(WSL 16c 차분 게이트 수형) 후속·**패널 개방 = EYES**·**T4 리뷰 승격 판정 병기: "앱(폰 스트립 행 Button) 쪽 유력·하니스 release-half 불배제"** — 확정은 후속 세션 몫 |
+| T4 리뷰 I-1 | P3/C2의 라이브 실험 텍스트 원문 미보존(`approval_timeout`·sent:true — 생존 로그 0행) | M | 결제 게이트 무계약(실체는 픽셀 원문 승인·커밋 주석 계약 봉합) — **이번 한정 면책·후속 세션부터 원문 1행 기록 권고** |
+| T4 리뷰 M-1 | probe 헤더 내부 모순("dirs=열림 프레임" 서술 ↔ 실측 등록 상태 스트립·개방 0) | M | `mus_phone_dirs.png`를 열림 영수증으로 오독 방지 — 다음 probe 접촉 시 헤더 교정 1행 |
+| T4 리뷰 M-2 | 치우기(window_move) 직접 수취 원문 부생존(after 판별 불가 — 결과 캡처로만 정산)·1차 OTHER-N 런 로그 tee truncate 부생존 | M | verdict 무계약 — 계보 원장 부기 몫 |
+| T4 원장 ② | 토글 좌표 편차(WSL 토글 (130,70)은 2자 라벨 기준 — 폰 14자 라벨 스트립 시프트 → 캡처 픽셀 1:1+offset 실측 정산)·leg list 후반 vplayer 전면 덮음(topmost 취식 — window_move 치우기 전배선 수형) | N | env 재보정 열기 원장 — 좌표 재런 몫·치우기 이후 런 등호 성립 |
+| T4 원장 ③ | 폰 라이브 실험 계약: send_input 미병합 클릭=승인 창 `approval_timeout` 원문(무승인 운용 확인)·실험 후 permissions.json 바이트 원복(33바이트 등호)·폰 클라 pkill은 **`[m]usic` 브래킷 필수**(무브래킷 = 원격 셸 자기 매치로 사망 — 런 중 실측) | N(계약) | probe 재사용 몫 — probe 소유 잔산 소각(원장)·종료 상태 = 서버 UP+taskbar/terminal 유지 |
 
 ## §5. 사용자 결제 게이트 (EYES-PENDING 봉인)
 
@@ -281,7 +288,7 @@ MUS-PHONE-OK는 수치 영수증 라인이지 육안/청안 선언 아님). 본 
 | ③ | 폰 leg 정착 | 스펙 D5 — OpenAL/디바이스 백엔드 폰 재판정 — **청안(①) 후 후속 판정·별도 합의**(폰에서 leg 성립 런은 계약 위배 hard FAIL 현재 계약) | **대기(후속 합의)** |
 | ④ | 스펙 §4 성공 판정의 사용자 육안 | "WSL: music 앱 [spatial] 재생 → 상태 표기(pos 진행)+정지 — probe rc=0 원문"(§2.2)+vplayer 위임 회귀 체감(더블클릭 그대로)+idle 계약 체감(재생 중 진행 표기 갱신만 그린다·정지/고장 leg 무더티) | **대기(육안)** |
 | ⑤ | 스펙 결정 재량(내장·fail-closed) | D1 내장·D2 fail-closed — 스펙 확정(aab4f11 옵션 1)+본 문서 원장 성립 — **기각 시 즉시 수리** | **대기(유효)** |
-| ⑥ | **[폴더 관리] 패널 모양 (§7 — Win+폰)** | 토글→패널(UserDirs 행별 [제거]+경로 Edit+[추가]) — 캡처 `mus_wsl_dirs_panel.png`(패널+CP949 행 "????" 표기) 보존·폰 캡처는 T4 몫 | **대기(육안)** |
+| ⑥ | **[폴더 관리] 패널 모양 (§7 — Win+폰)** | 토글→패널(UserDirs 행별 [제거]+경로 Edit+[추가]) — 캡처 `mus_wsl_dirs_panel.png`(패널+CP949 행 "????" 표기) 보존·폰 캡처는 **T4(cf690c8)에서 9종 회수**(dirs `56f49927`·dirs2 `638204e8` — 등록 상태 스트립+상태행·**패널 개방 프레임은 P3 원장행** — §4.1) | **대기(육안)** |
 | ⑦ | **settings 실물 쓰기 확인 (§7)** | 폴더 추가 수동 동작 → settings.json에 `music.dirs` 실물 기록+audio/retention 보존 — 도구 경로는 C1-FILE-OK 실측(§7.2)·수동 동작 확인은 사용자 선언만 | **대기(수동 동작)** |
 | ⑧ | **[제거] 실수동 E2E — 사람 클릭 (§7)** | 행 [제거] 1회 클릭→쓰기 성립→목록 갱신 — 합성 입력 플레이크로 fix r2에서 최종 확정 미달(런 A/B 사망 0+기계 프루브+도구 차별 3점 보험 — §7.3 #1) | **대기(사람 클릭)** |
 | ⑨ | **CP949 항목 표기 수용 (§7 — 가능하면)** | 보존-가시 표기는 바이트 그대로 — 폰트 깨짐("????")은 표기-한계 원장(§7.3 #2) — 사용자 수용 판정 | **대기(육안·가능하면)** |
@@ -336,7 +343,7 @@ selftest 재실행 불요(§0 부기 원칙 승계 — 647/624/296 계보 수취
 | T2 fix r1 | `f1d9c494e5178f4e078ba9154aac2444c78e2fb8` | fix(apps): settings 부적합 원문 정직 거부+tmp pid 접미 (T2 fix r1) — 3파일 (JKWindowServer.cpp·MusicDirStore.h·ClientMusicApp.cpp) |
 | T2 fix r2 | `52f672c6802a99d08b30c7793c65a62d3daacdd5` | fix(apps): music 폴더 제거 후 클라 크래시 — UI 행 루프 UAF 수리 (T2 fix r2) — 1파일 ClientMusicApp.cpp (+20/−5) — 제목 정정 사유 원문(원인 실측이 "UI 반복자"보다 좁음 — UAF 규명) |
 | T3 | `85bf59e1e29610f8ceb36f9a55cca881a188a6ba` | test(probes): music dirs 도구 세그먼트 — settings 쓰기+CP949 거부 실측 (T3) — wsl_music.sh probe 1파일 (429/−3) |
-| T4 | dispatch 진행 (원장 — 병렬 룰링 spd r2) | test(probes): music 폰 probe — dirs 도구 동형 세그먼트 (T4) — 실측 종착 시 갱신 |
+| T4 | `cf690c86f23811c21cd607fd79f9f13db259954b` | test(probes): music 폰 probe — dirs 도구 동형 세그먼트 (T4) — phone_music.sh probe 1파일 (+279/−31·코드 무변경) — **폰 캐논 624 흡수+DIRS-OK·MUS-PHONE-OK** |
 | T5 | 본 문서를 포함하는 커밋 | docs(apps): music 폴더 관리 as-built 갱신 (T5) — SHA는 git log가 진실원 |
 
 폐곡 계보: T1 리뷰 **APPROVE**(C1/I2/M3 — C1=WriteSettingsKv 재조립 소각
@@ -350,7 +357,10 @@ selftest 재실행 불요(§0 부기 원칙 승계 — 647/624/296 계보 수취
 **APPROVE**(C0/I0/M1/N2 — 리뷰어 프루브 재실행 SIGSEGV 1/1 재현·수리
 완벽성 PASS·토글 Refresh 복원 PASS·WSL 624 실측·**P1 전면 소각 확정**
 ·**M-1r 서사 교정** = 결정론 진원을 빈 리스트 null-data OOB로 좁힘 —
-§7.3 #1·N-1r 라이브 E2E는 §5 ⑧·N-2r park — §4.1).
+§7.3 #1·N-1r 라이브 E2E는 §5 ⑧·N-2r park — §4.1). → T5 본판(ddd0f45 —
+docs 전용) → T4 리뷰 **APPROVE**(C0/I1/M2 — 618 부정 정산 1:1(2o-g 2건
+실측·코드 좌표 main.cpp:5857 링크 근거)·세그먼트 등호·P3 정직성 픽셀
+원문 승인 — I-1/M-1/M-2는 §4.1).
 
 ### §7.1 배선 원장 (원류 원문 1:1 수취 — 리포트/review 근거 · 코드 재실측 0)
 
@@ -409,19 +419,30 @@ selftest 재실행 불요(§0 부기 원칙 승계 — 647/624/296 계보 수취
 | T2 fix r1 `f1d9c49` | 647 | 624 | 296 | (608) | 0 (3축 등호) |
 | T3 `85bf59e` | (probe 전용 커밋) | 624 (런 등호) | 296 | (608) | 0 |
 | T2 fix r2 `52f672c` | 647 | 624 | 296 | (608) | 0 (3축 등호) |
-| T4 (dispatch 진행) | — | — | — | **실측 대기** | 폰 흡수 몫 |
-| T5 본 커밋 | 647 | 624 | 296 | (608) | — (docs 전용 — 재실행 불요) |
+| T4 `cf690c8` | — | — | — | **624** | 폰 2o 16건 흡수 (608+16 — **2o-f 4+2o-g 2 동봉 — WSL 624 완전 등호**·`CANON-INCLUSION=MUSIC-FULL-2O-16`) |
+| T5 본 커밋(T5 fix r1 갱신) | 647 | 624 | 296 | 624 | — (docs 전용 — 재실행 불요) |
 
 - posix 296 등호 = **하네스 TU 미링크 구조 등호**(§2.1 원리 승계) —
   2o-a..g 전원이 engine/src/main.cpp 소속이고 tools/posix_selftest 링크 TU는
   미포함(T1 리뷰·T1 fix r1 재검 실증). 다만 직접 실측 부재는 T2 리뷰 M-5로
   원장(§4.1) — 계보 정합(2o 추가 때도 296 유지)으로 수용.
-- 폰 (608) = **흡수 전 표기**(§2.1 관행 승계) — T4 probe가 2o 계열을
-  흡수한다(608+16=624 — WSL 계보 등호 기대). 플랜/브리프 쪽 흡수 표기(608
-  →618 = +10)와 계보 산수(+16=624)의 편차는 **T4 실측 종착이 진실원** —
-  원장 부기(본 표기는 어느 쪽 수치도 창작하지 않는다 — T5 실측 시점에 T4
-  런 로그 미도착). T3 리뷰 M-1의 probe CANON 상수 608→624 승격도 T4 몫
-  (§4.1).
+- 폰 — **T4 실측 종착(cf690c8): 624** — 2o 16건(2o-f 4+2o-g 2 동봉) 흡수
+  PASS=624 FAIL=0 (2m=26·2i=19·2g=40·2n=17·2o=16) — **WSL 624 완전 등호** ·
+  `CANON-INCLUSION=MUSIC-FULL-2O-16` (§2.1 관행의 CANON-INCLUSION 재판정
+  동형). **부기(브리프 기대 618 부정 — T4 정산)**: 폰 캐논 표기의 원
+  기대(608→618 = 2o 10)는 2o-g 서버 측 2건이 폰 구조에 미반영이라는 가설
+  이었다 — **실측은 폰 selftest main에 서버 보존 합성 2건도 동봉되어 전
+  16건 실측(624 = WSL 등호)이 확정 — 가설 부정·상수는 실측 후 갱신 계약(
+  T3 리뷰 M-1 승계)대로 624 갱신**(§4.1 소각 표기).
+- **T4 dirs 도구 원문(폰 축)** — DIRS-OK: add=ok·list 등록/제거 원문·
+  SET-OK(python3 독립 파서 — music.dirs 실기록+text/font_path 보존)·
+  **원복 바이트 등호**·SWEEP-POST-DIFF=0·SETTINGS-RESTORED 121/
+  PERM-RESTORED 33 바이트 등호·REMNANT gone·honest-fail 0건. **CP949
+  거부/치유 세그먼트는 폰 스킵 원장행 1행**(브리프 전제 — WSL T3 16c가
+  소유·전부 실측됨 — probe에 원장행 명시). **N-1 승계**: DIRS 판정 행
+  p1=crash-fixed 표기(T2 fix r2 수리 후 도구 경로 재실측)·dirs 도구
+  원문을 MUS-PHONE-OK 게이트에 편입. **N-2 승계**: 캡처 9종 md5 대차 OK
+  (dirs `56f49927`·dirs2 `638204e8` 등).
 - **I1-OK 8체인 원문 표 (T3 런 로그 — engine/tmp/wsl_music_run.log 10:05
   런·T3 리뷰 1:1 대조 확증)** — CP949 시딩('\xB0\xA1\xBF\xE4' = '가요' —
   2o-f corpus 동형·log:140 `MUSIC-I1-SEEDED`)을 전제로:
@@ -549,12 +570,16 @@ selftest 재실행 불요(§0 부기 원칙 승계 — 647/624/296 계보 수취
   소각**·T2 fix r1 재검 M-1r(거부 경로 라이브 실측) → **T3 probe I1-OK로
   소각**·T3 P1(세그폴트) → **fix r2(52f672c) 수리+재검 APPROVE 전면
   소각 확정**.
-- **park 신규행**(§4.1에 추가만 — 12행): .bak 사다리 3연속 창(수리 금지
-  판정)·ComposeKeyed last-wins·posix 간접 근거·probe CANON 624 승격(T4
-  소각 확인 대기)·T3 리포트 수치 오기·브리프-구현 2원화 렛슨·I1 판정행
-  p1 부기·캡처 md5 부기·합성 입력 간헐 수신(별도 라인)·AddDir invalid
-  문서 영속화(전각 치유 별도 라인)·"C:" 표기 엣지·break 1회/프레임
-  신계약(N-2r — 무영향 원장).
+- **park 신규행**(§4.1에 추가만 — T5 본판 12행+T5 fix r1 7행 = 19행):
+  .bak 사다리 3연속 창(수리 금지 판정)·ComposeKeyed last-wins·posix 간접
+  근거·**probe CANON 624 승격(T4 cf690c8에서 실측 소각)**·T3 리포트 수치
+  오기·브리프-구현 2원화 렛슨·I1 판정행 p1 부기·캡처 md5 부기·합성 입력
+  간헐 수신(별도 라인)·AddDir invalid 문서 영속화(전각 치유 별도 라인)·
+  "C:" 표기 엣지·break 1회/프레임 신계약(N-2r — 무영향 원장)+T4에서
+  신설 **7행**(dirs 등호 앵커 원장·**P3 폰 [폴더 관리] 토글 무응답**·토글
+  좌표 편차+vplayer 치우기 원장·폰 라이브 실험 계약 — `approval_timeout`
+  원문·[m]usic 브래킷 pkill 계약+T4 리뷰 3행 — I-1 라이브 원문 미보존
+  면책·M-1 probe 헤더 교정 대기·M-2 치우기/1차 런 원문 부생존).
 - **라인 잔여(별도 라인 후보 원장)**: 교차 작성자 레이스 잔여(프로세스 간
   파일 락 시설 부재 — 쓰기 직전 재독으로 ms 단위 축소·근본 봉쇄는 파일 락
   신설)·CP949 Win 스캔 leg(ListAudioFiles wide-path 확장)·전각 치유
