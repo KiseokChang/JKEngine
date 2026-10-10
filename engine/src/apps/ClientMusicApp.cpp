@@ -19,6 +19,12 @@
 // the notation layer (T1 pure parts — renders in every build) and the app
 // tool trio spatial_play/stop/status is registered for the agent tool hub.
 // The delegation channel (double click → vplayer) is untouched (D3 공존).
+// #97 T2 (plan 2026-10-11-music-dir-browser) adds the in-app folder browser
+// under the [폴더 관리] panel — the jk::music::browse pure parts (ListSubdirs/
+// JoinDir/Parent, T1) consumed by a type-free picker (cwd row + ".." up row +
+// subdir click-enter list + [이 폴더 추가] via the DirAddManaged single path +
+// [닫기]); only the add success/failure status line dirties (no new frameDirty
+// sources — navigation is an input event's natural consequence, #89).
 #include <apps/ClientMusicApp.h>
 
 #include <imgui_impl_jkwindow.h>
@@ -600,6 +606,81 @@ ClientMusicApp::DirRemoveManaged(const std::string& path) {
     return r;
 }
 
+// ---- 폴더 브라우저 (#97 T2 — 플랜 2026-10-11-music-dir-browser) ----
+
+void ClientMusicApp::BuildFolderBrowser() {
+    // 브라우즈 패널 — 폴더 전용(플랜 결정 ② — 파일 목록 숨김, 확장자 필터와의
+    // 혼동 방지). 목록은 **매 프레임 ListSubdirs 원문 재구성**(T1 순수 부품 —
+    // 결정론 정렬·ec 중립형·.도트 스킵): 이 패널이 그려지는 프레임은 이미
+    // 사유(입력·도착·진행 표기)가 있는 프레임뿐이라(#89 게이트) 프레임당 1회
+    // 단일 디렉터 스캔은 비용이 유휴에 흐르지 않는다.
+    if (browseCwd_.empty())
+        return;  // 방어선(개봉 가드가 비움 — 레거시 CP949 거부 등)
+    // ① cwd 표기 1행 — 전문 단일 행(개행 없음). 창폭을 넘는 긴 경로는 잘림
+    //    표기 한계 행(마우스 툴힌트가 전문을 다시 소유 — 위 .. 행 수형).
+    ImGui::TextUnformatted(browseCwd_.c_str());
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("%s", browseCwd_.c_str());
+    // ② 상위 ".." 행+하위 폴더 목록 — 클릭 = 진입(T1 JoinDir/Parent 원문
+    //    소비). 상위 부재(cwd가 루트 — 드라이브 루트·"/"·단일 성분)는 행 대신
+    //    무안내 1행(T1 Parent의 부자기 금지 계약을 UI가 그대로 소비 — 루트에서
+    //    눌러도 사라지는 행을 만들지 않는다).
+    const std::string parentPath = music::browse::Parent(browseCwd_);
+    if (parentPath.empty()) {
+        ImGui::TextDisabled("(루트 — 상위 없음)");
+    } else {
+        ImGui::PushID(1000000000);  // ".." 행과 subdir 행의 id 공간 분리
+        if (ImGui::Selectable("..")) browseCwd_ = parentPath;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("상위 — %s", parentPath.c_str());
+        ImGui::PopID();
+    }
+    if (ImGui::BeginChild("browselist", ImVec2(0, 128.0f),
+                          ImGuiChildFlags_Borders)) {
+        const music::browse::DirPage page =
+            music::browse::ListSubdirs(browseCwd_);
+        if (page.dirs.empty())
+            ImGui::TextDisabled("(하위 폴더 없음)");
+        for (size_t k = 0; k < page.dirs.size(); ++k) {
+            // 행 사본 선취(P1 수형 재용 — #92 move/삭제 무효화 부류 예방 원장):
+            // 클릭 핸들과 툴힌트가 원본 벡터가 아닌 사본을 쓴다. ListSubdirs는
+            // 매 프레임 원문 재구성이라 구조적으로 move가 없지만, 관리 경로
+            // (DirAddManaged — 성공 시 dirs_·userDirs_ move-대입 교체)와 같은
+            // 프레임에서 행이 살아남는 전제를 부수지 않는다(수형 통일).
+            const std::string name = page.dirs[k];
+            ImGui::PushID(static_cast<int>(k));
+            if (ImGui::Selectable(name.c_str()))
+                browseCwd_ = music::browse::JoinDir(browseCwd_, name);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "%s", music::browse::JoinDir(browseCwd_, name).c_str());
+            ImGui::PopID();
+        }
+    }
+    ImGui::EndChild();
+    // ③ [이 폴더 추가] — DirAddManaged 단일 경로([추가] 버튼·music_dir_add
+    //    도구와 동일): 가드 2검→Store.AddDir→성공 = status+입력 소각+
+    //    RefreshUserDirs 1연+ResolveDirs+RequestScan(기존 재스캔 계약 원존)+
+    //    frameDirty(기존 계약 — 성공/실패 status 표기 모두). 성공 = 브라우즈
+    //    종료(계약 ③); 실패 = status 정직 1행으로 브라우저에 남는다.
+    if (ImGui::Button("이 폴더 추가")) {
+        const music::DirWriteResult r = DirAddManaged(browseCwd_);
+        if (r.ok) {
+            browseOpen_ = false;  // 추가 성공 = 브라우즈 종료(계약 ③)
+            browseCwd_.clear();
+        }
+    }
+    ImGui::SameLine();
+    // ④ [닫기] — 상태 소각만(선택 없이 종료). 닫는 프레임은 클릭 = 입력
+    //    이벤트 자연 귀결 — 더티 조작 없음(#89).
+    if (ImGui::Button("닫기")) {
+        browseOpen_ = false;
+        browseCwd_.clear();
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("브라우저 닫기 — 추가하지 않고 종료");
+}
+
 // ---- 재생 위임 (T3 — 스펙 §4 D1) ----
 
 uint32_t ClientMusicApp::SendQuery(const char* tool, const std::string& args) {
@@ -1177,6 +1258,38 @@ void ClientMusicApp::BuildUi(int w, int h) {
             ImGui::SameLine();
             if (ImGui::Button("추가"))
                 DirAddManaged(dirPathBuf_);
+
+            // ---- 폴더 브라우저 (#97 T2 — 플랜 2026-10-11-music-dir-browser) ----
+            // [찾아보기] 토글 — 타이핑 없는 폴더 선택(폰 키보드 불요 — 유일
+            // 동기 원장). 개봉 cwd 시작점 = dirs_[dirIndex_](현재 탭 루트 —
+            // 계약 ⑤; 기본 탭에서도 자연). 레거시 CP949 루트는 RequestScan과
+            // 같은 Utf8ToUtf16 가드로 개봉 거부 — status 정직(ListSubdirs의
+            // fs::path narrow 기수가 UTF-8이라 CP949 바이트 cwd를 건네면
+            // filesystem_error throw 경로 — 2o-f 실측 승계; 스캔 leg와 같은
+            // 유효성 검사 재용 — Utf8ToUtf16 빈 반환 fail-closed 계약).
+            if (ImGui::Button(browseOpen_ ? "찾아보기 ▾" : "찾아보기 ▸")) {
+                browseOpen_ = !browseOpen_;
+                if (browseOpen_) {
+                    const bool valid =
+                        dirIndex_ >= 0 &&
+                        dirIndex_ < static_cast<int>(dirs_.size()) &&
+                        !jk::text::Utf8ToUtf16(dirs_[dirIndex_]).empty();
+                    browseCwd_ = valid ? dirs_[dirIndex_] : std::string();
+                    if (browseCwd_.empty()) {
+                        browseOpen_ = false;  // 개봉 거부 — 브라우저는 닫힌 채
+                        status_ = "[!] 브라우저 미지원 인코딩 폴더(레거시 "
+                                  "CP949) — 표기·관리만 가능";
+                        frameDirty_ = true;  // 사유 표기 틱(내용 변화 계약 몫 —
+                                             //   이 프레임은 입력 프레임이라
+                                             //   실제로 이미 렌더된다 — 방어선)
+                    }
+                }
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "현재 탭 하위를 클릭으로 탐색해 추가 — 상위 \"..\" 행은 "
+                    "등록 루트 위로도 이동(T1 Parent 계약)");
+            if (browseOpen_) BuildFolderBrowser();
         }
 
         ImGui::Separator();

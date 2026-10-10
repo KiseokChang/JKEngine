@@ -121,6 +121,11 @@ private:
     // 트랙 표(경로/크기/수정 3열) — 표기 데이터는 tracks_ 원문(재정렬 없음),
     // 필터는 순서 보존 열외(2m-f 동형 계약의 UI측). 행 선택은 T3.
     void BuildTrackTable();
+    // #97 T2 — 폴더 브라우저 패널(플랜 2026-10-11-music-dir-browser): [폴더
+    // 관리] 패널의 [찾아보기] 토글 아래 — cwd 표기 1행+상위 ".."·하위 폴더 행
+    // (클릭 = 진입)+[이 폴더 추가](계약 ③ — DirAddManaged 단일 경로)+[닫기].
+    // 목록 = music::browse::ListSubdirs 원문(폴더 전용·결정 ② 승계).
+    void BuildFolderBrowser();
     // exe-dir state/settings.json 직독 → MusicDirList(기본 폴더+유저 dirs).
     // settings 부재/파손 = 기본 1건(fail-safe) — 앱이 죽지 않는다. 갤러리
     // ResolveDirs 수형(원문 텍스트를 순수 리졸버에 건넨다 — 셀프테스트 쌍둥이
@@ -229,6 +234,15 @@ private:
     bool dirsUiOpen_ = false;          // [폴더 관리] 토글(스트립 옆 — 기본 닫힘)
     std::vector<std::string> userDirs_;  // 패널 목록(RefreshUserDirs 갱신)
     char dirPathBuf_[512] = {0};       // 새 폴더 경로 Edit(UTF-8 — 앱 도구 계약)
+
+    // ---- 폴더 브라우저 상태 (#97 T2) ----
+    // [찾아보기] 토글(dirsUiOpen_ 열림 아래 — 기본 닫힘)+현재 경로(개봉 =
+    // dirs_[dirIndex_] 원문 — 계약 ⑤ 현재 탭 루트). 탐색·개봉·닫기·행 클릭은
+    // 전부 입력 이벤트 자연 귀결(게이트가 프레임을 낸다) — **신설 frameDirty
+    // 0**(더티는 DirAddManaged의 기존 계약 — 추가 성공/실패 status 표기 — 만이
+    // 브라우저에서 나온다, #89 idle 계약 승계).
+    bool browseOpen_ = false;
+    std::string browseCwd_;
 
     // ---- 스캔 워커 상태 ----
     // 단일 상시 스레드(갤러리 썸네일 원문 계약 승계: 생성 = OnInit 1회,
