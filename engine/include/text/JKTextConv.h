@@ -35,6 +35,25 @@ std::string Utf8ToCp949(std::string_view utf8);
 // 치환과 달리 posix는 실패 — 위 Utf8ToCp949 역방향, 동일 이유).
 std::string Cp949ToUtf8(std::string_view cp949);
 
+// UTF-8 -> 네이티브 경로 바이트열(Windows = CP_ACP, posix = 무변환). #94 경로
+// 인코딩 사슬 규약의 파일 터치점 leg: 와이어/저장/표기는 항상 UTF-8(스캔 leg
+// MusicModel의 narrow 바이트 = libstdc++ fs UTF-8 strict — 원장 실측)이지만,
+// narrow CRT fopen 계열(디코더 dr_wav/dr_mp3/stb_vorbis 내부·vplayer 존재
+// 게이트 legacy)은 그 바이트를 Windows에서 ACP로 해석한다 — 파일 시스템에
+// 손을 대는 쪽에서만 이 변환으로 네이티브 바이트열을 만들어 건넨다.
+// win32 구현 = MbToWide(CP_UTF8, MB_ERR_INVALID_CHARS) → WideToMb(CP_ACP, 0)
+// — 부적합 UTF-8 = 빈 문자열(fail-closed 계약 승계), ACP 표현불가 코드포인트는
+// WCTM(ACP,0)의 '?' 치환(Utf8ToCp949 원문 계약과 같은 관측). posix는 무변환
+// 항등(Linux 경로는 바이트열이고 그 인코딩은 파일시스템이 소유 — UTF-8 그대로
+// 가 native)이라 소비 측이 동일 소비 수형으로 Win/posix 양축을 하나로 쓴다.
+std::string Utf8ToAnsi(std::string_view utf8);
+
+// 네이티브 경로 바이트열 -> UTF-8(위 역방향). win32 = MbToWide(CP_ACP, 0) →
+// WideToMb(CP_UTF8, 0) — Cp949ToUtf8 원문 수형(ACP 부적합 바이트의 '?' 치환
+// 허용 — 역방향 왕복은 Utf8ToAnsi 원문에 대응하는 바이트에서만 무손실).
+// posix = 무변환 항등(위 원문의 대칭).
+std::string AnsiToUtf8(std::string_view ansi);
+
 }  // namespace jk::text
 
 #endif  // JKTEXTCONV_H

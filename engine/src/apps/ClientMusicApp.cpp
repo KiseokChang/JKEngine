@@ -765,7 +765,23 @@ bool ClientMusicApp::SpatialStart(const music::Track& t) {
     // 디코더 열기 — 확장자 4행 판별(wav/mp3/flac/ogg)이 실제 진실원: D4 표는
     // 5종을 말하지만 리터럴 .vorbis 파일은 여기서 "unsupported format"으로
     // 거부된다(I-1 원장 — 표기 문구는 "ogg(vorbis 코덱)" 1행 정리로 해소).
-    if (!legPlayer_->open(t.full, err)) {
+    // #94 경로 인코딩 사슬(규약 — 와이어/저장/표기 = UTF-8, 파일 터치점 =
+    // 네이티브 변환): Track.full은 스캔 leg의 UTF-8 원문(2q 수취 단정)이지만
+    // 디코더(dr_wav/dr_mp3/dr_flac·stb_vorbis 내부 narrow fopen)는 Windows에서
+    // 그 바이트를 ACP로 해석한다 — Decoder::open에 네이티브 바이트로 변환해
+    // 전달한다(spatial-player 무변경 계약: 변환은 이 앱 경계의 몫). 표기와
+    // 전이(아래 legState_.path)는 UTF-8 원문을 유지한다. posix는 무변환 항등
+    // (경로 인코딩 = 파일시스템이 소유 — Utf8ToAnsi 계약)이라 동일 소비 수형이
+    // 양축 하나로 성립한다. 부적합 UTF-8 = 빈 변환(fail-closed 승계)은 열기
+    // 고장과 같은 귀결로 정직 종착한다.
+    const std::string nativeFull = jk::text::Utf8ToAnsi(t.full);
+    bool opened = false;
+    if (nativeFull.empty()) {
+        err = "경로 인코딩 변환 실패";
+    } else {
+        opened = legPlayer_->open(nativeFull, err);
+    }
+    if (!opened) {
         // 고장 종착은 ALC 전용(DeviceFailed — T1 전이 명세)이라 디코더 고장은
         // 정지 종착(StopRequested — deviceOk 보존·active 해제)으로 분류하고
         // 고장 원문은 status에 부기한다(사건 분류 = 이 앱의 몫). path 클리어

@@ -147,6 +147,15 @@ std::string Cp949ToUtf8(std::string_view cp949) {
     return out;
 }
 
+// #94 경로 인코딩 사슬 (JKTextConv.h 원문 좌표): posix paths are byte strings
+// whose encoding the FILESYSTEM owns (UTF-8) — the native view IS the UTF-8
+// bytes, so both legs are the identity (no validation: the fail-closed UTF-8
+// gates above are UTF-8→something directions, while these two must keep the
+// consumer's bytes untouched on both sides; selftest 2q pins the round-trip).
+std::string Utf8ToAnsi(std::string_view utf8) { return std::string(utf8); }
+
+std::string AnsiToUtf8(std::string_view ansi) { return std::string(ansi); }
+
 }  // namespace jk::text
 
 #endif  // _WIN32

@@ -26,6 +26,7 @@ extern "C" {
 #include <cmath>
 #include <condition_variable>
 #include <deque>
+#include <filesystem>  // OpenStage existence gate (#94 — 아래 원문 좌표)
 #include <mutex>
 #include <string>
 #include <thread>
@@ -1133,11 +1134,25 @@ struct ClientVPlayerApp::PlayerCore {
         // Cheap existence gate (T1 review MINOR-2 carry): used to run on the
         // UI thread in OpenPath, where a dead UNC path blocked the UI in
         // fopen for the network timeout. Same check, same classification —
-        // now on the worker, where I/O belongs.
+        // now on the worker, where I/O belongs. The check itself is #94-fixed:
+        // it used to be narrow CRT fopen, whose Windows bytes resolve through
+        // the ANSI code page — a UTF-8 Korean track path (the wire, storage
+        // and notation encoding: MusicModel scan leg is libstdc++ fs UTF-8
+        // strict, T2 원장 실측) never matched and every Korean filename died
+        // as "파일을 찾을 수 없습니다". 파일 터치점 = 네이티브 변환 규약의
+        // 이 leg는 fs가 소유한다: fs::path narrow 원문 = UTF-8이라 status()
+        // 가 네이티브(wide)로 바꿔 대조한다. avformat_open_input은 내부에서
+        // UTF-8을 원래 기대(Win 내부 변환 보유)해 이전과 무절 변화 없음.
+        // is_regular_file 유지 = 원 분류 보전: fopen("rb")는 디렉터·읽을 수
+        // 없는 entry도 실패했으므로 열리지 않는 것은 같은 문구로 종착한다.
         {
-            std::FILE* f = std::fopen(openPath_.c_str(), "rb");
-            if (!f) { fail("파일을 찾을 수 없습니다"); return false; }
-            std::fclose(f);
+            std::error_code ec;
+            const std::filesystem::file_status st =
+                std::filesystem::status(openPath_, ec);
+            if (ec || !std::filesystem::is_regular_file(st)) {
+                fail("파일을 찾을 수 없습니다");
+                return false;
+            }
         }
         int r = avformat_open_input(&fmt, openPath_.c_str(), nullptr, nullptr);
         if (r < 0) {

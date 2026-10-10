@@ -105,6 +105,7 @@ extern "C" __declspec(dllimport) int __stdcall closesocket(
 #include <apps/MusicModel.h>  // selftest 2m — 뮤직 순수 부품(스펙 2026-10-09-music-library-design)
 #include <apps/MusicDirStore.h>  // selftest 2o — 뮤직 폴더 저장소(플랜 2026-10-10-music-dirs-ui)
 #include <apps/MusicSpatialLeg.h>  // selftest 2n — 뮤직 spatial leg 순수 부품(스펙 2026-10-10-music-spatial-leg-design)
+#include <text/JKTextConv.h>  // selftest 2q — 경로 인코딩 사슬 변환 쌍(#94)
 #include <apps/ClientIdlePolicy.h>  // selftest 2i-c — 앱 Timer→더티 조건화 산치(#89 T2)
 #include <script/JKScriptHost.h>
 #include <SDL.h>
@@ -5901,6 +5902,82 @@ static int RunAppSelfTest() {
                   "2o-g 보존 합성 부재 관리 키 = 원문 순서 유지+말미 신설(무원문 "
                   "폴백 경로와 짝 — 미관리 키 원문 무변조)");
             fs::remove_all(odir);  // 사후 소각(무잔산 — 2m-c 원문 수형)
+        }
+
+        // 2q) 경로 인코딩 사슬 (#94): 규약 — **와이어/저장/표기 = 항상
+        // UTF-8, 파일 터치점 = 네이티브 변환**. 스캔 leg(MusicModel fs —
+        // MinGW libstdc++ narrow 바이트는 UTF-8 strict, T2 원장 실측)가
+        // 만드는 Track.full은 소비 측에서도 UTF-8 원문이지만, 파일을 여는
+        // 쪽 둘레가 그 바이트를 Windows ACP로 해석해 왔다: ①vplayer 존재
+        // 게이트(원 narrow CRT fopen — 한글 경로를 못 찾았다 = #94 사용자
+        // 보고 "파일을 찾을 수 없습니다" — fs status 수형으로 수리) ②
+        // spatial 디코더(dr_wav/dr_mp3/dr_flac·stb_vorbis 내부 narrow fopen
+        // — Decoder::open에 네이티브 바이트 전달로 수리, spatial-player
+        // 무변경 계약). 2m/2n/2o/2p 원존 무변조 — 추가만.
+        {
+            // 더미 — 한글 폴더+한글 파일명(mp3 확장자더미): 생성은 fs::path
+            // ofstream(네이티브 wide 개방)이라 인코딩에서 자유, 소비는 아래
+            // 두 수형(게이트·디코더)이 같은 트리를 건든다. 소각은 말미.
+            const fs::path udir = fs::temp_directory_path() / "jk_music_utf8";
+            fs::remove_all(udir);  // 선제거 — 이전 런 잔산(2m-c 원문 수형)
+            fs::create_directories(udir / "가요 폴더");
+            const fs::path dummy = udir / "가요 폴더" / "가나다 테스트 곡.mp3";
+            std::ofstream(dummy, std::ios::binary).put('x');
+            check(fs::exists(dummy) && fs::file_size(dummy) == 1,
+                  "2q-a 한글 경로 더미 구성 = 개방 성립(사후 소각 전제)");
+
+            // ①) 존재 검사 수형 — fs status gate(vplayer OpenStage 수리
+            // 원문 수형): UTF-8 bytes narrow 원문이 네이티브로 대조돼 통과
+            // 한다(스캔 leg와 같은 인코딩 — 게이트가 한글 경로를 다시
+            // 못 찾지 않는다).
+            std::error_code uec;
+            const std::filesystem::file_status ust =
+                std::filesystem::status(dummy.generic_string(), uec);
+            check(!uec && std::filesystem::is_regular_file(ust),
+                  "2q-a 한글 파일명 존재 검사 = fs status 수형 통과(UTF-8 "
+                  "bytes 원문 — ClientVPlayerApp OpenStage 게이트 수리 수형; "
+                  "원 narrow fopen은 ACP 해석이라 이 경로를 못 찾았다)");
+
+            const std::string uFull = dummy.generic_string();
+            const std::string uNative = jk::text::Utf8ToAnsi(uFull);
+            check(!uNative.empty() && jk::text::AnsiToUtf8(uNative) == uFull,
+                  "2q-a Utf8ToAnsi→AnsiToUtf8 = 한글 경로 UTF-8 원문 왕복 "
+                  "보전(Win CP949 왕복·posix 무변환 항등 — 동일 단정, "
+                  "JKTextConv 2함수 계약 — 2q 케이스는 POSIX에서도 통과)");
+
+            // 디코더 내부 narrow fopen 수형 — 네이티브 바이트로 실제 개방
+            // 까지 단정(변환 바이트가 ACP로 원 wide 이름에 다시 만난다 —
+            // spatial Decoder::open 전달 계약의 봉합; posix는 항등이라 같은
+            // 수형이 UTF-8 bytes 개방이 된다).
+            std::FILE* uf = std::fopen(uNative.c_str(), "rb");
+            const bool uOpened = uf != nullptr;
+            if (uf) std::fclose(uf);
+            check(uOpened,
+                  "2q-a 네이티브 바이트 narrow fopen = 더미 개방(spatial "
+                  "디코더 전달 수형 — 원문 UTF-8 bytes는 ACP 해석과 불일치, "
+                  "변환 후 성립)");
+
+            // ②) 한글 폴더 루트 스캔 — ListAudioFiles 수취와 Track.full의
+            // 유효 UTF-8 원문 단정(스캔 leg 인코딩 규약 — 소비 측 표기·
+            // 위계가 그대로라는 진실원).
+            const std::string uRoot = (udir / "가요 폴더").generic_string();
+            const std::vector<jk::music::Track> q2 =
+                jk::music::ListAudioFiles(uRoot);
+            check(q2.size() == 1 &&
+                      q2[0].full == uRoot + "/가나다 테스트 곡.mp3" &&
+                      q2[0].rel == "가나다 테스트 곡.mp3",
+                  "2q-b 한글 폴더 루트 스캔 = 트랙 1건 수취+Track.full·rel이 "
+                  "UTF-8 원문(슬래시 generic 표기) 그대로(스캔 leg 규약)");
+            check(!jk::text::Utf8ToUtf16(q2[0].full).empty() &&
+                      jk::text::Utf16ToUtf8(
+                          jk::text::Utf8ToUtf16(q2[0].full)) == q2[0].full,
+                  "2q-b Track.full 유효 UTF-8 단정(Utf8ToUtf16 fail-closed "
+                  "계약 재용+정규 왕복 보전 — 변환 소비 측의 진실원)");
+
+            std::error_code uec2;
+            fs::remove_all(udir, uec2);
+            check(!uec2 && !fs::exists(udir, uec2),
+                  "2q-b 사후 소각 = 잔산 0(REMNANT 0 — 2m-c/2p-⑤ 정리 수형)");
         }
         // 2p) 스캔 취소 (#93 T1 — 플랜 2026-10-10-music-scan-cancel):
         // ListAudioFiles 취소판 — ScanCancelFn(참=취소)을 재귀 경계(진입 =

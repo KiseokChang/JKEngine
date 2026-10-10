@@ -81,6 +81,22 @@ std::string Cp949ToUtf8(std::string_view cp949) {
     return WideToMb(CP_UTF8, 0, w);
 }
 
+// #94 경로 인코딩 사슬 (JKTextConv.h 원문 좌표): the file-touch-point legs.
+// MbToWide(CP_UTF8, MB_ERR_INVALID_CHARS) rides the adapter's fail-closed
+// contract (invalid UTF-8 = empty), WCTM(CP_ACP, 0) keeps the cp949 legs' '?'
+// substitution observation for codepoints the ANSI page cannot represent.
+std::string Utf8ToAnsi(std::string_view utf8) {
+    const std::wstring w = MbToWide(CP_UTF8, MB_ERR_INVALID_CHARS, utf8);
+    if (w.empty()) return {};
+    return WideToMb(CP_ACP, 0, w);
+}
+
+std::string AnsiToUtf8(std::string_view ansi) {
+    const std::wstring w = MbToWide(CP_ACP, 0, ansi);
+    if (w.empty()) return {};
+    return WideToMb(CP_UTF8, 0, w);
+}
+
 }  // namespace jk::text
 
 #endif  // _WIN32
