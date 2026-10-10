@@ -1,6 +1,20 @@
 #!/usr/bin/env bash
 # T4 WSL music 실측 probe (스펙 2026-10-09-music-library — plan task-4).
 #
+# T3 확장 (plan 2026-10-10-music-dirs-ui, 2026-10-10):
+#   * 16b dirs 도구 세그먼트 — music_dir_add/remove/list(등록 6종 — spatial
+#     3종 병합 유지 원존)의 settings.json 실측 쓰기: 합성 폴더($TMPDIR) 등록
+#     →list 원문→settings.json 원문(music.dirs 실기록+기존 audio/retention 키
+#     보존 — C1 보존의 라이브 수취)→제거→원복 바이트 등호(④ T5 수형 — seed를
+#     ComposeKeyed 출하형 compact으로 심어 등호 판정 가능).
+#   * 16c I-1 라이브 실측(T2 리뷰 M-1r) — CP949 혼입(quickjs 부적합) 원문
+#     시딩 → 부팅 stderr 경고 1행 → 쓰기 정문(settings_set) 거부 detail 원문
+#     → 저장소 스캐너 수용(remove 1콜 — CP949 문서에서 dirs 소각) →
+#     [패널 제거 치유 루트](UI [폴더 관리] 토글→[제거] 클릭 — 도구 인자는
+#     quickjs JSON 문자열 = UTF-8 검사라 CP949 바이트 수송 불가인 원문 근거
+#     동봉) → 치유 후 music_dir_add 재시도+settings_set 성공(부팅 재기동
+#     불요) → 백업 원복 바이트 등호. 서버 재기동 1회(부팅 경고 캡처).
+#
 # 목적: T1-T3 music 모듈(디렉토리 탭 스트립+비동기 스캔 워커+경로/크기/수정
 #   표+이름 필터+더블클릭 vplayer 위임 T3 폴백)을 WSL 실측한다 —
 #   부팅 → launch_app music → 탭 클릭(리스캔 도착 대기) → 리스트 캡처 →
@@ -91,6 +105,20 @@ MUS_TAB2_X=${MUS_TAB2_X:-90}    MUS_TAB2_Y=${MUS_TAB2_Y:-77}
 MUS_FILTER_X=${MUS_FILTER_X:-250} MUS_FILTER_Y=${MUS_FILTER_Y:-42}
 MUS_ROW0_X=${MUS_ROW0_X:-50}    MUS_ROW0_Y=${MUS_ROW0_Y:-132}
 FILTER_TEXT="d_seed"
+
+# [T3] I-1 패널 치유 정찰 상수(env 오버라이드 — 정찰 캡처 재보정 선례).
+# 라이브 캘리브레이션(2026-10-10 — 클릭 차분×툴팁 증거 캡처 engine/tmp/cal_*)
+# : 합성 캡처 = 클라 + (417,173); [폴더 관리] 토글 = 클라 (130,70) — 패널
+# 열림+토글 툴팁이 그 마우스 자리에서 뜬 캡처(cal_510_170.png)로 증명; 상태행
+# 감김(+17px 시프트) 상태의 (160,77) 클릭은 토글 x존(~91-133) 오른쪽 밖(
+# 클릭-트랩 원장). 패널 첫 행 [제거] SmallButton = 클라 (86,118) 실증 치유 콜
+# — 이웃 격자 폴백. 클릭 판정: 토글 = 캡처 차분, [제거] = settings.json
+# 바이트(무음 실패 금지 원장).
+MUS_TOGGLE_TWEAK_X=${MUS_TOGGLE_TWEAK_X:-0}
+MUS_TOGGLE_X=${MUS_TOGGLE_X:-130}
+MUS_TOGGLE_Y=${MUS_TOGGLE_Y:-70}
+MUS_REMOVE_XS=${MUS_REMOVE_XS:-"86 90 94 98"}
+MUS_REMOVE_YS=${MUS_REMOVE_YS:-"118 123 113 128"}
 
 # spatial leg 변형 디스패치(SPATIAL_PLAYER_ROOT env — 위 원문). 경로 원문은
 # 로그에도 무표기(엔진 tmp 로그 세척 원장 — 값이 아니라 상태만 기록한다).
@@ -302,10 +330,16 @@ EXPECT_SEEDS=5
 SEED_BYTES=$(find "$SEED_DIR" -name '*.wav' -printf '%s\n' | awk '{s+=$1} END{print s}')
 echo "MUSIC-LIST-EXPECTED=$EXPECT_SEEDS (seed 3 root + 1 sub + 1 초장 경로[+1 mp3 if any] — 표행 수 관측 원문 1행; 표기 일치는 캡처 육안 몫)"
 
-printf '{\n    "music": {\n        "dirs": ["/tmp/mus_seed"]\n    }\n}\n' \
+# [T3] seed를 ComposeKeyed 출하형(compact)으로 — 관리 3키의 audio/retention 원문
+# 슬라이스를 심어 C1 보존의 라이브 수취 대상으로 쓴다(16b) + 말미 개행 없음
+# (원자적 쓰기가 데이터 크기만큼만 기록 — ④ 등호 판정 축). 스냅샷 = 16b/16c의
+# 백업 원문(T5 수형 — 백업+원복 바이트 등호; END에서 소각).
+SNAP="$LOGDIR/mus_settings_snap.json"
+printf '{"audio": {"mute": 0, "volume": 50},"retention": {"days": 14},"music":{"dirs":["/tmp/mus_seed"]}}' \
     > buildwsl/state/settings.json
 [ -f buildwsl/state/settings.json ] || FAIL "settings.json write failed"
-echo "DIRS-WIRE-OK: buildwsl/state/settings.json music.dirs=[/tmp/mus_seed] (END에서 소각)"
+cp buildwsl/state/settings.json "$SNAP" || FAIL "settings.json snapshot failed"
+echo "DIRS-WIRE-OK: buildwsl/state/settings.json music.dirs=[/tmp/mus_seed]+audio/retention (백업 스냅샷=$SNAP — END에서 소각)"
 
 echo "=== 5. send_input 승인 무승인 운용 — permissions.json 1행 (ENTRY 원복) ==="
 [ "$ENTRY_PERM" -eq 0 ] || FAIL "buildwsl/permissions.json already exists — probe는 런타임 permissions 파일을 건드릴 수 없다(전면 allow 파일은 프로브 소유 아님)"
@@ -719,9 +753,376 @@ grep -a 'spawn\|music\|vplayer\|\[vplayer\]' "$LOG" | tail -14 | sed 's/^/  /'
 echo "=== 16. 위임 후 모양 캡처 → mus_wsl_after.png ==="
 shot mus_wsl_after.png
 
+# ==================================================================
+# 16b. [T3 — dirs 도구 세그먼트] music_dir_add/remove/list — music.dirs의
+#      settings.json 실측 쓰기(등록 6종 — spatial 3종 병합 유지 원존)+기존
+#      audio/retention 키 보존 원문+add/remove 왕복 후 원복 바이트 등호(④ —
+#      T5 수형). 도구 경로만(클릭 없음 — UI 패널은 16c 치유 루트에서 1회).
+# ==================================================================
+SETTINGS=buildwsl/state/settings.json
+echo "=== 16b. dirs 도구 세그먼트 (music_dir_add/remove/list — settings 쓰기) ==="
+DL0=$(atool music_dir_list '{}')
+echo "MUSIC-DIR-LIST-0: ${DL0:-none} (시딩 기저 원문 — /tmp/mus_seed 단일)"
+[ -d /tmp/mus_dirs_x ] || mkdir -p /tmp/mus_dirs_x || FAIL "synthetic dir create failed"
+DADD=$(atool music_dir_add '{"path":"/tmp/mus_dirs_x"}')
+echo "MUSIC-DIR-ADD-REPLY: ${DADD:-none}"
+DL1=$(atool music_dir_list '{}')
+echo "MUSIC-DIR-LIST-1: ${DL1:-none} (등록 인증 원문 1행)"
+printf '%s' "$DADD" | grep -aq '"ok":true' \
+    || echo "MUSIC-FAIL(dir-add: ok 수취 실패 — $DADD)"
+printf '%s' "$DL1" | grep -aq 'mus_dirs_x' \
+    || echo "MUSIC-FAIL(dir-list-1: 합성 폴더 등록 미반영 — $DL1)"
+echo "MUSIC-DIR-SETTINGS-1: $(cat "$SETTINGS") (settings.json 원문 실측 — 등록 후 파일)"
+SETCHK=$(python3 - "$SETTINGS" <<'PYEOF'
+import json, sys
+with open(sys.argv[1], "rb") as f:
+    obj = json.loads(f.read().decode("utf-8"))
+dirs = obj.get("music", {}).get("dirs", [])
+ok = ("audio" in obj and "retention" in obj
+      and "/tmp/mus_dirs_x" in dirs and "/tmp/mus_seed" in dirs)
+print("SET-OK" if ok else "SET-MISS audio=%s retention=%s dirs=%s"
+      % ("audio" in obj, "retention" in obj, dirs))
+PYEOF
+) || SETCHK="SET-MISS(python3 파서 실패)"
+echo "MUSIC-DIR-SETTINGS-CHECK: $SETCHK (독립 파서 수취 — music.dirs 실제 기록+기존 audio/retention 키 보존)"
+printf '%s' "$SETCHK" | grep -aq 'SET-OK' \
+    || echo "MUSIC-FAIL(dir-settings: 기록/보존 원문 미달 — $SETCHK)"
+DREM=$(atool music_dir_remove '{"path":"/tmp/mus_dirs_x"}')
+echo "MUSIC-DIR-REMOVE-REPLY: ${DREM:-none}"
+DL2=$(atool music_dir_list '{}')
+echo "MUSIC-DIR-LIST-2: ${DL2:-none} (제거 인증 원문 1행)"
+printf '%s' "$DREM" | grep -aq '"ok":true' \
+    || echo "MUSIC-FAIL(dir-remove: ok 수취 실패 — $DREM)"
+if printf '%s' "$DL2" | grep -aq 'mus_dirs_x'; then
+    echo "MUSIC-FAIL(dir-list-2: 제거 미반영 — $DL2)"
+else
+    echo "MUSIC-DIR-GONE: mus_dirs_x 소각 확인 (제거 원문 성립)"
+fi
+if cmp -s "$SETTINGS" "$SNAP"; then
+    echo "MUSIC-DIR-BYTE-RESTORE: OK — add/remove 왕복 == seed 원문 바이트 등호(④ T5 수형)"
+else
+    echo "MUSIC-FAIL(dir-byte-restore: 왕복 후 원문 불일치)"
+    echo "  now : $(cat "$SETTINGS")"
+    echo "  snap: $(cat "$SNAP")"
+fi
+rmdir /tmp/mus_dirs_x || echo "MUSIC-FAIL(dir-bury: /tmp/mus_dirs_x 소각 실패 — 수동 소각)"
+
+# ==================================================================
+# 16c. [T3 — I-1 라이브 실측 (T2 리뷰 M-1r)] 부적합(CP949 혼입) 문서 시딩 →
+#      부팅 stderr 경고 1행 → 쓰기 정문(settings_set) 거부 detail 원문 →
+#      저장소 스캐너 수용(remove 1콜 — CP949 문서에서 dirs 소각) →
+#      [패널 제거 치유 루트] — CP949 항목의 in-엔진 치유는 UI [제거] 원촉이
+#      유일(도구 인자는 quickjs JSON 문자열 = UTF-8 검사라 CP949 바이트 수송
+#      불가 — 16c-4에서 bad_args/파서 거부 원문 실측) — T2 리뷰 I-1 §(1)
+#      "music 패널에서 CP949 항목 제거 → 문서 순수 회귀" 원문) → 치유 후
+#      music_dir_add 재시도 성공+settings_set 성공(부팅 재기동 불요 — 이후
+#      쓰기 정상) → 백업 원복 바이트 등호.
+#      * 전각 치유(CP949 변환)·Win 축 pid tmp 출하는 라인 별도(원장).
+# ==================================================================
+echo "=== 16c. I-1 라이브 (CP949 혼입 시딩 → 거부 detail 원문 → 패널 치유) ==="
+CP949_FIX=$(printf '\xB0\xA1\xBF\xE4')   # 2o-f corpus 동형 — CP949 '가요'
+PAT="$LOGDIR/mus_cp949.pat"
+printf '%s' "$CP949_FIX" > "$PAT"
+CPENTRY="$CP949_FIX"
+CP_HERE() { grep -aq -F -f "$PAT" "$SETTINGS"; }
+printf '{"audio": {"mute": 0, "volume": 50},"retention": {"days": 14},"music":{"dirs":["%s"]}}' \
+    "$CP949_FIX" > "$SETTINGS"
+CP_HERE || FAIL "CP949 seed write failed"
+echo "MUSIC-I1-SEEDED: OK — settings.json을 부적합(CP949 혼입) 원문으로 교체(백업 원문=$SNAP — 원복은 바이트 등호로 증명)"
+
+echo "--- 16c-1. 서버 재기동 1회 (부팅 stderr 경고 캡처용 — 브래킷 pkill 재용) ---"
+pkill -f 'buildwsl/[j]kdesktop' 2>/dev/null
+sleep 1
+pkill -9 -f 'buildwsl/[j]kdesktop' 2>/dev/null
+sleep 1
+rm -f /tmp/JKWindowServerPipe.sock
+I1LOG="$LOGDIR/mus_srv_i1.log"
+env DISPLAY=:0 setsid nohup ./buildwsl/jkdesktop --server >"$I1LOG" 2>&1 &
+sleep 6
+SRV2=$(pgrep -f 'buildwsl/[j]kdesktop --server' | head -1)
+[ -n "$SRV2" ] || FAIL "no server after I-1 restart — log tail: $(tail -3 "$I1LOG" | tr '\n' ' ')"
+echo "server pid=$SRV2"
+I1_BOOT=0
+I1BOOT_WARN=$(grep -a 'settings.json 파싱 실패 — 기본값으로 기동' "$I1LOG" | head -1)
+echo "MUSIC-I1-BOOT-WARN: ${I1BOOT_WARN:-MISS}"
+[ -n "$I1BOOT_WARN" ] && { I1_BOOT=1; echo "MUS-I1-BOOTW: OK — 부팅 stderr 경고 원문 1행 실측(파일 무접촉 · 기본값 기동 표기 포함)"; } \
+    || echo "MUSIC-FAIL(i1-boot-warn: 부팅 경고 미검출 — $I1LOG)"
+P2=""
+for i in 1 2 3 4 5; do
+    P2=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"ping","args":{}}' 2>/dev/null | grep -a '{' | head -1)
+    printf '%s' "$P2" | grep -aq '"ok":true' && break
+    sleep 2
+done
+printf '%s' "$P2" | grep -aq '"ok":true' || FAIL "ping after I-1 restart failed — $P2"
+L2=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"launch_app","args":{"app":"music"}}' 2>/dev/null | grep -a '{' | head -1)
+printf '%s' "$L2" | grep -aq '"ok":true' || FAIL "relaunch music after I-1 restart failed — $L2"
+MUSWIN=""
+WIN2=""
+for i in 1 2 3 4 5 6 7 8; do
+    sleep 2
+    WIN2=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"list_windows","args":{}}' 2>/dev/null | grep -a '{' | head -1)
+    MUSWIN=$(printf '%s' "$WIN2" | grep -aoE '\{"id":[^}]*"title":"Music"[^}]*\}' | head -1)
+    [ -n "$MUSWIN" ] && break
+done
+[ -n "$MUSWIN" ] || FAIL "no Music window after I-1 restart — last: ${WIN2:-none}"
+MUS_ID=$(printf '%s' "$MUSWIN" | sed -n 's/.*"id":\([0-9]*\),.*/\1/p')
+MUS_X=$(printf '%s' "$MUSWIN" | sed -n 's/.*"x":\(-\?[0-9]*\),.*/\1/p')
+MUS_Y=$(printf '%s' "$MUSWIN" | sed -n 's/.*"y":\(-\?[0-9]*\),.*/\1/p')
+echo "MUSWIN(restart, step-7 수형 재사용): $MUSWIN"
+sleep 2   # 부팅 스캔(부적합 문서 — 스캐너 수용 파) 도착 안정화
+
+echo "--- 16c-2. music_dir_add 1콜 (부적합 문서 위 — 수용/거부 원문 실측) ---"
+A1=$(atool music_dir_add '{"path":"/tmp/mus_i1_dir"}')
+echo "MUSIC-I1-ADD-REPLY: ${A1:-none}"
+if printf '%s' "$A1" | grep -aq '"ok":true'; then
+    echo "MUS-I1-ADD-OK: 수용 — AddDir의 자기 스캐너는 CP949 문서를 수용·보존한다(2o-f 계열 라이브 원문 — 거부 detail 'settings.json 파싱 실패 — 수기 치유 필요'는 서버 정문(settings_set) 소유 — 16c-3)"
+else
+    echo "MUSIC-I1-ADD-REJECT: 거부 — 위 reply 원문(브리프 예상 경로가 이쪽이면 리포트 원장)"
+fi
+I1_KEEP=0
+if CP_HERE; then
+    I1_KEEP=1
+    echo "MUSIC-I1-ADD-KEEP: OK — add 쓰기 뒤 CP949 바이트 보존 원문(무음 소각 봉합의 라이브 영수증)"
+else
+    echo "MUSIC-FAIL(i1-add-keep: add 쓰기가 CP949 항목을 소각 — T1 fix r1 봉합 부정)"
+fi
+IL1=$(atool music_dir_list '{}')
+echo "MUSIC-I1-LIST-1: ${IL1:-none} (보존-가시 read leg 원문 — CP949 항목도 수취)"
+
+echo "--- 16c-3. 쓰기 정문(settings_set) 거부 detail 원문 (M-1r 본안) ---"
+SS1=$(timeout 15 ./buildwsl/jkdesktop agentctl \
+    '{"tool":"settings_set","args":{"key":"audio_master_volume","value":50}}' \
+    2>/dev/null | grep -a '{' | head -1)
+echo "MUSIC-I1-SS-REPLY: ${SS1:-none}"
+I1_SS=0
+if printf '%s' "$SS1" | grep -aq '수기 치유 필요'; then
+    I1_SS=1
+    echo "MUS-I1-SS-OK: OK — 정문 거부 detail 'settings.json 파싱 실패 — 수기 치유 필요' 라이브 실측"
+else
+    echo "MUSIC-FAIL(i1-ss: 정문 거부 detail 미검출 — $SS1)"
+fi
+SS_STDERR=$(grep -a 'settings_set 거부' "$I1LOG" | head -1)
+echo "MUSIC-I1-SS-STDERR: ${SS_STDERR:-MISS} (서버 stderr 거부 1행)"
+[ -n "$SS_STDERR" ] || echo "MUSIC-FAIL(i1-ss-stderr: 거부 stderr 1행 미검출)"
+
+echo "--- 16c-4. remove 1콜 — 스캐너 수용으로 CP949 문서에서 dirs 소각 ---"
+DREM2=$(atool music_dir_remove '{"path":"/tmp/mus_i1_dir"}')
+echo "MUSIC-I1-REMOVE-REPLY: ${DREM2:-none}"
+I1_RSC=0
+printf '%s' "$DREM2" | grep -aq '"ok":true' \
+    && { I1_RSC=1; echo "MUS-I1-RSC-OK: OK — remove가 CP949 문서(quickjs 거부 원문)를 자기 스캐너로 수용해 dirs를 소각(원본 보존 — 2o-f 계열)"; } \
+    || echo "MUSIC-FAIL(i1-rsc: remove의 스캐너 수용 미관측 — $DREM2)"
+IL2=$(atool music_dir_list '{}')
+echo "MUSIC-I1-LIST-2: ${IL2:-none}"
+if [ "$I1_RSC" -eq 1 ]; then
+    CP_HERE && I1_KEEP=1 && echo "MUSIC-I1-RM-KEEP: OK — 제거 뒤에도 CP949 항목 보존(대상 아님 소각 금지 원문)" \
+        || echo "MUSIC-FAIL(i1-rm-keep: 다른 항목 제거가 CP949 항목을 소각)"
+fi
+RA=$(atool music_dir_remove "{\"path\":\"$CPENTRY\"}")
+echo "MUSIC-I1-REMOVE-CP949-REPLY: ${RA:-none} (도구 인자 경계 — AgentJson JSON 문자열은 UTF-8 검사라 CP949 바이트 수송 불가 — 패널 [제거] 원촉이 유일 인-엔진 치유 루트의 원문 근거)"
+
+echo "--- 16c-5. [패널 제거 치유 루트] — [폴더 관리] 토글 → [제거] 클릭 ---"
+# 정찰 원칙(T4 수형 — env 재보정): 클라 상대 좌표는 라이브 캘리브레이션 세션
+# (2026-10-10)의 클릭-차분+툴팁 검증으로 찍었다. 합성 캡처 좌표계 = 클라 좌표
+# + (417,173) — 캡처 원점이 데스크톱 (0,0)이 아니어서 절대 좌표 직용 불가(레슨
+# — 캡처↔클라 변환 필수). [폴더 관리] 토글 = 클라 (130,70) — 툴팁("settings.
+# music.dirs 폴더 추가/제거…")이 그 마우스 밑에서 뜬 채 패널이 열린 캡처가
+# 증거. 상태행 감김(+17px 시프트)이 토글 x존 오른쪽 밖을 가리키게 한 (160,77)
+# 클릭은 MISS였다(트랩 원장 — 상태행 1행 보장 단계에서 재측정). 패널 첫 행
+# [제거] SmallButton = 클라 x=86,y=118(실증 치유 콜) — 이웃 격자 폴백. 클릭
+# 판정: 토글 = 캡처 차분(열림 = 레이아웃 전이 — 임계 15행), [제거] =
+# settings.json 바이트(무음 실패 금지 원장).
+PX="$LOGDIR/mus_px.py"
+cat > "$PX" <<'PYEOF'
+# [T3] 캡처 차분기 — 두 PNG(필터 0·RGB8, 자가 캡처 전제)의 유의 행 수(픽셀
+# 차합 > 75 합, 행별 ≥8 픽셀, y 60-700 2픽셀 스텝)를 센다. 패널 열림 =
+# 레이아웃 전이(수십 행), 무효 클릭 = ≤ 몇 행 — 임계 15행 = 토글 판정.
+import struct, sys, zlib
+
+def load(p):
+    d = open(p, "rb").read()
+    pos, idat, w, h = 8, b"", 0, 0
+    while pos < len(d):
+        ln = struct.unpack(">I", d[pos:pos+4])[0]
+        tag = d[pos+4:pos+8]
+        body = d[pos+8:pos+8+ln]
+        pos += 12 + ln
+        if tag == b"IHDR":
+            w, h = struct.unpack(">II", body[:8])
+        elif tag == b"IDAT":
+            idat += body
+        elif tag == b"IEND":
+            break
+    raw = zlib.decompress(idat)
+    return w, h, raw
+
+w, h, a = load(sys.argv[1])
+_, _, b = load(sys.argv[2])
+n = 0
+for y in range(60, min(h, 700), 2):
+    c = 0
+    for x in range(400, min(w, 1030)):
+        va = a[y*(w*3+1)+1+x*3]
+        vb = b[y*(w*3+1)+1+x*3]
+        if abs(va - vb) > 75:
+            c += 1
+            if c >= 8:
+                break
+    if c >= 8:
+        n += 1
+print("diff_rows=%d" % n)
+PYEOF
+I1_OPEN=0
+I1_CURE=0
+if [ "$I1_BOOT" -eq 1 ] && [ "$I1_SS" -eq 1 ]; then
+    # 웜업 클릭(무해 지점 — 표 남는칸의 빈 행역): 재기동 뒤 앱의 **첫 합성
+    # 클릭은 무음 소멸한다**(2026-10-10 실측 렛슨 — cal/exp/repro/run-4/run-5
+    # 5세션 전부 첫 클릭 0-diff, 2nd부터 착탄) — 착탄 판정 전 소거.
+    WK=$(tap "$MUS_ID" "$((MUS_X + 300))" "$((MUS_Y + 300))")
+    printf '%s' "$WK" | grep -aq '"ok":true' || echo "  warmup tap reply: $WK (계속 — 무해 지점)"
+    sleep 1
+    rm -f "$LOGDIR/mus_px_pre.png"
+    python3 "$SHOT_PY" "$LOGDIR/mus_px_pre.png" >"$LOGDIR/mus_px_pre.log" 2>&1 \
+        || FAIL "I-1 pre-state capture failed — $(tail -2 "$LOGDIR/mus_px_pre.log" | tr '\n' ' ')"
+    TOG_TRIES=0
+    while [ "$TOG_TRIES" -lt 3 ]; do
+        TOG_TRIES=$((TOG_TRIES + 1))
+        TCK=$(tap "$MUS_ID" "$((MUS_X + MUS_TOGGLE_X + MUS_TOGGLE_TWEAK_X))" \
+            "$((MUS_Y + MUS_TOGGLE_Y))")
+        printf '%s' "$TCK" | grep -aq '"ok":true' \
+            || FAIL "I-1 toggle tap failed — $TCK"
+        echo "CLICK-TOGGLE#$TOG_TRIES: id=$MUS_ID 클라($MUS_TOGGLE_X,$MUS_TOGGLE_Y) — repl: $TCK"
+        sleep 1.3
+        rm -f "$LOGDIR/mus_px_tog.png"
+        python3 "$SHOT_PY" "$LOGDIR/mus_px_tog.png" >"$LOGDIR/mus_px_tog.log" 2>&1 \
+            || FAIL "I-1 toggle-open capture failed — $(tail -2 "$LOGDIR/mus_px_tog.log" | tr '\n' ' ')"
+        OP=$(python3 "$PX" "$LOGDIR/mus_px_pre.png" "$LOGDIR/mus_px_tog.png")
+        echo "MUSIC-I1-PX-OPEN-CHECK#$TOG_TRIES: $OP (토글 판정 — 임계 15행)"
+        if printf '%s' "$OP" | sed -n 's/.*diff_rows=\([0-9]*\).*/\1/p' | \
+            awk '{exit ($1 >= 15) ? 0 : 1}'; then
+            I1_OPEN=1
+            echo "MUS-I1-TOGGLE-OK: [폴더 관리] 패널 열림 ($TOG_TRIES 시도)"
+            break
+        fi
+        echo "  무변화(0-diff) — 첫 클릭 소멸 렛슨(웜업 후에도 간헐) — 재시도"
+        cp "$LOGDIR/mus_px_tog.png" "$LOGDIR/mus_px_pre.png"
+    done
+    [ "$I1_OPEN" -eq 1 ] \
+        || echo "MUS-I1-TOGGLE-MISS: 3시도 무변화 — MUS_TOGGLE_X/Y 재보정 몫"
+else
+    echo "MUS-I1-PANEL-SKIP: 부팅 경고/정문 거부 전항 미달 — 치유 루트 단계 생략(원장)"
+fi
+if [ "$I1_OPEN" -eq 1 ]; then
+    shot mus_wsl_dirs_panel.png   # [폴더 관리] 패널 모양 1캡처(T3 브리프 — 치유 직전 상태)
+    for RY in $MUS_REMOVE_YS; do
+        for RX in $MUS_REMOVE_XS; do
+            RK=$(tap "$MUS_ID" "$((MUS_X + RX))" "$((MUS_Y + RY))")
+            printf '%s' "$RK" | grep -aq '"ok":true' \
+                || FAIL "I-1 cure grid tap failed — $RK"
+            sleep 1
+            if ! CP_HERE; then
+                I1_CURE=1
+                echo "MUS-I1-CURE-OK: OK — 패널 [제거] 클릭(클라 x=$RX,y=$RY)이 CP949 항목을 소각했다 (tap reply: ${RK:-none} — 도구 인자 경계 원문은 16c-4)"
+                break 2
+            fi
+            echo "  cure try (클라 x=$RX,y=$RY) — CP949 잔존(클릭 미적중)"
+        done
+    done
+fi
+if [ "$I1_CURE" -eq 1 ]; then
+    echo "MUS-I1-PANEL-OK: 패널 제거 치유 루트 성립 — [폴더 관리] 토글 → [제거] 1콜로 문서 순수 회귀(T2 리뷰 I-1 §(1) 원문)"
+else
+    echo "MUS-I1-PANEL-MISS: 치유 루트 미검출 — 재정찰 런 필요(MUS_TOGGLE_X/Y·MUS_REMOVE_XS/YS — 위 mus_wsl_dirs_panel·mus_px_tog 원문)"
+fi
+IL3=$(atool music_dir_list '{}')
+echo "MUSIC-I1-LIST-3: ${IL3:-none} (치유 후 list 원문)"
+if [ "$I1_CURE" -eq 1 ]; then
+    PURE=$(python3 - "$SETTINGS" <<'PYEOF'
+import json, sys
+try:
+    with open(sys.argv[1], "rb") as f:
+        obj = json.loads(f.read().decode("utf-8"))
+except Exception as e:
+    print("PURE-MISS %r" % e)
+    raise SystemExit
+print("PURE-OK audio=%s retention=%s dirs=%s"
+      % ("audio" in obj, "retention" in obj,
+         obj.get("music", {}).get("dirs", [])))
+PYEOF
+) || PURE="PURE-MISS(python3 런처 실패)"
+    echo "MUSIC-I1-PURE-JSON: $PURE (독립 파서 — 문서 순수 회귀 영수증: 부팅 리더 회복 대리)"
+    if printf '%s' "$PURE" | grep -aq 'PURE-OK'; then
+        echo "MUS-I1-PURE-OK: OK — CP949 바이트 0(문서 순수)"
+    else
+        echo "MUSIC-FAIL(i1-pure: 치유 후 문서 비순수 — $PURE)"
+        I1_CURE=0
+    fi
+    echo "--- 16c-6. 치유 후 music_dir_add 재시도 + settings_set 성공 (이후 쓰기 정상) ---"
+    # 관측 원장(2026-10-10 런6): 패널 [제거]의 저장소 쓰기(원자적 — .bak 잔산)
+    # 직후 music 클라가 세그폴트 사망한다(cal 세션과 2전 2 — tool_gone/
+    # unknown_app_tool 답신). 서버는 생존(settings_set 계속 성립) — 신규 결함
+    # 원장은 리포트(치유 경로의 P1 — T2 UI/스캔 leg 어느 축 — gdb 원문 몫).
+    A2=$(atool music_dir_add '{"path":"/tmp/mus_i1_retry"}')
+    echo "MUSIC-I1-ADD-RETRY-REPLY: ${A2:-none}"
+    if printf '%s' "$A2" | grep -aq '"ok":true'; then
+        I1_RETRY=1
+        echo "MUS-I1-RETRY-OK: OK — 치유 후 music_dir_add 재시도 성공(부팅 재기동 불요)"
+    elif printf '%s' "$A2" | grep -aq 'unknown_app_tool\|tool_gone'; then
+        echo "MUSIC-FAIL(i1-add-retry: music 클라 [제거] 쓰기 뒤 세그폴트 사망 — 치유 후 도구 경로 소멸 — 재기동 후 재실측(앱 재스폰 — 서버 부팅 불요))"
+        RL=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"launch_app","args":{"app":"music"}}' 2>/dev/null | grep -a '{' | head -1)
+        printf '%s' "$RL" | grep -aq '"ok":true' || FAIL "music relaunch after client crash failed — $RL"
+        echo "MUSIC-I1-APP-RELAUNCH: OK"
+        sleep 3
+        A2=$(atool music_dir_add '{"path":"/tmp/mus_i1_retry"}')
+        echo "MUSIC-I1-ADD-RETRY-REPLY-2: ${A2:-none}"
+        printf '%s' "$A2" | grep -aq '"ok":true' \
+            && { I1_RETRY=1; echo "MUS-I1-RETRY-OK: OK — 재스폰 뒤 add 재시도 성공(이후 쓰기 정상)"; } \
+            || echo "MUSIC-FAIL(i1-add-retry-2: 재스폰 뒤 등록 실패 — $A2)"
+    else
+        echo "MUSIC-FAIL(i1-add-retry: 치유 후 등록 실패(기타) — $A2)"
+    fi
+    IL4=$(atool music_dir_list '{}')
+    echo "MUSIC-I1-LIST-4: ${IL4:-none} (재시도 등록 목록 원문)"
+    SS2=$(timeout 15 ./buildwsl/jkdesktop agentctl \
+        '{"tool":"settings_set","args":{"key":"audio_master_volume","value":50}}' \
+        2>/dev/null | grep -a '{' | head -1)
+    echo "MUSIC-I1-SS-POST-REPLY: ${SS2:-none}"
+    I1_SS2=0
+    if printf '%s' "$SS2" | grep -aq '"ok":true'; then
+        I1_SS2=1
+        echo "MUS-I1-SS2-OK: 치유 후 정문 쓰기 성공(부팅 재기동 불요 — 이후 쓰기 정상 원문)"
+    else
+        echo "MUSIC-FAIL(i1-ss2: 치유 후 정문 쓰기 실패 — $SS2)"
+    fi
+    # C1 라이브 등가는 **파일 수준** 판정으로 바꾼다(app 사망 시 tool_gone이
+    # C1 부정으로 오독하는 함정 — 정직 부기). settings_set(정문)이 미관리
+    # music 키를 원문 그대로 보존했는지 = 독립 파서 수취.
+    C1CHK=$(python3 - "$SETTINGS" <<'PYEOF'
+import json, sys
+with open(sys.argv[1], "rb") as f:
+    obj = json.loads(f.read().decode("utf-8"))
+print("C1-OK music=%s audio=%s retention=%s" %
+      (obj.get("music"), "audio" in obj, "retention" in obj))
+PYEOF
+) || C1CHK="C1-MISS(python3 파서 실패)"
+    echo "MUSIC-I1-C1-FILE: $C1CHK (정문 쓰기 뒤 파일 원문 — music 키 생존 = C1 라이브 등가)"
+    printf '%s' "$C1CHK" | grep -aq 'C1-OK' \
+        || echo "MUSIC-FAIL(i1-c1: settings_set이 미관리 music 키를 소각 — C1 부정: $C1CHK)"
+else
+    I1_RETRY=0
+    I1_SS2=0
+    echo "MUS-I1-POST-CURE-SKIP: 치유 MISS — 이후 단계는 정찰 재보정 런에서(settings는 백업 원복으로 정리)"
+fi
+cp "$SNAP" "$SETTINGS" || echo "MUSIC-FAIL(i1-restore: 백업 복사 실패)"
+I1_RESTORE=0
+cmp -s "$SETTINGS" "$SNAP" && I1_RESTORE=1 \
+    && echo "MUSIC-I1-RESTORE-BYTE: OK — 백업 원복 바이트 등호(T5 수형)" \
+    || echo "MUSIC-FAIL(i1-restore: 원복 바이트 불일치)"
+
 restore_and_exit
 
 echo "=== 17. REMNANT — /tmp 자가 스크립트·중간파일 소각 ==="
+rm -f "$SNAP" "$PAT"
 LEFTS=$(ls "$LOGDIR" 2>/dev/null | wc -l)
 REMNANT_LIST=$(ls "$LOGDIR")
 echo "REMNANT-COUNT=$LEFTS (서버·빌드·셀프테스트·shot 로그만 잔존 — 원장 수형)"
@@ -732,6 +1133,13 @@ else
     echo "SCRATCH-REMNANT: 0 (트리 잔산 0)"
 fi
 [ -d "$SEED_DIR" ] && { echo "MUS-FAIL: seed dir remnant — 수동 소각 필요"; exit 1; }
+SETL=$(ls buildwsl/state/ 2>/dev/null | grep -a 'settings.json' \
+    | grep -av '^settings.json$' | tr '\n' ' ')
+echo "SETTINGS-REMNANT: ${SETL:-0} (bak/<pid>.tmp — 원자적 쓰기의 성공세대 이주/크래시 잔산 정직 부기 — T2 fix r1 M-1 영수증)"
+[ -z "$SETL" ] || echo "MUSIC-FAIL(settings remnant: $SETL — 원장)"
+rm -f buildwsl/state/settings.json.bak buildwsl/state/settings.json.*.tmp
+[ -d /tmp/mus_dirs_x ] && echo "MUSIC-FAIL(dir remnant: /tmp/mus_dirs_x — 수동 소각)"
+rm -rf /tmp/mus_dirs_x
 
 echo "=== 18. music 실측 판정 ==="
 CAP_OK=1
@@ -754,10 +1162,28 @@ else
     echo "MUSIC-VERDICT: MUSIC-FAIL(행별 사유는 위 각 행 — delegate=$DEL_OK deleg-open=$DELEG_OPEN glue=$GLUE_OK play=$PLAY_OK captures=$CAP_OK; 인프라 실패는 hard FAIL로 상단 중단, 수치·육안 미달은 rc=0 honest-fail)"
 fi
 echo "MUSIC-WCAPTURES:"
-for f in spatial list filter vp_delegate delegate_status after; do
+for f in spatial list filter vp_delegate delegate_status after dirs_panel; do
     P="$RECEIVE/mus_wsl_$f.png"
     [ -s "$P" ] && echo "  $P ($(wc -c < "$P") bytes)"
 done
+echo "=== 18c. [T3] dirs 도구 세그먼트/I-1 판정 (rc는 0 유지 — 원문은 위 각 행) ==="
+DIRS_OK=0
+if printf '%s' "${DADD:-}" | grep -aq '"ok":true' \
+    && printf '%s' "${DL1:-}" | grep -aq 'mus_dirs_x' \
+    && printf '%s' "${DREM:-}" | grep -aq '"ok":true' \
+    && ! printf '%s' "${DL2:-}" | grep -aq 'mus_dirs_x' ; then
+    DIRS_OK=1
+fi
+[ "$DIRS_OK" -eq 1 ] \
+    && echo "MUSIC-DIRS-VERDICT: DIRS-OK(add=ok·list 등록/제거 원문·settings 기록+audio/retention 보존·원복 바이트 등호) — 도구 6종 원존(spatial 3종 병합 유지), 육안 스탭 대기" \
+    || echo "MUSIC-DIRS-VERDICT: DIRS-FAIL(add=${DADD:-none} list1=${DL1:-none} remove=${DREM:-none} list2=${DL2:-none} — 행별 사유는 16b)"
+I1_SUM="boot=$I1_BOOT ss=$I1_SS keep=$I1_KEEP rsc=${I1_RSC:-0} cure=$I1_CURE retry=${I1_RETRY:-0} ss2=${I1_SS2:-0} restore=${I1_RESTORE:-0}"
+if [ "$I1_BOOT" -eq 1 ] && [ "$I1_SS" -eq 1 ] && [ "$I1_KEEP" -eq 1 ] \
+    && [ "${I1_RSC:-0}" -eq 1 ] && [ "${I1_RESTORE:-0}" -eq 1 ]; then
+    echo "MUSIC-I1-VERDICT: I1-OK(부팅 stderr 경고 1행·정문 거부 detail 원문·CP949 보존·스캐너 수용 remove 1콜·백업 원복 바이트 등호) — $I1_SUM cure=$I1_CURE(패널 치유 — MISS면 재정찰/EYES 승계)"
+else
+    echo "MUSIC-I1-VERDICT: I1-FAIL(honest-fail — 구성항목 원문은 16c 행별; $I1_SUM)"
+fi
 echo "=== 18b. spatial leg 판정 (T3 — rc는 0 유지, 원문은 위 각 행) ==="
 LEG_FALLBACK=0
 if printf '%s' "${PLAY1:-}" | grep -aq '"error":"start_failed"' \
