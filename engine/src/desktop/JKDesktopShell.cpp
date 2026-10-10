@@ -15,6 +15,7 @@
 
 #include <quickjs.h>
 
+#include <algorithm>
 #include <cctype>
 #include <chrono>
 #include <cstdio>
@@ -209,10 +210,23 @@ void EnsureTrustRecord(const std::string& fingerprint, const std::string& name) 
 
     std::FILE* wf = std::fopen(path.c_str(), "wb");
     if (wf) {
-        std::fwrite(out.data(), 1, out.size(), wf);
+        const bool wrote = std::fwrite(out.data(), 1, out.size(), wf) == out.size();
         std::fclose(wf);
-        std::fprintf(stderr, "JKWindowServer: console app cmd fingerprint recorded (%s, '%s')\n",
-                     fingerprint.substr(0, 15).c_str(), name.c_str());
+        if (wrote) {
+            std::fprintf(stderr, "JKWindowServer: console app cmd fingerprint recorded (%s, '%s')\n",
+                         fingerprint.substr(0, 15).c_str(), name.c_str());
+        } else {
+            // (I-2 fix r1) 기록 실패는 정직 1행 — 지문 누락이 관측 불가하던
+            // 무음 경로의 소각. 관측 운반체는 stderr뿐 (서버 계약상 지문은
+            // state/trust.json이 진실원).
+            std::fprintf(stderr, "JKWindowServer: trust store write failed (short, '%s') — console app '%s' not recorded\n",
+                         path.c_str(), name.c_str());
+        }
+    } else {
+        // (I-2 fix r1) 스토어 열기 실패(디스크 풀·권한·dir 조립 실패)도 동일 —
+        // 지문이 남지 못하는 케이스의 노출.
+        std::fprintf(stderr, "JKWindowServer: trust store write failed (open, '%s') — console app '%s' not recorded\n",
+                     path.c_str(), name.c_str());
     }
 }
 
@@ -435,14 +449,37 @@ void JKDesktopShell::ScanJkxApps() {
 
     const float s = host_.outputScale ? host_.outputScale() : 1.0f;
 
+    // (C-2 fix r1) posix 스캔 순서 결정론 — directory_iterator 순서는 무정렬이라
+    // 부팅마다 셀 순서가 흔들린다. Win FindFirstFileA(NTFS)가 파일명 사전순
+    // (case-insensitive)을 돌려주는 원문 뷰에 맞춰 이름 정렬로 통일 — "Win과
+    // 동형" 표기의 재현성 담보(폰 눈확인 비교 기준).
+    std::vector<std::filesystem::path> entries;
     for (std::filesystem::directory_iterator it(appsDir, scanEc), end;
          !scanEc && it != end; it.increment(scanEc)) {
-        const std::string jkxName = it->path().filename().string();
-        std::string ext = it->path().extension().string();
+        entries.push_back(it->path());
+    }
+    if (scanEc) {
+        std::fprintf(stderr, "JKDesktopShell: apps dir scan ended early (%s)\n",
+                     scanEc.message().c_str());
+        return;
+    }
+    const auto byFileName = [](const std::filesystem::path& a,
+                               const std::filesystem::path& b) {
+        std::string na = a.filename().string();
+        std::string nb = b.filename().string();
+        for (char& c : na) c = static_cast<char>(std::tolower((unsigned char)c));
+        for (char& c : nb) c = static_cast<char>(std::tolower((unsigned char)c));
+        return na < nb;
+    };
+    std::sort(entries.begin(), entries.end(), byFileName);
+
+    for (const std::filesystem::path& entry : entries) {
+        const std::string jkxName = entry.filename().string();
+        std::string ext = entry.extension().string();
         for (char& c : ext) c = static_cast<char>(std::tolower((unsigned char)c));
         if (ext != ".jkx") continue;
 
-        const std::string path = appsDir + "/" + jkxName;
+        const std::string path = entry.string();
 
         jk::JKJkxFile jkx;
         if (!jkx.Open(path)) continue;
@@ -458,10 +495,10 @@ void JKDesktopShell::ScanJkxApps() {
         // Icon entry: prefer @2x on high-scale displays — win32 동형.
         std::string wanted = (s >= 1.5f && !mani.icon2x.empty()) ? mani.icon2x : mani.icon;
         if (wanted.empty()) wanted = !mani.icon2x.empty() ? mani.icon2x : mani.icon;
-        const int entry = wanted.empty() ? -1 : jkx.FindEntry("ICON", wanted);
+        const int iconEntry = wanted.empty() ? -1 : jkx.FindEntry("ICON", wanted);
         std::vector<uint8_t> png;
         jk::LoadedImage img;
-        if (entry >= 0 && jkx.ReadEntry(entry, png) &&
+        if (iconEntry >= 0 && jkx.ReadEntry(iconEntry, png) &&
             jk::LoadImageMemory(png.data(), png.size(), img)) {
             icon.texture = host_.makeTexture(img, mani.name.c_str());
         }
@@ -470,10 +507,6 @@ void JKDesktopShell::ScanJkxApps() {
         std::fprintf(stderr, "JKWindowServer: installed app '%s' from %s (icon %s)\n",
                      mani.name.c_str(), jkxName.c_str(),
                      launcherIcons_.back().texture ? "decoded" : "missing");
-    }
-    if (scanEc) {
-        std::fprintf(stderr, "JKDesktopShell: apps dir scan ended early (%s)\n",
-                     scanEc.message().c_str());
     }
 #endif // _WIN32
 }
@@ -603,14 +636,35 @@ void JKDesktopShell::ScanConsoleApps() {
 
     const float s = host_.outputScale ? host_.outputScale() : 1.0f;
 
+    // (C-2 fix r1) 결정론 순서 — jkx 스캔 leg의 byFileName 정렬과 동일 원문
+    // (Win NTFS 파일명 사전순 뷰에 정렬).
+    std::vector<std::filesystem::path> entries;
     for (std::filesystem::directory_iterator it(appsDir, scanEc), end;
          !scanEc && it != end; it.increment(scanEc)) {
+        entries.push_back(it->path());
+    }
+    if (scanEc) {
+        std::fprintf(stderr, "JKDesktopShell: apps dir scan ended early (%s)\n",
+                     scanEc.message().c_str());
+        return;
+    }
+    const auto byFileName = [](const std::filesystem::path& a,
+                               const std::filesystem::path& b) {
+        std::string na = a.filename().string();
+        std::string nb = b.filename().string();
+        for (char& c : na) c = static_cast<char>(std::tolower((unsigned char)c));
+        for (char& c : nb) c = static_cast<char>(std::tolower((unsigned char)c));
+        return na < nb;
+    };
+    std::sort(entries.begin(), entries.end(), byFileName);
+
+    for (const std::filesystem::path& entry : entries) {
         std::error_code dirEc;
-        if (!it->is_directory(dirEc) || dirEc) continue;
-        const std::string dirName = it->path().filename().string();
+        if (!std::filesystem::is_directory(entry, dirEc) || dirEc) continue;
+        const std::string dirName = entry.filename().string();
         if (dirName.empty() || dirName[0] == '.') continue;
 
-        const std::string manifestPath = it->path().string() +
+        const std::string manifestPath = entry.string() +
                                          std::string("/manifest.json");
         std::vector<uint8_t> bytes;
         if (!ReadFileBytes(manifestPath, bytes)) continue;  // no manifest → not a console app
@@ -650,7 +704,16 @@ void JKDesktopShell::ScanConsoleApps() {
         JS_FreeRuntime(rt);
         if (name.empty() || cmd.empty()) continue;
 
-        // posix 스폰 키 — 카탈로그 posix branch 동형(존재 게이트 fail-closed).
+        // posix 스폰 키 — (M-1 fix r1) 절대키 해상: cmd_posix는 exe-dir 상대
+        // 규약(JKLibraryCatalog 계약)이므로 basePath 결합해 cwd 무관 절대키로
+        // 해상한다. SpawnConsoleApp의 `--cwd apps/<dir>` 조립은 Win 계약 그대로
+        // 남겨두어도, 터미널 child(셸) cwd가 앱 폴더여도 /bin/sh -c <절대키>가
+        // 성립한다 — 키를 basePath 상대로 남기면
+        // `apps/<dir>/`+`apps/<sample>/x.sh` 중복 접두로 소실(리뷰 M-1 재현
+        // 원장: cd buildwsl/apps/sampletodo && ls apps/sampletodo/sampletodo.sh
+        // → No such file). 존재 게이트 fail-closed는 유지. cmd_posix 부재
+        // 매니페스트는 cmd 원문(카탈로그 계약 1:1) — Windows 전용 cmd는 posix
+        // PATH 밖 죽은 키일 수 있다는 한계는 카탈로그와 공유.
         std::string spawnKey = cmd;
         if (!cmdPosix.empty()) {
             std::error_code twinEc;
@@ -662,7 +725,7 @@ void JKDesktopShell::ScanConsoleApps() {
                              name.c_str(), cmdPosix.c_str());
                 continue;
             }
-            spawnKey = cmdPosix;
+            spawnKey = twinPath;
         }
 
         // .jkx 우선: 같은 이름의 컨테이너가 이미 있으면 매니페스트 앱은 스킵 —
@@ -688,7 +751,7 @@ void JKDesktopShell::ScanConsoleApps() {
 
         // 아이콘(선택): apps/<name>/icon@{2x,1x}.png — 없으면 placeholder 사각형.
         const char* pick = s >= 1.5f ? "icon@2x.png" : "icon@1x.png";
-        const std::string iconPath = it->path().string() + "/" + pick;
+        const std::string iconPath = entry.string() + "/" + pick;
         jk::LoadedImage img;
         if (jk::LoadImageFile(iconPath, img)) {
             icon.texture = host_.makeTexture(img, name.c_str());
@@ -700,10 +763,6 @@ void JKDesktopShell::ScanConsoleApps() {
                      name.c_str(), spawnKey.c_str(),
                      launcherIcons_.back().consoleDir.c_str(),
                      launcherIcons_.back().texture ? "decoded" : "missing");
-    }
-    if (scanEc) {
-        std::fprintf(stderr, "JKDesktopShell: apps dir scan ended early (%s)\n",
-                     scanEc.message().c_str());
     }
 #endif // _WIN32
 }
