@@ -288,7 +288,13 @@ chmod +x buildwsl/apps/zprobe_exec/run.sh
 echo "SCRATCH-OK: apps/zprobe_exec (name=zprobe_exec, cmd_posix twin — 정렬상 콘솔 last)"
 
 echo "=== 3. boot server (setsid nohup detached, WSLg :0) ==="
-rm -f /tmp/JKWindowServerPipe.sock
+# #98 pre-clean guard: rm on a LIVE server's socket entombs its parked
+# listener (client connects land ENOENT) — skip and note.
+if pgrep -f '[j]kdesktop --server' >/dev/null 2>&1; then
+    echo "NOTE #98: live server holds /tmp/JKWindowServerPipe.sock — pre-clean rm skipped"
+else
+    rm -f /tmp/JKWindowServerPipe.sock
+fi
 env DISPLAY=:0 setsid nohup ./buildwsl/jkdesktop --server >"$SRVLOG" 2>&1 &
 sleep 6
 [ -n "$(pgrep -f 'buildwsl/[j]kdesktop --server' | head -1)" ] \

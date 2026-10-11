@@ -49,7 +49,14 @@ ASSERT_FIELD() { printf '%s' "$1" | grep -aq "$2" || FAIL "$3 — reply: $1"; }
 
 echo "=== 3. boot server (setsid nohup detached, WSLg :0) ==="
 pkill -f 'buildwsl/jkdesktop' 2>/dev/null
-rm -f /tmp/JKWindowServerPipe.sock
+# #98 pre-clean guard: rm on a LIVE server's socket entombs its parked
+# listener (client connects land ENOENT) — skip and note. (soft pkill only —
+# a surviving server is exactly the guarded hazard.)
+if pgrep -f '[j]kdesktop --server' >/dev/null 2>&1; then
+    echo "NOTE #98: live server holds /tmp/JKWindowServerPipe.sock — pre-clean rm skipped"
+else
+    rm -f /tmp/JKWindowServerPipe.sock
+fi
 sleep 1
 env DISPLAY=:0 setsid nohup ./buildwsl/jkdesktop --server >/tmp/lib_srv.log 2>&1 &
 sleep 5

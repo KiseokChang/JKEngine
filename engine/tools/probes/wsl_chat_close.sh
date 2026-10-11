@@ -76,7 +76,13 @@ pkill -9 -f 'buildwsl/[j]kdesktop' 2>/dev/null
 sleep 1
 pgrep -f 'buildwsl/[j]kdesktop' >/dev/null 2>&1 \
     && FAIL "pre-clean could not clear stale server/clients (SIGKILL 후에도 잔존)"
-rm -f /tmp/JKWindowServerPipe.sock
+# #98 pre-clean guard: rm on a LIVE server's socket entombs its parked
+# listener (client connects land ENOENT) — skip and note.
+if pgrep -f '[j]kdesktop --server' >/dev/null 2>&1; then
+    echo "NOTE #98: live server holds /tmp/JKWindowServerPipe.sock — pre-clean rm skipped"
+else
+    rm -f /tmp/JKWindowServerPipe.sock
+fi
 sleep 1
 env DISPLAY=:0 setsid nohup ./buildwsl/jkdesktop --server >/tmp/chatclose_srv.log 2>&1 &
 sleep 5

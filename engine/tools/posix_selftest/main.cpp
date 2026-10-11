@@ -18,6 +18,7 @@
 #include <vector>
 
 #include <sys/stat.h>  // stat, S_ISSOCK (socket-file liveness triage below)
+#include <sys/un.h>  // sockaddr_un (#98 live-holder triage)
 #include <unistd.h>  // access, unlink, getpid, R_OK, close, sleep
 
 #include <arpa/inet.h>  // inet_addr, htons (raw client below — this TU is
@@ -56,6 +57,22 @@ bool EndsWith(const std::string& s, const char* suffix) {
     const std::string tail(suffix);
     return s.size() >= tail.size() &&
            s.compare(s.size() - tail.size(), tail.size(), tail) == 0;
+}
+
+// #98 pre-clean guard (same family as the tools/probes rm guard): does a LIVE
+// server currently hold this socket path? A successful short connect means
+// yes (it lands in the holder's backlog); ECONNREFUSED means a stale leftover
+// (safe to unlink); anything else is fail-closed (treat as held).
+bool LiveServerHoldsSocketPath(const std::string& path) {
+    const int probe = ::socket(AF_UNIX, SOCK_STREAM, 0);
+    if (probe < 0) return true;  // unknown — fail closed
+    sockaddr_un addr{};
+    addr.sun_family = AF_UNIX;
+    std::strncpy(addr.sun_path, path.c_str(), sizeof(addr.sun_path) - 1);
+    const bool connected = ::connect(probe, reinterpret_cast<const sockaddr*>(&addr),
+                                     sizeof(addr)) == 0;
+    ::close(probe);
+    return connected;
 }
 
 // Monotonic ms since an arbitrary epoch — read-timeout timing check only.
@@ -643,6 +660,92 @@ void TestPipeTransport() {
           "transport: socket file removed at case end");
 }
 
+// Case 5b (JKPipeTransport #98 — listener self-repair). The A-grade origin
+// (user WSL session, 2026-10-11): a LIVE listener parked in accept while its
+// socket file was unlinked externally (probe pre-clean rm surviving a pkill)
+// became a permanent self-lock — every later client connect landed ENOENT and
+// the parked accept() could never be woken, so the rebind cycle never came
+// (6h+ dead /tmp/JKWindowServerPipe.sock with a LISTEN fd still standing).
+// Observable contract under test (repair report repro):
+//   A) a fresh CreateServer binds its socket path;
+//   B) the file deleted OUT from under the parked listener (the entombing
+//      trigger — the repair report's repro step);
+//   C) the listener self-repairs: the socket file reappears (rebind) within
+//      the poll slice + margin, a client reaches it, CreateServer unblocks,
+//      and the wire carries a 100-byte round-trip (case-5 shape).
+// Before the fix C) hung forever — this case is the regression canon.
+void TestPipeListenerSelfRepair() {
+    const std::string sockPath =
+        "/tmp/jkpipe_slftest_" + std::to_string(::getpid()) + "_rebind.sock";
+    ::unlink(sockPath.c_str());
+
+    // Server thread: same shape as case 5 — CreateServer parks until a client
+    // lands (which here happens only after the vanish + self-repair).
+    std::unique_ptr<jk::ipc::JKPipeTransport> server;
+    std::thread serverThread([&server, &sockPath]() {
+        server = jk::ipc::JKPipeTransport::CreateServer(sockPath);
+    });
+
+    struct stat st {};
+    bool bound = false;
+    for (int i = 0; i < 500 && !bound; ++i) {  // 10s budget
+        if (::stat(sockPath.c_str(), &st) == 0 && S_ISSOCK(st.st_mode)) {
+            bound = true;
+        }
+        if (!bound) NapMs(20);
+    }
+    Check(bound, "repair: listener binds its socket path");
+
+    // B) the entombing trigger — file deleted while the acceptor is parked.
+    ::unlink(sockPath.c_str());
+    Check(::stat(sockPath.c_str(), &st) != 0,
+          "repair: socket file removed under the parked listener");
+
+    // C) self-repair: file must reappear (rebind after the vanish); then the
+    // client must reach the recovering listener and CreateServer must unblock.
+    std::unique_ptr<jk::ipc::JKPipeTransport> client;
+    for (int i = 0; i < 500 && !client; ++i) {  // 10s budget
+        if (::stat(sockPath.c_str(), &st) == 0 && S_ISSOCK(st.st_mode)) {
+            client = jk::ipc::JKPipeTransport::ConnectClient(sockPath);
+        }
+        if (!client) NapMs(20);
+    }
+    Check(client != nullptr,
+          "repair: ConnectClient reaches the rebound listener");
+    if (!client) {
+        serverThread.detach();
+        return;
+    }
+    serverThread.join();
+    Check(server != nullptr,
+          "repair: CreateServer unblocks after the vanish+rebind");
+    if (!server) {  // keep the rest gated (case-5 shape)
+        client->Close();
+        ::unlink(sockPath.c_str());
+        return;
+    }
+
+    // D) wire sanity — the accepted conn is a live conversation (case-5 echo).
+    std::vector<uint8_t> tx(100), rx(100, 0);
+    for (size_t i = 0; i < tx.size(); ++i) {
+        tx[i] = static_cast<uint8_t>((i * 37) ^ 0x9C);
+    }
+    const std::string t("JKPT-REBIND-98");
+    for (size_t i = 0; i < t.size(); ++i) tx[i] = static_cast<uint8_t>(t[i]);
+    Check(client->Write(tx.data(), tx.size()),
+          "repair: client Write of 100 bytes succeeds");
+    Check(server->Read(rx.data(), rx.size()),
+          "repair: server Read of 100 bytes succeeds");
+    Check(rx == tx, "repair: client->server 100 bytes round-trip exactly");
+
+    // Case-end cleanup (case-5 shape).
+    client->Close();
+    server->Close();
+    ::unlink(sockPath.c_str());
+    Check(::stat(sockPath.c_str(), &st) != 0,
+          "repair: socket file removed at case end");
+}
+
 // Case 6 (jk::fs::InstanceLock): the single-instance guard adapter —
 // flock(LOCK_EX|LOCK_NB) on the /tmp/<name>.lock file (docs/62 §8 flock 봉쇄,
 // plan D task 6). Contracts under test:
@@ -930,6 +1033,17 @@ void TestProcessScan(char* const* argv) {
 // the bind fail — the gate environment does not run one.
 void TestPipeEndpointMapping() {
     const std::string mapped = "/tmp/JKWindowServerPipe.sock";
+    // #98 guard: never unlink a LIVE server's socket — that entombing rm was
+    // the exact user-session origin (2026-10-11). When a live holder owns the
+    // constant's path, this fold-mapping case is not runnable without
+    // entombing the desktop — skip entirely, note one line.
+    if (LiveServerHoldsSocketPath(mapped)) {
+        std::printf("[SKIP] endpoint-map: a live server holds %s — "
+                    "#98 guard (rm skipped)\n",
+                    mapped.c_str());
+        std::fflush(stdout);
+        return;
+    }
     ::unlink(mapped.c_str());  // scratch-free start (unique-enough constant)
 
     std::unique_ptr<jk::ipc::JKPipeTransport> server;
@@ -2465,6 +2579,7 @@ int main(int argc, char** argv) {
     TestNetAdapter();
     TestPtyBridge();
     TestPipeTransport();
+    TestPipeListenerSelfRepair();
     TestInstanceLock();
     TestTextConv();
     TestProcessScan(argv);
