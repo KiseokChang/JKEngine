@@ -31,7 +31,9 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>  // OpenRequestJsonPath의 snprintf — 전이 include 의존 봉합(M-1)
+#include <cstring>  // memcmp — 태그 매직·프레임 ID 판별(#99 T1)
 #include <filesystem>
+#include <fstream>  // ParseTag — ifstream(fs::path 개방 — 2q 실측 수형, #99 T1)
 #include <functional>
 #include <set>
 #include <string>
@@ -506,6 +508,503 @@ inline std::string Parent(const std::string& cwd) {
 }
 
 } // namespace browse
+
+// ---- 태그 파서 (T1 — 스펙 2026-10-11-music-tags-design) ----
+//
+// 곡명/아티스트/앨범을 파일에서 읽어내는 **순수 부품**(전부 헤더 인라인 —
+// 버퍼판) + 파일 접점(ParseTag — 필요 범위만 읽는 D2 원문). 조달 0 원칙
+// 승계(D1): 파서는 own이고 조달된 third_party(dr_flac/dr_mp3/dr_wav/
+// stb_vorbis)의 내장 메타 API는 T1 실측 결과 **본 헤더에서 재용 불가** —
+// ①공급 경로 계약: spatial-player 레포의 헤더는 SPATIAL_PLAYER_ROOT 환경변수
+// 힌트로만 소비(레포 경로의 커밋 소스 기재 금지 규약)라 MusicModel.h에
+// include 경로를 남길 수 없고, audio_core는 레그 온일 때만 링크(미설정 빌드
+// = API 자체 부재). ②stb_vorbis_get_comment는 열린 stb_vorbis*를 요구 —
+// 열기가 v2.4의 코드북·setup 헤더 체인 전체를 요구해 **합성 블롭이 열리지
+// 않는다(2s ⑧ 결함 원문 봉인). ③dr_mp3 onMeta는 **원문 태그데이터 전달만**
+// (dr_mp3.h 5082: "Currently this only reports the raw tag data which means
+// applications need to parse the data themselves") — 텍스트 프레임 파서 갭이
+// own ID3v2 파서가 소관. ④dr_flac/dr_wav의 메타 API는 내부 narrow fopen
+// (Windows ACP 해석 — #94 인코딩 사슬 함정)을 태워 네이티브 경로 개방 자체를
+// 어긋내고, utf8 fs::path 개방으로 대체한다.
+//
+// FLAC/Ogg 코멘트는 동일 vorbis comment 구조(vendor+count+entries)라
+// ParseVorbisComments 공용 1개를 두고, 컨테이너 해석만 FLAC 블록 사슬
+// (ParseFlacTags)과 Ogg 페이지 연쇄(ParseOggTags)로 갈라낸다.
+namespace tags {
+
+// 구조 계약(브리프 원문 — 3필드 고정). TDRC/TRCK 프레임은 D1 표기에 있으나
+// 싱크 필드가 없어(원장 부기) v1 스코프 밖 — 프레임 사슬에서 건너뛴다(2s ①의
+// TRCK 포함 블롭 실측).
+struct TagSet {
+    std::string title, artist, album;
+};
+
+// 스캔 1패스 접점이 읽는 머리 영역 상한(D2 — "필요 범위만 read"). FLAC 메타
+// 사슬·ID3v2 태그(커버 아트 포함)는 통상 수십 KB — 1MB 컷은 실사용 여유이고
+// 폭주(대형 사진 프레임)를 절단한다(잠복: 사진이 코멘트 앞인 드문 정렬은
+// 태그 누락 — 리포트 부기).
+inline constexpr size_t kTagHeadCap = 1u << 20;
+
+inline bool TagEmpty(const TagSet& t) {
+    return t.title.empty() && t.artist.empty() && t.album.empty();
+}
+
+// ---- 인코딩 정규화 (UTF-8 규약 #94 — 파서가 정규화한다) ----
+
+// Latin-1 승격 (원장 명시 — CP949 아님): 0x00-0x7F는 바이트 동치 그대로,
+// 0x80-0xFF는 2바이트 UTF-8로 승격(첫 바이트 0xC2/0xC3 — Latin-1 유니코드
+// 계수식의 직접 전사). ID3v2 인코딩 바이트 0(ISO-8859-1)·ID3v1 필드 규약.
+inline std::string Latin1ToUtf8(const unsigned char* p, size_t n) {
+    std::string out;
+    out.reserve(n);
+    for (size_t i = 0; i < n; ++i) {
+        const unsigned char c = p[i];
+        if (c < 0x80) {
+            out.push_back(static_cast<char>(c));
+        } else {  // 0xC2 | (c>>6): 0x80-0xBF → 0xC2, 0xC0-0xFF → 0xC3
+            out.push_back(static_cast<char>(0xC2 | (c >> 6)));
+            out.push_back(static_cast<char>(0x80 | (c & 0x3F)));
+        }
+    }
+    return out;
+}
+
+inline void AppendCodepointUtf8(std::string& out, unsigned int cp) {
+    if (cp < 0x80) {
+        out.push_back(static_cast<char>(cp));
+    } else if (cp < 0x800) {
+        out.push_back(static_cast<char>(0xC0 | (cp >> 6)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+    } else if (cp < 0x10000) {
+        out.push_back(static_cast<char>(0xE0 | (cp >> 12)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+    } else {
+        out.push_back(static_cast<char>(0xF0 | (cp >> 18)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 12) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+    }
+}
+
+// UTF-16 유닛열(바이트, LE/BE 지정) → UTF-8. 느슨 규약: 짝이 밑 빠진
+// 서러게이트는 유닛 단위 스킵(태그 데이터 전멸 계약 아님 — 남는 값이 진
+ // 규약보다 우선). 홀수 말단 바이트는 무시. NUL 유닛(0x0000)도 코드포인트로
+// 그대로 → 종결 절단은 PostprocessText의 첫 NUL 절단이 자동 소화.
+inline std::string Utf16BytesToUtf8(const unsigned char* p, size_t byteN,
+                                    bool bigEndian) {
+    std::string out;
+    size_t i = 0;
+    const auto unit = [p, bigEndian](size_t k) -> unsigned int {
+        return bigEndian ? (static_cast<unsigned int>(p[k]) << 8) | p[k + 1]
+                         : static_cast<unsigned int>(p[k]) | (p[k + 1] << 8);
+    };
+    while (i + 2 <= byteN) {
+        const unsigned int u = unit(i);
+        i += 2;
+        if (u >= 0xD800 && u <= 0xDBFF) {  // high surrogate — 쌍 결합
+            if (i + 2 > byteN) break;      // 절단 — 유닛 스킵(느슨 규약)
+            const unsigned int v = unit(i);
+            if (v < 0xDC00 || v > 0xDFFF) continue;  // 쌍 미스 — 스킵
+            i += 2;
+            AppendCodepointUtf8(
+                out, 0x10000 + ((u - 0xD800) << 10) + (v - 0xDC00));
+        } else if (u >= 0xDC00 && u <= 0xDFFF) {
+            // low surrogate 단독 — 스킵
+        } else {
+            AppendCodepointUtf8(out, u);
+        }
+    }
+    return out;
+}
+
+// ID3 텍스트 프레임 본문 → UTF-8. enc: 0=ISO-8859-1(Latin-1 승격)·
+// 1=UTF-16(BOM 절취 — 무BOM=LE 계약, v1 확장 원문)·2=UTF-16BE(BOM 없음)·
+// 3=UTF-8 pass(검증 없는 통과 — #94 파서 정규화의 pass leg).
+inline std::string DecodeId3Text(const unsigned char* p, size_t n, int enc) {
+    if (enc == 1) {  // BOM 우선 — FF FE=LE·FE FF=BE·무BOM = LE(v1 계약)
+        if (n >= 2 && p[0] == 0xFF && p[1] == 0xFE)
+            return Utf16BytesToUtf8(p + 2, n - 2, false);
+        if (n >= 2 && p[0] == 0xFE && p[1] == 0xFF)
+            return Utf16BytesToUtf8(p + 2, n - 2, true);
+        return Utf16BytesToUtf8(p, n, false);
+    }
+    if (enc == 2) return Utf16BytesToUtf8(p, n, true);
+    if (enc == 3) return std::string(reinterpret_cast<const char*>(p), n);
+    return Latin1ToUtf8(p, n);
+}
+
+// 값 정규화 1행 — 첫 NUL 절단(다중 값/종결, v2.4 NUL 사슬 = 첫 값 계약) +
+// 말미 ASCII 공백/NUL rstrip(ID3v1 스페이스 패딩 수형 재용). 0x80 이상
+// 바이트는 절대 벗기지 않는다(UTF-8 후속 바이트 무손상 — FoldAscii 원문 계약).
+inline std::string PostprocessText(std::string s) {
+    const size_t nul = s.find('\0');
+    if (nul != std::string::npos) s.resize(nul);
+    while (!s.empty() &&
+           (s.back() == ' ' || s.back() == '\t' || s.back() == '\r' ||
+            s.back() == '\n'))
+        s.pop_back();
+    return s;
+}
+
+// --- 하부 리더 (모든 접점 경계 클램프 — 2s ⑤ 결함 봉인 원문) ---
+
+// syncsafe(4바이트, 바이트당 하위 7비트). 0x7F 7F 7F 7F = 0x0FFFFFFF
+// (2^28-1 — syncsafe32의 최대 — 2s ⑤ 경계 수치). 상위 비트는 무시 마스크.
+inline unsigned long long SyncSafe32(const unsigned char* b) {
+    return (static_cast<unsigned long long>(b[0] & 0x7F) << 21) |
+           (static_cast<unsigned long long>(b[1] & 0x7F) << 14) |
+           (static_cast<unsigned long long>(b[2] & 0x7F) << 7) |
+           (b[3] & 0x7F);
+}
+
+// 32비트 BE/LE (v2.3 프레임 크기·RIFF 청크 크기·vorbis 개수 — 무부호).
+inline unsigned int RdBE32(const unsigned char* b) {
+    return (static_cast<unsigned int>(b[0]) << 24) |
+           (static_cast<unsigned int>(b[1]) << 16) |
+           (static_cast<unsigned int>(b[2]) << 8) | b[3];
+}
+inline unsigned int RdLE32(const unsigned char* b) {
+    return static_cast<unsigned int>(b[0]) |
+           (static_cast<unsigned int>(b[1]) << 8) |
+           (static_cast<unsigned int>(b[2]) << 16) |
+           (static_cast<unsigned int>(b[3]) << 24);
+}
+
+// ---- ID3v2.3/2.4 (own 파서 — dr_mp3 갭 봉합, 실측 리포트) ----
+
+// v2.2(6바이트 프레임 헤더·TT2류)는 스펙 스코프 밖(§1 — v2.3/2.4)·
+// v2.2는 빈 TagSet(폴백 규약 — v1에만 다시 도달).
+inline TagSet ParseId3v2(const unsigned char* p, size_t n) {
+    TagSet tags;
+    if (n < 10) return tags;
+    if (p[0] != 'I' || p[1] != 'D' || p[2] != '3') return tags;  // 매직
+    const int ver = p[3];
+    if (ver < 3 || ver > 4) return tags;  // 2.3/2.4만 (2.2 = 스코프 밖)
+    const unsigned char flags = p[5];
+    const unsigned long long tagSize = SyncSafe32(p + 6);
+    // 유한 본문 — 선언 크기가 버퍼를 넘으면 클램프(2s ⑤ 2^28-1 파산 블롭 —
+    // 선언을 믿지 않는 경계 클램프 원문).
+    const unsigned long long endU = 10ULL + tagSize;
+    const size_t bodyEnd = endU > static_cast<unsigned long long>(n)
+                               ? n
+                               : static_cast<size_t>(endU);
+    // v2.3 전역 unsynchronisation(헤더 flags 0x80): 0xFF 0x00 → 0xFF 전개 —
+    // 본문을 사본에 전개해 같은 사슬 걸음(규약 하나·사이본 상한 1MB).
+    std::vector<unsigned char> unsync;
+    const unsigned char* body = p + 10;
+    size_t bodyN = bodyEnd - 10;
+    if (ver == 3 && (flags & 0x80)) {
+        unsync.reserve(bodyN);
+        for (size_t i = 0; i < bodyN; ++i) {
+            unsync.push_back(body[i]);
+            if (body[i] == 0xFF && i + 1 < bodyN && body[i + 1] == 0x00) ++i;
+        }
+        body = unsync.data();
+        bodyN = unsync.size();
+    }
+    // 프레임 사슬 — 10B 헤더 반복. 패딩(선단 0x00)·부서진 프레임 = 전체
+    // 종료(무리한 재동기 금지 — v1 원문 계약), 태그 크기 = 사슬 절단.
+    size_t off = 0;
+    while (off + 10 <= bodyN) {
+        const unsigned char* fh = body + off;
+        if (fh[0] == 0) break;  // 패딩 — 남은 영역은 스킵(2s ⑥)
+        // 프레임 ID — v2.4 관용: 글자판 'A'-'Z'·'0'-'9' 4바이트. 탈자는
+        // 파산(절단 — 파산 프레임 경계에서 재동기 침공 금지).
+        const auto fidByte = [](unsigned char c) {
+            return (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+        };
+        if (!fidByte(fh[0]) || !fidByte(fh[1]) || !fidByte(fh[2]) ||
+            !fidByte(fh[3]))
+            break;
+        // 프레임 크기: v2.3 = BE32. v2.4 = syncsafe, 단 바이트가 0x7F를 넘
+        // 면 구형 리터(구형 v2.4 리터가 BE32를 남겼다 — 관용 폴백, 원문 부기)
+        size_t fsz;
+        if (ver == 4 && (fh[4] <= 0x7F && fh[5] <= 0x7F && fh[6] <= 0x7F &&
+                         fh[7] <= 0x7F)) {
+            fsz = static_cast<size_t>(SyncSafe32(fh + 4));
+        } else {
+            fsz = static_cast<size_t>(RdBE32(fh + 4));
+        }
+        const unsigned char fmt = fh[9];
+        // v2.3 포맷 플래그(포맷 바이트 = fh[9]): 0x80 압축·0x40 암호화·
+        // 0x20 그룹. v2.4: 0x40 그룹·0x08 압축·0x04 암호화·0x02 unsync·
+        // 0x01 데이터 길이 표지(dli). 압축/암호화/unsync 프레임 = 스킵.
+        const bool compressed = ver == 3 ? (fmt & 0x80) : (fmt & 0x08);
+        const bool encrypted = ver == 3 ? (fmt & 0x40) : (fmt & 0x04);
+        const bool grouped = ver == 3 ? (fmt & 0x20) : (fmt & 0x40);
+        const bool frameUnsync = ver == 4 && (fmt & 0x02);
+        const bool dli = ver == 4 && (fmt & 0x01);
+        off += 10;
+        const size_t fLen = fsz < bodyN - off ? fsz : bodyN - off;  // 클램프
+        const size_t nextOff = off + fLen;
+        if (compressed || encrypted || frameUnsync) {
+            off = nextOff;
+            continue;  // 미해독 프레임 — 건너 뛴다(태그 누락 폴백)
+        }
+        size_t d = off;
+        if (grouped) d += 1;  // 그룹 ID 1바이트 선단
+        if (dli) d += 4;      // v2.4 데이터 길이 표지 4바이트(syncsafe)
+        const size_t dEnd = off + fLen;
+        // 텍스트 프레임 3종 + TDRC/TRCK는 싱크 없음 — 건너 뛴다
+        if (d + 1 <= dEnd) {
+            const int enc = body[d];
+            const unsigned char* txt = body + d + 1;
+            const size_t txtN = dEnd - (d + 1);
+            std::string field;
+            if (fh[0] == 'T' && fh[1] == 'I' && fh[2] == 'T' &&
+                fh[3] == '2') {
+                if (tags.title.empty())
+                    tags.title =
+                        PostprocessText(DecodeId3Text(txt, txtN, enc));
+            } else if (fh[0] == 'T' && fh[1] == 'P' && fh[2] == 'E' &&
+                       fh[3] == '1') {
+                if (tags.artist.empty())
+                    tags.artist =
+                        PostprocessText(DecodeId3Text(txt, txtN, enc));
+            } else if (fh[0] == 'T' && fh[1] == 'A' && fh[2] == 'L' &&
+                       fh[3] == 'B') {
+                if (tags.album.empty())
+                    tags.album =
+                        PostprocessText(DecodeId3Text(txt, txtN, enc));
+            }
+        }
+        off = nextOff;
+    }
+    return tags;
+}
+
+// ---- ID3v1 (말미 128B — 폴백 계약) ----
+
+// 버퍼의 말미 128바이트("TAG"+30/30/30+4년+1장르). 필드 = 스페이스 패딩
+// 러스트립(공백 철자 보존 — 선단은 그대로)·Latin-1 승격(#94 원문 파서 규약).
+// 128바이트 미만·매직 불일치 = 빈 TagSet.
+inline TagSet ParseId3v1(const unsigned char* p, size_t n) {
+    TagSet tags;
+    if (n < 128) return tags;
+    const unsigned char* t = p + (n - 128);
+    if (t[0] != 'T' || t[1] != 'A' || t[2] != 'G') return tags;
+    const auto field = [&t](size_t start, size_t len) {
+        size_t end = len;
+        while (end > 0 && (t[start + end - 1] == ' ' || t[start + end - 1] == 0))
+            --end;
+        return PostprocessText(Latin1ToUtf8(t + start, end));
+    };
+    tags.title = field(3, 30);
+    tags.artist = field(33, 30);
+    tags.album = field(63, 30);
+    return tags;
+}
+
+// ---- vorbis comment (공용 구조 — FLAC 블록·Ogg 코멘트 패킷 공용) ----
+
+// [32LE vendorlen][vendor][32LE count][count × ([32LE len]"KEY=value").
+// 코멘트 값은 UTF-8 규약(구조 규약 통과 — CP949 승계 없음 — 원장). 키는
+// ASCII 폴드 대소문자 무시(FoldAscii 재용), 첫 TITLE/ARTIST/ALBUM만 취한다
+// (다중 값 계약 = 첫 값 — ID3v2 사슬과 같은 판정).
+inline TagSet ParseVorbisComments(const unsigned char* p, size_t n) {
+    TagSet tags;
+    size_t off = 0;
+    unsigned int vlen = 0;
+    // 32LE 경계 리더 — 부족하면 종료(폭주 선절단 — 결함 원문 방어).
+    const auto le = [p, n, &off](unsigned int& out) -> bool {
+        if (off + 4 > n) return false;
+        out = RdLE32(p + off);
+        off += 4;
+        return true;
+    };
+    if (n < 4) return tags;
+    if (!le(vlen)) return tags;
+    if (vlen > n - off) return tags;  // 부서진 벤더 — 구조 파산
+    off += vlen;
+    unsigned int count = 0;
+    if (!le(count) || count > 16384) return tags;  // 폭주 절단
+    for (unsigned int i = 0; i < count; ++i) {
+        unsigned int clen = 0;
+        if (!le(clen)) break;
+        if (clen > n - off) break;  // 잘림 — 남은 구조 파산
+        const unsigned char* entry = p + off;
+        off += clen;
+        size_t eq = 0;
+        while (eq < clen && entry[eq] != '=') ++eq;  // KEY= 형식
+        if (eq == 0 || eq >= clen) continue;         // '=' 부재·빈 키 — 스킵
+        std::string key;
+        key.reserve(eq);
+        for (size_t k = 0; k < eq; ++k)
+            key.push_back(FoldAscii(static_cast<char>(entry[k])));
+        const size_t valStart = eq + 1;
+        const size_t valN = clen - valStart;
+        std::string value(
+            reinterpret_cast<const char*>(entry + valStart), valN);
+        if (key == "title") {
+            if (tags.title.empty()) tags.title = PostprocessText(value);
+        } else if (key == "artist") {
+            if (tags.artist.empty()) tags.artist = PostprocessText(value);
+        } else if (key == "album") {
+            if (tags.album.empty()) tags.album = PostprocessText(value);
+        }
+    }
+    return tags;
+}
+
+// ---- FLAC 메타 사슬 (own — dr_flac 메타 API 재용 불가 실측의 대체 leg) ----
+
+// "fLaC"+블록([1비트 last][7비트 type][24BE size]): 4=VORBIS_COMMENT 소비,
+// 그 외(STREAMINFO/PADDING/PICTURE/SEEKTABLE…) = 사슬 절차만 건너 뛴다.
+// 블록 상한 256(폭주 절단)·잘린 사슬 = 그 자리에서 종료(선언을 믿지 않음).
+inline TagSet ParseFlacTags(const unsigned char* p, size_t n) {
+    TagSet tags;
+    if (n < 4 || std::memcmp(p, "fLaC", 4) != 0) return tags;
+    size_t off = 4;
+    for (int guard = 0; off + 4 <= n && guard < 256; ++guard) {
+        const bool last = (p[off] & 0x80) != 0;
+        const unsigned blockType = static_cast<unsigned>(p[off] & 0x7F);
+        const size_t bsz = (static_cast<size_t>(p[off + 1]) << 16) |
+                           (static_cast<size_t>(p[off + 2]) << 8) |
+                           static_cast<size_t>(p[off + 3]);
+        off += 4;
+        if (off + bsz > n) break;  // 잘린 블록 — 파산(선언을 믿지 않음)
+        if (blockType == 4) {  // DRFLAC_METADATA_BLOCK_TYPE_VORBIS_COMMENT
+            const TagSet c = ParseVorbisComments(p + off, bsz);
+            // 필드별 합쳐 모음 — 첫 값 계약(여러 사슬을 걷더라도).
+            if (tags.title.empty()) tags.title = c.title;
+            if (tags.artist.empty()) tags.artist = c.artist;
+            if (tags.album.empty()) tags.album = c.album;
+        }
+        off += bsz;
+        if (last) break;
+    }
+    return tags;
+}
+
+// ---- Ogg 페이지 연쇄 (own — stb_vorbis 합성 불기입 실측의 대체 leg) ----
+
+// "OggS" 페이지 연쇄(27B 헤더: 매직+버전+htype+granule8+serial4+seq4+crc4+
+// 세그 수+세그 표)에서 페이로드를 모아 "\x03vorbis" 패킷(두 번째 패킷 —
+// 코멘트)을 지목해 ParseVorbisComments로 넘긴다. 페이지 표 255 상한·잘린
+// 페이지 = 파산. "\x03vorbis"는 머리 컷(1MB — kTagHeadCap)의 헤더 패킷
+// 영역에서만 지목되므로 오디오 데이터의 우연 일치 접촉이 사실상 없다.
+inline TagSet ParseOggTags(const unsigned char* p, size_t n) {
+    TagSet tags;
+    std::vector<unsigned char> payload;
+    size_t off = 0;
+    while (off + 27 <= n) {
+        if (std::memcmp(p + off, "OggS", 4) != 0) break;  // 사슬 절단
+        const size_t segs = p[off + 26];
+        if (off + 27 + segs > n) break;  // 잘린 헤더
+        size_t plen = 0;
+        for (size_t s = 0; s < segs; ++s) plen += p[off + 27 + s];
+        if (off + 27 + segs + plen > n) break;  // 잘린 페이로드
+        payload.insert(payload.end(), p + off + 27 + segs,
+                       p + off + 27 + segs + plen);
+        off += 27 + segs + plen;
+    }
+    // "\x03vorbis" 검색 — 지목되면 그 뒤가 코멘트 구조(벤더+엔트리).
+    for (size_t i = 0; i + 7 <= payload.size(); ++i) {
+        if (payload[i] == 0x03 && std::memcmp(payload.data() + i + 1,
+                                              "vorbis", 6) == 0) {
+            tags = ParseVorbisComments(payload.data() + i + 7,
+                                       payload.size() - (i + 7));
+            break;  // 첫 코멘트 패킷만(v1 계약 — 코멘트는 패킷 2)
+        }
+    }
+    return tags;
+}
+
+// ---- WAV — RIFF "id3 " 청크 (dr_wav 실측 대체 leg — LIST INFO 밖 스코프) ----
+
+// RIFF("RIFF"+32LE 크기+"WAVE")의 청크 연쇄에서 "id3 " 청크(대소문자 무시
+// — 리터 관용)의 payload를 ParseId3v2로 재용한다. 청크 사이즈 LE32·홀수
+// 패딩 바이트 규약. dr_wav의 LIST INFO(INAM/IART/IPRD — 실측: 표 계약과
+// 동형)는 T1 스코프 밖(리포트 부기 — id3 청크가 현실 WAV 태그의 주류).
+inline TagSet ParseWavTags(const unsigned char* p, size_t n) {
+    TagSet tags;
+    if (n < 12 || std::memcmp(p, "RIFF", 4) != 0 ||
+        std::memcmp(p + 8, "WAVE", 4) != 0)
+        return tags;
+    size_t off = 12;
+    for (int guard = 0; off + 8 <= n && guard < 1024; ++guard) {
+        const size_t csz = static_cast<size_t>(RdLE32(p + off + 4));
+        const bool id3 =
+            FoldAscii(static_cast<char>(p[off])) == 'i' &&
+            FoldAscii(static_cast<char>(p[off + 1])) == 'd' &&
+            FoldAscii(static_cast<char>(p[off + 2])) == '3';
+        if (id3) {
+            if (off + 8 + csz <= n) tags = ParseId3v2(p + off + 8, csz);
+            break;  // 첫 id3 청크만(v1 계약)
+        }
+        off += 8 + csz + (csz & 1);  // 청크 8B 헤더+홀수 패드 규약
+    }
+    return tags;
+}
+
+// ---- 파일 접점 (D2 — 필요 범위만 read) ----
+
+// 매직 분기(ID3/fLaC/OggS/RIFF — 첨자 무관·확장자 밀표 파일도 파싱) + mp3의
+// ID3v1 폴백(태그 계열 — v2가 비면 말미 128B). 실패 = 빈 TagSet(폴백 규약
+// — D2: 오류 표기 없이 파일명 폴백이 정상 경로), err는 진단 표기만(개방/
+// 크기 실패 = 비공개 원문 "open"/"size"). 개방 = fs::path(2q 실측 수형 —
+// MinGW libstdc++ narrow = UTF-8 strict, 네이티브 와이드 개방 = 인코딩
+// 자유 — narrow fopen ACP 함정 회피).
+inline TagSet ParseTag(const std::string& path, std::string& err) {
+    TagSet tags;
+    err.clear();
+    std::ifstream f(std::filesystem::path(path), std::ios::binary);
+    if (!f.is_open()) {
+        err = "open";
+        return tags;  // 빈 TagSet(폴백 계약)
+    }
+    f.seekg(0, std::ios::end);
+    const std::streamoff total = f.tellg();
+    if (total < 0) {
+        err = "size";
+        return tags;
+    }
+    std::streamsize headN =
+        static_cast<std::streamsize>(total) <
+                static_cast<std::streamsize>(kTagHeadCap)
+            ? static_cast<std::streamsize>(total)
+            : static_cast<std::streamsize>(kTagHeadCap);
+    std::vector<unsigned char> head(static_cast<size_t>(headN));
+    if (headN > 0) {
+        f.seekg(0, std::ios::beg);
+        f.read(reinterpret_cast<char*>(head.data()), headN);
+        if (f.gcount() != headN) {  // 경합 절단 — 읽은 만큼만
+            headN = f.gcount();
+            head.resize(static_cast<size_t>(headN));
+        }
+    }
+    bool isMp3 = false;
+    const unsigned char* buf = head.data();
+    if (headN >= 3 && std::memcmp(buf, "ID3", 3) == 0) {
+        tags = ParseId3v2(buf, static_cast<size_t>(headN));
+        isMp3 = true;
+    } else if (headN >= 4 && std::memcmp(buf, "fLaC", 4) == 0) {
+        tags = ParseFlacTags(buf, static_cast<size_t>(headN));
+    } else if (headN >= 4 && std::memcmp(buf, "OggS", 4) == 0) {
+        tags = ParseOggTags(buf, static_cast<size_t>(headN));
+    } else if (headN >= 12 && std::memcmp(buf, "RIFF", 4) == 0 &&
+               std::memcmp(buf + 8, "WAVE", 4) == 0) {
+        tags = ParseWavTags(buf, static_cast<size_t>(headN));
+    } else {
+        // 매직 미일치 — 확장자 보조 분기(ID3v1 원존 mp3는 매직이 없다)
+        std::string ext = std::filesystem::path(path).extension().string();
+        isMp3 = jk::crt::Stricmp(ext.c_str(), ".mp3") == 0;
+    }
+    if (TagEmpty(tags) && isMp3 && total >= 128) {
+        // v2→v1 폴백(태그 계열 — 스펙 §1 원문). 말미 128B만 seek+read.
+        f.seekg(total - 128, std::ios::beg);
+        unsigned char tail[128];
+        f.read(reinterpret_cast<char*>(tail), 128);
+        if (f.gcount() == 128) {
+            const TagSet v1 = ParseId3v1(tail, 128);
+            if (!TagEmpty(v1)) tags = v1;
+        }
+    }
+    return tags;  // 부재 = 빈 TagSet(파일명 폴백 — 정상 경로, err 0)
+}
+
+} // namespace tags
 
 // ---- 위임 답신 본문 재판정 (T3 fix r3 — T4 결함 원장: 폴백 자기 소멸) ----
 

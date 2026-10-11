@@ -102,7 +102,7 @@ extern "C" __declspec(dllimport) int __stdcall closesocket(
 #include <JKLibraryCatalog.h>  // selftest 1m — 라이브러리 카탈로그 3원 스캔
 #include <apps/ChatRouter.h>   // selftest 1n — 채팅 명령 라우터(스펙 §1.3)
 #include <apps/GalleryModel.h>  // selftest 2g — 갤러리 순수 부품(스펙 2026-10-09-gallery-design)
-#include <apps/MusicModel.h>  // selftest 2m — 뮤직 순수 부품(스펙 2026-10-09-music-library-design)
+#include <apps/MusicModel.h>  // selftest 2m/2s — 뮤직 순수 부품(스펙 2026-10-09-music-library-design+2026-10-11-music-tags-design)
 #include <apps/MusicDirStore.h>  // selftest 2o — 뮤직 폴더 저장소(플랜 2026-10-10-music-dirs-ui)
 #include <apps/MusicSpatialLeg.h>  // selftest 2n — 뮤직 spatial leg 순수 부품(스펙 2026-10-10-music-spatial-leg-design)
 #include <text/JKTextConv.h>  // selftest 2q — 경로 인코딩 사슬 변환 쌍(#94)
@@ -6162,6 +6162,286 @@ static int RunAppSelfTest() {
             fs::remove_all(bdir, bec);
             check(!bec && !fs::exists(bdir, bec),
                   "2r-⑦ 사후 소각 = 잔산 0(REMNANT 0 — 정리 수형 재용)");
+        }
+
+        // 2s) 태그 파서 (#99 T1 — 스펙 2026-10-11-music-tags-design):
+        // jk::music::tags 순수 부품 — ID3v2.3/2.4(TIT2/TPE1/TALB·인코딩
+        // 0/1/2/3)·ID3v1 폴백·vorbis 코멘트(FLAC 블록/Ogg 페이지 — own 부품,
+        // dr_flac/stb_vorbis 메타 API는 헤더 재용 불가 실측 — 리포트 §1)·
+        // WAV RIFF "id3 " 청크·ParseTag 파일 접점(D2 필요 범위만 read).
+        // 합성 원문 블롭 = inline hex byte 배열(리터럴 — FS 접촉 최소 계약;
+        // 블롭 원문은 리포트에 16진 표기로 보존). 2m/2n/2o/2p/2q/2r 원존
+        // 무변조 — 추가만. FS 접점 leg = 2r 수형(temp_directory_path+사후
+        // 소각 REMNANT 0 — 임시 파일 3건).
+        {
+            // ---- 합성 원문 블롭 (inline hex 배열 — 리포트 원문) ----
+            // v2.4 UTF-8: TIT2"가을 노래"+TPE1"아티스트 김"+TALB"앨범 모음"
+            // +TRCK(스코프 밖 프레임 — 스킵 증명용), len 98.
+            static const unsigned char kBlobV24[] = {
+                0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x58,
+                0x54, 0x49, 0x54, 0x32, 0x00, 0x00, 0x00, 0x0E, 0x00, 0x00,
+                0x03, 0xEA, 0xB0, 0x80, 0xEC, 0x9D, 0x84, 0x20, 0xEB, 0x85,
+                0xB8, 0xEB, 0x9E, 0x98, 0x54, 0x50, 0x45, 0x31, 0x00, 0x00,
+                0x00, 0x11, 0x00, 0x00, 0x03, 0xEC, 0x95, 0x84, 0xED, 0x8B,
+                0xB0, 0xEC, 0x8A, 0xA4, 0xED, 0x8A, 0xB8, 0x20, 0xEA, 0xB9,
+                0x80, 0x54, 0x41, 0x4C, 0x42, 0x00, 0x00, 0x00, 0x0E, 0x00,
+                0x00, 0x03, 0xEC, 0x95, 0xA8, 0xEB, 0xB2, 0x94, 0x20, 0xEB,
+                0xAA, 0xA8, 0xEC, 0x9D, 0x8C, 0x54, 0x52, 0x43, 0x4B, 0x00,
+                0x00, 0x00, 0x03, 0x00, 0x00, 0x03, 0x30, 0x35,
+            };
+            // v2.3 인코딩 0: TIT2 "Éÿ"(E9 FF) — Latin-1 승격 원문, len 23.
+            static const unsigned char kBlobV23Latin[] = {
+                0x49, 0x44, 0x33, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0D,
+                0x54, 0x49, 0x54, 0x32, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00,
+                0x00, 0xE9, 0xFF,
+            };
+            // v2.4 UTF-16LE(BOM): TIT2 enc 01 "Hi", len 29.
+            static const unsigned char kBlobV24U16le[] = {
+                0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x13,
+                0x54, 0x49, 0x54, 0x32, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00,
+                0x01, 0xFF, 0xFE, 0x48, 0x00, 0x69, 0x00, 0x00, 0x00,
+            };
+            // v2.4 UTF-16BE(enc 02, 무BOM): TIT2 "Hi", len 25.
+            static const unsigned char kBlobV24U16be[] = {
+                0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0F,
+                0x54, 0x49, 0x54, 0x32, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00,
+                0x02, 0x00, 0x48, 0x00, 0x69,
+            };
+            // v2.4 footer flag 0x10: TIT2"Pad Test"+12바이트 패딩+footer
+            // "3DI…"(태그 크기 밖 — 자연 스킵), len 54.
+            static const unsigned char kBlobV24PadFooter[] = {
+                0x49, 0x44, 0x33, 0x04, 0x00, 0x10, 0x00, 0x00, 0x00, 0x1F,
+                0x54, 0x49, 0x54, 0x32, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00,
+                0x00, 0x50, 0x61, 0x64, 0x20, 0x54, 0x65, 0x73, 0x74, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x33, 0x44, 0x49, 0x49, 0x44, 0x33, 0x04, 0x00, 0x10, 0x00,
+                0x00, 0x00, 0x1F,
+            };
+            // v2.4 파산 블롭: declared size = syncsafe 최대 7F 7F 7F 7F
+            // (2^28-1) + 실제 24바이트 — 경계 클램프 원문, len 24.
+            static const unsigned char kBlobV24Huge[] = {
+                0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x7F, 0x7F, 0x7F, 0x7F,
+                0x54, 0x49, 0x54, 0x32, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00,
+                0x00, 0x42, 0x69, 0x67,
+            };
+            // FLAC 합성: "fLaC"+STREAMINFO(34B·마지막 아님)+PADDING(8B —
+            // 사슬 절차 스킵 증명)+VORBIS_COMMENT(last=1·vendor"JKEN"+3
+            // 엔트리), len 132. (블록 크기 = 24BE — FLAC 메타 블록 규약)
+            static const unsigned char kBlobFlac[] = {
+                0x66, 0x4C, 0x61, 0x43, 0x00, 0x00, 0x00, 0x22, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x01, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x84, 0x00, 0x00, 0x4A, 0x04, 0x00,
+                0x00, 0x00, 0x4A, 0x4B, 0x45, 0x4E, 0x03, 0x00, 0x00, 0x00,
+                0x10, 0x00, 0x00, 0x00, 0x54, 0x49, 0x54, 0x4C, 0x45, 0x3D,
+                0x46, 0x6C, 0x61, 0x63, 0x20, 0x54, 0x69, 0x74, 0x6C, 0x65,
+                0x12, 0x00, 0x00, 0x00, 0x41, 0x52, 0x54, 0x49, 0x53, 0x54,
+                0x3D, 0x46, 0x6C, 0x61, 0x63, 0x20, 0x41, 0x72, 0x74, 0x69,
+                0x73, 0x74, 0x10, 0x00, 0x00, 0x00, 0x41, 0x4C, 0x42, 0x55,
+                0x4D, 0x3D, 0x46, 0x6C, 0x61, 0x63, 0x20, 0x41, 0x6C, 0x62,
+                0x75, 0x6D,
+            };
+            // Ogg 합성: 2 페이지(①"\x01vorbis" 헤더 패킷 ②"\x03vorbis"
+            // 코멘트 패킷 — vendor"jkog"+2 엔트리), len 129.
+            static const unsigned char kBlobOgg[] = {
+                0x4F, 0x67, 0x67, 0x53, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x0E, 0x01, 0x76,
+                0x6F, 0x72, 0x62, 0x69, 0x73, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x4F, 0x67, 0x67, 0x53, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04,
+                0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x3B,
+                0x03, 0x76, 0x6F, 0x72, 0x62, 0x69, 0x73, 0x04, 0x00, 0x00,
+                0x00, 0x6A, 0x6B, 0x6F, 0x67, 0x02, 0x00, 0x00, 0x00, 0x0F,
+                0x00, 0x00, 0x00, 0x54, 0x49, 0x54, 0x4C, 0x45, 0x3D, 0x4F,
+                0x67, 0x67, 0x20, 0x54, 0x69, 0x74, 0x6C, 0x65, 0x11, 0x00,
+                0x00, 0x00, 0x41, 0x52, 0x54, 0x49, 0x53, 0x54, 0x3D, 0x4F,
+                0x67, 0x67, 0x20, 0x41, 0x72, 0x74, 0x69, 0x73, 0x74,
+            };
+            // WAV 합성: RIFF+WAVE+"id3 " 청크(payload = v2.3 TIT2"Wav
+            // Song" — ParseId3v2 재용), len 50.
+            static const unsigned char kBlobWavId3[] = {
+                0x52, 0x49, 0x46, 0x46, 0x2A, 0x00, 0x00, 0x00, 0x57, 0x41,
+                0x56, 0x45, 0x69, 0x64, 0x33, 0x20, 0x1D, 0x00, 0x00, 0x00,
+                0x49, 0x44, 0x33, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x13,
+                0x54, 0x49, 0x54, 0x32, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00,
+                0x00, 0x57, 0x61, 0x76, 0x20, 0x53, 0x6F, 0x6E, 0x67, 0x00,
+            };
+            namespace mt = jk::music::tags;
+
+            // ①) v2.4 UTF-8 — 3필드 원문+TRCK프레임 스킵(싱크 부재·태그
+            // 오염 0).
+            const mt::TagSet t24 =
+                mt::ParseId3v2(kBlobV24, sizeof(kBlobV24));
+            check(t24.title == "가을 노래" && t24.artist == "아티스트 김" &&
+                      t24.album == "앨범 모음",
+                  "2s-① ID3v2.4 UTF-8 = TIT2/TPE1/TALB 3필드 원문(TRCK는 "
+                  "싱크 부재 스킵 — 오염 0)");
+
+            // ②) Latin-1 승격 — 원장 명시 규약(바이트<0x80 등가·0x80-0xFF =
+            // 2바이트 UTF-8, 0xC2/0xC3 범위 — CP949 아님).
+            check(mt::Latin1ToUtf8(reinterpret_cast<const unsigned char*>(
+                                       "\xE9\xFF"),
+                                   2) ==
+                          std::string("\xC3\xA9\xC3\xBF") &&
+                      mt::Latin1ToUtf8(
+                          reinterpret_cast<const unsigned char*>("a\x7F"),
+                          2) == std::string("a\x7F"),
+                  "2s-② Latin-1 승격 = 0x80-0xFF는 2바이트 UTF-8(E9→C3A9·"
+                  "FF→C3BF), <0x80은 바이트 등가(원장 규약 — CP949 아님)");
+            const mt::TagSet t23 =
+                mt::ParseId3v2(kBlobV23Latin, sizeof(kBlobV23Latin));
+            check(t23.title == std::string("\xC3\xA9\xC3\xBF"),
+                  "2s-② ID3v2.3 인코딩 0 = éÿ 승격 원문(E9 FF → C3A9 C3BF)");
+
+            // ③) UTF-16(BOM) — enc 1 = BOM 절취(무BOM = LE 계약)·enc 2 = BE.
+            const mt::TagSet t16le =
+                mt::ParseId3v2(kBlobV24U16le, sizeof(kBlobV24U16le));
+            check(t16le.title == "Hi",
+                  "2s-③ v2.4 UTF-16LE(BOM) = BOM 절취+LE 디코드(Hi · 무BOM은 "
+                  "LE — v1 확장 계약)");
+            const mt::TagSet t16be =
+                mt::ParseId3v2(kBlobV24U16be, sizeof(kBlobV24U16be));
+            check(t16be.title == "Hi",
+                  "2s-③ v2.4 UTF-16BE(enc 2·무BOM) = BE 디코드 원문(Hi)");
+
+            // ④) ID3v1 폴백 — 말미 128B("TAG"+30/30/30, 스페이스 패딩 러스트립)
+            // + 더 긴 버퍼의 말미 지목.
+            std::vector<unsigned char> v1buf(128, ' ');
+            std::memcpy(v1buf.data(), "TAG", 3);
+            std::memcpy(v1buf.data() + 3, "Legacy Title", 12);
+            std::memcpy(v1buf.data() + 33, "Old Artist", 10);
+            std::memcpy(v1buf.data() + 63, "Old Album", 9);
+            std::memcpy(v1buf.data() + 93, "1999", 4);
+            const mt::TagSet tv1 =
+                mt::ParseId3v1(v1buf.data(), v1buf.size());
+            check(tv1.title == "Legacy Title" && tv1.artist == "Old Artist" &&
+                      tv1.album == "Old Album",
+                  "2s-④ ID3v1 = 말미 128B 3필드(스페이스 패딩 러스트립·Latin-1 "
+                  "승격 — 폴백 계약)");
+            std::vector<unsigned char> junk(40, 0x00);
+            junk.insert(junk.end(), v1buf.begin(), v1buf.end());
+            const mt::TagSet tv1b =
+                mt::ParseId3v1(junk.data(), junk.size());
+            check(tv1b.title == "Legacy Title" && tv1b.artist == "Old Artist",
+                  "2s-④ ID3v1 말미 지목 = 앞 쓰레기 40B 뒤에도 말미 128B 원문 "
+                  "해독(부재 <128B·매직 불일치 = 빈 TagSet)");
+
+            // ⑤) syncsafe 경계 — 0x7F 7F 7F 7F = 0x0FFFFFFF(2^28-1 — syncsafe32
+            // 최대)·선언이 버퍼를 넘는 파산 블롭 = 클램프(선언을 믿지 않음).
+            const unsigned char ss4[4] = { 0x7F, 0x7F, 0x7F, 0x7F };
+            check(mt::SyncSafe32(ss4) == 268435455ULL,
+                  "2s-⑤ syncsafe 경계 = 0x7F 7F 7F 7F → 268435455(2^28-1 — "
+                  "syncsafe32 최대·상위 비트 마스크)");
+            const mt::TagSet thuge =
+                mt::ParseId3v2(kBlobV24Huge, sizeof(kBlobV24Huge));
+            check(thuge.title == "Big" && mt::TagEmpty(thuge) == false,
+                  "2s-⑤ 파산 블롭(선언 2^28-1, 실체 24B) = title Big(경계 "
+                  "클램프 — 접점 오버플로 0·선언을 믿지 않음)");
+
+            // ⑥) 패딩+푸터 — 프레임 사슬은 선단 0x00(패딩)에서 종료, 푸터("3DI")
+            // 는 태그 크기 밖 자연 스킵.
+            const mt::TagSet tpd =
+                mt::ParseId3v2(kBlobV24PadFooter, sizeof(kBlobV24PadFooter));
+            check(tpd.title == "Pad Test",
+                  "2s-⑥ 패딩+푸터 = title Pad Test(프레임 사슬 패딩 종료+"
+                  "footer 3DI 스킵 — v2.4 footer flag 0x10)");
+
+            // ⑦) FLAC 합성 1건 — own vorbis 코멘트 부품(dr_flac 메타 API는
+            // 헤더 재용 불가 실측 — 리포트 §1). PADDING 블록 사슬 절차 증명
+            // +VORBIS_COMMENT(last=1).
+            const mt::TagSet tfl =
+                mt::ParseFlacTags(kBlobFlac, sizeof(kBlobFlac));
+            check(tfl.title == "Flac Title" && tfl.artist == "Flac Artist" &&
+                      tfl.album == "Flac Album",
+                  "2s-⑦ FLAC 합성 = vorbis 코멘트 3필드(own 부품 — "
+                  "STREAMINFO/PADDING 사슬 절차 스킵·VORBIS_COMMENT last=1)");
+
+            // ⑧) Ogg 합성 — "\x03vorbis" 코멘트 패킷(page 2) 지목+ album 부재
+            // = 빈(필드별 부재 계약).
+            const mt::TagSet tog = mt::ParseOggTags(kBlobOgg, sizeof(kBlobOgg));
+            check(tog.title == "Ogg Title" && tog.artist == "Ogg Artist" &&
+                      tog.album.empty(),
+                  "2s-⑧ Ogg 합성 = 코멘트 패킷 2건 필드(album 부재 = 빈 — "
+                  "페이지 연쇄 페이로드 수형)");
+
+            // ⑨-⑩) ParseTag 파일 접점 — FS 접촉 최소(3건 — 2r 수형 재용).
+            const fs::path tdir = fs::temp_directory_path() / "jk_music_tags";
+            fs::remove_all(tdir);  // 선제거 — 이전 런 잔산(2m-c 원문 수형)
+            fs::create_directories(tdir);
+            {
+                // v1 원존 mp3(매직 없음 — 확장자 보조 분기) + 쓰레기 바이트.
+                std::vector<unsigned char> body(90, 0x11);
+                body.insert(body.end(), v1buf.begin(), v1buf.end());
+                std::ofstream(tdir / "t_v1.mp3", std::ios::binary)
+                    .write(reinterpret_cast<const char*>(body.data()),
+                           static_cast<std::streamsize>(body.size()));
+                std::ofstream(tdir / "t_flac.flac", std::ios::binary)
+                    .write(reinterpret_cast<const char*>(kBlobFlac),
+                           static_cast<std::streamsize>(sizeof(kBlobFlac)));
+                std::ofstream(tdir / "t_unk.bin", std::ios::binary).put('x');
+                check(fs::file_size(tdir / "t_v1.mp3") == body.size() &&
+                          fs::file_size(tdir / "t_flac.flac") ==
+                              sizeof(kBlobFlac),
+                      "2s-a 파스 파일 3건 구성 = 성립(사후 소각 전제 — v1 "
+                      "mp3·flac·미지 bin)");
+            }
+            // ⑩) v1 폴백 — v2 부재 mp3 = 말미 128B만 read(필요 범위 규약).
+            std::string err1;
+            const mt::TagSet pf1 = mt::ParseTag(
+                (tdir / "t_v1.mp3").generic_string(), err1);
+            check(pf1.title == "Legacy Title" && pf1.artist == "Old Artist" &&
+                      err1.empty(),
+                  "2s-⑩ ParseTag v1 폴백 = 매직 없는 mp3의 말미 128B read+"
+                  "필드 원문(err 빈 — 정상 경로)");
+            // ⑩) FLAC 매직 분기 — 파일 접점이 블롭판과 같은 원문 수취.
+            std::string err2;
+            const mt::TagSet pf2 = mt::ParseTag(
+                (tdir / "t_flac.flac").generic_string(), err2);
+            check(pf2.title == "Flac Title" && pf2.artist == "Flac Artist" &&
+                      pf2.album == "Flac Album" && err2.empty(),
+                  "2s-⑩ ParseTag FLAC 매직 분기 = 블롭판 동일 3필드(fLaC "
+                  "수형 — dr_flac 재용 불가 실측의 대체 leg)");
+            // ⑩) 미지 매직+비 mp3 확장자 = 빈 TagSet+err 빈(파일명 폴백 —
+            // D2: 오류 표기 없이 정상 경로).
+            std::string err3;
+            const mt::TagSet pf3 =
+                mt::ParseTag((tdir / "t_unk.bin").generic_string(), err3);
+            check(mt::TagEmpty(pf3) && err3.empty(),
+                  "2s-⑩ ParseTag 미지 매직 = 빈 TagSet+err 빈(파일명 폴백 = "
+                  "정상 경로 — D2 오류 표기 없음)");
+            // ⑩) 부재 경로 = 빈 TagSet+err "open"(I/O 실패만 진단 표기).
+            std::string err4;
+            const mt::TagSet pf4 = mt::ParseTag(
+                (tdir / "no_such.mp3").generic_string(), err4);
+            check(mt::TagEmpty(pf4) && !err4.empty(),
+                  "2s-⑩ ParseTag 부재 경로 = 빈 TagSet+err 표기(개방 실패 — "
+                  "폴백 계약·표기 없이 정상 복귀)");
+
+            // ⑨) 필터 확장 — MatchFilter가 곡명/아티스트에도 붙는다(D5 —
+            // 표기 데이터 자리는 T2 UI가 조립). ASCII fold(2m-d 수형 재용)
+            // +한글 이진 비교 부분일치.
+            const mt::TagSet tflt = tfl;
+            check(jk::music::MatchFilter(tflt.title, "flac") &&
+                      jk::music::MatchFilter(tflt.artist, "artist") &&
+                      jk::music::MatchFilter(t24.title, "노래"),
+                  "2s-⑨ 필터 확장 = 곡명/아티스트 매치(ASCII fold 대소문자 "
+                  "무시+한글 이진 비교 — MatchFilter 재용·D5)");
+
+            // ⑩) WAV — RIFF "id3 " 청크(payload = ID3v2.3 재용).
+            const mt::TagSet twav =
+                mt::ParseWavTags(kBlobWavId3, sizeof(kBlobWavId3));
+            check(twav.title == "Wav Song",
+                  "2s-⑩ WAV id3 청크 = title Wav Song(RIFF 사슬 — dr_wav "
+                  "LIST INFO 밖 스코프 실측의 대체 leg)");
+
+            // REMNANT 0 — 사후 소각(무잔산 — 2p-⑤/2r-⑦ 정리 수형 재용).
+            std::error_code sec;
+            fs::remove_all(tdir, sec);
+            check(!sec && !fs::exists(tdir, sec),
+                  "2s-⑩ 사후 소각 = 잔산 0(REMNANT 0 — 파스 파일 3건)");
         }
     }
 
