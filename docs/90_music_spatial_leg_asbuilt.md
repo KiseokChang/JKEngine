@@ -340,8 +340,9 @@ status 절단 악형) → T2 fix r1 re-review **APPROVE 재확정**(C0/I0/M0 —
 | T1 리뷰 I3 | v2.4 전역 unsynchronisation(휴드 flags 0x80) 미전개(v2.3만) — v2.4 전역 unsync 태그는 텍스트 오염 가능 | M | frame-level unsync(fmt 0x02)는 스킵으로 봉인·실세 소멸 계열 — 후속 원장행 |
 | T1 리뷰 I4 | v2→v1 폴백 판정 = TagEmpty 계열(필드별 합병 아님) — 스펙 §1 "v2에서 못 찾으면" 문언의 필드별 해석 여지 | M | 컨트롤러 승인 사항(부분 v2에서 v1 아티스트 소실 케이스) — 원장행 |
 | T1 리뷰 I5 | 2s 경계 커버리지 갭 — FLAC 잘린 블록(`off+bsz>n break` leg)·Ogg 잘린 페이지·v1 n<128B·WAV id3 청크 절단 = 구현됐으나 미테스트 | M | 코드 리딩+시뮬레이션 유효 실측(무한루프/파산 0) — "미테스트 표기" 원장행 — 2s 확장 케이스 몫 |
-| T1 리뷰 M1 | kBlobV24PadFooter 배열 보정(1바이트 0x00)+주석 정산 — 실측 53B·패딩 11B·푸터 13B(문언 정산은 본 문서 §7.9.4 완료) | M | 코드 보정 = 다음 MusicModel.h 접촉 커밋 몫(park) |
-| T1 리뷰 cosmetic | "사이본 상한 1MB"(사이즈)·"구형 리터"(라이터) 표기 — MusicModel.h:782·:810 HEAD 실측 잔존 | N | 다음 파서 접촉 1행 소각 |
+| T1 리뷰 M1 | kBlobV24PadFooter 배열 보정(1바이트 0x00)+주석 정산 — 실측 53B·패딩 11B·푸터 13B(문언 정산은 본 문서 §7.9.4 완료) | M | 코드 보정 = 다음 **main.cpp(2s 블록 :6212-6221)** 접촉 커밋 몫(park) — MusicModel.h에는 kBlob* 0건(지도 정정 — T5 fix r1) |
+| T1 리뷰 cosmetic | "사이본 상한 1MB"(사이즈)·"구형 리터"(라이터) 표기 + continuation 주석 행두 공백 1개(` // 규약보다 우선` 계열) — MusicModel.h:782·:810(+행두 공백) HEAD 실측 잔존 | N | 다음 파서 접촉 1행 소각 |
+| T2 리뷰 I4 | **MatchFilter(Track) 오버로드 무어설션(REMNANT)** — 2s-⑨는 string 수형(title/artist 문자열)만 단정 — Track 오버로드(3행 OR 래퍼)는 UI·VisibleTrackCount 경유 소비 전용으로 직접 어설션 없음(신설 어설션 계약 밖 — 결함 아님) | M | REMNANT 표기 원장(위험 하) — OR 누락류 실수는 2s 미검출 — 2s 확장 케이스 또는 probe 경유 소비 원장 몫 |
 | T2 리뷰 I1 | 취소 경계 사이 갭의 시간 — 간격 64 수형(fix r1) 이후의 **폰 저속 저장소 실측 부재**(간격×파일당 머리 1MB read) | M | 코드 소각 완료(256→64)·**폰 도착 지연 실측 = 다음 폰 런 몫(2p-② 상한 계약 무변조 — 래치 소유)** ·필요 시 간격 절하 재판정 |
 | T2 리뷰 cosmetic | 필터 힌트 "곡명·아티스트 검색"에 파일명 매치 문언 누락(원존 유지 — 사용자 오해 여지) | N | 다음 UI 표기 접촉 1행 몫 |
 | T2 fix r1 재검 cosmetic ① | 간격 산식 주석 "실사용 태그는 수십 KB"(MusicModel.h:274) — read 크기는 min(total,1MB)·"수십 ms급"도 NVMe 핫캐시 근사(콜드 HDD 수백 ms급) | N | nuance 원장행 — 다음 접촉 표기 정산 몫 |
@@ -1443,7 +1444,8 @@ probe 병합 코드의 실측 원문(태그 표기·cann 668 산치)은 전부 "
   "error":"open: Invalid argument"}`(accepted:true 수취 뒤 판정 폴링)
   ·런 1 = 정직 **TAG-FAIL**(open reply `unknown_app_tool` — vplayer 미등록
   계보 원문 — 무플랜 조정 0). **캐논 등호 5런 원문**: `selftest rc=0
-  PASS=668 FAIL=0 == CANON_WSL_SELFTEST=668`·`SELFTEST-2S-CASES=20`·
+  PASS=668 FAIL=0 == CANON_WSL_SELFTEST=668`·`SELFTEST-2S-CASES=20`
+  (wsl_music.sh:358 원문)·
   `MUS-CANCEL-CANON-EQ/MUS-BROWSE-CANON-EQ OK`·2m=26·기존 세그먼트 회귀 0
   (MUSIC-OK·DIRS-OK·I1-OK(cure=0 5런)·LEG-UNSET-OK·CANCEL-OK·BROWSE-OK)
   +보호 원복 등호(SET-SNAPSHOT→SET-RESTORED 바이트 등호 — 29→36→29 —
@@ -1592,10 +1594,13 @@ ifconfig wlan0 | grep 'inet '
   00 10 | 00 00 00 1F`(규약 푸터 10B에 중간 "ID3" 3B 과잉) —
   기능 무해(bodyEnd 클램프+패딩 break로 푸터는 태그 밖 — 2s-⑥ assertion
   원문 성립)·본 문서가 실측 원문으로 표기 정산·배열 보정(1바이트 0x00)
-  +주석 정산 = 다음 MusicModel.h 접촉 몫(park).
-- **커밋 본문 "샤 캐논" 오자 원장행** — b2fe0f8(park 배치 4 — 본 라인
-  체인 밖 진전 커밋) 커밋 본문의 "샤 캐논: Win 671/WSL 648/posix 304/폰
-  648 등호." → "캐논" 오자(git log 본문 실측 원문 1:1) — amend 금지
+  +주석 정산 = 다음 main.cpp(2s 블록 :6212-6221 — kBlob* 배열 leg) 접촉
+  몫(park) — **MusicModel.h에는 kBlob* 0건**(T5 fix r1 지도 정정).
+- **커밋 본문 "샤 캐논" 오자 원장행** — **176c822**("feat(apps): music
+  재런치 활성 탭=유저 폴더 우선 (park 배치 4)" — 10-11 15:02·본 라인 체인
+  밖 커밋) 커밋 본문의 "샤 캐논: Win 671/WSL 648/posix 304/폰 648 등호."
+  → "캐논" 오자(git log 본문 실측 원문 1:1 — **T5 본판의 b2fe0f8 지목은
+  오기 — 본 fix r1에서 본문 원문 재실측으로 지목 정정**) — amend 금지
   계약상 미수정·본 문서 표기로 정산.
 - **이전 라인 오자 재유입 0 확인 원장** — T3 리뷰 cosmetic 원장(号→호·
   컬릭→클릭 — progress/리포트 문언)·T1 리뷰 cosmetic(사이본 상한 1MB
@@ -1618,7 +1623,7 @@ ifconfig wlan0 | grep 'inet '
 | --- | --- | --- | --- |
 | ① | **태그 목록 모양+필터 체감 — WSL/Win** | 5열 [곡명(아티스트)][앨범][크기][수정][spatial] 모양·태그 행/폴백 행(파일명+"-") 표기·필터(곡명/아티스트 — 파일명 원존) 체감 — WSL 캡처 원문 보존(mus_wsl_taglist.png+tag_diag 크롭 2종 — I-2 파일명 스왑 원장 주의) — 아티스트 매치 원문은 미실측 원장(§7.9.3 #7) | **대기(육안)** |
 | ② | **음악 폴더(개인 라이브러리) 체감** | 사용자 실제 라이브러리(ID3v2.3 — T2 smoke 캡처 t2_music_smoke.png/t2_crop_table.png 원문 — **라이브러리 경로는 커밋 게이트상 미기재 — T2 리포트 원장 참조**)에서 태그 열 실감·앨범 절단(툴팁 미제공 — T2 review cosmetic — 비율 재조정 몫)/560px 압착의 체감 판정 | **대기(육안)** |
-| ③ | **폰 — 배포+태그 런(2s 20 흡수+표기)** | BLOCKED 원장(§7.9.2 폰 행) — 실조치(폰 Wi-Fi 접속+Termux `sshd`) 후 배포 드라이버 1회+probe 2런 — selftest 668 실측(CANON 정산)+N5 태그 표기 캡처+openFailed 영수증 — **라인 최종 게이트** | **대기(실기기 — 폰 미네트워크·실조치 후 런)** |
+| ③ | **폰 — 배포+태그 런(2s 20 흡수+표기)** | BLOCKED 원장(§7.9.2 폰 행) — 실조치(폰 Wi-Fi 접속+Termux `sshd`) 후 배포 드라이버 1회+probe 2런 — selftest 668 실측(CANON 정산)+N5 태그 표기 캡처+openFailed 영수증 — **라인 최종 게이트**·**N5 탭 좌표 = 정찰 산치 근접 추정(TAB2_X=90±그리드 — T4 concern 3) — 재보정 = 다음 런 캡처(bc_tag0/bc_*) 몫·MISS 시 send_input 폴백 정직 이행** | **대기(실기기 — 폰 미네트워크·실조치 후 런)** |
 | ④ | **결정 D1-D6 재량** | 스펙 확정(8315b15)+본 문서 원장 성립 — 조달 0·스캔 1패스·Track 확장·열 재편·필터 확장·폰/WSL 동형 — **기각 시 즉시 수리** | **대기(유효)** |
 
 ### §7.9.6 커밋 원장 + IP/호스트 경로 게이트 (#99 라인)
