@@ -72,6 +72,9 @@ bool MakeUnixAddr(const std::string& name, sockaddr_un* out, socklen_t* outLen) 
 // Is there a LIVE server currently bound to this path? A successful connect
 // means yes (it sits in the live listener's backlog); ECONNREFUSED means the
 // file is a stale leftover of a dead server.
+// Phantom connect side effect (recorded #98 fix r1): a successful probe
+// connect closes without sending Hello — the live holder may log one
+// "Hello read failed" line of stderr (harmless, pre-existing contract).
 bool LiveServerHoldsPath(const std::string& name) {
     sockaddr_un addr{};
     socklen_t len = 0;

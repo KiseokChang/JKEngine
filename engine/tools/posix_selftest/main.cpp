@@ -63,6 +63,10 @@ bool EndsWith(const std::string& s, const char* suffix) {
 // server currently hold this socket path? A successful short connect means
 // yes (it lands in the holder's backlog); ECONNREFUSED means a stale leftover
 // (safe to unlink); anything else is fail-closed (treat as held).
+// Side effect (inherited from the pre-existing live/stale triage contract):
+// that successful probe connect closes at once without sending Hello — a
+// live holder may log a single "Hello read failed" line for it (harmless:
+// one line of live-session stderr noise, never a state change).
 bool LiveServerHoldsSocketPath(const std::string& path) {
     const int probe = ::socket(AF_UNIX, SOCK_STREAM, 0);
     if (probe < 0) return true;  // unknown — fail closed
@@ -1029,8 +1033,11 @@ void TestProcessScan(char* const* argv) {
 //   B) ConnectClient(the same constant) reaches THAT server and the wire
 //      round-trips bytes (both factories share one fold or clients part ways);
 //   C) teardown leaves the mapped file unlinkable (case-5 shape, scratch-free).
-// A real jkserver holding the constant's socket in this same WSL would make
-// the bind fail — the gate environment does not run one.
+// A real jkdesktop server holding the constant's socket in this same WSL
+// makes the bind fail — and one CAN be live here: on 2026-10-11 a user's
+// real session server (not the gate's) held this exact path and the guard
+// below measurably fired a real [SKIP]. The earlier comment "the gate
+// environment does not run one" was wrong as a fact — retired by that run.
 void TestPipeEndpointMapping() {
     const std::string mapped = "/tmp/JKWindowServerPipe.sock";
     // #98 guard: never unlink a LIVE server's socket — that entombing rm was

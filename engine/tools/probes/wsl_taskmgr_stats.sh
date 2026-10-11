@@ -22,6 +22,18 @@ cd /mnt/i/progwork/JKENGINE/engine
 
 FAIL() { echo "TASKMGR-FAIL: $*"; exit 1; }
 
+# #98 runner guard (fix r1 — review I1 "최위험"): this runner pkills every
+# jkdesktop it sees and rm-unlinks the desktop socket path before anything
+# asserts — against a LIVE server that is probe-foreign (the user's real
+# session), that kills and entombs an unrelated desktop and then attaches the
+# assertion run to whatever server survives. Abort the whole runner honestly
+# instead. (The step-4 rm has no pkill of its own right above it — a server
+# started between this entry and step 4 would otherwise be entombed.)
+if pgrep -f '[j]kdesktop --server' >/dev/null 2>&1; then
+    echo "[SKIP] taskmgr-stats: a live jkdesktop server is running — #98 runner guard (nothing pkilled, nothing rm'd)"
+    exit 0
+fi
+
 echo "=== 1. bracketed pre-clean (살아있는 jkdesktop이 재링크를 막는다 — 실측) ==="
 pkill -f 'buildwsl/[j]kdesktop' 2>/dev/null
 sleep 1
@@ -55,7 +67,13 @@ grep -aq 'AppSelfTest: 0 failure(s)' /tmp/t5_st.log \
 ASSERT_FIELD() { printf '%s' "$1" | grep -aq "$2" || FAIL "$3 — reply: $1"; }
 
 echo "=== 4. boot server (setsid nohup detached, WSLg :0) ==="
-rm -f /tmp/JKWindowServerPipe.sock
+# #98 pre-clean guard: rm on a LIVE server's socket entombs its parked
+# listener (client connects land ENOENT) — skip and note.
+if pgrep -f '[j]kdesktop --server' >/dev/null 2>&1; then
+    echo "NOTE #98: live server holds /tmp/JKWindowServerPipe.sock — pre-clean rm skipped"
+else
+    rm -f /tmp/JKWindowServerPipe.sock
+fi
 env DISPLAY=:0 setsid nohup ./buildwsl/jkdesktop --server >/tmp/t5_srv.log 2>&1 &
 sleep 5
 SRV_PIDS=$(pgrep -f 'buildwsl/jkdesktop' | tr '\n' ' ')

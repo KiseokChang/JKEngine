@@ -433,7 +433,13 @@ pkill -f 'buildwsl/[j]kdesktop' 2>/dev/null
 sleep 1
 pkill -9 -f 'buildwsl/[j]kdesktop' 2>/dev/null
 sleep 1
-rm -f /tmp/JKWindowServerPipe.sock
+# #98 pre-clean guard: rm on a LIVE server's socket entombs its parked
+# listener (client connects land ENOENT) — skip and note.
+if pgrep -f '[j]kdesktop --server' >/dev/null 2>&1; then
+    echo "NOTE #98: live server holds /tmp/JKWindowServerPipe.sock — pre-clean rm skipped"
+else
+    rm -f /tmp/JKWindowServerPipe.sock
+fi
 LOG="$LOGDIR/mus_srv.log"
 env DISPLAY=:0 setsid nohup ./buildwsl/jkdesktop --server >"$LOG" 2>&1 &
 sleep 6
@@ -1364,7 +1370,13 @@ pkill -f 'buildwsl/[j]kdesktop' 2>/dev/null
 sleep 1
 pkill -9 -f 'buildwsl/[j]kdesktop' 2>/dev/null
 sleep 1
-rm -f /tmp/JKWindowServerPipe.sock
+# #98 pre-clean guard: rm on a LIVE server's socket entombs its parked
+# listener (client connects land ENOENT) — skip and note.
+if pgrep -f '[j]kdesktop --server' >/dev/null 2>&1; then
+    echo "NOTE #98: live server holds /tmp/JKWindowServerPipe.sock — pre-clean rm skipped"
+else
+    rm -f /tmp/JKWindowServerPipe.sock
+fi
 I1LOG="$LOGDIR/mus_srv_i1.log"
 env DISPLAY=:0 setsid nohup ./buildwsl/jkdesktop --server >"$I1LOG" 2>&1 &
 sleep 6
