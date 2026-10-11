@@ -44,6 +44,12 @@ T4 9889519까지 5커밋+본 T5 커밋·스펙 aab4f11 병기 — §1 표 = rev-
 - **부기(#92 폴더 관리 라인 — 하단 부기·변형 아님)** — 본 문서에 §7 신설
   (뮤직 폴더 관리 UI 라인 T1-T3+T2 fix r2 원장): 후속 체인 =
   **7f66b81(플랜)..52f672c**+본 T5 커밋 — §7.0 표 = rev-parse 전체 SHA.
+- **부기(#93 스캔 안전화+#94 경로 인코딩 — 하단 부기·변형 아님)** — 본 문서에
+  §7.7 신설(스캔 안전화+한글 트랙 재생 라인 T1-T4 원장): 후속 체인 =
+  **4473e8b(플랜)..97b2d8e**+본 T5 커밋 — §7.7.0 표 = rev-parse 전체 SHA.
+- **부기(#97 폴더 브라우저 라인 — 하단 부기·변형 아님)** — 본 문서에 §7.8 신설
+  (뮤직 폴더 브라우저 라인 T1-T4+fix 3종 원장·2026-10-11): 후속 체인 =
+  **6ad3834(플랜)..2999f3d**+본 T5 커밋 — §7.8.0 표 = rev-parse 전체 SHA.
 
 ## §1. 배선 원장 (라인 전체 — rev-parse 전체 SHA 실측, T5 재측정)
 
@@ -292,6 +298,32 @@ status 절단 악형) → T2 fix r1 re-review **APPROVE 재확정**(C0/I0/M0 —
 | T4 원장 ① | landtap 폰 미이식 — tab2 병합 구성(tree_a를 dirs_[1]에 앉힘·TAB2_X 상수 재용)으로 대체 | N | 원장행(§7.7.3 #5) — 신규 좌표 원장 0 원리 |
 | T4 원장 ② | 폰 MISS 시 2차 사이클(2차 = 캡처 없는 고속 탭→remove) 미실측 — 1차 사이클 직행 성립 | M | 폰 스캔이 캡처+ctl 왕복보다 빠른 기기에서만 유성 — MISS 수취 시 rc=0 honest(SCALE 재정산 재런 몫) |
 | T4 원장 ③ | close→소멸 임계 5.0s(WSL 3.5s 수형의 폰 정산 — 1s 폴링+ctl 왕복) — 실측 1.25-1.26s는 임계 0.75 미만 여유 | N | 다른 폰 기기 재정산 몫·MUSP_BIG_SUBS/MUSP_BIG_FILES env 재정산 몫 동봉 |
+
+### §4.1-3 신규 park 행(#97 폴더 브라우저 라인 — §7.8 승계 · **아래는 추가만,
+기존 행 변형 금지**):
+
+| 출처 | 항목 | 등급 | 처분 근거 |
+| --- | --- | --- | --- |
+| T4 concern 1 | **⑤ [이 폴더 추가] 폰 등록 강도(FULL) 미성립** — 3런(2/3/4) 종료 전이 착탄(DELIVERED)이나 music_dir_list에 sub_[ab] 미출현 = cwd=루트 no-op 원문 | M | 라이브 캘리브레이션 세션 수형(WSL 16c 선례 — 1탭-1캡처-1판정) 또는 tapsettle에 "클라 포인터 유도" 수형(탭 후 같은 창 무해 지점 park — io.MousePos 희생 지점) — 후속 런 몫·**T2 fix r1 재검 I1(행 격자 ±22px 재보정 — T4 소관 원장행)의 승계 종착** |
+| T4 리포트 본안 | ③JoinDir 진입·④Parent·⑤ 추가의 **자동 탭 체인 미성립** — 폰 렌더 지연(~10s)+커서 잔상+표 스크롤의 3중 드리프트로 착탄 판정 흔들림 | M | 상행과 동일 라이브 세션 몫 — ②체인(탭 전환·개봉·cwd 표기+sub 목록)은 XTEST 수취 프레임 원문으로 성립(§7.8.2)·⑤ 좌표 정산 원문 동봉(런 2/3 — sub_a 클라 y≈362·".."≈311·버튼행 322-342 — WSL 원산(348/294/321)과의 폰 폰트 행높이 쏠림) |
+| T3 concern 2+T3 리뷰 concerns 2·I-4 | **캡처 = 클릭-전(개봉-전) 프레임 수수** — ② open/subs 캡처가 개봉-전 [폴더 관리] 패널 프레임(false-positive 30-diffs — T3 리뷰 뷰잉으로도 재확정 — sub2 캡처만 개봉 상태 원문) | M | MUS_BROW_RECON=1 정찰 런(set-timed 재수취) 또는 차기 런 ② 캡처 재수취 몫 — **tapsettle 8s 무음 판정이 이 지연 하에서 더 안전**(false-FAIL은 false-SUCCESS보다 안전 — 토글 역전 함정 회피)·프레젠트 지연 2-8s·간헐 수십 s 원장(§7.8.3 #5) |
+| T2 fix r1 concern 3 | 압착 상태에서 spatial 패널 4px 띠(콘텐츠 클립) | M | 압착 가드 2검의 의도 봉합(음수 잔여 child 소각 — §7.8.1) — EYES 관측 몫·런 3 폐쇄 상태 화면 = 원존과 동형 실측 |
+| T2 concern 3+T2 리뷰 concern 3 | [폴더 관리]+[찾아보기] 동시 개봉 시 **표 영역 압착 잔여 관측** | M | fix r1 가드로 -200 고정폭 소각(reserve = clamp(남는 높이−56, 4, 200)) — 잔여 체감은 사용자 선언(EYES) 후 재판정·probe는 cwd 표기·목록 캡처만 소관이라 영향 0 |
+| T2 fix r2 재검 I1 | index 범위 밖(valid=false→deny 공문자)+stale cwd 잔존 조합의 무음 개봉 이론 경로 | N | dirIndex_는 ResolveDirs 클램프+탭 스트립 유효 인덱스만 취급 — 실도달 불가·**방어선 등급 원장행(수리 불요)** |
+| T1 fix r1 재검 I1 | 절대성 residual 2폼 — name 자체가 절대면 결합에 이중 슬래시(JD(/a,"/sub")=/a//sub·JD("C:","/sub")=C://sub) | N | 수리 전 구형(3슬래시 "C:///sub")보다 나은 폼·현 UI 계약(폴더 행 = bare 이름만 전달) 미도달·**선존(JoinDir 이전부터 동거) — 원장행(수리 의무 없음)** |
+| T1 fix r1 재검 I2 | UNC "//" 루트 → 단일 "/" 루트 흡수 | N | Windows 브라우즈 cwd는 드라이브 폼·posix는 선행 이중 슬래시를 implementation-defined로 취급 — **양축 안전·원장행** |
+| T1 리뷰 I2 | ListSubdirs 열거 도중 실패 경로는 directory_iterator의 던지는 operator++ 원문 수형 승계(ScanAudioTree 동형) | M | 결함 아님 — 계약 표기 정밀도("ec 중립형 = 개시+성분 판정은 ec, 열거 계속은 원문 수형 승계") — 다음 MusicModel.h 접촉 시 주석 1행 몫 |
+| T3 리뷰 M-2/M-3/M-4/I-1..I-3 묶음 | probe 내원 원장행 — ⑤ 후보 계수 정정(110/5런 = C2/C3/D 20 후보+E/F 25·런 C는 BADD=0·런 C2 계보 누락)·landtap 이동의 sleep 1.8→5 견적을 "본문 무변경"으로 표기(PX 본문 전용이 무변경)·settings 보호 "engine/tmp 사본 2벌" 기록의 비교 원문 부존재(복귀 이행 시 소각 — T3 리뷰 복귀 실측으로 결과 닫힘)·selftest 648 "5회"→7회 과소 계수·MUS_BROW_TH_ADD 미소비 상수+주석 y 산식(458-482 vs 442-457) 동커밋 불일치·tapsettle "무음=재시도 안전" 서사 과잉(토글 오복원 이론 잔여 — 상태 사슬이 지켜줌)+BADD 루프 후보 간 캡처 부재 | M | 판정 본안(2런 등호·WSL 648 7회·⑤ 0 등록) 유효 — 다음 probe 접촉 시 원문 정정·소각 몫 |
+| T2 fix r1 재검 I3 | T2 fix r1 리포트 파일별 계수 오기(cpp +153/−28·sh +97/−42 — numstat 실측 +114/−39·+68/−33) | M | **소각 — 본 문서 §7.8.0/§7.8.6 표기는 numstat 실측 기준으로 정정 기재**(총계 182/72 등호) |
+| T3 리뷰 M-1 | ⑤ 원인 서사 "negative-height 압착 경계 — 실결함 성립" 원장 초과 기술 | M | **소각** — T2 fix r1에서 원장 정정(기하 기각·단절 서사)+⑤ 재검 성립(BROWSE-OK 8/8)+diag2 분절(§7.8.1) — **T2 fix r1 re-review "⑤ 무전달 소각" 원문** |
+| T2 리뷰 I1+I2 | 행 클릭 동프레임 툴힌트 드리프트(진입 후 cwd로 재조립 1프레임)·리포트 링크 표면 서사(jkdesktop+jkapp_music 2건 표기 — 실측 jkapp_music 단독) | M | **소각** — fix r1 dest 사본 선취(클릭 판정 전 JoinDir 1회 구성)+원장은 링크 표면 실측 기준 기재(§7.8.6) |
+| T2 리뷰 I3 | 광 드라이브 표기 cwd("C:") — 드라이브 현재 디렉터 건드림 함정 도달(ListSubdirs("C:") 부정확 목록) | M | **소각** — fix r1 개봉 가드 2검(bare "C:" 거부+"X:/ 형식으로 재등록" 정직 1행 — JoinDir 드라이브-상대 함정 cwd 폼 차단) |
+| T2 fix r2 재검 I2 | **diag2 trace 원본 = WSL /tmp 휘발**(클라 무죄(IPC 응답지연) 귀결의 유일 실물 — srv.log 83KB) 영구화 미수행 | M | **소각 — 본 T5에서 사본 1벌 복원 수행**: `engine/tmp/t2f_diag2_srv.log`(83,916B — 원본 WSL /tmp/t2f_diag2/srv.log와 md5 `4f29566412cc3f17bf363c1ae2085e3d` byte 등호 실측 — untracked 커밋 금지 충족)·전반부(영구화) 소각 — 후반부(구 ⑤ 지대 y 442-457의 직접 재판정)는 fix r1 행 이동으로 지대 자체 존재 소멸 — 재판정 의무 소멸(diag2가 토글 지대만 재현한 "제어 클릭 축 실측" 표기 원장 유지) |
+| T4 원장 | SWEEP-DIFF=8/319(기대 집합 11 — ddd0f45 앵커 계보) — **probe 기대치 갱신 필요** | M | **리뷰 판정 확정 = 앵커 stale·실물 누락 아님(근거 4건 — §7.8.3 #7)** — 차기 런 전 `PHONE_DEPLOY_BASE`를 실배포 HEAD로 정산+앵커 미갱신 기간의 사이즈-등호 3파일 의존을 원장행에 명기 몫 |
+| T4 리뷰 M-2 | 커밋 본문 결함 원장 계수 4건 vs 실제 수형 5건(런 2 remove 서기 지연 폴링 = N4-10 CLEAN-POLL 미계수) | M | **소각 — 본 문서 §7.8.3 #6에 5건째 원문 봉인**(런 2 remove 서기 지연 폴링 — clean-poll 수형) |
+| T4 리뷰 I-1 | probe 판정행 `MUSIC-BROWSE-VERDICT: BROWSE-OK(…③④④2…)` 라벨이 cwd 전환 성립처럼 읽힘 — 실제 = tapsettle 착탄(EYES)+SUB-MISS 원문(리포트 본문은 "미성립"으로 정직 정정 — 라벨만 미세 과다) | M | 다음 런 ⑤ FULL 재판정 시 라벨-원장 정렬(⑤ 라이브 캘리브레이션 몫과 동일 라인 — §4.1-3 상단 행) |
+| T4 리뷰 I-2 | phone_music.sh L1727/1729 인접 중복 sdcard 헤더 주석 1행(N4 블록 삽입 시 재삽입) | M | 동작 영향 0 — 다음 probe 접촉 1행 소각 |
+| T4 원장 | 폰 probe 병합 수형 교환 — 진입 settings의 music.dirs = 사용자 원문(163B) → probe dirs 선행+사용자 dirs 보존 병합(워터마크 hard FAIL 폐곡)·탭2 = probe 시드·사용자 dirs = 후속 탭 | N | 원장행(T4 리포트 concern 2·리뷰 3 PASS — 구 ORIG 폐기 가드(ORIG-STALE-SUPERSEDED — 구 ORIG 원복 시 사용자 dirs 소각 위험 수형 원장)까지 실측) — 사용자-first 재배치 필요 시 MUSP env 재런 몫·**탭2=probe 시드 표기가 구 브리프 문언("탭2 = /storage…Music")과의 편차 — 복원 뒤 사용자 원본 상태 캡처(mus_phone_final_restore.png)가 대변** |
 
 ## §5. 사용자 결제 게이트 (EYES-PENDING 봉인)
 
@@ -877,3 +909,296 @@ cf690c8 미수록·캡처 7종 현행 9종) = 본 T5에서 소각 완료**(§7.6
   (#83 사건 레슨). probe 런 로그(run16d_{1..5}·phone_music{,_run}.log)·
   캡처(mus_wsl_scan_busy·mus_wsl_rescan_settled·mus_phone_scan_busy·
   mus_phone_rescan_settled+crops)는 engine/tmp untracked — 커밋 금지 충족.
+
+## §7.8 폴더 브라우저 원장 (#97 라인 — T1-T4, 2026-10-11)
+
+뮤직 폴더 브라우저 라인(#97) 원장 — 사용자 발단 "파일 다이알로그로 폴더 선택
+해야 하지 않아요?"(2026-10-11)의 브라우즈 백로그 정산 = **내장 미니 브라우저**
+(타이핑 소거 — 폰 키보드 회피가 동기: 폰에서 타 트리 위치의 폴더를
+타이핑 없이 [추가]하는 것이 [이 폴더 추가]의 존재 이유). 플랜=
+`docs/superpowers/plans/2026-10-11-music-dir-browser.md`(6ad3834 — 결정 원장
+5건=재량(§7.8.4)·사용자 게이트=폰/Win 브라우저 체감(§7.8.5)), SDD 원장=
+`.superpowers/sdd/2026-10-11-music-dir-browser/`(progress·task-1..4 리포트
+7종(fix 3종 포함)·review 4종(재검 3회 동봉)·review diff 7종·런 로그
+engine/tmp/wsl_music_t3_run{1,2,C,C2,C3,D,E,F}.log·phone_music_run{1..4}.log —
+untracked **인용만이 진실원**). 라인 부품 계승: #92 폴더 저장소
+(MusicDirStore·DirAddManaged 가드 2검·재스캔 3연)·#93 취소 기구(스캔은
+DirAddManaged 기존 계약 소관)·#94 경로 인코딩 규약(와이어/저장/표기=UTF-8).
+T5는 본 §7.8 — docs 전용(engine/probe 무접촉)이라 selftest 재실행 불요(§0 부기
+원칙 — 건네받은 수치 Win 671/WSL 648/posix 296/폰 648 그대로 봉합·`-F`
+고정문자열 계수 룰링 승계). 서브에이전트 스폰 0건(T1-T4 각 리포트 선언·T5
+실측)·worktree 미사용·main 직행. T4 리뷰는 **APPROVE(C0/M2/I2)** verdict로
+폐곡(commit 2999f3d) — spd 병렬 룰링 수형(T5 병렬 dispatch 마지막 사이클 —
+verdict는 본 T5 커밋 전 흡수).
+
+### §7.8.0 체인 (rev-parse 전체 SHA 실측 — T5 측정 · git log가 진실원)
+
+| 태스크 | 커밋(SHA — 실측 rev-parse) | 내용 |
+| --- | --- | --- |
+| 플랜(라인 BASE) | `6ad38344d0b106123a1c035a7b0535fb696d9ea1` | docs(superpowers): music 폴더 브라우저 플랜 T1-T5 (#97) |
+| T1 | `04e11b78cd672662713d6eddffe324054b69ff3a` | feat(apps): music 폴더 브라우저 순수 부품+2r (T1) — MusicModel.h `jk::music::browse`(ListSubdirs/JoinDir/Parent)+main.cpp 2r 8건 (2파일 +152/−0) |
+| T2 | `8e1d84c55039da6a05af915ec3d9b3d45560aede` | feat(apps): music 폴더 브라우저 패널 — 타이핑 없는 선택 (T2) — ClientMusicApp .h/.cpp 2파일 +127/−0 — [찾아보기] 토글+cwd 표기+.. 행+[이 폴더 추가]=DirAddManaged+성공=브라우즈 종료+[닫기] |
+| T1 fix r1 | `c6be5003dc62f49b9573fe5be0dd97f769877a9e` | fix(apps): JoinDir 루트 폼 — 이중 슬래시·posix 흡수 수리 (T1 fix r1) — MusicModel.h JoinDir 본문(main.cpp 2r-b/c 회귀 2건 동봉 — 2파일 +35/−8) |
+| T2 fix r1 | `05bd36888508257ce604e1444adba030827d067f` | fix(apps): 브라우저 압착 가드 — 이 폴더 추가 도달 복원 (T2 fix r1) — 2파일 +182/−72(numstat — ClientMusicApp.cpp +114/−39·wsl_music.sh +68/−33) — 압착 가드 2검+⑤ 행 목록 위 이동+⑤ 재검 세그먼트(tap timeout 12→35) |
+| T2 fix r2 | `d5c6875048e24dec6350c96d01e012e8a6bc11d9` | fix(apps): 브라우저 거부 경로 cwd 소각 복원 (T2 fix r2) — 2파일 +9/−4(cpp +5/−1·h +4/−3) — 거부 분기 browseCwd_.clear()+`!deny.empty()` 확장+h주석 부하성 정정 |
+| T3 | `e68ff4615472cfe98822382a25eabf98cfc95827` | test(probes): music WSL probe — 브라우저 실측 세그먼트 (T3) — wsl_music.sh probe 1파일 (+508/−68) — ②③④④2 2런 등호·tapsettle 신설·⑤ 무전달 실측(T2 fix r1 dispatch 근거) |
+| T4 | `2999f3df7e2d160fe8af14a75488f330ed0072ec` | test(probes): music 폰 probe — 브라우저 동형 세그먼트 (T4) — phone_music.sh probe 1파일 (+835/−81·코드 무변경) — **폰 캐논 638→648(2r 10 — 4런 등호)**·XTEST(ztap) 재조립 |
+| T5 | 본 문서를 포함하는 커밋 | docs(apps): music 폴더 브라우저 as-built 갱신 (T5) — SHA는 git log가 진실원 |
+
+폐곡 계보: T1 리뷰 **APPROVE(조건부 fix r1 — C0/M2/I2)**(격리 워크트리 재빌드
+669 등호·부자기 함정 실측 재확정 pp(C:/)=C:/·M1 "I://"·M2 posix 루트 흡수) →
+T1 fix r1 재검 **APPROVE(C0/M0/I2)**(14폼 프로브 실측 — `JD(I://,X)=I:/X`
+입력 폼 정규화 강화 보너스·2r 10행 PASS — **Task 1 complete**) → T2 리뷰
+**APPROVE(C0/M1/I3)**(idle 계약 M1 — 부하성 문어·상위 탐색 재량 승인·행 사본
+수형 원천 0) → T2 fix r1 재검 **APPROVED(조건부 — C0/M2/I3)**(⑤ DELIVERED
+판정+diag2 분절 성립+압착 가드 2검 ImMax 원문 검산 — **M1 거부 경로 browseCwd_
+미소각 신규 회귀 → fix r2 dispatch**) → T2 fix r2 재검 **APPROVED(C0/M0/I2)**
+(거부 계약 4단계 시나리오 실측·격리 재빌드 671 등호·무변조 확정 — **Task 2
+complete (commits 8e1d84c·05bd368·d5c6875)**) → T3 리뷰 **APPROVE(C0/M4/I4)**(2런 등호
+·WSL 648 **7회** 실측(리포트 5회 과소 — I-1)·⑤ 서사 판정 — 기하 서사 반증·
+층위 불확정 지정(T2 fix r1에 판별 실험 동봉 요구 — 이행됨)) → T4 리뷰
+**APPROVE(C0/M2/I2)**(폰 캐논 648 receipt 런 4회 원문 전수+
+`CANON-INCLUSION=MUSIC-FULL-2P2QR-10` 삼원 일치·WSL 등호 3로그 교차·⑤
+DELIVERED but cwd=루트 no-op의 등급 분판 정확·SWEEP-DIFF 8/11 = **앵커
+stale 판정(기대치 산식 미갱신 — 실물 누락 아님 — 근거 4건)** — M-1·M-2는
+§4.1-3·라인 코드 축 폐곡).
+
+### §7.8.1 배선·원리 원장 (원류 원문 1:1 수취 — 리포트/review 근거 · 코드 재실측 0)
+
+- **DirBrowserModel 순수 부품(T1 — `namespace jk::music::browse`)** —
+  ListSubdirs(ec 중립형·directory_iterator ec 실패 = 독립 빈 페이지·
+  is_directory(ec) 폴더 전용(파일·".." 배제)·숨김 = 선단 '.' 스킵(LibraryCatalog
+  수형)·byte asc `std::sort` — char_traits 비교 = 로캘·ABI 무관 **진짜
+  결정론**)·JoinDir(Slashize 재용(0x5C 고바이트 규약 승계)+말단 구분자 접기
+  →무조건 1슬래시 결합(드라이브 루트 "C:"도 "C:/name" 성립 — fix r1 근원
+  조건행 삭제)+posix 절대 루트 보존 — 접기 **이전** `front()=='/'` 절대성
+  표지 수형)·Parent(문자 스캔 1단 제거 — 루트/빈값/단일 성분 = 빈 문자열
+  (**부자기 금지** — fs::parent_path 루트 자기 반환 함정 회피))·"/a"="/"
+  ·드라이브 루트 표기 유지(I:/music→I:/)). **루트 폼 3함정 원장 — 전부 fix
+  r1 소각**:
+  ①fs::path::parent_path 루트 자기 반환 실측(pp(C:/)=C:/·pp(/)=/·pp(C:)=C:)
+  — 문자 스캔 승계의 근거 ②드라이브-상대 "C:name" 함정(ListSubdirs("C:")가
+  드라이브 현재 디렉터를 건드림 — MusicModel.h 자기 문서화) ③말단 접기가 "/"
+  를 소각하는 posix 루트 흡수(JoinDir("/","x")="x" — 상대 조립 = 프로세스 cwd
+  기준 오판). 폰 상위 사다리(/sdcard/Music→…→/→"") 전체가 이 규약 위에서
+  성립(리뷰 6폼 실측).
+- **브라우저 패널(T2 — [폴더 관리] 패널의 [찾아보기] 토글)** — 개봉 cwd =
+  `dirs_[dirIndex_]`(현재 탭 루트)+`Utf8ToUtf16` 가드(RequestScan 동형
+  fail-closed — CP949 레거시 루트·광 드라이브 "C:"(fix r1 I3) 개봉 거부)·
+  cwd 표기 1행(TextUnformatted — 툴힌트 전문 재소유)·상위 ".." 행(Parent
+  빈값 = 루트 → `(루트 — 상위 없음)` TextDisabled — 부자기 금지의 UI측 소비)
+  ·폴더 행(Selectable + **행 사본 선취 P1 수형 재용** — 클릭 핸들+툴힌트
+  전부 사본 — ListSubdirs는 프레임 로컬 재구성이라 UAF 원천 0건 리뷰 전수)
+  ·**[이 폴더 추가] = DirAddManaged 단일 경로**(UI [추가]·music_dir_add 도구와
+  동일 — 신설 중복 경로 0건): 가드 2검→Store.AddDir→성공 =
+  RefreshUserDirs+ResolveDirs+RequestScan(재스캔 3연 원존)+**브라우즈 종료**
+  (browseOpen_=false+browseCwd_ 소각)·실패 = status 정직 1행 브라우저 잔류.
+  **거부 경로 계약(T2 fix r2 복원 — fix r1 가드 개편의 회귀 소각)**: 거부
+  판정을 `browseCwd_.empty() || !deny.empty()`로 확장+거부 시
+  `browseCwd_.clear()` — 개봉→토글 폐쇄(stale cwd 잔존)→deny 탭 전환→재개봉
+  시퀀스의 stale cwd 개봉+거부 무음을 소각(개봉 거부 = 브라우저는 닫힌 채+
+  거부 사유 1행 — 합격 분기 무변경).
+- **부하성 더티 계약(1곳)** — 브라우저 고유 신설 frameDirty = **개봉 거부
+  사유 표기의 부하성 봉인 1곳**(h주석 원문 문구 — T2 fix r2 M2 정정) —
+  status_는 BuildUi **선두** 상태행에 그려지므로 거부 클릭 프레임의 선두 행은
+  이전 status를 이미 그었다(동선: 거부는 폴더 패널 블록에서 일어난다) —
+  frameDirty는 다음 프레임 선두 행 표기를 유발하는 하중(**1프레임 지연 표기**
+  — 더티가 없으면 #89 idle 게이트에서 거부 사유는 영영 미표기 — T2 리뷰 M1
+  원문). 탐색·개봉·닫기·행 클릭 = 입력 이벤트 자연 귀결·[이 폴더 추가]의
+  더티는 DirAddManaged 기존 계약(성공/실패 status 표기) — **브라우저 고유
+  신설 더티는 1곳뿐**(idle 계약 docs/88 무변조 — 리뷰 3회 전수).
+- **★무전달 지대 소각 원장(T3 발견 → T2 fix r1 수리 + diag2 분절)** — T3:
+  [이 폴더 추가] 행(구 y 442-457 — 클라 흐름 최하단 row·tracks child의 -200
+  부근)의 합성 클릭 = 런 5회×110 후보 전부 무전달(ok:true,sent:true 답신 =
+  **전송 성립만** — 클라 [cpustat] frames=0까지 직결) → **기하 서사
+  (negative-height 압착 = 클릭 불가)는 리뷰 뷰잉으로 기각**(sub2 캡처 실측 —
+  버튼 rect(11-73, 439-461) = 클릭 그리드 내부·압착은 버튼 아래 tracks/spatial
+  에만·드로우 순서상 버튼이 앞선 항목이라 압착과 클릭 불가의 인과는 불성립)
+  → **단절 서사 채택 후 diag2로 층위 분절 성립**: 동일 v1 바이너리·
+  JK_CPU_TRACE+allow의 제어 클릭(폴더 관리 토글 그리드) = relay 12행+클라 수취+
+  input 1-5·frames 1-4 원문 — **수취·처리 양존 = "클라 무죄 — agentctl 응답
+  회수 지연(~33s > tap timeout 12)의 IPC 응답지연" 귀결** → **"수취 0 vs
+  처리 0" 층위 해소**(T3 리뷰의 미확정 지점). 수리 = ①압착 가드(tracks
+  1검+spatial 2차) ②⑤ 행을 목록 위 버튼행으로 이동(도달성 원장 — 하위 행
+  성립 축·런 E/F 전달 원문 y≈294-350 — 무전달 지대 회피·계약 존재 순서
+  유지·공간 순서만 교체) → 재검 **BROWSE-OK stage 8/8**+⑤ 종료 전이 착탄
+  (DELIVERED — diff 43)+DirAddManaged 발화("폴더 추가됨") 2회 원문 —
+  **T3 concern 1 무전달 소각**. 레슨: **합성 입력의
+  무전달은 좌표 지역 결함을 먼저 의심하지 마라 — relay/수취/처리 3층을
+  컨트롤 클릭 1발로 분절하라**(§7.7.3 #1 "tap ok ≠ 착탄"의 클라 측 계승)·
+  표기는 "제어 클릭 축 실측"임을 명시(구 ⑤ 지대 자체의 직접 재판정은 fix r1
+  행 이동으로 지대 소멸 — §4.1-3).
+- **압착 가드 2검(T2 fix r1 — ImGui 원문 근거 리뷰 실측)** — tracks child:
+  고정 `(0,-200)` → **reserve = clamp(남는 높이−표 최소 56px, 4, 200)**(여유
+  상태 = -200 원존과 완전 동형 — 동일 측정점·폐쇄 부작용 0)·spatial child:
+  (0,0) 잔여 의미 → 명시 `max(4, 잔여)`(압착에서만 4px 봉합 — 음수 잔여
+  child 소각). ImGui 원문(third_party imgui 1.92.9b 리뷰 검산): `CalcItemSize`
+  y<0 → `ImMax(4.0f, avail + size.y)`(imgui.cpp:11815)·BeginChild (0,0) →
+  default_h = `GetContentRegionAvail()`(:6574).
+
+### §7.8.2 캐논 계보 (2r 계열) + 브라우저 실측 영수증
+
+| 커밋 | Win | WSL | posix | 폰 | 신설 |
+| --- | --- | --- | --- | --- | --- |
+| 기준(#94 종착 = §7.7.2 T5 행) | 661 | 638 | 296 | 638 | — |
+| T1 `04e11b7` | **669** | **646** | 296 | 638(흡수 전) | 2r 8 |
+| T2 `8e1d84c` | 669 | 646 | 296 | 638(흡수 전) | 0 (UI 전용 — 등호 런·신설 어설션 0 계약) |
+| T1 fix r1 `c6be500` | **671** | **648** | 296 | 638(흡수 전) | 2r-b/c 2 (+2) |
+| T2 fix r1 `05bd368` | 671 | 648 | 296 | 638(흡수 전) | 0 (3축 등호 — 런 3 `MUS-BROWSE-CANON-EQ: OK` 원문) |
+| T2 fix r2 `d5c6875` | 671 | 648 | 296 | 638(흡수 전) | 0 (3축 등호) |
+| T3 `e68ff46` | (승계 등호) | 648 (런 등호 — 7회) | 296 | 638(흡수 전) | 0 (probe 전용 — 코드 무접촉) |
+| T4 `2999f3d` | (승계 등호) | 648 | 296 | **648** | 폰 2r 10건 흡수(638→648 — 2r-a..⑦+2r-b/c — **WSL 완전 등호·receipt 런 4회(r1-r4) 등호** — `CANON-INCLUSION=MUSIC-FULL-2P2QR-10`·2p=7 2q=7 2r=10 2m=26 2n=17 2o=16 리뷰 원문) |
+| T5 본 커밋 | 671 | 648 | 296 | 648 | — (docs 전용 — 재실행 불요) |
+
+- **posix 296 등호 = 하네스 TU 미링크 구조 등호**(§2.1/§7.2 원리 승계) — 2r
+  전원이 engine/src/main.cpp 소속이고 tools/posix_selftest의 build.sh 65행은
+  harness 자 own main.cpp만 링크(T1 리뷰 구조 입증 — 전 커밋 무접촉).
+- **2r 10의 분해** = 2r-a 임시 트리 구성(setup — %TEMP%\jk_music_browse ·
+  REMNANT 0 사후 판정선)+①ListSubdirs 폴더 3건 오름차순(파일·숨김·상위 행 0)
+  ②JoinDir 등치+1슬래시 결합 ③Parent 중간 왕복 등호 ④Parent 루트 표기 유지
+  (I:/music→I:/+posix /a→/) ⑤Parent 루트의 부모 = 빈 문자열(부자기 3폼)·
+  ⑥없는 cwd = 빈 페이지(ec 중립·crash 0) ⑦사후 소각 REMNANT 0 + **2r-b
+  `JD(C:/,sub)=C:/sub`(I:// 회귀 봉인)·2r-c `JD(/,sub)=/sub`(루트 상대 흡수
+  봉인)** — 캐논 산수 661+8=669+2=671·638+8=646+2=648(리뷰 격리 재실측 원문).
+- **WSL 브라우저 실측(T3 — 런 E/F 최종 코드 2회 등호)** — tapsettle 착탄
+  원문(도달 시차 4-5s): tab (158,76)→[폴더 관리] (220,70)→[찾아보기] (44,262)
+  →하위 진입 (86,324)→상위 ".." (24,294)→재진입 (64,324) — ②③④④2 체인을
+  상태 사슬로 재검증(차분 게이트·토글 안전 원장). ⑤ = 무전달 실측(110 후보
+  0 등록 — 도구 진실원 poll 25/25 `["mus_seed","mus_browse"]` 변동 0 — 위
+  §7.8.1 소각 원장 근거).
+- **폰 브라우저 실측(T4 — XTEST(ztap 재조립 · 삭제 금지 계약) 수취 프레임
+  원문)** — ② mus_browse 탭 활성 전환·②2 [폴더 관리] 패널 개봉·②3 브라우저
+  개봉+cwd 표기(/data/.../mus_browse)+".."+[이 폴더 추가|닫기]+sub_a/sub_b
+  하위 목록 렌더 = 수취 프레임 원문 — **T5-era 폰 스트립 행 Button 무응답
+  관측(#96 P3 원장행)이 X 수준 주입에서 소각**(X 주입 경로는 성립 — #96 수형의
+  정직 영수증). MUS-PHONE-OK(r1·r3·r4)·브라우저 stage 8/8·restore=1·hard=0.
+  배치 전 원문: SWEEP-DIFF=8/319 → tar blob 배포 → SWEEP-POST-DIFF=0
+  DEPLOY-FRESHNESS-OK → ninja 264/264 aarch64 NINJA-RC=0. ③④⑤ 자동 탭 체인
+  = 미성립 원장행(§4.1-3 — 캡처·판정 본안은 원문 성립).
+- **probe 원복 원문(T4)** — settings 163B(사용자 music.dirs 보존)·permissions
+  33B 바이트 등호(REMNANT 게이트 전부 OK)·브라우즈 트리·시드·정찰 캡처 소각 0
+  ·주입기 보존(삭제 금지 계약)·**사용자 화면 = Music 창 focused 복원**
+  (캡처 mus_phone_final_restore.png md5 `2cbb595660ce43b02ef20f7d0a76261c`)
+  ·jkweb 생존 1. T3 측: ENTRY 가드가 사용자 settings 원문을 발견해 hard FAIL
+  중단(올바른 중단 — probe 소유 아님 계약)→브래킷 이동-런-원복(RESTORE-BYTE
+  OK·바이트 등호 실측 — T3 리뷰 복귀 확인·사본 기록 부기 §4.1-3).
+
+### §7.8.3 함정 원장 (#97 신규 — 봉쇄 레슨 축)
+
+1. **★Win32가 "I://"를 무사히 접는다 — 셀프테스트는 영영 미검출(T1 리뷰 M1)**
+   — JoinDir("I:/","x")="I://x" 실측(무조건 1슬래시가 드라이브 루트 조건행과
+   겹침 — 3행 안의 결함)인데 **directory_iterator("I://") ec=0·열거 39건 실측**
+   — Win32 경로 정규화가 이중 슬래시를 흡수해 기능은 우발 우회되고 2r-②는
+   성분 2+ 경로만 검증해 **검출 구조적으로 불가**(셀프테스트 체계가 폼을
+   접어버리는 함정 — "테스트가 통과 = 폼 계약 성립"은 등호가 아니다). UI
+   표기 드리프트("I://" 표시)·규약(#94) 위반이 유일 피해 — fix r1에서
+   조건행 삭제(근원 소각)+입력 폼 자체 정규화 강화("I://"·"C://" → 1슬래시 폼)
+   ·2r-b 봉인. **렛슨: 플랫폼이 관대한 폼은 결함을 은폐한다 — 표기 계약은
+   셀프테스트 밖에서(프루브 1-오프 실측으로) 검증돼야 한다.**
+2. **★fs::path::parent_path = 루트 자기 반환(T1 부자기 3폼)** — `pp(C:/)=C:/`
+   ·`pp(/)=/`·`pp(C:)=C:` 실측(리뷰 미니 프루브) — 루트에서 Parent가 자기
+   자신을 돌려주면 ".." 행이 영원히 사라지지 않는 무한 사다리. 문자 스캔
+   승계(루트/빈값/단일 성분 = 빈 문자열)가 규약 — UI 측은 빈값을
+   `(루트 — 상위 없음)` 행으로 소비(부자기 금지의 이층 봉합).
+3. **★WSLg 9p 링크 잠금 = ENOENT 착시 + ld 실패 시 출력 소실 축 비대칭(T1
+   리뷰 입증·T1 원장)** — buildwsl 재링크가
+   `cannot open output file jkdesktop: No such file or directory`를 4회
+   반복 — 진원 = WSLg 데스크톱 3 인스턴스(--server·taskbar·music.jkx)가 구
+   바이너리를 물어 9p에서의 링크 잠금이 **ENOENT로 표시된다**. **Windows의
+   ld는 실패 시 기존 출력 파일을 유지하고 WSL의 ld는 삭제한다**(축 비대칭 원장
+   — 동일 잠금이 Win에선 stale 바이너리 유지로 겉보기 소멸) — 재시도 반복하면
+   BASE 바이너리가 실제로 소실. 수리 = `kill -9` 3 프로세스 후 재링크 rc=0.
+   **렛슨: 동명 잠금 재발 시 이름 착시(touch jkdesktop = ENOENT·인접 이름은
+   생성 성공)를 잠금으로 먼저 판정할 것.**
+4. **jkagentd(PID 19164) stale 원장행** — 데몬 생존 중 jkagentd 링크만
+   Permission denied(jkdesktop·jkwinserver·jkapp_music 링크 rc=0 — 캐논과
+   무관·main.cpp TU 소속) — **disk 바이너리는 2r 미반영 stale 유지(Windows
+   ld가 구파일 보존 — #3의 Win 축 행동)**. T1→T2→T1 fix r1 3세대 미수수·
+   taskkill 후 재링크는 차기 축 소관(T4 리포트 축 폰 배포는 무관 — probe
+   자체 빌드).
+5. **★프레젠트 지연 2-8s(간헐 수십 s)+캡처 = 클릭-전 프레임 수수(T3 원장
+   수치 첨부)** — 클릭의 UI 전이는 컴포지트 프레젠트로 2-8s 지연·간헐 수십 s
+   (런 1-3 라이브 정찰 실측). tapsettle의 **8s 무음 판정 = 이 지연 하에서
+   false-FAIL이 false-SUCCESS보다 안전**(토글형 버튼의 재시도가 역전을
+   만들 수 있어 — 상태 사슬이 최종 판정을 소유). 폰 축은 렌더 지연 ~10s로
+   증폭(§4.1-3 — ③⑤ 자동 체인 미성립의 3중 드리프트). 렌슨: **개봉 캡처를
+   판정 근거로 쓸 땐 "그 프레임이 어떤 시점의 것인지"를 먼저 증명하라 —
+   캡처 시각이 아니라 캡처된 시점이 진실원이다.**
+6. **★XTEST 클라 커서 잔상(T4 — 원장 4건 중 ② · 5건째 리뷰 M-2 보정)** —
+   XTEST 커서 스프라이트 = 클라가 그린 io.MousePos 잔상(서버는 창 밖 park
+   모션을 swallow해 클라 포인터가 탭 지점에 영주) — 행 임계 8px 폭의
+   스프라이트가 차분에 혼입(런 1 — 140px 커서뿐 원문). 나머지: ffmpeg PNG
+   Sub 필터 누적(제한 사각 복호는 전위를 풀어야 — prev 계단식 오염)·
+   merge_dirs_json 라벨 누설(가짜 dirs 기록 — shift 수형)·1-behind 프레임
+   (전 단계 탭의 늦도착 렌더 — settle 뒤 +6s 유출 캡처 수형)·**런 2 remove
+   서기 지연 폴링(N4-10 CLEAN-POLL — 5번째 수형 — restore=0 BROWSE-FAIL
+   honest-fail 라벨의 원인·폴링 수형으로 런 3/4 복구)** — 전부 T4 커밋 본문
+   +리뷰 원문 봉인. **런 1 실측 오염이 영수증에 남고 수형이 커밋 본문에
+   봉인되는 재사용성 구조(MUSP_BROW_* env 16종·bc_*.png 유산 보존) 원장.**
+7. **★SWEEP-DIFF 기대치 = 배포 계보와 함께 갱신 계약(T4 — 8/319 vs 기대 11 —
+   리뷰 판정 = 앵커 stale)** — 배포 전 SWEEP-DIFF=8·tar blob 배포 뒤
+   **SWEEP-POST-DIFF=0 4런 전부**(HEAD 319파일 전수 사이즈 등호 배포 완료)·
+   ninja 264/264 aarch64. 리뷰 판정(근거 4건): 기대 집합 11의 앵커
+   `PHONE_DEPLOY_BASE=ddd0f45`가 폰 실제 트리보다 오래된 것 — 폰은 638 라인
+   (2026-10-10 런) 배포로 3파일이 이미 최신·`git diff --name-only ddd0f45
+   2999f3d` = 11파일 전부 blob 사이즈 변동 재현·배포 마커
+   `main_2r=10 · DelegationReplyVerdict=2 · cancel_wiring=6`로 #97 코드
+   실배포 실측 — **실물 누락 아님**. **렛슨: 사이즈-등호 3파일은 콘텐츠 원문이
+   아닌 사이즈 추정 의존 — 앵커 미갱신 기간의 blob 사이즈 등호는 콘텐츠
+   변경을 블라인드한다(clear post-sweep에도 미검출)** — 차기 런 전
+   PHONE_DEPLOY_BASE를 실배포 HEAD로 정산(§4.1-3). 또 T4는 probe 병합 수형
+   교환(진입 settings의 music.dirs = 사용자 원문 163B — probe dirs 선행
+   병합·워터마크 hard FAIL 폐곡)을 원장동봉(§4.1-3).
+
+### §7.8.4 결정 원장 (재량 — 기각 시 즉시 수리)
+
+1. **상위 탐색 = 등록 루트 위로도 허용(T2 재량 — 리뷰 승인)** — 근거: T1이
+   Parent의 드라이브 루트 표기 유지를 `".." 행 후 스캔이 다시 성립하는
+   표기`로 명시(2r-④ 원문)+브라우저의 존재 동기(폰 타이핑 불요 — 봉쇄 시
+   [이 폴더 추가]의 유용성 소멸). 상한 = 부자기 금지(루트에서 ".." 소멸 —
+   전역 루트 밖 미출가)·안전은 [이 폴더 추가] 가드 2검이 소유·툴힌트가 정직
+   공개 — UX 봉쇄 아님.
+2. **브라우저 = 선택기·스캔 드라이버 아님(T2)** — 시작점 = 현재 탭 루트·
+   스캔 = RequestScan tab-scoped 기존 계약 그대로·[이 폴더 추가] 성공만
+   DirAddManaged 기존 재스캔 3연 — 폰 탭 단위 스캔 계약 유지(별도 마운트·
+   파일 다이알로그 없음).
+3. **거부 = 치유+정직 표기, 무음 금지(T2 fix r2)** — 거부 시 브라우저는
+   닫힌 채(cwd 소각)+거부 사유 1행(부하성 = 다음 프레임 선두 표기) — v1의
+   거부 보증을 가드 개편 창에서 유실하지 않도록 복원(§7.8.1).
+4. **probe 무전달 3단 판정(T2 fix r1 수형)** — 전달성(FULL = 등록 원문)/
+   DELIVERED(전달 성립+등록 미출현 = no-op 원장행)/무전달 = hard rc FAIL —
+   등록 강도와 전달 강도를 분리 표기하는 계약(T2/T4 런 원문 준수).
+
+### §7.8.5 EYES 게이트 (사용자 선언만 결제 — probe 영수증은 결제 아님)
+
+**EYES-PENDING — 본 라인 결제는 사용자 육안/체감 선언만 성립(§5 원칙 동형 —
+§5 본문 표 무변경·게이트는 본 소관 표로 병기). 본 라인의 결제 상태 = 미결제
+(대기).**
+
+| # | 게이트 | 내용 | 상태 |
+| --- | --- | --- | --- |
+| ① | **폰 브라우저 체감 — 라인 최종 게이트**(플랜 사용자 게이트) | 폰: music 탭 스트립 진입→[폴더 관리]→[찾아보기]→cwd 표기+폴더 행+[이 폴더 추가]→**추가 성립 → 재스캔 전 사이클** — 타이핑 0 폰 체감. XTEST 수취 원문(T4 — §7.8.2)은 성립·⑤ 등록 강도 FULL은 §4.1-3(라이브 캘리브레이션 몫) | **대기(육안·체감)** |
+| ② | **Win 브라우저 체감** | Win: 동일 체인+[찾아보기 ▸/▾] 토글 모양+cwd 표기 1행+폴더 행 모양 | **대기(육안)** |
+| ③ | **압착 모양** | 동시 개봉 시 표 영역 압착 잔여+압착 시 spatial 4px 띠(§4.1-3) — 가드 2검 후 체감 판정 | **대기(육안)** |
+| ④ | **posix 루트 사다리 육안** | T1 fix r1이 바꾼 유일 실동작 경로 — ".."로 "/"까지 올라 뒤 폴더 클릭(T1 fix r1 재검 concern 수취 권장 원문) | **대기(육안)** |
+| ⑤ | **거부 경로 수동 시연** | 거부(CP949 레거시·광 "C:") 개봉 → 브라우저 닫힌 채 유지+거부 사유 1행(1프레임 지연 표기 — §7.8.1 부하성) 체감 | **대기(육안)** |
+
+### §7.8.6 커밋 원장 + IP/호스트 경로 게이트 (#97 라인)
+
+- 라인 체인 = **6ad3834(플랜)..2999f3d**+본 T5 커밋(§7.8.0 표 = rev-parse
+  전체 SHA — git log가 진실원) — push 전부 origin main 직행·amend 없음.
+  리포트 계수는 **numstat 기준 표기**(T2 fix r1 재검 I3 룰링 — 리포트 원문의
+  "+153/−28/+97/−42"는 부정합·본 문서 표는 실측 +114/−39·+68/−33 등호).
+- **IP·호스트 경로 리터럴 게이트(T5 실측)** — 본 커밋 원문에서
+  `\b([0-9]{1,3}\.){3}[0-9]{1,3}\b` grep = **0건**·호스트 경로 표기(사용자
+  루트 폴더명·/mnt 계열) grep = **0건**(커밋 전 staged/`git show HEAD`
+  게이트 실행 — §6/§7.6 동형 문구). 라인 이전 커밋도 리포트/review 전원
+  IP grep 0건 실측(T1·T1 fix r1·T2·T2 fix r1·T2 fix r2·T3·T4 리포트 원문 —
+  §7.8.0 계보).
+- **본 T5 커밋은 docs 1파일(`docs/90_music_spatial_leg_asbuilt.md` — §7.8
+  신설+§4.1-3/§0 부기 추가만)로 한정** — git add 명시 경로만(#83 사건 레슨)
+  ·engine/probe 소스 무접촉. probe 런 로그(wsl_music_t3_run{1,2,C,C2,C3,D,E,F}
+  ·phone_music_run{1..4})·캡처 13종+md5·**diag2 trace 사본
+  (engine/tmp/t2f_diag2_srv.log — 83,916B·md5 `4f29566412cc3f17bf363c1ae2085e3d`
+  — WSL /tmp 원본과 byte 등호·본 T5 복원 수행)**은 engine/tmp untracked —
+  커밋 금지 충족.
