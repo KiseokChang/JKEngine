@@ -7,7 +7,12 @@
 // displayed vector is the scan worker's ListAudioFiles output verbatim —
 // sorted (mtime desc, rel asc tie) and consumed without re-sort or derivation
 // (selftest 2m-f asserts that isomorphism). Arrival of a scan result is the
-// ONLY frameDirty_ source (#89 idle contract, docs/88). T3 adds the playback
+// ONLY frameDirty_ source (#89 idle contract, docs/88). #99 T2 (spec
+// 2026-10-11-music-tags-design): the scan pass itself parses the tag head
+// (tags::ParseTag — 헤더만 읽는 D2 원문, 워커 몫 — 도착 표기만 더디) and the
+// row columns re-cut to [곡명(아티스트)] [앨범] [크기] [수정] [spatial]
+// (rel path → row tooltip); the filter widens to filename+title+artist (D5).
+// T3 adds the playback
 // delegation — a track-row double-click sends the spec §4 query pair
 // (① launch_app vplayer → ② app_tool open) through the library app's
 // SendQuery/PollReplies idiom; replies and exhausted retries are the only
@@ -1198,9 +1203,10 @@ void ClientMusicApp::BuildUi(int w, int h) {
         ImGui::SameLine();
         // 이름 필터(브리프 3) — 바뀐 프레임은 입력 이벤트가 게이트에서
         // 이미 낸다(타이핑 = 활동 — 자연 귀결, 조작 없음). MatchFilter는
-        // 빈 필터 = 전부 참(2m-d 계약)이라 그대로 소비.
+        // 빈 필터 = 전부 참(2m-d 계약)이라 그대로 소비 — D5 확장으로
+        // 파일명+곡명+아티스트를 매치(#99 T2)라 힌트가 스코프를 말한다.
         ImGui::SetNextItemWidth(170.0f);
-        ImGui::InputTextWithHint("##filter", "이름 필터", filterBuf_,
+        ImGui::InputTextWithHint("##filter", "곡명·아티스트 검색", filterBuf_,
                                  sizeof(filterBuf_));
         ImGui::SameLine();
         ImGui::TextDisabled("%d곡", VisibleTrackCount());
@@ -1498,22 +1504,37 @@ int ClientMusicApp::VisibleTrackCount() const {
     if (filter.empty()) return static_cast<int>(tracks_.size());
     int visible = 0;
     for (const music::Track& t : tracks_)
-        if (music::MatchFilter(t.name, filter)) ++visible;
+        if (music::MatchFilter(t, filter)) ++visible;  // D5 — 파일명+곡명+
+                                                       //   아티스트(#99 T2)
     return visible;
 }
 
 void ClientMusicApp::BuildTrackTable() {
     // 표기 동형 계약: 행 데이터는 tracks_(ListAudioFiles 결과) 그대로 — 재정렬
-    // 없음(최신순 유지), rel 열은 Track.rel 원문, 필터는 **열외만**(순서 보존 —
-    // 흡수 2m-f "정렬·rel 동형"의 UI측 절반). 행 더블클릭 = 재생 위임(T3 —
-    // 파일 dialogs의 IsItemHovered+IsMouseDoubleClicked 원문 수형): 경로 셀
-    // 기준(행 내부 아이템 1개 — 셀별 수형, 행 래퍼 Selectable 신설 금지).
-    // 대상은 행 참조 t 그 자체라 필터 열외 순회와 무관하게 full이 정확하다.
+    // 없음(최신순 유지), 필터는 **열외만**(순서 보존 — 흡수 2m-f "정렬·rel
+    // 동형"의 UI측 절반). 행 더블클릭 = 재생 위임(T3 — 파일 dialogs의
+    // IsItemHovered+IsMouseDoubleClicked 원문 수형): 첫 데이터 셀 기준(행 내부
+    // 아이템 1개 — 셀별 수형, 행 래퍼 Selectable 신설 금지). 대상은 행 참조 t
+    // 그 자체라 필터 열외 순회와 무관하게 full이 정확하다.
+    //
+    // 열 재편 (#99 T2 — 스펙 D4): [곡명(아티스트)] [앨범] [크기] [수정]
+    // [spatial] — 가독 우선(태그 원문). 곡명 셀 = TrackRowLabel 원문 수형(
+    // 태그 부재 = 파일명 확장자 제거 — D3 폴백), 앨범 셀 = TrackAlbumLabel(
+    // 부재 = "-" — D3 단독 열 원존). rel 경로 데이터는 셀에서 빠지고 **툴팁**
+    // 으로 남는다(경로 원문 소실 금지 — 도착 스캔 Track.rel은 도구·status 표기
+    // leg가 그대로 소비·2m-f 동형 무변조). spatial 열 원존 무변조(행별 버튼).
     const std::string filter(filterBuf_);
-    if (ImGui::BeginTable("tracks", 4,
+    if (ImGui::BeginTable("tracks", 5,
                           ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
                               ImGuiTableFlags_SizingStretchProp)) {
-        ImGui::TableSetupColumn("경로");  // rel(상대경로) — Stretch
+        ImGui::TableSetupColumn("곡명", ImGuiTableColumnFlags_WidthStretch,
+                                2.0f);  // "곡명 (아티스트)" 합성 — 주 가독 열
+        ImGui::TableSetupColumn("앨범", ImGuiTableColumnFlags_WidthStretch,
+                                1.0f);  // 보조 열 — 곡명의 절반 몫
+        // (T2 런 실측: 앨범을 WidthFixed로 두면 560 창에서 곡명 열이 ~25px로
+        // 압착(똑같은 압착 함정 — third_party/imgui의 fixed+stretch 배분 원문)
+        // — 앨범을 stretch로 풀어 곡명 2/3·앨범 1/3 배분. fixed 자리는 원존
+        // 크기/수정/spatial 3열만.)
         ImGui::TableSetupColumn("크기", ImGuiTableColumnFlags_WidthFixed,
                                 84.0f);
         ImGui::TableSetupColumn("수정", ImGuiTableColumnFlags_WidthFixed,
@@ -1525,23 +1546,31 @@ void ClientMusicApp::BuildTrackTable() {
         ImGui::TableHeadersRow();
         for (size_t r = 0; r < tracks_.size(); ++r) {
             const music::Track& t = tracks_[r];
-            if (!music::MatchFilter(t.name, filter)) continue;  // 열외만
+            if (!music::MatchFilter(t, filter)) continue;  // 열외만(D5)
             ImGui::PushID(static_cast<int>(r));
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
-            ImGui::TextUnformatted(t.rel.c_str());
+            // 곡명(아티스트) 합성 셀 — 폴백 라벨 원문(D3). 전체 경로는 툴팁
+            // (경로 원문 보존 — rel 열이 행에서 빠진 몫).
+            const std::string rowLabel = music::TrackRowLabel(t);
+            ImGui::TextUnformatted(rowLabel.c_str());
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("%s", t.full.c_str());
             if (ImGui::IsItemHovered() &&
                 ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                PlaybackDelegate(t);  // 더블클릭 → vplayer 위임(T3 계약)
+                PlaybackDelegate(t);  // 더블클릭 → vplayer 위임(T3 계약 원존)
             char sizeBuf[32];
             HumanSize(t.size, sizeBuf, sizeof(sizeBuf));
             ImGui::TableSetColumnIndex(1);
+            const std::string albumLabel = music::TrackAlbumLabel(t);
+            ImGui::TextUnformatted(albumLabel.c_str());
+            ImGui::TableSetColumnIndex(2);
             ImGui::TextUnformatted(sizeBuf);
             char mtBuf[32];
             MtimeLabel(t.mtime, mtBuf, sizeof(mtBuf));
-            ImGui::TableSetColumnIndex(2);
-            ImGui::TextUnformatted(mtBuf);
             ImGui::TableSetColumnIndex(3);
+            ImGui::TextUnformatted(mtBuf);
+            ImGui::TableSetColumnIndex(4);
             // [spatial] 버튼(T2 — LegSupport 표 소비): 지원 행만 발사, 미지원
             // 행 회색+툴팁(D4 정직 계약). 버튼 표기 자체는 env 무근(표기 계층
             // T1 순수 부품) — leg 불가 빌드의 발사는 SpatialStart의

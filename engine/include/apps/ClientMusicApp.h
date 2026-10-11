@@ -60,8 +60,17 @@
 // 이미 소유, #93 결정 ⑤ 접촉 없음).
 //
 // The displayed table data is the ListAudioFiles vector verbatim (재정렬·
-// 파생 없음 — 정렬은 mtime desc/rel asc tie, rel 열은 그대로) — selftest
-// 2m-f asserts this display isomorphism against the same header functions.
+// 파생 없음 — 정렬은 mtime desc/rel asc tie) — selftest 2m-f asserts this
+// display isomorphism against the same header functions. #99 T2 (spec
+// 2026-10-11-music-tags-design): the ListAudioFiles scan pass now parses the
+// tag head (tags::ParseTag — 헤더만 읽는 D2 원문, 워커 몫) into Track
+// title/artist/album (UTF-8 #94 — raw 원문 보존, 폴백 "-" 표기는 표기 leg),
+// and the row columns are re-cut to [곡명(아티스트)] [앨범] [크기] [수정]
+// [spatial] (D4 — the row label is TrackRowLabel/TrackAlbumLabel 원문 수형;
+// the rel path moves to the row tooltip, path data untouched) while the
+// double-click/delegation/spatial wiring stays verbatim. The filter widens
+// to filename+title+artist (D5 — MatchFilter Track overload, filename match
+// 원존 유지).
 #include <client/JKClientApplication.h>
 #include <apps/MusicModel.h>
 #include <apps/MusicDirStore.h>  // 폴더 저장소(DirWriteResult — T1 원문 소비,
@@ -118,8 +127,10 @@ private:
     void BuildUi(int w, int h);
     // 필터 적용 후 표시될 행 수(상단 카운터 — tracks_를 열외 순회만).
     int VisibleTrackCount() const;
-    // 트랙 표(경로/크기/수정 3열) — 표기 데이터는 tracks_ 원문(재정렬 없음),
-    // 필터는 순서 보존 열외(2m-f 동형 계약의 UI측). 행 선택은 T3.
+    // 트랙 표([곡명(아티스트)] [앨범] [크기] [수정] [spatial] 5열 — #99 T2
+    // D4 열 재편; rel 경로는 행 툴팁) — 표기 데이터는 tracks_ 원문(재정렬
+    // 없음), 필터는 순서 보존 열외(D5 — 2m-f 동형 계약의 UI측). 행 더블클릭
+    // = T3 위임(원존).
     void BuildTrackTable();
     // #97 T2 — 폴더 브라우저 패널(플랜 2026-10-11-music-dir-browser): [폴더
     // 관리] 패널의 [찾아보기] 토글 아래 — cwd 표기 1행+상위 ".."·하위 폴더 행

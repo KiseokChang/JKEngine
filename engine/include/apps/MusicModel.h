@@ -4,8 +4,10 @@
 // Music app model (spec 2026-10-09-music-library-design, T1): the pure parts
 // of the music hub — source-dir resolver over settings.json "music.dirs",
 // recursive audio-file enumeration (D3: 전체 트리 재귀 — 서브디렉터리 포함),
-// filename scan metadata (D2: 파일명·크기·mtime만 — ID3/태그는 백로그), and
-// the name filter. Playback is delegated to vplayer (D1) — this header owns
+// filename scan metadata (D2: 파일명·크기·mtime — 태그 2단계는 #99 T2에서
+// 접합: 스캔 1패스가 tags::ParseTag로 머리 영역만 읽는다), and the name
+// filter (D5 확장 — 파일명+곡명+아티스트). Playback is delegated to vplayer
+// (D1) — this header owns
 // no decode/pipeline part (갤러리의 Fnv1a·FitThumb는 오디오에 불요 — YAGNI).
 //
 // Header-inline on purpose — GalleryModel.h 선례 승계: the selftest twins
@@ -46,6 +48,25 @@
 
 namespace jk {
 namespace music {
+
+// ---- 태그 구조 + 스캔 접점 전방 선언 (#99 T2 — 스캔 1패스 접합의 순서 계약) ----
+// ScanAudioTree(#92 열거 leg)가 tags::ParseTag를 호출하므로(스펙 D2 — 같은
+// 패스에서 머리 영역만 읽는다) 구조와 접점만 정의/선언을 열거 leg 앞으로
+// 올린다. 파서 본체(ParseId3v2/ParseId3v1/ParseVorbisComments/ParseFlacTags/
+// ParseOggTags/ParseWavTags+인코딩 정규화)는 파일 말단의 namespace tags 블록
+// 원문 그대로 — 옮긴 것 없음(정의 위치만).
+namespace tags {
+
+// 구조 계약(브리프 원문 — 3필드 고정). TDRC/TRCK 프레임은 D1 표기에 있으나
+// 싱크 필드가 없어(원장 부기) v1 스코프 밖 — 프레임 사슬에서 건너뛴다(2s ①의
+// TRCK 포함 블롭 실측).
+struct TagSet {
+    std::string title, artist, album;
+};
+
+TagSet ParseTag(const std::string& path, std::string& err);
+
+} // namespace tags
 
 // user dirs 상한 — settings 폭주 절단(갤러리 원문 승계; 실사용은 1-3건이
 // 현실).
@@ -168,17 +189,27 @@ inline std::vector<std::string> MusicDirList(const std::string& exeDir,
     return NormalizeDirs(std::move(dirs));
 }
 
-// 스캔 행 (D2 파일명 스캔 — v1 메타데이터의 전부): full=절대(전체) 경로,
-// rel=루트 기준 상대경로(슬래시 표기 — 재귀 모음에서 "어느 폴더의 파일인가"
-// 표기 계약), name=말단 파일명, size/mtime=스탬프(mtime은 last_write_time의
-// time_since_epoch().count() 정수열 — 갤러리 ThumbStamp 원문 수형; 같은 기기
-// 안에서 안정, 시계 epoch는 플랫폼 몫).
+// 스캔 행: full=절대(전체) 경로, rel=루트 기준 상대경로(슬래시 표기 — 재귀
+// 모음에서 "어느 폴더의 파일인가" 표기 계약), name=말단 파일명, size/mtime=
+// 스탬프(mtime은 last_write_time의 time_since_epoch().count() 정수열 — 갤러리
+// ThumbStamp 원문 수형; 같은 기기 안에서 안정, 시계 epoch는 플랫폼 몫).
+// #99 T2의 태그 필드는 D3(파일명 스캔 v1의 2단계 — 스펙 2026-10-11)로 아래
+// 확장.
 struct Track {
     std::string full;
     std::string rel;
     std::string name;
     long long size = 0;
     long long mtime = 0;
+    // 태그 필드 (#99 T2 — D3): UTF-8 규약(#94 — 파서가 정규화). **원문 보존
+    // 필드** — 태그 부재는 빈값 그대로(폴백 "-" 표기·title 파일명 폴백은 표기
+    // leg가 소유 — 아래 RowLabel/AlbumLabel): 모델에 프레젠테이션 "-"를 심으면
+    // 태그 유무의 진실원이 죽는다. 신설 필드는 구조 말단(위치 초기자 계열 소비
+    // — 2m/2p 테스트 Track 기본 구성 무변조). 스캔 1패스(ScanAudioTree)가
+    // tags::ParseTag로 채운다(+오버라이드 호출부 0 — 재능력 재실행 금지 계약).
+    std::string title;   // 곡명 원문(부재 = 빈값 → 표기 폴백 = 파일명 확장자 제거)
+    std::string artist;  // 아티스트 원문(부재 = 빈값 → 표기 폴백 = "-")
+    std::string album;   // 앨범 원문(부재 = 빈값 → 표기 폴백 = "-")
 };
 
 // ---- 재귀 순환 가드 (T1 fix r1 — 리뷰 I-1: 심링크 디렉터리 무한 재귀) ----
@@ -296,6 +327,18 @@ inline void ScanAudioTree(const std::filesystem::path& dir,
             std::filesystem::relative(entry.path(), root, re);
         if (re || relP.empty()) relP = entry.path().filename();  // 방어선
         tr.rel = relP.generic_string();
+        // 태그 접합 (#99 T2 — 스펙 D2 스캔 1패스): 같은 열거 패스에서 머리
+        // 영역만 읽어 채운다(tags::ParseTag — kTagHeadCap 상한 + mp3 말미 128B
+        // v1 폴백 seek = **헤더만 읽는 것 계약**, 전체 파일 열기 아님). 실패 =
+        // 빈 TagSet(파일명 폴백 정상 경로 — D2: 오류 표기 없음), err는 스캔
+        // 계약상 폐기(표기 leg가 없다). 접합은 이 지점 1곳 — 호출부 재실행
+        // 금지 계약(재파싱 0). 취소 경계에 영향 없음(파싱은 콜백을 청구하지
+        // 않는다 — 2p-② 호출 상한 무변조).
+        std::string terr;
+        const tags::TagSet tg = tags::ParseTag(tr.full, terr);
+        tr.title = tg.title;
+        tr.artist = tg.artist;
+        tr.album = tg.album;
         out.push_back(std::move(tr));
     }
 }
@@ -375,6 +418,41 @@ inline bool MatchFilter(const std::string& name, const std::string& filter) {
     f.reserve(filter.size());
     for (char c : filter) f.push_back(FoldAscii(c));
     return n.find(f) != std::string::npos;
+}
+
+// 행 필터 확장 (#99 T2 — 스펙 D5): 파일명 매치 **원존 유지**(위 수형)에 곡명
+//·아티스트 매치를 얹는 1겹 오버로드 — OR 결합(열외 순서 보존 계약은 UI 몫).
+// 앨범은 D5 스코프 밖(곡명/아티스트만 — 필터가 앨범까지 접으면 스코프 팽창).
+// title은 빈값(태그 부재)이어도 원존 파일명 수형이 name을 이미 매치하므로
+// 폴백 복합 없이 성립(2s-⑨가 string 수형 원문 재용 — 본 오버로드는 신설
+// 어설션 없음 — 브리프 "Test: selftest 어설션 없음(2s 소유)").
+inline bool MatchFilter(const Track& t, const std::string& filter) {
+    return MatchFilter(t.name, filter) || MatchFilter(t.title, filter) ||
+           MatchFilter(t.artist, filter);
+}
+
+// ---- 행 라벨 폴백 (T2 — 스펙 D3 규약의 표기 leg, 순수 부품) ----
+
+// 곡명 라벨: 태그 title 있음 = "곡명 (아티스트)" · 부재 = 파일명(확장자 제거)
+// — D3 폴백 규약. 아티스트 부재 행은 괄호를 생략한다(가독 우선 — D4 원문;
+// "-" 폴백 표기는 단독 열 원존인 앨범이 소유 — 합성 열의 "(-)" 잡음 회피
+// 재량, 리포트 부기). 확장자 제거 = fs::path::stem 원문 수형("가을 노래.mp3"
+// → "가을 노래" — 이중 도트 파일명은 마지막 확장자만 제거 — fs 계약).
+inline std::string TrackRowLabel(const Track& t) {
+    std::string label = t.title.empty()
+                            ? std::filesystem::path(t.name).stem().string()
+                            : t.title;
+    if (!t.artist.empty()) {
+        label += " (";
+        label += t.artist;
+        label += ')';
+    }
+    return label;
+}
+
+// 앨범 라벨: 부재 = "-" 표기(D3 폴백 규약 — 단독 열 원존).
+inline std::string TrackAlbumLabel(const Track& t) {
+    return t.album.empty() ? std::string("-") : t.album;
 }
 
 // ---- 재생 위임 (T3 — 스펙 §4 D1) ----
@@ -532,12 +610,10 @@ inline std::string Parent(const std::string& cwd) {
 // (ParseFlacTags)과 Ogg 페이지 연쇄(ParseOggTags)로 갈라낸다.
 namespace tags {
 
-// 구조 계약(브리프 원문 — 3필드 고정). TDRC/TRCK 프레임은 D1 표기에 있으나
-// 싱크 필드가 없어(원장 부기) v1 스코프 밖 — 프레임 사슬에서 건너뛴다(2s ①의
-// TRCK 포함 블롭 실측).
-struct TagSet {
-    std::string title, artist, album;
-};
+// TagSet 구조와 ParseTag 선언(스캔 1패스 접점)은 namespace 머리(#99 T2)로
+// 올라가 있다 — ScanAudioTree 열거 leg가 정의 앞에서 접점을 소비하는 순서
+// 계약(헤더 단일 TU — 전부 inline, 링크 무변조). 파서 본체는 이 아래 원문
+// 그대로(정의 위치만 그 자리).
 
 // 스캔 1패스 접점이 읽는 머리 영역 상한(D2 — "필요 범위만 read"). FLAC 메타
 // 사슬·ID3v2 태그(커버 아트 포함)는 통상 수십 KB — 1MB 컷은 실사용 여유이고
