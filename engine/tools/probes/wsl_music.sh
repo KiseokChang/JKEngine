@@ -86,6 +86,19 @@
 #     music_dir_list/settings 원문+종료·재스캔 캡처 → 복귀 바이트 등호). 좌표 =
 #     env 상수+차분 판정(16c 정찰 원칙)·MUS_BROW_RECON=1 정찰 런 수형. vplayer
 #     재생 창은 세그먼트 입구에서 close_window로 회수(차분 오염 소각 원장).
+#   * 16e 태그 표기 세그먼트[T3 신설 — 플랜 2026-10-11-music-tags task-3]:
+#     합성 태그 트랙(최소 mp3 + own ID3v2.3 블롭 — T1 2s 수형 재용: 10B 헤더+
+#     TIT2/TPE1/TALB 10B 프레임(4BE 크기 — v2.3은 syncsafe 아님)+enc 0 Latin-1
+#     ASCII(2s-② 등가 계보)+말미 0x00 패딩, **유효 mp3 프레임 0**(ffmpeg 부재
+#     원문 승계 — 태그 파싱만 성립, vplayer open은 openFailed (정직 원문)) +
+#     태그 없는 raw mp1건(폴백 행 — 파일명 스템+앨범 "-"). 스캔 포함(mtime
+#     desc 최신 — 상단 행) → 목록 표기 캡처+필터(곡명/아티스트 매치 — D5)
+#     캡처. 위상 = 16d-5 정착 뒤(restart 이후 세그먼트들이 필터/레이아웃 상태
+#     계약을 갖는다 — step 10 필터·16b2 좌표 무오염), 16d-6 뒤 본 원문 유지.
+#   * settings.json 상존 수형[T3 — 진입 가드 확장]: WSL 런타임 settings.json이
+#     ENTRY에 존재하면(사용자 실세션 잔상 — /mnt/j 등) hard FAIL 대신 바이트
+#     스냅샷(SNAP_USER)→END 바이트 등호 원복(16b/16c의 SNAP 수형 — 무손상
+#     수취 원문). 라이브 서버 있음 = #98 러너 가드가 앞서 [SKIP] — 경합 0.
 #   * 캡처 회수 — 단열 파이프: /tmp 캡처 → engine/tmp 영수증 단일 cp
 #     (ls·혼입 금지). mus_wsl_{list,filter,after}.png. 캡처기=wsl_gallery.sh
 #     원문의 X11 창 단위 shot(python3 ctypes — XImage 오프셋 원장 포함 전문).
@@ -112,7 +125,7 @@ cd /mnt/i/progwork/JKENGINE/engine
 FAIL() { echo "MUS-FAIL: $*"; exit 1; }
 LOGDIR=/tmp/mus
 mkdir -p "$LOGDIR"
-CANON_WSL_SELFTEST=648   # 캐논 WSL 축 (#97 라인 갱신 — 코드 무변경 라인: T2(8e1d84c) 시점 Win 669/WSL 646/posix 296(커밋 본문 캐논행 — T1 04e11b7의 2r +8 = 638→646 흡수)→ T1 fix r1(c6be500) 2r-b/2r-c +2 = 본 커밋 시점 Win 671/WSL 648/posix 296 — 디스패치 원문의 669/646/296에 fix r1 계보 +2. 종전 638은 #93 T3 시점 계보)
+CANON_WSL_SELFTEST=668   # 캐논 WSL 축 (#99 라인 갱신: T1(77323b1)의 2s +20 = 648→668 흡수 — 본 커밋 시점 Win 691/WSL 668/posix 304(progress 원장 + T2(f409856..5f50a05) 커밋 본문 캐논행 등호). 이전 계보: T2(8e1d84c) Win 669/WSL 646/posix 296 → T1 fix r1(c6be500) 2r-b/2r-c +2 = 671/648/296 → posix 296→304는 하네스 TU 계보 차(T1 M2 원장). 태그 라인 신설 어설션은 2s 20건 전부)
 RECEIVE=/mnt/i/progwork/JKENGINE/engine/tmp
 SEED_DIR=/tmp/mus_seed
 SHOT_PY="$LOGDIR/mus_shot.py"
@@ -244,7 +257,22 @@ echo "ENTRY-STATE: server-up=$ENTRY_UP permissions.json=$ENTRY_PERM settings.jso
 [ "$ENTRY_SEED" -eq 0 ] || FAIL "$SEED_DIR already exists — 이전 probe 잔상, 수동 소각 필요"
 [ "$ENTRY_BIGA" -eq 0 ] || FAIL "$BIGA already exists — 이전 probe 잔상(16d), 수동 소각 필요"
 [ "$ENTRY_BIGB" -eq 0 ] || FAIL "$BIGB already exists — 이전 probe 잔상(16d), 수동 소각 필요"
-[ "$ENTRY_SET" -eq 0 ] || FAIL "buildwsl/state/settings.json already exists — probe는 런타임 settings 파일을 건드릴 수 없다(원문 계약: 전면 allow 런타임 파일은 프로브 소유 아님)"
+# [T3 — settings.json 상존 수형] 런타임 settings.json이 ENTRY에 존재하면
+# (사용자 실세션/WSL 데스크톱 잔상 — 예: music.dirs=["/mnt/j"]) hard FAIL
+# 대신 바이트 스냅샷을 찍고 END에서 바이트 등호 원복한다(16b/16c의 SNAP
+# 수형 — T5 수형). 원문 계약("probe는 런타임 settings 파일을 건드릴 수
+# 없다")의 보호 본질 = 사용자 파일의 무손상 — 스냅샷+바이트 등호 원복은
+# 같은 보호의 등가 성립이고, 라이브 서버 있음은 앞의 #98 러너 가드가
+# [SKIP]하므로 파일 경합 0. 원복 불일치 = hard FAIL(무손상 계약의 정직
+# 위반 보고).
+SNAP_USER="$LOGDIR/mus_settings_user.json"
+if [ "$ENTRY_SET" -eq 1 ]; then
+    cp buildwsl/state/settings.json "$SNAP_USER" \
+        || FAIL "user settings.json snapshot failed"
+    cmp -s buildwsl/state/settings.json "$SNAP_USER" \
+        || FAIL "user settings.json snapshot mismatch"
+    echo "SET-SNAPSHOT: user runtime settings.json snapshotted($(wc -c < "$SNAP_USER") bytes) — END 바이트 등호 원복 계약"
+fi
 
 restore_and_exit() { # 정찰 런 등 중간 탈출 — 복원 다형(스텝 12와 동일 본문)
     echo "=== 복원 (early exit) ==="
@@ -270,6 +298,14 @@ restore_and_exit() { # 정찰 런 등 중간 탈출 — 복원 다형(스텝 12�
     if [ "$ENTRY_SET" -eq 0 ]; then
         rm -f buildwsl/state/settings.json
         echo "SET-BURIED: settings.json removed (ENTRY 부재 원복)"
+    else
+        # [T3] ENTRY에 사용자 settings.json이 있었다 — 스냅샷 바이트 등호 원복
+        # (rm 금지 — 파일은 사용자 소유 잔상).
+        cp "$SNAP_USER" buildwsl/state/settings.json \
+            || FAIL "user settings.json restore copy failed"
+        cmp -s buildwsl/state/settings.json "$SNAP_USER" \
+            || echo "MUSIC-FAIL(set-restore: user settings.json 원복 바이트 불일치 — 무손상 계약 위반 원장)"
+        echo "SET-RESTORED: user settings.json restored byte-exact ($(wc -c < buildwsl/state/settings.json) bytes)"
     fi
     if [ "$ENTRY_PERM" -eq 0 ]; then
         rm -f buildwsl/permissions.json
@@ -317,6 +353,9 @@ grep -aq 'AppSelfTest: 0 failure(s)' "$LOGDIR/mus_st.log" \
 # music 라인 신설 케이스 (2m 계열): T1-T3가 +27 (progress 원장 등호 근거).
 ST2M=$(grep -ac '^\[PASS\] 2m' "$LOGDIR/mus_st.log")
 echo "SELFTEST-2M-CASES=$ST2M (music 라인 신설 2m 계열 — 캐논 +27분의 원료)"
+# 태그 라인 신설 케이스 (2s 계열): T1이 +20 (캐논 648→668의 원료 — #99).
+ST2S=$(grep -ac '^\[PASS\] 2s' "$LOGDIR/mus_st.log")
+echo "SELFTEST-2S-CASES=$ST2S (태그 라인 신설 2s 계열 — 캐논 +20분의 원료)"
 
 # === 3b. spatial 변형 빌드+배포 (T3 — 시차 배치 원장 준수) ===
 # 2n selftest는 main.cpp 하네스 TU 소비(빌드wsl 설정은 env 미설정으로 고착)
@@ -409,12 +448,88 @@ if command -v ffmpeg >/dev/null 2>&1; then
 else
     echo "MUS-AUDIO-MP3: ffmpeg 부재(T1/T4 원문 승계) — wav 단축 계속(플랜 원문 수형)"
 fi
+echo "=== 4c. 합성 태그 트랙 시드 (T3 #99 — own ID3v2.3 블롭 최소 mp3 — 태그 목록 실측) ==="
+# T1 2s 수형 재용: ID3v2.3 = 10B 헤더("ID3" + 03 00 + flag 1B + **syncsafe
+# 아닌 4BE 크기**) + TIT2/TPE1/TALB 프레임(10B 헤더: 4BE 크기+flag 2B) + enc 0
+# Latin-1 바이트(ASCII — 2s-② 등가 계보: <0x80은 UTF-8과 동일) + 말미 0x00
+# 패딩(2s-⑥ 스킵 수형). **유효 mp3 프레임 0** — ffmpeg 부재 원문 승계(T1/T4
+# 실측)라 인코더 없음: 태그 파싱은 성립(스캔의 표기 leg가 소비), 재생은
+# vplayer open 실패(정직 원문 — 16e-5 영수증). 태그 없는 raw mp3 1건 = 폴백
+# 행(파일명 스템+앨범 "-"). 생성 순서 = mtime desc 상단행 지배(raw → beta →
+# alpha = alpha가 최상단).
+cat > "$LOGDIR/mus_tagseed.py" <<'PYEOF'
+# 합성 태그 트랙 시더 — python3 stdlib만(의존 0 — T1 2s 블롭 수형 재용).
+# ① t_tag_alpha.mp3  v2.3 TIT2/TPE1/TALB(enc 0) ② t_tag_beta.mp3  ③
+# t_raw_noid.mp3 (ID3 없음 — 폴백 행). 생성 후 자기 블롭을 순수 파이썬으로
+# 재파싱해 TAG-PARSED-PREVIEW(앱 파서와 독립 — 양식 증명)를 낸다.
+import os, struct, sys
+
+out = sys.argv[1]
+
+def frame(fid, text):
+    body = b"\x00" + text.encode("latin-1")   # enc 0 (Latin-1 — ASCII 등가)
+    return fid.encode("ascii") + struct.pack(">I", len(body)) + b"\x00\x00" + body
+
+def write_tagged(path, title, artist, album):
+    frames = frame("TIT2", title) + frame("TPE1", artist) + frame("TALB", album)
+    data = b"ID3" + b"\x03\x00" + b"\x00" + struct.pack(">I", len(frames)) + frames
+    with open(path, "wb") as f:
+        f.write(data + b"\x00" * 64)   # 말미 패딩(2s-⑥ 스킵 수형) + 프레임 0
+    return path
+
+def write_raw(path):
+    # ID3 매직 0 + 말미 "TAG" 0 — magic 분기·v1 폴백 둘 다 부재 = 빈 TagSet
+    # (파일명 폴백 계보 — 2s-⑩ 수형).
+    with open(path, "wb") as f:
+        f.write(b"\x00" * 256)
+    return path
+
+def parse_v23(path):   # 순수 파이썬 재파싱(앱 파서와 독립 — 블롭 양식 증명)
+    with open(path, "rb") as f:
+        d = f.read()
+    if d[:3] != b"ID3":
+        return {}
+    i = 10
+    out = {}
+    end = 10 + int.from_bytes(d[6:10], "big")
+    while i + 10 <= min(end, len(d)):
+        fid = d[i:i+4].decode("latin-1")
+        sz = int.from_bytes(d[i+4:i+8], "big")
+        if sz == 0 or not ('A' <= fid[0] <= 'Z'):
+            break   # 패딩(전부 0x00) — 프레임 사슬 종료(2s-⑥ 수형)
+        body = d[i+10:i+10+sz]
+        if fid in ("TIT2", "TPE1", "TALB") and body:
+            out[fid] = body[1:].decode("latin-1", "replace")
+        i += 10 + sz
+    return out
+
+p1 = write_tagged(os.path.join(out, "t_tag_alpha.mp3"),
+                  "Wsl Tag Alpha", "Probe Artist Alpha", "Tag Album One")
+p2 = write_tagged(os.path.join(out, "t_tag_beta.mp3"),
+                  "Wsl Tag Beta", "Probe Artist Beta", "Tag Album Two")
+p3 = write_raw(os.path.join(out, "t_raw_noid.mp3"))
+for p in (p3, p2, p1):
+    m = parse_v23(p)
+    print("TAG-PARSED-PREVIEW %s bytes=%d title=%r artist=%r album=%r"
+          % (os.path.basename(p), os.path.getsize(p),
+             m.get("TIT2", ""), m.get("TPE1", ""), m.get("TALB", "")))
+PYEOF
+python3 "$LOGDIR/mus_tagseed.py" "$SEED_DIR" \
+    || FAIL "tag seed mp3 generation failed (python3)"
+
 SEEDED=$(find "$SEED_DIR" \( -name '*.wav' -o -name '*.mp3' \) | wc -l)
-EXPECT_SEEDS=5
-[ -f "$SEED_DIR/m_seed.mp3" ] && EXPECT_SEEDS=6
+EXPECT_SEEDS=8
+[ -f "$SEED_DIR/m_seed.mp3" ] && EXPECT_SEEDS=9
 [ "$SEEDED" -eq "$EXPECT_SEEDS" ] || FAIL "seeded $SEEDED media files (need $EXPECT_SEEDS)"
 SEED_BYTES=$(find "$SEED_DIR" -name '*.wav' -printf '%s\n' | awk '{s+=$1} END{print s}')
-echo "MUSIC-LIST-EXPECTED=$EXPECT_SEEDS (seed 3 root + 1 sub + 1 초장 경로[+1 mp3 if any] — 표행 수 관측 원문 1행; 표기 일치는 캡처 육안 몫)"
+echo "MUSIC-LIST-EXPECTED=$EXPECT_SEEDS (seed 3 root + 1 sub + 1 초장 경로[+1 mp3 if any] + 태그 트랙 3건[alpha·beta·raw 폴백] — 표행 수 관측 원문 1행; 표기 일치는 캡처 육안 몫)"
+
+# [T3] 태그 세그먼트 상수 — 시더의 문자열 원존(16e가 필터 타이핑에 재용 —
+# 두 값의 일치가 "태그가 실제 파싱됐다"의 판정 축: 필터는 Track 매치(title+
+# artist OR — D5)라 파일명과 무관한 문자열로 골랐다).
+TAG_MP3_A=/tmp/mus_seed/t_tag_alpha.mp3
+TAG_FILTER_TEXT_TITLE="Wsl Tag Alpha"      # t_tag_alpha의 TIT2
+TAG_FILTER_TEXT_ARTIST="Probe Artist Beta" # t_tag_beta의 TPE1
 
 # [T3] seed를 ComposeKeyed 출하형(compact)으로 — 관리 3키의 audio/retention 원문
 # 슬라이스를 심어 C1 보존의 라이브 수취 대상으로 쓴다(16b) + 말미 개행 없음
@@ -1939,12 +2054,13 @@ printf '%s' "$BLRES" | grep -aq '"ok":true' \
 
 echo "=== 16d-5. [③] 취소 후 재스캔 정착 (재스폰 클라의 스캔→채택 전이 settle — 캡처) ==="
 # ①의 close가 pub2를 함께 소멸시킨다(파괴 취소 — 원장) — 정착 실측은 재스폰
-# 클라에서 **동일 스캔-채택 경계**(탭 스캔 6곡 → 도착 더티 1프레임 → 표 "6곡
-# " 승계)로 대리한다. 이 전이가 없으면 폐기 뒤의 재스캔도 정착하지 않는다.
+# 클라에서 **동일 스캔-채택 경계**(탭 스캔($EXPECT_SEEDS — T3 태그 트랙 3건
+# 포함) → 도착 더티 1프레임 → 표 "N곡" 승계)로 대리한다. 이 전이가 없으면
+# 폐기 뒤의 재스캔도 정착하지 않는다.
 python3 "$SHOT_PY" "$LOGDIR/mus_base16s.png" >"$LOGDIR/mus_base16s.log" 2>&1 \
     || FAIL "16d(③) baseline capture failed — $(tail -2 "$LOGDIR/mus_base16s.log" | tr '\n' ' ')"
 if landtap "$MUS_ID" "$LOGDIR/mus_base16s.png" "s1" "$MUS_X" "$MUS_Y" 84; then
-    echo "MUSIC-RESCAN-SETTLED: engine/tmp/mus_wsl_rescan_settled.png (정착 캡처 — 탭 스캔 6곡 채택 전이 = 곡 카운터는 캡처 육안 몫)"
+    echo "MUSIC-RESCAN-SETTLED: engine/tmp/mus_wsl_rescan_settled.png (정착 캡처 — 탭 스캔 ${EXPECT_SEEDS}곡 채택 전이 = 곡 카운터는 캡처 육안 몫)"
     cp "$LOGDIR/mus_land_s1.png" "$RECEIVE/mus_wsl_rescan_settled.png" \
         || FAIL "settle shot copy failed"
     BIG_SETTLED=1
@@ -1962,6 +2078,270 @@ else
     echo "MUSIC-FAIL(cancel-canon: 런 PASS=$ST_PASS != 캐논 $CANON_WSL_SELFTEST — 계보 재확인 몫)"
 fi
 echo "BIG-TAP-ELAPSED-LEDGER: ②제거→①close=$(awk -v a="$REM1_SEC" -v b="$CLOSE1_SEC" 'BEGIN{printf "%.2f", b-a}')s (pub2 재스캔 창의 시차 영수증 — 실측 스캔 4.9-5.4s/460,800트랙 대비 원장 부기)·②탭→remove는 16d-3의 finding 행"
+
+# ==================================================================
+# 16e. [T3(#99) — 태그 표기 세그먼트 (플랜 2026-10-11-music-tags task-3)]
+#      합성 태그 트랙(4c — 최소 mp3+own ID3v2.3 블롭)의 **목록 표기 실측**:
+#      곡명 열 = TrackRowLabel(태그 = "곡명 (아티스트)"), 앨범 열 =
+#      TrackAlbumLabel(= "-", 폴백 행), 폴백 행 = 파일명 스템. + 필터 타이핑
+#      (D5 — title 매치·artist 매치 각각 원문).
+#      * 위상 = **16d-6 뒤**(세그먼트 체인의 말단): step 10·16b2가 필터
+#        "d_seed"/레이아웃 상태 계약을 갖는다 — 앞 단 삽입은 그 상태를
+#        오염한다(원장 — 필터는 ctrl+a/삭제 클리어 경로로만 되돌릴 수
+#        있어 위험). 여기서는 16d-4의 재스폰 클라 = 신선한 빈 필터.
+#      * 재생 leg는 접촉하지 않는다(태그 트랙 더블클릭·spatial_play
+#        그대로) — vplayer open 실패 영수증은 app_tool 직행 2콜+창 회수만
+#        (16b2-0 수형).
+# ==================================================================
+echo "=== 16e-0. 창 재정찰 (16d-4 재스폰 클라 — 응답 가용성 원문) ==="
+TAG_STAGE=0
+MUSWIN=""
+WIN16E=""
+for i in 1 2 3 4 5 6 7 8; do
+    sleep 2
+    WIN16E=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"list_windows","args":{}}' 2>/dev/null | grep -a '{' | head -1)
+    MUSWIN=$(printf '%s' "$WIN16E" | grep -aoE '\{"id":[^}]*"title":"Music"[^}]*\}' | head -1)
+    [ -n "$MUSWIN" ] && break
+done
+if [ -n "$MUSWIN" ]; then
+    TAG_STAGE=1
+    MUS_ID=$(printf '%s' "$MUSWIN" | sed -n 's/.*"id":\([0-9]*\),.*/\1/p')
+    MUS_X=$(printf '%s' "$MUSWIN" | sed -n 's/.*"x":\(-\?[0-9]*\),.*/\1/p')
+    MUS_Y=$(printf '%s' "$MUSWIN" | sed -n 's/.*"y":\(-\?[0-9]*\),.*/\1/p')
+    echo "MUSWIN-16E: $MUSWIN (재스폰 클라 승계 — 태그 세그먼트 진입)"
+else
+    echo "MUSIC-FAIL(tag-recon: Music 창 부재 — 16d-4 재스폰 계보 재대조 몫 — 태그 세그먼트 생략, 원장)"
+fi
+
+if [ "$TAG_STAGE" -eq 1 ]; then
+    echo "--- 16e-1. 활성 탭 = mus_seed (16d-5 정착 승계; 미확보 시 landtap 폴백) ---"
+    if [ "${BIG_SETTLED:-0}" -eq 1 ]; then
+        echo "MUS-TAG-TAB-CARRY: 16d-5의 landtap(s1)이 mus_seed 탭 착탄을 settle했다 — 탭 클릭 생략(상태 승계 — 원장; 불요 클릭 = 폐기 위험 회피)"
+    else
+        python3 "$SHOT_PY" "$LOGDIR/mus_base16e.png" >"$LOGDIR/mus_base16e.log" 2>&1 \
+            || FAIL "16e baseline capture failed — $(tail -2 "$LOGDIR/mus_base16e.log" | tr '\n' ' ')"
+        if landtap "$MUS_ID" "$LOGDIR/mus_base16e.png" "e0" "$MUS_X" "$MUS_Y" "$MUS_TAB2_X"; then
+            echo "MUS-TAG-TAB-OK: mus_seed 탭 착탄(클라 x=$MUS_TAB2_X·y=$MUS_TAB3_Y_EFF — dirIndex_=mus_seed 전이 diff=$LAST_DIFF) — 도달 시차는 LTAP 원문 행"
+        else
+            echo "MUSIC-FAIL(tag-tab: mus_seed 탭 무착탄 — MUS_TAB2 재보정 몫(mus_bc/mus_land_e0 원문) — 현 탭 계속, 원장)"
+        fi
+    fi
+    sleep 3   # 탭 스캔(합성 8곡 — ffmpeg 부재 원문 승계라 m_seed.mp3 없음) 도착 안정화
+
+    echo "--- 16e-2. 목록 표기 캡처 (곡명(아티스트) 열·앨범 열·폴백 행) ---"
+    shot mus_wsl_taglist.png
+    echo "MUS-TAG-LIST-LEDGER: 예상 행(mtime desc — 4c 생성 순서): ① t_tag_alpha → 'Wsl Tag Alpha (Probe Artist Alpha)'+앨범 'Tag Album One' ② t_tag_beta → 'Wsl Tag Beta (Probe Artist Beta)'+앨범 'Tag Album Two' ③ t_raw_noid → 폴백 행 't_raw_noid'+앨범 '-' ④ 이하 wav 5건 폴백 행 — 표기 일치는 캡처 육안 몫(EYES)"
+
+    echo "--- 16e-3. 필터 타이핑 — 곡명(TIT2) 매치 → 캡처 ---"
+    # [런 1-3 원장 — 정착 논리 정정] 클릭(caret) 프레임은 ~3s에 프레젠트되지만
+    # **타이핑(Char) 프레임의 프레젠트가 수초~수십 초 늦다**(런 1 ~8s·런 2
+    # ~25s·런 3 = 35s 창 내 미도달 — 이후의 툴콜/포커스 등 활동의 재렌더에서만
+    # 관측 — 활동 게이트 원문 #89). 연속 동일(0차분) 정착은 스테일 2장 오답,
+    # 전역 차분의 조기 화력은 툴팁/캐럿/윈도 흔들림 오판. 정착 = **상태행 밴드
+    # (필터 박스+곡 카운터의 좌표 밴드)의 변화 픽셀합** 판정 + **영수증 = 창
+    # 말미 프레임**(도착을 기다린 30s 창의 마지막 프레임 — 프레젠트 지연 원장).
+    PX_BAND="$LOGDIR/mus_bandpx.py"
+    cat > "$PX_BAND" <<'PYEOF'
+# [T3] 상태행 밴드 차분기 — 두 PNG(필터 0·RGB8)에서 밴드(x0,x1,y0,y1)의
+# 변화 픽셀합만 센다(캡처 좌표계 원장: 클라 (104-279,26-48) ↔ 캡처
+# (524-700,197-219) — 본 밴드 = 필터 박스 전폭+곡 카운터 1행).
+import struct, sys, zlib
+
+def load(p):
+    d = open(p, "rb").read()
+    pos, idat, w, h = 8, b"", 0, 0
+    while pos < len(d):
+        ln = struct.unpack(">I", d[pos:pos+4])[0]
+        tag = d[pos+4:pos+8]
+        body = d[pos+8:pos+8+ln]
+        pos += 12 + ln
+        if tag == b"IHDR":
+            w, h = struct.unpack(">II", body[:8])
+        elif tag == b"IDAT":
+            idat += body
+        elif tag == b"IEND":
+            break
+    return w, h, zlib.decompress(idat)
+
+w, h, a = load(sys.argv[1])
+_, _, b = load(sys.argv[2])
+x0, x1, y0, y1 = (int(v) for v in sys.argv[3:])
+total, maxrow = 0, 0
+for y in range(y0, min(y1, h)):
+    c = 0
+    for x in range(x0, min(x1, w)):
+        va = a[y*(w*3+1)+1+x*3]
+        vb = b[y*(w*3+1)+1+x*3]
+        if abs(va - vb) > 75:
+            c += 1
+    total += c
+    maxrow = max(maxrow, c)
+print("band_px=%d maxrow=%d" % (total, maxrow))
+PYEOF
+    # 밴드 = 캡처 좌표(위 원장 — MUS_FILTER 클라 (250,42) 소비 축+박스 전폭+곡
+    # 카운터). 창 배치 변화 시 이 밴드도 정찰 재보정 몫(원장).
+    TAG_BAND_X0=${TAG_BAND_X0:-524}  TAG_BAND_X1=${TAG_BAND_X1:-960}
+    TAG_BAND_Y0=${TAG_BAND_Y0:-196}  TAG_BAND_Y1=${TAG_BAND_Y1:-222}
+    TAG_BAND_PX=${TAG_BAND_PX:-60}   # 텍스트 글리프+카운터 변화 ≥60px — 캐럿(~30px) 배제
+    FFILTER() { # $1=텍스트 $2=태그 $3=영수증명 — 클릭+키 프라이밍+타이핑+밴드 판정
+        local text="$1" tag="$2" name="$3" t i d last total pk
+        t=$(tap "$MUS_ID" "$((MUS_X + MUS_FILTER_X))" "$((MUS_Y + MUS_FILTER_Y))")
+        printf '%s' "$t" | grep -aq '"ok":true' || FAIL "send_input filter click failed — $t"
+        sleep 1
+        # [런 1-4 원장 — 착륙 레시피] 타이핑의 적용이 **키 선행 라운드에서만
+        # 실측됐다**(런 1 = ctrl+a/bs/del 선행 → 착륙 ~8s·런 2 = backspace
+        # 16탭 선행 → 착륙 ~25s·런 3/4 = 키 없음 → 35s 창 내 미적용 2/2 —
+        # 진단 v2/v3 재현). 신선 빈 박스의 백스페이스 1탭 = 무해 프라이밍 —
+        # 유일 실측 착륙 레시피를 소비한다(적용되지 않으면 정직 MISS — 판정은
+        # 밴드+캡처 육안).
+        pk=""
+        for i in 1 2; do
+            pk=$(timeout 12 ./buildwsl/jkdesktop agentctl \
+                "{\"tool\":\"send_input\",\"args\":{\"op\":\"key\",\"id\":$MUS_ID,\"key\":8,\"mods\":0}}" \
+                2>/dev/null | grep -a '{' | head -1)
+            printf '%s' "$pk" | grep -aq '"ok":true' \
+                || echo "  프라이밍 key#$i reply 비정상(전송 실패?): ${pk:-empty} — 계속"
+        done
+        sleep 1
+        t=$(timeout 12 ./buildwsl/jkdesktop agentctl \
+            "{\"tool\":\"send_input\",\"args\":{\"op\":\"type\",\"id\":$MUS_ID,\"text\":\"$text\"}}" \
+            2>/dev/null | grep -a '{' | head -1)
+        printf '%s' "$t" | grep -aq '"ok":true' || FAIL "send_input type failed — $t"
+        echo "MUS-TAG-FILTER-TYPE($tag): text='$text' — reply ok (프라이밍 후 타이핑 — 신선 빈 박스)"
+        TAG_SETTLE_RC=0
+        last=""
+        for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+            sleep 2
+            python3 "$SHOT_PY" "$LOGDIR/mus_bc_$tag.png" >"$LOGDIR/mus_bc_$tag.log" 2>&1 \
+                || FAIL "settle capture $tag failed — $(tail -2 "$LOGDIR/mus_bc_$tag.log" | tr '\n' ' ')"
+            last="$LOGDIR/mus_bc_$tag.png"
+        done
+        # 영수증 = 창 말미 프레임(30s — 프레젠트 지연 원장 상관)+판정 = 기저와의
+        # 밴드 차분(텍스트 글리프+카운터 변화).
+        cp "$last" "$RECEIVE/$name" || FAIL "capture copy $name failed"
+        echo "CAPTURE: $RECEIVE/$name ($(wc -c < "$RECEIVE/$name") bytes — 30s 창 말미 프레임)"
+        d=$(python3 "$PX_BAND" "$LOGDIR/mus_base16f_$tag.png" "$last" \
+            "$TAG_BAND_X0" "$TAG_BAND_X1" "$TAG_BAND_Y0" "$TAG_BAND_Y1")
+        total=$(printf '%s' "$d" | sed -n 's/.*band_px=\([0-9]*\).*/\1/p')
+        echo "MUS-TAG-FILTER-SETTLE($tag): $d (기저 대비 상태행 밴드 — 임계 $TAG_BAND_PX)"
+        if [ -n "$total" ] && [ "$total" -ge "$TAG_BAND_PX" ]; then
+            TAG_SETTLE_RC=1
+            echo "MUS-TAG-FILTER-ARRIVED($tag): OK — 밴드 변화 $total ≥ $TAG_BAND_PX (필터 상태 도착 원문)"
+        else
+            echo "MUSIC-FAIL(tag-settle($tag): 밴드 도착 미판정 — 스테일/미적용 원장행(마지막 프레임 캡처 = EYES 몫))"
+        fi
+    }
+
+    python3 "$SHOT_PY" "$LOGDIR/mus_base16f_tftitle.png" >"$LOGDIR/mus_base16f_tftitle.log" 2>&1 \
+        || FAIL "16e-3 base capture failed — $(tail -2 "$LOGDIR/mus_base16f_tftitle.log" | tr '\n' ' ')"
+    FFILTER "$TAG_FILTER_TEXT_TITLE" "tftitle" mus_wsl_tag_filter.png
+    MUS_TF_TITLE=${TAG_SETTLE_RC:-0}
+    echo "MUS-TAG-FILTER-OBSERVATION: text='$TAG_FILTER_TEXT_TITLE' — 예상 표 1행(파일명 매치 0 — 'Wsl Tag Alpha'는 TIT2 원존 — D5 title 매치의 라이브 원문), 카운터 1곡은 캡처 육안 몫"
+
+    echo "--- 16e-4. 필터 타이핑 — 아티스트(TPE1) 매치 → 캡처 (신선 클라 — 재스폰) ---"
+    # [런 1-2 원장 — 두번째 타이핑 라운드(기존 텍스트의 클리어+대체)가 미성립]
+    # : run 1 = ctrl+a/bs/del 3키 뒤의 타이핑, run 2 = 백스페이스 16탭 뒤의
+    # 타이핑 — 어느 쪽도 기존 텍스트를 치우지 않았다(run 2 tag_after 실측:
+    # 타이틀 텍스트 잔존). key op(합성 keydown)의 InputText 반영이 미실증이라
+    # **클리어 의존을 소각**한다: close_window+launch_app으로 신선 클라(빈
+    # 필터)를 다시 세우고 같은 수형의 클릭+단일 타이핑으로 두 번째 매치를
+    # 실측한다(step 10/16e-3의 실증 경로만 소비 — run 1/2의 실측 렛슨).
+    MCLOSE=$(timeout 12 ./buildwsl/jkdesktop agentctl \
+        "{\"tool\":\"close_window\",\"args\":{\"id\":$MUS_ID}}" 2>/dev/null | grep -a '{' | head -1)
+    echo "MUS-TAG-APP-CLOSE: ${MCLOSE:-none}"
+    for i in 1 2 3 4 5 6; do
+        sleep 1
+        WD=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"list_windows","args":{}}' 2>/dev/null | grep -a '{' | head -1)
+        printf '%s' "$WD" | grep -aq '"title":"Music"' || break
+    done
+    MREL=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"launch_app","args":{"app":"music"}}' 2>/dev/null | grep -a '{' | head -1)
+    printf '%s' "$MREL" | grep -aq '"ok":true' || FAIL "music relaunch (tag artist round) failed — $MREL"
+    echo "MUS-TAG-APP-RELAUNCH: $MREL"
+    MUSWIN=""
+    WIN16E2=""
+    for i in 1 2 3 4 5 6 7 8; do
+        sleep 2
+        WIN16E2=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"list_windows","args":{}}' 2>/dev/null | grep -a '{' | head -1)
+        MUSWIN=$(printf '%s' "$WIN16E2" | grep -aoE '\{"id":[^}]*"title":"Music"[^}]*\}' | head -1)
+        [ -n "$MUSWIN" ] && break
+    done
+    [ -n "$MUSWIN" ] || FAIL "no Music window for tag artist round — last: ${WIN16E2:-none}"
+    MUS_ID=$(printf '%s' "$MUSWIN" | sed -n 's/.*"id":\([0-9]*\),.*/\1/p')
+    MUS_X=$(printf '%s' "$MUSWIN" | sed -n 's/.*"x":\(-\?[0-9]*\),.*/\1/p')
+    MUS_Y=$(printf '%s' "$MUSWIN" | sed -n 's/.*"y":\(-\?[0-9]*\),.*/\1/p')
+    echo "MUSWIN-16E2: $MUSWIN (신선 클라 — 빈 필터 보증)"
+    sleep 2
+    WK16E=$(tap "$MUS_ID" "$((MUS_X + 300))" "$((MUS_Y + 300))")   # 첫 합성 클릭 무음 소멸 렛슨(16c 원장)
+    printf '%s' "$WK16E" | grep -aq '"ok":true' || echo "  warmup tap reply: ${WK16E:-none} (계속 — 무해 지점)"
+    sleep 1
+    # 신선 클라의 활성 탭 = dirs_[0](default) — mus_seed 탭 클릭(landtap 정찰 —
+    # 16e-1의 폴백 수형) 뒤 스캔 도착 → 기저 캡처.
+    python3 "$SHOT_PY" "$LOGDIR/mus_base16e2.png" >"$LOGDIR/mus_base16e2.log" 2>&1 \
+        || FAIL "16e-4 base (pre-tab) capture failed — $(tail -2 "$LOGDIR/mus_base16e2.log" | tr '\n' ' ')"
+    TAG_TAB2=0
+    if landtap "$MUS_ID" "$LOGDIR/mus_base16e2.png" "e2" "$MUS_X" "$MUS_Y" "$MUS_TAB2_X"; then
+        TAG_TAB2=1
+        echo "MUS-TAG-TAB2-OK: mus_seed 탭 착탄(클라 x=$MUS_TAB2_X·y=$MUS_TAB3_Y_EFF diff=$LAST_DIFF) — 신선 클라에서도 상수 유효(원장)"
+    else
+        echo "MUSIC-FAIL(tag-tab2: 신선 클라의 mus_seed 탭 무착탄 — 현 탭 계속(기저가 대변) — 아티스트 매치 캡처의 배경 원장)"
+    fi
+    sleep 3   # 탭 스캔(합성 8곡) 도착 안정화
+    python3 "$SHOT_PY" "$LOGDIR/mus_base16f_tfartist.png" >"$LOGDIR/mus_base16f_tfartist.log" 2>&1 \
+        || FAIL "16e-4 base capture failed — $(tail -2 "$LOGDIR/mus_base16f_tfartist.log" | tr '\n' ' ')"
+    FFILTER "$TAG_FILTER_TEXT_ARTIST" "tfartist" mus_wsl_tag_filter_artist.png
+    MUS_TF_ARTIST=${TAG_SETTLE_RC:-0}
+    echo "MUS-TAG-FILTER-ARTIST-OBSERVATION: text='$TAG_FILTER_TEXT_ARTIST' — 예상 표 1행(t_tag_beta — TPE1 매치 — D5 artist 매치 원문), 캡처 육안 몫"
+
+    echo "--- 16e-5. 재생 open 실패 영수증 (태그 성립·프레임 0 — 정직 원문) ---"
+    # vplayer 재등록 — 16b2-0의 회수 이후 미등록(런 1 원장: app_tool 릴레이의
+    # 후보 0 → unknown_app_tool — step 9의 콜드 경기 원문과 동일 거부). step 14
+    # 수형 = launch_app으로 인스턴스를 스폰한 뒤 직행한다.
+    LP=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"launch_app","args":{"app":"vplayer"}}' 2>/dev/null | grep -a '{' | head -1)
+    printf '%s' "$LP" | grep -aq '"ok":true' || FAIL "launch_app vplayer failed — $LP"
+    echo "MUS-TAG-VP-LAUNCH: $LP"
+    VPREG=0
+    for i in 1 2 3 4 5 6; do
+        sleep 2
+        VPQ=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"list_windows","args":{}}' 2>/dev/null | grep -a '{' | head -1)
+        printf '%s' "$VPQ" | grep -aq '"title":"Video Player"' && { VPREG=1; break; }
+    done
+    [ "$VPREG" -eq 1 ] || echo "MUSIC-FAIL(tag-vp-reg: vplayer 윈도우 미등록 — 릴레이 거부 예상, 원장)"
+    OR_TAG=$(timeout 15 ./buildwsl/jkdesktop agentctl \
+        "{\"tool\":\"app_tool\",\"args\":{\"app\":\"vplayer\",\"tool\":\"open\",\"args\":{\"path\":\"$TAG_MP3_A\"}}}" \
+        2>/dev/null | grep -a '{' | head -1)
+    echo "MUS-TAG-OPEN-REPLY: ${OR_TAG:-none} (accepted = 비동기 도달 — 판정은 get_status의 openFailed)"
+    GS_TAG=""
+    TAG_OPENFAIL=0
+    for i in 1 2 3 4 5 6; do
+        sleep 1.5
+        GS_TAG=$(timeout 15 ./buildwsl/jkdesktop agentctl \
+            '{"tool":"app_tool","args":{"app":"vplayer","tool":"get_status","args":{}}}' \
+            2>/dev/null | grep -a '{' | head -1)
+        echo "MUS-TAG-OPEN-STATUS-$i: ${GS_TAG:-none}"
+        printf '%s' "$GS_TAG" | grep -aq '"openFailed":true' && { TAG_OPENFAIL=1; break; }
+        printf '%s' "$GS_TAG" | grep -aq '"opened":true' && break
+    done
+    echo "MUS-TAG-OPEN-STATUS: ${GS_TAG:-none} (opened:false+openFailed:true = 유효 mp3 프레임 0 파일의 정직 개방 실패 원문 — 태그 표기 leg는 이것과 무관 성립)"
+    printf '%s' "$OR_TAG" | grep -aq '"accepted":true' \
+        && [ "$TAG_OPENFAIL" -eq 1 ] \
+        && echo "MUS-TAG-OPENFAIL: OK — open은 수취되고 개방은 실패(정직 원문 — 합성 최소 mp3 계약)" \
+        || echo "MUSIC-FAIL(tag-openfail: open/get_status 원문 미달 — $OR_TAG|$GS_TAG)"
+    # 창 회수(차분·후속 캡처 오염 소각 — 16b2-0 수형)
+    TAG_VPCLOSE=0
+    for i in 1 2 3 4 5 6; do
+        VPT=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"list_windows","args":{}}' 2>/dev/null | grep -a '{' | head -1)
+        VPW=$(printf '%s' "$VPT" | grep -aoE '\{"id":[^}]*"title":"Video Player"[^}]*\}' | head -1)
+        [ -z "$VPW" ] && break
+        VPID=$(printf '%s' "$VPW" | sed -n 's/.*"id":\([0-9]*\),.*/\1/p')
+        TVC=$(timeout 12 ./buildwsl/jkdesktop agentctl "{\"tool\":\"close_window\",\"args\":{\"id\":$VPID}}" 2>/dev/null | grep -a '{' | head -1)
+        echo "  tag vplayer close#$i: id=$VPID repl=${TVC:-none}"
+        TAG_VPCLOSE=$((TAG_VPCLOSE + 1))
+        sleep 1
+    done
+    echo "MUS-TAG-VP-RECLAIM: closed=$TAG_VPCLOSE (0 = 실패 UI가 즉닫힘·1 = 실패 메시지를 남긴 뒤 회수 — 어느 쪽이나 회수 완료 부기, 판정 아님)"
+    sleep 1
+    shot mus_wsl_tag_after.png
+fi
 
 restore_and_exit
 
@@ -2025,7 +2405,7 @@ else
     echo "MUSIC-VERDICT: MUSIC-FAIL(행별 사유는 위 각 행 — delegate=$DEL_OK deleg-open=$DELEG_OPEN glue=$GLUE_OK play=$PLAY_OK captures=$CAP_OK; 인프라 실패는 hard FAIL로 상단 중단, 수치·육안 미달은 rc=0 honest-fail)"
 fi
 echo "MUSIC-WCAPTURES:"
-for f in spatial list filter vp_delegate delegate_status after dirs_panel; do
+for f in spatial list filter vp_delegate delegate_status after dirs_panel taglist tag_filter tag_filter_artist tag_after; do
     P="$RECEIVE/mus_wsl_$f.png"
     [ -s "$P" ] && echo "  $P ($(wc -c < "$P") bytes)"
 done
@@ -2127,6 +2507,29 @@ else
 fi
 echo "MUSIC-CAPTURES-16B2:"
 for f in browse_open browse_subs browse_sub browse_up browse_sub2 browse_added browse_rescan; do
+    P="$RECEIVE/mus_wsl_$f.png"
+    [ -s "$P" ] && echo "  $P ($(wc -c < "$P") bytes)"
+done
+echo "=== 18g. [T3(#99)] 태그 표기 판정 (rc는 0 유지 — 원문은 16e 행별) ==="
+TAG_CAP_OK=1
+for f in taglist tag_filter tag_filter_artist; do
+    P="$RECEIVE/mus_wsl_$f.png"
+    [ -s "$P" ] || { echo "MUSIC-FAIL(tag capture missing: $P)"; TAG_CAP_OK=0; }
+done
+TAG_OK=0
+if [ "${TAG_STAGE:-0}" -eq 1 ] && [ "$TAG_CAP_OK" -eq 1 ] \
+    && [ "${MUS_TF_TITLE:-0}" -eq 1 ] && [ "${MUS_TF_ARTIST:-0}" -eq 1 ] \
+    && printf '%s' "${OR_TAG:-}" | grep -aq '"accepted":true'; then
+    TAG_OK=1
+fi
+echo "  구성: recon=${TAG_STAGE:-0} captions=$TAG_CAP_OK settle-title=${MUS_TF_TITLE:-0} settle-artist=${MUS_TF_ARTIST:-0} open-fail=${TAG_OPENFAIL:-0}(${GS_TAG:-none} — vp-reclaim=${TAG_VPCLOSE:-0})"
+if [ "$TAG_OK" -eq 1 ]; then
+    echo "MUSIC-TAG-VERDICT: TAG-OK(16e — 합성 태그 트랙 3건 스캔 포함·목록 표기 캡처 3종[표기+곡명 매치+아티스트 매치]·재생 open 실패 정직 영수증) — **표기 문자열 자체(곡명(아티스트)·앨범·폴백 행)는 캡처 육안 몫(EYES — 캡처 육안 스탭)**"
+else
+    echo "MUSIC-TAG-VERDICT: TAG-FAIL(honest-fail — 행별 사유는 16e; recon=${TAG_STAGE:-0} captures=$TAG_CAP_OK settle-t=${MUS_TF_TITLE:-0} settle-a=${MUS_TF_ARTIST:-0} open=${OR_TAG:-none})"
+fi
+echo "MUSIC-CAPTURES-16E:"
+for f in taglist tag_filter tag_filter_artist tag_after; do
     P="$RECEIVE/mus_wsl_$f.png"
     [ -s "$P" ] && echo "  $P ($(wc -c < "$P") bytes)"
 done
