@@ -283,7 +283,16 @@ void ClientMusicApp::OnInit() {
         surface->SendAgentToolRegister("music", tools);
     }
 
+    // 재런치 활성 탭 = 유저 폴더 우선(park 배치 4 — 활성 탭 UX 원장행):
+    // 기본 폴더(AudioDirFallback — 리졸버가 슬롯 0에 선두 고정)는 쓸 일이
+    // 드문 state/music 루트라 탭 스트립 첫 머무름 라벨이 언제나 그 폴더면
+    // 재런치마다 [파일/목록 스캔 → 탭 스위치] 2동작이 강제된다 — userDirs가
+    // 존재하면 활성 탭을 기본 폴더(1개) 뒤 = 첫 유저 dirs 항목 슬롯으로 연다.
+    RefreshUserDirs();
     ResolveDirs();
+    if (!userDirs_.empty() && dirs_.size() >= 2)
+        dirIndex_ = 1;  // 기본 폴더 뒤 첫 유저 dirs 항목(탭 슬롯 — 캐논 3축
+                        // 등호 승계: Win 671/WSL 648/posix 304·폰 648)
     RequestScan();
 }
 
