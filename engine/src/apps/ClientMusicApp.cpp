@@ -11,7 +11,8 @@
 // 2026-10-11-music-tags-design): the scan pass itself parses the tag head
 // (tags::ParseTag — 헤더만 읽는 D2 원문, 워커 몫 — 도착 표기만 더디) and the
 // row columns re-cut to [곡명(아티스트)] [앨범] [크기] [수정] [spatial]
-// (rel path → row tooltip); the filter widens to filename+title+artist (D5).
+// (full 절대경로 → row tooltip — fix r1 I-3 문언); the filter widens to
+// filename+title+artist (D5).
 // T3 adds the playback
 // delegation — a track-row double-click sends the spec §4 query pair
 // (① launch_app vplayer → ② app_tool open) through the library app's
@@ -1521,7 +1522,8 @@ void ClientMusicApp::BuildTrackTable() {
     // [spatial] — 가독 우선(태그 원문). 곡명 셀 = TrackRowLabel 원문 수형(
     // 태그 부재 = 파일명 확장자 제거 — D3 폴백), 앨범 셀 = TrackAlbumLabel(
     // 부재 = "-" — D3 단독 열 원존). rel 경로 데이터는 셀에서 빠지고 **툴팁**
-    // 으로 남는다(경로 원문 소실 금지 — 도착 스캔 Track.rel은 도구·status 표기
+    // 으로 남는다(경로 원문 소실 금지 — 툴팁은 Track.full **절대경로 원문** —
+    // fix r1 I-3 문언 정정·구현 원존, 도착 스캔 Track.rel은 도구·status 표기
     // leg가 그대로 소비·2m-f 동형 무변조). spatial 열 원존 무변조(행별 버튼).
     const std::string filter(filterBuf_);
     if (ImGui::BeginTable("tracks", 5,
@@ -1550,8 +1552,8 @@ void ClientMusicApp::BuildTrackTable() {
             ImGui::PushID(static_cast<int>(r));
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
-            // 곡명(아티스트) 합성 셀 — 폴백 라벨 원문(D3). 전체 경로는 툴팁
-            // (경로 원문 보존 — rel 열이 행에서 빠진 몫).
+            // 곡명(아티스트) 합성 셀 — 폴백 라벨 원문(D3). 툴팁 = Track.full
+            // 절대경로 원문(fix r1 I-3 문언 — 경로 원문 보존·구현 원존).
             const std::string rowLabel = music::TrackRowLabel(t);
             ImGui::TextUnformatted(rowLabel.c_str());
             if (ImGui::IsItemHovered())

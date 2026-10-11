@@ -67,7 +67,8 @@
 // title/artist/album (UTF-8 #94 — raw 원문 보존, 폴백 "-" 표기는 표기 leg),
 // and the row columns are re-cut to [곡명(아티스트)] [앨범] [크기] [수정]
 // [spatial] (D4 — the row label is TrackRowLabel/TrackAlbumLabel 원문 수형;
-// the rel path moves to the row tooltip, path data untouched) while the
+// the full absolute path (Track.full) moves to the row tooltip, path data
+// untouched — fix r1 I-3 wording) while the
 // double-click/delegation/spatial wiring stays verbatim. The filter widens
 // to filename+title+artist (D5 — MatchFilter Track overload, filename match
 // 원존 유지).
@@ -128,7 +129,8 @@ private:
     // 필터 적용 후 표시될 행 수(상단 카운터 — tracks_를 열외 순회만).
     int VisibleTrackCount() const;
     // 트랙 표([곡명(아티스트)] [앨범] [크기] [수정] [spatial] 5열 — #99 T2
-    // D4 열 재편; rel 경로는 행 툴팁) — 표기 데이터는 tracks_ 원문(재정렬
+    // D4 열 재편; full 절대경로는 행 툴팁 — fix r1 I-3 문언) — 표기 데이터는
+    // tracks_ 원문(재정렬
     // 없음), 필터는 순서 보존 열외(D5 — 2m-f 동형 계약의 UI측). 행 더블클릭
     // = T3 위임(원존).
     void BuildTrackTable();

@@ -22,7 +22,8 @@
 //
 // 취소 기구 (#93 T1 — 플랜 2026-10-10-music-scan-cancel): ScanCancelFn(참=
 // 취소)을 스캔 leg에 폭탄 전달 — 재귀 경계(진입)마다 `if (cancel()) return;`,
-// 엔트리 256개마다 보조 체크(단일 디렉터리가 수천 엔트리여도 취소에 응답).
+// 엔트리 64개마다 보조 체크(단일 디렉터리가 수천 엔트리여도 취소에 응답 —
+// #99 T2 fix r1: 256→64, 간격 상수만·2p 호출 수 계약 무변조).
 // 취소 시 부분 수집을 폐기하고 빈 목록을 반환한다(2p 원문). 무인자
 // ListAudioFiles 오버로드는 항상-false 콜백 위임 — 원존 시맨틱 무변조
 // (기존 캐논 케이스 전원 그대로 통과).
@@ -264,9 +265,18 @@ inline bool DirIdOf(const std::filesystem::path& dir, DirId& out) {
 #endif
 
 // Scan cancel callback (#93 T1): 참 = 취소 요청. 콜백은 재귀 경계에서만
-// 청구된다(진입 1회 + 엔트리 256개마다 보조 1회) — 경계당 최대 1회 원문
-// (2p-② 호출 상한 단정).
+// 청구된다(진입 1회 + 엔트리 kScanAuxEntryCheck개마다 보조 1회) — 경계당
+// 최대 1회 원문(2p-② 호출 상한 단정).
 using ScanCancelFn = std::function<bool()>;
+
+// 보조 취소 체크 간격 — 상한 계약 1행(#99 T2 fix r1 — 리뷰 I-1): 취소에 대한
+// 응답 지연 = 간격×(파일당 파싱 비용)의 최악 경로. 간격 64×파일당 앞 1MB
+// read(kTagHeadCap — 실사용 태그는 수십 KB) — 메모리 대기열에서 64×~1MB
+// read는 수십 ms급(저속 저장소에서도 경계 단위·전체 트리 스캔에 몰리지
+// 않는다 — 태그 파싱이 같은 패스에 얹힌 T2 이후 간격이 취소 대기의 지배항).
+// 래치(ListAudioFiles)가 해소 후 재청구를 막으므로 호출 수 상한(2p-②)은
+// 간격 유무와 무관 — 간격을 줄여도 호출 수 계약은 무변조.
+inline constexpr int kScanAuxEntryCheck = 64;
 
 // Recursive scan worker — ListAudioFiles의 재귀 leg. ec 중립형(throwing
 // 오버로드 금지 — 갤러리/shot 원문 계약): dir 열기 실패 = 독립 실패(빈 목록,
@@ -277,8 +287,11 @@ using ScanCancelFn = std::function<bool()>;
 // 내려보내는 지점에서 callee 진입이 먼저 판정하므로 경계당 콜백 청구는
 // 정확히 1회(2p-② 상한 원리). 취소 시 즉시 복귀(이 브랜치만 절단 — 형제와
 // 상위의 나머지 열거는 계속되고, 최종 폐기는 ListAudioFiles 래치가 소관).
-// 엔트리 256개마다 보조 체크 — 단일 디렉터리 폭주(수천 엔트리)에서도 취소에
-// 응답한다(경계가 디렉터리마다뿐이면 폭주 leg를 끝까지 견딘다).
+// 엔트리 kScanAuxEntryCheck(64)개마다 보조 체크 — 단일 디렉터리 폭주(수천
+// 엔트리)에서도 취소에 응답한다(경계가 디렉터리마다뿐이면 폭주 leg를 끝까지
+// 견딘다 — #99 T2 fix r1: T2 이후 같은 패스의 태그 파싱(파일당 앞 1MB read)
+// 이 취소 응답 지연의 지배항이 되어 간격 64로 조정 — 간격 상수만·2p 호출 수
+// 계약 무변조).
 inline void ScanAudioTree(const std::filesystem::path& dir,
                           const std::filesystem::path& root,
                           std::set<DirId>& visited, std::vector<Track>& out,
@@ -289,7 +302,7 @@ inline void ScanAudioTree(const std::filesystem::path& dir,
     if (ec) return;  // 이 브랜치만 실패 — 다른 dir의 트랙은 살아 있다
     int aux = 0;  // 엔트리 보조 취소 체크 계수기
     for (const std::filesystem::directory_entry& entry : it) {
-        if (++aux == 256) {  // 엔트리 256개마다 보조 체크(#93 T1)
+        if (++aux == kScanAuxEntryCheck) {  // 엔트리 64개마다 보조 체크(#93 T1)
             aux = 0;
             if (cancel()) return;
         }
@@ -355,8 +368,8 @@ inline void ScanAudioTree(const std::filesystem::path& dir,
 //
 // 취소판(#93 T1): cancel 참이 되는 즉시(래치) 스캔을 절단하고 **부분 수집을
 // 폐기한 빈 목록**을 반환한다(부분 결과 유출 금지 — 2p-①/② 원문). 콜백 청구
-// 경계는 ScanAudioTree 원문(진입 + 엔트리 256 보조) 그대로 — 래치는 해소 후
-// 재청구를 막아 경계당 1회를 보장한다(2p-② 호출 상한).
+// 경계는 ScanAudioTree 원문(진입 + 엔트리 kScanAuxEntryCheck 보조) 그대로 —
+// 래치는 해소 후 재청구를 막아 경계당 1회를 보장한다(2p-② 호출 상한).
 inline std::vector<Track> ListAudioFiles(const std::string& root,
                                          const ScanCancelFn& cancel) {
     std::vector<Track> out;
