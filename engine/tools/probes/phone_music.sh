@@ -873,7 +873,7 @@ awk -v p="$ST_PASS" -v m="$P2M" -v h="$P2MH" -v n="$P2N" -v o="$P2O" -v of="$P2O
     -v exn="$CANON_PHONE_2N" -v xp="$CANON_PHONE_2P" -v xq="$CANON_PHONE_2Q" -v xr="$CANON_PHONE_2R" \
     -v xs="$CANON_PHONE_2S" -v mm="$CANON_PHONE_2M" 'BEGIN{
     if (p == expect && o == exo && pf == xp && qf == xq && rf == xr && sf == xs)
-        printf "CANON-INCLUSION=MUSIC-FULL-2P2QRS-%d (폰 캐논 %s→%s 상승 — 2r %d건+2s %d건 흡수 (2p %d건+2q %d건 + 2m %d건[h %d 포함]·2n %d건·2o %d건[o-f %d·o-g %d] 보존) 실측 — WSL %s 등호)\n", p - prev, prev, p, rf + sf, pf, qf, mm, h, n, o, of, og, expect
+        printf "CANON-INCLUSION=MUSIC-FULL-2P2QRS-%d (폰 캐논 %s→%s 상승 — 2r %d건+2s %d건 흡수 (2p %d건+2q %d건 + 2m %d건[h %d 포함]·2n %d건·2o %d건[o-f %d·o-g %d] 보존) 실측 — WSL %s 등호)\n", p - prev, prev, p, rf, sf, pf, qf, mm, h, n, o, of, og, expect
     else if (p == prev)
         print "CANON-INCLUSION=MUSIC-SELFTEST-MISSING (music selftest 쌍둥이 미반영 — 계보 결손 — 원장)"
     else
@@ -2226,6 +2226,20 @@ else
     TCL2=$(tap "$MUS_ID" "$CLICK_X" "$CLICK_Y" 1)
     ok "$TCL2" || echo "NOTE-TAG-FALLBACK: tab re-click failed — $TCL2 (첫 클릭 취식 방어 — 동일 탭 재선택 idempotent)"
     TCLX="send_input x2 (폴백)"
+    # [런 1 원장 수리 — 폴백 착탄 판정]: 폴백 탭의 ok 응답은 전송 성공일 뿐이다 —
+    # tapsettle의 차분 축(캡처 diff) 재용으로 착탄을 판정한다(주입만 send_input).
+    sleep 3
+    CAPTURE "$TMPD/mus_phone_bc_tagf.png"
+    DFF=$(python3 "$PXPY" "$TAG_BASE" "$TMPD/mus_phone_bc_tagf.png" \
+                  "$MUS_X" "$MUS_Y" "$MUS_W" "$MUS_H" 2>&1)
+    ROWS_F=$(printf '%s' "$DFF" | sed -n 's/.*diff_rows=\([0-9]*\).*/\1/p')
+    echo "TAG-FALLBACK-SETTLE: diff_rows=${ROWS_F:-NA} (기저 대비 — 폴백 착탄 판정 — 임계 3)"
+    if [ -n "$ROWS_F" ] && [ "$ROWS_F" -ge 3 ]; then
+        TAG_TAB=1
+        echo "MUS-TAG-TAB-OK(send_input 폴백): 탭 착탄(클라 ${TAB2_X},${TAB2_Y} — 캡처 차분=$ROWS_F rows — xtap 무응답 원장 대조 원문)"
+    else
+        echo "MUSICP-FAIL-SOFT(tag-fallback-settle: 폴백 탭도 무착탄 diff=${ROWS_F:-NA} — MUSP_TAGTAB 재보정 몫)"
+    fi
 fi
 echo "MUS-TAG-TAB-MODE: $TCLX (XTEST 정착 또는 send_input 폴백 — 양 경로 모두 실측 계보)"
 sleep 8   # 탭 전환 스캔(태그 3곡 — 표기 leg) 도착 대기
