@@ -35,6 +35,15 @@ mkdir -p "$LOGDIR"
 SET=buildwsl/state/settings.json
 FONT=/mnt/c/Windows/Fonts/malgun.ttf
 
+# #98 runner guard (park 4 — ENTRY 확장, taskmgr 수형): this runner's soft+
+# hard bracketed pkill (step 1·leg 재부팅·종료 원복 — 러너 소유)이 ENTRY 뒤
+# 이르는 사슬 전부를 커버한다 — LIVE 서버가 probe-외부(사용자 실세션)이면
+# kill/엄폐 어설션 없이 러너 전체를 [SKIP]+rc=0로 정직 종료한다.
+if pgrep -f '[j]kdesktop --server' >/dev/null 2>&1; then
+    echo "[SKIP] text-scale-diag: a live jkdesktop server is running — #98 runner guard (nothing pkilled, nothing rm'd)"
+    exit 0
+fi
+
 ENTRY_UP=0
 pgrep -f 'buildwsl/[j]kdesktop' >/dev/null 2>&1 && ENTRY_UP=1
 echo "ENTRY-STATE: wsl-server-up=$ENTRY_UP (종료 시 원복)"

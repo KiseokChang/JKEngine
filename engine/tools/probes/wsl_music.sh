@@ -216,6 +216,16 @@ if [ -n "${PHONE_HOST:-}" ]; then
   echo "MUS-NOTE: PHONE_HOST set — WSL 축은 PHONE_HOST 불요(무시하고 진행)"
 fi
 
+# #98 runner guard (park 4 — ENTRY 확장, taskmgr 수형): this runner's soft+
+# hard bracketed pkill (step 1, restore paths, 16c-1 재부팅 — 러너 소유) and
+# rm은 ENTRY 이후 사슬 전부를 커버한다 — LIVE 서버가 probe-외부(사용자 실세션)
+# 이면 kill/엄폐/외부 서버로의 어설션 부착 없이 러너 전체를 [SKIP]+rc=0로
+# 정직 종료한다(ENTRY 상태 기록도 하지 않는다).
+if pgrep -f '[j]kdesktop --server' >/dev/null 2>&1; then
+    echo "[SKIP] music: a live jkdesktop server is running — #98 runner guard (nothing pkilled, nothing rm'd)"
+    exit 0
+fi
+
 echo "=== 0. ENTRY 상태 기록 (종료 시 원복 판정용) ==="
 ENTRY_UP=0
 pgrep -f 'buildwsl/[j]kdesktop' >/dev/null 2>&1 && ENTRY_UP=1
