@@ -47,6 +47,8 @@ T4 9889519까지 5커밋+본 T5 커밋·스펙 aab4f11 병기 — §1 표 = rev-
 - **부기(#93 스캔 안전화+#94 경로 인코딩 — 하단 부기·변형 아님)** — 본 문서에
   §7.7 신설(스캔 안전화+한글 트랙 재생 라인 T1-T4 원장): 후속 체인 =
   **4473e8b(플랜)..97b2d8e**+본 T5 커밋 — §7.7.0 표 = rev-parse 전체 SHA.
+  (이 #93 부기 bullet 자체는 **1b13b82(T5)에서 신설** — #92 bullet 뒤의 갭을
+  본 T5 커밋이 메꾼 것 — T5 리뷰 M-3 정정 표기.)
 - **부기(#97 폴더 브라우저 라인 — 하단 부기·변형 아님)** — 본 문서에 §7.8 신설
   (뮤직 폴더 브라우저 라인 T1-T4+fix 3종 원장·2026-10-11): 후속 체인 =
   **6ad3834(플랜)..2999f3d**+본 T5 커밋 — §7.8.0 표 = rev-parse 전체 SHA.
@@ -319,7 +321,7 @@ status 절단 악형) → T2 fix r1 re-review **APPROVE 재확정**(C0/I0/M0 —
 | T2 리뷰 I1+I2 | 행 클릭 동프레임 툴힌트 드리프트(진입 후 cwd로 재조립 1프레임)·리포트 링크 표면 서사(jkdesktop+jkapp_music 2건 표기 — 실측 jkapp_music 단독) | M | **소각** — fix r1 dest 사본 선취(클릭 판정 전 JoinDir 1회 구성)+원장은 링크 표면 실측 기준 기재(§7.8.6) |
 | T2 리뷰 I3 | 광 드라이브 표기 cwd("C:") — 드라이브 현재 디렉터 건드림 함정 도달(ListSubdirs("C:") 부정확 목록) | M | **소각** — fix r1 개봉 가드 2검(bare "C:" 거부+"X:/ 형식으로 재등록" 정직 1행 — JoinDir 드라이브-상대 함정 cwd 폼 차단) |
 | T2 fix r2 재검 I2 | **diag2 trace 원본 = WSL /tmp 휘발**(클라 무죄(IPC 응답지연) 귀결의 유일 실물 — srv.log 83KB) 영구화 미수행 | M | **소각 — 본 T5에서 사본 1벌 복원 수행**: `engine/tmp/t2f_diag2_srv.log`(83,916B — 원본 WSL /tmp/t2f_diag2/srv.log와 md5 `4f29566412cc3f17bf363c1ae2085e3d` byte 등호 실측 — untracked 커밋 금지 충족)·전반부(영구화) 소각 — 후반부(구 ⑤ 지대 y 442-457의 직접 재판정)는 fix r1 행 이동으로 지대 자체 존재 소멸 — 재판정 의무 소멸(diag2가 토글 지대만 재현한 "제어 클릭 축 실측" 표기 원장 유지) |
-| T4 원장 | SWEEP-DIFF=8/319(기대 집합 11 — ddd0f45 앵커 계보) — **probe 기대치 갱신 필요** | M | **리뷰 판정 확정 = 앵커 stale·실물 누락 아님(근거 4건 — §7.8.3 #7)** — 차기 런 전 `PHONE_DEPLOY_BASE`를 실배포 HEAD로 정산+앵커 미갱신 기간의 사이즈-등호 3파일 의존을 원장행에 명기 몫 |
+| T4 원장 | SWEEP-DIFF=8/319(기대 집합 11 — ddd0f45 앵커 계보) — **probe 기대치 갱신 필요** | M | **리뷰 판정 확정 = 앵커 stale·실물 누락 아님(근거 4건 — §7.8.3 #7)** — 차기 런 전 `PHONE_DEPLOY_BASE`를 실배포 HEAD로 정산+앵커 미갱신 기간의 사이즈-등호 3파일 의존을 원장행에 명기 몫 — **소각 — park 배치 4(2026-10-11): 폰 blob md5 실측으로 정산 — 기대 집합 11파일+ipc 1파일(=12) 전수 대차(`git show HEAD:$f` vs 폰 `tr -d '\r' \| md5sum` — sweep 개행 정규화 동형 축): 11파일 전부 md5 등호(사이즈-등호 3파일이 콘텐츠까지 최신임을 원문 실측 — 사이즈 블라인드 함정은 이번엔 미발화 — 원장 유지)·잔여 1파일 = `engine/src/ipc/JKPipeTransport_posix.cpp`(#98 수리 e28fd81+fix r1 c021006 사후 계보 — 폰 미재배포 구조)로 단일 blob 재배포 수행(git show HEAD 스테이징 tar 1파일 — D1 전량 archive 금지 계약 준수·오염 게이트 HEAD blob md5 등호·폰 서버/jkweb 무접촉) — 사후 md5+바이트 17,221B 등호 = 폰 트리 12/12 HEAD(c021006) 등호 → **PHONE_DEPLOY_BASE 정산 = c021006**(probe 기본 상수는 env 승수 계약 — 다음 폰 런에서 환경변수 권장 원장). 재빌드·재기동 미수행(서버 존중 — 폰 실행 바이너리는 d5c6875-era 유지·소스/바이너리 갭은 다음 폰 배포 런에서 해소 — 정직 원장)** |
 | T4 리뷰 M-2 | 커밋 본문 결함 원장 계수 4건 vs 실제 수형 5건(런 2 remove 서기 지연 폴링 = N4-10 CLEAN-POLL 미계수) | M | **소각 — 본 문서 §7.8.3 #6에 5건째 원문 봉인**(런 2 remove 서기 지연 폴링 — clean-poll 수형) |
 | T4 리뷰 I-1 | probe 판정행 `MUSIC-BROWSE-VERDICT: BROWSE-OK(…③④④2…)` 라벨이 cwd 전환 성립처럼 읽힘 — 실제 = tapsettle 착탄(EYES)+SUB-MISS 원문(리포트 본문은 "미성립"으로 정직 정정 — 라벨만 미세 과다) | M | 다음 런 ⑤ FULL 재판정 시 라벨-원장 정렬(⑤ 라이브 캘리브레이션 몫과 동일 라인 — §4.1-3 상단 행) |
 | T4 리뷰 I-2 | phone_music.sh L1727/1729 인접 중복 sdcard 헤더 주석 1행(N4 블록 삽입 시 재삽입) | M | 동작 영향 0 — 다음 probe 접촉 1행 소각 |
@@ -919,7 +921,8 @@ cf690c8 미수록·캡처 7종 현행 9종) = 본 T5에서 소각 완료**(§7.6
 `docs/superpowers/plans/2026-10-11-music-dir-browser.md`(6ad3834 — 결정 원장
 5건=재량(§7.8.4)·사용자 게이트=폰/Win 브라우저 체감(§7.8.5)), SDD 원장=
 `.superpowers/sdd/2026-10-11-music-dir-browser/`(progress·task-1..4 리포트
-7종(fix 3종 포함)·review 4종(재검 3회 동봉)·review diff 7종·런 로그
+7종(fix 3종 포함)·review 4종+재검 별도 2종(T1 fix r1 재검만 task-1-review에
+동봉 — T5 리뷰 I-3 정정 표기)·review diff 7종·런 로그
 engine/tmp/wsl_music_t3_run{1,2,C,C2,C3,D,E,F}.log·phone_music_run{1..4}.log —
 untracked **인용만이 진실원**). 라인 부품 계승: #92 폴더 저장소
 (MusicDirStore·DirAddManaged 가드 2검·재스캔 3연)·#93 취소 기구(스캔은
@@ -933,15 +936,18 @@ verdict는 본 T5 커밋 전 흡수).
 
 ### §7.8.0 체인 (rev-parse 전체 SHA 실측 — T5 측정 · git log가 진실원)
 
+표 행 순서 = git log 리니어 사슬 1:1(park 배치 4 정정 — 구판은 T3 행이
+T2 fix r1/r2 뒤에 놓인 "논리 그룹 순서"였다 — T5 리뷰 M-1).
+
 | 태스크 | 커밋(SHA — 실측 rev-parse) | 내용 |
 | --- | --- | --- |
 | 플랜(라인 BASE) | `6ad38344d0b106123a1c035a7b0535fb696d9ea1` | docs(superpowers): music 폴더 브라우저 플랜 T1-T5 (#97) |
 | T1 | `04e11b78cd672662713d6eddffe324054b69ff3a` | feat(apps): music 폴더 브라우저 순수 부품+2r (T1) — MusicModel.h `jk::music::browse`(ListSubdirs/JoinDir/Parent)+main.cpp 2r 8건 (2파일 +152/−0) |
 | T2 | `8e1d84c55039da6a05af915ec3d9b3d45560aede` | feat(apps): music 폴더 브라우저 패널 — 타이핑 없는 선택 (T2) — ClientMusicApp .h/.cpp 2파일 +127/−0 — [찾아보기] 토글+cwd 표기+.. 행+[이 폴더 추가]=DirAddManaged+성공=브라우즈 종료+[닫기] |
 | T1 fix r1 | `c6be5003dc62f49b9573fe5be0dd97f769877a9e` | fix(apps): JoinDir 루트 폼 — 이중 슬래시·posix 흡수 수리 (T1 fix r1) — MusicModel.h JoinDir 본문(main.cpp 2r-b/c 회귀 2건 동봉 — 2파일 +35/−8) |
+| T3 | `e68ff4615472cfe98822382a25eabf98cfc95827` | test(probes): music WSL probe — 브라우저 실측 세그먼트 (T3) — wsl_music.sh probe 1파일 (+508/−68) — ②③④④2 2런 등호·tapsettle 신설·⑤ 무전달 실측(T2 fix r1 dispatch 근거) |
 | T2 fix r1 | `05bd36888508257ce604e1444adba030827d067f` | fix(apps): 브라우저 압착 가드 — 이 폴더 추가 도달 복원 (T2 fix r1) — 2파일 +182/−72(numstat — ClientMusicApp.cpp +114/−39·wsl_music.sh +68/−33) — 압착 가드 2검+⑤ 행 목록 위 이동+⑤ 재검 세그먼트(tap timeout 12→35) |
 | T2 fix r2 | `d5c6875048e24dec6350c96d01e012e8a6bc11d9` | fix(apps): 브라우저 거부 경로 cwd 소각 복원 (T2 fix r2) — 2파일 +9/−4(cpp +5/−1·h +4/−3) — 거부 분기 browseCwd_.clear()+`!deny.empty()` 확장+h주석 부하성 정정 |
-| T3 | `e68ff4615472cfe98822382a25eabf98cfc95827` | test(probes): music WSL probe — 브라우저 실측 세그먼트 (T3) — wsl_music.sh probe 1파일 (+508/−68) — ②③④④2 2런 등호·tapsettle 신설·⑤ 무전달 실측(T2 fix r1 dispatch 근거) |
 | T4 | `2999f3df7e2d160fe8af14a75488f330ed0072ec` | test(probes): music 폰 probe — 브라우저 동형 세그먼트 (T4) — phone_music.sh probe 1파일 (+835/−81·코드 무변경) — **폰 캐논 638→648(2r 10 — 4런 등호)**·XTEST(ztap) 재조립 |
 | T5 | 본 문서를 포함하는 커밋 | docs(apps): music 폴더 브라우저 as-built 갱신 (T5) — SHA는 git log가 진실원 |
 
@@ -1121,7 +1127,7 @@ stale 판정(기대치 산식 미갱신 — 실물 누락 아님 — 근거 4건
    (런 1-3 라이브 정찰 실측). tapsettle의 **8s 무음 판정 = 이 지연 하에서
    false-FAIL이 false-SUCCESS보다 안전**(토글형 버튼의 재시도가 역전을
    만들 수 있어 — 상태 사슬이 최종 판정을 소유). 폰 축은 렌더 지연 ~10s로
-   증폭(§4.1-3 — ③⑤ 자동 체인 미성립의 3중 드리프트). 렌슨: **개봉 캡처를
+   증폭(§4.1-3 — ③⑤ 자동 체인 미성립의 3중 드리프트). 렛슨: **개봉 캡처를
    판정 근거로 쓸 땐 "그 프레임이 어떤 시점의 것인지"를 먼저 증명하라 —
    캡처 시각이 아니라 캡처된 시점이 진실원이다.**
 6. **★XTEST 클라 커서 잔상(T4 — 원장 4건 중 ② · 5건째 리뷰 M-2 보정)** —
@@ -1141,7 +1147,10 @@ stale 판정(기대치 산식 미갱신 — 실물 누락 아님 — 근거 4건
    ninja 264/264 aarch64. 리뷰 판정(근거 4건): 기대 집합 11의 앵커
    `PHONE_DEPLOY_BASE=ddd0f45`가 폰 실제 트리보다 오래된 것 — 폰은 638 라인
    (2026-10-10 런) 배포로 3파일이 이미 최신·`git diff --name-only ddd0f45
-   2999f3d` = 11파일 전부 blob 사이즈 변동 재현·배포 마커
+   2999f3d -- engine/src engine/include engine/CMakeLists.txt` = 11파일 전부
+   blob 사이즈 변동 재현(bare 명령 = 18파일 — docs 3+probe sh 4+코드 11 —
+   #94 리뷰 "인용-명령 일치 원칙" 재발 경로 — 경로자 보강 — T5 리뷰 I-1)·
+   배포 마커
    `main_2r=10 · DelegationReplyVerdict=2 · cancel_wiring=6`로 #97 코드
    실배포 실측 — **실물 누락 아님**. **렛슨: 사이즈-등호 3파일은 콘텐츠 원문이
    아닌 사이즈 추정 의존 — 앵커 미갱신 기간의 blob 사이즈 등호는 콘텐츠
