@@ -931,3 +931,16 @@ specs/2026-09-24-vplayer-smooth-scrub-design.md, 진행·태스크 리포트는
   작성물로, 착지 후에는 OSD 절을 가리킨다. 향후 문서 참조는 §12로 정정 대상.
 - F3(S3의 250ms 임계 미측정 — miss+rebuild 구조 서명 대체)은 설계 판정으로
   수용(관측 한계 반영, 리뷰어 동의) — 후속 아님.
+
+- **부기(#100 조그 휠 재설계 — 하단 부기·변형 아님, 2026-10-16)** — 본 문서
+  12절 계보 뒤에 착지한 **휠=연속 워크+관성 감쇠** 라인(#100 — 플랜
+  `docs/superpowers/plans/2026-10-12-vplayer-jog-flow.md`, SDD 원장
+  `.superpowers/sdd/2026-10-12-vplayer-jog-flow/`): 휠 틱이 절식이 아니라
+  **틱률 속도**(최근 3틱 윈도우+EMA 0.35)가 되고, 마지막 틱 후 120ms 조용에
+  관성이 반감기 150ms로 타깃을 연장해 finishScrub 단일 출구 스냅으로 종착
+  (측정불가 세션 한정 400ms 원형 보존)·세션 전 구간 무음(SetJog(true)
+  디코드 스킵+재생 중 장치 정지 — 8d83027/T1). 사용자 결제(2026-10-12)
+  "휠=연속 워크"+"조작 중 무음". WSL 흐름 probe=`engine/tools/probes/
+  wsl_jog_flow.sh`(T2 — [vpt13] glide 원문·REV 동형·무음 축·2런 ALL PASS,
+  FWD/REV 착지 err ≤0.014). EYES-PENDING: 휠 조작 체감(부드러움·역방향
+  동형)·감쇠 매개 6종 재량 정산(플랜 게이트 #2 — 기각 시 즉시 수리).

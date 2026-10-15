@@ -56,6 +56,12 @@ T4 9889519까지 5커밋+본 T5 커밋·스펙 aab4f11 병기 — §1 표 = rev-
   (뮤직 태그 읽기 라인 T1-T4 원장·T4 리뷰 없음(BLOCKED — 원장)·2026-10-11):
   후속 체인 = **8315b15(스펙)·7e39a28(플랜)..cf978f8**+본 T5 커밋 —
   §7.9.0 표 = rev-parse 전체 SHA.
+- **부기(#100 vplayer 조그 재설계 라인 — 하단 부기·변형 아님, 2026-10-16)** —
+  본 문서 신설 절 0건(라인 as-built = docs/50 말미 부기 bullet — 휠=연속
+  워크+관성 감쇠·WSL probe `engine/tools/probes/wsl_jog_flow.sh` T2 —
+  2런 ALL PASS·무음 축 원문): 체인 = **fb38d79(플랜)..8d83027(T1)**+T2 커밋
+  (주석 정정 8548dac·probe·docs — rev-parse 전체 SHA), 캐논 등호 승계
+  Win 691/WSL 668/posix 304.
 
 ## §1. 배선 원장 (라인 전체 — rev-parse 전체 SHA 실측, T5 재측정)
 
