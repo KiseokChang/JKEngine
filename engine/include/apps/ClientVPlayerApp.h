@@ -124,12 +124,46 @@ private:
     double renderWindowStart_ = 0;  // SDL_GetTicks-based window start (s)
     int renderHz_ = 0;              // last completed window's rate
 
-    // Mouse-wheel scrub (spec 1d/D5): wheel ticks over the knob drive the
-    // same jogTarget_/scrubClock_ frame-scrub pump (D chase + stall-only
-    // SeekScrub fallback); there is no wheel-release event,
-    // so the session ends 400 ms after the last tick (idle timeout).
+    // Mouse-wheel scrub (spec 1d/D5 as re-designed #100 T1): wheel ticks over
+    // the knob drive the same jogTarget_/scrubClock_ frame-scrub pump (D
+    // chase + stall-only SeekScrub fallback); there is no wheel-release
+    // event, so a tick-rate session replaces the old jump-per-tick shape:
+    // the last ≤3 ticks give the smoothed rate (content-sec per real-sec,
+    // signed — backward ticks are the symmetric case) and after 120 ms of
+    // quiet the target keeps extending with that rate decaying on a ~150 ms
+    // half-life (total extension capped at |rate|×0.5 s), ending in the one
+    // finishScrub snap. With NO measurable rate (a lone or very slow tick)
+    // the legacy 400 ms idle release survives as the degenerate case, so
+    // slow deliberate scrolling keeps ONE session. wheelScrubbing_ stays
+    // true for the whole span (chase pump + silent decode skip + parked
+    // clock) until that exit.
     bool wheelScrubbing_ = false;
     std::chrono::steady_clock::time_point wheelLastTick_{};
+
+    // Wheel tick-rate window (#100 T1): wheelTickSec_[i]/wheelTickT_[i] are
+    // the newest-first content-move and steady-clock time of each kept tick
+    // (same-frame repeats merge into one sample, wheelTickN_ = kept count);
+    // wheelVel_ is the window rate folded through an EMA. wheelInertia_
+    // marks the decay phase, wheelInertiaBudget_ the remaining extension
+    // cap, wheelInertiaFrame_ the clock of the previous decay frame
+    // (per-frame integration dt).
+    static constexpr int kWheelTickWin = 3;
+    double wheelVel_ = 0.0;
+    bool wheelInertia_ = false;
+    double wheelInertiaBudget_ = 0.0;
+    double wheelTickSec_[kWheelTickWin] = {0.0, 0.0, 0.0};
+    double wheelTickT_[kWheelTickWin] = {0.0, 0.0, 0.0};
+    int wheelTickN_ = 0;
+    std::chrono::steady_clock::time_point wheelInertiaFrame_{};
+
+    // Every wheel-session entry and every takeover/cut of one starts the
+    // rate estimate over (stale samples span unrelated idle gaps).
+    void WheelFlowReset() {
+        wheelVel_ = 0.0;
+        wheelInertia_ = false;
+        wheelInertiaBudget_ = 0.0;
+        wheelTickN_ = 0;
+    }
 
     // Reverse auto-play (spec 2026-09-15 section 7 v2): the jog ring walked
     // backward at content fps by the UI cadence (Task 3); T feeds the shared

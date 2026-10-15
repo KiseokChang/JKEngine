@@ -2214,6 +2214,7 @@ void ClientVPlayerApp::OpenPath(const char* path) {
     // release (a precision Seek to a dead target) against the next file.
     // The drag path self-heals on release; the wheel needs this explicit cut.
     wheelScrubbing_ = false;
+    WheelFlowReset(); // the rate/inertia state must not outlive its core either
     // A reverse auto-play session must not outlive its PlayerCore either:
     // st.opening suspends the cadence but BuildUi resumes on the next file
     // with the stale jogTarget_/jogWasPlaying_ — the pump would SeekScrub/
@@ -2441,6 +2442,7 @@ void ClientVPlayerApp::TheaterUi(int w, int h) {
         reverseAcc_ = 0.0;
         jogActive_ = false;
         wheelScrubbing_ = false;
+        WheelFlowReset();
         // opus 리뷰 NIT-5: 창 모드 슬라이더 드래그 중 F11이면 seekingUi_가
         // 남아 커밋/동기가 멈는다 — 극장 진입 시 같이 정산.
         seekingUi_ = false;
@@ -3002,6 +3004,7 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
                 // truth) — same rule as the drag/wheel entry blocks.
                 const bool takeover = wheelScrubbing_;
                 wheelScrubbing_ = false;
+                if (takeover) WheelFlowReset(); // the wheel glide must not outlive its supersede
                 reverseActive_ = true;
                 reverseAcc_ = 0.0;
                 reverseLastTick_ = std::chrono::steady_clock::now();
@@ -3036,6 +3039,7 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
             // target is the user's accumulated dial position.
             const bool takeover = wheelScrubbing_ || reverseActive_;
             wheelScrubbing_ = false;
+            WheelFlowReset(); // a drag start kills the wheel glide too
             reverseActive_ = false;
             reverseAcc_ = 0.0;
             jogActive_ = true;
@@ -3073,14 +3077,20 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
             jogMouseY_ += dy;
         }
 
-        // Mouse-wheel scrub (spec 1d, D5): ticks over the knob feed the same
-        // jogTarget_/debounce as a drag — 1/16 revolution per tick, wheel-up
-        // = forward (the drag's clockwise = +dθ convention). Wheel input has
-        // no release event, so the session ends 400 ms after the LAST tick
-        // (every tick re-arms the timer) with exactly the drag-release
-        // finish. While a drag is held the drag owns the finish: ticks still
-        // move the shared target (latest wins) but the flag and timer stay
-        // with the drag.
+        // Mouse-wheel scrub (spec 1d, D5 as re-designed #100 T1): ticks over
+        // the knob still open the same jog session as a drag (auto-pause,
+        // silent decode skip, shared target via the pump below), and wheel-up
+        // = forward (the drag's clockwise = +dθ convention) — but a tick is
+        // now a RATE, not a landing: the tick moves the target by its
+        // unchanged sPerRev/16 and is ALSO a sample of how fast the user is
+        // turning (see the wheelInertia_ block below — the session ends in
+        // that decay, not in a fixed idle timeout). While a drag is held the
+        // drag owns the finish: ticks still move the shared target (latest
+        // wins) but the rate samples stay with the wheel.
+        constexpr double kWQuiet = 0.120;     // last tick → inertia gate (s)
+        constexpr double kWDecayHalf = 0.150; // inertia velocity half-life (s)
+        constexpr double kWDecayCap = 0.5;    // extension ≤ |rate| × cap (s)
+        constexpr double kWEma = 0.35;        // rate smoothing across ticks
         if (hot && io.MouseWheel != 0.0f) {
             if (!jogActive_ && !wheelScrubbing_) {
                 // Entry mirrors the drag start: auto-pause if playing, skip
@@ -3098,11 +3108,61 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
                 else scrubClock_.SetTarget(jogTarget_);
                 jogLastSent_ = -1;
                 jogLastSeek_ = std::chrono::steady_clock::now();
+                WheelFlowReset(); // the rate estimate is per-session
             }
-            jogTarget_ = std::clamp(
-                jogTarget_ + (double)io.MouseWheel * sPerRev / 16.0, 0.0, dur);
-            if (!jogActive_)
+            const double tickSec = (double)io.MouseWheel * sPerRev / 16.0;
+            jogTarget_ = std::clamp(jogTarget_ + tickSec, 0.0, dur);
+            // Tick-rate sample (#100 T1): the newest ticks first; one
+            // MouseWheel event that carries several ticks is ONE sample
+            // (merging beats sampling a ~0 real-time gap that would divide
+            // by clock noise). A tick after 120 ms of quiet discards the
+            // stale window — its span measured a different gesture.
+            {
+                const auto tickNow = std::chrono::steady_clock::now();
+                const double tSec = std::chrono::duration<double>(
+                    tickNow.time_since_epoch()).count();
+                if (wheelInertia_) {
+                    // The decay is interrupted: this tick resumes manual
+                    // control. The sample window is KEPT — its span now
+                    // includes the quiet gap, so the next estimate honestly
+                    // discounts the pre-gap rate (a deliberate stop slows
+                    // the next glide down).
+                    wheelInertia_ = false;
+                    wheelInertiaBudget_ = 0.0;
+                }
+                if (wheelTickN_ > 0 &&
+                    tSec - wheelTickT_[0] < 0.002) {
+                    wheelTickSec_[0] += tickSec; // same-frame merge
+                } else {
+                    if (wheelTickN_ < kWheelTickWin) ++wheelTickN_;
+                    for (int i = wheelTickN_ - 1; i > 0; --i) {
+                        wheelTickSec_[i] = wheelTickSec_[i - 1];
+                        wheelTickT_[i] = wheelTickT_[i - 1];
+                    }
+                    wheelTickSec_[0] = tickSec;
+                    wheelTickT_[0] = tSec;
+                }
+                if (wheelTickN_ >= 2) {
+                    // 3-tick window rate: content-seconds moved across the
+                    // window over the span between the newest and oldest
+                    // kept ticks. Zero or unmeasurable span → keep the
+                    // previous estimate (honest: no evidence, no overwrite).
+                    const double spanT =
+                        wheelTickT_[0] - wheelTickT_[wheelTickN_ - 1];
+                    if (spanT > 0.005) {
+                        double spanSec = 0.0;
+                        for (int i = 0; i < wheelTickN_; ++i)
+                            spanSec += wheelTickSec_[i];
+                        const double rate = spanSec / spanT;
+                        wheelVel_ = wheelVel_ == 0.0
+                                        ? rate
+                                        : wheelVel_ + (rate - wheelVel_) * kWEma;
+                    }
+                }
+            }
+            if (!jogActive_) {
                 wheelLastTick_ = std::chrono::steady_clock::now();
+            }
         }
 
         // Reverse auto-play cadence (spec section 7 v2): walk jogTarget_
@@ -3193,13 +3253,64 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
             }
         }
 
-        // Idle release (D5): 400 ms with no wheel tick while a wheel session
-        // is open — same finish as the drag release, then the flag clears.
-        if (wheelScrubbing_ &&
-            std::chrono::duration<double>(std::chrono::steady_clock::now() -
-                                          wheelLastTick_).count() >= 0.400) {
-            finishScrub();
-            wheelScrubbing_ = false;
+        // Wheel inertia (#100 T1): 120 ms of quiet after the LAST tick ends
+        // the manual phase — the target keeps extending at the estimated
+        // rate, decaying on a ~150 ms half-life measured from that last tick
+        // (the decay clock starts at the tick, so the gate only REVEALS the
+        // already-decaying glide), bounded by a total extension of
+        // |rate|×0.5 s. When the glide is done (rate below the stop
+        // threshold, budget spent, or the target pinned at a file bound)
+        // finishScrub is the single exit — the same snap/restore as a drag
+        // release. The session stays open the whole span: wheel sessions
+        // have no release event, and this block is their only finisher.
+        if (wheelScrubbing_ && !jogActive_ && !io.MouseWheel) {
+            if (!wheelInertia_) {
+                const double quiet = std::chrono::duration<double>(
+                    std::chrono::steady_clock::now() - wheelLastTick_).count();
+                if (wheelVel_ != 0.0) {
+                    if (quiet >= kWQuiet) {
+                        wheelInertia_ = true;
+                        // Budget = the plan's extension cap; the true decay
+                        // integral is |v0|×half-life/ln2 ≈ 0.22×|v0|, so the
+                        // cap binds only on pathological frame stalls (the
+                        // per-frame dt is also clamped below).
+                        wheelInertiaBudget_ =
+                            std::abs(wheelVel_) * kWDecayCap;
+                        wheelInertiaFrame_ = std::chrono::steady_clock::now();
+                    }
+                } else if (quiet >= 0.400) {
+                    // No measurable rate (e.g. a lone tick — the estimate
+                    // needs ≥2 samples): the 400 ms idle release is exactly
+                    // the legacy shape, so a slow deliberate scroll keeps
+                    // ONE session instead of snapping after every tick.
+                    finishScrub();
+                    wheelScrubbing_ = false;
+                }
+            } else {
+                const auto now = std::chrono::steady_clock::now();
+                double dtF = std::chrono::duration<double>(
+                                 now - wheelInertiaFrame_).count();
+                wheelInertiaFrame_ = now;
+                dtF = std::clamp(dtF, 0.0, 0.05); // stall must not become a jump
+                const double decayT = std::chrono::duration<double>(
+                    now - wheelLastTick_).count();
+                const double v =
+                    wheelVel_ * std::pow(0.5, decayT / kWDecayHalf);
+                double add = v * dtF;
+                if (std::abs(add) > wheelInertiaBudget_) // the plan's cap
+                    add = add < 0.0 ? -wheelInertiaBudget_
+                                    : wheelInertiaBudget_;
+                wheelInertiaBudget_ -= std::abs(add);
+                const double nt = std::clamp(jogTarget_ + add, 0.0, dur);
+                const bool boundStop =
+                    (nt == 0.0 && add < 0.0) || (nt == dur && add > 0.0);
+                jogTarget_ = nt;
+                if (wheelInertiaBudget_ <= 0.0 || boundStop ||
+                    std::abs(v) < 0.03) { // <3% real-time speed → imperceptible glide left
+                    finishScrub();
+                    wheelScrubbing_ = false;
+                }
+            }
         }
 
         // Knob visuals: base disc + rim, position arc from 12 o'clock and a
