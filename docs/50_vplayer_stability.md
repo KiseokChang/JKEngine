@@ -944,3 +944,9 @@ specs/2026-09-24-vplayer-smooth-scrub-design.md, 진행·태스크 리포트는
   wsl_jog_flow.sh`(T2 — [vpt13] glide 원문·REV 동형·무음 축·2런 ALL PASS,
   FWD/REV 착지 err ≤0.014). EYES-PENDING: 휠 조작 체감(부드러움·역방향
   동형)·감쇠 매개 6종 재량 정산(플랜 게이트 #2 — 기각 시 즉시 수리).
+  부기 정정(T2 fix r1 — T2 리뷰 M-1): park toggle 레이스(런 초 1회 —
+  "paused=false pos=1.858")의 **run log 원문은 보존 미성립**(동명 재런
+  겹침 소각+/tmp 원파일 수취 실패·폐기 — 정직 원장행 = SDD progress.md;
+  보존된 probebug 런 앞부분은 청정 park = PARK-TRY-1 paused=true
+  pos=1.115) — probe 봉합(3회 재시도)+이후 2런 재발 0, probe/커밋/코드
+  무영향.
