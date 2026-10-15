@@ -3115,8 +3115,10 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
             // Tick-rate sample (#100 T1): the newest ticks first; one
             // MouseWheel event that carries several ticks is ONE sample
             // (merging beats sampling a ~0 real-time gap that would divide
-            // by clock noise). A tick after 120 ms of quiet discards the
-            // stale window — its span measured a different gesture.
+            // by clock noise). A tick after 120 ms of quiet still lands on
+            // the same window (#100 T1 review M-1: the window is KEPT, never
+            // discarded — the block below lets the quiet gap into its span,
+            // so the next estimate honestly discounts the pre-gap rate).
             {
                 const auto tickNow = std::chrono::steady_clock::now();
                 const double tSec = std::chrono::duration<double>(
@@ -3270,10 +3272,11 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
                 if (wheelVel_ != 0.0) {
                     if (quiet >= kWQuiet) {
                         wheelInertia_ = true;
-                        // Budget = the plan's extension cap; the true decay
-                        // integral is |v0|×half-life/ln2 ≈ 0.22×|v0|, so the
-                        // cap binds only on pathological frame stalls (the
-                        // per-frame dt is also clamped below).
+                        // Budget = the plan's extension cap — an unreachable
+                        // safety net: the true decay integral is
+                        // |v0|×half-life/ln2 ≈ 0.22×|v0| < 0.5×|v0| in any
+                        // run (decayT is real time while the per-frame dt is
+                        // also clamped below), so the cap never binds.
                         wheelInertiaBudget_ =
                             std::abs(wheelVel_) * kWDecayCap;
                         wheelInertiaFrame_ = std::chrono::steady_clock::now();
