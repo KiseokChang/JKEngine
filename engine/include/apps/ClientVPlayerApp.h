@@ -124,19 +124,25 @@ private:
     double renderWindowStart_ = 0;  // SDL_GetTicks-based window start (s)
     int renderHz_ = 0;              // last completed window's rate
 
-    // Mouse-wheel scrub (spec 1d/D5 as re-designed #100 T1): wheel ticks over
-    // the knob drive the same jogTarget_/scrubClock_ frame-scrub pump (D
-    // chase + stall-only SeekScrub fallback); there is no wheel-release
-    // event, so a tick-rate session replaces the old jump-per-tick shape:
-    // the last ≤3 ticks give the smoothed rate (content-sec per real-sec,
-    // signed — backward ticks are the symmetric case) and after 120 ms of
-    // quiet the target keeps extending with that rate decaying on a ~150 ms
-    // half-life (total extension capped at |rate|×0.5 s), ending in the one
-    // finishScrub snap. With NO measurable rate (a lone or very slow tick)
-    // the legacy 400 ms idle release survives as the degenerate case, so
-    // slow deliberate scrolling keeps ONE session. wheelScrubbing_ stays
-    // true for the whole span (chase pump + silent decode skip + parked
-    // clock) until that exit.
+    // Mouse-wheel scrub (spec 1d/D5 as re-designed #100 T1 + r2): wheel
+    // ticks over the knob drive the same jogTarget_/scrubClock_ frame-scrub
+    // pump (D chase + stall-only SeekScrub fallback); there is no
+    // wheel-release event, so a tick-rate session replaces the old
+    // jump-per-tick shape. The r2 tick scale is non-linear in the tick gap:
+    // the uniform sPerRev/16 quantum (a time-scale, ~7 frames/tick on a 30 s
+    // clip — user verdict 2026-10-17 "아직 프레임 단위가 아니다") is GONE
+    // from the wheel leg; a deliberate tick (gap ≥ 120 ms, or the first
+    // tick) = one 2-frame quantum, a fast run accelerates up to 0.25 s/tick.
+    // The last ≤3 ticks give the smoothed rate (content-sec per real-sec,
+    // signed — backward ticks are the symmetric case) and after a
+    // fast-ended gesture goes 120 ms quiet the target keeps extending with
+    // that rate decaying on a ~150 ms half-life (total extension capped at
+    // |rate|×0.5 s), ending in the one finishScrub snap. A session that
+    // ended on a SLOW tick (and a lone tick with no measurable rate) takes
+    // the legacy 400 ms idle release WITHOUT a glide — a frame-level
+    // adjustment must not coast. wheelScrubbing_ stays true for the whole
+    // span (chase pump + silent decode skip + parked clock) until that
+    // exit.
     bool wheelScrubbing_ = false;
     std::chrono::steady_clock::time_point wheelLastTick_{};
 
@@ -146,10 +152,12 @@ private:
     // wheelVel_ is the window rate folded through an EMA. wheelInertia_
     // marks the decay phase, wheelInertiaBudget_ the remaining extension
     // cap, wheelInertiaFrame_ the clock of the previous decay frame
-    // (per-frame integration dt).
+    // (per-frame integration dt), wheelLastTickFast_ = the r2 coast gate
+    // (the last tick's gap was < 120 ms — only a fast-run ending glides).
     static constexpr int kWheelTickWin = 3;
     double wheelVel_ = 0.0;
     bool wheelInertia_ = false;
+    bool wheelLastTickFast_ = false;
     double wheelInertiaBudget_ = 0.0;
     double wheelTickSec_[kWheelTickWin] = {0.0, 0.0, 0.0};
     double wheelTickT_[kWheelTickWin] = {0.0, 0.0, 0.0};
@@ -161,6 +169,7 @@ private:
     void WheelFlowReset() {
         wheelVel_ = 0.0;
         wheelInertia_ = false;
+        wheelLastTickFast_ = false;
         wheelInertiaBudget_ = 0.0;
         wheelTickN_ = 0;
     }

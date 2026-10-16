@@ -4,6 +4,15 @@
 # 위생 수형 + wsl_vp_cycle.sh 접착제 직행 수형 + wsl_ttc_check.sh 직행 클라
 # 수형 + T1 Windows smoke(engine/tmp/t1_wheel_smoke.ps1 untracked)의 WSL 동형).
 #
+# r2(T2 fix — 사용자 실측 기각 "아직 프레임 단위가 아닌 시간 단위"): 틱 척도
+# **비선형**(틱 간격 기준) — 느린/단발 틱(간격 ≥120ms 或 세션 첫 틱) = 틱당
+# 정확히 2프레임(2/fps s — 프레임 수준 세밀도), 빠른 연속 틱 = 간격비 제곱
+# 가속(최대 0.25s/틱 상한 — 스캔 속도 유지)·sPerRev 균일 척도는 휠 leg에서
+# 소멸. 관성 glide는 **빠름으로 끝난 제스처만**(마지막 틱 간격 <120ms) — 느린
+# 조정 틱 뒤 coast는 프레임 정밀을 훼손하므로 금지(400ms legacy release 원존).
+# 이 probe는 r2 legs를 추가한다: SLOW leg(2틱 이격 200ms — 프레임 수준 미세
+# 이동 원문) + FAST 가속 원문(FWD leg 내 avg/tick ≥1.3×슬로우 양자)+ post-burst
+# 무입력 glide 원문(FWD/REV 회귀 0 계약).
 # 목적(#100 T1 — 8d83027 휠=연속 워크+관성 감쇠): 합성 클립 열기 → 휠 시퀀스
 # (send_input wheel — 기존 원문 수형) → [vpt13] 세션/glide 중 pos 원문 + 관성
 # 정지 후 스냅 pos 원문 → REV 동형 → 무음 검증 축(세션 중 get_status
@@ -75,14 +84,17 @@ cleanup_burst() {
     return 0
 }
 
-# T1 smoke 원문 상수(vpt13 계보 — 960x640 레이어): tick = sPerRev/16 =
-# 3.75/16 = 0.234375 s(dur/8 클램프)·노브 중심 = 창 원점 + (895,584)(지름 64 —
+# r2 원문 상수(vpt13 계보 — 960x640 레이어): 느린 틱 = 2프레임 = 2/fps s
+# (fps 클립 실측 30 — JOG-FPS)·가속 상한 = 0.25 s/틱(zero gap·코드
+# kWFastTick 원문 상수 동기)·노브 중심 = 창 원점 + (895,584)(지름 64 —
 # ±32px 여유). env 오버라이드 창구(정찰-재보정 수형 — wsl_music 선례).
-JOG_TICK=${JOG_TICK:-3.75};  JOG_TICKS16=16
+JOG_FPS=${JOG_FPS:-30};  JOG_SLOWFRAMES=${JOG_SLOWFRAMES:-2}
+JOG_FASTTICK=${JOG_FASTTICK:-0.25}
 JOG_KNOB_X=${JOG_KNOB_X:-895}; JOG_KNOB_Y=${JOG_KNOB_Y:-584}
 # 흐름 연속성 상한 = 감쇠 최대 계단(8틱/100ms 샘플) + 1프레임(30fps 클립)
 # + 관성 진입 여유 — T1 smoke bound 수형.
 BOUND=$(awk "BEGIN{printf \"%.3f\", 8.0*0.1 + 1.0/30.0 + 0.3}")   # 1.133
+SLOWQ=$(awk "BEGIN{printf \"%.6f\", $JOG_SLOWFRAMES/$JOG_FPS}")   # 0.066667 (2 frames)
 
 echo "=== JOG-FLOW RUN=$JOGRUN start $(date +%T)"
 
@@ -245,7 +257,7 @@ sleep 3   # 클라 초기 렌더 + 상태 안정화
 # ---------------------------------------------------------------- 접착제 원문 헬퍼
 ctl() { timeout 15 ./buildwsl/jkdesktop agentctl "$1" 2>/dev/null | grep -a '{' | head -1; }
 ok()  { printf '%s' "${1:-}" | grep -aq '"ok":true'; }
-FWDERR=0; REVERR=0; MUTEERR=0
+FWDERR=0; REVERR=0; MUTEERR=0; SLOWERR=0
 CHK() { # $1=tag $2=결과(0/1) — 흐름 수치 판정(honest-fail — 카운터만)
     if [ "$2" -eq 0 ]; then echo "PASS: $1"; else echo "FAIL: $1 -- ${3:-}"; fi
 }
@@ -300,13 +312,12 @@ ST=$(status)
 DUR=$(printf '%s' "$ST" | sed -n 's/.*"dur":\([0-9.]*\).*/\1/p')
 echo "JOG-DUR: $DUR (기대 30.0)"
 AWK_DUR=$(awk "BEGIN{print ($DUR > 29.5 && $DUR < 30.5) ? 0 : 1}")
-[ "$AWK_DUR" -eq 0 ] || FAIL "clip duration $DUR != 30 — tick 상수(sPerRev/16) 계보 불성립"
+[ "$AWK_DUR" -eq 0 ] || FAIL "clip duration $DUR != 30 — r2 틱 상수(JOG_FPS=30 프레임 양자) 계보 불성립"
 
-echo "=== 8. 팍 원료 상수 원문"
-TICK=$(awk "BEGIN{printf \"%.6f\", $JOG_TICK/$JOG_TICKS16}")
-RAW=$(awk "BEGIN{printf \"%.3f\", 10*$TICK}")
-echo "JOG-TICKS: tick=$TICK raw10=$RAW (FWD/REV 각 = 틱률 버스터 원동량)"
+echo "=== 8. r2 원료 상수 원문"
+echo "JOG-TICKS: slowTick=$SLOWQ ($JOG_SLOWFRAMES frames @ ${JOG_FPS}fps) fastCeil=$JOG_FASTTICK (빠른 가속 상한 — r2 비선형 척도)"
 # 클립 fps 30 → T1 bound 1.133 수형 그대로.
+FASTMIN=$(awk "BEGIN{printf \"%.3f\", 10*1.3*$SLOWQ}")   # 0.867 — 가속 판정 하한(avg/tick ≥ 1.3× 슬로우 양자)
 
 echo "=== 9. FWD leg — burst +10틱 → [vpt13] glide 원문 → 스냅 착지"
 # park = 전제 상태(시드 계약) — toggle 1발로 못 미치면(레이아웃/릴레이 레이스
@@ -338,6 +349,7 @@ for i in $(seq 1 10); do
 done
 echo "FWD-WHEEL: 10 sends, sends-failed=$WHEEL_FAILS"
 [ "$WHEEL_FAILS" -eq 0 ] || FAIL "wheel send gate failed ($WHEEL_FAILS/10) — permissions.json send_input allow 확인"
+OFF_END=$(wc -l < "$CLOG")   # burst 종료 시점 스냅샷 — 이후 행 = 무입력 glide 원문(r2)
 sleep 0.25
 vpt13_dump "$OFF" "$LOGDIR/${JOGRUN}_fwd_stream.txt"
 NSAMP=$(vpt13_of "$OFF")
@@ -361,14 +373,57 @@ echo "FWD-VALS: seed=$SEED T_last=$LATEST_T landed=$LANDED err=$ERRF glide=$GLID
 [ "${AN_N:-0}" -ge 4 ] || { FWDERR=$((FWDERR+1)); echo "JOG-FAIL: FWD samples=$AN_N < 4 (세션 미개시 — 노브/게이트 원장)"; }
 awk "BEGIN{exit ($AN_MAXDD+0 <= $BOUND) ? 0 : 1}" || { FWDERR=$((FWDERR+1)); echo "JOG-FAIL: FWD continuity max|dD|=$AN_MAXDD > bound $BOUND"; }
 [ "${AN_BADWAY:-1}" -eq 0 ] || { FWDERR=$((FWDERR+1)); echo "JOG-FAIL: FWD direction — D가 감소한 샘플($AN_BADWAY)"; }
-awk "BEGIN{exit ($AN_TSPAN+0 >= 2.30) ? 0 : 1}" || { FWDERR=$((FWDERR+1)); echo "JOG-FAIL: FWD Tspan=$AN_TSPAN < raw 2.344 (세션 진행 원문 부족)"; }
+awk "BEGIN{exit ($AN_TSPAN+0 >= 0.90) ? 0 : 1}" || { FWDERR=$((FWDERR+1)); echo "JOG-FAIL: FWD Tspan=$AN_TSPAN < 0.90 (r2 가속 스캔 원문 부족)"; }
+awk "BEGIN{exit (($AN_TSPAN+0)/10.0 >= 1.3*$SLOWQ) ? 0 : 1}" || { FWDERR=$((FWDERR+1)); echo "JOG-FAIL: FWD accel avg=$(awk "BEGIN{printf \"%.3f\", $AN_TSPAN/10.0}") < 1.3x slow quantum (가속 원문 부족 — r2)"; }
 awk "BEGIN{exit ((\"$ERRF\"+0) <= 0.3) ? 0 : 1}" || { FWDERR=$((FWDERR+1)); echo "JOG-FAIL: FWD landing err=$ERRF > 0.3 (스냅 단일 출구 원문 부족)"; }
-awk "BEGIN{exit ($GLIDEF+0 >= 2.45) ? 0 : 1}" || { FWDERR=$((FWDERR+1)); echo "JOG-FAIL: FWD glide=$GLIDEF < raw+0.1 (관성 연장 원문 부족)"; }
+# r2 관성 원문 = burst 종료 "이후" 행의 무입력 T 상승(0틱 스팬 ≥0.15 s·상승 ≥2)
+tail -n +"$((OFF_END+1))" "$CLOG" | grep -a '^\[vpt13\]' > "$LOGDIR/${JOGRUN}_fwd_glide.txt" || true
+ANF_G=$(vpt13_analyze "$LOGDIR/${JOGRUN}_fwd_glide.txt" 1)
+read -r GF_N GF_MAXDD GF_TSPAN GF_BADWAY <<EOF
+$ANF_G
+EOF
+GRISE=$(awk '{if (match($0,/T=(-?[0-9.]+)/)) { t=substr($0,RSTART+2,RLENGTH-2); if (p!="" && t-p>=0.03) r++; p=t } } END{print r+0}' "$LOGDIR/${JOGRUN}_fwd_glide.txt")
+echo "FWD-GLIDE-VALS: samples=$GF_N span=$GF_TSPAN rises=$GRISE"
+awk "BEGIN{exit (($GF_TSPAN+0 >= 0.15) && ($GRISE+0 >= 2) && ($GF_N+0 >= 3)) ? 0 : 1}" || { FWDERR=$((FWDERR+1)); echo "JOG-FAIL: FWD zero-input glide=$GF_TSPAN rises=$GRISE (관성 연장 원문 부족 — r2)"; }
 [ "$PAUSED_SNAP" = "true" ] || { FWDERR=$((FWDERR+1)); echo "JOG-FAIL: FWD parked after snap — paused=$PAUSED_SNAP"; }
 P1=$(p_of "$(status)"); sleep 0.5; P2=$(p_of "$(status)")
 DP=$(awk "BEGIN{d=$P2-$P1; if(d<0)d=-d; printf \"%.3f\", d}")
 echo "FWD-STATIC: $P1 -> $P2 (d=$DP)"
 awk "BEGIN{exit ($DP <= 0.02) ? 0 : 1}" || { FWDERR=$((FWDERR+1)); echo "JOG-FAIL: FWD pos static — d=$DP > 0.02"; }
+
+echo "=== 9b. SLOW leg — 2틱 이격 200ms = 프레임 수준 미세 이동 (r2 원문 계약)"
+ctl '{"tool":"app_tool","args":{"app":"vplayer","tool":"seek","args":{"seconds":6}}}' >/dev/null
+sleep 1
+SEEDS=$(p_of "$(status)")
+echo "SLOW-SEED: $SEEDS"
+awk "BEGIN{e=$SEEDS-6.0; if(e<0)e=-e; exit (e<=0.5) ? 0 : 1}"     || { SLOWERR=$((SLOWERR+1)); echo "JOG-FAIL: SLOW seed=$SEEDS != 6±0.5"; }
+knobclick || FAIL "knob click failed (SLOW leg)"
+sleep 1
+OFFS=$(wc -l < "$CLOG")
+for i in 1 2; do
+    wheel 1 || { WHEEL_FAILS=$((WHEEL_FAILS+1)); continue; }
+    sleep 0.2   # 이격 200ms(+호출 오버헤드 ~240ms) — 전부 느린 게이트(≥120ms)
+done
+echo "SLOW-WHEEL: 2 sends, sends-failed=$WHEEL_FAILS"
+sleep 0.9   # 400ms legacy release — coast 없음(r2 계약)
+vpt13_dump "$OFFS" "$LOGDIR/${JOGRUN}_slow_stream.txt"
+ST=$(status)
+LANDEDS=$(p_of "$ST")
+echo "SLOW-SNAP: landed=$LANDEDS"
+ANS=$(vpt13_analyze "$LOGDIR/${JOGRUN}_slow_stream.txt" 1)
+read -r ANS_N ANS_MAXDD ANS_TSPAN ANS_BADWAY <<EOF
+$ANS
+EOF
+RAWS=$(awk "BEGIN{printf \"%.3f\", 2*$SLOWQ}")
+DELTS=$(awk "BEGIN{d=$LANDEDS-$SEEDS; printf \"%.3f\", d}")
+MAXS=$(awk "BEGIN{printf \"%.3f\", $SLOWQ+0.04}")
+echo "SLOW-VALS: seed=$SEEDS landed=$LANDEDS delta=$DELTS raw=$RAWS maxstep=$ANS_MAXDD (bound $MAXS)"
+[ "${ANS_N:-0}" -ge 2 ] || { SLOWERR=$((SLOWERR+1)); echo "JOG-FAIL: SLOW samples=$ANS_N < 2"; }
+awk "BEGIN{exit ($ANS_MAXDD+0 <= $MAXS) ? 0 : 1}" || { SLOWERR=$((SLOWERR+1)); echo "JOG-FAIL: SLOW step=$ANS_MAXDD > 2-frame quantum+slack (가속이 느린 영역에 유출 — r2 위반)"; }
+awk "BEGIN{exit ($DELTS+0 >= 0.10 && $DELTS+0 <= 0.22) ? 0 : 1}" || { SLOWERR=$((SLOWERR+1)); echo "JOG-FAIL: SLOW delta=$DELTS ∉ raw 2틱=0.133± (프레임 수준 미세 이동 원문 부족 — coast 유출 의심)"; }
+ERRS=$(awk "BEGIN{e=$SEEDS+2*$SLOWQ-$LANDEDS; if(e<0)e=-e; printf \"%.3f\", e}")
+awk "BEGIN{exit ((\"$ERRS\"+0) <= 0.06) ? 0 : 1}" || { SLOWERR=$((SLOWERR+1)); echo "JOG-FAIL: SLOW landing err=$ERRS > 0.06 (틱당 정확 2프레임 착지 실패)"; }
+echo "SLOW-ERR: |landed - (seed+2q)| = $ERRS"
 
 echo "=== 10. REV leg — seek 15 → burst -10틱 → 동형 판정 (dir만)"
 ctl '{"tool":"app_tool","args":{"app":"vplayer","tool":"seek","args":{"seconds":15}}}' >/dev/null
@@ -385,6 +440,7 @@ for i in $(seq 1 10); do
     sleep 0.025
 done
 echo "REV-WHEEL: 10 sends, sends-failed=$WHEEL_FAILS"
+OFF_END2=$(wc -l < "$CLOG")   # burst 종료 스냅샷 — 이후 행 = 무입력 glide 원문(r2)
 sleep 2.1
 vpt13_dump "$OFF2" "$LOGDIR/${JOGRUN}_rev_stream.txt"
 NSAMP2=$(vpt13_of "$OFF2")
@@ -406,9 +462,15 @@ EOF
 echo "REV-ANALYZE: samples=$AN2_N max|dD|=$AN2_MAXDD Tspan=$AN2_TSPAN badway=$AN2_BADWAY"
 awk "BEGIN{exit ($AN2_MAXDD+0 <= $BOUND) ? 0 : 1}" || { REVERR=$((REVERR+1)); echo "JOG-FAIL: REV continuity max|dD|=$AN2_MAXDD > bound $BOUND"; }
 [ "${AN2_BADWAY:-1}" -eq 0 ] || { REVERR=$((REVERR+1)); echo "JOG-FAIL: REV direction — D가 증가한 샘플($AN2_BADWAY)"; }
-awk "BEGIN{exit ($AN2_TSPAN+0 >= 2.30) ? 0 : 1}" || { REVERR=$((REVERR+1)); echo "JOG-FAIL: REV Tspan=$AN2_TSPAN < raw 2.344"; }
+awk "BEGIN{exit ($AN2_TSPAN+0 >= 0.90) ? 0 : 1}" || { REVERR=$((REVERR+1)); echo "JOG-FAIL: REV Tspan=$AN2_TSPAN < 0.90 (r2 가속 스캔 원문 부족)"; }
+awk "BEGIN{exit (($AN2_TSPAN+0)/10.0 >= 1.3*$SLOWQ) ? 0 : 1}" || { REVERR=$((REVERR+1)); echo "JOG-FAIL: REV accel avg < 1.3x slow quantum (가속 원문 부족 — r2)"; }
 awk "BEGIN{exit ((\"$ERRR\"+0) <= 0.3) ? 0 : 1}" || { REVERR=$((REVERR+1)); echo "JOG-FAIL: REV landing err=$ERRR > 0.3"; }
-awk "BEGIN{exit ($GLIDER+0 >= 2.45) ? 0 : 1}" || { REVERR=$((REVERR+1)); echo "JOG-FAIL: REV glide=$GLIDER < raw+0.1 (역방향 관성 동형 부족)"; }
+# r2 관성 원문 = burst 종료 이후 행의 무입력 T 감소(≥0.15 s·감소 ≥2)
+tail -n +"$((OFF_END2+1))" "$CLOG" | grep -a '^\[vpt13\]' > "$LOGDIR/${JOGRUN}_rev_glide.txt" || true
+GRISE2=$(awk '{if (match($0,/T=(-?[0-9.]+)/)) { t=substr($0,RSTART+2,RLENGTH-2); if (p!="" && p-t>=0.03) r++; p=t } } END{print r+0}' "$LOGDIR/${JOGRUN}_rev_glide.txt")
+GT2=$(awk '{if (match($0,/T=(-?[0-9.]+)/)) { t=substr($0,RSTART+2,RLENGTH-2); if (n==0||t<mint) mint=t; if (n==0||t>maxt) maxt=t; n++ } } END{print maxt-mint+0}' "$LOGDIR/${JOGRUN}_rev_glide.txt")
+echo "REV-GLIDE-VALS: span=$GT2 recedes=$GRISE2"
+awk "BEGIN{exit (($GT2+0 >= 0.15) && ($GRISE2+0 >= 2)) ? 0 : 1}" || { REVERR=$((REVERR+1)); echo "JOG-FAIL: REV zero-input glide=$GT2 recedes=$GRISE2 (역방향 관성 동형 부족 — r2)"; }
 
 echo "=== 11. MUTE leg — 재생 중 휠 세션 = 무음 스팬 (paused=true 원문+복원 원문)"
 for i in 1 2; do
@@ -465,8 +527,9 @@ LEFT=$(ps -eo args | grep -ic 'buildwsl/[j]kdesktop' || true)
 [ "$LEFT" -eq 0 ] || echo "WARN: $LEFT jkdesktop survived teardown (원장)"
 
 echo "=== verdict"
+echo "JOG-RUN-VALS-SLOW: run=$JOGRUN slow_seed=$SEEDS slow_landed=$LANDEDS slow_delta=$DELTS slow_raw=$RAWS slow_maxstep=$ANS_MAXDD slow_err=$ERRS slow_samples=$ANS_N glide_fwd_span=$GF_TSPAN rise=$GRISE glide_rev_span=$GT2 recede=$GRISE2"
 echo "JOG-RUN-VALS: run=$JOGRUN fwd_seed=$SEED fwd_Tspan=$AN_TSPAN fwd_maxdD=$AN_MAXDD fwd_T_end=$LATEST_T fwd_landed=$LANDED fwd_err=$ERRF fwd_glide=$GLIDEF fwd_samples=$AN_N rev_seed=$SEED2 rev_T_end=$T_END2 rev_landed=$LANDED2 rev_err=$ERRR rev_glide=$GLIDER rev_samples=$AN2_N mute_samples=$MIDSAMP mute_mid=$(pause_of "$STMID") mute_after=$(pause_of "$STAFTER") ping_ms=$PINGMS"
-TOTERR=$((FWDERR+REVERR+MUTEERR))
+TOTERR=$((FWDERR+REVERR+MUTEERR+SLOWERR))
 if [ "$TOTERR" -eq 0 ]; then
     echo "JOGRUN-VERDICT: JOG-OK(T=$JOGRUN) — 휠 연속 워크+관성 감쇠 FWD/REV 동형+무음 축 원문 성립 — 캐논 WSL $ST_PASS 등호 원문"
     echo "RESULT: ALL PASS"

@@ -3077,20 +3077,30 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
             jogMouseY_ += dy;
         }
 
-        // Mouse-wheel scrub (spec 1d, D5 as re-designed #100 T1): ticks over
-        // the knob still open the same jog session as a drag (auto-pause,
+        // Mouse-wheel scrub (spec 1d, D5 as re-designed #100 T1 + r2): ticks
+        // over the knob still open the same jog session as a drag (auto-pause,
         // silent decode skip, shared target via the pump below), and wheel-up
         // = forward (the drag's clockwise = +dθ convention) — but a tick is
-        // now a RATE, not a landing: the tick moves the target by its
-        // unchanged sPerRev/16 and is ALSO a sample of how fast the user is
-        // turning (see the wheelInertia_ block below — the session ends in
-        // that decay, not in a fixed idle timeout). While a drag is held the
-        // drag owns the finish: ticks still move the shared target (latest
-        // wins) but the rate samples stay with the wheel.
-        constexpr double kWQuiet = 0.120;     // last tick → inertia gate (s)
+        // now a RATE, not a landing, and the r2 tick scale is NON-LINEAR in
+        // the tick gap (user verdict 2026-10-17: "아직 프레임 단위가 아닌
+        // 시간 단위" — the uniform sPerRev/16 quantum (~7 frames/tick on a
+        // 30 s clip) never reached frame-level precision):
+        //   - a deliberate tick (gap ≥ kWQuiet, or the session's first tick)
+        //     = ONE 2-frame quantum (frame-level fine control), and
+        //   - a fast run accelerates quadratically up to kWFastTick
+        //     (0.25 s/tick at zero gap) so continuous scrolling keeps its
+        //     scan speed.
+        // The uniform sPerRev scale is GONE from the wheel leg (the drag
+        // keeps its dθ-per-pixel scale). The tick is ALSO a rate sample (the
+        // session ends in the wheelInertia_ decay below, not in a fixed idle
+        // timeout). While a drag is held the drag owns the finish: ticks
+        // still move the shared target (latest wins) but the rate samples
+        // stay with the wheel.
+        constexpr double kWQuiet = 0.120;     // slow-tick gap = inertia gate (s)
         constexpr double kWDecayHalf = 0.150; // inertia velocity half-life (s)
         constexpr double kWDecayCap = 0.5;    // extension ≤ |rate| × cap (s)
         constexpr double kWEma = 0.35;        // rate smoothing across ticks
+        constexpr double kWFastTick = 0.25;   // acceleration ceiling (s/tick)
         if (hot && io.MouseWheel != 0.0f) {
             if (!jogActive_ && !wheelScrubbing_) {
                 // Entry mirrors the drag start: auto-pause if playing, skip
@@ -3110,7 +3120,25 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
                 jogLastSeek_ = std::chrono::steady_clock::now();
                 WheelFlowReset(); // the rate estimate is per-session
             }
-            const double tickSec = (double)io.MouseWheel * sPerRev / 16.0;
+            // r2 tick scale: the gap since the previous tick event picks the
+            // quantum. gap < 0 (session's first tick) and a deliberate gap
+            // (≥ kWQuiet — the continuity is broken) land exactly ONE
+            // 2-frame step; inside a fast run the size accelerates with the
+            // square of the gap ratio, saturating at kWFastTick in the zero
+            // gap. Value-continuous at the kWQuiet gate; every intermediate
+            // gap is a legal size in between (no dead band, no cliff).
+            const auto tickNow = std::chrono::steady_clock::now();
+            const double tSec = std::chrono::duration<double>(
+                tickNow.time_since_epoch()).count();
+            const double gap = wheelTickN_ > 0 ? tSec - wheelTickT_[0] : -1.0;
+            const double slowTick = 2.0 / (fps > 0.0 ? fps : 30.0);
+            double tickSize = slowTick;
+            if (gap >= 0.0 && gap < kWQuiet) {
+                const double f = 1.0 - gap / kWQuiet; // 0 at the gate → 1 at zero gap
+                tickSize = slowTick + (kWFastTick - slowTick) * f * f;
+            }
+            wheelLastTickFast_ = gap >= 0.0 && gap < kWQuiet;
+            const double tickSec = (double)io.MouseWheel * tickSize;
             jogTarget_ = std::clamp(jogTarget_ + tickSec, 0.0, dur);
             // Tick-rate sample (#100 T1): the newest ticks first; one
             // MouseWheel event that carries several ticks is ONE sample
@@ -3120,9 +3148,6 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
             // discarded — the block below lets the quiet gap into its span,
             // so the next estimate honestly discounts the pre-gap rate).
             {
-                const auto tickNow = std::chrono::steady_clock::now();
-                const double tSec = std::chrono::duration<double>(
-                    tickNow.time_since_epoch()).count();
                 if (wheelInertia_) {
                     // The decay is interrupted: this tick resumes manual
                     // control. The sample window is KEPT — its span now
@@ -3255,21 +3280,26 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
             }
         }
 
-        // Wheel inertia (#100 T1): 120 ms of quiet after the LAST tick ends
-        // the manual phase — the target keeps extending at the estimated
-        // rate, decaying on a ~150 ms half-life measured from that last tick
-        // (the decay clock starts at the tick, so the gate only REVEALS the
-        // already-decaying glide), bounded by a total extension of
-        // |rate|×0.5 s. When the glide is done (rate below the stop
-        // threshold, budget spent, or the target pinned at a file bound)
-        // finishScrub is the single exit — the same snap/restore as a drag
-        // release. The session stays open the whole span: wheel sessions
-        // have no release event, and this block is their only finisher.
+        // Wheel inertia (#100 T1 + r2): a FAST-ended gesture (the last tick
+        // gap < kWQuiet) keeps the target extending 120 ms after that last
+        // tick at the estimated rate, decaying on a ~150 ms half-life
+        // measured from the tick (the decay clock starts at the tick, so the
+        // gate only REVEALS the already-decaying glide), bounded by a total
+        // extension of |rate|×0.5 s. When the glide is done (rate below the
+        // stop threshold, budget spent, or the target pinned at a file
+        // bound) finishScrub is the single exit — the same snap/restore as a
+        // drag release. r2 refinement: a session that ended on a SLOW (≥
+        // kWQuiet — deliberate) tick does NOT coast — a frame-level
+        // adjustment glide would move the dial right after the user aimed
+        // it, undoing the precision the whole r2 exists for; it releases on
+        // the legacy 400 ms idle contract instead. The session stays open
+        // the whole span either way: wheel sessions have no release event,
+        // and this block is their only finisher.
         if (wheelScrubbing_ && !jogActive_ && !io.MouseWheel) {
             if (!wheelInertia_) {
                 const double quiet = std::chrono::duration<double>(
                     std::chrono::steady_clock::now() - wheelLastTick_).count();
-                if (wheelVel_ != 0.0) {
+                if (wheelLastTickFast_ && wheelVel_ != 0.0) {
                     if (quiet >= kWQuiet) {
                         wheelInertia_ = true;
                         // Budget = the plan's extension cap — an unreachable
@@ -3282,10 +3312,10 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
                         wheelInertiaFrame_ = std::chrono::steady_clock::now();
                     }
                 } else if (quiet >= 0.400) {
-                    // No measurable rate (e.g. a lone tick — the estimate
-                    // needs ≥2 samples): the 400 ms idle release is exactly
-                    // the legacy shape, so a slow deliberate scroll keeps
-                    // ONE session instead of snapping after every tick.
+                    // A slow-ended gesture (or a lone tick whose rate the
+                    // estimate cannot see — it needs ≥2 samples): the 400 ms
+                    // idle release is exactly the legacy shape, so slow
+                    // deliberate ticking keeps ONE session.
                     finishScrub();
                     wheelScrubbing_ = false;
                 }
