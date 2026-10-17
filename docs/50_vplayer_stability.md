@@ -968,6 +968,21 @@ specs/2026-09-24-vplayer-smooth-scrub-design.md, 진행·태스크 리포트는
     뒤에 끼워넣기) ②일시정지 중 파일 오디오가 링을 가득 채워
     chainReq(체인 시크 요청)가 굶는 결함 → RingPush 술어 합류+cvRing
     — 체인 무음 소각.
+  - **수리 3(구조 확정 후 수형 — T1 fix r2 I-3, 장거 « receipt 원문)**:
+    보존된 장거 « 런(t1bfix1B_stream — f1ce98f)의 수취가 lo가 4.067로
+    고정된 채 D가 13.9→0.1로 40+행 하강(D<lo = 제공 상실)을 보여 리포트의
+    "매 스텝 D≥lo"와 자기모순 → **수형 전 재수취 런 수형**(수취 = engine/
+    tmp/t1b_fix2/fix2r0_pre_stderr.log): 패스가 링 앞 0.000까지 채운 직후
+    **lo 상승 행(0.000→4.067) 2회** = 회수 서명 — 진원 = **①seam 이후
+    워커가 링 뒤 위의 프레임을 계속 재독하여 추가하고(« 세션은 오디오
+    디코드를 스킵해 그 독을 펼칠 잠금이 없다) 그 추가의 TrimRing(앞 축출)이
+    다이얼 아래에 방금 놓인 프리필을 축출**(19.267 과계약 상태 = 표시보호
+    이월) → ②이후 chainTriedLo(정확-미이동 규칙)가 재충전을 봉쇄(receipt =
+    lo 4.067 고정 165행) — **수형: 무장 « 세션에서 TrimRing의 캡 압력을
+    뒤 축출(TrimRingBack)로 우회**(교체 대상 말단부 = 다이얼 뒤 재독·
+    앞 런웨이 절대·바이트 캡 무조건 원존) → 수형 후 종주 재실측 원문: lo 0.000 행
+    169건 고정·상승 행 0·**D<lo 행 = 0**(수취 = engine/tmp/t1b_fix2/
+    fix2_post_stderr.log).
   - **계약(패스)**: 첫 역방향 이벤트(«·첫 뒤 틱·뒤 스핀) = SetJogPrefill(true)
     ·앞 이벤트 = 즉시 해제 ·패스 1회 = min(링 앞−2s, 다이얼−10s) 시크 →
     순방향 디코딩 → seamGuard 2프레임은 폐기(B프레임 참조 해소)·나머지
@@ -997,6 +1012,20 @@ specs/2026-09-24-vplayer-smooth-scrub-design.md, 진행·태스크 리포트는
     2파일(t1_selftest_wsl3.txt·t1_r2_selftest_wsl.txt)+본 T2 런 3회가
     전부 668 등호·PASS 세트 diff=0 — probe가 PASSSET-DIFF 라인으로 자가
     실측) — 실질 소동 0.
+  - **pass 수치 계보 정정(T1 fix r2 M-B — T2 리뷰 I-2 표기)**: BWD SLOW의
+    프리필 히트 패스 인용 = 공식 2런 쌍 **pass=0.156s(b2)·0.119s(b3)**
+    (수취 = engine/tmp/t2jog101/b2_bwd_vptB.txt·b3_bwd_vptB.txt —
+    D=23.100·span=14.933 등호). docs 초판의 "0.137s"와 T2 리포트의
+    "0.144"는 **WSLENV JOG_RUN 함정으로 라벨 r1/r2로 겹쳐쓴 collided 계보
+    런들(r0_defect_runs/r1/r2 — 수취 = engine/tmp/t2jog101/r0_defect_runs/)
+    의 실원문 행** — 값 창작 0·런 성립만 분절 → 병기로 폐곡.
+  - **provenance 정산 행(T1 fix r2 M-A — T2 리뷰 M-1 수형)**: 본 T2 probe
+    b1/b2/b3 런이 소비한 바이너리 = **HEAD(18429c3) 순수 아님 — 워킹트리
+    기술(T1 fix r1 미커밋 « 재무장 라이브 행 포함)**; 그 라이브 행은
+    f1ce98f("« 세션 폴백 후 프리필 재무장")에 커밋 원문 동형 착지 → 재무장
+    라이브 행만 추가된 비커밋 혼입 소각 = **fix-r2 바이너리 대조 재런 1회
+    (JOG_RUN=fix2r1) 전원 ALL PASS·BWD SLOW/DEEP·FWD/REV/MUTE·ping 74ms
+    캐논 등호 원문**(수취 = engine/tmp/t2jog101/fix2r1_* 7종).
   - **EYES-PENDING 뒤로 조작 체감**(프레임 정밀·FWD 동일)=사용자 선언·
     프리필 깊이(kPrefillAheadSecs 10s)/디코드 정책=재량(플랜 게이트 #2
     — 기각 시 즉시 수리).
