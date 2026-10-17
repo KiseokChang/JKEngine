@@ -303,6 +303,36 @@ struct ClientVPlayerApp::PlayerCore {
     // exactly what this guard must block.)
     double chainTriedLo = -1;
 
+    // Backward prefill (#101 T1, plan 2026-10-12): while a reverse jog
+    // session is under way, the same chain-refill machinery above becomes a
+    // PROACTIVE backfill — the ring front is kept kPrefillAheadSecs BELOW the
+    // dial instead of the legacy 2 s panic lead, so a backward walk almost
+    // never outruns the ring into the keyframe-seek wedge (the user verdict
+    // "backward는 프레임 단위로 안되는 듯" = the on-demand refill meeting the
+    // dial at the front). Each fill is ONE chain landing (the demuxer lands
+    // deep below the front and decodes forward to the seam), so ~12 s arrive
+    // per pass instead of one 2 s notch.
+    //
+    // Decoder-context policy (the plan's measured decision, option b): the
+    // prefill reuses the SESSION's AVCodecContext on the video decode thread
+    // during its idle — the gate-hold of a near-due packet, or the park
+    // escape below (VideoLoop) when the queue is empty. A separate context
+    // (option a) would double decoder memory at 4K and duplicate
+    // open/flush/OOM lifecycle code for zero benefit: the pass's work IS a
+    // session-path-shaped seek+decode (same landing semantics), the ring
+    // stays a single writer, fmt stays worker-owned (the chain handshake
+    // already serializes it at the loop top), and during any armed prefill
+    // the transport is auto-PAUSED (a reverse session always pauses) — so
+    // idle-time reuse cannot starve playback or session UI.
+    //
+    // Depth is discretionary (plan user-gate 2 — adjust kPrefillAheadSecs on
+    // a verdict). prefillBack is m-protected, UI-armed per DIRECTION event
+    // (arm: « toggle-on / a backward tick / a backward drag; disarm: forward
+    // move, any seek, session end — SetJog(false) — and OpenPath, where a
+    // fresh core starts inert).
+    static constexpr double kPrefillAheadSecs = 10.0;
+    bool prefillBack = false;
+
     // Pixel buffer pool for decoded frames (NV12, or RGBA for odd dims;
     // video-thread-only state): see the VideoFrame comment. Slots whose
     // refcount dropped to 1 (only the pool holds them) are recycled; the
@@ -522,6 +552,11 @@ struct ClientVPlayerApp::PlayerCore {
         // display: JogFrame shows each decoded frame as decode creeps toward
         // the target, so the fallback is frame-smooth too, not a keyframe pop.
         if (scrub) jogTargetPts = t;
+        // Any seek (user precision, scrub fallback included) rebuilds the
+        // ring from a new demux position — a prefill aimed at the old front
+        // is meaningless the moment stage (a) clears it. The next backward
+        // input direction re-arms (UI side), including after the fallback.
+        prefillBack = false;
         // A fresh request supersedes a failed-seek notice, and the wall-clock
         // rebase below happens HERE (request time, UI thread) — so the
         // pre-seek values for the failed-seek restore must be captured now,
@@ -605,7 +640,18 @@ struct ClientVPlayerApp::PlayerCore {
             std::lock_guard<std::mutex> lk(m);
             jogTargetPts = -1; // stale gate input must not outlive the session
             chainTriedLo = -1; // the next session gets a fresh refill chance
+            prefillBack = false; // session exit stops the prefill (#101 T1)
         }
+    }
+
+    // Prefill arm/disarm (UI thread, #101 T1). Every direction change routes
+    // here (see the members docs): a backward move arms, a forward move or
+    // any seek disarms, and the pass machinery's per-packet aborts unwind an
+    // in-flight fill promptly. No side effects — the flag only widens the
+    // ScrubChainExtend window and deepens the next chain landing.
+    void SetJogPrefill(bool on) {
+        std::lock_guard<std::mutex> lk(m);
+        prefillBack = on;
     }
 
     // Three-stage seek (T2, spec D3). Runs on the worker; takes and releases
@@ -882,7 +928,20 @@ struct ClientVPlayerApp::PlayerCore {
         // invalidated), so the quiet failure costs nothing. Between the seek
         // and the flush below nobody decodes — the video thread is parked in
         // ScrubChainExtend's armed wait, and the worker is here.
-        double t = lo - kChainBackSecs;
+        // Landing depth (#101 T1): the legacy refill notches 2 s below the
+        // front and re-seeks per GOP; the prefill takes the DEEPER of the
+        // two bottoms — the 2 s floor (the pass always gains at least one
+        // notch) and "kPrefillAheadSecs below the dial" (the plan's depth
+        // target, which restores the runway back to exactly the window).
+        // Either way ONE forward decode reaches the seam, so the whole span
+        // the landing crossed arrives at the ring front in a single pass
+        // instead of one 2 s notch per request. All frames below the front
+        // that this decode passes are prepended; the seam guard at the old
+        // front is discarded.
+        double t = prefillBack
+                       ? std::min(lo - kChainBackSecs,
+                                  jogTargetPts - kPrefillAheadSecs)
+                       : lo - kChainBackSecs;
         if (t < 0) t = 0; // the front is already near the file start
         const int64_t ts = (int64_t)((t + ptsOrigin) / av_q2d(videoTb));
         lk.unlock();
@@ -990,8 +1049,15 @@ struct ClientVPlayerApp::PlayerCore {
                 return false;
             }
             lo = jogRing.front().pts;
+            // Trigger window (#101 T1): the legacy headway is 2 s (refill on
+            // demand, dial nearly at the front); armed with a reverse
+            // direction the prefill keeps the window at kPrefillAheadSecs —
+            // the chain refills while the runway below the dial is smaller
+            // than the depth target, so the walk meets a filled ring.
+            const double windowSecs = prefillBack ? kPrefillAheadSecs
+                                                  : kRefillAheadSecs;
             if (lo <= 0.05 ||                    // front at the file start (contract 6)
-                jogTargetPts - lo >= kRefillAheadSecs) { // forward decode owns the headway
+                jogTargetPts - lo >= windowSecs) { // forward decode owns the headway
                 av_frame_free(&work);
                 return false;
             }
@@ -1014,6 +1080,17 @@ struct ClientVPlayerApp::PlayerCore {
             // on a full queue must wake to consume the request.
             std::lock_guard<std::mutex> lk2(vPktM);
             vPktCv.notify_all();
+        }
+        {
+            // Same for a worker parked INSIDE an audio RingPush: the request
+            // only reaches the loop top that consumes it once the push's
+            // predicate (chainReq joined, #101 fix r1) re-evaluates — without
+            // this notify a paused file (ring full, device stopped) parks the
+            // worker below the loop top for the whole session and the chain
+            // request times out unheard. Lock order m -> ringM (documented);
+            // the predicate's on-entry re-check makes one notify enough.
+            std::lock_guard<std::mutex> lk2(ringM);
+            cvRing.notify_all();
         }
         bool armed = false, failed = false;
         {
@@ -1045,13 +1122,18 @@ struct ClientVPlayerApp::PlayerCore {
         // after it, so the decode must cross the seam for their references to
         // resolve (spec §3.1); they are not ring content.
         const double seamGuard = fps > 0.0 ? 2.0 / fps : 0.07;
+        const auto passStart = std::chrono::steady_clock::now();
         bool crossed = false;
+        // Frames this pass has placed between the old front and the new one
+        // (the insert boundary above rides this count).
+        size_t passFrontCount = 0;
         while (true) {
             {
                 std::lock_guard<std::mutex> lk(m);
-                if (stop || wantSeek || jogTargetPts < 0 ||
+                if (stop || wantSeek || jogTargetPts < 0 || !prefillBack ||
                     vSeekSeq.load(std::memory_order_relaxed) != gen)
-                    break; // superseded (contract 4): demuxer moved, drop in-hand
+                    break; // superseded, or the direction disarmed (#101 T1):
+                           // demuxer moved, drop in-hand (return true below)
             }
             AVPacket* p = ScrubPullPacket();
             if (!p) break; // starved/EOF park: quiet end, front keeps what landed
@@ -1062,28 +1144,67 @@ struct ClientVPlayerApp::PlayerCore {
             if (!ok) break; // codec rejected the packet — DecodeFail owns the streak
             {
                 std::lock_guard<std::mutex> lk(m);
-                if (stop || wantSeek || jogTargetPts < 0 ||
+                if (stop || wantSeek || jogTargetPts < 0 || !prefillBack ||
                     vSeekSeq.load(std::memory_order_relaxed) != gen)
                     break; // re-check AFTER decode: nothing stale may be pushed
+                // Collect THIS packet's below-front run and insert it just
+                // above the pass's already-placed prefix (deque front-insert
+                // order contract, #101 T1). The pass decodes FORWARD — pts
+                // ascending — and every new run must land BETWEEN the prefix
+                // the pass already placed and the ring's original front, so a
+                // plain push_front is wrong two ways: it would order the run
+                // DESCENDING (the front-insert order flip), and the very
+                // second frame trips the front probe on a front its own
+                // previous push just lowered — one frame per chain pass, the
+                // frame-sparse ring the reverse walk starves on (fix-r0 run 1
+                // [vptB] 원문: span 11.733 s at 0.9 MB). Insert at the prefix
+                // boundary instead; the byte/span caps still bind via
+                // TrimRingBack, and the front falls per PACKET (visible
+                // progress for the UI's stall detector).
+                std::deque<VideoFrame> pending;
                 for (VideoFrame& vf : ready) {
                     if (vf.pts >= lo + seamGuard) {
                         crossed = true; // seam reached — refill done
                         continue;       // the guard frame itself is discarded
                     }
                     if (vf.pts < lo) {
-                        // TrimRing may have slid the front up under us (cap
-                        // pressure): only prepend while genuinely below the
-                        // CURRENT front, else the ring's pts order breaks.
-                        if (jogRing.empty() || vf.pts < jogRing.front().pts)
-                            JogRingPushFrontLocked(std::move(vf));
-                        else
-                            crossed = true;
+                        pending.push_back(std::move(vf));
                     }
                     // pts in [lo, lo + seamGuard): decoded for the references,
                     // discarded — the ring already holds this span.
                 }
+                for (VideoFrame& vf : pending) {
+                    jogRing.insert(jogRing.begin() + passFrontCount,
+                                   std::move(vf));
+                    jogRingBytes += FrameBytes(jogRing[passFrontCount]);
+                    ++passFrontCount;
+                }
+                if (!pending.empty()) TrimRingBack();
             }
             if (crossed) break;
+        }
+        if (crossed) {
+            // Fill-rate evidence (#101 T1): one line per completed pass — a
+            // pass only completes when the front genuinely extended, so this
+            // is the prefill's PACE, not idle chatter. lo before/after would
+            // need a capture; the depth/span/MB at the end + the pass wall
+            // time are what the probe reads.
+            std::lock_guard<std::mutex> lk(m);
+            if (!jogRing.empty())
+                std::fprintf(stderr,
+                             "[vptB] prefill t=%.3f pass=%.3f lo=%.3f D=%.3f "
+                             "span=%.3f MB=%.1f\n",
+                             std::chrono::duration<double>(
+                                 std::chrono::steady_clock::now()
+                                     .time_since_epoch())
+                                 .count(),
+                             std::chrono::duration<double>(
+                                 std::chrono::steady_clock::now() - passStart)
+                                 .count(),
+                             jogRing.front().pts, jogTargetPts,
+                             jogRing.back().pts - jogRing.front().pts,
+                             (double)jogRingBytes / (1024.0 * 1024.0));
+            std::fflush(stderr);
         }
         av_frame_free(&work);
         return true; // the demuxer moved: the caller's in-hand packet is stale
@@ -1675,23 +1796,14 @@ struct ClientVPlayerApp::PlayerCore {
 
     // m held. Retain one decoded frame in the jog ring (append at the back,
     // the live-play direction) and trim the caps (time span, bytes).
+    // (#101 T1: the old prepend one-frame sink JogRingPushFrontLocked was
+    // absorbed by the chain pass's insert-at-prefix-boundary — a sequential
+    // push_front cannot hold an ASCENDING forward-decoded run.)
     void JogRingPushLocked(VideoFrame vf) {
         const size_t fb = FrameBytes(vf);
         jogRing.push_back(std::move(vf));
         jogRingBytes += fb;
         TrimRing();
-    }
-
-    // m held. Chain-refill sink: prepend a decoded frame from the GOP
-    // *before* the ring front (Task 3). Same caps, mirrored accounting, but
-    // the trim evicts from the BACK (TrimRingBack) — the prepend path must
-    // never consume the chain it is building, and the forward-push path's
-    // front-eviction display protection keeps its own semantics.
-    void JogRingPushFrontLocked(VideoFrame vf) {
-        const size_t fb = FrameBytes(vf);
-        jogRing.push_front(std::move(vf));
-        jogRingBytes += fb;
-        TrimRingBack();
     }
 
     // Returns false when decoding should stop (seek/stop requested).
@@ -1868,19 +1980,42 @@ struct ClientVPlayerApp::PlayerCore {
                 uint64_t mySeq = 0;
                 {
                     std::unique_lock<std::mutex> lk(vPktM);
-                    vPktCv.wait(lk, [&] { return stop || !vPktQ.empty(); });
+                    // Bounded park (prefill #101 T1): an empty-queue idle is
+                    // the prefill's engine seat. The chain refill used to
+                    // fire ONLY out of a gate-hold (a packet in hand held
+                    // near-due) — which never arrives while the queue is
+                    // empty, exactly a reverse walk that outran the ring
+                    // (e.g. the demuxer parked on EOF after re-reading the
+                    // drained span): the walk then waited out the whole
+                    // refill. The 50 ms escape keeps an idle park at ~20
+                    // wakeups/s that fall straight through unless the UI
+                    // armed the prefill.
+                    vPktCv.wait_for(lk, std::chrono::milliseconds(50),
+                                    [&] { return stop || !vPktQ.empty(); });
                     if (stop) break;
                     // Capture the seek generation BEFORE dequeuing: a packet
                     // taken from the queue before stage (a)'s drain must
                     // abort in the gate loop below even if the seek's
                     // wantSeek window was missed (see vSeekSeq). A stale
                     // read here can only cause one harmless dropped packet.
-                    mySeq = vSeekSeq.load(std::memory_order_relaxed);
-                    mine = vPktQ.front();
-                    vPktQ.pop_front();
-                    vPktQBytes -= (size_t)mine->size + sizeof(AVPacket);
+                    if (!vPktQ.empty()) {
+                        mySeq = vSeekSeq.load(std::memory_order_relaxed);
+                        mine = vPktQ.front();
+                        vPktQ.pop_front();
+                        vPktQBytes -= (size_t)mine->size + sizeof(AVPacket);
+                    }
                 }
                 vPktCv.notify_all(); // a freed slot may unpark the demuxer
+                if (!mine) {
+                    // Park-escape window spent on the prefill: runs OUTSIDE
+                    // the vPktM above (its handshake takes m; m -> vPktM is
+                    // the documented order, and the reverse nesting would
+                    // invert). True = the demuxer moved (the refill re-reads
+                    // its region) but there is no in-hand packet to drop.
+                    // Either way re-park above for the next window.
+                    ScrubChainExtend();
+                    continue;
+                }
                 // Clock gate: hold the packet until it is near-due. A seek
                 // aborts the hold — the held packet is pre-seek (stage (a)
                 // flushed the queue and the codec behind us), so it is
@@ -1971,12 +2106,24 @@ struct ClientVPlayerApp::PlayerCore {
     // takes and releases ringM around the notify; this waiter re-reads under
     // the ringM it just acquired — the same benign-by-construction shape the
     // `stop` read below always had.
+    // chainReq joins that set (#101 T1 fix r1): a paused file's audio ring
+    // fills to the cap with nothing draining it, so the WORKER sits parked
+    // HERE — below the loop top that owns chainReq — for as long as the
+    // session lasts. A chain request armed by ScrubChainExtend must reach the
+    // worker anyway (backward prefill is the whole point of #101), so the
+    // predicate exits on it and the arm notifies cvRing too (the on-entry
+    // re-check makes one notify enough — the flag stays set until the worker
+    // consumes it at its loop top). A return-by-chainReq drops this one audio
+    // packet's bytes: the demuxer is about to rewind to the chain landing and
+    // re-read everything from there; the session's exit is the precision seek
+    // that rebases both domains anyway.
     bool RingPush(uint64_t gen, const uint8_t* src, size_t bytes) {
         std::unique_lock<std::mutex> lk(ringM);
         cvRing.wait(lk, [&] {
-            return stop || wantSeek || seekGen != gen ||
+            return stop || wantSeek || seekGen != gen || chainReq ||
                    RingFreeLocked() >= bytes;
         });
+        if (stop || wantSeek || seekGen != gen || chainReq) return false;
         if (stop || wantSeek || seekGen != gen) return false;
         const size_t first = std::min(bytes, ringCap - ringW);
         std::memcpy(ring + ringW, src, first);
@@ -3011,6 +3158,10 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
                 if (!takeover) jogWasPlaying_ = !st.paused && !st.ended;
                 if (jogWasPlaying_ && st.paused == false) p->SetPaused(true);
                 p->SetJog(true);
+                // Prefill trigger (#101 T1): a "«" session walking backward —
+                // the walk starts from a (possibly shallow) ring, so the
+                // backfill arms immediately.
+                p->SetJogPrefill(true);
                 if (!takeover) { scrubClock_.Reset(st.pos); jogTarget_ = st.pos; }
                 else scrubClock_.SetTarget(jogTarget_);
                 jogLastSent_ = -1;
@@ -3072,6 +3223,10 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
                 const double dth = (double)(rx * dy - ry * dx) / (double)r2;
                 jogTarget_ = std::clamp(
                     jogTarget_ + dth * 0.15915494309 * sPerRev, 0.0, dur);
+                // Direction event (prefill trigger, #101 T1): a backward drag
+                // spin arms the backfill, a forward spin disarms — the
+                // per-packet aborts unwind a pass in flight promptly.
+                if (dth != 0.0) p->SetJogPrefill(dth < 0.0);
             }
             jogMouseX_ += dx;
             jogMouseY_ += dy;
@@ -3140,6 +3295,11 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
             wheelLastTickFast_ = gap >= 0.0 && gap < kWQuiet;
             const double tickSec = (double)io.MouseWheel * tickSize;
             jogTarget_ = std::clamp(jogTarget_ + tickSec, 0.0, dur);
+            // Direction event (prefill trigger, #101 T1): the first backward
+            // tick arms, a forward tick disarms (a wheel session can flip
+            // direction mid-stream — each tick is its own direction verdict).
+            if (tickSec > 0.0) p->SetJogPrefill(false);
+            else if (tickSec < 0.0) p->SetJogPrefill(true);
             // Tick-rate sample (#100 T1): the newest ticks first; one
             // MouseWheel event that carries several ticks is ONE sample
             // (merging beats sampling a ~0 real-time gap that would divide
