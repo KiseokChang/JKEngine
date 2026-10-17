@@ -62,6 +62,16 @@ T4 9889519까지 5커밋+본 T5 커밋·스펙 aab4f11 병기 — §1 표 = rev-
   2런 ALL PASS·무음 축 원문): 체인 = **fb38d79(플랜)..8d83027(T1)**+T2 커밋
   (주석 정정 8548dac·probe·docs — rev-parse 전체 SHA), 캐논 등호 승계
   Win 691/WSL 668/posix 304.
+- **부기(#101 백워드 조그 프리필 라인 — 하단 부기·변형 아님, 2026-10-17)** —
+  본 문서 신설 절 0건(라인 as-built = docs/50 말미 부기 bullet — 역방향
+  선디코드 프리필(세션 디코더 재용·접두 경계 삽입)+WSL probe
+  `engine/tools/probes/wsl_jog_flow.sh` BWD legs 2건 신설(BWD SLOW=
+  프리필 히트·BWD DEEP=크리프 클램프 — probe만 775f589 1커밋, 런 3회
+  ALL PASS)): 체인 = **f78a767(플랜)..18429c3(T1)**+본 T2 커밋(probe·docs
+  — rev-parse 전체 SHA), 캐논 등호 **Win 691/WSL 668/posix 304** — T1
+  리포트의 "WSL 671" 표기는 오표기 원장행(T1 캡처 2파일+본 T2 런 3회 전부
+  668 등호·PASS 세트 diff=0 — probe PASSSET-DIFF 자가 실측). probe 수취
+  단열 dir = engine/tmp/t2jog101(구 t2wheel 동명 겹침 사고 분리 봉합).
 
 ## §1. 배선 원장 (라인 전체 — rev-parse 전체 SHA 실측, T5 재측정)
 

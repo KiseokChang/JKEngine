@@ -950,3 +950,53 @@ specs/2026-09-24-vplayer-smooth-scrub-design.md, 진행·태스크 리포트는
   보존된 probebug 런 앞부분은 청정 park = PARK-TRY-1 paused=true
   pos=1.115) — probe 봉합(3회 재시도)+이후 2런 재발 0, probe/커밋/코드
   무영향.
+- **부기(#101 백워드 조그 프리필 — 하단 부기·변형 아님, 2026-10-17)** — 본
+  문서 12절 계보 뒤에 착지한 **역방향 선디코드 프리필** 라인(#101 — 플랜
+  `docs/superpowers/plans/2026-10-12-vplayer-backward-prefill.md`, SDD
+  원장 `.superpowers/sdd/2026-10-12-vplayer-backward-prefill/`):
+  - **진단 서사**: 사용자 실측 기각(2026-10-12 "backward는 프레임 단위로
+    안되는 듯 — 버퍼가 없나? 그때그때 디코딩하듯") — 진단 = 조그 링은
+    **전진 재생 수집**이 원리(16s/6GB)라 역방향 세션은 링 시작 이하를
+    그때그때 선디코드(체인 리필 2s 노치+250ms wedge 폴백)로 제공 — 체인이
+    다리를 맞추기 전까지 다이얼이 선디코드 지연을 노출한 게 사용자가 본
+    현상.
+  - **수리 2건(런 중 발견·폐곡)**: ①패스 삽입 위치 — 무차별 push_front는
+    패스의 순방향(오름차순) 실행을 내림차순으로 뒤집고 제2프레임부터
+    자기 프론트 스캔에 걸려 **패스당 1프레임**만 남는다(r0 런 [vptB]
+    span 11.733s=0.9MB 원문 — "그때그때 디코딩" 감각의 진원) → **접두
+    경계 삽입**(jogRing.begin()+passFrontCount — 패스가 이미 놓은 접두
+    뒤에 끼워넣기) ②일시정지 중 파일 오디오가 링을 가득 채워
+    chainReq(체인 시크 요청)가 굶는 결함 → RingPush 술어 합류+cvRing
+    — 체인 무음 소각.
+  - **계약(패스)**: 첫 역방향 이벤트(«·첫 뒤 틱·뒤 스핀) = SetJogPrefill(true)
+    ·앞 이벤트 = 즉시 해제 ·패스 1회 = min(링 앞−2s, 다이얼−10s) 시크 →
+    순방향 디코딩 → seamGuard 2프레임은 폐기(B프레임 참조 해소)·나머지
+    링 앞 삽입 ·링 16s/6GB 계약 소비+cancel-aware+세션 종료/시크/
+    OpenPath 즉시 정지 ·**프리필 밖 = 폴백 wedge graceful 원존**(250ms
+    스톨 Keyframe SeekScrub)·무음/관성/가속 계약(#100) 무변조 ·디코드
+    정책 = **세션 디코더 재용**(같은 vctx·빈 vPktQ 50ms 타임아웃이
+    park-escape) — 별도 AVCodecContext(4K 메모리 2배+라이프사이클
+    중복) 없음·역방향 세션은 항상 오토포즈라 재생 경로와 경쟁 0.
+  - **probe(T2)**: `engine/tools/probes/wsl_jog_flow.sh`에 BWD legs 2건
+    신설 — **BWD SLOW**(느린 뒤 틱 2개·이격 200ms: [vptB] 패스 1행
+    (pass=0.137s·span=14.933s·lo 8.333 — dial−10이 스파스 키에프레임 0
+    에 착지해 [0..링] 전체를 채웠다 — T1 리뷰 "리드 증폭" 원장행 실측)+
+    착지 err 0.008(2틱 raw 0.133 — FWD SLOW 동형 게이트 0.06·기대
+    ≤0.02 근처 실측)+틱당 2프레임 maxstep 등호)+**BWD DEEP**(프리필 밖
+    크리프: 링 시작 이하를 클램프까지 걷기 — D가 lo=0.000 행들 속에서
+    0.000까지 graceful 하강·클램프 착지 d=0.000·폴백 wedge 서명
+    (lo=-1.000 재건 행)=0 — 합성 클립(-g 30)은 프리필이 전 구간을
+    제공해 wedge 불요 = 자극 부족 원장(docs/50 §12.5 #1 직감 계보)·
+    FWD/REV/SLOW/MUTE 회귀 원존) — 2런(b2/b3) 전원 ALL PASS·러-val
+    등호(BWD seed/landed/vptB/span 전부 등호)·WSL selftest 668.
+    수취 단열 = engine/tmp/t2jog101(구 t2wheel 동명 겹침 사고: 본 T2
+    탐색 런이 #100-era r1/r2 사본을 겹쳐썼다 — 원진 원문=본 리포트+
+    wsl_jog_run*.log 생존 — 분리 봉합).
+  - **WSL selftest 라벨 정정 원장행**: 캐논 등호 = **Win 691/WSL
+    668/posix 304** — T1 리포트의 "WSL 671" 표기는 오표기(T1 자체 캡처
+    2파일(t1_selftest_wsl3.txt·t1_r2_selftest_wsl.txt)+본 T2 런 3회가
+    전부 668 등호·PASS 세트 diff=0 — probe가 PASSSET-DIFF 라인으로 자가
+    실측) — 실질 소동 0.
+  - **EYES-PENDING 뒤로 조작 체감**(프레임 정밀·FWD 동일)=사용자 선언·
+    프리필 깊이(kPrefillAheadSecs 10s)/디코드 정책=재량(플랜 게이트 #2
+    — 기각 시 즉시 수리).
