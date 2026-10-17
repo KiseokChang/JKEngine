@@ -305,7 +305,7 @@ sleep 3   # 클라 초기 렌더 + 상태 안정화
 # ---------------------------------------------------------------- 접착제 원문 헬퍼
 ctl() { timeout 15 ./buildwsl/jkdesktop agentctl "$1" 2>/dev/null | grep -a '{' | head -1; }
 ok()  { printf '%s' "${1:-}" | grep -aq '"ok":true'; }
-FWDERR=0; REVERR=0; MUTEERR=0; SLOWERR=0; BWDERR=0
+FWDERR=0; REVERR=0; MUTEERR=0; SLOWERR=0; BWDERR=0; DSWERR=0; SEEDERR=0
 CHK() { # $1=tag $2=결과(0/1) — 흐름 수치 판정(honest-fail — 카운터만)
     if [ "$2" -eq 0 ]; then echo "PASS: $1"; else echo "FAIL: $1 -- ${3:-}"; fi
 }
@@ -646,6 +646,146 @@ DPC=$(awk "BEGIN{d=$P2C-$P1C; if(d<0)d=-d; printf \"%.3f\", d}")
 echo "CLAMP-STATIC: $P1C -> $P2C (d=$DPC)"
 awk "BEGIN{exit ($DPC <= 0.02) ? 0 : 1}" || { BWDERR=$((BWDERR+1)); echo "JOG-FAIL: CLAMP pos static — d=$DPC > 0.02"; }
 
+echo "=== 9e. DIRSWITCH leg — 전환 틱 즉시 양자+관성 소멸 (#102 fix 1, spike b1/b2/c 계보)"
+# spike(jog-dirswitch-spike-report, HEAD 093170f)의 (c) 후보 = 등급 A 진원:
+# 방향 전환 틱이 구 방향의 휠 흐름 상태(EMA 창·wheelVel_·관성)에 잠식 —
+# b1: 전환 틱 뒤 glide 재올림으로 net +0.043(그림 변화 0·+941ms)·b2: 300ms
+# gap 내 +0.124 표류·c1/c2: 첫 전환 틱 반양자. 수형(#102 fix 1) = 전환 틱의
+# 도착 순간 구 방향 휠 흐름 전량 폐기(WheelFlowReset 확장 — 접붙임 사이트 =
+# 방향 이벤트 다음) → 전환 틱 = 새 방향의 첫 양자 그대로 착탈.
+# 본 leg: 3 fast FWD 틱 → 1 전환(−)틱 → 무입력 정지 — 판정: ①전환 틱의
+# T 하강 = 깨끗한 양자(≤3프레임) ②전환 뒤 T 상승 행 0(구 방향 glide 재올림
+# 소멸 = b1 서명 폐곡) ③스냅 착지·parked·정지.
+ctl '{"tool":"app_tool","args":{"app":"vplayer","tool":"seek","args":{"seconds":15}}}' >/dev/null
+sleep 1
+SEEDW=$(p_of "$(status)")
+echo "DIRSW-SEED: $SEEDW"
+knobclick || FAIL "knob click failed (dirswitch leg)"
+sleep 1
+OFFW=$(wc -l < "$CLOG")
+DSFWD=0; DSREV=0
+for i in 1 2 3; do
+    wheel 1 || { DSFWD=$((DSFWD+1)); continue; }
+    sleep 0.025   # fast run — 구 방향 세션 살아있음(b1의 전제)
+done
+sleep 0.11   # 전환 틱 — b1의 gap(~110ms) 수형(스위치 = 빠른 run 끝에서 역방향 1틱)
+wheel -1 || { DSREV=$((DSREV+1)); }
+echo "DIRSW-WHEEL: 3 fwd + 1 rev, fwd-failed=$DSFWD rev-failed=$DSREV"
+[ "$DSFWD" -eq 0 ] && [ "$DSREV" -eq 0 ] || FAIL "DIRSW wheel send gate failed — permissions.json send_input allow 확인"
+# 전환 후 무입력 — r2 release 게이트(전환 틱 = deliberate → 400ms quiet release,
+# glide 무기 — WheelFlowReset이 wheelLastTickFast_/vel 소거) → 스냅 정산.
+sleep 2.2
+vpt13_dump "$OFFW" "$LOGDIR/${JOGRUN}_dirsw_stream.txt"
+ST=$(status)
+LANDEDW=$(p_of "$ST")
+PAUSEDW=$(pause_of "$ST")
+echo "DIRSW-SNAP: landed=$LANDEDW paused=$PAUSEDW"
+# 전환 틱 행의 자동 판독: T의 **첫 감소 행** = 전환 틱의 착탈; 그 앞 마지막 상승 행
+# 과의 델타 = 전환 양자; 감소 행 이후의 T 상승(>0.02) = 구 방향 glide 잔유(위반).
+ANW=$(vpt13_analyze "$LOGDIR/${JOGRUN}_dirsw_stream.txt" 1)
+read -r ANW_N ANW_MAXDD ANW_TSPAN ANW_BADWAY <<EOF
+$ANW
+EOF
+DSDELTA=$(awk '
+    { if (match($0,/T=(-?[0-9.]+)/)) { t=substr($0,RSTART+2,RLENGTH-2)+0
+        if (seen && t < p - 0.01 && !firstdrop) { firstdrop=1; dd=p - t }
+        if (seen && firstdrop && t > p + 0.02 && !risen) { risen=1; rrow=NR }
+        p=t; seen=1 } }
+    END { printf "%.3f %d %d\n", dd+0, (risen+0), rrow+0 }' "$LOGDIR/${JOGRUN}_dirsw_stream.txt")
+read -r DS_DD DS_RISE DS_RROW <<EOF
+$DSDELTA
+EOF
+QLIM=$(awk "BEGIN{printf \"%.3f\", 3.2*$SLOWQ}")   # ≤3.2프레임(전환 틱 상한 — 슬랙 포함)
+echo "DIRSW-VALS: seed=$SEEDW samples=$ANW_N switch_quantum=$DS_DD (bound qlim=$QLIM) post_rise_rows=$DS_RISE landing=$LANDEDW"
+[ "${ANW_N:-0}" -ge 4 ] || { DSWERR=$((DSWERR+1)); echo "JOG-FAIL: DIRSW samples=$ANW_N < 4"; }
+[ "$DS_DD" != "" ] && [ "$(awk "BEGIN{print ($DS_DD+0 > 0.005 && $DS_DD+0 <= $QLIM) ? 1 : 0}")" = "1" ] \
+    || { DSWERR=$((DSWERR+1)); echo "JOG-FAIL: DIRSW switch quantum=$DS_DD ∈ (0, $QLIM] 대결 실패 (전환 틱 응답 원문 부족)"; }
+[ "${DS_RISE:-99}" -eq 0 ] \
+    || { DSWERR=$((DSWERR+1)); echo "JOG-FAIL: DIRSW post-switch T rise row $DS_RROW (구 방향 관성 잔유 — b1 서명 재발)"; }
+DS_TLAST=$(sed -n 's/.*T=\(-\?[0-9.]*\).*/\1/p' "$LOGDIR/${JOGRUN}_dirsw_stream.txt" | tail -1)
+ERRW=$(awk "BEGIN{e=$LANDEDW-$DS_TLAST; if(e<0)e=-e; printf \"%.3f\", e}")
+ERRW=$(awk "BEGIN{e=$LANDEDW-$DS_TLAST; if(e<0)e=-e; printf \"%.3f\", e}")
+echo "DIRSW-ERR: |landed $LANDEDW - T_end $DS_TLAST| = $ERRW"
+[ "$(awk "BEGIN{print ((\"$ERRW\"+0) <= 0.3) ? 1 : 0}")" = "1" ] \
+    || { DSWERR=$((DSWERR+1)); echo "JOG-FAIL: DIRSW landing err=$ERRW > 0.3"; }
+[ "$PAUSEDW" = "true" ] || { DSWERR=$((DSWERR+1)); echo "JOG-FAIL: DIRSW parked after snap — paused=$PAUSEDW"; }
+
+echo "=== 9f. SEED leg — 세션 시드 = 표시 프레임 (진실원) (#102 fix 2, spike a1/a2)"
+# spike 후보 (D) 등급 A: 진입 시드 st.pos = 오디오 클럭 = 그림보다 6-8프레임
+# 앞(재생 중) → 역방향 진입 첫 틱의 그림이 전진 +8프레임 출렁(a2 원문).
+# 수형 = 시드 = lastShownPts_(실제 올라간 마지막 표시 프레임 pts)·클럭 폴백.
+# 진실원 증거 행 [vptSEED](pos/shown/seed)의 판정:
+#  - 재생 중 진입: shown < pos − 0.04 (클럭이 표시를 리드 — 시드가 그림에 뿌리
+#    내림 = **수형 서명·수형 전에는 pos−seed ≈ 0**)
+#  - 일시정지 진입: |pos − seed| ≤ 0.1 (핀 착지 표시의 양자화 — 동일 기저)
+# 오디오 클럭의 다른 표기(get_status pos·시간줄) = 원존(변경 없음 — 원장행).
+ctl '{"tool":"app_tool","args":{"app":"vplayer","tool":"seek","args":{"seconds":24}}}' >/dev/null
+sleep 1
+UNPAUSEA=0
+for i in 1 2 3; do
+    PR=$(ctl '{"tool":"app_tool","args":{"app":"vplayer","tool":"play_pause","args":{}}}')
+    sleep 1
+    ST=$(status)
+    [ "$(pause_of "$ST")" = "false" ] && { UNPAUSEA=1; break; }
+done
+[ "$UNPAUSEA" -eq 1 ] || FAIL "SEED leg unpause failed (paused=$(pause_of "$ST"))"
+sleep 0.5                   # 재생 — 그림/클럭 리드(gap) 확보
+SEEDPLAY=$(p_of "$(status)")
+knobclick || FAIL "knob click failed (seed leg, playing entry)"
+sleep 1.1                   # degenerate 드래그 release(무해 스냅) — 시드 시크 정산
+# release는 jogWasPlaying_ 복원계약으로 **재생 재개** — 그 뒤 get_status의 pos =
+# 재개된 오디오 클럭이 아니라 클럭이 흐르는 값(착지 판독 불가) → 즉시 park 토글로
+# 클럭을 핀에 두고 착지를 판독한다(스냅 착지만큼만).
+ST=$(status)
+resumed=$(pause_of "$ST")
+SLT0=$(date +%s%N)
+ctl '{"tool":"app_tool","args":{"app":"vplayer","tool":"play_pause","args":{}}}' >/dev/null
+SLT0=$(date +%s%N)
+sleep 1
+ST=$(status)
+SLT1=$(date +%s%N)
+SEEDLANDED=$(p_of "$ST")
+RELMS=$(( (SLT1 - SLT0 - 0) / 1000000 ))
+echo "SEED-PLAY-RESUME: paused_after_release=$resumed (release 후 재개) → park pinned landed=$SEEDLANDED (park 시점 ≈ release+${RELMS}ms)"
+LASTSEEDP=$(tail -n +1 "$CLOG" | grep -a 'entry=drag' | tail -1)
+echo "SEED-PLAY-ROW: $LASTSEEDP (재생 중 진입 — 진실원 서명)"
+SPPOSS=$(printf '%s' "$LASTSEEDP" | sed -n 's/.*pos=\([0-9.]*\).*/\1/p')
+SPSHOWN=$(printf '%s' "$LASTSEEDP" | sed -n 's/.*shown=\([0-9.]*\).*/\1/p')
+SPSEED=$(printf '%s' "$LASTSEEDP" | sed -n 's/.*seed=\([0-9.]*\).*/\1/p')
+GAPPLAY=$(awk "BEGIN{g=$SPPOSS-$SPSHOWN; printf \"%.3f\", g}")
+echo "SEED-PLAY-VALS: pos=$SPPOSS shown=$SPSHOWN seed=$SPSEED gap(pos-shown)=$GAPPLAY pre_entry_pos=$SEEDPLAY"
+[ "$(awk "BEGIN{print ($GAPPLAY+0 >= 0.04) ? 1 : 0}")" = "1" ] \
+    || { SEEDERR=$((SEEDERR+1)); echo "JOG-FAIL: SEED play-entry gap(pos-shown)=$GAPPLAY < 0.04 (재생 그림 리드 미실측 — 시드 진실원 계보 부족)"; }
+awk "BEGIN{exit (($SPSEED+0 <= $SPPOSS+0) && ($SPSEED+0 >= $SPPOSS+0 - $GAPPLAY - 0.01)) ? 0 : 1}" \
+    || { SEEDERR=$((SEEDERR+1)); echo "JOG-FAIL: SEED play-entry seed=$SPSEED ∉ [shown,pos] (시드가 표시 프레임에 뿌리내리지 않음)"; }
+# 착지 판독 = **재개 클럭의 성장**이다: release의 시크 핀 = seed(무모션 진입의
+# 표시 시드) → 재개 후 park의 핀 = seed + (release→park 사이의 실시간) —
+# 판정 = 성장량이 실시간 창(0.6-1.6s — 재개가 시드에서 실시간으로 이어짐을
+# 검증; 스톨/점프 0) 안에 드는 것.
+SLANDED=$(awk "BEGIN{d=$SEEDLANDED-$SPSEED; if(d<0)d=-d; printf \"%.3f\", d}")
+echo "SEED-PLAY-SNAP: growth(landed-seed)=$SLANDED (resume-from-seed-dial — 실시간 창 0.6-1.6s)"
+awk "BEGIN{exit ($SLANDED+0 >= 0.60 && $SLANDED+0 <= 1.60) ? 0 : 1}" \
+    || { SEEDERR=$((SEEDERR+1)); echo "JOG-FAIL: SEED play-entry resume growth=$SLANDED ∉ [0.6,1.6] (재개가 시드 다이얼에서 표류/습니다)"; }
+# 일시정지 진입 대조: park → knobclick → |pos-seed| ≤ 0.1
+PARKS=0
+for i in 1 2 3; do
+    PR=$(ctl '{"tool":"app_tool","args":{"app":"vplayer","tool":"play_pause","args":{}}}')
+    sleep 1
+    ST=$(status)
+    [ "$(pause_of "$ST")" = "true" ] && { PARKS=1; break; }
+done
+[ "$PARKS" -eq 1 ] || FAIL "SEED leg pre-park failed (paused=$(pause_of "$ST"))"
+knobclick || FAIL "knob click failed (seed leg, paused entry)"
+sleep 1.1
+LASTSEEDQ=$(tail -n +1 "$CLOG" | grep -a 'entry=drag' | tail -1)
+echo "SEED-PARK-ROW: $LASTSEEDQ (일시정지 진입 대조)"
+QPPOSS=$(printf '%s' "$LASTSEEDQ" | sed -n 's/.*pos=\([0-9.]*\).*/\1/p')
+QPSEED=$(printf '%s' "$LASTSEEDQ" | sed -n 's/.*seed=\([0-9.]*\).*/\1/p')
+QGAP=$(awk "BEGIN{d=$QPPOSS-$QPSEED; if(d<0)d=-d; printf \"%.3f\", d}")
+echo "SEED-PARK-VALS: pos=$QPPOSS seed=$QPSEED |pos-seed|=$QGAP"
+[ "$(awk "BEGIN{print ($QGAP+0 <= 0.1) ? 1 : 0}")" = "1" ] \
+    || { SEEDERR=$((SEEDERR+1)); echo "JOG-FAIL: SEED paused-entry |pos-seed|=$QGAP > 0.1 (일시정지 기저 분절)"; }
+
 echo "=== 10. REV leg — seek 15 → burst -10틱 → 동형 판정 (dir만)"
 ctl '{"tool":"app_tool","args":{"app":"vplayer","tool":"seek","args":{"seconds":15}}}' >/dev/null
 sleep 1
@@ -733,7 +873,8 @@ ok "$P" || { MUTEERR=$((MUTEERR+1)); echo "JOG-FAIL: ping ok 미성립 — $P"; 
 
 echo "=== 13. teardown (클라+서버 회수 — [vpt13] 스트림 원문 단열 cp)"
 mkdir -p "$RECEIVE"
-cp "$LOGDIR/${JOGRUN}_fwd_stream.txt" "$LOGDIR/${JOGRUN}_rev_stream.txt" "$LOGDIR/${JOGRUN}_mute_stream.txt" "$LOGDIR/${JOGRUN}_bwd_stream.txt" "$LOGDIR/${JOGRUN}_bwd_vptB.txt" "$LOGDIR/${JOGRUN}_bwdclamp_stream.txt" "$LOGDIR/${JOGRUN}_bwdclamp_vptB.txt" "$RECEIVE/" 2>/dev/null
+tail -n +1 "$CLOG" | grep -a '\[vptSEED\]' > "$LOGDIR/${JOGRUN}_seed_rows.txt" || true
+cp "$LOGDIR/${JOGRUN}_fwd_stream.txt" "$LOGDIR/${JOGRUN}_rev_stream.txt" "$LOGDIR/${JOGRUN}_mute_stream.txt" "$LOGDIR/${JOGRUN}_bwd_stream.txt" "$LOGDIR/${JOGRUN}_bwd_vptB.txt" "$LOGDIR/${JOGRUN}_bwdclamp_stream.txt" "$LOGDIR/${JOGRUN}_bwdclamp_vptB.txt" "$LOGDIR/${JOGRUN}_dirsw_stream.txt" "$LOGDIR/${JOGRUN}_seed_rows.txt" "$RECEIVE/" 2>/dev/null
 cp "$CLOG" "$RECEIVE/${JOGRUN}_client_stderr_full.txt" 2>/dev/null
 cp "$LOGDIR/jog_st_$JOGRUN.log" "$RECEIVE/${JOGRUN}_selftest.log" 2>/dev/null
 echo "RECEIVED: $(ls "$RECEIVE" | tr '\n' ' ')"
@@ -751,9 +892,10 @@ echo "=== verdict"
 echo "JOG-RUN-VALS-SLOW: run=$JOGRUN slow_seed=$SEEDS slow_landed=$LANDEDS slow_delta=$DELTS slow_raw=$RAWS slow_maxstep=$ANS_MAXDD slow_err=$ERRS slow_samples=$ANS_N glide_fwd_span=$GF_TSPAN rise=$GRISE glide_rev_span=$GT2 recede=$GRISE2"
 echo "JOG-RUN-VALS-BWD: run=$JOGRUN bwd_seed=$SEEDB bwd_landed=$LANDEDB bwd_delta=$DELTB bwd_raw=$RAWB bwd_err=$ERRB bwd_step=$ANB_MAXDD bwd_lo_min=$LOMIN bwd_vptB=$NRB bwd_span=$SPANB bwd_samples=$ANB_N clamp_seed=$SEEDD clamp_landed=$LANDEDD clamp_tspan=$AND_TSPAN clamp_lo0=$SIG0 clamp_lom1=$SIGN1 clamp_dmin=$DMINB clamp_samples=$AND_N"
 echo "JOG-RUN-VALS: run=$JOGRUN fwd_seed=$SEED fwd_Tspan=$AN_TSPAN fwd_maxdD=$AN_MAXDD fwd_T_end=$LATEST_T fwd_landed=$LANDED fwd_err=$ERRF fwd_glide=$GLIDEF fwd_samples=$AN_N rev_seed=$SEED2 rev_T_end=$T_END2 rev_landed=$LANDED2 rev_err=$ERRR rev_glide=$GLIDER rev_samples=$AN2_N mute_samples=$MIDSAMP mute_mid=$(pause_of "$STMID") mute_after=$(pause_of "$STAFTER") ping_ms=$PINGMS"
-TOTERR=$((FWDERR+REVERR+MUTEERR+SLOWERR+BWDERR))
+TOTERR=$((FWDERR+REVERR+MUTEERR+SLOWERR+BWDERR+DSWERR+SEEDERR))
+echo "JOG-RUN-VALS-DIRSW: run=$JOGRUN dirsw_seed=$SEEDW dirsw_samples=$ANW_N switch_quantum=$DS_DD post_rise_rows=$DS_RISE dirsw_landed=$LANDEDW dirsw_Tend=$DS_TLAST dirsw_err=$ERRW seed_play_gap=$GAPPLAY seed_play=$SPSEED seed_park_gap=$QGAP seed_park=$QPSEED"
 if [ "$TOTERR" -eq 0 ]; then
-    echo "JOGRUN-VERDICT: JOG-OK(T=$JOGRUN) — 휠 연속 워크+관성 감쇠 FWD/REV 동형+BWD 프리필 히트/크리프 graceful+무음 축 원문 성립 — 캐논 WSL $ST_PASS 등호 원문"
+    echo "JOGRUN-VERDICT: JOG-OK(T=$JOGRUN) — 휠 연속 워크+관성 감쇠 FWD/REV 동형+BWD 프리필 히트/크리프 graceful+DIRSW 전환 즉시 양자/관성 소멸+SEED 표시 진실원+무음 축 원문 성립 — 캐논 WSL $ST_PASS 등호 원문"
     echo "RESULT: ALL PASS"
 else
     echo "JOGRUN-VERDICT: JOG-FAIL(T=$JOGRUN) — 흐름 수치 결함 $TOTERR건 — 리포트 원장(honest-fail — rc=0)"

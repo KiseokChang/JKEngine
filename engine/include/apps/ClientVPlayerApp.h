@@ -109,6 +109,13 @@ private:
     // Jog dial (translucent rotary scrub overlay on the video). Screen-space
     // floats keep this header ImGui-free; the knob center and last mouse pos
     // only matter while a drag is active.
+    // Display truth for the dial domain (#102 fix 2): the pts of the LAST
+    // frame SyncVideoTexture actually uploaded (session ring-hit or playback
+    // pop alike). During playback the audio clock rides ahead of the picture
+    // by the measured pipeline depth (6-8 frames — jog-dirswitch-spike
+    // D), so every jog session's entry seeds from THIS, not from st.pos; the
+    // audio clock keeps owning playback and the status row (원존).
+    double lastShownPts_ = -1.0;
     bool jogActive_ = false;
     bool jogWasPlaying_ = false;
     double jogTarget_ = 0;      // scrub target while dragging (UI time)
@@ -165,7 +172,10 @@ private:
     std::chrono::steady_clock::time_point wheelInertiaFrame_{};
 
     // Every wheel-session entry and every takeover/cut of one starts the
-    // rate estimate over (stale samples span unrelated idle gaps).
+    // rate estimate over (stale samples span unrelated idle gaps). #102 fix
+    // 1 grows this to the DIRECTION-SWITCH site: an opposite-direction tick
+    // discards the old direction's whole flow state with it (the measured
+    // switch tick was being swallowed by the old direction's inertia).
     void WheelFlowReset() {
         wheelVel_ = 0.0;
         wheelInertia_ = false;

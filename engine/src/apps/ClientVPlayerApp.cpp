@@ -2902,6 +2902,10 @@ void ClientVPlayerApp::SyncVideoTexture(SDL_Renderer* renderer) {
                                         vf.pix->data(), vf.w * 4);
         if (upRet != 0) return;
         hasFrame_ = true;
+        // Display truth (#102 fix 2): remember WHICH frame the dial domain's
+        // picture currently is — the session-entry seed reads this instead of
+        // the audio clock (the header note carries the why).
+        lastShownPts_ = vf.pts;
         // Render-rate window (see header comment).
         const double now = SDL_GetTicks() / 1000.0;
         if (renderHz_ == 0 || now - renderWindowStart_ >= 1.0) {
@@ -3187,8 +3191,26 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
                 // the walk starts from a (possibly shallow) ring, so the
                 // backfill arms immediately.
                 p->SetJogPrefill(true);
-                if (!takeover) { scrubClock_.Reset(st.pos); jogTarget_ = st.pos; }
-                else scrubClock_.SetTarget(jogTarget_);
+                if (!takeover) {
+                    // Session-entry seed (#102 fix 2): the dial originates at
+                    // the frame the user is LOOKING at (the display truth),
+                    // not the audio clock — during playback the clock rides a
+                    // measured 6-8 frames ahead of the picture and a reverse
+                    // entry's first tick wobbled the picture FORWARD
+                    // (spike a2). A paused entry's shown frame = the pinned
+                    // landing (quantized, the same base); no display yet =
+                    // the clock fallback.
+                    const double seedPts =
+                        (hasFrame_ && lastShownPts_ >= 0.0)
+                            ? lastShownPts_ : st.pos;
+                    scrubClock_.Reset(seedPts); jogTarget_ = seedPts;
+                    // Session-entry evidence row (#102 fix 2, the [vptB]
+                    // idiom): the entry's clock value vs the seeded dial —
+                    // the probe's a2 gate reads WHICH truth owns the seed.
+                    std::fprintf(stderr, "[vptSEED] entry=rev pos=%.3f shown=%.3f seed=%.3f\n",
+                                 st.pos, lastShownPts_, seedPts);
+                    std::fflush(stderr);
+                } else scrubClock_.SetTarget(jogTarget_);
                 jogLastSent_ = -1;
                 jogLastSeek_ = std::chrono::steady_clock::now();
             }
@@ -3222,8 +3244,16 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
             if (!takeover) jogWasPlaying_ = !st.paused && !st.ended;
             if (jogWasPlaying_ && st.paused == false) p->SetPaused(true);
             p->SetJog(true);
-            if (!takeover) { scrubClock_.Reset(st.pos); jogTarget_ = st.pos; }
-            else scrubClock_.SetTarget(jogTarget_);
+            if (!takeover) {
+                // Session-entry seed (#102 fix 2): display truth — the same
+                // rule as the « toggle-on's entry (the header note).
+                const double seedPts =
+                    (hasFrame_ && lastShownPts_ >= 0.0) ? lastShownPts_ : st.pos;
+                scrubClock_.Reset(seedPts); jogTarget_ = seedPts;
+                std::fprintf(stderr, "[vptSEED] entry=drag pos=%.3f shown=%.3f seed=%.3f\n",
+                             st.pos, lastShownPts_, seedPts);
+                std::fflush(stderr);
+            } else scrubClock_.SetTarget(jogTarget_);
             jogLastSent_ = -1;
             knobCX_ = c.x; knobCY_ = c.y;
             jogMouseX_ = io.MousePos.x; jogMouseY_ = io.MousePos.y;
@@ -3294,8 +3324,17 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
                 if (!takeover) jogWasPlaying_ = !st.paused && !st.ended;
                 if (jogWasPlaying_ && st.paused == false) p->SetPaused(true);
                 p->SetJog(true);
-                if (!takeover) { scrubClock_.Reset(st.pos); jogTarget_ = st.pos; }
-                else scrubClock_.SetTarget(jogTarget_);
+                if (!takeover) {
+                    // Session-entry seed (#102 fix 2): display truth — the
+                    // same rule as the « toggle-on's entry (the header note).
+                    const double seedPts =
+                        (hasFrame_ && lastShownPts_ >= 0.0)
+                            ? lastShownPts_ : st.pos;
+                    scrubClock_.Reset(seedPts); jogTarget_ = seedPts;
+                    std::fprintf(stderr, "[vptSEED] entry=wheel pos=%.3f shown=%.3f seed=%.3f\n",
+                                 st.pos, lastShownPts_, seedPts);
+                    std::fflush(stderr);
+                } else scrubClock_.SetTarget(jogTarget_);
                 jogLastSent_ = -1;
                 jogLastSeek_ = std::chrono::steady_clock::now();
                 WheelFlowReset(); // the rate estimate is per-session
@@ -3325,6 +3364,26 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
             // direction mid-stream — each tick is its own direction verdict).
             if (tickSec > 0.0) p->SetJogPrefill(false);
             else if (tickSec < 0.0) p->SetJogPrefill(true);
+            // Direction-SWITCH flow discard (#102 fix 1, jog-dirswitch-spike
+            // candidate 1, grade A — receipts engine/tmp/t2dirsw): the moment
+            // a tick of the OPPOSITE direction arrives, the OLD direction's
+            // wheel flow state dies WITH it — the EMA rate window,
+            // wheelVel_, the inertia decay phase and its budget. Measured,
+            // with the old state kept: b1's switch tick (reverse, fast run)
+            // was swallowed by the forward inertia glide — net +0.043 with
+            // the picture frozen for +941 ms; b2's 300 ms gap drifted +0.124
+            // FORWARD before the reverse quantum; c1/c2's first switch tick
+            // answered at half a quantum. Direction change = an intent
+            // change: the new tick starts a fresh rate window of its own
+            // direction, so its quantum is the first thing that lands and a
+            // release after it cannot resurrect a dead-direction coast. This
+            // AMENDS #100 T1 review M-1/M-2's "the window is KEPT" ruling
+            // for the direction-switch case only — that case's quiet-gap
+            // discounting (same-direction deliberate stop) is untouched.
+            if (wheelTickN_ > 0 && wheelTickSec_[0] != 0.0 &&
+                ((wheelTickSec_[0] > 0.0) != (tickSec > 0.0))) {
+                WheelFlowReset();
+            }
             // Tick-rate sample (#100 T1): the newest ticks first; one
             // MouseWheel event that carries several ticks is ONE sample
             // (merging beats sampling a ~0 real-time gap that would divide
