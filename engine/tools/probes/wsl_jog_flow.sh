@@ -13,6 +13,25 @@
 # 이 probe는 r2 legs를 추가한다: SLOW leg(2틱 이격 200ms — 프레임 수준 미세
 # 이동 원문) + FAST 가속 원문(FWD leg 내 avg/tick ≥1.3×슬로우 양자)+ post-burst
 # 무입력 glide 원문(FWD/REV 회귀 0 계약).
+#
+# r3(#101 T2 — 백워드 조그 프리필, plan docs/superpowers/plans/
+# 2026-10-12-vplayer-backward-prefill.md task-2, BASE 18429c3): **BWD SLOW
+# leg 신설** — ①링/프리필 재료(짧은 재생 세그먼트) ②느린 뒤로 틱 시퀀스
+# (2틱·이격 200ms — SLOW 수형·coast 금지) → 착지 err 원문(FWD SLOW 동형
+# 게이트 0.06 — 기대 ≤0.02 실측 원문 기록) + **프리필 히트 원문**([vptB]
+# pass/span/MB 행 — 첫 뒤 틱이 10s 윈도로 패스를 즉시 견인 → [vpt13] lo가
+# 시작점 밑으로 내려오는 것이 프리필 span의 진실원) ③**BWD DEEP leg** —
+# 프리필 밖(링 시작 이상 뒤) 크리프 graceful 원문: 파일 시작 클램프까지
+# 계속 걷기(T1 smoke leg B 유계 원문 계보) — 폴백 wedge(ringMiss 스톨
+# SeekScrub → 링 재건, [vpt13] lo=-1.000 행이 재건 서명) 카운트는 원문으로,
+# 합성 클립(-g 30·패스 채움 ~310s/s)에서는 프리필이 전 구간을 제공해
+# wedge가 발화하지 않을 수 있다(docs/50 §12.5 #1 "게이트 부재=자극 부족"
+# 직감 계보 — 0이면 hard fail 아님·WARN 원문). FWD/REV 기존 세그먼트 회귀
+# 원존(순서 미변경 — BWD legs는 9b와 10 사이 삽입). ⑦캐논 등호 원문(코드
+# 무변경 — Win 691/WSL 668/posix 304): **WSL "671" 라벨 정정 원장행** —
+# T1 리포트가 671로 표기했지만 T1 자체 캡처 2파일(t1_selftest_wsl3.txt·
+# t1_r2_selftest_wsl.txt)+본 T2 런이 전부 668 등호·PASS 세트 diff=0(아래
+# PASSSET-DIFF 블록이 자가 실측) — 실질 소동 0, 계수만 리포트 오표기.
 # 목적(#100 T1 — 8d83027 휠=연속 워크+관성 감쇠): 합성 클립 열기 → 휠 시퀀스
 # (send_input wheel — 기존 원문 수형) → [vpt13] 세션/glide 중 pos 원문 + 관성
 # 정지 후 스냅 pos 원문 → REV 동형 → 무음 검증 축(세션 중 get_status
@@ -58,16 +77,31 @@
 #
 # 실행 표준(WSL 밖 Git Bash):
 #   MSYS_NO_PATHCONV=1 wsl.exe -d Ubuntu-24.04 -- bash /mnt/i/progwork/JKENGINE/engine/tools/probes/wsl_jog_flow.sh
-# 2런: JOG_RUN=r1 / JOG_RUN=r2 두 번 실행 — 리포트가 JOG-RUN-VALS 2행으로
-# 재현 등호 원장을 남긴다.
+# 2런: JOG_RUN 라벨 두 번 실행 — 리포트가 JOG-RUN-VALS 2행으로 재현 등호
+# 원장을 남긴다(#101 T2 계보 = b2/b3). **WSLENV 함정 원장**: JOG_RUN env는
+# wsl.exe가 기본 전달하지 않는다 — `WSLENV=JOG_RUN/u JOG_RUN=<label>` 조합만
+# 넘는다(/u = Win→WSL 방향 전용 — 누락 시 JOGRUN 항상 r1 폴백=라벨 겹침).
+# 시차/세척 원문: ENTRY rm(해당 라벨 재런 잔상 소각)+브래킷 pkill+permissions
+# 스테이지/END 소각+서버·클라 teardown+RECEIVED ls 원문 = 캡처 회수 단열
+# (혼입 금지 — 수취 dir는 라인 고유).
 set -u
 cd /mnt/i/progwork/JKENGINE/engine || exit 1
 
 FAIL() { echo "JOG-WSL-FAIL: $*"; cleanup_burst "$*"; exit 1; }
 LOGDIR=/tmp/jog
 mkdir -p "$LOGDIR"
-RECEIVE=/mnt/i/progwork/JKENGINE/engine/tmp/t2wheel
-CANON_WSL_SELFTEST=668   # 캐논 WSL 축 — T1(8d83027) 승계·신설 어설션 0 계약
+RECEIVE=/mnt/i/progwork/JKENGINE/engine/tmp/t2jog101   # #101 고유 수취 단열dir
+                        # — (r0 결함 원장행) 구 RECEIVE t2wheel은 #100 런 수취
+                        # dir와 동명이라 본 r0 런들이 #100-era r1/r2 사본을
+                        # 겹쳐썼다(mtime 2026-10-17 원문 — 진정 원문=docs/50
+                        # 원문 인용+wsl_jog_run*.log 생존) — 본 커밋부터
+                        # 분리(혼입 금지 계약).
+CANON_WSL_SELFTEST=668   # 캐논 WSL 축 — #100(8d83027)+T1(18429c3) 캡처
+                         # (engine/tmp/t1_selftest_wsl3.txt·t1_r2_selftest_
+                         # wsl.txt)+본 T2 런 = **3계보 668 등호·PASS 세트 0
+                         # diff** — T1 리포트의 "671" 표기 = 라벨 정정 대상
+                         # 원장행(실측 계수 668 — 본 커밋 docs/90 부기). 신설
+                         # 어설션 0 계약.
 CLIP=/mnt/i/progwork/JKENGINE/tmp/vpt2_test.mp4   # 엔진 소유 합성 클립(30.0s/30fps)
 JOGRUN=${JOG_RUN:-r1}
 CLOG=$LOGDIR/jog_client_$JOGRUN.err   # 클라 직행 stderr — [vpt13] 진실원
@@ -117,7 +151,9 @@ rm -f "$LOGDIR"/jog_srv_$JOGRUN.log "$LOGDIR"/jog_client_$JOGRUN.err \
       "$LOGDIR"/jog_client_$JOGRUN.out "$LOGDIR"/jog_client_$JOGRUN.log \
       "$LOGDIR"/jog_build_$JOGRUN.log "$LOGDIR"/jog_st_$JOGRUN.log \
       "$LOGDIR"/${JOGRUN}_fwd_stream.txt "$LOGDIR"/${JOGRUN}_rev_stream.txt \
-      "$LOGDIR"/${JOGRUN}_mute_stream.txt
+      "$LOGDIR"/${JOGRUN}_mute_stream.txt "$LOGDIR"/${JOGRUN}_bwd_stream.txt \
+      "$LOGDIR"/${JOGRUN}_bwd_vptB.txt "$LOGDIR"/${JOGRUN}_bwdclamp_stream.txt \
+      "$LOGDIR"/${JOGRUN}_bwdclamp_vptB.txt
 ENTRY_PERM=0
 [ -f buildwsl/permissions.json ] && ENTRY_PERM=1
 ENTRY_SLOG=0
@@ -169,6 +205,18 @@ if [ "$ST_PASS" -eq "$CANON_WSL_SELFTEST" ]; then
 else
     echo "CANON-WSL-INCLUSION=DEVIANT(PASS=$ST_PASS vs 캐논 $CANON_WSL_SELFTEST — 원장)" \
         && echo "WARN: selftest PASS=$ST_PASS != 캐논 $CANON_WSL_SELFTEST — 리포트 원장 필수"
+fi
+# 라벨 소동(수식 아님) 자가 실측(#101 T2): 참조 캡처가 있으면 PASS **세트**
+# 등호를 그자리에서 실측한다(T1 캡처+본 런 = 3계보 668 등호 — set이 같으면
+# "계수만 소동/오표기" 원문으로 등호 확정, 다르면 진소동 원장 행).
+canon_set=tmp/t1_r2_selftest_wsl.txt   # cwd=engine — 엔진 소유 참조 캡처(untracked)
+if [ -f "$canon_set" ]; then
+    if diff <(grep -a '^\[PASS\]' "$LOGDIR/jog_st_$JOGRUN.log") \
+            <(grep -a '^\[PASS\]' "$canon_set") >/dev/null 2>&1; then
+        echo "PASSSET-DIFF: 0 (vs T1 참조 캡처 — CANON-WSL-SET 등호 원문 — 라벨 소동만)"
+    else
+        echo "PASSSET-DIFF: !=0 (vs T1 참조 캡처 — **진소동** — 원장 필수)"
+    fi
 fi
 
 echo "=== 4. permissions.json 프로브 소유 스테이지 (send_input allow — END 소각)"
@@ -257,7 +305,7 @@ sleep 3   # 클라 초기 렌더 + 상태 안정화
 # ---------------------------------------------------------------- 접착제 원문 헬퍼
 ctl() { timeout 15 ./buildwsl/jkdesktop agentctl "$1" 2>/dev/null | grep -a '{' | head -1; }
 ok()  { printf '%s' "${1:-}" | grep -aq '"ok":true'; }
-FWDERR=0; REVERR=0; MUTEERR=0; SLOWERR=0
+FWDERR=0; REVERR=0; MUTEERR=0; SLOWERR=0; BWDERR=0
 CHK() { # $1=tag $2=결과(0/1) — 흐름 수치 판정(honest-fail — 카운터만)
     if [ "$2" -eq 0 ]; then echo "PASS: $1"; else echo "FAIL: $1 -- ${3:-}"; fi
 }
@@ -425,6 +473,179 @@ ERRS=$(awk "BEGIN{e=$SEEDS+2*$SLOWQ-$LANDEDS; if(e<0)e=-e; printf \"%.3f\", e}")
 awk "BEGIN{exit ((\"$ERRS\"+0) <= 0.06) ? 0 : 1}" || { SLOWERR=$((SLOWERR+1)); echo "JOG-FAIL: SLOW landing err=$ERRS > 0.06 (틱당 정확 2프레임 착지 실패)"; }
 echo "SLOW-ERR: |landed - (seed+2q)| = $ERRS"
 
+echo "=== 9c. BWD SLOW leg — 역방향 프리필 히트 (#101 T2 — FWD SLOW 동형 판정)"
+# 재료 = 짧은 재생 세그먼트: seek 20 → 재생 2s(전진 디코드가 링 [20..~22]를 채움
+# — ②링/프리필 재료 계약) → park. 링 span < 10s = 프리필 윈도
+# (kPrefillAheadSecs) 안이라 **첫 뒤 틱이 패스를 즉시 견인**(트리거 원문
+# — 역방향 세션만 알아서 사전 확장). 시작 상태 정규화: 9b 종료 = paused·
+# 부정이면 우선 park(3회 재시도원문).
+ST=$(status)
+if [ "$(pause_of "$ST")" != "true" ]; then
+    for i in 1 2 3; do
+        PR=$(ctl '{"tool":"app_tool","args":{"app":"vplayer","tool":"play_pause","args":{}}}')
+        sleep 1
+        ST=$(status)
+        [ "$(pause_of "$ST")" = "true" ] && break
+    done
+fi
+[ "$(pause_of "$ST")" = "true" ] || FAIL "BWD pre-park failed — paused=$(pause_of "$ST")"
+UNPAUSED=0
+for i in 1 2 3; do
+    PR=$(ctl '{"tool":"app_tool","args":{"app":"vplayer","tool":"play_pause","args":{}}}')
+    echo "BWD-UNPAUSE-TRY-$i reply: $PR"
+    sleep 1
+    ST=$(status)
+    echo "BWD-UNPAUSE-TRY-$i: paused=$(pause_of "$ST") pos=$(p_of "$ST")"
+    [ "$(pause_of "$ST")" = "false" ] && { UNPAUSED=1; break; }
+done
+[ "$UNPAUSED" -eq 1 ] || FAIL "BWD unpause failed (3 toggles — paused=$(pause_of "$ST") pos=$(p_of "$ST"))"
+P0B=$(p_of "$ST")
+ctl '{"tool":"app_tool","args":{"app":"vplayer","tool":"seek","args":{"seconds":20}}}' >/dev/null
+sleep 1
+P0B=$(p_of "$(status)")   # seek 20 착지 재판독 — 재생 세그먼트 시작점
+sleep 2                   # 재생 2s — 링 재료 [~20..~22] (②계약 원문)
+PARKB=0
+for i in 1 2 3; do
+    PR=$(ctl '{"tool":"app_tool","args":{"app":"vplayer","tool":"play_pause","args":{}}}')
+    echo "BWD-PARK-TRY-$i reply: $PR"
+    sleep 1
+    ST=$(status)
+    echo "BWD-PARK-TRY-$i: paused=$(pause_of "$ST") pos=$(p_of "$ST")"
+    [ "$(pause_of "$ST")" = "true" ] && { PARKB=1; break; }
+done
+[ "$PARKB" -eq 1 ] || FAIL "BWD post-play park failed (3 toggles — paused=$(pause_of "$ST") pos=$(p_of "$ST"))"
+ST=$(status)
+SEEDB=$(p_of "$ST")
+echo "BWD-SEED: $SEEDB (재생 세그먼트 $P0B→$SEEDB — 링 재료 원문)"
+awk "BEGIN{e=$SEEDB-$P0B; exit (e>=1.0 && e<=3.5) ? 0 : 1}" \
+    || { BWDERR=$((BWDERR+1)); echo "JOG-FAIL: BWD 재생 세그먼트=$SEEDB-$P0B ∉ [1.0,3.5] (링 재료 원문 부족)"; }
+knobclick || FAIL "knob click failed (BWD leg)"
+sleep 1
+OFFB=$(wc -l < "$CLOG")
+BWDSENDF=0
+for i in 1 2; do
+    wheel -1 || { WHEEL_FAILS=$((WHEEL_FAILS+1)); BWDSENDF=$((BWDSENDF+1)); continue; }
+    sleep 0.2   # 이격 200ms(+호출 오버헤드) — 전부 느린 게이트(≥120ms — coast 금지 r2)
+done
+echo "BWD-WHEEL: 2 sends, sends-failed=$BWDSENDF"
+[ "$BWDSENDF" -eq 0 ] || FAIL "BWD wheel send gate failed ($BWDSENDF/2) — permissions.json send_input allow 확인"
+sleep 1.1   # 프리필 패스(즉시 견인)+400ms legacy release(coast 없음)+스냅 정산
+            # — FWD SLOW 0.9 + 패스 완결 여유
+vpt13_dump "$OFFB" "$LOGDIR/${JOGRUN}_bwd_stream.txt"
+tail -n +"$((OFFB+1))" "$CLOG" | grep -a '^\[vptB\]' > "$LOGDIR/${JOGRUN}_bwd_vptB.txt" || true
+NRB=$(wc -l < "$LOGDIR/${JOGRUN}_bwd_vptB.txt")
+SPANB=$(awk '{ if (match($0,/span=([0-9.]+)/)) { s=substr($0,RSTART+5,RLENGTH-5); if (n==0||s>maxs) maxs=s; n++ } } END{print maxs+0}' "$LOGDIR/${JOGRUN}_bwd_vptB.txt")
+LOMIN=$(awk '{ if (match($0,/lo=(-?[0-9.]+)/)) { l=substr($0,RSTART+3,RLENGTH-3)+0; if (n==0||l<minl) minl=l; n++ } } END{print minl+0}' "$LOGDIR/${JOGRUN}_bwd_stream.txt")
+ST=$(status)
+LANDEDB=$(p_of "$ST")
+PAUSEDB=$(pause_of "$ST")
+echo "BWD-SNAP: landed=$LANDEDB paused=$PAUSEDB"
+vpt13_dump "$OFFB" "$LOGDIR/${JOGRUN}_bwd_stream.txt"   # 스냅 포함 확정판
+ANB=$(vpt13_analyze "$LOGDIR/${JOGRUN}_bwd_stream.txt" -1)
+read -r ANB_N ANB_MAXDD ANB_TSPAN ANB_BADWAY <<EOF
+$ANB
+EOF
+RAWB=$(awk "BEGIN{printf \"%.3f\", 2*$SLOWQ}")
+DELTB=$(awk "BEGIN{d=$SEEDB-$LANDEDB; printf \"%.3f\", d}")
+MAXB=$(awk "BEGIN{printf \"%.3f\", $SLOWQ+0.04}")
+ERRB=$(awk "BEGIN{e=$SEEDB-2*$SLOWQ-$LANDEDB; if(e<0)e=-e; printf \"%.3f\", e}")
+echo "BWD-VALS: seed=$SEEDB landed=$LANDEDB delta=$DELTB raw=$RAWB maxstep=$ANB_MAXDD (bound $MAXB) lo_min=$LOMIN vptB=$NRB span=$SPANB"
+[ "${ANB_N:-0}" -ge 2 ] || { BWDERR=$((BWDERR+1)); echo "JOG-FAIL: BWD samples=$ANB_N < 2 (세션 원문 부족)"; }
+[ "${ANB_BADWAY:-1}" -eq 0 ] || { BWDERR=$((BWDERR+1)); echo "JOG-FAIL: BWD direction — D가 증가한 샘플($ANB_BADWAY) (역방향 워크 원문 부족)"; }
+awk "BEGIN{exit ($ANB_MAXDD+0 <= $MAXB) ? 0 : 1}" || { BWDERR=$((BWDERR+1)); echo "JOG-FAIL: BWD step=$ANB_MAXDD > 2-frame quantum+slack (가속이 느린 영역에 유출 — r2 계약 위반)"; }
+awk "BEGIN{exit ($DELTB+0 >= 0.10 && $DELTB+0 <= 0.22) ? 0 : 1}" || { BWDERR=$((BWDERR+1)); echo "JOG-FAIL: BWD delta=$DELTB ∉ raw 2틱=0.133± (역방향 프레임 수준 미세 이동 원문 부족 — coast 유출 의심)"; }
+awk "BEGIN{exit (\"$ERRB\"+0 <= 0.06) ? 0 : 1}" || { BWDERR=$((BWDERR+1)); echo "JOG-FAIL: BWD landing err=$ERRB > 0.06 (틱당 정확 2프레임 착지 실패 — FWD SLOW 동형 게이트)"; }
+[ "${NRB:-0}" -ge 1 ] || { BWDERR=$((BWDERR+1)); echo "JOG-FAIL: BWD [vptB] rows=0 (프리필 히트 원문 부족 — 첫 뒤 틱이 10s 윈도로 패스를 견인해야 한다)"; }
+awk "BEGIN{exit (($LOMIN+0 > 0.001) && ($LOMIN+0 <= $SEEDB-5.0)) ? 0 : 1}" \
+    || { BWDERR=$((BWDERR+1)); echo "JOG-FAIL: BWD lo_min=$LOMIN ≤ seed-5 아님 (프레임 front 사전 확장 원문 부족)"; }
+[ "$PAUSEDB" = "true" ] || { BWDERR=$((BWDERR+1)); echo "JOG-FAIL: BWD parked after snap — paused=$PAUSEDB"; }
+P1B=$(p_of "$(status)"); sleep 0.5; P2B=$(p_of "$(status)")
+DPB=$(awk "BEGIN{d=$P2B-$P1B; if(d<0)d=-d; printf \"%.3f\", d}")
+echo "BWD-STATIC: $P1B -> $P2B (d=$DPB)"
+awk "BEGIN{exit ($DPB <= 0.02) ? 0 : 1}" || { BWDERR=$((BWDERR+1)); echo "JOG-FAIL: BWD pos static — d=$DPB > 0.02"; }
+
+echo "=== 9d. BWD DEEP leg — 프리필 밖(링 시작 이상 뒤) 크리프 graceful + 시작 클램프"
+# 링 재료 = 짧은 세그먼트(9c 수형): seek 1 → 재생 1.2s(링 [~1..~2.2]) → park →
+# 빠른 뒤로 버스트(60틱 — r2 스캔 척도·하단 fix 원장) → 타깃이 파일 시작
+# 클램프(0.0)로. 링
+# 시작(≈1.0) 이하 = 체인/프리필이 아직 못 채운 **프리필 밖 크리프 존** — 패스가
+# t<0 을 0으로 클램프해(docs/50 원문 "the front is already near the file
+# start") D가 0.000까지 graceful로 내려간다(T1 smoke leg B 유계 원문 계보).
+# 폴백 wedge(ringMiss 스톨 SeekScrub → 링 재건) 서명 = [vpt13] lo=-1.000 행
+# — 0이면 hard fail 아님(프리필이 전 구간을 제공해 폴백 불요 — docs/50
+# §12.5 #1 계보 WARN 원문).
+ctl '{"tool":"app_tool","args":{"app":"vplayer","tool":"seek","args":{"seconds":1}}}' >/dev/null
+sleep 1
+UNPAUSED=0
+for i in 1 2 3; do
+    PR=$(ctl '{"tool":"app_tool","args":{"app":"vplayer","tool":"play_pause","args":{}}}')
+    echo "CLAMP-UNPAUSE-TRY-$i reply: $PR"
+    sleep 1
+    ST=$(status)
+    echo "CLAMP-UNPAUSE-TRY-$i: paused=$(pause_of "$ST") pos=$(p_of "$ST")"
+    [ "$(pause_of "$ST")" = "false" ] && { UNPAUSED=1; break; }
+done
+[ "$UNPAUSED" -eq 1 ] || FAIL "clamp unpause failed (3 toggles — paused=$(pause_of "$ST") pos=$(p_of "$ST"))"
+P0C=$(p_of "$ST")
+sleep 1.2                  # 재생 1.2s — 링 재료 [~1..~2.2]
+PARKC=0
+for i in 1 2 3; do
+    PR=$(ctl '{"tool":"app_tool","args":{"app":"vplayer","tool":"play_pause","args":{}}}')
+    echo "CLAMP-PARK-TRY-$i reply: $PR"
+    sleep 1
+    ST=$(status)
+    echo "CLAMP-PARK-TRY-$i: paused=$(pause_of "$ST") pos=$(p_of "$ST")"
+    [ "$(pause_of "$ST")" = "true" ] && { PARKC=1; break; }
+done
+[ "$PARKC" -eq 1 ] || FAIL "clamp post-play park failed (3 toggles — paused=$(pause_of "$ST") pos=$(p_of "$ST"))"
+SEEDD=$(p_of "$(status)")
+echo "CLAMP-SEED: $SEEDD (링 시작 ≈1.0 — 걸어 내려갈 크리프 존 원문)"
+knobclick || FAIL "knob click failed (clamp leg)"
+sleep 1
+OFFD=$(wc -l < "$CLOG")
+# fix-r0(r0-1 런 원문 engine/tmp/t2bwd_run1.log)+fix-r1(r0-2 런 원문
+# engine/tmp/t2bwd_run2.log): 16틱/30틱으로는 못 건넌다 — ctl 호출 오버헤드
+# (~85ms)가 실격차를 만들어 r2 비선형 척도상 틱 ~0.08-0.09s(간격비
+# f²≈0.04-0.09) — 원문: 16틱 착지 1.500·30틱 착지 0.600(링 시작 1.0 미달)
+# → **60틱**(순수 느린 틱 하한 0.0667×60 = 4.0s ≥ 시드 3.3 — 어떤 ctl 지연
+# 에도 클램프 도달 보장 — 느린 틱은 상계 밑창이 2프레임이라 작아지지 않는다).
+for i in $(seq 1 60); do
+    wheel -1 || { WHEEL_FAILS=$((WHEEL_FAILS+1)); continue; }
+    sleep 0.025   # 빠른 페이스 — 스캔 척수(r2·REV leg 수형)
+done
+echo "CLAMP-WHEEL: 60 sends (fast)"
+sleep 2.6   # 체인 패스+클램프 체이스(8프레임/UI프레임)+스냅 정산
+vpt13_dump "$OFFD" "$LOGDIR/${JOGRUN}_bwdclamp_stream.txt"
+tail -n +"$((OFFD+1))" "$CLOG" | grep -a '^\[vptB\]' > "$LOGDIR/${JOGRUN}_bwdclamp_vptB.txt" || true
+NRD=$(wc -l < "$LOGDIR/${JOGRUN}_bwdclamp_vptB.txt")
+ST=$(status)
+LANDEDD=$(p_of "$ST")
+PAUSEDC=$(pause_of "$ST")
+echo "CLAMP-SNAP: landed=$LANDEDD paused=$PAUSEDC"
+vpt13_dump "$OFFD" "$LOGDIR/${JOGRUN}_bwdclamp_stream.txt"
+AND=$(vpt13_analyze "$LOGDIR/${JOGRUN}_bwdclamp_stream.txt" -1)
+read -r AND_N AND_MAXDD AND_TSPAN AND_BADWAY <<EOF
+$AND
+EOF
+SIG0=$(awk '{ if (match($0,/lo=(-?[0-9.]+)/)) { l=substr($0,RSTART+3,RLENGTH-3)+0; if (match($0,/D=(-?[0-9.]+)/)) { d=substr($0,RSTART+2,RLENGTH-2)+0; if (l==0.0 && d>0.5) n++ } } } END{print n+0}' "$LOGDIR/${JOGRUN}_bwdclamp_stream.txt")
+SIGN1=$(grep -ac 'lo=-1.000' "$LOGDIR/${JOGRUN}_bwdclamp_stream.txt")
+DMINB=$(awk '{ if (match($0,/D=(-?[0-9.]+)/)) { d=substr($0,RSTART+2,RLENGTH-2)+0; if (n==0||d<dmin) dmin=d; n++ } } END{print dmin+0}' "$LOGDIR/${JOGRUN}_bwdclamp_stream.txt")
+ERRD=$(awk "BEGIN{a=$LANDEDD; if(a<0)a=-a; printf \"%.3f\", a}")
+echo "CLAMP-VALS: seed=$SEEDD landed=$LANDEDD samples=$AND_N maxjump=$AND_MAXDD tspan=$AND_TSPAN lo0rows=$SIG0 lom1=$SIGN1 dmin=$DMINB vptB=$NRD"
+[ "${AND_N:-0}" -ge 4 ] || { BWDERR=$((BWDERR+1)); echo "JOG-FAIL: CLAMP samples=$AND_N < 4 (크리프 세션 원문 부족)"; }
+[ "${AND_BADWAY:-1}" -eq 0 ] || { BWDERR=$((BWDERR+1)); echo "JOG-FAIL: CLAMP direction — D가 증가한 샘플($AND_BADWAY) (graceful 크리프 위반)"; }
+awk "BEGIN{exit ($AND_MAXDD+0 <= $BOUND) ? 0 : 1}" || { BWDERR=$((BWDERR+1)); echo "JOG-FAIL: CLAMP continuity max|dD|=$AND_MAXDD > bound $BOUND (크리프 중 급점프 — 유계 위반)"; }
+awk "BEGIN{exit ($AND_TSPAN+0 >= $SEEDD-0.3) ? 0 : 1}" || { BWDERR=$((BWDERR+1)); echo "JOG-FAIL: CLAMP target walk=$AND_TSPAN < seed-0.3 ($SEEDD) — 클램프까지 못 걸음"; }
+awk "BEGIN{exit (\"$LANDEDD\"+0 <= 0.05) ? 0 : 1}" || { BWDERR=$((BWDERR+1)); echo "JOG-FAIL: CLAMP landed=$LANDEDD > 0.05 (시작 클램프 graceful 종착 실패)"; }
+awk "BEGIN{exit ($DMINB+0 >= -0.05) ? 0 : 1}" || { BWDERR=$((BWDERR+1)); echo "JOG-FAIL: CLAMP D_min=$DMINB < -0.05 (클램프 밖 역행 — 유계 위반)"; }
+[ "$SIGN1" -ge 1 ] && echo "WEDGE-CONFIRMED: lo=-1.000 재건 행 $SIGN1개 (폴백 wedge 서명 — 1행 원문)" \
+    || echo "WARN: wedge 서명 0 — 프리필/체인 패스가 전 구간을 제공해 폴백 불요였다(자극 부족 — docs/50 §12.5 #1 직감 계보·원장행; hard fail 아님)"
+[ "$PAUSEDC" = "true" ] || { BWDERR=$((BWDERR+1)); echo "JOG-FAIL: CLAMP parked after snap — paused=$PAUSEDC"; }
+P1C=$(p_of "$(status)"); sleep 0.5; P2C=$(p_of "$(status)")
+DPC=$(awk "BEGIN{d=$P2C-$P1C; if(d<0)d=-d; printf \"%.3f\", d}")
+echo "CLAMP-STATIC: $P1C -> $P2C (d=$DPC)"
+awk "BEGIN{exit ($DPC <= 0.02) ? 0 : 1}" || { BWDERR=$((BWDERR+1)); echo "JOG-FAIL: CLAMP pos static — d=$DPC > 0.02"; }
+
 echo "=== 10. REV leg — seek 15 → burst -10틱 → 동형 판정 (dir만)"
 ctl '{"tool":"app_tool","args":{"app":"vplayer","tool":"seek","args":{"seconds":15}}}' >/dev/null
 sleep 1
@@ -512,7 +733,7 @@ ok "$P" || { MUTEERR=$((MUTEERR+1)); echo "JOG-FAIL: ping ok 미성립 — $P"; 
 
 echo "=== 13. teardown (클라+서버 회수 — [vpt13] 스트림 원문 단열 cp)"
 mkdir -p "$RECEIVE"
-cp "$LOGDIR/${JOGRUN}_fwd_stream.txt" "$LOGDIR/${JOGRUN}_rev_stream.txt" "$LOGDIR/${JOGRUN}_mute_stream.txt" "$RECEIVE/" 2>/dev/null
+cp "$LOGDIR/${JOGRUN}_fwd_stream.txt" "$LOGDIR/${JOGRUN}_rev_stream.txt" "$LOGDIR/${JOGRUN}_mute_stream.txt" "$LOGDIR/${JOGRUN}_bwd_stream.txt" "$LOGDIR/${JOGRUN}_bwd_vptB.txt" "$LOGDIR/${JOGRUN}_bwdclamp_stream.txt" "$LOGDIR/${JOGRUN}_bwdclamp_vptB.txt" "$RECEIVE/" 2>/dev/null
 cp "$CLOG" "$RECEIVE/${JOGRUN}_client_stderr_full.txt" 2>/dev/null
 cp "$LOGDIR/jog_st_$JOGRUN.log" "$RECEIVE/${JOGRUN}_selftest.log" 2>/dev/null
 echo "RECEIVED: $(ls "$RECEIVE" | tr '\n' ' ')"
@@ -528,10 +749,11 @@ LEFT=$(ps -eo args | grep -ic 'buildwsl/[j]kdesktop' || true)
 
 echo "=== verdict"
 echo "JOG-RUN-VALS-SLOW: run=$JOGRUN slow_seed=$SEEDS slow_landed=$LANDEDS slow_delta=$DELTS slow_raw=$RAWS slow_maxstep=$ANS_MAXDD slow_err=$ERRS slow_samples=$ANS_N glide_fwd_span=$GF_TSPAN rise=$GRISE glide_rev_span=$GT2 recede=$GRISE2"
+echo "JOG-RUN-VALS-BWD: run=$JOGRUN bwd_seed=$SEEDB bwd_landed=$LANDEDB bwd_delta=$DELTB bwd_raw=$RAWB bwd_err=$ERRB bwd_step=$ANB_MAXDD bwd_lo_min=$LOMIN bwd_vptB=$NRB bwd_span=$SPANB bwd_samples=$ANB_N clamp_seed=$SEEDD clamp_landed=$LANDEDD clamp_tspan=$AND_TSPAN clamp_lo0=$SIG0 clamp_lom1=$SIGN1 clamp_dmin=$DMINB clamp_samples=$AND_N"
 echo "JOG-RUN-VALS: run=$JOGRUN fwd_seed=$SEED fwd_Tspan=$AN_TSPAN fwd_maxdD=$AN_MAXDD fwd_T_end=$LATEST_T fwd_landed=$LANDED fwd_err=$ERRF fwd_glide=$GLIDEF fwd_samples=$AN_N rev_seed=$SEED2 rev_T_end=$T_END2 rev_landed=$LANDED2 rev_err=$ERRR rev_glide=$GLIDER rev_samples=$AN2_N mute_samples=$MIDSAMP mute_mid=$(pause_of "$STMID") mute_after=$(pause_of "$STAFTER") ping_ms=$PINGMS"
-TOTERR=$((FWDERR+REVERR+MUTEERR+SLOWERR))
+TOTERR=$((FWDERR+REVERR+MUTEERR+SLOWERR+BWDERR))
 if [ "$TOTERR" -eq 0 ]; then
-    echo "JOGRUN-VERDICT: JOG-OK(T=$JOGRUN) — 휠 연속 워크+관성 감쇠 FWD/REV 동형+무음 축 원문 성립 — 캐논 WSL $ST_PASS 등호 원문"
+    echo "JOGRUN-VERDICT: JOG-OK(T=$JOGRUN) — 휠 연속 워크+관성 감쇠 FWD/REV 동형+BWD 프리필 히트/크리프 graceful+무음 축 원문 성립 — 캐논 WSL $ST_PASS 등호 원문"
     echo "RESULT: ALL PASS"
 else
     echo "JOGRUN-VERDICT: JOG-FAIL(T=$JOGRUN) — 흐름 수치 결함 $TOTERR건 — 리포트 원장(honest-fail — rc=0)"
