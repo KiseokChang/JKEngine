@@ -1756,7 +1756,27 @@ struct ClientVPlayerApp::PlayerCore {
     // is normally untouched); the byte cap is absolute and always binds
     // (spec §5 — memory bound is sacred). The ring has NO backpressure: the
     // trim IS the bound, so the caller never parks on it.
+    //
+    // Prefill-era reroute (#101 T1 fix r2, structure CONFIRMED before patch —
+    // the pre-patch long-« receipt `engine/tmp/t1b_fix2/fix2r0_pre_stderr.log`):
+    // during an armed reverse session the demuxer keeps reading FORWARD past
+    // the ring back after a fill's seam (its readahead is unthrottled — audio
+    // decode is skipped in a jog), and every frame above the back APPENDS
+    // through here. Twice observed: the append-trim ate the fill the pass had
+    // just placed below the dial — the two lo-RISE rows (0.000→4.067, twice)
+    // are the recovery signature — and the second one jammed the refill for
+    // the walk's remainder (chainTriedLo's exact-unmoved rule then blocked
+    // every later attempt while D walked D<lo for 165 rows). In an armed
+    // reverse session the disposable end of the ring is the TAIL (the
+    // post-dial readahead), never the front runway — so the caps bind with
+    // TrimRingBack's rule there (its span display-protection mirror keeps the
+    // 1 s margin above the dial; the byte cap stays unconditional). No
+    // session / disarm = the legacy front-trim loop bit for bit.
     void TrimRing() {
+        if (prefillBack) {
+            TrimRingBack();
+            return;
+        }
         while (!jogRing.empty()) {
             const double span = jogRing.back().pts - jogRing.front().pts;
             const bool overSpan = span > kJogRingMaxSecs;
