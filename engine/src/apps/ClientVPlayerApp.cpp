@@ -554,8 +554,11 @@ struct ClientVPlayerApp::PlayerCore {
         if (scrub) jogTargetPts = t;
         // Any seek (user precision, scrub fallback included) rebuilds the
         // ring from a new demux position — a prefill aimed at the old front
-        // is meaningless the moment stage (a) clears it. The next backward
-        // input direction re-arms (UI side), including after the fallback.
+        // is meaningless the moment stage (a) clears it. Re-arming is the
+        // callers' business and differs by leg (T1 fix r1, review I-1): a
+        // wheel/drag session re-arms on the next backward tick/spin, a «
+        // session re-arms in the shared pump's reverse cadence; a lone
+        // precision seek stays disarmed until the next backward input.
         prefillBack = false;
         // A fresh request supersedes a failed-seek notice, and the wall-clock
         // rebase below happens HERE (request time, UI thread) — so the
@@ -1159,8 +1162,11 @@ struct ClientVPlayerApp::PlayerCore {
                 // frame-sparse ring the reverse walk starves on (fix-r0 run 1
                 // [vptB] 원문: span 11.733 s at 0.9 MB). Insert at the prefix
                 // boundary instead; the byte/span caps still bind via
-                // TrimRingBack, and the front falls per PACKET (visible
-                // progress for the UI's stall detector).
+                // TrimRingBack. The front falls ONCE per PASS — the first
+                // packet's insert carries the run's own low end (pass-wide
+                // minimum), later packets stack above the prefix — and the
+                // whole pass stays far under the UI stall detector's 250 ms
+                // window for ordinary content.
                 std::deque<VideoFrame> pending;
                 for (VideoFrame& vf : ready) {
                     if (vf.pts >= lo + seamGuard) {
@@ -2124,7 +2130,6 @@ struct ClientVPlayerApp::PlayerCore {
                    RingFreeLocked() >= bytes;
         });
         if (stop || wantSeek || seekGen != gen || chainReq) return false;
-        if (stop || wantSeek || seekGen != gen) return false;
         const size_t first = std::min(bytes, ringCap - ringW);
         std::memcpy(ring + ringW, src, first);
         if (bytes > first) std::memcpy(ring, src + first, bytes - first);
@@ -3438,6 +3443,19 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
                              d, jogTarget_, st.jogRingLo);
                 std::fflush(stderr);
             }
+            // « prefill re-arm (T1 fix r1, review I-1): a reverse-active
+            // session has NO per-event direction driver of its own — every
+            // fallback SeekScrub above disarms prefillBack in SeekCommon and,
+            // without this line, nothing re-arms it, demoting the rest of the
+            // session to the legacy 2 s notch (for slow-to-decode content
+            // where one pass outlasts the 250 ms stall window, the very first
+            // fallback removes the depth target entirely). The cadence itself
+            // IS the direction evidence — reverseActive_ only walks backward —
+            // so the re-arm is unconditional here and placed AFTER the
+            // fallback to win the same frame. One m-acquired bool store, the
+            // same class as this frame's SnapNow. Wheel/drag sessions keep
+            // their own per-event arming (a forward tick must keep disarming).
+            if (reverseActive_) p->SetJogPrefill(true);
         }
 
         // Wheel inertia (#100 T1 + r2): a FAST-ended gesture (the last tick
