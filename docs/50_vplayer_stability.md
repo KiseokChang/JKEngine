@@ -1029,3 +1029,30 @@ specs/2026-09-24-vplayer-smooth-scrub-design.md, 진행·태스크 리포트는
   - **EYES-PENDING 뒤로 조작 체감**(프레임 정밀·FWD 동일)=사용자 선언·
     프리필 깊이(kPrefillAheadSecs 10s)/디코드 정책=재량(플랜 게이트 #2
     — 기각 시 즉시 수리).
+  - **#102 조그 방향 전환 수리(진단 원문 = .superpowers/sdd/2026-10-12-
+    vplayer-backward-prefill/jog-dirswitch-spike-report.md + engine/tmp/
+    t2dirsw 그림/행 원료 — 스파이크 전용, 커밋 0)**: 사용자 실측("조그 맨
+    처음이나 포워드↔리버스 전환 때 반응이 밀림")의 진원 2건 — **①(등급 A)
+    방향 전환 틱이 구 방향의 휠 흐름 상태(EMA 창·wheelVel_·관성)에 잠식**
+    (b1: 전환 틱 뒤 glide 재올림 net +0.043·그림 변화 0·+941ms; b2: 300ms
+    gap 내 +0.124 표류; c1/c2: 첫 전환 틱 반양자) → **#102 fix 1: 전환 틱
+    도착 순간 구 방향 휠 흐름 전량 폐기**(WheelFlowReset 접붙임 — #100 T1
+    리뷰 "window is KEPT" 룰링을 본 실측이 전환 케이스 한정 정정·동방향
+    quiet-gap 할인 원존) **②(등급 A) 세션 진입 시드 = 오디오 클럭 = 그림보다
+    6-8프레임 앞**(a1/a2: 역방향 진입 첫 틱의 그림이 전진 +8프레임 출렁 —
+    24.000→24.267 원문) → **#102 fix 2: 시드 = lastShownPts_(마지막 표시
+    프레임 pts — 진실원)**·클럭 폴백·[vptSEED] 진실원 증거 행(3 진입 사이트
+    — 오디오 클럭의 다른 표기 get_status pos·시간줄 원존) — **probe =
+    wsl_jog_flow.sh 9e/9f leg 신설·2런(ds5/ds6) ALL PASS 등호**: 전환
+    틱 quantum 0.054/0.037(sloq 0.0667±)·**전환 뒤 T 상승 행 0/0(b1 서명
+    폐곡)**·착지 err 0.013/0.012·parked·시드 재생 진입 gap(pos−shown)
+    0.125/0.172·seed=shown 등호·일시정지 진입 대조 |pos−seed|
+    0.022/0.009·재개 성장 1.207/1.207 ∈ [0.6,1.6] — 기존 legs
+    (FWD/REV/SLOW/BWD/MUTE) 회귀 0(err ≤0.012)·668 등호 2런.
+  - **원장행(#102 수리 밖)**: (i) 250ms 스톨 웨지의 4K/롱 GOP 합산 후보
+    (합성 클립 패스 0.031-0.128s = 미발화·4K vptB pass 최대 3.79s 원장 —
+    실기기 재측정 대기) ②spike PS-probe 결함 3건(PS -RedirectStandardError
+    플러시 지연·ArgumentList 인용 mangle·ROWS-TOTAL 스탬프 유효성) =
+    스파이크 전용(uncommitted) 원장행 — 커밋 probe(bash lane)에 영향 0 ·
+    대응 교훈 = [vpt] 행 폴링+페이싱 런만 판정(빠른-루프 하네스의 케이던스
+    동결/판독 경합 함정 — fix-r1 원장).
