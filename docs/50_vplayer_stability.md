@@ -1080,12 +1080,20 @@ specs/2026-09-24-vplayer-smooth-scrub-design.md, 진행·태스크 리포트는
     커버 — hold 자극 미도달, 2차 원장행과 상계).
   - **probe 페이싱 분산 원장행**: r2 가속 Tspan 임계(0.90)는 ctl 스폰
     오버헤드에 민감 — 동일 바이너리에서 0.707-1.157 런 분산 관측(ds1-6/
-    hold1/h2/f5a/f5b) — ALL PASS 런 = ds5/ds6(#102 수취 = JOG-RUN-VALS
-    행·RESULT 등호)·hold1/h2/f5a/f5b = CLAMP/DIRSW/SEED 실패 0 + FWD/REV
-    Tspan 페이싱 미달(honest-fail 원장 — rc=0 계약) — 임계 약화 없이:
-    향후 probe에 PACING 축(초당 ctl 오버헤드 실측) 권장 원장행·stdout
-    수취 = 본 런부터 보존(run_f5a/b_stdout.log — stdout 수취 미보존 4차
-    원장 정산).
+    hold1/h2/f5a/f5b/f6/g1/g2) — ALL PASS 런 = ds5/ds6(#102 수취 =
+    JOG-RUN-VALS 행·RESULT 등호)·g1/f5a/f5b/hold1/h2 = CLAMP/DIRSW/SEED
+    실패 0 + FWD/REV Tspan 페이싱 미달(honest-fail 원장 — rc=0 계약) —
+    임계 약화 없이: 향후 probe에 PACING 축(초당 ctl 오버헤드 실측) 권장
+    원장행·stdout 수취 = 본 런부터 보존(run_f5a/b_stdout.log — stdout
+    수취 미보존 4차 원장 정산).
+  - **probe leg 결함 수형(#102 M-1 정산 원장행 — "D 감소(2)"의 진원)**:
+    `vpt13_analyze`의 substr 추출 = 비-strnum 문자열 — mawk의 문자 비교가
+    **사전식**("10.100" < "9.993" = TRUE)로 **상승 행을 감소로 오판**
+    (플래그 원문: FLAG NR=3 d=10.100 pd=10.033 = 상승쌍 발화 — 4건 런
+    재현)·b2/b3-era badway=0 = 같은 길이 문자열의 사전식/수치 순서 우연
+    일치 → **수형 = awk 추출 전량 `+0` 숫자 캐스트(analyze+glide 등
+    9곳)** — 재실측 f6/g1/g2 3런 **badway=0 전 leg 원문** — "패싱 페이스
+    재조정" 불요(흐름 결함 아님 = probe 결함).
   - **#102 조그 방향 전환 수리(진단 원문 = .superpowers/sdd/2026-10-12-
     vplayer-backward-prefill/jog-dirswitch-spike-report.md + engine/tmp/
     t2dirsw 그림/행 원료 — 스파이크 전용, 커밋 0)**: 사용자 실측("조그 맨
