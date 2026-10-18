@@ -1054,6 +1054,38 @@ specs/2026-09-24-vplayer-smooth-scrub-design.md, 진행·태스크 리포트는
     **미수형(조건부 — hold 실측이 480p 환경에서 hold-자극 부족으로 성립
     못함·무세션 상시 디코드 = idle 계약 비용(4K 패스 3.79s+) vs 혜택
     불명) — 체감 EYES에서 요구 시 수형**.
+  - **EYES-PENDING 뒤로 조작 체감**(프레임 정밀·FWD 동일)=사용자 선언·
+    프리필 깊이(kPrefillAheadSecs 10s)/디코드 정책=재량(플랜 게이트 #2
+    — 기각 시 즉시 수리).
+  - **#104 4K « 워크 "동결"의 정산 = 크래시(수형 커밋)**:
+    #103 리뷰 원문(수취 말미의 크래시 서명 2종 보존) —
+    `engine/tmp/t1b_fix2/fix3r0_pre400_stderr.log` 말미 = **`terminate
+    called after throwing an instance of 'std::bad_alloc'`**·
+    `fix3_post400_stderr.log` 말미 = **`stl_deque.h:1432 deque operator[]
+    assertion '__n < size()'`**(+Windows 이벤트 원문: APPCRASH
+    jkapp_vplayer.dll 0xc0000005 + ucrtbase fastfail 0xc0000409 2건) —
+    "동결"이 아니라 **달리다 죽음**([vpt13]/[vpt11]가 말미까지 행 진행 후
+    프로세스 소멸 — windows[] 빈 수취 = 3/3 런) — **진원 = 4K 패스 삽입
+    경계의 스테일 인덱스**: 패스의 순방향 채움 passFrontCount 산식이 링의
+    뒤 축출(바이트 캡 6GB = 절대·무조건 — 4K 패스 = 648프레임 × 12.4MB ≈
+    8GB > 캡)을 반영하지 않아 `jogRing.begin()+passFrontCount`가 **수축/빈
+    deq에서 범위 밖 반복자 = OOB 쓰기 → 힙 손상 → deque-assertion/
+    bad_alloc/0xc0000005 3종 서명**·480p에서 캡 미결합이라 미재현 ✓ —
+    **수형 = 삽입 전 경계 클램프**(`passFrontCount = min(passFrontCount,
+    size)` — 배치된 접두의 잔존부 = 링 머리, dead holdTarget_ 필드 소각
+    병행) — **수취(수형의 2/2 런 = fix5_a/b_stderr.log)**: 4K « 워크 FULL
+    종주(157/156 [vpt13]행 — 17.98→0.08)·**패스 2건 완결**(pass=5.288/
+    4.990s·3.114/2.483s — lo→5.000→0.000)·**크래시 0**·프로세스 생존
+    등호·ping 129-215ms(4K 중량 — 봐)·hold 행 0/0(워크 히트가 전 구간
+    커버 — hold 자극 미도달, 2차 원장행과 상계).
+  - **probe 페이싱 분산 원장행**: r2 가속 Tspan 임계(0.90)는 ctl 스폰
+    오버헤드에 민감 — 동일 바이너리에서 0.707-1.157 런 분산 관측(ds1-6/
+    hold1/h2/f5a/f5b) — ALL PASS 런 = ds5/ds6(#102 수취 = JOG-RUN-VALS
+    행·RESULT 등호)·hold1/h2/f5a/f5b = CLAMP/DIRSW/SEED 실패 0 + FWD/REV
+    Tspan 페이싱 미달(honest-fail 원장 — rc=0 계약) — 임계 약화 없이:
+    향후 probe에 PACING 축(초당 ctl 오버헤드 실측) 권장 원장행·stdout
+    수취 = 본 런부터 보존(run_f5a/b_stdout.log — stdout 수취 미보존 4차
+    원장 정산).
   - **#102 조그 방향 전환 수리(진단 원문 = .superpowers/sdd/2026-10-12-
     vplayer-backward-prefill/jog-dirswitch-spike-report.md + engine/tmp/
     t2dirsw 그림/행 원료 — 스파이크 전용, 커밋 0)**: 사용자 실측("조그 맨
