@@ -3575,6 +3575,31 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
                 p->JogTo(d);
                 jogLastSent_ = d;
             }
+            // Stuck fallback ONLY (chain refills backward; forward decode creeps —
+            // a D pinned at the ring front with the target far below means the
+            // chain cannot serve this position, e.g. no earlier keyframe): fire the
+            // legacy keyframe scrub seek after 250 ms of no progress.
+            // (#105 note: the "out-of-buffer = immediate jump" rewrite was
+            // REVERTED here — its jump-on-transient spam (13 [vptJUMP] rows,
+            // prefill extinction) and a pump stop (tool_timeout chain, 3
+            // runs) are receipted in engine/tmp/t2jog101 p106a/b/c and
+            // fix5_receipts; the boundary contract ("버퍼밖 깊은 뒤로는
+            // 포기") waits on its boundary spec before re-landing.)
+            const bool ringMiss = st.jogRingLo >= 0.0 && d < st.jogRingLo - 0.5 / (fps > 0.0 ? fps : 30.0);
+            if (ringMiss) {
+                const auto now = std::chrono::steady_clock::now();
+                if (st.jogRingLo == scrubLastRingLo_) {
+                    if (std::chrono::duration<double>(now - scrubStallSince_).count() >= 0.250 &&
+                        jogTarget_ != jogLastSent_) {
+                        p->SeekScrub(jogTarget_);
+                        jogLastSent_ = jogTarget_;
+                        scrubStallSince_ = now; // re-arm — one fallback per stall
+                    }
+                } else {
+                    scrubStallSince_ = now; // ring moved — chain is making progress
+                }
+                scrubLastRingLo_ = st.jogRingLo;
+            }
             // vpt13 flow evidence (docs/50 §11 probe gate): 100 ms throttle.
             const auto now = std::chrono::steady_clock::now();
             if (now - scrubLastLog_ >= std::chrono::milliseconds(100)) {

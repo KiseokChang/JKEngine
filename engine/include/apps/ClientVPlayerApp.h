@@ -213,10 +213,12 @@ private:
     // chases it at up to kFlowMax frames per UI frame — JogTo(D) each frame
     // D moved, no seeks in the hot path. Reset seeds D at the session entry
     // position (drag/wheel/<< fresh entries); takeovers keep D continuous
-    // (SetTarget only). The [vpt13] flow-evidence log (100 ms throttle) uses
-    // the timer below.
+    // (SetTarget only). The pump's stall fallback (ring-refill progress) and
+    // the [vpt13] flow-evidence log (100 ms throttle) use the timers below.
     jk::JKScrubClock scrubClock_;
+    std::chrono::steady_clock::time_point scrubStallSince_{};
     std::chrono::steady_clock::time_point scrubLastLog_{};
+    double scrubLastRingLo_ = -1.0;
 
     // Out-of-buffer jump notice (#105): set when a dial target fell below
     // the ring front and the session was discarded for ONE precision seek;
