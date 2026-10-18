@@ -1178,60 +1178,45 @@ struct ClientVPlayerApp::PlayerCore {
             av_packet_unref(p);
             av_packet_free(&p);
             if (!ok) break; // codec rejected the packet — DecodeFail owns the streak
-            {
+            // Frame-graded progressive insert (#106 + the spike's root fix):
+            // ONE lock round per decoded frame — and the packet block no
+            // longer holds m across the frame loop (a pre-spike shape nested
+            // a per-frame lock inside an already-held m: a non-recursive
+            // mutex locked twice = UB that presented as a self-deadlock —
+            // the 1-quantum escape of a reverse walk left the video thread
+            // inside the pass forever while the UI thread sat in
+            // pthread_mutex_lock (cdb: thread 0 = ntdll!NtWaitForSingleObject
+            // <- libwinpthread_1!pthread_mutex_lock <- jkapp_vplayer
+            // +0x328d91; 6/7 runs). Same boundary math as the batch (an
+            // ascending decode run landing at begin()+passFrontCount,
+            // #104's clamp), the same invariants; the per-frame abort
+            // re-check kills the pass between packets as before
+            // (cancel-aware 원존).
+            bool frameAborted = false;
+            for (VideoFrame& vf : ready) {
+                if (frameAborted) break;
+                if (vf.pts >= lo + seamGuard) {
+                    crossed = true; // seam reached — refill done
+                    continue;       // the guard frame itself is discarded
+                }
+                if (vf.pts >= lo) continue; // [lo, lo + seamGuard): decoded
+                                            // for the references, discarded
                 std::lock_guard<std::mutex> lk(m);
                 if (stop || wantSeek || jogTargetPts < 0 || !prefillBack ||
-                    vSeekSeq.load(std::memory_order_relaxed) != gen)
-                    break; // re-check AFTER decode: nothing stale may be pushed
-                // Insert each decoded frame just above the pass's already-
-                // placed prefix (deque front-insert order contract, #101 T1).
-                // The pass decodes FORWARD — pts ascending — and every frame
-                // must land BETWEEN the prefix the pass placed and the ring's
-                // original front: a plain push_front would order the run
-                // DESCENDING (the front-insert order flip) and the second
-                // frame would trip the front probe on a front its own previous
-                // push just lowered — one frame per chain pass, the sparse
-                // ring the reverse walk starves on (fix-r0 run 1 [vptB] 원문:
-                // span 11.733 s at 0.9 MB). The boundary insert keeps the
-                // ring globally ascending; #106 grades the lock to one short
-                // round per frame so the front's recession is visible per
-                // frame.
-                // FRAME-GRADED progressive insert (#106, user ask 2026-10-12
-                // "조그하면서도 계속 디코드해서 채워지는 거죠?"): ONE SHORT lock
-                // round per decoded frame — the ring grows in real time while
-                // the pass runs, and the UI threads' m-competition (SnapNow/
-                // JogFrame) gets a fresh lock window per frame instead of per
-                // packet batch. Same boundary math as the batch (an ascending
-                // decode run landing at begin()+passFrontCount, #104's clamp),
-                // the same invariants; the per-frame abort re-check kills the
-                // pass BETWEEN packets as before (cancel-aware 원존).
-                bool frameAborted = false;
-                for (VideoFrame& vf : ready) {
-                    if (frameAborted) break;
-                    if (vf.pts >= lo + seamGuard) {
-                        crossed = true; // seam reached — refill done
-                        continue;       // the guard frame itself is discarded
-                    }
-                    if (vf.pts >= lo) continue; // [lo, lo + seamGuard): decoded
-                                                // for the references, discarded
-                    std::lock_guard<std::mutex> lk(m);
-                    if (stop || wantSeek || jogTargetPts < 0 || !prefillBack ||
-                        vSeekSeq.load(std::memory_order_relaxed) != gen) {
-                        frameAborted = true; // nothing pushed this frame;
-                                             // the front keeps what landed
-                        break;
-                    }
-                    if (passFrontCount > jogRing.size())
-                        passFrontCount = jogRing.size();
-                    jogRing.insert(jogRing.begin() + passFrontCount,
-                                   std::move(vf));
-                    jogRingBytes += FrameBytes(jogRing[passFrontCount]);
-                    ++passFrontCount;
-                    TrimRingBack(); // the caps bind per frame (absolute byte cap)
+                    vSeekSeq.load(std::memory_order_relaxed) != gen) {
+                    frameAborted = true; // nothing pushed this frame;
+                                         // the front keeps what landed
+                    break;
                 }
-                if (frameAborted) break; // unwind fully — the pass is done
+                if (passFrontCount > jogRing.size())
+                    passFrontCount = jogRing.size();
+                jogRing.insert(jogRing.begin() + passFrontCount,
+                               std::move(vf));
+                jogRingBytes += FrameBytes(jogRing[passFrontCount]);
+                ++passFrontCount;
+                TrimRingBack(); // the caps bind per frame (absolute byte cap)
             }
-            if (crossed) break;
+            if (frameAborted || crossed) break;
         }
         if (crossed) {
             // Fill-rate evidence (#101 T1): one line per completed pass — a
