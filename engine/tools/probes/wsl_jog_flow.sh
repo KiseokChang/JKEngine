@@ -332,9 +332,14 @@ vpt13_dump() { # $1=오프셋 $2=outfile — 원문 단열 덤프
     tail -n +"$((($1)+1))" "$CLOG" | grep -a '^\[vpt13\]' > "$2" || true
 }
 vpt13_analyze() { # $1=stream file $2=dir(+1/-1) → "n maxdd tspan" 한 줄
+    # (+0 캐스트 — #102 M-1 정산 원장행의 수형): substr 결과 = 비-strnum 문자열 —
+    # mawk/gawk의 문자-숫자 비교 규칙에서 "10.100" < "9.993" 같은 **사전식 문자열
+    # 판정**이 참으로 나오며(spike 4건의 "D가 감소한 샘플(n)" 오판의 진원 —
+    # rising 행도 잔상이 걸리고, b2/b3-era badway=0은 같은 길이 문자열의 사전식/
+    # 수치 순서 우연 일치), maxdd/배드웨이 전부 숫자 캐스트 +0으로 판정해야 한다.
     awk -v s="$2" '
-        { if (match($0,/D=(-?[0-9.]+)/)) d=substr($0,RSTART+2,RLENGTH-2)
-          if (match($0,/T=(-?[0-9.]+)/)) t=substr($0,RSTART+2,RLENGTH-2)
+        { if (match($0,/D=(-?[0-9.]+)/)) d=substr($0,RSTART+2,RLENGTH-2)+0
+          if (match($0,/T=(-?[0-9.]+)/)) t=substr($0,RSTART+2,RLENGTH-2)+0
           if (n>0) { dd=d-pd; if (dd<0) dd=-dd
                      if (n>1 && dd>maxdd) maxdd=dd
                      if (n>1 && (s>0 ? (d < pd-0.04) : (d > pd+0.04))) badway=n }
@@ -430,7 +435,7 @@ ANF_G=$(vpt13_analyze "$LOGDIR/${JOGRUN}_fwd_glide.txt" 1)
 read -r GF_N GF_MAXDD GF_TSPAN GF_BADWAY <<EOF
 $ANF_G
 EOF
-GRISE=$(awk '{if (match($0,/T=(-?[0-9.]+)/)) { t=substr($0,RSTART+2,RLENGTH-2); if (p!="" && t-p>=0.03) r++; p=t } } END{print r+0}' "$LOGDIR/${JOGRUN}_fwd_glide.txt")
+GRISE=$(awk '{if (match($0,/T=(-?[0-9.]+)/)) { t=substr($0,RSTART+2,RLENGTH-2)+0; if (p!="" && t-p>=0.03) r++; p=t } } END{print r+0}' "$LOGDIR/${JOGRUN}_fwd_glide.txt")
 echo "FWD-GLIDE-VALS: samples=$GF_N span=$GF_TSPAN rises=$GRISE"
 awk "BEGIN{exit (($GF_TSPAN+0 >= 0.15) && ($GRISE+0 >= 2) && ($GF_N+0 >= 3)) ? 0 : 1}" || { FWDERR=$((FWDERR+1)); echo "JOG-FAIL: FWD zero-input glide=$GF_TSPAN rises=$GRISE (관성 연장 원문 부족 — r2)"; }
 [ "$PAUSED_SNAP" = "true" ] || { FWDERR=$((FWDERR+1)); echo "JOG-FAIL: FWD parked after snap — paused=$PAUSED_SNAP"; }
@@ -534,7 +539,7 @@ sleep 1.1   # 프리필 패스(즉시 견인)+400ms legacy release(coast 없음)
 vpt13_dump "$OFFB" "$LOGDIR/${JOGRUN}_bwd_stream.txt"
 tail -n +"$((OFFB+1))" "$CLOG" | grep -a '^\[vptB\]' > "$LOGDIR/${JOGRUN}_bwd_vptB.txt" || true
 NRB=$(wc -l < "$LOGDIR/${JOGRUN}_bwd_vptB.txt")
-SPANB=$(awk '{ if (match($0,/span=([0-9.]+)/)) { s=substr($0,RSTART+5,RLENGTH-5); if (n==0||s>maxs) maxs=s; n++ } } END{print maxs+0}' "$LOGDIR/${JOGRUN}_bwd_vptB.txt")
+SPANB=$(awk '{ if (match($0,/span=([0-9.]+)/)) { s=substr($0,RSTART+5,RLENGTH-5)+0; if (n==0||s>maxs) maxs=s; n++ } } END{print maxs+0}' "$LOGDIR/${JOGRUN}_bwd_vptB.txt")
 LOMIN=$(awk '{ if (match($0,/lo=(-?[0-9.]+)/)) { l=substr($0,RSTART+3,RLENGTH-3)+0; if (n==0||l<minl) minl=l; n++ } } END{print minl+0}' "$LOGDIR/${JOGRUN}_bwd_stream.txt")
 ST=$(status)
 LANDEDB=$(p_of "$ST")
@@ -838,8 +843,8 @@ awk "BEGIN{exit (($AN2_TSPAN+0)/10.0 >= 1.3*$SLOWQ) ? 0 : 1}" || { REVERR=$((REV
 awk "BEGIN{exit ((\"$ERRR\"+0) <= 0.3) ? 0 : 1}" || { REVERR=$((REVERR+1)); echo "JOG-FAIL: REV landing err=$ERRR > 0.3"; }
 # r2 관성 원문 = burst 종료 이후 행의 무입력 T 감소(≥0.15 s·감소 ≥2)
 tail -n +"$((OFF_END2+1))" "$CLOG" | grep -a '^\[vpt13\]' > "$LOGDIR/${JOGRUN}_rev_glide.txt" || true
-GRISE2=$(awk '{if (match($0,/T=(-?[0-9.]+)/)) { t=substr($0,RSTART+2,RLENGTH-2); if (p!="" && p-t>=0.03) r++; p=t } } END{print r+0}' "$LOGDIR/${JOGRUN}_rev_glide.txt")
-GT2=$(awk '{if (match($0,/T=(-?[0-9.]+)/)) { t=substr($0,RSTART+2,RLENGTH-2); if (n==0||t<mint) mint=t; if (n==0||t>maxt) maxt=t; n++ } } END{print maxt-mint+0}' "$LOGDIR/${JOGRUN}_rev_glide.txt")
+GRISE2=$(awk '{if (match($0,/T=(-?[0-9.]+)/)) { t=substr($0,RSTART+2,RLENGTH-2)+0; if (p!="" && p-t>=0.03) r++; p=t } } END{print r+0}' "$LOGDIR/${JOGRUN}_rev_glide.txt")
+GT2=$(awk '{if (match($0,/T=(-?[0-9.]+)/)) { t=substr($0,RSTART+2,RLENGTH-2)+0; if (n==0||t<mint) mint=t; if (n==0||t>maxt) maxt=t; n++ } } END{print maxt-mint+0}' "$LOGDIR/${JOGRUN}_rev_glide.txt")
 echo "REV-GLIDE-VALS: span=$GT2 recedes=$GRISE2"
 awk "BEGIN{exit (($GT2+0 >= 0.15) && ($GRISE2+0 >= 2)) ? 0 : 1}" || { REVERR=$((REVERR+1)); echo "JOG-FAIL: REV zero-input glide=$GT2 recedes=$GRISE2 (역방향 관성 동형 부족 — r2)"; }
 
