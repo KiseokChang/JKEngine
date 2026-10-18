@@ -1213,6 +1213,21 @@ struct ClientVPlayerApp::PlayerCore {
                     // discarded — the ring already holds this span.
                 }
                 for (VideoFrame& vf : pending) {
+                    // (#104, APPCRASH root: jkapp_vplayer.dll 0xc0000005 —
+                    // the event-log raw text: faulting module
+                    // jkapp_vplayer.dll, exception 0xc0000005, during a 4K «
+                    // walk 3/3 runs) — the byte cap is ABSOLUTE and evicts
+                    // UNCONDITIONALLY from the back (TrimRingBack), so the
+                    // caps can trim the ring PAST the prefix this pass
+                    // placed (a 10 s 4K pass = 648 frames × 12.4 MB = 8 GB >
+                    // 6 GB — the cap rides up with the fill). passFrontCount
+                    // then points outside the deque: begin()+n on a shrunken
+                    // or emptied deque is out-of-range UB. The pass's placed
+                    // prefix is also partially consumed by that evict wave;
+                    // whatever remains of it occupies the head of the ring,
+                    // so the honest boundary is the ring's real size here.
+                    if (passFrontCount > jogRing.size())
+                        passFrontCount = jogRing.size();
                     jogRing.insert(jogRing.begin() + passFrontCount,
                                    std::move(vf));
                     jogRingBytes += FrameBytes(jogRing[passFrontCount]);
@@ -2917,7 +2932,6 @@ void ClientVPlayerApp::SyncVideoTexture(SDL_Renderer* renderer) {
         }
         holdActive_ = cs.holding;
         holdGap_ = cs.shownGap;
-        holdTarget_ = cs.target;
         if (cs.holding) return; // the display holds the last uploaded frame
     } else {
         holdActive_ = false; // non-session render owns the picture

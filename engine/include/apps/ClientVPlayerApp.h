@@ -122,10 +122,9 @@ private:
     // synchronization). While holdActive_ the picture is FROZEN because the
     // session's decode is still crawling to a target the user pulled
     // backward from the shown frame; the UI surfaces "뒤 버퍼 채우는 중 —
-    // x.xs" (holdTarget_/holdGap_) for that span.
+    // x.xs" (holdGap_) for that span.
     bool holdActive_ = false;
     double holdGap_ = 0.0;      // target distance below the shown frame (s)
-    double holdTarget_ = 0.0;   // the queued dial target being reached (s)
     std::chrono::steady_clock::time_point lastHoldLog_{}; // 1 s row throttle
     bool jogActive_ = false;
     bool jogWasPlaying_ = false;
