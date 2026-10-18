@@ -219,12 +219,6 @@ private:
     std::chrono::steady_clock::time_point scrubStallSince_{};
     std::chrono::steady_clock::time_point scrubLastLog_{};
     double scrubLastRingLo_ = -1.0;
-
-    // Out-of-buffer jump notice (#105): set when a dial target fell below
-    // the ring front and the session was discarded for ONE precision seek;
-    // the UI displays it for 2.5 s (the seekError-notice convention).
-    std::string outBufNote_;
-    std::chrono::steady_clock::time_point outBufNoteAt_{};
 };
 
 } // namespace jk
