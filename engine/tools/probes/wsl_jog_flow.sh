@@ -550,17 +550,27 @@ ANB=$(vpt13_analyze "$LOGDIR/${JOGRUN}_bwd_stream.txt" -1)
 read -r ANB_N ANB_MAXDD ANB_TSPAN ANB_BADWAY <<EOF
 $ANB
 EOF
+# 링 실시간 성장 원문(#106 — 프레임 단위 점진 삽입): 세션 구간의 [vpt13] 행에서
+# 값이 이전 행보다 내려간 행 = 100ms 스로틀 창 안에서 링 앞이 실제로 내려간
+# 증거(성장 관측 행) — [vptB] pass 행의 frames= 필드도 패스당 배치 프레임 수.
+GROWTHN=$(awk '{ if (match($0,/lo=(-?[0-9.]+)/)) { l=substr($0,RSTART+3,RLENGTH-3)+0; if (p!="" && l<p) g++; p=l } } END{print g+0}' "$LOGDIR/${JOGRUN}_bwd_stream.txt")
+FRAMESB=$(awk '{ if (match($0,/frames=([0-9]+)/)) { f=substr($0,RSTART+7,RLENGTH-7)+0; if (n==0||f>maxf) maxf=f; n++ } } END{print maxf+0}' "$LOGDIR/${JOGRUN}_bwd_vptB.txt")
 RAWB=$(awk "BEGIN{printf \"%.3f\", 2*$SLOWQ}")
 DELTB=$(awk "BEGIN{d=$SEEDB-$LANDEDB; printf \"%.3f\", d}")
 MAXB=$(awk "BEGIN{printf \"%.3f\", $SLOWQ+0.04}")
 ERRB=$(awk "BEGIN{e=$SEEDB-2*$SLOWQ-$LANDEDB; if(e<0)e=-e; printf \"%.3f\", e}")
-echo "BWD-VALS: seed=$SEEDB landed=$LANDEDB delta=$DELTB raw=$RAWB maxstep=$ANB_MAXDD (bound $MAXB) lo_min=$LOMIN vptB=$NRB span=$SPANB"
+echo "BWD-VALS: seed=$SEEDB landed=$LANDEDB delta=$DELTB raw=$RAWB maxstep=$ANB_MAXDD (bound $MAXB) lo_min=$LOMIN vptB=$NRB span=$SPANB growth_rows=$GROWTHN pass_frames=$FRAMESB"
+echo "BWD-GROWTH: rows=$GROWTHN (100ms 창 안의 링 성장 관측 행 — #106 프레임 단위 점진 삽입 원문) pass_max_frames=$FRAMESB"
 [ "${ANB_N:-0}" -ge 2 ] || { BWDERR=$((BWDERR+1)); echo "JOG-FAIL: BWD samples=$ANB_N < 2 (세션 원문 부족)"; }
 [ "${ANB_BADWAY:-1}" -eq 0 ] || { BWDERR=$((BWDERR+1)); echo "JOG-FAIL: BWD direction — D가 증가한 샘플($ANB_BADWAY) (역방향 워크 원문 부족)"; }
 awk "BEGIN{exit ($ANB_MAXDD+0 <= $MAXB) ? 0 : 1}" || { BWDERR=$((BWDERR+1)); echo "JOG-FAIL: BWD step=$ANB_MAXDD > 2-frame quantum+slack (가속이 느린 영역에 유출 — r2 계약 위반)"; }
 awk "BEGIN{exit ($DELTB+0 >= 0.10 && $DELTB+0 <= 0.22) ? 0 : 1}" || { BWDERR=$((BWDERR+1)); echo "JOG-FAIL: BWD delta=$DELTB ∉ raw 2틱=0.133± (역방향 프레임 수준 미세 이동 원문 부족 — coast 유출 의심)"; }
 awk "BEGIN{exit (\"$ERRB\"+0 <= 0.06) ? 0 : 1}" || { BWDERR=$((BWDERR+1)); echo "JOG-FAIL: BWD landing err=$ERRB > 0.06 (틱당 정확 2프레임 착지 실패 — FWD SLOW 동형 게이트)"; }
 [ "${NRB:-0}" -ge 1 ] || { BWDERR=$((BWDERR+1)); echo "JOG-FAIL: BWD [vptB] rows=0 (프리필 히트 원문 부족 — 첫 뒤 틱이 10s 윈도로 패스를 견인해야 한다)"; }
+[ "${FRAMESB:-0}" -ge 30 ] \
+    || { BWDERR=$((BWDERR+1)); echo "JOG-FAIL: BWD pass_frames=$FRAMESB < 30 (패스당 배치 프레임 수 원문 부족 — #106 점진 삽입의 패스 성장 볼륨 미성립)"; }
+[ "${GROWTHN:-0}" -ge 1 ] \
+    || { BWDERR=$((BWDERR+1)); echo "JOG-FAIL: BWD growth_rows=0 (100ms 창 안의 링 성장 관측 행 0 — #106 실시간 성장 원문 부족)"; }
 awk "BEGIN{exit (($LOMIN+0 > 0.001) && ($LOMIN+0 <= $SEEDB-5.0)) ? 0 : 1}" \
     || { BWDERR=$((BWDERR+1)); echo "JOG-FAIL: BWD lo_min=$LOMIN ≤ seed-5 아님 (프레임 front 사전 확장 원문 부족)"; }
 [ "$PAUSEDB" = "true" ] || { BWDERR=$((BWDERR+1)); echo "JOG-FAIL: BWD parked after snap — paused=$PAUSEDB"; }
@@ -905,7 +915,7 @@ LEFT=$(ps -eo args | grep -ic 'buildwsl/[j]kdesktop' || true)
 
 echo "=== verdict"
 echo "JOG-RUN-VALS-SLOW: run=$JOGRUN slow_seed=$SEEDS slow_landed=$LANDEDS slow_delta=$DELTS slow_raw=$RAWS slow_maxstep=$ANS_MAXDD slow_err=$ERRS slow_samples=$ANS_N glide_fwd_span=$GF_TSPAN rise=$GRISE glide_rev_span=$GT2 recede=$GRISE2"
-echo "JOG-RUN-VALS-BWD: run=$JOGRUN bwd_seed=$SEEDB bwd_landed=$LANDEDB bwd_delta=$DELTB bwd_raw=$RAWB bwd_err=$ERRB bwd_step=$ANB_MAXDD bwd_lo_min=$LOMIN bwd_vptB=$NRB bwd_span=$SPANB bwd_samples=$ANB_N clamp_seed=$SEEDD clamp_landed=$LANDEDD clamp_tspan=$AND_TSPAN clamp_lo0=$SIG0 clamp_lom1=$SIGN1 clamp_dmin=$DMINB clamp_samples=$AND_N"
+echo "JOG-RUN-VALS-BWD: run=$JOGRUN bwd_seed=$SEEDB bwd_landed=$LANDEDB bwd_delta=$DELTB bwd_raw=$RAWB bwd_err=$ERRB bwd_step=$ANB_MAXDD bwd_lo_min=$LOMIN bwd_vptB=$NRB bwd_span=$SPANB bwd_samples=$ANB_N growth_rows=$GROWTHN pass_frames=$FRAMESB clamp_seed=$SEEDD clamp_landed=$LANDEDD clamp_tspan=$AND_TSPAN clamp_lo0=$SIG0 clamp_lom1=$SIGN1 clamp_dmin=$DMINB clamp_samples=$AND_N"
 echo "JOG-RUN-VALS: run=$JOGRUN fwd_seed=$SEED fwd_Tspan=$AN_TSPAN fwd_maxdD=$AN_MAXDD fwd_T_end=$LATEST_T fwd_landed=$LANDED fwd_err=$ERRF fwd_glide=$GLIDEF fwd_samples=$AN_N rev_seed=$SEED2 rev_T_end=$T_END2 rev_landed=$LANDED2 rev_err=$ERRR rev_glide=$GLIDER rev_samples=$AN2_N mute_samples=$MIDSAMP mute_mid=$(pause_of "$STMID") mute_after=$(pause_of "$STAFTER") ping_ms=$PINGMS"
 TOTERR=$((FWDERR+REVERR+MUTEERR+SLOWERR+BWDERR+DSWERR+SEEDERR))
 echo "JOG-RUN-VALS-DIRSW: run=$JOGRUN dirsw_seed=$SEEDW dirsw_samples=$ANW_N switch_quantum=$DS_DD post_rise_rows=$DS_RISE dirsw_landed=$LANDEDW dirsw_Tend=$DS_TLAST dirsw_err=$ERRW seed_play_gap=$GAPPLAY seed_play=$SPSEED seed_park_gap=$QGAP seed_park=$QPSEED"
