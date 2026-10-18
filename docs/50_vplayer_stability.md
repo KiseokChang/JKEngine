@@ -1116,6 +1116,33 @@ specs/2026-09-24-vplayer-smooth-scrub-design.md, 진행·태스크 리포트는
     일치 → **수형 = awk 추출 전량 `+0` 숫자 캐스트(analyze+glide 등
     9곳)** — 재실측 f6/g1/g2 3런 **badway=0 전 leg 원문** — "패싱 페이스
     재조정" 불요(흐름 결함 아님 = probe 결함).
+  - **#108/#107-2 진단+수리 원장(진단 스파이크 = 5bfa709-era, 수리 커밋 =
+    942280c "버퍼 밖 점프 — 냉각 1회 규약+세션 유지")**: **BWD leg의 앱
+    사망(툴 timeout 연쇄 6/7 런)의 진원 = #106 커밋(15b5df2)의 이중 잠금**
+    — 프레임 단위 삽입 루프가 **이미 m 홀드 중인 패킷 블록 안**에서
+    `lock_guard lk(m)`을 프레임마다 다시 잡는 이중 잠금 = 비재귀 뮤텍스의
+    UB가 **자기-교착으로 표현**: 역방향 워크의 1-양자 이탈 순간 비디오
+    스레드가 패스 속에서 영구 정지하고 UI 스레드는
+    ` pthread_mutex_lock`에서 영구 봉쇄 — **cdb 덤프 원문**(붙잡힌
+    생존 프로세스, engine/tmp/t1b_fix2/b108_stack.txt): 스레드 0 =
+    `ntdll!NtWaitForSingleObject ← libwinpthread_1!pthread_mutex_lock ←
+    jkapp_vplayer+0x328d91`·워커 스레드 = 커널 대기 병쇄 — **프로세스·창
+    생존 + 툴 응답 죽음** = 3/3 런 등호(b108 spike·b108_.log의 행 원문:
+    [vptSEED] 2·[vpt13] 1·이탈 행 D=22.033 lo=22.100 후 침묵) —
+    "동결/크래시"의 두 서사 모두 이 진원의 표면이었다(#104-era bad_alloc =
+    OOB·#106-era deadlock — 480p에서도 점검 자극 놓침 없이 3/3 재현).
+    **수형 = 프레임 루프 밖 패킷 블록의 m 홀드 제거(프레임당 단일
+    라운드)**·완치 원문: 틱당 이탈 → **패스 즉발(pass=0.142/0.156s·
+    lo→8.333·frames= 필드 원문)**·워크 전 구간 생존·프레임 정밀
+    (maxstep 0.067·err ≤0.014)·**프로세스/펌프 생존**(툴 응답 원문)·
+    probe = x107a의 BWD 착지 23.400/CLAMP 131행·vptB 3건 — 캐논 등호
+    3축(691/668/304·PASS 세트 0 diff) 재실측.
+  - **#105 원장행(미착지 확정 — 원복 계승)**: "버퍼밖 깊은 뒤로는 포기"의
+    즉시 점프 1차 수형 = 점프 스팸([vptJUMP] 13건·p106a 원문)+펌프 정지
+    재현(3런) — **원복**(engine/tmp/t2jog101/p106a/b/c*·
+    fix5_receipts/run_j105a/f106b_stdout.log) — 깊은 뒤 경계 규약의
+    재수형은 진단 결과의 진원(이중 잠금)이 소거된 후 재판정(지속 조건
+    포함 제안 = t1-fix9-report).
   - **#102 조그 방향 전환 수리(진단 원문 = .superpowers/sdd/2026-10-12-
     vplayer-backward-prefill/jog-dirswitch-spike-report.md + engine/tmp/
     t2dirsw 그림/행 원료 — 스파이크 전용, 커밋 0)**: 사용자 실측("조그 맨
