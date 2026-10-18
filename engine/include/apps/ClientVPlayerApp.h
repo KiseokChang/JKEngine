@@ -116,6 +116,17 @@ private:
     // D), so every jog session's entry seeds from THIS, not from st.pos; the
     // audio clock keeps owning playback and the status row (원존).
     double lastShownPts_ = -1.0;
+
+    // Creep-display hold state (#103 fix 1): SyncVideoTexture's per-frame
+    // verdict, read by the UI in the same render pass (same thread — no
+    // synchronization). While holdActive_ the picture is FROZEN because the
+    // session's decode is still crawling to a target the user pulled
+    // backward from the shown frame; the UI surfaces "뒤 버퍼 채우는 중 —
+    // x.xs" (holdTarget_/holdGap_) for that span.
+    bool holdActive_ = false;
+    double holdGap_ = 0.0;      // target distance below the shown frame (s)
+    double holdTarget_ = 0.0;   // the queued dial target being reached (s)
+    std::chrono::steady_clock::time_point lastHoldLog_{}; // 1 s row throttle
     bool jogActive_ = false;
     bool jogWasPlaying_ = false;
     double jogTarget_ = 0;      // scrub target while dragging (UI time)

@@ -629,9 +629,16 @@ $AND
 EOF
 SIG0=$(awk '{ if (match($0,/lo=(-?[0-9.]+)/)) { l=substr($0,RSTART+3,RLENGTH-3)+0; if (match($0,/D=(-?[0-9.]+)/)) { d=substr($0,RSTART+2,RLENGTH-2)+0; if (l==0.0 && d>0.5) n++ } } } END{print n+0}' "$LOGDIR/${JOGRUN}_bwdclamp_stream.txt")
 SIGN1=$(grep -ac 'lo=-1.000' "$LOGDIR/${JOGRUN}_bwdclamp_stream.txt")
+# 표시 방향 정책 서명(#103 fix 1 — 원존 계보): 폴백/프리필 크리프 구간의
+# 그림 hold 행들([vptHOLD] — 마지막 표시 유지·앞 크리프 소거). 합성 클립
+# (480p·패스 ms급)은 hold 자극이 부족할 수 있다 — 0이면 hard fail 아님
+# (WARN 원문 — wedge WARN과 동일 계보·4K/롱GOP 런이 본계).
+HOLDN=$(tail -n +"$((OFFD+1))" "$CLOG" | grep -ac '\[vptHOLD\]' || true)
+tail -n +"$((OFFD+1))" "$CLOG" | grep -a '\[vptHOLD\]' > "$LOGDIR/${JOGRUN}_hold_rows.txt" || true
+HOLDGAP=$(awk '{ if (match($0,/gap=([0-9.]+)/)) { g=substr($0,RSTART+4,RLENGTH-4)+0; if (n==0||g>maxg) maxg=g; n++ } } END{print maxg+0}' "$LOGDIR/${JOGRUN}_hold_rows.txt")
 DMINB=$(awk '{ if (match($0,/D=(-?[0-9.]+)/)) { d=substr($0,RSTART+2,RLENGTH-2)+0; if (n==0||d<dmin) dmin=d; n++ } } END{print dmin+0}' "$LOGDIR/${JOGRUN}_bwdclamp_stream.txt")
 ERRD=$(awk "BEGIN{a=$LANDEDD; if(a<0)a=-a; printf \"%.3f\", a}")
-echo "CLAMP-VALS: seed=$SEEDD landed=$LANDEDD samples=$AND_N maxjump=$AND_MAXDD tspan=$AND_TSPAN lo0rows=$SIG0 lom1=$SIGN1 dmin=$DMINB vptB=$NRD"
+echo "CLAMP-VALS: seed=$SEEDD landed=$LANDEDD samples=$AND_N maxjump=$AND_MAXDD tspan=$AND_TSPAN lo0rows=$SIG0 lom1=$SIGN1 dmin=$DMINB vptB=$NRD hold_rows=$HOLDN hold_maxgap=$HOLDGAP"
 [ "${AND_N:-0}" -ge 4 ] || { BWDERR=$((BWDERR+1)); echo "JOG-FAIL: CLAMP samples=$AND_N < 4 (크리프 세션 원문 부족)"; }
 [ "${AND_BADWAY:-1}" -eq 0 ] || { BWDERR=$((BWDERR+1)); echo "JOG-FAIL: CLAMP direction — D가 증가한 샘플($AND_BADWAY) (graceful 크리프 위반)"; }
 awk "BEGIN{exit ($AND_MAXDD+0 <= $BOUND) ? 0 : 1}" || { BWDERR=$((BWDERR+1)); echo "JOG-FAIL: CLAMP continuity max|dD|=$AND_MAXDD > bound $BOUND (크리프 중 급점프 — 유계 위반)"; }
@@ -640,6 +647,9 @@ awk "BEGIN{exit (\"$LANDEDD\"+0 <= 0.05) ? 0 : 1}" || { BWDERR=$((BWDERR+1)); ec
 awk "BEGIN{exit ($DMINB+0 >= -0.05) ? 0 : 1}" || { BWDERR=$((BWDERR+1)); echo "JOG-FAIL: CLAMP D_min=$DMINB < -0.05 (클램프 밖 역행 — 유계 위반)"; }
 [ "$SIGN1" -ge 1 ] && echo "WEDGE-CONFIRMED: lo=-1.000 재건 행 $SIGN1개 (폴백 wedge 서명 — 1행 원문)" \
     || echo "WARN: wedge 서명 0 — 프리필/체인 패스가 전 구간을 제공해 폴백 불요였다(자극 부족 — docs/50 §12.5 #1 직감 계보·원장행; hard fail 아님)"
+echo "CLAMP-HOLD: rows=$HOLDN maxgap=$HOLDGAP"
+[ "${HOLDN:-0}" -ge 1 ] && echo "HOLD-CONFIRMED: 그림 hold 행 $HOLDN개 (maxgap=$HOLDGAP — #103 표시 정책 원문)" \
+    || echo "WARN: hold 행 0 — 크리프 자극 부족(합성 클립 패스 ms급 — 표시 크리프가 hold 없이 관측 안 될 수 있음; hard fail 아님)"
 [ "$PAUSEDC" = "true" ] || { BWDERR=$((BWDERR+1)); echo "JOG-FAIL: CLAMP parked after snap — paused=$PAUSEDC"; }
 P1C=$(p_of "$(status)"); sleep 0.5; P2C=$(p_of "$(status)")
 DPC=$(awk "BEGIN{d=$P2C-$P1C; if(d<0)d=-d; printf \"%.3f\", d}")
@@ -874,7 +884,7 @@ ok "$P" || { MUTEERR=$((MUTEERR+1)); echo "JOG-FAIL: ping ok 미성립 — $P"; 
 echo "=== 13. teardown (클라+서버 회수 — [vpt13] 스트림 원문 단열 cp)"
 mkdir -p "$RECEIVE"
 tail -n +1 "$CLOG" | grep -a '\[vptSEED\]' > "$LOGDIR/${JOGRUN}_seed_rows.txt" || true
-cp "$LOGDIR/${JOGRUN}_fwd_stream.txt" "$LOGDIR/${JOGRUN}_rev_stream.txt" "$LOGDIR/${JOGRUN}_mute_stream.txt" "$LOGDIR/${JOGRUN}_bwd_stream.txt" "$LOGDIR/${JOGRUN}_bwd_vptB.txt" "$LOGDIR/${JOGRUN}_bwdclamp_stream.txt" "$LOGDIR/${JOGRUN}_bwdclamp_vptB.txt" "$LOGDIR/${JOGRUN}_dirsw_stream.txt" "$LOGDIR/${JOGRUN}_seed_rows.txt" "$RECEIVE/" 2>/dev/null
+cp "$LOGDIR/${JOGRUN}_fwd_stream.txt" "$LOGDIR/${JOGRUN}_rev_stream.txt" "$LOGDIR/${JOGRUN}_mute_stream.txt" "$LOGDIR/${JOGRUN}_bwd_stream.txt" "$LOGDIR/${JOGRUN}_bwd_vptB.txt" "$LOGDIR/${JOGRUN}_bwdclamp_stream.txt" "$LOGDIR/${JOGRUN}_bwdclamp_vptB.txt" "$LOGDIR/${JOGRUN}_dirsw_stream.txt" "$LOGDIR/${JOGRUN}_seed_rows.txt" "$LOGDIR/${JOGRUN}_hold_rows.txt" "$RECEIVE/" 2>/dev/null
 cp "$CLOG" "$RECEIVE/${JOGRUN}_client_stderr_full.txt" 2>/dev/null
 cp "$LOGDIR/jog_st_$JOGRUN.log" "$RECEIVE/${JOGRUN}_selftest.log" 2>/dev/null
 echo "RECEIVED: $(ls "$RECEIVE" | tr '\n' ' ')"

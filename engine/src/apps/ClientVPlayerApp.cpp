@@ -657,6 +657,39 @@ struct ClientVPlayerApp::PlayerCore {
         prefillBack = on;
     }
 
+    // Creep-display policy (#103 fix 1, user verdict 2026-10-12 "다시 GOP단위로
+    // 움직이고 재생은 GOP안에서 순방향으로만 되는듯"): while the session's
+    // decode front is BEHIND the dial target, JogFrame's "newest at/below the
+    // dial" fallback shows the decode's frontier — the wedged fallback creep
+    // walks the picture FORWARD through a GOP (the keyframe landing → forward
+    // decode → target). When the TARGET is also BELOW the shown picture, that
+    // motion is the opposite of what the user asked: hold the last displayed
+    // frame instead, and surface a backfill status; the natural ahead-creep
+    // (target above the shown, forward walk) displays as-is (원존).
+    // m-protected snapshot for the UI thread.
+    struct CreepState {
+        bool holding = false; // display hold in force this frame
+        double target = 0;    // session dial target (UI time)
+        double frontier = -1; // decode front = the ring's newest pts
+        double shownGap = 0;  // target distance below the shown frame
+    };
+    CreepState CreepAgainst(double shownPts) {
+        std::lock_guard<std::mutex> lk(m);
+        CreepState s;
+        if (jogTargetPts < 0) return s;
+        s.target = jogTargetPts;
+        s.frontier = jogRing.empty() ? -1.0 : jogRing.back().pts;
+        s.shownGap = shownPts - jogTargetPts;
+        // Hold = the dial's truth is not served yet by the decode AND pulls
+        // backward from the picture. 3-frame slacks: below them the walk's
+        // normal ring hits / near-caught decode are not creep (a decode
+        // within 3 frames of the dial IS the next hit).
+        s.holding = jogTargetPts < shownPts - 3.0 / (fps > 0.0 ? fps : 30.0) &&
+                    s.frontier >= 0.0 &&
+                    s.frontier < jogTargetPts - 3.0 / (fps > 0.0 ? fps : 30.0);
+        return s;
+    }
+
     // Three-stage seek (T2, spec D3). Runs on the worker; takes and releases
     // `lk` itself. The point of the split: avformat_seek_file is blocking disk
     // I/O, and it used to run under `m` — freezing the UI thread's SnapNow
@@ -2863,7 +2896,31 @@ void ClientVPlayerApp::SyncVideoTexture(SDL_Renderer* renderer) {
         // does not apply, the dial owns the picture. avDelay is scrub-domain
         // pure (spec: display-gate shift only for playback) and not applied.
         if (!p->JogFrame(vf)) return;
+        // Creep display policy (#103 fix 1): when the dial target sits BELOW
+        // the shown picture AND the decode front is still crawling up to it
+        // (the wedged fallback's keyframe landing → forward decode), do NOT
+        // walk the picture forward through the gap the user never asked to
+        // cross — hold the last displayed frame and surface a backfill
+        // status instead; the hold's landing reflects the target as the
+        // creep closes (the hit then sits at/below the dial). An ahead
+        // target's creep = a natural forward walk (원존, unchanged).
+        const PlayerCore::CreepState cs = p->CreepAgainst(lastShownPts_);
+        if (cs.holding) {
+            const auto hNow = std::chrono::steady_clock::now();
+            if (hNow - lastHoldLog_ >= std::chrono::milliseconds(1000)) {
+                lastHoldLog_ = hNow;
+                std::fprintf(stderr,
+                             "[vptHOLD] hold T=%.3f frontier=%.3f gap=%.3f\n",
+                             cs.target, cs.frontier, cs.shownGap);
+                std::fflush(stderr);
+            }
+        }
+        holdActive_ = cs.holding;
+        holdGap_ = cs.shownGap;
+        holdTarget_ = cs.target;
+        if (cs.holding) return; // the display holds the last uploaded frame
     } else {
+        holdActive_ = false; // non-session render owns the picture
         // The user A/V offset lives here — a display-gate shift only. Positive
         // avDelay shows frames earlier relative to the audio clock (= audio
         // later), without touching the clock/seek domain (no stepping drift).
@@ -3072,6 +3129,16 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
     // separate); the same notice color as the failed-seek status above.
     if (st.audioDeviceFailed)
         ImGui::TextColored(kErrorRed, "%s", "오디오 장치를 열 수 없음(무음 재생)");
+
+    // Creep-hold status (#103 fix 1): the picture is held because the
+    // session's decode is still filling the ring back toward a target the
+    // user pulled BELOW the shown frame (the wedge's forward crawl — the
+    // display policy keeps that crawl suppressed). Same one-line convention
+    // as the notices above; the number = how far the requested dial sits
+    // behind the shown picture.
+    if (holdActive_)
+        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.35f, 1.0f),
+                           "뒤 버퍼 채우는 중 — %.1fs", holdGap_);
 
     ImGui::Separator();
 
