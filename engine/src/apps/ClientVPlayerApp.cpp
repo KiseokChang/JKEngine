@@ -332,6 +332,16 @@ struct ClientVPlayerApp::PlayerCore {
     // fresh core starts inert).
     static constexpr double kPrefillAheadSecs = 10.0;
     bool prefillBack = false;
+    // Pre-fill pass beacon (T2 fix r2, #108 post): true for the whole span of
+    // a ScrubChainExtend pass decode loop (the video thread owns it — set at
+    // the loop's entrance, cleared at its every exit). The UI's 400 ms legacy
+    // release gate reads it to HOLD the session exit while a pass is still
+    // filling (see the wheel block in BuildUi): releasing mid-pass closed the
+    // session and the next tick re-entered with a fresh dial seed = the pass
+    // frontier frame — the dial truth vanished between sessions (x107b's
+    // landing err 9.003 lineage). Relaxed suffices: the UI's hold decision is
+    // frame-late tolerant the same way its 16 ms gate already is.
+    std::atomic<bool> passActive{false};
 
     // Pixel buffer pool for decoded frames (NV12, or RGBA for odd dims;
     // video-thread-only state): see the VideoFrame comment. Slots whose
@@ -1163,6 +1173,9 @@ struct ClientVPlayerApp::PlayerCore {
         // Frames this pass has placed between the old front and the new one
         // (the insert boundary above rides this count).
         size_t passFrontCount = 0;
+        // Pass beacon (T2 fix r2): the UI's 400 ms release gate holds the
+        // session exit while this beacon is live — see the field comment.
+        passActive.store(true, std::memory_order_release);
         while (true) {
             {
                 std::lock_guard<std::mutex> lk(m);
@@ -1218,6 +1231,7 @@ struct ClientVPlayerApp::PlayerCore {
             }
             if (frameAborted || crossed) break;
         }
+        passActive.store(false, std::memory_order_release); // every path's exit
         if (crossed) {
             // Fill-rate evidence (#101 T1): one line per completed pass — a
             // pass only completes when the front genuinely extended, so this
@@ -3639,11 +3653,21 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
                             std::abs(wheelVel_) * kWDecayCap;
                         wheelInertiaFrame_ = std::chrono::steady_clock::now();
                     }
-                } else if (quiet >= 0.400) {
+                } else if (quiet >= 0.400 &&
+                           !p->passActive.load(std::memory_order_acquire)) {
                     // A slow-ended gesture (or a lone tick whose rate the
                     // estimate cannot see — it needs ≥2 samples): the 400 ms
                     // idle release is exactly the legacy shape, so slow
                     // deliberate ticking keeps ONE session.
+                    // Session continuity (T2 fix r2, #108 post): a PASS in
+                    // flight holds this exit — releasing mid-pass closed the
+                    // session and the next tick re-entered with a fresh seed
+                    // at the pass frontier frame (the dial truth lost between
+                    // sessions = the bwd landing err 9.0/9.8 lineage). The
+                    // quiet clock keeps running, so the deferred release
+                    // fires the frame after the pass ends — the session rides
+                    // through the pass, and the snap seeks the user's dial
+                    // target, not the frontier.
                     finishScrub();
                     wheelScrubbing_ = false;
                 }
