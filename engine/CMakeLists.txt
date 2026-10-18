@@ -716,12 +716,60 @@ if(DEFINED ENV{SPATIAL_PLAYER_ROOT})
     #   오히려 alspan.h의 custom to_address가 std::to_address(C++20)와 ADL
     #   충돌한다 — 상향 금지(실측 원장 — engine/tmp 풀 로그).
     set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
-    add_subdirectory("$ENV{SPATIAL_PLAYER_ROOT}"
-                     "${CMAKE_BINARY_DIR}/spatial-player-build"
-                     EXCLUDE_FROM_ALL)
-    target_link_libraries(jkapp_music PRIVATE audio_core)
+    if(DEFINED ENV{SPATIAL_OPENAL_LIB})
+        # T2 폰 leg (spike 2026-10-19, docs/phone-leg-spike-report.md §5 —
+        # report.md §5 — #110): 폰(Termux aarch64·clang·cmake 4.4.4·네트워크
+        # 0)은 FetchContent(GIT_REPOSITORY — 네트워크 청구)를 쓸 수 없어 T1
+        # 스파이크 킷이 만든 aarch64 libopenal.a(폰 $TMPDIR 전개·저장소 조달/
+        # 커밋 없음)를 재용한다 — SPATIAL_OPENAL_LIB(정적 libopenal.a 경로)+
+        # SPATIAL_OPENAL_INCLUDE(AL/alext.h 등 헤더 dir) env로만. audio_core는
+        # 4소스(wav/spatial/decoder/stream_player)를 폰 배치된 spatial-player
+        # 소스 트리에서 컴파일해 jkapp_music에 정적 합류한다(소스 목록 조건부 =
+        # SPATIAL_PLAYER_ROOT — T1 WSL/Win의 add_subdirectory와 동일 4소스
+        # 구성·C++17 고정(spatial-player 계약 — 상향금지 원장 승계)). WSL/Win은
+        # 이 env를 둘 다 정의하지 않는다(아래 else — T1 계약 무변조).
+        # PIC: jk_audio_core는 SHARED 모듈(jkapp_music)에 흡수되므로
+        # CMAKE_POSITION_INDEPENDENT_CODE ON(engine 전역 — non-WIN32)이 먹어
+        # 들어가고, IMPORTED libopenal.a는 생산자(킷 CMake)가
+        # -DCMAKE_POSITION_INDEPENDENT_CODE=ON으로 만든 것이라는 계약
+        # (stage-3 task 7 "recompile with -fPIC" 원장 승계).
+        add_library(jk_music_openala STATIC IMPORTED GLOBAL)
+        set_target_properties(jk_music_openala PROPERTIES
+            IMPORTED_LOCATION "$ENV{SPATIAL_OPENAL_LIB}")
+        # 전이 시스템 라이브러리 — IMPORTED 정적 아카이브가 openal의
+        # INTERFACE_LINK_LIBRARIES(백엔드 시스템 lib)를 전복시킨다: add_subdirectory
+        # 수형(Win/WSL)은 OpenAL::OpenAL의 INTERFACE가 libpulse/libsndio… 를
+        # 그대로 달아주지만 IMPORTED 재용은 그 정보가 없다 — 빠지면 jkapp_music.so
+        # 링크가 "undefined symbol"(WSL V2 실측 sio_setpar)으로 dlopen 사망.
+        # SPATIAL_OPENAL_LINK = 생산자(build 킷)의 백엔드 링크 세트(env-only —
+        # 스페이스 구분 list 변환; 폰: "-lOpenSLES" 계획 — 백엔드 제한 빌드와 짝).
+        if(DEFINED ENV{SPATIAL_OPENAL_LINK})
+            string(REPLACE " " ";" _jk_openal_link "$ENV{SPATIAL_OPENAL_LINK}")
+            set_target_properties(jk_music_openala PROPERTIES
+                INTERFACE_LINK_LIBRARIES "${_jk_openal_link}")
+        endif()
+        add_library(jk_audio_core STATIC
+            "$ENV{SPATIAL_PLAYER_ROOT}/src/wav.cpp"
+            "$ENV{SPATIAL_PLAYER_ROOT}/src/spatial.cpp"
+            "$ENV{SPATIAL_PLAYER_ROOT}/src/decoder.cpp"
+            "$ENV{SPATIAL_PLAYER_ROOT}/src/stream_player.cpp"
+        )
+        target_include_directories(jk_audio_core PUBLIC
+            "$ENV{SPATIAL_PLAYER_ROOT}/src"          # spatial.h/stream_player.h…
+            "$ENV{SPATIAL_PLAYER_ROOT}/third_party"  # dr_*/stb_vorbis (decoder.cpp)
+            "$ENV{SPATIAL_OPENAL_INCLUDE}")          # AL/alext.h (spatial.cpp)
+        set_target_properties(jk_audio_core PROPERTIES CXX_STANDARD 17)
+        target_compile_features(jk_audio_core PUBLIC cxx_std_17)
+        target_link_libraries(jk_audio_core PUBLIC jk_music_openala)
+        target_link_libraries(jkapp_music PRIVATE jk_audio_core)
+    else()
+        add_subdirectory("$ENV{SPATIAL_PLAYER_ROOT}"
+                         "${CMAKE_BINARY_DIR}/spatial-player-build"
+                         EXCLUDE_FROM_ALL)
+        target_link_libraries(jkapp_music PRIVATE audio_core)
+        set_target_properties(OpenAL PROPERTIES COMPILE_OPTIONS "-include;cstdint")
+    endif()
     target_compile_definitions(jkapp_music PRIVATE JK_MUSIC_SPATIAL_LEG)
-    set_target_properties(OpenAL PROPERTIES COMPILE_OPTIONS "-include;cstdint")
 endif()
 
 # Screenshot viewer module (agent platform, docs/35 Task 4): lists
