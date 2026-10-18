@@ -1026,9 +1026,34 @@ specs/2026-09-24-vplayer-smooth-scrub-design.md, 진행·태스크 리포트는
     라이브 행만 추가된 비커밋 혼입 소각 = **fix-r2 바이너리 대조 재런 1회
     (JOG_RUN=fix2r1) 전원 ALL PASS·BWD SLOW/DEEP·FWD/REV/MUTE·ping 74ms
     캐논 등호 원문**(수취 = engine/tmp/t2jog101/fix2r1_* 7종).
-  - **EYES-PENDING 뒤로 조작 체감**(프레임 정밀·FWD 동일)=사용자 선언·
-    프리필 깊이(kPrefillAheadSecs 10s)/디코드 정책=재량(플랜 게이트 #2
-    — 기각 시 즉시 수리).
+  - **#103 뒤 조그 표시 정책(b2f6fec — 사용자 실측 2026-10-12 "다시 GOP단위로
+    움직이고 재생은 GOP안에서 순방향으로만 되는듯"의 표시 축 수리)**: **진단
+    원문 확인** — 폴백 wedge(SeekScrub)의 착지→전방 디코드 크리프 동안
+    JogFrame의 "다이얼 이하 최신" 폴백 표시가 **디코드 프런트어를 그대로
+    보여준다** = 그림이 GOP 경계로 점프 후 GOP 안을 **순방향으로만** 크롤
+    하는 게 사용자가 본 현상(코드 원존: SyncVideoTexture의 세션 표시
+    leg·JogFrame :621-634); 롱GOP 재현 클립 = **ffmpeg(lipx264) 부재
+    실측과다 — 조달 성공**(winget ffmpeg-8.1.1 full·vpt103_longgop.mp4 =
+    480x270@30·30s·**엄격 8s GOP 키 0/8/16/24 -skip_frame nokey 실측**)·
+    4K(패스 3.79s 원장)에서의 실측 재현 = 4K « 워크가 **~5s에서 UI/워크가
+    동결**([vpt11] 4행·[vpt13] 34/51행 = 실측 2런 — **신규 2차 결함 원장
+    — 패스 mid-flight 중 UI 정지 원인 미판명, 다음 라인**) → 표시 정책:
+    **①크리프 표시 hold** — 다이얼 타깃이 표시 그림 아래(뒤쪽 타깃)이면서
+    디코드 프런트가 타깃까지 3프레임以上 남았으면 그림 = **마지막 표시
+    프레임 유지(hold)** + 상태 1행(`뒤 버퍼 채우는 중 — x.xs`·[
+    vptHOLD] 1s 행) — 앞으로 크롤하는 그림 표기 소거(사용자 의사와 반대
+    방향 이동 소각)·크리프 착지(3프레임 이내 도달) 시 최신 히트로
+    반영; **앞쪽 타깃의 자연 전방 크리프 = 원존**. **probe = 9d CLAMP
+    leg에 hold 행 관측 축 신설(2런 hold_rows=0/0 + WARN = 합성 클립에선
+    프리필이 워크보다 빨라 hold 자극 없음 = 사양 정합 원문)**·2런
+    (hold1/hold2) 전부 ALL PASS — DIRSW 0.046/0.034·상승 0/0·시드
+    gap 0.139/0.092·기존 legs 회귀 0(err ≤0.017)·668 등호 2런.
+  - **원장행(#103 수리 밖)**: 4K « 워크 동결(~5s, 2/2 런) = 패스 mid-flight
+    중 UI 정지 — 미판명(패스의 m/vdecM hold 간 UI 점유 의심) — **다음
+    라인 1종**·버퍼 온난화(#103 fix 2 = 일시정지 중 무세션 링 예열) =
+    **미수형(조건부 — hold 실측이 480p 환경에서 hold-자극 부족으로 성립
+    못함·무세션 상시 디코드 = idle 계약 비용(4K 패스 3.79s+) vs 혜택
+    불명) — 체감 EYES에서 요구 시 수형**.
   - **#102 조그 방향 전환 수리(진단 원문 = .superpowers/sdd/2026-10-12-
     vplayer-backward-prefill/jog-dirswitch-spike-report.md + engine/tmp/
     t2dirsw 그림/행 원료 — 스파이크 전용, 커밋 0)**: 사용자 실측("조그 맨
