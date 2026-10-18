@@ -1183,57 +1183,53 @@ struct ClientVPlayerApp::PlayerCore {
                 if (stop || wantSeek || jogTargetPts < 0 || !prefillBack ||
                     vSeekSeq.load(std::memory_order_relaxed) != gen)
                     break; // re-check AFTER decode: nothing stale may be pushed
-                // Collect THIS packet's below-front run and insert it just
-                // above the pass's already-placed prefix (deque front-insert
-                // order contract, #101 T1). The pass decodes FORWARD — pts
-                // ascending — and every new run must land BETWEEN the prefix
-                // the pass already placed and the ring's original front, so a
-                // plain push_front is wrong two ways: it would order the run
-                // DESCENDING (the front-insert order flip), and the very
-                // second frame trips the front probe on a front its own
-                // previous push just lowered — one frame per chain pass, the
-                // frame-sparse ring the reverse walk starves on (fix-r0 run 1
-                // [vptB] 원문: span 11.733 s at 0.9 MB). Insert at the prefix
-                // boundary instead; the byte/span caps still bind via
-                // TrimRingBack. The front falls ONCE per PASS — the first
-                // packet's insert carries the run's own low end (pass-wide
-                // minimum), later packets stack above the prefix — and the
-                // whole pass stays far under the UI stall detector's 250 ms
-                // window for ordinary content.
-                std::deque<VideoFrame> pending;
+                // Insert each decoded frame just above the pass's already-
+                // placed prefix (deque front-insert order contract, #101 T1).
+                // The pass decodes FORWARD — pts ascending — and every frame
+                // must land BETWEEN the prefix the pass placed and the ring's
+                // original front: a plain push_front would order the run
+                // DESCENDING (the front-insert order flip) and the second
+                // frame would trip the front probe on a front its own previous
+                // push just lowered — one frame per chain pass, the sparse
+                // ring the reverse walk starves on (fix-r0 run 1 [vptB] 원문:
+                // span 11.733 s at 0.9 MB). The boundary insert keeps the
+                // ring globally ascending; #106 grades the lock to one short
+                // round per frame so the front's recession is visible per
+                // frame.
+                // FRAME-GRADED progressive insert (#106, user ask 2026-10-12
+                // "조그하면서도 계속 디코드해서 채워지는 거죠?"): ONE SHORT lock
+                // round per decoded frame — the ring grows in real time while
+                // the pass runs, and the UI threads' m-competition (SnapNow/
+                // JogFrame) gets a fresh lock window per frame instead of per
+                // packet batch. Same boundary math as the batch (an ascending
+                // decode run landing at begin()+passFrontCount, #104's clamp),
+                // the same invariants; the per-frame abort re-check kills the
+                // pass BETWEEN packets as before (cancel-aware 원존).
+                bool frameAborted = false;
                 for (VideoFrame& vf : ready) {
+                    if (frameAborted) break;
                     if (vf.pts >= lo + seamGuard) {
                         crossed = true; // seam reached — refill done
                         continue;       // the guard frame itself is discarded
                     }
-                    if (vf.pts < lo) {
-                        pending.push_back(std::move(vf));
+                    if (vf.pts >= lo) continue; // [lo, lo + seamGuard): decoded
+                                                // for the references, discarded
+                    std::lock_guard<std::mutex> lk(m);
+                    if (stop || wantSeek || jogTargetPts < 0 || !prefillBack ||
+                        vSeekSeq.load(std::memory_order_relaxed) != gen) {
+                        frameAborted = true; // nothing pushed this frame;
+                                             // the front keeps what landed
+                        break;
                     }
-                    // pts in [lo, lo + seamGuard): decoded for the references,
-                    // discarded — the ring already holds this span.
-                }
-                for (VideoFrame& vf : pending) {
-                    // (#104, APPCRASH root: jkapp_vplayer.dll 0xc0000005 —
-                    // the event-log raw text: faulting module
-                    // jkapp_vplayer.dll, exception 0xc0000005, during a 4K «
-                    // walk 3/3 runs) — the byte cap is ABSOLUTE and evicts
-                    // UNCONDITIONALLY from the back (TrimRingBack), so the
-                    // caps can trim the ring PAST the prefix this pass
-                    // placed (a 10 s 4K pass = 648 frames × 12.4 MB = 8 GB >
-                    // 6 GB — the cap rides up with the fill). passFrontCount
-                    // then points outside the deque: begin()+n on a shrunken
-                    // or emptied deque is out-of-range UB. The pass's placed
-                    // prefix is also partially consumed by that evict wave;
-                    // whatever remains of it occupies the head of the ring,
-                    // so the honest boundary is the ring's real size here.
                     if (passFrontCount > jogRing.size())
                         passFrontCount = jogRing.size();
                     jogRing.insert(jogRing.begin() + passFrontCount,
                                    std::move(vf));
                     jogRingBytes += FrameBytes(jogRing[passFrontCount]);
                     ++passFrontCount;
+                    TrimRingBack(); // the caps bind per frame (absolute byte cap)
                 }
-                if (!pending.empty()) TrimRingBack();
+                if (frameAborted) break; // unwind fully — the pass is done
             }
             if (crossed) break;
         }
@@ -1242,12 +1238,14 @@ struct ClientVPlayerApp::PlayerCore {
             // pass only completes when the front genuinely extended, so this
             // is the prefill's PACE, not idle chatter. lo before/after would
             // need a capture; the depth/span/MB at the end + the pass wall
-            // time are what the probe reads.
+            // time are what the probe reads. (#106: frames= = this pass's
+            // placed-frame count — the fill's per-pass volume, which the
+            // frame-graded insert distributed over the pass's wall time.)
             std::lock_guard<std::mutex> lk(m);
             if (!jogRing.empty())
                 std::fprintf(stderr,
                              "[vptB] prefill t=%.3f pass=%.3f lo=%.3f D=%.3f "
-                             "span=%.3f MB=%.1f\n",
+                             "span=%.3f MB=%.1f frames=%zu\n",
                              std::chrono::duration<double>(
                                  std::chrono::steady_clock::now()
                                      .time_since_epoch())
@@ -1257,7 +1255,8 @@ struct ClientVPlayerApp::PlayerCore {
                                  .count(),
                              jogRing.front().pts, jogTargetPts,
                              jogRing.back().pts - jogRing.front().pts,
-                             (double)jogRingBytes / (1024.0 * 1024.0));
+                             (double)jogRingBytes / (1024.0 * 1024.0),
+                             passFrontCount);
             std::fflush(stderr);
         }
         av_frame_free(&work);
@@ -3575,25 +3574,6 @@ void ClientVPlayerApp::BuildUi(int w, int h) {
             if (d != jogLastSent_) {
                 p->JogTo(d);
                 jogLastSent_ = d;
-            }
-            // Stuck fallback ONLY (chain refills backward; forward decode creeps —
-            // a D pinned at the ring front with the target far below means the
-            // chain cannot serve this position, e.g. no earlier keyframe): fire the
-            // legacy keyframe scrub seek after 250 ms of no progress.
-            const bool ringMiss = st.jogRingLo >= 0.0 && d < st.jogRingLo - 0.5 / (fps > 0.0 ? fps : 30.0);
-            if (ringMiss) {
-                const auto now = std::chrono::steady_clock::now();
-                if (st.jogRingLo == scrubLastRingLo_) {
-                    if (std::chrono::duration<double>(now - scrubStallSince_).count() >= 0.250 &&
-                        jogTarget_ != jogLastSent_) {
-                        p->SeekScrub(jogTarget_);
-                        jogLastSent_ = jogTarget_;
-                        scrubStallSince_ = now; // re-arm — one fallback per stall
-                    }
-                } else {
-                    scrubStallSince_ = now; // ring moved — chain is making progress
-                }
-                scrubLastRingLo_ = st.jogRingLo;
             }
             // vpt13 flow evidence (docs/50 §11 probe gate): 100 ms throttle.
             const auto now = std::chrono::steady_clock::now();
