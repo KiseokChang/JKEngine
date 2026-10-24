@@ -822,10 +822,12 @@ if [ -f "$SPAT_SRC/src/spatial.cpp" ] && [ -s "$SPAT_ALLIB" ] \
     export SPATIAL_OPENAL_LIB="$SPAT_ALLIB"
     export SPATIAL_OPENAL_INCLUDE="$SPAT_ALINC"
     # 전이 링크 세트(WSL r1 원장 — IMPORTED 정적 재용은 openal INTERFACE를
-    # 전복): 킷2가 백엔드를 OpenSL(+Wave/Null)로 제한했으므로 -lOpenSLES 1종
-    # (ndk-sysroot 산출 $PREFIX/lib — T1 원문). 백엔드 재한을 바꾸는 재런은
+    # 전복): 킷2가 백엔드를 OpenSL(+Wave/Null)로 제했으므로 -lOpenSLES + 폰
+    # 실측(r3)에 추가된 -llog 2종 — OpenSL 백엔드가 __android_log_print
+    # (liblog)를 참조하고 누락 시 jkapp_music.so dlopen 사망. 둘 다
+    # ndk-sysroot 산출 $PREFIX/lib — T1 원문. 백엔드 재한을 바꾸는 재런은
     # env MUSP_OPENAL_LINK로 재정의.
-    export SPATIAL_OPENAL_LINK="${MUSP_OPENAL_LINK:--lOpenSLES}"
+    export SPATIAL_OPENAL_LINK="${MUSP_OPENAL_LINK:--lOpenSLES -llog}"
     export CMAKE_POLICY_VERSION_MINIMUM=3.5
     echo "LEG-STAGE-WIRED: stage=$SPAT_STAGE · lib=$SPAT_ALLIB($(wc -c < "$SPAT_ALLIB") bytes) · inc=$SPAT_ALINC · link=$SPATIAL_OPENAL_LINK"
     cmake -S . -B buildterm >"$TMPD/pmus_cmake_leg.log" 2>&1
@@ -944,22 +946,15 @@ mtool() { # $1=tool $2=args-json — music 앱 직행 릴레이(wsl 8b atool 수
           #   도구 허브 릴레이 원문. music 창 등록 전제라 레그 list 내에서만 온다)
     ctl "{\"tool\":\"app_tool\",\"args\":{\"app\":\"music\",\"tool\":\"$1\",\"args\":$2}}"
 }
-CAPTURE() { # $1=출력png — x11grab 1920x1080 시도, 화면 크기 파싱 재시도(import 금지 — libheif 파단 원문)
+CAPTURE() { # $1=출력png — 서버측 capture_region(agentctl)이 합성 프레임을 state/screenshots에 PNG 기록하고 cp. #110 T2 r3-r5 원장: ffmpeg x11grab은 /tmp/.X11-unix(X socket 부재)를 보고 상자 ENOENT — 폰 X1은 $TMPDIR/.X11-unix에 있어 ffmpeg libX11(Termux 미패치)와 불합. 서버 도구는 shm/렌더러 직독이라 소켓 계통 무관(원문 2026-10-25 실측).
     local OUT=$1
     rm -f "$OUT"
-    ffmpeg -hide_banner -loglevel error -f x11grab -video_size 1920x1080 \
-        -framerate 1 -i ":$DSP" -frames:v 1 "$OUT" >/dev/null 2>&1
-    if [ ! -s "$OUT" ]; then
-        SCR=$(ffmpeg -hide_banner -loglevel error -f x11grab -video_size 1920x1080 \
-            -framerate 1 -i ":$DSP" -frames:v 1 /dev/null 2>&1 \
-            | grep -aoE 'screen size [0-9]+x[0-9]+' | head -1 | sed 's/screen size //')
-        [ -n "$SCR" ] || SCR=1920x1005   # 폴백 유래 실측 — 폰 화면 1080 아님(docs/86 §3 #12·docs/87 §3 #15)
-        echo "CAPTURE-SIZE-ADJUST: $SCR"
-        ffmpeg -hide_banner -loglevel error -f x11grab -video_size "$SCR" \
-            -framerate 1 -i ":$DSP" -frames:v 1 "$OUT" >/dev/null 2>&1
-    fi
-    [ -s "$OUT" ] || FAIL "capture failed: $OUT"
-    echo "CAPTURE-OK: $OUT ($(wc -c < "$OUT") bytes)"
+    local R P
+    R=$(timeout 25 ./buildterm/jkdesktop agentctl '{"tool":"capture_region","args":{"x":0,"y":0,"w":1920,"h":1080}}' 2>/dev/null | grep -a '"ok"' | head -1)
+    P=$(printf '%s' "$R" | grep -ao '"path":"[^"]*"' | sed 's/"path":"//;s/"$//')
+    [ -n "$P" ] && cp "$P" "$OUT"
+    [ -s "$OUT" ] || FAIL "capture failed: $OUT (capture_region R=${R:0:120})"
+    echo "CAPTURE-OK: $OUT ($(wc -c < "$OUT") bytes) (src=$P)"
 }
 cclients() { # 클라 프로세스 목록(pid app utime stime — /proc stat, idle 라인 헬퍼 승계)
     for d in /proc/[0-9]*; do
@@ -1558,7 +1553,18 @@ XTAP_C_EOF
 fi
 XTQ=$(timeout 15 "$XT" ":$DSP" 0 0 0 0 0 2>&1 | head -1)
 echo "MUSP-XT-PROBE: ${XTQ:-none} (주입기 수령 원문 — taps=0 무해 정찰)"
-printf '%s' "$XTQ" | grep -aq XTAP-OK || FAIL "injector self-probe failed — $XTQ"
+if printf '%s' "$XTQ" | grep -aq XTAP-OK; then
+    XTAP_UP=1
+    echo "MUSP-XT-UP: 1 (XTEST 주입 경로 — #96 원장)"
+else
+    XTAP_UP=0
+    # [T2 r6 원장 수형]: xtap XOpenDisplay(:1) 무착탄(폰 X1 소켓 $TMPDIR 존치+
+    # raw connect refused — ffmpeg와 동일 X 계통 결손 원문) → 하드 FAIL 폐곡 →
+    # send_input 폴백 계약(#99 탭 라인 2396 선례 — XTEST 무응답 원장 수형).
+    # 주입 = 서버 도구 send_input(id=0 desk-wide hit-test — BuildSendInputOp
+    # 원문)·착탄 판정 = tapsettle 차분 축 재용(주입 경로와 무관).
+    echo "MUSP-XT-DOWNGRADE: send_input 폴백 계약(#99 선례) — xtap 원문=$XTQ"
+fi
 
 # px 차분기 — x11grab 전면 PNG(필터 1-4 포함)의 창 사각 언필터+유의 행 카운트
 # (wsl 16b2 px 수형의 ffmpeg-PNG 수형 — 자가 캡처 필터 0 전제와 이질 원장).
@@ -1702,10 +1708,22 @@ sleep 1
 # 커서 스프라이트 항 등화(런 1 원장 — 커서 혼입 착탄 오판 폐곡).
 XPARK_X=12 XPARK_Y=985
 xtapt() {
-    timeout 15 "$XT" ":$DSP" "$1" "$2" 1 120 100 "$XPARK_X" "$XPARK_Y" 2>&1 | head -2
+    if [ "${XTAP_UP:-1}" = 1 ]; then
+        timeout 15 "$XT" ":$DSP" "$1" "$2" 1 120 100 "$XPARK_X" "$XPARK_Y" 2>&1 | head -2
+    else
+        # send_input 폴백(#99 2396 선례 — XTEST 무응답 원장): id=0 desk-wide
+        # hit-test, 1탭(button 1). 착탄 판정 = tapsettle 차분 축(주입과 무관).
+        local R
+        R=$(ctl "{\"tool\":\"send_input\",\"args\":{\"op\":\"click\",\"id\":0,\"x\":$1,\"y\":$2,\"button\":1}}")
+        [ -n "$R" ] && printf 'XTAP-OK(send_input 폴백): %s\n' "$R" || printf 'XTAP-FAIL(send_input 폴백 응답 없음)\n'
+    fi
 }
 xtpark() { # 커서만 정착(기저 캡처 전 — taps=0 순수 motion)
-    timeout 15 "$XT" ":$DSP" "$XPARK_X" "$XPARK_Y" 0 0 0 "$XPARK_X" "$XPARK_Y" 2>&1 | head -1
+    if [ "${XTAP_UP:-1}" = 1 ]; then
+        timeout 15 "$XT" ":$DSP" "$XPARK_X" "$XPARK_Y" 0 0 0 "$XPARK_X" "$XPARK_Y" 2>&1 | head -1
+    else
+        echo "XTAP-FALLBACK-PARK: 생략(send_input은 pure motion 없음 — 클릭만 폴백)"
+    fi
 }
 tapsettle() { # $1=기저 png(abs) $2=tag $3=클라 x $4=클라 y $5=차분 행 임계 —
               # tapsettle 수형(16b2 원문 — 캡처기만 x11grab 전면+창 사각 차분으로 치환)
