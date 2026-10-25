@@ -215,6 +215,10 @@ add_library(jkcore STATIC
     src/agent/JKAgentClient.cpp
     src/agent/JKAgentJson.cpp
     src/agent/JKLlmEngine.cpp
+    # STT 구두 전사 사슬 (#112 T2 — 스펙 2026-10-25-stt-voice-design §3 ②):
+    # 창·imgui 무접촉 pure TU(스폰 leg — 순수 파서는 include/voice/SttVoice.h
+    # 인라인). jk::process 어댑터만 접점 — 축 분기 없음(Win/폰 공통).
+    src/voice/SttVoice.cpp
     src/JKHangulManager.cpp
     src/JKTextAtlas.cpp
     src/JKResourceCache.cpp

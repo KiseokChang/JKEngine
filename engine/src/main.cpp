@@ -105,6 +105,7 @@ extern "C" __declspec(dllimport) int __stdcall closesocket(
 #include <apps/MusicModel.h>  // selftest 2m/2s/2u — 뮤직 순수 부품(스펙 2026-10-09-music-library-design+2026-10-11-music-tags-design+2026-10-25-music-tagwrite — 2u ①-⑦ T1·⑧-⑭ T2)
 #include <apps/MusicDirStore.h>  // selftest 2o — 뮤직 폴더 저장소(플랜 2026-10-10-music-dirs-ui)
 #include <apps/MusicSpatialLeg.h>  // selftest 2n — 뮤직 spatial leg 순수 부품(스펙 2026-10-10-music-spatial-leg-design)
+#include <voice/SttVoice.h>  // selftest 2v-b/c — 전사 사슬 순수 부품(#112 T2·스펙 2026-10-25-stt-voice-design)
 #include <text/JKTextConv.h>  // selftest 2q — 경로 인코딩 사슬 변환 쌍(#94)
 #include <apps/ClientIdlePolicy.h>  // selftest 2i-c — 앱 Timer→더티 조건화 산치(#89 T2)
 #include <script/JKScriptHost.h>
@@ -8142,6 +8143,104 @@ static int RunAppSelfTest() {
         check(v4.enabled &&
                   std::strcmp(v4.reason, "구두 켬 (whisper-cli)") == 0,
               "2v-④ 전원 성립 = 구두 켬(스폰 계약 성립 — 판정부 유일 통과 수형)");
+    }
+
+    // 2v-b) wav — 16 kHz 모노 PCM WAV 헤더 판정부 (#112 T2 — 스펙 2026-10-25-
+    // stt-voice-design §3 ②·⑦ 계보·§2.4). 합성 RIFF/WAVE 블롭 — 파일 쓰기 0
+    // (순수 헤더 파싱 단정). ffmpeg 정규화 결과(-ar 16000 -ac 1 -f wav) 입력
+    // 전제 규약 — 스폰 0·전사 비결정 원칙 무접촉.
+    {
+        auto le16 = [](unsigned v, std::vector<unsigned char>& b) {
+            b.push_back(static_cast<unsigned char>(v & 0xFF));
+            b.push_back(static_cast<unsigned char>((v >> 8) & 0xFF));
+        };
+        auto le32 = [](unsigned long v, std::vector<unsigned char>& b) {
+            for (unsigned long s = 0; s < 32; s += 8)
+                b.push_back(static_cast<unsigned char>((v >> s) & 0xFF));
+        };
+        auto putTag = [](const char (&tag)[5], std::vector<unsigned char>& b) {
+            b.insert(b.end(), tag, tag + 4);
+        };
+        // riffBlob(모노/스테레오·레이트·비트심도·데이터 바이트) — 캐논 형태
+        // (RIFF+fmt 16+data)의 확장 파라미터 형 — 합격/거부 케이스 공용.
+        auto riffBlob = [&](unsigned channels, unsigned rate, unsigned bits,
+                            unsigned dataBytes) {
+            std::vector<unsigned char> b;
+            putTag("RIFF", b);
+            le32(0, b);  // riff size — 조립 뒤 패치
+            putTag("WAVE", b);
+            putTag("fmt ", b);
+            le32(16, b);  // fmt 청크 크기 (PCM 캐논 16)
+            le16(1, b);   // wFormatTag = PCM
+            le16(channels, b);
+            le32(rate, b);
+            le32(rate * channels * bits / 8, b);  // nAvgBytesPerSec
+            le16(channels * bits / 8, b);         // nBlockAlign
+            le16(bits, b);
+            putTag("data", b);
+            le32(dataBytes, b);
+            b.insert(b.end(), dataBytes,
+                     static_cast<unsigned char>('p'));  // 데이터 몸통 (값 무관)
+            const unsigned long riffSize =
+                static_cast<unsigned long>(b.size() - 8);
+            for (int i = 0; i < 4; ++i)
+                b[4 + i] = static_cast<unsigned char>((riffSize >> (8 * i)) &
+                                                      0xFF);
+            return b;
+        };
+        // ⑤ ffmpeg 정규화 결과와 동일 형태 = 합격.
+        {
+            const std::vector<unsigned char> okBlob =
+                riffBlob(1, 16000, 16, 64);
+            check(jk::voice::wav::Validate16kMono(okBlob.data(), okBlob.size()),
+                  "2v-⑤ 16k 모노 PCM 합성 = 합격(ffmpeg -ar 16000 -ac 1 정규화 "
+                  "전제)");
+        }
+        // ⑥ 비-16k (44.1kHz — 마이크 원시 출력 그대로) = 정직 거부 —
+        //   리샘플은 ffmpeg 몫, 리-인코드 재합성 금지(정규화 사전 계약).
+        {
+            const std::vector<unsigned char> rateBlob =
+                riffBlob(1, 44100, 16, 64);
+            check(!jk::voice::wav::Validate16kMono(rateBlob.data(),
+                                                   rateBlob.size()),
+                  "2v-⑥ 비-16k(44100) = 정직 거부(정규화 사전 계약 — 리샘플 재합성 "
+                  "금지)");
+        }
+        // ⑦ 스테레오 (termux-microphone-record 기본 축 수준) = 정직 거부 —
+        //   모노 축소도 정규화(ffmpeg -ac 1) 몫이다.
+        {
+            const std::vector<unsigned char> stBlob = riffBlob(2, 16000, 16, 64);
+            check(!jk::voice::wav::Validate16kMono(stBlob.data(),
+                                                   stBlob.size()),
+                  "2v-⑦ 스테레오 = 정직 거부(모노 규약 — 축소 재합성 금지)");
+        }
+    }
+
+    // 2v-c) transcript — whisper-cli stdout 최후 텍스트 절단 (#112 T2 — 스펙
+    // §3 ② 응답 형식·⑦ 계보). 고정 입력 블롭 — cli.cpp 원문 구조 실측 규약:
+    //   시스템 로그/usage/진행률은 전부 stderr — stdout은 세그먼트 행만
+    //   (첫 printf("\n") — s0==0 원문 + `[ts --> ts]  텍스트\n` 반복).
+    // 방어 원료 규약(ChatLlmActionParse 동형): 빈/이상 출력 = 빈 문자열
+    // 반환·err 없이 정직 — 본문 단정은 전사 비결정 원칙(§2.4) 유지.
+    {
+        // ⑧ 세그먼트 2행 + 선행 개행(원문 모양) = 최후 텍스트 절단 등호.
+        const std::string twoSegs =
+            "\n"
+            "[00:00:00.000 --> 00:00:01.560]  "
+            "\xec\xa7\x80\xeb\xa2\xb0\xec\xb0\xbe\xea\xb8\xb0\n"
+            "[00:00:01.560 --> 00:00:02.430]  \xec\xbc\x9c\xec\xa4\x98\n";
+        check(jk::voice::transcript::ParseLastText(twoSegs) ==
+                  "\xec\xbc\x9c\xec\xa4\x98",
+              "2v-⑧ 고정 cli 출력 2세그먼트 = 최후 텍스트 절단 등호(원문 구조)");
+        // ⑨ 빈 출력 = 빈 문자열(오류 없음 — 전사 결실 0의 모양).
+        check(jk::voice::transcript::ParseLastText("").empty(),
+              "2v-⑨ 빈 출력 = 빈 문자열 반환(오류 없음 — 방어 원료 규약)");
+        // ⑩ malformed (끊긴 타임스탬프+가짜 행) = 빈 문자열(구조 비적합 —
+        //   절단 불가를 조용한 쓰레기로 수용하지 않는다).
+        check(jk::voice::transcript::ParseLastText(
+                  "[00:00:00 --> 00:00\n\xea\xb0\x80\xec\xa7\x9c\n")
+                  .empty(),
+              "2v-⑩ malformed 출력 = 빈 문자열(세그먼트 구조 비적합 — 정직)");
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);
