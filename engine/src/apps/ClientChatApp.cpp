@@ -8,13 +8,21 @@
 // 입력·송신)는 백엔드 무관. 배선 실장=백로그(docs/80 §3 명단).
 #include <apps/ClientChatApp.h>
 
+#include <agent/JKLlmEngine.h>  // LoadChatConfig — 구두 턴 접점 인자(#112 T4)
 #include <apps/ChatRouter.h>
+#include <fs/JKFs.h>        // TempDir — 캡처 임시 WAV 경로 진실원(표면 소유)
 #include <JKTextAtlas.h>   // ResolveDesktopFontPath (docs/63 폰트 계약)
+#include <voice/SttVoice.h> // 캡처+턴 계약(#112 T3 소비 — 스펙 §3 ④·R2·R5)
 #include <imgui_impl_jkwindow.h>
 #include "theme/JKThemeImGui.h"
 #include <SDL.h>
 
 #include <cstdio>
+#include <filesystem>
+#include <system_error>
+#if !defined(_WIN32)
+#include <unistd.h>  // ::getpid — ThisProcessId 쌍둥이(MusicDirStore.h:52 계약)
+#endif
 
 namespace jk {
 namespace {
@@ -29,6 +37,16 @@ public:
         dc.FillRect(client);
     }
 };
+
+// 임시 wav 경로의 pid 접미 — MusicDirStore.h:64 ThisProcessId 쌍둥이 원문
+// 수형(쌍둥이 반복 선례 — kernel32 단일 선언·windows.h 전개 금지 계약).
+#if defined(_WIN32)
+extern "C" __declspec(dllimport) unsigned long __stdcall
+    GetCurrentProcessId(void);
+unsigned long ThisProcessId() { return GetCurrentProcessId(); }
+#else
+unsigned long ThisProcessId() { return static_cast<unsigned long>(::getpid()); }
+#endif
 
 std::string EscapeJson(const std::string& in) {
     std::string out;
@@ -57,7 +75,13 @@ std::string TrimText(const std::string& raw) {
 
 } // namespace
 
-ClientChatApp::~ClientChatApp() = default;
+ClientChatApp::~ClientChatApp() {
+    // 구두 워커 join 수형(ClientMusicApp 스캔 원문 계약 — 파괴 join): quit
+    // 경련+cv 기상 뒤 join. 진행 중 whisper 전사는 절단 계약 없음(T2 단일
+    // 마감 600s — 1발화 1-15s 관측)이라 창 닫힌 뒤 남은 전사만큼 기다린다
+    // — 원장행(리포트 §함정).
+    StopVoiceWorker();
+}
 
 void ClientChatApp::OnInit() {
     auto main = std::make_unique<SetRoot>("Chat");
@@ -67,6 +91,11 @@ void ClientChatApp::OnInit() {
 
     SetTimerInterval(16);   // 틱 = 배송 채널(#89 T1/T2 — 활동·더티 아님.
                             // 답신 폴링은 OnIdle — 응답 수령 시 더티)
+
+    // 구두 워커 — 단일 상시 스레드(생성 주기 원문 계약 — ClientMusicApp
+    // OnInit 수형). 이후의 구두 턴은 FinishVoice의 우편함 1발만 만든다
+    // (스레드 재창설 없음).
+    voice_ = std::thread([this] { VoiceWorker(); });
 
     ImGui::CreateContext();
     jk::theme::ApplyImGuiTheme();
@@ -84,6 +113,18 @@ void ClientChatApp::OnInit() {
 }
 
 void ClientChatApp::OnClose() {
+    // 구두 마이크 즉시 절단(legPlayer reset 수형 — ClientMusicApp OnClose의
+    // "창이 닫히는 프레임에 끊는다" 원문): 닫힘 시점에 캡처 중이면 정지 —
+    // 착지한 WAV는 이제 소비자가 없다(턴 큐에 실리기 전) — 잔산 소각.
+    if (voice::capture::IsCapturing()) {
+        const voice::capture::CaptureState st = voice::capture::GetCaptureState();
+        std::string capErr;
+        if (voice::capture::StopCapture(capErr) && !st.wavPath.empty()) {
+            std::error_code rmEc;
+            std::filesystem::remove(std::filesystem::path(st.wavPath), rmEc);
+        }
+        voiceStatus_.clear();
+    }
     // 텍스처 소유 없음 — ImGui만 봉합. 순서 계약: OnClose는 JKClientApplication
     // .cpp:260 기준 DestroyHiddenRenderer(:270)보다 먼저 불린다(ClientShotApp
     // .cpp:74 선례) → hidden renderer가 아직 살아 있어 Shutdown이 안전하다.
@@ -104,6 +145,18 @@ bool ClientChatApp::PreProcessMessage(const JKEvent& ev) {
     // (T1 게이트 재계약)이고 채팅은 정적 UI다. 남는 렌더 원 = 입력·테마
     // (게이트 활동)·응답 수령(OnIdle 폴백 — 응답 수령 틱만 더티, PollReplies).
     // 입력 중 커서 블링크 유지·무입력 정지는 수용(스펙 결정 ③).
+    //
+    // #112 T4 — 구두 핫키 F6 = hold-to-talk(R2+스펙 §3 ①): 누름=StartCapture
+    // ·해제=StopCapture→WAV→비동기 전사. 핫키를 **토글**(재누름=마침)로 하지
+    // 않은 근거(원장): TranslateSDLEvent(JKEvent.cpp:59)가 SDL repeat 플래그를
+    // 승계하지 않아 지속 누름의 자동재키 repeat KeyDown이 토글을 진동시킬 수
+    // 있다 — hold/down+up 모양은 repeat를 무해화 한다(캡처 중 repeat KeyDown
+    // = no-op). 버튼 쪽은 토글(ImGui::Button — 자동재키 없음).
+    if (ev.type == JKEventType::KeyDown && ev.keyCode == SDLK_F6) {
+        if (!voice::capture::IsCapturing()) StartVoice();
+    } else if (ev.type == JKEventType::KeyUp && ev.keyCode == SDLK_F6) {
+        if (voice::capture::IsCapturing()) FinishVoice();
+    }
     return true;
 }
 
@@ -112,6 +165,10 @@ void ClientChatApp::OnIdle() {
     // 정적 화면(무렌더)에서 답신을 영원히 못 받는다. 수령한 응답이 기록을
     // 바꿀 때 더티(PollReplies의 frameDirty_ — 원문 유지).
     PollReplies();
+    // 구두 턴 드레인(응답 펌프의 렌더 분리 수형 — music SpatialPump와 같은
+    // 자리): 폴링 자체는 무더티고 결과 도착(DrainVoice → 턴 치환·기록) 틱만
+    // 더티 — #89 조건화 계약. 대기 중 상태행 "전사 중…"은 정적 표기다.
+    DrainVoice();
 }
 
 void ClientChatApp::OnFrameCommitted() { frameDirty_ = false; }
@@ -224,11 +281,186 @@ void ClientChatApp::PollReplies() {
     }
 }
 
+// ---- 구두 표면 (#112 T4 — 스펙 §3 ④·R2·R5) --------------------------------
+void ClientChatApp::StartVoice() {
+    if (voice::capture::IsCapturing()) return;
+    // fail-closed 사전 판정(정직 거부 전 마이크 개방 낭비 소각) — T1 판정부
+    // verdict 원문 그대로(2v-a 4행 계약을 표면이 쓰는 얼굴).
+    bool binFound = false;
+    voice::run::ResolveCliPath(&binFound);
+    const jk::stt::VoiceVerdict v = jk::stt::VoiceLegVerdict(
+        jk::stt::VoiceWhisperRootSet(), binFound,
+        !voice::run::ResolveModelPath().empty());
+    if (!v.enabled) {
+        status_ = std::string("[!] ") + v.reason;
+        PublishNotify(v.reason);   // 인식 실패 단문(토표면 — ClientNotifyApp)
+        frameDirty_ = true;
+        return;
+    }
+    // 임시 WAV 경로 = 표면 소유 진실원(T3 계약 — "캡처 leg는 경로를 강요하지
+    // 않는다"). TempDir()+pid 접미(MusicDirStore ThisProcessId 쌍둥이 —
+    // 프로세스별 접촉 소관)+발화 순서 접미(결정론 — F6 재발화가 덮지 않게).
+    std::string capErr;
+    const std::string wav = jk::fs::TempDir() + "jkchat_voice_" +
+                            std::to_string(ThisProcessId()) + "_" +
+                            std::to_string(voiceWavSeq_++) + ".wav";
+    if (!voice::capture::StartCapture(wav, capErr)) {
+        status_ = "[!] " + capErr;   // SDL 개방 실패·진행 중 등 정직 거부 원문
+        frameDirty_ = true;
+        return;
+    }
+    status_.clear();
+    voiceStatus_ = koreanFont_ ? "녹음 중… (F6 해제 또는 [구두] 버튼으로 마침)"
+                               : "recording... (release F6 or press [Voice])";
+    frameDirty_ = true;   // 상태 전이 1틱만 더티 — 대기 무더티(#89 계약)
+}
+
+void ClientChatApp::FinishVoice() {
+    if (!voice::capture::IsCapturing()) return;
+    const voice::capture::CaptureState st = voice::capture::GetCaptureState();
+    std::string err;
+    if (!voice::capture::StopCapture(err)) {
+        // 빈 결실(PCM 0)·쓰기 실패 등 — 정직 거부 원문 그대로(턴 0건 —
+        // 기록을 부풀리지 않는다).
+        status_ = "[!] " + err;
+        voiceStatus_.clear();
+        frameDirty_ = true;
+        return;
+    }
+    // placeholder 턴(전사 비결정 — 1-15s) → 전사 도착 시 이 슬롯을 치환(R5 —
+    // "턴 기록에 전사 원문 도착 시 치환"). turns_는 append-only라 슬롯 안정.
+    turns_.push_back(Turn{ true, koreanFont_ ? "(전사 중…)" : "(transcribing...)" });
+    const size_t slot = turns_.size() - 1;
+    {
+        const std::lock_guard<std::mutex> lock(voiceMtx_);
+        voiceJobs_.push_back(VoiceJob{ st.wavPath, slot });
+    }
+    voiceCv_.notify_one();
+    voiceStatus_ = koreanFont_ ? "전사 중…" : "transcribing...";
+    frameDirty_ = true;
+    scrollBottom_ = true;
+}
+
+void ClientChatApp::DrainVoice() {
+    std::deque<VoiceDone> done;
+    std::deque<std::pair<std::string, std::string>> outbox;
+    {
+        const std::lock_guard<std::mutex> lock(voiceMtx_);
+        if (voiceDone_.empty() && voiceOutbox_.empty()) return;  // 무더티
+        done.swap(voiceDone_);
+        outbox.swap(voiceOutbox_);
+    }
+    // 기록 반영(§3 ④ — 전사 원문=정직 기록) → 도구 질의 송신 순서 계약:
+    // 답신([시스템] 항)이 기록에 도착한 뒤 창 서버 지시가 나간다.
+    for (const VoiceDone& d : done) {
+        if (d.slot >= turns_.size()) continue;   // 도달 없음(append-only 슬롯)
+        if (!d.ok && !d.err.empty()) {
+            turns_[d.slot] = Turn{ false, "[!] " + d.err };   // 정직 단문 치환
+            PublishNotify(d.err);   // 인식 실패 토스트(알림 표면 — §3 ④②)
+        } else {
+            turns_[d.slot].text = d.sttText;   // 치환 — 전사 원문 그대로
+        }
+        if (!d.guide.empty()) {
+            turns_.push_back(Turn{ false, d.guide });   // 접점 안내문
+        }
+        if (d.ok && d.launched) {
+            PublishNotify(!d.guide.empty() ? d.guide : d.sttText);
+        }
+        frameDirty_ = true;
+        scrollBottom_ = true;
+    }
+    // 도구 지시 전달 — 질의는 UI 축 전용통로(Surface를 워커가 만지지 않는다).
+    for (const auto& q : outbox) {
+        SendQuery(q.first.c_str(), q.second);
+        frameDirty_ = true;
+    }
+    if (!done.empty() && voiceStatus_.empty() == false) {
+        // 전사 수령 = 상태행 치환(대기 표기 종료 — R5). 연속 발화 대기 중이면
+        // 다음 FinishVoice가 다시 "전사 중…"을 얹는다.
+        voiceStatus_.clear();
+    }
+}
+
+void ClientChatApp::PublishNotify(const std::string& body) {
+    jk::client::JKClientSurface* surface = Surface();
+    if (!surface || !surface->IsConnected()) return;   // 토스트 2차 표면일 뿐
+    // ClientNotifyApp 토스트 선존 재용(agent.notify — 서버 publish_event가
+    // 스탬프를 찍고 jkapp_notify가 띄운다 — jkctl notify 원문 경로). 질의 id는
+    // 토스트 대역(0x40000000+) — pending_에 넣지 않아 PollReplies의 mine 체크
+    // 밖으로 흘려보낸다(기록에 publish_event 답신 JSON을 부풀리지 않는다).
+    const std::string args =
+        "{\"topic\":\"agent.notify\",\"data\":{\"title\":\"구두\",\"body\":\"" +
+        voice::turn::JsonEscapeStr(body) + "\"}}";
+    const uint32_t id = voiceToastId_++;
+    (void)surface->SendAgentQuery(
+        id, "{\"tool\":\"publish_event\",\"args\":" + args + "}");
+}
+
+void ClientChatApp::StopVoiceWorker() {
+    voiceQuit_.store(true, std::memory_order_release);
+    voiceCv_.notify_all();
+    if (voice_.joinable()) voice_.join();   // 파괴 join 수형(스캔 원문 계약)
+}
+
+void ClientChatApp::VoiceWorker() {
+    for (;;) {
+        std::string wav;
+        size_t slot = 0;
+        {
+            std::unique_lock<std::mutex> lock(voiceMtx_);
+            voiceCv_.wait(lock, [this] {
+                return voiceQuit_.load(std::memory_order_acquire) ||
+                       !voiceJobs_.empty();
+            });
+            if (voiceQuit_.load(std::memory_order_acquire)) return;
+            wav = std::move(voiceJobs_.front().wav);
+            slot = voiceJobs_.front().slot;
+            voiceJobs_.pop_front();
+        }
+        // chat.json은 워커 축에서 조달(파일 접촉 UI 축 밖 — 1-15s 전사 대기
+        // 동안 UI는 무더티). 미구성 cfg = 라우터 즉발+stub 폴백 원존 —
+        // "LLM이 아니어도 구두는 조작된다"(스펙 §3 ③).
+        const agent::ChatConfig cfg = agent::LoadChatConfig();
+        jk::voice::turn::VoiceTurnResult r;
+        // dispatch = 표면 소유 통로의 워커 측 우편함 — SendQuery/Surface는 UI
+        // 스레드 소유(계약)라 질의를 수발 큐에 적립하고 전송은 DrainVoice 몫.
+        // launch_app 지시는 앱 실행 토스트 단문 몫(§3 ④ — 알림 표면).
+        bool launched = false;
+        const jk::voice::turn::ToolDispatcher disp =
+            [this, &launched](const std::string& tool,
+                              const std::string& args) {
+                {
+                    const std::lock_guard<std::mutex> lock(voiceMtx_);
+                    if (voiceQuit_.load(std::memory_order_acquire)) return false;
+                    voiceOutbox_.emplace_back(tool, args);
+                }
+                if (tool == "launch_app") launched = true;
+                return true;
+            };
+        (void)jk::voice::turn::RunVoiceTurn(wav, cfg, disp, r);
+        // 임시 wav 소각(표면 소유 임시 경로의 정산 — 캡처 leg의 절반 WAV
+        // remove 수형 동일 원칙).
+        std::error_code rmEc;
+        std::filesystem::remove(std::filesystem::path(wav), rmEc);
+        VoiceDone done;
+        done.ok = r.ok;
+        done.sttText = r.sttText;
+        done.guide = r.guide;
+        done.err = r.err;
+        done.launched = launched;
+        done.slot = slot;
+        const std::lock_guard<std::mutex> lock(voiceMtx_);
+        voiceDone_.push_back(std::move(done));
+        // 기상 불요 — OnIdle의 드레인(응답 펌프 수형)이 매 이터레이션 본다.
+    }
+}
+
 void ClientChatApp::BuildUi(int w, int h) {
     // 서버 크롬이 상단 밴드를 먹는다(settings 레슨 8 — library 본문 동일).
     // T3 fix r1: 고정 30 → 밴드 산식 진실원(밴드+여백 6; s=1.0 등호 30).
     const float topY = static_cast<float>(jk::text::AppContentTopOffset());
-    const float inputH = 50.0f;   // 입력 1행 + 전송 버튼 + 상태 행
+    // 입력 1행 + 전송/구두 버튼 + 상태 행 + 구두 상태 행(R5 — 정직 표기 2행).
+    const float inputH = 70.0f;
     const float transH = static_cast<float>(h) - topY - inputH;
 
     // ---- 상: 대화 기록 ----
@@ -268,27 +500,45 @@ void ClientChatApp::BuildUi(int w, int h) {
     }
     ImGui::End();
 
-    // ---- 하: 입력 + 전송 + 상태 ----
+    // ---- 하: 입력 + 전송 + 구두 + 상태 ----
     ImGui::SetNextWindowPos(ImVec2(0, topY + transH));
     ImGui::SetNextWindowSize(ImVec2(static_cast<float>(w), inputH));
     if (ImGui::Begin(koreanFont_ ? "입력" : "Input", nullptr,
                      ImGuiWindowFlags_NoDecoration |
                          ImGuiWindowFlags_NoMove)) {
+        const bool capturing = voice::capture::IsCapturing();
+        const char* voiceLabel =
+            capturing ? (koreanFont_ ? "마침" : "Done")
+                      : (koreanFont_ ? "구두" : "Voice");
         const char* sendLabel = koreanFont_ ? "전송" : "Send";
-        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x -
-                                ImGui::CalcTextSize(sendLabel).x -
-                                ImGui::GetStyle().ItemSpacing.x - 24.0f);
+        const float rightW = ImGui::CalcTextSize(sendLabel).x +
+                             ImGui::CalcTextSize(voiceLabel).x +
+                             2.0f * 24.0f +
+                             2.0f * ImGui::GetStyle().ItemSpacing.x;
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - rightW);
         const bool enter = ImGui::InputText(
             "##chatinput", input_, sizeof(input_),
             ImGuiInputTextFlags_EnterReturnsTrue);
         ImGui::SameLine();
         const bool button = ImGui::Button(sendLabel);
+        ImGui::SameLine();
+        const bool voiceBtn = ImGui::Button(voiceLabel);
         if (enter || button) {
             const std::string text(input_);
             input_[0] = '\0';
             Submit(text);
         }
+        // [구두] 토글(스펙 R2) — 버튼은 자동재키가 없어 repeat 무해(F6 핫키
+        // hold 수명주기는 PreProcessMessage 원장행). 캡처 중 눌림 = 마침.
+        if (voiceBtn) {
+            if (capturing) FinishVoice();
+            else StartVoice();
+        }
         if (!status_.empty()) ImGui::TextWrapped("%s", status_.c_str());
+        // 구두 상태행(R5 — "녹음 중…/전사 중…"). 표기는 상태 전이 틱에만
+        // 더티를 낸다(StartVoice/FinishVoice/DrainVoice 소관 — 여기 무덴더).
+        if (!voiceStatus_.empty())
+            ImGui::TextWrapped("%s", voiceStatus_.c_str());
     }
     ImGui::End();
 }

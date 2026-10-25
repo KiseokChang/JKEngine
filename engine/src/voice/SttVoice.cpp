@@ -377,7 +377,9 @@ bool RunVoiceTurn(const std::string& wavPath, const agent::ChatConfig& cfg,
     std::string tool, args;
     if (!ChatActionQuery(action, tool, args)) return true;  // 도달 없음
     if (dispatch && dispatch(tool, args)) return true;
-    out.guide.clear();
+    // T3 리뷰 Minor ③ 접선(T4 병행 — guide 유지+err 병기): 전달 실패여도
+    // 접점이 결정한 안내문을 지우지 않는다 — 지시의 의도(guide)와 결과(err)를
+    // 둘 다 표면이 정직 기록한다(ClientChatApp T4 소비 계약과 정합).
     out.err = "구두 도구 지시 전달 실패 (" + tool + ")";
     return false;
 }
