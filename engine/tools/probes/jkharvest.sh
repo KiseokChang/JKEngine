@@ -157,7 +157,7 @@ echo "=== 5. 수확 — ① use_journal.jsonl 파일 직독(tail 20) ==="
 JROWS1=$(journal_rows)
 DELTA=$((JROWS1 - ${JROWS0:-0}))
 echo "JOURNAL-ROWS: $JROWS1 (프리 $JROWS0 → 포스트 $JROWS1 · delta=$DELTA · 콜 $CALLS)"
-echo "JOURNAL-PATH: $JOURNAL ($(wc -c < "$JOURNAL" 2>/dev/null || echo 0) bytes)"
+echo "JOURNAL-PATH: $JOURNAL ($([ -f "$JOURNAL" ] && wc -c < "$JOURNAL" || echo 0) bytes) — 리다이렉트 순서 원장: 부재 파일 'wc -c < f 2>/dev/null'은 2> 적용 전 개방 실패로 stderr 1행을 흘린다(폰 OBSERVE 런 r0 원장행) — [ -f ] 가드로 소거(r1)"
 if [ -s "$JOURNAL" ]; then
     tail -20 "$JOURNAL" | sed 's/^/  JR: /'
 else
