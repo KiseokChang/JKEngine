@@ -13,6 +13,19 @@
 #           (https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin)
 #   tiny-ko wabisabisocial/whisper-tiny-korean-ggml/ggml-tiny-ko.bin
 #           (https://huggingface.co/wabisabisocial/whisper-tiny-korean-ggml/resolve/main/ggml-tiny-ko.bin)
+#   small-komixv2(EYESfix Step B — 3순위 상향 후보·CER ~7.4% — 폰 지연 재판정
+#   대상): leuconoe/whisper-komixv2-ggml/ggml-small-komixv2.bin
+#           (https://huggingface.co/leuconoe/whisper-komixv2-ggml/resolve/main/ggml-small-komixv2.bin)
+#           핀 실측 원장(2026-10-25): 원본 seastar105/whisper-small-komixv2
+#           HF repo에는 ggml이 **없다**(siblings 전수 — safetensors/msgpack만)
+#           → 변환본 = komixv2 변환 가족 repo. 교차 등호: jaewontop/
+#           whisper-small-komixv2-ggml의 whisper-komixv2-ggml.bin sha256 =
+#           본 핀과 동일(별도 repo의 동일 blob — 2repo 교차 실측). 부기: 본
+#           조달기의 기존 tiny-ko 핀(dd6d9f46…) = leuconoe repo의
+#           ggml-tiny-komixv2.bin과 sha256 등호(같은 변환 가족 blob — 기존
+#           핀의 계보 규명 — 무변조).
+#           채용 = STT_SMALLKO=1 환경변수 명시(전 축 — 기본 핀 무변조 — 오버
+#           라이드 계열과 같은 축 무반영 명시 조달 관행).
 # 멱등: 파일이 있고 sha256이 핀과 일치하면 네트워크 없이 영수증만 인쇄한다.
 # sha256 불일치(부분 다운로드/변경) = 재조달(정직 — 조용한 대체 금지).
 # 오버라이드(축 무반영 명시 조달): STT_MODEL_DIR·STT_MODEL_URL·STT_MODEL_NAME.
@@ -37,6 +50,10 @@ SMALL_SIZE=487601967
 TINYKO_URL="https://huggingface.co/wabisabisocial/whisper-tiny-korean-ggml/resolve/main/ggml-tiny-ko.bin"
 TINYKO_SHA="dd6d9f46a7d292bb2ee4725ccb132bedde690ce2ee83e437a7786f8c67c41d08"
 TINYKO_SIZE=77691730
+# EYESfix Step B — 3순위 상향 핀 (small-komixv2 ggml 변환본 — 위 원장).
+SMALLKO_URL="https://huggingface.co/leuconoe/whisper-komixv2-ggml/resolve/main/ggml-small-komixv2.bin"
+SMALLKO_SHA="a428f6462d65c8f8942a2e1b9684910e5ff3a6873cc2b80856d549739627bba4"
+SMALLKO_SIZE=487601984
 
 case "$AXIS" in
     win)    DEF_DIR="build/stt-models"      DEF_URL="$SMALL_URL"
@@ -46,6 +63,14 @@ case "$AXIS" in
     termux) DEF_DIR="buildterm/stt-models"  DEF_URL="$TINYKO_URL"
             DEF_SHA="$TINYKO_SHA"  DEF_SIZE="$TINYKO_SIZE"  AXIS_BIN=phone ;;
 esac
+
+# EYESfix Step B — 3순위 명시 채용(기본 핀 무변조 — STT_SMALLKO=1 만).
+if [ "${STT_SMALLKO:-0}" = "1" ]; then
+    DEF_URL="$SMALLKO_URL"
+    DEF_SHA="$SMALLKO_SHA"
+    DEF_SIZE="$SMALLKO_SIZE"
+    echo "SMALLKO-SELECTED: small-komixv2 핀 채용 (3순위 — 명시 조달)"
+fi
 
 MODEL_DIR="${STT_MODEL_DIR:-$ENGINE/$DEF_DIR}"
 MODEL_URL="${STT_MODEL_URL:-$DEF_URL}"

@@ -199,7 +199,10 @@ namespace run {
 
 // whisper-cli 별도 프로세스 스폰 (스펙 §3 ② 권안 — 크래시 격리(폰 #3117
 // 원존)·모델 교체 무재링크). 인자 형식 = cli.cpp 원문(§3 ②):
-//   whisper-cli -m <model.ggml> -f <wav> -l ko
+//   whisper-cli -m <model.ggml> -f <wav> -l ko --prompt <라우터 어휘 힌트>
+// (--prompt = EYESfix Step A — 스폰 TU 원장(kVoicePrompt) — ChatRouter.cpp
+// kRouteTable/kAliasTable 어휘의 명령 도메인 힌트. 라우터 어휘 표 자체는
+// 단일 진실원 유지 — 이 표기는 원장 문서뿐.)
 // (-o* 플래그 금지 — cli.cpp 파싱 크래시 원장(T1 함정 3)·stdout 파싱 계약.)
 // 바이너리 resolve: jk::fs GetExecutablePath 형제(dir)의 whisper-build/
 // whisper-cli(.exe — build/whisper-build·buildwsl/whisper-build·폰

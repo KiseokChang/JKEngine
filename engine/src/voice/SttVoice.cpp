@@ -34,6 +34,24 @@ namespace run {
 // 축 재판정은 T3/T4 사용자 EYES 몫.
 constexpr char kVoiceLanguage[] = "ko";
 
+// 라우터 어휘 힌트 (EYESfix Step A — 2026-10-25 사용자 폰 EYES 판정
+// "음성인식 엉망" — "지뢰찾기 실행" 발화 → 전사 "ok" — 수형): whisper-cli
+// --prompt(초기 프롬프트 — cli.cpp 원문 "max n_text_ctx/2 tokens" 상한)에
+// 명령 도메인 어휘를 부여해 제한 발화 도메인의 전사 품질 기대를 상향한다.
+// 어휘 원문 = ChatRouter.cpp kRouteTable(+kAliasTable 한국어 별명) — 단일
+// 진실원(§2.1)이나 익명 네임스페이스라 직순회 불가 → 문자 리터럴 수형 +
+// 표와의 정합은 리포트 원문 계약(EYESfix-r1). 한국어 어휘만 두는 이유:
+// 전사 언어 핀 = -l ko(위 kVoiceLanguage)이고 prompt 토큰은 디코딩
+// 개시 시퀀스에 직접 들어가므로 영문 카탈로그 키(minesweeper) 혼입은 tiny류
+// 의 영문 전사 유입 리스크 — 앱 이름은 한국어 별명(kAliasTable) 소관.
+// **risk 원장행**: prompt는 디코딩 편향이므로 무발화/환각("click" 원존 —
+// T5 §6)이 prompt 어휘 사이의 "앱명+트리거" 조합형 환각으로 이어져
+// launch 미들 트리거가 성립할 수 있다 — v1 VAD 없이 완화 없음, 실발화
+// 재판정은 사용자 EYES 몫(정직 기록).
+constexpr char kVoicePrompt[] =
+    "지뢰찾기 테트리스 실행해줘 실행 열어줘 켜줘 닫아줘 꺼줘 앞으로 가져와 "
+    "포커스 창 목록 창목록 뭐 떠 있어";
+
 // 전체 마감 — JKLmEngine kTurnIdleKillMs(10분) 선형. transcribe는 모든
 // 진행 로그가 stderr라 관측 유무로 목을 줄 수 없어 **전체 마감** 1종만
 // 두었다(T2 계약 "타임아웃"). 초과 = TerminateJobTree kill(격리 계약).
@@ -155,7 +173,8 @@ bool WhisperTranscribe(const std::string& wavPath,
     jk::process::SpawnOptions opt;
     const std::string args =
         QuoteArg(bin) + " -m " + QuoteArg(modelPath) + " -f " +
-        QuoteArg(wavPath) + " -l " + kVoiceLanguage;
+        QuoteArg(wavPath) + " -l " + kVoiceLanguage + " --prompt " +
+        QuoteArg(kVoicePrompt);
     opt.commandLineUtf8 = args;
     opt.hideWindow = true;           // CREATE_NO_WINDOW + SW_HIDE
     opt.inheritedStdioPipes = true;  // stdout/stderr 분리 부모 파이프
