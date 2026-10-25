@@ -86,6 +86,15 @@ selftest 재실행 불요 — 캐논 = 전 태스크 리포트/progress의 건�
   수형 = **push-to-talk**(핫키+버튼 — VAD 상시 청취는 v2 재판정 — 환경꾸미기
   최소화 원칙의 직접 귀결).
 
+## §7-E. EYES 결제 기록 (규약 형식 — docs/90 §5.1)
+
+- **EYES-#112 폰 [구두] 실발화(발화→앱 실행)**: **PASS** — "잘되네요"
+  (사용자 2026-10-26 폰 실기기 — 3레그 배포[어휘 prompt 힌트+ollama-direct
+  --hidethinking/--nowordwrap+저널 leg] 흡수 후 첫 실발화 판정 — 캐논 폰
+  818 승계 원문 동봉[t3legs_deploy.log — PHONE-SELFTEST-A/B PASS=818]).
+- 나머지 EYES(Win 마이크·전사 오차 정밀판정·대화 체감·#114 APK dictate) =
+  PENDING 유지 — 사용자 선언 시 즉시 기록.
+
 ## §2. 라인 원장 (부품별 as-built — 원류 원문 1:1 수취 · 코드 재실측 0)
 
 ### §2.1 whisper.cpp vendor+조달기+WHISPER_ROOT 판정부 (T1 — 9512ba8)
