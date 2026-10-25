@@ -5,9 +5,15 @@
      the single resource is res/values/strings.xml (app label "JK"). -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- POST http://localhost:8090/talk = 앱의 유일 네트워크 사용(루프백) —
+         usesCleartextTraffic는 루프백 http 전용 원존(D3 — LAN 무인증 노출 수수
+         원장 승계: 8090은 loopback 기본 bind). IME 음성입력 별도 권한 0(D7). -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <application
         android:label="@string/app_name"
-        android:icon="@android:drawable/sym_def_app_icon">
+        android:icon="@android:drawable/sym_def_app_icon"
+        android:usesCleartextTraffic="true">
 
         <activity
             android:name=".MainActivity"
