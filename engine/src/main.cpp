@@ -8433,6 +8433,213 @@ static int RunAppSelfTest() {
         fs::remove_all(wdir, wEc);
     }
 
+    // 2x) m4a 태그 읽기 own 파서 — MP4 박스 보행 (#115 T1 — 스펙
+    // 2026-10-26-opus-m4a-design D1): ftyp→moov→udta→meta(hdlr 'mdir')→ilst
+    // →©nam/©ART/©alb(data atom — 타입 코드 1=UTF-8 통과·2=UTF-16(BOM 우선
+    // — DecodeId3Text 원문 leg 승계)). 합성 box 트리(2u 합성 블롭 원문 수
+    // 형 — FS 접점 = temp dir 전용·사후 소각 REMNANT 0). 재생 디코드는
+    // 비-목표(D6 — 순수 메타 leg만, 스폰 0). 3건(①무태그 폴백 ②태그 등호
+    // ③잘린 box 정직 거부 — 잘린/배신적 size = 부분 필드 소각).
+    {
+        namespace fs = std::filesystem;
+        namespace mt = jk::music::tags;
+        const fs::path tdir = fs::temp_directory_path() / "jk_music_m4a";
+        fs::remove_all(tdir);  // 선제거 — 이전 런 잔산(2s/2u 원문 수형)
+        fs::create_directories(tdir);
+
+        auto putFile = [](const fs::path& p,
+                          const std::vector<unsigned char>& bytes) {
+            std::ofstream f(p, std::ios::binary);
+            f.write(reinterpret_cast<const char*>(bytes.data()),
+                    static_cast<std::streamsize>(bytes.size()));
+            f.close();
+            return fs::file_size(p) == bytes.size();
+        };
+        auto pushBE32 = [](std::vector<unsigned char>& v, unsigned int x) {
+            for (int sh = 24; sh >= 0; sh -= 8)
+                v.push_back(static_cast<unsigned char>((x >> sh) & 0xFF));
+        };
+        auto concat = [](std::vector<std::vector<unsigned char>> parts) {
+            std::vector<unsigned char> b;
+            for (const auto& one : parts)
+                b.insert(b.end(), one.begin(), one.end());
+            return b;
+        };
+        // 박스 합성(2u pushBE32/mkFrame 수형) — size 필드는 body+8 실측;
+        // 위조 선언(잘림 시험용) = mkBoxDecl.
+        auto mkBoxDecl = [&](const char* type4, unsigned int declared,
+                             const std::vector<unsigned char>& body) {
+            std::vector<unsigned char> b;
+            pushBE32(b, declared);
+            b.insert(b.end(), type4, type4 + 4);
+            b.insert(b.end(), body.begin(), body.end());
+            return b;
+        };
+        auto mkBox = [&](const char* type4,
+                         const std::vector<unsigned char>& body) {
+            return mkBoxDecl(type4,
+                             static_cast<unsigned int>(body.size() + 8),
+                             body);
+        };
+        // ilst 항목의 data atom = [version 1B+flags 3B][locale 4B][값] 박스
+        // (파서 접점 p[3] = 타입 코드 — pushBE32 하나로 version 0+flags).
+        auto mkData = [&](unsigned int code,
+                          const std::vector<unsigned char>& value) {
+            std::vector<unsigned char> b;
+            pushBE32(b, code);   // version(상위 바이트 0)+flags(타입 코드)
+            pushBE32(b, 0);      // locale reserved
+            b.insert(b.end(), value.begin(), value.end());
+            return mkBox("data", b);
+        };
+        auto mkItem = [&](const char* type4,
+                          const std::vector<unsigned char>& dataBox) {
+            return mkBox(type4, dataBox);
+        };
+        // hdlr = [ver/flags][pre_defined]['mdir'][reserved+name 17B] — 파서
+        // 접점은 [8..12) 'mdir'뿐, 뒤는 값 무관.
+        auto mkHdlr = [&pushBE32]() {
+            std::vector<unsigned char> b;
+            pushBE32(b, 0);
+            pushBE32(b, 0);
+            const unsigned char mdir[4] = {'m', 'd', 'i', 'r'};
+            b.insert(b.end(), mdir, mdir + 4);
+            b.insert(b.end(), 17, 0);
+            return b;
+        };
+        // meta = full box(payload 머리 4B version/flags)+hdlr+ilst.
+        auto mkMeta = [&](const std::vector<unsigned char>& ilstBody) {
+            std::vector<unsigned char> meta;
+            pushBE32(meta, 0);  // version/flags
+            const std::vector<unsigned char> children =
+                concat({mkBox("hdlr", mkHdlr()), mkBox("ilst", ilstBody)});
+            meta.insert(meta.end(), children.begin(), children.end());
+            return mkBox("meta", meta);
+        };
+        auto mkFile = [&](const std::vector<unsigned char>& moovBody) {
+            return concat({mkBox("ftyp", {'M', '4', 'A', ' ', 0, 0, 0, 0,
+                                          'i', 's', 'o', 'm'}),
+                           mkBox("moov", moovBody),
+                           mkBox("mdat", std::vector<unsigned char>(64,
+                                                                    0xAB))});
+        };
+
+        // ①) 합성 무태그 m4a — ilst 빈(항목 0) → ParseTag = 빈 TagSet 폴백
+        //    +err 빈(파일명 폴백 정상 경로 — D2 오류 표기 없음 수형).
+        {
+            const fs::path p = tdir / "2x_a_notag.m4a";
+            const std::vector<unsigned char> blob =
+                mkFile(mkBox("udta", concat({mkMeta({})})));
+            std::string e;
+            const bool built = putFile(p, blob);
+            const mt::TagSet t1 =
+                built ? mt::ParseTag(p.generic_string(), e) : mt::TagSet{};
+            check(built && mt::TagEmpty(t1) && e.empty(),
+                  "2x-① 합성 무태그 m4a(ftyp+moov/udta/meta/ilst 빈+mdat) "
+                  "ParseTag = 빈 TagSet 폴백+err 빈(파일명 폴백 정상 경로)");
+        }
+
+        // ②) 태그 m4a — ©nam/©ART/©alb data atom: UTF-8(타입 1 — 통과, 한글
+        //    앨범 포함) 3필드 등호+UTF-16(타입 2 — BOM FE FF/FF FE 양보행)
+        //    동등.
+        {
+            const auto u16be = [](const std::string& s) {
+                std::vector<unsigned char> v = {0xFE, 0xFF};  // BOM BE
+                for (char c : s) {
+                    v.push_back(0);
+                    v.push_back(static_cast<unsigned char>(c));
+                }
+                return v;
+            };
+            const auto u16le = [](const std::string& s) {
+                std::vector<unsigned char> v = {0xFF, 0xFE};  // BOM LE
+                for (char c : s) {
+                    v.push_back(static_cast<unsigned char>(c));
+                    v.push_back(0);
+                }
+                return v;
+            };
+            const fs::path p8 = tdir / "2x_b_utf8.m4a";
+            const fs::path p16 = tdir / "2x_c_utf16.m4a";
+            const std::vector<unsigned char> ilst8 = concat(
+                {mkItem("\xA9" "nam",
+                        mkData(1, {'M', '4', 'A', ' ', 'T', 'i', 't', 'l',
+                                   'e'})),
+                 mkItem("\xA9" "ART",
+                        mkData(1, {'M', '4', 'A', ' ', 'A', 'r', 't', 'i',
+                                   's', 't'})),
+                 mkItem("\xA9" "alb",
+                        mkData(1, {0xED, 0x95, 0x9C, 0xEA, 0xB8, 0x80, ' ',
+                                   0xEC, 0x95, 0xA8, 0xEB, 0xB2,
+                                   0x94}) /* "한글 앨범" UTF-8 */)});
+            const std::vector<unsigned char> ilst16 = concat(
+                {mkItem("\xA9" "nam",
+                        mkData(2, u16be("U16 Title"))),
+                 mkItem("\xA9" "ART",
+                        mkData(2, u16le("U16 Artist"))),
+                 mkItem("\xA9" "alb",
+                        mkData(2, u16le("U16 Album")))});
+            const std::vector<unsigned char> blob8 =
+                mkFile(mkBox("udta", concat({mkMeta(ilst8)})));
+            const std::vector<unsigned char> blob16 =
+                mkFile(mkBox("udta", concat({mkMeta(ilst16)})));
+            std::string e8, e16;
+            const bool built8 = putFile(p8, blob8);
+            const bool built16 = putFile(p16, blob16);
+            const mt::TagSet t8 =
+                built8 ? mt::ParseTag(p8.generic_string(), e8) : mt::TagSet{};
+            const mt::TagSet t16 =
+                built16 ? mt::ParseTag(p16.generic_string(), e16)
+                        : mt::TagSet{};
+            check(built8 && built16 && e8.empty() && e16.empty() &&
+                      t8.title == "M4A Title" &&
+                      t8.artist == "M4A Artist" &&
+                      t8.album == std::string(
+                          "\xED\x95\x9C\xEA\xB8\x80 \xEC\x95\xA8\xEB\xB2\x94") &&
+                      t16.title == "U16 Title" &&
+                      t16.artist == "U16 Artist" && t16.album == "U16 Album",
+                  "2x-② 태그 m4a 재독 = ©nam/©ART/©alb 3필드 등호(UTF-8 data "
+                  "통과+한글)+UTF-16(BOM BE/LE) 동등(data 타입 코드 1/2 — "
+                  "DecodeId3Text BOM 계약 승계)");
+        }
+
+        // ③) 잘린 box(size > 남은 바이트) — (a) 최상위 moov·(b) 항목 data:
+        //    ParseTag = 빈 TagSet(정직 거부 — 부분 필드 소각 — ©nam 성립에
+        //    도 전부 빈)+err 빈. REMNANT 0 — 사후 소각 동봉(2s/2u 수형).
+        {
+            const fs::path pa = tdir / "2x_d_moov_trunc.m4a";
+            const fs::path pb = tdir / "2x_e_data_trunc.m4a";
+            const std::vector<unsigned char> blobTruncA = concat(
+                {mkBox("ftyp", {'M', '4', 'A', ' ', 0, 0, 0, 0, 'i', 's',
+                                'o', 'm'}),
+                 mkBoxDecl("moov", 400,
+                           mkBox("udta", concat({mkMeta({})}))),
+                 mkBox("mdat", std::vector<unsigned char>(64, 0xAB))});
+            const std::vector<unsigned char> ilstBad = concat(
+                {mkItem("\xA9" "nam",
+                        mkData(1, {'G', 'o', 'o', 'd'})),
+                 mkItem("\xA9" "ART",
+                        mkBoxDecl("data", 200000, {0, 0, 0, 1, 0, 0, 0, 0,
+                                                   'B', 'A', 'D'}) )});
+            const std::vector<unsigned char> blobTruncB =
+                mkFile(mkBox("udta", concat({mkMeta(ilstBad)})));
+            std::string ea, eb;
+            const bool builtA = putFile(pa, blobTruncA);
+            const bool builtB = putFile(pb, blobTruncB);
+            const mt::TagSet ta =
+                builtA ? mt::ParseTag(pa.generic_string(), ea) : mt::TagSet{};
+            const mt::TagSet tb =
+                builtB ? mt::ParseTag(pb.generic_string(), eb) : mt::TagSet{};
+            std::error_code sx;
+            fs::remove_all(tdir, sx);
+            check(builtA && builtB && ea.empty() && eb.empty() &&
+                      mt::TagEmpty(ta) && mt::TagEmpty(tb) &&
+                      tb.title.empty() && tb.artist.empty() && !sx &&
+                      !fs::exists(tdir, sx),
+                  "2x-③ 잘린 box(size > 남은 바이트) = 정직 거부(moov 잘림"
+                  "+©nam 성립에도 부분 소각 — err 빈·REMNANT 0)");
+        }
+    }
+
     std::printf("AppSelfTest: %d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;
 }

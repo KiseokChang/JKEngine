@@ -1030,10 +1030,142 @@ inline TagSet ParseWavTags(const unsigned char* p, size_t n) {
     return tags;
 }
 
+// ---- MP4/ISO-BMFF box 보행 (own 파서 — m4a 계열 태그, #115 T1) ----
+
+// MP4 박스 = [4B size(BE)][4B type] + payload. size=1 = 뒤 8B largesize(64BE
+// — 원문 규약)·size=0 = 컨테이너 말미까지(마지막 박스 규약). 잘린/배신적
+// size(선언 < 헤더·선언 > 남은 영역) = false — 선언을 믿지 않는 정직 거부
+// (부분 태그 0 — 2x-③ 계약). off는 다음 박스 선두로 전진(엄밀 증가 — 폭주
+// 루프는 구조적으로 불가하다).
+struct Mp4BoxWalk {
+    char type[4];
+    size_t body;   // payload 선두
+    size_t bodyN;  // payload 길이
+};
+inline bool Mp4BoxAt(const unsigned char* p, size_t n, size_t& off,
+                     Mp4BoxWalk& b) {
+    if (off + 8 > n) return false;
+    std::memcpy(b.type, p + off + 4, 4);
+    unsigned long long total = RdBE32(p + off);
+    size_t head = 8;
+    if (total == 1) {  // 64bit largesize — size=1 규약
+        if (off + 16 > n) return false;
+        total = 0;
+        for (int i = 0; i < 8; ++i)
+            total = (total << 8) | p[off + 8 + i];
+        head = 16;
+    }
+    size_t end;
+    if (total == 0) {
+        end = n;  // size=0 — 남은 영역 말미(마지막 박스)
+    } else {
+        if (total < head) return false;  // 배신적 size(선언 < 헤더)
+        end = off + static_cast<size_t>(total);
+    }
+    if (end > n) return false;  // 잘린 box — 정직 거부
+    b.body = off + head;
+    b.bodyN = end - off - head;
+    off = end;
+    return true;
+}
+
+// 형제 박스 사슬에서 type 일치(원문 바이트 — 박스 type은 대소 규약 없음)
+// 첫 박스의 payload를 돌려준다. 파산(잘린 box) = 전체 정직 거부와 같은
+// false — 부재(무태그 m4a의 정상 경로)와 같은 폴백 착지다(부분 필드 0).
+// 보행 상한 4096(폭주 절단 — FLAC 블록 256/Ogg 페이지 표 255 같은 계보).
+inline bool Mp4FindBox(const unsigned char* p, size_t base, size_t span,
+                       const char* type4, size_t& body, size_t& bodyN) {
+    size_t off = base;
+    const size_t end = base + span;
+    Mp4BoxWalk b;
+    size_t guard = 0;
+    while (off + 8 <= end && guard++ < 4096) {
+        if (!Mp4BoxAt(p, end, off, b)) return false;  // 파산 — 정직 거부
+        if (std::memcmp(b.type, type4, 4) == 0) {
+            body = b.body;
+            bodyN = b.bodyN;
+            return true;
+        }
+    }
+    return false;  // 부재 — 보행 소진(정상 경로)
+}
+
+// ilst 항목의 data atom 본문 → UTF-8 ([4B version/flags][4B locale][값] —
+// 타입 코드 = flags 하위 바이트: 1=UTF-8 통과·2=UTF-16(BOM 우선 —
+// DecodeId3Text enc 1 원문 leg 재용: FE FF=BE·FF FE=LE·무BOM = LE — #99
+// 인코딩 계약 승계)). 0=binary(covr 등)/기타 코드 = 빈 값 스킵(텍스트 오독
+// 금지 — 정직).
+inline std::string DecodeM4aValue(const unsigned char* p, size_t n) {
+    if (n < 8) return std::string();
+    const unsigned int code = p[3];
+    if (code == 1)
+        return PostprocessText(
+            std::string(reinterpret_cast<const char*>(p + 8), n - 8));
+    if (code == 2) return PostprocessText(DecodeId3Text(p + 8, n - 8, 1));
+    return std::string();
+}
+
+// ftyp→moov→udta→meta(hdlr 'mdir' 확인)→ilst→©nam/©ART/©alb. moov는 보통
+// 머리에 있으나 mdat 뒤에도 가능 — 보행은 ParseTag가 읽은 머리 영역
+// (kTagHeadCap 상한) 전체 트리를 건다(moov 후행 = 머리 밖이면 스코프 밖 —
+// 빈 TagSet 폴백, 파스 계약 유지). 항목 = 본문의 첫 data atom(첫 값 계약 —
+// v1 계보). 아무 파산(잘린/배신적 box·hdlr 부재·비-'mdir' 핸들러) = 빈
+// TagSet(정직 거부 — 부분 필드 소각·2x-③ 계약).
+inline TagSet ParseM4aTags(const unsigned char* p, size_t n) {
+    TagSet tags;
+    if (n < 8 || std::memcmp(p + 4, "ftyp", 4) != 0)
+        return tags;  // ftyp 스니프 — 컨테이너 매직(확장자 진실원과 독립)
+    size_t body = 0, bodyN = 0;
+    if (!Mp4FindBox(p, 0, n, "moov", body, bodyN)) return tags;
+    if (!Mp4FindBox(p, body, bodyN, "udta", body, bodyN)) return tags;
+    if (!Mp4FindBox(p, body, bodyN, "meta", body, bodyN)) return tags;
+    // meta = full box — payload 머리 4B version/flags, 그 뒤 자식 박스
+    // (hdlr·ilst).
+    if (bodyN < 4) return tags;
+    body += 4;
+    bodyN -= 4;
+    // hdlr 'mdir' 확인 — handler_type = hdlr payload [8..12)(version/flags
+    // 4B + pre_defined 4B 뒤). 비-metadata ilst(moov 밖의 meta 등) 걷기 봉인.
+    size_t hBody = 0, hN = 0;
+    if (!Mp4FindBox(p, body, bodyN, "hdlr", hBody, hN)) return tags;
+    if (hN < 12 || std::memcmp(p + hBody + 8, "mdir", 4) != 0) return tags;
+    if (!Mp4FindBox(p, body, bodyN, "ilst", body, bodyN)) return tags;
+    // ilst 자식 연쇄 — 항목 atom(type = ©nam/©ART/©alb). 미지목 항목(covr/
+    // trkn/tmpo…) = 통과만(본문은 불투명 — data 존재 요구 금지).
+    size_t off = body;
+    const size_t end = body + bodyN;
+    Mp4BoxWalk item;
+    size_t guard = 0;
+    while (off + 8 <= end && guard++ < 4096) {
+        if (!Mp4BoxAt(p, end, off, item)) return TagSet();  // 파산 — 부분 소각
+        const int field =
+            std::memcmp(item.type, "\xA9" "nam", 4) == 0
+                ? 1
+                : (std::memcmp(item.type, "\xA9" "ART", 4) == 0
+                       ? 2
+                       : (std::memcmp(item.type, "\xA9" "alb", 4) == 0 ? 3
+                                                                       : 0));
+        if (field != 0) {
+            size_t dBody = 0, dN = 0;
+            if (!Mp4FindBox(p, item.body, item.bodyN, "data", dBody, dN))
+                return TagSet();  // 항목 data 파산 — 정직 거부(부분 소각)
+            const std::string value = DecodeM4aValue(p + dBody, dN);
+            if (field == 1) {
+                if (tags.title.empty()) tags.title = value;
+            } else if (field == 2) {
+                if (tags.artist.empty()) tags.artist = value;
+            } else {
+                if (tags.album.empty()) tags.album = value;
+            }
+        }
+    }
+    return tags;
+}
+
 // ---- 파일 접점 (D2 — 필요 범위만 read) ----
 
-// 매직 분기(ID3/fLaC/OggS/RIFF — 첨자 무관·확장자 밀표 파일도 파싱) + mp3의
-// ID3v1 폴백(태그 계열 — v2가 비면 말미 128B). 실패 = 빈 TagSet(폴백 규약
+// 매직 분기(ID3/fLaC/OggS/RIFF/ftyp — 첨자 무관·확장자 밀표 파일도 파싱) +
+// mp3의 ID3v1 폴백(태그 계열 — v2가 비면 말미 128B). 실패 = 빈 TagSet(폴백 규약
 // — D2: 오류 표기 없이 파일명 폴백이 정상 경로), err는 진단 표기만(개방/
 // 크기 실패 = 비공개 원문 "open"/"size"). 개방 = fs::path(2q 실측 수형 —
 // MinGW libstdc++ narrow = UTF-8 strict, 네이티브 와이드 개방 = 인코딩
@@ -1078,6 +1210,10 @@ inline TagSet ParseTag(const std::string& path, std::string& err) {
     } else if (headN >= 12 && std::memcmp(buf, "RIFF", 4) == 0 &&
                std::memcmp(buf + 8, "WAVE", 4) == 0) {
         tags = ParseWavTags(buf, static_cast<size_t>(headN));
+    } else if (headN >= 8 && std::memcmp(buf + 4, "ftyp", 4) == 0) {
+        // MP4/ISO-BMFF(m4a 계열 — 박스 트리 보행 — #115 T1). ftyp가 첫
+        // 박스 = 컨테이너 매직 진실원 — 확장자 밀표 파일도 같은 파싱.
+        tags = ParseM4aTags(buf, static_cast<size_t>(headN));
     } else {
         // 매직 미일치 — 확장자 보조 분기(ID3v1 원존 mp3는 매직이 없다)
         std::string ext = std::filesystem::path(path).extension().string();
