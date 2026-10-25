@@ -86,10 +86,13 @@ std::string Quoted(const std::string& s) {
     return out;
 }
 
-// Termux prefix — $PREFIX(Termux 표준 env). 미설정 = 실패(fail-closed —
-// Termux 밖에서 이 TU는 빈 TU라 도달하지 않는다; 도달 = Termux env 붕괴).
+// Termux prefix — $PREFIX(Termux 표준 env)·TERMUX_PREFIX(명시 스펠링)의
+// 폴백 2종. 실측 원장행(런 1): ssh/부팅 셸은 $PREFIX만 실어 TERMUX_PREFIX는
+// 부재 — 2종 폴백으로 흡수. 미설정 = 실패(fail-closed — Termux 밖에서 이 TU는
+// 빈 TU라 도달하지 않는다; 도달 = Termux env 붕괴).
 std::string TermuxPrefix() {
     const char* p = std::getenv("TERMUX_PREFIX");
+    if (!p || !*p) p = std::getenv("PREFIX");
     return (p && *p) ? std::string(p) : std::string();
 }
 
