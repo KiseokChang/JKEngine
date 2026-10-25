@@ -12,6 +12,14 @@
 //
 // 캡처 본체는 selftest 밖(스펙 §3 ⑦ — 실기기 probe/T6 몫)이고 전사 비결정
 // 원칙(§2.4)에 따라 selftest 어셜션 0 — 본 TU는 빌드 등호만 캐논에 실린다.
+//
+// 컴파일 축(T5 승계 — #112): !__ANDROID__ 만이 본체를 산다(Win/WSL — SDL2
+// 캡처 계약). __ANDROID__(폰 Termux — bionic)는 빈 TU — 폰 축의 캡처 수형은
+// src/voice/VoiceCaptureTermux.cpp(Termux:API 녹음 — 스펙 §3 ① 폰 축)가 같은
+// capture 계약을 산다(쌍방 가드 — 한 바이너리에 캡처 수형 1개만 링크 — 심볼
+// 충돌 방지). 폰이 SDL로 캡처를 열지 않는 이유 = 스펙 §3 ① 원문(폰 SDL 캡처의
+// 안드로이드 오디오 스택 통합 부재 — 파일 기반 push-to-talk 원칙).
+#if !defined(__ANDROID__)
 
 #include <SDL.h>
 
@@ -214,3 +222,5 @@ CaptureState GetCaptureState() {
 }  // namespace capture
 }  // namespace voice
 }  // namespace jk
+
+#endif  // !__ANDROID__ (폰 축 = 빈 TU — VoiceCaptureTermux.cpp가 capture 계약 수형)

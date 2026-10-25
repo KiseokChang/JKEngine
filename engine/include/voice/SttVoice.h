@@ -35,6 +35,14 @@
 //   jk::voice::capture::{StartCapture,StopCapture,…} — Win SDL2 push-to-talk
 //     캡처(본체 = src/voice/VoiceCaptureSDL.cpp — SDL이므로 헤더는 SDL 형
 //     무접촉 선언만 — 이 헤더 계약 유지). 표면(T4)이 소비할 수명주기 계약.
+//   capture의 폰 축 수형(T5 — 스펙 §3 ① 폰 축·⑥ 사슬) = 같은 계약의
+//     src/voice/VoiceCaptureTermux.cpp — Termux:API 녹음(termux-microphone-
+//     record -f <rec> start→stop)+ffmpeg -ar 16000 -ac 1 정규화(bootstrap
+//     재용)→16 kHz 모노 s16le WAV. MediaRecorder는 PCM 컨테이너를 확장자로
+//     결정하므로 레코더 예약 경로 = wavPath+".rec.m4a"(정산 목표 — 정지 후
+//     소각). 실패(Termux:API 부재·권한 미승인·ffmpeg 부재·결실 0) = fail-
+//     closed 정직 표기 — lastError/err에 원문. 컴파일 축 = __ANDROID__ 한정
+//     (SDL 수형은 !__ANDROID__ — 쌍방 가드, 축당 캡처 수형 1개).
 //   jk::voice::turn::{RunVoiceTurn,ChatActionQuery} — STT 전사 문자 →
 //     in-process ChatRouteTurn 직호출(스펙 §3 ③ 안 A — "STT 텍스트 == 타이핑
 //     텍스트" — 신규 파서 0) + ChatAction→창 서버 도구 질의 양식.

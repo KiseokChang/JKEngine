@@ -225,6 +225,12 @@ add_library(jkcore STATIC
     # 폰 축(T5)은 Termux:API 녹음이 진실원이라 SDL 캡처 폰 개방 실패 = 정직
     # 거부(fail-closed)로 무해.
     src/voice/VoiceCaptureSDL.cpp
+    # STT 구두 발화 수집 본체 — 폰(Termux/DeX) 축 (#112 T5 — 스펙 §3 ① 폰
+    # 축·⑥ 사슬): capture 계약의 폰 수형(Termux:API 녹음+ffmpeg 16 kHz
+    # 정규화). VoiceCaptureSDL.cpp와 쌍방 가드(SDL = !__ANDROID__·폰 =
+    # __ANDROID__) — 한 바이너리에 캡처 수형 1개만 링크. 그 밖의 축은 빈 TU
+    # (무영향 — Win/WSL 캡처 동형 유지·2v 등호 보존).
+    src/voice/VoiceCaptureTermux.cpp
     src/JKHangulManager.cpp
     src/JKTextAtlas.cpp
     src/JKResourceCache.cpp
