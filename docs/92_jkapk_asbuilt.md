@@ -263,17 +263,55 @@ docs로 수형 축소)이라 engine/probe 소스 무접촉·selftest 재실행 �
 - **v2에서도 유지할 계약(전승)**: 무추적(모델 ggml 커밋 금지)·"기계만 커밋"
   ·엔진 ninja 무접촉·정직 표기 문화(§2.2 상태행 4형·§2.3 정직 케이스).
 
-## §6. 자연어(LLM) 축 — 스파이크 원문 대기 자리
+## §6. 자연어(LLM) 축 — 스파이크 원문 봉인 (리포트 수취 — 후속 보강 1절)
 
-- **phone-llm-respike 스파이크(진행 중)** — 폰 측 자연어 승격(채팅 LLM
-  재응답) 사슬의 재실측 스파이크. 본 문서에는 **결과 블록 자리만 확보** —
-  리포트 도착 시 이자리에 원문(런 수·판정행·커밋 계보)을 후속 봉인한다.
-- 현재 원존(스펙 D3): /talk의 판정 = 문자열 트리거(kRouteTable)+별명
-  (kAliasTable) — 자연어(LLM) 승격 = **폰 서버가 chat.json 구성 시 ChatRouteTurn
-  cloud 경로**(jkweb 원존) — APK 쪽은 판정 계층 0(텍스트 통과)이라 폰 LLM
-  재응답 성립 여부는 서버 축 소관 — 리스파이크 결과에 어떤 APK 측 수혜(표기
-  문구·답신 반영)가 필요한지도 같은 자리에서 판정 예정. **대기(스파이크
-  원문)**.
+- **phone-llm-respike 스파이크 원문 수취 완료** — 리포트
+  =`.superpowers/sdd/2026-10-25-jkapk/phone-llm-respike-report.md` — 엔진
+  바이너리/코드 접촉 0·커밋 0·chat.json 조정 0·폰 주소 원문 미인쇄(계약).
+  이하 = 원문 보강 1절. 현재 원존(스펙 D3) 유지: /talk의 판정 = 문자열
+  트리거(kRouteTable)+별명(kAliasTable) — 자연어(LLM) 승격 = **폰 서버가
+  chat.json 구성 시 ChatRouteTurn cloud 경로**(jkweb 원존) — APK 쪽은 판정
+  계층 0(텍스트 통과) — 수혜 재판정(표기 문구·답신 반영)은 이 자리 말미.
+- **측정 원문(기준선 2상 — POST /talk 폰 루프백, 각 2회)**: **serve DOWN**
+  = 3발화 전부 stub 안내문 즉발 **0.010-0.195s**(발화 1건 `kind=Launch
+  app="다시"` = 라우터 즉발 경로 — LLM 미개입) / **serve UP** = 같은 2발화
+  **2.35-10.49s** — 결과도 **동일 stub 안내문**(파스 실패 폴백). 즉 파스
+  수형 없는 구성 살리기는 지연만 증가하고 UX는 악화된다(리포트 §2 —
+  원문 `engine/tmp/plr_baseline.log`·`plr_llm.log`).
+- **진원 원장(모델 무죄)**: 폴백 원인 100% = **ollama CLI 렌더층 혼입** —
+  `ollama run` stdout이 `Thinking...` 헤더+추론 문단+`^[K`·`^[2D` ANSI
+  커서 시퀀스(워드랩)로 시작, thinking 본문 안의 JSON 골자(ActionSchemaLine
+  예시)가 `ChatLlmActionParse` (b) **최초`{`..마지막`}` 절단
+  (ChatRouter.cpp:330-341)을 오염** → AgentJson 파스 실패 → (3) stub 폴백
+  계약(ChatRouter.cpp:431). docs/84 §2.4(2026-10-08) 동일 모양 **오늘
+  재실측 — D1 유예 유효**. **대조 = 모델 건강**: `POST /api/chat`
+  stream=false 직행(같은 모델·폰 루프백) **1.58s** — thinking 별도 필드
+  분리·`message.content` = 완건 행동 JSON — 혼입 전부 CLI 렌더층 사안.
+- **수형 후보 원문(D1 재료)**: 0.23.2 CLI에 렌더 억제 플래그 2건
+  (`--hidethinking`·`--nowordwrap`). **단독 불충분** — thinking 제거는
+  확인하나 CLI 워드랩이 JSON 문자열 값 안쪽에 `^[K`+개행 혼입
+  (`...확인합니[K\nd다."}` — python json.loads `Invalid control character`
+  파스 실패 원문). **결합 = 2턴/2턴 성립** — **2s/3s(2-4s)·순수 단일행
+  완건 JSON**(첫`{`..마지막`}` 절단+표준 파스 둘 다 통과·enum 내 값) →
+  **≤5s UX 문턱 통과 실측 성립**. 대조 실험부: 모델 교체 후보 4종(cloud)
+  전원 서버 은퇴(retired)·`qwen2.5:0.5b` 품질·속도 불성립·`direct_cmd`
+  주입은 계약 락(JKLlmEngine.h)이 닫음 — **state-only 최선 경로 불성립
+  판정**(리포트 §4). 원장행: stdin 파이프 개방 시 0.23.2 CLI가 응답 완료
+  후 stdin EOF 대기로 매달림(엔진 스폰 무영향 — fd0=/dev/null 전달).
+- **수형 실장 원장(ad9aa81 — #113 소형 수형·계약 락 갱신)**:
+  `BuildOllamaDirectCmd`에 `--hidethinking --nowordwrap` 결합 상설
+  (`kOllamaRunRenderFlags` — 엔진 리터럴 단일 근원)+**opt-out 밸브**
+  (`ChatConfig::renderFlags` — chat.json `"render_flags":0` → 계약 변경
+  이전 형태 바이트 동일 — 플래그 미지원 ollama 축 unknown-flag 사망을
+  끄는 fail-closed 재량·LoadChatConfig 유일 독자·키 부재=기본 true).
+  selftest 계약 락 단정 갱신(1n-d5·llm15 — 어셜션 수 등호)·캐논 승계
+  (**Win 841/WSL 818/posix 304 등호 유지** — ad9aa81 커밋 원문). **Win
+  0.40.11 실측: `ollama run -h` 플래그 2건 전원 존재 + 라이브 턴 0.9s
+  순수 단일행 JSON 원문.** **폰 = BLOCKED 원장행** — 결합 수형의 폰 실기기
+  판정(0.23.2 원문 재빚음)은 미실측·**다음 폰 접촉 배포에서 승계**.
+- **판정**: 스파이크 시점 기준 **폰 자연어 UX ≤5s 미성립**(stub 폴백에
+  지연만 증가) — 결합 수형으로 CLI 렌더층 원인은 소각됐으나 **잔여 = 폰
+  원문 승계 대기**(APK 측 수혜 재판정과 동일 자리 — §7 ③).
 
 ## §7. EYES 게이트 (사용자 선언만 결제 — EYES-PENDING · probe/본 문서는 결제를
 기록하지 않는다 — docs/91 §7 원칙 동형 · **미결제(대기)**)
@@ -282,7 +320,7 @@ docs로 수형 축소)이라 engine/probe 소스 무접촉·selftest 재실행 �
 | --- | --- | --- | --- |
 | ① | **홈 아이콘 → 명령 → DeX 창 실행 체감** | 홈 JK 아이콘 터치 → 입력행 텍스트(또는 IME dictate)→[보내기]→**DeX에 앱 창 실행** 체감 — 스펙 §4 사용자 게이트 1. **원장행: 사용자 "지뢰찾기 창은 실행됨" 실측 보고가 컨트롤러 전언으로 존재(2026-10-25 — T3 설치·기동 원문 뒤 계통)** — 그러나 **EYES 결제(사용자의 확정 선언)는 본 문서 기준 미접수** — 결제 표기는 사용자 선언이 있어야 한다(원장행 ≠ 결제) | **대기(확정 선언)** |
 | ② | **APK 모양·기록 체감** | 타이핑 표면(입력행+[보내기]+append-only [나]/[시스템] 기록+상태행 정직 표기)·앱 라벨 "JK" 모양·기록 체감 | **대기(육안)** |
-| ③ | **자연어(LLM) 축** | phone-llm-respike 스파이크 원문 대기 — §6 자리(결과 도착 시 봉인) | **대기(스파이크 원문)** |
+| ③ | **자연어(LLM) 축** | 스파이크 원문 봉인(§6) — 결합 수형 Win 실측·**폰 실기기 판정 = 승계 대기**(서버 축 — APK 수혜 재판정 동석) | **대기(폰 원문 승계)** |
 | ④ | **결정 D1-D7 = 재량** | 전환원장(D2) 포함 — **기각 시 즉시 수리** | **대기(유효)** |
 
 ## §8. 커밋 원장 + IP/호스트 경로 게이트 (#114 라인)
