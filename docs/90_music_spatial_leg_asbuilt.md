@@ -372,6 +372,13 @@ status 절단 악형) → T2 fix r1 re-review **APPROVE 재확정**(C0/I0/M0 —
 | T4 concern 4 | 배포 드라이버 `engine/tmp/pmus_t4_deploy.sh` = **미커밋 산출물**(tmp 정리 관례와 상충하는 유산) | M | 다음 폰 접촉 런에서 사용 후 probes/ 산입 커밋 원장(명시 경로 계약상 본 라인 밖 소관) |
 | T4 concern 5 | 폰 taglist/taglist2 캡처명 상수 재용 — FULL 런 2회의 2차가 1차를 덮음(마지막 런 영수증 = 원문) | N | 런별 분리 관례화 시 병기(T3 리뷰 I-2·concern 5 원장 계승) |
 
+### §4.1-5 신규 park 행(#111 music 태그 쓰기+커버아트 라인 — §7.10 승계 · **아래는 추가만,
+기존 행 변형 금지** · 본 라인 원장 = 본 문서 §7.10):
+
+| 출처 | 항목 | 등급 | 처분 근거 |
+| --- | --- | --- | --- |
+| T7 부기 | 태그 쓰기 라인 커밋 체인(1행 — rev-parse 전체 SHA = 본 문서 §7.10.0 — git log가 진실원): **662ed23(스펙) → cd17d65(플랜) → 15c2bb4(T1) → 2973933(T2) → c8f31f2(T3) → 5b95c63(T4) → eaba3a4(T5) → d2c91ce(T6) → aed0add(T6 fix r1) → 2aa03f0(T6 fix r2)**+ 본 T7 커밋 | N | 1행 등록 — §7.10.5 커밋 원장과 등호 · 잔여 유계(탭 좌표 재보정 별소관·spatial_mix 재런 원문 대기)는 §7.10.3 원장이 소관 |
+
 ## §5. 사용자 결제 게이트 (EYES-PENDING 봉인)
 
 **EYES-PENDING — 라인 최종 결제는 사용자 육안/청안 선언만으로 성립한다. probe와
@@ -1660,3 +1667,400 @@ ifconfig wlan0 | grep 'inet '
   1-5.log)·캡처(t2_music_smoke.png·t2_crop_table.png·mus_wsl_taglist.png·
   tag_diag*·run5_tftitle_last.png)·배포 드라이버(engine/tmp/pmus_t4_deploy
   .sh — 미커밋 원장 §4.1-4)는 engine/tmp untracked — 커밋 금지 충족.
+## §7.10 music 태그 쓰기+커버아트 원장 (#111 라인 — T1-T7, 2026-10-25)
+
+music 태그 쓰기+커버아트 라인(#111) 원장 — 사용자 설계 승인 "진행"(2026-10-25
+chat) = 태그 쓰기/커버아트 백로그 결제 승계(갱신 64/65 대기항 원장). **music
+목록 곡의 태그를 파일에 직접 쓰고(제목/아티스트/앨범 편집) 파일에 삽입된
+커버아트를 보고 새 아트로 교체한다** — 읽기 라인(#99 — §7.9)의 역방향.
+"파일이 곡명을 갖고 커버를 갖는다는 것이 음악의 정의 이외의 이유 없음(DRY
+최소)" — 스펙 원문. 스펙=`docs/superpowers/specs/2026-10-25-music-tagwrite
+-design.md`(662ed23 — **사용자 결정 3건 D1-D3**: 커버아트=표시+삽입 전체·
+쓰기 형식=4형식 전부·UI=행 [편집] 버튼+패널·**재량 7건 D4-D10**: 조달 0·
+v2.3 정규화·원자적 쓰기·커버아트 지연 읽기+LRU·완전 교체·FLAC 재조립·Ogg
+재번호 — 기각 시 즉시 수리), 플랜=`docs/superpowers/plans/2026-10-25-music
+-tagwrite.md`(cd17d65), SDD 원장=`.superpowers/sdd/2026-10-25-music-tagwrite/`
+(progress+task-1..6 리포트+review diff 6종 — **전 태스크 review clean**).
+라인 부품 계승: **#99 own 태그 사슬**(파서·인코딩 규약·헤더/스니프 진실원 —
+쓰기는 그 역방향·같은 파일 MusicModel.h)·**#92 MusicDirStore 원자적 쓰기
+선례**(D6 rename 사다리·.bak 3종 사다리 승계)·**#97 브라우저 부품**([커버
+선택] 재용 — 타이핑 0 계약)·**갤러리 썸네일 계열**(LRU 96·MakeThumb·
+FitThumb·pendingThumbs 선례 — §7.10.1)·**#89 idle 계약**(pendingCovers_
+조건화 재청구 수형)·**#99 D2 스캔 1패스 원존 무변조**(D7 — ReadCover는
+스캔 경로 무접촉·2u 신설 어설션 0은 스캔 캐논의 전제). T7은 본 §7.10 —
+docs 전용(engine/probe 소스 무접촉)이라 selftest 재실행 불요(§0 부기 원칙 —
+§7.9 T5 동형) — 캐논 = 전 태스크 리포트/progress의 건네받은 수치 그대로
+봉합. 서브에이전트 스폰 0건(T1-T6 각 리포트 선언·T7 실측)·worktree 미사용·
+main 직행·`git add -A` 미사용(전 태스크 명시 경로 staging).
+
+### §7.10.0 체인 (rev-parse 전체 SHA 실측 — T7 측정 · git log가 진실원)
+
+| 태스크 | 커밋(SHA — 실측 rev-parse) | 내용 |
+| --- | --- | --- |
+| 스펙 | `662ed232a57ad86d86134779009a0f1c36078960` | docs(apps): music 태그 쓰기+커버아트 설계 스펙 (#111) — 결정 D1-D3(사용자)+재량 D4-D10 |
+| 플랜(라인 BASE) | `cd17d654d92c7841cc72dc360bcfba9e494e05ad` | docs(apps): music 태그 쓰기+커버아트 구현 플랜 (#111 T1-T7) |
+| T1 | `15c2bb49bad74081a3c28040867668b7386a57bc` | feat(apps): music 태그 쓰기 mp3 leg — ID3v2.3+APIC (T1) — MusicModel.h `jk::music::tags` 쓰기 leg 신설(WriteTag·ReadCover APIC·fsync 사다리·err 어휘 20종)+2u ①-⑦ 47건 (2파일 — +760·+460/−1) |
+| T2 | `2973933c3d64ea0891e1f68892b45eb0c17bbd36` | feat(apps): music 태그 쓰기 FLAC/Ogg/WAV leg+ReadCover 전형식 (T2) — MusicModel.h +1351/−159(공용 부품 6그룹 추출 — 조립·사다리·CRC·base64·PICTURE 구조)+main.cpp +908/−7(2u ⑧-⑭ 57건) |
+| T3 | `c8f31f22de3e8e80bb6b4c218e3e45e02caceba9` | feat(apps): music 태그 편집 패널+커버아트 표시 (T3) — ClientMusicApp.h +130/−2·cpp +826/−16 — 7열 재편([커버 40px]+[편집 56px])·태그 편집 패널+커버 선택 브라우저·D7 지연 읽기+LRU 96·3축 등호(신설 어설션 0) |
+| T4 | `5b95c6303c1b384a672c3d140e1be9df5f9ce315` | feat(apps): music_tag_write 도구 — agent 쓰기 경로 (T4) — MusicModel.h +89(ParseTagWriteArgs·LoadCoverByMagic·TagWriteTool)+ClientMusicApp.cpp +55/−6(도구 7종째 등록)+main.cpp +174/−1(2u ⑮ 23건 — 2u 누계 127) |
+| T5 | `eaba3a43889e222618f4f8d552ab2a10eaa17498` | test(probes): music WSL probe — 태그 쓰기 원문 (T5) — wsl_music.sh +397/−1(16f-TW 세그먼트+판정 18h+TW-RUN-VALS — −1 = CANON_WSL_SELFTEST 668→795 상수 갱신 1행) — **TAGWRITE-OK 2런 등호** |
+| T6 | `d2c91ce740a7c3cccc4106ce9908f8db81754157` | test(probes): music 폰 probe — 태그 쓰기 동형+캐논 (T6) — phone_music.sh +556/−35(N6 세그먼트+2u 배포 마커 게이트·PHONE_DEPLOY_BASE 정산) — **폰 접촉 런 성립(TW-OK·폰 캐논 795)** |
+| T6 fix r1 | `aed0addd3aab497b10943b9162015aa2da2e1047` | test(probes): TW 재독 파서 BOM 리터럴→escape 형식 6ASCII (T6 fix r1) — 런 중 자가발견(T5 함정 원장의 BOM 리터럴 재발)·동작 동일·계보 표기 통일 |
+| T6 fix r2 | `2aa03f01faa7feb7cae73a61dc02d8ea17d29e0f` | fix(probes): recover_opt 정의 순서 수형 (T6 fix r2) — 런 1 부검의 **기존 함정** 소각(§7.10.3 #7-①) |
+| T7 | 본 문서를 포함하는 커밋 | docs(apps): music 태그 쓰기 as-built (T7) — SHA는 git log가 진실원 |
+
+폐곡 계보: T1 리뷰 **clean**(deferred minors 5건 — 스냅샷 1행 강화·v2.4 dli
+TCON 한계 부기 등 — park 성격) → T2 리뷰 **clean**(**구현 결함 6건 — 그중
+A급 1건 — 전원 커밋 전 자체 소각 원장**·deferred minors 8건) → T3 리뷰
+**clean**(**자기발견 결함 2건 커밋 전 소각** — §7.10.3 #3·deferred 4건·
+썸네일 32px 유지 ruling/열 폭 40px = 레이아웃 재량 수용) → T4 리뷰 **clean**
+(deferred 4건 — 리포트 표기 오차 포함) → T5 리뷰 **clean**(TAGWRITE-OK 2런
+등호·deferred 2건·**concern 1 = step 11-14 MISS — T3 상속 상태 판정 수용
+ruling**: 본 diff 무접촉·좌표 재보정 = 탭 좌표 원장행 별소관+T6에 상속 지시)
+→ T6 리뷰 **clean**(폰 접촉 런 성립 — TW-OK·폰 캐논 795 등호 3측정·fix 2건
+= 런 중 자가발견 소각·**Important 유계 1건 = recover_opt fix 후 첫 재런
+원문 대기 — #112 상속 ruling**).
+
+### §7.10.1 배선 원리 (원류 원문 1:1 수취 — 리포트/progress 근거 · 코드 재실측 0)
+
+- **★쓰기 사슬 4형식(D2 — T1+T2 — `jk::music::tags` 확장)**:
+  `WriteTag(path, TagSet, const CoverArt* cover, err)` — **스니프가 진실원,
+  확장자 보조**(fLaC/OggS/RIFF-WAVE 매직은 확장자와 무관 leg 진입·매직
+  없는 .mp3만 v1-raw 신설 leg·0바이트 = "empty" 정직 거부).
+  - **mp3 = v2.3 정규화 재작성(D5)**: 태그 헤더 size = **syncsafe**·프레임
+    size = **BE32**(양방향 바이트 봉인 — 2u-①②·컨트롤러 ruling 원문: 읽기
+    ParseId3v2가 SyncSafe32로 읽는다+2u-① 패딩 케이스 round-trip 실측·v2.3
+    규약 원문)·텍스트 인코딩 = **1 (UTF-16LE+0xFF 0xFE BOM) 고정**(v2.3의
+    유니코드 인코딩이 1뿐 — 인코딩 3은 v2.4 전용 — `Utf8ToUtf16Le` 느슨
+    역변환 수형 = 읽기 Utf16BytesToUtf8의 쌍둥이)·TCON 복제(장르 보존)+그
+    외 기존 프레임 **원문 바이트 복사 보존**(drop 금지 — TXXX 201B 등호
+    실측)·**cover=null = APIC 프레임 원문 바이트 보존 leg**(재합성보다
+    엄격 — 2u-⑥ 재독 등호)·빈 필드 = 프레임 생략(비움과 등치)·v1 존재 =
+    v1 유지(말미 128B 등호)·v2 부재 = 신설(패딩 1KB)·기존 태그 = 선언
+    본문 크기 유지(오디오 제자리 — 초과 시에만 재배치).
+  - **FLAC(D9)**: 구역 버퍼 스캔(≤256 블록·kTagWriteMax) → 블록 단위
+    재조립 — STREAMINFO 첫 블록+34B 필수(`flac streaminfo missing` 정직
+    거부)·SEEKTABLE 판정 `bsz ≡ 1 (mod 18)` 실패 = `seektable broken`
+    (보존 실패 = 원문 무손상 — D9 정직 구현)·VORBIS_COMMENT 첫 것만 교체
+    (복수 소각)·PICTURE = cover 지정 시 첫 유효 자리에서 교체+복수 소각
+    (D8)·cover=null = 전부 유지·신설 블록 = type≤4 고정 순서 뒤(FLAC
+    규약 — 5 이상 자유 순서)·is-last = 재보행 마지막 블록만 0x80 재마킹
+    (기존 표지 소각)·오디오 = [chainEnd, EOF) 원문 스트림 복사.
+  - **Ogg(D10)**: 코멘트 패킷(0x03"vorbis")을 페이지 보행(lacing 런
+    재사용)으로 지목 — **페이로드 선두 개시 계약**(그 외 = `ogg structure`
+    정직 거부)·C0 기록(gtype/serial/seq/granule 원문 수취) → Ck 잔여
+    세그먼트 = 트레일(원문 바이트+lacing 원문 — 패킷 경계 불변 재사용) →
+    신설 코멘트+트레일 255세그/페이지로 재포장(런 초과 = 다음 페이지 htype
+    0x01) → Ck 이후 모든 페이지 = **시퀀스 재기입+CRC 재계산**(CRC 필드
+    소각 후 계산 — libogg 규약)로 원문 복사(**granule·lacing·payload
+    불변 — 2u-⑪ 독립 판정판 등호: seq 연속·CRC 규약 등호·셋업/오디오
+    패킷 바이트 등호**).
+  - **WAV**: RIFF 청크 연쇄 스캔(1024 상한·홀수 패드 규약) → "id3 " 청크
+    (대소문자 무시 — 읽기 ParseWavTags 규약 그대로) 교체/**말미 신설**(
+    기존 청크 순서 보존)·RIFF 크기 = 청크 합산 재계산(**산출 leg와 기입
+    leg가 같은 걸음**)·패딩 0(임베디드 청크 — mp3 1KB 패딩은 제자리
+    재배치 계약이라 다른 사정)·RIFF 한계 초과 = "tag too large" 정직
+    거부·기존 id3 태그 = ReadId3Tag→BuildId3V23Body 재용(mp3 leg 동형).
+- **★원자적 쓰기(D6 — 4형식 같은 사다리)**: 동일 dir `.pid.tagtmp` 쓰기→
+  fsync(**Win = CreateFileW+FlushFileBuffers·posix = ::open+::fsync —
+  TagFileWriter 저수준 수형 — 리포트 원문: MusicDirStore는 ofstream이라 fd
+  접점 부재**)→close→rename(.bak 사다리 3종 — UCRT 교체 실패 실측 선례
+  승계)·**순서 계약 = 원본 ifstream close가 rename에 선행**(Windows 공유
+  핸들 rename 거부 — T1 결정 10·T2 함정 A급 재발을 사다리 안에 봉인)·
+  **kTagWriteMax = 16MiB** — 쓰기는 편집 지점 1곳 파일만 다루므로 스캔
+  1패스 상한(#99 머리 1MB)을 쓰기 leg가 그대로 받지 않는다(선단 12B
+  프리읽→선언 태그 끝까지만 조건 read)·MinGW narrow 기수 = UTF-8 strict
+  (CP949 → filesystem_error — 2o-f 실측 원문) → 쓰기 경로 전부 fs::path
+  원문 개방(#92 승계)·posix = O_WRONLY|O_CREAT|O_TRUNC 0644.
+- **ReadCover 전형식(D1)**: mp3 = APIC 프레임(본문 레이아웃 = **[enc]
+  [mime NUL][desc NUL][picture] — 그림타입 바이트 불내장**)·FLAC =
+  PICTURE 블록(첫 유효 — 파손 후보 스킵 관용)·Ogg = lacing 런 보행으로
+  코멘트 **패킷**을 정확 수취(ParseOggTags의 페이로드 concat과 달리 255
+  런 페이지 분할 무관) → METADATA_BLOCK_PICTURE → base64 → ParseFlac
+  PictureStruct(WAV = "id3 " 청크→ReadId3Tag→ApicFromFrames 재용)·
+  **부재 = "no_cover" 관용(부재=부재가 원칙 — 구조 파산만 전파)**.
+- **err 어휘 단일 표**: T1 20종(open·size·empty·unsupported_format·
+  unsupported_id3_version·extended header unsupported·global unsync
+  unsupported·unsupported flags·tag truncated·tag too large·frame id
+  broken·frame truncated·tmp open/write failed·audio read failed·fsync
+  failed·.bak 사다리 3종·cover empty·cover mime missing/unsupported·
+  no_cover)+T2 신설 9종(flac structure/truncated/streaminfo missing·
+  seektable broken·vorbis comment broken·ogg structure·riff structure·
+  chunk truncated) — 4형식 leg 공용 표기(리포트 원문 표·T2가 FLAC leg
+  착수에 맞춰 2u-⑦의 FLAC 기대 어휘를 `flac streaminfo missing`으로
+  갱신 — 구 표기 "unsupported_format"은 T1의 임시 거부 원장).
+- **UI·표시(T3 — 7열 재편)**: `BeginTable 7열` = [커버 40px] + 원존 5열
+  순서(곡명/앨범/크기/수정/spatial)+**[편집 56px]**(spatial 옆·표기 "편집"
+  한글 SmallButton) — 곡명 셀 열 0→1 이동뿐 **더블클릭 위임·행 툴팁·
+  [spatial] 버튼 배선 = 원존 무변조**·발사 게이트 = `TagWritableExt`
+  (mp3/flac/ogg/wav — 정직 표기: m4a/aac/wma 행은 "-"+"태그 쓰기 미지원
+  포맷(v1)" 툴팁 — **매직 불일치는 [저장]의 정직 거부가 흡수 — 확장자는
+  가능성 게이트**)·프리필(artist/album = 태그 원문·title 부재 = 파일명
+  stem — D3 표기 폴백 규약 승계)·패널 = **[폴더 관리] 동형 전환 패턴**
+  (같은 창·tab·새 창 금지)·[저장] = WriteTag **1콜로 완결**(원자적
+  tmp+rename 내장 — UI 추가 파일 처리 불요)+CloseEditor+RequestScan(
+  재스캔 재청구 기존 배선 — #93 취소 계약 무접촉)·실패 = err 원문 1행
+  패널 유지+입력 값 보존(정직)·**[저장] 스캔 게이트** = scanBusy_
+  BeginDisabled+표기 "스캔 중"(SaveTagEdit에도 동형 방어선 — 도구 경계성
+  대비)·**[커버 선택] = #97 브라우저 부품 재용**: cwd 표기 1행+전문
+  툴힌트+".." 상위+[닫기]+이미지 child 128(하위 폴더 Selectable = JoinDir
+  원문·로컬 ListCoverFiles = .jpg/.jpeg/.png만·IsCoverImageExtension
+  Stricmp·도트 스크립+바이트 asc 결정론)·클릭 = 즉시 선택(성공 = 브라우저
+  종료)·**타이핑 0**(폰 계약)·개봉 시작점 = 편집 곡의 parent_path.
+- **★커버아트 지연 읽기+LRU(D7)**: ReadCover는 `ListAudioFiles`/ScanWorker
+  에 무접촉(스캔 1패스 원존 무변조) — **행 렌더의 캐시 미스만 렌더 스레드
+  채움+프레임당 2건 예산(kCoverFillPerFrame)** — 초과분 = placeholder+
+  pendingCovers_(다음 틱 재요청)·플 = `std::vector<CoverSlot> covers_` —
+  **LRU 상한 96**(갤러리 선례 승계)·슬롯 key = **(full, mtime, size)** —
+  태그 쓰기(커버 교체) 후 재스캔의 mtime/size 이동이 행 표기 재충 진실원·
+  실패 슬롯 = `failed`+`failedGen=coverGen_`(RequestScan마다 증가 세대 —
+  다음 재스캔 세대에서 1회 재시도 — 60Hz 재시도 방지)·"no_cover"도 같은
+  placeholder(행 라벨·툴팁 무변조)·디코드 = **JKImageLoader 접점 재용**
+  (`jk::LoadImageMemory` 내장 바이트 — 파일 터치 0·`jk::LoadImageFile`
+  커버 선택 파일) — **앱 TU는 stb_image를 include하지 않는다**(단일 구현
+  계약 원문)·축소 = ShrinkToBox(행 32·미리보기 96 — nearest·gallery
+  MakeThumb 수형·**미리보기도 96 박스 텍스처 — 폰 SW 렌더러 대형 텍스처
+  비용 회피**)·표기 = draw list 직접(테마 launcherCell 토큰 — 회색
+  자리표시 원존 토큰·FitImageBox 비율 유지)+Dummy 32px(셀 진행)·**컬 =
+  행 클립 rect 교차 시에만 요청**(gallery fix r2 C2 수형 — 컬 없는 전수
+  요청 = LRU 촬영 잠금 원저 회피).
+- **★#89 idle 계약의 이원화 원장(T3 — 조건화 수형 승계)**: `OnIdle`이
+  pendingCovers_에서 `frameDirty_=true` 재청구(게이트 배송 경로) — **이것이
+  실제 동작 경로**·RenderOverlay 끝의 `frameDirty_ = pendingCovers_` 대입
+  = 갤러리 선례 원문 유지(갤러리의 RenderAndCommit 뒤 소각 사정 — §7.10.3
+  #3)·도착 완료 = 마지막 프레임, idle로 원상 복구.
+- **동프레임 텍스처 파괴 금지의 예방 파견(갤러리 C1 원장 승계)**: ①행 풀
+  퇴출 = 이번 프레임 접촉 스탬프(`useFrame≥coverFrame_`) 후보 전부 제외
+  (PickCoverVictim) ②미리보기 교체·패널 닫힘의 파괴 = **프레임말 스윕**
+  (`texSweep_` 포인터 적립 → RenderDrawData 뒤 파괴)·미리보기 재구성 =
+  draw 전 경계(previewDirty_ → 다음 프레임 패널 머리) 소화.
+- **도구(T4 — music_tag_write — music 앱 7종째 등록)**: args =
+  {path 필수·title/artist/album(빈값 = 비움 쓰기 — 프레임 생략 등치)·
+  cover(이미지 파일 경로|생략/`null`/빈문자열 = 유지 — 3형식 빈값 수렴
+  2u-⑮ 3건 봉인)} — **파서 = 도구 허브 원존 AgentJson(quickjs) 재용**
+  (이스케이프 복호·UTF-8 계약 — 직수 파서 신설 금지)·`LoadCoverByMagic` =
+  **마법수 mime 판정**(0xFF 0xD8→image/jpeg·0x89 0x50 0x4E 0x47→
+  image/png·그 외 = "cover magic unsupported" 정직 거부+bytes 소각)·
+  `TagWriteTool` = `tags::WriteTag` **1콜**(UI [저장]과 동일 사슬·원자적
+  사다리 내장·도구 경계 추가 파일 처리 0 — DRY 최소)·등록 =
+  OnInit `SendAgentToolRegister("music", tools)` 1회 발송 7종(연결 단위
+  upsert — 제2호 호출이 매니페스트 전체 치환 — 이전 등록 소각 없음)·응답
+  = `unknown_tool` 앞에서 `{"error":"scan_busy","retry":true}` 정직 거부
+  (스캔 진행 중 — 도구는 대기 없이 중단 표기 — 스펙 §5 규약 수형)·쓰기
+  실패 = `{"error":"write_failed","detail":err 원문 EscapeJsonStr}`(dir
+  3종 응답 규약 수형)·**기존 도구 8종 원존 무변조**(diff 제거행 = 등록
+  개수 문어 6종→7종뿐).
+- **2u = 127 어설션 계보**(①-⑮ — T1 47+T2 57+T4 23·1케이스 다중 어설션
+  확장 계수 수형·폰 캐논 계보 = 스펙 §6 ⑯ — progress ruling: 스펙 ⑯=T6
+  폰 실측행 — 폰 캐논은 selftest 어설션이 아니라 **계보 실측이 진실원**).
+
+### §7.10.2 캐논 계보 (2u 계열) + probe 실측 영수증
+
+| 커밋 | Win | WSL | posix | 폰 | 신설 |
+| --- | --- | --- | --- | --- | --- |
+| 기준(#99 종착 = §7.9.2 T5 행) | 691 | 668 | 304 | 668 | 2s 20 |
+| T1 `15c2bb4` | **738** | **715** | (승계) | 668 | **2u 47** (①-⑦ — 기존 계보 0건 변경·연속 2런 738/738 재현·+47/+47 동증분 = 축 무관) |
+| T2 `2973933` | **795** | **772** | (승계) | 668 | **2u 57** (⑧-⑭ — +57/+57 동증분·2u ①-⑦ 등호 47건 재현 — 공용 부품 추출 후 출력 계약 동일) |
+| T3 `c8f31f2` | 795 | 772 | **304**(실측) | 668 | 0 (3축 등호 — UI 태스크 신설 어설션 0 계약·posix = 하네스 own main.cpp — ClientMusicApp 미링크 재증명) |
+| T4 `5b95c63` | **818** | **795** | 304(승계) | 668 | **2u 23** (⑮ — 2u 누계 127 — +23/+23 동증분) |
+| T5 `eaba3a4` | (승계) | 795 (2런 등호) | (승계) | 668 | 0 (probe 전용 — CANON_WSL_SELFTEST 668→795 상수 1행 갱신+SELFTEST-2U-CASES=127) |
+| T6 `d2c91ce`(+fix 2건) | (무접촉) | (무접촉) | (무접촉) | **795** (3측정 등호 — 668→795 = 2u 127 소각) | 0 (probe 전용 — CANON-INCLUSION=MUSIC-FULL-2P2QRS-127·2u 배포 마커 게이트[≥100] 신설) |
+| T7 본 커밋 | 818 | 795 | 304 | 795 | — (docs 전용 — 재실행 불요) |
+
+- **캐논 최종 = Win 818/WSL 795/posix 304/폰 795 — 2u=127(CANON
+  MUSIC-FULL-2P2QRS-127)**. 기존 계보 원수치 보존: 2r=10·2s=20·2m=26·
+  2n=17·2o=16·2p=7·2q=7 전부 변조 0(T6 probe H 원문 라인)·캐논 증분은
+  전부 Win/WSL 양축 동증분(47/57/23 — 플랫폼 조건 분기 0 계약) — posix는
+  하네스 TU 미링크(own main.cpp)라 신설 어설션 0(구조 무접촉 원장 — 계열
+  원존).
+- **WSL probe 실측 영수증(T5 — 정식 2런 등호 — rc=0·~652s씩)**: 도구
+  relay(atool — app_tool app=music 직행) 쓰기 **3콜 1/1/1**(scan_busy
+  재시도 폴링 수형 — 실측 3콜 전부 1차 시도 성공 — 소형 시드 dir 경합 0)·
+  재독 표기 **'Wsl Write Alpha'→'Wsl Write Reup' 등호**(TW-PARSED
+  3필드 — 재독 파서 mus_twparse.py = 시더·앱 파서와 독립 — 16e
+  TAG-PARSED-PREVIEW 수형)·**APIC md5 == cover md5 3등호**
+  (90155ae6b2bb6f91691fe7724db9b165 — 941B 합성 cover — 드라이버 PIL
+  산출 인라인 — 외부 파일 의존 0)·FLAC 재독 `keys=3 picture=0`(42B→
+  127B — D9 재조립 실측)·**목록 행 캡처 4종**(list/list2/flac/filter —
+  행 32px 썸네일에 4색 밴드 렌더+회색 자리표시 대조+상태행 "태그 저장
+  (도구) — 재스캔" 표기 — **표기·썸네일은 캡처 육안 몫 = EYES**)·
+  `TW-REMNANT: 0` 2런·기존 세그먼트 회귀 0(DIRS-OK·I1-OK·LEG-UNSET-OK·
+  CANCEL-OK·BROWSE-OK — 10/11 run5 기저 등호)+복원 수형 원존(SEED-BURIED·
+  SET-RESTORED byte-exact·PERM-BURIED·END 서버 DOWN 원복+17d 신설 가드)·
+  **MUSIC-TAGWRITE-VERDICT: TAGWRITE-OK 2런 등호**+TW-RUN-VALS/TW-RUN-CAP
+  요약 스트림(JOG-RUN-VALS 수형 — stdout 수취 부재 재발 방지 봉인 승계)·
+  캡처 경로 원장행 — 2런이 겹침 교체(runs 1 원문 = run1 로그 CAPTURE 행으로
+  정직 보존 — T4 concern 5 계승).
+- **폰 실측 영수증(T6 — 폰 접촉 런 성립)**: 접속 = known_hosts 자기
+  판명(KH-SELFRESOLVE-MATCH — 주소 미인쇄 계약)+서브넷 정찰기 동봉(
+  로컬 서브넷 /24 포트 8022 전수 — KH 1차 매치라 미실행·향후 폰 서브넷
+  이동 시 자동 폴백)·배포 = 전수 git archive HEAD(T1-T4 코드 원문 이관)·
+  **SWEEP-POST-DIFF=0**(blob 크기 등호)·리빌드 405s RC=0(aarch64)·
+  **폰 spatial leg WIRED 보존**(LEG-STAGE-WIRED·MUSP-LEG-SYM
+  alcOpenDevice=3 — #110 원존 재용 — 삭제 금지 계약)·selftest **A/B = rc=0
+  PASS=795 FAIL=0 2u=127 등호 2측정**+probe H 섹션 795 등호 = **3측정
+  등호**·시드 랜딩 = 도착 md5 등호 hard 게이트(TW-COVER-MD5-PHONE 등호)·
+  쓰기 3콜 1/1/1·재독 원문(TW-ID3-VER 3·title 2단 교체 'Phone Write
+  Alpha'→'Phone Write Reup'·APIC md5 == cover md5 2콜 등호+cover=null
+  APIC 유지 apic_keep=1)·FLAC 42B→129B·`TW-FLAC-BLOCKS keys=3`·
+  **행 썸네일 표기 원문 캡처 3종+crops 3종**(4색 밴드 썸네일·상태행
+  표기·7열 [편집] 열 — 캡처 육안 선확인)·TW-REMNANT 소각(TW-BURIED·
+  REMNANT-TW-SEEDS: gone·P3 TAGDIR 통짜 소각)·
+  `MUSIC-TAGWRITE-PHONE-VERDICT: TW-OK`+TW-RUN-VALS/TW-RUN-CAP.
+- **MUSIC-PHONE-VERDICT = MUSIC-PHONE-FAIL(honest)** — 요인 2건·**둘 다
+  본 세그먼트(도구 쓰기)의 재축 아님**: ①N4 ⑤ [이 폴더 추가] 무전달 재발
+  (BROWSE-FAIL — **잔여 원장행 상속** — 갱신 65 "탭 좌표 재보정" 별소관 ·
+  T6 수형 = hard 마커(rc=1)·마커 원존·**종결 시점만 probe 말단으로 이동**
+  — 구 수형은 즉시 FAIL로 REMNANT·회수·판정(섹션 5-9)을 통째로 생략했다
+  (run8 원문: 집합 미회수 유산) — 본 수형이 T6 자기 산치를 그 위에서
+  정산) ②spatial_mix 회수 결손(기존 함정 — fix r2 소각 — **첫 재런 원문 =
+  유계 — §7.10.3 #8**). 폰 부팅 원문: BOOT-SECONDS=9·SCAN-COUNT=27·
+  SCAN-SORTED=OK·ICON-DECODED=26·복원 = settings/perm 바이트 등호·jkweb
+  불접촉·Music 창 복원.
+
+### §7.10.3 함정 원장 (#111 신규 — 봉쇄 레슨 축)
+
+1. **★T1 블롭 산술 25vs26(테스트 산술 — 계보 결함 아님)** — first run
+   2 FAIL: ⑦ 잘린 ID3 합성 블롭 산술(10B 헤더+15B 본문 = 25B vs 체크
+   26B) — fix 후 738/715 전원 PASS. 주석 표기 "매agic" 오기 6곳 = 커밋
+   전 sed 정정 실측(기존 블록 무접촉).
+2. **★T2 함정 원장 7항(구현 결함 6건 — 그중 A급 1건+테스트 결함 4건 —
+   전원 커밋 전 자체 소각)**:
+   ① **[A급] TagAtomicWrite가 원본 ifstream을 닫지 않아 rename 사다리가
+   일괄 실패**("original backup failed") — T1 결정 10(원본 close 순서)의
+   재발: leg별 tail 람다가 스트림을 쓴 뒤 사다리가 close하지 않았다 —
+   수리 = 사다리에 `f` 인수+rename 전 `f.close()` 봉인(3 leg — WAV는 이미
+   직접 close) → **이후 전 leg가 같은 사다리를 공용 소비 = 재발 불가
+   구조**. ② RebuildVorbisEntries 관리 키 **대소문자 파산**(FoldVorbisKey
+   소문자와 관리 표 "TITLE" 대문자의 등식 비교 = 교체가 아니라 신설로 가면
+   3필드 round-trip 파산) — 소문자 관용 표+신설 캐논 대문자 표 분리.
+   ③ Ogg **[0, C0) 머리 페이지(id) 미복사** — 코멘트 교체 후 id 페이지가
+   사라지는 재조립 누락 — head1 앞 원문 복사+tail `seekg(ckEnd)` 명시
+   (보행 종료 위치 기점). ④ 뒤페이지 CRC 재계산이 **CRC 필드를 0 소각
+   없이 계산**(규약 위반 — 독립 판정판 불일치) — pg[22..25]=0 후 계산.
+   ⑤ WAV RIFF 크기 산출에서 신설 id3 청크의 **8B 헤더 이중 산출**
+   (riffSize > fileSize−8 — 8 초과) — `+= id3ChunkTotal`. ⑥ Base64Decode
+   종결 검사 `bits == 0` 파산(RFC4648 오판 — 2/3바이트 결합의 잔여 패딩
+   비트까지 거부 = 모든 %3≠0 원문 거부) — 패딩 비트 완화 수용(구조 파산은
+   ParseFlacPictureStruct가 걷는다 — 문서화). ⑦ **테스트 결함 4건**(⑧
+   STREAMINFO "last=false" 리터럴의 사슬 종결 파산 — 테스트 구성이 D9 계약
+   의 반대·⑫ 코멘트 패킷 lacing 255 런 규약 위반 합성(325>255)·⑬ 신설
+   id3 자리 산술 잔산·⑭(b) WAV 픽스처 크기 자리+"WAVE" 누락 — walk
+   오프셋 파산) — 전부 테스트 산술·구성 결함. (부기: bash heredoc `\\`
+   이스케이프 훼손 3회 — Write 파일 도구로 재작성·rc=127 = PATH 미설정
+   DLL 사망 — 2줄 PATH 표준 재확인)
+3. **★T3 자기발견 결함 2건(커밋 전 소각 — 텍스처 생명 계열)**:
+   ① **previewSweep 플래그의 누수** — 미리보기 재구성에서 "파괴 예약
+   플래그"만 쓰면 프레임말 스윕이 **새** 텍스처를 파괴하고 옛 텍스처는
+   누수 — 스윕을 **포인터 적립 목록(`texSweep_`)**으로 정정(파괴 대상이
+   대입 순서에 묶이지 않는다). ② **선택 후 미리보기 정지** — 이미지 행
+   클릭 → 재구성 예약이 다음 프레임 몫인데 그 프레임을 만들 더티 원천이
+   없으면(브라우저 종료 = 이번 프레임의 입력뿐) 미리보기가 영원히 안
+   나온다 — 클릭 경계 `frameDirty_=true` 1행 봉합. + **OnIdle 재청구 =
+   유일 동작 경로 원장**(갤러리 선례의 RenderOverlay 끝 대입은
+   RenderAndCommit 뒤 OnFrameCommitted가 소각해 단독으로는 다음 프레임을
+   못 만든다 — JKClientApplication Run 루프 순서 실측 — 대입은 선례 원문
+   유지+원장행 이원화). + **ninja "no work to do" 오판 방지 원장(실측)**:
+   jkdesktop.exe는 ClientMusicApp을 링크하지 않는다(앱 = 별도 dll) — 본
+   라인 실제 산출물 = jkapp_music.dll(Win)/.so(WSL)+apps/music.jkx 재팩
+   — 클럭 스큐 mtime 경계에서 touch 강제 재컴파일로 최종 상태 재증명.
+4. **T4 표기 오차(원장행 — 진실 계보)** — 리포트 numstat 표기
+   **+55/−6 vs 실측 +50/−5**(ClientMusicApp.cpp)·총계·캐논 유효·문언
+   정산 원장행(park — 진실원 = git numstat). + 등록 위치 원장(실측 지목):
+   등록부 = **JKAppModule_music.cpp가 아니라 ClientMusicApp.cpp OnInit의
+   SendAgentToolRegister 1회 발송** — 같은 자리에 병합(제2호 upsert 치환
+   계약).
+5. **★T5 probe 결함 3건(self-fix — fix 이전 견적 런 run_parsebug 원문
+   수취)**: ① **probe 파서의 APIC 슬라이스 z+2** — 엔진 APIC 본문
+   레이아웃 = [enc][mime NUL][desc NUL][picture]·**그림타입 바이트
+   불내장**(ApicFromFrames 보행 동형) → z+2 스킵이 그림 선단 5B(0x00
+   포함)을 잠식 → md5 불일치(jpeg_magic=0) — my-parser z+1 보행 수형+런
+   반복 — **엔진 사슬(쓰기/ReadCover)은 자가 일관 — 실측 md5 3등호
+   무결증명(probe 결함)**. ② **16e-4 아티스트 필터 잔존** — 16e의 마지막
+   행동 = 아티스트 필터 타이핑 — 그 필터가 잔존한 채 16f가 도는 사건
+   (tagwrite_list 캡처가 필터 매치 행만 보여 태그 반영 행 캡처 비짐) —
+   **16f-0a 신선 클라 재건 수형**으로 소각(close+launch — InputText
+   클리어 의존 소각). ③ 환경 트랩(설계 수형 회피): heredoc 역사 접힘
+   (chr(92)/chr(10) 구성 우회 — BOM 리터럴 2회 재발 → escape 형식 6ASCII
+   확정 — **T6에서 재발** = #7-③)·cover base64를 wsl.exe env 전달 시
+   0바이트 소실(인라인 수형)·cp949 콘솔 유니코드 print crash(진단 하네스
+   만 — probe는 WSL UTF-8).
+6. **★step 11-14 위임 세그먼트 MISS(2런 공통 — T3 UI 상속 · honest)** —
+   표행 0 더블클릭 3쌍이 전부 MISS → vplayer 본체 미스폰 → glue/play
+   원문 미수취·MUSIC-VERDICT FAIL(rc=0 honest). 정직 귀속 = **T3 c8f31f2가
+   표에 커버 열+썸네일+편집 버튼을 넣어 행 레이아웃이 이동** — MUS_ROW0_Y
+   =132 상수는 그 위의 빈 지대(탭 스트립 지대) 착탄 — **본 라인 계약(기존
+   세그먼트 원존)이라 좌표 재보정 불수행 — MUS_ROW0/MUSP_ROW0 상수 재보정
+   = 별소관 결정 대기(갱신 65 잔여 원장행 승계 — progress ruling: probe
+   11-14 원문은 HEAD상시 MISS·좌표 재보정 태스크 결정 대기)**. 관련
+   원장행: 16e TAG-FAIL settle 0/0 = 프레젠트 지연 원장 수형(회귀 아님)·
+   16f-5 settle_title=0(밴드 14px < 60 임계 — 캡처 말미 프레임 스테일) —
+   **TAGWRITE-OK의 구성항 아님**(파일 수준 round-trip이 강도 축)·T6 폰도
+   `MUSP_ROW0_Y=132` 같은 계보·`MUS-TW-FILTER-SKIP` = 폰 타이핑 스킵
+   원장 승계(N5와 같은 EYES 축 — WSL 소유).
+7. **★T6 함정 6건(런 1 부검 — fix 2건 수형+표기 원장행+유계 1건)**:
+   ① **recover_opt 정의 순서(기존 함정 — fix r2 2aa03f0)** — spatial_mix의
+   `recover_opt` 호출이 함수 정의보다 앞 → `command not found` →
+   **CAPTURE-OK 영수증(144,329B) 있는데 회수 0**(CAP_OK=0) — 수형 = 정의를
+   호출 앞으로 이동(본문 무변조) — 본 런의 회수 결손 = 영수증 원문으로
+   정직 보존. ② **deploy 드라이버 verdict의 CANON 파싱**(engine/tmp
+   driver — file fix) — verdict 파서가 `CANON-A=` 뒤의 **괄호 해설을
+   통째로 비교** → **T6-FAIL 오판행(영수증 데이터 전부 green)** — driver
+   수치 추출 `awk '{print $1}'`로 정산(재계산 원문 = T6-OK — 재런 불요)·
+   fix 이전 출력 = 결함 원문 보존. ③ **BOM 리터럴 재발(fix r1 aed0add)** —
+   T5 함정 원장(heredoc 붕괴 — escape 형식 6ASCII 확정)의 재발 — N6 파서
+   heredoc에 리터럴 U+FEFF — 런 중 byte-wise 수형(lstrip 계열 — 동작
+   동일·계보 표기 통일). ④ **★실행 중 probe 파일 편집 위험 원장행** —
+   aed0add(런 중)+2aa03f0(회수 단계와 접침) — bash 증분 읽기와 겹칠 수
+   있는 수형 — 본 런 산출 무상처는 출력 원문으로 확인(전 행이 구 수형
+   동형으로 수취) — **재발 금지 원장행: 런 중 파일 편집 금지 — 이후 런은
+   커밋 완료 후 착수**. ⑤ **시드 mtime 스탬프 vs 쓰기 갱신** — 시드가
+   미래 스탬프라 쓰기 갱신(런 시각)이 mtime desc 상단행이 못 된다 — 쓰기
+   대상 행은 표 말미에 렌더(캡처 레저의 "상단행" 문구는 스탬프 계보에
+   종속 — 성립 판정 도구+파일 재독에 영향 0). ⑥ **재독 파서 프리뷰 표기
+   문언 오버** — junk mp3(무태그 전제 = 정상 원문)에
+   `magic-unknown (무태그 전제 위반…)` 라벨 — 우사 행·게이트 아님
+   (PARSED-A/B·APIC md5가 강도 축) — fix 후보 원장행.
+8. **★T6 Important 유계(컨트롤러 ruling — #112 상속 지시 원문)** —
+   "recover_opt fix 후 첫 재런의 spatial_mix 회수 성립 원문 미수취 — 폰
+   접촉 런 필연 발생 시점에 원문 1행 수취 지시를 **#112 폰 leg 태스크(T5)
+   dispatch에 상속** — 비용=#112 폰 런에서 폰 미접속 시 유계 남음" —
+   recover_opt 수형(2aa03f0)이 커밋된 뒤의 폰 재런 원문이 아직 0건 —
+   RECOVER 성립 원문 1행 = 다음 폰 런 몫(유계 — 폐곡 아님).
+9. N6 탭 상속+폰 표기 원장행: `MUS-N6-TW-RECON`(16f-0a 신선 클라 재건
+   생략 원장행 — WSL 진원 = 16e-4 필터 잔존·폰 N5 = 타이핑 스킵이라
+   진원 없음)+`MUS-TW-TAB-INHERIT: OK`(활성 탭 = 태그 dir — N5 tapsettle
+   진실원 계승)·**폰 label 교체 캡처 구별 불가 원장행** — 곡명 열 폭
+   절단으로 캡처 문자 구별 불가 — **표기 일치의 강도 축 = 파일 수준
+   round-trip(캡처 = 모양 원문 EYES)** — T5 WSL 동일 계보.
+
+### §7.10.4 EYES 게이트 (사용자 선언만 결제 — §5/§7.9.5 원칙 동형 ·
+**EYES-PENDING — 본 라인 결제는 사용자 육안/체감 선언만 성립 — 결제 상태 =
+미결제(대기)**)
+
+| # | 게이트 | 내용 | 상태 |
+| --- | --- | --- | --- |
+| ① | **[편집] 패널 체감** | 행 [편집] 버튼→태그 편집 패널(프리필 — artist/album 태그 원문·title 부재 = 파일명 stem)·[저장](성공 = "태그 저장 — 재스캔"+목록 갱신·scan 중 비활성+"스캔 중" 표기·실패 = err 원문 1행+입력 보존)·[취소]·[커버 선택] 브라우저(타이핑 0 — #97 부품 실감)·미지원 확장자 "-" 표기 — WSL 캡처 원문 4종 보존(mus_wsl_tagwrite_list/list2/flac/filter) | **대기(육안·체감)** |
+| ② | **커버아트 모양+체감** | 행 32px 썸네일(합성 cover 4색 밴드 렌더 — 회색 자리표시 대조)·편집 패널 96px 미리보기·쓰기 후 재스캔 갱신(슬롯 key mtime/size)·커버 교체(D8)의 목록 반영 — 캡처 WSL 4종+폰 3종(+crops 3종) 보존 | **대기(육안)** |
+| ③ | **폰 — 태그 쓰기 체감+모양** | mus_phone_tagwrite_list/list2/flac(+crop 3종 — 4색 밴드 썸네일·"태그 저장(도구) — 재스캔" 상태행·7열 [편집] 열)·t6_grid.png/t6_music_win.png(배포 모양 — Music 아이콘·창)·폰 캐논 795 체감 — **[편집] 패널 탭 세그먼트 = 폰 스킵 원장행**(타이핑 신뢰 원장 — WSL 소유) = EYES 축 | **대기(실기기)** |
+| ④ | **결정 D1-D3(사용자)+D4-D10(재량)** | 커버아트 표시+삽입 전체·4형식 전부·행 [편집] 버튼+패널 — 재량 7건(조달 0·v2.3 정규화·원자적 쓰기·지연 읽기+LRU·완전 교체·FLAC 재조립·Ogg 재번호) — **기각 시 즉시 수리** | **대기(유효)** |
+
+### §7.10.5 커밋 원장 + IP/호스트 경로 게이트 (#111 라인)
+
+- 라인 체인 = **662ed23(스펙) → cd17d65(플랜) → 15c2bb4(T1) → 2973933(T2)
+  → c8f31f2(T3) → 5b95c63(T4) → eaba3a4(T5) → d2c91ce(T6) → aed0add(T6
+  fix r1) → 2aa03f0(T6 fix r2)**+본 T7 커밋(§7.10.0 표 = rev-parse 전체
+  SHA — git log가 진실원) — push 전부 origin main 직행·amend 없음.
+- **IP·호스트 경로 게이트(T7 실측 — 이중)** — 라인 전 커밋 diff+리포트
+  6종에서 IPv4 정규식 grep = **0건**(각 리포트 §1 원문 — T6 = "폰 주소는
+  어느 파일·로그에도 인쇄 없음 — 정찰 = counts/성격만"·서브넷 표기 = /24
+  마스킹 수형 — §7.9 계약 승계)·호스트 경로(드라이브 글자·사용자 루트
+  폴더명·/mnt 계열) 표기 = 0건·spatial-player 경로 = **env-only 규약
+  승계**(T3 diff 전체 grep 0건 원문).
+- **본 T7 커밋은 docs 1파일(`docs/90_music_spatial_leg_asbuilt.md` —
+  §7.10 신설+§4.1-5 부기 1행)로 한정** — git add 명시 경로만(#83 사건
+  렛슨·`git add -A` 금지)·engine/probe 소스 무접촉. 런 로그(tw run1/2+
+  parsebug 2종·t111_t6_scan_recon.txt)·캡처 WSL 4종+폰 3종+pmus_tagwrite
+  crops 3종+t6_grid/t6_music_win 2종·드라이버/정찰 스크립트 3종
+  (t111_t6_deploy/scan/chain — engine/tmp 미커밋 원장 계승 = §4.1-4 T4
+  concern 4 동형)는 engine/tmp untracked — 커밋 금지 충족.
