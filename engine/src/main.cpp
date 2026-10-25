@@ -4095,8 +4095,12 @@ static int RunAppSelfTest() {
             cc.model = "glm-test:cloud";
             const std::string cmd =
                 jk::agent::BuildOllamaDirectCmd(cc, "say \"hi\" $(id)");
-            check(cmd.compare(0, 12, "ollama run \"") == 0,
-                  "1n-d5 composed cmd prefix `ollama run \"`");
+            const std::string prefix =
+                "ollama run --hidethinking --nowordwrap \"";
+            check(cmd.compare(0, prefix.size(), prefix) == 0,
+                  "1n-d5 composed cmd prefix `ollama run "
+                  "--hidethinking --nowordwrap \"` (2026-10-26 계약 변경 — "
+                  "결합만이 완건 단일행 JSON, kOllamaRunRenderFlags)");
             check(cmd.back() == '"',
                   "1n-d6 composed cmd keeps the prompt quote span closed");
             check(cmd.find("\"glm-test:cloud\"") != std::string::npos,

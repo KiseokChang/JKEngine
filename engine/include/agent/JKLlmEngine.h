@@ -16,6 +16,21 @@ inline constexpr char kStubShellCmdWin32[] =
 inline constexpr char kStubShellCmdPosix[] =
     "echo '{\"result\":\"stub ok\",\"session_id\":\"stub-1\"}'";
 
+// ollama-direct `run` 스폰의 렌더 억제 플래그 — `--hidethinking --nowordwrap`
+// 결합만이 완건 단일행 JSON을 준다(kStubShellCmd* 선례의 엔진 리터럴 단일
+// 근원). 실측 원문(2026-10-25 스파이크, 폰 0.23.2): thinking 본문 안의 JSON
+// 골자가 최초 `{`..마지막 `}` 절단(ChatRouter ChatLlmActionParse (b))을
+// 오염시키고, --hidethinking 단독은 CLI 워드랩이 JSON 문자열 값 안쪽에
+// 커서 시퀀스+개행을 혼입(`...확인합니[K\nd다.}`)해 표준 파스 실패 — **결합
+// 2턴/2턴 성립(순수 단일행 JSON·첫`{`..마지막`}` 절단+표준 파스 둘 다 통
+// 과·enum 내 값)**. Win 0.40.11은 `ollama run -h` 플래그 목록에 2건 전원
+// 존재(2026-10-26 실측) — 2축 모두 지원 확인. 미지원 버전(unknown flag)은
+// 셸 수준 조기 사망 → 빈 stdout → 기존 stub 폴백(정직 실패 계약 그대로)이므
+// 로 파산 폭은 UX 지연 상쇄 수준; ChatConfig::renderFlags가 opt-out을 두고
+// 있다(설정 스위치 — fail-closed 재량, BuildOllamaDirectCmd 주석).
+inline constexpr char kOllamaRunRenderFlags[] =
+    "--hidethinking --nowordwrap";
+
 // One LLM turn outcome (jkchat docs/31 §6 lineage). "streamed" means at
 // least one text delta reached the delta callback — the consumer skips
 // re-printing the result when it has already typed itself in.
@@ -46,6 +61,16 @@ struct ChatConfig {
     // 그 기기의 ollama 설치/네트워크에 의존하게 된다(환경 의존 함정). echo
     // 스터브로 스폰 단정을 대체한다. 실제 런타임에서는 쓰지 않는다.
     std::string directCmd;
+    // ollama-direct `run` 스폰의 렌더 억제 플래그 스위치(kOllamaRunRenderFlags
+    // — 결합이 파스 성립을 준다, 위 상수 주석). true(기본, 조립식에 플래그
+    // 결합을 실은 2026-10-26 계약 변경) / chat.json "render_flags":0으로 끄면
+    // 조립식이 플래그 없는 계약 변경 이전 형태(바이트 동일)로 돌아간다 —
+    // 플래그 미지원 ollama 축의 unknown-flag 사망을 끄는 opt-out(fail-closed
+    // 설정 스위치 — 끈 쪽은 파스 실패 stub 폴백으로 살아남는다). LoadChatConfig
+    // 가 유일 독자(키 부재=기본 true — 원래 구성 파일 무영향). selftest는
+    // 기본 조립식만 단정한다(캐논 등호 계약 — 신설 어셜션 0, 스위치 leg는
+    // 조립식 분기 1행의 구조적 보장+리포트 판정 원문 승계).
+    bool renderFlags = true;
     // 승격 opt-in 표지 (T4 fix r1 — NR4-1 컨트롤러 룰링): 이 cfg가 실제
     // chat.json 파일에서 읽혔고 engine 키가 명시됐을 때만 true. 파일 부재·
     // 파스 실패·engine 키 누락은 전부 false — 자연어 승격(ChatRouteTurn 게이트)
@@ -58,6 +83,7 @@ struct ChatConfig {
 // Reads ExeDir()\state\chat.json — falls back to the defaults above.
 // fileKnown은 파일 존재 + 파스 성공 + engine 키 명시의 3조건 성립 시만 true
  // (엔진 턴 소비자 무영향 — 승격 게이트(ChatRouter.h)만 읽는다).
+// "render_flags"(0 = 끔 → ChatConfig::renderFlags)도 같은 경로로 읽는다.
 ChatConfig LoadChatConfig();
 
 // ollama-direct 분기의 기본 스폰 명령 조립 — BuildEngineCmd(비공개)가 유일한

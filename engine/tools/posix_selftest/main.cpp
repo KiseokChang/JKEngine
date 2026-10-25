@@ -1586,8 +1586,12 @@ void TestLlmSyncOllamaDirect() {
         cc.model = "glm-test:cloud";
         const std::string cmd =
             jk::agent::BuildOllamaDirectCmd(cc, "say \"hi\" $(id)");
-        Check(cmd.compare(0, 12, "ollama run \"") == 0 && cmd.back() == '"',
-              "llm15: composed cmd keeps the quote spans closed");
+        const std::string prefix =
+            "ollama run --hidethinking --nowordwrap \"";
+        Check(cmd.compare(0, prefix.size(), prefix) == 0 && cmd.back() == '"',
+              "llm15: composed cmd keeps the quote spans closed "
+              "(2026-10-26 계약 변경 — run 뒤 렌더 억제 플래그 결합 "
+              "kOllamaRunRenderFlags)");
         Check(cmd.find("say \\\"hi\\\" \\$(id)") != std::string::npos,
               "llm15: posix escaper neutralizes the sh live characters");
         Check(cmd.find("[사용자] say") != std::string::npos,

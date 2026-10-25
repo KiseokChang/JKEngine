@@ -58,6 +58,8 @@ ChatConfig LoadChatConfig() {
         if (c.GetInt("skip_permissions", skip)) {
             cfg.skipPermissions = (skip != 0);
         }
+        int rf = -1;
+        if (c.GetInt("render_flags", rf)) cfg.renderFlags = (rf != 0);
     }
     return cfg;
 }
@@ -620,9 +622,26 @@ bool JKLlmEngine::TurnSync(const std::string& promptUtf8, LlmTurnResult& out,
 // 원문을 단정한다(kStubShellCmd* 상수 선례 — 엔진 리터럴의 단일 근원, 3처
 // 복제 소각). 프리앰블은 plain-text leg에도 공통 적용: 폰 웹 회신이 플레인
 // 텍스트로 렌더링되는 실측(docs/60 ⑥)은 엔진 경로와 무관하다.
+//
+// [계약 변경 — 2026-10-26, #113 소형 수형 배치] run 뒤 렌더 억제 플래그 결합
+// (--hidethinking --nowordwrap — kOllamaRunRenderFlags)을 **추가**했다; 계약
+// 변경 이전의 계약은 "run \"MODEL\" \"PROMPT\""였다. 근거(스파이크 실측 원문 — 폰
+// 0.23.2 2턴/2턴 성립·Win 0.40.11 `run -h` 플래그 목록 2건 전원 존재 실측):
+// thinking 본문의 JSON 골자가 ChatRouter::ChatLlmActionParse의 (b) 절단을
+// 오염(docs/84 §2.4 재실측)·--hidethinking 단독은 워드랩이 JSON 문자열 값에
+// 개행을 혼입 — **결합만이 완건 단일행 JSON**(Win 라이브 실측: 0.9s, stdout
+// 순수 1행·스피너는 stderr — 파이프 분리 스폰 계약으로 무영향). 기존 인자는
+// 무변조(모델·프롬프트 스팬과 ShellDqEscape 규약 원문 유지 — 플래그는 run과
+// MODEL 사이에만 착지, 피연산자 앞 플래그 정형). 미지원 버전은 unknown flag
+// 셸 조기 사망 → 빈 stdout → 기존 stub 폴백(정직 실패 계약 그대로, 파산 폭은
+// UX 지연 상쇄 수준); cfg.renderFlags=false(chat.json "render_flags":0)면
+// 플래그 없는 계약 변경 이전 형태(바이트 동일)로 돌아가는 opt-out 스위치가
+// 있다(fail-closed 재량 — 이 스위치가 플래그 미지원 축의 유일한 후퇴 통로).
 std::string BuildOllamaDirectCmd(const ChatConfig& cfg,
                                  const std::string& promptUtf8) {
-    return "ollama run \"" + ShellDqEscape(cfg.model) + "\" \"" +
+    std::string head = "ollama run ";
+    if (cfg.renderFlags) head.append(kOllamaRunRenderFlags).append(" ");
+    return head + "\"" + ShellDqEscape(cfg.model) + "\" \"" +
            ShellDqEscape(kLlmTurnPreamble + promptUtf8) + "\"";
 }
 
