@@ -1096,12 +1096,13 @@ inline TagSet ParseTag(const std::string& path, std::string& err) {
     return tags;  // 부재 = 빈 TagSet(파일명 폴백 — 정상 경로, err 0)
 }
 
-// ---- 태그 쓰기 + 커버아트 (T1 — 스펙 2026-10-25-music-tagwrite-design) ----
+// ---- 태그 쓰기 + 커버아트 (T1 mp3 leg + T2 FLAC/Ogg/WAV leg — 스펙
+// 2026-10-25-music-tagwrite-design) ----
 //
 // 읽기 사슬(위의 ParseId3v2/ParseTag·#99)의 역방향 부품. D4 조달 0 승계 —
 // own 쓰기 부품(third_party 메타 API는 읽기 사슬 원문 주석의 실측 그대로 재용
-// 불가). 이번 Task(T1)는 **mp3 leg만**(FLAC/Ogg/WAV = T2 몫 — v2 형식 지목 =
-// 정직 거부 "unsupported_format"). 계약 시그니처(CoverArt·ReadCover·
+// 불가). T1 = mp3 leg(ID3v2.3 정규화+APIC), T2 = FLAC/Ogg/WAV leg와 ReadCover
+// 전형식(아래 T2 공용 부품 그룹). 계약 시그니처(CoverArt·ReadCover·
 // WriteTag)는 이후 태스크 전부가 소비하는 확정 원문 — 바꾸면 사슬 전체가
 // 다시 검토된다.
 //
@@ -1144,7 +1145,7 @@ inline TagSet ParseTag(const std::string& path, std::string& err) {
 //
 // 스니프(쓰기·커버 공용): 선단 매직이 진실원, 확장자는 보조 분기만("fLaC
 // 파일이 .mp3로 불리는" 역포장도 매직가 이긴다). "ID3" = mp3 v2 leg,
-// fLaC/OggS/RIFF-WAVE = T2 거부, 매직 없음 = .mp3 확장자만 mp3(v1-raw
+// fLaC/OggS/RIFF-WAVE = T2 leg(각 형식별 구조 파산 = 정직 거부), 매직 없음 = .mp3 확장자만 mp3(v1-raw
 // leg — 신설), 그 외 = "unsupported_format". 0바이트 = "empty" 정직 거부
 // (원본 무변경 자명).
 
@@ -1471,6 +1472,314 @@ inline bool FindId3TextTerm(const unsigned char* p, size_t n, int enc,
     return false;
 }
 
+// ---- T2 공용 부품 (FLAC/Ogg/WAV leg — 스펙 2026-10-25 §1) ----
+//
+// 읽기 사슬의 원문 계약을 그대로 거꾸로 걷는 부품 모음:
+// ①vorbis comment 원문 사슬(벤더 유지 — D9) ②base64(inline — 표준 RFC4648,
+// third_party 접촉 금지 계약) ③FLAC PICTURE 구조(FLAC PICTURE 블록 본문 =
+// Ogg METADATA_BLOCK_PICTURE 값 동형 — 1파서 2소비) ④Ogg 페이지 하부(CRC·
+// 수독 — D10 재기입 leg).
+
+// 코멘트 엔트리 1건 — KEY 원철자 보존(재구성에서 자리를 지키며 값만 교체).
+struct VorbisEntry {
+    std::string key;
+    std::string value;
+};
+
+// vorbis comment 전체 구조 수취(벤더+엔트리 열 — ParseVorbisComments의
+// 원문 보존판: KEY 원철자·값 원문을 그대로 돌려주는 쓰기 leg용). 구조
+// 파산(부족한 길이 선언·폭주 개수) = 정직 false. '=' 누락·빈 키 엔트리 =
+// 스킵(읽기 ParseVorbisComments 원문 규약 수형).
+inline bool ParseVorbisCommentsRaw(const unsigned char* p, size_t n,
+                                   std::string& vendor,
+                                   std::vector<VorbisEntry>& entries) {
+    size_t off = 0;
+    if (n < 4) return false;
+    const unsigned int vlen = RdLE32(p + off);
+    off += 4;
+    if (vlen > n - off) return false;
+    vendor.assign(reinterpret_cast<const char*>(p + off), vlen);
+    off += vlen;
+    if (off + 4 > n) return false;
+    const unsigned int count = RdLE32(p + off);
+    off += 4;
+    if (count > 16384) return false;
+    entries.reserve(count);
+    for (unsigned int i = 0; i < count; ++i) {
+        if (off + 4 > n) return false;
+        const unsigned int clen = RdLE32(p + off);
+        off += 4;
+        if (clen > n - off) return false;
+        const char* entry = reinterpret_cast<const char*>(p + off);
+        off += clen;
+        size_t eq = 0;
+        while (eq < clen && entry[eq] != '=') ++eq;
+        if (eq == 0 || eq >= clen) continue;
+        VorbisEntry e;
+        e.key.assign(entry, eq);
+        e.value.assign(entry + eq + 1, clen - eq - 1);
+        entries.push_back(std::move(e));
+    }
+    return true;
+}
+
+// 코멘트 키 ASCII 폴드(FoldAscii 재용 — 읽기 사슬 first-value 판정과 동형).
+inline std::string FoldVorbisKey(const std::string& k) {
+    std::string s;
+    s.reserve(k.size());
+    for (const char c : k) s.push_back(FoldAscii(c));
+    return s;
+}
+
+// 코멘트 사슬 재구성(T2 D8 코멘트 부분 — FLAC 코멘트 블록 본문과 Ogg 코멘트
+// 패킷 본문 공용): 기존 엔트리 원문 보존 + 관리 키(TITLE/ARTIST/ALBUM —
+// ASCII 폴드)의 첫 위치에서 값 교체, 이후 동일 관리 키 = 소각(첫 값 계약 —
+// 읽기 사슬과 동형), 부재 관리 키는 관리 순서로 신설. 빈 새 값 = 해당 키
+// 소각(빈값 쓰기 = 비움과 등치 — T1 결정 3 수형). oggPicture 지정 = 기존
+// METADATA_BLOCK_PICTURE 엔트리 전부 소각+1건 신설(D8 완전 교체 — 사슬 끝),
+// null = 기존 엔트리 원문 유지.
+inline void RebuildVorbisEntries(const std::vector<VorbisEntry>& old,
+                                 const TagSet& t,
+                                 const std::string* oggPicture,
+                                 std::vector<VorbisEntry>& out) {
+    out.clear();
+    bool saw[3] = {false, false, false};
+    const std::string* vals[3] = {&t.title, &t.artist, &t.album};
+    static const char* namesLower[3] = {"title", "artist", "album"};
+    static const char* namesCanon[3] = {"TITLE", "ARTIST", "ALBUM"};
+    for (const VorbisEntry& e : old) {
+        const std::string k = FoldVorbisKey(e.key);
+        int slot = -1;
+        for (int i = 0; i < 3 && slot < 0; ++i)
+            if (k == namesLower[i]) slot = i;  // 폴드 키 = 소문자 관용 비교
+        if (slot >= 0) {
+            if (saw[slot] || vals[slot]->empty()) continue;
+            saw[slot] = true;
+            out.push_back(VorbisEntry{e.key, *vals[slot]});
+            continue;
+        }
+        if (oggPicture != nullptr && k == "metadata_block_picture")
+            continue;
+        out.push_back(e);
+    }
+    for (int i = 0; i < 3; ++i)
+        if (!saw[i] && !vals[i]->empty())
+            out.push_back(VorbisEntry{namesCanon[i], *vals[i]});
+    if (oggPicture != nullptr && !oggPicture->empty())
+        out.push_back(VorbisEntry{"METADATA_BLOCK_PICTURE", *oggPicture});
+}
+
+// vorbis comment 본문 serialization(패킷 마커 제외 — FLAC 블록 본문과 동일
+// 형식): [32LE vlen][vendor][32LE count][count × [32LE]"KEY=value"].
+inline void AppendVorbisCommentBody(std::vector<unsigned char>& out,
+                                    const std::string& vendor,
+                                    const std::vector<VorbisEntry>& entries) {
+    const auto le32 = [&out](unsigned int v) {
+        out.push_back(static_cast<unsigned char>(v & 0xFF));
+        out.push_back(static_cast<unsigned char>((v >> 8) & 0xFF));
+        out.push_back(static_cast<unsigned char>((v >> 16) & 0xFF));
+        out.push_back(static_cast<unsigned char>((v >> 24) & 0xFF));
+    };
+    le32(static_cast<unsigned int>(vendor.size()));
+    out.insert(out.end(), vendor.begin(), vendor.end());
+    le32(static_cast<unsigned int>(entries.size()));
+    for (const VorbisEntry& e : entries) {
+        le32(static_cast<unsigned int>(e.key.size() + 1 + e.value.size()));
+        out.insert(out.end(), e.key.begin(), e.key.end());
+        out.push_back('=');
+        out.insert(out.end(), e.value.begin(), e.value.end());
+    }
+}
+
+// LE64(리온 — Ogg 페이지 granule 8바이트 재기입용. 읽기 RdLE32 쌍둥이).
+inline unsigned long long RdLE64(const unsigned char* b) {
+    return static_cast<unsigned long long>(b[0]) |
+           (static_cast<unsigned long long>(b[1]) << 8) |
+           (static_cast<unsigned long long>(b[2]) << 16) |
+           (static_cast<unsigned long long>(b[3]) << 24) |
+           (static_cast<unsigned long long>(b[4]) << 32) |
+           (static_cast<unsigned long long>(b[5]) << 40) |
+           (static_cast<unsigned long long>(b[6]) << 48) |
+           (static_cast<unsigned long long>(b[7]) << 56);
+}
+
+inline void WrLE32(std::vector<unsigned char>& out, unsigned int v) {
+    out.push_back(static_cast<unsigned char>(v & 0xFF));
+    out.push_back(static_cast<unsigned char>((v >> 8) & 0xFF));
+    out.push_back(static_cast<unsigned char>((v >> 16) & 0xFF));
+    out.push_back(static_cast<unsigned char>((v >> 24) & 0xFF));
+}
+
+// ---- base64 (inline — 표준 RFC4648 알파벳, third_party 접촉 금지 계약) ----
+
+// Ogg METADATA_BLOCK_PICTURE 값 = base64(FLAC PICTURE 구조). 느슨 규약:
+// 공백류는 건너 뛰고(코멘트 값의 개행 관용), '='의 위치 무정렬·알파벳 밖
+// 바이트·'=' 이후 데이터 = 정직 거부(false — 부분 출력 없음·out 소각).
+inline bool Base64Decode(const std::string& in,
+                         std::vector<unsigned char>& out) {
+    out.clear();
+    const auto dec = [](unsigned char c) -> int {
+        if (c >= 'A' && c <= 'Z') return c - 'A';
+        if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+        if (c >= '0' && c <= '9') return c - '0' + 52;
+        if (c == '+') return 62;
+        if (c == '/') return 63;
+        return -1;
+    };
+    unsigned int buf = 0;
+    int bits = 0;
+    int pad = 0;
+    for (const char ch : in) {
+        const unsigned char c = static_cast<unsigned char>(ch);
+        if (c == ' ' || c == '\t' || c == '\r' || c == '\n') continue;
+        if (c == '=') {
+            ++pad;
+            continue;
+        }
+        if (pad > 0) return false;  // 패딩 이후 데이터 = 파산
+        const int v = dec(c);
+        if (v < 0) return false;
+        buf = (buf << 6) | static_cast<unsigned int>(v);
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            out.push_back(static_cast<unsigned char>((buf >> bits) & 0xFF));
+            buf &= (1u << bits) - 1;
+        }
+    }
+    return true;  // 잔여 2/4비트 = 패딩 비트(느슨 규약 — 값 검증 생략: 구조
+                  // 파산은 ParseFlacPictureStruct가 걷는다)
+}
+
+// base64 인코딩(Ogg 그림 필드 기입용 — '=' 패딩 규약 포함).
+inline void Base64Encode(const unsigned char* p, size_t n, std::string& out) {
+    static const char* kTb =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    unsigned int buf = 0;
+    int bits = 0;
+    for (size_t i = 0; i < n; ++i) {
+        buf = ((buf << 8) | p[i]) & 0xFFFFu;  // 유효 12비트 — 잔산 소각
+        bits += 8;
+        while (bits >= 6) {
+            bits -= 6;
+            out.push_back(kTb[(buf >> bits) & 0x3F]);
+        }
+    }
+    if (bits == 2) {
+        out.push_back(kTb[(buf << 4) & 0x3F]);
+        out += "==";
+    } else if (bits == 4) {
+        out.push_back(kTb[(buf << 2) & 0x3F]);
+        out += '=';
+    }
+}
+
+// ---- FLAC PICTURE 구조 (PICTURE 블록 본문 = METADATA_BLOCK_PICTURE 값) ----
+
+// [32BE 그림형식][32BE mime len][mime][32BE desc len][desc][32BE w][32BE h]
+// [32BE depth][32BE colors][32BE data len][data] — 그림형식 3 = front cover
+// (표준 계약 — ReadCover는 형식 값을 판정하지 않고 mime만 정규화한다).
+// 파산(길이 선언 초과) = false — 호출부가 다음 후보(첫 유효 계약)로 간다.
+inline bool ParseFlacPictureStruct(const unsigned char* p, size_t n,
+                                   std::string& mime,
+                                   std::vector<unsigned char>& bytes) {
+    size_t off = 0;
+    const auto take = [&](unsigned int& v) -> bool {
+        if (off + 4 > n) return false;
+        v = RdBE32(p + off);
+        off += 4;
+        return true;
+    };
+    unsigned int mimeLen = 0, descLen = 0, dataLen = 0, skip = 0;
+    if (!take(skip)) return false;  // 그림형식 — 스킵(판정 필드 아님)
+    if (!take(mimeLen) || mimeLen > n - off) return false;
+    mime.assign(reinterpret_cast<const char*>(p + off), mimeLen);
+    off += mimeLen;
+    if (!take(descLen) || descLen > n - off) return false;
+    off += descLen;
+    for (int i = 0; i < 4; ++i) {
+        if (!take(skip)) return false;  // w·h·depth·colors — 표기 계약 무접촉
+    }
+    if (!take(dataLen) || dataLen > n - off) return false;
+    bytes.assign(p + off, p + off + dataLen);
+    return true;
+}
+
+inline std::vector<unsigned char> BuildFlacPictureStruct(
+        const std::string& mime, const std::vector<unsigned char>& bytes) {
+    std::vector<unsigned char> o;
+    o.reserve(32 + mime.size() + bytes.size());
+    WrBE32(o, 3);  // 그림형식 3 = front cover(표준 계약)
+    WrBE32(o, static_cast<unsigned int>(mime.size()));
+    o.insert(o.end(), mime.begin(), mime.end());
+    WrBE32(o, 0);  // desc 빈(종결 역할)
+    for (int i = 0; i < 4; ++i) WrBE32(o, 0);  // w·h·depth·colors 미지정
+    WrBE32(o, static_cast<unsigned int>(bytes.size()));
+    o.insert(o.end(), bytes.begin(), bytes.end());
+    return o;
+}
+
+// FLAC 메타 블록 1건 헤더([1비트 is-last][7비트 type][24BE size]) 기입.
+inline void AppendFlacBlockHeader(std::vector<unsigned char>& out, bool last,
+                                  unsigned type, size_t sz) {
+    out.push_back(static_cast<unsigned char>((last ? 0x80 : 0) | (type & 0x7F)));
+    out.push_back(static_cast<unsigned char>((sz >> 16) & 0xFF));
+    out.push_back(static_cast<unsigned char>((sz >> 8) & 0xFF));
+    out.push_back(static_cast<unsigned char>(sz & 0xFF));
+}
+
+// ---- Ogg 페이지 하부 (D10 — 코멘트 페이지 교체+뒤페이지 재기입 leg) ----
+
+// Ogg CRC32(poly 0x04C11DB7·init 0·무반사·무종결 XOR — Ogg 규약 표준).
+// 표는 처음 1회 완성(inline 함수의 함수 지역 static — 단일 TU 계약).
+inline unsigned int OggCrc(const unsigned char* p, size_t n) {
+    static unsigned int tbl[256];
+    static bool filled = false;
+    if (!filled) {
+        for (unsigned int i = 0; i < 256; ++i) {
+            unsigned int r = i << 24;
+            for (int b = 0; b < 8; ++b)
+                r = (r & 0x80000000u) ? ((r << 1) ^ 0x04C11DB7u) : (r << 1);
+            tbl[i] = r;
+        }
+        filled = true;
+    }
+    unsigned int crc = 0;
+    for (size_t i = 0; i < n; ++i)
+        crc = (crc << 8) ^ tbl[((crc >> 24) & 0xFF) ^ p[i]];
+    return crc;
+}
+
+// Ogg 페이지 1건 수취(스트림 현재 위치에서 — 27B 헤더+세그 표+페이로드).
+// 반환: 1 = 성립("OggS" 매직 포함), 0 = 페이지 경계에서 깨끗한 EOF,
+// -1 = 파산(잘린 헤더/페이로드·비페이지 도달 — 호출부가 정직 거부/walk 종료).
+inline int OggReadPage(std::ifstream& f, std::vector<unsigned char>& page) {
+    unsigned char h[27];
+    f.read(reinterpret_cast<char*>(h), 27);
+    if (f.gcount() == 0) return 0;  // 깨끗한 종료(페이지 경계)
+    if (f.gcount() != 27) return -1;
+    if (std::memcmp(h, "OggS", 4) != 0) return -1;
+    page.assign(h, h + 27);
+    const size_t segs = h[26];
+    if (segs > 0) {
+        const size_t tblAt = page.size();
+        page.resize(tblAt + segs);
+        f.read(reinterpret_cast<char*>(&page[tblAt]),
+               static_cast<std::streamsize>(segs));
+        if (f.gcount() != static_cast<std::streamsize>(segs)) return -1;
+        size_t plen = 0;
+        for (size_t s = 0; s < segs; ++s) plen += page[27 + s];
+        if (plen > 0) {
+            const size_t payAt = page.size();
+            page.resize(payAt + plen);
+            f.read(reinterpret_cast<char*>(&page[payAt]),
+                   static_cast<std::streamsize>(plen));
+            if (f.gcount() != static_cast<std::streamsize>(plen)) return -1;
+        }
+    }
+    return 1;
+}
+
 // ---- 네이티브 쓰기 leg (D6 — fsync 성립 조건) ----
 
 // std::ofstream은 fd 접점이 없어 fsync가 성립하지 않는다(실측 제약 — 원장
@@ -1550,14 +1859,880 @@ struct TagFileWriter {
 };
 #endif
 
-// ---- 파일 접점 (커버 읽기 — T1 = mp3 APIC leg만) ----
+// ---- 파일 사다리 공용 (T2 — 4형식 leg가 하나의 원자적 사다리를 쓴다) ----
+
+// 스트림 구간 복사(T1 mp3 leg 원문 수형 — 64KB 분절). 원본 read 실패·부분
+// read(경합 절단) = "audio read failed", tmp 기입 실패 = "tmp write failed".
+inline bool CopyStreamRange(std::ifstream& f, TagFileWriter& w,
+                            std::streamoff from, std::streamoff count,
+                            std::string& err) {
+    f.clear();
+    f.seekg(from, std::ios::beg);
+    std::vector<char> chunk(64 * 1024);
+    while (count > 0) {
+        const std::streamsize want =
+            count < static_cast<std::streamoff>(chunk.size())
+                ? static_cast<std::streamsize>(count)
+                : static_cast<std::streamsize>(chunk.size());
+        f.read(chunk.data(), want);
+        const std::streamsize got = f.gcount();
+        if (got != want) {
+            err = "audio read failed";
+            return false;
+        }
+        if (!w.WriteAll(reinterpret_cast<const unsigned char*>(chunk.data()),
+                        static_cast<size_t>(got))) {
+            err = "tmp write failed";
+            return false;
+        }
+        count -= got;
+    }
+    return true;
+}
+
+// 교체 rename 사다리(T1 mp3 leg 원문 수형 — MusicDirStore WriteSettingsAtomic
+// 선례: 1세대 교체 rename, 실패만 .bak 사다리+복원).
+inline bool TagReplaceRename(const std::string& tmp, const std::string& path,
+                             std::string& err) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::rename(fs::path(tmp), fs::path(path), ec);
+    if (!ec) return true;
+    const std::string bak = path + ".bak";
+    fs::remove(fs::path(bak), ec);
+    if (ec) {
+        std::remove(tmp.c_str());
+        err = "bak remove failed";
+        return false;
+    }
+    ec.clear();
+    fs::rename(fs::path(path), fs::path(bak), ec);
+    if (ec) {
+        std::remove(tmp.c_str());
+        err = "original backup failed";
+        return false;
+    }
+    ec.clear();
+    fs::rename(fs::path(tmp), fs::path(path), ec);
+    if (ec) {
+        std::error_code rec;
+        fs::rename(fs::path(bak), fs::path(path), rec);  // 원본 복원 시도
+        std::remove(tmp.c_str());
+        err = "rename failed";
+        return false;
+    }
+    std::error_code bc;
+    fs::remove(fs::path(bak), bc);  // 성공 세대의 이주 잔산 소각
+    return true;
+}
+
+// 원자적 tmp 사다리(D6 — 4형식 공용): head1 버퍼 기입 → tail leg(원본 스트림
+// 에서 이어 읽어 형식별 재기입이 필요한 페이지/청크를 걸며 기입 — null이면
+// 스트림 접촉 없음) → head2 버퍼 기입 → fsync → 원본 close → rename 사다리.
+// 실패 = 정직 거부+tmp 소각+원본 무손상(D6 계약 — T1 mp3 leg 원문 수형).
+// 원본 ifstream은 rename 전에 닫는다(T1 트랩 10 — Windows에서 대상 파일이
+// 공유 핸들로 열려 있으면 교체 rename이 거부된다).
+inline bool TagAtomicWrite(
+        const std::string& path, std::ifstream& f,
+        const std::vector<unsigned char>& head1,
+        const std::function<bool(TagFileWriter&)>& tail,
+        const std::vector<unsigned char>& head2, std::string& err) {
+    namespace fs = std::filesystem;
+    const std::string tmp =
+        path + "." + std::to_string(ThisProcessId()) + ".tagtmp";
+    {
+        TagFileWriter w;
+        if (!w.Open(fs::path(tmp))) {
+            err = "tmp open failed";
+            return false;
+        }
+        const auto fail = [&](const char* e) {
+            w.Close();
+            std::error_code rec;
+            fs::remove(fs::path(tmp), rec);  // tmp 소각 — 잔산 방지
+            err = e;
+            return false;
+        };
+        if (!w.WriteAll(head1.data(), head1.size()))
+            return fail("tmp write failed");
+        if (tail) {
+            if (!tail(w)) {
+                if (err.empty()) err = "tmp write failed";
+                w.Close();
+                std::error_code rec;
+                fs::remove(fs::path(tmp), rec);
+                return false;
+            }
+        }
+        if (!w.WriteAll(head2.data(), head2.size()))
+            return fail("tmp write failed");
+        if (!w.FlushToDisk()) return fail("fsync failed");  // D6 fsync 계약
+        w.Close();
+    }
+    f.close();  // 원본 핸들 해제 — Windows rename 교체의 공유 핸들 충돌 소각
+    return TagReplaceRename(tmp, path, err);
+}
+
+// 커버 게이트(4형식 공용 — mp3 leg 원문 계약 그대로): null = 정의로 통과,
+// 빈 그림/빈 mime/비지원 mime = 정직 거부. 성립 시 mime = 정규화 표기.
+inline bool ValidateCover(const CoverArt* cover, std::string& mime,
+                          std::string& err) {
+    if (cover == nullptr) return true;
+    if (cover->bytes.empty()) {
+        err = "cover empty";
+        return false;
+    }
+    mime = NormalizeCoverMime(cover->mime);
+    if (mime.empty()) {
+        err = "cover mime missing";
+        return false;
+    }
+    if (mime != "image/jpeg" && mime != "image/png" &&
+        mime.rfind("image/", 0) != 0) {
+        err = "cover mime unsupported";
+        return false;
+    }
+    return true;
+}
+
+// ID3v2.3 본문 조립(D5 관리 프레임 교체+원문 보존 — T1 mp3 leg의 신설/재작성
+// 사슬을 그대로 뽑아낸 공용판: WAV id3 청크 leg가 재용한다).
+inline bool BuildId3V23Body(const Id3TagInfo* old, const TagSet& t,
+                            const CoverArt* cover,
+                            std::vector<unsigned char>& body,
+                            std::string& err) {
+    body.clear();
+    err.clear();
+    // 관리 텍스트 프레임 — 인코딩 1(UTF-16LE+BOM) 고정 통일. 빈 필드 = 생략
+    // (사슬 재구성이 기존 프레임을 교체하므로 빈값 = 비움 쓰기와 등치).
+    if (!t.title.empty()) AppendId3TextFrame(body, "TIT2", t.title);
+    if (!t.artist.empty()) AppendId3TextFrame(body, "TPE1", t.artist);
+    if (!t.album.empty()) AppendId3TextFrame(body, "TALB", t.album);
+    if (cover != nullptr) {
+        std::string mime;
+        if (!ValidateCover(cover, mime, err)) return false;
+        AppendId3ApicFrame(body, mime, cover->bytes);
+    }
+    // 기존 프레임 원문 복제(D5 — TCON 장르 복제+해석 불가 프레임 drop 금지).
+    // 관리 프레임은 새 프레임이 교체하고, cover 지정 시 기존 APIC도 소각
+    // (D8 완전 교체 — T1 mp3 leg 원문 수형).
+    if (old != nullptr) {
+        for (const Id3FrameRec& rec : old->frames) {
+            if (rec.id == "TIT2" || rec.id == "TPE1" || rec.id == "TALB")
+                continue;
+            if (rec.id == "APIC" && cover != nullptr) continue;
+            AppendId3Frame(body, rec.id.c_str(), rec.body.data(),
+                           rec.body.size(), rec.v23flags);
+        }
+    }
+    return true;
+}
+
+// v2.3 태그 헤더+본문+패딩 조립 — 태그 크기 = syncsafe(읽기 사슬 round-trip
+// 계약 — T1 결정 1 원문 수형). 2^28 초과 = 정직 거부.
+inline bool AssembleId3V23Tag(const std::vector<unsigned char>& body,
+                              size_t pad, std::vector<unsigned char>& tag,
+                              std::string& err) {
+    tag.clear();
+    tag.reserve(10 + body.size() + pad);
+    tag.push_back('I');
+    tag.push_back('D');
+    tag.push_back('3');
+    tag.push_back(0x03);  // v2.3 (D5 정규화 — v2.4 syncsafe 재작성 금지)
+    tag.push_back(0x00);
+    tag.push_back(0x00);  // 플래그 0 — 평문 사슬
+    if (!WrSyncSafe32(tag,
+                      static_cast<unsigned long long>(body.size()) + pad)) {
+        err = "tag too large";
+        return false;
+    }
+    tag.insert(tag.end(), body.begin(), body.end());
+    tag.resize(10 + body.size() + pad);  // 패딩 = 0x00(resize 채움)
+    return true;
+}
+
+// APIC 추출(프레임 사슬에서 첫 유효 — T1 mp3 leg APIC 보행을 뽑아낸 공용판:
+// WAV leg가 "id3 " 청크 페이로드에서 재용한다). 파손 APIC = 다음 후보.
+inline bool ApicFromFrames(const std::vector<Id3FrameRec>& frames,
+                           CoverArt& out) {
+    for (const Id3FrameRec& rec : frames) {
+        if (rec.id != "APIC" || rec.body.empty()) continue;
+        // APIC 본문: [enc][mime][NUL][desc][NUL][picture] — 인코딩 0/1
+        // 모두 지원(mime 해독은 enc에 따라 Latin-1/UTF-16 — 브리프 계약).
+        const int enc = rec.body[0];
+        size_t i = 1;
+        size_t mimeEnd = 0, unit = 1;
+        if (!FindId3TextTerm(rec.body.data() + i, rec.body.size() - i, enc,
+                             mimeEnd, unit))
+            continue;
+        const std::string rawMime =
+            DecodeId3Text(rec.body.data() + i, mimeEnd, enc);
+        const size_t di = i + mimeEnd + unit;  // desc 시작
+        if (di > rec.body.size()) continue;
+        size_t descEnd = 0, descUnit = 1;
+        if (!FindId3TextTerm(rec.body.data() + di, rec.body.size() - di, enc,
+                             descEnd, descUnit))
+            continue;
+        const size_t picOff = di + descEnd + descUnit;  // 그림 원문 시작
+        if (picOff > rec.body.size()) continue;
+        const std::string mime = NormalizeCoverMime(rawMime);
+        if (mime.empty()) continue;
+        out.mime = mime;
+        out.bytes.assign(rec.body.data() + picOff,
+                         rec.body.data() + rec.body.size());
+        return true;
+    }
+    return false;
+}
+
+// ---- FLAC 쓰기 leg (D8 커버 교체·D9 재조립 — 메타 블록 연쇄) ----
+
+// 사슬 스캔(원문 보존 — [0, chainEnd) 버퍼): STREAMINFO 첫 블록 필수(34B)·
+// SEEKTABLE 보존 검증(bsz ≡ 1 mod 18 — D9 판정)·VORBIS_COMMENT 원문 수취
+// (벤더 유지)·PICTURE 목록 수취(D8 교체 대상). 사슬 종결(is-last) 미발견·
+// 폭주 블록 수 = 정직 거부.
+inline bool FlacScanRegion(std::ifstream& f, std::streamoff total,
+                           std::vector<unsigned char>& region,
+                           std::string& vendor,
+                           std::vector<VorbisEntry>& oldEntries,
+                           std::vector<size_t>& picOffsets, size_t& chainEnd,
+                           int& guard, std::string& err) {
+    namespace fs = std::filesystem;
+    region.clear();
+    picOffsets.clear();
+    vendor.clear();
+    oldEntries.clear();
+    chainEnd = 0;
+    f.clear();
+    f.seekg(0, std::ios::beg);
+    region.resize(4);
+    f.read(reinterpret_cast<char*>(region.data()), 4);
+    if (f.gcount() != 4) {
+        err = "flac structure";
+        return false;
+    }
+    guard = 0;
+    bool sawComment = false;
+    while (true) {
+        if (++guard > 256) {
+            err = "flac structure";  // 폭주 절단(읽기 사슬 guard 원문 수형)
+            return false;
+        }
+        unsigned char hdr[4];
+        f.read(reinterpret_cast<char*>(hdr), 4);
+        if (f.gcount() != 4) {
+            err = "flac structure";
+            return false;
+        }
+        region.insert(region.end(), hdr, hdr + 4);
+        const bool last = (hdr[0] & 0x80) != 0;
+        const unsigned blockType = static_cast<unsigned>(hdr[0] & 0x7F);
+        const size_t bsz = (static_cast<size_t>(hdr[1]) << 16) |
+                           (static_cast<size_t>(hdr[2]) << 8) |
+                           static_cast<size_t>(hdr[3]);
+        if (region.size() + bsz >
+            static_cast<size_t>(kTagWriteMax)) {
+            err = "tag too large";
+            return false;
+        }
+        if (region.size() + bsz > static_cast<size_t>(total)) {
+            err = "flac truncated";  // 선언 블록이 파일을 넘는다 — 정직 거부
+            return false;
+        }
+        const size_t payAt = region.size();
+        region.resize(region.size() + bsz);
+        f.read(reinterpret_cast<char*>(&region[payAt]),
+               static_cast<std::streamsize>(bsz));
+        if (f.gcount() != static_cast<std::streamsize>(bsz)) {
+            err = "flac truncated";
+            return false;
+        }
+        if (region.size() == 4 + 4 + bsz) {  // 첫 블록 = STREAMINFO 필수
+            if (blockType != 0) {
+                err = "flac streaminfo missing";  // D9 — 구성 계약
+                return false;
+            }
+            if (bsz != 34) {
+                err = "flac streaminfo missing";  // STREAMINFO = 항상 34B
+                return false;
+            }
+        }
+        if (blockType == 3 && (bsz < 1 || (bsz - 1) % 18 != 0)) {
+            err = "seektable broken";  // D9 — 보존 판정 실패 = 정직 거부
+            return false;
+        }
+        if (blockType == 4 && !sawComment) {
+            sawComment = true;  // 첫 코멘트 블록만 소취(복수 = 비규약 — 첫이 진실원)
+            const unsigned char* p = region.data() + payAt;
+            if (!ParseVorbisCommentsRaw(p, bsz, vendor, oldEntries)) {
+                err = "vorbis comment broken";
+                return false;
+            }
+        } else if (blockType == 6 && picOffsets.empty()) {
+            picOffsets.push_back(payAt);  // 첫 유효 PICTURE만(D8 — 교체 자리)
+        }
+        if (last) {
+            chainEnd = region.size();
+            return true;
+        }
+    }
+}
+
+// FLAC 쓰기 leg — 메타 블록 연쇄 재조립(스펙 D8·D9): 구역 원문을 걷며 블록을
+// 다시 쓴다. STREAMINFO(첫 블록·34B)와 그 밖 보존 블록(SEQUENCE 표·APPLICATION
+// ·PADDING·CUESHEET)은 원문 그대로, VORBIS_COMMENT(4)는 신설 코멘트(벤더 유지
+// +관리 키 교체)로 교체(복수 = 첫 것 교체·나머지 소각), PICTURE(6)는 cover 지정
+// 시 첫 유효 자리에서 완전 교체+복수 소각(D8 — 보유 블록 보존 없음), cover 지정
+// 이 없으면 원문 유지. 신설 블록은 고정 순서 그룹(type ≤ 4) 뒤에 끼운다(FLAC
+// 규약 — 5 이상은 자유 순서). is-last는 마지막 블록에만 재마킹한다. 그 뒤는
+// 오디오 데이터 원문([chainEnd, EOF) — 원자적 사다리 스트림 복사).
+inline bool WriteFlacTag(const std::string& path, std::ifstream& f,
+                         std::streamoff total, const TagSet& t,
+                         const CoverArt* cover, std::string& err) {
+    std::vector<unsigned char> region;
+    std::vector<size_t> picOffsets;
+    std::string vendor;
+    std::vector<VorbisEntry> oldEntries;
+    size_t chainEnd = 0;
+    int guard = 0;
+    if (!FlacScanRegion(f, total, region, vendor, oldEntries, picOffsets,
+                        chainEnd, guard, err))
+        return false;
+    std::vector<VorbisEntry> news;
+    RebuildVorbisEntries(oldEntries, t, nullptr, news);  // 그림은 블록이 진실원
+    std::vector<unsigned char> newComment;
+    AppendVorbisCommentBody(newComment, vendor, news);
+    std::string picMime;
+    std::vector<unsigned char> newPicture;
+    if (cover != nullptr) {
+        if (!ValidateCover(cover, picMime, err)) return false;
+        newPicture = BuildFlacPictureStruct(picMime, cover->bytes);
+    }
+    // 신설 블록 크기 가드(블록 24비트 크기 필드 한계 — 16MiB 안).
+    if (newComment.size() >= (1u << 24) || newPicture.size() >= (1u << 24)) {
+        err = "tag too large";
+        return false;
+    }
+    // ---- 재조립 ----
+    std::vector<unsigned char> out;
+    out.insert(out.end(), "fLaC", "fLaC" + 4);
+    size_t off = 4;
+    bool sawComment = false, replacedPicture = false;
+    size_t fixedEnd = 4;
+    for (int g = 0; off + 4 <= region.size() && g < 256; ++g) {
+        const unsigned char* hdr = region.data() + off;
+        const unsigned blockType = static_cast<unsigned>(hdr[0] & 0x7F);
+        const size_t bsz = (static_cast<size_t>(hdr[1]) << 16) |
+                           (static_cast<size_t>(hdr[2]) << 8) |
+                           static_cast<size_t>(hdr[3]);
+        const size_t payAt = off + 4;
+        if (payAt + bsz > region.size()) break;  // 스캔 leg와 동일 — 도달 불가
+        if (blockType == 4 && !sawComment) {
+            sawComment = true;
+            AppendFlacBlockHeader(out, false, 4, newComment.size());
+            out.insert(out.end(), newComment.begin(), newComment.end());
+        } else if (blockType == 6 && cover != nullptr && !replacedPicture) {
+            replacedPicture = true;
+            if (newPicture.empty()) {
+                // 빈 신설 그림 — 첫 PICTURE 자리만 소각(교체 실패 아님 —
+                // cover 계약상 교체가 항상 비어 있지 않다 — 도달 불가 방어선)
+                AppendFlacBlockHeader(out, false, 6, 0);
+            } else {
+                AppendFlacBlockHeader(out, false, 6, newPicture.size());
+                out.insert(out.end(), newPicture.begin(), newPicture.end());
+            }
+        } else if (blockType == 6 && cover != nullptr) {
+            // 복수 PICTURE — 소각(D8 완전 교체)
+        } else {
+            // 보존 — 헤더(플래그 소각 — is-last 재마킹 leg)+페이로드 원문.
+            AppendFlacBlockHeader(out, false, blockType, bsz);
+            out.insert(out.end(), region.begin() + payAt,
+                       region.begin() + payAt + bsz);
+        }
+        if (blockType <= 4) fixedEnd = out.size();  // 고정 순서 그룹 끝
+        off = payAt + bsz;
+        if (hdr[0] & 0x80) break;  // 사슬 종결 — chainEnd와 동일(스캔 leg 원문)
+    }
+    if (!sawComment) {
+        // 신설 코멘트 — 고정 순서 그룹 뒤에 끼운다(FLAC 규약·T2 재량 leg).
+        constexpr size_t kCommentType = 4;
+        std::vector<unsigned char> ins;
+        AppendFlacBlockHeader(ins, false, kCommentType, newComment.size());
+        ins.insert(ins.end(), newComment.begin(), newComment.end());
+        out.insert(out.begin() + static_cast<long>(fixedEnd), ins.begin(),
+                   ins.end());
+    }
+    if (cover != nullptr && !replacedPicture) {
+        // 신설 PICTURE — 사슬 말미(자유 순서 그룹 — FLAC 규약).
+        AppendFlacBlockHeader(out, false, 6, newPicture.size());
+        out.insert(out.end(), newPicture.begin(), newPicture.end());
+    }
+    if (out.size() < 8) {
+        err = "flac structure";  // 방어선(빈 재조립 — 도달 불가)
+        return false;
+    }
+    // is-last 재마킹 — 마지막 블록 헤더(첫 바이트 0x80|type).
+    bool marked = false;
+    for (size_t pos = 4; pos + 4 <= out.size();) {
+        const size_t bsz = (static_cast<size_t>(out[pos + 1]) << 16) |
+                           (static_cast<size_t>(out[pos + 2]) << 8) |
+                           static_cast<size_t>(out[pos + 3]);
+        out[pos] &= 0x7F;  // 이전 표지 소각(재마킹 leg)
+        if (pos + 4 + bsz >= out.size()) {
+            out[pos] |= 0x80;  // 마지막 블록 표지
+            marked = true;
+            break;
+        }
+        pos += 4 + bsz;
+    }
+    if (!marked) {
+        err = "flac structure";  // 방어선(블록 산술 파산 — 도달 불가)
+        return false;
+    }
+    // ---- 원자적 쓰기(D6) — 신설 사슬 + 오디오 원문([chainEnd, EOF)) ----
+    const std::streamoff chainEndOff = static_cast<std::streamoff>(chainEnd);
+    const std::streamoff copyCount = total - chainEndOff;
+    return TagAtomicWrite(
+        path, f, out,
+        [&](TagFileWriter& w) -> bool {
+            return CopyStreamRange(f, w, chainEndOff, copyCount, err);
+        },
+        {}, err);
+}
+
+// ---- Ogg 쓰기 leg (D10 — 코멘트 페이지 교체+뒤페이지 재기입) ----
+
+// 세그먼트 런 lacing 합성: 완성 패킷 = [255]*(S/255)[+(S%255 또는 0)].
+inline void PushPacketLacing(std::vector<unsigned char>& lace, size_t sz) {
+    const size_t full = sz / 255;
+    for (size_t k = 0; k < full; ++k) lace.push_back(255);
+    if (full == 0 || sz % 255 != 0)
+        lace.push_back(static_cast<unsigned char>(sz % 255));
+    else
+        lace.push_back(0);  // 정크 크기%255 == 0 — 빈 종결 세그먼트로 마감
+}
+
+// Ogg 페이지 1건 조립(27B 헤더+표+페이로드 — CRC 계산 포함).
+inline void BuildOggPage(std::vector<unsigned char>& out, unsigned version,
+                         unsigned char htype, unsigned long long granule,
+                         unsigned int serial, unsigned int seq,
+                         const unsigned char* lace, size_t segs,
+                         const unsigned char* payload, size_t payloadN) {
+    std::vector<unsigned char> page;
+    page.reserve(27 + segs + payloadN);
+    page.insert(page.end(), "OggS", "OggS" + 4);
+    page.push_back(static_cast<unsigned char>(version));
+    page.push_back(htype);
+    for (int b = 0; b < 8; ++b)
+        page.push_back(static_cast<unsigned char>((granule >> (8 * b)) & 0xFF));
+    const auto le4 = [&page](unsigned int v) {
+        page.push_back(static_cast<unsigned char>(v & 0xFF));
+        page.push_back(static_cast<unsigned char>((v >> 8) & 0xFF));
+        page.push_back(static_cast<unsigned char>((v >> 16) & 0xFF));
+        page.push_back(static_cast<unsigned char>((v >> 24) & 0xFF));
+    };
+    le4(serial);  // serial — 스트림 동일성 원문
+    le4(seq);
+    le4(0);  // CRC 자리(0 — 계산 후 기입)
+    page.push_back(static_cast<unsigned char>(segs));
+    page.insert(page.end(), lace, lace + segs);
+    if (payloadN > 0) page.insert(page.end(), payload, payload + payloadN);
+    const unsigned int crc = OggCrc(page.data(), page.size());
+    page[22] = static_cast<unsigned char>(crc & 0xFF);
+    page[23] = static_cast<unsigned char>((crc >> 8) & 0xFF);
+    page[24] = static_cast<unsigned char>((crc >> 16) & 0xFF);
+    page[25] = static_cast<unsigned char>((crc >> 24) & 0xFF);
+    out.insert(out.end(), page.begin(), page.end());
+}
+
+// ---- Ogg 재조립 설계(스펙 D10 + 형식 계약): 코멘트 패킷(0x03"vorbis" —
+// vorbis 규약의 패킷 2)을 새 패킷으로 교체하고, 코멘트 개시 페이지(C0)부터
+// 코멘트 종결 페이지(Ck)까지를 세그먼트 런 단위로 재조립한다 — 패킷 경계는
+// lacing value 원문에서 복원(형식 해소 (d): 패킷 경계 불변 재사용). Ck의
+// 잔여 세그먼트(트레일 — 셋업 헤더 등 다음 패킷의 본문 원문)는 lacing 원문
+// 그대로 신설 뒤페이지에 옮겨 심는다(경계 연속성 — 다음 원본 페이지의
+// continuation 플래그와 정합). 그 이후 모든 페이지는 시퀀스 재기입+CRC 재계산
+// 으로 원문 복사(granule·lacing 불변 — D10). 배치 계약(libvorbis 표준):
+// 코멘트 패킷은 페이지 페이로드 선두에서 새 패킷으로 시작 — 그 외 배치 =
+// 정직 거부("ogg structure")·원본 무변경.
+inline bool WriteOggTag(const std::string& path, std::ifstream& f,
+                        std::streamoff total, const TagSet& t,
+                        const CoverArt* cover, std::string& err) {
+    namespace fs = std::filesystem;
+    f.clear();
+    f.seekg(0, std::ios::beg);
+    // 코멘트 패킷 보행 — C0 기록(페이로드 선두 개시 계약)+패킷 원문 수취.
+    size_t c0Off = 0;
+    unsigned char c0Htype = 0, c0Version = 0;
+    unsigned long long c0Granule = 0;
+    unsigned int c0Serial = 0, c0Seq = 0;
+    std::vector<unsigned char> comment;   // 코멘트 패킷 원문(마커 포함)
+    std::vector<unsigned char> trail;     // Ck 페이로드 잔여 원문
+    std::vector<unsigned char> trailLace; // 잔여 세그먼트 런 원문
+    bool midPacket = false;               // 세그먼트 런이 페이지를 넘는가
+    bool found = false;
+    size_t walkBytes = 0;
+    {
+        std::vector<unsigned char> page;
+        std::vector<unsigned char> pkt;
+        bool pktAligned = false;  // 진행 패킷이 페이지 페이로드 선두 개시?
+        while (true) {
+            const std::streamoff pgOff = f.tellg();
+            if (pgOff < 0) {
+                err = "ogg structure";
+                return false;
+            }
+            int r = OggReadPage(f, page);
+            if (r == 0) break;  // 코멘트 없이 종료 — 보행 실패
+            if (r < 0) {
+                err = "ogg structure";
+                return false;
+            }
+            walkBytes += page.size();
+            if (walkBytes > kTagWriteMax) {
+                err = "tag too large";  // 코멘트 발견 실패(폭주) — 정직 거부
+                return false;
+            }
+            const size_t segs = page[26];
+            const unsigned char* lace = page.data() + 27;
+            const unsigned char* pay = page.data() + 27 + segs;
+            size_t payOff = 0;
+            for (size_t s = 0; s < segs; ++s) {
+                const size_t lv = lace[s];
+                if (!midPacket) {
+                    pktAligned = (payOff == 0);
+                    pkt.clear();
+                }
+                if (!found) {
+                    pkt.insert(pkt.end(), pay + payOff, pay + payOff + lv);
+                    payOff += lv;
+                    midPacket = (lv == 255);
+                    if (!midPacket) {
+                        // 패킷 완성 — 코멘트 패킷(0x03"vorbis"·페이로드 선두
+                        // 개시 계약)인가.
+                        if (pktAligned && pkt.size() >= 7 && pkt[0] == 0x03 &&
+                            std::memcmp(pkt.data() + 1, "vorbis", 6) == 0) {
+                            found = true;
+                            comment = pkt;  // 코멘트 패킷 원문 수취
+                            c0Off = static_cast<size_t>(pgOff);
+                            c0Htype = page[5];
+                            c0Version = page[4];
+                            c0Granule = RdLE64(page.data() + 6);
+                            c0Serial = RdLE32(page.data() + 14);
+                            c0Seq = RdLE32(page.data() + 18);
+                        }
+                        pkt.clear();
+                    }
+                } else {
+                    // 코멘트 종결 이후 Ck 잔여 — 트레일(세그먼트 원문+lacing
+                    // 값 원문 — 형식 해소 (d)의 패킷 경계 불변 재사용 재료).
+                    trail.insert(trail.end(), pay + payOff, pay + payOff + lv);
+                    trailLace.push_back(static_cast<unsigned char>(lv));
+                    payOff += lv;
+                    midPacket = (lv == 255);
+                }
+            }
+            if (found) break;  // Ck — 코멘트 종결 페이지(트레일 수집 완료)
+        }
+        if (!found) {
+            err = "ogg structure";  // 코멘트 패킷 부재/비정렬 — 정직 거부
+            return false;
+        }
+    }
+    const std::streamoff ckEnd = f.tellg();  // 보행 종료 위치 = Ck 페이지 끝
+    // ---- 신설 코멘트 패킷(벤더 유지 D9 + 관리 키 교체 + D8 그림 필드) ----
+    std::string vendor;
+    std::vector<VorbisEntry> olds, news;
+    if (!ParseVorbisCommentsRaw(comment.data() + 7, comment.size() - 7,
+                                vendor, olds)) {
+        err = "vorbis comment broken";
+        return false;
+    }
+    std::string picMime, oggPicB64;
+    const std::string* oggPic = nullptr;
+    if (cover != nullptr) {
+        if (!ValidateCover(cover, picMime, err)) return false;
+        const std::vector<unsigned char> picStruct =
+            BuildFlacPictureStruct(picMime, cover->bytes);
+        Base64Encode(picStruct.data(), picStruct.size(), oggPicB64);
+        oggPic = &oggPicB64;  // 기존 METADATA_BLOCK_PICTURE 전부 소각+신설(D8)
+    }
+    RebuildVorbisEntries(olds, t, oggPic, news);
+    std::vector<unsigned char> newPkt;
+    newPkt.reserve(7 + 8 + vendor.size() + oggPicB64.size());
+    newPkt.push_back(0x03);
+    newPkt.insert(newPkt.end(), "vorbis", "vorbis" + 6);
+    AppendVorbisCommentBody(newPkt, vendor, news);
+    if (newPkt.size() > kTagWriteMax) {
+        err = "tag too large";  // 코멘트 폭주(그림 포함 — 정직 거부)
+        return false;
+    }
+    // ---- 재조립 — 신설 페이지 세그먼트 사슬 ----
+    // 머리 영역 원문([0, C0) — id/코멘트이전 페이지 보존 복사)+신설 코멘트
+    // 페이지+트레일 페이지(lacing 원문).
+    std::vector<unsigned char> head1;
+    {
+        std::vector<unsigned char> prefixHead;
+        prefixHead.resize(c0Off);
+        f.clear();
+        f.seekg(0, std::ios::beg);
+        f.read(reinterpret_cast<char*>(prefixHead.data()),
+               static_cast<std::streamsize>(prefixHead.size()));
+        if (f.gcount() != static_cast<std::streamsize>(prefixHead.size())) {
+            err = "audio read failed";  // 재독 실패 — 정직 거부
+            return false;
+        }
+        head1.swap(prefixHead);  // [0, C0) 원문 선행
+    }
+    // [신설 코멘트 lacing(완성 런)] ++ [트레일 lacing 원문(패킷 경계 계약 (d))].
+    std::vector<unsigned char> laceAll, payloadAll;
+    PushPacketLacing(laceAll, newPkt.size());
+    laceAll.insert(laceAll.end(), trailLace.begin(), trailLace.end());
+    payloadAll = newPkt;
+    payloadAll.insert(payloadAll.end(), trail.begin(), trail.end());
+    // 페이지 포장(255 세그/페이지 — 런이 페이지를 넘으면 다음 페이지 htype에
+    // continuation 비트 0x01을 세운다; Ogg 세그먼트 런 규약).
+    size_t segI = 0, byteOff = 0;
+    unsigned int pageCnt = 0;
+    while (segI < laceAll.size()) {
+        const size_t take = laceAll.size() - segI > 255 ? 255
+                                                        : laceAll.size() - segI;
+        size_t plen = 0;
+        for (size_t k = 0; k < take; ++k) plen += laceAll[segI + k];
+        unsigned char htype = 0;
+        if (segI == 0) {
+            htype = static_cast<unsigned char>(c0Htype & ~0x01u);  // 신설 개시
+        } else if (laceAll[segI - 1] == 255) {
+            htype = 0x01;  // 런이 페이지를 넘었다 — continuation
+        }
+        BuildOggPage(head1, c0Version, htype, c0Granule, c0Serial,
+                     c0Seq + pageCnt, laceAll.data() + segI, take,
+                     payloadAll.data() + byteOff, plen);
+        ++pageCnt;
+        segI += take;
+        byteOff += plen;
+    }
+    // ---- 원자적 쓰기(D6) + 뒤페이지 재기입(D10) ----
+    return TagAtomicWrite(
+        path, f, head1,
+        [&](TagFileWriter& w) -> bool {
+            f.clear();
+            f.seekg(ckEnd, std::ios::beg);  // 보행 종료 지점부터 재기입 복사
+            // Ck 이후 모든 페이지 — 시퀀스 재기입+CRC 재계산, granule·
+            // lacing·payload 원문(granule 불변 — D10). 파산 도달 = 잔여
+            // 원문 복사(최소 파괴 원칙 — 알 수 없는 꼬리는 건드리지 않는다).
+            std::vector<unsigned char> pg;
+            unsigned int pageJ = 0;
+            while (true) {
+                const std::streamoff pgOff = f.tellg();
+                const int r = OggReadPage(f, pg);
+                if (r == 0) return true;  // 깨끗한 종료
+                if (r < 0) {  // 비페이지 잔여 — 원문 복사(건드리지 않는다)
+                    return CopyStreamRange(f, w, pgOff,
+                                           static_cast<std::streamoff>(total) -
+                                               pgOff,
+                                           err);
+                }
+                const unsigned int sq =
+                    c0Seq + pageCnt + static_cast<unsigned int>(pageJ++);
+                pg[18] = static_cast<unsigned char>(sq & 0xFF);
+                pg[19] = static_cast<unsigned char>((sq >> 8) & 0xFF);
+                pg[20] = static_cast<unsigned char>((sq >> 16) & 0xFF);
+                pg[21] = static_cast<unsigned char>((sq >> 24) & 0xFF);
+                pg[22] = pg[23] = pg[24] = pg[25] = 0;  // CRC 자리 소각(규약)
+                const unsigned int crc = OggCrc(pg.data(), pg.size());
+                pg[22] = static_cast<unsigned char>(crc & 0xFF);
+                pg[23] = static_cast<unsigned char>((crc >> 8) & 0xFF);
+                pg[24] = static_cast<unsigned char>((crc >> 16) & 0xFF);
+                pg[25] = static_cast<unsigned char>((crc >> 24) & 0xFF);
+                if (!w.WriteAll(pg.data(), pg.size())) {
+                    err = "tmp write failed";
+                    return false;
+                }
+            }
+        },
+        {}, err);
+}
+
+// ---- WAV 쓰기 leg ("id3 " 청크 교체/신설 + RIFF 크기 재계산) ----
+
+// RIFF("RIFF"+32LE 크기+"WAVE")의 청크 연쇄에서 "id3 " 청크(대소문자 무시 —
+// 읽기 ParseWavTags 규약 그대로)를 교체(부재 = 말미 신설 — 형식 해소 (c):
+// 기존 청크 순서 보존·RIFF/청크 크기 동시 재계산). 기존 id3 청크의 태그는
+// ReadId3Tag → BuildId3V23Body 재용(mp3 leg 동형 — 관리 프레임 교체+그 외
+// 원문 보존), 복수 id3 청크 = 첫 것만 교체·나머지 소각(D8 완전 교체 정신).
+// 청크 패드(홀수)·payload는 원문 그대로 복사한다(청크 페이로드 변조 금지).
+// 패딩 = 0(임베디드 청크 — 정확 크기 재계산이 진실원, mp3의 1KB 패딩과 다른
+// 사정: RIFF 크기·다음 청크 오프셋 계산이 정확해야 한다).
+inline bool WriteWavTag(const std::string& path, std::ifstream& f,
+                        std::streamoff total, const TagSet& t,
+                        const CoverArt* cover, std::string& err) {
+    namespace fs = std::filesystem;
+    struct ChunkRec {
+        std::streamoff off;
+        unsigned int csz;
+        unsigned char id[4];
+    };
+    std::vector<ChunkRec> chunks;
+    int id3Idx = -1;  // 첫 "id3 " 청크 자리(대소문자 무시 — 읽기 규약 그대로)
+    {
+        std::streamoff pos = 12;
+        while (pos + 8 <= total) {
+            if (chunks.size() > 1024) {
+                err = "riff structure";  // 폭주 절단 — 정직 거부
+                return false;
+            }
+            unsigned char ch[8];
+            f.clear();
+            f.seekg(pos, std::ios::beg);
+            f.read(reinterpret_cast<char*>(ch), 8);
+            if (f.gcount() != 8) {
+                err = "riff structure";
+                return false;
+            }
+            const unsigned int csz = RdLE32(ch + 4);
+            if (pos + 8 + csz > total) {
+                err = "chunk truncated";  // 선언이 파일을 넘는다 — 정직 거부
+                return false;
+            }
+            const bool isId3 =
+                FoldAscii(static_cast<char>(ch[0])) == 'i' &&
+                FoldAscii(static_cast<char>(ch[1])) == 'd' &&
+                FoldAscii(static_cast<char>(ch[2])) == '3';
+            const int idx = static_cast<int>(chunks.size());
+            if (isId3 && id3Idx < 0) id3Idx = idx;
+            ChunkRec c;
+            c.off = pos;
+            c.csz = csz;
+            std::memcpy(c.id, ch, 4);
+            chunks.push_back(c);
+            pos += 8 + static_cast<std::streamoff>(csz) + (csz & 1);
+        }
+        if (pos != total) {
+            err = "riff structure";  // 사슬 종료 후 온전한 청크 헤더 미만 잔여
+            return false;
+        }
+    }
+    // 새 "id3 " 청크 조립 — 기존 태그 유지(mp3 leg 동형 사슬 재용).
+    Id3TagInfo old;
+    bool hasOld = false;
+    // 기존 id3(첫 것) 페이로드 수취(조건 read — ≤ kTagWriteMax). 부재 =
+    // 신설(기존 nullptr leg — 말미 신설).
+    if (id3Idx >= 0) {
+        {
+            const ChunkRec& c = chunks[id3Idx];
+            if (c.csz > kTagWriteMax) {
+                err = "tag too large";
+                return false;
+            }
+            std::vector<unsigned char> pay(c.csz);
+            f.clear();
+            f.seekg(c.off + 8, std::ios::beg);
+            f.read(reinterpret_cast<char*>(pay.data()),
+                   static_cast<std::streamsize>(c.csz));
+            if (f.gcount() != static_cast<std::streamsize>(c.csz)) {
+                err = "chunk truncated";
+                return false;
+            }
+            if (!ReadId3Tag(pay.data(), pay.size(), old, err)) return false;
+            hasOld = true;
+        }
+    }
+    std::vector<unsigned char> body;
+    if (!BuildId3V23Body(hasOld ? &old : nullptr, t, cover, body, err))
+        return false;
+    std::vector<unsigned char> tag;
+    if (!AssembleId3V23Tag(body, 0, tag, err)) return false;
+    std::vector<unsigned char> id3Chunk;
+    id3Chunk.insert(id3Chunk.end(), "id3 ", "id3 " + 4);
+    WrLE32(id3Chunk, static_cast<unsigned int>(tag.size()));
+    id3Chunk.insert(id3Chunk.end(), tag.begin(), tag.end());
+    if (tag.size() & 1) id3Chunk.push_back(0);  // 홀수 패드(청크 총계 산출용)
+    // RIFF 크기 재계산(신설/교체·복수 id3 소각 반영 — 산출이 기입 leg와
+    // 같은 걸음: 보존 청크+첫 id3 자리의 신설 청크·그 밖 id3 소각).
+    unsigned long long riffSize = 4;
+    unsigned long long id3ChunkTotal = id3Chunk.size();  // 패드 포함 총계
+    const bool id3InPlace = id3Idx >= 0;  // 기존 자리 교체(true) vs 말미 신설
+    for (size_t i = 0; i < chunks.size(); ++i) {
+        const ChunkRec& c = chunks[i];
+        const bool isId3 = FoldAscii(static_cast<char>(c.id[0])) == 'i' &&
+                           FoldAscii(static_cast<char>(c.id[1])) == 'd' &&
+                           FoldAscii(static_cast<char>(c.id[2])) == '3';
+        if (isId3) {
+            if (static_cast<int>(i) == id3Idx)
+                riffSize += id3ChunkTotal;  // 첫 id3 — 신설 청크로 교체(헤더 포함 총계)
+            continue;  // 복수 id3 = 소각
+        }
+        riffSize += 8 + c.csz + (c.csz & 1);
+    }
+    if (!id3InPlace) riffSize += id3ChunkTotal;  // 말미 신설(헤더 포함 총계)
+    if (riffSize > 0xFFFFFFFEull) {
+        err = "tag too large";  // RIFX 도달 — 32비트 RIFF 한계 정직 거부
+        return false;
+    }
+    // ---- 원자적 쓰기(D6) — 헤더 재기입+청크 보존 복사+신설 청크 ----
+    const std::string tmp =
+        path + "." + std::to_string(ThisProcessId()) + ".tagtmp";
+    {
+        TagFileWriter w;
+        if (!w.Open(fs::path(tmp))) {
+            err = "tmp open failed";
+            return false;
+        }
+        const auto fail = [&](const char* e) {
+            w.Close();
+            std::error_code rec;
+            fs::remove(fs::path(tmp), rec);
+            err = e;
+            return false;
+        };
+        unsigned char riffHdr[12];
+        riffHdr[0] = 'R';
+        riffHdr[1] = 'I';
+        riffHdr[2] = 'F';
+        riffHdr[3] = 'F';
+        const unsigned int rs = static_cast<unsigned int>(riffSize);
+        riffHdr[4] = static_cast<unsigned char>(rs & 0xFF);
+        riffHdr[5] = static_cast<unsigned char>((rs >> 8) & 0xFF);
+        riffHdr[6] = static_cast<unsigned char>((rs >> 16) & 0xFF);
+        riffHdr[7] = static_cast<unsigned char>((rs >> 24) & 0xFF);
+        riffHdr[8] = 'W';
+        riffHdr[9] = 'A';
+        riffHdr[10] = 'V';
+        riffHdr[11] = 'E';
+        if (!w.WriteAll(riffHdr, 12)) return fail("tmp write failed");
+        for (size_t i = 0; i < chunks.size(); ++i) {
+            const ChunkRec& c = chunks[i];
+            const bool isId3 = FoldAscii(static_cast<char>(c.id[0])) == 'i' &&
+                               FoldAscii(static_cast<char>(c.id[1])) == 'd' &&
+                               FoldAscii(static_cast<char>(c.id[2])) == '3';
+            if (isId3) {
+                if (static_cast<int>(i) == id3Idx &&
+                    !w.WriteAll(id3Chunk.data(), id3Chunk.size()))
+                    return fail("tmp write failed");  // 신설 청크 교체 기입
+                continue;  // 그 밖 id3 = 소각
+            }
+            std::string cerr;
+            if (!CopyStreamRange(f, w, c.off,
+                                 8 + static_cast<std::streamoff>(c.csz) +
+                                     (c.csz & 1), cerr))
+                return fail(cerr.c_str());
+        }
+        if (!id3InPlace && !w.WriteAll(id3Chunk.data(), id3Chunk.size()))
+            return fail("tmp write failed");  // 말미 신설
+        if (!w.FlushToDisk()) return fail("fsync failed");  // D6 fsync 계약
+        w.Close();
+    }
+    f.close();  // 원본 핸들 해제 — Windows rename 교체의 공유 핸들 충돌 소각
+    return TagReplaceRename(tmp, path, err);
+}
 
 // mp3: APIC 프레임(첫 유효 — 인코딩 0/1 모두 지원: mime Latin-1/UTF-16 해독
-// (DecodeId3Text 재용)·desc 스킵·그림 데이터 원문). FLAC/Ogg/WAV leg는 T2
-// 몫 — 지목되면 정직 거부("unsupported_format"). 커버 부재 = "no_cover"·
-// 개방 실패 = "open"·총계 실패 = "size"(ParseTag 원문 사유 계열). 성립 =
-// mime 정규화 표기(NormalizeCoverMime)+그림 바이트 원문. 거부 = 빈 out(
-// 부재·실패 전부 — 브리프 계약).
+// (DecodeId3Text 재용)·desc 스킵·그림 데이터 원문). FLAC/Ogg/WAV leg — 아래
+// 접점이 형식별로 갈라진다(읽기 사슬의 원문 계약을 거꾸로 걷는 leg). 커버
+// 부재 = "no_cover"·개방 실패 = "open"·총계 실패 = "size"(ParseTag 원문
+// 사유 계열). 성립 = mime 정규화 표기(NormalizeCoverMime)+그림 바이트 원문.
+// 거부 = 빈 out(부재·실패 전부 — 브리프 계약).
 inline bool ReadCover(const std::string& path, CoverArt& out, std::string& err) {
     err.clear();
     out = CoverArt{};  // 거부 계약 — out 소각(브리프 원문)
@@ -1602,48 +2777,157 @@ inline bool ReadCover(const std::string& path, CoverArt& out, std::string& err) 
         }
         Id3TagInfo tag;
         if (!ReadId3Tag(head.data(), head.size(), tag, err)) return false;
-        for (const Id3FrameRec& rec : tag.frames) {
-            if (rec.id != "APIC" || rec.body.empty()) continue;
-            // APIC 본문: [enc][mime][NUL][desc][NUL][picture] — 인코딩 0/1
-            // 모두 지원(브리프 계약 — mime 해독은 enc에 따라 Latin-1/UTF-16).
-            const int enc = rec.body[0];
-            size_t i = 1;
-            size_t mimeEnd = 0, unit = 1;
-            if (!FindId3TextTerm(rec.body.data() + i, rec.body.size() - i,
-                                 enc, mimeEnd, unit))
-                continue;  // 파손 APIC — 다음 후보(첫 유효 계약)
-            const std::string rawMime = DecodeId3Text(
-                rec.body.data() + i, mimeEnd, enc);
-            const size_t di = i + mimeEnd + unit;  // desc 시작
-            if (di > rec.body.size()) continue;
-            size_t descEnd = 0, descUnit = 1;
-            if (!FindId3TextTerm(rec.body.data() + di,
-                                 rec.body.size() - di, enc, descEnd,
-                                 descUnit))
-                continue;
-            const size_t picOff = di + descEnd + descUnit;  // 그림 원문 시작
-            if (picOff > rec.body.size()) continue;
-            const std::string mime = NormalizeCoverMime(rawMime);
-            if (mime.empty()) continue;
-            out.mime = mime;
-            out.bytes.assign(rec.body.data() + picOff,
-                             rec.body.data() + rec.body.size());
-            return true;
+        if (ApicFromFrames(tag.frames, out)) return true;
+        err = "no_cover";
+        return false;
+    }
+    // ---- FLAC PICTURE 블록 leg (T2) ----
+    // 메타 사슬 조건 read(4B 헤더 단위) → PICTURE 블록(첫 유효 — 2u 원문
+    // 계약) → ParseFlacPictureStruct → mime 정규화. 사슬 파산·파손 블록 =
+    // 다음 후보/종료(읽기 사슬 관용 — 부재 취급 "no_cover").
+    if (pre.size() >= 4 && std::memcmp(pre.data(), "fLaC", 4) == 0) {
+        f.clear();
+        f.seekg(4, std::ios::beg);
+        for (int guard = 0; guard < 256; ++guard) {
+            unsigned char hdr[4];
+            f.read(reinterpret_cast<char*>(hdr), 4);
+            if (f.gcount() != 4) break;
+            const bool last = (hdr[0] & 0x80) != 0;
+            const unsigned blockType = static_cast<unsigned>(hdr[0] & 0x7F);
+            const size_t bsz = (static_cast<size_t>(hdr[1]) << 16) |
+                               (static_cast<size_t>(hdr[2]) << 8) |
+                               static_cast<size_t>(hdr[3]);
+            if (bsz > kTagWriteMax) break;  // 폭주 컷(정사 관용)
+            if (blockType == 6) {
+                std::vector<unsigned char> pay(bsz);
+                if (bsz > 0) {
+                    f.read(reinterpret_cast<char*>(pay.data()),
+                           static_cast<std::streamsize>(bsz));
+                    if (f.gcount() != static_cast<std::streamsize>(bsz)) break;
+                }
+                std::string mime;
+                std::vector<unsigned char> bytes;
+                if (!ParseFlacPictureStruct(pay.data(), pay.size(), mime,
+                                            bytes) ||
+                    bytes.empty())
+                    continue;
+                const std::string norm = NormalizeCoverMime(mime);
+                if (norm.empty()) continue;
+                out.mime = norm;
+                out.bytes = std::move(bytes);
+                return true;
+            }
+            // PICTURE 이외 블록 — 페이로드 스킵(선언 크기만큼 seek)
+            f.seekg(static_cast<std::streamoff>(bsz), std::ios::cur);
+            if (last) break;
         }
         err = "no_cover";
         return false;
     }
-    if (pre.size() >= 4 && std::memcmp(pre.data(), "fLaC", 4) == 0) {
-        err = "unsupported_format";  // T2 몫 — 정직 거부
-        return false;
-    }
+    // ---- Ogg METADATA_BLOCK_PICTURE leg (T2) ----
+    // 페이지 연쇄 보행 → "\x03vorbis" 패킷(패킷 2 — lacing 원문 보행) →
+    // ParseVorbisCommentsRaw → METADATA_BLOCK_PICTURE(베이스64) →
+    // ParseFlacPictureStruct. 머리 컷 kTagHeadCap(읽기 ParseOggTags 원문
+    // 수형)·부재·파산·복호화 실패 = 부재 취급 "no_cover"(읽기 사슬 관용).
     if (pre.size() >= 4 && std::memcmp(pre.data(), "OggS", 4) == 0) {
-        err = "unsupported_format";
+        f.clear();
+        f.seekg(0, std::ios::beg);
+        std::vector<unsigned char> page, pkt;
+        bool midPacket = false, done = false, aligned = false;
+        size_t walked = 0;
+        while (!done) {
+            const int r = OggReadPage(f, page);
+            if (r <= 0) break;  // 종료/파산 — 부재 취급
+            walked += page.size();
+            if (walked > kTagHeadCap) break;  // 머리 컷(원문 수형)
+            const size_t segs = page[26];
+            const unsigned char* lace = page.data() + 27;
+            const unsigned char* pay = page.data() + 27 + segs;
+            size_t payOff = 0;
+            for (size_t s = 0; s < segs; ++s) {
+                const size_t lv = lace[s];
+                if (!midPacket) {
+                    aligned = (payOff == 0);
+                    pkt.clear();
+                }
+                pkt.insert(pkt.end(), pay + payOff, pay + payOff + lv);
+                payOff += lv;
+                midPacket = (lv == 255);
+                if (midPacket) continue;
+                // 패킷 완성 — 코멘트 패킷(선두 마커) 여부
+                if (aligned && pkt.size() >= 7 && pkt[0] == 0x03 &&
+                    std::memcmp(pkt.data() + 1, "vorbis", 6) == 0) {
+                    done = true;
+                    break;
+                }
+                pkt.clear();
+            }
+        }
+        if (done && !midPacket && pkt.size() >= 7) {
+            std::string vendor;
+            std::vector<VorbisEntry> entries;
+            if (ParseVorbisCommentsRaw(pkt.data() + 7, pkt.size() - 7,
+                                       vendor, entries)) {
+                for (const VorbisEntry& e : entries) {
+                    if (FoldVorbisKey(e.key) != "metadata_block_picture")
+                        continue;
+                    std::vector<unsigned char> raw;
+                    if (!Base64Decode(e.value, raw)) continue;
+                    std::string mime;
+                    std::vector<unsigned char> bytes;
+                    if (!ParseFlacPictureStruct(raw.data(), raw.size(), mime,
+                                                bytes) ||
+                        bytes.empty())
+                        continue;
+                    const std::string norm = NormalizeCoverMime(mime);
+                    if (norm.empty()) continue;
+                    out.mime = norm;
+                    out.bytes = std::move(bytes);
+                    return true;
+                }
+            }
+        }
+        err = "no_cover";
         return false;
     }
+    // ---- WAV "id3 " 청크 APIC leg (T2) ----
+    // RIFF 청크 연쇄에서 "id3 " 청크(대소문자 무시 — 읽기 ParseWavTags 규약
+    // 그대로) → ReadId3Tag → ApicFromFrames(T1 mp3 APIC 파싱 재용 — 브리프
+    // 원문). id3 부재·청크 파산 = "no_cover"(읽기 사슬 관용).
     if (pre.size() >= 12 && std::memcmp(pre.data(), "RIFF", 4) == 0 &&
         std::memcmp(pre.data() + 8, "WAVE", 4) == 0) {
-        err = "unsupported_format";
+        f.clear();
+        std::streamoff pos = 12;
+        for (int guard = 0; pos + 8 <= total && guard < 1024; ++guard) {
+            unsigned char ch[8];
+            f.seekg(pos, std::ios::beg);
+            f.read(reinterpret_cast<char*>(ch), 8);
+            if (f.gcount() != 8) break;
+            const unsigned int csz = RdLE32(ch + 4);
+            const bool id3 =
+                FoldAscii(static_cast<char>(ch[0])) == 'i' &&
+                FoldAscii(static_cast<char>(ch[1])) == 'd' &&
+                FoldAscii(static_cast<char>(ch[2])) == '3';
+            if (id3) {
+                if (pos + 8 + csz > total) break;  // 잘린 청크 — 부재 취급
+                if (csz < 10) break;  // 태그 헤더 미만 — 부재 취급
+                if (csz > kTagWriteMax) {
+                    err = "tag too large";
+                    return false;
+                }
+                std::vector<unsigned char> pay(csz);
+                f.read(reinterpret_cast<char*>(pay.data()),
+                       static_cast<std::streamsize>(csz));
+                if (f.gcount() != static_cast<std::streamsize>(csz)) break;
+                Id3TagInfo tag;
+                if (!ReadId3Tag(pay.data(), pay.size(), tag, err))
+                    return false;  // 구조 파산 — 정직 전파(원본 보존 우선)
+                if (ApicFromFrames(tag.frames, out)) return true;
+                break;  // 첫 id3 청크만(v1 계약 — 읽기 ParseWavTags 원문)
+            }
+            pos += 8 + static_cast<std::streamoff>(csz) + (csz & 1);
+        }
+        err = "no_cover";
         return false;
     }
     // 매직 없는 mp3 — 커버는 v2 APIC의 몫(v1에는 그림 필드가 없다).
@@ -1651,14 +2935,15 @@ inline bool ReadCover(const std::string& path, CoverArt& out, std::string& err) 
     return false;
 }
 
-// ---- 태그 쓰기 (T1 = mp3 leg — 확장자+스니프 분기, D5·D6) ----
+// ---- 태그 쓰기 (4형식 분기 — mp3 T1·FLAC/Ogg/WAV T2, D5·D6·D8·D9·D10) ----
 
 // mp3: WriteId3v2.3 — 기존 v2 크기 산출 → 새 태그 크기 계산 → 패딩 조절
 // (기존 태그 = 선언 본문 크기 유지 — 오디오 데이터 제자리, content 초과분만
 // 재배치; 신설 = 패딩 1KB) → [기존 태그 끝, EOF) 스트림 복사(전체 파일
 // rewrite·D6 원자적 — 64KB 분절, 오디오+ID3v1 말미 원문). cover != null =
-// APIC 교체(기존 APIC 보존에서 제외), null = 기존 APIC 원문 유지. FLAC/
-// Ogg/WAV 등 다른 형식 = 정직 거부("unsupported_format" — T2 몫). 확장자/
+// APIC 교체(기존 APIC 보존에서 제외), null = 기존 APIC 원문 유지 FLAC/
+// Ogg/WAV = T2 leg(WriteFlacTag/WriteOggTag/WriteWavTag — 그 밖 형식 = 정직
+// 거부 "unsupported_format"). 확장자/
 // 스니프 불일치·0바이트("empty")·구조 파산 = 정직 거부+원본 무변경.
 inline bool WriteTag(const std::string& path, const TagSet& t,
                      const CoverArt* cover /* null = 기존 APIC 유지 — err 전
@@ -1708,17 +2993,19 @@ inline bool WriteTag(const std::string& path, const TagSet& t,
         hasV2 = true;
     } else if (pre.size() >= 4 &&
                std::memcmp(pre.data(), "fLaC", 4) == 0) {
-        err = "unsupported_format";  // T2 몫 — 정직 거부(원본 무변경)
-        return false;
+        // FLAC — 메타 블록 연쇄 재조립(D8 PICTURE 교체·D9 STREAMINFO/SEEK
+        // TABLE 보존·벤더 유지 — T2 leg).
+        return WriteFlacTag(path, f, total, t, cover, err);
     } else if (pre.size() >= 4 &&
                std::memcmp(pre.data(), "OggS", 4) == 0) {
-        err = "unsupported_format";
-        return false;
+        // Ogg — 코멘트 패킷 교체+뒤페이지 재기입(D10 — granule 불변·T2 leg).
+        return WriteOggTag(path, f, total, t, cover, err);
     } else if (pre.size() >= 12 &&
                std::memcmp(pre.data(), "RIFF", 4) == 0 &&
                std::memcmp(pre.data() + 8, "WAVE", 4) == 0) {
-        err = "unsupported_format";
-        return false;
+        // WAV — "id3 " 청크 교체/말미 신설+RIFF 크기 재계산(청크 순서 보존
+        // — 형식 해소 (c)·T2 leg).
+        return WriteWavTag(path, f, total, t, cover, err);
     } else {
         // 매직 없음 — mp3 원존(v1-raw leg)만 신설 대상. 그 외 = 정직 거부.
         const std::string ext =
@@ -1733,35 +3020,11 @@ inline bool WriteTag(const std::string& path, const TagSet& t,
         err = "tag truncated";
         return false;
     }
-    // ---- 새 사슬 조립 (D5 교체/보존) ----
+    // ---- 새 사슬 조립 (D5 교체/보존 — T2에서 공용 부품 추출: BuildId3V23
+    // Body — WAV leg가 같은 사슬을 재용한다) ----
     std::vector<unsigned char> body;
-    // 관리 텍스트 프레임 — 인코딩 1(UTF-16LE+BOM) 고정 통일. 빈 필드 = 생략
-    // (사슬 재구성이 기존 프레임을 교체하므로 빈값 = 비움 쓰기와 등치).
-    if (!t.title.empty()) AppendId3TextFrame(body, "TIT2", t.title);
-    if (!t.artist.empty()) AppendId3TextFrame(body, "TPE1", t.artist);
-    if (!t.album.empty()) AppendId3TextFrame(body, "TALB", t.album);
-    if (cover != nullptr) {
-        // APIC 교체 — mime 정규화+이미지 원문(빈 커버·미지 mime = 정직 거부).
-        if (cover->bytes.empty()) { err = "cover empty"; return false; }
-        const std::string mime = NormalizeCoverMime(cover->mime);
-        if (mime.empty()) { err = "cover mime missing"; return false; }
-        if (mime != "image/jpeg" && mime != "image/png" &&
-            mime.rfind("image/", 0) != 0) {
-            err = "cover mime unsupported";
-            return false;
-        }
-        AppendId3ApicFrame(body, mime, cover->bytes);
-    }
-    // 기존 프레임 원문 복제(D5 — TCON 장르 복제+해석 불가 프레임 drop 금지).
-    // 관리 프레임(TIT2/TPE1/TALB·cover 지정 시 APIC)은 새 프레임이 교체하므로
-    // 복제에서 뺀다. cover != null = 기존 APIC 원문 유지(브리프 계약 —
-    // 재합성 대신 프레임 바이트 보존 leg, 더 원문 보존).
-    for (const Id3FrameRec& rec : old.frames) {
-        if (rec.id == "TIT2" || rec.id == "TPE1" || rec.id == "TALB") continue;
-        if (rec.id == "APIC" && cover != nullptr) continue;
-        AppendId3Frame(body, rec.id.c_str(), rec.body.data(), rec.body.size(),
-                       rec.v23flags);
-    }
+    if (!BuildId3V23Body(hasV2 ? &old : nullptr, t, cover, body, err))
+        return false;
     // 패딩 조절(D5) — 기존 태그: 선언 본문 크기 유지(오디오 제자리 — content
     // 초과분만 재배치·대형 커버 소멸 시 잔여 패딩은 무해 잔산, 리포트 부기).
     // 신설: 패딩 1KB.
@@ -1769,88 +3032,17 @@ inline bool WriteTag(const std::string& path, const TagSet& t,
         hasV2 ? (old.bodySize > body.size() ? old.bodySize - body.size() : 0)
               : 1024u;
     std::vector<unsigned char> tag;
-    tag.reserve(10 + body.size() + pad);
-    tag.push_back('I');
-    tag.push_back('D');
-    tag.push_back('3');
-    tag.push_back(0x03);  // v2.3 (D5 정규화 — v2.4 syncsafe 재작성 금지)
-    tag.push_back(0x00);
-    tag.push_back(0x00);  // 플래그 0 — 평문 사슬
-    if (!WrSyncSafe32(tag, static_cast<unsigned long long>(body.size()) + pad)) {
-        err = "tag too large";
-        return false;
-    }
-    tag.insert(tag.end(), body.begin(), body.end());
-    tag.resize(10 + body.size() + pad);  // 패딩 = 0x00(resize 채움)
+    if (!AssembleId3V23Tag(body, pad, tag, err)) return false;
     // ---- 원자적 쓰기 (D6) — .tagtmp → fsync → rename(선례 승계) ----
-    const std::string tmp = path + "." + std::to_string(ThisProcessId()) +
-                            ".tagtmp";
-    {
-        TagFileWriter w;
-        if (!w.Open(fs::path(tmp))) { err = "tmp open failed"; return false; }
-        const auto fail = [&](const char* e) {
-            w.Close();
-            std::error_code rec;
-            fs::remove(fs::path(tmp), rec);  // tmp 소각 — 잔산 방지
-            err = e;
-            return false;
-        };
-        if (!w.WriteAll(tag.data(), tag.size()))
-            return fail("tmp write failed");
-        // 오디오 데이터(말미 v1 포함) 스트림 복사 — [oldEnd, total) 원문.
-        f.clear();
-        f.seekg(static_cast<std::streamoff>(oldEnd), std::ios::beg);
-        std::vector<char> chunk(64 * 1024);
-        std::streamoff left = total - static_cast<std::streamoff>(oldEnd);
-        while (left > 0) {
-            const std::streamsize want =
-                left < static_cast<std::streamoff>(chunk.size())
-                    ? static_cast<std::streamsize>(left)
-                    : static_cast<std::streamsize>(chunk.size());
-            f.read(chunk.data(), want);
-            const std::streamsize got = f.gcount();
-            if (got != want) return fail("audio read failed");
-            if (!w.WriteAll(reinterpret_cast<const unsigned char*>(
-                                chunk.data()),
-                            static_cast<size_t>(got)))
-                return fail("tmp write failed");
-            left -= got;
-        }
-        if (!w.FlushToDisk()) return fail("fsync failed");  // D6 fsync 계약
-        w.Close();
-    }
-    f.close();  // 원본 핸들 해제 — Windows rename 교체의 공유 핸들 충돌 소각
-    // 교체 rename — MusicDirStore WriteSettingsAtomic 선례 승계(1세대 교체,
-    // 실패만 .bak 사다리+복원 — 원본 무손상 계약).
-    std::error_code ec;
-    fs::rename(fs::path(tmp), fs::path(path), ec);
-    if (!ec) return true;
-    const std::string bak = path + ".bak";
-    fs::remove(fs::path(bak), ec);
-    if (ec) {
-        std::remove(tmp.c_str());
-        err = "bak remove failed";
-        return false;
-    }
-    ec.clear();
-    fs::rename(fs::path(path), fs::path(bak), ec);
-    if (ec) {
-        std::remove(tmp.c_str());
-        err = "original backup failed";
-        return false;
-    }
-    ec.clear();
-    fs::rename(fs::path(tmp), fs::path(path), ec);
-    if (ec) {
-        std::error_code rec;
-        fs::rename(fs::path(bak), fs::path(path), rec);  // 원본 복원 시도
-        std::remove(tmp.c_str());
-        err = "rename failed";
-        return false;
-    }
-    std::error_code bc;
-    fs::remove(fs::path(bak), bc);  // 성공 세대의 이주 잔산 소각 — 무해 잔산
-    return true;
+    const std::streamoff oldEndOff = static_cast<std::streamoff>(oldEnd);
+    const std::streamoff copyCount = total - oldEndOff;
+    return TagAtomicWrite(
+        path, f, tag,
+        [&](TagFileWriter& w) -> bool {
+            // 오디오 데이터(말미 v1 포함) 스트림 복사 — [oldEnd, total) 원문.
+            return CopyStreamRange(f, w, oldEndOff, copyCount, err);
+        },
+        {}, err);
 }
 
 } // namespace tags
