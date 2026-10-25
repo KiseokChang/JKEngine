@@ -8305,6 +8305,124 @@ static int RunAppSelfTest() {
         }
     }
 
+    // 2w) 서버 도구 호출 저널 leg (#113 T1 — 스펙 2026-10-26-use-review-cycle-
+    // design D1·D2·D5): 순수 writer 4건 — ①append 형식(JSONL 파싱 등호 —
+    // ts/tool/arg/ok/err) ②쓰기 실패 무시(도구 응답 무영향) ③args 절단
+    // 128자 ④2연속 콜 = 2행 append. 실서버 스폰 0(writer는 자유 함수 —
+    // ResolveAgentWindowTarget 1n-14 선례, 서버 프로세스 불요). 파일 접촉은
+    // temp dir 전용 — 사용자 <exeDir>/state/(use_journal.jsonl 포함)
+    // 무접촉. 2v 뒤 계보 이어붙임. 저널 행 취득 = 파일 직독(T2 수확 probe와
+    // 같은 계약 — 저널 쪽에 읽기 경로 신설 없음 D5).
+    {
+        namespace fs = std::filesystem;
+        using jk::server::UseJournalAppend;
+        // 마지막 행 취득 — 끝 개행 소각 후 역방향 '\n' 스캔.
+        const auto lastRow = [](const std::string& p) {
+            std::string text;
+            if (std::FILE* rf = std::fopen(p.c_str(), "rb")) {
+                char chunk[1024];
+                size_t rn;
+                while ((rn = std::fread(chunk, 1, sizeof(chunk), rf)) > 0)
+                    text.append(chunk, rn);
+                std::fclose(rf);
+            }
+            if (!text.empty() && text.back() == '\n') text.pop_back();
+            const size_t nl = text.rfind('\n');
+            return (nl == std::string::npos) ? text : text.substr(nl + 1);
+        };
+        const auto rowCount = [](const std::string& p) {
+            size_t n = 0;
+            bool emptyLine = true;
+            std::FILE* rf = std::fopen(p.c_str(), "rb");
+            char chunk[1024];
+            size_t rn;
+            while (rf && (rn = std::fread(chunk, 1, sizeof(chunk), rf)) > 0) {
+                for (size_t i = 0; i < rn; ++i) {
+                    if (chunk[i] == '\n') {
+                        ++n;
+                        emptyLine = true;
+                    } else {
+                        emptyLine = false;
+                    }
+                }
+            }
+            if (rf) std::fclose(rf);
+            return n + (emptyLine ? 0 : 1);
+        };
+        const fs::path wdir =
+            fs::temp_directory_path() / "jk_usejournal_selftest";
+        std::error_code wEc;
+        fs::remove_all(wdir, wEc);
+        fs::create_directories(wdir, wEc);
+        const std::string dir = wdir.string();
+        const std::string path = dir + "/use_journal.jsonl";
+        // ① append 형식 — 합성 1콜 → 마지막 행 JSONL 파싱 등호. ts는 64비트
+        //    리더(AgentJson GetInt64 — int32 랩어웃 우회 계약(doc 57 §13.3)이
+        //    씌는 관용구)로 고정값 등호 — 밀리초 정형(D2)의 산치. ok = raw
+        //    스캔(files_audit/read_receipts의 "ok":true 규약 동형).
+        UseJournalAppend(dir.c_str(), 1700000000000LL, "launch_app",
+                         "{\"app\":\"minesweeper\"}", true, "");
+        {
+            const std::string row1 = lastRow(path);
+            jk::agent::AgentJson row(row1.c_str());
+            std::string jTool, jArg, jErr;
+            int64_t jTs = 0;
+            check(row.ok() && row.GetStr("tool", jTool) &&
+                      jTool == "launch_app" && row.GetInt64("ts", jTs) &&
+                      jTs == 1700000000000LL &&
+                      row.GetStr("arg", jArg) &&
+                      jArg == "{\"app\":\"minesweeper\"}" &&
+                      row1.find("\"ok\":true,") != std::string::npos &&
+                      row.GetStr("err", jErr) && jErr.empty(),
+                  "2w-① 합성 1콜 = 마지막 행 JSONL 형식 등호"
+                  "(ts(ms)/tool/arg/ok/err)");
+        }
+        // ② 쓰기 실패 무시 — use_journal.jsonl 자리가 디렉터리면 fopen("ab")
+        //    실패가 보장되는 결정론 장애(Win/posix 공통 — chmod 계열 축 분기
+        //    회피). 조용한 스킵 = 무승인 반환·무 예외·장애 자리 무변조 —
+        //    훅이 writer를 void로 소비하므로 도구 응답은 무영향(D1).
+        {
+            const fs::path failDir =
+                fs::temp_directory_path() / "jk_usejournal_selftest_fail";
+            fs::remove_all(failDir, wEc);
+            fs::create_directories(failDir / "use_journal.jsonl", wEc);
+            const std::string fdir = failDir.string();
+            UseJournalAppend(fdir.c_str(), 1700000000001LL, "ping", "",
+                             true, "");
+            size_t entries = 0;
+            for (fs::directory_iterator it(failDir, wEc), end;
+                 it != end && !wEc; ++it)
+                ++entries;
+            check(fs::is_directory(failDir / "use_journal.jsonl", wEc) &&
+                      entries == 1,
+                  "2w-② 저널 경로 장애 = append 조용한 스킵(무예외·무손상 — "
+                  "도구 응답 무영향)");
+            fs::remove_all(failDir, wEc);
+        }
+        // ③ args 절단 — 129자 입력 → 128자 등호(스펙 D2 상한).
+        {
+            UseJournalAppend(dir.c_str(), 1700000000002LL, "send_input",
+                             std::string(129, 'x'), false, "bad_target");
+            jk::agent::AgentJson row(lastRow(path).c_str());
+            std::string jArg, jErr3;
+            check(row.ok() && row.GetStr("arg", jArg) && jArg.size() == 128 &&
+                      jArg == std::string(128, 'x') &&
+                      row.GetStr("err", jErr3) && jErr3 == "bad_target",
+                  "2w-③ args 129자 = 128자 절단 등호(소스 시점 상한)");
+        }
+        // ④ 2연속 콜 = 2행 append — 저널은 이벤트 스트림이라 1콜 1행 계약
+        //    (선행 ①③ 호출 누적 4행의 마지막 2행 = ④ 콜 — 부가 등호).
+        {
+            UseJournalAppend(dir.c_str(), 1700000000003LL, "list_windows", "",
+                             true, "");
+            UseJournalAppend(dir.c_str(), 1700000000004LL, "close_window", "",
+                             false, "window_not_found");
+            check(rowCount(path) == 4,
+                  "2w-④ 2연속 콜 = 2행 append(1콜 1행 — 스트림 누적 등호)");
+        }
+        fs::remove_all(wdir, wEc);
+    }
+
     std::printf("AppSelfTest: %d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;
 }

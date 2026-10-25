@@ -63,6 +63,22 @@ uint32_t ResolveAgentWindowTarget(const std::vector<AgentWindowRef>& windows,
                                   bool hasId, uint32_t id,
                                   const std::string& app);
 
+// 사용 저널 (#113 T1 — 스펙 2026-10-26-use-review-cycle-design D1·D2):
+// 에이전트 도구 호출 1건당 append-only JSONL 1행 —
+// <dir>/use_journal.jsonl 의 `{"ts":<ms>,"tool":"...","arg":"...","ok":bool,
+// "err":"..."}`. arg는 소스 시점에 128자 상한 절단(D2 — 다중 바이트 UTF-8
+// 경계 역행 포함). 절대 블로킹 없는 쓰기 실패 무시(D1 — fopen/쓰기 실패 =
+// 조용한 스킵, 도구 응답 무영향 — 반환값 없음이 계약) · append마다 flush
+// (크래시 안전 저널) · 읽기 경로 신설 없음(D5 — 수확 probe가 파일 직독),
+// 회전 = v1 비-목표(사이즈 상한 없음 원장행). 락은 전용 소형 뮤텍스
+// (함수 내부 static — events_list/read_receipts의 clientsMutex_와 분리,
+// 경합 원존). HandleAgentQuery 말미 훅이 도구 20종+ 전부를 이 한 곳에서
+// 흡수한다(DRY — 접점 1곳). 순수 자유 함수라 selftest 2w가 서버 프로세스
+// 없이 직접 단정한다(ResolveAgentWindowTarget 선례).
+void UseJournalAppend(const char* dir, long long tsMs,
+                      const std::string& tool, const std::string& arg,
+                      bool ok, const std::string& err);
+
 // 클라 모듈 접미 — 플랜 E가 앱 모듈을 posix에 .so로 빌드했다(buildwsl
 // 실측 20종, jkapp_taskbar.so 포함), win32는 .dll(dllimport 계약 유지).
 // 스폰 전 "모듈 있나" 프로브(launch_app 핸들러·taskbar 자동스폰, JKWindow

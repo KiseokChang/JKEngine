@@ -7009,6 +7009,44 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
     } else {
         reply = "{\"ok\":false,\"error\":\"not_implemented\"}";
     }
+    // 사용 저널 훅 (#113 T1 — 스펙 2026-10-26-use-review-cycle-design D1·D2·
+    // D5): 에이전트 도구 1콜 1행 append-only 저널. 접점은 본 dispatch
+    // if/else 사슬 말미의 이 한 곳뿐(DRY — 도구 20종+ 전부 흡수, 창 관리
+    // launch/close/focus도 같은 도구 채널 위로 오니 자동 동행 — D1).
+    //   중복 기록 아님(D5): events_list는 구독자 브로드캐스트 이벤트 행
+    //   (PushAgentEventJson 발화), read_receipts는 files_* 수취 행 — 저널은
+    //   "도구 1콜 1행"의 추가 원존이며 어느 기존 파일도 만지지 않는다.
+    //   bad_request(도구명 불명) 행만 제외 — 빈 도구열 기록 방지.
+    //   쓰기 실패 = UseJournalAppend 내부 조용한 스킵(D1) — 회신 무영향.
+    //   회전(사이즈 상한) = v1 비-목표 — append 전용 원존.
+    if (!tool.empty()) {
+        // args 요약 = 요청의 "args" 원문(재직렬화 — GetRaw — 중첩/문자열
+        // 원형 보존). 무인자 도구는 빈 arg. 128자 상한 절단은 writer 소관
+        // (스펙 D2 — 접점에서는 전달만).
+        std::string jArgs;
+        if (!req.GetRaw("args", jArgs)) jArgs.clear();
+        // ok 판정 = 회신 raw 스캔(files_audit/receipts의 "ok":true 규약
+        // 동형).
+        const bool jOk = reply.find("\"ok\":true") != std::string::npos;
+        std::string jErr;
+        if (!jOk) {
+            if (reply.empty()) {
+                jErr = "parked";   // ask 게이트 — 승인 해소 시 별도 회신
+            } else {
+                // 오류 열 추출 — 서버 회신의 "error"는 1레벨 규약.
+                jk::agent::AgentJson repJson(reply);
+                if (!repJson.ok() || !repJson.GetStr("error", jErr))
+                    jErr.clear();
+            }
+        }
+        UseJournalAppend(StateDir().c_str(),
+                         static_cast<long long>(
+                             std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::system_clock::now()
+                                     .time_since_epoch())
+                                 .count()),
+                         tool, jArgs, jOk, jErr);
+    }
     // The ask path parks the query — its reply is sent when the approval
     // resolves (approve tool), when the filedlg app answers (file_open_result)
     // or when it times out (expiry scan below).
@@ -8029,6 +8067,58 @@ std::string JKWindowServer::StateDir() const {
     std::error_code dirEc;
     std::filesystem::create_directory(std::filesystem::path(dir), dirEc);
     return dir;
+}
+
+// 사용 저널 writer (스펙 2026-10-26-use-review-cycle-design D1·D2 — 선언은
+// JKWindowServer.h의 함수 주석이 계약 전문). 도구 호출 원문은 잊지 않는다:
+// 1콜 1행 append-only JSONL. fopen 실패와 부분 fwrite 전부 조용한 스킵 —
+// D1 "쓰기 실패 = 조용한 스킵, 도구 응답 무영향"의 근간(본 함수는 void를
+// 유지한다 — 반환을 소비하는 곳이 없다).
+void UseJournalAppend(const char* dir, long long tsMs,
+                      const std::string& tool, const std::string& arg,
+                      bool ok, const std::string& err) {
+    // 전용 소형 뮤텍스 — HandleAgentQuery가 이미 clientsMutex_를 보유한
+    // 경로에서 호출되므로(콜러 계약 주석) 클라 테이블 락을 잡지 않는다.
+    // events_list/read_receipts는 같은 clientsMutex_ 쪽에 살아 있어 이
+    // 저널 락과는 분리(경합 원존 — 리포트 항). 함수 지역 static = C++11
+    // 안전 초기화, 저널 사슬에만 속한다.
+    static std::mutex useJournalMutex;
+    const std::lock_guard<std::mutex> lock(useJournalMutex);
+    // dir 정규화+생성은 락 안 — fopen과의 사이가 락으로 보호된다.
+    // dir는 StateDir()(슬래시 없음)와 selftest의 temp dir 전용 두 곳뿐이다.
+    if (!dir || !*dir) return;   // 부모 부재 = 훅 계약상 조용한 스킵
+    std::string dirPath(dir);
+    while (!dirPath.empty() &&
+           (dirPath.back() == '/' || dirPath.back() == '\\')) {
+        dirPath.pop_back();
+    }
+    if (dirPath.empty()) return;
+    std::error_code dirEc;
+    std::filesystem::create_directory(std::filesystem::path(dirPath), dirEc);
+    const std::string path = dirPath + "/use_journal.jsonl";
+    // append 전용(v1 비-목표 — 회전/사이즈 상한 없음 — 리포트 원장행).
+    std::FILE* f = std::fopen(path.c_str(), "ab");
+    if (!f) return;   // D1 — 조용한 스킵
+    // 절단(스펙 D2 — ≤128자): 소스 시점에 자르고 이후 이스케이프(이스케이프
+    // 팽창은 상한 산치에 안 침입하는 계약). 잘린 꼬리가 다중 바이트 UTF-8
+    // 중간에 걸리면 선행 바이트 앞으로 물러 잘린 글리프 소멸을 막는다.
+    std::string take = arg;
+    if (take.size() > 128) {
+        size_t cut = 128;
+        while (cut > 0 && (static_cast<unsigned char>(take[cut - 1]) & 0xC0) == 0x80)
+            --cut;
+        take.resize(cut);
+    }
+    const std::string line =
+        "{\"ts\":" + std::to_string(tsMs) +
+        ",\"tool\":\"" + JsonEsc(tool) +
+        "\",\"arg\":\"" + JsonEsc(take) +
+        "\",\"ok\":" + (ok ? "true" : "false") +
+        ",\"err\":\"" + JsonEsc(err) + "\"}\n";
+    const size_t wrote = std::fwrite(line.data(), 1, line.size(), f);
+    (void)wrote;     // 부분 쓰기도 D1 — 조용한 스킵(응답 무영향)
+    std::fflush(f);  // append마다 flush — 크래시 안전 저널(정산 리포트 항)
+    std::fclose(f);
 }
 
 // 콘솔 앱 스폰 (P4 SDK §3/§5): 터미널 위에 cmd — cwd는 앱 폴더(상대경로).
