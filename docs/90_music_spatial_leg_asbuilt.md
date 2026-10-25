@@ -2182,7 +2182,7 @@ diff 2종+ollama-direct-flags-report — 미커밋 관행). 라인 원칙: 저�
   HARVEST-OK` — journal 행 0→10→15→20→25→**30**(delta=5·콜 5 등호 산치
   매런)·PERSIST-ROWS-FROM-PREV-RUN 봉인(서버 재기동 간 저널 유지 — state
   dir 서수)·err 행 6(close_window permission_denied 5+failsim
-  not_implemented 1 — §7.11.4)·REMNANT 0·빌드(ninja) 접촉 0.
+  not_implemented 1 — §7.11.3 #7)·REMNANT 0·빌드(ninja) 접촉 0.
 - **폰 OBSERVE 원문(T2 2런 + T3 오늘 1런 — 3런 누계)**: `HARV-RUN-VALS:
   mode=OBSERVE calls=2 journal_rows=0` + `HARVEST-VERDICT: HARVEST-OK`·
   **저널 행 0 = 정직 표기 원장행**(폰 = 구 플래그 없는 바이너리 — 저널 leg
