@@ -2712,7 +2712,7 @@ def txt_of(enc_body):
     enc, body = enc_body[0], enc_body[1:]
     if enc == 1:
         try:
-            return body.decode("utf-16").lstrip("﻿").rstrip("\x00")
+            return body.decode("utf-16").lstrip("\ufeff").rstrip("\x00")
         except Exception:
             pass
     return body.decode("latin-1", "replace").rstrip("\x00")
