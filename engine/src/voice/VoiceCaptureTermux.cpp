@@ -61,6 +61,11 @@ std::string g_lastError;          // 최근 정직 거부 원문(표면 표기)
 // (스펙 §3 ① 사슬의 ffmpeg 정규화가 그 뒤를 닫는다).
 constexpr char kRecExtension[] = ".rec.m4a";
 
+// 스폰 마이크 세션의 상한(push-to-talk — 짧은 발화 도메인). crash residue의
+// 마이크 무한 held 방지 — -l은 초 단위 자동 종료(unlimited for 0). 정상 경로
+// 에서는 StopCapture의 -q가 먼저 온다.
+constexpr char kRecLimitSec[] = "60";
+
 // 마감 — termux-api 명령은 수신기 미응답(Termux:API 부재)에서 hang할 수 있어
 // 스폰 계약의 마감 문화(SttVoice kTranscribeDeadlineMs 선형)를 축소 재용.
 // start/stop = 15s·ffmpeg = 60s(3s 원음 정규화 — 남은 것은 대기 여유).
@@ -207,11 +212,67 @@ bool RunCaptureCommand(const std::string& cmd,
     return true;
 }
 
-// Termux:API 수신기 JSON의 거부 원문 판정 — `{"code":-1,...}`(권한 미승인·
-// 이미 진행 중 등)가 들어오면 스폰 rc가 0이어도 정직 거부(조용한 실패 금지).
+// Termux:API 수신기 JSON의 거부 원문 판정 — `{"code":-1,...}`(권한 미승인 등)
+// 가 들어오면 스폰 rc가 0이어도 정직 거부(조용한 실패 금지).
 bool ApiRejected(const std::string& out) {
     return out.find("\"code\":-1") != std::string::npos ||
            out.find("\"code\": -1") != std::string::npos;
+}
+
+// Termux:API -i(JSON)의 `\/` 슬래시 이스케이프 정리 — 경로 대차의 단일화.
+std::string UnescapeSlash(const std::string& s) {
+    std::string out;
+    out.reserve(s.size());
+    for (size_t i = 0; i < s.size(); ++i) {
+        if (s[i] == '\\' && i + 1 < s.size() && s[i + 1] == '/') {
+            out += '/';
+            ++i;
+        } else {
+            out += s[i];
+        }
+    }
+    return out;
+}
+
+// -i JSON의 문자열 값 절단 — "outputFile":"<path>" (값 안 escape는 슬래시만
+// 실측 — UnescapeSlash 선형). 부재 = 빈 문자열.
+std::string JsonStringValue(const std::string& json, const char* key) {
+    const std::string needle = std::string("\"") + key + "\"";
+    const size_t at = json.find(needle);
+    if (at == std::string::npos) return std::string();
+    const size_t colon = json.find(':', at + needle.size());
+    if (colon == std::string::npos) return std::string();
+    const size_t q0 = json.find('"', colon + 1);
+    if (q0 == std::string::npos) return std::string();
+    const size_t q1 = json.find('"', q0 + 1);
+    if (q1 == std::string::npos) return std::string();
+    return UnescapeSlash(json.substr(q0 + 1, q1 - q0 - 1));
+}
+
+// -i 원문의 isRecording 판정 — true/false 불린(JSON — 공백 스펠링 흡수).
+bool JsonRecordingActive(const std::string& json) {
+    const size_t at = json.find("\"isRecording\"");
+    if (at == std::string::npos) return false;
+    const size_t colon = json.find(':', at);
+    if (colon == std::string::npos) return false;
+    return json.find("true", colon) != std::string::npos &&
+           json.find("false", colon) == std::string::npos;
+}
+
+// 세션 사전·사후 판정 1눈 — termux-microphone-record -i(스폰 0 마감 계약).
+// 활성 세션의 outputFile 원문(스페이스 이스케이프 정리)을 돌려준다.
+bool QueryTermuxSession(const std::string& recorder, bool* active,
+                        std::string& outputFile, std::string& err) {
+    std::string out, _err;
+    if (!RunCaptureCommand(Quoted(recorder) + " -i", kCmdDeadlineMs,
+                           "구두 캡처 세션 판정 실패 (Termux:API)", out, _err)) {
+        err = _err;
+        return false;
+    }
+    const std::string js = UnescapeSlash(out);
+    *active = JsonRecordingActive(js);
+    outputFile = JsonStringValue(js, "outputFile");
+    return true;
 }
 
 std::string Trim(const std::string& s) {
@@ -245,9 +306,31 @@ bool StartCapture(const std::string& wavPath, std::string& err) {
     }
     std::string startOut, startErr;
     const std::string recPath = wavPath + kRecExtension;
+    // Termux 마이크 세션은 기기 전역 1개 — 사전 판정(런 2 원장행: 스폰 rc=0
+    // 이어도 기존 세션이 살면 "Recording already in progress"만 인쇄하고 새
+    // 예약 경로는 조용히 건너뛴다 — 성공 위장 결손). 남의 세션 = 정직 거부(
+    // 자동 -q 금지 — 남의 녹음 소각 금지), 같은 예약 경로의 잔상 = 내것 정산.
+    bool sessActive = false;
+    std::string outputFile, sessErr;
+    if (QueryTermuxSession(recorder, &sessActive, outputFile, sessErr)) {
+        if (sessActive && outputFile != recPath) {
+            return Reject("구두 캡처 거부 (Termux:API 기존 세션: " +
+                          (outputFile.empty() ? std::string("(unknown)")
+                                              : outputFile) +
+                          ")");
+        }
+        if (sessActive) {
+            std::string qOut, qErr;
+            (void)RunCaptureCommand(
+                Quoted(recorder) + " -q", kCmdDeadlineMs,
+                "구두 캡처 잔상 정산 실패 (Termux:API)", qOut, qErr);
+        }
+    }  // -i 실패 = 보류(사후 판정 1눈이 마감한다 — 정직)
     std::remove(recPath.c_str());  // 전 run 잔산 제거(예약 경로 정산 선행)
+    // 실측 계약(런 2 원문 — usage): start 어휘 없음 — `-f <file>`이 개방·
+    // `-q`가 종착(finalize·"Recording finished" 원문)·`-i`가 세션 판정.
     const std::string cmd = Quoted(recorder) + " -f " + Quoted(recPath) +
-                            " start";
+                            " -l " + kRecLimitSec;
     if (!RunCaptureCommand(cmd, kCmdDeadlineMs,
                            "구두 캡처 개방 실패 (Termux:API)", startOut,
                            startErr)) {
@@ -255,8 +338,19 @@ bool StartCapture(const std::string& wavPath, std::string& err) {
                                        : startErr);
     }
     if (ApiRejected(startOut)) {
-        // 권한 미승인/녹음 중복 등의 수신기 거부 — 원문 그대로 표면이 먹는다.
+        // 권한 미승인 등의 수신기 거부 — 원문 그대로 표면이 먹는다.
         return Reject("구두 캡처 거부 (Termux:API: " + Trim(startOut) + ")");
+    }
+    // 사후 판정 1눈 — 예약 경로로의 개방이 실제로 성립했는지(출력 행만으로는
+    // 승락 없음 — 성공 위장 결손 소각).
+    {
+        bool nowActive = false;
+        std::string nowFile;
+        if (!QueryTermuxSession(recorder, &nowActive, nowFile, sessErr) ||
+            !nowActive || nowFile != recPath) {
+            return Reject("구두 캡처 개방 확인 실패 (Termux:API — " +
+                          Trim(startOut) + ")");
+        }
     }
     {
         std::lock_guard<std::mutex> lock(g_capMtx);
@@ -299,7 +393,9 @@ bool StopCapture(std::string& err) {
                       "Termux:API 확인)");
     }
     std::string stopOut, stopErr;
-    if (!RunCaptureCommand(Quoted(recorder) + " stop", kCmdDeadlineMs,
+    // 실측 계약(런 2 원문): 어휘 stop 없음 — `-q`가 종착(파일 finalize —
+    // "Recording finished: <file>" 원문 행). quit 어휘 = 이 계약의 실측판.
+    if (!RunCaptureCommand(Quoted(recorder) + " -q", kCmdDeadlineMs,
                            "구두 캡처 정지 실패 (Termux:API)", stopOut,
                            stopErr)) {
         return Reject(stopErr);
