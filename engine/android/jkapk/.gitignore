@@ -1,0 +1,8 @@
+# #114 jkapk — explicit untracked paths only (D4: 빌드 산출물 커밋 금지).
+# gradle project-local state (settings/env cache) — machine-local
+.gradle/
+# IDE/AGP SDK pointer file, if ever generated — machine-local
+local.properties
+# build outputs are also covered by the repo-root .gitignore `build/` rule;
+# kept explicit here for module-local safety
+build/

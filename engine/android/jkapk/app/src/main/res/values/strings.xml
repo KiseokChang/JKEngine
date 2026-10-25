@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- #114 jkapk (T1) — the single app resource: launcher label "JK". -->
+<resources>
+    <string name="app_name">JK</string>
+</resources>
