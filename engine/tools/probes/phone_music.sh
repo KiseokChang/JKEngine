@@ -222,6 +222,17 @@
 #     selftest 2n 어설션 0이라 **폰 캐논 668 보존**(MUSIC-FULL-2P2QRS-668 등호
 #     회귀 축)·신규 세그먼트 = M2(합산 — T1 concern 4)·TONE 시작 지연 원장행
 #     (concern 3). UNSET 런 수형은 회귀 축으로 유지.
+#   → **#111 태그 쓰기 라인 T6 폰 흡수(2026-10-25)**: 배포 런이 HEAD(#111 T1-T4 —
+#     15c2bb4/2973933/c8f31f2/5b95c63)를 **코드 원문 배포 이관**한다(2u ①-⑮ —
+#     selftest 어설션 쌍둥이) — **기대 795 = 668 + 2u 127**(T1 2u ①-⑦ 47·T2 ⑧-⑭
+#     57·T4 ⑮ 23 — **WSL 795 등호·Win 818 계보 병기**) — 2u [PASS] 실측수 병기 —
+#     실측 후 CANON 정산 계약 승계. 신규 세그먼트 = **N6 태그 쓰기(도구) 동형**
+#     (wsl_music 16f-TW eaba3a4의 폰 수형 — music_tag_write relay 도구 발사(atool
+#     수형)→재독 표기 원문[파일 수준 round-trip+APIC md5 등호]+목록 행 캡처 3종[행
+#     32px 커버 썸네일+[편집] UI 표기 원문 — T3 배포]+TW-REMNANT 0). 필터 라운드는
+#     폰 타이핑 스킵 원장 승계(MISS 아님 — N5와 같은 EYES 축). 좌표 원장행 승계:
+#     step 11-14 행 탭 상수(MUSP_ROW0_Y=132 등)는 별소관 재보정 대기 — T5 리포트
+#     §6.4 문구 승계(본 세그먼트의 성립 판정 = 도구 경계+파일 재독 축).
 #
 # 판정 사다리(라벨 계약 — wsl_music/phone_gallery 수형):
 #   MUS-PHONE-VERDICT: MUS-PHONE-OK = CANON MUSIC-FULL-(2P2QRS-|2P2QR-|2P2Q-)*
@@ -247,12 +258,18 @@
 #     + 취소 원장행: 폰 스캔 속도 미실측 → ②폐기 MISS/①시차 초과 =
 #     MUSIC-PHONE-FAIL(rc=0 정직 — MUSP-BIG-SCALE 재정산 재런 몫).
 #   MUS-PHONE-VERDICT: MUS-PHONE-FAIL(행별 이유) — 수치 미달=정직 원장 rc=0.
+#   + 태그 쓰기 TW 원장행(#111 T6): N6 세그먼트의 성립 판정 = **도구 경계
+#     (music_tag_write relay ok)+파일 재독 축**(round-trip+APIC md5) — 목록 행
+#     표기·썸네일·[편집] 모양은 캡처 육안 몫(EYES)·필터 라운드는 폰 스킵 원장
+#     (N5 승계). MUSIC-TAGWRITE-PHONE-VERDICT TW 판정 행이 별채(주 VERDICT
+#     구성항 병합 0 — T5 18h 수형).
 #   MUSP-FAIL(rc=1) = hard FAIL만: ssh 단절·sweep·배포·ninja·selftest 회귀
 #     ·seed 소각·settings/perm 원복·서버/ping/launch/창·캡처·REMNANT 실패
 #     ·dirs 기저(list-0 시드 dir 미보존)·dirs 합성 폴더 생성·big 시드 생성/
 #     카운트/소각(T4 취소 세그먼트 — probe 소유 잔상 0 계약)·태그 시드 생성/
 #     카운트/소각(N5 태그 세그먼트 — probe 소유 잔상 0 계약·ID3 매직 진품
-#     판정)·**브라우저 ⑤
+#     판정)·TW 시드 생성/카운트/소각+커버 md5 도착 등호(N6 태그 쓰기 세그먼트
+#     — probe 소유 잔상 0 계약)·**브라우저 ⑤
 #     무전달 재발(N4 hard 마커 — #97 T2 fix r1 수형)**·XTEST 재조립 실패·
 #     px 차분기 python3 부재. dirs 도구 수치
 #     (add/list/settings/remove/바이트 등호)는 honest 원장행 — DIRS 판정 행 집계.
@@ -305,15 +322,16 @@ PHONE_PORT="${PHONE_PORT:-8022}"
 PHONE_USER="${PHONE_USER:-u0_a4}"
 PHONE_KEY="${PHONE_KEY:-$HOME/.ssh/termux_jkengine}"
 PHONE_DISPLAY="${PHONE_DISPLAY:-:1}"
-PHONE_DEPLOY_BASE="${PHONE_DEPLOY_BASE:-c021006}"  # 마지막 폰 배포 커밋(#98 fix r1 스윕 — 2026-10-11 진품 md5 원장 — 소스 트리 12/12 등호) — 기대 배포 집합 앵커
-                                                   #   (구값 ddd0f45 = 폴더 관리 T5·8685589 = 클라 idle. T4 태그 라인의
-                                                   #   배포·실측은 **BLOCKED 원장**(폰 미네트워크 — 서브넷 이동+sshd
-                                                   #   미기동) — 다음 폰 접촉 런에서 ①pmus_t4_deploy.sh 전수
-                                                   #   git archive 배포+재빌드+music.jkx 재팩(설치 아트 유지)+서버
-                                                   #   재기동 → 이후 이 앵커를 배포 HEAD로 정산·env 권장. 캐논 기대
-                                                   #   668 = 638 + 2r 10 + 2s 20 — WSL 등호)
+PHONE_DEPLOY_BASE="${PHONE_DEPLOY_BASE:-f1ac76da7368aff0e6b757b7b6059c5c875a0ea0}"  # 마지막 폰 배포 커밋(#110 T2 — 2026-10-19 배포·2026-10-25 오전 재실측 run8 원문: HEAD f1ac76d SWEEP-DIFF=0/319·폰 캐논 668 등호 재실측 — leg WIRED) — 기대 배포 집합 앵커
+                                                   #   (구값 c021006 = #98 fix r1 스윕 — T4 태그 라인(#99)의
+                                                   #   폰 배포·실측은 BLOCKED 원장을 거쳐 **T2 재런(2026-10-25
+                                                   #   오전)에서 갭 소각 실측**(668 = 638 + 2r 10 + 2s 20 —
+                                                   #   MUSIC-FULL-2P2QRS-30). #111 T6의 배포 = HEAD 전수
+                                                   #   git archive(t111_t6_deploy.sh — engine/tmp 산출물) →
+                                                   #   2u 127 소각 → 기대 795 = 668 + 2u 127(WSL 795 등호))
 MUSP_BIG_SUBS="${MUSP_BIG_SUBS:-80}"    # 스캔 취소 세그먼트(T4) 합성 트리 하위 수 — env 재정산 몫
 MUSP_BIG_FILES="${MUSP_BIG_FILES:-2500}"  # 트리당 하위 파일 수 — 80×2500=200,000 트랙/트리
+MUSP_TW_RUN="${MUSP_TW_RUN:-1}"         # T6 런 라벨(TW-RUN-VALS/TW-RUN-CAP 요약 스트림의 run 축 — JOG-RUN-VALS 수형 — wsl 16f MUS_TW_RUN의 폰 라벨)
 
 # PHONE_HOST 필수 가드는 exec(tee)보다 **앞에** 둔다 — 가드가 tee 뒤에 있으면
 # PHONE_HOST unset 재실행 시 tee truncate로 마지막 실측 영수증 로그를
@@ -328,7 +346,7 @@ FAIL() { echo "MUSP-FAIL: $*"; exit 1; }
 echo "PHONE-HOST: 환경변수 지정 사용 (기록 금지 — 자리표시 PHONE_HOST=<폰>; 스캔 폴백 없음)"
 echo "HEAD: $(git -C "$GITROOT" rev-parse HEAD 2>/dev/null || echo rev-parse-failed)"
 echo "BASE-ANCHOR(마지막 폰 배포): $PHONE_DEPLOY_BASE"
-echo "LINEAGE(폰): selftest 565(2i 19·2g 40·2m 0) → 591(2m 26 흡수) → 608(2n 17 흡수 — 실측) → 624 = 608 + 2o 16(2o-a..e 10 + 2o-f 4 + 2o-g 2 — 실측 정산, WSL 624 등호) → 638 = 624 + 2p 7 + 2q 7 (스캔 취소 라인 T4 — #93·#94 코드 원문 배포 이관 — **실측 2026-10-10 T4 2런: PASS=638 FAIL=0·2p=7·2q=7 — WSL 638 등호**) → **668 = 638 + 2r 10 + 2s 20 기대 (T1 77323b1 태그 라인 — 코드 원문 배포 이관 — 폰 실행 바이너리 638-era의 2r+2s 갭 소각 배포 절차 완비[pmus_t4_deploy.sh·probe 자체 tar blob 배포 경로 양축] — **BLOCKED 원장: 폰 미네트워크(서브넷 이동·sshd 미기동)로 배포·실측 미수행 — 다음 폰 접촉 런에서 CANON 정산** — WSL 668 등호 기대·Win 691/posix 304 계보)"
+echo "LINEAGE(폰): selftest 565(2i 19·2g 40·2m 0) → 591(2m 26 흡수) → 608(2n 17 흡수 — 실측) → 624 = 608 + 2o 16(2o-a..e 10 + 2o-f 4 + 2o-g 2 — 실측 정산, WSL 624 등호) → 638 = 624 + 2p 7 + 2q 7 (스캔 취소 라인 T4 — #93·#94 코드 원문 배포 이관 — **실측 2026-10-10 T4 2런: PASS=638 FAIL=0·2p=7·2q=7 — WSL 638 등호**) → **668 = 638 + 2r 10 + 2s 20 (T1 77323b1 태그 라인 — 코드 원문 배포 이관 — 갭 소각 배포 절차 — 2026-10-25 오전 재실측 run8 원문: HEAD f1ac76d SWEEP-DIFF=0·CANON-INCLUSION=MUSIC-FULL-2P2QRS-30·WSL 668 등호)** → **#111 T6 기대 795 = 668 + 2u 127 (태그 쓰기 라인 T1 15c2bb4 2u ①-⑦ 47·T2 2973933 ⑧-⑭ 57·T4 5b95c63 ⑮ 23 — 코드 원문 배포 이관 — WSL 795 등호·Win 818 계보 — 실측 후 CANON 정산 계약 승계)**"
 SSH="ssh -p $PHONE_PORT -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=10 -i $PHONE_KEY $PHONE_USER@$PHONE_HOST"
 
 # ------------------------------------------------------------------ 0. 전수 sweep
@@ -517,6 +535,60 @@ echo "TAG-MP3-A-BYTES: $(wc -c < "$TAG_MP3_A") (합성 원문 — ID3v2.3 블롭
 echo "TAG-MT-STAMPS: alpha>beta>raw (mtime desc — 표 상단행 = t_tag_alpha — 4c 원문 수형)"
 echo "MUSIC-TAGLIST-EXPECTED=3 (태그 행 2[alpha·beta]+폴백 1[raw] — 표행 수 관측 원문 1행; 표기 일치는 캡처 육안 몫 EYES)"
 
+echo "=== 2c. [T6 #111] 태그 쓰기 TW 시드 3건 (wsl_music 16f-TW 수형 — 드라이버 합성 — 윈도 python stdlib — 폰 python3 불요 계약 승계) ==="
+# ①무태그 mp3(junk 768B — ID3 매직 0 — 2u-① 구성 계약 수형: v2 부재 = WriteTag
+# mp3 leg가 v2.3 신설) ②무태그 FLAC("fLaC"+STREAMINFO 첫 블록 34B is-last —
+# MusicModel.h FlacScanRegion의 구성 계약: 첫 블록 = type 0·34B — 내용은 writer가
+# 원문 보존) ③합성 커버 jpg(**드라이버 PIL 산출 base64 941B 인라인 수형** — WSL
+# 16f-1 원문 — FFD8 마법수·4색 밴드+중앙 마크 = 32px 썸네일 구별). 랜딩 = tar
+# 멤버 → E4가 \$TMPDIR/mus_twseed로 수취(N5 캡처 **뒤** N6-1이 \$TAGDIR로 mv —
+# N5의 3행 표기 계약 무오염).
+TW_COVER_B64='/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAQDAwMDAgQDAwMEBAQFBgoGBgUFBgwICQcKDgwPDg4MDQ0PERYTDxAVEQ0NExoTFRcYGRkZDxIbHRsYHRYYGRj/2wBDAQQEBAYFBgsGBgsYEA0QGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBj/wAARCABAAEADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDzuiiivgz+tAooooAKKKKACiiigDvKKKK4z/NMKKK8K+IfxD8YaH8SNS0rStX+z2kPleXH9nifbmJGPLKT1J711YTCTxU3CDV7X1PRyzLKuY1XSpNJpX1v3S6J9z3WivCvh58Q/GGufEjTdK1XV/tFpN5vmR/Z4k3Yidhyqg9QO9e60YvCTws1CbV7X0DM8sq5dVVKq021fS/drql2CiiiuU848vooor+4j7oK838U+Fte1LxZd3tlY+bBJs2v5qLnCKDwTnqDXpFFeTnGT0c2oqhXbSTvpa97NdU+504XFTw03OC121PN/C3hbXtN8WWl7e2PlQR79z+ajYyjAcA56kV6RRRRk+T0cpouhQbabvra97JdEuwYrFTxM1Oa120CiiivWOY+8qKKK/yrP3AKKKKACiiigAooooA//9k='
+PYTHONIOENCODING=utf-8 python - "$PYSCRATCH" "$TW_COVER_B64" <<'TWPYEOF'
+# [#111 T6] 태그 쓰기 세그먼트 시더(드라이버) — wsl_music.sh 16f-1 mus_twseed.py
+# 원문 수형. stdlib만(의존 0 — 커버 = WSL 16f-1의 드라이버 PIL 산출 base64를
+# 디코드 재용 — 외부 파일 의존 0).
+import base64, os, sys, time
+out, b64 = sys.argv[1], sys.argv[2]
+d = os.path.join(out, "pmus_stage", "engine", "pmus_seed_stage", "tw_music_seed")
+os.makedirs(d, exist_ok=True)
+mp3 = os.path.join(d, "t_tw_write.mp3")
+with open(mp3, "wb") as f:
+    f.write(bytes((i * 7 + 13) & 0xFF for i in range(768)))   # 유효 프레임 0 — ID3 부재(2u-① 구성)
+flac = os.path.join(d, "t_tw_write.flac")
+with open(flac, "wb") as f:
+    f.write(b"fLaC")
+    f.write(bytes([0x80, 0, 0, 34]))   # is-last·type 0(STREAMINFO)·34B
+    f.write(bytes(34))                 # 34B 본체(원문 보존 — 파싱 계약 밖)
+cover = os.path.join(d, "t_tw_cover.jpg")
+cb = base64.b64decode(b64)
+with open(cover, "wb") as f:
+    f.write(cb)
+t1 = time.mktime((2026, 11, 1, 12, 8, 0, 0, 0, -1))
+t2 = time.mktime((2026, 11, 1, 12, 7, 0, 0, 0, -1))
+os.utime(mp3, (t1, t1))    # 쓰기 1 뒤의 표 상단행 = t_tw_write.mp3 계약(쓰기 갱신 mtime이 실제 관계를 만든다 — 스탬프는 프리-쓰기 열 결정화 보조)
+os.utime(flac, (t2, t2))
+print("TW-SEED-OK mp3=%d flac=%d cover=%d jpeg_magic=%d"
+      % (os.path.getsize(mp3), os.path.getsize(flac), len(cb),
+         1 if cb[:2] == b"\xff\xd8" else 0))
+TWPYEOF
+[ $? -eq 0 ] || FAIL "TW seed generation failed (로컬 python)"
+TWSEEDED=$(find "$SEEDSTAGE/engine/pmus_seed_stage/tw_music_seed" -type f | wc -l)
+[ "$TWSEEDED" -eq 3 ] || FAIL "TW seeded $TWSEEDED files (need 3)"
+TW_MP3_LOCAL="$SEEDSTAGE/engine/pmus_seed_stage/tw_music_seed/t_tw_write.mp3"
+TW_FLAC_LOCAL="$SEEDSTAGE/engine/pmus_seed_stage/tw_music_seed/t_tw_write.flac"
+TW_COVER_LOCAL="$SEEDSTAGE/engine/pmus_seed_stage/tw_music_seed/t_tw_cover.jpg"
+[ "$(head -c 3 "$TW_MP3_LOCAL")" = "ID3" ] \
+    && FAIL "TW mp3 must be untagged (ID3 magic present — 2u-① 구성 위반)" \
+    || echo "TW-MP3-NOMAGIC: OK ($(wc -c < "$TW_MP3_LOCAL")B junk — ID3 부재 — v2.3 신설 계약 원문)"
+[ "$(head -c 4 "$TW_FLAC_LOCAL")" = "fLaC" ] || FAIL "TW flac skeleton magic break"
+case "$(head -c 2 "$TW_COVER_LOCAL" | od -An -tx1 | tr -d ' \n')" in
+  ffd8) echo "TW-COVER-MAGIC: ffd8 OK (로컬 합성 — FFD8 마법수 · LoadCoverByMagic 계약)" ;;
+  *) FAIL "TW cover jpg magic broken (FFD8 선단 필수)" ;;
+esac
+TW_COVER_MD5=$(md5sum "$TW_COVER_LOCAL" | sed -n 's/^\([0-9a-f]*\) .*$/\1/p')
+echo "TW-COVER-MD5: $TW_COVER_MD5 ($(wc -c < "$TW_COVER_LOCAL")B — 합성 cover jpg 원문 — APIC round-trip 절단판정 축 — 폰 도착 등호 게이트로 E4 치환)"
+
 # ------------------------------------------------------------------ 3. 원격 스크립트
 cat > "$SCRATCH/$RSRC_TAR_NAME" <<'PMUSEOF'
 #!/bin/bash
@@ -524,8 +596,8 @@ cat > "$SCRATCH/$RSRC_TAR_NAME" <<'PMUSEOF'
 # spatial leg 라인 T4+폴더 저장소 라인 T4+스캔 취소 라인 T4 #93+
 # 태그 라인 T4 #99+#97 T4 브라우저).
 # settings 병합(시드 dirs) → cmake 재설정(자동)+ninja 리빌드 → selftest 캐논
-# (638→668 = 2r 10[#97 T1 8+fix r1 2] + 2s 20[T1 77323b1 태그] 흡수 — WSL 668
-# 등호 기대 · 2m 26·2n 17·2o 16·2p 7·2q 7 보존) →
+# (668→795 = 2u 127[#111 태그 쓰기 T1/T2/T4 — 코드 원문 배포 이관] 흡수 — WSL 795
+# 등호 기대 · 2r 10+2s 20·2m 26·2n 17·2o 16·2p 7·2q 7 보존) →
 # leg list(탭2 리스캔+캡처+콜드 접착제 전조+spatial 배제 원문[LEG-ENV unset
 # 가드 — spatial_play start_failed kDelegationHint·UI [spatial] 탭 라벨
 # 렌더]+더블클릭 위임+귀속 폴링+직행 open+get_status 재생 수치+**dirs 도구
@@ -548,6 +620,18 @@ cat > "$SCRATCH/$RSRC_TAR_NAME" <<'PMUSEOF'
 # 16e-5/16b2-0 수형·정직 원문) → 태그 dir 소각. **타이핑 세그먼트(필터
 # 2라운드)는 폰에서 스킵 원장행** — 합성 타이핑 신뢰 원장(T3 concern 2·정착기
 # 3세대)이 소비·필터는 도구 경로가 없어 EYES 원장행(WSL 16e-3/4 소유)** →
+# **N6 태그 쓰기(도구) 동형 세그먼트(#111 T6 — wsl 16f-TW eaba3a4 수형): TW
+# 시드(무태그 mp3 junk 768B+무태그 FLAC 스켈레톤+합성 cover jpg — 드라이버
+# 합성·E4 수취)를 N5 캡처 뒤 $TAGDIR로 랜딩 → music_tag_write relay 도구 쓰기
+# 3콜(①title/artist/album+cover 마법수 ②cover=null TIT2 교체+APIC 유지
+# ③FLAC cover 생략 코멘트 신설) → 재독 표기 원문(순수 파이썬 재파싱 — 앱 파서와
+# 독립 — 폰 python3)[파일 수준 round-trip+APIC md5 등호 2콜+FLAC 블록
+# 재조립(STREAMINFO 보존)] → 목록 행 캡처 3종(tagwrite_list/list2/flac — 행
+# 32px 커버 썸네일+[편집] UI의 표기 원문 — T3 배포) → TW 시드 소각(REMNANT 0).
+# 16f-0a 신선 클라 재건은 폰에서 생략 원장행(WSL 진원 = 16e-4 아티스트 필터
+# 잔존 — 폰 N5는 타이핑 스킵이라 필터 잔존 진원 없음 — 클라 상태 = N5 계약
+# 승계·활성 탭 = TAGDIR 상속 — 부재 시 전수 폴백 원장행). 필터 라운드(16f-5)는
+# 폰 타이핑 스킵 원장 승계 — 스킵(MUS-TW-FILTER-SKIP 1행)** →
 # leg sdcard(M-5 재판정 — FUSE 스캔 유한 종료 실측) → 복원(ORIG 바이트 등호+
 # PERM 병합 원복+시드+big 트리 소각) → BOOT-OK(서버 UP+terminal 상시 — 클라 idle
 # 라인 종료 상태 승계).
@@ -562,16 +646,18 @@ PERM=buildterm/permissions.json
 SEED="$TMPD/pcm_music_seed"
 SEED_STAGE=pmus_seed_stage
 TAGDIR="$TMPD/mus_tagseed"   # N5 태그 세그먼트(T4 #99) — 합성 ID3v2.3 mp3 3건 랜딩 dir
+TWDIR="$TMPD/mus_twseed"     # N6 태그 쓰기 세그먼트(#111 T6) — TW 시드 3건 수취 dir(E4) —
+                             #   N6-1이 N5 캡처 뒤 $TAGDIR로 mv(3행 계약 무오염 — 원장)
 NLOG="$TMPD/pmus_ninja.log"
 STLOG="$TMPD/pmus_selftest.log"
 ORIG="$TMPD/pmus_orig_settings.json"
 PERM_ORIG="$TMPD/pmus_orig_permissions.json"
-CANON_PHONE_PREV=638      # 폰 기존 캐논(2p 7+2q 7 흡수 실측 2026-10-10 — 비교 원문)
-CANON_PHONE_EXPECT=668    # 638 + 2r 10건(#97 T1 04e11b7 — 브라우저/폴더 라인 a·b
-                          #   계열 8건 + fix r1(c6be500) 2r-b/2r-c 2건) + 2s 20건
-                          #   (T1 77323b1 — 태그 라인) — **기대 원문**(WSL 668 등호
-                          #   — Win 691/posix 304 계보 — 실측 후 CANON 정산 계약
-                          #   승계)·구 624/638/648(2r 미실측) 정산은 계보 라인 보존
+CANON_PHONE_PREV=668      # 폰 기존 캐논(2r 10+2s 20 흡수 — **2026-10-25 오전 재실측 run8 실측 668 등호** — 비교 원문)
+CANON_PHONE_EXPECT=795    # 668 + 2u 127건(#111 태그 쓰기 라인 — T1 15c2bb4 2u ①-⑦ 47
+                          #   + T2 2973933 ⑧-⑭ 57 + T4 5b95c63 ⑮ 23 — **기대 원문**
+                          #   (WSL 795 등호 — Win 818 계보 — 실측 후 CANON 정산 계약
+                          #   승계)·구 638/668 정산은 계보 라인 보존)
+CANON_PHONE_2U=127        # T1 47(①-⑦) + T2 57(⑧-⑭) + T4 23(⑮) — **배포 이관 실측 산치**(2u 계보 — WSL 127 등호)
 CANON_PHONE_2R=10         # #97 T1 2r 8 + fix r1 2r-b/c 2 — **배포 이관 실측 산치**(638-era 바이너리 갭 원장)
 CANON_PHONE_2S=20         # T1 77323b1 2s 20건(#99 태그 라인 — 신설 본 배포 실측 산치)
 CANON_PHONE_2M=26
@@ -790,9 +876,34 @@ done
 echo "MUSIC-TAGLIST-EXPECTED=3 (태그 행 2[alpha·beta]+폴백 1[raw] — 표행 수 관측 원문 1행; 표기 일치는 캡처 육안 몫 EYES)"
 sync
 echo "MUSP-TAGSEED-SYNC: drained (태그 시드 writeback 선행 배수 — N3 원장 수형)"
+
+echo "=== E4. [T6 #111] TW 시드 수취 — 랜딩 대기 dir (N6-1이 N5 캡처 뒤 \$TAGDIR로 mv) ==="
+# 수취만 여기서 한다(배치 = \$TAGDIR 랜딩을 N6로 늦춘다 — N5의 3행 표기 계약
+# 무오염 원장 — TW 시드가 N5 표에 섞이면 예상 행 레저가 틀어진다). RETRY
+# 재실행 대비 = PRIOR-RECOVERED 계약 승계(E/N5 수형).
+if [ -d "$TWDIR" ] && [ "$(find "$TWDIR" -type f 2>/dev/null | wc -l)" -eq 3 ]; then
+    echo "PRIOR-TW-SEEDS-RECOVERED: $TWDIR (전 run 유산 — 3건 등수, 재사용: RUN-DROPPED 재실행 계약)"
+else
+    [ -d "$TWDIR" ] && FAIL "tw seed dir exists with irregular contents — 수동 소각 필요"
+    [ -d "$SEED_STAGE/tw_music_seed" ] || FAIL "TW seed tar member missing (구성 누락)"
+    mv "$SEED_STAGE/tw_music_seed" "$TWDIR" || FAIL "TW seed move failed"
+    echo "TW-SEED-TAR-LANDED: $TWDIR (tar 멤버 → \$TMPDIR 수취 — N6-1 랜딩 대기)"
+fi
+TWC=0
+for t in "$TWDIR"/t_tw_write.mp3 "$TWDIR"/t_tw_write.flac "$TWDIR"/t_tw_cover.jpg; do
+    [ -s "$t" ] || FAIL "TW seed file missing: $t"
+    TWC=$((TWC + 1))
+done
+[ "$TWC" -eq 3 ] || FAIL "TW seed count=$TWC (need 3)"
+TWCM=$(md5sum "$TWDIR"/t_tw_cover.jpg | sed -n 's/^\([0-9a-f]*\) .*$/\1/p')
+echo "TW-COVER-MD5-PHONE: $TWCM (기대=__TW_COVER_MD5__ — 도착 등호 게이트 — E 원문)"
+[ "$TWCM" = "__TW_COVER_MD5__" ] || FAIL "TW cover md5 mismatch on phone (도착 원문 불일치 — 전송 파열 방어)"
+[ "$(head -c 3 "$TWDIR"/t_tw_write.mp3)" = "ID3" ] \
+    && FAIL "TW mp3 carries ID3 magic (무태그 전제 위반 — 2u-① 구성 계약 위배)" \
+    || echo "TW-MP3-NOMAGIC-PHONE: OK (junk 768B — ID3 부재 — v2.3 신설 원문)"
 rm -rf "$SEED_STAGE"
 [ -d "$SEED_STAGE" ] && FAIL "seed stage rm failed (repo 잔상 — 원장행)"
-echo "SEED-STAGE-BURIED: $SEED_STAGE (wav+태그 수취 완료 뒤 — E 원장행)"
+echo "SEED-STAGE-BURIED: $SEED_STAGE (wav+태그+TW 수취 완료 뒤 — E 원장행)"
 
 echo "=== F. ninja 리빌드 (aarch64 — jkapp_music 신규 타깃, CMake mtimes로 RERUN_CMAKE 기대) ==="
 pkill -f '[j]kdesktop' 2>/dev/null
@@ -890,10 +1001,11 @@ MP2=$(grep -c '2p-' src/main.cpp)
 MQ2=$(grep -c '2q-' src/main.cpp)
 MR2=$(grep -c '2r-' src/main.cpp)
 MS2=$(grep -c '2s-' src/main.cpp)
+MU2=$(grep -c '2u-' src/main.cpp)
 MP=$(grep -c 'DelegationReplyVerdict' src/apps/ClientMusicApp.cpp)
 ML=$(grep -c '"music", "Music"' src/apps/JKAppModule_music.cpp)
 MMSC=$(grep -c 'scanCancel_' src/apps/ClientMusicApp.cpp)
-echo "MARKER-AFTER music_model($MM) cmake($MC) main_2m($MT) main_2p($MP2) main_2q($MQ2) main_2r($MR2) main_2s($MS2) delegate_verdict($MP) module($ML) cancel_wiring($MMSC)"
+echo "MARKER-AFTER music_model($MM) cmake($MC) main_2m($MT) main_2p($MP2) main_2q($MQ2) main_2r($MR2) main_2s($MS2) main_2u($MU2) delegate_verdict($MP) module($ML) cancel_wiring($MMSC)"
 [ "$MM" -ge 1 ] || FAIL "MusicModel ListAudioFiles marker missing on phone (배포 결손)"
 [ "$MC" -ge 1 ] || FAIL "jkapp_music CMake marker missing on phone"
 [ "$MT" -ge 1 ] || FAIL "2m selftest marker missing on phone main.cpp"
@@ -901,10 +1013,11 @@ echo "MARKER-AFTER music_model($MM) cmake($MC) main_2m($MT) main_2p($MP2) main_2
 [ "$MQ2" -ge 1 ] || FAIL "2q path-encoding selftest marker missing on phone main.cpp (T4 배포 결손)"
 [ "$MR2" -ge 10 ] || FAIL "2r selftest markers missing on phone main.cpp (기대 >=10 — #97 T1 8+fix r1 2 배포 결손)"
 [ "$MS2" -ge 20 ] || FAIL "2s selftest markers missing on phone main.cpp (기대 >=20 — T1 77323b1 태그 라인 배포 결손)"
+[ "$MU2" -ge 100 ] || FAIL "2u selftest markers missing on phone main.cpp (기대 >=100 — #111 T1/T2/T4 태그 쓰기 라인 배포 결손 — T6)"
 [ "$MMSC" -ge 1 ] || FAIL "scanCancel_ wiring marker missing on phone (T2 취소 배선 배포 결손)"
 [ "$MP" -ge 1 ] || FAIL "DelegationReplyVerdict marker missing on phone (fix r3 배포 결손)"
 
-echo "=== H. selftest — 폰 캐논 계보 판정 (원문: 638 = 624 + 2p 7(#93) + 2q 7(#94) 실측 · 기대 668 = 638 + 2r 10(#97 T1 04e11b7 8건 + fix r1 c6be500 2r-b/c 2건) + 2s 20(T1 77323b1 태그 라인) — WSL 668 등호 기대 — 실측 후 CANON 정산) ==="
+echo "=== H. selftest — 폰 캐논 계보 판정 (원문: 668 = 638 + 2r 10(#97) + 2s 20(#99) — 2026-10-25 오전 재실측 등호 · 기대 795 = 668 + 2u 127(#111 태그 쓰기 T1 15c2bb4 ①-⑦ 47 + T2 2973933 ⑧-⑭ 57 + T4 5b95c63 ⑮ 23 — 코드 원문 배포 이관) — WSL 795 등호 기대 — 실측 후 CANON 정산) ==="
 timeout 900 ./buildterm/jkdesktop test >"$STLOG" 2>&1
 S_RC=$?
 ST_PASS=$(grep -ac '^\[PASS\]' "$STLOG")
@@ -919,24 +1032,25 @@ P2P=$(grep -ac '^\[PASS\] 2p' "$STLOG")
 P2Q=$(grep -ac '^\[PASS\] 2q' "$STLOG")
 P2R=$(grep -ac '^\[PASS\] 2r' "$STLOG")
 P2S=$(grep -ac '^\[PASS\] 2s' "$STLOG")
+P2U=$(grep -ac '^\[PASS\] 2u' "$STLOG")
 P2I=$(grep -ac '^\[PASS\] 2i' "$STLOG")
 P2G=$(grep -ac '^\[PASS\] 2g' "$STLOG")
-echo "PHONE-SELFTEST rc=$S_RC PASS=$ST_PASS FAIL=$ST_FAIL 2m=$P2M(2m-h=$P2MH) 2i=$P2I 2g=$P2G 2n=$P2N 2o=$P2O(2o-f=$P2OF 2o-g=$P2OG) 2p=$P2P 2q=$P2Q 2r=$P2R 2s=$P2S (music 라인 2m·2n·2o + 취소 경계 2p + 경로 인코딩 2q + #97 브라우저 2r + 태그 2s 계열 — 캐논 상승분의 원료 — 분해 병기: 정산 판별 몫)"
+echo "PHONE-SELFTEST rc=$S_RC PASS=$ST_PASS FAIL=$ST_FAIL 2m=$P2M(2m-h=$P2MH) 2i=$P2I 2g=$P2G 2n=$P2N 2o=$P2O(2o-f=$P2OF 2o-g=$P2OG) 2p=$P2P 2q=$P2Q 2r=$P2R 2s=$P2S 2u=$P2U (music 라인 2m·2n·2o + 취소 경계 2p + 경로 인코딩 2q + #97 브라우저 2r + 태그 2s + #111 태그 쓰기 2u 계열 — 캐논 상승분의 원료 — 분해 병기: 정산 판별 몫)"
 grep -a 'AppSelfTest' "$STLOG" | tail -2
 grep -aq 'AppSelfTest: 0 failure(s)' "$STLOG" || FAIL "AppSelfTest not 0 failure(s)"
 [ "$S_RC" -eq 0 ] || FAIL "selftest rc=$S_RC"
 [ "$ST_FAIL" -eq 0 ] || FAIL "selftest FAIL=$ST_FAIL (폰축 회귀)"
 awk -v p="$ST_PASS" -v m="$P2M" -v h="$P2MH" -v n="$P2N" -v o="$P2O" -v of="$P2OF" -v og="$P2OG" \
-    -v pf="$P2P" -v qf="$P2Q" -v rf="$P2R" -v sf="$P2S" \
+    -v pf="$P2P" -v qf="$P2Q" -v rf="$P2R" -v sf="$P2S" -v uf="$P2U" \
     -v prev="$CANON_PHONE_PREV" -v expect="$CANON_PHONE_EXPECT" -v exo="$CANON_PHONE_2O" \
     -v exn="$CANON_PHONE_2N" -v xp="$CANON_PHONE_2P" -v xq="$CANON_PHONE_2Q" -v xr="$CANON_PHONE_2R" \
-    -v xs="$CANON_PHONE_2S" -v mm="$CANON_PHONE_2M" 'BEGIN{
-    if (p == expect && o == exo && pf == xp && qf == xq && rf == xr && sf == xs)
-        printf "CANON-INCLUSION=MUSIC-FULL-2P2QRS-%d (폰 캐논 %s→%s 상승 — 2r %d건+2s %d건 흡수 (2p %d건+2q %d건 + 2m %d건[h %d 포함]·2n %d건·2o %d건[o-f %d·o-g %d] 보존) 실측 — WSL %s 등호)\n", p - prev, prev, p, rf, sf, pf, qf, mm, h, n, o, of, og, expect
+    -v xs="$CANON_PHONE_2S" -v mm="$CANON_PHONE_2M" -v xu="$CANON_PHONE_2U" 'BEGIN{
+    if (p == expect && o == exo && pf == xp && qf == xq && rf == xr && sf == xs && uf == xu)
+        printf "CANON-INCLUSION=MUSIC-FULL-2P2QRS-%d (폰 캐논 %s→%s 상승 — 2u %d건 흡수 (2r %d건+2s %d건 + 2p %d건+2q %d건 + 2m %d건[h %d 포함]·2n %d건·2o %d건[o-f %d·o-g %d] 보존) 실측 — WSL %s 등호)\n", p - prev, prev, p, uf, rf, sf, pf, qf, mm, h, n, o, of, og, expect
     else if (p == prev)
-        print "CANON-INCLUSION=MUSIC-SELFTEST-MISSING (music selftest 쌍둥이 미반영 — 계보 결손 — 원장)"
+        print "CANON-INCLUSION=MUSIC-SELFTEST-MISSING (music selftest 쌍둥이 미반영 — 계보 결손 — 원장: 2u 배포 결손이면 668 정산 [WARN] — 2u=" xu ")"
     else
-        printf "CANON-INCLUSION=OTHER-N(%d — 기대 %d=%d+2r%d+2s%d(2p%d+2q%d) · 2m=%d[h=%d]·2n=%d·2o=%d[o-f=%d o-g=%d]·2p=%d·2q=%d·2r=%d·2s=%d — 계보 정산 원장)\n", p, expect, prev, xr, xs, xp, xq, m, h, n, o, of, og, pf, qf, rf, sf
+        printf "CANON-INCLUSION=OTHER-N(%d — 기대 %d=%d+2u%d+2r%d+2s%d(2p%d+2q%d) · 2m=%d[h=%d]·2n=%d·2o=%d[o-f=%d o-g=%d]·2r=%d·2s=%d·2u=%d — 계보 정산 원장)\n", p, expect, prev, xu, xr, xs, xp, xq, m, h, n, o, of, og, rf, sf, uf
 }'
 
 # ---------------------------------------------------------------- 레그 공통
@@ -2485,6 +2599,314 @@ CAPTURE "$TMPD/mus_phone_tag_after.png"
 echo "MUS-TAG-SUMMARY-2: tab=$TAG_TAB openfail=$TAG_OPENFAIL vp-reclaim=$TAG_VPCLOSE (N5 세그먼트 원문 종합 — 드라이버 판정 파싱 원문행)"
 echo "MUS-TAG-SEGMENT-END (태그 dir 소각은 P 섹션 몫 — settings 원복은 Q ORIG 바이트 등호 몫)"
 
+# ══════════════════════ N6 — 태그 쓰기(도구) 동형 세그먼트 (#111 T6 — wsl_music 16f-TW eaba3a4 수형) ══════════════════════
+# 위상 = 세그먼트 체인 말단(N5 뒤 — leg sdcard 앞 — N5의 체인-말단 수형과 동일
+# 위상). 기존 세그먼트(각 레그·N4·N5) 원존 유지 — 본 세그먼트만 신설. 폰 수형
+# 원장:
+#   · **16f-0a 신선 클라 재건 불요**(원장행 — WSL 진원의 폰 부재): WSL 16f가
+#     재건한 사유 = 16e-4의 아티스트 필터 잔존(T5 런 1 원장) — 폰 N5는 **타이핑
+#     스킵 원장**(합성 타이핑 신뢰 원장 T3 concern 2)이라 필터 잔존 진원이
+#     없다. 활성 탭 = N5 탭 착탄 결과(TAG_TAB — dirIndex_ = 태그 dir)를
+#     상속한다. Music 창 부재(비정상 계보) 시 = launch_app 폴백 + tab2
+#     send_input×2 착탄(N5 폴백 수형 — 캡처 차분 판정).
+#   · TW 시드(무태그 mp3 junk 768B+무태그 FLAC 스켈레톤+합성 cover jpg —
+#     드라이버 합성 2c·E4 수취)는 N5 캡처 **뒤**에 $TAGDIR로 랜딩(N5의 3행
+#     표기 계약 무오염 — 쓰기 갱신 mtime이 표 상단행 관계를 만든다).
+#   · 클릭 0 — **도구 경로만**(music_tag_write relay — atool 수형). UI [편집]
+#     패널·행 32px 커버 썸네일은 클릭하지 않는다 — **표기 원문 캡처**(EYES —
+#     T3 배포 UI의 폰 표기 원문 = mus_phone_tagwrite_*).
+#   · scan_busy = 정직 거부 → **tw_write 재시도 수형**(3콜 폴링 — T4 도구
+#     규약·16f 수형 동일 — reply 원문은 시도마다 행).
+#   · 필터 라운드(16f-5)는 **폰 스킵 — 원장행**: 폰 타이핑 스킵 원장(N5 승계 —
+#     표 필터는 도구 경로 부재 = EYES 축) — MUS_TW_SETTLE=-1 스킵 표기. 본
+#     세그먼트의 강도 축 = **파일 수준 round-trip**(재독 표기+APIC md5 등호) —
+#     T5 리포트 §6.4의 도구 경계+파일 재독 축 승계.
+#   · REMNANT = TW 시드 3건 소각(N6-6+P3 $TAGDIR 통짜 소각+드라이버 REMNANT
+#     게이트 병행 — probe 소유 잔상 0 계약)+재독 파서·폴백 정찰 프레임 소각.
+echo "=== N6. 태그 쓰기(도구) 동형 세그먼트 (#111 T6 — wsl_music 16f-TW 폰 수형) ==="
+echo "MUS-N6-TW-RECON: 16f-0a 신선 클라 재건 생략 원장행(폰 N5 타이핑 스킵 — 필터 잔존 진원 없음 — 클라 상태 = N5 계약 승계·활성 탭 상속)"
+TW_STAGE=0; TW_LAND=0; TW_TABF=0; TW1_OK=0; TW2_OK=0; TWF_OK=0
+TW_APIC_RT=0; TW_APIC_KEEP=0
+for i in 1 2 3 4 5 6 7 8; do
+    sleep 2
+    WINTW=$(ctl '{"tool":"list_windows","args":{}}')
+    MUSWINTW=$(printf '%s' "$WINTW" | grep -aoE '\{"id":[^}]*"title":"Music"[^}]*\}' | head -1)
+    [ -n "$MUSWINTW" ] && break
+done
+if [ -n "$MUSWINTW" ]; then
+    TW_STAGE=1
+    MUSWIN="$MUSWINTW"
+    parse_geo tw
+    echo "MUSWIN-N6: $MUSWIN (N5 클라 승계)"
+    if [ "${TAG_TAB:-0}" -eq 1 ]; then
+        echo "MUS-TW-TAB-INHERIT: OK — N5 탭 착탄 상속(활성 탭 = 태그 dir — tapsettle 진실원 계승 — 재탭 불요)"
+    else
+        echo "NOTE-TW-TAB-INHERIT: N5 탭 미착탄 계보(TAG_TAB=0) — tab2 폴백 착탄(N5 폴백 수형 — send_input×2+캡처 차분 판정)"
+        xtpark
+        CAPTURE "$TMPD/mus_phone_bc_twbase.png"
+        TWBASE="$TMPD/mus_phone_bc_twbase.png"
+        TLX=$((MUS_X + TAB2_X))
+        TLY=$((MUS_Y + TAB2_Y))
+        TAPTW=$(tap "$MUS_ID" "$TLX" "$TLY" 1)
+        ok "$TAPTW" || echo "  tw tab tap reply: ${TAPTW:-none}"
+        sleep 2
+        TAPTW2=$(tap "$MUS_ID" "$TLX" "$TLY" 1)
+        ok "$TAPTW2" || echo "  tw tab re-click reply: ${TAPTW2:-none} (첫 클릭 취식 방어 — 동일 탭 재선택 idempotent)"
+        sleep 8
+        CAPTURE "$TMPD/mus_phone_bc_twafter.png"
+        DFTW=$(python3 "$PXPY" "$TWBASE" "$TMPD/mus_phone_bc_twafter.png" \
+                       "$MUS_X" "$MUS_Y" "$MUS_W" "$MUS_H" 2>&1)
+        ROWS_TW=$(printf '%s' "$DFTW" | sed -n 's/.*diff_rows=\([0-9]*\).*/\1/p')
+        echo "MUS-TW-TAB-FALLBACK: diff_rows=${ROWS_TW:-NA} (기저 대비 — 폴백 착탄 판정 — 임계 3)"
+        if [ -n "$ROWS_TW" ] && [ "$ROWS_TW" -ge 3 ]; then
+            TW_TABF=1
+            echo "MUS-TW-TAB-FALLBACK-OK: 탭 착탄(클라 ${TAB2_X},${TAB2_Y}) — dirIndex_ 전이 추정(캡처 차분=$ROWS_TW rows)"
+        else
+            echo "MUSICP-FAIL-SOFT(tw-tab-fallback: 폴백 탭도 무착탄 diff=${ROWS_TW:-NA} — MUSP_TAGTAB 재보정 몫 — 원장행)"
+        fi
+        # [정직 원장행]: 폴백 탭의 dirIndex_ 직접 증명은 캡처(육안)뿐 — 본 세그먼트의
+        # 성립 판정(도구 경계+파일 재독)은 이와 별개로 유지 — 목록 행 캡처 레저 해석에 병기.
+        echo "MUS-TW-TAB-FALLBACK-MODE: tap=$TW_TABF (0 = dirIndex_ 미확정 — 원장행)"
+    fi
+else
+    echo "MUSICP-FAIL-SOFT(tw-recon: Music 창 부재 — N5 계보 재대조 몫 — 태그 쓰기 세그먼트 생략, 원장)"
+fi
+
+if [ "$TW_STAGE" -eq 1 ]; then
+    echo "--- N6-1. TW 시드 랜딩 ($TAGDIR — N5 캡처 뒤 — 3행 계약 무오염 — E4 수취 승계) ---"
+    if [ -d "$TWDIR" ] && [ "$(find "$TWDIR" -type f 2>/dev/null | wc -l)" -eq 3 ]; then
+        mv "$TWDIR/t_tw_write.mp3" "$TWDIR/t_tw_write.flac" "$TWDIR/t_tw_cover.jpg" "$TAGDIR/" \
+            && rmdir "$TWDIR" 2>/dev/null
+        [ -d "$TWDIR" ] && rm -rf "$TWDIR"
+        TW_LAND=1
+        echo "TW-LANDED: $TAGDIR (t_tw_write.mp3+t_tw_write.flac+t_tw_cover.jpg — N5 캡처 뒤 랜딩 원문)"
+    fi
+    [ "$TW_LAND" -eq 1 ] || echo "MUSICP-FAIL-SOFT(tw-land: $TWDIR 3건 미착 — E4 원문 대조 — 태그 쓰기 세그먼트 본체 생략, 원장)"
+fi
+
+if [ "$TW_LAND" -eq 1 ]; then
+    sync
+    echo "TW-SYNC: drained (시드 writeback 선행 배수 — N3 원장 수형)"
+    TW_CM=$(md5sum "$TAGDIR/t_tw_cover.jpg" | sed -n 's/^\([0-9a-f]*\) .*$/\1/p')
+    echo "TW-COVER-LANDED: bytes=$(wc -c < "$TAGDIR/t_tw_cover.jpg") md5=$TW_CM (기대 md5=__TW_COVER_MD5__ — 도착 등호 게이트)"
+    [ "$TW_CM" = "__TW_COVER_MD5__" ] || echo "MUSICP-FAIL-SOFT(tw-cover-md5-lan: 랜딩 원문 불일치 — E4 게이트와 이중)"
+    TW_MAG=$(python3 -c 'import sys
+d = open(sys.argv[1], "rb").read(2)
+print("ffd8" if d == b"\xff\xd8" else "bad:" + d.hex())' "$TAGDIR/t_tw_cover.jpg")
+    echo "TW-COVER-MAGIC: $TW_MAG (FFD8 — LoadCoverByMagic 계약 — 폰 파일 원문)"
+    printf '%s' "$TW_MAG" | grep -aq ffd8 || echo "MUSICP-FAIL-SOFT(tw-cover-magic: FFD8 아님 — $TW_MAG)"
+
+    echo "--- N6-2. 재독 파서 준비+프리뷰 (16f-1 수형 — 폰 python3 — px 차분기와 동일 축·시더와 독립 — 앱 파서와도 독립) ---"
+    cat > "$TMPD/pmus_twparse.py" <<'PYEOF'
+# [#111 T6] 재독 파서 — 시더와 독립(앱 파서와도 독립 — wsl_music 16f-1 원문 수형):
+# mp3 = ID3 프레임 사슬(v2.3 BE32·v2.4 syncsafe 폴백 — 2u-① 수형)에서
+# TIT2/TPE1/TALB+APIC(enc0 mime\0·desc\0·data)를 다시 읽고, FLAC = 메타 블록
+# 사슬을 다시 읽어 VORBIS_COMMENT(4·LE32 길이 규약 — ParseVorbisCommentsRaw
+# 동형)의 관리 키를 수취한다. 진실원 = 파일 바이트. [T5 런 원장 수형(r1): APIC
+# 본문 = [enc][mime][NUL][desc=빈+종결][picture] — 그림타입 바이트 불내장 —
+# desc 검색 = mime 종결 다음 바이트(z+1 보행 — z+2 스킵은 그림 선단 5B 잠식
+# 사건의 수형 — 16f 원문 그대로).
+import hashlib, struct, sys
+
+def txt_of(enc_body):
+    enc, body = enc_body[0], enc_body[1:]
+    if enc == 1:
+        try:
+            return body.decode("utf-16").lstrip("﻿").rstrip("\x00")
+        except Exception:
+            pass
+    return body.decode("latin-1", "replace").rstrip("\x00")
+
+def parse_mp3(path, out):
+    d = open(path, "rb").read()
+    if d[:3] != b"ID3":
+        out.append("TW-TAG none")
+        return out
+    out.append("TW-ID3-VER %d" % d[3])
+    sz_be = int.from_bytes(d[6:10], "big")
+    sz_ss = ((d[6] & 0x7F) << 21) | ((d[7] & 0x7F) << 14) | \
+            ((d[8] & 0x7F) << 7) | (d[9] & 0x7F)
+    end = 10 + (sz_be if d[3] == 0x03 else sz_ss)
+    tags, apic = {}, None
+    i = 10
+    while i + 10 <= min(end, len(d)):
+        fid = d[i:i + 4].decode("latin-1")
+        fsz = int.from_bytes(d[i + 4:i + 8], "big")
+        if fsz == 0 or not ("A" <= fid[0] <= "Z"):
+            break
+        body = d[i + 10:i + 10 + fsz]
+        if not body:
+            break
+        if fid in ("TIT2", "TPE1", "TALB"):
+            tags[fid] = txt_of(body)
+        elif fid == "APIC":
+            z = body.find(b"\x00", 1)
+            if z != -1:
+                mime = body[1:z].decode("latin-1", "replace")
+                de = body.find(b"\x00", z + 1)
+                if de != -1:
+                    apic = (mime, body[de + 1:])
+        i += 10 + fsz
+    out.append("TW-TAG title=%r artist=%r album=%r"
+               % (tags.get("TIT2", ""), tags.get("TPE1", ""), tags.get("TALB", "")))
+    if apic:
+        out.append("TW-APIC mime=%s md5=%s bytes=%d jpeg_magic=%d"
+                   % (apic[0], hashlib.md5(apic[1]).hexdigest(), len(apic[1]),
+                      1 if apic[1][:2] == b"\xff\xd8" else 0))
+    else:
+        out.append("TW-APIC none")
+    return out
+
+def parse_flac(path, out):
+    d = open(path, "rb").read()
+    if d[:4] != b"fLaC":
+        out.append("TW-FLAC magic-miss")
+        return out
+    out.append("TW-FLAC-VER ok")
+    i, first, keys, pic = 4, True, [], 0
+    while i + 4 <= len(d):
+        hdr = d[i]
+        btype = hdr & 0x7F
+        blen = int.from_bytes(d[i + 1:i + 4], "big")
+        body = d[i + 4:i + 4 + blen]
+        if first and (btype != 0 or blen != 34):
+            out.append("TW-FLAC streaminfo-broken btype=%d blen=%d" % (btype, blen))
+            return out
+        first = False
+        if btype == 4:
+            off = 4 + int.from_bytes(body[:4], "little")
+            cnt = int.from_bytes(body[off:off + 4], "little")
+            off += 4
+            for _ in range(cnt):
+                elen = int.from_bytes(body[off:off + 4], "little")
+                off += 4
+                ent = body[off:off + elen].decode("utf-8", "replace")
+                off += elen
+                if ent.startswith(("TITLE=", "ARTIST=", "ALBUM=")):
+                    keys.append(ent)
+        elif btype == 6:
+            pic += 1
+        i += 4 + blen
+        if hdr & 0x80:
+            break
+    t = {k.split("=", 1)[0]: k.split("=", 1)[1] for k in keys}
+    out.append("TW-TAG title=%r artist=%r album=%r"
+               % (t.get("TITLE", ""), t.get("ARTIST", ""), t.get("ALBUM", "")))
+    out.append("TW-FLAC-BLOCKS keys=%d picture=%d" % (len(keys), pic))
+    return out
+
+path = sys.argv[1]
+d = open(path, "rb").read(4)
+print("TW-PARSE-FILE %s %d bytes" % (path, len(open(path, "rb").read())))
+if d[:3] == b"ID3":
+    for ln in parse_mp3(path, []):
+        print(ln)
+elif d[:4] == b"fLaC":
+    for ln in parse_flac(path, []):
+        print(ln)
+else:
+    print("TW-PARSE magic-unknown (무태그 전제 위반 — 시더 원문 재확인)")
+PYEOF
+    TW_PRE=$(python3 "$TMPD/pmus_twparse.py" "$TAGDIR/t_tw_write.mp3")
+    echo "MUS-TW-PREVIEW-MP3: $TW_PRE (쓰기 전 — 무태그 원문)"
+    TW_PRE_FLAC=$(python3 "$TMPD/pmus_twparse.py" "$TAGDIR/t_tw_write.flac")
+    echo "MUS-TW-PREVIEW-FLAC: $TW_PRE_FLAC (쓰기 전 — fLaC만)"
+
+    echo "--- N6-3. 도구 쓰기 1 — title/artist/album+cover jpg (마법수 수취) ---"
+    tw_write() { # $1=args-json — scan_busy 정직 거부 재시도 수형(T4 도구 규약:
+                 # 쓰기 성공의 RequestScan 진행 중에 도착하는 뒤 쓰기 = 대기+
+                 # 재발사 — reply 원문은 시도마다 행(무음 실패 금지 원장).
+                 # reply는 TW_REPLY로 돌려준다(16f-2 수형).
+        TW_REPLY=""
+        local a="$1" r i ok=1
+        for i in 1 2 3; do
+            r=$(mtool music_tag_write "$a")
+            TW_REPLY=$r
+            echo "  TW-WRITE#$i: ${r:-none}"
+            if printf '%s' "$r" | grep -aq '"ok":true'; then ok=0; break; fi
+            printf '%s' "$r" | grep -aq '"error":"scan_busy"' || break
+            sleep 4
+        done
+        return $ok
+    }
+    TW_TITLE_A="Phone Write Alpha"
+    TW_ARTIST="Probe Tw Artist"
+    TW_ALBUM="Tw Album One"
+    TW_TITLE_B="Phone Write Reup"
+    if tw_write "{\"path\":\"$TAGDIR/t_tw_write.mp3\",\"title\":\"$TW_TITLE_A\",\"artist\":\"$TW_ARTIST\",\"album\":\"$TW_ALBUM\",\"cover\":\"$TAGDIR/t_tw_cover.jpg\"}"; then
+        TW1_OK=1
+        echo "MUS-TW-WRITE1-OK: ok 수취 — title/artist/album+cover(jpg 마법수) relay 쓰기 성립(성공 = RequestScan 재스캔 재청구 배선 — T4 도구 규약)"
+        sleep 8   # 재스캔 도착(폰 스캔·컴포지트 도착이 늦다 — leg list 원장 수형)
+        CAPTURE "$TMPD/mus_phone_tagwrite_list.png"
+        echo "MUS-TW-LIST-LEDGER: 예상 상단 행(mtime desc — 쓰기 갱신): 'Phone Write Alpha (Probe Tw Artist)'+'Tw Album One'+좌측 커버아트 썸네일 32px(4색 밴드 jpg — 회색 자리표시 대조 — T3 배포 UI의 폰 표기 원문) — 표기·썸네일 일치는 캡처 육안 몫(EYES)"
+    else
+        echo "MUSICP-FAIL-SOFT(tw-write1: 도구 쓰기 1 거부 — $TW_REPLY)"
+    fi
+    AP1=$(python3 "$TMPD/pmus_twparse.py" "$TAGDIR/t_tw_write.mp3")
+    echo "MUS-TW-PARSED-A: $AP1 (파일 수준 재독 — 앱 파서와 독립 round-trip 원문)"
+    TW_MIME=$(printf '%s\n' "$AP1" | sed -n 's/.*TW-APIC mime=\([^ ]*\) md5=\([0-9a-f]*\).*/\1/p')
+    TW_MD5_1=$(printf '%s\n' "$AP1" | sed -n 's/.*TW-APIC mime=\([^ ]*\) md5=\([0-9a-f]*\).*/\2/p')
+    echo "MUS-TW-APIC-1: mime=${TW_MIME:-none} md5=${TW_MD5_1:-none} (합성 cover md5=$TW_CM 대조 몫)"
+    if [ -n "$TW_MD5_1" ] && [ "$TW_MD5_1" = "$TW_CM" ]; then
+        TW_APIC_RT=1
+        echo "MUSIC-TW-COVER-RT: OK — APIC 그림 == 합성 cover jpg 원문(md5 등호 — ReadCover 계약의 파일 수준 라이브 대응)"
+    else
+        echo "MUSICP-FAIL-SOFT(tw-cover-rt: APIC round-trip 불일치 — md5=${TW_MD5_1:-none} vs cover=$TW_CM)"
+    fi
+
+    echo "--- N6-4. 도구 쓰기 2 — cover=null(기존 APIC 유지 계약)+TIT2 교체 ---"
+    if tw_write "{\"path\":\"$TAGDIR/t_tw_write.mp3\",\"title\":\"$TW_TITLE_B\",\"artist\":\"$TW_ARTIST\",\"album\":\"$TW_ALBUM\",\"cover\":null}"; then
+        TW2_OK=1
+        echo "MUS-TW-WRITE2-OK: ok 수취 — cover=null = 기존 유지 leg(WriteTag 계약 — 2u-⑮ APIC 생존 어설션의 도구 경계 라이브 대응)·TIT2 교체 쓰기"
+        sleep 8
+        CAPTURE "$TMPD/mus_phone_tagwrite_list2.png"   # 재상단 행(쓰기 2 label) — EYES 보조 캡처
+    else
+        echo "MUSICP-FAIL-SOFT(tw-write2: 도구 쓰기 2 거부 — $TW_REPLY)"
+    fi
+    AP2=$(python3 "$TMPD/pmus_twparse.py" "$TAGDIR/t_tw_write.mp3")
+    echo "MUS-TW-PARSED-B: $AP2 (쓰기 2 재독 — TIT2 교체+APIC 유지 원문)"
+    TW_MD5_2=$(printf '%s\n' "$AP2" | sed -n 's/.*TW-APIC mime=\([^ ]*\) md5=\([0-9a-f]*\).*/\2/p')
+    if [ -n "$TW_MD5_2" ] && [ "$TW_MD5_2" = "$TW_CM" ]; then
+        TW_APIC_KEEP=1
+        echo "MUS-TW-APIC-KEEP: OK — cover=null 뒤 APIC 원문 유지(md5 등호 — $TW_MD5_2)"
+    else
+        echo "MUSICP-FAIL-SOFT(tw-apic-keep: cover=null 뒤 APIC 소각/변조 — md5=${TW_MD5_2:-none} vs cover=$TW_CM)"
+    fi
+
+    echo "--- N6-5. FLAC 도구 쓰기 — cover 생략(유지 leg 계열 — PICTURE 부재 원존)+코멘트 신설(T2 leg) ---"
+    if tw_write "{\"path\":\"$TAGDIR/t_tw_write.flac\",\"title\":\"$TW_TITLE_A\",\"artist\":\"$TW_ARTIST\",\"album\":\"$TW_ALBUM\"}"; then
+        TWF_OK=1
+        echo "MUS-TW-FLAC-OK: ok 수취 — fLaC 스켈레톤(STREAMINFO 첫 블록 34B)에서 VORBIS_COMMENT 신설+블록 재조립(STREAMINFO 보존 — D9·PICTURE 부재 = 교체 대상 없음)"
+        sleep 8
+        CAPTURE "$TMPD/mus_phone_tagwrite_flac.png"   # FLAC 행 표기(곡명(아티스트) 반영 — EYES 보조)
+    else
+        echo "MUSICP-FAIL-SOFT(tw-flac: FLAC 도구 쓰기 거부 — $TW_REPLY)"
+    fi
+    FP=$(python3 "$TMPD/pmus_twparse.py" "$TAGDIR/t_tw_write.flac")
+    echo "MUS-TW-FLAC-PARSED: $FP (FLAC 재독 — 메타 블록 사슬 재파싱 원문)"
+    TW_FLAC_KEYS=$(printf '%s\n' "$FP" | sed -n 's/.*TW-FLAC-BLOCKS keys=\([0-9]*\) picture=\([0-9]*\).*/keys=\1 picture=\2/p')
+    echo "MUS-TW-FLAC-BLOCKS: ${TW_FLAC_KEYS:-none} (관리 3키 TITLE/ARTIST/ALBUM = keys=3·cover 생략 = picture 0 — D9 재조립의 재독 원문)"
+    if printf '%s' "$FP" | grep -aq 'streaminfo-broken'; then
+        echo "MUSICP-FAIL-SOFT(tw-flac-streaminfo: STREAMINFO 보존 위반 — $FP)"
+    fi
+
+    echo "--- N6-6. 필터 라운드 스킵 원장행 + TW 시드 소각 (probe 소유 잔상 0 — REMNANT 계약 — 16f-6 수형) ---"
+    MUS_TW_SETTLE=-1
+    echo "MUS-TW-FILTER-SKIP: 폰 필터 라운드(16f-5) 스킵 원장행 — 폰 타이핑 스킵 원장 승계(N5 동일 축 — 표 필터는 도구 경로 부재 = EYES) — 쓰기 반영 재독의 폰 표기 축 = tagwrite 3캡처(EYES)·성립 판정 = 파일 재독 축(상단 N6 원문)"
+    rm -f "$TMPD/pmus_twparse.py"
+    rm -f "$TAGDIR/t_tw_write.mp3" "$TAGDIR/t_tw_write.flac" "$TAGDIR/t_tw_cover.jpg"
+    rm -rf "$TWDIR"
+    rm -f "$TMPD/mus_phone_bc_twbase.png" "$TMPD/mus_phone_bc_twafter.png" \
+          "$TMPD/mus_phone_bc_twbase.pxc" 2>/dev/null
+    TW_LEFT=$(ls "$TAGDIR"/t_tw_* 2>/dev/null | wc -l)
+    [ "$TW_LEFT" -eq 0 ] \
+        && echo "TW-BURIED: t_tw_* 3건 소각 (P3 \$TAGDIR 통짜 소각+드라이버 REMNANT 게이트 병행)" \
+        || echo "MUSICP-FAIL-SOFT(tw-bury: TW 시드 잔존 $TW_LEFT건 — 수동 소각)"
+    echo "MUS-TW-SUMMARY-2: stage=$TW_STAGE land=$TW_LAND tab_inherit=${TAG_TAB:-0} tab_fallback=$TW_TABF w1=$TW1_OK w2=$TW2_OK flac=$TWF_OK cover_rt=$TW_APIC_RT apic_keep=$TW_APIC_KEEP apic_1=${TW_MD5_1:-none} flac_blocks=${TW_FLAC_KEYS:-none} (N6 세그먼트 원문 종합 — 드라이버 판정 파싱 원문행)"
+fi
+[ "${TW_STAGE:-0}" -eq 1 ] || echo "MUS-TW-SUMMARY-2: stage=0 land=0 w1=0 w2=0 flac=0 cover_rt=0 apic_keep=0 (Music 창 부재 — 세그먼트 생략 — 원장행)"
+echo "MUS-TW-SEGMENT-END (TW 시드 소각 = N6-6·P3·REMNANT 게이트 몫 — 표기·썸네일·[편집] 모양 = 캡처 육안 몫 EYES)"
+
 # ══════════════════════ leg sdcard — /sdcard FUSE 스캔 유한 종료 실측 (M-5 재판정) ══════════════
 LEG=sdcard
 echo "=== O. leg sdcard — music.dirs=/sdcard 부팅 + FUSE 스캔 유한 종료 실측 (T1 fix r1 리뷰 M-5 재판정) ==="
@@ -2566,6 +2988,11 @@ echo "=== P3. [T4 #99] 태그 트랙 dir 소각 (N5 세그먼트 — probe 소�
 rm -rf "$TAGDIR"
 [ -d "$TAGDIR" ] && FAIL "tag seed dir 소각 실패 ($TAGDIR — 수동 소각 필요)" \
     || echo "TAG-TREES-BURIED: $TAGDIR removed (태그 mp3 3건 소각 — REMNANT 게이트 병행)"
+# [#111 T6] TW 시드 dir 방어적 봉합(정상 경로면 N6-1 mv·N6-6 rm으로 이미 소각 —
+# Music 창 부재 등의 세그먼트 생략 계보에서도 잔상 0 — REMNANT 게이트 대응).
+rm -rf "$TWDIR" 2>/dev/null
+[ -d "$TWDIR" ] && echo "MUSICP-FAIL-SOFT(tw-dir-bury: $TWDIR 소각 실패 — 수동 소각)" \
+    || echo "TW-DIR-BURIED: $TWDIR removed (방어적 봉합 — probe 소유 잔상 0)"
 rm -f "$ANCH" 2>/dev/null
 rm -rf "$XDIR" 2>/dev/null   # N2 세그먼트 방어적 봉합(정상 경로면 이미 소각 — REMNANT 게이트 병행)
 BT0=$(date +%s.%N)
@@ -2624,10 +3051,10 @@ exit 0
 # launch·창·캡처·소각·big 트리 시드/소각)만 FAIL()에서 exit 1.
 # EOF — 끝 개행 유지.
 PMUSEOF
-sed -i "s/__PHONE_DISPLAY__/${PHONE_DISPLAY#:}/; s/__BIG_SUBS__/$MUSP_BIG_SUBS/; s/__BIG_FILES__/$MUSP_BIG_FILES/" \
+sed -i "s/__PHONE_DISPLAY__/${PHONE_DISPLAY#:}/; s/__BIG_SUBS__/$MUSP_BIG_SUBS/; s/__BIG_FILES__/$MUSP_BIG_FILES/; s/__TW_COVER_MD5__/$TW_COVER_MD5/" \
     "$SCRATCH/$RSRC_TAR_NAME" || FAIL "remote script substitution failed"
-grep -aq '__PHONE_DISPLAY__\|__BIG_SUBS__\|__BIG_FILES__' "$SCRATCH/$RSRC_TAR_NAME" \
-    && FAIL "placeholder unresolved (display/big scale)"
+grep -aq '__PHONE_DISPLAY__\|__BIG_SUBS__\|__BIG_FILES__\|__TW_COVER_MD5__' "$SCRATCH/$RSRC_TAR_NAME" \
+    && FAIL "placeholder unresolved (display/big scale/tw cover md5)"
 
 # ------------------------------------------------------------------ 4. 배포
 echo "=== 3. 배포 (sweep 산치 따라 tar blob 스테이징 / 전량 git archive — D1 원장) ==="
@@ -2673,6 +3100,8 @@ tar -cf "$SEEDTAR" -C "$SEEDSTAGE" engine/pmus_seed_stage || FAIL "seed tar crea
 echo "seed tar: $(wc -c < "$SEEDTAR" | tr -d ' ') bytes (member engine/pmus_seed_stage)"
 tar -tf "$SEEDTAR" | grep -aq 'pmus_seed_stage/pcm_music_seed/sub/d_seed.wav' || FAIL "seed tar missing sub member (구성 누락)"
 tar -tf "$SEEDTAR" | grep -aq 'pmus_seed_stage/tag_music_seed/t_tag_alpha.mp3' || FAIL "seed tar missing tag member (T4 #99 태그 시드 누락)"
+tar -tf "$SEEDTAR" | grep -aq 'pmus_seed_stage/tw_music_seed/t_tw_write.mp3' || FAIL "seed tar missing TW member (#111 T6 태그 쓰기 시드 누락)"
+tar -tf "$SEEDTAR" | grep -aq 'pmus_seed_stage/tw_music_seed/t_tw_cover.jpg' || FAIL "seed tar missing TW cover member (#111 T6)"
 $SSH "tar -xf - -C ~/JKENGINE" < "$SEEDTAR" || FAIL "seed tar extract failed"
 rm -f "$SEEDTAR"
 $SSH "cat > $RSRC_PHONE" < "$SCRATCH/$RSRC_TAR_NAME" || FAIL "remote script copy failed"
@@ -2720,9 +3149,23 @@ fi
 cat "$RUNLOG"
 grep -aq '^MUSP-FINISHED$' "$RUNLOG" \
   || FAIL "receipt script did not finish (rc=$RUN_RC — RUN-DROPPED면 재실행)"
+INH_HARD=0
+# [#111 T6 수형 원장 — hard 마커의 rc=1 시점만 말단 이동(마커 행·의미 원존)]:
+# 원수형은 MUSP-FAIL grep을 즉시 hard FAIL로 쳤다 — 그러면 REMNANT 게이트·
+# 캡처 회수·판정(섹션 5-9)이 통째로 생략되고 폰 측 캡처가 유산으로 남는다
+# (2026-10-25 오전 run8 원문: N4 ⑤ 무전달 hard로 본 세그먼트 집합이 미회수).
+# N4 ⑤는 이 라인의 잔여 원장행(탭 좌표 재보정 별소관 — 갱신 65)이라 T6의
+# 자기 산치(N6 TW 세그먼트·캐논·REMNANT 0)를 그 위에서 정직하게 정산한다 —
+# 마지막에 rc=1로 종결해 마커 계약(무전달 재발 = 수치 신호)을 유지한다.
+# 그 밖의 MUSP-FAIL(launch/sweep/설정 원복 등)은 원수형 그대로 즉시 hard FAIL.
 if grep -aq '^MUSP-FAIL' "$RUNLOG"; then
   HARD=$(grep -a '^MUSP-FAIL' "$RUNLOG" | head -1)
-  FAIL "phone hard receipt: $HARD"
+  if printf '%s' "$HARD" | grep -aq 'N4 ⑤'; then
+    INH_HARD=1
+    echo "NOTE-T6-HARD-DEFERRED: N4 ⑤ 무전달 hard 마커 원장 행 — REMNANT·회수·판정을 계속 수행하고 말단에 rc=1로 종결(마커 원존 — rc=1 시점 이동 원장행 — T6)"
+  else
+    FAIL "phone hard receipt: $HARD"
+  fi
 fi
 
 # ------------------------------------------------------------------ 6. REMNANT
@@ -2750,6 +3193,9 @@ echo "REMNANT-BROWSE-TREE: $REM_BROW (T4 브라우저 세그먼트 잔산 게이
 REM_TAG=$($SSH '[ -d "$TMPDIR/mus_tagseed" ] && echo present || echo gone' | tr -d ' \r')
 echo "REMNANT-TAG-SEEDS: $REM_TAG (T4 #99 태그 세그먼트 잔산 게이트 — 합성 mp3 3건)"
 [ "$REM_TAG" = "gone" ] || FAIL "REMNANT survived: tag seeds left on phone (mus_tagseed=$REM_TAG)"
+REM_TWS=$($SSH '[ -d "$TMPDIR/mus_twseed" ] && echo present || echo gone' | tr -d ' \r')
+echo "REMNANT-TW-SEEDS: $REM_TWS (#111 T6 태그 쓰기 세그먼트 잔산 게이트 — 합성 3건[N6-6 소각 — TAGDIR 통짜 소각의 이중 가드])"
+[ "$REM_TWS" = "gone" ] || FAIL "REMNANT survived: TW seeds left on phone (mus_twseed=$REM_TWS)"
 REM_XT=$($SSH '[ -f "$TMPDIR/xtap" ] && echo present || echo gone' | tr -d ' \r')
 echo "REMNANT-XT-INJECTOR: $REM_XT (**삭제 금지 계약 — #96/input-repair 원장: 진입 소각은 캡처·로그만, 주입기는 면제 — present=계약 준수**)"
 $SSH "rm -f \$HOME/.pmus_tree.txt \$HOME/.pmus_files.txt \$HOME/.pmus_sizes.txt \$HOME/.pmus_sizes2.txt" 2>/dev/null
@@ -2814,12 +3260,17 @@ recover_opt "\$TMPDIR/mus_phone_browse_sub2.png" "$SCRATCH/mus_phone_browse_sub2
 recover_opt "\$TMPDIR/mus_phone_browse_added.png" "$SCRATCH/mus_phone_browse_added.png"
 recover_opt "\$TMPDIR/mus_phone_browse_rescan.png" "$SCRATCH/mus_phone_browse_rescan.png"
 recover_opt "\$TMPDIR/mus_phone_tag_after.png" "$SCRATCH/mus_phone_tag_after.png"
+# [#111 T6] N6 태그 쓰기 세그먼트 캡처 3종(행 32px 커버 썸네일+[편집] UI 표기 원문 —
+# 세그먼트 단계 미달 런 = ABSENT 원산 — recover_opt 수형)
+recover_opt "\$TMPDIR/mus_phone_tagwrite_list.png" "$SCRATCH/mus_phone_tagwrite_list.png"
+recover_opt "\$TMPDIR/mus_phone_tagwrite_list2.png" "$SCRATCH/mus_phone_tagwrite_list2.png"
+recover_opt "\$TMPDIR/mus_phone_tagwrite_flac.png" "$SCRATCH/mus_phone_tagwrite_flac.png"
 # 정찰 중간 프레임(bc_*) — 성공 런은 원격 소각(ABSENT 원산), 무전달/정찰 런만 유산
 for t in bt0 btog bropen bsub bup bsub2 badd; do
     recover_opt "\$TMPDIR/mus_phone_bc_$t.png" "$SCRATCH/mus_phone_bc_$t.png"
 done
-$SSH "rm -f \$TMPDIR/mus_phone_list.png \$TMPDIR/mus_phone_list2.png \$TMPDIR/mus_phone_spatial.png \$TMPDIR/mus_phone_spatial_mix.png \$TMPDIR/mus_phone_vp_delegate.png \$TMPDIR/mus_phone_delegate_status.png \$TMPDIR/mus_phone_after.png \$TMPDIR/mus_phone_sdcard.png \$TMPDIR/mus_phone_dirs.png \$TMPDIR/mus_phone_dirs2.png \$TMPDIR/mus_phone_scan_busy.png \$TMPDIR/mus_phone_rescan_settled.png \$TMPDIR/mus_phone_browse_open.png \$TMPDIR/mus_phone_browse_subs.png \$TMPDIR/mus_phone_browse_sub.png \$TMPDIR/mus_phone_browse_up.png \$TMPDIR/mus_phone_browse_sub2.png \$TMPDIR/mus_phone_browse_added.png \$TMPDIR/mus_phone_browse_rescan.png \$TMPDIR/mus_phone_taglist.png \$TMPDIR/mus_phone_taglist2.png \$TMPDIR/mus_phone_tag_after.png \$TMPDIR/pmus_orig_settings.json \$TMPDIR/pmus_orig_permissions.json"
-echo "CAPTURES-WRITTEN: mus_phone_{list,list2,spatial,vp_delegate,delegate_status,after,sdcard,dirs,dirs2,scan_busy,rescan_settled,browse_open,browse_subs,browse_sub,browse_up,browse_sub2,browse_added,browse_rescan,taglist,taglist2,tag_after}.png → engine/tmp/"
+$SSH "rm -f \$TMPDIR/mus_phone_list.png \$TMPDIR/mus_phone_list2.png \$TMPDIR/mus_phone_spatial.png \$TMPDIR/mus_phone_spatial_mix.png \$TMPDIR/mus_phone_vp_delegate.png \$TMPDIR/mus_phone_delegate_status.png \$TMPDIR/mus_phone_after.png \$TMPDIR/mus_phone_sdcard.png \$TMPDIR/mus_phone_dirs.png \$TMPDIR/mus_phone_dirs2.png \$TMPDIR/mus_phone_scan_busy.png \$TMPDIR/mus_phone_rescan_settled.png \$TMPDIR/mus_phone_browse_open.png \$TMPDIR/mus_phone_browse_subs.png \$TMPDIR/mus_phone_browse_sub.png \$TMPDIR/mus_phone_browse_up.png \$TMPDIR/mus_phone_browse_sub2.png \$TMPDIR/mus_phone_browse_added.png \$TMPDIR/mus_phone_browse_rescan.png \$TMPDIR/mus_phone_taglist.png \$TMPDIR/mus_phone_taglist2.png \$TMPDIR/mus_phone_tag_after.png \$TMPDIR/mus_phone_tagwrite_list.png \$TMPDIR/mus_phone_tagwrite_list2.png \$TMPDIR/mus_phone_tagwrite_flac.png \$TMPDIR/mus_phone_bc_twbase.png \$TMPDIR/mus_phone_bc_twafter.png \$TMPDIR/pmus_twparse.py \$TMPDIR/pmus_orig_settings.json \$TMPDIR/pmus_orig_permissions.json"
+echo "CAPTURES-WRITTEN: mus_phone_{list,list2,spatial,vp_delegate,delegate_status,after,sdcard,dirs,dirs2,scan_busy,rescan_settled,browse_open,browse_subs,browse_sub,browse_up,browse_sub2,browse_added,browse_rescan,taglist,taglist2,tag_after,tagwrite_list,tagwrite_list2,tagwrite_flac}.png → engine/tmp/"
 
 # ------------------------------------------------------------------ 8. 로컬 실측
 PYRUNLOG=$(cygpath -w "$RUNLOG" 2>/dev/null || echo "$RUNLOG")
@@ -2886,7 +3337,10 @@ TAGS = (("mus_phone_list.png", "list"), ("mus_phone_list2.png", "list2"),
         ("mus_phone_browse_rescan.png", "browse_rescan"),
         ("mus_phone_taglist.png", "taglist"),
         ("mus_phone_taglist2.png", "taglist2"),
-        ("mus_phone_tag_after.png", "tag_after"))
+        ("mus_phone_tag_after.png", "tag_after"),
+        ("mus_phone_tagwrite_list.png", "tagwrite_list"),
+        ("mus_phone_tagwrite_list2.png", "tagwrite_list2"),
+        ("mus_phone_tagwrite_flac.png", "tagwrite_flac"))
 # T4 취소 세그먼트의 geo 라벨 매핑 — leg big의 MUS-GEO-big(big2 = 재스폰 클라)
 # T4(#97) 브라우저 캡처 = 같은 music 클라(leg list) — geo 라벨 list(수형)
 GEO_LABELS = {"list": "list", "sdcard": "sdcard", "scan_busy": "big",
@@ -2894,7 +3348,9 @@ GEO_LABELS = {"list": "list", "sdcard": "sdcard", "scan_busy": "big",
               "browse_subs": "list", "browse_sub": "list", "browse_up": "list",
               "browse_sub2": "list", "browse_added": "list",
               "browse_rescan": "list", "taglist": "tag",
-              "taglist2": "tag", "tag_after": "tag"}
+              "taglist2": "tag", "tag_after": "tag",
+              "tagwrite_list": "tw", "tagwrite_list2": "tw",
+              "tagwrite_flac": "tw"}
 for fname, tag in TAGS:
     p = os.path.join(SCRATCH, fname)
     if not os.path.isfile(p):
@@ -2994,6 +3450,28 @@ if tv:
 tj = re.search(r"MUSIC-TAG-PHONE-VERDICT: (.*)", txt)
 if tj:
     print("TAG-VERDICT: %s" % tj.group(1))
+# [#111 T6] N6 태그 쓰기 세그먼트 원문 수취
+twr = re.search(r"MUS-TW-PARSED-A: (.*)", txt)
+if twr:
+    print("TW-PARSED-A: %s" % twr.group(1))
+twr2 = re.search(r"MUS-TW-PARSED-B: (.*)", txt)
+if twr2:
+    print("TW-PARSED-B: %s" % twr2.group(1))
+twf = re.search(r"MUS-TW-FLAC-PARSED: (.*)", txt)
+if twf:
+    print("TW-FLAC-PARSED: %s" % twf.group(1))
+tws = re.search(r"MUS-TW-SUMMARY-2: (.*)", txt)
+if tws:
+    print("TW-SUMMARY: %s" % tws.group(1))
+twc = re.search(r"MUSIC-TW-COVER-RT: (.*)", txt)
+if twc:
+    print("TW-COVER-RT: %s" % twc.group(1))
+twk = re.search(r"MUS-TW-APIC-KEEP: (.*)", txt)
+if twk:
+    print("TW-APIC-KEEP: %s" % twk.group(1))
+twv = re.search(r"MUSIC-TAGWRITE-PHONE-VERDICT: (.*)", txt)
+if twv:
+    print("TW-VERDICT: %s" % twv.group(1))
 ANALYSIS_EOF
 if [ $? -ne 0 ]; then
   echo "NOTE-ANALYSIS: local analysis failed (rc) — 캡처 원문은 회수 원문으로 육안 가능"
@@ -3184,6 +3662,38 @@ if [ "$TAG_OK" -eq 1 ]; then
 else
     echo "MUSIC-TAG-PHONE-VERDICT: TAG-FAIL(honest-fail — 행별 사유는 N5; dirlist=${TGDL:-none} tab=${TGTAB_N:-n/a} captures=$TAG_CAP2_OK openfail=${TGOFF_N:-n/a} — 타이핑 스킵 원장행 유지)"
 fi
+# [#111 T6] N6 태그 쓰기(도구) 세그먼트(TW 판정 행 — wsl 18h 수형): 요약 행 파싱+
+# 캡처 회수 대차. 강도 축 = **도구 경계(relay ok)+파일 재독 round-trip(APIC md5
+# 등호)** — 목록 행 표기·썸네일·[편집] 모양 = 캡처 육안(EYES)·필터 라운드 = 폰
+# 스킵 원장(N5 승계) — 주 VERDICT 구성항 병합 0(18h 수형 — T5 원존 계약).
+TWSUM=$(grep -a '^MUS-TW-SUMMARY-2: ' "$RUNLOG" | tail -1 | sed 's/^MUS-TW-SUMMARY-2: //' | tr -d '\r')
+TW_STAGE_L=$(printf '%s' "$TWSUM" | sed -n 's/.*stage=\([0-9]*\).*/\1/p')
+TW_LAND_L=$(printf '%s' "$TWSUM" | sed -n 's/.*land=\([0-9]*\).*/\1/p')
+TW_W1_L=$(printf '%s' "$TWSUM" | sed -n 's/.*w1=\([0-9]*\).*/\1/p')
+TW_W2_L=$(printf '%s' "$TWSUM" | sed -n 's/.*w2=\([0-9]*\).*/\1/p')
+TW_WF_L=$(printf '%s' "$TWSUM" | sed -n 's/.*flac=\([0-9]*\).*/\1/p')
+TW_RT_L=$(printf '%s' "$TWSUM" | sed -n 's/.*cover_rt=\([0-9]*\).*/\1/p')
+TW_KEEP_L=$(printf '%s' "$TWSUM" | sed -n 's/.*apic_keep=\([0-9]*\).*/\1/p')
+TW_FLAC_L=$(printf '%s' "$TWSUM" | sed -n 's/.*flac_blocks=\([^ ]*\).*/\1/p')
+TW_MD5_L=$(printf '%s' "$TWSUM" | sed -n 's/.*apic_1=\([0-9a-f]*\).*/\1/p')
+TW_CAPT_OK=1
+for f in tagwrite_list tagwrite_list2 tagwrite_flac; do
+    [ -s "$SCRATCH/mus_phone_$f.png" ] || TW_CAPT_OK=0
+done
+[ -n "${TWSUM:-}" ] || TW_CAPT_OK=0
+TW_OK=0
+if [ "${TW_STAGE_L:-0}" -eq 1 ] && [ "${TW_LAND_L:-0}" -eq 1 ] \
+   && [ "${TW_W1_L:-0}" -eq 1 ] && [ "${TW_W2_L:-0}" -eq 1 ] \
+   && [ "${TW_WF_L:-0}" -eq 1 ] && [ "$TW_CAPT_OK" -eq 1 ]; then
+    TW_OK=1
+fi
+if [ "$TW_OK" -eq 1 ]; then
+    echo "MUSIC-TAGWRITE-PHONE-VERDICT: TW-OK(N6 — TW 시드 랜딩[N5 캡처 뒤 — 3행 계약 무오염]·music_tag_write relay 쓰기 3콜[cover jpg 마법수·cover=null APIC 유지·FLAC 코멘트 신설]·재독 표기 원문 = 파일 수준 round-trip[title/artist/album+APIC md5 등호 2콜=$TW_MD5_L]+FLAC 블록 재조립($TW_FLAC_L·STREAMINFO 보존)+목록 행 캡처 3종[행 32px 커버 썸네일+[편집] UI 표기 원문 — T3 배포] — **표기·썸네일 자체는 캡처 육안 몫(EYES)**·필터 라운드 = 폰 스킵 원장(폰 타이핑 스킵 승계 — N5) — 육안 스탭 대기)"
+else
+    echo "MUSIC-TAGWRITE-PHONE-VERDICT: TW-FAIL(honest-fail — 행별 사유는 N6; summary=${TWSUM:-none} caps=$TW_CAPT_OK)"
+fi
+echo "TW-RUN-VALS: run=${MUSP_TW_RUN:-1} stage=${TW_STAGE_L:-0} land=${TW_LAND_L:-0} writes=${TW_W1_L:-0}/${TW_W2_L:-0}/${TW_WF_L:-0} cover_rt=${TW_RT_L:-0} apic_keep=${TW_KEEP_L:-0} flac=${TW_FLAC_L:-none} canon_phone=${CANON%% (*} captures=$TW_CAPT_OK"
+echo "TW-RUN-CAP: run=${MUSP_TW_RUN:-1} list=[$(wc -c < "$SCRATCH/mus_phone_tagwrite_list.png" 2>/dev/null | tr -d ' ' || echo 0)B] list2=[$(wc -c < "$SCRATCH/mus_phone_tagwrite_list2.png" 2>/dev/null | tr -d ' ' || echo 0)B] flac=[$(wc -c < "$SCRATCH/mus_phone_tagwrite_flac.png" 2>/dev/null | tr -d ' ' || echo 0)B]"
 if [ "$CAP_OK" -eq 1 ] && [ "$CANON_OK" -eq 1 ] && [ "$GLUE_OK" -eq 1 ] && [ "$PLAY_OK" -eq 1 ] \
    && [ "$POS_OK" -eq 1 ] && [ "$SCAN_OK" -eq 1 ] && [ "$LEG_OK" -eq 1 ] && [ "$DIRS_OK" -eq 1 ] \
    && [ "$CANCEL_OK" -eq 1 ] && [ "$BROWSE_OK" -eq 1 ] && [ "$TAG_OK" -eq 1 ]; then
@@ -3193,6 +3703,7 @@ else
 fi
 echo "MUSIC-WCAPTURES:"
 for f in list list2 spatial spatial_mix vp_delegate delegate_status after sdcard dirs dirs2 scan_busy rescan_settled taglist taglist2 tag_after \
+         tagwrite_list tagwrite_list2 tagwrite_flac \
          browse_open browse_subs browse_sub browse_up browse_sub2 browse_added browse_rescan; do
     P="$SCRATCH/mus_phone_$f.png"
     [ -s "$P" ] && echo "  $P ($(wc -c < "$P" | tr -d ' ') bytes)"
@@ -3232,7 +3743,17 @@ echo "     One'·'Phone Tag Beta (Probe Artist Beta)'+'Tag Album Two'·폴백 �
 echo "     't_raw_noid'+앨범 '-'(mtime desc 상단행 = alpha — 태그 파싱 1패스 스캔"
 echo "     의 폰 바이너리 도착 원문) — vplayer openFailed 영수증 병기·타이핑"
 echo "     세그먼트는 폰 스킵 원장행(T3 concern 2 — WSL 16e 소유) — EYES."
+echo "  ⑩ 폰 태그 쓰기 동형 세그먼트(mus_phone_tagwrite_list.png/list2/flac —"
+echo "     N6, #111 T6): 목록 상단 행 Phone Write Alpha (Probe Tw Artist)+Tw"
+echo "     Album One+좌측 행 32px 커버아트 썸네일(4색 밴드 jpg — 회색 자리표시"
+echo "     대조)·쓰기 2 뒤 Phone Write Reup label 교체(cover=null — APIC 유지)·"
+echo "     FLAC 행 코멘트 반영 — 커버아트 UI(행 썸네일+[편집])의 폰 표기 원문 —"
+echo "     성립 판정 = 도구 경계+파일 재독 축(TW 판정 행·TW-RUN-VALS)·표기·썸네일"
+echo "     = EYES."
 echo "MUSIC-PHONE-END"
+# [#111 T6] 상속 hard 마커 말단 종결(T6-HARD-DEFERRED 원장행) — rc=1 시점 이동.
+[ "${INH_HARD:-0}" -eq 1 ] && { echo "MUSP-FAIL: N4 ⑤ 무전달 hard 마커 말단 종결(rc=1 — 마커 원존·T6 세그먼트 산치는 상단 원문)"; exit 1; }
+exit 0
 # honest-fail 원칙: 수치 미달(MUSIC-PHONE-FAIL 라인)은 원장 목적이라 rc=0.
 # hard FAIL(ssh·sweep·배포·ninja·selftest 회귀·시드·settings/perm 원복·부팅·ping·
 # launch·창·캡처·소각·REMNANT·big 트리 시드/카운트/소각)만 FAIL()에서 exit 1.
