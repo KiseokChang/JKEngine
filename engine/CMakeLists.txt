@@ -772,6 +772,28 @@ if(DEFINED ENV{SPATIAL_PLAYER_ROOT})
     target_compile_definitions(jkapp_music PRIVATE JK_MUSIC_SPATIAL_LEG)
 endif()
 
+# ---------------------------------------------------------------------------
+# STT voice leg (spec 2026-10-25-stt-voice-design §3 ②, T1 — fail-closed, R1):
+# whisper.cpp is VENDORED AS SOURCE (third_party/whisper.cpp — imgui 선형, R1)
+# and the vendored tree builds exactly ONE executable target, `whisper-cli` —
+# the engine never links the whisper/ggml static libs. 별도 프로세스 스폰
+# 계약 = 크래시 격리(폰 #3117 segfault 원존)·모델 교체 무재링크·Win/폰 빌드
+# 계열 분리(spatial-player audio_core/ollama-direct 선형).
+# Gated on the WHISPER_ROOT environment variable = the vendored whisper.cpp
+# source tree; **unset = this block is dead — no third-party dir is added and
+# nothing else in the build changes** (SPATIAL_PLAYER_ROOT fail-closed 선형).
+# The ggml subdir keeps upstream's CMake, so the CPU backend arch selection
+# (x86_64 here / aarch64 = ggml's GGML_SYSTEM_ARCH pick) is upstream's — the
+# phone (Termux aarch64) rebuild reuses the same branch in Task 5(빌드 실행은
+# T5 소속 — 이 태스크는 Win/WSL 2축만 접촉). The runtime voice leg reads the
+# same WHISPER_ROOT contract fail-closed at run time — env unset/binary or
+# model missing = 구두 끔+정직 표기(selftest 2v-a — 판정부 logic).
+# ---------------------------------------------------------------------------
+if(DEFINED ENV{WHISPER_ROOT})
+    add_subdirectory("$ENV{WHISPER_ROOT}"
+                     "${CMAKE_BINARY_DIR}/whisper-build")
+endif()
+
 # Screenshot viewer module (agent platform, docs/35 Task 4): lists
 # <exeDir>\state\screenshots newest-first, shows the selection, spawns the
 # snap overlay. A launcher .jkx with the amber camera icon.

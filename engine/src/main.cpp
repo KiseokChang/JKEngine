@@ -1071,6 +1071,27 @@ inline void SinkDone(jk::agent::LlmTurnResult&& r, void* user) {
 }
 }  // namespace selftest_llm
 
+// 구두(STT) leg fail-closed 판정부 (#112 T1 — 스펙 2026-10-25-stt-voice-design
+// §3 ②·§2.4·R1, selftest 2v-a): WHISPER_ROOT env 계약의 런타임 한 쪽.
+// **미설정/바이너리 부재/모델 부재 = 구두 leg 끔+정직 표기** — 나머지 시스템
+// 전부 무영향(spatial leg fail-closed 원존 계약의 문자 그대로 계승). 순수
+// 함수 — 입력 3요소(env 유무·whisper-cli 존재·ggml 모델 존재)로 판정하고
+// 스폰은 하지 않는다. T2(jk::voice::run)가 이 결과를 스폰 사슬의 게이트로
+// 재용하고, 표면(T4)은 reason 원문을 상태 행/기록에 그대로 인쇄한다.
+namespace jk::stt {
+struct VoiceVerdict {
+    bool enabled = false;
+    const char* reason = "";  // 정직 표기 원문 — 표면이 그대로 인쇄한다
+};
+inline VoiceVerdict VoiceLegVerdict(
+    bool envSet, bool binExists, bool modelExists) {
+    if (!envSet) return {false, "구두 끔 (WHISPER_ROOT 미설정)"};
+    if (!binExists) return {false, "구두 끔 (whisper-cli 부재)"};
+    if (!modelExists) return {false, "구두 끔 (whisper 모델 부재)"};
+    return {true, "구두 켬 (whisper-cli)"};
+}
+}  // namespace jk::stt
+
 // 포팅된 앱들의 데이터 관리자(Equip24DataManager/BombManager/PersonManager)
 // 로직을 검증하는 헤드리스 자기 테스트. "test" 인자로 실행한다.
 static int RunAppSelfTest() {
@@ -8085,6 +8106,42 @@ static int RunAppSelfTest() {
             check(!sec15 && !fs::exists(tdir, sec15),
                   "2u-⑮ 사후 소각 = 잔산 0(REMNANT 0 — T4 도구)");
         }
+    }
+
+    // 2v) 구두 leg fail-closed 판정부 (#112 T1 — 스펙 2026-10-25-stt-voice-design
+    // §3 ② fail-closed 계약·⑦ 2v 계보·R1 WHISPER_ROOT): 순수 판정부 4건.
+    // 전사 비결정 원칙(스펙 §2.4) — selftest는 실제 whisper-cli 스폰을 하지
+    // 않고 판정 로직만 단정한다(전사 본문 단정 금지). 폰(Termux aarch64) 축도
+    // 동일 4건을 달린다 — 판정부에 축 분기 없음(aarch64 소속 차이는 T5 빌드).
+    {
+        // ① env 미설정 = 구두 끔+정직 표기(WHISPER_ROOT fail-closed 원존 계약 —
+        //   미설정 빌드에서 나머지 시스템 전부 무영향).
+        const jk::stt::VoiceVerdict v1 =
+            jk::stt::VoiceLegVerdict(false, true, true);
+        check(!v1.enabled &&
+                  std::strcmp(v1.reason, "구두 끔 (WHISPER_ROOT 미설정)") == 0,
+              "2v-① env 미설정 = 구두 끔+정직 표기 등호(fail-closed — 미설정 "
+              "빌드 무영향)");
+        // ② env 설정+whisper-cli 부재 = 동일 오프(스폰 계약 원존 — 별도
+        //   프로세스 바이너리가 조건의 뿌리).
+        const jk::stt::VoiceVerdict v2 =
+            jk::stt::VoiceLegVerdict(true, false, true);
+        check(!v2.enabled &&
+                  std::strcmp(v2.reason, "구두 끔 (whisper-cli 부재)") == 0,
+              "2v-② env 설정+바이너리 부재 = 구두 끔+표기 등호(fail-closed)");
+        // ③ env 설정+whisper-cli 성립+모델 부재 = 동일 오프(ggml 모델은
+        //   무추적 조달기 산출 — 부재 = 정직 거부, 암묵 다운그레이드 금지).
+        const jk::stt::VoiceVerdict v3 =
+            jk::stt::VoiceLegVerdict(true, true, false);
+        check(!v3.enabled &&
+                  std::strcmp(v3.reason, "구두 끔 (whisper 모델 부재)") == 0,
+              "2v-③ env 설정+모델 부재 = 구두 끔+정직 표기 등호(fail-closed)");
+        // ④ 전원 성립 = 구두 켬.
+        const jk::stt::VoiceVerdict v4 =
+            jk::stt::VoiceLegVerdict(true, true, true);
+        check(v4.enabled &&
+                  std::strcmp(v4.reason, "구두 켬 (whisper-cli)") == 0,
+              "2v-④ 전원 성립 = 구두 켬(스폰 계약 성립 — 판정부 유일 통과 수형)");
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);
