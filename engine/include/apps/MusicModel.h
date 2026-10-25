@@ -2185,7 +2185,9 @@ inline bool FlacScanRegion(std::ifstream& f, std::streamoff total,
 // 시 첫 유효 자리에서 완전 교체+복수 소각(D8 — 보유 블록 보존 없음), cover 지정
 // 이 없으면 원문 유지. 신설 블록은 고정 순서 그룹(type ≤ 4) 뒤에 끼운다(FLAC
 // 규약 — 5 이상은 자유 순서). is-last는 마지막 블록에만 재마킹한다. 그 뒤는
-// 오디오 데이터 원문([chainEnd, EOF) — 원자적 사다리 스트림 복사).
+// 오디오 데이터 원문([chainEnd, EOF) — 원자적 사다리 스트림 복사). cover 지정
+// 시 기존 METADATA_BLOCK_PICTURE 코멘트 엔트리도 전부 소각한다(구 아트 b64
+// 잔존 방지 — F1).
 inline bool WriteFlacTag(const std::string& path, std::ifstream& f,
                          std::streamoff total, const TagSet& t,
                          const CoverArt* cover, std::string& err) {
@@ -2199,7 +2201,13 @@ inline bool WriteFlacTag(const std::string& path, std::ifstream& f,
                         chainEnd, guard, err))
         return false;
     std::vector<VorbisEntry> news;
-    RebuildVorbisEntries(oldEntries, t, nullptr, news);  // 그림은 블록이 진실원
+    // F1(최final 리뷰 — D8 정신): cover 지정 = 기존 METADATA_BLOCK_PICTURE
+    // 코멘트 엔트리 전부 소각(구 아트 b64 코멘트 잔존 방지 — PICTURE 블록이
+    // 진실원). 빈 문자열 포인터 = 소각 전용+신설 없음(RebuildVorbisEntries
+    // 빈값 가드), null = 기존 엔트리 원문 유지(cover=null 계약 — 2u-⑫).
+    std::string picDrop;
+    RebuildVorbisEntries(oldEntries, t,
+                         cover != nullptr ? &picDrop : nullptr, news);
     std::vector<unsigned char> newComment;
     AppendVorbisCommentBody(newComment, vendor, news);
     std::string picMime;
@@ -2243,6 +2251,11 @@ inline bool WriteFlacTag(const std::string& path, std::ifstream& f,
             }
         } else if (blockType == 6 && cover != nullptr) {
             // 복수 PICTURE — 소각(D8 완전 교체)
+        } else if (blockType == 4) {
+            // 복수 VORBIS_COMMENT — 소각(FLAC 규약 = 스트림당 1건 — docs/90
+            // "VORBIS_COMMENT 첫 것만 교체(복수 소각)" 원장행과 정합 — F2).
+            // continue 대신 공과 분기 유지: off 전위+is-last 원문 계속(사슬
+            // 보행 원문 — 종결 표지 소각 방지).
         } else {
             // 보존 — 헤더(플래그 소각 — is-last 재마킹 leg)+페이로드 원문.
             AppendFlacBlockHeader(out, false, blockType, bsz);

@@ -7590,6 +7590,116 @@ static int RunAppSelfTest() {
                       "·첫 유효만 기입)");
             }
 
+            // ⑫(f) FLAC MBP 코멘트 소각(F1 — cover 지정 = 기존
+            // METADATA_BLOCK_PICTURE 엔트리 소각·PICTURE 블록 = 진실원) +
+            // 복수 VORBIS_COMMENT 소각(F2 — FLAC 규약 스트림당 1건). 합성
+            // FLAC에 MBP 코멘트+제2 코멘트 블록 사전 심어 → cover 지정 교체 →
+            // 재독 = 구 MBP b64 부재+PICTURE/코멘트 블록 각 1건. 2u-⑫ 픽스처
+            // 재용(b64·flacPicStruct·vorbisBody — 독립판 재합성).
+            {
+                const fs::path p = tdir / "2u_l_f_flac.flac";
+                auto b64encF = [](const std::vector<unsigned char>& in) {
+                    static const char* tb =
+                        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                        "abcdefghijklmnopqrstuvwxyz0123456789+/";
+                    std::string out;
+                    unsigned int buf = 0;
+                    int bits = 0;
+                    for (size_t i = 0; i < in.size(); ++i) {
+                        buf = ((buf << 8) | in[i]) & 0xFFFFu;
+                        bits += 8;
+                        while (bits >= 6) {
+                            bits -= 6;
+                            out.push_back(tb[(buf >> bits) & 0x3F]);
+                        }
+                    }
+                    if (bits == 2) { out.push_back(tb[(buf << 4) & 0x3F]); out += "=="; }
+                    else if (bits == 4) { out.push_back(tb[(buf << 2) & 0x3F]); out += "="; }
+                    return out;
+                };
+                std::vector<unsigned char> siF(34, 0x44);
+                std::vector<unsigned char> oldArtF(120);
+                for (size_t i = 0; i < oldArtF.size(); ++i)
+                    oldArtF[i] = static_cast<unsigned char>(0x41 + i);
+                std::vector<unsigned char> pngMimeF;
+                pngMimeF.insert(pngMimeF.end(), "image/png",
+                                "image/png" + 9);
+                const std::string oldB64F =
+                    b64encF(flacPicStruct(pngMimeF, oldArtF));
+                std::vector<unsigned char> flac;
+                flac.insert(flac.end(), "fLaC", "fLaC" + 4);
+                { auto b = flacBlock(0, false, siF);
+                  flac.insert(flac.end(), b.begin(), b.end()); }  // STREAMINFO
+                { auto b = flacBlock(6, false,
+                                     flacPicStruct(pngMimeF, oldArtF));
+                  flac.insert(flac.end(), b.begin(), b.end()); }  // 구 PICTURE
+                std::vector<unsigned char> vndF(0);
+                { auto body = vorbisBody(
+                      vndF, {{"TITLE", "Flac Pic"},
+                             {"METADATA_BLOCK_PICTURE", oldB64F}});
+                  auto b = flacBlock(4, false, body);
+                  flac.insert(flac.end(), b.begin(), b.end()); }  // 코멘트 1
+                { auto body = vorbisBody(
+                      vndF, {{"TITLE", "Dup Cmnt"}});
+                  auto b = flacBlock(4, true, body);
+                  flac.insert(flac.end(), b.begin(), b.end()); }  // 코멘트 2
+                flac.insert(flac.end(), 8, 0x0F);  // 오디오 원문
+                check(putFile(p, flac),
+                      "2u-⑫(f) 합성 FLAC(MBP 코멘트+제2 코멘트 블록) 구성 = "
+                      "성립(F1·F2 대상)");
+                mt::TagSet tF;
+                tF.title = "Flac Replace";
+                tF.artist = "Flac Artist";
+                mt::CoverArt cF;
+                cF.mime = "image/jpeg";
+                cF.bytes = jpg;
+                std::string errF;
+                check(mt::WriteTag(p.generic_string(), tF, &cF, errF) &&
+                          errF.empty(),
+                      "2u-⑫(f) cover 지정 교체 쓰기 = ok(D8 — MBP 코멘트 소각"
+                      " leg)");
+                std::string bytesF;
+                mt::CoverArt rcF;
+                std::string errFb;
+                check(readFile(p, bytesF) &&
+                          bytesF.find(oldB64F.c_str(), 0, oldB64F.size()) ==
+                              std::string::npos &&
+                          mt::ReadCover(p.generic_string(), rcF, errFb) &&
+                          rcF.mime == "image/jpeg" && rcF.bytes == jpg,
+                      "2u-⑫(f) 구 MBP b64 부재+PICTURE = 새 아트 등호(F1 — "
+                      "블록이 진실원·코멘트 잔존 소각)");
+                std::string errFc;
+                const mt::TagSet backF =
+                    mt::ParseTag(p.generic_string(), errFc);
+                check(backF.title == "Flac Replace" &&
+                          backF.artist == "Flac Artist" &&
+                          backF.album.empty() && errFc.empty(),
+                      "2u-⑫(f) 코멘트 round-trip = 필드 등호(교체 사슬 원문)");
+                size_t offF = 4;
+                int picF = 0, cmF = 0;
+                while (offF + 4 <= bytesF.size()) {
+                    const bool lastF = (static_cast<unsigned char>(
+                                            bytesF[offF]) & 0x80) != 0;
+                    const unsigned btF =
+                        static_cast<unsigned>(bytesF[offF]) & 0x7F;
+                    const size_t bsF = (static_cast<size_t>(
+                                            static_cast<unsigned char>(
+                                                bytesF[offF + 1])) << 16) |
+                                       (static_cast<size_t>(
+                                            static_cast<unsigned char>(
+                                                bytesF[offF + 2])) << 8) |
+                                       static_cast<size_t>(bytesF[offF + 3]);
+                    if (btF == 6) ++picF;
+                    if (btF == 4) ++cmF;
+                    if (offF + 4 + bsF > bytesF.size()) break;
+                    offF += 4 + bsF;
+                    if (lastF) break;
+                }
+                check(picF == 1 && cmF == 1,
+                      "2u-⑫(f) 독립 블록 보행 = PICTURE 1건+VORBIS_COMMENT "
+                      "1건(F2 — 복수 코멘트 블록 소각·규약 스트림당 1건)");
+            }
+
             // ⑬) 합성 WAV → id3 청크 신설 → ParseTag round-trip + RIFF 크기
             // 등호(청크 순서 보존 — 형식 해소 (c)).
             {
