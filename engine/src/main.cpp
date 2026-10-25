@@ -6444,7 +6444,7 @@ static int RunAppSelfTest() {
                   "2s-⑩ 사후 소각 = 잔산 0(REMNANT 0 — 파스 파일 3건)");
         }
 
-        // 2u) 태그 쓰기 + 커버아트 (#111 T1 ①-⑦·T2 ⑧-⑭ — 스펙 2026-10-25-music-tagwrite):
+        // 2u) 태그 쓰기 + 커버아트 (#111 T1 ①-⑦·T2 ⑧-⑭·T4 ⑮ 도구 경계 — 스펙 2026-10-25-music-tagwrite):
         // 읽기 사슬(2s)의 역방향 — WriteId3v2.3 정규화(D5·v2.3 신설/정규화
         // 재작성·v1 유지)·APIC 커버 삽입/보존(cover null = 기존 APIC 유지)·
         // D6 원자적 쓰기(.pid.tagtmp→fsync→rename)·실패 정직 거부(원본 등호);
@@ -7802,6 +7802,178 @@ static int RunAppSelfTest() {
                 check(!sec14 && !fs::exists(tdir, sec14),
                       "2u-⑭ 사후 소각 = 잔산 0(REMNANT 0 — T2 전체)");
             }
+
+            // ⑮) 도구 경계 (T4 — 스펙 §4): music_tag_write args →
+            // ParseTagWriteArgs → TagWriteTool(UI [저장] SaveTagEdit와 동일
+            // WriteTag 사슬) — args 5필드 판독(quickjs 원문 회수)·cover
+            // 마법수 mime 판정(FFD8=jpeg·8950=png — 브리프 원문)·재독 표기
+            // 등호(ParseTag round-trip)+ReadCover round-trip·cover 생략 = 기존
+            // 유지(null 계약). ⑭ 사후 소각 뒤의 tdir 재개장(⑧-⑭ 계동형).
+            fs::create_directories(tdir);
+            // 합성 png 블롭(mime 판정 단정 몫 — 마법수 8B+결정론 패턴).
+            std::vector<unsigned char> pngBlob;
+            {
+                const unsigned char sign[8] = {0x89, 0x50, 0x4E, 0x47,
+                                               0x0D, 0x0A, 0x1A, 0x0A};
+                pngBlob.assign(sign, sign + 8);
+                for (size_t i = 8; i < 200; ++i)
+                    pngBlob.push_back(
+                        static_cast<unsigned char>(i * 13 + 5));
+            }
+            auto jsonEsc = [](const std::string& in) {
+                std::string out;
+                for (char c : in) {
+                    if (c == '"' || c == '\\') {
+                        out += '\\';
+                        out += c;
+                    } else {
+                        out += c;
+                    }
+                }
+                return out;
+            };
+            const std::string coverJpg =
+                (tdir / "2u_o_cover.jpg").generic_string();
+            const std::string coverPng =
+                (tdir / "2u_o_cover.png").generic_string();
+            const std::string coverJunk =
+                (tdir / "2u_o_junk.bin").generic_string();
+            const std::string toolMp3 =
+                (tdir / "2u_o_tool.mp3").generic_string();
+            check(putFile(fs::path(coverJpg), jpg),
+                  "2u-⑮ 합성 커버 jpg 구성 = 성립");
+            check(putFile(fs::path(coverPng), pngBlob),
+                  "2u-⑮ 합성 커버 png 구성 = 성립");
+            {
+                std::vector<unsigned char> junk(64);
+                for (size_t i = 0; i < junk.size(); ++i)
+                    junk[i] = static_cast<unsigned char>(i + 1);
+                check(putFile(fs::path(coverJunk), junk),
+                      "2u-⑮ 합성 커버 junk 구성 = 성립(거부 대상)");
+            }
+            check(putFile(fs::path(toolMp3), audio),
+                  "2u-⑮ 합성 mp3(무태그) 구성 = 성립");
+            const std::string args1 =
+                "{\"path\":\"" + jsonEsc(toolMp3) +
+                "\",\"title\":\"Tool Title\",\"artist\":\"Tool Artist\","
+                "\"album\":\"Tool Album\",\"cover\":\"" +
+                jsonEsc(coverJpg) + "\"}";
+            jk::music::tool::TagWriteArgs parsed;
+            check(jk::music::tool::ParseTagWriteArgs(args1, parsed) &&
+                      parsed.path == toolMp3 && parsed.title == "Tool Title" &&
+                      parsed.artist == "Tool Artist" &&
+                      parsed.album == "Tool Album" && parsed.cover == coverJpg,
+                  "2u-⑮ args 판독 = 5필드 등호(ParseTagWriteArgs — 도구 허브"
+                  " 원존 파서 quickjs 원문 회수)");
+            jk::music::tool::TagWriteArgs pOmit, pNull, pNoPath, pBroken;
+            check(jk::music::tool::ParseTagWriteArgs(
+                      "{\"path\":\"X\",\"title\":\"t\"}", pOmit) &&
+                      pOmit.cover.empty() && pOmit.title == "t",
+                  "2u-⑮ cover 생략 = 빈값(생략 = null — 기존 유지 계약 취급)");
+            check(jk::music::tool::ParseTagWriteArgs(
+                      "{\"path\":\"X\",\"cover\":null}", pNull) &&
+                      pNull.cover.empty(),
+                  "2u-⑮ cover null = 판독 실패 = 빈값(null = 합법 — 도구 계약 "
+                  "args 계약 cover(path|null))");
+            check(!jk::music::tool::ParseTagWriteArgs("{\"title\":\"t\"}",
+                                                      pNoPath),
+                  "2u-⑮ path 누락 = 판독 거부(path 필수 — M-3 원문 가드 수형)");
+            check(!jk::music::tool::ParseTagWriteArgs("{", pBroken),
+                  "2u-⑮ args 파손 = 판독 거부(정직)");
+            {
+                jk::music::tags::CoverArt art;
+                std::string cerr;
+                check(jk::music::tool::LoadCoverByMagic(coverJpg, art,
+                                                        cerr) &&
+                          art.mime == "image/jpeg" && art.bytes == jpg,
+                      "2u-⑮ 커버 마법수 = image/jpeg+bytes 등호(FFD8 SOI — "
+                      "브리프 원문 판정 leg)");
+            }
+            {
+                jk::music::tags::CoverArt art;
+                std::string cerr;
+                check(jk::music::tool::LoadCoverByMagic(coverPng, art,
+                                                        cerr) &&
+                          art.mime == "image/png" && art.bytes == pngBlob,
+                      "2u-⑮ 커버 마법수 = image/png(89 50 4E 47 — mime 판정 "
+                      "2형)");
+            }
+            {
+                jk::music::tags::CoverArt art;
+                std::string cerr;
+                check(!jk::music::tool::LoadCoverByMagic(coverJunk, art,
+                                                         cerr) &&
+                          cerr == "cover magic unsupported" && art.mime.empty(),
+                      "2u-⑮ 마법수 불명 = 정직 거부(cover magic unsupported — "
+                      "판정 불가 mime)");
+            }
+            std::string wErr;
+            check(jk::music::tool::TagWriteTool(parsed, wErr) && wErr.empty(),
+                  "2u-⑮ 도구 쓰기 = ok(WriteTag 사슬 — UI [저장]과 동일)");
+            {
+                std::string terr;
+                const mt::TagSet back = mt::ParseTag(toolMp3, terr);
+                check(back.title == "Tool Title" &&
+                          back.artist == "Tool Artist" &&
+                          back.album == "Tool Album" && terr.empty(),
+                      "2u-⑮ 재독 표기 등호 = 3필드 round-trip(ParseTag 재독 — "
+                      "도구 경계 쓰기)");
+                jk::music::tags::CoverArt art;
+                std::string cerr;
+                check(jk::music::tags::ReadCover(toolMp3, art, cerr) &&
+                          art.mime == "image/jpeg" && art.bytes == jpg,
+                      "2u-⑮ ReadCover round-trip = mime+그림 등호(APIC 삽입)");
+            }
+            // 둘째 쓰기 — cover 생략(빈값) = 기존 아트 유지(null 계약 수형).
+            jk::music::tool::TagWriteArgs p2nd;
+            check(jk::music::tool::ParseTagWriteArgs(
+                      "{\"path\":\"" + jsonEsc(toolMp3) +
+                          "\",\"title\":\"Tool 2\"}",
+                      p2nd) && p2nd.cover.empty(),
+                  "2u-⑮ 둘째 args = cover 빈값 파독(성립)");
+            std::string wErr2;
+            check(jk::music::tool::TagWriteTool(p2nd, wErr2) && wErr2.empty(),
+                  "2u-⑮ 도구 쓰기(cover 생략) = ok(빈값 = null — 유지 leg)");
+            {
+                jk::music::tags::CoverArt art;
+                std::string cerr;
+                std::string terr2;
+                const mt::TagSet back2 = mt::ParseTag(toolMp3, terr2);
+                check(jk::music::tags::ReadCover(toolMp3, art, cerr) &&
+                          art.bytes == jpg && back2.title == "Tool 2",
+                      "2u-⑮ APIC 생존+재독 = 유지 등호(cover 미지정 수형 — "
+                      "2u-⑥ 도구 경계 수형)");
+            }
+            // 마법수 불명 커버 지정 쓰기 = 정직 거부(원본 무손상 — 사슬 진입 전).
+            jk::music::tool::TagWriteArgs pJunk;
+            check(jk::music::tool::ParseTagWriteArgs(
+                      "{\"path\":\"" + jsonEsc(toolMp3) + "\",\"cover\":\"" +
+                          jsonEsc(coverJunk) + "\"}",
+                      pJunk),
+                  "2u-⑮ junk 커버 args 파독 = 성립");
+            std::string junkErr;
+            std::string preJunk;
+            check(readFile(fs::path(toolMp3), preJunk) &&
+                      !jk::music::tool::TagWriteTool(pJunk, junkErr) &&
+                      junkErr == "cover magic unsupported",
+                  "2u-⑮ 마법수 불명 커버 쓰기 = 정직 거부(사슬 진입 전 중단 — "
+                  "err 원문)");
+            // 부재 경로 = 정직 거부(err 원문 전파 — 도구 결과 1행의 몫).
+            jk::music::tool::TagWriteArgs pGone;
+            const std::string gonePath =
+                (tdir / "2u_o_gone.mp3").generic_string();
+            check(jk::music::tool::ParseTagWriteArgs(
+                      "{\"path\":\"" + jsonEsc(gonePath) + "\"}", pGone),
+                  "2u-⑮ 부재 경로 args 파독 = 성립");
+            std::string goneErr;
+            check(!jk::music::tool::TagWriteTool(pGone, goneErr) &&
+                      !goneErr.empty(),
+                  "2u-⑮ 부재 경로 쓰기 = 정직 거부+err 원문(WriteTag 계약 전파)");
+            // REMNANT 0 — 사후 소각(2s/2r/⑦/⑭ 정리 수형 재용).
+            std::error_code sec15;
+            fs::remove_all(tdir, sec15);
+            check(!sec15 && !fs::exists(tdir, sec15),
+                  "2u-⑮ 사후 소각 = 잔산 0(REMNANT 0 — T4 도구)");
         }
     }
 

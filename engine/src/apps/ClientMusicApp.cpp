@@ -190,6 +190,11 @@ constexpr const char* kToolDirAdd = "music_dir_add";
 constexpr const char* kToolDirRemove = "music_dir_remove";
 constexpr const char* kToolDirList = "music_dir_list";
 
+// 태그 쓰기 도구(#111 T4 — 스펙 §4) — music 앱 4종째. args→사슬의 순수 몫은
+// music::tool(ParseTagWriteArgs/TagWriteTool — UI [저장]과 동일 WriteTag 사슬)
+// 원문이 소유하고, 이 앱은 파서 1콜+재스캔 재청구(도구 경계 배선)만 소유.
+constexpr const char* kToolTagWrite = "music_tag_write";
+
 // 말단 경로 성분 — 바이트 스캔 수형(dir strip 라벨 공용). fs::path의 narrow
 // 계층은 이 툴체인에서 UTF-8 기수라 CP949 바이트에 던진다(2o-f 실측+프루브
 // 재확인 — filesystem_error "Illegal byte sequence") — dirs_ 표기에는
@@ -396,12 +401,13 @@ void ClientMusicApp::OnInit() {
     // vplayer가 열기 전에 오디오 백엔드를 만들지 않는 것과 같은 지연 계약).
     // 부팅 시점의 leg 부재(env 미설정)는 발사 시 DeviceFailed 표기로 흡수된다.
 
-    // 앱 도구 허브 등록 6종(스펙 2026-10-10-music-spatial-leg §2의 3종+폴더
-    // 관리 3종 — 플랜 2026-10-10-music-dirs-ui T2; T1 kTool* 원문 상수 소비 —
-    // vplayer OnInit 등록 원문 수형). 배치 근거(vplayer 원문 주석): OnInit은
-    // JKClientApplication::Init의 Connect 이후에 불린다 —
+    // 앱 도구 허브 등록 7종(스펙 2026-10-10-music-spatial-leg §2의 3종+폴더
+    // 관리 3종 — 플랜 2026-10-10-music-dirs-ui T2+태그 쓰기 1종(#111 T4 —
+    // 스펙 2026-10-25-music-tagwrite §4, music 앱 4종째); T1 kTool* 원문 상수
+    // 소비 — vplayer OnInit 등록 원문 수형). 배치 근거(vplayer 원문 주석):
+    // OnInit은 JKClientApplication::Init의 Connect 이후에 불린다 —
     // SendAgentToolRegister의 "연결 전 조용한 false" 경로에 걸리지 않는다.
-    // inputSchema는 MCP 그대로(broker tools/list 원문 계약). **6종을 1회
+    // inputSchema는 MCP 그대로(broker tools/list 원문 계약). **7종을 1회
     // 발송** — 서버의 등록은 연결 단위 upsert(JKWindowServer
     // HandleToolRegister: appToolManifests_[connId]=m — 제2호 호출이 매니페스트
     // 전체를 치환한다)라 이전 3종이 2호에서 소각된다.
@@ -433,6 +439,17 @@ void ClientMusicApp::OnInit() {
              "List user music directories (settings music.dirs only — the "
              "default state/music dir is resolver-owned and excluded)",
              "{\"type\":\"object\",\"properties\":{}}"},
+            // 태그 쓰기(#111 T4) — cover = 이미지 파일 경로(생략·null = 기존
+            // 아트 유지 — WriteTag 계약 원문)·mime은 마법수 판정(jpeg/png).
+            {kToolTagWrite,
+             "Write music file tags (title/artist/album) and optionally "
+             "replace the embedded cover art (mp3/FLAC/Ogg/WAV)",
+             "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":"
+             "\"string\"},\"title\":{\"type\":\"string\"},\"artist\":"
+             "{\"type\":\"string\"},\"album\":{\"type\":\"string\"},"
+             "\"cover\":{\"type\":\"string\",\"description\":\"image file "
+             "path (jpeg/png) — omitted or null keeps the existing "
+             "art\"}},\"required\":[\"path\"]}"},
         };
         surface->SendAgentToolRegister("music", tools);
     }
@@ -1363,6 +1380,34 @@ bool ClientMusicApp::OnAgentToolCall(const std::string& tool,
             reply += '"';
         }
         out = reply + "]}";
+        return true;
+    }
+    // ---- 태그 쓰기 도구 (T4 — 스펙 §4, music 앱 4종째): 순수 몫은
+    // music::tool 원문이 소유(파서 판독+커버 마법수+WriteTag 사슬 — UI
+    // [저장] SaveTagEdit와 동일) — 이 앱은 사슬 1콜+성공 시 재스캔 재청구
+    // (기존 RequestScan 배선 재용 — 도구 경계에서도·취소 계약 원존)+status
+    // 표기(SaveTagEdit 수형). 스캔 진행 중 = 정직 거부(SaveTagEdit의
+    // "스캔 중 — 저장 대기" 게이트 수형 — 도구는 대기 없이 중단 표기).
+    if (tool == kToolTagWrite) {
+        if (scanBusy_) {
+            out = "{\"error\":\"scan_busy\",\"retry\":true}";
+            return false;
+        }
+        jk::music::tool::TagWriteArgs a;
+        if (!jk::music::tool::ParseTagWriteArgs(argsJson, a)) {
+            out = "{\"error\":\"bad_args\",\"need\":\"path\"}";  // M-3 원문 가드
+            return false;
+        }
+        std::string err;
+        if (!jk::music::tool::TagWriteTool(a, err)) {
+            out = "{\"error\":\"write_failed\",\"detail\":\"" +
+                  music::store::EscapeJsonStr(err) + "\"}";
+            return false;
+        }
+        out = "{\"ok\":true}";
+        status_ = "태그 저장(도구) — 재스캔";  // SaveTagEdit 수형 표기
+        RequestScan();     // 재스캔 재청구(도구 경계 배선 — 원존 재용)
+        frameDirty_ = true;  // 표기 계약(DirAddManaged 수형)
         return true;
     }
     out = "{\"error\":\"unknown_tool\"}";

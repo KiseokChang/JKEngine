@@ -3047,6 +3047,95 @@ inline bool WriteTag(const std::string& path, const TagSet& t,
 
 } // namespace tags
 
+// ---- music_tag_write 도구 경계 (T4 — 스펙 2026-10-25-music-tagwrite §4) ----
+// agent 도구 hub의 music 앱 4종째: UI [저장](SaveTagEdit)과 **동일 사슬**
+// (tags::WriteTag 재용 — 원자적 tmp+rename·4형식 분기 전부 내장)의 도구
+// 경계. 순수 몫(args 판독+커버 수취+사슬 1콜)은 이 헤더가 소유 — selftest
+// 2u-⑮와 앱 OnAgentToolCall이 같은 함수를 소비한다(DRY 최소·사슬 단일 출구).
+namespace tool {
+
+// 도구 args 계약(브리프 원문): {path, title, artist, album, cover(path|null)}.
+// cover의 빈값 = null 취급(기존 아트 유지 — WriteTag의 cover=null 계약).
+struct TagWriteArgs {
+    std::string path, title, artist, album, cover;
+};
+
+// args 판독 — AgentJson(도구 허브 원존 파서 — quickjs 원문 회수·이스케이프
+// 복호·UTF-8 계약). path 필수(M-3 원문 가드의 도구 경계 수형); title/
+// artist/album = 기본 공문자(빈 필드 = 프레임 생략 쓰기 — WriteTag 계약과
+// 등치); cover = null/생략도 합법(판독 실패 = 빈값 유지 = null).
+inline bool ParseTagWriteArgs(const std::string& argsJson, TagWriteArgs& a) {
+    a = TagWriteArgs{};
+    const agent::AgentJson args(argsJson);
+    if (!args.ok() || !args.GetStr("path", a.path) || a.path.empty())
+        return false;
+    args.GetStr("title", a.title);
+    args.GetStr("artist", a.artist);
+    args.GetStr("album", a.album);
+    args.GetStr("cover", a.cover);  // null/생략 = 판독 실패 = 빈값(null)
+    return true;
+}
+
+// 커버 파일 수취(도구 경계 — UI SaveTagEdit의 확장자 판정과 달리 브리프
+// 원문의 **마법수** 판정: 0xFF 0xD8 = image/jpeg·0x89 0x50 = image/png,
+// 그 외 = 정직 거부). bytes = 파일 원문 수취·상한 = kTagWriteMax 재용
+// (WriteTag와 같은 폭주 절단 계약). 파일 접점 = fs::path 개방(2q 수형 —
+// CP949 바이트 경로도 native 변환 성공 — 인코딩 사슬 함정 회피).
+inline bool LoadCoverByMagic(const std::string& path, tags::CoverArt& out,
+                             std::string& err) {
+    out = tags::CoverArt{};
+    namespace fs = std::filesystem;
+    const fs::path p(path);
+    std::error_code ec;
+    const auto sz = fs::file_size(p, ec);
+    if (ec || sz <= 0) { err = "cover open"; return false; }
+    if (static_cast<unsigned long long>(sz) > tags::kTagWriteMax) {
+        err = "cover too large";
+        return false;
+    }
+    std::ifstream f(p, std::ios::binary);
+    if (!f.is_open()) { err = "cover open"; return false; }
+    out.bytes.resize(static_cast<size_t>(sz));
+    f.read(reinterpret_cast<char*>(out.bytes.data()),
+           static_cast<std::streamsize>(sz));
+    if (f.gcount() != static_cast<std::streamsize>(sz)) {
+        out = tags::CoverArt{};
+        err = "cover read";
+        return false;
+    }
+    if (out.bytes.size() >= 2 && out.bytes[0] == 0xFF &&
+        out.bytes[1] == 0xD8) {
+        out.mime = "image/jpeg";  // SOI 마법수
+    } else if (out.bytes.size() >= 4 && out.bytes[0] == 0x89 &&
+               out.bytes[1] == 0x50 && out.bytes[2] == 0x4E &&
+               out.bytes[3] == 0x47) {
+        out.mime = "image/png";  // 89 50 4E 47 마법수
+    } else {
+        out = tags::CoverArt{};
+        err = "cover magic unsupported";  // 정직 거부 — 판정 불가 mime
+        return false;
+    }
+    return true;
+}
+
+// 도구 경계 쓰기 — UI와 동일 사슬 1콜(cover 빈값 = null = 기존 유지·지정 =
+// 교체 D8). 실패 = 정직 거부(WriteTag 내부 원본 무손상 계약 원문 전파).
+inline bool TagWriteTool(const TagWriteArgs& a, std::string& err) {
+    tags::TagSet t;
+    t.title = a.title;
+    t.artist = a.artist;
+    t.album = a.album;
+    tags::CoverArt cover;
+    const tags::CoverArt* coverPtr = nullptr;
+    if (!a.cover.empty()) {
+        if (!LoadCoverByMagic(a.cover, cover, err)) return false;
+        coverPtr = &cover;  // 지정 = 교체(D8), 빈값 = 유지(WriteTag 계약)
+    }
+    return tags::WriteTag(a.path, t, coverPtr, err);
+}
+
+} // namespace tool
+
 // ---- 위임 답신 본문 재판정 (T3 fix r3 — T4 결함 원장: 폴백 자기 소멸) ----
 
 // 위임 답신의 대분법. 클라 봉투(AgentReply.ok)는 전송원이 임의로 고정한 수가
