@@ -72,7 +72,10 @@ fetch() { # $1=url $2=dest
     log "already present, skipping network: $(basename "$2")"
     # M-1 (T1 fix r1): a cached download must still match the recorded
     # sha256 (drift/corruption guard); first-run (no record) passes free.
-    rec="$(grep -F "  $(basename "$2")" "$SUMS" 2>/dev/null | awk '{print $1}')"
+    # park-5: first-run(SUMS 미기록) 무음 사망 소각 — grep 파산(파일 부재·
+    # 미기록)이 pipefail로 set -e를 죽이는 길을 끊는다("first-run (no record)
+    # passes free" 주석과 정합 — record_sha256의 || true 원존 동형).
+    rec="$(grep -F "  $(basename "$2")" "$SUMS" 2>/dev/null | awk '{print $1}' || true)"
     got="$(sha256sum "$2" | awk '{print $1}')"
     if [ -n "$rec" ] && [ "$got" != "$rec" ]; then
       log "FATAL: sha256 mismatch for $(basename "$2") — recorded=$rec got=$got"

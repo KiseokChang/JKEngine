@@ -7031,7 +7031,20 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         std::string jErr;
         if (!jOk) {
             if (reply.empty()) {
-                jErr = "parked";   // ask 게이트 — 승인 해소 시 별도 회신
+                // parked vs allow-relay 구분(#113 최final 소견 ①): reply 빈
+                // 출구는 ask 게이트 파킹과 allow-relayed 앱 도구 중계(requester
+                // 콜백 대기) 양쪽에 있다 — 유계 신호 = inflightAppTools_의
+                // (queryId, requesterConnId) 일치(파킹 경로는 InflightAppTool을
+                // 만들지 않으므로 이 조건이 릴레이에만 통과한다 — 승인 해소
+                // 전파는 본 훅 밖 경로다).
+                bool jRelayed = false;
+                for (const auto& kv : inflightAppTools_)
+                    if (kv.second.queryId == queryId &&
+                        kv.second.requesterConnId == client.Id()) {
+                        jRelayed = true;
+                        break;
+                    }
+                jErr = jRelayed ? "relayed" : "parked";
             } else {
                 // 오류 열 추출 — 서버 회신의 "error"는 1레벨 규약.
                 jk::agent::AgentJson repJson(reply);
@@ -8102,11 +8115,16 @@ void UseJournalAppend(const char* dir, long long tsMs,
     // 절단(스펙 D2 — ≤128자): 소스 시점에 자르고 이후 이스케이프(이스케이프
     // 팽창은 상한 산치에 안 침입하는 계약). 잘린 꼬리가 다중 바이트 UTF-8
     // 중간에 걸리면 선행 바이트 앞으로 물러 잘린 글리프 소멸을 막는다.
+    // continuation 역행 후 마지막 kept 바이트가 lead 바이트면 그 시퀀스의
+    // continuation이 이미 잘린 상태 — dangling lead 1행 더 물러나기(#113
+    // 최final 소견 ② = T1 deferred ① 동일 항).
     std::string take = arg;
     if (take.size() > 128) {
         size_t cut = 128;
         while (cut > 0 && (static_cast<unsigned char>(take[cut - 1]) & 0xC0) == 0x80)
             --cut;
+        if (cut > 0 && (static_cast<unsigned char>(take[cut - 1]) & 0x80))
+            --cut;  // dangling lead — continuation 부재 시퀀스는 수용하지 않는다
         take.resize(cut);
     }
     const std::string line =

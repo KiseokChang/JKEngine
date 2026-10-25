@@ -2077,6 +2077,9 @@ inline bool ApicFromFrames(const std::vector<Id3FrameRec>& frames,
         if (picOff > rec.body.size()) continue;
         const std::string mime = NormalizeCoverMime(rawMime);
         if (mime.empty()) continue;
+        // 빈 그림 APIC = 빈 out 성립 금지(ReadCover 거부 계약 "거부 = 빈 out"
+        // — T1 deferred ④): 그림 본문 0B면 다음 후보(파손 APIC 관용 원문).
+        if (picOff == rec.body.size()) continue;
         out.mime = mime;
         out.bytes.assign(rec.body.data() + picOff,
                          rec.body.data() + rec.body.size());

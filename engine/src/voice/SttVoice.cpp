@@ -136,7 +136,17 @@ std::string ResolveCliPath(bool* found) {
 // 같은 probe/현장 대응 몫 — 오버라이드가 우선). 스폰 0 — 존재 판정만.
 std::string ResolveModelPath() {
     if (const char* envModel = std::getenv("STT_MODEL")) {
-        if (*envModel) return envModel;
+        if (*envModel) {
+            // 존재 판정 쌍둥이 정합(T3 deferred ① — park-5): env 오버라이드가
+            // 가리키는 경로 부재 = 빈 반환 — verdict "whisper 모델 부재"의
+            // 정직 표기로 수렴(CliPath의 found=false 원존 동형 — 부재 경로를
+            // 스폰 인자로 넘기는 위장 회피).
+            std::error_code envEc;
+            if (std::filesystem::exists(std::filesystem::path(envModel),
+                                        envEc) &&
+                !envEc)
+                return envModel;
+        }
     }
     const std::string exe = jk::fs::GetExecutablePath();
     if (exe.empty()) return "";

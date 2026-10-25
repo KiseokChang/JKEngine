@@ -538,7 +538,6 @@ void ClientMusicApp::OnIdle() {
     // 무도착 무비용). **도착+답신 수취 = 유일 더티**(#89 계약): 수취한 결과가
     // 현재 세대면 표기 갱신+frameDirty_=true, 세대 불일치(재청구가 이겼다)
     // 면 폐기만.
-    // 면 폐기만.
     if (!scanDone_.load(std::memory_order_acquire)) return;
     bool adopted = false;
     {

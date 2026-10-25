@@ -6890,14 +6890,20 @@ static int RunAppSelfTest() {
                 check(putFile(pt, trunc) && trunc.size() == 25,
                       "2u-⑦ 잘린 ID3 구성 = 25B(선언 5010B vs 실체)");
                 std::string err7c;
-                check(!mt::WriteTag(pt.generic_string(), t7, nullptr, err7c) &&
+                // 사전 스냅샷 1행(T1 deferred ① — park-5): 등호 판진의 "before"
+                // 원존은 WriteTag 호출 전에 수취한다 — 호출 후 재독 2회 비교는
+                // 쓰기 사고를 감시하지 못하는 무력 어셜션. 케이스 수 불변
+                // (사전 수취를 기존 거부 어셜션에 동봉 — 신설 check 없음).
+                std::string before, after;
+                check(readFile(pt, before) && before.size() == 25 &&
+                          !mt::WriteTag(pt.generic_string(), t7, nullptr, err7c) &&
                           !err7c.empty(),
                       "2u-⑦ 잘린 ID3 선언 = 정직 거부(선언 > 실체 — 무리한 "
-                      "재동기 금지)");
-                std::string before, after;
-                check(readFile(pt, before) && readFile(pt, after) &&
-                          before == after && after.size() == 25,
-                      "2u-⑦ 잘린 원본 등호 = 25B 무손상(원본 무변경 계약)");
+                      "재동기 금지)+사전 스냅샷");
+                check(readFile(pt, after) && before == after &&
+                          after.size() == 25,
+                      "2u-⑦ 잘린 원본 등호 = 25B 무손상(사전 스냅샷 등호 — 원본 "
+                      "무변경 계약)");
                 // (d) 비지원 확장자(매agic 없음) — unsupported_format.
                 const fs::path po = tdir / "2u_g_raw.xyz";
                 check(putFile(po, audio), "2u-⑦ 비지원 파일 구성 = 성립");
