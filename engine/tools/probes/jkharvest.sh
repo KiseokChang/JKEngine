@@ -49,7 +49,28 @@
 #   · PHONE_HOST 가드류의 tee/exec 순서 함정은 본 probe에 없다(tee 미사용 —
 #     드라이버가 로그를 소유).
 #   · journal 행수 산치는 wc -l(writer가 매 행 \n로 닫는다 — T1 규약).
+#   · fix r2(T2 리뷰 Important 1건 소각): 모든 FAIL 출구(exit 1 직행)도 자기
+#     런의 서버 잔상을 정리한다 — trap EXIT가 성공 경로 §9와 **동일 래더 1원**
+#     을 부른다(중복 방지 — CLEANED 가드·래더 재작성 0). BOOTED=0(부팅 전 fail
+#     ·OBSERVE 전 경로)이면 정리할 것이 없다 — **자기가 살린 것만 죽인다**
+#     (wsl_library_boot 원존·폰 무접촉/폰 잔상 0 계약 유지).
 set -u
+
+# fix r2: FAIL 출구 잔상 정리 — trap EXIT(래더 1원, 성공 경로 §9 재용).
+HARV_BOOTED=0
+HARV_CLEANED=0
+harv_exit_teardown() {
+    if [ "${HARV_BOOTED:-0}" -eq 1 ] && [ "${HARV_CLEANED:-0}" -eq 0 ]; then
+        HARV_CLEANED=1
+        pkill -f "${BUILD_DIR:-}/[j]kdesktop" 2>/dev/null
+        sleep 1
+        pkill -9 -f "${BUILD_DIR:-}/[j]kdesktop" 2>/dev/null
+        sleep 1
+        echo "HARV-TEARDOWN: pkill 래더 실행됨 (fix r2 trap EXIT — probe 소유 서버 1원)"
+        echo "HARV-TEARDOWN-LEFT: $(ps -eo args 2>/dev/null | grep -i "${BUILD_DIR:-}/jkdesktop" | grep -v grep | wc -l | tr -d ' ') (EXIT 경로 잔상 산치 — 0 = 정리 성립)"
+    fi
+}
+trap harv_exit_teardown EXIT
 
 ROOT="$(cd "$(dirname "$0")"/../.. && pwd)"          # engine/tools/probes → engine
 ENGINE_DIR="${JKHARV_ENGINE:-$ROOT}"                 # 폰 $TMPDIR 기동 시 $HOME/JKENGINE/engine 지정
@@ -105,6 +126,7 @@ if [ "$MODE" = "OWN" ]; then
 
     echo "=== 2. 부팅 (setsid nohup detached — DISPLAY :0 WSLg 원존) ==="
     env DISPLAY=:0 setsid nohup "$JK" --server >/tmp/jkh_srv.log 2>&1 &
+    HARV_BOOTED=1   # fix r2 — probe가 살리려 한 것: 이후 fail 출구도 trap이 정리한다
     sleep 5
     SRV_PIDS=$(pgrep -x jkdesktop | tr '\n' ' ')
     [ -n "$SRV_PIDS" ] || { echo "--- server log tail:"; tail -20 /tmp/jkh_srv.log; echo "HARVEST-VERDICT: HARVEST-FAIL (no server 5s after boot)"; exit 1; }
@@ -195,14 +217,11 @@ else
 fi
 
 if [ "$MODE" = "OWN" ]; then
-    echo "=== 9. 정리 (pkill 에스컬레이션 — probe 소유 잔상 0 REMNANT 게이트) ==="
-    pkill -f "$BUILD_DIR/[j]kdesktop" 2>/dev/null
-    sleep 1
-    pkill -9 -f "$BUILD_DIR/[j]kdesktop" 2>/dev/null
-    sleep 1
+    echo "=== 9. 정리 (harv_exit_teardown 재용 — fix r2: trap EXIT와 래더 1원 — CLEANED 가드로 중복 실행 없음 + REMNANT 게이트) ==="
+    harv_exit_teardown
     LEFT=$(ps -eo args 2>/dev/null | grep -i "$BUILD_DIR/jkdesktop" | grep -v grep | wc -l)
     [ "$LEFT" -eq 0 ] || { echo "REMNANT: $LEFT process(es) survived teardown"; echo "HARVEST-VERDICT: HARVEST-FAIL (probe 잔상 — REMNANT 게이트)"; exit 1; }
-    echo "REMNANT: 0 (잔상 0 계약 성립)"
+    echo "REMNANT: 0 (잔상 0 계약 성립 — 성공 경로와 FAIL 출구가 같은 정리 래더)"
 fi
 
 echo "HARVEST-VERDICT: HARVEST-OK"
