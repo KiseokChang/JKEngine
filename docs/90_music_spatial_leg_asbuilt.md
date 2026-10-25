@@ -386,6 +386,13 @@ status 절단 악형) → T2 fix r1 re-review **APPROVE 재확정**(C0/I0/M0 —
 | --- | --- | --- | --- |
 | T7 부기 | STT 구두 라인 커밋 체인(1행 — rev-parse 전체 SHA = docs/91 §0 — git log가 진실원): **496a5e6(스펙) → 79a27d1(플랜) → 9512ba8(T1) → 049b94e(T2) → a5e65cf(T2 fix r1) → 1b828e2(T3) → 4279d96(T4) → 688514f(T5) → 6128bb4(T5 정산) → e9d13ca(T5 fix r1) → 036b41e(T5 fix r2) → 58d89e6(T6) → 7cd8ae6(T6 fix r1)**+ 본 T7 커밋 | N | 1행 등록 — docs/91 §8 커밋 원장과 등호 · 잔여 원장행(F6 포그라운드 경합·채팅 합성 타이핑 단절·.rec.m4a 정산 미달 분기 등)은 docs/91 §6이 소관 · **#111 정산행(recover_opt 재런 원문)은 docs/91 T5에서 RECOVER-OK 실측 소각 완료** |
 
+### §4.1-7 신규 park 행(#114 JK APK 라인 — docs/92_jkapk_asbuilt.md 승계 · **아래는 추가만,
+기존 행 변형 금지** · 본 라인 원장 = docs/92):
+
+| 출처 | 항목 | 등급 | 처분 근거 |
+| --- | --- | --- | --- |
+| T4 부기 | JK APK 라인 커밋 체인(1행 — rev-parse 전체 SHA = docs/92 §0 — git log가 진실원): **6a7d6d7(스펙) → 32a74d5(스펙 전환 — D2 v1 얇은 타이핑) → 432f4d7(스펙 정정+플랜) → eb4de96(T1) → ad3834d(T1 fix r1) → 0f18157(T2) → cce4420(T3 — probe 신설)**+ 본 T4 커밋 | N | 1행 등록 — docs/92 §8 커밋 원장과 등호 · 잔여 원장행(설치·런치·발화 EYES·LLM 스파이크 자리)은 docs/92 §5-§7이 소관 · **엔진 ninja 캔논 무접촉 라인 — 캐논 계보는 #112 계보(Win 837/WSL 814/posix 304/폰 814) 그대로 유지(표기 — 재측정 0)** |
+
 ## §5. 사용자 결제 게이트 (EYES-PENDING 봉인)
 
 **EYES-PENDING — 라인 최종 결제는 사용자 육안/청안 선언만으로 성립한다. probe와
