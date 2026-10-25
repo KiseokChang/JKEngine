@@ -102,7 +102,7 @@ extern "C" __declspec(dllimport) int __stdcall closesocket(
 #include <JKLibraryCatalog.h>  // selftest 1m — 라이브러리 카탈로그 3원 스캔
 #include <apps/ChatRouter.h>   // selftest 1n — 채팅 명령 라우터(스펙 §1.3)
 #include <apps/GalleryModel.h>  // selftest 2g — 갤러리 순수 부품(스펙 2026-10-09-gallery-design)
-#include <apps/MusicModel.h>  // selftest 2m/2s — 뮤직 순수 부품(스펙 2026-10-09-music-library-design+2026-10-11-music-tags-design)
+#include <apps/MusicModel.h>  // selftest 2m/2s/2u — 뮤직 순수 부품(스펙 2026-10-09-music-library-design+2026-10-11-music-tags-design+2026-10-25-music-tagwrite)
 #include <apps/MusicDirStore.h>  // selftest 2o — 뮤직 폴더 저장소(플랜 2026-10-10-music-dirs-ui)
 #include <apps/MusicSpatialLeg.h>  // selftest 2n — 뮤직 spatial leg 순수 부품(스펙 2026-10-10-music-spatial-leg-design)
 #include <text/JKTextConv.h>  // selftest 2q — 경로 인코딩 사슬 변환 쌍(#94)
@@ -6442,6 +6442,465 @@ static int RunAppSelfTest() {
             fs::remove_all(tdir, sec);
             check(!sec && !fs::exists(tdir, sec),
                   "2s-⑩ 사후 소각 = 잔산 0(REMNANT 0 — 파스 파일 3건)");
+        }
+
+        // 2u) 태그 쓰기 + 커버아트 (#111 T1 — 스펙 2026-10-25-music-tagwrite):
+        // 읽기 사슬(2s)의 역방향 — WriteId3v2.3 정규화(D5·v2.3 신설/정규화
+        // 재작성·v1 유지)·APIC 커버 삽입/보존(cover null = 기존 APIC 유지)·
+        // D6 원자적 쓰기(.pid.tagtmp→fsync→rename)·실패 정직 거부(원본 등호).
+        // 합성 블롭 = inline byte 배열(2s 원문 수형 — 테스트 음성/이미지는
+        // 합성 블롭만 계약), FS 접점 leg = 2s/2r 수형(temp_directory_path+
+        // 사후 소각 REMNANT 0). 기존 계보(2a..2s) 원문 무변조 — 추가만.
+        {
+            namespace mt = jk::music::tags;
+
+            const fs::path tdir =
+                fs::temp_directory_path() / "jk_music_tagwrite";
+            fs::remove_all(tdir);  // 선제거 — 이전 런 잔산(2s/2r 원문 수형)
+            fs::create_directories(tdir);
+
+            // ---- 합성 헬퍼 (테스트 전용 — 2s/2s-④ 수형 재용) ----
+            auto putFile = [](const fs::path& p,
+                              const std::vector<unsigned char>& bytes) {
+                std::ofstream f(p, std::ios::binary);
+                f.write(reinterpret_cast<const char*>(bytes.data()),
+                        static_cast<std::streamsize>(bytes.size()));
+                f.close();
+                return fs::file_size(p) == bytes.size();
+            };
+            auto readFile = [](const fs::path& p, std::string& out) {
+                out.clear();
+                std::ifstream f(p, std::ios::binary);
+                char buf[4096];
+                while (f.read(buf, sizeof(buf)) || f.gcount() > 0)
+                    out.append(buf, static_cast<size_t>(f.gcount()));
+                return !f.bad();
+            };
+            auto hasBytes = [](const std::string& hay,
+                               const unsigned char* needle, size_t n) {
+                return hay.find(reinterpret_cast<const char*>(needle), 0, n)
+                       != std::string::npos;
+            };
+            auto pushBE32 = [](std::vector<unsigned char>& v, unsigned int x) {
+                for (int sh = 24; sh >= 0; sh -= 8)
+                    v.push_back(static_cast<unsigned char>((x >> sh) & 0xFF));
+            };
+            auto pushSyncsafe = [](std::vector<unsigned char>& v,
+                                   unsigned int x) {
+                for (int sh = 21; sh >= 0; sh -= 7)
+                    v.push_back(static_cast<unsigned char>((x >> sh) & 0x7F));
+            };
+            // 프레임 합성 — syncsafeSize = v2.4(syncsafe 크기 필드), 아니면
+            // v2.3(BE32). 본문은 10B 헤더 아래 그대로.
+            auto mkFrame = [&](const char* id, bool syncsafeSize,
+                               const std::vector<unsigned char>& body) {
+                std::vector<unsigned char> f;
+                f.insert(f.end(), id, id + 4);
+                if (syncsafeSize)
+                    pushSyncsafe(f, static_cast<unsigned int>(body.size()));
+                else
+                    pushBE32(f, static_cast<unsigned int>(body.size()));
+                f.push_back(0);  // 플래그
+                f.push_back(0);  // 포맷
+                f.insert(f.end(), body.begin(), body.end());
+                return f;
+            };
+            auto mkV24Tag = [&](const std::vector<std::vector<unsigned char>>&
+                                    frames) {
+                std::vector<unsigned char> b;
+                for (const auto& one : frames)
+                    b.insert(b.end(), one.begin(), one.end());
+                std::vector<unsigned char> t = {'I', 'D', '3', 0x04, 0x00,
+                                                0x00};
+                pushSyncsafe(t, static_cast<unsigned int>(b.size()));
+                t.insert(t.end(), b.begin(), b.end());
+                return t;
+            };
+            std::vector<unsigned char> audio(96);
+            for (size_t i = 0; i < audio.size(); ++i)
+                audio[i] = static_cast<unsigned char>(i ^ 0xA5);
+            // 합성 jpeg 블롭 512B(SOI 마커 원문 형식+결정론 패턴 — inline).
+            std::vector<unsigned char> jpg(512);
+            jpg[0] = 0xFF; jpg[1] = 0xD8; jpg[2] = 0xFF; jpg[3] = 0xE0;
+            for (size_t i = 4; i < jpg.size(); ++i)
+                jpg[i] = static_cast<unsigned char>(i * 7 + 3);
+
+            // ①) 합성 mp3(무태그 — 매agic 없는 raw leg) v2.3 신설 —
+            // TIT2/TPE1/TALB+패딩 1KB → ParseTag round-trip(D5 신설 leg).
+            {
+                const fs::path p = tdir / "2u_a_create.mp3";
+                mt::TagSet t1;
+                t1.title = "New Title";
+                t1.artist = "New Artist";
+                t1.album = "New Album";
+                check(putFile(p, audio),
+                      "2u-① 합성 mp3(무태그) 구성 = 96B 성립(신설 대상 원본)");
+                std::string err1;
+                check(mt::WriteTag(p.generic_string(), t1, nullptr, err1) &&
+                          err1.empty(),
+                      "2u-① v2.3 신설 쓰기 = ok+err 빈(v2 부재 mp3 — D5 신설 "
+                      "leg·WriteTag 계약 시그니처)");
+                std::string bytes1;
+                check(readFile(p, bytes1), "2u-① 재독 = 파일 수취(구조 단정)");
+                check(bytes1.size() >= 10 && bytes1[0] == 'I' &&
+                          bytes1[1] == 'D' && bytes1[2] == '3' &&
+                          static_cast<unsigned char>(bytes1[3]) == 0x03 &&
+                          static_cast<unsigned char>(bytes1[5]) == 0x00,
+                      "2u-① 태그 헤더 = ID3+v2.3+전역 플래그 0(D5 정규화 출력 "
+                      "— 신설)");
+                // 패딩 1KB+오디오 원문 — 말미 96B 등호, 그 앞 1024B 전부 0x00.
+                const size_t sz1 = bytes1.size();
+                bool padOk = sz1 > 1024 + 96 + 10;
+                for (size_t i = sz1 - 96 - 1024; padOk && i < sz1 - 96; ++i)
+                    padOk = static_cast<unsigned char>(bytes1[i]) == 0;
+                check(padOk && sz1 > 96 &&
+                          std::memcmp(bytes1.data() + sz1 - 96, audio.data(),
+                                      96) == 0,
+                      "2u-① 패딩 1KB+오디오 원문 = 말미 96B 등호+그 앞 1024B "
+                      "0x00(신설 패딩 계약)");
+                std::string err1b;
+                const mt::TagSet back1 =
+                    mt::ParseTag(p.generic_string(), err1b);
+                check(back1.title == "New Title" &&
+                          back1.artist == "New Artist" &&
+                          back1.album == "New Album" && err1b.empty(),
+                      "2u-① ParseTag round-trip = 3필드 등호(신설 쓰기 → 읽기 "
+                      "사슬 재용 — SyncSafe32 태그 크기 원존)");
+            }
+
+            // ②) 기존 v2.4 파일 → v2.3 정규화 재작성 → 재독(D5) — TCON 복제와
+            // 프레임 원문 보존(크기 필드 BE32 역변환 — 201B 본문 TXXX 증명).
+            {
+                const fs::path p = tdir / "2u_b_v24.mp3";
+                std::vector<unsigned char> audio2(48);
+                for (size_t i = 0; i < audio2.size(); ++i)
+                    audio2[i] = static_cast<unsigned char>(0x30 + i);
+                std::vector<unsigned char> bTIT2;
+                bTIT2.push_back(0x03);  // enc 3 — UTF-8(v2.4 규약)
+                bTIT2.insert(bTIT2.end(), "Old Title", "Old Title" + 9);
+                std::vector<unsigned char> bTPE1;
+                bTPE1.push_back(0x00);  // enc 0 — Latin-1
+                bTPE1.insert(bTPE1.end(), "Old Artist", "Old Artist" + 10);
+                std::vector<unsigned char> bTALB;
+                bTALB.push_back(0x03);
+                bTALB.insert(bTALB.end(), "Old Album", "Old Album" + 9);
+                std::vector<unsigned char> bTCON;
+                bTCON.push_back(0x00);
+                bTCON.insert(bTCON.end(), "Rock", "Rock" + 4);  // 장르(복제 대상)
+                std::vector<unsigned char> bTXXX(201, 'A');
+                bTXXX[0] = 0x00;  // 본문 201B — 크기 필드 인코딩 구별 증명용
+                std::vector<std::vector<unsigned char>> frames2;
+                frames2.push_back(mkFrame("TIT2", true, bTIT2));
+                frames2.push_back(mkFrame("TPE1", true, bTPE1));
+                frames2.push_back(mkFrame("TALB", true, bTALB));
+                frames2.push_back(mkFrame("TCON", true, bTCON));
+                frames2.push_back(mkFrame("TXXX", true, bTXXX));
+                std::vector<unsigned char> file2 = mkV24Tag(frames2);
+                file2.insert(file2.end(), audio2.begin(), audio2.end());
+                check(putFile(p, file2),
+                      "2u-② v2.4 원본 구성 = 성립(5프레임+오디오 48B)");
+                std::string err2pre;
+                const mt::TagSet pre2 =
+                    mt::ParseTag(p.generic_string(), err2pre);
+                check(pre2.title == "Old Title" &&
+                          pre2.artist == "Old Artist" &&
+                          pre2.album == "Old Album" && err2pre.empty(),
+                      "2u-② v2.4 원본 재독 = 3필드(읽기 사슬 원문 — 정규화 전제)");
+                mt::TagSet t2;
+                t2.title = "Rewritten Title";
+                t2.artist = "Rewritten Artist";
+                t2.album = "Rewritten Album";
+                std::string err2;
+                check(mt::WriteTag(p.generic_string(), t2, nullptr, err2) &&
+                          err2.empty(),
+                      "2u-② v2.3 정규화 재작성 = ok(D5 — 기존 v2 유지 계약)");
+                std::string bytes2;
+                check(readFile(p, bytes2), "2u-② 재작성 파일 수취(구조 단정)");
+                check(bytes2.size() > 10 &&
+                          static_cast<unsigned char>(bytes2[3]) == 0x03 &&
+                          static_cast<unsigned char>(bytes2[5]) == 0x00,
+                      "2u-② 재작성 버전/플래그 = v2.3+평문(D5 — v2.4 syncsafe "
+                      "재작성 금지)");
+                std::string err2b;
+                const mt::TagSet back2 =
+                    mt::ParseTag(p.generic_string(), err2b);
+                check(back2.title == "Rewritten Title" &&
+                          back2.artist == "Rewritten Artist" &&
+                          back2.album == "Rewritten Album" && err2b.empty(),
+                      "2u-② 재독 = 새 3필드 등호(정규화 round-trip)");
+                // TCON 복제(장르 보존) — 원본 프레임(10B+본문) 바이트 등호 생존:
+                // 복제는 본문+헤더 재기입(BE32 5 = 원본 syncsafe 5와 동일 바이트).
+                std::vector<unsigned char> tconExp("TCON", "TCON" + 4);
+                pushBE32(tconExp, 5);
+                tconExp.push_back(0);  // 플래그
+                tconExp.push_back(0);  // 포맷
+                tconExp.push_back(0x00);
+                tconExp.insert(tconExp.end(), "Rock", "Rock" + 4);
+                check(hasBytes(bytes2, tconExp.data(), tconExp.size()),
+                      "2u-② TCON 복제 = 원본 프레임 바이트 등호 생존(장르 보존"
+                      " — D5 프레임 원문 계약)");
+                // TXXX 보존 — v2.4 syncsafe(00 00 03 09) 201B → v2.3 BE32
+                // (00 00 00 C9) 역변환+본문 원문 생존(drop 금지 계약).
+                std::vector<unsigned char> txxx("TXXX", "TXXX" + 4);
+                pushBE32(txxx, 201);
+                txxx.push_back(0);
+                txxx.push_back(0);
+                check(hasBytes(bytes2, txxx.data(), txxx.size()),
+                      "2u-② TXXX 보존 헤더 = 크기 필드 BE32 역변환(00 00 00 C9 "
+                      "— 32bit BE·syncsafe 아님 — 모호성 해소 원문)");
+                check(hasBytes(bytes2, bTXXX.data(), bTXXX.size()),
+                      "2u-② TXXX 본문 원문 = 201B 등호 생존(해석 불가 프레임 "
+                      "drop 금지 — D5)");
+                check(bytes2.size() > audio2.size() &&
+                          std::memcmp(
+                              bytes2.data() + bytes2.size() - audio2.size(),
+                              audio2.data(), audio2.size()) == 0,
+                      "2u-② 오디오 원문 = 말미 48B 등호(사슬 재구성 — 재배치 "
+                      "무손상)");
+            }
+
+            // ③) v1-원존 파일 → v2 신설+v1 유지 — 재독 = v2 우선 규약(원존).
+            {
+                const fs::path p = tdir / "2u_c_v1only.mp3";
+                std::vector<unsigned char> v1buf(128, ' ');
+                std::memcpy(v1buf.data(), "TAG", 3);
+                std::memcpy(v1buf.data() + 3, "Legacy Title", 12);
+                std::memcpy(v1buf.data() + 33, "Old Artist", 10);
+                std::memcpy(v1buf.data() + 63, "Old Album", 9);
+                std::memcpy(v1buf.data() + 93, "1999", 4);
+                std::vector<unsigned char> file3(40, 0x22);
+                file3.insert(file3.end(), v1buf.begin(), v1buf.end());
+                check(putFile(p, file3),
+                      "2u-③ v1-원존 mp3 구성 = 성립(junk 40B+v1 128B)");
+                mt::TagSet t3;
+                t3.title = "V2 Title";
+                t3.artist = "V2 Artist";
+                t3.album = "V2 Album";
+                std::string err3;
+                check(mt::WriteTag(p.generic_string(), t3, nullptr, err3) &&
+                          err3.empty(),
+                      "2u-③ v2 신설 쓰기 = ok(v1 존재 파일 — 매agic 없음 leg)");
+                std::string err3b;
+                const mt::TagSet back3 =
+                    mt::ParseTag(p.generic_string(), err3b);
+                check(back3.title == "V2 Title" &&
+                          back3.artist == "V2 Artist" &&
+                          back3.album == "V2 Album" && err3b.empty(),
+                      "2u-③ 재독 = v2 우선(v1 존재에도 v2 값 — ParseTag 규약 "
+                      "원존)");
+                std::string bytes3;
+                check(readFile(p, bytes3) && bytes3.size() >= 128 &&
+                          std::memcmp(bytes3.data() + bytes3.size() - 128,
+                                      v1buf.data(), 128) == 0,
+                      "2u-③ v1 유지 = 말미 128B 등호(D5 — ID3v1 원문 보존)");
+            }
+
+            // ④) 한글 UTF-8 입력 → v2.3 인코딩 1(UTF-16LE+0xFF 0xFE BOM)
+            // round-trip — #94 파일 콘텐츠 UTF-8 규약(모호성 해소 원문).
+            {
+                const fs::path p = tdir / "2u_d_k.mp3";
+                std::vector<unsigned char> audio4(64, 0x55);
+                check(putFile(p, audio4), "2u-④ 합성 mp3 구성 = 성립");
+                mt::TagSet t4;
+                t4.title = "가을 노래";
+                t4.artist = "아티스트 김";
+                t4.album = "앨범 모음";
+                std::string err4;
+                check(mt::WriteTag(p.generic_string(), t4, nullptr, err4) &&
+                          err4.empty(),
+                      "2u-④ 한글 쓰기 = ok(UTF-8 규약 입력 — #94)");
+                std::string err4b;
+                const mt::TagSet back4 =
+                    mt::ParseTag(p.generic_string(), err4b);
+                check(back4.title == "가을 노래" &&
+                          back4.artist == "아티스트 김" &&
+                          back4.album == "앨범 모음" && err4b.empty(),
+                      "2u-④ 한글 round-trip = 3필드 등호(UTF-16LE 인코딩 1 "
+                      "재독 — DecodeId3Text BOM 계약)");
+                std::string bytes4;
+                check(readFile(p, bytes4), "2u-④ 파일 수취(바이트 단정)");
+                const size_t pos = bytes4.find("TIT2");
+                const unsigned char expSize[4] = {0x00, 0x00, 0x00, 0x0F};
+                // "가을 노래" = 5자 → UTF-16 유닛 10B+BOM 2+enc 1+NUL 2 = 본문 15
+                check(pos != std::string::npos &&
+                          bytes4.size() >= pos + 13 &&
+                          std::memcmp(bytes4.data() + pos + 4, expSize, 4) ==
+                              0 &&
+                          static_cast<unsigned char>(bytes4[pos + 10]) == 0x01 &&
+                          static_cast<unsigned char>(bytes4[pos + 11]) == 0xFF &&
+                          static_cast<unsigned char>(bytes4[pos + 12]) == 0xFE,
+                      "2u-④ TIT2 인코딩 바이트 = enc 1+0xFF 0xFE BOM+크기 15BE("
+                      "프레임 헤더 10B+32bit BE — 모호성 해소 원문)");
+            }
+
+            // ⑤) APIC — 합성 jpeg 블롭 512B("image/jpeg") 삽입 → ReadCover
+            // round-trip(mime 등호)·부재 = 정직 거부("no_cover")·인코딩 1
+            // (UTF-16 mime) 재독 — 브리프 "인코딩 0/1 모두 지원".
+            {
+                const fs::path p = tdir / "2u_e_apic.mp3";
+                check(putFile(p, audio), "2u-⑤ 합성 mp3(무태그) 구성 = 성립");
+                mt::CoverArt none;
+                std::string errn;
+                check(!mt::ReadCover(p.generic_string(), none, errn) &&
+                          errn == "no_cover" && none.mime.empty() &&
+                          none.bytes.empty(),
+                      "2u-⑤ ReadCover 부재 = 정직 거부(no_cover·빈 out — "
+                      "브리프 실패 계약)");
+                mt::TagSet t5;
+                t5.title = "Cover Song";
+                t5.artist = "Cover Artist";
+                t5.album = "Cover Album";
+                mt::CoverArt c5;
+                c5.mime = "JPEG";  // 정규화 입력 — "image/jpeg" 정규화 계약
+                c5.bytes = jpg;
+                std::string err5;
+                check(mt::WriteTag(p.generic_string(), t5, &c5, err5) &&
+                          err5.empty(),
+                      "2u-⑤ APIC 삽입 쓰기 = ok(D5 APIC 교체·인코딩 0 mime)");
+                mt::CoverArt got;
+                std::string errg;
+                check(mt::ReadCover(p.generic_string(), got, errg) &&
+                          got.mime == "image/jpeg" && got.bytes == jpg &&
+                          errg.empty(),
+                      "2u-⑤ ReadCover round-trip = mime 정규화 등호+그림 512B "
+                      "등호(mime 정규화 계약)");
+                std::string err5b;
+                const mt::TagSet back5 =
+                    mt::ParseTag(p.generic_string(), err5b);
+                check(back5.title == "Cover Song" &&
+                          back5.artist == "Cover Artist" &&
+                          back5.album == "Cover Album" && err5b.empty(),
+                      "2u-⑤ APIC 삽입 후 재독 = 3필드 등호(APIC와 3필드 무접촉)");
+                // 인코딩 1(UTF-16 mime) 수독 — 부품 재용 합성(2u-⑤b).
+                const fs::path p1 = tdir / "2u_e_apic_enc1.mp3";
+                std::vector<unsigned char> ab;
+                ab.push_back(0x01);  // enc 1
+                ab.push_back(0xFF);
+                ab.push_back(0xFE);
+                mt::Utf8ToUtf16Le("image/jpeg", ab);
+                ab.push_back(0);
+                ab.push_back(0);  // mime 종결(UTF-16)
+                ab.push_back(0);
+                ab.push_back(0);  // desc = 빈+종결
+                ab.insert(ab.end(), jpg.begin(), jpg.end());
+                const std::vector<unsigned char> fr = mkFrame("APIC", false, ab);
+                std::vector<unsigned char> tag1 = {'I', 'D', '3', 0x03, 0x00,
+                                                   0x00};
+                pushSyncsafe(tag1, static_cast<unsigned int>(fr.size()));
+                tag1.insert(tag1.end(), fr.begin(), fr.end());
+                tag1.insert(tag1.end(), audio.begin(), audio.end());
+                check(putFile(p1, tag1),
+                      "2u-⑤ enc1 APIC 합성 구성 = 성립(UTF-16 mime)");
+                mt::CoverArt got1;
+                std::string errg1;
+                check(mt::ReadCover(p1.generic_string(), got1, errg1) &&
+                          got1.mime == "image/jpeg" && got1.bytes == jpg &&
+                          errg1.empty(),
+                      "2u-⑤ enc1 APIC 재독 = UTF-16 mime 해독+그림 등호"
+                      "(인코딩 0/1 모두 지원 — 브리프 계약)");
+            }
+
+            // ⑥) cover=null 재작성 — 기존 APIC 유지(D5/브리프 계약 — 2u-⑤
+            // 파일 재용).
+            {
+                const fs::path p = tdir / "2u_e_apic.mp3";
+                mt::TagSet t6;
+                t6.title = "Second Title";
+                t6.artist = "Second Artist";
+                t6.album = "Second Album";
+                std::string err6;
+                check(mt::WriteTag(p.generic_string(), t6, nullptr, err6) &&
+                          err6.empty(),
+                      "2u-⑥ cover=null 재작성 = ok(기존 APIC 유지 계약)");
+                mt::CoverArt kept;
+                std::string errk;
+                check(mt::ReadCover(p.generic_string(), kept, errk) &&
+                          kept.mime == "image/jpeg" && kept.bytes == jpg,
+                      "2u-⑥ 기존 APIC 생존 = mime 등호+그림 512B 등호(원문 "
+                      "바이트 보존 leg — ReadCover 재독)");
+                std::string err6b;
+                const mt::TagSet back6 =
+                    mt::ParseTag(p.generic_string(), err6b);
+                check(back6.title == "Second Title" &&
+                          back6.artist == "Second Artist" &&
+                          back6.album == "Second Album" && err6b.empty(),
+                      "2u-⑥ 재작성 후 재독 = 새 3필드 등호(보존 APIC와 무접촉)");
+                std::string bytes6;
+                check(readFile(p, bytes6) && hasBytes(bytes6, jpg.data(), jpg.size()) &&
+                          bytes6.size() > 10 &&
+                          static_cast<unsigned char>(bytes6[3]) == 0x03,
+                      "2u-⑥ 재작성 파일 = APIC 그림 원문+버전 v2.3(정규화 재"
+                      "작성 무손상)");
+            }
+
+            // ⑦) 실패 계약 — 정직 거부+원본 등호(무손상)+tmp 잔산 0.
+            {
+                // (a) 0바이트.
+                const fs::path pe = tdir / "2u_g_zero.mp3";
+                mt::TagSet t7;
+                t7.title = "X";
+                check(putFile(pe, {}),
+                      "2u-⑦ 0바이트 파일 구성 = 성립(실패 대상)");
+                std::string err7;
+                check(!mt::WriteTag(pe.generic_string(), t7, nullptr, err7) &&
+                          !err7.empty() && fs::file_size(pe) == 0,
+                      "2u-⑦ 0바이트 = 정직 거부+원본 등호(브리프 실패 계약)");
+                // (b) FLAC 매agic — T2 몫 거부.
+                const fs::path pf = tdir / "2u_g_flac.flac";
+                std::vector<unsigned char> flac(64, 0);
+                flac[0] = 'f';
+                flac[1] = 'L';
+                flac[2] = 'a';
+                flac[3] = 'C';
+                check(putFile(pf, flac), "2u-⑦ fLaC 파일 구성 = 성립");
+                std::string err7b;
+                check(!mt::WriteTag(pf.generic_string(), t7, nullptr, err7b) &&
+                          err7b == "unsupported_format" &&
+                          fs::file_size(pf) == flac.size(),
+                      "2u-⑦ FLAC = 정직 거부(unsupported_format — T2 몫)+"
+                      "원본 등호");
+                // (c) 잘린 ID3 선언 — 선언 5010B vs 실체 25B.
+                const fs::path pt = tdir / "2u_g_trunc.mp3";
+                std::vector<unsigned char> trunc = {'I', 'D', '3', 0x04,
+                                                    0x00, 0x00};
+                pushSyncsafe(trunc, 5000);
+                for (int i = 0; i < 15; ++i) trunc.push_back(0x77);
+                check(putFile(pt, trunc) && trunc.size() == 25,
+                      "2u-⑦ 잘린 ID3 구성 = 25B(선언 5010B vs 실체)");
+                std::string err7c;
+                check(!mt::WriteTag(pt.generic_string(), t7, nullptr, err7c) &&
+                          !err7c.empty(),
+                      "2u-⑦ 잘린 ID3 선언 = 정직 거부(선언 > 실체 — 무리한 "
+                      "재동기 금지)");
+                std::string before, after;
+                check(readFile(pt, before) && readFile(pt, after) &&
+                          before == after && after.size() == 25,
+                      "2u-⑦ 잘린 원본 등호 = 25B 무손상(원본 무변경 계약)");
+                // (d) 비지원 확장자(매agic 없음) — unsupported_format.
+                const fs::path po = tdir / "2u_g_raw.xyz";
+                check(putFile(po, audio), "2u-⑦ 비지원 파일 구성 = 성립");
+                std::string err7d;
+                check(!mt::WriteTag(po.generic_string(), t7, nullptr, err7d) &&
+                          err7d == "unsupported_format",
+                      "2u-⑦ 비지원 확장자 = 정직 거부(unsupported_format — "
+                      "스니프 분기)");
+                // 잔산 — 실패 경로가 .tagtmp/.bak를 남기지 않는다(D6).
+                int junk = 0;
+                for (const auto& e : fs::directory_iterator(tdir)) {
+                    const std::string n = e.path().filename().string();
+                    if (n.find(".tagtmp") != std::string::npos ||
+                        n.find(".bak") != std::string::npos)
+                        ++junk;
+                }
+                check(junk == 0,
+                      "2u-⑦ 잔산 0 = tagtmp/bak 소각(D6 실패 잔산 방지)");
+                // REMNANT 0 — 사후 소각(2s/2r 정리 수형 재용).
+                std::error_code sec7;
+                fs::remove_all(tdir, sec7);
+                check(!sec7 && !fs::exists(tdir, sec7),
+                      "2u-⑦ 사후 소각 = 잔산 0(REMNANT 0 — 2s/2r 정리 수형 "
+                      "재용)");
+            }
         }
     }
 

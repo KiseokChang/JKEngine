@@ -44,7 +44,10 @@
 #include <vector>
 
 #if !defined(_WIN32)
+#include <cerrno>      // errno EINTR — 태그 쓰기 ::write 분절(#111 T1)
+#include <fcntl.h>     // ::open — 태그 쓰기 원자적 tmp(#111 T1 — D6 fsync leg)
 #include <sys/stat.h>  // ::stat — (st_dev, st_ino) 방문 정체성 원문(fix r1)
+#include <unistd.h>    // ::write/::fsync/::close/::getpid — 태그 쓰기 leg(#111 T1)
 #endif
 
 namespace jk {
@@ -1091,6 +1094,763 @@ inline TagSet ParseTag(const std::string& path, std::string& err) {
         }
     }
     return tags;  // 부재 = 빈 TagSet(파일명 폴백 — 정상 경로, err 0)
+}
+
+// ---- 태그 쓰기 + 커버아트 (T1 — 스펙 2026-10-25-music-tagwrite-design) ----
+//
+// 읽기 사슬(위의 ParseId3v2/ParseTag·#99)의 역방향 부품. D4 조달 0 승계 —
+// own 쓰기 부품(third_party 메타 API는 읽기 사슬 원문 주석의 실측 그대로 재용
+// 불가). 이번 Task(T1)는 **mp3 leg만**(FLAC/Ogg/WAV = T2 몫 — v2 형식 지목 =
+// 정직 거부 "unsupported_format"). 계약 시그니처(CoverArt·ReadCover·
+// WriteTag)는 이후 태스크 전부가 소비하는 확정 원문 — 바꾸면 사슬 전체가
+// 다시 검토된다.
+//
+// D5 정규화(mp3): 쓰기는 ID3v2.3으로 통일(폰 호환성 — 일부 폰 플레이어
+// v2.4 미지원). 기존 태그 유지 계약: v2 존재 = 정규화 재작성(TIT2/TPE1/
+// TALB/APIC 교체 + TCON 복제(장르 보존) + **그 외 기존 프레임은 본문 원문
+// 바이트 그대로** 복사 보존 — 해석 불가 프레임 drop 금지)·v2 부재 = 신설
+// (패딩 1KB)·v1 존재 = v1 유지(말미 128B는 [태그끝, EOF) 스트림 복사에
+// 원문 흡수 — 별도 접촉 0).
+//
+// 크기 필드 계약(모호성 해소 원문 + 읽기 사슬 round-trip 계약이 함께
+// 결정): 프레임 헤더 10B의 크기 = **32bit BE(syncsafe 아님 — v2.3 규약)**
+// — v2.4 syncsafe 크기는 재기입에서 BE32로 역변환한다. 태그 헤더의 크기
+// 필드(패딩 포합)도 32bit폭이지만 syncsafe 인코딩으로 기입한다 — 읽기
+// 사슬(ParseId3v2 — SyncSafe32 원문)과 round-trip이 성립하는 유일 형식이고
+// (plain BE32는 바이트 하나라 0x80 이상이 되는 128바이트 이상 태그에서
+// 읽기 원문과 어긋난다 — 2u-① round-trip 봉인), ID3v2.3 규약 원문
+// ("most significant bit in every byte is always set to zero")와도 같다.
+// v2.4 syncsafe로의 재작성 금지(D5 정규화 — 출력은 항상 v2.3).
+//
+// 커버 계약: cover=null = 기존 APIC 유지 — 브리프 원문("ReadCover 재용 후
+// 그대로 재삽입")은 지향을 말하고, 구현 leg로 APIC 프레임 **원문 바이트
+// 보존**을 택했다(재합성 대비 인코딩 바이트까지 그대로 — 기존 APIC 유지
+// 계약의 더 엄격 충족, 2u-⑥ 봉인). APIC 재기입(새 커버) = 인코딩 0
+// (mime/desc Latin-1)+mime 정규화 "image/jpeg"/"image/png".
+//
+// 텍스트 인코딩 = 1 (UTF-16LE + 0xFF 0xFE BOM) 고정 — v2.3 규약이 정의하는
+// 유니코드 인코딩이 1뿐(인코딩 3 UTF-8은 v2.4 전용 — D5 정규화가 금한다).
+// 빈 필드 = 프레임 생략(사슬 재구성이 기존 프레임을 교체하므로 빈값 = 비움
+// 쓰기와 등치 — 2u-① 봉인).
+//
+// D6 원자적 쓰기: 동일 dir `.<pid>.tagtmp` 완성본 → **fsync**(Win
+// FlushFileBuffers / posix ::fsync — std::ofstream은 fd 접점이 없어 fsync가
+// 성립하지 않아 네이티브 저수준 쓰기 leg: Win = CreateFileW 선례 수형
+// kernel32 단일 선언, posix = ::open) → fs::rename(MusicDirStore
+// WriteSettingsAtomic 선례 승계 — 1세대 교체 rename, 실패만 .bak 사다리+
+// 복원). 실패 = 정직 거부+tmp 소각+원본 무손상. 원본 ifstream은 rename 전에
+// 닫는다(Windows에서 대상 파일이 열려 있으면 MoveFileEx 교체가 거부될 수
+// 있다 — 순서 계약).
+//
+// 스니프(쓰기·커버 공용): 선단 매직이 진실원, 확장자는 보조 분기만("fLaC
+// 파일이 .mp3로 불리는" 역포장도 매직가 이긴다). "ID3" = mp3 v2 leg,
+// fLaC/OggS/RIFF-WAVE = T2 거부, 매직 없음 = .mp3 확장자만 mp3(v1-raw
+// leg — 신설), 그 외 = "unsupported_format". 0바이트 = "empty" 정직 거부
+// (원본 무변경 자명).
+
+// 쓰기/커버 leg의 태그 상한 — kTagHeadCap(스캔 1패스 상한·D7 "스캔 1패스
+// 원존 무변조"와 무접촉)와 별개 재량 상수: 쓰기 leg는 편집 지점 1곳 파일만
+// 다루므로(전체 트리 스캔 아님) 커버 프레임 포함 태그 전체를 버퍼에 두는
+// 폭주 절단 16MiB. 초과 = 정직 거부("tag too large" — 실사용 커버는 수백
+// KB~수 MB).
+inline constexpr size_t kTagWriteMax = 16u << 20u;
+
+// 커버아트 꾸러미 — mime = 정규화 표기("image/jpeg"/"image/png"), bytes =
+// 인코딩된 이미지 원문 스트림(디코드는 표기 leg — T2/stb_image 승계).
+struct CoverArt {
+    std::string mime;
+    std::vector<unsigned char> bytes;
+};
+
+// pid 접근(원자적 tmp 접미 — MusicDirStore store::ThisProcessId 선례 수형).
+// store는 MusicModel.h를 include하므로 역방향 include로 못 끌어온다
+// (단방향 include 계약) — 같은 kernel32 선례 선언의 tags 쪽 복제
+// (MusicDirStore.h 원문 부기 승계, 시그니처 동일 — 중복 선언 compatible).
+#if defined(_WIN32)
+extern "C" __declspec(dllimport) unsigned long __stdcall
+    GetCurrentProcessId(void);
+inline unsigned long ThisProcessId() { return GetCurrentProcessId(); }
+#else
+inline unsigned long ThisProcessId() { return static_cast<unsigned long>(::getpid()); }
+#endif
+
+// ---- 인코딩 역방향 부품 (읽기 DecodeId3Text/Utf16BytesToUtf8의 쌍둥이) ----
+
+// UTF-16 리틀 유닛 1개 출력(LE).
+inline void AppendUtf16LeUnit(std::vector<unsigned char>& out, unsigned int u) {
+    out.push_back(static_cast<unsigned char>(u & 0xFF));
+    out.push_back(static_cast<unsigned char>((u >> 8) & 0xFF));
+}
+
+// UTF-8(#94 규약) → UTF-16 유닛열(LE·서로게 포함 — BOM/종결은 호출부 계약).
+// 느슨 규약(읽기 Utf16BytesToUtf8 원문 수형): 비정형 선단 바이트와 잘린
+// 연속은 Latin-1 유닛으로 통과(0x00-0xFF 한 유닛 — 데이터 전멸 회피).
+inline void Utf8ToUtf16Le(const std::string& s, std::vector<unsigned char>& out) {
+    size_t i = 0;
+    while (i < s.size()) {
+        const unsigned char c = static_cast<unsigned char>(s[i]);
+        if (c < 0x80) {  // ASCII — 유닛 1개
+            AppendUtf16LeUnit(out, c);
+            ++i;
+            continue;
+        }
+        unsigned int cp = 0;
+        size_t len = 0;
+        if (c >= 0xC2 && c <= 0xDF) {        // 2바이트(0xC0/0xC1 overlong 배제)
+            len = 2; cp = c & 0x1F;
+        } else if (c >= 0xE0 && c <= 0xEF) { // 3바이트
+            len = 3; cp = c & 0x0F;
+        } else if (c >= 0xF0 && c <= 0xF4) { // 4바이트(≤U+10FFFF)
+            len = 4; cp = c & 0x07;
+        } else {  // 비정형 선단(0xC0/0xC1/0xF5-0xFF) — Latin-1 유닛 통과
+            AppendUtf16LeUnit(out, c);
+            ++i;
+            continue;
+        }
+        bool ok = i + len <= s.size();
+        for (size_t k = 1; ok && k < len; ++k) {
+            const unsigned char cc = static_cast<unsigned char>(s[i + k]);
+            if ((cc & 0xC0) != 0x80) { ok = false; break; }
+            cp = (cp << 6) | (cc & 0x3F);
+        }
+        if (!ok) {  // 잘린 연속 — 선단만 Latin-1 유닛(느슨 규약)
+            AppendUtf16LeUnit(out, c);
+            ++i;
+            continue;
+        }
+        i += len;
+        if (cp >= 0x10000) {  // 서로게 쌍 출력
+            const unsigned int v = cp - 0x10000;
+            AppendUtf16LeUnit(out, 0xD800 | (v >> 10));
+            AppendUtf16LeUnit(out, 0xDC00 | (v & 0x3FF));
+        } else {
+            AppendUtf16LeUnit(out, cp);
+        }
+    }
+}
+
+// 쓰기 역방향 수치 리터 — 읽기 RdBE32/SyncSafe32 쌍둥이. WrSyncSafe32는
+// 2^28-1 초과 = false(폭주 절단 — 호출부 정직 거부 "tag too large").
+inline void WrBE32(std::vector<unsigned char>& out, unsigned int v) {
+    for (int sh = 24; sh >= 0; sh -= 8)
+        out.push_back(static_cast<unsigned char>((v >> sh) & 0xFF));
+}
+
+inline bool WrSyncSafe32(std::vector<unsigned char>& out,
+                         unsigned long long v) {
+    if (v > 0x0FFFFFFFull) return false;
+    out.push_back(static_cast<unsigned char>((v >> 21) & 0x7F));
+    out.push_back(static_cast<unsigned char>((v >> 14) & 0x7F));
+    out.push_back(static_cast<unsigned char>((v >> 7) & 0x7F));
+    out.push_back(static_cast<unsigned char>(v & 0x7F));
+    return true;
+}
+
+// ---- ID3v2 프레임 사슬 보행 (D5 보존 leg — "drop 금지"의 원문 회수) ----
+
+// 보행 1건 재료 — 쓰기 leg가 본문 **원문 바이트**를 그대로 새 v2.3 사슬에
+// 옮긴다(D5 — 그룹 ID·v2.4 데이터 길이 표지(dli) 등 프레임이 첨부한 바이트도
+// 본문 원문의 일부 — 재해석 변조 금지·원문 보존 우선).
+struct Id3FrameRec {
+    std::string id;                   // 4바이트 프레임 ID(A-Z·0-9 — 파서 규약)
+    std::vector<unsigned char> body;  // 본문 원문(10B 헤더 아래 선언 크기 전체)
+    unsigned char v23flags = 0;       // 재기입용 v2.3 매핑 플래그(0x80/0x40/0x20)
+};
+
+// v2.4 프레임-level unsync 전개(0xFF 0x00 → 0xFF — 읽기 사슬 v2.3 전역
+// unsync 전개 원문 걸음 재용). v2.3에는 프레임 unsync 플래그가 없어 데이터
+// 원문 전개가 유일한 손실 없는 정규화(재기입 시 플래그 소각 ·원문 부기).
+inline void DeunsyncBytes(std::vector<unsigned char>& b) {
+    std::vector<unsigned char> out;
+    out.reserve(b.size());
+    for (size_t i = 0; i < b.size(); ++i) {
+        out.push_back(b[i]);
+        if (b[i] == 0xFF && i + 1 < b.size() && b[i + 1] == 0x00) ++i;
+    }
+    b.swap(out);
+}
+
+// v2.3/2.4 프레임 사슬 보행 — 읽기 ParseId3v2 사슬과 같은 걸음(패딩 선단
+// 0x00 종료·탈자 파산·v2.4 syncsafe 크기(0x7F 초과 바이트 = 구형 리터 BE32
+// 관용 폴백))에 쓰기 leg의 정직 판정을 얹는다: 선언 크기가 본문을 넘는
+// 프레임은 클램프 없이 거부("frame truncated") — 보존 대상이라 읽기의
+// 클램프(선언을 믿지 않는 경계 클램프 2s-⑤)와 다리가 갈라진다(정직
+// 거부 = 원본 보존 우선 — 부서진 태그를 손대지 않는다). 압축/암호화/그룹
+// 플래그는 v2.3 비트로 매핑(압축 0x80·암호화 0x40·그룹 0x20 — 그룹 ID
+// 바이트는 본문 원문 선두에 이미 있다. v2.4 unsync(0x02)는 전개 후 소각,
+// dli(0x01)는 본문 원문에 남긴다(v2.3 구조에 없는 표지 — 재기입에서 비트
+// 소각·본문 원문 유지 — 정직 한계 부기: 실사용 드문 프레임이며 관리
+// 프레임(TIT2/TPE1/TALB/APIC)은 전부 재작성이라 3필드 해독에 영향 없다).
+inline bool WalkId3v2Frames(const unsigned char* body, size_t bodyN,
+                            int ver, std::vector<Id3FrameRec>& out,
+                            std::string& err) {
+    out.clear();
+    err.clear();
+    const auto fidByte = [](unsigned char c) {
+        return (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+    };
+    size_t off = 0;
+    while (off + 10 <= bodyN) {
+        const unsigned char* fh = body + off;
+        if (fh[0] == 0) break;  // 패딩 — 남은 영역은 기존 패딩(pad 산출이 흡수)
+        if (!fidByte(fh[0]) || !fidByte(fh[1]) || !fidByte(fh[2]) ||
+            !fidByte(fh[3])) {
+            err = "frame id broken";  // 읽기는 파산 종료 — 쓰기는 정직 거부
+            out.clear();
+            return false;
+        }
+        size_t fsz;
+        if (ver == 4 && fh[4] <= 0x7F && fh[5] <= 0x7F && fh[6] <= 0x7F &&
+            fh[7] <= 0x7F) {
+            fsz = static_cast<size_t>(SyncSafe32(fh + 4));
+        } else {
+            fsz = static_cast<size_t>(RdBE32(fh + 4));
+        }
+        const size_t rest = bodyN - (off + 10);  // off+10 ≤ bodyN 보장
+        if (fsz > rest) {
+            err = "frame truncated";  // 읽기는 클램프 — 쓰기는 정직 거부
+            out.clear();
+            return false;
+        }
+        const unsigned char fmt = fh[9];
+        // 플래그 분류 — 읽기 ParseId3v2 원문 걸음(버전별 비트 정의) 재사용.
+        const bool compressed = ver == 3 ? (fmt & 0x80) : (fmt & 0x08);
+        const bool encrypted = ver == 3 ? (fmt & 0x40) : (fmt & 0x04);
+        const bool grouped = ver == 3 ? (fmt & 0x20) : (fmt & 0x40);
+        const bool frameUnsync = ver == 4 && (fmt & 0x02);
+        // 본문 원문 수취 — 선언 크기 전체(그룹 ID·dli 선두 바이트 포함 원문).
+        Id3FrameRec rec;
+        rec.id.assign(reinterpret_cast<const char*>(fh), 4);
+        rec.body.assign(fh + 10, fh + 10 + fsz);
+        if (frameUnsync) DeunsyncBytes(rec.body);  // v2.4 프레임 unsync 전개
+        unsigned char mapped = 0;
+        if (compressed) mapped |= 0x80;
+        if (encrypted) mapped |= 0x40;
+        if (grouped) mapped |= 0x20;
+        rec.v23flags = mapped;
+        out.push_back(std::move(rec));
+        off += 10 + fsz;
+    }
+    return true;
+}
+
+// ID3v2 태그 1건의 전체 구조 — 쓰기(WriteTag 기존 태그 유지 사슬)와 커버
+// (ReadCover APIC 지목)가 공용으로 소비하는 보행 결과.
+struct Id3TagInfo {
+    int ver = 0;
+    size_t end = 0;        // 태그 전체 끝(푸터 포함) — 오디오 데이터 시작
+    size_t bodySize = 0;   // 선언 본문(기존 패딩 포함 — D5 패딩 조절 산출)
+    std::vector<Id3FrameRec> frames;
+};
+
+// ID3v2 태그 헤더+프레임 사슬 판독 — 버전/전역 플래그 게이트(정직 거부)+
+// 사슬 보행(WalkId3v2Frames). v2.3 전역 unsync(0x80)는 읽기 사슬 원문의
+// 전개 규약이 있어 사본 전개 후 평문 프레임으로 수용한다(재작성 시 플래그
+// 소각 — 정규화). 확장 헤더(0x40·v2.3/2.4 공용)와 v2.4 전역 unsync(0x80)
+// 는 정직 거부 — 프레임 사슬 해석이 어긋나는 구조다(원본 보존 우선).
+inline bool ReadId3Tag(const unsigned char* p, size_t n, Id3TagInfo& out,
+                       std::string& err) {
+    err.clear();
+    out = Id3TagInfo();
+    if (n < 10) { err = "tag truncated"; return false; }
+    if (p[0] != 'I' || p[1] != 'D' || p[2] != '3') { err = "no id3"; return false; }
+    if (p[3] < 3 || p[3] > 4) { err = "unsupported_id3_version"; return false; }
+    const unsigned char flags = p[5];
+    if (flags & 0x40) { err = "extended header unsupported"; return false; }
+    if (p[3] == 4 && (flags & 0x80)) { err = "global unsync unsupported"; return false; }
+    // 미계약 비트 — 정직 거부(해석을 보장할 수 없는 원문은 손대지 않는다).
+    // v2.3 = 0x80(unsync·수용)|0x20(experimental — 읽기 무시 규약)만, v2.4 =
+    // 0x10(푸터)|0x20만.
+    const unsigned char allowed = p[3] == 3
+                                      ? static_cast<unsigned char>(0x80 | 0x20)
+                                      : static_cast<unsigned char>(0x10 | 0x20);
+    if (flags & ~allowed) { err = "unsupported flags"; return false; }
+    const unsigned long long tagSize = SyncSafe32(p + 6);
+    const size_t footer = (p[3] == 4 && (flags & 0x10)) ? 10u : 0u;
+    const unsigned long long endU = 10 + tagSize + footer;
+    if (endU > n) { err = "tag truncated"; return false; }
+    const unsigned char* body = p + 10;
+    size_t bodyN = static_cast<size_t>(tagSize);
+    std::vector<unsigned char> unsync;
+    if (p[3] == 3 && (flags & 0x80)) {  // v2.3 전역 unsync — 읽기 사슬 원문 수형
+        unsync.reserve(bodyN);
+        for (size_t i = 0; i < bodyN; ++i) {
+            unsync.push_back(body[i]);
+            if (body[i] == 0xFF && i + 1 < bodyN && body[i + 1] == 0x00) ++i;
+        }
+        body = unsync.data();
+        bodyN = unsync.size();
+    }
+    if (!WalkId3v2Frames(body, bodyN, p[3], out.frames, err)) return false;
+    out.ver = p[3];
+    out.end = static_cast<size_t>(endU);
+    out.bodySize = static_cast<size_t>(tagSize);
+    return true;
+}
+
+// ---- ID3v2.3 프레임 합성 (D5 — 정규화 출력) ----
+
+// v2.3 프레임 10B 헤더+본문 — 크기 = **32bit BE(syncsafe 아님 — D5 규약)**,
+// 플래그 = 상태바이트 0x00+포맷바이트(호출부 매핑 — 0 = 압축/암호화/그룹 없음).
+inline void AppendId3Frame(std::vector<unsigned char>& out, const char* id,
+                           const unsigned char* body, size_t bodyN,
+                           unsigned char formatFlags) {
+    for (int k = 0; k < 4; ++k) out.push_back(static_cast<unsigned char>(id[k]));
+    WrBE32(out, static_cast<unsigned int>(bodyN));
+    out.push_back(0);  // 플래그 상위 바이트(상태 — 무기입)
+    out.push_back(formatFlags);
+    out.insert(out.end(), body, body + bodyN);
+}
+
+// 텍스트 프레임 — 인코딩 1(UTF-16LE + 0xFF 0xFE BOM) 고정+2바이트 NUL 종결
+// (유닛 정렬 보존 — BOM 이후 유닛수가 짝수).
+inline void AppendId3TextFrame(std::vector<unsigned char>& out, const char* id,
+                               const std::string& utf8) {
+    std::vector<unsigned char> body;
+    body.reserve(5 + utf8.size() * 2);
+    body.push_back(1);   // enc 1 — UTF-16 w/ BOM(v2.3 규약의 유니코드 인코딩)
+    body.push_back(0xFF);
+    body.push_back(0xFE);
+    Utf8ToUtf16Le(utf8, body);
+    body.push_back(0);
+    body.push_back(0);   // UTF-16 NUL 종결
+    AppendId3Frame(out, id, body.data(), body.size(), 0);
+}
+
+// APIC 프레임 — 인코딩 0(브리프 계약: mime/desc = Latin-1)+mime 1종+빈 desc
+// (1바이트 NUL이 종결을 겸한다)+그림 원문. 그림 데이터의 0xFF 0x00 시퀀스는
+// 평문 그대로 기입한다(전역 unsync 플래그를 셋하지 않는 한 리더의 프레이밍
+// 시퀀스와만 접촉하는 데이터 영역 — 읽기 사슬도 unsync 가공 없이 읽는다).
+inline void AppendId3ApicFrame(std::vector<unsigned char>& out,
+                               const std::string& mime,
+                               const std::vector<unsigned char>& bytes) {
+    std::vector<unsigned char> body;
+    body.reserve(3 + mime.size() + bytes.size());
+    body.push_back(0);  // enc 0 — Latin-1 mime/desc
+    for (const char c : mime) body.push_back(static_cast<unsigned char>(c));
+    body.push_back(0);  // mime 종결
+    body.push_back(0);  // desc = 빈 + 종결
+    body.insert(body.end(), bytes.begin(), bytes.end());
+    AppendId3Frame(out, "APIC", body.data(), body.size(), 0);
+}
+
+// mime 정규화(브리프 계약 — "image/jpeg"/"image/png" 1표기): 공백 절제+
+// 소문자화+jpg/jpeg → image/jpeg·png → image/png, "image/…" 원철자 원통과.
+// 미지 형식 = 공백 절제+소문자 원문(정직 — 무음 변조 없음).
+inline std::string NormalizeCoverMime(const std::string& raw) {
+    std::string s;
+    s.reserve(raw.size());
+    for (const char ch : raw) {
+        const unsigned char c = static_cast<unsigned char>(ch);
+        if (c == ' ' || c == '\t' || c == '\r' || c == '\n') continue;
+        s.push_back(FoldAscii(static_cast<char>(c)));
+    }
+    if (s == "jpg" || s == "jpeg" || s == "image/jpg" || s == "image/pjpeg")
+        return "image/jpeg";
+    if (s == "png" || s == "image/png") return "image/png";
+    return s;
+}
+
+// ---- ID3 텍스트 종결 지목 (ReadCover — APIC 내부 필드 슬라이스) ----
+
+// enc 0/3 = 1바이트 NUL, enc 1/2 = 2바이트 유닛(짝 정렬) NUL. 종결 부재 =
+// false(파손 — 호출부가 정직 거부/다음 후보로 간다).
+inline bool FindId3TextTerm(const unsigned char* p, size_t n, int enc,
+                            size_t& termPos, size_t& unit) {
+    if (enc == 1 || enc == 2) {
+        unit = 2;
+        for (size_t i = 0; i + 2 <= n; i += 2) {
+            if (p[i] == 0 && p[i + 1] == 0) { termPos = i; return true; }
+        }
+        return false;
+    }
+    unit = 1;
+    for (size_t i = 0; i < n; ++i) {
+        if (p[i] == 0) { termPos = i; return true; }
+    }
+    return false;
+}
+
+// ---- 네이티브 쓰기 leg (D6 — fsync 성립 조건) ----
+
+// std::ofstream은 fd 접점이 없어 fsync가 성립하지 않는다(실측 제약 — 원장
+// 부기). 네이티브 저수준 쓰기(Win = CreateFileW+FlushFileBuffers, posix =
+// ::open+::fsync)로 같은 결과 — 경로는 fs::path 원문(wide/native — narrow
+// fopen ACP 함정 회피, ParseTag 개방 수형 동형 원문).
+#if defined(_WIN32)
+// kernel32 단일 함수 선언 — MusicModel.h GetFileAttributesW 원문 선례 수형
+// (windows.h 전개 금지 계약).
+extern "C" __declspec(dllimport) void* __stdcall CreateFileW(
+    const wchar_t* fileName, unsigned long desiredAccess,
+    unsigned long shareMode, void* securityAttributes,
+    unsigned long creationDisposition, unsigned long flagsAndAttributes,
+    void* templateFile);
+extern "C" __declspec(dllimport) int __stdcall WriteFile(
+    void* handle, const void* buffer, unsigned long bytesToWrite,
+    unsigned long* bytesWritten, void* overlapped);
+extern "C" __declspec(dllimport) int __stdcall FlushFileBuffers(void* handle);
+extern "C" __declspec(dllimport) int __stdcall CloseHandle(void* handle);
+
+// winnt/winbase 상수 로컬 복제(원문 형식 주석 — GetFileAttributesW 선례 수형).
+inline constexpr unsigned long kFileGenericWrite = 0x40000000ul;  // GENERIC_WRITE
+inline constexpr unsigned long kFileShareReadWrite = 0x3ul;      // FILE_SHARE_READ|WRITE
+inline constexpr unsigned long kFileCreateAlways = 0x2ul;        // CREATE_ALWAYS
+inline constexpr unsigned long kFileAttributeNormal = 0x80ul;    // FILE_ATTRIBUTE_NORMAL
+
+struct TagFileWriter {
+    void* h = reinterpret_cast<void*>(-1);  // INVALID_HANDLE_VALUE
+    bool Open(const std::filesystem::path& p) {
+        h = CreateFileW(p.c_str(), kFileGenericWrite, kFileShareReadWrite,
+                        nullptr, kFileCreateAlways, kFileAttributeNormal,
+                        nullptr);
+        return h != reinterpret_cast<void*>(-1);
+    }
+    bool WriteAll(const unsigned char* data, size_t n) {
+        while (n > 0) {
+            const unsigned long chunk =
+                n > 0x40000000ul ? 0x40000000ul : static_cast<unsigned long>(n);
+            unsigned long written = 0;
+            if (!WriteFile(h, data, chunk, &written, nullptr) ||
+                written != chunk)
+                return false;
+            data += chunk;
+            n -= chunk;
+        }
+        return true;
+    }
+    bool FlushToDisk() { return FlushFileBuffers(h) != 0; }  // D6 fsync leg
+    void Close() {
+        if (h != reinterpret_cast<void*>(-1)) CloseHandle(h);
+        h = reinterpret_cast<void*>(-1);
+    }
+};
+#else
+struct TagFileWriter {
+    int fd = -1;
+    bool Open(const std::filesystem::path& p) {
+        fd = ::open(p.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        return fd >= 0;
+    }
+    bool WriteAll(const unsigned char* data, size_t n) {
+        while (n > 0) {
+            const size_t want = n > (1u << 20) ? (1u << 20) : n;
+            const ssize_t w = ::write(fd, data, want);
+            if (w < 0 && errno == EINTR) continue;
+            if (w <= 0) return false;
+            data += static_cast<size_t>(w);
+            n -= static_cast<size_t>(w);
+        }
+        return true;
+    }
+    bool FlushToDisk() { return ::fsync(fd) == 0; }  // D6 fsync leg
+    void Close() {
+        if (fd >= 0) ::close(fd);
+        fd = -1;
+    }
+};
+#endif
+
+// ---- 파일 접점 (커버 읽기 — T1 = mp3 APIC leg만) ----
+
+// mp3: APIC 프레임(첫 유효 — 인코딩 0/1 모두 지원: mime Latin-1/UTF-16 해독
+// (DecodeId3Text 재용)·desc 스킵·그림 데이터 원문). FLAC/Ogg/WAV leg는 T2
+// 몫 — 지목되면 정직 거부("unsupported_format"). 커버 부재 = "no_cover"·
+// 개방 실패 = "open"·총계 실패 = "size"(ParseTag 원문 사유 계열). 성립 =
+// mime 정규화 표기(NormalizeCoverMime)+그림 바이트 원문. 거부 = 빈 out(
+// 부재·실패 전부 — 브리프 계약).
+inline bool ReadCover(const std::string& path, CoverArt& out, std::string& err) {
+    err.clear();
+    out = CoverArt{};  // 거부 계약 — out 소각(브리프 원문)
+    namespace fs = std::filesystem;
+    std::ifstream f(fs::path(path), std::ios::binary);
+    if (!f.is_open()) { err = "open"; return false; }
+    f.seekg(0, std::ios::end);
+    const std::streamoff total = f.tellg();
+    if (total < 0) { err = "size"; return false; }
+    // 머리 12B 프리읽 — 매직 스니프+ID3 선언 크기(SyncSafe32에 버퍼 10B 필요).
+    std::vector<unsigned char> pre;
+    {
+        const std::streamoff preN = total < 12 ? total : 12;
+        pre.resize(static_cast<size_t>(preN));
+        f.seekg(0, std::ios::beg);
+        f.read(reinterpret_cast<char*>(pre.data()), preN);
+        pre.resize(static_cast<size_t>(f.gcount()));
+    }
+    if (pre.size() >= 3 && std::memcmp(pre.data(), "ID3", 3) == 0) {
+        if (pre.size() < 10) { err = "tag truncated"; return false; }
+        // 선언 태그 끝까지 read(D2 "필요 범위만 read" 원칙 — 커버 프레임이
+        // 필요한 범위. kTagHeadCap는 스캔 1패스 상한 — 편집 지점 단발 read는
+        // 이 안쪽에 갇히지 않는다 · 재량 상한 kTagWriteMax 16MiB).
+        const unsigned long long declared =
+            10 + SyncSafe32(pre.data() + 6);
+        const size_t footer =
+            (pre[3] == 4 && (pre[5] & 0x10)) ? 10u : 0u;
+        const unsigned long long needU = declared + footer;
+        if (needU > static_cast<unsigned long long>(total)) {
+            err = "tag truncated";
+            return false;
+        }
+        if (needU > kTagWriteMax) { err = "tag too large"; return false; }
+        std::vector<unsigned char> head(pre.begin(), pre.end());
+        head.resize(static_cast<size_t>(needU));
+        f.seekg(0, std::ios::beg);
+        f.read(reinterpret_cast<char*>(head.data()),
+               static_cast<std::streamsize>(head.size()));
+        if (f.gcount() != static_cast<std::streamsize>(head.size())) {
+            err = "read";
+            return false;
+        }
+        Id3TagInfo tag;
+        if (!ReadId3Tag(head.data(), head.size(), tag, err)) return false;
+        for (const Id3FrameRec& rec : tag.frames) {
+            if (rec.id != "APIC" || rec.body.empty()) continue;
+            // APIC 본문: [enc][mime][NUL][desc][NUL][picture] — 인코딩 0/1
+            // 모두 지원(브리프 계약 — mime 해독은 enc에 따라 Latin-1/UTF-16).
+            const int enc = rec.body[0];
+            size_t i = 1;
+            size_t mimeEnd = 0, unit = 1;
+            if (!FindId3TextTerm(rec.body.data() + i, rec.body.size() - i,
+                                 enc, mimeEnd, unit))
+                continue;  // 파손 APIC — 다음 후보(첫 유효 계약)
+            const std::string rawMime = DecodeId3Text(
+                rec.body.data() + i, mimeEnd, enc);
+            const size_t di = i + mimeEnd + unit;  // desc 시작
+            if (di > rec.body.size()) continue;
+            size_t descEnd = 0, descUnit = 1;
+            if (!FindId3TextTerm(rec.body.data() + di,
+                                 rec.body.size() - di, enc, descEnd,
+                                 descUnit))
+                continue;
+            const size_t picOff = di + descEnd + descUnit;  // 그림 원문 시작
+            if (picOff > rec.body.size()) continue;
+            const std::string mime = NormalizeCoverMime(rawMime);
+            if (mime.empty()) continue;
+            out.mime = mime;
+            out.bytes.assign(rec.body.data() + picOff,
+                             rec.body.data() + rec.body.size());
+            return true;
+        }
+        err = "no_cover";
+        return false;
+    }
+    if (pre.size() >= 4 && std::memcmp(pre.data(), "fLaC", 4) == 0) {
+        err = "unsupported_format";  // T2 몫 — 정직 거부
+        return false;
+    }
+    if (pre.size() >= 4 && std::memcmp(pre.data(), "OggS", 4) == 0) {
+        err = "unsupported_format";
+        return false;
+    }
+    if (pre.size() >= 12 && std::memcmp(pre.data(), "RIFF", 4) == 0 &&
+        std::memcmp(pre.data() + 8, "WAVE", 4) == 0) {
+        err = "unsupported_format";
+        return false;
+    }
+    // 매직 없는 mp3 — 커버는 v2 APIC의 몫(v1에는 그림 필드가 없다).
+    err = "no_cover";
+    return false;
+}
+
+// ---- 태그 쓰기 (T1 = mp3 leg — 확장자+스니프 분기, D5·D6) ----
+
+// mp3: WriteId3v2.3 — 기존 v2 크기 산출 → 새 태그 크기 계산 → 패딩 조절
+// (기존 태그 = 선언 본문 크기 유지 — 오디오 데이터 제자리, content 초과분만
+// 재배치; 신설 = 패딩 1KB) → [기존 태그 끝, EOF) 스트림 복사(전체 파일
+// rewrite·D6 원자적 — 64KB 분절, 오디오+ID3v1 말미 원문). cover != null =
+// APIC 교체(기존 APIC 보존에서 제외), null = 기존 APIC 원문 유지. FLAC/
+// Ogg/WAV 등 다른 형식 = 정직 거부("unsupported_format" — T2 몫). 확장자/
+// 스니프 불일치·0바이트("empty")·구조 파산 = 정직 거부+원본 무변경.
+inline bool WriteTag(const std::string& path, const TagSet& t,
+                     const CoverArt* cover /* null = 기존 APIC 유지 — err 전
+                                            참조라 기본값 없음(비후행 계약) */,
+                     std::string& err) {
+    err.clear();
+    namespace fs = std::filesystem;
+    std::ifstream f(fs::path(path), std::ios::binary);
+    if (!f.is_open()) { err = "open"; return false; }
+    f.seekg(0, std::ios::end);
+    const std::streamoff total = f.tellg();
+    if (total < 0) { err = "size"; return false; }
+    if (total == 0) { err = "empty"; return false; }
+    // 머리 12B 프리읽 — 스니프(선단 매직이 진실원, 확장자 보조 분기).
+    std::vector<unsigned char> pre;
+    {
+        const std::streamoff preN = total < 12 ? total : 12;
+        pre.resize(static_cast<size_t>(preN));
+        f.seekg(0, std::ios::beg);
+        f.read(reinterpret_cast<char*>(pre.data()), preN);
+        pre.resize(static_cast<size_t>(f.gcount()));
+    }
+    bool hasV2 = false;
+    Id3TagInfo old;
+    if (pre.size() >= 3 && std::memcmp(pre.data(), "ID3", 3) == 0) {
+        if (pre.size() < 10) { err = "tag truncated"; return false; }
+        // 선언 태그 끝(+푸터)까지 프리읽 — 커버 포함 대형 태그도 온전히 다룬다
+        // (kTagHeadCap는 스캔 1패스 상한 — 쓰기 leg의 구속 아님·kTagWriteMax).
+        const unsigned long long declared = 10 + SyncSafe32(pre.data() + 6);
+        const size_t footer = (pre[3] == 4 && (pre[5] & 0x10)) ? 10u : 0u;
+        const unsigned long long needU = declared + footer;
+        if (needU > static_cast<unsigned long long>(total)) {
+            err = "tag truncated";
+            return false;
+        }
+        if (needU > kTagWriteMax) { err = "tag too large"; return false; }
+        std::vector<unsigned char> head(pre.begin(), pre.end());
+        head.resize(static_cast<size_t>(needU));
+        f.seekg(0, std::ios::beg);
+        f.read(reinterpret_cast<char*>(head.data()),
+               static_cast<std::streamsize>(head.size()));
+        if (f.gcount() != static_cast<std::streamsize>(head.size())) {
+            err = "read";
+            return false;
+        }
+        if (!ReadId3Tag(head.data(), head.size(), old, err)) return false;
+        hasV2 = true;
+    } else if (pre.size() >= 4 &&
+               std::memcmp(pre.data(), "fLaC", 4) == 0) {
+        err = "unsupported_format";  // T2 몫 — 정직 거부(원본 무변경)
+        return false;
+    } else if (pre.size() >= 4 &&
+               std::memcmp(pre.data(), "OggS", 4) == 0) {
+        err = "unsupported_format";
+        return false;
+    } else if (pre.size() >= 12 &&
+               std::memcmp(pre.data(), "RIFF", 4) == 0 &&
+               std::memcmp(pre.data() + 8, "WAVE", 4) == 0) {
+        err = "unsupported_format";
+        return false;
+    } else {
+        // 매직 없음 — mp3 원존(v1-raw leg)만 신설 대상. 그 외 = 정직 거부.
+        const std::string ext =
+            std::filesystem::path(path).extension().string();
+        if (jk::crt::Stricmp(ext.c_str(), ".mp3") != 0) {
+            err = "unsupported_format";
+            return false;
+        }
+    }
+    const size_t oldEnd = hasV2 ? old.end : 0;
+    if (oldEnd > static_cast<size_t>(total)) {  // 방어선(프리읽 게이트 중복)
+        err = "tag truncated";
+        return false;
+    }
+    // ---- 새 사슬 조립 (D5 교체/보존) ----
+    std::vector<unsigned char> body;
+    // 관리 텍스트 프레임 — 인코딩 1(UTF-16LE+BOM) 고정 통일. 빈 필드 = 생략
+    // (사슬 재구성이 기존 프레임을 교체하므로 빈값 = 비움 쓰기와 등치).
+    if (!t.title.empty()) AppendId3TextFrame(body, "TIT2", t.title);
+    if (!t.artist.empty()) AppendId3TextFrame(body, "TPE1", t.artist);
+    if (!t.album.empty()) AppendId3TextFrame(body, "TALB", t.album);
+    if (cover != nullptr) {
+        // APIC 교체 — mime 정규화+이미지 원문(빈 커버·미지 mime = 정직 거부).
+        if (cover->bytes.empty()) { err = "cover empty"; return false; }
+        const std::string mime = NormalizeCoverMime(cover->mime);
+        if (mime.empty()) { err = "cover mime missing"; return false; }
+        if (mime != "image/jpeg" && mime != "image/png" &&
+            mime.rfind("image/", 0) != 0) {
+            err = "cover mime unsupported";
+            return false;
+        }
+        AppendId3ApicFrame(body, mime, cover->bytes);
+    }
+    // 기존 프레임 원문 복제(D5 — TCON 장르 복제+해석 불가 프레임 drop 금지).
+    // 관리 프레임(TIT2/TPE1/TALB·cover 지정 시 APIC)은 새 프레임이 교체하므로
+    // 복제에서 뺀다. cover != null = 기존 APIC 원문 유지(브리프 계약 —
+    // 재합성 대신 프레임 바이트 보존 leg, 더 원문 보존).
+    for (const Id3FrameRec& rec : old.frames) {
+        if (rec.id == "TIT2" || rec.id == "TPE1" || rec.id == "TALB") continue;
+        if (rec.id == "APIC" && cover != nullptr) continue;
+        AppendId3Frame(body, rec.id.c_str(), rec.body.data(), rec.body.size(),
+                       rec.v23flags);
+    }
+    // 패딩 조절(D5) — 기존 태그: 선언 본문 크기 유지(오디오 제자리 — content
+    // 초과분만 재배치·대형 커버 소멸 시 잔여 패딩은 무해 잔산, 리포트 부기).
+    // 신설: 패딩 1KB.
+    const size_t pad =
+        hasV2 ? (old.bodySize > body.size() ? old.bodySize - body.size() : 0)
+              : 1024u;
+    std::vector<unsigned char> tag;
+    tag.reserve(10 + body.size() + pad);
+    tag.push_back('I');
+    tag.push_back('D');
+    tag.push_back('3');
+    tag.push_back(0x03);  // v2.3 (D5 정규화 — v2.4 syncsafe 재작성 금지)
+    tag.push_back(0x00);
+    tag.push_back(0x00);  // 플래그 0 — 평문 사슬
+    if (!WrSyncSafe32(tag, static_cast<unsigned long long>(body.size()) + pad)) {
+        err = "tag too large";
+        return false;
+    }
+    tag.insert(tag.end(), body.begin(), body.end());
+    tag.resize(10 + body.size() + pad);  // 패딩 = 0x00(resize 채움)
+    // ---- 원자적 쓰기 (D6) — .tagtmp → fsync → rename(선례 승계) ----
+    const std::string tmp = path + "." + std::to_string(ThisProcessId()) +
+                            ".tagtmp";
+    {
+        TagFileWriter w;
+        if (!w.Open(fs::path(tmp))) { err = "tmp open failed"; return false; }
+        const auto fail = [&](const char* e) {
+            w.Close();
+            std::error_code rec;
+            fs::remove(fs::path(tmp), rec);  // tmp 소각 — 잔산 방지
+            err = e;
+            return false;
+        };
+        if (!w.WriteAll(tag.data(), tag.size()))
+            return fail("tmp write failed");
+        // 오디오 데이터(말미 v1 포함) 스트림 복사 — [oldEnd, total) 원문.
+        f.clear();
+        f.seekg(static_cast<std::streamoff>(oldEnd), std::ios::beg);
+        std::vector<char> chunk(64 * 1024);
+        std::streamoff left = total - static_cast<std::streamoff>(oldEnd);
+        while (left > 0) {
+            const std::streamsize want =
+                left < static_cast<std::streamoff>(chunk.size())
+                    ? static_cast<std::streamsize>(left)
+                    : static_cast<std::streamsize>(chunk.size());
+            f.read(chunk.data(), want);
+            const std::streamsize got = f.gcount();
+            if (got != want) return fail("audio read failed");
+            if (!w.WriteAll(reinterpret_cast<const unsigned char*>(
+                                chunk.data()),
+                            static_cast<size_t>(got)))
+                return fail("tmp write failed");
+            left -= got;
+        }
+        if (!w.FlushToDisk()) return fail("fsync failed");  // D6 fsync 계약
+        w.Close();
+    }
+    f.close();  // 원본 핸들 해제 — Windows rename 교체의 공유 핸들 충돌 소각
+    // 교체 rename — MusicDirStore WriteSettingsAtomic 선례 승계(1세대 교체,
+    // 실패만 .bak 사다리+복원 — 원본 무손상 계약).
+    std::error_code ec;
+    fs::rename(fs::path(tmp), fs::path(path), ec);
+    if (!ec) return true;
+    const std::string bak = path + ".bak";
+    fs::remove(fs::path(bak), ec);
+    if (ec) {
+        std::remove(tmp.c_str());
+        err = "bak remove failed";
+        return false;
+    }
+    ec.clear();
+    fs::rename(fs::path(path), fs::path(bak), ec);
+    if (ec) {
+        std::remove(tmp.c_str());
+        err = "original backup failed";
+        return false;
+    }
+    ec.clear();
+    fs::rename(fs::path(tmp), fs::path(path), ec);
+    if (ec) {
+        std::error_code rec;
+        fs::rename(fs::path(bak), fs::path(path), rec);  // 원본 복원 시도
+        std::remove(tmp.c_str());
+        err = "rename failed";
+        return false;
+    }
+    std::error_code bc;
+    fs::remove(fs::path(bak), bc);  // 성공 세대의 이주 잔산 소각 — 무해 잔산
+    return true;
 }
 
 } // namespace tags
