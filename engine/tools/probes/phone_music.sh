@@ -346,7 +346,7 @@ FAIL() { echo "MUSP-FAIL: $*"; exit 1; }
 echo "PHONE-HOST: 환경변수 지정 사용 (기록 금지 — 자리표시 PHONE_HOST=<폰>; 스캔 폴백 없음)"
 echo "HEAD: $(git -C "$GITROOT" rev-parse HEAD 2>/dev/null || echo rev-parse-failed)"
 echo "BASE-ANCHOR(마지막 폰 배포): $PHONE_DEPLOY_BASE"
-echo "LINEAGE(폰): selftest 565(2i 19·2g 40·2m 0) → 591(2m 26 흡수) → 608(2n 17 흡수 — 실측) → 624 = 608 + 2o 16(2o-a..e 10 + 2o-f 4 + 2o-g 2 — 실측 정산, WSL 624 등호) → 638 = 624 + 2p 7 + 2q 7 (스캔 취소 라인 T4 — #93·#94 코드 원문 배포 이관 — **실측 2026-10-10 T4 2런: PASS=638 FAIL=0·2p=7·2q=7 — WSL 638 등호**) → **668 = 638 + 2r 10 + 2s 20 (T1 77323b1 태그 라인 — 코드 원문 배포 이관 — 갭 소각 배포 절차 — 2026-10-25 오전 재실측 run8 원문: HEAD f1ac76d SWEEP-DIFF=0·CANON-INCLUSION=MUSIC-FULL-2P2QRS-30·WSL 668 등호)** → **#111 T6 기대 795 = 668 + 2u 127 (태그 쓰기 라인 T1 15c2bb4 2u ①-⑦ 47·T2 2973933 ⑧-⑭ 57·T4 5b95c63 ⑮ 23 — 코드 원문 배포 이관 — WSL 795 등호·Win 818 계보 — 실측 후 CANON 정산 계약 승계)**"
+echo "LINEAGE(폰): selftest 565(2i 19·2g 40·2m 0) → 591(2m 26 흡수) → 608(2n 17 흡수 — 실측) → 624 = 608 + 2o 16(2o-a..e 10 + 2o-f 4 + 2o-g 2 — 실측 정산, WSL 624 등호) → 638 = 624 + 2p 7 + 2q 7 (스캔 취소 라인 T4 — #93·#94 코드 원문 배포 이관 — **실측 2026-10-10 T4 2런: PASS=638 FAIL=0·2p=7·2q=7 — WSL 638 등호**) → **668 = 638 + 2r 10 + 2s 20 (T1 77323b1 태그 라인 — 코드 원문 배포 이관 — 갭 소각 배포 절차 — 2026-10-25 오전 재실측 run8 원문: HEAD f1ac76d SWEEP-DIFF=0·CANON-INCLUSION=MUSIC-FULL-2P2QRS-30·WSL 668 등호)** → **#111 T6 795 = 668 + 2u 127 (태그 쓰기 라인 T1 15c2bb4 2u ①-⑦ 47·T2 2973933 ⑧-⑭ 57·T4 5b95c63 ⑮ 23 — 2026-10-25 T6 체인 런 원문: PHONE-SELFTEST PASS=795 FAIL=0·2u=127 — WSL 795 등호)** → **#112 T5 기대 814 = 795 + fix 5(#111 최종 f33d41a F1-F2 — 폰 미흡수분 승계)+2v 14(#112 T1 2v-a 4·T2 2v-b/c 6·T3 2v-d 4 — 구두 판정부+사슬 — WSL 814 등호)**"
 SSH="ssh -p $PHONE_PORT -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=10 -i $PHONE_KEY $PHONE_USER@$PHONE_HOST"
 
 # ------------------------------------------------------------------ 0. 전수 sweep
@@ -652,12 +652,12 @@ NLOG="$TMPD/pmus_ninja.log"
 STLOG="$TMPD/pmus_selftest.log"
 ORIG="$TMPD/pmus_orig_settings.json"
 PERM_ORIG="$TMPD/pmus_orig_permissions.json"
-CANON_PHONE_PREV=668      # 폰 기존 캐논(2r 10+2s 20 흡수 — **2026-10-25 오전 재실측 run8 실측 668 등호** — 비교 원문)
-CANON_PHONE_EXPECT=795    # 668 + 2u 127건(#111 태그 쓰기 라인 — T1 15c2bb4 2u ①-⑦ 47
-                          #   + T2 2973933 ⑧-⑭ 57 + T4 5b95c63 ⑮ 23 — **기대 원문**
-                          #   (WSL 795 등호 — Win 818 계보 — 실측 후 CANON 정산 계약
-                          #   승계)·구 638/668 정산은 계보 라인 보존)
-CANON_PHONE_2U=127        # T1 47(①-⑦) + T2 57(⑧-⑭) + T4 23(⑮) — **배포 이관 실측 산치**(2u 계보 — WSL 127 등호)
+CANON_PHONE_PREV=795      # 폰 기존 캐논(#111 T6 실측 795 FAIL=0 — 2u 127 흡수 — 비교 원문; 668 era는 계보 라인 보존)
+CANON_PHONE_EXPECT=814    # #112 T5 배포 기대 = 795 + #111 최종 fix 5(f33d41a F1-F2 — 폰 미흡수분) + 2v 14(#112 T1 2v-a 4·T2 2v-b/c 6·T3 2v-d 4) = WSL 814 등호 — **795→800 승계(폰 fix 5 몫)+2v 흡수** 원장행
+                          #   구 795 = 668 + 2u 127(#111 — T1 15c2bb4 2u ①-⑦ 47
+                          #   + T2 2973933 ⑧-⑭ 57 + T4 5b95c63 ⑮ 23 — 계보 라인 보존)
+CANON_PHONE_2U=132        # T1 47(①-⑦) + T2 57(⑧-⑭) + T4 23(⑮) + fix 5(f33d41a F1-F2 — **WSL 실측 2026-10-25 등호 132** — T5 승계 정산; 구 795-계보는 127 원장행)
+CANON_PHONE_2V=14         # #112 T1-T4 2v 계보 구두 판정부+사슬 (2v-a 4·2v-b/c 6·2v-d 4 — WSL 14 등호 — 814 산칭 원료)
 CANON_PHONE_2R=10         # #97 T1 2r 8 + fix r1 2r-b/c 2 — **배포 이관 실측 산치**(638-era 바이너리 갭 원장)
 CANON_PHONE_2S=20         # T1 77323b1 2s 20건(#99 태그 라인 — 신설 본 배포 실측 산치)
 CANON_PHONE_2M=26
@@ -1017,7 +1017,7 @@ echo "MARKER-AFTER music_model($MM) cmake($MC) main_2m($MT) main_2p($MP2) main_2
 [ "$MMSC" -ge 1 ] || FAIL "scanCancel_ wiring marker missing on phone (T2 취소 배선 배포 결손)"
 [ "$MP" -ge 1 ] || FAIL "DelegationReplyVerdict marker missing on phone (fix r3 배포 결손)"
 
-echo "=== H. selftest — 폰 캐논 계보 판정 (원문: 668 = 638 + 2r 10(#97) + 2s 20(#99) — 2026-10-25 오전 재실측 등호 · 기대 795 = 668 + 2u 127(#111 태그 쓰기 T1 15c2bb4 ①-⑦ 47 + T2 2973933 ⑧-⑭ 57 + T4 5b95c63 ⑮ 23 — 코드 원문 배포 이관) — WSL 795 등호 기대 — 실측 후 CANON 정산) ==="
+echo "=== H. selftest — 폰 캐논 계보 판정 (원문: #111 T6 원문 795 = 668 + 2u 127 · 기대 814 = 795 + fix 5(#111 최종 f33d41a — 폰 미흡수분 — 795→800 승계)+2v 14(#112 T1-T4 구두 — WSL 814 등호) — 실측 후 CANON 정산) ==="
 timeout 900 ./buildterm/jkdesktop test >"$STLOG" 2>&1
 S_RC=$?
 ST_PASS=$(grep -ac '^\[PASS\]' "$STLOG")
@@ -1033,24 +1033,25 @@ P2Q=$(grep -ac '^\[PASS\] 2q' "$STLOG")
 P2R=$(grep -ac '^\[PASS\] 2r' "$STLOG")
 P2S=$(grep -ac '^\[PASS\] 2s' "$STLOG")
 P2U=$(grep -ac '^\[PASS\] 2u' "$STLOG")
+P2V=$(grep -ac '^\[PASS\] 2v' "$STLOG")
 P2I=$(grep -ac '^\[PASS\] 2i' "$STLOG")
 P2G=$(grep -ac '^\[PASS\] 2g' "$STLOG")
-echo "PHONE-SELFTEST rc=$S_RC PASS=$ST_PASS FAIL=$ST_FAIL 2m=$P2M(2m-h=$P2MH) 2i=$P2I 2g=$P2G 2n=$P2N 2o=$P2O(2o-f=$P2OF 2o-g=$P2OG) 2p=$P2P 2q=$P2Q 2r=$P2R 2s=$P2S 2u=$P2U (music 라인 2m·2n·2o + 취소 경계 2p + 경로 인코딩 2q + #97 브라우저 2r + 태그 2s + #111 태그 쓰기 2u 계열 — 캐논 상승분의 원료 — 분해 병기: 정산 판별 몫)"
+echo "PHONE-SELFTEST rc=$S_RC PASS=$ST_PASS FAIL=$ST_FAIL 2m=$P2M(2m-h=$P2MH) 2i=$P2I 2g=$P2G 2n=$P2N 2o=$P2O(2o-f=$P2OF 2o-g=$P2OG) 2p=$P2P 2q=$P2Q 2r=$P2R 2s=$P2S 2u=$P2U 2v=$P2V (music 라인 2m·2n·2o + 취소 경계 2p + 경로 인코딩 2q + #97 브라우저 2r + 태그 2s + #111 태그 쓰기 2u + #112 구두 2v 계열 — 캐논 상승분의 원료 — 분해 병기: 정산 판별 몫)"
 grep -a 'AppSelfTest' "$STLOG" | tail -2
 grep -aq 'AppSelfTest: 0 failure(s)' "$STLOG" || FAIL "AppSelfTest not 0 failure(s)"
 [ "$S_RC" -eq 0 ] || FAIL "selftest rc=$S_RC"
 [ "$ST_FAIL" -eq 0 ] || FAIL "selftest FAIL=$ST_FAIL (폰축 회귀)"
 awk -v p="$ST_PASS" -v m="$P2M" -v h="$P2MH" -v n="$P2N" -v o="$P2O" -v of="$P2OF" -v og="$P2OG" \
-    -v pf="$P2P" -v qf="$P2Q" -v rf="$P2R" -v sf="$P2S" -v uf="$P2U" \
+    -v pf="$P2P" -v qf="$P2Q" -v rf="$P2R" -v sf="$P2S" -v uf="$P2U" -v vf="$P2V" \
     -v prev="$CANON_PHONE_PREV" -v expect="$CANON_PHONE_EXPECT" -v exo="$CANON_PHONE_2O" \
     -v exn="$CANON_PHONE_2N" -v xp="$CANON_PHONE_2P" -v xq="$CANON_PHONE_2Q" -v xr="$CANON_PHONE_2R" \
     -v xs="$CANON_PHONE_2S" -v mm="$CANON_PHONE_2M" -v xu="$CANON_PHONE_2U" 'BEGIN{
     if (p == expect && o == exo && pf == xp && qf == xq && rf == xr && sf == xs && uf == xu)
-        printf "CANON-INCLUSION=MUSIC-FULL-2P2QRS-%d (폰 캐논 %s→%s 상승 — 2u %d건 흡수 (2r %d건+2s %d건 + 2p %d건+2q %d건 + 2m %d건[h %d 포함]·2n %d건·2o %d건[o-f %d·o-g %d] 보존) 실측 — WSL %s 등호)\n", p - prev, prev, p, uf, rf, sf, pf, qf, mm, h, n, o, of, og, expect
+        printf "CANON-INCLUSION=MUSIC-FULL-2P2QRS-%d (폰 캐논 %s→%s 상승 — 상승분 %d = #111 최종 fix 5 + 2v 14(#112 T1-T4 구두 — 2v=%d — 2u %d건·2r %d건+2s %d건 + 2p %d건+2q %d건 + 2m %d건[h %d 포함]·2n %d건·2o %d건[o-f %d·o-g %d] 보존) 실측 — WSL %s 등호)\n", p - prev, prev, p, p - prev, vf, uf, rf, sf, pf, qf, mm, h, n, o, of, og, expect
     else if (p == prev)
         print "CANON-INCLUSION=MUSIC-SELFTEST-MISSING (music selftest 쌍둥이 미반영 — 계보 결손 — 원장: 2u 배포 결손이면 668 정산 [WARN] — 2u=" xu ")"
     else
-        printf "CANON-INCLUSION=OTHER-N(%d — 기대 %d=%d+2u%d+2r%d+2s%d(2p%d+2q%d) · 2m=%d[h=%d]·2n=%d·2o=%d[o-f=%d o-g=%d]·2r=%d·2s=%d·2u=%d — 계보 정산 원장)\n", p, expect, prev, xu, xr, xs, xp, xq, m, h, n, o, of, og, rf, sf, uf
+        printf "CANON-INCLUSION=OTHER-N(%d — 기대 %d=%d+fix5+2v14(2v=%d) · 2u=%d·2r=%d·2s=%d(2p=%d+2q=%d) · 2m=%d[h=%d]·2n=%d·2o=%d[o-f=%d o-g=%d] — 계보 정산 원장)\n", p, expect, prev, vf, xu, rf, sf, xp, xq, m, h, n, o, of, og
 }'
 
 # ---------------------------------------------------------------- 레그 공통
@@ -3679,13 +3680,15 @@ done
 TW_OK=0
 if [ "${TW_STAGE_L:-0}" -eq 1 ] && [ "${TW_LAND_L:-0}" -eq 1 ] \
    && [ "${TW_W1_L:-0}" -eq 1 ] && [ "${TW_W2_L:-0}" -eq 1 ] \
-   && [ "${TW_WF_L:-0}" -eq 1 ] && [ "$TW_CAPT_OK" -eq 1 ]; then
+   && [ "${TW_WF_L:-0}" -eq 1 ] && [ "$TW_CAPT_OK" -eq 1 ] \
+   && [ "${TW_RT_L:-0}" -eq 1 ] && [ "${TW_KEEP_L:-0}" -eq 1 ] \
+   && [ -n "${TW_MD5_L:-}" ] && [ "${TW_MD5_L:-}" = "${TW_COVER_MD5:-}" ]; then
     TW_OK=1
 fi
 if [ "$TW_OK" -eq 1 ]; then
-    echo "MUSIC-TAGWRITE-PHONE-VERDICT: TW-OK(N6 — TW 시드 랜딩[N5 캡처 뒤 — 3행 계약 무오염]·music_tag_write relay 쓰기 3콜[cover jpg 마법수·cover=null APIC 유지·FLAC 코멘트 신설]·재독 표기 원문 = 파일 수준 round-trip[title/artist/album+APIC md5 등호 2콜=$TW_MD5_L]+FLAC 블록 재조립($TW_FLAC_L·STREAMINFO 보존)+목록 행 캡처 3종[행 32px 커버 썸네일+[편집] UI 표기 원문 — T3 배포] — **표기·썸네일 자체는 캡처 육안 몫(EYES)**·필터 라운드 = 폰 스킵 원장(폰 타이핑 스킵 승계 — N5) — 육안 스탭 대기)"
+    echo "MUSIC-TAGWRITE-PHONE-VERDICT: TW-OK(N6 — TW 시드 랜딩[N5 캡처 뒤 — 3행 계약 무오염]·music_tag_write relay 쓰기 3콜[cover jpg 마법수·cover=null APIC 유지·FLAC 코멘트 신설]·재독 표기 원문 = 파일 수준 round-trip[title/artist/album+APIC md5 등호 2콜=$TW_MD5_L]+FLAC 블록 재조립($TW_FLAC_L·STREAMINFO 보존)+목록 행 캡처 3종[행 32px 커버 썸네일+[편집] UI 표기 원문 — T3 배포] — **게이트 채용(T5 정산): cover_rt/apic_keep/md5 등호가 TW_OK 본조건으로 승계(WSL 18h 등형 — 합성 cover md5 $TW_COVER_MD5 대차 — 원장행)** — 표기·썸네일 자체는 캡처 육안 몫(EYES)·필터 라운드 = 폰 스킵 원장(폰 타이핑 스킵 승계 — N5) — 육안 스탭 대기)"
 else
-    echo "MUSIC-TAGWRITE-PHONE-VERDICT: TW-FAIL(honest-fail — 행별 사유는 N6; summary=${TWSUM:-none} caps=$TW_CAPT_OK)"
+    echo "MUSIC-TAGWRITE-PHONE-VERDICT: TW-FAIL(honest-fail — 행별 사유는 N6; summary=${TWSUM:-none} caps=$TW_CAPT_OK cover_rt=${TW_RT_L:-n/a} apic_keep=${TW_KEEP_L:-n/a} md5=${TW_MD5_L:-none}(기대=${TW_COVER_MD5:-n/a}) — 게이트 채용(T5 정산): cover_rt/apic_keep/md5 비등호 = FAIL 사유 열)"
 fi
 echo "TW-RUN-VALS: run=${MUSP_TW_RUN:-1} stage=${TW_STAGE_L:-0} land=${TW_LAND_L:-0} writes=${TW_W1_L:-0}/${TW_W2_L:-0}/${TW_WF_L:-0} cover_rt=${TW_RT_L:-0} apic_keep=${TW_KEEP_L:-0} flac=${TW_FLAC_L:-none} canon_phone=${CANON%% (*} captures=$TW_CAPT_OK"
 echo "TW-RUN-CAP: run=${MUSP_TW_RUN:-1} list=[$(wc -c < "$SCRATCH/mus_phone_tagwrite_list.png" 2>/dev/null | tr -d ' ' || echo 0)B] list2=[$(wc -c < "$SCRATCH/mus_phone_tagwrite_list2.png" 2>/dev/null | tr -d ' ' || echo 0)B] flac=[$(wc -c < "$SCRATCH/mus_phone_tagwrite_flac.png" 2>/dev/null | tr -d ' ' || echo 0)B]"
