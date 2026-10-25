@@ -393,6 +393,17 @@ status 절단 악형) → T2 fix r1 re-review **APPROVE 재확정**(C0/I0/M0 —
 | --- | --- | --- | --- |
 | T4 부기 | JK APK 라인 커밋 체인(1행 — rev-parse 전체 SHA = docs/92 §0 — git log가 진실원): **6a7d6d7(스펙) → 32a74d5(스펙 전환 — D2 v1 얇은 타이핑) → 432f4d7(스펙 정정+플랜) → eb4de96(T1) → ad3834d(T1 fix r1) → 0f18157(T2) → cce4420(T3 — probe 신설)**+ 본 T4 커밋 | N | 1행 등록 — docs/92 §8 커밋 원장과 등호 · 잔여 원장행(설치·런치·발화 EYES·LLM 스파이크 자리)은 docs/92 §5-§7이 소관 · **엔진 ninja 캔논 무접촉 라인 — 캐논 계보는 #112 계보(Win 837/WSL 814/posix 304/폰 814) 그대로 유지(표기 — 재측정 0)** |
 
+### §4.1-8 신규 park 행(#113 사용→리뷰 루프 라인 — §7.11 승계 · **아래는 추가만,
+기존 행 변형 금지** · 본 라인 원장 = 본 문서 §7.11):
+
+| 출처 | 항목 | 등급 | 처분 근거 |
+| --- | --- | --- | --- |
+| T1 deferred | 저널 회전/사이즈 상한 부재(v1 비-목표 — append 전용·상한 코드 0) + 핫 경로 per-call fopen+fflush 지연(~ms — 저널 볼륨 증가 시 배치 flush 검토) | M | 사용 실측 볼륨이 콜 수 비례 소량 — 운영 정산 후보(수확 라인 후속) |
+| T1 원장 | 2w-② "도구 응답 ok 무영향"은 구조적 어설션(실 dispatch 도표 아님 — writer void·무예외·훅 반환 미소비 2계약의 조합)·`err:"parked"`는 스펙 밖 재량 상수 | M | 실기기 콜 원문은 T2 harvest 2런에서 확보 완료(journal 행 원문) — parked 상수는 T2 저널 파싱 계약과 정합 — 기각 시 즉시 수리 |
+| T2 deferred | JsonEsc `{}` 유니코드 이스케이프 인쇄가 저널 arg 가독성을 누름(계약 무접촉 — 사람 읽기 형태)·저널 tail 20 vs 스펙 200 정산 후보·pgrep -x 타서버 매치(같은 exe명 서버 다중 환경)·OBSERVE bridge_report 위치 = jkbridge ExeDir 규약 의존 | M | 다음 probe 손때 몫 — 전원 파싱·판정 무영향 |
+| T2 원장 | 드라이버의 "no-op guard" 명명 명령이 실제로는 probe 1런 실행이었다(행 10→15 — 명명 부정확 원장행 — 판정 무영향)·WSL pre-clean = 라이브 동빌드 서버 종료 접점(wsl_* 선형 원존)·분류 err 시료가 close_window deny 1종(폰 재배포 후 agentctl 다양 접점에서 err 다양 원문 몫) | N | 원장 기록으로 소화 — 재발 방지(명명=원장 사건) |
+| T2 fix r2 | FAIL 출구 잔상(리뷰 Important 1건) — trap EXIT 래더 1원 재용 수형 **소각**(5fce208) — 실험 원문: OK 런 REMNANT 0+failsim(pingxx=not_implemented) FAIL→HARV-TEARDOWN-LEFT: 0+실행 후 pgrep 0 | M | 소각 원장행 — 실험 부기: failsim 런이 저널에 `not_implemented` err 행 1행을 추가(probe 소유 — 분류 요약 err 시료 2종째 — 의도치 않은 다양성 성과) |
+
 ## §5. 사용자 결제 게이트 (EYES-PENDING 봉인)
 
 **EYES-PENDING — 라인 최종 결제는 사용자 육안/청안 선언만으로 성립한다. probe와
@@ -415,6 +426,27 @@ MUS-PHONE-OK는 수치 영수증 라인이지 육안/청안 선언 아님). 본 
 | ⑪ | **스캔 안전화 캡처+체감 — 폰 (§7.7)** | `mus_phone_scan_busy.png`+`mus_phone_rescan_settled.png`(crop 2종 동봉 — 캡처 11종 보존 — 200,000/트리 실측)+close→소멸 1.25s·폐기 0.62s 경계의 체감 — 사용자 선언만 결제 | **대기(육안·체감)** |
 | ⑫ | **한글 트랙 재생 재시도 — #94 결제 (§7.7)** | 더블클릭(위임) 재생 **사용자 재시도** — 사용자 보고 문제("파일을 찾을 수 없습니다")의 실기기 결제 — vplayer fs 게이트+SpatialStart `Utf8ToAnsi` 네이티브 수취 수형의 최종 결제 | **대기(실기기)** |
 | ⑬ | **폰 Music 런처 아이콘 (§7.7 병행 — 배포)** | 사용자 "폰 화면에 뮤직 안 보임" — Music 런처 아이콘 설치 배치가 본 T5와 **병렬 dispatch**(배포 절차 계약 전부 — 본 라인 밖 소관·별도 원장) | **대기(별도 배치)** |
+
+### §5.1 EYES 결제 행 규약 (#113 D4 — 형식만 규약 · 2026-10-26) · **사용자 선언만 결제 원칙 불변**
+
+위 §5 표(그리고 이 뒤의 §7.x EYES 표 전부)의 결제 상태 행은 #113 D4 형식을
+쓴다 — **결제를 성립시키는 것은 여전히 사용자 선언뿐이고, 이 규약은 기록의
+형식만 고정한다**(probe·본 문서는 결제를 기록하지 않는다 — §5 원칙 그대로):
+
+> `EYES-<라인/항목>: <PASS|FAIL|PENDING> — <사용자 원문 인용 1줄>`
+
+- `PASS|FAIL|PENDING` = 결제 상태 3치 뿐 — probe 영수증(rc=0·VERDICT 행)은
+  이 상태가 될 수 없다(수치 영수증 ≠ 육안/청안 선언). `PENDING` = 선언 미접수.
+- 사용자 원문 인용은 **1줄·각주 없이 그대로** — 요약·의역·조합 금지(원문 정직
+  문화 — docs/90 §5 ⑫ "파일을 찾을 수 없습니다" 표기 선례).
+- 이 폼으로 회수 가능한 최근 사례(예시 원장행 — 출처 원존·상태는 출처 표기 그대로):
+
+| 예시 행 | 출처 원문 |
+| --- | --- |
+| `EYES-#97 폰 위임 재생: PASS — "재생 잘 되네요"` | 2026-10-11 사용자 선언 — 기억창고 갱신 57/59 원문(폰 폴더 브라우저 결과 결제) |
+| `EYES-#94 한글 트랙 재생: FAIL — "파일을 찾을 수 없습니다"` | 사용자 보고 — docs/90 §5 ⑫ 원문(수형 vplayer fs 게이트+Utf8ToAnsi 후 재시도 = ⑫ 게이트 대기) |
+| `EYES-#97 폰 Music 런처 아이콘: FAIL — "폰 화면에 뮤직 안 보임"` | 사용자 보고 — docs/90 §5 ⑬ 원문(#95 그리드 개방 T4에서 Music 아이콘 등장 실측 소각 — §7.8.2) |
+| `EYES-#114 APK 홈 창 실행: PENDING — "지뢰찾기 창은 실행됨"` | 2026-10-25 사용자 실측 보고 — docs/92 §7 ① 원장행(**원장행 ≠ 결제** — 확정 선언 대기) |
 
 ## §6. 커밋 원장 + IP grep 게이트
 
@@ -2087,3 +2119,131 @@ ruling**: 본 diff 무접촉·좌표 재보정 = 탭 좌표 원장행 별소관+
   crops 3종+t6_grid/t6_music_win 2종·드라이버/정찰 스크립트 3종
   (t111_t6_deploy/scan/chain — engine/tmp 미커밋 원장 계승 = §4.1-4 T4
   concern 4 동형)는 engine/tmp untracked — 커밋 금지 충족.
+## §7.11 사용→리뷰 루프 원장 (#113 라인 — T1-T3, 2026-10-26)
+
+#113 라인 원장 — 사이클 지도 `docs/use-review-update-cycle-map.md`의 **빈 조각
+3건(①사용 저널·②수확·③체감 규약)**을 실장하는 라인. 스펙=
+`docs/superpowers/specs/2026-10-26-use-review-cycle-design.md`(188a2f7 — D1-D6),
+플랜=`docs/superpowers/plans/2026-10-26-use-review-cycle.md`(dd625ce),
+SDD 원장=`.superpowers/sdd/2026-10-26-use-review-cycle/`(task-1..3 리포트+review
+diff 2종+ollama-direct-flags-report — 미커밋 관행). 라인 원칙: 저널은 **추가만**
+(D5 — events_list·read_receipts 족적 0)·probe는 소싱을 agentctl로 하지 않고
+**서버 파일 직독**(T2 §계약)·리뷰 루프의 실행 주체는 세션(자동 패치 0 — D6:
+"v1 = 수확+분류만 자동").
+
+### §7.11.0 체인 (rev-parse 전체 SHA 실측 — T3 측정 · git log가 진실원)
+
+| 태스크 | 커밋(SHA — 실측 rev-parse) | 내용 |
+| --- | --- | --- |
+| 스펙 | `188a2f7` | docs(apps): 사용→리뷰→OS 업데이트 루프 설계 스펙 (#113 — 저널+수확 probe+EYES 규약) |
+| 플랜 | `dd625ce` | docs(apps): 사용→리뷰 루프 구현 플랜 (#113 T1-T3) |
+| T1 | `1e52392` | feat(apps): 서버 도구 호출 저널 leg (T1) — 3파일 (JKWindowServer .h/.cpp·main.cpp 2w 4건) — Win 837→841(+4)/WSL 814→818(+4) |
+| T2 | `eff8f8b` | test(probes): 수확 probe jkharvest (T2) — 1파일 209행 |
+| T2 fix r1 | `2fa0224` | test(probes): 수확 probe stderr 정산 — 부재 파일 wc 리다이렉트 순서 (T2 fix r1) |
+| T2 fix r2 | `5fce208` | fix(probes): jkharvest FAIL 출구 잔상 — trap EXIT 정리 래더 1원 재용 (T2 fix r2) — 리뷰 Important 1건 소각 |
+| T3 | 본 문서를 포함하는 커밋 | docs(apps): 사용→리뷰 루프 as-built+EYES 규약 (T3) — SHA는 git log가 진실원 |
+| 병행 밖 | `ad9aa81` | feat(apps): ollama-direct run 렌더 억제 플래그 결합 (#113 소형 수형 — 계약 락 갱신) — **같은 #113 배지의 병행 소형 수형**(스파이크 후속 — 폰 배포 점유 원장 — 아래 §7.11.3) |
+
+### §7.11.1 배선 원리 (원류 원문 1:1 수취 — 리포트 근거 · 코드 재실측 0)
+
+- **①저널 leg(T1)** — 접점 = `JKWindowServer::HandleAgentQuery` 도구 if/else
+  사슬 말미(도구 30종+와 launch/close/focus 창 관리 전부 이 1곳 — 접점 1곳만
+  DRY), writer = `UseJournalAppend`(void·무예외 — 실패=조용한 스킵 D1) —
+  `{"ts":ms,"tool":"..","arg":"..(≤128자 소스 시점 절단)","ok":bool,"err":".."}`
+  1행+
+·append+fflush·**전용 소형 뮤텍스**(기존 clientsMutex_·events·receipts
+  락과 분리 — 경합 원존). ask 게이트 파킹 = `err:"parked"` 정직 표기(T1 재량).
+- **②수확 probe(T2)** — `engine/tools/probes/jkharvest.sh` — 모드 2종:
+  **OWN**(probe 자체 기동 — pre-clean 브래킷 pkill+-9+#98 소켓 rm 가드→setsid
+  부팅→agentctl 5콜[ping·list_windows·launch_app tetris·list_windows 도착
+  확인·close_window(기본 deny 게이트 = 의도된 err 행 시료)]→수확→정리
+  REMNANT 0 게이트) / **OBSERVE**(폰 동형 무접촉 — 기존 서버에 ping·
+  list_windows 읽기 접점만 2콜·launch/close 생략[잔상 원리 — phone_music 폰
+  스킵 수형 승계]). 수확 원문 3축 = use_journal.jsonl **파일 직독** tail 20
+  (JR: 접두)+bridge_report_*.txt 목록(부재=0 정직)+분류 요약(ok=false 행
+  카운트+최근 10건 ERR: 원문). 판정 = `HARV-RUN-VALS`(JOG-RUN-VALS 수형 —
+  probe stdout 수취 계약)+`HARVEST-VERDICT: HARVEST-OK` 1행.
+- **③EYES 규약(T3)** — 본 문서 §5.1 신설 —
+  `EYES-<라인/항목>: <PASS|FAIL|PENDING> — <사용자 원문 인용 1줄>` —
+  형식만 규약(사용자 선언만 결제 원칙 불변)·예시 원장행 4건 동봉(§5.1 표 —
+  "재생 잘 되네요" PASS·#94/#97 사용자 보고 FAIL·#114 원장행 PENDING).
+- **사이클 지도 갱신(T3)** — `docs/use-review-update-cycle-map.md` §2의 빈
+  조각 3건에 실장 표기(①=T1·②=jkharvest T2·③=§5.1 규약) — mermaid 구조
+  유지+부기만.
+
+### §7.11.2 캐논 계보 (2w 계열) + 수확 probe 실측 영수증
+
+- 계보: **Win 837→841(+4=2w)·WSL 814→818(+4=2w) 등호·posix 304 등호·폰 814**
+  (폰 = 구 바이너리 — 2w/2v/ollama 플래그 3레그 미흡수 — **폰 배포 금지 원장
+  유지**: ollama 플래그 배치가 배포 축 점유 중 — 재배포 후 재실측 몫·그 때
+  PHONE_DEPLOY_BASE 갱신 필요 — ollama-direct-flags-report §5.5). T3는
+  probe 스크립트 1행+docs — selftest 어셜션 무접촉이라 재런 불요.
+- **WSL OWN 수확 원문(T2 4런 + T3 회귀 1런)**: `HARVEST-VERDICT:
+  HARVEST-OK` — journal 행 0→10→15→20→25→**30**(delta=5·콜 5 등호 산치
+  매런)·PERSIST-ROWS-FROM-PREV-RUN 봉인(서버 재기동 간 저널 유지 — state
+  dir 서수)·err 행 6(close_window permission_denied 5+failsim
+  not_implemented 1 — §7.11.4)·REMNANT 0·빌드(ninja) 접촉 0.
+- **폰 OBSERVE 원문(T2 2런 + T3 오늘 1런 — 3런 누계)**: `HARV-RUN-VALS:
+  mode=OBSERVE calls=2 journal_rows=0` + `HARVEST-VERDICT: HARVEST-OK`·
+  **저널 행 0 = 정직 표기 원장행**(폰 = 구 플래그 없는 바이너리 — 저널 leg
+  T1 이전 배포)·서버 pid 사슬 런 간 동일(11362..28120 — probe가 기동/종료한
+  것 0의 원문)·**오늘 런 list_windows 원문**: Minesweeper 창 2종(id 42
+  unfocused·id 93 focused — 사용자 생존 세션 — 읽기 접점만·무변조)·
+  bridge_report 0·FONE-REMNANT-LS=0(probe 복사본 소각 확인)·**주소 미인쇄
+  계약 유지**(PHONE_HOST=known_hosts BatchMode 자기판명 — log/probe 어디에도
+  주소 0).
+- **fix r2 실험 원문(T3 — 재런 불요 판정의 보강 원문)**: OK 런 1회(리그레션
+  — HARVEST-OK·REMNANT 0·HARV-TEARDOWN 1회 인쇄 = 래더 1원)+failsim 1런
+  (engine/tmp 스크래치 사본 — ping→pingxx 치환 — **파일 본체 무편집**) —
+  서버 `not_implemented` 회신 → `HARVEST-FAIL` → `HARV-TEARDOWN-LEFT: 0`
+  → 종료 후 pgrep -af jkdesktop = 0 실측(RC=1). 조기 fail 경로
+  (binary missing)도 trap 부재 no-op 실측(BOOTED=0 — 정리할 것 없음).
+
+### §7.11.3 함정 원장 (#113 신규 — 봉쇄 레슨 축 · 전량 = 리포트/concerns 원문 수납)
+
+1. **FAIL 출구 잔상(T2 리뷰 Important — fix r2 5fce208 소각)** — 원 구조에서
+   모든 FAIL 출구가 exit 1 직행이라 자기 서버 정리 없이 남았다. 수형 =
+   `trap harv_exit_teardown EXIT`(성공 경로 §9와 **래더 1원** — CLEANED 가드
+   로 중복 실행 없음·`HARV_BOOTED` 가드로 **자기가 살린 것만 죽인다** —
+   OBSERVE/부팅 전 fail = no-op, 폰 잔상 0 계약 유지).
+2. **부재 파일 리다이렉트 순서(T2 fix r1 2fa0224 소각)** — `wc -c < f
+   2>/dev/null`은 `<` 개방 실패가 `2>` 적용 전 발생해 stderr 1행을 흘린다 —
+   `[ -f ]` 가드로 소거.
+3. **grep -c 무매치 exit 1 폴백 2행 함정(T2 소각)** — err 산치는 awk로
+   (grep -c 무매치 시 `|| echo` 폴백이 2행을 내놓는다).
+4. **드라이버 명명 부정확(T2 원장행)** — "no-op guard"로 명명한 명령이 실제로
+   probe를 1런 실행했다(행 10→15) — 명명 부정확 = 원장 사건.
+5. **WSL pre-clean = 라이브 데스크톱 서버 종료 접점**(wsl_* 선형 원존) — OWN
+   모드 pre-clean이 동빌드(buildwsl) 라이브 서버를 죽인다 — 오늘 실측 시점
+   라이브 jkdesktop 부재라 무접촉 성립, 존재 시 접점은 원존 계약.
+6. **폰 배포 병행 금지 원장** — ollama 플래그 배치가 배포 축 점유(2w/2v/플래그
+   3레그 흡수 = 증분 배포 1런 — PHONE_DEPLOY_BASE 갱신 몫) — 본 라인 폰 접점
+   = OBSERVE 읽기만.
+7. **fix r2 실험의 부수 원문** — failsim 런이 저널에 `not_implemented` err
+   행 1행을 추가했다(probe 소유 — 분류 요약의 err 시료가 deny 1종에서 2종
+   으로) — 의도치 않은 다양성 성과 원장행.
+
+### §7.11.4 v1 비-목표 + EYES 게이트
+
+- **v1 비-목표(스펙 §비-목표 원존)**: 저널 UI(앱 화면)·저널 원격 전송·자동
+  패치 실행(패치는 세션 승인률 유지 — D6)·폰 무접속 자동 재시도 루프·성능
+  프로파일러 통합·저널 회전/상한(T1/T2 concern 승계 — §4.1-8).
+- **EYES 게이트 — 수확 리포트 모양 체감 = 사용자 선언만**(플랜 사용자 게이트
+  1): `EYES-#113 수확 리포트 모양: PENDING — 사용자 선언 미접수(규약 = §5.1
+  형식 — 결제 상태 3치뿐)` — D1-D6 재량 = 기각 시 즉시 수리.
+
+### §7.11.5 커밋 원장 + IP/호스트 경로 게이트 (#113 라인)
+
+- 라인 체인 = §7.11.0 표(188a2f7..본 T3 — rev-parse 전체 SHA 원존 — git log가
+  진실원) — push 전부 origin main 직행·amend 없음·**커밋 = 명시 경로만**
+  (T1 3파일·T2/fix 1파일·T3 = jkharvest fix r2 1파일+docs — `git add -A` 0).
+- **IP·호스트 경로 게이트(T3 실측)** — 본 커밋 diff 전체에서 IPv4 정규식
+  grep = 0건(커밋 전 staged 원문 게이트)·폰 주소 = PHONE_HOST 미기록(런
+  로그 `engine/tmp/j113_phone_jkharvest_observe.log` 포함 전 리포트/log
+  주소 0건 — known_hosts BatchMode 자기판명 수형)·호스트 경로 표기 =
+  probe 스크립트 상대 경로만(buildterm/buildwsl — 커밋 무해).
+- 본 T3 커밋 = **probe 1파일+docs 2파일**(`engine/tools/probes/jkharvest.sh`
+  fix r2·`docs/90_music_spatial_leg_asbuilt.md` §4.1-8/§5.1/§7.11·
+  `docs/use-review-update-cycle-map.md` §2 갱신) — 런 로그
+  (j113_phone_jkharvest_observe.log)·failsim 스크래치(소각 완료)는
+  engine/tmp untracked — 커밋 금지 충족.
