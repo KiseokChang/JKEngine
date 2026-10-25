@@ -42,18 +42,15 @@
 
 ## 2. 앱 본체
 
-- Kotlin+최소 UI: 대화 목록(전사 원문=[나]·답신/[시스템] — chat 앱 문화
-  승계·append-only)·**[구두] push-to-talk 버튼**(눌림=녹음 시작·해제=전사)·
-  전사 중 표기(R5 문화)·상태행(마이크 권한·서버 연결 상태 정직 표기).
-- 마이크: AAC/PCM 캡처(Android MediaRecorder/AudioRecord)→PCM 16k 모노
-  변환(libresampler 소형 or ffmpeg 대신 pure 수형 — **조달 0 원칙: 소형 own
-  정규화(하드 리샴플 or nearest)·whisper 입력 규약과 일치 원문**).
-- whisper.cpp JNI: 전사는 앱 프로세스 내 라이브러리 링크 — **폰 #3117
-  원장("별도 프로세스 격리")과의 정합**: APK는 자체 프로세스이므로 격리 본질
-  동일(크래시가 jkdesktop/Termux 서버로 전파 없음 — 라이브러리 허용의
-  정당 근거 리포트로 명기·segfault시 앱만 사망).
-- 조작: HTTP 클라이언트(kt 계열 기본제공) → /talk → 답신 JSON(ok/톤) 기록
-  반영+타임아웃·서버 부재=정직("서버 미기동 — DeX 세션 필요").
+- Kotlin+최소 UI(v1 얇은판): **텍스트 입력 1줄+[보내기]**(IME 음성입력 =
+  외부 STT 앱의 정상 유입 경로 — 사용자가 좋아하는 앱으로 dictate)·대화
+  목록([나]=보낸 텍스트·[시스템]=답신/오류·append-only — chat 앱 문화 승계)·
+  상태행(서버 연결 정직 표기).
+- 조작: HTTP(POST /talk — 타임아웃)·서버 부재=정직("서버 미기동 — DeX
+  세션 필요").
+- v2 원장행(비-목표 보존): whisper NDK JNI+마이크 AudioRecord 16k 모노
+  정규화+모델 asset — #3117 격리 근거 원문(앱 자체 프로세스 = 격리 본질
+  동일)은 v2 리포트에 승계.
 
 ## 3. 조작 사슬 (폰 측 — 기존 원존)
 
@@ -68,8 +65,8 @@
 
 - **APK 결정론 어설션 = 빌드 계약**: gradle assembleDebug rc=0+APK 산출+
   **설치(adb install -r) rc=0+런치(adb shell am start) rc=0** — probe 원문.
-- JNI/whisper 결정론 단정 금지(전사 비결정 원칙 승계) — 전사 원문은 런 로그
-  캡처(+fixture 대조 — 합성 WAV로 JNI 전사 1회·CANON 밖).
+- v1 결정론 = 빌드/설치/런치 rc+POST 조작 원문 — STT/전사 축은 v2(외부
+  앱 몫이라 앱이 아예 만지지 않는다).
 - 캐논: 4축 등호 유지(엔진 코드 무접촉 — APK는 별도 dir·별도 빌드 —
   ninja/캐논 계보 무변조).
 - 폰 실측: 설치·런치·구두 전사 1회·조작(deX 서버 동기 시)·jkweb 미구동
