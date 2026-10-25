@@ -14,9 +14,12 @@
 #include <fs/JKFs.h>
 #include <process/JKProcess.h>
 
+#include <algorithm>  // std::sort — 모델 dir 스캔의 결정론 선두 핀
 #include <chrono>
-#include <cstdlib>  // getenv — WHISPER_BIN 지역 오버라이드
+#include <cstdlib>  // getenv — WHISPER_BIN·STT_MODEL 지역 오버라이드
 #include <filesystem>
+#include <fstream>  // 캡처 WAV 재독 — turn (2) 헤더 판정부 입력
+#include <iterator>  // istreambuf_iterator — WAV 재독 절단
 #include <string>
 #include <system_error>
 #include <thread>
@@ -80,7 +83,8 @@ static std::string QuoteArg(const std::string& s) {
 // whisper-cli 바이너리 resolve — exe 형제(dir)/whisper-build/whisper-cli(.exe)
 // (build/whisper-build·buildwsl·buildterm 공통 모양 — T1 빌드 산출 경로 원문),
 // WHISPER_BIN env가 지역 오버라이드(probe/현장 대응 몫). 부재 = nullopt.
-static std::string ResolveCliPath(bool* found) {
+// T3에서 공개 승계(헤더 계약 — verdict 게이트가 같은 진실원을 소비).
+std::string ResolveCliPath(bool* found) {
     *found = false;
     std::string bin;
     if (const char* envBin = std::getenv("WHISPER_BIN")) {
@@ -103,6 +107,33 @@ static std::string ResolveCliPath(bool* found) {
         return bin;
     }
     return bin;  // 부재 경로 원문 그대로 — 찾는 쪽이 정직 표기한다
+}
+
+// ggml 모델 리졸브(#112 T3 — 헤더 계약). exe 형제 dir의 stt-models/ — 조달기
+// install_stt_models.sh의 축별 dir(Win build/stt-models·WSL buildwsl/stt-
+// models·폰 buildterm/stt-models)가 전부 exe 형제 dir 모양으로 수렴하는
+// 진실원. 파일명 편차(ggml-small.bin/ggml-tiny-ko.bin)는 dir 스캔으로 흡수 —
+// .bin만 모아 문자열 정렬하고 선두 1개(결정론 — 조달기가 축당 1개를 내려놓는
+// 계약의 보조 정합). STT_MODEL env = 완전 경로 지역 오버라이드(WHISPER_BIN과
+// 같은 probe/현장 대응 몫 — 오버라이드가 우선). 스폰 0 — 존재 판정만.
+std::string ResolveModelPath() {
+    if (const char* envModel = std::getenv("STT_MODEL")) {
+        if (*envModel) return envModel;
+    }
+    const std::string exe = jk::fs::GetExecutablePath();
+    if (exe.empty()) return "";
+    const std::filesystem::path dir =
+        std::filesystem::path(exe).parent_path() / "stt-models";
+    std::error_code ec;
+    if (!std::filesystem::is_directory(dir, ec) || ec) return "";
+    std::vector<std::string> names;
+    for (const std::filesystem::directory_entry& e :
+         std::filesystem::directory_iterator(dir, ec)) {
+        if (e.path().extension() == ".bin") names.push_back(e.path().string());
+    }
+    if (ec || names.empty()) return "";  // 부재 = 빈 — verdict "whisper 모델 부재"
+    std::sort(names.begin(), names.end());
+    return names.front();
 }
 
 bool WhisperTranscribe(const std::string& wavPath,
@@ -243,5 +274,114 @@ bool WhisperTranscribe(const std::string& wavPath,
 }
 
 }  // namespace run
+
+// ---- turn — STT 전사 문자 → ChatRouteTurn 접점 (#112 T3 — 스펙 §3 ③ 안 A) ----
+// 순수 접점 — SDL 무접촉(발화 수집 캡처 본체는 VoiceCaptureSDL.cpp의 별도
+// 장치 사이 — §3 ⑤ 무음 계약: 재생 계통(vplayer 조그 무음 원존)과 접점 0).
+namespace turn {
+
+// ChatAction → (도구, 인자 JSON) — ClientChatApp::Submit(CaseF.cpp 146-179
+// 스위치)이 이미 먹는 창 서버 도구 양식의 원문 수형(재용 — 새 파서 0·질의
+// JSON 조립의 단일화). 무앱 Close/Focus = argless "{}"(포커스 창 위임 —
+// 라우터 1n-7·2u-⑥ 원존 규약)·인용은 EscapeJson 쌍둥이 원문(MusicModel.h
+// 선례 — "쌍둥이 원문 수형" 복제 계약).
+bool ChatActionQuery(const ChatAction& a, std::string& tool,
+                     std::string& args) {
+    switch (a.kind) {
+        case ChatAction::Launch: {
+            if (a.app.empty()) return false;  // launch 무app — 지시 불성립(1n-6)
+            tool = "launch_app";
+            args = "{\"app\":\"" + JsonEscapeStr(a.app) +
+                   "\"}";
+            return true;
+        }
+        case ChatAction::Close:
+            tool = "close_window";
+            args = a.app.empty()
+                       ? "{}"
+                       : "{\"app\":\"" +
+                             JsonEscapeStr(a.app) +
+                             "\"}";
+            return true;
+        case ChatAction::Focus:
+            tool = "focus_window";
+            args = a.app.empty()
+                       ? "{}"
+                       : "{\"app\":\"" +
+                             JsonEscapeStr(a.app) +
+                             "\"}";
+            return true;
+        case ChatAction::ListWindows:
+            tool = "list_windows";
+            args = "{}";
+            return true;
+        case ChatAction::Info:
+            return false;  // 도구 지시 없음 — 앱이 질의를 보내지 않는다
+    }
+    return false;
+}
+
+// 사슬 본체 — 헤더 계약 (1)게이트 (2)wav 판정 (3)전사 (4)접점 (5)도구 지시.
+bool RunVoiceTurn(const std::string& wavPath, const agent::ChatConfig& cfg,
+                  const ToolDispatcher& dispatch, VoiceTurnResult& out) {
+    out = VoiceTurnResult{};
+
+    // (1) fail-closed 게이트 — T1 판정부 verdict 원문 그대로(표면이 그대로
+    //     인쇄한다 — 2v-a reason 4행 계약). 리졸브 2종 = run 원존 재용.
+    bool binFound = false;
+    std::string bin = run::ResolveCliPath(&binFound);
+    std::string model = run::ResolveModelPath();
+    const jk::stt::VoiceVerdict v = jk::stt::VoiceLegVerdict(
+        jk::stt::VoiceWhisperRootSet(), binFound, !model.empty());
+    if (!v.enabled) {
+        out.err = v.reason;
+        return false;
+    }
+    (void)bin;  // bin은 found 판정 소관 — 경로 원문은 run leg가 err에 실는다
+
+    // (2) wav 헤더 판정부 — 캡처 결과의 정직 재독(SDL open이 allowed_changes=0
+    //     로 16k 모노 s16le를 강제했으므로 통과가 규약 — 비적합 = 재합성 없이
+    //     정직 거부(2v-⑥/⑦ 거부 규약의 런타임 계약)).
+    std::ifstream wavFile(wavPath, std::ios::binary);
+    std::vector<unsigned char> wavBytes;
+    if (wavFile) {
+        wavBytes.assign(std::istreambuf_iterator<char>(wavFile),
+                        std::istreambuf_iterator<char>());
+    }
+    wavFile.close();
+    if (!wav::Validate16kMono(wavBytes.data(), wavBytes.size())) {
+        out.err = "구두 캡처 wav 부적합 (16 kHz 모노 PCM 아님 — 정규화 사전 계약)";
+        return false;
+    }
+
+    // (3) 전사 — run leg(T2 스폰 원문 — err 원문 그대로 승계 — T4 표기 계약).
+    std::string stt, trErr;
+    if (!run::WhisperTranscribe(wavPath, model, stt, trErr)) {
+        out.err = trErr;
+        return false;
+    }
+    out.sttText = stt;  // 전사 원문 — §3 ④ 정직 기록 계약(오차의 표기 문화)
+
+    // (4) 접점 — in-process ChatRouteTurn 직호출(안 A — "STT 텍스트 ==
+    //     타이핑 텍스트" — §2.1). chat.json 미구성 cfg = 라우터 즉발+stub
+    //     폴백 원존 — "LLM이 아니어도 구두는 조작된다". 정규화는 라우터
+    //     NormalizeText 소관 — 여기서 재정규화(파서 복제)하지 않는다.
+    jk::ChatAction action;
+    out.guide = jk::ChatRouteTurn(out.sttText, action, cfg, &out.usedLlm);
+    out.ok = true;
+
+    // (5) 도구 지시 — Info가 아니면 기존 도구 경로로 전달(launch_app/…
+    //     ClientChatApp SendQuery·agentctl과 같은 질의 JSON). dispatch 미지정
+    //     = 접점 단정까지(질의 전달 생략 — 2v-d가 쓰는 관측 모양).
+    if (action.kind == ChatAction::Info) return true;
+    std::string tool, args;
+    if (!ChatActionQuery(action, tool, args)) return true;  // 도달 없음
+    if (dispatch && dispatch(tool, args)) return true;
+    out.guide.clear();
+    out.err = "구두 도구 지시 전달 실패 (" + tool + ")";
+    return false;
+}
+
+}  // namespace turn
 }  // namespace voice
 }  // namespace jk

@@ -219,6 +219,12 @@ add_library(jkcore STATIC
     # 창·imgui 무접촉 pure TU(스폰 leg — 순수 파서는 include/voice/SttVoice.h
     # 인라인). jk::process 어댑터만 접점 — 축 분기 없음(Win/폰 공통).
     src/voice/SttVoice.cpp
+    # STT 구두 발화 수집 본체 (#112 T3 — 스펙 §3 ① Win 축 SDL2 캡처):
+    # SDL 형 수용 TU(캡처 장치 = 재생 장치 별개 — WASAPI 공유). SDL2는 jkcore
+    # PUBLIC 링크라 신규 조달 0. 캡처 본체는 selftest 밖(§3 ⑦ — probe/T6 몫)·
+    # 폰 축(T5)은 Termux:API 녹음이 진실원이라 SDL 캡처 폰 개방 실패 = 정직
+    # 거부(fail-closed)로 무해.
+    src/voice/VoiceCaptureSDL.cpp
     src/JKHangulManager.cpp
     src/JKTextAtlas.cpp
     src/JKResourceCache.cpp
@@ -796,6 +802,39 @@ endif()
 if(DEFINED ENV{WHISPER_ROOT})
     add_subdirectory("$ENV{WHISPER_ROOT}"
                      "${CMAKE_BINARY_DIR}/whisper-build")
+    # whisper-cli 스폰 환경 spool (#112 T3 — T2 함정 원장행 "libgomp-1.dll"의
+    # 런타임 수형): the ucrt64 MinGW runtime DLLs (libgomp-1.dll 등) are only
+    # reachable through the ucrt64 PATH, which a double-clicked jkdesktop does
+    # NOT carry — the child spawn dies rc=127 (T2 원문 + T3 실측 rerun: stripped
+    # PATH rc=127 → spool rc=0 · 전사 등호). The loader's first search entry is
+    # the APPLICATION DIRECTORY (= $<TARGET_FILE_DIR:whisper-cli>), so spooling
+    # the 4 non-system runtime DLLs next to whisper-cli.exe removes the PATH
+    # dependency entirely. Custom TARGET (POST_BUILD는 add_subdirectory 산
+    # 하위 디렉터리 스코프 타깃에 부착할 수 없다 — configure 실측 1회:
+    # "TARGET 'whisper-cli' was not created in this directory") — DEPENDS로
+    # whisper-cli 뒤에 달린다. Win/MinGW axis only — WSL/폰는 시스템 리소스
+    # 링크(static)라 이 계열이 없다. 산출물은 무추적(build/) — "기계만 커밋"
+    # 원칙(docs/44·81·84) 유지.
+    if(MINGW)
+        get_filename_component(_jk_mingwrt_dir "${CMAKE_CXX_COMPILER}" DIRECTORY)
+        set(_jk_rt_src)
+        foreach(_jk_rt_dll IN ITEMS libgomp-1.dll libgcc_s_seh-1.dll
+                                   libstdc++-6.dll libwinpthread-1.dll)
+            if(EXISTS "${_jk_mingwrt_dir}/${_jk_rt_dll}")
+                list(APPEND _jk_rt_src "${_jk_mingwrt_dir}/${_jk_rt_dll}")
+            endif()
+        endforeach()
+        unset(_jk_mingwrt_dir)
+        if(_jk_rt_src)
+            add_custom_target(whisper_cli_runtime_spool ALL
+                COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                        ${_jk_rt_src}
+                        "$<TARGET_FILE_DIR:whisper-cli>"
+                DEPENDS whisper-cli
+                COMMENT "Spooling whisper-cli runtime DLLs (spawn env — T3)")
+            unset(_jk_rt_src)
+        endif()
+    endif()
 endif()
 
 # Screenshot viewer module (agent platform, docs/35 Task 4): lists

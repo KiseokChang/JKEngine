@@ -1077,21 +1077,11 @@ inline void SinkDone(jk::agent::LlmTurnResult&& r, void* user) {
 // **미설정/바이너리 부재/모델 부재 = 구두 leg 끔+정직 표기** — 나머지 시스템
 // 전부 무영향(spatial leg fail-closed 원존 계약의 문자 그대로 계승). 순수
 // 함수 — 입력 3요소(env 유무·whisper-cli 존재·ggml 모델 존재)로 판정하고
-// 스폰은 하지 않는다. T2(jk::voice::run)가 이 결과를 스폰 사슬의 게이트로
-// 재용하고, 표면(T4)은 reason 원문을 상태 행/기록에 그대로 인쇄한다.
-namespace jk::stt {
-struct VoiceVerdict {
-    bool enabled = false;
-    const char* reason = "";  // 정직 표기 원문 — 표면이 그대로 인쇄한다
-};
-inline VoiceVerdict VoiceLegVerdict(
-    bool envSet, bool binExists, bool modelExists) {
-    if (!envSet) return {false, "구두 끔 (WHISPER_ROOT 미설정)"};
-    if (!binExists) return {false, "구두 끔 (whisper-cli 부재)"};
-    if (!modelExists) return {false, "구두 끔 (whisper 모델 부재)"};
-    return {true, "구두 켬 (whisper-cli)"};
-}
-}  // namespace jk::stt
+// 스폰은 하지 않는다.
+// T3 승계: 본 수형이 main.cpp에서 include/voice/SttVoice.h(jk::stt)로 승계됐다
+// — 런타임 게이트(jk::voice::turn::RunVoiceTurn — T3)와 표면(T4 jkapp_chat —
+// main.cpp 심볼에 접점 없다)이 같은 진실원을 먹어야 하기 때문. reason 원문
+// 4행은 구약 등호(2v-a 어설션 원문 무변조 — 호출점 위치 승계만).
 
 // 포팅된 앱들의 데이터 관리자(Equip24DataManager/BombManager/PersonManager)
 // 로직을 검증하는 헤드리스 자기 테스트. "test" 인자로 실행한다.
@@ -8241,6 +8231,78 @@ static int RunAppSelfTest() {
                   "[00:00:00 --> 00:00\n\xea\xb0\x80\xec\xa7\x9c\n")
                   .empty(),
               "2v-⑩ malformed 출력 = 빈 문자열(세그먼트 구조 비적합 — 정직)");
+    }
+
+    // 2v-d) STT 전사 문자 → ChatRouteTurn 접점 (#112 T3 — 스펙 2026-10-25-
+    // stt-voice-design §3 ③ 안 A·⑦ 계보). 1n-f 계열의 **입력 소스 치환
+    // 동형** — 발화가 타이핑이 아니라 구두(whisper 전사 문자)에서 들어온
+    // 것뿐이다. 어휘 표기 3건 + 질의 조립 — 어설션은 **라우터 즉발 경로만**
+    // 단정(cfg 미구성 — LLM 턴 비결정 단정 금지(§2.4)·스폰 0·스포른 0).
+    // 전사 비결정 원칙상 whisper 단정 없음 — 여기 들어가는 "전사 문자"는
+    // 고정 입력(EYES ①-⑤ 어휘).
+    {
+        using jk::agent::ChatConfig;
+        // 미구성 cfg — 1n-f16 계열(engine="stub" + 표지 — 즉발 경로 고정).
+        // (chat.json 파일 접촉 없음 — LoadChatConfig을 쓰지 않는다 — 라우터
+        // 즉발 경로의 인자 진실원은 이 판정 게이트의 값 관습(1n-f29 NR4-1)
+        // 그대로.) usedLlm는 오염 증거로 시작 — 즉발이 지우지 못하면 FAIL.
+        ChatConfig vc;         // 미구성 — 스폰 자체를 안 한다
+        vc.engine = "stub";
+        vc.fileKnown = false;  // 파일 존재 표지는 세우지 않는다(1n-f30 규약)
+        {
+            // ⑪ "지뢰찾기 켜줘" — Launch + 앱 별명 해소. 1n-f14/15가 타이핑
+            //   입력으로 단정한 도표의 구두 입력 판 — guide는 기존 라우터
+            //   guide 원문 그대로(1n-f15 등호).
+            jk::ChatAction a;
+            bool used = true;  // 오염 증거 — 배선이 지우지 못하면 실패
+            const std::string guide = jk::ChatRouteTurn(
+                "\xec\xa7\x80\xeb\xa2\xb0\xec\xb0\xbe\xea\xb8\xb0 "
+                "\xec\xbc\x9c\xec\xa4\x98",  // 지뢰찾기 켜줘
+                a, vc, &used);
+            jk::ChatAction ar;
+            check(!used && a.kind == jk::ChatAction::Launch &&
+                      a.app == "minesweeper" &&
+                      guide ==
+                          jk::ChatRouterRoute(
+                              "\xec\xa7\x80\xeb\xa2\xb0\xec\xb0\xbe"
+                              "\xea\xb8\xb0 \xec\xbc\x9c\xec\xa4\x98",
+                              ar),
+                  "2v-⑪ 구두 전사 문자 \"지뢰찾기 켜줘\" = Launch(minesweeper) "
+                  "즉발(1n-f14 입력 소스 치환 동형 — usedLlm=false)");
+            // ⑫ 질의 조립 — ChatActionQuery(기존 도구 경로 재용 —
+            //   ClientChatApp SendQuery 양식 그대로 — 새 파서 0).
+            std::string tool, args;
+            check(jk::voice::turn::ChatActionQuery(a, tool, args) &&
+                      tool == "launch_app" && args == "{\"app\":\"minesweeper\"}",
+                  "2v-⑫ launch_app 질의 조립 = args 등호(도구 경로 재용)");
+        }
+        {
+            // ⑬ "창 목록" — ListWindows + list_windows 질의.
+            jk::ChatAction b;
+            bool used = true;
+            (void)jk::ChatRouteTurn("\xec\xb0\xbd "
+                                    "\xeb\xaa\xa9\xeb\xa1\x9d",  // 창 목록
+                                    b, vc, &used);
+            std::string tool2, args2;
+            check(!used && b.kind == jk::ChatAction::ListWindows &&
+                      jk::voice::turn::ChatActionQuery(b, tool2, args2) &&
+                      tool2 == "list_windows" && args2 == "{}",
+                  "2v-⑬ 구두 전사 문자 \"창 목록\" = list_windows 질의(즉발)");
+        }
+        {
+            // ⑭ "닫아줘" — Close 무앱 → argless 질의(포커스 창 위임 —
+            //   폰 "닫아줘" 계약 원존).
+            jk::ChatAction c;
+            bool used = true;
+            (void)jk::ChatRouteTurn("\xeb\x8b\xab\xec\x95\x84\xec\xa4\x98",  // 닫아줘
+                                    c, vc, &used);
+            std::string tool3, args3;
+            check(!used && c.kind == jk::ChatAction::Close && c.app.empty() &&
+                      jk::voice::turn::ChatActionQuery(c, tool3, args3) &&
+                      tool3 == "close_window" && args3 == "{}",
+                  "2v-⑭ 구두 전사 문자 \"닫아줘\" = argless close_window "
+                  "(포커스 창 위임)");
+        }
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);
