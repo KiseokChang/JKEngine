@@ -523,8 +523,8 @@ cmp -s "$PERM" "$TMPD/t6pv_restperm" || { cp "$TMPD/t6pv_restperm" "$PERM"; }
 cmp -s "$PERM" "$TMPD/t6pv_restperm" || { echo "PV-PERM-RESTORE-FAIL"; exit 1; }
 echo "PERM-RESTORED-OK ($(wc -c < "$PERM") bytes 등호)"
 rm -f "$TMPD/t6pv_restperm" "$TMPD/t5_chat_rec.png" "$TMPD/t5_chat_done.png" \
-      "$TMPD/t5_chat_done2.png" "$TMPD/t5_chat_ready.png" \
-      "$TMPDIR/t6pv_*.m4a" 2>/dev/null
+      "$TMPD/t5_chat_done2.png" "$TMPD/t5_chat_ready.png" 2>/dev/null
+rm -f "$TMPD"/t6pv_*.m4a 2>/dev/null   # 중간 컨테이너 잔산 — 인용 밖 glob(죽은 rm 수형)
 ls "$TMPD" | grep 'jkchat_voice.*rec.m4a' | while read -r z; do rm -f "$TMPD/$z"; done
 rm -f \$0 2>/dev/null
 echo "RESTORE-FINISHED"
@@ -542,9 +542,15 @@ $SSH "rm -f \$TMPDIR/t6pv_boot.sh \$TMPDIR/t6pv_tap.sh \$TMPDIR/t6pv_rest.sh \$T
 echo "T-PUSH-SCRATCH-BURIED: 폰 probe 스크래치 소각"
 
 echo "=== 폰 VERDICT (요약 스트림 계약) ==="
+# fail-closed 게이트 = 3판 전부(WSL 축 FC=3과 등형 — T6 fix r1: fc3=3판의
+# gate-model-missing 원문 등호가 본 판정 부울에도 채용될 수 있었다 — 2판만
+# 검사한 fc3 누적 = 리뷰 Important(게이트 비대칭의 phone 축)).
+FC3=1
+grep -aqF 'gate-model-missing=[구두 rc=3 stderr: ' "$SCRATCH/phone_voice_probe.out" || FC3=0
 GATE_OK=1
 grep -aqF 'gate-env-unset=[구두 끔 (WHISPER_ROOT 미설정)]' "$SCRATCH/phone_voice_probe.out" || GATE_OK=0
 grep -aqF 'gate-bin-missing=[구두 끔 (whisper-cli 부재)]' "$SCRATCH/phone_voice_probe.out" || GATE_OK=0
+[ "$FC3" -eq 1 ] || GATE_OK=0
 FIX_OK=1
 printf '%s' "$FIX_DRECT" | grep -aq 'fixture-direct=1' || FIX_OK=0
 MIC_OK=1
@@ -556,7 +562,7 @@ PV="VOICE-PHONE-FAIL"
 if [ "$PV" = "VOICE-PHONE-OK" ]; then
     echo "VOICE-PHONE-VERDICT: VOICE-PHONE-OK(폰 축 — T5 원문 승계+재측정 $PHV_TAP_RUNS런: fail-closed 3판 원문 등호·Termux:API 마이크 leg(개방/정지/세션 판정 — 어휘 실측 계약)·fixture 사슬==직접 스폰·[구두] 탭 표면 캡처 런 md5 등호+기록 도착 바이트 증가·permissions 병합/원복 등호 — 전사 본문=CANON 밖(§2.4)·무발화 환경의 전사 원문 = 캡처 육안/Read — 실발화(발화→앱 실행 체감) = 사용자 EYES ①② 몫)"
 else
-    echo "VOICE-PHONE-VERDICT: $PV(honest-fail — gate=$GATE_OK fixture=$FIX_OK mic=$MIC_OK tap=$TAP_OK — 사유는 상단 VOICE-PHONE-FAIL 행)"
+    echo "VOICE-PHONE-VERDICT: $PV(honest-fail — gate=$GATE_OK fc3=$FC3 fixture=$FIX_OK mic=$MIC_OK tap=$TAP_OK — 사유는 상단 VOICE-PHONE-FAIL 행)"
 fi
 echo "VOICE-PHONE-RUN-VALS: tap_runs=${PHV_TAP_RUNS} gate=3판 fixture_direct=${FIX_OK} mic=${MIC_OK} tap=${TAP_OK} runverdict=${PV} captures=engine/tmp/pv_run*_*.png"
 echo "PHONE-VOICE-END"

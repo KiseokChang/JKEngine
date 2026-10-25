@@ -42,7 +42,9 @@
 #
 # 요약 스트림 계약(라인 원장 — probe stdout 수취 5종 보존 승계):
 #   * VOICE-RUN-VALS: run=<n> canon=<n> twov=<n> fc3=<0..3> direct=<0|1>
-#     fixt=<0|1> keyturn=<0..2> clickturn=<0..2> route=<0|2> phone=<T5승계>
+#     stt_t2_canon=<n/a|0|1> fixt=<0|1> keyturn=<0..2> clickturn=<0..2>
+#     route=<0|1> probe_rc=<n> captures=… (폰 축 라벨 = phone_voice.sh 소관 —
+#     VOICE-PHONE-RUN-VALS·fix r1: fc3=3판 전부가 VERDICT 본조건으로 채용)
 #   * VOICE-VERDICT: 1행 결정(MUSIC-TAGWRITE-PHONE-VERDICT 동형).
 #
 # 실행 표준(WSL 밖 Git Bash에서 — MSYS 경로 변환 찢김 가드 필수):
@@ -813,10 +815,8 @@ if [ -n "$VCX" ] && [ -n "$VCY" ] && [ -n "$WX0" ] && [ -n "$WY0" ]; then
     echo "CALC: [구두] desk=($DVX,$DVY) (서면 = 프레임 − 창rect좌상 — 클라 (0,0) 이동 뒤)"
     CAL_OK=1
 else
-    DVX=664
-    DVY=478
     CAL_OK=0
-    echo "VOICE-FAIL(cal-parse: 캘리브 파싱 실패 — 후보 기본 좌표($DVX,$DVY) 폴백)"
+    echo "VOICE-FAIL(cal-parse: 캘리브 파싱 실패 — 클릭 세그먼트 생략(원장))"
 fi
 ICX=$(printf '%s' "$CALOUT" | grep -ao 'iframe=([0-9]*,[0-9]*)' | head -1 | sed 's/iframe=(//;s/,.*//')
 ICY=$(printf '%s' "$CALOUT" | grep -ao 'iframe=([0-9]*,[0-9]*)' | head -1 | sed 's/.*,//;s/).*//')
