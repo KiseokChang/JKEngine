@@ -148,10 +148,13 @@ namespace run {
 // whisper-cli(.exe — build/whisper-build·buildwsl/whisper-build·폰
 // buildterm/whisper-build 공통 모양) — WHISPER_BIN env로 지역 오버라이드.
 // 부재 = 정직 거부(fail-closed — T1 판정부 reason 원문 승계).
-// 타임아웃: 전체 마감(kLlmTurnIdleKill 선형 10분) — TerminateJobTree kill
-// (kill-on-close job 계약 — JKLmEngine 원존). stdout 수취 후
-// transcript::ParseLastText 절단. 스폰 본체는 비결정 — selftest 단정 밖
-// (§2.4), 성립 반환 = out에 절단 텍스트(빈 전사 = 정직 실패 + stderr 꼬리).
+// 타임아웃: **전체 마감 600s — 단일 마감 1종** — 판정은 드레인 루프의 매
+// 반복(fix r1 — stderr 진행률이 흘러도 마감 산다: !progressed 분기 안에
+// 두면 idle-kill로 퇴화해 선언 계약과 부정했던 T2 본판정 수형) — 초과 =
+// TerminateJobTree kill(kill-on-close job 계약 — JKLmEngine 원존). stdout
+// 수취 후 transcript::ParseLastText 절단. 스폰 본체는 비결정 — selftest
+// 단정 밖(§2.4), 성립 반환 = out에 절단 텍스트(빈 전사 = 정직 실패 +
+// stderr 꼬리).
 bool WhisperTranscribe(const std::string& wavPath,
                        const std::string& modelPath, std::string& out,
                        std::string& err);

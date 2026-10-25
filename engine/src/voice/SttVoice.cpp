@@ -142,7 +142,8 @@ bool WhisperTranscribe(const std::string& wavPath,
     void* jobTree = jk::process::CreateKillOnCloseJob();
     jk::process::AssignToJob(jobTree, spawned);
 
-    // 4) 드레인 루프 — peek/read(비봉쇄)·전체 마감 1종(kTranscribeDeadlineMs).
+    // 4) 드레인 루프 — peek/read(비봉쇄)·전체 마감 1종(kTranscribeDeadlineMs —
+    //    판정 매 루프·stderr 진행률 유무 무관 — fix r1).
     const auto tTurn = std::chrono::steady_clock::now();
     bool outOpen = true, errOpen = true;
     std::string stdoutBuf, stderrBuf;
@@ -186,13 +187,17 @@ bool WhisperTranscribe(const std::string& wavPath,
                 errOpen = false;
             }
         }
+        // 마감 판정 = 매 루프 무조건(fix r1 — 리뷰 Important 1) — stderr
+        // 진행률이 계속 흘러 progressed=true인 동안에도 전체 마감 600s가
+        // 산다. (!progressed 안에 두면 진행률이 흘러 마감이 불지 않는
+        // idle-kill로 퇴화 — 선언 계약(전체 마감)과 부정합.) break 뒤의
+        // kill은 아래 TerminateJobTree 명시 — 마감 계약의 문자 그대로.
+        if (std::chrono::steady_clock::now() - tTurn >=
+            kTranscribeDeadlineMs) {
+            timedOut = true;
+            break;
+        }
         if (!progressed) {
-            if (std::chrono::steady_clock::now() - tTurn >=
-                kTranscribeDeadlineMs) {
-                timedOut = true;
-                break;  // kill은 아래 job close가 맡는다(TerminateJobTree 명시
-                        // — 마감 계약의 문자 그대로)
-            }
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
     }
