@@ -31,6 +31,27 @@
 // subdir click-enter list + [이 폴더 추가] via the DirAddManaged single path +
 // [닫기]); only the add success/failure status line dirties (no new frameDirty
 // sources — navigation is an input event's natural consequence, #89).
+// #111 T3 (spec 2026-10-25-music-tagwrite-design §2·§3) adds the tag edit
+// panel + the cover art display. Row [편집] (beside [spatial]) opens the tag
+// edit panel — the [폴더 관리] panel's 동형 전환 pattern (same window·tab,
+// no new window/child outside the flow). The save is exactly one
+// tags::WriteTag call (the atomic tmp+rename lives inside — the UI adds no
+// further file handling); success = status line + re-scan re-request (the
+// existing RequestScan lane) + panel close; failure = the honest err line
+// inside the panel (the session stays open, the input keeps its value). The
+// [커버 선택] picker re-uses the #97 browser parts (cwd / ".." rows /
+// click-enter subdirs) plus a local click-to-select image row list — image
+// filter .jpg/.jpeg/.png only (mime 판정 정합 — 타이핑 0, phone contract).
+// Cover decode is the stb 조달품 via jk::LoadImageMemory/LoadImageFile
+// (JKImageLoader — no TU may redefine the stb implementation, so the app
+// never includes stb_image itself); row thumbnails are a memory LRU pool of
+// 96 keyed (path, mtime) with nearest downscale to the 32px box (갤러리
+// 썸네일 선례 — the pool/lru/shrink parts live in this file). D7 (지연 읽기
+// 원존): ReadCover never mixes into the scan pass — cache misses are read
+// from the render thread at ≤2 per frame, and the pool-starved frames
+// continue via the #89 T2 조건화 idiom (pendingCovers_ → OnIdle re-asserts
+// frameDirty_, 도착 완료 = 마지막 프레임). A failed read is terminal until
+// the next re-scan generation (failedGen — placeholder keeps the gray face).
 #include <apps/ClientMusicApp.h>
 
 #include <imgui_impl_jkwindow.h>
@@ -43,6 +64,7 @@
 #include <algorithm>  // std::find — 도착 멤버십 필터(#93 T2)의 dirs_ 열외 순회
 #include <chrono>
 #include <cstdio>    // stderr 진단 1행(도착 폐기 — 정직 계약)
+#include <cstring>   // std::memcpy/strncpy — 커버 픽셀 축소·프리필 사본(T3)
 #include <ctime>
 #include <fstream>   // SettingsText 통독 수형(fs::path 개방 — #94 잠복 수리)
 // 폴더 스캔은 jk::music::ListAudioFiles(원문 규약 — ec 중립형, 재귀 가드
@@ -189,6 +211,132 @@ std::string TrimTrailSeparators(const std::string& p) {
     while (!s.empty() && (s.back() == '/' || s.back() == '\\')) s.pop_back();
     return s;
 }
+
+// ---- 태그 편집+커버아트 (T3 — 스펙 2026-10-25 §2·§3) 순수 관용 부품 ----
+// 갤러리 썸네일 파이프라인(GalleryModel.h)의 이 앱 국지 수형 — cross-app
+// include 회피(구현 위치 = ClientMusicApp 내 — 브리프 계약). 셀프테스트
+// 접점 없음(2g는 갤러리 원문 소유 — 신설 어셜션 0 계약).
+
+// 커버아트 메모리 LRU 상한(브리프 — 갤러리 kThumbPoolMax 96 선례 승계).
+inline constexpr size_t kCoverPoolMax = 96;
+// 행 썸네일 박스(px — 브리프 32px)+패널 미리보기 박스(px — 모호성 해소 (b):
+// 4KB+ 원본도 전체 디코드 뒤 텍스처 축소).
+inline constexpr int kCoverThumbBox = 32;
+inline constexpr int kCoverPreviewBox = 96;
+// 프레임당 ReadCover+디코드 상한(D7 지연 채움 — 렌더 프리즈 절단; 스타된 요청
+//은 pendingCovers_로 다음 틱 계속).
+inline constexpr int kCoverFillPerFrame = 2;
+
+// 커버아트 파일 확장자 필터(브리프 — .jpg/.jpeg/.png만; WriteTag의 mime 판정
+// ValidateCover 승인 표기와 정합 — Stricmp 원존 수형).
+inline bool IsCoverImageExtension(const std::string& ext) {
+    return jk::crt::Stricmp(ext.c_str(), ".jpg") == 0 ||
+           jk::crt::Stricmp(ext.c_str(), ".jpeg") == 0 ||
+           jk::crt::Stricmp(ext.c_str(), ".png") == 0;
+}
+
+// 확장자 → mime 정규화(커버 선택 파일 — WriteTag의 NormalizeCoverMime 승인
+// 표기에 들어가는 원문 형식 "image/jpeg"/"image/png"; 그밖 확장자는 필터가
+// 거부하므로 도달 계약 밖 — jpeg 폴백).
+inline std::string CoverMimeOfExt(const std::string& ext) {
+    return jk::crt::Stricmp(ext.c_str(), ".png") == 0 ? "image/png"
+                                                      : "image/jpeg";
+}
+
+// 태그 쓰기 지원 확장자(행 [편집] 버튼의 정직 표기 게이트 — D4 표기 수형과
+// 같은 성질: 쓰기 leg는 매agic 스니프가 진실원이라 확장자는 **가능성** 게이트
+// — 매agic 불일치·매agic 없는 비-mp3는 [저장]의 정직 거부("unsupported_format")
+// 로 흡수된다. m4a/aac/wma = v1 스코프 밖 — 버튼 그리지 않는다).
+inline bool TagWritableExt(const std::string& full) {
+    const std::string ext =
+        std::filesystem::path(full).extension().string();
+    return jk::crt::Stricmp(ext.c_str(), ".mp3") == 0 ||
+           jk::crt::Stricmp(ext.c_str(), ".flac") == 0 ||
+           jk::crt::Stricmp(ext.c_str(), ".ogg") == 0 ||
+           jk::crt::Stricmp(ext.c_str(), ".wav") == 0;
+}
+
+// 박스 핏 승계 상수 — nearest 축소(gallery::MakeThumb 원문 수형 — nearest
+// 역사상 y*src.h/dstH)를 박스 상한 안으로만(원본이 박스보다 작으면 원본
+// 유지 — 확대 금지). 행 썸네일 32px·미리보기 96px 공용.
+inline LoadedImage ShrinkToBox(const LoadedImage& src, int maxBox) {
+    if (src.w <= 0 || src.h <= 0 || maxBox <= 0 || src.rgba.empty())
+        return LoadedImage();
+    const float s = std::min(
+        {std::min(static_cast<float>(maxBox) / static_cast<float>(src.w),
+                  static_cast<float>(maxBox) / static_cast<float>(src.h)),
+         1.0f});
+    const int dstW = std::max(1, static_cast<int>(src.w * s));
+    const int dstH = std::max(1, static_cast<int>(src.h * s));
+    if (dstW == src.w && dstH == src.h) return src;
+    LoadedImage out;
+    out.w = dstW;
+    out.h = dstH;
+    out.rgba.assign(static_cast<size_t>(dstW) * dstH * 4, 0);
+    for (int y = 0; y < dstH; ++y) {
+        const int sy = std::min(src.h - 1, y * src.h / dstH);
+        const uint8_t* srcRow = src.rgba.data() + static_cast<size_t>(sy) * src.w * 4;
+        uint8_t* dstRow = out.rgba.data() + static_cast<size_t>(y) * dstW * 4;
+        for (int x = 0; x < dstW; ++x) {
+            const int sx = std::min(src.w - 1, x * src.w / dstW);
+            std::memcpy(dstRow + static_cast<size_t>(x) * 4,
+                        srcRow + static_cast<size_t>(sx) * 4, 4);
+        }
+    }
+    return out;
+}
+
+// 박스 표기 승수(gallery::FitThumb 원문 수형 — 비율 유지·박스 밖 출혈 없음;
+// 행 셀과 미리보기 상자의 중앙 배치가 소비).
+struct FitBox {
+    float w = 0, h = 0;
+};
+inline FitBox FitImageBox(int w, int h, float maxW, float maxH) {
+    if (w <= 0 || h <= 0 || maxW <= 0.f || maxH <= 0.f) return FitBox();
+    const float s = std::min(maxW / static_cast<float>(w),
+                             maxH / static_cast<float>(h));
+    return FitBox{ static_cast<float>(w) * s, static_cast<float>(h) * s };
+}
+
+// LRU 퇴출 산치(gallery::PickLruVictim 원문 수형 — 이번 프레임 접촉분은
+// 전부 후보 제외: 이미 draw list에 기록된 텍스처의 동프레임 파괴 금지 — C1
+// 원장; 후보 없음 = -1 — placeholder 유지).
+inline int PickCoverVictim(const std::vector<long long>& useFrames,
+                           long long currentFrame) {
+    int victim = -1;
+    for (size_t i = 0; i < useFrames.size(); ++i) {
+        if (useFrames[i] >= currentFrame) continue;  // 이번 프레임 접촉 제외
+        if (victim < 0 || useFrames[i] < useFrames[static_cast<size_t>(victim)])
+            victim = static_cast<int>(i);
+    }
+    return victim;
+}
+
+// 커버 선택 브라우저의 이미지 파일 열거(ec 중립형 — browse::ListSubdirs
+// 원문 수형의 파일판: directory_iterator+ec·도트 스킵·확장자 필터·바이트
+// 오름차순 결정론). 없는 cwd/빈 cwd = 빈 목록. 하위 디렉터리는 ListSubdirs가
+// 별도 소유(브라우저가 둘을 조립한다).
+inline std::vector<std::string> ListCoverFiles(const std::string& cwd) {
+    std::vector<std::string> files;
+    if (cwd.empty()) return files;  // 방어선(호출부 무접촉)
+    std::error_code ec;
+    const std::filesystem::directory_iterator it(
+        std::filesystem::path(cwd), ec);
+    if (ec) return files;  // 열기 실패(부재 cwd 포함) = 빈 목록(독립 실패)
+    for (const std::filesystem::directory_entry& entry : it) {
+        std::error_code entryEc;
+        const bool isDir = entry.is_directory(entryEc);
+        if (entryEc || isDir) continue;  // 소멸 성분·하위 폴더 = 스킵
+        const std::string name = entry.path().filename().string();
+        if (name.empty() || name.front() == '.') continue;  // 숨김 도트 스킵
+        if (!IsCoverImageExtension(entry.path().extension().string()))
+            continue;
+        files.push_back(std::move(name));
+    }
+    std::sort(files.begin(), files.end());  // 바이트 오름차순 결정론(ListSubdirs
+                                            //   tie 수형)
+    return files;
+}
 } // namespace
 
 ClientMusicApp::ClientMusicApp() = default;  // 원밖 — leg unique_ptr의 완전형
@@ -312,6 +460,17 @@ void ClientMusicApp::OnClose() {
     legEngine_.reset();
 #endif
     // 워커 join은 ~ClientMusicApp이 소유한다(Init 짝 원문 계약 — 생성 주기).
+    // 커버 텍스처 정리(T3 — 갤러리 ReleaseThumbs 원문 수형): 행 풀+미리보기+
+    // 스윕 대기 전부 — 텍스처는 renderer 소유가 아니라 SDL 소유라 명시 파괴.
+    ReleaseSweepTextures();
+    if (previewTex_) {
+        SDL_DestroyTexture(previewTex_);
+        previewTex_ = nullptr;
+    }
+    previewImg_ = LoadedImage();
+    previewDirty_ = false;
+    for (CoverSlot& s : covers_) ReleaseCoverTexture(s);
+    covers_.clear();
     if (imguiReady_) {
         ImGui_ImplJKWindow_Shutdown();
         ImGui::DestroyContext();
@@ -353,9 +512,15 @@ void ClientMusicApp::OnIdle() {
             frameDirty_ = true;
         }
     }
+    // 행 썸네일 채움 진행 중 틱(T3 — #89 T2 조건화 수형 — 갤러리
+    // pendingThumbs_ 선례): pendingCovers_는 마지막 렌더 프레임에서 예산·풀
+    // 상한으로 못 채운 행 요청 표식 — 채움 진행(도착 예정 내용)인 동안만
+    // 프레임을 계속하고, 비어 있으면 접촉도 없다(도착 완료 프레임이 곧 마지막).
+    if (pendingCovers_) frameDirty_ = true;
     // 스캔 결과 수취 — 워커의 도착 표식만 읽는다(뮤텍스 접촉은 수취 시 1회 —
     // 무도착 무비용). **도착+답신 수취 = 유일 더티**(#89 계약): 수취한 결과가
     // 현재 세대면 표기 갱신+frameDirty_=true, 세대 불일치(재청구가 이겼다)
+    // 면 폐기만.
     // 면 폐기만.
     if (!scanDone_.load(std::memory_order_acquire)) return;
     bool adopted = false;
@@ -392,14 +557,29 @@ void ClientMusicApp::RenderOverlay(SDL_Renderer* renderer, int w, int h) {
             return;
         imguiReady_ = true;
     }
+    // T3 — 이번 프레임 세대 초기화: 커버 채움 예산·도착 표식 소각+프레임
+    // 세대 증가(퇴출 산치의 동프레임 접촉 제외 — fix r1 수형). renderer_ 스태시
+    // (shot 전체 보기·갤러리 EnsureThumbTexture 수형 — 텍스처 업로드가 SDL
+    // 렌더러를 요구하는 곳은 여기뿐).
+    pendingCovers_ = false;
+    coverFillsThisFrame_ = 0;
+    ++coverFrame_;
+    renderer_ = renderer;
     ImGui_ImplJKWindow_NewFrame(1.0f / 60.0f, w, h);
     ImGui::NewFrame();
     BuildUi(w, h);
     ImGui::Render();
     ImGui_ImplJKWindow_RenderDrawData(ImGui::GetDrawData(), renderer);
-    // 자기유지 더티 소멸 없음(#89 T2 — gallery 수형의 조건 잔존도 없다): 이
-    // 앱은 프레임 내 비동기 도착이 없고(워커 도착은 scanDone_→OnIdle) 남는
-    // 요청(placeholder 재요청)이 없다 — 다음 프레임은 도착·입력·테마만 유발.
+    // 프레임말 텍스처 스윕(T3 — 갤러리 C1 원장의 예방 파견): 패널 닫힘·미리
+    // 보기 재구성이 이 프레임 draw list가 이미 기록한 텍스처를 파괴하면
+    // RenderDrawData가 해방된 SDL 텍스처로 돈다 — 파괴를 프레임말로 미룬다.
+    ReleaseSweepTextures();
+    // 다음 프레임 유발 — 갤러리 pendingThumbs_ 수형(채움 진행 중만): 선례의
+    // 이 대입은 RenderAndCommit 뒤 OnFrameCommitted가 소각하기에 단독으로는
+    // 다음 프레임을 만들지 못한다(게이트는 OnIdle 이후 판정) — 실제 동작
+    // 경로는 OnIdle의 재청구(pendingCovers_ → frameDirty_ 배송 #89 조건화
+    // 수형, 위)다. 이 대입은 선례 원문 유지(정직 표기 — 이원화 원장행).
+    frameDirty_ = pendingCovers_;
 }
 
 std::string ClientMusicApp::SettingsText() const {
@@ -489,6 +669,10 @@ void ClientMusicApp::RequestScan() {
     }
     scanBusy_ = true;
     tracks_.clear();
+    // 커버 실패 슬롯의 재시도 게이트 세대(T3): 재스캔 = 새 조명이라 부재 슬롯
+    // (파일 변칙·ReadCover 사유)도 1회 재시도 간다(갤러리 failedGen scanGen_
+    // 수형). 성공 슬롯은 키(path,mtime) 부정합만 재충 — 세대와 무관.
+    ++coverGen_;
     scanDone_.store(false, std::memory_order_release);  // 옛 도착 표식 소각
     scanCv_.notify_all();
 }
@@ -1363,6 +1547,16 @@ void ClientMusicApp::BuildUi(int w, int h) {
             if (browseOpen_) BuildFolderBrowser();
         }
 
+        // 태그 편집 패널(T3 — 스펙 §3): 행 [편집] 버튼의 전환 패널 — [폴더
+        // 관리] 패널과 같은 동형 전환(같은 창·탭 — 클릭 = 입력 이벤트 자연
+        // 귀결, 더티 조작 없음). [커버 선택] 브라우저가 열리면 그 아래의
+        // 목록 child(128 — 브라우저 원존 높이)도 흐름에 이어진다. 패널이
+        // 위를 압착하면 아래의 압착 가드(reserve)가 표 최소를 봉한다(원존).
+        if (editOpen_) {
+            BuildTagEditPanel();
+            if (editPickOpen_) BuildCoverPicker();
+        }
+
         ImGui::Separator();
         // 2분할 — 표(남는 높이)+spatial leg 패널(하단 고정 200px). 패널은
         // env 무관하게 늘 그려진다(버튼=표기 계층 T1 순수 부품 — leg 불가
@@ -1500,6 +1694,544 @@ void ClientMusicApp::SpatialPositionChanged() {
     // 드래그 자체는 입력 이벤트(게이트가 이미 프레임을 낸다 — 더티 조작 없음).
 }
 
+// ---- 태그 편집 패널+커버아트 표시 (T3 — 스펙 2026-10-25 §2·§3) ----
+
+void ClientMusicApp::SweepPreview() {
+    // 미리보기 텍스처의 프레임말 파괴 적립 — 동프레임 AddImage 원장(파괴를
+    // RenderDrawData 뒤로 미룬다 — C1 원장의 예방 파견). 픽셀도 같이 소각.
+    if (previewTex_) texSweep_.push_back(previewTex_);
+    previewTex_ = nullptr;
+    previewImg_ = LoadedImage();
+}
+
+void ClientMusicApp::ReleaseSweepTextures() {
+    // 프레임말 파괴(RenderOverlay 끝 경계 — draw list가 기록을 마친 뒤):
+    // 스윕 목록 전부. 미리보기가 낡은/닫힌 세션의 텍스처라 이 시점에 살아
+    // 있으면(addImage 없는 파괴 경계) 함께 파괴한다.
+    for (SDL_Texture* tex : texSweep_) SDL_DestroyTexture(tex);
+    texSweep_.clear();
+}
+
+ClientMusicApp::CoverSlot* ClientMusicApp::FindCoverSlot(
+    const std::string& full) {
+    for (CoverSlot& s : covers_)
+        if (s.full == full) return &s;
+    return nullptr;
+}
+
+ClientMusicApp::CoverSlot* ClientMusicApp::AcquireCoverSlot(
+    const std::string& full, long long mtime, long long size) {
+    // 남는 슬롯(픽셀·텍스처 없음+실패 아님) 재용 — 상한 접촉 없이 소개.
+    for (CoverSlot& s : covers_) {
+        if (!s.tex && s.img.rgba.empty() && !s.failed) {
+            ReleaseCoverTexture(s);
+            s.full = full;
+            return &s;
+        }
+    }
+    if (covers_.size() < kCoverPoolMax) {
+        covers_.emplace_back();
+        CoverSlot& fresh = covers_.back();
+        fresh.full = full;
+        fresh.mtime = mtime;
+        fresh.size = size;
+        return &fresh;
+    }
+    // LRU 퇴출(gallery::PickLruVictim 원문 수형 — 이번 프레임 접촉분 전부
+    // 제외: 동프레임 draw list의 텍스처 파괴 금지 — C1 원장). 후보 없음 =
+    // 요청 유보 — placeholder 유지(파괴는 접촉 프레임 이후 틱).
+    std::vector<long long> useFrames;
+    useFrames.reserve(covers_.size());
+    for (const CoverSlot& s : covers_) useFrames.push_back(s.useFrame);
+    const int victimIx = PickCoverVictim(useFrames, coverFrame_);
+    if (victimIx < 0) return nullptr;
+    CoverSlot& victim = covers_[static_cast<size_t>(victimIx)];
+    ReleaseCoverTexture(victim);
+    victim = CoverSlot();
+    victim.full = full;
+    victim.mtime = mtime;
+    victim.size = size;
+    return &victim;
+}
+
+void ClientMusicApp::ReleaseCoverTexture(CoverSlot& slot) {
+    if (slot.tex) {
+        SDL_DestroyTexture(slot.tex);
+        slot.tex = nullptr;
+    }
+}
+
+void ClientMusicApp::FillCoverSlot(CoverSlot& slot, const music::Track& t) {
+    // D7 — 지연 채움의 실제 몫: ReadCover(파일 접점 1건)+stb 디코드+nearest
+    // 32px 축소. 키 성분도 여기가 단일 진실원(경계 재용이 슬롯 키를 완성한다).
+    slot.mtime = t.mtime;
+    slot.size = t.size;
+    // 실패 = failed 슬롯(부재 표기 — placeholder·정직, 갤러리
+    // FillThumbSlot 원문 수형) — 재시도는 새 재스캔 세대(coverGen_)의 조명에서
+    // 1회. ReadCover가 던지지 않는다(fs::path 개방 — 2q 수형; CP949 바이트
+    // 경로도 native 변환 성공) — 읽기 사슬 관용, catch 불요.
+    ReleaseCoverTexture(slot);
+    slot.img = LoadedImage();
+    music::tags::CoverArt art;
+    std::string err;
+    if (!music::tags::ReadCover(t.full, art, err) || art.bytes.empty()) {
+        slot.failed = true;
+        slot.failedGen = coverGen_;
+        return;  // 커버 부재 = placeholder(행 라벨 무변조 — 브리프)
+    }
+    // 디코드 — 메모리 버퍼(stb 조달품 재용). 파일 터치 0(#94 — 인코딩 사슬
+    // 함정 회피: 메모리 접점이라 Utf8ToAnsi 불요).
+    LoadedImage raw;
+    if (!jk::LoadImageMemory(art.bytes.data(), art.bytes.size(), raw) ||
+        raw.w <= 0 || raw.h <= 0) {
+        slot.failed = true;
+        slot.failedGen = coverGen_;
+        return;
+    }
+    slot.img = ShrinkToBox(raw, kCoverThumbBox);
+    slot.failed = false;
+}
+
+void ClientMusicApp::EnsureCoverTexture(CoverSlot& slot) {
+    // 지연 업로드(갤러리 EnsureThumbTexture 원문 수형): 픽셀 있음+텍스처
+    // 없음+렌더러 가시 때만 — 실패(희귀)는 다음 프레임 재시도.
+    if (slot.tex || slot.img.rgba.empty() || slot.img.w <= 0 ||
+        slot.img.h <= 0 || !renderer_)
+        return;
+    SDL_Texture* t = SDL_CreateTexture(renderer_, SDL_PIXELFORMAT_RGBA32,
+                                       SDL_TEXTUREACCESS_STREAMING,
+                                       slot.img.w, slot.img.h);
+    if (!t) return;
+    SDL_UpdateTexture(t, nullptr, slot.img.rgba.data(), slot.img.w * 4);
+    slot.tex = t;
+}
+
+ClientMusicApp::CoverView ClientMusicApp::RowCover(const music::Track& t) {
+    // 행 셀 1장의 커버 관측 — 캐시 적중 = 무접촉(텍스처 승계). 미스 = 이
+    // 프레임 예산 안에서 D7 채움(프레임당 kCoverFillPerFrame — 초과분은
+    // placeholder+pendingCovers_ → 다음 틱 프레임). key = (full, mtime,
+    // size) — 재스캔 뒤 mtime/size 부정합 = 재충(태그 쓰기의 커버 교체가
+    // 행 표기에 도달하는 유일 경로).
+    if (t.full.empty()) return CoverView();
+    CoverSlot* slot = FindCoverSlot(t.full);
+    if (slot) {
+        if (slot->mtime == t.mtime && slot->size == t.size) {
+            slot->useFrame = coverFrame_;  // 접촉 스탬프(LRU 원문)
+            if (slot->failed) {
+                // 실패 슬롯 — 세대 뒤 조명에서 1회 재시도(갤러리 수형); 같은
+                // 세대의 반복 조명은 무비용 원문 회수(예산 미접촉).
+                if (slot->failedGen != coverGen_) goto fill;
+                return CoverView();
+            }
+            if (!slot->img.rgba.empty()) {
+                EnsureCoverTexture(*slot);
+                CoverView v;
+                v.tex = slot->tex;
+                v.w = slot->img.w;
+                v.h = slot->img.h;
+                return v;
+            }
+            goto fill;  // 슬롯 선취만 된 미채움(예산 소진 프레임의 잔여)
+        }
+        // 키 부정합(재작성) — 슬롯 리셋 후 재충(다음 흐름 = 신규와 동일 leg).
+        ReleaseCoverTexture(*slot);
+        *slot = CoverSlot();
+        slot->full = t.full;
+        slot->mtime = t.mtime;
+        slot->size = t.size;
+        goto fill;
+    }
+    slot = AcquireCoverSlot(t.full, t.mtime, t.size);
+    if (!slot) {
+        // 풀 상한+동프레임 — placeholder 유지(해당 행만 더티의 근거는 유지
+        // — 진행 중 표식: 다음 틱에 1프레임 재요청, 갤러리 선례).
+        pendingCovers_ = true;
+        return CoverView();
+    }
+fill:
+    if (coverFillsThisFrame_ >= kCoverFillPerFrame) {
+        // 예산 소진 — 이번 프레임은 placeholder, 진행 표식만(Honest — 채움은
+        // 이어진다 — pendingCovers_의 OnIdle 재청구가 다음 틱 프레임).
+        pendingCovers_ = true;
+        return CoverView();
+    }
+    ++coverFillsThisFrame_;
+    slot->useFrame = coverFrame_;  // 채움 예정 접촉 — 동프레임 퇴출 제외 먼저
+    FillCoverSlot(*slot, t);
+    slot->useFrame = coverFrame_;
+    if (slot->failed) return CoverView();  // 부재 = placeholder(세대 게이트)
+    EnsureCoverTexture(*slot);
+    CoverView v;
+    v.tex = slot->tex;
+    v.w = slot->img.w;
+    v.h = slot->img.h;
+    return v;
+}
+
+// ---- 태그 편집 패널 (스펙 §3 — [폴더 관리] 패널 동형 전환) ----
+
+void ClientMusicApp::OpenTrackEditor(const music::Track& t) {
+    // 개봉 단일 경로 — 행 [편집] 버튼(스펙 §3; 도구 경계는 쓰기만 소비 — 개봉
+    // 도구는 v1 스코프 밖). 세션은 1건만(재개봉 = 이전 세션 소각 — 폴더 패널
+    // 원존의 단일 상태 수형). 표기 원문 수형 — 입력 프레임 그 자체(더티 조작
+    // 없음).
+    CloseEditor();
+    if (t.full.empty()) {
+        status_ = "[!] 편집 경로 없음";
+        frameDirty_ = true;
+        return;
+    }
+    editPath_ = t.full;
+    // 프리필 — 현값 원문(UTF-8 InputText 자연형). title 부재 = 파일명 폴백(D3
+    // 표기 규약 승계 — fs::path stem 원문 수형); artist/album 부재 = 빈값
+    // ("-" 표기는 열 원존라 편집 프리필에 심으면 원문이 죽는다 — Track 태그
+    // 필드의 원문 보존 계약 승계).
+    std::string pre =
+        t.title.empty()
+            ? std::filesystem::path(t.name).stem().string()
+            : t.title;
+    std::snprintf(editTitleBuf_, sizeof(editTitleBuf_), "%s", pre.c_str());
+    std::snprintf(editArtistBuf_, sizeof(editArtistBuf_), "%s", t.artist.c_str());
+    std::snprintf(editAlbumBuf_, sizeof(editAlbumBuf_), "%s", t.album.c_str());
+    editOpen_ = true;
+    editPickOpen_ = false;
+    pickCwd_.clear();
+    previewDirty_ = true;  // D7 — 패널 열림 1회 ReadCover(다음 렌더 프레임 몫 —
+                           //   개봉 클릭 프레임의 draw list와의 충돌 없음)
+}
+
+void ClientMusicApp::CloseEditor() {
+    // 세션 소각 — [취소]/[저장] 성공 공용. 텍스처 파괴는 프레임말 스윕(동프레임
+    // AddImage 원장 — RenderOverlay의 ReleaseSweepTextures 소비).
+    editOpen_ = false;
+    editPath_.clear();
+    editTitleBuf_[0] = '\0';
+    editArtistBuf_[0] = '\0';
+    editAlbumBuf_[0] = '\0';
+    editCoverSel_.clear();
+    editCoverErr_.clear();
+    editSaveErr_.clear();
+    editPickOpen_ = false;
+    pickCwd_.clear();
+    previewDirty_ = false;
+    SweepPreview();
+}
+
+void ClientMusicApp::RebuildTagPreview() {
+    // 미리보기 재구성 — D7 패널 열림 1회(내장 커버 = ReadCover)·커버 선택
+    // 교체 1회(이미지 파일). 파괴는 스윕(위) — 재구성 자체는 픽셀/사유만
+    // 채운다. 실패 = 미리보기 부재+editCoverErr_ 1행(정직 — 모호성 해소 (d)).
+    // 이 함수는 **draw 전 경계**(BuildTagEditPanel 머리)에서만 불린다 —
+    // previewTex_ 파괴(스윕 예약)와 이번 프레임 AddImage가 겹치지 않는다.
+    SweepPreview();
+    editCoverErr_.clear();
+    if (editOpen_ && editPath_.empty()) return;  // 세션 상실 방어선
+    LoadedImage dec;
+    if (!editCoverSel_.empty()) {
+        // 커버 선택 파일 — stb 파일 접점은 narrow char*(ACP 해석)라 #94 규약
+        // 의 Utf8ToAnsi 수형(spatial leg의 디코더 경로 사슬 재용 — posix =
+        // 항등). 실패 = 빈 변환(fail-closed) → 정직 사유.
+        const std::string ansi = jk::text::Utf8ToAnsi(editCoverSel_);
+        if (ansi.empty()) {
+            editCoverErr_ = "이미지 경로 인코딩 변환 실패";
+        } else if (!jk::LoadImageFile(ansi, dec) || dec.w <= 0 ||
+                   dec.h <= 0) {
+            editCoverErr_ = "이미지 열기 실패 — " + editCoverSel_;
+        }
+    } else {
+        // 내장 커버 — ReadCover(파일 접점은 fs::path 개방 — 인코딩 자유).
+        // "no_cover"(부재의 정상 경로)와 구조 사유를 같은 행에서 갈라 쓴다
+        // (정직 — 모호성 해소 (d): "미리보기 부재+err 1행 표기").
+        music::tags::CoverArt art;
+        std::string err;
+        if (music::tags::ReadCover(editPath_, art, err) && !art.bytes.empty()) {
+            if (!jk::LoadImageMemory(art.bytes.data(), art.bytes.size(),
+                                     dec) ||
+                dec.w <= 0 || dec.h <= 0)
+                editCoverErr_ = "커버 이미지 디코드 실패";
+        } else {
+            editCoverErr_ = err.empty() || err == "no_cover"
+                                ? "커버 부재 — 삽입하려면 [커버 선택]"
+                                : "커버 읽기 실패 — " + err;
+        }
+    }
+    if (dec.w > 0 && dec.h > 0 && !dec.rgba.empty())
+        previewImg_ = ShrinkToBox(dec, kCoverPreviewBox);
+    if (previewImg_.rgba.empty() && editCoverErr_.empty())
+        editCoverErr_ = "미리보기 없음";  // 방어선(정직 — 무음 계약 금지)
+}
+
+void ClientMusicApp::EnsurePreviewTexture() {
+    // 지연 업로드(갤러리 전체 보기의 texture_ 수형): 픽셀 있음+텍스처 없음+
+    // 렌더러 가시. 텍스처는 축소 완료판(96 박스) — 원본 전체 크기의 GPU 사본을
+    // 만들지 않는다(폰 SW 렌더러의 대형 텍스처 비용 회피 — 모호성 해소 (b)).
+    if (previewTex_ || previewImg_.rgba.empty() || previewImg_.w <= 0 ||
+        previewImg_.h <= 0 || !renderer_)
+        return;
+    previewTex_ = SDL_CreateTexture(
+        renderer_, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STREAMING,
+        previewImg_.w, previewImg_.h);
+    if (!previewTex_) return;  // 희귀 — 다음 프레임 재시도(더티는 진행 표기 몫)
+    SDL_UpdateTexture(previewTex_, nullptr, previewImg_.rgba.data(),
+                      previewImg_.w * 4);
+}
+
+void ClientMusicApp::SaveTagEdit() {
+    // [저장] — 쓰기의 단일 경로(스펙 §3·브리프 "저장 사슬은 WriteTag 1콜로
+    // 완결"): 원자적 tmp+rename은 WriteTag 내장 — UI는 추가 파일 처리를 하지
+    // 않는다. 성공 = status 표기+재스캔 재청구(기존 RequestScan 배선 재용 —
+    // 취소 계약 무접촉)+패널 닫힘; 실패 = 패널 err 1행(정직 — 세션 유지, 입력
+    // 값 사존). 스캔 진행 중 = 호출 전 게이트(BuildUi — [저장] 비활성)인데도
+    // 도구 경계성 사건(같은 프레임의 재청구 등)에 대비한 방어선 유지.
+    if (editPath_.empty()) return;
+    if (scanBusy_) {
+        editSaveErr_ = "스캔 중 — 저장 대기";
+        frameDirty_ = true;
+        return;
+    }
+    music::tags::TagSet t;
+    t.title = editTitleBuf_;
+    t.artist = editArtistBuf_;
+    t.album = editAlbumBuf_;
+    music::tags::CoverArt cover;
+    const music::tags::CoverArt* coverPtr = nullptr;
+    if (!editCoverSel_.empty()) {
+        // 커버 지정 — 이미지 파일 원문 수취(파일 터치 = 네이티브 개방 — #94;
+        // ifstream fs::path — ParseTag 원문 수형)+mime = 확장자 정규화
+        // (브리프 필터와 정합 — .jpg/.jpeg/.png만 통과가 가능한 경로).
+        namespace fs = std::filesystem;
+        const fs::path p(editCoverSel_);
+        std::error_code ec;
+        const auto sz = fs::file_size(p, ec);
+        std::ifstream f(p, std::ios::binary);
+        if (ec || !f.is_open() || sz <= 0) {
+            editSaveErr_ = "커버 파일을 읽을 수 없습니다 — " + editCoverSel_;
+            frameDirty_ = true;
+            return;
+        }
+        if (static_cast<unsigned long long>(sz) > music::tags::kTagWriteMax) {
+            editSaveErr_ = "커버 파일이 너무 큽니다(16MiB 상한)";
+            frameDirty_ = true;
+            return;
+        }
+        cover.bytes.resize(static_cast<size_t>(sz));
+        f.read(reinterpret_cast<char*>(cover.bytes.data()),
+               static_cast<std::streamsize>(sz));
+        if (f.gcount() != static_cast<std::streamsize>(sz)) {
+            editSaveErr_ = "커버 파일 read 실패";
+            frameDirty_ = true;
+            return;
+        }
+        cover.mime = CoverMimeOfExt(p.extension().string());
+        coverPtr = &cover;  // 지정 = 교체(D8), null = 기존 유지(WriteTag 계약)
+    }
+    std::string err;
+    if (music::tags::WriteTag(editPath_, t, coverPtr, err)) {
+        status_ = "태그 저장 — 재스캔";
+        CloseEditor();     // 성공 = 패널 닫힘(텍스처는 프레임말 스윕)
+        RequestScan();     // 재스캔 재청구(기존 배선 재용 — 취소 계약 원존)
+    } else {
+        editSaveErr_ = err.empty() ? "태그 저장 실패" : err;  // err 원문 1행
+    }
+    frameDirty_ = true;  // DirAddManaged 수형 — 표기 계약(성공/실패 모두)
+}
+
+void ClientMusicApp::BuildTagEditPanel() {
+    // 태그 편집 패널 — [폴더 관리] 패널의 동형 전환(같은 창·탭 유지 — 브리프;
+    // 새 window/창 생성 금지). 개봉 = 행 [편집] 버튼(유일 경로).
+    if (!editOpen_ || editPath_.empty()) {
+        editOpen_ = false;  // 방어선(세션 사본 상실) — 표기 없음(사유 없는
+        return;             //   개봉 거부는 행 클릭 경계의 사유 몫)
+    }
+    if (previewDirty_) {
+        previewDirty_ = false;
+        RebuildTagPreview();  // D7 패널 열림 1회(개봉 다음 프레임 — draw 전
+                              //   경계 — 동프레임 AddImage 원장 파괴 금지)
+    }
+    EnsurePreviewTexture();
+    // 제목 행 — 패널 라벨+대상 파일명(말단 성분은 바이트 스캔 — LastPathSegment
+    // 원문 수형).
+    ImGui::TextUnformatted("태그 편집");
+    ImGui::SameLine();
+    const std::string fileLabel = LastPathSegment(editPath_);
+    ImGui::TextDisabled("%s", fileLabel.c_str());
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("%s", editPath_.c_str());  // 전문 = 툴힌트(행 수형)
+    // 좌우 분할 — 3 InputText(좌)+미리보기 박스(우 96px). 좌폭 = 남는 폭 −
+    // 상자 −여유; 좊은 창(상자+입력이 못 들어가는 폭)은 미리보기 열 폐기(
+    // 상자 0 — 입력이 전폭을 소유; degenerate 창의 방어선 — 압착 원장행).
+    const float availX = ImGui::GetContentRegionAvail().x;
+    const float box = kCoverPreviewBox + 12.0f < availX
+                          ? static_cast<float>(kCoverPreviewBox)
+                          : 0.0f;
+    const float inputsW = availX - (box > 0 ? box + 12.0f : 0.0f);
+    if (box > 0) {
+        // 미리보기 상자 예약 — draw list 직접(행 썸네일과 같은 수형 — ImGui
+        // Image의 커서 진행 회피). 좌표는 지금 cursor의 우측(세로 정렬).
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const ImU32 face = IM_COL32(
+            jk::theme::current().launcherCellFace.r,
+            jk::theme::current().launcherCellFace.g,
+            jk::theme::current().launcherCellFace.b, 255);
+        const ImU32 outline = IM_COL32(
+            jk::theme::current().launcherCellOutline.r,
+            jk::theme::current().launcherCellOutline.g,
+            jk::theme::current().launcherCellOutline.b, 255);
+        const ImVec2 q{p.x + availX - box, p.y + box};
+        ImGui::GetWindowDrawList()->AddRectFilled(p, q, face, 6.0f);
+        if (previewTex_ && previewImg_.w > 0 && previewImg_.h > 0) {
+            const FitBox fit = FitImageBox(previewImg_.w, previewImg_.h,
+                                           box - 4.0f, box - 4.0f);
+            if (fit.w > 0.f && fit.h > 0.f) {
+                const float tx = p.x + (availX - box) + (box - fit.w) * 0.5f;
+                const float ty = p.y + (box - fit.h) * 0.5f;
+                ImGui::GetWindowDrawList()->AddImage(
+                    (ImTextureID)previewTex_, ImVec2(tx, ty),
+                    ImVec2(tx + fit.w, ty + fit.h));
+            }
+        }
+        ImGui::GetWindowDrawList()->AddRect(p, q, outline, 6.0f);
+    }
+    // 3 InputText — 프리필(OpenTrackEditor). 각 1행(폭 = inputsW) — 타이핑은
+    // 입력 이벤트(게이트 원문 — 더티 조작 없음).
+    ImGui::PushItemWidth(inputsW);
+    ImGui::InputTextWithHint("##edtitle", "제목", editTitleBuf_,
+                             sizeof(editTitleBuf_));
+    ImGui::InputTextWithHint("##edartist", "아티스트", editArtistBuf_,
+                             sizeof(editArtistBuf_));
+    ImGui::InputTextWithHint("##edalbum", "앨범", editAlbumBuf_,
+                             sizeof(editAlbumBuf_));
+    ImGui::PopItemWidth();
+    // 버튼 행 — [커버 선택](브라우저 토글)+[저장](모호성 해소 (c): 스캔 진행
+    // 중 = 비활성+표기)+[취소]. 저장 성공의 CloseEditor가 클릭 프레임 안에서
+    // 상태를 비우기에, 이후 코드(아래의 err 행)는 이번 프레임 무의미 흐름 —
+    // editOpen_ 게이트로 방어한다(위의 방어선 — 다음 프레임 소멸).
+    const bool canSave = !scanBusy_;
+    if (ImGui::Button(editPickOpen_ ? "커버 선택 ▾" : "커버 선택 ▸")) {
+        // 개봉 cwd = 편집 곡의 폴더(자연 개시 — #97 개봉 = 탭 루트의 수형).
+        // 가드 2검(브라우저 개봉 원존 수형: 광 드라이브 루트·부적합 UTF-8).
+        editPickOpen_ = !editPickOpen_;
+        if (editPickOpen_) {
+            editPickOpen_ = false;
+            pickCwd_.clear();
+            const std::string parent =
+                std::filesystem::path(editPath_).parent_path()
+                    .generic_string();
+            if (parent.empty()) {
+                // 개봉 시작점 부재(상대경로 성분 — 방어선 — 2m-b의 빈 성분
+                // 거부 수형). 개봉 거부 = 토글 소각+사유 정직 1행.
+                editSaveErr_ =
+                    "[!] 커버 선택 개봉 불가 — 편집 곡의 폴더 경로가 없습니다";
+                frameDirty_ = true;
+            } else if (parent.size() == 2 && parent[1] == ':') {
+                editSaveErr_ = "[!] 커버 선택 개봉 불가 — 광 드라이브 형식(C:) —"
+                               " X:/ 형식 경로에서 파일을 준비하세요";
+            } else if (jk::text::Utf8ToUtf16(parent).empty()) {
+                editSaveErr_ = "[!] 커버 선택 미지원 인코딩 폴더(레거시 CP949)";
+            } else {
+                pickCwd_ = parent;
+                editPickOpen_ = true;
+            }
+        } else {
+            pickCwd_.clear();
+        }
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("커버아트 이미지 선택 (.jpg/.jpeg/.png) — 타이핑 없이"
+                          " 폴더를 눌러 탐색");
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!canSave);
+    if (ImGui::Button("저장") && editOpen_) SaveTagEdit();
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("파일에 직접 씁니다(원자적 tmp→rename) — 성공 시"
+                          " 목록 재스캔");
+    ImGui::SameLine();
+    if (ImGui::Button("취소") && editOpen_) CloseEditor();
+    if (scanBusy_ || !canSave) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("스캔 중");  // 모호성 해소 (c) — 원문 표기
+    } else if (!editSaveErr_.empty()) {
+        ImGui::SameLine();
+        ImGui::TextUnformatted(editSaveErr_.c_str());  // 정직 err 1행
+    } else if (!editCoverErr_.empty()) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", editCoverErr_.c_str());  // 커버 부재/사유 1행
+    } else if (!editCoverSel_.empty()) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("커버: %s", LastPathSegment(editCoverSel_).c_str());
+    }
+}
+
+void ClientMusicApp::BuildCoverPicker() {
+    // 커버 선택 브라우저 — #97 폴더 브라우저(BuildFolderBrowser)의 부품 재용:
+    // cwd 표기 1행+상위 ".." 행+[닫기]+목록 child(하위 폴더 클릭 진입+browse::
+    // ListSubdirs 원문)+이미지 행(Local ListCoverFiles 필터 — 클릭 = 선택,
+    // 타이핑 0 — 폰 계약). 개봉 가드는 OpenTrackEditor/[커버 선택] 토글이
+    // 소유(광 드라이브 루트·CP949 동형 2검).
+    if (!editPickOpen_ || pickCwd_.empty())
+        return;  // 방어선(개봉 가드가 비움 — 토글 소각 등)
+    ImGui::TextUnformatted(pickCwd_.c_str());  // cwd 표기 1행(전문 — 브라우저
+    if (ImGui::IsItemHovered())                //   원문 수형)
+        ImGui::SetTooltip("%s", pickCwd_.c_str());
+    const std::string parentPath = music::browse::Parent(pickCwd_);
+    if (parentPath.empty()) {
+        ImGui::TextDisabled("(루트 — 상위 없음)");
+    } else {
+        ImGui::PushID(2000000000);  // ".."·하위 폴더·이미지 행의 id 공간 분리
+        if (ImGui::Selectable("..")) pickCwd_ = parentPath;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("상위 — %s", parentPath.c_str());
+        ImGui::PopID();
+    }
+    if (ImGui::Button("닫기")) {  // 상태 소각만(브라우저 원문 수형 — 선택 유지)
+        editPickOpen_ = false;
+        pickCwd_.clear();
+    }
+    if (ImGui::BeginChild("coverpick", ImVec2(0, 128.0f),
+                          ImGuiChildFlags_Borders)) {
+        const music::browse::DirPage page = music::browse::ListSubdirs(pickCwd_);
+        const std::vector<std::string> files = ListCoverFiles(pickCwd_);
+        if (page.dirs.empty() && files.empty())
+            ImGui::TextDisabled("(하위 폴더 없음 — 이미지 없음)");
+        // 하위 폴더 행 — 클릭 = 진입(JoinDir 원문 소비; 행 사본 선취+dest
+        // 선계산 — BuildFolderBrowser의 I1 fix r1 수형 통일).
+        for (size_t k = 0; k < page.dirs.size(); ++k) {
+            const std::string name = page.dirs[k];
+            const std::string dest = music::browse::JoinDir(pickCwd_, name);
+            ImGui::PushID(static_cast<int>(10000 + k));
+            if (ImGui::Selectable(name.c_str())) pickCwd_ = dest;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("%s", dest.c_str());
+            ImGui::PopID();
+        }
+        // 이미지 행 — 클릭 = 커버 선택(브라우저 원문 수형의 [이 폴더 추가]
+        // 성공 leg와 동형: 선택 성공 = 브라우저 종료+미리보기 재구성 예약).
+        for (size_t k = 0; k < files.size(); ++k) {
+            const std::string name = files[k];
+            const std::string dest = music::browse::JoinDir(pickCwd_, name);
+            ImGui::PushID(static_cast<int>(20000 + k));  // id 공간 분리
+            if (ImGui::Selectable(name.c_str())) {
+                editCoverSel_ = dest;
+                editSaveErr_.clear();
+                frameDirty_ = true;  // 수령 틱의 표기 변화(도착 더티 수형) —
+                                     //   재구성 예약이 다음 프레임에 씌어지려면
+                                     //   게이트가 필요(브라우저 종료는 입력
+                                     //   이벤트지만 예약은 이번 프레임 뒤의
+                                     //   내용 — 조건화 수형)
+                previewDirty_ = true;  // 재구성 — 다음 프레임 draw 전 경계(
+                                       //   동프레임 AddImage 원장 파괴 금지)
+                editPickOpen_ = false;
+                pickCwd_.clear();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("%s", dest.c_str());
+            ImGui::PopID();
+        }
+    }
+    ImGui::EndChild();
+}
+
 int ClientMusicApp::VisibleTrackCount() const {
     const std::string filter(filterBuf_);
     if (filter.empty()) return static_cast<int>(tracks_.size());
@@ -1514,21 +2246,31 @@ void ClientMusicApp::BuildTrackTable() {
     // 표기 동형 계약: 행 데이터는 tracks_(ListAudioFiles 결과) 그대로 — 재정렬
     // 없음(최신순 유지), 필터는 **열외만**(순서 보존 — 흡수 2m-f "정렬·rel
     // 동형"의 UI측 절반). 행 더블클릭 = 재생 위임(T3 — 파일 dialogs의
-    // IsItemHovered+IsMouseDoubleClicked 원문 수형): 첫 데이터 셀 기준(행 내부
-    // 아이템 1개 — 셀별 수형, 행 래퍼 Selectable 신설 금지). 대상은 행 참조 t
-    // 그 자체라 필터 열외 순회와 무관하게 full이 정확하다.
+    // IsItemHovered+IsMouseDoubleClicked 원문 수형): 곡명 데이터 셀 기준(행
+    // 내부 아이템 1개 — 셀별 수형, 행 래퍼 Selectable 신설 금지). 대상은 행
+    // 참조 t 그 자체라 필터 열외 순회와 무관하게 full이 정확하다.
     //
-    // 열 재편 (#99 T2 — 스펙 D4): [곡명(아티스트)] [앨범] [크기] [수정]
-    // [spatial] — 가독 우선(태그 원문). 곡명 셀 = TrackRowLabel 원문 수형(
-    // 태그 부재 = 파일명 확장자 제거 — D3 폴백), 앨범 셀 = TrackAlbumLabel(
-    // 부재 = "-" — D3 단독 열 원존). rel 경로 데이터는 셀에서 빠지고 **툴팁**
+    // 열 재편 (#111 T3 — 스펙 §2 좌측 커버 아트 셀 좌측 [편집] 버튼): [커버]
+    // [곡명(아티스트)] [앨범] [크기] [수정] [편집] [spatial] — 모호성 해소
+    // (a): [편집] 표기 = "편집"(한글)·[spatial]과 같은 SmallButton 스타일.
+    // #99 T2 열([곡명(아티스트)] [앨범] [크기] [수정] [spatial])의 배분 원문
+    // 무변조(스트레치 2:1·fixed 84/140/74 그대로 — fixed 자리에 2열 신설:
+    // 커버 40(thumb 32 박스+행 여유)·편집 56). 곡명 셀 = TrackRowLabel 원문
+    // 수형(태그 부재 = 파일명 확장자 제거 — D3 폴백), 앨범 셀 = TrackAlbumLabel
+    // (부재 = "-" — D3 단독 열 원존). rel 경로 데이터는 셀에서 빠지고 **툴팁**
     // 으로 남는다(경로 원문 소실 금지 — 툴팁은 Track.full **절대경로 원문** —
     // fix r1 I-3 문언 정정·구현 원존, 도착 스캔 Track.rel은 도구·status 표기
     // leg가 그대로 소비·2m-f 동형 무변조). spatial 열 원존 무변조(행별 버튼).
     const std::string filter(filterBuf_);
-    if (ImGui::BeginTable("tracks", 5,
+    if (ImGui::BeginTable("tracks", 7,
                           ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
                               ImGuiTableFlags_SizingStretchProp)) {
+        // 커버(T3 — 스펙 §2 행 좌측 32px 썸네일): ReadCover 지연(D7 — 스캔
+        // 무접촉, 프레임당 예산 2건)+아트 부재 = 회색 사각 자리표시. 셀은
+        // draw list 직접(Dummy로 진행) — 컬은 갤러리 fix r2 수형(clip rect
+        // 교차 행만 요청 — 컬 없는 전수 요청은 LRU 촬영 잠금의 진원).
+        ImGui::TableSetupColumn("커버", ImGuiTableColumnFlags_WidthFixed,
+                                40.0f);
         ImGui::TableSetupColumn("곡명", ImGuiTableColumnFlags_WidthStretch,
                                 2.0f);  // "곡명 (아티스트)" 합성 — 주 가독 열
         ImGui::TableSetupColumn("앨범", ImGuiTableColumnFlags_WidthStretch,
@@ -1536,24 +2278,58 @@ void ClientMusicApp::BuildTrackTable() {
         // (T2 런 실측: 앨범을 WidthFixed로 두면 560 창에서 곡명 열이 ~25px로
         // 압착(똑같은 압착 함정 — third_party/imgui의 fixed+stretch 배분 원문)
         // — 앨범을 stretch로 풀어 곡명 2/3·앨범 1/3 배분. fixed 자리는 원존
-        // 크기/수정/spatial 3열만.)
+        // 크기/수정/spatial 3열+(T3) 커버·편집 2열.)
         ImGui::TableSetupColumn("크기", ImGuiTableColumnFlags_WidthFixed,
                                 84.0f);
         ImGui::TableSetupColumn("수정", ImGuiTableColumnFlags_WidthFixed,
                                 140.0f);
-        // spatial(T2 — 행별 [spatial] 버튼 열): 지원 행만 발사 가능. 버튼은
-        // 표기 계층(T1 순수 부품)이라 env 무관 그려진다.
+        // 편집(T3 — 스펙 §3 행 [편집] 버튼 열): 태그 쓰기 지원 확장자 행만
+        // 발사 가능(정직 표기 — TagWritableExt; m4a/aac/wma = "-").
+        ImGui::TableSetupColumn("편집", ImGuiTableColumnFlags_WidthFixed,
+                                56.0f);
+        // spatial(T2 — 행별 [spatial] 버튼 열, 원존 무변조): 지원 행만 발사
+        // 가능. 버튼은 표기 계층(T1 순수 부품)이라 env 무관 그려진다.
         ImGui::TableSetupColumn("spatial", ImGuiTableColumnFlags_WidthFixed,
                                 74.0f);
         ImGui::TableHeadersRow();
+        ImDrawList* tableDl = ImGui::GetWindowDrawList();
         for (size_t r = 0; r < tracks_.size(); ++r) {
             const music::Track& t = tracks_[r];
             if (!music::MatchFilter(t, filter)) continue;  // 열외만(D5)
             ImGui::PushID(static_cast<int>(r));
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
+            // ---- 커버 셀(T3) — 32px 박스(자리표시 face/outline은 테마
+            // launcher 셀 토큰 — 갤러리 placeholder 원존 토큰 수형). 컬:
+            // 행의 수직 스팬이 child·표 클립과 교차할 때만 요청(컬 산치는
+            // 로컬 동형 — gallery::ThumbRowVisible 수형).
+            const ImVec2 cellP = ImGui::GetCursorScreenPos();
+            const float rowTop = cellP.y;
+            const float rowBot = rowTop + 34.0f;  // 32 박스+행 간격 여유
+            CoverView view;
+            if (rowTop < tableDl->GetClipRectMax().y &&
+                rowBot > tableDl->GetClipRectMin().y)
+                view = RowCover(t);
+            const auto& thm = jk::theme::current();
+            const ImVec2 cellQ{ cellP.x + 32.0f, cellP.y + 32.0f };
+            tableDl->AddRectFilled(cellP, cellQ,
+                                   IM_COL32(thm.launcherCellFace.r,
+                                            thm.launcherCellFace.g,
+                                            thm.launcherCellFace.b, 255),
+                                   4.0f);
+            if (view.tex && view.w > 0 && view.h > 0) {
+                const FitBox tf = FitImageBox(view.w, view.h, 32.0f, 32.0f);
+                if (tf.w > 0.f && tf.h > 0.f) {
+                    const float tx = cellP.x + (32.0f - tf.w) * 0.5f;
+                    const float ty = cellP.y + (32.0f - tf.h) * 0.5f;
+                    tableDl->AddImage((ImTextureID)view.tex, ImVec2(tx, ty),
+                                      ImVec2(tx + tf.w, ty + tf.h));
+                }
+            }
+            ImGui::Dummy(ImVec2(32.0f, 32.0f));  // 셀 진행 — 박스 높이 소유
             // 곡명(아티스트) 합성 셀 — 폴백 라벨 원문(D3). 툴팁 = Track.full
             // 절대경로 원문(fix r1 I-3 문언 — 경로 원문 보존·구현 원존).
+            ImGui::TableSetColumnIndex(1);
             const std::string rowLabel = music::TrackRowLabel(t);
             ImGui::TextUnformatted(rowLabel.c_str());
             if (ImGui::IsItemHovered())
@@ -1563,16 +2339,30 @@ void ClientMusicApp::BuildTrackTable() {
                 PlaybackDelegate(t);  // 더블클릭 → vplayer 위임(T3 계약 원존)
             char sizeBuf[32];
             HumanSize(t.size, sizeBuf, sizeof(sizeBuf));
-            ImGui::TableSetColumnIndex(1);
+            ImGui::TableSetColumnIndex(2);
             const std::string albumLabel = music::TrackAlbumLabel(t);
             ImGui::TextUnformatted(albumLabel.c_str());
-            ImGui::TableSetColumnIndex(2);
+            ImGui::TableSetColumnIndex(3);
             ImGui::TextUnformatted(sizeBuf);
             char mtBuf[32];
             MtimeLabel(t.mtime, mtBuf, sizeof(mtBuf));
-            ImGui::TableSetColumnIndex(3);
-            ImGui::TextUnformatted(mtBuf);
             ImGui::TableSetColumnIndex(4);
+            ImGui::TextUnformatted(mtBuf);
+            // [편집] 버튼(T3 — 스펙 §3): 쓰기 지원 확장자 행만(정직 표기 —
+            // m4a/aac/wma = "-"+툴팁). 클릭 = 개봉 1발 — 더티 조작 없음.
+            ImGui::TableSetColumnIndex(5);
+            if (TagWritableExt(t.full)) {
+                if (ImGui::SmallButton("편집")) OpenTrackEditor(t);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("태그 편집 — 제목·아티스트·앨범·"
+                                      "커버아트");
+            } else {
+                ImGui::TextDisabled("-");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("태그 쓰기 미지원 포맷(v1 — mp3·flac·"
+                                      "ogg·wav)");
+            }
+            ImGui::TableSetColumnIndex(6);
             // [spatial] 버튼(T2 — LegSupport 표 소비): 지원 행만 발사, 미지원
             // 행 회색+툴팁(D4 정직 계약). 버튼 표기 자체는 env 무근(표기 계층
             // T1 순수 부품) — leg 불가 빌드의 발사는 SpatialStart의

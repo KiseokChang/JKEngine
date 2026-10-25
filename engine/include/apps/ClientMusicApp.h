@@ -72,6 +72,28 @@
 // double-click/delegation/spatial wiring stays verbatim. The filter widens
 // to filename+title+artist (D5 — MatchFilter Track overload, filename match
 // 원존 유지).
+//
+// #111 T3 (spec 2026-10-25-music-tagwrite-design §2·§3) adds the tag edit
+// panel + the cover art display: a row [편집] button (beside [spatial] —
+// the delegation/double-click/tool wiring stays verbatim) opens the tag edit
+// panel ([폴더 관리]의 동형 전환 패턴 — the same window·tab, no new window).
+// The panel owns three InputTexts (현값 프리필 — an empty title pre-fills the
+// filename stem per the D3 display 폴백 규약), the cover preview (96px box —
+// stb 조달품 재용 via JKImageLoader), the [커버 선택] type-free image picker
+// (the #97 folder browser parts 재용 — browse pure parts + a local image-file
+// list, .jpg/.jpeg/.png only), [저장] (one WriteTag call — the atomic
+// tmp+rename lives inside; success = re-scan re-request + panel close,
+// failure = the honest err line in the panel, the session stays open) and
+// [취소]. The row cover thumbnails (32px box — art absent = the gray face
+// placeholder, row label untouched — 표기 leg only) are filled lazily (D7):
+// ReadCover never touches the scan pass; cache misses are read from the
+// render thread with a per-frame budget, keyed (path, mtime) in a memory LRU
+// pool of 96 (갤러리 썸네일 캐시 선례 승계 — the implementation lives in this
+// app, the pure shrink/fit/lru parts are local 수형 of the gallery idiom). A
+// cover arrival/progress may dirty (content change — the #89 T2 조건화
+// 수형: while rows are still pending, OnIdle re-asserts frameDirty_ from
+// pendingCovers_ and the pool-starved frame self-maintains like the gallery
+// 선례); a terminated read (failed slot, generation-tagged) dirties nothing.
 #include <client/JKClientApplication.h>
 #include <apps/MusicModel.h>
 #include <apps/MusicDirStore.h>  // 폴더 저장소(DirWriteResult — T1 원문 소비,
@@ -79,6 +101,9 @@
 #include <apps/MusicSpatialLeg.h>  // leg 순수 부품 소비(LegSupport/Apply/ToolJson
                                    //   — T1, audio_core include 0계약이라 이
                                    //   헤더도 env 미설정 축에서 컴파일된다)
+#include <JKImageLoader.h>  // 커버아트 디코드 접점(stb 조달품 소비 — D4) —
+                            //   LoadedImage(픽셀 꾸러미)·LoadImageFile(선택 커버
+                            //   파일)·LoadImageMemory(내장 커버 바이트)
 
 #include <atomic>
 #include <chrono>
@@ -95,6 +120,8 @@
 // **spatial-player 헤더 경로는 커밋 어디에도 기입하지 않는다**(env-only 규약).
 class SpatialEngine;
 class StreamPlayer;
+struct SDL_Renderer;
+struct SDL_Texture;
 
 namespace jk {
 
@@ -313,6 +340,109 @@ private:
     std::unique_ptr<SpatialEngine> legEngine_;
     std::unique_ptr<StreamPlayer> legPlayer_;
 #endif
+
+    // ---- 태그 편집 패널+커버아트 표시 (T3 — 스펙 2026-10-25 §2·§3) ----
+    // 행 썸네일 슬롯 — 메모리 LRU 풀 1칸(96 상한 — 갤러리 썸네일 캐시 선례
+    // 승계, 구현 위치 = 이 앱). 슬롯 키 = (full, mtime): 재스캔이 태그를
+    // 바꾸면(쓰기 leg) mtime이 움직여 슬롯이 낡은 커버를 그리지 않는다(키
+    // 부정합 = 재충). 텍스처 지연 업로드 = 갤러리 EnsureThumbTexture 수형.
+    struct CoverSlot {
+        std::string full;                 // 슬롯 키 — Track.full 절대경로
+        long long mtime = 0;              // 키 보정(태그 쓰기 = 재충분성)
+        long long size = 0;               // 키 보정 2성분(mtime 소실 FS 대비 —
+                                          //   갤러리 ThumbKey size 성분 수형)
+        long long useFrame = 0;           // 마지막 접촉 프레임 세대(퇴출 산치 —
+                                          //   갤러리 fix r1의 이번 프레임 제외)
+        bool failed = false;              // ReadCover/디코드 실패 — 부재 표기
+                                          //   (placeholder), 재스캔 세대 뒤 재시도
+        unsigned long long failedGen = 0; // 실패 시의 세대(커버 재시도 게이트)
+        LoadedImage img;                  // 32px 박스 축소 픽셀(RGBA8 — nearest)
+        SDL_Texture* tex = nullptr;       // GPU 사본(지연 업로드 — renderer_)
+    };
+    // 행 셀의 표 취급 관측(텍스처+축소 픽셀 크기 — 실패/빈값 = placeholder).
+    struct CoverView {
+        SDL_Texture* tex = nullptr;
+        int w = 0;
+        int h = 0;
+    };
+    // 커버 슬롯 접점 — 행 렌더의 지연 채움(D7 — 스캔 무접촉 계약). 캐시 적중 =
+    // 무접촉, 미스 = ReadCover+디코드(프레임당 예산 곱 — 렌더 프리즈 절단),
+    // 예산 소진 = placeholder+pendingCovers_(다음 틱 재요청 — #89 조건화 수형).
+    CoverView RowCover(const music::Track& t);
+    CoverSlot* FindCoverSlot(const std::string& full);
+    CoverSlot* AcquireCoverSlot(const std::string& full, long long mtime,
+                                long long size);
+    void FillCoverSlot(CoverSlot& slot, const music::Track& t);
+    void EnsureCoverTexture(CoverSlot& slot);
+    void ReleaseCoverTexture(CoverSlot& slot);
+    // ---- 태그 편집 패널 ([폴더 관리] 패널 동형 전환 — 같은 창·탭) ----
+    void OpenTrackEditor(const music::Track& t);   // 행 [편집] 버튼+사후
+                                                   //   도구 경계 없음(v1 — UI만
+                                                   //   개봉 — 스펙 §3)
+    void CloseEditor();                            // [취소]·[저장] 성공 공용 —
+                                                   //   세션 상태 소각(텍스처는
+                                                   //   RenderOverlay의 스윕이
+                                                   //   소유 — 동프레임 AddImage
+                                                   //   파괴 금지 원장)
+    void BuildTagEditPanel();                      // 패널 본체(child 1개 —
+                                                   //   dirmg 동형)
+    void BuildCoverPicker();                       // [커버 선택] 부품 — #97
+                                                   //   브라우저 부품 재용
+                                                   //   (폴더 탐색+이미지 행)+
+                                                   //   이미지 필터 .jpg/.jpeg/.png
+    void SaveTagEdit();                            // [저장] — WriteTag 1콜(원자적
+                                                   //   tmp+rename 내장) → 성공 =
+                                                   //   재스캔 재청구+패널 닫힘,
+                                                   //   실패 = 패널 err 1행(정직)
+    void RebuildTagPreview();                      // 미리보기 픽셀 재구성 — D7
+                                                   //   패널 열림 1회(내장 커버 =
+                                                   //   ReadCover)·선택 교체 1회
+                                                   //   (파일 = LoadImageFile)
+    void EnsurePreviewTexture();                   // 지연 업로드(renderer_ 스태시
+                                                   //   수형 — 갤러리 전체 보기)
+    void SweepPreview();                           // 미리보기 텍스처/픽셀의
+                                                   //   프레임말 파괴 적립(동프레임
+                                                   //   AddImage 원장의 예방 파견)
+    void ReleaseSweepTextures();                   // 프레임말 스윕(동프레임
+                                                   //   AddImage가 기록한 텍스처의
+                                                   //   파괴 회피 — 갤러리 C1
+                                                   //   원장의 예방 파견)
+
+    // ---- 태그 편집 패널 상태 (T3) ----
+    bool editOpen_ = false;            // 패널 개봉(행 [편집] 버튼 — 유일 경로)
+    std::string editPath_;             // 편집 대상 Track.full 사본(단일 진실원
+                                       //   — 재스캔의 tracks_ 교체와 무관)
+    char editTitleBuf_[512] = {0};     // 제목(현값 프리필 — 빈값 = 파일명 폴백
+                                       //   D3 규약 승계)
+    char editArtistBuf_[512] = {0};    // 아티스트(현값 프리필)
+    char editAlbumBuf_[512] = {0};     // 앨범(현값 프리필)
+    std::string editCoverSel_;         // 새 커버 이미지 파일(빈값 = 미지정 —
+                                       //   WriteTag null = 기존 커버 유지)
+    std::string editCoverErr_;         // 미리보기 사유 1행(정직 — 미리보기 부재)
+    std::string editSaveErr_;          // [저장] 실패 사유 1행(정직 — 패널 유지)
+    bool editPickOpen_ = false;        // [커버 선택] 토글(기본 닫힘)
+    std::string pickCwd_;              // 브라우저 cwd(개봉 = 편집 곡의 폴더)
+    // 미리보기 캐시(패널 수명 — 패널 닫힘·재구성 소각). 슬라이드 캐시 없음 —
+    // 1패널 1미리보기(내장/선택 파일 통일 상자).
+    bool previewDirty_ = false;        // 재구성 예약(같은 프레임 AddImage 파괴
+                                       //   금지 원장 — 다음 프레임 몫)
+    LoadedImage previewImg_;           // 축소 완료 픽셀(RGBA8 — 96 박스)
+    SDL_Texture* previewTex_ = nullptr;
+
+    // ---- 행 썸네일 풀 상태 (T3) ----
+    std::vector<CoverSlot> covers_;    // LRU 풀(96 상한 — kCoverPoolMax)
+    SDL_Renderer* renderer_ = nullptr; // RenderOverlay의 렌더러 스태시(shot 수형)
+    long long coverFrame_ = 0;         // 프레임 세대(RenderOverlay마다 — 퇴출
+                                       //   산치의 이번 프레임 접촉 제외)
+    int coverFillsThisFrame_ = 0;      // ReadCover+디코드 예산(D7 — 프레임당
+                                       //   kCoverFillPerFrame)
+    bool pendingCovers_ = false;       // 이번 프레임에 못 채운 요청(다음 틱
+                                       //   재요청 — 갤러리 pendingThumbs_
+                                       //   선례 수형·OnIdle 게이트 배송)
+    std::vector<SDL_Texture*> texSweep_;  // 프레임말 파괴 대기(패널 닫힘·재구성
+                                          //   — 동프레임 AddImage 원장)
+    unsigned long long coverGen_ = 0;  // 재스캔 세대(실패 재시도 게이트 — 실패
+                                       //   슬롯은 새 세대 조명에서만 1회)
 };
 
 } // namespace jk
