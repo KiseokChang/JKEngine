@@ -3231,18 +3231,11 @@ PYEOF
 recover "\$TMPDIR/mus_phone_list.png" "$SCRATCH/mus_phone_list.png"
 recover "\$TMPDIR/mus_phone_list2.png" "$SCRATCH/mus_phone_list2.png"
 recover "\$TMPDIR/mus_phone_spatial.png" "$SCRATCH/mus_phone_spatial.png"
-# #110 T2 — spatial_mix recover (M2 캡처 — UNSET 런 미생성 = 원장행)
-recover_opt "\$TMPDIR/mus_phone_spatial_mix.png" "$SCRATCH/mus_phone_spatial_mix.png"
-recover "\$TMPDIR/mus_phone_vp_delegate.png" "$SCRATCH/mus_phone_vp_delegate.png"
-recover "\$TMPDIR/mus_phone_delegate_status.png" "$SCRATCH/mus_phone_delegate_status.png"
-recover "\$TMPDIR/mus_phone_after.png" "$SCRATCH/mus_phone_after.png"
-recover "\$TMPDIR/mus_phone_sdcard.png" "$SCRATCH/mus_phone_sdcard.png"
-recover "\$TMPDIR/mus_phone_dirs.png" "$SCRATCH/mus_phone_dirs.png"
-recover "\$TMPDIR/mus_phone_dirs2.png" "$SCRATCH/mus_phone_dirs2.png"
-recover "\$TMPDIR/mus_phone_scan_busy.png" "$SCRATCH/mus_phone_scan_busy.png"
-recover "\$TMPDIR/mus_phone_rescan_settled.png" "$SCRATCH/mus_phone_rescan_settled.png"
-recover "\$TMPDIR/mus_phone_taglist.png" "$SCRATCH/mus_phone_taglist.png"
-recover "\$TMPDIR/mus_phone_taglist2.png" "$SCRATCH/mus_phone_taglist2.png"
+# [#111 T6 fix r2 수형 — recover_opt 정의 순서]: 구 수형은 spatial_mix의
+# recover_opt 호출이 함수 정의보다 **앞**에 있었다 — bash 함수는 정의 선행
+# 계약이라 "recover_opt: command not found"(런 1 원문 — spatial_mix 회수
+# 결손 — CAPTURE-OK 영수증은 있지만 회수 0 — CAP_OK=0 요인 1건). 정의를
+# 호출 앞으로 이동(함수 본문 무변조 — 순서만 이동).
 recover_opt() { # $1 폰쪽png 경로 $2 로컬png — 재판정 단계 생략을 허용하는
                 #   회수(N4 정찰 단계 미달 런의 BROWSE 캡처 몫 — 부재=원장행)
     local REMOTE_PNG=$1 LOCAL_PNG=$2
@@ -3252,6 +3245,8 @@ recover_opt() { # $1 폰쪽png 경로 $2 로컬png — 재판정 단계 생략�
     fi
     recover "$REMOTE_PNG" "$LOCAL_PNG"
 }
+# #110 T2 — spatial_mix recover (M2 캡처 — UNSET 런 미생성 = 원장행) — 정의 뒤로 이동(fix r2)
+recover_opt "\$TMPDIR/mus_phone_spatial_mix.png" "$SCRATCH/mus_phone_spatial_mix.png"
 recover_opt "\$TMPDIR/mus_phone_browse_open.png" "$SCRATCH/mus_phone_browse_open.png"
 recover_opt "\$TMPDIR/mus_phone_browse_subs.png" "$SCRATCH/mus_phone_browse_subs.png"
 recover_opt "\$TMPDIR/mus_phone_browse_sub.png" "$SCRATCH/mus_phone_browse_sub.png"
