@@ -13,19 +13,20 @@
 ## 확정 원장
 
 - **D1 (C)**: 진짜 안드로이드 앱(APK — 별도 설치) — ImGui 창 표면과 별개.
-- **D2 (B)**: 전부 내장 APK — whisper.cpp NDK 안장+모델(tiny-ko 74MB) asset
-  번들. 전사/대화는 Termux 서버 불요.
+- **D2 (B→v1 전환 — 사용자 2026-10-25 지시 "음성인식은 다른 좋은 앱을 쓰면
+  되니 우선 타이핑하는 형태로")**: v1 APK = **얇은 타이핑 APK** — 전사(STT)는
+  안드로이드 IME 음성입력 등 외부 앱 몫. APK는 텍스트 입력+[보내기]+기록 →
+  localhost:8090/talk. whisper NDK 내장+모델 번들 = **v2 백로그**(삭제 아님).
 - **D3 조작 사슬 재용**: 전사 텍스트 → `POST http://localhost:8090/talk`
   (jkweb — ChatRouteTurn 원존·폰 서버가 chat.json 구성 시 cloud 승격까지) —
   APK에 새 판정 계층 0("STT 텍스트==타이핑 텍스트" 규약 승계).
 - **D4 무추적**: SDK/NDK·Gradle 캐시·모델 ggml·빌드 산출물 APK 전부 무추적 +
   **빌드 산출물 커밋 금지**("기계만 커밋" 원칙). 조달기 스크립트만 커밋.
 - **D5 debug 서명 사이드로드 설치** — v1·스토어 출고 비목표.
-- **D6 모델 = tiny-ko asset 번들**(74MB·sha256 핀 — install_stt_models.sh
-  핀 재용·asset 폰 내장 = 네트워크 0) — small 등급은 번들 선택지(등급 스위치
-  정산 — 기각 시 추가 대책).
-- **D7 품질 승계**: 라우터 어휘 prompt 힌트(+품질 배치 원장)를 APK 스폰에도
-  적용.
+- **D6 v1 모델 번들 = 비-목표(v2)** — tiny-ko asset 전개 절차는 v2 원장
+  행으로 보존.
+- **D7 v1 품질 승계 = 비-목표(외부 STT 앱 몫)** — whisper 쪽 품질 수형(
+  어휘 prompt 힌트 등)은 데스크톱 [구두](#112)에만 적용.
 
 ## 1. 빌드 사슬 (Win 머신)
 
