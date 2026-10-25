@@ -70,6 +70,14 @@ record_sha256() { # $1=file
 fetch() { # $1=url $2=dest
   if [ -f "$2" ]; then
     log "already present, skipping network: $(basename "$2")"
+    # M-1 (T1 fix r1): a cached download must still match the recorded
+    # sha256 (drift/corruption guard); first-run (no record) passes free.
+    rec="$(grep -F "  $(basename "$2")" "$SUMS" 2>/dev/null | awk '{print $1}')"
+    got="$(sha256sum "$2" | awk '{print $1}')"
+    if [ -n "$rec" ] && [ "$got" != "$rec" ]; then
+      log "FATAL: sha256 mismatch for $(basename "$2") — recorded=$rec got=$got"
+      exit 1
+    fi
   else
     log "downloading $(basename "$2") ..."
     curl -fL --retry 3 --retry-delay 2 -o "$2.8part" "$1"
@@ -130,12 +138,17 @@ export JAVA_HOME="$JDK_W"
 [ -d "$SDK_ROOT/sdk" ] || mkdir -p "$SDK_ROOT/sdk"
 
 run_sdkmanager() {
-  ( yes | "$SM" --sdk_root="$SDK_W" "$@" ) || {
-    log "FATAL: sdkmanager failed ($*)"; exit 1; }
+  # I-1 (T1 fix r1): under `set -euo pipefail` the `yes` feeder dies from
+  # SIGPIPE(141) the moment sdkmanager.bat exits — expected, NOT a failure.
+  # Tolerate 141/130 only; genuine failures still abort before the
+  # fail-closed check block below (final honesty stays intact).
+  local rc=0
+  ( yes | "$SM" --sdk_root="$SDK_W" "$@" ) || rc=$?
+  [ "$rc" -eq 141 ] || [ "$rc" -eq 130 ] || {
+    log "FATAL: sdkmanager failed ($*) rc=$rc"; exit 1; }
 }
 
-if need_extract "$SDK_ROOT/sdk/platform-tools/adb.exe";
-then
+if need_extract "$SDK_ROOT/sdk/platform-tools/adb.exe"; then
   log "accepting licenses + installing $PLATFORM $BUILD_TOOLS platform-tools ..."
   run_sdkmanager --licenses >/dev/null || true
   run_sdkmanager "platform-tools" "$PLATFORM" "$BUILD_TOOLS"
