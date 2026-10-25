@@ -125,7 +125,7 @@ cd /mnt/i/progwork/JKENGINE/engine
 FAIL() { echo "MUS-FAIL: $*"; exit 1; }
 LOGDIR=/tmp/mus
 mkdir -p "$LOGDIR"
-CANON_WSL_SELFTEST=668   # 캐논 WSL 축 (#99 라인 갱신: T1(77323b1)의 2s +20 = 648→668 흡수 — 본 커밋 시점 Win 691/WSL 668/posix 304(progress 원장 + T2(f409856..5f50a05) 커밋 본문 캐논행 등호). 이전 계보: T2(8e1d84c) Win 669/WSL 646/posix 296 → T1 fix r1(c6be500) 2r-b/2r-c +2 = 671/648/296 → posix 296→304는 하네스 TU 계보 차(T1 M2 원장). 태그 라인 신설 어설션은 2s 20건 전부)
+CANON_WSL_SELFTEST=795   # 캔논 WSL 축 [#111 라인 갱신(T5 — 2u 계보 라인 재확인): 태그 쓰기 T1(15c2bb4 2u ①-⑦ +47)·T2(2973933 ⑧-⑭ +57)·T4(5b95c63 ⑮ +23) = 668→795 — T4 커밋 본문 캔논행 원문 Win 818/WSL 795 2런 등호·posix 304 등호 유지(신설 어설션은 Win/WSL 2u 통로)]. 이전 계보: #99 라인 T1(77323b1)의 2s +20 = 648→668(갱신 59 원장 — 라인 런 원문 5런 실측 668/668) → 그 이전 T2(8e1d84c) Win 669/WSL 646/posix 296 → T1 fix r1(c6be500) 2r-b/2r-c +2 = 671/648/296 → posix 296→304는 하네스 TU 계보 차(T1 M2 원장). 태그 라인 신설 어설션은 2s 20건·태그 쓰기 라인은 2u ①-⑮ 127건 전부)
 RECEIVE=/mnt/i/progwork/JKENGINE/engine/tmp
 SEED_DIR=/tmp/mus_seed
 SHOT_PY="$LOGDIR/mus_shot.py"
@@ -356,6 +356,11 @@ echo "SELFTEST-2M-CASES=$ST2M (music 라인 신설 2m 계열 — 캐논 +27분�
 # 태그 라인 신설 케이스 (2s 계열): T1이 +20 (캐논 648→668의 원료 — #99).
 ST2S=$(grep -ac '^\[PASS\] 2s' "$LOGDIR/mus_st.log")
 echo "SELFTEST-2S-CASES=$ST2S (태그 라인 신설 2s 계열 — 캐논 +20분의 원료)"
+# [T5(#111) — 태그 쓰기 라인 신설 케이스 (2u 계열)] T1/T2/T4가 ①-⑮ 증분 —
+# 캔논 668→795의 원료(T4 커밋 본문 캔논행 원문: Win 795→818·WSL 772→795).
+# 수형 = 위 ST2M/ST2S 수취 수형 통합(2u 계보 라인 재확인 — 본 세그먼트 계약).
+ST2U=$(grep -ac '^\[PASS\] 2u' "$LOGDIR/mus_st.log")
+echo "SELFTEST-2U-CASES=$ST2U (태그 쓰기 라인 신설 2u 계열 ①-⑮ = 127 어설션 1기수 — #111 T4 원문 캔논행 대조 몫)"
 
 # === 3b. spatial 변형 빌드+배포 (T3 — 시차 배치 원장 준수) ===
 # 2n selftest는 main.cpp 하네스 TU 소비(빌드wsl 설정은 env 미설정으로 고착)
@@ -2343,6 +2348,356 @@ PYEOF
     shot mus_wsl_tag_after.png
 fi
 
+# ==================================================================
+# 16f-TW. [#111 T5 — 태그 쓰기(도구) 세그먼트 (플랜 2026-10-25-music-tagwrite
+#       task-5)] music_tag_write(app_tool 릴레이 — atool 수형 재용)의 라이브
+#       원문 실측:
+#       ① 합성 무태그 mp3+FLAC(4c/2s 합성 블롭 수형 승계 — probe 소유, $SEED_DIR
+#         경유 — 활성 탭 mus_seed의 목록에 반영)을 시드 → **도구 relay 쓰기**
+#         (title/artist/album+합성 cover jpg — 마법수 FFD8·LoadCoverByMagic
+#         계약) → **재독 표기 원문**: 파일 수준(순수 파이썬 재파싱 — 16e
+#         TAG-PARSED-PREVIEW 수형 — 앱 파서와 독립)+목록 행 표기 캡처 1종
+#         (태그 반영 행 = 곡명(아티스트)·앨범 열+커버아트 썸네일 32px — EYES)
+#         +필터 라운드 1회(16e FFILTER 수형 재용 — 쓰기로 바뀐 TIT2가 필터
+#         매치 = 앱이 쓴 태그를 재읽었다는 인-엔진 원문 — 프레젠트 지연 원장
+#         승계라 MISS면 honest-fail).
+#       ② cover=null 2차 쓰기(TIT2 교체+cover 인자 null) → **기존 APIC 유지
+#         원문** — WriteTag cover=null 계약의 도구 경계 라이브 수취(2u-⑮
+#         APIC 생존 어설션의 실기기 대응 — md5 등호로 절단판정).
+#       ③ FLAC 도구 쓰기(cover 생략 = 유지 leg 계열 — PICTURE 부재 원존) →
+#         VORBIS_COMMENT 신설(T2 leg) → 블록 재조립 재독 원문.
+#       * 위상 = 세그먼트 체인 말단(16e 뒤·복원 전 — 기존 VERDICT 산치 규약의
+#         계약 상태(step 10 필터·16b2 좌표·16e 기저)가 이미 소진된 뒤라 신규
+#         상태 오염 0): 16d-4 재스폰·16e-4 신선 클라의 **빈 필터·mus_seed
+#         활성 탭** 상태 승계. 클릭 0 — 도구 경로만(필터 라운드 1회 제외).
+#       * scan_busy 대응 원장(T4 도구 규약): 쓰기 성공 → RequestScan의 재스캔
+#         진행 중 도착하는 뒤 도구 쓰기는 {"error":"scan_busy","retry":true}
+#         정직 거부 — tw_write 재시도 수형(대기+재발사 — 재스캔이 소형 시드
+#         dir이라 ~s급).
+#       * REMNANT = TW 시드 3건 소각(16f-6·17d 가드 — probe 소유 잔상 0).
+# ==================================================================
+MUS_TW_RUN=${MUS_TW_RUN:-1}   # 런 라벨(TW-RUN-VALS 요약 스트림의 run 축 — JOG-RUN-VALS 수형)
+echo "=== 16f-TW. 태그 쓰기(도구) 세그먼트 (#111 T5 — run=$MUS_TW_RUN) ==="
+TW_STAGE=0
+TW1_OK=0
+TW2_OK=0
+TWF_OK=0
+MUS_TW_SETTLE=0
+MUSWIN=""
+WIN16F=""
+for i in 1 2 3 4 5 6 7 8; do
+    sleep 2
+    WIN16F=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"list_windows","args":{}}' 2>/dev/null | grep -a '{' | head -1)
+    MUSWIN=$(printf '%s' "$WIN16F" | grep -aoE '\{"id":[^}]*"title":"Music"[^}]*\}' | head -1)
+    [ -n "$MUSWIN" ] && break
+done
+if [ -n "$MUSWIN" ]; then
+    TW_STAGE=1
+    MUS_ID=$(printf '%s' "$MUSWIN" | sed -n 's/.*"id":\([0-9]*\),.*/\1/p')
+    MUS_X=$(printf '%s' "$MUSWIN" | sed -n 's/.*"x":\(-\?[0-9]*\),.*/\1/p')
+    MUS_Y=$(printf '%s' "$MUSWIN" | sed -n 's/.*"y":\(-\?[0-9]*\),.*/\1/p')
+    echo "MUSWIN-16F: $MUSWIN (16e 신선 클라 승계 — 빈 필터·mus_seed 활성 탭)"
+else
+    echo "MUSIC-FAIL(tw-recon: Music 창 부재 — 16e 계보 재대조 몫 — 태그 쓰기 세그먼트 생략, 원장)"
+fi
+
+if [ "$TW_STAGE" -eq 1 ]; then
+    echo "--- 16f-0a. 신선 클라 재건 (16e-4 수형 — 16e 필터 잔존 소각·빈 필터 보증) ---"
+    # [런 1 원장(T5, run1_parsebug): 16e-4의 마지막 행동 = 아티스트 필터 타이핑
+    # ("Probe Artist Beta") — 그 필터가 잔존한 채 16f가 도는 사건:
+    # mus_wsl_tagwrite_list.png가 t_tag_beta 행(필터 매치)만 보여 태그 반영
+    # 행 캡처가 비졌다. 상태 계약의 정정 원장행 — 필터는 16e의 소비 후 잔존,
+    # 도구 경로로 못 지운다(InputText 클리어 의존 소각 원장 — 16e-4 수형 그대로
+    # close_window+launch_app 신선 클라 = 유일 실측 빈 필터 경로).]
+    MC16F=$(timeout 12 ./buildwsl/jkdesktop agentctl         "{\"tool\":\"close_window\",\"args\":{\"id\":$MUS_ID}}" 2>/dev/null | grep -a '{' | head -1)
+    echo "MUS-TW-APP-CLOSE: ${MC16F:-none}"
+    for i in 1 2 3 4 5 6; do
+        sleep 1
+        WD16F=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"list_windows","args":{}}' 2>/dev/null | grep -a '{' | head -1)
+        printf '%s' "$WD16F" | grep -aq '"title":"Music"' || break
+    done
+    MREL16F=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"launch_app","args":{"app":"music"}}' 2>/dev/null | grep -a '{' | head -1)
+    printf '%s' "$MREL16F" | grep -aq '"ok":true'         || FAIL "music relaunch (16f fresh client) failed — $MREL16F"
+    echo "MUS-TW-APP-RELAUNCH: $MREL16F"
+    MUSWIN=""
+    WINF16F=""
+    for i in 1 2 3 4 5 6 7 8; do
+        sleep 2
+        WINF16F=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"list_windows","args":{}}' 2>/dev/null | grep -a '{' | head -1)
+        MUSWIN=$(printf '%s' "$WINF16F" | grep -aoE '\{"id":[^}]*"title":"Music"[^}]*\}' | head -1)
+        [ -n "$MUSWIN" ] && break
+    done
+    [ -n "$MUSWIN" ] || FAIL "no Music window (16f fresh client) — last: ${WINF16F:-none}"
+    MUS_ID=$(printf '%s' "$MUSWIN" | sed -n 's/.*"id":\([0-9]*\),.*/\1/p')
+    MUS_X=$(printf '%s' "$MUSWIN" | sed -n 's/.*"x":\(-\?[0-9]*\),.*/\1/p')
+    MUS_Y=$(printf '%s' "$MUSWIN" | sed -n 's/.*"y":\(-\?[0-9]*\),.*/\1/p')
+    echo "MUSWIN-16F-FRESH: $MUSWIN (신선 클라 — 빈 필터·dirs_[0] 활성 — 16e-4 수형)"
+    sleep 2
+    WK16F=$(tap "$MUS_ID" "$((MUS_X + 300))" "$((MUS_Y + 300))")   # 첫 합성 클릭 무음 소멸 렛슨(16c 원장)
+    printf '%s' "$WK16F" | grep -aq '"ok":true' || echo "  warmup tap reply: ${WK16F:-none} (계속 — 무해 지점)"
+    sleep 1
+    # mus_seed 탭 착탄(landtap 수형 — 16e-1/16e-4 폴백 수형: 탭의 ok/sent 답신은
+    # 전송 성립뿐 — 착탄 = 기저 대비 차분 3행, 재시도 y 스윕).
+    python3 "$SHOT_PY" "$LOGDIR/mus_base16f0.png" >"$LOGDIR/mus_base16f0.log" 2>&1 || FAIL "16f fresh-client baseline capture failed — $(tail -2 "$LOGDIR/mus_base16f0.log" | tr '\n' ' ')"
+    TW_TAB=0
+    if landtap "$MUS_ID" "$LOGDIR/mus_base16f0.png" "f0" "$MUS_X" "$MUS_Y" "$MUS_TAB2_X"; then
+        TW_TAB=1
+        echo "MUS-TW-TAB-OK: mus_seed 탭 착탄(클라 x=$MUS_TAB2_X·y=$MUS_TAB3_Y_EFF diff=$LAST_DIFF) — mus_seed 재스캔 도착 전제 성립"
+    else
+        echo "MUS-TW-TAB-MISS: mus_seed 탭 무착탄 — 현 탭 계속(원장 — MUS_TAB2 재보정 몫(mus_bc_f0 원문))"
+    fi
+    sleep 3   # 탭 스캔 도착 안정화(쓰기 1의 재스캔 축 — 활성 탭이 곧 반영 축)
+
+    echo "--- 16f-1. 합성 무태그 mp3+FLAC+cover jpg 시드 (4c 블롭 수형 승계 — 의존 0) ---"
+    cat > "$LOGDIR/mus_twseed.py" <<'PYEOF'
+# [#111 T5] 태그 쓰기 세그먼트 시더 — ①무태그 mp3(ID3 매직 0 junk 768B —
+# 2u-① 구성 계약 수형: v2 부재 = WriteTag mp3 leg가 v2.3 신설) ②무태그 FLAC
+# ("fLaC"+STREAMINFO 첫 블록 34B is-last — MusicModel.h FlacScanRegion의 구성
+# 계약 그대로: 첫 블록 = type 0·34B — 내용은 writer가 원문 보존) ③합성 커버
+# jpg(드라이버 PIL 산출 base64 — FFD8 마법수·4색 밴드 = 32px 썸네일에서
+# 구별 가능 — 대각 마크). stdlib만(의존 0 — 4c 원문 계약).
+import base64, os, sys
+out, b64 = sys.argv[1], sys.argv[2]
+mp3 = os.path.join(out, "t_tw_write.mp3")
+with open(mp3, "wb") as f:
+    f.write(bytes((i * 7 + 13) & 0xFF for i in range(768)))
+flac = os.path.join(out, "t_tw_write.flac")
+with open(flac, "wb") as f:
+    f.write(b"fLaC")
+    f.write(bytes([0x80, 0, 0, 34]))   # is-last·type 0(STREAMINFO)·34B
+    f.write(bytes(34))                 # 34B 본체(원문 보존 — 파싱 계약 밖)
+cover = os.path.join(out, "t_tw_cover.jpg")
+cb = base64.b64decode(b64)
+with open(cover, "wb") as f:
+    f.write(cb)
+print("TW-SEED-OK mp3=%d flac=%d cover=%d jpeg_magic=%d"
+      % (os.path.getsize(mp3), os.path.getsize(flac), len(cb),
+         1 if cb[:2] == b"\xff\xd8" else 0))
+PYEOF
+    # 합성 cover jpg(941B) = 드라이버 PIL 산출 base64 원문(64×64 RGB — 4색 밴드
+    # +중앙 마크 — FFD8 마법수·stb_image 디코드 실측)의 **인라인 수형** — 외부
+    # 파일 의존 0(경로 축 함정 회피 — wsl /mnt/i 축; engine/tmp 작업물은 폐기).
+    TW_COVER_B64='/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAQDAwMDAgQDAwMEBAQFBgoGBgUFBgwICQcKDgwPDg4MDQ0PERYTDxAVEQ0NExoTFRcYGRkZDxIbHRsYHRYYGRj/2wBDAQQEBAYFBgsGBgsYEA0QGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBj/wAARCABAAEADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDzuiiivgz+tAooooAKKKKACiiigDvKKKK4z/NMKKK8K+IfxD8YaH8SNS0rStX+z2kPleXH9nifbmJGPLKT1J711YTCTxU3CDV7X1PRyzLKuY1XSpNJpX1v3S6J9z3WivCvh58Q/GGufEjTdK1XV/tFpN5vmR/Z4k3Yidhyqg9QO9e60YvCTws1CbV7X0DM8sq5dVVKq021fS/drql2CiiiuU848vooor+4j7oK838U+Fte1LxZd3tlY+bBJs2v5qLnCKDwTnqDXpFFeTnGT0c2oqhXbSTvpa97NdU+504XFTw03OC121PN/C3hbXtN8WWl7e2PlQR79z+ajYyjAcA56kV6RRRRk+T0cpouhQbabvra97JdEuwYrFTxM1Oa120CiiivWOY+8qKKK/yrP3AKKKKACiiigAooooA//9k='
+    [ -n "$TW_COVER_B64" ] || FAIL "cover b64 missing (인라인 원문 상실)"
+    TW_SEED=$(python3 "$LOGDIR/mus_twseed.py" "$SEED_DIR" "$TW_COVER_B64") \
+        || FAIL "TW seed generation failed (python3)"
+    echo "MUS-TW-SEED: $TW_SEED"
+    TW_COVER="$SEED_DIR/t_tw_cover.jpg"
+    TW_MP3="$SEED_DIR/t_tw_write.mp3"
+    TW_FLAC="$SEED_DIR/t_tw_write.flac"
+    grep -aq 'jpeg_magic=1' <<<"$TW_SEED" || FAIL "cover jpg magic broken (FFD8 선단 필수 — LoadCoverByMagic 계약)"
+    TW_COVER_MD5=$(md5sum "$TW_COVER" | awk '{print $1}')
+    echo "MUS-TW-COVER-MD5: $TW_COVER_MD5 (합성 cover jpg 원문 — APIC round-trip 절단판정 축)"
+    cat > "$LOGDIR/mus_twparse.py" <<'PYEOF'
+# [#111 T5] 재독 파서 — 시더와 독립(앱 파서와도 독립 — 16e 수형): mp3 = ID3
+# 프레임 사슬(v2.3 BE32·v2.4 syncsafe 폴백 — 4c 수형)에서 TIT2/TPE1/TALB+APIC
+# (enc0 mime\0·type·desc\0·data)를 다시 읽고, FLAC = 메타 블록 사슬을 다시
+# 읽어 VORBIS_COMMENT(4·LE32 길이 규약 — ParseVorbisCommentsRaw 동형)의 관리
+# 키를 수취한다. 진리원 = 파일 바이트.
+import hashlib, struct, sys
+
+def txt_of(enc_body):
+    enc, body = enc_body[0], enc_body[1:]
+    if enc == 1:
+        try:
+            return body.decode("utf-16").lstrip("\ufeff").rstrip("\x00")
+        except Exception:
+            pass
+    return body.decode("latin-1", "replace").rstrip("\x00")
+
+def parse_mp3(path, out):
+    d = open(path, "rb").read()
+    if d[:3] != b"ID3":
+        out.append("TW-TAG none")
+        return out
+    out.append("TW-ID3-VER %d" % d[3])
+    sz_be = int.from_bytes(d[6:10], "big")
+    sz_ss = ((d[6] & 0x7F) << 21) | ((d[7] & 0x7F) << 14) | \
+            ((d[8] & 0x7F) << 7) | (d[9] & 0x7F)
+    end = 10 + (sz_be if d[3] == 0x03 else sz_ss)
+    tags, apic = {}, None
+    i = 10
+    while i + 10 <= min(end, len(d)):
+        fid = d[i:i + 4].decode("latin-1")
+        fsz = int.from_bytes(d[i + 4:i + 8], "big")
+        if fsz == 0 or not ("A" <= fid[0] <= "Z"):
+            break
+        body = d[i + 10:i + 10 + fsz]
+        if not body:
+            break
+        if fid in ("TIT2", "TPE1", "TALB"):
+            tags[fid] = txt_of(body)
+        elif fid == "APIC":
+            z = body.find(b"\x00", 1)
+            if z != -1:
+                mime = body[1:z].decode("latin-1", "replace")
+                # 엔진 원문 레이아웃 수형(AppendId3ApicFrame 1425-1436 — 브리프의 그림
+                # 타입 바이트는 불내장): [enc][mime][NUL][desc=빈+종결]
+                # [picture] — desc 검색 = mime 종결 다음 바이트
+                # (ApicFromFrames 2056-2076 보행 동형). [런 1 원장:
+                # z+2 스킵이 그림 선단 5B(0x00 포함)를 잠식해 md5 불일치]
+                de = body.find(b"\x00", z + 1)
+                if de != -1:
+                    apic = (mime, body[de + 1:])
+        i += 10 + fsz
+    out.append("TW-TAG title=%r artist=%r album=%r"
+               % (tags.get("TIT2", ""), tags.get("TPE1", ""), tags.get("TALB", "")))
+    if apic:
+        out.append("TW-APIC mime=%s md5=%s bytes=%d jpeg_magic=%d"
+                   % (apic[0], hashlib.md5(apic[1]).hexdigest(), len(apic[1]),
+                      1 if apic[1][:2] == b"\xff\xd8" else 0))
+    else:
+        out.append("TW-APIC none")
+    return out
+
+def parse_flac(path, out):
+    d = open(path, "rb").read()
+    if d[:4] != b"fLaC":
+        out.append("TW-FLAC magic-miss")
+        return out
+    out.append("TW-FLAC-VER ok")
+    i, first, keys, pic = 4, True, [], 0
+    while i + 4 <= len(d):
+        hdr = d[i]
+        btype = hdr & 0x7F
+        blen = int.from_bytes(d[i + 1:i + 4], "big")
+        body = d[i + 4:i + 4 + blen]
+        if first and (btype != 0 or blen != 34):
+            out.append("TW-FLAC streaminfo-broken btype=%d blen=%d" % (btype, blen))
+            return out
+        first = False
+        if btype == 4:
+            off = 4 + int.from_bytes(body[:4], "little")
+            cnt = int.from_bytes(body[off:off + 4], "little")
+            off += 4
+            for _ in range(cnt):
+                elen = int.from_bytes(body[off:off + 4], "little")
+                off += 4
+                ent = body[off:off + elen].decode("utf-8", "replace")
+                off += elen
+                if ent.startswith(("TITLE=", "ARTIST=", "ALBUM=")):
+                    keys.append(ent)
+        elif btype == 6:
+            pic += 1
+        i += 4 + blen
+        if hdr & 0x80:
+            break
+    t = {k.split("=", 1)[0]: k.split("=", 1)[1] for k in keys}
+    out.append("TW-TAG title=%r artist=%r album=%r"
+               % (t.get("TITLE", ""), t.get("ARTIST", ""), t.get("ALBUM", "")))
+    out.append("TW-FLAC-BLOCKS keys=%d picture=%d" % (len(keys), pic))
+    return out
+
+path = sys.argv[1]
+d = open(path, "rb").read(4)
+print("TW-PARSE-FILE %s %d bytes" % (path, len(open(path, "rb").read())))
+if d[:3] == b"ID3":
+    for ln in parse_mp3(path, []):
+        print(ln)
+elif d[:4] == b"fLaC":
+    for ln in parse_flac(path, []):
+        print(ln)
+else:
+    print("TW-PARSE magic-unknown (v2 부재 전제 위반 — 시더 원문 재확인)")
+PYEOF
+    TW_PRE=$(python3 "$LOGDIR/mus_twparse.py" "$TW_MP3")
+    echo "MUS-TW-PREVIEW-MP3: $TW_PRE (쓰기 전 — 무태그 원문)"
+    TW_PRE_FLAC=$(python3 "$LOGDIR/mus_twparse.py" "$TW_FLAC")
+    echo "MUS-TW-PREVIEW-FLAC: $TW_PRE_FLAC (쓰기 전 — fLaC만)"
+
+    echo "--- 16f-2. 도구 쓰기 1 — title/artist/album+cover jpg (마법수 수취) ---"
+    tw_write() { # $1=args-json — scan_busy 정직 거부 재시도 수형(T4 도구 규약:
+                 # 쓰기 성공의 RequestScan 진행 중에 도착하는 뒤 쓰기 = 대기+
+                 # 재발사 — reply 원문은 시도마다 행으로 남긴다 — 무음 실패 금지
+                 # 원장). reply는 TW_REPLY로 돌려준다.
+        TW_REPLY=""
+        local a="$1" r i ok=1
+        for i in 1 2 3; do
+            r=$(atool music_tag_write "$a")
+            TW_REPLY=$r
+            echo "  TW-WRITE#$i: ${r:-none}"
+            if printf '%s' "$r" | grep -aq '"ok":true'; then ok=0; break; fi
+            printf '%s' "$r" | grep -aq '"error":"scan_busy"' || break
+            sleep 4
+        done
+        return $ok
+    }
+    TW_TITLE_A="Wsl Write Alpha"
+    TW_ARTIST="Probe Tw Artist"
+    TW_ALBUM="Tw Album One"
+    TW_TITLE_B="Wsl Write Reup"
+    if tw_write "{\"path\":\"$TW_MP3\",\"title\":\"$TW_TITLE_A\",\"artist\":\"$TW_ARTIST\",\"album\":\"$TW_ALBUM\",\"cover\":\"$TW_COVER\"}"; then
+        TW1_OK=1
+        echo "MUS-TW-WRITE1-OK: ok 수취 — title/artist/album+cover(jpg 마법수)relay 쓰기 성립(성공 = RequestScan 재스캔 재청구 배선 — T4 도구 규약)"
+        sleep 5   # 재스캔 도착(도착 더티 1프레임 — 캡처 전정)
+        shot mus_wsl_tagwrite_list.png
+        echo "MUS-TW-LIST-LEDGER: 예상 상단 행(쓰기 직후 = mtime desc 최신): 'Wsl Write Alpha (Probe Tw Artist)'+'Tw Album One'+좌측 커버아트 썸네일 32px(4색 밴드 jpg — 회색 자리표시 대조) — 표기·썸네일 일치는 캡처 육안 몫(EYES)"
+    else
+        echo "MUSIC-FAIL(tw-write1: 도구 쓰기 1 거부 — $TW_REPLY)"
+    fi
+    AP1=$(python3 "$LOGDIR/mus_twparse.py" "$TW_MP3")
+    echo "MUS-TW-PARSED-A: $AP1 (파일 수준 재독 — 앱 파서와 독립 round-trip 원문)"
+    TW_MIME=$(printf '%s\n' "$AP1" | sed -n 's/.*TW-APIC mime=\([^ ]*\) md5=\([0-9a-f]*\).*/\1/p')
+    TW_MD5_1=$(printf '%s\n' "$AP1" | sed -n 's/.*TW-APIC mime=\([^ ]*\) md5=\([0-9a-f]*\).*/\2/p')
+    echo "MUS-TW-APIC-1: mime=${TW_MIME:-none} md5=${TW_MD5_1:-none} (합성 cover md5=$TW_COVER_MD5 대조 몫)"
+    if [ -n "$TW_MD5_1" ] && [ "$TW_MD5_1" = "$TW_COVER_MD5" ]; then
+        echo "MUSIC-TW-COVER-RT: OK — APIC 그림 == 합성 cover jpg 원문(md5 등호 — ReadCover 계약의 파일 수준 라이브 대응)"
+    else
+        echo "MUSIC-FAIL(tw-cover-rt: APIC round-trip 불일치 — md5=${TW_MD5_1:-none} vs cover=$TW_COVER_MD5)"
+    fi
+
+    echo "--- 16f-3. 도구 쓰기 2 — cover=null(기존 APIC 유지 계약)+TIT2 교체 ---"
+    if tw_write "{\"path\":\"$TW_MP3\",\"title\":\"$TW_TITLE_B\",\"artist\":\"$TW_ARTIST\",\"album\":\"$TW_ALBUM\",\"cover\":null}"; then
+        TW2_OK=1
+        echo "MUS-TW-WRITE2-OK: ok 수취 — cover=null = 기존 유지 leg(WriteTag 계약 — 2u-⑮ APIC 생존 어설션의 도구 경계 라이브 대응)·TIT2 교체 쓰기"
+        sleep 5
+        shot mus_wsl_tagwrite_list2.png   # 재상단 행(쓰기 2 label) — EYES 보조 캡처
+    else
+        echo "MUSIC-FAIL(tw-write2: 도구 쓰기 2 거부 — $TW_REPLY)"
+    fi
+    AP2=$(python3 "$LOGDIR/mus_twparse.py" "$TW_MP3")
+    echo "MUS-TW-PARSED-B: $AP2 (쓰기 2 재독 — TIT2 교체+APIC 유지 원문)"
+    TW_MD5_2=$(printf '%s\n' "$AP2" | sed -n 's/.*TW-APIC mime=\([^ ]*\) md5=\([0-9a-f]*\).*/\2/p')
+    if [ -n "$TW_MD5_2" ] && [ "$TW_MD5_2" = "$TW_COVER_MD5" ]; then
+        echo "MUS-TW-APIC-KEEP: OK — cover=null 뒤 APIC 원문 유지(md5 등호 — $TW_MD5_2)"
+    else
+        echo "MUSIC-FAIL(tw-apic-keep: cover=null 뒤 APIC 소각/변조 — md5=${TW_MD5_2:-none} vs cover=$TW_COVER_MD5)"
+    fi
+
+    echo "--- 16f-4. FLAC 도구 쓰기 — cover 생략(유지 leg 계열 — PICTURE 부재 원존)+코멘트 신설(T2 leg) ---"
+    if tw_write "{\"path\":\"$TW_FLAC\",\"title\":\"$TW_TITLE_A\",\"artist\":\"$TW_ARTIST\",\"album\":\"$TW_ALBUM\"}"; then
+        TWF_OK=1
+        echo "MUS-TW-FLAC-OK: ok 수취 — fLaC 스켈레톤(STREAMINFO 첫 블록 34B)에서 VORBIS_COMMENT 신설+블록 재조립(STREAMINFO 보존 — D9·PICTURE 부재 = 교체 대상 없음)"
+        sleep 3
+        shot mus_wsl_tagwrite_flac.png   # FLAC 행 표기(곡명(아티스트) 반영 — EYES 보조)
+    else
+        echo "MUSIC-FAIL(tw-flac: FLAC 도구 쓰기 거부 — $TW_REPLY)"
+    fi
+    FP=$(python3 "$LOGDIR/mus_twparse.py" "$TW_FLAC")
+    echo "MUS-TW-FLAC-PARSED: $FP (FLAC 재독 — 메타 블록 사슬 재파싱 원문)"
+    TW_FLAC_KEYS=$(printf '%s\n' "$FP" | sed -n 's/.*TW-FLAC-BLOCKS keys=\([0-9]*\) picture=\([0-9]*\).*/keys=\1 picture=\2/p')
+    echo "MUS-TW-FLAC-BLOCKS: ${TW_FLAC_KEYS:-none} (관리 3키 TITLE/ARTIST/ALBUM = keys=3·cover 생략 = picture 0 — D9 재조립의 재독 원문)"
+
+    echo "--- 16f-5. 필터 라운드 1회 — 쓰기로 바뀐 TIT2 매치 (16e FFILTER 수형 재용) ---"
+    MUS_TW_SETTLE=-1
+    if [ -n "${PX_BAND:-}" ] && [ -f "${PX_BAND:-}" ] && type FFILTER >/dev/null 2>&1; then
+        python3 "$SHOT_PY" "$LOGDIR/mus_base16f_tw.png" >"$LOGDIR/mus_base16f_tw.log" 2>&1 \
+            || FAIL "16f filter base capture failed — $(tail -2 "$LOGDIR/mus_base16f_tw.log" | tr '\n' ' ')"
+        FFILTER "$TW_TITLE_B" "tw" mus_wsl_tagwrite_filter.png
+        MUS_TW_SETTLE=${TAG_SETTLE_RC:-0}
+        echo "MUS-TW-FILTER-OBSERVATION: text='$TW_TITLE_B' — 예상 표 1행(t_tw_write.mp3 — 파일명 매치 0 — TIT2='Wsl Write Reup' 원존 = 쓰기 반영 재독의 인-엔진 원문·D5 title 매치), 카운터 1곡은 캡처 육안 몫"
+    else
+        echo "MUS-TW-FILTER-SKIP: 16e 미성립(TAG_STAGE=0) — FFILTER/PX_BAND 부재 — 생략(원장; MUS_TW_SETTLE=-1=스킵)"
+    fi
+
+    echo "--- 16f-6. TW 시드 소각 (probe 소유 잔상 0 — REMNANT 계약) ---"
+    rm -f "$TW_MP3" "$TW_FLAC" "$TW_COVER"
+    TW_LEFT=$(ls "$SEED_DIR"/t_tw_* 2>/dev/null | wc -l)
+    [ "$TW_LEFT" -eq 0 ] \
+        && echo "TW-BURIED: t_tw_* 3건 소각 (17d 가드)" \
+        || echo "MUSIC-FAIL(tw-bury: TW 시드 잔존 $TW_LEFT건 — 수동 소각)"
+fi
+
 restore_and_exit
 
 echo "=== 17. REMNANT — /tmp 자가 스크립트·중간파일 소각 ==="
@@ -2382,6 +2737,14 @@ if [ -d "$MUS_BROWSE_TREE" ]; then
     echo "MUS-FAIL: browse tree remnant ($MUS_BROWSE_TREE) — 수동 소각 필요(원장)"
 else
     echo "BROWSE-TREE-REMNANT: 0 (16b2 트리 소각 — 잔상 0)"
+fi
+
+echo "=== 17d. [#111 T5] 태그 쓰기 TW 시드 잔상 가드 (16f-TW — probe 소유 잔상 0) ==="
+TW_LEFT_ALL=$(ls "$SEED_DIR"/t_tw_* 2>/dev/null | wc -l)
+if [ "$TW_LEFT_ALL" -eq 0 ]; then
+    echo "TW-REMNANT: 0 (16f-TW 합성 mp3+FLAC+cover jpg 소각 — 잔상 0)"
+else
+    echo "MUS-FAIL: TW seed remnant ($SEED_DIR/t_tw_* $TW_LEFT_ALL건) — 수동 소각 필요(원장)"
 fi
 
 echo "=== 18. music 실측 판정 ==="
@@ -2533,6 +2896,39 @@ for f in taglist tag_filter tag_filter_artist tag_after; do
     P="$RECEIVE/mus_wsl_$f.png"
     [ -s "$P" ] && echo "  $P ($(wc -c < "$P") bytes)"
 done
+echo "=== 18h. [#111 T5] 태그 쓰기(도구) 세그먼트 판정 (rc는 0 유지 — 원문은 16f-TW 행별) ==="
+TW_CAP_OK=1
+for f in tagwrite_list; do   # 필수 1종 — 태그 반영 행+썸네일(list2/flac/filter = 보조)
+    P="$RECEIVE/mus_wsl_$f.png"
+    [ -s "$P" ] || { echo "MUSIC-FAIL(tw capture missing: $P)"; TW_CAP_OK=0; }
+done
+TW_OK=0
+if [ "${TW_STAGE:-0}" -eq 1 ] && [ "${TW1_OK:-0}" -eq 1 ] && [ "${TW2_OK:-0}" -eq 1 ] \
+    && [ "${TWF_OK:-0}" -eq 1 ] && [ "$TW_CAP_OK" -eq 1 ] \
+    && printf '%s' "${AP1:-}" | grep -aq "title='${TW_TITLE_A:-<unset>}'" \
+    && printf '%s' "${AP2:-}" | grep -aq "title='${TW_TITLE_B:-<unset>}'" \
+    && printf '%s' "${FP:-}" | grep -aq 'TW-FLAC-BLOCKS keys=3 picture=0' \
+    && [ -n "${TW_MD5_1:-}" ] && [ "${TW_MD5_1}" = "${TW_COVER_MD5:-}" ] \
+    && [ -n "${TW_MD5_2:-}" ] && [ "${TW_MD5_2}" = "${TW_COVER_MD5:-}" ]; then
+    TW_OK=1
+fi
+APIC_KEEP=0
+[ "${TW_MD5_1:-}" = "${TW_MD5_2:-}" ] && [ -n "${TW_MD5_2:-}" ] && APIC_KEEP=1
+echo "  구성: recon=${TW_STAGE:-0} write1=${TW1_OK:-0} write2=${TW2_OK:-0} flac=${TWF_OK:-0} captures=$TW_CAP_OK cover_rt=$([ "${TW_MD5_1:-}" = "${TW_COVER_MD5:-}" ] && [ -n "${TW_MD5_1:-}" ] && echo 1 || echo 0) apic_keep=$APIC_KEEP flac_keys=${TW_FLAC_KEYS:-none} settle_title=${MUS_TW_SETTLE:-0}"
+if [ "$TW_OK" -eq 1 ]; then
+    echo "MUSIC-TAGWRITE-VERDICT: TAGWRITE-OK(16f-TW — 합성 무태그 mp3+FLAC 시드·music_tag_write relay 쓰기 3콜[cover jpg 마법수·cover=null APIC 유지·FLAC 코멘트 신설]·재독 표기 원문 = 파일 수준 round-trip[title/artist/album·APIC md5 등호 2콜]+FLAC 블록 재조립 재독+목록 행 캡처 — 육안 스탭 대기)"
+else
+    echo "MUSIC-TAGWRITE-VERDICT: TAGWRITE-FAIL(honest-fail — 행별 사유는 16f-TW; recon=${TW_STAGE:-0} w1=${TW1_OK:-0} w2=${TW2_OK:-0} flac=${TWF_OK:-0} caps=$TW_CAP_OK)"
+fi
+echo "MUSIC-CAPTURES-16F:"
+for f in tagwrite_list tagwrite_list2 tagwrite_flac tagwrite_filter; do
+    P="$RECEIVE/mus_wsl_$f.png"
+    [ -s "$P" ] && echo "  $P ($(wc -c < "$P") bytes)"
+done
+# 표기 원문 요약 스트림(JOG-RUN-VALS 수형 — 원문 수취 부재 재발 방지 봉인 —
+# 라인 원장 계약: 2런 stdout을 요약 1-2행에서 정직 대조한다).
+echo "TW-RUN-VALS: run=${MUS_TW_RUN:-1} stage=${TW_STAGE:-0} writes=${TW1_OK:-0}/${TW2_OK:-0}/${TWF_OK:-0} title1='${TW_TITLE_A:-}' title2='${TW_TITLE_B:-}' artist='${TW_ARTIST:-}' album='${TW_ALBUM:-}' cover_md5=${TW_COVER_MD5:-} apic_mime=${TW_MIME:-} apic_md5_1=${TW_MD5_1:-} apic_md5_2=${TW_MD5_2:-} apic_keep=$APIC_KEEP flac=${TW_FLAC_KEYS:-} settle_title=${MUS_TW_SETTLE:-} canon_wsl=$ST_PASS(2u=$ST2U·2s=$ST2S·2m=$ST2M) captures=$TW_CAP_OK"
+echo "TW-RUN-CAP: run=${MUS_TW_RUN:-1} list=[$(wc -c < "$RECEIVE/mus_wsl_tagwrite_list.png" 2>/dev/null || echo 0)B] list2=[$(wc -c < "$RECEIVE/mus_wsl_tagwrite_list2.png" 2>/dev/null || echo 0)B] flac=[$(wc -c < "$RECEIVE/mus_wsl_tagwrite_flac.png" 2>/dev/null || echo 0)B] filter=[$(wc -c < "$RECEIVE/mus_wsl_tagwrite_filter.png" 2>/dev/null || echo 0)B] remnant=$(ls "$SEED_DIR"/t_tw_* 2>/dev/null | wc -l)"
 echo "=== 18f. [T3(#97)] 캐논 등호 — 코드 무변경 라인 원문 ==="
 echo "MUS-BROWSE-CANON: T1(04e11b7)→T2(8e1d84c) 등호 원문 승계 Win 669/WSL 646/posix 296 → T1 fix r1(c6be500) 2r-b/c +2 = 런 시점 Win 671/WSL $CANON_WSL_SELFTEST/posix 296(신설 어설션 0건 — 2r 원존 무변조·본 세그먼트는 probe만의 라인 — 엔진 코드 무접촉). 본 런 WSL selftest: PASS=$ST_PASS FAIL=$ST_FAIL(캐논 $CANON_WSL_SELFTEST — step 3 계보)"
 if [ "$ST_PASS" -eq "$CANON_WSL_SELFTEST" ]; then
