@@ -47,6 +47,14 @@
 #     VOICE-PHONE-RUN-VALS·fix r1: fc3=3판 전부가 VERDICT 본조건으로 채용)
 #   * VOICE-VERDICT: 1행 결정(MUSIC-TAGWRITE-PHONE-VERDICT 동형).
 #
+# #115b T2 신설 세그먼트(§13b) — 구두 어휘 확장 v1.5(T1 커밋 21ee4dd+ab97462)
+#   소비 계약: 발화 8건(kRouteTable/kAliasTable 단일 진실원 재실측 — 즉발 5+
+#   무인자 강제 1+D3 배제 stub 2)→ChatRouteTurn 직발(구두 표면과 같은 진입)→
+#   ChatActionQuery 조립→agentctl 도구 경로 중계 소비(app_tool — vplayer
+#   open/play_pause 토글 2탭+get_status 기록 반영·launch_app notify 창 원문).
+#   기존 세그먼트 원존 — 말단 VOICE-VERDICT 산치 무침범(신설 판정 = 별도
+#   VOCAB-VERDICT 1행 — VERDICT 본조건 부합 계약 미변경).
+#
 # 실행 표준(WSL 밖 Git Bash에서 — MSYS 경로 변환 찢김 가드 필수):
 #   MSYS_NO_PATHCONV=1 wsl.exe -d Ubuntu-24.04 -- bash /mnt/i/progwork/JKENGINE/engine/tools/probes/wsl_voice.sh \
 #     > engine/tmp/wsl_voice_run.log 2>&1
@@ -60,8 +68,10 @@ LOGDIR=/tmp/voc
 SCRATCH=/tmp/voc_scratch
 RECEIVE=/mnt/i/progwork/JKENGINE/engine/tmp
 SHOT_PY="$LOGDIR/voc_shot.py"
-CANON_WSL_SELFTEST=814   # #112 WSL 캐논(T5 — PHONE-SELFTEST-A 814 등호·2v=14 — T5 리포트 §5 원문)
+CANON_WSL_SELFTEST=850   # #115b WSL 캐논(#112 T5 814 → #113+2w 4·#115+2x 15 = 833 →
+                         # #115b T1+2y 17(①-⑯+⑰ fix r1) = 850 — T1 리포트 §6 원문 재실측)
 CANON_WSL_2V=14          # 구두 라인 신설 2v ①-⑭(T2 +6·T3 +4) — 계보 원문
+CANON_WSL_2Y=17          # #115b 어휘 라인 2y ①-⑯(+⑰ fix r1) — T1 리포트 §3·§6 원문
 
 if [ -z "${WSL_DISTRO_NAME:-}" ]; then
   echo "VOC-WFAIL: not inside WSL — 실행 축 계약 위반 (wsl.exe -d ... probes/wsl_voice.sh)"
@@ -148,6 +158,11 @@ MOD_ABS=$(ls buildwsl/stt-models/*.bin 2>/dev/null | head -1)
 WHSP_ROOT_ABS=$(cd third_party/whisper.cpp && pwd)
 [ -n "$MOD_ABS" ] || FAIL "stt-models .bin resolve empty"
 echo "VOC-ASSETS: cli ok model=$(basename "$MOD_ABS") whisper-root-dir ok"
+# #115b T2 신설 어휘 세그먼트의 릴레이 소비(vplayer) 재료 — 엔진 소유 합성 클립
+# (wsl_vp_cycle/wsl_jog_flow 원존 계약 — 사용자 보유 클립 금지 계약 승계).
+CLIP=/mnt/i/progwork/JKENGINE/tmp/vpt2_test.mp4
+[ -s "$CLIP" ] || FAIL "vplayer 소비 클립 부재 ($CLIP — 엔진 소유 합성 클립 — wsl_vp_cycle 원존)"
+echo "VOC-CLIP: $CLIP ($(wc -c < "$CLIP") bytes)"
 
 echo "=== 3. WSL selftest (캐논 $CANON_WSL_SELFTEST·2v $CANON_WSL_2V — 수취 등호) ==="
 timeout 420 ./buildwsl/jkdesktop test >"$LOGDIR/voc_st.log" 2>&1
@@ -168,6 +183,9 @@ grep -aq 'AppSelfTest: 0 failure(s)' "$LOGDIR/voc_st.log" \
 ST2V=$(grep -ac '^\[PASS\] 2v' "$LOGDIR/voc_st.log")
 echo "SELFTEST-2V-CASES=$ST2V (구두 라인 신설 2v — 캐논 $CANON_WSL_2V 대조)"
 [ "$ST2V" -eq "$CANON_WSL_2V" ] || echo "VOICE-FAIL(2v: $ST2V != $CANON_WSL_2V — 계보 원장)"
+ST2Y=$(grep -ac '^\[PASS\] 2y' "$LOGDIR/voc_st.log")
+echo "SELFTEST-2Y-CASES=$ST2Y (구두 어휘 라인 신설 2y — 캐논 $CANON_WSL_2Y 대조)"
+[ "$ST2Y" -eq "$CANON_WSL_2Y" ] || echo "VOICE-FAIL(2y: $ST2Y != $CANON_WSL_2Y — 계보 원장)"
 
 echo "=== 4. 사슬 probe cpp 자가 생성+컴파일 (T5 폰판 원존 승계 — /tmp scratch 사다리) ==="
 cat > "$SCRATCH/wsl_voice_probe.cpp" <<'CPPEOF'
@@ -260,6 +278,35 @@ int main(int argc, char** argv) {
                 qOk ? args.c_str() : "no");
     std::fflush(stdout);
 
+    // ---- #115b T2 신설 어휘 세그먼트 (발화→라우터 즉발→질의 조립 원문) -----
+    // kRouteTable exact 행(ChatRouter.cpp 단일 진실원 — T1 리포트 §2)을
+    // ChatRouteTurn(구두 표면과 같은 진입 — RunVoiceTurn (4) 접점 계약의
+    // 동일 함수)으로 직발한다. cfg 미구성 = 라우터 즉발+usedLlm 0(2y-① 원존).
+    // 질의 조립 = ChatActionQuery(SttVoice turn — app_tool 릴레이 양식 1종).
+    // 배제 어휘 2건(D3 — 행 부재 = Info stub)·무인자 강제 1건(D1)·기존 회귀
+    // 1건("창 목록 보여줘" — 2y-⑩ 방어 행)이 같은 루프로 재실측된다.
+    const char* const kVocabSay[] = {
+        "멈춰줘", "재생해줘", "정지", "알림 보여줘", "볼륨 50으로 멈춰줘",
+        "다음 곡", "알림 뭐 왔어", "창 목록 보여줘",
+    };
+    for (const char* say : kVocabSay) {
+        bool used = false;
+        jk::ChatAction va;
+        const std::string g = jk::ChatRouteTurn(say, va, cfg, &used);
+        std::string vtool, vargs;
+        const bool vq = jk::voice::turn::ChatActionQuery(va, vtool, vargs);
+        // printf 인자 평가 순서 함정(T3 fix r1 원존) — 조립을 먼저.
+        const std::string toolCol = vq ? vtool : "no";
+        const std::string argsCol = vq ? vargs : "no";
+        std::printf("VOCAB text=[%s] kind=%d app=[%s] tool=[%s] usedLlm=%d "
+                    "q=%d query=[%s %s] guide-len=%d\n",
+                    say, static_cast<int>(va.kind), va.app.c_str(),
+                    va.tool.c_str(), static_cast<int>(used),
+                    static_cast<int>(vq), toolCol.c_str(), argsCol.c_str(),
+                    static_cast<int>(g.size()));
+        std::fflush(stdout);
+    }
+
     std::printf("state.capturing=%d lastErr=[%s]\n",
                 static_cast<int>(jk::voice::capture::IsCapturing()),
                 jk::voice::capture::GetCaptureState().lastError.c_str());
@@ -349,6 +396,12 @@ sed 's/^/PROBE: /' "$PROBE_OUT"
 [ "$PP" -eq 0 ] || echo "VOICE-FAIL(probe-rc: 사슬 probe rc=$PP — err 행 원문 참조)"
 
 echo "=== 6b. fail-closed 3판 등호 (T5 원문 등호 — 이유 3행 계약) ==="
+# [원장행 — probe 계보 갱신 #115b T2 재런 실측]: 판 3의 기대 원문은 T6 시점
+# '구두 rc=3 stderr: ...'(스폰 leg)이었다. 이후 resolve 계약(park-5 쌍둥이
+# 정합 수형 — env 오버라이드 경로 부재 = 빈 반환, SttVoice.cpp ResolveModelPath
+# 주석 원문)으로 **스폰 전 fail-closed**가 됐고, probe 재런 0이 계보 원문을
+# 놔뒀다(115b-1 런 실측: gate-model-missing=[구두 끔 (whisper 모델 부재)]).
+# 본 게이트 = 현재 계약 원문(결정론) 우선+T6 스폰 leg 원문 호환 양쪽 수용.
 FC=0
 printf '%s' "$(cat "$PROBE_OUT")" \
     | grep -aqF 'gate-env-unset=[구두 끔 (WHISPER_ROOT 미설정)]' \
@@ -359,13 +412,27 @@ printf '%s' "$(cat "$PROBE_OUT")" \
     && { echo "VOCFG-2: OK — gate-bin-missing 원문 등호"; FC=$((FC + 1)); } \
     || echo "VOICE-FAIL(fc2: gate-bin-missing 원문 미일치)"
 STT_SELFGEN=$(sed -n 's/^fixture-turn ok=1 .* stt=\[\(.*\)\] guide-len=.*/\1/p' "$PROBE_OUT" | head -1)
-printf '%s' "$(cat "$PROBE_OUT")" \
-    | grep -aqF 'gate-model-missing=[구두 rc=3 stderr: ' \
-    && grep -aqF 'fixture-turn ok=' "$PROBE_OUT" \
-    && { echo "VOCFG-3: OK — gate-model-missing = 스폰 leg 정직 거부 원문(rc=3 stderr 꼬리 — T5 3판 동형)"; FC=$((FC + 1)); } \
-    || echo "VOICE-FAIL(fc3: gate-model-missing 원문 미일치)"
+if printf '%s' "$(cat "$PROBE_OUT")" | grep -aqF 'gate-model-missing=[구두 끔 (whisper 모델 부재)]'; then
+    echo "VOCFG-3: OK — gate-model-missing = 스폰 전 fail-closed 원문(env 부재 경로 = 빈 반환 — park-5 쌍둥이 정합의 현재 계약 — T6 스폰 leg 원문은 계보 대차)"
+    FC=$((FC + 1))
+elif printf '%s' "$(cat "$PROBE_OUT")" | grep -aqF 'gate-model-missing=[구두 rc=3 stderr: ' \
+    && grep -aqF 'fixture-turn ok=' "$PROBE_OUT"; then
+    echo "VOCFG-3: OK-계보 — gate-model-missing = 스폰 leg 정직 거부 원문(rc=3 stderr 꼬리 — T5/T6 3판 동형 — resolve 계약 이전 계보)"
+    FC=$((FC + 1))
+else
+    echo "VOICE-FAIL(fc3: gate-model-missing 원문 미일치)"
+fi
 
 echo "=== 7. whisper-cli 직접 스폰 (양성 대조 — chain==direct 등호 — CANON 밖) ==="
+# [원장행 #115b T2 — 직접 스폰 인자 정합]: RunVoiceTurn의 스폰 원문(SttVoice.cpp
+# WhisperTranscribe)은 `-l ko --prompt kVoicePrompt`를 잔다 — T6 dirrun은
+# --prompt 없이 스폰해 대조가 **인자 비등가**였고 전사 본문의 비결정(환각 계열
+# 차 — 115b-1 런 실측: chain=[(뽀송한 소리)] vs direct=[[구독 / 좋아요]])의
+# 잠재 계통이었다. 본 dirrun은 --prompt를 잠는다 — 프롬프트 본문 = kVoicePrompt
+# (SttVoice.cpp 단일 진실원)의 **문자 리터럴 수형**(kVoicePrompt는 TU 내부
+# constexpr — 직링크 불가 — 표=진실원 동기 계약에 원장 승계; 갱신 시 동기
+# 재판정).
+VPROMPT='지뢰찾기 테트리스 알림 실행해줘 실행 열어줘 켜줘 닫아줘 꺼줘 앞으로 가져와 포커스 창 목록 창목록 뭐 떠 있어 멈춰줘 멈춰 정지해줘 정지 일시정지 재생해줘 재생 보여줘'
 dirrun() { # $1=wav $2=라벨 — 직접 스폰+최후 세그먼트 parse(CANON 밖)
     # [함정 원장 — probe 자가 결함 fix r1] `local A="$1" B="$2" X="$B..."` 한
     # 줄에서 $B를 같은 선언문 내 우측에 쓰면 set -u가 unbound로 즉사(recon 3
@@ -374,7 +441,8 @@ dirrun() { # $1=wav $2=라벨 — 직접 스폰+최후 세그먼트 parse(CANON 
     OUT="$SCRATCH/direct_$LABEL.out"
     ERR="$SCRATCH/direct_$LABEL.err"
     t0=$(date +%s%N)
-    "$CLI_ABS" -m "$MOD_ABS" -f "$WAV" -l ko >"$OUT" 2>"$ERR"
+    "$CLI_ABS" -m "$MOD_ABS" -f "$WAV" -l ko --prompt "$VPROMPT" \
+        >"$OUT" 2>"$ERR"
     RC=$?
     t1=$(date +%s%N)
     echo "DIRECT-$LABEL-RC=$RC ms=$(( (t1 - t0) / 1000000 )) (stdout=$(wc -c < "$OUT")B stderr=$(wc -c < "$ERR")B)"
@@ -975,6 +1043,140 @@ fi
 W4=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"list_windows","args":{}}' 2>/dev/null | grep -a '{' | head -1)
 echo "WIN-END: $W4"
 
+echo "=== 13b. #115b 신설 어휘 E2E — 발화→라우터 즉발→app_tool 릴레이(vplayer"
+echo "     소비 — T1 리포트 §2 릴레이 양식 원문 소비 계약)+'알림 보여줘'→notify"
+echo "     Launch 원문. 질의 양식 판정 = probe VOCAB 행(라우터 즉발 — ChatRouteTurn"
+echo "     직발·usedLlm 0)·소비 = agentctl 도구 경로(§13과 같은 소비 — 정찰 런"
+echo "     원장: 채팅 InputText 합성 타이핑은 본문을 삼키지 못한다 — 원존) ==="
+# probe 질의 양식 등호 (kRouteTable/kAliasTable 단일 진실원 — T1 어휘 표 8발화 재실측)
+VROWS=$(grep -a '^VOCAB ' "$PROBE_OUT")
+printf '%s' "$VROWS" | sed 's/^/  /'
+VROUTE=0
+for S in 멈춰줘 재생해줘 정지; do
+    printf '%s' "$VROWS" | grep -aqF "text=[$S] kind=4 app=[vplayer] tool=[play_pause] usedLlm=0 q=1" \
+        && VROUTE=$((VROUTE+1)) || echo "VOCAB-FAIL(route: $S — AppTool 즉발·무인자 질의 양식 원문 불일치)"
+done
+printf '%s' "$VROWS" | grep -aqF 'text=[알림 보여줘] kind=0 app=[notify] usedLlm=0 q=1 query=[launch_app {"app":"notify"}]' \
+    && VROUTE=$((VROUTE+1)) || echo "VOCAB-FAIL(route: 알림 보여줘 — Launch(notify) 원문 불일치)"
+printf '%s' "$VROWS" | grep -aqF 'text=[볼륨 50으로 멈춰줘] kind=5' \
+    && VROUTE=$((VROUTE+1)) || echo "VOCAB-FAIL(exact-invoke: 볼륨 50으로 멈춰줘 — 무인자 강제(D1) 부정 — exact 행 접미 누수 원장)"
+BEX=0
+for S in 'text=[다음 곡]' 'text=[알림 뭐 왔어]'; do
+    printf '%s' "$VROWS" | grep -aqF "$S" \
+      && printf '%s' "$VROWS" | grep -aqF "$S kind=5" \
+      && BEX=$((BEX+1)) || echo "VOCAB-FAIL(excl: $S — D3 배제·stub 원문 불일치)"
+done
+printf '%s' "$VROWS" | grep -aqF 'text=[창 목록 보여줘] kind=3' \
+    && VROUTE=$((VROUTE+1)) || echo "VOCAB-FAIL(regress: 창 목록 보여줘 — 2y-⑩ 방어 행 원문 불일치)"
+echo "VOCAB-ROUTE-OK: rows=$VROUTE/5 excl=$BEX/2"
+
+# 라이브 소비 — vplayer 창 생성(발화 어휘의 릴레이 대상)+알림 Launch 원문
+VP_RELAY=0
+VP_TOGGLE=0
+NOTIFY_OK=0
+VPL=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"launch_app","args":{"app":"vplayer"}}' 2>/dev/null | grep -a '{' | head -1)
+echo "VOCAB-VPLAYER-LAUNCH: ${VPL:-none}"
+printf '%s' "$VPL" | grep -aq '"ok":true' || echo "VOCAB-FAIL(vplayer-launch: $VPL)"
+VPWIN=""
+for i in $(seq 1 10); do
+    sleep 2
+    WINV=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"list_windows","args":{}}' 2>/dev/null | grep -a '{' | head -1)
+    VPWIN=$(printf '%s' "$WINV" | grep -aoE '\{"id":[^}]*"title":"Video Player"[^}]*\}' | head -1)
+    [ -n "$VPWIN" ] && break
+done
+if [ -n "$VPWIN" ]; then
+    echo "VPWIN: $VPWIN"
+    VPID=$(printf '%s' "$VPWIN" | sed -n 's/.*"id":\([0-9]*\),.*/\1/p')
+    OPEN=$(timeout 12 ./buildwsl/jkdesktop agentctl \
+        "{\"tool\":\"app_tool\",\"args\":{\"app\":\"vplayer\",\"tool\":\"open\",\"args\":{\"path\":\"$CLIP\"}}}" \
+        2>/dev/null | grep -a '{' | head -1)
+    echo "VOCAB-VOPEN: ${OPEN:-none} (accepted 원문 — 비동기·진행은 get_status)"
+    # [원장: app_tool 중계 응답은 봉투 랩 — {"ok":true,"windowId":N,
+    #  "result":{...}} — T5 봉투/본문 이층 원존 수형 — 본문 부분열 매치]
+    if printf '%s' "$OPEN" | grep -aqF '"accepted":true'; then
+        OPENED=0
+        STS=""
+        for i in $(seq 1 20); do
+            sleep 3
+            STS=$(timeout 12 ./buildwsl/jkdesktop agentctl \
+                '{"tool":"app_tool","args":{"app":"vplayer","tool":"get_status","args":{}}}' \
+                2>/dev/null | grep -a '{' | head -1)
+            printf '%s' "$STS" | grep -aqF '"opened":true' && { OPENED=1; break; }
+        done
+        echo "VOCAB-VSTATUS-OPENED: $OPENED — ${STS:-none}"
+    else
+        STS=""
+        echo "VOCAB-FAIL(vplayer-open-reject: open 중계 응답 미accepted — $OPEN)"
+    fi
+    if [ "${OPENED:-0}" -eq 1 ]; then
+        VP_RELAY=1
+        S0=$(timeout 12 ./buildwsl/jkdesktop agentctl \
+            '{"tool":"app_tool","args":{"app":"vplayer","tool":"get_status","args":{}}}' \
+            2>/dev/null | grep -a '{' | head -1)
+        echo "VOCAB-FIXTURE-CLIP: $CLIP (엔진 소유 합성 클립 — vpt 사다리 원존 계약)"
+        echo "VOCAB-TG0: $S0 (get_status — 토글 선행 상태 원문·기록 반영 대차)"
+        T1R=$(timeout 15 ./buildwsl/jkdesktop agentctl \
+            '{"tool":"app_tool","args":{"app":"vplayer","tool":"play_pause","args":{}}}' \
+            2>/dev/null | grep -a '{' | head -1)
+        S1=$(timeout 15 ./buildwsl/jkdesktop agentctl \
+            '{"tool":"app_tool","args":{"app":"vplayer","tool":"get_status","args":{}}}' \
+            2>/dev/null | grep -a '{' | head -1)
+        echo "VOCAB-TOGGLE1: reply=$T1R status=$S1 ('재생해줘' 질의 소비 1탭 — 중계 응답+기록 반영 원문)"
+        sleep 1
+        T2R=$(timeout 15 ./buildwsl/jkdesktop agentctl \
+            '{"tool":"app_tool","args":{"app":"vplayer","tool":"play_pause","args":{}}}' \
+            2>/dev/null | grep -a '{' | head -1)
+        S2=$(timeout 15 ./buildwsl/jkdesktop agentctl \
+            '{"tool":"app_tool","args":{"app":"vplayer","tool":"get_status","args":{}}}' \
+            2>/dev/null | grep -a '{' | head -1)
+        echo "VOCAB-TOGGLE2: reply=$T2R status=$S2 (2탭 = 토글 복귀 — paused 두 값이 서로 다르면 성립)"
+        if printf '%s' "$T1R" | grep -aqF '"paused":true' \
+           && printf '%s' "$T2R" | grep -aq '"paused":false' \
+           && printf '%s' "$S1" | grep -aqF '"paused":true' \
+           && printf '%s' "$S2" | grep -aq '"paused":false'; then
+            VP_TOGGLE=1
+            echo "VOCAB-TOGGLE-OK: 멈춰줘 2발화 소비 원문 — 중계 응답 2탭 상반+get_status 기록 반영 등호"
+            shot voc_wsl_vocab_vp.png
+        else
+            echo "VOCAB-FAIL(toggle: 중계 응답/기록 반영 원문 불일치 — T1R=$T1R T2R=$T2R)"
+        fi
+    else
+        echo "VOCAB-FAIL(vplayer-open: get_status opened 원문 미도달 — $STS — 폴링 원문 위 행)"
+    fi
+    MCR2=$(timeout 15 ./buildwsl/jkdesktop agentctl "{\"tool\":\"close_window\",\"args\":{\"id\":$VPID}}" 2>/dev/null | grep -a '{' | head -1)
+    echo "vplayer close: ${MCR2:-none} (차분 오염 소각 — wsl_music 16b2-0 수형)"
+else
+    echo "VOCAB-FAIL(vplayer-window: Video Player 창 미출현 — $WINV)"
+fi
+NOT_L=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"launch_app","args":{"app":"notify"}}' 2>/dev/null | grep -a '{' | head -1)
+echo "VOCAB-NOTIFY-LAUNCH: ${NOT_L:-none} ('알림 보여줘' 질의 소비 — Launch 원문)"
+printf '%s' "$NOT_L" | grep -aq '"ok":true' || echo "VOCAB-FAIL(notify-launch: $NOT_L)"
+NTWIN=""
+for i in $(seq 1 10); do
+    sleep 2
+    WINN=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"list_windows","args":{}}' 2>/dev/null | grep -a '{' | head -1)
+    NTWIN=$(printf '%s' "$WINN" | grep -aoE '\{"id":[^}]*"title":"Notifications[^}]*\}' | head -1)
+    [ -n "$NTWIN" ] && break
+done
+if [ -n "$NTWIN" ]; then
+    NOTIFY_OK=1
+    echo "VOCAB-NOTIFY-WIN: $NTWIN (Launch(notify) 창 원문 — 알림 별명 2행+kAliasTable 1행 소비)"
+    shot voc_wsl_vocab_notify.png
+    NTID=$(printf '%s' "$NTWIN" | sed -n 's/.*"id":\([0-9]*\),.*/\1/p')
+    NCR=$(timeout 15 ./buildwsl/jkdesktop agentctl "{\"tool\":\"close_window\",\"args\":{\"id\":$NTID}}" 2>/dev/null | grep -a '{' | head -1)
+    echo "notify close: ${NCR:-none} (차분 오염 소각)"
+else
+    echo "VOCAB-FAIL(notify-window: Notifications 창 미출현 — $WINN)"
+fi
+VOCAB_OK=0
+[ "$VROUTE" -eq 5 ] && [ "$BEX" -eq 2 ] && [ "$VP_RELAY" -eq 1 ] \
+    && [ "$VP_TOGGLE" -eq 1 ] && [ "$NOTIFY_OK" -eq 1 ] && VOCAB_OK=1
+if [ "$VOCAB_OK" -eq 1 ]; then
+    echo "VOCAB-VERDICT: VOCAB-OK(#115b 신설 어휘 E2E — 발화 8 건 라우터 원문 등호(즉발 5+무인자 강제 1+배제 stub 2)·app_tool 릴레이→vplayer 소비(accepted+play_pause 토글 2탭 상반+get_status 기록 반영)·'알림 보여줘'→Notifications Launch 창 원문 — 캐논 $ST_PASS·2y=$ST2Y — 전사 본문=CANON 밖(§2.4))"
+else
+    echo "VOCAB-VERDICT: VOCAB-FAIL(honest — route=$VROUTE/5 excl=$BEX/2 vprelay=$VP_RELAY vptoggle=$VP_TOGGLE notify=$NOTIFY_OK — 사유 열은 상단 VOCAB-FAIL 행)"
+fi
+
 echo "=== 14. stderr 진단 수취 (서버 로그 — chat/minesweeper 스폰 계통) ==="
 grep -a 'spawned\|module' "$LOG" | tail -8 | sed 's/^/  /'
 
@@ -994,7 +1196,7 @@ if [ "$VERDICT" = "VOICE-OK" ]; then
 else
     echo "VOICE-VERDICT: $VERDICT(honest-fail — fc=$FC eq=$EQ_OK canon=$CANON_OK(2v=$ST2V) lq=$LQ_OK surf=$SURF_OK route=$ROUTE — 사유 열은 상단 VOICE-FAIL 행)"
 fi
-echo "VOICE-RUN-VALS: run=${RUN_NO} canon=${ST_PASS} twov=${ST2V} fc3=${FC} direct=${DIR_EQ} direct_t2=${DIR_EQ_T2} stt_t2_canon=${STT_T2_CANON:-n/a} fixt=${SURF_OK} keyturn=${KEYTURN} clickturn=${CLICKTURN} route=${ROUTE} probe_rc=${PP} captures=engine/tmp/voc_wsl_*.png"
+echo "VOICE-RUN-VALS: run=${RUN_NO} canon=${ST_PASS} twov=${ST2V} twoy=${ST2Y} fc3=${FC} direct=${DIR_EQ} direct_t2=${DIR_EQ_T2} stt_t2_canon=${STT_T2_CANON:-n/a} fixt=${SURF_OK} keyturn=${KEYTURN} clickturn=${CLICKTURN} route=${ROUTE} vocab=${VOCAB_OK} vprelay=${VP_RELAY} vptoggle=${VP_TOGGLE} notify=${NOTIFY_OK} probe_rc=${PP} captures=engine/tmp/voc_wsl_*.png"
 
 echo "=== 16. 복원 (permissions 원복·서버 원복·probe 잔상 0) ==="
 restore_and_exit
