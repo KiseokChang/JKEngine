@@ -996,8 +996,10 @@ fi
 TTS_OK_SESSION=0
 # [fix r4 — 판독 접두 결함]: TTSOUT = 원문(접두 없음) — TTS[n]: 접두는 인쇄 시
 # 에만 존재한다(117-R5 런 start=n/a 판독 실패 원장행).
-SSTART=$(sed -n 's/^TTS-SESSION-START-OK: //p' <<< "$TTSOUT" | tail -1 | tr -d ' \r')
-SSTOP=$(sed -n 's/^TTS-SESSION-STOP-OK: //p' <<< "$TTSOUT" | tail -1 | tr -d ' \r')
+# [fix r5 — 판독 후미 표기 절단]: 행 후미의 괄호 표기까지 흡수되어 =1 등호
+# 판정 실패(117-R6 런 원장) — 선행 숫자만 수취.
+SSTART=$(sed -n 's/^TTS-SESSION-START-OK: \([0-9]*\).*/\1/p' <<< "$TTSOUT" | tail -1 | tr -d ' \r')
+SSTOP=$(sed -n 's/^TTS-SESSION-STOP-OK: \([0-9]*\).*/\1/p' <<< "$TTSOUT" | tail -1 | tr -d ' \r')
 [ "${SSTART:-0}" = "1" ] && [ "${SSTOP:-0}" = "1" ] && TTS_OK_SESSION=1
 echo "TTS-SESSION-VERDICT: start=${SSTART:-n/a} stop=${SSTOP:-n/a} (전용 런 토글 계약 — 유효성 통제)"
 # 턴 도착 보조 관측(기본 런 — done>rec — 렌더 비결정으로 역전 가능 —
@@ -1125,8 +1127,8 @@ if grep -aq 'TTS-BOOT-FINISHED' <<< "$TBOUT"; then
     # 없는 부존(=표면 미도달)을 부존으로 잘못 셈 없게 한다. done>rec는
     # "녹음 시작 행 렌더"의 가양성이 있다(117-1phone 런 원장행) — 보조 행으로
     # 격하.
-    OSSTART=$(sed -n 's/^TTS\[[0-9]*\]: TTS-SESSION-START-OK: //p' <<< "$T2OUT" | tail -1)
-    OSSTOP=$(sed -n 's/^TTS\[[0-9]*\]: TTS-SESSION-STOP-OK: //p' <<< "$T2OUT" | tail -1)
+    OSSTART=$(sed -n 's/^TTS-SESSION-START-OK: \([0-9]*\).*/\1/p' <<< "$T2OUT" | tail -1 | tr -d ' \r')
+    OSSTOP=$(sed -n 's/^TTS-SESSION-STOP-OK: \([0-9]*\).*/\1/p' <<< "$T2OUT" | tail -1 | tr -d ' \r')
     OSESS_OK=0
     [ "${OSSTART:-0}" = "1" ] && [ "${OSSTOP:-0}" = "1" ] && OSESS_OK=1
     echo "TTS-OPTOUT-SESSION: start=${OSSTART:-n/a} stop=${OSSTOP:-n/a} (양순 통제 — 세션 전이 원문)"
