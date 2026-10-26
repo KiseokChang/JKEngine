@@ -423,7 +423,21 @@ status 절단 악형) → T2 fix r1 re-review **APPROVE 재확정**(C0/I0/M0 —
 | T1/T2/T3 | probe CANON 상수 갱신 채권(wsl_music.sh 795→833·phone_music.sh 계보 행 — T4에서 소각) | M | 소각 — T4 probe 커밋(bfe2011) |
 | 라인 유계 | moov-후행 2차 read 재판정(사용자 실기기 관찰 시 — §7.12.3/§7.12.4 ④) | N | 유계 — 원장행 유지 |
 
+### §4.1-10 신규 park 행(#115b 구두 어휘 확장 라인 — §7.13 승계 · **아래는 추가만, 기존 행 변형 금지**):
+
+| 출처 | 항목 | 등급 | 처분 근거 |
+| --- | --- | --- | --- |
+| T1 원장(승계) | SttVoice.h 계약 주석 4종 표기 미갱신·LLM 스키마 app_tool 합의(v2 후보 — 오발 봉쇄 원존)·타이핑 표면 app_tool 전송 배선 부재(정직 안내문까지만 — 3 소비자 fix r1 소각은 완료) | M | 유계 — 후속 라인 후보 원장행 |
+| T2 원장 | probe 계보 원문 갱신 3건 — ①fc3 기대 원문(T6 rc=3 스폰 leg → 현재 스폰 전 fail-closed "구두 끔 (whisper 모델 부재)" — park-5 쌍둥이 정합 수형 이후 resolve 계약 변경이 probe 재런 0 동안 놔둔 것 — 115b-1ws 런 실측 fc=2)·②dirrun 직접 스폰 `--prompt` 부재 = 인자 비등가 대조(실측: chain=[(뽀송한 소리)] vs direct=[[구독 / 좋아요]] 갈림 — 전사 비결정의 잠재 계통)·③캐논 상수 814→850(2y 17) | M | 소각 — 8ad5501(양쪽 수용+--prompt = kVoicePrompt 문자 리터럴 수형 — **프롬프트 갱신 시 probe 동기 원장행**(표=진실원 동기 계약 승계)) |
+| T2 fix r1 | phone vocab 원격 스크립트 FAIL 출구 잔상 — permissions.json 33→62B **중복 close_window 행**+Video Player/Notifications 창 잔존(수기 원복 소각 실측: 33B 등호+close 2건) | M | 소각 — 705ac89(vcleanup() 무해 재입 — FAIL/성공 출구 통일)+병합 생략(close_window 상존 시 — 무변경 0) |
+| T2 fix r2 | PHV_BTN env 판별이 기정치 채우기에 매몰(SET=835 만성 → AUTO 재산출 스킵 → tap 2런 (835,602) 미달 반복 — rec=done 전이 0·isRecording false) | M | 소각 — 46c4767(SET 수취를 기정 채우기 전으로)→재런 PHV-BTN-AUTO (1283,720)·rec/done 증가 2/2 |
+| T2 원장 | wsl.exe env 전파 1런 라벨 소실(VOICE_RUN_NO=115b-R2 → run=auto — WSLENV 접미 필수 — #115 T4 원장 승계 누락) | N | 원장 소화 — R3 재판정 WSLENV="VOICE_RUN_NO/u" → run=115b-R3 |
+| T2 원장 | stt_t2_canon=0 — T2 계보 원문 [구독 / 좋아요] MISS·실측 "(뽀송한 소리)"(440Hz 사인 환각 계열 — §2.4 CANON 밖 비결정) | N | 원장 유지(honest MISS — 전사 본문 = 사용자 재판정 밖 — 자기 원장행) |
+| T2 원장 | 브리프 "기대 = 873 승계" 표기 — Win 축 캐논(3축 판정에서 폰 = **WSL 등호 계약** — 668/818/833 계보 원존) | N | 원장 소화(§7.13.2 캐논 표 — 폰 실측 850 = WSL 등호) |
+| 라인 유계 | v1.6 후보(도메인 확장 — 파일/갤러리·LLM 스키마 app_tool·TTS·vplayer stop/next 도구 신설(토글 수용 원장행)) | N | 유계 — 스펙 비-목표 원존 |
+
 ## §5. 사용자 결제 게이트 (EYES-PENDING 봉인)
+
 
 **EYES-PENDING — 라인 최종 결제는 사용자 육안/청안 선언만으로 성립한다. probe와
 본 문서는 결제를 기록하지 않는다**(docs/89 §5 동형 — LEG-OK·MUSIC-OK·
@@ -2552,3 +2566,197 @@ main 직행.
   (wsl_music_run115_r{1..5}.log·phone_music_run115_r{1,2}.log·
   t115_t4_run.log·t115_t4_deploy*.log)·OM 캡처(mus_wsl_om_*.png·
   mus_phone_om_*.png) = engine/tmp untracked — 커밋 금지 충족.
+
+## §7.13 구두 어휘 확장 원장 (#115b 라인 — T1-T2(+fix r1/r2), 2026-10-27)
+
+#115b 라인 원장. LLM 없이 즉발되는 구두 어휘를 재생(vplayer)+알림 도메인으로
+확장(스펙 D2 — 리서치 docs/voice_os_deep_search.md 권장 순서). 스펙=
+`docs/superpowers/specs/2026-10-27-voice-vocab-design.md`(fe5e8c9 — D1-D6),
+플랜=`docs/superpowers/plans/2026-10-27-voice-vocab.md`(defe70b),
+SDD 원장=`.superpowers/sdd/2026-10-27-voice-vocab/`(task-1/2 리포트 — 미커밋
+관행). T1 리포트가 어휘 표·접점 실측 표·AppTool 소비 계약의 원문 수취원 — 본
+§7.13.1은 그 1:1 재수취+T2 probe/폰 배포 원문.
+
+### §7.13.0 체인 (rev-parse 전체 SHA 실측 · git log가 진실원)
+
+| 태스크 | 커밋(SHA — 실측 rev-parse) | 내용 (numstat) |
+| --- | --- | --- |
+| 스펙 | `fe5e8c921daa911f6ee8d7281970bbc8e2dc1a26` | docs(apps): 구두 어휘 확장 v1.5 설계 스펙 (#115b — 무인자 우선·재생+알림 도메인·도구 부재 어휘=원장행) — D1-D6 |
+| 플랜 | `defe70b5d25853cdc7edacbeba2150ae1f9681ee` | docs(apps): 구두 어휘 확장 v1.5 플랜 (#115b T1-T2) + #115 폐곡 정산 |
+| T1 | `21ee4ddda3fec366f6953d5ebafacb03281de34e` | feat(apps): 구두 어휘 확장 — 재생+알림 도메인 (T1) — ChatRouter.cpp(어휘 7행 exact+알림 별명 2행+방어 행 3행)·SttVoice.cpp(kVoicePrompt 갱신+AppTool 질의 조립)·ChatRouter.h(ChatAction.tool+AppTool 소비 계약 주석)·main.cpp 2y ①-⑯ |
+| T1 fix r1 | `ab974623ab947c158f8c1963cc7c5bbfb0bd745a` | fix(apps): AppTool 소비자 스위치 — jkweb/jktalk/Submit 안내문 정직 배선 (T1 fix r1) — 공(空) 도구 질의 실전송 fall-through 소각 + 2y-⑰ — ChatAppToolTypingGuide 공유 1본 |
+| T2(probe) | `8ad5501f28eea3365440da13e10520bbe3b685e7` | feat(probes): 구두 어휘 신설 E2E 세그먼트 — WSL+폰 probe (T2) — wsl_voice.sh 218/12·phone_voice.sh 248/12 — §13b VOCAB 세그먼트+probe 계보 갱신 3건(fc3/캐논/--prompt) |
+| T2 fix r1 | `705ac89426de72c378b2bfd48310519e8117f0fd` | fix(probes): phone voice probe — vocab 세그먼트 115b-1phone 런 결함 4건 수리 — 72/27 — PROBE 접두·FAIL 출구 계약(vcleanup)·병합 무변경·Notifications 접두 |
+| T2 fix r2 | `46c47672b8ddd2bccde58587f4ba2b73b6d2e0ec` | fix(probes): phone voice probe — PHV_BTN env 판별이 기정치에 매몰되는 순서 결함 — 9/5 — SET 수취 상단 이동 |
+| 본 T2(docs) | 본 문서를 포함하는 커밋 | docs(apps): #115b 구두 어휘 원장 — SHA는 git log가 진실원 |
+
+### §7.13.1 배선·어휘 원리 (T1 리포트 → ChatRouter.cpp/SttVoice.cpp 단일 진실원 1:1 재수취 · 코드 재실측 0)
+
+- **D1 무인자 강제 — exact 게이트** — kRouteTable 행의 `exact=true` 필드:
+  정규화 발화 **전체** 등호만 성립(뒤접미 일치만으론 불성립). "볼륨 50으로
+  멈춰줘"류 접사 발화 = Info stub(인자 필요 조작은 LLM 턴 몫 — 새 파서 0).
+  불성립 뒤접미는 `break`가 아니라 **continue** — "일시정지"↔"정지" 접두
+  공유가 표 순서로 갈린다(2y-⑤).
+- **D2 도메인 v1 배치 = 재생+알림** — 접점 실측(T1 리포트 §1 표 — 도구 존재
+  원문): vplayer `play_pause` = 유일한 무인자 재생 도구(6종 등록 원문
+  ClientVPlayerApp.cpp — open/play_pause/seek/set_volume/set_av_delay/
+  get_status 중 무인자 = play_pause·get_status)·notify 읽기 도구 = 부재(등록
+  0 — Subscribe만)·notify **창 open** = launch_app 재용. **배제 원장행**:
+  "다음 곡/이전 곡"(vplayer next/prev 도구 부재)·"알림 뭐 왔어"(읽기 도구
+  부재)·spatial_stop(다른 앱 도메인 — 음역 오유)·open/seek/set_volume(인자
+  필요 — D1 밖).
+- **ChatAction 대차** — 재생 = AppTool kind 1종+`ChatAction.tool` 필드 1개만
+  신설(기존 4종 Launch/Close/Focus/ListWindows로 표현 불가)·알림 = 기존
+  Launch+별명 재용(신설 kind 0) — LLM 스키마 무변경(app_tool은 스키마 밖 —
+  근접 변형 발화의 LLM 오발 봉쇄 = 파싱 실패 stub 폴백 원존).
+- **어휘 표(v1.5 — ChatRouter.cpp 단일 진실원)** — 재생 7행(멈춰줘/멈춰/
+  정지해줘/정지/일시정지/재생해줘/재생 — 전부 AppTool+vplayer·play_pause,
+  exact=true)·알림 Launch 1행("보여줘")+별명 2행("알림"/"notify" —
+  kAliasTable)·방어 행 2행("창 목록 보여줘"/"창목록 보여줘" Launch 누수 봉합
+  — 2y-⑩). exact행은 **표 끝 배치** — 기존 앞 행의 접두 판정 무접촉.
+- **질의 조립(ChatActionQuery — SttVoice.cpp)** — AppTool = `app_tool`
+  릴레이 1건 `{"tool":"app_tool","args":{"app":"vplayer","tool":"play_pause",
+  "args":{}}}`(무인자 = 빈 객체 — 양식 1종)·알림 = `launch_app {"app":"notify"}`
+  (기존 양식). **소비 축**: 구두 표면만 전송권(RunVoiceTurn (5) — dispatcher)·
+  타이핑·웹·jktalk = ChatAppToolTypingGuide 공유 정직 안내문(3 소비자 1본 —
+  T1 fix r1(2y-⑰) — 전송 배선 부재 = 후속 라인 원장행).
+- **kVoicePrompt(D4) 갱신** — "지뢰찾기 테트리스 알림 … 멈춰줘 멈춰 정지해줘
+  정지 일시정지 재생해줘 재생 보여줘" — **표 성립 어휘만**(배제 어휘 미혼입).
+  문자 리터럴 수형(TU 내부 constexpr — 직링크 불가) — **표 갱신 시 동기
+  원장행**(probe dirrun의 --prompt 수형 포함).
+
+### §7.13.2 캐논 계보 (2y 계열) + probe 실측 영수증 (T2)
+
+| 시점 | Win | WSL | posix | 폰 | 신설 |
+| --- | --- | --- | --- | --- | --- |
+| 기준(#115 라인 종착 = §7.12.2 T4 행) | 856 | 833 | 304 | 833 | — (2v 14·2x 15·2w 4 보존) |
+| T1 `21ee4dd` | **872** | **849** | 304 (승계) | (833) | +16 (2y ①-⑯) |
+| T1 fix r1 `ab97462` | **873** | **850** | 304 (승계) | (833) | +1 (2y-⑰ — 공유 문언) — T1 리포트 §6 2런 등호 |
+| T2 본 라인(8ad5501/705ac89/46c4767 — probe 전용·src 무변경) | 873 | **850** | **304 (승계)** | **850** | 폰 2y 17 흡수 — **CANON=VOICE-VOCAB-2Y-17** (폰 833→850 — WSL 850 등호 — 배포 A/B 2런 등호) |
+
+- **2y 17의 분해** = ①신설 등호(멈춰줘 AppTool·토글 안내문·질의 조립·재생해줘
+  ·정지 갈림·알림 보여줘·launch_app 조립 = ①-⑦) ②기존 회귀(지뢰찾기·꺼줘 =
+  ⑧⑨) ③별명 우선순위(창 목록 보여줘·알림 꺼줘 = ⑩⑪) ④무인자 강제(⑫⑬)
+  ⑤D3 배제 stub(다음 곡·알림 뭐 왔어·InfoGuide 훑기 = ⑭⑮⑯) ⑥공유 문언
+  (⑰ fix r1).
+- **posix 304 = 구조적 승계 등호** — 하네스 TU 목록 미링크(갱신 65 원존) —
+  본 라인 커밋 전부 src probe/script 무접촉(T2 probe = tools/probes/)이므로
+  재런 불요 사유가 구조로 성립.
+- **WSL probe 원문(#115b-RUN-VALS — engine/tmp/wsl_voice_run115b_{2,3}.log —
+  2런 FULL 등호)**: `canon=850 twov=14 twoy=17 fc3=3 direct=1 direct_t2=1
+  stt_t2_canon=0 fixt=1 keyturn=2 clickturn=2 route=1 vocab=1 vprelay=1
+  vptoggle=1 notify=1 probe_rc=0` — `VOICE-VERDICT: VOICE-OK` 2/2+**신설
+  `VOCAB-VERDICT: VOCAB-OK` 2/2** — 기존 legs 회귀 0(fc3=3·direct 등호·canon
+  ·lq·route·fixt·keyturn·clickturn 전항 등호).
+- **신설 어휘 E2E 원문(§13b — R3)**: 라우터 원문 8건 — `VOCAB text=[멈춰줘]
+  kind=4 app=[vplayer] tool=[play_pause] usedLlm=0 q=1 query=[app_tool
+  {"app":"vplayer","tool":"play_pause","args":{}}]`(재생해줘/정지 등호·
+  알림 보여줘 = `kind=0 app=[notify] … query=[launch_app {"app":"notify"}]`·
+  볼륨 50으로 멈춰줘 = kind=5 q=0(무인자 강제)·다음 곡/알림 뭐 왔어 =
+  kind=5(배제 stub)·창 목록 보여줘 = kind=3(방어 행)) → **소비 원문**:
+  `app_tool open → {"ok":true,"windowId":19,"result":{"accepted":true}}` →
+  get_status `"opened":true "paused":false "dur":30.000`(엔진 소유 합성
+  클립 vpt2_test.mp4) → play_pause 1탭 reply `{"paused":true}`+status
+  `"paused":true`(기록 반영) → 2탭 `{"paused":false}`+status 등호(토글 2탭
+  상반 — T1 토글 수용 원장행의 라이브 재판정) → `'알림 보여줘' →
+  {"ok":true}`+Notifications 창 원문(배지 "Notifications (3)" — 접두 매치)·
+  캡처 voc_wsl_vocab_vp.png(478,881B)+voc_wsl_vocab_notify.png(678,370B) ·
+  창 소각+좌표 원복(REMNANT 0 2런).
+- **T2 폰 배포 런(t115b_t2_deploy.sh — engine/tmp 산출물 — t115_t4 수형 승계
+  ·커밋 0 — engine/tmp/t115b_t2_deploy_run.log)**: DEPLOY-BASE `ab97462`
+  (T1+fix r1 포함 HEAD 전수 — **SWEEP-DIFF 10/472 → SWEEP-POST-DIFF=0** hard
+  게이트)·LEG-STAGE-WIRED(SPATIAL leg 유지배선 — libopenal.a 1,969,238B·
+  `-lOpenSLES -llog`)+WHISPER-ROOT-WIRED(tree 149)·CMAKE-RC=0·
+  NINJA-RC=0 SECONDS=475(aarch64 — WHISPER-BUILD-NINJA-ENTRIES=297)·
+  `DEPLOY-MARKERS: 2r=11 2s=21 2u=136 2v=22 2w=4 2x=15 2y=18`(라벨 계수 —
+  본문 주석 포함 — PASS 2v=14·2x=15·**2y=17**)·MUSP-LEG-SYM alcOpenDevice
+  strings=3(leg 링크 유지)·whisper-cli aarch64 산출(무인자 cold run 정상·
+  LDD not-found 0)·tiny-ko 핀 77,691,730B 등호(조달 재용 불요)·music.jkx
+  재팕(ICON-ENTRIES=2·PACK-RC=0)·서버 재기동 **WHISPER_ROOT 보유 부팅(부팅
+  env 승계 원존 — 구두 leg 게이트의 클라 상속 계약)**·Music 창 복원 ok·
+  `CANON-A=850`/`CANON-B=850`(A/B 2런 등호·2y=17 양런)·settings 213B/
+  permissions 33B **무변경 등호**·jkweb 생존(pid 동일)·REMNANT-LS-RC=2
+  (self-destruct 등호) — `T2-DEPLOY-VERDICT: T2-DEPLOY-OK`.
+- **폰 probe 동형 세그먼트(phone_voice.sh — engine/tmp/
+  phone_voice_run115b_{1,2,3}.log — 3런: 1=fix r1 대상 honest·2=fix r2 대상
+  tap 미달·3=ALL OK)**: 최종 런(115b-3) `VOICE-PHONE-VERDICT: VOICE-PHONE-OK`
+  (+**`VOCAB-PHONE-VERDICT: VOCAB-PHONE-OK`**)— tap 런 2/2(탭 좌표 재보정
+  (1283,720) — rec→done 바이트 증가 +3,303B/+38,167B = 기록 행 렌더 영수증)·
+  fail-closed 3판 원문 등호(스폰 전 fail-closed 계약 — 양쪽 수용)·Termux:API
+  마이크 leg(mic-start/stop=1·isRecording 세션 판정)·fixture 사슬==직접 스폰
+  등호·probe VOCAB 행 등호 5/5+배제 2/2(**라우터 = 방금 배포된 buildterm
+  진실원 재실측**)·라이브 소비 — vplayer open(합성 wav 재용 —
+  `{"accepted":true}`→`"opened":true "ended":true "pos":2.176 "dur":3.000`)
+  →play_pause 2탭 `{"paused":true}`/`{"paused":false}`+get_status 등호 →
+  `'알림 보여줘'→{"ok":true}`+`"title":"Notifications (1)"` 창 원문 →
+  close 2건+permissions **무변경 33B**+잔상 0(REMNANT left=0)·최종 화면 =
+  Music 창 단독(사용자 화면 복원) — 캡처 pv_vocab_vp.png/pv_vocab_notify.png.
+- **stt_t2_canon=0 원장행(CANON 밖 — §2.4)**: T2 계보 원문 [구독 / 좋아요]
+  MISS·본 라인 실측 "(뽀송한 소리)"(440Hz 사인의 환각 계열 — 전사 본문은
+  사용자 실발화 게이트 밖 — 결정 축은 chain==direct 등호 2런 등호로 승계).
+
+### §7.13.3 함정 원장 (#115b 신규 — 봉쇄 레슨 축 · 전량 = T1/T2 리포트+런 원문 수납)
+
+- **probe 계보 원문 = 원장 상수와 함께 난다(기존 세그먼트 원존·재런 0의 대가)**
+  — fc3 기대 원문(T6 rc=3 스폰 leg)은 resolve 계약 변경(park-5 쌍둥이 정합 —
+  env 부재 경로 = 빈 반환) 이후 스폰 전 fail-closed 원문으로 갱신됐다 — probe
+  가 마지막으로 풀런된 지점 이후의 계약 변경을 셀프테스트가 못 잡는다(셀프테스트
+  밖 관행 원존) → 재런 시 계약 원문 대차 원장 필수(본 라인 소각 — 8ad5501:
+  현재 계약 원문 우선+T6 계보 원문 호환 양쪽 수용).
+- **전사 대조의 인자 등가 대차** — RunVoiceTurn 스폰 원문 = `-l ko --prompt
+  kVoicePrompt`·probe dirrun(기존) = `-l ko` 만 — 인자 비등가 대조라 전사
+  비결정의 잠재 계통(실측: chain=[(뽀송한 소리)] vs direct=[[구독 / 좋아요]]
+  갈림) — 수형 = dirrun에 --prompt(kVoicePrompt 문자 리터럴 수형 — TU 내부
+  constexpr 직링크 불가) — **kVoicePrompt 갱신 시 probe 원문 동기 원장행**.
+- **기정치 채우기와 env 지정 판별의 순서(115b-2phone 런)** —
+  `PHV_BTN_X=${PHV_BTN_X:-835}`를 먼저 쓰면 env-지정 판별용 SET 원취가
+  "835"로 만성화해 AUTO 재산출이 만년 스킵된다 — SET 수취가 선행 계약.
+  재판 2런(835,602 미달 반복 → (1283,720) 착탄 2/2).
+- **FAIL 출구 잔상 계약(phone 원격 스크립트)** — FAIL()가 exit 1로 즉사하는
+  동안 permissions 병합 원복+leftover 창 소각을 건너뛴다 — 본 런 실측:
+  중복 close_window 행(33→62B)+Video Player/Notifications 창 잔존 → 수기
+  원복 소각(33B 등호+close 2건) — 수형 = vcleanup() 무해 재입(멱등 —
+  wsl_music HARV-TEARDOWN 래더 원존 승계)+**병합 생략**(close_window 상존
+  시 — 무변경 0). 전문 런 끝에 permissions 33B/setting 213B 무변경 등호
+  재확인 완료.
+- **wsl.exe env 전파(런 라벨)** — WSLENV 접미 없는 VOICE_RUN_NO 전파 = 소실
+  (run=auto — 115b-R2 런) — #115 T4 원장 승계 누락 원장행 — R3에서
+  WSLENV="VOICE_RUN_NO/u"로 판정(run=115b-R3). 
+- **알림 창 제목 = 배지 실칭** — notify 창 제목은 누적 카운트 배지를 실는다
+  ("Notifications (3)"·"(1)" — ClientNotifyApp SetTitle) — 정확 등호 매치
+  금지·접두 매치(WSL/폰 동형 수리 — 115b 런 실측 2건).
+- **app_tool 중계 응답 = 봉투 랩** — `{"ok":true,"windowId":N,"result":{…}}`
+  이층(T5 봉투/본문 원존 수형) — reply의 본문 판정은 result 부분열 매치
+  ("accepted":true·"paused":true) — 표면 전체 등호 매치 금지.
+- **캐논 표기 계약(브리프 "873 승계" 재판정)** — 폰 = **WSL 등호 계약**
+  (668/818/833 계보 원존) — Win 873은 Win 축 값(§4.1-10 원장행). 폰 실측
+  850 = WSL 등호로 정산.
+
+### §7.13.4 비-목표 + EYES 게이트 (사용자 선언만 결제 — §5/§7.9.5 원칙 동형)
+
+- **비-목표(스펙 §3)**: 인자 필요 조작의 즉발 연결(창 이동/리사이즈·volume —
+  LLM 몫)·TTS·파일/갤러리 도메인(차기 v1.6)·새 도구 신설(D3 배제 원존)·
+  타이핑 표면 app_tool 전송 배선(후속 라인 — ChatAppToolTypingGuide 정직
+  안내문만 원존).
+- **EYES 대기**:
+
+| # | 게이트 | 내용 | 상태 |
+| --- | --- | --- | --- |
+| ① | **폰 신설 어휘 발화 체감** | 폰 chat [구두]에서 실발화 — "멈춰줘/재생해줘/정지(토글)"+"알림 보여줘"의 동작 체감(라우터 즉발 — LLM 지연 0) — probe는 합성 fixture 전사+텍스트 직발 라우터 원문만(CANON 밖) | **대기(발화 체감)** |
+| ② | **WSL/Win 발화 체감** | 데스크 축 F6 hold-to-talk + 신설 어휘 발화(WSLg 마이크 — 상태행 캡처 원문 존재) | **대기(육안·체감)** |
+| ③ | **배제 어휘 stub 체감** | "다음 곡"/"알림 뭐 왔어" 발화 = 정직 stub 안내(도구 부재 배제 원장행 — 음역 오유 방지) | **대기(육안)** |
+
+### §7.13.5 커밋 원장 + IP/호스트 경로 게이트 (#115b 라인)
+
+- 라인 체인 = §7.13.0 표(fe5e8c9..본 docs 커밋 — rev-parse 전체 SHA 원존 —
+  git log가 진실원) — push 전부 origin main 직행·amend 없음·**커밋 = 명시
+  경로만**(T1 = src 3파일+main.cpp·T1 fix r1 = 4파일·T2 probe = probe 2파일
+  ·T2 fix r1/r2 = phone_voice.sh 1파일·본 docs = docs/90 1파일 —
+  `git add -A` 0·커밋 분리 원존(probe 커밋+fix 커밋 2건+docs 커밋).
+- **IP·호스트 경로 게이트(T2 실측)** — probe 커밋(8ad5501)+fix 2건
+  (705ac89·46c4767) 커밋 원문 IPv4 정규식 grep = **전부 0건**·폰 주소 =
+  known_hosts BatchMode 자기 판명 변수 안 소멸(주소 미인쇄 계약 — 폰 런
+  로그 전체에도 0건 — 기록 계약 원존).
+- 배포 드라이버(t115b_t2_deploy.sh)·런 로그(wsl_voice_run115b_{1,2,3}.log·
+  phone_voice_run115b_{1,2,3}.log·t115b_t2_deploy*.log)·캡처(voc_wsl_*.png·
+  pv_run*_*.png·pv_vocab_*.png) = engine/tmp untracked — 커밋 금지 충족.
