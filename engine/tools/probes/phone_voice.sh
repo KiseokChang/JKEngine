@@ -895,26 +895,38 @@ TAP() {
     echo "TTS-SEND-INPUT($1,$2): ${R:-none}"
     ok "$R" || FAIL "send_input tap no ok — $R"
 }
-foc                      # [fix r2 — 탭마다 선행 포커스 — 첫 탭 포커스 소비 차단]
-TAP "$TX" "$TY"          # 개시 — StartVoice(표지 새김)
+# [fix r3 — 세션 검증 탭 재시도]: 포커스+send_input allow 상존에도 **첫 탭 =
+# 활성화 소비**(117-R3/R4 런 원장 — 컨텍스트 따라 tap1 무효) — -i 세션 검증
+# 뒤 재탭(최대 3 — 검증이 토글 이중 반영을 봉쇄: 성립 즉시 break).
 SESSION_START=0
-for i in $(seq 1 6); do
-    [ "$(recstat)" = "1" ] && { SESSION_START=1; break; }
-    sleep 2
+T0=""
+for a in 1 2 3; do
+    foc
+    TAP "$TX" "$TY"      # 개시 — StartVoice(표지 새김)
+    for i in $(seq 1 6); do
+        [ "$(recstat)" = "1" ] && { SESSION_START=1; break; }
+        sleep 2
+    done
+    [ "$SESSION_START" = "1" ] && break
+    echo "TTS-START-RETRY: 탭 $a 개시 세션 미성립 — 활성화 소비 탭(원장행) 뒤 재탭"
+    sleep 3
 done
 echo "TTS-SESSION-START-OK: $SESSION_START (개시 세션 성립 — -i 진실원 — 0 = 토글 미달성 — stamp 폴링 무의미)"
-[ "$SESSION_START" = "1" ] || FAIL "개시 세션 미성립 (tap1 개시 실패)"
+[ "$SESSION_START" = "1" ] || FAIL "개시 세션 미성립 (재탭 3회 — 표면 미도달)"
 sleep 2
 capture t5_chat_tts_rec.png
 T0=$(ms)
 echo "TTS-TAP2-T0-MS: $T0"
 [ -n "$T0" ] || FAIL "ms stamp missing (python3+date 모두 실패 — 지연 측정 불성립)"
-foc                      # [fix r2 — 마침 탭 선행 포커스]
-TAP "$TX" "$TY"          # 마침 — FinishVoice→전사→답신 도착접점(DrainVoice)
 SESSION_STOP=0
-for i in $(seq 1 6); do
-    [ "$(recstat)" = "0" ] && { SESSION_STOP=1; break; }
-    sleep 2
+for a in 1 2 3; do       # [fix r3 — 마침 동일 재시도]
+    foc
+    TAP "$TX" "$TY"      # 마침 — FinishVoice→전사→답신 도착접점(DrainVoice)
+    for i in $(seq 1 6); do
+        [ "$(recstat)" = "0" ] && { SESSION_STOP=1; break; }
+        sleep 2
+    done
+    [ "$SESSION_STOP" = "1" ] && break
 done
 echo "TTS-SESSION-STOP-OK: $SESSION_STOP (마침 세션 성립 — 전사 개시 — [fix r1])"
 DETECT=0
