@@ -107,6 +107,7 @@ const char* KindName(jk::ChatAction::Kind kind) {
         case jk::ChatAction::Close:       return "Close";
         case jk::ChatAction::Focus:       return "Focus";
         case jk::ChatAction::ListWindows: return "ListWindows";
+        case jk::ChatAction::AppTool:     return "AppTool";
         case jk::ChatAction::Info:        return "Info";
     }
     return "?";
@@ -353,7 +354,13 @@ std::string HandleTalk(const std::string& body, int& code) {
     // 스폰 불가/파싱 불가 → 기존 stub 안내문 폴백. 아래 도구 지시·ServerMeta
     // 계약은 백엔드 무관으로 유지 — ChatAction 파이프라인 원문 그대로.
     const jk::agent::ChatConfig chatCfg = jk::agent::LoadChatConfig();
-    const std::string guide = jk::ChatRouteTurn(text, action, chatCfg);
+    std::string guide = jk::ChatRouteTurn(text, action, chatCfg);
+    if (action.kind == jk::ChatAction::AppTool) {
+        // fix r1 (Important 1) — 웹 표면은 app_tool 질의를 미송신(발송 표면 =
+        // 구두 leg만 — ChatRouter.h 계약). "/talk 확인문+공 도구 전송" 회귀의
+        // 봉쇄: 라우터의 "보냅니다" 확인문 대신 공유 정직 문언으로 교체한다.
+        guide = jk::ChatAppToolTypingGuide(action);
+    }
     const std::string escKind = KindName(action.kind);
     const std::string escApp =
         action.kind == jk::ChatAction::Launch || action.kind == jk::ChatAction::Close
@@ -381,6 +388,13 @@ std::string HandleTalk(const std::string& body, int& code) {
         case jk::ChatAction::ListWindows:
             tool = "list_windows";
             break;
+        case jk::ChatAction::AppTool:
+            // fix r1 (Important 1) — 전송 없이 안내문 회신(Info 동형 서술 —
+            // 공 구독 질의 not_implemented 회신 회귀 봉쇄). guide는 이미 위
+            // ChatAppToolTypingGuide 공유 문언으로 교체됐다.
+            code = 200;
+            return "{\"ok\":true,\"reply\":\"" + JsonEsc(guide) +
+                   "\",\"kind\":\"" + escKind + "\",\"app\":\"\"}";
         case jk::ChatAction::Info:
             code = 200;
             return "{\"ok\":true,\"reply\":\"" + JsonEsc(guide) +

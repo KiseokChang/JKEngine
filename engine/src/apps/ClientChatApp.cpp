@@ -195,7 +195,14 @@ void ClientChatApp::Submit(const std::string& raw) {
     // 뇌호출 — 백엔드 슬롯(파일 상단 주석). 응답문은 도구 지시가 아니라
     // **사용자에게 보여질** 안내/확인문(ChatRouter.h 계약)이라 기록에 그대로.
     jk::ChatAction action;
-    const std::string resp = jk::ChatRouterRoute(text, action);
+    std::string resp = jk::ChatRouterRoute(text, action);
+    // fix r1 (Minor 2) — 타이핑 표면은 app_tool 질의를 미송신(발송 표면 = 구두
+    // leg만 — ChatRouter.h 소비 계약). 라우터의 "보냅니다" 확인문이 미송신
+    // 지시를 쓰는 부정직을 공유 정직 문언으로 교체(2y-⑰). 전송 배선은 후속
+    // 태스크 부재 — 원장행(아래 스위치의 AppTool 전송 없음 사례와 동형).
+    if (action.kind == jk::ChatAction::AppTool) {
+        resp = jk::ChatAppToolTypingGuide(action);
+    }
     turns_.push_back(Turn{ false, resp });
     frameDirty_ = true;
     scrollBottom_ = true;
@@ -231,6 +238,8 @@ void ClientChatApp::Submit(const std::string& raw) {
             // 답신 JSON을 기록에 그대로 인쇄가 계약(스펙 §1.1) — PollReplies.
             SendQuery("list_windows", "{}");
             break;
+        case ChatAction::AppTool:
+            break;   // fix r1 — 전송 없음(타이핑 표면 안내만 — 위 resp 교체 소관)
         case ChatAction::Info:
             break;   // 도구 지시 없음 — 안내문만 이미 기록에 들어갔다
     }

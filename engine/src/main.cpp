@@ -8349,6 +8349,15 @@ static int RunAppSelfTest() {
                   args == "{\"app\":\"vplayer\",\"tool\":\"play_pause\","
                           "\"args\":{}}",
               "2y-③ app_tool 질의 조립 등호(릴레이 양식 — probe app_tool 원문)");
+        // fix r1 — 타이핑·웹 경로의 AppTool 소비 = 전송 없이 공유 정직 문언
+        // (Submit/jkweb/jktalk 3소비자가 같은 1본을 먹는다 — ChatRouter.h
+        // 계약). 라우터 즉발 확인문("보냅니다 — g1")과 별개 문언임을 등호 부일
+        // 로 단정한다(⑩ 방어 행과 별개 — 2y-⑰).
+        const std::string gt = jk::ChatAppToolTypingGuide(a);
+        check(!gt.empty() && gt.find("구두") != std::string::npos &&
+                  gt.find("타이핑") != std::string::npos && gt != g1,
+              "2y-⑰ 타이핑·웹 경로 AppTool = 전송 없이 공유 정직 안내문(구두 "
+              "표면 전용 — 즉발 확인문과 별개 문언)");
 
         jk::ChatAction b;
         bool usedB = true;

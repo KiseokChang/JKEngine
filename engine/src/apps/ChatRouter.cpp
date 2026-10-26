@@ -470,6 +470,15 @@ bool ChatLlmActionParse(const std::string& llmText, ChatAction& out,
     return true;
 }
 
+// AppTool의 타이핑·웹 경로 정직 문언 — 헤더 계약(3 소비자 공유 1본). 전송
+// 없는 표면임을 문언 자체가 말한다(죽은 "보냅니다" 확인문 봉쇄 — fix r1
+// Minor 2). AppTool은 현재 재생 토글만이지만 app/tool 원문을 함께 알린다.
+std::string ChatAppToolTypingGuide(const ChatAction& a) {
+    return "재생 조작(" + a.app + "·" + a.tool +
+           ")은 구두(음성) 표면에서만 보낼 수 있습니다 — 타이핑 표면은 재생 "
+           "안내만 제공합니다";
+}
+
 std::string ChatRouteTurn(const std::string& text, ChatAction& out,
                           const agent::ChatConfig& cfg, bool* usedLlm) {
     if (usedLlm) *usedLlm = false;

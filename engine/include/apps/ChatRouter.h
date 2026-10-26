@@ -14,7 +14,8 @@
 // 안내/확인문(한국어 UTF-8) — 채팅 앱이 대화 기록에 그대로 인쇄한다.
 // Kind==Info면 도구 지시 없음(앱이 SendAgentQuery를 보내지 않는다).
 // Kind==AppTool면 도구 지시 = app_tool 릴레이 질의 1건(#115b T1 — D2 재생
-// 도메인: kRouteTable 행의 toolApp/toolName으로만 조립된다 — 새 파서 0).
+// 도메인: kRouteTable 행의 toolApp/toolName으로만 조립된다 — 새 파서 0) —
+// 다만 발송 표면은 **구두(voice turn)뿐**이다(fix r1 — ChatAppToolTypingGuide).
 
 #include <agent/JKLlmEngine.h>  // ChatConfig — 승격 배선(cfg 선택형)의 인자 원천
 
@@ -31,21 +32,27 @@ struct ChatAction {
     std::string tool;   // #115b T1 — AppTool 전용: app_tool 릴레이 도구 이름
                         // (app도 AppTool에서는 앱 키가 아니라 **릴레이 대상
                         // 네임스페이스** — 도구 단일 진실원 kRouteTable 행의
-                        // toolApp). 질의 조립 규약은 ChatActionQuery(voice/
-                        // SttVoice turn) 소관 — 도구 부재 앱·도구는 서버
-                        // unknown_app_tool로 정직 회신한다(fail-open).
-                        // **소비자 대차 원장행(#115b T1)**: 구두 경로는
-                        // ChatActionQuery에서 확장 완료지만, 타이핑·웹 경로의
-                        // action 스위치(ClientChatApp::Submit·jkweb
-                        // HandleTalk·jktalk ProcessTurn)는 미확장 — AppTool는
-                        // 그 경로에서 도구 질의 없이 안내문만 인쇄한다(컴파일
-                        // 무해 — 별도 태스크 몫).
+                        // toolApp). 구두 경로 질의 조립 = ChatActionQuery
+                        // (voice/SttVoice turn) 소관 — 도구 부재 앱·도구는
+                        // 서버 unknown_app_tool로 정직 회신한다(fail-open).
+                        // **소비자 소비 축(fix r1)**: 구두 경로 = 질의 전송.
+                        // 타이핑·웹 경로(Submit·jkweb·jktalk) = 전송 없이
+                        // ChatAppToolTypingGuide 정직 안내문만 — 전송 배선은
+                        // 후속 태스크(부재 — 원장행).
 };
 
 // text(사용자 발화 한 줄)를 해석해 out에 도구 지시를 채우고, 화면 표시용
 // 응답문을 돌려준다. 인식 불가·앱어 부재 등은 전부 Info — 항상 안내문 반환
 // (오류 전파 경로 없음 — 채팅 앱이 그대로 인쇄하는 계약).
 std::string ChatRouterRoute(const std::string& text, ChatAction& out);
+
+// ── AppTool의 타이핑·웹 경로 소비 계약 (#115b T1 fix r1) ───────────────
+// AppTool 지시를 소비할 표면이 구두(voice turn — ChatActionQuery→app_tool
+// 릴레이)만 전송권을 갖는 동안, 타이핑·웹 경로(ClientChatApp::Submit·jkweb
+// HandleTalk·jktalk ProcessTurn)는 **전송 없이** 이 공유 정직 문언을
+// 회신한다. 복제 금지 계약 — 3 소비자가 같은 진실원을 먹는다(2y-⑰).
+// 전송 배선(타이핑 표면 app_tool 송신)은 후속 태스크 미존재 — 원장행.
+std::string ChatAppToolTypingGuide(const ChatAction& a);
 
 // ── 자연어 승격 배선 (스펙 2026-10-08-chat-llm-promotion 설계 결정 3·4 — T4) ──
 // jkweb HandleTalk과 jktalk ProcessTurn의 "뇌호출 자리"(백엔드 슬롯 — 슬롯

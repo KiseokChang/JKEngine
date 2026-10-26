@@ -92,6 +92,7 @@ const char* KindName(jk::ChatAction::Kind kind) {
         case jk::ChatAction::Close:       return "Close";
         case jk::ChatAction::Focus:       return "Focus";
         case jk::ChatAction::ListWindows: return "ListWindows";
+        case jk::ChatAction::AppTool:     return "AppTool";
         case jk::ChatAction::Info:        return "Info";
     }
     return "?";
@@ -161,7 +162,14 @@ int ProcessTurn(const std::string& rawLine, bool routeOnly) {
     // 폴백. 응답문 계약(위 주석)은 배선 무관으로 유지된다.
     const jk::agent::ChatConfig chatCfg = jk::agent::LoadChatConfig();
     bool usedLlm = false;
-    const std::string guide = jk::ChatRouteTurn(text, action, chatCfg, &usedLlm);
+    std::string guide = jk::ChatRouteTurn(text, action, chatCfg, &usedLlm);
+    if (action.kind == jk::ChatAction::AppTool) {
+        // fix r1 (Important 1) — CLI 표면은 app_tool 질의를 미송신(발송 표면 =
+        // 구두 leg만 — ChatRouter.h 계약). "보냅니다" 확인문 인쇄 뒤 공(空)
+        // 도구 질의를 실제 전송하던 fall-through 회귀의 봉쇄 — 공유 정직
+        // 문언으로 교체하고 전송 스위치는 전송 없이 종료한다.
+        guide = jk::ChatAppToolTypingGuide(action);
+    }
     std::printf("[시스템] %s\n", guide.c_str());
 
     if (routeOnly) {
@@ -201,6 +209,8 @@ int ProcessTurn(const std::string& rawLine, bool routeOnly) {
         case jk::ChatAction::ListWindows:
             tool = "list_windows";
             break;
+        case jk::ChatAction::AppTool:
+            return 0;   // fix r1 — 전송 없음(공유 안내문만 인쇄 — Info 동형)
         case jk::ChatAction::Info:
             return 0;   // 도구 지시 없음 — 안내문만 인쇄했다
     }
