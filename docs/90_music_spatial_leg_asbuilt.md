@@ -409,6 +409,20 @@ status 절단 악형) → T2 fix r1 re-review **APPROVE 재확정**(C0/I0/M0 —
 | T2 원장 | 드라이버의 "no-op guard" 명명 명령이 실제로는 probe 1런 실행이었다(행 10→15 — 명명 부정확 원장행 — 판정 무영향)·WSL pre-clean = 라이브 동빌드 서버 종료 접점(wsl_* 선형 원존)·분류 err 시료가 close_window deny 1종(폰 재배포 후 agentctl 다양 접점에서 err 다양 원문 몫) | N | 원장 기록으로 소화 — 재발 방지(명명=원장 사건) |
 | T2 fix r2 | FAIL 출구 잔상(리뷰 Important 1건) — trap EXIT 래더 1원 재용 수형 **소각**(5fce208) — 실험 원문: OK 런 REMNANT 0+failsim(pingxx=not_implemented) FAIL→HARV-TEARDOWN-LEFT: 0+실행 후 pgrep 0 | M | 소각 원장행 — 실험 부기: failsim 런이 저널에 `not_implemented` err 행 1행을 추가(probe 소유 — 분류 요약 err 시료 2종째 — 의도치 않은 다양성 성과) |
 
+
+### §4.1-9 신규 park 행(#115 opus/m4a 라인 — §7.12 승계 · **아래는 추가만,
+기존 행 변형 금지** · 본 라인 원장 = 본 문서 §7.12):
+
+| 출처 | 항목 | 등급 | 처분 근거 |
+| --- | --- | --- | --- |
+| T4 fix r1 | OM_COVER_B64 수기 재타이핑 4자 절단(런1 honest — 원장행) | M | 소각 — a43e4b0(프로그램 복사 수형 — B64 인라인 상수 재용은 수기 금지) |
+| T4 fix r2 | 재독파서 cmt_htype off-by-one([4)=version·[5)=htype — 폰 r1 OPUSM4A-FAIL honest) | M | 소각 — 083997c(2파일 동형 수리+18i OM_ALL 본조건 채용) |
+| T4 원장 | wsl.exe env 전파(런 라벨 — WSLENV "VAR/u" 접미 필수) | N | 원장 소화 — T2 원장(스크립트 파일 단일 진실원)의 env 확장 수형 |
+| T4 원장 | t115_t4_deploy.sh verdict "bad substitution"(CANON A/B 토큰 결합 표기 — remote 영수증은 완전) | N | 드라이버 몫 원장행(pmus/finres 선례 동류) — 본 라인 배포는 재런 불요(원장 소화) |
+| T4 원장 | phone_music.sh boot_server WHISPER_ROOT 누락(구 수형 — 사용자 구두 leg 다운그레이드 위험) | M | 소각 — F0b 수리(bfe2011 — 런 후 부팅 env 실측 원문) |
+| T1/T2/T3 | probe CANON 상수 갱신 채권(wsl_music.sh 795→833·phone_music.sh 계보 행 — T4에서 소각) | M | 소각 — T4 probe 커밋(bfe2011) |
+| 라인 유계 | moov-후행 2차 read 재판정(사용자 실기기 관찰 시 — §7.12.3/§7.12.4 ④) | N | 유계 — 원장행 유지 |
+
 ## §5. 사용자 결제 게이트 (EYES-PENDING 봉인)
 
 **EYES-PENDING — 라인 최종 결제는 사용자 육안/청안 선언만으로 성립한다. probe와
@@ -2252,3 +2266,265 @@ diff 2종+ollama-direct-flags-report — 미커밋 관행). 라인 원칙: 저�
   `docs/use-review-update-cycle-map.md` §2 갱신) — 런 로그
   (j113_phone_jkharvest_observe.log)·failsim 스크래치(소각 완료)는
   engine/tmp untracked — 커밋 금지 충족.
+## §7.12 opus/m4a 태그+커버아트 원장 (#115 라인 — T1-T4(+fix r1), 2026-10-26)
+
+opus/m4a 라인(#115) 원장 — 백로그 등재("opus/m4a"·갱신 58 이후 지시 대기) =
+사용자 "최대한 구현 진행" 지시(2026-10-26 출근)의 착수. **music 라이브러리에서
+opus/m4a가 "-" 폴백 행**(#99 읽기 4형식(mp3/FLAC/Ogg/WAV)의 밖)을 두 형식의
+**태그 읽기+쓰기+커버아트**로 사슬 병합한다. 스펙=
+`docs/superpowers/specs/2026-10-26-opus-m4a-design.md`(944c736 — D1-D6),
+플랜=`docs/superpowers/plans/2026-10-26-opus-m4a.md`(944c736 동커밋), SDD
+원장=`.superpowers/sdd/2026-10-26-opus-m4a/`(progress·task-1..4 리포트+리뷰
+diff 4종). 재생 디코드 = **v1 비-목표(D6)** — spatial-player/decoder 조달 =
+별도 합의 라인(플레이버 밴드 "-"·"태그만 지원" 표기 관행 원존 [#110]). 라인
+부품 계승: **#99 읽기 사슬**(ParseTag 스니프 분기 확장·PostprocessText/UTF-16
+BOM 계약)·**#111 쓰기 사슬**(TagAtomicWrite 사다리·ValidateCover 재용)·
+**#112 Ogg 재조립**(PushPacketLacing/BuildOggPage/OggCrc·D10 granule 불변)·
+**#92/#97/#99 도구 경계**(music_tag_write relay·스캔 1패스)·**#94 UTF-8
+규약**. T4(본 태스크) = probe 세그먼트+폰 배포/캔논+본 문서 — 캔논 수치는
+전 태스크 리포트+본 런 원문 수취. 서브에이전트 스폰 0건·worktree 미사용·
+main 직행.
+
+### §7.12.0 체인 (rev-parse 전체 SHA 실측 · git log가 진실원)
+
+| 태스크 | 커밋(SHA — 실측 rev-parse) | 내용 (numstat) |
+| --- | --- | --- |
+| 스펙+플랜 | `944c736ee777914b6c1d40469199c2f724610d61` | docs(apps): opus/m4a 태그+커버아트 스펙+플랜 (#115) — D1-D6(조달 0·ilst 재조립·OpusTags 재용·covr/MBP 병합·UI 무변경·재생 비-목표) |
+| T1 | `20e3abf9a8409b9d6257ae47c5b24898f85665ae` | feat(apps): m4a 태그 읽기 파서+2x 시작 — MusicModel.h 138/2·main.cpp 207/0 — Mp4BoxWalk/Mp4BoxAt/Mp4FindBox/DecodeM4aValue/ParseM4aTags+ParseTag ftyp 분기 |
+| T2 | `95cb8c6cb04e3e6bdbfd83fa3b49e62c421ae3d2` | feat(apps): opus 태그 읽기+커버아트 2형식 — MusicModel.h 287/41·main.cpp 350/5 — OpusTagsPacket(lacing 인지)/OggPacket1IsOpus/Mp4FindIlst 리팩터/ParseMp4Covr/CoverFromMbpEntries/ReadCover 분기 2건+IsAudioExtension 확장 |
+| T3 | `840ea413a475daee876403dc9edd6873503de494` | feat(apps): opus/m4a 태그 쓰기 — WriteTag 사슬 병합 — MusicModel.h 504/26·main.cpp 482/0 — WriteM4aTag(moov 재조립)/BuildM4aIlst/Mp4ReshuffleChildren/Mp4LocateTagTree(스테이지 계보·신설 폴백)/WriteOggCommentTag(isOpus 공용 코어) |
+| T3 fix r1 | `ce3f53942aeb32edf055a5c721e6c193da042943` | fix(apps): WriteM4aTag — stco/co64 Δ 패치+free 흡수+거부 경계 (C1 수형) — MusicModel.h 167/0·main.cpp 153/4 — 2x-⑫b(+2 어설션) |
+| T4(probe) | `bfe20119078b1ff3576bda400ee7d0b2c51a0eb6` | test(probes): music probe opus/m4a 세그먼트+폰 캔논 계보 갱신 — wsl_music.sh 525/1·phone_music.sh 597/17 — 16f-OM+N7+F0b(WHISPER_ROOT 승계 배선) |
+| T4 fix r1 | `a43e4b05aebbd94ec11ab9ab2ad21f6b0e2c4996` | fix(probes): music WSL probe — OM cover B64 리터럴 절단 수리 — wsl_music.sh 1/1 |
+| T4 fix r2 | `083997ca7820d9ba0015635544b775f11aa8847f` | fix(probes): music probe — OM 재독파서 cmt_htype 오프셋 수리+폰 계보 행 정산 — wsl 3/3·phone 3/3 |
+| T5 | 본 문서를 포함하는 커밋 | docs(apps): opus/m4a as-built (T4) — SHA는 git log가 진실원 |
+
+### §7.12.1 배선 원리 (D1-D6 — 리포트 원문 1:1 수취 · 코드 재실측 0)
+
+- **D1 조달 0** — 두 형식 전부 own 순수 파서(third_party 0건): m4a = MP4
+  컨테이너 box 보행(`Mp4BoxWalk`/`Mp4BoxAt` — [4B size BE][4B type]·size=1
+  largesize(64BE)·size=0 말미 영역·잘린/배신적 size(선언 < 헤더) = 정직
+  거부·보행 상한 4096)+DecodeM4aValue(data atom 본문 = version 1B+flags 3B
+  [타입 코드 = p[3]]+locale 4B+값 — 1=UTF-8·2=UTF-16(BOM 우선·**무BOM = BE
+  — Apple 타입 2 = UTF-16BE 명시 규약 — T2 리뷰 정정**)+ParseM4aTags(ftyp→
+  moov→udta→meta(hdlr 'mdir' 확인 — handler_type = payload [8..12))→ilst→
+  ©nam/©ART/©alb 1바이트 0xA9 접두 항목·첫 data atom=첫 값). opus =
+  `OpusTagsPacket`(OggS 페이지 연쇄 페이로드 연접+lacing 인지 보행 — **패킷
+  완성 지점에서만 "OpusTags" 매기 — 오디오 패킷 내 우연 일치 비매기**)+
+  ParseVorbisComments 그대로 재용(코멘트 구조 = vorbis 동형 — D1 조달 0). 
+  어떤 파산이든 빈 TagSet 폴백(부분 필드 소각 — 2x-③).
+- **D2 m4a 쓰기 = moov 재조립·mdat 원문 무이동** — 최상위 box 스트림 보행
+  (버퍼 무이동)·moov 본문만 버퍼 수취 → `Mp4LocateTagTree`(stage 계보
+  Ok/NoMoov/NoUdta/NoMeta/NoHdlr/BadHdlr/NoIlst) → BuildM4aIlst(관리 항목
+  첫 자리 교체·빈 값 = 소각·미관리 항목 보존·covr = 지정 시 전부 소각+말미
+  신설/null = 유지) → 신설 폴백(NoUdta→udta{meta{4B+hdlr(mdir)+ilst}} 등
+  순차 신설 — 부재 부모 계보) → box 사이즈 전파 자식→부모(moov/udta/meta/
+  ilst 4단)·free atom = 원문 보존(사이즈 전파 성립 — 패드 재계산 불요)·
+  moov 밖 box = CopyStreamRange 스트림 복사(비-faststart = head1/tail 분리
+  — **moov 위치 무관 쓰기 성립**)·원자적 쓰기 = TagAtomicWrite 사다리 재용
+  ·covr 상한 = kTagWriteMax 16MiB+ValidateCover 사전 게이트.
+- **T3 fix r1(ce3f539) — stco/co64 청크 오프셋 패치(C1 수형)**: moov
+  재조립 Δ = 신구 moov 크기 차 → moov 뒤 mdat(faststart 계열) 절대 위치가
+  Δ 이동하면 moov 내 stco/co64 청크 오프셋(= mdat 내 절대 파일 오프셋)이
+  Δ 만큼 같이 이동해야 한다 — **태그 자체 재독은 머리 한정이라 못 보는
+  블라인드 스팟**(외부 플레이어 재생 인덱스 파산 — C1 원문). ①free/skip
+  흡수 leg: moov 다음 free/skip box가 Δ를 삼키면 mdat 자리 고정(파일
+  총량 불변·무패치 — Δ>0 = payload 말미 절단·Δ<0 = zero pad 확정·부족
+  시 다음 leg) ②무free = stco(32BE)/co64(64BE) 항목 Δ 가산 패치 — 보행 =
+  표준 컨테이너 사슬 한정(trak→mdia→minf→stbl — depth 0-3 재귀 — covr
+  binary 내 우연 매agic 봉인) ③patches 부족 = "free 부족" 정직 거부(원본
+  무변경)·stco/co64 부재 = 무패치 진행(청크 오프셋 참조 부재 — 최소 파괴).
+- **D3 opus 쓰기** = `WriteOggCommentTag(…, bool isOpus, …)` 공용 코어
+  리팩터(#112 WriteOggTag 시그니처 불변 래퍼 원존) — 코멘트 패킷 매agic만
+  갈림(leadN = 7(vorbis \x03"vorbis")/8(opus "OpusTags"))·페이지 재번호+
+  CRC+D10 granule 불변+**코멘트 페이지 htype 원문 유지**(컴멘트 페이지 EOS
+  표지 0x04 = 2x-⑪ 원문)·비선두 배치 = "ogg structure" 정직 거부(RFC 7845
+  — 코멘트 페이지 페이로드 선두 개시 계약)·벤더 유지(D9)·MBP = oggPic leg
+  재용(완전 교체 흡수 — D8).
+- **D4 커버아트 병합** — m4a covr: `ParseMp4Covr`(data 타입 코드 13=JPEG/
+  14=PNG(iTunes 규약)+**코드 0(binary) = 이미지 매agic 스니프(FF D8 FF/
+  89 "PNG\r\n\x1a\n") — taglib/ffmpeg 계열 binary 0 표기 흡수**)·opus MBP:
+  `CoverFromMbpEntries`(METADATA_BLOCK_PICTURE base64 →
+  ParseFlacPictureStruct — vorbis leg 부품 공용화). ReadCover 분기 2건 —
+  covr leg 머리 read 상한 = kTagWriteMax(커버 블롭이 moov 안 — 스캔 1패스
+  상한 kTagHeadCap 1MB와 분리)·부재/파산 = "no_cover" 정직.
+- **D5 UI/도구 무변경** — 5→7열(커버+편집 열) 기존 UI 그대로·opus/m4a 행이
+  "-" 대신 실값 표기로 전환(IsAudioExtension 확장 — .opus/.m4b/.mp4 추가·
+  **스캔 열거/파싱의 분리**: 확장자 = 행 통과 열거, 파싱 = 매agic 진실원 —
+  밀표 파일도 파싱 ·비디오 mp4는 ilst 부재·비-'mdir' hdlr로 걸러짐 —
+  **오디오 메타만 보므로 ftyp+ilst 합격 = 오디오 행 취급** — T2 본문 주석
+  ·T1 기각 확장자 분기 "IsAudioExtension+매agic 분담" 정정 계보)·
+  music_tag_write 도구 무변경(WriteTag 내부 몫).
+- **D6 재생 비-목표 원장행** — opus/m4a 재생 = spatial-player/decoder 조달
+  라인(m4a AAC·opus 디코드) — 별도 합의·플레이버 밴드 "-" 표기·"태그만
+  지원" 관행 원존. 본 라인 전 태스크 = 순수 메타 leg(스폰 0 — selftest
+  스폰 계약 원존).
+
+### §7.12.2 캐논 계보 (2x 계열) + probe 실측 영수증 (T4)
+
+| 시점 | Win | WSL | posix | 폰 | 신설 |
+| --- | --- | --- | --- | --- | --- |
+| 기준(#115 라인 개시 = 4de04d0) | 841 | 818 | 304 | 818 | — (2v 14·2w 4·2u 132·2r 10·2s 20·2m 26·2n 17·2o 16·2p 7·2q 7·2i 19·2g 40 보존) |
+| T1 `20e3abf` | **844** | **821** | 304 | (818) | +3 (2x ①②③) |
+| T2 `95cb8c6` | **849** | **826** | 304 | (818) | +5 (2x ④-⑧) |
+| T3 `840ea41` | **854** | **831** | 304 | (818) | +5 (2x ⑨ 2어설션·⑩⑪⑫) |
+| T3 fix r1 `ce3f539` | **856** | **833** | 304 | (818) | +2 (2x-⑫b 2어설션 — Win 856/WSL 833 2런 등호) |
+| T4 본 라인(probe+bfe2011/a43e4b0/083997c) | 856 | **833** | **304 (승계)** | **833** | 폰 2x 15 흡수 — **CANON-INCLUSION=MUSIC-FULL-2P2QRS-15** (폰 캔논 818→833 — WSL 833 등호) |
+
+- **2x 15의 분해** = ①무태그 m4a 폴백 ②m4a 태그 읽기(UTF-8+UTF-16 BE/LE+
+  무BOM BE) ③잘린 box 정직 거부 ④합성 opus 무태그+OggPacket1IsOpus 스니프
+  ⑤opus 태그 읽기 3필드 ⑥m4a covr round-trip(png/jpeg·코드 13/14) ⑦opus
+  MBP round-trip ⑧잘린 covr/MBP 정직 거부 ⑨m4a 쓰기 round-trip+신설 폴백
+  (2어설션) ⑩covr 교체 round-trip(null 유지/지정 교체/opus MBP 신설)
+  ⑪opus 쓰기 round-trip+페이지 시퀀스(재번호+CRC+granule 불변+EOS 유지)
+  ⑫한글 2형식 round-trip ⑫b stco/co64 Δ 패치(3 경계 — fix r1) — **라벨
+  13건/어설션 15**.
+- **posix 304 = 구조적 승계 등호** — 하네스 TU 목록에 MusicModel.h 비링크
+  (T1 M2 원장 승계 — 본 라인 4커밋 무재런 — 재실측 불요 사유가 구조로
+  성립).
+- **T4 WSL probe 원문(16f-OM — engine/tmp/wsl_music_run115_{r4,r5}.log —
+  2런 등호)**: `selftest rc=0 PASS=833 FAIL=0`·`#115-RUN-VALS: run=2
+  stage=1 writes=1/1/1/1 covr_1=covr_2=mbp_3=mbp_4=90155ae6b2bb6f91691fe7724d
+  b9b165 vendor=om-vendor cover_md5=90155ae6… mdat=64 canon_wsl=833(2x=15·
+  2u=132·2s=20·2m=26·2v=14·2w=4)`·`MUSIC-OPUSM4A-VERDICT: OPUSM4A-OK` 2/2
+  ·합성 m4a+opus(2x 픽스처 승계) relay 쓰기 4콜(m4a covr 교체+cover=null
+  유지·opus MBP 교체+cover 생략 유지)==파일 수준 round-trip md5 등호 4콜+
+  벤더 유지("om-vendor")+코멘트 페이지 EOS 0x04 유지+**mdat 원문 무이동
+  (0xAB 64B — D2 라이브 원문)**·OM 시드 잔상 0(17e 가드)·목록 행 캡처 3종
+  (mus_wsl_om_list/list2/opus.png — EYES).
+- **T4 폰 배포 런 1회(t115_t4_deploy.sh — engine/tmp 산출물 — t112_t5 수형
+  재용·커밋 0 — engine/tmp/t115_t4_run.log)**: 전수 git archive HEAD
+  (SWEEP-DIFF 12/472 → **SWEEP-POST-DIFF=0**)·CMAKE-RC=0·NINJA-RC=0
+  SECONDS=463(aarch64 — leg env 유지배선+WHISPER_ROOT —
+  WHISPER-BUILD-NINJA-ENTRIES=297)·`DEPLOY-MARKERS: 2r=11 2s=21 2u=136
+  2v=20 2w=4 2x=15`(라벨 계수 — 본문 주석 포함)·MUSP-LEG-SYM
+  alcOpenDevice=3(폰 spatial leg WIRED 보존 — #110 계약)·**조달기 스킵
+  원장행**(tiny-ko 상존 — `TINYKO-PRESENT: 77691730 bytes 핀 등호` —
+  #112 T5 R4 조달 원존 계보)·**selftest A/B = rc=0 PASS=833 FAIL=0
+  2u=132 2r=10 2s=20 2v=14 2w=4 2x=15 2런 등호 — CANON-A/B=833(WSL 833
+  등호)**·music.jkx 재팕(PACK-RC=0·ICON-ENTRIES=2)·서버 재기동=
+  **WHISPER_ROOT+SPATIAL_PLAYER_ROOT 보유 부팅**(구두/spatial leg 클라
+  상속 계약 승계 — 사용자 live 세션 leg 유지)·settings 213B/permissions
+  33B 무변경 바이트 등호·jkweb 상시 유지(BEFORE=AFTER 2프로세스)·Music
+  창 복원(FINAL-WINDOWS)=사용자 화면 승계.
+- **T4 폰 probe 동형 2런(N7 — engine/tmp/phone_music_run115_{r1,r2}.log)**:
+  **폰 캔논 재실측 = 833**(`PHONE-SELFTEST rc=0 PASS=833 FAIL=0 2m=26
+  2i=19 2g=40 2n=17 2o=16 2p=7 2q=7 2r=10 2s=20 2u=132 2v=14 2w=4 2x=15`·
+  `CANON-INCLUSION=MUSIC-FULL-2P2QRS-15 (폰 캔논 818→833 상승 — WSL 833
+  등호)` 2런)·N7 = **OPUSM4A-PHONE-OK(r2)** — OM 시드 랜딩(N6 소각 뒤)+
+  relay 쓰기 4콜+재독 round-trip(md5 등호 4콜=90155ae6…·htype=4·mdat
+  0xab=64)+목록 행 캡처 3종(mus_phone_om_list/list2/opus.png — EYES)·
+  OM 시드 잔산 gone(REMNANT 게이트)·r1 = **OPUSM4A-FAIL(honest — probe
+  재독파서 cmt_htype 오프셋 결함 — T4 fix r2 소각 — 쓰기 4콜+md5 등호
+  원문은 성립)** — 런1 원문 정직 수취 원장.
+- **캔논 4축 최종: Win 856/WSL 833/posix 304/폰 833 — 2x 15 전부 흡수**.
+
+### §7.12.3 함정 원장 (#115 신규 — 봉쇄 레슨 축 · 전량 = T1/T2/T3+T4 리포트/concerns 원문 수납)
+
+- **합성 블롭이 파스 계약보다 앞서 "성공"하는 함정(T1 — mkData 12B 과다)**:
+  data atom 헤더를 version 4B+flags 4B+locale 4B = 12B로 짝은 합성 — Apple
+  실계약 = version 1B+flags 3B(=4B)+locale 4B. ①③은 우연 통과(파서가 항상
+  p[3] 파산 leg) — 정직 합성(2x-②류가 지목). T2 mkOpusHead 4B 과다(17B
+  합성 — preskip+srate 접기)도 시험 전 선수행 수리 — **합성은 파서 접점
+  계약의 1:1 재작성**(probe 2x 픽스처 재용 계약의 원존).
+- **확장자 분기 기각(T1)→IsAudioExtension 확장(T2 지시)**: ftyp 매agic이
+  진실원(ISO-BMFF 규약 — ftyp는 항상 첫 박스)·확장자 보조 분기 = dead code
+  소진(T3 fix r1 선례). 스캔 열거(.opus/.m4b/.mp4)와 파싱(매agic)의 분담 —
+  .m4b/.mp4의 UI 행 취급 = 오디오(ilst 부재·비-'mdir' hdlr 필터 — 비디오
+  mp4 원문 무해).
+- **moov 후행 vs 머리 1MB 상한 — 양측 비대칭 원장행(T1 §5·T3 §5 승계)**:
+  읽기(ParseTag) = 머리 kTagHeadCap 1MB 1패스(D2 스캔 계약) — **moov가 머리
+  1MB 밖(비-faststart 대형 mdat 선두 mux) = ParseM4aTags가 moov 미지목 →
+  빈 TagSet 폴백 → "-" 행 유지**·무회귀·정직이나 커버 못함(mdat 건너뛰기
+  2차 read = 스코프 밖 — 별도 재판정 소재: **사용자 실기기에서 .m4a "-"
+  잔여행 관찰 시** — 대형 비-faststart 파일의 관찰 EYES에 병기). 쓰기 leg
+  (WriteM4aTag)는 moov 위치 무관 성립(최상위 box 스트림 복사 — head1/tail
+  분리) — **쓰기 성공 그런데 자체 라이브러리 표기 "-" 잔여**의 비대칭 =
+  본 원장행(fix r1의 stco 패치도 머리 1MB 안의 재독 전제).
+- **data atom = box(payload 아님) — T3 핵심 함정**: BuildM4aDataAtom의
+  반환은 data box의 payload인데 ilst 항목에 직접 심어 box 헤더 누락 →
+  재독 파산(selftest ⑨ 3회 FAIL — tree dump 분석: ©nam 항목 27B = 1층
+  소실). 수리 = BuildM4aDataBox(box 래퍼 내장). T1 mkData 12B 과다와
+  짝짓는 계보 계약("atom = box").
+- **ReadCover covr 머리 상한 kTagWriteMax(16MiB) 분리(T2)** — 커버 블롭이
+  moov 안이라 스캔 1패스 상한(1MB)과 분리 — 대형 mdat 선두 비-faststart
+  mp4의 covr = no_cover(태그와 동일 착지 — 무회귀)·covr 그 밖 image/* =
+  타입 코드 0(binary)+매agic 스니프 leg 원존.
+- **moov 부재/ BadHdlr = 쓰기 거부(T3 재량)**: 부재 부모 신설 계보 =
+  udta/meta/ilst까지·moov 신설 = 재생 트리 파괴 위험 fail-closed("mp4
+  structure" 정직 거부·원본 무변경)·BadHdlr('mdta' 등 비-'mdir') = 타
+  핸들러 표기 침해 봉인(신설 udta 우회도 Mp4LocateIlst가 첫 meta만 걷는다
+  — 도달 불가 재제작 방지).
+- **복수 ilst/udta/covr = 첫 지목만 교체·나머지 원존 보존(T3 재량)** —
+  복수 규약 부재 = 최소 파괴(FLAC 복수 코멘트 소각(D8)과 다른 착지 —
+  원장행).
+- **C1 블라인드 스팟(외부 플레이어 재생 인덱스) — T3 fix r1(ce3f539)**:
+  태그 재독 자체는 통과하지만 moov 재조립 Δ 이동이 mdat 절대 오프셋을
+  삼킨다 — stco/co64 Δ 패치+free/skip 흡수+부족 시 정직 거부 3경계
+  (2x-⑫b — (a) 무free Δ 패치(b) free 흡수 = mdat 자리 고정·stco 원존
+  (c) 상한 근접+무free = 거부·원본 무변경) — **태그 쓰기의 재생 인덱스
+  계약 = 재독으로는 검증 불가한 별도 축**이라는 레슨(probe도 파일 수준
+  round-trip만 검증 — 재생 인덱스는 selftest 2x-⑫b가 소유).
+- **probe 결함 3건(T4 — 전부 원문 소각)**: ①OM_COVER_B64 수기 재타이핑
+  4자 절단(1252 vs 1256 — 디코드 938B 미성립 jpg — FFD8만 생존해 도구
+  게이트는 통과 — "동일 바이트" 원장행 대조 불일치로 검출 — 수리 =
+  프로그램 복사(a43e4b0) — **B64 인라인 상수의 재용 = 수기 재타이핑
+  금지**)②재독파서 cmt_htype off-by-one(OggS 페이지 = [0..4) capture·
+  [4) version·[5) header_type — off+4 = version 0 오판 — 3런 전부 동일
+  결함으로 OPUSM4A-FAIL honest(폰 r1) — [5) 수리+18i OM_ALL 본조건 채용
+  (083997c))③wsl.exe env 전파 함정(MUS_OM_RUN 라벨 — WSLENV "VAR/u"
+  접미 없이는 wsl.exe가 env를 전파하지 않는다 — T2 원장(스크립트 파일
+  경유)의 env 확장 수형 — r5부터 run=2 표기 성립).
+- **phone_music.sh boot_server의 WHISPER_ROOT 누락(구 수형 — 본 라인
+  수리)**: #112 T5가 WHISPER_ROOT 보유 부팅(구두 게이트 클라 상속 계약)을
+  서버 부팅 env 계약으로 세웠으나 phone_music.sh의 boot_server는
+  WHISPER_ROOT를 배선하지 않았다 — 본 T4 폰 런이 구두 leg-less 부팅으로
+  사용자 live 세션(구두 게이트)을 다운그레이드할 위험 — **F0b 수리**
+  (vendored 트리 상존 시 WHISPER_ROOT export — boot 승계 — bfe2011)·
+  런 후 실측: 부팅 서버 env WHISPER_ROOT+SPATIAL 유지 원문(§7.12.2).
+- **폰 서브넷 이동 재발(갱신 65 유형)**: known_hosts 구 후보 4건
+  접속 실패(BatchMode MISS — 구 서브넷 /24에서 8022 listeners 0 — 구
+  서브넷 MISS 원장행· octets 미기록 — 기록 금지 계약) → 본 머신의 현
+  Wi-Fi 서브넷 재정찰(subnet /24 스윕 = 8022 listeners 1건) → 리스너
+  BatchMode SELFRESOLVE-OK(주소 미인쇄 계약 — scan 스크립트 = engine/tmp
+  산출물·accept-new 1회 재매개).
+- **t115_t4_deploy.sh verdict "bad substitution"(드라이버 몫 — 원장행)**:
+  판정 행 전개식의 토큰 치환 표기 결함(CANON A/B 결합 표기) — remote
+  영수증(T4-FINISHED·CANON-A/B=833 원문행)은 완전·판정 무영향 — pmus/
+  finres 선례("판정 토큰 파싱 표기 결함(드라이버 몫)") 동류 원장행.
+- **폰 N4 ⑤ 무전달 hard 마커(갱신 65 승계 — 유계)**: [이 폴더 추가]
+  클릭 무전달 재발(2런) — 말단 rc=1 종결(INH_HARD — T6 수형 원존 — 본
+  라인 세그먼트 산치(N6·N7·캔논·REMNANT 0)는 그 위에서 정직 정산 — 탭
+  좌표 재보정 = 별소관 원장행).
+
+### §7.12.4 비-목표 + EYES 게이트 (사용자 선언만 결제 — §5/§7.9.5 원칙 동형)
+
+- **비-목표(D6/스펙 §3)**: 재생 디코드(m4a AAC/opus)·AAC 디코더 조달·
+  m4b 챕터/가사/년도 필드·iTunes 확장 외 표기·폰 라이브러리 대형 스캔
+  성능 특화.
+- **EYES 대기**:
+
+| # | 게이트 | 내용 | 상태 |
+| --- | --- | --- | --- |
+| ① | **.m4a/.opus 행 실기기 체감** | Win/폰 라이브러리에서 합성이 아니라 **사용자 실제 .m4a/.opus 파일** 행 = "-" 대신 곡명(아티스트)·앨범 실값 표기(스캔 열거 .opus/.m4b/.mp4 포함 — 행 등장 승인 게이트) — probe 캡처(mus_wsl_om_*.png·mus_phone_om_*.png)는 합성 원문 | **대기(육안·체감)** |
+| ② | **커버아트 체감** | 행 32px 썸네일+[편집] 패널에서 실기기 커버아트(태그 편집 저장 round-trip — T3 배포 UI의 opus/m4a leg 체감) | **대기(육안·체감)** |
+| ③ | **재생 밴드("-" 유지) 체감** | .opus/.m4a 행 재생 = vplayer 위임 openFailed/spatial 위임 표기 유지("태그만 지원" — D6 원존) | **대기(육안)** |
+| ④ | **moov-후행 대형 m4a 관찰** | 사용자 실기기에서 비-faststart 대형 .m4a(>1MB 머리 밖 moov)의 "-" 잔여행 관찰 시 §7.12.3 원장행의 재판정 소재(2차 read 확장 여부) | **대기(관찰)** |
+
+### §7.12.5 커밋 원장 + IP/호스트 경로 게이트 (#115 라인)
+
+- 라인 체인 = §7.12.0 표(944c736..본 T5 — rev-parse 전체 SHA 원존 — git
+  log가 진실원) — push 전부 origin main 직행·amend 없음·**커밋 = 명시
+  경로만**(T1-T3/fix r1 = MusicModel.h+main.cpp 2파일·T4 probe = probe
+  2파일·T4 fix r1/r2 = probe 1/2파일·본 T5 = docs 1파일 — `git add -A`
+  0·커밋 분리 원존(probe 커밋+docs 커밋).
+- **IP·호스트 경로 게이트(T4 실측)** — probe 2파일 커밋 원문에서 IPv4
+  정규식 `\b([0-9]{1,3}\.){3}[0-9]{1,3}\b` grep = **0건**(커밋 전 staged
+  원문 게이트 — 서브넷 스윕 실측의 주소도 커밋 원문 0건(octets 미기록)·로그=
+  engine/tmp/t115_scan2.err 자리표시 마스크 원존)·폰 주소 = scan 스크립트
+  변수 안 소멸·호스트 경로 표기 = probe 스크립트 상대 경로만(buildterm/
+  buildwsl — 커밋 무해).
+- 배포 드라이버(t115_t4_deploy.sh)·mk_t115*.py·런 로그
+  (wsl_music_run115_r{1..5}.log·phone_music_run115_r{1,2}.log·
+  t115_t4_run.log·t115_t4_deploy*.log)·OM 캡처(mus_wsl_om_*.png·
+  mus_phone_om_*.png) = engine/tmp untracked — 커밋 금지 충족.
