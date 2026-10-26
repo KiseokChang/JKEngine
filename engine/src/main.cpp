@@ -9455,16 +9455,165 @@ static int RunAppSelfTest() {
                 rO ? mt::ParseTag(pm.generic_string(), em2) : mt::TagSet{};
             const mt::TagSet to =
                 rO ? mt::ParseTag(po.generic_string(), eo) : mt::TagSet{};
-            std::error_code sx;
-            fs::remove_all(tdir, sx);  // REMNANT 0 — 사후 소각 동봉(2x 수형)
             check(builtM && builtO && rM && rO && em.empty() && em2.empty() &&
                       eo.empty() && tm.title == krTitle &&
                       tm.artist == krArtist && tm.album == krAlbum &&
                       to.title == krTitle && to.artist == krArtist &&
-                      to.album == krAlbum && !sx && !fs::exists(tdir, sx),
+                      to.album == krAlbum,
                   "2x-⑫ 한글 2형식 round-trip = m4a(covr 타입 1 UTF-8)+opus"
                   "(OpusTags 코멘트 사슬) 쓰기→재독 3필드 UTF-8 바이트 등호"
-                  "(REMNANT 0)");
+                  "(REMNANT 0 — 말미 ⑫b로 이관)");
+        }
+
+        // ⑫b) stco/co64 청크 오프셋 패치 — moov Δ 이동 계약(#115 T3 fix r1
+        //    — C1: 외부 플레이어 재생 인덱스 — 태그 자체 재독의 블라인드
+        //    스팟). faststart(moov가 mdat 앞) 태그 쓰기(사이즈 변화 유발):
+        //    (a) 무free = stco 항목 Δ 가산 패치(재독 항목 = 실측 신mdat
+        //    payload 자리 등호 — 원문+Δ 동치·trak/tkhd/mdia/minf/stbl 표준
+        //    사슬 fixture) (b) free 흡수 = mdat 자리 고정+stco 원존(무패치)
+        //    (c) 무free+패치 넘침(32bit 상한 근접 합성) = "free 부족" 정직
+        //    거부(원본 무변경 — ③ 계약). REMNANT 0(사후 소각 — ⑫에서 이관).
+        {
+            auto mkStco = [&](const std::vector<unsigned int>& es) {
+                std::vector<unsigned char> b;
+                pushBE32(b, 0);  // version/flags
+                pushBE32(b, static_cast<unsigned int>(es.size()));
+                for (unsigned int v : es) pushBE32(b, v);
+                return mkBox("stco", b);
+            };
+            auto mkTrak = [&](const std::vector<unsigned char>& stco) {
+                return mkBox(
+                    "trak",
+                    concat({mkBox("tkhd",
+                                  std::vector<unsigned char>(32, 0x2A)),
+                            mkBox("mdia",
+                                  mkBox("minf", mkBox("stbl", stco)))}));
+            };
+            // 2패스 합성 — stco 절대 오프셋 = 실측 mdat payload 선두(T1
+            // mkData 12B 함정 원상 봉인 — fixture 정직성 계약: 항목 값 크기와
+            // 무관한 사이즈 고정성 실측 — 1패스 probe0로 자리 산출).
+            const std::vector<unsigned char> mdatBox =
+                mkBox("mdat", std::vector<unsigned char>(48, 0x77));
+            const auto buildM4a = [&](const std::vector<unsigned int>& es,
+                                      bool withFree,
+                                      const std::vector<unsigned char>& mdat) {
+                const std::vector<unsigned char> ilstFix = concat(
+                    {mkItem("\xA9" "nam", mkData(1, {'T', 'i'}))});
+                const std::vector<unsigned char> moov = mkBox(
+                    "moov",
+                    concat({mkBox("udta", concat({mkMeta(ilstFix)})),
+                            mkTrak(mkStco(es))}));
+                if (withFree)
+                    return concat(
+                        {mkFtyp(), moov,
+                         mkBox("free",
+                               std::vector<unsigned char>(1024, 0x11)),
+                         mdat});
+                return concat({mkFtyp(), moov, mdat});
+            };
+            auto stcoEntry = [](const std::vector<unsigned char>& buf,
+                                unsigned int& cnt, unsigned int& e0) {
+                size_t sp = 0, sn = 0;
+                if (!mt::Mp4FindBox(buf.data(), 0, buf.size(), "moov", sp,
+                                    sn) ||
+                    !mt::Mp4FindBox(buf.data(), sp, sn, "trak", sp, sn) ||
+                    !mt::Mp4FindBox(buf.data(), sp, sn, "mdia", sp, sn) ||
+                    !mt::Mp4FindBox(buf.data(), sp, sn, "minf", sp, sn) ||
+                    !mt::Mp4FindBox(buf.data(), sp, sn, "stbl", sp, sn) ||
+                    !mt::Mp4FindBox(buf.data(), sp, sn, "stco", sp, sn) ||
+                    sn < 8)
+                    return false;
+                cnt = mt::RdBE32(buf.data() + sp + 4);
+                e0 = cnt > 0 ? mt::RdBE32(buf.data() + sp + 8) : 0;
+                return true;
+            };
+            auto mdatStart = [](const std::vector<unsigned char>& buf,
+                                size_t& at) {
+                size_t sp = 0, sn = 0;
+                if (!mt::Mp4FindBox(buf.data(), 0, buf.size(), "mdat", sp,
+                                    sn))
+                    return false;
+                at = sp;
+                return true;
+            };
+            // 2패스 = 배치별 실측(free 배치 = 자리가 다르다 — probe0 단일
+            // 오프셋 오용 원장 — fixture 형태별 절대 오프셋 산출).
+            const std::vector<unsigned char> probe0 =
+                buildM4a({0u, 0u}, false, mdatBox);
+            size_t pAt = 0;
+            const bool probeOk = mdatStart(probe0, pAt);
+            const size_t pAtA = pAt;  // (a) 무free 배치의 mdat payload 자리
+            const std::vector<unsigned char> probe1 =
+                buildM4a({0u, 0u}, true, mdatBox);
+            size_t tB = 0;
+            const bool probeOkB = mdatStart(probe1, tB);
+            const size_t pAtB = tB;  // (b) free 배치의 mdat payload 자리
+            // (a) 무free — stco = 실측 절대 오프셋 fixture.
+            const std::vector<unsigned char> blobA =
+                buildM4a({static_cast<unsigned int>(pAtA),
+                           static_cast<unsigned int>(pAtA)},
+                          false, mdatBox);
+            const fs::path pA = tdir / "2x_y_stco_nofree.m4a";
+            // (b) free 흡수 — moov 뒤 free(1024B payload)가 Δ를 삼킨다.
+            const std::vector<unsigned char> blobB =
+                buildM4a({static_cast<unsigned int>(pAtB),
+                           static_cast<unsigned int>(pAtB)},
+                          true, mdatBox);
+            const fs::path pB = tdir / "2x_z_stco_free.m4a";
+            // (c) 거부 — 32bit stco 상한 근접(0xFFFFFFFB — 규약 상한 합성
+            // 시험 — Δ≥5면 전부 넘친다 — 무free → 패치 leg → 거부).
+            const std::vector<unsigned char> blobC =
+                buildM4a({0xFFFFFFFBu, 0xFFFFFFFBu}, false, mdatBox);
+            const fs::path pC = tdir / "2x_w_stco_max.m4a";
+            const bool builtA = putFile(pA, blobA);
+            const bool builtB = putFile(pB, blobB);
+            const bool builtC = putFile(pC, blobC);
+            // Δ>0 유발 — 구 ©nam("Ti")보다 긴 신규 값.
+            const mt::TagSet w{"Long Title grows the moov tree", "Stco A",
+                               "Stco Al"};
+            std::string eA, eB, eC;
+            const bool rA = builtA ? mt::WriteTag(pA.generic_string(), w,
+                                                  nullptr, eA)
+                                   : false;
+            const bool rB = rA ? mt::WriteTag(pB.generic_string(), w, nullptr,
+                                              eB)
+                               : false;
+            const bool rC = rB ? mt::WriteTag(pC.generic_string(), w, nullptr,
+                                              eC)
+                               : false;
+            std::vector<unsigned char> bufA, bufB, bufC;
+            const bool readA = rB ? readFile(pA, bufA) : false;
+            const bool readB = rB ? readFile(pB, bufB) : false;
+            const bool readC = rB ? readFile(pC, bufC) : false;
+            // 재독 — (a) 패치 = stco 항목 == 신mdat payload 자리(절대 위치
+            // 불변량 — 원문+Δ 동치 진실원)·mdat payload 원문. (b) 흡수 =
+            // mdat 자리 고정+stco 원존. (c) 거부 = 원본 무변경(바이트 등호).
+            size_t aAt = 0, bAt = 0;
+            unsigned int cntA = 0, e0A = 0, cntB = 0, e0B = 0;
+            const bool walkA =
+                readA && mdatStart(bufA, aAt) && stcoEntry(bufA, cntA, e0A);
+            const bool walkB =
+                readB && mdatStart(bufB, bAt) && stcoEntry(bufB, cntB, e0B);
+            std::string e2;
+            const mt::TagSet tA =
+                rA ? mt::ParseTag(pA.generic_string(), e2) : mt::TagSet{};
+            check(builtA && builtB && builtC && rA && rB && !rC &&
+                      eA.empty() && eB.empty() && eC == "free 부족" &&
+                      e2.empty() && probeOk && walkA && walkB &&
+                      cntA == 2 && e0A == aAt &&
+                      bufA.size() > 56 &&
+                      std::all_of(bufA.end() - 48, bufA.end(),
+                                  [](unsigned char c) { return c == 0x77; })
+                          /* mdat payload 원문(패치 leg 이동·데이터 원존) */ &&
+                      tA.title == "Long Title grows the moov tree" &&
+                      cntB == 2 && bAt == pAtB && e0B == pAtB && bufC == blobC,
+                  "2x-⑫b stco/co64 패치 = (a) 무free Δ 패치(재독 stco = 실측"
+                  " 신mdat payload 자리 등호+payload 원문)+ParseTag 등호"
+                  "(b) free 흡수(mdat 자리 고정·stco 원존)(c) 상한 근접+무"
+                  "free = free 부족 정직 거부(원본 무변경 — C1 수형)");
+            std::error_code sx;
+            fs::remove_all(tdir, sx);  // REMNANT 0 — 사후 소각 동봉(2x 수형)
+            check(!sx && !fs::exists(tdir, sx), "2x-⑫b REMNANT 0(사후 소각)");
         }
     }
     std::printf("AppSelfTest: %d failure(s)\n", failures);

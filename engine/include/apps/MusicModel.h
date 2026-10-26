@@ -3310,6 +3310,82 @@ inline bool Mp4ReshuffleChildren(const unsigned char* p, size_t base,
     return true;
 }
 
+// ---- stco/co64 청크 오프셋 패치 (T3 fix r1 — moov Δ 이동·C1 수형) ----
+//
+// moov 재조립이 사이즈를 바꾸면(Δ = 신구 moov 차) moov 뒤 box(mdat —
+// faststart 계열)가 Δ 이동하고, moov 내 stco(co64) 청크 오프셋 = mdat 내
+// 절대 파일 오프셋이라 Δ 만큼 같이 이동해야 한다(외부 플레이어 재생 인덱스
+// 계약 — 태그 자체 재독의 블라인드 스팟 — C1 원문). 표준 수형 = stco
+// (32BE)/co64(64BE) 항목 Δ 가산 패치. 보행 = 표준 컨테이너 사슬 한정
+// (trak→mdia→minf→stbl — depth 0-3 재귀) — ilst payload 등 임의 데이터를
+// 컨테이너로 오독하지 않는 좁은 사슬(covr binary 내 우연 매agic 봉인).
+// entries가 전부 패치 가능(0 ≤ 항목+Δ ≤ 상한)이면 true·하나라도 넘치면
+// false — 호출부 = free 흡수 보조가 없으면 "free 부족" 정직 거부(③ — 원본
+// 무변경·수정 없음 원존). stco/co64 부재 = found false+true(청크 오프셋
+// 참조 부재 moov — 최소 파괴 원칙 진행 — 재량 원장).
+inline bool PatchMp4ChunkOffsetsIn(std::vector<unsigned char>& b, size_t base,
+                                   size_t span, long long delta, int depth,
+                                   bool& found) {
+    static const char* kChain[4] = {"trak", "mdia", "minf", "stbl"};
+    size_t off = base;
+    const size_t end = base + span;
+    int guard = 0;
+    while (off + 8 <= end && guard++ < 4096) {
+        const unsigned char* q = b.data() + off;
+        unsigned long long total = RdBE32(q);
+        size_t head = 8;
+        if (total == 1) {  // 64bit largesize — 읽기 규약 원존
+            if (off + 16 > end) return false;
+            total = 0;
+            for (int i = 0; i < 8; ++i) total = (total << 8) | q[8 + i];
+            head = 16;
+        }
+        if (total < head || off + total > end)
+            return false;  // 파산 방어선(출처 = 검증된 재조립 — 도달 불가)
+        const size_t bodyAt = off + head;
+        const size_t bodyN = static_cast<size_t>(total - head);
+        const bool isStco = std::memcmp(q + 4, "stco", 4) == 0;
+        const bool isCo64 = std::memcmp(q + 4, "co64", 4) == 0;
+        if (depth < 4 &&
+            std::memcmp(q + 4, kChain[depth], 4) == 0) {
+            // trak→mdia→minf→stbl 사슬 재귀 — stco/co64는 최심(depth 4) 아래.
+            if (!PatchMp4ChunkOffsetsIn(b, bodyAt, bodyN, delta, depth + 1,
+                                        found))
+                return false;
+        } else if (depth == 4 && (isStco || isCo64)) {
+            found = true;
+            if (bodyN < 8) return false;
+            const unsigned int cnt = RdBE32(b.data() + bodyAt + 4);
+            const size_t esz = isStco ? 4 : 8;  // stco = 4BE·co64 = 8BE
+            if (8 + static_cast<unsigned long long>(esz) * cnt > bodyN)
+                return false;  // entries 파산(선언 > box) — 방어선
+            for (unsigned int i = 0; i < cnt; ++i) {
+                const size_t at = bodyAt + 8 + static_cast<size_t>(esz) * i;
+                unsigned long long v = 0;
+                for (size_t k = 0; k < esz; ++k) v = (v << 8) | b[at + k];
+                // Δ = moov 크기 차(±수 MB 귀속)·v ≤ 파일 크기(2^63 실역) —
+                // signed 산술 안전. 32bit는 상한 0xFFFFFFFF 추가 계약.
+                const long long s = static_cast<long long>(v) + delta;
+                if (s < 0 || (isStco && s > 0xFFFFFFFFll))
+                    return false;  // 넘침 — 호출부 정직 거부(③)
+                const unsigned long long nv =
+                    static_cast<unsigned long long>(s);
+                for (size_t k = 0; k < esz; ++k)
+                    b[at + k] =
+                        static_cast<unsigned char>(nv >> (8 * (esz - 1 - k)));
+            }
+        }
+        off += static_cast<size_t>(total);
+    }
+    return true;
+}
+
+inline bool PatchMp4ChunkOffsets(std::vector<unsigned char>& moovBody,
+                                 long long delta, bool& found) {
+    found = false;
+    return PatchMp4ChunkOffsetsIn(moovBody, 0, moovBody.size(), delta, 0,
+                                  found);
+}
 // ---- m4a 쓰기 leg (D2 — moov/udta/meta/ilst 재작성) ----
 //
 // 최상위 box 연쇄에서 moov만 재조립하고 그 밖 box(ftyp/free/mdat…)는 원문
@@ -3339,6 +3415,12 @@ inline bool WriteM4aTag(const std::string& path, std::ifstream& f,
     std::streamoff moovStart = 0, moovEnd = 0;
     size_t moovHead = 8;
     bool sawMoov = false;
+    // moov 뒤 구조 수취(fix r1 — Δ 이동 계약): moov 다음 box(free/skip —
+    // 흡수 후보)와 moov 뒤 mdat(Δ 절대 이동 대상).
+    bool nextSeen = false, nextIsFree = false;
+    char nextType[4] = {0, 0, 0, 0};
+    unsigned long long nextTotal = 0;
+    bool mdatAfter = false;
     {
         std::streamoff off = 0;
         int guard = 0;
@@ -3387,6 +3469,16 @@ inline bool WriteM4aTag(const std::string& path, std::ifstream& f,
                 moovStart = off;
                 moovEnd = end;
                 moovHead = head;
+            }
+            if (sawMoov && off >= moovEnd) {  // moov 뒤 box 보행 — fix r1
+                if (!nextSeen) {
+                    nextSeen = true;
+                    nextIsFree = std::memcmp(h + 4, "free", 4) == 0 ||
+                                 std::memcmp(h + 4, "skip", 4) == 0;
+                    std::memcpy(nextType, h + 4, 4);
+                    nextTotal = static_cast<unsigned long long>(end - off);
+                }
+                if (std::memcmp(h + 4, "mdat", 4) == 0) mdatAfter = true;
             }
             if (end <= off) {
                 err = "mp4 structure";  // 방어선(0 길이 box 사슬 — 폭주 봉인)
@@ -3482,6 +3574,33 @@ inline bool WriteM4aTag(const std::string& path, std::ifstream& f,
                               stage != kMp4TagNoUdta ? loc.udtaBody : 0,
                               newUdta, moovBody, err))
         return false;
+    // ---- mdat 절대 위치 계약(fix r1 — C1 수형) — moov Δ 이동 정합 ----
+    // moov 재조립 Δ = 신구 moov box 크기 차. moov 뒤 mdat가 있으면(faststart
+    // 계열) 그 절대 위치가 Δ 이동 — ①free 흡수(moov 다음 free/skip box가 Δ를
+    // 삼키면 mdat 자리 고정 — 파일 바이트 총량 불변·절대 오프셋 무패치·
+    // Δ>0 = payload 축소(부족 = 거부 leg로), Δ<0 = 확장)·②표준 패치(stco/
+    // co64 항목 Δ 가산 — 넘침 = "free 부족" 정직 거부 — ③ 원존 무손상 계약).
+    // moov가 마지막 box(mdat 뒤 배치) = mdat 무이동 — 패치 불요(조건부 경로
+    // — 리포트 근거 원존). 청크 오프셋 참조 부재(stco/co64 부재) = 무패치
+    // 진행(최소 파괴 — 재량 원장).
+    const long long delta =
+        static_cast<long long>(moovBody.size() + 8) -
+        static_cast<long long>(moovEnd - moovStart);
+    bool freeAbsorb = false;
+    if (delta != 0 && mdatAfter) {
+        if (nextSeen && nextIsFree && nextTotal >= 8 &&
+            (delta > 0
+                 ? static_cast<unsigned long long>(delta) <= nextTotal - 8
+                 : static_cast<long long>(nextTotal) - delta <= 0xFFFFFFFFll)) {
+            freeAbsorb = true;  // ① — free/skip가 Δ를 삼켜 mdat 고정
+        } else {
+            bool found = false;
+            if (!PatchMp4ChunkOffsets(moovBody, delta, found)) {
+                err = "free 부족";  // ② 넘침+① 불가 — 정직 거부(③ — 수정 없음)
+                return false;
+            }
+        }
+    }
     std::vector<unsigned char> newMoov;
     PushMp4Box(newMoov, "moov", moovBody);
     if (newMoov.size() > kTagWriteMax) {
@@ -3513,6 +3632,54 @@ inline bool WriteM4aTag(const std::string& path, std::ifstream& f,
             if (!w.WriteAll(newMoov.data(), newMoov.size())) {
                 err = "tmp write failed";
                 return false;
+            }
+            if (freeAbsorb) {
+                // free/skip 재기입(사이즈 필드만 — payload = 원문 스트림 복사)
+                // — Δ 흡수로 mdat 자리 고정(① — 이동 0).
+                unsigned char fh[8];
+                const unsigned long long nf =
+                    static_cast<unsigned long long>(
+                        static_cast<long long>(nextTotal) - delta);
+                fh[0] = static_cast<unsigned char>(nf >> 24);
+                fh[1] = static_cast<unsigned char>(nf >> 16);
+                fh[2] = static_cast<unsigned char>(nf >> 8);
+                fh[3] = static_cast<unsigned char>(nf);
+                fh[4] = static_cast<unsigned char>(nextType[0]);
+                fh[5] = static_cast<unsigned char>(nextType[1]);
+                fh[6] = static_cast<unsigned char>(nextType[2]);
+                fh[7] = static_cast<unsigned char>(nextType[3]);
+                if (!w.WriteAll(fh, 8)) {
+                    err = "tmp write failed";
+                    return false;
+                }
+                if (delta > 0) {
+                    // payload 축소 — 흡수된 Δ 바이트 = 말미 절단(payload 원문
+                    // 선두 복사·자르는 바이트 = 흡수분).
+                    if (!CopyStreamRange(f, w, moovEnd + 8,
+                                         static_cast<std::streamoff>(
+                                             nextTotal) -
+                                             8 - delta,
+                                         err))
+                        return false;
+                } else {
+                    // payload 확장 — 흡수 |Δ| = zero pad(free 규약 잔산)
+                    // 선두 기입+payload 원문 복사.
+                    const std::vector<unsigned char> pad(
+                        static_cast<size_t>(-delta), 0);
+                    if (!w.WriteAll(pad.data(), pad.size())) {
+                        err = "tmp write failed";
+                        return false;
+                    }
+                    if (!CopyStreamRange(f, w, moovEnd + 8,
+                                         static_cast<std::streamoff>(
+                                             nextTotal) -
+                                             8,
+                                         err))
+                        return false;
+                }
+                const std::streamoff skipAt =
+                    moovEnd + static_cast<std::streamoff>(nextTotal);
+                return CopyStreamRange(f, w, skipAt, total - skipAt, err);
             }
             // moov 뒤 box(mdat 포함) 원문 복사 — mdat 데이터 원문 바이트
             // 무이동(D2 — header 자리만 앞당겨진다).
