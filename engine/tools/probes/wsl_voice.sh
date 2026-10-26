@@ -1056,10 +1056,14 @@ for S in 멈춰줘 재생해줘 정지; do
     printf '%s' "$VROWS" | grep -aqF "text=[$S] kind=4 app=[vplayer] tool=[play_pause] usedLlm=0 q=1" \
         && VROUTE=$((VROUTE+1)) || echo "VOCAB-FAIL(route: $S — AppTool 즉발·무인자 질의 양식 원문 불일치)"
 done
-printf '%s' "$VROWS" | grep -aqF 'text=[알림 보여줘] kind=0 app=[notify] usedLlm=0 q=1 query=[launch_app {"app":"notify"}]' \
+printf '%s' "$VROWS" | grep -aqF 'text=[알림 보여줘] kind=0 app=[notify] tool=[] usedLlm=0 q=1 query=[launch_app {"app":"notify"}]' \
     && VROUTE=$((VROUTE+1)) || echo "VOCAB-FAIL(route: 알림 보여줘 — Launch(notify) 원문 불일치)"
-printf '%s' "$VROWS" | grep -aqF 'text=[볼륨 50으로 멈춰줘] kind=5' \
-    && VROUTE=$((VROUTE+1)) || echo "VOCAB-FAIL(exact-invoke: 볼륨 50으로 멈춰줘 — 무인자 강제(D1) 부정 — exact 행 접미 누수 원장)"
+# 무인자 강제(D1) — 자체 판정행(fix: notify 행 grep tool=[] 누락+exact-invoke 산치
+# 이중 계수의 상쇄 쌍 소각 — VROUTE 산치 = 즉발 5(q=1)+무인자 강제 1(q=0) = 6 —
+# kind=5 만의 느슨 패턴은 배제 stub(동 kind) 충돌 원문 — q=0 원문까지 등호)
+VEXACT=0
+printf '%s' "$VROWS" | grep -aqF 'text=[볼륨 50으로 멈춰줘] kind=5 app=[] tool=[] usedLlm=0 q=0 query=[no no]' \
+    && VEXACT=1 || echo "VOCAB-FAIL(exact-invoke: 볼륨 50으로 멈춰줘 — 무인자 강제(D1) 원문 불일치 — exact 행 접미 누수 원장)"
 BEX=0
 for S in 'text=[다음 곡]' 'text=[알림 뭐 왔어]'; do
     printf '%s' "$VROWS" | grep -aqF "$S" \
@@ -1068,7 +1072,7 @@ for S in 'text=[다음 곡]' 'text=[알림 뭐 왔어]'; do
 done
 printf '%s' "$VROWS" | grep -aqF 'text=[창 목록 보여줘] kind=3' \
     && VROUTE=$((VROUTE+1)) || echo "VOCAB-FAIL(regress: 창 목록 보여줘 — 2y-⑩ 방어 행 원문 불일치)"
-echo "VOCAB-ROUTE-OK: rows=$VROUTE/5 excl=$BEX/2"
+echo "VOCAB-ROUTE-OK: rows=$((VROUTE+VEXACT))/6 (route 산치 분리 — route=$VROUTE/5+exact=$VEXACT/1) excl=$BEX/2"
 
 # 라이브 소비 — vplayer 창 생성(발화 어휘의 릴레이 대상)+알림 Launch 원문
 VP_RELAY=0
@@ -1169,12 +1173,12 @@ else
     echo "VOCAB-FAIL(notify-window: Notifications 창 미출현 — $WINN)"
 fi
 VOCAB_OK=0
-[ "$VROUTE" -eq 5 ] && [ "$BEX" -eq 2 ] && [ "$VP_RELAY" -eq 1 ] \
+[ "$VROUTE" -eq 5 ] && [ "$VEXACT" -eq 1 ] && [ "$BEX" -eq 2 ] && [ "$VP_RELAY" -eq 1 ] \
     && [ "$VP_TOGGLE" -eq 1 ] && [ "$NOTIFY_OK" -eq 1 ] && VOCAB_OK=1
 if [ "$VOCAB_OK" -eq 1 ]; then
     echo "VOCAB-VERDICT: VOCAB-OK(#115b 신설 어휘 E2E — 발화 8 건 라우터 원문 등호(즉발 5+무인자 강제 1+배제 stub 2)·app_tool 릴레이→vplayer 소비(accepted+play_pause 토글 2탭 상반+get_status 기록 반영)·'알림 보여줘'→Notifications Launch 창 원문 — 캐논 $ST_PASS·2y=$ST2Y — 전사 본문=CANON 밖(§2.4))"
 else
-    echo "VOCAB-VERDICT: VOCAB-FAIL(honest — route=$VROUTE/5 excl=$BEX/2 vprelay=$VP_RELAY vptoggle=$VP_TOGGLE notify=$NOTIFY_OK — 사유 열은 상단 VOCAB-FAIL 행)"
+    echo "VOCAB-VERDICT: VOCAB-FAIL(honest — route=$VROUTE/5 exact=$VEXACT/1 excl=$BEX/2 vprelay=$VP_RELAY vptoggle=$VP_TOGGLE notify=$NOTIFY_OK — 사유 열은 상단 VOCAB-FAIL 행)"
 fi
 
 echo "=== 14. stderr 진단 수취 (서버 로그 — chat/minesweeper 스폰 계통) ==="

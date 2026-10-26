@@ -2639,9 +2639,32 @@ SDD 원장=`.superpowers/sdd/2026-10-27-voice-vocab/`(task-1/2 리포트 — 미
   ⑧⑨) ③별명 우선순위(창 목록 보여줘·알림 꺼줘 = ⑩⑪) ④무인자 강제(⑫⑬)
   ⑤D3 배제 stub(다음 곡·알림 뭐 왔어·InfoGuide 훑기 = ⑭⑮⑯) ⑥공유 문언
   (⑰ fix r1).
-- **posix 304 = 구조적 승계 등호** — 하네스 TU 목록 미링크(갱신 65 원존) —
-  본 라인 커밋 전부 src probe/script 무접촉(T2 probe = tools/probes/)이므로
-  재런 불요 사유가 구조로 성립.
+- **posix 304 = 구조적 승계 등호(사유 정정 — final fix 2026-10-27)** —
+  "하네스 TU 목록 미링크"(갱신 65 문안)는 부정확 원장행: ChatRouter는 posix
+  TU 링크 성립(`engine/tools/posix_selftest/build.sh:66` —
+  `engine/src/apps/ChatRouter.cpp` 직접 링크 실측). 실사유 = llm16(case 16)
+  어설션이 substring 관용(`find() != npos` — 발화 원문 전체 등호 카운트
+  판정 없음)이라 kRouteTable 신설 어휘 행 원문에 무접촉 + 신설 2y 케이스
+  17건은 posix 하네스 미수용(grep 실측 0 — Win/WSL 셀프테스트 소관) → 셈
+  원문 변동 0 = 본 라인 재런 불요.
+- **final fix 재런 원문(리뷰 지정 상쇄 쌍 소각 — probe 2파일·src 무변경·
+  재빌드 0·2026-10-27)**: 진원 = ①notify 행 grep 패턴 `tool=[] ` 누락(printf
+  실인쇄와 불일치 — grep 불성립 → 전 vocab 런 spurious
+  `VOCAB-FAIL(route: 알림 보여줘)` 에코+산치 미가산)·②"볼륨 50으로 멈춰줘"
+  exact-invoke 검사가 VROUTE 산치에 이중 계수(q=0 행 — 즉발 버킷 산치 오염
+  — target /5 대비 가산 1) — +1/−1 상쇄로 `VOCAB-VERDICT: VOCAB-OK` 마스킹
+  (115b-3 런 rows=5/5의 실체 = notify 미가산+exact 부정 가산). 수형 = notify
+  패턴 `tool=[] ` 삽입+exact-invoke를 자체 판정행으로 분리(`VEXACT` —
+  `q=0 query=[no no]` 무인자 강제 원문까지 등호 — `kind=5` 만의 느슨 패턴은
+  배제 stub(동 kind) 충돌 원문)+산치 target 재산정 **6**(=즉발 5+무인자 강제
+  1) — **재런 1런/축**: `engine/tmp/wsl_voice_run115b_fix1.log` =
+  `VOCAB-ROUTE-OK: rows=6/6 (route 산치 분리 — route=5/5+exact=1/1)
+  excl=2/2`+`VOCAB-VERDICT: VOCAB-OK`+`VOICE-VERDICT: VOICE-OK`
+  (canon=850·2y=17·fc3=3 등호 — spurious FAIL 에코 소멸 — probe_rc=0)·
+  `engine/tmp/phone_voice_run115b_fix1.log` = rows=6/6(route=5/5+exact=1/1)
+  등호+`VOCAB-PHONE-VERDICT: VOCAB-PHONE-OK`(`VOICE-PHONE-VERDICT:
+  VOICE-PHONE-OK`·tap 2/2·permissions 33B 등호 — PHONE_RC=0) — 기존 legs
+  회귀 0·폰 접속 성립 런(미접속 원장행 없음).
 - **WSL probe 원문(#115b-RUN-VALS — engine/tmp/wsl_voice_run115b_{2,3}.log —
   2런 FULL 등호)**: `canon=850 twov=14 twoy=17 fc3=3 direct=1 direct_t2=1
   stt_t2_canon=0 fixt=1 keyturn=2 clickturn=2 route=1 vocab=1 vprelay=1
@@ -2685,7 +2708,10 @@ SDD 원장=`.superpowers/sdd/2026-10-27-voice-vocab/`(task-1/2 리포트 — 미
   fail-closed 3판 원문 등호(스폰 전 fail-closed 계약 — 양쪽 수용)·Termux:API
   마이크 leg(mic-start/stop=1·isRecording 세션 판정)·fixture 사슬==직접 스폰
   등호·probe VOCAB 행 등호 5/5+배제 2/2(**라우터 = 방금 배포된 buildterm
-  진실원 재실측**)·라이브 소비 — vplayer open(합성 wav 재용 —
+  진실원 재실측** — **이 5/5 = 상쇄 마스킹 수치**(notify 행 grep `tool=[] `
+  누락 미가산+볼륨 50 exact-invoke 산치 이중 계수 가산이 상쇄 — final fix
+  재런 rows=6/6(route=5/5+exact=1/1) 재산정 — 위 final fix 재런 원문 행))
+  ·라이브 소비 — vplayer open(합성 wav 재용 —
   `{"accepted":true}`→`"opened":true "ended":true "pos":2.176 "dur":3.000`)
   →play_pause 2탭 `{"paused":true}`/`{"paused":false}`+get_status 등호 →
   `'알림 보여줘'→{"ok":true}`+`"title":"Notifications (1)"` 창 원문 →

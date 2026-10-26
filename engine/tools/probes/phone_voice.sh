@@ -327,10 +327,14 @@ for S in 멈춰줘 재생해줘 정지; do
     printf '%s' "$VROWS" | grep -aqF "text=[$S] kind=4 app=[vplayer] tool=[play_pause] usedLlm=0 q=1" \
         && VROUTE=$((VROUTE+1)) || echo "VOICE-PHONE-FAIL(vocab-route: $S — AppTool 즉발·무인자 질의 양식 원문 불일치)"
 done
-printf '%s' "$VROWS" | grep -aqF 'text=[알림 보여줘] kind=0 app=[notify] usedLlm=0 q=1 query=[launch_app {"app":"notify"}]' \
+printf '%s' "$VROWS" | grep -aqF 'text=[알림 보여줘] kind=0 app=[notify] tool=[] usedLlm=0 q=1 query=[launch_app {"app":"notify"}]' \
     && VROUTE=$((VROUTE+1)) || echo "VOICE-PHONE-FAIL(vocab-route: 알림 보여줘 — Launch(notify) 원문 불일치)"
-printf '%s' "$VROWS" | grep -aqF 'text=[볼륨 50으로 멈춰줘] kind=5' \
-    && VROUTE=$((VROUTE+1)) || echo "VOICE-PHONE-FAIL(vocab-exact: 볼륨 50으로 멈춰줘 — 무인자 강제(D1) 부정)"
+# 무인자 강제(D1) — 자체 판정행(fix: notify 행 grep tool=[] 누락+exact-invoke 산치
+# 이중 계수의 상쇄 쌍 소각 — VROUTE 산치 = 즉발 5(q=1)+무인자 강제 1(q=0) = 6 —
+# kind=5 만의 느슨 패턴은 배제 stub(동 kind) 충돌 원문 — q=0 원문까지 등호 — WSL판 동형)
+VEXACT=0
+printf '%s' "$VROWS" | grep -aqF 'text=[볼륨 50으로 멈춰줘] kind=5 app=[] tool=[] usedLlm=0 q=0 query=[no no]' \
+    && VEXACT=1 || echo "VOICE-PHONE-FAIL(vocab-exact: 볼륨 50으로 멈춰줘 — 무인자 강제(D1) 원문 불일치)"
 BEX=0
 for S in 'text=[다음 곡]' 'text=[알림 뭐 왔어]'; do
     printf '%s' "$VROWS" | grep -aqF "$S" \
@@ -339,7 +343,7 @@ for S in 'text=[다음 곡]' 'text=[알림 뭐 왔어]'; do
 done
 printf '%s' "$VROWS" | grep -aqF 'text=[창 목록 보여줘] kind=3' \
     && VROUTE=$((VROUTE+1)) || echo "VOICE-PHONE-FAIL(vocab-regress: 창 목록 보여줘 — 2y-⑩ 방어 행 원문 불일치)"
-echo "PROBE-VOCAB-ROUTE-OK: rows=$VROUTE/5 excl=$BEX/2"
+echo "PROBE-VOCAB-ROUTE-OK: rows=$((VROUTE+VEXACT))/6 (route 산치 분리 — route=$VROUTE/5+exact=$VEXACT/1) excl=$BEX/2"
 
 # ── B. 서버 부팅(WHISPER_ROOT 보유)+chat 개봉+탭 런 반복(폰 E2E — T5 §6) ────
 echo "=== B. WHISPER_ROOT 보유 부팅 + chat 개봉 + [구두] 탭 런 x$PHV_TAP_RUNS ==="
@@ -847,11 +851,11 @@ fi
 #   기존 필드 전량 원존 — probe stdout 수취 5종 보존 승계).
 echo "=== 폰 VOCAB-VERDICT (#115b 신설 어휘 세그먼트 — 별행 1행 — VOICE-PHONE-VERDICT 무변경) ==="
 VOC_OK=0
-[ "$VROUTE" -eq 5 ] && [ "$BEX" -eq 2 ] && [ "${VPLIVE:-0}" -eq 1 ] && VOC_OK=1
+[ "$VROUTE" -eq 5 ] && [ "$VEXACT" -eq 1 ] && [ "$BEX" -eq 2 ] && [ "${VPLIVE:-0}" -eq 1 ] && VOC_OK=1
 if [ "$VOC_OK" -eq 1 ]; then
     echo "VOCAB-PHONE-VERDICT: VOCAB-PHONE-OK(#115b 신설 어휘 폰 축 — 발화 8건 라우터 원문 등호(즉발 5+무인자 강제 1+배제 stub 2 — buildterm 배포 진실원 재실측)·app_tool 릴레이→vplayer 소비(accepted+opened 원문+토글 2탭 상반+get_status 기록 반영)·'알림 보여줘'→Notifications Launch 창 원문 — 폰 캡처 2종 md5 등호 회수 — 전사 본문=CANON 밖(§2.4)·발화 체감 = 사용자 EYES ① 몫)"
 else
-    echo "VOCAB-PHONE-VERDICT: VOCAB-PHONE-FAIL(honest — route=${VROUTE:-0}/5 excl=${BEX:-0}/2 live=${VPLIVE:-0} — 사유 열은 상단 VOICE-PHONE-FAIL 행)"
+    echo "VOCAB-PHONE-VERDICT: VOCAB-PHONE-FAIL(honest — route=${VROUTE:-0}/5 exact=${VEXACT:-0}/1 excl=${BEX:-0}/2 live=${VPLIVE:-0} — 사유 열은 상단 VOICE-PHONE-FAIL 행)"
 fi
 echo "VOICE-PHONE-RUN-VALS: tap_runs=${PHV_TAP_RUNS} gate=3판 fixture_direct=${FIX_OK} mic=${MIC_OK} tap=${TAP_OK} runverdict=${PV} vocab=${VOC_OK} vocab_route=${VROUTE} vocab_excl=${BEX} vocab_live=${VPLIVE:-0} captures=engine/tmp/pv_run*_*.png engine/tmp/pv_vocab_*.png"
 echo "PHONE-VOICE-END"
