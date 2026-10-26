@@ -130,11 +130,22 @@ std::string TtsQuoted(const std::string& s) {
     return out;
 }
 
-// speak 마감 — termux-api 계열 수신기 무응답 hang 흡수(kCmdDeadlineMs 수형
-// 축소 — speak는 응답 지연 ~1s 규모라 15s면 여유). 시간 초과 = 그대로 조용한
-// 스킵(D5 — 재시도 없음).
-constexpr uint32_t kTtsSpeakDeadlineMs = 15000;
-
+// speak 백그라운드 상주 — 수형 원장행(#117 T2 리뷰 1순위 — 2026-10-27
+// batch2 실환 소각): 구 마감 15s 대기는 hang 스폰 1건 = detached 스레드
+// 15s 점유+`[TTS] fail (rc=137)`(마감 kill — 128+9) 증상행 반복 소모 —
+// 폰 웨지 계통의 실측 원진. 수형: 스폰 성립 직후 즉시 반환 — speak 진행은
+// 프로세스가 백그라운드로 스스로 완주한다(D5 재시도 없음·콜백 없음 승계,
+// 조달/스폰 실패 = stamp fail — 같은 표).
+//   - 서브셸 백그라운드 래퍼 `( … ) >/dev/null 2>&1 &` — speak는 어댑터
+//     직계 자식(sh -c) 내부의 서브셸로 상주하고 sh 본체는 즉시 종료라
+//     부모 쪽 좀비·좀비 수거 부재·rc 0 = 고아 서브셸은 init 수거(리소스
+//     누수 없음의 진실원 — 직계 파산이 아니라 고아 전이가 좀비를 지운다).
+//   - 출력 폐기 = 셸 리디렉션 /dev/null — 부모 파이프 0(파이프 생성 자체
+//     불요 — 구 inheritedStdioPipes 소각·SIGPIPE 창 0·drain 스레드 0).
+//   - kill-on-close job 폐기: posix close IS kill(jk::process 계약 b)라
+//     상주 중 close = 즉사 — 백그라운드 상주 계약과 양립 불가. 마감 kill
+//     제거 = hang 스폰의 영구 상주(완주/정산) = 사용자 몫 원장행(부작용
+//     정직 표기 — rc 관측 자체가 소멸한다).
 // 1회 스폰 본체 — DrainVoice(UI 축)가 detached 단명 스레드로 불러 쏜다.
 // speak 문언은 이미 tts::TtsReplyClip(D4)을 통과한 절단판.
 void TtsSpawnSpeak(const std::string& speakText) {
@@ -147,9 +158,11 @@ void TtsSpawnSpeak(const std::string& speakText) {
         return;
     }
     jk::process::SpawnOptions opt;
-    opt.commandLineUtf8 = TtsQuoted(bin) + " " + TtsQuoted(speakText);
+    opt.commandLineUtf8 =
+        "( " + TtsQuoted(bin) + " " + TtsQuoted(speakText) +
+        " ) >/dev/null 2>&1 &";
     opt.hideWindow = true;
-    opt.inheritedStdioPipes = true;   // 출력 폐기 전제 — 파이프만 닫는다
+    // 파이프 자원 0(폐기 = 리디렉션 흡수) — 생성/포기 전양 대신 미조달.
     const jk::process::SpawnResult spawned = jk::process::Spawn(opt);
     if (!spawned.ok) {
         std::fprintf(stderr, "[TTS] fail (스폰 실패 err=%u)\n",
@@ -157,19 +170,11 @@ void TtsSpawnSpeak(const std::string& speakText) {
         return;
     }
     std::fprintf(stderr, "[TTS] speak: %s\n", speakText.c_str());
-    // kill-on-close job — 터미널 종료 사위 정산(W2 수형) — speak 1회 소명.
-    void* jobTree = jk::process::CreateKillOnCloseJob();
-    jk::process::AssignToJob(jobTree, spawned);
-    if (!jk::process::WaitForExit(spawned.process, kTtsSpeakDeadlineMs))
-        jk::process::TerminateJobTree(jobTree, 1);   // hang — 마감 kill (D5)
-    uint32_t exitCode = jk::process::kStillActiveExit;
-    jk::process::GetExitCode(spawned.process, &exitCode);
-    if (exitCode != 0 && exitCode != jk::process::kStillActiveExit)
-        std::fprintf(stderr, "[TTS] fail (rc=%u)\n", exitCode);
-    jk::process::CloseHandleLike(spawned.stdoutRead);
-    jk::process::CloseHandleLike(spawned.stderrRead);
+    // 직계 자식 = 단명 sh 래퍼 — 핸들 즉시 폐쇄(posix CloseHandleLike =
+    // WNOHANG 수거 1회 — 이미 종료한 sh 좀비 소각·close ≠ kill 계약이라
+    // 상주 subshell 무영향). sh 폐쇄 실패(스폰 경합 극소 창) = 좀비 1행 —
+    // 직계 자식의 수거만 부모 몫으로 남는다(상주의 수거 = init).
     jk::process::CloseHandleLike(spawned.process);
-    jk::process::CloseHandleLike(jobTree);
     // rc 0 = speak 시작 수락 원장행 — 응답 지연(~1s)과 실제 합성 종료는
     // Termux TTS 엔징 몫(EYES — 폰에서 답을 듣는 체감 — 스펙 §2).
 }
