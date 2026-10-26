@@ -347,7 +347,7 @@ FAIL() { echo "MUSP-FAIL: $*"; exit 1; }
 echo "PHONE-HOST: 환경변수 지정 사용 (기록 금지 — 자리표시 PHONE_HOST=<폰>; 스캔 폴백 없음)"
 echo "HEAD: $(git -C "$GITROOT" rev-parse HEAD 2>/dev/null || echo rev-parse-failed)"
 echo "BASE-ANCHOR(마지막 폰 배포): $PHONE_DEPLOY_BASE"
-echo "LINEAGE(폰): selftest 565(2i 19·2g 40·2m 0) → 591(2m 26 흡수) → 608(2n 17 흡수 — 실측) → 624 = 608 + 2o 16(2o-a..e 10 + 2o-f 4 + 2o-g 2 — 실측 정산, WSL 624 등호) → 638 = 624 + 2p 7 + 2q 7 (스캔 취소 라인 T4 — #93·#94 코드 원문 배포 이관 — **실측 2026-10-10 T4 2런: PASS=638 FAIL=0·2p=7·2q=7 — WSL 638 등호**) → **668 = 638 + 2r 10 + 2s 20 (T1 77323b1 태그 라인 — 코드 원문 배포 이관 — 갭 소각 배포 절차 — 2026-10-25 오전 재실측 run8 원문: HEAD f1ac76d SWEEP-DIFF=0·CANON-INCLUSION=MUSIC-FULL-2P2QRS-30·WSL 668 등호)** → **#111 T6 795 = 668 + 2u 127 (태그 쓰기 라인 T1 15c2bb4 2u ①-⑦ 47·T2 2973933 ⑧-⑭ 57·T4 5b95c63 ⑮ 23 — 2026-10-25 T6 체인 런 원문: PHONE-SELFTEST PASS=795 FAIL=0·2u=127 — WSL 795 등호)** → **#112 T5 814 = 795 + fix 5(#111 최종 f33d41a F1-F2 — 폰 미흡수분 승계)+2v 14(#112 T1 2v-a 4·T2 2v-b/c 6·T3 2v-d 4 — 구두 판정부+사슬 — WSL 814 등호 — 실측)** → **#113 T3 818 = 814 + 2w 4(저널 leg — t3legs_deploy 원문: PHONE-SELFTEST A/B PASS=818 FAIL=0 2u=132·2v=14 — WSL 818 등호)** → **#115 T4 기대 831 = 818 + 2x 13(①-⑫ 12건·⑨ 2어설션 — T1 20e3abf +3·T2 95cb8c6 +5·T3 840ea41 +5 — WSL 831 등호 — 브리프 원문행의 '854 승계'는 Win 축 수치 표기 — Win-WSL 23차 = 플랫폼 어설션 계통 — 원장 대조 몫)**"
+echo "LINEAGE(폰): selftest 565(2i 19·2g 40·2m 0) → 591(2m 26 흡수) → 608(2n 17 흡수 — 실측) → 624 = 608 + 2o 16(2o-a..e 10 + 2o-f 4 + 2o-g 2 — 실측 정산, WSL 624 등호) → 638 = 624 + 2p 7 + 2q 7 (스캔 취소 라인 T4 — #93·#94 코드 원문 배포 이관 — **실측 2026-10-10 T4 2런: PASS=638 FAIL=0·2p=7·2q=7 — WSL 638 등호**) → **668 = 638 + 2r 10 + 2s 20 (T1 77323b1 태그 라인 — 코드 원문 배포 이관 — 갭 소각 배포 절차 — 2026-10-25 오전 재실측 run8 원문: HEAD f1ac76d SWEEP-DIFF=0·CANON-INCLUSION=MUSIC-FULL-2P2QRS-30·WSL 668 등호)** → **#111 T6 795 = 668 + 2u 127 (태그 쓰기 라인 T1 15c2bb4 2u ①-⑦ 47·T2 2973933 ⑧-⑭ 57·T4 5b95c63 ⑮ 23 — 2026-10-25 T6 체인 런 원문: PHONE-SELFTEST PASS=795 FAIL=0·2u=127 — WSL 795 등호)** → **#112 T5 814 = 795 + fix 5(#111 최종 f33d41a F1-F2 — 폰 미흡수분 승계)+2v 14(#112 T1 2v-a 4·T2 2v-b/c 6·T3 2v-d 4 — 구두 판정부+사슬 — WSL 814 등호 — 실측)** → **#113 T3 818 = 814 + 2w 4(저널 leg — t3legs_deploy 원문: PHONE-SELFTEST A/B PASS=818 FAIL=0 2u=132·2v=14 — WSL 818 등호)** → **#115 T4 기대 833 = 818 + 2x 15(①-⑫ 12라벨·⑨ 2어설션·T3 fix r1 ce3f539 2x-⑫b 2어설션 — T1 +3·T2 +5·T3 +5·ce3f539 +2 — WSL 833 등호 실측 — 브리프 원문행의 '854 승계'는 Win 축 수치 표기 — Win-WSL 23차 = 플랫폼 어설션 계통 — 원장 대조 몫)**"
 SSH="ssh -p $PHONE_PORT -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=10 -i $PHONE_KEY $PHONE_USER@$PHONE_HOST"
 
 # ------------------------------------------------------------------ 0. 전수 sweep
@@ -1183,7 +1183,7 @@ echo "MARKER-AFTER music_model($MM) cmake($MC) main_2m($MT) main_2p($MP2) main_2
 [ "$MMSC" -ge 1 ] || FAIL "scanCancel_ wiring marker missing on phone (T2 취소 배선 배포 결손)"
 [ "$MP" -ge 1 ] || FAIL "DelegationReplyVerdict marker missing on phone (fix r3 배포 결손)"
 
-echo "=== H. selftest — 폰 캐논 계보 판정 (계보: 795(#111 T6) → 814(#112 T5 — fix 5+2v 14) → 818 = 814 + 2w 4(#113 T1 저널 — t3legs 배포 실측) → **기대 831 = 818 + 2x 13(2x ①②③ 20e3abf+3·④-⑧ 95cb8c6+5·⑨[round-trip+폴백 2어설션]⑩⑪⑫ 840ea41+5 — 12건/13 어설션 — WSL 831 등호 — 브리프 원문행의 '854 승계'는 Win 축 수치 표기 원장행** — 실측 후 CANON 정산) ==="
+echo "=== H. selftest — 폰 캐논 계보 판정 (계보: 795(#111 T6) → 814(#112 T5 — fix 5+2v 14) → 818 = 814 + 2w 4(#113 T1 저널 — t3legs 배포 실측) → **기대 833 = 818 + 2x 15(2x ①②③ 20e3abf+3·④-⑧ 95cb8c6+5·⑨[round-trip+폴백 2어설션]⑩⑪⑫ 840ea41+5·⑫b[fix r1 ce3f539] 2어설션 — 라벨 13건/15 어설션 — WSL 833 등호 — 브리프 원문행의 '854 승계'는 Win 축 수치 표기 원장행 — 실측) === ==="
 timeout 900 ./buildterm/jkdesktop test >"$STLOG" 2>&1
 S_RC=$?
 ST_PASS=$(grep -ac '^\[PASS\]' "$STLOG")
@@ -3240,7 +3240,7 @@ def parse_opus(path, out):
             pkt += seg
             if t < 255:                 # 패킷 완성 지점에서만 매김
                 if pkt[:8] == b"OpusTags" and vendor is None:
-                    cmt_htype = d[off + 4]  # 코멘트 페이지 htype(D10 원문 유지)
+                    cmt_htype = d[off + 5]  # 코멘트 페이지 htype([4)=version·[5)=htype — D10 원문 유지 — wsl 16f-OM fix r1 동형 수리)
                     vlen = struct.unpack("<I", pkt[8:12])[0]
                     vendor = pkt[12:12 + vlen].decode("utf-8", "replace")
                     cnt = struct.unpack("<I", pkt[12 + vlen:16 + vlen])[0]

@@ -3007,7 +3007,7 @@ def parse_opus(path, out):
             pkt += seg
             if t < 255:                 # 패킷 완성 지점에서만 매김
                 if pkt[:8] == b"OpusTags" and vendor is None:
-                    cmt_htype = d[off + 4]   # 코멘트 페이지 htype(D10 — 원문 유지 검증 원료)
+                    cmt_htype = d[off + 5]   # 코멘트 페이지 htype([0..4)=OggS·[4)=version·[5)=htype — D10 원문 유지 검증 원료 — fix r1: off+4 원문 오독 = version 0 오판)
                     vlen = struct.unpack("<I", pkt[8:12])[0]
                     vendor = pkt[12:12 + vlen].decode("utf-8", "replace")
                     p, cnt = 12 + vlen, struct.unpack(
@@ -3435,10 +3435,10 @@ if [ "${OM_STAGE:-0}" -eq 1 ] && [ "${OM1_OK:-0}" -eq 1 ] && [ "${OM2_OK:-0}" -e
     && [ -n "${OM_M4A_MD5_2:-}" ] && [ "${OM_M4A_MD5_2}" = "${OM_COVER_MD5:-}" ] \
     && [ -n "${OM_MBP_3:-}" ] && [ "${OM_MBP_3}" = "${OM_COVER_MD5:-}" ] \
     && [ -n "${OM_MBP_4:-}" ] && [ "${OM_MBP_4}" = "${OM_COVER_MD5:-}" ] \
-    && [ "${OM_VENDOR:-}" = "om-vendor" ]; then
+    && [ "${OM_VENDOR:-}" = "om-vendor" ] && [ "${OM_HT_3:-}" = "4" ]; then
     OM_ALL=1
 fi
-echo "  구성: stage=${OM_STAGE:-0} w1=${OM1_OK:-0} w2=${OM2_OK:-0} w3=${OM3_OK:-0} w4=${OM4_OK:-0} captures=$OM_CAPT_OK covr_1=${OM_M4A_MD5_1:-none} covr_2=${OM_M4A_MD5_2:-none} mbp_3=${OM_MBP_3:-none} mbp_4=${OM_MBP_4:-none} vendor=${OM_VENDOR:-none} cover_md5=${OM_COVER_MD5:-none} remnant=$(ls "$SEED_DIR"/t_om_* 2>/dev/null | wc -l)"
+echo "  구성: stage=${OM_STAGE:-0} w1=${OM1_OK:-0} w2=${OM2_OK:-0} w3=${OM3_OK:-0} w4=${OM4_OK:-0} captures=$OM_CAPT_OK covr_1=${OM_M4A_MD5_1:-none} covr_2=${OM_M4A_MD5_2:-none} mbp_3=${OM_MBP_3:-none} mbp_4=${OM_MBP_4:-none} vendor=${OM_VENDOR:-none} htype=${OM_HT_3:-none} cover_md5=${OM_COVER_MD5:-none} remnant=$(ls "$SEED_DIR"/t_om_* 2>/dev/null | wc -l)"
 if [ "$OM_ALL" -eq 1 ]; then
     echo "MUSIC-OPUSM4A-VERDICT: OPUSM4A-OK(16f-OM — 합성 m4a+opus(2x 픽스처 승계) 시드·music_tag_write relay 쓰기 4콜[m4a covr 교체+cover=null 유지·opus MBP 교체+cover 생략 유지]·재독 표기 원문 = 파일 수준 round-trip[covr/MBP md5 등호 4콜+벤더 유지+코멘트 페이지 EOS 0x04 유지+mdat 원문 무이동]+목록 행 캡처 2종 — D5 UI 무변경 = .m4a/.opus 행이 '-' 대신 실값 표기 — 육안 스탭 대기)"
 else
