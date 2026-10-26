@@ -50,7 +50,10 @@
 set -u
 export MSYS_NO_PATHCONV=1
 
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"   # engine/tools/probes → 3단 = 저장소 루트
+# [#117 T2 fix r1 — 117-1phone/2phone 런 원장행]: 기존 2단(../../) = engine —
+# SCRATCH=$ROOT/engine/tmp 가 engine/engine/tmp 가독(캡처·RLOG 이중경로) —
+# 3단 수형. 기존 런 산출물(engine/engine/tmp — #115b 계보 포함)은 원장 보존.
 cd "$ROOT" || exit 1
 SCRATCH="$ROOT/engine/tmp"
 mkdir -p "$SCRATCH"
@@ -784,6 +787,7 @@ echo "=== B3. #117 TTS 세그먼트 — stamp 원문+지연+CLI 개발력+opt-ou
 TTS_OK_STAMP=0
 TTS_OK_OPTOUT=0
 TTS_OK_CLI=0
+TTS_OK_SESSION=0
 TTS_STAMP_LAT=""
 TTS_SRV_LOG_DEFAULT=t6pv_srv.log
 if ! $SSH 'command -v termux-tts-speak >/dev/null 2>&1' 2>/dev/null; then
@@ -802,8 +806,9 @@ else
 # (phone_voice.sh가 생성 — 폰 주소 불포함) #117 TTS dedicated tap 런: [구두]
 # 개시·마침 탭 2회+마침 탭 기점 ms 원문+boot log의 [TTS] 신규 행 폴링(첫발견
 # 지연)+rec/done 캡처(턴 도착 영수증 — opt-out 런의 양순 증거). 종료 후 자기
-# 소각(#117 원존). 인자: 1=tx 2=ty 3=boot log 파일명 4=WAITSTAMP(1=stamp 폴링
-# 120s/그 외=30s 고정 대기 — opt-out 런의 부존 대기 단축).
+# 소각(#117 원존). 인자: 1=tx 2=ty 3=boot log 파일명 4=WAITSTAMP(fix r1 폐지 —
+# 양판 동일 폴링 180s — 호환용 잔존 인자). fix r1 신설: 페이즈 정규화(선행
+# 세그먼트 녹음 생존 마침)+-i 세션 판정(개시 성립·마침 성립 — 진실원 JSON).
 set -u
 cd ~/JKENGINE/engine || exit 1
 TX="${1:-835}" TY="${2:-602}" SLOG_REL="${3:-t6pv_srv.log}" WAIT_STAMP="${4:-1}"
@@ -813,6 +818,7 @@ FAIL() { echo "TTS-TAP-FAIL: $*"; exit 1; }
 ctl() { timeout 20 ./buildterm/jkdesktop agentctl "$1" 2>/dev/null | grep -a '{' | head -1; }
 ok()  { printf '%s' "${1:-}" | grep -aq '"ok":true'; }
 ms()  { local v; v=$(python3 -c 'import time; print(int(time.time()*1000))' 2>/dev/null); [ -n "$v" ] && echo "$v" || date +%s%3N; }
+recstat() { termux-microphone-record -i 2>/dev/null | grep -aq '"isRecording": true' && echo 1 || echo 0; }
 WIN=$(ctl '{"tool":"list_windows","args":{}}')
 CH=$(printf '%s' "$WIN" | grep -aoE '\{"id":[^}]*"title":"[Cc]hat"[^}]*\}' | head -1)
 [ -n "$CH" ] || FAIL "no Chat window — $WIN"
@@ -848,6 +854,19 @@ capture() {
     [ -s "$TMPD/$1" ] || FAIL "capture failed: $1 (R=${R:0:120})"
     echo "TTS-CAP-OK: $1 ($(wc -c < "$TMPD/$1") bytes)"
 }
+# [fix r1 — 페이즈 정규화 먼저]: 선행 세그먼트(§B tap 런)의 미마침 녹음 생존 =
+# 전용 런 tap1=마침·tap2=개시 어긋남(117-1phone/2phone 런 원장행 — dedicated
+# detect=0 2런의 진원). -i 세션 판정(진실원 JSON)으로 정규화 — 정규화 tap의
+# stamp는 선행 턴 소관이라 ST0_N 수취는 정규화 **뒤**에 온다.
+PHASE=$(recstat)
+echo "TTS-SESSION-AT-ENTRY: $PHASE (-i 세션 판정 — 진실원)"
+if [ "$PHASE" = "1" ]; then
+    echo "TTS-PHASE-NORMALIZE: 녹음 생존 — 마침 탭 1회로 페이즈 정규화(fix r1)"
+    TAP "$TX" "$TY"
+    sleep 8
+    [ "$(recstat)" = "0" ] || FAIL "phase normalize failed (세션 생존 — 수기 원복)"
+    echo "TTS-PHASE-NORMALIZED-OK"
+fi
 ST0_N=$(grep -ac '^\[TTS\]' "$SLOG" 2>/dev/null)
 ST0_N=${ST0_N:-0}
 TAP() {
@@ -856,33 +875,42 @@ TAP() {
     ok "$R" || FAIL "send_input tap no ok — $R"
 }
 TAP "$TX" "$TY"          # 개시 — StartVoice(표지 새김)
-sleep 3
+SESSION_START=0
+for i in $(seq 1 6); do
+    [ "$(recstat)" = "1" ] && { SESSION_START=1; break; }
+    sleep 2
+done
+echo "TTS-SESSION-START-OK: $SESSION_START (개시 세션 성립 — -i 진실원 — 0 = 토글 미달성 — stamp 폴링 무의미)"
+[ "$SESSION_START" = "1" ] || FAIL "개시 세션 미성립 (tap1 개시 실패)"
+sleep 2
 capture t5_chat_tts_rec.png
 T0=$(ms)
 echo "TTS-TAP2-T0-MS: $T0"
 [ -n "$T0" ] || FAIL "ms stamp missing (python3+date 모두 실패 — 지연 측정 불성립)"
 TAP "$TX" "$TY"          # 마침 — FinishVoice→전사→답신 도착접점(DrainVoice)
+SESSION_STOP=0
+for i in $(seq 1 6); do
+    [ "$(recstat)" = "0" ] && { SESSION_STOP=1; break; }
+    sleep 2
+done
+echo "TTS-SESSION-STOP-OK: $SESSION_STOP (마침 세션 성립 — 전사 개시 — [fix r1])"
 DETECT=0
 TD=""
-if [ "$WAIT_STAMP" = "1" ]; then
-    for i in $(seq 1 60); do      # 2s x 60 = 120s 상한(STT+답신 폴링)
-        sleep 2
-        N=$(grep -ac '^\[TTS\]' "$SLOG" 2>/dev/null)
-        N=${N:-0}
-        if [ "$N" -gt "$ST0_N" ]; then
-            TD=$(ms); DETECT=1
-            printf '%s' "$TD" | grep -aq '^[0-9]*$' \
-              && echo "TTS-STAMP-LAT-MS: $((TD - T0)) (마침 탭→stamp 첫발견 — STT+답신+스폰 개시 구간 통괄 — 개발력 상한 표기·리서치 문턱 1s = 첫음 구간 대조 — 실음 체감 = EYES 몫)" \
-              || echo "TTS-STAMP-LAT-MS: none (ms 수취 실패 — T0=$T0 TD=$TD)"
-            NEWN=$((N - ST0_N))
-            grep -a '^\[TTS\]' "$SLOG" 2>/dev/null | tail -n "$NEWN" | sed 's/^/TTS-STAMP: /'
-            break
-        fi
-    done
-else
-    sleep 30                      # opt-out 런 — 전사 완료 고정 대기(stamp 폴링 생략)
-    echo "TTS-OPTOUT-WAIT-DONE: 30s (stamp 폴링 생략 — 부존 기대 런)"
-fi
+for i in $(seq 1 90); do      # 2s x 90 = 180s 상한(STT — tiny-ko 폰 전사 ~60-90s
+                              # 관측(117 런 stamp 후행 도착 원문)+답신 폴링)
+    sleep 2
+    N=$(grep -ac '^\[TTS\]' "$SLOG" 2>/dev/null)
+    N=${N:-0}
+    if [ "$N" -gt "$ST0_N" ]; then
+        TD=$(ms); DETECT=1
+        printf '%s' "$TD" | grep -aq '^[0-9]*$' \
+          && echo "TTS-STAMP-LAT-MS: $((TD - T0)) (마침 탭→stamp 첫발견 — STT+답신+스폰 개시 구간 통괄 — 개발력 상한 표기·리서치 문턱 1s = 첫음 구간 대조 — 실음 체감 = EYES 몫)" \
+          || echo "TTS-STAMP-LAT-MS: none (ms 수취 실패 — T0=$T0 TD=$TD)"
+        NEWN=$((N - ST0_N))
+        grep -a '^\[TTS\]' "$SLOG" 2>/dev/null | tail -n "$NEWN" | sed 's/^/TTS-STAMP: /'
+        break
+    fi
+done
 capture t5_chat_tts_done.png
 echo "TTS-DETECTED: $DETECT (boot log $SLOG — 신규 [TTS] 행 감측·ST0_N=$ST0_N)"
 echo "TTS-STAMP-LAST: $(grep -a '^\[TTS\]' "$SLOG" 2>/dev/null | tail -1)"
@@ -920,6 +948,14 @@ if grep -aq 'detect=1' <<< "$TTSOUT"; then
 else
     echo "VOICE-PHONE-FAIL(tts stamp: dedicated 런 stamp 부존 — guide가 빈 답신(D3 스킵) 또는 답신 미도착 — 정직 판정 런)"
 fi
+# [fix r1 — 세션 전이 판정(전용 런 stamp 유효성의 결정 통제)]: 개시 성립+마침
+# 성립 = 구두 표면의 토글 계약이 실측됐다 — 이 통제 없는 stamp 도착/부존은
+# 표면 도달 자체가 불성립이라 판정 무효.
+TTS_OK_SESSION=0
+SSTART=$(sed -n 's/^TTS\[[0-9]*\]: TTS-SESSION-START-OK: //p' <<< "$TTSOUT" | tail -1)
+SSTOP=$(sed -n 's/^TTS\[[0-9]*\]: TTS-SESSION-STOP-OK: //p' <<< "$TTSOUT" | tail -1)
+[ "${SSTART:-0}" = "1" ] && [ "${SSTOP:-0}" = "1" ] && TTS_OK_SESSION=1
+echo "TTS-SESSION-VERDICT: start=${SSTART:-n/a} stop=${SSTOP:-n/a} (전용 런 토글 계약 — 유효성 통제)"
 # 턴 도착 양순 영수증(기본 런 — done>rec)
 SREC=$($SSH "wc -c < \$TMPDIR/t5_chat_tts_rec.png" 2>/dev/null | tr -d ' \r')
 SDONE=$($SSH "wc -c < \$TMPDIR/t5_chat_tts_done.png" 2>/dev/null | tr -d ' \r')
@@ -1023,29 +1059,35 @@ if grep -aq 'TTS-BOOT-FINISHED' <<< "$TBOUT"; then
         echo "TTS-OPTOUT-BTN-AUTO-MISS: chat 좌표 파싱 실패 — §B 좌표 재용 ($PHV_BTN_X,$PHV_BTN_Y)"
     fi
     $SSH "cat > \$TMPDIR/t6pv_tts_tap.sh" < "$SCRATCH/t6pv_tts_tap_remote.sh" || FAIL "opt-out tap push failed"
-    T2OUT=$($SSH "bash \$TMPDIR/t6pv_tts_tap.sh $OTX $OTY t6pv_tts_srv.log 0" 2>&1)
+    T2OUT=$($SSH "bash \$TMPDIR/t6pv_tts_tap.sh $OTX $OTY t6pv_tts_srv.log 1" 2>&1)
     printf '%s\n' "$T2OUT" | sed 's/^/TTS[2]: /'
     if ! grep -aq 'TTS-TAP-FINISHED' <<< "$T2OUT"; then
         echo "VOICE-PHONE-FAIL(tts optout: opt-out 탭 런 미완주)"
     fi
-    # 부존 판정 — fresh log 전체 [TTS] 행 수 = 0 (도착 영수증과 함께)
+    # [fix r1] 부존 판정의 양순 통제 = 세션 전이(개시 성립+마침 성립) — 도착
+    # 없는 부존(=표면 미도달)을 부존으로 잘못 셈 없게 한다. done>rec는
+    # "녹음 시작 행 렌더"의 가양성이 있다(117-1phone 런 원장행) — 보조 행으로
+    # 격하.
+    OSSTART=$(sed -n 's/^TTS\[[0-9]*\]: TTS-SESSION-START-OK: //p' <<< "$T2OUT" | tail -1)
+    OSSTOP=$(sed -n 's/^TTS\[[0-9]*\]: TTS-SESSION-STOP-OK: //p' <<< "$T2OUT" | tail -1)
+    OSESS_OK=0
+    [ "${OSSTART:-0}" = "1" ] && [ "${OSSTOP:-0}" = "1" ] && OSESS_OK=1
+    echo "TTS-OPTOUT-SESSION: start=${OSSTART:-n/a} stop=${OSSTOP:-n/a} (양순 통제 — 세션 전이 원문)"
     SREC2=$($SSH "wc -c < \$TMPDIR/t5_chat_tts_rec.png" 2>/dev/null | tr -d ' \r')
     SDONE2=$($SSH "wc -c < \$TMPDIR/t5_chat_tts_done.png" 2>/dev/null | tr -d ' \r')
-    TURNS_ARRIVED=0
     if [ -n "$SREC2" ] && [ -n "$SDONE2" ] && [ "$SDONE2" -gt "$SREC2" ]; then
-        TURNS_ARRIVED=1
-        echo "TTS-OPTOUT-TURN-ARRIVED: done($SREC2)→$SDONE2 (+$((SDONE2 - SREC2))B — 도착 영수증 — 양순 통제 원문)"
+        echo "TTS-OPTOUT-DONE-DELTA: done($SREC2)→$SDONE2 (+$((SDONE2 - SREC2))B — 보조 관측 행 — 가양성(녹음 행 렌더) 있음 — fix r1 격하)"
     else
-        echo "VOICE-PHONE-FAIL(tts optout: 턴 도착 없음 — stamp 부존 판정 무효 — 정직)"
+        echo "TTS-OPTOUT-DONE-DELTA: none (보조 관측 부재)"
     fi
     T2N=$($SSH "grep -ac '^\[TTS\]' \"\$TMPDIR/t6pv_tts_srv.log\" 2>/dev/null" | tr -d ' \r')
     T2N=${T2N:-0}
     echo "TTS-OPTOUT-STAMPCOUNT: $T2N (0 기대 — VOICE_TTS=0 부팅 런 stamp 부존 원문)"
-    if [ "$T2N" -eq 0 ] && [ "$TURNS_ARRIVED" -eq 1 ]; then
+    if [ "$T2N" -eq 0 ] && [ "$OSESS_OK" -eq 1 ]; then
         TTS_OK_OPTOUT=1
-        echo "TTS-OPTOUT-OK: stamp 부존+턴 도착 양순 — opt-out(D2) 폰 실측 성립"
+        echo "TTS-OPTOUT-OK: stamp 부존+세션 전이 양순 — opt-out(D2) 폰 실측 성립"
     else
-        echo "VOICE-PHONE-FAIL(tts optout: stamp=$T2N arrival=$TURNS_ARRIVED — 위 원문)"
+        echo "VOICE-PHONE-FAIL(tts optout: stamp=$T2N session=$OSESS_OK — 위 원문)"
     fi
     recover "\$TMPDIR/t5_chat_tts_rec.png"  "$SCRATCH/pv_tts_optout_rec.png"
     recover "\$TMPDIR/t5_chat_tts_done.png" "$SCRATCH/pv_tts_optout_done.png"
@@ -1099,12 +1141,12 @@ if [ "${TTS_DEDICATED_DETECT:-0}" -eq 1 ] || [ "${TTSCOUNT:-0}" -ge 1 ]; then
     TTS_OK_STAMP=1
 fi
 echo "=== 폰 TTS-VERDICT (#117 TTS 세그먼트 — 별행 1행 — VOICE-PHONE-VERDICT 무변경) ==="
-if [ "$TTS_OK_STAMP" -eq 1 ] && [ "$TTS_OK_OPTOUT" -eq 1 ] && [ "$TTS_OK_CLI" -eq 1 ]; then
+if [ "$TTS_OK_STAMP" -eq 1 ] && [ "${TTS_OK_SESSION:-0}" -eq 1 ] && [ "$TTS_OK_OPTOUT" -eq 1 ] && [ "$TTS_OK_CLI" -eq 1 ]; then
     TTS_VERB="TTS-PHONE-OK"
-    echo "TTS-PHONE-VERDICT: TTS-PHONE-OK(#117 D1-D5 폰 축 — dedicated stamp 도착 원문(detect=${TTS_DEDICATED_DETECT}·tap-런 누적=${TTSCOUNT:-0})·마침 탭→stamp 지연 ${TTS_STAMP_LAT:-n/a}ms(STT+답신 구간 통괄 — 리서치 문턱 1s = 첫음 구간 대조 표기)·CLI 개발력 3표본+opt-out 1판 부존 도착 영수증 — 실음 체감 = EYES(폰 답듣기 — 스펙 §2))"
+    echo "TTS-PHONE-VERDICT: TTS-PHONE-OK(#117 D1-D5 폰 축 — dedicated stamp 도착 원문(detect=${TTS_DEDICATED_DETECT}·tap-런 누적=${TTSCOUNT:-0})·세션 전이 양순(start/stop — -i 진실원)·마침 탭→stamp 지연 ${TTS_STAMP_LAT:-n/a}ms(STT+답신 구간 통괄 — 리서치 문턱 1s = 첫음 구간 대조 표기)·CLI 개발력 3표본+opt-out 1판 부존(세션 전이 통제) — 실음 체감 = EYES(폰 답듣기 — 스펙 §2))"
 else
     TTS_VERB="TTS-PHONE-FAIL"
-    echo "TTS-PHONE-VERDICT: TTS-PHONE-FAIL(honest — stamp=${TTS_OK_STAMP} optout=${TTS_OK_OPTOUT} cli=${TTS_OK_CLI} lat=${TTS_STAMP_LAT:-n/a} — 사유 열은 상단 TTS/VOICE-PHONE-FAIL 행)"
+    echo "TTS-PHONE-VERDICT: TTS-PHONE-FAIL(honest — stamp=${TTS_OK_STAMP} session=${TTS_OK_SESSION:-0} optout=${TTS_OK_OPTOUT} cli=${TTS_OK_CLI} lat=${TTS_STAMP_LAT:-n/a} — 사유 열은 상단 TTS/VOICE-PHONE-FAIL 행)"
 fi
 
 # ── C. 복원(T5 restore 계약 — chat close+Music 복원+permissions 원복+잔상) ──
@@ -1200,6 +1242,6 @@ if [ "$VOC_OK" -eq 1 ]; then
 else
     echo "VOCAB-PHONE-VERDICT: VOCAB-PHONE-FAIL(honest — route=${VROUTE:-0}/5 exact=${VEXACT:-0}/1 excl=${BEX:-0}/2 live=${VPLIVE:-0} — 사유 열은 상단 VOICE-PHONE-FAIL 행)"
 fi
-echo "VOICE-PHONE-RUN-VALS: tap_runs=${PHV_TAP_RUNS} gate=3판 fixture_direct=${FIX_OK} mic=${MIC_OK} tap=${TAP_OK} runverdict=${PV} vocab=${VOC_OK} vocab_route=${VROUTE} vocab_excl=${BEX} vocab_live=${VPLIVE:-0} captures=engine/tmp/pv_run*_*.png engine/tmp/pv_vocab_*.png"
+echo "VOICE-PHONE-RUN-VALS: tap_runs=${PHV_TAP_RUNS} gate=3판 fixture_direct=${FIX_OK} mic=${MIC_OK} tap=${TAP_OK} runverdict=${PV} vocab=${VOC_OK} vocab_route=${VROUTE} vocab_excl=${BEX} vocab_live=${VPLIVE:-0} tts_runverdict=${TTS_VERB:-n/a} tts_stamp=${TTS_OK_STAMP} tts_session=${TTS_OK_SESSION:-0} tts_optout=${TTS_OK_OPTOUT} tts_cli=${TTS_OK_CLI} tts_lat=${TTS_STAMP_LAT:-n/a} captures=engine/tmp/pv_run*_*.png engine/tmp/pv_vocab_*.png engine/tmp/pv_tts_*.png"
 echo "PHONE-VOICE-END"
 # EOF — 끝 개행 유지.
