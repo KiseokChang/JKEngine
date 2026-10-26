@@ -322,7 +322,7 @@ PHONE_PORT="${PHONE_PORT:-8022}"
 PHONE_USER="${PHONE_USER:-u0_a4}"
 PHONE_KEY="${PHONE_KEY:-$HOME/.ssh/termux_jkengine}"
 PHONE_DISPLAY="${PHONE_DISPLAY:-:1}"
-PHONE_DEPLOY_BASE="${PHONE_DEPLOY_BASE:-f1ac76da7368aff0e6b757b7b6059c5c875a0ea0}"  # 마지막 폰 배포 커밋(#110 T2 — 2026-10-19 배포·2026-10-25 오전 재실측 run8 원문: HEAD f1ac76d SWEEP-DIFF=0/319·폰 캐논 668 등호 재실측 — leg WIRED) — 기대 배포 집합 앵커
+PHONE_DEPLOY_BASE="${PHONE_DEPLOY_BASE:-f1ac76da7368aff0e6b757b7b6059c5c875a0ea0}"  # 마지막 폰 배포 커밋(#110 T2 — 2026-10-19 배포·2026-10-25 오전 재실측 run8 원문: HEAD f1ac76d SWEEP-DIFF=0/319·폰 캐논 668 등호 재실측 — leg WIRED). #115 T4 원장행: #111 T6·#112 T5·#113(#113 T3 t3legs) 배포 = t11x 계열 드라이버의 전수 git archive(HEAD 4de04d0 — 폰 캐논 818·2v 14 실측 — 폰 probe 셀프테스트 축에서 전부 소각) — 본 라인(T4)의 폰 배포 = **t115_t4_deploy.sh(engine/tmp 산출물 — t112_t5 수형 재용·커밋 0)** — 기대 배포 집합 앵커
                                                    #   (구값 c021006 = #98 fix r1 스윕 — T4 태그 라인(#99)의
                                                    #   폰 배포·실측은 BLOCKED 원장을 거쳐 **T2 재런(2026-10-25
                                                    #   오전)에서 갭 소각 실측**(668 = 638 + 2r 10 + 2s 20 —
@@ -332,6 +332,7 @@ PHONE_DEPLOY_BASE="${PHONE_DEPLOY_BASE:-f1ac76da7368aff0e6b757b7b6059c5c875a0ea0
 MUSP_BIG_SUBS="${MUSP_BIG_SUBS:-80}"    # 스캔 취소 세그먼트(T4) 합성 트리 하위 수 — env 재정산 몫
 MUSP_BIG_FILES="${MUSP_BIG_FILES:-2500}"  # 트리당 하위 파일 수 — 80×2500=200,000 트랙/트리
 MUSP_TW_RUN="${MUSP_TW_RUN:-1}"         # T6 런 라벨(TW-RUN-VALS/TW-RUN-CAP 요약 스트림의 run 축 — JOG-RUN-VALS 수형 — wsl 16f MUS_TW_RUN의 폰 라벨)
+MUSP_OM_RUN="${MUSP_OM_RUN:-1}"         # [#115 T4] N7 런 라벨(#115-RUN-VALS/​#115-RUN-CAP 요약 스트림의 run 축 — TW-RUN-VALS 수형 — wsl 16f-OM MUS_OM_RUN의 폰 라벨)
 
 # PHONE_HOST 필수 가드는 exec(tee)보다 **앞에** 둔다 — 가드가 tee 뒤에 있으면
 # PHONE_HOST unset 재실행 시 tee truncate로 마지막 실측 영수증 로그를
@@ -346,7 +347,7 @@ FAIL() { echo "MUSP-FAIL: $*"; exit 1; }
 echo "PHONE-HOST: 환경변수 지정 사용 (기록 금지 — 자리표시 PHONE_HOST=<폰>; 스캔 폴백 없음)"
 echo "HEAD: $(git -C "$GITROOT" rev-parse HEAD 2>/dev/null || echo rev-parse-failed)"
 echo "BASE-ANCHOR(마지막 폰 배포): $PHONE_DEPLOY_BASE"
-echo "LINEAGE(폰): selftest 565(2i 19·2g 40·2m 0) → 591(2m 26 흡수) → 608(2n 17 흡수 — 실측) → 624 = 608 + 2o 16(2o-a..e 10 + 2o-f 4 + 2o-g 2 — 실측 정산, WSL 624 등호) → 638 = 624 + 2p 7 + 2q 7 (스캔 취소 라인 T4 — #93·#94 코드 원문 배포 이관 — **실측 2026-10-10 T4 2런: PASS=638 FAIL=0·2p=7·2q=7 — WSL 638 등호**) → **668 = 638 + 2r 10 + 2s 20 (T1 77323b1 태그 라인 — 코드 원문 배포 이관 — 갭 소각 배포 절차 — 2026-10-25 오전 재실측 run8 원문: HEAD f1ac76d SWEEP-DIFF=0·CANON-INCLUSION=MUSIC-FULL-2P2QRS-30·WSL 668 등호)** → **#111 T6 795 = 668 + 2u 127 (태그 쓰기 라인 T1 15c2bb4 2u ①-⑦ 47·T2 2973933 ⑧-⑭ 57·T4 5b95c63 ⑮ 23 — 2026-10-25 T6 체인 런 원문: PHONE-SELFTEST PASS=795 FAIL=0·2u=127 — WSL 795 등호)** → **#112 T5 기대 814 = 795 + fix 5(#111 최종 f33d41a F1-F2 — 폰 미흡수분 승계)+2v 14(#112 T1 2v-a 4·T2 2v-b/c 6·T3 2v-d 4 — 구두 판정부+사슬 — WSL 814 등호)**"
+echo "LINEAGE(폰): selftest 565(2i 19·2g 40·2m 0) → 591(2m 26 흡수) → 608(2n 17 흡수 — 실측) → 624 = 608 + 2o 16(2o-a..e 10 + 2o-f 4 + 2o-g 2 — 실측 정산, WSL 624 등호) → 638 = 624 + 2p 7 + 2q 7 (스캔 취소 라인 T4 — #93·#94 코드 원문 배포 이관 — **실측 2026-10-10 T4 2런: PASS=638 FAIL=0·2p=7·2q=7 — WSL 638 등호**) → **668 = 638 + 2r 10 + 2s 20 (T1 77323b1 태그 라인 — 코드 원문 배포 이관 — 갭 소각 배포 절차 — 2026-10-25 오전 재실측 run8 원문: HEAD f1ac76d SWEEP-DIFF=0·CANON-INCLUSION=MUSIC-FULL-2P2QRS-30·WSL 668 등호)** → **#111 T6 795 = 668 + 2u 127 (태그 쓰기 라인 T1 15c2bb4 2u ①-⑦ 47·T2 2973933 ⑧-⑭ 57·T4 5b95c63 ⑮ 23 — 2026-10-25 T6 체인 런 원문: PHONE-SELFTEST PASS=795 FAIL=0·2u=127 — WSL 795 등호)** → **#112 T5 814 = 795 + fix 5(#111 최종 f33d41a F1-F2 — 폰 미흡수분 승계)+2v 14(#112 T1 2v-a 4·T2 2v-b/c 6·T3 2v-d 4 — 구두 판정부+사슬 — WSL 814 등호 — 실측)** → **#113 T3 818 = 814 + 2w 4(저널 leg — t3legs_deploy 원문: PHONE-SELFTEST A/B PASS=818 FAIL=0 2u=132·2v=14 — WSL 818 등호)** → **#115 T4 기대 831 = 818 + 2x 13(①-⑫ 12건·⑨ 2어설션 — T1 20e3abf +3·T2 95cb8c6 +5·T3 840ea41 +5 — WSL 831 등호 — 브리프 원문행의 '854 승계'는 Win 축 수치 표기 — Win-WSL 23차 = 플랫폼 어설션 계통 — 원장 대조 몫)**"
 SSH="ssh -p $PHONE_PORT -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=10 -i $PHONE_KEY $PHONE_USER@$PHONE_HOST"
 
 # ------------------------------------------------------------------ 0. 전수 sweep
@@ -589,6 +590,126 @@ esac
 TW_COVER_MD5=$(md5sum "$TW_COVER_LOCAL" | sed -n 's/^\([0-9a-f]*\) .*$/\1/p')
 echo "TW-COVER-MD5: $TW_COVER_MD5 ($(wc -c < "$TW_COVER_LOCAL")B — 합성 cover jpg 원문 — APIC round-trip 절단판정 축 — 폰 도착 등호 게이트로 E4 치환)"
 
+echo "=== 2d. [#115 T4] opus/m4a OM 시드 3건 (wsl_music 16f-OM 수형 — 드라이버 합성 — Windows python stdlib — 폰 python3 불요 계약 승계) ==="
+# ①합성 m4a(2x 픽스처 승계 — ftyp+moov(udta/meta/hdlr('mdir')+ilst[©nam/©ART/
+#   ©alb UTF-8+covr(png 시그니처 블롭 — 코드 14)])+mdat 64B 0xAB) ②합성 opus(
+#   [BOS OpusHead 19B][OpusTags(vendor 'om-vendor'+TITLE/ARTIST/ALBUM+GENRE+
+#   METADATA_BLOCK_PICTURE)] — lacing 255-런+BuildOggPage CRC(poly 0x04C11DB7)
+#   규약 동형·코멘트 페이지 EOS 0x04) ③합성 cover jpg = TW_COVER_B64 재용
+#   (동일 바이트 — TW-MD5 등호 축 공유). 랜딩 = tar 멤버 → E5가 \$TMPDIR/
+#   mus_omseed로 수취 → N7-1이 N6 소각 뒤 \$TAGDIR로 mv.
+PYTHONIOENCODING=utf-8 python - "$PYSCRATCH" "$TW_COVER_B64" <<'OMPYEOF'
+# [#115 T4] opus/m4a 세그먼트 시더(드라이버) — wsl_music.sh 16f-OM mus_omseed.py
+# 원문 수형(같은 구성 — Windows python stdlib — 의존 0).
+import base64, os, struct, sys
+out, b64 = sys.argv[1], sys.argv[2]
+d = os.path.join(out, "pmus_stage", "engine", "pmus_seed_stage", "om_music_seed")
+os.makedirs(d, exist_ok=True)
+be32 = lambda v: struct.pack(">I", v)
+le32 = lambda v: struct.pack("<I", v)
+
+def box(typ, payload):
+    return be32(8 + len(payload)) + typ + payload
+
+def data_atom(code, value):
+    return box(b"data", b"\x00\x00\x00" + bytes([code])
+               + b"\x00\x00\x00\x00" + value)
+
+def item(typ, code, value):
+    return box(typ, data_atom(code, value))
+
+png = bytes([0x89]) + b"PNG\r\n\x1a\n" + bytes([1, 2, 3, 4])
+jpg = base64.b64decode(b64)
+
+def m4a_blob():
+    hdlr = box(b"hdlr", be32(0) + be32(0) + b"mdir" + bytes(17))
+    ilst = box(b"ilst", b"".join([
+        item(b"\xa9nam", 1, b"Om Seed Title"),
+        item(b"\xa9ART", 1, b"Om Seed Artist"),
+        item(b"\xa9alb", 1, b"Om Seed Album"),
+        item(b"covr", 14, png),
+    ]))
+    meta = box(b"meta", be32(0) + hdlr + ilst)
+    udta = box(b"udta", meta)
+    moov = box(b"moov", udta)
+    ftyp = box(b"ftyp", b"M4A " + be32(0) + b"isom")
+    mdat = box(b"mdat", b"\xab" * 64)
+    return ftyp + moov + mdat
+
+TBL = []
+for i in range(256):
+    r = i << 24
+    for _ in range(8):
+        r = ((r << 1) ^ 0x04C11DB7) if (r & 0x80000000) else (r << 1)
+    r &= 0xFFFFFFFF
+    TBL.append(r)
+
+def oggcrc(buf):
+    crc = 0
+    for b in buf:
+        crc = ((crc << 8) & 0xFFFFFFFF) ^ TBL[((crc >> 24) ^ b) & 0xFF]
+    return crc & 0xFFFFFFFF
+
+def page(htype, packets, seq, granule=0):
+    body = b"".join(packets)
+    segs = []
+    for p in packets:
+        k = len(p) // 255
+        segs.extend([255] * k)
+        segs.append(len(p) % 255 if (k == 0 or len(p) % 255) else 0)
+    pg = bytearray(b"OggS" + bytes([0, htype]) + struct.pack("<Q", granule)
+                   + struct.pack("<III", 77, seq, 0) + bytes([len(segs)]))
+    pg += bytes(segs) + body
+    pg[22:26] = struct.pack("<I", oggcrc(pg))
+    return bytes(pg)
+
+def opus_blob(vendor, entries, mbp_b64=None):
+    head = (b"OpusHead" + bytes([1, 2]) + struct.pack("<H", 312)
+            + le32(48000) + struct.pack("<H", 0) + bytes([0]))
+    es = [(b"TITLE", b"Om Seed Opus"), (b"ARTIST", b"Om Seed Op Artist"),
+          (b"ALBUM", b"Om Seed Op Album"), (b"GENRE", b"Wave")]
+    if mbp_b64:
+        es.append((b"METADATA_BLOCK_PICTURE", mbp_b64.encode("ascii")))
+    tags = b"OpusTags" + le32(len(vendor)) + vendor + le32(len(es))
+    for k, v in es:
+        tags += le32(len(k) + 1 + len(v)) + k + b"=" + v
+    return page(0x02, [head], 0) + page(0x04, [tags], 1)  # 코멘트 페이지 EOS 0x04
+
+def build_pic(mime, blob):
+    return (be32(3) + be32(len(mime)) + mime + be32(0) + be32(0) * 4
+            + be32(len(blob)) + blob)
+
+pic = build_pic(b"image/png", png)
+mbp = base64.b64encode(pic).decode()
+m4a = os.path.join(d, "t_om_write.m4a")
+with open(m4a, "wb") as f:
+    f.write(m4a_blob())
+opus = os.path.join(d, "t_om_write.opus")
+with open(opus, "wb") as f:
+    f.write(opus_blob(b"om-vendor", [], mbp))
+cover = os.path.join(d, "t_om_cover.jpg")
+with open(cover, "wb") as f:
+    f.write(jpg)
+print("OM-SEED-OK m4a=%d opus=%d cover=%d png_magic=%d mbp_base64=%d"
+      % (os.path.getsize(m4a), os.path.getsize(opus), len(jpg),
+         1 if png[:4] == b"\x89PNG" else 0, 1))
+OMPYEOF
+[ $? -eq 0 ] || FAIL "OM seed generation failed (로컬 python)"
+OMSEEDED=$(find "$SEEDSTAGE/engine/pmus_seed_stage/om_music_seed" -type f | wc -l)
+[ "$OMSEEDED" -eq 3 ] || FAIL "OM seeded $OMSEEDED files (need 3)"
+OM_M4A_LOCAL="$SEEDSTAGE/engine/pmus_seed_stage/om_music_seed/t_om_write.m4a"
+OM_OPUS_LOCAL="$SEEDSTAGE/engine/pmus_seed_stage/om_music_seed/t_om_write.opus"
+OM_COVER_LOCAL="$SEEDSTAGE/engine/pmus_seed_stage/om_music_seed/t_om_cover.jpg"
+grep -aq ftyp <(head -c 8 "$OM_M4A_LOCAL") || FAIL "OM m4a seed ftyp magic break"
+[ "$(head -c 4 "$OM_OPUS_LOCAL")" = "OggS" ] || FAIL "OM opus seed OggS magic break"
+case "$(head -c 2 "$OM_COVER_LOCAL" | od -An -tx1 | tr -d ' \n')" in
+  ffd8) echo "OM-COVER-MAGIC: ffd8 OK (TW 원문 재용 — md5 축 공유)" ;;
+  *) FAIL "OM cover jpg magic broken (FFD8 선단 필수)" ;;
+esac
+OM_COVER_MD5=$(md5sum "$OM_COVER_LOCAL" | sed -n 's/^\([0-9a-f]*\) .*$/\1/p')
+echo "OM-COVER-MD5: $OM_COVER_MD5 ($(wc -c < "$OM_COVER_LOCAL")B — TW-COVER-MD5=$TW_COVER_MD5 등호 기대 — 동일 바이트 원장)"
+[ "$OM_COVER_MD5" = "$TW_COVER_MD5" ] || FAIL "OM cover md5 != TW cover md5 — 동일 바이트 계약 위반"
+
 # ------------------------------------------------------------------ 3. 원격 스크립트
 cat > "$SCRATCH/$RSRC_TAR_NAME" <<'PMUSEOF'
 #!/bin/bash
@@ -648,16 +769,23 @@ SEED_STAGE=pmus_seed_stage
 TAGDIR="$TMPD/mus_tagseed"   # N5 태그 세그먼트(T4 #99) — 합성 ID3v2.3 mp3 3건 랜딩 dir
 TWDIR="$TMPD/mus_twseed"     # N6 태그 쓰기 세그먼트(#111 T6) — TW 시드 3건 수취 dir(E4) —
                              #   N6-1이 N5 캡처 뒤 $TAGDIR로 mv(3행 계약 무오염 — 원장)
+OMDIR="$TMPD/mus_omseed"     # N7 opus/m4a 세그먼트(#115 T4) — OM 시드 3건 수취 dir(E5) —
+                             #   N7-1이 N6 소각 뒤 $TAGDIR로 mv(수형 — 원장)
 NLOG="$TMPD/pmus_ninja.log"
 STLOG="$TMPD/pmus_selftest.log"
 ORIG="$TMPD/pmus_orig_settings.json"
 PERM_ORIG="$TMPD/pmus_orig_permissions.json"
-CANON_PHONE_PREV=795      # 폰 기존 캐논(#111 T6 실측 795 FAIL=0 — 2u 127 흡수 — 비교 원문; 668 era는 계보 라인 보존)
-CANON_PHONE_EXPECT=814    # #112 T5 배포 기대 = 795 + #111 최종 fix 5(f33d41a F1-F2 — 폰 미흡수분) + 2v 14(#112 T1 2v-a 4·T2 2v-b/c 6·T3 2v-d 4) = WSL 814 등호 — **795→800 승계(폰 fix 5 몫)+2v 흡수** 원장행
-                          #   구 795 = 668 + 2u 127(#111 — T1 15c2bb4 2u ①-⑦ 47
-                          #   + T2 2973933 ⑧-⑭ 57 + T4 5b95c63 ⑮ 23 — 계보 라인 보존)
+CANON_PHONE_PREV=818      # 폰 기존 캐논(#113 T3 t3legs 배포 실측 818 FAIL=0 — 2u 132·2v 14·2w 4 흡수 — 비교 원문; #112 T5의 814·#111 T6의 795는 계보 라인 보존)
+CANON_PHONE_EXPECT=833    # #115 T4 배포 기대 = 818 + 2x 15(①②③(T1 20e3abf +3)·④-⑧(T2 95cb8c6 +5)·⑨[round-trip+폴백](T3 840ea41 +5)⑩⑪⑫+⑫b 2어설션(T3 fix r1 ce3f539 +2)) = WSL 833 등호 — **818→833 승계(2x 흡수)** 원장행
+                          #   계보: 795(#111 T6 — 668 + 2u 127) → 814(#112 T5 —
+                          #   795 + fix 5 + 2v 14) → 818(#113 T3 — 2w 4 흡수 +
+                          #   fix 승계 4 — t3legs 실측) → 833(#115 T4 본 런 —
+                          #   브리프 원문 '854 승계'는 Win 축 수치 표기 원장행
+                          #   Win 856/WSL 833 계보의 플랫폼 어설션 차 23 보존)
 CANON_PHONE_2U=132        # T1 47(①-⑦) + T2 57(⑧-⑭) + T4 23(⑮) + fix 5(f33d41a F1-F2 — **WSL 실측 2026-10-25 등호 132** — T5 승계 정산; 구 795-계보는 127 원장행)
 CANON_PHONE_2V=14         # #112 T1-T4 2v 계보 구두 판정부+사슬 (2v-a 4·2v-b/c 6·2v-d 4 — WSL 14 등호 — 814 산칭 원료)
+CANON_PHONE_2W=4          # #113 T1 저널 leg (2w-①-④ — WSL 등호 — 818 승계 원료)
+CANON_PHONE_2X=15         # #115 2x 계보 opus/m4a (①②③=3·④-⑧=5·⑨ 2[round-trip+폴백]·⑩⑪⑫=3(T1-T3 13)·⑫b 2[fix r1 ce3f539 — stco/co64 Δ 패치+free 흡수+거부 경계] — 라벨 ①-⑫+⑫b 13건·어설션 15 — WSL 등호 — 833 산칭 원료)
 CANON_PHONE_2R=10         # #97 T1 2r 8 + fix r1 2r-b/c 2 — **배포 이관 실측 산치**(638-era 바이너리 갭 원장)
 CANON_PHONE_2S=20         # T1 77323b1 2s 20건(#99 태그 라인 — 신설 본 배포 실측 산치)
 CANON_PHONE_2M=26
@@ -901,6 +1029,29 @@ echo "TW-COVER-MD5-PHONE: $TWCM (기대=__TW_COVER_MD5__ — 도착 등호 게�
 [ "$(head -c 3 "$TWDIR"/t_tw_write.mp3)" = "ID3" ] \
     && FAIL "TW mp3 carries ID3 magic (무태그 전제 위반 — 2u-① 구성 계약 위배)" \
     || echo "TW-MP3-NOMAGIC-PHONE: OK (junk 768B — ID3 부재 — v2.3 신설 원문)"
+
+echo "=== E5. [#115 T4] OM 시드 수취 — 랜딩 대기 dir (N7-1이 N6 소각 뒤 \$TAGDIR로 mv — N6-1 수형) ==="
+if [ -d "$OMDIR" ] && [ "$(find "$OMDIR" -type f 2>/dev/null | wc -l)" -eq 3 ]; then
+    echo "PRIOR-OM-SEEDS-RECOVERED: $OMDIR (전 run 유산 — 3건 등수, 재사용: RUN-DROPPED 재실행 계약)"
+else
+    [ -d "$OMDIR" ] && FAIL "om seed dir exists with irregular contents — 수동 소각 필요"
+    [ -d "$SEED_STAGE/om_music_seed" ] || FAIL "OM seed tar member missing (구성 누락)"
+    mv "$SEED_STAGE/om_music_seed" "$OMDIR" || FAIL "OM seed move failed"
+    echo "OM-SEED-TAR-LANDED: $OMDIR (tar 멤버 → \$TMPDIR 수취 — N7-1 랜딩 대기)"
+fi
+OMC=0
+for t in "$OMDIR"/t_om_write.m4a "$OMDIR"/t_om_write.opus "$OMDIR"/t_om_cover.jpg; do
+    [ -s "$t" ] || FAIL "OM seed file missing: $t"
+    OMC=$((OMC + 1))
+done
+[ "$OMC" -eq 3 ] || FAIL "OM seed count=$OMC (need 3)"
+grep -aq ftyp <(head -c 8 "$OMDIR"/t_om_write.m4a) \
+    || FAIL "OM m4a seed ftyp magic break (2x 픽스처 구성 계약)"
+[ "$(head -c 4 "$OMDIR"/t_om_write.opus)" = "OggS" ] \
+    || FAIL "OM opus seed OggS magic break (2x 픽스처 구성 계약)"
+OM_CM_ST=$(md5sum "$OMDIR"/t_om_cover.jpg | sed -n 's/^\([0-9a-f]*\) .*$/\1/p')
+echo "OM-COVER-MD5-PHONEST: $OM_CM_ST (기대=__TW_COVER_MD5__ — TW 원문 동일 바이트 — 도착 등호 게이트)"
+[ "$OM_CM_ST" = "__TW_COVER_MD5__" ] || FAIL "OM cover md5 mismatch on phone (도착 원문 불일치 — 전송 파열 방어)"
 rm -rf "$SEED_STAGE"
 [ -d "$SEED_STAGE" ] && FAIL "seed stage rm failed (repo 잔상 — 원장행)"
 echo "SEED-STAGE-BURIED: $SEED_STAGE (wav+태그+TW 수취 완료 뒤 — E 원장행)"
@@ -948,6 +1099,17 @@ if [ -f "$SPAT_SRC/src/spatial.cpp" ] && [ -s "$SPAT_ALLIB" ] \
     [ "$C0_RC" -eq 0 ] || FAIL "leg cmake reconfigure rc=$C0_RC (SPATIAL_PLAYER_ROOT 배선 configure 실패 — 원문 pmus_cmake_leg.log)"
 else
     echo "LEG-STAGE-MISS: leg 자산 결손 (src=$([ -d "$SPAT_SRC/src" ] 2>/dev/null && echo ok || echo miss) lib=$([ -s "$SPAT_ALLIB" ] 2>/dev/null && echo ok || echo miss) inc=$([ -f "$SPAT_ALINC/AL/alext.h" ] 2>/dev/null && echo ok || echo miss)) — 구 T4 unset 수형 원장행 (전개 전체 소스가 없으면 unset 빌드 — 자산 재전개 = 드라이버 몫)"
+fi
+# === F0b. 구두 leg 승계 배선 (#115 T4 — #112 T5 원존 계약의 라이브 상속):
+# vendored whisper.cpp 트리(커밋 산물)가 살아 있으면 WHISPER_ROOT를 재출력한다
+# — F/boot_server의 부팅 env 승계(export — 셸 서버 env 상속 — 클라 스폰이 서버
+# env를 이어받는 구두 게이트 클라 상속 계약). 부재 = leg-less boot 원장행(
+# fail-closed — 미설정 빌드 무영향 — 2v-① 수형).
+if [ -d "$HOME/JKENGINE/engine/third_party/whisper.cpp/ggml" ]; then
+    export WHISPER_ROOT="$HOME/JKENGINE/engine/third_party/whisper.cpp"
+    echo "WHISPER-ROOT-WIRED-PHONE: tree-entries=$(find "$WHISPER_ROOT" -type f | wc -l) (구두 leg boot 승계 — #115 T4 배포 계약 — #112 T5 원존)"
+else
+    echo "WHISPER-ROOT-MISS: vendored 트리 부재 — 구두 leg-less 부팅(fail-closed 영수증 — 원장행)"
 fi
 ninja -C buildterm -j4 >"$NLOG" 2>&1
 N_RC=$?
@@ -1002,10 +1164,12 @@ MQ2=$(grep -c '2q-' src/main.cpp)
 MR2=$(grep -c '2r-' src/main.cpp)
 MS2=$(grep -c '2s-' src/main.cpp)
 MU2=$(grep -c '2u-' src/main.cpp)
+MW2=$(grep -c '2w-' src/main.cpp)
+MX2=$(grep -c '2x-' src/main.cpp)
 MP=$(grep -c 'DelegationReplyVerdict' src/apps/ClientMusicApp.cpp)
 ML=$(grep -c '"music", "Music"' src/apps/JKAppModule_music.cpp)
 MMSC=$(grep -c 'scanCancel_' src/apps/ClientMusicApp.cpp)
-echo "MARKER-AFTER music_model($MM) cmake($MC) main_2m($MT) main_2p($MP2) main_2q($MQ2) main_2r($MR2) main_2s($MS2) main_2u($MU2) delegate_verdict($MP) module($ML) cancel_wiring($MMSC)"
+echo "MARKER-AFTER music_model($MM) cmake($MC) main_2m($MT) main_2p($MP2) main_2q($MQ2) main_2r($MR2) main_2s($MS2) main_2u($MU2) main_2w($MW2) main_2x($MX2) delegate_verdict($MP) module($ML) cancel_wiring($MMSC)"
 [ "$MM" -ge 1 ] || FAIL "MusicModel ListAudioFiles marker missing on phone (배포 결손)"
 [ "$MC" -ge 1 ] || FAIL "jkapp_music CMake marker missing on phone"
 [ "$MT" -ge 1 ] || FAIL "2m selftest marker missing on phone main.cpp"
@@ -1014,10 +1178,12 @@ echo "MARKER-AFTER music_model($MM) cmake($MC) main_2m($MT) main_2p($MP2) main_2
 [ "$MR2" -ge 10 ] || FAIL "2r selftest markers missing on phone main.cpp (기대 >=10 — #97 T1 8+fix r1 2 배포 결손)"
 [ "$MS2" -ge 20 ] || FAIL "2s selftest markers missing on phone main.cpp (기대 >=20 — T1 77323b1 태그 라인 배포 결손)"
 [ "$MU2" -ge 100 ] || FAIL "2u selftest markers missing on phone main.cpp (기대 >=100 — #111 T1/T2/T4 태그 쓰기 라인 배포 결손 — T6)"
+[ "$MW2" -ge 4 ] || FAIL "2w selftest markers missing on phone main.cpp (기대 >=4 — #113 T1 저널 leg 배포 결손)"
+[ "$MX2" -ge 14 ] || FAIL "2x selftest markers missing on phone main.cpp (기대 >=14 라벨 — #115 opus/m4a 라인 T1+T2+T3+T3 fix r1(ce3f539 — 2x-⑫b) 배포 결손)"
 [ "$MMSC" -ge 1 ] || FAIL "scanCancel_ wiring marker missing on phone (T2 취소 배선 배포 결손)"
 [ "$MP" -ge 1 ] || FAIL "DelegationReplyVerdict marker missing on phone (fix r3 배포 결손)"
 
-echo "=== H. selftest — 폰 캐논 계보 판정 (원문: #111 T6 원문 795 = 668 + 2u 127 · 기대 814 = 795 + fix 5(#111 최종 f33d41a — 폰 미흡수분 — 795→800 승계)+2v 14(#112 T1-T4 구두 — WSL 814 등호) — 실측 후 CANON 정산) ==="
+echo "=== H. selftest — 폰 캐논 계보 판정 (계보: 795(#111 T6) → 814(#112 T5 — fix 5+2v 14) → 818 = 814 + 2w 4(#113 T1 저널 — t3legs 배포 실측) → **기대 831 = 818 + 2x 13(2x ①②③ 20e3abf+3·④-⑧ 95cb8c6+5·⑨[round-trip+폴백 2어설션]⑩⑪⑫ 840ea41+5 — 12건/13 어설션 — WSL 831 등호 — 브리프 원문행의 '854 승계'는 Win 축 수치 표기 원장행** — 실측 후 CANON 정산) ==="
 timeout 900 ./buildterm/jkdesktop test >"$STLOG" 2>&1
 S_RC=$?
 ST_PASS=$(grep -ac '^\[PASS\]' "$STLOG")
@@ -1034,24 +1200,28 @@ P2R=$(grep -ac '^\[PASS\] 2r' "$STLOG")
 P2S=$(grep -ac '^\[PASS\] 2s' "$STLOG")
 P2U=$(grep -ac '^\[PASS\] 2u' "$STLOG")
 P2V=$(grep -ac '^\[PASS\] 2v' "$STLOG")
+P2W=$(grep -ac '^\[PASS\] 2w' "$STLOG")
+P2X=$(grep -ac '^\[PASS\] 2x' "$STLOG")
 P2I=$(grep -ac '^\[PASS\] 2i' "$STLOG")
 P2G=$(grep -ac '^\[PASS\] 2g' "$STLOG")
-echo "PHONE-SELFTEST rc=$S_RC PASS=$ST_PASS FAIL=$ST_FAIL 2m=$P2M(2m-h=$P2MH) 2i=$P2I 2g=$P2G 2n=$P2N 2o=$P2O(2o-f=$P2OF 2o-g=$P2OG) 2p=$P2P 2q=$P2Q 2r=$P2R 2s=$P2S 2u=$P2U 2v=$P2V (music 라인 2m·2n·2o + 취소 경계 2p + 경로 인코딩 2q + #97 브라우저 2r + 태그 2s + #111 태그 쓰기 2u + #112 구두 2v 계열 — 캐논 상승분의 원료 — 분해 병기: 정산 판별 몫)"
+echo "PHONE-SELFTEST rc=$S_RC PASS=$ST_PASS FAIL=$ST_FAIL 2m=$P2M(2m-h=$P2MH) 2i=$P2I 2g=$P2G 2n=$P2N 2o=$P2O(2o-f=$P2OF 2o-g=$P2OG) 2p=$P2P 2q=$P2Q 2r=$P2R 2s=$P2S 2u=$P2U 2v=$P2V 2w=$P2W 2x=$P2X (music 라인 2m·2n·2o + 취소 경계 2p + 경로 인코딩 2q + #97 브라우저 2r + 태그 2s + #111 태그 쓰기 2u + #112 구두 2v + #113 저널 2w + #115 opus/m4a 2x 계열 — 캐논 상승분의 원료 — 분해 병기: 정산 판별 몫)"
 grep -a 'AppSelfTest' "$STLOG" | tail -2
 grep -aq 'AppSelfTest: 0 failure(s)' "$STLOG" || FAIL "AppSelfTest not 0 failure(s)"
 [ "$S_RC" -eq 0 ] || FAIL "selftest rc=$S_RC"
 [ "$ST_FAIL" -eq 0 ] || FAIL "selftest FAIL=$ST_FAIL (폰축 회귀)"
 awk -v p="$ST_PASS" -v m="$P2M" -v h="$P2MH" -v n="$P2N" -v o="$P2O" -v of="$P2OF" -v og="$P2OG" \
     -v pf="$P2P" -v qf="$P2Q" -v rf="$P2R" -v sf="$P2S" -v uf="$P2U" -v vf="$P2V" \
+    -v wf="$P2W" -v xf="$P2X" \
     -v prev="$CANON_PHONE_PREV" -v expect="$CANON_PHONE_EXPECT" -v exo="$CANON_PHONE_2O" \
     -v exn="$CANON_PHONE_2N" -v xp="$CANON_PHONE_2P" -v xq="$CANON_PHONE_2Q" -v xr="$CANON_PHONE_2R" \
-    -v xs="$CANON_PHONE_2S" -v mm="$CANON_PHONE_2M" -v xu="$CANON_PHONE_2U" 'BEGIN{
-    if (p == expect && o == exo && pf == xp && qf == xq && rf == xr && sf == xs && uf == xu)
-        printf "CANON-INCLUSION=MUSIC-FULL-2P2QRS-%d (폰 캐논 %s→%s 상승 — 상승분 %d = #111 최종 fix 5 + 2v 14(#112 T1-T4 구두 — 2v=%d — 2u %d건·2r %d건+2s %d건 + 2p %d건+2q %d건 + 2m %d건[h %d 포함]·2n %d건·2o %d건[o-f %d·o-g %d] 보존) 실측 — WSL %s 등호)\n", p - prev, prev, p, p - prev, vf, uf, rf, sf, pf, qf, mm, h, n, o, of, og, expect
+    -v xs="$CANON_PHONE_2S" -v mm="$CANON_PHONE_2M" -v xu="$CANON_PHONE_2U" \
+    -v xw="$CANON_PHONE_2W" -v xx="$CANON_PHONE_2X" 'BEGIN{
+    if (p == expect && o == exo && pf == xp && qf == xq && rf == xr && sf == xs && uf == xu && wf == xw && xf == xx)
+        printf "CANON-INCLUSION=MUSIC-FULL-2P2QRS-%d (폰 캐논 %s→%s 상승 — 상승분 %d = #115 2x 13(T1 20e3abf +3·T2 95cb8c6 +5·T3 840ea41 +5 — 2x=%d·2w=%d·2v=%d 흡수 — 2u %d건·2r %d건+2s %d건 + 2p %d건+2q %d건 + 2m %d건[h %d 포함]·2n %d건·2o %d건[o-f %d·o-g %d] 보존) 실측 — WSL %s 등호)\n", p - prev, prev, p, p - prev, xf, wf, vf, uf, rf, sf, pf, qf, mm, h, n, o, of, og, expect
     else if (p == prev)
-        print "CANON-INCLUSION=MUSIC-SELFTEST-MISSING (music selftest 쌍둥이 미반영 — 계보 결손 — 원장: 2u 배포 결손이면 668 정산 [WARN] — 2u=" xu ")"
+        print "CANON-INCLUSION=MUSIC-SELFTEST-MISSING (music selftest 쌍둥이 미반영 — 계보 결손 — 원장: 2u/2x 배포 결손이면 818 정산 [WARN] — 2u=" xu " 2x=" xf ")"
     else
-        printf "CANON-INCLUSION=OTHER-N(%d — 기대 %d=%d+fix5+2v14(2v=%d) · 2u=%d·2r=%d·2s=%d(2p=%d+2q=%d) · 2m=%d[h=%d]·2n=%d·2o=%d[o-f=%d o-g=%d] — 계보 정산 원장)\n", p, expect, prev, vf, xu, rf, sf, xp, xq, m, h, n, o, of, og
+        printf "CANON-INCLUSION=OTHER-N(%d — 기대 %d=%d+2x13(2x=%d·2w=%d·2v=%d) · 2u=%d·2r=%d·2s=%d(2p=%d+2q=%d) · 2m=%d[h=%d]·2n=%d·2o=%d[o-f=%d o-g=%d] — 계보 정산 원장)\n", p, expect, prev, xf, wf, vf, xu, rf, sf, xp, xq, m, h, n, o, of, og
 }'
 
 # ---------------------------------------------------------------- 레그 공통
@@ -2908,6 +3078,344 @@ fi
 [ "${TW_STAGE:-0}" -eq 1 ] || echo "MUS-TW-SUMMARY-2: stage=0 land=0 w1=0 w2=0 flac=0 cover_rt=0 apic_keep=0 (Music 창 부재 — 세그먼트 생략 — 원장행)"
 echo "MUS-TW-SEGMENT-END (TW 시드 소각 = N6-6·P3·REMNANT 게이트 몫 — 표기·썸네일·[편집] 모양 = 캡처 육안 몫 EYES)"
 
+# ══════════════════════ N7 — opus/m4a 태그 쓰기 동형 세그먼트 (#115 T4 — wsl_music 16f-OM 수형) ══════════════════════
+# 위상 = N6 말단(TW 시드 소각) 뒤·leg sdcard(O 섹션) 앞 — 같은 도구 경계·같은
+# $TAGDIR(등록 스캔 dir). 기존 세그먼트(레그·N4·N5·N6) 원존 — 본 세그먼트만
+# 신설. 폰 수형 원장:
+#   · OM 시드(합성 m4a+opus — 2x 픽스처 승계·합성 cover jpg = TW 원문 재용 —
+#     동일 바이트·md5 등호 축 공유)는 **드라이버 합성**(2d 섹션 — Windows python
+#     stdlib — 폰 python3 불요 계약 승계)이고 E5가 \$OMDIR로 수취 → N7-1이
+#     N6-6 소각 뒤 \$TAGDIR로 mv(TW 3행 계약 무오염 — N6-1 수형).
+#   · 쓰기 4콜 — m4a: ①cover 지정(covr 교체) ②cover=null+covr 유지·opus:
+#     ③cover 지정(MBP 교체) ④cover 생략(MBP 유지) — **재독 표기 원문** = 파일
+#     수준(순수 파이썬 재파싱 — pmus_omparse.py — 앱 파서와 독립)+목록 행 캡처
+#     2종(om_list·om_opus — EYES).
+#   · 필터 라운드 스킵 원장(N6 승계 — 폰 타이핑 스킵)·클릭 0 — 도구 경로만.
+#   · scan_busy 재시도 = tw_write 수형(16f-2/N6-3 원존 — 재정의 폴백 포함).
+#   · REMNANT = OM 시드 3건 소각(N7-5·P3 $TAGDIR 통짜 소각+드라이버 REMNANT
+#     게이트 병행 — probe 소유 잔상 0 계약).
+echo "=== N7. opus/m4a 태그 쓰기(도구) 동형 세그먼트 (#115 T4 — wsl_music 16f-OM 폰 수형) ==="
+OMDIR="$TMPD/mus_omseed"
+OM_STAGE=0; OM_LAND=0; OM1_OK=0; OM2_OK=0; OM3_OK=0; OM4_OK=0
+OM_COVR_RT=0; OM_COVR_KEEP=0; OM_MBP_RT=0; OM_MBP_KEEP=0
+for i in 1 2 3 4 5 6 7 8; do
+    sleep 2
+    WINOM=$(ctl '{"tool":"list_windows","args":{}}')
+    MUSWINOM=$(printf '%s' "$WINOM" | grep -aoE '\{"id":[^}]*"title":"Music"[^}]*\}' | head -1)
+    [ -n "$MUSWINOM" ] && break
+done
+if [ -n "$MUSWINOM" ]; then
+    OM_STAGE=1
+    MUSWIN="$MUSWINOM"
+    parse_geo om
+    echo "MUSWIN-N7: $MUSWIN (N6 클라 승계 — 활성 탭 상속)"
+else
+    echo "MUSICP-FAIL-SOFT(om-recon: Music 창 부재 — N6 계보 재대조 몫 — opus/m4a 세그먼트 생략, 원장)"
+fi
+
+if [ "$OM_STAGE" -eq 1 ] && [ -d "$OMDIR" ] && [ "$(find "$OMDIR" -type f 2>/dev/null | wc -l)" -eq 3 ]; then
+    mv "$OMDIR/t_om_write.m4a" "$OMDIR/t_om_write.opus" "$OMDIR/t_om_cover.jpg" "$TAGDIR/" \
+        && rmdir "$OMDIR" 2>/dev/null
+    [ -d "$OMDIR" ] && rm -rf "$OMDIR"
+    OM_LAND=1
+    echo "OM-LANDED: $TAGDIR (t_om_write.m4a+t_om_write.opus+t_om_cover.jpg — N6 소각 뒤 랜딩 원문)"
+fi
+
+if [ "$OM_LAND" -eq 1 ]; then
+    sync
+    echo "OM-SYNC: drained (시드 writeback 선행 배수 — N3 원장 수형)"
+    OM_CM=$(md5sum "$TAGDIR/t_om_cover.jpg" | sed -n 's/^\([0-9a-f]*\) .*$/\1/p')
+    echo "OM-COVER-LANDED: bytes=$(wc -c < "$TAGDIR/t_om_cover.jpg") md5=$OM_CM (기대=__TW_COVER_MD5__ — TW 원문 동일 바이트 등호 게이트)"
+    [ "$OM_CM" = "__TW_COVER_MD5__" ] || echo "MUSICP-FAIL-SOFT(om-cover-md5-lan: 랜딩 원문 불일치 — E5 게이트와 이중)"
+
+    echo "--- N7-2. 재독 파서 준비+프리뷰 (pmus_omparse.py — 폰 python3 — 시더/앱 파서와 독립 — 16f-OM 수형 동일 내용) ---"
+    cat > "$TMPD/pmus_omparse.py" <<'PYEOF'
+# [#115 T4] opus/m4a 재독 파서(폰) — wsl_music.sh 16f-OM mus_omparse.py 원문
+# 수형(동일 내용 — 진실원 = 파일 바이트): m4a = 최상위 box 보행 → moov → udta →
+# meta(4B 스킵) → hdlr('mdir')→ilst 항목(©nam 1바이트 0xA9 접두)·covr data
+# (13/14/0 스니프) 재독 — opus = OggS 페이지 보행(lacing 패킷 재조립) →
+# "OpusTags" 패킷(완성 지점 매김) → vendor+관리 3키+covr METADATA_BLOCK_PICTURE
+# (base64 → FLAC 그림 구조) 재독.
+import base64, hashlib, struct, sys
+
+def rdb(buf, off):
+    return struct.unpack(">I", buf[off:off + 4])[0]
+
+def walk(buf, off, end):
+    while off + 8 <= end:
+        size = rdb(buf, off)
+        typ = buf[off + 4:off + 8]
+        if size == 0:
+            size = end - off
+        if size < 8 or off + size > end:
+            return
+        yield typ, off + 8, off + size
+        off += size
+
+def first_data(item, buf):
+    for typ, s, e in walk(buf, item[1], item[2]):
+        if typ == b"data":
+            return buf[s + 3], buf[s + 8:e]
+    return None, None
+
+def parse_m4a(path, out):
+    d = open(path, "rb").read()
+    out.append("OM-M4A-BYTES %d" % len(d))
+    moov = None
+    mdat_ab = -1
+    for typ, s, e in walk(d, 0, len(d)):
+        if typ == b"moov":
+            moov = (s, e)
+        elif typ == b"mdat":
+            mdat_ab = d[s:e].count(0xAB)   # D2 — mdat 원문 무이동 검증 원료
+    if moov is None:
+        out.append("OM-M4A no-moov")
+        return out
+    out.append("OM-M4A-MDAT 0xab=%d" % mdat_ab)
+    udta = None
+    for typ, s, e in walk(d, moov[0], moov[1]):
+        if typ == b"udta":
+            udta = (s, e)
+    if udta is None:
+        out.append("OM-M4A no-udta")
+        return out
+    meta = None
+    for typ, s, e in walk(d, udta[0], udta[1]):
+        if typ == b"meta":
+            meta = (s + 4, e)
+    if meta is None:
+        out.append("OM-M4A no-meta")
+        return out
+    ok_hdlr = False
+    tags, covr = {}, None
+    ilst = None
+    for typ, s, e in walk(d, meta[0], meta[1]):
+        if typ == b"hdlr" and d[s + 8:s + 12] == b"mdir":
+            ok_hdlr = True
+        elif typ == b"ilst":
+            ilst = (s, e)
+    if ilst is None:
+        out.append("OM-M4A no-ilst")
+        return out
+    out.append("OM-M4A hdlr=%d" % (1 if ok_hdlr else 0))
+    for typ, s, e in walk(d, ilst[0], ilst[1]):
+        code, val = first_data((typ, s, e), d)
+        if code == 1 and typ in (b"\xa9nam", b"\xa9ART", b"\xa9alb"):
+            try:
+                tags[typ.decode("latin-1")] = val.decode("utf-8")
+            except UnicodeDecodeError:
+                pass
+        elif typ == b"covr" and code in (13, 14) and val is not None:
+            covr = (code, val)
+    out.append("OM-M4A-TAG title=%r artist=%r album=%r"
+               % (tags.get("\xa9nam", ""), tags.get("\xa9ART", ""),
+                  tags.get("\xa9alb", "")))
+    if covr:
+        out.append("OM-COVR mime=%s md5=%s bytes=%d code=%d magic=%s"
+                   % ("image/jpeg" if covr[0] == 13 else "image/png",
+                      hashlib.md5(covr[1]).hexdigest(), len(covr[1]), covr[0],
+                      covr[1][:2].hex()))
+    else:
+        out.append("OM-COVR none")
+    return out
+
+def parse_opus(path, out):
+    d = open(path, "rb").read()
+    out.append("OM-OPUS-BYTES %d" % len(d))
+    pkt, off = b"", 0
+    vendor, tags, mbp = None, {}, None
+    cmt_htype = None
+    while off + 27 <= len(d):
+        if d[off:off + 4] != b"OggS":
+            break
+        segs = d[off + 26]
+        tables = d[off + 27:off + 27 + segs]
+        pay_off = off + 27 + segs
+        plen = sum(tables)
+        if pay_off + plen > len(d):
+            break                       # 잘린 페이지 = 정직 절단
+        for t in tables:
+            seg = d[pay_off:pay_off + t]
+            pay_off += t
+            pkt += seg
+            if t < 255:                 # 패킷 완성 지점에서만 매김
+                if pkt[:8] == b"OpusTags" and vendor is None:
+                    cmt_htype = d[off + 4]  # 코멘트 페이지 htype(D10 원문 유지)
+                    vlen = struct.unpack("<I", pkt[8:12])[0]
+                    vendor = pkt[12:12 + vlen].decode("utf-8", "replace")
+                    cnt = struct.unpack("<I", pkt[12 + vlen:16 + vlen])[0]
+                    p = 16 + vlen
+                    for _ in range(cnt):
+                        elen = struct.unpack("<I", pkt[p:p + 4])[0]
+                        ent = pkt[p + 4:p + 4 + elen].decode("utf-8", "replace")
+                        p += 4 + elen
+                        k, _, v = ent.partition("=")
+                        if k == "METADATA_BLOCK_PICTURE":
+                            try:
+                                pic = base64.b64decode(v)
+                                mlen = rdb(pic, 4)
+                                mime = pic[8:8 + mlen].decode("latin-1")
+                                desc_len = rdb(pic, 8 + mlen)
+                                p2 = 8 + mlen + 4 + desc_len
+                                skip = 16
+                                dlen = rdb(pic, p2 + skip)
+                                data = pic[p2 + skip + 4:p2 + skip + 4 + dlen]
+                                mbp = (mime, data)
+                            except Exception:
+                                mbp = None
+                        else:
+                            tags[k] = v
+                pkt = b""
+        off = off + 27 + segs + plen
+    out.append("OM-OPUS vendor=%r title=%r artist=%r album=%r cmt_htype=%s"
+               % (vendor, tags.get("TITLE", ""), tags.get("ARTIST", ""),
+                  tags.get("ALBUM", ""),
+                  str(cmt_htype) if cmt_htype is not None else "none"))
+    if mbp:
+        out.append("OM-MBP mime=%s md5=%s bytes=%d magic=%s"
+                   % (mbp[0], hashlib.md5(mbp[1]).hexdigest(), len(mbp[1]),
+                      mbp[1][:2].hex()))
+    else:
+        out.append("OM-MBP none")
+    return out
+
+path = sys.argv[1]
+head = open(path, "rb").read(12)
+if b"ftyp" in head:
+    for ln in parse_m4a(path, []):
+        print(ln)
+elif head[:4] == b"OggS":
+    for ln in parse_opus(path, []):
+        print(ln)
+else:
+    print("OM-PARSE magic-unknown (합성 전제 위반 — 시더 원문 재확인)")
+PYEOF
+    OM_PRE_M4A=$(python3 "$TMPD/pmus_omparse.py" "$TAGDIR/t_om_write.m4a")
+    echo "MUS-OM-PREVIEW-M4A: $OM_PRE_M4A (쓰기 전 — 시더 값+png covr 원문)"
+    grep -aq 'hdlr=1' <<<"$OM_PRE_M4A" || echo "MUSICP-FAIL-SOFT(om-preview-hdlr: m4a 시드 hdlr('mdir') 부재 — 2x-① 구성 계약 위배 — 원장)"
+    OM_PRE_OPUS=$(python3 "$TMPD/pmus_omparse.py" "$TAGDIR/t_om_write.opus")
+    echo "MUS-OM-PREVIEW-OPUS: $OM_PRE_OPUS (쓰기 전 — 시더 값+png MBP 원문)"
+
+    echo "--- N7-3. 도구 쓰기 1 — m4a cover 지정(covr 교체 leg) ---"
+    if ! type tw_write >/dev/null 2>&1; then
+        tw_write() { # $1=args-json — scan_busy 재시도 수형(N6-3 재작성 — N6
+                     #   세그먼트 미성립 계보의 N7 독립성 원장)
+            TW_REPLY=""
+            local a="$1" r i ok=1
+            for i in 1 2 3; do
+                r=$(mtool music_tag_write "$a")
+                TW_REPLY=$r
+                echo "  TW-WRITE#$i: ${r:-none}"
+                if printf '%s' "$r" | grep -aq '"ok":true'; then ok=0; break; fi
+                printf '%s' "$r" | grep -aq '"error":"scan_busy"' || break
+                sleep 4
+            done
+            return $ok
+        }
+    fi
+    OM_TITLE_A="Phone Omus Alpha"
+    OM_ARTIST="Probe Om Artist"
+    OM_ALBUM="Om Album One"
+    OM_TITLE_B="Phone Omus Reup"
+    if tw_write "{\"path\":\"$TAGDIR/t_om_write.m4a\",\"title\":\"$OM_TITLE_A\",\"artist\":\"$OM_ARTIST\",\"album\":\"$OM_ALBUM\",\"cover\":\"$TAGDIR/t_om_cover.jpg\"}"; then
+        OM1_OK=1
+        echo "MUS-OM-WRITE1-OK: ok 수취 — m4a relay 쓰기 성립(WriteM4aTag — ilst 재조립+mdat 원문 무이동 — D2)"
+        sleep 8   # 재스캔 도착(폰 스캔·컴포지트 도착이 늦다 — N6 수형)
+        CAPTURE "$TMPD/mus_phone_om_list.png"
+        echo "MUS-OM-LIST-LEDGER: 예상 상단 행(쓰기 mtime desc): 'Phone Omus Alpha (Probe Om Artist)'+'Om Album One'+좌측 커버아트 썸네일 32px(4색 밴드 jpg — 교체된 covr) — 표기·썸네일은 캡처 육안 몫(EYES)"
+    else
+        echo "MUSICP-FAIL-SOFT(om-write1: m4a 도구 쓰기 거부 — $TW_REPLY)"
+    fi
+    AP1=$(python3 "$TMPD/pmus_omparse.py" "$TAGDIR/t_om_write.m4a")
+    echo "MUS-OM-PARSED-A: $AP1 (m4a 파일 수준 재독 — 앱 파서와 독립 round-trip 원문)"
+    OM_MD5_1=$(printf '%s\n' "$AP1" | sed -n 's/.*OM-COVR mime=\([^ ]*\) md5=\([0-9a-f]*\).*/\2/p')
+    OM_MIME_1=$(printf '%s\n' "$AP1" | sed -n 's/.*OM-COVR mime=\([^ ]*\) md5=\([0-9a-f]*\).*/\1/p')
+    OM_MDAT_1=$(printf '%s\n' "$AP1" | sed -n 's/.*OM-M4A-MDAT 0xab=\([0-9]*\).*/\1/p')
+    echo "MUS-OM-COVR-1: mime=${OM_MIME_1:-none} md5=${OM_MD5_1:-none} mdat_0xab=${OM_MDAT_1:-none} (합성 cover md5=$OM_CM 대조 — mdat 64 기대)"
+    if [ -n "$OM_MD5_1" ] && [ "$OM_MD5_1" = "$OM_CM" ] \
+        && [ "$OM_MIME_1" = "image/jpeg" ] && [ "$OM_MDAT_1" = "64" ]; then
+        OM_COVR_RT=1
+        echo "MUSIC-OM-COVR-RT: OK — m4a covr == 합성 cover jpg+mdat 원문 무이동(교체 — D2/D4 라이브 대응)"
+    else
+        echo "MUSICP-FAIL-SOFT(om-covr-rt: covr 교체/mdat 불일치 — md5=${OM_MD5_1:-none} mime=${OM_MIME_1:-none} mdat=${OM_MDAT_1:-none})"
+    fi
+
+    echo "--- N7-4. 도구 쓰기 2 — m4a cover=null(기존 covr 유지 계약)+title 교체 ---"
+    if tw_write "{\"path\":\"$TAGDIR/t_om_write.m4a\",\"title\":\"$OM_TITLE_B\",\"artist\":\"$OM_ARTIST\",\"album\":\"$OM_ALBUM\",\"cover\":null}"; then
+        OM2_OK=1
+        echo "MUS-OM-WRITE2-OK: ok 수취 — cover=null = 기존 covr 유지 leg(WriteM4aTag covr null 계약 — 2x-⑩(a)의 도구 경계 라이브 대응)"
+        sleep 8
+        CAPTURE "$TMPD/mus_phone_om_list2.png"   # 재상단 행(쓰기 2 label) — EYES 보조
+    else
+        echo "MUSICP-FAIL-SOFT(om-write2: m4a 도구 쓰기 2 거부 — $TW_REPLY)"
+    fi
+    AP2=$(python3 "$TMPD/pmus_omparse.py" "$TAGDIR/t_om_write.m4a")
+    echo "MUS-OM-PARSED-B: $AP2 (쓰기 2 재독 — title 교체+covr 유지 원문)"
+    OM_MD5_2=$(printf '%s\n' "$AP2" | sed -n 's/.*OM-COVR mime=\([^ ]*\) md5=\([0-9a-f]*\).*/\2/p')
+    if [ -n "$OM_MD5_2" ] && [ "$OM_MD5_2" = "$OM_CM" ]; then
+        OM_COVR_KEEP=1
+        echo "MUS-OM-COVR-KEEP: OK — cover=null 뒤 covr 원문 유지(md5 등호 — $OM_MD5_2)"
+    else
+        echo "MUSICP-FAIL-SOFT(om-covr-keep: cover=null 뒤 covr 소각/변조 — md5=${OM_MD5_2:-none})"
+    fi
+
+    echo "--- N7-5. 도구 쓰기 3 — opus cover 지정(MBP 교체 leg) ---"
+    if tw_write "{\"path\":\"$TAGDIR/t_om_write.opus\",\"title\":\"$OM_TITLE_A\",\"artist\":\"$OM_ARTIST\",\"album\":\"$OM_ALBUM\",\"cover\":\"$TAGDIR/t_om_cover.jpg\"}"; then
+        OM3_OK=1
+        echo "MUS-OM-WRITE3-OK: ok 수취 — opus relay 쓰기 성립(WriteOpusTag — OpusTags 패킷 교체+페이지 재조립 — D3)"
+        sleep 8
+        CAPTURE "$TMPD/mus_phone_om_opus.png"   # opus 행 표기(D5 — EYES)
+        echo "MUS-OM-OPUS-LEDGER: 예상 상단 행: 'Phone Omus Alpha (Probe Om Artist)'+'Om Album One'(.opus 행 — 커버 썸네일 = MBP 교체 jpg) — 캡처 육안 몫(EYES)"
+    else
+        echo "MUSICP-FAIL-SOFT(om-write3: opus 도구 쓰기 거부 — $TW_REPLY)"
+    fi
+    AP3=$(python3 "$TMPD/pmus_omparse.py" "$TAGDIR/t_om_write.opus")
+    echo "MUS-OM-PARSED-C: $AP3 (opus 파일 수준 재독 — OpusTags/MBP 재조립 round-trip 원문)"
+    OM_MBP_3=$(printf '%s\n' "$AP3" | sed -n 's/.*OM-MBP mime=\([^ ]*\) md5=\([0-9a-f]*\).*/\2/p')
+    OM_MBP_MIME_3=$(printf '%s\n' "$AP3" | sed -n 's/.*OM-MBP mime=\([^ ]*\) md5=\([0-9a-f]*\).*/\1/p')
+    OM_VENDOR=$(printf '%s\n' "$AP3" | sed -n "s/.*vendor='\([^']*\)'.*/\1/p")
+    OM_HT_3=$(printf '%s\n' "$AP3" | sed -n 's/.*cmt_htype=\([0-9a-z]*\).*/\1/p')
+    echo "MUS-OM-MBP-3: mime=${OM_MBP_MIME_3:-none} md5=${OM_MBP_3:-none} vendor=${OM_VENDOR:-none} htype=${OM_HT_3:-none}"
+    if [ -n "$OM_MBP_3" ] && [ "$OM_MBP_3" = "$OM_CM" ] \
+        && [ "$OM_MBP_MIME_3" = "image/jpeg" ] && [ "$OM_VENDOR" = "om-vendor" ] \
+        && [ "$OM_HT_3" = "4" ]; then
+        OM_MBP_RT=1
+        echo "MUSIC-OM-MBP-RT: OK — opus MBP == 합성 cover jpg+벤더 유지+코멘트 페이지 EOS 0x04 유지(D3/D4/D9/D10 라이브 대응)"
+    else
+        echo "MUSICP-FAIL-SOFT(om-mbp-rt: MBP 교체/벤더/EOS 불일치 — md5=${OM_MBP_3:-none} vendor=${OM_VENDOR:-none} htype=${OM_HT_3:-none})"
+    fi
+
+    echo "--- N7-6. 도구 쓰기 4 — opus cover 생략(MBP 유지 leg)+title 교체 ---"
+    if tw_write "{\"path\":\"$TAGDIR/t_om_write.opus\",\"title\":\"$OM_TITLE_B\",\"artist\":\"$OM_ARTIST\",\"album\":\"$OM_ALBUM\"}"; then
+        OM4_OK=1
+        echo "MUS-OM-WRITE4-OK: ok 수취 — opus cover 생략 = 기존 MBP 유지 leg(WriteOpusTag 유지 계약 — FLAC PICTURE 생략 leg의 opus 대응)"
+        sleep 8
+    else
+        echo "MUSICP-FAIL-SOFT(om-write4: opus 도구 쓰기 2 거부 — $TW_REPLY)"
+    fi
+    AP4=$(python3 "$TMPD/pmus_omparse.py" "$TAGDIR/t_om_write.opus")
+    echo "MUS-OM-PARSED-D: $AP4 (쓰기 4 재독 — title 교체+MBP 유지 원문)"
+    OM_MBP_4=$(printf '%s\n' "$AP4" | sed -n 's/.*OM-MBP mime=\([^ ]*\) md5=\([0-9a-f]*\).*/\2/p')
+    if [ -n "$OM_MBP_4" ] && [ "$OM_MBP_4" = "$OM_CM" ]; then
+        OM_MBP_KEEP=1
+        echo "MUS-OM-MBP-KEEP: OK — opus cover 생략 뒤 MBP 원문 유지(md5 등호 — $OM_MBP_4)"
+    else
+        echo "MUSICP-FAIL-SOFT(om-mbp-keep: opus cover 생략 뒤 MBP 소각/변조 — md5=${OM_MBP_4:-none})"
+    fi
+
+    echo "--- N7-7. 필터 라운드 스킵 원장행 + OM 시드 소각 (probe 소유 잔상 0 — REMNANT 계약 — N6-6 수형) ---"
+    rm -f "$TMPD/pmus_omparse.py"
+    rm -f "$TAGDIR/t_om_write.m4a" "$TAGDIR/t_om_write.opus" "$TAGDIR/t_om_cover.jpg"
+    rm -rf "$OMDIR"
+    OM_LEFT=$(ls "$TAGDIR"/t_om_* 2>/dev/null | wc -l)
+    [ "$OM_LEFT" -eq 0 ] \
+        && echo "OM-BURIED: t_om_* 3건 소각 (P3 \$TAGDIR 통짜 소각+드라이버 REMNANT 게이트 병행)" \
+        || echo "MUSICP-FAIL-SOFT(om-bury: OM 시드 잔존 $OM_LEFT건 — 수동 소각)"
+    echo "MUS-OM-SUMMARY-2: stage=$OM_STAGE land=$OM_LAND w1=$OM1_OK w2=$OM2_OK w3=$OM3_OK w4=$OM4_OK covr_rt=$OM_COVR_RT covr_keep=$OM_COVR_KEEP mbp_rt=$OM_MBP_RT mbp_keep=$OM_MBP_KEEP covr_1=${OM_MD5_1:-none} mbp_3=${OM_MBP_3:-none} (N7 세그먼트 원문 종합 — 드라이버 판정 파싱 원문행)"
+fi
+[ "${OM_STAGE:-0}" -eq 1 ] || echo "MUS-OM-SUMMARY-2: stage=0 land=0 w1=0 w2=0 w3=0 w4=0 covr_rt=0 covr_keep=0 mbp_rt=0 mbp_keep=0 (Music 창 부재/시드 미착 — 세그먼트 생략 — 원장행)"
+echo "MUS-OM-SEGMENT-END (OM 시드 소각 = N7-7·P3·REMNANT 게이트 몫 — 표기·썸네일 = 캡처 육안 몫 EYES)"
+
 # ══════════════════════ leg sdcard — /sdcard FUSE 스캔 유한 종료 실측 (M-5 재판정) ══════════════
 LEG=sdcard
 echo "=== O. leg sdcard — music.dirs=/sdcard 부팅 + FUSE 스캔 유한 종료 실측 (T1 fix r1 리뷰 M-5 재판정) ==="
@@ -3103,6 +3611,9 @@ tar -tf "$SEEDTAR" | grep -aq 'pmus_seed_stage/pcm_music_seed/sub/d_seed.wav' ||
 tar -tf "$SEEDTAR" | grep -aq 'pmus_seed_stage/tag_music_seed/t_tag_alpha.mp3' || FAIL "seed tar missing tag member (T4 #99 태그 시드 누락)"
 tar -tf "$SEEDTAR" | grep -aq 'pmus_seed_stage/tw_music_seed/t_tw_write.mp3' || FAIL "seed tar missing TW member (#111 T6 태그 쓰기 시드 누락)"
 tar -tf "$SEEDTAR" | grep -aq 'pmus_seed_stage/tw_music_seed/t_tw_cover.jpg' || FAIL "seed tar missing TW cover member (#111 T6)"
+tar -tf "$SEEDTAR" | grep -aq 'pmus_seed_stage/om_music_seed/t_om_write.m4a' || FAIL "seed tar missing OM m4a member (#115 T4 태그 쓰기 시드 누락)"
+tar -tf "$SEEDTAR" | grep -aq 'pmus_seed_stage/om_music_seed/t_om_write.opus' || FAIL "seed tar missing OM opus member (#115 T4 태그 쓰기 시드 누락)"
+tar -tf "$SEEDTAR" | grep -aq 'pmus_seed_stage/om_music_seed/t_om_cover.jpg' || FAIL "seed tar missing OM cover member (#115 T4)"
 $SSH "tar -xf - -C ~/JKENGINE" < "$SEEDTAR" || FAIL "seed tar extract failed"
 rm -f "$SEEDTAR"
 $SSH "cat > $RSRC_PHONE" < "$SCRATCH/$RSRC_TAR_NAME" || FAIL "remote script copy failed"
@@ -3197,6 +3708,9 @@ echo "REMNANT-TAG-SEEDS: $REM_TAG (T4 #99 태그 세그먼트 잔산 게이트 �
 REM_TWS=$($SSH '[ -d "$TMPDIR/mus_twseed" ] && echo present || echo gone' | tr -d ' \r')
 echo "REMNANT-TW-SEEDS: $REM_TWS (#111 T6 태그 쓰기 세그먼트 잔산 게이트 — 합성 3건[N6-6 소각 — TAGDIR 통짜 소각의 이중 가드])"
 [ "$REM_TWS" = "gone" ] || FAIL "REMNANT survived: TW seeds left on phone (mus_twseed=$REM_TWS)"
+REM_OMS=$($SSH '[ -d "$TMPDIR/mus_omseed" ] && echo present || echo gone' | tr -d ' \r')
+echo "REMNANT-OM-SEEDS: $REM_OMS (#115 T4 태그 쓰기 세그먼트 잔산 게이트 — 합성 3건[N7-7 소각 — TAGDIR 통짜 소각의 이중 가드])"
+[ "$REM_OMS" = "gone" ] || FAIL "REMNANT survived: OM seeds left on phone (mus_omseed=$REM_OMS)"
 REM_XT=$($SSH '[ -f "$TMPDIR/xtap" ] && echo present || echo gone' | tr -d ' \r')
 echo "REMNANT-XT-INJECTOR: $REM_XT (**삭제 금지 계약 — #96/input-repair 원장: 진입 소각은 캡처·로그만, 주입기는 면제 — present=계약 준수**)"
 $SSH "rm -f \$HOME/.pmus_tree.txt \$HOME/.pmus_files.txt \$HOME/.pmus_sizes.txt \$HOME/.pmus_sizes2.txt" 2>/dev/null
@@ -3261,12 +3775,17 @@ recover_opt "\$TMPDIR/mus_phone_tag_after.png" "$SCRATCH/mus_phone_tag_after.png
 recover_opt "\$TMPDIR/mus_phone_tagwrite_list.png" "$SCRATCH/mus_phone_tagwrite_list.png"
 recover_opt "\$TMPDIR/mus_phone_tagwrite_list2.png" "$SCRATCH/mus_phone_tagwrite_list2.png"
 recover_opt "\$TMPDIR/mus_phone_tagwrite_flac.png" "$SCRATCH/mus_phone_tagwrite_flac.png"
+# [#115 T4] N7 opus/m4a 세그먼트 캡처 2종(m4a 행·opus 행 — D5 표기 원문 —
+# 세그먼트 단계 미달 런 = ABSENT 원산 — recover_opt 수형)
+recover_opt "\$TMPDIR/mus_phone_om_list.png" "$SCRATCH/mus_phone_om_list.png"
+recover_opt "\$TMPDIR/mus_phone_om_list2.png" "$SCRATCH/mus_phone_om_list2.png"
+recover_opt "\$TMPDIR/mus_phone_om_opus.png" "$SCRATCH/mus_phone_om_opus.png"
 # 정찰 중간 프레임(bc_*) — 성공 런은 원격 소각(ABSENT 원산), 무전달/정찰 런만 유산
 for t in bt0 btog bropen bsub bup bsub2 badd; do
     recover_opt "\$TMPDIR/mus_phone_bc_$t.png" "$SCRATCH/mus_phone_bc_$t.png"
 done
-$SSH "rm -f \$TMPDIR/mus_phone_list.png \$TMPDIR/mus_phone_list2.png \$TMPDIR/mus_phone_spatial.png \$TMPDIR/mus_phone_spatial_mix.png \$TMPDIR/mus_phone_vp_delegate.png \$TMPDIR/mus_phone_delegate_status.png \$TMPDIR/mus_phone_after.png \$TMPDIR/mus_phone_sdcard.png \$TMPDIR/mus_phone_dirs.png \$TMPDIR/mus_phone_dirs2.png \$TMPDIR/mus_phone_scan_busy.png \$TMPDIR/mus_phone_rescan_settled.png \$TMPDIR/mus_phone_browse_open.png \$TMPDIR/mus_phone_browse_subs.png \$TMPDIR/mus_phone_browse_sub.png \$TMPDIR/mus_phone_browse_up.png \$TMPDIR/mus_phone_browse_sub2.png \$TMPDIR/mus_phone_browse_added.png \$TMPDIR/mus_phone_browse_rescan.png \$TMPDIR/mus_phone_taglist.png \$TMPDIR/mus_phone_taglist2.png \$TMPDIR/mus_phone_tag_after.png \$TMPDIR/mus_phone_tagwrite_list.png \$TMPDIR/mus_phone_tagwrite_list2.png \$TMPDIR/mus_phone_tagwrite_flac.png \$TMPDIR/mus_phone_bc_twbase.png \$TMPDIR/mus_phone_bc_twafter.png \$TMPDIR/pmus_twparse.py \$TMPDIR/pmus_orig_settings.json \$TMPDIR/pmus_orig_permissions.json"
-echo "CAPTURES-WRITTEN: mus_phone_{list,list2,spatial,vp_delegate,delegate_status,after,sdcard,dirs,dirs2,scan_busy,rescan_settled,browse_open,browse_subs,browse_sub,browse_up,browse_sub2,browse_added,browse_rescan,taglist,taglist2,tag_after,tagwrite_list,tagwrite_list2,tagwrite_flac}.png → engine/tmp/"
+$SSH "rm -f \$TMPDIR/mus_phone_list.png \$TMPDIR/mus_phone_list2.png \$TMPDIR/mus_phone_spatial.png \$TMPDIR/mus_phone_spatial_mix.png \$TMPDIR/mus_phone_vp_delegate.png \$TMPDIR/mus_phone_delegate_status.png \$TMPDIR/mus_phone_after.png \$TMPDIR/mus_phone_sdcard.png \$TMPDIR/mus_phone_dirs.png \$TMPDIR/mus_phone_dirs2.png \$TMPDIR/mus_phone_scan_busy.png \$TMPDIR/mus_phone_rescan_settled.png \$TMPDIR/mus_phone_browse_open.png \$TMPDIR/mus_phone_browse_subs.png \$TMPDIR/mus_phone_browse_sub.png \$TMPDIR/mus_phone_browse_up.png \$TMPDIR/mus_phone_browse_sub2.png \$TMPDIR/mus_phone_browse_added.png \$TMPDIR/mus_phone_browse_rescan.png \$TMPDIR/mus_phone_taglist.png \$TMPDIR/mus_phone_taglist2.png \$TMPDIR/mus_phone_tag_after.png \$TMPDIR/mus_phone_tagwrite_list.png \$TMPDIR/mus_phone_tagwrite_list2.png \$TMPDIR/mus_phone_tagwrite_flac.png \$TMPDIR/mus_phone_bc_twbase.png \$TMPDIR/mus_phone_bc_twafter.png \$TMPDIR/pmus_twparse.py \$TMPDIR/pmus_omparse.py \$TMPDIR/pmus_orig_settings.json \$TMPDIR/pmus_orig_permissions.json"
+echo "CAPTURES-WRITTEN: mus_phone_{list,list2,spatial,vp_delegate,delegate_status,after,sdcard,dirs,dirs2,scan_busy,rescan_settled,browse_open,browse_subs,browse_sub,browse_up,browse_sub2,browse_added,browse_rescan,taglist,taglist2,tag_after,tagwrite_list,tagwrite_list2,tagwrite_flac,om_list,om_list2,om_opus}.png → engine/tmp/"
 
 # ------------------------------------------------------------------ 8. 로컬 실측
 PYRUNLOG=$(cygpath -w "$RUNLOG" 2>/dev/null || echo "$RUNLOG")
@@ -3468,6 +3987,21 @@ if twk:
 twv = re.search(r"MUSIC-TAGWRITE-PHONE-VERDICT: (.*)", txt)
 if twv:
     print("TW-VERDICT: %s" % twv.group(1))
+oms = re.search(r"MUS-OM-SUMMARY-2: (.*)", txt)
+if oms:
+    print("OM-SUMMARY: %s" % oms.group(1))
+oma = re.search(r"MUS-OM-PARSED-A: (.*)", txt)
+if oma:
+    print("OM-PARSED-A: %s" % oma.group(1))
+omc = re.search(r"MUS-OM-PARSED-C: (.*)", txt)
+if omc:
+    print("OM-PARSED-C: %s" % omc.group(1))
+omrt = re.search(r"MUSIC-OM-COVR-RT: (.*)", txt)
+if omrt:
+    print("OM-COVR-RT: %s" % omrt.group(1))
+omm = re.search(r"MUSIC-OM-MBP-RT: (.*)", txt)
+if omm:
+    print("OM-MBP-RT: %s" % omm.group(1))
 ANALYSIS_EOF
 if [ $? -ne 0 ]; then
   echo "NOTE-ANALYSIS: local analysis failed (rc) — 캡처 원문은 회수 원문으로 육안 가능"
@@ -3692,6 +4226,44 @@ else
 fi
 echo "TW-RUN-VALS: run=${MUSP_TW_RUN:-1} stage=${TW_STAGE_L:-0} land=${TW_LAND_L:-0} writes=${TW_W1_L:-0}/${TW_W2_L:-0}/${TW_WF_L:-0} cover_rt=${TW_RT_L:-0} apic_keep=${TW_KEEP_L:-0} flac=${TW_FLAC_L:-none} canon_phone=${CANON%% (*} captures=$TW_CAPT_OK"
 echo "TW-RUN-CAP: run=${MUSP_TW_RUN:-1} list=[$(wc -c < "$SCRATCH/mus_phone_tagwrite_list.png" 2>/dev/null | tr -d ' ' || echo 0)B] list2=[$(wc -c < "$SCRATCH/mus_phone_tagwrite_list2.png" 2>/dev/null | tr -d ' ' || echo 0)B] flac=[$(wc -c < "$SCRATCH/mus_phone_tagwrite_flac.png" 2>/dev/null | tr -d ' ' || echo 0)B]"
+# ═══[#115 T4] N7 opus/m4a 태그 쓰기 동형 세그먼트(OM 판정 행 — wsl 18i 수형):
+# 요약 행 파싱+캡처 회수 대차. 강도 축 = **도구 경계(relay ok)+파일 재독
+# round-trip(covr/MBP md5 등호 4콜)** — 목록 행 표기·썸네일 = 캡처 육안(EYES)·
+# 필터 라운드 = 폰 스킵 원장(N6 승계) — 주 VERDICT 구성항 병합 0(TW 수형 원존).
+OMSUM=$(grep -a '^MUS-OM-SUMMARY-2: ' "$RUNLOG" | tail -1 | sed 's/^MUS-OM-SUMMARY-2: //' | tr -d '\r')
+OM_STAGE_L=$(printf '%s' "$OMSUM" | sed -n 's/.*stage=\([0-9]*\).*/\1/p')
+OM_LAND_L=$(printf '%s' "$OMSUM" | sed -n 's/.*land=\([0-9]*\).*/\1/p')
+OM_W1_L=$(printf '%s' "$OMSUM" | sed -n 's/.*w1=\([0-9]*\).*/\1/p')
+OM_W2_L=$(printf '%s' "$OMSUM" | sed -n 's/.*w2=\([0-9]*\).*/\1/p')
+OM_W3_L=$(printf '%s' "$OMSUM" | sed -n 's/.*w3=\([0-9]*\).*/\1/p')
+OM_W4_L=$(printf '%s' "$OMSUM" | sed -n 's/.*w4=\([0-9]*\).*/\1/p')
+OM_RT_L=$(printf '%s' "$OMSUM" | sed -n 's/.*covr_rt=\([0-9]*\).*/\1/p')
+OM_KEEP_L=$(printf '%s' "$OMSUM" | sed -n 's/.*covr_keep=\([0-9]*\).*/\1/p')
+OM_MBPRT_L=$(printf '%s' "$OMSUM" | sed -n 's/.*mbp_rt=\([0-9]*\).*/\1/p')
+OM_MBPKEEP_L=$(printf '%s' "$OMSUM" | sed -n 's/.*mbp_keep=\([0-9]*\).*/\1/p')
+OM_MD5_L=$(printf '%s' "$OMSUM" | sed -n 's/.*covr_1=\([0-9a-f]*\).*/\1/p')
+OM_CAPT_OK=1
+for f in om_list om_list2 om_opus; do
+    [ -s "$SCRATCH/mus_phone_$f.png" ] || OM_CAPT_OK=0
+done
+[ -n "${OMSUM:-}" ] || OM_CAPT_OK=0
+OM_OK=0
+if [ "${OM_STAGE_L:-0}" -eq 1 ] && [ "${OM_LAND_L:-0}" -eq 1 ] \
+   && [ "${OM_W1_L:-0}" -eq 1 ] && [ "${OM_W2_L:-0}" -eq 1 ] \
+   && [ "${OM_W3_L:-0}" -eq 1 ] && [ "${OM_W4_L:-0}" -eq 1 ] \
+   && [ "$OM_CAPT_OK" -eq 1 ] \
+   && [ "${OM_RT_L:-0}" -eq 1 ] && [ "${OM_KEEP_L:-0}" -eq 1 ] \
+   && [ "${OM_MBPRT_L:-0}" -eq 1 ] && [ "${OM_MBPKEEP_L:-0}" -eq 1 ] \
+   && [ -n "${OM_MD5_L:-}" ] && [ "${OM_MD5_L}" = "${TW_COVER_MD5:-}" ]; then
+    OM_OK=1
+fi
+if [ "$OM_OK" -eq 1 ]; then
+    echo "MUSIC-OPUSM4A-PHONE-VERDICT: OPUSM4A-OK(N7 — OM 시드 랜딩[N6 소각 뒤 — 계약 무오염]·music_tag_write relay 쓰기 4콜[m4a covr 교체+cover=null 유지·opus MBP 교체+cover 생략 유지]·재독 표기 원문 = 파일 수준 round-trip[covr/MBP md5 등호 4콜=$OM_MD5_L·벤더 유지+코멘트 페이지 EOS 0x04 유지+mdat 원문 무이동]+목록 행 캡처 3종[.m4a/.opus 행이 '-' 대신 실값 — D5 UI 무변경] — 게이트 채용(WSL 18i 등형 — 합성 cover md5 $TW_COVER_MD5 대차) — 표기·썸네일 자체는 캡처 육안 몫(EYES)·필터 라운드 = 폰 스킵 원장(N6 승계) — 육안 스탭 대기)"
+else
+    echo "MUSIC-OPUSM4A-PHONE-VERDICT: OPUSM4A-FAIL(honest-fail — 행별 사유는 N7; summary=${OMSUM:-none} caps=$OM_CAPT_OK covr_rt=${OM_RT_L:-n/a} covr_keep=${OM_KEEP_L:-n/a} mbp_rt=${OM_MBPRT_L:-n/a} mbp_keep=${OM_MBPKEEP_L:-n/a} md5=${OM_MD5_L:-none}(기대=${TW_COVER_MD5:-n/a}))"
+fi
+echo "#115-RUN-VALS: run=${MUSP_OM_RUN:-1} stage=${OM_STAGE_L:-0} land=${OM_LAND_L:-0} writes=${OM_W1_L:-0}/${OM_W2_L:-0}/${OM_W3_L:-0}/${OM_W4_L:-0} covr_rt=${OM_RT_L:-0} covr_keep=${OM_KEEP_L:-0} mbp_rt=${OM_MBPRT_L:-0} mbp_keep=${OM_MBPKEEP_L:-0} cover_md5=${TW_COVER_MD5:-} re-read_md5=${OM_MD5_L:-} canon_phone=${CANON%% (*} captures=$OM_CAPT_OK"
+echo "#115-RUN-CAP: run=${MUSP_OM_RUN:-1} list=[$(wc -c < "$SCRATCH/mus_phone_om_list.png" 2>/dev/null | tr -d ' ' || echo 0)B] list2=[$(wc -c < "$SCRATCH/mus_phone_om_list2.png" 2>/dev/null | tr -d ' ' || echo 0)B] opus=[$(wc -c < "$SCRATCH/mus_phone_om_opus.png" 2>/dev/null | tr -d ' ' || echo 0)B]"
 if [ "$CAP_OK" -eq 1 ] && [ "$CANON_OK" -eq 1 ] && [ "$GLUE_OK" -eq 1 ] && [ "$PLAY_OK" -eq 1 ] \
    && [ "$POS_OK" -eq 1 ] && [ "$SCAN_OK" -eq 1 ] && [ "$LEG_OK" -eq 1 ] && [ "$DIRS_OK" -eq 1 ] \
    && [ "$CANCEL_OK" -eq 1 ] && [ "$BROWSE_OK" -eq 1 ] && [ "$TAG_OK" -eq 1 ]; then
@@ -3701,7 +4273,7 @@ else
 fi
 echo "MUSIC-WCAPTURES:"
 for f in list list2 spatial spatial_mix vp_delegate delegate_status after sdcard dirs dirs2 scan_busy rescan_settled taglist taglist2 tag_after \
-         tagwrite_list tagwrite_list2 tagwrite_flac \
+         tagwrite_list tagwrite_list2 tagwrite_flac om_list om_list2 om_opus \
          browse_open browse_subs browse_sub browse_up browse_sub2 browse_added browse_rescan; do
     P="$SCRATCH/mus_phone_$f.png"
     [ -s "$P" ] && echo "  $P ($(wc -c < "$P" | tr -d ' ') bytes)"
@@ -3748,6 +4320,14 @@ echo "     대조)·쓰기 2 뒤 Phone Write Reup label 교체(cover=null — AP
 echo "     FLAC 행 코멘트 반영 — 커버아트 UI(행 썸네일+[편집])의 폰 표기 원문 —"
 echo "     성립 판정 = 도구 경계+파일 재독 축(TW 판정 행·TW-RUN-VALS)·표기·썸네일"
 echo "     = EYES."
+echo "  ⑪ 폰 opus/m4a 태그 쓰기 동형 세그먼트(mus_phone_om_list.png/list2/opus —"
+echo "     N7, #115 T4): 상단 행 Phone Omus Alpha (Probe Om Artist)+'Om Album One'(.m4a"
+echo "     행)·Phone Omus Reup label 교체(cover=null — covr 유지)·opus 행 실값"
+echo "     표기+행 썸네일(MBP 교체 jpg) — 합성 파일이 '-' 폴백에서 실값 전환 ="
+echo "     2형식 파서의 폰 바이너리 도착 원문 — 성립 판정 = 도구 경계+파일 재독"
+echo "     축(OM 판정 행·#115-RUN-VALS)·표기·썸네일 = EYES. **재생은 비-목표(D6)"
+echo "     — [.opus/.m4a 행 재생 = vplayer 위임 openFailed·spatial 위임 표기 유지"
+echo "     — '태그만 지원' 원존]**."
 echo "MUSIC-PHONE-END"
 # [#111 T6] 상속 hard 마커 말단 종결(T6-HARD-DEFERRED 원장행) — rc=1 시점 이동.
 [ "${INH_HARD:-0}" -eq 1 ] && { echo "MUSP-FAIL: N4 ⑤ 무전달 hard 마커 말단 종결(rc=1 — 마커 원존·T6 세그먼트 산치는 상단 원문)"; exit 1; }
