@@ -142,10 +142,14 @@ std::string TtsQuoted(const std::string& s) {
 //     누수 없음의 진실원 — 직계 파산이 아니라 고아 전이가 좀비를 지운다).
 //   - 출력 폐기 = 셸 리디렉션 /dev/null — 부모 파이프 0(파이프 생성 자체
 //     불요 — 구 inheritedStdioPipes 소각·SIGPIPE 창 0·drain 스레드 0).
-//   - kill-on-close job 폐기: posix close IS kill(jk::process 계약 b)라
-//     상주 중 close = 즉사 — 백그라운드 상주 계약과 양립 불가. 마감 kill
-//     제거 = hang 스폰의 영구 상주(완주/정산) = 사용자 몫 원장행(부작용
-//     정직 표기 — rc 관측 자체가 소멸한다).
+//   - kill-on-close job 폐기: job 핸들 close = kill·process 핸들 close =
+//     kill 아님(JKProcess_posix 계약 — JKProcess.h 계약 b는 JobHandle
+//     소관·CloseHandleLike의 ProcState 경로는 WNOHANG 수거 1회뿐 — 원문
+//     "posix close IS kill"은 process 핸들과의 혼기 판정). 이 스폰 leg는
+//     job을 만들지 않아(CreateKillOnCloseJob 부재) process 핸들 즉시
+//     폐쇄 = 상주 subshell 무영향 — 백그라운드 상주 계약과 양립. 마감
+//     kill 제거 = hang 스폰의 영구 상주(완주/정산) = 사용자 몫 원장행
+//     (부작용 정직 표기 — rc 관측 자체가 소멸한다).
 // 1회 스폰 본체 — DrainVoice(UI 축)가 detached 단명 스레드로 불러 쏜다.
 // speak 문언은 이미 tts::TtsReplyClip(D4)을 통과한 절단판.
 void TtsSpawnSpeak(const std::string& speakText) {
