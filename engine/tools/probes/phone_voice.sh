@@ -881,6 +881,14 @@ capture() {
     [ -s "$TMPD/$1" ] || FAIL "capture failed: $1 (R=${R:0:120})"
     echo "TTS-CAP-OK: $1 ($(wc -c < "$TMPD/$1") bytes)"
 }
+# [최final fix]: TAP() 정의를 정규화 블록 **앞**으로 — fix r1 분기가 정의 앞
+# TAP 호출 = bash "command not found" → 정규화 탭 no-op(recstat 1 유지 —
+# 7런 전부 미발사 경로). 정의 이동만, 로직 무변경.
+TAP() {
+    R=$(ctl "{\"tool\":\"send_input\",\"args\":{\"op\":\"click\",\"id\":$CHID,\"x\":$1,\"y\":$2,\"button\":1,\"clicks\":1}}")
+    echo "TTS-SEND-INPUT($1,$2): ${R:-none}"
+    ok "$R" || FAIL "send_input tap no ok — $R"
+}
 # [fix r1 — 페이즈 정규화 먼저]: 선행 세그먼트(§B tap 런)의 미마침 녹음 생존 =
 # 전용 런 tap1=마침·tap2=개시 어긋남(117-1phone/2phone 런 원장행 — dedicated
 # detect=0 2런의 진원). -i 세션 판정(진실원 JSON)으로 정규화 — 정규화 tap의
@@ -897,11 +905,6 @@ if [ "$PHASE" = "1" ]; then
 fi
 ST0_N=$(grep -ac '^\[TTS\]' "$SLOG" 2>/dev/null)
 ST0_N=${ST0_N:-0}
-TAP() {
-    R=$(ctl "{\"tool\":\"send_input\",\"args\":{\"op\":\"click\",\"id\":$CHID,\"x\":$1,\"y\":$2,\"button\":1,\"clicks\":1}}")
-    echo "TTS-SEND-INPUT($1,$2): ${R:-none}"
-    ok "$R" || FAIL "send_input tap no ok — $R"
-}
 # [fix r3 — 세션 검증 탭 재시도]: 포커스+send_input allow 상존에도 **첫 탭 =
 # 활성화 소비**(117-R3/R4 런 원장 — 컨텍스트 따라 tap1 무효) — -i 세션 검증
 # 뒤 재탭(최대 3 — 검증이 토글 이중 반영을 봉쇄: 성립 즉시 break).
