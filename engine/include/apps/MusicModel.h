@@ -1386,13 +1386,16 @@ inline TagSet ParseM4aTags(const unsigned char* p, size_t n) {
 // 금지 — DecodeM4aValue 원문 정직 계약 승계). 항목 data 파산(잘린 box) =
 // false — 커버 부재(무커버 정상 경로)와 같은 거부 착지지만 트리 파산은
 // 후보 통과 금지(부분 그림 0 — "잘린 그림 = 거부" 계약).
-inline bool ParseMp4Covr(const unsigned char* p, size_t n, std::string& mime,
-                         std::vector<unsigned char>& bytes) {
+// ilst 본문의 covr 항목 보행 — ParseMp4Covr 후반부 추출(계보 단일 출구
+// #115 원장행 수형의 ParseM4aIlstItems 동형). ParseMp4Covr(머리 창)와
+// ReadCover의 moov 후행 2차 read(뒤 창)가 이 보행 한 곳을 소비한다.
+// p 절대 좌표(호출부가 지목한 ilst body/bodyN) — mime/bytes는 소각 후 채운다.
+inline bool ParseMp4CovrItems(const unsigned char* p, size_t ilstBody,
+                              size_t ilstN, std::string& mime,
+                              std::vector<unsigned char>& bytes) {
     mime.clear();
     bytes.clear();
-    if (n < 8 || std::memcmp(p + 4, "ftyp", 4) != 0) return false;
-    size_t body = 0, bodyN = 0;
-    if (!Mp4FindIlst(p, n, body, bodyN)) return false;
+    size_t body = ilstBody, bodyN = ilstN;
     size_t off = body;
     const size_t end = body + bodyN;
     Mp4BoxWalk item;
@@ -1430,6 +1433,14 @@ inline bool ParseMp4Covr(const unsigned char* p, size_t n, std::string& mime,
         }
     }
     return false;  // covr 부재 — no_cover(정상 경로)
+}
+
+inline bool ParseMp4Covr(const unsigned char* p, size_t n, std::string& mime,
+                         std::vector<unsigned char>& bytes) {
+    if (n < 8 || std::memcmp(p + 4, "ftyp", 4) != 0) return false;
+    size_t body = 0, bodyN = 0;
+    if (!Mp4FindIlst(p, n, body, bodyN)) return false;
+    return ParseMp4CovrItems(p, body, bodyN, mime, bytes);
 }
 
 // ---- 파일 접점 (D2 — 필요 범위만 read) ----
@@ -3892,9 +3903,10 @@ inline bool ReadCover(const std::string& path, CoverArt& out, std::string& err) 
     // moov/udta/meta('mdir')/ilst 트리 보행(ParseMp4Covr — 태그 leg의
     // Mp4FindIlst 공용 원존) → covr 항목 data atom(코드 13=JPEG·14=PNG·
     // 0=스니프). 커버 블롭이 moov 안에 있으므로 머리 read 상한 =
-    // kTagWriteMax(쓰기 leg 재용 — kTagHeadCap는 스캔 1패스 상한). moov
-    // 후행(머리 밖)·covr 부재·트리 파산 = "no_cover"(부재 취급 — 읽기
-    // 사슬 관용·잘린 그림 전시 금지 원문).
+    // kTagWriteMax(쓰기 leg 재용 — kTagHeadCap는 스캔 1패스 상한). covr
+    // 부재에서 moov 후행(mdat 선행 — 머리 창 밖)이면 2차 read가 이어준다
+    // (kMoovLocateMax 창 — 아래). covr 최종 부재·트리 파산 = "no_cover"
+    // (부재 취급 — 읽기 사슬 관용·잘린 그림 전시 금지 원문).
     if (pre.size() >= 8 && std::memcmp(pre.data() + 4, "ftyp", 4) == 0) {
         const std::streamoff headN =
             total < static_cast<std::streamoff>(kTagWriteMax)
@@ -3916,6 +3928,49 @@ inline bool ReadCover(const std::string& path, CoverArt& out, std::string& err) 
             out.mime = NormalizeCoverMime(mime);
             out.bytes = std::move(bytes);
             return true;
+        }
+        // moov 후행 covr 2차 read(#115 원장행 계열 — 태그 leg의 moov 후행
+        // 2차 read와 같은 계통): 머리 창에서 covr 미발견이고 moov 자체가
+        // 머리 창에 성립하지 않는다(kMp4TagNoMoov 동형 판정 — mdat 선행+
+        // moov 말미 = ffmpeg 기본 mux)면 Mp4MdatNext(첫 mdat 끝 오프 —
+        // 선언 size 진실원) → kMoovLocateMax 창 seek+read → 창 보행 =
+        // moov 지목 → Mp4LocateTagTree(트리 계약 동형) → ParseMp4CovrItems
+        // 재용(계보 단일 출구). 창 밖 moov·창 파산·covr 부재 = 기존
+        // "no_cover" 폴백 그대로(정직 — 잘린 그림 전시 금지 원문).
+        Mp4TagLoc covrLoc;
+        if (Mp4LocateIlst(head.data(), head.size(), covrLoc) ==
+            kMp4TagNoMoov) {
+            size_t mdatNext = 0;
+            if (Mp4MdatNext(head.data(), head.size(), mdatNext) &&
+                mdatNext > 8 &&
+                static_cast<unsigned long long>(mdatNext) <
+                    static_cast<unsigned long long>(total)) {
+                std::streamoff span =
+                    static_cast<std::streamoff>(kMoovLocateMax);
+                const std::streamoff rest =
+                    static_cast<std::streamoff>(total) -
+                    static_cast<std::streamoff>(mdatNext);
+                if (rest < span) span = rest;
+                std::vector<unsigned char> tail(static_cast<size_t>(span));
+                f.clear();
+                f.seekg(static_cast<std::streamoff>(mdatNext), std::ios::beg);
+                f.read(reinterpret_cast<char*>(tail.data()), span);
+                tail.resize(static_cast<size_t>(f.gcount()));
+                // 창 보행 — 창 상대 좌표(보행 부품은 버퍼 밖을 모른다).
+                size_t moovBody = 0, moovN = 0;
+                Mp4TagLoc late;
+                if (tail.size() >= 8 &&
+                    Mp4FindBox(tail.data(), 0, tail.size(), "moov",
+                               moovBody, moovN) &&
+                    Mp4LocateTagTree(tail.data(), moovBody, moovN, late) ==
+                        kMp4TagOk &&
+                    ParseMp4CovrItems(tail.data(), late.ilstBody,
+                                      late.ilstN, mime, bytes)) {
+                    out.mime = NormalizeCoverMime(mime);
+                    out.bytes = std::move(bytes);
+                    return true;
+                }
+            }
         }
         err = "no_cover";
         return false;

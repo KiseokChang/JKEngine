@@ -8443,6 +8443,37 @@ static int RunAppSelfTest() {
                   gx5.find("보여줘") != std::string::npos,
               "2y-⑯ Info 안내문이 신설 어휘를 함께 훑는다(kVoicePrompt와 같은 "
               "어휘 원문 동기)");
+
+        // v1.6 — play_stop(vplayer 도구 7종째 — #115b 원장행 "stop 도구
+        // 부재" 승계 소각): "완전히 정지해줘" = 방향 고정 정지(토글
+        // 아님). (a) 어휘→AppTool 등호  (b) app_tool 질의 조립 등호
+        // (ClientChatApp 등 소비자 스위치는 AppTool 일반 — 무변경 계약)
+        // (c) Info 훑기(⑯ 원존 계약 계승)  (d) 기존 토글 행 회귀 —
+        // 신설 행(표 끝)이 "정지해줘" 접두 판정을 건드리지 않는다.
+        jk::ChatAction s6;
+        bool usedS6 = true;
+        const std::string gs6 =
+            jk::ChatRouteTurn("완전히 정지해줘", s6, vc, &usedS6);
+        check(!usedS6 && s6.kind == jk::ChatAction::AppTool &&
+                  s6.app == "vplayer" && s6.tool == "play_stop",
+              "2y-⑱ \"완전히 정지해줘\" = AppTool(vplayer·play_stop) 등호"
+              "(도구 7종째 — 방향 고정 정지·토글 구별)");
+        std::string toolS6, argsS6;
+        check(jk::voice::turn::ChatActionQuery(s6, toolS6, argsS6) &&
+                  toolS6 == "app_tool" &&
+                  argsS6 == "{\"app\":\"vplayer\",\"tool\":\"play_stop\","
+                            "\"args\":{}}",
+              "2y-⑱(b) app_tool 질의 조립 등호(릴레이 양식 — 2y-③ 동형)");
+        check(gs6.find("정지") != std::string::npos &&
+                  gx5.find("완전히 정지해줘") != std::string::npos,
+              "2y-⑱(c) 안내문 — 즉발 확인문 방향 고정 문어+Info 훑기 어휘 "
+              "포합(kVoicePrompt와 같은 어휘 원문 동기)");
+        jk::ChatAction s7;
+        (void)jk::ChatRouterRoute("정지해줘", s7);
+        check(s7.kind == jk::ChatAction::AppTool &&
+                  s7.app == "vplayer" && s7.tool == "play_pause",
+              "2y-⑱(d) 기존 회귀 — \"정지해줘\"는 토글 행 원존(신설 행 표 "
+              "끝 배치 — 접두 판정 무접촉)");
     }
 
     // 2z) 구두 응답 TTS leg — 결정 부품 (#117 T1 — 스펙
@@ -9859,6 +9890,70 @@ static int RunAppSelfTest() {
             fs::remove_all(tdir, s13);  // REMNANT 0 — 사후 소각 동봉(2x 수형)
             check(!s13 && !fs::exists(tdir, s13),
                   "2x-⑬ REMNANT 0(사후 소각)");
+        }
+
+        // ⑭) moov 후행 covr 2차 read(ReadCover leg — ⑬ 태그 leg와 같은
+        //    계통 계승): ⑬의 mdat 1.5MB 더미는 ReadCover 머리 창
+        //    (kTagWriteMax 16MiB) 안쪽이라 커버는 머리 보행으로 이미
+        //    성립 — 실제 2차 read를 강제하려면 mdat가 머리 창을 넘어야
+        //    한다: mdat 더미 = kTagWriteMax+2KB → 머리 read 절단(mdat
+        //    중간) → ParseMp4Covr 미발견+Mp4LocateIlst kMp4TagNoMoov →
+        //    Mp4MdatNext(선언 size 진실원) → kMoovLocateMax 창 seek+read →
+        //    창 보행(moov→Mp4LocateTagTree→ParseMp4CovrItems 재용) → covr
+        //    등호. (a) 사전 확인(mdat 끝 오프 > 머리 창 = 수형 leg 실사용
+        //    ·파일 전체도 창 초과) (b) mime image/jpeg(코드 13)+바이트 원문
+        //    등호 (c) err 빈 (d) REMNANT 0.
+        {
+            std::error_code s14;
+            fs::remove_all(tdir, s14);
+            fs::create_directories(tdir, s14);
+            const fs::path p = tdir / "2x_n_covr_trailing.m4a";
+            // 그림 블롭(⑥ jpgBlob 동일 표 — 정직 합성 JPEG SOI 매agic).
+            const std::vector<unsigned char> img14 = {
+                0xFF, 0xD8, 0xFF, 0xE0, 'J', 'P', 'J', '+', '!', '-', '.',
+                'J', 'P', 'E', 'G'};
+            std::vector<unsigned char> dataBody14;
+            pushBE32(dataBody14, 13);  // iTunes 규약 코드 13 (JPEG)
+            pushBE32(dataBody14, 0);   // locale
+            dataBody14.insert(dataBody14.end(), img14.begin(), img14.end());
+            const std::vector<unsigned char> ilst14 = concat(
+                {mkItem("covr", mkBox("data", dataBody14))});
+            const std::size_t mdatPay14 =
+                mt::kTagWriteMax + 2048;  // 머리 창 밖으로 moov를 밀어낸다
+            const std::vector<unsigned char> blob14 =
+                concat({mkFtyp(),
+                        mkBox("mdat", std::vector<unsigned char>(mdatPay14,
+                                                                 0xCD)),
+                        mkBox("moov", mkBox("udta", mkMeta(ilst14)))});
+            const bool built14 = putFile(p, blob14);
+            // (a) 사전 확인 — 머리 창(kTagWriteMax) 슬라이스의 Mp4MdatNext가
+            //     내는 mdat 끝 오프 > 창(moov는 머리 창에 성립 불가 — 수형
+            //     leg 실사용 보증).
+            std::vector<unsigned char> head14(
+                blob14.size() < mt::kTagWriteMax ? blob14.size()
+                                                 : mt::kTagWriteMax);
+            std::copy(blob14.begin(), blob14.begin() + head14.size(),
+                      head14.begin());
+            size_t mdatNext14 = 0;
+            const bool beyondHead14 =
+                mt::Mp4MdatNext(head14.data(), head14.size(), mdatNext14) &&
+                mdatNext14 > mt::kTagWriteMax;
+            mt::CoverArt c14;
+            std::string e14;
+            const bool r14 =
+                built14 ? mt::ReadCover(p.generic_string(), c14, e14) : false;
+            check(built14 && beyondHead14 && r14 && e14.empty() &&
+                      c14.mime == "image/jpeg" &&
+                      c14.bytes.size() == img14.size() &&
+                      std::memcmp(c14.bytes.data(), img14.data(),
+                                  img14.size()) == 0,
+                  "2x-⑭ moov 후행 covr = 머리 창(kTagWriteMax) 절단 사전 확"
+                  "인(mdatNext>창)+2차 read(mdat 끝 오프→kMoovLocateMax 창)"
+                  " → mime image/jpeg(코드 13)+그림 바이트 원문 등호+err "
+                  "빈(ParseMp4CovrItems 재용 — ⑥ 등호 계승)");
+            fs::remove_all(tdir, s14);  // REMNANT 0 — 사후 소각 동봉(2x 수형)
+            check(!s14 && !fs::exists(tdir, s14),
+                  "2x-⑭ REMNANT 0(사후 소각)");
         }
     }
     std::printf("AppSelfTest: %d failure(s)\n", failures);
