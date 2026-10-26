@@ -313,7 +313,9 @@ fi
 # ── #115b T2 신설 어휘 질의 양식 등호 (#115b T1 어휘 표 재실측 — probe VOCAB
 #    행 — WSL판과 동형 판정. 라우터 = buildterm/libjkcore.a 방금 배포 진실원 —
 #    배포 원문 승계의 검증을 겸한다) ──
-VROWS=$(grep -a '^VOCAB ' "$SCRATCH/phone_voice_probe.out")
+# [fix r1: 수파일은 sed PROBE 접두를 붙여 저장한다 — grep 전 접두 벗기기(WSL raw와
+#  정합 — 115b-1phone 런 원장행: route=0/5 오진. 행 원문 자체는 정상이었다)]
+VROWS=$(sed 's/^PROBE: //' "$SCRATCH/phone_voice_probe.out" | grep -a '^VOCAB ')
 printf '%s' "$VROWS" | sed 's/^/PROBE-VOCAB: /'
 VROUTE=0
 for S in 멈춰줘 재생해줘 정지; do
@@ -395,6 +397,24 @@ fi
 CHLINE=$(grep -a '^CHAT-WINDOW: ' <<< "$BOUT" | tail -1 | sed 's/^CHAT-WINDOW: //' | tr -d '\r')
 echo "CHAT-GEOM: $CHLINE"
 [ -n "$CHLINE" ] || FAIL "chat window line missing"
+# [원장행 소화 — 탭 좌표 재보정(갱신 65 잔여 원장행 — 115b-1phone 런 실측)]:
+# T5 실측 [구두] = 데스크 (835,602) = chat(172,114) 기준 — **서면 계수 (663,488)**
+# 가 진실원이고 데스크 좌표는 창마다 다른 cascade 위치를 따라 이동한다(본 런
+# 실측: chat (620,232)에서 (835,602) 탭 = 미달 — rec/done 0 전이 + isRecording
+# false). env 미지정 런 = 창 위치에서 재산출한다. env 지정 = 수동 우선 원존.
+PHV_BTN_X_SET=${PHV_BTN_X:-}
+PHV_BTN_Y_SET=${PHV_BTN_Y:-}
+PHV_CHX=$(printf '%s' "$CHLINE" | sed -n 's/.*"x":\(-\?[0-9]*\),.*/\1/p' | tr -d '\r')
+PHV_CHY=$(printf '%s' "$CHLINE" | sed -n 's/.*"y":\(-\?[0-9]*\),.*/\1/p' | tr -d '\r')
+if [ -z "$PHV_BTN_X_SET" ] && [ -z "$PHV_BTN_Y_SET" ] \
+   && [ -n "$PHV_CHX" ] && [ -n "$PHV_CHY" ] \
+   && [ "$PHV_CHX" -eq "$PHV_CHX" ] 2>/dev/null && [ "$PHV_CHY" -eq "$PHV_CHY" ] 2>/dev/null; then
+    PHV_BTN_X=$((PHV_CHX + 663))
+    PHV_BTN_Y=$((PHV_CHY + 488))
+    echo "PHV-BTN-AUTO: ($PHV_BTN_X,$PHV_BTN_Y) = chat($PHV_CHX,$PHV_CHY)+서면 계수 (663,488) — 탭 좌표 재보정 수형(115b-1phone 런 원장)"
+elif [ -z "$PHV_BTN_X_SET" ] && [ -z "$PHV_BTN_Y_SET" ]; then
+    echo "PHV-BTN-AUTO-MISS: chat 좌표 파싱 실패 — T5 기정 좌표 (835,602) 유지(원장행)"
+fi
 
 # tap remote 원격 스크립트 = T5 tap 수형(permissions 병합+tap 2회+캡처 3종+
 # 원복) — 런별 캡처 회수는 호출자(per-run 복사)가 소유.
@@ -564,32 +584,58 @@ cat > "$SCRATCH/t6pv_vocab_remote.sh" <<'VOCEOF'
 set -u
 cd ~/JKENGINE/engine || exit 1
 TMPD="${TMPDIR:-/data/data/com.termux/files/usr/tmp}"
-FAIL() { echo "VOCAB-FAIL: $*"; exit 1; }
 ctl() { timeout 25 ./buildterm/jkdesktop agentctl "$1" 2>/dev/null | grep -a '{' | head -1; }
 ok()  { printf '%s' "${1:-}" | grep -aq '"ok":true'; }
+# [fix r1 — 115b-1phone 런 원장행]: FAIL 출구가 permissions 원복+leftover 창
+# 소각을 건너뛰었다(본 런 실측: permissions.json 33→62B 중복 close_window 잔상
+# +Video Player/Notifications 창 잔존 — 수기 원복 소각) — FAIL도 완수 계약
+# (wsl_music HARV-TEARDOWN 래더 원존 승계). cleanup() = 무해 재입(멱등).
+VPERMP="$TMPD/t6pv_vocab_perm_backup"
+vcleanup() {
+    if [ -s "$VPERMP" ]; then
+        cp "$VPERMP" buildterm/permissions.json 2>/dev/null
+        cmp -s buildterm/permissions.json "$VPERMP" \
+            && echo "VOCAB-PERM-RESTORED ($(wc -c < buildterm/permissions.json) bytes — FAIL 출구 포함) — backups 원본" \
+            || echo "VOCAB-FAIL(perm-fin: 원복 실패 — 수기 소각 필요)"
+        rm -f "$VPERMP"
+    fi
+    WL=$(ctl '{"tool":"list_windows","args":{}}' 2>/dev/null)
+    for T in "Video Player" "Notifications"; do
+        WID=$(printf '%s' "$WL" | grep -aoE "\{\"id\":[0-9]+,\"title\":\"${T}" | grep -aoE '[0-9]+' | head -1)
+        if [ -n "$WID" ]; then
+            CR=$(ctl "{\"tool\":\"close_window\",\"args\":{\"id\":$WID}}" 2>/dev/null)
+            echo "VOCAB-LEFTOVER-CLOSED ($T id=$WID): ${CR:-none}"
+        fi
+    done
+}
+FAIL() { echo "VOCAB-FAIL: $*"; vcleanup; exit 1; }
 
 PERM=buildterm/permissions.json
-cp "$PERM" "$TMPD/t6pv_vocab_perm_backup" || FAIL "perm backup failed"
+cp "$PERM" "$VPERMP" || FAIL "perm backup failed"
 echo "VOCAB-PERM-BACKUP-OK ($(wc -c < "$PERM") bytes)"
-awk -v newline="    \"close_window\": \"allow\"" '
-    BEGIN { n = 0 }
-    { lines[n++] = $0 }
-    END {
-        last = -1
-        for (i = n - 1; i >= 0; i--)
-            if (lines[i] ~ /^[ \t]*\}[ \t\r]*$/) { last = i; break }
-        if (last < 1) { print "VOCAB-PERM-MERGE-FAIL"; exit 1 }
-        prev = lines[last - 1]
-        sub(/[ \t\r]*$/, "", prev)
-        if (prev !~ /,$/) prev = prev ","
-        lines[last - 1] = prev
-        for (i = 0; i < n; i++) {
-            if (i == last) print newline
-            print lines[i]
-        }
-    }' "$PERM" > "$PERM.new" && mv "$PERM.new" "$PERM" || FAIL "close_window merge failed"
-grep -aq 'close_window' "$PERM" || FAIL "close_window not merged"
-echo "VOCAB-PERM-MERGED (핫리드 — close_window allow — END 바이트 원복)"
+if grep -aq 'close_window' "$PERM"; then
+    echo "VOCAB-PERM-KEEP (close_window 이미 allow — 병합 생략 = **무변경 0** — 중복 행 방지 [fix r1])"
+else
+    awk -v newline="    \"close_window\": \"allow\"" '
+        BEGIN { n = 0 }
+        { lines[n++] = $0 }
+        END {
+            last = -1
+            for (i = n - 1; i >= 0; i--)
+                if (lines[i] ~ /^[ \t]*\}[ \t\r]*$/) { last = i; break }
+            if (last < 1) { print "VOCAB-PERM-MERGE-FAIL"; exit 1 }
+            prev = lines[last - 1]
+            sub(/[ \t\r]*$/, "", prev)
+            if (prev !~ /,$/) prev = prev ","
+            lines[last - 1] = prev
+            for (i = 0; i < n; i++) {
+                if (i == last) print newline
+                print lines[i]
+            }
+        }' "$PERM" > "$PERM.new" && mv "$PERM.new" "$PERM" || FAIL "close_window merge failed"
+    grep -aq 'close_window' "$PERM" || FAIL "close_window not merged"
+    echo "VOCAB-PERM-MERGED (핫리드 — close_window allow — END 바이트 원복)"
+fi
 
 VW=$(ctl '{"tool":"list_windows","args":{}}')
 VP0=$(printf '%s' "$VW" | grep -aoE '\{"id":[^}]*"title":"Video Player"[^}]*\}' | head -1)
@@ -659,7 +705,9 @@ NT=""
 for i in $(seq 1 20); do
     sleep 3
     VW=$(ctl '{"tool":"list_windows","args":{}}')
-    NT=$(printf '%s' "$VW" | grep -aoE '\{"id":[^}]*"title":"Notifications"[^}]*\}' | head -1)
+    # [fix r1 — notify 창 제목은 배지를 실는다 "Notifications (1)"(누적 —
+    #  115b-1phone 런 실측) — 접두 매치(WSL판 동형 수리)]
+    NT=$(printf '%s' "$VW" | grep -aoE '\{"id":[^}]*"title":"Notifications[^}]*\}' | head -1)
     [ -n "$NT" ] && break
 done
 [ -n "$NT" ] || FAIL "no Notifications window — last: ${VW:-none}"
@@ -678,10 +726,7 @@ CR1=$(ctl "{\"tool\":\"close_window\",\"args\":{\"id\":$NTID}}")
 echo "VOCAB-NOTIFY-CLOSE: ${CR1:-none}"
 CR2=$(ctl "{\"tool\":\"close_window\",\"args\":{\"id\":$VPID2}}")
 echo "VOCAB-VPLAYER-CLOSE: ${CR2:-none} (차분 오염 소각)"
-cmp -s "$PERM" "$TMPD/t6pv_vocab_perm_backup" || cp "$TMPD/t6pv_vocab_perm_backup" "$PERM"
-cmp -s "$PERM" "$TMPD/t6pv_vocab_perm_backup" || FAIL "perm restore mismatch"
-echo "VOCAB-PERM-RESTORED-OK ($(wc -c < "$PERM") bytes 등호 — 원복 계약)"
-rm -f "$TMPD/t6pv_vocab_perm_backup"
+vcleanup                                  # [fix r1 — permissions 원복+leftover 소각 — 무해 재입(성공 출구 = 병합 없었으면 바이트 등호)]
 rm -f -- "$0"
 echo "VOCAB-LIVE-FINISHED toggle=$TOG"
 exit 0
