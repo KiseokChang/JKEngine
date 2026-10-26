@@ -824,9 +824,18 @@ CH=$(printf '%s' "$WIN" | grep -aoE '\{"id":[^}]*"title":"[Cc]hat"[^}]*\}' | hea
 [ -n "$CH" ] || FAIL "no Chat window — $WIN"
 CHID=$(printf '%s' "$CH" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
 [ -n "$CHID" ] || FAIL "chat id parse failed — $CH"
+# [fix r2 — focus_window 선행]: 미포커스 창의 첫 탭 = 포커스 소비(실측 페이즈
+# 어긋남 진원의 후속 — 첫 탭이 토글에 닿지 않는 사이닝) — 탭마다 선행 포커스.
+foc() { F=$(ctl "{\"tool\":\"focus_window\",\"args\":{\"id\":$CHID}}"); echo "TTS-FOCUS: ${F:-none}"; ok "$F" || FAIL "focus_window failed — $F"; }
 PERM=buildterm/permissions.json
 cp "$PERM" "$TMPD/t6pv_tts_perm_backup" || FAIL "perm backup failed"
 echo "TTS-PERM-BACKUP-OK ($(wc -c < "$PERM") bytes)"
+# [fix r2 — FAIL 출구 원복(멱등)]: FAIL이 exit 1로 즉사하며 병합 원복을 건너뛰는
+# 결함(117-R3 런 원장: TTS[1] FAIL 후 33→60B 드리프트가 런 밖에서 생존 —
+# t117t2_perm_backup 수기 원복). vcleanup 멱등 원존 승계.
+if grep -aq '"send_input"' "$PERM"; then
+    echo "TTS-PERM-KEEP (send_input 이미 allow — 병합 생략 — 무변경 0 — fix r2)"
+else
 awk -v newline="    \"send_input\": \"allow\"" '
     BEGIN { n = 0 }
     { lines[n++] = $0 }
@@ -846,6 +855,17 @@ awk -v newline="    \"send_input\": \"allow\"" '
     }' "$PERM" > "$PERM.new" && mv "$PERM.new" "$PERM" || FAIL "perm merge failed"
 grep -aq 'send_input' "$PERM" || FAIL "send_input not merged"
 echo "TTS-PERM-MERGED (핫리드 — 호출마다 읽음 — 런 뒤 바이트 원복)"
+fi
+# [fix r2 — FAIL 출구 원복 재정의]: PERM/backup 판명 뒤 — 멱등(succ 출구와 무충돌).
+FAIL() {
+    echo "TTS-TAP-FAIL: $*"
+    if [ -s "$TMPD/t6pv_tts_perm_backup" ]; then
+        cp "$TMPD/t6pv_tts_perm_backup" "$PERM" 2>/dev/null \
+            && rm -f "$TMPD/t6pv_tts_perm_backup" \
+            && echo "TTS-PERM-FAIL-RESTORED ($(wc -c < "$PERM") bytes — FAIL 출구 원복)"
+    fi
+    exit 1
+}
 capture() {
     rm -f "$TMPD/$1"
     R=$(timeout 25 ./buildterm/jkdesktop agentctl '{"tool":"capture_region","args":{"x":0,"y":0,"w":1920,"h":1080}}' 2>/dev/null | grep -a '"ok"' | head -1)
@@ -862,6 +882,7 @@ PHASE=$(recstat)
 echo "TTS-SESSION-AT-ENTRY: $PHASE (-i 세션 판정 — 진실원)"
 if [ "$PHASE" = "1" ]; then
     echo "TTS-PHASE-NORMALIZE: 녹음 생존 — 마침 탭 1회로 페이즈 정규화(fix r1)"
+    foc
     TAP "$TX" "$TY"
     sleep 8
     [ "$(recstat)" = "0" ] || FAIL "phase normalize failed (세션 생존 — 수기 원복)"
@@ -874,6 +895,7 @@ TAP() {
     echo "TTS-SEND-INPUT($1,$2): ${R:-none}"
     ok "$R" || FAIL "send_input tap no ok — $R"
 }
+foc                      # [fix r2 — 탭마다 선행 포커스 — 첫 탭 포커스 소비 차단]
 TAP "$TX" "$TY"          # 개시 — StartVoice(표지 새김)
 SESSION_START=0
 for i in $(seq 1 6); do
@@ -887,6 +909,7 @@ capture t5_chat_tts_rec.png
 T0=$(ms)
 echo "TTS-TAP2-T0-MS: $T0"
 [ -n "$T0" ] || FAIL "ms stamp missing (python3+date 모두 실패 — 지연 측정 불성립)"
+foc                      # [fix r2 — 마침 탭 선행 포커스]
 TAP "$TX" "$TY"          # 마침 — FinishVoice→전사→답신 도착접점(DrainVoice)
 SESSION_STOP=0
 for i in $(seq 1 6); do
