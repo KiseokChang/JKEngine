@@ -2331,9 +2331,16 @@ main 직행.
   흡수 leg: moov 다음 free/skip box가 Δ를 삼키면 mdat 자리 고정(파일
   총량 불변·무패치 — Δ>0 = payload 말미 절단·Δ<0 = zero pad 확정·부족
   시 다음 leg) ②무free = stco(32BE)/co64(64BE) 항목 Δ 가산 패치 — 보행 =
-  표준 컨테이너 사슬 한정(trak→mdia→minf→stbl — depth 0-3 재귀 — covr
-  binary 내 우연 매agic 봉인) ③patches 부족 = "free 부족" 정직 거부(원본
-  무변경)·stco/co64 부재 = 무패치 진행(청크 오프셋 참조 부재 — 최소 파괴).
+  표준 컨테이너 사슬 한정(trak→mdia→minf→stbl — depth 0-3 재귀) ③patches
+  부족 = "free 부족" 정직 거부(원본 무변경)·stco/co64 부재 = 무패치 진행
+  (청크 오프셋 참조 부재 — 최소 파괴). **T4 fix r3 재심사 유계 3건**:
+  (u1) ①의 "파일 총량 불변"은 설계 서술로만 성립 — 2x-⑫b(b)의 명시
+  어셜션 부재(`bufB.size()==blobB.size()` — mdat가 말미 box인 지형에서
+  총량 오류가 무음 통과할 여지 — 유계)·(u2) covr payload 내 우연 "stco"
+  매agic의 봉인은 보행 설계(표준 컨테이너 사슬 한정)의 서술적 입증만 —
+  covr 포함 stco 시퀀스의 전용 fixture 미구축(유계)·(u3) **co64 패치 leg =
+  대칭 2행 구현·실측 부재** — 2x-⑫b는 stco만 합성(mkStco·co64 합성 0 —
+  "stco/co64 Δ 패치" 표기는 co64가 실측된 것으로 오독 금지 — 유계).
 - **D3 opus 쓰기** = `WriteOggCommentTag(…, bool isOpus, …)` 공용 코어
   리팩터(#112 WriteOggTag 시그니처 불변 래퍼 원존) — 코멘트 패킷 매agic만
   갈림(leadN = 7(vorbis \x03"vorbis")/8(opus "OpusTags"))·페이지 재번호+
@@ -2464,15 +2471,28 @@ main 직행.
   (2x-⑫b — (a) 무free Δ 패치(b) free 흡수 = mdat 자리 고정·stco 원존
   (c) 상한 근접+무free = 거부·원본 무변경) — **태그 쓰기의 재생 인덱스
   계약 = 재독으로는 검증 불가한 별도 축**이라는 레슨(probe도 파일 수준
-  round-trip만 검증 — 재생 인덱스는 selftest 2x-⑫b가 소유).
+  round-trip만 검증 — 재생 인덱스는 selftest 2x-⑫b가 소유)·**fix r3
+  재심사 유계 3건**: (u1) (b)의 "파일 총량 등호" 명시 어셜션 부재
+  (`bufB.size()==blobB.size()` — mdat 말미 box 지형의 총량 오류 무음
+  통과 여지 — 유계 1행·§7.12.1에 수식 부기)·(u2) covr-내 "stco" 우연
+  매agic = 구조 봉인(보행 설계)으로만 입증 — covr 포함 stco 시퀀스의
+  전용 fixture 미구축(유계 1행)·(u3) **co64 leg 미실측** — 2x-⑫b는
+  stco만(mkStco·co64 합성 0) — "stco/co64 Δ 패치" 표기 = co64 대칭 2행
+  구현·실측 부재(유계 — 차기 selftest 재판정 몫).
 - **probe 결함 3건(T4 — 전부 원문 소각)**: ①OM_COVER_B64 수기 재타이핑
   4자 절단(1252 vs 1256 — 디코드 938B 미성립 jpg — FFD8만 생존해 도구
   게이트는 통과 — "동일 바이트" 원장행 대조 불일치로 검출 — 수리 =
   프로그램 복사(a43e4b0) — **B64 인라인 상수의 재용 = 수기 재타이핑
   금지**)②재독파서 cmt_htype off-by-one(OggS 페이지 = [0..4) capture·
-  [4) version·[5) header_type — off+4 = version 0 오판 — 3런 전부 동일
-  결함으로 OPUSM4A-FAIL honest(폰 r1) — [5) 수리+18i OM_ALL 본조건 채용
-  (083997c))③wsl.exe env 전파 함정(MUS_OM_RUN 라벨 — WSLENV "VAR/u"
+  [4) version·[5) header_type — off+4 = version 0 오판 — **3런 동결함·
+  판정 표기는 양분(정정 — fix r3)**: WSL r2/r3 = 결함 판정 행
+  (`MUSIC-FAIL(om-mbp-rt … htype=0)` — honest 행)만 인쇄하고 verdict행은
+  구 게이트(OM_ALL htype 미채용)가 통과시켜 **OPUSM4A-OK false-OK 원문**
+  (pre-fix 게이트 결함 — 18i 조건 누락)·**OPUSM4A-FAIL verdict = 폰 r1
+  1건**(폰 N7 게이트는 mbp_rt 경유 htype을 본조건으로 이미 소비) —
+  수리 = [5) 오프셋+WSL 18i OM_ALL 본조건 채용(083997c — 양측 판정 일치)·
+  post-fix WSL r4/r5 = OPUSM4A-OK(htype=4 본조건 포함)·폰 r2 =
+  OPUSM4A-PHONE-OK)③wsl.exe env 전파 함정(MUS_OM_RUN 라벨 — WSLENV "VAR/u"
   접미 없이는 wsl.exe가 env를 전파하지 않는다 — T2 원장(스크립트 파일
   경유)의 env 확장 수형 — r5부터 run=2 표기 성립).
 - **phone_music.sh boot_server의 WHISPER_ROOT 누락(구 수형 — 본 라인
@@ -2481,7 +2501,11 @@ main 직행.
   WHISPER_ROOT를 배선하지 않았다 — 본 T4 폰 런이 구두 leg-less 부팅으로
   사용자 live 세션(구두 게이트)을 다운그레이드할 위험 — **F0b 수리**
   (vendored 트리 상존 시 WHISPER_ROOT export — boot 승계 — bfe2011)·
-  런 후 실측: 부팅 서버 env WHISPER_ROOT+SPATIAL 유지 원문(§7.12.2).
+  런 후 실측: 부팅 서버 env WHISPER_ROOT+SPATIAL 유지 원문(§7.12.2)·
+  **원장행(1행 — fix r3)**: 부팅 env 종단 영수증 = WHISPER_ROOT만 원격
+  영수증 행에 실측(`WHISPER-ROOT-AT-END`)·**SPATIAL_PLAYER_ROOT 부팅
+  env의 종단 영수증 부재**(본 라인 = probe 수동 실측 원문(/proc environ —
+  런 중 재조사)만 — 종단 행 = 차기 폰 런 몫).
 - **폰 서브넷 이동 재발(갱신 65 유형)**: known_hosts 구 후보 4건
   접속 실패(BatchMode MISS — 구 서브넷 /24에서 8022 listeners 0 — 구
   서브넷 MISS 원장행· octets 미기록 — 기록 금지 계약) → 본 머신의 현
