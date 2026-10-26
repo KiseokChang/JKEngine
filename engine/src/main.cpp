@@ -106,6 +106,7 @@ extern "C" __declspec(dllimport) int __stdcall closesocket(
 #include <apps/MusicDirStore.h>  // selftest 2o — 뮤직 폴더 저장소(플랜 2026-10-10-music-dirs-ui)
 #include <apps/MusicSpatialLeg.h>  // selftest 2n — 뮤직 spatial leg 순수 부품(스펙 2026-10-10-music-spatial-leg-design)
 #include <voice/SttVoice.h>  // selftest 2v-b/c — 전사 사슬 순수 부품(#112 T2·스펙 2026-10-25-stt-voice-design)
+#include <apps/ClientChatApp.h>  // selftest 2z — 구두 응답 TTS 결정 부품(#117 T1·스펙 2026-10-27-tts-response-design)
 #include <text/JKTextConv.h>  // selftest 2q — 경로 인코딩 사슬 변환 쌍(#94)
 #include <apps/ClientIdlePolicy.h>  // selftest 2i-c — 앱 Timer→더티 조건화 산치(#89 T2)
 #include <script/JKScriptHost.h>
@@ -8442,6 +8443,64 @@ static int RunAppSelfTest() {
                   gx5.find("보여줘") != std::string::npos,
               "2y-⑯ Info 안내문이 신설 어휘를 함께 훑는다(kVoicePrompt와 같은 "
               "어휘 원문 동기)");
+    }
+
+    // 2z) 구두 응답 TTS leg — 결정 부품 (#117 T1 — 스펙
+    //   2026-10-27-tts-response-design D1-D6). ①답신 절단(D4 — 120자 상한+
+    //   말미 "…" — UTF-8 코드포인트 경계 보전) ②구두 출발 판정(D3 — voice
+    //   origin 표지 턴의 답신만 TTS 대상 — 타이핑 턴·빈 답신 부정) ③opt-out
+    //   env 판정(D2 — VOICE_TTS="0" 문자 그대로만 끔 — 기본 켬). **스폰
+    //   어셜션 금지(D6 — 비결정 원존)** — 스폰 본체는 cpp의 __ANDROID__ TU
+    //   (Win/WSL 2축 바이너리에 leg 미포함 — 컴파일 무영향)·런타임 env 원본
+    //   (VoiceTtsOptOutRuntime — getenv 1뒤)의 실측은 폰 E2E probe 몫(T2).
+    //   2y 뒤 계보 이어붙임.
+    {
+        using jk::tts::TtsReplyClip;
+        using jk::tts::TtsSpeakWanted;
+        using jk::tts::VoiceTtsEnabled;
+
+        // ① D4 — 답신 절단 부품. ASCII 121자 = 121바이트(절단 산치 단순).
+        const std::string long121(121, 'a');
+        check(TtsReplyClip(long121) == std::string(120, 'a') + "…",
+              "2z-① 답신 절단 121자→120+\"…\" 등호(D4 — 1행 규약)");
+        // ① UTF-8 경계 — 한글 121자(각 3바이트) → 문자 121자 기저 절단
+        // (바이트 절단 0 — 중간 글리프 파괴 없음 — 369바이트 입력).
+        std::string ko121;
+        std::string koWant;
+        for (int i = 0; i < 121; ++i) ko121 += "가";  // 가
+        for (int i = 0; i < 120; ++i) koWant += "가";
+        koWant += "…";  // …
+        check(TtsReplyClip(ko121) == koWant,
+              "2z-①b 한글 121자 절단 = 120자+\"…\" 등호(UTF-8 문자 경계 보전 "
+              "— 중간 글리프 절단 없음)");
+        // ① 상한 등호·이내 = 원문 보존(120자 그대로·짧은 답신 그대로).
+        const std::string exact120(120, 'b');
+        check(TtsReplyClip(exact120) == exact120 &&
+                  TtsReplyClip("정지했습니다") == "정지했습니다",
+              "2z-①c 상한 등호·이내 = 원문 그대로(120자 보존 — 접미 무첨가)");
+
+        // ② D3 — 구두 출발 판정 부품. 표지 턴만 TTS 대상.
+        check(TtsSpeakWanted(true, false, false) &&
+                  !TtsSpeakWanted(false, false, false),
+              "2z-② voice origin 표지 턴 = TTS 대상·타이핑 턴 = 부정(D3 — "
+              "구두 출발 발화의 답신만)");
+        check(!TtsSpeakWanted(true, true, false),
+              "2z-②b 빈 답신 = 스킵(말할 원문 없음 — 기록 치환 전송침과 별개 "
+              "— 스폰 결정의 가드 1검)");
+        check(!TtsSpeakWanted(true, false, true),
+              "2z-②c opt-out 표기 상태 = 부정(D2 승계 — 판정부 3진실원 합산)");
+
+        // ③ D2 — opt-out env 판정 부품(표 전부 — 기본 켬·"0" 문자 그대로만
+        // 끔). 런타임 getenv 원본 폰 E2E probe 몫(원장행 위 주석).
+        check(VoiceTtsEnabled(false, nullptr) &&
+                  VoiceTtsEnabled(false, "0"),
+              "2z-③ VOICE_TTS 미설정 = 켬(D2 기본 켬 — opt-out 변형의 얼굴)");
+        check(!VoiceTtsEnabled(true, "0"),
+              "2z-③b VOICE_TTS=\"0\" = 끔(문자 그대로 1바이트 등호 — "
+              "fail-closed 원존의 opt-out 변형)");
+        check(VoiceTtsEnabled(true, "1") && VoiceTtsEnabled(true, ""),
+              "2z-③c VOICE_TTS=\"1\"·\"\" = 켬(0 이외 값은 켬 — 값 판정의 "
+              "정직 문자 규약)");
     }
 
     // 2w) 서버 도구 호출 저널 leg (#113 T1 — 스펙 2026-10-26-use-review-cycle-

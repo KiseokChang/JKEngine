@@ -11,6 +11,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
+#include <cstdlib>  // getenv — VOICE_TTS opt-out 런타임 원본(D2)
 #include <deque>
 #include <mutex>
 #include <string>
@@ -19,6 +20,66 @@
 #include <vector>
 
 namespace jk {
+
+// ---- tts — 구두 응답 TTS 결정 부품 (#117 T1 — 스펙
+// 2026-10-27-tts-response-design D2·D3·D4·D6) -------------------------------
+// 헤더 인라인 순수 부품(GalleryModel.h/MusicModel.h 선례 — selftest 2z가 같은
+// 진실원을 직소비 — 심볼 링크 없음·imgui/SDL 무접점). 스폰 본체(D1 폰 축 +
+// D5 실패 무시)는 ClientChatApp.cpp의 __ANDROID__ TU — Win/WSL 2축 바이너리에
+// 스폰 leg 미포함(컴파일 무영향 원문).
+namespace tts {
+
+// D4 — [시스템] 답신 reply 문언 상한(1행 규약 — "~120자").
+inline constexpr size_t kTtsReplyLimit = 120;
+inline const char kTtsEllipsis[] = "…";
+
+// D4 — 답신 절단 부품. 상한 초과 = 첫 120 **문자** 절취+말미 "…" 1자 접미.
+// 문자 단위 = UTF-8 코드포인트 경계 보전(연속 바이트 0b10xxxxxx는 선행 바이트에
+// 흡수 — 바이트 절단의 중간 글리프 파괴 없음). 상한 등호·이내 = 원문 그대로.
+inline std::string TtsReplyClip(const std::string& reply) {
+    size_t chars = 0;   // 소비한 코드포인트 수(정의상 상한을 넘지 않는다)
+    size_t i = 0;
+    bool over = false;  // 121번째 문자가 실제로 존재 = 절단 개입
+    while (i < reply.size()) {
+        if (chars == kTtsReplyLimit) {
+            over = true;   // i부터 121번째 문자 — 여기서 끊는다
+            break;
+        }
+        ++chars;
+        ++i;
+        while (i < reply.size() &&
+               (static_cast<unsigned char>(reply[i]) & 0xC0) == 0x80)
+            ++i;   // 연속 바이트 — 선행 문자 몫(중간 글리프 절단 없음)
+    }
+    if (!over) return reply;   // 121번째 문자 부재 — 원문 그대로
+    return reply.substr(0, i) + kTtsEllipsis;
+}
+
+// D2·D3 — TTS 스폰 판정 부품(스폰 결정의 유일 관문 — 3진실원 합산). ①구두
+// 출발 표지(turn.originVoice — StartVoice에서 새긴 턴 표지) ②답신 원문 재원
+// (빈 답신 = 스킵) ③opt-out(VoiceTtsOptOutRuntime의 켬/끔). 타이핑 발화의
+// 답신은 표지 0이라 구조적으로 부정된다(D3 무음 존중).
+inline bool TtsSpeakWanted(bool turnOriginVoice, bool replyEmpty,
+                           bool optOut) {
+    return turnOriginVoice && !replyEmpty && !optOut;
+}
+
+// D2 — VOICE_TTS opt-out 판정부(2z ③ — 표의 유일 진실원). 기본 켬(답을 듣는다
+// — UX 원칙)·설정+값 "0" 문자 1바이트 등호만 끔. 런타임 원본과 판정부가 같은
+// 표를 먹는다(VoiceLegVerdict+VoiceWhisperRootSet 원존 수형).
+inline bool VoiceTtsEnabled(bool envSet, const char* value) {
+    return !(envSet && value != nullptr &&
+             std::string(value) == "0");
+}
+
+// D2 — 런타임 원본 — getenv("VOICE_TTS") 1뒤. 스폰 leg만 소비(판정부 어셜션은
+// 2z의 명시 입력판 — env 중독 없음). 스폰 leg = __ANDROID__ TU.
+inline bool VoiceTtsOptOutRuntime() {
+    const char* v = std::getenv("VOICE_TTS");
+    return !VoiceTtsEnabled(v != nullptr, v);
+}
+
+}  // namespace tts
 
 // 기록(상) + 입력(하) 2창 ImGui 클라. 기록은 Append-only(요청/응답 전부
 // 인쇄 — 스펙 §1.1)라 별도 상태 모델 없이 벡터 1개가 진실원이다.
@@ -45,6 +106,10 @@ private:
     struct Turn {                     // 대화 기록 1행 — mine=사용자 발화
         bool mine = false;
         std::string text;
+        // #117 T1 — D3: 구두 출발 발화 턴 표지(StartVoice 세션의 placeholder에
+        // 새긴다 — FinishVoice push 접점 1곳). 이 표지 턴의 [시스템] 답신 도착
+        // = TTS 스폰(DrainVoice 1곳). 타이핑 발화 턴은 기본값 false.
+        bool originVoice = false;
     };
 
     void BuildUi(int w, int h);
@@ -83,6 +148,10 @@ private:
     std::deque<std::pair<std::string, std::string>> voiceOutbox_;  // 도구 질의
     size_t voiceWavSeq_ = 0;                     // 임시 wav 결정론 접미
     std::string voiceStatus_;                    // 구두 상태행(R5 "전사 중…")
+    bool voiceOriginPending_ = false;            // #117 D3 — 캡처 세션 표지
+                                                 // (StartVoice 새김 →
+                                                 // FinishVoice placeholder에
+                                                 // 수납 — 1회 소모)
     uint32_t voiceToastId_ = 0x40000000;         // 토스트 id(기록 미반영 체 밖)
 
     std::vector<Turn> turns_;          // append-only 대화 진실원

@@ -23,6 +23,14 @@
 #if !defined(_WIN32)
 #include <unistd.h>  // ::getpid — ThisProcessId 쌍둥이(MusicDirStore.h:52 계약)
 #endif
+#if defined(__ANDROID__)  // #117 T1 — D1 폰 축 TTS 스폰 leg 전용(include 포함
+                          // 가드 — Win/WSL 컴파일 무영향 원장행)
+#include <process/JKProcess.h>  // Spawn 어댑터(VoiceCaptureTermux 원존 수형)
+
+#include <sys/stat.h>  // ::stat — ResolveTermuxBin 수형(Termux prefix 조립)
+
+#include <thread>
+#endif
 
 namespace jk {
 namespace {
@@ -72,6 +80,100 @@ std::string TrimText(const std::string& raw) {
     const size_t e = raw.find_last_not_of(" \t\r\n");
     return raw.substr(b, e - b + 1);
 }
+
+#if defined(__ANDROID__)
+// #117 T1 — 구두 응답 TTS 스폰 leg (D1 폰 축 + D5 실패 무시). 수형 원존 =
+// VoiceCaptureTermux.cpp의 스폰 계열($PREFIX/bin resolve·지역 인용·마감+
+// kill-on-close job) — 그 파일의 계열 상수/도우미는 파일-local라 이 TU에
+// 축소 수형으로 독립한다(쌍둥이 반복 선례 — MusicDirStore ThisProcessId와
+// 같은 관행). **이 경로는 Win/WSL 캐논 바이너리에 미포함**(컴파일 무영향)
+// — 폰 빌드(T2 배포)만 링크된다 — 원장행.
+
+// 도달 불가 컴파일 경로 원장행: 아래 4종 전부 __ANDROID__ 게이트 안 — Win/
+// WSL 빌드(jkapp_chat)에서는 전처리기가 본체를 폐기해 심볼·코드 0. jkdesktop
+// selftest(2z)가 단정하는 것은 헤더 인라인 결정 부품 뿐(D6 — 스폰 어셜션
+// 금지). 스폰 leg의 실측 = 폰 E2E probe(T2 — "[TTS] speak" 행 원문).
+
+// Termux prefix 폴백 2종($PREFIX 실측 통용·TERMUX_PREFIX 명시 스펠링) —
+// VoiceCaptureTermux 수형의 문자 그대로. 미설정 = 빈 — resolve 실패로 귀결.
+std::string TtsTermuxPrefix() {
+    const char* p = std::getenv("TERMUX_PREFIX");
+    if (!p || !*p) p = std::getenv("PREFIX");
+    return (p && *p) ? std::string(p) : std::string();
+}
+
+// $PREFIX/bin/<name> resolve 수형 — 절대 경로 선호(spawn은 /bin/sh -c PATH
+// 조회 — PATH 상실 서버 계통에서도 성립하는 정직 resolve).
+bool TtsResolveBin(const char* name, std::string& abs) {
+    const std::string prefix = TtsTermuxPrefix();
+    if (!prefix.empty()) {
+        const std::string cand = prefix + "/bin/" + name;
+        struct stat st;
+        if (::stat(cand.c_str(), &st) == 0 && S_ISREG(st.st_mode)) {
+            abs = cand;
+            return true;
+        }
+    }
+    return false;
+}
+
+// posix sh 이중 따옴표 지역 이스케이프 — VoiceCaptureTermux Quoted 수형의
+// 문자 그대로(speak 문언에 따옴표·달러·백틱이 실려도 단일 인자로 간다).
+std::string TtsQuoted(const std::string& s) {
+    std::string out = "\"";
+    for (const char ch : s) {
+        if (ch == '"' || ch == '\\' || ch == '$' || ch == '`')
+            out += '\\';
+        out += ch;
+    }
+    out += '"';
+    return out;
+}
+
+// speak 마감 — termux-api 계열 수신기 무응답 hang 흡수(kCmdDeadlineMs 수형
+// 축소 — speak는 응답 지연 ~1s 규모라 15s면 여유). 시간 초과 = 그대로 조용한
+// 스킵(D5 — 재시도 없음).
+constexpr uint32_t kTtsSpeakDeadlineMs = 15000;
+
+// 1회 스폰 본체 — DrainVoice(UI 축)가 detached 단명 스레드로 불러 쏜다.
+// speak 문언은 이미 tts::TtsReplyClip(D4)을 통과한 절단판.
+void TtsSpawnSpeak(const std::string& speakText) {
+    // D5 — 실패 무시 계통: 조달 실패(termux-tts-speak 부재) = 스킵. 이하
+    // 같은 표 — UI·기록 무영향·재시도 없음. trace stamp = stderr 1행(폰 E2E
+    // probe의 "[TTS] speak/실패 원장행" 소관 — 스펙 §2).
+    std::string bin;
+    if (!TtsResolveBin("termux-tts-speak", bin)) {
+        std::fprintf(stderr, "[TTS] fail (termux-tts-speak 부재)\n");
+        return;
+    }
+    jk::process::SpawnOptions opt;
+    opt.commandLineUtf8 = TtsQuoted(bin) + " " + TtsQuoted(speakText);
+    opt.hideWindow = true;
+    opt.inheritedStdioPipes = true;   // 출력 폐기 전제 — 파이프만 닫는다
+    const jk::process::SpawnResult spawned = jk::process::Spawn(opt);
+    if (!spawned.ok) {
+        std::fprintf(stderr, "[TTS] fail (스폰 실패 err=%u)\n",
+                     spawned.errorCode);
+        return;
+    }
+    std::fprintf(stderr, "[TTS] speak: %s\n", speakText.c_str());
+    // kill-on-close job — 터미널 종료 사위 정산(W2 수형) — speak 1회 소명.
+    void* jobTree = jk::process::CreateKillOnCloseJob();
+    jk::process::AssignToJob(jobTree, spawned);
+    if (!jk::process::WaitForExit(spawned.process, kTtsSpeakDeadlineMs))
+        jk::process::TerminateJobTree(jobTree, 1);   // hang — 마감 kill (D5)
+    uint32_t exitCode = jk::process::kStillActiveExit;
+    jk::process::GetExitCode(spawned.process, &exitCode);
+    if (exitCode != 0 && exitCode != jk::process::kStillActiveExit)
+        std::fprintf(stderr, "[TTS] fail (rc=%u)\n", exitCode);
+    jk::process::CloseHandleLike(spawned.stdoutRead);
+    jk::process::CloseHandleLike(spawned.stderrRead);
+    jk::process::CloseHandleLike(spawned.process);
+    jk::process::CloseHandleLike(jobTree);
+    // rc 0 = speak 시작 수락 원장행 — 응답 지연(~1s)과 실제 합성 종료는
+    // Termux TTS 엔징 몫(EYES — 폰에서 답을 듣는 체감 — 스펙 §2).
+}
+#endif  // __ANDROID__ (#117 T1 — 폰 축 스폰 leg; 폰 축 외 = 빈 영역)
 
 } // namespace
 
@@ -124,6 +226,7 @@ void ClientChatApp::OnClose() {
             std::filesystem::remove(std::filesystem::path(st.wavPath), rmEc);
         }
         voiceStatus_.clear();
+        voiceOriginPending_ = false;   // 턴 0건 — 표지 소각(placeholder 없음)
     }
     // 텍스처 소유 없음 — ImGui만 봉합. 순서 계약: OnClose는 JKClientApplication
     // .cpp:260 기준 DestroyHiddenRenderer(:270)보다 먼저 불린다(ClientShotApp
@@ -319,6 +422,10 @@ void ClientChatApp::StartVoice() {
         return;
     }
     status_.clear();
+    // #117 T1 — D3: 이 세션 = 구두 출발 발화(StartVoice가 유일 개입 통로 —
+    // F6 hold·[구두] 버튼 2계통 전부 여기서). 표지는 placeholder 턴에 수납(
+    // FinishVoice) — 답신 도착(DrainVoice)의 TTS 관문 진실원.
+    voiceOriginPending_ = true;
     voiceStatus_ = koreanFont_ ? "녹음 중… (F6 해제 또는 [구두] 버튼으로 마침)"
                                : "recording... (release F6 or press [Voice])";
     frameDirty_ = true;   // 상태 전이 1틱만 더티 — 대기 무더티(#89 계약)
@@ -338,7 +445,11 @@ void ClientChatApp::FinishVoice() {
     }
     // placeholder 턴(전사 비결정 — 1-15s) → 전사 도착 시 이 슬롯을 치환(R5 —
     // "턴 기록에 전사 원문 도착 시 치환"). turns_는 append-only라 슬롯 안정.
-    turns_.push_back(Turn{ true, koreanFont_ ? "(전사 중…)" : "(transcribing...)" });
+    // D3 — origin 표지 수납 접점(1곳): StartVoice 세션 표지를 placeholder에
+    // 새기고 소모(1회). 답신 도착(DrainVoice)이 이 표지를 본다.
+    turns_.push_back(Turn{ true, koreanFont_ ? "(전사 중…)" : "(transcribing...)",
+                           voiceOriginPending_ });
+    voiceOriginPending_ = false;   // 세션 표지 소각 — 다음 발화는 새 표지 몫
     const size_t slot = turns_.size() - 1;
     {
         const std::lock_guard<std::mutex> lock(voiceMtx_);
@@ -363,6 +474,9 @@ void ClientChatApp::DrainVoice() {
     // 답신([시스템] 항)이 기록에 도착한 뒤 창 서버 지시가 나간다.
     for (const VoiceDone& d : done) {
         if (d.slot >= turns_.size()) continue;   // 도달 없음(append-only 슬롯)
+        // #117 T1 — D3 표지 원독(치환에 앞서): 실패 치환(Slot 재배정은 표지를
+        // 지운다 — Turn{false, ...} 대입)로 지워지기 전에 1뒤.
+        const bool voiceOrigin = turns_[d.slot].originVoice;
         if (!d.ok && !d.err.empty()) {
             turns_[d.slot] = Turn{ false, "[!] " + d.err };   // 정직 단문 치환
             PublishNotify(d.err);   // 인식 실패 토스트(알림 표면 — §3 ④②)
@@ -371,6 +485,24 @@ void ClientChatApp::DrainVoice() {
         }
         if (!d.guide.empty()) {
             turns_.push_back(Turn{ false, d.guide });   // 접점 안내문
+        }
+        // #117 T1 — D2·D3·D4·D5: 구두 출발 발화 턴의 [시스템] 답신 도착 =
+        // 1회 TTS. 판정은 tts::TtsSpeakWanted(3진실원 — 표지·답신 재원·
+        // opt-out), 문언은 TtsReplyClip 절단판(D4), 스폰은 detached 단명
+        // 스레드(워커 재용 금지 — RunVoiceTurn 마감 뒤 스폰 대기가 전사
+        // FIFO를 밀지 않게; UI 축 완료 대기도 봉쇄). 타이핑 발화의 답신은
+        // voiceOrigin 0이라 구조적으로 도달하지 않는다(D3 무음 존중).
+        // 폰 축(#ifdef) 밖 = 스폰 leg 부재 — Win/WSL은 판정만하고 침묵(컴파일
+        // 무영향 원장행).
+        if (!d.guide.empty() && voiceOrigin) {
+            const bool optOut = jk::tts::VoiceTtsOptOutRuntime();
+            if (jk::tts::TtsSpeakWanted(true, d.guide.empty(), optOut)) {
+#if defined(__ANDROID__)
+                std::thread([speak = jk::tts::TtsReplyClip(d.guide)] {
+                    TtsSpawnSpeak(speak);
+                }).detach();
+#endif
+            }
         }
         if (d.ok && d.launched) {
             PublishNotify(!d.guide.empty() ? d.guide : d.sttText);
