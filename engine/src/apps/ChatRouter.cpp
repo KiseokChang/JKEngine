@@ -74,13 +74,15 @@ constexpr RouteEntry kRouteTable[] = {
     {ChatAction::Launch,      "실행해줘"},
     {ChatAction::Launch,      "실행"},
     // #115b T1 신설 어휘 v1.5 (스펙 2026-10-27-voice-vocab-design §1·D1-D3).
-    // 재생계 — 도구 접점 = vplayer play_pause 1개(무인자 "{}")라 7행 전부
-    // 같은 릴레이 대상이다. **토글 수용 원장행**: vplayer의 "정지(seek
-    // stop)" 도구는 부재(ClientVPlayerApp OnAgentToolCall — open/play_pause/
-    // seek/set_volume/set_av_delay/get_status 6종뿐)하고 music의 spatial_stop
-    // 은 다른 앱 도메인(음역 오유 가능)이라 접점의 정직 채용은 토글 한 형태
-    // — "멈춰줘"가 멈춰 있으면 이어서 재생하고, "재생해줘"가 재생 중이면
-    // 멈춘다. 안내문(AppToolGuide)에도 양방향으로 인쇄한다.
+    // 재생계 — 도구 접점 = vplayer play_pause(무인자 "{}")라 7행 전부
+    // 같은 릴레이 대상이다. **토글 수용 원장행**: "정지(seek stop)" 류
+    // 방향 고정 도구는 당초 부재(ClientVPlayerApp OnAgentToolCall —
+    // open/play_pause/seek/set_volume/set_av_delay/get_status 6종)하고
+    // music의 spatial_stop은 다른 앱 도메인(음역 오유 가능)이라 접점의
+    // 정직 채용은 토글 한 형태 — "멈춰줘"가 멈춰 있으면 이어서 재생하고,
+    // "재생해줘"가 재생 중이면 멈춘다. 안내문(AppToolGuide)에도 양방향으로
+    // 인쇄한다. (v1.6 갱신 — play_stop 도구가 7종째로 신설되어 #115b
+    // 원장행 D3 "vplayer 정지 접점 부재"는 해소 — 아래 신설 행.)
     {ChatAction::AppTool,     "멈춰줘",   true, "vplayer", "play_pause"},
     {ChatAction::AppTool,     "멈춰",     true, "vplayer", "play_pause"},
     {ChatAction::AppTool,     "정지해줘", true, "vplayer", "play_pause"},
@@ -93,6 +95,12 @@ constexpr RouteEntry kRouteTable[] = {
     // 부재(ClientNotifyApp 등록 0 — Subscribe만; publish_event는 서버 쓰기
     // 전용)라 "알림 뭐 왔어"류 읽기 발화 = D3 배제(stub — 2y-⑮ 어설션).
     {ChatAction::Launch,      "보여줘"},
+    // v1.6 신설(vplayer play_stop 7종째 — #115b 원장행 승계): "완전히 정지"
+    // = 방향 고정 멈춤(토글 아님). 표 **끝** 배치 — 신설 exact 행이 기존
+    // 앞 행("정지해줘"/"정지" 등 접두 공유)의 접미 판정을 건드리지 않는 순서
+    // 계약(2y-⑩ 원존). exact 게이트라 "완전히 정지해줘"는 앞 exact 행과
+    // 등호가 아니라 여기 도달한다.
+    {ChatAction::AppTool,     "완전히 정지해줘", true, "vplayer", "play_stop"},
 };
 
 // ── 앱 별명 표 (라이브러리 appName 규약 인지) ────────────────────────
@@ -154,6 +162,11 @@ std::string AppToolGuide(const std::string& app, const std::string& toolName) {
     if (toolName == "play_pause") {
         return "'" + app + "' 재생 토글을 보냅니다 — 재생 중이면 멈추고, "
                           "멈춰 있으면 이어서 재생합니다.";
+    }
+    if (toolName == "play_stop") {
+        // 방향 고정 문어(토글 아님 — play_stop 계약): 항상 멈춤 방향.
+        return "'" + app + "' 재생을 정지합니다(현재 위치 유지 — "
+                          "재개는 '재생해줘').";
     }
     return "'" + app + "' 도구 '" + toolName + "'을(를) 보냅니다.";
 }

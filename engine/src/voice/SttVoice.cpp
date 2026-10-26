@@ -46,6 +46,8 @@ constexpr char kVoiceLanguage[] = "ko";
 // 영문 카탈로그 키(minesweeper) 혼입은 tiny류의 영문 전사 유입 리스크 —
 // 앱 이름은 한국어 별명(kAliasTable) 소관. #115b 갱신 = 재생계 트리거
 // (AppTool 행 — 멈춰줘/정지/일시정지/재생)·알림 별명+보여줘 트리거.
+// v1.6 갱신 = "완전히 정지해줘"(play_stop — 토글과 구별되는 방향 고정
+// 멈춤 — 도구 7종째).
 // **배제 어휘(D3 — 도구 접점 부재)는 여기에도 넣지 않는다** — prompt는 표가
 // 성립시키는 어휘만 전사 돕는다(표=진실원 동기 계약).
 // **risk 원장행(원존 승계)**: prompt는 디코딩 편향이므로 무발화/환각("click"
@@ -59,7 +61,7 @@ constexpr char kVoiceLanguage[] = "ko";
 constexpr char kVoicePrompt[] =
     "지뢰찾기 테트리스 알림 실행해줘 실행 열어줘 켜줘 닫아줘 꺼줘 앞으로 가져와 "
     "포커스 창 목록 창목록 뭐 떠 있어 멈춰줘 멈춰 정지해줘 정지 일시정지 "
-    "재생해줘 재생 보여줘";
+    "재생해줘 재생 완전히 정지해줘 보여줘";
 
 // 전체 마감 — JKLmEngine kTurnIdleKillMs(10분) 선형. transcribe는 모든
 // 진행 로그가 stderr라 관측 유무로 목을 줄 수 없어 **전체 마감** 1종만

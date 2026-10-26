@@ -2309,6 +2309,12 @@ void ClientVPlayerApp::OnInit() {
             {"open", "Open a media file (async; poll get_status)",
              "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}"},
             {"play_pause", "Toggle play/pause", "{}"},
+            // play_stop(#115b 원장행 승계 — v1.6 7종째): "정지" = 완전
+            // 정지 — 토글과 구별되는 방향 고정 멈춤(재생 중이든 아니든
+            // pause로 확정·위치 보존 — seek(0) 리셋은 조그 링 도메인과의
+            // 충돌 회피 재량). 어휘 접점 = "완전히 정지해줘" 1행
+            // (ChatRouter kRouteTable).
+            {"play_stop", "Stop playback (pause at current position; not a toggle)", "{}"},
             {"seek", "Seek to absolute seconds",
              "{\"type\":\"object\",\"properties\":{\"seconds\":{\"type\":\"integer\"}},\"required\":[\"seconds\"]}"},
             {"set_volume", "Set volume percent 0..100",
@@ -2860,6 +2866,17 @@ bool ClientVPlayerApp::OnAgentToolCall(const std::string& tool,
         const PlayerCore::Snap st = player_->SnapNow();
         player_->SetPaused(!st.paused);
         out = std::string("{\"paused\":") + (!st.paused ? "true" : "false") + "}";
+        return true;
+    }
+    if (tool == "play_stop") {
+        // "정지" = 완전 정지(방향 고정 — 토글 아님): 어떤 상태든 pause로
+        // 확정한다. 재생 위치는 원존 보존(시킹 리셋 없음 — seek(0) 재지정은
+        // 조그 링/프레임 상태 도메인과의 충돌 위험, 정지 = 시간 진행의 종료
+        // 이지 좌표 파산이 아님). idempotent — 이미 paused면 무변화.
+        const PlayerCore::Snap st = player_->SnapNow();
+        player_->SetPaused(true);
+        out = std::string("{\"stopped\":true,\"paused\":true,\"pos\":") +
+              std::to_string(st.pos) + "}";
         return true;
     }
     if (tool == "seek") {
