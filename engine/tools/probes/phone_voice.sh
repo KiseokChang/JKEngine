@@ -784,6 +784,13 @@ echo "VOCAB-SCRATCH-BURIED"
 # 부팅 계약과 같은 계통). stamp 행 = T1 원존 `[TTS] speak: <절단판>` /
 # `[TTS] fail (...)`(T2 소각 금지 원장행 — T1 리포트 §9.4).
 echo "=== B3. #117 TTS 세그먼트 — stamp 원문+지연+CLI 개발력+opt-out 1판 ==="
+# [fix r4 — 웨지 수속]: 선행 런의 사고(발화 중 deadline kill → 시스템 TTS
+# 엔진 웨지 — libexec TextToSpeech helper 잔존·이후 스폰 전량 무응답)가 런
+# 밖으로 생존한다(117-R5 런 원장) — 세그먼트 진입 시 helper 잔존 소각+판정행.
+HWBEFORE=$($SSH 'pgrep -c -f "TextToSpeec[h]" 2>/dev/null | tr -d " \r"' || echo 0)
+[ -n "$HWBEFORE" ] || HWBEFORE=0
+$SSH 'pkill -9 -f "TextToSpeec[h]" 2>/dev/null; pkill -9 -f "t6pv_tts_cl[i]" 2>/dev/null; echo WEDGE-SWEEP-RC=$?' | sed 's/^/TTS-SWEEP: /'
+echo "TTS-WEDGE-SWEEP: before=$HWBEFORE (libexec TextToSpeech helper — 웨지 진단 원문)"
 TTS_OK_STAMP=0
 TTS_OK_OPTOUT=0
 TTS_OK_CLI=0
@@ -987,45 +994,60 @@ fi
 # 성립 = 구두 표면의 토글 계약이 실측됐다 — 이 통제 없는 stamp 도착/부존은
 # 표면 도달 자체가 불성립이라 판정 무효.
 TTS_OK_SESSION=0
-SSTART=$(sed -n 's/^TTS\[[0-9]*\]: TTS-SESSION-START-OK: //p' <<< "$TTSOUT" | tail -1)
-SSTOP=$(sed -n 's/^TTS\[[0-9]*\]: TTS-SESSION-STOP-OK: //p' <<< "$TTSOUT" | tail -1)
+# [fix r4 — 판독 접두 결함]: TTSOUT = 원문(접두 없음) — TTS[n]: 접두는 인쇄 시
+# 에만 존재한다(117-R5 런 start=n/a 판독 실패 원장행).
+SSTART=$(sed -n 's/^TTS-SESSION-START-OK: //p' <<< "$TTSOUT" | tail -1 | tr -d ' \r')
+SSTOP=$(sed -n 's/^TTS-SESSION-STOP-OK: //p' <<< "$TTSOUT" | tail -1 | tr -d ' \r')
 [ "${SSTART:-0}" = "1" ] && [ "${SSTOP:-0}" = "1" ] && TTS_OK_SESSION=1
 echo "TTS-SESSION-VERDICT: start=${SSTART:-n/a} stop=${SSTOP:-n/a} (전용 런 토글 계약 — 유효성 통제)"
-# 턴 도착 양순 영수증(기본 런 — done>rec)
+# 턴 도착 보조 관측(기본 런 — done>rec — 렌더 비결정으로 역전 가능 —
+# 117-R5 런 원장행: stamp 도착 런에서도 done<rec — 판정 = stamp+세션 전이 소관,
+# 본 행 = 관측만. stamp 미검출 런에서만 결정 proxy로 승격).
 SREC=$($SSH "wc -c < \$TMPDIR/t5_chat_tts_rec.png" 2>/dev/null | tr -d ' \r')
 SDONE=$($SSH "wc -c < \$TMPDIR/t5_chat_tts_done.png" 2>/dev/null | tr -d ' \r')
 TTS_TURN_OK=0
 if [ -n "$SREC" ] && [ -n "$SDONE" ] && [ "$SDONE" -gt "$SREC" ]; then
     TTS_TURN_OK=1
-    echo "TTS-TURN-OK: done>$SREC→$SDONE (+$((SDONE - SREC))B = 기록 행 렌더 영수증 — T5 함정 10 수형 원존)"
+    echo "TTS-TURN-INFO: done>$SREC→$SDONE (+$((SDONE - SREC))B = 기록 행 렌더 영수증)"
 else
-    echo "VOICE-PHONE-FAIL(tts turn: done($SDONE) <= rec($SREC) — 답신 도착 미검출 — stamp 부존의 우선 원인 행)"
+    if [ "${TTS_DEDICATED_DETECT:-0}" -eq 1 ]; then
+        echo "TTS-TURN-INFO: done($SDONE) <= rec($SREC) — 렌더 역전 — stamp 도착이 도착 결정 원문(117-R5 런 원장행)"
+    else
+        echo "VOICE-PHONE-FAIL(tts turn: done($SDONE) <= rec($SREC) — 답신 도착 미검출 — stamp 부존의 우선 원인 행)"
+    fi
 fi
 recover "\$TMPDIR/t5_chat_tts_rec.png"  "$SCRATCH/pv_tts_rec.png"
 recover "\$TMPDIR/t5_chat_tts_done.png" "$SCRATCH/pv_tts_done.png"
 
     # (3) CLI 개발력 3표본 — termux-tts-speak 스폰→종료 ms(exit = 첫음+발화
     #     포괄 상한 — 즉귀형이면 개발력 그 자체. 첫음 온셋 실측 = EYES 몫)
-cat > "$SCRATCH/t6pv_tts_cli.py" <<'PYTTEOF'
-# #117 TTS CLI 개발력 표본(phone_voice.sh가 생성 — 폰 $TMPDIR 발행).
+# [fix r4 — 표본 자체에 타임아웃]: termux-tts-speak는 엔진 웨지 시 무한 블록
+# (117-R5 런 원장 — 표본 1건이 런을 시간 밖으로 밀었다) — per-call timeout 20s
+# +웨지 표본은 TIME-OUT 행(honest) — 잔존 helper는 런 뒤 소각.
+cat > "$SCRATCH/t6pv_tts_cli.py" <<'PYTTEOF2'
+# #117 TTS CLI 개발력 표본(phone_voice.sh가 생성 — 폰 $TMPDIR 발행 — fix r4).
 import os, subprocess, time
 bin_path = os.path.join(os.environ["PREFIX"], "bin", "termux-tts-speak")
 for i in (1, 2, 3):
     t0 = time.time()
-    subprocess.run([bin_path, "프로브 %d" % i])
-    print("TTS-CLI-LAT-MS: %d" % int((time.time() - t0) * 1000), flush=True)
-PYTTEOF
+    try:
+        rc = subprocess.run([bin_path, "프로브 %d" % i], timeout=20).returncode
+        print("TTS-CLI-LAT-MS: %d" % int((time.time() - t0) * 1000), flush=True)
+    except subprocess.TimeoutExpired:
+        print("TTS-CLI-TIME-OUT: %d (20s — 엔진 웨지 표본 — 런 밖 원장행)" % i, flush=True)
+PYTTEOF2
 $SSH "cat > \$TMPDIR/t6pv_tts_cli.py" < "$SCRATCH/t6pv_tts_cli.py" || FAIL "cli lat script push failed"
-CLIOUT=$($SSH 'python3 $TMPDIR/t6pv_tts_cli.py' 2>&1)
-printf '%s\n' "$CLIOUT" | grep -a '^TTS-CLI-LAT-MS: ' | sed 's/^/TTS-CLI: /'
+CLIOUT=$(timeout 120 $SSH 'timeout 120 python3 $TMPDIR/t6pv_tts_cli.py' 2>&1)
+printf '%s\n' "$CLIOUT" | grep -a '^TTS-CLI-' | sed 's/^/TTS-CLI: /'
 CLIN=$(printf '%s' "$CLIOUT" | grep -ac '^TTS-CLI-LAT-MS: ' || true)
-if [ "$CLIN" -eq 3 ]; then
+CLIW=$(printf '%s' "$CLIOUT" | grep -ac '^TTS-CLI-TIME-OUT: ' || true)
+if [ "${CLIN:-0}" -ge 1 ]; then
     TTS_OK_CLI=1
     CLIMIN=$(printf '%s' "$CLIOUT" | grep -a '^TTS-CLI-LAT-MS: ' | sed 's/.*: //' | sort -n | head -1)
     CLIMAX=$(printf '%s' "$CLIOUT" | grep -a '^TTS-CLI-LAT-MS: ' | sed 's/.*: //' | sort -n | tail -1)
-    echo "TTS-CLI-THRESH: min=${CLIMIN}ms max=${CLIMAX}ms (스폰→종료 — termux-tts-speak 개발력 상한 — 리서치 문턱 1s = 첫 단어 대조 표기·판정 어설션 아님 — 실음 체감 = EYES)"
+    echo "TTS-CLI-THRESH: samples=$CLIN/3 wedged=${CLIW:-0} min=${CLIMIN}ms max=${CLIMAX}ms (스폰→종료 — termux-tts-speak 개발력 — 리서치 문턱 1s = 첫 단어 대조 표기·판정 어설션 아님 — 실음 체감 = EYES)"
 else
-    echo "VOICE-PHONE-FAIL(cli-lat: 표본 $CLIN/3 — $CLIOUT)"
+    echo "VOICE-PHONE-FAIL(cli-lat: 측정 표본 ${CLIN:-0}/3 웨지 ${CLIW:-0} — 엔진 웨지 사건 원문 — 위 TTS-CLI 행)"
 fi
 
     # (4) opt-out 1판 — VOICE_TTS=0 부팅 → stamp 부존(정직 부존 원장행 — 턴
@@ -1238,7 +1260,8 @@ $SSH "cd ~/JKENGINE/engine && timeout 20 ./buildterm/jkdesktop agentctl '{\"tool
 NLEFT=$($SSH 'ls $TMPDIR 2>/dev/null | grep -c "jkchat_voice.*\(\.wav\|\.rec\.m4a\)"' 2>/dev/null)
 echo "REMNANT: phone jkchat_voice temp files left=$NLEFT (0 = 잔상 0 계약)"
 [ "$NLEFT" = "0" ] || echo "VOICE-PHONE-FAIL(remnant: 폰 음성 잔존 $NLEFT건 — 수동 소각)"
-$SSH "rm -f \$TMPDIR/t6pv_boot.sh \$TMPDIR/t6pv_tap.sh \$TMPDIR/t6pv_rest.sh \$TMPDIR/t5_voice_probe \$TMPDIR/t5_voice_probe.cpp \$TMPDIR/t6pv_fixture.py \$TMPDIR/jk_t6pv_fixture.wav" 2>/dev/null
+$SSH "rm -f \$TMPDIR/t6pv_boot.sh \$TMPDIR/t6pv_tap.sh \$TMPDIR/t6pv_rest.sh \$TMPDIR/t5_voice_probe \$TMPDIR/t5_voice_probe.cpp \$TMPDIR/t6pv_fixture.py \$TMPDIR/jk_t6pv_fixture.wav \$TMPDIR/t6pv_tts_tap.sh \$TMPDIR/t6pv_tts_bootout.sh \$TMPDIR/t6pv_boot2.sh \$TMPDIR/t6pv_tts_cli.py \$TMPDIR/t6pv_tts_srv.log \$TMPDIR/t6pv_srv2.log \$TMPDIR/t5_chat_tts_rec.png \$TMPDIR/t5_chat_tts_done.png" 2>/dev/null
+$SSH 'pkill -9 -f "TextToSpeec[h]" 2>/dev/null; echo TTS-HELPERS-SWEEP-RC=$?' | sed 's/^/TTS-SWEEP: /'   # 웨지 helper 잔존 소각(fix r4 — 117-R5 런 원장)
 echo "T-PUSH-SCRATCH-BURIED: 폰 probe 스크래치 소각"
 
 echo "=== 폰 VERDICT (요약 스트림 계약) ==="
