@@ -8578,28 +8578,52 @@ static int RunAppSelfTest() {
                         mkData(2, u16le("U16 Artist"))),
                  mkItem("\xA9" "alb",
                         mkData(2, u16le("U16 Album")))});
+            // 무BOM BE(T2 라인 리뷰 r1 소각 — Apple 타입 2 = UTF-16BE 명시
+            // 규약: 무BOM = BE, BOM 존재 = BOM이 이긴다).
+            const auto u16beRaw = [](const std::string& s) {
+                std::vector<unsigned char> v;
+                for (char c : s) {
+                    v.push_back(0);
+                    v.push_back(static_cast<unsigned char>(c));
+                }
+                return v;
+            };
+            const fs::path p16be = tdir / "2x_c2_utf16be.m4a";
+            const std::vector<unsigned char> ilst16be = concat(
+                {mkItem("\xA9" "nam", mkData(2, u16beRaw("BE Title"))),
+                 mkItem("\xA9" "ART", mkData(2, u16beRaw("BE Artist")))});
             const std::vector<unsigned char> blob8 =
                 mkFile(mkBox("udta", concat({mkMeta(ilst8)})));
             const std::vector<unsigned char> blob16 =
                 mkFile(mkBox("udta", concat({mkMeta(ilst16)})));
-            std::string e8, e16;
+            const std::vector<unsigned char> blob16be =
+                mkFile(mkBox("udta", concat({mkMeta(ilst16be)})));
+            std::string e8, e16, e16be;
             const bool built8 = putFile(p8, blob8);
             const bool built16 = putFile(p16, blob16);
+            const bool built16be = putFile(p16be, blob16be);
             const mt::TagSet t8 =
                 built8 ? mt::ParseTag(p8.generic_string(), e8) : mt::TagSet{};
             const mt::TagSet t16 =
                 built16 ? mt::ParseTag(p16.generic_string(), e16)
                         : mt::TagSet{};
-            check(built8 && built16 && e8.empty() && e16.empty() &&
+            const mt::TagSet t16be =
+                built16be ? mt::ParseTag(p16be.generic_string(), e16be)
+                          : mt::TagSet{};
+            check(built8 && built16 && built16be && e8.empty() && e16.empty() &&
+                      e16be.empty() &&
                       t8.title == "M4A Title" &&
                       t8.artist == "M4A Artist" &&
                       t8.album == std::string(
                           "\xED\x95\x9C\xEA\xB8\x80 \xEC\x95\xA8\xEB\xB2\x94") &&
                       t16.title == "U16 Title" &&
-                      t16.artist == "U16 Artist" && t16.album == "U16 Album",
+                      t16.artist == "U16 Artist" && t16.album == "U16 Album" &&
+                      t16be.title == "BE Title" &&
+                      t16be.artist == "BE Artist",
                   "2x-② 태그 m4a 재독 = ©nam/©ART/©alb 3필드 등호(UTF-8 data "
-                  "통과+한글)+UTF-16(BOM BE/LE) 동등(data 타입 코드 1/2 — "
-                  "DecodeId3Text BOM 계약 승계)");
+                  "통과+한글)+UTF-16(BOM BE/LE) 동등+무BOM = BE(타입 코드 1/2 "
+                  "— DecodeId3Text BOM 계약 승계·Apple 타입 2 = BE 명시 — "
+                  "T2 리뷰 r1 수형)");
         }
 
         // ③) 잘린 box(size > 남은 바이트) — (a) 최상위 moov·(b) 항목 data:
@@ -8637,6 +8661,327 @@ static int RunAppSelfTest() {
                       !fs::exists(tdir, sx),
                   "2x-③ 잘린 box(size > 남은 바이트) = 정직 거부(moov 잘림"
                   "+©nam 성립에도 부분 소각 — err 빈·REMNANT 0)");
+        }
+    }
+
+    // 2x) opus 태그 읽기+m4a/opus 커버아트 — #115 T2 (스펙 D3/D4): opus =
+    // OggS 연쇄의 OpusTags 패킷(vorbis 코멘트 동형 구조 재용 — 패킷 1
+    // "OpusHead"는 매agic 미일치로 자연 스킵)·covr = ilst 항목 data atom
+    // (코드 13=JPEG·14=PNG·0=스니프). 합성 OggS 페이지(쓰기 leg의
+    // BuildOggPage/PushPacketLacing/OggCrc 재용 — CRC 규약 등호)+합성 box
+    // 트리(2x T1 수형 재용 — FS 접점 = temp dir 전용·사후 소각 REMNANT 0).
+    // 재생 디코드 비-목표(D6 — 스폰 0). 5건(④opus 무태그 ⑤opus 태그 ⑥covr
+    // round-trip ⑦opus MBP round-trip ⑧잘린 covr/MBP 정직 거부 2건).
+    {
+        namespace fs = std::filesystem;
+        namespace mt = jk::music::tags;
+        const fs::path tdir = fs::temp_directory_path() / "jk_music_t2";
+        fs::remove_all(tdir);  // 선제거 — 이전 런 잔산(2x 원문 수형)
+        fs::create_directories(tdir);
+
+        auto putFile = [](const fs::path& p,
+                          const std::vector<unsigned char>& bytes) {
+            std::ofstream f(p, std::ios::binary);
+            f.write(reinterpret_cast<const char*>(bytes.data()),
+                    static_cast<std::streamsize>(bytes.size()));
+            f.close();
+            return fs::file_size(p) == bytes.size();
+        };
+        auto pushBE32 = [](std::vector<unsigned char>& v, unsigned int x) {
+            for (int sh = 24; sh >= 0; sh -= 8)
+                v.push_back(static_cast<unsigned char>((x >> sh) & 0xFF));
+        };
+        auto pushLE32 = [](std::vector<unsigned char>& v, unsigned int x) {
+            for (int sh = 0; sh < 32; sh += 8)
+                v.push_back(static_cast<unsigned char>((x >> sh) & 0xFF));
+        };
+        auto concat = [](std::vector<std::vector<unsigned char>> parts) {
+            std::vector<unsigned char> b;
+            for (const auto& one : parts)
+                b.insert(b.end(), one.begin(), one.end());
+            return b;
+        };
+        // Ogg 페이지 1건(패킷 1개 — 쓰기 leg 부품 재용: PushPacketLacing
+        // 세그 런+BuildOggPage CRC 규약 — 원문 판정).
+        auto mkPage = [](unsigned char htype,
+                         const std::vector<unsigned char>& pkt) {
+            std::vector<unsigned char> lace, pg;
+            mt::PushPacketLacing(lace, pkt.size());
+            mt::BuildOggPage(pg, 0, htype, 0ull, 77u, 0u, lace.data(),
+                             lace.size(), pkt.data(), pkt.size());
+            return pg;
+        };
+        auto mkOpusHead = [&pushLE32]() {
+            std::vector<unsigned char> pkt;
+            const unsigned char magic[8] = {'O', 'p', 'u', 's', 'H', 'e',
+                                            'a', 'd'};
+            pkt.insert(pkt.end(), magic, magic + 8);
+            pkt.push_back(1);   // version
+            pkt.push_back(2);   // channels
+            pkt.push_back(312 & 0xFF);            // pre-skip LE16
+            pkt.push_back((312 >> 8) & 0xFF);
+            pushLE32(pkt, 48000);                 // input sample rate LE32
+            pkt.push_back(0);   // output gain LE16
+            pkt.push_back(0);
+            pkt.push_back(0);   // mapping family
+            return pkt;
+        };
+        auto mkOpusTags = [&pushLE32](
+            const std::string& vendor,
+            const std::vector<std::pair<std::string, std::string>>& es) {
+            std::vector<unsigned char> pkt;
+            const unsigned char magic[8] = {'O', 'p', 'u', 's', 'T', 'a',
+                                            'g', 's'};
+            pkt.insert(pkt.end(), magic, magic + 8);
+            pushLE32(pkt, static_cast<unsigned int>(vendor.size()));
+            pkt.insert(pkt.end(), vendor.begin(), vendor.end());
+            pushLE32(pkt, static_cast<unsigned int>(es.size()));
+            for (const auto& kv : es) {
+                pushLE32(pkt, static_cast<unsigned int>(kv.first.size() + 1 +
+                                                        kv.second.size()));
+                pkt.insert(pkt.end(), kv.first.begin(), kv.first.end());
+                pkt.push_back('=');
+                pkt.insert(pkt.end(), kv.second.begin(), kv.second.end());
+            }
+            return pkt;
+        };
+        // 그림 블롭(정직 합성 — JPEG/JFIF SOI 마커·PNG 시그니처 8B 규약 원문).
+        const std::vector<unsigned char> jpgBlob = {
+            0xFF, 0xD8, 0xFF, 0xE0, 'J', 'P', 'J', '+', '!', '-', '.',
+            'J', 'P', 'E', 'G'};
+        const std::vector<unsigned char> pngBlob = {
+            0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3, 4};
+
+        // ④) 합성 opus(무태그) — OpusHead+OpusTags(엔트리 0) → OggPacket1
+        //    IsOpus 스니프 성립+ParseTag = 빈 TagSet 폴백+err 빈(vorbis
+        //    구별 — OggS 매agic은 같지만 코멘트 패킷 매agic이 다르다).
+        {
+            const fs::path p = tdir / "2x_f_notag.opus";
+            const std::vector<unsigned char> blob = concat(
+                {mkPage(0x02, mkOpusHead()),
+                 mkPage(0x00, mkOpusTags("synth-vendor", {}))});
+            std::string e;
+            const bool built = putFile(p, blob);
+            const bool sniff =
+                mt::OggPacket1IsOpus(blob.data(), blob.size());
+            const mt::TagSet t1 =
+                built ? mt::ParseTag(p.generic_string(), e) : mt::TagSet{};
+            check(built && sniff && mt::TagEmpty(t1) && e.empty(),
+                  "2x-④ 합성 opus(무태그 — OpusHead+OpusTags 빈) = "
+                  "OggPacket1IsOpus 스니프 성립(opus/vorbis 구별)+ParseTag "
+                  "빈 TagSet 폴백+err 빈");
+        }
+
+        // ⑤) opus 태그 읽기 등호 — OpusTags 엔트리 TITLE/ARTIST/ALBUM
+        //    (한글 앨범) — vorbis 코멘트 해석 재용(ParseVorbisComments).
+        {
+            const fs::path p = tdir / "2x_g_tags.opus";
+            const std::vector<unsigned char> blob = concat(
+                {mkPage(0x02, mkOpusHead()),
+                 mkPage(0x00, mkOpusTags(
+                                  "synth-vendor",
+                                  {{"TITLE", "Opus Title"},
+                                   {"ARTIST", "Opus Artist"},
+                                   {"ALBUM",
+                                    "\xED\x95\x9C\xEA\xB8\x80 \xEC\x95\xA8"
+                                    "\xEB\xB2\x94"}}))});  // "한글 앨범" UTF-8
+            std::string e;
+            const bool built = putFile(p, blob);
+            const mt::TagSet t1 =
+                built ? mt::ParseTag(p.generic_string(), e) : mt::TagSet{};
+            check(built && e.empty() && t1.title == "Opus Title" &&
+                      t1.artist == "Opus Artist" &&
+                      t1.album == std::string(
+                          "\xED\x95\x9C\xEA\xB8\x80 \xEC\x95\xA8\xEB\xB2\x94"),
+                  "2x-⑤ opus 태그 읽기 = OpusTags 엔트리 3필드 등호(한글 앨범"
+                  " 포함 — ParseVorbisComments 재용·OpusHead 패킷 스킵)");
+        }
+
+        // ⑥) m4a covr round-trip — data 타입 14(PNG)+13(JPEG) mime 등호+
+        //    바이트 원문 등호+스니프 0(binary 암규약) JPEG 동등.
+        {
+            const fs::path pPng = tdir / "2x_h_cvr_png.m4a";
+            const fs::path pJpg = tdir / "2x_i_cvr_jpg.m4a";
+            const auto mkFileCvr = [&](unsigned int code,
+                                       const std::vector<unsigned char>& img,
+                                       const fs::path& p) {
+                auto mkBox = [&](const char* type4,
+                                 const std::vector<unsigned char>& body) {
+                    std::vector<unsigned char> b;
+                    pushBE32(b, static_cast<unsigned int>(body.size() + 8));
+                    b.insert(b.end(), type4, type4 + 4);
+                    b.insert(b.end(), body.begin(), body.end());
+                    return b;
+                };
+                std::vector<unsigned char> dataBody;
+                pushBE32(dataBody, code);
+                pushBE32(dataBody, 0);  // locale
+                dataBody.insert(dataBody.end(), img.begin(), img.end());
+                const std::vector<unsigned char> covrItem =
+                    mkBox("covr", mkBox("data", dataBody));
+                const std::vector<unsigned char> ilst = mkBox("ilst", covrItem);
+                std::vector<unsigned char> meta;
+                pushBE32(meta, 0);  // version/flags
+                const std::vector<unsigned char> hdlrBody = [&] {
+                    std::vector<unsigned char> b;
+                    pushBE32(b, 0);
+                    pushBE32(b, 0);
+                    const unsigned char mdir[4] = {'m', 'd', 'i', 'r'};
+                    b.insert(b.end(), mdir, mdir + 4);
+                    b.insert(b.end(), 17, 0);
+                    return b;
+                }();
+                const std::vector<unsigned char> children =
+                    concat({mkBox("hdlr", hdlrBody), ilst});
+                meta.insert(meta.end(), children.begin(), children.end());
+                const std::vector<unsigned char> udta =
+                    mkBox("udta", concat({mkBox("meta", meta)}));
+                const std::vector<unsigned char> moov =
+                    mkBox("moov", concat({udta}));
+                const std::vector<unsigned char> head =
+                    mkBox("ftyp", {'M', '4', 'A', ' ', 0, 0, 0, 0, 'i', 's',
+                                   'o', 'm'});
+                const std::vector<unsigned char> mdat =
+                    mkBox("mdat", std::vector<unsigned char>(64, 0xAB));
+                return putFile(p, concat({head, moov, mdat}));
+            };
+            const bool b1 = mkFileCvr(14, pngBlob, pPng);
+            const bool b2 = mkFileCvr(13, jpgBlob, pJpg);
+            mt::CoverArt cPng, cJpg;
+            std::string ePng, eJpg;
+            const bool r1 = b1 ? mt::ReadCover(pPng.generic_string(), cPng,
+                                               ePng)
+                               : false;
+            const bool r2 = b2 ? mt::ReadCover(pJpg.generic_string(), cJpg,
+                                               eJpg)
+                               : false;
+            check(b1 && b2 && r1 && r2 && ePng.empty() && eJpg.empty() &&
+                      cPng.mime == "image/png" &&
+                      cJpg.mime == "image/jpeg" &&
+                      cPng.bytes.size() == pngBlob.size() &&
+                      cJpg.bytes.size() == jpgBlob.size() &&
+                      std::memcmp(cPng.bytes.data(), pngBlob.data(),
+                                  pngBlob.size()) == 0 &&
+                      std::memcmp(cJpg.bytes.data(), jpgBlob.data(),
+                                  jpgBlob.size()) == 0,
+                  "2x-⑥ m4a covr round-trip = mime 등호(image/png 14·image/"
+                  "jpeg 13 — iTunes 규약 코드)+그림 바이트 원문 등호");
+        }
+
+        // ⑦) opus MBP round-trip — OpusTags METADATA_BLOCK_PICTURE(베이스64
+        //    FLAC PICTURE 구조 — 쓰기 leg BuildFlacPictureStruct/Base64Encode
+        //    재용) → ReadCover mime+바이트 등호(2u Ogg MBP 원문 사슬 재용).
+        {
+            const fs::path p = tdir / "2x_j_mbp.opus";
+            const std::vector<unsigned char> pic = mt::BuildFlacPictureStruct(
+                "image/jpeg", {jpgBlob.begin(), jpgBlob.end()});
+            std::string b64;
+            mt::Base64Encode(pic.data(), pic.size(), b64);
+            const std::vector<unsigned char> blob = concat(
+                {mkPage(0x02, mkOpusHead()),
+                 mkPage(0x00, mkOpusTags(
+                                  "synth-vendor",
+                                  {{"METADATA_BLOCK_PICTURE", b64}}))});
+            std::string e;
+            const bool built = putFile(p, blob);
+            mt::CoverArt c;
+            const bool r = built
+                               ? mt::ReadCover(p.generic_string(), c, e)
+                               : false;
+            check(built && r && e.empty() && c.mime == "image/jpeg" &&
+                      c.bytes.size() == jpgBlob.size() &&
+                      std::memcmp(c.bytes.data(), jpgBlob.data(),
+                                  jpgBlob.size()) == 0,
+                  "2x-⑦ opus METADATA_BLOCK_PICTURE round-trip = mime image/"
+                  "jpeg+그림 바이트 등호(베이스64 FLAC PICTURE 구조 — vorbis "
+                  "MBP 사슬 재용·OpusTags 지목 leg 신설)");
+        }
+
+        // ⑧) 잘린 covr/MBP = 정직 거부 2건 — (a) m4a covr data 선언 200000
+        //    잘림·(b) opus MBP의 PICTURE data 선언 100000 잘림 — ReadCover
+        //    false+"no_cover"(부분 그림 0 — 잘린 그림 전시 금지 원문).
+        {
+            const fs::path pa = tdir / "2x_k_covr_trunc.m4a";
+            const fs::path pb = tdir / "2x_l_mbp_trunc.opus";
+            auto mkBoxDecl = [&](const char* type4, unsigned int declared,
+                                 const std::vector<unsigned char>& body) {
+                std::vector<unsigned char> b;
+                pushBE32(b, declared);
+                b.insert(b.end(), type4, type4 + 4);
+                b.insert(b.end(), body.begin(), body.end());
+                return b;
+            };
+            auto mkBox = [&](const char* type4,
+                             const std::vector<unsigned char>& body) {
+                return mkBoxDecl(
+                    type4, static_cast<unsigned int>(body.size() + 8), body);
+            };
+            const std::vector<unsigned char> covrItemTrunc =
+                mkBoxDecl("covr", 8 + 200000,
+                          mkBoxDecl("data", 200000, {0, 0, 0, 14, 0, 0, 0, 0,
+                                                     0x89, 'P'}));
+            const std::vector<unsigned char> ilst =
+                mkBox("ilst", concat({covrItemTrunc}));
+            const std::vector<unsigned char> hdlrBody = [&] {
+                std::vector<unsigned char> b;
+                pushBE32(b, 0);
+                pushBE32(b, 0);
+                const unsigned char mdir[4] = {'m', 'd', 'i', 'r'};
+                b.insert(b.end(), mdir, mdir + 4);
+                b.insert(b.end(), 17, 0);
+                return b;
+            }();
+            const std::vector<unsigned char> meta = [&] {
+                std::vector<unsigned char> b;
+                pushBE32(b, 0);  // version/flags
+                const std::vector<unsigned char> children =
+                    concat({mkBox("hdlr", hdlrBody), ilst});
+                b.insert(b.end(), children.begin(), children.end());
+                return mkBox("meta", b);
+            }();
+            const std::vector<unsigned char> blobA = concat(
+                {mkBox("ftyp", {'M', '4', 'A', ' ', 0, 0, 0, 0, 'i', 's',
+                                'o', 'm'}),
+                 mkBox("moov", concat({mkBox("udta", concat({meta}))})),
+                 mkBox("mdat", std::vector<unsigned char>(64, 0xAB))});
+            // (b) MBP 잘림 — PICTURE data 선언 100000, 실체 8B(파산 —
+            // ParseFlacPictureStruct 정직 거부 원문).
+            std::vector<unsigned char> picTrunc;
+            pushBE32(picTrunc, 3);
+            pushBE32(picTrunc, 10);
+            picTrunc.insert(picTrunc.end(), {'i', 'm', 'a', 'g', 'e', '/', 'p',
+                                             'n', 'g', '!'});
+            pushBE32(picTrunc, 0);   // desc
+            for (int i = 0; i < 4; ++i) pushBE32(picTrunc, 0);  // w·h·d·c
+            pushBE32(picTrunc, 100000);  // data 선언 — 과대(파산)
+            picTrunc.insert(picTrunc.end(), {0x89, 'P', 'N', 'G',
+                                             0x0D, 0x0A, 0x1A, 0x0A});
+            std::string b64;
+            mt::Base64Encode(picTrunc.data(), picTrunc.size(), b64);
+            const std::vector<unsigned char> blobB = concat(
+                {mkPage(0x02, mkOpusHead()),
+                 mkPage(0x00, mkOpusTags(
+                                  "synth-vendor",
+                                  {{"METADATA_BLOCK_PICTURE", b64}}))});
+            const bool builtA = putFile(pa, blobA);
+            const bool builtB = putFile(pb, blobB);
+            mt::CoverArt ca, cb;
+            std::string eca, ecb;
+            const bool ra = builtA ? mt::ReadCover(pa.generic_string(), ca,
+                                                   eca)
+                                   : false;
+            const bool rb = builtB ? mt::ReadCover(pb.generic_string(), cb,
+                                                   ecb)
+                                   : false;
+            std::error_code sx;
+            fs::remove_all(tdir, sx);
+            check(builtA && builtB && !ra && !rb && eca == "no_cover" &&
+                      ecb == "no_cover" && ca.mime.empty() &&
+                      cb.mime.empty() && ca.bytes.empty() &&
+                      cb.bytes.empty() && !sx && !fs::exists(tdir, sx),
+                  "2x-⑧ 잘린 covr/MBP = 정직 거부(m4a covr data 선언 잘림+opus"
+                  " MBP PICTURE data 과대 선언 — ReadCover false·no_cover·"
+                  "out 소각·REMNANT 0)");
         }
     }
 

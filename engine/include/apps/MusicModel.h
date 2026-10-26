@@ -76,14 +76,23 @@ TagSet ParseTag(const std::string& path, std::string& err);
 // 현실).
 inline constexpr int kMaxUserDirs = 64;
 
-// 오디오 확장자 (스펙 결정: mp3/flac/wav/ogg/m4a/aac/wma). 확장자 문자열은
-// ".mp3" 도트 포함 형태(fs::path::extension() 원문 형식)로 비교한다.
+// 오디오 확장자 (스펙 결정: mp3/flac/wav/ogg/m4a/aac/wma + .opus/.m4b/.mp4
+// — #115 T2, 스펙 D5 "확장자 스니프 정합" + T1 리뷰 r1 지시(라이브러리 행
+// 통과). 트리 파싱은 무조건 매직 진실원 — 확장자는 열거 보조만. .mp4를
+// 오디오로 판정하는 근거: 읽기 leg는 음악 메타 ilst만 보므로(비디오 사양
+// 접촉 0) 매직 ftyp+ilst 'mdir' 합격을 오디오 행으로 취급 — 정직(비디오
+// mp4는 보통 ilst 부재·비-'mdir' hdlr로 걸러진다). 재생 지원 별도(D6).
+// 확장자 문자열는 ".mp3" 도트 포함 형태(fs::path::extension() 원문 형식)로
+// 비교한다.
 inline bool IsAudioExtension(const std::string& ext) {
     return jk::crt::Stricmp(ext.c_str(), ".mp3") == 0 ||
            jk::crt::Stricmp(ext.c_str(), ".flac") == 0 ||
            jk::crt::Stricmp(ext.c_str(), ".wav") == 0 ||
            jk::crt::Stricmp(ext.c_str(), ".ogg") == 0 ||
+           jk::crt::Stricmp(ext.c_str(), ".opus") == 0 ||
            jk::crt::Stricmp(ext.c_str(), ".m4a") == 0 ||
+           jk::crt::Stricmp(ext.c_str(), ".m4b") == 0 ||
+           jk::crt::Stricmp(ext.c_str(), ".mp4") == 0 ||
            jk::crt::Stricmp(ext.c_str(), ".aac") == 0 ||
            jk::crt::Stricmp(ext.c_str(), ".wma") == 0;
 }
@@ -361,7 +370,8 @@ inline void ScanAudioTree(const std::filesystem::path& dir,
 
 // Enumerate one root's audio files across the whole tree, newest first
 // (selftest 2m-c — D3 재귀 + mtime desc 정렬). 확장자 필터는
-// IsAudioExtension(mp3/flac/wav/ogg/m4a/aac/wma, 대소문자 무시 — Stricmp).
+// IsAudioExtension(mp3/flac/wav/ogg/opus/m4a/m4b/mp4/aac/wma, 대소문자
+// 무시 — Stricmp).
 // Sort tie(같은 mtime) = rel 오름차순 — 재귀 열거 순서가 축(Win/WSL)마다
 // 다르게 흔들릴 수 있어 tie를 rel로 못 매 둔다(결정론 보존; 갤러리 원문의
 // "동점 tiebreak" 자리 계약 승계 — 갤러리는 이름 desc, 유저 트랙 폴더에는
@@ -1003,6 +1013,78 @@ inline TagSet ParseOggTags(const unsigned char* p, size_t n) {
     return tags;
 }
 
+// ---- opus — OggS 연쇄의 OpusTags 패킷 (own — #115 T2, 스펙 D1/D3) ----
+//
+// opus 컨테이너 = vorbis와 같은 Ogg 페이지 연쇄지만 패킷 매직이 다르다:
+// 패킷 1 = "OpusHead"(식별 패킷 — 태그 계열 부재, 매직 미일치로 자연
+// 스킵), 패킷 2 = "OpusTags" + 그 뒤가 vorbis 코멘트 구조 그대로(마커 바이트
+// 없는 8바이트 매직 — vorbis의 \x03vorbis 7B와 동형 접점). 코멘트 해석은
+// ParseVorbisComments를 그대로 재용한다(D1 조달 0).
+//
+// 패킷 지목 = lacing 인지 보행("OggS" 27B 헤더+세그 표·255 = 패킷 연속 규약
+// — OpusTags 매직을 패킷 경계에서만 본다 — 오디오 패킷 내 우연 일치를
+// 매기지 않는 정직 판정). 잘린 페이지 = 사슬 절단(발견 실패 = 빈 폴백 —
+// 무태그 정상 경로).
+inline bool OpusTagsPacket(const unsigned char* p, size_t n,
+                           std::vector<unsigned char>& comments) {
+    comments.clear();
+    if (n < 4 || std::memcmp(p, "OggS", 4) != 0) return false;  // OggS 스니프
+    std::vector<unsigned char> pay;    // 페이지 페이로드 연접(머리 영역 한정)
+    std::vector<size_t> lace;          // 세그(lacing 값) 열 — 페이지 경계 무관
+    size_t off = 0;
+    size_t guard = 0;
+    while (off + 27 <= n && guard++ < 4096) {
+        if (std::memcmp(p + off, "OggS", 4) != 0) break;  // 사슬 절단
+        const size_t segs = p[off + 26];
+        if (off + 27 + segs > n) break;  // 잘린 헤더
+        size_t plen = 0;
+        for (size_t s = 0; s < segs; ++s) plen += p[off + 27 + s];
+        if (off + 27 + segs + plen > n) break;  // 잘린 페이로드
+        pay.insert(pay.end(), p + off + 27 + segs,
+                   p + off + 27 + segs + plen);
+        for (size_t s = 0; s < segs; ++s) lace.push_back(p[off + 27 + s]);
+        off += 27 + segs + plen;
+    }
+    // lacing 연접 위에서 패킷 완성 지점마다 매직 판정(255 = 연속 — 원문
+    // 규약; 마지막 세그먼트 255 런의 미종결 패킷 = 파산 절단).
+    size_t i = 0, at = 0;
+    while (i < lace.size()) {
+        size_t len = 0;
+        bool done = false;
+        while (i < lace.size() && !done) {
+            len += lace[i++];
+            done = (lace[i - 1] != 255);
+        }
+        if (!done || at + len > pay.size()) break;  // 미종결/잘린 패킷
+        if (len >= 8 &&
+            std::memcmp(pay.data() + at, "OpusTags", 8) == 0) {
+            comments.assign(pay.data() + at + 8, pay.data() + at + len);
+            return true;
+        }
+        at += len;
+    }
+    return false;  // OpusTags 부재(무태그 opus — 정상 경로)
+}
+
+inline TagSet ParseOpusTags(const unsigned char* p, size_t n) {
+    TagSet tags;
+    std::vector<unsigned char> comments;
+    if (!OpusTagsPacket(p, n, comments)) return tags;
+    return ParseVorbisComments(comments.data(), comments.size());
+}
+
+// OggS 연쇄의 첫 패킷 매직 스니프 — vorbis(vorbis)와 opus("OpusHead")의
+// 구별 접점(ParseTag·ReadCover 분기). 식별 패킷은 항상 첫 페이지 페이로드
+// 선두(27B 헤더+세그 표 뒤)에서 개시한다 — 정적 컷 290B(27 헤더+255 세그
+// 표+8B 매직 이상 — 식별 패킷은 19B라 실측 여유 큼). 잘린 헤더 = false
+// (미판정 — vorbis leg 착지, 무해).
+inline bool OggPacket1IsOpus(const unsigned char* p, size_t n) {
+    if (n < 35) return false;  // 27B 헤더+세그 표 최소+8B 매직
+    const size_t segs = p[26];
+    if (27 + segs + 8 > n) return false;
+    return std::memcmp(p + 27 + segs, "OpusHead", 8) == 0;
+}
+
 // ---- WAV — RIFF "id3 " 청크 (dr_wav 실측 대체 leg — LIST INFO 밖 스코프) ----
 
 // RIFF("RIFF"+32LE 크기+"WAVE")의 청크 연쇄에서 "id3 " 청크(대소문자 무시
@@ -1101,35 +1183,53 @@ inline std::string DecodeM4aValue(const unsigned char* p, size_t n) {
     if (code == 1)
         return PostprocessText(
             std::string(reinterpret_cast<const char*>(p + 8), n - 8));
-    if (code == 2) return PostprocessText(DecodeId3Text(p + 8, n - 8, 1));
+    if (code == 2) {
+        // Apple data 타입 2 = UTF-16BE 명시 — 무BOM = BE(톤 리뷰 r1 수형:
+        // 원본 leg는 enc 1 고정이라 무BOM UTF-16을 LE로 오독했다). BOM 존재
+        // = BOM이 이긴다(BOM 우선 leg — FE FF=BE·FF FE=LE·DecodeId3Text
+        // enc 1 재용 — #99 인코딩 계약 승계).
+        const unsigned char* q = p + 8;
+        const size_t v = n - 8;
+        const bool bom = v >= 2 && ((q[0] == 0xFE && q[1] == 0xFF) ||
+                                    (q[0] == 0xFF && q[1] == 0xFE));
+        return PostprocessText(DecodeId3Text(q, v, bom ? 1 : 2));
+    }
     return std::string();
 }
 
-// ftyp→moov→udta→meta(hdlr 'mdir' 확인)→ilst→©nam/©ART/©alb. moov는 보통
-// 머리에 있으나 mdat 뒤에도 가능 — 보행은 ParseTag가 읽은 머리 영역
-// (kTagHeadCap 상한) 전체 트리를 건다(moov 후행 = 머리 밖이면 스코프 밖 —
-// 빈 TagSet 폴백, 파스 계약 유지). 항목 = 본문의 첫 data atom(첫 값 계약 —
-// v1 계보). 아무 파산(잘린/배신적 box·hdlr 부재·비-'mdir' 핸들러) = 빈
-// TagSet(정직 거부 — 부분 필드 소각·2x-③ 계약).
-inline TagSet ParseM4aTags(const unsigned char* p, size_t n) {
-    TagSet tags;
+// ilst 지목 공용 보행(ftyp→moov→udta→meta(hdlr 'mdir' 확인)→ilst) — 태그
+// ParseM4aTags와 커버 ParseMp4Covr가 같은 트리 보행을 소비한다(#115 T1/T2
+// 사슬 단일 출구). moov는 보통 머리에 있으나 mdat 뒤에도 가능 — 보행은
+// 호출부가 읽은 머리 영역 전체를 건다(태그 = kTagHeadCap·커버 = kTagWriteMax).
+// moov 후행(머리 밖)·파산·hdlr 부재·비-'mdir' 핸들러 = false(정직 거부 —
+// 부분 필드 0·2x-③ 계약).
+inline bool Mp4FindIlst(const unsigned char* p, size_t n, size_t& body,
+                        size_t& bodyN) {
     if (n < 8 || std::memcmp(p + 4, "ftyp", 4) != 0)
-        return tags;  // ftyp 스니프 — 컨테이너 매직(확장자 진실원과 독립)
-    size_t body = 0, bodyN = 0;
-    if (!Mp4FindBox(p, 0, n, "moov", body, bodyN)) return tags;
-    if (!Mp4FindBox(p, body, bodyN, "udta", body, bodyN)) return tags;
-    if (!Mp4FindBox(p, body, bodyN, "meta", body, bodyN)) return tags;
+        return false;  // ftyp 스니프 — 컨테이너 매직(확장자 진실원과 독립)
+    if (!Mp4FindBox(p, 0, n, "moov", body, bodyN)) return false;
+    if (!Mp4FindBox(p, body, bodyN, "udta", body, bodyN)) return false;
+    if (!Mp4FindBox(p, body, bodyN, "meta", body, bodyN)) return false;
     // meta = full box — payload 머리 4B version/flags, 그 뒤 자식 박스
     // (hdlr·ilst).
-    if (bodyN < 4) return tags;
+    if (bodyN < 4) return false;
     body += 4;
     bodyN -= 4;
     // hdlr 'mdir' 확인 — handler_type = hdlr payload [8..12)(version/flags
     // 4B + pre_defined 4B 뒤). 비-metadata ilst(moov 밖의 meta 등) 걷기 봉인.
     size_t hBody = 0, hN = 0;
-    if (!Mp4FindBox(p, body, bodyN, "hdlr", hBody, hN)) return tags;
-    if (hN < 12 || std::memcmp(p + hBody + 8, "mdir", 4) != 0) return tags;
-    if (!Mp4FindBox(p, body, bodyN, "ilst", body, bodyN)) return tags;
+    if (!Mp4FindBox(p, body, bodyN, "hdlr", hBody, hN)) return false;
+    if (hN < 12 || std::memcmp(p + hBody + 8, "mdir", 4) != 0) return false;
+    return Mp4FindBox(p, body, bodyN, "ilst", body, bodyN);
+}
+
+// ftyp→moov→udta→meta('mdir')→ilst→©nam/©ART/©alb. 항목 = 본문의 첫 data
+// atom(첫 값 계약 — v1 계보). 아무 파산(잘린/배신적 box·hdlr 부재·비-'mdir'
+// 핸들러) = 빈 TagSet(정직 거부 — 부분 필드 소각·2x-③ 계약).
+inline TagSet ParseM4aTags(const unsigned char* p, size_t n) {
+    TagSet tags;
+    size_t body = 0, bodyN = 0;
+    if (!Mp4FindIlst(p, n, body, bodyN)) return tags;
     // ilst 자식 연쇄 — 항목 atom(type = ©nam/©ART/©alb). 미지목 항목(covr/
     // trkn/tmpo…) = 통과만(본문은 불투명 — data 존재 요구 금지).
     size_t off = body;
@@ -1160,6 +1260,61 @@ inline TagSet ParseM4aTags(const unsigned char* p, size_t n) {
         }
     }
     return tags;
+}
+
+// ---- m4a covr atom (own — ReadCover leg 부품, #115 T2 — 스펙 D4) ----
+//
+// ilst의 covr 항목(data atom 연쇄) → 그림 바이트+mime. data 타입 코드:
+// 13=JPEG·14=PNG(iTunes 규약 — mime flag 계약 원문), 0 = binary 암규약
+// 일부 태거의 표기 — 이미지 매agic 스니프(FF D8 FF=JPEG·89 "PNG"=PNG,
+// ParseTag 원문 진실원과 동형). 그 외 코드 = 다음 data 후보(텍스트 오독
+// 금지 — DecodeM4aValue 원문 정직 계약 승계). 항목 data 파산(잘린 box) =
+// false — 커버 부재(무커버 정상 경로)와 같은 거부 착지지만 트리 파산은
+// 후보 통과 금지(부분 그림 0 — "잘린 그림 = 거부" 계약).
+inline bool ParseMp4Covr(const unsigned char* p, size_t n, std::string& mime,
+                         std::vector<unsigned char>& bytes) {
+    mime.clear();
+    bytes.clear();
+    if (n < 8 || std::memcmp(p + 4, "ftyp", 4) != 0) return false;
+    size_t body = 0, bodyN = 0;
+    if (!Mp4FindIlst(p, n, body, bodyN)) return false;
+    size_t off = body;
+    const size_t end = body + bodyN;
+    Mp4BoxWalk item;
+    size_t guard = 0;
+    while (off + 8 <= end && guard++ < 4096) {
+        if (!Mp4BoxAt(p, end, off, item)) return false;  // 트리 파산 — 정직
+        if (std::memcmp(item.type, "covr", 4) != 0) continue;  // 항목 통과만
+        // covr 자식 연쇄 — data atom(첫 유효 그림). 미지 자식 = 통과만.
+        size_t dOff = item.body;
+        const size_t dEnd = item.body + item.bodyN;
+        Mp4BoxWalk d;
+        size_t dGuard = 0;
+        while (dOff + 8 <= dEnd && dGuard++ < 4096) {
+            if (!Mp4BoxAt(p, dEnd, dOff, d)) return false;  // 파산 — 정직
+            if (std::memcmp(d.type, "data", 4) != 0) continue;
+            if (d.bodyN < 8) return false;  // 잘린 data 헤더 — 거부
+            const unsigned int code = p[d.body + 3];
+            const unsigned char* img = p + d.body + 8;
+            const size_t imgN = d.bodyN - 8;
+            const auto jpg =
+                imgN >= 3 && img[0] == 0xFF && img[1] == 0xD8 && img[2] == 0xFF;
+            const auto png =
+                imgN >= 8 && std::memcmp(img, "\x89PNG\r\n\x1a\n", 8) == 0;
+            if (code == 13 && jpg)
+                mime = "image/jpeg";  // iTunes 규약 코드 13
+            else if (code == 14 && png)
+                mime = "image/png";  // iTunes 규약 코드 14
+            else if (code == 0 && (jpg || png))
+                mime = jpg ? "image/jpeg" : "image/png";  // binary 암규약
+            else
+                continue;  // 코드/스니프 불일치 — 다음 data 후보
+            if (imgN == 0) continue;  // 빈 그림 — 거부(호출부 no_cover 계약)
+            bytes.assign(img, img + imgN);
+            return true;
+        }
+    }
+    return false;  // covr 부재 — no_cover(정상 경로)
 }
 
 // ---- 파일 접점 (D2 — 필요 범위만 read) ----
@@ -1206,7 +1361,13 @@ inline TagSet ParseTag(const std::string& path, std::string& err) {
     } else if (headN >= 4 && std::memcmp(buf, "fLaC", 4) == 0) {
         tags = ParseFlacTags(buf, static_cast<size_t>(headN));
     } else if (headN >= 4 && std::memcmp(buf, "OggS", 4) == 0) {
-        tags = ParseOggTags(buf, static_cast<size_t>(headN));
+        // Ogg 컨테이너 vorbis/opus 구별 — 첫 패킷 매agic("OpusHead" = opus
+        // — #115 T2). vorbis 기존 leg 원존 무접촉. opus 파산/부재 = 빈
+        // TagSet 폴백(무태그 정상 경로 — Ogg leg 원문 계약 음성).
+        if (OggPacket1IsOpus(buf, static_cast<size_t>(headN)))
+            tags = ParseOpusTags(buf, static_cast<size_t>(headN));
+        else
+            tags = ParseOggTags(buf, static_cast<size_t>(headN));
     } else if (headN >= 12 && std::memcmp(buf, "RIFF", 4) == 0 &&
                std::memcmp(buf + 8, "WAVE", 4) == 0) {
         tags = ParseWavTags(buf, static_cast<size_t>(headN));
@@ -1839,6 +2000,30 @@ inline bool ParseFlacPictureStruct(const unsigned char* p, size_t n,
     if (!take(dataLen) || dataLen > n - off) return false;
     bytes.assign(p + off, p + off + dataLen);
     return true;
+}
+
+// METADATA_BLOCK_PICTURE 엔트리 열 → 커버 아트(첫 유효 — 2u 원문 계약):
+// 베이스64 → FLAC PICTURE 구조 → mime 정규화. 복호화 파산·빈 바이트·mime
+// 미지 = 다음 후보(읽기 사슬 관용 기각). Ogg(vorbis) leg와 opus leg가 같은
+// 사슬을 소비한다(#115 T2 — METADATA_BLOCK_PICTURE 재용).
+inline bool CoverFromMbpEntries(const std::vector<VorbisEntry>& entries,
+                                CoverArt& out) {
+    for (const VorbisEntry& e : entries) {
+        if (FoldVorbisKey(e.key) != "metadata_block_picture") continue;
+        std::vector<unsigned char> raw;
+        if (!Base64Decode(e.value, raw)) continue;
+        std::string mime;
+        std::vector<unsigned char> bytes;
+        if (!ParseFlacPictureStruct(raw.data(), raw.size(), mime, bytes) ||
+            bytes.empty())
+            continue;
+        const std::string norm = NormalizeCoverMime(mime);
+        if (norm.empty()) continue;
+        out.mime = norm;
+        out.bytes = std::move(bytes);
+        return true;
+    }
+    return false;
 }
 
 inline std::vector<unsigned char> BuildFlacPictureStruct(
@@ -2976,6 +3161,82 @@ inline bool ReadCover(const std::string& path, CoverArt& out, std::string& err) 
         err = "no_cover";
         return false;
     }
+    // ---- m4a covr atom leg (T2 — #115 D4) ----
+    // moov/udta/meta('mdir')/ilst 트리 보행(ParseMp4Covr — 태그 leg의
+    // Mp4FindIlst 공용 원존) → covr 항목 data atom(코드 13=JPEG·14=PNG·
+    // 0=스니프). 커버 블롭이 moov 안에 있으므로 머리 read 상한 =
+    // kTagWriteMax(쓰기 leg 재용 — kTagHeadCap는 스캔 1패스 상한). moov
+    // 후행(머리 밖)·covr 부재·트리 파산 = "no_cover"(부재 취급 — 읽기
+    // 사슬 관용·잘린 그림 전시 금지 원문).
+    if (pre.size() >= 8 && std::memcmp(pre.data() + 4, "ftyp", 4) == 0) {
+        const std::streamoff headN =
+            total < static_cast<std::streamoff>(kTagWriteMax)
+                ? total
+                : static_cast<std::streamoff>(kTagWriteMax);
+        std::vector<unsigned char> head(pre.begin(), pre.end());
+        head.resize(static_cast<size_t>(headN));
+        f.clear();
+        f.seekg(0, std::ios::beg);
+        f.read(reinterpret_cast<char*>(head.data()),
+               static_cast<std::streamsize>(head.size()));
+        if (f.gcount() != static_cast<std::streamsize>(head.size())) {
+            err = "read";
+            return false;
+        }
+        std::string mime;
+        std::vector<unsigned char> bytes;
+        if (ParseMp4Covr(head.data(), head.size(), mime, bytes)) {
+            out.mime = NormalizeCoverMime(mime);
+            out.bytes = std::move(bytes);
+            return true;
+        }
+        err = "no_cover";
+        return false;
+    }
+    // ---- opus OpusTags METADATA_BLOCK_PICTURE leg (T2 — #115 D3/D4) ----
+    // vorbis leg와 같은 MBP 사슬이지만 코멘트 패킷 매agic = "OpusTags" 8B
+    // (마커 바이트 없음). 구별 스니프(첫 페이지 최초 패킷 "OpusHead" —
+    // OggPacket1IsOpus) → 머리 kTagHeadCap read → lacing 패킷 지목
+    // (OpusTagsPacket 재용 — ParseOpusTags 원문) → ParseVorbisCommentsRaw →
+    // CoverFromMbpEntries(vorbis leg와 공용 사슬 — 첫 유효 MBP). vorbis는
+    // 아래 기존 스트리밍 leg 원존(무접촉).
+    if (pre.size() >= 4 && std::memcmp(pre.data(), "OggS", 4) == 0) {
+        constexpr std::streamoff kOggSniff = 290;  // 27헤더+255세그+8매agic
+        const std::streamoff snN =
+            total < kOggSniff ? total : kOggSniff;
+        std::vector<unsigned char> sn;
+        f.clear();
+        f.seekg(0, std::ios::beg);
+        sn.resize(static_cast<size_t>(snN));
+        f.read(reinterpret_cast<char*>(sn.data()), snN);
+        sn.resize(static_cast<size_t>(f.gcount()));
+        if (OggPacket1IsOpus(sn.data(), sn.size())) {
+            f.clear();
+            const std::streamoff headN =
+                total < static_cast<std::streamoff>(kTagHeadCap)
+                    ? total
+                    : static_cast<std::streamoff>(kTagHeadCap);
+            std::vector<unsigned char> head(pre.begin(), pre.end());
+            head.resize(static_cast<size_t>(headN));
+            f.seekg(0, std::ios::beg);
+            f.read(reinterpret_cast<char*>(head.data()),
+                   static_cast<std::streamsize>(head.size()));
+            if (f.gcount() != static_cast<std::streamsize>(head.size())) {
+                err = "read";
+                return false;
+            }
+            std::vector<unsigned char> comments;
+            std::string vendor;
+            std::vector<VorbisEntry> entries;
+            if (OpusTagsPacket(head.data(), head.size(), comments) &&
+                ParseVorbisCommentsRaw(comments.data(), comments.size(),
+                                       vendor, entries) &&
+                CoverFromMbpEntries(entries, out))
+                return true;  // 첫 유효 MBP — 2u 원문 계약
+            err = "no_cover";
+            return false;
+        }
+    }
     // ---- Ogg METADATA_BLOCK_PICTURE leg (T2) ----
     // 페이지 연쇄 보행 → "\x03vorbis" 패킷(패킷 2 — lacing 원문 보행) →
     // ParseVorbisCommentsRaw → METADATA_BLOCK_PICTURE(베이스64) →
@@ -3019,25 +3280,10 @@ inline bool ReadCover(const std::string& path, CoverArt& out, std::string& err) 
             std::string vendor;
             std::vector<VorbisEntry> entries;
             if (ParseVorbisCommentsRaw(pkt.data() + 7, pkt.size() - 7,
-                                       vendor, entries)) {
-                for (const VorbisEntry& e : entries) {
-                    if (FoldVorbisKey(e.key) != "metadata_block_picture")
-                        continue;
-                    std::vector<unsigned char> raw;
-                    if (!Base64Decode(e.value, raw)) continue;
-                    std::string mime;
-                    std::vector<unsigned char> bytes;
-                    if (!ParseFlacPictureStruct(raw.data(), raw.size(), mime,
-                                                bytes) ||
-                        bytes.empty())
-                        continue;
-                    const std::string norm = NormalizeCoverMime(mime);
-                    if (norm.empty()) continue;
-                    out.mime = norm;
-                    out.bytes = std::move(bytes);
-                    return true;
-                }
-            }
+                                       vendor, entries) &&
+                CoverFromMbpEntries(entries, out))
+                return true;  // 첫 유효 MBP — 원문 사슬(CoverFromMbpEntries
+                              // 공용 — opus leg 동형 소비)
         }
         err = "no_cover";
         return false;
