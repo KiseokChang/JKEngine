@@ -440,7 +440,7 @@ status 절단 악형) → T2 fix r1 re-review **APPROVE 재확정**(C0/I0/M0 —
 
 | 출처 | 항목 | 등급 | 처분 근거 |
 | --- | --- | --- | --- |
-| T2 원장 | **폰 TTS 엔진 웨지 사건(117-R5 돌입)** — termux-tts-speak 무한 블록·libexec TextToSpeech helper 6 잔존·helper 소각 뒤에도 60s+ 무응답(시스템 TTS 엔진 서비스 자체)·speak stamp는 계속 도출(spawn 성립)·샘플 전량 timeout — 계통 추정 = 앱 15s deadline(kTtsSpeakDeadlineMs) 중도 kill(race — `[TTS] fail (rc=137)` 원문 행)와 장문 guide 발화 시간(~120자 >15s)의 겹침 | M | 폰 현장 복구(재부팅 권장) = 사용자 몫 — 재량 수형 후보 = 발화 길이 비례 deadline 상향 or 스폰 후 즉시 반환(백그라운드 — D5 무시 계약 내) — 기각 시 즉시 수리 |
+| T2 원장 | **폰 TTS 엔진 웨지 사건(117-R5 돌입)** — termux-tts-speak 무한 블록(CLI 구간 stall ~25분 — 빈 CLIOUT receipt)·libexec TextToSpeech helper 잔존(helper 소각 뒤에도 무응답 — 시스템 TTS 엔진 서비스 측)·speak stamp는 계속 도출(spawn 성립)·`[TTS] fail (rc=137)` = **hang 스폰의 마감 kill 증상**(R6/R7에만 출현 — R1-R5 무-fail receipt ~10건 — fix r6 원장 정정)·"15s 마감×장문 겹침" 계통 요소 폐기 | M | 폰 현장 복구(재부팅 권장)=사용자 몫 — **수형 후보 순위: ① 스폰 후 즉시 반환(백그라운드 spawn — hang rc=137 반복 구조 소거 = 1순위) ② 마감 비례 상향 = near-no-op 표기** — 기각 시 즉시 수리 |
 | T2 원장 | posix 캐논(+9) 재판정 채권 — ClientChatApp.h/.cpp = posix 빌드 목록 공통 TU이나 2z 순수 부품(C++ 헤더 인라인)이라 304→313 예상(WSL 859 계보와 동형 +9) — posix 머신 접촉 = 폰 접촉 계약 밖 | M | 승계 재판정(다음 posix 접촉 라인 몫) |
 | T2 원장 | stamp 행 = 다중행 guide의 1행만(`[TTS] speak:` 이후 첫 개행까지 — D4 clip에 개행 포함 — 행 표기 한계 — 후속 행은 무표기 계행) | N | 원장 소화 — 지연 원문·도착 판정은 별개 진실원(§7.14.3) |
 | T2 원장 | BLOCKED 원장행 미발화(전 런 폰 접속 성립 — 정찰 MISS 0) — 미접속 코드 경로는 본존하나 실측 0 | N | 원장 소화(honest — 미발사 코드 경로) |
@@ -2803,9 +2803,10 @@ SDD 원장=`.superpowers/sdd/2026-10-27-voice-vocab/`(task-1/2 리포트 — 미
 #117 라인 원장. 폰에서 구두 명령의 답을 소리로 듣는다 — 구두 표면(chat [구두])
 의 답신 도착에 `termux-tts-speak`(Termux:API — 조달 0)로 읽어준다(스펙 D1-D6).
 스펙=`docs/superpowers/specs/2026-10-27-tts-response-design.md`(7981c45),
-SDD 원장=`.superpowers/sdd/2026-10-27-tts-response/`(task-1/2 리포트 — 미커밋
-관행). T1 리포트가 표지 사슬·스폰 leg·절단 부품·2z 9건의 원문 수취원 — 본
-§7.14.1은 그 1:1 재수취, §7.14.2-3은 T2 배포·probe 실측 원문.
+SDD 원장=`.superpowers/sdd/2026-10-27-tts-response/`(task-1 리포트 = 미커밋
+관행 ·task-2 리포트 = T2 fix r6 커밋 승격). T1 리포트가 표지 사슬·스폰
+leg·절단 부품·2z 9건의 원문 수취원 — 본 §7.14.1은 그 1:1 재수취, §7.14.2-3은
+T2 배포·probe 실측 원문.
 
 ### §7.14.0 체인 (rev-parse 전체 SHA 실측 · git log가 진실원)
 
@@ -2819,7 +2820,8 @@ SDD 원장=`.superpowers/sdd/2026-10-27-tts-response/`(task-1/2 리포트 — �
 | T2 fix r3 | `d0bec85` | fix(probes): phone voice probe — TTS tap 세션 검증 재시도 (T2 fix r3) — 23/11 — 개시/마침 -i 세션 검증 재시도 루프(최대 3)+T0 재기점 |
 | T2 fix r4 | `ce0b760` | fix(probes): phone voice probe — TTS 웨지 수속+판독 접두 결함 (T2 fix r4) — 39/16 — helper 잔존 소각(진입/종료)+CLI per-call timeout 20s·표본 >=1 성립·SESSION 판독 원문 패턴 수리·done>rec 관측행 격하 |
 | T2 fix r5 | `0746680` | fix(probes): phone voice probe — TTS 세션 판독 선행 숫자 절단 (T2 fix r5) — 6/4 — SESSION 행 괄호 후미 흡수 판독 결함(=1 등호 실패) 수리 |
-| 본 T2(docs) | 본 문서를 포함하는 커밋 | docs(apps): #117 구두 응답 TTS 원장 — SHA는 git log가 진실원 |
+| T2 docs(a54ecc4) | `a54ecc4` | docs(apps): #117 구두 응답 TTS 원장 — docs/90 §7.14+§4.1-11 (T2) — 217/1 |
+| T2 fix r6 | 본 문서를 포함하는 커밋 | docs(apps): TTS 웨지 원장 정정 — hang 스폰 원진+수형 후보 재판정 (T2 fix r6) — docs/90+task-2-report.md(런/probe 재실측 불요·src 무변경) — SHA는 git log가 진실원 |
 
 ### §7.14.1 배선·설정 원리 (T1 리포트 → ClientChatApp 단일 진실원 1:1 재수취 · 코드 재실측 0)
 
@@ -2909,15 +2911,19 @@ SDD 원장=`.superpowers/sdd/2026-10-27-tts-response/`(task-1/2 리포트 — �
   원문 포함 — §7.14.4 함정 1·2) — stamp 판정의 유효성 통제.
 - **CLI 개발력 표본(termux-tts-speak 스폰→종료)** — R1-R4(웨지 이전) **12
   표본**: 3374-3548ms(R1)·3414-3521ms(R2)·2658-2879ms(R3)·2881-2989ms(R4)
-  (exit = 첫음+발화 포괄 **상한** — 즉귀형이면 개발력 그 자체)·R5-R7 = 엔진
-  웨지(§7.14.4 함정 5) — 표본 전량 `TTS-CLI-TIME-OUT`(20s — per-call timeout
-  경화 후) — 웨지 사건 원문(런 밖 원장행·§4.1-11).
-- **opt-out(D2) 1판 원문(유효판 — R6·R7)**: `VOICE_TTS=0` 부팅(/proc/<pid>/
+  (exit = 첫음+발화 포괄 **상한** — 즉귀형이면 개발력 그 자체)·R5 = CLI 구간
+  stall ~25분(**빈 CLIOUT receipt** — per-call timeout 이전 — 수기 회복 뒤
+  런 완주 — §7.14.4 함정 7)·R6/R7 = 표본 전량 `TTS-CLI-TIME-OUT`(20s —
+  per-call timeout 경화 후) — 웨지 사건 원문(런 밖 원장행·§4.1-11).
+- **opt-out(D2) 1판 원문(유효 결정판 — R7 단독)**: `VOICE_TTS=0` 부팅(/proc/<pid>/
   environ 영수증 `VOICE_TTS=0` — 클라 상속 계통의 원천) → fresh boot log
   stamp **부존 0건**(180s stamp 폴링 — 도착 없는 부존 봉쇄)+세션 전이 양순
   (개시 1·마침 1 — 구두 표면의 절차 실측)+기록 행 도착 관측(+38220B — 렌더
-  영수증) → `TTS-OPTOUT-OK`. **R1/R2의 opt-out 판정 = 무효 원장행**(30s 고정
-  대기+done>rec 가양성 — §7.14.4 함정 3 — fix r1 격하).
+  영수증) → `TTS-OPTOUT-OK`. **R5·R6 = SESSION 판독 결함 런 — raw 영수증 행만
+  유효**(세션 전이 원문 행[stop=1]·stamp 부존 0·기록 도착 관측 — 판정행
+  본체는 접두/괄호 판독 결함으로 n/a — §7.14.4 함정 6·fix r5 원장).
+  **R1/R2의 opt-out 판정 = 무효 원장행**(30s 고정 대기+done>rec 가양성 —
+  §7.14.4 함정 3 — fix r1 격하).
 - **RUN-VALS(요약 스트림 계약 — R7 최종 런)**: `tap_runs=2 gate=3판
   fixture_direct=1 mic=1 tap=OK_ALL runverdict=VOICE-PHONE-OK vocab=1
   vocab_route=5 vocab_excl=2 vocab_live=1 tts_runverdict=TTS-PHONE-FAIL
@@ -2931,8 +2937,10 @@ SDD 원장=`.superpowers/sdd/2026-10-27-tts-response/`(task-1/2 리포트 — �
   PHONE-OK·stamps 2+2·CLI 3표본·opt-out 무효판[가양성])·R3 = fix r2 대상
   (개시 실패 honest FAIL — permissions 드리프트 사건)·R4 = fix r2 재판(focus
   후에도 개시 실패 — 활성화 소비 탭 진원 확정)·R5 = fix r3 대상(stamp 도착
-  +지연 18915·CLI 표본 1건 무한 블록 = **웨지 시작** — 런 사망[수기 정지])·
-  R6 = fix r4 대상(웨지 유지 — CLI 0/3·세션 판독 결함)·R7 = fix r5 대상
+  +지연 18915·CLI 구간 stall ~25분(빈 CLIOUT receipt)뒤 수기 회복 — **런
+  완주**(opt-out raw 영수증 유효·판정행 판독 결함 — fix r5 원장·웨지 시작 —
+  스폰 9건 무-fail receipt)·R6 = fix r4 대상(웨지 유지 — CLI 0/3·세션 판독
+  결함)·R7 = fix r5 대상
   (**stamp=1 session=1 optout=1 lat=20490 cli=0[웨지] — T2 결정 축 전원**),
   전 런 jkweb 생존·permissions/settings 무변경·잔상 0·Music 복원.
 
@@ -2968,12 +2976,26 @@ SDD 원장=`.superpowers/sdd/2026-10-27-tts-response/`(task-1/2 리포트 — �
   시에만 존재(TTSOUT = 원문 — 판독은 원문 패턴)·②SESSION 행 후미 괄호 표기
   흡수 = `=1` 등호 실패(선행 숫자만 수취).
 - **TTS 엔진 웨지 사건(R5 돌입 — §4.1-11 park)** — termux-tts-speak 표본 1건
-  무한 블록 → libexec TextToSpeech helper 6 잔존(helper 소각 뒤에도 60s+
-  무응답 — 시스템 TTS 엔진 서비스 자체)·앱의 speak = 계속 스폰(stamp 도출)
-  →15s deadline kill 반복(`[TTS] fail (rc=137)` — TerminateJobTree)·Termux
-  `am` = force-stop 미지원(원문) — **speak stamp = spawn 성립 증거(발화 성공
-  증거 아님 — EYES 별개)**. 회복 = 폰 현장(재부팅 권장 — 사용자 몫)·probe
-  경화 = helper 잔존 소각(진입/종료)+표본 per-call timeout(20s).
+  무한 블록(CLI 구간 stall ~25분 — 빈 CLIOUT receipt) → libexec TextToSpeech
+  helper 잔존(helper 소각 뒤에도 무응답 — 시스템 TTS 엔진 서비스 측 — 원진
+  미확정 원장행)·앱의 speak = 계속 스폰(stamp 도출)·`[TTS] fail (rc=137)` =
+  **hang 스폰의 마감 kill 증상**(웨지 발생 후 R6/R7에만 출현 — R1-R5 = 무-fail
+  receipt ~10건[120자 발화 15s 내 종료] — "15s 마감×장문 guide 겹침" 계통
+  요소 폐기[fix r6 — 원장 정정])·Termux `am` = force-stop 미지원(원문) —
+  **speak stamp = spawn 성립 증거(발화 성공 증거 아님 — EYES 별개)**. 회복 =
+  폰 현장(재부팅 권장 — 사용자 몫)·probe 경화 = helper 잔존 소각(진입/종료)+
+  표본 per-call timeout(20s). **수형 후보 순위(fix r6 재판정)**: **① 스폰 후
+  즉시 반환(백그라운드 spawn — detach) = hang rc=137 반복 구조 소거 — 1순위**
+  ② 마감 비례 상향 = near-no-op 표기(hang 스폰에는 마감 연장도 kill일 뿐).
+- **수기 진단 원문 공백 원장행(fix r6)** — "helper 6 잔존/60s+ 무응답" 수치 =
+  수기 진단(pgrep 1행 카운트+timeout 표본)의 세션 stdout **미수취** 관행
+  (JOG-RUN-VALS 수취 원존 계약 승계) — 재현 시 stdout 수취 계약(진단 절차의
+  원문 행 전량 수취).
+- **§C 소각 목록 밖 잔존+판독 공전 원장행(fix r6)** — ①`$TMPD/
+  t6pv_tts_perm_backup` = 탭 스크립트 사망(ssh 단절 등) 시 생존하고 §C 소각
+  목록에는 없다(원복 경로의 잔존 edge — 후속 probe 커밋에서 소각 목록 가산
+  몫) ②opt-out 좌표 조립 행의 `[ "$OTX" = "$OTX" ]` = 항등식 무해 공전
+  (판정 무영향 — 원장 기록 소화).
 - **pkill 자기 매치 2회(런 밖 원장)** — 원격 heredoc 본문과 pkill 패턴의 자기
   매치(ssh 255 — probe 함정 1 원존의 변형: heredoc의 문자열 조립 행이 패턴을
   품는다) — 진단 세션은 별도 ssh로 분리(셸 자기 매치 봉쇄 원칙 승계).
