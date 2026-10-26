@@ -13,6 +13,8 @@
 // ChatRouterRoute 반환 문자열은 도구 지시가 아니라 **사용자에게 보여질**
 // 안내/확인문(한국어 UTF-8) — 채팅 앱이 대화 기록에 그대로 인쇄한다.
 // Kind==Info면 도구 지시 없음(앱이 SendAgentQuery를 보내지 않는다).
+// Kind==AppTool면 도구 지시 = app_tool 릴레이 질의 1건(#115b T1 — D2 재생
+// 도메인: kRouteTable 행의 toolApp/toolName으로만 조립된다 — 새 파서 0).
 
 #include <agent/JKLlmEngine.h>  // ChatConfig — 승격 배선(cfg 선택형)의 인자 원천
 
@@ -21,11 +23,23 @@
 namespace jk {
 
 struct ChatAction {
-    enum Kind { Launch, Close, Focus, ListWindows, Info };
+    enum Kind { Launch, Close, Focus, ListWindows, AppTool, Info };
     Kind kind = Info;   // 도구 지시 종류 — Info만 "지시 없음"의미.
     std::string app;    // Launch·Close의 앱 키(라이브러리 appName 규약 —
                         // alias표 해소). Close 미지정 = ""(포커스 창).
                         // Focus·ListWindows·Info는 항상 "".
+    std::string tool;   // #115b T1 — AppTool 전용: app_tool 릴레이 도구 이름
+                        // (app도 AppTool에서는 앱 키가 아니라 **릴레이 대상
+                        // 네임스페이스** — 도구 단일 진실원 kRouteTable 행의
+                        // toolApp). 질의 조립 규약은 ChatActionQuery(voice/
+                        // SttVoice turn) 소관 — 도구 부재 앱·도구는 서버
+                        // unknown_app_tool로 정직 회신한다(fail-open).
+                        // **소비자 대차 원장행(#115b T1)**: 구두 경로는
+                        // ChatActionQuery에서 확장 완료지만, 타이핑·웹 경로의
+                        // action 스위치(ClientChatApp::Submit·jkweb
+                        // HandleTalk·jktalk ProcessTurn)는 미확장 — AppTool는
+                        // 그 경로에서 도구 질의 없이 안내문만 인쇄한다(컴파일
+                        // 무해 — 별도 태스크 몫).
 };
 
 // text(사용자 발화 한 줄)를 해석해 out에 도구 지시를 채우고, 화면 표시용

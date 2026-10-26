@@ -25,13 +25,30 @@ namespace jk {
 
 namespace {
 
-// ── 어휘 표 (스펙 §1.3) ──────────────────────────────────────────────
+// ── 어휘 표 (스펙 §1.3 + #115b 재생·알림 도메인) ─────────────────────
 // trigger = 정규화 텍스트의 뒤접미 일치(byte). 배열 순서 = 판정 순서 —
 // 앞 어절을 공유하는 트리거는 긴 쪽을 먼저 둔다("앞으로 가져와"가 짧은
-// "앞으로"에, "실행해줘"가 "실행"에 잡아먹히지 않게).
+// "앞으로"에, "실행해줘"가 "실행"에 잡아먹히지 않게). #115b 신설 exact 행은
+// 표 **끝**에 둔다 — 신설 행이 기존 앞 행의 접두 판정을 건드리지 않는
+// 순서 계약(리포트 접점 표·2y-⑩ — "창 목록 보여줘"는 여전히 ListWindows
+// 먼저).
 struct RouteEntry {
     ChatAction::Kind kind;
     const char* trigger;
+    // #115b T1 (스펙 D1 무인자 강제): exact=true 행은 정규화 발화 **전체**가
+    // 트리거와 등호일 때만 성립한다(뒤접미 일치만으론 부르지 않는다). 무인자
+    // 조작("멈춰줘")에 접사·인자가 붙은 발화("볼륨 50으로 멈춰줘")는 토글
+    // 지시로 오해하지 않고 Info(stub 안내)로 떨어뜨린다 — 인자 필요 조작은
+    // LLM 턴 소관(D1 — 신규 파서 금지 계약).
+    bool exact = false;
+    // #115b T1 (스펙 D3 접점 실측): AppTool 행의 app_tool 릴레이 대상 — 앱
+    // 네임스페이스+도구 이름. 행은 **도구 접점이 실측으로 존재하는 조작만**
+    // 세운다: 재생 토글 = vplayer play_pause(ClientVPlayerApp.cpp 등록 원문
+    // — OnInit SendAgentToolRegister 6종). 접점 부재 어휘("다음 곡"·vplayer
+    // 정지·"알림 뭐 왔어"류 읽기)는 행 자체를 두지 않고 stub로 배제한다
+    // (D3 — 신설 도구 금지 — v2 후보·리포트 원장행).
+    const char* toolApp = "";
+    const char* toolName = "";
 };
 
 constexpr RouteEntry kRouteTable[] = {
@@ -41,6 +58,13 @@ constexpr RouteEntry kRouteTable[] = {
     {ChatAction::Focus,       "앞으로"},
     {ChatAction::Focus,       "포커스"},
     {ChatAction::ListWindows, "창 목록"},
+    // #115b T1 — 신설 Launch 트리거 "보여줘"(알림 보여줘 접점 — 알림 별명
+    // 1행)의 복합 발화 방어 행: 뒤접미 판정은 중간 어절을 보지 못하므로
+    // "창 목록 보여줘"는 그대로 두면 기존 "창 목록" ListWindows의 뜻으로
+    // 안 갈리고 Launch(앱어 "목록"→unknown_app)로 새는 원장행(2y-⑩ — 본
+    // 행 2개로 봉합 — 1표 1의미 유지 — 같은 ListWindows 지시).
+    {ChatAction::ListWindows, "창 목록 보여줘"},
+    {ChatAction::ListWindows, "창목록 보여줘"},
     {ChatAction::ListWindows, "창목록"},
     {ChatAction::ListWindows, "뭐 떠 있어"},
     {ChatAction::ListWindows, "뭐 떠"},
@@ -49,6 +73,26 @@ constexpr RouteEntry kRouteTable[] = {
     {ChatAction::Launch,      "켜줘"},
     {ChatAction::Launch,      "실행해줘"},
     {ChatAction::Launch,      "실행"},
+    // #115b T1 신설 어휘 v1.5 (스펙 2026-10-27-voice-vocab-design §1·D1-D3).
+    // 재생계 — 도구 접점 = vplayer play_pause 1개(무인자 "{}")라 7행 전부
+    // 같은 릴레이 대상이다. **토글 수용 원장행**: vplayer의 "정지(seek
+    // stop)" 도구는 부재(ClientVPlayerApp OnAgentToolCall — open/play_pause/
+    // seek/set_volume/set_av_delay/get_status 6종뿐)하고 music의 spatial_stop
+    // 은 다른 앱 도메인(음역 오유 가능)이라 접점의 정직 채용은 토글 한 형태
+    // — "멈춰줘"가 멈춰 있으면 이어서 재생하고, "재생해줘"가 재생 중이면
+    // 멈춘다. 안내문(AppToolGuide)에도 양방향으로 인쇄한다.
+    {ChatAction::AppTool,     "멈춰줘",   true, "vplayer", "play_pause"},
+    {ChatAction::AppTool,     "멈춰",     true, "vplayer", "play_pause"},
+    {ChatAction::AppTool,     "정지해줘", true, "vplayer", "play_pause"},
+    {ChatAction::AppTool,     "정지",     true, "vplayer", "play_pause"},
+    {ChatAction::AppTool,     "일시정지", true, "vplayer", "play_pause"},
+    {ChatAction::AppTool,     "재생해줘", true, "vplayer", "play_pause"},
+    {ChatAction::AppTool,     "재생",     true, "vplayer", "play_pause"},
+    // 알림 — 도구 접점 = notify **창 open**(launch_app — 기존 Launch 경로
+    // 재용·앱 키 = kAliasTable 별명 1행 "알림"→notify). notify의 읽기 도구는
+    // 부재(ClientNotifyApp 등록 0 — Subscribe만; publish_event는 서버 쓰기
+    // 전용)라 "알림 뭐 왔어"류 읽기 발화 = D3 배제(stub — 2y-⑮ 어설션).
+    {ChatAction::Launch,      "보여줘"},
 };
 
 // ── 앱 별명 표 (라이브러리 appName 규약 인지) ────────────────────────
@@ -66,6 +110,9 @@ constexpr AliasEntry kAliasTable[] = {
     {"지뢰찾기",     "minesweeper"},
     {"tetris",      "tetris"},
     {"테트리스",     "tetris"},
+    {"notify",      "notify"},      // #115b T1 — 알림 창 open(launch_app
+                                    // 존재 검증은 서버 몫 — fail-open 원존)
+    {"알림",        "notify"},
 };
 
 // 앞뒤 공백(공백·탭·개행) 제거 + ASCII 소문화. 한국어는 소문화 무영향.
@@ -94,9 +141,21 @@ const char* KindLabel(ChatAction::Kind kind) {
         case ChatAction::Close:       return "창 닫기";
         case ChatAction::Focus:       return "창 앞으로";
         case ChatAction::ListWindows: return "창 목록";
+        case ChatAction::AppTool:     return "재생 조작";
         case ChatAction::Info:        break;
     }
     return "안내";
+}
+
+// AppTool 즉발 안내문 — play_pause는 토글이라 방향을 고정 문장으로 못 쓴다:
+// 양방향 표기(재생 중=멈춤·멈춰 있음=이어서 재생)가 정직(표 토글 원장행).
+// 그 밖의 도구는 릴레이 대상을 그대로 알린다(차기 도메인 행 안내 계열).
+std::string AppToolGuide(const std::string& app, const std::string& toolName) {
+    if (toolName == "play_pause") {
+        return "'" + app + "' 재생 토글을 보냅니다 — 재생 중이면 멈추고, "
+                          "멈춰 있으면 이어서 재생합니다.";
+    }
+    return "'" + app + "' 도구 '" + toolName + "'을(를) 보냅니다.";
 }
 
 // 뒤접미 트리거를 걷어낸 앞부분에서 마지막 어절을 추출 → 조사 절단.
@@ -145,7 +204,7 @@ std::string InfoGuide() {
         if (s.find(line) != std::string::npos) continue;
         s += line;
     }
-    s += "예: '지뢰찾기 켜줘', '창 목록'";
+    s += "예: '지뢰찾기 켜줘', '멈춰줘', '알림 보여줘', '창 목록'";
     return s;
 }
 
@@ -159,10 +218,13 @@ std::string ChatRouterRoute(const std::string& text, ChatAction& out) {
 
     const RouteEntry* hit = nullptr;
     for (const RouteEntry& e : kRouteTable) {
-        if (EndsWith(norm, e.trigger)) {
-            hit = &e;
-            break;  // 배열 순서 = 판정 순서(긴 트리거 우선 — 표 주석)
-        }
+        if (!EndsWith(norm, e.trigger)) continue;
+        // D1 무인자 강제 — exact 행은 발화 전체 등호만 성립. 불성립은 이 행을
+        // 건너뛴다(continue) — 정지 접두 공유 행("일시정지"↔"정지")도 표
+        // 순서로 갈림이 유지된다.
+        if (e.exact && norm != std::string(e.trigger)) continue;
+        hit = &e;
+        break;  // 배열 순서 = 판정 순서(긴 트리거 우선 — 표 주석)
     }
     if (!hit) {
         return InfoGuide();
@@ -191,6 +253,11 @@ std::string ChatRouterRoute(const std::string& text, ChatAction& out) {
         case ChatAction::ListWindows:
             out.kind = ChatAction::ListWindows;
             return "떠 있는 창 목록을 불러옵니다.";
+        case ChatAction::AppTool:
+            out.kind = ChatAction::AppTool;
+            out.app = hit->toolApp;
+            out.tool = hit->toolName;
+            return AppToolGuide(hit->toolApp, hit->toolName);
         case ChatAction::Info:
             break;
     }
@@ -292,6 +359,9 @@ std::string DefaultActionGuide(const ChatAction& a) {
             return "포커스 창을 앞으로 가져옵니다.";
         case ChatAction::ListWindows:
             return "떠 있는 창 목록을 불러옵니다.";
+        case ChatAction::AppTool:
+            return AppToolGuide(a.app, a.tool);  // LLM은 app_tool을 못 낸다(스키마
+                                                 // 4종+talk) — 방어 사례만
         case ChatAction::Info:
             break;
     }

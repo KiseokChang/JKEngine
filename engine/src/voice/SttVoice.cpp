@@ -34,23 +34,32 @@ namespace run {
 // 축 재판정은 T3/T4 사용자 EYES 몫.
 constexpr char kVoiceLanguage[] = "ko";
 
-// 라우터 어휘 힌트 (EYESfix Step A — 2026-10-25 사용자 폰 EYES 판정
-// "음성인식 엉망" — "지뢰찾기 실행" 발화 → 전사 "ok" — 수형): whisper-cli
-// --prompt(초기 프롬프트 — cli.cpp 원문 "max n_text_ctx/2 tokens" 상한)에
-// 명령 도메인 어휘를 부여해 제한 발화 도메인의 전사 품질 기대를 상향한다.
-// 어휘 원문 = ChatRouter.cpp kRouteTable(+kAliasTable 한국어 별명) — 단일
-// 진실원(§2.1)이나 익명 네임스페이스라 직순회 불가 → 문자 리터럴 수형 +
-// 표와의 정합은 리포트 원문 계약(EYESfix-r1). 한국어 어휘만 두는 이유:
-// 전사 언어 핀 = -l ko(위 kVoiceLanguage)이고 prompt 토큰은 디코딩
-// 개시 시퀀스에 직접 들어가므로 영문 카탈로그 키(minesweeper) 혼입은 tiny류
-// 의 영문 전사 유입 리스크 — 앱 이름은 한국어 별명(kAliasTable) 소관.
+// 라우터 어휘 힌트 (EYESfix Step A + #115b T1 갱신 — 2026-10-25 사용자 폰
+// EYES 판정 "음성인식 엉망" — "지뢰찾기 실행" 발화 → 전사 "ok" — 수형):
+// whisper-cli --prompt(초기 프롬프트 — cli.cpp 원문 "max n_text_ctx/2 tokens"
+// 상한)에 명령 도메인 어휘를 부여해 제한 발화 도메인의 전사 품질 기대를
+// 상향한다. 어휘 원문 = ChatRouter.cpp kRouteTable(+kAliasTable 한국어 별명)
+// — 단일 진실원(§2.1)이나 익명 네임스페이스라 직순회 불가 → 문자 리터럴
+// 수형 + 표와의 정합은 리포트 원문 계약(EYESfix-r1·#115b T1 리포트 — 2y
+// 라벨 원문 대조). 한국어 어휘만 두는 이유: 전사 언어 핀 = -l ko(위
+// kVoiceLanguage)이고 prompt 토큰은 디코딩 개시 시퀀스에 직접 들어가므로
+// 영문 카탈로그 키(minesweeper) 혼입은 tiny류의 영문 전사 유입 리스크 —
+// 앱 이름은 한국어 별명(kAliasTable) 소관. #115b 갱신 = 재생계 트리거
+// (AppTool 행 — 멈춰줘/정지/일시정지/재생)·알림 별명+보여줘 트리거.
+// **배제 어휘(D3 — 도구 접점 부재)는 여기에도 넣지 않는다** — prompt는 표가
+// 성립시키는 어휘만 전사 돕는다(표=진실원 동기 계약).
+// **risk 원장행(원존 승계)**: prompt는 디코딩 편향이므로 무발화/환각("click"
+// 원존 — T5 §6)이 prompt 어휘 사이의 "앱명+트리거" 조합형 환각으로 이어져
+// launch 미들 트리거가 성립할 수 있다 — v1 VAD 없이 완화 없음, 실발화
+// 재판정은 사용자 EYES 몫(정직 기록).
 // **risk 원장행**: prompt는 디코딩 편향이므로 무발화/환각("click" 원존 —
 // T5 §6)이 prompt 어휘 사이의 "앱명+트리거" 조합형 환각으로 이어져
 // launch 미들 트리거가 성립할 수 있다 — v1 VAD 없이 완화 없음, 실발화
 // 재판정은 사용자 EYES 몫(정직 기록).
 constexpr char kVoicePrompt[] =
-    "지뢰찾기 테트리스 실행해줘 실행 열어줘 켜줘 닫아줘 꺼줘 앞으로 가져와 "
-    "포커스 창 목록 창목록 뭐 떠 있어";
+    "지뢰찾기 테트리스 알림 실행해줘 실행 열어줘 켜줘 닫아줘 꺼줘 앞으로 가져와 "
+    "포커스 창 목록 창목록 뭐 떠 있어 멈춰줘 멈춰 정지해줘 정지 일시정지 "
+    "재생해줘 재생 보여줘";
 
 // 전체 마감 — JKLmEngine kTurnIdleKillMs(10분) 선형. transcribe는 모든
 // 진행 로그가 stderr라 관측 유무로 목을 줄 수 없어 **전체 마감** 1종만
@@ -344,6 +353,20 @@ bool ChatActionQuery(const ChatAction& a, std::string& tool,
             tool = "list_windows";
             args = "{}";
             return true;
+        case ChatAction::AppTool: {
+            // #115b T1 (스펙 2026-10-27-voice-vocab-design D1-D3) — app_tool
+            // 릴레이 질의 1건: 재생계 어휘(kRouteTable exact 행 — 접점 실측
+            // = vplayer play_pause 등록 원문)가 이 단일 양식으로 간다. server
+            // 가 릴레이 대상 창(JKWindowServer app_tool — 등록 도구 매니페스트
+            // 기반)을 골라 중계하고, 도구 부재는 unknown_app_tool로 정직
+            // 회신한다. args = 빈 JSON 객체 — 무인자 강제(D1: 인자 필요
+            // 조작은 LLM 턴 소관 — 이 경로는 양식 1종만 조립한다(새 파서 0)).
+            if (a.app.empty() || a.tool.empty()) return false;  // 지시 불성립
+            tool = "app_tool";
+            args = "{\"app\":\"" + JsonEscapeStr(a.app) + "\",\"tool\":\"" +
+                   JsonEscapeStr(a.tool) + "\",\"args\":{}}";
+            return true;
+        }
         case ChatAction::Info:
             return false;  // 도구 지시 없음 — 앱이 질의를 보내지 않는다
     }

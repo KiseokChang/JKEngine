@@ -8315,6 +8315,126 @@ static int RunAppSelfTest() {
         }
     }
 
+    // 2y) 구두 어휘 확장 v1.5 — 재생+알림 도메인 (#115b T1 — 스펙
+    //   2026-10-27-voice-vocab-design D1-D5). 1n·2v-d 계열의 어휘표 확장 판 —
+    //   ①신설 어휘 → ChatAction 등호(원문 대조·usedLlm=0 — 즉발 경로 고정)
+    //   ②기존 어휘 회귀(정확매치) ③별명 우선순위(경쟁 어휘 — 1표 1의미) ④
+    //   무인자 강제(D1 — 인자 포함 발화 = AppTool 미매치)+D3 배제 어휘 stub
+    //   원장행 어설션. **접점 실측(2y의 성립 근거 — 리포트 접점 표)**:
+    //   play_pause = vplayer 등록 도구(ClientVPlayerApp.cpp OnInit
+    //   SendAgentToolRegister 6종 — 무인자 "{}")·notify 읽기 도구 = 부재
+    //   (ClientNotifyApp 등록 0·publish_event = 서버 쓰기 전용) → "알림 뭐
+    //   왔어"류 = 배제(stub). 스폰 0 — 순수 라우터+질의 조립 단정.
+    {
+        using jk::agent::ChatConfig;
+        // 미구성 cfg — 1n-f16/2v-d 계열(engine="stub"+무표지 — 즉발 경로
+        // 고정). usedLlm는 오염 증거로 시작 — 즉발이 지우지 못하면 FAIL.
+        ChatConfig vc;
+        vc.engine = "stub";
+        vc.fileKnown = false;
+
+        // ① 신설 재생 어휘 → AppTool 등호.
+        jk::ChatAction a;
+        bool used = true;
+        const std::string g1 = jk::ChatRouteTurn("멈춰줘", a, vc, &used);
+        check(!used && a.kind == jk::ChatAction::AppTool &&
+                  a.app == "vplayer" && a.tool == "play_pause",
+              "2y-① \"멈춰줘\" = AppTool(vplayer·play_pause) 즉발(usedLlm 0)");
+        check(g1.find("토글") != std::string::npos,
+              "2y-② play_pause 토글 안내문(양방향 정직 표기 — stop 도구 부재 "
+              "토글 수용 원장행)");
+        std::string tool, args;
+        check(jk::voice::turn::ChatActionQuery(a, tool, args) &&
+                  tool == "app_tool" &&
+                  args == "{\"app\":\"vplayer\",\"tool\":\"play_pause\","
+                          "\"args\":{}}",
+              "2y-③ app_tool 질의 조립 등호(릴레이 양식 — probe app_tool 원문)");
+
+        jk::ChatAction b;
+        bool usedB = true;
+        const std::string g2 = jk::ChatRouteTurn("재생해줘", b, vc, &usedB);
+        check(!usedB && b.kind == jk::ChatAction::AppTool &&
+                  b.app == "vplayer" && b.tool == "play_pause" &&
+                  g2 == g1,
+              "2y-④ \"재생해줘\" = 같은 접점 도구 등호(7행 1릴레이 — 안내문도 "
+              "등호)");
+        jk::ChatAction q;
+        bool usedQ = true;
+        (void)jk::ChatRouteTurn("일시정지", q, vc, &usedQ);
+        check(!usedQ && q.kind == jk::ChatAction::AppTool &&
+                  q.app == "vplayer" && q.tool == "play_pause",
+              "2y-⑤ \"일시정지\"가 접두 공유 짧은 행 \"정지\"에 잡아먹히지 "
+              "않는다(표 순서+exact 게이트)");
+
+        // ① 알림 — Launch 재용(신설 별명 1행 + 신설 트리거 "보여줘").
+        jk::ChatAction n;
+        bool usedN = true;
+        (void)jk::ChatRouteTurn("알림 보여줘", n, vc, &usedN);
+        check(!usedN && n.kind == jk::ChatAction::Launch && n.app == "notify",
+              "2y-⑥ \"알림 보여줘\" = Launch(notify) 즉발(앱어=별명 해소 — "
+              "기존 Launch 경로 재용)");
+        std::string toolN, argsN;
+        check(jk::voice::turn::ChatActionQuery(n, toolN, argsN) &&
+                  toolN == "launch_app" && argsN == "{\"app\":\"notify\"}",
+              "2y-⑦ launch_app(notify) 질의 조립 등호");
+
+        // ② 기존 어휘 회귀 — 신설 행(표 끝 배치)이 기존 판정을 바꾸지 않는다.
+        jk::ChatAction r1;
+        (void)jk::ChatRouterRoute("지뢰찾기 켜줘", r1);
+        check(r1.kind == jk::ChatAction::Launch && r1.app == "minesweeper",
+              "2y-⑧ 기존 회귀 — \"지뢰찾기 켜줘\"(1n-1 등호)");
+        jk::ChatAction r2;
+        (void)jk::ChatRouterRoute("꺼줘", r2);
+        check(r2.kind == jk::ChatAction::Close && r2.app.empty(),
+              "2y-⑨ 기존 회귀 — \"꺼줘\" argless Close(1n-7 등호)");
+
+        // ③ 별명 우선순위(경쟁 어휘 — 1표 1의미·이중 해석 봉쇄).
+        jk::ChatAction r3;
+        (void)jk::ChatRouterRoute("창 목록 보여줘", r3);
+        check(r3.kind == jk::ChatAction::ListWindows,
+              "2y-⑩ 표 순서 — \"창 목록\" 행이 신설 뒤접미 트리거 \"보여줘\"에 "
+              "잡아먹히지 않는다(ListWindows 우선)");
+        jk::ChatAction r4;
+        (void)jk::ChatRouterRoute("알림 꺼줘", r4);
+        check(r4.kind == jk::ChatAction::Close && r4.app == "notify",
+              "2y-⑪ Close 경에서도 별명 해소(알림→notify — 별명은 표 1행)");
+
+        // ④ 무인자 강제(D1) — 인자·접사 포함 발화 = AppTool 행 미매치.
+        jk::ChatAction x1;
+        (void)jk::ChatRouterRoute("볼륨 50으로 멈춰줘", x1);
+        check(x1.kind == jk::ChatAction::Info && x1.app.empty() &&
+                  x1.tool.empty(),
+              "2y-⑫ 무인자 강제 — \"볼륨 50으로 멈춰줘\" = 미매치(AppTool은 "
+              "발화 전체 등호만)");
+
+        // ④ D3 배제 어휘 — 도구 접점 부재 = 행 없음(stub 유지 — 원장행 어설션
+        // 으로 흔적 보존).
+        jk::ChatAction x2;
+        (void)jk::ChatRouterRoute("뮤비 좀 멈춰줘", x2);
+        check(x2.kind == jk::ChatAction::Info,
+              "2y-⑬ 무인자 강제 — 접사 발화(\"뮤비 좀 멈춰줘\")도 미매치");
+        jk::ChatAction x3;
+        const std::string gx3 = jk::ChatRouterRoute("다음 곡", x3);
+        check(x3.kind == jk::ChatAction::Info &&
+                  gx3.find("명령") != std::string::npos,
+              "2y-⑭ D3 배제 — \"다음 곡\" 미매치 stub(vplayer·music next/prev "
+              "도구 부재 — 신설 도구 금지)");
+        jk::ChatAction x4;
+        (void)jk::ChatRouterRoute("알림 뭐 왔어", x4);
+        check(x4.kind == jk::ChatAction::Info,
+              "2y-⑮ D3 배제 — \"알림 뭐 왔어\" 미매치(notify 읽기 도구 부재 — "
+              "publish_event는 쓰기 전용)");
+        // stub 안내문이 신설 어휘를 함께 훑는다(InfoGuide — 표 동일 진실원).
+        jk::ChatAction x5;
+        const std::string gx5 =
+            jk::ChatRouterRoute("세상엔 채팅이 이렇게 어려웠나", x5);
+        check(x5.kind == jk::ChatAction::Info &&
+                  gx5.find("멈춰줘") != std::string::npos &&
+                  gx5.find("보여줘") != std::string::npos,
+              "2y-⑯ Info 안내문이 신설 어휘를 함께 훑는다(kVoicePrompt와 같은 "
+              "어휘 원문 동기)");
+    }
+
     // 2w) 서버 도구 호출 저널 leg (#113 T1 — 스펙 2026-10-26-use-review-cycle-
     // design D1·D2·D5): 순수 writer 4건 — ①append 형식(JSONL 파싱 등호 —
     // ts/tool/arg/ok/err) ②쓰기 실패 무시(도구 응답 무영향) ③args 절단
