@@ -647,6 +647,14 @@ namespace tags {
 // 태그 누락 — 리포트 부기).
 inline constexpr size_t kTagHeadCap = 1u << 20;
 
+// moov 후행 2차 read의 창 상한(#115 원장행 — 2026-10-27 batch2 실환 소각).
+// 근거: ffmpeg 기본 mux m4a = mdat 선두+moov 말미 — moov가 머리 kTagHeadCap
+// 밖(일상 형태)이라 구 ParseTag는 "-" 폴백. 수형 = 첫 mdat 끝 오프부터 이
+// 창만 seek+read해서 box 보행 재용. moov(udta/meta/ilst+태그)는 수십 KB
+// 규모라 2MB는 여유 컷 — 창 밖 moov(거대 커버 포함 등) = 기존 폴백 그대로
+// (정직 거부 — 부분 태그 0 계약 승계).
+inline constexpr size_t kMoovLocateMax = 2u << 20;
+
 inline bool TagEmpty(const TagSet& t) {
     return t.title.empty() && t.artist.empty() && t.album.empty();
 }
@@ -1172,6 +1180,43 @@ inline bool Mp4FindBox(const unsigned char* p, size_t base, size_t span,
     return false;  // 부재 — 보행 소진(정상 경로)
 }
 
+// 첫 mdat 박스의 끝(다음 상자 선두 절대 오프) — moov 후행 2차 read의 창
+// 기점(#115 원장행 수형). 머리 버퍼에 mdat 헤더(8B)만 실려도 선언 size를
+// 진실원으로 쓴다(mdat가 머리 cap을 넘는 것이 이 leg의 전제 — 실측 잘림
+// 과는 무관). size=0(EOF까지) = 뒤에 상자가 없다는 규약 → false, largesize
+// (size=1, 64BE) 재용, mdat 도달 전 보행 파산(잘린/배신적 size·오프 오버
+// 플로) = false — Mp4BoxAt의 정직 거부 계약 승계(선언을 믿지 않는다 —
+// 대신 여기서는 "mdat 끝"만 선언에서 읽고 창 유효성은 호출부가 파일 크기와
+// 재판정한다). 보행 상한 64(ftyp/free 등 머리 형제 몇 개 — 폭주 절단).
+inline bool Mp4MdatNext(const unsigned char* p, size_t n, size_t& nextOff) {
+    size_t off = 0;
+    size_t guard = 0;
+    while (off + 8 <= n && guard++ < 64) {
+        char type[4];
+        std::memcpy(type, p + off + 4, 4);
+        unsigned long long total = RdBE32(p + off);
+        size_t head = 8;
+        if (total == 1) {  // 64bit largesize — size=1 규약(Mp4BoxAt 원문)
+            if (off + 16 > n) return false;
+            total = 0;
+            for (int i = 0; i < 8; ++i)
+                total = (total << 8) | p[off + 8 + i];
+            head = 16;
+        }
+        if (total == 0) return false;  // EOF까지 mdat — 뒤 상자 없음
+        const unsigned long long next =
+            static_cast<unsigned long long>(off) + total;
+        if (next > 0xffffffffull) return false;  // 32bit 크기계계 밖 — 거부
+        if (std::memcmp(type, "mdat", 4) == 0) {
+            nextOff = static_cast<size_t>(next);
+            return true;
+        }
+        if (next > n) return false;  // 머리 밖 형제 보행 불가 — 정직 거부
+        off = static_cast<size_t>(next);
+    }
+    return false;  // mdat 부재/보행 소진 — 정직 거부
+}
+
 // ilst 항목의 data atom 본문 → UTF-8 ([4B version/flags][4B locale][값] —
 // 타입 코드 = flags 하위 바이트: 1=UTF-8 통과·2=UTF-16(BOM 우선 —
 // DecodeId3Text enc 1 원문 leg 재용: FE FF=BE·FF FE=LE·무BOM = LE — #99
@@ -1282,13 +1327,14 @@ inline bool Mp4FindIlst(const unsigned char* p, size_t n, size_t& body,
     return true;
 }
 
-// ftyp→moov→udta→meta('mdir')→ilst→©nam/©ART/©alb. 항목 = 본문의 첫 data
-// atom(첫 값 계약 — v1 계보). 아무 파산(잘린/배신적 box·hdlr 부재·비-'mdir'
-// 핸들러) = 빈 TagSet(정직 거부 — 부분 필드 소각·2x-③ 계약).
-inline TagSet ParseM4aTags(const unsigned char* p, size_t n) {
+// ilst 본문(p 상대 좌표)의 항목 보행 — 태그 3필드 추출 공용 후반부. ParseTag
+// (머리 창)와 moov 후행 2차 read(뒤 창)가 이 보행 한 곳을 소비한다(계보
+// 단일 출구 — #115 원장행 수형의 등호 전제). 항목 = 본문의 첫 data atom
+// (첫 값 계약 — v1 계보). 파산(잘린/배신적 box) = 빈 TagSet(정직 거부 —
+// 부분 필드 소각·2x-③ 계약).
+inline TagSet ParseM4aIlstItems(const unsigned char* p, size_t body,
+                                size_t bodyN) {
     TagSet tags;
-    size_t body = 0, bodyN = 0;
-    if (!Mp4FindIlst(p, n, body, bodyN)) return tags;
     // ilst 자식 연쇄 — 항목 atom(type = ©nam/©ART/©alb). 미지목 항목(covr/
     // trkn/tmpo…) = 통과만(본문은 불투명 — data 존재 요구 금지).
     size_t off = body;
@@ -1319,6 +1365,16 @@ inline TagSet ParseM4aTags(const unsigned char* p, size_t n) {
         }
     }
     return tags;
+}
+
+// ftyp→moov→udta→meta('mdir')→ilst→©nam/©ART/©alb. 아무 파산(잘린/배신적
+// box·hdlr 부재·비-'mdir' 핸들러) = 빈 TagSet(정직 거부 — 부분 필드 소각·
+// 2x-③ 계약). moov가 창 밖(kMp4TagNoMoov)이면 후행 2차 read가 이어준다 —
+// ParseTag의 moov 후행 leg(#115 원장행).
+inline TagSet ParseM4aTags(const unsigned char* p, size_t n) {
+    size_t body = 0, bodyN = 0;
+    if (!Mp4FindIlst(p, n, body, bodyN)) return TagSet();
+    return ParseM4aIlstItems(p, body, bodyN);
 }
 
 // ---- m4a covr atom (own — ReadCover leg 부품, #115 T2 — 스펙 D4) ----
@@ -1432,8 +1488,52 @@ inline TagSet ParseTag(const std::string& path, std::string& err) {
         tags = ParseWavTags(buf, static_cast<size_t>(headN));
     } else if (headN >= 8 && std::memcmp(buf + 4, "ftyp", 4) == 0) {
         // MP4/ISO-BMFF(m4a 계열 — 박스 트리 보행 — #115 T1). ftyp가 첫
-        // 박스 = 컨테이너 매직 진실원 — 확장자 밀표 파일도 같은 파싱.
+        // 박스 = 컨테이너 매agic 진실원 — 확장자 밀표 파일도 같은 파싱.
         tags = ParseM4aTags(buf, static_cast<size_t>(headN));
+        // moov 후행 2차 read(#115 원장행 — 실환 흔한 형태 소각 —
+        // kMoovLocateMax 근거 주석): ffmpeg 기본 mux m4a = mdat 선두+moov
+        // 말미 — moov가 머리 cap 밖 = 구 ParseTag "-" 폴백. 수형: ①머리
+        // 스니프로 moov 미성립(kMp4TagNoMoov 한정 — udta/meta 깊이 미성립
+        // 은 이미 머리 트리 판정 소관) 확정 ②머리 상자 연쇄에서 첫 mdat
+        // 끝 오프(선언 size 진실원 — Mp4MdatNext) ③그 오프부터
+        // kMoovLocateMax 창 seek+read ④창 보행 = moov 지목→트리·ilst 항목
+        // 보행 재용 → 태그 승계. 창 밖 moov·창 파산 = 빈 TagSet 폴백 그대
+        // 로(정직 — 부분 태그 0·2x-③ 계약 승계).
+        Mp4TagLoc loc;
+        if (TagEmpty(tags) &&
+            Mp4LocateIlst(buf, static_cast<size_t>(headN), loc) ==
+                kMp4TagNoMoov) {
+            size_t mdatNext = 0;
+            if (Mp4MdatNext(buf, static_cast<size_t>(headN), mdatNext) &&
+                mdatNext > 8 &&
+                static_cast<unsigned long long>(mdatNext) <
+                    static_cast<unsigned long long>(total)) {
+                std::streamoff span =
+                    static_cast<std::streamoff>(kMoovLocateMax);
+                const std::streamoff rest =
+                    static_cast<std::streamoff>(total) -
+                    static_cast<std::streamoff>(mdatNext);
+                if (rest < span) span = rest;
+                std::vector<unsigned char> tail(static_cast<size_t>(span));
+                f.clear();
+                f.seekg(static_cast<std::streamoff>(mdatNext),
+                        std::ios::beg);
+                f.read(reinterpret_cast<char*>(tail.data()), span);
+                tail.resize(static_cast<size_t>(f.gcount()));
+                // 창 보행 — 창 상대 좌표(보행 부품은 버퍼 밖을 모른다).
+                // hdlr 'mdir' 트리 계약 동형 — 비-'mdir' = 폴백 그대로.
+                size_t moovBody = 0, moovN = 0;
+                Mp4TagLoc late;
+                if (tail.size() >= 8 &&
+                    Mp4FindBox(tail.data(), 0, tail.size(), "moov",
+                               moovBody, moovN) &&
+                    Mp4LocateTagTree(tail.data(), moovBody, moovN, late) ==
+                        kMp4TagOk) {
+                    tags = ParseM4aIlstItems(tail.data(), late.ilstBody,
+                                             late.ilstN);
+                }
+            }
+        }
     } else {
         // 매직 미일치 — 확장자 보조 분기(ID3v1 원존 mp3는 매직이 없다)
         std::string ext = std::filesystem::path(path).extension().string();

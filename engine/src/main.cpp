@@ -9803,6 +9803,63 @@ static int RunAppSelfTest() {
             fs::remove_all(tdir, sx);  // REMNANT 0 — 사후 소각 동봉(2x 수형)
             check(!sx && !fs::exists(tdir, sx), "2x-⑫b REMNANT 0(사후 소각)");
         }
+
+        // ⑬) moov 후행 m4a(#115 원장행 — 2026-10-27 batch2 실환 소각):
+        //    ffmpeg 기본 mux m4a = mdat 선두+moov 말미 — moov가 머리
+        //    kTagHeadCap(1MB) 밖 = 구 ParseTag "-" 폴백. 수형 = 첫 mdat 끝
+        //    오프(선언 size 진실원 — Mp4MdatNext)부터 kMoovLocateMax(2MB)
+        //    창 seek+read → 창 보행 재용. (a) mdat 1.5MB 더미+moov(udta/
+        //    meta/ilst 3항) 합성 → ParseTag 3필드 등호(② UTF-8 원문과
+        //    동일 표 — ParseM4aIlstItems 재용 계보 등호) (b) 창 밖 사전
+        //    확인(mdat 끝 = 머리 cap 밖 — 수형 leg가 실제로 쓰인다) (c) err
+        //    빈(정상 경로) ③ REMNANT 0.
+        {
+            std::error_code s13;
+            fs::remove_all(tdir, s13);  // 선제거+재개방(⑫b가 소각한 tdir)
+            fs::create_directories(tdir, s13);
+            const fs::path p = tdir / "2x_m_moov_trailing.m4a";
+            const std::vector<unsigned char> ilst13 = concat(
+                {mkItem("\xA9" "nam", mkData(1, asBytes("M4A Title"))),
+                 mkItem("\xA9" "ART", mkData(1, asBytes("M4A Artist"))),
+                 mkItem("\xA9" "alb",
+                        mkData(1, {0xED, 0x95, 0x9C, 0xEA, 0xB8, 0x80, ' ',
+                                   0xEC, 0x95, 0xA8, 0xEB, 0xB2,
+                                   0x94}) /* "한글 앨범" UTF-8 */)});
+
+            const std::vector<unsigned char> blob13 = concat(
+                {mkFtyp(), mkBox("mdat",
+                                 std::vector<unsigned char>(1500 * 1024,
+                                                            0xCD)),
+                 mkBox("moov", mkBox("udta", mkMeta(ilst13)))});
+            const bool built13 = putFile(p, blob13);
+            // (b) 창 밖 사전 확인 — 머리 1MB 보행의 첫 mdat 끝 오프가
+            // 머리 cap 밖(=moov는 머리에 성립 불가 — NoMoov 경로 동형).
+            std::vector<unsigned char> head13;
+            size_t mdatNext = 0;
+            const bool r13 = readFile(p, head13);
+            const size_t headCap =
+                head13.size() < 1024 * 1024 ? head13.size() : 1024 * 1024;
+            const bool headNoMoov =
+                r13 && mt::Mp4MdatNext(head13.data(), headCap, mdatNext) &&
+                mdatNext > headCap;
+            std::string e13;
+            const mt::TagSet t13 =
+                built13 ? mt::ParseTag(p.generic_string(), e13)
+                        : mt::TagSet{};
+            check(built13 && headNoMoov && e13.empty() &&
+                      t13.title == "M4A Title" &&
+                      t13.artist == "M4A Artist" &&
+                      t13.album ==
+                          std::string("\xED\x95\x9C\xEA\xB8\x80 \xEC\x95"
+                                      "\xA8\xEB\xB2\x94"),
+                  "2x-⑬ moov 후행 m4a = mdat 1.5MB 더미(머리 kTagHeadCap 밖"
+                  " — 사전 확인 mdatNext>cap)+moov 창(kMoovLocateMax) 2차 "
+                  "read → 3필드 등호(② UTF-8 원문 동일 표 — ParseM4aIlst"
+                  "Items 재용)+err 빈(폴백 아닌 정상 경로)");
+            fs::remove_all(tdir, s13);  // REMNANT 0 — 사후 소각 동봉(2x 수형)
+            check(!s13 && !fs::exists(tdir, s13),
+                  "2x-⑬ REMNANT 0(사후 소각)");
+        }
     }
     std::printf("AppSelfTest: %d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;
