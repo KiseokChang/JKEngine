@@ -436,6 +436,17 @@ status 절단 악형) → T2 fix r1 re-review **APPROVE 재확정**(C0/I0/M0 —
 | T2 원장 | 브리프 "기대 = 873 승계" 표기 — Win 축 캐논(3축 판정에서 폰 = **WSL 등호 계약** — 668/818/833 계보 원존) | N | 원장 소화(§7.13.2 캐논 표 — 폰 실측 850 = WSL 등호) |
 | 라인 유계 | v1.6 후보(도메인 확장 — 파일/갤러리·LLM 스키마 app_tool·TTS·vplayer stop/next 도구 신설(토글 수용 원장행)) | N | 유계 — 스펙 비-목표 원존 |
 
+### §4.1-11 신규 park 행(#117 구두 응답 TTS 라인 — §7.14 승계 · **아래는 추가만, 기존 행 변형 금지**):
+
+| 출처 | 항목 | 등급 | 처분 근거 |
+| --- | --- | --- | --- |
+| T2 원장 | **폰 TTS 엔진 웨지 사건(117-R5 돌입)** — termux-tts-speak 무한 블록·libexec TextToSpeech helper 6 잔존·helper 소각 뒤에도 60s+ 무응답(시스템 TTS 엔진 서비스 자체)·speak stamp는 계속 도출(spawn 성립)·샘플 전량 timeout — 계통 추정 = 앱 15s deadline(kTtsSpeakDeadlineMs) 중도 kill(race — `[TTS] fail (rc=137)` 원문 행)와 장문 guide 발화 시간(~120자 >15s)의 겹침 | M | 폰 현장 복구(재부팅 권장) = 사용자 몫 — 재량 수형 후보 = 발화 길이 비례 deadline 상향 or 스폰 후 즉시 반환(백그라운드 — D5 무시 계약 내) — 기각 시 즉시 수리 |
+| T2 원장 | posix 캐논(+9) 재판정 채권 — ClientChatApp.h/.cpp = posix 빌드 목록 공통 TU이나 2z 순수 부품(C++ 헤더 인라인)이라 304→313 예상(WSL 859 계보와 동형 +9) — posix 머신 접촉 = 폰 접촉 계약 밖 | M | 승계 재판정(다음 posix 접촉 라인 몫) |
+| T2 원장 | stamp 행 = 다중행 guide의 1행만(`[TTS] speak:` 이후 첫 개행까지 — D4 clip에 개행 포함 — 행 표기 한계 — 후속 행은 무표기 계행) | N | 원장 소화 — 지연 원문·도착 판정은 별개 진실원(§7.14.3) |
+| T2 원장 | BLOCKED 원장행 미발화(전 런 폰 접속 성립 — 정찰 MISS 0) — 미접속 코드 경로는 본존하나 실측 0 | N | 원장 소화(honest — 미발사 코드 경로) |
+| T2 원장 | engine/engine/tmp 이중경로 산출물(#115b~117 fix r1 전 런 캡처·RLOG — probe ROOT 2단 결함의 계보 산출물) | N | fix r1(48c5474)로 3단 수형 — 기존 산출물 = 원장 보존(삭제 대상 아님) |
+
+
 ## §5. 사용자 결제 게이트 (EYES-PENDING 봉인)
 
 
@@ -2786,3 +2797,208 @@ SDD 원장=`.superpowers/sdd/2026-10-27-voice-vocab/`(task-1/2 리포트 — 미
 - 배포 드라이버(t115b_t2_deploy.sh)·런 로그(wsl_voice_run115b_{1,2,3}.log·
   phone_voice_run115b_{1,2,3}.log·t115b_t2_deploy*.log)·캡처(voc_wsl_*.png·
   pv_run*_*.png·pv_vocab_*.png) = engine/tmp untracked — 커밋 금지 충족.
+
+## §7.14 구두 응답 TTS 원장 (#117 라인 — T1-T2(+fix r1-r5), 2026-10-27)
+
+#117 라인 원장. 폰에서 구두 명령의 답을 소리로 듣는다 — 구두 표면(chat [구두])
+의 답신 도착에 `termux-tts-speak`(Termux:API — 조달 0)로 읽어준다(스펙 D1-D6).
+스펙=`docs/superpowers/specs/2026-10-27-tts-response-design.md`(7981c45),
+SDD 원장=`.superpowers/sdd/2026-10-27-tts-response/`(task-1/2 리포트 — 미커밋
+관행). T1 리포트가 표지 사슬·스폰 leg·절단 부품·2z 9건의 원문 수취원 — 본
+§7.14.1은 그 1:1 재수취, §7.14.2-3은 T2 배포·probe 실측 원문.
+
+### §7.14.0 체인 (rev-parse 전체 SHA 실측 · git log가 진실원)
+
+| 태스크 | 커밋(SHA — 실측 rev-parse) | 내용 (numstat) |
+| --- | --- | --- |
+| 스펙 | `7981c45…`(docs — git log) | docs(apps): 구두 응답 TTS leg 스펙+플랜 (#117) — D1-D6 |
+| T1 | `ae0dfb5` | feat(apps): 구두 응답 TTS leg — termux-tts-speak (T1) — ClientChatApp.h(jk::tts 인라인 부품 3종+origin 표지)·ClientChatApp.cpp(#ifdef __ANDROID__ 스폰 leg+D3 표지 수명주기+DrainVoice 트리거)·main.cpp 2z 9건 |
+| T2(probe) | `a32a26d` | feat(probes): phone voice probe — #117 TTS 세그먼트 (T2) — 344/1 — B3 세그먼트(stamp 원문·마침 탭→stamp 폴링·CLI 개발력 3표본·VOICE_TTS=0 opt-out 1판·표준 부팅 복귀·BLOCKED 원장행) |
+| T2 fix r1 | `48c5474` | fix(probes): phone voice probe — TTS 전용 런 페이즈 상속+이중경로 결함 (T2 fix r1) — 78/36 — 페이즈 정규화(마침)+Session 판정 행·180s 폴링·ROOT 3단 수형(engine/engine/tmp 이중경로)·RUN-VALS tts 필드 가산 |
+| T2 fix r2 | `d18c639` | fix(probes): phone voice probe — TTS tap 포커스 선행+FAIL 출구 permissions 원복 (T2 fix r2) — 23/0 — focus_window 선행+FAIL 출구 원복(멱등)+병합 생략 가드 |
+| T2 fix r3 | `d0bec85` | fix(probes): phone voice probe — TTS tap 세션 검증 재시도 (T2 fix r3) — 23/11 — 개시/마침 -i 세션 검증 재시도 루프(최대 3)+T0 재기점 |
+| T2 fix r4 | `ce0b760` | fix(probes): phone voice probe — TTS 웨지 수속+판독 접두 결함 (T2 fix r4) — 39/16 — helper 잔존 소각(진입/종료)+CLI per-call timeout 20s·표본 >=1 성립·SESSION 판독 원문 패턴 수리·done>rec 관측행 격하 |
+| T2 fix r5 | `0746680` | fix(probes): phone voice probe — TTS 세션 판독 선행 숫자 절단 (T2 fix r5) — 6/4 — SESSION 행 괄호 후미 흡수 판독 결함(=1 등호 실패) 수리 |
+| 본 T2(docs) | 본 문서를 포함하는 커밋 | docs(apps): #117 구두 응답 TTS 원장 — SHA는 git log가 진실원 |
+
+### §7.14.1 배선·설정 원리 (T1 리포트 → ClientChatApp 단일 진실원 1:1 재수취 · 코드 재실측 0)
+
+- **D1 폰 전용** — 스폰 leg 전량 `#ifdef __ANDROID__`(ClientChatApp.cpp §85-
+  TtsTermuxPrefix/TtsResolveBin/TtsQuoted/TtsSpawnSpeak — 전처리기 폐기 —
+  Win/WSL 빌드 심볼·코드 0실측[2축 warning 0]). 스폰 = `/bin/sh -c` 래핑
+  (JKProcess_posix.cpp:4 원문 — 절대 경로 resolve+인용이 PATH 상실 서버 계통
+  에서도 성립)·마감 15s(kTtsSpeakDeadlineMs)+TerminateJobTree(kill-on-close
+  job)·파이프 read end 폐기.
+- **D3 표지 사슬** — `Turn.originVoice` 표지+`voiceOriginPending_` 세션 표지:
+  StartVoice(구두의 유일 개입 통로 — F6 hold·[구두] 버튼 2계통)에서 새김 →
+  FinishVoice placeholder push 접점 1곳 수납 → DrainVoice 치환에 앞서 원독
+  (실패 치환 대입이 표지를 지우기 전 1독) → [시스템] 답신 도착 1곳에서
+  `TtsSpeakWanted(true, guide.empty(), optOut)` 관문 → detached 단명 스레드로
+  `TtsSpawnSpeak(TtsReplyClip(guide))`. **타이핑 발화의 답신 = 구조적 부정**
+  (Submit 표면은 표지 없는 턴만 만든다 — 스폰 접점 자체가 voiceOrigin 게이트
+  뒤). **OnClose** = placeholder 없이 소각(표지 잔상 금지).
+- **D2 기본 켬+opt-out** — `VoiceTtsEnabled`(표의 유일 진실원)·
+  `VoiceTtsOptOutRuntime` = getenv("VOICE_TTS") — **"0" 문자 그대로만 끔**
+  (기본 켬·빈 값/"1" = 켬 — 2z-③②c/③c). opt-out = 스폰 밖 결정 부품
+  (판정 단계만 소비 — env 중독 없음) — 폰 E2E 실측 = T2 probe 몫(§7.14.3).
+- **D4 쓰는 문언** — [시스템] 답신의 reply 원문(전사 아님 — guide/앱 실행
+  문언)·`TtsReplyClip` = 상한 120 **문자**(UTF-8 코드포인트 절단·연속 바이트
+  흡수) 절취+"…" 접미 — `over` 플래그(121번째 문자 실존 판정) = 2z-①이 잡은
+  초판 결함의 수형(TDD 효과 — T1 리포트 §2).
+- **D5 실패=무시** — termux-tts-speak 부재/스폰 실패/15s 초과 = 조용히 스킵
+  (UI·기록 무영향·재시도 없음) — stderr trace stamp 1행
+  (`[TTS] speak: <절단판>`/`[TTS] fail (...)`)만 — 폰 E2E probe의 진실원 행
+  (스펙 §2·T2 소각 금지 원장행).
+- **D6 계보** — selftest **2z** 9건(①절단 3[121→120+"…"·한글 121자=120+…·상한
+  등호 원문]·②구두 판정 3[표지 턴=대상·타이핑 턴 부정·빈 답신 스킵]·③opt-out
+  3[미설정=켬·"0"=끔 1바이트 등호·"1"/""=켬]) — 헤더 인라인 순수 결정 부품만
+  (스폰 어셜션 금지 — 비결정 원존). CMake 무변조(신규 TU 0·신설 타깃 0).
+
+### §7.14.2 캐논 계보 (2z 계열) + T2 배포·probe 실측 영수증
+
+| 시점 | Win | WSL | posix | 폰 | 신설 |
+| --- | --- | --- | --- | --- | --- |
+| 기준(#115b 라인 종착 = §7.13.2 T2 행) | 873 | 850 | 304 | 850 | — (2v 14·2x 15·2y 17 보존) |
+| T1 `ae0dfb5` | **882** | **859** | 304 (승계·313 재판정 대기[§4.1-11]) | (850) | +9 (2z ①-⑨) |
+| T2 본 라인(a32a26d…0746680 — probe 전용·src 무변경) | 882 | 859 | 304 (승계) | **859** | 폰 2z 9 흡수 — **CANON=2Z-9** (850→859 — WSL 859 등호 — 배포 A/B 2런 등호) |
+
+- **2z 9의 분해** = ①절단 3(121자·한글 121자·상한 등호) ②구두 판정 3(표지 턴·
+  타이핑 부정·빈 답신) ③opt-out 3(미설정·"0"·"1"/"") — T1 리포트 §6(2축 등호
+  — Win 873+9·WSL 850+9 — RED/GREEN 재판정 1회 완결).
+- **posix 304 승계 = 승계 원존**(T1 리포트 §9.1 — 폰·posix 접촉 계약 밖 —
+  재판정 채권 §4.1-11).
+- **T2 폰 배포 런(t117t2_deploy.sh — engine/tmp 산출물 — t115b_t2 수형 승계
+  ·커밋 0 · engine/tmp/t117t2_deploy.log+t117t2_run.log)**: DEPLOY-BASE
+  `a32a26d`(T1+T2 probe 커밋 — fix r1-r5[0746680까지] = probe 전용·src
+  무변경이라 폰 바이너리 무영향 — **배포 유효 원존**: #115b 선존 "T2 probe
+  전용·src 무변조" 계보 승계) — **SWEEP-DIFF 6/472 → SWEEP-POST-DIFF=0** hard
+  게이트·LEG-STAGE-WIRED(SPATIAL leg 유지배선 — libopenal.a 1,969,238B·
+  `-lOpenSLES -llog`)+WHISPER-ROOT-WIRED(tree 149)·CMAKE-RC=0·**NINJA-RC=0
+  SECONDS=472**(aarch64 — whisper 신증 전량 재빌드)·JKDESK-BYTES 37,808,552B·
+  `DEPLOY-MARKERS: 2r=11 2s=21 2u=136 2v=22 2w=4 2x=15 2y=18 **2z=9**`·
+  MUSP-LEG-SYM alcOpenDevice strings=3(leg 링크 유지)·whisper-cli aarch64
+  (17,948,320B — 무인자 cold run "no input files" 정상·LDD not-found 0)·
+  tiny-ko 핀 77,691,730B 등호(조달 재용 불요)·music.jkx 재팕(PACK-RC=0·
+  ICON-ENTRIES=2 — 554B/995B)·서버 재기동 **WHISPER_ROOT 보유 부팅**(부팅 env
+  승계 원존)·`BOOT-SECONDS=8`/`BOOT2-SECONDS=8`·SCAN-COUNT=27+SCAN-SORTED=OK
+  ·Music 창 복원 ok — **`PHONE-SELFTEST-A rc=0 PASS=859 FAIL=0 2u=132 2r=10
+  2s=20 2v=14 2w=4 2x=15 2y=17 2z=9 SECONDS=7`**·`CANON-A=859`·런B 동일
+  **`CANON-B=859`**(2z=9 양런) — settings 213B/permissions 33B **무변경 등호**
+  ·jkweb 생존(pid 동일 — 절사 0)·REMNANT-LS-RC=2(자기 소각 등호) —
+  `T2-DEPLOY-VERDICT: T2-DEPLOY-OK`.
+- **사용자 live 세션 존중 원문** — 진입 창 원문 `Music focused`(사용자 화면)를
+  서버 교체 전 진입 영수증으로 수취, 종료 = Music 창 복원(`FINAL-WINDOWS:
+  Music focused` — 돌아오면 그대로) — 잔상 0(REMNANT left=0).
+
+### §7.14.3 probe 원문 (phone_voice.sh B3 세그먼트 — stamp·세션·CLI·opt-out)
+
+- **stamp 원문(진실원 — 도착 소관 수취)** — 전 런(T2 세그먼트 소각 금지 행 —
+  클라 stderr → 서버 boot log 도달: posix 스폰 계약 `inheritedStdioPipes`
+  미설정 = 부모 stdio 상속[JKProcess_posix.cpp fork leg — 자식 stdin=/dev/null
+  ] → §B 부팅 리다이렉트 진실원 t6pv_srv.log): `[TTS] speak: 인식하지 못했습
+  니다. 채팅에서 쓸 수 있는 명령:`(+계행 후속 행 `'닫아줘' — 창 닫기`… —
+  stamp 행 = D4 절단판의 **1행만**[multi-line guide clip의 개행까지 — 함정
+  §7.14.4]) — 런(R1-R4·R6-R7) 전부 2-3행 도출·`[TTS] fail (rc=137)` 원문 행
+  = 15s deadline TerminateJobTree 실측(R6/R7 — 웨지 상태의 정직 무시 원문).
+- **마침 탭→stamp 지연(원문)** — dedicated tap 런(세션 검증 통과 런): R5
+  `18915ms`·R6 `18520ms`·R7 `20490ms` — STT(tiny-ko 폰 전사)+답신+스폰 개시
+  구간 통괄(개발력 **상한** 표기 — 리서치 문턱 1s = "TTS 첫 단어" 구간 대조
+  표기·판정 어설션 아님 — 실음 체감 = EYES 몫).
+- **세션 전이 원문(-i 진실원 — `termux-microphone-record -i` = `{"isRecording":
+  bool}`)** — R5/R6/R7 dedicated: 개시 성립 1+마침 성립 1(START-RETRY 1건
+  원문 포함 — §7.14.4 함정 1·2) — stamp 판정의 유효성 통제.
+- **CLI 개발력 표본(termux-tts-speak 스폰→종료)** — R1-R4(웨지 이전) **12
+  표본**: 3374-3548ms(R1)·3414-3521ms(R2)·2658-2879ms(R3)·2881-2989ms(R4)
+  (exit = 첫음+발화 포괄 **상한** — 즉귀형이면 개발력 그 자체)·R5-R7 = 엔진
+  웨지(§7.14.4 함정 5) — 표본 전량 `TTS-CLI-TIME-OUT`(20s — per-call timeout
+  경화 후) — 웨지 사건 원문(런 밖 원장행·§4.1-11).
+- **opt-out(D2) 1판 원문(유효판 — R6·R7)**: `VOICE_TTS=0` 부팅(/proc/<pid>/
+  environ 영수증 `VOICE_TTS=0` — 클라 상속 계통의 원천) → fresh boot log
+  stamp **부존 0건**(180s stamp 폴링 — 도착 없는 부존 봉쇄)+세션 전이 양순
+  (개시 1·마침 1 — 구두 표면의 절차 실측)+기록 행 도착 관측(+38220B — 렌더
+  영수증) → `TTS-OPTOUT-OK`. **R1/R2의 opt-out 판정 = 무효 원장행**(30s 고정
+  대기+done>rec 가양성 — §7.14.4 함정 3 — fix r1 격하).
+- **RUN-VALS(요약 스트림 계약 — R7 최종 런)**: `tap_runs=2 gate=3판
+  fixture_direct=1 mic=1 tap=OK_ALL runverdict=VOICE-PHONE-OK vocab=1
+  vocab_route=5 vocab_excl=2 vocab_live=1 tts_runverdict=TTS-PHONE-FAIL
+  tts_stamp=1 tts_session=1 tts_optout=1 tts_cli=0 tts_lat=20490` —
+  **VOICE-PHONE-VERDICT: VOICE-PHONE-OK+VOCAB-PHONE-VERDICT: VOCAB-PHONE-OK**
+  (기존 legs 회귀 0 — 전 런)·별행 TTS 판정(R7): stamp/session/optout 전원 1·
+  cli=0(웨지 — 런 판정 honest FAIL — §7.14.4).
+- **미접속 = BLOCKED 원장행** — 정찰 MISS 코드 경로(`TTS-PHONE-BLOCKED: …`)
+  본존·**실측 0**(전 런 폰 접속 성립 — §4.1-11 원장행).
+- **7런 원장(R1-R7 — T2 세그먼트 신설이후)**: R1/R2 = fix 이전(전 런 VOICE-
+  PHONE-OK·stamps 2+2·CLI 3표본·opt-out 무효판[가양성])·R3 = fix r2 대상
+  (개시 실패 honest FAIL — permissions 드리프트 사건)·R4 = fix r2 재판(focus
+  후에도 개시 실패 — 활성화 소비 탭 진원 확정)·R5 = fix r3 대상(stamp 도착
+  +지연 18915·CLI 표본 1건 무한 블록 = **웨지 시작** — 런 사망[수기 정지])·
+  R6 = fix r4 대상(웨지 유지 — CLI 0/3·세션 판독 결함)·R7 = fix r5 대상
+  (**stamp=1 session=1 optout=1 lat=20490 cli=0[웨지] — T2 결정 축 전원**),
+  전 런 jkweb 생존·permissions/settings 무변경·잔상 0·Music 복원.
+
+### §7.14.4 함정 원장 (#117 신규 — 봉쇄 레슨 축 · 전량 = T1/T2 리포트+런 원문 수납)
+
+- **전용 tap 런의 토글 페이즈 3원 결함(R1-R4 — 3회 재판정 소각)** — ①선행
+  세그먼트의 미마침 녹음 생존 = tap1=마침·tap2=개시 어긋남(dedicated detect=0
+  2런 — pv_tts_done `녹음 중` 행 원문) ②미포커스 창의 첫 탭 = 포커스 소비(R3
+  — 개시 세션 미성립 honest FAIL) ③포커스 해결 뒤에도 **첫 탭 = 활성화 소비**
+  (R4 — 수동 진단 등호: send_input allow+focus_window 상존·첫 탭 무효·두번
+  째 탭부터 `-i` true) — 수형 = **-i 세션 검증 재시도 루프(최대 3 — 성립 즉시
+  break = 토글 이중 반영 봉쇄)**+페이즈 정규화(진입 시 `isRecording:true`면
+  마침 탭 1회) — `termux-microphone-record -i` = 세션 판정 진실원(T5 어휘
+  승계).
+- **stamp 폴링 상한(R1/R2 120s 만료)** — 폰 tiny-ko 전사 = 마침 탭→stamp
+  18-20s 관측(R5-R7)이나 R1/R2 전용 런은 120s에서도 만료(=표면 미도달 — 페이즈
+  결함이 원인 — 위 함정) — 수형 = 180s+세션 전이 판정 병기(표면 도달 없는
+  부존을 부존으로 셈 없게).
+- **done>rec 가양성(R1/R2 opt-out — fix r1 격하)** — "녹음 시작" 행 렌더도
+  done을 증가시킨다(+3303B = §B/R1·R2·R6·R7 opt-out 동일 수치 원문 — 기록 행
+  도착 +38167/+38220B와 별개 패턴) — done>rec = 관측행만(stamp 도착이 도착 결정
+  원문)·stamp 미검출 런에서만 결정 proxy.
+- **FAIL 출구 permissions 드리프트(R3)** — tap 스크립트 FAIL이 병합 원복을
+  건너뛰어 33→60B 드리프트가 **런 밖 생존**(중복 send_input 행+close_window
+  재병합 = 87B·깨진 JSON 원문 — 수기 원복 = t117t2_perm_backup 33B 등호) —
+  수형 = FAIL 출구 원복(멱등)+병합 생략 가드(send_input 상존 시 무변경 0) —
+  vcleanup 멱등 원존 승계.
+- **probe ROOT 이중경로(#115b 계보 — fix r1 수형)** — `dirname $0/../..` =
+  2단(engine) → SCRATCH=**engine/engine/tmp** 캡처·RLOG 랜딩(회수는 양변
+  동경로라 md5 등호로 무결 — 발견 = 본 라인의 pv_* 부재 실측) — 수형 = 3단
+  — 엔진/폰 무영향·probe 산출물 경로만.
+- **stamp 판독 2회 결함(R5/R6 — fix r4/r5 수형)** — ①`TTS[n]:` 접두는 인쇄
+  시에만 존재(TTSOUT = 원문 — 판독은 원문 패턴)·②SESSION 행 후미 괄호 표기
+  흡수 = `=1` 등호 실패(선행 숫자만 수취).
+- **TTS 엔진 웨지 사건(R5 돌입 — §4.1-11 park)** — termux-tts-speak 표본 1건
+  무한 블록 → libexec TextToSpeech helper 6 잔존(helper 소각 뒤에도 60s+
+  무응답 — 시스템 TTS 엔진 서비스 자체)·앱의 speak = 계속 스폰(stamp 도출)
+  →15s deadline kill 반복(`[TTS] fail (rc=137)` — TerminateJobTree)·Termux
+  `am` = force-stop 미지원(원문) — **speak stamp = spawn 성립 증거(발화 성공
+  증거 아님 — EYES 별개)**. 회복 = 폰 현장(재부팅 권장 — 사용자 몫)·probe
+  경화 = helper 잔존 소각(진입/종료)+표본 per-call timeout(20s).
+- **pkill 자기 매치 2회(런 밖 원장)** — 원격 heredoc 본문과 pkill 패턴의 자기
+  매치(ssh 255 — probe 함정 1 원존의 변형: heredoc의 문자열 조립 행이 패턴을
+  품는다) — 진단 세션은 별도 ssh로 분리(셸 자기 매치 봉쇄 원칙 승계).
+
+### §7.14.5 비-목표 + EYES 게이트 (사용자 선언만 결제 — §5/§7.9.5 원칙 동형)
+
+- **비-목표(스펙 §3)**: Win/WSL TTS(SAPI — 별도 라인)·TTS 톤/속도 설정·구두
+  외 표면(타이핑 답신 — D3 무음 존중)·TTS 큐(연속 발화 처리 — v1 단건).
+- **EYES 대기**:
+
+| # | 게이트 | 내용 | 상태 |
+| --- | --- | --- | --- |
+| ① | **폰 답듣기 체감** | 폰 chat [구두] 발화 → **답을 소리로 듣는 체감**(termux-tts-speak — 스펙 §2) — probe = stamp·세션·CLI 표본 원문만(CANON 밖·실음 체감 불가) — **전제 = 폰 TTS 엔진 웨지 복구(재부팅 권장 — §7.14.4 함정)** | **대기(체감 — 사용자 선언만)** |
+
+### §7.14.6 커밋 원장 + IP/호스트 경로 게이트 (#117 라인)
+
+- 라인 체인 = §7.14.0 표(7981c45..본 docs 커밋 — rev-parse 전체 SHA 원존) —
+  push 전부 origin main 직행·amend 없음·**커밋 = 명시 경로만**(T1 = src
+  3파일·T2 probe = phone_voice.sh 1파일·fix r1-r5 = 각 1파일·본 docs =
+  docs/90 1파일) — `git add -A` 0·커밋 분리 원존(probe 커밋+fix 5건+docs
+  커밋)·배포 드라이버(t117t2_deploy.sh)·런 로그(phone_voice_run117_{1..7}.log
+  ·t117t2_deploy*.log)·캡처(pv_tts_*.png·pv_run*_*.png) = engine/tmp
+  untracked — 커밋 금지 충족.
+- **IP·호스트 경로 게이트(T2 실측)** — probe 커밋(a32a26d)+fix 5건
+  (48c5474·d18c639·d0bec85·ce0b760·0746680) 커밋 원문 IPv4 정규식 grep =
+  전부 0건·폰 주소 = known_hosts BatchMode 자기 판명 변수 안 소멸(주소
+  미인쇄 계약 — 런 로그 전체 0건·SSH 로우 = 변수만)·`8022` 표기 = 기존 선존
+  (포트 기정 — 8ad5501 원존).
