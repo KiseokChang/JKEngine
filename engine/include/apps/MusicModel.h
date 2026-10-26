@@ -1203,24 +1203,83 @@ inline std::string DecodeM4aValue(const unsigned char* p, size_t n) {
 // 호출부가 읽은 머리 영역 전체를 건다(태그 = kTagHeadCap·커버 = kTagWriteMax).
 // moov 후행(머리 밖)·파산·hdlr 부재·비-'mdir' 핸들러 = false(정직 거부 —
 // 부분 필드 0·2x-③ 계약).
-inline bool Mp4FindIlst(const unsigned char* p, size_t n, size_t& body,
-                        size_t& bodyN) {
-    if (n < 8 || std::memcmp(p + 4, "ftyp", 4) != 0)
-        return false;  // ftyp 스니프 — 컨테이너 매직(확장자 진실원과 독립)
-    if (!Mp4FindBox(p, 0, n, "moov", body, bodyN)) return false;
-    if (!Mp4FindBox(p, body, bodyN, "udta", body, bodyN)) return false;
-    if (!Mp4FindBox(p, body, bodyN, "meta", body, bodyN)) return false;
+//
+// T3(쓰기 leg) 확장 — 지목 실패의 단계를 돌려주는 판정으로 원문을 뽑아냈다:
+// 쓰기 leg의 신설 폴백(부재 부모 box = udta/meta/ilst 순차 신설 — D2)이 어느
+// 단계에서 신설해야 하는지 계보가 필요하다. 읽기 계약(전 단계 = 동일 false)
+// 은 래퍼 Mp4FindIlst 원문 유지 — 거동 불변(2x ①②③ 회귀 원존·T3 스폰 0).
+enum Mp4TagStage {
+    kMp4TagOk = 0,    // 전 트리 성립 — ilst 재작성(in place)
+    kMp4TagNoMoov,    // moov 부재 — 신설 불가(트리 루트 자의 신설 봉인 —
+                      // 재생 트리 파괴 위험 fail-closed)
+    kMp4TagNoUdta,    // udta 부재 — moov children 말미 신설
+    kMp4TagNoMeta,    // meta 부재 — udta children 말미 신설
+    kMp4TagNoHdlr,    // hdlr 부재 — meta children 말미에 hdlr(mdir)+ilst
+                      // 동봉 신설
+    kMp4TagBadHdlr,   // hdlr 성립하나 비-'mdir'('mdta' 등 타 핸들러 표기 —
+                      // 재기입 봉인 — 타 핸들러 의미 침해 금지 fail-closed)
+    kMp4TagNoIlst     // hdlr 'mdir' 성립·ilst 부재 — meta children 말미 신설
+};
+
+// Mp4LocateIlst의 지목 결과 — 쓰기 leg의 재작성 좌표(모두 p 기준 offset
+// 진실원 — 자식 box payload 선두). ilst 좌표 = reader 계약 원존.
+struct Mp4TagLoc {
+    size_t udtaBody = 0, udtaN = 0;
+    size_t metaBody = 0, metaN = 0;
+    size_t ilstBody = 0, ilstN = 0;
+};
+
+// moov payload(span = moovBody..+moovN — p 절대 좌표)의 태그 트리 지목 —
+// 쓰기 leg가 moov 본문 버퍼(mb)에서 직접 소비한다(ftyp 스니프 없는 코어 —
+// 버퍼 = moov payload라 ftyp가 없다).
+inline Mp4TagStage Mp4LocateTagTree(const unsigned char* p, size_t moovBody,
+                                    size_t moovN, Mp4TagLoc& out) {
+    size_t body = 0, bodyN = 0;
+    if (!Mp4FindBox(p, moovBody, moovN, "udta", body, bodyN))
+        return kMp4TagNoUdta;
+    out.udtaBody = body;
+    out.udtaN = bodyN;
+    if (!Mp4FindBox(p, body, bodyN, "meta", body, bodyN))
+        return kMp4TagNoMeta;
+    out.metaBody = body;
+    out.metaN = bodyN;
     // meta = full box — payload 머리 4B version/flags, 그 뒤 자식 박스
     // (hdlr·ilst).
-    if (bodyN < 4) return false;
+    if (bodyN < 4) return kMp4TagNoMeta;
     body += 4;
     bodyN -= 4;
     // hdlr 'mdir' 확인 — handler_type = hdlr payload [8..12)(version/flags
     // 4B + pre_defined 4B 뒤). 비-metadata ilst(moov 밖의 meta 등) 걷기 봉인.
     size_t hBody = 0, hN = 0;
-    if (!Mp4FindBox(p, body, bodyN, "hdlr", hBody, hN)) return false;
-    if (hN < 12 || std::memcmp(p + hBody + 8, "mdir", 4) != 0) return false;
-    return Mp4FindBox(p, body, bodyN, "ilst", body, bodyN);
+    if (!Mp4FindBox(p, body, bodyN, "hdlr", hBody, hN))
+        return kMp4TagNoHdlr;
+    if (hN < 12 || std::memcmp(p + hBody + 8, "mdir", 4) != 0)
+        return kMp4TagBadHdlr;
+    if (!Mp4FindBox(p, body, bodyN, "ilst", body, bodyN))
+        return kMp4TagNoIlst;
+    out.ilstBody = body;
+    out.ilstN = bodyN;
+    return kMp4TagOk;
+}
+
+// 파일 머리 버퍼(p = ftyp 이후 전 트리)의 ilst 지목 — 읽기 계약 원존(전 단계
+// = 동일 false).
+inline Mp4TagStage Mp4LocateIlst(const unsigned char* p, size_t n,
+                                 Mp4TagLoc& out) {
+    if (n < 8 || std::memcmp(p + 4, "ftyp", 4) != 0)
+        return kMp4TagNoMoov;  // ftyp 스니프 — 컨테이너 매직(확장자 진실원과
+                               // 독립)·ftyp 부재 = 트리 미성립
+    size_t moovBody = 0, moovN = 0;
+    if (!Mp4FindBox(p, 0, n, "moov", moovBody, moovN)) return kMp4TagNoMoov;
+    return Mp4LocateTagTree(p, moovBody, moovN, out);
+}
+inline bool Mp4FindIlst(const unsigned char* p, size_t n, size_t& body,
+                        size_t& bodyN) {
+    Mp4TagLoc loc;
+    if (Mp4LocateIlst(p, n, loc) != kMp4TagOk) return false;
+    body = loc.ilstBody;
+    bodyN = loc.ilstN;
+    return true;
 }
 
 // ftyp→moov→udta→meta('mdir')→ilst→©nam/©ART/©alb. 항목 = 본문의 첫 data
@@ -1393,7 +1452,8 @@ inline TagSet ParseTag(const std::string& path, std::string& err) {
     return tags;  // 부재 = 빈 TagSet(파일명 폴백 — 정상 경로, err 0)
 }
 
-// ---- 태그 쓰기 + 커버아트 (T1 mp3 leg + T2 FLAC/Ogg/WAV leg — 스펙
+// ---- 태그 쓰기 + 커버아트 (T1 mp3 leg·T2 FLAC/Ogg/WAV leg·T3 opus/m4a leg
+// — 스펙
 // 2026-10-25-music-tagwrite-design) ----
 //
 // 읽기 사슬(위의 ParseId3v2/ParseTag·#99)의 역방향 부품. D4 조달 0 승계 —
@@ -2692,10 +2752,24 @@ inline void BuildOggPage(std::vector<unsigned char>& out, unsigned version,
 // 으로 원문 복사(granule·lacing 불변 — D10). 배치 계약(libvorbis 표준):
 // 코멘트 패킷은 페이지 페이로드 선두에서 새 패킷으로 시작 — 그 외 배치 =
 // 정직 거부("ogg structure")·원본 무변경.
-inline bool WriteOggTag(const std::string& path, std::ifstream& f,
-                        std::streamoff total, const TagSet& t,
-                        const CoverArt* cover, std::string& err) {
+//
+// T3(#115 D3) — 코멘트 패킷 매agic만 다른 opus("OpusTags" 8B — 마커 바이트
+// 없음·코멘트 본문 = vorbis 동형)가 같은 재조립 사슬을 재용한다: 공용 코어가
+// leadN/lead(7B/8B)로 갈리고, vorbis leg = 래퍼 원존(시그니처 불변 — #112
+// 계약). 벤더 유지·MBP 완전 교체(D8·RebuildVorbisEntries 재용)·코멘트 페이지
+// 교체+뒤페이지 재번호+CRC 규약이 opus에도 그대로 성립(조달 0).
+inline bool WriteOggCommentTag(const std::string& path, std::ifstream& f,
+                               std::streamoff total, const TagSet& t,
+                               const CoverArt* cover, bool isOpus,
+                               std::string& err) {
     namespace fs = std::filesystem;
+    // 코멘트 패킷 매agic — vorbis = [0x03"vorbis"] 7B(패킷 2 규약)·opus =
+    // ["OpusTags"] 8B(패킷 2 규약 — RFC 7845, 마커 바이트 없음). 패킷 지목/
+    // 수취 오프셋/합성 전부 leadN 계약으로 갈린다.
+    const size_t leadN = isOpus ? 8u : 7u;
+    const unsigned char* lead =
+        isOpus ? reinterpret_cast<const unsigned char*>("OpusTags")
+               : reinterpret_cast<const unsigned char*>("\x03" "vorbis");
     f.clear();
     f.seekg(0, std::ios::beg);
     // 코멘트 패킷 보행 — C0 기록(페이로드 선두 개시 계약)+패킷 원문 수취.
@@ -2703,7 +2777,7 @@ inline bool WriteOggTag(const std::string& path, std::ifstream& f,
     unsigned char c0Htype = 0, c0Version = 0;
     unsigned long long c0Granule = 0;
     unsigned int c0Serial = 0, c0Seq = 0;
-    std::vector<unsigned char> comment;   // 코멘트 패킷 원문(마커 포함)
+    std::vector<unsigned char> comment;   // 코멘트 패킷 원문(매agic 포함)
     std::vector<unsigned char> trail;     // Ck 페이로드 잔여 원문
     std::vector<unsigned char> trailLace; // 잔여 세그먼트 런 원문
     bool midPacket = false;               // 세그먼트 런이 페이지를 넘는가
@@ -2745,10 +2819,10 @@ inline bool WriteOggTag(const std::string& path, std::ifstream& f,
                     payOff += lv;
                     midPacket = (lv == 255);
                     if (!midPacket) {
-                        // 패킷 완성 — 코멘트 패킷(0x03"vorbis"·페이로드 선두
-                        // 개시 계약)인가.
-                        if (pktAligned && pkt.size() >= 7 && pkt[0] == 0x03 &&
-                            std::memcmp(pkt.data() + 1, "vorbis", 6) == 0) {
+                        // 패킷 완성 — 코멘트 패킷 매agic(페이로드 선두 개시
+                        // 계약)인가.
+                        if (pktAligned && pkt.size() >= leadN &&
+                            std::memcmp(pkt.data(), lead, leadN) == 0) {
                             found = true;
                             comment = pkt;  // 코멘트 패킷 원문 수취
                             c0Off = static_cast<size_t>(pgOff);
@@ -2780,7 +2854,7 @@ inline bool WriteOggTag(const std::string& path, std::ifstream& f,
     // ---- 신설 코멘트 패킷(벤더 유지 D9 + 관리 키 교체 + D8 그림 필드) ----
     std::string vendor;
     std::vector<VorbisEntry> olds, news;
-    if (!ParseVorbisCommentsRaw(comment.data() + 7, comment.size() - 7,
+    if (!ParseVorbisCommentsRaw(comment.data() + leadN, comment.size() - leadN,
                                 vendor, olds)) {
         err = "vorbis comment broken";
         return false;
@@ -2796,9 +2870,8 @@ inline bool WriteOggTag(const std::string& path, std::ifstream& f,
     }
     RebuildVorbisEntries(olds, t, oggPic, news);
     std::vector<unsigned char> newPkt;
-    newPkt.reserve(7 + 8 + vendor.size() + oggPicB64.size());
-    newPkt.push_back(0x03);
-    newPkt.insert(newPkt.end(), "vorbis", "vorbis" + 6);
+    newPkt.reserve(leadN + 8 + vendor.size() + oggPicB64.size());
+    newPkt.insert(newPkt.end(), lead, lead + leadN);  // 매agic 원문(8B/7B)
     AppendVorbisCommentBody(newPkt, vendor, news);
     if (newPkt.size() > kTagWriteMax) {
         err = "tag too large";  // 코멘트 폭주(그림 포함 — 정직 거부)
@@ -2889,6 +2962,25 @@ inline bool WriteOggTag(const std::string& path, std::ifstream& f,
             }
         },
         {}, err);
+}
+
+inline bool WriteOggTag(const std::string& path, std::ifstream& f,
+                        std::streamoff total, const TagSet& t,
+                        const CoverArt* cover, std::string& err) {
+    return WriteOggCommentTag(path, f, total, t, cover, false, err);
+}
+
+// ---- opus 쓰기 leg (D3 — OpusTags 패킷 교체·D10 재조립 사슬 재용) ----
+
+// 코멘트 패킷 매agic = "OpusTags" 8B인 Ogg 재조립 — 그 밖 계약 전부 vorbis
+// leg 원존(코멘트 페이지 교체+재번호 — D10 원존 계약·벤더 유지 D9·MBP = D8
+// 원존 완전 교체 흡수 — RebuildVorbisEntries 재용). 페이지 페이로드 선두
+// 개시 계약 = RFC 7845(식별/코멘트 헤더는 각각 자기 페이지 — 코멘트 페이지
+// htype의 EOS 표지 = c0Htype 원문 유지 — 비선두 배치 = 정직 거부).
+inline bool WriteOpusTag(const std::string& path, std::ifstream& f,
+                         std::streamoff total, const TagSet& t,
+                         const CoverArt* cover, std::string& err) {
+    return WriteOggCommentTag(path, f, total, t, cover, true, err);
 }
 
 // ---- WAV 쓰기 leg ("id3 " 청크 교체/신설 + RIFF 크기 재계산) ----
@@ -3062,6 +3154,374 @@ inline bool WriteWavTag(const std::string& path, std::ifstream& f,
     }
     f.close();  // 원본 핸들 해제 — Windows rename 교체의 공유 핸들 충돌 소각
     return TagReplaceRename(tmp, path, err);
+}
+
+// ---- MP4/M4A 쓰기 leg (D2 — ilst 재작성+box 사이즈 전파 재계산·mdat 원문
+// 바이트 무이동) ----
+
+// MP4 box 조립(읽기 Mp4BoxWalk의 쌍둥이: [4B size(BE) = 8+body][4B type]
+// +body). 32bit size — 태그 leg 상한 kTagWriteMax(16MiB) 안쪽 귀속이라
+// largesize 불요(도달 불가 — 폭주 방어선 = 호출부 "tag too large").
+inline void PushMp4Box(std::vector<unsigned char>& out, const char* type4,
+                       const std::vector<unsigned char>& body) {
+    const unsigned int sz = static_cast<unsigned int>(8 + body.size());
+    for (int sh = 24; sh >= 0; sh -= 8)
+        out.push_back(static_cast<unsigned char>((sz >> sh) & 0xFF));
+    out.insert(out.end(), type4, type4 + 4);
+    out.insert(out.end(), body.begin(), body.end());
+}
+
+// ilst 항목의 data atom 합성 — [4B version/flags][4B locale 0][값] — flags
+// 하위 바이트 = 타입 코드(읽기 DecodeM4aValue 접점 원존): 1 = UTF-8(관리
+// 텍스트 3필드의 쓰기 정규 표기 — re-독 = DecodeM4aValue 통과 원존)·
+// 13 = JPEG·14 = PNG·0 = binary(그 밖 image/*의 covr — 읽기 매agic 스니프
+// 원존 재용).
+inline std::vector<unsigned char> BuildM4aDataBox(unsigned int code,
+                                                   const unsigned char* v,
+                                                   size_t vN) {
+    std::vector<unsigned char> b;
+    b.push_back(0);  // version 0
+    b.push_back(0);  // flags
+    b.push_back(0);
+    b.push_back(static_cast<unsigned char>(code));  // flags 하위 바이트
+    b.insert(b.end(), 4, 0);  // locale reserved
+    b.insert(b.end(), v, v + vN);
+    std::vector<unsigned char> box;
+    PushMp4Box(box, "data", b);
+    return box;
+}
+
+// hdlr 합성(mdir — 25B: ver/flags 4 + pre_defined 4 + 'mdir' + reserved 12
+// + name NUL 1) — 신설 폴백 leg 부품(읽기 접점 = payload [8..12) 'mdir'
+// 원존 — ReadCover 계열과 같은 좌표).
+inline std::vector<unsigned char> BuildM4aHdlrBody() {
+    std::vector<unsigned char> b(25, 0);
+    const unsigned char mdir[4] = {'m', 'd', 'i', 'r'};
+    std::memcpy(b.data() + 8, mdir, 4);
+    return b;
+}
+
+// covr data 타입 코드(mime 진실원 — iTunes 규약 원존 승계): jpeg = 13·
+// png = 14·그 밖 image/* = 0(binary — 읽기가 이미지 매agic 스니프로 되갚는다
+// — ParseMp4Covr 계약 원존).
+inline unsigned int M4aCovrCode(const std::string& mime) {
+    if (mime == "image/jpeg") return 13;
+    if (mime == "image/png") return 14;
+    return 0;
+}
+
+// 새 ilst 본문 조립 — 구 ilst(p 기준 ilstBase..+ilstN — 신설 = p nullptr)
+// 자식 보행: 관리 항목(©nam/©ART/©alb) = 첫 자리 교체(자리 유지 — vorbis leg
+// RebuildVorbisEntries 동형 계약), 빈 새 값 = 항목 소각(비움 쓰기 — T1 결정
+// 3 수형), 이후 동일 관리 항목 = 소각(첫 값 계약 — 읽기 사슬 동형). 미관리
+// 항목(trkn/gnre/cprt…) = box 원문 보존 — covr = cover 지정 시 전부 소각+
+// 관리 항목 뒤 신설(D4/D8 완전 교체), null = 원문 유지. 관리 항목 미성립 =
+// 관리 순서(©nam/©ART/©alb) 신설. data atom = 타입 코드 1(UTF-8).
+// 파산(잘린 ilst 자식) = false — 원본 무변경 정직 거부.
+inline bool BuildM4aIlst(const unsigned char* p, size_t ilstBase,
+                         size_t ilstN, const TagSet& t, const CoverArt* cover,
+                         const std::string& covrMime,
+                         std::vector<unsigned char>& out, std::string& err) {
+    static const char* kManaged[3] = {"\xA9" "nam", "\xA9" "ART",
+                                      "\xA9" "alb"};
+    const std::string* vals[3] = {&t.title, &t.artist, &t.album};
+    bool saw[3] = {false, false, false};
+    out.clear();
+    if (p != nullptr) {
+        size_t off = ilstBase;
+        const size_t end = ilstBase + ilstN;
+        Mp4BoxWalk item;
+        while (off + 8 <= end) {
+            const size_t itemAt = off;
+            if (!Mp4BoxAt(p, end, off, item)) {
+                err = "mp4 structure";  // ilst 자식 파산 — 정직 거부
+                return false;
+            }
+            int slot = -1;
+            for (int i = 0; i < 3 && slot < 0; ++i)
+                if (std::memcmp(item.type, kManaged[i], 4) == 0) slot = i;
+            if (slot >= 0) {
+                if (saw[slot] || vals[slot]->empty()) continue;  // 소각
+                saw[slot] = true;
+                PushMp4Box(out, kManaged[slot],
+                           BuildM4aDataBox(
+                               1,
+                               reinterpret_cast<const unsigned char*>(
+                                   vals[slot]->data()),
+                               vals[slot]->size()));
+                continue;
+            }
+            if (std::memcmp(item.type, "covr", 4) == 0 && cover != nullptr)
+                continue;  // D8 — covr 전부 소각(말미 신설로 대체)
+            out.insert(out.end(), p + itemAt, p + off);  // 원문 보존(covr
+                                                         // 유지 포함)
+        }
+    }
+    for (int i = 0; i < 3; ++i) {
+        if (saw[i] || vals[i]->empty()) continue;
+        PushMp4Box(out, kManaged[i],
+                   BuildM4aDataBox(
+                       1, reinterpret_cast<const unsigned char*>(
+                              vals[i]->data()),
+                       vals[i]->size()));
+    }
+    if (cover != nullptr) {
+        PushMp4Box(out, "covr",
+                   BuildM4aDataBox(M4aCovrCode(covrMime), cover->bytes.data(),
+                                   cover->bytes.size()));
+    }
+    return true;
+}
+
+// 컨테이너(box) 자식 사슬 재조립(offset 진실원): 원문 자식 box 복사에서
+// matchBody(payload 선두 offset — Mp4TagLoc 좌표와 같은 buffer) 일치 첫 자리
+// = newChild 교체(자리 유지 — RebuildVorbisEntries 동형). matchBody = 0 =
+// 교체 없음 — newChild = 말미 신설 부품(부재 부모 순차 신설 규약 — D2).
+// 복수 일치 = 첫 것만 교체·나머지 원문(복수 ilst/udta의 규약 부재 — 원존
+// 보존). 파산(잘린 자식 box) = false — 원본 무변경 정직 거부.
+inline bool Mp4ReshuffleChildren(const unsigned char* p, size_t base,
+                                 size_t span, size_t matchBody,
+                                 const std::vector<unsigned char>& newChild,
+                                 std::vector<unsigned char>& out,
+                                 std::string& err) {
+    size_t off = base;
+    const size_t end = base + span;
+    bool replaced = false;
+    Mp4BoxWalk b;
+    while (off + 8 <= end) {
+        const size_t itemAt = off;
+        if (!Mp4BoxAt(p, end, off, b)) {
+            err = "mp4 structure";  // 자식 파산 — 정직 거부(원본 무변경)
+            return false;
+        }
+        if (!replaced && matchBody != 0 && b.body == matchBody) {
+            out.insert(out.end(), newChild.begin(), newChild.end());
+            replaced = true;
+            continue;  // 구 자식 소각(신설 box로 교체)
+        }
+        out.insert(out.end(), p + itemAt, p + off);
+    }
+    if (matchBody != 0 && !replaced) {
+        err = "mp4 structure";  // 지목 좌표 소실(도달 불가 방어선 — 좌표 원존)
+        return false;
+    }
+    if (matchBody == 0 && !newChild.empty())
+        out.insert(out.end(), newChild.begin(), newChild.end());  // 말미 신설
+    return true;
+}
+
+// ---- m4a 쓰기 leg (D2 — moov/udta/meta/ilst 재작성) ----
+//
+// 최상위 box 연쇄에서 moov만 재조립하고 그 밖 box(ftyp/free/mdat…)는 원문
+// 그대로 스트림 복사한다 — mdat(오디오 raw) 데이터는 바이트 원존(무이동·
+// 변조 0 — moov 위치가 mdat 앞이면 mdat 헤더만 앞당겨진다 = 데이터 무이동·
+// 뒤면 무변경 — D2 계약). box 사이즈 전파 = 재조립 트리(moov/udta/meta/
+// ilst)의 실측 사이즈 재기입 — 자식→부모 순서로 box 조립이라 자동 성립.
+// free atom = 원문 보존(흡수 — 재조립 트리가 자체 사이즈 전파로 성립하므로
+// 패드 재계산 불요 원존 계약). 신설 폴백 = 부재 부모 box 순차 신설(udta
+// 부재 → moov children 말미·meta 부재 → udta 말미·ilst 부재 → meta 말미·
+// hdlr 부재 = hdlr(mdir)+ilst 동봉 신설 — Mp4TagStage 계보). moov 부재(트리
+// 루트 자의 신설 봉인)·비-'mdir' hdlr('mdta' 등 타 핸들러 표기 침해 봉인) =
+// "mp4 structure" 정직 거부·원본 무변경. 커버 = covr 항목 교체(D4 — null =
+// 기존 유지·지정 = 전부 소각+신설 — 읽기 ParseMp4Covr round-trip 계약).
+// 원자적 쓰기 = TagAtomicWrite 사다리 재용(D6 — 원존 무손상·fsync·rename).
+inline bool WriteM4aTag(const std::string& path, std::ifstream& f,
+                        std::streamoff total, const TagSet& t,
+                        const CoverArt* cover, std::string& err) {
+    namespace fs = std::filesystem;
+    std::string covrMime;
+    if (!ValidateCover(cover, covrMime, err)) return false;
+    if (cover != nullptr && cover->bytes.size() > kTagWriteMax) {
+        err = "tag too large";  // covr 상한 = 16MiB 원존(kTagWriteMax 재용)
+        return false;
+    }
+    // ---- 최상위 box 보행(선언을 믿지 않는 정직 계약 — Mp4BoxAt 원존 수형) ----
+    std::streamoff moovStart = 0, moovEnd = 0;
+    size_t moovHead = 8;
+    bool sawMoov = false;
+    {
+        std::streamoff off = 0;
+        int guard = 0;
+        while (off + 8 <= total) {
+            if (++guard > 4096) {
+                err = "mp4 structure";  // 폭주 절단(읽기 보행 상한 같은 계보)
+                return false;
+            }
+            unsigned char h[16];
+            f.clear();
+            f.seekg(off, std::ios::beg);
+            f.read(reinterpret_cast<char*>(h), 8);
+            if (f.gcount() != 8) {
+                err = "mp4 structure";  // 잘린 box 헤더 — 정직 거부
+                return false;
+            }
+            unsigned long long decl = RdBE32(h);
+            size_t head = 8;
+            if (decl == 1) {  // 64bit largesize — 읽기 규약 원존
+                f.read(reinterpret_cast<char*>(h + 8), 8);
+                if (f.gcount() != 8) {
+                    err = "mp4 structure";
+                    return false;
+                }
+                decl = 0;
+                for (int i = 0; i < 8; ++i)
+                    decl = (decl << 8) | h[8 + i];
+                head = 16;
+            }
+            std::streamoff end;
+            if (decl == 0) {
+                end = total;  // size=0 — 남은 영역 말미(마지막 박스 규약)
+            } else {
+                if (decl < head) {
+                    err = "mp4 structure";  // 배신적 size(선언 < 헤더)
+                    return false;
+                }
+                end = off + static_cast<std::streamoff>(decl);
+            }
+            if (end > total) {
+                err = "mp4 truncated";  // 잘린 box — 정직 거부
+                return false;
+            }
+            if (!sawMoov && std::memcmp(h + 4, "moov", 4) == 0) {
+                sawMoov = true;  // 첫 moov만(재조립 대상 — Mp4FindBox 원존)
+                moovStart = off;
+                moovEnd = end;
+                moovHead = head;
+            }
+            if (end <= off) {
+                err = "mp4 structure";  // 방어선(0 길이 box 사슬 — 폭주 봉인)
+                return false;
+            }
+            off = end;
+        }
+        if (off != total) {
+            err = "mp4 truncated";  // 사슬 종료 후 온전한 box 헤더 미만 잔여
+            return false;
+        }
+        if (!sawMoov) {
+            err = "mp4 structure";  // moov 부재 — 신설 불가(D2 fail-closed)
+            return false;
+        }
+    }
+    // ---- moov 본문 수취(상한 kTagWriteMax — 커버 블롭 포함 재조립 버퍼) ----
+    const unsigned long long moovBodyN =
+        static_cast<unsigned long long>(moovEnd - moovStart) - moovHead;
+    if (moovBodyN > kTagWriteMax) {
+        err = "tag too large";  // 폭주 절단 — 정직 거부
+        return false;
+    }
+    std::vector<unsigned char> mb(static_cast<size_t>(moovBodyN));
+    f.clear();
+    f.seekg(moovStart + static_cast<std::streamoff>(moovHead), std::ios::beg);
+    f.read(reinterpret_cast<char*>(mb.data()),
+           static_cast<std::streamsize>(mb.size()));
+    if (f.gcount() != static_cast<std::streamsize>(mb.size())) {
+        err = "mp4 truncated";  // 재독 실패 — 정직 거부
+        return false;
+    }
+    // ---- 트리 지목(읽기 사슬 원존 재용 — 신설 폴백 계보 판정) ----
+    Mp4TagLoc loc;
+    const Mp4TagStage stage =
+        Mp4LocateTagTree(mb.data(), 0, mb.size(), loc);
+    if (stage == kMp4TagBadHdlr) {
+        err = "mp4 structure";  // 비-metadata hdlr 표기 침해 봉인 — fail-closed
+        return false;
+    }
+    // ---- 신설 ilst(구 항목 원존 보존+관리 교체 — 성립 경로만) ----
+    std::vector<unsigned char> newIlst;
+    if (!BuildM4aIlst(stage == kMp4TagOk ? mb.data() : nullptr,
+                      stage == kMp4TagOk ? loc.ilstBody : 0,
+                      stage == kMp4TagOk ? loc.ilstN : 0, t, cover, covrMime,
+                      newIlst, err))
+        return false;
+    std::vector<unsigned char> ilstBox;
+    PushMp4Box(ilstBox, "ilst", newIlst);
+    // ---- meta/udta 재조립·신설(단계별 규약 — 위 설계 주석 계보) ----
+    std::vector<unsigned char> metaBox, newUdta;
+    if (stage == kMp4TagOk || stage == kMp4TagNoIlst || stage == kMp4TagNoHdlr) {
+        // 재조립 — meta ver/flags 원문 + 자식 사슬(ilst 교체·부재 = 말미 신설).
+        std::vector<unsigned char> blob;
+        if (stage == kMp4TagNoHdlr) {
+            PushMp4Box(blob, "hdlr", BuildM4aHdlrBody());  // hdlr 동봉 신설
+            blob.insert(blob.end(), ilstBox.begin(), ilstBox.end());
+        } else {
+            blob = ilstBox;
+        }
+        std::vector<unsigned char> metaBody, udtaBody;
+        if (!Mp4ReshuffleChildren(mb.data(), loc.metaBody + 4, loc.metaN - 4,
+                                  stage == kMp4TagOk ? loc.ilstBody : 0, blob,
+                                  metaBody, err))
+            return false;
+        metaBody.insert(metaBody.begin(), mb.begin() + static_cast<std::ptrdiff_t>(loc.metaBody),
+                        mb.begin() + static_cast<std::ptrdiff_t>(loc.metaBody + 4));
+        PushMp4Box(metaBox, "meta", metaBody);
+        if (!Mp4ReshuffleChildren(mb.data(), loc.udtaBody, loc.udtaN,
+                                  loc.metaBody, metaBox, udtaBody, err))
+            return false;
+        PushMp4Box(newUdta, "udta", udtaBody);
+    } else {
+        // 신설(NoMeta/NoUdta) — meta full box 신설: [ver/flags 0][hdlr mdir]
+        // +[ilst]·udta 부재 = 메타 box 단일 자식 udta.
+        std::vector<unsigned char> metaBody(4, 0);  // version/flags 0 — 신설
+        PushMp4Box(metaBody, "hdlr", BuildM4aHdlrBody());
+        PushMp4Box(metaBody, "ilst", newIlst);
+        PushMp4Box(metaBox, "meta", metaBody);
+        if (stage == kMp4TagNoMeta) {
+            std::vector<unsigned char> udtaBody;
+            if (!Mp4ReshuffleChildren(mb.data(), loc.udtaBody, loc.udtaN, 0,
+                                      metaBox, udtaBody, err))
+                return false;
+            PushMp4Box(newUdta, "udta", udtaBody);
+        } else {
+            PushMp4Box(newUdta, "udta", metaBox);
+        }
+    }
+    // ---- moov 재조립 — box 사이즈 전파(udta 교체/말미 신설) ----
+    std::vector<unsigned char> moovBody;
+    if (!Mp4ReshuffleChildren(mb.data(), 0, mb.size(),
+                              stage != kMp4TagNoUdta ? loc.udtaBody : 0,
+                              newUdta, moovBody, err))
+        return false;
+    std::vector<unsigned char> newMoov;
+    PushMp4Box(newMoov, "moov", moovBody);
+    if (newMoov.size() > kTagWriteMax) {
+        err = "tag too large";  // 재조립 moov 폭주 — 정직 거부
+        return false;
+    }
+    // ---- 원자적 쓰기(D6 사다리 재용) — moov 교체+그 밖 box 원문 복사 ----
+    std::vector<unsigned char> head1;
+    if (moovStart <= static_cast<std::streamoff>(kTagHeadCap)) {
+        // 선행 box(ftyp/free — 실사용 소형) 원문 선두 기입 버퍼(비-faststart
+        // 대형 mdat 선두 = 스트림 복사 회피 leg — 하단).
+        head1.resize(static_cast<size_t>(moovStart));
+        f.clear();
+        f.seekg(0, std::ios::beg);
+        f.read(reinterpret_cast<char*>(head1.data()),
+               static_cast<std::streamsize>(head1.size()));
+        if (f.gcount() != static_cast<std::streamsize>(head1.size())) {
+            err = "audio read failed";  // 재독 실패 — 정직 거부
+            return false;
+        }
+    }
+    return TagAtomicWrite(
+        path, f, head1,
+        [&](TagFileWriter& w) -> bool {
+            if (head1.empty()) {
+                // 비-faststart — 선행 box를 스트림 복사(버퍼 대기열 회피).
+                if (!CopyStreamRange(f, w, 0, moovStart, err)) return false;
+            }
+            if (!w.WriteAll(newMoov.data(), newMoov.size())) {
+                err = "tmp write failed";
+                return false;
+            }
+            // moov 뒤 box(mdat 포함) 원문 복사 — mdat 데이터 원문 바이트
+            // 무이동(D2 — header 자리만 앞당겨진다).
+            return CopyStreamRange(f, w, moovEnd,
+                                   static_cast<std::streamoff>(total) -
+                                       moovEnd,
+                                   err);
+        },
+        {}, err);
 }
 
 // mp3: APIC 프레임(첫 유효 — 인코딩 0/1 모두 지원: mime Latin-1/UTF-16 해독
@@ -3333,7 +3793,8 @@ inline bool ReadCover(const std::string& path, CoverArt& out, std::string& err) 
     return false;
 }
 
-// ---- 태그 쓰기 (4형식 분기 — mp3 T1·FLAC/Ogg/WAV T2, D5·D6·D8·D9·D10) ----
+// ---- 태그 쓰기 (6형식 분기 — mp3 T1·FLAC/Ogg/WAV T2·opus/m4a T3, D5·D6·
+// D8·D9·D10·#115 D2/D3) ----
 
 // mp3: WriteId3v2.3 — 기존 v2 크기 산출 → 새 태그 크기 계산 → 패딩 조절
 // (기존 태그 = 선언 본문 크기 유지 — 오디오 데이터 제자리, content 초과분만
@@ -3394,9 +3855,26 @@ inline bool WriteTag(const std::string& path, const TagSet& t,
         // FLAC — 메타 블록 연쇄 재조립(D8 PICTURE 교체·D9 STREAMINFO/SEEK
         // TABLE 보존·벤더 유지 — T2 leg).
         return WriteFlacTag(path, f, total, t, cover, err);
+    } else if (pre.size() >= 8 &&
+               std::memcmp(pre.data() + 4, "ftyp", 4) == 0) {
+        // m4a/mp4 — moov/udta/meta/ilst 재작성(D2 — mdat 원문 바이트 무이동·
+        // T3 leg — 읽기 Mp4LocateIlst 원존 사슬의 역방향).
+        return WriteM4aTag(path, f, total, t, cover, err);
     } else if (pre.size() >= 4 &&
                std::memcmp(pre.data(), "OggS", 4) == 0) {
-        // Ogg — 코멘트 패킷 교체+뒤페이지 재기입(D10 — granule 불변·T2 leg).
+        // Ogg — vorbis/opus 구별 스니프(T2 읽기 leg 원존 재용) → opus =
+        // OpusTags 패킷 교체(D3 — T3 leg)·vorbis = 코멘트 패킷 교체+뒤페이지
+        // 재기입(D10 — granule 불변·T2 leg). 290 = 27헤더+255세그+8매agic
+        // 상수 — ReadCover opus leg 원존(정적 컷 — 식별 패킷 19B 실측 여유).
+        constexpr std::streamoff kOggSniff = 290;
+        const std::streamoff snN = total < kOggSniff ? total : kOggSniff;
+        std::vector<unsigned char> sn(static_cast<size_t>(snN));
+        f.clear();
+        f.seekg(0, std::ios::beg);
+        f.read(reinterpret_cast<char*>(sn.data()), snN);
+        sn.resize(static_cast<size_t>(f.gcount()));
+        if (OggPacket1IsOpus(sn.data(), sn.size()))
+            return WriteOpusTag(path, f, total, t, cover, err);
         return WriteOggTag(path, f, total, t, cover, err);
     } else if (pre.size() >= 12 &&
                std::memcmp(pre.data(), "RIFF", 4) == 0 &&
