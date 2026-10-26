@@ -54,8 +54,13 @@ RLOG="$SCRATCH/phone_voice_run.log"
 FAIL() { echo "PHONE-VOICE-FAIL: $*"; exit 1; }
 
 PHV_TAP_RUNS=${PHV_TAP_RUNS:-2}
-PHV_BTN_X=${PHV_BTN_X:-835}
-PHV_BTN_Y=${PHV_BTN_Y:-602}
+# [fix r2 — env 지정 판별은 **기본치 채우기 전에** 수취해야 한다(115b-2phone
+# 런 원장행: 상단 기정을 먼저 채워 SET 판별이 만능화 — AUTO 재산출 스킵 →
+# tap 2런 전량 (835,602) 미달 반복)].
+PHV_BTN_X_SET=${PHV_BTN_X:-}
+PHV_BTN_Y_SET=${PHV_BTN_Y:-}
+PHV_BTN_X=${PHV_BTN_X_SET:-835}
+PHV_BTN_Y=${PHV_BTN_Y_SET:-602}
 
 PHONE_HOST="${PHONE_HOST:-}"
 if [ -z "$PHONE_HOST" ]; then
@@ -401,9 +406,8 @@ echo "CHAT-GEOM: $CHLINE"
 # T5 실측 [구두] = 데스크 (835,602) = chat(172,114) 기준 — **서면 계수 (663,488)**
 # 가 진실원이고 데스크 좌표는 창마다 다른 cascade 위치를 따라 이동한다(본 런
 # 실측: chat (620,232)에서 (835,602) 탭 = 미달 — rec/done 0 전이 + isRecording
-# false). env 미지정 런 = 창 위치에서 재산출한다. env 지정 = 수동 우선 원존.
-PHV_BTN_X_SET=${PHV_BTN_X:-}
-PHV_BTN_Y_SET=${PHV_BTN_Y:-}
+# false). env 미지정 런 = 창 위치에서 재산출한다. env 지정 = 수동 우선 원존
+# (SET 판별 = 상단 원존 — fix r2).
 PHV_CHX=$(printf '%s' "$CHLINE" | sed -n 's/.*"x":\(-\?[0-9]*\),.*/\1/p' | tr -d '\r')
 PHV_CHY=$(printf '%s' "$CHLINE" | sed -n 's/.*"y":\(-\?[0-9]*\),.*/\1/p' | tr -d '\r')
 if [ -z "$PHV_BTN_X_SET" ] && [ -z "$PHV_BTN_Y_SET" ] \
