@@ -8560,10 +8560,13 @@ static int RunAppSelfTest() {
     //   말미 "…" — UTF-8 코드포인트 경계 보전) ②구두 출발 판정(D3 — voice
     //   origin 표지 턴의 답신만 TTS 대상 — 타이핑 턴·빈 답신 부정) ③opt-out
     //   env 판정(D2 — VOICE_TTS="0" 문자 그대로만 끔 — 기본 켬). **스폰
-    //   어셜션 금지(D6 — 비결정 원존)** — 스폰 본체는 cpp의 __ANDROID__ TU
-    //   (Win/WSL 2축 바이너리에 leg 미포함 — 컴파일 무영향)·런타임 env 원본
-    //   (VoiceTtsOptOutRuntime — getenv 1뒤)의 실측은 폰 E2E probe 몫(T2).
-    //   2y 뒤 계보 이어붙임.
+    //   어셜션 금지(D6 — 비결정 원존)** — 스폰 본체는 cpp의 스폰 leg TU
+    //   (#117 폰 축 __ANDROID__ + #120 Win 축 _WIN32 — WSL/posix 2축은 leg
+    //   부재 유지 — 컴파일 무영향)·런타임 env 원본(VoiceTtsOptOutRuntime —
+    //   getenv 1뒤)의 실측은 폰 E2E probe 몫(T2). 2y 뒤 계보 이어붙임.
+    //   #120 T1 — 2zb 배치(④ 3건 추가 — Win 스폰 leg 명령 조립 부품 등호·
+    //   문언 무변조·절단판 승계. opt-out 원존 유지 = 기존 ③ 3건 그대로 소비
+    //   — D2 게이트 축 무관 공유라 신설 어셜션 없음).
     {
         using jk::tts::TtsReplyClip;
         using jk::tts::TtsSpeakWanted;
@@ -8611,6 +8614,47 @@ static int RunAppSelfTest() {
         check(VoiceTtsEnabled(true, "1") && VoiceTtsEnabled(true, ""),
               "2z-③c VOICE_TTS=\"1\"·\"\" = 켬(0 이외 값은 켬 — 값 판정의 "
               "정직 문자 규약)");
+
+        // ④ #120 T1(2zb) — Win 스폰 leg 명령 조립 부품 등호(Win leg 원문).
+        //    스폰 어셜션 금지 원존 승계 — 조립식 명령 원문 등호만 단정한다
+        //    (실 스폰·powershell 성립·합성 종료는 어셜션 밖 — Win 셀프 probe
+        //    [TTS-WIN] 세그먼트+EYES 소관). 조달 0 원칙의 얼굴: 명령
+        //    조립식에 powershell.exe·System.Speech가 문언 그대로 실린다.
+        check(jk::tts::TtsWinSpeakCommand("정지했습니다") ==
+                  "powershell.exe -NoProfile -Command \"Add-Type -AssemblyName "
+                  "System.Speech; $s=New-Object System.Speech.Synthesis."
+                  "SpeechSynthesizer; $s.Speak('정지했습니다')\"",
+              "2z-④ Win 조달 명령 조립 등호(#120 — powershell.exe -NoProfile "
+              "-Command 원형·System.Speech 조달 0 — Win leg 조립식 원문 — "
+              "스폰 어셜션 금지 승계)");
+
+        // ④b 문언 무변조(인용 위험 문언 보전). 단일 따옴표 = PS 복각화('')+외부
+        //    CreateProcess 인자 이중 따옴표 = \" 이스케이프·일반 백슬래시는
+        //    인용 계열이 아니면 원문 통과. $·백틱은 단일 따옴표 안에서 리터럴
+        //    (PS 규약)이기도 하다 — 조립식이 문언을 변조하지 않음이 본등호.
+        check(jk::tts::TtsWinSpeakCommand("It's \"o\"\\end") ==
+                  "powershell.exe -NoProfile -Command \"Add-Type -AssemblyName "
+                  "System.Speech; $s=New-Object System.Speech.Synthesis."
+                  "SpeechSynthesizer; $s.Speak('It''s \\\"o\\\"\\end')\"",
+              "2z-④b Win 조립 문언 무변조(단일 따옴표 복각화+이중 따옴표 "
+              "인자 인용 이스케이프+백슬래시 원문 통과 — 조립식 등호)");
+
+        // ④c 절단판 승계(Win leg도 같은 TtsReplyClip 1차 관문 — D4 원존).
+        //    폰 축 DrainVoice 접점과 같은 사슬(clip→조립)이라 Win leg가 절단
+        //    없는 문언을 스폰하는 경로가 구조적으로 없음을 조립식 등호로
+        //    단정: 130자 입력 → 120자+"…" 절단판만 조립에 실린다(121연속
+        //    문자 물증 부재·말미 "…')" 접미 등호).
+        const std::string long130z(130, 'c');
+        const std::string cmd2z4c =
+            jk::tts::TtsWinSpeakCommand(TtsReplyClip(long130z));
+        check(cmd2z4c.find("$s.Speak('" + std::string(120, 'c')) !=
+                      std::string::npos &&
+                  cmd2z4c.find(std::string(121, 'c')) == std::string::npos &&
+                  cmd2z4c.compare(cmd2z4c.size() - 6, 6, "\xe2\x80\xa6')\"") ==
+                      0,
+              "2z-④c 절단판→Win 조립 사슬 등호(130자→120자+말미 … 절단판만 "
+              "조립에 실림 — 121연속 문자 부재·말미 …') 접미 — D4 원존 "
+              "승계)");
     }
 
     // 2aa) ollama 릴레이 상대 조립 — 결정 부품 (#119 폰 자연어 릴레이 T1 —

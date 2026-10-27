@@ -24,9 +24,14 @@ namespace jk {
 // ---- tts — 구두 응답 TTS 결정 부품 (#117 T1 — 스펙
 // 2026-10-27-tts-response-design D2·D3·D4·D6) -------------------------------
 // 헤더 인라인 순수 부품(GalleryModel.h/MusicModel.h 선례 — selftest 2z가 같은
-// 진실원을 직소비 — 심볼 링크 없음·imgui/SDL 무접점). 스폰 본체(D1 폰 축 +
-// D5 실패 무시)는 ClientChatApp.cpp의 __ANDROID__ TU — Win/WSL 2축 바이너리에
-// 스폰 leg 미포함(컴파일 무영향 원문).
+// 진실원을 직소비 — 심볼 링크 없음·imgui/SDL 무접점). 스폰 본체(D5 실패 무시)는
+// ClientChatApp.cpp의 스폰 leg TU — 폰 축 = __ANDROID__(#117 T1)·Win 축 =
+// _WIN32(#120 T1 — D1 원장행 "Win/WSL 2축 바이너리에 스폰 leg 미포함"의 Win 몫
+// 소각) — **WSL/posix 2축은 leg 부재 유지(끔 — 원존)**: WSLg 축은 폰(승인)
+// 계약도 Win(내장 SAPI) 계약도 없어 v1에서 침묵이 정직한 유지 원존.
+// Win 조달 = 조달 0(Windows 내장 powershell.exe+System.Speech — 시스템 음성
+// SAPI. 리서치 원존 = powershell Add-Type System.Speech SpeechSynthesizer —
+// 널리 문서화된 원존 조달, 신규 라이브러리 0).
 namespace tts {
 
 // D4 — [시스템] 답신 reply 문언 상한(1행 규약 — "~120자").
@@ -73,10 +78,65 @@ inline bool VoiceTtsEnabled(bool envSet, const char* value) {
 }
 
 // D2 — 런타임 원본 — getenv("VOICE_TTS") 1뒤. 스폰 leg만 소비(판정부 어셜션은
-// 2z의 명시 입력판 — env 중독 없음). 스폰 leg = __ANDROID__ TU.
+// 2z의 명시 입력판 — env 중독 없음). 스폰 leg = __ANDROID__·_WIN32 TU(#120 T1
+// — Win 축도 같은 D2 게이트(기본 켬·VOICE_TTS=0 opt-out — 계약 승계·개판 0)).
 inline bool VoiceTtsOptOutRuntime() {
     const char* v = std::getenv("VOICE_TTS");
     return !VoiceTtsEnabled(v != nullptr, v);
+}
+
+// ---- #120 T1 — Win 스폰 leg 명령 조립 부품(헤더 인라인 순수 — 2z-④ 직소비,
+// 스폰 어셜션 금지 원존 승계: 조립식 등호만 단정하고 실 스폰은 어셜션 밖). ----
+
+// PowerShell 단일 따옴표 문언 보전 — 단일 따옴표 1개 = '' 2개로 복각화(PS
+// 인용 규약). 그 외 문자($·백틱·"·\)는 원문 그대로 — PS 단일 따옴표 문자열은
+// 이스케이프 문언이 없다(복각화 1종뿐). 스폰이 sh를 거치지 않아 phone leg의
+// $·백틱 백슬래시 이스케이프(TtsQuoted)는 Win 축 무접점(계열 계약만 수혀).
+inline std::string TtsPsLiteral(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 8);
+    for (const char ch : s) {
+        if (ch == '\'') { out += "''"; }
+        else { out += ch; }
+    }
+    return out;
+}
+
+// CreateProcessW 인자 이중 따옴표 인용 — CommandLineToArgvW 규약 수형(윈 원존
+// 계약): 인자를 "…"로 감싸고, 인용 안 따옴표 = \"·직전 백슬래시 n개 = 2n+1개
+// 복제·말미 백슬래시 n개(감는 따옴표 직전) = 2n개 복제. Win leg의 조달이
+// cmd.exe를 거치지 않아 % 등 환경 확장 표면 0(Sh -c 래핑 밖 계약).
+inline std::string TtsWinQuoted(const std::string& s) {
+    std::string out = "\"";
+    size_t bs = 0;   // 연속 백슬래시 개수(문자 경계에서 정산)
+    for (const char ch : s) {
+        if (ch == '\\') { ++bs; out += ch; }
+        else if (ch == '"') {
+            out.append(bs + 1, '\\');  // 직전 백슬래시 2배+인용 이스케이프 1개
+            bs = 0;
+            out += ch;
+        } else {
+            bs = 0;
+            out += ch;
+        }
+    }
+    if (bs) {  // 말미 백슬래시 — 감는 따옴표가 이스케이프되지 않게 2배
+        out.resize(out.size() - bs);
+        out.append(bs * 2, '\\');
+    }
+    out += '"';
+    return out;
+}
+
+// #120 T1 — Win 조달 명령 1개 조립(스폰 leg의 유일 명령 원문). powershell.exe
+// = Windows 내장(조달 0)·System.Speech = 시스템 음성 SAPI. cmd 조립식이 곧
+// leg 원문 — 2z-④가 등호 단정(실 스폰 단정 = 어셜션 밖 — D6 승계).
+inline std::string TtsWinSpeakCommand(const std::string& speakText) {
+    const std::string ps =
+        "Add-Type -AssemblyName System.Speech; "
+        "$s=New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+        "$s.Speak('" + TtsPsLiteral(speakText) + "')";
+    return "powershell.exe -NoProfile -Command " + TtsWinQuoted(ps);
 }
 
 }  // namespace tts

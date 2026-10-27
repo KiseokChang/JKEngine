@@ -23,11 +23,15 @@
 #if !defined(_WIN32)
 #include <unistd.h>  // ::getpid — ThisProcessId 쌍둥이(MusicDirStore.h:52 계약)
 #endif
-#if defined(__ANDROID__)  // #117 T1 — D1 폰 축 TTS 스폰 leg 전용(include 포함
-                          // 가드 — Win/WSL 컴파일 무영향 원장행)
+#if defined(__ANDROID__) || defined(_WIN32)  // #117 T1 폰 축 + #120 T1 Win 축
+                                             // — TTS 스폰 leg 전용(include 포함
+                                             // 게드 — WSL/posix 컴파일 무영향
+                                             // 원장행 유지)
 #include <process/JKProcess.h>  // Spawn 어댑터(VoiceCaptureTermux 원존 수형)
 
+#if defined(__ANDROID__)
 #include <sys/stat.h>  // ::stat — ResolveTermuxBin 수형(Termux prefix 조립)
+#endif
 
 #include <thread>
 #endif
@@ -86,11 +90,12 @@ std::string TrimText(const std::string& raw) {
 // VoiceCaptureTermux.cpp의 스폰 계열($PREFIX/bin resolve·지역 인용·마감+
 // kill-on-close job) — 그 파일의 계열 상수/도우미는 파일-local라 이 TU에
 // 축소 수형으로 독립한다(쌍둥이 반복 선례 — MusicDirStore ThisProcessId와
-// 같은 관행). **이 경로는 Win/WSL 캐논 바이너리에 미포함**(컴파일 무영향)
-// — 폰 빌드(T2 배포)만 링크된다 — 원장행.
+// 같은 관행). **이 경로는 WSL/posix 캐논 바이너리에 미포함**(컴파일 무영향)
+// — 폰 빌드(T2 배포)만 링크된다 — 원장행. Win은 #120 T1에서 elif 축 신설
+// (아래) — D1 원장행 "Win/WSL 2축 미포함"의 Win 몫은 소각.
 
-// 도달 불가 컴파일 경로 원장행: 아래 4종 전부 __ANDROID__ 게이트 안 — Win/
-// WSL 빌드(jkapp_chat)에서는 전처리기가 본체를 폐기해 심볼·코드 0. jkdesktop
+// 도달 불가 컴파일 경로 원장행: 아래 4종 전부 __ANDROID__ 게이트 안 — WSL/
+// posix 빌드(jkapp_chat)에서는 전처리기가 본체를 폐기해 심볼·코드 0. jkdesktop
 // selftest(2z)가 단정하는 것은 헤더 인라인 결정 부품 뿐(D6 — 스폰 어셜션
 // 금지). 스폰 leg의 실측 = 폰 E2E probe(T2 — "[TTS] speak" 행 원문).
 
@@ -182,7 +187,54 @@ void TtsSpawnSpeak(const std::string& speakText) {
     // rc 0 = speak 시작 수락 원장행 — 응답 지연(~1s)과 실제 합성 종료는
     // Termux TTS 엔징 몫(EYES — 폰에서 답을 듣는 체감 — 스펙 §2).
 }
-#endif  // __ANDROID__ (#117 T1 — 폰 축 스폰 leg; 폰 축 외 = 빈 영역)
+#elif defined(_WIN32)
+// #120 T1 — 구두 응답 TTS 스폰 leg Win 축(#117의 D1 원장행 "Win/WSL 2축
+// 바이너리에 스폰 leg 미포함"의 Win 몫 소각). 수형 원존 = 같은 파일의 폰 축
+// 스폰 leg 배치2 수형(즉시 반환 — spawn 성립 직후 함수 반환·detached 단명
+// 스레드가 쏜다 — 구조 그대로 재용). **WSL/posix 캐논 바이너리에 미포함 유지
+// (컴파일 무영향 — 원존)**: WSLg 축은 폰(termux-tts-speak 승인 계약)도 Win
+// (내장 SAPI 계약)도 없어 leg 부재 = 끔이 정직한 유지 원존.
+
+// 조달 0 — powershell.exe는 Windows 내장, System.Speech는 .NET Framework
+// 내장(시스템 음성 SAPI) — 신규 라이브러리·다운로드·설치 0(리서치 원존 =
+// "powershell Add-Type System.Speech SpeechSynthesizer" 시스템 음성 조달식).
+// 명령 조립식은 헤더 순수 부품 jk::tts::TtsWinSpeakCommand 진실원(2z-④ 등호
+// 단정 — 이 TU는 그것을 그대로 소비만 한다).
+//
+// 스폰 즉반환 계약(폰 배치2 수형 그대로):
+//   - 부모는 대기하지 않는다 — CreateProcessW 성립 직후 함수 반환. powershell
+//     백그라운드 상주(합성 완주 — Speak 뒤 자연 종료). hideWindow = CREATE_
+//     NO_WINDOW+SW_HIDE — 콘솔 창 1개도 뜨지 않는다(음성은 SAPI 오디오 몫).
+//   - 핸들 즉시 폐쇄 — Win 계약: **process 핸들 close = kill 아님**(JKProcess.h
+//     계약 — job 핸들의 close==kill과 혼기 금지 원문). 프로세스는 고아로 자연
+//     종료·핸들 정산은 OS 몫(Win 좀비 개념 부재 — 핸들 유출 없음).
+//   - 출력 폐기 = 파이프 미조달(inheritedStdioPipes 0) — PowerShell의 조용한
+//     완주는 소각(리스너 0 — SIGPIPE 계열 창 자체가 없다).
+// Add-Type 조달 지연(원문 기록 — 1차 스폰 ~1-3s·후속 빠름 — 리서치 근거):
+// powershell 세션 기동+어셈블리 로드 비용이라 leg 즉반환 뒤 백그라운드 몫 —
+// 부모 접점 지연 0. 실측은 Win 셀프 probe(스폰 라이브 1회 — [TTS-WIN] stamp
+// 세그먼트)+EYES(답을 듣는 체감) 소관.
+void TtsSpawnSpeak(const std::string& speakText) {
+    jk::process::SpawnOptions opt;
+    opt.commandLineUtf8 = jk::tts::TtsWinSpeakCommand(speakText);
+    opt.hideWindow = true;
+    const jk::process::SpawnResult spawned = jk::process::Spawn(opt);
+    if (!spawned.ok) {
+        std::fprintf(stderr, "[TTS] fail (스폰 실패 err=%u)\n",
+                     spawned.errorCode);
+        // D5 — 실패 무시 계통(폰 축 같은 표): 조달은 부재가 없어(Win 내장)
+        // 스폰 실패만 이 표로 온다 — powershell.exe가 PATH에 없는 정직 원장
+        // 1행. UI·기록 무영향·재시도 없음.
+        return;
+    }
+    std::fprintf(stderr, "[TTS-WIN] speak/시작: %s\n", speakText.c_str());
+    // rc 0(스폰 성립) = speak 시작 수락 원장행 — 폰 축 stamp 계약 승계(Win
+    // 접미 — T2 probe의 [TTS-WIN] 세그먼트 소관). 응답 지연(세션 기동+합성)
+    // 과 실제 종료는 powershell 백그라운드 몫(즉반 계약 — 재판정 밖).
+    jk::process::CloseHandleLike(spawned.process);
+}
+#endif  // __ANDROID__·_WIN32(#117 T1 폰 축 + #120 T1 Win 축 — WSL/posix = 빈
+        // 영역 유지 원존)
 
 } // namespace
 
@@ -514,12 +566,14 @@ void ClientChatApp::DrainVoice() {
         // 스레드(워커 재용 금지 — RunVoiceTurn 마감 뒤 스폰 대기가 전사
         // FIFO를 밀지 않게; UI 축 완료 대기도 봉쇄). 타이핑 발화의 답신은
         // voiceOrigin 0이라 구조적으로 도달하지 않는다(D3 무음 존중).
-        // 폰 축(#ifdef) 밖 = 스폰 leg 부재 — Win/WSL은 판정만하고 침묵(컴파일
-        // 무영향 원장행).
+        // #120 T1 — 스폰 leg 축 게드 확장: 폰(__ANDROID__)에 Win(_WIN32)을
+        // 나란히 포함 — 판정·절단·스레드 구조 동일(구조 재용 원존). WSL/
+        // posix 축(#ifdef 밖) = 스폰 leg 부재 — 판정만하고 침묵(컴파일 무영향
+        // 유지 원존 — D2 게이트는 여전히 축 무관 1곳).
         if (!d.guide.empty() && voiceOrigin) {
             const bool optOut = jk::tts::VoiceTtsOptOutRuntime();
             if (jk::tts::TtsSpeakWanted(true, d.guide.empty(), optOut)) {
-#if defined(__ANDROID__)
+#if defined(__ANDROID__) || defined(_WIN32)
                 std::thread([speak = jk::tts::TtsReplyClip(d.guide)] {
                     TtsSpawnSpeak(speak);
                 }).detach();
