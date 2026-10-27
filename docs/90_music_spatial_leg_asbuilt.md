@@ -459,6 +459,17 @@ status 절단 악형) → T2 fix r1 re-review **APPROVE 재확정**(C0/I0/M0 —
 | T2 원장 | 복합화법("창 3 앞으로") = 표 접미 행 우선 — 숫자 부품 비도달(Focus appless — "3" 의미 소실 무해) | N | 유계 — v2 어휘 합의 시 복합화법 판정 재판정 후보(§7.15.3 원문) |
 
 
+### §4.1-13 신규 park 행(#119 폰 자연어 릴레이 라인 — §7.16 승계 · **아래는 추가만, 기존 행 변형 금지**):
+
+| 출처 | 항목 | 등급 | 처분 근거 |
+| --- | --- | --- | --- |
+| T7 부기 | 릴레이 라인 커밋 체인(1행 — rev-parse 전체 SHA = §7.16.6 — git log가 진실원): **f1d57e6(T1)**+본 docs 커밋 | N | 1행 등록 — 캐논 계보 = Win 919/WSL 896/posix 304 등호/폰 896(T2 run5 실측) |
+| T2 원장 | **폰→PC L2 격리 BLOCKED**(EHOSTUNREACH·ARP 0·동일 서브넷 소스 주소·PC→폰 양시 성립 — 일측 격리) — 폰 /talk 릴레이 턴·지연 대조(스파이크 1.58s)·즉발 회귀 = 미실측 | M | 사용자 네트워크 조치(공유기 격리 해제/SSID 재접속) 후 t119 드라이버 재런 — EYES ① 전제 |
+| T2 원장 | git archive 전수 전송의 폰 sshd 절단(71.9MB — run1)+Windows autocrlf 아카이브 CRLF 스머지(run2/3 md5 오진)+폰 트리 등화 보증 불성립(jkweb 잔유) — 3건 | M | 함정 원장(§7.16.4 ①-③) — 증분 배포+아카이브 멤버 md5 게이트+서브셋 등화 원존 승계 |
+| T2 원장 | 수기 win CLI probe stdin 웨지(120s+ 무응답 — 스파이크 §3c win leg 재실측)+PC 주소 세션 콘솔 누출 1회(보존 파일 0건) | N | 원장 소화 — probe 폐기·engine spawn 계약 무영향(파이프 스폰) |
+| T1 원장 | portproxy 불요 판정(0.0.0.0 바인딩+ollama.exe 규칙 = 기존 상태 실측 — 신규 노출 아님) — 보안 옵트인 원존 = §7.16.3 | M | 사용자 판정(옵트인/기각 — 원존 1커맨드 병기 완료) |
+
+
 ## §5. 사용자 결제 게이트 (EYES-PENDING 봉인)
 
 
@@ -3320,3 +3331,147 @@ probe/폰 배포 실측 원문+함정.
   1회성 원문])·캡처(voc_wsl_badge3*.png·voc_wsl_badge_f*.png·pv_badge_*.png·
   j118_swing_*.png·diag_j118_*.png[T1 증거 원존]) = engine/tmp untracked — 커밋 금지
   충족.
+### §7.16 폰 자연어 릴레이 leg — chat.json "ollama_host" 원존+PC 접수 준비 (#119 T1-T2, 2026-10-27/28)
+
+폰의 구두/타이핑 자연어를 PC의 ollama(내장 cloud GLM)로 릴레이해 턴 품질을
+끌어올리는 접점(#119 — 폰 LLM 턴 재실측 스파이크
+`.superpowers/sdd/2026-10-25-jkapk/phone-llm-respike-report.md`의 수형 후보 후속
+계약). 근거 원문 = 스파이크 §3b(폰 /api/chat 직행 1.58s 완건 JSON — 렌더층 원진
+수형 ad9aa81 #113)·§5(2안 — CLI 플래그 결합/D2 직행). 엔진 코드 계약 =
+ChatConfig(JKLmEngine.h — 승격 게이트 fileKnown 선존 계열)·조립식 계약 락
+(BuildOllamaDirectCmd — kStubShellCmd* 선례 단일 근원).
+
+#### §7.16.1 구현 원문 (T1 — 커밋 f1d57e6 — 3파일 +177/−5)
+
+- **조사 판정(원문 실측)**: JKLmEngine에 "HTTP/11434" leg는 **원존하지 않는다**
+  — engine 계열 전부 CLI 스폰("ollama" = `ollama launch claude`·"ollama-direct"
+  = `ollama run`)이고 서버 상대 지정은 코드 내 URL 하드코딩 0건(grep 실측 —
+  src 전역 11434/localhost 리터럴 0건)으로 ollama CLI 관례(OLLAMA_HOST env 미
+  설정 = localhost:11434)에 의존한다. 따라서 원격 호스트 지원 = **조립식에
+  OLLAMA_HOST 접두를 실리는 1키 원존**("ollama_host")이 최선 형태 — chat.json
+  키 1건 원존 추가(기존 키 무접촉·빈 값/키 부재 = 기본 localhost = OLLAMA_HOST
+  미설정과 동일 — fail-closed 계약 유지).
+- **NormalizeOllamaHost** (JKLmEngine.h 선언+정의 계약 락) — 문자 집합 판정부:
+  [http://|https://](선택)+호스트([A-Za-z0-9._-] 1+)+(":"+숫자 포트 선택) ·
+  양끝 trim·위배(& | $ \` " 공백·경로·숫자 아닌 포트·스킴만 있는 기형) 전면
+  부정 → 빈 문자열 무음 접기. 접두 조립(OllamaHostEnvPrefix)이 이 판정의
+  인용·메타문자 소진에 의존(이스케이프 불요 계약).
+- **OllamaHostEnvPrefix** — ollama 계열 leg 양쪽 단일 근원: posix
+  `OLLAMA_HOST="<host>" ` 접두 / win32 `set "OLLAMA_HOST=<host>" && ` 접두
+  (cmd.exe /c 접두 뒤 set 먼저 — 조립식 본선과 && 연결). "claude"/"stub" leg
+  무영향.
+- **BuildOllamaDirectCmd** — 접두는 스팬 밖 선두(모델·프롬프트 ShellDqEscape
+  인용 계약 무변조)·빈 값 = 계약 변경 이전 형태 바이트 등호(변경 1 = 2026-10-26
+  #113 렌더 플래그 결합 — 이후 "계약 변경 2" 원장행).
+- **selftest 2aa 신설**(2z 뒤 — main.cpp RunAppSelfTest — 4건): ①빈 값·blank =
+  빈 값(기본 localhost 원존) ①b 스킴 양형+플레인 host:port·플레인 호스트 trim
+  승계 ②빈 값 조립 = 접두 없음+구성 조립 = 접두 착지+suffix 등호(win cmd set
+  접두/posix sh env 접두 #ifdef 분기) ③위배 상대 8형(h&calc·h$(id)·h"x·h o c·
+  경로·:11434·PC_HOST:port·https://) 조립 = 기본 형태 바이트 등호(무음 접기 —
+  조립식 주입 표면 0). **스폰 어셜션 금지(D6 — 비결정 원존 2z 승계) — 실 릴레이
+  턴은 probe/E2E 몫.**
+
+#### §7.16.2 캐논 승계 (4축 실측 — 2aa +4)
+
+| 축 | 값 | 근거 |
+| --- | --- | --- |
+| Win | **919** (915+4) | `jkdesktop.exe test` 실측 — 2aa 4건 PASS·AppSelfTest: 0 failure(s) |
+| WSL | **896** (892+4) | buildwsl selftest RC=0 — 2aa 4건 PASS |
+| posix | **304 등호** | posix_selftest build+run — 0 failure·llm15 조립식 원문 전 항 등호(빈 값 = 계약 변경 이전 형태 — 기존 단정 무침범의 증명) |
+| 폰 | **896** (892+4) | T2 배포 런(§7.16.4) — aarch64 selftest rc=0·2aa 4건 PASS |
+
+#### §7.16.3 PC 접수 준비 조사 (T1-2 — netstat 원문·portproxy 불요 판정)
+
+- **원론 대비 실측 정정 원장행**: 원론 전제 "PC ollama가 127.0.0.1 바인딩(외부
+  수신 불가)" = **미성립** — netstat 실측 원문: `TCP 0.0.0.0:11434 LISTENING
+  3928`+[::] 동일(ollama 0.40.11 — `ollama list` glm-5.3-flash:cloud 등 cloud
+  모델 원존·127.0.0.1 왕복 등록 연결 2건)·인바운드 방화벽 규칙 **ollama.exe
+  허용 2건(TCP+UDP — 프로그램 규칙 전포트 Allow)** 실측 — LAN 수신 도달은
+  기존 상태에서 성립한다.
+- **WSL 릴레이 턴 원문(도달 증명)**: WSL→PC 11434 TCP 등호 도달+`/api/chat`
+  stream=false 턴 = **2.297s·thinking 별도 필드 분리·content 완건**(스파이크
+  §3b 원문 계형 — 스파이크 1.58s 대조 = PC 로컬 대비 +0.7s 수준).
+- **portproxy 불요 판정** — 위 실측에 따라 netsh portproxy 수행 **0**(관리자
+  권한 스폰 불요). 수기 시 원존 1커맨드(기록 보존 — 127.0.0.1 단일 바인딩으로
+  돌아간 경우 몫):
+  추가 = netsh interface portproxy add v4tov4 listenport=11434 listenaddress=0.0.0.0 connectport=11434 connectaddress=127.0.0.1 /
+  삭제 = netsh interface portproxy delete v4tov4 listenport=11434 listenaddress=0.0.0.0
+- **보안 원장행(옵트인 계약 원존 — 현 상태 고증)**: 11434 LAN 노출 = **무인증
+  ollama API**(LAN 내 임의 기기가 모델 턴 실행 가능) — 사용자 자택 LAN 전제.
+  단, 본 라인은 **노출을 새로 만들지 않았다**(0.0.0.0 바인딩+ollama.exe 규칙 =
+  기존 상태 실측 — portproxy 수행 0·방화벽 변경 0) — 릴레이 옵트인 판정 =
+  폰 구성(§7.16.4 병합)만. 끄기 원존: 폰 chat.json의 "ollama_host" 키 삭제
+  (기본 localhost 복귀)+원한다면 ollama를 127.0.0.1 바인딩으로(서비스 env
+  OLLAMA_HOST=127.0.0.1)·portproxy 채택 시 위 원존 삭제 1커맨드.
+- **수기 win CLI probe 웨지 원장행(수행 0 정산 포함)**: set OLLAMA_HOST 수기
+  cmd 경유 CLI 턴 1런 = **stdin 생존 무응답 웨지**(2.0-5.5s 기대 구간 120s+
+  초과 — 스파이크 §3c CLI stdin 함정의 win leg 재실측) — 백그라운드 태스크 강제
+  소각 정산. 엔진 스폰 계약 무영향(win = CreateProcessW 파이프 스폰·posix =
+  fd-0 /dev/null — 폰 jkweb spawn 계약, 스파이크 §3c 원존). 본 계보의 실 릴레이
+  턴 진실원 = WSL 직행 원문+폰 E2E(§7.16.4).
+
+#### §7.16.4 폰 배포 런 원문 (T2 — 5런·드라이버 engine/tmp/t119_t2_deploy.sh — 커밋 0)
+
+- **폰 chat.json 병합(무손실 게이트)**: 시작 sha256 =스파이크 §1 원문 등호
+  (59be04fadae37b2f 접두 — 104B) → python json 병합(engine·model·directory 키
+  등호 보존+"ollama_host" 가산) = **MERGE-LOSSLESS missing=0**·149B·keys
+  engine,model,directory,ollama_host. 병합값은 유지 원존(PC 접수 후 폰 턴이
+  릴레이하는 구성 — 끊는 것 = 사용자 몫·키 삭제 = 기본 localhost 복귀).
+- **폰 재빌드+캐논(run5 — 본 런의 수형)**: NINJA-RC=0 SECONDS=403(aarch64 -
+  증분)·selftest rc=0·AppSelfTest: 0 failure(s)·**PASS=896**·**2aa 4건 전부
+  PASS**(원문 = deploy log SELFTEST-2AA 행 4건).
+- **BLOCKED 원장행(폰 /talk 릴레이 턴 — 미실측 정직)**: 폰→PC 11434 TCP =
+  **[Errno 113] No route to host**·폰→PC ICMP 100% loss(+2 errors)·폰 ARP 표
+  0건·폰 자기 소스 주소 = PC 서브넷 동일 접두(getsockname 실측)/PC→폰 8022 ssh
+  = 양시 성립 — **일측 L2 격리**(AP 클라이언트 격리 또는 대역/AP 분리 원론).
+  진단 원문 = deploy log PC-CONNECT-FAIL 행+진단 런 3건(마스킹 인쇄 — 주소
+  일절 미인쇄 계약). 폰 릴레이 턴 원문(비매치 2건×2회+즉발 회귀 1건)·지연 대조
+  (스파이크 1.58s) = **미실측 — 드라이버 run5의 D-H 세그먼트 정직 미수행**.
+  해제 = 사용자 네트워크 조치 몫(공유기 AP 격리 설정·폰 SSID/대역 재접속) —
+  재런 = t119_t2_deploy.sh 재실행(D-H 세그먼트만 증분 수행).
+- **배포 절차 함정 원장(runs 1-4 — 봉쇄 레슨 축)**:
+  1. 전수 git archive HEAD(71.9MB) tar-over-ssh = 폰 sshd 절단
+     ("client_loop: send disconnect" — run1) — **증분 배포**로 대체: 등화 기준
+     a7424fa(#118 T2 배포 등화)·git log 차분 = 3수형 파일만 push+md5 게이트.
+  2. **Windows core.autocrlf=true → git archive 멤버 CRLF 스머지**(실측:
+     jkweb/main.cpp blob 31318LF vs 멤버 31935CRLF — run2/run3 md5 오진
+     원장행) — 아카이브 배포의 무결성 게이트 비교 기준 = **아카이브 멤버 바이트
+     md5**(작업복사 md5가 아니다).
+  3. 폰 트리 전수 등화 보증 불성립 실측(jkweb/main.cpp CRLF 잔유) → 리빌드
+     입력 서브셋(src/include/tools-jkweb/tools-jkbridge/CMakeLists — 4.47MB)
+     전량 등화+post-equalize md5 4종 등호 게이트(run3 이후 성립).
+  4. 폰 /tmp 쓰기 불가(기존 원장 승계 — run4 Permission denied) → $TMPDIR 몫.
+  5. [run1 부작용 원장행] 절단 전수 archive가 폰 트리 일부를 CRLF+HEAD 내용으로
+     부분 교체했다(절단 전 수신분) — 리빌드 입력 서브셋 등화가 전량 복구 —
+     잔여(diff 영역 밖 파일의 CRLF화)는 빌드 무영향 원장(비재발 관리 원존 =
+     서브셋 등화 원존).
+- **폰 창/서버 상태 원복**: 서버 UP 유지(run 전 1 = run 후 1)·jkweb = run 전
+  0(재기동 세그먼트에는 도달하지 못한 정직 미수행 — 재런의 G 세그먼트 몫)·
+  permissions 무접촉·폰 TMPDIR 잔상 0(사후 소각 실측 REMNANT=0).
+
+#### §7.16.5 비-목표 + EYES 게이트 (사용자 선언만 결제)
+
+- **비-목표**: claude/stub leg의 호스트 개념(claude CLI는 상대 개념 없음)·
+  jkweb UI 인증(무인증 loopback 기본 원존 유지)·ollama 대신 다른 백엔드.
+- **EYES 대기**:
+
+| # | 게이트 | 내용 | 상태 |
+| --- | --- | --- | --- |
+| ① | **폰 릴레이 턴 체감** | 폰 자연어(비매치 발화) → PC cloud GLM 답신의 지연(스파이크 1.58s 대조)·품질(stub 안내문 → 행동 JSON 턴) 체감 — **전제 = 폰→PC L2 격리 해제(§7.16.4 BLOCKED — 사용자 네트워크 조치)** 후 t119 드라이버 재런 | **대기(전제 결손 — 사용자 조치)** |
+| ② | **LAN 노출 옵트인** | 11434 무인증 LAN 노출의 지속 동의(현 상태 = 기존 실측 — 신규 노출 아님) — 기각 시 폰 chat.json 키 삭제(기본 localhost 복귀) | **대기(사용자 판정)** |
+
+#### §7.16.6 커밋 원장 + IP/호스트 경로 게이트 (#119 라인 — 현행까지)
+
+- 라인 체인: **f1d57e6**(T1 — agent 3파일) + 본 docs 커밋 = docs/90 1파일 —
+  push origin main 직행·amend 없음·커밋 = 명시 경로만·git add -A 0.
+- **IP·호스트 경로 게이트(T2 실측)**: 커밋 원문 IPv4 정규식 grep = 0건
+  (selftest 원문도 "PC_HOST" 자리표시 리터럴 — 인쇄 규약 준수)·PC 주소 =
+  temp 파일 판독+ssh argv 전달(원격 파일·런 로그 리터럴 0건 — PC-HOST-LEN: 15
+  행만 인쇄)·폰 주소 = known_hosts BatchMode 자기 판명+SELFRESOLVE: MATCH 행만
+  ·진단 런 3건 = 주소 마스킹 인쇄(호스트부 0건). **[원장행 — 세션 콘솔 누출
+  1회**: 수기 CLI probe의 PowerShell 오류 메시지에 PC 주소 1회 인쇄(커밋·런
+  로그·보존 파일 0건 — 세션 기록에만 존재) — 수기 probe 폐기(§7.16.3 웨지
+  원장행)와 함께 소화 원장]. 본 문서 원문도 PC 주소 리터럴 0건(점문 게이트 =
+  커밋 전 grep 실측).
+- 배포 드라이버(t119_t2_deploy.sh)·런 로그(t119_t2_deploy.log)·진단 스크립트
+  3건 = engine/tmp untracked — 커밋 금지 충족.
