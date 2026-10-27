@@ -3475,3 +3475,43 @@ ChatConfig(JKLmEngine.h — 승격 게이트 fileKnown 선존 계열)·조립식
   커밋 전 grep 실측).
 - 배포 드라이버(t119_t2_deploy.sh)·런 로그(t119_t2_deploy.log)·진단 스크립트
   3건 = engine/tmp untracked — 커밋 금지 충족.
+
+#### §7.16.7 폰 단독 승계 원장행 (스파이크 2 + 전환 승계 — 2026-10-28, 원문 리포트
+`.superpowers/sdd/2026-10-27-relay-relay/phone-local-respike-report.md`)
+
+- **재실측 원문(렌더 플래그 수형 ad9aa81 후 — 드라이버 engine/tmp/prb2_driver.sh,
+  원문 로그 prb2_run.log — 커밋 0)**: POST /talk 비매치 3건×2회+스파이크 동일 즉발
+  회귀 1건 = **8/8 유효 JSON 성립(stub 폴백 0건 — 스파이크 §2의 "인식하지 못했습니다"
+  안내문 재실측 0)**·지연 **2.14-3.82s 안정 밴드(median 3.7s)**·**7/8 ≤5s** —
+  예외 = serve 기동 직후 첫 cloud 턴 1건 **14.60s**(콜드 아웃라이어 — 3회 재현
+  재측정 = 후속 원장행; 전환 후 단독 세션 첫턴은 3.618s로 재현 0/1 — 원문 아래
+  전환 행). argv stamp(/proc cmdline) = **9/9 `ollama run --hidethinking
+  --nowordwrap glm-5.3-flash:cloud …`**(prb2 8+prb3 1) — ad9aa81 플래그가 폰
+  스폰에 실제 적용된 원문.
+- **판정(컨트롤러 승계 — 폰 단독)**: PC 릴레이는 폰→PC L2 격리(§7.16.4 BLOCKED —
+  사용자 네트워크 조치 전제)를 요구하는 데 비해 폰 로컬은 구성만으로 성립하고
+  지연도 WSL→PC 릴레이 대조 원문(2.297s)과 같은 2-4s 밴드 — **chat.json
+  "ollama_host" 키 유지·값 삭제(빈 값)로 전환**(§7.16.1의 2aa-① 빈 값 = 기본
+  localhost 계약의 실기기 적용). PC 릴레이 구성은 **조건부 원존**(L2 격리 해제 시
+  재판정 가능 — 진입 #119 병합값이 백업 원문으로 보존됐었다).
+- **전환 원문(드라이버 engine/tmp/prb3_transition_driver.sh — 원문 로그
+  prb3_run.log)**: 폰 chat.json 진입 sha256 `b790f7334c3022a9c9020542c4092f
+  7538534fcbdb0977cc1537c18ccbb14fe9`(149B — §7.16.4 병합 원문 등호) → 전환 sha
+  `3424b488a726291e3cba06fa503e5cc55806c82d100f065de16703108ba339ca` —
+  `{"engine":"ollama-direct","model":"glm-5.3-flash:cloud","directory":"…",
+  "ollama_host":""}` — **keys 4 유지·engine/model/directory 등호(PY-VALID
+  원문)+ollama_host 빈 값**(python json leg — python3 3.14.6 폰 원존; 셸 재조립
+  폴백 leg도 드라이버 병기). 전환 후 /talk 재측정 1회 = **3.618s 유효 JSON**
+  (talk Info — 모델 문장 원문)·스폰 argv OLLAMA_HOST 접두 0.
+- **serve 계약 원장행(미수형 — 후속 과제)**: 데몬 DOWN = 즉발 stub 폴백(LLM 개입
+  0 — 스파이크 §2 원문 계형). 상시화(부팅 스크립트 합병/예열 턴)는 다음 라인
+  후보. **폰 사용 시 1커맨드 원존**: `ollama serve`(nohup 권장 —
+  `nohup ollama serve >$TMPDIR/ollama_serve.log 2>&1 &`; stdin 웨지 함정 =
+  스파이크 §3c 원존 — CLI 직접 `ollama run`은 stdin 닫힘 전제).
+- **정산**: 스파이크 측정 부작용 Music 창 2건 = close_window 2건 소각(Taskbar만
+  재실측)·서버/jkweb 진입=종료 등호·serve 진입 DOWN 복귀·폰 `TMPDIR` 잔상 0.
+  본 전환 후 폰 chat.json 현재 = 빈 값 상태(원복 불요 — 승계된 구성).
+- **EYES 갱신(§7.16.5 표 행 변형 없이)**: 게이트 ①(폰 릴레이 턴 체감)의 전제
+  L2 격리는 해소되지 않았다 — 폰 단독 승계로 체감 대상이 **폰 로컬 턴 체감**
+  (지연 2-4s 밴드·품질 = 행동 JSON/모델 문장)으로 바뀐다(사용자 선언만 결제 —
+  게이트 ② LAN 노출 옵트인은 폰 단독 구성에서 무관해진다 — 11434 송수신 미개입).
