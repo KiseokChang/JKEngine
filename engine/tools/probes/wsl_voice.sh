@@ -1246,7 +1246,9 @@ capture_window_json() { # $1=저장파일 — list_windows 원문 1행(+배지 �
     timeout 15 ./buildwsl/jkdesktop agentctl '{"tool":"list_windows","args":{}}' \
         2>/dev/null | grep -a '{' | head -1 >"$1"
     [ -s "$1" ] || FAIL "list_windows empty ($1)"
-    python3 "$PWR" "$1" >>"$1.txt"
+    # [fix r7 원장행 — 118-P5 런]: 표본 .txt = **overwrite**(>> 누적은 재호출
+    # 시 첫 행 = 전 focus 표본의 stale 판정을 만든다 — 폰 P5 실험 원문).
+    python3 "$PWR" "$1" >"$1.txt"
     [ -s "$1.txt" ] || FAIL "list_windows view build failed ($1.txt)"
 }
 VPL2=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"launch_app","args":{"app":"vplayer"}}' 2>/dev/null | grep -a '{' | head -1)
@@ -1255,13 +1257,24 @@ printf '%s' "$VPL2" | grep -aq '"ok":true' || echo "VOICE-FAIL(over-vplayer: $VP
 NOT2=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"launch_app","args":{"app":"notify"}}' 2>/dev/null | grep -a '{' | head -1)
 echo "OVER-NOTIFY-LAUNCH: ${NOT2:-none}"
 printf '%s' "$NOT2" | grep -aq '"ok":true' || echo "VOICE-FAIL(over-notify: $NOT2)"
-sleep 4
-capture_window_json "$SCRATCH/voc_win_pre.json"
+# [fix r7 — 118-R5 원장행]: 배포 런 원존(§13/§13b 폴링) 수형 — sleep 고정
+# 대기만으로는 a vplayer 창의 spawn 레이스(R5 실측: 창 2 — Video Player 미도달)
+# — 창 2종 도달 폴링(최대 ~40s).
+VPW="" NTW=""
+for i in $(seq 1 20); do
+    capture_window_json "$SCRATCH/voc_win_pre.json"
+    VPW=$(grep -aF 'Video Player' "$SCRATCH/voc_win_pre.json.txt" | head -1)
+    NTW=$(grep -aE 'Notifications' "$SCRATCH/voc_win_pre.json.txt" | head -1)
+    [ -n "$VPW" ] && [ -n "$NTW" ] && break
+    echo "OVER-WAIT: vplayer=[$VPW] notify=[$NTW]"
+    sleep 3
+done
 sed 's/^/  /' "$SCRATCH/voc_win_pre.json.txt"
-NVIS=$(grep -ac '^PW' "$SCRATCH/voc_win_pre.json.txt")
-echo "OVER-VISIBLE-WINDOWS: $NVIS (배지 스냅샷 등호 관측 — shell·최소화 면제 원존)"
 NVIS=${NVIS:-0}
+echo "OVER-VISIBLE-WINDOWS: $NVIS (배지 스냅샷 등호 관측 — shell·최소화 면제 원존)"
 [ "$NVIS" -ge 2 ] || FAIL "fewer than 2 visible windows (배지 원문 캡처 요건 — brief 계약)"
+[ -n "$VPW" ] || FAIL "Video Player window missing (13c 창 도달 폴링 — 118-R5 원장행)"
+[ -n "$NTW" ] || FAIL "Notifications window missing (13c 창 도달 폴링)"
 # 켬 — 도구 원존 T1 스모크와 동일 양식
 OVON=$(timeout 15 ./buildwsl/jkdesktop agentctl '{"tool":"overlay_numbers","args":{}}' 2>/dev/null | grep -a '{' | head -1)
 echo "OVER-ON: ${OVON:-none}"

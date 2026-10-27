@@ -1335,7 +1335,10 @@ PWEF
 wjson() { # $1=저장파일 — list_windows 원문 1행+표본 .txt
     timeout 25 ./buildterm/jkdesktop agentctl '{"tool":"list_windows","args":{}}' 2>/dev/null | grep -a '{' | head -1 >"$1"
     [ -s "$1" ] || FAIL "list_windows empty ($1)"
-    python3 "$TMPD/t6pv_pw.py" "$1" >>"$1.txt"
+    # [fix r7 — 118-P5 런 원장행]: 표본 .txt = overwrite(>> 누적의 첫 행 =
+    # 전 focus 표본의 stale 판정 — 본 런 실측: num=2/3 스윕 등호 MISS 오진 —
+    # 서버측 포커스 전이는 원문 행(PW 표 후반 행)에서 확정 — 판독 leg만의 결함).
+    python3 "$TMPD/t6pv_pw.py" "$1" >"$1.txt"
     [ -s "$1.txt" ] || FAIL "list_windows view build failed ($1.txt)"
 }
 mw=$(ctl '{"tool":"list_windows","args":{}}')
