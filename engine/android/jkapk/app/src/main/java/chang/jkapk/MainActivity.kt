@@ -12,14 +12,45 @@
 // 파서 계층 아님), 타임아웃 10s. 서버 부재(연결 실패)="서버 미기동 — DeX
 // 세션 필요" 정직 표기+기록 반영. HTTP 쓰레드 = 단일 스레드 실행기 — UI
 // 스레드 비접촉(framework 전용 — 코루틴 의존 0 = v1 얇은판).
+//
+// ── v2 T2(#121) — 구두 버튼 전사 사슬 ────────────────────────────────────
+// 원존 승계: 데스크톱 #112 T4(ClientChatApp 구두 표면 — R2/R5)+#114 v1 조작
+// 사슬(doTalk/postTalk **무변조** — 전사 텍스트=타이핑 동형 계약).
+//
+// 표면 재판정(버튼 토글/푸시 — R2 원존 "F6 핫키=hold-to-talk·[구두] 버튼=
+// 토글"의 APK 판): 터치 표면에서 핫키의 "누름=시작·해제=마침"에 직접 대응하는
+// 것은 **버튼 홀드(push-to-talk)**라 채택 — ACTION_DOWN=캡처 시작·ACTION_UP/
+// CANCEL=마침. 마이크 실수 개방 방지(홀드 없는 열림 없음)+대응 근거 원존 유지.
+// 토글형과의 등호 재판정은 사용자 EYES 몫(기각 시 즉시 수리 계약).
+//
+// 캡처: AudioRecord 16 kHz·모노·s16le(SttVoice.h wav 규약 상수 등호 수형)·
+// VOICE_RECOGNITION 소스(발화 도메인 표준 — 재생 동시 성립). WAV 임시 =
+// **표면 소유 진실원**(데스크톱 T3 "캡처 leg는 경로를 강요하지 않는다" —
+// cacheDir+pid+발화 순서 접미 원존 수형)·캐넌 44바이트 RIFF 헤더(BuildWavBlob
+// 수형). 마이크 권한 = 런타임 fail-closed(거부 = 정직 거부 표기 — 조용한
+// 마이크 개방 금지). R5 전사 대기 UX = "녹음 중…/전사 중…" 구두 상태행+
+// placeholder [나] 행 도착 후 **전사 도착 시 치환**(데스크톱 turns_[slot]
+// 치환 수형 — 기록 append-only 유지). 전사 = voiceExec 별도 단일 스레드
+// (전사 수십 초(tiny-ko 폰 실측 35-47s — T1 원장)가 조작 사슬을 막지 않음).
+//
+// 조달: 모델 = APK asset(ggml-tiny-ko.bin — T1 조달기 핀 sha256 dd6d9f46…)
+// → filesDir 1회 조립+**sha256 핀 등호 fail-closed**(조용한 대체 금지 —
+// 조달기 게이트의 폰 표면 수형).
 
 package chang.jkapk
 
+import android.Manifest
 import android.app.Activity
+import android.content.pm.PackageManager
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
 import android.os.Bundle
+import android.os.Process
 import android.text.InputType
 import android.view.Gravity
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
@@ -28,10 +59,13 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import java.io.ByteArrayOutputStream
+import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -49,6 +83,30 @@ class MainActivity : Activity() {
     private lateinit var sendButton: Button
     private lateinit var scrollView: ScrollView
     private val httpExec: ExecutorService = Executors.newSingleThreadExecutor()
+
+    // ── v2 T2 구두 표면 상수/상태 ─────────────────────────────────────────
+    // 캡처 규약 상수 — SttVoice.h wav::kVoiceSampleRate/Channels/BitsPerSample
+    // 등호 수형(16 kHz·모노·s16le — JNI 판독부와 같은 규약).
+    private val capSampleRate = 16000
+    private val reqMicCode = 6102
+    // 모델 asset 핀 — T1 조달기(install_android_sdk.sh §7) 승계 원존.
+    private val modelAssetName = "ggml-tiny-ko.bin"
+    private val modelAssetBytes = 77_691_730L
+    private val modelAssetSha256 =
+        "dd6d9f46a7d292bb2ee4725ccb132bedde690ce2ee83e437a7786f8c67c41d08"
+
+    private lateinit var voiceButton: Button
+    private lateinit var voiceStatusView: TextView
+    private var audioRecord: AudioRecord? = null
+    @Volatile private var capturing = false
+    private var capThread: Thread? = null
+    private var pcmBuf: ByteArrayOutputStream? = null
+    private var voiceWavSeq = 0
+    private val voiceExec: ExecutorService = Executors.newSingleThreadExecutor()
+    // 기록 = 텍스트+오류플래그 행열(append-only — 치환만 허용(R5)). TextView
+    // 직 append에서 행열+render로 확장한 이유: 데스크톱 turns_[slot] 치환 수형
+    // 이 전사 도착 시 필요(placeholder 슬롯 안정성 — append-only 계약 유지).
+    private val logLines = ArrayList<Pair<String, Boolean>>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -98,6 +156,27 @@ class MainActivity : Activity() {
             text = "보내기"
             setOnClickListener { sendNow() }
         }
+        // [구두] — push-to-talk(재판정 원문: 헤더 주석 — 홀드=녹음·해제=마침).
+        voiceButton = Button(this).apply {
+            text = "구두"
+            setOnTouchListener { _, ev ->
+                when (ev.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        startVoice(); true
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        finishVoice(); true
+                    }
+                    else -> true
+                }
+            }
+        }
+        // 구두 상태행(R5 수형 2행 원존 — "녹음 중…/전사 중…" — 대기 무더티
+        // 원존 계약: 이 행은 상태 전이에만 쓴다).
+        voiceStatusView = TextView(this).apply {
+            textSize = 13f
+            setPadding(0, row / 2, 0, 0)
+        }
         val inputRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -105,12 +184,15 @@ class MainActivity : Activity() {
         inputRow.addView(inputView, LinearLayout.LayoutParams(
             0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         inputRow.addView(sendButton)
+        inputRow.addView(voiceButton)
 
         root.addView(statusView)
         root.addView(scrollView, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        root.addView(voiceStatusView)
         root.addView(inputRow)
         setContentView(root)
+        renderLog()
     }
 
     // 전송 1회 — [나] 기록 즉시 반영 후 HTTP 스레드로 POST /talk.
@@ -121,6 +203,12 @@ class MainActivity : Activity() {
 
         inputView.setText("")
         appendChat("나", text, false)
+        sendPrepared(text)
+    }
+
+    // 조작 사슬 꼬리 1종 — 타이핑(sendNow)과 전사 원문(구두 T2)이 같은 꼬리를
+    // 쓴다("STT 텍스트==타이핑 텍스트" 규약 승계 — doTalk/postTalk 무변조).
+    private fun sendPrepared(text: String) {
         setSending(true)
         updateStatus("서버: 연결 시도 (localhost:8090/talk …)")
         httpExec.execute { doTalk(text) }
@@ -219,15 +307,286 @@ class MainActivity : Activity() {
 
     // [나]/[시스템] append — append-only 계약+스크롤 앵커(합상면 아래로 고정).
     private fun appendChat(tag: String, text: String, err: Boolean) {
-        if (logView.text.isNotEmpty()) logView.append("\n")
-        logView.append("[$tag] $text")
-        if (err) logView.append("  (오류)")
+        logLines.add(Pair("[$tag] $text", err))
+        renderLog()
+    }
+
+    // 행열 → TextView(append-only 렌더 — 유일한 변경점은 R5 슬롯 치환).
+    private fun renderLog() {
+        val sb = StringBuilder()
+        for ((text, err) in logLines) {
+            if (sb.isNotEmpty()) sb.append('\n')
+            sb.append(text)
+            if (err) sb.append("  (오류)")
+        }
+        logView.text = sb
         scrollView.post { scrollView.fullScroll(View.FOCUS_DOWN) }
+    }
+
+    // R5 치환 — 데스크톱 turns_[slot] 수형(append-only 행열에서 슬롯 안정 —
+    // 슬롯 도달 없음 = 무이 치환(데스크톱 DrainVoice 가드 수형)).
+    private fun replaceLine(slot: Int, text: String, err: Boolean) {
+        if (slot !in logLines.indices) return
+        logLines[slot] = Pair(text, err)
+        renderLog()
+    }
+
+    // ---- 구두 표면 (v2 T2 — 데스크톱 #112 T4 StartVoice/FinishVoice 수형) ----
+
+    private fun setVoiceStatus(s: String) {
+        voiceStatusView.text = s
+    }
+
+    // 정직 거부 1종 — 데스크톱 status_="[!] "+reason 얼굴+[시스템] 기록 수형
+    // (기록을 부풀리지 않는다 — ClientNotifyApp 토스트의 APK 대응은 기록).
+    private fun failVoice(msg: String) {
+        setVoiceStatus("[!] $msg")
+        appendChat("시스템", "[!] $msg", true)
+    }
+
+    // [구두] 누름 — 마이크 권한 fail-closed 게이트 먼저(데스크톱 StartVoice
+    // 사전 판정 수형: 권한 미성립 = 개방 낭비 없이 정직 거부로 수렴).
+    private fun startVoice() {
+        if (capturing) return
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) !=
+            PackageManager.PERMISSION_GRANTED) {
+            setVoiceStatus("마이크 권한 대기…")
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), reqMicCode)
+            return  // 결과는 onRequestPermissionsResult — 승인 시 손가락이 여전히
+                    // 눌린 홀드-투-톡 계약은 해제 시 finishVoice가 자연 수행
+        }
+        startCaptureActual()
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int, permissions: Array<out String>, grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != reqMicCode) return
+        val granted = permissions.isNotEmpty() &&
+            permissions[0] == Manifest.permission.RECORD_AUDIO &&
+            grantResults.isNotEmpty() &&
+            grantResults[0] == PackageManager.PERMISSION_GRANTED
+        if (granted) {
+            setVoiceStatus("")
+            startCaptureActual()
+        } else {
+            // fail-closed 정직 거부(원존: 미승인이면 fail-closed로 정직 표기 —
+            // #112 스펙 §6b R3 계열).
+            failVoice("마이크 권한 거부 — 구두 전사 불가: 설정에서 권한 허용 후 재조작")
+        }
+    }
+
+    // AudioRecord 개방+판독 스레드 — 16 kHz·모노·s16le(개방 실패/시작 실패 =
+    // 정직 거부 — 조용한 공백 녹음 금지).
+    private fun startCaptureActual() {
+        if (capturing) return
+        val minBuf = AudioRecord.getMinBufferSize(
+            capSampleRate,
+            AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
+        if (minBuf <= 0) {
+            failVoice("구두 캡처 개방 실패 (버퍼 산출 실패)")
+            return
+        }
+        val rec = try {
+            AudioRecord(
+                MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                capSampleRate,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT,
+                maxOf(minBuf, capSampleRate * 2 * 8))
+        } catch (e: Exception) {
+            null
+        }
+        if (rec == null || rec.state != AudioRecord.STATE_INITIALIZED) {
+            rec?.release()
+            failVoice("구두 캡처 개방 실패 (AudioRecord 초기화 불성립)")
+            return
+        }
+        pcmBuf = ByteArrayOutputStream()
+        audioRecord = rec
+        try { rec.startRecording() } catch (e: Exception) {
+            rec.release(); audioRecord = null; pcmBuf = null
+            failVoice("구두 캡처 개방 실패 (startRecording): ${e.message}")
+            return
+        }
+        capturing = true
+        setVoiceStatus("녹음 중… (버튼 해제로 마침)")   // R5 "녹음 중…" 수형
+        capThread = Thread {
+            val dst = pcmBuf
+            val chunk = ShortArray(2048)
+            val bytes = ByteArray(chunk.size * 2)
+            while (capturing && dst != null) {
+                val n = audioRecord?.read(chunk, 0, chunk.size) ?: 0
+                if (n <= 0) break  // 판독 오류/개방 해제 — 마침 쪽에서 정직 판정
+                // s16le 직기입 — 플랫폼 판독(Short)을 LE 바이트열로 표준화
+                // (원존 캐넌 s16le 계약 — 암묵 리샘플/축소 0).
+                for (i in 0 until n) {
+                    bytes[i * 2] = (chunk[i].toInt() and 0xFF).toByte()
+                    bytes[i * 2 + 1] = ((chunk[i].toInt() shr 8) and 0xFF).toByte()
+                }
+                dst.write(bytes, 0, n * 2)
+            }
+        }.also { it.start() }
+    }
+
+    // [구두] 해제 — 판독 절단 → WAV 조립(표면 소유 경로) → 전사 스레드(R5
+    // placeholder 도착). 데스크톱 FinishVoice 수형(빈 결실 = 정직 거부).
+    private fun finishVoice() {
+        if (!capturing) return
+        capturing = false
+        val rec = audioRecord
+        audioRecord = null
+        val pcm = pcmBuf
+        pcmBuf = null
+        capThread?.let { t -> try { t.join(2_000) } catch (_: InterruptedException) {} }
+        capThread = null
+        if (rec != null) {
+            try { rec.stop() } catch (_: IllegalStateException) {}
+            rec.release()
+        }
+        val bytes = pcm?.toByteArray() ?: ByteArray(0)
+        // 0.1s 미만 사전 거부 — JNI 판독부 규약(결실 0.1s 미만 정직 거부)의
+        // 표면 수형("눌렀다 바로 푼 실수 탭"이 placeholder 없이 정직 수렴).
+        if (bytes.size < capSampleRate * 2 / 10) {
+            failVoice("발화 결실 부족 — 누른 채 유지하고 해제로 마침")
+            return
+        }
+        // WAV 임시 = 표면 소유 진실원(데스크톱 T3 원존 수형 — cacheDir+
+        // pid+발화 순서 접미: 재발화가 앞 발화 산물을 덮지 않는다).
+        val wav = File(cacheDir,
+            "jkapk_voice_${Process.myPid()}_${voiceWavSeq++}.wav")
+        try {
+            wav.outputStream().use { it.write(buildWavBlob(bytes)) }
+        } catch (e: IOException) {
+            failVoice("구두 캡처 wav 쓰기 실패: ${e.message}")
+            return
+        }
+        // R5 — placeholder 턴 [나] 도착+구두 상태행 "전사 중…"(데스크톱
+        // FinishVoice 수형 — record 반영치환 도착 시 슬롯 치환 계약).
+        val slot = logLines.size
+        appendChat("나", "(전사 중…)", false)
+        setVoiceStatus("전사 중…")
+        voiceButton.isEnabled = false
+        voiceExec.execute { transcribe(wav, slot) }
+    }
+
+    // 전사 — voiceExec(단일 실행기 — 전사 수십 초(tiny-ko 폰 실측 35-47s —
+    // T1 원장)가 조작 사슬을 막지 않는다). 성공 = R5 슬롯 치환(전사 원문
+    // 그대로) → /talk 조작 사슬(타이핑 동형 — v1 사슬 무변조). 실패 = 슬롯을
+    // 정직 오류 행으로 치환(기록 부풀림 0 — 데스크톱 DrainVoice 수형).
+    private fun transcribe(wav: File, slot: Int) {
+        var failText: String? = null
+        var transcript: String? = null
+        try {
+            val model = resolveModel()
+            val text = JniWhisper.jkapkTranscribe(
+                wav.absolutePath, model.absolutePath, JniWhisper.kVoicePrompt)
+            val safe = JniWhisper.sanitizeTranscript(text)  // 보조 원존 — 2차 게이트
+            if (safe.isBlank()) {
+                failText = "전사 결실 0 (빈 전사 — 정직 거부 계약)"
+            } else {
+                transcript = safe
+            }
+        } catch (e: Throwable) {
+            failText = e.message ?: e.javaClass.simpleName  // RuntimeException 원문 유지 — 발명 0
+        } finally {
+            wav.delete()  // 캡처 임시 잔산 소각("부분 산물 잔산 금지" 원존 계열)
+        }
+        runOnUiThread {
+            voiceButton.isEnabled = true
+            if (failText != null) {
+                replaceLine(slot, "[!] 전사 실패: $failText", true)
+                setVoiceStatus("")
+            } else {
+                replaceLine(slot, "[나] $transcript", false)  // R5 치환 — 전사 원문 그대로
+                setVoiceStatus("")
+                transcript?.let { sendPrepared(it) }  // /talk 조작 사슬 재용
+            }
+        }
+    }
+
+    // 모델 resolve — filesDir 사본 1회 조립+sha256 핀 등호 fail-closed(T1
+    // 조달기 §7 게이트의 폰 표면 수형 — 조용한 대체/부적합 조용 진행 금지).
+    // JNI fopen = 같은 uid 앱 프로세스 → filesDir 경로 직접 개방 성립(표면
+    // 경로 진실원).
+    private fun resolveModel(): File {
+        val f = File(filesDir, modelAssetName)
+        if (f.isFile && f.length() == modelAssetBytes) return f
+        val part = File(filesDir, "$modelAssetName.part")
+        val md = MessageDigest.getInstance("SHA-256")
+        assets.open(modelAssetName).use { ins ->
+            part.outputStream().use { out ->
+                val buf = ByteArray(1 shl 20)
+                while (true) {
+                    val n = ins.read(buf)
+                    if (n < 0) break
+                    if (n > 0) { md.update(buf, 0, n); out.write(buf, 0, n) }
+                }
+            }
+        }
+        val sha = md.digest().joinToString("") { "%02x".format(it) }
+        if (sha != modelAssetSha256 || part.length() != modelAssetBytes) {
+            part.delete()
+            throw RuntimeException(
+                "모델 asset 핀 불일치 (sha256=$sha — 정직 거부 — 조용한 대체 금지)")
+        }
+        if (!part.renameTo(f)) {
+            part.delete()
+            throw RuntimeException("모델 asset 조립 실패 (rename)")
+        }
+        return f
+    }
+
+    // WAV 조립 — BuildWavBlob 수형(캐넌 44바이트 RIFF/WAVE+fmt16+data — LE
+    // 직기입·16 kHz/모노/s16le 상수 등호 — SttVoice.h wav 규약).
+    private fun buildWavBlob(pcm: ByteArray): ByteArray {
+        val blob = ByteArray(44 + pcm.size)
+        var at = 0
+        fun putTag(t: String) {
+            for (b in t.toByteArray(StandardCharsets.US_ASCII)) blob[at++] = b
+        }
+        fun putLe16(v: Int) {
+            blob[at++] = (v and 0xFF).toByte()
+            blob[at++] = ((v shr 8) and 0xFF).toByte()
+        }
+        fun putLe32(v: Int) {
+            for (i in 0 until 4) blob[at++] = ((v shr (8 * i)) and 0xFF).toByte()
+        }
+        putTag("RIFF")
+        putLe32(36 + pcm.size)
+        putTag("WAVE")
+        putTag("fmt ")
+        putLe32(16)              // fmt 청크 크기(캐넌 16)
+        putLe16(1)               // WAVE_FORMAT_PCM
+        putLe16(1)               // 모노
+        putLe32(capSampleRate)   // 16000
+        putLe32(capSampleRate * 2)  // nAvgBytesPerSec = rate*ch*bits/8
+        putLe16(2)               // blockAlign = ch*bits/8
+        putLe16(16)              // s16le
+        putTag("data")
+        putLe32(pcm.size)
+        System.arraycopy(pcm, 0, blob, at, pcm.size)
+        return blob
     }
 
     // --- JSON 최소 헬퍼 (jkweb::JsonEsc/JsonGetString 동형 — 본 리포트 원문) ---
 
     override fun onDestroy() {
+        // 구두 워커 join 수형(UserChatApp 캡처 절단 원문 계약 계열): 녹음
+        // 중 단절이면 판독 루프를 먼저 절단하고 join — AudioRecord 조기 해제
+        // 없음(판독 스레드가 개방을 소유하지 않는 구조 — 해제는 finishVoice/
+        // onDestroy 단일 소관).
+        capturing = false
+        capThread?.let { t -> try { t.join(2_000) } catch (_: InterruptedException) {} }
+        capThread = null
+        audioRecord?.let { r ->
+            try { r.stop() } catch (_: IllegalStateException) {}
+            r.release()
+        }
+        audioRecord = null
+        pcmBuf = null
+        voiceExec.shutdown()
         httpExec.shutdown()
         super.onDestroy()
     }

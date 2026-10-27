@@ -42,14 +42,175 @@
 // 언어 핀 = "ko"(SttVoice.cpp kVoiceLanguage 원존 수형 — cli 기본 "en"은
 // 한국어 발화 암묵 망각 — 무지정 금지 원존). 스레드 핀 = 4(cli 원존
 // std::min(4, hardware_concurrency()) 수형 — 폰 aarch64 8코어라 상한이 산다).
-
-#include <jni.h>
-#include <whisper.h>
+//
+// **UTF-8 정리 계약(v2 T2 — T1 결함 원장행 수형)**: T1 폰 실측 원문(전사
+// R2·R3)에서 전사 원문에 UTF-8 orphan 바이트 실측(R2 선두 `a5 bc`·R3 중간
+// `eb a7` — byte-fallback 토큰 파열). 기존 코드는 이 원문 바이트열을
+// NewStringUTF(modified UTF-8)에 그대로 수입하므로 ART가 invalid 수입 시
+// RuntimeException 수렴(OOM 유사 표기) — 유용 전사까지 함께 죽는 결함.
+// 수형 계약:
+//   1) 전사 세그먼트 연결 후 · trim 전에 **jk_utf8_clean** 1회 — 유효
+//      UTF-8 시퀀스만 생존(orphan 바이트 소각 — 발명 0·대체 문자 U+FFFD
+//      주입도 금지: 소각은 침묵의 발명이 아니라 "파열 바이트의 제거"이고
+//      전사 본문은 whisper 산출 원문 그대로 유지된다).
+//   2) 소각 후 결실 0 = **정직 거부**(빈 전사 — 빈 문자열 대체 금지 계약
+//      승계). 소각 바이트 수 = err 원문에 병기(정직 증거).
+//   3) 4바이트 시퀀스(U+10000+)는 modified UTF-8이 받지 않으므로 **서러게이트
+//      쌍 6바이트로 치환**(NewStringUTF 계약 — 소각 아님·내용 보존).
+//   4) 3바이트 CESU-8 서러게이트(ED A0-BF …)는 invalid — 소각.
+//   5) Java(Kotlin) 측 보조 원존 = JniWhisper.sanitizeTranscript(2차 게이트 —
+//      modified UTF-8 디코딩 뒤 잔여 단독 서러게이트 소각 — 계층 방어).
+// 이 정리부는 pure C(jni/whisper 의존 0)라 단독 컴파일 자기검증이 산다:
+//   -DCJKSANITIZE_SELFTEST_MAIN — Win/폰 양축 컴파일(부품 등호 — 2zb 계열
+//   확장 라벨 2zb-5a..5h; JNI 전사 축은 비결정이라 어셜션 금지 원존 계약
+//   준수 — 결정 부품만 검증).
 
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+// ---- UTF-8 정리부 (pure C — jni/whisper 의존 0 — Win/폰 양축 단독 컴파일) --
+// 규약(헤더 원존 주석 위 계약의 구현):
+//   · 유효 시퀀스만 생존: 1바이트(01-7F)·2바이트(C2-DF+cont)·3바이트
+//     (E0-A0..·cont2 — E0은 A0-9F overlong 배제·ED는 서러게이트 배제)·
+//     4바이트(F0-90..·cont3 — F0은 90-8F overlong 배제·U+10FFFF 상한).
+//   · 무효 = **orphan 소각**: 불완전 시퀀스는 선두 바이트만(연속 바이트는
+//     개별 재판정 — 좌우 유효 시퀀스는 항상 생존하는 결정론), 서러게이트
+//     CESU-8(E0 수임 D800-DFFF)은 3바이트 통째 소각, 4바이트는 아래의
+//     modified UTF-8 치환(내용 보존 — 소각 아님).
+//   · *removed = 소각 바이트 수(정직 증거 — 호출자 err 병기 소관).
+//   · 입출력 모두 C 문자열(NUL 종단 — NUL 자체는 경유 0). 최악 4→6바이트
+//     확장이므로 버퍼 = 6n+6.
+static int jk_utf8_clean(const char* in, char** out, size_t* removed) {
+    *out = NULL;
+    *removed = 0;
+    if (in == NULL) return 1;
+    size_t n = strlen(in);
+    unsigned char* buf = (unsigned char*)malloc(n * 6 + 6);
+    if (buf == NULL) return 1;
+    size_t r = 0, w = 0;
+    while (r < n) {
+        unsigned char c = (unsigned char)in[r];
+        if (c < 0x80) {  // 1바이트(ASCII — NUL은 C 문자열 계약상 경유 0)
+            buf[w++] = c; r++; continue;
+        }
+        if (c >= 0xC2 && c <= 0xDF && r + 1 < n &&
+            ((unsigned char)in[r + 1] & 0xC0) == 0x80) {
+            buf[w++] = c; buf[w++] = (unsigned char)in[r + 1];
+            r += 2; continue;
+        }
+        if (c >= 0xE0 && c <= 0xEF && r + 2 < n &&
+            ((unsigned char)in[r + 1] & 0xC0) == 0x80 &&
+            ((unsigned char)in[r + 2] & 0xC0) == 0x80) {
+            // E0은 후속 1바이트가 A0-9F면 overlong(E0 9F = 0x800 미만) — 소각.
+            // ED는 후속이 A0-BF면 CESU-8 서러게이트 — modified UTF-8 수입
+            // 불가라 3바이트 통째 소각(계약 4).
+            if ((c == 0xE0 && (unsigned char)in[r + 1] < 0xA0) ||
+                (c == 0xED && (unsigned char)in[r + 1] >= 0xA0)) {
+                r += (c == 0xED) ? 3 : 1;
+                *removed += (c == 0xED) ? 3 : 1;
+                continue;
+            }
+            buf[w++] = c; buf[w++] = (unsigned char)in[r + 1];
+            buf[w++] = (unsigned char)in[r + 2];
+            r += 3; continue;
+        }
+        if (c >= 0xF0 && c <= 0xF4 && r + 3 < n &&
+            ((unsigned char)in[r + 1] & 0xC0) == 0x80 &&
+            ((unsigned char)in[r + 2] & 0xC0) == 0x80 &&
+            ((unsigned char)in[r + 3] & 0xC0) == 0x80) {
+            // F0은 후속 1바이트 90-8F면 overlong — 소각(선두만).
+            if (c == 0xF0 && (unsigned char)in[r + 1] < 0x90) {
+                r++; (*removed)++; continue;
+            }
+            // 유효 보충평면 → modified UTF-8 서러게이트 쌍 6바이트 치환
+            // (계약 3 — NewStringUTF가 받는 형태. 내용 보존).
+            unsigned cp = ((unsigned)(c & 0x07) << 18) |
+                          ((unsigned)(in[r + 1] & 0x3F) << 12) |
+                          ((unsigned)(in[r + 2] & 0x3F) << 6) |
+                          (unsigned)(in[r + 3] & 0x3F);
+            if (cp > 0x10FFFF) { r++; (*removed)++; continue; }
+            cp -= 0x10000;
+            unsigned hi = 0xD800u + (cp >> 10);
+            unsigned lo = 0xDC00u + (cp & 0x3FFu);
+            buf[w++] = (unsigned char)(0xE0 | (hi >> 12));
+            buf[w++] = (unsigned char)(0x80 | ((hi >> 6) & 0x3F));
+            buf[w++] = (unsigned char)(0x80 | (hi & 0x3F));
+            buf[w++] = (unsigned char)(0xE0 | (lo >> 12));
+            buf[w++] = (unsigned char)(0x80 | ((lo >> 6) & 0x3F));
+            buf[w++] = (unsigned char)(0x80 | (lo & 0x3F));
+            r += 4; continue;
+        }
+        // 그 외(연속 바이트 낙하·C0/C1 overlong·F5-FF·잘린 꼬리) = 선두
+        // 1바이트 소각 — 연속 바이트는 다음 루프에서 개별 재판정.
+        r++; (*removed)++;
+    }
+    buf[w] = '\0';
+    char* shrunk = (char*)realloc(buf, w + 1);
+    *out = shrunk != NULL ? shrunk : (char*)buf;
+    return 0;
+}
+
+// 자기검증(부품 등호 — 2zb 계열 확장 라벨 — 결정 부품만, JNI 전사 비결정
+// 축은 어셜션 금지 원존 계약 준수). stdout 라벨 원문 = 리포트 수취 계약.
+static int jk_selftest_sanitize(void) {
+    int fails = 0;
+    #define JKCHK(label, cond) do { \
+        if (cond) printf("%s-OK\n", label); \
+        else { printf("%s-FAIL\n", label); fails++; } } while (0)
+    char* out = NULL; size_t removed = 0;
+
+    // 5a: 유효 한국어 = 원문 등호·소각 0
+    JKCHK("2zb-5a", jk_utf8_clean("지뢰찾기 켜줘", &out, &removed) == 0 &&
+        strcmp(out, "지뢰찾기 켜줘") == 0 && removed == 0 &&
+        strlen(out) == strlen("지뢰찾기 켜줘"));
+    free(out); out = NULL; removed = 0;
+    // 5b: T1 R2 실측 orphan(선두 a5 bc) 소각 — 좌우 유효 시퀀스 생존
+    JKCHK("2zb-5b", jk_utf8_clean("깍" "\xA5\xBC" "이", &out, &removed) == 0 &&
+        strcmp(out, "깍이") == 0 && removed == 2);
+    free(out); out = NULL; removed = 0;
+    // 5c: 3바이트 잘린 꼬리(E3 단독) — 선두 소각
+    JKCHK("2zb-5c", jk_utf8_clean("가" "\xEB", &out, &removed) == 0 &&
+        strcmp(out, "가") == 0 && removed == 1);
+    free(out); out = NULL; removed = 0;
+    // 5d: CESU-8 서러게이트(ED A0 BC) — 3바이트 통째 소각
+    JKCHK("2zb-5d", jk_utf8_clean("a" "\xED\xA0\xBC" "b", &out, &removed) == 0 &&
+        strcmp(out, "ab") == 0 && removed == 3);
+    free(out); out = NULL; removed = 0;
+    // 5e: overlong(C0 80) — 소각
+    JKCHK("2zb-5e", jk_utf8_clean("x" "\xC0\x80" "y", &out, &removed) == 0 &&
+        strcmp(out, "xy") == 0 && removed == 2);
+    free(out); out = NULL; removed = 0;
+    // 5f: 4바이트 보충평면(U+1F31A F0 9F 8C 9A) — 서러게이트 쌍 6바이트 치환
+    {   // U+1F31A = 서러게이트 D83C·DF1A → modified UTF-8 ED A0 BC·ED BC 9A
+        const char want[] = "\xED\xA0\xBC\xED\xBC\x9A";
+        JKCHK("2zb-5f", jk_utf8_clean("\xF0\x9F\x8C\x9A", &out, &removed) == 0 &&
+            out != NULL && memcmp(out, want, 6) == 0 && out[6] == '\0' &&
+            removed == 0);
+        free(out); out = NULL; removed = 0;
+    }
+    // 5g: ASCII = 무변형
+    JKCHK("2zb-5g", jk_utf8_clean("ok talk", &out, &removed) == 0 &&
+        strcmp(out, "ok talk") == 0 && removed == 0);
+    free(out); out = NULL; removed = 0;
+    // 5h: 전면 orphan = 결실 0(정직 거부 경로의 입력 형태)
+    JKCHK("2zb-5h", jk_utf8_clean("\xA5\xBC\xA1", &out, &removed) == 0 &&
+        out != NULL && out[0] == '\0' && removed == 3);
+    free(out); out = NULL; removed = 0;
+    #undef JKCHK
+    printf("%s (2zb 계열 확장 — 부품 등호 %s)\n",
+           fails == 0 ? "JKSANITIZE-PASS" : "JKSANITIZE-FAIL",
+           fails == 0 ? "8/8" : "위 원문 FAIL 행");
+    return fails == 0 ? 0 : 1;
+}
+
+#ifdef JKSANITIZE_SELFTEST_MAIN
+// Win/폰 양축 단독 자기검증 — 순수 정리부만(jni/whisper 링크 0).
+int main(void) { return jk_selftest_sanitize(); }
+#else
+#include <jni.h>
+#include <whisper.h>
 
 #define JKJNI_ERR_MAX 512
 
@@ -280,6 +441,21 @@ static int jk_transcribe_core(const char* wavPath, const char* modelPath,
         free(samples);
         samples = NULL;
 
+        // UTF-8 정리 1회 — T1 결함 원장행 수형(orphan 소각 — 헤더 계약).
+        // 소각은 조용해도 정직하다: 소각은 파열 바이트의 제거이고 전사 본문은
+        // whisper 산출 원문 그대로다. 소각 증거는 "전면 소각" 경로의 err에만
+        // 병기한다(본문 생존 케이스에서 전사 표면을 오염시키지 않는다).
+        char* cleaned = NULL;
+        size_t removed = 0;
+        if (jk_utf8_clean(text, &cleaned, &removed) != 0) {
+            free(text);
+            snprintf(errbuf, sizeof(errbuf), "jkapk 전사 UTF-8 정리 실패 (malloc)");
+            goto fail;
+        }
+        free(text);
+        text = cleaned;
+        len = strlen(text);
+
         // 전주 trim — cli 원존 행 선행 공백+ParseLastText 절단의 합성 등호 목표.
         size_t b = 0, e = len;
         while (b < e && (text[b] == ' ' || text[b] == '\n' || text[b] == '\r' ||
@@ -289,7 +465,9 @@ static int jk_transcribe_core(const char* wavPath, const char* modelPath,
         if (b == e) {
             free(text);
             snprintf(errbuf, sizeof(errbuf),
-                     "jkapk 빈 전사 (whisper full API 결실 0 — 원존 빈 전사 계약 수형)");
+                     "jkapk 빈 전사 (whisper full API 결실 0 — 원존 빈 전사 계약 수형"
+                     "%s: orphan 소각 %zu바이트)",
+                     removed > 0 ? " — 정리 후 결실 0" : "", removed);
             goto fail;
         }
         memmove(text, text + b, e - b);
@@ -356,6 +534,12 @@ Java_chang_jkapk_JniWhisper_jkapkTranscribe(JNIEnv* env, jclass clazz,
 #ifdef JKJNI_SELFTEST_MAIN
 int main(int argc, char** argv) {
     // argv: 1=wav 2=model 3=prompt(생략 가능 — kVoicePrompt 계약의 argv 승계)
+    // v2 T2 — 먼저 결정 부품 등호(UTF-8 정리 2zb-5a..h — 비결정 전사 축
+    // 어셜션 금지 계약 준수: 전사 결실은 stdout 수취(원문)만).
+    if (jk_selftest_sanitize() != 0) {
+        fprintf(stderr, "jkapk 정리부 selftest FAIL — 중단\n");
+        return 3;
+    }
     if (argc < 3) {
         fprintf(stderr, "usage: %s <wav> <model> [prompt]\n", argv[0]);
         return 2;
@@ -375,3 +559,4 @@ int main(int argc, char** argv) {
     return 0;
 }
 #endif  // JKJNI_SELFTEST_MAIN
+#endif  // JKSANITIZE_SELFTEST_MAIN — 정리부 단독 자기검증(Win/폰 양축)
