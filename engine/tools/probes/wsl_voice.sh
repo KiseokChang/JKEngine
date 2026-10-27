@@ -1287,32 +1287,37 @@ capshot() { # $1=engine/tmp 회수명
 }
 sleep 2
 capshot voc_wsl_badge3.png
-# 번호→포커스("창 3" 발화의 질의 소비) — 배지 3번 창
-# [118-1 런 원장행 — 포커스 대상 선택]: 즉발 행은 "창 3" 고정(VOV 행 양식 등호
-# — 2y-⑲ 원존)이고, 라이브 소비의 착탄 증거는 **미포커스 창**의 배지 숫자를
-# 쓴다(이미 포커스된 창에 num을 찍으면 "True→True" 가양성 — 118-1 런 원장행).
-# 미포커스 창 0(전부 포커스 — 본래 불가)이면 idx=1 폴백(정직 원장행).
-NUMT=$(awk -F'\t' '$4=="false"{print $2; exit}' "$SCRATCH/voc_win_pre.json.txt")
-NUMT=${NUMT:-1}
-TARGETN=$(awk -F'\t' -v n="$NUMT" '$2==n{print $3; exit}' "$SCRATCH/voc_win_pre.json.txt")
-[ -n "$TARGETN" ] || FAIL "badge $NUMT window id parse failed"
-echo "OVER-TGT-NUM: num=$NUMT id=$TARGETN (미포커스 창의 배지 숫자 — 착탄 증거 대상)"
-FOC=$(timeout 15 ./buildwsl/jkdesktop agentctl "{\"tool\":\"focus_window\",\"args\":{\"num\":$NUMT}}" 2>/dev/null | grep -a '{' | head -1)
-echo "OVER-FOCUS-NUM: num=$NUMT reply=${FOC:-none} (번호 발화의 focus_window num 릴레이 — 2y-⑲(g) 질의 양식 소비)"
-printf '%s' "$FOC" | grep -aq '"ok":true' || echo "VOICE-FAIL(over-focus-num: $FOC)"
-sleep 2
-capture_window_json "$SCRATCH/voc_win_post.json"
-sed 's/^/  /' "$SCRATCH/voc_win_post.json.txt"
-FP=$(awk -F'\t' -v n="$NUMT" '$2==n{print $4; exit}' "$SCRATCH/voc_win_post.json.txt")
-T3B=$(awk -F'\t' -v n="$NUMT" '$2==n{print $3; exit}' "$SCRATCH/voc_win_post.json.txt")
-FOC_EQ=0
-[ "$FP" = "true" ] && [ "$TARGETN" = "$T3B" ] && FOC_EQ=1
-if [ "$FOC_EQ" -eq 1 ]; then
-    echo "OVER-FOCUS-EQ: OK — idx=$NUMT 창(id=$TARGETN) focused=true 등호(배지 숫자"
-         "·list_windows z등호 — T1 원존의 라이브 원문)"
-else
-    echo "VOICE-FAIL(over-focus-eq: idx=$NUMT focused=[$FP] id=[$T3B] target=[$TARGETN] — 배지-포커스 등호 원장)"
-fi
+# 번호→포커스 스윕(번호 발화의 질의 소비 — fix r6 정찰 계약): **num=1..NVIS
+# 각각** focus → list_windows의 focused 등호 원문+배지 원문 캡처(포커스 전후
+# focused 창 원문). 배지 숫자↔창 매칭과 도구 판정의 부정합(스왑) 여부를
+# 분절한다 — 정찰 원문(118-R1 리포트 오기 조사 — §7.15.3). 렌더(스냅샷)와
+# 도구(badgeTargets 수집기)가 같은 clients_ 순회라 등호의 구조 근거도 원존,
+# 본 스윕은 그 라이브 원문(모형 부합)을 수취한다.
+# [118-1 런 원장행(승계 — 스윕은 그 함정을 구조적으로 소각)]: 단발 대상이
+# 이미 포커스 창이면 "True→True" 가양성 — 스윕은 전 번호를 돌며 각각
+# idx N focused=true가 쌓이는 원문으로 판정한다(가양성 지대 없음).
+FOC_EQ=1
+TARGETN=""
+for N in $(seq 1 "$NVIS"); do
+    FOCN=$(timeout 15 ./buildwsl/jkdesktop agentctl "{\"tool\":\"focus_window\",\"args\":{\"num\":$N}}" 2>/dev/null | grep -a '{' | head -1)
+    echo "OVER-FOCUS-NUM: num=$N reply=${FOCN:-none} (번호 발화의 focus_window num 릴레이 — 2y-⑲(g) 질의 양식 소비)"
+    printf '%s' "$FOCN" | grep -aq '"ok":true' || echo "VOICE-FAIL(over-focus-num: num=$N — $FOCN)"
+    sleep 2
+    capture_window_json "$SCRATCH/voc_win_f$N.json"
+    sed 's/^/  /' "$SCRATCH/voc_win_f$N.json.txt"
+    FP=$(awk -F'\t' -v n="$N" '$2==n{print $4; exit}' "$SCRATCH/voc_win_f$N.json.txt")
+    TN=$(awk -F'\t' -v n="$N" '$2==n{print $3; exit}' "$SCRATCH/voc_win_f$N.json.txt")
+    TP=$(awk -F'\t' -v n="$N" '$2==n{print $3; exit}' "$SCRATCH/voc_win_pre.json.txt")
+    capshot "voc_wsl_badge_f$N.png"
+    if [ "$FP" = "true" ] && [ "$TN" = "$TP" ]; then
+        echo "OVER-FOCUS-EQ: num=$N — idx$N 창(id=$TP) focused=true 등호(배지 숫자"
+             "·list_windows z등호 — T1 원존의 라이브 원문)"
+    else
+        echo "VOICE-FAIL(over-focus-eq: num=$N focused=[$FP] id-이동=[$TP → $TN] — 배지-포커스 등호 원장)"
+        FOC_EQ=0
+    fi
+done
+[ "$FOC_EQ" -eq 1 ] || echo "VOICE-FAIL(over-focus-sweep: 스윕 등호 미성립 — 위 원장)"
 # 범위 밖 = 정직 window_not_found(D5 — 포커스 창 폴백 금지 원존의 라이브 원문)
 FOC99=$(timeout 15 ./buildwsl/jkdesktop agentctl '{"tool":"focus_window","args":{"num":99}}' 2>/dev/null | grep -a '{' | head -1)
 echo "OVER-FOCUS-99: ${FOC99:-none}"
@@ -1348,9 +1353,9 @@ VOVER_OK=0
     && [ "$OV_COUNT_EQ" -eq 1 ] && [ "$FOC_EQ" -eq 1 ] && [ "$OV_NF" -eq 1 ] \
     && [ "$OV_OFF_DIFF" -eq 1 ] && VOVER_OK=1
 if [ "$VOVER_OK" -eq 1 ]; then
-    echo "VOVER-VERDICT: VOVER-OK(#118 오버레이 E2E — 어휘 4행 질의 양식 원문 등호(overlay 2+번호 화법 2 — 2y-⑲)+배지 원문 캡처(창 $NVIS — count 등호)·\"창 $NUMT\"→focus_window num=$NUMT → idx$NUMT(id=$TARGETN) focused=true 등호(미포커스 대상 — 착탄 증거 원존)·범위 밖 num=99 = window_not_found 정직·off 배지 소멸 대조 — 캐논 $ST_PASS·3a=$ST3A)"
+    echo "VOVER-VERDICT: VOVER-OK(#118 오버레이 E2E — 어휘 4행 질의 양식 원문 등호(overlay 2+번호 화법 2 — 2y-⑲)+배지 원문 캡처(창 $NVIS — count 등호)·번호 발화 스윕 num=1..$NVIS 전원 focused 등호(배지 숫자↔창 매칭과 도구 판정의 부정합 분절 — fix r6 정찰 — voc_wsl_badge_f*.png 원문)·범위 밖 num=99 = window_not_found 정직·off 배지 소멸 대조 — 캐논 $ST_PASS·3a=$ST3A)"
 else
-    echo "VOVER-VERDICT: VOVER-FAIL(honest — route=${VOVROUTE:-0}/4 excl=${VOVEXCL:-0}/2 oncnt=${OV_COUNT_EQ:-0} focus=${FOC_EQ:-0} nf=${OV_NF:-0} offdiff=${OV_OFF_DIFF:-0} — 사유 열은 상단 VOICE-FAIL 행)"
+    echo "VOVER-VERDICT: VOVER-FAIL(honest — route=${VOVROUTE:-0}/4 excl=${VOVEXCL:-0}/2 oncnt=${OV_COUNT_EQ:-0} sweep=${FOC_EQ:-0} nf=${OV_NF:-0} offdiff=${OV_OFF_DIFF:-0} — 사유 열은 상단 VOICE-FAIL 행)"
 fi
 echo "#118-RUN-VALS: run=${RUN_NO} canon=${ST_PASS} 2y=${ST2Y} 3a=${ST3A} overlay=${VOVER_OK:-0} ovcnt=${OV_COUNT_EQ:-0} ovfocus=${FOC_EQ:-0} ovnf=${OV_NF:-0} ovoff=${OV_OFF_DIFF:-0} captures=engine/tmp/voc_wsl_badge3*.png"
 echo "=== 15. VOICE-RUN-VALS + VOICE-VERDICT (요약 스트림 계약 — stdout 수취) ==="

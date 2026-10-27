@@ -1375,31 +1375,35 @@ capture() {
     echo "OVE-CAP-OK: $1 ($(wc -c < "$TMPD/$1") bytes)"
 }
 capture t6pv_badge_n.png
-# [118-1 런 원장행 승계 — 미포커스 대상]: 즉발 행은 "창 3" 고정(VOV 양식 등호)
-# 이고, 라이브 착탄 증거는 미포커스 창의 배지 숫자("True→True" 가양성 방지).
-NUMT=$(awk -F'\t' '$4=="false"{print $2; exit}' "$TMPD/t6pv_ove_pre.json.txt")
-NUMT=${NUMT:-1}
-T3=$(awk -F'\t' -v n="$NUMT" '$2==n{print $3; exit}' "$TMPD/t6pv_ove_pre.json.txt")
-if [ -n "$T3" ]; then
-    F=$(ctl "{\"tool\":\"focus_window\",\"args\":{\"num\":$NUMT}}")
-    echo "OVE-FOCUS-NUM: num=$NUMT reply=${F:-none} (번호 발화의 focus_window num 릴레이 원문)"
-    ok "$F" || FAIL "focus num=$NUMT — $F"
+# [fix r6 정찰 계약(WSL판 §13c 동형) — 번호 발화 스윕]: num=1..NVIS 각각
+# focus → list_windows focused 등호 원문+배지 원문 캡처(포커스 전후 스윕 —
+# 118-R1 리포트 오기 조사의 분절 원문). "118-1 가양성 원장행(승계)"의
+# 구조적 소각: 전 번호를 돌며 idx N focused=true가 쌓이는 원문 판정.
+SWEEP=1
+for N in $(seq 1 "$NVIS"); do
+    F=$(ctl "{\"tool\":\"focus_window\",\"args\":{\"num\":$N}}")
+    echo "OVE-FOCUS-NUM: num=$N reply=${F:-none} (번호 발화의 focus_window num 릴레이 원문)"
+    ok "$F" || FAIL "focus num=$N — $F"
     sleep 3
     wjson "$TMPD/t6pv_ove_post.json"
     sed 's/^/  /' "$TMPD/t6pv_ove_post.json.txt"
-    FP=$(awk -F'\t' -v n="$NUMT" '$2==n{print $4; exit}' "$TMPD/t6pv_ove_post.json.txt")
-    T3B=$(awk -F'\t' -v n="$NUMT" '$2==n{print $3; exit}' "$TMPD/t6pv_ove_post.json.txt")
-    echo "OVE-FOCUS-RESULT: idx$NUMT focused=$FP id=$T3B (배지 id=$T3 대조)"
-    [ "$FP" = "true" ] && [ "$T3" = "$T3B" ] \
-        || FAIL "focus 등호 불성립 (idx$NUMT focused=[$FP] id=[$T3B] target=$T3)"
-    echo "OVE-FOCUS-EQ: OK — idx=$NUMT(id=$T3) focused=true 등호"
-    FN=$(ctl '{"tool":"focus_window","args":{"num":99}}')
-    echo "OVE-FOCUS-99: ${FN:-none} (범위 밖 — window_not_found 정직 원문)"
-    printf '%s' "$FN" | grep -aqF '"error":"window_not_found"' \
-        || FAIL "num=99 not window_not_found — $FN"
-else
-    echo "OVE-SKIP-NUM3: visible 창 3개 표본 없음(nv=$NVIS) — 번호 포커스 원문 미실측(정직 — 캡처 행만 유효)"
-fi
+    FP=$(awk -F'\t' -v n="$N" '$2==n{print $4; exit}' "$TMPD/t6pv_ove_post.json.txt")
+    TN=$(awk -F'\t' -v n="$N" '$2==n{print $3; exit}' "$TMPD/t6pv_ove_post.json.txt")
+    TP=$(awk -F'\t' -v n="$N" '$2==n{print $3; exit}' "$TMPD/t6pv_ove_pre.json.txt")
+    capture "t6pv_badge_f$N.png"
+    if [ "$FP" = "true" ] && [ "$TN" = "$TP" ]; then
+        echo "OVE-FOCUS-EQ: num=$N — idx$N(id=$TP) focused=true 등호"
+    else
+        echo "OVE-FOCUS-FAIL: num=$N focused=[$FP] id-이동=[$TP → $TN]"
+        SWEEP=0
+    fi
+done
+FN=$(ctl '{"tool":"focus_window","args":{"num":99}}')
+echo "OVE-FOCUS-99: ${FN:-none} (범위 밖 — window_not_found 정직 원문)"
+printf '%s' "$FN" | grep -aqF '"error":"window_not_found"' \
+    || FAIL "num=99 not window_not_found — $FN"
+echo "OVE-FOCUS-SWEEP-OK: $SWEEP/$NVIS (번호 발화 스윕 등호 — fix r6 정찰 원문)"
+[ "$SWEEP" -eq 1 ] || FAIL "focus sweep 등호 미성립 — 위 원장"
 OFF=$(ctl '{"tool":"overlay_numbers","args":{"on":0}}')
 echo "OVE-OFF: ${OFF:-none}"
 ok "$OFF" || FAIL "overlay off — $OFF"
@@ -1438,7 +1442,8 @@ if [ "$OVRC" -eq 255 ]; then
 fi
 OV_LIVE=0
 if grep -aq 'OVE-FINISHED' <<< "$OVOUT" && ! grep -aq 'OVE-FAIL' <<< "$OVOUT" \
-   && grep -aq 'OVE-FOCUS-EQ: OK' <<< "$OVOUT"; then
+   && ! grep -aq 'OVE-FOCUS-FAIL' <<< "$OVOUT" \
+   && grep -aq 'OVE-FOCUS-SWEEP-OK: 1/' <<< "$OVOUT"; then
     OV_LIVE=1
     echo "VOVER-LIVE-OK"
 else
@@ -1446,8 +1451,11 @@ else
 fi
 recover "\$TMPDIR/t6pv_badge_n.png"   "$SCRATCH/pv_badge_n.png"
 recover "\$TMPDIR/t6pv_badge_off.png" "$SCRATCH/pv_badge_off.png"
-$SSH "rm -f \$TMPDIR/t6pv_badge_n.png \$TMPDIR/t6pv_badge_off.png" 2>/dev/null
-echo "OVE-BADGE-BURIED (회수 후 소각 — 잔상 0 계약)"
+for RN in 1 2 3; do
+    recover "\$TMPDIR/t6pv_badge_f$RN.png" "$SCRATCH/pv_badge_f$RN.png"
+done
+$SSH "rm -f \$TMPDIR/t6pv_badge_*.png" 2>/dev/null
+echo "OVE-BADGE-BURIED (회수 후 소각 — 배지 6종[n·off·f1-3]·잔상 0 계약)"
 FWOV=$($SSH "cd ~/JKENGINE/engine && timeout 20 ./buildterm/jkdesktop agentctl '{\"tool\":\"list_windows\",\"args\":{}}' 2>/dev/null | head -1" 2>/dev/null)
 echo "OVE-FINAL-WINDOWS: $FWOV (사용자 화면 = Music 복원 원존)"
 printf '%s' "$FWOV" | grep -aq '"title":"Music"' \
@@ -1496,7 +1504,7 @@ echo "=== 폰 VOVER-VERDICT (#118 오버레이 세그먼트 — 별행 1행 — 
 VOVER_OK=0
 [ "$VOVROUTE" -eq 4 ] && [ "$VOVEXCL" -eq 2 ] && [ "${OV_LIVE:-0}" -eq 1 ] && VOVER_OK=1
 if [ "$VOVER_OK" -eq 1 ]; then
-    echo "VOVER-PHONE-VERDICT: VOVER-PHONE-OK(#118 오버레이 폰 축 — 어휘 4행 질의 양식 원문 등호(overlay 2+번호 화법 2 — 2y-⑲ — buildterm 배포 진실원 재실측)+배지 원문 캡처 2종(pv_badge_n·pv_badge_off — capture_region — diag_j118 수형 재용)+번호 발화→focus_window num focused 등호(미포커스 대상)+범위 밖 num=99 = window_not_found 정직+off 배지 소멸 대조+Music 복원·잔상 0 — 화면 배지+번호 포커스 체감 = EYES 몫)"
+    echo "VOVER-PHONE-VERDICT: VOVER-PHONE-OK(#118 오버레이 폰 축 — 어휘 4행 질의 양식 원문 등호(overlay 2+번호 화법 2 — 2y-⑲ — buildterm 배포 진실원 재실측)+배지 원문 캡처 2종(pv_badge_n·pv_badge_off — capture_region — diag_j118 수형 재용)+번호 발화 스윕(배지↔포커스 등호 — fix r6 정찰·pv_badge_f*.png 원문)+범위 밖 num=99 = window_not_found 정직+off 배지 소멸 대조+Music 복원·잔상 0 — 화면 배지+번호 포커스 체감 = EYES 몫)"
 else
     echo "VOVER-PHONE-VERDICT: VOVER-PHONE-FAIL(honest — route=${VOVROUTE:-0}/4 excl=${VOVEXCL:-0}/2 live=${OV_LIVE:-0} — 사유 열은 상단 VOICE-PHONE-FAIL 행)"
 fi
