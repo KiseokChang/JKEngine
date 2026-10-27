@@ -991,6 +991,12 @@ if [ "$CAL_OK" -eq 1 ]; then
     python3 "$SHOT_PY" "$LOGDIR/voc_ck.png" >"$LOGDIR/voc_ck.log" 2>&1 || FAIL "ck shot"
     D=$(python3 "$FD" "$LOGDIR/voc_ck_base.png" "$LOGDIR/voc_ck.png")
     echo "DIFF-CLICK-1: $D"
+    CKFRAME="$LOGDIR/voc_ck.png"
+    # [함정 원장행 — 118-1 런 hard FAIL의 probe 자기 결함 소각]: 1탭이 곧 착탄
+    # (재시도 없음)이면 voc_ck2.png가 존재하지 않는데 성공 분기가 그것을 회수
+    # 하려 했다 — 원장행(정찰 원존: 클릭 1은 무음 소멸이 관행이라 2탭 경로만
+    # 실측됨 — 첫 합성 입력 무음 소멸은 창 스폰 뒤 1회 — F6 워밍 뒤 클릭은
+    # 초발 착탄). 수형 = 실제 변화 프레임(CKFRAME)을 회수.
     if printf '%s' "$D" | grep -aq 'diff_pixels=0'; then
         r=$(tap "$CH_ID" "$DVX" "$DVY")
         echo "CLICK-VOICE-2(재시도 — 무음 판정 뒤의 안전 재탭 — T5 함정 10 수형): ${r:-none}"
@@ -998,10 +1004,11 @@ if [ "$CAL_OK" -eq 1 ]; then
         python3 "$SHOT_PY" "$LOGDIR/voc_ck2.png" >"$LOGDIR/voc_ck2.log" 2>&1 || FAIL "ck2 shot"
         D=$(python3 "$FD" "$LOGDIR/voc_ck_base.png" "$LOGDIR/voc_ck2.png")
         echo "DIFF-CLICK-2: $D"
+        CKFRAME="$LOGDIR/voc_ck2.png"
     fi
     if ! printf '%s' "$D" | grep -aq 'diff_pixels=0'; then
         CLICKTURN=1
-        cp "$LOGDIR/voc_ck2.png" "$RECEIVE/voc_wsl_clickrec.png" || FAIL "clickrec copy"
+        cp "$CKFRAME" "$RECEIVE/voc_wsl_clickrec.png" || FAIL "clickrec copy"
         echo "CAPTURE: $RECEIVE/voc_wsl_clickrec.png (녹음 중 상태 원문 — 클릭 축)"
         echo "VOICE-SURFACE-CLICK-OK: [구두] 클릭 착탄(토글 개시) — 상태행/버튼 라벨의 전이 (diff $D)"
         sleep 3
@@ -1012,7 +1019,7 @@ if [ "$CAL_OK" -eq 1 ]; then
             sleep 5
             python3 "$SHOT_PY" "$LOGDIR/voc_ct_$i.png" >"$LOGDIR/voc_ct_$i.log" 2>&1 \
                 || FAIL "ct shot $i"
-            D=$(python3 "$FD" "$LOGDIR/voc_ck2.png" "$LOGDIR/voc_ct_$i.png")
+            D=$(python3 "$FD" "$CKFRAME" "$LOGDIR/voc_ct_$i.png")
             echo "CLITRANS($i): $D"
             printf '%s' "$D" | grep -aq 'diff_pixels=0' || {
                 CLICKTURN=2
