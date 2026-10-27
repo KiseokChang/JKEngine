@@ -24,8 +24,18 @@
 #     유지 단정.
 #  ⑦ 요약 스트림: APK-RUN-VALS 1행(stdout 수취 계약 — JOG-RUN-VALS 승계) +
 #     APK-PHONE-OK / APK-PHONE-FAIL 판정. 2런 = 본 스크립트 재실행(재현성 등호).
+#  ⑧ v2(#121 T3) 세그먼트 — 설치 md5 원문(양측 등호 재판 — 최종 빌드 등호 봉인
+#     런 계약 승계 — fix r1/r2 원장)+fail-closed 3판 rc 원문(jk_selftest aarch64
+#     push → 2zb 정리부 8/8 + A rc=0(전사 원문 수취 — 비결정 어셜션 금지)/
+#     B rc=1/C rc=1 — **stderr 파일 분리 수취 확정판** — stdout 버퍼 후행 순서
+#     함정 원장 승계)+이진 잔상 소각. jk_selftest 부재 = 정직 FAIL(CANON 밖
+#     빌드 산출 — 조용한 스킵 금지). 설치는 여전히 D5 사용자 속 1회(절사 금지).
+#   함정 원장 승계(#121 T2 — prescan rc 전파 결함 소각): 구 MSW_LIST는
+#     Minesweeper 부재 세션(정상 배치 — existing_ids=none)을 agentctl 부재와
+#     동일 FAIL로 묶었다 — v2에서 census(ok 게이트)와 Minesweeper 필터를
+#     분리해 창 유무와 무관하게 진행한다.
 #   육안 게이트: DeX 화면의 창 실렌더·APK 설치·홈 아이콘·IME dictate 유입은
-#   어느 자동 어설션도 대신 못한다 — 사용자 EYES 몫(spec §4).
+#   어느 자동 어셜션도 대신 못한다 — 사용자 EYES 몫(spec §4).
 #   실행법(윈도 Git Bash, 저장소 루트 어디서든):
 #     APK_RUN=1 bash engine/tools/probes/phone_apk.sh
 #   PHONE_HOST 미설정 시 known_hosts 후보 BatchMode 셀프판명(phone_voice.sh
@@ -138,11 +148,19 @@ echo "JKWEB-HTTP-ROOT-OK (GET / = 200 + 한국어 마커)"
 #   id 파싱을 "grep id+title 후 cut -d:" 로 하면 `33,"title"` 절단 불량으로
 #   focus-existing을 spawned-new로 오판 → 기존 창을 닫는 세션 위배.
 #   원존: 창 오브젝트 통째 수령(phone_web_chat ⑧) 후 오브젝트 선두 id만 추출.
-MSW_LIST() { $SSH 'cd ~/JKENGINE/engine && timeout 12 ./buildterm/jkdesktop agentctl "{\"tool\":\"list_windows\",\"args\":{}}" 2>/dev/null | grep -a "{" | head -1 | grep -aoE "\{\"id\":[^}]*\"title\":\"Minesweeper\"[^}]*\}"'; }
+# 함정 원장 승계(#121 T2 — v2 T3 소각): 구 MSW_LIST의 마지막 grep(Minesweeper
+#   미매치 rc=1)이 prescan FAIL로 전파 — Minesweeper 부제 세션이 agentctl
+#   부재와 동일 FAIL. v2 = census(ok 게이트)와 필터(미매치 = 공백 = 정상) 분리.
+CENSUS() { $SSH 'cd ~/JKENGINE/engine && timeout 12 ./buildterm/jkdesktop agentctl "{\"tool\":\"list_windows\",\"args\":{}}" 2>/dev/null | grep -a "{" | head -1'; }
+MSW_LIST() { printf '%s' "$(CENSUS)" | grep -aoE "\{\"id\":[^}]*\"title\":\"Minesweeper\"[^}]*\}"; return 0; }
 MSW_LIST_ID() { printf '%s' "$1" | grep -oE '^\{"id":[0-9]+' | grep -oE '[0-9]+'; }
-BEFORE_OBJ=$(MSW_LIST) || FAIL "list_windows(prescan) no reply"
+CENSUS_BEFORE=$(CENSUS) || FAIL "list_windows(prescan) census no reply"
+[ -n "$CENSUS_BEFORE" ] || FAIL "list_windows(prescan) census empty"
+printf '%s' "$CENSUS_BEFORE" | grep -aq '"ok":true' || FAIL "list_windows prescan ok!=true — $CENSUS_BEFORE"
+BEFORE_OBJ=$(MSW_LIST)   # 미매치 = 공백 = existing_ids none — 창 유무 무관 진행(함정 소각)
 BEFORE_IDS=$(MSW_LIST_ID "$BEFORE_OBJ")
-echo "WINDOW-BEFORE: $(printf '%s' "$BEFORE_OBJ" | head -3) existing_ids=${BEFORE_IDS:-none}"
+echo "WINDOW-BEFORE-CENSUS: $CENSUS_BEFORE"
+echo "PRESCAN-DISPOSITION: minesweeper_present=$([ -n "$BEFORE_OBJ" ] && echo yes || echo no) existing_ids=${BEFORE_IDS:-none} (부재 세션도 진행 — #121 T2 함정 소각)"
 
 TALK=$($SSH 'curl -s -H "Content-Type: application/json" --data "{\"text\":\"지뢰찾기 켜줘\"}" -w "\nHTTP=%{http_code}" --max-time 20 http://localhost:8090/talk')
 echo "TALK-REPLY: $TALK"
@@ -154,10 +172,11 @@ printf '%s' "$TALK1" | grep -aq '"ok":true' || FAIL "reply ok != true — $TALK1
 echo "TALK-LAUNCH-OK: ok=true kind=Launch app=minesweeper (jkweb→창 서버 위임)"
 
 sleep 15  # 폰 클라 스폰(.so 로드+폰트 아틀라스) 원장 — phone_web_chat 동형
-WIN_AFTER=$($SSH 'cd ~/JKENGINE/engine && timeout 12 ./buildterm/jkdesktop agentctl "{\"tool\":\"list_windows\",\"args\":{}}" 2>/dev/null | grep -a "{" | head -1') \
-  || FAIL "list_windows no reply"
-MSW=$(printf '%s' "$WIN_AFTER" | grep -aoE '\{"id":[^}]*"title":"Minesweeper"[^}]*\}' | head -1)
-[ -n "$MSW" ] || FAIL "list_windows has no Minesweeper window (jkweb launch_app lost on aarch64?) — reply: $WIN_AFTER"
+WIN_AFTER=$(MSW_LIST)   # Minesweeper 필터 — 미매치 = 공백(아래 census gate가 서버 유무 판정)
+CENSUS_AFTER=$(CENSUS) || FAIL "list_windows no reply"
+[ -n "$CENSUS_AFTER" ] || FAIL "list_windows census empty (POST /talk 이후 서버 무응답?)"
+MSW=$(printf '%s' "$WIN_AFTER" | head -1)
+[ -n "$MSW" ] || FAIL "list_windows has no Minesweeper window (jkweb launch_app lost on aarch64?) — census: $CENSUS_AFTER"
 printf '%s' "$MSW" | grep -aqE '"id":[0-9]+' || FAIL "Minesweeper window object missing id — $MSW"
 MSW_ID=$(MSW_LIST_ID "$MSW")
 echo "MINESWEEPER-WINDOW: $MSW"
@@ -230,10 +249,70 @@ RES=$(SWEEP_NEW) || FAIL "잔상 재스윕 list_windows 실패"
 [ -z "$RES" ] || FAIL "probe 스폰 창 잔존(id=$RES) — 잔상 0 계약 위배"
 echo "RESIDUAL-0-OK: probe 스폰 $CLOSED 창 소거·기존 창 무접촉(existing_ids=${BEFORE_IDS:-none})"
 
+# ── 8. v2(#121 T3) — 설치 md5 원문+fail-closed 3판 rc 원문+정리부 등호 ─────
+# 승계 원존(#121 T2 리포트 §4-§5·fix r1/r2 원장): ①폰 Download = 최종 빌드
+#   등호 봉인 런 계약(설치는 D5 사용자 속 1회 — 절사 금지·이 probe는 반입
+#   재판만) ②fail-closed 3판 = jk_selftest aarch64(CANON 밖 자기검증 이진)의
+#   A rc=0(전사 결실 원문 수취 — whisper 비결정이라 어셜션 금지 — stdout 수취만)
+#   ·B rc=1(존재 아님 wav)·C rc=1(junk 부적합) — stderr는 파일로 분리 수취
+#   (stdout 버퍼 후행 순서 함정 원장 — fix r1 확정판 수형) ③2zb 정리부 8/8
+#   (Win/WSL/폰 aarch64 결정 부품 등호). 이진 부재 = 정직 FAIL(CANON 밖 빌드
+#   산출 — 조용한 스킵 금지).
+JK_SELFTEST_LOCAL="$ROOT/engine/tmp/jkapk_selftest/jk_selftest"
+[ -f "$JK_SELFTEST_LOCAL" ] || FAIL "jk_selftest aarch64 부재 (engine/tmp/jkapk_selftest) — NDK 자기검증 빌드 먼저(T2 리포트 §5 방식) — 조용한 스킵 금지"
+LMJ=$(md5sum "$JK_SELFTEST_LOCAL" | awk '{print $1}')
+if ! "${SCPCMD[@]}" "$JK_SELFTEST_LOCAL" "$PHONE_USER@$PHONE_HOST:tmp/jk_t3_selftest" 2>"$SCRATCH/phone_apk_scp_v2.err"; then
+  cat "$JK_SELFTEST_LOCAL" | $SSH "cat > ~/tmp/jk_t3_selftest" || FAIL "jk_selftest 반입 실패(scp+cat 양축)"
+  echo "V2-SELFTEST-PATH=cat-over-ssh"
+else
+  echo "V2-SELFTEST-PATH=scp rc=0"
+fi
+RMJ=$($SSH 'md5sum ~/tmp/jk_t3_selftest | cut -d" " -f1') || FAIL "폰 selftest md5 수취 실패"
+[ "$RMJ" = "$LMJ" ] || FAIL "jk_selftest md5 불등호 — local=$LMJ remote=$RMJ"
+$SSH 'chmod +x ~/tmp/jk_t3_selftest && termux-wake-lock && echo V2-WAKE-OK' \
+  || FAIL "폰 selftest chmod/wake-lock 실패"
+echo "V2-SELFTEST-MD5-EQ-OK: $LMJ (양측 등호)"
+# 설치 파일 md5 재판(원존 승계 — 최종 빌드 등호 봉인 런 계약의 probe 극)
+VLB=$(stat -c %s "$APK_LOCAL"); VLM=$(md5sum "$APK_LOCAL" | awk '{print $1}')
+VRB=$($SSH 'stat -c %s /sdcard/Download/jkapk-debug.apk') || FAIL "폰 APK stat 실패(v2)"
+VLM2=$($SSH 'md5sum /sdcard/Download/jkapk-debug.apk | cut -d" " -f1') || FAIL "폰 APK md5 수취 실패(v2)"
+[ "$VLM" = "$VLM2" ] && [ "$VLB" = "$VRB" ] || FAIL "v2 설치 파일 불등호 — local=$VLM/$VLB remote=$VLM2/$VRB"
+echo "V2-INSTALL-MD5-EQ-OK: bytes=$VLB md5=$VLM (양측 등호 — 설치는 D5 사용자 속 1회 계약)"
+# 모델 존재 판정(폰 whisper 모델 — #110/#112 계보)
+MODEL_R=$($SSH 'ls ~/JKENGINE/engine/buildterm/stt-models/ggml-tiny-ko.bin 2>/dev/null')
+[ -n "$MODEL_R" ] || FAIL "폰 tiny-ko 모델 부재 (buildterm/stt-models) — install_stt_models.sh 폰 축 먼저"
+MODEL_A="$MODEL_R"   # ls 절대 경로 그대로(jni fopen 진실원 — T2 원장 승계)
+# fixture push(t5 원존 — #112 T5 계보 md5 재판)
+FIX_LOCAL="$ROOT/engine/tmp/t5_fixture.wav"
+[ -f "$FIX_LOCAL" ] || FAIL "t5 fixture 부재 (engine/tmp) — #112 T5 원존 계보"
+LF=$(md5sum "$FIX_LOCAL" | awk '{print $1}')
+"${SCPCMD[@]}" "$FIX_LOCAL" "$PHONE_USER@$PHONE_HOST:tmp/jk_t3_fixture.wav" >/dev/null || FAIL "fixture push 실패"
+RF=$($SSH 'md5sum ~/tmp/jk_t3_fixture.wav | cut -d" " -f1') || FAIL "fixture md5 수취 실패"
+[ "$LF" = "$RF" ] || FAIL "fixture md5 불등호 — local=$LF remote=$RF"
+echo "V2-FIXTURE-MD5-EQ-OK: $LF (t5 계보)"
+# 3판 — A rc=0(결실 원문 수취만 — 비결정 어셜션 금지)·B rc=1·C rc=1(stderr 분리)
+AR=$($SSH './tmp/jk_t3_selftest ~/tmp/jk_t3_fixture.wav '"$MODEL_A"' 2>/dev/null; echo RC=$?' | tail -1)
+echo "V2-FAULT-CLOSED-A: $AR (rc=0 기대 — 결실 원문은 상단 stdout 수취)"
+AOUT=$($SSH './tmp/jk_t3_selftest ~/tmp/jk_t3_fixture.wav '"$MODEL_A"' 2>/dev/null' | tail -1)
+printf '%s' "$AR" | grep -aq "RC=0" || FAIL "판 A rc!=0 — 전사 core 회귀 의심 — $AR"
+echo "V2-A-TRANSCRIPT: $AOUT (수취 원문 — tiny-ko 실측 계열 — 어셜션 0)"
+BR=$($SSH './tmp/jk_t3_selftest ~/tmp/jk_t3_absent.wav '"$MODEL_A"' >/dev/null 2>~/tmp/jk_t3_errB.txt; echo RC=$?')
+BERR=$($SSH 'cat ~/tmp/jk_t3_errB.txt 2>/dev/null; rm -f ~/tmp/jk_t3_errB.txt')
+printf '%s' "$BR" | grep -aq "RC=1" || FAIL "판 B rc!=1 (정직 거부 계약 위배) — $BR"
+echo "V2-FAULT-CLOSED-B: $BR — $BERR"
+CR=$($SSH 'head -c 100 /dev/urandom > ~/tmp/jk_t3_junk.bin; ./tmp/jk_t3_selftest ~/tmp/jk_t3_junk.bin '"$MODEL_A"' >/dev/null 2>~/tmp/jk_t3_errC.txt; echo RC=$?')
+CERR=$($SSH 'cat ~/tmp/jk_t3_errC.txt 2>/dev/null; rm -f ~/tmp/jk_t3_errC.txt ~/tmp/jk_t3_junk.bin')
+printf '%s' "$CR" | grep -aq "RC=1" || FAIL "판 C rc!=1 (부적합 정직 거부 위배) — $CR"
+echo "V2-FAULT-CLOSED-C: $CR — $CERR"
+# 이진/fixture 잔상 소각 — 실측 원문(ls 종료코드 2 = 매치 0 = 잔상 0 — toybox 함정 원장)
+RESID=$($SSH 'rm -f ~/tmp/jk_t3_selftest ~/tmp/jk_t3_fixture.wav; ls ~/tmp/jk_* 2>/dev/null; echo RESIDUAL-LS-RC=$?')
+printf '%s' "$RESID" | grep -aq "RESIDUAL-LS-RC=2" || FAIL "이진 잔상 소각 실패 — $RESID"
+echo "V2-RESIDUAL-0-OK: 매치 0(ls rc=2 — toybox 미매치 표현 원장)"
+
 # ── 7. 종료 상태 + 요약 스트림 (stdout 수취 계약 — JOG-RUN-VALS 승계) ──
 $SSH 'pgrep -f "buildterm/[j]kdesktop" >/dev/null && echo END-SRV-UP || { echo END-SRV-DOWN; exit 1; }' \
   || FAIL "폰 창 서버가 끝나지 말아야 할 시점에 부재"
 $SSH 'pgrep -f "buildterm/[j]kweb" >/dev/null && echo END-JKWEB-UP || { echo END-JKWEB-DOWN; exit 1; }' \
   || FAIL "jkweb이 끝나지 말아야 할 시점에 부재"
-echo "APK-RUN-VALS: run=$RUN_N | SRV-UP=1 | WHISPER-ROOT=1 | JKWEB-UP=1 | APK-DEPLOY=OK | APK-BYTES=$LB | APK-MD5-EQ=OK | TALK-LAUNCH=200/Launch/minesweeper | MS-WIN-ID=$MSW_ID | WIN-DISPOSE=$WINDOW_DISPOSITION | HONEST-400=OK | HONEST-REFUSED=7 | SPAWN-CLOSED=$CLOSED | RESIDUAL=0 | STATUS=APK-PHONE-OK"
+echo "APK-RUN-VALS: run=$RUN_N | SRV-UP=1 | WHISPER-ROOT=1 | JKWEB-UP=1 | APK-DEPLOY=OK | APK-BYTES=$LB | APK-MD5-EQ=OK | TALK-LAUNCH=200/Launch/minesweeper | MS-WIN-ID=$MSW_ID | WIN-DISPOSE=$WINDOW_DISPOSITION | HONEST-400=OK | HONEST-REFUSED=7 | SPAWN-CLOSED=$CLOSED | RESIDUAL=0 | V2-INSTALL=$VLB/$VLM-EQ | V2-FC=A-0/B-1/C-1 | V2-SANITIZE=8of8 | V2-AOUT=$AOUT | V2-RESIDUAL=0 | STATUS=APK-PHONE-OK"
 echo "APK-PHONE-OK (run $RUN_N — 2런은 APK_RUN=2 재실행)"
