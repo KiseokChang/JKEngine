@@ -1315,8 +1315,8 @@ ok()  { printf '%s' "${1:-}" | grep -aq '"ok":true'; }
 failout() {
     for T in Chat "Video Player" Notifications; do
         WLX=$(ctl '{"tool":"list_windows","args":{}}' 2>/dev/null)
-        WIX=$(printf '%s' "$WLX" | grep -aoE "{"id":[0-9]+,"title":"${T}" | grep -oE '[0-9]+' | head -1)
-        [ -n "$WIX" ] && ctl "{"tool":"close_window","args":{"id":$WIX}}" >/dev/null 2>&1
+        WIX=$(printf '%s' "$WLX" | grep -aoE '\{"id":[0-9]+,"title":"'"$T" | grep -oE '[0-9]+' | head -1)
+        [ -n "$WIX" ] && ctl '{"tool":"close_window","args":{"id":'"$WIX"'}}' >/dev/null 2>&1
         sleep 1
     done
     ctl '{"tool":"launch_app","args":{"app":"music"}}' >/dev/null 2>&1
