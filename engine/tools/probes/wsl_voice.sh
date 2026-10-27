@@ -1342,6 +1342,17 @@ done
 echo "=== 14. stderr 진단 수취 (서버 로그 — chat/minesweeper 스폰 계통) ==="
 grep -a 'spawned\|module' "$LOG" | tail -8 | sed 's/^/  /'
 
+echo "=== 15b. VOVER-VERDICT (#118 오버레이 세그먼트 — 별행 1행 — VOICE-VERDICT 무변조 — #115b VOCAB 별행 원존) ==="
+VOVER_OK=0
+[ "$VOVROUTE" -eq 4 ] && [ "$VOVEXCL" -eq 2 ] && [ "$OV_ON_OK" -eq 1 ] \
+    && [ "$OV_COUNT_EQ" -eq 1 ] && [ "$FOC_EQ" -eq 1 ] && [ "$OV_NF" -eq 1 ] \
+    && [ "$OV_OFF_DIFF" -eq 1 ] && VOVER_OK=1
+if [ "$VOVER_OK" -eq 1 ]; then
+    echo "VOVER-VERDICT: VOVER-OK(#118 오버레이 E2E — 어휘 4행 질의 양식 원문 등호(overlay 2+번호 화법 2 — 2y-⑲)+배지 원문 캡처(창 $NVIS — count 등호)·\"창 $NUMT\"→focus_window num=$NUMT → idx$NUMT(id=$TARGETN) focused=true 등호(미포커스 대상 — 착탄 증거 원존)·범위 밖 num=99 = window_not_found 정직·off 배지 소멸 대조 — 캐논 $ST_PASS·3a=$ST3A)"
+else
+    echo "VOVER-VERDICT: VOVER-FAIL(honest — route=${VOVROUTE:-0}/4 excl=${VOVEXCL:-0}/2 oncnt=${OV_COUNT_EQ:-0} focus=${FOC_EQ:-0} nf=${OV_NF:-0} offdiff=${OV_OFF_DIFF:-0} — 사유 열은 상단 VOICE-FAIL 행)"
+fi
+echo "#118-RUN-VALS: run=${RUN_NO} canon=${ST_PASS} 2y=${ST2Y} 3a=${ST3A} overlay=${VOVER_OK:-0} ovcnt=${OV_COUNT_EQ:-0} ovfocus=${FOC_EQ:-0} ovnf=${OV_NF:-0} ovoff=${OV_OFF_DIFF:-0} captures=engine/tmp/voc_wsl_badge3*.png"
 echo "=== 15. VOICE-RUN-VALS + VOICE-VERDICT (요약 스트림 계약 — stdout 수취) ==="
 SURF_OK=0
 [ "$KEYTURN" -ge 1 ] && { [ -f "$RECEIVE/voc_wsl_rec.png" ] || [ -f "$RECEIVE/voc_wsl_done.png" ]; } && SURF_OK=1
@@ -1361,17 +1372,6 @@ else
 fi
 echo "VOICE-RUN-VALS: run=${RUN_NO} canon=${ST_PASS} twov=${ST2V} twoy=${ST2Y} twoz=${ST2Z} threea=${ST3A} fc3=${FC} direct=${DIR_EQ} direct_t2=${DIR_EQ_T2} stt_t2_canon=${STT_T2_CANON:-n/a} fixt=${SURF_OK} keyturn=${KEYTURN} clickturn=${CLICKTURN} route=${ROUTE} vocab=${VOCAB_OK} vprelay=${VP_RELAY} vptoggle=${VP_TOGGLE} notify=${NOTIFY_OK} overlay=${VOVER_OK:-0} ovcnt=${OV_COUNT_EQ:-0} ovfocus=${FOC_EQ:-0} ovnf=${OV_NF:-0} ovoff=${OV_OFF_DIFF:-0} probe_rc=${PP} captures=engine/tmp/voc_wsl_*.png"
 
-echo "=== 15b. VOVER-VERDICT (#118 오버레이 세그먼트 — 별행 1행 — VOICE-VERDICT 무변조 — #115b VOCAB 별행 원존) ==="
-VOVER_OK=0
-[ "$VOVROUTE" -eq 4 ] && [ "$VOVEXCL" -eq 2 ] && [ "$OV_ON_OK" -eq 1 ] \
-    && [ "$OV_COUNT_EQ" -eq 1 ] && [ "$FOC_EQ" -eq 1 ] && [ "$OV_NF" -eq 1 ] \
-    && [ "$OV_OFF_DIFF" -eq 1 ] && VOVER_OK=1
-if [ "$VOVER_OK" -eq 1 ]; then
-    echo "VOVER-VERDICT: VOVER-OK(#118 오버레이 E2E — 어휘 4행 질의 양식 원문 등호(overlay 2+번호 화법 2 — 2y-⑲)+배지 원문 캡처(창 $NVIS — count 등호)·\"창 $NUMT\"→focus_window num=$NUMT → idx$NUMT(id=$TARGETN) focused=true 등호(미포커스 대상 — 착탄 증거 원존)·범위 밖 num=99 = window_not_found 정직·off 배지 소멸 대조 — 캐논 $ST_PASS·3a=$ST3A)"
-else
-    echo "VOVER-VERDICT: VOVER-FAIL(honest — route=${VOVROUTE:-0}/4 excl=${VOVEXCL:-0}/2 oncnt=${OV_COUNT_EQ:-0} focus=${FOC_EQ:-0} nf=${OV_NF:-0} offdiff=${OV_OFF_DIFF:-0} — 사유 열은 상단 VOICE-FAIL 행)"
-fi
-echo "#118-RUN-VALS: run=${RUN_NO} canon=${ST_PASS} 2y=${ST2Y} 3a=${ST3A} overlay=${VOVER_OK:-0} ovcnt=${OV_COUNT_EQ:-0} ovfocus=${FOC_EQ:-0} ovnf=${OV_NF:-0} ovoff=${OV_OFF_DIFF:-0} captures=engine/tmp/voc_wsl_badge3*.png"
 
 echo "=== 16. 복원 (permissions 원복·서버 원복·probe 잔상 0) ==="
 restore_and_exit
