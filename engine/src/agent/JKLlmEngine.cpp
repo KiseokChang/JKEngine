@@ -12,6 +12,7 @@
 
 #include <chrono>
 #include <condition_variable>  // TurnSync 동기 브리지 — Done 대기(T3)
+#include <cstring>  // std::strlen — NormalizeOllamaHost 스킴 비교(#119 T1)
 #include <cstdio>
 #include <mutex>
 #include <system_error>  // std::system_error — thread spawn failure contract
@@ -54,6 +55,10 @@ ChatConfig LoadChatConfig() {
         if (c.GetStr("model", v)) cfg.model = v;
         if (c.GetStr("directory", v)) cfg.directory = v;
         if (c.GetStr("direct_cmd", v)) cfg.directCmd = v;
+        // #119 T1 — 릴레이 상대. 키 부재 = 빈 값(기본 localhost) 유지 — 기존
+        // 키 무접촉. 판정은 조립 시점(NormalizeOllamaHost — 위배 값 무음 접기)
+        // 이라 여기는 원문 승계만 한다.
+        if (c.GetStr("ollama_host", v)) cfg.ollamaHost = v;
         int skip = -1;
         if (c.GetInt("skip_permissions", skip)) {
             cfg.skipPermissions = (skip != 0);
@@ -62,6 +67,64 @@ ChatConfig LoadChatConfig() {
         if (c.GetInt("render_flags", rf)) cfg.renderFlags = (rf != 0);
     }
     return cfg;
+}
+
+// ollama 릴레이 상대의 문자 집합 판정(계약 — 헤더 주석). 인정 형: 선택 스킴
+// (http/https) + 호스트 [A-Za-z0-9._-] 1+ + 선택 포트 ":"+숫자. 위배 전면
+// 부정 — 빈 값 무음 접기(fail-closed). 접두 조립(OllamaHostEnvPrefix)은 이
+// 판정이 인용·메타문자를 소진한 상태에 의존한다(스포츠 이스케이프 불요 계약).
+std::string NormalizeOllamaHost(const std::string& raw) {
+    const auto isWsp = [](char ch) {
+        return ch == ' ' || ch == '\t';
+    };
+    size_t b = 0, e = raw.size();
+    while (b < e && isWsp(raw[b])) ++b;
+    while (e > b && isWsp(raw[e - 1])) --e;
+    const std::string v = raw.substr(b, e - b);
+    if (v.empty()) return {};
+    size_t at = 0;
+    for (const char* scheme : {"http://", "https://"}) {
+        const size_t len = std::strlen(scheme);
+        std::string head = v.substr(0, len);
+        for (char& ch : head) {
+            if (ch >= 'A' && ch <= 'Z') ch = static_cast<char>(ch - 'A' + 'a');
+        }
+        if (head == scheme) {
+            at = len;
+            break;
+        }
+    }
+    if (at >= v.size()) return {};   // 스킴만 있는 기형 값 — 무음 접기
+    size_t hostEnd = v.size();
+    for (size_t i = at; i < v.size(); ++i) {
+        const char ch = v[i];
+        if (ch == ':') {             // 포트 — 이 뒤는 숫자만
+            hostEnd = i;
+            break;
+        }
+        const bool ok = (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') ||
+                        (ch >= '0' && ch <= '9') || ch == '.' || ch == '-' ||
+                        ch == '_';
+        if (!ok) return {};
+    }
+    if (hostEnd == at) return {};    // 호스트 공백(:port만) — 무음 접기
+    if (hostEnd < v.size()) {        // 포트 유 — 숫자 1+만 인정
+        if (hostEnd + 1 >= v.size()) return {};
+        for (size_t i = hostEnd + 1; i < v.size(); ++i) {
+            if (v[i] < '0' || v[i] > '9') return {};
+        }
+    }
+    return v;
+}
+
+std::string OllamaHostEnvPrefix(const ChatConfig& cfg) {
+    const std::string host = NormalizeOllamaHost(cfg.ollamaHost);
+    if (host.empty()) return {};
+#ifdef _WIN32
+    return "set \"OLLAMA_HOST=" + host + "\" && ";
+#else
+    return "OLLAMA_HOST=\"" + host + "\" ";
+#endif
 }
 
 namespace {
@@ -241,7 +304,11 @@ std::string BuildEngineCmd(const ChatConfig& cfg,
     } else {  // "ollama" (default)
         // F1: cfg.model rides the same sh double-quote string — escape it
         // like every other dynamic text (win32 keeps bare quotes verbatim).
-        cmd = "ollama launch claude --model \"" + ShellDqEscape(cfg.model) +
+        // #119 T1: 릴레이 상대가 구성되면 launch leg도 같은 OLLAMA_HOST 접두
+        // (OllamaHostEnvPrefix — 계열 양쪽 단일 근원)를 실는다. 접두는 조립식
+        // 스팬 밖 선두 — 모델·claudeArgs 인용 원문 무변조.
+        cmd = OllamaHostEnvPrefix(cfg) +
+              "ollama launch claude --model \"" + ShellDqEscape(cfg.model) +
               "\" -- " + claudeArgs;
     }
     return cmd;
@@ -637,11 +704,22 @@ bool JKLlmEngine::TurnSync(const std::string& promptUtf8, LlmTurnResult& out,
 // UX 지연 상쇄 수준); cfg.renderFlags=false(chat.json "render_flags":0)면
 // 플래그 없는 계약 변경 이전 형태(바이트 동일)로 돌아가는 opt-out 스위치가
 // 있다(fail-closed 재량 — 이 스위치가 플래그 미지원 축의 유일한 후퇴 통로).
+//
+// [계약 변경 2 — 2026-10-27, #119 폰 자연어 릴레이 T1] 조립식 선두에 OLLAMA_HOST
+// 접두가 실릴 수 있다(cfg.ollamaHost — NormalizeOllamaHost 통과분만, 위배 값은
+// 무음 접기 = 접두 없음). 빈 값 = 변경 1 형태와 바이트 등호 — 기존 selftest의
+// 조립식 원문 단정과 등호 유지(2aa가 접두 착지+suffix 등호를 가산 단정).
 std::string BuildOllamaDirectCmd(const ChatConfig& cfg,
                                  const std::string& promptUtf8) {
-    std::string head = "ollama run ";
-    if (cfg.renderFlags) head.append(kOllamaRunRenderFlags).append(" ");
-    return head + "\"" + ShellDqEscape(cfg.model) + "\" \"" +
+    // #119 T1 — 릴레이 접두: chat.json "ollama_host" 구성 기기(폰)의 CLI가 PC
+    // 데몬으로 릴레이한다. NormalizeOllamaHost 통과분만 착지(fail-closed — 위배
+    // 값은 접두 없음 = 기본 localhost 형태 그대로), 스팬 밖 선두라 모델·프롬프트
+    // 인용 계약(ShellDqEscape 규약)은 무변조. 빈 값 = 기존 바이트 등호 — 기존
+    // selftest(llm15·1n-d 계열) 조립식 원문 단정과 등호 유지.
+    return OllamaHostEnvPrefix(cfg) + "ollama run " +
+           (cfg.renderFlags ? std::string(kOllamaRunRenderFlags) + " "
+                            : std::string()) +
+           "\"" + ShellDqEscape(cfg.model) + "\" \"" +
            ShellDqEscape(kLlmTurnPreamble + promptUtf8) + "\"";
 }
 

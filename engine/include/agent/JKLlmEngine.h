@@ -61,6 +61,16 @@ struct ChatConfig {
     // 그 기기의 ollama 설치/네트워크에 의존하게 된다(환경 의존 함정). echo
     // 스터브로 스폰 단정을 대체한다. 실제 런타임에서는 쓰지 않는다.
     std::string directCmd;
+    // ollama 서버 지정 상대(chat.json "ollama_host" — #119 폰 자연어 릴레이
+    // T1, 2026-10-27 — 빈 값 = 기본 localhost:11434 = OLLAMA_HOST 미설정과
+    // 동일). 폰의 ollama CLI가 `ollama run`(ollama-direct leg)·`ollama launch
+    // claude`("ollama" leg) 양쪽을 PC의 ollama 데몬으로 릴레이하는 접점 —
+    // 조립식에 OLLAMA_HOST 환경설정 접두가 실린다(posix: `OLLAMA_HOST=".."`
+    // 접두 / win32: `set "OLLAMA_HOST=.." &&` 접두 — cmd.exe /c 접두와 같은
+    // 커맨드 문자열). fail-closed: NormalizeOllamaHost(아래)의 문자 집합 판정을
+    // 통과한 값만 착지하고, 위배 값은 빈 값으로 무음 접기 — 조립식이 계약 변경
+    // 이전 형태(바이트 동일)로 돌아간다. "claude"/"stub" leg 무영향.
+    std::string ollamaHost;
     // ollama-direct `run` 스폰의 렌더 억제 플래그 스위치(kOllamaRunRenderFlags
     // — 결합이 파스 성립을 준다, 위 상수 주석). true(기본, 조립식에 플래그
     // 결합을 실은 2026-10-26 계약 변경) / chat.json "render_flags":0으로 끄면
@@ -84,12 +94,32 @@ struct ChatConfig {
 // fileKnown은 파일 존재 + 파스 성공 + engine 키 명시의 3조건 성립 시만 true
  // (엔진 턴 소비자 무영향 — 승격 게이트(ChatRouter.h)만 읽는다).
 // "render_flags"(0 = 끔 → ChatConfig::renderFlags)도 같은 경로로 읽는다.
+// "ollama_host"(#119 T1)도: 키 부재 = 기본값(빈 값) 유지 — 기존 키 무접촉.
 ChatConfig LoadChatConfig();
+
+// ollama 릴레이 상대의 문자 집합 판정(#119 T1 — fail-closed 진실원). 인정 형:
+//   [http://|https://](선택) + 호스트([A-Za-z0-9._-] 1+) + (":" 숫자 포트 선택)
+//   — 경로·쿼리·위배 문자(& | $ ` " 공백 ..) 전면 부정. 스페이스/탭 양끝 trim.
+//   빈 값·위배 값 = 빈 문자열 반환(무음 접기 — 조립식이 기본 형태로 돌아간다;
+//   selftest 2aa가 등호를 단정). 유효 값은 trim 결과를 원문 그대로 돌려준다
+//   (OLLAMA_HOST는 "host:port"와 "http://host:port" 양형을 모두 받는다).
+std::string NormalizeOllamaHost(const std::string& raw);
+
+// OLLAMA_HOST 접두 조립 — ollama 계열 leg("ollama-direct" run·"ollama"
+// launch) 양쪽의 단일 근원. NormalizeOllamaHost 통과분이 비어 있으면 빈 문자열
+// (접두 없음 = OLLAMA_HOST 미설정 = 기본 localhost — 계약 변경 이전 바이트 형태
+// 반환). 착지 형: posix `OLLAMA_HOST="<host>" ` / win32 `set "OLLAMA_HOST=<h>"
+// && ` — win32 분기는 LlmTurnThread의 cmd.exe /c 접두 뒤에서 set이 먼저 수행되
+// 고 && 로 조립식 본선에 연결된다. 호스트 문자 집합 판정(NormalizeOllamaHost)이
+// 인용·메타문자를 전면 부정하므로 접두는 이스케이프 불요.
+std::string OllamaHostEnvPrefix(const ChatConfig& cfg);
 
 // ollama-direct 분기의 기본 스폰 명령 조립 — BuildEngineCmd(비공개)가 유일한
 // 소비자고, selftest가 같은 조립식 원문을 그대로 단정하기 위한 계약 락 선
 // (kStubShellCmd* 상수 선례: 엔진 리터럴의 단일 근원 — 3처 복제 소각). cfg.
-// directCmd 주입이 비어 있을 때만 이 형태가 실제로 스폰된다.
+// directCmd 주입이 비어 있을 때만 이 형태가 실제로 스폰된다. #119 T1: cfg.
+// ollamaHost(NormalizeOllamaHost 통과분)가 비어 있지 않으면 OLLAMA_HOST 접두가
+// 앞에 착지하는 것만 다르고 모델·프롬프트 스팬은 원문(2aa suffix 등호 단정).
 std::string BuildOllamaDirectCmd(const ChatConfig& cfg,
                                  const std::string& promptUtf8);
 

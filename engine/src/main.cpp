@@ -8613,6 +8613,70 @@ static int RunAppSelfTest() {
               "정직 문자 규약)");
     }
 
+    // 2aa) ollama 릴레이 상대 조립 — 결정 부품 (#119 폰 자연어 릴레이 T1 —
+    //   스펙 .superpowers 2026-10-27-relay-relay). ①NormalizeOllamaHost 판정부
+    //   (빈 값·blank = 빈 값(기본 localhost 원존)·스킴 양형+플레인 host:port
+    //   통과) ②조립 접두 착지+suffix 등호(모델·프롬프트 스팬 원문 무변조)·빈
+    //   값 = 접두 없음(계약 변경 이전 형태 — 기존 llm15/1n-d 조립식 원문 등호
+    //   계약 무침범) ③fail-closed 무음 접기(위배 값 조립 = 기본 형태 바이트
+    //   등호 — 주입 표면 0). 스폰 어셜션 금지(D6 승계 — 비결정 원존 — 실 릴레
+    //   이 턴 = 폰 E2E probe 몫 T2). 2z 뒤 계보 이어붙임.
+    {
+        using jk::agent::BuildOllamaDirectCmd;
+        using jk::agent::NormalizeOllamaHost;
+
+        // ① 판정부 — 빈 값·blank·tab = 빈 값(키 부재·빈 chat.json 값 = OLLAMA_
+        //    HOST 미설정과 동일 = 기본 localhost — 접두 없음의 근거).
+        check(NormalizeOllamaHost("").empty() &&
+                  NormalizeOllamaHost("   ").empty() &&
+                  NormalizeOllamaHost("\t").empty(),
+              "2aa-① 릴레이 상대 빈 값·blank = 빈 값(기본 localhost 원존 — "
+              "OLLAMA_HOST 미설정 등호 — 접두 없음의 근거)");
+        // ①b 스킴 양형+플레인 host:port·플레인 호스트 — trim 원문 승계.
+        check(NormalizeOllamaHost("http://PC_HOST:11434") ==
+                      "http://PC_HOST:11434" &&
+                  NormalizeOllamaHost("  PC_HOST:11434 ") == "PC_HOST:11434" &&
+                  NormalizeOllamaHost("PC_HOST") == "PC_HOST",
+              "2aa-①b 스킴(host:port)·플레인 host:port·플레인 호스트 = trim "
+              "원문 그대로 승계(OLLAMA_HOST 양형 수용 — 판정부)");
+
+        // ② 조립 접두 — 기본(빈 값) = 접두 없음 / 구성 = 접두 착지+suffix 등호.
+        jk::agent::ChatConfig c2aa;
+        c2aa.model = "glm-test:cloud";
+        const std::string base2aa = BuildOllamaDirectCmd(c2aa, "relay 질의");
+        jk::agent::ChatConfig c2aah = c2aa;
+        c2aah.ollamaHost = "http://PC_HOST:11434";
+        const std::string rel2aa = BuildOllamaDirectCmd(c2aah, "relay 질의");
+#ifdef _WIN32
+        const std::string pfx2aa =
+            "set \"OLLAMA_HOST=http://PC_HOST:11434\" && ";
+#else
+        const std::string pfx2aa = "OLLAMA_HOST=\"http://PC_HOST:11434\" ";
+#endif
+        check(base2aa.compare(0, 10, "ollama run") == 0 &&
+                  rel2aa == pfx2aa + base2aa,
+              "2aa-② 빈 값 조립 = 접두 없음(계약 변경 이전 형태 — llm15/1n-d "
+              "조립식 원문 등호 계약 무침범)·구성 조립 = 접두 착지+suffix 등호"
+              "(win cmd set 접두·posix sh env 접두 — 모델·프롬프트 스팬 원문 "
+              "무변조)");
+
+        // ③ fail-closed 접기 — 위배 문자를 실은 상대는 접두가 사라진다(무음
+        //    접기 후 기본 형태 바이트 등호 — 조립식에 주입 표면 0). 메타문자
+        //    (& | $ ` ")+공백 형+경로+숫자 아닌 포트+스킴만 있는 기형 전면 부정.
+        const char* const kHostile2aa[] = {
+            "h&calc", "h$(id)", "h\"x", "h o c", "http://h/../../etc",
+            ":11434", "PC_HOST:port", "https://"};
+        bool fold2aa = true;
+        for (const char* h : kHostile2aa) {
+            c2aah.ollamaHost = h;
+            if (BuildOllamaDirectCmd(c2aah, "relay 질의") != base2aa)
+                fold2aa = false;
+        }
+        check(fold2aa,
+              "2aa-③ 위배 상대 8형 조립 = 기본 형태 바이트 등호(무음 접기 — "
+              "fail-closed — 조립식 주입 표면 0)");
+    }
+
     // 2w) 서버 도구 호출 저널 leg (#113 T1 — 스펙 2026-10-26-use-review-cycle-
     // design D1·D2·D5): 순수 writer 4건 — ①append 형식(JSONL 파싱 등호 —
     // ts/tool/arg/ok/err) ②쓰기 실패 무시(도구 응답 무영향) ③args 절단
