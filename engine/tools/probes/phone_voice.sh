@@ -1418,9 +1418,10 @@ done
 L2=$(ctl '{"tool":"launch_app","args":{"app":"music"}}')
 echo "OVE-MUSIC-RESTORE: ${L2:-none} (사용자 화면 복원 — §C 원존)"
 ok "$L2" || FAIL "music restore — $L2"
+# 배지 PNG(t6pv_badge_*)는 소각 목록 밖 — 호출자가 md5 회수 뒤 소각
+# (118-2 런 원장행: 원격 선소각 = RECOVER-MISS — 회수 순서 계약 승계).
 rm -f "$TMPD/t6pv_ove_pre.json" "$TMPD/t6pv_ove_pre.json.txt" \
-      "$TMPD/t6pv_ove_post.json" "$TMPD/t6pv_ove_post.json.txt" \
-      "$TMPD/t6pv_badge_n.png" "$TMPD/t6pv_badge_off.png" "$TMPD/t6pv_pw.py"
+      "$TMPD/t6pv_ove_post.json" "$TMPD/t6pv_ove_post.json.txt" "$TMPD/t6pv_pw.py"
 rm -f -- "$0"
 echo "OVE-FINISHED"
 exit 0
@@ -1445,6 +1446,8 @@ else
 fi
 recover "\$TMPDIR/t6pv_badge_n.png"   "$SCRATCH/pv_badge_n.png"
 recover "\$TMPDIR/t6pv_badge_off.png" "$SCRATCH/pv_badge_off.png"
+$SSH "rm -f \$TMPDIR/t6pv_badge_n.png \$TMPDIR/t6pv_badge_off.png" 2>/dev/null
+echo "OVE-BADGE-BURIED (회수 후 소각 — 잔상 0 계약)"
 FWOV=$($SSH "cd ~/JKENGINE/engine && timeout 20 ./buildterm/jkdesktop agentctl '{\"tool\":\"list_windows\",\"args\":{}}' 2>/dev/null | head -1" 2>/dev/null)
 echo "OVE-FINAL-WINDOWS: $FWOV (사용자 화면 = Music 복원 원존)"
 printf '%s' "$FWOV" | grep -aq '"title":"Music"' \
