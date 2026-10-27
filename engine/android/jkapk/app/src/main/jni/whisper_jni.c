@@ -1,0 +1,377 @@
+// whisper_jni.c — #121 JK APK v2 (T1) — APK 내장 whisper 전사 JNI 안장.
+// 스펙: docs/superpowers/specs/2026-10-25-jkapk-design.md §2 v2 원장 부기(D4-D7)
+//      + task-1-brief (v2 T1).
+//
+// **링크 결정 원장(구현자 재량 결정 — 근거 필기 계약)**:
+//   PC/폰 원존(#112 SttVoice.cpp run leg)은 whisper-cli **별도 프로세스 스폰**
+//   이고 라이브러리 링크는 "폰 #3117 segfault 원존"으로 금지되어 있다 — 그
+//   금지의 본질은 "호스트 프로세스가 whisper 결함으로 죽지 않는 격리"다.
+//   v2 APK에서 cli 스폰을 승계하려면 (1) cli 바이너리를 APK에 동봉해 runtime
+//   시 exec해야 한다 — Android 10+ W^X(app_data exec 금지)와 targetSdk 34의
+//   untrusted_app domain은 앱 자기 데이터 dir로부터 exec를 막고, (2) jniLibs의
+//   .so는 exec 불가(동적 linker만 로드). 즉 cli 스폰 계약은 APK에서 구조적으로
+//   성립하지 않는다. APK는 **자체 프로세스**이므로 whisper 결함이 죽이는 것=
+//   APK 본인 — 격리 본질(Every-process-isolated)은 원존 계약과 동일하게 성립.
+//   → 따라서 본 안장은 whisper **full API 직접 링크**(vendored whisper.cpp
+//   정적 lib — engine/android/jkapk/app/src/main/jni/CMakeLists.txt가
+//   ../../../../../../third_party/whisper.cpp 상대 재용 — D4 무추적 원존)를
+//   채택한다. 이것은 원존 링크 금지의 **정직 예외**이며 예외 근거는 이 주석과
+//   v2 T1 리포트에 원문으로 남는다.
+//
+// **stdout 파서 규약 재판정(원존 승계)**: PC/폰 cli 원존은 cli stdout의
+//   세그먼트 행을 transcript::ParseLastText(최후 텍스트 절단 — SttVoice.h)로
+//   쳤다. 직접 링크에서는 stdout이 존재하지 않고, cli stdout의 진실원 자체가
+//   whisper 세그먼트 열이므로 세그먼트 열을 API로 직순회한다
+//   (whisper_full_n_segments / whisper_full_get_segment_text — cli.cpp의
+//   whisper_print_segment_callback이 인쇄하는 것과 **동일 진실원**) — 새 파서
+//   계층이 아니라 원존 파서의 데이터 출처 승격. 세그먼트 전 연결 후 전주
+//   trim — cli 원존 행마다 선행 공백(+ " "(cli print 형식))과 ParseLastText
+//   절단의 합성 결과와 내용 등호를 목표로 한다.
+//
+// JNI 함수 계약 1종:
+//   Java(chang.jkapk — T2에서 Kotlin 측 계약 수형):
+//     System.loadLibrary("whisper_jni")
+//     public static native String jkapkTranscribe(
+//         String wavPath, String modelPath, String prompt);
+//   성공   = non-null jstring(전사 원문 — trim 완료).
+//   실패   = NULL + RuntimeException("jkapk 전사 실패: <err>") pending
+//            (정직 거부 — 조용한 빈 문자열 대체 금지 — 원존 "정직" 문화 승계).
+//   prompt = kVoicePrompt(SttVoice.cpp) 어휘 힌트의 jstring 전달 계약 —
+//   PC/폰 cli의 --prompt(라우터 어휘 단일 진실원 승계)와 같은 자리.
+//
+// 언어 핀 = "ko"(SttVoice.cpp kVoiceLanguage 원존 수형 — cli 기본 "en"은
+// 한국어 발화 암묵 망각 — 무지정 금지 원존). 스레드 핀 = 4(cli 원존
+// std::min(4, hardware_concurrency()) 수형 — 폰 aarch64 8코어라 상한이 산다).
+
+#include <jni.h>
+#include <whisper.h>
+
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define JKJNI_ERR_MAX 512
+
+static const char kJniLanguage[] = "ko";
+static const int kJniThreads = 4;
+
+// ---- wav — 16 kHz/모노/s16le PCM 판독 (SttVoice.h wav::Validate16kMono 규약
+// 수형 + 몸통 소비 승격). 원존 = ffmpeg 정규화 산출 캐논 44바이트 헤더
+// (RIFF+fmt16+data) 초석 + 보조 청크(LIST 등) 스킵(2바이트 정렬 패딩) —
+// 비적합(16k 아님·스테레오·비PCM·빈 data) = 정직 거부(암묵 리샘플 금지 —
+// "리샘플 단순 계약"). s16le → f32 = /32768.0f(whisper pcmf32 계약).
+static int jk_le16(const unsigned char* p) {
+    return (int)p[0] | ((int)p[1] << 8);
+}
+static unsigned jk_le32(const unsigned char* p) {
+    return (unsigned)p[0] | ((unsigned)p[1] << 8) | ((unsigned)p[2] << 16) |
+           ((unsigned)p[3] << 24);
+}
+
+static int jk_jstr_to_utf8(JNIEnv* env, jstring js, const char** out,
+                           char* err, size_t errsz) {
+    *out = NULL;
+    if (js == NULL) {
+        snprintf(err, errsz, "jkapk 인자 NULL (jstring)");
+        return 1;
+    }
+    const char* s = (*env)->GetStringUTFChars(env, js, NULL);
+    if (s == NULL) {
+        snprintf(err, errsz, "jkapk GetStringUTFChars 실패");
+        return 1;
+    }
+    *out = s;
+    return 0;
+}
+
+static void jk_free_jstr(JNIEnv* env, jstring js, const char* s) {
+    if (s != NULL) (*env)->ReleaseStringUTFChars(env, js, s);
+}
+
+// 원문 전체 로드(무추적 asset/복사본 wav — 수 MB 규모) → 헤더 판정 → f32 변환.
+// 성공 0 / 실패 1(err 기입). *out_samples는 mallocf — 호출자 free(*out_samples).
+static int jk_load_wav_f32(const char* path, float** out_samples,
+                           size_t* out_n, char* err, size_t errsz) {
+    FILE* f = fopen(path, "rb");
+    if (f == NULL) {
+        snprintf(err, errsz, "jkapk wav 개방 실패: %s", path);
+        return 1;
+    }
+    // 말미 seek로 원문 크기 → 1회 로드(스트리밍 재합성 계층 신설 금지 —
+    // 캡처/asset wav는 단발성 본제).
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (sz < 44) {
+        snprintf(err, errsz, "jkapk wav 부적합 (44B 미만): %s", path);
+        fclose(f);
+        return 1;
+    }
+    unsigned char* p = (unsigned char*)malloc((size_t)sz);
+    if (p == NULL) {
+        snprintf(err, errsz, "jkapk wav 로드 malloc 실패 (%ldB)", sz);
+        fclose(f);
+        return 1;
+    }
+    size_t n = fread(p, 1, (size_t)sz, f);
+    int fail = 0;
+    if (n != (size_t)sz) fail = 1;
+    fclose(f);
+    if (fail) {
+        snprintf(err, errsz, "jkapk wav 판독 실패 (read %zu / %ld)", n, sz);
+        free(p);
+        return 1;
+    }
+    if (memcmp(p, "RIFF", 4) != 0 || memcmp(p + 8, "WAVE", 4) != 0) {
+        snprintf(err, errsz, "jkapk wav 부적합 (RIFF/WAVE 아님): %s", path);
+        free(p);
+        return 1;
+    }
+    size_t off = 12;
+    int fmtOk = 0, dataOk = 0;
+    size_t dataOff = 0, dataSize = 0;
+    while (off + 8 <= n) {
+        const unsigned char* id = p + off;
+        unsigned csize = jk_le32(p + off + 4);
+        if (csize == 0xFFFFFFFFu || csize > n - (off + 8)) {
+            snprintf(err, errsz, "jkapk wav 부적합 (잘린 청크: %u@%zu)", csize, off);
+            free(p);
+            return 1;
+        }
+        if (memcmp(id, "fmt ", 4) == 0) {
+            if (csize < 16) {
+                snprintf(err, errsz, "jkapk wav 부적합 (fmt <16B)");
+                free(p);
+                return 1;
+            }
+            const unsigned char* f2 = p + off + 8;
+            unsigned tag = (unsigned)jk_le16(f2 + 0);
+            unsigned ch = (unsigned)jk_le16(f2 + 2);
+            unsigned rate = jk_le32(f2 + 4);
+            unsigned brate = jk_le32(f2 + 8);
+            unsigned align = (unsigned)jk_le16(f2 + 12);
+            unsigned bits = (unsigned)jk_le16(f2 + 14);
+            // 16 kHz/모노/s16le 규약(원존 상수 수형) — 이외 정직 거부.
+            if (tag != 1u || ch != 1u || rate != 16000u || bits != 16u ||
+                align != 2u || brate != rate * align) {
+                snprintf(err, errsz,
+                         "jkapk wav 부적합 (16 kHz 모노 s16le 아님 — "
+                         "tag=%u ch=%u rate=%u bits=%u)",
+                         tag, ch, rate, bits);
+                free(p);
+                return 1;
+            }
+            fmtOk = 1;
+        } else if (memcmp(id, "data", 4) == 0) {
+            if (csize == 0) {
+                snprintf(err, errsz, "jkapk wav 부적합 (data 결실 0)");
+                free(p);
+                return 1;
+            }
+            dataOk = 1;
+            dataOff = off + 8;
+            dataSize = csize;
+        }
+        off += 8 + csize + (csize & 1);  // 청크 2바이트 정렬 패딩(RIFF 규약)
+    }
+    if (!fmtOk || !dataOk) {
+        snprintf(err, errsz, "jkapk wav 부적합 (fmt=%d data=%d)", fmtOk, dataOk);
+        free(p);
+        return 1;
+    }
+    // 16비트 몸통 → f32(/32768.0f). 홀수 몸통 = 절단(가드 — 계약 위배는
+    // 생산자 소관이고 여기선 결실 짝수 바이트만 소비).
+    size_t count = dataSize / 2;
+    if (count == 0 || count < (size_t)(16000 / 10)) {
+        // 0.1s 미만 — whisper에 무의미(원존 "결실 0" 정직 거부 계열).
+        snprintf(err, errsz, "jkapk wav 부적합 (결실 %.2fs 미만)", (double)count / 16000.0);
+        free(p);
+        return 1;
+    }
+    float* samples = (float*)malloc(count * sizeof(float));
+    if (samples == NULL) {
+        snprintf(err, errsz, "jkapk sample malloc 실패 (%zu samples)", count);
+        free(p);
+        return 1;
+    }
+    for (size_t i = 0; i < count; ++i) {
+        int16_t v = (int16_t)jk_le16(p + dataOff + i * 2);
+        samples[i] = (float)v / 32768.0f;
+    }
+    free(p);
+    *out_samples = samples;
+    *out_n = count;
+    return 0;
+}
+
+// ---- transcribe core — JNI 층과 자기검증 main에서 공유하는 본체 1개 ----
+// 성공 0 + *out(malloc, trim 완료) / 실패 1 + *err(malloc).
+// 모델 로드 실패·whisper_full rc!=0·전사 trim 결실 0 — 전부 정직 거부.
+static int jk_transcribe_core(const char* wavPath, const char* modelPath,
+                              const char* prompt, char** out, char** err) {
+    *out = NULL;
+    *err = NULL;
+    char errbuf[JKJNI_ERR_MAX];
+    errbuf[0] = '\0';
+
+    float* samples = NULL;
+    size_t nSamples = 0;
+    if (jk_load_wav_f32(wavPath, &samples, &nSamples, errbuf, sizeof(errbuf)) != 0) {
+        goto fail;
+    }
+
+    struct whisper_context_params cparams = whisper_context_default_params();
+    cparams.use_gpu = false;  // CPU backend — 스펙 원존("CPU backend — 안드로이드 target");폰 ggml CPU(#110 T5)와 동일 축.
+    struct whisper_context* ctx = whisper_init_from_file_with_params(modelPath, cparams);
+    if (ctx == NULL) {
+        snprintf(errbuf, sizeof(errbuf), "jkapk 모델 로드 실패: %s", modelPath);
+        goto fail_with_samples;
+    }
+
+    {
+        struct whisper_full_params wparams =
+            whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
+        wparams.n_threads = kJniThreads;
+        wparams.language = kJniLanguage;
+        wparams.translate = false;
+        wparams.print_progress = false;
+        wparams.print_special = false;
+        wparams.print_realtime = false;
+        wparams.print_timestamps = false;
+        if (prompt != NULL && *prompt != '\0') {
+            wparams.initial_prompt = prompt;
+            wparams.carry_initial_prompt = true;  // 장발화에서도 어휘 힌트 소멸 방지
+        }
+        if (whisper_full(ctx, wparams, samples, (int)nSamples) != 0) {
+            snprintf(errbuf, sizeof(errbuf),
+                     "jkapk 전사 실패 (whisper_full rc!=0 — 모델=%s)", modelPath);
+            goto fail_with_ctx;
+        }
+
+        // 세그먼트 열 직순회 — cli stdout의 진실원 승격(헤더 원존 주석).
+        size_t cap = 256;
+        char* text = (char*)malloc(cap);
+        if (text == NULL) {
+            snprintf(errbuf, sizeof(errbuf), "jkapk 전사 malloc 실패");
+            goto fail_with_ctx;
+        }
+        size_t len = 0;
+        const int nSeg = whisper_full_n_segments(ctx);
+        for (int i = 0; i < nSeg; ++i) {
+            const char* seg = whisper_full_get_segment_text(ctx, i);
+            if (seg == NULL) continue;
+            size_t l = strlen(seg);
+            while (len + l + 1 > cap) {
+                cap *= 2;
+                char* grew = (char*)realloc(text, cap);
+                if (grew == NULL) {
+                    free(text);
+                    snprintf(errbuf, sizeof(errbuf), "jkapk 전사 realloc 실패");
+                    goto fail_with_ctx;
+                }
+                text = grew;
+            }
+            memcpy(text + len, seg, l);
+            len += l;
+            text[len] = '\0';
+        }
+        whisper_free(ctx);
+        free(samples);
+        samples = NULL;
+
+        // 전주 trim — cli 원존 행 선행 공백+ParseLastText 절단의 합성 등호 목표.
+        size_t b = 0, e = len;
+        while (b < e && (text[b] == ' ' || text[b] == '\n' || text[b] == '\r' ||
+                         text[b] == '\t')) b++;
+        while (e > b && (text[e - 1] == ' ' || text[e - 1] == '\n' ||
+                         text[e - 1] == '\r' || text[e - 1] == '\t')) e--;
+        if (b == e) {
+            free(text);
+            snprintf(errbuf, sizeof(errbuf),
+                     "jkapk 빈 전사 (whisper full API 결실 0 — 원존 빈 전사 계약 수형)");
+            goto fail;
+        }
+        memmove(text, text + b, e - b);
+        text[e - b] = '\0';
+        *out = text;
+        return 0;
+    }
+
+fail_with_ctx:
+    whisper_free(ctx);
+fail_with_samples:
+    free(samples);
+fail:
+    *err = (char*)malloc(strlen(errbuf) + 1);
+    if (*err != NULL) strcpy(*err, errbuf);
+    return 1;
+}
+
+// ---- JNI 계약 1종 — Java_chang_jkapk_JniWhisper_jkapkTranscribe ----
+// (헤더 원존 주석의 Java 계약 수형 — Kotlin 측 클래스는 T2 몫)
+JNIEXPORT jstring JNICALL
+Java_chang_jkapk_JniWhisper_jkapkTranscribe(JNIEnv* env, jclass clazz,
+                                            jstring jWavPath, jstring jModelPath,
+                                            jstring jPrompt) {
+    (void)clazz;
+    char errbuf[JKJNI_ERR_MAX];
+    errbuf[0] = '\0';
+    const char *wavPath = NULL, *modelPath = NULL, *prompt = NULL;
+    int failed = 0;
+    if (!failed && jk_jstr_to_utf8(env, jWavPath, &wavPath, errbuf, sizeof(errbuf)) != 0) failed = 1;
+    if (!failed && jk_jstr_to_utf8(env, jModelPath, &modelPath, errbuf, sizeof(errbuf)) != 0) failed = 1;
+    if (!failed && jk_jstr_to_utf8(env, jPrompt, &prompt, errbuf, sizeof(errbuf)) != 0) failed = 1;
+    jstring result = NULL;
+    if (!failed) {
+        char* out = NULL;
+        char* err = NULL;
+        if (jk_transcribe_core(wavPath, modelPath, prompt, &out, &err) != 0) {
+            snprintf(errbuf, sizeof(errbuf), "jkapk 전사 실패: %s",
+                     err != NULL ? err : "(err 누락 — 정직 거부 계약 위배)");
+            (*env)->ThrowNew(env,
+                             (*env)->FindClass(env, "java/lang/RuntimeException"),
+                             errbuf);
+        } else {
+            result = (*env)->NewStringUTF(env, out);
+            if (result == NULL) {  // 새 문자열 실패(메모리) = OOM 정직 거부
+                (*env)->ThrowNew(env,
+                                 (*env)->FindClass(env, "java/lang/RuntimeException"),
+                                 "jkapk NewStringUTF 실패 (OOM)");
+            }
+            free(out);
+        }
+        free(err);
+    }
+    jk_free_jstr(env, jWavPath, wavPath);
+    jk_free_jstr(env, jModelPath, modelPath);
+    jk_free_jstr(env, jPrompt, prompt);
+    return result;  // 실패 = NULL + pending exception(정직 거부 계약)
+}
+
+// ---- 자기검증 main(JKJNI_SELFTEST_MAIN 한정 — JNI 경로 없이 같은 core 1개
+// 소비). 폰 실측(#121 v2 T1 — CANON 밖)에서 이 TU를 NDK로 빌드한 실행 파일로
+// 합성 16k wav+폰 모델(fixture/tiny-ko) 1회 전사 — stdout 결실 원문 수취.
+// APK에 넘어가지 않는다(매크로 미정의 — 라이브러리 본체 무접점).
+#ifdef JKJNI_SELFTEST_MAIN
+int main(int argc, char** argv) {
+    // argv: 1=wav 2=model 3=prompt(생략 가능 — kVoicePrompt 계약의 argv 승계)
+    if (argc < 3) {
+        fprintf(stderr, "usage: %s <wav> <model> [prompt]\n", argv[0]);
+        return 2;
+    }
+    const char* prompt = (argc > 3) ? argv[3] : "";
+    char* out = NULL;
+    char* err = NULL;
+    if (jk_transcribe_core(argv[1], argv[2], prompt, &out, &err) != 0) {
+        fprintf(stderr, "%s\n", err ? err : "(err 누락)");
+        free(out);
+        free(err);
+        return 1;
+    }
+    fputs(out, stdout);
+    fputc('\n', stdout);
+    free(out);
+    return 0;
+}
+#endif  // JKJNI_SELFTEST_MAIN
