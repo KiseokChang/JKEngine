@@ -61,7 +61,7 @@
 //   5) Java(Kotlin) 측 보조 원존 = JniWhisper.sanitizeTranscript(2차 게이트 —
 //      modified UTF-8 디코딩 뒤 잔여 단독 서러게이트 소각 — 계층 방어).
 // 이 정리부는 pure C(jni/whisper 의존 0)라 단독 컴파일 자기검증이 산다:
-//   -DCJKSANITIZE_SELFTEST_MAIN — Win/폰 양축 컴파일(부품 등호 — 2zb 계열
+//   -DJKSANITIZE_SELFTEST_MAIN — Win/폰 양축 컴파일(부품 등호 — 2zb 계열
 //   확장 라벨 2zb-5a..5h; JNI 전사 축은 비결정이라 어셜션 금지 원존 계약
 //   준수 — 결정 부품만 검증).
 

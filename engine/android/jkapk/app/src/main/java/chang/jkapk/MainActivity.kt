@@ -89,6 +89,9 @@ class MainActivity : Activity() {
     // 등호 수형(16 kHz·모노·s16le — JNI 판독부와 같은 규약).
     private val capSampleRate = 16000
     private val reqMicCode = 6102
+    // pcm 수납 상한(fix r1) — 12 MB ≈ 6.25분(@32KB/s) — 이탈 홀드 무한 수납
+    // 방지(원장행: 상한 도달 = 판독 스레드 절단+정직 거부 — 기록 반영).
+    private val kMaxPcmBytes = 12 * 1024 * 1024
     // 모델 asset 핀 — T1 조달기(install_android_sdk.sh §7) 승계 원존.
     private val modelAssetName = "ggml-tiny-ko.bin"
     private val modelAssetBytes = 77_691_730L
@@ -352,8 +355,10 @@ class MainActivity : Activity() {
             PackageManager.PERMISSION_GRANTED) {
             setVoiceStatus("마이크 권한 대기…")
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), reqMicCode)
-            return  // 결과는 onRequestPermissionsResult — 승인 시 손가락이 여전히
-                    // 눌린 홀드-투-톡 계약은 해제 시 finishVoice가 자연 수행
+            return  // 결과는 onRequestPermissionsResult — 승인해도 이 홀드는 개방
+                    // 하지 않는다(fix r1 — 승인 즉시 자동 기동 철수): 권한
+                    // 대기 중 손가락이 이미 떨어진 홀드가 무인 녹음으로 잡음
+                    // 전사 경로에 유입되는 것을 소각. 다음 홀드에서 시작.
         }
         startCaptureActual()
     }
@@ -368,8 +373,9 @@ class MainActivity : Activity() {
             grantResults.isNotEmpty() &&
             grantResults[0] == PackageManager.PERMISSION_GRANTED
         if (granted) {
+            // fix r1 — 승인 분기 = 상태 소거만(무홀드 자동 기동 없음 — 다음
+            // 홀드에서 startVoice가 원존 계약대로 개방).
             setVoiceStatus("")
-            startCaptureActual()
         } else {
             // fail-closed 정직 거부(원존: 미승인이면 fail-closed로 정직 표기 —
             // #112 스펙 §6b R3 계열).
@@ -416,7 +422,15 @@ class MainActivity : Activity() {
             val dst = pcmBuf
             val chunk = ShortArray(2048)
             val bytes = ByteArray(chunk.size * 2)
+            var overflow = false
             while (capturing && dst != null) {
+                if (dst.size() >= kMaxPcmBytes) {
+                    // pcm 상한(fix r1 — 12 MB ≈ 6.25분): 이탈 홀드 무한 수납
+                    // 방지 — 상한 도달 = 즉시 절단+정직 거부 표기(기록 반영).
+                    overflow = true
+                    capturing = false
+                    break
+                }
                 val n = audioRecord?.read(chunk, 0, chunk.size) ?: 0
                 if (n <= 0) break  // 판독 오류/개방 해제 — 마침 쪽에서 정직 판정
                 // s16le 직기입 — 플랫폼 판독(Short)을 LE 바이트열로 표준화
@@ -426,6 +440,9 @@ class MainActivity : Activity() {
                     bytes[i * 2 + 1] = ((chunk[i].toInt() shr 8) and 0xFF).toByte()
                 }
                 dst.write(bytes, 0, n * 2)
+            }
+            if (overflow) runOnUiThread {
+                failVoice("녹음 상한 도달 (${kMaxPcmBytes / 1024 / 1024}MB) — 조기 절단, 다시 발화해 주세요")
             }
         }.also { it.start() }
     }
@@ -442,6 +459,14 @@ class MainActivity : Activity() {
         capThread?.let { t -> try { t.join(2_000) } catch (_: InterruptedException) {} }
         capThread = null
         if (rec != null) {
+            // 원장행(join-타임아웃 레이스 — fix r1, 코멘트만): 판독 스레드가
+            // join 2s 내 종료하지 않았는데도 stop/release가 난다면 — 그 스레드의
+            // 마지막 AudioRecord.read는 잘못된 상태(-1/0)로 수렴하거나
+            // ConcurrentModification 계열 예외로 자사(자기 루프 break)한다.
+            // 판독 스레드는 AudioRecord를 참조만 한다(개방 소유 아님) — 해제는
+            // finishVoice/onDestroy 단일 소관이라 이중 release는 구조적으로
+            // 없고, 늦은 판독 결실은 버려진다(부분 산물 — 정직 거부 계약이 이미
+            // 0.1s 미만을 친다. 장파괴 레이스 실측은 폰 E2E 후 원장행 판정).
             try { rec.stop() } catch (_: IllegalStateException) {}
             rec.release()
         }
