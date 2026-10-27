@@ -446,6 +446,16 @@ status 절단 악형) → T2 fix r1 re-review **APPROVE 재확정**(C0/I0/M0 —
 | T2 원장 | BLOCKED 원장행 미발화(전 런 폰 접속 성립 — 정찰 MISS 0) — 미접속 코드 경로는 본존하나 실측 0 | N | 원장 소화(honest — 미발사 코드 경로) |
 | T2 원장 | engine/engine/tmp 이중경로 산출물(#115b~117 fix r1 전 런 캡처·RLOG — probe ROOT 2단 결함의 계보 산출물) | N | fix r1(48c5474)로 3단 수형 — 기존 산출물 = 원장 보존(삭제 대상 아님) |
 
+### §4.1-12 신규 park 행(#118 창 번호 오버레이 라인 — §7.15 승계 · **아래는 추가만, 기존 행 변형 금지**):
+
+| 출처 | 항목 | 등급 | 처분 근거 |
+| --- | --- | --- | --- |
+| T7 부기 | 오버레이 라인 커밋 체인(1행 — rev-parse 전체 SHA = 본 문서 §7.15.0 — git log가 진실원): **8ad6d9e(스펙) → d9ef40b(플랜) → 6708134(T1) → 813ac43(T2) → 2658c97(T2 probe) → 2b4c950(fix r1) → f641cfa(fix r2) → 5ea90c5(fix r3) → 3c706d6(fix r4) → a01e832(fix r5)**+ 본 T2(docs) 커밋 | N | 1행 등록 — §7.15.0 표와 등호 · 캐논 계보 = Win 915/WSL 892/posix 304(승계 채권 +25 누적 — §4.1-11 채권과 합산)/폰 892(T1 리포트 3a 채권 + T2 +12) |
+| T1 원장(승계) | T1 커밋 메시지 오염 1행·10분 소멸 live 실측 미수행·최소화 번호 소모 0 재량(v2 재판정 후보)·배지 capture_region 등장 원존·3a 원소 단정·WSL 9p 캐시 사건 — 6건 | M | 유계/원장 유지(§7.15.3 원문 수취) — 10분 소멸 live = 다음 세션 승계 채권 |
+| T1 리뷰(승계) | **폐색 창도 배지**(z 최상단 — diag_j118_badge_two_windows.png 증거) — 사용자 기각 시 수리 후보(①폐색 면제 ②z-순위 인지 그리기)·null-캐시 규약 주석 문언 nit | M | 원장 유지 — §7.15.3/§7.15.4 ③ EYES 게이트 대기 |
+| T2 원장 | 한글 수사("창 삼") = v1 미구어(2y-⑲(h) stub 원존) — 전사 계보 실관측 EYES 몫·off 어휘 생략(v1 — 10분 소멸 원존·"창 번호 꺼줘"는 close 가족이 잡는다 — 서버 window_not_found 정직) | N | 유계 — v2 어휘 합의 시 재판정 |
+| T2 원장 | wsl probe "15b" 헤더 라벨이 물리 순서상 15 앞(fix r3 이동의 잔여 — 산치·판정 무영향) | N | nit — 다음 wsl probe 접촉 1행 정산 원장행 |
+
 
 ## §5. 사용자 결제 게이트 (EYES-PENDING 봉인)
 
@@ -3024,3 +3034,229 @@ T2 배포·probe 실측 원문.
   전부 0건·폰 주소 = known_hosts BatchMode 자기 판명 변수 안 소멸(주소
   미인쇄 계약 — 런 로그 전체 0건·SSH 로우 = 변수만)·`8022` 표기 = 기존 선존
   (포트 기정 — 8ad5501 원존).
+
+## §7.15 창 번호 오버레이 원장 (#118 라인 — T1-T2(+fix r1-r5), 2026-10-27)
+
+#118 라인 원장. 구두로 쉘의 창을 누르는 두 번째 방식 — "창 번호 보여줘"→각
+보이는 창의 제목줄 좌측 번호 배지(compositor 오버레이 — T1)→"창 3"→focus_window
+(T2 어휘 접음). 스펙=`docs/superpowers/specs/2026-10-27-window-overlay-design.md`
+(8ad6d9e — D1-D5), 플랜=`docs/superpowers/plans/2026-10-27-window-overlay.md`
+(d9ef40b), SDD 원장=`.superpowers/sdd/2026-10-27-window-overlay/`(task-1/2
+리포트 — 미커밋 관행). T1 리포트가 배지 렌더·도구·원존 수형(락 교착 라이브
+결함)의 원문 수취원 — 본 §7.15.1은 T2 어휘+부품의 1:1 재수취, §7.15.2-3은
+probe/폰 배포 실측 원문+함정.
+
+### §7.15.0 체인 (rev-parse 전체 SHA 실측 · git log가 진실원)
+
+| 태스크 | 커밋(SHA — 실측 rev-parse) | 내용 (numstat) |
+| --- | --- | --- |
+| 스펙 | `8ad6d9e` | docs(apps): 창 번호 오버레이 설계 스펙 (#118 — 접근성 표준 UX·compositor 배지·창 단위 v1) — D1-D5 |
+| 플랜 | `d9ef40b` | docs(apps): 창 번호 오버레이 플랜 (#118 T1-T2) |
+| T1 | `6708134` | feat(apps): 창 번호 오버레이 배지+도구 (T1) — JKWindowServer.h(+68)/.cpp(+389/−32)·main.cpp(+87) — overlay_numbers 도구+DrawWindowNumberBadges+순수 부품 4종+3a 13건 — **[커밋 메시지 오염 1행 원장(T1 리포트 concern 1 — amend 금지 원본 유지)]** |
+| T2 | `813ac43` | feat(apps): 창 번호 오버레이 구두 어휘+숫자판정 부품 (T2) — ChatRouter.h/.cpp+SttVoice.cpp+ClientChatApp.cpp+JKWindowServer.h/.cpp+main.cpp+jkweb+jktalk 9파일(+338/−20) — 어휘 exact 2행+ParseWindowNumberSpeech+ChatAction.winNum+OverlayNumbers kind+focus_window args.num+**원존 수형(배지 스냅샷 수집기 — 캡처 오버레이 면제 — T1 리뷰 Minor)**+2y-⑲ 10건·3a-⑤ 2건 |
+| T2 probe | `2658c97` | feat(probes): #118 오버레이 E2E 세그먼트 — WSL+폰 probe (T2) — wsl_voice.sh(+172/−10)·phone_voice.sh(+195/−10) — §13c/B4 세그먼트+계보 갱신(캐논 850→892·2y→31·2z/3a 수취 행·#118-RUN-VALS+VOVER-VERDICT 별행 원존) |
+| T2 fix r1 | `2b4c950` | fix(probes): wsl voice probe — click 1탭 직성립 경로의 회수 프레임 결함 — 118-R1 런 hard FAIL(clickrec copy) 원문 소각 |
+| T2 fix r2 | `f641cfa` | fix(probes): voice probes — 오버레이 세그먼트 판독 결함 2건 — focused 케이스 어긋냄(str(True)+True→True 가양성 — 미포커스 대상 수형) |
+| T2 fix r3 | `5ea90c5` | fix(probes): wsl voice probe — VOVER 판정 블록을 RUN-VALS 행 앞으로 이동 — RUN-VALS overlay=0 고착 소각 |
+| T2 fix r4 | `3c706d6` | fix(probes): phone voice probe — B4 failout 인용 이중벗김 결함 — 원격 스크립트 파스 불성립(전면 미실행 — 무접촉 잔상 0) 소각 |
+| T2 fix r5 | `a01e832` | fix(probes): phone voice probe — B4 배지 캡처 회수 순서 결함 — 원격 선소각(RECOVER-MISS) 소각 |
+| 본 T2(docs) | 본 문서를 포함하는 커밋 | docs(apps): #118 창 번호 오버레이 원장 — docs/90 §7.15+§4.1-12 — SHA는 git log가 진실원 |
+
+### §7.15.1 어휘+부품 원리 (T2 → ChatRouter/SttVoice/JKWindowServer 단일 진실원 1:1 재수취 · 코드 재실측 0)
+
+- **D3 어휘 = exact 2행 + 숫자 화법의 이분**: ①"창 번호 보여줘"/"번호 보여줘" = kRouteTable
+  exact 행 2행(정규화 발화 전체 등호 — 접사("번호 자주 보여줘")=stub — D1 무인자 강제 정합).
+  **Launch "보여줘" 행보다 앞 배치** — 뒤접미 판정은 배열 순서로 갈리므로 "번호 보여줘"가
+  "보여줘"(Launch·비exact)에 눌려 앱어 "번호"의 launch로 새는 것을 막는 순서 계약("창 목록
+  보여줘" 방어 행 2y-⑩ 동형 — 2y-⑲(b)(e)). ②"창 3"/"3번 창" = 표 행이 될 수 없는 가변
+  숫자 발화(brief 원존 — "정확매치 어휘 한계") → **순수·결정 부품
+  ParseWindowNumberSpeech**(2y-⑲(f)(f-2) — 4형: "창 3"/"3번 창"+접어체 "창3"/"3번창"
+  (ExtractAppWord 접어체 무공백 원존 계승) — 0 = 화법 아님·"창 0"(배지 부정) 포함 — 상한
+  99999 파서 자기 보호·**한글 수사("창 삼") = v1 미구어**(stub — 원장행: 전사 계보의 실관측
+  EYES 몫 — 2y-⑲(h) 어설션).
+- **ChatAction 대차** — Focus 재용(스펙 D3 "ChatAction Focus 재용" — 신설 kind는 표지 온만)
+  +`winNum` 필드 1개 신설(0 = 미지정 — 기존 Focus 원존 무접촉·상호배타: 표 행 vs 숫자 부품이
+  다른 길) + OverlayNumbers kind **Info 뒤 신설** — 기존 kind 수치 계보 보존(probe committed
+  원문 행 kind=0/2/3/4/5 등호 판정 — 파손 방지). fail-clear 2곳(ChatRouterRoute·
+  ChatLlmActionParse 진입에 winNum=0 — fail-closed 동형). **LLM 스키마 불변(D4 — 스펙)**
+  — 번호 발화는 즉발 몫(파서 진입 winNum=0 — 모델이 winNum을 못 낸다 — 방어 사례만
+  DefaultActionGuide에 문어 1행).
+- **질의 조립(ChatActionQuery — SttVoice.cpp)** — OverlayNumbers =
+  **`{"tool":"overlay_numbers","args":{}}`** 단일 양식(args 빈 객체 = on 부재 = 켬 —
+  3a-④ 원존 재용·새 도구 0)·Focus-with-num = `focus_window {"num":3}`(1기반 — 서버 스냅샷
+  판정 위임). **kVoicePrompt 갱신**(표=진실원 동기 계약 — #115b 원존): +"창 번호 보여줘
+  번호 보여줘 번 창"(숫자 자체 = 가변 — 어휘 뼈대만 — wsl_voice.sh VPROMPT 문자 리터럴
+  쌍둥이 동기 = 계보 원장행).
+- **서버 판정 = 배지 스냅샷 수집기 1본(T2 원존 수형)** — HandleAgentQuery 상단의
+  `badgeTargets` 람다: overlay_numbers 도구(answer의 count)와 focus_window "num" 양쪽이
+  같은 필터·순서를 먹는다 — 입력 양식 = OverlayBadgeOrder의 그것(3a 원존·렌더 패스
+  DrawWindowNumberBadges와 동기). **원존 수형(T1 리뷰 Minor — 도구 1행)**: 도구 분기가
+  캡처 오버레이 클라를 면제 못 해 렌더 패스와 순간 어긋났던 것(렌더 :8682 면제·도구 미면제)
+  — 수집기 1본으로 소각("번호의 진실원 = 화면 배지" 계약).
+- **focus_window args.num (스펙 D4 focus_window 재용)** — **OverlayBadgeWindowForNumber
+  순수 부품**(3a-⑤·⑤(b)) — 1기반 배지 숫자 → OverlayBadgeOrder 등호 스냅샷의 창 id·
+  범위 밖/num<=0/빈 스냅샷 = 0 → `window_not_found` 정직 회신. **포커스 창 폴백 금지**
+  (argless 원존[focusedClientId_ 폴백]은 지시 실패 형이고 num은 "지정했는데 화면에 없다"
+  의 정직 실패). id(app)·num 상호배타 — hasId가 앞선다(기존 id 직접호출 계약 보존).
+- **소비자 3좌 전송 계약** — 채팅 타이핑(ClientChatApp::Submit)·jkweb·jktalk은
+  OverlayNumbers/번호 Focus를 **서버 도구로 실전송**(ListWindows 동형 — overlay_numbers는
+  승인 사건 없는 표지 토글이라 app_tool 릴레이의 "구두 전송표면 한정" 계약과 다른 계열)·
+  구두 = RunVoiceTurn dispatcher 경로(원존).
+- **제어 관행 원존 봉쇄** — "창 번호 꺼줘"류 = "꺼줘"(Close) 접미 행이 잡는다(기존 X 꺼줘
+  가족 원존 — app어 "번호"의 close = 서버 window_not_found 정직)·**off 어휘 = v1 생략**
+  (D3 원존 — 10분 소멸이 끔을 대신한다 — 안내문에 그 사실 정직 표기 — 2y-⑲(d)).
+
+### §7.15.2 캐논 계보 (2y/3a 계열) + probe·배포 실측 영수증
+
+| 시점 | Win | WSL | posix | 폰 | 신설 |
+| --- | --- | --- | --- | --- | --- |
+| 기준(#118 T1 종착 = task-1 리포트) | 903 | 880 | 304 (승계 채권) | (880) | — (3a 13 보존) |
+| T2 `813ac43` | **915** | **892** | 304 (승계) | (892 대기) | +12 (2y-⑲ 10·3a-⑤ 2) |
+| probe/fix r1-r5(2658c97..a01e832 — probe 전용·src 무변경) | 915 | **892** | 304 (승계) | **892** | 폰 12 흡수 — **CANON=118T2-892** (배포 A/B 2런 등호 — WSL 892 등호 계보) |
+
+- **2y-⑲ 10의 분해** = ①창 번호 보여줘 즉발(kind 6 — OverlayNumbers) ②번호 보여줘 등호
+  (exact 2행·순서 계약) ③overlay_numbers 질의 조립 등호(args 빈 객체 = on 부재 = 켬)
+  ④안내문 10분 소멸 문어(v1 off 어휘 생략의 정직 표기) ⑤기존 회귀(알림 보여줘 Launch·창
+  목록 보여줘 ListWindows — "보여줘" 접두 판정 무접촉) ⑥창 3·3번 창 = Focus winNum=3
+  ⑦접어체(창3·3번창) ⑧focus_window num 질의 조립 등호 ⑨미매치 stub(창 0·창 삼·접사)
+  ⑩기존 Focus 원존 회귀(앞으로 = winNum 0) — **3a-⑤ 2** = 배지 숫자→창 등호(비가시 소모 0
+  계승)+범위 밖·num=0·빈 스냅샷 = 0.
+- **posix 304 승계 = 승계 채권 원존(T1 리포트 §"posix 승계 재판정" 승계)** — posix 머신
+  접촉 = 폰 접촉 계약 밖(§4.1-11 채권과 동일 관행 — ChatRouter.cpp는 posix 링크 성립 원존
+  — 신설 2y/3a 케이스는 posix 하네스 미수용 → 셈 원문 변동 0 = 재런 불요 판정 승계).
+  **채권 산치 = +12 예상**(오평 원장행 아님 — T1 리포트의 3a +13 채권과 합산 = +25).
+- **WSL probe 2런(`wsl_voice_run118_{3,4}.log — 118-R3/R4 · fix r3 이후 probe)`**:
+  `canon=892 twov=14 twoy=31 twoz=9 threea=15 fc3=3 direct=1 direct_t2=1 stt_t2_canon=0
+  fixt=1 keyturn=2 clickturn=2 route=1 vocab=1 vprelay=1 vptoggle=1 notify=1 overlay=1
+  ovcnt=1 ovfocus=1 ovnf=1 ovoff=1 probe_rc=0` — **VOICE-VERDICT: VOICE-OK +
+  VOCAB-VERDICT: VOCAB-OK + VOVER-VERDICT: VOVER-OK 2/2** — 기존 legs 회귀 0.
+- **§13c 오버레이 E2E 원문(R3/R4 등호)**: 발화 4행 질의 양식 등호(`VOVER-ROUTE-OK:
+  rows=4/4 … excl=2/2` — `text=[창 번호 보여줘] kind=6 … query=[overlay_numbers {}]`·
+  `text=[창 3] kind=2 … query=[focus_window {"num":3}] num=3`·`text=[3번 창] … 등호`·
+  미매치 2건 kind=5) → 창 3개 상태(chat+Video Player+Notifications)에서
+  `overlay_numbers` → `{"ok":true,"count":3}` — **count 등호(OVER-COUNT: 3/3 —
+  스냅샷 수집기 원존의 라이브 원문)** → **배지 원문 캡처(capture_region — diag_j118 수형
+  재용)** `voc_wsl_badge3.png`(1280x720 — Chat=1·Video Player=2·Notifications=3 —
+  배지 3개 육안 확인 — T1 캡처 원존 계보) → **"창 1"→`focus_window num=1` → idx1(id=4)
+  focused=true 등호**(미포커스 대상 — 착탄 증거 원존) → **범위 밖 num=99 =
+  `{"ok":false,"error":"window_not_found"}` 정직(D5)** → **off 배지 소멸 대조
+  (`OVER-DIFF-OFF: diff_pixels=1105` — voc_wsl_badge3_off.png — 배지 흔적 0 육안)** →
+  세그먼트 창 소각(REMNANT 0·permissions 원복 등호).
+- **폰 배포 런(t118t2_deploy.sh — engine/tmp 산출물 — t117t2 수형 승계·커밋 0 —
+  engine/tmp/t118t2_run.log+t118t2_deploy.log)**: DEPLOY-BASE = HEAD 전수(T1 6708134+T2
+  813ac43+probe 커밋 전수 — SWEEP-POST-DIFF=0 hard 게이트)·LEG-STAGE-WIRED(SPATIAL leg
+  유지배선 — libopenal.a)+WHISPER-ROOT-WIRED(tree 149)·CMAKE-RC=0·**NINJA-RC=0
+  SECONDS=447**(aarch64)·JKDESK-BYTES 38,074,672B·`DEPLOY-MARKERS: 2r=11 2s=21 2u=136
+  2v=22 2w=4 2x=19 2y=34 2z=9 3a=16`(라벨 계수 — 본문 주석 행 포함 — PASS 기준 2y=31·
+  3a=15)·MUSP-LEG-SYM alcOpenDevice strings=3(leg 링크 유지)·whisper-cli aarch64
+  cold-run 정상(LDD not-found 0)·tiny-ko 핀 77,691,730B 등호(조달 재용 불요)·music.jkx
+  재팕(PACK-RC=0·ICON-ENTRIES=2)·서버 재기동 **WHISPER_ROOT 보유 부팅**(부팅 env 승계
+  원존)·`PHONE-SELFTEST-A rc=0 PASS=892 FAIL=0 2y=31 3a=15`·**CANON-A=892**·런B 동일
+  **CANON-B=892**(2y=31·3a=15 양런 — WSL 892 등호)·settings 213B/permissions 33B
+  **무변경 등호**·REMNANT-LS-RC=2(자기 소각) — **`T2-DEPLOY-VERDICT: T2-DEPLOY-OK`**.
+  **brief 표기 정산 원장행**: brief "기대 폰 캐논 = 880 승계"의 880 = T1 종착 시점 값 —
+  본 T2 신설 +12(2y-⑲ 10·3a-⑤ 2)의 승계로 폰 기대 = **892**(WSL 등호 계약)로 갱신 —
+  실측 등호.
+- **폰 probe 동형 세그먼트(phone_voice.sh B4 — engine/tmp/phone_voice_run118_{3,4}.log —
+  2런 ALL OK — P1/P2 = 결함 발견 런(§7.15.3)은 원장 정산)**:
+  `VOICE-PHONE-VERDICT: VOICE-PHONE-OK`(+**`VOCAB-PHONE-VERDICT: VOCAB-PHONE-OK`**+
+  **`VOVER-PHONE-VERDICT: VOVER-PHONE-OK`** 2/2)·**배지 원문 캡처 2종 md5 등호 회수**
+  (`pv_badge_n.png`(154,254/154,426B — **Video Player=1·Chat=2·Notifications=3 —
+  z등호 원존의 폰 원문 — 육안 확인**)·`pv_badge_off.png`(배지 소멸 대조 — 회수 후 소각))·
+  OVE 세그먼트 원문 등호: `OVE-ON {"ok":true,"count":3}`·`OVE-COUNT: 3`·
+  `OVE-FOCUS-NUM: num=1 reply={"ok":true}`·`OVE-FOCUS-EQ: OK — idx=1(id=11) focused=true
+  등호`·`OVE-FOCUS-99 {"ok":false,"error":"window_not_found"}`·`OVE-MUSIC-RESTORE
+  ok`(사용자 화면 = Music 복원 원존)·**OVE-REMNANT: phone overlay scratch left=0**(잔상
+  0 계약)·permissions 무접촉(overlay/focus/capture = ask 아님 — T1 스모크 원존).
+  `#118-RUN-VALS: overlay=1 ovlroute=4 ovlive=1`(양런 — RUN-VALS 스트림에 overlay 필드
+  전원 가산 원존).
+- **TTS 별행 = `TTS-PHONE-FAIL(honest — cli=0[웨지 3표본]·stamp=1·session=1·optout=1·
+  lat 21,166/18,492ms)`** — **#117 런 밖 웨지 원장행 승계**(§7.14.4·§4.1-11 — 재부팅 =
+  사용자 몫)·별행 판정 계약(VOICE-PHONE-VERDICT 무변조 — #115b VOCAB 별행 원존) 그대로
+  — 본 라인 소관 아님(정직 기록).
+- **stt_t2_canon=0**(전사 비결정 — §2.4 CANON 밖 — #115b 원장 승계).
+
+### §7.15.3 함정 원장 (#118 T2 신규 — 봉쇄 레슨 축 · 전량 = 런/T1 리포트 원문 수납)
+
+- **click 1탭 직성립 경로의 회수 프레임 결함(fix r2b4c950 — 118-R1 hard FAIL)** —
+  `VOC-FAIL: clickrec copy`: 1탭이 곧 착탄(재시도 없음)이면 voc_ck2.png가 존재하지 않는데
+  성공 분기가 그것을 회수 — 정찰 원존("클릭 1 = 무음 소멸이 관행")이 2탭 경로만 실측시킨
+  함정(숨은 경로 unbekannt) — 수형 = CKFRAME(실제 변화 프레임) 회수.
+- ** focused 판독 케이스 어긋냄 + "True→True" 가양성(fix r2 f641cfa — 118-R1)** —
+  python `str(True)` = `True`(리스트_windows JSON의 `true`와 케이스 어긋남 — 등호 판독
+  MISS)+이미 포커스된 창에 num을 찍으면 착탄이 기저 상태와 무차별 — 수형 = focused
+  소문자 판독+라이브 소비 대상 = **미포커스 창의 배지 숫자**(즉발 행은 "창 3" 고정 —
+  VOV 양식 등호는 유지).
+- **RUN-VALS 행의 overlay=0 고착(fix r3 5ea90c5 — 118-R2)** — RUN-VALS 요약 행이
+  VOVER_OK 계산 이전에 인쇄(같은 로그의 #118-RUN-VALS=1과 모순) — 수형 = 판정 블록을
+  RUN-VALS 행 앞으로 이동. **nit 원장행**: 이동 후 "=== 15b." 헤더 라벨이 물리 순서상
+  "=== 15." 앞에 온다(라벨만 — 산치·판정 무영향).
+- **failout 인용 이중벗김(fix r4 3c706d6 — 118-P1)** — 원격 스크립트의 grep/ctl 인용이
+  디코딩 계통에서 벗겨져 `unexpected EOF while looking for matching quote` — **원격
+  스크립트가 파스 불성립으로 전면 미실행**(창·permissions 무접촉 — 잔상 0 — 파스 단계
+  실패의 부작용 = 무해 원문) — 수형 = 단일 인용 조립(이스케이프 계통 소거). **probe
+  본문 bash -n 통과와 원격 스크립트 파스는 별개 검사** 원장행(heredoc 본문 = 런타임까지
+  파스 안 됨).
+- **배지 캡처 원격 선소각(fix r5 a01e832 — 118-P2)** — 원격 스크립트가 호출자의 md5 회수에
+  앞서 배지 PNG를 소각(`RECOVER-MISS: $TMPDIR/t6pv_badge_n.png` 원문 2건 — 회수 0) —
+  수형 = 원격 소각 목록에서 배지 PNG 제외(호출자가 회수 뒤 소각 — t5_chat_* 회수
+  원존 계약과 같은 순서 — **캡처의 회수-소각 순서 = recover 계약 원장행**).
+- **T1 리포트 concerns 전량 원문 수취(T1 리포트 §concerns 6건 — 원장행 유지)**:
+  ①T1 커밋 메시지 오염 1행(amend 금지 계약 — 원본 유지·코드 무영향) ②10분 소멸의 live
+  실측 미수행(순수 판정(3a)만 폐곡 — 런타임 상수 단축 불가 — 다음 세션 승계 채권 — 본
+  T2도 미수행 정직 기록) ③최소화 창의 번호 소모 0(보이는 창 1..N 재부여 — 재량 —
+  list_windows 행수와 어긋나는 창 존재 시 대화 1 어긋남 — v2 어휘 합의 시 재판정 후보)
+  ④배지의 "capture_region 등장" = compositor 훅 계약 원존("화면에 보이는 것이 곧
+  캡처다" — 캡처 원문 배제 요구 시 별도 합의) ⑤3a 건수 13건 = 원소 단정 관행(부품별
+  1행 — 본 T2 +2로 15) ⑥WSL 9p 캐시 사건 원장(병행 ninja 경합 — wsl --shutdown 후
+  단독 재빌드 소각 — "캐논 재측정 0").
+- **T1 리뷰 Important 원장행(전수 — 본 문서 필수 행)**: **폐색(가려진) 창도 번호 배지를
+  얻는다**(배지 = z 최상단 그리기 — brief 계약 원존·구현자 diag_j118_badge_two_windows.png
+  증거 원문) — "뒤에 가린 창의 번호도 배지가 나온다"는 UX 이중성: 번호 보여주기의 목적
+  (가려진 창을 번호로 부르기)과 상면 충돌하는 면도 있다. **EYES 게이트에서 사용자 기각 시
+  수리 후보 = ①폐색 창 면제(가려진 창 배지 제외) ②z-순위 인지 그리기(가려짐 투명도/번호
+  계열)** — v1 = 현행 유지(원장 기록 — 재판정 대기).
+- **nit 원장행(null-캐시 규약 주석 문언)** — DrawWindowNumberBadges의 폰트 실패 재시도
+  표기(T1 :8702 부근 — "매 프레임 재시도를 막는 null 캐시 엔트리 규약")의 문언이 규약
+  본문과 어긋나게 읽힌다(retry 방지가 아니라 실패 결과의 캐시 기록이 본체) — 부기(코드
+  무변경 — 다음 접촉 몫).
+- **부품 Files 갱신 원장행(brief/플랜 갭)**: "창 3" 화법의 서버 판정 = focus_window
+  args.num 확장 — 플랜 Task 2 Files 원존(ChatRouter.cpp만)에 없는 **JKWindowServer.h/.cpp
+  변경 1건** — "focus_window(id = z등호 원존)" 구현을 위한 불가피 확장(F1 계약 확장
+  선례 — args.id 직접호출 계약 보존 + 선택 인자 추가) — close_window/focus_window의
+  id/app 형 무접촉.
+- **off 대조 대차 원장행**: OVER-DIFF-OFF(1105px — bbox 광역) = 배지 소멸+포커스가 낳는
+  z변경의 혼재(포커스 먼저 — 차분 순서 원존) — 배지 단증 = off 캡처 육안(배지 흔적 0
+  — 위 원문) — 차분 단독 판정 아님(정직 표기).
+
+### §7.15.4 비-목표 + EYES 게이트 (사용자 선언만 결제 — §5/§7.9.5 원칙 동형)
+
+- **비-목표(스펙 §3·D3)**: 요소 그리드/드릴다운(v2)·오버레이 마우스 클릭(이벤트 통과
+  금지 — D2)·번호 편집·off 어휘(v1 생략 — 10분 소멸)·한글 수사 화법("창 삼")·LLM 스키마
+  확장(D4 불변)·폐색 창 배지 면제(위 원장행 — 기각 시 수리).
+- **EYES 대기**:
+
+| # | 게이트 | 내용 | 상태 |
+| --- | --- | --- | --- |
+| ① | **폰 "창 번호 보여줘"→배지→"창 3" 포커스 체감** | 폰 chat [구두]에서 실발화 — 배지 표시(체감)→"창 3" 발화→해당 창이 앞으로 오는 체감 — probe = 도구 경로 원문+캡처 원문만(pv_badge_n.png는 합성 단계 원문 — 실발화 전사 본문 = CANON 밖 §2.4) — **플랜 사용자 게이트 1** | **대기(발화 체감)** |
+| ② | **WSL/Win 배지 모양+번호 포커스 체감** | 데스크 축 F6 발화 + 배지 모양(반투명 검은 바탕+흰 숫자 — voc_wsl_badge3.png 원문)·10분 소멸 관측 | **대기(육안·체감)** |
+| ③ | **폐색 창 배지 수용/기각 판정** | T1 리뷰 Important 원장행 — 가려진 창도 배지를 얻는 현행의 수용·기각 — **기각 시 = 즉시 수리(폐색 면제 또는 z-순위 인지 그리기)** | **대기(육안·판정)** |
+| ④ | **한글 수사 전사 관측** | "창 삼"류 전사 출현 관측 시(negative 어설션 2y-⑲(h) = v1 미구어) 수사 부품 확장 재판정 | **대기(관찰)** |
+
+### §7.15.5 커밋 원장 + IP/호스트 경로 게이트 (#118 라인)
+
+- 라인 체인 = §7.15.0 표(8ad6d9e..본 docs 커밋 — rev-parse 전체 SHA 원존 — git log가
+  진실원) — push 전부 origin main 직행·amend 없음·**커밋 = 명시 경로만**(T1 = src 2파일+
+  main.cpp[커밋 메시지 오염 1행 — 위 원장행]·T2 = src+include+jkweb/jktalk 9파일·T2
+  probe = probe 2파일·fix r1 = wsl 1파일·fix r2 = probe 2파일·fix r3 = wsl 1파일·
+  fix r4/r5 = phone 1파일·본 docs = docs/90 1파일) — `git add -A` 0·커밋 분리 원존
+  (어휘 커밋+probe 커밋+fix 5건+docs 커밋).
+- **IP·호스트 경로 게이트(T2 실측)** — 어휘 커밋(813ac43)+probe 커밋(2658c97)+fix 5건
+  (2b4c950·f641cfa·5ea90c5·3c706d6·a01e832) 커밋 원문 IPv4 정규식 grep = **전부 0건**
+  (커밋 전 staged 원문+커밋 후 `git show` 이중 게이트)·폰 주소 = t118t2_deploy.sh의
+  known_hosts BatchMode 자기 판명 변수 안 소멸(주소 미인쇄 계약 — deploy/probe 런 로그
+  전체 0건·SELFRESOLVE: MATCH 행만)·`8022` 표기 = 기존 선존(포트 기정 — 8ad5501 원존).
+- 배포 드라이버(t118t2_deploy.sh·t118t2_remote.sh)·런 로그(wsl_voice_run118_{1..4}.log
+  ·phone_voice_run118_{1..4}.log·t118t2_*.log)·캡처(voc_wsl_badge3*.png·pv_badge_*.png
+  ·voc_wsl_*.png) = engine/tmp untracked — 커밋 금지 충족(diag_j118_*.png = T1 리포트
+  계보 untracked — 증거 PNG 원존).
