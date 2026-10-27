@@ -469,6 +469,18 @@ status 절단 악형) → T2 fix r1 re-review **APPROVE 재확정**(C0/I0/M0 —
 | T2 원장 | 수기 win CLI probe stdin 웨지(120s+ 무응답 — 스파이크 §3c win leg 재실측)+PC 주소 세션 콘솔 누출 1회(보존 파일 0건) | N | 원장 소화 — probe 폐기·engine spawn 계약 무영향(파이프 스폰) |
 | T1 원장 | portproxy 불요 판정(0.0.0.0 바인딩+ollama.exe 규칙 = 기존 상태 실측 — 신규 노출 아님) — 보안 옵트인 원존 = §7.16.3 | M | 사용자 판정(옵트인/기각 — 원존 1커맨드 병기 완료) |
 
+### §4.1-14 신규 park 행(#121 JK APK v2 라인 — §7.17 승계 · **아래는 추가만, 기존 행 변형 금지**):
+
+| 출처 | 항목 | 등급 | 처분 근거 |
+| --- | --- | --- | --- |
+| T3 부기 | jkapk v2 라인 커밋 체인(1행 — rev-parse 전체 SHA = §7.17.0 — git log가 진실원): **2314b8b(플랜) → 469de84(T1) → 607e2a5(T2) → a0293b6(fix r1) → f22dbe6(fix r2) → ecf0508(T3 probe)**+본 docs 커밋 | N | 1행 등록 — 엔진 캐논 무접촉(APK 별도 dir·별도 gradle 빌드)·본 라인 Win selftest 922 PASS/0 FAIL 2회 재실측(T1/§7·T2/§6) — 캐논 4축 등호 승계 |
+| T2 원장 | **probe prescan rc 전파 결함**(구 MSW_LIST의 Minesweeper 미매치 rc=1이 prescan FAIL로 전파 — 부제 세션을 agentctl 부재와 동일 FAIL) — 2런 연속 재현 후 T3 소각 | M | 함정 원장(§7.17.3 1행) — probe v2 census/필터 분리(ecf0508366ad7… — 2런 FULL 등호로 폐곡) |
+| T2 원장 | **stdout 버퍼 후행 순서 함정**(파이프 결합 시 stderr 원문이 stdout 마지막 라인 뒤로 밀림 — fail-closed B/C stderr 원문 묻힘) | M | stderr 파일 분리 수취 확정판 계약(§7.17.2 ③ — probe ⑧ 세그먼트 승계) |
+| T2 원장 | 폰 재빌드 경합(런 중 타 세션의 폰 ninja 재빌드 — jkdesktop 사망 관측·loadavg 10.5 실측) — probe 2런 BLOCKED → 서비 복귀 폴링 후 완수 | M | 타 세션 빌드 접촉 존중 원존(동시 빌드 경합 위험 — §4.1-11 원장행 승계)·정직 BLOCKED 원장 2건 봉인(phone_apk_run1.log 이력) |
+| T2 원장 | 폰 네트워크 주소 이동(known_hosts 상주 후보 중 1곳만 생존 — 셀프판명 원존 재판명)·scp 덮어쓰기의 +x 회수(chmod 원존 필요·r3-r5 원장) | N | phone_voice.sh 셀프판명 원존 승계·probe ⑧ chmod 래치 |
+| T1 원장 | **T1 리포트 §4 링크 표기 정정**(`-static-libstdc++`는 C 드라이버에서 C++ runtime을 링크하지 않음 — 17심볼 undefined 실측; T1 이진 성립의 실제 링크 = `-lm -lc++_static -lc++abi`) | M | T2 리포트 §9.2 정정 원장 — §7.17.4 ② |
+
+
 
 ## §5. 사용자 결제 게이트 (EYES-PENDING 봉인)
 
@@ -3515,3 +3527,143 @@ ChatConfig(JKLmEngine.h — 승격 게이트 fileKnown 선존 계열)·조립식
   L2 격리는 해소되지 않았다 — 폰 단독 승계로 체감 대상이 **폰 로컬 턴 체감**
   (지연 2-4s 밴드·품질 = 행동 JSON/모델 문장)으로 바뀐다(사용자 선언만 결제 —
   게이트 ② LAN 노출 옵트인은 폰 단독 구성에서 무관해진다 — 11434 송수신 미개입).
+
+### §7.17 JK APK v2 — 내장 전사 leg — NDK+whisper JNI+AudioRecord 구두 사슬 (#121 T1-T3, 2026-10-28)
+
+플랜 = `docs/superpowers/plans/2026-10-28-jkapk-v2.md`·스펙 =
+`docs/superpowers/specs/2026-10-25-jkapk-design.md`(v2 원장 부기 D6)·SDD 원장 =
+`.superpowers/sdd/2026-10-28-jkapk-v2/`(task-1..3 brief/report). 원존 = docs/92
+(v1 as-built — D1-D7 전환원장·조달기 원존)·#112 STT 구두(SttVoice kVoicePrompt/
+kVoiceLanguage/wav 규약·R2/R5 원존)·#114 v1(/talk 조작 사슬 무변조 대상)·
+#110 T5(폰 vendored whisper ninja). 라인 원존 재판정 사슬 — **#3117 격리 근거
+원존의 정직 예외**: PC/폰 원존은 whisper-cli **별도 프로세스 스폰**+링크
+금지인 바 — 그 금지 본질 = "호스트 프로세스가 whisper 결함으로 죽지 않는
+격리"(폰 segfault 원존). APK는 Android 10+ W^X/targetSdk 34에서 cli exec
+구조 불성립 → **APK 자체 프로세스 = 격리 본질 등호**(whisper 결함이 죽이는
+대상이 APK 본인 — 호스트 데스크톱과 무관)라 full API 직접 링크 채택 =
+원존 링크 금지의 **정직 예외**(근거 원문 = T1 리포트 §2·whisper_jni.c 헤더
+주석 — vendored whisper.cpp v1.9.5(원존 깃허브 whisper.cpp — vendor 커밋
+6708134 계보)·stdout 파서 계층 0(cli stdout 진실원 = 세그먼트 열 — API
+직순회 승격)).
+
+#### §7.17.0 체인 (rev-parse 전체 SHA 실측 · git log가 진실원)
+
+| 태스크 | 커밋(SHA) | 내용 |
+| --- | --- | --- |
+| 플랜 | `2314b8b0ae93699a2fc97aaf5ffb94aea276f07c` | docs(apps): JK APK v2 내장 전사 플랜 (#121 — NDK+JNI+asset 전사 사슬) |
+| T1 | `469de84dafed91d2ae75effab0bca52dff1a9497` | feat(android): NDK+whisper JNI 안장 (v2 T1) — 조달기 §6/§7+JNI+gradle 배선 |
+| T2 | `607e2a5fd43d963ef8829a49ae424d3968c02bb9` | feat(android): APK 구두 버튼+전사 사슬 (v2 T2) — UTF-8 정리 계약+AudioRecord+R5 표기 |
+| T2 fix r1 | `a0293b6bd69dba307552457e921beeaa2fa052c2` | fix(android): 권한 승인 무홀드 자동기동 철수+pcm 상한 (v2 T2) |
+| T2 fix r2 | `f22dbe6a23484dd48d8dd0e34f1a5a1bb88a65ab` | fix(android): pcm 상한 도달 mic 해제 단일 소관 (v2 T2) |
+| T3 probe | `ecf0508366ad792354322356973efa0a56b841dc` | test(probes): phone_apk v2 세그먼트 — prescan 함정 소각+fail-closed 3판+설치 md5 재판 |
+| T3 docs | 본 커밋 | docs: #121 v2 원장 (T3) — docs/90 §7.17+§4.1-14 |
+
+#### §7.17.1 사슬 원문 (D계약 승계 · D4-D6 재판정 등호)
+
+- **사슬**: 조달기(`install_android_sdk.sh` §6 NDK r28.2.13676358·§7 tiny-ko
+  asset sha256 핀 `dd6d9f46…` — 멱등 1.095s 원문) → gradle cmake vendored
+  whisper.cpp 정적 링크 → JNI 1종 `jkapkTranscribe(wav, model, prompt)`
+  (**UTF-8 정리 계약** — 세그먼트 연결 후·trim 전 `jk_utf8_clean` 1회:
+  유효 시퀀스만 생존·orphan 바이트 소각(발명 0·U+FFFD 주입도 금지)·4바이트 =
+  modified UTF-8 서러게이트 쌍 치환·CESU-8/overlong 소각·소각 후 결실 0 =
+  정직 거부) → Kotlin `JniWhisper`(`@JvmStatic external`·kVoicePrompt 수형
+  **123자 EQU** python 정밀 비교·Java 측 보조 원존 `sanitizeTranscript`
+  단독 서러게이트 소각) → [구두] 버튼 push-to-talk(ACTION_DOWN=캡처 시작·
+  UP/CANCEL=마침 — **R2 재판정**: 데스크톱 F6 hold-to-talk의 터치 직역·
+  토글 기각 근거 헤더 원존 — 기각 시 즉시 수리 계약) → AudioRecord
+  16 k/모노/s16le(VOICE_RECOGNITION)·WAV = 표면 소유 진실원(cacheDir+pid+
+  발화 순서 접미 — 데스크톱 T3 원존 수형)·캐넌 44B 헤더(BuildWavBlob 수형)
+  → R5 표기(녹음 중…/전사 중…+[나] placeholder 전사 도착 시 슬롯 치환 —
+  logLines append-only 행열 확장·유일 변경점 = 치환) → 전사 = voiceExec
+  별도 스레드(전사 수십 초가 /talk 사슬 비봉쇄) → **v1 조작 사슬 무변조**
+  (doTalk/postTalk/jsonEsc/jsonGetString 기능 라인 변경 0 — 전사 원문 =
+  타이핑 동형 sendPrepared 꼬리).
+- **D계약 승계**: D4 무추적(NDK/모델/APK/자기검증 이진 전부 무추적 — 커밋 =
+  조달기+소스만)·D5 설치 = 사용자 속 1회(폰 반입 = scp+bytes/md5 양측 등호
+  봉인 런 — 절사 금지 — 본 라인 3건 전량 준수)·D6 = 본 라인으로 승격(tiny-ko
+  74MB assets — sha256 추출 등호 fail-closed)·D7(외부 STT 앱 품질 승계 =
+  v1 몫 — 본 라인은 내장 전사로 별개)·#112 마이크 권한 fail-closed(거부 =
+  정직 거부 표기 — 조용한 개방 금지).
+
+#### §7.17.2 성립 원문 (빌드·검증·폰 실측 — 봉인 로그 = 진실원)
+
+- **정리부 부품 등호(2zb 계열 확장 — 라벨 2zb-5a..h)**: pure C(jni/whisper
+  의존 0)라 `-DJKSANITIZE_SELFTEST_MAIN` 단독 컴파일 — **Win(gcc 16.2.0)/
+  WSL(gcc)/폰 aarch64(NDK r28.2 cross) 3축 8/8 등호 RC=0**(T1 R2 실측 orphan
+  `a5 bc` 소각·U+1F31A→서러게이트 쌍·전면 orphan 결실 0 전부 단정) — JNI
+  전사 축은 비결정이라 어셜션 금지 원존 계약 준수(결정 부품만). Kotlin 측
+  부품 단정 = overflow 뒤 `check(audioRecord == null)` fail-loud(fix r2).
+- **fail-closed 3판 rc 원문**(stderr 파일 분리 수취 확정판 — 함정 원장 승계):
+  A rc=0(tiny-ko+fixture — 결실 "." 수취·T1 원문 등호·29.8s)·B rc=1
+  `jkapk wav 개방 실패:`·C rc=1 `jkapk wav 부적합 (RIFF/WAVE 아님)` — probe
+  ⑧ 세그먼트로 승계(2런 전부 등호 재실측).
+- **폰 반입 원문**(fix r1/r2 봉인 런): `bytes=77387398(양측) md5
+  f73a5a26d08018e6f7fc4fdc1ce81f4c(양측 등호)` — 폰 실물 md5 사전 원문 수취 =
+  이전 봉인(07a20f47) 등호로 재전송 불요 원장 확정 → clean 빌드 교체.
+  **설치는 D5 사용자 속 1회** — 컨트롤러 안내 = f73a5a26 판.
+- **/talk 조작 사슬**(v1 무변조 재실측 3건): POST /talk 지뢰찾기 켜줘 = 200·
+  kind=Launch·app=minesweeper·답신 원문 등호 — 신규 창 id 42/8/9/22 실측
+  등장 후 id 지명 소거·기존 창 무접촉·잔상 0.
+- **probe 2런 원문**(phone_apk_run1/2.log — T3): run=1 MS-WIN-ID=9·run=2 id
+  22 — 전부 WIN-DISPOSE=spawned-new | V2-INSTALL=77387398/f73a5a26…-EQ |
+  V2-FC=A-0/B-1/C-1 | V2-SANITIZE=8of8 | V2-AOUT=. | V2-RESIDUAL=0 |
+  STATUS=APK-PHONE-OK 이중 등호.
+- **캐논 표기**: 엔진 무접촉(커밋 전원 = jkapk dir/조달기/probe만) — Win
+  selftest **[PASS] 922·[FAIL] 0·AppSelfTest 0 failure(s)** 본 라인 2회
+  재실측(jk-selftest-t2-canon.log)·WSL/posix/폰 engine 캐논 = 재실측 불요
+  원존 승계(APK 별도 dir·별도 gradle 빌드 — 캐논 무영향 D-원존 — 상위 라인
+  최종 계보 승계).
+
+#### §7.17.3 함정 원장 (#121 T1-T3 — 봉쇄 레슨 축 · **T1 리포트 정정 원장 포함**)
+
+1. **probe prescan rc 전파**(T3 소각 완료): 구 MSW_LIST의 Minesweeper 미매치
+   rc=1이 prescan FAIL로 전파 — 부제 세션(정상 배치)을 agentctl 부재와 동일
+   FAIL로 묶음 — 2런 연속 재현 → census(ok 게이트)와 필터 분리(ecf0508) —
+   §7.17.2 probe 2런 등호 폐곡.
+2. **T1 리포트 §4 링크 표기 정정 원장**: `-static-libstdc++`는 C 드라이버에서
+   C++ runtime을 링크하지 않는다(17심볼 undefined 실측) — T1 자기검증 이진의
+   실제 링크 = `-lm -lc++_static -lc++abi`(T2 r1 수형 — 이진 +2,416B 원존).
+3. **stdout 버퍼 후행 순서 함정**: 파이프 결합(2>&1 | tail)에서 stderr 원문이
+   stdout 마지막 라인(JKSANITIZE-PASS) 뒤로 밀려 fail-closed err 원문이 묻힘
+   — **stderr는 파일 분리 수취 계약**(fix r1 확정판 — probe ⑧ 승계).
+4. **권한 승인 무홀드 자동기동(fix r1 소각)**: 승인 분기 즉시 캡처 개방 =
+   권한 다이얼로 손가락이 떨어진 홀드의 무인 녹음→잡음 전사 경로 — 승인 =
+   상태 소거만(다음 홀드에서 시작).
+5. **overflow mic 미해제(fix r2 소각)**: pcm 상한 도달 분기가 release 없이
+   capturing=false만 — 마이크 계속 개방·다음 홀드가 구 AudioRecord 덮어쓰기
+   → 캡처 해제 단일 소관 헬퍼 `releaseCaptureState` 1종에 봉함(finishVoice/
+   overflow/onDestroy 3지점 동형)·pcm 상한 12 MB(도달 = 절단+정직 거부
+   표기).
+6. **UTF-8 orphan 수형 계약(T1 결함 수형 — T2)**: 전사 원문 raw bytes에
+   orphan 실측(R2 선두 a5 bc·R3 중간 eb a7 — byte-fallback 토큰 파열) →
+   NewStringUTF(modified UTF-8) invalid 수입 = RuntimeException 수렴(OOM
+   유사 표기) — 유용 전사까지 사망 → T2 정리 계약(§7.17.1)으로 소각.
+7. **폰 잔상 표기 원존**: toybox(ls) 미매치 = 종료코드 2 — `JK-RESIDUAL=2`
+   = 잔상 0의 실측 표현(초기 원장 "JK-RESIDUAL=0" = 실원문 오기 — 정직
+   정정 봉인)·scp 덮어쓰기는 +x를 회수한다(chmod 래치)·폰 /tmp 쓰기 불가
+   (로그·산물 = ~/tmp).
+8. **폰 재빌드 경합**: 런 중 타 세션의 폰 ninja 재빌드로 jkdesktop 사망
+   관측(loadavg 10.5·c++ 컴파일 원문) — 정직 BLOCKED 2건 봉인 후 서버 복귀
+   폴링 완수(타 세션 빌드 접촉 존중 원존)·폰 주소 이동(known_hosts 후보
+   재판명 — 셀프판명 원존 승계 — 주소 인쇄 0 유지).
+
+#### §7.17.4 EYES 게이트 (사용자 선언만 결제 — EYES-PENDING)
+
+| # | 게이트 | 내용 | 상태 |
+| --- | --- | --- | --- |
+| ① | **폰 단독 전사 체감** | JK 앱 [구두] **홀드 발화→해제**(첫 홀드 = 권한 승인 1회 — 승인 후 다시 홀드 — fix r1 계약) → "녹음 중…"→"전사 중…"(29.8-47s 대기 — tiny-ko 폰 실측) → 기록 [나] 전사 원문 치환 → DeX 서버 있으면 /talk 조작·부재 시 "서버 미기동" 정직 표기 — **폰 단독(서버 부재 상태) 전사·대화 표기 = 플랜 사용자 게이트 1** | **대기(육안·체감)** |
+| ② | **전사 품질 — tiny-ko 어휘 prompt** | 실발화(지뢰찾기 켜줘 계열) 전사 정확도 — kVoicePrompt(123자 등호 수형) 적용 효과 — 스펙 사용자 게이트 2·**합성 fixture는 tiny-ko 결실 "." 3판 원장(T1 §5 정직 — 합성= TTS 기계음 CANON 밖)이라 실발화로만 폐곡 가능** — small-komixv2 전환(~490 MB — asset 외부화 재판정 동행) = 사용자 게이트 3 | **대기(청안)** |
+| ③ | **APK 모양+버튼 형태** | [구두] 홀드형(토글 기각 원존 — 헤더 주석)·R5 표기 2행·전사 대기 수십 초 체감 — 기각 시 즉시 수리 계약 | **대기(육안)** |
+| ④ | **설치 판정** | 폰 Download 최종판 = f73a5a26(봉인 런 원문) — 사용자 설치(덮어쓰기 — 이전 판(07a20f47/2c3513e7) 설치 이력 있으면 재설치)·설치/런치/구두 1회 | **대기(사용자 속)** |
+
+#### §7.17.5 커밋 원장 + IP/호스트 경로 게이트 (#121 라인)
+
+- 커밋 = 명시 경로만(`git add -A` 금지·amend 0·push origin main 직행) — 경로
+  원문 = §7.17.0 표와 등호·전부 트레일러
+  Co-Authored-By: Claude Code <noreply@anthropic.com>.
+- **IP·폰 주소 게이트**: 신설 소스 = engine 소유 원존(vendored whisper.cpp
+  재용·#112 어휘 리터럴 수형)·SAPI fixture/모델 ggml/APK/자기검증 이진
+  전부 무추적 커밋 0·폰 주소 = known_hosts BatchMode 셀프판명(SELFRESOLVE:
+  MATCH 행만 인쇄 — 리포트/커밋/문서 인쇄 0)·폰 모델 경로(buildterm/
+  stt-models)는 주소가 아닌 절대 경로라 게이트 밖.
+- 본 문서 원문 IPv4 리터럴 소유 0건(커밋 전 점문 grep 게이트).
