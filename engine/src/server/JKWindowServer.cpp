@@ -274,6 +274,10 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
         overlayDrewThisFrame_ = false;
         DrawSemanticCursorCells(outputScale);
         DrawApprovalHighlights(outputScale);
+        // 창 번호 오버레이 배지 (#118 T1) — 두 그리기 함수 뒤 = 기존 오버레이
+        // 전부 위(z 최상단 — brief 계약). 배지는 표지이므로 승인 링/배너를
+        // 가려도 무해하다(다음 프레임이 같은 진실을 다시 그린다).
+        DrawWindowNumberBadges(outputScale);
         if (overlayDrewThisFrame_ && compositor_) {
             compositor_->RequestFullPresent();
         }
@@ -2853,6 +2857,12 @@ static const AgentPermRow kPermMatrix[] = {
     // 최소화/복원 (docs/57 §14.16) — 태스크바가 이미 하던 상태 변경의 에이전트
     // 노출이라 같은 none/allow 분류.
     {"window_minimize", "none", "allow"},
+    // 창 번호 오버레이 스위치 (#118 T1 — 스펙 2026-10-27-window-overlay-design
+    // D2): 10분 뒤 자동 소멸하는 일시 표지(배지)를 켜고 끄는 것뿐 — 창 상태에
+    // 무접촉이고 승인 행위가 아니라 window_minimize와 같은 none/allow 분류.
+    // HandleToolRegister의 namespace_conflict 가드가 이 표 전 행을 소비하므로
+    // 이 행의 존재 자체가 앱측 "overlay_numbers" 등록도 자동 봉쇄한다.
+    {"overlay_numbers", "none", "allow"},
     {"launch_app", "none", "allow"},
     {"save_layout", "none", "allow"},
     {"restore_layout", "none", "allow"},
@@ -3770,6 +3780,48 @@ uint32_t ResolveAgentWindowTarget(const std::vector<AgentWindowRef>& windows,
         if (w.focused) return w.id;   // argless = 포커스 창(list_windows 근거)
     }
     return 0;
+}
+
+// 창 번호 오버레이 (#118 T1 — include/server/JKWindowServer.h 블록 주석이
+// 계약 전문). 순수·결정 부품 — selftest 3a가 서버 프로세스 없이 직접 단정.
+std::vector<uint32_t> OverlayBadgeOrder(
+    const std::vector<OverlayBadgeTarget>& targets) {
+    std::vector<uint32_t> out;
+    out.reserve(targets.size());
+    for (const OverlayBadgeTarget& t : targets) {
+        if (t.visible && t.id != 0) {
+            out.push_back(t.id);   // 입력 순서 = list_windows 등호 순서 보존
+        }
+    }
+    return out;
+}
+
+void OverlayNumbersTurnOn(OverlayNumbersState& s, Uint32 nowMs) {
+    s.on = true;
+    s.startMs = nowMs;   // 이중 켬도 같은 산식 — 시작틱 교체 = 남은 시간 갱신(D5)
+}
+
+bool OverlayNumbersExpired(const OverlayNumbersState& s, Uint32 nowMs,
+                           Uint32 timeoutMs) {
+    if (!s.on) {
+        return false;   // 꺼짐 상태는 만료 판정 대상 없음(멱등 — 판정 무영향)
+    }
+    // SDL_GetTicks 랩 산술 — Run 루프의 `nowMs - lastCompositeMs >= 5000`
+    // 계약과 동일: 부호 없는 차분은 포위 역전에서도 경과값이 유효하다.
+    return nowMs - s.startMs >= timeoutMs;
+}
+
+bool OverlayNumbersOnArg(bool hasOn, int onArg, bool& wantsOn) {
+    if (!hasOn) {
+        wantsOn = true;   // on 부재 = 켬 (brief 계약 — "창 번호 보여줘" 원형)
+        return true;
+    }
+    if (onArg == 0 || onArg == 1) {
+        wantsOn = (onArg == 1);
+        return true;
+    }
+    return false;   // 0/1 이외 = bad_args 승계 (정직 회신 — window_fullscreen의
+                    // "0/1만 유효" 가드 분류)
 }
 
 // Desktop Agent API (spec §3): normally answers at once — the agent client
@@ -7006,6 +7058,59 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         reply = resolved ? "{\"ok\":true,\"parked\":true}"
                          : "{\"tool\":\"file_open_result\","
                            "\"ok\":true,\"parked\":false}";
+    } else if (tool == "overlay_numbers") {
+        // 창 번호 오버레이 (#118 T1 — 스펙 2026-10-27-window-overlay-design
+        // D2·D5): on 부재/1 = 켬(이중 켬 = 시작틱 갱신 — 남은 시간 10분 재시계),
+        // 0 = 끔. 배지의 실렌더는 컴포지트 훅 몫(DrawWindowNumberBadges — 이
+        // 핸들러는 상태 2비트+시작틱만 심는다). args 판정·순서 산출은 순수
+        // 부품 승계(OverlayNumbersOnArg/OverlayBadgeOrder — selftest 3a 원존).
+        int onArg = 0;
+        const bool hasOn = req.GetObjInt("args", "on", onArg);
+        bool wantsOn = false;
+        if (!OverlayNumbersOnArg(hasOn, onArg, wantsOn)) {
+            reply = "{\"ok\":false,\"error\":\"bad_args\"}";
+        } else if (wantsOn) {
+            // 대상 모집 — list_windows와 동일 필터(단절·control-only·shell
+            // 제외)+순서(clients_ 순회 — 결정론 원존), 그 위에 "보이는 창"
+            // 필터만(최소화 = 레이어 비가시 = 제목줄이 화면에 없음 — D1).
+            std::vector<OverlayBadgeTarget> targets;
+            for (auto& c : clients_) {
+                if (!c || c->IsDisconnected() || c->IsControlOnly() ||
+                    c->IsShell()) {
+                    continue;
+                }
+                JKCompositorLayer* lay =
+                    compositor_ ? compositor_->FindLayerById(c->Id()) : nullptr;
+                targets.push_back(OverlayBadgeTarget{
+                    c->Id(), lay && lay->IsVisible()});
+            }
+            const std::vector<uint32_t> order = OverlayBadgeOrder(targets);
+            if (order.empty()) {
+                // D5 정직: stub 없이 window_not_found 승계 계열의 honest err —
+                // "창이 없습니다"가 올바른 답(가짜 ok로 표지 행세 금지).
+                reply = "{\"ok\":false,\"error\":\"no_window\"}";
+            } else {
+                // 켬 전이든 갱신이든 같은 전체 제시 1회 — 켬은 활성 합성을
+                // 보증하지 않으므로(Run 루프 활동 게이트) 표지 화면 도달은
+                // 이 전체 프레젠트 플래그(다음 합성이 소비)에 달렸다.
+                OverlayNumbersTurnOn(overlayNumbers_, SDL_GetTicks());
+                if (compositor_) {
+                    compositor_->RequestFullPresent();
+                }
+                reply = "{\"ok\":true,\"count\":" +
+                        std::to_string(order.size()) + "}";
+            }
+        } else {
+            const bool wasOn = overlayNumbers_.on;
+            overlayNumbers_.on = false;
+            if (wasOn && compositor_) {
+                // 소멸 즉시 1회 전체 제시 — 뒷화면의 마지막 배지 잔상(더티
+                // 제시 사다리는 배지 영역을 커밋 rect로 갖지 않는다)을 지운다.
+                compositor_->RequestFullPresent();
+            }
+            reply = "{\"ok\":true}";   // 끔 요청 = 멱등(이미 꺼짐도 ok — 대상
+                                       // 창이 없어서도 아니다 — 끌 상태만 있다)
+        }
     } else {
         reply = "{\"ok\":false,\"error\":\"not_implemented\"}";
     }
@@ -8530,40 +8635,161 @@ void JKWindowServer::DrawSemanticCursorCells(float outputScale) {
     }
 }
 
-// 배너 텍스트 래스터라이즈 (스펙 2026-09-19-app-tool-hub §5 1단): 크롬 타이틀과
-// 동일한 글리프 경로 — Utf8ToKssm 변환 + JKDC 비트맵 폰트(한글 16px/영문 8px,
-// HangulManager의 assets/fonts/hangul.fnt·english.fnt). 새 글리프 엔진 없음.
-// 컴포지트가 ~1kHz로 도므로 매 프레임 글리프 DrawPixel은 비용이 남아, 렌더
-// 타깃 텍스처에 한 번 찍어 캐시한다(문자열당 1회). 실패는 null 엔트리로 기록 —
-// 매 프레임 재시도·로그 스팸을 막는다(1kHz 컴포지트 전제).
-SDL_Texture* JKWindowServer::ApprovalBannerTexture(const std::string& bannerUtf8,
-                                                   int& w, int& h) {
-    // 단발 경로 (draw 패스 밖 — 사전조립 키 없을 때만): 키를 여기서 조립.
-    return ApprovalBannerTexture(bannerUtf8, BannerCacheKey(bannerUtf8), w, h);
+// 창 번호 오버레이 배지 (#118 T1 — 스펙 2026-10-27-window-overlay-design
+// D1·D2·D5): 보이는 창의 제목 표시줄 좌측에 반투명 검은 바탕+흰 숫자 배지
+// (1..N). 오버레이 훅 사슬의 마지막(DrawSemanticCursorCells·
+// DrawApprovalHighlights 뒤 — z 최상단). 표지만 그리는 비상호작용 레이어
+// (D2: 이벤트는 그대로 창으로 통과 — 표지를 켠다고 창을 못 누르게 하지
+// 않는다, DrawSemanticCursorCells의 비상호작용 선례).
+//   위치 = 매 프레임 리셋(D1 클라 창 이동 추종): 배지 rect를 layer X/Y·
+//   Scale·outputScale 산식에서 매번 다시 계산 — 배지 자체 좌표 상태는 없다
+//   (의미 커서 셀의 window_move 추종 선례 — "상태 존재 = 계산" 계약).
+//   순서 = list_windows 등호(clients_ 순회 — 결정론): 배지 i+1이 스냅샷의
+//   i번째 보이는 창. 스냅샷 → OverlayBadgeOrder가 진실원(selftest 3a-①의
+//   대상 부품을 렌더가 그대로 소비 — 두 경로가 어긋날 수 없다).
+//   소멸 = OverlayNumbersExpired 판정(D2 10분) — 활성 합성 패스마다 검사,
+//   만료 프레임에서 상태 해제+전체 프레젠트 1회(Run 루프 활동 게이트의 5s
+//   폴백 합성이 하한을 붙들므로 소멸 지연 상한 ~5s).
+// 스레드 규약: DrawApprovalHighlights와 동일 — 서버 루프 스레드 전용,
+// **락 없음**(pendingApprovals_·preMaxRects_ 규약 승계). clients_는 같은 루프
+// 스레드(ProcessPendingClients·CleanupDisconnectedClients)에서만 변하고 이
+// 패스는 그 루프 스레드의 합성 안에서 불리므로 무락 순회가 경쟁 없다. 락 재
+// 획득 금지 원존(HandleAgentQuery의 clientsMutex_ 보유 중 capture_region이
+// Composite(false)로 훅을 부른다 — 실측 09:13:23 hang — 잠금 함수형 헬퍼
+// (FindClientById류)의 비재귀 뮤텍스 자기교착 함정 주석 3779행과 동일 지대).
+void JKWindowServer::DrawWindowNumberBadges(float outputScale) {
+    if (!renderer_ || !compositor_) {
+        return;
+    }
+    // (D5) 소멸 — 먼저 판정: 만료면 상태를 해제하고 잔상 소모용 전체 제시를
+    // 세운다. 이 프레임부터 배지를 그리지 않으므로 훅의 표지 오버레이는
+    // 세워지지 않고, 이 RequestFullPresent 1회가 뒷화면의 마지막 배지를
+    // 지운다(더티 사다리는 배지 영역을 커밋 rect로 갖지 않는다 — 배지는
+    // 컴포지터 상태가 아니라 이 패스의 그리기물).
+    if (OverlayNumbersExpired(overlayNumbers_, SDL_GetTicks())) {
+        overlayNumbers_.on = false;
+        compositor_->RequestFullPresent();
+    }
+    // 스냅샷 — list_windows와 동일 필터+순서(disconnected·control-only·shell
+    // 제외), 그 위에 가시 레이어(최소화 = 제목줄이 화면에 없음)와 캡처
+    // 오버레이(일시 드래그 표면 — '창' 아님, 크롬 면제 목록 분류) 제외.
+    // 무락 순회(위 스레드 규약 — 같은 스레드 변이자) — HandleAgentQuery 보유
+    // 중(capture_region 합성 경로)에도 교착 없다.
+    std::vector<uint32_t> ids;
+    if (overlayNumbers_.on) {
+        for (auto& c : clients_) {
+            if (!c || c->IsDisconnected() || c->IsControlOnly() ||
+                c->IsShell() || c->Title() == kCaptureOverlayTitle) {
+                continue;
+            }
+            JKCompositorLayer* lay = compositor_->FindLayerById(c->Id());
+            if (!lay || !lay->IsVisible()) {
+                continue;
+            }
+            ids.push_back(c->Id());
+        }
+    }
+    std::vector<OverlayBadgeTarget> targets;
+    targets.reserve(ids.size());
+    for (uint32_t id : ids) {
+        targets.push_back(OverlayBadgeTarget{id, true});
+    }
+    const std::vector<uint32_t> order = OverlayBadgeOrder(targets);
+    // 수거 — 이 프레임에 쓴 키만 남긴다(approvalBannerTexs_ 규약 승계). 꺼진
+    // 프레임(스냅샷 비었음)은 used가 빈 채로 스윕 = 캐시 즉시 전부 해제.
+    std::set<std::string> used;
+    for (size_t i = 0; i < order.size(); ++i) {
+        JKCompositorLayer* layer = compositor_->FindLayerById(order[i]);
+        if (!layer || !layer->IsVisible()) {
+            continue;
+        }
+        // 논리 포인트 → 물리 픽셀 (DrawApprovalHighlights와 같은 산식 —
+        // "링/밴드/텍스트가 전부 클릭 좌표계와 일치" 계약 승계).
+        const SDL_Rect rc{
+            static_cast<int>(layer->X() * outputScale),
+            static_cast<int>(layer->Y() * outputScale),
+            static_cast<int>(layer->Width() * layer->ScaleX() * outputScale),
+            static_cast<int>(layer->Height() * layer->ScaleY() * outputScale)};
+        if (rc.w <= 0 || rc.h <= 0) {
+            continue;
+        }
+        // 배지 바탕은 제목 표시줄 좌측(D1) — 승인 배너 밴드와 같은 제목줄
+        // 산식(ChromeTitleBarHeight × ScaleY × outputScale, rc.h - 3 클램프)
+        // 재용. 전체화면 레이어도 면제하지 않는다(DrawApprovalHighlights의
+        // "전체화면 앱에 대한 파킹이야말로 눈으로 대상을 확인해야 할 때"
+        // 판정 승계 — 배지도 식별 표지다).
+        const int bandH = std::min(
+            static_cast<int>(
+                static_cast<float>(jk::text::ChromeTitleBarHeight()) *
+                layer->ScaleY() * outputScale),
+            rc.h - 3);
+        if (bandH <= 0) {
+            continue;
+        }
+        std::string num = std::to_string(i + 1);   // 1..N — OverlayBadgeOrder
+        std::string cacheKey;
+        BannerCacheKey(num, cacheKey);   // 키 형식 동일 — 별개 맵(색이 다르다)
+        int tw = 0, th = 0;
+        // 폰트 실패(텍스처 null) = 배지 없이 다음 번호로 — 매 프레임 재시도를
+        // 막는 null 캐시 엔트리 규약(승인 배너의 "실패는 null 엔트리로 기록")
+        // 유지, 로그 반복 없음. 링(승인 배너의 번호 미표기 경로)은 없는다:
+        // 배지는 숫자 자체가 목적 — 텍스처 못 만들면 표지를 잠시 못 보여주는
+        // 쪽이 정직하다(가짜 바탕만 그려 두는 것 금지).
+        SDL_Texture* tex = BadgeNumberTexture(num, tw, th);
+        if (!tex || tw <= 0 || th <= 0) {
+            continue;
+        }
+        overlayDrewThisFrame_ = true;  // (T2) 훅 실제 그림 — 이 프레임은 전체
+        SDL_Rect band{rc.x + 3, rc.y + 3, rc.w - 6, bandH};
+        const int boxW = tw + 8;
+        const int boxH = th + 4;
+        const int bh = std::min(boxH, band.h);
+        const int bx = band.x + 4;
+        const int by = band.y + std::max(0, (band.h - bh) / 2);
+        // 클립 — 좁은 창에서 배지가 타이틀/창 밖(다른 창 위)으로 새는 것을
+        // 막는다(승인 배너의 RenderSetClipRect 선례 — "밴드 오른쪽에서
+        // 자름"과 같은 방향의 왼쪽 고정).
+        SDL_RenderSetClipRect(renderer_, &band);
+        // 반투명 검은 바탕 (D1 — 투명 검은 바탕+흰 숫자): blend 모드만 이
+        // 채우기 동안 BLENDS로 — 전역 렌더 상태 회복(SDLC 채우기 기본 NONE).
+        SDL_BlendMode prevBlend = SDL_BLENDMODE_NONE;
+        SDL_GetRenderDrawBlendMode(renderer_, &prevBlend);
+        // (모양 재량 — 1차 원문 캡처 09:36 실측: 170 알파로는 아래 앱 제목
+        // 글리프가 비쳐 "1" 판독이 흐려졌다 — 225로 눌러 바탕을 표지답게.
+        // 완전 불투명은 아니다 — 제목줄 위 표지임을 남기는 반투명 계열.)
+        SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 225);
+        SDL_Rect box{bx, by, boxW, bh};
+        SDL_RenderFillRect(renderer_, &box);
+        SDL_SetRenderDrawBlendMode(renderer_, prevBlend);
+        // 텍스처 중앙 배치 — 글자만 실은 투명 배경 텍스처(승인 배너의
+        // "밴드 위 블렌딩" 계약과 동일).
+        SDL_Rect dst{bx + (boxW - tw) / 2, by + std::max(0, (bh - th) / 2),
+                     tw, th};
+        SDL_RenderCopy(renderer_, tex, nullptr, &dst);
+        SDL_RenderSetClipRect(renderer_, nullptr);
+        used.insert(cacheKey);
+    }
+    // 수거 스윕 — 안 쓴 키는 즉시 폐기(승인 배너의 수거 루프와 동형).
+    for (auto it = badgeNumTexs_.begin(); it != badgeNumTexs_.end();) {
+        if (!used.count(it->first)) {
+            if (it->second.tex) {
+                SDL_DestroyTexture(it->second.tex);
+            }
+            it = badgeNumTexs_.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
-// 사전조립 키 소비 오버로드 (T3 re-review M4, park-batch — 키는 bannerUtf8과
-// GetCellMetrics engW×cellH로만 결정되므로 같은 프레임에서 draw 패스가 조립한
-// 키를 안전히 재사용해 프레임당 조립(배너당 문자열 할당) 2회 → 1회로 소각.
-// 키의 진실원(BannerCacheKey)은 하나 — 두 경로가 어긋날 수 없다.
-SDL_Texture* JKWindowServer::ApprovalBannerTexture(const std::string& bannerUtf8,
-                                                   const std::string& cacheKey,
-                                                   int& w, int& h) {
-    w = 0;
-    h = 0;
-    auto it = approvalBannerTexs_.find(cacheKey);
-    if (it != approvalBannerTexs_.end()) {
-        w = it->second.w;
-        h = it->second.h;
-        return it->second.tex;
-    }
-    if (bannerUtf8.empty() || !renderer_ ||
-        !SDL_RenderTargetSupported(renderer_)) {
-        // 렌더 타깃 미지원 백엔드: 텍스트 없이 링+밴드만(하이라이트 식별은
-        // 유지). SDL 가속 렌더러는 전부 타깃을 지원하므로 사실상 안 쓰는 가지.
-        approvalBannerTexs_[cacheKey] = ApprovalBannerTex{};
-        return nullptr;
-    }
+// 배너 폰트 지연 초기화 (T1 추출 — 원문 = 승인 배너 벡터 글리프 초기화 블록):
+// approvalFont_(비트맵 폴백)+bannerCache_(글리프 텍스처 캐시)+bannerAtlas_
+// (docs/63 폴백 체인)를 첫 소비자가 1회 만든다. 승인 배너와 창 번호 배지가
+// 같은 자원을 소비(reviewer 계약 — 새 글리프 엔진·폰트 소유 0). 실패 경로는
+// 기존 규약 그대로: 경고 1회+비트맵 폴백 유지(atlas는 살아 있되
+// IsLoaded()==false — 재시도·로그 반복 없음). 서버 루프 스레드 전용.
+void JKWindowServer::EnsureBannerFont() {
     if (!approvalFont_) {
         approvalFont_ = std::make_unique<HangulManager>();
         if (approvalFont_->CreationError) {
@@ -8615,6 +8841,43 @@ SDL_Texture* JKWindowServer::ApprovalBannerTexture(const std::string& bannerUtf8
             }
         }
     }
+}
+
+// 배너 텍스트 래스터라이즈 (스펙 2026-09-19-app-tool-hub §5 1단): 크롬 타이틀과
+// 동일한 글리프 경로 — Utf8ToKssm 변환 + JKDC 비트맵 폰트(한글 16px/영문 8px,
+// HangulManager의 assets/fonts/hangul.fnt·english.fnt). 새 글리프 엔진 없음.
+// 컴포지트가 ~1kHz로 도므로 매 프레임 글리프 DrawPixel은 비용이 남아, 렌더
+// 타깃 텍스처에 한 번 찍어 캐시한다(문자열당 1회). 실패는 null 엔트리로 기록 —
+// 매 프레임 재시도·로그 스팸을 막는다(1kHz 컴포지트 전제).
+SDL_Texture* JKWindowServer::ApprovalBannerTexture(const std::string& bannerUtf8,
+                                                   int& w, int& h) {
+    // 단발 경로 (draw 패스 밖 — 사전조립 키 없을 때만): 키를 여기서 조립.
+    return ApprovalBannerTexture(bannerUtf8, BannerCacheKey(bannerUtf8), w, h);
+}
+
+// 사전조립 키 소비 오버로드 (T3 re-review M4, park-batch — 키는 bannerUtf8과
+// GetCellMetrics engW×cellH로만 결정되므로 같은 프레임에서 draw 패스가 조립한
+// 키를 안전히 재사용해 프레임당 조립(배너당 문자열 할당) 2회 → 1회로 소각.
+// 키의 진실원(BannerCacheKey)은 하나 — 두 경로가 어긋날 수 없다.
+SDL_Texture* JKWindowServer::ApprovalBannerTexture(const std::string& bannerUtf8,
+                                                   const std::string& cacheKey,
+                                                   int& w, int& h) {
+    w = 0;
+    h = 0;
+    auto it = approvalBannerTexs_.find(cacheKey);
+    if (it != approvalBannerTexs_.end()) {
+        w = it->second.w;
+        h = it->second.h;
+        return it->second.tex;
+    }
+    if (bannerUtf8.empty() || !renderer_ ||
+        !SDL_RenderTargetSupported(renderer_)) {
+        // 렌더 타깃 미지원 백엔드: 텍스트 없이 링+밴드만(하이라이트 식별은
+        // 유지). SDL 가속 렌더러는 전부 타깃을 지원하므로 사실상 안 쓰는 가지.
+        approvalBannerTexs_[cacheKey] = ApprovalBannerTex{};
+        return nullptr;
+    }
+    EnsureBannerFont();
     // 크롬 타이틀의 LegacyFontTitle 선례: KSSM 변환이 빈 결과면 원문을 쓴다
     // (이미 KSSM인 문자열·ASCII 전용 문자열의 이중 변환 방지).
     std::string kssm = Utf8ToKssm(bannerUtf8.c_str());
@@ -8653,6 +8916,68 @@ SDL_Texture* JKWindowServer::ApprovalBannerTexture(const std::string& bannerUtf8
     dc.TextOut(JKPoint{kPad, kPad}, kssm.c_str());
     SDL_SetRenderTarget(renderer_, prev);
     approvalBannerTexs_[cacheKey] = ApprovalBannerTex{tex, texW, texH};
+    w = texW;
+    h = texH;
+    return tex;
+}
+
+// 창 번호 배지 숫자 래스터라이즈 (#118 T1): ApprovalBannerTexture의 같은
+// 글리프 경로(EnsureBannerFont — docs/63 폴백 원존)를 흰 글자(255,255,255 —
+// D1 "흰 숫자")로. 캐시 맵만 별개(badgeNumTexs_) — 승인 배너의 캐시 규약
+// ("그 프레임에 쓴 키만 남긴다"+null 엔트리 실패 기록)를 그대로 쓰되 수거는
+// DrawWindowNumberBadges의 매 호출이 한다(배지 프레임 외에는 키가 쓰이지
+// 않으므로 꺼짐 즉시 전부 해제). 글리프 캐시(bannerCache_/bannerAtlas_)는
+// 공유 — 글자 모양의 진실원이 하나다. 서버 루프 스레드 전용.
+SDL_Texture* JKWindowServer::BadgeNumberTexture(const std::string& numUtf8,
+                                                int& w, int& h) {
+    w = 0;
+    h = 0;
+    const std::string cacheKey = BannerCacheKey(numUtf8);
+    auto it = badgeNumTexs_.find(cacheKey);
+    if (it != badgeNumTexs_.end()) {
+        w = it->second.w;
+        h = it->second.h;
+        return it->second.tex;
+    }
+    if (numUtf8.empty() || !renderer_ ||
+        !SDL_RenderTargetSupported(renderer_)) {
+        badgeNumTexs_[cacheKey] = ApprovalBannerTex{};
+        return nullptr;
+    }
+    EnsureBannerFont();
+    // KSSM 양방향 가드 — 번호는 ASCII지만 배너 변환 루틴과 같은 앞선 원존으로
+    // 간다(다른 경로 조립 금지).
+    std::string kssm = Utf8ToKssm(numUtf8.c_str());
+    if (kssm.empty()) {
+        kssm = numUtf8;
+    }
+    const JKPoint m = JKDC::MeasureText(kssm.c_str());
+    constexpr int kPad = 2;
+    const int texW = m.x + kPad * 2;
+    const int texH = m.y > 0 ? m.y : 16;
+    SDL_Texture* tex = SDL_CreateTexture(renderer_, SDL_PIXELFORMAT_RGBA8888,
+                                         SDL_TEXTUREACCESS_TARGET, texW, texH);
+    if (!tex) {
+        badgeNumTexs_[cacheKey] = ApprovalBannerTex{};
+        return nullptr;
+    }
+    SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
+    SDL_Texture* prev = SDL_GetRenderTarget(renderer_);
+    SDL_SetRenderTarget(renderer_, tex);
+    SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 0);
+    SDL_RenderClear(renderer_);
+    JKSDLRenderBackend backend(renderer_);
+    JKDC dc(&backend);
+    if (approvalFont_) {
+        dc.SetHangulManager(approvalFont_.get());
+    }
+    if (bannerAtlas_ && bannerAtlas_->IsLoaded() && bannerCache_) {
+        dc.SetTextAtlas(bannerAtlas_.get(), bannerCache_.get());
+    }
+    dc.SetTextColor(255, 255, 255);  // D1 — 반투명 검은 바탕 위 흰 숫자
+    dc.TextOut(JKPoint{kPad, kPad}, kssm.c_str());
+    SDL_SetRenderTarget(renderer_, prev);
+    badgeNumTexs_[cacheKey] = ApprovalBannerTex{tex, texW, texH};
     w = texW;
     h = texH;
     return tex;

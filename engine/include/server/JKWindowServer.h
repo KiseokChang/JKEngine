@@ -79,6 +79,46 @@ void UseJournalAppend(const char* dir, long long tsMs,
                       const std::string& tool, const std::string& arg,
                       bool ok, const std::string& err);
 
+// 창 번호 오버레이 (#118 T1 — 스펙 2026-10-27-window-overlay-design D1·D2·D5):
+// 구두 창 지시의 v1 표지 — 보이는 창의 제목 표시줄 좌측에 번호 배지(1..N).
+// 아래 4 부품은 스폰 불요 순수·결정 부품(brief 계약 — selftest 3a가 서버
+// 프로세스 없이 직접 단정, ResolveAgentWindowTarget 선례); 렌더·타이머의
+// 시행체(DrawWindowNumberBadges·HandleAgentQuery 분기)는 이 계약만 소비한다.
+// 순서 원존 = list_windows 등호(클라 연결 순회 순서 — 결정론, D1). 창 내부
+// 요소 그리드·클릭 수취는 v1 비-목표(D1·스펙 §3 — 배지는 표지만, 이벤트
+// 통과 투명).
+struct OverlayBadgeTarget {
+    uint32_t id = 0;
+    bool visible = true;   // 레이어 가시(최소화 = 제목줄이 화면에 없음 — 배지 없음)
+};
+// 배지 순서 산출(D1): 입력(호출자가 list_windows와 동일 필터·순서로 만든
+// 스냅샷)의 가시 항목만 입력 순서대로 — 결과의 i번째가 배지 번호 i+1. 숨긴
+// 창은 배지가 없어 번호를 소모하지 않는다(보이는 창 1..N 재부여 — "창 N"
+// 화법의 배지-답 등호). 순수·결정.
+std::vector<uint32_t> OverlayBadgeOrder(
+    const std::vector<OverlayBadgeTarget>& targets);
+
+// 10분 자동 소멸 타이머 원존(D2 — VAD 없는 v1의 안전 타임아웃). startMs는
+// SDL_GetTicks 원 — 부호 없는 차분 판정(Run 루프 lastCompositeMs의 랩 규약
+// 승계 — 49.7일 포위에서도 경과 판정은 유효). 이중 켬 = 시작틱 갱신(D5
+// idempotent — 남은 시간을 다시 10분으로, 상태 2비트는 불변 — 갱신이 곧
+// 유일한 켬 결과).
+struct OverlayNumbersState {
+    bool on = false;
+    Uint32 startMs = 0;    // 이번 활성 구간의 시작 틱(갱신 시 now로 교체)
+};
+inline constexpr Uint32 kOverlayNumbersTimeoutMs = 600000;  // 10분 (D2)
+// 켬(D3 — "창 번호 보여줘"): 이미 켬이어도 시작틱을 now로 교체(D5 — 이중
+// 켬 = 갱신). 꺼짐 상태에서도 같은 산식(시작 = 지금).
+void OverlayNumbersTurnOn(OverlayNumbersState& s, Uint32 nowMs);
+// 소멸 판정(D2): 켬 상태에서 경과 >= 타임아웃. 상태 해제·전체 프레젠트 같은
+// 소멸 시행은 호출부(컴포지트 패스) 소관 — 이 함수는 판정만 한다. 순수.
+bool OverlayNumbersExpired(const OverlayNumbersState& s, Uint32 nowMs,
+                           Uint32 timeoutMs = kOverlayNumbersTimeoutMs);
+// overlay_numbers args 판정(brief — on 부재 = 켬·0 = 끔): onArg는 0/1만 유효.
+// 반환 false = bad_args(정직 회신 승계). *wantsOn = 끝낼 상태. 순수.
+bool OverlayNumbersOnArg(bool hasOn, int onArg, bool& wantsOn);
+
 // 클라 모듈 접미 — 플랜 E가 앱 모듈을 posix에 .so로 빌드했다(buildwsl
 // 실측 20종, jkapp_taskbar.so 포함), win32는 .dll(dllimport 계약 유지).
 // 스폰 전 "모듈 있나" 프로브(launch_app 핸들러·taskbar 자동스폰, JKWindow
@@ -282,6 +322,15 @@ private:
     // 컴포지트 패스의 오버레이 훅에서 DrawApprovalHighlights와 짝을 이룬다
     // (커서 계층은 승인 파킹과 무관하게 그려야 하므로 별개 함수).
     void DrawSemanticCursorCells(float outputScale);
+    // 창 번호 오버레이 배지 (#118 T1 — 스펙 2026-10-27-window-overlay-design
+    // D1·D2·D5): 보이는 창의 제목 표시줄 좌측에 반투명 검은 바탕+흰 숫자 배지
+    // (1..N — 순서는 같은 패스에서 clients_ 순회 스냅샷 → OverlayBadgeOrder).
+    // 같은 컴포지트 패스의 오버레이 훅에서 DrawApprovalHighlights 뒤에
+    // 불린다(배지가 기존 오버레이 전부 위 — z 최상단, brief 계약). 표지만
+    // (그리기만 — 클릭은 그대로 통과, D2 비-목표). 위치는 매 프레임
+    // layer rect에서 재계산(상태 없음 — 창 이동에 배지가 따라가는 원존,
+    // DrawSemanticCursorCells의 window_move 추종 선례).
+    void DrawWindowNumberBadges(float outputScale);
     // (T2) 이번 오버레이 훅이 실제로 그렸는지의 표지 — 훅 람다가 두 그리기
     // 함수 호출 사이에서 지우고, 그리기 함수가 실제 픽셀을 찍을 때 세운다.
     // 훅이 그린 프레임은 사다리의 보수적 전체 프레젠트(스펙 결정 2)로 간다.
@@ -298,6 +347,17 @@ private:
     SDL_Texture* ApprovalBannerTexture(const std::string& bannerUtf8,
                                        const std::string& cacheKey,
                                        int& w, int& h);
+    // 위 두 함수의 지연 초기화 몸통 추출 (T1 — 배지가 같은 폰트 자원을 쓴다).
+    // approvalFont_(비트맵 폴백)+bannerAtlas_(벡터 글리프)+bannerCache_를 첫
+    // 소비자가 한 번만 만든다 — 실패(폰트 부재·Init 실패)는 경고 1회+비트맵
+    // 폴백 유지 기존 규약 그대로. 서버 루프 스레드 전용(bannerBackend_ 규약).
+    void EnsureBannerFont();
+    // 창 번호 배지 숫자 텍스처 (T1): 번호 문자열("1".."N")을 EnsureBannerFont의
+    // 같은 글리프 경로(docs/63 폴백 원존)로 반투명 검은 바탕 위 흰 글자로
+    // 1회 래스터라이즈해 캐시한다. 승인 배너와 캐시 맵·색(흰 글자)이 다르므로
+    // 별개 캐시 — approvalBannerTexs_의 "그 프레임에 쓴 키만 남긴다" 규약을
+    // DrawWindowNumberBadges의 매 호출 수거로 승계(꺼진 프레임 = 전부 폐기).
+    SDL_Texture* BadgeNumberTexture(const std::string& numUtf8, int& w, int& h);
     void CleanupDisconnectedClients();
     void UnblockAcceptor();
     void InitAudio();
@@ -699,6 +759,14 @@ private:
     // 소유자. Init에서 renderer_ 생성 직후 채우고, Stop()에서 renderer_ 소멸
     // 전에 폐기한다(승인 배너 텍스처와 동일 소유 순서).
     std::unique_ptr<JKSDLRenderBackend> bannerBackend_;
+
+    // 창 번호 오버레이 (#118 T1): 오버레이 활성 상태(2비트+시작틱 — Overlay
+    // NumbersState, D2 10분 소멸/D5 갱신) + 배지 숫자 텍스처 캐시. approval
+    // BannerTexs_와 동일 규약 승계 — 서버 루프 스레드 전용(락 없음 — Handle
+    // AgentQuery 오버레이 훅 양쪽이 같은 스레드), 이번 프레임에 쓴 키만 남기는
+    // 매 호출 수거(꺼짐 = 즉시 전부 해제).
+    OverlayNumbersState overlayNumbers_;
+    std::map<std::string, ApprovalBannerTex> badgeNumTexs_;
 
     // Throttle launcher icon double-clicks / rapid spawns to one per app per
     // 500 ms. Stores the last spawn time keyed by app name.

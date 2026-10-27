@@ -9956,6 +9956,93 @@ static int RunAppSelfTest() {
                   "2x-⑭ REMNANT 0(사후 소각)");
         }
     }
+
+    // 3a) 창 번호 오버레이 배지 — 결정 부품 (#118 T1 — 스펙
+    //   2026-10-27-window-overlay-design D1·D2·D5). ①배지 순서 산출(D1 —
+    //   보이는 창 1..N·입력 순서 = list_windows 등호 보존) ②10분 소멸 판정
+    //   (D2 — SDL_GetTicks 랩 산술 포함) ③이중 켬 갱신(D5 idempotent)
+    //   ④도구 args 판정(on 부재=켬·0=끔·그 외 bad_args). **스폰 어셜션 금지**
+    //   — 렌더/타이머 시행체(DrawWindowNumberBadges·HandleAgentQuery 분기)는
+    //   승계 계약만 소비하는 부품(ResolveAgentWindowTarget 1n-14 선례 — 서버
+    //   프로세스 불요). 2 계열(2t..2z) 소진 후 신설 3a 원존.
+    {
+        using jk::server::kOverlayNumbersTimeoutMs;
+        using jk::server::OverlayBadgeTarget;
+        using jk::server::OverlayBadgeOrder;
+        using jk::server::OverlayNumbersExpired;
+        using jk::server::OverlayNumbersOnArg;
+        using jk::server::OverlayNumbersState;
+        using jk::server::OverlayNumbersTurnOn;
+
+        // ① D1 — 배지 순서: 보이는 창만 남겨 1..N 재부여, 숨긴 창은 번호를
+        //    소모하지 않는다(최소화는 제목줄이 화면에 없음 — "보이는 창" 필터).
+        const std::vector<OverlayBadgeTarget> mixed = {
+            {101, true}, {102, false}, {103, true}, {104, true}, {0, true}};
+        const std::vector<uint32_t> order = OverlayBadgeOrder(mixed);
+        check(order.size() == 3 && order[0] == 101 && order[1] == 103 &&
+                  order[2] == 104,
+              "3a-① 배지 순서 = 보이는 창 입력(list_windows 등호)순 보존+비가"
+              "시 소모 0(102·id 0 배제 — 1..N 재부여 D1)");
+        // ①b 전부 비가시/빈 목록 = 빈 배지 — 도구 표면의 "창 없음" err 근거
+        //    (D5 정직 — 가짜 ok 0).
+        check(OverlayBadgeOrder({{101, false}}).empty() &&
+                  OverlayBadgeOrder({}).empty(),
+              "3a-①b 전부 비가시·빈 목록 = 배지 0(빈 벡터 — no_window err의 "
+              "단일 근거)");
+        // ①c 다 켬 목록 = id 그대로(등호 — 재배열 없음을 소모 행과 분리 단정).
+        const std::vector<OverlayBadgeTarget> allVis = {{7, true}, {8, true}};
+        const std::vector<uint32_t> o3 = OverlayBadgeOrder(allVis);
+        check(o3.size() == 2 && o3[0] == 7 && o3[1] == 8,
+              "3a-①c 순서 교정 0 — 입력 순서 그대로(7→1·8→2 배지 등호)");
+
+        // ② D2 — 소멸 판정: 임계 직전(599999ms)/도달(600000ms).
+        OverlayNumbersState s;
+        OverlayNumbersTurnOn(s, 1000);
+        check(s.on && !OverlayNumbersExpired(
+                      s, 1000 + kOverlayNumbersTimeoutMs - 1),
+              "3a-② 소멸 임계 이전 = 생존(600000ms - 1 = 599999ms 판정 부정)");
+        check(OverlayNumbersExpired(s, 1000 + kOverlayNumbersTimeoutMs),
+              "3a-②b 경과 = 임계 도달에서 소멸(10분 경계 — D2 타임아웃 등호)");
+        check(!OverlayNumbersExpired(s, 1000, kOverlayNumbersTimeoutMs / 10),
+              "3a-②c 타임아웃 인자 = 판정 게산의 진실원(호출부 주입형 — 짧은"
+              " 타임아웃 임계 60000ms 미만 정직 부정)");
+        check(!OverlayNumbersExpired(OverlayNumbersState{}, 999999),
+              "3a-②d 꺼짐 상태 = 소멸 대상 없음(판정 무영향 — 멱등)");
+
+        // ②b SDL_GetTicks(Uint32) 랩 산술 — 시작이 마지막 256바이트 창, now가
+        //    포위 역전 후: 부호 없는 차분이 경과 512ms를 정확히 낸다(Run 루프
+        //    lastCompositeMs의 랩 규약 승계).
+        OverlayNumbersState sWrap;
+        OverlayNumbersTurnOn(sWrap, 0xFFFFFF00u);
+        check(!OverlayNumbersExpired(sWrap, 0x100u),
+              "3a-②e SDL_GetTicks 랩 = 부호 없는 차분으로 경과 512ms 정직"
+              "(랩 역전 프레임도 이른 소멸 없음)");
+
+        // ③ D5 — 이중 켬 = 갱신: 시작틱 교체+상태 2비트 불변.
+        OverlayNumbersState d;
+        OverlayNumbersTurnOn(d, 5000);
+        OverlayNumbersTurnOn(d, 123456);
+        check(d.on && d.startMs == 123456 &&
+                  !OverlayNumbersExpired(d, 123456 + kOverlayNumbersTimeoutMs -
+                                              1),
+              "3a-③ 이중 켬 = 시작틱 갱신(123456 재시계 — 남은 시간 10분 복원"
+              "·idempotent D5)");
+
+        // ④ args 판정 — on 부재=켬·0=끔·1=켬·그 외 bad_args.
+        bool w = false;
+        check(OverlayNumbersOnArg(false, 0, w) && w,
+              "3a-④ on 부재 = 켬(\"창 번호 보여줘\" 원형 — brief 계약)");
+        check(OverlayNumbersOnArg(true, 0, w) && !w,
+              "3a-④b on=0 = 끔(멱등 끔 — 끌 상태만 있다)");
+        check(OverlayNumbersOnArg(true, 1, w) && w,
+              "3a-④c on=1 = 켬(명시 켬 = 부재 켬 등호)");
+        w = false;  // ④c의 값 소각 — 실패 판정이 wantsOn 건드리지 않음을 겸임
+        check(!OverlayNumbersOnArg(true, 2, w) &&
+                  !OverlayNumbersOnArg(true, -1, w) && !w,
+              "3a-④d on=2·-1 = bad_args(0/1만 유효 — window_fullscreen 가드 "
+              "분류·wantsOn 무상각)");
+    }
+
     std::printf("AppSelfTest: %d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;
 }
