@@ -441,10 +441,46 @@ class MainActivity : Activity() {
                 }
                 dst.write(bytes, 0, n * 2)
             }
-            if (overflow) runOnUiThread {
-                failVoice("녹음 상한 도달 (${kMaxPcmBytes / 1024 / 1024}MB) — 조기 절단, 다시 발화해 주세요")
+            if (overflow) {
+                // fix r2 — 상한 도달도 캡처 해제 단일 소관을 친다(미해제 시
+                // 마이크 계속 개방·다음 홀드 startCaptureActual이 구
+                // AudioRecord를 만들어 덮어써 연쇄 실패 — 리뷰 Important).
+                val recO = audioRecord
+                audioRecord = null
+                pcmBuf = null
+                capThread = null
+                releaseCaptureState(recO)  // finishVoice와 동일 해제 구조
+                // 부품 단정(+1건 — 2zb 계열 확장): overflow → mic 해제·상태
+                // 소각 불변식(fail-loud — 정직 거부 문화 수형; 위배 시 조용한
+                // 마이크 개방 잔존 없이 즉사).
+                check(audioRecord == null) {
+                    "jkapk overflow 해제 원존 위배 (mic 미해제)"
+                }
+                runOnUiThread {
+                    failVoice("녹음 상한 도달 (${kMaxPcmBytes / 1024 / 1024}MB) — 조기 절단, 다시 발화해 주세요")
+                }
             }
         }.also { it.start() }
+    }
+
+    // 캡처 해제 단일 소관 1종(fix r2 — finishVoice·overflow·onDestroy 공용):
+    // AudioRecord 소관자가 아니라 소관자라 stop/release+상태 소각을 같은
+    // 구조로 친다 — 소관 분산은 "마이크 계속 개방" 결함(리뷰 Important)의
+    // 진원이므로 해제 구조를 1소관으로 봉한다. 호출 뒤 불변식 = audioRecord
+    // == null(부품 단정 — 호출자의 check fail-loud가 수형).
+    private fun releaseCaptureState(rec: AudioRecord?) {
+        if (rec != null) {
+            // 원장행(join-타임아웃 레이스 — fix r1, 코멘트만): 판독 스레드가
+            // join 2s 내 종료하지 않았는데도 stop/release가 난다면 — 그 스레드의
+            // 마지막 AudioRecord.read는 잘못된 상태(-1/0)로 수렴하거나
+            // ConcurrentModification 계열 예외로 자사(자기 루프 break)한다.
+            // 판독 스레드는 AudioRecord를 참조만 한다(개방 소유 아님) — 해제는
+            // 본 단일 소관이므로 이중 release는 구조적으로 없고, 늦은 판독
+            // 결실은 버려진다(부분 산물 — 정직 거부 계약이 이미 0.1s 미만을
+            // 친다. 장파괴 레이스 실측은 폰 E2E 후 원장행 판정).
+            try { rec.stop() } catch (_: IllegalStateException) {}
+            try { rec.release() } catch (_: IllegalStateException) {}
+        }
     }
 
     // [구두] 해제 — 판독 절단 → WAV 조립(표면 소유 경로) → 전사 스레드(R5
@@ -458,18 +494,7 @@ class MainActivity : Activity() {
         pcmBuf = null
         capThread?.let { t -> try { t.join(2_000) } catch (_: InterruptedException) {} }
         capThread = null
-        if (rec != null) {
-            // 원장행(join-타임아웃 레이스 — fix r1, 코멘트만): 판독 스레드가
-            // join 2s 내 종료하지 않았는데도 stop/release가 난다면 — 그 스레드의
-            // 마지막 AudioRecord.read는 잘못된 상태(-1/0)로 수렴하거나
-            // ConcurrentModification 계열 예외로 자사(자기 루프 break)한다.
-            // 판독 스레드는 AudioRecord를 참조만 한다(개방 소유 아님) — 해제는
-            // finishVoice/onDestroy 단일 소관이라 이중 release는 구조적으로
-            // 없고, 늦은 판독 결실은 버려진다(부분 산물 — 정직 거부 계약이 이미
-            // 0.1s 미만을 친다. 장파괴 레이스 실측은 폰 E2E 후 원장행 판정).
-            try { rec.stop() } catch (_: IllegalStateException) {}
-            rec.release()
-        }
+        releaseCaptureState(rec)   // fix r2 — 해제 단일 소관 1행
         val bytes = pcm?.toByteArray() ?: ByteArray(0)
         // 0.1s 미만 사전 거부 — JNI 판독부 규약(결실 0.1s 미만 정직 거부)의
         // 표면 수형("눌렀다 바로 푼 실수 탭"이 placeholder 없이 정직 수렴).
@@ -605,10 +630,7 @@ class MainActivity : Activity() {
         capturing = false
         capThread?.let { t -> try { t.join(2_000) } catch (_: InterruptedException) {} }
         capThread = null
-        audioRecord?.let { r ->
-            try { r.stop() } catch (_: IllegalStateException) {}
-            r.release()
-        }
+        releaseCaptureState(audioRecord)  // fix r2 — 해제 단일 소관 1행
         audioRecord = null
         pcmBuf = null
         voiceExec.shutdown()
