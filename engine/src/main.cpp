@@ -8655,6 +8655,29 @@ static int RunAppSelfTest() {
               "2z-④c 절단판→Win 조립 사슬 등호(130자→120자+말미 … 절단판만 "
               "조립에 실림 — 121연속 문자 부재·말미 …') 접미 — D4 원존 "
               "승계)");
+
+        // ⑤·⑥ #UX 수형(2026-10-28 — 구두 실패·빈 인식 안내문에 들은 내용
+        //    표기) — DrainVoice(ClientChatApp.cpp TU-local 화면 치환)의 트리거가
+        //    기리키는 라우터 InfoGuide 원존 등호(안내문 문언 등호). 치환 본체는
+        //    TU-local라 어셜션 밖(④ 스폰 어셜션 금지 원존 승계) — 단정하는
+        //    것은 트리거가 먹는 안내문 문언의 등호: whisper 빈/'.' 전사와 내용
+        //    있는 비매치가 **같은 InfoGuide 단일 원문**으로 수렴 — 이 등호가
+        //    무너지면 빈 인식 판정("'.' 무관 문자열 검)과 참조 1행 접미가
+        //    무음으로 빗나간다. ChatRouterRoute = 순수 룩업(스폰 0 — ② 원존).
+        {
+            jk::ChatAction a5, b5, c5;
+            const std::string gDot = jk::ChatRouterRoute(".", a5);
+            const std::string gEmpty = jk::ChatRouterRoute("", b5);
+            const std::string gNoise =
+                jk::ChatRouterRoute("세상엔 채팅이 이렇게 어려웠나", c5);
+            check(gDot == gEmpty && gDot.rfind("인식하지 못했습니다", 0) == 0,
+                  "2z-⑤ 빈/'.' 전사 → 안내문 수렴 등호(#UX — 빈 인식 치환 "
+                  "트리거 원존 — InfoGuide 접두 문언 등호)");
+            check(gNoise == gDot &&
+                      gNoise.find("'창 3'") != std::string::npos,
+                  "2z-⑥ 비매치 전사 → 같은 InfoGuide 단일 원문(#UX — 참조 "
+                  "1행 접미 대상 안내물 등호 — 명령 예 꼬리 문언 등호)");
+        }
     }
 
     // 2aa) ollama 릴레이 상대 조립 — 결정 부품 (#119 폰 자연어 릴레이 T1 —

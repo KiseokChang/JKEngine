@@ -557,8 +557,34 @@ void ClientChatApp::DrainVoice() {
         } else {
             turns_[d.slot].text = d.sttText;   // 치환 — 전사 원문 그대로
         }
-        if (!d.guide.empty()) {
-            turns_.push_back(Turn{ false, d.guide });   // 접점 안내문
+        // #UX(2026-10-28) — 인식 실패·빈 인식에서 "들은 내용" 표기 수형(사용자
+        // 실시간 체감 요청 — "안내문만 뜨고 들었던 말이 안 보인다"). [나] 치환은
+        // 원존 무변조(§3 ④ 정직 기록 계약) — 만지는 것은 [시스템] 안내문 쪽판
+        // 하나뿐이고, 둘로 갈린다:
+        //   * 빈 인식(절단 결실 0 또는 '.'만 — whisper 무음/미인식 결실의 통상
+        //     원문) = InfoGuide의 명령 목록 대신 정직 판정+행동 가이드 1행.
+        //     들었던 내용이 없다는 사실을 부정하지 않는다(정직 원칙).
+        //   * 내용 있는 비매치(매치 실패) = 원문은 이미 위 [나] 행에 기록되어
+        //     있으므로 안내문에 참조 1행만 접미(InfoGuide 원문 무변조 — 접미
+        //     1행만). TTS 스폰 문언은 d.guide 원존 유지 — 치환은 화면 몫.
+        // 판정 부품 = 같은 TU 원존 TrimText 절단 재용(신설 파서 0·DRY) +
+        // '.' 무관 문자열 1검(빈 문자열도 find_first_not_of npos — 결실 0
+        // 흡수). 트리거 문언("인식하지 못했습니다")은 라우터 InfoGuide 머리
+        // 행 — selftest 2z-⑤가 이 접두 등호를 봉인한다(TU-local 치환 본체는
+        // 어셜션 밖 — ④ 스폰 어셜션 금지 원존 승계).
+        const std::string heard = TrimText(d.sttText);
+        std::string turnGuide = d.guide;
+        if (!turnGuide.empty() &&
+            turnGuide.find("인식하지 못했습니다") != std::string::npos) {
+            if (heard.find_first_not_of(".") == std::string::npos) {
+                turnGuide = "[!] 음성 인식 실패 (들은 내용 없음) — 조금 더 "
+                            "크게, 짧게 말해 주세요";
+            } else {
+                turnGuide += "\n들은 내용을 보기: 위 [나] 행";
+            }
+        }
+        if (!turnGuide.empty()) {
+            turns_.push_back(Turn{ false, turnGuide });   // 접점 안내문
         }
         // #117 T1 — D2·D3·D4·D5: 구두 출발 발화 턴의 [시스템] 답신 도착 =
         // 1회 TTS. 판정은 tts::TtsSpeakWanted(3진실원 — 표지·답신 재원·
