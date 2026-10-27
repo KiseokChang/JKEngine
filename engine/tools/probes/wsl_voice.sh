@@ -1239,7 +1239,7 @@ import json, sys
 d = json.load(open(sys.argv[1]))
 ws = [w for w in d.get("windows", []) if not w.get("minimized")]
 for i, w in enumerate(ws, 1):
-    print("PW\t%d\t%d\t%s\t%s" % (i, w["id"], w["focused"], w["title"]))
+    print("PW\t%d\t%d\t%s\t%s" % (i, w["id"], str(w["focused"]).lower(), w["title"]))
 PYEOF
 [ -f "$PWR" ] || FAIL "pw tool generation failed"
 capture_window_json() { # $1=저장파일 — list_windows 원문 1행(+배지 등호 표본 .txt)
@@ -1288,24 +1288,30 @@ capshot() { # $1=engine/tmp 회수명
 sleep 2
 capshot voc_wsl_badge3.png
 # 번호→포커스("창 3" 발화의 질의 소비) — 배지 3번 창
-TARGET3=$(awk -F'\t' '$2==3{print $3; exit}' "$SCRATCH/voc_win_pre.json.txt")
-[ -n "$TARGET3" ] || FAIL "badge 3 window id parse failed"
-echo "OVER-TGT3: id=$TARGET3 (배지 3 = 보이는 창 스냅샷 3번째 — OverlayBadgeOrder 등호 원존)"
-FOC=$(timeout 15 ./buildwsl/jkdesktop agentctl "{\"tool\":\"focus_window\",\"args\":{\"num\":3}}" 2>/dev/null | grep -a '{' | head -1)
-echo "OVER-FOCUS-NUM3: ${FOC:-none} (\"창 3\" 발화의 focus_window num 릴레이 — 2y-⑲(g) 질의 양식 소비)"
+# [118-1 런 원장행 — 포커스 대상 선택]: 즉발 행은 "창 3" 고정(VOV 행 양식 등호
+# — 2y-⑲ 원존)이고, 라이브 소비의 착탄 증거는 **미포커스 창**의 배지 숫자를
+# 쓴다(이미 포커스된 창에 num을 찍으면 "True→True" 가양성 — 118-1 런 원장행).
+# 미포커스 창 0(전부 포커스 — 본래 불가)이면 idx=1 폴백(정직 원장행).
+NUMT=$(awk -F'\t' '$4=="false"{print $2; exit}' "$SCRATCH/voc_win_pre.json.txt")
+NUMT=${NUMT:-1}
+TARGETN=$(awk -F'\t' -v n="$NUMT" '$2==n{print $3; exit}' "$SCRATCH/voc_win_pre.json.txt")
+[ -n "$TARGETN" ] || FAIL "badge $NUMT window id parse failed"
+echo "OVER-TGT-NUM: num=$NUMT id=$TARGETN (미포커스 창의 배지 숫자 — 착탄 증거 대상)"
+FOC=$(timeout 15 ./buildwsl/jkdesktop agentctl "{\"tool\":\"focus_window\",\"args\":{\"num\":$NUMT}}" 2>/dev/null | grep -a '{' | head -1)
+echo "OVER-FOCUS-NUM: num=$NUMT reply=${FOC:-none} (번호 발화의 focus_window num 릴레이 — 2y-⑲(g) 질의 양식 소비)"
 printf '%s' "$FOC" | grep -aq '"ok":true' || echo "VOICE-FAIL(over-focus-num: $FOC)"
 sleep 2
 capture_window_json "$SCRATCH/voc_win_post.json"
 sed 's/^/  /' "$SCRATCH/voc_win_post.json.txt"
-FP=$(awk -F'\t' '$2==3{print $4; exit}' "$SCRATCH/voc_win_post.json.txt")
-T3B=$(awk -F'\t' '$2==3{print $3; exit}' "$SCRATCH/voc_win_post.json.txt")
+FP=$(awk -F'\t' -v n="$NUMT" '$2==n{print $4; exit}' "$SCRATCH/voc_win_post.json.txt")
+T3B=$(awk -F'\t' -v n="$NUMT" '$2==n{print $3; exit}' "$SCRATCH/voc_win_post.json.txt")
 FOC_EQ=0
-[ "$FP" = "true" ] && [ -n "$T3B" ] && [ "$TARGET3" = "$T3B" ] && FOC_EQ=1
+[ "$FP" = "true" ] && [ "$TARGETN" = "$T3B" ] && FOC_EQ=1
 if [ "$FOC_EQ" -eq 1 ]; then
-    echo "OVER-FOCUS-EQ: OK — idx=3 창(id=$TARGET3) focused=true 등호(배지 숫자·"
-         "list_windows z등호 — T1 원존의 라이브 원문)"
+    echo "OVER-FOCUS-EQ: OK — idx=$NUMT 창(id=$TARGETN) focused=true 등호(배지 숫자"
+         "·list_windows z등호 — T1 원존의 라이브 원문)"
 else
-    echo "VOICE-FAIL(over-focus-eq: idx=3 focused=[$FP] id=[$T3B] — 배지-포커스 등호 원장)"
+    echo "VOICE-FAIL(over-focus-eq: idx=$NUMT focused=[$FP] id=[$T3B] target=[$TARGETN] — 배지-포커스 등호 원장)"
 fi
 # 범위 밖 = 정직 window_not_found(D5 — 포커스 창 폴백 금지 원존의 라이브 원문)
 FOC99=$(timeout 15 ./buildwsl/jkdesktop agentctl '{"tool":"focus_window","args":{"num":99}}' 2>/dev/null | grep -a '{' | head -1)
@@ -1361,7 +1367,7 @@ VOVER_OK=0
     && [ "$OV_COUNT_EQ" -eq 1 ] && [ "$FOC_EQ" -eq 1 ] && [ "$OV_NF" -eq 1 ] \
     && [ "$OV_OFF_DIFF" -eq 1 ] && VOVER_OK=1
 if [ "$VOVER_OK" -eq 1 ]; then
-    echo "VOVER-VERDICT: VOVER-OK(#118 오버레이 E2E — 어휘 4행 질의 양식 원문 등호(overlay 2+번호 화법 2 — 2y-⑲)+배지 원문 캡처(창 $NVIS — count 등호)·\"창 3\"→focus_window num=3 → idx3(id=$TARGET3) focused=true 등호·범위 밖 num=99 = window_not_found 정직·off 배지 소멸 대조 — 캐논 $ST_PASS·3a=$ST3A)"
+    echo "VOVER-VERDICT: VOVER-OK(#118 오버레이 E2E — 어휘 4행 질의 양식 원문 등호(overlay 2+번호 화법 2 — 2y-⑲)+배지 원문 캡처(창 $NVIS — count 등호)·\"창 $NUMT\"→focus_window num=$NUMT → idx$NUMT(id=$TARGETN) focused=true 등호(미포커스 대상 — 착탄 증거 원존)·범위 밖 num=99 = window_not_found 정직·off 배지 소멸 대조 — 캐논 $ST_PASS·3a=$ST3A)"
 else
     echo "VOVER-VERDICT: VOVER-FAIL(honest — route=${VOVROUTE:-0}/4 excl=${VOVEXCL:-0}/2 oncnt=${OV_COUNT_EQ:-0} focus=${FOC_EQ:-0} nf=${OV_NF:-0} offdiff=${OV_OFF_DIFF:-0} — 사유 열은 상단 VOICE-FAIL 행)"
 fi
