@@ -203,10 +203,15 @@ int main(int argc, char** argv) {
     // RunVoiceTurn (4) 접점 계약)으로 직발+ChatActionQuery 조립 원문 캡처.
     // cfg 미구성 = 라우터 즉발+usedLlm 0(2y-① 원존)·배제 어휘(D3)·무인자 강제
     // (D1)·기존 회귀("창 목록 보여줘" — 2y-⑩ 방어 행)가 같은 루프로 재실측.
+    // #118 T2 신설(#118-RUN-VALS 계보 — WSL판 동형): 오버레이 어휘 2행(kind 6
+    // — overlay_numbers)+번호 화법 2건("창 3"·"3번 창" — Focus num — 접미수
+    // 판정 부품 2y-⑲)+미매치 2건("창 0"·"창 삼" — Info stub). num 칼럼 = 행
+    // 끝 추가(기존 행 패턴 무침범).
     {
         const char* const kVocabSay[] = {
             "멈춰줘", "재생해줘", "정지", "알림 보여줘", "볼륨 50으로 멈춰줘",
             "다음 곡", "알림 뭐 왔어", "창 목록 보여줘",
+            "창 번호 보여줘", "번호 보여줘", "창 3", "3번 창", "창 0", "창 삼",
         };
         for (const char* say : kVocabSay) {
             bool used = false;
@@ -218,11 +223,11 @@ int main(int argc, char** argv) {
             const std::string toolCol = vq ? vtool : "no";
             const std::string argsCol = vq ? vargs : "no";
             printf("VOCAB text=[%s] kind=%d app=[%s] tool=[%s] usedLlm=%d "
-                   "q=%d query=[%s %s] guide-len=%d\n",
+                   "q=%d query=[%s %s] num=%d guide-len=%d\n",
                    say, static_cast<int>(va.kind), va.app.c_str(),
                    va.tool.c_str(), static_cast<int>(used),
                    static_cast<int>(vq), toolCol.c_str(), argsCol.c_str(),
-                   static_cast<int>(g.size()));
+                   va.winNum, static_cast<int>(g.size()));
             std::fflush(stdout);
         }
     }
@@ -354,6 +359,24 @@ done
 printf '%s' "$VROWS" | grep -aqF 'text=[창 목록 보여줘] kind=3' \
     && VROUTE=$((VROUTE+1)) || echo "VOICE-PHONE-FAIL(vocab-regress: 창 목록 보여줘 — 2y-⑩ 방어 행 원문 불일치)"
 echo "PROBE-VOCAB-ROUTE-OK: rows=$((VROUTE+VEXACT))/6 (route 산치 분리 — route=$VROUTE/5+exact=$VEXACT/1) excl=$BEX/2"
+
+# ── #118 T2 신설 — 오버레이 어휘+숫자 화법 행(WSL판 §13b VOVER 동형 — kind 6
+#    = OverlayNumbers·kind 2 = Focus(winNum)·kind 5 = 미매치 stub) ──
+VOVROUTE=0
+printf '%s' "$VROWS" | grep -aqF 'text=[창 번호 보여줘] kind=6 app=[] tool=[] usedLlm=0 q=1 query=[overlay_numbers {}]' \
+    && VOVROUTE=$((VOVROUTE+1)) || echo "VOICE-PHONE-FAIL(overlay-route: 창 번호 보여줘 — kind 6 질의 양식 원문 불일치)"
+printf '%s' "$VROWS" | grep -aqF 'text=[번호 보여줘] kind=6 app=[] tool=[] usedLlm=0 q=1 query=[overlay_numbers {}]' \
+    && VOVROUTE=$((VOVROUTE+1)) || echo "VOICE-PHONE-FAIL(overlay-route: 번호 보여줘 — exact 2행 원문 불일치)"
+printf '%s' "$VROWS" | grep -aqF 'text=[창 3] kind=2 app=[] tool=[] usedLlm=0 q=1 query=[focus_window {"num":3}] num=3' \
+    && VOVROUTE=$((VOVROUTE+1)) || echo "VOICE-PHONE-FAIL(num-speech: 창 3 — Focus winNum 질의 양식 원문 불일치)"
+printf '%s' "$VROWS" | grep -aqF 'text=[3번 창] kind=2 app=[] tool=[] usedLlm=0 q=1 query=[focus_window {"num":3}] num=3' \
+    && VOVROUTE=$((VOVROUTE+1)) || echo "VOICE-PHONE-FAIL(num-speech: 3번 창 — 접미형 원문 불일치)"
+VOVEXCL=0
+printf '%s' "$VROWS" | grep -aqF 'text=[창 0] kind=5 app=[] tool=[] usedLlm=0 q=0 query=[no no] num=0' \
+    && VOVEXCL=$((VOVEXCL+1)) || echo "VOICE-PHONE-FAIL(num-speech: 창 0 — 배지 부정 stub 원문 불일치)"
+printf '%s' "$VROWS" | grep -aqF 'text=[창 삼] kind=5 app=[] tool=[] usedLlm=0 q=0 query=[no no] num=0' \
+    && VOVEXCL=$((VOVEXCL+1)) || echo "VOICE-PHONE-FAIL(num-speech: 창 삼 — 한글 수사 v1 미구어 stub 원문 불일치)"
+echo "PROBE-VOVER-ROUTE-OK: rows=$VOVROUTE/4 (overlay 2+num-speech 2) excl=$VOVEXCL/2"
 
 # ── B. 서버 부팅(WHISPER_ROOT 보유)+chat 개봉+탭 런 반복(폰 E2E — T5 §6) ────
 echo "=== B. WHISPER_ROOT 보유 부팅 + chat 개봉 + [구두] 탭 런 x$PHV_TAP_RUNS ==="
@@ -1269,6 +1292,163 @@ $SSH "rm -f \$TMPDIR/t6pv_boot.sh \$TMPDIR/t6pv_tap.sh \$TMPDIR/t6pv_rest.sh \$T
 $SSH 'pkill -9 -f "TextToSpeec[h]" 2>/dev/null; echo TTS-HELPERS-SWEEP-RC=$?' | sed 's/^/TTS-SWEEP: /'   # 웨지 helper 잔존 소각(fix r4 — 117-R5 런 원장)
 echo "T-PUSH-SCRATCH-BURIED: 폰 probe 스크래치 소각"
 
+# ── B4. #118 오버레이 세그먼트(WSL판 §13c 동형 — 별행 판정 — VOICE-PHONE-VERDICT
+#    무변조) — 발화→overlay_numbers→배지 원문 캡처→"창 3"→focus_window num
+#    원문(list_windows focused 등호 — 배지 순서 = list_windows z등호 T1 원존)·
+#    범위 밖 num=99 = window_not_found 정직·off 배지 소멸 대조. 소비 = 도구
+#    경로(agentctl — §13 소비 계약 동형)·순수 도구(permissions 무접촉 —
+#    capture/focus/overlay = ask 아님 — T1 스모크 원존) ──
+echo "=== B4. #118 오버레이 E2E — 배지 원문 캡처+번호 포커스 (1런) ==="
+cat > "$SCRATCH/t6pv_overlay_remote.sh" <<'OVEEOF'
+#!/bin/bash
+# 폰 #118 오버레이 폰 E2E: Music 복원 상태에서 Music 잠시 소각→chat+vplayer+
+# notify 3창→overlay on(count 등호)→배지 캡처 2종→focus num=3(focused 등호)→
+# num=99(window_not_found)→off→소각+Music 복원(사용자 화면 원존). 자기 소각.
+set -u
+cd ~/JKENGINE/engine || exit 1
+TMPD="${TMPDIR:-/data/data/com.termux/files/usr/tmp}"
+ctl() { timeout 25 ./buildterm/jkdesktop agentctl "$1" 2>/dev/null | grep -a '{' | head -1; }
+ok()  { printf '%s' "${1:-}" | grep -aq '"ok":true'; }
+# [함정 원장 승계 — #115b/#117 FAIL 출구]: FAIL이 exit 1로 즉사하며 창 원복
+# (Music 복원)을 건너뛰는 것을 막는다 — best-effort 원복(멱등 — wsl_music
+# HARV-TEARDOWN 래더 원존 + t6pv_vocab vcleanup 동형).
+failout() {
+    for T in Chat "Video Player" Notifications; do
+        WLX=$(ctl '{"tool":"list_windows","args":{}}' 2>/dev/null)
+        WIX=$(printf '%s' "$WLX" | grep -aoE "{"id":[0-9]+,"title":"${T}" | grep -oE '[0-9]+' | head -1)
+        [ -n "$WIX" ] && ctl "{"tool":"close_window","args":{"id":$WIX}}" >/dev/null 2>&1
+        sleep 1
+    done
+    ctl '{"tool":"launch_app","args":{"app":"music"}}' >/dev/null 2>&1
+    echo "OVE-FAIL: $*"
+    exit 1
+}
+FAIL() { failout "$*"; }
+# 표본기 — list_windows JSON → 배지 등호 보이는 창(최소화 면제) tab 행
+cat > "$TMPDIR/t6pv_pw.py" <<'PWEF'
+import json, sys
+d = json.load(open(sys.argv[1]))
+ws = [w for w in d.get("windows", []) if not w.get("minimized")]
+for i, w in enumerate(ws, 1):
+    print("PW\t%d\t%d\t%s\t%s" % (i, w["id"], w["focused"], w["title"]))
+PWEF
+wjson() { # $1=저장파일 — list_windows 원문 1행+표본 .txt
+    timeout 25 ./buildterm/jkdesktop agentctl '{"tool":"list_windows","args":{}}' 2>/dev/null | grep -a '{' | head -1 >"$1"
+    [ -s "$1" ] || FAIL "list_windows empty ($1)"
+    python3 "$TMPD/t6pv_pw.py" "$1" >>"$1.txt"
+    [ -s "$1.txt" ] || FAIL "list_windows view build failed ($1.txt)"
+}
+mw=$(ctl '{"tool":"list_windows","args":{}}')
+MID=$(printf '%s' "$mw" | grep -aoE '\{"id":[0-9]+,"title":"Music"' | grep -oE '[0-9]+' | head -1)
+if [ -n "$MID" ]; then
+    MC=$(ctl "{\"tool\":\"close_window\",\"args\":{\"id\":$MID}}")
+    echo "OVE-MUSIC-CLOSE: ${MC:-none} (배지 스냅샷 등화 — B4 창 3개만 — 끝에 복원)"
+    sleep 3
+fi
+C=$(ctl '{"tool":"launch_app","args":{"app":"chat"}}')
+echo "OVE-CHAT-LAUNCH: ${C:-none}"
+ok "$C" || FAIL "launch chat — $C"
+V=$(ctl '{"tool":"launch_app","args":{"app":"vplayer"}}')
+echo "OVE-VPLAYER-LAUNCH: ${V:-none}"
+ok "$V" || FAIL "launch vplayer — $V"
+N=$(ctl '{"tool":"launch_app","args":{"app":"notify"}}')
+echo "OVE-NOTIFY-LAUNCH: ${N:-none}"
+ok "$N" || FAIL "launch notify — $N"
+sleep 8
+wjson "$TMPD/t6pv_ove_pre.json"
+sed 's/^/  /' "$TMPD/t6pv_ove_pre.json.txt"
+NVIS=$(grep -ac '^PW' "$TMPD/t6pv_ove_pre.json.txt")
+echo "OVE-VISIBLE-WINDOWS: $NVIS (배지 스냅샷 등호 관측 — shell·최소화 면제 원존)"
+[ "$NVIS" -ge 2 ] || FAIL "fewer than 2 visible windows (배지 캡처 요건)"
+ON=$(ctl '{"tool":"overlay_numbers","args":{}}')
+echo "OVE-ON: ${ON:-none}"
+ok "$ON" || FAIL "overlay_numbers on — $ON"
+ONCOUNT=$(printf '%s' "$ON" | sed -n 's/.*"count":\([0-9]*\).*/\1/p')
+echo "OVE-COUNT: $ONCOUNT (visible 목록 등호 대조 — $NVIS)"
+sleep 2
+capture() {
+    rm -f "$TMPD/$1"
+    R=$(timeout 25 ./buildterm/jkdesktop agentctl '{"tool":"capture_region","args":{"x":0,"y":0,"w":1920,"h":1080}}' 2>/dev/null | grep -a '"ok"' | head -1)
+    P=$(printf '%s' "$R" | grep -ao '"path":"[^"]*"' | sed 's/"path":"//;s/"$//')
+    [ -n "$P" ] && cp "$P" "$TMPD/$1"
+    [ -s "$TMPD/$1" ] || FAIL "capture failed: $1 (R=${R:0:120})"
+    echo "OVE-CAP-OK: $1 ($(wc -c < "$TMPD/$1") bytes)"
+}
+capture t6pv_badge_n.png
+T3=$(awk -F'\t' '$2==3{print $3; exit}' "$TMPD/t6pv_ove_pre.json.txt")
+if [ -n "$T3" ]; then
+    F=$(ctl "{\"tool\":\"focus_window\",\"args\":{\"num\":3}}")
+    echo "OVE-FOCUS-NUM3: ${F:-none} (\"창 3\" 발화의 focus_window num 릴레이 원문)"
+    ok "$F" || FAIL "focus num=3 — $F"
+    sleep 3
+    wjson "$TMPD/t6pv_ove_post.json"
+    sed 's/^/  /' "$TMPD/t6pv_ove_post.json.txt"
+    FP=$(awk -F'\t' '$2==3{print $4; exit}' "$TMPD/t6pv_ove_post.json.txt")
+    T3B=$(awk -F'\t' '$2==3{print $3; exit}' "$TMPD/t6pv_ove_post.json.txt")
+    echo "OVE-FOCUS-RESULT: idx3 focused=$FP id=$T3B (배지 id=$T3 대조)"
+    [ "$FP" = "true" ] && [ "$T3" = "$T3B" ] \
+        || FAIL "focus 등호 불성립 (idx3 focused=[$FP] id=[$T3B] target=$T3)"
+    echo "OVE-FOCUS-EQ: OK — idx=3(id=$T3) focused=true 등호"
+    FN=$(ctl '{"tool":"focus_window","args":{"num":99}}')
+    echo "OVE-FOCUS-99: ${FN:-none} (범위 밖 — window_not_found 정직 원문)"
+    printf '%s' "$FN" | grep -aqF '"error":"window_not_found"' \
+        || FAIL "num=99 not window_not_found — $FN"
+else
+    echo "OVE-SKIP-NUM3: visible 창 3개 표본 없음(nv=$NVIS) — 번호 포커스 원문 미실측(정직 — 캡처 행만 유효)"
+fi
+OFF=$(ctl '{"tool":"overlay_numbers","args":{"on":0}}')
+echo "OVE-OFF: ${OFF:-none}"
+ok "$OFF" || FAIL "overlay off — $OFF"
+sleep 2
+capture t6pv_badge_off.png
+# 소각 — 세그먼트 창 원복+Music 복원(사용자 화면 원존)
+WL=$(ctl '{"tool":"list_windows","args":{}}')
+for T in Chat "Video Player" Notifications; do
+    WID=$(printf '%s' "$WL" | grep -aoE "{\"id\":[0-9]+,\"title\":\"${T}" | grep -oE '[0-9]+' | head -1)
+    if [ -n "$WID" ]; then
+        CR=$(ctl "{\"tool\":\"close_window\",\"args\":{\"id\":$WID}}")
+        echo "OVE-LEFTOVER-CLOSED ($T id=$WID): ${CR:-none}"
+        sleep 2
+    fi
+done
+L2=$(ctl '{"tool":"launch_app","args":{"app":"music"}}')
+echo "OVE-MUSIC-RESTORE: ${L2:-none} (사용자 화면 복원 — §C 원존)"
+ok "$L2" || FAIL "music restore — $L2"
+rm -f "$TMPD/t6pv_ove_pre.json" "$TMPD/t6pv_ove_pre.json.txt" \
+      "$TMPD/t6pv_ove_post.json" "$TMPD/t6pv_ove_post.json.txt" \
+      "$TMPD/t6pv_badge_n.png" "$TMPD/t6pv_badge_off.png" "$TMPD/t6pv_pw.py"
+rm -f -- "$0"
+echo "OVE-FINISHED"
+exit 0
+OVEEOF
+bash -n "$SCRATCH/t6pv_overlay_remote.sh" || FAIL "overlay script syntax broken"
+$SSH "cat > \$TMPDIR/t6pv_overlay.sh" < "$SCRATCH/t6pv_overlay_remote.sh" || FAIL "overlay script push failed"
+OVOUT=$($SSH "bash \$TMPDIR/t6pv_overlay.sh" 2>&1)
+OVRC=$?
+printf '%s\n' "$OVOUT" | sed 's/^/OVE: /'
+if [ "$OVRC" -eq 255 ]; then
+    echo "RUN-DROPPED: ssh 채널 단절 — 재실행=증분(T5 원장)"
+    OVOUT=$($SSH "bash \$TMPDIR/t6pv_overlay.sh" 2>&1)
+    printf '%s\n' "$OVOUT" | sed 's/^/OVE[2nd]: /'
+fi
+OV_LIVE=0
+if grep -aq 'OVE-FINISHED' <<< "$OVOUT" && ! grep -aq 'OVE-FAIL' <<< "$OVOUT" \
+   && grep -aq 'OVE-FOCUS-EQ: OK' <<< "$OVOUT"; then
+    OV_LIVE=1
+    echo "VOVER-LIVE-OK"
+else
+    echo "VOICE-PHONE-FAIL(overlay-live: E2E 세그먼트 미성립 — rc=$OVRC — 위 OVE 원문)"
+fi
+recover "\$TMPDIR/t6pv_badge_n.png"   "$SCRATCH/pv_badge_n.png"
+recover "\$TMPDIR/t6pv_badge_off.png" "$SCRATCH/pv_badge_off.png"
+FWOV=$($SSH "cd ~/JKENGINE/engine && timeout 20 ./buildterm/jkdesktop agentctl '{\"tool\":\"list_windows\",\"args\":{}}' 2>/dev/null | head -1" 2>/dev/null)
+echo "OVE-FINAL-WINDOWS: $FWOV (사용자 화면 = Music 복원 원존)"
+printf '%s' "$FWOV" | grep -aq '"title":"Music"' \
+    || echo "VOICE-PHONE-FAIL(overlay-restore: Music 복원 미성립 — 원장)"
+fwleft=$($SSH "ls \$TMPDIR 2>/dev/null | grep -ac 't6pv_ove\|t6pv_badge\|t6pv_overlay.sh\|t6pv_pw.py'" 2>/dev/null)
+echo "OVE-REMNANT: phone overlay scratch left=${fwleft:-0} (0 = 잔상 0 계약)"
+[ "${fwleft:-0}" = "0" ] || echo "VOICE-PHONE-FAIL(overlay-remnant: 폰 스크래치 잔존 $fwleft건 — 수동 소각)"
+
 echo "=== 폰 VERDICT (요약 스트림 계약) ==="
 # fail-closed 게이트 = 3판 전부(WSL 축 FC=3과 등형 — T6 fix r1: fc3=3판의
 # gate-model-missing 원문 등호가 본 판정 부울에도 채용될 수 있었다 — 2판만
@@ -1305,6 +1485,15 @@ if [ "$VOC_OK" -eq 1 ]; then
 else
     echo "VOCAB-PHONE-VERDICT: VOCAB-PHONE-FAIL(honest — route=${VROUTE:-0}/5 exact=${VEXACT:-0}/1 excl=${BEX:-0}/2 live=${VPLIVE:-0} — 사유 열은 상단 VOICE-PHONE-FAIL 행)"
 fi
-echo "VOICE-PHONE-RUN-VALS: tap_runs=${PHV_TAP_RUNS} gate=3판 fixture_direct=${FIX_OK} mic=${MIC_OK} tap=${TAP_OK} runverdict=${PV} vocab=${VOC_OK} vocab_route=${VROUTE} vocab_excl=${BEX} vocab_live=${VPLIVE:-0} tts_runverdict=${TTS_VERB:-n/a} tts_stamp=${TTS_OK_STAMP} tts_session=${TTS_OK_SESSION:-0} tts_optout=${TTS_OK_OPTOUT} tts_cli=${TTS_OK_CLI} tts_lat=${TTS_STAMP_LAT:-n/a} captures=engine/tmp/pv_run*_*.png engine/tmp/pv_vocab_*.png engine/tmp/pv_tts_*.png"
+echo "=== 폰 VOVER-VERDICT (#118 오버레이 세그먼트 — 별행 1행 — VOICE-PHONE-VERDICT 무변조 — #115b VOCAB 별행 원존) ==="
+VOVER_OK=0
+[ "$VOVROUTE" -eq 4 ] && [ "$VOVEXCL" -eq 2 ] && [ "${OV_LIVE:-0}" -eq 1 ] && VOVER_OK=1
+if [ "$VOVER_OK" -eq 1 ]; then
+    echo "VOVER-PHONE-VERDICT: VOVER-PHONE-OK(#118 오버레이 폰 축 — 어휘 4행 질의 양식 원문 등호(overlay 2+번호 화법 2 — 2y-⑲ — buildterm 배포 진실원 재실측)+배지 원문 캡처 2종(pv_badge_n·pv_badge_off — capture_region — diag_j118 수형 재용)+\"창 3\"→focus_window num=3 focused 등호+범위 밖 num=99 = window_not_found 정직+off 배지 소멸 대조+Music 복원·잔상 0 — 화면 배지+번호 포커스 체감 = EYES 몫)"
+else
+    echo "VOVER-PHONE-VERDICT: VOVER-PHONE-FAIL(honest — route=${VOVROUTE:-0}/4 excl=${VOVEXCL:-0}/2 live=${OV_LIVE:-0} — 사유 열은 상단 VOICE-PHONE-FAIL 행)"
+fi
+echo "#118-RUN-VALS: overlay=${VOVER_OK:-0} ovlroute=${VOVROUTE:-0} ovlive=${OV_LIVE:-0} captures=engine/tmp/pv_badge_*.png"
+echo "VOICE-PHONE-RUN-VALS: tap_runs=${PHV_TAP_RUNS} gate=3판 fixture_direct=${FIX_OK} mic=${MIC_OK} tap=${TAP_OK} runverdict=${PV} vocab=${VOC_OK} vocab_route=${VROUTE} vocab_excl=${BEX} vocab_live=${VPLIVE:-0} tts_runverdict=${TTS_VERB:-n/a} tts_stamp=${TTS_OK_STAMP} tts_session=${TTS_OK_SESSION:-0} tts_optout=${TTS_OK_OPTOUT} tts_cli=${TTS_OK_CLI} tts_lat=${TTS_STAMP_LAT:-n/a} overlay=${VOVER_OK:-0} ovlroute=${VOVROUTE:-0} ovlive=${OV_LIVE:-0} captures=engine/tmp/pv_run*_*.png engine/tmp/pv_vocab_*.png engine/tmp/pv_tts_*.png engine/tmp/pv_badge_*.png"
 echo "PHONE-VOICE-END"
 # EOF — 끝 개행 유지.

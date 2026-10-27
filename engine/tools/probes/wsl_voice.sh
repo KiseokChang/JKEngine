@@ -68,10 +68,14 @@ LOGDIR=/tmp/voc
 SCRATCH=/tmp/voc_scratch
 RECEIVE=/mnt/i/progwork/JKENGINE/engine/tmp
 SHOT_PY="$LOGDIR/voc_shot.py"
-CANON_WSL_SELFTEST=850   # #115b WSL 캐논(#112 T5 814 → #113+2w 4·#115+2x 15 = 833 →
-                         # #115b T1+2y 17(①-⑯+⑰ fix r1) = 850 — T1 리포트 §6 원문 재실측)
+CANON_WSL_SELFTEST=892   # #115b WSL 캐논(#112 T5 814 → #113+2w 4·#115+2x 15 = 833 →
+                         # #115b T1+2y 17 = 850 → #116·#117·v1.6 계보 +2z 9·2x+4·
+                         # 2y+4 = 867 → #118 T1+3a 13 = 880 → #118 T2 2y+10·
+                         # 3a+2 = **892** — 본 라인 T2 런 실측 — 880 승계 계보)
 CANON_WSL_2V=14          # 구두 라인 신설 2v ①-⑭(T2 +6·T3 +4) — 계보 원문
-CANON_WSL_2Y=17          # #115b 어휘 라인 2y ①-⑯(+⑰ fix r1) — T1 리포트 §3·§6 원문
+CANON_WSL_2Y=31          # 어휘 2y 계보(17 → v1.6+4 → #118 T2 ⑲+10 = 31 — §3 수취)
+CANON_WSL_2Z=9           # #117 TTS 2z ①-⑨ — 계보 원문(캐논 수취)
+CANON_WSL_3A=15          # #118 오버레이 3a 13(T1) + T2 ⑤·⑤(b) 2 = 15 — §3 수취
 
 if [ -z "${WSL_DISTRO_NAME:-}" ]; then
   echo "VOC-WFAIL: not inside WSL — 실행 축 계약 위반 (wsl.exe -d ... probes/wsl_voice.sh)"
@@ -186,6 +190,12 @@ echo "SELFTEST-2V-CASES=$ST2V (구두 라인 신설 2v — 캐논 $CANON_WSL_2V 
 ST2Y=$(grep -ac '^\[PASS\] 2y' "$LOGDIR/voc_st.log")
 echo "SELFTEST-2Y-CASES=$ST2Y (구두 어휘 라인 신설 2y — 캐논 $CANON_WSL_2Y 대조)"
 [ "$ST2Y" -eq "$CANON_WSL_2Y" ] || echo "VOICE-FAIL(2y: $ST2Y != $CANON_WSL_2Y — 계보 원장)"
+ST2Z=$(grep -ac '^\[PASS\] 2z' "$LOGDIR/voc_st.log")
+echo "SELFTEST-2Z-CASES=$ST2Z (TTS 부품 2z — 캐논 $CANON_WSL_2Z 대조)"
+[ "$ST2Z" -eq "$CANON_WSL_2Z" ] || echo "VOICE-FAIL(2z: $ST2Z != $CANON_WSL_2Z — 계보 원장)"
+ST3A=$(grep -ac '^\[PASS\] 3a' "$LOGDIR/voc_st.log")
+echo "SELFTEST-3A-CASES=$ST3A (오버레이 부품 3a — 캐논 $CANON_WSL_3A 대조)"
+[ "$ST3A" -eq "$CANON_WSL_3A" ] || echo "VOICE-FAIL(3a: $ST3A != $CANON_WSL_3A — 계보 원장)"
 
 echo "=== 4. 사슬 probe cpp 자가 생성+컴파일 (T5 폰판 원존 승계 — /tmp scratch 사다리) ==="
 cat > "$SCRATCH/wsl_voice_probe.cpp" <<'CPPEOF'
@@ -285,9 +295,15 @@ int main(int argc, char** argv) {
     // 질의 조립 = ChatActionQuery(SttVoice turn — app_tool 릴레이 양식 1종).
     // 배제 어휘 2건(D3 — 행 부재 = Info stub)·무인자 강제 1건(D1)·기존 회귀
     // 1건("창 목록 보여줘" — 2y-⑩ 방어 행)이 같은 루프로 재실측된다.
+    // #118 T2 신설(#118-RUN-VALS 계보): 오버레이 어휘 2행("창 번호 보여줘"·
+    // "번호 보여줘" — overlay_numbers — kind 6)+숫자 화법 4건("창 3"·
+    // "3번 창" — Focus winNum·kind 2 — 접미수 판정 부품 2y-⑲)+미매치 2건
+    // ("창 0"·"창 삼" — Info stub). num 칼럼 = 행 끝 추가(기존 행 패턴
+    // 무침범 — T1 부품 원존).
     const char* const kVocabSay[] = {
         "멈춰줘", "재생해줘", "정지", "알림 보여줘", "볼륨 50으로 멈춰줘",
         "다음 곡", "알림 뭐 왔어", "창 목록 보여줘",
+        "창 번호 보여줘", "번호 보여줘", "창 3", "3번 창", "창 0", "창 삼",
     };
     for (const char* say : kVocabSay) {
         bool used = false;
@@ -299,11 +315,11 @@ int main(int argc, char** argv) {
         const std::string toolCol = vq ? vtool : "no";
         const std::string argsCol = vq ? vargs : "no";
         std::printf("VOCAB text=[%s] kind=%d app=[%s] tool=[%s] usedLlm=%d "
-                    "q=%d query=[%s %s] guide-len=%d\n",
+                    "q=%d query=[%s %s] num=%d guide-len=%d\n",
                     say, static_cast<int>(va.kind), va.app.c_str(),
                     va.tool.c_str(), static_cast<int>(used),
                     static_cast<int>(vq), toolCol.c_str(), argsCol.c_str(),
-                    static_cast<int>(g.size()));
+                    va.winNum, static_cast<int>(g.size()));
         std::fflush(stdout);
     }
 
@@ -1074,6 +1090,26 @@ printf '%s' "$VROWS" | grep -aqF 'text=[창 목록 보여줘] kind=3' \
     && VROUTE=$((VROUTE+1)) || echo "VOCAB-FAIL(regress: 창 목록 보여줘 — 2y-⑩ 방어 행 원문 불일치)"
 echo "VOCAB-ROUTE-OK: rows=$((VROUTE+VEXACT))/6 (route 산치 분리 — route=$VROUTE/5+exact=$VEXACT/1) excl=$BEX/2"
 
+# #118 T2 신설 — 오버레이 어휘 + 숫자 화법 행(#118-RUN-VALS 계보 — 2y-⑲ 원존).
+# kind 6 = OverlayNumbers(Info=5 뒤 신설 — 기존 kind 수치 계보 보존)·kind 2 =
+# Focus(winNum — 배지 숫자 1기반)·kind 5 = 미매치 stub("창 0"·"창 삼" —
+# 한글 수사 = v1 미구어 원장행).
+VOVROUTE=0
+printf '%s' "$VROWS" | grep -aqF 'text=[창 번호 보여줘] kind=6 app=[] tool=[] usedLlm=0 q=1 query=[overlay_numbers {}]' \
+    && VOVROUTE=$((VOVROUTE+1)) || echo "VOCAB-FAIL(overlay-route: 창 번호 보여줘 — kind 6 질의 양식 원문 불일치)"
+printf '%s' "$VROWS" | grep -aqF 'text=[번호 보여줘] kind=6 app=[] tool=[] usedLlm=0 q=1 query=[overlay_numbers {}]' \
+    && VOVROUTE=$((VOVROUTE+1)) || echo "VOCAB-FAIL(overlay-route: 번호 보여줘 — exact 2행 원문 불일치)"
+printf '%s' "$VROWS" | grep -aqF 'text=[창 3] kind=2 app=[] tool=[] usedLlm=0 q=1 query=[focus_window {"num":3}] num=3' \
+    && VOVROUTE=$((VOVROUTE+1)) || echo "VOCAB-FAIL(num-speech: 창 3 — Focus winNum 질의 양식 원문 불일치)"
+printf '%s' "$VROWS" | grep -aqF 'text=[3번 창] kind=2 app=[] tool=[] usedLlm=0 q=1 query=[focus_window {"num":3}] num=3' \
+    && VOVROUTE=$((VOVROUTE+1)) || echo "VOCAB-FAIL(num-speech: 3번 창 — 접미형 원문 불일치)"
+VOVEXCL=0
+printf '%s' "$VROWS" | grep -aqF 'text=[창 0] kind=5 app=[] tool=[] usedLlm=0 q=0 query=[no no] num=0' \
+    && VOVEXCL=$((VOVEXCL+1)) || echo "VOCAB-FAIL(num-speech: 창 0 — 배지 부정 stub 원문 불일치)"
+printf '%s' "$VROWS" | grep -aqF 'text=[창 삼] kind=5 app=[] tool=[] usedLlm=0 q=0 query=[no no] num=0' \
+    && VOVEXCL=$((VOVEXCL+1)) || echo "VOCAB-FAIL(num-speech: 창 삼 — 한글 수사 v1 미구어 stub 원문 불일치)"
+echo "VOVER-ROUTE-OK: rows=$VOVROUTE/4 (overlay 2+num-speech 2) excl=$VOVEXCL/2"
+
 # 라이브 소비 — vplayer 창 생성(발화 어휘의 릴레이 대상)+알림 Launch 원문
 VP_RELAY=0
 VP_TOGGLE=0
@@ -1181,6 +1217,115 @@ else
     echo "VOCAB-VERDICT: VOCAB-FAIL(honest — route=$VROUTE/5 exact=$VEXACT/1 excl=$BEX/2 vprelay=$VP_RELAY vptoggle=$VP_TOGGLE notify=$NOTIFY_OK — 사유 열은 상단 VOCAB-FAIL 행)"
 fi
 
+echo "=== 13c. #118 오버레이 E2E — 발화→overlay_numbers→배지 원문 캡처→\"창 3\""
+echo "     →focus_window num 원문(list_windows focused 등호 — 배지 순서 ="
+echo "     list_windows z등호 T1 원존). 질의 양식 판정 = VOVER 행(위)·소비 ="
+echo "     창 3개(chat+vplayer+notify) 상태의 도구 경로(agentctl — §13 소비"
+echo "     계약 동형). 배지 캡처 = capture_region(창 단위 X shot의 데스크"
+echo "     전체판 — diag_j118 원존 수형 재용) ==="
+# 창 단위 순서 관측기 — list_windows JSON → 배지 등호 보이는 창의 (i,id,focused)
+# (탭 분리 — 제목의 괄호·공백 배지("Notifications (2)") 흡수 — 알림 배지 실칭
+# 원장 승계)
+PWR="$LOGDIR/voc_pw.py"
+cat > "$PWR" <<'PYEOF'
+import json, sys
+d = json.load(open(sys.argv[1]))
+ws = [w for w in d.get("windows", []) if not w.get("minimized")]
+for i, w in enumerate(ws, 1):
+    print("PW\t%d\t%d\t%s\t%s" % (i, w["id"], w["focused"], w["title"]))
+PYEOF
+[ -f "$PWR" ] || FAIL "pw tool generation failed"
+capture_window_json() { # $1=저장파일 — list_windows 원문 1행(+배지 등호 표본 .txt)
+    timeout 15 ./buildwsl/jkdesktop agentctl '{"tool":"list_windows","args":{}}' \
+        2>/dev/null | grep -a '{' | head -1 >"$1"
+    [ -s "$1" ] || FAIL "list_windows empty ($1)"
+    python3 "$PWR" "$1" >>"$1.txt"
+    [ -s "$1.txt" ] || FAIL "list_windows view build failed ($1.txt)"
+}
+VPL2=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"launch_app","args":{"app":"vplayer"}}' 2>/dev/null | grep -a '{' | head -1)
+echo "OVER-VPLAYER-LAUNCH: ${VPL2:-none}"
+printf '%s' "$VPL2" | grep -aq '"ok":true' || echo "VOICE-FAIL(over-vplayer: $VPL2)"
+NOT2=$(timeout 12 ./buildwsl/jkdesktop agentctl '{"tool":"launch_app","args":{"app":"notify"}}' 2>/dev/null | grep -a '{' | head -1)
+echo "OVER-NOTIFY-LAUNCH: ${NOT2:-none}"
+printf '%s' "$NOT2" | grep -aq '"ok":true' || echo "VOICE-FAIL(over-notify: $NOT2)"
+sleep 4
+capture_window_json "$SCRATCH/voc_win_pre.json"
+sed 's/^/  /' "$SCRATCH/voc_win_pre.json.txt"
+NVIS=$(grep -ac '^PW' "$SCRATCH/voc_win_pre.json.txt")
+echo "OVER-VISIBLE-WINDOWS: $NVIS (배지 스냅샷 등호 관측 — shell·최소화 면제 원존)"
+NVIS=${NVIS:-0}
+[ "$NVIS" -ge 2 ] || FAIL "fewer than 2 visible windows (배지 원문 캡처 요건 — brief 계약)"
+# 켬 — 도구 원존 T1 스모크와 동일 양식
+OVON=$(timeout 15 ./buildwsl/jkdesktop agentctl '{"tool":"overlay_numbers","args":{}}' 2>/dev/null | grep -a '{' | head -1)
+echo "OVER-ON: ${OVON:-none}"
+printf '%s' "$OVON" | grep -aq '"ok":true' || FAIL "overlay_numbers on failed — $OVON"
+printf '%s' "$OVON" | grep -aqF '"count":' || FAIL "overlay_numbers reply has no count — $OVON"
+OV_ON_OK=1
+ONCOUNT=$(printf '%s' "$OVON" | sed -n 's/.*"count":\([0-9]*\).*/\1/p')
+echo "OVER-COUNT: $ONCOUNT (visible 목록 등호 대조 — $NVIS)"
+OV_COUNT_EQ=0
+[ -n "$ONCOUNT" ] && [ "$ONCOUNT" -eq "$NVIS" ] && OV_COUNT_EQ=1
+[ "$ONCOUNT" -ge 2 ] || FAIL "badge needs >=2 windows (brief — 원문 캡처 요건)"
+# 배지 원문 캡처 — capture_region 전체 데스크탑(출력 경계 클램프 원존 —
+# 도구 핸들러 :5836 "Intersect with the output bounds") — 창 단위 shot의
+# 배지 위치 무관 전체판(diag_j118 원존 수형 재용)
+capshot() { # $1=engine/tmp 회수명
+    CAP=$(timeout 30 ./buildwsl/jkdesktop agentctl \
+        '{"tool":"capture_region","args":{"x":0,"y":0,"w":4096,"h":4096}}' \
+        2>/dev/null | grep -a '{' | head -1)
+    printf '%s' "$CAP" | grep -aq '"ok":true' || FAIL "capture $1 failed — $CAP"
+    SRCP=$(printf '%s' "$CAP" | sed 's/.*"path":"\([^"]*\)".*/\1/')
+    cp "$SRCP" "$RECEIVE/$1" || FAIL "capture copy $1 failed"
+    echo "CAPTURE: $RECEIVE/$1 ($(wc -c < "$RECEIVE/$1") bytes)"
+}
+sleep 2
+capshot voc_wsl_badge3.png
+# 번호→포커스("창 3" 발화의 질의 소비) — 배지 3번 창
+TARGET3=$(awk -F'\t' '$2==3{print $3; exit}' "$SCRATCH/voc_win_pre.json.txt")
+[ -n "$TARGET3" ] || FAIL "badge 3 window id parse failed"
+echo "OVER-TGT3: id=$TARGET3 (배지 3 = 보이는 창 스냅샷 3번째 — OverlayBadgeOrder 등호 원존)"
+FOC=$(timeout 15 ./buildwsl/jkdesktop agentctl "{\"tool\":\"focus_window\",\"args\":{\"num\":3}}" 2>/dev/null | grep -a '{' | head -1)
+echo "OVER-FOCUS-NUM3: ${FOC:-none} (\"창 3\" 발화의 focus_window num 릴레이 — 2y-⑲(g) 질의 양식 소비)"
+printf '%s' "$FOC" | grep -aq '"ok":true' || echo "VOICE-FAIL(over-focus-num: $FOC)"
+sleep 2
+capture_window_json "$SCRATCH/voc_win_post.json"
+sed 's/^/  /' "$SCRATCH/voc_win_post.json.txt"
+FP=$(awk -F'\t' '$2==3{print $4; exit}' "$SCRATCH/voc_win_post.json.txt")
+T3B=$(awk -F'\t' '$2==3{print $3; exit}' "$SCRATCH/voc_win_post.json.txt")
+FOC_EQ=0
+[ "$FP" = "true" ] && [ -n "$T3B" ] && [ "$TARGET3" = "$T3B" ] && FOC_EQ=1
+if [ "$FOC_EQ" -eq 1 ]; then
+    echo "OVER-FOCUS-EQ: OK — idx=3 창(id=$TARGET3) focused=true 등호(배지 숫자·"
+         "list_windows z등호 — T1 원존의 라이브 원문)"
+else
+    echo "VOICE-FAIL(over-focus-eq: idx=3 focused=[$FP] id=[$T3B] — 배지-포커스 등호 원장)"
+fi
+# 범위 밖 = 정직 window_not_found(D5 — 포커스 창 폴백 금지 원존의 라이브 원문)
+FOC99=$(timeout 15 ./buildwsl/jkdesktop agentctl '{"tool":"focus_window","args":{"num":99}}' 2>/dev/null | grep -a '{' | head -1)
+echo "OVER-FOCUS-99: ${FOC99:-none}"
+OV_NF=0
+printf '%s' "$FOC99" | grep -aqF '"error":"window_not_found"' && OV_NF=1
+[ "$OV_NF" -eq 1 ] || echo "VOICE-FAIL(over-focus-99: 범위 밖 num=99 — window_not_found 원문 미일치 — $FOC99)"
+# 끔 → 배지 소멸 대조 캡처(diff — 배지 영역만 변해야 하며 전이 프레젠트 1회 원존)
+OVOFF=$(timeout 15 ./buildwsl/jkdesktop agentctl '{"tool":"overlay_numbers","args":{"on":0}}' 2>/dev/null | grep -a '{' | head -1)
+echo "OVER-OFF: ${OVOFF:-none} (멱등 끔 — v1 off 어휘 생략 — 도구 경로만)"
+printf '%s' "$OVOFF" | grep -aq '"ok":true' || echo "VOICE-FAIL(over-off: $OVOFF)"
+sleep 2
+capshot voc_wsl_badge3_off.png
+DIFFF=$(python3 "$FD" "$RECEIVE/voc_wsl_badge3.png" "$RECEIVE/voc_wsl_badge3_off.png")
+echo "OVER-DIFF-OFF: $DIFFF (배지 소멸 대조 — 0이면 배지가 화면/캡처에 없었던 것 — 원장)"
+OV_OFF_DIFF=1
+printf '%s' "$DIFFF" | grep -aq 'diff_pixels=0' && OV_OFF_DIFF=0 || true
+# 소각 — 세그먼트 창 전부 원복(chat만 남김 — §13/§13b 진입 상태)
+VPWID=$(awk -F'\t' '$5 ~ /^Video Player/{print $3; exit}' "$SCRATCH/voc_win_post.json.txt")
+NTWID=$(awk -F'\t' '$5 ~ /^Notifications/{print $3; exit}' "$SCRATCH/voc_win_post.json.txt")
+for WID in "$VPWID" "$NTWID"; do
+    [ -n "$WID" ] || continue
+    CRX=$(timeout 12 ./buildwsl/jkdesktop agentctl "{\"tool\":\"close_window\",\"args\":{\"id\":$WID}}" 2>/dev/null | grep -a '{' | head -1)
+    echo "OVER-CLOSE($WID): ${CRX:-none} (차분 오염 소각 — 16b2-0 수형)"
+    sleep 1
+done
+
 echo "=== 14. stderr 진단 수취 (서버 로그 — chat/minesweeper 스폰 계통) ==="
 grep -a 'spawned\|module' "$LOG" | tail -8 | sed 's/^/  /'
 
@@ -1188,7 +1333,8 @@ echo "=== 15. VOICE-RUN-VALS + VOICE-VERDICT (요약 스트림 계약 — stdout
 SURF_OK=0
 [ "$KEYTURN" -ge 1 ] && { [ -f "$RECEIVE/voc_wsl_rec.png" ] || [ -f "$RECEIVE/voc_wsl_done.png" ]; } && SURF_OK=1
 CANON_OK=0
-[ "$ST_PASS" -eq "$CANON_WSL_SELFTEST" ] && [ "$ST2V" -eq "$CANON_WSL_2V" ] && CANON_OK=1
+[ "$ST_PASS" -eq "$CANON_WSL_SELFTEST" ] && [ "$ST2V" -eq "$CANON_WSL_2V" ] \
+    && [ "$ST2Z" -eq "$CANON_WSL_2Z" ] && [ "$ST3A" -eq "$CANON_WSL_3A" ] && CANON_OK=1
 LQ_OK=0
 printf '%s' "$LQ" | grep -aqF 'launch-query=launch_app {"app":"minesweeper"}' && LQ_OK=1
 EQ_OK=0
@@ -1200,7 +1346,19 @@ if [ "$VERDICT" = "VOICE-OK" ]; then
 else
     echo "VOICE-VERDICT: $VERDICT(honest-fail — fc=$FC eq=$EQ_OK canon=$CANON_OK(2v=$ST2V) lq=$LQ_OK surf=$SURF_OK route=$ROUTE — 사유 열은 상단 VOICE-FAIL 행)"
 fi
-echo "VOICE-RUN-VALS: run=${RUN_NO} canon=${ST_PASS} twov=${ST2V} twoy=${ST2Y} fc3=${FC} direct=${DIR_EQ} direct_t2=${DIR_EQ_T2} stt_t2_canon=${STT_T2_CANON:-n/a} fixt=${SURF_OK} keyturn=${KEYTURN} clickturn=${CLICKTURN} route=${ROUTE} vocab=${VOCAB_OK} vprelay=${VP_RELAY} vptoggle=${VP_TOGGLE} notify=${NOTIFY_OK} probe_rc=${PP} captures=engine/tmp/voc_wsl_*.png"
+echo "VOICE-RUN-VALS: run=${RUN_NO} canon=${ST_PASS} twov=${ST2V} twoy=${ST2Y} twoz=${ST2Z} threea=${ST3A} fc3=${FC} direct=${DIR_EQ} direct_t2=${DIR_EQ_T2} stt_t2_canon=${STT_T2_CANON:-n/a} fixt=${SURF_OK} keyturn=${KEYTURN} clickturn=${CLICKTURN} route=${ROUTE} vocab=${VOCAB_OK} vprelay=${VP_RELAY} vptoggle=${VP_TOGGLE} notify=${NOTIFY_OK} overlay=${VOVER_OK:-0} ovcnt=${OV_COUNT_EQ:-0} ovfocus=${FOC_EQ:-0} ovnf=${OV_NF:-0} ovoff=${OV_OFF_DIFF:-0} probe_rc=${PP} captures=engine/tmp/voc_wsl_*.png"
+
+echo "=== 15b. VOVER-VERDICT (#118 오버레이 세그먼트 — 별행 1행 — VOICE-VERDICT 무변조 — #115b VOCAB 별행 원존) ==="
+VOVER_OK=0
+[ "$VOVROUTE" -eq 4 ] && [ "$VOVEXCL" -eq 2 ] && [ "$OV_ON_OK" -eq 1 ] \
+    && [ "$OV_COUNT_EQ" -eq 1 ] && [ "$FOC_EQ" -eq 1 ] && [ "$OV_NF" -eq 1 ] \
+    && [ "$OV_OFF_DIFF" -eq 1 ] && VOVER_OK=1
+if [ "$VOVER_OK" -eq 1 ]; then
+    echo "VOVER-VERDICT: VOVER-OK(#118 오버레이 E2E — 어휘 4행 질의 양식 원문 등호(overlay 2+번호 화법 2 — 2y-⑲)+배지 원문 캡처(창 $NVIS — count 등호)·\"창 3\"→focus_window num=3 → idx3(id=$TARGET3) focused=true 등호·범위 밖 num=99 = window_not_found 정직·off 배지 소멸 대조 — 캐논 $ST_PASS·3a=$ST3A)"
+else
+    echo "VOVER-VERDICT: VOVER-FAIL(honest — route=${VOVROUTE:-0}/4 excl=${VOVEXCL:-0}/2 oncnt=${OV_COUNT_EQ:-0} focus=${FOC_EQ:-0} nf=${OV_NF:-0} offdiff=${OV_OFF_DIFF:-0} — 사유 열은 상단 VOICE-FAIL 행)"
+fi
+echo "#118-RUN-VALS: run=${RUN_NO} canon=${ST_PASS} 2y=${ST2Y} 3a=${ST3A} overlay=${VOVER_OK:-0} ovcnt=${OV_COUNT_EQ:-0} ovfocus=${FOC_EQ:-0} ovnf=${OV_NF:-0} ovoff=${OV_OFF_DIFF:-0} captures=engine/tmp/voc_wsl_badge3*.png"
 
 echo "=== 16. 복원 (permissions 원복·서버 원복·probe 잔상 0) ==="
 restore_and_exit
