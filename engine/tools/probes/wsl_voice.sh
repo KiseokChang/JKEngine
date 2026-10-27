@@ -1270,6 +1270,7 @@ for i in $(seq 1 20); do
     sleep 3
 done
 sed 's/^/  /' "$SCRATCH/voc_win_pre.json.txt"
+NVIS=$(grep -ac '^PW' "$SCRATCH/voc_win_pre.json.txt")
 NVIS=${NVIS:-0}
 echo "OVER-VISIBLE-WINDOWS: $NVIS (배지 스냅샷 등호 관측 — shell·최소화 면제 원존)"
 [ "$NVIS" -ge 2 ] || FAIL "fewer than 2 visible windows (배지 원문 캡처 요건 — brief 계약)"
