@@ -24,11 +24,23 @@
 namespace jk {
 
 struct ChatAction {
-    enum Kind { Launch, Close, Focus, ListWindows, AppTool, Info };
+    // #118 T2 (스펙 2026-10-27-window-overlay-design D3): OverlayNumbers =
+    // 서버 도구 overlay_numbers(창 번호 배지 켬 — 서버 원존 재용 — 새 도구 0)
+    // 릴레이. **Info 뒤에 추가**(기존 kind 수치의 계보 보존 — 전사 표면 probe
+    // 의 committed 원문 행이 kind 수치를 등호 판정한다 — AppTool=4·Info=5
+    // 원존 유지, 2y-⑲).
+    enum Kind { Launch, Close, Focus, ListWindows, AppTool, Info,
+                OverlayNumbers };
     Kind kind = Info;   // 도구 지시 종류 — Info만 "지시 없음"의미.
     std::string app;    // Launch·Close의 앱 키(라이브러리 appName 규약 —
                         // alias표 해소). Close 미지정 = ""(포커스 창).
                         // Focus·ListWindows·Info는 항상 "".
+    // #118 T2 (스펙 D3) — Focus 번호 화법("창 3"·"3번 창")의 배지 숫자:
+    // 1기반(화면 배지 1..N = OverlayBadgeOrder 등호 — list_windows z등호 —
+    // T1 원존). 0 = 미지정(기존 Focus 원존 — app 지명·argless 형) — 파싱 부품
+    // ParseWindowNumberSpeech가 0을 반환하면 라우터가 Info(stub)로 떨어뜨린다
+    // (D1 무인자 강제 정합 — "창 0"류 = 배지 부정 = 지시 불성립).
+    int winNum = 0;
     std::string tool;   // #115b T1 — AppTool 전용: app_tool 릴레이 도구 이름
                         // (app도 AppTool에서는 앱 키가 아니라 **릴레이 대상
                         // 네임스페이스** — 도구 단일 진실원 kRouteTable 행의

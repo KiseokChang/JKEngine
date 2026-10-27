@@ -98,6 +98,16 @@ struct OverlayBadgeTarget {
 std::vector<uint32_t> OverlayBadgeOrder(
     const std::vector<OverlayBadgeTarget>& targets);
 
+// "창 3" 화법의 번호→창 판정 (#118 T2 — 스펙 D3 + D4 도구 원존
+// focus_window 재용 — 순수·결정): targets(호출자가 배지 렌더 패스와 동일
+// 필터·순서로 만든 스냅샷)에 OverlayBadgeOrder를 재용해 1기반 배지 숫자 num
+// (1..N)의 창 id를 낸다. 반환 0 = 범위 밖·num<=0 — 호출부(focus_window 분기)
+// 가 window_not_found로 정직 회신한다(D5 — 가짜 ok·stub 금지 원존 —
+// overlay_numbers의 no_window와 같은 계열). num=0은 ChatRouter의 파싱 부품
+// 에서도 "화법 아님"으로 갈라 먹는다(2y-⑲ — 파서와 서버의 이중 가드).
+uint32_t OverlayBadgeWindowForNumber(
+    const std::vector<OverlayBadgeTarget>& targets, int num);
+
 // 10분 자동 소멸 타이머 원존(D2 — VAD 없는 v1의 안전 타임아웃). startMs는
 // SDL_GetTicks 원 — 부호 없는 차분 판정(Run 루프 lastCompositeMs의 랩 규약
 // 승계 — 49.7일 포위에서도 경과 판정은 유효). 이중 켬 = 시작틱 갱신(D5

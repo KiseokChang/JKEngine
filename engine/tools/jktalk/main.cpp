@@ -94,6 +94,7 @@ const char* KindName(jk::ChatAction::Kind kind) {
         case jk::ChatAction::ListWindows: return "ListWindows";
         case jk::ChatAction::AppTool:     return "AppTool";
         case jk::ChatAction::Info:        return "Info";
+        case jk::ChatAction::OverlayNumbers: return "OverlayNumbers";
     }
     return "?";
 }
@@ -204,10 +205,19 @@ int ProcessTurn(const std::string& rawLine, bool routeOnly) {
             break;
         case jk::ChatAction::Focus:
             // 동일 계약(JKWindowServer.cpp:3505) — focus_window도 args.id 한정.
+            // #118 T2 — 번호 화법("창 3")은 args.num(배지 숫자 1기반 — 서버
+            // OverlayBadgeOrder 등호 스냅샷 판정 원존)으로 릴레이한다.
             tool = "focus_window";
+            if (action.winNum > 0) args = "{\"num\":" + std::to_string(action.winNum) + "}";
             break;
         case jk::ChatAction::ListWindows:
             tool = "list_windows";
+            break;
+        case jk::ChatAction::OverlayNumbers:
+            // #118 T2 (스펙 D3) — overlay_numbers 서버 도구 원존 재용 — args
+            // = 빈 객체 = on 부재 = 켬(3a-④ 원존). v1 off 어휘 생략(D3 — 10분
+            // 소멸).
+            tool = "overlay_numbers";
             break;
         case jk::ChatAction::AppTool:
             return 0;   // fix r1 — 전송 없음(공유 안내문만 인쇄 — Info 동형)

@@ -3796,6 +3796,20 @@ std::vector<uint32_t> OverlayBadgeOrder(
     return out;
 }
 
+// "창 3" 화법의 번호→창 판정 (#118 T2 — include 블록 주석이 계약 전문).
+// 순수·결정 부품 — selftest 3a-⑤가 서버 프로세스 없이 직접 단정.
+uint32_t OverlayBadgeWindowForNumber(
+    const std::vector<OverlayBadgeTarget>& targets, int num) {
+    if (num <= 0) {
+        return 0;   // 0 = 배지 부정("창 0") — 파서와 이중 가드(2y-⑲ 원존)
+    }
+    const std::vector<uint32_t> order = OverlayBadgeOrder(targets);
+    if (static_cast<size_t>(num) > order.size()) {
+        return 0;
+    }
+    return order[static_cast<size_t>(num) - 1];
+}
+
 void OverlayNumbersTurnOn(OverlayNumbersState& s, Uint32 nowMs) {
     s.on = true;
     s.startMs = nowMs;   // 이중 켬도 같은 산식 — 시작틱 교체 = 남은 시간 갱신(D5)
@@ -3850,6 +3864,28 @@ static const char* kReservedTopicPrefixes[] = {
 
 void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
                                       uint32_t queryId, const std::string& json) {
+    // 배지 스냅샷 수집기 (#118 T2): overlay_numbers(도구 reply count)와
+    // focus_window의 "num" 판정이 **같은 필터·순서**를 먹는 1본 — 입력 양식 =
+    // 순수 부품 OverlayBadgeOrder의 그것(3a 원존). 필터 = 배지 렌더 패스
+    // (DrawWindowNumberBadges)와 동기 — list_windows의 단절·control-only.
+    // shell 제외에 **캡처 오버레이 면제가 포함**된다(T1 리뷰 Minor 수형 —
+    // 도구 분기가 렌더 패스보다 넓어 순간 어긋나던 것 소각: "번호의 진실원 =
+    // 화면 배지" 계약). 락 보유 중(HandleAgentQuery 전제)이라 무락 순회 —
+    // 잠금 헬퍼 재획득 교착 원존(주석 3779행 지대) 준수는 그대로.
+    const auto badgeTargets = [this]() {
+        std::vector<jk::server::OverlayBadgeTarget> ts;
+        for (auto& c : clients_) {
+            if (!c || c->IsDisconnected() || c->IsControlOnly() ||
+                c->IsShell() || c->Title() == kCaptureOverlayTitle) {
+                continue;
+            }
+            JKCompositorLayer* lay =
+                compositor_ ? compositor_->FindLayerById(c->Id()) : nullptr;
+            ts.push_back(jk::server::OverlayBadgeTarget{
+                c->Id(), lay && lay->IsVisible()});
+        }
+        return ts;
+    };
     jk::agent::AgentJson req(json);
     std::string tool, reply;
     bool replied = true;
@@ -3898,7 +3934,33 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         std::string appArg;
         const bool hasId = req.GetObjInt("args", "id", id);
         req.GetObjStr("args", "app", appArg);
-        if (hasId || !appArg.empty() || focusedClientId_ != 0) {
+        // #118 T2 (스펙 D3) — args.num = 배지 숫자 화법("창 3"/"3번 창"의
+        // 라우터 Focus.winNum 릴레이): 화면 배지의 번호→창 판정. 진실원 =
+        // 배지 렌더 패스(DrawWindowNumberBadges)와 동일 필터+순서(배지 스냅샷
+        // 수집기 — list_windows 등호 z등호 T1 원존 —
+        // OverlayBadgeWindowForNumber가 1기반 재용·3a-⑤). id(app)·num 동시
+        // 지정은 없는 계약(라우터 어휘가
+        // 상호배타) — hasId가 앞선다(기존 계약 보존). 범위 밖 = 0 → 아래
+        // window_not_found 정직 회신(D5 — overlay_numbers no_window와 같은
+        // 계열·가짜 ok 금지).
+        int numArg = 0;
+        const bool hasNum = req.GetObjInt("args", "num", numArg);
+        if (hasNum && !hasId && appArg.empty()) {
+            const std::vector<jk::server::OverlayBadgeTarget> targets =
+                badgeTargets();
+            const uint32_t wanted =
+                jk::server::OverlayBadgeWindowForNumber(targets, numArg);
+            for (auto& c : clients_) {
+                if (wanted != 0 && c && c->Id() == wanted) {
+                    target = c.get();
+                    break;
+                }
+            }
+            // 범위 밖(wanted == 0) = target 남김 — 아래 window_not_found.
+            // **포커스 창 폴백 금지**(원존 위반 방지): argless 원존
+            // (focusedClientId_ 폴백)은 발화가 대상을 지정하지 못한 나머지
+            // 형이고, num은 "지정했는데 화면에 없다"의 정직 실패다.
+        } else if (hasId || !appArg.empty() || focusedClientId_ != 0) {
             std::vector<AgentWindowRef> wins;
             for (auto& c : clients_) {
                 if (!c || c->IsDisconnected() || c->IsControlOnly() || c->IsShell()) {
@@ -7070,20 +7132,10 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
         if (!OverlayNumbersOnArg(hasOn, onArg, wantsOn)) {
             reply = "{\"ok\":false,\"error\":\"bad_args\"}";
         } else if (wantsOn) {
-            // 대상 모집 — list_windows와 동일 필터(단절·control-only·shell
-            // 제외)+순서(clients_ 순회 — 결정론 원존), 그 위에 "보이는 창"
-            // 필터만(최소화 = 레이어 비가시 = 제목줄이 화면에 없음 — D1).
-            std::vector<OverlayBadgeTarget> targets;
-            for (auto& c : clients_) {
-                if (!c || c->IsDisconnected() || c->IsControlOnly() ||
-                    c->IsShell()) {
-                    continue;
-                }
-                JKCompositorLayer* lay =
-                    compositor_ ? compositor_->FindLayerById(c->Id()) : nullptr;
-                targets.push_back(OverlayBadgeTarget{
-                    c->Id(), lay && lay->IsVisible()});
-            }
+            // 대상 모집 = 배지 스냅샷 수집기 1본(위 HandleAgentQuery 상단 —
+            // #118 T2: list_windows 동형 필터+순서, 위에 "보이는 창" 필터,
+            // **캡처 오버레이 면제 — 렌더 패스와 동기** — T1 리뷰 Minor 수형).
+            const std::vector<OverlayBadgeTarget> targets = badgeTargets();
             const std::vector<uint32_t> order = OverlayBadgeOrder(targets);
             if (order.empty()) {
                 // D5 정직: stub 없이 window_not_found 승계 계열의 honest err —

@@ -94,6 +94,15 @@ constexpr RouteEntry kRouteTable[] = {
     // 재용·앱 키 = kAliasTable 별명 1행 "알림"→notify). notify의 읽기 도구는
     // 부재(ClientNotifyApp 등록 0 — Subscribe만; publish_event는 서버 쓰기
     // 전용)라 "알림 뭐 왔어"류 읽기 발화 = D3 배제(stub — 2y-⑮ 어설션).
+    // #118 T2 신설 어휘(스펙 2026-10-27-window-overlay-design D3) — 창 번호
+    // 배지 켬 2행(overlay_numbers 서버 도구 — T1 원존 재용 — 새 도구 0).
+    // exact 행 — "번호 보여줘" 류 접사("번호 자주 보여줘")는 Info(D1 무인자
+    // 강제 정합). **Launch "보여줘" 행보다 앞 배치** — 뒤접미 판정은 배열
+    // 순서로 갈리므로 "번호 보여줘"가 "보여줘"(Launch·비exact)에 눌려 앱어
+    // "번호"의 launch로 새는 것을 막는다("창 목록 보여줘" 방어 행 2y-⑩ 동형
+    // 순서 계약 — 2y-⑲).
+    {ChatAction::OverlayNumbers, "창 번호 보여줘", true},
+    {ChatAction::OverlayNumbers, "번호 보여줘",   true},
     {ChatAction::Launch,      "보여줘"},
     // v1.6 신설(vplayer play_stop 7종째 — #115b 원장행 승계): "완전히 정지"
     // = 방향 고정 멈춤(토글 아님). 표 **끝** 배치 — 신설 exact 행이 기존
@@ -142,6 +151,61 @@ bool EndsWith(const std::string& s, const char* suffix) {
            s.compare(s.size() - suf.size(), suf.size(), suf) == 0;
 }
 
+// ── "창 3"/"3번 창" 화법의 숫자 판정 부품 (#118 T2 — 스펙
+//    2026-10-27-window-overlay-design D3) ────────────────────────────────
+// 정확매치 어휘 표의 한계(brief 원존): 배지 숫자는 가변이라 표 행이 못 된다
+// — 숫자 포함 발화의 즉발은 정규식성. 본 부품 = **순수·결정**(selftest 2y-⑲
+// — 스폰 어셜션 0 원존): 정규화 문자열(NormalizeText 통과본 — 무손·소문화)
+// 의 숫자 접미/접두 추출만 하고, 다른 판정(사이닝·상한·stub)은 하지 않는다.
+// 성립 형 4종(접어체 무공백 붙음을 흡수하기 위한 2종 추가 — ExtractAppWord
+// 의 "접어체는 무공백으로 붙어 도는 일이 많다" 원존):
+//   "3번 창"·"3번창" (숫자 어절+「번 창」접미)  "창 3"·"창3" (「창」접두+숫자
+//   접미). 반환 0 = 화법 아님·"창 0" 포함(배지는 1..N — 0은 지시 불성립 —
+//   호출측이 Info stub로 떨어뜨린다 — D1 정합). 상한 99999 — 배지 스냅샷
+//   범위 밖 과대 수도의 int 넘침 방지(서버 num 판정이 window_not_found로
+//   정직 회신하는 축과 무관한 파서 자기 보호).
+int ParseWindowNumberSpeech(const std::string& norm) {
+    auto DigitsValue = [](const std::string& t) -> int {
+        if (t.empty()) return 0;
+        int v = 0;
+        for (char c : t) {
+            if (c < '0' || c > '9') return 0;
+            v = v * 10 + (c - '0');
+            if (v > 99999) return 0;
+        }
+        return v == 0 ? 0 : v;
+    };
+    const std::string byun_chang = "번 창";
+    const std::string byunchang = "번창";
+    // 형 A — 「번 창」접미: 접미 앞부분을 떼어 완전숫자 어절만 판정(조사·한글
+    // 수사("창 삼") 등은 v1 미구어 — 원장행: 전사 계보의 실관측 EYES 몫).
+    for (const std::string& suf : {byun_chang, byunchang}) {
+        if (norm.size() > suf.size() &&
+            norm.compare(norm.size() - suf.size(), suf.size(), suf) == 0) {
+            std::string head = norm.substr(0, norm.size() - suf.size());
+            while (!head.empty() &&
+                   std::isspace(static_cast<unsigned char>(head.back()))) {
+                head.pop_back();
+            }
+            const int v = DigitsValue(head);
+            if (v > 0) return v;
+        }
+    }
+    // 형 B — 「창」접두: 접두 뒤가 (공백 생략 가능) 전부 숫자면 성립.
+    const std::string chang = "창";
+    if (norm.compare(0, chang.size(), chang) == 0 &&
+        norm.size() > chang.size()) {
+        size_t b = chang.size();
+        while (b < norm.size() &&
+               std::isspace(static_cast<unsigned char>(norm[b]))) {
+            ++b;
+        }
+        const int v = DigitsValue(norm.substr(b));
+        if (v > 0) return v;
+    }
+    return 0;
+}
+
 // Info 안내문용 트리거 라벨 — 표와 같은 진실원에서 뽑아 인쇄한다.
 const char* KindLabel(ChatAction::Kind kind) {
     switch (kind) {
@@ -150,6 +214,7 @@ const char* KindLabel(ChatAction::Kind kind) {
         case ChatAction::Focus:       return "창 앞으로";
         case ChatAction::ListWindows: return "창 목록";
         case ChatAction::AppTool:     return "재생 조작";
+        case ChatAction::OverlayNumbers: return "창 번호 표지";
         case ChatAction::Info:        break;
     }
     return "안내";
@@ -217,7 +282,8 @@ std::string InfoGuide() {
         if (s.find(line) != std::string::npos) continue;
         s += line;
     }
-    s += "예: '지뢰찾기 켜줘', '멈춰줘', '알림 보여줘', '창 목록'";
+    s += "예: '지뢰찾기 켜줘', '멈춰줘', '알림 보여줘', '창 목록', "
+         "'창 번호 보여줘', '창 3'";
     return s;
 }
 
@@ -226,6 +292,7 @@ std::string InfoGuide() {
 std::string ChatRouterRoute(const std::string& text, ChatAction& out) {
     out.kind = ChatAction::Info;  // fail-closed — 지시는 명중 시에만 채운다
     out.app.clear();
+    out.winNum = 0;   // #118 T2 — 번호 화법도 명중 시에만(fail-closed 동형)
 
     const std::string norm = NormalizeText(text);
 
@@ -240,6 +307,16 @@ std::string ChatRouterRoute(const std::string& text, ChatAction& out) {
         break;  // 배열 순서 = 판정 순서(긴 트리거 우선 — 표 주석)
     }
     if (!hit) {
+        // #118 T2 (스펙 D3) — 숫자 화법("창 3"·"3번 창")의 즉발: 표 행이
+        // 될 수 없는 가변 숫자 발화의 결정 부품(위 ParseWindowNumberSpeech
+        // — 순수). 0 = 화법 아님·"창 0" — Info stub 정직 유지(D1 정합).
+        const int num = ParseWindowNumberSpeech(norm);
+        if (num > 0) {
+            out.kind = ChatAction::Focus;
+            out.winNum = num;
+            return std::to_string(num) + "번 창을 앞으로 가져옵니다." +
+                   " (배지 숫자 — '창 번호 보여줘'로 번호를 확인할 수 있습니다)";
+        }
         return InfoGuide();
     }
 
@@ -271,6 +348,13 @@ std::string ChatRouterRoute(const std::string& text, ChatAction& out) {
             out.app = hit->toolApp;
             out.tool = hit->toolName;
             return AppToolGuide(hit->toolApp, hit->toolName);
+        case ChatAction::OverlayNumbers:
+            // #118 T2 (스펙 D3) — 창 번호 배지 켬. off 어휘는 v1 생략(D3
+            // 원존 — 10분 자동 소멸이 끔을 대신한다) — 문어에 그 사실을
+            // 정직 표기(가짜 확인문·소멸 시점 미표기 방지).
+            out.kind = ChatAction::OverlayNumbers;
+            return "떠 있는 창의 제목줄에 번호를 표시합니다(10분 뒤 자동으로 "
+                   "사라집니다 — '창 3'처럼 번호로 창을 부를 수 있습니다).";
         case ChatAction::Info:
             break;
     }
@@ -369,9 +453,16 @@ std::string DefaultActionGuide(const ChatAction& a) {
             return a.app.empty() ? std::string("포커스 창을 닫습니다.")
                                  : "'" + a.app + "' 창을 닫습니다.";
         case ChatAction::Focus:
-            return "포커스 창을 앞으로 가져옵니다.";
+            // #118 T2 — 번호 화법의 LLM 판 폴백 문어(파서 성공+빈 text의
+            // 방어 사례 — winNum은 즉발 경로만 채운다 — 스키마 4종+talk 원존).
+            return a.winNum > 0
+                       ? std::to_string(a.winNum) +
+                             "번 창을 앞으로 가져옵니다."
+                       : std::string("포커스 창을 앞으로 가져옵니다.");
         case ChatAction::ListWindows:
             return "떠 있는 창 목록을 불러옵니다.";
+        case ChatAction::OverlayNumbers:
+            return "떠 있는 창에 번호를 표시합니다.";
         case ChatAction::AppTool:
             return AppToolGuide(a.app, a.tool);  // LLM은 app_tool을 못 낸다(스키마
                                                  // 4종+talk) — 방어 사례만
@@ -403,6 +494,8 @@ bool ChatLlmActionParse(const std::string& llmText, ChatAction& out,
                         std::string& note) {
     out.kind = ChatAction::Info;  // fail-closed — 성공 시에만 지시를 채운다
     out.app.clear();
+    out.winNum = 0;   // #118 T2 — LLM 스키마는 4종+talk(번호 발화 = 즉발 몫
+                      // — 스키마 불변 — 스펙 D4) — fail-closed 동형
     note.clear();
 
     // (a) 펜스 제거 — 마크다운 코드펜스 감쌈(T1 R4 3회 실측 재현): ```(json류

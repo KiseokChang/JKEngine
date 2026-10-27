@@ -341,7 +341,14 @@ void ClientChatApp::Submit(const std::string& raw) {
             break;
         case ChatAction::Focus:
             // 동형 해소(JKWindowServer.cpp focus_window): app 지명 폴백 +
-            // argless = 포커스 창 — close와 같은 계약.
+            // argless = 포커스 창 — close와 같은 계약. #118 T2 — 번호 화법
+            // ("창 3"/"3번 창")은 winNum을 args.num(배지 숫자 1기반 — 서버
+            // OverlayBadgeOrder 등호 스냅샷 판정 원존)로 릴레이한다.
+            if (action.winNum > 0) {
+                SendQuery("focus_window",
+                          "{\"num\":" + std::to_string(action.winNum) + "}");
+                break;
+            }
             SendQuery("focus_window", action.app.empty()
                 ? "{}"
                 : "{\"app\":\"" + EscapeJson(action.app) + "\"}");
@@ -352,6 +359,12 @@ void ClientChatApp::Submit(const std::string& raw) {
             break;
         case ChatAction::AppTool:
             break;   // fix r1 — 전송 없음(타이핑 표면 안내만 — 위 resp 교체 소관)
+        case ChatAction::OverlayNumbers:
+            // #118 T2 (스펙 D3) — 타이핑 표면도 보낸다(ListWindows 동형 —
+            // overlay_numbers = 서버 도구 원존 — T1 · app_tool 릴레이와 다르다:
+            // 승인 사건 없는 표지 토글). args = 빈 객체 = on 부재 = 켬(3a-④).
+            SendQuery("overlay_numbers", "{}");
+            break;
         case ChatAction::Info:
             break;   // 도구 지시 없음 — 안내문만 이미 기록에 들어갔다
     }

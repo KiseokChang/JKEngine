@@ -48,6 +48,11 @@ constexpr char kVoiceLanguage[] = "ko";
 // (AppTool 행 — 멈춰줘/정지/일시정지/재생)·알림 별명+보여줘 트리거.
 // v1.6 갱신 = "완전히 정지해줘"(play_stop — 토글과 구별되는 방향 고정
 // 멈춤 — 도구 7종째).
+// #118 T2 갱신(스펙 2026-10-27-window-overlay-design D3) = 창 번호 배지
+// 어휘("창 번호 보여줘"·"번호 보여줘")+"번 창"(번호 발화 "3번 창"의
+// 접미 어절 — 숫자 자체는 가변이라 prompt에 넣을 수 없고 어휘 뼈대만
+// 부여 — 부품 ChatRouter ParseWindowNumberSpeech가 ASCII 숫자만 판정,
+// 한글 수사("창 삼")는 v1 미구어 — 원장행: 전사 계보 실관측 EYES 몫).
 // **배제 어휘(D3 — 도구 접점 부재)는 여기에도 넣지 않는다** — prompt는 표가
 // 성립시키는 어휘만 전사 돕는다(표=진실원 동기 계약).
 // **risk 원장행(원존 승계)**: prompt는 디코딩 편향이므로 무발화/환각("click"
@@ -61,7 +66,7 @@ constexpr char kVoiceLanguage[] = "ko";
 constexpr char kVoicePrompt[] =
     "지뢰찾기 테트리스 알림 실행해줘 실행 열어줘 켜줘 닫아줘 꺼줘 앞으로 가져와 "
     "포커스 창 목록 창목록 뭐 떠 있어 멈춰줘 멈춰 정지해줘 정지 일시정지 "
-    "재생해줘 재생 완전히 정지해줘 보여줘";
+    "재생해줘 재생 완전히 정지해줘 보여줘 창 번호 보여줘 번호 보여줘 번 창";
 
 // 전체 마감 — JKLmEngine kTurnIdleKillMs(10분) 선형. transcribe는 모든
 // 진행 로그가 stderr라 관측 유무로 목을 줄 수 없어 **전체 마감** 1종만
@@ -344,6 +349,17 @@ bool ChatActionQuery(const ChatAction& a, std::string& tool,
                              "\"}";
             return true;
         case ChatAction::Focus:
+            // #118 T2 (스펙 D3) — 번호 화법("창 3"·"3번 창"): 배지 숫자를 그대
+            // 로 서버 판정으로 넘긴다(args.num — 1기반 — OverlayBadgeOrder
+            // 등호 스냅샷 판정 = list_windows z등호 T1 원존; 서버가 범위 밖은
+            // window_not_found로 정직 회신). 기존 원존(app 지명·argless) 무접촉
+            // — 라우터가 winNum·app을 동시에 채우는 길은 없다(표 행 vs 수 부품
+            // — 상호배타).
+            if (a.winNum > 0) {
+                tool = "focus_window";
+                args = "{\"num\":" + std::to_string(a.winNum) + "}";
+                return true;
+            }
             tool = "focus_window";
             args = a.app.empty()
                        ? "{}"
@@ -353,6 +369,13 @@ bool ChatActionQuery(const ChatAction& a, std::string& tool,
             return true;
         case ChatAction::ListWindows:
             tool = "list_windows";
+            args = "{}";
+            return true;
+        case ChatAction::OverlayNumbers:
+            // #118 T2 (스펙 D3) — overlay_numbers 서버 도구(원존 재용 — 새
+            // 도구 0): args = 빈 객체 = on 부재 = 켬(3a-④ 원존 — "창 번호
+            // 보여줘" 원형). off 어휘는 v1 생략(D3 — 10분 소멸 원존).
+            tool = "overlay_numbers";
             args = "{}";
             return true;
         case ChatAction::AppTool: {

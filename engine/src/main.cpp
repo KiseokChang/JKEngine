@@ -8474,6 +8474,85 @@ static int RunAppSelfTest() {
                   s7.app == "vplayer" && s7.tool == "play_pause",
               "2y-⑱(d) 기존 회귀 — \"정지해줘\"는 토글 행 원존(신설 행 표 "
               "끝 배치 — 접두 판정 무접촉)");
+
+        // #118 T2 — 창 번호 오버레이 어휘+숫자 화법 (스펙
+        //   2026-10-27-window-overlay-design D3·D4). ①overlay on exact 2행
+        //   (표 — "보여줘" Launch 행 앞 배치 — 접두 판정 순서 계약) ②질의
+        //   조립(overlay_numbers — 서버 도구 원존 재용) ③회귀(기존
+        //   "보여줘" 판정 무접촉) ④숫자 화법 부품(ParseWindowNumberSpeech —
+        //   순수 — 배지 숫자 1기반) ⑤focus_window num 질의 조립 ⑥미매치
+        //   stub. **스폰 어셜션 금지** — 스폰 계통(부트·전사)은 WSL/폰 E2E
+        //   probe 몫(같은 2v 원존).
+        {
+            jk::ChatAction ov;
+            bool usedOv = true;
+            const std::string gov =
+                jk::ChatRouteTurn("창 번호 보여줘", ov, vc, &usedOv);
+            check(!usedOv && ov.kind == jk::ChatAction::OverlayNumbers,
+                  "2y-⑲ \"창 번호 보여줘\" = OverlayNumbers 즉발(usedLlm 0 — "
+                  "오버레이 켬 — overlay_numbers 서버 도구 원존 재용)");
+            jk::ChatAction ov2;
+            bool usedOv2 = true;
+            const std::string gov2 =
+                jk::ChatRouteTurn("번호 보여줘", ov2, vc, &usedOv2);
+            check(!usedOv2 && ov2.kind == jk::ChatAction::OverlayNumbers,
+                  "2y-⑲(b) \"번호 보여줘\" = OverlayNumbers 등호(exact 2행 — "
+                  "표 Launch \"보여줘\" 행 앞 배치 — 2y-⑩ 동형 순서 계약)");
+            std::string toolOv, argsOv;
+            check(jk::voice::turn::ChatActionQuery(ov, toolOv, argsOv) &&
+                      toolOv == "overlay_numbers" && argsOv == "{}",
+                  "2y-⑲(c) overlay_numbers 질의 조립 등호(args 빈 객체 = on "
+                  "부재 = 켬 — 3a-④ 원존)");
+            check(gov.find("10분") != std::string::npos &&
+                      gov2.find("10분") != std::string::npos,
+                  "2y-⑲(d) 안내문 = 10분 자동 소멸 문어 정직 표기(v1 off 어휘 "
+                  "생략 — D3 — 가짜 확인문·소멸 시점 미표기 금지)");
+            jk::ChatAction b1, b2;
+            (void)jk::ChatRouterRoute("알림 보여줘", b1);
+            (void)jk::ChatRouterRoute("창 목록 보여줘", b2);
+            check(b1.kind == jk::ChatAction::Launch &&
+                      b1.app == "notify" &&
+                      b2.kind == jk::ChatAction::ListWindows,
+                  "2y-⑲(e) 기존 회귀 — \"알림 보여줘\" Launch·\"창 목록 보여"
+                  "줘\" ListWindows(신설 행의 \"보여줘\" 접두 판정 무접촉)");
+            jk::ChatAction f1;
+            (void)jk::ChatRouterRoute("창 3", f1);
+            jk::ChatAction f2;
+            (void)jk::ChatRouterRoute("3번 창", f2);
+            check(f1.kind == jk::ChatAction::Focus && f1.winNum == 3 &&
+                      f2.kind == jk::ChatAction::Focus && f2.winNum == 3,
+                  "2y-⑲(f) \"창 3\"·\"3번 창\" = Focus winNum=3(배지 숫자 화법 "
+                  "— 접미수 판정 부품 — 스펙 D3·표 행이 못 되는 가변 숫자)");
+            jk::ChatAction f3;
+            (void)jk::ChatRouterRoute("창3", f3);
+            jk::ChatAction f4;
+            (void)jk::ChatRouterRoute("3번창", f4);
+            check(f3.winNum == 3 && f4.winNum == 3 &&
+                      f3.kind == jk::ChatAction::Focus &&
+                      f4.kind == jk::ChatAction::Focus,
+                  "2y-⑲(f-2) 접어체(\"창3\"·\"3번창\") = 동 부품 관용(무공백 "
+                  "붙음 — ExtractAppWord 접어체 원존 계승)");
+            std::string toolF, argsF;
+            check(jk::voice::turn::ChatActionQuery(f1, toolF, argsF) &&
+                      toolF == "focus_window" && argsF == "{\"num\":3}",
+                  "2y-⑲(g) focus_window num 질의 조립 등호(1기반 — 서버 "
+                  "OverlayBadgeOrder 등호 스냅샷 판정 — z등호 T1 원존)");
+            jk::ChatAction z1, z2, z3;
+            (void)jk::ChatRouterRoute("창 0", z1);
+            (void)jk::ChatRouterRoute("창 삼", z2);
+            (void)jk::ChatRouterRoute("창 3 다른 말", z3);
+            check(z1.kind == jk::ChatAction::Info && z2.kind ==
+                      jk::ChatAction::Info && z3.kind == jk::ChatAction::Info &&
+                      z1.winNum == 0 && z2.winNum == 0 && z3.winNum == 0,
+                  "2y-⑲(h) 미매치 stub — \"창 0\"(배지 부정·1..N 이탈)·\"창 "
+                  "삼\"(한글 수사 = v1 미구어 — 원장행: 전사 계보 EYES 몫)·"
+                  "접사(\"창 3 다른 말\")");
+            jk::ChatAction f5;
+            (void)jk::ChatRouterRoute("앞으로", f5);
+            check(f5.kind == jk::ChatAction::Focus && f5.winNum == 0,
+                  "2y-⑲(i) 기존 Focus 원존 회귀 — \"앞으로\" = winNum=0(미지"
+                  "정 — argless/app 지명 형 무접촉)");
+        }
     }
 
     // 2z) 구두 응답 TTS leg — 결정 부품 (#117 T1 — 스펙
@@ -10041,6 +10120,22 @@ static int RunAppSelfTest() {
                   !OverlayNumbersOnArg(true, -1, w) && !w,
               "3a-④d on=2·-1 = bad_args(0/1만 유효 — window_fullscreen 가드 "
               "분류·wantsOn 무상각)");
+
+        // ⑤ #118 T2 — 번호→창 판정 부품(스펙 D3·D4 — focus_window args.num).
+        //    배지 숫자 → OverlayBadgeOrder 등호 스냅샷의 창 id. ①의 mixed
+        //    스냅샷 재용(비가시 소모 0 — 배지 숫자 = 화면에 보이는 숫자의
+        //    배-답 등호 원존).
+        using jk::server::OverlayBadgeWindowForNumber;
+        check(OverlayBadgeWindowForNumber(mixed, 1) == 101 &&
+                  OverlayBadgeWindowForNumber(mixed, 2) == 103 &&
+                  OverlayBadgeWindowForNumber(mixed, 3) == 104,
+              "3a-⑤ 배지 숫자→창 = OverlayBadgeOrder 등호(1→101·2→103·3→104 "
+              "— 비가시 102 소모 0 — \"창 3\" 화법의 배-답 등호)");
+        check(OverlayBadgeWindowForNumber(mixed, 4) == 0 &&
+                  OverlayBadgeWindowForNumber(mixed, 0) == 0 &&
+                  OverlayBadgeWindowForNumber({}, 1) == 0,
+              "3a-⑤(b) 범위 밖·num=0·빈 스냅샷 = 0(focus_window window_not_"
+              "found 정직 근거 — 포커스 창 폴백 금지 — 2y-⑲ 파서 이중 가드)");
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);
