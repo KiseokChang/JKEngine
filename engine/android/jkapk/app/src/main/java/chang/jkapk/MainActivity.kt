@@ -28,7 +28,9 @@
 // **표면 소유 진실원**(데스크톱 T3 "캡처 leg는 경로를 강요하지 않는다" —
 // cacheDir+pid+발화 순서 접미 원존 수형)·캐넌 44바이트 RIFF 헤더(BuildWavBlob
 // 수형). 마이크 권한 = 런타임 fail-closed(거부 = 정직 거부 표기 — 조용한
-// 마이크 개방 금지). R5 전사 대기 UX = "녹음 중…/전사 중…" 구두 상태행+
+// 마이크 개방 금지). R5 전사 대기 UX = "녹음 중…" 구두상태행+"전사 중…" 구두
+// 상태행(**경과 초 표기 1초 간격 갱신 — UX 수형(2026-10-28 사용자 체감):
+// 30-47초 무변화가 "멈춤" 오판을 낳음 — "(Ns)"로 대기의 정직화)**+
 // placeholder [나] 행 도착 후 **전사 도착 시 치환**(데스크톱 turns_[slot]
 // 치환 수형 — 기록 append-only 유지). 전사 = voiceExec 별도 단일 스레드
 // (전사 수십 초(tiny-ko 폰 실측 35-47s — T1 원장)가 조작 사슬을 막지 않음).
@@ -46,7 +48,10 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.Process
+import android.os.SystemClock
 import android.text.InputType
 import android.view.Gravity
 import android.view.KeyEvent
@@ -110,6 +115,22 @@ class MainActivity : Activity() {
     // 직 append에서 행열+render로 확장한 이유: 데스크톱 turns_[slot] 치환 수형
     // 이 전사 도착 시 필요(placeholder 슬롯 안정성 — append-only 계약 유지).
     private val logLines = ArrayList<Pair<String, Boolean>>()
+
+    // 전사 경과 표기(UX 수형 — 2026-10-28 사용자 체감): 상태행 "전사 중…"
+    // 뒤 경과 초 갱신(1초 간격 — 핸들러 재량 선택: 코루틴 의존 0 원존(v1
+    // 얇은판) 유지·틱/중지 전부 메인 스레드 접근(개시=터치 사슬·중지=
+    // runOnUiThread 사슬 — UI 접근 원존 준수). 상한 표기 없음(30-47s 밴드 —
+    // 대기의 정직 표기가 목적 — 원장행). 중지 소관 = 전사 수렴 1종
+    // (transcribe runOnUiThread — 성공/실패 공통)+onDestroy.
+    private val voiceUiHandler = Handler(Looper.getMainLooper())
+    private var transcribeStartMs = 0L
+    private val transcribeTickRun = object : Runnable {
+        override fun run() {
+            val sec = (SystemClock.elapsedRealtime() - transcribeStartMs) / 1000
+            setVoiceStatus("전사 중… (${sec}s)")
+            voiceUiHandler.postDelayed(this, 1000)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -340,6 +361,24 @@ class MainActivity : Activity() {
         voiceStatusView.text = s
     }
 
+    // 전사 경과 갱신 개시 — "전사 중…" 즉시 표기 후 1초 간격 틱(UX 수형).
+    // 호출지 = finishVoice(터치 사슬 — 전부 메인 스레드). 이중 개시 봉쇄:
+    // removeCallbacks 선행(voiceExec 단일 실행기로 중복 전사 자체가 없지만
+    // 방어 1행 — 틱 이중 가동 시 소리 없는 초 가속).
+    private fun transcribeProgressStart() {
+        transcribeStartMs = SystemClock.elapsedRealtime()
+        voiceUiHandler.removeCallbacks(transcribeTickRun)
+        transcribeTickRun.run()
+    }
+
+    // 전사 경과 갱신 중지 1종 — 전사 수렴(transcribe runOnUiThread — 성공/
+    // 실패 공통)과 onDestroy 공용. 상태 소각("전사 중…" 소거)은 기존 소관
+    // 행(setVoiceStatus(""))에 그대로 두고 본 종은 틱 소거만 담당한다
+    // (R5 치환 경로 무변조 — 기존 행열/치환 계약 접촉 0).
+    private fun transcribeProgressStop() {
+        voiceUiHandler.removeCallbacks(transcribeTickRun)
+    }
+
     // 정직 거부 1종 — 데스크톱 status_="[!] "+reason 얼굴+[시스템] 기록 수형
     // (기록을 부풀리지 않는다 — ClientNotifyApp 토스트의 APK 대응은 기록).
     private fun failVoice(msg: String) {
@@ -516,7 +555,7 @@ class MainActivity : Activity() {
         // FinishVoice 수형 — record 반영치환 도착 시 슬롯 치환 계약).
         val slot = logLines.size
         appendChat("나", "(전사 중…)", false)
-        setVoiceStatus("전사 중…")
+        transcribeProgressStart()  // "전사 중…"+경과 초 틱 개시(UX 수형)
         voiceButton.isEnabled = false
         voiceExec.execute { transcribe(wav, slot) }
     }
@@ -544,6 +583,7 @@ class MainActivity : Activity() {
             wav.delete()  // 캡처 임시 잔산 소각("부분 산물 잔산 금지" 원존 계열)
         }
         runOnUiThread {
+            transcribeProgressStop()  // 경과 갱신 중지(UX 수형 — 성공/실패 공통)
             voiceButton.isEnabled = true
             if (failText != null) {
                 replaceLine(slot, "[!] 전사 실패: $failText", true)
@@ -633,6 +673,7 @@ class MainActivity : Activity() {
         releaseCaptureState(audioRecord)  // fix r2 — 해제 단일 소관 1행
         audioRecord = null
         pcmBuf = null
+        transcribeProgressStop()  // 경과 갱신 중지(onDestroy 소관 — UX 수형)
         voiceExec.shutdown()
         httpExec.shutdown()
         super.onDestroy()
