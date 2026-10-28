@@ -9,8 +9,11 @@
 // 켜줘"의 앱어는 "다시"(launch_app unknown_app로 서버판정 이탈 — 스펙 밖
 // 확장은 룰링 몫).
 //
-// 정규화는 무손·순수 std: 앞뒤 ASCII 공백 제거 + ASCII 소문화만. UTF-8
-// 판정은 byte 접미 비교로 안전(UTF-8은 접두·접미가 byte 정렬을 보존한다).
+// 정규화는 순수 std: 앞뒤 ASCII 공백 제거 + ASCII 소문화 + **접미 문장부호
+// 절단**(소형 배치 4 원장행 — STT가 접미 마침표를 붙인 발화 "지뢰찾기 켜줘."
+// 가 뒤접미·exact 등호 전부 파산 → Info — 절단 뒤 무부호 원문과 같은 판정).
+// 접미만 절단 — 앞·중간 무접촉(정확 매치 어휘 파손 금지 계약). UTF-8 판정은
+// byte 접미 비교로 안전(UTF-8은 접두·접미가 byte 정렬을 보존한다).
 // ec-safe — 실패 경로가 없는 룩업이므로 error_code 대상도 없다.
 
 #include <apps/ChatRouter.h>
@@ -132,7 +135,11 @@ constexpr AliasEntry kAliasTable[] = {
     {"알림",        "notify"},
 };
 
-// 앞뒤 공백(공백·탭·개행) 제거 + ASCII 소문화. 한국어는 소문화 무영향.
+// 앞뒤 공백(공백·탭·개행) 제거 + ASCII 소문화 + **접미 문장부호 절단**(소형
+// 배치 4 원장행 — STT 접미 부호: 마침표·느낌표·물음표·쉼표 + 한국어 부호
+// 。！？，·). 접미만 — 앞·중간 부호는 무접촉(절단 규약: "정확 매치 어휘의
+// 앞부분 절단 금지 — 접미만"). 부호 사이 공백("켜줘. !")도 같은 순환에서
+// 흡수한다. 한국어는 소문화 무영향.
 std::string NormalizeText(const std::string& raw) {
     std::string s = raw;
     for (char& c : s) {
@@ -142,7 +149,38 @@ std::string NormalizeText(const std::string& raw) {
     size_t e = s.size();
     while (b < e && std::isspace(static_cast<unsigned char>(s[b]))) ++b;
     while (e > b && std::isspace(static_cast<unsigned char>(s[e - 1]))) --e;
-    return s.substr(b, e - b);
+    s = s.substr(b, e - b);
+    auto StripSuffix = [&s](const char* suf) {
+        const std::string p(suf);
+        if (s.size() >= p.size() &&
+            s.compare(s.size() - p.size(), p.size(), p) == 0) {
+            s.resize(s.size() - p.size());
+            return true;
+        }
+        return false;
+    };
+    bool stripped = true;
+    while (stripped && !s.empty()) {
+        stripped = false;
+        if (std::isspace(static_cast<unsigned char>(s.back()))) {
+            s.pop_back();
+            stripped = true;
+            continue;
+        }
+        if (s.back() == '.' || s.back() == '!' || s.back() == '?' ||
+            s.back() == ',') {
+            s.pop_back();
+            stripped = true;
+            continue;
+        }
+        for (const char* p : {"。", "！", "？", "，", "·"}) {
+            if (StripSuffix(p)) {
+                stripped = true;
+                break;
+            }
+        }
+    }
+    return s;
 }
 
 bool EndsWith(const std::string& s, const char* suffix) {

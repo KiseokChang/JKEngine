@@ -444,6 +444,9 @@ class MainActivity : Activity() {
             null
         }
         if (rec == null || rec.state != AudioRecord.STATE_INITIALIZED) {
+            // 개방 실패 = 등록 전 자기해제 예외 — 해제 단일 소관(
+            // releaseCaptureState)은 등록(audioRecord = rec) 이후 소관이라
+            // 여기선 인라인 release — 소관 별도(batch4 원장행 보강).
             rec?.release()
             failVoice("구두 캡처 개방 실패 (AudioRecord 초기화 불성립)")
             return
@@ -451,6 +454,8 @@ class MainActivity : Activity() {
         pcmBuf = ByteArrayOutputStream()
         audioRecord = rec
         try { rec.startRecording() } catch (e: Exception) {
+            // 개방 실패 = 등록 전 자기해제 예외 — 소관 별도(위 초기화 불성립
+            // 분기와 같은 계보).
             rec.release(); audioRecord = null; pcmBuf = null
             failVoice("구두 캡처 개방 실패 (startRecording): ${e.message}")
             return
@@ -491,9 +496,12 @@ class MainActivity : Activity() {
                 releaseCaptureState(recO)  // finishVoice와 동일 해제 구조
                 // 부품 단정(+1건 — 2zb 계열 확장): overflow → mic 해제·상태
                 // 소각 불변식(fail-loud — 정직 거부 문화 수형; 위배 시 조용한
-                // 마이크 개방 잔존 없이 즉사).
-                check(audioRecord == null) {
-                    "jkapk overflow 해제 원존 위배 (mic 미해제)"
+                // 마이크 개방 잔존 없이 즉사). 동어반복 단정(audioRecord는
+                // 바로 위 소각) → release 후 재대입 검사 형태로 정정(batch4
+                // 원장행 — fail-loud 의미 살리기: recO 부재 = 해제 미실시·
+                // 재대입 잔존 = release 뒤 유실 재등록).
+                check(recO != null && audioRecord == null) {
+                    "jkapk overflow 해제 원존 위배 (mic 미해제·release 후 재대입)"
                 }
                 runOnUiThread {
                     failVoice("녹음 상한 도달 (${kMaxPcmBytes / 1024 / 1024}MB) — 조기 절단, 다시 발화해 주세요")

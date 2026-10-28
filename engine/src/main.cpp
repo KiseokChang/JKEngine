@@ -8553,6 +8553,30 @@ static int RunAppSelfTest() {
                   "2y-⑲(i) 기존 Focus 원존 회귀 — \"앞으로\" = winNum=0(미지"
                   "정 — argless/app 지명 형 무접촉)");
         }
+
+        // 소형 배치 4 (2026-10-28 원장행 승계) — 접미 문장부호 절단. 진원
+        //   추정 원장행: 사용자가 "지뢰찾기 켜줘" 2회 발화 — 1회 성공·1회
+        //   "인식하지 못했습니다" — 의심 = STT 접미 부호("...켜줘."·
+        //   "...켜줘!")의 exact·뒤접미 등호 파산. NormalizeText 원문 실측 =
+        //   접미 절단 부재 원존 → 수형 = 말미 절단 1검(접미만 — 앞·중간
+        //   무접촉·매치 어휘 앞부분 절단 금지 계약). ①②매치 성립 등호 2건
+        //   — 접미를 떼면 무부호 원문(2y-⑧·2y-⑥)과 같은 판정.
+        {
+            jk::ChatAction pj;
+            bool usedPj = true;
+            (void)jk::ChatRouteTurn("지뢰찾기 켜줘.", pj, vc, &usedPj);
+            check(!usedPj && pj.kind == jk::ChatAction::Launch &&
+                      pj.app == "minesweeper",
+                  "2y-⑳ \"지뢰찾기 켜줘.\" = Launch(minesweeper)(접미 마침표 "
+                  "절단 — STT 부호 접미 원장행 — 무부호 2y-⑧ 등판정)");
+            jk::ChatAction pb;
+            bool usedPb = true;
+            (void)jk::ChatRouteTurn("알림 보여줘!", pb, vc, &usedPb);
+            check(!usedPb && pb.kind == jk::ChatAction::Launch &&
+                      pb.app == "notify",
+                  "2y-⑳(b) \"알림 보여줘!\" = Launch(notify) 등호(접미 느낌표 "
+                  "— 무부호 2y-⑥ 등판정)");
+        }
     }
 
     // 2z) 구두 응답 TTS leg — 결정 부품 (#117 T1 — 스펙
