@@ -8782,9 +8782,13 @@ void JKWindowServer::DrawWindowNumberBadges(float outputScale) {
         std::string cacheKey;
         BannerCacheKey(num, cacheKey);   // 키 형식 동일 — 별개 맵(색이 다르다)
         int tw = 0, th = 0;
-        // 폰트 실패(텍스처 null) = 배지 없이 다음 번호로 — 매 프레임 재시도를
-        // 막는 null 캐시 엔트리 규약(승인 배너의 "실패는 null 엔트리로 기록")
-        // 유지, 로그 반복 없음. 링(승인 배너의 번호 미표기 경로)은 없는다:
+        // 텍스처 null = 배지 없이 다음 번호로. 정정 원장(#118 T1 리뷰 Minor ③ —
+        // 원문 "매 프레임 재시도를 막는 null 캐시 엔트리 규약 … 유지, 로그 반복
+        // 없음"은 부정확): 배너의 used는 소비 전 등록이라 null 엔트리가 생존하지만
+        // 배지는 그리기 성공 뒤 등록이라 실패(null) 키는 같은 호출의 수거 스윕에서
+        // 폐기 — 폰트 실패 포함 재합성은 매 프레임 재시도된다. 로그 반복 방지는
+        // 별도 규약(EnsureBannerFont 지연 초기화 — 경고 1회)이 담당한다.
+        // 링(승인 배너의 번호 미표기 경로)은 없는다:
         // 배지는 숫자 자체가 목적 — 텍스처 못 만들면 표지를 잠시 못 보여주는
         // 쪽이 정직하다(가짜 바탕만 그려 두는 것 금지).
         SDL_Texture* tex = BadgeNumberTexture(num, tw, th);
