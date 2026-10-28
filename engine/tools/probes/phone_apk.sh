@@ -249,14 +249,16 @@ RES=$(SWEEP_NEW) || FAIL "잔상 재스윕 list_windows 실패"
 [ -z "$RES" ] || FAIL "probe 스폰 창 잔존(id=$RES) — 잔상 0 계약 위배"
 echo "RESIDUAL-0-OK: probe 스폰 $CLOSED 창 소거·기존 창 무접촉(existing_ids=${BEFORE_IDS:-none})"
 
-# ── 8. v2(#121 T3) — 설치 md5 원문+fail-closed 3판 rc 원문+정리부 등호 ─────
+# ── 7. v2(#121 T3) — 설치 md5 원문+fail-closed 3판 rc 원문+정리부 등호 ─────
 # 승계 원존(#121 T2 리포트 §4-§5·fix r1/r2 원장): ①폰 Download = 최종 빌드
 #   등호 봉인 런 계약(설치는 D5 사용자 속 1회 — 절사 금지·이 probe는 반입
 #   재판만) ②fail-closed 3판 = jk_selftest aarch64(CANON 밖 자기검증 이진)의
 #   A rc=0(전사 결실 원문 수취 — whisper 비결정이라 어셜션 금지 — stdout 수취만)
 #   ·B rc=1(존재 아님 wav)·C rc=1(junk 부적합) — stderr는 파일로 분리 수취
 #   (stdout 버퍼 후행 순서 함정 원장 — fix r1 확정판 수형) ③2zb 정리부 8/8
-#   (Win/WSL/폰 aarch64 결정 부품 등호). 이진 부재 = 정직 FAIL(CANON 밖 빌드
+#   (Win/WSL/폰 aarch64 결정 부품 등호) — V2-SANITIZE는 계량값(2zb-OK 행
+#   실측 카운트+JKSANITIZE-PASS grep gate — #121 T3 리뷰 Minor ① 수형 —
+#   고정 리터럴 소각). 이진 부재 = 정직 FAIL(CANON 밖 빌드
 #   산출 — 조용한 스킵 금지).
 JK_SELFTEST_LOCAL="$ROOT/engine/tmp/jkapk_selftest/jk_selftest"
 [ -f "$JK_SELFTEST_LOCAL" ] || FAIL "jk_selftest aarch64 부재 (engine/tmp/jkapk_selftest) — NDK 자기검증 빌드 먼저(T2 리포트 §5 방식) — 조용한 스킵 금지"
@@ -291,11 +293,20 @@ RF=$($SSH 'md5sum ~/tmp/jk_t3_fixture.wav | cut -d" " -f1') || FAIL "fixture md5
 [ "$LF" = "$RF" ] || FAIL "fixture md5 불등호 — local=$LF remote=$RF"
 echo "V2-FIXTURE-MD5-EQ-OK: $LF (t5 계보)"
 # 3판 — A rc=0(결실 원문 수취만 — 비결정 어셜션 금지)·B rc=1·C rc=1(stderr 분리)
-AR=$($SSH './tmp/jk_t3_selftest ~/tmp/jk_t3_fixture.wav '"$MODEL_A"' 2>/dev/null; echo RC=$?' | tail -1)
-echo "V2-FAULT-CLOSED-A: $AR (rc=0 기대 — 결실 원문은 상단 stdout 수취)"
-AOUT=$($SSH './tmp/jk_t3_selftest ~/tmp/jk_t3_fixture.wav '"$MODEL_A"' 2>/dev/null' | tail -1)
+# A판은 1회 실행 — stdout 전체 수취 후 분해(RC=말미 행·전사=직전 행 — jk_selftest
+# main이 정리부 2zb-5a..h + JKSANITIZE-PASS 행을 전사 결실 앞에 선행 인쇄한다).
+# 정리부 판정 = 계량값(#121 T3 리뷰 Minor ① — V2-SANITIZE 고정 리터럴 소각):
+# JKSANITIZE-PASS grep gate + 2zb-OK 행 실측 카운트.
+A_ALL=$($SSH './tmp/jk_t3_selftest ~/tmp/jk_t3_fixture.wav '"$MODEL_A"' 2>/dev/null; echo RC=$?')
+AR=$(printf '%s' "$A_ALL" | tail -1)
+AOUT=$(printf '%s' "$A_ALL" | tail -2 | head -1)
+printf '%s' "$A_ALL" | grep -aq "JKSANITIZE-PASS" \
+  || FAIL "2zb 정리부 FAIL — JKSANITIZE-PASS 미매치(2zb-5a..h 회귀 의심) — $(printf '%s' "$A_ALL" | grep -a JKSANITIZE | head -1)"
+SANZ_OKS=$(printf '%s' "$A_ALL" | grep -ac "2zb-5.*-OK")
+echo "V2-FAULT-CLOSED-A: $AR (rc=0 기대 — 결실 원문은 정리부 행 아래 stdout 수취)"
 printf '%s' "$AR" | grep -aq "RC=0" || FAIL "판 A rc!=0 — 전사 core 회귀 의심 — $AR"
 echo "V2-A-TRANSCRIPT: $AOUT (수취 원문 — tiny-ko 실측 계열 — 어셜션 0)"
+echo "V2-SANITIZE: $(printf '%s' "$A_ALL" | grep -a JKSANITIZE | head -1) / 2zb-OK=${SANZ_OKS} (계량값 — Minor ① 수형)"
 BR=$($SSH './tmp/jk_t3_selftest ~/tmp/jk_t3_absent.wav '"$MODEL_A"' >/dev/null 2>~/tmp/jk_t3_errB.txt; echo RC=$?')
 BERR=$($SSH 'cat ~/tmp/jk_t3_errB.txt 2>/dev/null; rm -f ~/tmp/jk_t3_errB.txt')
 printf '%s' "$BR" | grep -aq "RC=1" || FAIL "판 B rc!=1 (정직 거부 계약 위배) — $BR"
@@ -309,10 +320,10 @@ RESID=$($SSH 'rm -f ~/tmp/jk_t3_selftest ~/tmp/jk_t3_fixture.wav; ls ~/tmp/jk_* 
 printf '%s' "$RESID" | grep -aq "RESIDUAL-LS-RC=2" || FAIL "이진 잔상 소각 실패 — $RESID"
 echo "V2-RESIDUAL-0-OK: 매치 0(ls rc=2 — toybox 미매치 표현 원장)"
 
-# ── 7. 종료 상태 + 요약 스트림 (stdout 수취 계약 — JOG-RUN-VALS 승계) ──
+# ── 8. 종료 상태 + 요약 스트림 (stdout 수취 계약 — JOG-RUN-VALS 승계) ──
 $SSH 'pgrep -f "buildterm/[j]kdesktop" >/dev/null && echo END-SRV-UP || { echo END-SRV-DOWN; exit 1; }' \
   || FAIL "폰 창 서버가 끝나지 말아야 할 시점에 부재"
 $SSH 'pgrep -f "buildterm/[j]kweb" >/dev/null && echo END-JKWEB-UP || { echo END-JKWEB-DOWN; exit 1; }' \
   || FAIL "jkweb이 끝나지 말아야 할 시점에 부재"
-echo "APK-RUN-VALS: run=$RUN_N | SRV-UP=1 | WHISPER-ROOT=1 | JKWEB-UP=1 | APK-DEPLOY=OK | APK-BYTES=$LB | APK-MD5-EQ=OK | TALK-LAUNCH=200/Launch/minesweeper | MS-WIN-ID=$MSW_ID | WIN-DISPOSE=$WINDOW_DISPOSITION | HONEST-400=OK | HONEST-REFUSED=7 | SPAWN-CLOSED=$CLOSED | RESIDUAL=0 | V2-INSTALL=$VLB/$VLM-EQ | V2-FC=A-0/B-1/C-1 | V2-SANITIZE=8of8 | V2-AOUT=$AOUT | V2-RESIDUAL=0 | STATUS=APK-PHONE-OK"
+echo "APK-RUN-VALS: run=$RUN_N | SRV-UP=1 | WHISPER-ROOT=1 | JKWEB-UP=1 | APK-DEPLOY=OK | APK-BYTES=$LB | APK-MD5-EQ=OK | TALK-LAUNCH=200/Launch/minesweeper | MS-WIN-ID=$MSW_ID | WIN-DISPOSE=$WINDOW_DISPOSITION | HONEST-400=OK | HONEST-REFUSED=7 | SPAWN-CLOSED=$CLOSED | RESIDUAL=0 | V2-INSTALL=$VLB/$VLM-EQ | V2-FC=A-0/B-1/C-1 | V2-SANITIZE=${SANZ_OKS}of8 | V2-AOUT=$AOUT | V2-RESIDUAL=0 | STATUS=APK-PHONE-OK"
 echo "APK-PHONE-OK (run $RUN_N — 2런은 APK_RUN=2 재실행)"
