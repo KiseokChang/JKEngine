@@ -38,6 +38,22 @@
 // 조달: 모델 = APK asset(ggml-tiny-ko.bin — T1 조달기 핀 sha256 dd6d9f46…)
 // → filesDir 1회 조립+**sha256 핀 등호 fail-closed**(조용한 대체 금지 —
 // 조달기 게이트의 폰 표면 수형).
+//
+// ── debug leg (2026-10-31 — APK 빈 전사 원진 확정용·일시) ─────────────────
+// 사용자 실시간 진단 leg — 전체 사슬(R5 치환·/talk 전송·권한·해제 단일 소관)
+// **원존 무변조** — 신설은 검증용 표기뿐(녹음/전사 사슬 접촉 0):
+//   1. 녹음 결과물 외부 덤프: transcribe 직전(voiceExec 스레드) — wav를 폰
+//      Download/jkapk_last_capture.wav로 복사(덮어쓰기 — 1파일 진실원).
+//      **쓰기 실패 = 조용히 스킵**(전사 사슬 접촉 0 — D5 계통 — 기록/거부
+//      무접촉). 성공 여부+bytes를 구두 상태행 1행 표기("녹음 N bytes 저장").
+//      컨트롤러가 폰에서 md5/사운드 승인 — 외부 분석 몫.
+//   2. 전사 결과 계기: JNI 반환 직후 — **반환 문자열 길이**를 구두 상태행
+//      1행 표기("인식 완료 (N자)"). 빈 전사/예외 실패는 정확히 구분 표기 —
+//      fail-closed 계약 무변조("인식 없음 (빈 전사…)"/"인식 실패").
+//   ⚠ **철수 계획**: 본 leg는 진단용 일시 — 다음 라인(원진 확정 후)에서
+//   디버그 leg 전량 철수(dumpWavForDiagnosis·dumpNote·withDump·rawLen
+//   표기 소거, fail 분기 setVoiceStatus 원존("") 복원) — 제스처 잔상
+//   방지. 철수 시 본 헤더 원장행도 함께 소각한다.
 
 package chang.jkapk
 
@@ -48,6 +64,7 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.Bundle
+import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.os.Process
@@ -111,6 +128,13 @@ class MainActivity : Activity() {
     private var pcmBuf: ByteArrayOutputStream? = null
     private var voiceWavSeq = 0
     private val voiceExec: ExecutorService = Executors.newSingleThreadExecutor()
+
+    // ── debug leg 상태(2026-10-31 진단용 일시 — 헤더 원장행 철수 계획 참조) ──
+    // 녹음 외부 덤프 표기 문언(1파일 진실원 — 새 발화 개시마다 리셋). 기입은
+    // 전부 메인 스레드(transcribe runOnUiThread 사슬) — 읽는 쪽도 상태행
+    // 합성(메인 스레드)뿐. 전사 수렴 시 상태행 1행에 덤프 계기와 합성 표기
+    // (행 분할 0 — "상태행 1행" 계약).
+    private var dumpNote: String? = null
     // 기록 = 텍스트+오류플래그 행열(append-only — 치환만 허용(R5)). TextView
     // 직 append에서 행열+render로 확장한 이유: 데스크톱 turns_[slot] 치환 수형
     // 이 전사 도착 시 필요(placeholder 슬롯 안정성 — append-only 계약 유지).
@@ -127,10 +151,15 @@ class MainActivity : Activity() {
     private val transcribeTickRun = object : Runnable {
         override fun run() {
             val sec = (SystemClock.elapsedRealtime() - transcribeStartMs) / 1000
-            setVoiceStatus("전사 중… (${sec}s)")
+            setVoiceStatus(withDump("전사 중… (${sec}s)"))
             voiceUiHandler.postDelayed(this, 1000)
         }
     }
+
+    // 디버그 leg 표기 합성 — 덤프 계기가 실려 있으면 구두 상태행 1행 앞에
+    // 첨가(1행 계약 유지 — 행 분할 0). dumpNote 미실림 = 원존 문언 그대로.
+    private fun withDump(s: String): String =
+        if (dumpNote != null) "$dumpNote · $s" else s
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -390,6 +419,7 @@ class MainActivity : Activity() {
     // 사전 판정 수형: 권한 미성립 = 개방 낭비 없이 정직 거부로 수렴).
     private fun startVoice() {
         if (capturing) return
+        dumpNote = null  // 디버그 leg — 새 발화 개시마다 덤프 표기 리셋(1파일 진실원 대응)
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) !=
             PackageManager.PERMISSION_GRANTED) {
             setVoiceStatus("마이크 권한 대기…")
@@ -568,6 +598,31 @@ class MainActivity : Activity() {
         voiceExec.execute { transcribe(wav, slot) }
     }
 
+    // ── 디버그 leg 1(2026-10-31 진단용 일시 — 헤더 원장행 철수 계획) ────────
+    // 녹음 결과물 외부 덤프 — transcribe 직전(voiceExec 스레드 — 기존
+    // finishVoice main 스레드 wav 쓰기 관행을 여기서는 UI 스레드 밖으로
+    // 치켜세움). 폰 Download/jkapk_last_capture.wav 1파일 진실원(덮어쓰기
+    // — 최후 발화 산물) → 컨트롤러가 폰에서 md5/사운드 승인(외부 분석 몫).
+    // **쓰기 실패 = 조용히 스킵**(D5 계통 — 전사 사슬 접촉 0·기록/거부
+    // 무접촉) — 성공 여부+bytes만 구두 상태행 1행에 정직 표기.
+    private fun dumpWavForDiagnosis(wav: File) {
+        val dst = File(
+            Environment.getExternalStoragePublicDirectory(
+                Environment.DIRECTORY_DOWNLOADS),
+            "jkapk_last_capture.wav")
+        try {
+            wav.copyTo(dst, overwrite = true)
+            val n = dst.length()
+            runOnUiThread { dumpNote = "녹음 $n bytes 저장" }
+        } catch (e: Exception) {
+            // 조용히 스킵 — 실은 계기만(빈/실패 구분의 "실패" 축과 무관 —
+            // 전사 판정 계약은 이 leg 결과를 전혀 읽지 않는다).
+            runOnUiThread {
+                dumpNote = "녹음 덤프 실패 (${e.javaClass.simpleName})"
+            }
+        }
+    }
+
     // 전사 — voiceExec(단일 실행기 — 전사 수십 초(tiny-ko 폰 실측 35-47s —
     // T1 원장)가 조작 사슬을 막지 않는다). 성공 = R5 슬롯 치환(전사 원문
     // 그대로) → /talk 조작 사슬(타이핑 동형 — v1 사슬 무변조). 실패 = 슬롯을
@@ -575,10 +630,13 @@ class MainActivity : Activity() {
     private fun transcribe(wav: File, slot: Int) {
         var failText: String? = null
         var transcript: String? = null
+        var rawLen = -1  // 디버그 leg 2 — JNI 반환 문자열 길이(예외로 미도달 = -1)
+        dumpWavForDiagnosis(wav)  // 디버그 leg 1 — 전사 직전 녹음 산물 외부 덤프
         try {
             val model = resolveModel()
             val text = JniWhisper.jkapkTranscribe(
                 wav.absolutePath, model.absolutePath, JniWhisper.kVoicePrompt)
+            rawLen = text.length
             val safe = JniWhisper.sanitizeTranscript(text)  // 보조 원존 — 2차 게이트
             if (safe.isBlank()) {
                 failText = "전사 결실 0 (빈 전사 — 정직 거부 계약)"
@@ -595,10 +653,24 @@ class MainActivity : Activity() {
             voiceButton.isEnabled = true
             if (failText != null) {
                 replaceLine(slot, "[!] 전사 실패: $failText", true)
-                setVoiceStatus("")
+                // 디버그 leg 2 — 빈 전사/예외 실패 구분 표기(계기뿐 — 기록
+                // 행열·fail-closed 판정 계약 무변조): rawLen >= 0 = JNI가
+                // 반환했으나 정리 결과 빈 것(빈 전사) · rawLen == -1 = 예외
+                // 수렴(실패). JNI 계약상 빈 반환은 RuntimeException으로 수렴
+                // (승용 금지)이라 빈 분기는 방어 표기.
+                setVoiceStatus(withDump(if (rawLen >= 0)
+                    "인식 없음 (빈 전사 · 반환 ${rawLen}자)"
+                else
+                    "인식 실패"))
             } else {
+                // 디버그 leg 2 — 반환 문자열 길이 계기 1행("인식 완료 (N자)"
+                // — N = JNI 반환 원문 길이·sanitize는 단독 서러게이트 소각뿐
+                // 이라 통상 등호). R5 치환 경로 무변조.
                 replaceLine(slot, "[나] $transcript", false)  // R5 치환 — 전사 원문 그대로
-                setVoiceStatus("")
+                setVoiceStatus(withDump("인식 완료 (${rawLen}자)"))
+                // (원장행: Kotlin은 한글도 식별자 문자로 파싱 — "$rawLen"+"자"가
+                // "rawLen자" 최장 일치 변수로 확장되어 unresolved. 한글 접미는
+                // "${rawLen}자" 중괄호 필수.)
                 transcript?.let { sendPrepared(it) }  // /talk 조작 사슬 재용
             }
         }
