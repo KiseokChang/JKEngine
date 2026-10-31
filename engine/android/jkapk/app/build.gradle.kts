@@ -14,17 +14,23 @@ plugins {
 // NDK: install_android_sdk.sh v2 T1 섹션(무추적 build/android-sdk/sdk/ndk/
 // 28.2.13676358) — r28 계열(aarch64 triple — brief 원문)·android-24(minSdk).
 //
-// asset: ggml-tiny-ko.bin(#112 조달기 install_stt_models.sh 원존 핀
-// sha256 dd6d9f46… — install_android_sdk.sh §7이 동일 핀으로 무추적
-// build/android-sdk/jkapk-assets/에 조달, 부재 시 재다운로드+핀 불일치 정직
-// 거부). asset dir 전체가 무추적(루트 build/ gitignore — D4)이라 이 파일은
-// 경로만 지정한다. 부재 = configuration fail-closed(조용한 누락 asset 금지).
+// asset: ggml-small-komixv2.bin(등급 전환 배치 — 2026-10-31 사용자 결정 ①
+// small 내장: tiny-ko가 실발화 결실 0(원장) → small 외부 재판 성공 원존 승계).
+// 핀 sha256 a428f646…/487,601,984B — install_android_sdk.sh §7이 동일 핀으로
+// 로컬 실물 사본(engine/tmp/stt_smallko_verify — 네트워크 조달 불요·실물 부재
+// 시에만 HF fetch)을 무추적 build/android-sdk/jkapk-assets/에 조달, 부재 시
+// 재조달+핀 불일치 정직 거부. ggml-tiny-ko.bin(T1 조달기 원존 핀 sha256
+// dd6d9f46…/77,691,730) = 보존 원존 2순위(jkapk-assets-kept — 조달기
+// JKAPK_MODEL=tiny-ko; 현재 gradle/MainActivity 핀은 small이므로 등급
+// 재판정 시 3계층 동시 갱신 계약). asset dir 전체가 무추적(루트 build/
+// gitignore — D4)이라 이 파일은 경로만 지정한다. 부재 = configuration
+// fail-closed(조용한 누락 asset 금지).
 val jkapkAssetsDir = System.getenv("JKAPK_ASSETS")
     ?: File(rootDir.parentFile.parentFile.parentFile, "build/android-sdk/jkapk-assets").absolutePath
-val jkapkTinyKoAsset = File(jkapkAssetsDir, "ggml-tiny-ko.bin")
-check(jkapkTinyKoAsset.isFile) {
-    "jkapk v2 tiny-ko 모델 asset 부재: $jkapkTinyKoAsset — " +
-        "engine/tools/probes/install_android_sdk.sh(v2 T1 §7) 재실행 필수"
+val jkapkModelAsset = File(jkapkAssetsDir, "ggml-small-komixv2.bin")
+check(jkapkModelAsset.isFile) {
+    "jkapk v2 small-komixv2 모델 asset 부재: $jkapkModelAsset — " +
+        "engine/tools/probes/install_android_sdk.sh(§7 small-komixv2) 재실행 필수"
 }
 
 android {

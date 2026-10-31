@@ -35,7 +35,9 @@
 // 치환 수형 — 기록 append-only 유지). 전사 = voiceExec 별도 단일 스레드
 // (전사 수십 초(tiny-ko 폰 실측 35-47s — T1 원장)가 조작 사슬을 막지 않음).
 //
-// 조달: 모델 = APK asset(ggml-tiny-ko.bin — T1 조달기 핀 sha256 dd6d9f46…)
+// 조달: 모델 = APK asset(ggml-small-komixv2.bin — 등급 전환 배치(2026-10-31
+// 사용자 결정 ① small 내장) 조달기 핀 sha256 a428f646…; tiny-ko(dd6d9f46… —
+// T1 원존)는 2순위 보존 — 등급 재판정 시 조달기+gradle+본 핀 3계층 동시 갱신)
 // → filesDir 1회 조립+**sha256 핀 등호 fail-closed**(조용한 대체 금지 —
 // 조달기 게이트의 폰 표면 수형).
 //
@@ -114,11 +116,14 @@ class MainActivity : Activity() {
     // pcm 수납 상한(fix r1) — 12 MB ≈ 6.25분(@32KB/s) — 이탈 홀드 무한 수납
     // 방지(원장행: 상한 도달 = 판독 스레드 절단+정직 거부 — 기록 반영).
     private val kMaxPcmBytes = 12 * 1024 * 1024
-    // 모델 asset 핀 — T1 조달기(install_android_sdk.sh §7) 승계 원존.
-    private val modelAssetName = "ggml-tiny-ko.bin"
-    private val modelAssetBytes = 77_691_730L
+    // 모델 asset 핀 — 등급 전환 배치(2026-10-31 사용자 결정 ① small 내장):
+    // 조달기(install_android_sdk.sh §7) small-komixv2 핀 승계 원존. tiny-ko
+    // (dd6d9f46…/77,691,730 — T1 조달기 원존)는 2순위 보존 — 등급 재판정 시
+    // 조달기+gradle+본 핀 3계층 동시 갱신 계약.
+    private val modelAssetName = "ggml-small-komixv2.bin"
+    private val modelAssetBytes = 487_601_984L
     private val modelAssetSha256 =
-        "dd6d9f46a7d292bb2ee4725ccb132bedde690ce2ee83e437a7786f8c67c41d08"
+        "a428f6462d65c8f8942a2e1b9684910e5ff3a6873cc2b80856d549739627bba4"
 
     private lateinit var voiceButton: Button
     private lateinit var voiceStatusView: TextView
