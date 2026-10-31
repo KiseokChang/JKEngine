@@ -60,7 +60,12 @@ android {
                 // glslc(ndkDirectory 핀 — 호스트 빌드 도구, 산출물 APK 비포함 —
                 // vulkan-shaders-gen 헤더 원존 주석). host-toolchain 재유 =
                 // gradle 실행 환경 PATH(g++ 발견 가능성) — 조달기 §9 원문.
-                arguments += listOf("-DANDROID_STL=c++_static",
+                // 네이티브는 debug APK에서도 Release(-O3) — AGP 기본 Debug(-O0)는
+                // ggml 추론을 수십 배 늦춰 폰 실측 "0%에서 시간만 증가" 원진
+                // (2026-11-01 — 같은 모델·녹음 Termux Release CLI = 23s). 뒤에
+                // 오는 -D가 AGP 주입값을 덮는다.
+                arguments += listOf("-DCMAKE_BUILD_TYPE=Release",
+                    "-DANDROID_STL=c++_static",
                     "-DGGML_VULKAN=ON",
                     "-DGGML_VULKAN_GLSLC_DIR=" +
                         "${ndkDirectory.absolutePath}/shader-tools/windows-x86_64")
