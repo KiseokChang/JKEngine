@@ -53,7 +53,17 @@ android {
             cmake {
                 // c++_static — ggml/whisper(C++) 사슬을 libwhisper_jni.so 내부
                 // 정적 소비(libc++_shared.so 별도 패키지 0 — D4 최소 산출).
-                arguments += listOf("-DANDROID_STL=c++_static")
+                // #122 GPU leg — GGML_VULKAN=ON: vendored ggml-vulkan backend
+                // 동일 .so 정적 링크(backend-reg 승계 — GPU 미탑재 기기 =
+                // instance init 실패 → Vulkan 장비 0 → JNI 검출부 CPU 폴백 —
+                // D2 fail-closed). GGML_VULKAN_GLSLC_DIR = NDK 내장 shader-tools
+                // glslc(ndkDirectory 핀 — 호스트 빌드 도구, 산출물 APK 비포함 —
+                // vulkan-shaders-gen 헤더 원존 주석). host-toolchain 재유 =
+                // gradle 실행 환경 PATH(g++ 발견 가능성) — 조달기 §9 원문.
+                arguments += listOf("-DANDROID_STL=c++_static",
+                    "-DGGML_VULKAN=ON",
+                    "-DGGML_VULKAN_GLSLC_DIR=" +
+                        "${ndkDirectory.absolutePath}/shader-tools/windows-x86_64")
             }
         }
     }

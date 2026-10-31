@@ -345,6 +345,39 @@ check "cmake $CMAKE_VER (v2 T1)" "$SDK_ROOT/sdk/cmake/$CMAKE_VER/bin/cmake.exe"
 check "model asset (§7 기본 등급 — small-komixv2)" "$SDK_ROOT/jkapk-assets/ggml-small-komixv2.bin"
 check "sha256 record"         "$SUMS"
 
+# ----------------------------------- 9. jkapk vulkan leg 판정부 (#122 T1)
+# 재조달 원존(#122): ggml-vulkan subset은 **소스 커밋**(조달기 원존 — "소스만
+# 커밋")이므로 본 섹션은 네트워크 0·멱등 판정부 전담(T1 vendor 재이관 원존의
+# 지속 무결 게이트):
+#   ① vendored ggml-vulkan subset 존재(CMakeLists+ggml-vulkan.cpp+
+#      vulkan-shaders .comp 세트+deps 헤더 폐쇄) — 부재 = 정직 FAIL
+#      (T1 vendor 원존 파손 — #122 커밋 메시지 리포트의 재이관 절차 필요).
+#   ② glslc = NDK 내장 shader-tools(Windows host) 마커 — 부재 = FAIL(§6 NDK
+#      승계 재설치 몫 — 폰 leg 산출물에는 패키지되지 않는다 — host tool).
+#   ③ Vulkan-Hpp/SPIRV/vk_video 헤더는 NDK sysroot에 조달 불가(vulkan_core.h가
+#      vk_video stds를 끌고 vulkan.hpp는 to_string 등 구성 hpp를 끈다 — 업스트림
+#      폐쇄 전량 vendored deps 원존 계·deps/include 게이트 — ①의 일부).
+# 이 섹션은 기존 섹션 1-8 원존 무변조(말미 게이트로 삽입 — fail 누적 계승).
+GREMLIN_DIR="$ROOT_DIR/engine/third_party/whisper.cpp/ggml/src/ggml-vulkan"
+log "#122 §9 — jkapk vulkan leg 판정부 (네트워크 0·멱등)"
+check "vendored ggml-vulkan CMake"       "$GREMLIN_DIR/CMakeLists.txt"
+check "vendored ggml-vulkan 본체"        "$GREMLIN_DIR/ggml-vulkan.cpp"
+check "vendored vulkan-shaders dir"      "$GREMLIN_DIR/vulkan-shaders/types.glsl"
+check "vendored deps Vulkan-Hpp"         "$GREMLIN_DIR/deps/include/vulkan/vulkan.hpp"
+check "vendored deps vulkan_core.h"      "$GREMLIN_DIR/deps/include/vulkan/vulkan_core.h"
+check "vendored deps vk_video 폐쇄"       "$GREMLIN_DIR/deps/include/vk_video/vulkan_video_codec_av1std.h"
+check "vendored deps SPIRV spirv.hpp"    "$GREMLIN_DIR/deps/include/spirv/unified1/spirv.hpp"
+if find "$GREMLIN_DIR/vulkan-shaders" -maxdepth 1 -name '*.comp' | grep -q . ; then
+  log "PASS: vulkan-shaders .comp 세트 존재 ($(find "$GREMLIN_DIR/vulkan-shaders" -maxdepth 1 -name '*.comp' | wc -l)종)"
+else
+  log "FAIL: vulkan-shaders .comp 세트 부재 — $GREMLIN_DIR/vulkan-shaders"
+  fail=1
+fi
+check "NDK glslc (shader-tools — host)" \
+  "$SDK_ROOT/sdk/ndk/$NDK_VER/shader-tools/windows-x86_64/glslc.exe"
+check "sysroot libvulkan.so stub" \
+  "$SDK_ROOT/sdk/ndk/$NDK_VER/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/lib/aarch64-linux-android/24/libvulkan.so"
+
 if [ "$fail" -ne 0 ]; then exit 1; fi
 
 cat <<EOF

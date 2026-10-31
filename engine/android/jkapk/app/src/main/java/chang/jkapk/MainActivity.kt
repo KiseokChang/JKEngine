@@ -56,6 +56,20 @@
 //   디버그 leg 전량 철수(dumpWavForDiagnosis·dumpNote·withDump·rawLen
 //   표기 소거, fail 분기 setVoiceStatus 원존("") 복원) — 제스처 잔상
 //   방지. 철수 시 본 헤더 원장행도 함께 소각한다.
+//
+// ── #122 진행/스템프·GPU leg 보고 수입(2026-10-31 — 같은 커밋·빌드 계약) ──
+// 원존 승계 = JniWhisper.kt 진행 leg 헤더 주석(단일 진실원 = JNI C 측
+// whisper_jni.c jk_stage 주석). 표면 소관만:
+//   * (전사 중…, pct) 수취 → stagePct 저장+즉시 틱 리프레시 — 표기 합성 =
+//     "전사 중… (Ns · N% · leg 라벨)" 1행(초 카운터에 % 병기 — 2026-10-31
+//     사용자 증상 대응: %가 100까지 가는데도 결과 없음=변환 직후 수수 문제,
+//     %가 안 오르면 = init/마지막 단계 문제 — 원진 분절).
+//   * (전사 leg, 0|1) 수취 → legLabel("GPU 가속"/"CPU 변환" — D2 정직 표기).
+//   * 스탬프(pct==-1) 수취 → 1행 원문 표기(다음 틱이 합성으로 회수).
+//   * 모델 사본 등호: resolveModel 후 length() 등호 어설션(check — fail-closed)
+//     +스탬프 "모델 사본 등호 (NB — 핀 NB)" — C 측 init 스탬프의 전제 원문.
+// 기존 사슬(캡처·해제·권한·/talk·덤프·R5 치환) 원존 무변조 — 신설 = 보고
+// leg 수입뿐.
 
 package chang.jkapk
 
@@ -153,10 +167,19 @@ class MainActivity : Activity() {
     // (transcribe runOnUiThread — 성공/실패 공통)+onDestroy.
     private val voiceUiHandler = Handler(Looper.getMainLooper())
     private var transcribeStartMs = 0L
+    // ── #122 보고 leg 상태(JNI 수취 — 전부 메인 스레드 갱신, 읽는 쪽도 틱/
+    // 리스너 합성(메인) — dumpNote 원존 동형) ──
+    @Volatile private var stagePct = -1     // whisper 진행 %(수취 — -1=미수령)
+    @Volatile private var legLabel: String? = null  // "GPU 가속"/"CPU 변환"(D2)
     private val transcribeTickRun = object : Runnable {
         override fun run() {
             val sec = (SystemClock.elapsedRealtime() - transcribeStartMs) / 1000
-            setVoiceStatus(withDump("전사 중… (${sec}s)"))
+            val p = stagePct
+            var s = "전사 중… (${sec}s"
+            if (p >= 0) s += " · ${p}%"
+            legLabel?.let { s += " · $it" }
+            s += ")"
+            setVoiceStatus(withDump(s))
             voiceUiHandler.postDelayed(this, 1000)
         }
     }
@@ -401,6 +424,8 @@ class MainActivity : Activity() {
     // 방어 1행 — 틱 이중 가동 시 소리 없는 초 가속).
     private fun transcribeProgressStart() {
         transcribeStartMs = SystemClock.elapsedRealtime()
+        stagePct = -1         // #122 — 신규 전사 창구: 진행/leg 원존 리셋
+        legLabel = null
         voiceUiHandler.removeCallbacks(transcribeTickRun)
         transcribeTickRun.run()
     }
@@ -637,8 +662,39 @@ class MainActivity : Activity() {
         var transcript: String? = null
         var rawLen = -1  // 디버그 leg 2 — JNI 반환 문자열 길이(예외로 미도달 = -1)
         dumpWavForDiagnosis(wav)  // 디버그 leg 1 — 전사 직전 녹음 산물 외부 덤프
+        // #122 보고 leg 수입 — JNI(C) 측 스탬프/진행/leg 보고의 표면 창구.
+        // 수취는 전부 runOnUiThread(메인 스레드 합성 원존). 해제 = 수렴 몫.
+        JniWhisper.stageListener = { text, pct -> runOnUiThread {
+            when {
+                pct >= 0 && text == "전사 중…" -> {
+                    stagePct = pct
+                    // 합성 표기(초+%+leg) 즉시 리렌더 — 문언 중복 방지
+                    voiceUiHandler.removeCallbacks(transcribeTickRun)
+                    transcribeTickRun.run()
+                }
+                text == "전사 leg" && (pct == 0 || pct == 1) -> {
+                    legLabel = if (pct == 1) "GPU 가속" else "CPU 변환"
+                    voiceUiHandler.removeCallbacks(transcribeTickRun)
+                    transcribeTickRun.run()
+                }
+                pct >= 0 -> {
+                    // 미정의 (text,pct>0) 조합 = 방어 소각(계약 외 조용 소각 —
+                    // 보고 leg뿐 — 사슬 접촉 0).
+                }
+                else -> setVoiceStatus(withDump(text))
+            }
+        } }
         try {
             val model = resolveModel()
+            // #122 스탬프 leg — asset 추출본 등호 어설션(fail-closed — 조용한
+            // 부적합 진행 금지): rename 후 사이즈 등호(C 측 "모델 로드 시작
+            // (NB)" 스탬프의 전제 원문 — 핀 등호는 3계층 조달 계약의 폰 표면).
+            check(model.length() == modelAssetBytes) {
+                "모델 사본 등호 실패 (${model.length()}B ≠ 핀 ${modelAssetBytes}B — " +
+                    "추출본 무결 어설션 — 조용한 대체 금지)"
+            }
+            JniWhisper.voiceStage(
+                "모델 사본 등호 (${model.length()}B — 핀 등호)", -1)
             val text = JniWhisper.jkapkTranscribe(
                 wav.absolutePath, model.absolutePath, JniWhisper.kVoicePrompt)
             rawLen = text.length
@@ -655,6 +711,7 @@ class MainActivity : Activity() {
         }
         runOnUiThread {
             transcribeProgressStop()  // 경과 갱신 중지(UX 수형 — 성공/실패 공통)
+            JniWhisper.stageListener = null  // #122 — 전사 창구 해제(보고 leg뿐)
             voiceButton.isEnabled = true
             if (failText != null) {
                 replaceLine(slot, "[!] 전사 실패: $failText", true)
@@ -759,6 +816,7 @@ class MainActivity : Activity() {
         audioRecord = null
         pcmBuf = null
         transcribeProgressStop()  // 경과 갱신 중지(onDestroy 소관 — UX 수형)
+        JniWhisper.stageListener = null  // #122 — 표면 해제(보고 leg뿐)
         voiceExec.shutdown()
         httpExec.shutdown()
         super.onDestroy()

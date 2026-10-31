@@ -64,11 +64,35 @@
 //   -DJKSANITIZE_SELFTEST_MAIN — Win/폰 양축 컴파일(부품 등호 — 2zb 계열
 //   확장 라벨 2zb-5a..5h; JNI 전사 축은 비결정이라 어셜션 금지 원존 계약
 //   준수 — 결정 부품만 검증).
+//
+// ── #122 GPU leg 진행/스템프 동봉(2026-10-31 — 같은 커밋·빌드 계약) ──────
+// 이 섹션은 **보고 leg뿐** — 기존 사슬(캡처·해제·권한·/talk·덤프·정리) 원존
+// 무변조(신설 = 표기/보고 채널과 use_gpu 분기 1행뿐).
+//
+// ① GPU 검출 leg(D2 fail-closed): 진실원 = vendored ggml backend 레지스트리
+//    (GGML_USE_VULKAN — vendored ggml-vulkan이 vulkan 장비를 등록). C 층에서
+//    ggml_backend_reg_by_name("Vulkan")+dev_count로 검출 — reg 부재/장비 0 =
+//    **CPU 폴백**(cparams.use_gpu=false — 기존 경로와 동일 — 원존 주석 유지
+//    문언 갱신). reg() 자체가 try/catch 밀폐(vendored ggml-vulkan 원문)라 C
+//    측 예외 유입 0. 성공 = use_gpu=true(whisper_backend_init_gpu 원존 분기 —
+//    GPU/IGPU 장비 탐색 — ggml_registry가 진단 원문).
+// ② 진행 leg(2026-10-31 사용자 증상 "23초 넘겨도 결과 없음 — 카운터만 증가"
+//    대응 — 원진 분절 원문): whisper_full progress_callback(%) → Java로
+//    보고(pct 정수 — (전사 중…, pct) 계약) → MainActivity 상태행 "전사 중…
+//    (Ns · N%)" 갱신(% 진행이 100까지 가는데도 결과가 안 나오면 = 변환 직후
+//    수수 문제·%가 안 올라가면 = 마지막 단계(init/inference) 문제).
+// ③ init 스템프 leg: whisper_init_from_file 전후 원문(모델 파일 파인 경로+
+//    실제 bytes — asset 추출본 존재/사이즈 원문 — Java 측이 핀 등호 어설션
+//    선수행)·로드 경과 ms·logcat 채널("jkapk" 태그 — 원문 수취 계약).
+//    원문 채널 2종: __android_log_print(폰)+Java 상태행 스탬프(일시 표기 —
+//    1행 계약 — 틱 합성이 수초 내 회수). env NULL(데스크톱 selftest main)=
+//    Java 채널 스킵(log 채널은 stderr 폴백 — 결정 축만 진입).
 
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 // ---- UTF-8 정리부 (pure C — jni/whisper 의존 0 — Win/폰 양축 단독 컴파일) --
 // 규약(헤더 원존 주석 위 계약의 구현):
@@ -211,8 +235,95 @@ int main(void) { return jk_selftest_sanitize(); }
 #else
 #include <jni.h>
 #include <whisper.h>
+#include "ggml.h"
+#include "ggml-backend.h"
+#ifdef __ANDROID__
+#include <android/log.h>
+#endif
 
 #define JKJNI_ERR_MAX 512
+#define JKJNI_STAGE_MAX 224
+
+// ---- 원문 로그 채널(#122 스탬프 leg) — __ANDROID__ = logcat("jkapk" 태그),
+// 그 외 = stderr 폴백(데스크톱 selftest main 결정 축 수취).
+static void jk_log(const char* msg) {
+#ifdef __ANDROID__
+    __android_log_print(ANDROID_LOG_INFO, "jkapk", "%s", msg);
+#else
+    fprintf(stderr, "[jkapk] %s\n", msg);
+#endif
+}
+
+// ---- Java 스탬프 채널(#122 보고 leg뿐 — 실패해도 전사 사슬 접촉 0) ----
+// 계약(JniWhisper.kt 원존 주석과 정합): voiceStage(text, pct) —
+//   pct >= 0 = 진행 보고(text == "전사 중…" — Kotlin tick 합성 소관),
+//   pct == -1 = 스탬프 표기(text 원문 그대로 1행),
+//   pct == 0|1 + text == "전사 leg" = GPU/CPU leg 라벨 보고(Kotlin 소관).
+// 리스너 부재 = 조용 소각(보고 leg뿐 — 사슬 접촉 0 계약).
+static void jk_stage(JNIEnv* env, const char* msg, int pct) {
+    if (env == NULL) return;  // 데스크톱 selftest — log 채널 몫
+    jclass cls = (*env)->FindClass(env, "chang/jkapk/JniWhisper");
+    if (cls == NULL) {
+        if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+        return;
+    }
+    jmethodID mid = (*env)->GetStaticMethodID(env, cls, "voiceStage",
+                                              "(Ljava/lang/String;I)V");
+    if (mid == NULL) {
+        if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+        return;
+    }
+    jstring js = (*env)->NewStringUTF(env, msg);
+    if (js != NULL) {
+        (*env)->CallStaticVoidMethod(env, cls, mid, js, (jint)pct);
+    }
+    // 보고 채널 예외는 절대 전사 사슬로 전파하지 않는다(보고 leg뿐 계약).
+    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+}
+
+static int jk_mono_ms(void) {  // 스테이지 경과 계기(CLOCK_MONOTONIC 원문)
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) return 0;
+    return (int)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+}
+
+// ---- GPU 검출 leg(D2 fail-closed — 헤더 원존 주석 계약) ----
+// 진실원 = vendored ggml backend 레지스트리. 성공 1 + verdict = "GPU 가속 …"
+// / 실패 0 + verdict = "CPU 변환 …". ggml_backend_reg_by_name은 등록되지 않은
+// 이름에 NULL(등록 전 try/catch 밀폐 — C 측 예외 유입 0).
+static int jk_probe_vulkan(char* verdict, size_t verdictSz) {
+    ggml_backend_reg_t reg = ggml_backend_reg_by_name("Vulkan");
+    if (reg == NULL) {
+        snprintf(verdict, verdictSz,
+                 "CPU 변환 (Vulkan 미성립 — 레지스트리 부재: instance init 실패 계통)");
+        return 0;
+    }
+    size_t ndev = ggml_backend_reg_dev_count(reg);
+    if (ndev == 0) {
+        snprintf(verdict, verdictSz, "CPU 변환 (Vulkan 장비 0 — 드라이버/GPU 미탑재)");
+        return 0;
+    }
+    ggml_backend_dev_t dev = ggml_backend_reg_dev_get(reg, 0);
+    const char* d = dev ? ggml_backend_dev_description(dev) : NULL;
+    if (d == NULL || *d == '\0') d = "(desc 결실 0)";
+    snprintf(verdict, verdictSz, "GPU 가속 (Vulkan: %.160s — 장비 %zu)", d, ndev);
+    return 1;
+}
+
+// ---- 진행 콜백 leg — whisper_full의 호출 스레드(voiceExec)에서만 불린다
+// (vendored whisper.cpp main loop 원문 — 스레드 안전: 보고는 jk_stage가
+// Java 측 runOnUiThread로 UI 수렴 계약 — C 측 로컬 상태 접촉 0).
+struct jk_progress_ctx { JNIEnv* env; };
+
+static void jk_progress_cb(struct whisper_context* ctx,
+                           struct whisper_state* state, int progress,
+                           void* user_data) {
+    (void)ctx; (void)state;
+    struct jk_progress_ctx* pc = (struct jk_progress_ctx*)user_data;
+    if (pc == NULL) return;
+    // pct = whisper 원문 진행(0-100 — vendored whisper.cpp 진행 산식 승계)
+    jk_stage(pc->env, "전사 중…", progress);
+}
 
 static const char kJniLanguage[] = "ko";
 static const int kJniThreads = 4;
@@ -369,8 +480,11 @@ static int jk_load_wav_f32(const char* path, float** out_samples,
 // ---- transcribe core — JNI 층과 자기검증 main에서 공유하는 본체 1개 ----
 // 성공 0 + *out(malloc, trim 완료) / 실패 1 + *err(malloc).
 // 모델 로드 실패·whisper_full rc!=0·전사 trim 결실 0 — 전부 정직 거부.
-static int jk_transcribe_core(const char* wavPath, const char* modelPath,
-                              const char* prompt, char** out, char** err) {
+// env = 스탬프/진행 보고 채널용(데스크톱 selftest main = NULL — log 채널 몫).
+// #122: 보고 leg뿐 — 사슬 계약(판독 규약·정리·trim) 무변조.
+static int jk_transcribe_core(JNIEnv* env, const char* wavPath,
+                              const char* modelPath, const char* prompt,
+                              char** out, char** err) {
     *out = NULL;
     *err = NULL;
     char errbuf[JKJNI_ERR_MAX];
@@ -378,16 +492,78 @@ static int jk_transcribe_core(const char* wavPath, const char* modelPath,
 
     float* samples = NULL;
     size_t nSamples = 0;
-    if (jk_load_wav_f32(wavPath, &samples, &nSamples, errbuf, sizeof(errbuf)) != 0) {
-        goto fail;
+    {
+        int t0 = jk_mono_ms();
+        if (jk_load_wav_f32(wavPath, &samples, &nSamples, errbuf, sizeof(errbuf)) != 0) {
+            goto fail;
+        }
+        // 스탬프 leg — wav 판독 원문(정직 계기 — %가 안 올라갈 때 wav 측 분절
+        // 증거). 표기는 즉시 틱 합성으로 회수(1행 계약 — MainActivity 원존 주석).
+        char stamp[JKJNI_STAGE_MAX];
+        snprintf(stamp, sizeof(stamp), "wav 로드 완료 (%zu samples — %d ms)",
+                 nSamples, jk_mono_ms() - t0);
+        jk_log(stamp);
+        jk_stage(env, stamp, -1);
+    }
+
+    // #122 GPU 검출 leg(D2 fail-closed) — vendored ggml 레지스트리가
+    // 진실원. 실패 = use_gpu=false(기존 경로 무변조)·성공 = true.
+    // reg()/instance init 실패 = reg 부재 또는 장비 0 → CPU 폴백 원존
+    // (whisper_backend_init_gpu 원존 분기 — "no GPU found" → CPU).
+    char verdict[JKJNI_STAGE_MAX];
+    int gpu;
+    {
+        gpu = jk_probe_vulkan(verdict, sizeof(verdict));
+        jk_log(verdict);
+        jk_stage(env, "전사 leg", gpu ? 1 : 0);
+        jk_stage(env, verdict, -1);  // 원문 1행 표기(틱이 수초 내 회수)
+    }
+
+    // 스탬프 leg — init 직전 원문(파인 경로+실사이즈 — Java가 핀 등호
+    // 어설션 선수행 — 추출본 존재/사이즈 원문). whisper_init 실패 = 정직
+    // 거부(원존 계약 — 문언에 파인 bytes 병기).
+    long modelBytes;
+    int modelLoadT0;
+    struct whisper_context* ctx;
+    {
+        modelBytes = -1;
+        modelLoadT0 = jk_mono_ms();
+        FILE* mf = fopen(modelPath, "rb");
+        if (mf != NULL) {
+            fseek(mf, 0, SEEK_END);
+            modelBytes = ftell(mf);
+            fclose(mf);
+        }
+        char stamp[JKJNI_STAGE_MAX];
+        if (modelBytes >= 0) {
+            snprintf(stamp, sizeof(stamp), "모델 로드 시작 (%ldB)", modelBytes);
+        } else {
+            snprintf(stamp, sizeof(stamp), "모델 로드 시작 (파인 실패)");
+        }
+        jk_log(stamp);
+        jk_stage(env, stamp, -1);
     }
 
     struct whisper_context_params cparams = whisper_context_default_params();
-    cparams.use_gpu = false;  // CPU backend — 스펙 원존("CPU backend — 안드로이드 target");폰 ggml CPU(#110 T5)와 동일 축.
-    struct whisper_context* ctx = whisper_init_from_file_with_params(modelPath, cparams);
+    if (gpu) {
+        cparams.use_gpu = true;  // D2 — 검출 성립 한정(원존 CPU 주석 승계)
+    } else {
+        cparams.use_gpu = false;  // CPU 원존 계약(GPU 실패 시 동작 = 기존과 동일)
+    }
+    ctx = whisper_init_from_file_with_params(modelPath, cparams);
     if (ctx == NULL) {
-        snprintf(errbuf, sizeof(errbuf), "jkapk 모델 로드 실패: %s", modelPath);
+        snprintf(errbuf, sizeof(errbuf),
+                 "jkapk 모델 로드 실패: %s (파인 bytes=%ld — "
+                 "핀 등호 어설션은 Java 측 선수행)", modelPath, modelBytes);
         goto fail_with_samples;
+    }
+    // 스탬프 leg — init 지연 원문(원진 분절: 로드 지연 vs inference 지연).
+    {
+        char stamp[JKJNI_STAGE_MAX];
+        snprintf(stamp, sizeof(stamp), "모델 로드 완료 (%d ms)",
+                 jk_mono_ms() - modelLoadT0);
+        jk_log(stamp);
+        jk_stage(env, stamp, -1);
     }
 
     {
@@ -404,6 +580,13 @@ static int jk_transcribe_core(const char* wavPath, const char* modelPath,
             wparams.initial_prompt = prompt;
             wparams.carry_initial_prompt = true;  // 장발화에서도 어휘 힌트 소멸 방지
         }
+        // #122 진행 leg — whisper 원문 진행(%) 보고(vendored whisper.cpp 진행
+        // 산식 승계 — (seek-seek_start)/(seek_end-seek_start)). env 경로 =
+        // Java 상태행 "전사 중… (Ns · N%)" 합성(MainActivity 소관). selftest
+        // main(env NULL) = 무음 — 콘솔 축 원존 유지.
+        struct jk_progress_ctx pctx = { env };
+        wparams.progress_callback = jk_progress_cb;
+        wparams.progress_callback_user_data = &pctx;
         if (whisper_full(ctx, wparams, samples, (int)nSamples) != 0) {
             snprintf(errbuf, sizeof(errbuf),
                      "jkapk 전사 실패 (whisper_full rc!=0 — 모델=%s)", modelPath);
@@ -504,7 +687,7 @@ Java_chang_jkapk_JniWhisper_jkapkTranscribe(JNIEnv* env, jclass clazz,
     if (!failed) {
         char* out = NULL;
         char* err = NULL;
-        if (jk_transcribe_core(wavPath, modelPath, prompt, &out, &err) != 0) {
+        if (jk_transcribe_core(env, wavPath, modelPath, prompt, &out, &err) != 0) {
             snprintf(errbuf, sizeof(errbuf), "jkapk 전사 실패: %s",
                      err != NULL ? err : "(err 누락 — 정직 거부 계약 위배)");
             (*env)->ThrowNew(env,
@@ -547,7 +730,7 @@ int main(int argc, char** argv) {
     const char* prompt = (argc > 3) ? argv[3] : "";
     char* out = NULL;
     char* err = NULL;
-    if (jk_transcribe_core(argv[1], argv[2], prompt, &out, &err) != 0) {
+    if (jk_transcribe_core(NULL, argv[1], argv[2], prompt, &out, &err) != 0) {
         fprintf(stderr, "%s\n", err ? err : "(err 누락)");
         free(out);
         free(err);

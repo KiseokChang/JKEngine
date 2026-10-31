@@ -11,6 +11,21 @@
 //     실패 = RuntimeException(한국어 이유 — 정직 거부 계약, 빈 문자열
 //     승용 금지). 호출은 UI 스레드 금지(MainActivity voiceExec 스레드 소관).
 //
+// ── #122 진행/스템프 보고 leg(2026-10-31 동봉 — C 층 whisper_jni.c jk_stage
+//    원존 주석과 정합 — 단일 진실원 = JNI C 측 주석) ────────────────────────
+//   - native가 Java_chang_jkapk_JniWhisper_voiceStage("(Ljava/lang/String;I)V")
+//     직호출: (text, pct) 쌍 —
+//       · pct >= 0 = whisper 진행(% — vendored whisper.cpp 진행 산식) and
+//         text == "전사 중…"(계약 상수 — MainActivity tick 합성 소관: 초+%
+//         병기 "전사 중… (Ns · N%)"),
+//       · pct == 0|1 + text == "전사 leg" = GPU/CPU leg 라벨 보고
+//         (1="GPU 가속"·0="CPU 변환" — MainActivity 소관),
+//       · pct == -1 = 스탬프 표기(text 원문 그대로 — wav/모델 스탬프 등).
+//   - stageListener = 표면(MainActivity)이 전사 창구 기간만 채우고 해제 —
+//     부재 = 보고 조용 소각(보고 leg뿐 — 전사 사슬 접촉 0 계약).
+//   - 스레드 안전: 호출은 항상 voiceExec 스레드(JNI 진입 스레드) — 리스너
+//     반대편은 runOnUiThread로 UI 수렴(단일 main-thread 규약 계승).
+//
 // kVoicePrompt 수형 = SttVoice.cpp(#112) 원존 리터럴 동일 문자열(#115b 갱신
 // + #118 T2 창 배지 어휘 포함 — 단일 진실원의 문자 수형 — 원존 주석과 같은
 // 정합 계약: 표와의 정합은 리포트 원문 대조 몫). 언어 핀 "ko"는 JNI 층
@@ -23,6 +38,17 @@ object JniWhisper {
         // fail-loud(UnsatisfiedLinkError) — 원존 "정직 거부" 문화: 로드 실패를
         // 조용히 삼키면 전사 사슬이 조용한 공백으로 사망한다.
         System.loadLibrary("whisper_jni")
+    }
+
+    // ── #122 보고 leg(JNI jk_stage 수입구 — 헤더 원존 주석 계약) ──────────
+    // 표면(MainActivity)이 전사 창구 기간만 채운다 — 부재 = 조용 소각.
+    @Volatile
+    var stageListener: ((text: String, pct: Int) -> Unit)? = null
+
+    @JvmStatic
+    fun voiceStage(text: String, pct: Int) {
+        val l = stageListener ?: return  // 보고 leg뿐 — 사슬 접촉 0
+        l(text, pct)
     }
 
     @JvmStatic
