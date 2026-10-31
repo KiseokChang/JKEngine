@@ -47,7 +47,13 @@
 //   1. 녹음 결과물 외부 덤프: transcribe 직전(voiceExec 스레드) — wav를 폰
 //      Download/jkapk_last_capture.wav로 복사(덮어쓰기 — 1파일 진실원).
 //      **쓰기 실패 = 조용히 스킵**(전사 사슬 접촉 0 — D5 계통 — 기록/거부
-//      무접촉). 성공 여부+bytes를 구두 상태행 1행 표기("녹음 N bytes 저장").
+//      무접촉). 성공 여부+bytes를 구두 상태행 1행 표기("녹음 N bytes 저장
+//      (직접)/(미디어)"). **폴백 leg 원장**(2026-10-31 사용자 실시간 진단
+//      "녹음 덤프 실패" — 재설치로 저장소 특별 권한 초기화 → Scoped Storage
+//      직접 쓰기 실패 원진 가정): 직접 File 쓰기 실패 = **MediaStore 폴백
+//      leg**(MediaStore.Downloads 삽입 — IS_PENDING 1→쓰기→0 커밋 — 권한
+//      불요 표준 경로)·폴백 실패 = 조용히 스킵(D5 계통)·API<29 = 폴백
+//      미지원 정직 표기.
 //      컨트롤러가 폰에서 md5/사운드 승인 — 외부 분석 몫.
 //   2. 전사 결과 계기: JNI 반환 직후 — **반환 문자열 길이**를 구두 상태행
 //      1행 표기("인식 완료 (N자)"). 빈 전사/예외 실패는 정확히 구분 표기 —
@@ -75,16 +81,19 @@ package chang.jkapk
 
 import android.Manifest
 import android.app.Activity
+import android.content.ContentValues
 import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.os.Process
 import android.os.SystemClock
+import android.provider.MediaStore
 import android.text.InputType
 import android.view.Gravity
 import android.view.KeyEvent
@@ -633,8 +642,9 @@ class MainActivity : Activity() {
     // finishVoice main 스레드 wav 쓰기 관행을 여기서는 UI 스레드 밖으로
     // 치켜세움). 폰 Download/jkapk_last_capture.wav 1파일 진실원(덮어쓰기
     // — 최후 발화 산물) → 컨트롤러가 폰에서 md5/사운드 승인(외부 분석 몫).
-    // **쓰기 실패 = 조용히 스킵**(D5 계통 — 전사 사슬 접촉 0·기록/거부
-    // 무접촉) — 성공 여부+bytes만 구두 상태행 1행에 정직 표기.
+    // **쓰기 실패 = MediaStore 폴백 → 그래도 실패면 조용히 스킵**(D5 계통 —
+    // 전사 사슬 접촉 0·기록/거부 무접촉) — 성공 여부+bytes만 구두 상태행
+    // 1행에 정직 표기(경로 구분 접미 — (직접)/(미디어)).
     private fun dumpWavForDiagnosis(wav: File) {
         val dst = File(
             Environment.getExternalStoragePublicDirectory(
@@ -643,10 +653,56 @@ class MainActivity : Activity() {
         try {
             wav.copyTo(dst, overwrite = true)
             val n = dst.length()
-            runOnUiThread { dumpNote = "녹음 $n bytes 저장" }
+            runOnUiThread { dumpNote = "녹음 $n bytes 저장 (직접)" }
+            return
         } catch (e: Exception) {
-            // 조용히 스킵 — 실은 계기만(빈/실패 구분의 "실패" 축과 무관 —
-            // 전사 판정 계약은 이 leg 결과를 전혀 읽지 않는다).
+            // 조용히 폴백 계속 — 직접 쓰기 실패(Scoped Storage 거부 계통
+            // 가정) = 아래 MediaStore 표준 경로로 승계(전사 판정 계약은 이
+            // leg 결과를 전혀 읽지 않는다 — 접촉 0 유지).
+        }
+        dumpWavViaMediaStore(wav)
+    }
+
+    // MediaStore 폴백 leg(2026-10-31 수형 — dumpWavForDiagnosis 계기 leg의
+    // 나머지 전부 원존 무변조). MediaStore.Downloads 삽입(IS_PENDING 1 →
+    // wav 본문 쓰기 → IS_PENDING 0 커밋) — **권한 불요**(앱 자기 기여물이므로
+    // 표준 경로 — WRITE_EXTERNAL STORAGE 요구 0). API<29(Downloads 컬렉션
+    // 미성립) = 폴백 미지원 정직 표기(fail-closed). 쓰기 실패 = **조용히
+    // 스킵**(D5 계통 — 실패 문언 1행만·전사 사슬 무접촉)·미완(IS_PENDING
+    // 잔존) 항목은 즉시 소거(1파일 진실원 계약 — 잔상 방지).
+    private fun dumpWavViaMediaStore(wav: File) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            runOnUiThread {
+                dumpNote = "녹음 덤프 실패 (미디어 폴백 미지원 — API ${Build.VERSION.SDK_INT})"
+            }
+            return
+        }
+        try {
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, "jkapk_last_capture.wav")
+                put(MediaStore.MediaColumns.MIME_TYPE, "audio/wav")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+            val uri = contentResolver.insert(
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                ?: throw IOException("MediaStore 삽입 null")
+            try {
+                val os = contentResolver.openOutputStream(uri)
+                    ?: throw IOException("OutputStream 개방 null")
+                os.use { out -> wav.inputStream().use { it.copyTo(out) } }
+                val done = ContentValues().apply {
+                    put(MediaStore.MediaColumns.IS_PENDING, 0)
+                }
+                contentResolver.update(uri, done, null, null)
+            } catch (e: Exception) {
+                try { contentResolver.delete(uri, null, null) } catch (_: Exception) {}
+                throw e
+            }
+            val n = wav.length()
+            runOnUiThread { dumpNote = "녹음 $n bytes 저장 (미디어)" }
+        } catch (e: Exception) {
+            // 조용히 스킵 — 실은 계기만(전사 판정 계약과 무관 — D5 계통).
             runOnUiThread {
                 dumpNote = "녹음 덤프 실패 (${e.javaClass.simpleName})"
             }
