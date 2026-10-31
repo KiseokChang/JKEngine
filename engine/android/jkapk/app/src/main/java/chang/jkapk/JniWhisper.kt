@@ -51,9 +51,16 @@ object JniWhisper {
         l(text, pct)
     }
 
+    // jkapkTranscribe — #122 안정화(2026-10-31)로 useGpuAttempt 4인자 승계
+    // (단일 진실원 = whisper_jni.c 헤더 안정화 주석):
+    //   false = **기본 CPU 고정**(Vulkan 접촉 0 — 491MB판 폰 설치 후 앱 크래시+
+    //           시스템 "JK이 중단됨" 원문 — Vulkan 초기화 네이티브 사망 게이트)
+    //   true  = [GPU] 토글 소비(전사 1회 한정 — 2단 판정=자식 검증+레지스트리
+    //           검출 통과 한정만 GPU — 실패/예외 = CPU 폴백+verdict 원문 정직
+    //           표기 — 토글 복귀/판정부 = MainActivity 소관)
     @JvmStatic
     external fun jkapkTranscribe(wavPath: String, modelPath: String,
-                                 prompt: String): String
+                                 prompt: String, useGpuAttempt: Boolean): String
 
     // kVoicePrompt — SttVoice.cpp 원존 리터럴 수형(#112 EYESfix Step A +
     // #115b T1 + #118 T2 어휘 — prompt는 디코딩 편향 리스크 원장행도 승계:

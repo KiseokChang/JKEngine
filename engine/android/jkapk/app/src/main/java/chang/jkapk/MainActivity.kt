@@ -76,12 +76,33 @@
 //     +스탬프 "모델 사본 등호 (NB — 핀 NB)" — C 측 init 스탬프의 전제 원문.
 // 기존 사슬(캡처·해제·권한·/talk·덤프·R5 치환) 원존 무변조 — 신설 = 보고
 // leg 수입뿐.
+//
+// ── #122 안정화 — [GPU] 토글+영구 스킵 판정부(2026-10-31 사용자 실시간 원문) ──
+// 진원 원문: 491MB판 설치 후 앱 크래시+시스템 "JK이 중단됨" — Vulkan 초기화의
+// 네이티브 프로세스 사망(단일 진실원 = whisper_jni.c 안정화 헤더 주석 — 기본
+// 경로 Vulkan 접촉 0 게이트는 C 층 소관). 표면 소관:
+//   * 기본 경로 = useGpuAttempt=false(계약 1) — 토글 끔 상태가 앱의 원존.
+//   * [GPU] 토글(입력행 작은 버튼 1개): 켜면 **다음 전사 1회**만 GPU 시도 —
+//     수렴(성공/실패) 후 자동 복귀(끔). 시도 실패/예외 = CPU 폴백+verdict
+//     원문 정직 표기(구두 상태행 스탬프 채널 원존+[시스템] 1행 — 결과 수렴
+//     계기 유지).
+//   * 영구 스킵 판정부(preferences flag — 재량 수형·근거 원문): Vulkan 네이티브
+//     크래시는 예외가 아니라 **프로세스 사망**이라 앱이 자기 실행 내에서
+//     관측할 수 없다 — 유일한 증거는 "GPU 전사 개시 전 기록 → 수렴 시 소각 →
+//     다음 부팅 잔존" 흔적. onCreate에서 흔적 발견 = 이전 실행이 GPU 시도 중
+//     사망 → gpu_perm_skip 봉인+정직 기록. 봉인 후 [GPU] 토글은 시도 불가
+//     (클릭 = 정직 표기만) — 재시험 = 앱 데이터 소거(모델 487MB 재조립 수반).
+//     **무사한 실패(예외·프로세스 생존 수렴) = 영구 스킵 아님** — CPU 폴백
+//     표기뿐(과잉 봉인 방지 — 판정부는 사망 흔적 한정).
+// 기존 사슬(캡처·전사·덤프 MediaStore 폴백 1338e31·진행%·/talk·해제) 원존
+// 무변조.
 
 package chang.jkapk
 
 import android.Manifest
 import android.app.Activity
 import android.content.ContentValues
+import android.content.Context
 import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
@@ -149,6 +170,15 @@ class MainActivity : Activity() {
         "a428f6462d65c8f8942a2e1b9684910e5ff3a6873cc2b80856d549739627bba4"
 
     private lateinit var voiceButton: Button
+    // ── #122 안정화 — [GPU] 토글+영구 스킵 판정부 상태(헤더 주석 원문 계약) ──
+    private lateinit var gpuButton: Button
+    // 토글 ON = **다음 전사 1회**만 GPU 시도 — 전사 수렴 후 자동 복귀(끔).
+    private var gpuNextAttempt = false
+    // 영구 스킵 판정부 — 진실원 근거 원문은 헤더 주석(크래시 = 프로세스 사망 →
+    // 실행 내 관측 불가 — 개시 전 기록/수렴 소각/부팅 잔존 흔적 판정뿐).
+    private val gpuPrefs by lazy { getSharedPreferences("jkapk_gpu", Context.MODE_PRIVATE) }
+    private val kPrefGpuInflight = "gpu_inflight"   // GPU 전사 개시~수렴 표지
+    private val kPrefGpuPermSkip = "gpu_perm_skip"  // 사망 흔적 확정 = 영구 스킵
     private lateinit var voiceStatusView: TextView
     private var audioRecord: AudioRecord? = null
     @Volatile private var capturing = false
@@ -180,6 +210,9 @@ class MainActivity : Activity() {
     // 리스너 합성(메인) — dumpNote 원존 동형) ──
     @Volatile private var stagePct = -1     // whisper 진행 %(수취 — -1=미수령)
     @Volatile private var legLabel: String? = null  // "GPU 가속"/"CPU 변환"(D2)
+    // C verdict 원문 수취(안정화 — "전사 leg" 직후 스탬프 — GPU 시도 결과의
+    // 정직 표기 소관: 구두 상태행(원존 스탬프 경로)+[시스템] 수렴 1행).
+    @Volatile private var legVerdict: String? = null
     private val transcribeTickRun = object : Runnable {
         override fun run() {
             val sec = (SystemClock.elapsedRealtime() - transcribeStartMs) / 1000
@@ -246,6 +279,27 @@ class MainActivity : Activity() {
             text = "보내기"
             setOnClickListener { sendNow() }
         }
+        // [GPU] — 안정화 토글(헤더 주석 계약): 입력행 작은 버튼 1개. 켜면 다음
+        // 전사 1회만 GPU 시도·전사 수렴 후 자동 복귀. 영구 스킵 봉인 시 = 클릭은
+        // 정직 표기만(시도 차단 — 표기 대상자 몫이 아닌 판정부 소관).
+        gpuButton = Button(this).apply {
+            textSize = 11f
+            minimumWidth = 0
+            val pSmall = (10 * resources.displayMetrics.density).toInt()
+            setPadding(pSmall, 0, pSmall, 0)
+            text = gpuLabel()
+            setOnClickListener {
+                if (gpuPrefs.getBoolean(kPrefGpuPermSkip, false)) {
+                    appendChat(
+                        "시스템",
+                        "[!] GPU 시도 차단 — 영구 스킵 봉인 (이전 GPU 시도 중 프로세스 사망 흔적 — 재시험 = 앱 데이터 소거)",
+                        true)
+                    return@setOnClickListener
+                }
+                gpuNextAttempt = !gpuNextAttempt
+                text = gpuLabel()
+            }
+        }
         // [구두] — push-to-talk(재판정 원문: 헤더 주석 — 홀드=녹음·해제=마침).
         voiceButton = Button(this).apply {
             text = "구두"
@@ -274,6 +328,7 @@ class MainActivity : Activity() {
         inputRow.addView(inputView, LinearLayout.LayoutParams(
             0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         inputRow.addView(sendButton)
+        inputRow.addView(gpuButton)
         inputRow.addView(voiceButton)
 
         root.addView(statusView)
@@ -283,6 +338,28 @@ class MainActivity : Activity() {
         root.addView(inputRow)
         setContentView(root)
         renderLog()
+
+        // ── #122 안정화 — GPU 시도 중 프로세스 사망 흔적 판정(fail-closed) ──
+        // inflight 잔존 = 이전 실행이 GPU 전사 개시 후 수렴 없이 사망(크래시
+        // 원문 계통) → 영구 스킵 봉인+정직 기록. 소각 권한 = GPU 전사 수렴 몫.
+        // 근거 원문 = 헤더 주석(예외 아닌 프로세스 사망 — 흔적 판정뿐).
+        if (gpuPrefs.getBoolean(kPrefGpuInflight, false)) {
+            gpuPrefs.edit()
+                .putBoolean(kPrefGpuInflight, false)
+                .putBoolean(kPrefGpuPermSkip, true)
+                .apply()
+            appendChat(
+                "시스템",
+                "[!] 이전 실행이 GPU 시도 중 사망한 흔적 — GPU 영구 스킵 봉인 (재시험 = 앱 데이터 소거)",
+                true)
+            gpuButton.text = gpuLabel()
+        }
+    }
+
+    // [GPU] 라벨 — 토글 상태 정직 표기 1종(자동 복귀 후 표기도 동일 소관).
+    private fun gpuLabel(): String {
+        if (gpuPrefs.getBoolean(kPrefGpuPermSkip, false)) return "GPU(스킵)"
+        return if (gpuNextAttempt) "[GPU] 다음 1회" else "GPU"
     }
 
     // 전송 1회 — [나] 기록 즉시 반영 후 HTTP 스레드로 POST /talk.
@@ -435,6 +512,7 @@ class MainActivity : Activity() {
         transcribeStartMs = SystemClock.elapsedRealtime()
         stagePct = -1         // #122 — 신규 전사 창구: 진행/leg 원존 리셋
         legLabel = null
+        legVerdict = null     // 안정화 — C verdict 원문 수취 리셋(1회 소관)
         voiceUiHandler.removeCallbacks(transcribeTickRun)
         transcribeTickRun.run()
     }
@@ -634,7 +712,9 @@ class MainActivity : Activity() {
         appendChat("나", "(전사 중…)", false)
         transcribeProgressStart()  // "전사 중…"+경과 초 틱 개시(UX 수형)
         voiceButton.isEnabled = false
-        voiceExec.execute { transcribe(wav, slot) }
+        gpuButton.isEnabled = false  // 안정화 — 전사 중 토글 고정(중간 토글 유실 방지)
+        val tryGpu = gpuNextAttempt  // 토글 스냅샷 — 전사 1회 소비(계약: 다음 전사 1회)
+        voiceExec.execute { transcribe(wav, slot, tryGpu) }
     }
 
     // ── 디버그 leg 1(2026-10-31 진단용 일시 — 헤더 원장행 철수 계획) ────────
@@ -713,7 +793,9 @@ class MainActivity : Activity() {
     // T1 원장)가 조작 사슬을 막지 않는다). 성공 = R5 슬롯 치환(전사 원문
     // 그대로) → /talk 조작 사슬(타이핑 동형 — v1 사슬 무변조). 실패 = 슬롯을
     // 정직 오류 행으로 치환(기록 부풀림 0 — 데스크톱 DrainVoice 수형).
-    private fun transcribe(wav: File, slot: Int) {
+    // #122 안정화 — tryGpu: [GPU] 토글 스냅샷(전사 1회 소비 — finishVoice 스냅샷
+    // 수형). inflight 기록 = 영구 스킵 판정부의 증거(헤더 주석 근거 원문).
+    private fun transcribe(wav: File, slot: Int, tryGpu: Boolean) {
         var failText: String? = null
         var transcript: String? = null
         var rawLen = -1  // 디버그 leg 2 — JNI 반환 문자열 길이(예외로 미도달 = -1)
@@ -737,7 +819,14 @@ class MainActivity : Activity() {
                     // 미정의 (text,pct>0) 조합 = 방어 소각(계약 외 조용 소각 —
                     // 보고 leg뿐 — 사슬 접촉 0).
                 }
-                else -> setVoiceStatus(withDump(text))
+                else -> {
+                    // 스탬프/verdict 원문 채널(원존) — 안정화: "전사 leg" 직후
+                    // 도착하는 C 판정 원문("GPU 가속/CPU 변환/CPU 폴백" 접두)을
+                    // 유지 — GPU 시도 수렴 표기 소관. 표기는 원존 그대로.
+                    if (text.startsWith("GPU 가속") || text.startsWith("CPU 변환") ||
+                        text.startsWith("CPU 폴백")) legVerdict = text
+                    setVoiceStatus(withDump(text))
+                }
             }
         } }
         try {
@@ -751,8 +840,15 @@ class MainActivity : Activity() {
             }
             JniWhisper.voiceStage(
                 "모델 사본 등호 (${model.length()}B — 핀 등호)", -1)
+            if (tryGpu) {
+                // 판정부 증거 기록 — **JNI 진입 직전**(최소 창구). 사전 단계
+                // (모델 resolve/wav/녹음) 실패를 GPU 사망으로 오판하지 않는다
+                // (과잉 봉인 방지 — 증거는 Vulkan 창구 개시~수렴만).
+                gpuPrefs.edit().putBoolean(kPrefGpuInflight, true).apply()
+            }
             val text = JniWhisper.jkapkTranscribe(
-                wav.absolutePath, model.absolutePath, JniWhisper.kVoicePrompt)
+                wav.absolutePath, model.absolutePath, JniWhisper.kVoicePrompt,
+                tryGpu)
             rawLen = text.length
             val safe = JniWhisper.sanitizeTranscript(text)  // 보조 원존 — 2차 게이트
             if (safe.isBlank()) {
@@ -769,6 +865,19 @@ class MainActivity : Activity() {
             transcribeProgressStop()  // 경과 갱신 중지(UX 수형 — 성공/실패 공통)
             JniWhisper.stageListener = null  // #122 — 전사 창구 해제(보고 leg뿐)
             voiceButton.isEnabled = true
+            gpuButton.isEnabled = true   // 안정화 — 전사 중 토글 고정 해제
+            // ── #122 안정화 — GPU 시도 수렴(성공/실패 공통) ────────────────
+            gpuNextAttempt = false       // 자동 복귀(끔 — 다음 전사는 기본 CPU)
+            gpuButton.text = gpuLabel()
+            if (tryGpu) {
+                // 살아서 수렴 = 크래시 원문이 아니었다 — 판정부 증거 소각
+                // (영구 스킵 없음 — 과잉 봉인 방지 원존).
+                gpuPrefs.edit().putBoolean(kPrefGpuInflight, false).apply()
+                appendChat(
+                    "시스템",
+                    "GPU 시도 결과: ${legLabel ?: "(leg 라벨 미수령)"} — ${legVerdict ?: "(verdict 미수령)"}",
+                    legLabel != "GPU 가속")
+            }
             if (failText != null) {
                 replaceLine(slot, "[!] 전사 실패: $failText", true)
                 // 디버그 leg 2 — 빈 전사/예외 실패 구분 표기(계기뿐 — 기록

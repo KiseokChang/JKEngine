@@ -87,6 +87,37 @@
 //    원문 채널 2종: __android_log_print(폰)+Java 상태행 스탬프(일시 표기 —
 //    1행 계약 — 틱 합성이 수초 내 회수). env NULL(데스크톱 selftest main)=
 //    Java 채널 스킵(log 채널은 stderr 폴백 — 결정 축만 진입).
+//
+// ── #122 안정화 — Vulkan 진입 전면 게이트(2026-10-31 사용자 실시간 원문) ──
+// 진원 원문: 491MB판(9f3a2e3 — APK md5 919c6a53…)을 폰 설치 후 **앱 크래시+
+// 시스템 "JK이 중단됨"** — Vulkan 초기화(인스턴스 생성)가 폰 드라이버 경로에서
+// 프로세스를 사망시키는 네이티브 결함. reg()의 try/catch는 C++ 예외만 가두고
+// 드라이버 신호 사망(SIGSEGV 계통)은 흡수 불가(원존 주석의 안전 주장은 여기서
+// 무효 — 원장 정직 정정). 구조적 진원 2곳:
+//   (a) 9f3a2e3의 검출 leg(jk_probe_vulkan)가 전사마다 **무조건 실행** — 기본
+//       사용자(CPU 예정)조차 Vulkan에 닿는다. reg_by_name 첫 호출 = get_reg()
+//       유일 static 구성 = register_backend(ggml_backend_vk_reg()) = 폰에서
+//       인스턴스 생성 = 크래시 원문 축.
+//   (b) whisper_backend_init(vendored src/whisper.cpp)의 ACCEL 열거
+//       (ggml_backend_dev_count)는 use_gpu=false여도 **무조건** 실행 — 레지스트리
+//       구성 원문과 (a)와 같은 축. 즉 vulkan 링크판에서 "use_gpu=false만으로"
+//       Vulkan을 피하는 원존 경로는 존재하지 않는다.
+//   수형 3계약(2026-10-31 긴급 안정화):
+//   1) **기본 경로 = CPU 고정**: jk_transcribe_core의 tryGpu=0 분기 = Vulkan
+//      접촉 **0**(검출 leg 미실시)+cparams.use_gpu=false(9f3a2e3의 사실상
+//      기본 true 뒤집기 — 근거 = 위 원문)+**GGML_DISABLE_VULKAN=1 setenv** —
+//      vendored ggml-backend-reg.cpp 원존 env 분기(레지스트리 첫 구성에서만
+//      판독)를 쳐서 (b)의 ACCEL 열거조차 Vulkan reg를 건설하지 못하게 봉인.
+//      빌드/CMake 무변조 — vendored 원존 분기 소비뿐.
+//   2) **[GPU] 토글**(Java 명시 요청 tryGpu=1, 전사 1회 한정 — MainActivity
+//      소관): 성립 판정 2단 — ①자식 프로세스 검증 leg(3) 통과 ②인프로세스
+//      레지스트리 검출(jk_probe_vulkan) 통과 — **양축 통과 한정** use_gpu=true.
+//      그 외 전부 CPU 폴백+verdict 원문 정직 표기(스탬프 채널 원존 계약 승계).
+//   3) **자식 프로세스 검증 leg**: fork 1회 — 자식이 Vulkan 인스턴스 생성+
+//      물리장비 열거를 감수하고 _exit(0)만 성공으로 보고(위 게이트 주석).
+//   영구 스킵 판정부 = Java 측 preferences(MainActivity — 근거 원문: Vulkan
+//   네이티브 크래시는 예외가 아니라 프로세스 사망이라 앱 내부 관측 불가 —
+//   "시도 개시 전 기록 → 수렴 시 소각 → 다음 부팅 잔존"의 흔적 판정뿐).
 
 #include <stdint.h>
 #include <stdio.h>
@@ -239,6 +270,9 @@ int main(void) { return jk_selftest_sanitize(); }
 #include "ggml-backend.h"
 #ifdef __ANDROID__
 #include <android/log.h>
+#include <unistd.h>     // fork/_exit/alarm/setenv/unsetenv — #122 안정화 게이트
+#include <sys/wait.h>   // waitpid/WIFEXITED — 자식 검증 판정
+#include <dlfcn.h>      // dlopen/dlsym — 자식 Vulkan 최소 접촉(libvulkan)
 #endif
 
 #define JKJNI_ERR_MAX 512
@@ -287,11 +321,40 @@ static int jk_mono_ms(void) {  // 스테이지 경과 계기(CLOCK_MONOTONIC 원
     return (int)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
 }
 
+// ---- env 봉인 셈(GGML_DISABLE_VULKAN — #122 안정화 계약 1) ----
+// Windows(desktop selftest) 축 = CRT _putenv 폴백("이름=" 빈값 = 삭제 규약 —
+// mingw setenv 가용성 불안 원장행 회피). Android = bionic setenv/unsetenv 원존.
+#ifdef __ANDROID__
+static int jk_setenv(const char* n, const char* v) { return setenv(n, v, 1); }
+static void jk_unsetenv(const char* n) { unsetenv(n); }
+#else
+static int jk_setenv(const char* n, const char* v) {
+    size_t len = strlen(n) + strlen(v) + 2;
+    char* s = (char*)malloc(len);
+    if (s == NULL) return -1;
+    snprintf(s, len, "%s=%s", n, v);
+    int r = _putenv(s);
+    free(s);
+    return r;
+}
+static void jk_unsetenv(const char* n) {
+    size_t len = strlen(n) + 2;
+    char* s = (char*)malloc(len);
+    if (s == NULL) return;
+    snprintf(s, len, "%s=", n);
+    _putenv(s);
+    free(s);
+}
+#endif
+
 // ---- GPU 검출 leg(D2 fail-closed — 헤더 원존 주석 계약) ----
 // 진실원 = vendored ggml backend 레지스트리. 성공 1 + verdict = "GPU 가속 …"
 // / 실패 0 + verdict = "CPU 변환 …". ggml_backend_reg_by_name은 등록되지 않은
 // 이름에 NULL(등록 전 try/catch 밀폐 — C 측 예외 유입 0).
 static int jk_probe_vulkan(char* verdict, size_t verdictSz) {
+    // ⚠ 진원 원장(안정화 헤더 주석): 이 호출 = 레지스트리 첫 구성 트리거 가능
+    // — **[GPU] 토글 요청(tryGpu=1) 경로에서만** 도달해야 한다(기본 경로에서의
+    // 무조건 호출이 폰 크래시 원문).
     ggml_backend_reg_t reg = ggml_backend_reg_by_name("Vulkan");
     if (reg == NULL) {
         snprintf(verdict, verdictSz,
@@ -309,6 +372,102 @@ static int jk_probe_vulkan(char* verdict, size_t verdictSz) {
     snprintf(verdict, verdictSz, "GPU 가속 (Vulkan: %.160s — 장비 %zu)", d, ndev);
     return 1;
 }
+
+// ---- GPU 자식 프로세스 검증 leg(#122 안정화 계약 ③ — 정의 = 헤더 원존 주석) --
+// fork 1회 — **자식이 Vulkan을 감수**한다. 진원 원문(폰 설치 후 앱 크래시+시스템
+// "JK이 중단됨" — Vulkan 인스턴스 생성의 네이티브 프로세스 사망)은 부모가
+// 자기 사망을 관측할 수 없는 축이라, 진입 판정의 증거가 될 수 있는 것은
+// **자식의 생존+exit 0**뿐.
+//   pass = dlopen("libvulkan.so", 폰 시스템 동링커 — 원존 DT_NEEDED 계약 승계)
+//          +vkCreateInstance(VK 1.0 — pApplicationInfo NULL — 최광폭 호환)+
+//          vkEnumeratePhysicalDevices>0 → _exit(0). 부모 = WIFEXITED&&0.
+//   fail = 자식 신호 사망(드라이버 SIGSEGV 계통 포함 — alarm/SIGALRM 포함)·
+//          exit 0 아님(2-7 = 실패 단계 원문)·fork 실패·waitpid 실패 — 전부
+//          CPU 유지(fail-closed).
+// 함정 원장:
+//   ① 자식은 exit()가 아니라 **_exit()** — fork 복제 환경의 atexit/stdio
+//     플러시 재실행 절단(이중 플러시/부모 로컬 상태 오염 방지).
+//   ② alarm(5) 훅 — 붙잡힌 드라이버 로드의 무한 대기 차단(SIGALRM 기본 사망 =
+//     부모 신호 사망 판정 — 부모 waitpid는 자식 alarm 상한으로 유계).
+//   ③ 자식 접촉 최소(dlopen/dlsym/vk 3종뿐) — fork 뒤 malloc 잠금 상태 상속
+//     위험 최소화 원칙(원장행 — 부모 멀티스레드(ART+httpExec)에서 fork의
+//     고전적 유계 위험을 최소화하는 것을 본 leg의 본질로 삼는다).
+//   ④ dlsym은 부모의 eager DT_NEEDED 심볼 해소 상태에 의존하지 않는 독립 경로.
+//   ⑤ 자식은 부모 표기 채널(log/stage) 접촉 0 — 판정 증거 = exit 코드뿐.
+//   ⑥ 부모가 지나친 판정(원장행): 자식 통과가 부모 whisper 초기화의 안전까지
+//     보증하지 않는다(컨텍스트/버퍼 생성 = 인스턴스 생성과 별개 축) — 잔여
+//     리스크 = [GPU] 토글 옵트인+영구 스킵 판정부가 흡수한다(계약 2).
+#ifdef __ANDROID__
+static int jk_child_vulkan_probe(char* verdict, size_t verdictSz) {
+    pid_t pid = fork();
+    if (pid < 0) {
+        snprintf(verdict, verdictSz, "CPU 폴백 (자식 검증 fork 실패 — fail-closed)");
+        return 0;
+    }
+    if (pid == 0) {  // 자식 — 최소 접촉+즉시 판정
+        alarm(5);    // 훅 ② — 드라이버 로드 유계
+        void* h = dlopen("libvulkan.so", RTLD_LOCAL | RTLD_NOW);
+        if (h == NULL) _exit(2);
+        typedef void* (*jk_vk_giaddr_fn_t)(void*, const char*);
+        jk_vk_giaddr_fn_t gipa = (jk_vk_giaddr_fn_t)dlsym(h, "vkGetInstanceProcAddr");
+        if (gipa == NULL) _exit(3);
+        typedef int (*jk_vk_createinstance_fn_t)(const void*, const void*, void**);
+        jk_vk_createinstance_fn_t vkCreateInstance =
+            (jk_vk_createinstance_fn_t)gipa(NULL, "vkCreateInstance");
+        if (vkCreateInstance == NULL) _exit(4);
+        // 최소 ABI 레이아웃(시스템 Vulkan.h 계약 수형 — aarch64 LP64):
+        // sType=1(VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO)·pNext=NULL·flags=0·
+        // pApplicationInfo=NULL·layer/extension 열 = 0.
+        struct jk_vk_instance_ci {
+            unsigned int sType;      // pad(4) — pNext 정렬
+            void* pNext;
+            unsigned int flags;      // pad(4) — 다음 필드 정렬
+            void* pApplicationInfo;
+            const char* const* ppEnabledLayerNames;
+            unsigned int enabledLayerCount;   // pad(4)
+            const char* const* ppEnabledExtensionNames;
+            unsigned int enabledExtensionCount;
+        } ci;
+        memset(&ci, 0, sizeof(ci));
+        ci.sType = 1;
+        void* inst = NULL;
+        if (vkCreateInstance(&ci, NULL, &inst) != 0 || inst == NULL) _exit(5);
+        typedef int (*jk_vk_enum_fn_t)(void*, unsigned int*, void*);
+        jk_vk_enum_fn_t enumDevs =
+            (jk_vk_enum_fn_t)gipa(inst, "vkEnumeratePhysicalDevices");
+        if (enumDevs == NULL) _exit(6);
+        unsigned int ndev = 0;
+        if (enumDevs(inst, &ndev, NULL) != 0 || ndev == 0) _exit(7);
+        _exit(0);  // 성공 원문 — 부모 WIFEXITED&&WEXITSTATUS==0로만 수취
+    }
+    int w = 0;
+    if (waitpid(pid, &w, 0) < 0) {
+        snprintf(verdict, verdictSz, "CPU 폴백 (자식 검증 waitpid 실패)");
+        return 0;
+    }
+    if (WIFEXITED(w)) {
+        if (WEXITSTATUS(w) == 0) return 1;
+        snprintf(verdict, verdictSz,
+                 "CPU 폴백 (자식 Vulkan 검증 실패 — exit %d)", WEXITSTATUS(w));
+        return 0;
+    }
+    if (WIFSIGNALED(w)) {
+        snprintf(verdict, verdictSz,
+                 "CPU 폴백 (자식 Vulkan 검증 중 사망 — 신호 %d — 폰 드라이버 계통)",
+                 WTERMSIG(w));
+        return 0;
+    }
+    snprintf(verdict, verdictSz, "CPU 폴백 (자식 Vulkan 검증 이상 종료)");
+    return 0;
+}
+#else
+// 폰 외 축(desktop selftest main) = GPU 시도 경로 진입 불가 — CPU 고정 원존
+// (selftest는 tryGpu=0 핀 — 본 스텁은 compile-only 방어).
+static int jk_child_vulkan_probe(char* verdict, size_t verdictSz) {
+    snprintf(verdict, verdictSz, "CPU 폴백 (자식 검증 leg = Android 전용)");
+    return 0;
+}
+#endif  // __ANDROID__
 
 // ---- 진행 콜백 leg — whisper_full의 호출 스레드(voiceExec)에서만 불린다
 // (vendored whisper.cpp main loop 원문 — 스레드 안전: 보고는 jk_stage가
@@ -482,8 +641,11 @@ static int jk_load_wav_f32(const char* path, float** out_samples,
 // 모델 로드 실패·whisper_full rc!=0·전사 trim 결실 0 — 전부 정직 거부.
 // env = 스탬프/진행 보고 채널용(데스크톱 selftest main = NULL — log 채널 몫).
 // #122: 보고 leg뿐 — 사슬 계약(판독 규약·정리·trim) 무변조.
+// #122 안정화: tryGpu — 0 = **기본 CPU 고정**(Vulkan 접촉 0 — 헤더 원존 주석
+// ①)·1 = [GPU] 토글 요청(전사 1회 한정 — 2단 판정 통과 한정 GPU — ②③).
 static int jk_transcribe_core(JNIEnv* env, const char* wavPath,
                               const char* modelPath, const char* prompt,
+                              int tryGpu,
                               char** out, char** err) {
     *out = NULL;
     *err = NULL;
@@ -506,14 +668,50 @@ static int jk_transcribe_core(JNIEnv* env, const char* wavPath,
         jk_stage(env, stamp, -1);
     }
 
-    // #122 GPU 검출 leg(D2 fail-closed) — vendored ggml 레지스트리가
-    // 진실원. 실패 = use_gpu=false(기존 경로 무변조)·성공 = true.
-    // reg()/instance init 실패 = reg 부재 또는 장비 0 → CPU 폴백 원존
-    // (whisper_backend_init_gpu 원존 분기 — "no GPU found" → CPU).
+    // ── #122 안정화 Vulkan 게이트(계약 1·2·3 — 헤더 원존 주석) ───────────────
+    // tryGpu=0(기본·selftest) = Vulkan 접촉 0. tryGpu=1 = 2단 판정(자식 검증
+    // ③ → 인프로세스 검출 ②) **양축 통과 한정** use_gpu=true. 그 외 전부
+    // CPU+verdict 정직 원문. env 봉인 원장: GGML_DISABLE_VULKAN은 vendored
+    // reg.cpp가 **레지스트리 첫 구성에서만** 판독 — 첫 구성은 본 게이트
+    // (probe 또는 whisper init의 무조건 ACCEL 열거)에서 일어난다. 기본 경로는
+    // 구성 전 봉인 → ACCEL 열거조차 Vulkan reg를 건설하지 않는다(진원 (b)
+    // 차단). 봉인 해제는 GPU 시도뿐 — 단, 이 세션에서 봉인된 구성에 이어
+    // 시도하면 재구성이 없어(유일 static) reg 부재로 수렴 — verdict에 그
+    // 원문을 붙여 정직 표기한다(s_session_vk_sealed).
     char verdict[JKJNI_STAGE_MAX];
     int gpu;
     {
-        gpu = jk_probe_vulkan(verdict, sizeof(verdict));
+        // 단일 voiceExec 스레드(전사 직렬화 원존)만 접근 — 경합 없음(원장).
+        static int s_session_vk_sealed = 0;
+        if (tryGpu) {
+            if (jk_child_vulkan_probe(verdict, sizeof(verdict)) ) {
+                jk_unsetenv("GGML_DISABLE_VULKAN");  // 레지스트리 미구성 세션만 실효
+                gpu = jk_probe_vulkan(verdict, sizeof(verdict));
+                if (!gpu && s_session_vk_sealed) {
+                    // 함정 원장: snprintf in/out 버퍼 겹침(verdict %s 인수로
+                    // 되쓰기) = UB 계통 — 사본 경유로 절단.
+                    char probeV[JKJNI_STAGE_MAX];
+                    memcpy(probeV, verdict, strlen(verdict) + 1);
+                    snprintf(verdict, sizeof(verdict),
+                             "CPU 폴백 (%s — 세션 봉인: 이 세션에서 CPU 전사 선행"
+                             " — GPU 재시험 = 앱 재기동 후 첫 전사)", probeV);
+                } else if (!gpu) {
+                    // verdict = probe 원문("Vulkan 미성립…") 그대로 — 정직.
+                }
+            } else {
+                jk_setenv("GGML_DISABLE_VULKAN", "1");  // 이후 CPU 경로 봉인 유지
+                s_session_vk_sealed = 1;
+                gpu = 0;
+            }
+        } else {
+            // 기본 경로 = CPU 고정(계약 1 — cparams.use_gpu 기본 false의 C층
+            // 실현·폰 실기기 크래시 원문 근거는 헤더 주석). 검출 leg 미실시.
+            jk_setenv("GGML_DISABLE_VULKAN", "1");
+            s_session_vk_sealed = 1;
+            gpu = 0;
+            snprintf(verdict, sizeof(verdict),
+                     "CPU 변환 (기본 고정 — GPU 미시도 — Vulkan 접촉 0)");
+        }
         jk_log(verdict);
         jk_stage(env, "전사 leg", gpu ? 1 : 0);
         jk_stage(env, verdict, -1);  // 원문 1행 표기(틱이 수초 내 회수)
@@ -546,9 +744,12 @@ static int jk_transcribe_core(JNIEnv* env, const char* wavPath,
 
     struct whisper_context_params cparams = whisper_context_default_params();
     if (gpu) {
-        cparams.use_gpu = true;  // D2 — 검출 성립 한정(원존 CPU 주석 승계)
+        cparams.use_gpu = true;  // 안정화 계약 2 — [GPU] 토글 2단 판정 통과 한정
     } else {
-        cparams.use_gpu = false;  // CPU 원존 계약(GPU 실패 시 동작 = 기존과 동일)
+        // 기본 경로 = use_gpu **false**(계약 1 — 9f3a2e3의 사실상 기본 true를
+        // 뒤집은 긴급 안정화 — 근거 원문: 폰 설치 후 Vulkan 초기화 네이티브
+        // 크래시 — 헤더 원존 주석. GPU 실패 시 동작 = 기존 CPU 경로와 동일).
+        cparams.use_gpu = false;
     }
     ctx = whisper_init_from_file_with_params(modelPath, cparams);
     if (ctx == NULL) {
@@ -671,10 +872,12 @@ fail:
 
 // ---- JNI 계약 1종 — Java_chang_jkapk_JniWhisper_jkapkTranscribe ----
 // (헤더 원존 주석의 Java 계약 수형 — Kotlin 측 클래스는 T2 몫)
+// #122 안정화 — jUseGpu: false = 기본 CPU 고정(계약 1 — Vulkan 접촉 0)·
+// true = [GPU] 토글 소비(전사 1회 한정 — MainActivity 소관 — 계약 2).
 JNIEXPORT jstring JNICALL
 Java_chang_jkapk_JniWhisper_jkapkTranscribe(JNIEnv* env, jclass clazz,
                                             jstring jWavPath, jstring jModelPath,
-                                            jstring jPrompt) {
+                                            jstring jPrompt, jboolean jUseGpu) {
     (void)clazz;
     char errbuf[JKJNI_ERR_MAX];
     errbuf[0] = '\0';
@@ -687,7 +890,9 @@ Java_chang_jkapk_JniWhisper_jkapkTranscribe(JNIEnv* env, jclass clazz,
     if (!failed) {
         char* out = NULL;
         char* err = NULL;
-        if (jk_transcribe_core(env, wavPath, modelPath, prompt, &out, &err) != 0) {
+        if (jk_transcribe_core(env, wavPath, modelPath, prompt,
+                               (jUseGpu == JNI_TRUE) ? 1 : 0,
+                               &out, &err) != 0) {
             snprintf(errbuf, sizeof(errbuf), "jkapk 전사 실패: %s",
                      err != NULL ? err : "(err 누락 — 정직 거부 계약 위배)");
             (*env)->ThrowNew(env,
@@ -730,7 +935,8 @@ int main(int argc, char** argv) {
     const char* prompt = (argc > 3) ? argv[3] : "";
     char* out = NULL;
     char* err = NULL;
-    if (jk_transcribe_core(NULL, argv[1], argv[2], prompt, &out, &err) != 0) {
+    // #122 안정화 — selftest = 기본 CPU 고정 핀(tryGpu=0 — Vulkan 접촉 0).
+    if (jk_transcribe_core(NULL, argv[1], argv[2], prompt, 0, &out, &err) != 0) {
         fprintf(stderr, "%s\n", err ? err : "(err 누락)");
         free(out);
         free(err);
