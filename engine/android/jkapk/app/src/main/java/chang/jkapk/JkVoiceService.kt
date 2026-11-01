@@ -39,6 +39,12 @@ class JkVoiceService : Service() {
         const val VOICE_CH = "jk_voice"
         const val VOICE_NID = 41
         const val TALK_URL = "http://localhost:8090/talk"
+        // #124 세션 기록 계약(jkengine-89 요청 — 사용 저널 세션 축): 앱 프로세스
+        // 시작 시 1회 생성 짧은 id — 서버 측 /talk 수취·기록 소관(필드 부재=
+        // 서버 정상 동작 — 순서 무관 계약 원존).
+        val SESSION_ID: String =
+            "ap" + java.util.UUID.randomUUID().toString()
+                .replace("-", "").take(10)
     }
 
     private var recognizer: SpeechRecognizer? = null
@@ -191,8 +197,15 @@ class JkVoiceService : Service() {
     }
 
     // ---- POST /talk (MainActivity postTalk 사슬 1:1 승계 — 무변조 계약) ----
+    // #124 세션 기록 바디 확장(jkengine-89 요청): "session"(프로세스 수명 짧은
+    // id)+"stt":"system"(이 서비스·Whisper/typed는 각 소관 leg가 표기 —
+    // MainActivity 쪽 = 원장행)+"stt_ms"(누름~결과 ms — 실측 원문 열).
     private fun talkPost(text: String) {
-        val body = "{\"text\":\"" + jsonEsc(text) + "\"}"
+        val ms = android.os.SystemClock.elapsedRealtime() - sttStartMs
+        val body = "{\"text\":\"" + jsonEsc(text) + "\"" +
+            ",\"session\":\"$SESSION_ID\"" +
+            ",\"stt\":\"system\"" +
+            ",\"stt_ms\":$ms}"
         val bytes = body.toByteArray(StandardCharsets.UTF_8)
         val conn = URL(TALK_URL).openConnection() as HttpURLConnection
         try {
