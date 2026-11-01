@@ -799,11 +799,12 @@ std::string TrimWsp(const std::string& raw) {
 std::string ActionSchemaLine() {
     return "[ 행동 JSON 양식(예시 꼴, 표준 JSON으로 필드명과 값을 큰따옴표로 "
            "감싸라) ] { action: launch / close / focus / list / browser / "
-           "talk,  app: 앱 영문 키(앱 조작) 또는 웹사이트 주소(브라우저),  "
-           "text: 사용자에게 보여줄 한국어 안내문 }";
-    // #124 r6 — schema 4종+talk에 browser 확장(폰 브라우저 개봉 — 원장:
-    // 스키마 확장 류는 갱신행 승계). app=URL·한국어 발음 표기도 받는다(서버가
-    // 복원 — 아래 ParseActionJson browser 지시 + jkweb UrlSafe 게이트).
+           "btype / talk,  app: 앱 영문 키(앱 조작)·웹사이트 주소(브라우저)·"
+           "미사용(btype),  text: 보여줄 한국어 안내문(입력 지시 btype에서는 "
+           "입력할 글자 ) }";
+    // #124 r6 — browser 확장·#124 2단계(r9) — btype 확장(페이지 입력창 채움
+    // +엔터 — LLM이 text에 입력할 글자를 넣어 보낸다). 스키마 확장 류는
+    // 갱신행 승계 원존.
 }
 
 // 승격 프롬프트 본문 — 프리앰블 불포함(엔진 계약 소관 — 헤더 주석).
@@ -834,6 +835,8 @@ std::string ComposeChatLlmPrompt(const std::string& text) {
         "search.naver.com/search.naver?query=검색어 유튜브는 "
         "youtube.com/results?search_query=검색어 구글은 "
         "google.com/search?q=검색어 지정없는 검색은 google.com/search?q=. "
+        "검색창에 글을 직접 넣는 지시(예 이 검색창에 ○○ 입력해줘 꼴)는 btype "
+        "으로 해석한다 — text에 입력할 글자를 넣어 보낸다(app은 비운다). "
         "talk=행동이 필요하지 않은 대답(text의 문장만 회신한다). ";
     // 트리거 표 — kRouteTable 순회(InfoGuide의 표 재인쇄 선례: 진실원에서
     // 뽑아 인쇄한다). 긴/짧은 형 중복은 같은 kind가 인접하므로 첫 등장만.
@@ -985,6 +988,13 @@ bool ChatLlmActionParse(const std::string& llmText, ChatAction& out,
         out.kind = ChatAction::AmpkOpen;
         const std::string restored = ChatRestorePhonemeUrl(app);
         out.app = !restored.empty() ? restored : app;
+    } else if (act == "btype") {
+        // #124 2단계(r9) — 페이지 입력창 채움+엔터. text(입력할 글자) 필수 —
+        // app은 미사용. 브라우저 창 수신기가 JS로 적용한다(서버 접촉 0).
+        std::string text1;
+        if (!j.GetStr("text", text1) || text1.empty()) return false;
+        out.kind = ChatAction::AmpkType;
+        out.app = text1;   // app 필드 = 입력할 글자 payload(수신기 계약 원존)
     } else if (act == "talk") {
         out.kind = ChatAction::Info;   // 행동 없음 — text만 회신
     } else {

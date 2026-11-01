@@ -43,30 +43,28 @@ class BrowserActivity : Activity() {
                     if (i.getStringExtra(JkVoiceService.EXTRA_STATE) == "error")
                         toast(i.getStringExtra(JkVoiceService.EXTRA_DETAIL))
                 JkVoiceService.BC_REPLY -> {
-                    // #124 r3 — 개봉지시 스스로 적용: 이 창이 화면 앞(사용자가
-                    // [구두] 홀드 중)이므로 규제 밖 직통 — 서비스 startActivity
-                    // leg(BAL 엣지 원존 r2) 대체. r5 계측판(2026-11-01 — 토스트
-                    // 3종으로 정체 지점 화면 노출 — EYES 직독):
-                    //   [적용] 토스트 = 브랜치 도달 → goNow 호출 뒤 엔진 표기
-                    //   [미도달] 토스트(구회신판대로) = EXTRA_KIND 비거주 — 서비스
-                    //   파서 leg 원진 — 다음 수형 축
-                    if (i.getStringExtra(JkVoiceService.EXTRA_KIND) == "AmpkOpen") {
-                        // 이미 이 창(브라우저) 자체가 떠 있으므로 "개봉만" 지시는
-                        // 적용 상태 그대로(가짜 이동 금지 — 무대응 정직).
-                        val u = i.getStringExtra(JkVoiceService.EXTRA_URL).orEmpty()
-                        Log.i("JK-BROWSER", "VOICE-RECV kind=AmpkOpen url=$u")   // #124 r5 — 사슬 계측
-                        Toast.makeText(this@BrowserActivity,
-                            "①지시 수신: URL=$u (엔진=${engineName()})",
-                            Toast.LENGTH_LONG).show()
-                        if (u.isNotEmpty()) {
-                            urlInput.setText(u)
-                            goNow()
+                    // #124 r3 — 개봉지시 스스로 적용(이 창이 화면 앞 — 규제 밖
+                    // 직통). r9 — AmpkType(페이지 입력창 채움) leg는 #124 2단계.
+                    val k = i.getStringExtra(JkVoiceService.EXTRA_KIND).orEmpty()
+                    when (k) {
+                        "AmpkOpen" -> {
+                            val u = i.getStringExtra(JkVoiceService.EXTRA_URL).orEmpty()
+                            Log.i("JK-BROWSER", "VOICE-RECV kind=AmpkOpen url=$u")
+                            if (u.isNotEmpty()) {
+                                urlInput.setText(u)
+                                goNow()
+                            }
                         }
-                        return
+                        "AmpkType" -> {
+                            val t = i.getStringExtra(JkVoiceService.EXTRA_URL).orEmpty()
+                            Log.i("JK-BROWSER", "VOICE-RECV kind=AmpkType len=${t.length}")
+                            typeIntoPage(t)
+                        }
+                        else -> {
+                            Log.i("JK-BROWSER", "VOICE-RECV kind=$k")
+                            toast(i.getStringExtra(JkVoiceService.EXTRA_DETAIL))
+                        }
                     }
-                    Log.i("JK-BROWSER",
-                        "VOICE-RECV kind=${i.getStringExtra(JkVoiceService.EXTRA_KIND)} url=미지시")
-                    toast(i.getStringExtra(JkVoiceService.EXTRA_DETAIL))
                 }
             }
         }
@@ -204,18 +202,39 @@ class BrowserActivity : Activity() {
         if (!raw.startsWith("http://") && !raw.startsWith("https://")) {
             raw = "https://$raw"
         }
-        if (engineName() == "geckoview") {
-            val s = geckoSession
-            if (s == null) {
-                Toast.makeText(this, "②Gecko 세션 준비 안 됨 — 창 재개봉 필요",
-                    Toast.LENGTH_LONG).show()
-                return
+        if (engineName() == "geckoview") geckoSession?.loadUri(raw)
+        else webView.loadUrl(raw)
+    }
+
+    // #124 2단계(r9) — 페이지 입력창 자동 지명(text input/textarea)에 글자를
+    // 넣고 Enter를 발사하는 leg. 자바스크립트 1문 — React 등 입력 이벤트와의
+    // 정합 = native value setter+input 이벤트 발사(표준 우회 관용구). 성립
+    // 결과는 Log(JK-BROWSER TYPE-RESULT) — 사용자는 페이지 반응으로 판정.
+    private fun typeIntoPage(text: String) {
+        if (engineName() != "webview") {
+            Log.i("JK-BROWSER", "TYPE-SKIP engine=${engineName()} (webview 전용 leg)")
+            return
+        }
+        val js = "(function(t){var els=Array.prototype.slice.call(" +
+            "document.querySelectorAll('input,textarea')).filter(function(e){return " +
+            "e.offsetParent!==null&&!e.disabled&&e.type!=='hidden';});" +
+            "var el=els.filter(function(e){return " +
+            "(e.name||''+e.id||'').match(/search|q$|query/i)||e.type==='search';})[0]" +
+            "||els.filter(function(e){return e.type==='text'||e.type==='search';})[0]" +
+            "||els[0];if(!el)return 'no-input';el.focus();" +
+            "var set=Object.getOwnPropertyDescriptor(el.__proto__,'value').set;" +
+            "set.call(el,t);el.dispatchEvent(new Event('input',{bubbles:true}));" +
+            "el.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter'," +
+            "keyCode:13,which:13,bubbles:true}));" +
+            "if(e_form)try{el.form.requestSubmit();}catch(_){};" +
+            "return 'ok:'+t.length;})(" +
+            org.json.JSONObject.quote(text) + ")".replace("e_form", "el.form")
+        webView.evaluateJavascript(js) { r ->
+            Log.i("JK-BROWSER", "TYPE-RESULT raw=$r")
+            if (r.contains("\"no-input\"")) {
+                Toast.makeText(this, "입력창을 찾지 못했습니다 (정직 거부)",
+                    Toast.LENGTH_SHORT).show()
             }
-            Toast.makeText(this, "②이동 개시(Gecko): $raw", Toast.LENGTH_SHORT).show()
-            s.loadUri(raw)
-        } else {
-            Toast.makeText(this, "②이동 개시(WebView): $raw", Toast.LENGTH_SHORT).show()
-            webView.loadUrl(raw)
         }
     }
 

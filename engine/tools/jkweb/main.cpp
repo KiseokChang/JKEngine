@@ -567,6 +567,32 @@ void HandleConn(jk::net::Socket conn) {
 
 } // namespace
 
+#if defined(JK_WEB_INPROCESS)
+// #126 jkdesktop-apk — jkweb 본체의 in-process 재용(스펙 2026-11-01 §5):
+// 서버 스레드에서 8090 루프백 HTTP를 돌려 /talk 표면을 jkdesktop 안으로.
+// 커넥션 처리(HandleConn)·턴 파이프라인(ChatRouteTurn+JKAgentClient)은
+// jkweb 단독 빌드와 동일 진실원 — 인자 파싱·기동 인쇄만 생략한 루프 1개.
+extern "C" int JKWebStartInProcess() {
+    if (!jk::net::Startup()) {
+        std::fprintf(stderr, "[jkdesk] chat HTTP startup failed\n");
+        return 1;
+    }
+    const jk::net::Socket listener = jk::net::ListenTcp(
+        "127.0.0.1", 8091, 8);  // 8090=구판 Termux jkweb 공존(스펙 §6)
+    if (listener == jk::net::kInvalidSocket) {
+        std::fprintf(stderr, "[jkdesk] chat HTTP bind failed (:8090)\n");
+        return 1;
+    }
+    std::fprintf(stderr, "[jkdesk] chat HTTP in-process (:8091)\n");
+    std::fflush(stderr);
+    for (;;) {
+        const jk::net::Socket conn = jk::net::Accept(listener);
+        if (conn == jk::net::kInvalidSocket) continue;
+        std::thread(HandleConn, conn).detach();
+    }
+}
+#endif // JK_WEB_INPROCESS
+
 // argv 인코딩 계약(jktalk 승계 — docs/48 레슨): UTF-8. win32는 wmain leg가
 // UTF-16 argv를 CP_UTF8로 정규화, posix는 exec가 바이트열 argv를 그대로.
 static int RunMain(int argc, char* argv[]);
@@ -577,6 +603,8 @@ extern "C" __declspec(dllimport) int __stdcall WideCharToMultiByte(
     int cchWideChar, char* lpMultiByteStr, int cbMultiByte,
     const char* lpDefaultChar, int* lpUsedDefaultChar);
 
+#ifndef JK_WEB_INPROCESS
+/* in-process 모드 = main 배제(별도 바이너리 전용) */
 int wmain(int argc, wchar_t* argv[]) {
     std::vector<std::string> utf8(static_cast<size_t>(argc > 0 ? argc : 1));
     std::vector<char*> ptrs(static_cast<size_t>(argc > 0 ? argc : 1), nullptr);
@@ -598,6 +626,7 @@ int main(int argc, char* argv[]) {
     return RunMain(argc, argv);
 }
 #endif // _WIN32
+#endif /* JK_WEB_INPROCESS */
 
 // 본체: --port N(기본 8090)·--bind(기본 loopback 127.0.0.1, all=INADDR_ANY
 // 옵트인) → listen → 기동 인쇄(활성 모드 명시, localhost URL 기준) → accept
