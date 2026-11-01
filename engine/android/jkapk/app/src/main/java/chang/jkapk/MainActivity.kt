@@ -115,6 +115,9 @@ import android.os.Looper
 import android.os.Process
 import android.os.SystemClock
 import android.provider.MediaStore
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
 import android.text.InputType
 import android.view.Gravity
 import android.view.KeyEvent
@@ -182,6 +185,16 @@ class MainActivity : Activity() {
     private val kPrefGpuInflight = "gpu_inflight"   // GPU 전사 개시~수렴 표지
     private val kPrefGpuPermSkip = "gpu_perm_skip"  // 사망 흔적 확정 = 영구 스킵
     private lateinit var voiceStatusView: TextView
+    // ── 기본 음성 인식(2026-11-01 사용자 결정 ①) ──
+    // [구두] 기본 엔진 = Android SpeechRecognizer(폰의 구글/삼성 인식 서비스 —
+    // 키보드 마이크와 같은 엔진, 말하는 중 중간 결과). Whisper(앱 내장)는
+    // [인식] 버튼으로 고르는 예비. 선택은 prefs에 보존. 인식 서비스가 없는
+    // 기기 = Whisper로 자동 진행(정직 표기).
+    private lateinit var engineButton: Button
+    private val sttPrefs by lazy { getSharedPreferences("jkapk_stt", Context.MODE_PRIVATE) }
+    private val kPrefUseSystem = "use_system_stt"
+    private var recognizer: SpeechRecognizer? = null
+    private var sysListening = false
     private var audioRecord: AudioRecord? = null
     @Volatile private var capturing = false
     private var capThread: Thread? = null
@@ -342,7 +355,23 @@ class MainActivity : Activity() {
         }
         inputRow.addView(inputView, LinearLayout.LayoutParams(
             0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        engineButton = Button(this).apply {
+            textSize = 11f
+            minimumWidth = 0
+            val pSmall = (10 * resources.displayMetrics.density).toInt()
+            setPadding(pSmall, 0, pSmall, 0)
+            text = engineLabel()
+            setOnClickListener {
+                if (sysListening || capturing) return@setOnClickListener
+                sttPrefs.edit().putBoolean(kPrefUseSystem, !useSystemStt()).apply()
+                text = engineLabel()
+                gpuButton.visibility = if (useSystemStt()) View.GONE else View.VISIBLE
+            }
+        }
+        // GPU 토글은 Whisper 전용 — 기본 인식일 땐 숨긴다.
+        gpuButton.visibility = if (useSystemStt()) View.GONE else View.VISIBLE
         inputRow.addView(sendButton)
+        inputRow.addView(engineButton)
         inputRow.addView(gpuButton)
         inputRow.addView(voiceButton)
         inputRow.addView(browserButton)
@@ -371,6 +400,10 @@ class MainActivity : Activity() {
             gpuButton.text = gpuLabel()
         }
     }
+
+    private fun useSystemStt(): Boolean = sttPrefs.getBoolean(kPrefUseSystem, true)
+
+    private fun engineLabel(): String = if (useSystemStt()) "인식:기본" else "인식:Whisper"
 
     // [GPU] 라벨 — 토글 상태 정직 표기 1종(자동 복귀 후 표기도 동일 소관).
     private fun gpuLabel(): String {
@@ -572,7 +605,96 @@ class MainActivity : Activity() {
                     // 대기 중 손가락이 이미 떨어진 홀드가 무인 녹음으로 잡음
                     // 전사 경로에 유입되는 것을 소각. 다음 홀드에서 시작.
         }
+        if (useSystemStt()) {
+            if (SpeechRecognizer.isRecognitionAvailable(this)) {
+                startSystemStt()
+                return
+            }
+            appendChat("시스템",
+                "[!] 이 폰에서 기본 음성 인식 서비스를 찾지 못해 Whisper로 진행합니다", true)
+        }
         startCaptureActual()
+    }
+
+    // ---- 기본 음성 인식(SpeechRecognizer) ----
+    // 누름 = startListening, 뗌 = stopListening(끝 판정은 서비스가 함께 함).
+    // 결과는 타이핑과 같은 꼬리(appendChat [나] + sendPrepared)로 흘린다.
+    // SpeechRecognizer는 메인 스레드 전용 — 모든 호출이 터치/콜백(메인).
+    private fun startSystemStt() {
+        if (sysListening) return
+        val sr = recognizer ?: SpeechRecognizer.createSpeechRecognizer(this).also {
+            it.setRecognitionListener(sttListener)
+            recognizer = it
+        }
+        val intent = android.content.Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ko-KR")
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
+        }
+        sysListening = true
+        sttStartMs = SystemClock.elapsedRealtime()
+        setVoiceStatus("듣는 중… (버튼 해제로 마침)")
+        try {
+            sr.startListening(intent)
+        } catch (e: Exception) {
+            sysListening = false
+            failVoice("기본 음성 인식 시작 실패: ${e.message}")
+        }
+    }
+
+    private var sttStartMs = 0L
+
+    private val sttListener = object : RecognitionListener {
+        override fun onReadyForSpeech(params: Bundle?) {}
+        override fun onBeginningOfSpeech() {}
+        override fun onRmsChanged(rmsdB: Float) {}
+        override fun onBufferReceived(buffer: ByteArray?) {}
+        override fun onEndOfSpeech() {
+            if (sysListening) setVoiceStatus("인식 중…")
+        }
+        override fun onEvent(eventType: Int, params: Bundle?) {}
+
+        override fun onPartialResults(partialResults: Bundle?) {
+            val t = partialResults
+                ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                ?.firstOrNull()?.trim().orEmpty()
+            if (t.isNotEmpty()) setVoiceStatus("듣는 중… $t")
+        }
+
+        override fun onResults(results: Bundle?) {
+            sysListening = false
+            val t = results
+                ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                ?.firstOrNull()?.trim().orEmpty()
+            val ms = SystemClock.elapsedRealtime() - sttStartMs
+            if (t.isEmpty()) {
+                failVoice("인식 결과 없음 — 다시 말해 주세요")
+                return
+            }
+            setVoiceStatus("인식 완료 (기본 · 누름부터 ${ms / 100 / 10.0}s)")
+            appendChat("나", t, false)
+            sendPrepared(t)
+        }
+
+        override fun onError(error: Int) {
+            sysListening = false
+            failVoice("기본 음성 인식 실패: ${sttErrorText(error)}")
+        }
+    }
+
+    private fun sttErrorText(code: Int): String = when (code) {
+        SpeechRecognizer.ERROR_NO_MATCH -> "알아들은 말 없음 (다시 말해 주세요)"
+        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "말소리가 들리지 않음"
+        SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT ->
+            "네트워크 오류 ([인식] 버튼으로 Whisper 전환 가능)"
+        SpeechRecognizer.ERROR_AUDIO -> "마이크 녹음 오류"
+        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "마이크 권한 없음"
+        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "인식기가 사용 중 — 잠시 후 다시"
+        SpeechRecognizer.ERROR_CLIENT -> "취소됨"
+        else -> "오류 코드 $code"
     }
 
     override fun onRequestPermissionsResult(
@@ -706,6 +828,11 @@ class MainActivity : Activity() {
     // [구두] 해제 — 판독 절단 → WAV 조립(표면 소유 경로) → 전사 스레드(R5
     // placeholder 도착). 데스크톱 FinishVoice 수형(빈 결실 = 정직 거부).
     private fun finishVoice() {
+        if (sysListening) {
+            setVoiceStatus("인식 중…")
+            try { recognizer?.stopListening() } catch (_: Exception) {}
+            return
+        }
         if (!capturing) return
         capturing = false
         val rec = audioRecord
@@ -1007,6 +1134,8 @@ class MainActivity : Activity() {
         audioRecord = null
         pcmBuf = null
         transcribeProgressStop()  // 경과 갱신 중지(onDestroy 소관 — UX 수형)
+        recognizer?.destroy()     // 기본 음성 인식 해제
+        recognizer = null
         JniWhisper.stageListener = null  // #122 — 표면 해제(보고 leg뿐)
         voiceExec.shutdown()
         httpExec.shutdown()
