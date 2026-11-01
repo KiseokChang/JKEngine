@@ -323,6 +323,19 @@ class MainActivity : Activity() {
             textSize = 13f
             setPadding(0, row / 2, 0, 0)
         }
+        // [브라우저] — #123 폰 브라우저 T1 진입 계약(BrowserActivity 개봉 —
+        // 두 겹 구조 원존: DeX 그리드는 Termux 네이티브 셸이라 여기서 진입).
+        val browserButton = Button(this).apply {
+            textSize = 11f
+            minimumWidth = 0
+            setPadding((10 * resources.displayMetrics.density).toInt(), 0,
+                (10 * resources.displayMetrics.density).toInt(), 0)
+            text = "브라우저"
+            setOnClickListener {
+                startActivity(android.content.Intent(this@MainActivity,
+                    BrowserActivity::class.java))
+            }
+        }
         val inputRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -332,6 +345,7 @@ class MainActivity : Activity() {
         inputRow.addView(sendButton)
         inputRow.addView(gpuButton)
         inputRow.addView(voiceButton)
+        inputRow.addView(browserButton)
 
         root.addView(statusView)
         root.addView(scrollView, LinearLayout.LayoutParams(
