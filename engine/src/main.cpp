@@ -10919,10 +10919,11 @@ static int RunMain(int argc, char* argv[]) {
         jk::MirrorLogToFiles("state/logs", "server");
         jk::server::JKWindowServer server;
 #if defined(__ANDROID__)
-        // 스파이크-B (docs/101 방향 B): 실행물이 nativeLibraryDir의
-        // lib*.so로 포장되어 exec되므로 클라 호스트도 같은 파일 — clientHostExe
-        // 기본값("jkdesktop")은 nativeLibraryDir에 없다.
-        server.SetClientHostExe("libjkdesk.so");
+        // 스파이크-B (docs/101 방향 B): 클라 호스트 = exec 전용 PIE 실행파일
+        // libjkc.so(r12 실측 원문 — ET_DYN 공유 객체는 exec로 SIGILL 즉사:
+        // PT_INTERP 부재라 커널이 e_entry로 점프. W^X 우회는 실행파일 포장이
+        // 정석). 서버 본체(libjkdesk.so)는 SDLActivity의 dlopen 물리로 분리.
+        server.SetClientHostExe("libjkc.so");
 #endif
         // 단일 인스턴스 가드(docs/59 §10) — Init 전에 봉쇄: 가드가 Init 뒤에
         // 있으면 거부 인스턴스가 앱 설치+아이콘 로드를 전부 수행한 뒤 죽는다

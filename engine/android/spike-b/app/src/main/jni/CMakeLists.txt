@@ -142,6 +142,9 @@ add_library(jkcore STATIC
     ${ENG}/src/JKJkxFile.cpp
     ${ENG}/src/JKLibraryCatalog.cpp
     ${ENG}/src/apps/ChatRouter.cpp
+    # 스파이크 흡수 갱신 — 병렬 음성 세션의 대화 세션 기록(TU 봉입,
+    # main.cpp selftest가 이 심볼을 만난다: r7 링크 실패 원문)
+    ${ENG}/src/apps/ChatSessionLog.cpp
     ${ENG}/src/JKVectorFont.cpp
     ${ENG}/src/script/JKScriptHost.cpp
     ${ENG}/src/script/JKScriptCanvas.cpp
@@ -195,10 +198,8 @@ add_library(jkclient STATIC
 target_link_libraries(jkclient PUBLIC jkcore)
 
 # ---------------------------------------------------- libjkdesk.so (서버 본체) --
-# 엔진 jkdesktop exe 소스 목록(main.cpp+단일프로세스 앱들)을 SHARED로 뒤집되
-# SDLActivity가 dlsym하는 SDL_main이 진입(jksrv_main.cpp — 엔진 main()을
-# 그대로 호출). 실행물은 서버/클라 겸용 — 서버는 SDLActivity가 in-process
-# 로드, 클라는 nativeLibraryDir에서 exec(--client …)하는 동일 파일.
+# SDLActivity가 dlopen하는 SDLMain 진입물(jksrv_main.cpp — 엔진 main()을
+# 호출). 서버용 — ET_DYN.
 add_library(jkdesk SHARED
     "${SPIKE_JNI}/jksrv_main.cpp"
     ${ENG}/src/main.cpp
@@ -223,6 +224,46 @@ add_library(jkdesk SHARED
     ${ENG}/src/apps/TerminalHangulInput.cpp
 )
 target_link_libraries(jkdesk PRIVATE jkcore jkserver jkclient)
+
+# --------------------------------------------------- libjkc.so (exec 전용) --
+# r12 실측 원문: exec당 "Illegal instruction" — 공유 객체(ET_DYN, PT_INTERP
+# 부재)는 그 자체로 exec 불가, 커널이 e_entry로 점프. W^X 우회의 정석 수형 =
+# 진짜 PIE 실행파일을 lib*.so로 포장(jniLibs 규약 통과). 엔진 main.cpp를
+# 직접 진입으로 하는 실행파일 — 클라 exec(--client/--jkx)의 물리.
+add_executable(jkc
+    ${ENG}/src/main.cpp
+    ${ENG}/src/apps/JangoApp.cpp
+    ${ENG}/src/apps/JangoUI.cpp
+    ${ENG}/src/apps/Equip24App.cpp
+    ${ENG}/src/apps/EquipApp.cpp
+    ${ENG}/src/apps/InsaApp.cpp
+    ${ENG}/src/apps/OccApp.cpp
+    ${ENG}/src/apps/OccUI.cpp
+    ${ENG}/src/apps/PcxApp.cpp
+    ${ENG}/src/apps/VectorApp.cpp
+    ${ENG}/src/apps/IconEditApp.cpp
+    ${ENG}/src/apps/RecogApp.cpp
+    ${ENG}/src/apps/VectorFontApp.cpp
+    ${ENG}/src/apps/VectorPresApp.cpp
+    ${ENG}/src/apps/MineSweeperApp.cpp
+    ${ENG}/src/apps/AppLauncherItem.cpp
+    ${ENG}/src/apps/TetrisApp.cpp
+    ${ENG}/src/apps/TerminalApp.cpp
+    ${ENG}/src/apps/TerminalView.cpp
+    ${ENG}/src/apps/TerminalHangulInput.cpp
+)
+set_target_properties(jkc PROPERTIES
+    OUTPUT_NAME "libjkc"   # jniLibs 패키징 규약(lib*.so만 surviving)
+    SUFFIX ".so")
+target_link_libraries(jkc PRIVATE jkcore jkserver jkclient)
+# AGP는 공유 lib만 빌드 대상으로 만든다(r4 ninja 원문: SDL2 jkapp_* jkdesk) —
+# jkdesk를 의존으로 묶어 gradle 빌드 사슬 안에 흡수하고, 산출물을 jniLibs 트리로
+# POST_BUILD 복사(포장은 jniLibs/<abi>/lib*.so 정주 경로로 확립).
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../jniLibs/arm64-v8a")
+add_custom_command(TARGET jkc POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:jkc>
+            "${CMAKE_CURRENT_SOURCE_DIR}/../jniLibs/arm64-v8a/libjkc.so")
+add_dependencies(jkdesk jkc)
 
 # ------------------------------------------------- 모듈 (lib*.so 패키징) --
 # jniLibs 규약: nativeLibraryDir에 실리려면 lib 접두 필요 — 엔진 main.cpp의
