@@ -10959,6 +10959,32 @@ static int RunMain(int argc, char* argv[]) {
         if (!server.StartAcceptor(jk::ipc::kWindowServerPipeName)) {
             return 1;
         }
+#if defined(__ANDROID__)
+        // 스파이크-B 자동화(docs/101 §5 재시험 루프 절감): JK_SPIKE_AUTOSPAWN
+        // env의 앱을 부팅 1.5s 후에 스폰 — 재시험마다 수동 아이콘 탭을 대신한다.
+        // 스폰 물리는 서버 spawn leg와 동형(libjkc.so --client <app> — exe-dir
+        // = JK_EXE_PATH(nativeLibraryDir)). Run 뒤 인가를 받지 않는 분리 스레드.
+        if (const char* autoSpawn = ::getenv("JK_SPIKE_AUTOSPAWN");
+            autoSpawn && autoSpawn[0]) {
+            std::thread([autoApp = std::string(autoSpawn)]() {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+                const std::string exePath = jk::fs::GetExecutablePath();
+                if (exePath.empty()) return;
+                const size_t cut = exePath.find_last_of('/');
+                if (cut == std::string::npos) return;
+                const std::string dir = exePath.substr(0, cut);
+                jk::process::SpawnOptions opt;
+                opt.commandLineUtf8 =
+                    "'" + dir + "/libjkc.so' --client " + autoApp;
+                opt.workingDir = dir;
+                const jk::process::SpawnResult sp = jk::process::Spawn(opt);
+                std::fprintf(stderr,
+                             "[spikeB] autospawn %s ok=%d err=%u\n",
+                             autoApp.c_str(), (int)sp.ok, sp.errorCode);
+                std::fflush(stderr);
+            }).detach();
+        }
+#endif
         server.Run();
         return 0;
     }

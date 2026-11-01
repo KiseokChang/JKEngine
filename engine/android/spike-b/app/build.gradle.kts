@@ -15,7 +15,7 @@ android {
         minSdk = 28
         targetSdk = 34
         versionCode = 1
-        versionName = "spike-0.5"
+        versionName = "spike-0.10"
         ndk {
             abiFilters += "arm64-v8a"
         }

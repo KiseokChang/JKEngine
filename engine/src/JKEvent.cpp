@@ -56,6 +56,34 @@ JKEvent TranslateSDLEvent(const SDL_Event& sdl) {
             ev.option = SDL_GetModState();
             break;
 
+#if defined(__ANDROID__)
+        case SDL_FINGERDOWN:
+        case SDL_FINGERUP:
+        case SDL_FINGERMOTION:
+            // 터치→마우스 수형 (스파이크-B, docs/101 방향 B): 지금까지 이
+            // 변환은 Termux:X11이 대행했다(X11이 터치를 마우스로 승격 — 서버
+            // SDL_FINGER 처리 0의 근거). SDLActivity의 android 드라이버에서는
+            // 엔진이 흡수해야 한다 — SDL_FINGER 좌표는 창에 정규화(0..1)
+            // 배달이므로 창 크기를 곱해 픽셀로.
+            {
+                SDL_Window* fingerWin = SDL_GetWindowFromID(sdl.tfinger.windowID);
+                int fw = 0, fh = 0;
+                if (fingerWin) SDL_GetWindowSize(fingerWin, &fw, &fh);
+                if (fw > 0 && fh > 0) {
+                    ev.type = sdl.type == SDL_FINGERDOWN ? JKEventType::MouseDown
+                              : sdl.type == SDL_FINGERUP  ? JKEventType::MouseUp
+                                                          : JKEventType::MouseMove;
+                    ev.x = static_cast<int32_t>(sdl.tfinger.x * fw);
+                    ev.y = static_cast<int32_t>(sdl.tfinger.y * fh);
+                    ev.detail = 1;  // left button
+                    ev.option = 0;
+                } else {
+                    ev.type = JKEventType::None;
+                }
+            }
+            break;
+#endif
+
         case SDL_KEYDOWN:
             ev.type = JKEventType::KeyDown;
             ev.keyCode = static_cast<uint32_t>(sdl.key.keysym.sym);
