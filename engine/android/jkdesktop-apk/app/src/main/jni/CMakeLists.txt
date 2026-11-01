@@ -265,24 +265,226 @@ add_custom_command(TARGET jkc POST_BUILD
             "${CMAKE_CURRENT_SOURCE_DIR}/../jniLibs/arm64-v8a/libjkc.so")
 add_dependencies(jkdesk jkc)
 
+# ------------------------------------------------- imgui/implot (모듈 의존) --
+set(IMGUI_DIR ${ENG}/third_party/imgui)
+add_library(imgui STATIC
+    ${IMGUI_DIR}/imgui.cpp
+    ${IMGUI_DIR}/imgui_draw.cpp
+    ${IMGUI_DIR}/imgui_tables.cpp
+    ${IMGUI_DIR}/imgui_widgets.cpp
+    ${IMGUI_DIR}/imgui_demo.cpp
+    ${ENG}/src/imgui_impl_jkwindow.cpp
+)
+target_include_directories(imgui PUBLIC
+    ${IMGUI_DIR}
+    ${ENG}/include
+    ${ENG}/third_party/imgui_club
+)
+target_link_libraries(imgui PUBLIC SDL2::SDL2)
+
+set(IMPLOT_DIR ${ENG}/third_party/implot)
+add_library(implot STATIC
+    ${IMPLOT_DIR}/implot.cpp
+    ${IMPLOT_DIR}/implot_items.cpp
+    ${IMPLOT_DIR}/implot_demo.cpp
+)
+target_include_directories(implot PUBLIC ${IMPLOT_DIR})
+target_link_libraries(implot PUBLIC imgui)
+
 # ------------------------------------------------- 모듈 (lib*.so 패키징) --
-# jniLibs 규약: nativeLibraryDir에 실리려면 lib 접두 필요 — 엔진 main.cpp의
-# ClientModulePath이 __ANDROID__ #126 leg에서 lib접두를 판정한다.
+# 엔진 30 모듈 흡수(vplayer 제외 — 스펙 §6 v2). jniLibs 규약 lib 접두 —
+# ClientModulePath lib 접두 판정(docs/103)과 짝.
 add_library(jkapp_minesweeper SHARED
     ${ENG}/src/apps/JKAppModule_minesweeper.cpp
     ${ENG}/src/apps/ClientMineSweeperApp.cpp
     ${ENG}/src/apps/MineSweeperApp.cpp
     ${ENG}/src/apps/AppLauncherItem.cpp
-    ${ENG}/src/apps/TetrisApp.cpp
-)
+    ${ENG}/src/apps/TetrisApp.cpp)
 target_compile_definitions(jkapp_minesweeper PRIVATE JKAPP_MODULE_BUILD)
 target_link_libraries(jkapp_minesweeper PRIVATE jkclient)
 set_target_properties(jkapp_minesweeper PROPERTIES PREFIX "lib")
-
+add_library(jkapp_tetris SHARED
+    ${ENG}/src/apps/JKAppModule_tetris.cpp
+    ${ENG}/src/apps/ClientTetrisApp.cpp
+    ${ENG}/src/apps/TetrisApp.cpp)
+target_compile_definitions(jkapp_tetris PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_tetris PRIVATE jkclient)
+set_target_properties(jkapp_tetris PROPERTIES PREFIX "lib")
+add_library(jkapp_testwin SHARED
+    ${ENG}/src/apps/JKAppModule_testwin.cpp
+    ${ENG}/src/apps/ClientTestWindowApp.cpp)
+target_compile_definitions(jkapp_testwin PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_testwin PRIVATE jkclient)
+set_target_properties(jkapp_testwin PROPERTIES PREFIX "lib")
+add_library(jkapp_jango SHARED
+    ${ENG}/src/apps/JKAppModule_jango.cpp
+    ${ENG}/src/apps/ClientJangoApp.cpp
+    ${ENG}/src/apps/JangoUI.cpp
+    ${ENG}/src/apps/Equip24App.cpp
+    ${ENG}/src/apps/EquipApp.cpp
+    ${ENG}/src/apps/InsaApp.cpp)
+target_compile_definitions(jkapp_jango PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_jango PRIVATE jkclient)
+set_target_properties(jkapp_jango PROPERTIES PREFIX "lib")
+add_library(jkapp_occ SHARED
+    ${ENG}/src/apps/JKAppModule_occ.cpp
+    ${ENG}/src/apps/ClientOccApp.cpp
+    ${ENG}/src/apps/OccUI.cpp)
+target_compile_definitions(jkapp_occ PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_occ PRIVATE jkclient)
+set_target_properties(jkapp_occ PROPERTIES PREFIX "lib")
+add_library(jkapp_pcx SHARED
+    ${ENG}/src/apps/JKAppModule_pcx.cpp
+    ${ENG}/src/apps/ClientPcxApp.cpp
+    ${ENG}/src/apps/PcxApp.cpp)
+target_compile_definitions(jkapp_pcx PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_pcx PRIVATE jkclient)
+set_target_properties(jkapp_pcx PROPERTIES PREFIX "lib")
+add_library(jkapp_vector SHARED
+    ${ENG}/src/apps/JKAppModule_vector.cpp
+    ${ENG}/src/apps/ClientVectorApp.cpp
+    ${ENG}/src/apps/VectorApp.cpp)
+target_compile_definitions(jkapp_vector PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_vector PRIVATE jkclient)
+set_target_properties(jkapp_vector PROPERTIES PREFIX "lib")
+add_library(jkapp_iconedit SHARED
+    ${ENG}/src/apps/JKAppModule_iconedit.cpp
+    ${ENG}/src/apps/ClientIconEditApp.cpp
+    ${ENG}/src/apps/IconEditApp.cpp)
+target_compile_definitions(jkapp_iconedit PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_iconedit PRIVATE jkclient)
+set_target_properties(jkapp_iconedit PROPERTIES PREFIX "lib")
+add_library(jkapp_recog SHARED
+    ${ENG}/src/apps/JKAppModule_recog.cpp
+    ${ENG}/src/apps/ClientRecogApp.cpp
+    ${ENG}/src/apps/RecogApp.cpp)
+target_compile_definitions(jkapp_recog PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_recog PRIVATE jkclient)
+set_target_properties(jkapp_recog PROPERTIES PREFIX "lib")
+add_library(jkapp_vfont SHARED
+    ${ENG}/src/apps/JKAppModule_vfont.cpp
+    ${ENG}/src/apps/ClientVectorFontApp.cpp
+    ${ENG}/src/apps/VectorFontApp.cpp)
+target_compile_definitions(jkapp_vfont PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_vfont PRIVATE jkclient)
+set_target_properties(jkapp_vfont PROPERTIES PREFIX "lib")
+add_library(jkapp_vpres SHARED
+    ${ENG}/src/apps/JKAppModule_vpres.cpp
+    ${ENG}/src/apps/ClientVectorPresApp.cpp
+    ${ENG}/src/apps/VectorPresApp.cpp)
+target_compile_definitions(jkapp_vpres PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_vpres PRIVATE jkclient)
+set_target_properties(jkapp_vpres PROPERTIES PREFIX "lib")
+add_library(jkapp_terminal SHARED
+    ${ENG}/src/apps/JKAppModule_terminal.cpp
+    ${ENG}/src/apps/ClientTerminalApp.cpp
+    ${ENG}/src/apps/TerminalView.cpp
+    ${ENG}/src/apps/TerminalHangulInput.cpp)
+target_compile_definitions(jkapp_terminal PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_terminal PRIVATE jkclient)
+set_target_properties(jkapp_terminal PROPERTIES PREFIX "lib")
+add_library(jkapp_script SHARED
+    ${ENG}/src/apps/JKAppModule_script.cpp)
+target_compile_definitions(jkapp_script PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_script PRIVATE jkclient)
+set_target_properties(jkapp_script PROPERTIES PREFIX "lib")
 add_library(jkapp_taskbar SHARED
     ${ENG}/src/apps/JKAppModule_taskbar.cpp
-    ${ENG}/src/apps/ClientTaskbarApp.cpp
-)
+    ${ENG}/src/apps/ClientTaskbarApp.cpp)
 target_compile_definitions(jkapp_taskbar PRIVATE JKAPP_MODULE_BUILD)
 target_link_libraries(jkapp_taskbar PRIVATE jkclient)
 set_target_properties(jkapp_taskbar PROPERTIES PREFIX "lib")
+add_library(jkapp_imguidemo SHARED
+    ${ENG}/src/apps/JKAppModule_imguidemo.cpp
+    ${ENG}/src/apps/ClientImGuiDemoApp.cpp)
+target_compile_definitions(jkapp_imguidemo PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_imguidemo PRIVATE jkclient imgui)
+set_target_properties(jkapp_imguidemo PROPERTIES PREFIX "lib")
+add_library(jkapp_taskmgr SHARED
+    ${ENG}/src/apps/JKAppModule_taskmgr.cpp
+    ${ENG}/src/apps/ClientTaskmgrApp.cpp)
+target_compile_definitions(jkapp_taskmgr PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_taskmgr PRIVATE jkclient imgui implot)
+set_target_properties(jkapp_taskmgr PROPERTIES PREFIX "lib")
+add_library(jkapp_palette SHARED
+    ${ENG}/src/apps/JKAppModule_palette.cpp
+    ${ENG}/src/apps/ClientPaletteApp.cpp)
+target_compile_definitions(jkapp_palette PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_palette PRIVATE jkclient imgui)
+set_target_properties(jkapp_palette PROPERTIES PREFIX "lib")
+add_library(jkapp_notify SHARED
+    ${ENG}/src/apps/JKAppModule_notify.cpp
+    ${ENG}/src/apps/ClientNotifyApp.cpp)
+target_compile_definitions(jkapp_notify PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_notify PRIVATE jkclient imgui)
+set_target_properties(jkapp_notify PROPERTIES PREFIX "lib")
+add_library(jkapp_agentmgr SHARED
+    ${ENG}/src/apps/JKAppModule_agentmgr.cpp
+    ${ENG}/src/apps/ClientAgentMgrApp.cpp)
+target_compile_definitions(jkapp_agentmgr PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_agentmgr PRIVATE jkclient imgui)
+set_target_properties(jkapp_agentmgr PROPERTIES PREFIX "lib")
+add_library(jkapp_settings SHARED
+    ${ENG}/src/apps/JKAppModule_settings.cpp
+    ${ENG}/src/apps/ClientSettingsApp.cpp)
+target_compile_definitions(jkapp_settings PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_settings PRIVATE jkclient imgui)
+set_target_properties(jkapp_settings PROPERTIES PREFIX "lib")
+add_library(jkapp_notes SHARED
+    ${ENG}/src/apps/JKAppModule_notes.cpp
+    ${ENG}/src/apps/ClientNotesApp.cpp)
+target_compile_definitions(jkapp_notes PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_notes PRIVATE jkclient imgui)
+set_target_properties(jkapp_notes PROPERTIES PREFIX "lib")
+add_library(jkapp_files SHARED
+    ${ENG}/src/apps/JKAppModule_files.cpp
+    ${ENG}/src/apps/ClientFilesApp.cpp)
+target_compile_definitions(jkapp_files PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_files PRIVATE jkclient imgui)
+set_target_properties(jkapp_files PROPERTIES PREFIX "lib")
+add_library(jkapp_library SHARED
+    ${ENG}/src/apps/JKAppModule_library.cpp
+    ${ENG}/src/apps/ClientLibraryApp.cpp)
+target_compile_definitions(jkapp_library PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_library PRIVATE jkclient imgui)
+set_target_properties(jkapp_library PROPERTIES PREFIX "lib")
+add_library(jkapp_chat SHARED
+    ${ENG}/src/apps/JKAppModule_chat.cpp
+    ${ENG}/src/apps/ClientChatApp.cpp)
+target_compile_definitions(jkapp_chat PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_chat PRIVATE jkclient imgui)
+set_target_properties(jkapp_chat PROPERTIES PREFIX "lib")
+add_library(jkapp_snap SHARED
+    ${ENG}/src/apps/JKAppModule_snap.cpp
+    ${ENG}/src/apps/ClientSnapApp.cpp)
+target_compile_definitions(jkapp_snap PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_snap PRIVATE jkclient imgui)
+set_target_properties(jkapp_snap PROPERTIES PREFIX "lib")
+add_library(jkapp_gallery SHARED
+    ${ENG}/src/apps/JKAppModule_gallery.cpp
+    ${ENG}/src/apps/ClientGalleryApp.cpp)
+target_compile_definitions(jkapp_gallery PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_gallery PRIVATE jkclient imgui)
+set_target_properties(jkapp_gallery PROPERTIES PREFIX "lib")
+# music 무조건 소스집합(엔진 원존 706-712 — SPATIAL_PLAYER_ROOT 조건부 leg는
+# T8에서 audio_core+OpenAL 링크로 재판정 — 그때까지는 vplayer 위임 앱 동형).
+# music unconditional set (engine 706-712 - conditional leg is T8)
+add_library(jkapp_music SHARED
+    ${ENG}/src/apps/JKAppModule_music.cpp
+    ${ENG}/src/apps/ClientMusicApp.cpp)
+target_compile_definitions(jkapp_music PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_music PRIVATE jkclient imgui)
+set_target_properties(jkapp_music PROPERTIES PREFIX "lib")
+add_library(jkapp_shot SHARED
+    ${ENG}/src/apps/JKAppModule_shot.cpp
+    ${ENG}/src/apps/ClientShotApp.cpp)
+target_compile_definitions(jkapp_shot PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_shot PRIVATE jkclient imgui)
+set_target_properties(jkapp_shot PROPERTIES PREFIX "lib")
+# filedlg (engine unconditioned set) - browser=CEF(Win axis) excluded, see docs/100.
+add_library(jkapp_filedlg SHARED
+    ${ENG}/src/apps/JKAppModule_filedlg.cpp
+    ${ENG}/src/apps/ClientFileDialogApp.cpp)
+target_compile_definitions(jkapp_filedlg PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_filedlg PRIVATE jkclient imgui)
+set_target_properties(jkapp_filedlg PROPERTIES PREFIX "lib")
