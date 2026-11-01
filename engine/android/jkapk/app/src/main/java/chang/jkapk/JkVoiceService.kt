@@ -225,6 +225,7 @@ class JkVoiceService : Service() {
             val replyText = jsonGetString(resp, "reply") ?: resp
             val kind = jsonGetString(resp, "kind") ?: ""
             val app = jsonGetString(resp, "app") ?: ""
+            Log.i(TAG, "VOICE-REPLY kind=$kind url=$app ok=$okFlag")   // #124 r5 — 사슬 계측(adb 원문 축)
             // #124 r3 — 개봉지시 소비 = **떠 있는 창이 스스로 적용**(아래
             // emitReply에 kind/url을 실어 브로드캐스트 — 브라우저 수신기가
             // 스스로 주소 변경). 서비스 startActivity leg는 r2 실측(토스트만

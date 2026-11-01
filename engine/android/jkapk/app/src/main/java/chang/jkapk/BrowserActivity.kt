@@ -54,6 +54,7 @@ class BrowserActivity : Activity() {
                         // 이미 이 창(브라우저) 자체가 떠 있으므로 "개봉만" 지시는
                         // 적용 상태 그대로(가짜 이동 금지 — 무대응 정직).
                         val u = i.getStringExtra(JkVoiceService.EXTRA_URL).orEmpty()
+                        Log.i("JK-BROWSER", "VOICE-RECV kind=AmpkOpen url=$u")   // #124 r5 — 사슬 계측
                         Toast.makeText(this@BrowserActivity,
                             "①지시 수신: URL=$u (엔진=${engineName()})",
                             Toast.LENGTH_LONG).show()
@@ -63,6 +64,8 @@ class BrowserActivity : Activity() {
                         }
                         return
                     }
+                    Log.i("JK-BROWSER",
+                        "VOICE-RECV kind=${i.getStringExtra(JkVoiceService.EXTRA_KIND)} url=미지시")
                     toast(i.getStringExtra(JkVoiceService.EXTRA_DETAIL))
                 }
             }
