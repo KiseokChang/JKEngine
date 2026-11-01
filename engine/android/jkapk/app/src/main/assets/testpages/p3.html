@@ -1,0 +1,7 @@
+<!doctype html><html><head><meta charset="utf-8"><title>JK-P3</title></head>
+<body id="b"><div id="p1">stage1</div><script>
+setTimeout(function(){ document.getElementById("p1").textContent = "stage1 done"; }, 100);
+setTimeout(function(){ b.insertAdjacentHTML("beforeend", "<div id='p2'>stage2</div>"); }, 300);
+setTimeout(function(){ document.getElementById("p2").textContent = "stage2 done"; }, 450);
+setTimeout(function(){ b.insertAdjacentHTML("beforeend", "<div>stage3 done</div>"); }, 600);
+</script></body></html>
