@@ -1,7 +1,5 @@
 // #126 jkdesktop-apk — SDL_main 심.
 // SDLActivity가 libjkdesk.so에서 dlsym("SDL_main")한 뒤 SDL_Android_Init을
-
-// SDLActivity가 libjkdesk.so에서 dlsym("SDL_main")한 뒤 SDL_Android_Init을
 // 마친 스레드에서 부른다. 우리는 엔진의 plain main()을 그대로 호출한다 —
 // SDL_AndroidInit 이후이므로 SDL_AndroidGetInternalStoragePath()가 유효하고,
 // 이 시점이 env(TMPDIR)를 심을 수 있는 최후의 해자(server spawn이 자식에게
@@ -18,6 +16,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+extern "C" int JKVoiceAutoturnStart();
 #include <string>
 
 extern "C" int main(int argc, char* argv[]);
@@ -27,22 +26,9 @@ extern "C" int SDL_main(int argc, char* argv[]) {
     __android_log_print(ANDROID_LOG_INFO, "jksrv", "[jkdesk] SDL_main argc=%d argv0=%s",
                         argc, argc > 0 ? argv[0] : "(null)");
 
-    // Android 15가 타앱 logcat을 필터링한다(14:36 실측 — jkdesk 흔적 0) →
-    // stderr/stdout을 files/srv.log로 freopen해 원문을 내부 파일로 수취하고
-    // MainActivity가 MediaStore.Downloads로 내보낸다(Termux scp 수취 채널).
     const char* internal = SDL_AndroidGetInternalStoragePath();
-    if (internal) {
-        // stderr를 독립 파일로 — r10 원문 함정(stdout "w" truncate가 stderr
-        // 내용과 같은 파일을 갈라서 스냅 순서 교차) 소각.
-        std::string errPath = std::string(internal) + "/srv.err";
-        if (!std::freopen(errPath.c_str(), "w", stderr))
-            __android_log_print(ANDROID_LOG_WARN, "jksrv", "[jkdesk] stderr freopen miss");
-        std::string outPath = std::string(internal) + "/srv.log";
-        if (!std::freopen(outPath.c_str(), "w", stdout))
-            __android_log_print(ANDROID_LOG_WARN, "jksrv", "[jkdesk] stdout freopen miss");
-        std::setvbuf(stderr, nullptr, _IONBF, 0);  // 즉시 수체 — 스냅 0바이트 함정 여지 소각
 
-        // 정직 원문 수취 — argv·/proc/self/exe·exe-dir 관측(각 SDL_main마다 1행):
+// 정직 원문 수취 — argv·/proc/self/exe·exe-dir 관측(각 SDL_main마다 1행):
         char selfExe[512] = {};
         const ssize_t selfLen = ::readlink("/proc/self/exe", selfExe, sizeof(selfExe) - 1);
         if (selfLen > 0) selfExe[selfLen] = '\0';
@@ -101,7 +87,6 @@ extern "C" int SDL_main(int argc, char* argv[]) {
         if (argc > 1 && std::strcmp(argv[1], "--client") == 0)
             std::fprintf(stderr, "[jkdesk] CLIENT MAIN REACHED app=%s — exec leg OK\n",
                          argc > 2 ? argv[2] : "?");
-    }
 
     // TMPDIR — 엔진 TempDir()/shm 폴백·인스턴스 락·IPC 소켓이 전부 이곳을
     // 기준으로 만들어진다. files/tmp (#126 규약 — app files dir 하위).
@@ -123,6 +108,7 @@ extern "C" int SDL_main(int argc, char* argv[]) {
         ::setenv("JK_SPIKE_NO_GUARD", "1", 1);
         std::fprintf(stderr, "[jkdesk] RE-ENTRY — guard bypass armed\n");
     }
+    JKVoiceAutoturnStart();
     started = true;
     return main(argc, argv);
 }
