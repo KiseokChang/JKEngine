@@ -209,7 +209,7 @@ void JKRenderCommandList::Replay(JKRenderBackend* target) const {
         if (spikeScenes > 0) {
             unsigned setcolor = 0, clear = 0, fill = 0, rectd = 0,
                      line = 0, pixel = 0, blit = 0, other = 0;
-            int clipSeen = 0;
+            int clipSeen = 0; int colorSeen = 0;
             for (const auto& c : commands_) {
                 switch (c.type) {
                     case Type::SetDrawColor: ++setcolor; break;
@@ -231,6 +231,14 @@ void JKRenderCommandList::Replay(JKRenderBackend* target) const {
                         clipSeen, c.hasSrcRect ? 1 : 0, c.rect.w, c.rect.h,
                         c.rect.x, c.rect.y);
                     ++clipSeen;
+                }
+                // r28 원문(color=c0202020 — R만 실림 G/B/A 스테일 0x20)의
+                // 직렬화 단 가름: Replay가 본 SetDrawColor cmd 값 원문(첫 3건).
+                if (c.type == Type::SetDrawColor && colorSeen < 3) {
+                    std::fprintf(stderr,
+                        "[spikeB] setcolor%d cmd=%02x,%02x,%02x,%02x\n",
+                        colorSeen, c.r, c.g, c.b, c.a);
+                    ++colorSeen;
                 }
 #endif
             }

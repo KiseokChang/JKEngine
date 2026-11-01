@@ -901,6 +901,30 @@ void JKClientApplication::RenderAndCommit() {
 
     renderBackend_->SetRenderTarget(targetTexture_);
     renderBackend_->SetScale(1.0f, 1.0f);
+#if defined(__ANDROID__)
+    // 스파이크-B 원문 계량기(선행 2프레임): SetRenderTarget 반환값 — r21
+    // 원문("replay bytes=286280 … sdlerr=That operation is not supported"
+    // — 씬은 조립·Replay되었으나 픽셀 미착지)의 문제 호출 가름.
+    {
+        static int spikeSrt = 2;
+        if (spikeSrt > 0) {
+            const int srtRc = SDL_SetRenderTarget(
+                hiddenRenderer_, static_cast<SDL_Texture*>(targetTexture_));
+            SDL_RendererInfo srtInfo{};
+            SDL_GetRendererInfo(hiddenRenderer_, &srtInfo);
+            // r29 결정 계량 — 타깃 텍스처의 실제 포맷(r29 원문: 상태색이 >>3
+            // 양자화 — 3-3-2 표면 협착 의심) + ReadPixels 직전 현재 상태색.
+            Uint32 texFmt = 0; int tw = 0, th = 0;
+            SDL_QueryTexture(static_cast<SDL_Texture*>(targetTexture_),
+                             &texFmt, nullptr, &tw, &th);
+            std::fprintf(stderr,
+                "[spikeB] target fmt=0x%08x %dx%d renderer=%s\n",
+                texFmt, tw, th, srtInfo.name ? srtInfo.name : "(null)");
+            std::fflush(stderr);
+            --spikeSrt;
+        }
+    }
+#endif
 
     // Commit-stage watchdog marks (diag-probe-ui-stall §7-2): boundaries
     // between compose/replay, overlay, readback and the shm commit. Logged
@@ -912,6 +936,23 @@ void JKClientApplication::RenderAndCommit() {
     if (!pendingScene_.empty()) {
         auto scene = JKRenderCommandList::Deserialize(pendingScene_);
         if (scene) {
+#if defined(__ANDROID__)
+            // 스파이크-B 원문 계량기(선행 2프레임): 명령 개수·SetRenderTarget
+            // 결과·Replay 후 SDL 오류 상태 — 보드 비래스터(균일 ff202020)의
+            // 명령 단 가름.
+            {
+                static int spikeFrames = 2;
+                if (spikeFrames > 0) {
+                    std::fprintf(stderr,
+                                 "[spikeB] replay bytes=%zu target=%u sdlerr=%s\n",
+                                 pendingScene_.size(),
+                                 (unsigned)(uintptr_t)targetTexture_,
+                                 SDL_GetError());
+                    std::fflush(stderr);
+                    --spikeFrames;
+                }
+            }
+#endif
             scene->Replay(renderBackend_.get());
         }
     }

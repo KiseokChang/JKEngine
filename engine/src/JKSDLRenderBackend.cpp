@@ -66,19 +66,27 @@ void JKSDLRenderBackend::FillRect(const JKRect& rect) {
     // 프리미티브가 타깃에 착지했는가"를 그 지점에서 판정한다(r25 원문:
     // rc=0인데 픽셀 불도착 — 호출 사이 어긋남 탈출).
     {
-        static int spikeFills = 1;
+        static int spikeFills = 3;
         const bool probe = spikeFills > 0;
         const int rc = SDL_RenderFillRect(renderer_, &r);
         if (probe) {
             --spikeFills;
             SDL_ClearError();
+            uint8_t cr = 0, cg = 0, cb = 0, ca = 0;
+            SDL_GetRenderDrawColor(renderer_, &cr, &cg, &cb, &ca);
+            const int cx = (rect.x + 2 < rect.x + rect.w) ? rect.x + rect.w / 2
+                                                          : rect.x + 2;
+            const int cy = (rect.y + 2 < rect.y + rect.h) ? rect.y + rect.h / 2
+                                                          : rect.y + 2;
             uint32_t sample = 0;
-            SDL_Rect cell = SDL_Rect{ rect.x + 2, rect.y + 2, 2, 2 };
+            SDL_Rect cell = SDL_Rect{ cx, cy, 2, 2 };
             const int rd = SDL_RenderReadPixels(renderer_, &cell,
                 SDL_PIXELFORMAT_RGBA32, &sample, 8);
             std::fprintf(stderr,
-                "[spikeB] FillRect rc=%d %dx%d@%d,%d read=%d val=%08x err=%s\n",
-                rc, rect.w, rect.h, rect.x, rect.y, rd, sample, SDL_GetError());
+                "[spikeB] FillRect rc=%d %dx%d@%d,%d color=%02x%02x%02x%02x "
+                "read=%d val=%08x at=%d,%d err=%s\n",
+                rc, rect.w, rect.h, rect.x, rect.y, cr, cg, cb, ca,
+                rd, sample, cx, cy, SDL_GetError());
             std::fflush(stderr);
         }
         return;
