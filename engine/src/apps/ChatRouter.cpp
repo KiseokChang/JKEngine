@@ -760,6 +760,13 @@ std::string RouteExact(const std::string& text, ChatAction& out) {
 
 } // namespace
 
+// #124 r6 — 발음 복원 표의 공개 창(LLM 파서·jkweb 공용): 복원 표+조사 절단은
+// 라우터 내부 단일 진실원(kPhonemeDomTable)에서 뽑는다(어휘 2본 금지 계약과
+// 동형 — 표 확장이 이 창 사용측 전부에 자동 승계).
+std::string ChatRestorePhonemeUrl(const std::string& raw) {
+    return RestorePhonemeDomain(StripJosa(raw));
+}
+
 // ── 자연어 승격 배선 본체 (스펙 2026-10-08-chat-llm-promotion 설계 결정 3·4
 // — T4). 라우터와 같은 파일에 두는 계약 사정: kRouteTable/kAliasTable이 이
 // 파일의 static 배열 단일 진실원이고, LLM 프롬프트의 트리거 표·앱 키 표는
@@ -791,8 +798,12 @@ std::string TrimWsp(const std::string& raw) {
 // 프롬프트 **입력** 본문만 규제한다).
 std::string ActionSchemaLine() {
     return "[ 행동 JSON 양식(예시 꼴, 표준 JSON으로 필드명과 값을 큰따옴표로 "
-           "감싸라) ] { action: launch / close / focus / list / talk,  app: "
-           "앱 영문 키,  text: 사용자에게 보여줄 한국어 안내문 }";
+           "감싸라) ] { action: launch / close / focus / list / browser / "
+           "talk,  app: 앱 영문 키(앱 조작) 또는 웹사이트 주소(브라우저),  "
+           "text: 사용자에게 보여줄 한국어 안내문 }";
+    // #124 r6 — schema 4종+talk에 browser 확장(폰 브라우저 개봉 — 원장:
+    // 스키마 확장 류는 갱신행 승계). app=URL·한국어 발음 표기도 받는다(서버가
+    // 복원 — 아래 ParseActionJson browser 지시 + jkweb UrlSafe 게이트).
 }
 
 // 승격 프롬프트 본문 — 프리앰블 불포함(엔진 계약 소관 — 헤더 주석).
@@ -815,6 +826,9 @@ std::string ComposeChatLlmPrompt(const std::string& text) {
         "양식: " + ActionSchemaLine() + ". "
         "행동 뜻: launch=앱을 띄운다, close=창을 닫는다(app을 비우면 포커스 "
         "창), focus=창을 앞으로 가져온다, list=떠 있는 창 목록을 조회한다, "
+        "browser=앱이 아닌 웹사이트를 폰 브라우저로 개봉한다(app에 사이트 "
+        "주소를 적는다 — 유부브닷컴 유투브 네이버 같은 발음 표기는 "
+        "www.youtube.com www.naver.com 식 표준 주소로 바꿔 app에 적는다), "
         "talk=행동이 필요하지 않은 대답(text의 문장만 회신한다). ";
     // 트리거 표 — kRouteTable 순회(InfoGuide의 표 재인쇄 선례: 진실원에서
     // 뽑아 인쇄한다). 긴/짧은 형 중복은 같은 kind가 인접하므로 첫 등장만.
@@ -955,6 +969,17 @@ bool ChatLlmActionParse(const std::string& llmText, ChatAction& out,
         out.kind = ChatAction::Focus;
     } else if (act == "list") {
         out.kind = ChatAction::ListWindows;
+    } else if (act == "browser") {
+        // #124 r6 — LLM 확장행(스키마 4종+talk에 browser 추가 — 갱신 원존):
+        // 폰 브라우저 개봉. app=URL — **한국어 발음 표기도 수용**(LLM 프롬프트가
+        // 표준 주소 변환을 지시하지만 표기가 그대로 올 수 있으므로 복원 표
+        // 재시도 — 유부브닷컴류 → 표준 URL). 점 모양 없고 복원도 실패하면
+        // 값 그대로 통과 — jkweb UrlSafe 게이트+웹 개봉 단계에서 정직 수렴.
+        std::string app;
+        if (!j.GetStr("app", app) || app.empty()) return false;
+        out.kind = ChatAction::AmpkOpen;
+        const std::string restored = ChatRestorePhonemeUrl(app);
+        out.app = !restored.empty() ? restored : app;
     } else if (act == "talk") {
         out.kind = ChatAction::Info;   // 행동 없음 — text만 회신
     } else {

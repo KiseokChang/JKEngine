@@ -108,6 +108,12 @@ std::string ChatAppToolTypingGuide(const ChatAction& a);
 // jkbridge/jkchat 원계약이 그대로기 때문(그 소비자는 이 게이트를 읽지 않는다).
 bool ChatLlmEngineConfigured(const agent::ChatConfig& cfg);
 
+// #124 r6 — 발음 복원 표(유부브닷컴 류 한글 발음 표기 → 표준 URL)의 공개 창.
+// 표 자체는 ChatRouter.cpp 단일 진실원(kPhonemeDomTable) — 이 창은 조사 절단
+// 후 표 검색한다(LlmActionParse browser 지시·jkweb 개봉 leg 공용). 매치 0 =
+// 빈 문자열(호출측이 원값 통과·UrlSafe 게이트로 정직 수렴).
+std::string ChatRestorePhonemeUrl(const std::string& raw);
+
 // 비매치 발화를 LLM에 보낼 프롬프트 본문 — 트리거 표·앱 별명 표를
 // kRouteTable/kAliasTable(ChatRouter.cpp 단일 진실원)에서 조립해 JSON 스키마
 // 한 줄과 더한다(어휘 확장은 라우터 표 1행 추가만으로 이 프롬프트에도 자동

@@ -441,8 +441,12 @@ std::string HandleTalk(const std::string& body, int& code) {
             // 0 — 앱 uid에서 시스템 로그 비가시 함정 동봉)**. 반면 앱은 사용자가
             // JK 창에서 구두를 쓰는 중=포그라운드라 startActivity가 통한다.
             // SpawnBrowser 스폰 leg는 이 실측으로 소각(함정 원존 — docs/102).
-            // URL 검증 fail-closed(UrlSafe — 인젝션 봉쇄) 유지.
-            const std::string url = action.app;
+            // URL 검증 fail-closed(UrlSafe — 인젝션 봉쇄) 유지. r6 — LLM 경로의
+            // 발음 표기 app도 복원 표를 통과(ChatRestorePhonemeUrl — LLM이 표기
+            // 그대로 app을 보낸 경우를 흡수, 라우터 파서 앞 복원과 동일 진실원).
+            std::string url = action.app;
+            if (const std::string r = jk::ChatRestorePhonemeUrl(url); !r.empty())
+                url = r;
             if (!url.empty() && !UrlSafe(url)) {
                 code = 200;   // 라우터 정직 거부는 HTTP 200 + ok=false 계약(빈 발화 E1 승계)
                 return "{\"ok\":false,\"reply\":\"URL에 부적합한 문자가 있어 "
