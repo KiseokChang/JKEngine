@@ -27,6 +27,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- #123 폰 브라우저 T1 — BrowserActivity. exported=true(뒤 라인: DeX
+             그리드/Termux am start 개봉 승계), configChanges = DeX 리사이즈 시
+             WebView 상태 보존(재생성 금지). -->
+        <activity
+            android:name=".BrowserActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden" />
     </application>
 
 </manifest>
