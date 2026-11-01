@@ -10918,6 +10918,12 @@ static int RunMain(int argc, char* argv[]) {
         jk::InstallCrashHandler("state/logs", "server");
         jk::MirrorLogToFiles("state/logs", "server");
         jk::server::JKWindowServer server;
+#if defined(__ANDROID__)
+        // 스파이크-B (docs/101 방향 B): 실행물이 nativeLibraryDir의
+        // lib*.so로 포장되어 exec되므로 클라 호스트도 같은 파일 — clientHostExe
+        // 기본값("jkdesktop")은 nativeLibraryDir에 없다.
+        server.SetClientHostExe("libjkdesk.so");
+#endif
         // 단일 인스턴스 가드(docs/59 §10) — Init 전에 봉쇄: 가드가 Init 뒤에
         // 있으면 거부 인스턴스가 앱 설치+아이콘 로드를 전부 수행한 뒤 죽는다
         // (2026-09-20 사용자 붙여넣기 로그 실측 — 낭비+로그 혼란).

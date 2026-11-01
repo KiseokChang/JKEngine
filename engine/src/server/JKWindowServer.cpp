@@ -646,6 +646,17 @@ bool JKWindowServer::StartAcceptor(const std::string& pipeName) {
                 ? std::string(".")
                 : exePathAutoSpawn.substr(0, autoCut);
         std::string dllPath = dirSelf + "/jkapp_taskbar" + AppModuleSuffix();
+#if defined(__ANDROID__)
+        // 스파이크-B: 모듈이 nativeLibraryDir에서 lib 접두로 살아 있다
+        // (jniLibs 규약 — lib*.so만 패키징). lib 접두 우선, 없으면 원존 폴백.
+        {
+            const std::string libPrefixed =
+                dirSelf + "/libjkapp_taskbar" + AppModuleSuffix();
+            std::error_code probeEc;
+            if (std::filesystem::exists(std::filesystem::path(libPrefixed), probeEc))
+                dllPath = libPrefixed;
+        }
+#endif
         // ec 중립형(throwing 아님) — 원문 관측(존재 bool, 실패=false)과 동일하며
         // 이 TU에는 try/catch가 없어 던지는 오버로드는 서버를 죽인다(review r1).
         std::error_code existsEc;
@@ -4935,7 +4946,13 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             // 동일. 상단 주석의 접미 표기는 win32 .dll / posix .so로 정규화
             // (G1 리뷰 승계).
             const std::string dllPath =
+#if defined(__ANDROID__)
+                // 스파이크-B: 모듈이 nativeLibraryDir의 lib 접두로 패키징된다
+                // (jniLibs 규약) — 존재 검사도 lib 접두로.
+                exeDir + "/libjkapp_" + app + AppModuleSuffix();
+#else
                 exeDir + "/jkapp_" + app + AppModuleSuffix();
+#endif
             if (prefixed || exeDir.empty() || fileExistsFn(dllPath)) {
                 // docs/35: pair the capture overlay with the client that asked
                 // for it (see overlaySpawner_ member comment).

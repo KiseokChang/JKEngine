@@ -21,6 +21,15 @@ namespace fs {
 // any readlink failure hand back the empty string — the caller-visible
 // fallback contract is unchanged from the stub (fail-closed).
 std::string GetExecutablePath() {
+#if defined(__ANDROID__)
+    // 스파이크-B (docs/101 방향 B): APK 프로세스의 /proc/self/exe는
+    // zygote 계승물(/system/bin/app_process64) — 엔진의 exe-dir 규약(exe 옆
+    // 모듈·에셋 탐색)이 전부 어긋난다. SDLMain 심(jksrv_main)이 argv[0]
+    // = nativeLibraryDir/libjkdesk.so를 심어 놓은 JK_EXE_PATH를 우선한다.
+    const char* androidExe = ::getenv("JK_EXE_PATH");
+    if (androidExe && androidExe[0] == '/')
+        return std::string(androidExe);
+#endif
     static const size_t kFirstTry = 256;
     static const int kMaxAttempts = 8;  // 256 doubles 7 times -> 32KiB cap
     std::string buf(kFirstTry, '\0');
