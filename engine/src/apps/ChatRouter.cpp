@@ -81,6 +81,8 @@ constexpr RouteEntry kRouteTable[] = {
     // (아래 Launch case 원문)으로 흡수 — 신규 파서 금지(D1 계약) 원존.
     {ChatAction::AmpkOpen,    "브라우저 열어줘", true},
     {ChatAction::AmpkOpen,    "브라우저 켜줘",   true},
+    {ChatAction::Launch,      "열게요"},   // #124 r4b — STT 열음화 흡침(폰 원문
+                                           //  "유투브 닷컴을 열게요" — 열어줘 변차)
     {ChatAction::Launch,      "열어줘"},
     {ChatAction::Launch,      "켜줘"},
     {ChatAction::Launch,      "실행해줘"},
@@ -151,8 +153,11 @@ constexpr AliasEntry kAliasTable[] = {
 struct PhonemeDom { const char* spoken; const char* url; };
 constexpr PhonemeDom kPhonemeDomTable[] = {
     {"유부브닷컴",   "https://www.youtube.com"},
+    {"유부브",       "https://www.youtube.com"},
     {"유튜브닷컴",   "https://www.youtube.com"},
     {"유튜브",       "https://www.youtube.com"},
+    {"유투브닷컴",   "https://www.youtube.com"},  // r4b — 폰 실측 표기(2026-11-01)
+    {"유투브",       "https://www.youtube.com"},  // r4b
     {"유툽",         "https://www.youtube.com"},
     {"네이버닷컴",   "https://www.naver.com"},
     {"네이버",       "https://www.naver.com"},
@@ -657,7 +662,24 @@ std::string RouteExact(const std::string& text, ChatAction& out) {
             // 파서 신설 금지(D1 원존) 준수.
             // r4 — 앞서 발음 복원 표(kPhonemeDomTable — 유부브닷컴 류 한글
             // 발음 표기 복원)로 URL 모양을 만들어 준다.
-            const std::string restored = RestorePhonemeDomain(word);
+            // r4b — **띄어쓰기 흩친 도메인**("유투브 닷컴" — 폰 원문 2026-11-
+            // 01): 마지막 어절만("닷컴")이 아니라 트리거 앞 전체 어절의 공백을
+            // 떼어 합쳐 복원 표 재시도 — 표 결합형 3중 흩침 수형.
+            std::string restored = RestorePhonemeDomain(word);
+            if (restored.empty()) {
+                std::string joined;
+                if (norm.size() >= std::string(hit->trigger).size()) {
+                    const std::string trg(hit->trigger);
+                    if (norm.compare(norm.size() - trg.size(), trg.size(), trg) == 0) {
+                        const std::string pre = norm.substr(
+                            0, norm.size() - trg.size());
+                        for (char c : pre)
+                            if (!std::isspace(static_cast<unsigned char>(c)))
+                                joined += c;
+                        restored = RestorePhonemeDomain(joined);
+                    }
+                }
+            }
             const std::string urlWord = !restored.empty() ? restored : word;
             if (urlWord.find('.') != std::string::npos ||
                 urlWord.rfind("http", 0) == 0) {
