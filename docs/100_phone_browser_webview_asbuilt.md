@@ -1,6 +1,6 @@
 # #123 폰 브라우저 WebView 실증 라인 as-built (docs/100)
 
-**상태: T1-T5 폐곡·실측 측정표 = 폰 사용자 런 대기(EYES 게이트)**
+**상태: T1-T6 폐곡 — 측정표 원문 수확 완료(2026-11-01 13:55 폰 실측)·엔진 최종 판정 = 사용자 EYES 대기**
 
 ## 1. 결정 원존 (스펙 승계)
 
@@ -67,18 +67,39 @@
 - 네이티브 증분 원존: whisper_jni.c.o 재컴파일 2026-11-01 11:59:19(e9a790c 소스
   11:34:44 → 이후 — 음성 라인(jkengine-89) 판 요청과 동일 판 계보).
 
-## 3. 측정표 (판정 게이트) — **폰 런 원문 대기**
+## 3. 측정표 (판정 게이트) — **폰 실측 원문 확정(2026-11-01 13:55)**
 
-측정 하니스 = BrowserActivity [측정] 버튼(세트: asset p1/p2/p3 + example.com·
-MediaStore dump → 수확 probe). 스키마 공용: `engine` 필드만 엔진 간 차이.
+수확 원문: `engine/tmp/browser_measure/`(무추적 — md5 봉인 원문)
+webview 2런(md5 3e5bfdb2…/68806129…) + geckoview 1런(md5 b2a25804…) — 전페이지
+`ok:true`(gecko asset 대응 개봉도 성립 — ok=false 결측 0).
+
+### 로드 시간(폰 실측 — 단위 ms, 단순 오프라인/네트워크 표층 기준선)
+
+| 페이지 | WebView 런1 / 런2 | GeckoView 141 |
+|---|---|---|
+| p1(정적) | 176 / 116 | **53** |
+| p2(500행 DOM) | **180 / 193** | 267 |
+| p3(3단 타이머) | 99 / 109 | **74** |
+| example.com(네트) | **44 / 88** | 42 |
+| firstContentMs | 2/2·2/1·6/14 | **-1 (등가 계약 부재 — 정직 결측)** |
+
+**판독**: 전 페이지 소음 띠가 양축 교차(gecko가 p1·p3·example 우위, p2 DOM
+렌더는 webview 우위) — **표층 성능 = 동급, 결정 축 아님**. firstContent는
+gecko 등가 계약 부재로 비교 불가(정직 결측 원존).
+
+### 판정 근거 요약 (사용자 결정 재료)
 
 | 축 | WebView | GeckoView 141 |
 |---|---|---|
-| ① 조달/크기 | 0MB(시스템) | +174.7MB(AAR) — **실측 원문 §2.4** |
-| ② 로드/firstContent | 폰 런 대기 | 폰 런 대기 (firstContentMs=-1 결측 정직 원존) |
-| ③ 에이전트 표면 | evaluateJavascript+CDP 개방(T3) | HistoryDelegate(표기 대기) |
-| ④ 인증 | webkit WEB-AUTHN FOR_APP opt-in(기기 WebView 버전 의존 — 런 원문 대기) | 패스키 네이티브 계약(조사 원존) |
+| ① 조달/크기 | **0MB(시스템 소유·기기 업데이트)** | +174.7MB(AAR) — §2.4 실측 |
+| ② 표층 성능 | 동급(위 표) | 동급 |
+| ③ 에이전트 표면 | **evaluateJavascript 즉발+CDP 원격 개방(T3)** — 에이전트 계약 최단 | delegate 계약 — link/DOM 회독은 WebExtension 별도 = **갭** |
+| ④ 인증 | FOR_APP opt-in(임의사이트=FOR_BROWSER는 특권 등급 갭) | **패시키 네이티브(임의사이트)** |
 | ⑤ 결제 | 라인 밖 — Custom Tabs 홉아웃+사람 하드게이트 원장행 | 동일 |
+
+**작성부 권고(측정표 판독 기준)**: WebView 우세 — 0MB·에이전트 CDP 계약·성능
+동급. GeckoView는 "임의 사이트 패시키가 실제 필요가 될 때" 재판정(그때도 GV
+최신화에 AGP 9.1 트둥 업 수반 — §2.1 계보 원존). **최종 결정=사용자**(§4 EYES).
 
 ## 4. EYES 대기 (사용자 선언만 결제)
 
