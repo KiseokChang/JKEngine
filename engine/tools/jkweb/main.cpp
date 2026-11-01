@@ -117,6 +117,7 @@ const char* KindName(jk::ChatAction::Kind kind) {
         case jk::ChatAction::Info:        return "Info";
         case jk::ChatAction::OverlayNumbers: return "OverlayNumbers";
         case jk::ChatAction::AmpkOpen:       return "AmpkOpen";  // #124
+        case jk::ChatAction::AmpkType:       return "AmpkType";  // #124 2단계
     }
     return "?";
 }
@@ -470,6 +471,14 @@ std::string HandleTalk(const std::string& body, int& code) {
                 : "브라우저로 개봉합니다: " + url;
             return "{\"ok\":true,\"reply\":\"" + JsonEsc(msg) +
                    "\",\"kind\":\"AmpkOpen\",\"app\":\"" + JsonEsc(url) + "\"}";
+        }
+        case jk::ChatAction::AmpkType: {
+            // #124 2단계(r9b 누락 수리) — 전송 0: 브라우저 창 수신기가 직접
+            // 적용해 서버 접촉 없다(회신에 kind+app=입력할 글자 payload 계약).
+            // r9에서 이 case 결손 — 빈 도구 전송(not_implemented) 원문.
+            code = 200;
+            return "{\"ok\":true,\"reply\":\"" + JsonEsc(guide) +
+                   "\",\"kind\":\"AmpkType\",\"app\":\"" + JsonEsc(action.app) + "\"}";
         }
         case jk::ChatAction::Info:
             code = 200;
