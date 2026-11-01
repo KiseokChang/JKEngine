@@ -26,7 +26,11 @@ mkdir -p "$SCRATCH"
 RLOG="$SCRATCH/phone_browser_run${BROWSER_RUN:-1}.log"
 
 APK_LOCAL="$ROOT/engine/android/jkapk/app/build/outputs/apk/debug/app-debug.apk"
-APK_REMOTE="/sdcard/Download/jkapk-debug.apk"
+# 조율 계약(#123 2026-11-01 — jkengine-89 세션 요청): 사용자 설치 가능 판
+# 덮어쓰기 전 사전 통지·시험용은 별도 파일명 → env로 원격 파일명 교체 가능.
+# 기본은 jkapk-debug.apk(기존 계약 유지 — 런처/사용자 안내 계약 축).
+PHONE_BROWSER_APK_REMOTE="${PHONE_BROWSER_APK_REMOTE:-/sdcard/Download/jkapk-debug.apk}"
+APK_REMOTE="$PHONE_BROWSER_APK_REMOTE"
 RUN_N=${BROWSER_RUN:-1}
 
 PHONE_HOST="${PHONE_HOST:-}"
