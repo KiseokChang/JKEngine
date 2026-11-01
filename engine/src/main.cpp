@@ -493,7 +493,7 @@ static std::string ClientModulePath(const char* appName) {
     const std::string prefix =
         (slash == std::string::npos) ? std::string("./") : exe.substr(0, slash + 1);
 #if defined(__ANDROID__)
-    // 스파이크-B: 실행물이 nativeLibraryDir의 lib*.so로 포장되어 exec되므로
+    // jkdesktop-apk: 실행물이 nativeLibraryDir의 lib*.so로 포장되어 exec되므로
     // 모듈도 lib 접두(libjkapp_<app>.so)로 판정한다 — jniLibs 규약이 lib 접두
     // 만 nativeLibraryDir에 실린다(W^X 우회 경유 — docs/101 §3).
     return prefix + "libjkapp_" + appName + jk::server::AppModuleSuffix();
@@ -10919,7 +10919,7 @@ static int RunMain(int argc, char* argv[]) {
         jk::MirrorLogToFiles("state/logs", "server");
         jk::server::JKWindowServer server;
 #if defined(__ANDROID__)
-        // 스파이크-B (docs/101 방향 B): 클라 호스트 = exec 전용 PIE 실행파일
+        // jkdesktop-apk — docs/103 실측 승계(docs/101 방향 B): 클라 호스트 = exec 전용 PIE 실행파일
         // libjkc.so(r12 실측 원문 — ET_DYN 공유 객체는 exec로 SIGILL 즉사:
         // PT_INTERP 부재라 커널이 e_entry로 점프. W^X 우회는 실행파일 포장이
         // 정석). 서버 본체(libjkdesk.so)는 SDLActivity의 dlopen 물리로 분리.
@@ -10929,7 +10929,7 @@ static int RunMain(int argc, char* argv[]) {
         // 있으면 거부 인스턴스가 앱 설치+아이콘 로드를 전부 수행한 뒤 죽는다
         // (2026-09-20 사용자 붙여넣기 로그 실측 — 낭비+로그 혼란).
 #if defined(__ANDROID__)
-        // 스파이크-B: 같은 프로세스 SDL_main 재진입(닫았다 다시 열기 — DeX
+        // jkdesktop-apk: 같은 프로세스 SDL_main 재진입(닫았다 다시 열기 — DeX
         /// 폰 전환)에서 선행 부트의 leaked fd가 flock을 계속 보유해 무성
         // return 1(원문 — Fatal signal 0건)로 사망한다. 재진입 판(SDL_main 심이
         // JK_SPIKE_NO_GUARD를 심음)에서는 가드를 우회한다.
@@ -10945,7 +10945,7 @@ static int RunMain(int argc, char* argv[]) {
             std::filesystem::remove(
                 std::filesystem::path(jk::fs::TempDir() +
                     std::string(jk::ipc::kWindowServerPipeName) + ".sock"), rmEc);
-            std::fprintf(stderr, "[spikeB] endpoint unlink rmEc=%d (rebind 전)\n",
+            std::fprintf(stderr, "[jkdesk] endpoint unlink rmEc=%d (rebind 전)\n",
                          (int)rmEc.value());
         }
 #else
@@ -10960,7 +10960,7 @@ static int RunMain(int argc, char* argv[]) {
             return 1;
         }
 #if defined(__ANDROID__)
-        // 스파이크-B 자동화(docs/101 §5 재시험 루프 절감): JK_SPIKE_AUTOSPAWN
+        // jkdesktop-apk 자동화(docs/101 §5 재시험 루프 절감): JK_SPIKE_AUTOSPAWN
         // env의 앱을 부팅 1.5s 후에 스폰 — 재시험마다 수동 아이콘 탭을 대신한다.
         // 스폰 물리는 서버 spawn leg와 동형(libjkc.so --client <app> — exe-dir
         // = JK_EXE_PATH(nativeLibraryDir)). Run 뒤 인가를 받지 않는 분리 스레드.
@@ -10979,7 +10979,7 @@ static int RunMain(int argc, char* argv[]) {
                 opt.workingDir = dir;
                 const jk::process::SpawnResult sp = jk::process::Spawn(opt);
                 std::fprintf(stderr,
-                             "[spikeB] autospawn %s ok=%d err=%u\n",
+                             "[jkdesk] autospawn %s ok=%d err=%u\n",
                              autoApp.c_str(), (int)sp.ok, sp.errorCode);
                 std::fflush(stderr);
             }).detach();
@@ -11161,7 +11161,7 @@ int wmain(int argc, wchar_t* argv[]) {
 // contract is UTF-8 on both platforms, the wmain leg above is the converter).
 int main(int argc, char* argv[]) {
 #if defined(__ANDROID__)
-    // 스파이크-B (docs/101 방향 B): exec'd 클라(libjkc.so — PIE 실행파일
+    // jkdesktop-apk — docs/103 실측 승계(docs/101 방향 B): exec'd 클라(libjkc.so — PIE 실행파일
     // 포장)는 SDLActivity의 SDL_Android_Init 사다리가 없다 — SDL_Init의
     // main-ready 게이트(r14 원문 "did you include SDL_main.h in the file
     // containing your main()?")를 SDL_SetMainReady() 1회로 통과. 비디오

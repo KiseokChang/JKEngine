@@ -378,6 +378,34 @@ check "NDK glslc (shader-tools — host)" \
 check "sysroot libvulkan.so stub" \
   "$SDK_ROOT/sdk/ndk/$NDK_VER/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/lib/aarch64-linux-android/24/libvulkan.so"
 
+# ---------------------------------- 10. SDL2 vendor (jkdesktop-apk, #126 T1) --
+# sdl2-2.32.10.tar.gz — 폰 설치판과 동일 버전(Termux sdl2 2.32.10 실측)이자
+# 스파이크-B(#125)가 실측 성립시킨 빌드 원존(docs/103). 핀 = sha256
+# 5f5993c530f084535c65a6879e9b26ad441169b3e25d789d83287040a9ca5165(조달기
+# sha256 핀 계약 승계 — 불일치 정직 거부). 무추적 build/android-sdk/sdl2-src.
+SDL2_TARBALL="$SDK_ROOT/downloads/sdl2-2.32.10.tar.gz"
+SDL2_URL="https://github.com/libsdl-org/SDL/releases/download/release-2.32.10/SDL2-2.32.10.tar.gz"
+SDL2_H="5f5993c530f084535c65a6879e9b26ad441169b3e25d789d83287040a9ca5165"
+if ! need_extract "$SDK_ROOT/sdl2-src/CMakeLists.txt"; then
+  log "sdl2-src 존재 — 전개 절사(멱등)"
+else
+  mkdir -p "$SDK_ROOT/downloads"
+  if [ ! -s "$SDL2_TARBALL" ]; then
+    fetch "$SDL2_URL" "$SDL2_TARBALL"
+  fi
+  ACTUAL_H="$(sha256sum "$SDL2_TARBALL" | cut -d' ' -f1)"
+  if [ "$ACTUAL_H" != "$SDL2_H" ]; then
+    log "FATAL: sdl2 tarball 핀 불일치 (actual=$ACTUAL_H want=$SDL2_H)"
+    fail=1
+  else
+    rm -rf "$SDK_ROOT/sdl2-src"
+    mkdir -p "$SDK_ROOT/sdl2-src"
+    tar xzf "$SDL2_TARBALL" -C "$SDK_ROOT/sdl2-src" --strip-components=1 &&
+      log "sdl2-src 전개 OK (SDL 2.32.10)"
+  fi
+fi
+check "SDL2 vendor (sdl2-src)" "$SDK_ROOT/sdl2-src/CMakeLists.txt"
+
 if [ "$fail" -ne 0 ]; then exit 1; fi
 
 cat <<EOF

@@ -99,7 +99,7 @@ std::string FailText(int err, const char* what) {
 
 const char* ShellPath() {
 #if defined(__ANDROID__)
-    // 스파이크-B: APK 프로세스에는 Termux의 termux-exec(/bin 리맵 LD_PRELOAD)
+    // jkdesktop-apk: APK 프로세스에는 Termux의 termux-exec(/bin 리맵 LD_PRELOAD)
     // 가 없다 — $PREFIX/bin/sh(Termux 보행, 기존 동작 유지)이 살아 있으면 그
     // 쪽을, 아니면 /system/bin/sh(mksh — Android 상존)로 폴백한다.
     static const std::string shell = []() -> std::string {

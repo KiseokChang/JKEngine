@@ -60,7 +60,7 @@ JKEvent TranslateSDLEvent(const SDL_Event& sdl) {
         case SDL_FINGERDOWN:
         case SDL_FINGERUP:
         case SDL_FINGERMOTION:
-            // 터치→마우스 수형 (스파이크-B, docs/101 방향 B): 지금까지 이
+            // 터치→마우스 수형 (jkdesktop-apk, docs/101 방향 B): 지금까지 이
             // 변환은 Termux:X11이 대행했다(X11이 터치를 마우스로 승격 — 서버
             // SDL_FINGER 처리 0의 근거). SDLActivity의 android 드라이버에서는
             // 엔진이 흡수해야 한다 — SDL_FINGER 좌표는 창에 정규화(0..1)

@@ -61,37 +61,6 @@ void JKSDLRenderBackend::DrawRect(const JKRect& rect) {
 void JKSDLRenderBackend::FillRect(const JKRect& rect) {
     if (!renderer_ || rect.IsEmpty()) return;
     SDL_Rect r = ToSDL(rect);
-#if defined(__ANDROID__)
-    // 스파이크-B 첫 FillRect 직착점 계량기 — 채우고 2x2 되읽기로 "이
-    // 프리미티브가 타깃에 착지했는가"를 그 지점에서 판정한다(r25 원문:
-    // rc=0인데 픽셀 불도착 — 호출 사이 어긋남 탈출).
-    {
-        static int spikeFills = 3;
-        const bool probe = spikeFills > 0;
-        const int rc = SDL_RenderFillRect(renderer_, &r);
-        if (probe) {
-            --spikeFills;
-            SDL_ClearError();
-            uint8_t cr = 0, cg = 0, cb = 0, ca = 0;
-            SDL_GetRenderDrawColor(renderer_, &cr, &cg, &cb, &ca);
-            const int cx = (rect.x + 2 < rect.x + rect.w) ? rect.x + rect.w / 2
-                                                          : rect.x + 2;
-            const int cy = (rect.y + 2 < rect.y + rect.h) ? rect.y + rect.h / 2
-                                                          : rect.y + 2;
-            uint32_t sample = 0;
-            SDL_Rect cell = SDL_Rect{ cx, cy, 2, 2 };
-            const int rd = SDL_RenderReadPixels(renderer_, &cell,
-                SDL_PIXELFORMAT_RGBA32, &sample, 8);
-            std::fprintf(stderr,
-                "[spikeB] FillRect rc=%d %dx%d@%d,%d color=%02x%02x%02x%02x "
-                "read=%d val=%08x at=%d,%d err=%s\n",
-                rc, rect.w, rect.h, rect.x, rect.y, cr, cg, cb, ca,
-                rd, sample, cx, cy, SDL_GetError());
-            std::fflush(stderr);
-        }
-        return;
-    }
-#endif
     SDL_RenderFillRect(renderer_, &r);
 }
 
@@ -131,7 +100,7 @@ JKRenderBackend::TextureHandle JKSDLRenderBackend::CreateTargetTexture(int w, in
         return InvalidTexture;
     }
 #if defined(__ANDROID__)
-    // 스파이크-B — r30 실측 원문: SDL_SW 렌더러의 TARGET 텍스처 경로(SRT rc=0
+    // jkdesktop-apk — r30 실측 원문: SDL_SW 렌더러의 TARGET 텍스처 경로(SRT rc=0
     // +fmt RGBA8888 정상)에서 그림이 미착지(계량기 전 시리즈). 클라 렌더를
     // 윈도우 표면 일직선으로 우회: 타깃을 생성하지 않고 더미 핸들만 돌려
     // 상위 파이프라인을 산다(SetRenderTarget도 NO-OP — 아래).
@@ -156,7 +125,7 @@ void JKSDLRenderBackend::DestroyTexture(TextureHandle texture) {
 void JKSDLRenderBackend::SetRenderTarget(TextureHandle texture) {
     if (!renderer_) return;
 #if defined(__ANDROID__)
-    // 스파이크-B — 더미 핸들(윈도우 표면 우회)이 들어오면 바인딩을 무시한다
+    // jkdesktop-apk — 더미 핸들(윈도우 표면 우회)이 들어오면 바인딩을 무시한다
     // — SW 렌더러가 기본 결합 상태(윈도우 표면)로 그리고 ReadPixels가 같은
     // 표면을 읽는다(r30 원문 — SDL SW 타깃 경로 미착지 회피).
     if (reinterpret_cast<uintptr_t>(texture) == 1u) return;

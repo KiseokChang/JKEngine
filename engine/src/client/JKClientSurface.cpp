@@ -165,34 +165,6 @@ bool JKClientSurface::CommitFull() {
 bool JKClientSurface::Commit(const std::vector<ipc::DirtyRect>& dirty) {
     if (!IsConnected()) return false;
 
-#if defined(__ANDROID__)
-    // 스파이크-B 원문 계량기(r17 — 블랙 콘텐츠 진원 분절): 선행 커밋 2회,
-    // 샘플 1024px에서 비영 U32 수를 원문으로 남긴다. 0이면 클라 렌더 leg가
-    // 그리지 않는 것·비영이면 서버 수취 leg 결함 — 커밋 본문과 무관하게
-    // 판정한다.
-    static int spikeProbes = 2;
-    if (spikeProbes > 0 && sharedMemory_ && sharedMemory_->IsValid()) {
-        const uint32_t* px =
-            reinterpret_cast<const uint32_t*>(sharedMemory_->Data());
-        // 행 3점 샘플(r19 원문: 첫 1024px가 균일 어두운 배경 — 보드 래스터가
-        // 아래쪽에 있는지 가름): 상단/중간/하단 행의 첫 4px씩.
-        const size_t rows[3] = {
-            0, (static_cast<size_t>(height_) / 2) * width_,
-            (static_cast<size_t>(height_) > 1
-                 ? (static_cast<size_t>(height_) - 1) * width_ : 0) };
-        for (int r = 0; r < 3; ++r) {
-            std::fprintf(stderr,
-                         "[spikeB] commit id=%u row%d[0..3]=%08x %08x %08x %08x "
-                         "w=%u h=%u dirty=%zu\n",
-                         surfaceId_, r, px[rows[r]], px[rows[r] + 1],
-                         px[rows[r] + 2], px[rows[r] + 3],
-                         width_, height_, dirty.size());
-        }
-        std::fflush(stderr);
-        --spikeProbes;
-    }
-#endif
-
     const size_t headerBytes = sizeof(ipc::CommitSurfaceHeader);
     const size_t rectBytes = dirty.size() * sizeof(ipc::DirtyRect);
     std::vector<uint8_t> payload(headerBytes + rectBytes);
@@ -218,20 +190,6 @@ bool JKClientSurface::PollInputEvent(JKEvent& out) {
     if (inputEvents_.empty()) return false;
     out = std::move(inputEvents_.front());
     inputEvents_.pop_front();
-#if defined(__ANDROID__)
-    // 스파이크-B 입력 leg 원문 계량기(선행 4건): 클라가 서버로부터 도달한
-    // 입력 이벤트 종류·좌표 — 터치→서버→클라 사슬 증명.
-    {
-        static int spikeInputs = 4;
-        if (spikeInputs > 0) {
-            std::fprintf(stderr,
-                         "[spikeB] event id=%u type=%d x=%d y=%d\n",
-                         surfaceId_, (int)out.type, out.x, out.y);
-            std::fflush(stderr);
-            --spikeInputs;
-        }
-    }
-#endif
     return true;
 }
 

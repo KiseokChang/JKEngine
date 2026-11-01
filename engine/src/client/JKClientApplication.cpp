@@ -94,7 +94,7 @@ bool JKClientApplication::CreateHiddenRenderer(const std::string& title, int wid
 #endif
 
 #if defined(__ANDROID__)
-    // 스파이크-B (docs/101 방향 B): exec된 클라 프로세스는 화면을 소유하지
+    // jkdesktop-apk — docs/103 실측 승계(docs/101 방향 B): exec된 클라 프로세스는 화면을 소유하지
     // 못한다(SDL Android 창 1개 제한 — SDLActivity의 창은 서버의 유일 화면).
     // 비디오 드라이버를 dummy로 두고 렌더러는 SW(TARGETTEXTURE 지원,
     // RenderReadPixels → 공유메모리 전송 유지 — 합성 계약은 CPU 픽셀 버퍼).
@@ -921,23 +921,6 @@ void JKClientApplication::RenderAndCommit() {
     if (!pendingScene_.empty()) {
         auto scene = JKRenderCommandList::Deserialize(pendingScene_);
         if (scene) {
-#if defined(__ANDROID__)
-            // 스파이크-B 원문 계량기(선행 2프레임): 명령 개수·SetRenderTarget
-            // 결과·Replay 후 SDL 오류 상태 — 보드 비래스터(균일 ff202020)의
-            // 명령 단 가름.
-            {
-                static int spikeFrames = 2;
-                if (spikeFrames > 0) {
-                    std::fprintf(stderr,
-                                 "[spikeB] replay bytes=%zu target=%u sdlerr=%s\n",
-                                 pendingScene_.size(),
-                                 (unsigned)(uintptr_t)targetTexture_,
-                                 SDL_GetError());
-                    std::fflush(stderr);
-                    --spikeFrames;
-                }
-            }
-#endif
             scene->Replay(renderBackend_.get());
         }
     }

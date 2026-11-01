@@ -220,7 +220,7 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
     // 렌더러는 memcpy blit+윈도우 서피스 업로드라 폰에서 수배 빠르다.
     // Windows·WSL은 ACCELERATED 유지(회귀 접촉 0).
 #ifdef __ANDROID__
-    // 스파이크-B: 이 힌트는 Termux/X11(llvmpipe) 실측 레슨(docs/78 TX7) —
+    // jkdesktop-apk: 이 힌트는 Termux/X11(llvmpipe) 실측 레슨(docs/78 TX7) —
     // SDLActivity의 android 드라이버에서는 SW 렌더러가 성립 구조가 아니므로
     // (X11 윈도우 서피스 폴백 계열 API 미지원) android가 아닌 드라이버에만
     // 유지한다. android 드라이버는 ACCELERATED(EGL/GPU, Adreno 660 실측 대상).
@@ -647,7 +647,7 @@ bool JKWindowServer::StartAcceptor(const std::string& pipeName) {
                 : exePathAutoSpawn.substr(0, autoCut);
         std::string dllPath = dirSelf + "/jkapp_taskbar" + AppModuleSuffix();
 #if defined(__ANDROID__)
-        // 스파이크-B: 모듈이 nativeLibraryDir에서 lib 접두로 살아 있다
+        // jkdesktop-apk: 모듈이 nativeLibraryDir에서 lib 접두로 살아 있다
         // (jniLibs 규약 — lib*.so만 패키징). lib 접두 우선, 없으면 원존 폴백.
         {
             const std::string libPrefixed =
@@ -4947,7 +4947,7 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
             // (G1 리뷰 승계).
             const std::string dllPath =
 #if defined(__ANDROID__)
-                // 스파이크-B: 모듈이 nativeLibraryDir의 lib 접두로 패키징된다
+                // jkdesktop-apk: 모듈이 nativeLibraryDir의 lib 접두로 패키징된다
                 // (jniLibs 규약) — 존재 검사도 lib 접두로.
                 exeDir + "/libjkapp_" + app + AppModuleSuffix();
 #else
