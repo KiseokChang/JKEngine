@@ -11112,6 +11112,14 @@ int wmain(int argc, wchar_t* argv[]) {
 // so RunMain consumes argv verbatim (no conversion leg — RunMain's encoding
 // contract is UTF-8 on both platforms, the wmain leg above is the converter).
 int main(int argc, char* argv[]) {
+#if defined(__ANDROID__)
+    // 스파이크-B (docs/101 방향 B): exec'd 클라(libjkc.so — PIE 실행파일
+    // 포장)는 SDLActivity의 SDL_Android_Init 사다리가 없다 — SDL_Init의
+    // main-ready 게이트(r14 원문 "did you include SDL_main.h in the file
+    // containing your main()?")를 SDL_SetMainReady() 1회로 통과. 비디오
+    // 드라이버는 클라 힌트 leg(offscreen+SW)가 이어받는다.
+    SDL_SetMainReady();
+#endif
     return RunMain(argc, argv);
 }
 #endif // _WIN32

@@ -96,9 +96,11 @@ bool JKClientApplication::CreateHiddenRenderer(const std::string& title, int wid
 #if defined(__ANDROID__)
     // 스파이크-B (docs/101 방향 B): exec된 클라 프로세스는 화면을 소유하지
     // 못한다(SDL Android 창 1개 제한 — SDLActivity의 창은 서버의 유일 화면).
-    // 비디오 드라이버를 offscreen으로 두고 렌더러는 SW(TARGETTEXTURE 지원,
+    // 비디오 드라이버를 dummy로 두고 렌더러는 SW(TARGETTEXTURE 지원,
     // RenderReadPixels → 공유메모리 전송 유지 — 합성 계약은 CPU 픽셀 버퍼).
-    SDL_SetHint(SDL_HINT_VIDEODRIVER, "offscreen");
+    // r15 원문: offscreen 드라이버는 내부가 GBM/EGL — 폰에서
+    // "eglQueryDevicesEXT is missing"으로 창 생성 실패. dummy는 장치 0.
+    SDL_SetHint(SDL_HINT_VIDEODRIVER, "dummy");
     SDL_SetHint(SDL_HINT_RENDER_DRIVER, "software");
 #endif
 
