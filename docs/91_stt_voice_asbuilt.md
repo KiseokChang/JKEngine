@@ -513,3 +513,25 @@ selftest 재실행 불요 — 캐논 = 전 태스크 리포트/progress의 건�
   probe 소스 무접촉·런 로그·캡처·probe cpp·fixture wav 전부 engine/tmp untracked
   (커밋 금지 충족 — wsl_voice_run1/2.log·phone_voice_validation.log·t5_* 영수증
   계보 포함).
+## §9. 2026-11-01 — Whisper 최적화 시도와 기본 음성 인식 전환
+
+결론: **JK 앱 [구두]의 기본 엔진 = Android SpeechRecognizer**(b3f1970).
+Whisper(앱 내장)는 [인식:Whisper] 토글로 남긴 예비.
+
+EYES-STT-SYSTEM: PASS — "차원이 다른 인식속도와 품질이네요" (2026-11-01, 폰 SM-F926N, APK md5 66761836)
+
+거쳐 온 근거(전부 폰 실측):
+- APK 전사 "0%에서 시간만 증가" = AGP debug 변형의 네이티브 -O0 → Release 강제(e0aef54).
+- Termux whisper-cli 같은 녹음 2.56s: 30s 창 7.0s → audio_ctx 384 2.2-2.6s 정답(256은 오인식)
+  → APK에 armv8.2 dotprod/fp16·CPU 컨텍스트 재사용·audio_ctx 축소(0fcfac5).
+- GPU(Vulkan, Adreno 660): 모델 로드 중 SIGSEGV(getBufferAddress null), 회피판도 CPU 3배
+  느림 → CPU 고정(.superpowers/sdd/2026-10-31-apk-gpu/gpu-spike-report.md).
+- 인식 앞뒤 엉뚱한 말 = Whisper 초기 프롬프트(어휘 힌트) 원인 — 실녹음 3건 재현, 제거 시
+  정답 → 철회(e9a790c, APK·데스크톱 모두).
+- 남은 Whisper 버릇: 하지 않은 "그거" 접두, "지뢰 찾기" 띄어쓰기 → 라우터 쪽에서 흡수:
+  근사 매칭 7d585d5(자모 가중 편집거리), 별명 접미 우선 앱어 dc6b0fc.
+- /talk 응답 대기 10s→60s, 응답 지연을 "서버 미기동"과 구분(74409f2). AI 해석 경로
+  2.0-6.8s(5회) — 정확/근사 매칭 경로는 0.02s.
+
+데스크톱(Termux Chat [구두])은 여전히 whisper-cli(-ac 축소, 프롬프트 없음) — 같은 수준의
+기본 인식으로 바꾸려면 JK 앱을 거치는 구조가 필요(docs/101 APK 이식과 함께 정할 문제).
