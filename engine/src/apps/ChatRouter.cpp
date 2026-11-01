@@ -828,7 +828,12 @@ std::string ComposeChatLlmPrompt(const std::string& text) {
         "창), focus=창을 앞으로 가져온다, list=떠 있는 창 목록을 조회한다, "
         "browser=앱이 아닌 웹사이트를 폰 브라우저로 개봉한다(app에 사이트 "
         "주소를 적는다 — 유부브닷컴 유투브 네이버 같은 발음 표기는 "
-        "www.youtube.com www.naver.com 식 표준 주소로 바꿔 app에 적는다), "
+        "www.youtube.com www.naver.com 식 표준 주소로 바꿔 app에 적는다). "
+        "사이트 지정 검색(예 네이버에서 내일 날씨 검색해줘 류)도 browser로 "
+        "해석한다 — app에 그 사이트 검색 주소를 만들어 적는다: 네이버는 "
+        "search.naver.com/search.naver?query=검색어 유튜브는 "
+        "youtube.com/results?search_query=검색어 구글은 "
+        "google.com/search?q=검색어 지정없는 검색은 google.com/search?q=. "
         "talk=행동이 필요하지 않은 대답(text의 문장만 회신한다). ";
     // 트리거 표 — kRouteTable 순회(InfoGuide의 표 재인쇄 선례: 진실원에서
     // 뽑아 인쇄한다). 긴/짧은 형 중복은 같은 kind가 인접하므로 첫 등장만.

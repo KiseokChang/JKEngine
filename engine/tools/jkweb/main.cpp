@@ -125,8 +125,11 @@ const char* KindName(jk::ChatAction::Kind kind) {
 // 판정(문자 유입 명령 인젝션 봉쇄 — ' " ; $ ` 백슬래시·공백은 부적합 정직
 // 거부). URL은 모양 제한이 실용 계약(쿼리 한글은 인코딩 전제).
 bool UrlSafe(const std::string& u) {
-    if (u.empty() || u.size() > 512) return false;
+    if (u.empty() || u.size() > 640) return false;
     for (unsigned char c : u) {
+        // r7 — 0x80 이상(UTF-8 다바이트 한글 등)도 통과(사이트 검색어 원존 —
+        // 현재 개봉 leg는 스폰 0이라 셸 인젝션 축이 없어 제어 문자만 거부).
+        if (c >= 0x80) continue;
         const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
                         (c >= '0' && c <= '9') ||
                         (c == '.' || c == ':' || c == '/' || c == '-' ||
