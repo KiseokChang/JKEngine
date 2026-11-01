@@ -157,6 +157,9 @@ using jk::Utf8ToKssm;
 #include <thread>
 #include <vector>
 
+// jkweb 본체 in-process 재용 (tools/jkweb/main.cpp — JK_WEB_INPROCESS leg)
+extern "C" int JKWebStartInProcess();
+
 class ColorBox : public jk::JKControl {
 public:
     ColorBox(uint8_t r, uint8_t g, uint8_t b)
@@ -10959,6 +10962,15 @@ static int RunMain(int argc, char* argv[]) {
         if (!server.StartAcceptor(jk::ipc::kWindowServerPipeName)) {
             return 1;
         }
+#if defined(__ANDROID__)
+        // 스펙 §5 — jkweb 본체를 in-process 스레드로(별도 바이너리 폐기):
+        // /talk POST(localhost:8090) → ChatRouteTurn → JKAgentClient(같은
+        // 서버 IPC 루프백) → spawn/close/focus 위임. jkweb 단독 빌드와 동일
+        // 진실원(tools/jkweb/main.cpp의 JK_WEB_INPROCESS leg).
+#if defined(JK_WEB_INPROCESS)
+        std::thread([] { ::JKWebStartInProcess(); }).detach();
+#endif
+#endif
 #if defined(__ANDROID__)
         // jkdesktop-apk 자동화(docs/101 §5 재시험 루프 절감): JK_SPIKE_AUTOSPAWN
         // env의 앱을 부팅 1.5s 후에 스폰 — 재시험마다 수동 아이콘 탭을 대신한다.

@@ -203,6 +203,7 @@ target_link_libraries(jkclient PUBLIC jkcore)
 add_library(jkdesk SHARED
     "${SPIKE_JNI}/jksrv_main.cpp"
     ${ENG}/src/main.cpp
+    ${ENG}/tools/jkweb/main.cpp   # in-process /talk (JK_WEB_INPROCESS)
     ${ENG}/src/apps/JangoApp.cpp
     ${ENG}/src/apps/JangoUI.cpp
     ${ENG}/src/apps/Equip24App.cpp
@@ -223,6 +224,7 @@ add_library(jkdesk SHARED
     ${ENG}/src/apps/TerminalView.cpp
     ${ENG}/src/apps/TerminalHangulInput.cpp
 )
+target_compile_definitions(jkdesk PRIVATE JK_WEB_INPROCESS)
 target_link_libraries(jkdesk PRIVATE jkcore jkserver jkclient)
 
 # --------------------------------------------------- libjkc.so (exec 전용) --
