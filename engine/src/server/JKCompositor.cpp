@@ -305,7 +305,7 @@ void JKCompositor::UpdateLayerTexture(JKCompositorLayer& layer) {
     // 샘플 1024px 비영 U32 — 클라 커밋 계량기(JKClientSurface Commit)와 짝.
     // 클라 비영 / 서버 비영 → 서버 프레젠트 leg 잔여 결함 분절.
     {
-        static int spikeProbes = 4;
+        static int spikeProbes = 12;
         if (spikeProbes > 0) {
             const uint32_t* px =
                 reinterpret_cast<const uint32_t*>(layer.Pixels());
@@ -416,6 +416,22 @@ void JKCompositor::Composite(bool present) {
             }
 
             const SDL_Rect dst = ComputeLayerDst(*layer, outputScale);
+#if defined(__ANDROID__)
+            // 스파이크-B 렌더 패스 원문 계량기(선행 6회): 레이어 가시/dst/알파
+            // — 클라 레이어(태스바·지뢰찾기)가 화면에 못 올라가는지의 원문.
+            {
+                static int spikeComp = 6;
+                if (spikeComp > 0) {
+                    std::fprintf(stderr,
+                                 "[spikeB] comp id=%u vis=%d dst=%dx%d@%d,%d alpha=%u scale=%.2f\n",
+                                 layer->Id(), layer->IsVisible() ? 1 : 0,
+                                 dst.w, dst.h, dst.x, dst.y,
+                                 (unsigned)layer->Alpha(), outputScale);
+                    std::fflush(stderr);
+                    --spikeComp;
+                }
+            }
+#endif
             // (T2) dst 추적 — 마지막 "제시된" 화면의 dst와 달라지면 이전∪새
             // dst가 제시를 끈다(이동·리사이즈·fit 변화 = 커밋 없는 변화).
             // skip 프레임(제시 스킵)에는 화면이 마지막 제시 상태 그대로므로

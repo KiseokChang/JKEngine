@@ -210,7 +210,13 @@ void JKRenderCommandList::Replay(JKRenderBackend* target) const {
             unsigned setcolor = 0, clear = 0, fill = 0, rectd = 0,
                      line = 0, pixel = 0, blit = 0, other = 0;
             int clipSeen = 0; int colorSeen = 0;
+            uint8_t lastSetColor[4] = {0, 0, 0, 255};
+            bool fillPairDumped = false;
             for (const auto& c : commands_) {
+                if (c.type == Type::SetDrawColor) {
+                    lastSetColor[0] = c.r; lastSetColor[1] = c.g;
+                    lastSetColor[2] = c.b; lastSetColor[3] = c.a;
+                }
                 switch (c.type) {
                     case Type::SetDrawColor: ++setcolor; break;
                     case Type::Clear:        ++clear; break;
@@ -239,6 +245,18 @@ void JKRenderCommandList::Replay(JKRenderBackend* target) const {
                         "[spikeB] setcolor%d cmd=%02x,%02x,%02x,%02x\n",
                         colorSeen, c.r, c.g, c.b, c.a);
                     ++colorSeen;
+                }
+                // r33 국한: 첫 FillRect의 직전 SetDrawColor cmd 원문 — fill
+                // 프로브(color=c0202020)와 짝 — "씬이 원래 그 색을 갖고 있는가"
+                // 를 한 줄로 확정한다.
+                if (c.type == Type::FillRect && !fillPairDumped) {
+                    fillPairDumped = true;
+                    std::fprintf(stderr,
+                        "[spikeB] prefill setcolor cmd=%02x,%02x,%02x,%02x "
+                        "fillrect=%dx%d@%d,%d\n",
+                        lastSetColor[0], lastSetColor[1], lastSetColor[2],
+                        lastSetColor[3], c.rect.w, c.rect.h, c.rect.x,
+                        c.rect.y);
                 }
 #endif
             }

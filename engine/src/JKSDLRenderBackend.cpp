@@ -130,6 +130,13 @@ JKRenderBackend::TextureHandle JKSDLRenderBackend::CreateTargetTexture(int w, in
     if (!renderer_ || w <= 0 || h <= 0) {
         return InvalidTexture;
     }
+#if defined(__ANDROID__)
+    // 스파이크-B — r30 실측 원문: SDL_SW 렌더러의 TARGET 텍스처 경로(SRT rc=0
+    // +fmt RGBA8888 정상)에서 그림이 미착지(계량기 전 시리즈). 클라 렌더를
+    // 윈도우 표면 일직선으로 우회: 타깃을 생성하지 않고 더미 핸들만 돌려
+    // 상위 파이프라인을 산다(SetRenderTarget도 NO-OP — 아래).
+    return reinterpret_cast<TextureHandle>(static_cast<uintptr_t>(1));
+#endif
     SDL_Texture* tex = SDL_CreateTexture(renderer_,
                                          SDL_PIXELFORMAT_RGBA8888,
                                          SDL_TEXTUREACCESS_TARGET,
@@ -139,12 +146,21 @@ JKRenderBackend::TextureHandle JKSDLRenderBackend::CreateTargetTexture(int w, in
 
 void JKSDLRenderBackend::DestroyTexture(TextureHandle texture) {
     if (texture) {
+#if defined(__ANDROID__)
+        if (reinterpret_cast<uintptr_t>(texture) == 1u) return;  // 더미 핸들
+#endif
         SDL_DestroyTexture(static_cast<SDL_Texture*>(texture));
     }
 }
 
 void JKSDLRenderBackend::SetRenderTarget(TextureHandle texture) {
     if (!renderer_) return;
+#if defined(__ANDROID__)
+    // 스파이크-B — 더미 핸들(윈도우 표면 우회)이 들어오면 바인딩을 무시한다
+    // — SW 렌더러가 기본 결합 상태(윈도우 표면)로 그리고 ReadPixels가 같은
+    // 표면을 읽는다(r30 원문 — SDL SW 타깃 경로 미착지 회피).
+    if (reinterpret_cast<uintptr_t>(texture) == 1u) return;
+#endif
     SDL_SetRenderTarget(renderer_, static_cast<SDL_Texture*>(texture));
 }
 

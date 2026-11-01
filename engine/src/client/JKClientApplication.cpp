@@ -127,10 +127,17 @@ bool JKClientApplication::CreateHiddenRenderer(const std::string& title, int wid
 #if defined(__ANDROID__)
     // 위 힌트(software 드라이버)와 ACCELERATED 플래그는 상존 — 플래그를
     // 벗겨야 SW 렌더러가 match된다(SDL_CreateRenderer 필터 규약).
+    // + r31/r32 결함 원문 승계: SDL_CreateRenderer+더미 드라이버 경로의 SW
+    // 렌더러는 원시(FillRect/DrawLine)가 미착지(고립 테스트 폰 원문 —
+    // Clear만 착지·포맷 RGBA8888 정상·동일 SW 렌더러의 표면 직결은 정상).
+    // 수형 = SDL_CreateSoftwareRenderer(윈도우 표면 직결) — r31(원시
+    // 미착지 회피)과 결합해 "윈도우 표면 일직선 렌더"가 된다.
     hiddenRendererFlags = SDL_RENDERER_TARGETTEXTURE;
-#endif
+    hiddenRenderer_ = SDL_CreateSoftwareRenderer(SDL_GetWindowSurface(hiddenWindow_));
+#else
     hiddenRenderer_ = SDL_CreateRenderer(hiddenWindow_, -1,
         hiddenRendererFlags);
+#endif
     if (!hiddenRenderer_) {
         std::fprintf(stderr, "JKClientApplication::Init: SDL_CreateRenderer failed: %s\n",
                      SDL_GetError());
@@ -901,30 +908,8 @@ void JKClientApplication::RenderAndCommit() {
 
     renderBackend_->SetRenderTarget(targetTexture_);
     renderBackend_->SetScale(1.0f, 1.0f);
-#if defined(__ANDROID__)
-    // 스파이크-B 원문 계량기(선행 2프레임): SetRenderTarget 반환값 — r21
-    // 원문("replay bytes=286280 … sdlerr=That operation is not supported"
-    // — 씬은 조립·Replay되었으나 픽셀 미착지)의 문제 호출 가름.
-    {
-        static int spikeSrt = 2;
-        if (spikeSrt > 0) {
-            const int srtRc = SDL_SetRenderTarget(
-                hiddenRenderer_, static_cast<SDL_Texture*>(targetTexture_));
-            SDL_RendererInfo srtInfo{};
-            SDL_GetRendererInfo(hiddenRenderer_, &srtInfo);
-            // r29 결정 계량 — 타깃 텍스처의 실제 포맷(r29 원문: 상태색이 >>3
-            // 양자화 — 3-3-2 표면 협착 의심) + ReadPixels 직전 현재 상태색.
-            Uint32 texFmt = 0; int tw = 0, th = 0;
-            SDL_QueryTexture(static_cast<SDL_Texture*>(targetTexture_),
-                             &texFmt, nullptr, &tw, &th);
-            std::fprintf(stderr,
-                "[spikeB] target fmt=0x%08x %dx%d renderer=%s\n",
-                texFmt, tw, th, srtInfo.name ? srtInfo.name : "(null)");
-            std::fflush(stderr);
-            --spikeSrt;
-        }
-    }
-#endif
+    // ※ 계량 프로브 철수 원문: 이 자리에 있던 SDL.SetRenderTarget 직접 계량이
+    // r31에서 더미 핸들(0x1)을 SDL에 직접 넘겨 클라 segfault의 진원이었다.
 
     // Commit-stage watchdog marks (diag-probe-ui-stall §7-2): boundaries
     // between compose/replay, overlay, readback and the shm commit. Logged
