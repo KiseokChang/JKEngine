@@ -63,7 +63,11 @@
    [구두] 홀드 → 사이트 개봉 화법 → 실제 이동(유부브닷컴류 발음 복원 포함)
    — 사슬 원문: logcat VOICE-REPLY/VOICE-RECV 계층 + adb am start -e jkUrl
    재현(chang.jkapk DNS 요청 원문) + /talk 3경·트리거 밖 화법 양수.
-2. 서비스 FGS 알림(Importance LOW) 체감·앱 화면 밖 마이크 정지(사생 축) — 대기
+2. **★PASS — 사이트 지정 검색(사용자 "잘 되네요" 2026-11-02)**: "네이버에서
+   내일 날씨 검색해줘"=search.naver.com?query=내일+날씨·"유부브에서 고양이
+   영상 찾아줘"=youtube.com/results?search_query=고양이+영상 — r7/r8(5fa2ed9·
+   사후 d70b3cf8 폰 live 원문)
+3. 서비스 FGS 알림(Importance LOW) 체감·앱 화면 밖 마이크 정지(사생 축) — 대기
 
 ### 수형 계보 원존 (진원 사슬 — 토스트 3종·계측판 분할)
 
