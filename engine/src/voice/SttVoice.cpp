@@ -59,14 +59,27 @@ constexpr char kVoiceLanguage[] = "ko";
 // 원존 — T5 §6)이 prompt 어휘 사이의 "앱명+트리거" 조합형 환각으로 이어져
 // launch 미들 트리거가 성립할 수 있다 — v1 VAD 없이 완화 없음, 실발화
 // 재판정은 사용자 EYES 몫(정직 기록).
-// **risk 원장행**: prompt는 디코딩 편향이므로 무발화/환각("click" 원존 —
-// T5 §6)이 prompt 어휘 사이의 "앱명+트리거" 조합형 환각으로 이어져
-// launch 미들 트리거가 성립할 수 있다 — v1 VAD 없이 완화 없음, 실발화
-// 재판정은 사용자 EYES 몫(정직 기록).
-constexpr char kVoicePrompt[] =
-    "지뢰찾기 테트리스 알림 실행해줘 실행 열어줘 켜줘 닫아줘 꺼줘 앞으로 가져와 "
-    "포커스 창 목록 창목록 뭐 떠 있어 멈춰줘 멈춰 정지해줘 정지 일시정지 "
-    "재생해줘 재생 완전히 정지해줘 보여줘 창 번호 보여줘 번호 보여줘 번 창";
+// **철회(2026-11-01)**: 위 risk가 실발화에서 확인됨 — 폰 실녹음 3건(small-
+// komixv2)에서 prompt 적용 시 "지리 해 줄 아 이거 눌러줘요", "어난노난매를
+// 한 번호 열고 이 사람에게…" 류 환각, prompt 제거 시 "지뢰 찾기 열어줘" 정답.
+// prompt는 tiny-ko 시절 수형이었고 small 전환 후엔 해가 크다 — --prompt 미사용.
+// 전사 오차는 라우터 근사 매칭(ChatRouter FuzzyProbe)이 흡수한다.
+
+// 인코더 계산 길이를 발화 길이+여유로 축소(-ac). 폰 실측(small-komixv2,
+// 2.56s): 30s 창 전체 7.0s → 384 프레임 2.2-2.6s 정답 2/2, 256은 오인식.
+// 16k 모노 s16le 캡처 = 32000B/s, 50프레임/s → (본문 샘플/320)+256, 64 배수,
+// 하한 384, 1500 이상(약 25s+) = 인자 생략(전체 창). 크기 판독 실패 = 생략.
+static std::string AudioCtxArg(const std::string& wavPath) {
+    std::error_code ec;
+    const auto bytes = std::filesystem::file_size(
+        std::filesystem::path(wavPath), ec);
+    if (ec || bytes <= 44) return "";
+    size_t frames = (static_cast<size_t>((bytes - 44) / 2) + 319) / 320 + 256;
+    frames = (frames + 63) / 64 * 64;
+    if (frames < 384) frames = 384;
+    if (frames >= 1500) return "";
+    return " -ac " + std::to_string(frames);
+}
 
 // 전체 마감 — JKLmEngine kTurnIdleKillMs(10분) 선형. transcribe는 모든
 // 진행 로그가 stderr라 관측 유무로 목을 줄 수 없어 **전체 마감** 1종만
@@ -199,8 +212,7 @@ bool WhisperTranscribe(const std::string& wavPath,
     jk::process::SpawnOptions opt;
     const std::string args =
         QuoteArg(bin) + " -m " + QuoteArg(modelPath) + " -f " +
-        QuoteArg(wavPath) + " -l " + kVoiceLanguage + " --prompt " +
-        QuoteArg(kVoicePrompt);
+        QuoteArg(wavPath) + " -l " + kVoiceLanguage + AudioCtxArg(wavPath);
     opt.commandLineUtf8 = args;
     opt.hideWindow = true;           // CREATE_NO_WINDOW + SW_HIDE
     opt.inheritedStdioPipes = true;  // stdout/stderr 분리 부모 파이프

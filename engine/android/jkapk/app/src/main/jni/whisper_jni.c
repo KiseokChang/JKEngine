@@ -808,10 +808,10 @@ static int jk_transcribe_core(JNIEnv* env, const char* wavPath,
         wparams.print_special = false;
         wparams.print_realtime = false;
         wparams.print_timestamps = false;
-        if (prompt != NULL && *prompt != '\0') {
-            wparams.initial_prompt = prompt;
-            wparams.carry_initial_prompt = true;  // 장발화에서도 어휘 힌트 소멸 방지
-        }
+        // 초기 프롬프트(어휘 힌트)는 쓰지 않는다 — prompt 인자는 JNI 계약상
+        // 받기만 한다. 폰 실녹음 3건 실측(2026-11-01): prompt 적용 시 "어난노난
+        // 매를 한 번호 열고…" 류 환각, 미적용 시 "지뢰 찾기 열어줘" 정답.
+        (void)prompt;
         // #122 진행 leg — whisper 원문 진행(%) 보고(vendored whisper.cpp 진행
         // 산식 승계 — (seek-seek_start)/(seek_end-seek_start)). env 경로 =
         // Java 상태행 "전사 중… (Ns · N%)" 합성(MainActivity 소관). selftest
