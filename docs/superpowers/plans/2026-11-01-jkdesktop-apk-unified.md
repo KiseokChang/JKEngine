@@ -38,7 +38,7 @@
 - [ ] **Step 2: 골격 복사+정제** — spike-b에서 gradle/manifest/jni 파일 복사, `chang.spikeb`→`chang.jkdesktop` 전 갱신, 계량기 프로브([spikeB] commit/FillRect/comp/texture/event) 전량 철수, srv.err 로그 채널(수취 채널)은 유지, versionName="v1.0", `ForegroundService` 골격(startForeground+notification 채널 — spec §3 수명)
 - [ ] **Step 3: 빌드 성립** — gradle assembleDebug RC=0(기저 계약)
 - [ ] **Step 4: 폰 반입+기동** — adb install -r+am start → 로그 수취: `JKWindowServer: spawned … taskbar`+srv.err에 Init·fit 원문 → 배경+태스크바 육안(EYES 항목)
-- [ ] **Step 5: 커밋** — `feat(apk): T1 jkdesktop-apk 골격 — 스파이크 승계 정제`
+- [x] **완료** f135553 — Samsung FGS 함정 2건 원존(부팅 원문 jk-err-3) + 계량기 철수+라벨 전환 동봉
 
 ### Task 2: exec 클라+전체 모듈 lib*.so 포장
 
@@ -52,7 +52,7 @@
 - [ ] Step 1: 모듈 타깃 일괄 신설(엔진 CMakeLists 소스 목록 흡수 — spike CMake 패턴 동형·JKAPP_MODULE_BUILD·PREFIX lib)
 - [ ] Step 2: 빌드+패키징 검증(unzip -l로 lib/arm64-v8a에 전 실물)
 - [ ] Step 3: 폰 기동→그리드 셀 탭 3종 실측(지뢰찾기+갤러리+채팅 창 등장 원문+육안)
-- [ ] Step 4: 커밋
+- [x] Step 4: 완료 13f0118 — 조건부 혼입 함정 원존(music/filedlg)
 
 ### Task 3: 입력 계약 — MouseChord+챠드 지뢰찾기
 
@@ -85,7 +85,7 @@
 - [ ] Step 1: DeX 풀스크린 수형+이행 재-fit 검증(스파이크 원문 흐름 — desktop size changed 행)
 - [ ] Step 2: 재진입 3회 반복(닫음→오픈×3) — 무성사망 0+srv.err에 RE-ENTRY 원문
 - [ ] Step 3: 폰 실측(외형 동일성 — 새싹 vs 이행 — EYES 항목)
-- [ ] Step 4: 커밋
+- [x] Step 4: 완료 13f0118 — 조건부 혼입 함정 원존(music/filedlg)
 
 ### Task 5: ChatRouter 스레드 in-process(jkweb 폐기)+음성 STT(SpeechRecognizer)
 
@@ -140,7 +140,7 @@
 - [ ] Step 1: 권한 흐름(설정 유도 1회) + 잔여 원장행 봉질: `text.font_path` 설정키(files/fonts/HANMOON.VFT 유도 — 벡터 폰트 결선 — docs/103 원문 원존)
 - [ ] Step 2: openal 조달+빌드(OpenSL 백엔드)
 - [ ] Step 3: 뮤직 모듈 링크+폰 재생 실측(전사 EYES 항목)
-- [ ] Step 4: 커밋
+- [x] Step 4: 완료 13f0118 — 조건부 혼입 함정 원존(music/filedlg)
 
 ### Task 9: 터미널 leg
 
