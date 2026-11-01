@@ -212,6 +212,25 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
         std::fprintf(stderr, "JKWindowServer::Init: SDL_CreateWindow failed: %s\n", SDL_GetError());
         return false;
     }
+#if defined(__ANDROID__)
+    if (SDL_strcmp(SDL_GetCurrentVideoDriver(), "android") == 0) {
+        // 스펙 §3 DeX 창 모드 계약 — 안드로이드 드라이버에서는 풀스크린 요청
+        // (시스템 타이틀바 소멸·DeX 화면 완전 점유). SDL2의 DeX 자유창 resize
+        // 는 SurfaceView 재구성이 일어나지 않는 미지원 갭(r32 실측 원문:
+        // SurfaceView 부팅 크기 고정·surfaceChanged 이력 0)이라 풀스크린이
+        // 기본 UX이며 maximize 의존을 제거한다. 자유창 모드 = 설정 토글
+        // jk.window_dex_freeform=1(spec).
+        const char* freeform = ::getenv("JK_WINDOW_DEX_FREEFORM");
+        if (!(freeform && freeform[0] == '1')) {
+            if (SDL_SetWindowFullscreen(window_, SDL_WINDOW_FULLSCREEN_DESKTOP) == 0) {
+                std::fprintf(stderr, "[jkdesk] Dex fullscreen requested\n");
+            } else {
+                std::fprintf(stderr, "[jkdesk] Dex fullscreen failed: %s\n", SDL_GetError());
+            }
+            std::fflush(stderr);
+        }
+    }
+#endif
 
     // 폰(Termux/X11) 실측 (docs/78 TX7 잔여 소등): ACCELERATED 요청이 폰에서
     // GL llvmpipe로 성립한다 — RenderCopy 인큐는 ~0.5ms이나 래스터는 워커 12개가
