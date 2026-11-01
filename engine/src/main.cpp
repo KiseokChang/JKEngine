@@ -101,6 +101,7 @@ extern "C" __declspec(dllimport) int __stdcall closesocket(
 #include <JKJkxFile.h>
 #include <JKLibraryCatalog.h>  // selftest 1m — 라이브러리 카탈로그 3원 스캔
 #include <apps/ChatRouter.h>   // selftest 1n — 채팅 명령 라우터(스펙 §1.3)
+#include <apps/ChatSessionLog.h>  // selftest 3c — 대화 세션 기록(스펙 2026-11-01-chat-session-log-design)
 #include <apps/GalleryModel.h>  // selftest 2g — 갤러리 순수 부품(스펙 2026-10-09-gallery-design)
 #include <apps/MusicModel.h>  // selftest 2m/2s/2u — 뮤직 순수 부품(스펙 2026-10-09-music-library-design+2026-10-11-music-tags-design+2026-10-25-music-tagwrite — 2u ①-⑦ T1·⑧-⑭ T2)
 #include <apps/MusicDirStore.h>  // selftest 2o — 뮤직 폴더 저장소(플랜 2026-10-10-music-dirs-ui)
@@ -10399,6 +10400,196 @@ static int RunAppSelfTest() {
                   OverlayBadgeWindowForNumber({}, 1) == 0,
               "3a-⑤(b) 범위 밖·num=0·빈 스냅샷 = 0(focus_window window_not_"
               "found 정직 근거 — 포커스 창 폴백 금지 — 2y-⑲ 파서 이중 가드)");
+    }
+
+    // 3c) 대화 세션 기록 — 순수 부품 (스펙 2026-11-01-chat-session-log-design
+    //   D1-D4 구현 단위 1·6): ①줄 JSON 형식(D3 4종 — 표준 파서 등호)
+    //   ②이스케이프(따옴표·개행·한글) ③512바이트 UTF-8 절단 경계 ④턴 번호
+    //   증가 ⑤30분 경계 = 새 파일(시간 주입) ⑥key별 분리 ⑦쓰기 실패 조용한
+    //   스킵. 파일 접촉 = temp dir 전용·사후 소각. 스폰·경합 어셜션 0. (3b는 타이틀 밴드 계열이 선점 — 3c 신설.)
+    {
+        namespace fs = std::filesystem;
+        namespace cl = jk::chatlog;
+        const auto readAll = [](const std::string& p) {
+            std::string text;
+            if (std::FILE* rf = std::fopen(p.c_str(), "rb")) {
+                char chunk[1024];
+                size_t rn;
+                while ((rn = std::fread(chunk, 1, sizeof(chunk), rf)) > 0)
+                    text.append(chunk, rn);
+                std::fclose(rf);
+            }
+            return text;
+        };
+        const auto lines = [](const std::string& text) {
+            std::vector<std::string> out;
+            size_t a = 0;
+            while (a < text.size()) {
+                const size_t nl = text.find('\n', a);
+                if (nl == std::string::npos) { out.push_back(text.substr(a)); break; }
+                out.push_back(text.substr(a, nl - a));
+                a = nl + 1;
+            }
+            return out;
+        };
+        const auto stripNl = [](std::string s) {
+            if (!s.empty() && s.back() == '\n') s.pop_back();
+            return s;
+        };
+
+        // ① D3 줄 형식 — 필드 순서 원문 등호 + stt/stt_ms 생략 규약.
+        check(cl::UserLine(1000, 1, "jkapk", "창 목록", "system", 420) ==
+                  "{\"type\":\"user\",\"ts\":1000,\"turn\":1,\"source\":\"jkapk\","
+                  "\"stt\":\"system\",\"text\":\"창 목록\",\"stt_ms\":420}\n",
+              "3c-① user 줄 = D3 형식 원문 등호(type/ts/turn/source/stt/text/stt_ms)");
+        check(cl::UserLine(1000, 2, "web", "hi", "", -1) ==
+                  "{\"type\":\"user\",\"ts\":1000,\"turn\":2,\"source\":\"web\","
+                  "\"text\":\"hi\"}\n",
+              "3c-①b stt 빈·stt_ms 음수 = 두 필드 생략(D3 \"없으면 생략\")");
+        check(cl::RouteLine(1001, 1, "fuzzy", "지뢰찾기 켜줘", "Launch",
+                            "minesweeper", 3) ==
+                  "{\"type\":\"route\",\"ts\":1001,\"turn\":1,\"path\":\"fuzzy\","
+                  "\"matched\":\"지뢰찾기 켜줘\",\"kind\":\"Launch\",\"app\":"
+                  "\"minesweeper\",\"ms\":3}\n",
+              "3c-①c route 줄 = D3 형식 원문 등호");
+        check(cl::ActionLine(1002, 1, "launch_app", "{\"app\":\"x\"}", false,
+                             "unknown_app", 120) ==
+                  "{\"type\":\"action\",\"ts\":1002,\"turn\":1,\"tool\":"
+                  "\"launch_app\",\"args\":\"{\\\"app\\\":\\\"x\\\"}\",\"ok\":"
+                  "false,\"err\":\"unknown_app\",\"ms\":120}\n",
+              "3c-①d action 줄 = D3 형식 원문 등호(args 문자열 이스케이프·ok bool)");
+        check(cl::ReplyLine(1003, 1, "켰어요", 3500) ==
+                  "{\"type\":\"reply\",\"ts\":1003,\"turn\":1,\"text\":\"켰어요\","
+                  "\"total_ms\":3500}\n",
+              "3c-①e reply 줄 = D3 형식 원문 등호");
+
+        // ② 이스케이프 — 표준 파서 왕복 등호(따옴표·개행·탭·백슬래시·한글·제어).
+        {
+            const std::string raw = "그가 \"안녕\"\n두줄\t탭\\끝\x01";
+            check(cl::JsonEsc(raw) ==
+                      "그가 \\\"안녕\\\"\\n두줄\\t탭\\\\끝\\u0001",
+                  "3c-② JsonEsc = 따옴표·개행·탭·백슬래시·제어 이스케이프+한글 통과");
+            jk::agent::AgentJson row(stripNl(cl::ReplyLine(5, 1, raw, 0)).c_str());
+            std::string got;
+            check(row.ok() && row.GetStr("text", got) && got == raw,
+                  "3c-②b reply 줄 = 표준 JSON 파서 왕복 등호(원문 복원)");
+        }
+
+        // ③ 512바이트 UTF-8 절단 경계.
+        {
+            check(cl::Utf8Clip(std::string(512, 'a')).size() == 512 &&
+                      cl::Utf8Clip(std::string(513, 'a')).size() == 512,
+                  "3c-③ ASCII 512 = 그대로·513 = 512 절단");
+            // "가"=3바이트. 'a'x511 + 가 = 514 → 가 통째 소각 = 511.
+            const std::string ga = "\xEA\xB0\x80";
+            check(cl::Utf8Clip(std::string(511, 'a') + ga) ==
+                      std::string(511, 'a'),
+                  "3c-③b 글리프가 경계를 넘으면 통째 소각(511 — 반쪽 바이트 0)");
+            // 'a'x509 + 가 = 512 정확 → 보존.
+            check(cl::Utf8Clip(std::string(509, 'a') + ga + "b") ==
+                      std::string(509, 'a') + ga,
+                  "3c-③c 글리프가 경계에 딱 맞으면 보존(512)");
+            // 한글 200자(600B) → 170자(510B).
+            std::string many;
+            for (int i = 0; i < 200; ++i) many += ga;
+            const std::string c = cl::Utf8Clip(many);
+            check(c.size() == 510 && c.substr(507) == ga,
+                  "3c-③d 한글 200자 = 170자(510B) 절단·마지막 글리프 온전");
+            jk::agent::AgentJson row(stripNl(cl::UserLine(1, 1, "chat", many, "", -1)).c_str());
+            std::string got;
+            check(row.ok() && row.GetStr("text", got) && got.size() == 510,
+                  "3c-③e 줄 조립 = 필드 절단 적용(510B·JSON 유효)");
+        }
+
+        const fs::path sdir = fs::temp_directory_path() / "jk_chatsession_selftest";
+        std::error_code sEc;
+        fs::remove_all(sdir, sEc);
+        fs::create_directories(sdir, sEc);
+        const std::string stateDir = sdir.string();
+        const auto sessionFiles = [&]() {
+            std::vector<std::string> v;
+            std::error_code e;
+            for (fs::directory_iterator it(sdir / "sessions", e), end;
+                 !e && it != end; ++it)
+                v.push_back(it->path().filename().string());
+            return v;
+        };
+
+        // ④ 턴 번호 증가 + 파일 4줄(user/route/action/reply).
+        {
+            jk::ChatSessionLog log(stateDir, "chat", "", 1700000000000LL);
+            const int t1 = log.BeginTurn("지뢰찾기 켜줘", "typed", -1, 1700000000001LL);
+            log.Route(t1, "exact", "지뢰찾기 켜줘", "Launch", "minesweeper", 2, 1700000000002LL);
+            log.Action(t1, "launch_app", "{\"app\":\"minesweeper\"}", true, "", 120, 1700000000003LL);
+            log.Reply(t1, "지뢰찾기를 켰어요", 130, 1700000000004LL);
+            const int t2 = log.BeginTurn("창 목록", "", -1, 1700000000005LL);
+            check(t1 == 1 && t2 == 2 && log.TurnCount() == 2,
+                  "3c-④ BeginTurn = 1부터 증가(1→2)");
+            const auto ls = lines(readAll(log.Path()));
+            jk::agent::AgentJson r4(ls.size() > 3 ? ls[3].c_str() : "");
+            std::string ty;
+            int tn = 0;
+            check(ls.size() == 5 && r4.ok() && r4.GetStr("type", ty) &&
+                      ty == "reply" && r4.GetInt("turn", tn) && tn == 1,
+                  "3c-④b 한 턴 4줄+다음 user = 5줄(4번째 = reply turn 1)");
+            const std::string fn = fs::path(log.Path()).filename().string();
+            check(fn.size() == std::string("YYYYMMDD-HHMMSS_chat_abcd.jsonl").size() &&
+                      fn.find("_chat_") == 15 && fn[8] == '-' &&
+                      fn.substr(fn.size() - 6) == ".jsonl",
+                  "3c-④c 파일명 = <YYYYMMDD-HHMMSS>_<source>_<id4>.jsonl(D1)");
+        }
+
+        // ⑤ 30분 경계 — web 단일 세션, 시간 주입.
+        {
+            fs::remove_all(sdir / "sessions", sEc);
+            jk::ChatSessionRegistry reg(stateDir);
+            const long long t0 = 1700000100000LL;
+            auto a = reg.Get("", "jkapk", t0);
+            a->BeginTurn("하나", "", -1, t0);
+            auto b = reg.Get("", "jkapk", t0 + cl::kIdleNewSessionMs - 1);
+            check(a == b && a->Source() == "web",
+                  "3c-⑤ key 없음 = web 단일 세션·30분 직전 = 같은 세션");
+            b->BeginTurn("둘", "", -1, t0 + cl::kIdleNewSessionMs - 1);
+            auto c = reg.Get("", "jkapk",
+                             t0 + cl::kIdleNewSessionMs - 1 + cl::kIdleNewSessionMs);
+            c->BeginTurn("셋", "", -1,
+                         t0 + cl::kIdleNewSessionMs - 1 + cl::kIdleNewSessionMs);
+            check(c != b && c->Path() != b->Path() && c->TurnCount() == 1 &&
+                      b->TurnCount() == 2 && sessionFiles().size() == 2,
+                  "3c-⑤b 마지막 턴 뒤 30분 = 새 세션·새 파일(턴 번호 1부터)");
+        }
+
+        // ⑥ key별 분리 — 다른 key = 다른 파일, 같은 key = 같은 세션.
+        {
+            fs::remove_all(sdir / "sessions", sEc);
+            jk::ChatSessionRegistry reg(stateDir);
+            auto k1 = reg.Get("app-1111", "jkapk", 1700000200000LL);
+            auto k2 = reg.Get("app-2222", "jkapk", 1700000200000LL);
+            auto w = reg.Get("", "jkapk", 1700000200000LL);
+            k1->BeginTurn("a", "system", 300, 1700000200001LL);
+            k2->BeginTurn("b", "system", 300, 1700000200001LL);
+            w->BeginTurn("c", "", -1, 1700000200001LL);
+            // keyed는 무활동 경계 미적용(앱 프로세스 = 세션).
+            auto k1b = reg.Get("app-1111", "jkapk", 1700000200001LL + 2 * cl::kIdleNewSessionMs);
+            check(k1 != k2 && k1->Path() != k2->Path() && k1 == k1b &&
+                      k1->Source() == "jkapk" && w->Source() == "web" &&
+                      k1->Key() == "app-1111" && sessionFiles().size() == 3,
+                  "3c-⑥ key별 분리(파일 3)·같은 key = 같은 세션(무활동 무관)");
+        }
+
+        // ⑦ 쓰기 실패 = 조용한 스킵 — sessions 자리가 파일이면 디렉터리 생성·
+        //    fopen 실패(Win/posix 공통 결정론). 턴 번호는 그대로 진행.
+        {
+            fs::remove_all(sdir / "sessions", sEc);
+            if (std::FILE* bf = std::fopen((sdir / "sessions").string().c_str(), "wb"))
+                std::fclose(bf);
+            jk::ChatSessionLog log(stateDir, "talk", "", 1700000300000LL);
+            const int t = log.BeginTurn("x", "", -1, 1700000300001LL);
+            log.Reply(t, "y", 1, 1700000300002LL);
+            check(t == 1 && fs::is_regular_file(sdir / "sessions", sEc),
+                  "3c-⑦ 쓰기 실패 = 조용한 스킵(무예외·턴 진행·장애 자리 무변조)");
+        }
+        fs::remove_all(sdir, sEc);
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);

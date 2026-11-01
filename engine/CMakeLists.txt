@@ -256,6 +256,9 @@ add_library(jkcore STATIC
     # 무접촉 pure TU. jkapp_chat stub 백엔드·셀프테스트(케이스 1n)가 같은
     # 어휘 표를 먹는다.
     src/apps/ChatRouter.cpp
+    # 대화 세션 기록 (스펙 2026-11-01-chat-session-log-design D1-D4) — pure
+    # TU. jkweb(/talk)·jkdesktop(Chat 창)·셀프테스트(케이스 3c) 공용.
+    src/apps/ChatSessionLog.cpp
     src/JKVectorFont.cpp
     src/script/JKScriptHost.cpp
     src/script/JKScriptCanvas.cpp
