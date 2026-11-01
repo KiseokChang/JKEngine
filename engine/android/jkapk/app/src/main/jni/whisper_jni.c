@@ -487,6 +487,15 @@ static void jk_progress_cb(struct whisper_context* ctx,
 static const char kJniLanguage[] = "ko";
 static const int kJniThreads = 4;
 
+// whisper audio_ctx: 16 kHz 샘플 → 인코더 프레임(50/s = 320샘플당 1) + 여유
+// 256, 64 배수 올림, 하한 384. 1500(= 30s 창 전체) 이상이면 0(기본).
+static int jk_audio_ctx_for(size_t nSamples) {
+    size_t frames = (nSamples + 319) / 320 + 256;
+    frames = (frames + 63) / 64 * 64;
+    if (frames < 384) frames = 384;
+    return frames >= 1500 ? 0 : (int)frames;
+}
+
 // ---- wav — 16 kHz/모노/s16le PCM 판독 (SttVoice.h wav::Validate16kMono 규약
 // 수형 + 몸통 소비 승격). 원존 = ffmpeg 정규화 산출 캐논 44바이트 헤더
 // (RIFF+fmt16+data) 초석 + 보조 청크(LIST 등) 스킵(2바이트 정렬 패딩) —
@@ -751,7 +760,24 @@ static int jk_transcribe_core(JNIEnv* env, const char* wavPath,
         // 크래시 — 헤더 원존 주석. GPU 실패 시 동작 = 기존 CPU 경로와 동일).
         cparams.use_gpu = false;
     }
-    ctx = whisper_init_from_file_with_params(modelPath, cparams);
+    // CPU 컨텍스트는 앱 수명 동안 1개를 재사용 — 전사마다 466MB 모델을
+    // 다시 읽던 비용 제거(2026-11-01). GPU 시도는 종전대로 1회용(init/free).
+    // 단일 voiceExec 스레드만 접근(원장) — 잠금 불요.
+    static struct whisper_context* s_cpu_ctx = NULL;
+    static char s_cpu_model[1024] = "";
+    int ownCtx = 1;
+    if (!gpu && s_cpu_ctx != NULL && strcmp(s_cpu_model, modelPath) == 0) {
+        ctx = s_cpu_ctx;
+        ownCtx = 0;
+    } else {
+        ctx = whisper_init_from_file_with_params(modelPath, cparams);
+        if (ctx != NULL && !gpu && strlen(modelPath) < sizeof(s_cpu_model)) {
+            if (s_cpu_ctx != NULL) whisper_free(s_cpu_ctx);
+            s_cpu_ctx = ctx;
+            snprintf(s_cpu_model, sizeof(s_cpu_model), "%s", modelPath);
+            ownCtx = 0;
+        }
+    }
     if (ctx == NULL) {
         snprintf(errbuf, sizeof(errbuf),
                  "jkapk 모델 로드 실패: %s (파인 bytes=%ld — "
@@ -771,6 +797,11 @@ static int jk_transcribe_core(JNIEnv* env, const char* wavPath,
         struct whisper_full_params wparams =
             whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
         wparams.n_threads = kJniThreads;
+        // 인코더 계산 길이를 발화 길이+여유로 축소(기본 = 30s 창 전부).
+        // 폰 실측(2026-11-01, small-komixv2, 2.56s "지뢰찾기 켜줘"): 전체 7.0s
+        // → 384 프레임 2.2-2.6s 정답 2/2 · 256 프레임 1.5s 오인식 — 50프레임/s
+        // 기준 발화+256 프레임 여유, 하한 384. 25s 넘는 발화는 기본(전체).
+        wparams.audio_ctx = jk_audio_ctx_for(nSamples);
         wparams.language = kJniLanguage;
         wparams.translate = false;
         wparams.print_progress = false;
@@ -821,7 +852,7 @@ static int jk_transcribe_core(JNIEnv* env, const char* wavPath,
             len += l;
             text[len] = '\0';
         }
-        whisper_free(ctx);
+        if (ownCtx) whisper_free(ctx);
         free(samples);
         samples = NULL;
 
@@ -861,7 +892,7 @@ static int jk_transcribe_core(JNIEnv* env, const char* wavPath,
     }
 
 fail_with_ctx:
-    whisper_free(ctx);
+    if (ownCtx) whisper_free(ctx);
 fail_with_samples:
     free(samples);
 fail:

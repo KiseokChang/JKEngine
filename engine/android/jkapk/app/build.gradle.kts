@@ -64,7 +64,11 @@ android {
                 // ggml 추론을 수십 배 늦춰 폰 실측 "0%에서 시간만 증가" 원진
                 // (2026-11-01 — 같은 모델·녹음 Termux Release CLI = 23s). 뒤에
                 // 오는 -D가 AGP 주입값을 덮는다.
+                // GGML_CPU_ARM_ARCH — 기본 armv8-a(dotprod/fp16 NEON 미사용) 대신
+                // armv8.2 확장 사용. 대상 폰 SM8350 cpuinfo 실측 asimddp+asimdhp.
+                // 이 확장이 없는 구형 CPU에선 SIGILL — 대상 기기 한정 사이드로드.
                 arguments += listOf("-DCMAKE_BUILD_TYPE=Release",
+                    "-DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16",
                     "-DANDROID_STL=c++_static",
                     "-DGGML_VULKAN=ON",
                     "-DGGML_VULKAN_GLSLC_DIR=" +
