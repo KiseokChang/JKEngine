@@ -222,6 +222,11 @@ std::string JsonGetString(const std::string& body, const char* key) {
 // 서버 위임 (jktalk::SendServerQuery 재용 — 전부 서버 질의, 로컬 도구 없음)
 // ---------------------------------------------------------------------------
 
+extern "C" int JKAndroidVoiceBegin();  // jkvoice_bridge.cpp — /voice 개시(강정의 — in-process 빌드)
+#if !defined(JK_WEB_INPROCESS)
+// 독립 빌드(별도 바이너리) = 브리지 TU 미편입 — weak 스텁(개시 실패 회신 — 정직)
+__attribute__((weak)) extern "C" int JKAndroidVoiceBegin() { return 0; }
+#endif
 jk::agent::JKAgentClient g_agent;
 bool g_connected = false;
 std::mutex g_turnMtx;   // 연결당 1스레드 — JKAgentClient 1인스턴스 직렬화 몫
@@ -528,6 +533,21 @@ void HandleConn(jk::net::Socket conn) {
 
     if (method == "GET" && target == "/") {
         HttpReply(conn, 200, kChatPage, "text/html; charset=utf-8");
+    } else if (method == "POST" && target == "/voice") {
+        // #126 in-process 전용 엔드포인트 — SpeechRecognizer 세션 개시
+        // (jksrv jkvoice_bridge.cpp의 JNI begin). 독립 빌드 = weak 스텁(아래)
+        // 이 개시 실패 JSON으로 정직 회신.
+        {
+            const int ok = JKAndroidVoiceBegin();
+            HttpReply(conn, 200,
+                      ok ? "{\"ok\":true,\"reply\":\"음성 인식을 시작합니다.\","
+                           "\"kind\":\"Voice\",\"app\":\"\"}"
+                         : "{\"ok\":false,\"reply\":\"음성 인식 개시 실패\","
+                           "\"kind\":\"Voice\",\"app\":\"\"}",
+                      "application/json");
+            jk::net::Close(conn);
+            return;
+        }
     } else if (method == "POST" && target == "/talk") {
         // 몸통: Content-Length 만큼 읽는다(상한 64KiB — 발화는 수백 바이트).
         const std::string clStr = HeaderValue(head, "Content-Length");
@@ -567,7 +587,6 @@ void HandleConn(jk::net::Socket conn) {
 
 } // namespace
 
-#if defined(JK_WEB_INPROCESS)
 // #126 jkdesktop-apk — jkweb 본체의 in-process 재용(스펙 2026-11-01 §5):
 // 서버 스레드에서 8090 루프백 HTTP를 돌려 /talk 표면을 jkdesktop 안으로.
 // 커넥션 처리(HandleConn)·턴 파이프라인(ChatRouteTurn+JKAgentClient)은
@@ -591,20 +610,25 @@ extern "C" int JKWebStartInProcess() {
         std::thread(HandleConn, conn).detach();
     }
 }
-#endif // JK_WEB_INPROCESS
 
 // argv 인코딩 계약(jktalk 승계 — docs/48 레슨): UTF-8. win32는 wmain leg가
 // UTF-16 argv를 CP_UTF8로 정규화, posix는 exec가 바이트열 argv를 그대로.
 static int RunMain(int argc, char* argv[]);
 
+// #124 r10 링크 진원 수리(2026-11-02 폰 실측 — ld.lld "undefined symbol:
+// main" referenced by crtbegin _start_main 원문) — 구 중첩의 결함: #ifndef
+// JK_WEB_INPROCESS가 #ifdef _WIN32의 **안**에 있으면 posix판은 바깥 블록이
+// 통채로 스킵 → main() 전멸(standalone posix jkweb 링크 불성립 — WSL 트리는
+// 캐시된 구 오브젝트가 이를 위장 — drvfs 계보 원장). 수형 = 게이트 순서 정정
+// (INPROCESS 바깥, 플랫폼 안) — in-process 모드=main 배제(별도 바이너리 전용)
+// 의도 그대로 유지. 소유 세션 jkengine-57(#126)에 원존 통지.
+#ifndef JK_WEB_INPROCESS
 #ifdef _WIN32
 extern "C" __declspec(dllimport) int __stdcall WideCharToMultiByte(
     unsigned int codePage, unsigned long dwFlags, const wchar_t* lpWideCharStr,
     int cchWideChar, char* lpMultiByteStr, int cbMultiByte,
     const char* lpDefaultChar, int* lpUsedDefaultChar);
 
-#ifndef JK_WEB_INPROCESS
-/* in-process 모드 = main 배제(별도 바이너리 전용) */
 int wmain(int argc, wchar_t* argv[]) {
     std::vector<std::string> utf8(static_cast<size_t>(argc > 0 ? argc : 1));
     std::vector<char*> ptrs(static_cast<size_t>(argc > 0 ? argc : 1), nullptr);
@@ -626,7 +650,7 @@ int main(int argc, char* argv[]) {
     return RunMain(argc, argv);
 }
 #endif // _WIN32
-#endif /* JK_WEB_INPROCESS */
+#endif /* JK_WEB_INPROCESS — in-process 모드 = main 배제(별도 바이너리 전용) */
 
 // 본체: --port N(기본 8090)·--bind(기본 loopback 127.0.0.1, all=INADDR_ANY
 // 옵트인) → listen → 기동 인쇄(활성 모드 명시, localhost URL 기준) → accept
