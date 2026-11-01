@@ -57,12 +57,24 @@
   절차 중(사용자 설치 대기) — **내 미커밋→커밋 후 URL 인텐트 포함판은 그 뒤
   배포(덮어쓰기 통지 계약)** — 세션 기록 필드 포함 최종판 md5는 배포와 동시 원존.
 
-## 4. EYES 대기 (사용자 선언만)
+## 4. EYES (사용자 선언 결제 기록)
 
-1. 브라우저 창에서 [구두] 홀드 → "youtube.com 열어줘" 발화 → URL 개봉 체감
-2. "검색어 단어 검색해줘" — v1은 URL 휴리스틱만이므로 검색 전용 어휘는 LLM
-   확장 뒤(원장행 §5 — 현재 검색 발화는 talk 안내 폴백)
-3. 서비스 FGS 알림(Importance LOW) 체감·앱 화면 밖 마이크 정지(사생 축)
+1. **★PASS — 구두 브라우저 개봉(2026-11-01 사용자 "잘 돼요")**: 브라우저 창
+   [구두] 홀드 → 사이트 개봉 화법 → 실제 이동(유부브닷컴류 발음 복원 포함)
+   — 사슬 원문: logcat VOICE-REPLY/VOICE-RECV 계층 + adb am start -e jkUrl
+   재현(chang.jkapk DNS 요청 원문) + /talk 3경·트리거 밖 화법 양수.
+2. 서비스 FGS 알림(Importance LOW) 체감·앱 화면 밖 마이크 정지(사생 축) — 대기
+
+### 수형 계보 원존 (진원 사슬 — 토스트 3종·계측판 분할)
+
+| 경차 | 진원 | 수형 |
+|---|---|---|
+| r2 | jkweb background spawn — am start "Starting"만 인쇄·실기동 규제 막힘(logcat 기록 0·프로세스 0 — app uid 비가시 함정 원존) | 회신(app=URL) 소비 전환 |
+| r3 | 서비스 startActivity BAL 엣지 — 토스트만 떨어짐 | 떠 있는 창 수신기 스스로 적용 |
+| r4-b/c | STT 발음 흩침 — 유부브닷컴/유투브 닷컴/열게요/닷컴을(저널 launch_app unknown_app 5건 원문) | 표 13행+합침+조사 절단+트리거 열게요 |
+| r6 | LLM 스키마에 browser 없음 — 트리거 밖 화법이 launch_app unknown_app(logcat VOICE-REPLY kind=Launch 원문) | 스키마 browser 확장+복원 공개 창 |
+| r7 | "네이버에서 날씨 검색"이 구글로 승천 | 사이트 지정 검색 URL 지식(LLM 힌트 3종)+UrlSafe 한글 통과 |
+| 함정 | **git archive가 HEAD 아닌 낡은 블롭 산출(단일 재현 — HEAD blob과 불일치)** | 폰 소스 배포 = **git show 직파+md5 등어 검증** 통일 |
 
 ## 5. 라인 밖 원장행
 
