@@ -82,6 +82,7 @@ class BrowserActivity : Activity() {
         root.addView(webView)
         setContentView(root)
 
+        webkitOptIn()
         goNow()   // 부팅 기본 페이지
     }
 
@@ -176,7 +177,31 @@ class BrowserActivity : Activity() {
         }
     }
 
-    // 뒤 키 = 방향 뒤(웹역사 존중 — 뒤 결함 계통 조심).
+    // ── webkit 봉입(#123 T3, 스펙 §3 축 4·5) ──────────────────────────────
+    // ① 원격 디버깅(DevTools CDP 소켓) — 에이전트 브라우저 계약 후보(폰은 adb 중계.
+    //    크로스프로세스 에이전트 연결은 /talk 라인 승계 — 현재는 개방만).
+    // ② 패스키 WebAuthn FOR_APP opt-in — 인증 실측 축. 지원 부재 = 정직 표기
+    //    (조용한 누락 금지 — fail-closed 문화). FOR_BROWSER는 특권 앱 등급 필요.
+    // ③ Payment Request는 이 라인 OFF — 결제 홉아웃 원장행(스펙 §5) 대기.
+    private fun webkitOptIn() {
+        WebView.setWebContentsDebuggingEnabled(true)
+        val pkg = androidx.webkit.WebViewCompat.getCurrentWebViewPackage(this)
+        Log.i("JK-BROWSER", "WEBKIT-PKG ${pkg?.versionName ?: "native-null"}")
+        try {
+            if (androidx.webkit.WebViewFeature.isFeatureSupported(
+                    androidx.webkit.WebViewFeature.WEB_AUTHENTICATION)) {
+                androidx.webkit.WebSettingsCompat.setWebAuthenticationSupport(
+                    webView.settings,
+                    androidx.webkit.WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP)
+                Log.i("JK-BROWSER", "WEB-AUTHN FOR_APP on")
+            } else {
+                Log.i("JK-BROWSER", "WEB-AUTHN unsupported on this webview pkg")
+            }
+        } catch (e: Exception) {
+            Log.e("JK-BROWSER", "WEB-AUTHN set fail ${e.message}")
+        }
+    }
+
     override fun onBackPressed() {
         if (webView.canGoBack()) webView.goBack() else super.onBackPressed()
     }

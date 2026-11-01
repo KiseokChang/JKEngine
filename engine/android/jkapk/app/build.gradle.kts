@@ -101,6 +101,9 @@ android {
 }
 
 dependencies {
-    // none — v1 얇은판 문화 유지: android framework + kotlin stdlib only
-    // (JNI 안장은 CMake 직링크 — gradle 의존 신설 0)
+    // v1 "의존 신설 0" 문화 — #123 폰 브라우저 라인에서 개정(스펙 §4 파운
+    // 문화 변경 원존). androidx.webkit 1.14.0 = WebSettingsCompat
+    // setWebAuthenticationSupport(FOR_APP) 봉입 조달기. 상한 2개(webkit+T5
+    // geckoview) — 얇아짐 원칙(D4)은 최소 산출 축으로 유지.
+    implementation("androidx.webkit:webkit:1.14.0")
 }
