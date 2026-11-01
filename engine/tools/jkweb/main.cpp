@@ -450,6 +450,9 @@ std::string HandleTalk(const std::string& body, int& code) {
             std::string url = action.app;
             if (const std::string r = jk::ChatRestorePhonemeUrl(url); !r.empty())
                 url = r;
+            // r8 — LLM이 검색어에 공백을 그대로 적는 흔칭 ("search_query=고양이
+            // 영상" — 폰 실측 2026-11-02) → '+'로 정규화(공백은 UrlSafe 밖).
+            for (char& c : url) if (c == ' ') c = '+';
             if (!url.empty() && !UrlSafe(url)) {
                 code = 200;   // 라우터 정직 거부는 HTTP 200 + ok=false 계약(빈 발화 E1 승계)
                 return "{\"ok\":false,\"reply\":\"URL에 부적합한 문자가 있어 "
