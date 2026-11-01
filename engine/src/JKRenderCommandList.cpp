@@ -201,6 +201,49 @@ std::unique_ptr<JKRenderCommandList> JKRenderCommandList::Deserialize(
 void JKRenderCommandList::Replay(JKRenderBackend* target) const {
     if (!target) return;
 
+#if defined(__ANDROID__)
+    // 스파이크-B 명령 단 원문 계량기(첫 씬 1회): 명령 종류별 카운트 — r24
+    // 원문(286KB 씬 Replay·SRT rc=0·픽셀은 클리어색만)의 명령 단 가름.
+    {
+        static int spikeScenes = 1;
+        if (spikeScenes > 0) {
+            unsigned setcolor = 0, clear = 0, fill = 0, rectd = 0,
+                     line = 0, pixel = 0, blit = 0, other = 0;
+            int clipSeen = 0;
+            for (const auto& c : commands_) {
+                switch (c.type) {
+                    case Type::SetDrawColor: ++setcolor; break;
+                    case Type::Clear:        ++clear; break;
+                    case Type::FillRect:     ++fill; break;
+                    case Type::DrawRect:     ++rectd; break;
+                    case Type::DrawLine:     ++line; break;
+                    case Type::DrawPixel:    ++pixel; break;
+                    case Type::BlitTexture:  ++blit; break;
+                    default:                 ++other; break;
+                }
+#if defined(__ANDROID__)
+                // 클립 원문(r25 룰링: 클리어는 착지·FillRect는 미착지 —
+                // RenderClear가 클립을 무시하고 FillRect가 먹는 SDL 계약과
+                // 정확히 맞물림) — 첫 3건의 값.
+                if (c.type == Type::SetClipRect && clipSeen < 3) {
+                    std::fprintf(stderr,
+                        "[spikeB] clip%d hasSrc=%d rect=%dx%d@%d,%d\n",
+                        clipSeen, c.hasSrcRect ? 1 : 0, c.rect.w, c.rect.h,
+                        c.rect.x, c.rect.y);
+                    ++clipSeen;
+                }
+#endif
+            }
+            std::fprintf(stderr,
+                "[spikeB] scene cmds: setcolor=%u clear=%u fill=%u rect=%u "
+                "line=%u pixel=%u blit=%u other=%u\n",
+                setcolor, clear, fill, rectd, line, pixel, blit, other);
+            std::fflush(stderr);
+            --spikeScenes;
+        }
+    }
+#endif
+
     for (const auto& cmd : commands_) {
         switch (cmd.type) {
             case Type::SetScale:
