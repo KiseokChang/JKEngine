@@ -1,5 +1,7 @@
 plugins {
-    id("com.android.application") version "8.5.2"
+    // #123 T5 — 8.5.2→8.6.0 반계단 업 원존: androidx.core 1.16(GV 141끌당)의
+    // min AGP 8.6(checkAarMetadata 원문). Gradle 8.9 dist와 호환(공식 표).
+    id("com.android.application") version "8.6.0"
     id("org.jetbrains.kotlin.android") version "1.9.24"
 }
 
@@ -35,7 +37,10 @@ check(jkapkModelAsset.isFile) {
 
 android {
     namespace = "chang.jkapk"
-    compileSdk = 34
+    // #123 T5 — GV 141(+androidx.core 1.16) 계약 = compileSdk 35 이상. AGP
+    // 8.6.0의 공식 상한과 정확 일치 — 우회 플래그 불필요(깔끔 상태). targetSdk는
+    // 34 유지(동작 변경 0 — 안전 축).
+    compileSdk = 35
     ndkVersion = "28.2.13676358"
 
     defaultConfig {
@@ -106,4 +111,20 @@ dependencies {
     // setWebAuthenticationSupport(FOR_APP) 봉입 조달기. 상한 2개(webkit+T5
     // geckoview) — 얇아짐 원칙(D4)은 최소 산출 축으로 유지.
     implementation("androidx.webkit:webkit:1.14.0")
+    // #123 폰 브라우저 T5 실증 비교판 — GeckoView 교체판(같은 APK에 공존,
+    // BrowserActivity 토글로 교체 — 측정 하니스 공용, 스펙 §3). 핀 =
+    // 141.0.20250806102122(Mozilla Maven — AAR metadata minCompileSdk=1 직측
+    // 원문 — 159는 androidx.core 1.19.1 끌당 = AGP 9.1 요구 원문 → 트둥 업
+    // 금지 원칙상 141 핀 퇴로·파악 원존 docs/100). 140/159 AAR도 직측 비교 원문.
+    implementation("org.mozilla.geckoview:geckoview:141.0.20250806102122")
+}
+
+// #123 T5 — GV 141 POM이 kotlin-stdlib 2.1.21을 끌당 → Kotlin 컴파일러 1.9.24
+// ("metadata 2.1.0, expected 1.9.0" 원문)와 불호 → stdlib을 1.9.24로 극선.
+// 리스크 원존: GV141 바이트코드가 2.x 전용 stdlib API를 쓰면 런타임 1회 실측에서
+// 정직 노출(측정 런이 판정 — 조용한 스킵 금지).
+configurations.all {
+    resolutionStrategy {
+        force("org.jetbrains.kotlin:kotlin-stdlib:1.9.24")
+    }
 }

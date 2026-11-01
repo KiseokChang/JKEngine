@@ -17,6 +17,7 @@ import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import org.mozilla.geckoview.GeckoSession
 
 @SuppressLint("SetJavaScriptEnabled")
 class BrowserActivity : Activity() {
@@ -56,34 +57,45 @@ class BrowserActivity : Activity() {
             setPadding(row * 2, 0, row * 2, 0)
             setOnClickListener { onClick() }
         }
-        val backBtn = navButton("뒤") { webView.goBack() }
-        val fwdBtn = navButton("앞") { webView.goForward() }
-        val reloadBtn = navButton("새로고침") { webView.reload() }
+        val backBtn = navButton("뒤") { navBack() }
+        val fwdBtn = navButton("앞") { navFwd() }
+        val reloadBtn = navButton("새로고침") { navReload() }
         val goBtn = navButton("Go") { goNow() }
         val measureBtn = navButton("[측정]") { runMeasure() }
-        listOf(backBtn, fwdBtn, reloadBtn, goBtn, measureBtn).forEach { navRow.addView(it) }
+        val engineBtn = navButton(if (engineName() == "webview") "[GeckoView]" else "[WebView]") {
+            toggleEngine()
+        }
+        listOf(backBtn, fwdBtn, reloadBtn, goBtn, measureBtn, engineBtn)
+            .forEach { navRow.addView(it) }
 
         // 본체 — 화면 남은 영역 전부(죽은 마진 0 — fit 원칙 승계).
-        webView = WebView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
-            settings.javaScriptEnabled = true   // 에이전트 표면(T3) 전제
-            settings.domStorageEnabled = true
-            webViewClient = object : WebViewClient() {
-                override fun onPageFinished(view: WebView, url: String) {
-                    urlInput.setText(url)   // 리다이렉트 최종 URL = 진실원
-                    if (measuring) onMeasurePageFinished(view, url)
+        // T5 엔진 토글: webview | geckoview — 같은 레이아웃 슬롯 교체, 측정 공용.
+        if (engineName() == "geckoview") {
+            attachGeckoView(root)
+        } else {
+            webView = WebView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+                settings.javaScriptEnabled = true   // 에이전트 표면(T3) 전제
+                settings.domStorageEnabled = true
+                webViewClient = object : WebViewClient() {
+                    override fun onPageFinished(view: WebView, url: String) {
+                        urlInput.setText(url)   // 리다이렉트 최종 URL = 진실원
+                        if (measuring) onMeasurePageFinished(view, url)
+                    }
                 }
             }
         }
 
         root.addView(urlInput)
         root.addView(navRow)
-        root.addView(webView)
+        if (engineName() == "webview") root.addView(webView)  // gecko는 attach가 root에 추가
         setContentView(root)
 
-        webkitOptIn()
-        goNow()   // 부팅 기본 페이지
+        if (engineName() == "webview") {
+            webkitOptIn()
+            goNow()   // 부팅 기본 페이지
+        }   // gecko 부팅 로드는 attachGeckoView가 수행
     }
 
     fun goNow() {
@@ -91,7 +103,8 @@ class BrowserActivity : Activity() {
         if (!raw.startsWith("http://") && !raw.startsWith("https://")) {
             raw = "https://$raw"
         }
-        webView.loadUrl(raw)
+        if (engineName() == "geckoview") geckoSession?.loadUri(raw)
+        else webView.loadUrl(raw)
     }
 
     // ── 측정 하니스(#123 T2, 스펙 §3 축 1·2) — 같은 페이지 세트·같은 JSON 스키마를
@@ -122,7 +135,12 @@ class BrowserActivity : Activity() {
             return
         }
         measurePageStart = System.currentTimeMillis()
-        webView.loadUrl(head.second)
+        if (engineName() == "geckoview") {
+            // Gecko는 /android_asset 별칭 부재 — 앱 내부 파일 복사본으로 대응 개봉
+            // (차단 시 onPageStop ok=false 정직 기록 — 판정 자료).
+            val url = head.second.replace("file:///android_asset/", "file://$filesDir/")
+            geckoSession?.loadUri(url)
+        } else webView.loadUrl(head.second)
     }
 
     private fun onMeasurePageFinished(view: WebView, url: String) {
@@ -153,7 +171,90 @@ class BrowserActivity : Activity() {
         }.toString(2)
     }
 
-    private fun engineName(): String = "webview"   // T5에서 토글 값으로 교체
+    // ── 엔진 토글+탐색 dispatch(#123 T5, 스펙 §3 판정 실측 축) ──────────────
+    // 같은 APK에 두 엔진 상주 — 토글은 SharedPreferences+jrecreate()로 창 재구성.
+    // GeckoView 판단 채점은 ProgressDelegate(loadMs) — firstContentMs는 등가
+    // 계약 부재로 -1 정직 결측(스펙 §3 축 2 원존).
+    private var geckoSession: org.mozilla.geckoview.GeckoSession? = null
+    private var geckoRuntime: org.mozilla.geckoview.GeckoRuntime? = null
+
+    private fun engineName(): String =
+        getSharedPreferences("jkapk_browser", MODE_PRIVATE)
+            .getString("engine", "webview") ?: "webview"
+
+    private fun toggleEngine() {
+        val next = if (engineName() == "webview") "geckoview" else "webview"
+        getSharedPreferences("jkapk_browser", MODE_PRIVATE).edit()
+            .putString("engine", next).apply()
+        recreate()   // Activity 재창립 — onCreate가 engineName()을 읽어 본체 재구성
+    }
+
+    private fun navBack() {
+        if (engineName() == "geckoview") geckoSession?.goBack()
+        else webView.goBack()
+    }
+
+    private fun navFwd() {
+        if (engineName() == "geckoview") geckoSession?.goForward()
+        else webView.goForward()
+    }
+
+    private fun navReload() {
+        if (engineName() == "geckoview") geckoSession?.reload()
+        else webView.reload()
+    }
+
+    private fun attachGeckoView(root: LinearLayout) {
+        val runtime = geckoRuntime ?: org.mozilla.geckoview.GeckoRuntime.create(this)
+        geckoRuntime = runtime
+        val session = org.mozilla.geckoview.GeckoSession()
+        geckoSession = session
+        session.open(runtime)
+        // 측정 세트의 file:///android_asset 계약을 gecko에도 개봉 시도 — 차단 시
+        // ok=false 정직 기록(판정 자료 — 스펙 §3 축 2 결측 정직 원존).
+        session.progressDelegate = object : org.mozilla.geckoview.GeckoSession.ProgressDelegate {
+            override fun onPageStart(session: GeckoSession, url: String) {
+                measurePageStart = System.currentTimeMillis()
+            }
+            override fun onPageStop(session: GeckoSession, success: Boolean) {
+                val loadMs = System.currentTimeMillis() - measurePageStart
+                if (measuring) {
+                    val head = measureQueue.removeFirstOrNull()
+                    measurePages.put(org.json.JSONObject().apply {
+                        put("name", head?.first ?: "?")
+                        put("url", head?.second ?: "?")
+                        put("ok", success)
+                        put("loadMs", loadMs)
+                        put("firstContentMs", -1)   // 등가 계약 부재 — 정직 결측
+                    })
+                    Log.i("JK-BROWSER", "MEASURE-G ${head?.second} load=${loadMs}ms ok=$success")
+                    startNextMeasurePage()
+                }
+            }
+        }
+        // asset 세트 → 앱 내부 파일 복사(Gecko file:// 대응 — 대응 경로 등어 계약)
+        runCatching {
+            for (p in listOf("p1.html", "p2.html", "p3.html")) {
+                val dst = java.io.File(filesDir, "testpages/$p")
+                dst.parentFile?.mkdirs()
+                if (!dst.exists()) {
+                    assets.open("testpages/$p").use { inp ->
+                        dst.outputStream().use { inp.copyTo(it) }
+                    }
+                }
+            }
+            Log.i("JK-BROWSER", "GECKO-ASSETS-COPIED filesDir/testpages")
+        }.onFailure {
+            Log.e("JK-BROWSER", "GECKO-ASSETS-COPY-FAIL ${it.message}")
+        }
+        val gv = org.mozilla.geckoview.GeckoView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+            setSession(session)
+        }
+        root.addView(gv)
+        goNow()   // 부팅 기본 페이지(WebView판 goNow 동형 — loadUri 분기 내장)
+    }
 
     private fun dumpMeasure(json: String) {
         try {
