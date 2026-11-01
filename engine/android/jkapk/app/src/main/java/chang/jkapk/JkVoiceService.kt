@@ -35,6 +35,8 @@ class JkVoiceService : Service() {
         const val EXTRA_STATE = "state"     // listening|recognizing|result|error
         const val EXTRA_DETAIL = "detail"
         const val EXTRA_OK = "ok"           // /talk 회신 성공 여부(표기 색 결정)
+        const val EXTRA_KIND = "kind"       // #124 r3 — 개봉지시를 떠 있는 창에 전파
+        const val EXTRA_URL = "url"
         const val TAG = "JK-BROWSER"        // 기존 런 원문 tag 승계(정직 원문 단일 축)
         const val VOICE_CH = "jk_voice"
         const val VOICE_NID = 41
@@ -223,17 +225,11 @@ class JkVoiceService : Service() {
             val replyText = jsonGetString(resp, "reply") ?: resp
             val kind = jsonGetString(resp, "kind") ?: ""
             val app = jsonGetString(resp, "app") ?: ""
-            // #124 r2 — 개봉지시 소비 leg: 서버(jkweb)가 회신에 실어 보낸
-            // AmpkOpen을 **앱(포그라운드 — 사용자가 JK 창에서 구두 쓰는 중)**이
-            // 직접 개봉. jkweb 뒤에서의 am start는 background activity start
-            // 규제에 막힌 실측 원문(docs/102 §4) — 이 leg가 정식 통로.
-            if (kind == "AmpkOpen") {
-                val bi = Intent(this@JkVoiceService, BrowserActivity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                if (app.isNotEmpty()) bi.putExtra("jkUrl", app)
-                runCatching { startActivity(bi) }
-                    .onFailure { Log.w(TAG, "BROWSER-OPEN-FAIL ${it.message}") }
-            }
+            // #124 r3 — 개봉지시 소비 = **떠 있는 창이 스스로 적용**(아래
+            // emitReply에 kind/url을 실어 브로드캐스트 — 브라우저 수신기가
+            // 스스로 주소 변경). 서비스 startActivity leg는 r2 실측(토스트만
+            // 뜨고 무반응 — BAL 엣지)으로 소각 — 수신기 leg가 정식 통로
+            // (docs/102 원존).
             var out = replyText
             if (kind.isNotEmpty() || app.isNotEmpty()) {
                 out += "  [$kind"
@@ -242,7 +238,7 @@ class JkVoiceService : Service() {
             }
             var okAll = okFlag
             if (!okFlag && code != 200) { out = "HTTP $code — $out"; okAll = false }
-            emitReply(text, out, okAll)
+            emitReply(text, out, okAll, kind, app)
         } catch (e: java.net.SocketTimeoutException) {
             emitReply(text, "응답 지연… (최대 60초 기다렸습니다 — 서버 확인)", false)
             Log.w(TAG, "TALK-SLOW ${e.message}")
@@ -260,10 +256,12 @@ class JkVoiceService : Service() {
         sendBroadcast(i)
     }
 
-    private fun emitReply(text: String, reply: String, ok: Boolean) {
+    private fun emitReply(text: String, reply: String, ok: Boolean,
+                          kind: String = "", url: String = "") {
         val i = Intent(BC_REPLY).setPackage(packageName)
             .putExtra(EXTRA_TEXT, text).putExtra(EXTRA_DETAIL, reply)
             .putExtra(EXTRA_OK, ok)
+            .putExtra(EXTRA_KIND, kind).putExtra(EXTRA_URL, url)
         sendBroadcast(i)
     }
 

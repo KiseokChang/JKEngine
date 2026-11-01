@@ -387,13 +387,6 @@ class MainActivity : Activity() {
         root.addView(voiceStatusView)
         root.addView(inputRow)
         setContentView(root)
-
-        // #124 구두 서비스 수신기 — 서비스 partial/회신을 채팅 진실원으로 흘린다.
-        ContextCompat.registerReceiver(this, voiceReceiver,
-            IntentFilter().apply {
-                addAction(JkVoiceService.BC_STATUS)
-                addAction(JkVoiceService.BC_REPLY)
-            }, ContextCompat.RECEIVER_NOT_EXPORTED)
         renderLog()
 
         // ── #122 안정화 — GPU 시도 중 프로세스 사망 흔적 판정(fail-closed) ──
@@ -729,6 +722,14 @@ class MainActivity : Activity() {
                     val ok = i.getBooleanExtra(JkVoiceService.EXTRA_OK, false)
                     appendChat("시스템",
                         i.getStringExtra(JkVoiceService.EXTRA_DETAIL).orEmpty(), !ok)
+                    // #124 r3 — 본창이 떠 있는 동안의 개봉지시(브라우저 닫힌
+                    // 상태 "브라우저 열어줘") — 포그라운드 직통 leg.
+                    if (i.getStringExtra(JkVoiceService.EXTRA_KIND) == "AmpkOpen") {
+                        val bi = Intent(this@MainActivity, BrowserActivity::class.java)
+                        val u = i.getStringExtra(JkVoiceService.EXTRA_URL).orEmpty()
+                        if (u.isNotEmpty()) bi.putExtra("jkUrl", u)
+                        runCatching { startActivity(bi) }
+                    }
                 }
             }
         }
@@ -1180,14 +1181,29 @@ class MainActivity : Activity() {
 
     // --- JSON 최소 헬퍼 (jkweb::JsonEsc/JsonGetString 동형 — 본 리포트 원문) ---
 
-    override fun onDestroy() {
-        // #124 — 구두 서비스 수신기 해제(액티비티 소명 — 서비스 자체는 계속).
+    // #124 구두 서비스 수신기 — **떠 있는(포그라운드) 창 1곳만 수신하는 계약**
+    // (onResume 등록/일시정지 해제) — 이중 개봉(깜빡임) 소각 leg. 서비스
+    // partial/회신을 채팅 진실원으로 흘린다.
+    override fun onResume() {
+        super.onResume()
+        ContextCompat.registerReceiver(this, voiceReceiver,
+            IntentFilter().apply {
+                addAction(JkVoiceService.BC_STATUS)
+                addAction(JkVoiceService.BC_REPLY)
+            }, ContextCompat.RECEIVER_NOT_EXPORTED)
+    }
+
+    override fun onPause() {
+        super.onPause()
         try { unregisterReceiver(voiceReceiver) } catch (_: Exception) {}
-        runCatching {   // 앱이 배경으로 넘어가는 파기면 서비스 백그라운드 시작
-                        // 제한에 걸릴 수 있음 — 정직 무시(마이크는 홀드 중만)
+        runCatching {   // 다른 창으론 마이크 끊김 방지 — 홀드 끊김 = 정직 마침
             startService(Intent(this, JkVoiceService::class.java)
                 .setAction(JkVoiceService.ACTION_STOP))
-        }
+        }   // 앱이 배경으로 넘어가면 서비스 백그라운드 시작 제한 걸릴 수 있음 —
+            // 정직 무시(마이크는 홀드 중만 — 사생 축 fail-closed 원존)
+    }
+
+    override fun onDestroy() {
         // 구두 워커 join 수형(UserChatApp 캡처 절단 원문 계약 계열): 녹음
         // 중 단절이면 판독 루프를 먼저 절단하고 join — AudioRecord 조기 해제
         // 없음(판독 스레드가 개방을 소유하지 않는 구조 — 해제는 finishVoice/

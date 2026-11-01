@@ -41,8 +41,22 @@ class BrowserActivity : Activity() {
                 JkVoiceService.BC_STATUS ->
                     if (i.getStringExtra(JkVoiceService.EXTRA_STATE) == "error")
                         toast(i.getStringExtra(JkVoiceService.EXTRA_DETAIL))
-                JkVoiceService.BC_REPLY ->
+                JkVoiceService.BC_REPLY -> {
+                    // #124 r3 — 개봉지시 스스로 적용: 이 창이 화면 앞(사용자가
+                    // [구두] 홀드 중)이므로 규제 밖 직통 — 서비스 startActivity
+                    // leg(BAL 엣지 원존 r2) 대체.
+                    if (i.getStringExtra(JkVoiceService.EXTRA_KIND) == "AmpkOpen") {
+                        // 이미 이 창(브라우저) 자체가 떠 있으므로 "개봉만" 지시는
+                        // 적용 상태 그대로(가짜 이동 금지 — 무대응 정직).
+                        val u = i.getStringExtra(JkVoiceService.EXTRA_URL).orEmpty()
+                        if (u.isNotEmpty()) {
+                            urlInput.setText(u)
+                            goNow()
+                        }
+                        return
+                    }
                     toast(i.getStringExtra(JkVoiceService.EXTRA_DETAIL))
+                }
             }
         }
     }
@@ -69,8 +83,12 @@ class BrowserActivity : Activity() {
             }
         }
 
-        // 조작행 — 뒤·앞·새로고침·[Go].
+        // 조작행 — 뒤·앞·새로고침·[Go]. #124 r3 UX 원존(2026-11-01 사용자
+        // "폰화면 좁아서 버튼 다 안보인다·구두도 화면 밖"): 좁은 폰 폭에서
+        // 7버튼 1행은 화면 밖 유출 — **2행 배치**(탐색행+도구행). DeX 광폭에서도
+        // 2행의 죽은 공간은 표층 좁음(본체가 1f로 남은 영역 전부 취함).
         val navRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val toolRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         fun navButton(label: String, onClick: () -> Unit) = Button(this).apply {
             text = label
             textSize = 12f
@@ -114,8 +132,13 @@ class BrowserActivity : Activity() {
         val engineBtn = navButton(if (engineName() == "webview") "[GeckoView]" else "[WebView]") {
             toggleEngine()
         }
-        listOf(backBtn, fwdBtn, reloadBtn, goBtn, measureBtn, engineBtn, voiceBtn)
-            .forEach { navRow.addView(it) }
+        listOf(backBtn, fwdBtn, reloadBtn, goBtn).forEach { navRow.addView(it) }
+        listOf(voiceBtn, measureBtn, engineBtn).forEach { toolRow.addView(it) }
+
+        // 주소 편집 — 도구행과 공급폭 균형(좁은 화면에서도 주로 타이핑 가능).
+        urlInput.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT)
 
         // 본체 — 화면 남은 영역 전부(죽은 마진 0 — fit 원칙 승계).
         // T5 엔진 토글: webview | geckoview — 같은 레이아웃 슬롯 교체, 측정 공용.
@@ -139,15 +162,9 @@ class BrowserActivity : Activity() {
 
         root.addView(urlInput)
         root.addView(navRow)
+        root.addView(toolRow)   // #124 r3 — 2행(좁은 화면 버튼 유출 소각)
         if (engineName() == "webview") root.addView(webView)  // gecko는 attach가 root에 추가
         setContentView(root)
-
-        // #124 구두 서비스 수신기(브라우저 창 표면 — 토스트 표기).
-        ContextCompat.registerReceiver(this, voiceReceiver,
-            IntentFilter().apply {
-                addAction(JkVoiceService.BC_STATUS)
-                addAction(JkVoiceService.BC_REPLY)
-            }, ContextCompat.RECEIVER_NOT_EXPORTED)
 
         if (engineName() == "webview") {
             webkitOptIn()
@@ -380,10 +397,23 @@ class BrowserActivity : Activity() {
         if (webView.canGoBack()) webView.goBack() else super.onBackPressed()
     }
 
-    override fun onDestroy() {
-        // #124 — 브라우저 창 소명 시 수신기 해제(서비스 자체는 계속 — Main이
-        // 채팅 진실원 소관). gecko 세션 정리도 여기서 한 번만.
+    // #124 구두 수신기 — **떠 있는 창 1곳만 수신** 계약(Main 동형): onResume
+    // 등록(개봉지시 스스로 적용 leg)·onPause 해제(이중 로드 소각).
+    override fun onResume() {
+        super.onResume()
+        ContextCompat.registerReceiver(this, voiceReceiver,
+            IntentFilter().apply {
+                addAction(JkVoiceService.BC_STATUS)
+                addAction(JkVoiceService.BC_REPLY)
+            }, ContextCompat.RECEIVER_NOT_EXPORTED)
+    }
+
+    override fun onPause() {
+        super.onPause()
         try { unregisterReceiver(voiceReceiver) } catch (_: Exception) {}
+    }
+
+    override fun onDestroy() {
         geckoSession?.close()
         geckoSession = null
         super.onDestroy()
