@@ -165,6 +165,33 @@ bool JKClientSurface::CommitFull() {
 bool JKClientSurface::Commit(const std::vector<ipc::DirtyRect>& dirty) {
     if (!IsConnected()) return false;
 
+#if defined(__ANDROID__)
+    // 스파이크-B 원문 계량기(r17 — 블랙 콘텐츠 진원 분절): 선행 커밋 2회,
+    // 샘플 1024px에서 비영 U32 수를 원문으로 남긴다. 0이면 클라 렌더 leg가
+    // 그리지 않는 것·비영이면 서버 수취 leg 결함 — 커밋 본문과 무관하게
+    // 판정한다.
+    static int spikeProbes = 2;
+    if (spikeProbes > 0 && sharedMemory_ && sharedMemory_->IsValid()) {
+        const uint32_t* px =
+            reinterpret_cast<const uint32_t*>(sharedMemory_->Data());
+        const size_t total =
+            static_cast<size_t>(width_) * height_;
+        size_t nonzero = 0;
+        size_t alphaFull = 0;
+        for (size_t i = 0; i < total && i < 1024; ++i) {
+            if (px[i] != 0u) ++nonzero;
+            if ((px[i] & 0xFF000000u) == 0xFF000000u) ++alphaFull;
+        }
+        std::fprintf(stderr,
+                     "[spikeB] commit id=%u nonzero=%zu/1024 alpha255=%zu/1024 "
+                     "p0..3=%08x %08x %08x %08x w=%u h=%u dirty=%zu\n",
+                     surfaceId_, nonzero, alphaFull, px[0], px[1], px[2], px[3],
+                     width_, height_, dirty.size());
+        std::fflush(stderr);
+        --spikeProbes;
+    }
+#endif
+
     const size_t headerBytes = sizeof(ipc::CommitSurfaceHeader);
     const size_t rectBytes = dirty.size() * sizeof(ipc::DirtyRect);
     std::vector<uint8_t> payload(headerBytes + rectBytes);
