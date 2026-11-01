@@ -48,10 +48,13 @@
 
         <!-- #123 폰 브라우저 T1 — BrowserActivity. exported=true(뒤 라인: DeX
              그리드/Termux am start 개봉 승계), configChanges = DeX 리사이즈 시
-             WebView 상태 보존(재생성 금지). -->
+             WebView 상태 보존(재생성 금지). #124 — launchMode singleTask:
+             구두 재개봉이 창을 새로 쌓지 않고 onNewIntent로 주소 교체(측정·토글
+             상태 보존 계약 승계). -->
         <activity
             android:name=".BrowserActivity"
             android:exported="true"
+            android:launchMode="singleTask"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden" />
 
         <!-- #124 구두 서비스 T1 — 마이크 FGS(기본 STT+/talk 유일 소관). 두 창의

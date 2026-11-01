@@ -121,6 +121,7 @@ class BrowserActivity : Activity() {
         // T5 엔진 토글: webview | geckoview — 같은 레이아웃 슬롯 교체, 측정 공용.
         if (engineName() == "geckoview") {
             attachGeckoView(root)
+            applyIntentUrl(intent)   // #124 — 구두 URL (gecko판도 동일 계약)
         } else {
             webView = WebView(this).apply {
                 layoutParams = LinearLayout.LayoutParams(
@@ -150,8 +151,24 @@ class BrowserActivity : Activity() {
 
         if (engineName() == "webview") {
             webkitOptIn()
-            goNow()   // 부팅 기본 페이지
+            if (!applyIntentUrl(intent)) goNow()   // 구두 URL 없으면 부팅 기본
         }   // gecko 부팅 로드는 attachGeckoView가 수행
+    }
+
+    // #124 — 구두 leg(am start -e jkUrl)에서 온 주소. 이 Activity가 이미 살아
+    // 있으면 onNewIntent로 재구성 없이 주소만 교체(측정·엔진 토글 상태 보존).
+    private fun applyIntentUrl(i: Intent?): Boolean {
+        val u = i?.getStringExtra("jkUrl")?.trim()
+        if (u.isNullOrEmpty()) return false
+        urlInput.setText(u)
+        goNow()
+        return true
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        applyIntentUrl(intent)
     }
 
     fun goNow() {

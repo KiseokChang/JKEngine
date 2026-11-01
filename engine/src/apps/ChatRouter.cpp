@@ -74,6 +74,13 @@ constexpr RouteEntry kRouteTable[] = {
     {ChatAction::ListWindows, "뭐 떠 있어"},
     {ChatAction::ListWindows, "뭐 떠"},
     {ChatAction::ListWindows, "뭐떠"},
+    // #124 브라우저 구두 v1 (스펙 2026-11-01-voice-service-browser-v1 §5) —
+    // 폰 APK BrowserActivity 개봉. **Launch 행들보다 앞 배치** — 접미 판정은
+    // 배열 순서로 갈린다("브라우저 열어줘"가 Launch "열어줘" 행에 눌리는 것을
+    // 막음 — 2y-⑩ 순서 계약 동형). URL/검색 어휘는 Launch 행의 URL 휴리스틱
+    // (아래 Launch case 원문)으로 흡수 — 신규 파서 금지(D1 계약) 원존.
+    {ChatAction::AmpkOpen,    "브라우저 열어줘", true},
+    {ChatAction::AmpkOpen,    "브라우저 켜줘",   true},
     {ChatAction::Launch,      "열어줘"},
     {ChatAction::Launch,      "켜줘"},
     {ChatAction::Launch,      "실행해줘"},
@@ -255,6 +262,7 @@ const char* KindLabel(ChatAction::Kind kind) {
         case ChatAction::ListWindows: return "창 목록";
         case ChatAction::AppTool:     return "재생 조작";
         case ChatAction::OverlayNumbers: return "창 번호 표지";
+        case ChatAction::AmpkOpen:    return "브라우저 개봉";  // #124
         case ChatAction::Info:        break;
     }
     return "안내";
@@ -618,6 +626,16 @@ std::string RouteExact(const std::string& text, ChatAction& out) {
         case ChatAction::Launch: {
             const std::string word = ExtractTargetWord(norm, hit->trigger);
             if (word.empty()) return InfoGuide();  // 앱어 부재 — 지시 불성립
+            // #124 URL 휴리스틱 — 앱어가 URL 모양(점 포함·http 접두)이면 폰
+            // 브라우저 개봉(AmpkOpen)으로 승천 — desktop launch_app
+            // unknown_app 오류 대신 웹 개봉. 모양 분류 1종 휴리스틱뿐 —
+            // 파서 신설 금지(D1 원존) 준수.
+            if (word.find('.') != std::string::npos ||
+                word.rfind("http", 0) == 0) {
+                out.kind = ChatAction::AmpkOpen;
+                out.app = word;
+                return "'" + word + "' 를 브라우저로 엽니다.";
+            }
             out.kind = ChatAction::Launch;
             out.app = ResolveAppName(word);
             return "'" + word + "' 앱을 실행합니다.";
@@ -649,6 +667,13 @@ std::string RouteExact(const std::string& text, ChatAction& out) {
             out.kind = ChatAction::OverlayNumbers;
             return "떠 있는 창의 제목줄에 번호를 표시합니다(10분 뒤 자동으로 "
                    "사라집니다 — '창 3'처럼 번호로 창을 부를 수 있습니다).";
+        case ChatAction::AmpkOpen:
+            // #124 — 폰 APK 브라우저 개봉. app이 비면 마지막 주소 그대로·
+            // 채워지면 URL 개봉(URL은 Launch URL 휴리스틱 leg에서 세팅).
+            // 스폰 leg는 jkweb 소관(Termux am start — 창 서버 도구 미경유).
+            out.kind = ChatAction::AmpkOpen;
+            out.app.clear();
+            return "브라우저 창을 엽니다.";
         case ChatAction::Info:
             break;
     }

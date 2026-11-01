@@ -30,7 +30,14 @@ struct ChatAction {
     // 의 committed 원문 행이 kind 수치를 등호 판정한다 — AppTool=4·Info=5
     // 원존 유지, 2y-⑲).
     enum Kind { Launch, Close, Focus, ListWindows, AppTool, Info,
-                OverlayNumbers };
+                OverlayNumbers,
+                // #124 브라우저 구두 v1(스펙 2026-11-01-voice-service-browser-v1
+                // §5): AmpkOpen = 폰 APK BrowserActivity 개봉(app 필드=URL·
+                // 빈=마지막 주소). 창 서버 도구가 아니라 **폰 앱 개봉**이라
+                // jkweb이 직접 스폰(Termux am start — #117 선례 계약) —
+                // SendServerQuery 미경유. **OverlayNumbers 뒤에 추가**(기존
+                // kind 수치 계보 보존 원존 — 2y-⑲ 동형).
+                AmpkOpen };
     Kind kind = Info;   // 도구 지시 종류 — Info만 "지시 없음"의미.
     std::string app;    // Launch·Close의 앱 키(라이브러리 appName 규약 —
                         // alias표 해소). Close 미지정 = ""(포커스 창).

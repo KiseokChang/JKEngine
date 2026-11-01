@@ -63,6 +63,12 @@
 #include <thread>
 #include <vector>
 
+#ifndef _WIN32
+#include <sys/types.h>   // #124 스폰 leg — fork/waitpid/execl(posix 축)
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
+
 namespace {
 
 // ---------------------------------------------------------------------------
@@ -110,8 +116,51 @@ const char* KindName(jk::ChatAction::Kind kind) {
         case jk::ChatAction::AppTool:     return "AppTool";
         case jk::ChatAction::Info:        return "Info";
         case jk::ChatAction::OverlayNumbers: return "OverlayNumbers";
+        case jk::ChatAction::AmpkOpen:       return "AmpkOpen";  // #124
     }
     return "?";
+}
+
+// #124 브라우저 개봉 URL 검증 — am start/shell 인수로 넘기기 전 화이트리스트
+// 판정(문자 유입 명령 인젝션 봉쇄 — ' " ; $ ` 백슬래시·공백은 부적합 정직
+// 거부). URL은 모양 제한이 실용 계약(쿼리 한글은 인코딩 전제).
+bool UrlSafe(const std::string& u) {
+    if (u.empty() || u.size() > 512) return false;
+    for (unsigned char c : u) {
+        const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                        (c >= '0' && c <= '9') ||
+                        (c == '.' || c == ':' || c == '/' || c == '-' ||
+                         c == '_' || c == '~' || c == '?' || c == '=' ||
+                         c == '&' || c == '%' || c == '+' || c == '#' ||
+                         c == '@' || c == '!' || c == ',' || c == '*');
+        if (!ok) return false;
+    }
+    return true;
+}
+
+// #124 스폰 leg — 폰 APK BrowserActivity 개봉(Termux am start — 창 서버 도구
+// 미경유). 이중 fork로 좀비 0(부모는 중간 프로세스만 wait — 자식은 세션
+// 전환). #117 TTS 선례 계약 승계: 실패무시·rc 회수 안 함(정직 "개봉 지시
+// 전송" 표기 — 성립 육안은 사용자 EYES 몫). WSL/데스크톱 POSIX면 am이
+// 없으므로 xdg-open 폴백(존재 검증은 sh || 체인 위임). Windows면 cmd start.
+void SpawnBrowser(const std::string& url) {
+#ifdef _WIN32
+    std::string cmd = "cmd /c start \"\" \"" + url + "\"";
+    (void)system(cmd.c_str());   // 실패무시 — #117 계약
+#else
+    pid_t mid = fork();
+    if (mid < 0) return;
+    if (mid == 0) {
+        setsid();
+        std::string cmd = "am start -n chang.jkapk/.BrowserActivity" +
+                          (url.empty() ? std::string() :
+                           std::string(" -e jkUrl '") + url + "'") +
+                          " || xdg-open '" + url + "'";
+        execl("/bin/sh", "sh", "-c", cmd.c_str(), (char*)nullptr);
+        _exit(127);
+    }
+    int st = 0; (void)waitpid(mid, &st, 0);   // 중간 fork만 수확 — 자식 무좀비
+#endif
 }
 
 // JSON 몸통 한 키의 문자열 값을 뽑는 최소 파서 — {"text":"..."} 전용(실제 HTTP
@@ -405,6 +454,25 @@ std::string HandleTalk(const std::string& body, int& code) {
             code = 200;
             return "{\"ok\":true,\"reply\":\"" + JsonEsc(guide) +
                    "\",\"kind\":\"" + escKind + "\",\"app\":\"\"}";
+        case jk::ChatAction::AmpkOpen: {
+            // #124 브라우저 구두 v1 — 폰 APK 개봉 leg(am start 스폰 — SpawnBrowser).
+            // URL 검증 fail-closed(위 UrlSafe — 인젝션 봉쇄) — 부적합=정직 거부
+            // (조용한 거부 금지 계약).
+            const std::string url = action.app;
+            if (!url.empty() && !UrlSafe(url)) {
+                code = 200;   // 라우터 정직 거부는 HTTP 200 + ok=false 계약(빈 발화 E1 승계)
+                return "{\"ok\":false,\"reply\":\"URL에 부적합한 문자가 있어 "
+                       "개봉하지 않습니다 — 직접 주소만 입력해 주세요"
+                       "\",\"kind\":\"AmpkOpen\",\"app\":\"\"}";
+            }
+            SpawnBrowser(url);
+            code = 200;
+            const std::string msg = url.empty()
+                ? "브라우저 창을 엽니다(폰 — 성립은 화면에서 확인)"
+                : "브라우저로 개봉합니다: " + url;
+            return "{\"ok\":true,\"reply\":\"" + JsonEsc(msg) +
+                   "\",\"kind\":\"AmpkOpen\",\"app\":\"\"}";
+        }
         case jk::ChatAction::Info:
             code = 200;
             return "{\"ok\":true,\"reply\":\"" + JsonEsc(guide) +
