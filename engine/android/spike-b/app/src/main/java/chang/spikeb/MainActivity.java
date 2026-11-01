@@ -11,8 +11,21 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.FileInputStream;
+
+import android.app.Activity;
+import android.content.ContentValues;
+import android.net.Uri;
+import android.os.Bundle;
+import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
+import android.provider.MediaStore;
 
 public class MainActivity extends SDLActivity {
+    private final Handler exporter = new Handler(Looper.getMainLooper());
+    private long exportSeq = 0;
+
     @Override
     protected String[] getLibraries() {
         return new String[] { "SDL2", "jkdesk" };
@@ -30,24 +43,74 @@ public class MainActivity extends SDLActivity {
         super.onStart();
     }
 
-    // 컴파일 정의 상수 경로(/data/data/chang.spikeb/files/fonts)에 폰트를
-    // 미리 풀어 둔다 — JKVectorFont/JKTextAtlas가 그 절대 경로로 읽는다.
+    @Override
+    protected void onPostCreate(Bundle savedInstanceState) {
+        super.onPostCreate(savedInstanceState);
+        // SDL_main이 freopen한 files/srv.log를 MediaStore.Downloads로 내보낸다
+        // — Android 15 타앱 logcat 필터(14:36 실측)의 대체 수취 채널. 기동 후
+        // 8초 간격 6회 — 서버 부팅 로그를 Termux scp로 수취할 수 있게 한다.
+        for (int i = 1; i <= 6; i++) {
+            exporter.postDelayed(this::exportSrvLog, 8000L * i);
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        exportSrvLog();
+        super.onPause();
+    }
+
+    private void exportSrvLog() {
+        // stdout(srv.log)+stderr(srv.err) — r11 분리 수체 규약
+        exportOne(new File(getFilesDir(), "srv.err"), "spikeb-err-" + (++exportSeq) + ".log");
+        exportOne(new File(getFilesDir(), "srv.log"), "spikeb-out-" + (++exportSeq) + ".log");
+    }
+
+    private void exportOne(File src, String name) {
+        try {
+            if (!src.isFile() || src.length() == 0) return;
+            ContentValues cv = new ContentValues();
+            cv.put(MediaStore.Downloads.DISPLAY_NAME, name);
+            cv.put(MediaStore.Downloads.MIME_TYPE, "text/plain");
+            cv.put(MediaStore.Downloads.IS_PENDING, 1);
+            Uri uri = getContentResolver().insert(
+                    MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv);
+            if (uri == null) return;
+            try (FileInputStream in = new FileInputStream(src);
+                 OutputStream out = getContentResolver().openOutputStream(uri)) {
+                byte[] buf = new byte[64 * 1024];
+                int n;
+                while (in != null && out != null && (n = in.read(buf)) > 0) out.write(buf, 0, n);
+            }
+            ContentValues done = new ContentValues();
+            done.put(MediaStore.Downloads.IS_PENDING, 0);
+            getContentResolver().update(uri, done, null, null);
+        } catch (Exception e) {
+            android.util.Log.e("spikeB", "exportSrvLog failed", e);
+        }
+    }
+
+    // 컴파일 정의 상수 경로(/data/data/chang.spikeb/files/…)에 자산을 미리
+    // 풀어 둔다 — SDL_main이 files/로 chdir해 상대 "assets/…" 경로를 해석한다
+    // (r11 원문: 서버가 CWD에서 assets/backgrounds·icons 로드 실패).
     private void extractAssets() {
-        String[] fontFiles = {
-                "ENGLISH.FNT", "ENGLISH.VFT", "HANGUL.FNT", "HANJA.FNT",
-                "HANMOON.VFT", "SPECIAL.FNT" };
-        File fontsDir = new File(getFilesDir(), "fonts");
-        fontsDir.mkdirs();
-        for (String name : fontFiles) {
-            File dst = new File(fontsDir, name);
+        String[] assetPaths = {
+                "fonts/ENGLISH.FNT", "fonts/ENGLISH.VFT", "fonts/HANGUL.FNT",
+                "fonts/HANJA.FNT", "fonts/HANMOON.VFT", "fonts/SPECIAL.FNT",
+                "assets/backgrounds/desktop@1x.png",
+                "assets/icons/launcher_mine@1x.png",
+        };
+        for (String path : assetPaths) {
+            File dst = new File(getFilesDir(), path);
             if (dst.isFile() && dst.length() > 0) continue;
-            try (InputStream in = getAssets().open("fonts/" + name);
+            dst.getParentFile().mkdirs();
+            try (InputStream in = getAssets().open(path);
                  OutputStream out = new FileOutputStream(dst)) {
                 byte[] buf = new byte[64 * 1024];
                 int n;
                 while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
             } catch (Exception e) {
-                android.util.Log.e("spikeB", "extractAssets failed: " + name, e);
+                android.util.Log.e("spikeB", "extractAssets failed: " + path, e);
             }
         }
     }
