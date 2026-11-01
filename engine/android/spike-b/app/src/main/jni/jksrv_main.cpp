@@ -111,9 +111,11 @@ extern "C" int SDL_main(int argc, char* argv[]) {
 
     static bool started = false;
     if (started) {
-        // SDLActivity 재시작 시 이전 스레드가 살아있으면 중복 SDL_main 방지.
-        __android_log_print(ANDROID_LOG_WARN, "jksrv", "[spikeB] SDL_main re-entry refused");
-        return 0;
+        // SDL_main 재진입(닫았다 다시 열기 — 같은 프로세스): 선행 부트의
+        // leaked fd/acceptor가 있으므로(r16 원문 — 무성 return 1 사망)
+        // 가드 우회 플래그를 심고 재실행한다.
+        ::setenv("JK_SPIKE_NO_GUARD", "1", 1);
+        std::fprintf(stderr, "[spikeB] RE-ENTRY — guard bypass armed\n");
     }
     started = true;
     return main(argc, argv);

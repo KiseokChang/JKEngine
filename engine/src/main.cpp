@@ -10928,9 +10928,31 @@ static int RunMain(int argc, char* argv[]) {
         // 단일 인스턴스 가드(docs/59 §10) — Init 전에 봉쇄: 가드가 Init 뒤에
         // 있으면 거부 인스턴스가 앱 설치+아이콘 로드를 전부 수행한 뒤 죽는다
         // (2026-09-20 사용자 붙여넣기 로그 실측 — 낭비+로그 혼란).
+#if defined(__ANDROID__)
+        // 스파이크-B: 같은 프로세스 SDL_main 재진입(닫았다 다시 열기 — DeX
+        /// 폰 전환)에서 선행 부트의 leaked fd가 flock을 계속 보유해 무성
+        // return 1(원문 — Fatal signal 0건)로 사망한다. 재진입 판(SDL_main 심이
+        // JK_SPIKE_NO_GUARD를 심음)에서는 가드를 우회한다.
+        if (!getenv("JK_SPIKE_NO_GUARD") &&
+            !server.TryAcquireSingleInstanceGuard(jk::ipc::kWindowServerPipeName)) {
+            return 1;
+        }
+        // 선행 부트의 zombie acceptor(동일 프로세스 leak)가 소켓 경로를 계속
+        // 소유한다 — 바인딩 전에 경로 파일을 떼어 낸다(unlink — 살아 있는
+        // 리스너의 이노디드는 그대로 고아, 신규 바인드가 경로를 소유).
+        {
+            std::error_code rmEc;
+            std::filesystem::remove(
+                std::filesystem::path(jk::fs::TempDir() +
+                    std::string(jk::ipc::kWindowServerPipeName) + ".sock"), rmEc);
+            std::fprintf(stderr, "[spikeB] endpoint unlink rmEc=%d (rebind 전)\n",
+                         (int)rmEc.value());
+        }
+#else
         if (!server.TryAcquireSingleInstanceGuard(jk::ipc::kWindowServerPipeName)) {
             return 1;
         }
+#endif
         if (!server.Init("JKENGINE Window Server", 1280, 720)) {
             return 1;
         }
