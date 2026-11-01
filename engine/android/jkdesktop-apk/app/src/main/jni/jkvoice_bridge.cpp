@@ -27,12 +27,18 @@
 
 static JavaVM* g_vm = nullptr;
 static jclass g_voiceClass = nullptr;
+static jclass g_ttsClass = nullptr;
 
 extern "C" jint JNI_OnLoad(JavaVM* vm, void*) {
     g_vm = vm;
     JNIEnv* env = nullptr;
     if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) {
         return JNI_ERR;
+    }
+    jclass ttsLocal = env->FindClass("chang/jkdesktop/JkTts");
+    if (ttsLocal) {
+        g_ttsClass = static_cast<jclass>(env->NewGlobalRef(ttsLocal));
+        env->DeleteLocalRef(ttsLocal);
     }
     if (!g_voiceClass) {
         jclass local = env->FindClass("chang/jkdesktop/JkVoice");
@@ -112,16 +118,16 @@ extern "C" int JKAndroidVoiceBegin() {
 }
 
 // --- 자동 턴 스레드: 큐 drain → POST /talk --------------------------------
-static bool HttpPostTalk(const std::string& body) {
+static std::string HttpPostTalk(const std::string& body) {
     int fd = ::socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) return false;
+    if (fd < 0) return "";
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_port = htons(8091);
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     if (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
         ::close(fd);
-        return false;
+        return "";
     }
     std::string req =
         "POST /talk HTTP/1.0\r\nHost: localhost:8091\r\n"
@@ -137,6 +143,28 @@ static bool HttpPostTalk(const std::string& body) {
     if (n <= 0) return false;
     buf[std::min<size_t>((size_t)n, sizeof(buf) - 1)] = '\0';
     return std::strstr(buf, "\"ok\":true") != nullptr;
+}
+
+// --- TTS speak (HTTP /talk 응답의 reply 본문) ------------------------------
+extern "C" int JKTtsSpeak(const char*);
+extern "C" int JKTtsSpeak(const char* text) {
+    JNIEnv* env = static_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
+    if (!env || !g_ttsClass) return 0;
+    jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
+    if (!activity) return 0;
+    jmethodID mid = env->GetStaticMethodID(g_ttsClass, "begin",
+                                           "(Landroid/content/Context;)V");
+    if (!mid) { env->ExceptionClear(); env->DeleteLocalRef(activity); return 0; }
+    env->CallStaticVoidMethod(g_ttsClass, mid, activity);
+    env->DeleteLocalRef(activity);
+    jmethodID mid2 = env->GetStaticMethodID(g_ttsClass, "speak",
+                                            "(Ljava/lang/String;)V");
+    if (!mid2) { env->ExceptionClear(); return 0; }
+    jstring s = env->NewStringUTF(text ? text : "");
+    env->CallStaticVoidMethod(g_ttsClass, mid2, s);
+    env->ExceptionClear();
+    env->DeleteLocalRef(s);
+    return 1;
 }
 
 extern "C" int JKVoiceAutoturnStart() {
