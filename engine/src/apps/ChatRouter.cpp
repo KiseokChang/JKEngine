@@ -787,6 +787,11 @@ std::string DefaultActionGuide(const ChatAction& a) {
         case ChatAction::AppTool:
             return AppToolGuide(a.app, a.tool);  // LLM은 app_tool을 못 낸다(스키마
                                                  // 4종+talk) — 방어 사례만
+        case ChatAction::AmpkOpen:
+            // #124 — 브라우저 구두 v1은 즉발 경로 전용(LLM 스키마 4종+talk
+            // 원존 유지 — 스키마 밖 action=정직 폴백(858) 계약) — 이 곳 도달은
+            // 방어 사례뿐.
+            return "브라우저 창을 엽니다.";
         case ChatAction::Info:
             break;
     }
