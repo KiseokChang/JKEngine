@@ -8,8 +8,13 @@ package chang.jkapk
 // 프로그래매틱 UI(MainActivity 계양 승계 — XML 레이아웃 0).
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.os.Bundle
 import android.util.Log
+import android.view.MotionEvent
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.webkit.WebView
@@ -17,6 +22,7 @@ import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import androidx.core.content.ContextCompat
 import org.mozilla.geckoview.GeckoSession
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -25,6 +31,21 @@ class BrowserActivity : Activity() {
         private set
     lateinit var webView: WebView
         private set
+
+    // #124 — 구두 서비스 회신 표기(브라우저 창은 채팅 진실원이 없어 토스트).
+    private val voiceReceiver = object : BroadcastReceiver() {
+        override fun onReceive(ctx: Context?, i: Intent?) {
+            fun toast(d: String?) = android.widget.Toast.makeText(
+                this@BrowserActivity, d.orEmpty(), android.widget.Toast.LENGTH_LONG).show()
+            when (i?.action) {
+                JkVoiceService.BC_STATUS ->
+                    if (i.getStringExtra(JkVoiceService.EXTRA_STATE) == "error")
+                        toast(i.getStringExtra(JkVoiceService.EXTRA_DETAIL))
+                JkVoiceService.BC_REPLY ->
+                    toast(i.getStringExtra(JkVoiceService.EXTRA_DETAIL))
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -62,10 +83,38 @@ class BrowserActivity : Activity() {
         val reloadBtn = navButton("새로고침") { navReload() }
         val goBtn = navButton("Go") { goNow() }
         val measureBtn = navButton("[측정]") { runMeasure() }
+        // [구두] — 홀드 푸시토크(계약 그대로): 홀드 Down=서비스 마이크 개방,
+        // Up=마침. #124 서비스 분리로 브라우저 창 겹침과 무관하게 작동.
+        val voiceBtn = Button(this).apply {
+            text = "구두"
+            textSize = 12f
+            minimumWidth = 0
+            setPadding(row * 2, 0, row * 2, 0)
+            setOnTouchListener { _, ev ->
+                when (ev.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        val i = Intent(this@BrowserActivity, JkVoiceService::class.java)
+                            .setAction(JkVoiceService.ACTION_START)
+                        if (android.os.Build.VERSION.SDK_INT >= 26)
+                            startForegroundService(i)
+                        else startService(i)
+                        true
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        runCatching {   // 배경 전이 제한 정직 무시
+                            startService(Intent(this@BrowserActivity, JkVoiceService::class.java)
+                                .setAction(JkVoiceService.ACTION_STOP))
+                        }
+                        true
+                    }
+                    else -> true
+                }
+            }
+        }
         val engineBtn = navButton(if (engineName() == "webview") "[GeckoView]" else "[WebView]") {
             toggleEngine()
         }
-        listOf(backBtn, fwdBtn, reloadBtn, goBtn, measureBtn, engineBtn)
+        listOf(backBtn, fwdBtn, reloadBtn, goBtn, measureBtn, engineBtn, voiceBtn)
             .forEach { navRow.addView(it) }
 
         // 본체 — 화면 남은 영역 전부(죽은 마진 0 — fit 원칙 승계).
@@ -91,6 +140,13 @@ class BrowserActivity : Activity() {
         root.addView(navRow)
         if (engineName() == "webview") root.addView(webView)  // gecko는 attach가 root에 추가
         setContentView(root)
+
+        // #124 구두 서비스 수신기(브라우저 창 표면 — 토스트 표기).
+        ContextCompat.registerReceiver(this, voiceReceiver,
+            IntentFilter().apply {
+                addAction(JkVoiceService.BC_STATUS)
+                addAction(JkVoiceService.BC_REPLY)
+            }, ContextCompat.RECEIVER_NOT_EXPORTED)
 
         if (engineName() == "webview") {
             webkitOptIn()
@@ -305,5 +361,14 @@ class BrowserActivity : Activity() {
 
     override fun onBackPressed() {
         if (webView.canGoBack()) webView.goBack() else super.onBackPressed()
+    }
+
+    override fun onDestroy() {
+        // #124 — 브라우저 창 소명 시 수신기 해제(서비스 자체는 계속 — Main이
+        // 채팅 진실원 소관). gecko 세션 정리도 여기서 한 번만.
+        try { unregisterReceiver(voiceReceiver) } catch (_: Exception) {}
+        geckoSession?.close()
+        geckoSession = null
+        super.onDestroy()
     }
 }

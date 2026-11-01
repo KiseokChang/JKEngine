@@ -101,9 +101,13 @@ package chang.jkapk
 
 import android.Manifest
 import android.app.Activity
+import android.content.BroadcastReceiver
 import android.content.ContentValues
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
@@ -195,6 +199,7 @@ class MainActivity : Activity() {
     private val kPrefUseSystem = "use_system_stt"
     private var recognizer: SpeechRecognizer? = null
     private var sysListening = false
+    @Volatile private var voiceViaService = false   // 이 홀드가 서비스 경로인지(#124)
     private var audioRecord: AudioRecord? = null
     @Volatile private var capturing = false
     private var capThread: Thread? = null
@@ -382,6 +387,13 @@ class MainActivity : Activity() {
         root.addView(voiceStatusView)
         root.addView(inputRow)
         setContentView(root)
+
+        // #124 구두 서비스 수신기 — 서비스 partial/회신을 채팅 진실원으로 흘린다.
+        ContextCompat.registerReceiver(this, voiceReceiver,
+            IntentFilter().apply {
+                addAction(JkVoiceService.BC_STATUS)
+                addAction(JkVoiceService.BC_REPLY)
+            }, ContextCompat.RECEIVER_NOT_EXPORTED)
         renderLog()
 
         // ── #122 안정화 — GPU 시도 중 프로세스 사망 흔적 판정(fail-closed) ──
@@ -607,7 +619,14 @@ class MainActivity : Activity() {
         }
         if (useSystemStt()) {
             if (SpeechRecognizer.isRecognitionAvailable(this)) {
-                startSystemStt()
+                // #124 구두 서비스 릴레이 — 홀드=서비스 START(마이크 FGS는 서비스
+                // 단일 소관 — 어느 창이 앞이든 동일 계약). 구 본창 STT 사슬은
+                // 서비스로 이동(#124 T1) — startSystemStt 뼈대는 보존(미호출).
+                voiceViaService = true
+                val i = Intent(this, JkVoiceService::class.java)
+                    .setAction(JkVoiceService.ACTION_START)
+                if (android.os.Build.VERSION.SDK_INT >= 26) startForegroundService(i)
+                else startService(i)
                 return
             }
             appendChat("시스템",
@@ -682,6 +701,27 @@ class MainActivity : Activity() {
         override fun onError(error: Int) {
             sysListening = false
             failVoice("기본 음성 인식 실패: ${sttErrorText(error)}")
+        }
+    }
+
+    // #124 구두 서비스 수신기 — partial/상태→상태행, 회신→채팅 진실원([나]+[시스템]).
+    private val voiceReceiver = object : BroadcastReceiver() {
+        override fun onReceive(ctx: Context?, i: Intent?) {
+            when (i?.action) {
+                JkVoiceService.BC_STATUS -> {
+                    val st = i.getStringExtra(JkVoiceService.EXTRA_STATE).orEmpty()
+                    val d = i.getStringExtra(JkVoiceService.EXTRA_DETAIL).orEmpty()
+                    setVoiceStatus(d)
+                    if (st == "error") appendChat("시스템", d, true)
+                }
+                JkVoiceService.BC_REPLY -> {
+                    appendChat("나",
+                        i.getStringExtra(JkVoiceService.EXTRA_TEXT).orEmpty(), false)
+                    val ok = i.getBooleanExtra(JkVoiceService.EXTRA_OK, false)
+                    appendChat("시스템",
+                        i.getStringExtra(JkVoiceService.EXTRA_DETAIL).orEmpty(), !ok)
+                }
+            }
         }
     }
 
@@ -828,6 +868,15 @@ class MainActivity : Activity() {
     // [구두] 해제 — 판독 절단 → WAV 조립(표면 소유 경로) → 전사 스레드(R5
     // placeholder 도착). 데스크톱 FinishVoice 수형(빈 결실 = 정직 거부).
     private fun finishVoice() {
+        // #124 — 서비스 경로 홀드 해제 = ACTION_STOP(서비스가 결과 수취 후
+        // 스스로 정지 — 즉시 stopSelf 사망 함정 회피 leg는 서비스 계약).
+        if (voiceViaService) {
+            voiceViaService = false
+            setVoiceStatus("인식 중…")
+            startService(Intent(this, JkVoiceService::class.java)
+                .setAction(JkVoiceService.ACTION_STOP))
+            return
+        }
         if (sysListening) {
             setVoiceStatus("인식 중…")
             try { recognizer?.stopListening() } catch (_: Exception) {}
@@ -1123,6 +1172,13 @@ class MainActivity : Activity() {
     // --- JSON 최소 헬퍼 (jkweb::JsonEsc/JsonGetString 동형 — 본 리포트 원문) ---
 
     override fun onDestroy() {
+        // #124 — 구두 서비스 수신기 해제(액티비티 소명 — 서비스 자체는 계속).
+        try { unregisterReceiver(voiceReceiver) } catch (_: Exception) {}
+        runCatching {   // 앱이 배경으로 넘어가는 파기면 서비스 백그라운드 시작
+                        // 제한에 걸릴 수 있음 — 정직 무시(마이크는 홀드 중만)
+            startService(Intent(this, JkVoiceService::class.java)
+                .setAction(JkVoiceService.ACTION_STOP))
+        }
         // 구두 워커 join 수형(UserChatApp 캡처 절단 원문 계약 계열): 녹음
         // 중 단절이면 판독 루프를 먼저 절단하고 join — AudioRecord 조기 해제
         // 없음(판독 스레드가 개방을 소유하지 않는 구조 — 해제는 finishVoice/

@@ -23,6 +23,15 @@
         </intent>
     </queries>
 
+    <!-- #124 구두 서비스 분리 T1 — 마이크 FGS(JkVoiceService). 스펙 §3 계약:
+         포그라운드 인터랙션(구두 홀드 터치)에서만 startForegroundService —
+         Android 14+ 뒤에서 mic 시작 = SecurityException(fail-closed 원존).
+         FGS 소유 안내 알림(Importance LOW — 소음 0) = POST_NOTIFICATIONS.
+         평시 녹음 0 — 홀드 동안만 개방, 발화 후 stopSelf. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <application
         android:label="@string/app_name"
         android:icon="@android:drawable/sym_def_app_icon"
@@ -44,6 +53,13 @@
             android:name=".BrowserActivity"
             android:exported="true"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden" />
+
+        <!-- #124 구두 서비스 T1 — 마이크 FGS(기본 STT+/talk 유일 소관). 두 창의
+             [구두] 홀드에서 START/STOP 인텐트 릴레이. exported=false(내부 전용). -->
+        <service
+            android:name=".JkVoiceService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
     </application>
 
 </manifest>
