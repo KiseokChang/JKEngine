@@ -174,19 +174,20 @@ bool JKClientSurface::Commit(const std::vector<ipc::DirtyRect>& dirty) {
     if (spikeProbes > 0 && sharedMemory_ && sharedMemory_->IsValid()) {
         const uint32_t* px =
             reinterpret_cast<const uint32_t*>(sharedMemory_->Data());
-        const size_t total =
-            static_cast<size_t>(width_) * height_;
-        size_t nonzero = 0;
-        size_t alphaFull = 0;
-        for (size_t i = 0; i < total && i < 1024; ++i) {
-            if (px[i] != 0u) ++nonzero;
-            if ((px[i] & 0xFF000000u) == 0xFF000000u) ++alphaFull;
+        // 행 3점 샘플(r19 원문: 첫 1024px가 균일 어두운 배경 — 보드 래스터가
+        // 아래쪽에 있는지 가름): 상단/중간/하단 행의 첫 4px씩.
+        const size_t rows[3] = {
+            0, (static_cast<size_t>(height_) / 2) * width_,
+            (static_cast<size_t>(height_) > 1
+                 ? (static_cast<size_t>(height_) - 1) * width_ : 0) };
+        for (int r = 0; r < 3; ++r) {
+            std::fprintf(stderr,
+                         "[spikeB] commit id=%u row%d[0..3]=%08x %08x %08x %08x "
+                         "w=%u h=%u dirty=%zu\n",
+                         surfaceId_, r, px[rows[r]], px[rows[r] + 1],
+                         px[rows[r] + 2], px[rows[r] + 3],
+                         width_, height_, dirty.size());
         }
-        std::fprintf(stderr,
-                     "[spikeB] commit id=%u nonzero=%zu/1024 alpha255=%zu/1024 "
-                     "p0..3=%08x %08x %08x %08x w=%u h=%u dirty=%zu\n",
-                     surfaceId_, nonzero, alphaFull, px[0], px[1], px[2], px[3],
-                     width_, height_, dirty.size());
         std::fflush(stderr);
         --spikeProbes;
     }
@@ -217,6 +218,20 @@ bool JKClientSurface::PollInputEvent(JKEvent& out) {
     if (inputEvents_.empty()) return false;
     out = std::move(inputEvents_.front());
     inputEvents_.pop_front();
+#if defined(__ANDROID__)
+    // 스파이크-B 입력 leg 원문 계량기(선행 4건): 클라가 서버로부터 도달한
+    // 입력 이벤트 종류·좌표 — 터치→서버→클라 사슬 증명.
+    {
+        static int spikeInputs = 4;
+        if (spikeInputs > 0) {
+            std::fprintf(stderr,
+                         "[spikeB] event id=%u type=%d x=%d y=%d\n",
+                         surfaceId_, (int)out.type, out.x, out.y);
+            std::fflush(stderr);
+            --spikeInputs;
+        }
+    }
+#endif
     return true;
 }
 
