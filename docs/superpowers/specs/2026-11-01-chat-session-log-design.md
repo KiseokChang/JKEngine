@@ -73,3 +73,23 @@ JSONL로 폰 안에 남기고, 세션(Claude)이 그것을 가져와 개선점�
 구두 어휘)와 `JKWindowServer.cpp` 등(#125 APK 이식 스파이크)을 미커밋 상태로
 수정 중 — 그 커밋 뒤에 착수. jkapk /talk 전송부는 #124 `JkVoiceService` 소관이라
 5번은 그쪽과 합의해 넣는다.
+
+## 진행 상태 (2026-11-01 세션 마감 — 다음 세션 인계)
+
+- ✅ 단위 1 기록 모듈 `engine/src/apps/ChatSessionLog.cpp`·`include/apps/ChatSessionLog.h`
+  (jkcore 링크) + selftest 3c 19건 + 단위 7 중 `engine/tools/probes/jksessions.sh` —
+  커밋 be12936, Win 961 PASS. WSL·폰 selftest 미실행.
+- ⏳ 남은 것(순서대로):
+  1. `ChatRouter`에 `ChatTurnTrace*` 선택 인자(D6) — path exact/fuzzy/ai/none·matched·ms.
+  2. jkweb `HandleTalk`: `ChatSessionRegistry` 하나(stateDir = `<exeDir>/state` — 서버
+     use_journal과 같은 폴더인지 폰 레이아웃 확인), 바디 `session`·`stt`·`stt_ms` 수취,
+     user/route/action/reply 기록.
+  3. 데스크톱 `ClientChatApp`: 창마다 `ChatSessionLog(stateDir,"chat")`, 타이핑·[구두] 턴.
+  4. jkapk: `/talk` 바디에 `session`(앱 시작 id)·`stt`·`stt_ms` — /talk 전송 소관이
+     #124 `JkVoiceService`로 옮겨졌으니 그 파일에서. 브라우저 세션에 요청해 둠(미확답).
+  5. selftest(trace 경로 판정), Win/WSL/폰 배포(서버+**jkweb 재기동**), 폰에서 JK 앱 3턴
+     (정확·근사·AI) 후 `jksessions.sh show latest`로 transcript 확인.
+- API 요약: `ChatSessionLog(stateDir, source, key="", openMs=-1)` · `int BeginTurn(text,
+  stt="", sttMs=-1)` · `Route(turn,path,matched,kind,app,ms)` · `Action(turn,tool,args,ok,
+  err,ms)` · `Reply(turn,text,totalMs)` · `ChatSessionRegistry(stateDir, idleMs=30분)` ·
+  `Get(key, keyedSource="jkapk")` (key 비면 "web" 단일+30분 경계).
