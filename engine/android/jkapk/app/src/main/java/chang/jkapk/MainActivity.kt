@@ -131,6 +131,7 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
 import java.net.URL
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
@@ -144,6 +145,7 @@ class MainActivity : Activity() {
     private val talkUrl = "http://localhost:8090/talk"
     private val statusIdle = "서버: 미확인 — [보내기]로 연결 시도"
     private val statusOff = "서버: 미기동 — DeX 세션 필요"
+    private val statusSlow = "서버: 응답 지연 (60초 초과) — 처리는 됐을 수 있음, 화면 확인"
 
     private lateinit var logView: TextView
     private lateinit var statusView: TextView
@@ -383,14 +385,24 @@ class MainActivity : Activity() {
 
     // POST /talk 1회 — UI 스레드 밖(단일 실행기 직렬화).
     private fun doTalk(text: String) {
+        // 응답 지연(읽기 타임아웃)은 서버 부재와 구분 — 요청은 서버에 도착해
+        // 처리됐는데 "미기동"으로 표기되던 오표기(2026-11-01 폰 실측: 앱 요청이
+        // 지뢰찾기를 띄웠는데 앱은 미기동 표기 — ollama 냉시작 추정).
+        var slow = false
         val reply = try {
             postTalk(text)
+        } catch (e: SocketTimeoutException) {
+            slow = true
+            null
         } catch (e: IOException) {
-            null // 서버 부재·타임아웃 — 정직 표기로 수렴
+            null // 서버 부재 — 정직 표기로 수렴
         }
         runOnUiThread {
             setSending(false)
-            if (reply == null) {
+            if (reply == null && slow) {
+                updateStatus(statusSlow)
+                appendChat("시스템", statusSlow, true)
+            } else if (reply == null) {
                 markServerOff()
             } else {
                 updateStatus("서버: 연결 (localhost:8090 · HTTP ${reply.httpCode})")
@@ -423,8 +435,8 @@ class MainActivity : Activity() {
         val conn = URL(talkUrl).openConnection() as HttpURLConnection
         try {
             conn.requestMethod = "POST"
-            conn.connectTimeout = 10_000  // 타임아웃 10s 계약
-            conn.readTimeout = 10_000
+            conn.connectTimeout = 10_000  // 연결 = 서버 존재 판정(루프백 — 짧게)
+            conn.readTimeout = 60_000     // 응답 = LLM 해석 냉시작 포함 여유
             conn.doOutput = true
             conn.setRequestProperty("Content-Type", "application/json; charset=utf-8")
             conn.setFixedLengthStreamingMode(bytes.size)
