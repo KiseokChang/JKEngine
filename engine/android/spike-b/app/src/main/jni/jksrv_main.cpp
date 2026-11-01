@@ -50,22 +50,21 @@ extern "C" int SDL_main(int argc, char* argv[]) {
                      argc > 1 ? argv[1] : "",
                      argc > 2 ? " " : "",
                      argc > 2 ? argv[2] : "");
-        // 엔진 exe-dir 규약의 Android 수형 — r11 실측: /proc/self/maps 단발
-        // fread(256KB)는 libjkdesk.so 매핑 앞에서 끊겨 미검출(r11 원문).
-        // r12 = dladdr 전환: SDL_main 자체의 주소가 속한 물리 경로를
-        // dynamic linker에게 물어본다 — libjkdesk.so의 nativeLibraryDir 경로.
-        // 동시에 W^X 실측: nativeLibraryDir 파일이 X_OK인지 원문으로 (docs/101
-        // §3 열린 질문 — "jniLibs .so exec 불가" 구 원장과 충돌).
+        // 엔진 exe-dir 규약의 Android 수형 — r11/r13 실측: SDLActivity는 argv0
+        // 에 "app_process"를 준다(lib 경로 아님) → dladdr로 이 진입 심보가
+        // 속한 물리(libjkdesk.so) 경로를 얻는다. 동시에 W^X 실측 원문.
+        // r13 원문: exec 자식("libjkc.so" PIE)은 bionic 링커 기동까지 성립했으나
+        // "libSDL2.so not found" — 앱 프로세스 env에 nativeLibraryDir가 없어
+        // 자식 DT_NEEDED 해석 실패 → LD_LIBRARY_PATH에 nativeLibraryDir를
+        // 추가해 자식에게 물려준다(exec가 environ을 상속하는 계약).
         if (selfLen <= 0 || std::strncmp(selfExe, "/system/bin/app_process", 23) == 0) {
             Dl_info info{};
             if (::dladdr(reinterpret_cast<void*>(&SDL_main), &info) != 0 &&
                 info.dli_fname) {
                 const std::string libPath(info.dli_fname);
                 const size_t slash = libPath.find_last_of('/');
-                const std::string resolved =
-                    (slash == std::string::npos)
-                        ? libPath
-                        : libPath.substr(0, slash + 1) + "libjkdesk.so";
+                const std::string natDir = libPath.substr(0, slash + 1);
+                const std::string resolved = natDir + "libjkdesk.so";
                 const bool xok = ::access(resolved.c_str(), X_OK) == 0;
                 ::setenv("JK_EXE_PATH", resolved.c_str(), 1);
                 std::fprintf(stderr,
@@ -73,6 +72,13 @@ extern "C" int SDL_main(int argc, char* argv[]) {
                     resolved.c_str(), (int)xok,
                     xok ? "nativeLibraryDir exec 허용"
                         : "exec 거부 — 방향 B 클라 exec leg 불성립 원문");
+                std::string ldl;
+                const char* cur = ::getenv("LD_LIBRARY_PATH");
+                if (cur) ldl = cur;
+                if (ldl.find(natDir) == std::string::npos)
+                    ldl = natDir + (ldl.empty() ? "" : ":") + ldl;
+                ::setenv("LD_LIBRARY_PATH", ldl.c_str(), 1);
+                std::fprintf(stderr, "[spikeB] LD_LIBRARY_PATH=%s\n", ldl.c_str());
             } else
                 std::fprintf(stderr, "[spikeB] FATAL dladdr 실패 — exe-dir 규약 무해 저하\n");
         }

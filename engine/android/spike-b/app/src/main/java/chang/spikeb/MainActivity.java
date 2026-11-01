@@ -104,7 +104,11 @@ public class MainActivity extends SDLActivity {
             File dst = new File(getFilesDir(), path);
             if (dst.isFile() && dst.length() > 0) continue;
             dst.getParentFile().mkdirs();
-            try (InputStream in = getAssets().open(path);
+            // getAssets() 계약: open 경로는 assets 루트 상대 — APK 안의 배치가
+            // "assets/…"면 open은 "…"다(r13 원문 — launcher_mine 0건 추출).
+            String openPath = path.startsWith("assets/")
+                    ? path.substring("assets/".length()) : path;
+            try (InputStream in = getAssets().open(openPath);
                  OutputStream out = new FileOutputStream(dst)) {
                 byte[] buf = new byte[64 * 1024];
                 int n;
