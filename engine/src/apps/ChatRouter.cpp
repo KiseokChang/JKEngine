@@ -174,6 +174,28 @@ std::string RestorePhonemeDomain(const std::string& w) {
     return "";
 }
 
+// r4c — 조사 절단 leg(폰 원문 "유투브 **닷컴을** 열게요" — 앞 어절에 조사
+// "을"이 붙어 표 등호 실패): 표 검색 직전에만 말미 조사를 떼고 시도(표 밖
+// 어절은 통과 — 원칙 유지).
+std::string StripJosa(const std::string& w) {
+    static const char* kJosa2[] = {"으로", "에서", "에게", "부터", "까지"};
+    static const char* kJosa1[] = {"을", "를", "은", "는", "이", "가",
+                                   "와", "과", "의", "도", "만", "에"};
+    for (const char* j2 : kJosa2) {
+        const std::string p(j2);
+        if (w.size() > p.size() &&
+            w.compare(w.size() - p.size(), p.size(), p) == 0)
+            return w.substr(0, w.size() - p.size());
+    }
+    for (const char* j1 : kJosa1) {
+        const std::string p(j1);
+        if (w.size() > p.size() &&
+            w.compare(w.size() - p.size(), p.size(), p) == 0)
+            return w.substr(0, w.size() - p.size());
+    }
+    return w;
+}
+
 // 앞뒤 공백(공백·탭·개행) 제거 + ASCII 소문화 + **접미 문장부호 절단**(소형
 // 배치 4 원장행 — STT 접미 부호: 마침표·느낌표·물음표·쉼표 + 한국어 부호
 // 。！？，·). 접미만 — 앞·중간 부호는 무접촉(절단 규약: "정확 매치 어휘의
@@ -665,7 +687,9 @@ std::string RouteExact(const std::string& text, ChatAction& out) {
             // r4b — **띄어쓰기 흩친 도메인**("유투브 닷컴" — 폰 원문 2026-11-
             // 01): 마지막 어절만("닷컴")이 아니라 트리거 앞 전체 어절의 공백을
             // 떼어 합쳐 복원 표 재시도 — 표 결합형 3중 흩침 수형.
-            std::string restored = RestorePhonemeDomain(word);
+            // r4c — 조사 절단(StripJosa — "닷컴을"류 앞 조사)도 표 검색 직전
+            // 에만 시도.
+            std::string restored = RestorePhonemeDomain(StripJosa(word));
             if (restored.empty()) {
                 std::string joined;
                 if (norm.size() >= std::string(hit->trigger).size()) {
@@ -676,7 +700,7 @@ std::string RouteExact(const std::string& text, ChatAction& out) {
                         for (char c : pre)
                             if (!std::isspace(static_cast<unsigned char>(c)))
                                 joined += c;
-                        restored = RestorePhonemeDomain(joined);
+                        restored = RestorePhonemeDomain(StripJosa(joined));
                     }
                 }
             }
