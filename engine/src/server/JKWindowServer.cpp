@@ -164,6 +164,11 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
     // 최초 창 표면 생성(스왑) 이전에만 유효 → Init 최전단 배선. Windows·WSL은
     // 폴백 판정이 플랫폼 기본 FALSE라 무영향.
     SDL_SetHint(SDL_HINT_FRAMEBUFFER_ACCELERATION, "0");
+#if defined(__ANDROID__)
+    // 터치 챠드 수형과 짝(채널 중복 방지): SDL 자체의 touch→mouse 합성은 첫
+    // 손가락만 마우스화 — ours(멀티손가락 챠드 합성)로 대체한다.
+    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
+#endif
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) {
         std::fprintf(stderr, "JKWindowServer::Init: SDL_Init failed: %s\n", SDL_GetError());
@@ -944,6 +949,95 @@ void JKWindowServer::Run() {
         SDL_Event ev;
         while (SDL_PollEvent(&ev)) {
             if (trace && ev.type != SDL_QUIT) ++traceSdl;
+#if defined(__ANDROID__)
+            // 터치 챠드 수형(스펙 §4 — 지뢰찾기의 왼+오른 둘레 열기의 터치
+            // 등가물): SDL 터치를 마우스 버튼으로 합성한다 — 첫 손가락=왼쪽
+            // (down/motion/up), 보유 중 두 번째 손가락=오른쪽 down(첫 손가락
+            // 위치·동일 셀 지정), 두 번째 손가락 up=오른쪽 up. 앱 레벨 챠드
+            // 로직(MineGrid leftDown_/rightDown_/TryChordAt — 엔진 원존)이 그
+            // 두 이벤트만 보면 발화하므로 신규 이벤트 0. SDL 자체 합성
+            //(SDL_TOUCH_MOUSE_EVENTS)은 첫 손가락만 마우스화하므로 힌트로
+            // 끄고 ours가 대신한다(Init에서 힌트 설정).
+            if (SDL_strcmp(SDL_GetCurrentVideoDriver(), "android") == 0) {
+                bool synth = false;
+                SDL_Event mouseEv{};
+                if (ev.type == SDL_FINGERDOWN || ev.type == SDL_FINGERUP ||
+                    ev.type == SDL_FINGERMOTION) {
+                    const SDL_TouchID touchId = ev.tfinger.touchId;
+                    // SDL_GetNumTouchFingers는 이벤트 반영 "후"의 손가락 수를
+                    // 돌려준다(DOWN 시 새 손가락 포함·UP 시 이미 제외) — 그대로
+                    // 쓴다.
+                    const int held = SDL_GetNumTouchFingers(touchId);
+                    int wnW = 0, wnH = 0;
+                    SDL_GetWindowSize(window_, &wnW, &wnH);
+                    if (wnW <= 0 || wnH <= 0) { wnW = 1; wnH = 1; }
+                    if (ev.type == SDL_FINGERDOWN && held == 1) {
+                        mouseEv.button.type = SDL_MOUSEBUTTONDOWN;
+                        mouseEv.button.button = SDL_BUTTON_LEFT;
+                        mouseEv.button.state = SDL_PRESSED;
+                        mouseEv.button.clicks = 1;
+                        mouseEv.button.x = static_cast<Sint32>(
+                            ev.tfinger.x * static_cast<float>(wnW));
+                        mouseEv.button.y = static_cast<Sint32>(
+                            ev.tfinger.y * static_cast<float>(wnH));
+                        synth = true;
+                    } else if (ev.type == SDL_FINGERDOWN && held == 2) {
+                        const SDL_Finger* first = SDL_GetTouchFinger(touchId, 0);
+                        if (first) {
+                            mouseEv.button.type = SDL_MOUSEBUTTONDOWN;
+                            mouseEv.button.button = SDL_BUTTON_RIGHT;
+                            mouseEv.button.state = SDL_PRESSED;
+                            mouseEv.button.clicks = 1;
+                            mouseEv.button.x = static_cast<Sint32>(
+                                first->x * static_cast<float>(wnW));
+                            mouseEv.button.y = static_cast<Sint32>(
+                                first->y * static_cast<float>(wnH));
+                            synth = true;
+                            std::fprintf(stderr, "[jkdesk] touch chord synth (right)\n");
+                        }
+                    } else if (ev.type == SDL_FINGERUP && held == 1) {
+                        // 남은 손가락 0 → 왼쪽 up. 오른쪽이 합성돼 있으면 먼저
+                        // 정리해 둔다(챠드 후 순서 무관 — up 계열은 유실해도
+                        // 앱이 MouseUp(detail)로 두 버튼 상태를 회수한다).
+                        mouseEv.button.type = SDL_MOUSEBUTTONUP;
+                        mouseEv.button.button = SDL_BUTTON_LEFT;
+                        mouseEv.button.state = SDL_RELEASED;
+                        mouseEv.button.clicks = 1;
+                        mouseEv.button.x = static_cast<Sint32>(
+                            ev.tfinger.x * static_cast<float>(wnW));
+                        mouseEv.button.y = static_cast<Sint32>(
+                            ev.tfinger.y * static_cast<float>(wnH));
+                        synth = true;
+                    } else if (ev.type == SDL_FINGERUP && held == 2) {
+                        const SDL_Finger* first = SDL_GetTouchFinger(touchId, 0);
+                        if (first) {
+                            mouseEv.button.type = SDL_MOUSEBUTTONUP;
+                            mouseEv.button.button = SDL_BUTTON_RIGHT;
+                            mouseEv.button.state = SDL_RELEASED;
+                            mouseEv.button.clicks = 1;
+                            mouseEv.button.x = static_cast<Sint32>(
+                                first->x * static_cast<float>(wnW));
+                            mouseEv.button.y = static_cast<Sint32>(
+                                first->y * static_cast<float>(wnH));
+                            synth = true;
+                        }
+                    } else if (ev.type == SDL_FINGERMOTION && held == 1) {
+                        mouseEv.motion.type = SDL_MOUSEMOTION;
+                        mouseEv.motion.state = SDL_PRESSED;
+                        mouseEv.motion.x = static_cast<Sint32>(
+                            ev.tfinger.x * static_cast<float>(wnW));
+                        mouseEv.motion.y = static_cast<Sint32>(
+                            ev.tfinger.y * static_cast<float>(wnH));
+                        synth = true;
+                    }
+                    if (synth) {
+                        mouseEv.button.windowID = SDL_GetWindowID(window_);
+                        SDL_PushEvent(&mouseEv);
+                    }
+                    continue;  // 원본 finger 이벤트는 펌프에서 소각
+                }
+            }
+#endif
             if (ev.type == SDL_QUIT) {
                 running_ = false;
                 break;

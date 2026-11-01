@@ -1,0 +1,262 @@
+{
+	"artifacts" : 
+	[
+		{
+			"path" : "I:/progwork/JKENGINE/engine/android/jkdesktop-apk/app/build/intermediates/cxx/Release/1k432q4d/obj/arm64-v8a/libjkapp_notify.so"
+		}
+	],
+	"backtrace" : 1,
+	"backtraceGraph" : 
+	{
+		"commands" : 
+		[
+			"add_library",
+			"target_link_libraries",
+			"target_compile_definitions"
+		],
+		"files" : 
+		[
+			"CMakeLists.txt"
+		],
+		"nodes" : 
+		[
+			{
+				"file" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 415,
+				"parent" : 0
+			},
+			{
+				"command" : 1,
+				"file" : 0,
+				"line" : 419,
+				"parent" : 0
+			},
+			{
+				"command" : 2,
+				"file" : 0,
+				"line" : 418,
+				"parent" : 0
+			}
+		]
+	},
+	"compileGroups" : 
+	[
+		{
+			"compileCommandFragments" : 
+			[
+				{
+					"fragment" : "-g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O3 -DNDEBUG  -fPIC"
+				},
+				{
+					"fragment" : "-std=c++20"
+				}
+			],
+			"defines" : 
+			[
+				{
+					"backtrace" : 3,
+					"define" : "JKAPP_MODULE_BUILD"
+				},
+				{
+					"backtrace" : 2,
+					"define" : "JKENGINE_FONT_DIR=\"/data/data/chang.jkdesktop/files/fonts\""
+				},
+				{
+					"backtrace" : 2,
+					"define" : "JK_SCRIPTS_DIR=\"/data/data/chang.jkdesktop/files/scripts\""
+				},
+				{
+					"define" : "jkapp_notify_EXPORTS"
+				}
+			],
+			"includes" : 
+			[
+				{
+					"backtrace" : 2,
+					"path" : "I:/progwork/JKENGINE/engine/android/jkdesktop-apk/app/src/main/jni/../../../../../../include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "I:/progwork/JKENGINE/engine/android/jkdesktop-apk/app/src/main/jni/../../../../../../third_party/stb"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "I:/progwork/JKENGINE/engine/android/jkdesktop-apk/app/src/main/jni/../../../../../../legacy/wancode"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "I:/progwork/JKENGINE/engine/android/jkdesktop-apk/app/src/main/jni/../../../../../../third_party/quickjs-ng"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "I:/progwork/JKENGINE/engine/android/jkdesktop-apk/app/.cxx/Release/1k432q4d/arm64-v8a/sdl2-build/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "I:/progwork/JKENGINE/engine/android/jkdesktop-apk/app/.cxx/Release/1k432q4d/arm64-v8a/sdl2-build/include/SDL2"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "I:/progwork/JKENGINE/engine/android/jkdesktop-apk/app/.cxx/Release/1k432q4d/arm64-v8a/sdl2-build/include-config-release/SDL2"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "I:/progwork/JKENGINE/engine/android/jkdesktop-apk/app/src/main/jni/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "I:/progwork/JKENGINE/engine/android/jkdesktop-apk/app/src/main/jni/iconv_shim"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "I:/progwork/JKENGINE/engine/android/jkdesktop-apk/app/src/main/jni/../../../../../../third_party/imgui"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "I:/progwork/JKENGINE/engine/android/jkdesktop-apk/app/src/main/jni/../../../../../../third_party/imgui_club"
+				}
+			],
+			"language" : "CXX",
+			"languageStandard" : 
+			{
+				"backtraces" : 
+				[
+					1
+				],
+				"standard" : "20"
+			},
+			"sourceIndexes" : 
+			[
+				0,
+				1
+			],
+			"sysroot" : 
+			{
+				"path" : "I:/progwork/JKENGINE/build/android-sdk/sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/windows-x86_64/sysroot"
+			}
+		}
+	],
+	"dependencies" : 
+	[
+		{
+			"backtrace" : 2,
+			"id" : "mixer_shim::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 2,
+			"id" : "quickjs::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 2,
+			"id" : "jkcore::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 2,
+			"id" : "jkclient::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 2,
+			"id" : "imgui::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 2,
+			"id" : "SDL2::@55a4eaee938456d1069d"
+		}
+	],
+	"id" : "jkapp_notify::@6890427a1f51a3e7e1df",
+	"link" : 
+	{
+		"commandFragments" : 
+		[
+			{
+				"fragment" : "-static-libstdc++ -Wl,--build-id=sha1 -Wl,--no-rosegment -Wl,--no-undefined-version -Wl,--fatal-warnings -Wl,--no-undefined -Qunused-arguments  -Wl,--gc-sections",
+				"role" : "flags"
+			},
+			{
+				"backtrace" : 2,
+				"fragment" : "libjkclient.a",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 2,
+				"fragment" : "libimgui.a",
+				"role" : "libraries"
+			},
+			{
+				"fragment" : "libjkcore.a",
+				"role" : "libraries"
+			},
+			{
+				"fragment" : "libquickjs.a",
+				"role" : "libraries"
+			},
+			{
+				"fragment" : "libmixer_shim.a",
+				"role" : "libraries"
+			},
+			{
+				"fragment" : "I:\\progwork\\JKENGINE\\build\\android-sdk\\sdk\\ndk\\28.2.13676358\\toolchains\\llvm\\prebuilt\\windows-x86_64\\sysroot\\usr\\lib\\aarch64-linux-android\\28\\liblog.so",
+				"role" : "libraries"
+			},
+			{
+				"fragment" : "-llog",
+				"role" : "libraries"
+			},
+			{
+				"fragment" : "-landroid",
+				"role" : "libraries"
+			},
+			{
+				"fragment" : "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libSDL2.so",
+				"role" : "libraries"
+			},
+			{
+				"fragment" : "-latomic -lm",
+				"role" : "libraries"
+			}
+		],
+		"language" : "CXX",
+		"sysroot" : 
+		{
+			"path" : "I:/progwork/JKENGINE/build/android-sdk/sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/windows-x86_64/sysroot"
+		}
+	},
+	"name" : "jkapp_notify",
+	"nameOnDisk" : "libjkapp_notify.so",
+	"paths" : 
+	{
+		"build" : ".",
+		"source" : "."
+	},
+	"sourceGroups" : 
+	[
+		{
+			"name" : "Source Files",
+			"sourceIndexes" : 
+			[
+				0,
+				1
+			]
+		}
+	],
+	"sources" : 
+	[
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "I:/progwork/JKENGINE/engine/src/apps/JKAppModule_notify.cpp",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "I:/progwork/JKENGINE/engine/src/apps/ClientNotifyApp.cpp",
+			"sourceGroupIndex" : 0
+		}
+	],
+	"type" : "SHARED_LIBRARY"
+}

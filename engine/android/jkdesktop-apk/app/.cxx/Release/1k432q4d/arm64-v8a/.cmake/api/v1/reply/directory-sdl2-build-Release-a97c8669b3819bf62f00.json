@@ -1,0 +1,14 @@
+{
+	"backtraceGraph" : 
+	{
+		"commands" : [],
+		"files" : [],
+		"nodes" : []
+	},
+	"installers" : [],
+	"paths" : 
+	{
+		"build" : "sdl2-build",
+		"source" : "I:/progwork/JKENGINE/build/android-sdk/sdl2-src"
+	}
+}

@@ -1,0 +1,121 @@
+{
+	"archive" : {},
+	"artifacts" : 
+	[
+		{
+			"path" : "libmixer_shim.a"
+		}
+	],
+	"backtrace" : 1,
+	"backtraceGraph" : 
+	{
+		"commands" : 
+		[
+			"add_library",
+			"target_link_libraries",
+			"target_include_directories"
+		],
+		"files" : 
+		[
+			"CMakeLists.txt"
+		],
+		"nodes" : 
+		[
+			{
+				"file" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 47,
+				"parent" : 0
+			},
+			{
+				"command" : 1,
+				"file" : 0,
+				"line" : 49,
+				"parent" : 0
+			},
+			{
+				"command" : 2,
+				"file" : 0,
+				"line" : 48,
+				"parent" : 0
+			}
+		]
+	},
+	"compileGroups" : 
+	[
+		{
+			"compileCommandFragments" : 
+			[
+				{
+					"fragment" : "-g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -O3 -DNDEBUG  -fPIC"
+				}
+			],
+			"includes" : 
+			[
+				{
+					"backtrace" : 3,
+					"path" : "I:/progwork/JKENGINE/engine/android/jkdesktop-apk/app/src/main/jni/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "I:/progwork/JKENGINE/engine/android/jkdesktop-apk/app/.cxx/Release/1k432q4d/arm64-v8a/sdl2-build/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "I:/progwork/JKENGINE/engine/android/jkdesktop-apk/app/.cxx/Release/1k432q4d/arm64-v8a/sdl2-build/include/SDL2"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "I:/progwork/JKENGINE/engine/android/jkdesktop-apk/app/.cxx/Release/1k432q4d/arm64-v8a/sdl2-build/include-config-release/SDL2"
+				}
+			],
+			"language" : "C",
+			"sourceIndexes" : 
+			[
+				0
+			],
+			"sysroot" : 
+			{
+				"path" : "I:/progwork/JKENGINE/build/android-sdk/sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/windows-x86_64/sysroot"
+			}
+		}
+	],
+	"dependencies" : 
+	[
+		{
+			"backtrace" : 2,
+			"id" : "SDL2::@55a4eaee938456d1069d"
+		}
+	],
+	"id" : "mixer_shim::@6890427a1f51a3e7e1df",
+	"name" : "mixer_shim",
+	"nameOnDisk" : "libmixer_shim.a",
+	"paths" : 
+	{
+		"build" : ".",
+		"source" : "."
+	},
+	"sourceGroups" : 
+	[
+		{
+			"name" : "Source Files",
+			"sourceIndexes" : 
+			[
+				0
+			]
+		}
+	],
+	"sources" : 
+	[
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "mixer_shim.c",
+			"sourceGroupIndex" : 0
+		}
+	],
+	"type" : "STATIC_LIBRARY"
+}

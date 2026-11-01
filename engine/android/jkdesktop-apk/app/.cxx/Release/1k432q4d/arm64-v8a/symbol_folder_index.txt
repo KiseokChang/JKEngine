@@ -1,0 +1,1 @@
+I:\progwork\JKENGINE\engine\android\jkdesktop-apk\app\build\intermediates\cxx\Release\1k432q4d\obj\arm64-v8a

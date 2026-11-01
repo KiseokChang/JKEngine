@@ -1,0 +1,341 @@
+{
+  "buildFiles": [
+    "I:\\progwork\\JKENGINE\\build\\android-sdk\\sdl2-src\\CMakeLists.txt",
+    "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\src\\main\\jni\\CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "I:\\progwork\\JKENGINE\\build\\android-sdk\\sdk\\cmake\\3.22.1\\bin\\ninja.exe",
+      "-C",
+      "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\.cxx\\Release\\1k432q4d\\arm64-v8a",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "I:\\progwork\\JKENGINE\\build\\android-sdk\\sdk\\cmake\\3.22.1\\bin\\ninja.exe",
+    "-C",
+    "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\.cxx\\Release\\1k432q4d\\arm64-v8a",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "jkapp_vector::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkapp_vector",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libjkapp_vector.so",
+      "runtimeFiles": [
+        "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libSDL2.so"
+      ]
+    },
+    "jkapp_agentmgr::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkapp_agentmgr",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libjkapp_agentmgr.so",
+      "runtimeFiles": [
+        "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libSDL2.so"
+      ]
+    },
+    "jkapp_filedlg::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkapp_filedlg",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libjkapp_filedlg.so",
+      "runtimeFiles": [
+        "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libSDL2.so"
+      ]
+    },
+    "jkserver::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkserver",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\.cxx\\Release\\1k432q4d\\arm64-v8a\\libjkserver.a",
+      "runtimeFiles": []
+    },
+    "jkapp_music::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkapp_music",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libjkapp_music.so",
+      "runtimeFiles": [
+        "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libSDL2.so"
+      ]
+    },
+    "jkapp_iconedit::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkapp_iconedit",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libjkapp_iconedit.so",
+      "runtimeFiles": [
+        "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libSDL2.so"
+      ]
+    },
+    "jkapp_terminal::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkapp_terminal",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libjkapp_terminal.so",
+      "runtimeFiles": [
+        "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libSDL2.so"
+      ]
+    },
+    "jkapp_library::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkapp_library",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libjkapp_library.so",
+      "runtimeFiles": [
+        "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libSDL2.so"
+      ]
+    },
+    "jkapp_recog::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkapp_recog",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libjkapp_recog.so",
+      "runtimeFiles": [
+        "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libSDL2.so"
+      ]
+    },
+    "SDL2main::@55a4eaee938456d1069d": {
+      "artifactName": "SDL2main",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\.cxx\\Release\\1k432q4d\\arm64-v8a\\sdl2-build\\libSDL2main.a",
+      "runtimeFiles": []
+    },
+    "jkclient::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkclient",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\.cxx\\Release\\1k432q4d\\arm64-v8a\\libjkclient.a",
+      "runtimeFiles": []
+    },
+    "jkapp_snap::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkapp_snap",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libjkapp_snap.so",
+      "runtimeFiles": [
+        "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libSDL2.so"
+      ]
+    },
+    "jkapp_tetris::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkapp_tetris",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libjkapp_tetris.so",
+      "runtimeFiles": [
+        "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libSDL2.so"
+      ]
+    },
+    "jkapp_pcx::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkapp_pcx",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libjkapp_pcx.so",
+      "runtimeFiles": [
+        "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libSDL2.so"
+      ]
+    },
+    "jkcore::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkcore",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\.cxx\\Release\\1k432q4d\\arm64-v8a\\libjkcore.a",
+      "runtimeFiles": []
+    },
+    "jkapp_imguidemo::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkapp_imguidemo",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libjkapp_imguidemo.so",
+      "runtimeFiles": [
+        "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libSDL2.so"
+      ]
+    },
+    "jkc::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkc",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libjkc.so",
+      "runtimeFiles": [
+        "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libSDL2.so"
+      ]
+    },
+    "SDL2::@55a4eaee938456d1069d": {
+      "artifactName": "SDL2",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libSDL2.so",
+      "runtimeFiles": []
+    },
+    "sdl_headers_copy::@55a4eaee938456d1069d": {
+      "artifactName": "sdl_headers_copy",
+      "abi": "arm64-v8a",
+      "runtimeFiles": []
+    },
+    "jkdesk::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkdesk",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libjkdesk.so",
+      "runtimeFiles": [
+        "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libSDL2.so"
+      ]
+    },
+    "jkapp_notify::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkapp_notify",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libjkapp_notify.so",
+      "runtimeFiles": [
+        "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libSDL2.so"
+      ]
+    },
+    "jkapp_vpres::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkapp_vpres",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libjkapp_vpres.so",
+      "runtimeFiles": [
+        "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libSDL2.so"
+      ]
+    },
+    "jkdesktop_shell::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkdesktop_shell",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\.cxx\\Release\\1k432q4d\\arm64-v8a\\libjkdesktop_shell.a",
+      "runtimeFiles": []
+    },
+    "jkapp_script::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkapp_script",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libjkapp_script.so",
+      "runtimeFiles": [
+        "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libSDL2.so"
+      ]
+    },
+    "jkapp_notes::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkapp_notes",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libjkapp_notes.so",
+      "runtimeFiles": [
+        "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libSDL2.so"
+      ]
+    },
+    "jkapp_taskmgr::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkapp_taskmgr",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libjkapp_taskmgr.so",
+      "runtimeFiles": [
+        "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libSDL2.so"
+      ]
+    },
+    "jkapp_vfont::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkapp_vfont",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libjkapp_vfont.so",
+      "runtimeFiles": [
+        "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libSDL2.so"
+      ]
+    },
+    "jkapp_chat::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkapp_chat",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libjkapp_chat.so",
+      "runtimeFiles": [
+        "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libSDL2.so"
+      ]
+    },
+    "jkapp_settings::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkapp_settings",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libjkapp_settings.so",
+      "runtimeFiles": [
+        "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libSDL2.so"
+      ]
+    },
+    "imgui::@6890427a1f51a3e7e1df": {
+      "artifactName": "imgui",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\.cxx\\Release\\1k432q4d\\arm64-v8a\\libimgui.a",
+      "runtimeFiles": []
+    },
+    "jkapp_palette::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkapp_palette",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libjkapp_palette.so",
+      "runtimeFiles": [
+        "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libSDL2.so"
+      ]
+    },
+    "jkapp_gallery::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkapp_gallery",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libjkapp_gallery.so",
+      "runtimeFiles": [
+        "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libSDL2.so"
+      ]
+    },
+    "jkapp_minesweeper::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkapp_minesweeper",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libjkapp_minesweeper.so",
+      "runtimeFiles": [
+        "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libSDL2.so"
+      ]
+    },
+    "jkapp_testwin::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkapp_testwin",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libjkapp_testwin.so",
+      "runtimeFiles": [
+        "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libSDL2.so"
+      ]
+    },
+    "implot::@6890427a1f51a3e7e1df": {
+      "artifactName": "implot",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\.cxx\\Release\\1k432q4d\\arm64-v8a\\libimplot.a",
+      "runtimeFiles": []
+    },
+    "jkapp_taskbar::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkapp_taskbar",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libjkapp_taskbar.so",
+      "runtimeFiles": [
+        "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libSDL2.so"
+      ]
+    },
+    "SDL2_test::@55a4eaee938456d1069d": {
+      "artifactName": "SDL2_test",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\.cxx\\Release\\1k432q4d\\arm64-v8a\\sdl2-build\\libSDL2_test.a",
+      "runtimeFiles": []
+    },
+    "jkapp_files::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkapp_files",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libjkapp_files.so",
+      "runtimeFiles": [
+        "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libSDL2.so"
+      ]
+    },
+    "jkapp_jango::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkapp_jango",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libjkapp_jango.so",
+      "runtimeFiles": [
+        "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libSDL2.so"
+      ]
+    },
+    "mixer_shim::@6890427a1f51a3e7e1df": {
+      "artifactName": "mixer_shim",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\.cxx\\Release\\1k432q4d\\arm64-v8a\\libmixer_shim.a",
+      "runtimeFiles": []
+    },
+    "jkapp_occ::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkapp_occ",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libjkapp_occ.so",
+      "runtimeFiles": [
+        "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libSDL2.so"
+      ]
+    },
+    "jkapp_shot::@6890427a1f51a3e7e1df": {
+      "artifactName": "jkapp_shot",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libjkapp_shot.so",
+      "runtimeFiles": [
+        "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\build\\intermediates\\cxx\\Release\\1k432q4d\\obj\\arm64-v8a\\libSDL2.so"
+      ]
+    },
+    "quickjs::@6890427a1f51a3e7e1df": {
+      "artifactName": "quickjs",
+      "abi": "arm64-v8a",
+      "output": "I:\\progwork\\JKENGINE\\engine\\android\\jkdesktop-apk\\app\\.cxx\\Release\\1k432q4d\\arm64-v8a\\libquickjs.a",
+      "runtimeFiles": []
+    }
+  }
+}
