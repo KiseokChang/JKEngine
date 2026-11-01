@@ -465,6 +465,15 @@ class MainActivity : Activity() {
                 markServerOff()
             } else {
                 updateStatus("서버: 연결 (localhost:8090 · HTTP ${reply.httpCode})")
+                // #124 r2 — 타이핑 표면도 브라우저 개봉지시를 소비(회신의
+                // kind=AmpkOpen → 앱 포그라운드에서 직접 개봉 — jkweb 스폰은
+                // background 규제 실측으로 소각 — docs/102 §4).
+                if (reply.ok && reply.kind == "AmpkOpen") {
+                    val bi = android.content.Intent(
+                        this@MainActivity, BrowserActivity::class.java)
+                    if (reply.app.isNotEmpty()) bi.putExtra("jkUrl", reply.app)
+                    runCatching { startActivity(bi) }
+                }
                 if (reply.ok) {
                     appendChat("시스템", describeReply(reply), false)
                 } else {

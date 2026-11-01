@@ -223,6 +223,17 @@ class JkVoiceService : Service() {
             val replyText = jsonGetString(resp, "reply") ?: resp
             val kind = jsonGetString(resp, "kind") ?: ""
             val app = jsonGetString(resp, "app") ?: ""
+            // #124 r2 — 개봉지시 소비 leg: 서버(jkweb)가 회신에 실어 보낸
+            // AmpkOpen을 **앱(포그라운드 — 사용자가 JK 창에서 구두 쓰는 중)**이
+            // 직접 개봉. jkweb 뒤에서의 am start는 background activity start
+            // 규제에 막힌 실측 원문(docs/102 §4) — 이 leg가 정식 통로.
+            if (kind == "AmpkOpen") {
+                val bi = Intent(this@JkVoiceService, BrowserActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                if (app.isNotEmpty()) bi.putExtra("jkUrl", app)
+                runCatching { startActivity(bi) }
+                    .onFailure { Log.w(TAG, "BROWSER-OPEN-FAIL ${it.message}") }
+            }
             var out = replyText
             if (kind.isNotEmpty() || app.isNotEmpty()) {
                 out += "  [$kind"

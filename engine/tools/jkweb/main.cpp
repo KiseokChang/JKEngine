@@ -138,30 +138,9 @@ bool UrlSafe(const std::string& u) {
     return true;
 }
 
-// #124 스폰 leg — 폰 APK BrowserActivity 개봉(Termux am start — 창 서버 도구
-// 미경유). 이중 fork로 좀비 0(부모는 중간 프로세스만 wait — 자식은 세션
-// 전환). #117 TTS 선례 계약 승계: 실패무시·rc 회수 안 함(정직 "개봉 지시
-// 전송" 표기 — 성립 육안은 사용자 EYES 몫). WSL/데스크톱 POSIX면 am이
-// 없으므로 xdg-open 폴백(존재 검증은 sh || 체인 위임). Windows면 cmd start.
-void SpawnBrowser(const std::string& url) {
-#ifdef _WIN32
-    std::string cmd = "cmd /c start \"\" \"" + url + "\"";
-    (void)system(cmd.c_str());   // 실패무시 — #117 계약
-#else
-    pid_t mid = fork();
-    if (mid < 0) return;
-    if (mid == 0) {
-        setsid();
-        std::string cmd = "am start -n chang.jkapk/.BrowserActivity" +
-                          (url.empty() ? std::string() :
-                           std::string(" -e jkUrl '") + url + "'") +
-                          " || xdg-open '" + url + "'";
-        execl("/bin/sh", "sh", "-c", cmd.c_str(), (char*)nullptr);
-        _exit(127);
-    }
-    int st = 0; (void)waitpid(mid, &st, 0);   // 중간 fork만 수확 — 자식 무좀비
-#endif
-}
+// #124 r2 — SpawnBrowser 스폰 leg 소각(원존: background activity start 규제로
+// 실기동 불성립 — 위 AmpkOpen case 원문). 개봉지시는 /talk 회신(app 필드=URL)
+// 으로 앱이 직접 소비.
 
 // JSON 몸통 한 키의 문자열 값을 뽑는 최소 파서 — {"text":"..."} 전용(실제 HTTP
 // 프레임워크를 끌어오지 않는다 — 스펙 §5.1). 이스케이프는 JSON 규약의 기본형
@@ -455,9 +434,14 @@ std::string HandleTalk(const std::string& body, int& code) {
             return "{\"ok\":true,\"reply\":\"" + JsonEsc(guide) +
                    "\",\"kind\":\"" + escKind + "\",\"app\":\"\"}";
         case jk::ChatAction::AmpkOpen: {
-            // #124 브라우저 구두 v1 — 폰 APK 개봉 leg(am start 스폰 — SpawnBrowser).
-            // URL 검증 fail-closed(위 UrlSafe — 인젝션 봉쇄) — 부적합=정직 거부
-            // (조용한 거부 금지 계약).
+            // #124 r2 — 개봉지시를 **회신으로** 전달해 앱(포그라운드)이 직접
+            // 개봉한다. 원존(폰 실측 2026-11-01): jkweb이 background 프로세스라
+            // am start는 "Starting: Intent"만 인쇄하고 **실기동은 시스템의
+            // background activity start 규제로 막힘(logcat START 기록 0·프로세스
+            // 0 — 앱 uid에서 시스템 로그 비가시 함정 동봉)**. 반면 앱은 사용자가
+            // JK 창에서 구두를 쓰는 중=포그라운드라 startActivity가 통한다.
+            // SpawnBrowser 스폰 leg는 이 실측으로 소각(함정 원존 — docs/102).
+            // URL 검증 fail-closed(UrlSafe — 인젝션 봉쇄) 유지.
             const std::string url = action.app;
             if (!url.empty() && !UrlSafe(url)) {
                 code = 200;   // 라우터 정직 거부는 HTTP 200 + ok=false 계약(빈 발화 E1 승계)
@@ -465,13 +449,12 @@ std::string HandleTalk(const std::string& body, int& code) {
                        "개봉하지 않습니다 — 직접 주소만 입력해 주세요"
                        "\",\"kind\":\"AmpkOpen\",\"app\":\"\"}";
             }
-            SpawnBrowser(url);
             code = 200;
             const std::string msg = url.empty()
-                ? "브라우저 창을 엽니다(폰 — 성립은 화면에서 확인)"
+                ? "브라우저 창을 엽니다."
                 : "브라우저로 개봉합니다: " + url;
             return "{\"ok\":true,\"reply\":\"" + JsonEsc(msg) +
-                   "\",\"kind\":\"AmpkOpen\",\"app\":\"\"}";
+                   "\",\"kind\":\"AmpkOpen\",\"app\":\"" + JsonEsc(url) + "\"}";
         }
         case jk::ChatAction::Info:
             code = 200;
