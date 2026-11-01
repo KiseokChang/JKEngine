@@ -220,7 +220,14 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
     // 렌더러는 memcpy blit+윈도우 서피스 업로드라 폰에서 수배 빠르다.
     // Windows·WSL은 ACCELERATED 유지(회귀 접촉 0).
 #ifdef __ANDROID__
-    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "software");
+    // 스파이크-B: 이 힌트는 Termux/X11(llvmpipe) 실측 레슨(docs/78 TX7) —
+    // SDLActivity의 android 드라이버에서는 SW 렌더러가 성립 구조가 아니므로
+    // (X11 윈도우 서피스 폴백 계열 API 미지원) android가 아닌 드라이버에만
+    // 유지한다. android 드라이버는 ACCELERATED(EGL/GPU, Adreno 660 실측 대상).
+    // X11 드라이버(Termux 보행)는 기존 원존 그대로 — 회귀 접촉 0.
+    if (SDL_strcmp(SDL_GetCurrentVideoDriver(), "android") != 0) {
+        SDL_SetHint(SDL_HINT_RENDER_DRIVER, "software");
+    }
 #endif
 
     renderer_ = SDL_CreateRenderer(window_, -1,

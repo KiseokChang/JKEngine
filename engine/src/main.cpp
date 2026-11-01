@@ -491,7 +491,14 @@ static std::string ClientModulePath(const char* appName) {
     const size_t slash = exe.find_last_of('/');
     const std::string prefix =
         (slash == std::string::npos) ? std::string("./") : exe.substr(0, slash + 1);
+#if defined(__ANDROID__)
+    // 스파이크-B: 실행물이 nativeLibraryDir의 lib*.so로 포장되어 exec되므로
+    // 모듈도 lib 접두(libjkapp_<app>.so)로 판정한다 — jniLibs 규약이 lib 접두
+    // 만 nativeLibraryDir에 실린다(W^X 우회 경유 — docs/101 §3).
+    return prefix + "libjkapp_" + appName + jk::server::AppModuleSuffix();
+#else
     return prefix + "jkapp_" + appName + jk::server::AppModuleSuffix();
+#endif
 }
 #endif
 

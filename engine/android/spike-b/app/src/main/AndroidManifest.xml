@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 스파이크-B: DeX 자유창/멀티윈도우 허용(합성 화면이 창 크기를 따라가는지) -->
+    <application
+        android:label="SpikeB"
+        android:resizeableActivity="true"
+        android:supportsPictureInPicture="false">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|keyboard|keyboardHidden|navigation|uiMode"
+            android:alwaysRetainTaskState="true"
+            android:launchMode="singleInstance">
+            <!-- SDL2 템플릿 계약 승계 — 재구성 시 네이티브 창 유지 -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

@@ -93,6 +93,15 @@ bool JKClientApplication::CreateHiddenRenderer(const std::string& title, int wid
     SDL_SetHint(SDL_HINT_WINDOWS_DPI_SCALING, "1");
 #endif
 
+#if defined(__ANDROID__)
+    // 스파이크-B (docs/101 방향 B): exec된 클라 프로세스는 화면을 소유하지
+    // 못한다(SDL Android 창 1개 제한 — SDLActivity의 창은 서버의 유일 화면).
+    // 비디오 드라이버를 offscreen으로 두고 렌더러는 SW(TARGETTEXTURE 지원,
+    // RenderReadPixels → 공유메모리 전송 유지 — 합성 계약은 CPU 픽셀 버퍼).
+    SDL_SetHint(SDL_HINT_VIDEODRIVER, "offscreen");
+    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "software");
+#endif
+
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
         std::fprintf(stderr, "JKClientApplication::Init: SDL_Init failed: %s\n", SDL_GetError());
         return false;
@@ -112,8 +121,14 @@ bool JKClientApplication::CreateHiddenRenderer(const std::string& title, int wid
         return false;
     }
 
+    Uint32 hiddenRendererFlags = SDL_RENDERER_ACCELERATED | SDL_RENDERER_TARGETTEXTURE;
+#if defined(__ANDROID__)
+    // 위 힌트(software 드라이버)와 ACCELERATED 플래그는 상존 — 플래그를
+    // 벗겨야 SW 렌더러가 match된다(SDL_CreateRenderer 필터 규약).
+    hiddenRendererFlags = SDL_RENDERER_TARGETTEXTURE;
+#endif
     hiddenRenderer_ = SDL_CreateRenderer(hiddenWindow_, -1,
-        SDL_RENDERER_ACCELERATED | SDL_RENDERER_TARGETTEXTURE);
+        hiddenRendererFlags);
     if (!hiddenRenderer_) {
         std::fprintf(stderr, "JKClientApplication::Init: SDL_CreateRenderer failed: %s\n",
                      SDL_GetError());

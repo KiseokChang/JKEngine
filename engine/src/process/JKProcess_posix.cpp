@@ -97,7 +97,24 @@ std::string FailText(int err, const char* what) {
            std::to_string(err) + ")";
 }
 
-const char* ShellPath() { return "/bin/sh"; }
+const char* ShellPath() {
+#if defined(__ANDROID__)
+    // 스파이크-B: APK 프로세스에는 Termux의 termux-exec(/bin 리맵 LD_PRELOAD)
+    // 가 없다 — $PREFIX/bin/sh(Termux 보행, 기존 동작 유지)이 살아 있으면 그
+    // 쪽을, 아니면 /system/bin/sh(mksh — Android 상존)로 폴백한다.
+    static const std::string shell = []() -> std::string {
+        const char* prefix = ::getenv("PREFIX");
+        if (prefix) {
+            std::string termuxShell = std::string(prefix) + "/bin/sh";
+            if (::access(termuxShell.c_str(), X_OK) == 0) return termuxShell;
+        }
+        return "/system/bin/sh";
+    }();
+    return shell.c_str();
+#else
+    return "/bin/sh";
+#endif
+}
 
 }  // namespace
 
