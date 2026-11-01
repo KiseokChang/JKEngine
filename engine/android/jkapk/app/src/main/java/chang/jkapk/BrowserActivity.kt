@@ -22,6 +22,7 @@ import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.Toast
 import androidx.core.content.ContextCompat
 import org.mozilla.geckoview.GeckoSession
 
@@ -44,11 +45,18 @@ class BrowserActivity : Activity() {
                 JkVoiceService.BC_REPLY -> {
                     // #124 r3 — 개봉지시 스스로 적용: 이 창이 화면 앞(사용자가
                     // [구두] 홀드 중)이므로 규제 밖 직통 — 서비스 startActivity
-                    // leg(BAL 엣지 원존 r2) 대체.
+                    // leg(BAL 엣지 원존 r2) 대체. r5 계측판(2026-11-01 — 토스트
+                    // 3종으로 정체 지점 화면 노출 — EYES 직독):
+                    //   [적용] 토스트 = 브랜치 도달 → goNow 호출 뒤 엔진 표기
+                    //   [미도달] 토스트(구회신판대로) = EXTRA_KIND 비거주 — 서비스
+                    //   파서 leg 원진 — 다음 수형 축
                     if (i.getStringExtra(JkVoiceService.EXTRA_KIND) == "AmpkOpen") {
                         // 이미 이 창(브라우저) 자체가 떠 있으므로 "개봉만" 지시는
                         // 적용 상태 그대로(가짜 이동 금지 — 무대응 정직).
                         val u = i.getStringExtra(JkVoiceService.EXTRA_URL).orEmpty()
+                        Toast.makeText(this@BrowserActivity,
+                            "①지시 수신: URL=$u (엔진=${engineName()})",
+                            Toast.LENGTH_LONG).show()
                         if (u.isNotEmpty()) {
                             urlInput.setText(u)
                             goNow()
@@ -193,8 +201,19 @@ class BrowserActivity : Activity() {
         if (!raw.startsWith("http://") && !raw.startsWith("https://")) {
             raw = "https://$raw"
         }
-        if (engineName() == "geckoview") geckoSession?.loadUri(raw)
-        else webView.loadUrl(raw)
+        if (engineName() == "geckoview") {
+            val s = geckoSession
+            if (s == null) {
+                Toast.makeText(this, "②Gecko 세션 준비 안 됨 — 창 재개봉 필요",
+                    Toast.LENGTH_LONG).show()
+                return
+            }
+            Toast.makeText(this, "②이동 개시(Gecko): $raw", Toast.LENGTH_SHORT).show()
+            s.loadUri(raw)
+        } else {
+            Toast.makeText(this, "②이동 개시(WebView): $raw", Toast.LENGTH_SHORT).show()
+            webView.loadUrl(raw)
+        }
     }
 
     // ── 측정 하니스(#123 T2, 스펙 §3 축 1·2) — 같은 페이지 세트·같은 JSON 스키마를
