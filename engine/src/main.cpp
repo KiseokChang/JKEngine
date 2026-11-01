@@ -8577,6 +8577,83 @@ static int RunAppSelfTest() {
                   "2y-⑳(b) \"알림 보여줘!\" = Launch(notify) 등호(접미 느낌표 "
                   "— 무부호 2y-⑥ 등판정)");
         }
+
+        // 2y-㉑ 근사 매칭(fuzzy — 2026-11-01 사용자 승인). 전사 오차 발화가
+        //   정확 매칭 파산 후 자모 가중 편집거리(ChatRouter.cpp 표)로 등록
+        //   명령에 붙는다. 순수 판정만(스폰 어셜션 금지 원존). 채택 = 최소
+        //   비용 ≤ 0.25×후보 자모 수 + 다른 의미 묶음과 차 ≥ 0.5.
+        //   JK_FUZZY_DIAG=1이면 발화별 실측 비용 행을 인쇄(리포트 원료).
+        {
+            const bool diag = std::getenv("JK_FUZZY_DIAG") != nullptr;
+            auto Fz = [&](const char* utt, jk::ChatAction& a) {
+                const std::string g = jk::ChatRouterRoute(utt, a);
+                if (diag) {
+                    const jk::ChatFuzzyProbe p = jk::ChatFuzzyInspect(utt);
+                    std::printf("[fuzzy] '%s' best='%s' %.2f (len %d thr %.2f) "
+                                "2nd='%s' %.2f accepted=%d kind=%d app=%s "
+                                "tool=%s\n",
+                                utt, p.best.c_str(), p.bestCost, p.bestLen,
+                                0.25 * p.bestLen, p.second.c_str(),
+                                p.secondCost, p.accepted ? 1 : 0,
+                                static_cast<int>(a.kind), a.app.c_str(),
+                                a.tool.c_str());
+                }
+                return g;
+            };
+            jk::ChatAction m1, m2, m3, m4, m5, m6, m7, m8;
+            const std::string gm1 = Fz("지뢰찾기 교조", m1);
+            check(m1.kind == jk::ChatAction::Launch && m1.app == "minesweeper",
+                  "2y-㉑ \"지뢰찾기 교조\" = 근사 Launch(minesweeper)");
+            check(gm1.find("알아들었습니다") != std::string::npos &&
+                      gm1.find("'지뢰찾기 켜줘'") != std::string::npos,
+                  "2y-㉑(b) 근사 채택 회신 = \"'<후보>'(으)로 알아들었습니다\" "
+                  "접두");
+            (void)Fz("지리 찾기 켜죠", m2);
+            check(m2.kind == jk::ChatAction::Launch && m2.app == "minesweeper",
+                  "2y-㉑(c) \"지리 찾기 켜죠\" = 근사 Launch(minesweeper)");
+            (void)Fz("테트리스 켜조", m3);
+            check(m3.kind == jk::ChatAction::Launch && m3.app == "tetris",
+                  "2y-㉑(d) \"테트리스 켜조\" = 근사 Launch(tetris)");
+            (void)Fz("멈처줘", m4);
+            check(m4.kind == jk::ChatAction::AppTool && m4.app == "vplayer" &&
+                      m4.tool == "play_pause",
+                  "2y-㉑(e) \"멈처줘\" = 근사 AppTool(vplayer·play_pause)");
+            (void)Fz("알림 보여조", m5);
+            check(m5.kind == jk::ChatAction::Launch && m5.app == "notify",
+                  "2y-㉑(f) \"알림 보여조\" = 근사 Launch(notify)");
+            const std::string gm6 = Fz("오늘 날씨 어때", m6);
+            check(m6.kind == jk::ChatAction::Info &&
+                      gm6.find("알아들었습니다") == std::string::npos,
+                  "2y-㉑(g) \"오늘 날씨 어때\" = Info 유지(근사 불채택 → LLM)");
+            const std::string gm7 = Fz("지뢰찾기 꺼줘", m7);
+            check(m7.kind == jk::ChatAction::Close &&
+                      m7.app == "minesweeper" &&
+                      gm7.find("알아들었습니다") == std::string::npos,
+                  "2y-㉑(h) 정확 발화 \"지뢰찾기 꺼줘\" = Close(근사 단계 "
+                  "미개입 — 회신 접두 없음)");
+            check(jk::ChatFuzzyCost("교조", "켜줘") <
+                      jk::ChatFuzzyCost("교조", "꺼줘") &&
+                      jk::ChatFuzzyCost("켜줘", "켜줘") == 0.0 &&
+                      jk::ChatFuzzyCost("지뢰 찾기", "지뢰찾기") == 0.0,
+                  "2y-㉑(i) 비용 함수 — 교조↔켜줘 < 교조↔꺼줘 · 등호 0 · "
+                  "공백 무시");
+            check(jk::ChatFuzzyCost("처", "춰") == 0.5 &&
+                      jk::ChatFuzzyCost("가", "카") == 0.5 &&
+                      jk::ChatFuzzyCost("각", "가") == 1.0,
+                  "2y-㉑(j) 비용 단위 — 활음 차 0.5 · 자음 그룹 0.5 · 종성 "
+                  "유무 1");
+            // "쌔리찾기 켜죠" — 사용자 동기 발화. **설계상 불채택(원장행)**:
+            // 실측 최소 비용 3.50(지뢰찾기 켜줘 — 쌔↔지 1.5[ㅆ↔ㅈ 그룹 밖 1
+            // + ㅐ↔ㅣ 0.5]·리↔뢰 1·죠↔줘 1) > 임계 3.25(13자모×0.25). 임계
+            // 무리 상향 금지 계약 — LLM 경로 유지를 단정한다. (ㅅ계↔ㅈ계 교차
+            // 0.75 같은 표 확장은 사용자 룰링 몫.)
+            const std::string gm8 = Fz("쌔리찾기 켜죠", m8);
+            check(m8.kind == jk::ChatAction::Info &&
+                      gm8.find("알아들었습니다") == std::string::npos &&
+                      jk::ChatFuzzyCost("쌔리찾기 켜죠", "지뢰찾기 켜줘") == 3.5,
+                  "2y-㉑(k) \"쌔리찾기 켜죠\" = 불채택 Info(실측 3.50 > 임계 "
+                  "3.25 — 원장행 · 임계 상향 금지)");
+        }
     }
 
     // 2z) 구두 응답 TTS leg — 결정 부품 (#117 T1 — 스펙

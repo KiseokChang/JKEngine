@@ -56,7 +56,25 @@ struct ChatAction {
 // text(사용자 발화 한 줄)를 해석해 out에 도구 지시를 채우고, 화면 표시용
 // 응답문을 돌려준다. 인식 불가·앱어 부재 등은 전부 Info — 항상 안내문 반환
 // (오류 전파 경로 없음 — 채팅 앱이 그대로 인쇄하는 계약).
+// 정확 매칭·창 번호 화법이 모두 실패하면 근사 매칭(fuzzy — 자모 가중
+// 편집거리, ChatRouter.cpp 주석 원문)을 1회 시도한다. 채택 시 회신 앞에
+// "'<후보 문장>'(으)로 알아들었습니다 — "가 붙는다.
 std::string ChatRouterRoute(const std::string& text, ChatAction& out);
+
+// ── 근사 매칭 진단 부품 (2026-11-01 — 셀프테스트 2y-㉑·리포트 실측용) ──
+// 순수. ChatFuzzyCost = 두 문장의 자모 가중 편집거리(공백 무시).
+// ChatFuzzyInspect = 발화에 대한 최선 후보·다른 의미 묶음 최선(2등)·채택 판정.
+// (정확 매칭 여부와 무관하게 근사 판정만 계산한다.)
+struct ChatFuzzyProbe {
+    std::string best;          // 최선 후보 문장("" = 후보 없음·빈 발화)
+    double bestCost = -1.0;
+    int bestLen = 0;           // 최선 후보 자모 수(임계 = 0.25 × bestLen)
+    std::string second;        // 다른 의미 묶음 최선("" = 없음)
+    double secondCost = -1.0;
+    bool accepted = false;
+};
+double ChatFuzzyCost(const std::string& a, const std::string& b);
+ChatFuzzyProbe ChatFuzzyInspect(const std::string& text);
 
 // ── AppTool의 타이핑·웹 경로 소비 계약 (#115b T1 fix r1) ───────────────
 // AppTool 지시를 소비할 표면이 구두(voice turn — ChatActionQuery→app_tool

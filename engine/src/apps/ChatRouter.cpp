@@ -20,9 +20,11 @@
 
 #include <agent/JKAgentJson.h>
 
+#include <algorithm>
 #include <cctype>
 #include <mutex>
 #include <string>
+#include <vector>
 
 namespace jk {
 
@@ -325,9 +327,226 @@ std::string InfoGuide() {
     return s;
 }
 
+// ── 근사 매칭(fuzzy) 단계 (2026-11-01 — 사용자 승인) ─────────────────
+// 음성 전사가 등록 명령과 조금만 어긋나도("지뢰찾기 교조"·"멈처줘") 정확
+// 매칭이 파산해 LLM(폰 실측 2~7s·가끔 10s+)으로 넘어가던 원장행의 수형.
+// 정확 매칭·창 번호 화법이 모두 실패(Info)한 뒤에만 개입한다 — 정확 경로
+// 무변경 계약.
+//
+// 후보 = 표에서 생성(어휘 2본 금지 — 표 1행 추가가 후보도 늘린다):
+//   (a) kAliasTable **한글 별명**(비ASCII 시작) × kRouteTable 비exact
+//       Launch·Close 트리거 → "별명 트리거"
+//   (b) kRouteTable exact 행 트리거 단독(AppTool·OverlayNumbers…)
+//   (c) kRouteTable ListWindows 트리거 단독
+//
+// 비교 = 공백 제거 → 한글 음절(U+AC00–U+D7A3)을 초성/중성/종성 자모로 분해
+// (종성 없음 = 기호 없음 — 있음/없음 차이는 삽입·삭제 1). 비한글 문자는 그
+// 코드포인트 1기호. 자음은 초성·종성 공용 기호(호환 자모 U+3131..)로 둔다.
+// 가중 편집거리: 삽입/삭제 1 · 치환 1 · 비슷한 소리 치환 0.5:
+//   자음 그룹 {ㄱ,ㅋ,ㄲ} {ㄷ,ㅌ,ㄸ} {ㅂ,ㅍ,ㅃ} {ㅈ,ㅊ,ㅉ} {ㅅ,ㅆ} — 그룹 내 0.5
+//   모음 = (활음, 기본모음) 쌍 — 활음 다르면 +0.5, 기본모음 다르면 +0.5
+//   (모음↔모음 치환은 0.5 또는 1). 표(발음 기준 — 합성 기준 아님):
+//     ㅏ(-,a) ㅐ(-,ae) ㅑ(y,a) ㅒ(y,ae) ㅓ(-,eo) ㅔ(-,e) ㅕ(y,eo) ㅖ(y,e)
+//     ㅗ(-,o) ㅘ(w,a) ㅙ(w,ae) ㅚ(w,e) ㅛ(y,o) ㅜ(-,u) ㅝ(w,eo) ㅞ(w,e)
+//     ㅟ(w,i) ㅠ(y,u) ㅡ(-,eu) ㅢ(ɰ,i) ㅣ(-,i)
+//   ㅚ = [we](표준발음법 제4항 붙임 허용음) 채택 → ㅚ≡ㅞ 비용 0(현대 서울
+//   발화의 동음 — 전사가 둘을 가르지 못한다). ㅐ↔ㅔ = 기본모음만 달라 0.5.
+//   자음↔모음 치환 = 1.
+//
+// 채택: 최소 비용 ≤ 0.25 × 후보 자모 수 **그리고** 다른 의미 묶음 최선과의
+// 차 ≥ 0.5. 의미 묶음 = 후보 문장을 정확 경로로 태운 결과(kind·app·tool)
+// — "지뢰찾기 켜줘"/"지뢰찾기 열어줘"는 같은 Launch minesweeper라 경쟁 아님.
+// 채택 시 후보 문장을 **정확 경로(RouteExact)**로 다시 태운다 — 근사 단계를
+// 다시 부르지 않는 함수라 재귀 깊이 1 고정(무한 재귀 구조적 불가).
+
+std::u32string DecodeUtf8(const std::string& s) {
+    std::u32string out;
+    size_t i = 0;
+    while (i < s.size()) {
+        const unsigned char c = static_cast<unsigned char>(s[i]);
+        char32_t cp = 0;
+        size_t n = 0;
+        if (c < 0x80) { cp = c; n = 1; }
+        else if ((c >> 5) == 0x6) { cp = c & 0x1F; n = 2; }
+        else if ((c >> 4) == 0xE) { cp = c & 0x0F; n = 3; }
+        else if ((c >> 3) == 0x1E) { cp = c & 0x07; n = 4; }
+        else { out.push_back(0xFFFD); ++i; continue; }
+        if (i + n > s.size()) { out.push_back(0xFFFD); break; }
+        bool bad = false;
+        for (size_t k = 1; k < n; ++k) {
+            const unsigned char cc = static_cast<unsigned char>(s[i + k]);
+            if ((cc >> 6) != 0x2) { bad = true; break; }
+            cp = (cp << 6) | (cc & 0x3F);
+        }
+        if (bad) { out.push_back(0xFFFD); ++i; continue; }
+        out.push_back(cp);
+        i += n;
+    }
+    return out;
+}
+
+// 초성 19 / 종성 27 → 호환 자모 코드포인트(초성·종성 공용 기호).
+constexpr char32_t kChoJamo[19] = {
+    0x3131, 0x3132, 0x3134, 0x3137, 0x3138, 0x3139, 0x3141, 0x3142, 0x3143,
+    0x3145, 0x3146, 0x3147, 0x3148, 0x3149, 0x314A, 0x314B, 0x314C, 0x314D,
+    0x314E,
+};
+constexpr char32_t kJongJamo[28] = {
+    0,      0x3131, 0x3132, 0x3133, 0x3134, 0x3135, 0x3136, 0x3137, 0x3139,
+    0x313A, 0x313B, 0x313C, 0x313D, 0x313E, 0x313F, 0x3140, 0x3141, 0x3142,
+    0x3144, 0x3145, 0x3146, 0x3147, 0x3148, 0x314A, 0x314B, 0x314C, 0x314D,
+    0x314E,
+};
+
+// 공백 제거 + 음절 분해. 중성 = 호환 자모 U+314F + 중성 인덱스(연속 배치).
+std::u32string ToJamo(const std::string& text) {
+    std::u32string out;
+    for (char32_t cp : DecodeUtf8(text)) {
+        if (cp == U' ' || cp == U'\t' || cp == U'\r' || cp == U'\n') continue;
+        if (cp >= 0xAC00 && cp <= 0xD7A3) {
+            const unsigned idx = static_cast<unsigned>(cp - 0xAC00);
+            out.push_back(kChoJamo[idx / 588]);
+            out.push_back(static_cast<char32_t>(0x314F + (idx % 588) / 28));
+            if (idx % 28) out.push_back(kJongJamo[idx % 28]);
+        } else {
+            out.push_back(cp);
+        }
+    }
+    return out;
+}
+
+bool IsVowelJamo(char32_t c) { return c >= 0x314F && c <= 0x3163; }
+
+// 모음 (활음, 기본모음) — 위 표 원문. 활음: 0 없음·1 y·2 w·3 ɰ.
+// 기본모음: 0 a·1 ae·2 eo·3 e·4 o·5 u·6 eu·7 i.
+struct VowelParts { int glide; int base; };
+constexpr VowelParts kVowelParts[21] = {
+    {0, 0}, {0, 1}, {1, 0}, {1, 1}, {0, 2}, {0, 3}, {1, 2}, {1, 3},  // ㅏㅐㅑㅒㅓㅔㅕㅖ
+    {0, 4}, {2, 0}, {2, 1}, {2, 3}, {1, 4}, {0, 5}, {2, 2}, {2, 3},  // ㅗㅘㅙㅚㅛㅜㅝㅞ
+    {2, 7}, {1, 5}, {0, 6}, {3, 7}, {0, 7},                          // ㅟㅠㅡㅢㅣ
+};
+
+int ConsonantGroup(char32_t c) {
+    switch (c) {
+        case 0x3131: case 0x314B: case 0x3132: return 1;  // ㄱㅋㄲ
+        case 0x3137: case 0x314C: case 0x3138: return 2;  // ㄷㅌㄸ
+        case 0x3142: case 0x314D: case 0x3143: return 3;  // ㅂㅍㅃ
+        case 0x3148: case 0x314A: case 0x3149: return 4;  // ㅈㅊㅉ
+        case 0x3145: case 0x3146: return 5;               // ㅅㅆ
+        default: return 0;
+    }
+}
+
+double SubCost(char32_t a, char32_t b) {
+    if (a == b) return 0.0;
+    if (IsVowelJamo(a) && IsVowelJamo(b)) {
+        const VowelParts& va = kVowelParts[a - 0x314F];
+        const VowelParts& vb = kVowelParts[b - 0x314F];
+        return (va.glide != vb.glide ? 0.5 : 0.0) +
+               (va.base != vb.base ? 0.5 : 0.0);
+    }
+    const int ga = ConsonantGroup(a);
+    if (ga != 0 && ga == ConsonantGroup(b)) return 0.5;
+    return 1.0;
+}
+
+double JamoDistance(const std::u32string& a, const std::u32string& b) {
+    std::vector<double> prev(b.size() + 1), cur(b.size() + 1);
+    for (size_t j = 0; j <= b.size(); ++j) prev[j] = static_cast<double>(j);
+    for (size_t i = 1; i <= a.size(); ++i) {
+        cur[0] = static_cast<double>(i);
+        for (size_t j = 1; j <= b.size(); ++j) {
+            cur[j] = std::min({prev[j] + 1.0, cur[j - 1] + 1.0,
+                               prev[j - 1] + SubCost(a[i - 1], b[j - 1])});
+        }
+        std::swap(prev, cur);
+    }
+    return prev[b.size()];
+}
+
+std::vector<std::string> FuzzyCandidates() {
+    std::vector<std::string> c;
+    for (const AliasEntry& a : kAliasTable) {
+        if (static_cast<unsigned char>(a.alias[0]) < 0x80) continue;  // 한글 별명만
+        for (const RouteEntry& e : kRouteTable) {
+            if (e.exact) continue;
+            if (e.kind != ChatAction::Launch && e.kind != ChatAction::Close) continue;
+            c.push_back(std::string(a.alias) + " " + e.trigger);
+        }
+    }
+    for (const RouteEntry& e : kRouteTable) {
+        if (e.exact || e.kind == ChatAction::ListWindows) c.push_back(e.trigger);
+    }
+    return c;
+}
+
+std::string RouteExact(const std::string& text, ChatAction& out);
+
+// 근사 판정 본체 — 순수. 결과는 ChatFuzzyInspect(헤더 — 셀프테스트·진단)와
+// ChatRouterRoute가 같이 먹는다.
+ChatFuzzyProbe FuzzyProbe(const std::string& text) {
+    ChatFuzzyProbe p;
+    const std::u32string src = ToJamo(NormalizeText(text));
+    if (src.empty()) return p;
+    struct Group { std::string key; std::string sentence; double cost; size_t len; };
+    std::vector<Group> groups;  // 의미 묶음별 최선
+    for (const std::string& cand : FuzzyCandidates()) {
+        ChatAction a;
+        (void)RouteExact(cand, a);
+        if (a.kind == ChatAction::Info) continue;  // 표 결함 방어(성립 안 하는 후보)
+        const std::string key = std::to_string(static_cast<int>(a.kind)) + "|" +
+                                a.app + "|" + a.tool;
+        const std::u32string cj = ToJamo(cand);
+        const double cost = JamoDistance(src, cj);
+        bool found = false;
+        for (Group& g : groups) {
+            if (g.key != key) continue;
+            found = true;
+            if (cost < g.cost) { g.cost = cost; g.sentence = cand; g.len = cj.size(); }
+        }
+        if (!found) groups.push_back({key, cand, cost, cj.size()});
+    }
+    const Group* best = nullptr;
+    const Group* second = nullptr;
+    for (const Group& g : groups) {
+        if (!best || g.cost < best->cost) { second = best; best = &g; }
+        else if (!second || g.cost < second->cost) { second = &g; }
+    }
+    if (!best) return p;
+    p.best = best->sentence;
+    p.bestCost = best->cost;
+    p.bestLen = static_cast<int>(best->len);
+    if (second) { p.second = second->sentence; p.secondCost = second->cost; }
+    p.accepted = best->cost <= 0.25 * static_cast<double>(best->len) &&
+                 (!second || second->cost - best->cost >= 0.5);
+    return p;
+}
+
 } // namespace
 
+double ChatFuzzyCost(const std::string& a, const std::string& b) {
+    return JamoDistance(ToJamo(a), ToJamo(b));
+}
+
+ChatFuzzyProbe ChatFuzzyInspect(const std::string& text) {
+    return FuzzyProbe(text);
+}
+
 std::string ChatRouterRoute(const std::string& text, ChatAction& out) {
+    const std::string guide = RouteExact(text, out);
+    if (out.kind != ChatAction::Info) return guide;  // 정확 경로 명중 — 무변경
+    const ChatFuzzyProbe p = FuzzyProbe(text);
+    if (!p.accepted) return guide;                   // 종전대로 Info(→LLM)
+    ChatAction fa;
+    const std::string fg = RouteExact(p.best, fa);   // 재귀 깊이 1 — 근사 무개입
+    if (fa.kind == ChatAction::Info) return guide;
+    out = fa;
+    return "'" + p.best + "'(으)로 알아들었습니다 — " + fg;
+}
+
+namespace {
+
+std::string RouteExact(const std::string& text, ChatAction& out) {
     out.kind = ChatAction::Info;  // fail-closed — 지시는 명중 시에만 채운다
     out.app.clear();
     out.winNum = 0;   // #118 T2 — 번호 화법도 명중 시에만(fail-closed 동형)
@@ -398,6 +617,8 @@ std::string ChatRouterRoute(const std::string& text, ChatAction& out) {
     }
     return InfoGuide();  // 도달 없음 — Info도 지시 없음 정합
 }
+
+} // namespace
 
 // ── 자연어 승격 배선 본체 (스펙 2026-10-08-chat-llm-promotion 설계 결정 3·4
 // — T4). 라우터와 같은 파일에 두는 계약 사정: kRouteTable/kAliasTable이 이
