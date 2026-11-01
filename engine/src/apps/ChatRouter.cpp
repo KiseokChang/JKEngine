@@ -144,6 +144,31 @@ constexpr AliasEntry kAliasTable[] = {
     {"알림",        "notify"},
 };
 
+// #124 r4 — 발음→도메인 복원 표 (2026-11-01 폰 실측 원존: "youtube.com 열어줘"
+// 가 ko-KR STT로 "유부브닷컴 열게요"류 한글 발음 표기가 되어 저널
+// launch_app youtube = unknown_app 5건 원문 — URL 휴리스틱 앞 단계에서 복원).
+// 표 밖 = 통과(파서 신설 금지 D1 — 모양 분류 표 1종 연장).
+struct PhonemeDom { const char* spoken; const char* url; };
+constexpr PhonemeDom kPhonemeDomTable[] = {
+    {"유부브닷컴",   "https://www.youtube.com"},
+    {"유튜브닷컴",   "https://www.youtube.com"},
+    {"유튜브",       "https://www.youtube.com"},
+    {"유툽",         "https://www.youtube.com"},
+    {"네이버닷컴",   "https://www.naver.com"},
+    {"네이버",       "https://www.naver.com"},
+    {"구글닷컴",     "https://www.google.com"},
+    {"구글",         "https://www.google.com"},
+    {"쿠팡",         "https://www.coupang.com"},
+    {"다음닷컴",     "https://www.daum.net"},
+    {"지메일",       "https://mail.google.com"},
+};
+std::string RestorePhonemeDomain(const std::string& w) {
+    for (const PhonemeDom& p : kPhonemeDomTable) {
+        if (w == p.spoken) return p.url;
+    }
+    return "";
+}
+
 // 앞뒤 공백(공백·탭·개행) 제거 + ASCII 소문화 + **접미 문장부호 절단**(소형
 // 배치 4 원장행 — STT 접미 부호: 마침표·느낌표·물음표·쉼표 + 한국어 부호
 // 。！？，·). 접미만 — 앞·중간 부호는 무접촉(절단 규약: "정확 매치 어휘의
@@ -630,11 +655,18 @@ std::string RouteExact(const std::string& text, ChatAction& out) {
             // 브라우저 개봉(AmpkOpen)으로 승천 — desktop launch_app
             // unknown_app 오류 대신 웹 개봉. 모양 분류 1종 휴리스틱뿐 —
             // 파서 신설 금지(D1 원존) 준수.
-            if (word.find('.') != std::string::npos ||
-                word.rfind("http", 0) == 0) {
+            // r4 — 앞서 발음 복원 표(kPhonemeDomTable — 유부브닷컴 류 한글
+            // 발음 표기 복원)로 URL 모양을 만들어 준다.
+            const std::string restored = RestorePhonemeDomain(word);
+            const std::string urlWord = !restored.empty() ? restored : word;
+            if (urlWord.find('.') != std::string::npos ||
+                urlWord.rfind("http", 0) == 0) {
                 out.kind = ChatAction::AmpkOpen;
-                out.app = word;
-                return "'" + word + "' 를 브라우저로 엽니다.";
+                out.app = urlWord;
+                return !restored.empty()
+                    ? "'" + word + "' 를 브라우저로 엽니다 (발음 복원: " +
+                          urlWord + ")"
+                    : "'" + word + "' 를 브라우저로 엽니다.";
             }
             out.kind = ChatAction::Launch;
             out.app = ResolveAppName(word);
