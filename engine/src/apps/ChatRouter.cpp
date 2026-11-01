@@ -313,6 +313,43 @@ std::string ResolveAppName(const std::string& word) {
     return word;
 }
 
+// 별명 우선 앱어 판정 — 트리거 앞부분의 공백을 모두 지운 뒤 별명 표의
+// 별명으로 끝나면(조사 1개 허용, 가장 긴 별명 우선) 그 별명을 앱어로 쓴다.
+// Whisper가 "지뢰 찾기"로 띄어 쓰거나 "그거"처럼 하지 않은 말을 앞에 붙여도
+// 별명으로 잡힌다(2026-11-01 폰 실측: "그거 지뢰 찾기 켜줘" → 마지막 어절
+// '찾기'로 Launch 오류). 미명중 = "" → 호출측이 종전 ExtractAppWord 경로.
+std::string ExtractAliasWord(const std::string& text, const char* trigger) {
+    const std::string head =
+        text.substr(0, text.size() - std::string(trigger).size());
+    std::string compact;
+    for (char c : head) {
+        if (!std::isspace(static_cast<unsigned char>(c))) compact += c;
+    }
+    auto longestAlias = [](const std::string& s) -> std::string {
+        std::string best;
+        for (const AliasEntry& a : kAliasTable) {
+            const std::string alias(a.alias);
+            if (alias.size() > best.size() && EndsWith(s, a.alias)) best = alias;
+        }
+        return best;
+    };
+    std::string w = longestAlias(compact);
+    if (!w.empty()) return w;
+    for (const char* p : {"을", "를", "은", "는", "이", "가"}) {
+        if (EndsWith(compact, p)) {
+            w = longestAlias(compact.substr(0, compact.size() - std::string(p).size()));
+            if (!w.empty()) return w;
+        }
+    }
+    return "";
+}
+
+// 앱어 = 별명 우선(위), 별명 밖은 종전 마지막 어절(표 밖 앱 fail-open 원존).
+std::string ExtractTargetWord(const std::string& text, const char* trigger) {
+    const std::string alias = ExtractAliasWord(text, trigger);
+    return alias.empty() ? ExtractAppWord(text, trigger) : alias;
+}
+
 std::string InfoGuide() {
     std::string s = "인식하지 못했습니다. 채팅에서 쓸 수 있는 명령:\n";
     // 표 순회 — 접두 공유로 인한 중복 트리거(긴/짧은 형)은 첫 등장만 인쇄.
@@ -579,14 +616,14 @@ std::string RouteExact(const std::string& text, ChatAction& out) {
 
     switch (hit->kind) {
         case ChatAction::Launch: {
-            const std::string word = ExtractAppWord(norm, hit->trigger);
+            const std::string word = ExtractTargetWord(norm, hit->trigger);
             if (word.empty()) return InfoGuide();  // 앱어 부재 — 지시 불성립
             out.kind = ChatAction::Launch;
             out.app = ResolveAppName(word);
             return "'" + word + "' 앱을 실행합니다.";
         }
         case ChatAction::Close: {
-            const std::string word = ExtractAppWord(norm, hit->trigger);
+            const std::string word = ExtractTargetWord(norm, hit->trigger);
             out.kind = ChatAction::Close;
             if (!word.empty()) {
                 out.app = ResolveAppName(word);

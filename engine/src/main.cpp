@@ -8654,6 +8654,30 @@ static int RunAppSelfTest() {
                   "2y-㉑(k) \"쌔리찾기 켜죠\" = 불채택 Info(실측 3.50 > 임계 "
                   "3.25 — 원장행 · 임계 상향 금지)");
         }
+        // 2y-㉒ 별명 우선 앱어 — Whisper 띄어쓰기("지뢰 찾기")·앞 잡음("그거")에도
+        //   트리거 앞을 공백 없이 별명 접미로 판정(2026-11-01 폰 실측 결함:
+        //   "그거 지뢰 찾기 켜줘" → 마지막 어절 '찾기' Launch). 표 밖 앱은
+        //   종전 마지막 어절 경로 유지.
+        {
+            jk::ChatAction a1, a2, a3, a4, a5;
+            const std::string g1 = jk::ChatRouterRoute("그거 지뢰 찾기 켜줘", a1);
+            check(a1.kind == jk::ChatAction::Launch && a1.app == "minesweeper" &&
+                      g1.find("'지뢰찾기'") != std::string::npos,
+                  "2y-㉒ \"그거 지뢰 찾기 켜줘\" = Launch(minesweeper) — 띄어쓰기·"
+                  "앞 잡음 무해");
+            (void)jk::ChatRouterRoute("지뢰 찾기를 열어줘", a2);
+            check(a2.kind == jk::ChatAction::Launch && a2.app == "minesweeper",
+                  "2y-㉒(b) \"지뢰 찾기를 열어줘\" = 조사 뒤 별명 Launch(minesweeper)");
+            (void)jk::ChatRouterRoute("그 테트리스 꺼줘", a3);
+            check(a3.kind == jk::ChatAction::Close && a3.app == "tetris",
+                  "2y-㉒(c) \"그 테트리스 꺼줘\" = Close(tetris)");
+            (void)jk::ChatRouterRoute("음악 켜줘", a4);
+            check(a4.kind == jk::ChatAction::Launch && a4.app == "음악",
+                  "2y-㉒(d) 표 밖 앱 \"음악 켜줘\" = 종전 마지막 어절 경로(fail-open)");
+            (void)jk::ChatRouterRoute("켜줘", a5);
+            check(a5.kind == jk::ChatAction::Info,
+                  "2y-㉒(e) 앱어 없는 \"켜줘\" = Info 유지");
+        }
     }
 
     // 2z) 구두 응답 TTS leg — 결정 부품 (#117 T1 — 스펙
