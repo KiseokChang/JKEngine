@@ -41,6 +41,14 @@ extern "C" int SDL_main(int argc, char* argv[]) {
     __android_log_print(ANDROID_LOG_INFO, "jksrv", "[jkdesk] SDL_main argc=%d argv0=%s",
                         argc, argc > 0 ? argv[0] : "(null)");
     TakeoverStdio();  // 로그 채널 — freopen의 합법 전재(01:36 fdsan 원존)
+    if (const char* logBase = SDL_AndroidGetInternalStoragePath()) {
+        const std::string logPath = std::string(logBase) + "/srv.err";
+        if (!std::freopen(logPath.c_str(), "w", stderr)) {
+            __android_log_print(ANDROID_LOG_WARN, "jksrv",
+                                "[jkdesk] stderr freopen miss");
+        }
+        std::setvbuf(stderr, nullptr, _IONBF, 0);
+    }
 
     const char* internal = SDL_AndroidGetInternalStoragePath();
 
