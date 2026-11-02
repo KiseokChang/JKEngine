@@ -1,2 +1,0 @@
-I:\progwork\JKENGINE\build\android-sdk\sdl2-src\CMakeLists.txt
-I:\progwork\JKENGINE\engine\android\jkdesktop-apk\app\src\main\jni\CMakeLists.txt
