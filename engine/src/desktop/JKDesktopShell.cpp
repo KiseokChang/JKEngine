@@ -298,6 +298,30 @@ void JKDesktopShell::Init(const ShellHost& host) {
         launcherIcons_.push_back(icon);
     }
 
+#if defined(__ANDROID__)
+    // 스펙 §6 — 전 모듈 런처 축: nativeLibraryDir(= JK_EXE_PATH의 dir)에 포장된
+    // libjkapp_<name>.so 전부를 런처 셀로. 셸 spawn dispatch는 기존 메커니즘
+    // (appName → SpawnClient → lib 접두 모듈 dlopen — docs/103) 재용.
+    {
+        std::error_code dirEc;
+        for (std::filesystem::directory_iterator it(
+                 std::filesystem::path(jk::fs::GetExecutablePath()).parent_path(), dirEc);
+             !dirEc && it != std::filesystem::directory_iterator(); it.increment(dirEc)) {
+            const std::string fn = it->path().filename().string();
+            if (fn.rfind("libjkapp_", 0) != 0) continue;
+            if (fn.size() < 4 || fn.compare(fn.size() - 3, 3, ".so") != 0) continue;
+            std::string appName =
+                fn.substr(9, fn.size() - 9 - 3);  // libjkapp_(…)​.so
+            if (appName.empty() || hasJkx(appName.c_str())) continue;
+            LauncherIcon icon;
+            icon.appName = appName;
+            icon.title = appName;
+            launcherIcons_.push_back(icon);
+        }
+        std::fprintf(stderr, "[jkdesk] launcher scan: android modules wired\n");
+    }
+#endif
+
     // Desktop background photo + launcher icon art (PNG assets, see
     // ARCHITECTURE_DOCS/20). Missing assets fall back to the flat placeholder.
     if (backgroundTexture_) {

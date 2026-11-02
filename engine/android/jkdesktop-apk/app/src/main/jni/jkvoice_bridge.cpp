@@ -135,14 +135,14 @@ static std::string HttpPostTalk(const std::string& body) {
         std::to_string(body.size()) + "\r\n\r\n" + body;
     if (::send(fd, req.data(), req.size(), 0) < 0) {
         ::close(fd);
-        return false;
+        return "";
     }
     char buf[512];
     const ssize_t n = ::recv(fd, buf, sizeof(buf) - 1, 0);
     ::close(fd);
-    if (n <= 0) return false;
+    if (n <= 0) return "";
     buf[std::min<size_t>((size_t)n, sizeof(buf) - 1)] = '\0';
-    return std::strstr(buf, "\"ok\":true") != nullptr;
+    return std::string(buf);
 }
 
 // --- TTS speak (HTTP /talk 응답의 reply 본문) ------------------------------
@@ -187,8 +187,26 @@ extern "C" int JKVoiceAutoturnStart() {
                     else if (c == '\n') { esc += ' '; continue; }
                     esc += c;
                 }
-                if (!HttpPostTalk("{\"text\":\"" + esc + "\"}")) {
-                    std::fprintf(stderr, "[jkdesk] voice turn POST failed\n");
+                const std::string resp =
+                    HttpPostTalk("{\"text\":\"" + esc + "\"}");
+                // TTS: 응답 JSON의 reply 본문 발화(최소 파서 — 첫 "reply":"…").
+                std::string reply;
+                const std::string key = "\"reply\":\"";
+                const size_t kp = resp.find(key);
+                if (kp != std::string::npos) {
+                    for (size_t i = kp + key.size(); i < resp.size(); ++i) {
+                        if (resp[i] == '\\') {
+                            ++i;
+                            if (i < resp.size()) reply += resp[i];
+                            continue;
+                        }
+                        if (resp[i] == '"') break;
+                        reply += resp[i];
+                    }
+                }
+                if (!reply.empty() && JKTtsSpeak(reply.c_str()) == 1) {
+                    std::fprintf(stderr,
+                                 "[jkdesk] voice turn tts: %s\n", reply.c_str());
                 }
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(300));
