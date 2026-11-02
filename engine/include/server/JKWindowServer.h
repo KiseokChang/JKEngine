@@ -2,6 +2,7 @@
 #define JKWINDOWSERVER_H
 
 #include <server/JKClientConnection.h>
+#include <desktop/JKDesktopShell.h>   // ShellHost 중첩형 — 멤버 원존(리사이즈 훅)
 #include <server/JKCompositor.h>
 #include <server/JKSemanticCursor.h>
 #include <agent/JKAgentJson.h>
@@ -31,7 +32,6 @@ class JKResourceCache;
 class JKSDLRenderBackend;
 struct LoadedImage;
 
-namespace desktop { class JKDesktopShell; }
 
 namespace server {
 
@@ -736,6 +736,7 @@ private:
     // In-process privileged shell (P1 ③): owns the launcher grid + desktop
     // background. Wired in Init, torn down in the destructor.
     std::unique_ptr<desktop::JKDesktopShell> shell_;
+    desktop::JKDesktopShell::ShellHost shellHost_;   // 리사이즈 훅 재용(2026-11-03 스펙 §3)
 
     // 승인 배너 텍스처 캐시 (스펙 2026-09-19-app-tool-hub §5 1단): 컴포지트가
     // ~1kHz(Run 루프 SDL_Delay(1))로 도니 매 프레임마다 글리프를 DrawPixel로

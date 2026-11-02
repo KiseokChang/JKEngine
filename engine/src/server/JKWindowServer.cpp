@@ -318,21 +318,21 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
     // P1 ③: the launcher is the in-process privileged shell (spec D7) — the
     // shell owns the grid + background; the server only supplies host
     // services through ShellHost (renderer, scale, texture factory, spawn).
-    jk::desktop::JKDesktopShell::ShellHost shellHost;
-    shellHost.renderer = renderer_;
-    shellHost.outputScale = [this]() {
+    shell_.reset();  // 재Init(리사이즈 훅) 시 이전 셸 텍스처 정리
+    shellHost_.renderer = renderer_;
+    shellHost_.outputScale = [this]() {
         return compositor_ ? compositor_->OutputScale() : 1.0f;
     };
-    shellHost.makeTexture = [this](const jk::LoadedImage& img, const char* label) {
+    shellHost_.makeTexture = [this](const jk::LoadedImage& img, const char* label) {
         return TextureFromRGBA(img, label);
     };
-    shellHost.launch = [this](const char* app, bool fromJkx) {
+    shellHost_.launch = [this](const char* app, bool fromJkx) {
         SpawnClient(app, fromJkx);
     };
     // 콘솔 앱 스폰 (P4 SDK §3): 터미널 위에 cmd — cwd는 앱 폴더. SpawnProcess가
     // 인용을 만들므로 cmd/cwd에 뒤따르는 백슬래시가 없어야 한다(453a327 레슨) —
     // 매니페스트는 상대경로 규칙으로 이를 보장한다.
-    shellHost.spawnConsole = [this](const std::string& cmd, const std::string& cwd,
+    shellHost_.spawnConsole = [this](const std::string& cmd, const std::string& cwd,
                                     const std::string& name) {
         SpawnConsoleApp(cmd, cwd, name);
     };
@@ -340,13 +340,13 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
     // 프레임 더티로 봉합한다. 이 콜백은 ShellHost가 만들어진 뒤 shell_->Init
     // 이전에 배선되므로 첫 Draw부터 유효; compositor_는 이미 살아 있다
     // (Init 순서: compositor_ → shellHost 위 쪽 참조).
-    shellHost.onDynamicDraw = [this](const SDL_Rect& r) {
+    shellHost_.onDynamicDraw = [this](const SDL_Rect& r) {
         if (compositor_) {
             compositor_->NotifyDynamicDraw(r);
         }
     };
     shell_ = std::make_unique<jk::desktop::JKDesktopShell>();
-    shell_->Init(shellHost);
+    shell_->Init(shellHost_);
 
     // Directional cursors for chrome resize hotspots (hover feedback).
     chromeCursors_[static_cast<int>(CursorShape::Arrow)] =
@@ -2084,6 +2084,21 @@ void JKWindowServer::HandleSDLEvent(const SDL_Event& ev) {
          ev.window.event == SDL_WINDOWEVENT_MOVED ||
          ev.window.event == SDL_WINDOWEVENT_DISPLAY_CHANGED)) {
         UpdateOutputBounds();
+#if defined(__ANDROID__)
+        // 리사이즈 3원진 수형(사용자 실측 — 11-03 캡처): ①태스크바 셀 중복
+        // push(SIZE_CHANGED마다 재도킹이 셀을 누적) ②커진 영역 GL 백버퍼
+        // 스테일 ③bg 레이어 미갱신 — 세 가지가 모두 "리사이즈 = 셸이 옛 상태"
+        // 의 자식 증상이다. 셸 전체 재기동(Init=launcherIcons_.clear() 내장 →
+        // 중복 소각·스캔 재실행·bg 텍스처 재로드) + 전면 제시 프레임 1회.
+        if (ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED && shell_) {
+            shell_->Destroy();
+            shellHost_.renderer = renderer_;
+            shell_->Init(shellHost_);
+            compositor_->RequestFullPresent();
+            std::fprintf(stderr, "[jkdesk] resize: shell re-init + full present\n");
+            std::fflush(stderr);
+        }
+#endif
     }
     // 서버 창 밖으로 커서가 나가면 모션이 더 안 오므로 호버가 얼어붙는다
     // (I3/I4 리뷰가 지적한 "표면 이탈 OUT 전이 지연"의 서버 쪽 정직 소각)

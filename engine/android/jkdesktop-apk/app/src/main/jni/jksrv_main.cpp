@@ -19,12 +19,28 @@
 extern "C" int JKVoiceAutoturnStart();
 #include <string>
 
+// fdsan 합법 수신부(SDL2의 stdio unique_fd 점유 정리 — 01:36 사형 원존).
+// fdsan API는 29 도입(빌드 타깃 28 = 헤더 게이트 미노출 원문) → dlsym으로
+// 런타임 해석(Android 15 실기 = 29+ 존재).
+static void TakeoverStdio() {
+    auto getTag = reinterpret_cast<uint64_t (*)(int)>(
+        ::dlsym(RTLD_DEFAULT, "android_fdsan_get_owner_tag"));
+    auto exchange = reinterpret_cast<void (*)(int, uint64_t, uint64_t)>(
+        ::dlsym(RTLD_DEFAULT, "android_fdsan_exchange_owner_tag"));
+    if (!getTag || !exchange) return;
+    for (int fd : {1, 2}) {
+        const uint64_t oldTag = getTag(fd);
+        if (oldTag != 0) exchange(fd, oldTag, 0);
+    }
+}
+
 extern "C" int main(int argc, char* argv[]);
 
 __attribute__((visibility("default")))
 extern "C" int SDL_main(int argc, char* argv[]) {
     __android_log_print(ANDROID_LOG_INFO, "jksrv", "[jkdesk] SDL_main argc=%d argv0=%s",
                         argc, argc > 0 ? argv[0] : "(null)");
+    TakeoverStdio();  // 로그 채널 — freopen의 합법 전재(01:36 fdsan 원존)
 
     const char* internal = SDL_AndroidGetInternalStoragePath();
 
