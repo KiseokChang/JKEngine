@@ -38,9 +38,6 @@ extern "C" int SDL_main(int argc, char* argv[]) {
                      argc > 1 ? argv[1] : "",
                      argc > 2 ? " " : "",
                      argc > 2 ? argv[2] : "");
-        // 재시험 자동화(docs/101 §5 루프 절감): 부팅마다 지뢰찾기를 서버가
-        // 스스로 스폰하게 — 사용자 몫을 설치+육안으로 절감.
-        ::setenv("JK_SPIKE_AUTOSPAWN", "minesweeper", 1);
 
         // 엔진 exe-dir 규약의 Android 수형 — r11/r13 실측: SDLActivity는 argv0
         // 에 "app_process"를 준다(lib 경로 아님) → dladdr로 이 진입 심보가

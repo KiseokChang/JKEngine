@@ -203,7 +203,8 @@ target_link_libraries(jkclient PUBLIC jkcore)
 add_library(jkdesk SHARED
     "${SPIKE_JNI}/jksrv_main.cpp"
     ${ENG}/src/main.cpp
-    ${ENG}/tools/jkweb/main.cpp   # in-process /talk (JK_WEB_INPROCESS)
+    ${ENG}/tools/jkweb/main.cpp   # in-process /talk
+    ${SPIKE_JNI}/jkvoice_bridge.cpp   # 음성 브리지(스펙 §5) (JK_WEB_INPROCESS)
     ${ENG}/src/apps/JangoApp.cpp
     ${ENG}/src/apps/JangoUI.cpp
     ${ENG}/src/apps/Equip24App.cpp
