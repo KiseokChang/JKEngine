@@ -103,28 +103,45 @@ public class MainActivity extends SDLActivity {
     // 풀어 둔다 — SDL_main이 files/로 chdir해 상대 "assets/…" 경로를 해석한다
     // (r11 원문: 서버가 CWD에서 assets/backgrounds·icons 로드 실패).
     private void extractAssets() {
-        String[] assetPaths = {
-                "fonts/ENGLISH.FNT", "fonts/ENGLISH.VFT", "fonts/HANGUL.FNT",
-                "fonts/HANJA.FNT", "fonts/HANMOON.VFT", "fonts/SPECIAL.FNT",
-                "assets/backgrounds/desktop@1x.png",
-                "assets/icons/launcher_mine@1x.png",
-        };
-        for (String path : assetPaths) {
-            File dst = new File(getFilesDir(), path);
-            if (dst.isFile() && dst.length() > 0) continue;
-            dst.getParentFile().mkdirs();
-            // getAssets() 계약: open 경로는 assets 루트 상대 — APK 안의 배치가
-            // "assets/…"면 open은 "…"다(r13 원문 — launcher_mine 0건 추출).
-            String openPath = path.startsWith("assets/")
-                    ? path.substring("assets/".length()) : path;
-            try (InputStream in = getAssets().open(openPath);
-                 OutputStream out = new FileOutputStream(dst)) {
-                byte[] buf = new byte[64 * 1024];
-                int n;
-                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
-            } catch (Exception e) {
-                android.util.Log.e("jkdesk", "extractAssets failed: " + path, e);
+        // 전체 동적 추출 — assets 트리를 files/assets로(런처 아이콘 30종@1x·
+        // 바탕 전부 — CWD(files) 상대 "assets/…" 해석점 정합). 폰트만 files/fonts
+        // (컴파일 정의 절대 경로 계약 — JKENGINE_FONT_DIR "/data/data/…/fonts").
+        try {
+            java.util.ArrayList<String> all = new java.util.ArrayList<>();
+            collectAssets("", all, 3);
+            for (String path : all) {
+                String dstRel = path.startsWith("fonts/") ? path : "assets/" + path;
+                File dst = new File(getFilesDir(), dstRel);
+                if (dst.isFile() && dst.length() > 0) continue;
+                dst.getParentFile().mkdirs();
+                try (InputStream in = getAssets().open(path);
+                     OutputStream out = new FileOutputStream(dst)) {
+                    byte[] buf = new byte[64 * 1024];
+                    int n;
+                    while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                }
             }
+        } catch (Exception e) {
+            android.util.Log.e("jkdesk", "extractAssets failed", e);
+        }
+    }
+
+    private void collectAssets(String dir, java.util.List<String> out, int depth) {
+        try {
+            String[] items = getAssets().list(dir);
+            for (String name : items) {
+                String rel = dir.isEmpty() ? name : dir + "/" + name;
+                // 쉘 상대 로드 경로 = "assets/…" (fonts 제외 — 컴파일 정의 절대 경로)
+                if (depth > 0 && getAssets().list(rel).length > 0) {
+                    collectAssets(rel, out, depth);
+                } else if (rel.startsWith("assets/")) {
+                    out.add(rel);   // dst = files/assets/… (CWD 해석점 그대로)
+                } else {
+                    out.add(rel);   // fonts 등 직접 경로
+                }
+            }
+        } catch (Exception e) {
+            android.util.Log.e("jkdesk", "collectAssets failed: " + dir, e);
         }
     }
 }
