@@ -588,6 +588,23 @@ bool JKClientApplication::ProcessOneEvent(const JKEvent& ev) {
             mainWindow_->SetWindowRect(JKRect{ 0, 0, ev.x, ev.y });
             mainWindow_->Invalidate();
         }
+#if defined(__ANDROID__)
+        // SW 표면 직결 수형의 리사이즈 갭 수형(2026-11-03 — "기존 영역만
+        // 그려짐"의 진원): CreateSoftwareRenderer = 표면 '객체' 결합인데
+        // 리사이즈 시 SDL_GetWindowSurface가 '새 객체'를 주므로 재결합이
+        // 없으면 그림이 죽은 표면으로 계속 간다. Termux의 GL 렌더러(창 결합)
+        // 은 SDL 내부에서 자동이라 이 훅이 없었던 것 — 회귀 지점 봉인.
+        {
+            SDL_DestroyRenderer(hiddenRenderer_);
+            hiddenRenderer_ =
+                SDL_CreateSoftwareRenderer(SDL_GetWindowSurface(hiddenWindow_));
+            renderBackend_ = std::make_unique<JKSDLRenderBackend>(hiddenRenderer_);
+            targetTexture_ = JKRenderBackend::InvalidTexture;
+            targetW_ = targetH_ = 0;
+            std::fprintf(stderr, "[jkdesk] client resize: renderer re-bound (%dx%d)\n",
+                         ev.x, ev.y);
+        }
+#endif
     }
 
     if (ev.type == JKEventType::DpiChanged) {
