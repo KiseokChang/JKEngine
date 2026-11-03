@@ -594,6 +594,23 @@ bool JKClientApplication::ProcessOneEvent(const JKEvent& ev) {
         // 리사이즈 시 SDL_GetWindowSurface가 '새 객체'를 주므로 재결합이
         // 없으면 그림이 죽은 표면으로 계속 간다. Termux의 GL 렌더러(창 결합)
         // 은 SDL 내부에서 자동이라 이 훅이 없었던 것 — 회귀 지점 봉인.
+        //
+        // 2차 수형(2026-11-04 — "DeX 내부 리사이즈 타일 무늬/배경 비침"의
+        // 진원 — 클라 살아있음+shm 3_2 직독+스크린캡처 해독 실측): r30 우
+        // 회(타깃 더미 — SW 렌더러가 창 표면에 직결 그림)와 리사이즈의 충
+        // 돌. 위 8b81569 재결합 훅은 표면 '객체'를 갈아끼웠지만 **창 크기
+        // 동기화가 0이었다** — 수은 창은 기동 크기(예: 320x568)에 고정,
+        // 그림 = 신규 816 좌표가 320폭 표면에 클립되어 좌측만착지. 그리고
+        // RenderReadPixels(rect=null)는 SW 렌더러 출력(=창 표면 320x568)까
+        // 지만 읽는데 dst는 신규 w*4 피치 — pixelBuffer의 재해석 잔재(구
+        // 프레임 이미지를 신규 피치로 읽은 격자 타일 무늬)+0(투명 = 배경
+        // 비침)이 ReadAndCommit의 shm 풀복사로 서거. pixelBuffer 초과 쓰
+        // 기 구조 = 과거 클라 Segmentation fault(srv.err 원문)와 같은 축.
+        // 수형 = SDL_SetWindowSize(창 표면 재생성 — SDL_OnWindowResized의
+        // surface_valid=FALSE 계약, 더미 드라이버 CreateWindowFramebuffer
+        // 는 부팅 GetWindowSurface 실측으로 능력 확인) 후 기존 렌더러 재결
+        // 합. r30 우회의 존재 계약(창 표면 직결)은 무변조 — 크기만 신규.
+        SDL_SetWindowSize(hiddenWindow_, ev.x, ev.y);
         {
             SDL_DestroyRenderer(hiddenRenderer_);
             hiddenRenderer_ =
