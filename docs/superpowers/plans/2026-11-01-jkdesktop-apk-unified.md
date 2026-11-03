@@ -54,7 +54,7 @@
 - [ ] Step 3: 폰 기동→그리드 셀 탭 3종 실측(지뢰찾기+갤러리+채팅 창 등장 원문+육안)
 - [x] Step 4: 완료 13f0118 — 조건부 혼입 함정 원존(music/filedlg)
 
-### Task 3: 입력 계약 — MouseChord+챠드 지뢰찾기
+### Task 3: 입력 계약 — MouseChord+챠드 지뢰찾기 — **as-built 2026-11-04**: 아래 MouseChord EVENT 신설 설계는 미실행(스텝 미체크 원존) — 실착 = 챠드 발화 계약 3계(실물 마우스 좌우 동시 = 앱 코어 leftDown_/rightDown_ 원존·폰 화면 두 손가락 터치 = spike SDL_FINGER held==2→right 합성 원존·**DeX 트랙패드 = 동시 버튼 도달 불가 실측([mouse] button=3 부재·clicks 1..4 흡수) → 더블클릭 챠드 신설(IsDoubleTapChordGesture — clicks는 JKEvent::keyCode 실계)** — docs/phone-input-resize-chord-report.md §2. 셀프테스트 케이스 4건 — Win 965 PASS.
 
 **Files:**
 - Modify: `engine/include/JKEvent.h`(JKEventType::MouseChord 신설 — enum 말미 배치(와이어 상호호환 — serial 검증))

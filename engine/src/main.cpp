@@ -1814,6 +1814,21 @@ static int RunAppSelfTest() {
                   "unknown act kind token rejected");
             check(!agame.Act("detonate", 0, 0).ok, "act rejects unknown kind");
 
+            // 더블클릭 챠드 게이트(2026-11-04 — DeX 트랙패드 [mouse] 원문:
+            // 좌우 동시 버튼이 도달하지 않아 두 번째 누름이 left로 흡수,
+            // 클릭 수만 1..4로 증가 — Windows 정통 "안전 더블클릭" 채택):
+            // 순수 판별 등호 — 클릭 수는 JKEvent::keyCode(TranslateSDLEvent가
+            // SDL clicks를 실고, 와이어 client 매핑도 detail=버튼·keyCode=
+            // 클릭 수로 동일 규약).
+            check(jk::MineGrid::IsDoubleTapChordGesture(SDL_BUTTON_LEFT, 2),
+                  "dbl-tap chord: left clicks=2 fires");
+            check(jk::MineGrid::IsDoubleTapChordGesture(SDL_BUTTON_LEFT, 4),
+                  "dbl-tap chord: left clicks>=2 keeps firing (연타 흡수)");
+            check(!jk::MineGrid::IsDoubleTapChordGesture(SDL_BUTTON_LEFT, 1),
+                  "dbl-tap chord: single click opens, no chord");
+            check(!jk::MineGrid::IsDoubleTapChordGesture(SDL_BUTTON_RIGHT, 2),
+                  "dbl-tap chord: right button stays flag cycle");
+
             // chord act (폰 실전 2판: 열린 숫자 칸의 펼치기 요구 — docs/64 §8).
             // 3x3 지뢰 (0,0), 중앙 (1,1) 개방 = 숫자 1. 이웃 8칸 중 (0,0) 빼고
             // 전부 무마크 닫힘 — 깃발 성립 후 chord면 7칸 일괄 개방 + 승리.
@@ -4497,8 +4512,13 @@ static int RunAppSelfTest() {
             const std::string body = jk::ChatLlmTurnPrompt("지뢰찾기 좀 띄워줘");
             // 무따옴표·무파이프 스키마(ollama leg 재인용 층 실측 — ChatRouter
             // 원장): 본문에 문자 " 와 | 가 없음이 곧 스키마 도표의 정직함.
-            check(body.find("action: launch / close / focus / list / talk") !=
-                          std::string::npos &&
+            // 1n-f8 견본 갱신(2026-11-04 — 기존 결함 진단: #124 r6/r9에서
+            // 스키마 라인이 browser·btype으로 확장됐는데 셀프테스트 견본이
+            // 구형(launch..talk)으로 얼어 파산 — 실착지 = ChatRouter.cpp
+            // ActionSchemaLine()). 진짜 계약 = 무따옴표·무파이프(원장 유지)
+            // — 견본은 현행 스키마의 action 나열로 갱신.
+            check(body.find("action: launch / close / focus / list / "
+                            "browser / btype / talk") != std::string::npos &&
                       body.find('"') == std::string::npos &&
                       body.find('|') == std::string::npos,
                   "1n-f8 prompt body carries the schema line (quote·pipe "

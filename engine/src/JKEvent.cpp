@@ -34,6 +34,7 @@ JKEvent TranslateSDLEvent(const SDL_Event& sdl) {
             ev.x = sdl.button.x;
             ev.y = sdl.button.y;
             ev.detail = static_cast<uint32_t>(sdl.button.button);
+            ev.keyCode = static_cast<uint32_t>(sdl.button.clicks);
             ev.option = SDL_GetModState();
             break;
 
@@ -42,6 +43,7 @@ JKEvent TranslateSDLEvent(const SDL_Event& sdl) {
             ev.x = sdl.button.x;
             ev.y = sdl.button.y;
             ev.detail = static_cast<uint32_t>(sdl.button.button);
+            ev.keyCode = static_cast<uint32_t>(sdl.button.clicks);
             ev.option = SDL_GetModState();
             break;
 

@@ -767,6 +767,16 @@ void MineGrid::RespondMessage(const JKEvent& ev) {
                 TryChordAt(ev.x, ev.y);
                 return;
             }
+            // 더블클릭 챠드 (DeX 트랙패드 챠드 게이트 — IsDoubleTapChordGesture
+            // 주석): 좌 버튼 + 클릭 수 2 이상이면 챠드를 시도한다. 불성립
+            // (닫힌 셀·마족 미충족 — ChordReveal 거부)이면 일반 개방으로
+            // 통과한다 — 더블클릭의 첫 클릭이 이미 개방을 수행했으므로 통과
+            // 클릭은 무해 no-op다.
+            if (inside && IsDoubleTapChordGesture(ev.detail, ev.keyCode)) {
+                chordRow_ = row;
+                chordCol_ = col;
+                if (TryChordAt(ev.x, ev.y)) return;
+            }
             // Normal left-click open.
             if (inside) {
                 bool wasStarted = game_.IsStarted();

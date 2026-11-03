@@ -2140,6 +2140,18 @@ void JKWindowServer::HandleSDLEvent(const SDL_Event& ev) {
         if (s_inputGateTrace && ev.type == SDL_MOUSEBUTTONDOWN) {
             std::fprintf(stderr, "[input] down px=%d,%d\n", mx, my);
         }
+        // [mouse] 라이브 진단 증거(챠드 T3 진단 라인): DeX 트랙패드 오른쪽
+        // 버튼(깃발)/챠드 소실 판정의 SDL 원문 — 버튼 번호·클릭 수·좌표.
+        // 원문 수확 완료(2026-11-04 — button=3 도착+챠드 시도는 left 연속 클릭
+        // 흡수 = 트랙패드의 동시 버튼 표현 불가 실측) — [input]과 같은 trace
+        // 게이트로 접는다(폐곡: 원문 라인 docs 원장).
+        if (s_inputGateTrace &&
+            (ev.type == SDL_MOUSEBUTTONDOWN || ev.type == SDL_MOUSEBUTTONUP)) {
+            std::fprintf(stderr, "[mouse] %s button=%d clicks=%d px=%d,%d\n",
+                         ev.type == SDL_MOUSEBUTTONDOWN ? "down" : "up",
+                         static_cast<int>(ev.button.button),
+                         static_cast<int>(ev.button.clicks), mx, my);
+        }
 
         // Server window chrome (title-bar move / close / border resize)
         // intercepts mouse input before anything reaches the client.

@@ -139,6 +139,18 @@ public:
 
     void ResetChordState();
 
+    // 더블클릭 챠드 게이트(2026-11-04 — DeX 트랙패드 실측 수형): "좌우 동시
+    // 버튼" 챠드가 트랙패드에서 도달하지 않는다 — 두 번째 누름이 또 left로
+    // 도달하며 SDL 클릭 수만 증가한다([mouse] button=1 clicks=1..4 원문 --
+    // button=3 부재). Windows 정통 "안전 더블클릭"(열린 숫자 셀에서 좌
+    // 더블클릭 = 둘레 열기)을 같은 계약으로 채택: 좌 버튼 + 클릭 수 2 이상.
+    // 순수·결정 — selftest가 등호를 단정한다(ParseWindowNumberSpeech 선례).
+    // 클릭 수는 JKEvent::keyCode로 온다(TranslateSDLEvent/와이어 — 마우스
+    // 이벤트에 keyCode는 이 게이트가 첫 소비자).
+    static bool IsDoubleTapChordGesture(uint32_t button, uint32_t clicks) {
+        return button == 1 /* SDL_BUTTON_LEFT */ && clicks >= 2;
+    }
+
     // 의미 커서 (스펙 §2): 렌더 산식(OnPaintClient/HitTestCell과 동일)으로
     // 실측한 보드 격자 기하를 client 표면 좌표로 보고한다 — origin = (0,0)칸의
     // 표면 좌표, cellW/cellH = 렌더 칸 크기. 레이아웃 미완(칸 0)이면 false.
