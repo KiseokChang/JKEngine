@@ -13,14 +13,58 @@ namespace {
 // (the legacy layout) broke whenever the exe was launched from elsewhere, so
 // resolve against SDL_GetBasePath first and fall back to the bare name.
 FILE* OpenFontFile(const char* name) {
+    // [font try] 경로 원문 로그 — 폰 부재 판정의 분절 재료(T9 정보 수집).
+    const auto TryOpen = [](const std::string& path) -> FILE* {
+        FILE* fp = std::fopen(path.c_str(), "rb");
+        std::fprintf(stderr, "[font-try] %s -> %s\n", path.c_str(),
+                     fp ? "ok" : "miss");
+        return fp;
+    };
     if (char* base = SDL_GetBasePath()) {
         const std::string path = std::string(base) + "assets/fonts/" + name;
         SDL_free(base);
-        if (FILE* fp = std::fopen(path.c_str(), "rb")) {
+        if (FILE* fp = TryOpen(path)) {
             return fp;
         }
     }
-    return std::fopen(name, "rb");
+    if (FILE* fp = TryOpen(name)) {
+        return fp;
+    }
+#if defined(JKENGINE_FONT_DIR)
+    // [폰 원문 수형]: SDL_GetBasePath = 폰에서 null(base leg 미발사 —
+    // font-try 원문: hangul.fnt·HANGUL.FNT 이중 미스) — 조달 폰트의 실제
+    // 목적지 = compile def(부트 원문 JKENGINE_FONT_DIR = files/fonts).
+    // 파일명은 벤더 원존(대문자)이므로 소·대 양형 순서로 1회씩만 개방.
+    if (FILE* fpd = TryOpen(std::string(JKENGINE_FONT_DIR) + "/" + name)) {
+        return fpd;
+    }
+    std::string upper2;
+    for (const char* p = name; *p; ++p)
+        upper2 += (*p >= 'a' && *p <= 'z') ? static_cast<char>(*p - 32) : *p;
+    if (FILE* fpu = TryOpen(std::string(JKENGINE_FONT_DIR) + "/" + upper2)) {
+        return fpu;
+    }
+#endif
+    // [T9 폰 실측 수형 — 2026-11-04]: 벤더 파일명 = 대문자(HANGUL.FNT·
+    // ENGLISH.FNT — assets/ 원존), 멤버 리터럴 = 소문자("hangul.fnt") —
+    // Windows의 대소무시 파일시스템이 수년간 이 갭을 무해하게 덮은 케이스.
+    // 폰의 파일시스템은 대소 구별이라 부재 판정(hangulErr=1·부팅 원문) →
+    // 창 타이틀이 내장 ASCII 폴백 표("Terwinal" 변형 글자 원문)로 떨어졌다.
+    // 대문자 양형 재시도로 봉한다(APK 에셋 추출 파일명 진실원 = 벤더 원존).
+    std::string upper;
+    for (const char* p = name; *p; ++p)
+        upper += (*p >= 'a' && *p <= 'z') ? static_cast<char>(*p - 32) : *p;
+    if (upper != name) {
+        if (char* base2 = SDL_GetBasePath()) {
+            const std::string path2 = std::string(base2) + "assets/fonts/" + upper;
+            SDL_free(base2);
+            if (FILE* fp2 = TryOpen(path2)) {
+                return fp2;
+            }
+        }
+        return TryOpen(upper);
+    }
+    return nullptr;
 }
 
 } // namespace
