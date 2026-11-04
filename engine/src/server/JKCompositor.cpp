@@ -455,6 +455,10 @@ void JKCompositor::Composite(bool present) {
     }
     const auto ph2 = std::chrono::steady_clock::now();
 
+    // [dex-diag] 표면 적표 실험 = 폐곡(2026-11-04 — 하단 적표가 화면
+    // 1036..1042에 착지 = 표면 실위치 y≈54·캡션이 상단을 덮는 것 원문 확정;
+    // 수형 = 풀스크린 leg 부활 — JKWindowServer.cpp 드라이버 게이트) → 철수.
+
     // (T2) 제시 사다리(스펙 결정 3 — fail-safe, 기본 회귀 없음):
     //   더티 0 = 제시 스킵(변화 0 프레임의 업로드 0)
     //   SW 밖 렌더러 / FORCE_FULL env = 전체(GL RenderReadPixels는 전체 전송

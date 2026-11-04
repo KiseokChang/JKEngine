@@ -218,7 +218,15 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
         return false;
     }
 #if defined(__ANDROID__)
-    if (SDL_strcmp(SDL_GetCurrentVideoDriver(), "android") == 0) {
+    // [dex-fix 2026-11-04] 드라이버 게이트 수형: SDL2의 실제 드라이버 명 =
+    // 'Android'(대문자) — 'android' 소문자만 비교한 기존 게이트가 실패해
+    // 풀스크린 leg(아래)과 터치 챠드 합성 leg(HandleSDLEvent의 SDL_FINGER
+    // 블록)이 **전부 미발사**였다 — DeX 캡션이 표면 상단을 덮는 것(사용자
+    // 보고 "타이틀바에 앱 상단 가림"의 진원)과 폰 화면 두 손가락 챠드 소실
+    // 을 같이 해소한다. 사건 원문: [dex] SDL_Init done: videoDriver='Android'
+    // + "[jkdesk] Dex fullscreen" 행 부재 — 폐곡 후 사건 원장행은
+    // docs/phone-input-resize-chord-report.md 기재.
+    if (SDL_strcasecmp(SDL_GetCurrentVideoDriver(), "android") == 0) {
         // 스펙 §3 DeX 창 모드 계약 — 안드로이드 드라이버에서는 풀스크린 요청
         // (시스템 타이틀바 소멸·DeX 화면 완전 점유). SDL2의 DeX 자유창 resize
         // 는 SurfaceView 재구성이 일어나지 않는 미지원 갭(r32 실측 원문:
@@ -249,7 +257,10 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
     // (X11 윈도우 서피스 폴백 계열 API 미지원) android가 아닌 드라이버에만
     // 유지한다. android 드라이버는 ACCELERATED(EGL/GPU, Adreno 660 실측 대상).
     // X11 드라이버(Termux 보행)는 기존 원존 그대로 — 회귀 접촉 0.
-    if (SDL_strcmp(SDL_GetCurrentVideoDriver(), "android") != 0) {
+    // [dex-fix 2026-11-04] 게이트 수형 — 드라이버 명 'Android' 대소문자
+    // 일치(위 풀스크린 leg 사건과 같은 부류; X11 드라이버(Termux 보행)는
+    // 기존 원존 그대로 소프트웨어 힌트 계속).
+    if (SDL_strcasecmp(SDL_GetCurrentVideoDriver(), "android") != 0) {
         SDL_SetHint(SDL_HINT_RENDER_DRIVER, "software");
     }
 #endif
@@ -958,7 +969,11 @@ void JKWindowServer::Run() {
             // 두 이벤트만 보면 발화하므로 신규 이벤트 0. SDL 자체 합성
             //(SDL_TOUCH_MOUSE_EVENTS)은 첫 손가락만 마우스화하므로 힌트로
             // 끄고 ours가 대신한다(Init에서 힌트 설정).
-            if (SDL_strcmp(SDL_GetCurrentVideoDriver(), "android") == 0) {
+            // [dex-fix 2026-11-04] 게이트 수형 — 드라이버 명 'Android'
+            // (uppercase) — 소문자만 검사하던 게이트가 실패해 이 합성 leg가
+            // 미발사(폰 화면 두 손가락 챠드 소실 — 사용자 Termux 기억과
+            // 정합). [dex-diag] 원문 videoDriver='Android'.
+            if (SDL_strcasecmp(SDL_GetCurrentVideoDriver(), "android") == 0) {
                 bool synth = false;
                 SDL_Event mouseEv{};
                 if (ev.type == SDL_FINGERDOWN || ev.type == SDL_FINGERUP ||

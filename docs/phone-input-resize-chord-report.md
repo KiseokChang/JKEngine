@@ -81,3 +81,41 @@ ChatRouter.cpp ActionSchemaLine(). 진짜 계약(무따옴표·무파이프 — 
   실측 협조(드래그·더블클릭 원문 결제 루프)가 정석.
 - 명령 함정 재발 2건: MinGW 콘솔 한글 → CP949(curl --data-binary
   @file 회피)·`jkdesktop.exe selftest`는 무효 — 서브커맨드 `test`.
+## 5. 2차 배치(2026-11-04 오후) — 최대화 후 깃발 소실 + DeX 캡션 가림 (6cdbbb3 이후)
+
+사용자 보고: ①"최대화 한 다음 오른쪽 버튼(깃발) 안됨" ②"JKENGINE Window Server
+타이틀바에 지뢰찾기 앱 상단 가림" ③깃발은 더블클릭 빌드에서 성립.
+
+**진단 원문(계측 빌드)**: [mine] 앱 측 추적 — 우클릭(btn=3)은 도착·inside=1·
+셀 판정 정상 — 그러나 shm에 깃발/물음표 **0건**(배경 적표 스크린 대조 포함).
+
+**진원 ①(깃발 소실 = 캐시 텍스처 UAF)**: 재결합 훅(8b81569)의
+SDL_DestroyRenderer가 **렌더러에 얹힌 모든 SDL 텍스처를 통째로 파괴**하는데
+JKResourceCache::FlushUploads는 업로드 성립 시 **소스(SDL_Surface/rgba)를
+자유시켜** 버렸다(:146-148) — 재결합 뒤 캐시 핸들 = 죽은 지문; 프리미티브
+(칸·숫자 텍스트)는 살아있고 아이콘(깃발·물음표·지뢰)만 소실 — 어쩔 땐
+작동(초반 깃발 성립 원존)·어쩔 땐 크래시(어제 클라 SEGV) = UAF 시그니처.
+
+수형(JKResourceCache): **소스 보존 계약** — 업로드 성립분을 retained_로
+이동(자유 철수)·신설 **ReinstateImages()**(클라 재결합 훅이 호출): 구
+렌더러 핸들은 이미 소거 때 죽었으므로 pendingDestroys_ 소각(dangling
+파괴 방지)+retained_ → pending_ 재큐 → 다음 flush가 재업로드. Unload /
+소멸자 사거리 보존 분 소유 정리 포함.
+
+**진원 ②(DeX 캡션 가림 = 드라이버 게이트 1자)**: [dex-diag] 적표 실험
+(표면 최상·하단 8행 적표 — 하단이 화면 1036..1042에 착지 = 표면 실위치
+y≈54, **DeX 캡션이 표면 상단을 덮음 원문 확정**) + **부트 로그에
+"[jkdesk] Dex fullscreen" 행 부재** = 풀스크린 leg가 미발사인 것 발견
+→ **SDL 드라이버 명 실측 = 'Android'(대문자)** — 'android' 소문자만
+비교한 게이트 3곳(풀스크린·터치 챠드 합성·소프트웨어 렌더러 힌트)이
+전부 미발사. 수형 = SDL_strcasecmp 정규화(3곳).
+
+폰 실측 폐곡: **Dex fullscreen requested**(부트 원문)·fit 1920x1080
+등호·캡션 스트립 화면 소멸(스크린캡처)·최대화 상단 온전
+·깃발 성립 — **사용자 결제 "자되요"(2026-11-04)**. 임시 계측
+([mine]/[dex-diag] 적표는 철수, [mouse]는 [input] 게이트 잔존.
+
+**렛슨**: SDL android 드라이버 명 = 'Android' 대문자 사건 — 드라이버
+명 비교는 strcasecmp 원칙. DeX 창모드의 캡션 = SDL이 보더를 모르는
+inset(적표 실험 원문) — 풀스크린(스펙 §3)이 정답, 자유창 모드는 별도
+라인(SDL3 승인 축과 병행 재판).

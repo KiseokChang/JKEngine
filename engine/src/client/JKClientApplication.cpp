@@ -618,6 +618,14 @@ bool JKClientApplication::ProcessOneEvent(const JKEvent& ev) {
             renderBackend_ = std::make_unique<JKSDLRenderBackend>(hiddenRenderer_);
             targetTexture_ = JKRenderBackend::InvalidTexture;
             targetW_ = targetH_ = 0;
+            // ★챠드 T3 진단 라인의 결함 ① 수형(2026-11-04 — "최대화 후 깃발
+            // 소실"의 진원): 구 렌더러의 파괴 = 렌더러에 얹힌 모든 캐시 텍스처
+            // 통째 파괴 — 캐시 핸들 = 죽은 지문(아이콘 블릿 = 소실·UAF —
+            // 어제 클라 Segmentation fault와 같은 축). 재업로드 원료(소스
+            // 보존 계약 — JKResourceCache::ReinstateImages)로 되살린다.
+            if (resourceCache_) {
+                resourceCache_->ReinstateImages();
+            }
             std::fprintf(stderr, "[jkdesk] client resize: renderer re-bound (%dx%d)\n",
                          ev.x, ev.y);
         }

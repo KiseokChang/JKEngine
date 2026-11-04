@@ -14,11 +14,20 @@ JKResourceCache::~JKResourceCache() {
     bool hasWork = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        hasWork = !images_.empty() || !pending_.empty() || !pendingDestroys_.empty();
+        hasWork = !images_.empty() || !pending_.empty() ||
+                  !retained_.empty() || !pendingDestroys_.empty();
     }
     if (hasWork) {
         FlushUploads(backend_);
     }
+    // 보존 소스의 소유 SDL_Surface 자유(rgba는 vector 자유) — 소유자 재확정.
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (auto& kv : retained_) {
+        if (kv.second.surface) {
+            SDL_FreeSurface(kv.second.surface);
+        }
+    }
+    retained_.clear();
 }
 
 bool JKResourceCache::LoadImageBMP(const std::string& key, const std::string& path) {
@@ -109,6 +118,13 @@ void JKResourceCache::UnloadImage(const std::string& key) {
         }
         pending_.erase(pit);
     }
+    auto rit = retained_.find(key);
+    if (rit != retained_.end()) {
+        if (rit->second.surface) {
+            SDL_FreeSurface(rit->second.surface);
+        }
+        retained_.erase(rit);
+    }
 }
 
 void JKResourceCache::UnloadAllImages() {
@@ -125,6 +141,33 @@ void JKResourceCache::UnloadAllImages() {
         }
     }
     pending_.clear();
+    for (auto& kv : retained_) {
+        if (kv.second.surface) {
+            SDL_FreeSurface(kv.second.surface);
+        }
+    }
+    retained_.clear();
+}
+
+void JKResourceCache::ReinstateImages() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    // pendingDestroys_ = 구 렌더러 핸들의 해제 큐 — 구 렌더러 소거가 텍스처를
+    // 이미 파괴했으므로(포인터는 이미 자유상태) 여기서 건드리면 dangling
+    // 파괴 = UAF.
+    pendingDestroys_.clear();
+    for (auto& kv : images_) {
+        auto rit = retained_.find(kv.first);
+        if (rit == retained_.end()) continue;  // 소스 부재 — 재업로드 불가(스킵)
+        pending_[kv.first] = std::move(rit->second);
+        retained_.erase(rit);
+    }
+    retained_.clear();
+    // images_의 핸들 = 죽은 지문 — flush 전 타 경로의 BlitTexture가 죽은
+    // 핸들을 쓰지 않게 무효화한다(GetImage가 InvalidTexture를 주면 블릿
+    // no-op — 실그리기는 flush 후 복원).
+    for (auto& kv : images_) {
+        kv.second.texture = JKRenderBackend::InvalidTexture;
+    }
 }
 
 void JKResourceCache::FlushUploads(JKRenderBackend* backend) {
@@ -140,12 +183,14 @@ void JKResourceCache::FlushUploads(JKRenderBackend* backend) {
     }
     pendingDestroys_.clear();
 
+    std::vector<std::string> succeeded;
     for (auto& kv : pending_) {
         SDL_Texture* texture = nullptr;
         if (kv.second.surface) {
             texture = SDL_CreateTextureFromSurface(renderer, kv.second.surface);
-            SDL_FreeSurface(kv.second.surface);
-            kv.second.surface = nullptr;
+            // ReinstateImages 소스 보존(2026-11-04 — 렌더러 교체 재업로드
+            // 원료): 구 계약(업로드 즉시 SDL_FreeSurface)의 소비를 철수 —
+            // surface는 retained_로 이동해 다음 재결합 플러시가 다시 쓴다.
         } else if (!kv.second.rgba.empty()) {
             SDL_Surface* surface = SDL_CreateRGBSurfaceFrom(
                 const_cast<uint8_t*>(kv.second.rgba.data()),
@@ -160,14 +205,19 @@ void JKResourceCache::FlushUploads(JKRenderBackend* backend) {
         if (!texture) {
             std::fprintf(stderr, "JKResourceCache: failed to upload '%s': %s\n",
                          kv.first.c_str(), SDL_GetError());
-            continue;
+            continue;  // 비성립은 pending_에 남는다 — 다음 flush 재시도(기존)
         }
 
         CachedImage& img = images_[kv.first];
         img.texture = texture;
         SDL_QueryTexture(texture, nullptr, nullptr, &img.w, &img.h);
+        succeeded.push_back(kv.first);
     }
-    pending_.clear();
+    // 소스 보존 이동 — 언맵 순회 중 erase 방지(UB 아님을 두 번째 패스로 보장).
+    for (const std::string& key : succeeded) {
+        retained_[key] = std::move(pending_[key]);
+        pending_.erase(key);
+    }
 }
 
 void JKResourceCache::RegisterFont(const std::string& key, HangulManager* manager) {

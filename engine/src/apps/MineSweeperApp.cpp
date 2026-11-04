@@ -749,7 +749,6 @@ void MineGrid::RespondMessage(const JKEvent& ev) {
     if (ev.type == JKEventType::MouseDown) {
         SetFocus();
 
-        // If the game has ended, clear any stuck chord state and ignore input.
         if (game_.IsGameOver()) {
             ResetChordState();
             return;

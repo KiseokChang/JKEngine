@@ -45,6 +45,18 @@ public:
     // textures that were queued for removal from other threads.
     void FlushUploads(JKRenderBackend* backend);
 
+    // 렌더러 교체(클라 리사이즈 재결합 훅 — 8b81569 계열) 대응(2026-11-04):
+    // SDL_DestroyRenderer는 렌더러에 얹혔던 **모든** 텍스처를 통째로 파괴하므
+    // 로 캐시 핸들 = 죽은 지문(블릿 = 눈엔 아이콘 소실·UAF — DeX 최대화 후
+    // 깃발 소실+클라 Segmentation fault 실측 원문). 수형 = 핸들을 버리고,
+    // 업로드 성립 후에도 보존해 둔 소스(PendingUpload)를 다시 pending_으로
+    // 옮겨 다음 FlushUploads가 재업로드하게 한다. pendingDestroys_(구 렌더러
+    // 핸들의 파괴 큐)는 그 핸들이 이미 구 렌더러 소거 때 죽었으므로 새
+    // 렌더러에서 건드리면 dangling 파괴 — 소각한다. 소자 큺 이유로 소스
+    // 보존은 이 캐시의 아이콘 규모(16-96px)라 비용 미미(갤러리 썸네일은
+    // 별도 LRU 소유).
+    void ReinstateImages();
+
     // Fonts ------------------------------------------------------------------
     void RegisterFont(const std::string& key, HangulManager* manager);
     bool HasFont(const std::string& key) const;
@@ -73,6 +85,9 @@ private:
     mutable std::mutex mutex_;
     std::unordered_map<std::string, CachedImage> images_;
     std::unordered_map<std::string, PendingUpload> pending_;
+    // 업로드 성립 후에도 보존하는 소스(ReinstateImages 재업로드 원료 —
+    // FlushUploads는 자유시키지 않고 소각만 한다).
+    std::unordered_map<std::string, PendingUpload> retained_;
     std::vector<JKRenderBackend::TextureHandle> pendingDestroys_;
 
     std::unordered_map<std::string, HangulManager*> fonts_;
