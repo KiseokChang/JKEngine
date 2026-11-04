@@ -102,13 +102,22 @@ std::string text::ResolveDesktopFontPath() {
 #ifdef _WIN32
     return "C:\\Windows\\Fonts\\malgun.ttf";
 #else
-#if defined(__ANDROID__) && defined(JKENGINE_FONT_DIR)
-    // T8 step1 (2026-11-04): APK의 기본 폰트 = 조달 단일(compile def —
-    // jksrv_main이 files/fonts에 시딩한 HANMOON.VFT — 부트 원문의
-    // "staying on bitmap glyphs"를 소거하는 기본 leg). settings 오버라이드가
-    // 1순위인 계약 무변조(위).
-    const std::string vendor = std::string(JKENGINE_FONT_DIR) + "/HANMOON.VFT";
-    if (FileReadable(vendor)) return vendor;
+#if defined(__ANDROID__)
+    // T8 step1 (2026-11-04 — arm64 VFT Init 실패의 원진 수형): atlas =
+    // stb_truetype(sfnt) — HANMOON.VFT = 엔진 구형 포맷이라 Init 실패가
+    // 정상(부팅 원문 "vector font init failed"). 수형 = 조달 0 — 폰 시스템
+    // 폰트 사다리. **CFF 거부 축 유지**(docs/70 §8.4 판정 — stb 어설션
+    // 사망 선행 회피): NotoSansCJK·SECCJK.ttc = CFF/ttc — SfntFaceHasCff
+    // 가드가 정직 거부. glyf 단면 = OneUISansKR-VF.ttf(00 01 00 00 실측
+    // — Samsung UI 한글, VF 기본 인스턴스 래스터)+SECCJK-Regular-Extra.ttf
+    // (00 01 glyf) 순. settings 오버라이드가 1순위인 계약 무변조(위).
+    static const char* kAndroidFonts[] = {
+        "/system/fonts/OneUISansKR-VF.ttf",
+        "/system/fonts/SECCJK-Regular-Extra.ttf",
+    };
+    for (const char* cand : kAndroidFonts) {
+        if (FileReadable(cand)) return cand;
+    }
 #endif
     static const char* kLinuxCandidates[] = {
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
