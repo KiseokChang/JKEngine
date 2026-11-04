@@ -22,6 +22,13 @@ std::string ExeDir() {
     // 실패/구분자 없음 시 빈값) 유지 — 비윈도우는 어댑터 posix 스텁이 같은
     // 빈값 계약을 소유한다(기존 #else의 "Linux: settings override support
     // arrives with the port" 계약과 일치).
+#if defined(__ANDROID__)
+    // T8 Step 1 (플랜 2026-11-04-jkapk-t7-llm-http 잔여 봉질): APK의
+    // exe-dir = nativeLibraryDir(읽기전용 원존) — settings.json seam =
+    // CWD 상대(app-private files — jksrv_main이 CWD를 files에 놓는 부트
+    // 원문). 후행 '/' 계약 = "./" (LoadChatConfig의 CWD seam 수형과 동형).
+    return std::string("./");
+#endif
     const std::string exe = jk::fs::GetExecutablePath();
     const size_t slash = exe.find_last_of("\\/");
     return slash == std::string::npos ? std::string() : exe.substr(0, slash + 1);
@@ -95,6 +102,14 @@ std::string text::ResolveDesktopFontPath() {
 #ifdef _WIN32
     return "C:\\Windows\\Fonts\\malgun.ttf";
 #else
+#if defined(__ANDROID__) && defined(JKENGINE_FONT_DIR)
+    // T8 step1 (2026-11-04): APK의 기본 폰트 = 조달 단일(compile def —
+    // jksrv_main이 files/fonts에 시딩한 HANMOON.VFT — 부트 원문의
+    // "staying on bitmap glyphs"를 소거하는 기본 leg). settings 오버라이드가
+    // 1순위인 계약 무변조(위).
+    const std::string vendor = std::string(JKENGINE_FONT_DIR) + "/HANMOON.VFT";
+    if (FileReadable(vendor)) return vendor;
+#endif
     static const char* kLinuxCandidates[] = {
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
         "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",

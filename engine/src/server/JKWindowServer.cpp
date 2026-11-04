@@ -127,6 +127,13 @@ static void LoadSettingsKv(bool& mute, int& volume, int& retention,
 // 소비자 결합이 '/'로 조립 — 플랜 F1 전역 규약, docs/64) — 그대로 보존.
 // 절단 취약점(MAX_PATH/1024 후단 절단)은 어댑터의 동적 재시도로 동시 소거.
 static std::string ExeDirNoSlash() {
+#if defined(__ANDROID__)
+    // T8 Step 1 — APK의 state seam 수형: exe-dir = nativeLibraryDir(읽기전용
+    // 원존) → CWD(app-private files — jksrv_main 부트 원문) 상대. 소비자 =
+    // settings.json·permissions·trust 등 전 state 파일 — 1자 수형.
+    // LoadChatConfig의 CWD seam 수형(2026-11-04)과 동형 사건.
+    return std::string(".");
+#endif
     const std::string exe = jk::fs::GetExecutablePath();
     const size_t cut = exe.find_last_of("\\/");
     return cut == std::string::npos ? std::string() : exe.substr(0, cut);
@@ -9534,7 +9541,18 @@ bool JKWindowServer::SpawnProcess(const char* exeName, const std::string& args,
     }
     jk::process::SpawnOptions optP;
     optP.commandLineUtf8 = cmdP;
+    // [T8 step1 수형 — 2026-11-04] APK: dirP = nativeLibraryDir(읽기전용
+    // 원존)이지만 assets의 해석점 = MainActivity의 에셋 추출 목적지 =
+    // app-private files("CWD=/data/data/chang.jkdesktop/files (relative
+    // assets/ 해석점)" 부트 원문) — 클라 CWD = 상속(빈 workingDir = cwd
+    // 상속 계약, :9503 원문)으로 files에 두면 ①assets/icons 아이콘 로드
+    // ②state seam(settings/chat — ExeDir CWD 수형과 짝) ③폰트 3건이
+    // 한 번에 열린다. 데스크톱(Win/WSL/posix)의 dirP 계약 무변조.
+#if defined(__ANDROID__)
+    optP.workingDir = std::string();  // cwd 상속 = files(에셋·state seam 원존)
+#else
     optP.workingDir = dirP;   // assets/ 위치 (win32 계약 동일)
+#endif
     const jk::process::SpawnResult spawnedP = jk::process::Spawn(optP);
     if (!spawnedP.ok) {
         std::fprintf(stderr, "JKWindowServer: posix spawn failed for %s (err=%u)\n",
