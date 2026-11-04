@@ -8863,9 +8863,18 @@ static int RunAppSelfTest() {
             (void)jk::ChatRouterRoute("그 테트리스 꺼줘", a3);
             check(a3.kind == jk::ChatAction::Close && a3.app == "tetris",
                   "2y-㉒(c) \"그 테트리스 꺼줘\" = Close(tetris)");
+            // 2026-11-04 갱신: "음악"은 이제 별명 표에 들었다("터미널·음악·
+            // 설정·메모 4종 — 런처 축의 모듈 키 승계 — 폰 실측 unknown_app
+            // 원문). 표 밖 마지막 어절 fail-open의 진실원 케이스 = 표 밖의
+            // "사전/사전 앱" 어절로 갱신(app=사전 — unknown_app fail-open
+            // 유지 — 케이스의 목적(마지막 어절 통과) 무변조).
+            (void)jk::ChatRouterRoute("사전 켜줘", a4);
+            check(a4.kind == jk::ChatAction::Launch && a4.app == "사전",
+                  "2y-㉒(d) 표 밖 앱 \"사전 켜줘\" = 종전 마지막 어절 경로(fail-open)");
             (void)jk::ChatRouterRoute("음악 켜줘", a4);
-            check(a4.kind == jk::ChatAction::Launch && a4.app == "음악",
-                  "2y-㉒(d) 표 밖 앱 \"음악 켜줘\" = 종전 마지막 어절 경로(fail-open)");
+            check(a4.kind == jk::ChatAction::Launch && a4.app == "music",
+                  "2y-㉒(d2) \"음악 켜줘\" = 별명 music(신설 행 — "
+                  "unknown_app 제거)");
             (void)jk::ChatRouterRoute("켜줘", a5);
             check(a5.kind == jk::ChatAction::Info,
                   "2y-㉒(e) 앱어 없는 \"켜줘\" = Info 유지");

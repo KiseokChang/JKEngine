@@ -144,6 +144,14 @@ constexpr AliasEntry kAliasTable[] = {
     {"notify",      "notify"},      // #115b T1 — 알림 창 open(launch_app
                                     // 존재 검증은 서버 몫 — fail-open 원존)
     {"알림",        "notify"},
+    // T8-런처 폰 실측(2026-11-04 — "터미널 켜줘" unknown_app 원문 — 런처 축의
+    // 모듈 키와 어휘의 갭): 런처 그리드의 30셀 모듈 키 중 구두 도메인의
+    // 상징 4종을 별명으로 승계한다 — 모듈 자체의 영문 키(terminal·music 등)
+    // 은 ExtractAppWord가 통과시킨다(표 밖 fail-open 원존).
+    {"터미널",       "terminal"},
+    {"음악",         "music"},
+    {"설정",         "settings"},
+    {"메모",         "notes"},
 };
 
 // #124 r4 — 발음→도메인 복원 표 (2026-11-01 폰 실측 원존: "youtube.com 열어줘"
