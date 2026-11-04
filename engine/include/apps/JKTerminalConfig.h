@@ -16,9 +16,18 @@
 // not found → 자식 127 → 터미널 클라 즉사. WSL은 interop으로 powershell.exe가
 // 실존해 또 우연히 살아 있던 케이스). SHELL 환경변수가 정직한 기본 (Termux는
 // 항상 설정; 미설정이면 /bin/sh로 glibc 관행 폴백).
+//
+// [T9 수형 — 2026-11-04, "터미널 dark void"의 본 수형]: APK에서 $SHELL 미설정
+// → "/bin/sh" → pty 계약(`/bin/sh -c <commandLine>`)이 중첩 비대화형 sh를
+// 만들어 PS1이 안 달린다(폰 부팅 캡처 원문 — 빈 화면). 수형 = Android 기본
+// "/system/bin/sh -i" — -c 래퍼 안에서도 -i가 대화형을 강제해 mksh 기본
+// 프롬프트 "$ "가 뜬다. overrides(--shell/terminal.json shell)는 무접촉.
 #if !defined(_WIN32)
 namespace detail {
 inline std::string TerminalShellDefault() {
+#if defined(__ANDROID__)
+    return std::string("/system/bin/sh -i");
+#endif
     const char* s = std::getenv("SHELL");
     return (s && *s) ? std::string(s) : std::string("/bin/sh");
 }
@@ -33,8 +42,16 @@ struct JKTerminalConfig {
 #else
     std::string shell = detail::TerminalShellDefault();
 #endif
+#if defined(__ANDROID__)
+    // T9 (2026-11-04 — 폰 부팅 "dotted placeholder" 원문의 수형): 폰의 폰트
+    // 기본 = 시스템 사다리(벡터 atlas 기본 leg와 같은 glyf 단면 축 — CFF
+    // 거부 계약 동일). Consolas는 폰에 부재 — 뷰가 placeholder를 그린다.
+    std::string font = "/system/fonts/OneUISansKR-VF.ttf";
+    std::string fontFallback = "/system/fonts/SECCJK-Regular-Extra.ttf";
+#else
     std::string font = "C:\\Windows\\Fonts\\consola.ttf";
     std::string fontFallback = "C:\\Windows\\Fonts\\malgun.ttf";
+#endif
     int scrollback = 1000;              // JKTerminalGrid::kScrollbackMax
     uint32_t themeBg = 0x0C0C0C;        // TerminalView defaults
     uint32_t themeFg = 0xCCCCCC;
