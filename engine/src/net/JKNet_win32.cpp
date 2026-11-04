@@ -23,6 +23,7 @@
 #include <net/JKNet.h>
 
 #include <string>
+#include <cstring>
 
 namespace jk::net {
 
@@ -65,6 +66,50 @@ Socket ListenTcp(const std::string& bindIp, std::uint16_t port, int backlog,
 Socket Accept(Socket listener) {
     return static_cast<Socket>(accept(static_cast<SOCKET>(listener), nullptr,
                                       nullptr));
+}
+
+Socket ConnectTcp(const std::string& host, std::uint16_t port) {
+    // T2 (플랜 2026-11-04-jkapk-t7-llm-http): 기명 호스트 connect — 1개
+    // 클라 소켓 계약. getaddrinfo의 첫 AF_INET 결과만(기명·IP 문자열 모두).
+    addrinfo hints{};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    addrinfo* res = nullptr;
+    const addrinfo* hit = nullptr;
+    if (getaddrinfo(host.c_str(), nullptr, &hints, &res) != 0) {
+        return kInvalidSocket;
+    }
+    for (addrinfo* p = res; p; p = p->ai_next) {
+        if (p->ai_family == AF_INET && p->ai_addr) {  // ipv4만 — kInvalidSocket 계약과 정직
+            hit = p;
+            break;
+        }
+    }
+    if (!hit) {
+        freeaddrinfo(res);
+        return kInvalidSocket;
+    }
+    SOCKET s =
+        socket(hit->ai_family, hit->ai_socktype, hit->ai_protocol);
+    if (s != INVALID_SOCKET) {
+        sockaddr_in dst{};
+        dst.sin_family = AF_INET;
+        dst.sin_port = htons(port);
+        std::memcpy(&dst.sin_addr, &reinterpret_cast<sockaddr_in*>(hit->ai_addr)->sin_addr, sizeof(in_addr));
+        if (connect(s, reinterpret_cast<sockaddr*>(&dst), sizeof(dst)) != 0) {
+            closesocket(s);
+            s = INVALID_SOCKET;
+        }
+    }
+    freeaddrinfo(res);
+    return static_cast<Socket>(s);
+}
+
+int Recv(Socket s, void* buf, int maxBytes) {
+    // T2 — 단발 recv: 받은 바이트 수(0 = 정직 EOF·SOCKET_ERROR = -1).
+    const int r = recv(static_cast<SOCKET>(s), static_cast<char*>(buf),
+                       maxBytes, 0);
+    return r == SOCKET_ERROR ? -1 : r;
 }
 
 bool RecvAll(Socket s, void* buf, std::size_t n) {

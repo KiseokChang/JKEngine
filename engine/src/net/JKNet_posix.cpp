@@ -34,11 +34,13 @@
 // the 9 strong symbols in one link.
 #include <arpa/inet.h>   // inet_addr, inet_ntop, htonl/htons/ntohs
 #include <netinet/in.h>  // sockaddr_in, INADDR_ANY
-#include <sys/socket.h>  // socket/bind/listen/accept/recv/send/shutdown
+#include <sys/socket.h>  // socket/bind/listen/accept/recv/send/shutdown/connect
 #include <sys/time.h>    // timeval (SO_RCVTIMEO/SO_SNDTIMEO)
 #include <unistd.h>      // close
+#include <netdb.h>       // getaddrinfo (ConnectTcp — T2)
 
 #include <cerrno>
+#include <cstring>   // memcpy (ConnectTcp — T2)
 #include <cstdint>
 #include <string>
 
@@ -101,6 +103,40 @@ Socket Accept(Socket listener) {
     return c < 0 ? kInvalidSocket : static_cast<Socket>(c);
 }
 
+Socket ConnectTcp(const std::string& host, std::uint16_t port) {
+    // T2 (플랜 2026-11-04-jkapk-t7-llm-http) — win32 쌍과 동일 계약. EINTR
+    // widening은 connect에도(connect(2) 재시도 — Accept 원존 계약 동형).
+    addrinfo hints{};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    addrinfo* res = nullptr;
+    if (getaddrinfo(host.c_str(), nullptr, &hints, &res) != 0) {
+        return kInvalidSocket;
+    }
+    int s = -1;
+    for (addrinfo* p = res; p && s < 0; p = p->ai_next) {
+        if (p->ai_family != AF_INET || !p->ai_addr) continue;
+        s = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+        if (s < 0) continue;
+        sockaddr_in dst{};
+        dst.sin_family = AF_INET;
+        dst.sin_port = htons(port);
+        std::memcpy(&dst.sin_addr,
+                    &reinterpret_cast<sockaddr_in*>(p->ai_addr)->sin_addr,
+                    sizeof(in_addr));
+        int rc;
+        do {
+            rc = connect(s, reinterpret_cast<sockaddr*>(&dst), sizeof(dst));
+        } while (rc < 0 && errno == EINTR);
+        if (rc < 0) {
+            ::close(s);
+            s = -1;
+        }
+    }
+    freeaddrinfo(res);
+    return s < 0 ? kInvalidSocket : static_cast<Socket>(s);
+}
+
 bool RecvAll(Socket s, void* buf, std::size_t n) {
     // Exact-size loop (jkbridge RecvAll verbatim shape) — TCP may fragment
     // anywhere; every header read uses this. EINTR retries (posix-only
@@ -115,6 +151,13 @@ bool RecvAll(Socket s, void* buf, std::size_t n) {
         got += static_cast<std::size_t>(r);
     }
     return true;
+}
+
+int Recv(Socket s, void* buf, int maxBytes) {
+    // T2 — 단발 recv(win32 쌍과 동일 계약): 받은 바이트 수(0 = EOF·-1 = 오류).
+    ssize_t r = recv(static_cast<int>(s), static_cast<char*>(buf),
+                     static_cast<size_t>(maxBytes), 0);
+    return r < 0 ? -1 : static_cast<int>(r);
 }
 
 int Send(Socket s, const void* data, int len) {

@@ -7,6 +7,7 @@
 // callback, so "exactly one DoneFn call" is a load-bearing promise.
 #include <agent/JKLlmEngine.h>
 #include <agent/JKAgentJson.h>
+#include <agent/JKLlmTurnHttp.h>
 #include <fs/JKFs.h>
 #include <process/JKProcess.h>
 
@@ -32,9 +33,19 @@ ChatConfig LoadChatConfig() {
     ChatConfig cfg;
     // chat.json 위치: exe-dir(뒤 "\\" 없음 — ExeDirA 원문 규약). GMFN 콜사이트는
     // jk::fs::GetExecutablePath 어댑터로 흡수(docs/68 W5) — ExeDirA 소각.
-    std::string exeDir = jk::fs::GetExecutablePath();
+    std::string exeDir;
+#if defined(__ANDROID__)
+    // T7 (플랜 2026-11-04-jkapk-t7-llm-http): APK의 exe-dir = nativeLibraryDir
+    // (읽기전용 — JK_EXE_PATH = lib/arm64/libjkdesk.so 원존) — chat.json seam
+    // 을 app-private files로 접는다: jksrv_main이 CWD를 files에 놓는다(부트
+    // 원문 CWD=/data/data/chang.jkdesktop/files) → CWD 상대 "state/chat.json".
+    // 데스크톱(WSL/Win)의 exe-dir 원존 계약 무변조.
+    exeDir = ".";  // CWD 상대 — 부트 원문 계약
+#else
+    exeDir = jk::fs::GetExecutablePath();
     const size_t cut = exeDir.find_last_of("\\/");
     if (cut != std::string::npos) exeDir = exeDir.substr(0, cut);
+#endif
     std::FILE* f =
         std::fopen((exeDir + "/state/chat.json").c_str(), "rb");
     if (!f) return cfg;
@@ -59,6 +70,11 @@ ChatConfig LoadChatConfig() {
         // 키 무접촉. 판정은 조립 시점(NormalizeOllamaHost — 위배 값 무음 접기)
         // 이라 여기는 원문 승계만 한다.
         if (c.GetStr("ollama_host", v)) cfg.ollamaHost = v;
+        // T7 — llm_mode(정규화는 독자 여기서: 위배 = off 실패). 키 부재 = off
+        // 원존(캐논 무영향 계약). api_key = cloud Bearer(민감값 — app-private
+        // files/chat.json, 스펙 "폰 내부 저장").
+        if (c.GetStr("llm_mode", v)) cfg.llmMode = NormalizeOllamaMode(v);
+        if (c.GetStr("api_key", v)) cfg.apiKey = v;
         int skip = -1;
         if (c.GetInt("skip_permissions", skip)) {
             cfg.skipPermissions = (skip != 0);
@@ -393,6 +409,40 @@ int LlmTurnThread(TurnJob* job) {
         delete out;
         delete job;
     };
+
+    // T7 — HTTP leg (플랜 2026-11-04-jkapk-t7-llm-http T4): llm_mode != off &&
+    // fileKnown(실제 구성 파일 존재 — 승격 게이트 계약 재용)일 때만 이 leg가
+    // 엔진 pick을 대체한다(로컬 = ollama_host의 데몬 POST·폰 릴레이 계약, cloud
+    // = 주입 TLS transport — 폰 JNI 브리지). 스폰 0·턴 1회 — Finish의 정확히
+    // 한번 계약 원존. 실패(연결·http 0·파스 불가) = 정직 out->result(소비자
+    // stub 폴백 계약과 동형).
+    if (cfg.fileKnown && !cfg.llmMode.empty() && cfg.llmMode != "off") {
+        const std::string body = BuildOllamaChatJson(cfg.model, kLlmTurnPreamble,
+                                                     job->prompt);
+        LlmHttpPostResult http;
+        if (cfg.llmMode == "local") {
+            http = HttpPostPlain(NormalizeOllamaHost(cfg.ollamaHost), 11434,
+                                 "/api/chat", body, 60000);
+        } else {  // "cloud"
+            if (HttpsPostFn transport = GetHttpsPostTransport();
+                transport != nullptr) {
+                http = transport(kOllamaCloudUrl, body,
+                                 cfg.apiKey.empty() ? std::string()
+                                                    : "Bearer " + cfg.apiKey,
+                                 60000);
+            } else {
+                http.status = "cloud transport not wired";
+            }
+        }
+        std::string content;
+        out->ok = http.ok && ParseOllamaChatReply(http.body, content);
+        out->result = out->ok
+            ? content
+            : ("llm-http(" + cfg.llmMode + ") failed: " + http.status);
+        out->streamed = false;
+        Finish(false);
+        return 0;
+    }
 
     // Spawn through the jk::process adapter (docs/68 W4): the pipe pair
     // creation, STARTUPINFO, CreateProcessW, write-end handover and the

@@ -29,12 +29,21 @@ Socket ListenTcp(const std::string& bindIp, std::uint16_t port, int backlog,
 // accept(listener) — kInvalidSocket on failure. Consumer loop stays
 // detached-thread-per-conn (docs/57 as-built).
 Socket Accept(Socket listener);
+// T2 (플랜 2026-11-04-jkapk-t7-llm-http): 기명 호스트 connect —
+// getaddrinfo(AI_ADDRCONFIG, 첫 AF_INET 결과) + connect. host = 호스트 문자열
+// (IP 문자열·기명 모두). kInvalidSocket on any failure. 클라이언트 소켓 —
+// listen 계열과 별도 함수(계약 분리).
+Socket ConnectTcp(const std::string& host, std::uint16_t port);
 // Blocking recv-all loop: recv()==<=0 on EOF/error → false (original
 // RecvAll(main.cpp:300) semantics verbatim).
 bool RecvAll(Socket, void* buf, std::size_t n);
 // Raw send() passthrough: >=1 bytes sent, <=0 EOF/error — send-loop
 // callers (WsSendFrame, SendAll) keep their own loop shape (R-C2).
 int Send(Socket, const void* data, int len);
+// 단발 recv 어댑터(LlmTurnHttp의 HTTP/1.1 왕복용): 1회 recv, 받은 바이트 수
+// 반환(0 = 정직 EOF·-1 = 오류). RecvAll의 "정확 n" 계약과 구분(T2 — HTTP 첫
+// 회신은 4096 미만이 정상이라 RecvAll은 즉사 false가 되는 부정합).
+int Recv(Socket, void* buf, int maxBytes);
 // SO_RCVTIMEO/SO_SNDTIMEO both set to timeoutMs (30s slowloris/dead-phone
 // guard, opus MAJOR-3). Errors ignored — original ignored them too.
 void SetTimeouts(Socket, std::uint32_t timeoutMs);

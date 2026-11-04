@@ -215,6 +215,10 @@ add_library(jkcore STATIC
     src/agent/JKAgentClient.cpp
     src/agent/JKAgentJson.cpp
     src/agent/JKLlmEngine.cpp
+    # T7 LLM HTTP 어댑터 (플랜 2026-11-04-jkapk-t7-llm-http): 로컬 = 평문
+    # HTTP 클라(ConnectTcp/Recv 신설 — jk::net T2) · cloud = transport 주입
+    # (폰 JNI TLS 브리지). 순수 부품+셀프테스트 등호 원존.
+    src/agent/JKLlmTurnHttp.cpp
     # STT 구두 전사 사슬 (#112 T2 — 스펙 2026-10-25-stt-voice-design §3 ②):
     # 창·imgui 무접촉 pure TU(스폰 leg — 순수 파서는 include/voice/SttVoice.h
     # 인라인). jk::process 어댑터만 접점 — 축 분기 없음(Win/폰 공통).

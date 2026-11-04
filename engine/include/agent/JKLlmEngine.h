@@ -81,6 +81,14 @@ struct ChatConfig {
     // 기본 조립식만 단정한다(캐논 등호 계약 — 신설 어셜션 0, 스위치 leg는
     // 조립식 분기 1행의 구조적 보장+리포트 판정 원문 승계).
     bool renderFlags = true;
+    // T7 — LLM HTTP 어댑터 모드 (chat.json "llm_mode"): "off"(기존 엔진 계약
+    // 100% 원존 — 미설정·파스 실패 포함) | "local"(ollama_host 평문 POST) |
+    // "cloud"(ollama.com+Bearer — 폰 JNI TLS 브리지 transport). != off &&
+    // fileKnown일 때만 HTTP leg가 엔진 pick을 대체한다 — 캐논 무영향 계약.
+    std::string llmMode;  // NormalizeOllamaMode 통과본 (LoadChatConfig가 정규화)
+    // cloud Bearer — chat.json "api_key" (민감값: 폰 내부 저장 files/chat.json
+    // = app-private ✓ 스펙 "폰 내부 저장" 계약). 파일 부재 = 빈 값 = fail-closed.
+    std::string apiKey;
     // 승격 opt-in 표지 (T4 fix r1 — NR4-1 컨트롤러 룰링): 이 cfg가 실제
     // chat.json 파일에서 읽혔고 engine 키가 명시됐을 때만 true. 파일 부재·
     // 파스 실패·engine 키 누락은 전부 false — 자연어 승격(ChatRouteTurn 게이트)

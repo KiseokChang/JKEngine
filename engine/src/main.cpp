@@ -64,6 +64,7 @@ extern "C" __declspec(dllimport) int __stdcall closesocket(
 #include <server/JKWindowServer.h>
 #include <agent/JKAgentClient.h>
 #include <agent/JKLlmEngine.h>  // selftest 1n-d — 동기 턴 브리지+ollama-direct leg
+#include <agent/JKLlmTurnHttp.h>  // selftest 1n-g — T7 LLM HTTP 어댑터(스턬 transport 원존)
 #include <crypto/JKSha256.h>
 #include <ipc/JKWireEndpoints.h>
 #include <ipc/JKWireProtocol.h>
@@ -1097,6 +1098,25 @@ inline void SinkDone(jk::agent::LlmTurnResult&& r, void* user) {
 
 // 포팅된 앱들의 데이터 관리자(Equip24DataManager/BombManager/PersonManager)
 // 로직을 검증하는 헤드리스 자기 테스트. "test" 인자로 실행한다.
+// selftest 1n-g의 cloud 스턬 transport (T7 — 파일 스코프: 블록 내 함수
+// 정의 = C++ 불법; 진실원 캡처 = static state, 단일 스레드 assert 계약).
+namespace selftest_http {
+using jk::agent::LlmHttpPostResult;
+using jk::agent::kOllamaCloudUrl;
+std::string g_stubUrl, g_stubBody, g_stubBearer;
+bool g_stubCalled = false;
+LlmHttpPostResult StubHttpsPost(const std::string& url,
+                                const std::string& body,
+                                const std::string& bearer, int) {
+    g_stubUrl = url;
+    g_stubBody = body;
+    g_stubBearer = bearer;
+    g_stubCalled = true;
+    return LlmHttpPostResult{
+        true, "{\"message\":{\"content\":\"CLOUD-STUB-1\"}}", "200"};
+}
+}  // namespace selftest_http
+
 static int RunAppSelfTest() {
     using namespace jk;
     int failures = 0;
@@ -4762,6 +4782,147 @@ static int RunAppSelfTest() {
             fsx::remove(cfgPath, ecF);
             check(!ecF && !fsx::exists(cfgPath),
                   "1n-fz seeded chat.json removed (scratch-free teardown)");
+        }
+    }
+
+    // 1n-g) T7 — LLM HTTP 어댑터 (플랜 2026-11-04-jkapk-t7-llm-http T1·T4).
+    // 네트워크 의존 0(환경 의존 함정 원존 — 실 데몬 금지 계약): (a) 순수
+    // 조립/파스/모드 판정 (b) 로컬 leg = 닫힌 포트 connect 실패 정직 (c)
+    // cloud = 스턬 transport 주입(배선+Bearer 조립 단정) (d) 주입 부재 =
+    // 정직 실패.
+    {
+        using jk::agent::BuildOllamaChatJson;
+        using jk::agent::GetHttpsPostTransport;
+        using jk::agent::HttpsPostFn;
+        using jk::agent::JKLlmEngine;
+        using jk::agent::LlmHttpPostResult;
+        using jk::agent::LlmTurnResult;
+        using jk::agent::NormalizeOllamaMode;
+        using jk::agent::ParseOllamaChatReply;
+        using jk::agent::SetHttpsPostTransport;
+
+        check(NormalizeOllamaMode(" local ") == "local", "1g-1 mode local(trim)");
+        check(NormalizeOllamaMode("OFF") == "off", "1g-2 mode off (ci)");
+        check(NormalizeOllamaMode("x") == "off", "1g-3 bad mode folds to off");
+        check(NormalizeOllamaMode("") == "off", "1g-4 empty = off");
+
+        const std::string reqBody =
+            BuildOllamaChatJson("m1", "[SYS]", "하이 \"요\"");
+        check(reqBody.find("\"model\":\"m1\"") != std::string::npos &&
+                  reqBody.find("\"role\":\"system\",\"content\":\"[SYS]\"") !=
+                      std::string::npos &&
+                  reqBody.find("\"stream\":false}") != std::string::npos,
+              "1g-5 chat request body shape (model/system/stream=false)");
+        check(reqBody.find("하이 \\\"요\\\"") != std::string::npos &&
+                  reqBody.find("\"요\"") == std::string::npos ||
+              reqBody.find("\\\"요\\\"") != std::string::npos,
+              "1g-6 content quotes escaped (no raw quote in body)");
+
+        std::string content;
+        check(ParseOllamaChatReply(
+                  "{\"model\":\"m\",\"message\":{\"content\":\"응답-1\"},"
+                  "\"done\":true}", content) && content == "응답-1",
+              "1g-7 reply parse extracts message.content");
+        check(!ParseOllamaChatReply("{\"error\":\"boom\"}", content) &&
+                  content == "boom",
+              "1g-8 error object = honest false + carries error");
+        check(ParseOllamaChatReply(
+                  "{\"message\":{\"content\":\"가\"}}\n"
+                  "{\"message\":{\"content\":\"나\"}}", content) &&
+                  content == "가나",
+              "1g-9 NDJSON stream defense = forward concat");
+        check(!ParseOllamaChatReply("{\"x\":1}", content) && content.empty(),
+              "1g-10 garbage = honest false");
+
+        // (b) 로컬 leg — 실 데몬 0: 닫힌 포트 connect = 정직 실패. chat.json은
+        // 1n-d와 같은 백업→시딩→복원(엔진 worker가 읽는다).
+        namespace fsx = std::filesystem;
+        const std::string exePath = jk::fs::GetExecutablePath();
+        const size_t sepG = exePath.find_last_of("\\/");
+        const std::string stateDirG =
+            sepG == std::string::npos
+                ? std::string("state")
+                : exePath.substr(0, sepG) + "/state";
+        const std::string cfgPathG = stateDirG + "/chat.json";
+        std::string cfgBackupG;
+        bool hadCfgG = false;
+        if (std::FILE* bf = std::fopen(cfgPathG.c_str(), "rb")) {
+            std::fseek(bf, 0, SEEK_END);
+            const long sz = std::ftell(bf);
+            std::fseek(bf, 0, SEEK_SET);
+            if (sz > 0) {
+                cfgBackupG.resize(static_cast<size_t>(sz));
+                const size_t n =
+                    std::fread(&cfgBackupG[0], 1, cfgBackupG.size(), bf);
+                cfgBackupG.resize(n);
+                hadCfgG = n > 0;
+            }
+            std::fclose(bf);
+        }
+        auto WriteCfgG = [&cfgPathG](const std::string& json) -> bool {
+            std::FILE* f = std::fopen(cfgPathG.c_str(), "wb");
+            if (!f) return false;
+            const size_t w = std::fwrite(json.data(), 1, json.size(), f);
+            std::fclose(f);
+            return w == json.size();
+        };
+        std::error_code ecG;
+        check(fsx::create_directories(stateDirG, ecG) || fsx::exists(stateDirG),
+              "1g-11 state dir ready");
+
+        check(WriteCfgG("{\"engine\":\"stub\",\"llm_mode\":\"local\","
+                        "\"model\":\"glm-test-stub:cloud\","
+                        "\"ollama_host\":\"127.0.0.1:3\"}"),
+              "1g-12 cfg seeded (llm_mode=local dead port)");
+        {
+            JKLlmEngine eng;
+            LlmTurnResult r;
+            check(!eng.TurnSync("x", r, 8000) && !r.ok &&
+                      r.result.find("connect failed") != std::string::npos,
+                  "1g-13 local leg honest connect-failed");
+        }
+
+        // (c) cloud 스턬 주입 — 배선+Bearer 조립 진실원 캡처. 스턬 = 파일
+        // 스코프 selftest_http::StubHttpsPost(블록 내 함수 정의 = C++ 불법).
+        SetHttpsPostTransport(&selftest_http::StubHttpsPost);
+        check(WriteCfgG("{\"engine\":\"stub\",\"llm_mode\":\"cloud\","
+                        "\"model\":\"glm-5.3-flash:cloud\","
+                        "\"api_key\":\"TESTKEY-3361\",\"ollama_host\":"
+                        "\"localhost:11434\"}"),
+              "1g-14 cfg seeded (llm_mode=cloud + api_key)");
+        {
+            JKLlmEngine eng;
+            LlmTurnResult r;
+            check(eng.TurnSync("안녕", r) && r.ok &&
+                      r.result == "CLOUD-STUB-1",
+                  "1g-15 cloud turn rides stub transport");
+            using namespace selftest_http;
+            check(g_stubCalled && g_stubUrl == jk::agent::kOllamaCloudUrl &&
+                      g_stubBearer == "Bearer TESTKEY-3361" &&
+                      g_stubBody.find("\"stream\":false}") !=
+                          std::string::npos,
+                  "1g-16 stub saw url+Bearer+no-stream body");
+        }
+        SetHttpsPostTransport(nullptr);
+        check(WriteCfgG("{\"engine\":\"stub\",\"llm_mode\":\"cloud\","
+                        "\"model\":\"m\",\"api_key\":\"K\"}"),
+              "1g-17 cfg seeded (cloud, transport unset)");
+        {
+            JKLlmEngine eng;
+            LlmTurnResult r;
+            check(!eng.TurnSync("x", r, 5000) && !r.ok &&
+                      r.result.find("transport not wired") !=
+                          std::string::npos,
+                  "1g-18 cloud without transport = honest failure");
+        }
+
+        // 복원 — 1n-fz 원존 계약(없던 기기는 소각, 있던 기기는 원문).
+        if (hadCfgG) {
+            check(WriteCfgG(cfgBackupG), "1g-fz chat.json restored verbatim");
+        } else {
+            fsx::remove(cfgPathG, ecG);
+            check(!ecG && !fsx::exists(cfgPathG),
+                  "1g-fz seeded chat.json removed (scratch-free teardown)");
         }
     }
 

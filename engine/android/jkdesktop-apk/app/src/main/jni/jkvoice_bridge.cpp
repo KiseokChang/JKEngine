@@ -25,9 +25,17 @@
 #undef main
 #endif
 
+#include <agent/JKLlmTurnHttp.h>  // T7 — cloud transport 주입(SetHttpsPostTransport)
+
 static JavaVM* g_vm = nullptr;
 static jclass g_voiceClass = nullptr;
 static jclass g_ttsClass = nullptr;
+static jclass g_httpClass = nullptr;
+
+// 전방 선언(정의는 g_voiceMtx 뒤 — JNI_OnLoad의 주입이 앞서 쓴다).
+static jk::agent::LlmHttpPostResult JkHttpsTransportCall(
+    const std::string& url, const std::string& bodyJson,
+    const std::string& bearer, int timeoutMs);
 
 extern "C" jint JNI_OnLoad(JavaVM* vm, void*) {
     g_vm = vm;
@@ -53,11 +61,100 @@ extern "C" jint JNI_OnLoad(JavaVM* vm, void*) {
                                 "[jkdesk] JkVoice class not found at load");
         }
     }
+    if (!g_httpClass) {
+        // T7 — cloud TLS leg의 클래스 캐시(JkVoice 원존 계약과 동형 — 네이티브
+        // 스레드 FindClass는 시스템 로더만 봐서 실패하는 함정의 승계 방어).
+        jclass local = env->FindClass("chang/jkdesktop/JkHttp");
+        if (local) {
+            g_httpClass = static_cast<jclass>(env->NewGlobalRef(local));
+            env->DeleteLocalRef(local);
+        } else {
+            env->ExceptionClear();
+            __android_log_print(ANDROID_LOG_WARN, "jksrv",
+                                "[jkdesk] JkHttp class not found at load");
+        }
+        // transport 주입 — 라이브러리 적재 때 1회(결정론). 주입 후 모든
+        // llm_mode=cloud 턴이 이 브리지로 간다(주입 부재 = 정직 실패 계약이
+        // 백업으로 남는다 — 데스크톱/클란 빌드 = 주입 0이라 정직 거부 원존).
+        jk::agent::SetHttpsPostTransport(&JkHttpsTransportCall);
+        __android_log_print(ANDROID_LOG_INFO, "jksrv",
+                            "[jkdesk] https transport wired=%d", g_httpClass ? 1 : 0);
+    }
     return JNI_VERSION_1_6;
 }
 
 static std::mutex g_voiceMtx;
 static std::vector<std::string> g_voiceQueue;
+
+// --- T7 cloud TLS leg: 네이티브 → Java HttpsURLConnection ------------------
+// 폰의 cloud 턴이 지나는 유일 수형. 호출 스레드 = LLM 턴 워커(std::thread —
+// SDL 메인 스레드의 env가 아니므로 Attach/Detach 필수 — GetEnv가 JNI_EDEDET
+// ACHED를 주는 실측 원존 계약의 일반화). JkVoice env 원존(SDL_AndroidGetJNIEnv
+// 는 SDL 시작 스레드 한정)과 다른 점 = 워커 스레드라 Attach+Detach 사거리가
+// 턴당 왕복한다.
+static JNIEnv* AttachTurnEnv() {
+    if (!g_vm) return nullptr;
+    JNIEnv* env = nullptr;
+    const jint got = g_vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
+    if (got == JNI_OK) return env;
+    if (got != JNI_EDETACHED) return nullptr;
+    if (g_vm->AttachCurrentThread(&env, nullptr) != JNI_OK) return nullptr;
+    return env;
+}
+
+static void DetachTurnEnv() {
+    if (g_vm) g_vm->DetachCurrentThread();
+}
+
+// SetHttpsPostTransport에 심는 C 진입(torch 계약: jk::agent::HttpsPostFn).
+// 실패(null 응답) = ok=false의 정직 전달 — 소비자 stub 폴백 계약과 동형.
+static jk::agent::LlmHttpPostResult JkHttpsTransportCall(
+    const std::string& url, const std::string& bodyJson,
+    const std::string& bearer, int timeoutMs) {
+    jk::agent::LlmHttpPostResult out;
+    JNIEnv* env = AttachTurnEnv();
+    if (!env || !g_httpClass) {
+        out.status = "cloud: env/class missing";
+        DetachTurnEnv();
+        return out;
+    }
+    jmethodID mid =
+        env->GetStaticMethodID(g_httpClass, "httpPost",
+                               "(Ljava/lang/String;Ljava/lang/String;"
+                               "Ljava/lang/String;I)Ljava/lang/String;");
+    if (!mid) {
+        env->ExceptionClear();
+        out.status = "cloud: method missing";
+        DetachTurnEnv();
+        return out;
+    }
+    jstring jUrl = env->NewStringUTF(url.c_str());
+    jstring jBody = env->NewStringUTF(bodyJson.c_str());
+    jstring jBearer =
+        env->NewStringUTF(bearer.empty() ? "" : bearer.c_str());
+    jobject res = env->CallStaticObjectMethod(g_httpClass, mid, jUrl, jBody,
+                                              jBearer,
+                                              static_cast<jint>(timeoutMs));
+    env->ExceptionClear();
+    env->DeleteLocalRef(jUrl);
+    env->DeleteLocalRef(jBody);
+    env->DeleteLocalRef(jBearer);
+    if (res) {
+        const char* utf = env->GetStringUTFChars(
+            static_cast<jstring>(res), nullptr);
+        if (utf) {
+            out.body = utf;
+            env->ReleaseStringUTFChars(static_cast<jstring>(res), utf);
+        }
+        env->DeleteLocalRef(res);
+        out.status = "200";
+        out.ok = !out.body.empty();
+    } else {
+        out.status = "cloud: java http null (non-200/exception)";
+    }
+    DetachTurnEnv();
+    return out;
+}
 
 static void VoiceEnqueue(const std::string& text) {
     std::lock_guard<std::mutex> lk(g_voiceMtx);

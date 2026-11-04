@@ -127,6 +127,7 @@ add_library(jkcore STATIC
     ${ENG}/src/agent/JKAgentClient.cpp
     ${ENG}/src/agent/JKAgentJson.cpp
     ${ENG}/src/agent/JKLlmEngine.cpp
+    ${ENG}/src/agent/JKLlmTurnHttp.cpp
     ${ENG}/src/voice/SttVoice.cpp
     ${ENG}/src/voice/VoiceCaptureSDL.cpp
     ${ENG}/src/voice/VoiceCaptureTermux.cpp
