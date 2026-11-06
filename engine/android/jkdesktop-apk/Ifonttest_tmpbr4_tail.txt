@@ -1,2 +1,0 @@
-BUILD SUCCESSFUL in 45s
-36 actionable tasks: 6 executed, 30 up-to-date
