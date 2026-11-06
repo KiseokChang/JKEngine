@@ -112,7 +112,7 @@ std::string text::ResolveDesktopFontPath() {
     // — Samsung UI 한글, VF 기본 인스턴스 래스터)+SECCJK-Regular-Extra.ttf
     // (00 01 glyf) 순. settings 오버라이드가 1순위인 계약 무변조(위).
     static const char* kAndroidFonts[] = {
-        "/system/fonts/OneUISansKR-VF.ttf",
+        "/system/fonts/OneUISansKR-VF.ttf",   // PC 검증 조합(AA 91·PASS — jktext_view_probe)
         "/system/fonts/SECCJK-Regular-Extra.ttf",
     };
     for (const char* cand : kAndroidFonts) {

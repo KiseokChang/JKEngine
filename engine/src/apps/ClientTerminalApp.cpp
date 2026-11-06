@@ -39,10 +39,18 @@ void ClientTerminalApp::OnInit() {
     parser_->Attach(grid_.get());
     atlas_ = std::make_unique<JKGlyphAtlas>();
     // Consolas ships with Windows; if missing the view draws placeholders.
-    atlas_->Init(cfg.font.c_str(), kTermCellW, kTermCellH);
-    // Malgun Gothic covers the Hangul/CJK blocks Consolas lacks (docs/26
+    // [font] 정보원 1행(T9 — 터미널 tofu 판정 재료): 폰트 로드의 원문.
+    if (!atlas_->Init(cfg.font.c_str(), kTermCellW, kTermCellH)) {
+        std::fprintf(stderr, "[terminal-font] init failed: font='%s'\n",
+                     cfg.font.c_str());
+    }
+    std::fprintf(stderr, "[terminal-font] v10 inited: font='%s'\n",
+                 cfg.font.c_str());    // Malgun Gothic covers the Hangul/CJK blocks Consolas lacks (docs/26
     // 단계 1); failure only degrades wide glyphs to placeholders.
-    atlas_->InitFallback(cfg.fontFallback.c_str());
+    if (!atlas_->InitFallback(cfg.fontFallback.c_str())) {
+        std::fprintf(stderr, "[terminal-font] fallback failed: font='%s'\n",
+                     cfg.fontFallback.c_str());
+    }
     pty_ = std::make_unique<JKConPtyBridge>();
     shell_ = cfg.shell;
 

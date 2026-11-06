@@ -221,6 +221,13 @@ bool JKClientApplication::Init(const std::string& title, int width, int height,
     // 셀 메트릭 진실원 (docs/63 §6 text.font_scale) — 기본 1.0 = {8,16,16}.
     const jk::text::CellMetrics m = jk::text::GetCellMetrics();
     const std::string fontPath = jk::text::ResolveDesktopFontPath();
+    // [font] 부팅 정보원 1행(정보 수집 — T9 진단 라인): 무엇이 골라졌는지의
+    // 원문 — "Terwinal"가 벡터 경로인지 폴백인지의 판정 재료.
+    std::fprintf(stderr,
+                 "[font] client resolve: path='%s' cell=%dx%d engW=%d hanW=%d "
+                 "hangulErr=%d\n",
+                 fontPath.c_str(), m.engW, m.cellH, m.engW, m.hanW,
+                 hangulManager_ ? (int)hangulManager_->CreationError : -1);
     if (!fontPath.empty() && textAtlas_->Init(fontPath, m.engW, m.cellH, m.hanW)) {
         dc_.SetTextAtlas(textAtlas_.get(), resourceCache_.get());
         // 보조 폰트 체인 (docs/63 §6 2단계): 미설정(빈)이면 체인 없음 — 1차만.

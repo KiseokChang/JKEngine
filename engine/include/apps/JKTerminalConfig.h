@@ -46,8 +46,14 @@ struct JKTerminalConfig {
     // T9 (2026-11-04 — 폰 부팅 "dotted placeholder" 원문의 수형): 폰의 폰트
     // 기본 = 시스템 사다리(벡터 atlas 기본 leg와 같은 glyf 단면 축 — CFF
     // 거부 계약 동일). Consolas는 폰에 부재 — 뷰가 placeholder를 그린다.
-    std::string font = "/system/fonts/OneUISansKR-VF.ttf";
-    std::string fontFallback = "/system/fonts/SECCJK-Regular-Extra.ttf";
+    // [T9 수형 — 원문: 폰 부팅 프롬프트 row의 cmap-why gi(':')=0 전멸 — OneUI
+    // Sans KR VF의 cmap 3서브테이블 136바이트 = ASCII 미커버(파이썬 cmap 파스
+    // 원문 {58:0,65:0}) — every cell = .notdef tofu로 그려졌던 것. 수형 =
+    // ASCII·등폭이 확인된 DroidSansMono(gi(':')=27·gi(A)=34 — 파스 원문)를
+    // primary로, 한글 커버(가/나 실측 폭 11px — PC probe)인 OneUI를
+    // fallback으로 둔다(폴백 체인 계약 원존).]
+    std::string font = "/system/fonts/DroidSansMono.ttf";
+    std::string fontFallback = "/system/fonts/OneUISansKR-VF.ttf";
 #else
     std::string font = "C:\\Windows\\Fonts\\consola.ttf";
     std::string fontFallback = "C:\\Windows\\Fonts\\malgun.ttf";

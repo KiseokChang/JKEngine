@@ -244,6 +244,7 @@ bool JKConPtyBridge::ProcessExited() const {
 void JKConPtyBridge::ReaderThread() {
     const int master = MasterFd(hpcon_);
     if (master < 0) {
+        std::fprintf(stderr, "[ptyr] master fd invalid\n");
         exited_ = true;
         return;
     }

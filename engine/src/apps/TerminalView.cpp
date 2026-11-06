@@ -149,6 +149,11 @@ void TerminalView::HandleWheel(int wheelY, uint32_t option) {
 void TerminalView::OnPaintClient(JKDC& dc) {
     const JKRect client = GetScreenClientRect();
     if (!grid_ || client.w <= 0 || client.h <= 0) return;
+    // [term-paint] 부팅 정보 1행 — T9 폰 실측 원존(그리드 개방 원문).
+    static int s_paintCount = 0;
+    if (++s_paintCount % 8 == 1)
+        std::fprintf(stderr, "[term-paint] client=%dx%d scrollback=%zu\n",
+                     client.w, client.h, grid_->ScrollbackLines());
 
     dc.SetColor(static_cast<uint8_t>((themeBg_ >> 16) & 0xFF),
                 static_cast<uint8_t>((themeBg_ >> 8) & 0xFF),
