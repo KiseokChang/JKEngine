@@ -27,6 +27,18 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- #124 폰 브라우저 T1 — BrowserActivity. exported=true(DeX 그리드/JS
+             intent-URI leg 개봉 승계), configChanges = DeX 리사이즈 시 WebView
+             상태 보존(재생성 금지). -->
+        <activity
+            android:name=".BrowserActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden">
+            <intent-filter>
+                <action android:name="chang.jkdesktop.OPEN_BROWSER" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
         <service
             android:name=".ForegroundService"
             android:exported="false"
