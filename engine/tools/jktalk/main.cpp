@@ -95,6 +95,10 @@ const char* KindName(jk::ChatAction::Kind kind) {
         case jk::ChatAction::AppTool:     return "AppTool";
         case jk::ChatAction::Info:        return "Info";
         case jk::ChatAction::OverlayNumbers: return "OverlayNumbers";
+        // #124 브라우저 kind들 + 하루 친구 v1 (동형 갱신 통일 APK 승계).
+        case jk::ChatAction::AmpkOpen:       return "AmpkOpen";
+        case jk::ChatAction::AmpkType:       return "AmpkType";
+        case jk::ChatAction::DaySummary:     return "DaySummary";
     }
     return "?";
 }

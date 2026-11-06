@@ -124,6 +124,12 @@ constexpr RouteEntry kRouteTable[] = {
     // 계약(2y-⑩ 원존). exact 게이트라 "완전히 정지해줘"는 앞 exact 행과
     // 등호가 아니라 여기 도달한다.
     {ChatAction::AppTool,     "완전히 정지해줘", true, "vplayer", "play_stop"},
+    // 하루 정리 친구 v1 (스펙 docs/superpowers/specs/2026-11-07-day-summary-
+    // friend-design.md — 사용자 백로그 원문): exact 행 — 접사 발화("오늘 정리
+    // 좀 해줘") = Info(D1 무인자 강제 정합). **표 끝 배치**(신설 행이 기존 앞
+    // 행의 접미 판정을 건드리지 않는 순서 계약 — 2y-⑩ 동형).
+    {ChatAction::DaySummary, "오늘 정리해줘", true},
+
 };
 
 // ── 앱 별명 표 (라이브러리 appName 규약 인지) ────────────────────────
@@ -760,6 +766,12 @@ std::string RouteExact(const std::string& text, ChatAction& out) {
             out.kind = ChatAction::AmpkOpen;
             out.app.clear();
             return "브라우저 창을 엽니다.";
+        case ChatAction::DaySummary:
+            // 하루 정리 친구 v1 (스펙 2026-11-07-day-summary-friend-design —
+            // 사용자 백로그 원문 소비 계약): 지시 확정 문어 — jkweb의
+            // DaySummary leg가 이 kind를 보고 회고 턴을 굴린다(§3).
+            out.kind = ChatAction::DaySummary;
+            return "오늘의 활동을 정리해 드립니다.";
         case ChatAction::Info:
             break;
     }

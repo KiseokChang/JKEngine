@@ -37,8 +37,13 @@ struct ChatAction {
                 // jkweb이 직접 스폰(Termux am start — #117 선례 계약) —
                 // SendServerQuery 미경유. **OverlayNumbers 뒤에 추가**(기존
                 // kind 수치 계보 보존 원존 — 2y-⑲ 동형).
-                AmpkOpen, AmpkType };   // #124 2단계 — 페이지 입력창 채움+
-                                        // 엔터(app 필드=입력할 글자 payload)
+                AmpkOpen, AmpkType,
+                // 하루 정리 친구 v1(스펙 2026-11-07-day-summary-friend-design
+                // — 사용자 백로그 원문): DaySummary = jkweb의 day-summary leg가
+                // 직접 회고 턴(세션 기록+저널을 프롬프트로 — TurnSync 재용,
+                // 창 서버 도구 미경유). AmpkType 뒤 추가(기존 kind 수치
+                // 계보 보존 — 2y-⑲ 동형).
+                DaySummary };
     Kind kind = Info;   // 도구 지시 종류 — Info만 "지시 없음"의미.
     std::string app;    // Launch·Close의 앱 키(라이브러리 appName 규약 —
                         // alias표 해소). Close 미지정 = ""(포커스 창).
