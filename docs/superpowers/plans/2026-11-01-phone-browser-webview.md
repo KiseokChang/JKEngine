@@ -35,6 +35,50 @@ export GRADLE_USER_HOME="$(cygpath -w "$PWD/build/android-sdk/gradle-user-home")
 
 ---
 
+## 0. 재검토 (2026-11-07 — 통일 APK 전환 이후, 사용자 지시 "다시 검토")
+
+환경이 다시 병행 두 겹(Termux:X11 + 얇은 클라 jkapk)에서 **통일 APK 하나
+(chang.jkdesktop — SDL 서버 in-process+음성·채팅·HTTP:8091 전부 내장)**로
+바뀌었다. 원존 전수 재판정:
+
+### 유지 (근거 문장만 갱신)
+1. **BrowserActivity = 분리 Activity** — 핵심 제약은 동일하다: WebView는
+   Android View이고 창 서버 표면(SDLActivity의 SDL 표면 → 공유메모리 합성)
+   안에 Android View 자식을 렌더할 수 없다. "Termux 네이티브 창에 심을 수
+   없다"의 SDL 계열 수형 — 근거 문장 갱신.
+2. T2 측정 하니스·T3 webkit opt-in·T4 probe·T5 GeckoView 비교·T6 판정 게이트
+   = 유효. 배포 수단 갱신: 통일 APK의 확립된 계약(adb install -r 원존).
+3. asset 오프라인 페이지 3종(file://) — MANAGE_EXTERNAL_STORAGE가 통일 APK에
+   이미 봉입됨 → 조달 갭 소각(옛 스펙의 저장권한 흐름 = 통일 APK 계약 승계).
+
+### 갱신 1 — 개봉 leg의 정식 방법이 더 간단해졌다
+옛 두 겹 시절 = jkweb(chap 8090 HTTP)이 jkapk 밖의 프로세스라 am start가
+background 규제로 막힘 → 회신만 하고 jkapk 앱이 열게 했다. 지금 = jkweb
+(:8091 in-process)이 **BrowserActivity와 같은 앱 프로세스** — 같은 앱의
+액티비티 개시 = background 규제의 성립 경계 밖(자체 컴포넌트 개시). 수형:
+jkweb DaySummary·AmpkOpen leg와 같은 위치에 `startActivity` leg를 직접 둔다.
+JS intent-URI leg(f63c55a — 웹 클라이언트용)는 병행 유지(둘 다 유효).
+
+### 갱신 2 — 창 서버 통합 없음을 UX 측에 원존
+브라우저 = Android 창이라 **창 서버의 창 목록·[route] 번호·close_window 계약
+밖**이다 — "브라우저 닫아줘"는 창 서버 close로 닫을 수 없다. 수형 후보:
+OPEN_BROWSER 액션과 쌍을 이루는 **ACTION_CLOSE 브로드캐스트 수신 leg**
+(어휘 1행 "브라우저 닫아줘" → 브로드캐스트 → finish()) — 하루 친구와 같은
+어휘 1행 철학. 본 재검토 직후의 소형 배치 후보.
+
+### 갱신 3 — 보안 전제 원존
+exported=true intent-filter(OPEN_BROWSER·url extra) = 타 앱 개봉 표면 —
+URL 검증(UrlSafe)은 jkweb leg에만 있고 Activity는 extra를 개봉한다 —
+개인 기기 전제 원존(스토어 배포 시 게이트 재판 — 스펙 원존의 스토어 심사
+행 승계).
+
+### 결론
+T2-T6 사다리 그대로 착수 가능. Task 1 = 이미 흡수 완료(f63c55a·bb3e3d6 —
+패키지 chang.jkdesktop 승계+Java 수형). 다음 = Task 1.5(startActivity leg
++브라우저 닫아줘) → Task 2(측정 하니스).
+
+---
+
 ### Task 1: BrowserActivity WebView 뼈대
 
 **Files:**
