@@ -345,6 +345,16 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
         return TextureFromRGBA(img, label);
     };
     shellHost_.launch = [this](const char* app, bool fromJkx) {
+        // [T9-브라우저] (2026-11-07 — 런처 셸 밖 창): BrowserActivity =
+        #if defined(__ANDROID__)
+        if (app && std::strcmp(app, "browser") == 0) {
+            // jkvoice_bridge의 JNI 훅이 jkweb을 경유하지 않고 개봉한다
+            // (SpawnClient 없음 — Android activity는 lib 모듈 밖).
+            extern "C" int JkStartBrowserActivity(const char* url);
+            JkStartBrowserActivity("https://example.com");
+            return;
+        }
+        #endif
         SpawnClient(app, fromJkx);
     };
     // 콘솔 앱 스폰 (P4 SDK §3): 터미널 위에 cmd — cwd는 앱 폴더. SpawnProcess가

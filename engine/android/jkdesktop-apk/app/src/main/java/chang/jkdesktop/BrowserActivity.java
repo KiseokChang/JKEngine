@@ -106,4 +106,13 @@ public class BrowserActivity extends Activity {
         b.setOnClickListener(v -> onClick.run());
         return b;
     }
+
+    // jkweb AmpkOpen 소비 leg(jkvoice_bridge의 JNI 훅이 부른다) — 같은 앱
+    // 프로세스의 activity open이라 background 규제 밖(원존 — docs/102).
+    public static void openWithUrl(android.content.Context ctx, String url) {
+        android.content.Intent i = new android.content.Intent(ctx, BrowserActivity.class);
+        i.putExtra("url", url == null ? "" : url);
+        i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+        ctx.startActivity(i);
+    }
 }

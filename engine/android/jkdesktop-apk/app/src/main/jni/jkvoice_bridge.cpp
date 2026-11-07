@@ -242,6 +242,34 @@ static std::string HttpPostTalk(const std::string& body) {
     return std::string(buf);
 }
 
+// --- T1.5: 앱 자체 브라우저 개봉(jkweb AmpkOpen 소비 leg) -----------------
+#include <agent/JKLlmTurnHttp.h>
+extern "C" int JkStartBrowserActivity(const char* url);
+extern "C" int JkStartBrowserActivity(const char* url) {
+    if (!url || !*url) return 0;
+    JNIEnv* env = static_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
+    jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
+    if (!env || !activity) return 0;
+    jclass cls = env->FindClass("chang/jkdesktop/BrowserActivity");
+    if (!cls) { env->ExceptionClear(); env->DeleteLocalRef(activity); return 0; }
+    jmethodID mid = env->GetStaticMethodID(
+        cls, "openWithUrl", "(Landroid/content/Context;Ljava/lang/String;)V");
+    if (!mid) {
+        env->ExceptionClear();
+        env->DeleteLocalRef(cls); env->DeleteLocalRef(activity);
+        return 0;
+    }
+    jstring ju = env->NewStringUTF(url);
+    env->CallStaticVoidMethod(cls, mid, activity, ju);
+    env->ExceptionClear();
+    env->DeleteLocalRef(ju);
+    env->DeleteLocalRef(cls);
+    env->DeleteLocalRef(activity);
+    std::fprintf(stderr, "[browser] open delivered: %s
+", url);
+    return 1;
+}
+
 // --- TTS speak (HTTP /talk 응답의 reply 본문) ------------------------------
 extern "C" int JKTtsSpeak(const char*);
 extern "C" int JKTtsSpeak(const char* text) {
