@@ -3408,6 +3408,39 @@ static int RunAppSelfTest() {
                   "1n-13 Info 안내문이 어휘 표에서 조립");
         }
 
+        // 1n-v) 자연어 폭 확장 (2026-11-08 — 거실 무PC 축 강화·docs/105 원존:
+        // exact·패턴 열 = 현장에서 LLM 없이 돌아가는 유일 축). STT 변형 동의
+        // 계열 + 브라우저 양축 승천(Launch→AmpkOpen · Close→AmpkClose).
+        {
+            jk::ChatAction a;
+            (void)jk::ChatRouterRoute("지뢰찾기 띄워줘", a);
+            check(a.kind == jk::ChatAction::Launch && a.app == "minesweeper",
+                  "1n-v1 Launch 동사 확장(띄워줘)");
+            (void)jk::ChatRouterRoute("음악 틀어줘", a);
+            check(a.kind == jk::ChatAction::Launch && a.app == "music",
+                  "1n-v2 Launch 동사 확장(틀어줘 — 음악 계열)");
+            (void)jk::ChatRouterRoute("테트리스 실행시켜줘", a);
+            check(a.kind == jk::ChatAction::Launch && a.app == "tetris",
+                  "1n-v3 Launch 동사 확장(실행시켜줘)");
+            (void)jk::ChatRouterRoute("유부브닷컴 열어줄래", a);
+            check(a.kind == jk::ChatAction::AmpkOpen &&
+                      a.app == "https://www.youtube.com",
+                  "1n-v4 STT 열음화 계열 연장(열어줄래 — 발음 복원 승천)");
+            // 브라우저 양축 — 별명표 단일 행에서 개봉·닫기 두 방향 모두
+            (void)jk::ChatRouterRoute("브라우저 띄워줘", a);
+            check(a.kind == jk::ChatAction::AmpkOpen && a.app.empty(),
+                  "1n-v5 브라우저 개봉 승천(빈 app=마지막 주소 계약 승계)");
+            (void)jk::ChatRouterRoute("브라우저 종료해줘", a);
+            check(a.kind == jk::ChatAction::AmpkClose && a.app.empty(),
+                  "1n-v6 브라우저 닫기 승천(N동사 확장종 — exact 행과 1표 1의미)");
+            (void)jk::ChatRouterRoute("테트리스 종료", a);
+            check(a.kind == jk::ChatAction::Close && a.app == "tetris",
+                  "1n-v7 Close 동사 확장(종료 — 1n-8 계약 동일 유지)");
+            (void)jk::ChatRouterRoute("메모장 띄워줘", a);
+            check(a.kind == jk::ChatAction::Launch && a.app == "notes",
+                  "1n-v8 별명 확장(메모장·노트 → notes)");
+        }
+
         // 1n-s) close_window/focus_window 서버 타깃 해소 (채팅 F1 — plan
         //   2026-10-08-chat-close-fix, docs/80 §4 귀속 백로그 착지). Resolver는
         //   순수 로직(AgentWindowRef 스냅샷만 먹는다 — JKWindowServer.h 계약

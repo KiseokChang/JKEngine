@@ -64,6 +64,9 @@ constexpr RouteEntry kRouteTable[] = {
     {ChatAction::AmpkClose,   "브라우저 꺼줘",   true},
     {ChatAction::Close,       "닫아줘"},
     {ChatAction::Close,       "꺼줘"},
+    // [자연어 폭 확장 2026-11-08 — 거실 무PC 축(STT 변형 실체 기반)]
+    {ChatAction::Close,       "종료해줘"},   // STT 동의 계열 — 꺼줘/닫아줘의 말투 다양성
+    {ChatAction::Close,       "종료"},
     {ChatAction::Focus,       "앞으로 가져와"},
     {ChatAction::Focus,       "앞으로"},
     {ChatAction::Focus,       "포커스"},
@@ -79,6 +82,7 @@ constexpr RouteEntry kRouteTable[] = {
     {ChatAction::ListWindows, "뭐 떠 있어"},
     {ChatAction::ListWindows, "뭐 떠"},
     {ChatAction::ListWindows, "뭐떠"},
+    {ChatAction::ListWindows, "뭐 띄웠어"},   // STT 동의 계열 — 현장 말투 변형
     // #124 브라우저 구두 v1 (스펙 2026-11-01-voice-service-browser-v1 §5) —
     // 폰 APK BrowserActivity 개봉. **Launch 행들보다 앞 배치** — 접미 판정은
     // 배열 순서로 갈린다("브라우저 열어줘"가 Launch "열어줘" 행에 눌리는 것을
@@ -89,9 +93,18 @@ constexpr RouteEntry kRouteTable[] = {
     {ChatAction::Launch,      "열게요"},   // #124 r4b — STT 열음화 흡침(폰 원문
                                            //  "유투브 닷컴을 열게요" — 열어줘 변차)
     {ChatAction::Launch,      "열어줘"},
+    // [자연어 폭 확장 2026-11-08 — STT 변형·현장 말투 열] — **긴 트리거 선두
+    // 계약(2y-⑩)** : "실행시켜줘"는 "켜줘"의 접미를 공유하므로 "켜줘" 앞에
+    // 두지 않으면 "테트리스 실행시켜줘"가 "켜줘"행에 눌려 앱어 "실행시"로
+    // 파산(실측 1n-v3 원문).
+    {ChatAction::Launch,      "실행시켜줘"},
     {ChatAction::Launch,      "켜줘"},
     {ChatAction::Launch,      "실행해줘"},
     {ChatAction::Launch,      "실행"},
+    {ChatAction::Launch,      "띄워줘"},
+    {ChatAction::Launch,      "틀어줘"},   // 음악/영상 계열 상용 계열
+    {ChatAction::Launch,      "오픈해줘"},
+    {ChatAction::Launch,      "열어줄래"}, // STT 열음화 계열("열게요" 계보 연장)
     // #115b T1 신설 어휘 v1.5 (스펙 2026-10-27-voice-vocab-design §1·D1-D3).
     // 재생계 — 도구 접점 = vplayer play_pause(무인자 "{}")라 7행 전부
     // 같은 릴레이 대상이다. **토글 수용 원장행**: "정지(seek stop)" 류
@@ -163,6 +176,13 @@ constexpr AliasEntry kAliasTable[] = {
     {"음악",         "music"},
     {"설정",         "settings"},
     {"메모",         "notes"},
+    // [자연어 폭 확장 2026-11-08 — 앱어 동의 계열] — 브라우저 = Launch
+    // 류 동사에 붙으면 AmpkOpen 승천(아래 Launch case 분기 원존),
+    // Close 류 동사에 붙으면 AmpkClose 승천 — 단일 별명행으로 양축 흡수.
+    {"browser",     "browser"},
+    {"브라우저",     "browser"},
+    {"메모장",       "notes"},   // STT 공용 호칭("메모" 대등 계열)
+    {"노트",         "notes"},
 };
 
 // #124 r4 — 발음→도메인 복원 표 (2026-11-01 폰 실측 원존: "youtube.com 열어줘"
@@ -734,6 +754,14 @@ std::string RouteExact(const std::string& text, ChatAction& out) {
                           urlWord + ")"
                     : "'" + word + "' 를 브라우저로 엽니다.";
             }
+            // [브라우저 개봉 폭 확장 2026-11-08] — 별명표 해소 app=browser =
+            // AmpkOpen(개봉 exact 행과 1표 1의미 — jkweb 훅 경유 — 빈 app =
+            // 마지막 주소 계약 승계).
+            if (ResolveAppName(word) == "browser") {
+                out.kind = ChatAction::AmpkOpen;
+                out.app.clear();
+                return "'" + word + "' 를 브라우저로 엽니다.";
+            }
             out.kind = ChatAction::Launch;
             out.app = ResolveAppName(word);
             return "'" + word + "' 앱을 실행합니다.";
@@ -748,6 +776,14 @@ std::string RouteExact(const std::string& text, ChatAction& out) {
             out.kind = ChatAction::Close;
             if (!word.empty()) {
                 out.app = ResolveAppName(word);
+                // [브라우저 닫기 폭 확장 2026-11-08] — 브라우저를 닫는 모든
+                // 동사("종료해줘" 등) = AmpkClose 승천(단일 별명행으로 양축 —
+                // exact 행 계약과 1표 1의미). 브라우저는 창 서버 도구 밖.
+                if (out.app == "browser") {
+                    out.kind = ChatAction::AmpkClose;
+                    out.app.clear();
+                    return "브라우저 창을 닫습니다.";
+                }
                 return "'" + word + "' 창을 닫습니다.";
             }
             return "포커스 창을 닫습니다.";  // app="" — 서버 포커스 창 판정 위임

@@ -565,8 +565,10 @@ std::string HandleTalk(const std::string& body, int& code) {
             std::string url = action.app;
             if (const std::string r = jk::ChatRestorePhonemeUrl(url); !r.empty())
                 url = r;
+#if defined(__ANDROID__)
             std::fprintf(stderr, "[browser] ampk-open switch: url='%s' hook=%d\n",
                          url.c_str(), JkStartBrowserActivity ? 1 : 0);
+#endif
             // r8 — LLM이 검색어에 공백을 그대로 적는 흔칭 ("search_query=고양이
             // 영상" — 폰 실측 2026-11-02) → '+'로 정규화(공백은 UrlSafe 밖).
             for (char& c : url) if (c == ' ') c = '+';
