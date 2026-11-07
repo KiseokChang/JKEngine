@@ -52,15 +52,17 @@ public class BrowserActivity extends Activity {
             return false;
         });
 
-        // 조작행 — 뒤·앞·새로고침·[Go].
+        // 조작행 — 뒤·앞·새로고침·[Go]·[측정].
         LinearLayout navRow = new LinearLayout(this);
         navRow.setOrientation(LinearLayout.HORIZONTAL);
         Button backBtn = navButton("뒤", () -> webView.goBack());
         Button fwdBtn = navButton("앞", () -> webView.goForward());
         Button reloadBtn = navButton("새로고침", () -> webView.reload());
         Button goBtn = navButton("Go", () -> goNow());
+        Button measureBtn = navButton("측정", () -> runMeasure(null));
         navRow.addView(backBtn); navRow.addView(fwdBtn);
         navRow.addView(reloadBtn); navRow.addView(goBtn);
+        navRow.addView(measureBtn);
 
         // 본체 — 화면 남은 영역 전부(죽은 마진 0 — fit 원칙 승계).
         webView = new WebView(this);
@@ -145,6 +147,133 @@ public class BrowserActivity extends Activity {
     // jkweb /talk AmpkOpen 회신 소비용 custom action(JS intent-URI leg 계약).
     public static final String ACTION_OPEN = "chang.jkdesktop.OPEN_BROWSER";
     public static final String EXTRA_URL = "url";
+
+    // ── 측정 하니스(브라우저 T2) — 같은 페이지 세트·JSON 스키마를 GeckoView판
+    // (T5)에도 공용(스키마 계약 원존 — 플랜 Task 2). 산출 = MediaStore
+    // Downloads dump(exportSrvLog 패턴 승계). 폰이 offline일 때도 asset
+    // 페이지(로컬 file://)는 전부 측정 가능 — 네트워크 대기 없음.
+    boolean measuring = false;
+    org.json.JSONArray measurePages = new org.json.JSONArray();
+    Runnable measureDoneExtra;
+
+    void runMeasure(Runnable onDoneExtra) {
+        if (measuring) return;
+        measuring = true;
+        measurePages = new org.json.JSONArray();
+        measureDoneExtra = onDoneExtra;
+        java.util.ArrayDeque<String[]> queue = new java.util.ArrayDeque<>();
+        queue.add(new String[] { "asset_p1",
+            "file:///android_asset/testpages/p1.html" });
+        queue.add(new String[] { "asset_p2",
+            "file:///android_asset/testpages/p2.html" });
+        queue.add(new String[] { "asset_p3",
+            "file:///android_asset/testpages/p3.html" });
+        runMeasureNext(queue);
+    }
+
+    void runMeasureNext(final java.util.ArrayDeque<String[]> queue) {
+        if (queue.isEmpty()) {
+            measuring = false;
+            // 원복 — url 갱신 계약(측정 전 원 클라 계약 승계).
+            webView.setWebViewClient(new WebViewClient() {
+                @Override
+                public void onPageFinished(WebView view, String url) {
+                    urlInput.setText(url);
+                }
+            });
+            String json = finishMeasure();
+            android.util.Log.i("JK-BROWSER", "MEASURE-DONE " + json);
+            java.util.Map<String, String> saved = dumpMeasureJson(json);
+            android.widget.Toast.makeText(this,
+                saved.get("ok") != null && saved.get("ok").equals("1")
+                    ? "측정 완료 → " + saved.get("path")
+                    : "측정 dump 실패",
+                android.widget.Toast.LENGTH_LONG).show();
+            if (measureDoneExtra != null) measureDoneExtra.run();
+            return;
+        }
+        final String[] head = queue.pollFirst();
+        final long pageStart = android.os.SystemClock.uptimeMillis();
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                urlInput.setText(url);
+                final long loadMs = android.os.SystemClock.uptimeMillis() - pageStart;
+                view.evaluateJavascript(
+                    "(function(){var n=performance.getEntriesByType('navigation')[0];"
+                    + "return JSON.stringify({fc:n?(n.responseStart||0):0});})()",
+                    new android.webkit.ValueCallback<String>() {
+                        @Override public void onReceiveValue(String r) {
+                            long fc = -1;
+                            try { fc = Long.parseLong(r.replace("\"", "")
+                                .replace("}", "").split(":")[1]); }
+                            catch (Exception ignored) { }
+                            org.json.JSONObject row = new org.json.JSONObject();
+                            try {
+                                row.put("name", head[0]);
+                                row.put("url", head[1]);
+                                row.put("ok", true);
+                                row.put("loadMs", loadMs);
+                                row.put("firstContentMs", fc);
+                            } catch (Exception ignored) { }
+                            measurePages.put(row);
+                            android.util.Log.i("JK-BROWSER", "MEASURE "
+                                + head[0] + " load=" + loadMs + "ms fc=" + fc);
+                            runMeasureNext(queue);
+                        }
+                    });
+            }
+        });
+        webView.loadUrl(head[1]);
+    }
+
+    String finishMeasure() {
+        String created = new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss")
+            .format(new java.util.Date());
+        String pages = measurePages.toString();
+        if (pages.equals("null")) pages = "[]";
+        return "{\"engine\":\"webview\",\"created\":\"" + created
+            + "\",\"pages\":" + pages + "}";
+    }
+
+    // MediaStore Downloads dump — exportSrvLog 복사 패턴(원존 승계).
+    java.util.Map<String, String> dumpMeasureJson(String json) {
+        java.util.Map<String, String> out = new java.util.HashMap<>();
+        out.put("ok", "0");
+        out.put("path", "");
+        try {
+            String name = "jk_measure_" + System.currentTimeMillis() + ".json";
+            android.net.Uri uri = null;
+            if (android.os.Build.VERSION.SDK_INT >= 29) {
+                android.content.ContentValues v = new android.content.ContentValues();
+                v.put(android.provider.MediaStore.Downloads.DISPLAY_NAME, name);
+                v.put(android.provider.MediaStore.Downloads.IS_PENDING, 1);
+                uri = getContentResolver().insert(
+                    android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+                if (uri == null) return out;
+                try (java.io.OutputStream os = getContentResolver()
+                        .openOutputStream(uri)) {
+                    os.write(json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                }
+                v.clear();
+                v.put(android.provider.MediaStore.Downloads.IS_PENDING, 0);
+                getContentResolver().update(uri, v, null, null);
+            } else {
+                java.io.File dir = android.os.Environment
+                    .getExternalStoragePublicDirectory(
+                        android.os.Environment.DIRECTORY_DOWNLOADS);
+                java.io.File f = new java.io.File(dir, name);
+                try (java.io.OutputStream os = new java.io.FileOutputStream(f)) {
+                    os.write(json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                }
+            }
+            out.put("ok", "1");
+            out.put("path", uri != null ? uri.toString() : name);
+        } catch (Exception e) {
+            android.util.Log.e("JK-BROWSER", "dumpMeasureJson failed", e);
+        }
+        return out;
+    }
 
     private Button navButton(String label, Runnable onClick) {
         Button b = new Button(this);
