@@ -132,7 +132,8 @@ public class ControlActivity extends Activity implements RecognitionListener {
                     status.setText("desktop launched on visible display "
                         + target.getDisplayId());
                 } else {
-                    status.setText("DeX display not visible - am leg ran");
+                    status.setText("DeX 화면은 폰 앱 권한으로 접근 불가 — "
+                        + "TV의 DeX 홈에서 JK 아이콘을 탭하세요");
                 }
             } catch (Exception e) {
                 status.setText("jkdesktop not installed: " + e.getMessage());

@@ -116,6 +116,7 @@ public class BrowserActivity extends Activity {
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(root);
+        webkitOptIn();
 
         // 닫기 브로드캐스트 수신 — 수신 시 자기 finish(AmpkClose 계약).
         closeRx = new android.content.BroadcastReceiver() {
@@ -137,6 +138,40 @@ public class BrowserActivity extends Activity {
         if (given == null) given = "";
         urlInput.setText(given.isEmpty() ? "https://example.com" : given);
         goNow();
+    }
+
+    // ── 브라우저 T3 — androidx.webkit opt-in 봉입(플랜 Task 3 계약)───────
+    // 원격 디버깅(CDP — 에이전트 계약 후보·판정 축)+설치 webkit 패키지 표기+
+    // WebAuthn FOR_APP 지원 개봉. PaymentRequest는 라인 OFF(결제 홉아웃
+    // 원장행 — 스펙 §5 대기 유지).
+    void webkitOptIn() {
+        android.webkit.WebView.setWebContentsDebuggingEnabled(true);
+        try {
+            // AAR 원존 실측: getCurrentWebViewPackage 반환형 = (Context)Landroid/
+            // content/pm/PackageInfo — android.jar 표시 API(android.jar에
+            // WebViewPackageInfo 부재 실측 — jar tf 원문).
+            android.content.pm.PackageInfo s =
+                androidx.webkit.WebViewCompat.getCurrentWebViewPackage(this);
+            android.util.Log.i("JK-BROWSER", "WEBKIT-PKG "
+                + (s != null ? s.versionName : "native"));
+        } catch (Throwable t) {
+            android.util.Log.i("JK-BROWSER", "WEBKIT-PKG unknown");
+        }
+        try {
+            boolean ok = androidx.webkit.WebViewFeature.isFeatureSupported(
+                androidx.webkit.WebViewFeature.WEB_AUTHENTICATION);
+            android.util.Log.i("JK-BROWSER",
+                "WEB-AUTHN supported=" + ok
+                + (ok ? " -> FOR_APP on" : " on this webview pkg"));
+            if (ok) {
+                androidx.webkit.WebSettingsCompat.setWebAuthenticationSupport(
+                    webView.getSettings(),
+                    androidx.webkit.WebSettingsCompat
+                        .WEB_AUTHENTICATION_SUPPORT_FOR_APP);
+            }
+        } catch (Throwable t) {
+            android.util.Log.i("JK-BROWSER", "WEB-AUTHN probe failed");
+        }
     }
 
     void goNow() {

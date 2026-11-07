@@ -53,5 +53,8 @@ android {
 }
 
 dependencies {
-    // 의존 신설 0 — jkapk v1 문화 승계(스파이크이므로 AndroidX도 불요).
+    // [브라우저 T3 — androidx.webkit 봉입(플랜 2026-11-01 Task 3 — 통일 APK
+    // 승계): 패시키(WebAuthn) opt-in + 원격 디버깅 경계. 패밀리 원존: 의존
+    // 최소 규약 유지 — 이 의존은 브라우저 T3 유일].
+    implementation("androidx.webkit:webkit:1.14.0")
 }
