@@ -52,8 +52,8 @@ T1-T10의 착상 순서대 커밋 체인·함정 원존·측정표를 정산한�
 
 ## 3. 캐논
 
-- Win selftest = 985 PASS 0 failure(신설 챠드 4+별명 1+1n-g 19·2y-d2 갱신 포함).
-- 2m-e junction 2건 = 환경 실패(I: exFAT TMP — 테스트 자각 문구 원존) —
+- Win selftest = 985 PASS 0 failure 최종(신설 챠드 4+별명 1+1n-g 19·2y-d2 갱신 포함).
+- 2m-e junction 2건 = 일시 환경 실패(I: exFAT TMP 우회) → C: 11GB 정리 복귀 재측정 PASS 원문(stfinal2) — TMP = C: NTFS 필수(가득 사건 원존).
   C: 가득(0MB) 사건의 TMP 우회로부터. C: 정리 = 사용자 몫.
 - WSL/posix/폰 축 = 미접촉(본 세션) — 다음 접촉 재측정 원존.
 
