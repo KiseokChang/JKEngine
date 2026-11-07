@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="24dp">
+    <Button
+        android:id="@+id/desktopBtn"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="START DESKTOP (DeX)"
+        android:textSize="18sp"
+        android:layout_margin="12dp" />
+    <Button
+        android:id="@+id/micBtn"
+        android:layout_width="220dp"
+        android:layout_height="220dp"
+        android:text="MIC"
+        android:textSize="24sp"
+        android:layout_margin="16dp" />
+    <TextView
+        android:id="@+id/status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="tap = voice -> DeX"
+        android:gravity="center"
+        android:textSize="14sp" />
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+        <Button
+            android:id="@+id/backBtn"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="BACK" />
+        <Button
+            android:id="@+id/browserBtn"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="BROWSER" />
+    </LinearLayout>
+</LinearLayout>

@@ -18,6 +18,12 @@ public class JkVoice {
     private static native void nVoiceError(String err);
 
     public static boolean begin(Context ctx) {
+        // libjkdesk.so 로드 보증(크래시 원존 11-07: force-stop→냉재기동에서
+        // PhoneControlActivity와 MainActivity가 병렬 부팅하면 SDL 부하 경로의
+        // loadLibrary보다 SpeechRecognizer onError가 먼저 터져 UnsatisfiedLinkError로
+        // 프로세스가 죽어 DeX 태스크가 소멸했다). loadLibrary는 멱등 — 이미
+        // 로드돼 있으면 no-op. 콜백도 가드(방어): 음성 실패가 프로세스를 죽이지 않는다.
+        try { System.loadLibrary("jkdesk"); } catch (Throwable t) { }
         // SpeechRecognizer는 main 스레드 전용 런타임 규약(원문: RuntimeException
         // "should be used only from the application's main thread") — C 네이티브
         // 스레드에서 온 개시 요청을 메인 루퍼로 hop시킨다.
@@ -32,6 +38,8 @@ public class JkVoice {
                 // 개시 성공 유무는 결과/오류 콜백으로 보고된다(nVoice*).
             } catch (Exception e) {
                 nVoiceError("start 실패: " + e);
+            } catch (Throwable t) {
+                // 네이티브 미로드 상태 콜백은 프로세스 사망이 아니라 포기(음성=옵션).
             }
         });
         return true;
@@ -42,13 +50,13 @@ public class JkVoice {
             java.util.ArrayList<String> list =
                     results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
             if (list != null && !list.isEmpty()) {
-                nVoiceResult(list.get(0));
+                try { nVoiceResult(list.get(0)); } catch (Throwable t) { }
             } else {
-                nVoiceError("결과 없음");
+                try { nVoiceError("결과 없음"); } catch (Throwable t) { }
             }
         }
         @Override public void onError(int error) {
-            nVoiceError("인식 오류 code=" + error);
+            try { nVoiceError("인식 오류 code=" + error); } catch (Throwable t) { }
         }
         @Override public void onPartialResults(Bundle partialResults) {}
         @Override public void onRmsChanged(float rmsdB) {}
