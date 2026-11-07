@@ -43,7 +43,12 @@ struct ChatAction {
                 // 직접 회고 턴(세션 기록+저널을 프롬프트로 — TurnSync 재용,
                 // 창 서버 도구 미경유). AmpkType 뒤 추가(기존 kind 수치
                 // 계보 보존 — 2y-⑲ 동형).
-                DaySummary };
+                DaySummary,
+                // 폰 브라우저 닫기 leg(사용자 실측 2026-11-07 — 브라우저 플랜
+                // review 갱신 2 원존 소비): AmpkClose = BrowserActivity 닫기
+                // (브로드캐스트 — 창 서버 도구 미경유, AmpkOpen 동형).
+                // DaySummary 뒤 추가(기존 kind 수치 계보 보존 — 2y-⑲ 동형).
+                AmpkClose };
     Kind kind = Info;   // 도구 지시 종류 — Info만 "지시 없음"의미.
     std::string app;    // Launch·Close의 앱 키(라이브러리 appName 규약 —
                         // alias표 해소). Close 미지정 = ""(포커스 창).

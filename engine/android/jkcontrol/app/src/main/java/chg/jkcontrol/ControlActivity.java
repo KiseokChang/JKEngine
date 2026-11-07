@@ -27,6 +27,7 @@ public class ControlActivity extends Activity implements RecognitionListener {
     SpeechRecognizer recognizer;
     Intent recognizerIntent;
     Thread post;
+    int micRetries;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -34,6 +35,15 @@ public class ControlActivity extends Activity implements RecognitionListener {
         setContentView(R.layout.control);
         status = findViewById(R.id.status);
 
+        // [mic 권한 — 사용자 실측 2026-11-07 "recognizer error 9" 원존 —
+        // logcat RecognitionService "caller without permission" 원문] —
+        // 독립 앱이라 RECORD_AUDIO 런타임 요청이 뼈대에 없었다. 미권한 상태
+        // 서비스 거부 = ERROR_RECOGNIZER_BUSY(9)로 보고된다(삼성 특정 계층).
+        if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
+            != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(
+                new String[] { android.Manifest.permission.RECORD_AUDIO }, 1);
+        }
         recognizer = SpeechRecognizer.createSpeechRecognizer(this);
         recognizerIntent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
         recognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
@@ -41,10 +51,14 @@ public class ControlActivity extends Activity implements RecognitionListener {
         recognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ko-KR");
         recognizer.setRecognitionListener(this);
 
-        findViewById(R.id.micBtn).setOnClickListener(v -> {
-            status.setText("listening...");
-            recognizer.startListening(recognizerIntent);
-        });
+        findViewById(R.id.micBtn).setOnClickListener(v -> startMic());
+    }
+
+    void startMic() {
+        // start 전 cancel(9번 BUSY 반복 방지 — 기존 세가 잡혀 있으면 빨리 푼다).
+        try { recognizer.cancel(); } catch (Exception ignored) { }
+        status.setText("listening...");
+        recognizer.startListening(recognizerIntent);
         findViewById(R.id.desktopBtn).setOnClickListener(v -> {
             status.setText("starting desktop...");
             try {
@@ -186,6 +200,7 @@ public class ControlActivity extends Activity implements RecognitionListener {
 
     @Override
     public void onResults(Bundle results) {
+        micRetries = 0;  // 성공 — busy 재시도 카운터 리셋
         ArrayList<String> list =
             results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
         if (list != null && !list.isEmpty()) {
@@ -201,6 +216,18 @@ public class ControlActivity extends Activity implements RecognitionListener {
     @Override public void onBufferReceived(byte[] b) {}
     @Override public void onEndOfSpeech() { status.setText("processing..."); }
     @Override public void onError(int err) {
+        // 9 = ERROR_RECOGNIZER_BUSY — cancel+1회 재개(권한 거부도 9로 표출되는
+        // 삼성 계층 실측 원존 — 재시도가 이뤄지려면 권한이 선행됨).
+        if (err == 9 && micRetries < 3) {
+            ++micRetries;
+            try { recognizer.cancel(); } catch (Exception ignored) { }
+            status.setText("busy - retrying...");
+            new Thread(() -> {
+                try { Thread.sleep(700); } catch (Exception ignored) { }
+                runOnUiThread(() -> startMic());
+            }).start();
+            return;
+        }
         status.setText("recognizer error " + err + " - tap to retry");
     }
     @Override public void onPartialResults(Bundle p) {}

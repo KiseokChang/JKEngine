@@ -99,6 +99,7 @@ const char* KindName(jk::ChatAction::Kind kind) {
         case jk::ChatAction::AmpkOpen:       return "AmpkOpen";
         case jk::ChatAction::AmpkType:       return "AmpkType";
         case jk::ChatAction::DaySummary:     return "DaySummary";
+        case jk::ChatAction::AmpkClose:      return "AmpkClose";  // 브라우저 닫기 leg
     }
     return "?";
 }

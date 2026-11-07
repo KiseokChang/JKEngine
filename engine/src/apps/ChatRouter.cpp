@@ -57,6 +57,11 @@ struct RouteEntry {
 };
 
 constexpr RouteEntry kRouteTable[] = {
+    // 폰 브라우저 닫기(사용자 실측 2026-11-07 — "브라우저 닫아줘" mic 원존): exact
+    // 행 — **Close 접미 행보다 앞 배치**(뒤접미 판정은 배열 순서로 갈림 —
+    // "브라우저"가 기존 Close의 앱어로 새는 것을 봉쇄 — 2y-⑩ 순서 계약 동형).
+    {ChatAction::AmpkClose,   "브라우저 닫아줘", true},
+    {ChatAction::AmpkClose,   "브라우저 꺼줘",   true},
     {ChatAction::Close,       "닫아줘"},
     {ChatAction::Close,       "꺼줘"},
     {ChatAction::Focus,       "앞으로 가져와"},
@@ -329,6 +334,7 @@ const char* KindLabel(ChatAction::Kind kind) {
         case ChatAction::AppTool:     return "재생 조작";
         case ChatAction::OverlayNumbers: return "창 번호 표지";
         case ChatAction::AmpkOpen:    return "브라우저 개봉";  // #124
+        case ChatAction::AmpkClose:   return "브라우저 닫기";  // 폰 브라우저 닫기 leg
         case ChatAction::Info:        break;
     }
     return "안내";
@@ -732,6 +738,11 @@ std::string RouteExact(const std::string& text, ChatAction& out) {
             out.app = ResolveAppName(word);
             return "'" + word + "' 앱을 실행합니다.";
         }
+        case ChatAction::AmpkClose:
+            // 폰 브라우저 닫기(사용자 실측 2026-11-07 원존) — 브라우저를
+            // **닫는다**(개봉 AmpkOpen 동형 — 창 서버 도구 미경유 — jkweb 소관).
+            out.kind = ChatAction::AmpkClose;
+            return "브라우저 창을 닫습니다.";
         case ChatAction::Close: {
             const std::string word = ExtractTargetWord(norm, hit->trigger);
             out.kind = ChatAction::Close;
@@ -893,6 +904,10 @@ std::string DefaultActionGuide(const ChatAction& a) {
         case ChatAction::Close:
             return a.app.empty() ? std::string("포커스 창을 닫습니다.")
                                  : "'" + a.app + "' 창을 닫습니다.";
+        case ChatAction::AmpkClose:
+            // 폰 브라우저 닫기 — 즉발 경로 전용(AmpkOpen 동형 원존 — LLM
+            // 스키마 밖 action=방어 사례뿐).
+            return "브라우저 창을 닫습니다.";
         case ChatAction::Focus:
             // #118 T2 — 번호 화법의 LLM 판 폴백 문어(파서 성공+빈 text의
             // 방어 사례 — winNum은 즉발 경로만 채운다 — 스키마 4종+talk 원존).

@@ -244,19 +244,71 @@ static std::string HttpPostTalk(const std::string& body) {
 
 // --- T1.5: 앱 자체 브라우저 개봉(jkweb AmpkOpen 소비 leg) -----------------
 #include <agent/JKLlmTurnHttp.h>
+
+// [앱 클래스 획득 수형 — 2026-11-07 실측 1판 정산] SDL_AndroidGetActivity =
+// MainActivity 인스턴스 → GetObjectClass = MainActivity 클래스 → 거기엔
+// BrowserActivity 정적 메서드가 없다(mid-null 원문). HTTP 스레드 Attach
+// 계층에서 FindClass(앱 클래스)는 시스템 로더로 파산(switch 원문 앞 무기명
+// 조기 귀환 원존). 수형 = MainActivity.getClassLoader().loadClass(확정 문자)
+// — 로더 우회 정식 leg. java/lang/ClassLoader 자체는 시스템 클래스라
+// FindClass 성립(로더 무관).
+static jclass FetchAppClass(JNIEnv* env, jobject activity,
+                            const char* dotName, const char* logTag) {
+    jclass clz = env->GetObjectClass(activity);
+    if (!clz) { env->ExceptionClear(); return nullptr; }
+    jclass loaderClz = env->FindClass("java/lang/ClassLoader");
+    if (!loaderClz) {
+        env->ExceptionClear(); env->DeleteLocalRef(clz);
+        std::fprintf(stderr, "%s loaderClz-null\n", logTag);
+        return nullptr;
+    }
+    jmethodID gcl = env->GetMethodID(
+        clz, "getClassLoader", "()Ljava/lang/ClassLoader;");
+    jobject loader = gcl ? env->CallObjectMethod(activity, gcl) : nullptr;
+    env->ExceptionClear();
+    if (!loader) {
+        env->DeleteLocalRef(loaderClz); env->DeleteLocalRef(clz);
+        std::fprintf(stderr, "%s loader-null\n", logTag);
+        return nullptr;
+    }
+    jmethodID ldc = env->GetMethodID(
+        loaderClz, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;");
+    jclass cls = nullptr;
+    if (ldc) {
+        jstring jn = env->NewStringUTF(dotName);
+        cls = (jclass)env->CallObjectMethod(loader, ldc, jn);
+        env->ExceptionClear();
+        env->DeleteLocalRef(jn);
+    }
+    env->DeleteLocalRef(loaderClz);
+    env->DeleteLocalRef(clz);
+    env->DeleteLocalRef(loader);
+    if (!cls) std::fprintf(stderr, "%s class-null\n", logTag);
+    return cls;
+}
+
 extern "C" int JkStartBrowserActivity(const char* url);
 extern "C" int JkStartBrowserActivity(const char* url) {
     if (!url) url = "";   // 빈 = 마지막 주소 그대로(BrowserActivity 기본 페이지)
     JNIEnv* env = static_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
     jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
-    if (!env || !activity) return 0;
-    jclass cls = env->FindClass("chang/jkdesktop/BrowserActivity");
+    if (!env || !activity) {
+        std::fprintf(stderr, "[browser] open early-return env=%p activity=%p\n",
+                     (void*)env, (void*)activity);
+        return 0;
+    }
+    // [수형 — 2026-11-07 실측 원존: switch hook=1 이후 mid-null 2판 —
+    // getActivity=MainActivity → GetObjectClass에 openWithUrl 없음] —
+    // FetchAppClass(로더 loadClass)로 BrowserActivity 클래스 직취.
+    jclass cls = FetchAppClass(env, activity,
+                               "chang.jkdesktop.BrowserActivity", "[browser]");
     if (!cls) { env->ExceptionClear(); env->DeleteLocalRef(activity); return 0; }
     jmethodID mid = env->GetStaticMethodID(
         cls, "openWithUrl", "(Landroid/content/Context;Ljava/lang/String;)V");
     if (!mid) {
         env->ExceptionClear();
         env->DeleteLocalRef(cls); env->DeleteLocalRef(activity);
+        std::fprintf(stderr, "[browser] open early-return mid-null\n");
         return 0;
     }
     jstring ju = env->NewStringUTF(url);
@@ -266,6 +318,34 @@ extern "C" int JkStartBrowserActivity(const char* url) {
     env->DeleteLocalRef(cls);
     env->DeleteLocalRef(activity);
     std::fprintf(stderr, "[browser] open delivered: %s\n", url);
+    return 1;
+}
+
+// --- 폰 브라우저 닫기(jkweb AmpkClose 소비 leg — 2026-11-07 사용자 mic 원존)
+// --- 개봉 훅과 동형(JNI — 같은 앱 프로세스라 background 규제 밖 — 실측 원존
+// docs/102). 브라우저는 브로드캐스트 수신자로 자기 finish를 소화한다(다중
+// 인스턴스도 각자 수신 — static 참조 보유 금지 원칙).
+extern "C" int JkCloseBrowserActivity(void);
+extern "C" int JkCloseBrowserActivity(void) {
+    JNIEnv* env = static_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
+    jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
+    if (!env || !activity) return 0;
+    // 로더 loadClass leg — open 훅과 동수형(mid-null 2판 원존).
+    jclass cls = FetchAppClass(env, activity,
+                               "chang.jkdesktop.BrowserActivity", "[browser]");
+    if (!cls) { env->ExceptionClear(); env->DeleteLocalRef(activity); return 0; }
+    jmethodID mid = env->GetStaticMethodID(
+        cls, "closeAllBroadcast", "(Landroid/content/Context;)V");
+    if (!mid) {
+        env->ExceptionClear();
+        env->DeleteLocalRef(cls); env->DeleteLocalRef(activity);
+        return 0;
+    }
+    env->CallStaticVoidMethod(cls, mid, activity);
+    env->ExceptionClear();
+    env->DeleteLocalRef(cls);
+    env->DeleteLocalRef(activity);
+    std::fprintf(stderr, "[browser] close delivered\n");
     return 1;
 }
 

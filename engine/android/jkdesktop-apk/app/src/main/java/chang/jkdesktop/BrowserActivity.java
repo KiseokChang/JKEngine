@@ -117,6 +117,19 @@ public class BrowserActivity extends Activity {
             ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(root);
 
+        // 닫기 브로드캐스트 수신 — 수신 시 자기 finish(AmpkClose 계약).
+        closeRx = new android.content.BroadcastReceiver() {
+            @Override
+            public void onReceive(android.content.Context c, android.content.Intent i) {
+                runOnUiThread(() -> finish());
+            }
+        };
+        // RECEIVER_NOT_EXPORTED — Android 14 요구 실측 원존(SecurityException:
+        // RECEIVER_EXPORTED|RECEIVER_NOT_EXPORTED 지정 요구 — 폰 크래시 버퍼).
+        registerReceiver(closeRx,
+            new android.content.IntentFilter(ACTION_CLOSE),
+            android.content.Context.RECEIVER_NOT_EXPORTED);
+
         // 개봉 URL 봉입: intent extra "url"(jkweb AmpkOpen 회신 app 필드 계약)
         // 있으면 그것, 없으면 기본 페이지.
         String given = getIntent() != null
@@ -283,6 +296,26 @@ public class BrowserActivity extends Activity {
         b.setPadding(row * 2, 0, row * 2, 0);
         b.setOnClickListener(v -> onClick.run());
         return b;
+    }
+
+    // 폰 브라우저 닫기(브라우저 플랜 review 갱신 2 — 사용자 mic 원존): 브로드캐스트
+    // 수신 leg — 다중 인스턴스도 각자 수신해 자기 finish(액티비티 static 참조
+    // 보유 금지 원칙). jkvoice_bridge의 JkCloseBrowserActivity JNI 훅이 발사.
+    public static final String ACTION_CLOSE = "chang.jkdesktop.CLOSE_BROWSER";
+    android.content.BroadcastReceiver closeRx;
+
+    @Override
+    protected void onDestroy() {
+        if (closeRx != null) {
+            unregisterReceiver(closeRx);
+            closeRx = null;
+        }
+        super.onDestroy();
+    }
+
+    public static void closeAllBroadcast(android.content.Context ctx) {
+        ctx.sendBroadcast(new android.content.Intent(ACTION_CLOSE)
+            .setPackage(ctx.getPackageName()));
     }
 
     // jkweb AmpkOpen 소비 leg(jkvoice_bridge의 JNI 훅이 부른다) — 같은 앱

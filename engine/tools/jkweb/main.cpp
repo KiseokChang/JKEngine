@@ -120,6 +120,7 @@ const char* KindName(jk::ChatAction::Kind kind) {
         case jk::ChatAction::AmpkOpen:       return "AmpkOpen";  // #124
         case jk::ChatAction::AmpkType:       return "AmpkType";  // #124 2단계
         case jk::ChatAction::DaySummary:     return "DaySummary"; // 하루 친구 v1
+        case jk::ChatAction::AmpkClose:      return "AmpkClose";  // 브라우저 닫기 leg
     }
     return "?";
 }
@@ -453,6 +454,7 @@ std::string DaySummaryPrompt() {
 // [T9] BrowserActivity 개봉 훅 전방(weak — jkc 클라 링크가 이 TU를 먹을 때
 // jkvoice_bridge 정의는 jkdesk에서만 성립 — 콜사이트 선조회 계약).
 __attribute__((weak)) extern "C" int JkStartBrowserActivity(const char* url);
+__attribute__((weak)) extern "C" int JkCloseBrowserActivity(void);
 #endif
 
 std::string HandleTalk(const std::string& body, int& code) {
@@ -563,6 +565,8 @@ std::string HandleTalk(const std::string& body, int& code) {
             std::string url = action.app;
             if (const std::string r = jk::ChatRestorePhonemeUrl(url); !r.empty())
                 url = r;
+            std::fprintf(stderr, "[browser] ampk-open switch: url='%s' hook=%d\n",
+                         url.c_str(), JkStartBrowserActivity ? 1 : 0);
             // r8 — LLM이 검색어에 공백을 그대로 적는 흔칭 ("search_query=고양이
             // 영상" — 폰 실측 2026-11-02) → '+'로 정규화(공백은 UrlSafe 밖).
             for (char& c : url) if (c == ' ') c = '+';
@@ -581,6 +585,17 @@ std::string HandleTalk(const std::string& body, int& code) {
                 : "브라우저로 개봉합니다: " + url;
             return "{\"ok\":true,\"reply\":\"" + JsonEsc(msg) +
                    "\",\"kind\":\"AmpkOpen\",\"app\":\"" + JsonEsc(url) + "\"}";
+        }
+        case jk::ChatAction::AmpkClose: {
+            // 폰 브라우저 닫기(사용자 실측 2026-11-07 — mic "브라우저 닫아줘"
+            // 원존) — 개봉 AmpkOpen 동형 계약(회신 소비 — 아닌 jkweb 직행
+            // 브로드캐스트 훅 — 앱 프로세스 안이라 background 규제 밖).
+            code = 200;
+#if defined(__ANDROID__)
+            if (JkCloseBrowserActivity) JkCloseBrowserActivity();
+#endif
+            return "{\"ok\":true,\"reply\":\"브라우저 창을 닫습니다.\""
+                   ",\"kind\":\"AmpkClose\",\"app\":\"\"}";
         }
         case jk::ChatAction::AmpkType: {
             // #124 2단계(r9b 누락 수리) — 전송 0: 브라우저 창 수신기가 직접
