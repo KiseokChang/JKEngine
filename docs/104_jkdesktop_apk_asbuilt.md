@@ -10,6 +10,8 @@ T1-T10의 착상 순서대 커밋 체인·함정 원존·측정표를 정산한�
 
 | 커밋 | 라인 | 요지 |
 |---|---|---|
+| 8214969 | 폰 브라우저 닫기 | AmpkClose leg+JNI 로더 수형 2판+mic 권한(원문) |
+| (11-08) | 브라우저 T3 | androidx.webkit 1.14 — 패시키 FOR_APP+CDP opt-in |
 | (11-07 심야) | lf/helix 폰 조달 | Termux 바이오닉 봉입+PATH seed+런처 셀(+f 원존) |
 | (11-07 심야) | DeX 타깃 leg | JkVoice 크래시 픽스+jkcontrol pidof 검증 — docs/phone-dex-target-report.md |
 | f63c55a | 브라우저 T1 | BrowserActivity.kt+manifest+JS intent-URI leg |
@@ -57,6 +59,24 @@ T1-T10의 착상 순서대 커밋 체인·함정 원존·측정표를 정산한�
   DeX 합성에 가려진다(원문: SurfaceFlinger first frame 있었는데 TV=런처).
 - 앱 소스 `am --display 2` = Starting만 인쇄 무시(pidof-ok=false 실측) vs
   셸 소스 = 수용 → TV 풀스크린 확인. 딥 원문 = docs/phone-dex-target-report.md.
+
+### 2.6a-1 mic 권한(error 9)+브라우저 닫기 leg — 8214969
+- mic error 9 진원 = RECORD_AUDIO 런타임 미권한(logcat "caller without
+  permission" 원문) — 삼성 서비스 계층은 거부를 9(BUSY)로 표출. 수형 =
+  ControlActivity 런타임 요청+start 전 cancel+busy 재시도 3회.
+- 브라우저 닫기 = AmpkClose kind(exact 행 Close 접미 앞 배치)·jkweb 직행 훅·
+  브로드캐스트 finish(RECEIVER_NOT_EXPORTED — Android 14 요구 원문).
+- **JNI 로더 계층 2판 실측** — HTTP 스레드 훅: ①FindClass(앱 클래스)= 시스템
+  로더 파산(switch hook=1 이후 무기명) → ②GetObjectClass(getActivity()) =
+  MainActivity 클래스(mid-null) → 수형 = getClassLoader().loadClass()
+  (FetchAppClass). 이전 세션의 개봉 성공은 타이밍 의존이었음을 정직 원존.
+
+### 2.6a-2 브라우저 T3 — androidx.webkit 1.14 (11-08)
+- 폰 원문: WEBKIT-PKG 156.0.8078.47 · WEB-AUTHN supported=true → FOR_APP on.
+- 수형 원존: getCurrentWebViewPackage 반환형 = android.content.pm.PackageInfo
+  (android.jar에 WebViewPackageInfo 부재 — jar tf 실측·AAR 상수 풀 원문).
+- 함정 원존: useAndroidX 플래그 신설(의존 1개 경계)·gradle transforms 캐시
+  스탤 워크스페이스(재시도로 해소 — AV 락 정직 표기).
 
 ### 2.6b lf/helix 폰 조달 — 11-07 심야
 - GitHub glibc 배포판은 바이오닉 부정합(단독 실행 불가) → **Termux arm64 deb**
