@@ -103,6 +103,23 @@ extern "C" int SDL_main(int argc, char* argv[]) {
             ::mkdir(assetsDir.c_str(), 0700);
             if (::chdir(internal) == 0)
                 std::fprintf(stderr, "[jkdesk] CWD=%s (relative assets/ 해석점)\n", internal);
+            // lf/helix 폰 조달 leg — assets/bin(execl sh 자식이 이 env를 상속).
+            // HELIX_RUNTIME = opt/helix 래퍼 규약 이식(원존: hx는 env로 런타임을
+            // 찾는다 — grammars 193MB는 무장애 제외, 기본 편집 leg).
+            std::string binDir = std::string(internal) + "/assets/bin";
+            ::mkdir(binDir.c_str(), 0700);
+            std::string hrEnv = std::string(internal) + "/assets/helix-runtime";
+            ::setenv("HELIX_RUNTIME", hrEnv.c_str(), 1);
+            ::setenv("HOME", internal, 1);  // hx 로그/캐시 — /.cache 무권한 원인 소각
+            const char* curPath = ::getenv("PATH");
+            std::string seeded = binDir + ":/system/bin:/system/xbin:"
+                "/data/data/com.termux/files/usr/bin";
+            if (curPath && *curPath)
+                seeded = binDir + ":" + std::string(curPath) + ":/system/bin:"
+                         "/data/data/com.termux/files/usr/bin";
+            ::setenv("PATH", seeded.c_str(), 1);
+            std::fprintf(stderr, "[jkdesk] PATH seed=%s HELIX_RUNTIME=%s\n",
+                         seeded.c_str(), hrEnv.c_str());
         }
         // 클라 exec 흔적 — 서버 스폰 자식이 이 fd를 물려받아 같은 파일에 남는다.
         if (argc > 1 && std::strcmp(argv[1], "--client") == 0)

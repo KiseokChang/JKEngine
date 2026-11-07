@@ -120,6 +120,9 @@ public class MainActivity extends SDLActivity {
                     int n;
                     while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
                 }
+                // [lf/helix 폰 조달 leg — 11-07] 추출 기본 0660 → 실행 비트
+                // 보증(bin/ 하의 조달 바이너리 — PATH seed 해석점의 exec 전제).
+                if (dstRel.startsWith("assets/bin/")) dst.setExecutable(true, false);
             }
         } catch (Exception e) {
             android.util.Log.e("jkdesk", "extractAssets failed", e);

@@ -281,6 +281,15 @@ void JKDesktopShell::Init(const ShellHost& host) {
         icon.title = "Tetris";
         launcherIcons_.push_back(icon);
     }
+    // [T9-브라우저] (2026-11-07 — 사용자 백로그: "브라우저 아이콘도 함께"):
+    #if defined(__ANDROID__)
+    if (!hasJkx("browser")) {
+        LauncherIcon icon;
+        icon.appName = "browser";
+        icon.title = "Browser";
+        launcherIcons_.push_back(icon);
+    }
+    #endif
     // Phase A TUI 흡수 (docs/44): 콘솔 앱은 appName "terminal:<cmdline>" 관례로
     // 터미널 위에 띄운다 (SpawnClient가 접두사를 해석). 상대경로는 jkdesktop
     // cwd(engine/build) 기준. 전용 아이콘 아트는 이후 폴리싱 — fallback 아트.
@@ -297,6 +306,23 @@ void JKDesktopShell::Init(const ShellHost& host) {
         icon.title = "hx";
         launcherIcons_.push_back(icon);
     }
+    #if defined(__ANDROID__)
+    // [lf/helix 폰 조달 leg — Termux 바이오닉 빌드(11-07 실측: 단독 실행 원문
+    // lf r42·hx 25.07.1)] — jksrv_main이 PATH seed+HELIX_RUNTIME을 심어
+    // 무접미 명령으로 해석. grammars 193MB는 무장애 제외(기본 편집 leg).
+    if (!hasJkx("terminal:lf")) {
+        LauncherIcon icon;
+        icon.appName = "terminal:lf";
+        icon.title = "lf";
+        launcherIcons_.push_back(icon);
+    }
+    if (!hasJkx("terminal:hx")) {
+        LauncherIcon icon;
+        icon.appName = "terminal:hx";
+        icon.title = "hx";
+        launcherIcons_.push_back(icon);
+    }
+    #endif
 
 #if defined(__ANDROID__)
     // 스펙 §6 — 전 모듈 런처 축: nativeLibraryDir(= JK_EXE_PATH의 dir)에 포장된
