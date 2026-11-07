@@ -246,7 +246,7 @@ static std::string HttpPostTalk(const std::string& body) {
 #include <agent/JKLlmTurnHttp.h>
 extern "C" int JkStartBrowserActivity(const char* url);
 extern "C" int JkStartBrowserActivity(const char* url) {
-    if (!url || !*url) return 0;
+    if (!url) url = "";   // 빈 = 마지막 주소 그대로(BrowserActivity 기본 페이지)
     JNIEnv* env = static_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
     jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
     if (!env || !activity) return 0;
@@ -265,8 +265,7 @@ extern "C" int JkStartBrowserActivity(const char* url) {
     env->DeleteLocalRef(ju);
     env->DeleteLocalRef(cls);
     env->DeleteLocalRef(activity);
-    std::fprintf(stderr, "[browser] open delivered: %s
-", url);
+    std::fprintf(stderr, "[browser] open delivered: %s\n", url);
     return 1;
 }
 

@@ -449,6 +449,12 @@ std::string DaySummaryPrompt() {
 // 발화 1개 → 라우트 → 서버 위임 → JSON 응답 몸통. 서버 부재는 500과 한국어
 // 이유(jkwebFailNoServer 대응 — HTTP 세계에서는 종료코드 대신 상태 코드가 정직
 // 의 표기, 스펙 §5.1 "정직 500").
+#if defined(__ANDROID__)
+// [T9] BrowserActivity 개봉 훅 전방(weak — jkc 클라 링크가 이 TU를 먹을 때
+// jkvoice_bridge 정의는 jkdesk에서만 성립 — 콜사이트 선조회 계약).
+__attribute__((weak)) extern "C" int JkStartBrowserActivity(const char* url);
+#endif
+
 std::string HandleTalk(const std::string& body, int& code) {
     const std::string text = TrimText(JsonGetString(body, "text"));
     if (text.empty()) {
@@ -566,6 +572,9 @@ std::string HandleTalk(const std::string& body, int& code) {
                        "개봉하지 않습니다 — 직접 주소만 입력해 주세요"
                        "\",\"kind\":\"AmpkOpen\",\"app\":\"\"}";
             }
+#if defined(__ANDROID__)
+            if (JkStartBrowserActivity) JkStartBrowserActivity(url.c_str());
+#endif
             code = 200;
             const std::string msg = url.empty()
                 ? "브라우저 창을 엽니다."
