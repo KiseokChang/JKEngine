@@ -10,6 +10,8 @@ T1-T10의 착상 순서대 커밋 체인·함정 원존·측정표를 정산한�
 
 | 커밋 | 라인 | 요지 |
 |---|---|---|
+| (11-07 심야) | lf/helix 폰 조달 | Termux 바이오닉 봉입+PATH seed+런처 셀(+f 원존) |
+| (11-07 심야) | DeX 타깃 leg | JkVoice 크래시 픽스+jkcontrol pidof 검증 — docs/phone-dex-target-report.md |
 | f63c55a | 브라우저 T1 | BrowserActivity.kt+manifest+JS intent-URI leg |
 | db9a086 | 폰 글자 깨짐 | 타이틀 비트맵 경로/대소·경로 양형 개방 |
 | 175df36 | 터미널 T9 | 셸 -i 대화형+폰 폰트 사다리 |
@@ -45,6 +47,27 @@ T1-T10의 착상 순서대 커밋 체인·함정 원존·측정표를 정산한�
 
 ### 2.5 시스템 폰트 사다리 — 33f972f
 - stb_truetype = CFF 거부(NotoSansCJK·SECCJK.ttc) — glyf 단면 축만 통과.
+
+### 2.6a DeX 타깃 leg 표면 위계 — 11-07 심야
+- **냉재기동 크래시**: PhoneControl+Main 병렬 부팅에서 SDL loadLibrary보다
+  SpeechRecognizer onError 선발사 → UnsatisfiedLinkError → 프로세스 사망 →
+  DeX 태스크 소멸. 수형 = JkVoice.begin() libjkdesk.so 멱등 로드+콜백 가드.
+- **표면 위계 확정**: TV = logical 2(DeX 가상 Desktop — 앱에 비가시)·
+  앱 getDisplays()=[0,12]·id 12('HDMI 화면' 물리 RTK)는 창 프레젠트돼도
+  DeX 합성에 가려진다(원문: SurfaceFlinger first frame 있었는데 TV=런처).
+- 앱 소스 `am --display 2` = Starting만 인쇄 무시(pidof-ok=false 실측) vs
+  셸 소스 = 수용 → TV 풀스크린 확인. 딥 원문 = docs/phone-dex-target-report.md.
+
+### 2.6b lf/helix 폰 조달 — 11-07 심야
+- GitHub glibc 배포판은 바이오닉 부정합(단독 실행 불가) → **Termux arm64 deb**
+  (pool/l/lf 42-1·pool/h/helix 25.07.1-2 — docs/44 버전 핀과 일치).
+- 폰 단독 실행 원문: `lf --version` = r42 / `hx --health` = 런타임 발견.
+- 배선: assets/bin/{lf,hx}+assets/helix-runtime(984파일 1.4MB — grammars
+  193MB 무장애 제외)·extractAssets bin/* exec 비트 보증(추출 0660 함정)·
+  jksrv_main PATH seed(assets/bin 선두)+HELIX_RUNTIME+HOME.
+- 접수: 터미널 자식 sh /proc environ 원문 — seed 3종 도달 확인.
+- 함정 원존: Git Bash adb 원격 경로 /data → C:/Program Files/Git/data 변환
+  (MSYS_NO_PATHCONV=1 필수; 로컬 Windows 경로엔 반대도 필수 아님·재해석).
 
 ### 2.6 T7 — 407c095
 - jk::net 클라 사신 신설(ConnectTcp·Recv) — RecvAll exact-n과 HTTP 부정합 원존.
