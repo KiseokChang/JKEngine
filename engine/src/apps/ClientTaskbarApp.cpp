@@ -6,8 +6,10 @@
 #include "theme/JKTheme.h"
 
 #include <JKHangulUtil.h>
+#include <net/JKNet.h>
 #include <cstdio>
 #include <algorithm>
+#include <thread>
 
 namespace jk {
 
@@ -32,6 +34,33 @@ void TitleChipColor(const std::string& title, uint8_t& r, uint8_t& g, uint8_t& b
     g = static_cast<uint8_t>(96 + ((h >> 8) & 63));
     b = static_cast<uint8_t>(96 + (h & 63));
 }
+
+// 네비 셀 지시 채널(스펙 §3 — 수단 통일 계약): :8091/talk POST 단발 —
+// 라우터 exact 행("브라우저 뒤로"·"바탕화면으로"·"창 목록")이 소비한다.
+// 워커 스레드 단발(detach) — UI 스레드 블록 금지. 실패 = 조용한 포기
+// (콘솔 행 없음 — 컨트롤 앱/구두 폴백이 남는다).
+void PostTalkAsync(const std::string& text) {
+    std::thread([text] {
+        if (!jk::net::Startup()) return;
+        jk::net::Socket s = jk::net::ConnectTcp("127.0.0.1", 8091);
+        if (s == jk::net::kInvalidSocket) return;
+        jk::net::SetTimeouts(s, 5000);
+        const std::string body = "{\"text\":\"" + text + "\"}";
+        std::string req =
+            "POST /talk HTTP/1.1\r\n"
+            "Host: 127.0.0.1:8091\r\n"
+            "Content-Type: application/json\r\n"
+            "Connection: close\r\n"
+            "Content-Length: " + std::to_string(body.size()) + "\r\n\r\n" + body;
+        if (jk::net::Send(s, req.data(), static_cast<int>(req.size())) <= 0) {
+            jk::net::Close(s);
+            return;
+        }
+        char buf[256];
+        (void)jk::net::Recv(s, buf, sizeof(buf));  // 1회 회신 폐기(단발 소화)
+        jk::net::Close(s);
+    }).detach();
+}
 } // namespace
 
 ClientTaskbarApp::~ClientTaskbarApp() = default;
@@ -40,6 +69,26 @@ void ClientTaskbarApp::OnInit() {
     auto main = std::make_unique<TaskbarWindow>("Taskbar");
     main->SetWindowRect(JKRect{ 0, 0, 1280, 40 });
     main->SetAttrFlags(WA_CHROMELESS);
+
+    // 네비 셀 3종(스펙 §4 — DeX 하단바 관례 순서: 뒤·홈·최근 — 좌측 고정).
+    // 창 버튼 pool과 별개 — Relayout에서 스트립 폭만큼 창 버튼을 미끼친다.
+    struct NavCell { const char* label; const char* say; TaskbarButton** dst; };
+    const NavCell nav[] = {
+        { "뒤",  "브라우저 뒤로",   &navBack_ },
+        { "홈",  "바탕화면으로",    &navHome_ },
+        { "최근", "창 목록",        &navRecents_ },
+    };
+    for (const NavCell& n : nav) {
+        auto btn = std::make_unique<TaskbarButton>();
+        btn->SetText(n.label);
+        TaskbarButton* raw = btn.get();
+        const char* say = n.say;
+        raw->SetOnClickWindow([say](uint32_t, bool) {
+            PostTalkAsync(say);
+        });
+        main->AddControl(std::move(btn));
+        *n.dst = raw;
+    }
 
     // Button pool (WindowListPayload caps at 32 windows).
     for (size_t i = 0; i < 32; ++i) {
@@ -113,23 +162,38 @@ void ClientTaskbarApp::RefreshWindowList() {
 // Overflow rule (docs/28, 최소 너비 보장형 동적 축소): split the available
 // width across buttons, cap at kButtonMaxWidth, never below kButtonMinWidth.
 // Titles wider than the button are simply clipped by TextOutX.
+// 창 개수 무관 항상 보이는 네비 스트립 폭(뒤·홈·최근 — DeX 하단바 관례).
 void ClientTaskbarApp::Relayout() {
     JKWindow* win = GetMainWindow();
     if (!win) return;
     const JKRect client = win->GetClientRect();
 
+    constexpr int kNavW = 44;
+    constexpr int kNavCount = 3;
+    const int navStrip = kNavW * kNavCount + kButtonGap * (kNavCount - 1);
+
+    // 네비 셀(항상 표시) — 좌측부터.
+    int x = kBarMargin;
+    const int y = std::max(0, (client.h - kButtonHeight) / 2);
+    for (TaskbarButton* nav : { navBack_, navHome_, navRecents_ }) {
+        if (nav) {
+            nav->SetRect(JKRect{ x, y, kNavW, kButtonHeight });
+            nav->Show();
+        }
+        x += kNavW + kButtonGap;
+    }
+
     size_t count = 0;
     for (TaskbarButton* btn : buttons_) {
         if (btn->IsVisible()) ++count;
     }
-    if (count == 0) return;
+    if (count == 0) { win->Invalidate(); return; }
 
-    const int avail = client.w - kBarMargin * 2 - kButtonGap * static_cast<int>(count - 1);
+    const int avail = client.w - kBarMargin * 2 - navStrip
+                      - kButtonGap * static_cast<int>(count - 1);
     int btnW = avail / static_cast<int>(count);
     btnW = std::max(kButtonMinWidth, std::min(kButtonMaxWidth, btnW));
 
-    int x = kBarMargin;
-    const int y = std::max(0, (client.h - kButtonHeight) / 2);
     for (TaskbarButton* btn : buttons_) {
         if (!btn->IsVisible()) continue;
         btn->SetRect(JKRect{ x, y, btnW, kButtonHeight });

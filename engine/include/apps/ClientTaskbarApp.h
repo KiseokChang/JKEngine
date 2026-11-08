@@ -70,6 +70,13 @@ private:
     // Fixed pool: WindowListPayload holds at most 32 entries, so buttons are
     // pre-created once and rebound in place (hidden past the window count).
     std::vector<TaskbarButton*> buttons_;
+    // 네비 셀(스펙 2026-11-08-jkdesktop-navigation-design §4 — DeX 하단바
+    // 관례 좌측: 뒤·홈·최근). 창 버튼 pool과 별개 고정 셀 — Relayout이
+    // 창 버튼을 네비 스트립 우측으로 미끼친다.
+    TaskbarButton* navBack_ = nullptr;
+    TaskbarButton* navHome_ = nullptr;
+    TaskbarButton* navRecents_ = nullptr;
+
 };
 
 } // namespace jk

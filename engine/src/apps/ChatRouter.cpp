@@ -60,8 +60,21 @@ constexpr RouteEntry kRouteTable[] = {
     // 폰 브라우저 닫기(사용자 실측 2026-11-07 — "브라우저 닫아줘" mic 원존): exact
     // 행 — **Close 접미 행보다 앞 배치**(뒤접미 판정은 배열 순서로 갈림 —
     // "브라우저"가 기존 Close의 앱어로 새는 것을 봉쇄 — 2y-⑩ 순서 계약 동형).
+    // [바탕화면 복귀 어휘 2026-11-08 — 사용자 질의 "브라우저 상태→바탕화면"
+    // 원존 소비] — 브라우저가 닫히면 DeX 표면(2)의 바탕화면이 들통(위계
+    // 원존) = 사실상 복귀 지시. 컨트롤 앱 BACK 버튼의 앱 단독 keyevent 주입
+    // 불가(시스템 권한 — 결함 원존)의 대체 UX 축이기도 하다.
+    // 네비 체계 뒤/앞(스펙 2026-11-08-jkdesktop-navigation-design §2 —
+    // DeX 하단바·Android 3버튼 관례 원존 — 사용자 원존 "백 키·홈키·메뉴키"):
+    // 브라우저 웹 히스토리 뒤/앞 — exact 행(브라우저 창은 창 서버 도구 밖).
+    {ChatAction::AmpkBack,    "브라우저 뒤로",   true},
+    {ChatAction::AmpkBack,    "브라우저 뒤로가", true},   // STT 조사 변형 계열
+    {ChatAction::AmpkFwd,     "브라우저 앞으로", true},
     {ChatAction::AmpkClose,   "브라우저 닫아줘", true},
     {ChatAction::AmpkClose,   "브라우저 꺼줘",   true},
+    {ChatAction::AmpkClose,   "바탕화면으로",   true},
+    {ChatAction::AmpkClose,   "바탕화면 돌아가", true},
+    {ChatAction::AmpkClose,   "바탕화면 가줘",   true},
     {ChatAction::Close,       "닫아줘"},
     {ChatAction::Close,       "꺼줘"},
     // [자연어 폭 확장 2026-11-08 — 거실 무PC 축(STT 변형 실체 기반)]
@@ -355,6 +368,8 @@ const char* KindLabel(ChatAction::Kind kind) {
         case ChatAction::OverlayNumbers: return "창 번호 표지";
         case ChatAction::AmpkOpen:    return "브라우저 개봉";  // #124
         case ChatAction::AmpkClose:   return "브라우저 닫기";  // 폰 브라우저 닫기 leg
+        case ChatAction::AmpkBack:    return "브라우저 뒤로";  // 네비 체계(스펙 §2)
+        case ChatAction::AmpkFwd:     return "브라우저 앞으로";
         case ChatAction::Info:        break;
     }
     return "안내";
@@ -766,10 +781,22 @@ std::string RouteExact(const std::string& text, ChatAction& out) {
             out.app = ResolveAppName(word);
             return "'" + word + "' 앱을 실행합니다.";
         }
+        case ChatAction::AmpkBack:
+            // 네비 뒤(스펙 §2) — 브라우저 웹 히스토리 뒤로(브로드캐스트 leg).
+            out.kind = ChatAction::AmpkBack;
+            return "브라우저에서 뒤로 갑니다.";
+        case ChatAction::AmpkFwd:
+            // 네비 앞(스펙 §2) — BACK 동형 봉입.
+            out.kind = ChatAction::AmpkFwd;
+            return "브라우저에서 앞으로 갑니다.";
         case ChatAction::AmpkClose:
             // 폰 브라우저 닫기(사용자 실측 2026-11-07 원존) — 브라우저를
             // **닫는다**(개봉 AmpkOpen 동형 — 창 서버 도구 미경유 — jkweb 소관).
+            // 바탕화면 어휘 행은 회신 = 복귀 문어(브라우저는 이미 닫힘 계약).
             out.kind = ChatAction::AmpkClose;
+            if (norm == "바탕화면으로" || norm == "바탕화면 돌아가"
+                || norm == "바탕화면 가줘")
+                return "화면을 바탕화면으로 돌립니다.";
             return "브라우저 창을 닫습니다.";
         case ChatAction::Close: {
             const std::string word = ExtractTargetWord(norm, hit->trigger);
@@ -944,6 +971,10 @@ std::string DefaultActionGuide(const ChatAction& a) {
             // 폰 브라우저 닫기 — 즉발 경로 전용(AmpkOpen 동형 원존 — LLM
             // 스키마 밖 action=방어 사례뿐).
             return "브라우저 창을 닫습니다.";
+        case ChatAction::AmpkBack:
+            return "브라우저에서 뒤로 갑니다.";
+        case ChatAction::AmpkFwd:
+            return "브라우저에서 앞으로 갑니다.";
         case ChatAction::Focus:
             // #118 T2 — 번호 화법의 LLM 판 폴백 문어(파서 성공+빈 text의
             // 방어 사례 — winNum은 즉발 경로만 채운다 — 스키마 4종+talk 원존).

@@ -121,6 +121,8 @@ const char* KindName(jk::ChatAction::Kind kind) {
         case jk::ChatAction::AmpkType:       return "AmpkType";  // #124 2단계
         case jk::ChatAction::DaySummary:     return "DaySummary"; // 하루 친구 v1
         case jk::ChatAction::AmpkClose:      return "AmpkClose";  // 브라우저 닫기 leg
+        case jk::ChatAction::AmpkBack:       return "AmpkBack";   // 네비 체계
+        case jk::ChatAction::AmpkFwd:        return "AmpkFwd";
     }
     return "?";
 }
@@ -455,6 +457,7 @@ std::string DaySummaryPrompt() {
 // jkvoice_bridge 정의는 jkdesk에서만 성립 — 콜사이트 선조회 계약).
 __attribute__((weak)) extern "C" int JkStartBrowserActivity(const char* url);
 __attribute__((weak)) extern "C" int JkCloseBrowserActivity(void);
+__attribute__((weak)) extern "C" int JkBrowserNavigate(int dir);  // 0=뒤 1=앞
 #endif
 
 std::string HandleTalk(const std::string& body, int& code) {
@@ -592,13 +595,32 @@ std::string HandleTalk(const std::string& body, int& code) {
             // 폰 브라우저 닫기(사용자 실측 2026-11-07 — mic "브라우저 닫아줘"
             // 원존) — 개봉 AmpkOpen 동형 계약(회신 소비 — 아닌 jkweb 직행
             // 브로드캐스트 훅 — 앱 프로세스 안이라 background 규제 밖).
+            // [바탕화면 복귀 2026-11-08] 회신 = 라우터 guide 승계(정직 회문 —
+            // "브라우저 창을 닫습니다."/"화면을 바탕화면으로 돌립니다." —
+            // 트리거 종류별 문어).
             code = 200;
 #if defined(__ANDROID__)
             if (JkCloseBrowserActivity) JkCloseBrowserActivity();
 #endif
-            return "{\"ok\":true,\"reply\":\"브라우저 창을 닫습니다.\""
+            return "{\"ok\":true,\"reply\":\"" + JsonEsc(guide) + "\""
                    ",\"kind\":\"AmpkClose\",\"app\":\"\"}";
         }
+        case jk::ChatAction::AmpkBack:
+            // 네비 뒤(스펙 §2) — Broadcast leg(AmpkClose 동형). dir=0.
+            code = 200;
+#if defined(__ANDROID__)
+            if (JkBrowserNavigate) JkBrowserNavigate(0);
+#endif
+            return "{\"ok\":true,\"reply\":\"" + JsonEsc(guide) + "\""
+                   ",\"kind\":\"AmpkBack\",\"app\":\"\"}";
+        case jk::ChatAction::AmpkFwd:
+            // 네비 앞 — dir=1.
+            code = 200;
+#if defined(__ANDROID__)
+            if (JkBrowserNavigate) JkBrowserNavigate(1);
+#endif
+            return "{\"ok\":true,\"reply\":\"" + JsonEsc(guide) + "\""
+                   ",\"kind\":\"AmpkFwd\",\"app\":\"\"}";
         case jk::ChatAction::AmpkType: {
             // #124 2단계(r9b 누락 수리) — 전송 0: 브라우저 창 수신기가 직접
             // 적용해 서버 접촉 없다(회신에 kind+app=입력할 글자 payload 계약).

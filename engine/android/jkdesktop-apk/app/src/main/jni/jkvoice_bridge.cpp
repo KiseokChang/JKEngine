@@ -325,7 +325,31 @@ extern "C" int JkStartBrowserActivity(const char* url) {
 // --- 개봉 훅과 동형(JNI — 같은 앱 프로세스라 background 규제 밖 — 실측 원존
 // docs/102). 브라우저는 브로드캐스트 수신자로 자기 finish를 소화한다(다중
 // 인스턴스도 각자 수신 — static 참조 보유 금지 원칙).
-extern "C" int JkCloseBrowserActivity(void);
+// --- 네비 뒤/앞(스펙 2026-11-08-jkdesktop-navigation-design §2) — 닫기 훅과
+// --- 동형 단일 훅(dir 0=뒤 1=앞 — 브로드캐스트로 BrowserActivity가 소화).
+extern "C" int JkBrowserNavigate(int dir);
+extern "C" int JkBrowserNavigate(int dir) {
+    JNIEnv* env = static_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
+    jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
+    if (!env || !activity) return 0;
+    jclass cls = FetchAppClass(env, activity,
+                               "chang.jkdesktop.BrowserActivity", "(browser]");
+    if (!cls) { env->ExceptionClear(); env->DeleteLocalRef(activity); return 0; }
+    jmethodID mid = env->GetStaticMethodID(
+        cls, "navigateBroadcast", "(Landroid/content/Context;I)V");
+    if (!mid) {
+        env->ExceptionClear();
+        env->DeleteLocalRef(cls); env->DeleteLocalRef(activity);
+        return 0;
+    }
+    env->CallStaticVoidMethod(cls, mid, activity,
+                              static_cast<jint>(dir));
+    env->ExceptionClear();
+    env->DeleteLocalRef(cls);
+    env->DeleteLocalRef(activity);
+    std::fprintf(stderr, "[browser] navigate dir=%d\n", dir);
+    return 1;
+}
 extern "C" int JkCloseBrowserActivity(void) {
     JNIEnv* env = static_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
     jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());

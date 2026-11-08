@@ -118,17 +118,36 @@ public class BrowserActivity extends Activity {
         setContentView(root);
         webkitOptIn();
 
-        // 닫기 브로드캐스트 수신 — 수신 시 자기 finish(AmpkClose 계약).
+        // 닫기/네비 브로드캐스트 수신 — 닫기 = 자기 finish(AmpkClose 계약),
+        // 뒤/앞 = 웹 히스토리 조작(뒤 = BACK 키와 동일 우선 — 풀스크린 복귀).
         closeRx = new android.content.BroadcastReceiver() {
             @Override
             public void onReceive(android.content.Context c, android.content.Intent i) {
-                runOnUiThread(() -> finish());
+                final String act = i.getAction();
+                runOnUiThread(() -> {
+                    if (ACTION_BACK.equals(act)) {
+                        if (fullscreenView != null) {
+                            webView.getWebChromeClient().onHideCustomView();
+                        } else if (webView.canGoBack()) {
+                            webView.goBack();
+                        }
+                        return;
+                    }
+                    if (ACTION_FWD.equals(act)) {
+                        if (webView.canGoForward()) webView.goForward();
+                        return;
+                    }
+                    finish();   // ACTION_CLOSE
+                });
             }
         };
+        android.content.IntentFilter navFx =
+            new android.content.IntentFilter(ACTION_CLOSE);
+        navFx.addAction(ACTION_BACK);
+        navFx.addAction(ACTION_FWD);
         // RECEIVER_NOT_EXPORTED — Android 14 요구 실측 원존(SecurityException:
         // RECEIVER_EXPORTED|RECEIVER_NOT_EXPORTED 지정 요구 — 폰 크래시 버퍼).
-        registerReceiver(closeRx,
-            new android.content.IntentFilter(ACTION_CLOSE),
+        registerReceiver(closeRx, navFx,
             android.content.Context.RECEIVER_NOT_EXPORTED);
 
         // 개봉 URL 봉입: intent extra "url"(jkweb AmpkOpen 회신 app 필드 계약)
@@ -337,6 +356,9 @@ public class BrowserActivity extends Activity {
     // 수신 leg — 다중 인스턴스도 각자 수신해 자기 finish(액티비티 static 참조
     // 보유 금지 원칙). jkvoice_bridge의 JkCloseBrowserActivity JNI 훅이 발사.
     public static final String ACTION_CLOSE = "chang.jkdesktop.CLOSE_BROWSER";
+    // 네비 체계(스펙 §2 — DeX 하단바 관례): 뒤/앞 = 웹 히스토리 조작 브로드캐스트.
+    public static final String ACTION_BACK = "chang.jkdesktop.BROWSER_BACK";
+    public static final String ACTION_FWD = "chang.jkdesktop.BROWSER_FWD";
     android.content.BroadcastReceiver closeRx;
 
     @Override
@@ -350,6 +372,14 @@ public class BrowserActivity extends Activity {
 
     public static void closeAllBroadcast(android.content.Context ctx) {
         ctx.sendBroadcast(new android.content.Intent(ACTION_CLOSE)
+            .setPackage(ctx.getPackageName()));
+    }
+
+    // 네비 뒤/앞 지시(jkvoice_bridge JkBrowserNavigate(dir) 훅 소관) —
+    // 브로드캐스트로 인스턴스의 웹 히스토리를 조작한다(0=뒤 1=앞).
+    public static void navigateBroadcast(android.content.Context ctx, int dir) {
+        ctx.sendBroadcast(new android.content.Intent(
+                dir == 1 ? ACTION_FWD : ACTION_BACK)
             .setPackage(ctx.getPackageName()));
     }
 

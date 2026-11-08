@@ -13,14 +13,15 @@
 | L3 엔진 창(앱) | libjkc 표면(태스크바 버튼과 1:1) | 태스크바·창 번호 화법("창 3 앞으로")·(구두) |
 | L4 폰 컨트롤 앱 | 독립 APK(chg.jkcontrol) | MIC 구두·START DEX·BACK/(구두)·BROWSER |
 
-## 2. 네비 3종의 의미 고정 (1표 1의미 계약)
+## 2. 네비 3종의 의미 고정 (1표 1의미 계약 — **기성 GUI OS 관례 원존**)
 
-| 지시 | 의미 | 라인 |
-|---|---|---|
-| **홈(HOME)** | "바탕화면 상태로" — 오버레이(L1)를 치우고 L1 아래 층이 드러난다. 브라우저 = 닫기, 이 후 창 전체화면(vplayer 등)은 v2 | AmpkClose(어휘 "바탕화면으로" — 원존) |
-| **뒤(BACK)** | 맥락 단계 전진 복귀: 브라우저 = 웹 히스토리 뒤로(새 leg AmpkBack). 엔진 창 = v1 제외(의미 부재 — 정직 보류) | AmpkBack(신설) |
-| **앞(FORWARD)** | 브라우저 웹 앞으로 — 신설 AmpkFwd(BACK 동형 — 이번에 함께 봉입) | AmpkFwd(신설) |
-| **메뉴(MENU)** | v1 제외(사유: 메뉴가 정의할 도메인 대상 부재 — 앱 메뉴 체계 미성립). 후보 = 창 목록 오버레이 재용(기존 "창 목록"·overlay_numbers 계열) — 사용자 판쓴 대기 | — |
+| 지시 | 관례 출처 | 의미 | 라인 |
+|---|---|---|---|
+| **뒤(BACK)** | Android 3버튼 네비·DeX 하단바 좌측(BACK)·브라우저 공통 | 맥락 단계 전진 복귀: 브라우저 = 웹 히스토리 뒤로 | AmpkBack(신설) |
+| **홈(HOME)** | Android/DeX HOME · Windows Win+D · macOS Dock 가리키기(GNOME 활동 화면 유사) | "바탕화면 상태로" — 오버레이(L1)를 치우고 아래 층이 드러난다. 브라우저 = 닫기; 창 전체화면(vplayer) = v2 | AmpkClose(어휘 "바탕화면으로" — 원존) |
+| **최근(RECENTS)** | DeX 하단바·Android Recents · Windows Alt+Tab · macOS Mission Control · GNOME Activities | 떠 있는 창 총괄 열람 — 우리의 기존 "창 목록"+창 번호 화법("창 3") 축이 그 대응물(v1 = TTS 회수 회신; 시각 오버레이 = v2 후보) | 기존 ListWindows 어휘 재용 — 신설 0 |
+| **앞(FORWARD)** | 브라우저 공통(DeX 하단바에는 부재 — 브라우저 내부 셀 소관) | 브라우저 웹 앞으로 — BACK 동형으로 함께 봉입 | AmpkFwd(신설) |
+| **메뉴(MENU)** | Windows 앱 메뉴 체계 | v1 제외(사유: 우리 앱들에 메뉴 도메인 부재). "최근"이 실질 메뉴 역할을 흡수 — 사용자 판촠 대기 | — |
 
 ## 3. 수단 채널 (어디서 누르든 같은 뜻)
 
@@ -44,10 +45,11 @@ TV BACK 키 ──→ BrowserActivity onBackPressed(히스토리→복귀 — �
 1. AmpkBack·AmpkFwd kind — AmpkClose 동형(enum 꼬리·계보 보존): exact 행
    "브라우저 뒤로"/"브라우저 앞으로"(+STT 변형 2종), jkweb 훅 →
    BrowserActivity 브로드캐스트 ACTION_BACK/ACTION_FWD → onReceive = 웹 뒤/앞.
-2. 태스크바 네비 셀 — 홈·뒤 2셀(좌측 고정폭): 홈 = talk("바탕화면으로"),
-   뒤 = talk("브라우저 뒤로"). 창 버튼은 네비 셀 우측으로 미끼침.
+2. **태스크바 네비 셀 = 뒤·홈·최근 3셀(DeX 하단바 관례 순서 좌측 배치)**:
+   뒤 = talk("브라우저 뒤로"), 홈 = talk("바탕화면으로"),
+   최근 = talk("창 목록") — 창 버튼은 네비 셀 우측으로 미끼침.
 3. 컨트롤 앱 BACK 버튼 = talk("바탕화면으로") — (이미 수형 중).
-4. 메뉴 = v1 제외(§2) — 사용자 판쓴 대기.
+4. 메뉴 = "최근"이 흡수(§2) — 별도 메뉴 셀 v2.
 
 ## 5. 검증
 

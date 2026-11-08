@@ -140,7 +140,11 @@ public class ControlActivity extends Activity implements RecognitionListener {
             }
         });
         findViewById(R.id.backBtn).setOnClickListener(v ->
-            postTalk(new Intent().putExtra("kind", "BACK").toString()));
+            // [수형 2026-11-08 — 결함 원존: {"kind":"BACK"} POST = 서버가
+            // "text"만 읽어 빈 발화 거부(무동작) + 앱 단독 keyevent 주입은
+            // 시스템 권한이라 성립 불가] — 브라우저/창 위의 화면을 바탕화면으로
+            // 되돌리는 지시(라우터 AmpkClose 승천 — 브라우저 정실측 경로 재용).
+            postTalk("{\"text\":\"바탕화면으로\"}"));
         findViewById(R.id.browserBtn).setOnClickListener(v ->
             postTalk("{\"text\":\"브라우저 열어줘\"}"));
     }
