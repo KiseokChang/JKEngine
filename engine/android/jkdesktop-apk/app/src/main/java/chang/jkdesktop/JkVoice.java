@@ -57,12 +57,15 @@ public class JkVoice {
             } else {
                 try { nVoiceError("결과 없음"); } catch (Throwable t) { }
             }
-            ScheduleRearm();
+            ScheduleRearm(900);
         }
         @Override public void onError(int error) {
             if (rearmFails < 6) rearmFails++;   // 카운트는 오류마다(REARM에서 하지 않는다 — 1판 결함 원존)
             try { nVoiceError("인식 오류 code=" + error); } catch (Throwable t) { }
-            ScheduleRearm();
+            // [튠 원존 2026-11-08] code=5(클라 거부) = 서비스 전환 최소 대기
+            // 실측: 1.5초 간격 = 5 연쇄(살아 있는 듣기 창 ~0) — 4초 소화기.
+            // code=7(무발화 정상 만료) = 짧게 1.2초.
+            ScheduleRearm(error == 7 ? 1200 : 4000);
         }
         @Override public void onPartialResults(Bundle partialResults) {}
         @Override public void onRmsChanged(float rmsdB) {}
@@ -77,8 +80,8 @@ public class JkVoice {
     // 무발화 에러 code=7 모두) — 룸 UX(구두 상시 준비)에는 자동 재무장이
     // 전제. **1판 카운터 결함 원존(실측: code=5 0.8초 무한 반복 — 첫 스킵에서
     // 카운터가 안 오르는 논리)** → 정확 계약: onError마다 실패 카운트++·
-    // 간격 1.5초(삼성 서비스 전환 최소 소화기 — 짧은 간격=code=5 원존)·
-    // 5회 초과 = 스스로 멈춘다(정직 포기 — /voice·컨트롤 앱 재개시 채널).
+    // 간격 오류 종류별(4초/1.2초 — 아래 튠 원존)·5회 초과 = 스스로 멈춘다
+    // (정직 포기 — /voice·컨트롤 앱 재개시 채널).
     public static Context listenerCtx;
     public static int rearmFails;
     public static final java.lang.Runnable REARM = () -> {
@@ -88,9 +91,9 @@ public class JkVoice {
         } catch (Throwable t) { }
     };
 
-    private static void ScheduleRearm() {
+    private static void ScheduleRearm(long delayMs) {
         new android.os.Handler(android.os.Looper.getMainLooper())
-            .postDelayed(REARM, 1500);
+            .postDelayed(REARM, delayMs);
     }
 
     // [에코 루프 뮤트 leg — 2026-11-08 폰 원존: voice turn 26회 반복] TTS가
