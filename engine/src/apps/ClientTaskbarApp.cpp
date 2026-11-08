@@ -36,6 +36,7 @@ constexpr int kChipPad = 6;
 // + 비트맵 폴백 — 문구별 1회 렌더 캐시(캐시는 프로세스 수명 소유 —
 // 승인 배너 선례). 투명 배경.
 struct MiniRenderKit {
+    SDL_Renderer* r = nullptr;   // GetSurfaceRenderer() — OnInit 봉입.
     std::unique_ptr<jk::HangulManager> font;
     std::unique_ptr<jk::JKSDLRenderBackend> backend;
     std::unique_ptr<jk::JKTextAtlas> atlas;
@@ -48,6 +49,7 @@ MiniRenderKit& MiniKit() {
 SDL_Texture* MiniTextTexture(SDL_Renderer* r, const std::string& utf8,
                              int* w, int* h) {
     static std::map<std::string, std::pair<SDL_Texture*, SDL_Point>> texs;
+    r = r ? r : MiniKit().r;
     *w = 0; *h = 0;
     auto it = texs.find(utf8);
     if (it != texs.end()) {
@@ -56,6 +58,8 @@ SDL_Texture* MiniTextTexture(SDL_Renderer* r, const std::string& utf8,
         return it->second.first;
     }
     MiniRenderKit& k = MiniKit();
+    k.r = r;     // 재부팅(닫았다 다시 열기) 대비 — r의 최신 봉입.
+    if (!r) return nullptr;
     if (!k.font) k.font = std::make_unique<jk::HangulManager>();
     if (!k.backend) k.backend =
         std::make_unique<jk::JKSDLRenderBackend>(r);
@@ -205,6 +209,7 @@ void ClientTaskbarApp::OnInit() {
         main->AddControl(std::move(btn));
     }
     SetTimerInterval(10000);  // [트레이] 시계 갱신(1분 해상도·10초 틱).
+    MiniKit().r = GetSurfaceRenderer();  // 자식 텍스처 대상(표면 렌더러).
     // [2026-11-09 정산] 중복 정리 셀·폐기 주석 소각(파이썬 편집 적중 2회 원존
     // — 첫 적용은 커밋 미포함 상태로 파일에 남았던 실측).
 
@@ -404,20 +409,25 @@ void TaskbarButton::OnPaintClient(JKDC& dc) {
             dc.FillRect(JKRect{ cx - 5, cy - 6, 3, 12 });
             dc.FillRect(JKRect{ cx + 2, cy - 6, 3, 12 });
         } else if (label.size() == 5 && label[2] == ':') {
-            // [S3 시계] HH:MM — 글리프 없이 숫자 중앙 대형 낭독.
-            dc.TextOutX(client, Utf8ToKssm(label.c_str()).c_str(),
-                        ADJ_YCENTER, false);
+            // [S3 시계] HH:MM — 글리프 없이 텍스처 중앙(자식 텍스처 렌더기).
+            int lw = 0; int lh = 0;
+            if (SDL_Texture* lt = MiniTextTexture(nullptr, label,
+                                                  &lw, &lh)) {
+                SDL_Rect cbox{ cx - lw / 2, cy - lh / 2, lw, lh };
+                SDL_RenderCopy(MiniKit().r, lt, nullptr, &cbox);
+            }
             return;
         } else {
             // ▤ — Recents 관례 동형(겹쳐진 두 창 외곽선).
             dc.DrawRect(JKRect{ cx - 7, cy - 7, 10, 10 });
             dc.DrawRect(JKRect{ cx - 3, cy - 3, 10, 10 });
         }
-        // 소형 라벨(셀 하단 한글 — KSSM 비트맵 최소 가시 높이 여유 14px).
-        const JKRect textRect{ client.x, client.y + client.h - 14,
-                               client.w, 14 };
-        dc.TextOutX(textRect, Utf8ToKssm(label.c_str()).c_str(),
-                    ADJ_YCENTER, false);
+        // 소형 라벨(셀 하단 — 미니 텍스처 — TextOutX 불발 원존 봉합).
+        int lw = 0; int lh = 0;
+        if (SDL_Texture* lt = MiniTextTexture(nullptr, label, &lw, &lh)) {
+            SDL_Rect lbox{ cx - lw / 2, client.y + client.h - lh - 1, lw, lh };
+            SDL_RenderCopy(MiniKit().r, lt, nullptr, &lbox);
+        }
         return;
     }
 

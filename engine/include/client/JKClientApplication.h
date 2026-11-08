@@ -69,6 +69,10 @@ public:
 
     JKResourceCache* GetResourceCache() const { return resourceCache_.get(); }
     JKWindowManager* GetWindowManager() const { return windowManager_.get(); }
+    // r30 표면 렌더러 — 클라 앱의 SDL 텍스처 자원이 쓰는 것과 동일한 렌더러
+    // [자식 텍스처 렌더기(트레이·라벨) = MiniTextTexture가 이 렌더러로 대상
+    // 텍스처를 생성한다].
+    SDL_Renderer* GetSurfaceRenderer() const { return hiddenRenderer_; }
 
     void SetTimerInterval(uint32_t ms);
     uint64_t AddTimer(uint32_t winId, uint32_t intervalMs, bool repeat);
