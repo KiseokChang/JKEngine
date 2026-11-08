@@ -5,6 +5,7 @@ package chang.jkdesktop;
 
 import android.content.Context;
 import android.speech.tts.TextToSpeech;
+import android.speech.tts.UtteranceProgressListener;
 
 public class JkTts {
     private static TextToSpeech tts;
@@ -26,6 +27,20 @@ public class JkTts {
         }
     }
 
+    // [안내 즉시 정지 leg — 2026-11-08 사용자 원존 "마이크를 누르면 안내
+    // 멈추며 안돼요"] — jkweb /voice가 JNI로 부른다(마이크 탭 = 안내 정지 +
+    // 듣기 개시). 정지 = 말 버림 + 마이크 재무장(JkVoice 뮤트 계약 승계).
+    public static void stopAll() {
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+            try {
+                if (tts != null) tts.stop();
+                JkVoice.MuteDoneThenRearm();
+            } catch (Exception e) {
+                android.util.Log.w("jkdesk", "tts stopAll failed: " + e);
+            }
+        });
+    }
+
     public static void speak(String text) {
         if (!ready || tts == null) begin(null);
         if (tts == null) return;
@@ -38,7 +53,7 @@ public class JkTts {
                 // JkVoice가 소유(정직 계약 동형).
                 JkVoice.MuteMicUntilDone();
                 tts.setOnUtteranceProgressListener(
-                    new TextToSpeech.UtteranceProgressListener() {
+                    new UtteranceProgressListener() {
                         @Override public void onStart(String id) { }
                         @Override public void onDone(String id) {
                             JkVoice.MuteDoneThenRearm();

@@ -150,9 +150,9 @@ extern "C" int SDL_main(int argc, char* argv[]) {
     JKVoiceAutoturnStart();
     // [정리 leg — 2026-11-08 사용자 판정 "정리해야죠"] PhoneControlActivity
     // 내부 컨트롤 판 폐기(jkcontrol 독립 앱이 유일 컨트롤 표면 — 정직 유지
-    // 계약)에 따른 마이크 상시 개시: 구두=부팅부터 준비(룸 UX — 별도 판
-    // 개봉 없이). 실패 = 정직 콘솔 행(/voice·컨트롤 앱 MIC로 재개시 가능).
-    JKAndroidVoiceBegin();
+    // 계약). 1판 = 부팅 마이크 자가 개시 — **사용자 원존 폐기("MIC를 누르고
+    // 있지 않은데도 마이크 활성화")** — 기본 = push-to-talk(MIC 탭·/voice로만
+    // 개시). 상시 leg 재개토하려면JKAndroidVoiceBegin() 부만 복원(한 줄 토글).
     started = true;
     return main(argc, argv);
 }

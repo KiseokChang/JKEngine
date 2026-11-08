@@ -30,6 +30,7 @@ public class JkVoice {
         final Context c = ctx;
         new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
             listenerCtx = c.getApplicationContext();  // 재무장 leg의 Context 진실원
+            rearmFails = 0;   // 수동 개시 = 새 세션(실패 카운터 리셋)
             try {
                 if (recognizer == null) {
                     recognizer = SpeechRecognizer.createSpeechRecognizer(c);
@@ -59,6 +60,7 @@ public class JkVoice {
             ScheduleRearm();
         }
         @Override public void onError(int error) {
+            if (rearmFails < 6) rearmFails++;   // 카운트는 오류마다(REARM에서 하지 않는다 — 1판 결함 원존)
             try { nVoiceError("인식 오류 code=" + error); } catch (Throwable t) { }
             ScheduleRearm();
         }
@@ -73,13 +75,14 @@ public class JkVoice {
 
     // [상시 구두 재무장 leg — 2026-11-08] 인식기는 1발성 후 정지한다(결과·
     // 무발화 에러 code=7 모두) — 룸 UX(구두 상시 준비)에는 자동 재무장이
-    // 전제. 연속 실패 5회 = 스스로 멈춘다(정직 포기 — 영구 실패 반복 스팸
-    // 방지 — 컨트롤 앱/voice 재개시 채널로 재시작 가능).
+    // 전제. **1판 카운터 결함 원존(실측: code=5 0.8초 무한 반복 — 첫 스킵에서
+    // 카운터가 안 오르는 논리)** → 정확 계약: onError마다 실패 카운트++·
+    // 간격 1.5초(삼성 서비스 전환 최소 소화기 — 짧은 간격=code=5 원존)·
+    // 5회 초과 = 스스로 멈춘다(정직 포기 — /voice·컨트롤 앱 재개시 채널).
     public static Context listenerCtx;
     public static int rearmFails;
     public static final java.lang.Runnable REARM = () -> {
         if (listenerCtx == null || recognizer == null || rearmFails >= 5) return;
-        if (rearmFails > 0) rearmFails++;
         try {
             recognizer.startListening(makeIntent());
         } catch (Throwable t) { }
@@ -87,7 +90,7 @@ public class JkVoice {
 
     private static void ScheduleRearm() {
         new android.os.Handler(android.os.Looper.getMainLooper())
-            .postDelayed(REARM, 800);
+            .postDelayed(REARM, 1500);
     }
 
     // [에코 루프 뮤트 leg — 2026-11-08 폰 원존: voice turn 26회 반복] TTS가

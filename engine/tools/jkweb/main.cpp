@@ -229,7 +229,9 @@ std::string JsonGetString(const std::string& body, const char* key) {
 // ---------------------------------------------------------------------------
 
 extern "C" int JKAndroidVoiceBegin();  // jkvoice_bridge.cpp — /voice 개시(강정의 — in-process 빌드)
+extern "C" int JkTtsStopAll(void);     // jkvoice_bridge.cpp — /voice 병행 안내 정지(마이크 탭 = 정지+듣기)
 #if !defined(JK_WEB_INPROCESS)
+__attribute__((weak)) extern "C" int JkTtsStopAll(void) { return 0; }
 // 독립 빌드(별도 바이너리) = 브리지 TU 미편입 — weak 스텁(개시 실패 회신 — 정직)
 __attribute__((weak)) extern "C" int JKAndroidVoiceBegin() { return 0; }
 #endif
@@ -695,7 +697,12 @@ void HandleConn(jk::net::Socket conn) {
         // #126 in-process 전용 엔드포인트 — SpeechRecognizer 세션 개시
         // (jksrv jkvoice_bridge.cpp의 JNI begin). 독립 빌드 = weak 스텁(아래)
         // 이 개시 실패 JSON으로 정직 회신.
+        // [안내 정지 병행 — 2026-11-08 사용자 원존 "마이크를 누르면 안내
+        // 멈추며"] — TTS 낭독을 버리고 마이크 재무장 후 개시.
         {
+#if defined(__ANDROID__)
+            if (JkTtsStopAll) JkTtsStopAll();
+#endif
             const int ok = JKAndroidVoiceBegin();
             HttpReply(conn, 200,
                       ok ? "{\"ok\":true,\"reply\":\"음성 인식을 시작합니다.\","

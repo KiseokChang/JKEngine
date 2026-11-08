@@ -188,6 +188,19 @@ Java_chang_jkdesktop_JkVoice_nVoiceError(JNIEnv* env, jclass, jstring err) {
 }
 
 // --- C → Java 개시 요청 (HTTP /voice 경유) ----------------------------------
+extern "C" int JkTtsStopAll(void);  // jkweb /voice — 안내 즉시 정지 leg
+extern "C" int JkTtsStopAll(void) {
+    JNIEnv* env = static_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
+    if (!env || !g_ttsClass) return 0;
+    jmethodID mid = env->GetStaticMethodID(
+        g_ttsClass, "stopAll", "()V");
+    if (!mid) { env->ExceptionClear(); return 0; }
+    env->CallStaticVoidMethod(g_ttsClass, mid);
+    env->ExceptionClear();
+    std::fprintf(stderr, "[jkdesk] tts stopAll delivered\n");
+    return 1;
+}
+
 extern "C" int JKAndroidVoiceBegin() {
     JNIEnv* env = static_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
     if (!env || !g_voiceClass) {
