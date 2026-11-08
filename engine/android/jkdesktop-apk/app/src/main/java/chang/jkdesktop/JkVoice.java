@@ -29,8 +29,7 @@ public class JkVoice {
         // 스레드에서 온 개시 요청을 메인 루퍼로 hop시킨다.
         final Context c = ctx;
         new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
-            listenerCtx = c.getApplicationContext();  // 재무장 leg의 Context 진실원
-            rearmFails = 0;   // 수동 개시 = 새 세션(실패 카운터 리셋)
+            listenerCtx = c.getApplicationContext();
             try {
                 if (recognizer == null) {
                     recognizer = SpeechRecognizer.createSpeechRecognizer(c);
@@ -52,20 +51,19 @@ public class JkVoice {
             java.util.ArrayList<String> list =
                     results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
             if (list != null && !list.isEmpty()) {
-                rearmFails = 0;   // 성공 — 재무장 카운터 리셋
                 try { nVoiceResult(list.get(0)); } catch (Throwable t) { }
             } else {
                 try { nVoiceError("결과 없음"); } catch (Throwable t) { }
             }
-            ScheduleRearm(900);
+            // [push-to-talk 정확 계약 — 2026-11-09 수형] 탭 1회 = 정확히 1회
+            // 듣기 세션 — 자동 재무장 없음. 2·3판 원존(재무장/간격 튠)은
+            // **겹침 시작 폭탄의 원존**(logcat 'startListening called while
+            // listening is in progress' 연쇄 — code=5 절단·듣기 창 소실)으로
+            // 전부 폐기. 다음 듣기 = 다음 MIC 탭(/voice).
         }
         @Override public void onError(int error) {
-            if (rearmFails < 6) rearmFails++;   // 카운트는 오류마다(REARM에서 하지 않는다 — 1판 결함 원존)
             try { nVoiceError("인식 오류 code=" + error); } catch (Throwable t) { }
-            // [튠 원존 2026-11-08] code=5(클라 거부) = 서비스 전환 최소 대기
-            // 실측: 1.5초 간격 = 5 연쇄(살아 있는 듣기 창 ~0) — 4초 소화기.
-            // code=7(무발화 정상 만료) = 짧게 1.2초.
-            ScheduleRearm(error == 7 ? 1200 : 4000);
+            // 재무장 없음 — 다음 탭이 정식 개시(겹침 시작 금지 계약).
         }
         @Override public void onPartialResults(Bundle partialResults) {}
         @Override public void onRmsChanged(float rmsdB) {}
@@ -76,25 +74,9 @@ public class JkVoice {
         @Override public void onEvent(int eventType, Bundle params) {}
     };
 
-    // [상시 구두 재무장 leg — 2026-11-08] 인식기는 1발성 후 정지한다(결과·
-    // 무발화 에러 code=7 모두) — 룸 UX(구두 상시 준비)에는 자동 재무장이
-    // 전제. **1판 카운터 결함 원존(실측: code=5 0.8초 무한 반복 — 첫 스킵에서
-    // 카운터가 안 오르는 논리)** → 정확 계약: onError마다 실패 카운트++·
-    // 간격 오류 종류별(4초/1.2초 — 아래 튠 원존)·5회 초과 = 스스로 멈춘다
-    // (정직 포기 — /voice·컨트롤 앱 재개시 채널).
+    // [push-to-talk 정확 계약 — 2026-11-09] 재무장·카운터·정시 루프 전부 폐기
+    // (2·3판 원존 — 겹침 시작 폭탄 원인). 다음 듣기 = 다음 /voice(MIC 탭).
     public static Context listenerCtx;
-    public static int rearmFails;
-    public static final java.lang.Runnable REARM = () -> {
-        if (listenerCtx == null || recognizer == null || rearmFails >= 5) return;
-        try {
-            recognizer.startListening(makeIntent());
-        } catch (Throwable t) { }
-    };
-
-    private static void ScheduleRearm(long delayMs) {
-        new android.os.Handler(android.os.Looper.getMainLooper())
-            .postDelayed(REARM, delayMs);
-    }
 
     // [에코 루프 뮤트 leg — 2026-11-08 폰 원존: voice turn 26회 반복] TTS가
     // 말하는 동안 마이크 정지(자기 답변을 재청취하는 자체 에코 방해) —
@@ -106,16 +88,8 @@ public class JkVoice {
     }
 
     public static void MuteDoneThenRearm() {
-        android.os.Handler h = new android.os.Handler(
-            android.os.Looper.getMainLooper());
-        h.postDelayed(() -> {
-            try {
-                if (listenerCtx != null && recognizer != null
-                    && rearmFails < 5) {
-                    recognizer.startListening(makeIntent());
-                }
-            } catch (Throwable t) { }
-        }, 600);
+        // push-to-talk: TTS 종료 후 재시작 없음(재무장 폐기 — 2026-11-09).
+        // 남겨 두는 것은 JkTts 콜백 계약(정직 무동작).
     }
 
     private static Intent makeIntent() {
