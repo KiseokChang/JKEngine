@@ -24,7 +24,7 @@ import java.util.ArrayList;
 
 public class ControlActivity extends Activity implements RecognitionListener {
     TextView status;
-    SpeechRecognizer recognizer;
+    SpeechRecognizer recognizer;   // 미사용(소유자 1명 계약 — 보존 없음)
     Intent recognizerIntent;
     Thread post;
     int micRetries;
@@ -44,21 +44,19 @@ public class ControlActivity extends Activity implements RecognitionListener {
             requestPermissions(
                 new String[] { android.Manifest.permission.RECORD_AUDIO }, 1);
         }
-        recognizer = SpeechRecognizer.createSpeechRecognizer(this);
-        recognizerIntent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-        recognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-            RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-        recognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ko-KR");
-        recognizer.setRecognitionListener(this);
+        // 로컬 recognizer 제거(소유자 1명 계약 — 2026-11-08 실측 원존:
+        // 인식기 2개 충돌 = 컨트롤 세션 NO_SPEECH_DETECTED·error 9 연쇄).
+        // STT = 엔진(chang.jkdesktop) 단일 소유 — MIC 탭 = /voice 개시 트리거.
 
-        findViewById(R.id.micBtn).setOnClickListener(v -> startMic());
-    }
-
-    void startMic() {
-        // start 전 cancel(9번 BUSY 반복 방지 — 기존 세가 잡혀 있으면 빨리 푼다).
-        try { recognizer.cancel(); } catch (Exception ignored) { }
-        status.setText("listening...");
-        recognizer.startListening(recognizerIntent);
+        findViewById(R.id.micBtn).setOnClickListener(v -> {
+            // [수형 2026-11-08 — 소유자 1명 실측 원존] 로컬 recognizer =
+            // 제거: 부팅 상시 마이크 leg(jksrv_main begin)와 인식기 2개가
+            // Samsung 서비스의 단일 마이크 파이프를 두고 갈린다(컨트롤 세션
+            // NO_SPEECH_DETECTED 원문). MIC 탭 = 엔진 개시 트리거(/voice —
+            // 부팅 자가 개시의 부활 버튼 · 말하면 엔진이 듣고 자동 턴).
+            status.setText("mic (engine)...");
+            postVoice();
+        });
         findViewById(R.id.desktopBtn).setOnClickListener(v -> {
             status.setText("starting desktop...");
             try {
@@ -169,6 +167,31 @@ public class ControlActivity extends Activity implements RecognitionListener {
         }
     }
 
+    // [mic 개시 트리거 — /voice] 통일 APK jkweb의 음성 개시 엔드포인트 —
+    // 엔진 SpeechRecognizer begin(부팅 자가 개시 leg의 부활 버튼). 말하면
+    // 엔진이 듣고 자동 턴(:8091/talk — 구두 결과의 실행 축과 동일 계약).
+    void postVoice() {
+        if (post != null && post.isAlive()) return;
+        post = new Thread(() -> {
+            try {
+                URL u = new URL("http://127.0.0.1:8091/voice");
+                HttpURLConnection c = (HttpURLConnection) u.openConnection();
+                c.setConnectTimeout(5000);
+                c.setReadTimeout(15000);
+                c.setRequestMethod("POST");
+                try (OutputStream o = c.getOutputStream()) { o.write(0); }
+                final int code = c.getResponseCode();
+                runOnUiThread(() -> status.setText(
+                    code == 200 ? "mic start — 엔진이 듣고 있습니다\n말씀하세요"
+                                : "mic start err " + code));
+            } catch (Exception e) {
+                runOnUiThread(() -> status.setText("voice failed: "
+                    + e.getMessage()));
+            }
+        });
+        post.start();
+    }
+
     void postTalk(String body) {
         status.setText("sending...");
         if (post != null && post.isAlive()) return;
@@ -219,21 +242,11 @@ public class ControlActivity extends Activity implements RecognitionListener {
     @Override public void onBeginningOfSpeech() { status.setText("speaking..."); }
     @Override public void onRmsChanged(float rms) {}
     @Override public void onBufferReceived(byte[] b) {}
-    @Override public void onEndOfSpeech() { status.setText("processing..."); }
+    @Override public void onEndOfSpeech() {
+        // 로컬 recognizer 미사용(소유자 1명 계약) — 콜백은 도달하지 않는다.
+    }
     @Override public void onError(int err) {
-        // 9 = ERROR_RECOGNIZER_BUSY — cancel+1회 재개(권한 거부도 9로 표출되는
-        // 삼성 계층 실측 원존 — 재시도가 이뤄지려면 권한이 선행됨).
-        if (err == 9 && micRetries < 3) {
-            ++micRetries;
-            try { recognizer.cancel(); } catch (Exception ignored) { }
-            status.setText("busy - retrying...");
-            new Thread(() -> {
-                try { Thread.sleep(700); } catch (Exception ignored) { }
-                runOnUiThread(() -> startMic());
-            }).start();
-            return;
-        }
-        status.setText("recognizer error " + err + " - tap to retry");
+        // 로컬 recognizer 미사용 — 이전 busy 재시도 leg 원존 소각.
     }
     @Override public void onPartialResults(Bundle p) {}
     @Override public void onEvent(int t, Bundle p) {}

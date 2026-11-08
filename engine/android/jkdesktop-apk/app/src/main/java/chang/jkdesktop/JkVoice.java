@@ -29,6 +29,7 @@ public class JkVoice {
         // 스레드에서 온 개시 요청을 메인 루퍼로 hop시킨다.
         final Context c = ctx;
         new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+            listenerCtx = c.getApplicationContext();  // 재무장 leg의 Context 진실원
             try {
                 if (recognizer == null) {
                     recognizer = SpeechRecognizer.createSpeechRecognizer(c);
@@ -50,13 +51,16 @@ public class JkVoice {
             java.util.ArrayList<String> list =
                     results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
             if (list != null && !list.isEmpty()) {
+                rearmFails = 0;   // 성공 — 재무장 카운터 리셋
                 try { nVoiceResult(list.get(0)); } catch (Throwable t) { }
             } else {
                 try { nVoiceError("결과 없음"); } catch (Throwable t) { }
             }
+            ScheduleRearm();
         }
         @Override public void onError(int error) {
             try { nVoiceError("인식 오류 code=" + error); } catch (Throwable t) { }
+            ScheduleRearm();
         }
         @Override public void onPartialResults(Bundle partialResults) {}
         @Override public void onRmsChanged(float rmsdB) {}
@@ -66,6 +70,25 @@ public class JkVoice {
         @Override public void onBufferReceived(byte[] buffer) {}
         @Override public void onEvent(int eventType, Bundle params) {}
     };
+
+    // [상시 구두 재무장 leg — 2026-11-08] 인식기는 1발성 후 정지한다(결과·
+    // 무발화 에러 code=7 모두) — 룸 UX(구두 상시 준비)에는 자동 재무장이
+    // 전제. 연속 실패 5회 = 스스로 멈춘다(정직 포기 — 영구 실패 반복 스팸
+    // 방지 — 컨트롤 앱/voice 재개시 채널로 재시작 가능).
+    public static Context listenerCtx;
+    public static int rearmFails;
+    public static final java.lang.Runnable REARM = () -> {
+        if (listenerCtx == null || recognizer == null || rearmFails >= 5) return;
+        if (rearmFails > 0) rearmFails++;
+        try {
+            recognizer.startListening(makeIntent());
+        } catch (Throwable t) { }
+    };
+
+    private static void ScheduleRearm() {
+        new android.os.Handler(android.os.Looper.getMainLooper())
+            .postDelayed(REARM, 800);
+    }
 
     private static Intent makeIntent() {
         Intent it = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
