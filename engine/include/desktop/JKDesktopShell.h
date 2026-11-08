@@ -151,6 +151,13 @@ private:
     // (서버 합성 스레드 — overlayDrewThisFrame_와 같은 스레드 규약).
     bool tooltipShownLast_ = false;
     SDL_Rect tooltipLastRect_{0, 0, 0, 0};
+    // [셸 2.0 S4 — 시계 위젯] 바탕화면 우상단 큰 HH:MM — 분이 바뀔 때만
+    // 텍스처 재렌더+onDynamicDraw 사운(합성 스레드 규약 — 툴팁 토큰 본보기).
+    SDL_Texture* clockTex_ = nullptr;
+    int clockMinute_ = -1;
+    int clockW_ = 0;
+    int clockH_ = 0;
+    SDL_Rect clockLastRect_{0, 0, 0, 0};
     std::map<std::string, TooltipTex> tooltipTexs_;
     std::unique_ptr<JKTextAtlas> tooltipAtlas_;
     std::unique_ptr<JKResourceCache> tooltipCache_;

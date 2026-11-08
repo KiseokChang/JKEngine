@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <ctime>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -897,6 +898,44 @@ void JKDesktopShell::Draw(SDL_Renderer* renderer) {
         }
     }
 
+    // [셸 2.0 S4 — 시계 위젯] 바탕화면 우상단 큰 HH:MM — 분이 바뀔 때만
+    // 텍스처 재렌더(자기 자리의 리렌더 = LabelTexture 캐시 미적용 — 본체가
+    // 자기 파괴). 토큰 = onDynamicDraw(분 교차 시 자리 재발행).
+    {
+        time_t nowt = time(nullptr);
+        tm lt{};
+#ifdef _WIN32
+        localtime_s(&lt, &nowt);
+#else
+        tm* pp = std::localtime(&nowt);
+        if (pp) lt = *pp;
+#endif
+        if (lt.tm_min != clockMinute_ || !clockTex_) {
+            clockMinute_ = lt.tm_min;
+            if (clockTex_) SDL_DestroyTexture(clockTex_);
+            char buf[8];
+            std::snprintf(buf, sizeof(buf), "%02d:%02d", lt.tm_hour, lt.tm_min);
+            int cw = 0;
+            int ch = 0;
+            clockTex_ = LabelTexture(buf, &cw, &ch);
+            clockW_ = cw;
+            clockH_ = ch;
+        }
+        if (clockTex_ && clockW_ > 0) {
+            int pw = 0;
+            int ph = 0;
+            SDL_GetRendererOutputSize(renderer, &pw, &ph);
+            const int scale = 4;   // 벡터 글리프 확대(시계 위젯 실용 크기).
+            SDL_Rect dst{ pw - clockW_ * scale - static_cast<int>(20 * s),
+                          static_cast<int>(20 * s), clockW_ * scale,
+                          clockH_ * scale };
+            SDL_RenderCopy(renderer, clockTex_, nullptr, &dst);
+            if (clockLastRect_.w == 0 && host_.onDynamicDraw) {
+                host_.onDynamicDraw(dst);  // 첫 착지 사건
+            }
+        }
+    }
+
     // 호버 툴팁 (docs/67 후속): 300ms 머문 아이콘 셀 위에 마지막으로 얹는다 —
     // 아이콘·배경 위에 항상 깔리도록 그리기 순서상 맨 뒤. 활성화 판정은 여기서
     // (정지 커서 승격 — UpdateHover 주석 참조).
@@ -945,6 +984,10 @@ void JKDesktopShell::Destroy() {
     if (backgroundTexture_) {
         SDL_DestroyTexture(backgroundTexture_);
         backgroundTexture_ = nullptr;
+    }
+    if (clockTex_) {
+        SDL_DestroyTexture(clockTex_);
+        clockTex_ = nullptr;
     }
     // 툴팁 텍스처 캐시 + 렌더 지연 부품 (캐시가 소유 백엔드에 의존하므로
     // 텍스처 파괴 후 플러시 순 — 승인 배너 정리 경로 선례).
