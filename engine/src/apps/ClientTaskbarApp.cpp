@@ -2,6 +2,9 @@
 // after connecting, renders one button per window from the server's
 // WindowList snapshots, and sends WindowActivate on click.
 #include <apps/ClientTaskbarApp.h>
+#ifdef __ANDROID__
+#include <android/log.h>
+#endif
 
 #include "theme/JKTheme.h"
 
@@ -69,13 +72,12 @@ SDL_Texture* MiniTextTexture(SDL_Renderer* r, const std::string& utf8,
         k.atlas = std::make_unique<jk::JKTextAtlas>();
         const jk::text::CellMetrics m = jk::text::GetCellMetrics();
         const std::string fp = jk::text::ResolveDesktopFontPath();
-        if (!fp.empty()) {
-            if (k.atlas->Init(fp, m.engW, m.cellH, m.hanW)) {
-                const std::string fb =
-                    jk::text::ResolveDesktopFallbackPath();
-                if (!fb.empty()) (void)k.atlas->InitFallback(fb);
-            }
-        }
+        const bool inited = k.atlas->Init(fp, m.engW, m.cellH, m.hanW);
+        std::fprintf(stderr, "[taskbar] mini fp init=%d", inited ? 1 : 0);
+        const std::string fb = jk::text::ResolveDesktopFallbackPath();
+        if (k.atlas->IsLoaded() && !fb.empty())
+            (void)k.atlas->InitFallback(fb);
+        std::fprintf(stderr, "[taskbar] mini tex create done");
     }
     std::string kssm = jk::Utf8ToKssm(utf8.c_str());
     if (kssm.empty()) kssm = utf8;
@@ -87,7 +89,10 @@ SDL_Texture* MiniTextTexture(SDL_Renderer* r, const std::string& utf8,
     SDL_Texture* tex = SDL_CreateTexture(r, SDL_PIXELFORMAT_RGBA8888,
                                          SDL_TEXTUREACCESS_TARGET,
                                          texW, texH);
-    if (!tex) return nullptr;
+    if (!tex) {
+        std::fprintf(stderr, "[taskbar] mini texture create failed");
+        return nullptr;
+    }
     SDL_Texture* prev = SDL_GetRenderTarget(r);
     SDL_SetRenderTarget(r, tex);
     SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
@@ -374,9 +379,6 @@ void TaskbarButton::OnPaintClient(JKDC& dc) {
     // 사용자 원존 "그림도 없고 설명도 없고 → 의미 있게 그려주세요").
     if (navMode_) {
         const auto& t = jk::theme::current();
-        dc.SetColor(t.taskbarFaceActive.r, t.taskbarFaceActive.g,
-                    t.taskbarFaceActive.b, 255);
-        dc.FillRect(client);
         dc.SetColor(t.taskbarBorderActive.r, t.taskbarBorderActive.g,
                     t.taskbarBorderActive.b, 255);
         dc.DrawRect(client);
@@ -409,12 +411,47 @@ void TaskbarButton::OnPaintClient(JKDC& dc) {
             dc.FillRect(JKRect{ cx - 5, cy - 6, 3, 12 });
             dc.FillRect(JKRect{ cx + 2, cy - 6, 3, 12 });
         } else if (label.size() == 5 && label[2] == ':') {
-            // [S3 시계] HH:MM — 글리프 없이 텍스처 중앙(자식 텍스처 렌더기).
-            int lw = 0; int lh = 0;
-            if (SDL_Texture* lt = MiniTextTexture(nullptr, label,
-                                                  &lw, &lh)) {
-                SDL_Rect cbox{ cx - lw / 2, cy - lh / 2, lw, lh };
-                SDL_RenderCopy(MiniKit().r, lt, nullptr, &cbox);
+            // [진단] 셀 전면 적색 표지 — 이 셀이 실제 페인트되는지 판정.
+            dc.SetColor(220, 40, 40, 255);
+            dc.FillRect(client);
+            dc.SetColor(t.taskbarTextActive.r, t.taskbarTextActive.g,
+                        t.taskbarTextActive.b, 255);
+            dc.TextOutX(client, Utf8ToKssm(label.c_str()).c_str(),
+                        ADJ_XYCENTER, false);
+            return;
+        } else if (false && label.size() == 5 && label[2] == ':') {
+            // [S3 시계 — 트레이 결정판] 7세그먼트 기하(FillRect만 — 자식 텍
+            // 스트 전 경로 불발 실측 봉합). 세그 인덱스 A=1 B=2 C=4 D=8
+            // E=16 F=32 G=64 — 표준 7세그 비트맵.
+            static constexpr uint8_t SEG[10] = {
+                63, 2 | 4 | 32 | 64 | 8, 2 | 64 | 128, 2 | 4 | 32 | 64 | 128,
+                4 | 32 | 64 | 128, 4 | 32 | 64 | 128 | 2, 4 | 32 | 64 | 128, 0, 0, 0 };
+            (void)SEG;
+            int digit[4];
+            digit[0] = label[0] - '0';
+            digit[1] = label[1] - '0';
+            digit[2] = label[3] - '0';
+            digit[3] = label[4] - '0';
+            const int gw = 14, hh = 22, gap = 6;
+            int px = cx - (gw * 4 + gap * 2 + 8) / 2;
+            for (int di = 0; di < 4; ++di) {
+                const int d = digit[di];
+                if (di == 2) {
+                    dc.FillRect(JKRect{ px + 2, cy - 7, 4, 4 });
+                    dc.FillRect(JKRect{ px + 2, cy + 3, 4, 4 });
+                    px += gap + 8;
+                    continue;
+                }
+                const uint8_t segs = SEG[d & 0x0f];
+                // 6획: A(위) D(아래) F(좌상) E(좌하) B(우상) C(우하) G(중).
+                if (segs & 1) dc.FillRect(JKRect{ px, cy - hh / 2, gw, 3 });
+                if (segs & 8) dc.FillRect(JKRect{ px, cy + hh / 2 - 3, gw, 3 });
+                if (segs & 32) dc.FillRect(JKRect{ px, cy - hh / 2, 3, hh / 2 });
+                if (segs & 16) dc.FillRect(JKRect{ px, cy, 3, hh / 2 });
+                if (segs & 2) dc.FillRect(JKRect{ px + gw - 3, cy - hh / 2, 3, hh / 2 });
+                if (segs & 4) dc.FillRect(JKRect{ px + gw - 3, cy, 3, hh / 2 });
+                if (segs & 64) dc.FillRect(JKRect{ px, cy - 1, gw, 3 });
+                px += gw + gap;
             }
             return;
         } else {
