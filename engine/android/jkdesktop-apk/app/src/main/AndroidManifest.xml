@@ -47,5 +47,8 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="데스크탑 서버·음성 세션 수명 유지" />
         </service>
-    </application>
+            <!-- T1.7 폰 제어 표면 = 폐기(2026-11-08 사용자 판정 "정리해야죠") —
+             정리 후 유일 컨트롤 표면 = 독립 앱 chang.jkcontrol(생존·격리 계약).
+             마이크는 부팅 자가 개시(jksrv_main 정리 leg — 구두 상시 준비). -->
+</application>
 </manifest>

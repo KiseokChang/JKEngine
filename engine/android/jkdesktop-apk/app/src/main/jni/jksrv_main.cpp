@@ -35,6 +35,7 @@ static void TakeoverStdio() {
 }
 
 extern "C" int main(int argc, char* argv[]);
+extern "C" int JKAndroidVoiceBegin();  // jkvoice_bridge.cpp — 구두 개시(정리 leg)
 
 __attribute__((visibility("default")))
 extern "C" int SDL_main(int argc, char* argv[]) {
@@ -147,6 +148,11 @@ extern "C" int SDL_main(int argc, char* argv[]) {
         std::fprintf(stderr, "[jkdesk] RE-ENTRY — guard bypass armed\n");
     }
     JKVoiceAutoturnStart();
+    // [정리 leg — 2026-11-08 사용자 판정 "정리해야죠"] PhoneControlActivity
+    // 내부 컨트롤 판 폐기(jkcontrol 독립 앱이 유일 컨트롤 표면 — 정직 유지
+    // 계약)에 따른 마이크 상시 개시: 구두=부팅부터 준비(룸 UX — 별도 판
+    // 개봉 없이). 실패 = 정직 콘솔 행(/voice·컨트롤 앱 MIC로 재개시 가능).
+    JKAndroidVoiceBegin();
     started = true;
     return main(argc, argv);
 }
