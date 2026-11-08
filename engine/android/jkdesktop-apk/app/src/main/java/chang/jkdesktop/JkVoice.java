@@ -90,6 +90,28 @@ public class JkVoice {
             .postDelayed(REARM, 800);
     }
 
+    // [에코 루프 뮤트 leg — 2026-11-08 폰 원존: voice turn 26회 반복] TTS가
+    // 말하는 동안 마이크 정지(자기 답변을 재청취하는 자체 에코 방해) —
+    // UtteranceProgressListener onDone/onError 지시로 재무장(JkTts가 부름).
+    public static void MuteMicUntilDone() {
+        try {
+            if (recognizer != null) recognizer.stopListening();
+        } catch (Throwable t) { }
+    }
+
+    public static void MuteDoneThenRearm() {
+        android.os.Handler h = new android.os.Handler(
+            android.os.Looper.getMainLooper());
+        h.postDelayed(() -> {
+            try {
+                if (listenerCtx != null && recognizer != null
+                    && rearmFails < 5) {
+                    recognizer.startListening(makeIntent());
+                }
+            } catch (Throwable t) { }
+        }, 600);
+    }
+
     private static Intent makeIntent() {
         Intent it = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
         it.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,

@@ -3,6 +3,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <application
+        android:usesCleartextTraffic="true"
         android:label="JK Control"
         android:theme="@android:style/Theme.Material.NoActionBar">
         <activity

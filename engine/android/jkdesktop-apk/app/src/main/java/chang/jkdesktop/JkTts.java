@@ -32,6 +32,24 @@ public class JkTts {
         new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
             try {
                 tts.stop();
+                // [에코 루프 뮤트 leg — 2026-11-08 폰 원존: voice turn 26회
+                // 반복 = TTS 답변을 상시 마이크가 재청취 → LLM 재회신 → 재TTS]
+                // 발화 전 마이크 뮤트·종료 후 자동 재무장 — 미완성 채널은
+                // JkVoice가 소유(정직 계약 동형).
+                JkVoice.MuteMicUntilDone();
+                tts.setOnUtteranceProgressListener(
+                    new TextToSpeech.UtteranceProgressListener() {
+                        @Override public void onStart(String id) { }
+                        @Override public void onDone(String id) {
+                            JkVoice.MuteDoneThenRearm();
+                        }
+                        @Override public void onError(String id) {
+                            JkVoice.MuteDoneThenRearm();
+                        }
+                        @Override public void onError(String id, int code) {
+                            JkVoice.MuteDoneThenRearm();
+                        }
+                    });
                 tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "jk-" + System.nanoTime());
             } catch (Exception e) {
                 android.util.Log.w("jkdesk", "tts speak failed: " + e);
