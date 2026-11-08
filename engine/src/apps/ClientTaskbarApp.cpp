@@ -9,6 +9,7 @@
 #include <net/JKNet.h>
 #include <cstdio>
 #include <algorithm>
+#include <cmath>
 #include <thread>
 
 namespace jk {
@@ -80,6 +81,7 @@ void ClientTaskbarApp::OnInit() {
     };
     for (const NavCell& n : nav) {
         auto btn = std::make_unique<TaskbarButton>();
+        btn->SetNavMode(true);
         btn->SetText(n.label);
         TaskbarButton* raw = btn.get();
         const char* say = n.say;
@@ -221,6 +223,51 @@ void TaskbarButton::OnClick() {
 void TaskbarButton::OnPaintClient(JKDC& dc) {
     const JKRect client = GetScreenClientRect();
     if (client.IsEmpty()) return;
+
+    // 네비 셀(스펙 §4) — 의미 그림(관례 글리프)+소형 라벨: 뒤=◀(좌향 삼각형
+    // 세로 절단 스윕), 홈=◯(Android HOME 관례 동형 원), 최근=겹쳐린 두 창
+    // (Recents 관례). 라벨 = 셀 하단 한글(그림 만으로 의미가 끊기지 않게 —
+    // 사용자 원존 "그림도 없고 설명도 없고 → 의미 있게 그려주세요").
+    if (navMode_) {
+        const auto& t = jk::theme::current();
+        dc.SetColor(t.taskbarFaceActive.r, t.taskbarFaceActive.g,
+                    t.taskbarFaceActive.b, 255);
+        dc.FillRect(client);
+        dc.SetColor(t.taskbarBorderActive.r, t.taskbarBorderActive.g,
+                    t.taskbarBorderActive.b, 255);
+        dc.DrawRect(client);
+        dc.SetColor(t.taskbarTextActive.r, t.taskbarTextActive.g,
+                    t.taskbarTextActive.b, 255);
+        dc.SetTextColor(t.taskbarTextActive.r, t.taskbarTextActive.g,
+                        t.taskbarTextActive.b);
+        const int cx = client.x + client.w / 2;
+        const int cy = client.y + (client.h - 14) / 2 + 2;
+        const std::string& label = GetText();
+        if (label == "뒤") {
+            // ◀ — 세로 1px 절단 스윕(왼쪽 끝=끝점·오른쪽 끝=만폭).
+            for (int j = 0; j < 10; ++j) {
+                const int half = 6 * j / 10;
+                dc.FillRect(JKRect{ cx - 6 + j, cy - half, 1, half * 2 + 1 });
+            }
+        } else if (label == "홈") {
+            // ◯ — Android HOME 관례 동형(수평 절단 스윕 원).
+            for (int dy = -5; dy <= 5; ++dy) {
+                const int w2 = static_cast<int>(
+                    std::lround(std::sqrt(25.0 - dy * dy)));
+                dc.FillRect(JKRect{ cx - w2, cy + dy, w2 * 2, 1 });
+            }
+        } else {
+            // ▤ — Recents 관례 동형(겹쳐진 두 창 외곽선).
+            dc.DrawRect(JKRect{ cx - 7, cy - 7, 10, 10 });
+            dc.DrawRect(JKRect{ cx - 3, cy - 3, 10, 10 });
+        }
+        // 소형 라벨(셀 하단 한글 — KSSM 비트맵 최소 가시 높이 여유 14px).
+        const JKRect textRect{ client.x, client.y + client.h - 14,
+                               client.w, 14 };
+        dc.TextOutX(textRect, Utf8ToKssm(label.c_str()).c_str(),
+                    ADJ_YCENTER, false);
+        return;
+    }
 
     // Variant faces (docs/28): active = light + white border,
     // minimized = dark + dim text, normal = mid grey.

@@ -20,6 +20,9 @@ namespace jk {
 class TaskbarButton : public JKButton {
 public:
     TaskbarButton() = default;
+    // 네비 셀 모드(스펙 §4): 칩 없이 라벨 중앙 정렬 — 좁은 44px 셀에서
+    // 창 버튼 레이아웃(칩+텍스트)의 클립으로 라벨이 안 보이는 실측 수형.
+    void SetNavMode(bool v) { navMode_ = v; }
 
     // Rebind in place from a WindowList snapshot (pool reuse — no control
     // teardown, so no flicker and no remove-control API needed).
@@ -39,6 +42,7 @@ private:
     uint32_t surfaceId_ = 0;
     bool active_ = false;
     bool minimized_ = false;
+    bool navMode_ = false;
     std::function<void(uint32_t, bool)> onClickWindow_;
 };
 
