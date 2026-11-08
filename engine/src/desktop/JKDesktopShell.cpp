@@ -407,22 +407,26 @@ void JKDesktopShell::Init(const ShellHost& host) {
     Draw(host_.renderer);
 }
 
-// Launcher cell grid (docs/21 §2): wraps cells into multiple rows so a
-// growing app list stays on screen. Cells sit 100x100 apart starting at
-// (50, 50); the column count derives from the window's logical width.
+// Launcher cell grid (docs/21 §2) — [셸 2.0 S1 — 2026-11-09 사용자 판정
+// "좀더 큰 공사" 원존·스펙 §3 S1]: 셀 = 아이콘 96px + 라벨 2단·제목순 정렬
+// (호버·LaunchAt 인덱스는 같은 벡터 순서라 정렬과 무충돌). pitch 150.
 void JKDesktopShell::RelayoutLauncherIcons() {
     if (!host_.renderer) return;
+    // 제목순 안정 정렬(라벨 그리드의 검색성 — 표기명 = title).
+    std::stable_sort(launcherIcons_.begin(), launcherIcons_.end(),
+                     [](const LauncherIcon& a, const LauncherIcon& b) {
+                         return a.title < b.title;
+                     });
     const float s = host_.outputScale ? host_.outputScale() : 1.0f;
     int pw = 1280;
     int ph = 720;
     SDL_GetRendererOutputSize(host_.renderer, &pw, &ph);
     const int logicalW = static_cast<int>(pw / s);
-    int cols = (logicalW - 50) / 100;  // (left margin .. right edge) / pitch
-    if (cols < 1) cols = 1;
+    const int cols = (logicalW - 50) / 150;
     for (size_t i = 0; i < launcherIcons_.size(); ++i) {
         const int col = static_cast<int>(i) % cols;
         const int row = static_cast<int>(i) / cols;
-        launcherIcons_[i].rect = JKRect{ 50 + col * 100, 50 + row * 100, 64, 80 };
+        launcherIcons_[i].rect = JKRect{ 50 + col * 150, 50 + row * 150, 96, 130 };
     }
 }
 
@@ -840,7 +844,7 @@ void JKDesktopShell::Draw(SDL_Renderer* renderer) {
         SDL_RenderCopy(renderer, backgroundTexture_, nullptr, &dst);
     }
 
-    for (const auto& icon : launcherIcons_) {
+    for (auto& icon : launcherIcons_) {
         SDL_Rect rc{
             static_cast<int>(icon.rect.x * s),
             static_cast<int>(icon.rect.y * s),
@@ -869,6 +873,27 @@ void JKDesktopShell::Draw(SDL_Renderer* renderer) {
             SDL_RenderFillRect(renderer, &rc);
             SDL_SetRenderDrawColor(renderer, t.launcherCellOutline.r, t.launcherCellOutline.g, t.launcherCellOutline.b, 255);
             SDL_RenderDrawRect(renderer, &rc);
+        }
+
+        // [셸 2.0 S1 — 라벨] 아이콘 아래 제목 텍스처(표기명 — 1회 렌더 캐시).
+        const std::string& label = !icon.title.empty() ? icon.title : icon.appName;
+        if (!label.empty()) {
+            if (!icon.labelTex) {
+                int lw = 0;
+                int lh = 0;
+                icon.labelTex = LabelTexture(label, &lw, &lh);
+                icon.labelTexW = lw;
+                icon.labelTexH = lh;
+            }
+            if (icon.labelTex && icon.labelTexW > 0) {
+                SDL_Rect lbl{
+                    rc.x - static_cast<int>(2 * s),
+                    rc.y + static_cast<int>(100 * s),
+                    icon.labelTexW,
+                    icon.labelTexH,
+                };
+                SDL_RenderCopy(renderer, icon.labelTex, nullptr, &lbl);
+            }
         }
     }
 
@@ -974,10 +999,13 @@ void JKDesktopShell::ClearHover() {
     hoverActive_ = false;
 }
 
-SDL_Texture* JKDesktopShell::TooltipTexture(const std::string& utf8, int* w, int* h) {
+SDL_Texture* JKDesktopShell::TextTexture(const std::string& utf8, int* w,
+                                         int* h, bool boxed) {
+    // [셸 2.0 S1] 캐시 키 접두(T:툴팁/L:라벨) — 동텍스트 이중 캐시 충돌 소각.
+    const std::string ckey = std::string(boxed ? "T:" : "L:") + utf8;
     *w = 0;
     *h = 0;
-    auto it = tooltipTexs_.find(utf8);
+    auto it = tooltipTexs_.find(ckey);
     if (it != tooltipTexs_.end()) {
         *w = it->second.w;
         *h = it->second.h;
@@ -985,7 +1013,7 @@ SDL_Texture* JKDesktopShell::TooltipTexture(const std::string& utf8, int* w, int
     }
     if (!host_.renderer || !SDL_RenderTargetSupported(host_.renderer)) {
         // 렌더 타깃 미지원 백엔드 — 툴팁 없이 계속(사실상 안 쓰는 가지, 배너 선례).
-        tooltipTexs_[utf8] = TooltipTex{};
+        tooltipTexs_[ckey] = TooltipTex{};
         return nullptr;
     }
     // 렌더 지연 부품 (승인 배너 ApprovalBannerTexture 선례): 한글 매니저는
@@ -1036,17 +1064,24 @@ SDL_Texture* JKDesktopShell::TooltipTexture(const std::string& utf8, int* w, int
     SDL_Texture* tex = SDL_CreateTexture(host_.renderer, SDL_PIXELFORMAT_RGBA8888,
                                          SDL_TEXTUREACCESS_TARGET, texW, texH);
     if (!tex) {
-        tooltipTexs_[utf8] = TooltipTex{};
+        tooltipTexs_[ckey] = TooltipTex{};
         return nullptr;
     }
     SDL_Texture* prev = SDL_GetRenderTarget(host_.renderer);
     SDL_SetRenderTarget(host_.renderer, tex);
-    // 어두운 툴팁 박스 + 밝은 테두리 — 데스크톱 사진 위에서도 읽히는 고정 대비색.
-    SDL_SetRenderDrawColor(host_.renderer, 26, 26, 30, 255);
-    SDL_RenderClear(host_.renderer);
-    SDL_SetRenderDrawColor(host_.renderer, 130, 130, 140, 255);
-    SDL_Rect border{ 0, 0, texW, texH };
-    SDL_RenderDrawRect(host_.renderer, &border);
+    if (boxed) {
+        // 어두운 툴팁 박스 + 밝은 테두리 — 데스크톱 사진 위에서도 읽히는 고정 대비색.
+        SDL_SetRenderDrawColor(host_.renderer, 26, 26, 30, 255);
+        SDL_RenderClear(host_.renderer);
+        SDL_SetRenderDrawColor(host_.renderer, 130, 130, 140, 255);
+        SDL_Rect border{ 0, 0, texW, texH };
+        SDL_RenderDrawRect(host_.renderer, &border);
+    } else {
+        // 라벨(셸 2.0 S1) — 투명 배경(아래 벽지 위에 글자만 합성).
+        SDL_SetRenderDrawBlendMode(host_.renderer, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderDrawColor(host_.renderer, 0, 0, 0, 0);
+        SDL_RenderClear(host_.renderer);
+    }
     JKSDLRenderBackend backend(host_.renderer);
     JKDC dc(&backend);
     if (tooltipFont_) {
@@ -1059,14 +1094,24 @@ SDL_Texture* JKDesktopShell::TooltipTexture(const std::string& utf8, int* w, int
     dc.SetTextColor(235, 235, 240);
     dc.TextOut(JKPoint{kPad, kPad}, kssm.c_str());
     SDL_SetRenderTarget(host_.renderer, prev);
-    tooltipTexs_[utf8] = TooltipTex{tex, texW, texH};
+    tooltipTexs_[ckey] = TooltipTex{tex, texW, texH};
     // 프로브 단정 지점: 표시명별 텍스처는 1회만 렌더되므로 로그에도 1회만
     // 찍힌다(캐시 적중 재호버는 무로그).
-    std::fprintf(stderr, "[shell] tooltip: texture '%s' rendered (%dx%d)\n",
+    std::fprintf(stderr, "[shell] text texture '%s' rendered (%dx%d)\n",
                  utf8.c_str(), texW, texH);
     *w = texW;
     *h = texH;
     return tex;
+}
+
+SDL_Texture* JKDesktopShell::TooltipTexture(const std::string& utf8, int* w, int* h) {
+    return TextTexture(utf8, w, h, true);
+}
+
+// [셸 2.0 S1] 라벨 텍스처 — 박스 없는 투명 배경 변형(표기명 캐시 — 동텍스트
+// 툴팁과 독립 키).
+SDL_Texture* JKDesktopShell::LabelTexture(const std::string& utf8, int* w, int* h) {
+    return TextTexture(utf8, w, h, false);
 }
 
 // (T2 fix r1 NT2-1) 반환 = 실제 그린 dst rect(물리 픽셀) — 못 그리면 0x0.

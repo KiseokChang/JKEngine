@@ -102,6 +102,7 @@ const char* KindName(jk::ChatAction::Kind kind) {
         case jk::ChatAction::AmpkClose:      return "AmpkClose";  // 브라우저 닫기 leg
         case jk::ChatAction::AmpkBack:       return "AmpkBack";   // 네비 체계
         case jk::ChatAction::AmpkFwd:        return "AmpkFwd";
+        case jk::ChatAction::LayoutSave:     return "LayoutSave";  // 셸 2.0 S5
     }
     return "?";
 }

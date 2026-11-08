@@ -75,6 +75,9 @@ constexpr RouteEntry kRouteTable[] = {
     {ChatAction::AmpkClose,   "바탕화면으로",   true},
     {ChatAction::AmpkClose,   "바탕화면 돌아가", true},
     {ChatAction::AmpkClose,   "바탕화면 가줘",   true},
+    // 레이아웃 정리(셸 2.0 S5 — 태스크바 정리 셀과 공용 — 스펙 §3).
+    {ChatAction::LayoutSave,  "창 정리해줘",   true},
+    {ChatAction::LayoutSave,  "창 정리",       true},
     {ChatAction::Close,       "닫아줘"},
     {ChatAction::Close,       "꺼줘"},
     // [자연어 폭 확장 2026-11-08 — 거실 무PC 축(STT 변형 실체 기반)]
@@ -370,6 +373,7 @@ const char* KindLabel(ChatAction::Kind kind) {
         case ChatAction::AmpkClose:   return "브라우저 닫기";  // 폰 브라우저 닫기 leg
         case ChatAction::AmpkBack:    return "브라우저 뒤로";  // 네비 체계(스펙 §2)
         case ChatAction::AmpkFwd:     return "브라우저 앞으로";
+        case ChatAction::LayoutSave:  return "창 배치 정리";  // 셸 2.0 S5
         case ChatAction::Info:        break;
     }
     return "안내";
@@ -789,6 +793,11 @@ std::string RouteExact(const std::string& text, ChatAction& out) {
             // 네비 앞(스펙 §2) — BACK 동형 봉입.
             out.kind = ChatAction::AmpkFwd;
             return "브라우저에서 앞으로 갑니다.";
+        case ChatAction::LayoutSave:
+            // 레이아웃 정리(셸 2.0 S5) — save_layout 서버 도구 위임(jkweb
+            // SendServerQuery 경로 — 기존 도구 재용·새 도구 0 계약).
+            out.kind = ChatAction::LayoutSave;
+            return "창 배치를 정리해 저장합니다.";
         case ChatAction::AmpkClose:
             // 폰 브라우저 닫기(사용자 실측 2026-11-07 원존) — 브라우저를
             // **닫는다**(개봉 AmpkOpen 동형 — 창 서버 도구 미경유 — jkweb 소관).
@@ -975,6 +984,8 @@ std::string DefaultActionGuide(const ChatAction& a) {
             return "브라우저에서 뒤로 갑니다.";
         case ChatAction::AmpkFwd:
             return "브라우저에서 앞으로 갑니다.";
+        case ChatAction::LayoutSave:
+            return "창 배치를 정리해 저장합니다.";
         case ChatAction::Focus:
             // #118 T2 — 번호 화법의 LLM 판 폴백 문어(파서 성공+빈 text의
             // 방어 사례 — winNum은 즉발 경로만 채운다 — 스키마 4종+talk 원존).

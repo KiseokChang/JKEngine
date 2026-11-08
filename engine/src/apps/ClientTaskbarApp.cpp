@@ -16,13 +16,29 @@ namespace jk {
 
 namespace {
 // Bar/button geometry (logical points).
-constexpr int kButtonHeight = 30;
+constexpr int kButtonHeight = 44;   // 셸 2.0 S2 — 바 56px(SendShellRegister 갱신).
+constexpr int kClockW = 76;         // 시계 셀(우측 고정 — S3).
 constexpr int kButtonGap = 4;
 constexpr int kBarMargin = 4;
 constexpr int kButtonMaxWidth = 180;   // Windows-style cap
 constexpr int kButtonMinWidth = 40;    // overflow floor (docs/28): 축소 하한
 constexpr int kChipSize = 10;
 constexpr int kChipPad = 6;
+
+// [S3 — 시계 셀 텍스트] HH:MM 24시(로컬).
+std::string CurrentClockText() {
+    time_t now = time(nullptr);
+    tm lt{};
+#ifdef _WIN32
+    localtime_s(&lt, &now);
+#else
+    tm* pp = std::localtime(&now);
+    if (pp) lt = *pp;
+#endif
+    char buf[8];
+    std::snprintf(buf, sizeof(buf), "%02d:%02d", lt.tm_hour, lt.tm_min);
+    return buf;
+}
 
 // FNV-1a title hash -> stable per-window chip color.
 void TitleChipColor(const std::string& title, uint8_t& r, uint8_t& g, uint8_t& b) {
@@ -91,6 +107,25 @@ void ClientTaskbarApp::OnInit() {
         main->AddControl(std::move(btn));
         *n.dst = raw;
     }
+    {
+        // [S5 정리 셀] 창 배치 저장 서버 도구 위임(save_layout 라우터 재용).
+        auto btn = std::make_unique<TaskbarButton>();
+        btn->SetNavMode(true);
+        btn->SetText("정리");
+        cleanupCell_ = btn.get();
+        cleanupCell_->SetOnClickWindow([](uint32_t, bool) {
+            PostTalkAsync("창 정리해줘");
+        });
+        main->AddControl(std::move(btn));
+    }
+    {
+        // [S3 시계 셀] 우측 고정 — Timer 틱(10초)마다 SetText.
+        auto btn = std::make_unique<TaskbarButton>();
+        btn->SetNavMode(true);
+        btn->SetText(CurrentClockText());
+        clockCell_ = btn.get();
+        main->AddControl(std::move(btn));
+    }
 
     // Button pool (WindowListPayload caps at 32 windows).
     for (size_t i = 0; i < 32; ++i) {
@@ -116,7 +151,8 @@ void ClientTaskbarApp::OnInit() {
     // server acks (accepted/denied) and replies with an initial WindowList
     // snapshot; the shell layer goes topmost from here on.
     jk::client::JKClientSurface* surface = Surface();
-    if (!surface || !surface->SendShellRegister(0 /*bottom*/, 40)) {
+    SetTimerInterval(10000);  // [S3] 시계 텍스트 갱신 간격(10초).
+    if (!surface || !surface->SendShellRegister(0 /*bottom*/, 56)) {
         std::fprintf(stderr, "[taskbar] SendShellRegister failed\n");
         std::fflush(stderr);
     }
@@ -128,6 +164,15 @@ void ClientTaskbarApp::OnClose() {
 bool ClientTaskbarApp::PreProcessMessage(const JKEvent& ev) {
     if (ev.type == JKEventType::WindowListChanged) {
         RefreshWindowList();
+        return true;
+    }
+    if (ev.type == JKEventType::Timer) {
+        // [S3] 시계 세팅 갱신(10초 틱 — 1분 해상도). UI 스레드 전처리.
+        if (clockCell_ && clockCell_->IsVisible()) {
+            clockCell_->SetText(CurrentClockText());
+            JKWindow* win = GetMainWindow();
+            if (win) win->Invalidate();
+        }
         return true;
     }
     // Docking resize: the server reshapes the bar to the desktop width —
@@ -174,16 +219,28 @@ void ClientTaskbarApp::Relayout() {
     constexpr int kNavCount = 3;
     const int navStrip = kNavW * kNavCount + kButtonGap * (kNavCount - 1);
 
-    // 네비 셀(항상 표시) — 좌측부터.
+    // 네비 셀 — 좌측 뒤·홈·최근, 그 옆 정리(S5), 우측 끝 시계(S3).
     int x = kBarMargin;
     const int y = std::max(0, (client.h - kButtonHeight) / 2);
-    for (TaskbarButton* nav : { navBack_, navHome_, navRecents_ }) {
+    TaskbarButton* navs[] = { navBack_, navHome_, navRecents_ };
+    for (TaskbarButton* nav : navs) {
         if (nav) {
             nav->SetRect(JKRect{ x, y, kNavW, kButtonHeight });
             nav->Show();
         }
         x += kNavW + kButtonGap;
     }
+    if (cleanupCell_) {
+        cleanupCell_->SetRect(JKRect{ x, y, kNavW, kButtonHeight });
+        cleanupCell_->Show();
+        x += kNavW + kButtonGap;
+    }
+    if (clockCell_) {
+        clockCell_->SetRect(JKRect{ client.w - kBarMargin - kClockW, y,
+                                    kClockW, kButtonHeight });
+        clockCell_->Show();
+    }
+    // 창 버튼 — 시계를 피해 배치(avail에서 kClockW 차감 — 위).
 
     size_t count = 0;
     for (TaskbarButton* btn : buttons_) {
@@ -191,7 +248,7 @@ void ClientTaskbarApp::Relayout() {
     }
     if (count == 0) { win->Invalidate(); return; }
 
-    const int avail = client.w - kBarMargin * 2 - navStrip
+    const int avail = client.w - kBarMargin * 2 - navStrip - kClockW
                       - kButtonGap * static_cast<int>(count - 1);
     int btnW = avail / static_cast<int>(count);
     btnW = std::max(kButtonMinWidth, std::min(kButtonMaxWidth, btnW));

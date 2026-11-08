@@ -80,7 +80,9 @@ private:
     TaskbarButton* navBack_ = nullptr;
     TaskbarButton* navHome_ = nullptr;
     TaskbarButton* navRecents_ = nullptr;
-
+    // [셸 2.0 S3·S5 — 2026-11-09] 시계 셀·정리 셀(우측 고정 — NavCell 계열).
+    TaskbarButton* cleanupCell_ = nullptr;
+    TaskbarButton* clockCell_ = nullptr;
 };
 
 } // namespace jk

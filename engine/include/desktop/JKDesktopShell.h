@@ -101,6 +101,11 @@ private:
         std::string consoleCmd;
         std::string consoleDir;
         SDL_Texture* texture = nullptr;
+        // [셸 2.0 S1 — 라벨 텍스처] 제목 텍스트 1회 렌더 캐시(표시명별 —
+        // TooltipTex 기계 재용·박스 없는 변형).
+        SDL_Texture* labelTex = nullptr;
+        int labelTexW = 0;
+        int labelTexH = 0;
     };
 
     // 툴팁 텍스처 (표시명별 1회 렌더 후 캐시 — 승인 배너 approvalBannerTexs_
@@ -115,6 +120,10 @@ private:
     // 매니저)으로 배경·테두리·글자를 실은 텍스처 1장 렌더. 실패는 빈 항목을
     // 캐시해 매 프레임 재시도하지 않는다(배너 선례).
     SDL_Texture* TooltipTexture(const std::string& utf8, int* w, int* h);
+    // [셸 2.0 S1] 라벨 텍스처 — 박스 없는 투명 배경 변형(표기명 캐시).
+    SDL_Texture* LabelTexture(const std::string& utf8, int* w, int* h);
+    // 둘의 본체 — boxed = 어두운 박스 배경·테두리(툴팁) / false = 투명(라벨).
+    SDL_Texture* TextTexture(const std::string& utf8, int* w, int* h, bool boxed);
     // 호버 중인 아이콘 셀 아래(바닥에 닿으면 위) 툴팁을 물리 픽셀로 렌더.
     // 반환 = 실제 그린 dst rect(물리 픽셀; 못 그리면 0x0 — (T2 fix r1) 동적
     // 드로잉 사건 판정을 Draw()가 반환값으로 한다).

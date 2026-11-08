@@ -123,6 +123,7 @@ const char* KindName(jk::ChatAction::Kind kind) {
         case jk::ChatAction::AmpkClose:      return "AmpkClose";  // 브라우저 닫기 leg
         case jk::ChatAction::AmpkBack:       return "AmpkBack";   // 네비 체계
         case jk::ChatAction::AmpkFwd:        return "AmpkFwd";
+        case jk::ChatAction::LayoutSave:     return "LayoutSave";  // 셸 2.0 S5
     }
     return "?";
 }
@@ -623,6 +624,12 @@ std::string HandleTalk(const std::string& body, int& code) {
 #endif
             return "{\"ok\":true,\"reply\":\"" + JsonEsc(guide) + "\""
                    ",\"kind\":\"AmpkFwd\",\"app\":\"\"}";
+        case jk::ChatAction::LayoutSave:
+            // 레이아웃 정리(셸 2.0 S5) — 기존 서버 도구 save_layout 위임
+            // (args empty — 서버 계약 "none"). 태스크바 정리 셀·구두 동일 지시.
+            tool = "save_layout";
+            args = "{}";
+            break;
         case jk::ChatAction::AmpkType: {
             // #124 2단계(r9b 누락 수리) — 전송 0: 브라우저 창 수신기가 직접
             // 적용해 서버 접촉 없다(회신에 kind+app=입력할 글자 payload 계약).
