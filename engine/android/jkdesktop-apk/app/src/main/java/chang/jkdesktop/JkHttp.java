@@ -22,6 +22,10 @@ public final class JkHttp {
             conn.setDoOutput(true);
             conn.setInstanceFollowRedirects(false);
             conn.setRequestProperty("Content-Type", "application/json");
+            // [진원 수형 2026-11-08 — 폰 원문 403·PC 재현 원존] 달빅 기본 UA를
+            // ollama.com 엣지 WAF가 거부한다(Dalvik UA=403·jkdesktop UA=200
+            // PC 재현). 커스텀 UA로 통과 — 키는 Authorization 원문 유지.
+            conn.setRequestProperty("User-Agent", "jkdesktop/1.0");
             if (bearer != null && !bearer.isEmpty()) {
                 conn.setRequestProperty("Authorization", bearer);
             }
@@ -33,6 +37,8 @@ public final class JkHttp {
             os.close();
             int code = conn.getResponseCode();
             if (code != 200) {
+                android.util.Log.e("jkdesk", "JkHttp non-200 code=" + code
+                    + " host=" + u.getHost());
                 return null;
             }
             java.io.InputStream in = conn.getInputStream();
@@ -45,6 +51,8 @@ public final class JkHttp {
             in.close();
             return baos.toString("UTF-8");
         } catch (Exception e) {
+            android.util.Log.e("jkdesk", "JkHttp exception " + e.getClass().getSimpleName()
+                + ": " + e.getMessage());
             return null;
         }
     }

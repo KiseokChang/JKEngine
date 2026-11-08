@@ -436,6 +436,10 @@ int LlmTurnThread(TurnJob* job) {
         }
         std::string content;
         out->ok = http.ok && ParseOllamaChatReply(http.body, content);
+        // [진단 2026-11-08 — 폰 cloud 턴 빠른 실패 원인 수취(srv.err)]
+        std::fprintf(stderr, "[llm] http leg mode=%s ok=%d status=%s bytes=%zu\n",
+                     cfg.llmMode.c_str(), (int)out->ok, http.status.c_str(),
+                     http.body.size());
         out->result = out->ok
             ? content
             : ("llm-http(" + cfg.llmMode + ") failed: " + http.status);
