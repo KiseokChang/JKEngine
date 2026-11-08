@@ -112,9 +112,22 @@ public class BrowserActivity extends Activity {
         inner.addView(urlInput);
         inner.addView(navRow);
         inner.addView(webView);
-        root.addView(inner, new FrameLayout.LayoutParams(
+        // [태스크바 가시 leg — 사용자 원존 2026-11-08 "브라우저 모드에서도
+        // 태스크바"] — DeX 관례(일반 창은 하단바 위): 하단 스트립을 투명
+        // 여백으로 두고 윈도 배경을 투명세팅 → 아래 SDL 표면의 태스크바가
+        // 그대로 보인다(뒤·홈·최근 셀 사용 가능). 스트립 높이 = 화면폭/48
+        // (서버 태스크바 스트립 계약: 1920x40 DeX·840x40 폰 원존).
+        // 전체화면 영상(onShowCustomView)은 root 직계로 완전 덮음 = 예외.
+        final int barPx = Math.max(40,
+            getResources().getDisplayMetrics().widthPixels / 48);
+        FrameLayout.LayoutParams innerLp = new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.MATCH_PARENT));
+            ViewGroup.LayoutParams.MATCH_PARENT);
+        innerLp.setMargins(0, 0, 0, barPx);
+        root.addView(inner, innerLp);
+        getWindow().setBackgroundDrawable(
+            new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
+        root.setBackground(null);
         setContentView(root);
         webkitOptIn();
 
