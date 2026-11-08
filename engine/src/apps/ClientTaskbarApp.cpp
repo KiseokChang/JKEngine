@@ -5,10 +5,15 @@
 
 #include "theme/JKTheme.h"
 
+#include <JKHangulManager.h>
 #include <JKHangulUtil.h>
+#include <JKResourceCache.h>
+#include <JKSDLRenderBackend.h>
+#include <JKTextAtlas.h>
 #include <net/JKNet.h>
 #include <cstdio>
 #include <algorithm>
+#include <map>
 #include <cmath>
 #include <thread>
 
@@ -24,6 +29,79 @@ constexpr int kButtonMaxWidth = 180;   // Windows-style cap
 constexpr int kButtonMinWidth = 40;    // overflow floor (docs/28): 축소 하한
 constexpr int kChipSize = 10;
 constexpr int kChipPad = 6;
+
+// [트레이·라벨 텍스처 미니 실장 — 2026-11-09 실측 원존: 자식 TextOutX가
+// 전부 불발(빈 셀 원문) → 셸의 TextTexture 정확한 수형을 자식에 미니 실장.
+// 벡터 폰트(ResolveDesktopFontPath — JKENGINE_FONT_DIR compile leg 원존)
+// + 비트맵 폴백 — 문구별 1회 렌더 캐시(캐시는 프로세스 수명 소유 —
+// 승인 배너 선례). 투명 배경.
+struct MiniRenderKit {
+    std::unique_ptr<jk::HangulManager> font;
+    std::unique_ptr<jk::JKSDLRenderBackend> backend;
+    std::unique_ptr<jk::JKTextAtlas> atlas;
+    std::unique_ptr<jk::JKResourceCache> cache;
+};
+MiniRenderKit& MiniKit() {
+    static MiniRenderKit k;
+    return k;
+}
+SDL_Texture* MiniTextTexture(SDL_Renderer* r, const std::string& utf8,
+                             int* w, int* h) {
+    static std::map<std::string, std::pair<SDL_Texture*, SDL_Point>> texs;
+    *w = 0; *h = 0;
+    auto it = texs.find(utf8);
+    if (it != texs.end()) {
+        *w = it->second.second.x;
+        *h = it->second.second.y;
+        return it->second.first;
+    }
+    MiniRenderKit& k = MiniKit();
+    if (!k.font) k.font = std::make_unique<jk::HangulManager>();
+    if (!k.backend) k.backend =
+        std::make_unique<jk::JKSDLRenderBackend>(r);
+    if (!k.cache) k.cache = std::make_unique<jk::JKResourceCache>(
+        k.backend.get());
+    if (!k.atlas) {
+        k.atlas = std::make_unique<jk::JKTextAtlas>();
+        const jk::text::CellMetrics m = jk::text::GetCellMetrics();
+        const std::string fp = jk::text::ResolveDesktopFontPath();
+        if (!fp.empty()) {
+            if (k.atlas->Init(fp, m.engW, m.cellH, m.hanW)) {
+                const std::string fb =
+                    jk::text::ResolveDesktopFallbackPath();
+                if (!fb.empty()) (void)k.atlas->InitFallback(fb);
+            }
+        }
+    }
+    std::string kssm = jk::Utf8ToKssm(utf8.c_str());
+    if (kssm.empty()) kssm = utf8;
+    const JKPoint m = jk::JKDC::MeasureText(kssm.c_str());
+    constexpr int pad = 3;
+    const int texW = m.x + pad * 2;
+    const int texH = (m.y > 0 ? m.y : 16) + pad * 2;
+    if (!SDL_RenderTargetSupported(r)) return nullptr;
+    SDL_Texture* tex = SDL_CreateTexture(r, SDL_PIXELFORMAT_RGBA8888,
+                                         SDL_TEXTUREACCESS_TARGET,
+                                         texW, texH);
+    if (!tex) return nullptr;
+    SDL_Texture* prev = SDL_GetRenderTarget(r);
+    SDL_SetRenderTarget(r, tex);
+    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(r, 0, 0, 0, 0);
+    SDL_RenderClear(r);
+    jk::JKSDLRenderBackend backend(r);
+    jk::JKDC dc(&backend);
+    if (k.font) dc.SetHangulManager(k.font.get());
+    if (k.atlas && k.atlas->IsLoaded()) {
+        dc.SetTextAtlas(k.atlas.get(), k.cache.get());
+    }
+    dc.SetTextColor(235, 235, 240);
+    dc.TextOut(JKPoint{pad, pad}, kssm.c_str());
+    SDL_SetRenderTarget(r, prev);
+    texs[utf8] = {tex, SDL_Point{texW, texH}};
+    *w = texW; *h = texH;
+    return tex;
+}
 
 // [S3 — 시계 셀 텍스트] HH:MM 24시(로컬).
 std::string CurrentClockText() {
