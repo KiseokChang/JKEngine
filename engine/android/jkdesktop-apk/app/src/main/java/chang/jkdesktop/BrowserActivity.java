@@ -52,7 +52,7 @@ public class BrowserActivity extends Activity {
             return false;
         });
 
-        // 조작행 — 뒤·앞·새로고침·[Go]·[측정].
+        // 조작행 — 뒤·앞·새로고침·[Go]·[측정]·[홈].
         LinearLayout navRow = new LinearLayout(this);
         navRow.setOrientation(LinearLayout.HORIZONTAL);
         Button backBtn = navButton("뒤", () -> webView.goBack());
@@ -60,9 +60,13 @@ public class BrowserActivity extends Activity {
         Button reloadBtn = navButton("새로고침", () -> webView.reload());
         Button goBtn = navButton("Go", () -> goNow());
         Button measureBtn = navButton("측정", () -> runMeasure(null));
+        // [홈 — 네비 체계 스펙 §2 HOME] — 액티비티 마침 = 아래 바탕화면 표면
+        // 복귀(DeX/Android HOME 관례 대응). 하단 투명 스트립 leg는 실측 원존
+        // 파산(아래 표면 pause=surface 해소 + 영상 하단 가림)으로 교체.
+        Button homeBtn = navButton("홈", () -> finish());
         navRow.addView(backBtn); navRow.addView(fwdBtn);
         navRow.addView(reloadBtn); navRow.addView(goBtn);
-        navRow.addView(measureBtn);
+        navRow.addView(measureBtn); navRow.addView(homeBtn);
 
         // 본체 — 화면 남은 영역 전부(죽은 마진 0 — fit 원칙 승계).
         webView = new WebView(this);
@@ -112,22 +116,13 @@ public class BrowserActivity extends Activity {
         inner.addView(urlInput);
         inner.addView(navRow);
         inner.addView(webView);
-        // [태스크바 가시 leg — 사용자 원존 2026-11-08 "브라우저 모드에서도
-        // 태스크바"] — DeX 관례(일반 창은 하단바 위): 하단 스트립을 투명
-        // 여백으로 두고 윈도 배경을 투명세팅 → 아래 SDL 표면의 태스크바가
-        // 그대로 보인다(뒤·홈·최근 셀 사용 가능). 스트립 높이 = 화면폭/48
-        // (서버 태스크바 스트립 계약: 1920x40 DeX·840x40 폰 원존).
-        // 전체화면 영상(onShowCustomView)은 root 직계로 완전 덮음 = 예외.
-        final int barPx = Math.max(40,
-            getResources().getDisplayMetrics().widthPixels / 48);
-        FrameLayout.LayoutParams innerLp = new FrameLayout.LayoutParams(
+        // 하단 투명 스트립 leg 원존 파산(2026-11-08 사용자 실측: "쓰다 보면
+        // 사라지고" = 아래 SDL 표면 pause→surface 해소 합성 소실·"영상 아래
+        // 가리고" = 여백이 영상 하단을 절단) → 제거, 전면 복원(홈 버튼이
+        // 복귀의 정식 경로 — 조작행 접근).
+        root.addView(inner, new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.MATCH_PARENT);
-        innerLp.setMargins(0, 0, 0, barPx);
-        root.addView(inner, innerLp);
-        getWindow().setBackgroundDrawable(
-            new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
-        root.setBackground(null);
+            ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(root);
         webkitOptIn();
 
