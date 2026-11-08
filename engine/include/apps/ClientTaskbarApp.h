@@ -80,8 +80,9 @@ private:
     TaskbarButton* navBack_ = nullptr;
     TaskbarButton* navHome_ = nullptr;
     TaskbarButton* navRecents_ = nullptr;
-    // [셸 2.0 S5 — 정리 셀] 시계 셀 = 자식 KSSM 미렌더 실측 제거(S4 위젯 대체).
+    // [셸 2.0 S5 정리 셀 + 트레이 시계(2026-11-09 사용자 결정 — 우측 고정)].
     TaskbarButton* cleanupCell_ = nullptr;
+    TaskbarButton* clockCell_ = nullptr;
 };
 
 } // namespace jk

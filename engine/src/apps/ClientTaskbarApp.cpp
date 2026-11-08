@@ -118,8 +118,17 @@ void ClientTaskbarApp::OnInit() {
         });
         main->AddControl(std::move(btn));
     }
-    // [S3 시계 셀 = 제거 — 2026-11-09 실측 원존] 자식 프로세스 KSSM 텍스트
-    // 미렌더(빈 셀 원문) — 바탕화면 시계 위젯(S4)이 대체.
+    {
+        // [트레이 시계 셀 — 사용자 결정 원존] HH:MM — Timer 틱마다 갱신.
+        auto btn = std::make_unique<TaskbarButton>();
+        btn->SetNavMode(true);
+        btn->SetText(CurrentClockText());
+        clockCell_ = btn.get();
+        main->AddControl(std::move(btn));
+    }
+    SetTimerInterval(10000);  // [트레이] 시계 갱신(1분 해상도·10초 틱).
+    // [2026-11-09 정산] 중복 정리 셀·폐기 주석 소각(파이썬 편집 적중 2회 원존
+    // — 첫 적용은 커밋 미포함 상태로 파일에 남았던 실측).
 
     // Button pool (WindowListPayload caps at 32 windows).
     for (size_t i = 0; i < 32; ++i) {
@@ -157,6 +166,15 @@ void ClientTaskbarApp::OnClose() {
 bool ClientTaskbarApp::PreProcessMessage(const JKEvent& ev) {
     if (ev.type == JKEventType::WindowListChanged) {
         RefreshWindowList();
+        return true;
+    }
+    if (ev.type == JKEventType::Timer) {
+        // [트레이] 시계 텍스트 갱신(10초 틱 — 1분 해상도). UI 스레드 전처리.
+        if (clockCell_ && clockCell_->IsVisible()) {
+            clockCell_->SetText(CurrentClockText());
+            JKWindow* win = GetMainWindow();
+            if (win) win->Invalidate();
+        }
         return true;
     }
 
@@ -219,6 +237,12 @@ void ClientTaskbarApp::Relayout() {
         cleanupCell_->SetRect(JKRect{ x, y, kNavW, kButtonHeight });
         cleanupCell_->Show();
         x += kNavW + kButtonGap;
+    }
+    // [트레이] 우측 고정 — 시계(텍스트 중앙 — 나비 글리프 계열과 경계 분리).
+    if (clockCell_) {
+        clockCell_->SetRect(JKRect{ client.w - kBarMargin - kTrayW, y,
+                                    kTrayW, kButtonHeight });
+        clockCell_->Show();
     }
     // 창 버튼 — 시계를 피해 배치(avail에서 kClockW 차감 — 위).
 
