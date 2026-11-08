@@ -17,7 +17,7 @@ namespace jk {
 namespace {
 // Bar/button geometry (logical points).
 constexpr int kButtonHeight = 44;   // 셸 2.0 S2 — 바 56px(SendShellRegister 갱신).
-constexpr int kClockW = 76;         // 시계 셀(우측 고정 — S3).
+constexpr int kTrayW = 90;          // [트레이 시계] 셀(우측 고정).
 constexpr int kButtonGap = 4;
 constexpr int kBarMargin = 4;
 constexpr int kButtonMaxWidth = 180;   // Windows-style cap
@@ -228,7 +228,7 @@ void ClientTaskbarApp::Relayout() {
     }
     if (count == 0) { win->Invalidate(); return; }
 
-    const int avail = client.w - kBarMargin * 2 - navStrip
+    const int avail = client.w - kBarMargin * 2 - navStrip - kTrayW
                       - kButtonGap * static_cast<int>(count - 1);
     int btnW = avail / static_cast<int>(count);
     btnW = std::max(kButtonMinWidth, std::min(kButtonMaxWidth, btnW));
