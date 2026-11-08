@@ -106,6 +106,10 @@ SDL_Texture* MiniTextTexture(SDL_Renderer* r, const std::string& utf8,
     }
     dc.SetTextColor(235, 235, 240);
     dc.TextOut(JKPoint{pad, pad}, kssm.c_str());
+    // [봉합 — 2026-11-09 실측] GetImage가 업로드 플러시 이전에 null을 주는
+    // 셸 TextTexture의 재시도 패턴 승계(docs/63 §8) — 플러시 누락 = 빈
+    // 텍스처(라벨 미표기 원존).
+    if (k.cache) k.cache->FlushUploads(k.backend.get());
     SDL_SetRenderTarget(r, prev);
     texs[utf8] = {tex, SDL_Point{texW, texH}};
     *w = texW; *h = texH;
@@ -411,21 +415,13 @@ void TaskbarButton::OnPaintClient(JKDC& dc) {
             dc.FillRect(JKRect{ cx - 5, cy - 6, 3, 12 });
             dc.FillRect(JKRect{ cx + 2, cy - 6, 3, 12 });
         } else if (label.size() == 5 && label[2] == ':') {
-            // [진단] 셀 전면 적색 표지 — 이 셀이 실제 페인트되는지 판정.
-            dc.SetColor(220, 40, 40, 255);
-            dc.FillRect(client);
-            dc.SetColor(t.taskbarTextActive.r, t.taskbarTextActive.g,
-                        t.taskbarTextActive.b, 255);
-            dc.TextOutX(client, Utf8ToKssm(label.c_str()).c_str(),
-                        ADJ_XYCENTER, false);
-            return;
-        } else if (false && label.size() == 5 && label[2] == ':') {
             // [S3 시계 — 트레이 결정판] 7세그먼트 기하(FillRect만 — 자식 텍
             // 스트 전 경로 불발 실측 봉합). 세그 인덱스 A=1 B=2 C=4 D=8
             // E=16 F=32 G=64 — 표준 7세그 비트맵.
+            // 비트 정의: A(위)=1 B(우상)=2 C(우하)=4 D(아래)=8 E(좌하)=16
+            // F(좌상)=32 G(중)=64 — 표준 7세그 숫자 비트맵.
             static constexpr uint8_t SEG[10] = {
-                63, 2 | 4 | 32 | 64 | 8, 2 | 64 | 128, 2 | 4 | 32 | 64 | 128,
-                4 | 32 | 64 | 128, 4 | 32 | 64 | 128 | 2, 4 | 32 | 64 | 128, 0, 0, 0 };
+                63, 6, 91, 79, 102, 109, 125, 7, 127, 111 };
             (void)SEG;
             int digit[4];
             digit[0] = label[0] - '0';
