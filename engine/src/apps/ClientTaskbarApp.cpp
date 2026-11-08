@@ -118,14 +118,8 @@ void ClientTaskbarApp::OnInit() {
         });
         main->AddControl(std::move(btn));
     }
-    {
-        // [S3 시계 셀] 우측 고정 — Timer 틱(10초)마다 SetText.
-        auto btn = std::make_unique<TaskbarButton>();
-        btn->SetNavMode(true);
-        btn->SetText(CurrentClockText());
-        clockCell_ = btn.get();
-        main->AddControl(std::move(btn));
-    }
+    // [S3 시계 셀 = 제거 — 2026-11-09 실측 원존] 자식 프로세스 KSSM 텍스트
+    // 미렌더(빈 셀 원문) — 바탕화면 시계 위젯(S4)이 대체.
 
     // Button pool (WindowListPayload caps at 32 windows).
     for (size_t i = 0; i < 32; ++i) {
@@ -151,7 +145,6 @@ void ClientTaskbarApp::OnInit() {
     // server acks (accepted/denied) and replies with an initial WindowList
     // snapshot; the shell layer goes topmost from here on.
     jk::client::JKClientSurface* surface = Surface();
-    SetTimerInterval(10000);  // [S3] 시계 텍스트 갱신 간격(10초).
     if (!surface || !surface->SendShellRegister(0 /*bottom*/, 56)) {
         std::fprintf(stderr, "[taskbar] SendShellRegister failed\n");
         std::fflush(stderr);
@@ -166,15 +159,7 @@ bool ClientTaskbarApp::PreProcessMessage(const JKEvent& ev) {
         RefreshWindowList();
         return true;
     }
-    if (ev.type == JKEventType::Timer) {
-        // [S3] 시계 세팅 갱신(10초 틱 — 1분 해상도). UI 스레드 전처리.
-        if (clockCell_ && clockCell_->IsVisible()) {
-            clockCell_->SetText(CurrentClockText());
-            JKWindow* win = GetMainWindow();
-            if (win) win->Invalidate();
-        }
-        return true;
-    }
+
     // Docking resize: the server reshapes the bar to the desktop width —
     // re-flow the buttons into the new client rect.
     if (ev.type == JKEventType::SizeChanged) {
@@ -235,11 +220,6 @@ void ClientTaskbarApp::Relayout() {
         cleanupCell_->Show();
         x += kNavW + kButtonGap;
     }
-    if (clockCell_) {
-        clockCell_->SetRect(JKRect{ client.w - kBarMargin - kClockW, y,
-                                    kClockW, kButtonHeight });
-        clockCell_->Show();
-    }
     // 창 버튼 — 시계를 피해 배치(avail에서 kClockW 차감 — 위).
 
     size_t count = 0;
@@ -248,7 +228,7 @@ void ClientTaskbarApp::Relayout() {
     }
     if (count == 0) { win->Invalidate(); return; }
 
-    const int avail = client.w - kBarMargin * 2 - navStrip - kClockW
+    const int avail = client.w - kBarMargin * 2 - navStrip
                       - kButtonGap * static_cast<int>(count - 1);
     int btnW = avail / static_cast<int>(count);
     btnW = std::max(kButtonMinWidth, std::min(kButtonMaxWidth, btnW));
@@ -313,6 +293,19 @@ void TaskbarButton::OnPaintClient(JKDC& dc) {
                     std::lround(std::sqrt(25.0 - dy * dy)));
                 dc.FillRect(JKRect{ cx - w2, cy + dy, w2 * 2, 1 });
             }
+        } else if (label == "최근") {
+            // ▤ — Recents 관례 동형(겹쳐진 두 창 외곽선).
+            dc.DrawRect(JKRect{ cx - 7, cy - 7, 10, 10 });
+            dc.DrawRect(JKRect{ cx - 3, cy - 3, 10, 10 });
+        } else if (label == "정리") {
+            // ‖ — 정렬(창 배치 save_layout) 기호(두 수직 바).
+            dc.FillRect(JKRect{ cx - 5, cy - 6, 3, 12 });
+            dc.FillRect(JKRect{ cx + 2, cy - 6, 3, 12 });
+        } else if (label.size() == 5 && label[2] == ':') {
+            // [S3 시계] HH:MM — 글리프 없이 숫자 중앙 대형 낭독.
+            dc.TextOutX(client, Utf8ToKssm(label.c_str()).c_str(),
+                        ADJ_YCENTER, false);
+            return;
         } else {
             // ▤ — Recents 관례 동형(겹쳐진 두 창 외곽선).
             dc.DrawRect(JKRect{ cx - 7, cy - 7, 10, 10 });

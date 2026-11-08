@@ -126,6 +126,12 @@ static void LoadSettingsKv(bool& mute, int& volume, int& retention,
 // 퍼미션 읽기)을 1헬퍼로 통일. 원문 절단 규약 = 뒤 구분자 없음(dir,
 // 소비자 결합이 '/'로 조립 — 플랜 F1 전역 규약, docs/64) — 그대로 보존.
 // 절단 취약점(MAX_PATH/1024 후단 절단)은 어댑터의 동적 재시도로 동시 소거.
+// [T9-브라우저] 전방 선언 — jkvoice_bridge의 JNI 훅(파일 스코프 — 런처
+// 람다 본문의 extern "C" = 문법 금지 원존(2026-11-07 컴파일 원문)).
+// weak = 클라(libjkc.so)가 이 TU를 링크하며 서버 전용 훅(jkdesk)이
+// 없어도 링크 성립(lld weak-undefined = null 허용) — 콜사이트는 선조회.
+__attribute__((weak)) extern "C" int JkStartBrowserActivity(const char* url);
+
 static std::string ExeDirNoSlash() {
 #if defined(__ANDROID__)
     // T8 Step 1 — APK의 state seam 수형: exe-dir = nativeLibraryDir(읽기전용
@@ -345,13 +351,14 @@ bool JKWindowServer::Init(const std::string& title, int width, int height) {
         return TextureFromRGBA(img, label);
     };
     shellHost_.launch = [this](const char* app, bool fromJkx) {
-        // [T9-브라우저] (2026-11-07 — 런처 셸 밖 창): BrowserActivity =
+        // [T9-브라우저] (2026-11-07 — 런처 셸 밖 창): BrowserActivity = jkvoice
+        // bridge의 JNI 훅이 jkweb을 경유하지 않고 개봉한다(SpawnClient 없음 —
+        // Android activity는 lib 모듈 밖). 컴파일 원존: lambda 본문의
+        // extern "C" = 문법 금지 — 전방 선언은 위(353행 앞)의 함수 밖.
         #if defined(__ANDROID__)
         if (app && std::strcmp(app, "browser") == 0) {
-            // jkvoice_bridge의 JNI 훅이 jkweb을 경유하지 않고 개봉한다
-            // (SpawnClient 없음 — Android activity는 lib 모듈 밖).
-            extern "C" int JkStartBrowserActivity(const char* url);
-            JkStartBrowserActivity("https://example.com");
+            if (JkStartBrowserActivity)  // weak — 서버(libjkdesk)에만 정의
+                JkStartBrowserActivity("https://example.com");
             return;
         }
         #endif
