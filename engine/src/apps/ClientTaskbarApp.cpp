@@ -428,14 +428,17 @@ void TaskbarButton::OnPaintClient(JKDC& dc) {
             digit[1] = label[1] - '0';
             digit[2] = label[3] - '0';
             digit[3] = label[4] - '0';
-            const int gw = 14, hh = 22, gap = 6;
-            int px = cx - (gw * 4 + gap * 2 + 8) / 2;
+            // [폭 정리 — 2026-11-09 실측: 셀 90px에 7세그가 넘쳐 우측 절단]
+            // gw12·gap4·콜론폭 6 — 총폭 62(< 셀 내부 82) — 중앙 정렬·클램프.
+            const int gw = 12, hh = 20, gap = 4;
+            const int totalW = gw * 4 + gap * 2 + 6;
+            int px = client.x + std::max(4, (client.w - totalW) / 2);
             for (int di = 0; di < 4; ++di) {
                 const int d = digit[di];
                 if (di == 2) {
-                    dc.FillRect(JKRect{ px + 2, cy - 7, 4, 4 });
-                    dc.FillRect(JKRect{ px + 2, cy + 3, 4, 4 });
-                    px += gap + 8;
+                    dc.FillRect(JKRect{ px + 1, cy - 7, 4, 4 });
+                    dc.FillRect(JKRect{ px + 1, cy + 3, 4, 4 });
+                    px += gap + 6;
                     continue;
                 }
                 const uint8_t segs = SEG[d & 0x0f];
