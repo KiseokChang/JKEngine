@@ -73,7 +73,7 @@ find_library(log-lib log)
 
 # ------------------------------------------------------------------ jkcore --
 # 엔진 CMakeLists L138-278 소스 목록을 그대로 흡수(주석은 엔진 원존 참조).
-add_library(jkcore STATIC
+add_library(jkcore SHARED
     ${ENG}/src/JKEvent.cpp
     ${ENG}/src/JKMessageQue.cpp
     ${ENG}/src/JKDC.cpp
@@ -187,7 +187,7 @@ target_link_libraries(jkdesktop_shell PUBLIC jkcore)
 target_link_libraries(jkserver PUBLIC jkdesktop_shell)
 
 # ---------------------------------------------------------------- jkclient --
-add_library(jkclient STATIC
+add_library(jkclient SHARED
     ${ENG}/src/client/JKClientSurface.cpp
     ${ENG}/src/client/JKClientApplication.cpp
     ${ENG}/src/terminal/JKVtParser.cpp
@@ -271,7 +271,7 @@ add_dependencies(jkdesk jkc)
 
 # ------------------------------------------------- imgui/implot (모듈 의존) --
 set(IMGUI_DIR ${ENG}/third_party/imgui)
-add_library(imgui STATIC
+add_library(imgui SHARED
     ${IMGUI_DIR}/imgui.cpp
     ${IMGUI_DIR}/imgui_draw.cpp
     ${IMGUI_DIR}/imgui_tables.cpp
@@ -285,15 +285,19 @@ target_include_directories(imgui PUBLIC
     ${ENG}/third_party/imgui_club
 )
 target_link_libraries(imgui PUBLIC SDL2::SDL2)
+# [P1 — docs/106 §2-2] SHARED 전환: 모듈 29개가 엔진+QuickJS+imgui를
+# 각자 상처 복제(APK 라이브러리 88MB 중 76.3MB) → 공유 라이브러리 1벌.
+set_target_properties(jkcore jkclient imgui PROPERTIES PREFIX "lib")
 
 set(IMPLOT_DIR ${ENG}/third_party/implot)
-add_library(implot STATIC
+add_library(implot SHARED
     ${IMPLOT_DIR}/implot.cpp
     ${IMPLOT_DIR}/implot_items.cpp
     ${IMPLOT_DIR}/implot_demo.cpp
 )
 target_include_directories(implot PUBLIC ${IMPLOT_DIR})
 target_link_libraries(implot PUBLIC imgui)
+set_target_properties(implot PROPERTIES PREFIX "lib")
 
 # ------------------------------------------------- 모듈 (lib*.so 패키징) --
 # 엔진 30 모듈 흡수(vplayer 제외 — 스펙 §6 v2). jniLibs 규약 lib 접두 —

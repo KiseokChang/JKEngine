@@ -32,7 +32,7 @@ android {
             cmake {
                 arguments += listOf(
                     "-DCMAKE_BUILD_TYPE=Release",
-                    "-DANDROID_STL=c++_static",
+                    "-DANDROID_STL=c++_shared",  // [P1 — docs/106 §2-2] 모듈 SHARED 전환으로 c++_shared 필수
                     // nativeLibraryDir exec 계약 — 실행 파일을 lib*.so로 포장.
                     // useLegacyPackaging과 짝(아래 packaging 블록).
                     "-DJK_SPIKE_EXEC_PACK=ON",
