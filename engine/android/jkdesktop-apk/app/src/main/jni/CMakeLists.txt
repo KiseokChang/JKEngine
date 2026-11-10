@@ -204,6 +204,7 @@ target_link_libraries(jkclient PUBLIC jkcore)
 add_library(jkdesk SHARED
     "${SPIKE_JNI}/jksrv_main.cpp"
     ${ENG}/src/main.cpp
+    ${ENG}/src/tests/JKSelfTest.cpp
     ${ENG}/tools/jkweb/main.cpp   # in-process /talk
     ${SPIKE_JNI}/jkvoice_bridge.cpp   # 음성 브리지(스펙 §5) (JK_WEB_INPROCESS)
     ${ENG}/src/apps/JangoApp.cpp
@@ -236,6 +237,7 @@ target_link_libraries(jkdesk PRIVATE jkcore jkserver jkclient)
 # 직접 진입으로 하는 실행파일 — 클라 exec(--client/--jkx)의 물리.
 add_executable(jkc
     ${ENG}/src/main.cpp
+    ${ENG}/src/tests/JKSelfTest.cpp
     ${ENG}/src/apps/JangoApp.cpp
     ${ENG}/src/apps/JangoUI.cpp
     ${ENG}/src/apps/Equip24App.cpp

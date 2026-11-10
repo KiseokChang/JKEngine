@@ -400,6 +400,7 @@ target_link_libraries(jkclient PUBLIC jkcore)
 # ---------------------------------------------------------------------------
 add_executable(jkdesktop
     src/main.cpp
+    src/tests/JKSelfTest.cpp   # [P1 — docs/106 §1-2] 셀프테스트 분리 TU
     $<$<PLATFORM_ID:Windows>:src/jkdesktop.rc>
     src/apps/JangoApp.cpp
     src/apps/JangoUI.cpp
