@@ -10991,8 +10991,7 @@ static int RunMain(int argc, char* argv[]) {
 #ifdef JK_BUILD_SHA
         std::printf("jkdesktop build %s", JK_BUILD_SHA);
 #else
-        std::printf("jkdesktop build unknown (no JK_BUILD_SHA)
-");
+        std::printf("jkdesktop build unknown (no JK_BUILD_SHA)");
 #endif
         return 0;
     }

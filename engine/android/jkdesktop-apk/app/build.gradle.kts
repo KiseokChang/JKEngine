@@ -6,6 +6,8 @@ plugins {
 }
 
 android {
+    // [P0 — BuildConfig 필수 플래그(AGP 8.x 기본 off — 실측 오류 원문)]
+    buildFeatures { buildConfig = true }
     namespace = "chang.jkdesktop"
     compileSdk = 35
     ndkVersion = "28.2.13676358"
