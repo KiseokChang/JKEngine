@@ -106,6 +106,22 @@ APK(654MB·applicationId=chang.jkapk)** 경로를 가리켜 다른 앱을 통과
 - ◻ jkcontrol 실행 경로가 메인 스레드 **3.4초 블록**(sleep 900+2500)·/voice
   `doOutput` 누락·force-stop 권한 밖. 수형 = Executor 이전·setDoOutput.
 
+## 4a. P1 진행 정산 (2026-11-11)
+
+- ✅ **2-2 모듈 SHARED 전환 폐곡**: Android 트리 jkcore/jkclient/imgui/implot
+  SHARED + c++_shared — 실측 APK 라이브러리 **88MB → 19.4MB(약 68MB 절감)**,
+  모듈당 2.6MB → 0.06~0.35MB. 폰 실전 검증: 지뢰찾기 창 개봉 원문(SHARED
+  dlopen 성립)·BUILD_SHA=c69fbb2.
+- ✅ **1-2 셀프테스트 분리 폐곡**: main.cpp 11,408 → 1,697줄·main 오브젝트
+  1.38MB → 0.19MB(86%↓)·selftest 993 PASS 0 failure(무손실). JKSelfTest.cpp
+  (9,883줄) + 조력자 사본 3정(ReadWholeFile·RunScriptTestFile·selftest_llm)
+  ·selftest_http는 이동(중복 정의 소각).
+- ◻ **1-3 서버 TU 분리는 이번 라운드 판정: 기계적 절단 불가** —
+  HandleAgentQuery(4062-7430, 3,369줄)가 같은 TU의 파일 스코프 조력자
+  (JsonEsc·SettingsKvPath·NotesPath·ValidFingerprint·저널 writer)를 광범위
+  사용 — 인터페이스(IWindowServerServices) 설계 후의 2-TU 추출로 다음 세션
+  정식 착수. 절단 시도 금지(반쪽 추출 = 회귀 위험).
+
 ## 5. 권고 실행 순서
 
 1. **오늘 밤 사건 직결 5건**: 1-1(트레이 가림)·1-5(StateDir)·1-6(권한)·
