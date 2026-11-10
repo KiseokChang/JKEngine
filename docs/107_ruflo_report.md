@@ -140,3 +140,26 @@ init(프로젝트 초기화·훅 설치) → doctor(환경 진단) → swarm ini
   포함)·config 6종·hooks 30여 종 등 — 전부 Enabled
 - 패키지 구조: `bin/`·`src/`(chat-ui·mcp-bridge·ruvocal·nginx·config·scripts)·
   README — 총 1.2GB
+
+
+---
+
+## 9. 실기동 파일럿 (2026-11-10 — 격리 디렉토리 I:uild_tmpuflo_probe)
+
+본 저장소를 오염시키지 않도록 격리 디렉토리에서 init→상태→메모리→라우팅→
+에이전트 스폰을 실측했다. **동작 특성 원문 요지**:
+
+| 관측 | 실측 값 | 의미 |
+|---|---|---|
+| `ruflo init` | Claude Code **플러그인 3종 자동 설치**(ruflo-mods·ruflo-swarm·ruflo-console, 프로젝트 스코프 마켓플레이스) + **전역 CLAUDE.md 자동 수정**("Ruflo Integration" 섹션 추가) | 호스트 통합이 깊다 — 사용자 전역 지침 파일까지 도구가 쓴다(통제/가시성 리스크) |
+| 플러그인 서명 | **signature: unsigned** + 훅 기능 스캔 경고: 호스트 명령 실행($.process)·네트워크($.http.fetch)·**임의 도구 호출(Bash 포함)** | 사내 반입 시 서명·화이트리스트 검토 필수(§7 리스크의 실증) |
+| `ruflo memory store` | 1건 저장 **51,175ms**(콜드 — 임베딩 초기화) | 첫 쓰기 지연 큼 — 실사용 시 워밍/데몬 전제 |
+| `ruflo memory search` | 벡터 유사도 0.25로 회수 성공 | 의미 검색 동작 확인 |
+| `ruflo hooks route --task` | coder 43.0%·tester 33.0%·성공확률 53.0%·복잡도 LOW 추정 | 라우팅 = **휴리스틱/학습 기반 제안**(확신도 표기 — 정직한 출력) |
+| `ruflo agent spawn -t coder` | 상태 = **"registered"**(DB 기록 — 프로세스 아님) | 에이전트 = 레지스트리 항목. 실제 실행은 호스트(Claude) 또는 hive --claude가 수행 |
+| `ruflo status` | 스웜/에이전트/태스크 표 전부 0 — "RuFlo V3 [STOPPED]" | 기본은 대기 상태, 데몬/스웜 start가 선택 |
+
+**파일럿 결론**: 기능 상상도는 크고(라우팅·메모리·레지스트리 실동작), 그러나
+(a) 첫 동작 지연(51초), (b) 호스트 전역 설정 자동 개조, (c) unsigned 플러그인의
+Bash/네트워크 권한 — **"파일럿은 샌드박스에서, 제품은 자체 최소 코어"**라는
+§6 권고를 실측이 그대로 지지한다.
