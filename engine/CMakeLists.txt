@@ -133,6 +133,17 @@ target_link_libraries(implot PUBLIC imgui)
 # copy of the core, and all cross-module calls go through the C ABI in
 # include/apps/JKAppModule.h (no C++ objects cross a module boundary).
 # ---------------------------------------------------------------------------
+# [P0 횡 — docs/106 §1-8] 빌드 지문 주입(실행본 추적관계): --version 응답 원천.
+execute_process(COMMAND git rev-parse --short HEAD
+                WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+                OUTPUT_VARIABLE JK_BUILD_SHA
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+                ERROR_QUIET)
+if(NOT JK_BUILD_SHA)
+    set(JK_BUILD_SHA "unknown")
+endif()
+add_compile_definitions(JK_BUILD_SHA="${JK_BUILD_SHA}")
+
 add_library(jkcore STATIC
     src/JKEvent.cpp
     src/JKMessageQue.cpp

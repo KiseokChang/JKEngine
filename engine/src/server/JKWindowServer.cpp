@@ -8432,10 +8432,10 @@ bool JKWindowServer::ApprovalParkingFull(uint32_t requesterId) const {
 // no-op(false), 폴더는 원문과 같이 마지막 성분만 만든다(성공 무시 동일).
 // ec 중립형(throwing 금지 — 핫 패스, 이 TU 무 try/catch — review r1 HIGH).
 std::string JKWindowServer::StateDir() const {
-    // jk::fs::GetExecutablePath 흡수 (docs/68 W5) — 원문 "." 폴백 규약 유지.
-    std::string dir = jk::fs::GetExecutablePath();
-    const size_t slash = dir.find_last_of("\\/");
-    dir = (slash == std::string::npos) ? std::string(".") : dir.substr(0, slash);
+    // [P0 수형 — docs/106 §1-5] exe-dir 기반 = Android에서 nativeLibraryDir
+    // (읽기전용) → save_layout·capture_window 조용한 실패 경로였다 — ExeDirNoSlash
+    // 재용(Android 분기 = CWD/files state seam 원존 — SettingsKvPath와 동일 진실원).
+    std::string dir = ExeDirNoSlash();
     dir += "/state";
     std::error_code dirEc;
     std::filesystem::create_directory(std::filesystem::path(dir), dirEc);

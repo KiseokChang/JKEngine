@@ -16,6 +16,13 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "spike-0.20"
+        // [P0 수형 — docs/106 §1-8] 빌드 지문(스테일 APK 판별 원존):
+        // git sha를 BuildConfig로 주입 — 실행본이 어느 커밋인지 물을 수 있다.
+        val gitSha = try {
+            providers.exec { commandLine("git", "rev-parse", "--short", "HEAD") }
+                .standardOutput.asText.get().trim()
+        } catch (e: Exception) { "unknown" }
+        buildConfigField("String", "BUILD_SHA", "\"$gitSha\"")
         ndk {
             abiFilters += "arm64-v8a"
         }

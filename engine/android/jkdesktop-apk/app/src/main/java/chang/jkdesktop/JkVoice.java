@@ -28,6 +28,21 @@ public class JkVoice {
         // "should be used only from the application's main thread") — C 네이티브
         // 스레드에서 온 개시 요청을 메인 루퍼로 hop시킨다.
         final Context c = ctx;
+        // [P0 수형 — docs/106 §1-6] RECORD_AUDIO 런타임 요청 부재 → begin 항상 true
+        // (jkcontrol 승인은 패키지 단위라 본 앱에 무효 — 신규 설치 직후 mic 불발의 구조 원인).
+        // Activity 컨텍스트면 권한 요청 — 실패는 정직 콘솔 행(가짜 성공 금지).
+        if (c instanceof android.app.Activity) {
+            android.app.Activity act = (android.app.Activity) c;
+            if (act.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                try {
+                    act.requestPermissions(
+                        new String[] { android.Manifest.permission.RECORD_AUDIO }, 7);
+                    android.util.Log.w("jkdesk",
+                        "voice: RECORD_AUDIO 권한 요청 — 승인 후 MIC 재시도 필요");
+                } catch (Throwable t) { }
+            }
+        }
         new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
             listenerCtx = c.getApplicationContext();
             try {

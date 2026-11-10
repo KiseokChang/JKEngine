@@ -10984,6 +10984,19 @@ static int RunMain(int argc, char* argv[]) {
         return RunJkxPack(argv[2]);
     }
 
+    if (argc > 1 && (std::strcmp(argv[1], "--version") == 0 ||
+                     std::strcmp(argv[1], "version") == 0)) {
+        // [P0 횡 — docs/106 §1-8] 빌드 지문: 실행본이 어느 커밋인지 응답.
+        // JK_BUILD_SHA는 CMake 주입(미주입 빌드 = "미상" 정직 표기).
+#ifdef JK_BUILD_SHA
+        std::printf("jkdesktop build %s", JK_BUILD_SHA);
+#else
+        std::printf("jkdesktop build unknown (no JK_BUILD_SHA)
+");
+#endif
+        return 0;
+    }
+
     if (argc > 1 && std::strcmp(argv[1], "slot-pack") == 0) {
         // docs/78 TX6 개방: body는 순수 stdio+JKJkxFile — posix 동형(플랜 G2
         // RunClientFromJkx posix leg와 짝). win32 게이트 670 영역에서 나머지

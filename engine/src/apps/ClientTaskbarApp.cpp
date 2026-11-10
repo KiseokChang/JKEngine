@@ -331,12 +331,15 @@ void ClientTaskbarApp::Relayout() {
         x += kNavW + kButtonGap;
     }
     // [트레이] 우측 고정 — 시계(텍스트 중앙 — 나비 글리프 계열과 경계 분리).
+    const int trayLeft = client.w - kBarMargin - kTrayW;
     if (clockCell_) {
-        clockCell_->SetRect(JKRect{ client.w - kBarMargin - kTrayW, y,
-                                    kTrayW, kButtonHeight });
+        clockCell_->SetRect(JKRect{ trayLeft, y, kTrayW, kButtonHeight });
         clockCell_->Show();
     }
-    // 창 버튼 — 시계를 피해 배치(avail에서 kClockW 차감 — 위).
+    // 창 버튼 — 시계를 피해 배치.
+    // [P0 수형 — docs/106 §1-1 검증 확정] 1판 avail 산식이 정리 셀(44px)과
+    // 시작 x를 누락해 겹침 = 52-r px(창 6개@1280 = 시계 앞 36px 가림 실측).
+    // 계약 = 실제 커서 x에서 트레이 좌단까지의 폭만 소비 + 배치 클램프.
 
     size_t count = 0;
     for (TaskbarButton* btn : buttons_) {
@@ -344,13 +347,17 @@ void ClientTaskbarApp::Relayout() {
     }
     if (count == 0) { win->Invalidate(); return; }
 
-    const int avail = client.w - kBarMargin * 2 - navStrip - kTrayW
+    const int avail = trayLeft - kButtonGap - x
                       - kButtonGap * static_cast<int>(count - 1);
     int btnW = avail / static_cast<int>(count);
     btnW = std::max(kButtonMinWidth, std::min(kButtonMaxWidth, btnW));
 
     for (TaskbarButton* btn : buttons_) {
         if (!btn->IsVisible()) continue;
+        if (x + btnW > trayLeft - kButtonGap) {   // 클램프 — 트레이 침범 금지
+            btn->Hide();                          // 자리 없음 = 정직 숨김
+            continue;
+        }
         btn->SetRect(JKRect{ x, y, btnW, kButtonHeight });
         x += btnW + kButtonGap;
     }

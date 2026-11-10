@@ -31,6 +31,9 @@ public class MainActivity extends SDLActivity {
 
     @Override
     protected String[] getLibraries() {
+        // [P0 횡 — docs/106 §1-8] 빌드 지문(APK 실행본 추적관계 —
+        // 스텔일 APK를 내용으로 판별하는 물음: 로그캐트에서 발견).
+        android.util.Log.i("jkdesk", "BUILD_SHA=" + BuildConfig.BUILD_SHA);
         return new String[] { "SDL2", "jkdesk" };
     }
 
