@@ -77,7 +77,7 @@ APK(654MB·applicationId=chang.jkapk)** 경로를 가리켜 다른 앱을 통과
 
 ## 3. UI 디자인 체계 (P1~P2)
 
-- ◻ **테마 토큰 누락**: 라벨·툴팁·시계 텍스트 색이 리터럴(`235,235,240` 등)
+- ☑ **테마 토큰 누락**(2026-11-12 봉합 — §4c): 라벨·툴팁·시계 텍스트 색이 리터럴(`235,235,240` 등)
   — kLight 프리셋에서 런처 라벨이 안 보인다. 수형 = JKTheme에 launcherLabel
   Text/Shadow·tooltip*·desktopClockText 토큰 + 캐시 테마 세대 무효화.
 - ◻ **텍스트 스케일 3갈래**: 라벨 = outputScale 미적용(HiDPI에서 절반),
@@ -163,3 +163,17 @@ APK(654MB·applicationId=chang.jkapk)** 경로를 가리켜 다른 앱을 통과
   Workflow로 대체 실행(사용자 승인 하에). ruflo 조사 = docs/107.
 - ◻ 등급 27건은 에이전트 원문 인용 실측이나 반증 검증 미실시 — 착수 전
   1회 재확인 원칙(원장 관행).
+
+## 4c. 테마 토큰 봉합 정산 (2026-11-12)
+
+- JKTheme 신설 토큰 5: `launcherLabelText`·`tooltipText`·`tooltipBg`·
+  `tooltipBorder`·`desktopClockText` — 프리셋 3종 전부 명시(kDefault는 구
+  리터럴 값 그대로 = 다크 픽셀 불변, kLight는 Win11 라이트 대응색).
+- 소비처 봉합: 셸 `TextTextureEx`(색 명시 본체 — 툴팁/라벨/시계 공용) ·
+  툴팁 박스 면·테두리 · 시계(LabemTextureColored) · 태스크바 미니 라벨
+  (`taskbarTextNormal`).
+- 캐시 무효화 = `theme::Generation()` 세대 카운터(같은 프리셋 재적용 무변).
+  셸은 Draw 진입에서 세대 비교 → 라벨·툴팁·시계 텍스처 파괴, 태스크바는
+  미니 텍스처 맵 파괴. 아틀라스 글리프 이미지는 색과 무관해 유지.
+- 회귀망: 셀프테스트 106-3a~3d(프리셋 3종 대비 3:1 · 세대 카운터).
+- 남은 눈확인: PC `theme.json` {"preset":"light"} 로 런처 라벨 가독 확인.

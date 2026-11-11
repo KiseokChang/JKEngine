@@ -9970,6 +9970,54 @@ int RunAppSelfTest() {
               "108-3c server(fixed) 행 = 1(permission_set — 설정 파일 출력 제외)");
     }
 
+    // [docs/106 §3 — 테마 토큰] 프리셋 3종의 데스크톱 텍스트 대비 불변식.
+    // 구 결함 = 라벨 색이 리터럴(235,235,240)이라 kLight 배경에서 글자가
+    // 사라졌다 — 토큰화한 지금도 프리셋 값이 어긋나면 같은 결함이 재발한다.
+    {
+        auto luminance = [](SDL_Color c) {
+            auto ch = [](int v) {
+                const double s = static_cast<double>(v) / 255.0;
+                return s <= 0.03928 ? s / 12.92
+                                    : std::pow((s + 0.055) / 1.055, 2.4);
+            };
+            return 0.2126 * ch(c.r) + 0.7152 * ch(c.g) + 0.0722 * ch(c.b);
+        };
+        auto contrast = [&](SDL_Color a, SDL_Color b) {
+            const double la = luminance(a);
+            const double lb = luminance(b);
+            const double hi = std::max(la, lb);
+            const double lo = std::min(la, lb);
+            return (hi + 0.05) / (lo + 0.05);
+        };
+        const jk::theme::JKTheme* presets[] = { &jk::theme::kDefault,
+                                                &jk::theme::kLight,
+                                                &jk::theme::kClassic };
+        bool labelOk = true;
+        bool tooltipOk = true;
+        bool clockOk = true;
+        for (const jk::theme::JKTheme* t : presets) {
+            if (contrast(t->launcherLabelText, t->launcherCellFace) < 3.0 &&
+                contrast(t->launcherLabelText, t->desktopBgFallback) < 3.0) {
+                labelOk = false;
+            }
+            if (contrast(t->tooltipText, t->tooltipBg) < 3.0) tooltipOk = false;
+            if (contrast(t->desktopClockText, t->desktopBgFallback) < 3.0) {
+                clockOk = false;
+            }
+        }
+        check(labelOk, "106-3a 런처 라벨 대비 3:1 이상(셀 면 또는 배경)");
+        check(tooltipOk, "106-3b 툴팁 텍스트 대비 3:1 이상(박스 면)");
+        check(clockOk, "106-3c 시계 텍스트 대비 3:1 이상(바탕화면 배경)");
+        // 세대 카운터 = 캐시 무효화 신호 — 같은 프리셋 재적용은 무변.
+        const unsigned g0 = jk::theme::Generation();
+        jk::theme::setTheme(&jk::theme::kLight);
+        const unsigned g1 = jk::theme::Generation();
+        jk::theme::setTheme(&jk::theme::kLight);
+        check(g1 == g0 + 1 && jk::theme::Generation() == g1,
+              "106-3d 테마 세대 = 프리셋 변경 시만 증가(재적용 무변)");
+        jk::theme::setTheme(&jk::theme::kDefault);
+    }
+
     std::printf("AppSelfTest: %d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;
 }

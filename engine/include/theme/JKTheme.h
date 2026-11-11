@@ -24,6 +24,14 @@ struct JKTheme {
     SDL_Color launcherCellFace;     // 런처 셀 면 (폴백)
     SDL_Color launcherCellOutline;  // 런처 셀 윤곽
     SDL_Color launcherCellPlaceholder; // 앱별 플레이스홀더 폴백(제너릭)
+    // 데스크톱 라벨·툴팁·시계 (docs/106 §3 토큰 누락 수형) — 셸 2.0 텍스트가
+    // 리터럴(235,235,240)이라 kLight에서 안 보이던 결함의 봉합. 텍스처 캐시는
+    // theme::Generation() 변화로 무효화한다.
+    SDL_Color launcherLabelText;    // 런처 라벨(벽지 위 직접 합성)
+    SDL_Color tooltipText;          // 툴팁 박스 텍스트
+    SDL_Color tooltipBg;            // 툴팁 박스 면
+    SDL_Color tooltipBorder;        // 툴팁 박스 테두리
+    SDL_Color desktopClockText;     // 데스크톱 시계 위젯 숫자
     // 태스크바 — ClientTaskbarApp (값 = 기존 리터럴 그대로)
     SDL_Color taskbarBg;
     SDL_Color taskbarFaceNormal, taskbarFaceActive, taskbarFaceMinimized;
@@ -64,6 +72,11 @@ inline constexpr JKTheme kDefault = {
     .launcherCellFace      = {44, 44, 46, 255},     // (구: 100,100,100)
     .launcherCellOutline   = {255, 255, 255, 255},  // 불변
     .launcherCellPlaceholder = {80, 80, 84, 255},   // 제너릭 폴백 (구: 128,128,128)
+    .launcherLabelText     = {235, 235, 240, 255},  // 구 리터럴 그대로(픽셀 불변)
+    .tooltipText           = {235, 235, 240, 255},
+    .tooltipBg             = {26, 26, 30, 255},
+    .tooltipBorder         = {130, 130, 140, 255},
+    .desktopClockText      = {235, 235, 240, 255},
     .taskbarBg             = {24, 26, 32, 255},
     .taskbarFaceNormal     = {56, 58, 68, 255},
     .taskbarFaceActive     = {92, 98, 122, 255},
@@ -107,6 +120,11 @@ inline constexpr JKTheme kLight = {
     .launcherCellFace      = {249, 249, 249, 255},
     .launcherCellOutline   = {200, 200, 200, 255},
     .launcherCellPlaceholder = {204, 204, 208, 255},
+    .launcherLabelText     = {32, 32, 32, 255},
+    .tooltipText           = {24, 24, 24, 255},
+    .tooltipBg             = {250, 250, 250, 255},
+    .tooltipBorder         = {160, 160, 165, 255},
+    .desktopClockText      = {32, 32, 32, 255},
     .taskbarBg             = {243, 243, 243, 255},
     .taskbarFaceNormal     = {229, 229, 229, 255},
     .taskbarFaceActive     = {204, 204, 204, 255},
@@ -147,6 +165,12 @@ inline constexpr JKTheme kClassic = {
     .launcherCellFace      = {100, 100, 100, 255},
     .launcherCellOutline   = {255, 255, 255, 255},
     .launcherCellPlaceholder = {128, 128, 128, 255},
+    // 셸 2.0 텍스트는 단계 1 이전에 없었다 — 구 픽셀 회귀 대상 밖(다크 값).
+    .launcherLabelText     = {235, 235, 240, 255},
+    .tooltipText           = {235, 235, 240, 255},
+    .tooltipBg             = {26, 26, 30, 255},
+    .tooltipBorder         = {130, 130, 140, 255},
+    .desktopClockText      = {235, 235, 240, 255},
     .taskbarBg             = {24, 26, 32, 255},     // 이하 taskbar 9필드 = kDefault와 동일 (값 불변 토큰화)
     .taskbarFaceNormal     = {56, 58, 68, 255},
     .taskbarFaceActive     = {92, 98, 122, 255},
@@ -178,8 +202,18 @@ inline constexpr JKTheme kClassic = {
 // --- 스위칭 봉합 ---
 // 기동 시 1회 setTheme가 정석 — 렌더 중 스왑은 P3(핫스왑)에서 재검토.
 inline const JKTheme* activeTheme_ = &kDefault;
+// 테마 세대 — 색이 텍스처에 베이크되는 소비자(런처 라벨·툴팁·시계)의 캐시
+// 무효화 신호. setTheme가 실제로 프리셋을 바꿀 때만 증가(같은 프리셋 재적용
+// = 무변 — 핫스왑 폴링의 반복 호출로 텍스처가 매번 다시 렌더되지 않는다).
+inline unsigned themeGeneration_ = 0;
 inline JKTheme const& current() { return *activeTheme_; }
-inline void setTheme(const JKTheme* t) { if (t) activeTheme_ = t; }
+inline unsigned Generation() { return themeGeneration_; }
+inline void setTheme(const JKTheme* t) {
+    if (t && t != activeTheme_) {
+        activeTheme_ = t;
+        ++themeGeneration_;
+    }
+}
 
 // theme.json {"preset": "dark"|"light"|"classic"} 1키 로더. 파일 없음/깨짐
 // → false, 상태 불변 (기본값=다크가 곧 정답).

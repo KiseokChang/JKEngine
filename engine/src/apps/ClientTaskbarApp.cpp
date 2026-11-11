@@ -101,6 +101,15 @@ void DrawUnicodeCentered(JKDC& dc, const JKRect& rect, const std::string& utf8) 
 SDL_Texture* MiniTextTexture(SDL_Renderer* r, const std::string& utf8,
                              int* w, int* h) {
     static std::map<std::string, std::pair<SDL_Texture*, SDL_Point>> texs;
+    // 테마 세대 무효화 — 라벨 색이 텍스처에 베이크되므로 프리셋 전환 시 파괴(docs/106 §3).
+    static unsigned texGen = jk::theme::Generation();
+    if (texGen != jk::theme::Generation()) {
+        for (auto& kv : texs) {
+            if (kv.second.first) SDL_DestroyTexture(kv.second.first);
+        }
+        texs.clear();
+        texGen = jk::theme::Generation();
+    }
     r = r ? r : MiniKit().r;
     *w = 0; *h = 0;
     auto it = texs.find(utf8);
@@ -153,7 +162,12 @@ SDL_Texture* MiniTextTexture(SDL_Renderer* r, const std::string& utf8,
     if (k.atlas && k.atlas->IsLoaded()) {
         dc.SetTextAtlas(k.atlas.get(), k.cache.get());
     }
-    dc.SetTextColor(235, 235, 240);
+    // 테마 토큰(태스크바 라벨 색) — 구 리터럴 235,235,240 대체.
+    {
+        const auto& th = jk::theme::current();
+        dc.SetTextColor(th.taskbarTextNormal.r, th.taskbarTextNormal.g,
+                        th.taskbarTextNormal.b);
+    }
     dc.TextOut(JKPoint{pad, pad}, kssm.c_str());
     // [봉합 — 2026-11-09 실측] GetImage가 업로드 플러시 이전에 null을 주는
     // 셸 TextTexture의 재시도 패턴 승계(docs/63 §8) — 플러시 누락 = 빈

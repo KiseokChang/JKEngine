@@ -832,6 +832,12 @@ void JKDesktopShell::Draw(SDL_Renderer* renderer) {
     // physical-pixel rect. The mouse hit-test uses the same physical rect.
     const float s = host_.outputScale ? host_.outputScale() : 1.0f;
 
+    // 테마 세대 감지(핸드스왕 P3 핵스와프) — 색이 텍스처에 베이크된
+    // 캐시(라벨·툴팁·시계)는 세대가 바뀌면 파괴해야 낡은 색이 잔존하지 않는다.
+    if (themeGen_ != jk::theme::Generation()) {
+        InvalidateThemeTextCaches();
+        themeGen_ = jk::theme::Generation();
+    }
     const auto& t = jk::theme::current();
     SDL_SetRenderDrawColor(renderer, t.desktopBgFallback.r, t.desktopBgFallback.g, t.desktopBgFallback.b, 255);
     SDL_RenderClear(renderer);
@@ -917,7 +923,8 @@ void JKDesktopShell::Draw(SDL_Renderer* renderer) {
             std::snprintf(buf, sizeof(buf), "%02d:%02d", lt.tm_hour, lt.tm_min);
             int cw = 0;
             int ch = 0;
-            clockTex_ = LabelTexture(buf, &cw, &ch);
+            clockTex_ = LabelTextureColored(
+                buf, jk::theme::current().desktopClockText, &cw, &ch);
             clockW_ = cw;
             clockH_ = ch;
         }
@@ -1042,10 +1049,52 @@ void JKDesktopShell::ClearHover() {
     hoverActive_ = false;
 }
 
+// [docs/106 §3 — 테마 토큰] 색이 베이크된 텍스처만 파괴(아틀라스 귀자 이미지는 색과 무관 — 유지).
+void JKDesktopShell::InvalidateThemeTextCaches() {
+    for (auto& kv : tooltipTexs_) {
+        if (kv.second.tex) SDL_DestroyTexture(kv.second.tex);
+    }
+    tooltipTexs_.clear();
+    for (auto& icon : launcherIcons_) {
+        if (icon.labelTex) {
+            SDL_DestroyTexture(icon.labelTex);
+            icon.labelTex = nullptr;
+        }
+        icon.labelTexW = 0;
+        icon.labelTexH = 0;
+    }
+    if (clockTex_) {
+        SDL_DestroyTexture(clockTex_);
+        clockTex_ = nullptr;
+    }
+    clockMinute_ = -1;
+    std::fprintf(stderr, "[shell] theme gen %u — text caches invalidated\n",
+                 themeGen_ + 1);
+}
+
 SDL_Texture* JKDesktopShell::TextTexture(const std::string& utf8, int* w,
                                          int* h, bool boxed) {
-    // [셸 2.0 S1] 캐시 키 접두(T:툴팁/L:라벨) — 동텍스트 이중 캐시 충돌 소각.
-    const std::string ckey = std::string(boxed ? "T:" : "L:") + utf8;
+    const auto& t = jk::theme::current();
+    return TextTextureEx(utf8, w, h, boxed,
+                         boxed ? t.tooltipText : t.launcherLabelText);
+}
+
+SDL_Texture* JKDesktopShell::LabelTextureColored(const std::string& utf8,
+                                                 SDL_Color color, int* w,
+                                                 int* h) {
+    return TextTextureEx(utf8, w, h, false, color);
+}
+
+SDL_Texture* JKDesktopShell::TextTextureEx(const std::string& utf8, int* w,
+                                           int* h, bool boxed,
+                                           SDL_Color textColor) {
+    // [셸 2.0 S1] 캐시 키 접두(T:툴팁/L:라벨/C:색변형) — 동텍스트·동색 이중
+    // 캐시 충돌 소각. 색이 베이크되므로 키에 RGBA를 넣는다(시계/라벨 분리).
+    char colorKey[24];
+    std::snprintf(colorKey, sizeof(colorKey), "%02x%02x%02x%02x",
+                  textColor.r, textColor.g, textColor.b, textColor.a);
+    const std::string ckey = std::string(boxed ? "T:" : "L:") + colorKey + ":" +
+                             utf8;
     *w = 0;
     *h = 0;
     auto it = tooltipTexs_.find(ckey);
@@ -1113,10 +1162,14 @@ SDL_Texture* JKDesktopShell::TextTexture(const std::string& utf8, int* w,
     SDL_Texture* prev = SDL_GetRenderTarget(host_.renderer);
     SDL_SetRenderTarget(host_.renderer, tex);
     if (boxed) {
-        // 어두운 툴팁 박스 + 밝은 테두리 — 데스크톱 사진 위에서도 읽히는 고정 대비색.
-        SDL_SetRenderDrawColor(host_.renderer, 26, 26, 30, 255);
+        // 툴팁 박스 면·테두리 = 테마 토큰(docs/106 §3 누락 봉합).
+        const auto& th = jk::theme::current();
+        SDL_SetRenderDrawColor(host_.renderer, th.tooltipBg.r, th.tooltipBg.g,
+                               th.tooltipBg.b, th.tooltipBg.a);
         SDL_RenderClear(host_.renderer);
-        SDL_SetRenderDrawColor(host_.renderer, 130, 130, 140, 255);
+        SDL_SetRenderDrawColor(host_.renderer, th.tooltipBorder.r,
+                               th.tooltipBorder.g, th.tooltipBorder.b,
+                               th.tooltipBorder.a);
         SDL_Rect border{ 0, 0, texW, texH };
         SDL_RenderDrawRect(host_.renderer, &border);
     } else {
@@ -1134,7 +1187,7 @@ SDL_Texture* JKDesktopShell::TextTexture(const std::string& utf8, int* w,
     if (tooltipAtlas_ && tooltipAtlas_->IsLoaded() && tooltipCache_) {
         dc.SetTextAtlas(tooltipAtlas_.get(), tooltipCache_.get());
     }
-    dc.SetTextColor(235, 235, 240);
+    dc.SetTextColor(textColor.r, textColor.g, textColor.b);
     dc.TextOut(JKPoint{kPad, kPad}, kssm.c_str());
     SDL_SetRenderTarget(host_.renderer, prev);
     tooltipTexs_[ckey] = TooltipTex{tex, texW, texH};
