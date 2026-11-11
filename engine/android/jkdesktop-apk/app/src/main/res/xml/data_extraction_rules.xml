@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- [P0 — docs/106 §3] Auto Backup 제외 규칙: cloud API 키가 담기는 state/는
+     백업 대상에서 전면 제외(allowBackup=false와 이중 방어). -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="state/" />
+        <exclude domain="file" path="chat.json" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="state/" />
+    </device-transfer>
+</data-extraction-rules>

@@ -15,7 +15,12 @@
     <application
         android:label="Jkdesktop"
         android:resizeableActivity="true"
-        android:supportsPictureInPicture="false">
+        android:supportsPictureInPicture="false"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules">
+        <!-- [P0 — docs/106 §3] allowBackup 미설정 → cloud API 키(state/chat.json)가
+             Auto Backup 대상이였다 — 백업 전면 금지 + 제외 규칙 이중 방어. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"

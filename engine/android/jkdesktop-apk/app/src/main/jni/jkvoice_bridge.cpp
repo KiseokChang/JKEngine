@@ -31,6 +31,10 @@ static JavaVM* g_vm = nullptr;
 static jclass g_voiceClass = nullptr;
 static jclass g_ttsClass = nullptr;
 static jclass g_httpClass = nullptr;
+// [P0 — docs/106 §4] BrowserActivity 클래스 캐시(JNI_OnLoad — Java 스레드
+// 진입점이라 FindClass 성립): 훅 3종의 호출마다 getClassLoader
+// .loadClass 30줄 반복 소각 — 실패 시 기존 로더 댄스 폴백.
+static jclass g_browserClass = nullptr;
 
 // 전방 선언(정의는 g_voiceMtx 뒤 — JNI_OnLoad의 주입이 앞서 쓴다).
 static jk::agent::LlmHttpPostResult JkHttpsTransportCall(
@@ -72,6 +76,16 @@ extern "C" jint JNI_OnLoad(JavaVM* vm, void*) {
             env->ExceptionClear();
             __android_log_print(ANDROID_LOG_WARN, "jksrv",
                                 "[jkdesk] JkHttp class not found at load");
+        }
+        // BrowserActivity 캐시(최적화 — 실패는 무해 폴백).
+        if (!g_browserClass) {
+            jclass lb = env->FindClass("chang/jkdesktop/BrowserActivity");
+            if (lb) {
+                g_browserClass = static_cast<jclass>(env->NewGlobalRef(lb));
+                env->DeleteLocalRef(lb);
+            } else {
+                env->ExceptionClear();
+            }
         }
         // transport 주입 — 라이브러리 적재 때 1회(결정론). 주입 후 모든
         // llm_mode=cloud 턴이 이 브리지로 간다(주입 부재 = 정직 실패 계약이
@@ -267,6 +281,10 @@ static std::string HttpPostTalk(const std::string& body) {
 // FindClass 성립(로더 무관).
 static jclass FetchAppClass(JNIEnv* env, jobject activity,
                             const char* dotName, const char* logTag) {
+    if (g_browserClass && std::strcmp(dotName,
+                                      "chang.jkdesktop.BrowserActivity") == 0) {
+        return g_browserClass;   // 캐시 히트 — 로더 댄스 생략
+    }
     jclass clz = env->GetObjectClass(activity);
     if (!clz) { env->ExceptionClear(); return nullptr; }
     jclass loaderClz = env->FindClass("java/lang/ClassLoader");
@@ -390,12 +408,23 @@ extern "C" int JkCloseBrowserActivity(void) {
 extern "C" int JKTtsSpeak(const char*);
 extern "C" int JKTtsSpeak(const char* text) {
     JNIEnv* env = static_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
-    if (!env || !g_ttsClass) return 0;
+    if (!env || !g_ttsClass) {
+        std::fprintf(stderr, "[jkdesk] tts speak exit env=%p class=%p\n",
+                     (void*)env, (void*)g_ttsClass);
+        return 0;
+    }
     jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
-    if (!activity) return 0;
+    if (!activity) {
+        std::fprintf(stderr, "[jkdesk] tts speak exit activity-null\n");
+        return 0;
+    }
     jmethodID mid = env->GetStaticMethodID(g_ttsClass, "begin",
                                            "(Landroid/content/Context;)V");
-    if (!mid) { env->ExceptionClear(); env->DeleteLocalRef(activity); return 0; }
+    if (!mid) {
+        env->ExceptionClear(); env->DeleteLocalRef(activity);
+        std::fprintf(stderr, "[jkdesk] tts speak exit begin-mid-null\n");
+        return 0;
+    }
     env->CallStaticVoidMethod(g_ttsClass, mid, activity);
     env->DeleteLocalRef(activity);
     jmethodID mid2 = env->GetStaticMethodID(g_ttsClass, "speak",
@@ -445,9 +474,11 @@ extern "C" int JKVoiceAutoturnStart() {
                         reply += resp[i];
                     }
                 }
-                if (!reply.empty() && JKTtsSpeak(reply.c_str()) == 1) {
+                if (!reply.empty()) {
+                    const int sp = JKTtsSpeak(reply.c_str());
                     std::fprintf(stderr,
-                                 "[jkdesk] voice turn tts: %s\n", reply.c_str());
+                                 "[jkdesk] voice turn tts r=%d : %s\n", sp,
+                                 reply.c_str());
                 }
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(300));

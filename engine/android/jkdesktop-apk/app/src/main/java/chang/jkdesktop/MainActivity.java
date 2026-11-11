@@ -106,6 +106,23 @@ public class MainActivity extends SDLActivity {
     // 풀어 둔다 — SDL_main이 files/로 chdir해 상대 "assets/…" 경로를 해석한다
     // (r11 원문: 서버가 CWD에서 assets/backgrounds·icons 로드 실패).
     private void extractAssets() {
+        // [P0 — docs/106 §3] 자산 버전 스탬프: 1판은 versionCode 고정 → APK 업데이트 후에도
+        // 샘이름 자산이 스텔일 유지 — 스탬프 일치 시 전체 열거 생략(부팅 가속).
+        // 스탬프 = 버전 + 자산 트리 사이즈 합(개수 변화 감지 — 추가 자산은 재추출).
+        try {
+            java.io.File stamp = new java.io.File(getFilesDir(), "assets.stamp");
+            String want = getPackageManager().getPackageInfo(getPackageName(), 0).versionCode
+                + ":" + getAssets().list("").length;
+            if (stamp.isFile()) {
+                java.io.BufferedReader br = new java.io.BufferedReader(
+                    new java.io.FileReader(stamp));
+                String have = br.readLine();
+                br.close();
+                java.io.File first = new java.io.File(getFilesDir(),
+                    "assets/icons/launcher_browser@1x.png");
+                if (want.equals(have) && first.isFile() && first.length() > 0) return;
+            }
+        } catch (Exception ignored) { }
         // 전체 동적 추출 — assets 트리를 files/assets로(런처 아이콘 30종@1x·
         // 바탕 전부 — CWD(files) 상대 "assets/…" 해석점 정합). 폰트만 files/fonts
         // (컴파일 정의 절대 경로 계약 — JKENGINE_FONT_DIR "/data/data/…/fonts").
@@ -116,17 +133,30 @@ public class MainActivity extends SDLActivity {
                 String dstRel = path.startsWith("fonts/") ? path : "assets/" + path;
                 File dst = new File(getFilesDir(), dstRel);
                 if (dst.isFile() && dst.length() > 0) continue;
-                dst.getParentFile().mkdirs();
-                try (InputStream in = getAssets().open(path);
-                     OutputStream out = new FileOutputStream(dst)) {
-                    byte[] buf = new byte[64 * 1024];
-                    int n;
-                    while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                // [P0] 파일당 try/catch — 1건 실패가 전체를 쓰러뜼리지 않게.
+                try {
+                    dst.getParentFile().mkdirs();
+                    try (InputStream in = getAssets().open(path);
+                         OutputStream out = new FileOutputStream(dst)) {
+                        byte[] buf = new byte[64 * 1024];
+                        int n;
+                        while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                    }
+                    // [lf/helix 폰 조달 leg — 11-07] 추출 기본 0660 → 실행 비트 보증.
+                    if (dstRel.startsWith("assets/bin/")) dst.setExecutable(true, false);
+                } catch (Exception fileErr) {
+                    android.util.Log.e("jkdesk", "asset " + path + " failed", fileErr);
                 }
-                // [lf/helix 폰 조달 leg — 11-07] 추출 기본 0660 → 실행 비트
-                // 보증(bin/ 하의 조달 바이너리 — PATH seed 해석점의 exec 전제).
-                if (dstRel.startsWith("assets/bin/")) dst.setExecutable(true, false);
             }
+            // 스탬프 기록(완전 추출 성공 — 다음 부팅부터 생략 가능).
+            try {
+                java.io.File stamp = new java.io.File(getFilesDir(), "assets.stamp");
+                String v = getPackageManager().getPackageInfo(getPackageName(), 0).versionCode
+                    + ":" + getAssets().list("").length;
+                try (java.io.FileWriter fw = new java.io.FileWriter(stamp)) {
+                    fw.write(v);
+                }
+            } catch (Exception ignored) { }
         } catch (Exception e) {
             android.util.Log.e("jkdesk", "extractAssets failed", e);
         }

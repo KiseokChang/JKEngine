@@ -57,8 +57,26 @@ public class ControlActivity extends Activity implements RecognitionListener {
             status.setText("mic (engine)...");
             postVoice();
         });
+        findViewById(R.id.backBtn).setOnClickListener(v ->
+            // [수형 2026-11-08 — 결함 원존: {"kind":"BACK"} POST = 서버가
+            // "text"만 읽어 빈 발화 거부(무동작) + 앱 단독 keyevent 주입은
+            // 시스템 권한이라 성립 불가] — 브라우저/창 위의 화면을 바탕화면으로
+            // 되돌리는 지시(라우터 AmpkClose 승천 — 브라우저 정실측 경로 재용).
+            postTalk("{\"text\":\"바탕화면으로\"}"));
+        findViewById(R.id.browserBtn).setOnClickListener(v ->
+            postTalk("{\"text\":\"브라우저 열어주\"}"));
+
         findViewById(R.id.desktopBtn).setOnClickListener(v -> {
-            status.setText("starting desktop...");
+            // [P0 — docs/106 §4] 1판 = 메인 스레드 sleep 900+2500 ≈ 3.4초
+            // 블록(ANR 5초 근접) → 작업을 백그라운드 스레드로.
+            new Thread(() -> desktopStart()).start();
+        });
+        // 버튼 버디(사용 정의 자체)는 아래 버디에서 받는다.
+    }
+
+    void desktopStart() {
+        {
+            setStatus("starting desktop...");
             try {
                 // [원존] jkdesktop = singleInstance 서버 — 기존 인스턴스의 태스크가
                 // 폰 화면에 남는다. DeX(12)로 옮기려면 재개가 아니라 재시작:
@@ -68,7 +86,7 @@ public class ControlActivity extends Activity implements RecognitionListener {
                     "chang.jkdesktop" });
                 Thread.sleep(900);
             } catch (Exception e) {
-                status.setText("stop failed: " + e.getMessage());
+                setStatus("stop failed: " + e.getMessage());
             }
             // [원존 실측 11-07] 앱이 보는 DeX 표면은 id=2(DeX 가상 Desktop —
             // 앱 DisplayManager에는 비가시, dumpsys로만 확인). getDisplays()가
@@ -96,7 +114,7 @@ public class ControlActivity extends Activity implements RecognitionListener {
             if (amOutOk()) {
                 // am --display 2 실측(11-07): 앱 소스는 "Starting"만 찍고 무시됨 —
                 // 그래서 pidof로 실성립을 검증하고, 실패면 폴백으로 간다.
-                status.setText("desktop launched (DeX display 2)");
+                setStatus("desktop launched (DeX display 2)");
                 return;
             }
             try {
@@ -127,27 +145,23 @@ public class ControlActivity extends Activity implements RecognitionListener {
                         android.app.ActivityOptions.makeBasic();
                     opts.setLaunchDisplayId(target.getDisplayId());
                     startActivity(desktop, opts.toBundle());
-                    status.setText("desktop launched on visible display "
+                    setStatus("desktop launched on visible display "
                         + target.getDisplayId());
                 } else {
-                    status.setText("DeX 화면은 폰 앱 권한으로 접근 불가 — "
+                    setStatus("DeX 화면은 폰 앱 권한으로 접근 불가 — "
                         + "TV의 DeX 홈에서 JK 아이콘을 탭하세요");
                 }
             } catch (Exception e) {
-                status.setText("jkdesktop not installed: " + e.getMessage());
+                setStatus("jkdesktop not installed: " + e.getMessage());
             }
-        });
-        findViewById(R.id.backBtn).setOnClickListener(v ->
-            // [수형 2026-11-08 — 결함 원존: {"kind":"BACK"} POST = 서버가
-            // "text"만 읽어 빈 발화 거부(무동작) + 앱 단독 keyevent 주입은
-            // 시스템 권한이라 성립 불가] — 브라우저/창 위의 화면을 바탕화면으로
-            // 되돌리는 지시(라우터 AmpkClose 승천 — 브라우저 정실측 경로 재용).
-            postTalk("{\"text\":\"바탕화면으로\"}"));
-        findViewById(R.id.browserBtn).setOnClickListener(v ->
-            postTalk("{\"text\":\"브라우저 열어줘\"}"));
+        }
     }
 
-    boolean amOutOk() {
+    // UI 스레드 안전 상태 반영(백그라운드 스레드 전용).
+    void setStatus(String s) {
+        runOnUiThread(() -> status.setText(s));
+    }
+boolean amOutOk() {
         try {
             Thread.sleep(2500);
             Process p = Runtime.getRuntime().exec(
@@ -179,7 +193,11 @@ public class ControlActivity extends Activity implements RecognitionListener {
                 c.setConnectTimeout(5000);
                 c.setReadTimeout(15000);
                 c.setRequestMethod("POST");
-                try (OutputStream o = c.getOutputStream()) { o.write(0); }
+                // [P0 — docs/106 §4] doOutput 누락 수형(쓰기 전 필수 플래그)·
+                // 0바이트 본문은 명시 길이 0으로 계약 표기.
+                c.setDoOutput(true);
+                c.setFixedLengthStreamingMode(0);
+                try (OutputStream o = c.getOutputStream()) { }
                 final int code = c.getResponseCode();
                 runOnUiThread(() -> status.setText(
                     code == 200 ? "mic start — 엔진이 듣고 있습니다\n말씀하세요"

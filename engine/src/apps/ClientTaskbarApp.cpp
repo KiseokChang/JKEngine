@@ -465,12 +465,17 @@ void TaskbarButton::OnPaintClient(JKDC& dc) {
             dc.DrawRect(JKRect{ cx - 7, cy - 7, 10, 10 });
             dc.DrawRect(JKRect{ cx - 3, cy - 3, 10, 10 });
         }
-        // 소형 라벨(셀 하단 — 미니 텍스처 — TextOutX 불발 원존 봉합).
-        int lw = 0; int lh = 0;
-        if (SDL_Texture* lt = MiniTextTexture(nullptr, label, &lw, &lh)) {
-            SDL_Rect lbox{ cx - lw / 2, client.y + client.h - lh - 1, lw, lh };
-            SDL_RenderCopy(MiniKit().r, lt, nullptr, &lbox);
-        }
+        // 소형 라벨(셀 하단) — 직접 dc 텍스트(TextOutX).
+        // [원존 정정 2026-11-11] "미니 텍스처가 불발"로 보였던 증거는 **스텔이 APK**
+        // 였다(이후 클러 프로베원으로 폐기) — 자식은 소프트웨어 렌더러라
+        // 렌더 타갓 텍스처(미니 킷)가 안되는 것이고, dc 직접 그리기는
+        // 상종 국소이다. 라벨 밴드 = 셀 메트릭(cellH — font_scale 승계).
+        const jk::text::CellMetrics cm = jk::text::GetCellMetrics();
+        const JKRect textRect{ client.x, client.y + client.h
+                                   - static_cast<int>(cm.cellH) - 1,
+                               client.w, static_cast<int>(cm.cellH) };
+        dc.TextOutX(textRect, Utf8ToKssm(label.c_str()).c_str(),
+                    ADJ_YCENTER, false);
         return;
     }
 
