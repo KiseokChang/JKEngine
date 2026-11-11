@@ -423,7 +423,9 @@ void JKDesktopShell::RelayoutLauncherIcons() {
     int ph = 720;
     SDL_GetRendererOutputSize(host_.renderer, &pw, &ph);
     const int logicalW = static_cast<int>(pw / s);
-    const int cols = (logicalW - 50) / 150;
+    // [docs/106 §3] cols=0 UB 봉합 — 좁은 표면(DeX 분할·폰 세로)에서도 최소
+    // 1열(0으로 나누기 = 모듈로 0 크래시 원존).
+    const int cols = std::max(1, (logicalW - 50) / 150);
     for (size_t i = 0; i < launcherIcons_.size(); ++i) {
         const int col = static_cast<int>(i) % cols;
         const int row = static_cast<int>(i) / cols;
@@ -838,6 +840,19 @@ void JKDesktopShell::Draw(SDL_Renderer* renderer) {
         InvalidateThemeTextCaches();
         themeGen_ = jk::theme::Generation();
     }
+    // [docs/106 §3] 표면 크기 변화 = 그리드 재계산(비Android 리사이즈·DeX 창
+    // 모드 전환에서 1회만 계산되던 결함). 크기 무변이면 무비용(정수 비교 2회).
+    {
+        int pwNow = 0;
+        int phNow = 0;
+        SDL_GetRendererOutputSize(renderer, &pwNow, &phNow);
+        if (pwNow != lastOutW_ || phNow != lastOutH_) {
+            lastOutW_ = pwNow;
+            lastOutH_ = phNow;
+            RelayoutLauncherIcons();
+        }
+    }
+
     const auto& t = jk::theme::current();
     SDL_SetRenderDrawColor(renderer, t.desktopBgFallback.r, t.desktopBgFallback.g, t.desktopBgFallback.b, 255);
     SDL_RenderClear(renderer);
@@ -893,11 +908,20 @@ void JKDesktopShell::Draw(SDL_Renderer* renderer) {
                 icon.labelTexH = lh;
             }
             if (icon.labelTex && icon.labelTexW > 0) {
+                // [docs/106 §3] 라벨 셀 폭 클램프 — 셀(96pt)보다 긴 제목은
+                // 비율 축소 + 가로 중앙 정렬(구: 셀 밖으로 삐져나옴).
+                const int cellW = static_cast<int>(icon.rect.w * s);
+                int lw = icon.labelTexW;
+                int lh = icon.labelTexH;
+                if (lw > cellW && lw > 0) {
+                    lh = static_cast<int>(static_cast<long long>(lh) * cellW / lw);
+                    lw = cellW;
+                }
                 SDL_Rect lbl{
-                    rc.x - static_cast<int>(2 * s),
+                    rc.x + (cellW - lw) / 2,
                     rc.y + static_cast<int>(100 * s),
-                    icon.labelTexW,
-                    icon.labelTexH,
+                    lw,
+                    lh,
                 };
                 SDL_RenderCopy(renderer, icon.labelTex, nullptr, &lbl);
             }

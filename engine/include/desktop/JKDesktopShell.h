@@ -135,6 +135,9 @@ private:
     // 바뀌면 파괴한다(핫스왑 후 낡은 색 잔존 방지).
     unsigned themeGen_ = 0;
     void InvalidateThemeTextCaches();
+    // 표면 출력 크기 추적 — 변화 시 런처 그리드 재계산(docs/106 §3).
+    int lastOutW_ = 0;
+    int lastOutH_ = 0;
     // 호버 중인 아이콘 셀 아래(바닥에 닿으면 위) 툴팁을 물리 픽셀로 렌더.
     // 반환 = 실제 그린 dst rect(물리 픽셀; 못 그리면 0x0 — (T2 fix r1) 동적
     // 드로잉 사건 판정을 Draw()가 반환값으로 한다).
