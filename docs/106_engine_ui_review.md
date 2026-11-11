@@ -122,6 +122,25 @@ APK(654MB·applicationId=chang.jkapk)** 경로를 가리켜 다른 앱을 통과
   사용 — 인터페이스(IWindowServerServices) 설계 후의 2-TU 추출로 다음 세션
   정식 착수. 절단 시도 금지(반쪽 추출 = 회귀 위험).
 
+## 4b. 자율 연속 라운드 정산 (2026-11-11 오전 — 잔여 P0/§4)
+
+- ✅ **allowBackup OFF**(API 키 Auto Backup 차단 — manifest+dataExtractionRules
+  state/ 제외 이중 방어).
+- ✅ **자산 버전 스탬프**(versionCode+트리 사이즈 — 샘 이름 스테일 자산 소각)
+  + 파일당 try 격리.
+- ✅ **JNI BrowserActivity 클래스 캐시**(JNI_OnLoad — 3훅 로더 댄스 절감·
+  실패 시 기존 로더 폴백).
+- ✅ **jkcontrol** — UI 블록 3.4초 → 워커 스레드(ANR 근접 소각)·postVoice
+  doOutput 누락 수형.
+- ◻ **한글 라벨 v2 이월(정직)**: 계측 완벽 분리 — ①dc 텍스트 경로 정상
+  (ASCII "AB" 렌더 원문) ②**Utf8ToKssm = Android bionic iconv CP949 부재로
+  전면 빈 문자열**(kssmlen=0 로그 원문 — 진원) ③직접 fast path(UTF-8→
+  wCodeTable)로 '뒤'(KSSM 2350 음절 내) 성공·'홈/최/정'(밖) 실패 ④아틀라스
+  유니코드 직행(DrawUnicodeGlyph 공개·EnsureMiniAtlas) 폰 무증상 미출력.
+  기반 인프라는 커밋 완료 — 다음 세션 = 자식 아틀라스 블릿 경계(SW 렌더러)
+  재판정.
+- ✅ 서버 TU 설계 스펙 = docs/108(4단계·게이트·역치).
+
 ## 5. 권고 실행 순서
 
 1. **오늘 밤 사건 직결 5건**: 1-1(트레이 가림)·1-5(StateDir)·1-6(권한)·
