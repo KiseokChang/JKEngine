@@ -24,6 +24,15 @@ public:
     // 창 버튼 레이아웃(칩+텍스트)의 클립으로 라벨이 안 보이는 실측 수형.
     void SetNavMode(bool v) { navMode_ = v; }
 
+    // [docs/106 §3] 네비 글리프 역할 — 종전에는 표시 문자열("뒤"/"홈"/
+    // "최근"/"정리", 시계는 "HH:MM" 5글자)로 분기했다. 문구를 바꾸면 그림이
+    // 조용히 퇴화하고, 5바이트+콜론이면 무엇이든 시계로 그려졌다. 역할을
+    // enum으로 고정(그림 계약 = 역할, 라벨 = 별도 표시 문자열).
+    enum class NavGlyph { None, Back, Home, Recents, Cleanup, Clock };
+    void SetNavGlyph(NavGlyph g) { navGlyph_ = g; }
+    NavGlyph GetNavGlyph() const { return navGlyph_; }
+    bool IsClockCell() const { return navGlyph_ == NavGlyph::Clock; }
+
     // Rebind in place from a WindowList snapshot (pool reuse — no control
     // teardown, so no flicker and no remove-control API needed).
     void Bind(uint32_t surfaceId, const std::string& title,
@@ -43,6 +52,7 @@ private:
     bool active_ = false;
     bool minimized_ = false;
     bool navMode_ = false;
+    NavGlyph navGlyph_ = NavGlyph::None;
     std::function<void(uint32_t, bool)> onClickWindow_;
 };
 

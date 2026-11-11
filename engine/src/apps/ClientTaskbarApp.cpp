@@ -243,15 +243,21 @@ void ClientTaskbarApp::OnInit() {
 
     // 네비 셀 3종(스펙 §4 — DeX 하단바 관례 순서: 뒤·홈·최근 — 좌측 고정).
     // 창 버튼 pool과 별개 — Relayout에서 스트립 폭만큼 창 버튼을 미끼친다.
-    struct NavCell { const char* label; const char* say; TaskbarButton** dst; };
+    struct NavCell {
+        const char* label;
+        const char* say;
+        TaskbarButton** dst;
+        TaskbarButton::NavGlyph glyph;
+    };
     const NavCell nav[] = {
-        { "뒤",  "브라우저 뒤로",   &navBack_ },
-        { "홈",  "바탕화면으로",    &navHome_ },
-        { "최근", "창 목록",        &navRecents_ },
+        { "뒤",  "브라우저 뒤로",   &navBack_,    TaskbarButton::NavGlyph::Back },
+        { "홈",  "바탕화면으로",    &navHome_,    TaskbarButton::NavGlyph::Home },
+        { "최근", "창 목록",        &navRecents_, TaskbarButton::NavGlyph::Recents },
     };
     for (const NavCell& n : nav) {
         auto btn = std::make_unique<TaskbarButton>();
         btn->SetNavMode(true);
+        btn->SetNavGlyph(n.glyph);  // 그림 계약 = 역할(docs/106 §3)
         btn->SetText(n.label);
         TaskbarButton* raw = btn.get();
         const char* say = n.say;
@@ -266,6 +272,7 @@ void ClientTaskbarApp::OnInit() {
         auto btn = std::make_unique<TaskbarButton>();
         btn->SetNavMode(true);
         btn->SetText("정리");
+        btn->SetNavGlyph(TaskbarButton::NavGlyph::Cleanup);
         cleanupCell_ = btn.get();
         cleanupCell_->SetOnClickWindow([](uint32_t, bool) {
             PostTalkAsync("창 정리해줘");
@@ -277,6 +284,7 @@ void ClientTaskbarApp::OnInit() {
         auto btn = std::make_unique<TaskbarButton>();
         btn->SetNavMode(true);
         btn->SetText(CurrentClockText());
+        btn->SetNavGlyph(TaskbarButton::NavGlyph::Clock);
         clockCell_ = btn.get();
         main->AddControl(std::move(btn));
     }
@@ -463,28 +471,35 @@ void TaskbarButton::OnPaintClient(JKDC& dc) {
         const int cx = client.x + client.w / 2;
         const int cy = client.y + (client.h - 14) / 2 + 2;
         const std::string& label = GetText();
-        if (label == "뒤") {
+        // [docs/106 §3] 그림 분기 = 역할(enum) — 표시 문자열 분기를 소각
+        // (문구 변경 시 그림 퇴화·"HH:MM" 형태 오판 위험).
+        switch (GetNavGlyph()) {
+        case NavGlyph::Back:
             // ◀ — 세로 1px 절단 스윕(왼쪽 끝=끝점·오른쪽 끝=만폭).
             for (int j = 0; j < 10; ++j) {
                 const int half = 6 * j / 10;
                 dc.FillRect(JKRect{ cx - 6 + j, cy - half, 1, half * 2 + 1 });
             }
-        } else if (label == "홈") {
+            break;
+        case NavGlyph::Home:
             // ◯ — Android HOME 관례 동형(수평 절단 스윕 원).
             for (int dy = -5; dy <= 5; ++dy) {
                 const int w2 = static_cast<int>(
                     std::lround(std::sqrt(25.0 - dy * dy)));
                 dc.FillRect(JKRect{ cx - w2, cy + dy, w2 * 2, 1 });
             }
-        } else if (label == "최근") {
+            break;
+        case NavGlyph::Recents:
             // ▤ — Recents 관례 동형(겹쳐진 두 창 외곽선).
             dc.DrawRect(JKRect{ cx - 7, cy - 7, 10, 10 });
             dc.DrawRect(JKRect{ cx - 3, cy - 3, 10, 10 });
-        } else if (label == "정리") {
+            break;
+        case NavGlyph::Cleanup:
             // ‖ — 정렬(창 배치 save_layout) 기호(두 수직 바).
             dc.FillRect(JKRect{ cx - 5, cy - 6, 3, 12 });
             dc.FillRect(JKRect{ cx + 2, cy - 6, 3, 12 });
-        } else if (label.size() == 5 && label[2] == ':') {
+            break;
+        case NavGlyph::Clock: {
             // [S3 시계 — 트레이 결정판] 7세그먼트 기하(FillRect만 — 자식 텍
             // 스트 전 경로 불발 실측 봉합). 세그 인덱스 A=1 B=2 C=4 D=8
             // E=16 F=32 G=64 — 표준 7세그 비트맵.
@@ -523,10 +538,9 @@ void TaskbarButton::OnPaintClient(JKDC& dc) {
                 px += gw + gap;
             }
             return;
-        } else {
-            // ▤ — Recents 관례 동형(겹쳐진 두 창 외곽선).
-            dc.DrawRect(JKRect{ cx - 7, cy - 7, 10, 10 });
-            dc.DrawRect(JKRect{ cx - 3, cy - 3, 10, 10 });
+        }
+        case NavGlyph::None:
+            break;
         }
         // 소형 라벨(셀 하단) — 직접 dc 텍스트(TextOutX).
         // [원존 정정 2026-11-11] "미니 텍스처가 불발"로 보였던 증거는 **스텔이 APK**
