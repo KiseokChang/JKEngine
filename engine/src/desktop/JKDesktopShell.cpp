@@ -377,6 +377,21 @@ void JKDesktopShell::Init(const ShellHost& host) {
         } else if (icon.appName == "terminal:apps-bin/helix/hx.exe") {
             base = "assets/icons/launcher_helix";
             hasDedicated = true;
+        } else if (icon.appName.rfind("terminal:", 0) == 0) {
+            // [2026-11-12 사용자 실측 "아이콘이 같은 놈들 많다" 원존] 안드로이드
+            // 셀은 appName "terminal:lf"/"terminal:hx"(무경로) — 종전에는 위
+            // 두 경로형 비교에만 걸려 여기로 떨어졌고, ':'가 안전 문자 검사에
+            // 걸려 전용 아트 없음 → 테트리스 공용 아트로 겹쳤다. 접두 뒤
+            // 명령 이름으로 아트를 고른다(lf/hx 계열 전부).
+            const std::string cmd = icon.appName.substr(9);
+            const bool isLf = cmd.rfind("lf", 0) == 0;
+            const bool isHx = cmd.rfind("hx", 0) == 0 ||
+                              cmd.rfind("helix", 0) == 0;
+            if (isLf || isHx) {
+                base = isLf ? "assets/icons/launcher_lf"
+                            : "assets/icons/launcher_helix";
+                hasDedicated = true;
+            }
         } else {
             // appName은 .jkx 매니페스트 문자열이라 경로 특수문자 방지 — 안전한
             // 이름만 자산 경로로 쓴다.
