@@ -17,8 +17,50 @@
 
 namespace jk {
 
+// [수형 2026-11-11 — Android iconv CP949 부재 실측원존] 아래 iconv leg는 bionic
+// iconv가 EUC-KR(CP949)을 모르면 전면 빈 문자열 → 한글 텍스트 전방
+// 실패(APK 자식 통신 태스크바 라벨 kssmlen=0 원문). fast path =
+// UTF-8 직접 디코드: 한글 음절 U+AC00+idx(idx<NUMHANGUL) → wCodeTable[idx]
+// (KS X 1001 완성형 순서 = 음절 순서 선형 원존)·ASCII passthrough.
+// 미지원 문자 포함 시 false → 기존 iconv leg(평태 행동 보존).
+static bool Utf8ToKssmDirect(const char* utf8, std::string& out) {
+    out.clear();
+    const unsigned char* p = reinterpret_cast<const unsigned char*>(utf8);
+    while (*p) {
+        if (*p < 0x80) {
+            out.push_back(static_cast<char>(*p));
+            ++p;
+            continue;
+        }
+        uint32_t cp = 0;
+        int len = 0;
+        if ((*p & 0xE0) == 0xC0) { cp = *p & 0x1F; len = 2; }
+        else if ((*p & 0xF0) == 0xE0) { cp = *p & 0x0F; len = 3; }
+        else return false;
+        for (int i = 1; i < len; ++i) {
+            if ((p[i] & 0xC0) != 0x80) return false;
+            cp = (cp << 6) | (p[i] & 0x3F);
+        }
+        if (cp >= 0xAC00 && cp < 0xAC00 + static_cast<uint32_t>(NUMHANGUL)) {
+            const uint16_t k = wCodeTable[cp - 0xAC00];
+            out.push_back(static_cast<char>(k >> 8));
+            out.push_back(static_cast<char>(k & 0xFF));
+        } else {
+            return false;   // 한글 외(기호·한자 등) = 기존 leg 위임
+        }
+        p += len;
+    }
+    return true;
+}
+
 std::string Utf8ToKssm(const char* utf8) {
     if (!utf8 || !utf8[0]) return {};
+
+    // [수형] 직접 변환 fast path 우선(한글+ASCII 묘사 문자열).
+    {
+        std::string direct;
+        if (Utf8ToKssmDirect(utf8, direct)) return direct;
+    }
 
     // 1. UTF-8 -> EUC-KR (CP949) byte stream — jk::text 어댑터(stage-3 T4).
     //    부적합 UTF-8 = 빈 문자열 fail-closed(MBTW MB_ERR_INVALID_CHARS 관측 승계).

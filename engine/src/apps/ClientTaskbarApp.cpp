@@ -49,6 +49,55 @@ MiniRenderKit& MiniKit() {
     static MiniRenderKit k;
     return k;
 }
+
+// [수형 2026-11-11 — KSSM 부분집합(2350음절) 한계 우회] 아틀라스 = 유니코드
+// 직행 — 자식 dc에 아틀라스를 장착해 DrawGlyph(cp) 로 KSSM 밖 한글(홈·최·정 등)
+// 까지 렌더. 실패(폰트 부재) = 아틀라스 미장착 상태로 통과(평태 비트맵 경로 보존).
+bool EnsureMiniAtlas(SDL_Renderer* r) {
+    MiniRenderKit& k = MiniKit();
+    if (k.atlas) return k.atlas->IsLoaded();
+    if (!r) return false;
+    if (!k.font) k.font = std::make_unique<jk::HangulManager>();
+    if (!k.backend) k.backend = std::make_unique<jk::JKSDLRenderBackend>(r);
+    if (!k.cache) k.cache = std::make_unique<jk::JKResourceCache>(k.backend.get());
+    k.atlas = std::make_unique<jk::JKTextAtlas>();
+    const jk::text::CellMetrics m = jk::text::GetCellMetrics();
+    const std::string fp = jk::text::ResolveDesktopFontPath();
+    if (!fp.empty()) {
+        (void)k.atlas->Init(fp, m.engW, m.cellH, m.hanW);
+        const std::string fb = jk::text::ResolveDesktopFallbackPath();
+        if (k.atlas->IsLoaded() && !fb.empty())
+            (void)k.atlas->InitFallback(fb);
+    }
+    return k.atlas->IsLoaded();
+}
+
+// UTF-8 문자열 → 아틀라스 직행(압축 평활자)·중앙 정렬.
+void DrawUnicodeCentered(JKDC& dc, const JKRect& rect, const std::string& utf8) {
+    const jk::text::CellMetrics m = jk::text::GetCellMetrics();
+    // 폭 계산(추정 — ASCII engW·그 외 hanW)
+    int w = 0;
+    for (size_t i = 0; i < utf8.size(); ) {
+        const unsigned char c = static_cast<unsigned char>(utf8[i]);
+        int len = (c < 0x80) ? 1 : (c >= 0xF0 ? 4 : (c >= 0xE0 ? 3 : 2));
+        w += (len == 1) ? m.engW : m.hanW;
+        i += static_cast<size_t>(len);
+    }
+    int x = rect.x + (rect.w - w) / 2;
+    const int y = rect.y + (rect.h - static_cast<int>(m.cellH)) / 2;
+    for (size_t i = 0; i < utf8.size(); ) {
+        const unsigned char c = static_cast<unsigned char>(utf8[i]);
+        uint32_t cp = c;
+        int len = 1;
+        if (c >= 0xF0) { cp = c & 0x07; len = 4; }
+        else if (c >= 0xE0) { cp = c & 0x0F; len = 3; }
+        else if (c >= 0xC0) { cp = c & 0x1F; len = 2; }
+        for (int k = 1; k < len; ++k) cp = (cp << 6) | (utf8[i + k] & 0x3F);
+        (void)dc.DrawUnicodeGlyph(JKPoint{ x, y }, cp, (len == 1) ? m.engW : m.hanW);
+        x += (len == 1) ? m.engW : m.hanW;
+        i += static_cast<size_t>(len);
+    }
+}
 SDL_Texture* MiniTextTexture(SDL_Renderer* r, const std::string& utf8,
                              int* w, int* h) {
     static std::map<std::string, std::pair<SDL_Texture*, SDL_Point>> texs;
@@ -474,8 +523,19 @@ void TaskbarButton::OnPaintClient(JKDC& dc) {
         const JKRect textRect{ client.x, client.y + client.h
                                    - static_cast<int>(cm.cellH) - 1,
                                client.w, static_cast<int>(cm.cellH) };
-        dc.TextOutX(textRect, Utf8ToKssm(label.c_str()).c_str(),
-                    ADJ_YCENTER, false);
+        {
+            // [수형] 아틀라스 유니코드 직행 우선(KSSM 부분집합 한계 우회)·
+            // 실패 시 기존 KSSM/비트맵 경로 평태 보존.
+            if (MiniKit().r && EnsureMiniAtlas(MiniKit().r)) {
+                dc.SetTextAtlas(MiniKit().atlas.get(), MiniKit().cache.get());
+                DrawUnicodeCentered(dc, textRect, label);
+            } else {
+                const std::string kssm = Utf8ToKssm(label.c_str());
+                dc.TextOutX(textRect,
+                            kssm.empty() ? label.c_str() : kssm.c_str(),
+                            ADJ_YCENTER, false);
+            }
+        }
         return;
     }
 

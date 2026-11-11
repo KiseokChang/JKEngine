@@ -77,6 +77,11 @@ public:
     void TextOut(JKPoint p, const char* str);
     void TextOut(JKPoint p, size_t n, const char* str);
     void TextOutX(const JKRect& rect, const char* str, uint8_t adjflag = 0, bool wrapping = false);
+    // [2026-11-11] 공개 유니코드 글리프(아틀라스 직행 어댑터 — KSSM 2350음절
+    // 부분집합 밖 한글(홈·최·정 등)의 렌더 표면. 아틀라스 미장착 = false).
+    bool DrawUnicodeGlyph(JKPoint p, uint32_t cp, int stride) {
+        return DrawGlyph(p, cp, stride);
+    }
 
     void EngPutCh(JKPoint p, uint8_t ch);
     void HanPutCh(JKPoint p, uint8_t first, uint8_t second);
