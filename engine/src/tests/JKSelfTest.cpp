@@ -62,6 +62,7 @@ extern "C" __declspec(dllimport) int __stdcall closesocket(
 #include <client/JKClientSurface.h>
 #include <server/JKFrameDirty.h>  // selftest 1p — 더티 계산기 순수 단정 (T1)
 #include <server/JKAgentPermissions.h>  // selftest 108-3 — 권한 매트릭스 불변식
+#include <JKChromeMetrics.h>  // selftest 109-3 — 크롬 기하 계약 등호
 #include <server/JKWindowServer.h>
 #include <agent/JKAgentClient.h>
 #include <agent/JKLlmEngine.h>  // selftest 1n-d — 동기 턴 브리지+ollama-direct leg
@@ -10016,6 +10017,26 @@ int RunAppSelfTest() {
         check(g1 == g0 + 1 && jk::theme::Generation() == g1,
               "106-3d 테마 세대 = 프리셋 변경 시만 증가(재적용 무변)");
         jk::theme::setTheme(&jk::theme::kDefault);
+    }
+
+    // [docs/109 §3 — 크롬 메트릭 단일원] 창이 계산한 클라 rect = chrome::
+    // ClientRect 등호. 종전 = 세 곳 상수 미러(주석 동기) — 서버 페인트/히트
+    // 테스트가 어긋나면 그림과 판정이 갈린다. 여기서 계약을 고정한다.
+    {
+        bool eq = true;
+        const JKRect wins[] = { JKRect{0, 0, 320, 240}, JKRect{10, 20, 640, 1},
+                                JKRect{0, 0, 8, 8}, JKRect{-5, -5, 100, 60} };
+        for (const JKRect& r : wins) {
+            auto win = std::make_unique<JKWindow>("chrome-selftest");
+            win->SetWindowRect(r);
+            const JKRect got = win->GetClientRect();
+            const JKRect want = jk::chrome::ClientRect(JKRect{0, 0, r.w, r.h});
+            if (got.x != want.x || got.y != want.y || got.w != want.w ||
+                got.h != want.h) {
+                eq = false;
+            }
+        }
+        check(eq, "109-3 창 클라 rect = chrome::ClientRect 계약 등호");
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);

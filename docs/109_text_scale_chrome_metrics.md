@@ -54,3 +54,19 @@ inline JKRect ClientRect(const JKRect& win);
 4. 안드로이드 APK 1회 배포(DeX 표면 = s>1 실측 지점).
 
 금지: 3과 1을 한 커밋에 섞지 말 것(원인 격리 — docs/108 §3 게이트 승계).
+
+## 5. as-built (2026-11-12)
+
+- §2.1 라벨 블릿 ×outputScale: 텍스처(셀 메트릭) → `×s` → 셀 폭 클램프 →
+  중앙 정렬 순서로 정리. HiDPI에서 라벨이 절반이던 결함 소각.
+- §2.2 시계 `kClockScale` 명명(동작 무변 — 의도된 확대임을 코드에 고정).
+- §3 `include/JKChromeMetrics.h` 신설: `kBorder`·`TitleHeight()`(셀 메트릭
+  연동 = `jk::text::ChromeTitleBarHeight` 재사용)·`ClientRect()`(하한 클램프
+  포함). JKWindow::OnRectChanged가 이 헤더를 소비 — 서버 페인트/히트테스트와
+  같은 산식임이 타입 수준에서 명시된다.
+- 단정: `109-3 창 클라 rect = chrome::ClientRect 계약 등호`(4개 rect —
+  경계·음수·작은 창 포함). 첫 시도 실패 원존 = 클램프 누락(작은 창에서 음수
+  높이) — 헤더에 클램프를 넣어 계약 일치, PASS.
+- 게이트: 빌드 RC=0 · 1,000 PASS 0 FAIL.
+- 남은 것: 서버 페인트 콜사이트도 `chrome::` 소비로 교체(현재는 같은 함수를
+  직접 호출 — 계약 동일, 호출 경로만 2벌)·태스크바/셸 래스터 팩토리 통합.

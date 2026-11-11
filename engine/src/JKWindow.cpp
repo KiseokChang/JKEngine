@@ -1,5 +1,6 @@
 #include <JKWindow.h>
 #include <JKApplication.h>
+#include <JKChromeMetrics.h>
 #include <JKHangulUtil.h>
 #include <JKTextAtlas.h>
 
@@ -51,14 +52,15 @@ void JKWindow::OnRectChanged(const JKRect& rect) {
     // JKWindow는 테두리/타이틀 크기를 유지한 클라이언트 영역을 직접 계산한다.
     // 셀 메트릭 진실원 (docs/63 §6) — 기본은 DefaultFontScale(Win 1.0 =
     // {8,16,16}, posix 1.5 = {12,24,24}).
-    constexpr int32_t kBorder = 2;
+    // [docs/109 §3] 크롬 기하 단일원(JKChromeMetrics.h) — 서버 페인트·히트테스트와 같은 상수.
+    constexpr int32_t kBorder = jk::chrome::kBorder;
     // 타이틀 밴드 높이 (T3 — 스펙 2026-10-09-phone-text-scale 결정 1): 고정
     // 24 상수 → 셀 메트릭 연동 순수 산식으로 승격. s=1.0에서 정확히 24 등호
     // (Windows 창 타이틀 픽셀동일), posix 기본 1.5(cellH=24)에서는 32 —
     // 1.5 셀 타이틀 글리프가 밴드에 클립되지 않는다(사용자 관측 "밴드가
     // 좁다"의 수리). 서버 크롬 히트테스트 존도 같은 산식을 소비한다
     // (server/JKCompositor.h "MUST stay in sync" 계약).
-    const int32_t kTitle = jk::text::ChromeTitleBarHeight();
+    const int32_t kTitle = jk::chrome::TitleHeight();
     JKRect client;
     if (HasAttrFlag(WA_CHROMELESS)) {
         // 크롬 없는 창: 클라이언트 영역이 전체 rect.

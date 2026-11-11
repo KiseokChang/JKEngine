@@ -908,11 +908,14 @@ void JKDesktopShell::Draw(SDL_Renderer* renderer) {
                 icon.labelTexH = lh;
             }
             if (icon.labelTex && icon.labelTexW > 0) {
-                // [docs/106 §3] 라벨 셀 폭 클램프 — 셀(96pt)보다 긴 제목은
-                // 비율 축소 + 가로 중앙 정렬(구: 셀 밖으로 삐져나옴).
+                // [docs/109 §2.1] 라벨 블릿 = 툴팁 산식(×outputScale) — 종전
+                // 1× 블릿이라 HiDPI(s=2)에서 라벨만 절반 크기였다. 텍스처는
+                // 셀 메트릭 해상도로 굽고 그리는 쪽이 s를 곱한다(단일 계약).
+                // [docs/106 §3] 셀 폭 클램프 — 셀(96pt)보다 긴 제목은 비율
+                // 축소 + 가로 중앙 정렬(구: 셀 밖으로 삐져나옴).
                 const int cellW = static_cast<int>(icon.rect.w * s);
-                int lw = icon.labelTexW;
-                int lh = icon.labelTexH;
+                int lw = static_cast<int>(icon.labelTexW * s);
+                int lh = static_cast<int>(icon.labelTexH * s);
                 if (lw > cellW && lw > 0) {
                     lh = static_cast<int>(static_cast<long long>(lh) * cellW / lw);
                     lw = cellW;
@@ -956,7 +959,9 @@ void JKDesktopShell::Draw(SDL_Renderer* renderer) {
             int pw = 0;
             int ph = 0;
             SDL_GetRendererOutputSize(renderer, &pw, &ph);
-            const int scale = 4;   // 벡터 글리프 확대(시계 위젯 실용 크기).
+            // [docs/109 §2.2] 시계 배율 = 명명 상수(토큰 아님 — 의도된 확대).
+            constexpr int kClockScale = 4;
+            const int scale = kClockScale;
             SDL_Rect dst{ pw - clockW_ * scale - static_cast<int>(20 * s),
                           static_cast<int>(20 * s), clockW_ * scale,
                           clockH_ * scale };
