@@ -84,7 +84,7 @@ APK(654MB·applicationId=chang.jkapk)** 경로를 가리켜 다른 앱을 통과
   툴팁 = ×s, 시계 = 고정 4배. 수형 = (font_scale×outputScale) 통일 래스터.
 - ☑ 런처 그리드(2026-11-12 458e43c 봉합)(비Android 리사이즈 미반영·cols=0 UB),
   콘솔 앱 desc가 라벨(96px 셀 넘침·중앙 정렬/클립 부재).
-- ◻ 데스크톱 시계가 매 프레임 onDynamicDraw(clockLastRect_ 영원히 0 —
+- ☑ 데스크톱 시계 사건 판정(2026-11-12 봉합 — 16a2541 후속)(clockLastRect_ 영원히 0 —
   더티 스킵 무력화) → 분/자리 변경 시만 발행.
 - ◻ 텍스트 렌더 파이프라인 셸·태스크바 이중 복제(패드 5 vs 3 드리프트) →
   `jk::text::TextureFactory` 추출.

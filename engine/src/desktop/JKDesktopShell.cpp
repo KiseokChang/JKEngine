@@ -943,7 +943,9 @@ void JKDesktopShell::Draw(SDL_Renderer* renderer) {
         tm* pp = std::localtime(&nowt);
         if (pp) lt = *pp;
 #endif
+        bool clockRedrawn = false;
         if (lt.tm_min != clockMinute_ || !clockTex_) {
+            clockRedrawn = true;
             clockMinute_ = lt.tm_min;
             if (clockTex_) SDL_DestroyTexture(clockTex_);
             char buf[8];
@@ -966,9 +968,20 @@ void JKDesktopShell::Draw(SDL_Renderer* renderer) {
                           static_cast<int>(20 * s), clockW_ * scale,
                           clockH_ * scale };
             SDL_RenderCopy(renderer, clockTex_, nullptr, &dst);
-            if (clockLastRect_.w == 0 && host_.onDynamicDraw) {
-                host_.onDynamicDraw(dst);  // 첫 착지 사건
+            // [docs/106 §3] 사건 판정 = 자리 이동/첫 착지/분 교차(내용 갱신).
+            // 구 수형 = clockLastRect_ 영원히 0 → 매 프레임 사건(더티 스킵 무력화).
+            if (host_.onDynamicDraw) {
+                const bool moved =
+                    clockLastRect_.x != dst.x || clockLastRect_.y != dst.y ||
+                    clockLastRect_.w != dst.w || clockLastRect_.h != dst.h;
+                if (moved) {
+                    if (clockLastRect_.w > 0) host_.onDynamicDraw(clockLastRect_);
+                    host_.onDynamicDraw(dst);   // 첫 착지 / 자리 이동
+                } else if (clockRedrawn) {
+                    host_.onDynamicDraw(dst);   // 같은 자리·새 분(텍스처 교체)
+                }
             }
+            clockLastRect_ = dst;
         }
     }
 
