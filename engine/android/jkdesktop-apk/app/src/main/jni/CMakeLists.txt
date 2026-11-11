@@ -146,6 +146,7 @@ add_library(jkcore SHARED
     # #126 흡수 갱신 — 병렬 음성 세션의 대화 세션 기록(TU 봉입,
     # main.cpp selftest가 이 심볼을 만난다: r7 링크 실패 원문)
     ${ENG}/src/apps/ChatSessionLog.cpp
+    ${ENG}/src/apps/DaySummaryPrompt.cpp  # 하루 정리 리더(순수 TU — jkweb·셀프테스트)
     ${ENG}/src/JKVectorFont.cpp
     ${ENG}/src/script/JKScriptHost.cpp
     ${ENG}/src/script/JKScriptCanvas.cpp
