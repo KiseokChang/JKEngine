@@ -61,6 +61,7 @@ extern "C" __declspec(dllimport) int __stdcall closesocket(
 #include <client/JKActivityGate.h>  // selftest 2i — 클라 활동 게이트 순수 부품(#89 T1)
 #include <client/JKClientSurface.h>
 #include <server/JKFrameDirty.h>  // selftest 1p — 더티 계산기 순수 단정 (T1)
+#include <server/JKAgentPermissions.h>  // selftest 108-3 — 권한 매트릭스 불변식
 #include <server/JKWindowServer.h>
 #include <agent/JKAgentClient.h>
 #include <agent/JKLlmEngine.h>  // selftest 1n-d — 동기 턴 브리지+ollama-direct leg
@@ -155,6 +156,7 @@ using jk::Utf8ToKssm;
 #include <ctime>
 #include <memory>
 #include <string>
+#include <set>
 #include <thread>
 #include <vector>
 
@@ -9928,6 +9930,44 @@ int RunAppSelfTest() {
                   "3c-⑦ 쓰기 실패 = 조용한 스킵(무예외·턴 진행·장애 자리 무변조)");
         }
         fs::remove_all(sdir, sEc);
+    }
+
+    // [P1 — docs/108 3단계] 허브 권한 매트릭스 불변식 (셀프테스트 스텝 3).
+    // 매트릭스가 공유 헤더로 나간 뒤 처음 생긴 단일 진실원 — 도구 표가
+    // 조용히 줄거나(도구 추가 시 갱신 누락) 오타 게이트/기본값이 들어가는
+    // 회귀를 잡는다. 서버 TU와 허브 TU는 같은 헤더 사본을 각자 컴파일한다.
+    {
+        using jk::server::AgentPermRow;
+        using jk::server::kPermMatrix;
+        const size_t rows = sizeof(kPermMatrix) / sizeof(kPermMatrix[0]);
+        bool gatesOk = true;
+        bool defltOk = true;
+        int fixedRows = 0;
+        std::set<std::string> tools;
+        for (size_t i = 0; i < rows; ++i) {
+            const AgentPermRow& r = kPermMatrix[i];
+            if (!r.tool || !r.gate || !r.deflt) { gatesOk = false; continue; }
+            tools.insert(r.tool);
+            const std::string gate(r.gate);
+            if (gate != "server" && gate != "broker" && gate != "none" &&
+                gate != "server(fixed)" && gate != "server(audit)" &&
+                gate != "server(files)" && gate != "server(flip)") {
+                gatesOk = false;
+            }
+            const std::string d(r.deflt);
+            if (d != "allow" && d != "ask" && d != "deny" && d != "none") {
+                defltOk = false;
+            }
+            if (gate == "server(fixed)") ++fixedRows;
+        }
+        // permission_set = 유일한 고정(런타임 RMW 제외) 행 — WritePermissionsEntry
+        // 출력 행수 = rows-1 계약의 근거.
+        check(rows == 42 && tools.size() == rows,
+              "108-3a 권한 매트릭스 42행·도구명 유일(도구 분기 44종 중 비권한 2종)");
+        check(gatesOk && defltOk,
+              "108-3b 게이트·기본값 어휘 = 폐집합(오타 즉시 적발)");
+        check(fixedRows == 1,
+              "108-3c server(fixed) 행 = 1(permission_set — 설정 파일 출력 제외)");
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);
