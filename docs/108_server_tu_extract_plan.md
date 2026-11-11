@@ -66,3 +66,36 @@ struct IWindowServerServices {
   역치에서 중단(임계 = 인터페이스 메서드 20개 초과 시 재판정).
 - 대안: 허브 추출 포기 시 최소 수형 = 파일 내 섹션 주석 + `#region` 대신
   "도구 표" 자동 생성(마커 파싱)으로 탐색성만 보전 — 차선 원장.
+
+## 5. 단계별 as-built (원문 기록)
+
+### 5.1 1단계 — `JKServerState.{h,cpp}` (커밋 156a748)
+`ExeDirNoSlash`/`StateDir`/`SettingsKvPath`/`NotesPath`/`ValidFingerprint` →
+`jk::server::state` 네임스페이스. 서버 TU는 동명 static 별칭 1줄씩으로 무변경
+호출 유지(`using` 선언은 네임스페이스를 지목할 수 없어 `namespace state =` 별칭).
+
+### 5.2 2단계 — `IWindowServerServices` (커밋 4d9ccc5)
+`AgentWindowRef` + `IWindowServerServices`(AgentWindowSnapshot/StateRoot/
+SpawnAgentClient) 선포, `JKWindowServer`가 구현. 계획 2.1의 6메서드 중 3개만
+실수요(창 포커스·닫기·이벤트 푸시는 허브 TU가 서버 멤버 직접 호출로 잔류 —
+인터페이스 비대화 회피, §4 역치 20개 대비 3개).
+
+### 5.3 3단계 — `JKAgentHub.cpp` (이 커밋)
+- `HandleAgentQuery` 몸통 3,369줄(구 4044-7412) → `src/server/JKAgentHub.cpp`.
+  서버 TU 9,649 → 6,192줄(−36%).
+- `AgentPermRow`·`kPermMatrix` → `include/server/JKAgentPermissions.h` 공유
+  헤더(단일 진실원, static 사본 = TU별 동일). **함정 원존**: 헤더를 함수 옆
+  (namespace 내부)에 include하면 헤더 자신의 `namespace jk{server{`가
+  `jk::server::jk::server`로 중첩 — 파일 스코프 include 필수(컴파일 원문 확인).
+- 조력자 static 사본(interim): LoadSettingsKv/WriteSettingsKv/ReadNotes/
+  WriteNotesFile/PruneReceipts/NotesArrayRows/WritePermissionsEntry/
+  TrustRecordText/Utf8TrimTo/ValidFontScale + `state::` 경로 별칭 3종.
+- 공유 수형(정의는 서버 TU 1곳, hub는 extern 선언): `JsonEsc`(익명
+  네임스페이스 → extern 승격) · `WritePng`/`EncodeLayerJpegB64`/`B64Encode`
+  (동일 승격) · `FilesPermRaw`/`ValidFilePath`/`Files*OpJson`/`RevokeTrustRecord`
+  (static 해제) · `kReservedTopicPrefixes[7]`(완전 형 필수 — 불완전 배열형은
+  range-for 불가).
+- 게이트: PC 빌드 RC=0 · `jkdesktop test` 998 PASS 0 FAIL · `--version`
+  4d9ccc5(빌드 지문은 커밋 전 sha — 커밋 후 재빌드 시 갱신).
+- 후속(docs/106 §2-5): 조력자 사본은 통합 대상 — `jk::json::Escape`/
+  `jk::fs::ReadAll` 유틸로 수렴 시 사본 소각.

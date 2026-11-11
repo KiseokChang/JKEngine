@@ -343,7 +343,8 @@ endif()
 add_library(jkserver STATIC
     src/server/JKClientConnection.cpp
     src/server/JKWindowServer.cpp
-    src/server/JKServerState.cpp   # [P1 — docs/108 1단계] 상태 경로·지문 모듈
+    src/server/JKServerState.cpp
+    src/server/JKAgentHub.cpp   # [P1 docs/108 3단계] 에이전트 허브   # [P1 — docs/108 1단계] 상태 경로·지문 모듈
     src/server/JKSemanticCursor.cpp
     src/server/JKCompositor.cpp
     src/server/JKCompositorOutput.cpp

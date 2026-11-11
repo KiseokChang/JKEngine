@@ -169,6 +169,7 @@ add_library(jkserver STATIC
     ${ENG}/src/server/JKClientConnection.cpp
     ${ENG}/src/server/JKWindowServer.cpp
     ${ENG}/src/server/JKServerState.cpp
+    ${ENG}/src/server/JKAgentHub.cpp
     ${ENG}/src/server/JKSemanticCursor.cpp
     ${ENG}/src/server/JKCompositor.cpp
     ${ENG}/src/server/JKCompositorOutput.cpp
