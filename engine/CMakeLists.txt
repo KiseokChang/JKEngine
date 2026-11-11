@@ -274,6 +274,9 @@ add_library(jkcore STATIC
     # 대화 세션 기록 (스펙 2026-11-01-chat-session-log-design D1-D4) — pure
     # TU. jkweb(/talk)·jkdesktop(Chat 창)·셀프테스트(케이스 3c) 공용.
     src/apps/ChatSessionLog.cpp
+    # 하루 정리 친구 v1 회고 프롬프트(스펙 2026-11-07-day-summary) — pure TU.
+    # jkweb(/talk DaySummary leg)·셀프테스트 공용(읽기 전용)
+    src/apps/DaySummaryPrompt.cpp
     src/JKVectorFont.cpp
     src/script/JKScriptHost.cpp
     src/script/JKScriptCanvas.cpp

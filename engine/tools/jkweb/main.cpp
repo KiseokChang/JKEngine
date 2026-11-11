@@ -52,6 +52,7 @@
 #include <agent/JKAgentClient.h>
 #include <agent/JKLlmEngine.h>  // 승격 배선의 cfg 원천(LoadChatConfig) — T4
 #include <apps/ChatRouter.h>
+#include <apps/DaySummaryPrompt.h>
 #include <net/JKNet.h>
 
 #include <cctype>
@@ -389,69 +390,13 @@ void HttpReply(jk::net::Socket s, int code, const std::string& body,
 // 읽어 회고 프롬프트를 조립 — 읽기 전용(쓰기 0 안전 계약). 꼬리 200행 상한
 // (초과분 = 오래된 것부터 제거 — 메모리 상한 원존 계열). 파일 부재 = 빈
 // 문자열(호출부가 정직 Info). 엔진 종류 무관(cfg가 고른다).
+// [2026-11-12] 본체 = apps/DaySummaryPrompt.cpp 순수 TU(셀프테스트 접점).
+// 종전엔 이 파일 안에 있어 오늘 필터·꼬리 상한이 무검증이었다 — 계약은
+// 그대로(읽기 전용·오늘 파일만·꼬리 200행), 위치만 진실원으로 이동.
 std::string DaySummaryPrompt() {
-    std::time_t now = std::time(nullptr);
-    std::tm lt{};
-#ifdef _WIN32
-    localtime_s(&lt, &now);
-#else
-    localtime_r(&now, &lt);
-#endif
-    char today[16];
-    std::snprintf(today, sizeof(today), "%04d%02d%02d",
-                  lt.tm_year + 1900, lt.tm_mon + 1, lt.tm_mday);
-    std::string tail;
-    auto GrabTail = [&](const std::string& path) {
-        std::FILE* f = std::fopen(path.c_str(), "rb");
-        if (!f) return false;
-        std::fseek(f, 0, SEEK_END);
-        const long sz = std::ftell(f);
-        std::fseek(f, 0, SEEK_SET);
-        std::string all;
-        if (sz > 0) {
-            all.resize(static_cast<size_t>(sz));
-            const size_t n = std::fread(&all[0], 1, all.size(), f);
-            all.resize(n);
-        }
-        std::fclose(f);
-        std::vector<std::string> rows;
-        size_t at = 0;
-        while (at < all.size() && rows.size() < 200) {
-            const size_t nl = all.find('\n', at);
-            rows.push_back(all.substr(
-                at, (nl == std::string::npos ? all.size() : nl) - at));
-            if (nl == std::string::npos) break;
-            at = nl + 1;
-        }
-        const size_t take = std::min<size_t>(rows.size(), 200);
-        for (size_t i = rows.size() - take; i < rows.size(); ++i) {
-            std::string r = rows[i];
-            if (r.size() > 400) r = r.substr(0, 400);
-            tail += r + '\n';
-        }
-        return true;
-    };
-    int files = 0;
-    const std::string dlg = "state/dialogue";
-    const std::string jr = "state/use_journal.jsonl";
-    std::error_code fsErr;
-    for (const auto& f :
-         std::filesystem::directory_iterator(
-             std::filesystem::path(dlg), fsErr)) {
-        const std::string name = f.path().filename().string();
-        if (name.rfind(today, 0) == 0 && name.size() > 6 &&
-            name.compare(name.size() - 6, 6, ".jsonl") == 0) {
-            if (GrabTail(f.path().string())) ++files;
-        }
-    }
-    if (GrabTail(jr)) ++files;
-    if (files == 0 || tail.empty()) return "";
-
-    return std::string("[하루 정리 요청] 아래는 오늘(") + today +
-           ")의 대화 기록과 도구 사용 저널이다. 한국어 3부 구성 요약: "
-           "1)한 일 2)아직 남은 것 3)내일 추천. 마크다운 금지(코드펜스·헤딩·"
-           "굵게·백틱), 구두로 읽는다는 전제로 간결하게.\n[기록]\n" + tail;
+    return jk::daysummary::BuildPrompt("state", 0);
 }
+
 // 발화 1개 → 라우트 → 서버 위임 → JSON 응답 몸통. 서버 부재는 500과 한국어
 // 이유(jkwebFailNoServer 대응 — HTTP 세계에서는 종료코드 대신 상태 코드가 정직
 // 의 표기, 스펙 §5.1 "정직 500").

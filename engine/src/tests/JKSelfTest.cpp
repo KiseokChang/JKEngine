@@ -63,6 +63,7 @@ extern "C" __declspec(dllimport) int __stdcall closesocket(
 #include <server/JKFrameDirty.h>  // selftest 1p — 더티 계산기 순수 단정 (T1)
 #include <server/JKAgentPermissions.h>  // selftest 108-3 — 권한 매트릭스 불변식
 #include <JKChromeMetrics.h>  // selftest 109-3 — 크롬 기하 계약 등호
+#include <apps/DaySummaryPrompt.h>  // selftest day-1~3 — 하루 정리 리더
 #include <server/JKWindowServer.h>
 #include <agent/JKAgentClient.h>
 #include <agent/JKLlmEngine.h>  // selftest 1n-d — 동기 턴 브리지+ollama-direct leg
@@ -10037,6 +10038,56 @@ int RunAppSelfTest() {
             }
         }
         check(eq, "109-3 창 클라 rect = chrome::ClientRect 계약 등호");
+    }
+
+    // [스펙 2026-11-07-day-summary §6] 하루 정리 친구 리더 — 오늘 필터·
+    // 멀티 표면 병합·꼬리 상한. 종전엔 jkweb TU 안이라 무검증이었다.
+    {
+        namespace fsx = std::filesystem;
+        const fsx::path base = fsx::temp_directory_path() / "jkselftest_daysum";
+        std::error_code ec;
+        fsx::remove_all(base, ec);
+        fsx::create_directories(base / "state" / "dialogue", ec);
+        const std::string stamp =
+            jk::daysummary::TodayStamp(static_cast<long long>(std::time(nullptr)));
+        auto writeFile = [&](const fsx::path& p, const std::string& body) {
+            std::FILE* f = std::fopen(p.string().c_str(), "wb");
+            if (!f) return false;
+            std::fwrite(body.data(), 1, body.size(), f);
+            std::fclose(f);
+            return true;
+        };
+        const bool wrote =
+            writeFile(base / "state" / "dialogue" / (stamp + "-010101_web_abcd.jsonl"),
+                      "{\"t\":\"today-A\"}\n") &&
+            writeFile(base / "state" / "dialogue" / (stamp + "-020202_apk_efgh.jsonl"),
+                      "{\"t\":\"today-B\"}\n") &&
+            writeFile(base / "state" / "dialogue" /
+                          "19990101-000000_web_dead.jsonl",
+                      "{\"t\":\"old-C\"}\n") &&
+            writeFile(base / "state" / "use_journal.jsonl",
+                      "{\"t\":\"jr-1\"}\n{\"t\":\"jr-2\"}\n"
+                      "{\"t\":\"jr-3\"}\n{\"t\":\"jr-4\"}\n");
+        const std::string prompt =
+            jk::daysummary::BuildPrompt((base / "state").string(), 0);
+        check(wrote && prompt.find("today-A") != std::string::npos &&
+                  prompt.find("today-B") != std::string::npos &&
+                  prompt.find("jr-1") != std::string::npos &&
+                  prompt.find("old-C") == std::string::npos &&
+                  prompt.find(stamp) != std::string::npos,
+              "day-1 오늘 파일 2개+j Journal 병합·어제 파일 제외");
+        // 꼬리 상한 — 마지막 N행만(오래된 행 제거).
+        const std::string capped =
+            jk::daysummary::BuildPrompt((base / "state").string(), 0, 2);
+        check(capped.find("jr-3") != std::string::npos &&
+                  capped.find("jr-4") != std::string::npos &&
+                  capped.find("jr-1") == std::string::npos,
+              "day-2 꼬리 상한 = 마지막 N행만(오래된 행 제거)");
+        // 디렉터리 부재 = 빈 문자열(정직 안내 폴백 계약).
+        const std::string none = jk::daysummary::BuildPrompt(
+            (base / "nonexistent").string(), 0);
+        check(none.empty(), "day-3 state 부재 = 빈 프롬프트(쓰기 0)");
+        fsx::remove_all(base, ec);
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);
