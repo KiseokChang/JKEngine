@@ -22,6 +22,9 @@
 #include <unordered_map>
 #include <vector>
 
+// [P1 — docs/108 2단계] 허브 경계 모듈(AgentWindowRef·ResolveAgentWindowTarget·IWindowServerServices).
+#include <server/JKServerServices.h>
+
 namespace jk {
 
 class JKMessageBus;
@@ -53,15 +56,8 @@ enum class AgentDecision { Allow, Ask, Deny };
 // 수불가(매칭 0)는 0을 돌려 호출부가 window_not_found로 정직 회신한다 —
 // 거짓 성공 없음. 순수 로직(창 목록 스냅샷만 먹는다)이라 selftest가 서버
 // 프로세스 없이 직접 단정한다(selftest 1n-14.. 승계).
-struct AgentWindowRef {
-    uint32_t id = 0;
-    std::string title;
-    bool focused = false;
-};
-// Returns the resolved window id, or 0 (window_not_found에 승계된다).
-uint32_t ResolveAgentWindowTarget(const std::vector<AgentWindowRef>& windows,
-                                  bool hasId, uint32_t id,
-                                  const std::string& app);
+// [P1 — docs/108 2단계] AgentWindowRef·ResolveAgentWindowTarget·창 표면 인터페이스 =
+// server/JKServerServices.h로 이동(허브 경계 모듈). 포함 승계로 기존 콜사이트 무변경.
 
 // 사용 저널 (#113 T1 — 스펙 2026-10-26-use-review-cycle-design D1·D2):
 // 에이전트 도구 호출 1건당 append-only JSONL 1행 —
@@ -144,7 +140,7 @@ inline const char* AppModuleSuffix() { return ".so"; }
 // Owns the SDL window and renderer, accepts clients over a named pipe,
 // creates shared-memory surfaces for them, and composites the surfaces to
 // the screen on the server main thread.
-class JKWindowServer {
+class JKWindowServer : public IWindowServerServices {
 public:
     JKWindowServer();
     ~JKWindowServer();
@@ -271,6 +267,12 @@ private:
     // <exeDir>/state directory for agent-created files (layout snapshots).
     // Created on first use; returns the path.
     std::string StateDir() const;
+    // [P1 — docs/108 2단계] IWindowServerServices 구현(동작 무변 — 기존 메버 위임).
+    std::vector<AgentWindowRef> AgentWindowSnapshot() override;
+    std::string StateRoot() const override { return StateDir(); }
+    bool SpawnAgentClient(const char* appName, bool fromJkx) override {
+        return SpawnClient(appName, fromJkx);
+    }
     // docs/35 capture_window 본문 추출 + 스펙 2026-09-19-app-tool-hub §5 3단:
     // connId(=레이어 id = 창 클라의 windowId) 레이어를 RGBA32로 읽어 path에
     // PNG 기록. 레이어 부재/픽셀 부재/쓰기 실패 모두 false — capture_window는

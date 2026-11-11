@@ -8417,6 +8417,21 @@ std::string JKWindowServer::StateDir() const {
     return state::StateDir();
 }
 
+std::vector<AgentWindowRef> JKWindowServer::AgentWindowSnapshot() {
+    // [P1 — docs/108 2단계] 핸들러 인라인 스냅샷 패턴 2곳(중복결합)
+    // 의 단일 진실원 수렴 — list/close/focus 대상 해소 근거.
+    std::vector<AgentWindowRef> wins;
+    std::lock_guard<std::mutex> lock(clientsMutex_);
+    for (auto& c : clients_) {
+        if (!c || c->IsDisconnected() || c->IsControlOnly() || c->IsShell()) {
+            continue;
+        }
+        wins.push_back(AgentWindowRef{c->Id(), c->Title(),
+                                      focusedClientId_ == c->Id()});
+    }
+    return wins;
+}
+
 // 사용 저널 writer (스펙 2026-10-26-use-review-cycle-design D1·D2 — 선언은
 // JKWindowServer.h의 함수 주석이 계약 전문). 도구 호출 원문은 잊지 않는다:
 // 1콜 1행 append-only JSONL. fopen 실패와 부분 fwrite 전부 조용한 스킵 —
