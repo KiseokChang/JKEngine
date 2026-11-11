@@ -73,16 +73,16 @@ APK(654MB·applicationId=chang.jkapk)** 경로를 가리켜 다른 앱을 통과
 | 2-3 | ◻ jkserver가 셸을 PUBLIC 링크 — 컴포지터가 데스크톱 정책에 역의존, 헤드리스에도 셸 비용 | `IInProcessShell`(널 구현) 인터페이스 |
 | 2-4 | ◻ 앱 구현 16 TU가 단일프로세스와 모듈 양쪽 컴파일(호스팅 2벌) | in-process dlopen 통일 또는 레거시 컴파일 게이트 |
 | 2-5 | ◻ 중복 유틸: JSON 이스케이프 **21벌**(출력도 갈림 — `\n` vs `\u a`), QuickJS 리더 5벌(행마다 런타임 생성 2곳), 파일리더/Trim 각 5~6벌 | `jk::json::Escape/ParseFile`·`jk::fs::ReadAll` 헤더 신설+CI 카운트 게이트 |
-| 2-6 | ◻ 크롬 기하 상수가 클라 페인트·서버 페인트·히트테스트 3곳 중복(주석 동기) | `JKChromeMetrics.h` 단일 + 셀프테스트 등호 |
+| 2-6 | ◻ 크롬 기하 상수(docs/109 설계 완료 — 구현 대기)가 클라 페인트·서버 페인트·히트테스트 3곳 중복(주석 동기) | `JKChromeMetrics.h` 단일 + 셀프테스트 등호 |
 
 ## 3. UI 디자인 체계 (P1~P2)
 
 - ☑ **테마 토큰 누락**(2026-11-12 봉합 — §4c): 라벨·툴팁·시계 텍스트 색이 리터럴(`235,235,240` 등)
   — kLight 프리셋에서 런처 라벨이 안 보인다. 수형 = JKTheme에 launcherLabel
   Text/Shadow·tooltip*·desktopClockText 토큰 + 캐시 테마 세대 무효화.
-- ◻ **텍스트 스케일 3갈래**: 라벨 = outputScale 미적용(HiDPI에서 절반),
+- ◻ **텍스트 스케일 3갈래**(docs/109 설계 완료 — 구현 대기): 라벨 = outputScale 미적용(HiDPI에서 절반),
   툴팁 = ×s, 시계 = 고정 4배. 수형 = (font_scale×outputScale) 통일 래스터.
-- ◻ 런처 그리드 = Init 1회만 계산(비Android 리사이즈 미반영·cols=0 UB),
+- ☑ 런처 그리드(2026-11-12 458e43c 봉합)(비Android 리사이즈 미반영·cols=0 UB),
   콘솔 앱 desc가 라벨(96px 셀 넘침·중앙 정렬/클립 부재).
 - ◻ 데스크톱 시계가 매 프레임 onDynamicDraw(clockLastRect_ 영원히 0 —
   더티 스킵 무력화) → 분/자리 변경 시만 발행.
