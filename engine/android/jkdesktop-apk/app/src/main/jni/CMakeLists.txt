@@ -168,6 +168,7 @@ target_link_libraries(jkcore PUBLIC quickjs SDL2::SDL2 mixer_shim iconv_shim log
 add_library(jkserver STATIC
     ${ENG}/src/server/JKClientConnection.cpp
     ${ENG}/src/server/JKWindowServer.cpp
+    ${ENG}/src/server/JKServerState.cpp
     ${ENG}/src/server/JKSemanticCursor.cpp
     ${ENG}/src/server/JKCompositor.cpp
     ${ENG}/src/server/JKCompositorOutput.cpp

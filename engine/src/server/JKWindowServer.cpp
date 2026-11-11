@@ -1,4 +1,7 @@
 #include <server/JKWindowServer.h>
+#include <server/JKServerState.h>
+
+namespace state = jk::server::state;  // [P1 — docs/108 1단계] 네임스페이스 알리아스
 #include <agent/JKAgentJson.h>
 
 #include <apps/AppLauncherItem.h>
@@ -132,18 +135,8 @@ static void LoadSettingsKv(bool& mute, int& volume, int& retention,
 // 없어도 링크 성립(lld weak-undefined = null 허용) — 콜사이트는 선조회.
 __attribute__((weak)) extern "C" int JkStartBrowserActivity(const char* url);
 
-static std::string ExeDirNoSlash() {
-#if defined(__ANDROID__)
-    // T8 Step 1 — APK의 state seam 수형: exe-dir = nativeLibraryDir(읽기전용
-    // 원존) → CWD(app-private files — jksrv_main 부트 원문) 상대. 소비자 =
-    // settings.json·permissions·trust 등 전 state 파일 — 1자 수형.
-    // LoadChatConfig의 CWD seam 수형(2026-11-04)과 동형 사건.
-    return std::string(".");
-#endif
-    const std::string exe = jk::fs::GetExecutablePath();
-    const size_t cut = exe.find_last_of("\\/");
-    return cut == std::string::npos ? std::string() : exe.substr(0, cut);
-}
+// [P1 — docs/108 1단계] 원문 이동 → server/JKServerState.cpp
+static std::string ExeDirNoSlash() { return state::ExeDirNoSlash(); }
 
 JKWindowServer::JKWindowServer() = default;
 
@@ -3191,10 +3184,7 @@ static std::string WritePermissionsEntry(const std::string& permTool,
 // font_fallback은 보조 폰트 체인 경로(docs/63 §6 2단계)
 // — JKTextAtlas::ResolveDesktopFontPath/ResolveDesktopFallbackPath가 기동 시
 // 같은 키를 원독한다.
-static std::string SettingsKvPath() {
-    const std::string dir = ExeDirNoSlash();
-    return dir + "/state/settings.json";
-}
+static std::string SettingsKvPath() { return state::SettingsKvPath(); }
 
 // text.font_scale 유효성 (docs/63 §6 Task 3): 문자열 float 전체 소비 + 범위
 // [1.0, 3.0]. 부팅 로드(LoadSettingsKv)와 settings_set(정문 게이트)이 같은
@@ -3455,10 +3445,7 @@ struct NoteRow {
     std::string tsRaw;       // "ts":<원문 숫자> — 재직렬화용
     bool isItem = false;
 };
-static std::string NotesPath() {
-    const std::string dir = ExeDirNoSlash();
-    return dir + "/state/notes.json";
-}
+static std::string NotesPath() { return state::NotesPath(); }
 // 바이트 절단은 UTF-8 후행 시퀀스를 자른다(substr는 바이트 단위 — opus
 // MINOR-2: 한국어 3바이트 글자가 경계에 걸리면 mojibake). 마지막 완전한
 // 시퀀스 뒤로 물러난다.
@@ -3854,12 +3841,7 @@ static std::string FilesAuditOpJson(int limit) {
 
 // 지문 형식: 정확히 "sha256:" + 64 소문자 hex (로더 형식 — docs/37).
 static bool ValidFingerprint(const std::string& fp) {
-    if (fp.size() != 7 + 64 || fp.compare(0, 7, "sha256:") != 0) return false;
-    for (size_t i = 7; i < fp.size(); ++i) {
-        const char c = fp[i];
-        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
-    }
-    return true;
+    return state::ValidFingerprint(fp);
 }
 
 // trust.json 원본 텍스트에서 지문 레코드의 { ... } 경계를 찾는다. 레코드는
@@ -8432,14 +8414,7 @@ bool JKWindowServer::ApprovalParkingFull(uint32_t requesterId) const {
 // no-op(false), 폴더는 원문과 같이 마지막 성분만 만든다(성공 무시 동일).
 // ec 중립형(throwing 금지 — 핫 패스, 이 TU 무 try/catch — review r1 HIGH).
 std::string JKWindowServer::StateDir() const {
-    // [P0 수형 — docs/106 §1-5] exe-dir 기반 = Android에서 nativeLibraryDir
-    // (읽기전용) → save_layout·capture_window 조용한 실패 경로였다 — ExeDirNoSlash
-    // 재용(Android 분기 = CWD/files state seam 원존 — SettingsKvPath와 동일 진실원).
-    std::string dir = ExeDirNoSlash();
-    dir += "/state";
-    std::error_code dirEc;
-    std::filesystem::create_directory(std::filesystem::path(dir), dirEc);
-    return dir;
+    return state::StateDir();
 }
 
 // 사용 저널 writer (스펙 2026-10-26-use-review-cycle-design D1·D2 — 선언은
