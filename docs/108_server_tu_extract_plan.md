@@ -110,3 +110,11 @@ SpawnAgentClient) 선포, `JKWindowServer`가 구현. 계획 2.1의 6메서드 �
   1행 = permission_set). 도구 추가 시 매트릭스 갱신 누락·게이트 오타를
   셀프테스트가 즉시 적발.
 - 게이트: 998 → 1001 PASS 0 FAIL.
+
+#### 5.3.1 안드로이드 배포 검증 (2026-11-12, 실기기 원문)
+- APK 재빌드 → 설치 Success → 앱 기동 → `logcat jkdesk: BUILD_SHA=9de0100`.
+- DeX 표면 부팅(`am start --display 2` — shell 소스 수용 원존) → :8091 LISTEN 확인
+  (`/proc/net/tcp` 0100007F:1F9B 0A).
+- 허브 TU 실경로 스모크: `POST /talk {"text":"창 목록 보여줘"}` →
+  `{"ok":true,"reply":"떠 있는 창 목록을 불러옵니다.","kind":"ListWindows",
+  "server":"{\"ok\":true,\"windows\":[]}"}` — 도구 분기가 새 TU에서 그대로 동작.
