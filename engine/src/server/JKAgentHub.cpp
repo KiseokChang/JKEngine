@@ -4,6 +4,7 @@
 #include <server/JKWindowServer.h>
 #include <server/JKServerState.h>
 #include <server/JKAgentPermissions.h>
+#include <jkhooks_android.h>  // JNI 훅 단일 ABI(docs/106 §4)
 
 #include <agent/JKAgentJson.h>
 #include <apps/MusicDirStore.h>
@@ -50,11 +51,8 @@ static void LoadSettingsKv(bool& mute, int& volume, int& retention,
 // 퍼미션 읽기)을 1헬퍼로 통일. 원문 절단 규약 = 뒤 구분자 없음(dir,
 // 소비자 결합이 '/'로 조립 — 플랜 F1 전역 규약, docs/64) — 그대로 보존.
 // 절단 취약점(MAX_PATH/1024 후단 절단)은 어댑터의 동적 재시도로 동시 소거.
-// [T9-브라우저] 전방 선언 — jkvoice_bridge의 JNI 훅(파일 스코프 — 런처
-// 람다 본문의 extern "C" = 문법 금지 원존(2026-11-07 컴파일 원문)).
-// weak = 클라(libjkc.so)가 이 TU를 링크하며 서버 전용 훅(jkdesk)이
-// 없어도 링크 성립(lld weak-undefined = null 허용) — 콜사이트는 선조회.
-__attribute__((weak)) extern "C" int JkStartBrowserActivity(const char* url);
+// [T9-브라우저] JNI 훅 선언 = include/jkhooks_android.h 단일 ABI 헤더
+// (docs/106 §4 통합 — weak 계약은 헤더 주석 참조).
 
 // [P1 — docs/108 1단계] 원문 이동 → server/JKServerState.cpp
 static std::string ExeDirNoSlash() { return state::ExeDirNoSlash(); }

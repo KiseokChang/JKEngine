@@ -52,6 +52,7 @@
 #include <agent/JKAgentClient.h>
 #include <agent/JKLlmEngine.h>  // 승격 배선의 cfg 원천(LoadChatConfig) — T4
 #include <apps/ChatRouter.h>
+#include <jkhooks_android.h>  // JNI 훅 단일 ABI(docs/106 §4)
 #include <apps/DaySummaryPrompt.h>
 #include <net/JKNet.h>
 
@@ -230,8 +231,7 @@ std::string JsonGetString(const std::string& body, const char* key) {
 // 서버 위임 (jktalk::SendServerQuery 재용 — 전부 서버 질의, 로컬 도구 없음)
 // ---------------------------------------------------------------------------
 
-extern "C" int JKAndroidVoiceBegin();  // jkvoice_bridge.cpp — /voice 개시(강정의 — in-process 빌드)
-extern "C" int JkTtsStopAll(void);     // jkvoice_bridge.cpp — /voice 병행 안내 정지(마이크 탭 = 정지+듣기)
+// 음성/TTS 훅 선언 = include/jkhooks_android.h(단일 ABI — 정의는 jkvoice_bridge).
 #if !defined(JK_WEB_INPROCESS)
 __attribute__((weak)) extern "C" int JkTtsStopAll(void) { return 0; }
 // 독립 빌드(별도 바이너리) = 브리지 TU 미편입 — weak 스텁(개시 실패 회신 — 정직)
@@ -401,11 +401,7 @@ std::string DaySummaryPrompt() {
 // 이유(jkwebFailNoServer 대응 — HTTP 세계에서는 종료코드 대신 상태 코드가 정직
 // 의 표기, 스펙 §5.1 "정직 500").
 #if defined(__ANDROID__)
-// [T9] BrowserActivity 개봉 훅 전방(weak — jkc 클라 링크가 이 TU를 먹을 때
-// jkvoice_bridge 정의는 jkdesk에서만 성립 — 콜사이트 선조회 계약).
-__attribute__((weak)) extern "C" int JkStartBrowserActivity(const char* url);
-__attribute__((weak)) extern "C" int JkCloseBrowserActivity(void);
-__attribute__((weak)) extern "C" int JkBrowserNavigate(int dir);  // 0=뒤 1=앞
+// [T9] JNI 훅 선언 = include/jkhooks_android.h 단일 ABI 헤더(docs/106 §4 통합).
 #endif
 
 std::string HandleTalk(const std::string& body, int& code) {
