@@ -72,7 +72,7 @@ APK(654MB·applicationId=chang.jkapk)** 경로를 가리켜 다른 앱을 통과
 | 2-2 | ◻ 모듈 29개 정적 링크 — APK 라이브러리 88MB 중 **76.3MB가 모듈**(2.6MB×29) | jkcore/jkclient SHARED 전환(Android PIC 이미 ON) → **~70MB 절감** + 새 앱 추가를 매니페스트 1행으로 |
 | 2-3 | ◻ jkserver가 셸을 PUBLIC 링크 — 컴포지터가 데스크톱 정책에 역의존, 헤드리스에도 셸 비용 | `IInProcessShell`(널 구현) 인터페이스 |
 | 2-4 | ◻ 앱 구현 16 TU가 단일프로세스와 모듈 양쪽 컴파일(호스팅 2벌) | in-process dlopen 통일 또는 레거시 컴파일 게이트 |
-| 2-5 | ◻ 중복 유틸: JSON 이스케이프 **21벌**(출력도 갈림 — `\n` vs `\u a`), QuickJS 리더 5벌(행마다 런타임 생성 2곳), 파일리더/Trim 각 5~6벌 | `jk::json::Escape/ParseFile`·`jk::fs::ReadAll` 헤더 신설+CI 카운트 게이트 |
+| 2-5 | ☑ 중복 유틸(2026-11-13 — JSON 이스케이프 21벌 → json/JKJson 4계약):  **21벌**(출력도 갈림 — `\n` vs `\u a`), QuickJS 리더 5벌(행마다 런타임 생성 2곳), 파일리더/Trim 각 5~6벌 | `jk::json::Escape/ParseFile`·`jk::fs::ReadAll` 헤더 신설+CI 카운트 게이트 |
 | 2-6 | ☑ 크롬 기하 상수(2026-11-12 — JKChromeMetrics.h+등호 단정)가 클라 페인트·서버 페인트·히트테스트 3곳 중복(주석 동기) | `JKChromeMetrics.h` 단일 + 셀프테스트 등호 |
 
 ## 3. UI 디자인 체계 (P1~P2)
@@ -177,3 +177,12 @@ APK(654MB·applicationId=chang.jkapk)** 경로를 가리켜 다른 앱을 통과
   미니 텍스처 맵 파괴. 아틀라스 글리프 이미지는 색과 무관해 유지.
 - 회귀망: 셀프테스트 106-3a~3d(프리셋 3종 대비 3:1 · 세대 카운터).
 - 남은 눈확인: PC `theme.json` {"preset":"light"} 로 런처 라벨 가독 확인.
+
+## 4d. JSON 이스케이프 통합 정산 (2026-11-13)
+
+- `json/JKJson.h|.cpp` 신설 — 네 계약(Escape / EscapeLegacyLog /
+  EscapeStrict / EscapeRowSafe)을 한 구현(플래그)에서 파생.
+- 21벌 중 20벌을 호출 위임으로 치환(로컬 함수명·링키지 유지 — 콜사이트
+  무변). JKScriptHost는 hex 대소문자만 정규화(JSON 동등).
+- 셀프테스트 2-5a~e = 바이트 등호 4계약(통합이 동작 변경 아님을 고정).
+- 남은 중복(QuickJS 리더 5벌·파일리더/Trim 5~6벌)은 후속.

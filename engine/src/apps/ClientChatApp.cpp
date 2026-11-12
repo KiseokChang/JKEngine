@@ -7,6 +7,7 @@
 // 백엔드를 고르는 형태로 이 호출 자리를 갈아끼우면 된다 — 앱 나머지(기록·
 // 입력·송신)는 백엔드 무관. 배선 실장=백로그(docs/80 §3 명단).
 #include <apps/ClientChatApp.h>
+#include <json/JKJson.h>  // JSON 이스케이프 정본(docs/106 §2-5)
 
 #include <agent/JKLlmEngine.h>  // LoadChatConfig — 구두 턴 접점 인자(#112 T4)
 #include <apps/ChatRouter.h>
@@ -61,19 +62,8 @@ unsigned long ThisProcessId() { return static_cast<unsigned long>(::getpid()); }
 #endif
 
 std::string EscapeJson(const std::string& in) {
-    std::string out;
-    out.reserve(in.size() + 8);
-    for (const char ch : in) {
-        if (ch == '"' || ch == '\\') { out += '\\'; out += ch; }
-        else if (static_cast<unsigned char>(ch) < 0x20) {
-            char num[8];
-            std::snprintf(num, sizeof(num), "\\u%04x", ch);
-            out += num;
-        } else {
-            out += ch;
-        }
-    }
-    return out;
+    // [docs/106 §2-5 통합] 구현 = json/JKJson.cpp (EscapeStrict)
+    return jk::json::EscapeStrict(in);
 }
 
 // 발화 앞뒤 공백 절단 — 기록에는 정돈된 원문을 남긴다(라우터가 먹는 것은

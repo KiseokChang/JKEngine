@@ -1,4 +1,5 @@
 #include <apps/ClientMineSweeperApp.h>
+#include <json/JKJson.h>  // JSON 이스케이프 정본(docs/106 §2-5)
 
 #include <agent/JKAgentJson.h>
 #include <apps/MineSweeperApp.h>
@@ -104,28 +105,8 @@ std::vector<uint8_t> CreateQuestionIcon() {
 // NIT-5 — JKClientSurface의 JsonEsc는 TU 로컬이라 재사용 불가. unsupported_tool
 // 에코에 외래 토큰을 실을 때 JSON 구조 파괴/주입 봉쇄용 최소 이스케이퍼.
 std::string JsonEsc(const std::string& s) {
-    std::string out;
-    out.reserve(s.size() + 8);
-    for (char ch : s) {
-        switch (ch) {
-            case '"':  out += "\\\""; break;
-            case '\\': out += "\\\\"; break;
-            case '\b': out += "\\b"; break;
-            case '\f': out += "\\f"; break;
-            case '\n': out += "\\n"; break;
-            case '\r': out += "\\r"; break;
-            case '\t': out += "\\t"; break;
-            default:
-                if (static_cast<unsigned char>(ch) < 0x20) {
-                    char buf[8];
-                    std::snprintf(buf, sizeof(buf), "\\u%04x", ch);
-                    out += buf;
-                } else {
-                    out += ch;
-                }
-        }
-    }
-    return out;
+    // [docs/106 §2-5 통합] 구현 = json/JKJson.cpp (Escape)
+    return jk::json::Escape(s);
 }
 
 } // anonymous namespace

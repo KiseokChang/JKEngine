@@ -4,6 +4,7 @@
 // integrated message loop runs on this thread, so every CEF callback
 // (on_after_created, on_paint) lands here — no locks anywhere.
 #include <apps/ClientBrowserApp.h>
+#include <json/JKJson.h>  // JSON 이스케이프 정본(docs/106 §2-5)
 
 #include <imgui_impl_jkwindow.h>
 #include <imgui.h>
@@ -127,17 +128,8 @@ void CefToUtf8(const cef_string_t* s, std::string& out) {
 // JKWindowServer::JsonEsc (JKWindowServer.cpp:550): quotes, backslash, control
 // bytes <0x20 as \u00xx. UTF-8 bytes (Korean titles) pass through untouched.
 std::string JsonEsc(const std::string& s) {
-    std::string out;
-    out.reserve(s.size() + 8);
-    char num[8];
-    for (char ch : s) {
-        const unsigned char c = static_cast<unsigned char>(ch);
-        if (c == '"')       out += "\\\"";
-        else if (c == '\\') out += "\\\\";
-        else if (c < 0x20)  { std::snprintf(num, sizeof(num), "\\u%04x", c); out += num; }
-        else                out += ch;
-    }
-    return out;
+    // [docs/106 §2-5 통합] 구현 = json/JKJson.cpp (EscapeStrict)
+    return jk::json::EscapeStrict(s);
 }
 
 // exe dir with trailing '/' — the same cache InitCef fills (g_exeDirSlash).

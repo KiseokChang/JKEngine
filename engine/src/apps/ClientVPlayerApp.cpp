@@ -1,4 +1,5 @@
 #include <apps/ClientVPlayerApp.h>
+#include <json/JKJson.h>  // JSON 이스케이프 정본(docs/106 §2-5)
 
 #include <apps/ClientIdlePolicy.h>
 #include <apps/JKScrubClock.h>
@@ -71,20 +72,8 @@ const ImVec4 kErrorRed(1.0f, 0.4f, 0.4f, 1.0f);
 // JSON string escape for agent-query args (same shape as the palette's
 // EscapeJson / the server's JsonEsc: quotes, backslashes, control bytes).
 std::string EscapeJson(const std::string& in) {
-    std::string out;
-    for (char c : in) {
-        if (c == '"' || c == '\\') {
-            out += '\\';
-            out += c;
-        } else if (static_cast<unsigned char>(c) < 0x20) {
-            char buf[8];
-            std::snprintf(buf, sizeof(buf), "\\u%04x", c);
-            out += buf;
-        } else {
-            out += c;
-        }
-    }
-    return out;
+    // [docs/106 §2-5 통합] 구현 = json/JKJson.cpp (EscapeStrict)
+    return jk::json::EscapeStrict(in);
 }
 
 // Brief-specified filter, verbatim (filedlg treats it as display text; the

@@ -64,6 +64,7 @@ extern "C" __declspec(dllimport) int __stdcall closesocket(
 #include <server/JKAgentPermissions.h>  // selftest 108-3 — 권한 매트릭스 불변식
 #include <JKChromeMetrics.h>  // selftest 109-3 — 크롬 기하 계약 등호
 #include <apps/DaySummaryPrompt.h>  // selftest day-1~3 — 하루 정리 리더
+#include <json/JKJson.h>  // selftest 2-5a~e — 이스케이프 4계약
 #include <server/JKWindowServer.h>
 #include <agent/JKAgentClient.h>
 #include <agent/JKLlmEngine.h>  // selftest 1n-d — 동기 턴 브리지+ollama-direct leg
@@ -10088,6 +10089,39 @@ int RunAppSelfTest() {
             (base / "nonexistent").string(), 0);
         check(none.empty(), "day-3 state 부재 = 빈 프롬프트(쓰기 0)");
         fsx::remove_all(base, ec);
+    }
+
+    // [docs/106 §2-5] JSON 이스케이프 4계약 — 문구가 아니라 바이트를 고정한다
+    // (통합이 동작 변경이 되지 않았다는 증거). 원문 복사본 20벌은 이제
+    // json/JKJson.cpp 한 구현을 호출한다.
+    {
+        // 입력에 닫는 '}'는 넣지 않는다 — RowSafe만 inRow(= in + "}")로 검사.
+        const std::string in = std::string("a\"b\\c\n\r\t\b\f\x01{한글");
+        const std::string quote = "\\\"";
+        const std::string bslash = "\\\\";
+        const std::string wantShort =
+            "a" + quote + "b" + bslash + "c\\n\\r\\t\\b\\f\\u0001{" + "한글";
+        const std::string wantLegacy =
+            "a" + quote + "b" + bslash + "c\\n\\r\\t\\u0008\\u000c\\u0001{" +
+            "한글";
+        const std::string wantStrict =
+            "a" + quote + "b" + bslash +
+            "c\\u000a\\u000d\\u0009\\u0008\\u000c\\u0001{" + "한글";
+        const std::string wantRow =
+            "a" + quote + "b" + bslash +
+            "c\\u000a\\u000d\\u0009\\u0008\\u000c\\u0001\\u007b" + "한글" +
+            "\\u007d";
+        const std::string inRow = in + "}";
+        check(jk::json::Escape(in) == wantShort,
+              "2-5a Escape = 단축형(\" \\ \\b\\f\\n\\r\\t) + UTF-8 통과");
+        check(jk::json::EscapeLegacyLog(in) == wantLegacy,
+              "2-5b EscapeLegacyLog = \\n\\r\\t만 단축(대화 로그 계약 보존)");
+        check(jk::json::EscapeStrict(in) == wantStrict,
+              "2-5c EscapeStrict = 전 제어 \\uXXXX");
+        check(jk::json::EscapeRowSafe(inRow) == wantRow,
+              "2-5d EscapeRowSafe = Strict + { } \\u007b/\\u007d(서버 행 스캔)");
+        check(jk::json::Quote("한글") == "\"한글\"",
+              "2-5e Quote = 따옴표 감싸기(정본 Escape)");
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);

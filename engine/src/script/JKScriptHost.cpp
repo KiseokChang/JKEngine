@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include <json/JKJson.h>  // JSON 이스케이프 정본(docs/106 §2-5)
 #include <cstring>
 #include <string>
 #include <vector>
@@ -1683,27 +1684,10 @@ namespace {
 // 원문 바이트(한글 포함)는 그대로 — JSON 허용. \u 이스케이프는 0x20 미만
 // 1바이트에만 쓰므로 파서도 단일 바이트 코드포인트로만 디코드하면 된다.
 std::string JsonEscape(const std::string& s) {
-    std::string out;
-    out.reserve(s.size() + 8);
-    char buf[8];
-    for (char ch : s) {
-        switch (ch) {
-        case '"': out += "\\\""; break;
-        case '\\': out += "\\\\"; break;
-        case '\n': out += "\\n"; break;
-        case '\r': out += "\\r"; break;
-        case '\t': out += "\\t"; break;
-        default:
-            if (static_cast<unsigned char>(ch) < 0x20) {
-                std::snprintf(buf, sizeof(buf), "\\u%04X",
-                              static_cast<unsigned char>(ch));
-                out += buf;
-            } else {
-                out += ch;
-            }
-        }
-    }
-    return out;
+    // [docs/106 §2-5 통합] 구현 = json/JKJson.cpp (EscapeLegacyLog).
+    // 원문과의 유일한 차이 = 제어문자 hex가 소문자(\u00xx) — JSON 동등이며,
+    // 표면별 바이트 계약을 한 곳으로 모으는 대가(여기 주석으로 명시).
+    return jk::json::EscapeLegacyLog(s);
 }
 } // namespace
 

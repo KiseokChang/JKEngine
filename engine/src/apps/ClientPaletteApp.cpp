@@ -3,6 +3,7 @@
 // 16 ms timer re-arms the frame gate, every event is fed to the ImGui
 // backend before NewFrame, the root paints the dark clear color.
 #include <apps/ClientPaletteApp.h>
+#include <json/JKJson.h>
 
 #include <agent/JKAgentJson.h>
 #include <imgui_impl_jkwindow.h>
@@ -171,20 +172,8 @@ void ClientPaletteApp::OnAgentEvent(const std::string& eventJson) {
 }
 
 std::string ClientPaletteApp::EscapeJson(const std::string& in) {
-    std::string out;
-    for (char c : in) {
-        if (c == '"' || c == '\\') {
-            out += '\\';
-            out += c;
-        } else if (static_cast<unsigned char>(c) < 0x20) {
-            char buf[8];
-            std::snprintf(buf, sizeof(buf), "\\u%04x", c);
-            out += buf;
-        } else {
-            out += c;
-        }
-    }
-    return out;
+    // [docs/106 §2-5 통합] 구현 = json/JKJson.cpp (EscapeStrict)
+    return jk::json::EscapeStrict(in);
 }
 
 // One deterministic tool call ("one API, many faces": the same tools the

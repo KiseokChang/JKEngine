@@ -3,6 +3,7 @@
 // are static data). Single scroll, 5 sections — theme / triggers / data /
 // permissions (summary + route to agentmgr) / devices.
 #include <apps/ClientSettingsApp.h>
+#include <json/JKJson.h>  // JSON 이스케이프 정본(docs/106 §2-5)
 
 #include <agent/JKAgentJson.h>
 #include <imgui_impl_jkwindow.h>
@@ -30,19 +31,8 @@ public:
 };
 
 std::string EscapeJson(const std::string& in) {
-    std::string out;
-    out.reserve(in.size() + 8);
-    for (const char ch : in) {
-        if (ch == '"' || ch == '\\') { out += '\\'; out += ch; }
-        else if (static_cast<unsigned char>(ch) < 0x20) {
-            char num[8];
-            std::snprintf(num, sizeof(num), "\\u%04x", ch);
-            out += num;
-        } else {
-            out += ch;
-        }
-    }
-    return out;
+    // [docs/106 §2-5 통합] 구현 = json/JKJson.cpp (EscapeStrict)
+    return jk::json::EscapeStrict(in);
 }
 } // namespace
 

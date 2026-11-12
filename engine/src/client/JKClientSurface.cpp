@@ -1,4 +1,5 @@
 #include <client/JKClientSurface.h>
+#include <json/JKJson.h>  // JSON 이스케이프 정본(docs/106 §2-5)
 
 #include <agent/JKAgentJson.h>
 #include <SDL.h>
@@ -20,17 +21,8 @@ namespace {
 // the brace escaping that only the server's row-scan needs. UTF-8 bytes pass
 // through untouched.
 std::string JsonEsc(const std::string& s) {
-    std::string out;
-    out.reserve(s.size() + 8);
-    char num[8];
-    for (char ch : s) {
-        const unsigned char c = static_cast<unsigned char>(ch);
-        if (c == '"')       out += "\\\"";
-        else if (c == '\\') out += "\\\\";
-        else if (c < 0x20)  { std::snprintf(num, sizeof(num), "\\u%04x", c); out += num; }
-        else                out += ch;
-    }
-    return out;
+    // [docs/106 §2-5 통합] 구현 = json/JKJson.cpp (EscapeStrict)
+    return jk::json::EscapeStrict(s);
 }
 
 } // namespace

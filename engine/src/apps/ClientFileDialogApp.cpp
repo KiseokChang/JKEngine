@@ -10,6 +10,7 @@
 // transport convenience, design D3) and applies filter/start; at the end it
 // sends `file_open_result {ok, path?}` exactly once on every exit path.
 #include <apps/ClientFileDialogApp.h>
+#include <json/JKJson.h>
 
 #include <agent/JKAgentJson.h>
 #include <imgui_impl_jkwindow.h>
@@ -646,20 +647,8 @@ void ClientFileDialogApp::BuildFilterChoices() {
 }
 
 std::string ClientFileDialogApp::EscapeJson(const std::string& in) {
-    std::string out;
-    for (char c : in) {
-        if (c == '"' || c == '\\') {
-            out += '\\';
-            out += c;
-        } else if (static_cast<unsigned char>(c) < 0x20) {
-            char buf[8];
-            std::snprintf(buf, sizeof(buf), "\\u%04x", c);
-            out += buf;
-        } else {
-            out += c;
-        }
-    }
-    return out;
+    // [docs/106 §2-5 통합] 구현 = json/JKJson.cpp (EscapeStrict)
+    return jk::json::EscapeStrict(in);
 }
 
 

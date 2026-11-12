@@ -2,6 +2,7 @@
 // (스펙 2026-11-01-chat-session-log-design D1-D4).
 
 #include <apps/ChatSessionLog.h>
+#include <json/JKJson.h>  // JSON 이스케이프 정본(docs/106 §2-5)
 
 #include <atomic>
 #include <chrono>
@@ -25,20 +26,8 @@ long long NowMs() {
 // 이스케이프, UTF-8 통과. 중괄호 이스케이프는 하지 않는다(행 수술 용도 없음
 // — 이 파일은 append 전용이고 리더는 jksessions.sh/표준 JSON 파서).
 std::string JsonEsc(const std::string& s) {
-    std::string out;
-    out.reserve(s.size() + 8);
-    char num[8];
-    for (char ch : s) {
-        const unsigned char c = static_cast<unsigned char>(ch);
-        if (c == '"')       out += "\\\"";
-        else if (c == '\\') out += "\\\\";
-        else if (c == '\n') out += "\\n";
-        else if (c == '\r') out += "\\r";
-        else if (c == '\t') out += "\\t";
-        else if (c < 0x20)  { std::snprintf(num, sizeof(num), "\\u%04x", c); out += num; }
-        else                out += ch;
-    }
-    return out;
+    // [docs/106 §2-5 통합] 구현 = json/JKJson.cpp (EscapeLegacyLog)
+    return jk::json::EscapeLegacyLog(s);
 }
 
 // UseJournalAppend 절단 규약 승계: continuation 역행 후 남은 마지막 바이트가

@@ -39,6 +39,7 @@
 // 승계, 전 축 통일).
 
 #include <apps/MusicModel.h>
+#include <json/JKJson.h>
 #include <port/JKCrtShim.h>  // FopenS — Win/posix 공용 파일 오픈
 
 #include <algorithm>
@@ -314,27 +315,8 @@ inline bool ScanTopLevelFields(const std::string& text,
 // 이스케이프는 공용 규약 유지). 공백·멀티바이트는 원문 수용 — JSON 문자열
 // 꾸러미가 감싸므로 이스케이프 불요(2m-g 원문 계약).
 inline std::string EscapeJsonStr(const std::string& in) {
-    std::string out;
-    bool prevHigh = false;  // fix r1 — 고바이트 뒤 0x5C는 리터럴(CP949 확장
-                            //   한글 후행을 이중화해 원문을 갉아먹지 않는다 —
-                            //   ScanJsonString 복호 규약과 같은 짝)
-    for (char ch : in) {
-        const unsigned char c = static_cast<unsigned char>(ch);
-        if ((c == '"' || c == '\\') && !prevHigh) {
-            out += '\\';
-            out += ch;
-            prevHigh = false;
-        } else if (c < 0x20) {
-            char buf[8];
-            std::snprintf(buf, sizeof(buf), "\\u%04x", static_cast<int>(c));
-            out += buf;
-            prevHigh = false;
-        } else {
-            out += ch;  // 공백·멀티바이트·CP949 후행 0x5C = 원문 수용
-            prevHigh = (c >= 0x80);
-        }
-    }
-    return out;
+    // [docs/106 §2-5 통합] 구현 = json/JKJson.cpp (EscapeStrict)
+    return jk::json::EscapeStrict(in);
 }
 
 // 상위 기입 합성 — 관리 키 슬라이스(managed: key+완성 JSON 값 원문)를 기존

@@ -1,4 +1,5 @@
 #include <server/JKWindowServer.h>
+#include <json/JKJson.h>  // JSON 이스케이프 정본(docs/106 §2-5)
 #include <server/JKServerState.h>
 #include <server/JKAgentPermissions.h>  // docs/108 3단계 — 도구·게이트 표
 
@@ -1325,19 +1326,8 @@ std::string ResolveAudioPath(const char* id, AudioCommand::Type type) {
 // chars). UTF-8 bytes pass through untouched — titles are KSSM-decoded
 // UTF-8 already (taskbar convention).
 std::string JsonEsc(const std::string& s) {
-    std::string out;
-    out.reserve(s.size() + 8);
-    char num[8];
-    for (char ch : s) {
-        const unsigned char c = static_cast<unsigned char>(ch);
-        if (c == '"')       out += "\\\"";
-        else if (c == '\\') out += "\\\\";
-        else if (c == '{')  out += "\\u007b";   // 행 경계 스캔(노트 허브 등
-        else if (c == '}')  out += "\\u007d";   // 원문 수술)이 안전하도록
-        else if (c < 0x20)  { std::snprintf(num, sizeof(num), "\\u%04x", c); out += num; }
-        else                out += ch;
-    }
-    return out;
+    // [docs/106 §2-5 통합] 구현 = json/JKJson.cpp (EscapeRowSafe)
+    return jk::json::EscapeRowSafe(s);
 }
 
 // PNG write for screenshots (docs/35). pixels must be RGBA32, w*h*4 bytes —

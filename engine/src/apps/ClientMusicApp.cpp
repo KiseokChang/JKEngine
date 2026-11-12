@@ -53,6 +53,7 @@
 // frameDirty_, 도착 완료 = 마지막 프레임). A failed read is terminal until
 // the next re-scan generation (failedGen — placeholder keeps the gray face).
 #include <apps/ClientMusicApp.h>
+#include <json/JKJson.h>  // JSON 이스케이프 정본(docs/106 §2-5)
 
 #include <imgui_impl_jkwindow.h>
 #include <JKTextAtlas.h>
@@ -167,20 +168,8 @@ void FmtClock(long long secs, char* buf, size_t bufBytes) {
 // JSON 문자열 이스케이프(D4 표기의 도구 결과 원문 — vplayer의 EscapeJson 원문
 // 수형: 따옴표·역슬래시·제어 바이트; spatial_status의 path/error 필드용).
 std::string EscapeJson(const std::string& in) {
-    std::string out;
-    for (char c : in) {
-        if (c == '"' || c == '\\') {
-            out += '\\';
-            out += c;
-        } else if (static_cast<unsigned char>(c) < 0x20) {
-            char buf[8];
-            std::snprintf(buf, sizeof(buf), "\\u%04x", c);
-            out += buf;
-        } else {
-            out += c;
-        }
-    }
-    return out;
+    // [docs/106 §2-5 통합] 구현 = json/JKJson.cpp (EscapeStrict)
+    return jk::json::EscapeStrict(in);
 }
 
 // ---- 폴더 관리 (T2) 공용 헬퍼 ----

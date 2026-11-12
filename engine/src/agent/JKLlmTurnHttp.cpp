@@ -1,5 +1,6 @@
 // T7 — LLM HTTP 어댑터의 본체(헤더 주석 — 계약 원존).
 #include <agent/JKLlmTurnHttp.h>
+#include <json/JKJson.h>  // JSON 이스케이프 정본(docs/106 §2-5)
 #include <agent/JKAgentJson.h>
 #include <net/JKNet.h>
 
@@ -23,27 +24,8 @@ namespace agent {
 // 공개 창(백로그: 흡수 통합은 별도 라인).
 namespace {
 std::string JsonEscapeWrite(const std::string& s) {
-    std::string out;
-    out.reserve(s.size() + 16);
-    for (unsigned char c : s) {
-        switch (c) {
-            case '"': out += "\\\""; break;
-            case '\\': out += "\\\\"; break;
-            case '\n': out += "\\n"; break;
-            case '\r': out += "\\r"; break;
-            case '\t': out += "\\t"; break;
-            case '\b': out += "\\b"; break;
-            default:
-                if (c < 0x20) {
-                    char buf[8];
-                    std::snprintf(buf, sizeof(buf), "\\u%04x", c);
-                    out += buf;
-                } else {
-                    out += static_cast<char>(c);
-                }
-        }
-    }
-    return out;
+    // [docs/106 §2-5 통합] 구현 = json/JKJson.cpp (Escape)
+    return jk::json::Escape(s);
 }
 }  // namespace
 

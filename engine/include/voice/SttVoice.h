@@ -52,6 +52,7 @@
 //     텍스트" — 신규 파서 0) + ChatAction→창 서버 도구 질의 양식.
 
 #include <agent/JKLlmEngine.h>  // ChatConfig — turn 접점 배선 인자(cfg 선택형)
+#include <json/JKJson.h>
 #include <apps/ChatRouter.h>   // ChatAction — 접점 도구 지시(라우터 단일 진실원)
 
 #include <cstdint>
@@ -286,19 +287,8 @@ namespace turn {
 // 바이트 그대로 복제 — "쌍둥이 원문 수형" 반복 선례: MusicModel.h:487·
 // MusicDirStore.h:316). 도구 질의 args의 app 인용 소관.
 inline std::string JsonEscapeStr(const std::string& in) {
-    std::string out;
-    out.reserve(in.size() + 8);
-    for (const char ch : in) {
-        if (ch == '"' || ch == '\\') { out += '\\'; out += ch; }
-        else if (static_cast<unsigned char>(ch) < 0x20) {
-            char num[8];
-            std::snprintf(num, sizeof(num), "\\u%04x", ch);
-            out += num;
-        } else {
-            out += ch;
-        }
-    }
-    return out;
+    // [docs/106 §2-5 통합] 구현 = json/JKJson.cpp (EscapeStrict)
+    return jk::json::EscapeStrict(in);
 }
 
 // ChatAction → (도구, 인자 JSON) — 창 서버 도구 질의 양식(ClientChatApp
