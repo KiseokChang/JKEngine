@@ -57,3 +57,17 @@
   사용자 요청 시). 현 시점 폰 설치본 = BUILD_SHA `9de0100`(스텝 4까지).
 - 남은 후보: JSON 이스케이프 21벌 통합(docs/106 §2-5) · JNI 훅 단일 헤더 ·
   태스크바/셸 텍스처 팩토리 · 하루 친구 폰 실측(사용자) · ruflo 파일럿(사용자 판정).
+
+## 6. 2026-11-13 이어서 (배포·아이콘·통합)
+
+| 커밋 | 내용 |
+|---|---|
+| 7d62e77 | 런처 아이콘 12종(신규 5·갱신 7) + 생성기 + APK 자산 동기화 |
+| 710690a | 자산 스탬프(lastUpdateTime) + 재추출 전체 덮어쓰기 |
+| 32b14b3 | lf/hx 셀 이중 등록 소각 · 내부 모듈(taskbar/filedlg) 셀 제외 · appName 중복 제거 |
+| (동일 커밋) | 로그 수출 = Downloads 고정 파일 직접 쓰기(MediaStore 충돌 소각) |
+| f5ddd7b | JSON 이스케이프 21벌 → json/JKJson 4계약 + 셀프테스트 2-5a~e |
+| 941b2b7 | JNI 훅 선언 3복제 → include/jkhooks_android.h |
+
+실기기: BUILD_SHA=941b2b7, /talk ListWindows·따옴표 포함 발화 왕복 정상,
+icons 74장 추출, jk_srv.err.log 생성(로그 수출 복구). 셀프테스트 1,009 PASS.
