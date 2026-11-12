@@ -10,6 +10,7 @@
 // transport convenience, design D3) and applies filter/start; at the end it
 // sends `file_open_result {ok, path?}` exactly once on every exit path.
 #include <apps/ClientFileDialogApp.h>
+#include <text/JKTextUtil.h>  // Trim 정본(docs/106 §2-5)
 #include <json/JKJson.h>
 
 #include <agent/JKAgentJson.h>
@@ -44,10 +45,8 @@ public:
 };
 
 std::string Trim(const std::string& s) {
-    size_t b = 0, e = s.size();
-    while (b < e && std::isspace(static_cast<unsigned char>(s[b]))) ++b;
-    while (e > b && std::isspace(static_cast<unsigned char>(s[e - 1]))) --e;
-    return s.substr(b, e - b);
+    // [docs/106 §2-5] 구현 = text/JKTextUtil.h (TrimSpace)
+    return jk::text::TrimSpace(s);
 }
 
 bool IEquals(const std::string& a, const std::string& b) {

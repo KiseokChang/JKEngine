@@ -1,4 +1,5 @@
 #include <JKJkxFile.h>
+#include <text/JKTextUtil.h>  // Trim 정본(docs/106 §2-5)
 
 #include <algorithm>
 #include <cstdio>
@@ -28,10 +29,8 @@ uint32_t GetU32(const uint8_t* p) {
 }
 
 std::string Trim(const std::string& s) {
-    size_t b = s.find_first_not_of(" \t\r\n");
-    if (b == std::string::npos) return {};
-    size_t e = s.find_last_not_of(" \t\r\n");
-    return s.substr(b, e - b + 1);
+    // [docs/106 §2-5] 구현 = text/JKTextUtil.h (Trim)
+    return jk::text::Trim(s);
 }
 
 } // namespace

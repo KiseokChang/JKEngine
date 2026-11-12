@@ -65,6 +65,7 @@ extern "C" __declspec(dllimport) int __stdcall closesocket(
 #include <JKChromeMetrics.h>  // selftest 109-3 — 크롬 기하 계약 등호
 #include <apps/DaySummaryPrompt.h>  // selftest day-1~3 — 하루 정리 리더
 #include <json/JKJson.h>  // selftest 2-5a~e — 이스케이프 4계약
+#include <text/JKTextUtil.h>  // selftest 2-5f~i — Trim 2계약
 #include <server/JKWindowServer.h>
 #include <agent/JKAgentClient.h>
 #include <agent/JKLlmEngine.h>  // selftest 1n-d — 동기 턴 브리지+ollama-direct leg
@@ -10122,6 +10123,20 @@ int RunAppSelfTest() {
               "2-5d EscapeRowSafe = Strict + { } \\u007b/\\u007d(서버 행 스캔)");
         check(jk::json::Quote("한글") == "\"한글\"",
               "2-5e Quote = 따옴표 감싸기(정본 Escape)");
+    }
+
+    // [docs/106 §2-5 잔여] Trim 2계약 — 문자집합형(B)과 isspace형(A)의 차이를
+    // 단언한다(통합 후에도 \f·\v 처리 계약이 뒤바뀌지 않게).
+    {
+        using jk::text::Trim;
+        using jk::text::TrimSpace;
+        check(Trim(" \t\r\nabc \t") == "abc", "2-5f Trim = \" \\t\\r\\n\" 제거");
+        check(Trim("\f abc") == "\f abc",
+              "2-5g Trim은 \\f를 건드리지 않는다(문자집합 계약)");
+        check(TrimSpace("\f abc\v") == "abc",
+              "2-5h TrimSpace = isspace 기준(\\f·\\v 제거)");
+        check(Trim(" \t ") == "" && TrimSpace("") == "",
+              "2-5i 공백뿐/빈 문자열 = 빈 문자열");
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);

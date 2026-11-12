@@ -3,6 +3,7 @@
 // 16 ms timer re-arms the frame gate, every event is fed to the ImGui
 // backend before NewFrame, the root paints the dark clear color.
 #include <apps/ClientPaletteApp.h>
+#include <text/JKTextUtil.h>  // Trim 정본(docs/106 §2-5)
 #include <json/JKJson.h>
 
 #include <agent/JKAgentJson.h>
@@ -29,10 +30,8 @@ public:
 };
 
 std::string Trim(const std::string& s) {
-    size_t b = 0, e = s.size();
-    while (b < e && std::isspace(static_cast<unsigned char>(s[b]))) ++b;
-    while (e > b && std::isspace(static_cast<unsigned char>(s[e - 1]))) --e;
-    return s.substr(b, e - b);
+    // [docs/106 §2-5] 구현 = text/JKTextUtil.h (TrimSpace)
+    return jk::text::TrimSpace(s);
 }
 } // namespace
 

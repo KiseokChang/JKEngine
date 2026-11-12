@@ -1,4 +1,5 @@
 #include <JKFileDialog.h>
+#include <text/JKTextUtil.h>  // Trim 정본(docs/106 §2-5)
 #include <JKApplication.h>
 #include <JKButton.h>
 #include <JKListBox.h>
@@ -16,10 +17,8 @@ namespace fs = std::filesystem;
 namespace {
 
 std::string Trim(const std::string& s) {
-    size_t a = s.find_first_not_of(" \t\r\n");
-    if (a == std::string::npos) return {};
-    size_t b = s.find_last_not_of(" \t\r\n");
-    return s.substr(a, b - a + 1);
+    // [docs/106 §2-5] 구현 = text/JKTextUtil.h (Trim)
+    return jk::text::Trim(s);
 }
 
 bool IEquals(const std::string& a, const std::string& b) {

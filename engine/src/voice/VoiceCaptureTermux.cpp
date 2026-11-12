@@ -25,6 +25,7 @@
 #ifdef __ANDROID__
 
 #include <voice/SttVoice.h>
+#include <text/JKTextUtil.h>  // Trim 정본(docs/106 §2-5)
 
 #include <process/JKProcess.h>
 
@@ -276,10 +277,8 @@ bool QueryTermuxSession(const std::string& recorder, bool* active,
 }
 
 std::string Trim(const std::string& s) {
-    const size_t beg = s.find_first_not_of(" \t\r\n");
-    if (beg == std::string::npos) return std::string();
-    const size_t end = s.find_last_not_of(" \t\r\n");
-    return s.substr(beg, end - beg + 1);
+    // [docs/106 §2-5] 구현 = text/JKTextUtil.h (Trim)
+    return jk::text::Trim(s);
 }
 
 }  // namespace
