@@ -3,6 +3,7 @@
 // so the config layer adds no dependency of its own. Every key falls back
 // independently — the doc's verification line is "잘못된 키는 기본값 폴백".
 #include <apps/JKTerminalConfig.h>
+#include <json/JKJsonQuick.h>  // 일회용 QuickJS 파싱 정본(docs/106 §2-5)
 #include <fs/JKFileRead.h>  // 파일 읽기 정본(docs/106 §2-5)
 #include <fs/JKFs.h>
 
@@ -63,96 +64,80 @@ bool JKTerminalConfig::Load(const std::string& path) {
     std::vector<uint8_t> bytes;
     if (!ReadFileBytes(path, bytes)) return false;
 
-    // Throwaway runtime — parse + field extraction, then it's gone.
-    JSRuntime* rt = JS_NewRuntime();
-    if (!rt) return false;
-    JSContext* ctx = JS_NewContext(rt);
-    if (!ctx) {
-        JS_FreeRuntime(rt);
-        return false;
-    }
+    // [docs/106 §2-5] 일회용 런타임 파싱 = json/JKJsonQuick.h 정본(5벌 복제 소각).
+    std::string err;
+    const jk::json::QuickParseStatus st = jk::json::ParseOnce(
+        bytes, path.c_str(),
+        [&](JSContext* ctx, JSValue root) {
+        if (JS_IsObject(root)) {
+            auto getString = [&](const char* key, std::string* field) {
+                JSValue v = JS_GetPropertyStr(ctx, root, key);
+                if (JS_IsString(v)) {
+                    size_t len = 0;
+                    const char* s = JS_ToCStringLen(ctx, &len, v);
+                    if (s) {
+                        *field = std::string(s, len);
+                        JS_FreeCString(ctx, s);
+                    }
+                } else if (!JS_IsUndefined(v)) {
+                    std::printf("[terminal] config: '%s' ignored (not a string)\n", key);
+                }
+                JS_FreeValue(ctx, v);
+            };
+            auto getInt = [&](const char* key, int* field, int lo, int hi, int def) {
+                JSValue v = JS_GetPropertyStr(ctx, root, key);
+                if (JS_IsNumber(v)) {
+                    int32_t n = 0;
+                    if (!JS_ToInt32(ctx, &n, v) && n >= lo && n <= hi) {
+                        *field = n;
+                    } else {
+                        std::printf("[terminal] config: '%s'=%d out of range [%d..%d] — default %d\n",
+                                    key, n, lo, hi, def);
+                    }
+                } else if (!JS_IsUndefined(v)) {
+                    std::printf("[terminal] config: '%s' ignored (not a number)\n", key);
+                }
+                JS_FreeValue(ctx, v);
+            };
+            // Returns true when the key parsed and the field was assigned (the
+            // caller turns that into the themeBgSet/themeFgSet presence flags —
+            // P2 단계 3). Parse/fallback semantics unchanged.
+            auto getColor = [&](const char* key, uint32_t* field) {
+                JSValue v = JS_GetPropertyStr(ctx, root, key);
+                uint32_t rgb = 0;
+                const bool ok = ParseColor(ctx, v, &rgb);
+                if (ok) {
+                    *field = rgb;
+                } else if (!JS_IsUndefined(v)) {
+                    std::printf("[terminal] config: '%s' ignored (want #RRGGBB or a number)\n", key);
+                }
+                JS_FreeValue(ctx, v);
+                return ok;
+            };
 
-    JSValue root = JS_ParseJSON(ctx, reinterpret_cast<const char*>(bytes.data()),
-                                bytes.size() - 1,  // exclude the NUL terminator
-                                path.c_str());
-    if (JS_IsException(root)) {
-        JSValue exc = JS_GetException(ctx);
-        const char* msg = JS_ToCString(ctx, exc);
+            getString("shell", &shell);
+            getString("font", &font);
+            getString("fontFallback", &fontFallback);
+            getInt("scrollback", &scrollback, 0, 100000, 1000);
+            themeBgSet = getColor("themeBg", &themeBg);
+            themeFgSet = getColor("themeFg", &themeFg);
+        } else {
+            std::printf("[terminal] config: root is not an object — defaults\n");
+        }
+        },
+        &err);
+    if (st == jk::json::QuickParseStatus::SyntaxError) {
         std::printf("[terminal] config: %s is not valid JSON (%s) — defaults\n",
-                    path.c_str(), msg ? msg : "?");
-        if (msg) JS_FreeCString(ctx, msg);
-        JS_FreeValue(ctx, exc);
-        JS_FreeValue(ctx, root);
-        JS_FreeContext(ctx);
-        JS_FreeRuntime(rt);
-        return true;
+                    path.c_str(), err.c_str());
+        return true;   // 깨짐 = 기본값(원문 정책 승계)
     }
-
-    if (JS_IsObject(root)) {
-        auto getString = [&](const char* key, std::string* field) {
-            JSValue v = JS_GetPropertyStr(ctx, root, key);
-            if (JS_IsString(v)) {
-                size_t len = 0;
-                const char* s = JS_ToCStringLen(ctx, &len, v);
-                if (s) {
-                    *field = std::string(s, len);
-                    JS_FreeCString(ctx, s);
-                }
-            } else if (!JS_IsUndefined(v)) {
-                std::printf("[terminal] config: '%s' ignored (not a string)\n", key);
-            }
-            JS_FreeValue(ctx, v);
-        };
-        auto getInt = [&](const char* key, int* field, int lo, int hi, int def) {
-            JSValue v = JS_GetPropertyStr(ctx, root, key);
-            if (JS_IsNumber(v)) {
-                int32_t n = 0;
-                if (!JS_ToInt32(ctx, &n, v) && n >= lo && n <= hi) {
-                    *field = n;
-                } else {
-                    std::printf("[terminal] config: '%s'=%d out of range [%d..%d] — default %d\n",
-                                key, n, lo, hi, def);
-                }
-            } else if (!JS_IsUndefined(v)) {
-                std::printf("[terminal] config: '%s' ignored (not a number)\n", key);
-            }
-            JS_FreeValue(ctx, v);
-        };
-        // Returns true when the key parsed and the field was assigned (the
-        // caller turns that into the themeBgSet/themeFgSet presence flags —
-        // P2 단계 3). Parse/fallback semantics unchanged.
-        auto getColor = [&](const char* key, uint32_t* field) {
-            JSValue v = JS_GetPropertyStr(ctx, root, key);
-            uint32_t rgb = 0;
-            const bool ok = ParseColor(ctx, v, &rgb);
-            if (ok) {
-                *field = rgb;
-            } else if (!JS_IsUndefined(v)) {
-                std::printf("[terminal] config: '%s' ignored (want #RRGGBB or a number)\n", key);
-            }
-            JS_FreeValue(ctx, v);
-            return ok;
-        };
-
-        getString("shell", &shell);
-        getString("font", &font);
-        getString("fontFallback", &fontFallback);
-        getInt("scrollback", &scrollback, 0, 100000, 1000);
-        themeBgSet = getColor("themeBg", &themeBg);
-        themeFgSet = getColor("themeFg", &themeFg);
-    } else {
-        std::printf("[terminal] config: root is not an object — defaults\n");
-    }
+    if (st != jk::json::QuickParseStatus::Ok) return false;
 
     // Applied-values line: the manual verification (docs/27 단계 4 검증) reads
     // this to confirm which values the terminal actually runs with.
     std::printf("[terminal] config: shell='%s' scrollback=%d\n",
                 shell.c_str(), scrollback);
     std::fflush(stdout);
-
-    JS_FreeValue(ctx, root);
-    JS_FreeContext(ctx);
-    JS_FreeRuntime(rt);
     return true;
 }
 

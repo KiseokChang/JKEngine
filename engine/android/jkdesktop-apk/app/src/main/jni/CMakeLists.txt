@@ -147,6 +147,7 @@ add_library(jkcore SHARED
     # main.cpp selftest가 이 심볼을 만난다: r7 링크 실패 원문)
     ${ENG}/src/apps/ChatSessionLog.cpp
     ${ENG}/src/json/JKJson.cpp
+    ${ENG}/src/json/JKJsonQuick.cpp
     ${ENG}/src/apps/DaySummaryPrompt.cpp  # 하루 정리 리더(순수 TU — jkweb·셀프테스트)
     ${ENG}/src/JKVectorFont.cpp
     ${ENG}/src/script/JKScriptHost.cpp

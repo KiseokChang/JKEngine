@@ -276,6 +276,7 @@ add_library(jkcore STATIC
     src/apps/ChatSessionLog.cpp
     # JSON 이스케이프 정본(docs/106 §2-5 통합) — pure TU.
     src/json/JKJson.cpp
+    src/json/JKJsonQuick.cpp
     # 하루 정리 친구 v1 회고 프롬프트(스펙 2026-11-07-day-summary) — pure TU.
     # jkweb(/talk DaySummary leg)·셀프테스트 공용(읽기 전용)
     src/apps/DaySummaryPrompt.cpp
