@@ -295,6 +295,11 @@ void JKDesktopShell::Init(const ShellHost& host) {
     // 터미널 위에 띄운다 (SpawnClient가 접두사를 해석). 상대경로는 jkdesktop
     // cwd(engine/build) 기준. 전용 아이콘 아트는 이후 폴리싱 — fallback 아트.
     // 툴팁 표시명은 exe 이름(접두어·경로 제거).
+    #if !defined(__ANDROID__)
+    // [2026-11-13 사용자 실측 원존 "hx 두 개임. lf 두 개임"] — 아래 apps-bin
+    // 경로형 셀은 **posix 데스크톱(engine/build/apps-bin) 전용**인데 Android
+    // 에서도 무조건 추가돼, 바로 아래 무접미(terminal:lf/hx) 셀과 같은 앱이
+    // 두 번 떴다. Android는 PATH seed leg(무접미 명령) 하나만 쓴다.
     if (!hasJkx("terminal:apps-bin/lf/lf.exe")) {
         LauncherIcon icon;
         icon.appName = "terminal:apps-bin/lf/lf.exe";
@@ -307,6 +312,7 @@ void JKDesktopShell::Init(const ShellHost& host) {
         icon.title = "hx";
         launcherIcons_.push_back(icon);
     }
+    #endif
     #if defined(__ANDROID__)
     // [lf/helix 폰 조달 leg — Termux 바이오닉 빌드(11-07 실측: 단독 실행 원문
     // lf r42·hx 25.07.1)] — jksrv_main이 PATH seed+HELIX_RUNTIME을 심어
@@ -340,6 +346,10 @@ void JKDesktopShell::Init(const ShellHost& host) {
             std::string appName =
                 fn.substr(9, fn.size() - 9 - 3);  // libjkapp_(…)​.so
             if (appName.empty() || hasJkx(appName.c_str())) continue;
+            // [2026-11-13 사용자 "같은 아이콘 많다" 원존] 내부 모듈은 사용자 앱이
+            // 아니다 — taskbar = 셸 UI 자체, filedlg = 대화상자 자식. 런처에
+            // 셀로 뜨면 아트가 없어 테트리스 공용 아이콘을 소비한다.
+            if (appName == "taskbar" || appName == "filedlg") continue;
             LauncherIcon icon;
             icon.appName = appName;
             icon.title = appName;
@@ -415,6 +425,27 @@ void JKDesktopShell::Init(const ShellHost& host) {
         if (icon.texture) {
             std::fprintf(stderr, "JKWindowServer: launcher icon '%s' loaded\n", base);
         }
+    }
+
+    // [2026-11-13] 같은 앱 셀 중복 제거(첫 셀 유지) — lf/hx 이중 등록 사고의
+    // 재발 방지. 셀 생성 경로가 늘어날 때(플랫폼 분기·모듈 스캔·내장 폴백)
+    // 같은 appName이 두 번 들어가면 런처에 같은 아이콘이 두 개 뜬다.
+    {
+        std::vector<LauncherIcon> unique;
+        unique.reserve(launcherIcons_.size());
+        for (auto& icon : launcherIcons_) {
+            bool dup = false;
+            for (const auto& kept : unique) {
+                if (kept.appName == icon.appName) { dup = true; break; }
+            }
+            if (!dup) {
+                unique.push_back(std::move(icon));
+            } else if (icon.texture) {
+                SDL_DestroyTexture(icon.texture);
+                icon.texture = nullptr;
+            }
+        }
+        launcherIcons_.swap(unique);
     }
 
     // Grid layout: one source of truth for cell rects, wrapping to the window
