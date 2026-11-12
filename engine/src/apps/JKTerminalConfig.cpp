@@ -3,6 +3,7 @@
 // so the config layer adds no dependency of its own. Every key falls back
 // independently — the doc's verification line is "잘못된 키는 기본값 폴백".
 #include <apps/JKTerminalConfig.h>
+#include <fs/JKFileRead.h>  // 파일 읽기 정본(docs/106 §2-5)
 #include <fs/JKFs.h>
 
 #include <quickjs.h>
@@ -21,26 +22,8 @@ namespace {
 constexpr size_t kMaxConfigBytes = 1u << 20;   // 1 MiB is far beyond a config
 
 bool ReadFileBytes(const std::string& path, std::vector<uint8_t>& out) {
-#ifdef _WIN32
-    FILE* f = nullptr;
-    if (fopen_s(&f, path.c_str(), "rb") != 0) return false;
-#else
-    FILE* f = std::fopen(path.c_str(), "rb");
-    if (!f) return false;
-#endif
-    std::fseek(f, 0, SEEK_END);
-    const long size = std::ftell(f);
-    std::fseek(f, 0, SEEK_SET);
-    if (size <= 0 || static_cast<size_t>(size) > kMaxConfigBytes) {
-        std::fclose(f);
-        return false;
-    }
-    out.resize(static_cast<size_t>(size) + 1);  // + NUL: JS_ParseJSON requires
-    const size_t read = std::fread(out.data(), 1, static_cast<size_t>(size), f);
-    std::fclose(f);
-    if (read != static_cast<size_t>(size)) return false;
-    out[static_cast<size_t>(size)] = '\0';
-    return true;
+    // [docs/106 §2-5] 구현 = fs/JKFileRead.h (NUL 종료·상한·부분읽기 계약)
+    return jk::fs::ReadFileNulBytes(path, out, kMaxConfigBytes);
 }
 
 // "#RRGGBB" or a plain number. Returns false when neither form matches.

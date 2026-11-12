@@ -1,4 +1,5 @@
 #include <desktop/JKDesktopShell.h>
+#include <fs/JKFileRead.h>  // 파일 읽기 정본(docs/106 §2-5)
 
 #include "theme/JKTheme.h"
 
@@ -74,26 +75,8 @@ namespace {
 constexpr size_t kMaxManifestBytes = 1u << 20;
 
 bool ReadFileBytes(const std::string& path, std::vector<uint8_t>& out) {
-#ifdef _WIN32
-    FILE* f = nullptr;
-    if (fopen_s(&f, path.c_str(), "rb") != 0) return false;
-#else
-    FILE* f = std::fopen(path.c_str(), "rb");
-    if (!f) return false;
-#endif
-    std::fseek(f, 0, SEEK_END);
-    const long size = std::ftell(f);
-    std::fseek(f, 0, SEEK_SET);
-    if (size <= 0 || static_cast<size_t>(size) > kMaxManifestBytes) {
-        std::fclose(f);
-        return false;
-    }
-    out.resize(static_cast<size_t>(size) + 1);  // + NUL: JS_ParseJSON requires
-    const size_t read = std::fread(out.data(), 1, static_cast<size_t>(size), f);
-    std::fclose(f);
-    if (read != static_cast<size_t>(size)) return false;
-    out[static_cast<size_t>(size)] = '\0';
-    return true;
+    // [docs/106 §2-5] 구현 = fs/JKFileRead.h (NUL 종료·상한·부분읽기 계약)
+    return jk::fs::ReadFileNulBytes(path, out, kMaxManifestBytes);
 }
 
 // 콘솔 앱 스폰 cmd 지문 (P4 SDK §3.4): docs/37 스킴 재사용 — jktriggers
