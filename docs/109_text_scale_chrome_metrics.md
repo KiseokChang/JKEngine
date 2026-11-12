@@ -70,3 +70,14 @@ inline JKRect ClientRect(const JKRect& win);
 - 게이트: 빌드 RC=0 · 1,000 PASS 0 FAIL.
 - 남은 것: 서버 페인트 콜사이트도 `chrome::` 소비로 교체(현재는 같은 함수를
   직접 호출 — 계약 동일, 호출 경로만 2벌)·태스크바/셸 래스터 팩토리 통합.
+
+## 6. 후속 (2026-11-13) — 런처 셀 중복·자산 스탬프 원존
+
+- 사용자 실측 "hx 두 개임. lf 두 개임": Android에서 apps-bin 경로형 셀과
+  무접미(PATH seed) 셀이 함께 등록 → 플랫폼 분기로 소각(32b14b3). 안전망 =
+  appName 중복 제거. 내부 모듈(taskbar·filedlg)은 런처 셀에서 제외.
+- 아이콘 자산이 APK에는 있어도 폰에 안 풀리던 원인: 스탬프가 최상위 항목
+  수만 셈 + 재추출 시 기존 파일 건너뜀(710690a). 수형 = lastUpdateTime+하위
+  개수 스탬프, 재추출 = 전체 덮어쓰기.
+- 로그 수출 결함: MediaStore 고정 이름 충돌("Failed to build unique file")
+  → Downloads 고정 파일 직접 덮어쓰기(폴백 = 타임스탬프 이름).
