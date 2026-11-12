@@ -111,8 +111,7 @@ public class MainActivity extends SDLActivity {
         // 스탬프 = 버전 + 자산 트리 사이즈 합(개수 변화 감지 — 추가 자산은 재추출).
         try {
             java.io.File stamp = new java.io.File(getFilesDir(), "assets.stamp");
-            String want = getPackageManager().getPackageInfo(getPackageName(), 0).versionCode
-                + ":" + getAssets().list("").length;
+            String want = assetStamp();
             if (stamp.isFile()) {
                 java.io.BufferedReader br = new java.io.BufferedReader(
                     new java.io.FileReader(stamp));
@@ -132,7 +131,10 @@ public class MainActivity extends SDLActivity {
             for (String path : all) {
                 String dstRel = path.startsWith("fonts/") ? path : "assets/" + path;
                 File dst = new File(getFilesDir(), dstRel);
-                if (dst.isFile() && dst.length() > 0) continue;
+                // [2026-11-13 원존] 종전 "이미 있고 크기>0 = 건너뜀"은 **갱신된
+                // 아이콘을 영원히 교체하지 않았다**(스탬프가 불일치해 전체 추출을
+                // 돌아도 기존 파일은 옛 세대 유지). 스탬프 불일치 경로 = 전체
+                // 덮어쓰기가 계약 — 이 분기에 도달했다는 것 자체가 재추출 신호다.
                 // [P0] 파일당 try/catch — 1건 실패가 전체를 쓰러뜼리지 않게.
                 try {
                     dst.getParentFile().mkdirs();
@@ -151,14 +153,30 @@ public class MainActivity extends SDLActivity {
             // 스탬프 기록(완전 추출 성공 — 다음 부팅부터 생략 가능).
             try {
                 java.io.File stamp = new java.io.File(getFilesDir(), "assets.stamp");
-                String v = getPackageManager().getPackageInfo(getPackageName(), 0).versionCode
-                    + ":" + getAssets().list("").length;
+                String v = assetStamp();
                 try (java.io.FileWriter fw = new java.io.FileWriter(stamp)) {
                     fw.write(v);
                 }
             } catch (Exception ignored) { }
         } catch (Exception e) {
             android.util.Log.e("jkdesk", "extractAssets failed", e);
+        }
+    }
+
+    // [2026-11-13 실측 원존] 종전 스탬프 = versionCode + getAssets().list("").length
+    // = **최상위 항목 수**뿐이라 하위 폴더에 파일을 추가해도 값이 그대로 —
+    // 새 아이콘이 APK에는 있는데 폰 files/assets에는 옛 세대가 남았다(launcher_chat
+    // 부재 원문). 수형 = 패키지 갱신 시각(lastUpdateTime: 재설치마다 변함) +
+    // 아이콘/폰트 하위 개수(부분 갱신 감지). 열거 비용은 깊이 1회뿐.
+    private String assetStamp() {
+        try {
+            android.content.pm.PackageInfo pi = getPackageManager()
+                .getPackageInfo(getPackageName(), 0);
+            return pi.versionCode + ":" + pi.lastUpdateTime
+                + ":" + getAssets().list("icons").length
+                + ":" + getAssets().list("fonts").length;
+        } catch (Exception e) {
+            return "unknown:" + System.currentTimeMillis();
         }
     }
 
