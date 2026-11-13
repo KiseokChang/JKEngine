@@ -1141,6 +1141,27 @@ void JKWindowServer::Run() {
             }
         }
 
+        // [docs/52 P3 핫스왑 — 서버 leg] 데스크톱 셸은 **서버 프로세스**에서
+        // 그려지는데 종전 폴러는 클라 TU(JKClientApplication/JKApplication)에만
+        // 있어 theme.json 변경이 서버 화면에는 반영되지 않았다(2026-11-14
+        // "테마 바꾸기 하니 아무 일도 없음"의 절반 — 셸이 파일을 써도 서버 자신은
+        // 안 읽었다). 500ms 주기 폴링 + 변화 시 전체 재합성(활동 게이트 우회).
+        {
+            static Uint32 lastThemePollMs = 0;
+            const Uint32 themeNow = SDL_GetTicks();
+            if (themeNow - lastThemePollMs >= 500) {
+                lastThemePollMs = themeNow;
+                if (jk::theme::PollPresetFile()) {
+                    activity = true;
+                    if (compositor_) {
+                        SDL_Rect full{ 0, 0, 0, 0 };
+                        SDL_GetRendererOutputSize(renderer_, &full.w, &full.h);
+                        compositor_->NotifyDynamicDraw(full);
+                    }
+                }
+            }
+        }
+
         const uint64_t tickBefore = workTick_;
         ProcessPendingClients();
         ProcessPendingMessages();
