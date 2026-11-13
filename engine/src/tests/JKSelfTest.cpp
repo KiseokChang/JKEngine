@@ -10151,6 +10151,44 @@ int RunAppSelfTest() {
                   std::string(PresetName(&kLight)) == "light" &&
                   std::string(PresetName(&kClassic)) == "classic",
               "2-5m 프리셋 이름 = theme.json 표기와 동일");
+
+        // 2-5n: ApplyNextPreset = setTheme + theme.json 기록(클라 폴링 추종)
+        // 한 단위 검증 — 기록이 실패하면 메뉴가 "테마 바꿨는데 아무 일도 없음"
+        // 이 된다(2026-11-14 실측 증상의 절반). 종료 시 원상 복구.
+        const std::string themePath = DefaultThemePath();
+        std::string orig;
+        bool origExisted = false;
+        if (std::FILE* f = std::fopen(themePath.c_str(), "rb")) {
+            origExisted = true;
+            char buf[256];
+            size_t n;
+            while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0) orig.append(buf, n);
+            std::fclose(f);
+        }
+        const JKTheme* before = &current();
+        const bool wrote = ApplyNextPreset();
+        std::string body;
+        if (std::FILE* f = std::fopen(themePath.c_str(), "rb")) {
+            char buf[256];
+            size_t n;
+            while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0) body.append(buf, n);
+            std::fclose(f);
+        }
+        const char* afterName = PresetName(&current());
+        const std::string expect =
+            std::string("{\"preset\":\"") + afterName + "\"}";
+        check(wrote && body.compare(0, expect.size(), expect) == 0,
+              "2-5n ApplyNextPreset = setTheme + theme.json 기록");
+        // 원상 복구(프리셋 + 파일).
+        setTheme(before);
+        if (origExisted) {
+            if (std::FILE* f = std::fopen(themePath.c_str(), "wb")) {
+                std::fwrite(orig.data(), 1, orig.size(), f);
+                std::fclose(f);
+            }
+        } else {
+            std::remove(themePath.c_str());
+        }
     }
 
     std::printf("AppSelfTest: %d failure(s)\n", failures);
