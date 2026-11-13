@@ -859,6 +859,14 @@ void JKDesktopShell::ScanConsoleApps() {
 // 닫기). 텍스트는 라벨 텍스처(투명 배경) 재사용 — 새 래스터 경로 0.
 namespace {
 constexpr int kMenuItemCount = 3;
+// [실측 원존 2026-11-14 "메뉴 글자 깨짐"] 종전 항목 높이 = 고정 26×s —
+// 라벨 텍스처 높이(셀 메트릭 + 패드)가 더 크면 세로로 잘려 글자가 깨졌다.
+// 항목 높이는 항상 라벨이 들어가는 크기(셀높이+12pt 하한 26pt).
+inline int MenuItemHeightPx(float s) {
+    const int cellH = static_cast<int>(jk::text::GetCellMetrics().cellH);
+    const int logical = std::max(26, cellH + 12);
+    return static_cast<int>(logical * s);
+}
 const char* MenuItemLabel(int i) {
     switch (i) {
         case 0: return "새로고침";
@@ -1075,18 +1083,40 @@ void JKDesktopShell::Draw(SDL_Renderer* renderer) {
                                th.taskbarBorderInactive.g,
                                th.taskbarBorderInactive.b, 255);
         SDL_RenderDrawRect(renderer, &panel);
-        const int itemH = static_cast<int>(26 * s);
+        const int itemH = MenuItemHeightPx(s);
         const int pad = static_cast<int>(4 * s);
+        JKSDLRenderBackend menuBackend(renderer);
+        JKDC dc(&menuBackend);
+        textParts_.AttachTo(dc);
+        // [실측 2026-11-14 "메뉴 글자 깨짐"] 라벨 텍스처(KSSM 경유) 대신
+        // 태스크바 네비 셀과 같은 **아틀라스 유니코드 직행**으로 그린다 —
+        // KSSM 부분집합 밖/변환 실패 시 원문 바이트가 그대로 그려져 깨지던
+        // 경로를 메뉴에서는 배제(3개 단문자열이라 매 프레임 직접 그리기 무비용).
+        const auto& th2 = jk::theme::current();
+        dc.SetTextColor(th2.launcherLabelText.r, th2.launcherLabelText.g,
+                        th2.launcherLabelText.b);
+        const jk::text::CellMetrics cm = jk::text::GetCellMetrics();
         for (int i = 0; i < kMenuItemCount; ++i) {
-            const char* label = MenuItemLabel(i);
-            int lw = 0;
-            int lh = 0;
-            SDL_Texture* tex = LabelTexture(label, &lw, &lh);
-            if (!tex || lw <= 0) continue;
-            SDL_Rect dst{ panel.x + pad * 2,
-                          panel.y + pad + i * itemH + (itemH - lh) / 2,
-                          static_cast<int>(lw * s), static_cast<int>(lh * s) };
-            SDL_RenderCopy(renderer, tex, nullptr, &dst);
+            const std::string label = MenuItemLabel(i);
+            const int rowY = panel.y + pad + i * itemH;
+            const int y = rowY + (itemH - static_cast<int>(cm.cellH * s)) / 2;
+            int x = panel.x + pad * 2;
+            for (size_t k = 0; k < label.size();) {
+                const unsigned char c = static_cast<unsigned char>(label[k]);
+                uint32_t cp = c;
+                int len = 1;
+                if (c >= 0xF0) { cp = c & 0x07; len = 4; }
+                else if (c >= 0xE0) { cp = c & 0x0F; len = 3; }
+                else if (c >= 0xC0) { cp = c & 0x1F; len = 2; }
+                for (int kk = 1; kk < len && k + kk < label.size(); ++kk) {
+                    cp = (cp << 6) | (label[k + kk] & 0x3F);
+                }
+                const int adv = static_cast<int>(
+                    (len == 1 ? cm.engW : cm.hanW) * s);
+                (void)dc.DrawUnicodeGlyph(JKPoint{x, y}, cp, adv);
+                x += adv;
+                k += static_cast<size_t>(len);
+            }
         }
     }
 }
@@ -1313,7 +1343,7 @@ SDL_Rect JKDesktopShell::DrawTooltip(SDL_Renderer* renderer,
 
 void JKDesktopShell::OpenDesktopMenu(int x, int y) {
     const float s = host_.outputScale ? host_.outputScale() : 1.0f;
-    const int itemH = static_cast<int>(26 * s);
+    const int itemH = MenuItemHeightPx(s);
     const int w = static_cast<int>(150 * s);
     const int h = itemH * kMenuItemCount + static_cast<int>(8 * s);
     int px = x;
@@ -1352,7 +1382,7 @@ bool JKDesktopShell::HandleMenuClick(int x, int y) {
         return false;
     }
     const float s = host_.outputScale ? host_.outputScale() : 1.0f;
-    const int itemH = static_cast<int>(26 * s);
+    const int itemH = MenuItemHeightPx(s);
     const int pad = static_cast<int>(4 * s);
     const int idx = (y - menuRect_.y - pad) / (itemH > 0 ? itemH : 1);
     CloseDesktopMenu();
