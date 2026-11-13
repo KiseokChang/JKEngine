@@ -84,6 +84,26 @@ bool PollPresetFile() {
     return loadPresetFromFile(path);          // idempotent on same preset
 }
 
+const char* PresetName(const JKTheme* t) {
+    if (t == &kDefault) return "dark";
+    if (t == &kLight) return "light";
+    if (t == &kClassic) return "classic";
+    return "";
+}
+
+const JKTheme* NextPreset(const JKTheme* cur) {
+    if (cur == &kDefault) return &kLight;
+    if (cur == &kLight) return &kClassic;
+    return &kDefault;   // classic/미지 → dark (순환 폐곡선)
+}
+
+bool ApplyNextPreset() {
+    const JKTheme* next = NextPreset(&current());
+    setTheme(next);
+    const char* name = PresetName(next);
+    return WriteThemePresetFile(name[0] ? name : "dark");
+}
+
 bool WriteThemePresetFile(const std::string& preset) {
     const std::string path = DefaultThemePath();
     FILE* f = std::fopen(path.c_str(), "wb");

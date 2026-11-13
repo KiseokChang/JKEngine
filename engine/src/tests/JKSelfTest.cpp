@@ -10139,6 +10139,20 @@ int RunAppSelfTest() {
               "2-5i 공백뿐/빈 문자열 = 빈 문자열");
     }
 
+    // [2026-11-14] 테마 순환 계약 — 우클릭 메뉴 "테마 바꾸기"가 쓰는 순수
+    // 함수(셸 안에 박혀 있던 3단 분기 승격). 폐곡선·이름 정합을 고정한다.
+    {
+        using namespace jk::theme;
+        check(NextPreset(&kDefault) == &kLight, "2-5j 순환 dark → light");
+        check(NextPreset(&kLight) == &kClassic, "2-5k 순환 light → classic");
+        check(NextPreset(&kClassic) == &kDefault,
+              "2-5l 순환 classic → dark(폐곡선)");
+        check(std::string(PresetName(&kDefault)) == "dark" &&
+                  std::string(PresetName(&kLight)) == "light" &&
+                  std::string(PresetName(&kClassic)) == "classic",
+              "2-5m 프리셋 이름 = theme.json 표기와 동일");
+    }
+
     std::printf("AppSelfTest: %d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;
 }

@@ -1454,24 +1454,12 @@ bool JKDesktopShell::HandleMenuClick(int x, int y) {
         }
         case 1: {   // 테마 순환: 다크 → 라이트 → 클래식 → 다크
             // [실측 원존 2026-11-14 "테마 바꾸기 하니 다른 작업 없고 글자 사라짐"]
-            // 종전 = setTheme만 호출 — (a) theme.json 미기록이라 클라 표면이
-            // 폴링으로 따라오지 못했고 (b) 재드로잉 사건이 없어 부분 리페인트만
-            // 돌았고, 그 와중에 세대 변화로 라벨 텍스처가 파괴돼 글자만 사라졌다.
-            const jk::theme::JKTheme* cur = &jk::theme::current();
-            const char* preset = "light";
-            const jk::theme::JKTheme* next = &jk::theme::kLight;
-            if (cur == &jk::theme::kLight) {
-                preset = "classic";
-                next = &jk::theme::kClassic;
-            } else if (cur != &jk::theme::kDefault) {
-                preset = "dark";
-                next = &jk::theme::kDefault;
-            }
-            jk::theme::setTheme(next);
-            // 클라 표면 폴링 따라오기(mtime) — 쓰기 실패는 로그만(셸은 이미 스왑).
-            if (!jk::theme::WriteThemePresetFile(preset)) {
-                std::fprintf(stderr, "[shell] theme preset write failed (%s)\n",
-                             preset);
+            // 종전 = setTheme만 호출 → theme.json 미기록(클라 폴링 미추종) +
+            // 재드로잉 사건 부재로 부분 리페인트만 돌고, 세대 변화가 라벨
+            // 텍스처를 파괴해 글자만 소실. 순환·기록은 theme::ApplyNextPreset
+            // 정본(셀프테스트 2-5j~l)으로 승격.
+            if (!jk::theme::ApplyNextPreset()) {
+                std::fprintf(stderr, "[shell] theme preset write failed\n");
             }
             InvalidateThemeTextCaches();
             ClearHover();

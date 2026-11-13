@@ -225,6 +225,12 @@ bool PollPresetFile();
 // {"preset":"<p>"} 기록. false = fopen 실패 (호출자가 ok:false로 응답 —
 // 쓰기 실패 시 서버만 스왑되고 클라 폴링이 따라오지 못한다, docs/52).
 bool WriteThemePresetFile(const std::string& preset);
+// [2026-11-14] 우클릭 메뉴 "테마 바꾸기"의 순환 계약 — 셸에 박혀 있던 3단
+// 분기를 순수 함수로 승격(셀프테스트 가능). dark → light → classic → dark.
+const char* PresetName(const JKTheme* t);      // 미지 = "" (정직 표기)
+const JKTheme* NextPreset(const JKTheme* cur); // 순환 다음
+// 다음 프리셋 적용 + theme.json 기록(클라 폴링 추종). 반환 = 기록 성공.
+bool ApplyNextPreset();
 
 } } // namespace jk::theme
 
