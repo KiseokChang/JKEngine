@@ -7,6 +7,7 @@
 #endif
 
 #include "theme/JKTheme.h"
+#include <text/JKTextParts.h>  // 벡터 텍스트 부품 번들(docs/106 §3)
 
 #include <JKHangulManager.h>
 #include <JKHangulUtil.h>
@@ -39,11 +40,8 @@ constexpr int kChipPad = 6;
 // + 비트맵 폴백 — 문구별 1회 렌더 캐시(캐시는 프로세스 수명 소유 —
 // 승인 배너 선례). 투명 배경.
 struct MiniRenderKit {
-    SDL_Renderer* r = nullptr;   // GetSurfaceRenderer() — OnInit 봉입.
-    std::unique_ptr<jk::HangulManager> font;
-    std::unique_ptr<jk::JKSDLRenderBackend> backend;
-    std::unique_ptr<jk::JKTextAtlas> atlas;
-    std::unique_ptr<jk::JKResourceCache> cache;
+    SDL_Renderer* r = nullptr;          // GetSurfaceRenderer() — OnInit 봉입.
+    jk::text::FontParts parts;          // [docs/106 §3] 셸과 같은 부품 번들.
 };
 MiniRenderKit& MiniKit() {
     static MiniRenderKit k;
@@ -54,22 +52,11 @@ MiniRenderKit& MiniKit() {
 // 직행 — 자식 dc에 아틀라스를 장착해 DrawGlyph(cp) 로 KSSM 밖 한글(홈·최·정 등)
 // 까지 렌더. 실패(폰트 부재) = 아틀라스 미장착 상태로 통과(평태 비트맵 경로 보존).
 bool EnsureMiniAtlas(SDL_Renderer* r) {
+    // [docs/106 §3 통합] 초기화 파라미터(셀 메트릭·폴백 체인) = 셸과 동일 번들.
     MiniRenderKit& k = MiniKit();
-    if (k.atlas) return k.atlas->IsLoaded();
     if (!r) return false;
-    if (!k.font) k.font = std::make_unique<jk::HangulManager>();
-    if (!k.backend) k.backend = std::make_unique<jk::JKSDLRenderBackend>(r);
-    if (!k.cache) k.cache = std::make_unique<jk::JKResourceCache>(k.backend.get());
-    k.atlas = std::make_unique<jk::JKTextAtlas>();
-    const jk::text::CellMetrics m = jk::text::GetCellMetrics();
-    const std::string fp = jk::text::ResolveDesktopFontPath();
-    if (!fp.empty()) {
-        (void)k.atlas->Init(fp, m.engW, m.cellH, m.hanW);
-        const std::string fb = jk::text::ResolveDesktopFallbackPath();
-        if (k.atlas->IsLoaded() && !fb.empty())
-            (void)k.atlas->InitFallback(fb);
-    }
-    return k.atlas->IsLoaded();
+    k.r = r;
+    return k.parts.Ensure(r);
 }
 
 // UTF-8 문자열 → 아틀라스 직행(압축 평활자)·중앙 정렬.
@@ -121,22 +108,7 @@ SDL_Texture* MiniTextTexture(SDL_Renderer* r, const std::string& utf8,
     MiniRenderKit& k = MiniKit();
     k.r = r;     // 재부팅(닫았다 다시 열기) 대비 — r의 최신 봉입.
     if (!r) return nullptr;
-    if (!k.font) k.font = std::make_unique<jk::HangulManager>();
-    if (!k.backend) k.backend =
-        std::make_unique<jk::JKSDLRenderBackend>(r);
-    if (!k.cache) k.cache = std::make_unique<jk::JKResourceCache>(
-        k.backend.get());
-    if (!k.atlas) {
-        k.atlas = std::make_unique<jk::JKTextAtlas>();
-        const jk::text::CellMetrics m = jk::text::GetCellMetrics();
-        const std::string fp = jk::text::ResolveDesktopFontPath();
-        const bool inited = k.atlas->Init(fp, m.engW, m.cellH, m.hanW);
-        std::fprintf(stderr, "[taskbar] mini fp init=%d", inited ? 1 : 0);
-        const std::string fb = jk::text::ResolveDesktopFallbackPath();
-        if (k.atlas->IsLoaded() && !fb.empty())
-            (void)k.atlas->InitFallback(fb);
-        std::fprintf(stderr, "[taskbar] mini tex create done");
-    }
+    (void)k.parts.Ensure(r);   // [docs/106 §3] 셸과 같은 부품 번들(1회)
     std::string kssm = jk::Utf8ToKssm(utf8.c_str());
     if (kssm.empty()) kssm = utf8;
     const JKPoint m = jk::JKDC::MeasureText(kssm.c_str());
@@ -158,10 +130,7 @@ SDL_Texture* MiniTextTexture(SDL_Renderer* r, const std::string& utf8,
     SDL_RenderClear(r);
     jk::JKSDLRenderBackend backend(r);
     jk::JKDC dc(&backend);
-    if (k.font) dc.SetHangulManager(k.font.get());
-    if (k.atlas && k.atlas->IsLoaded()) {
-        dc.SetTextAtlas(k.atlas.get(), k.cache.get());
-    }
+    k.parts.AttachTo(dc);
     // 테마 토큰(태스크바 라벨 색) — 구 리터럴 235,235,240 대체.
     {
         const auto& th = jk::theme::current();
@@ -172,7 +141,7 @@ SDL_Texture* MiniTextTexture(SDL_Renderer* r, const std::string& utf8,
     // [봉합 — 2026-11-09 실측] GetImage가 업로드 플러시 이전에 null을 주는
     // 셸 TextTexture의 재시도 패턴 승계(docs/63 §8) — 플러시 누락 = 빈
     // 텍스처(라벨 미표기 원존).
-    if (k.cache) k.cache->FlushUploads(k.backend.get());
+    if (k.parts.cache && k.parts.backend) k.parts.cache->FlushUploads(k.parts.backend.get());
     SDL_SetRenderTarget(r, prev);
     texs[utf8] = {tex, SDL_Point{texW, texH}};
     *w = texW; *h = texH;
@@ -555,7 +524,7 @@ void TaskbarButton::OnPaintClient(JKDC& dc) {
             // [수형] 아틀라스 유니코드 직행 우선(KSSM 부분집합 한계 우회)·
             // 실패 시 기존 KSSM/비트맵 경로 평태 보존.
             if (MiniKit().r && EnsureMiniAtlas(MiniKit().r)) {
-                dc.SetTextAtlas(MiniKit().atlas.get(), MiniKit().cache.get());
+                MiniKit().parts.AttachTo(dc);
                 DrawUnicodeCentered(dc, textRect, label);
             } else {
                 const std::string kssm = Utf8ToKssm(label.c_str());

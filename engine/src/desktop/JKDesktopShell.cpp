@@ -1077,14 +1077,7 @@ void JKDesktopShell::Destroy() {
     }
     tooltipTexs_.clear();
     ClearHover();
-    if (tooltipCache_ && tooltipBackend_) {
-        tooltipCache_->UnloadAllImages();
-        tooltipCache_->FlushUploads(tooltipBackend_.get());
-    }
-    tooltipAtlas_.reset();
-    tooltipCache_.reset();
-    tooltipBackend_.reset();
-    tooltipFont_.reset();
+    textParts_.Reset();   // 캐시 업로드 정리 → 부품 파괴(순서 계약은 번들 소관)
 }
 
 int JKDesktopShell::HitTest(int x, int y) const {
@@ -1179,42 +1172,9 @@ SDL_Texture* JKDesktopShell::TextTextureEx(const std::string& utf8, int* w,
         tooltipTexs_[ckey] = TooltipTex{};
         return nullptr;
     }
-    // 렌더 지연 부품 (승인 배너 ApprovalBannerTexture 선례): 한글 매니저는
-    // 생성 실패해도 JKDC 내장 ASCII 폴백으로 계속. 캐시는 등록 경로와 소멸자
-    // 플러시가 소유 백엔드에 의존하므로 수명까지 소유한다.
-    if (!tooltipFont_) {
-        tooltipFont_ = std::make_unique<HangulManager>();
-    }
-    if (!tooltipBackend_) {
-        tooltipBackend_ = std::make_unique<JKSDLRenderBackend>(host_.renderer);
-    }
-    if (!tooltipCache_) {
-        tooltipCache_ = std::make_unique<JKResourceCache>(tooltipBackend_.get());
-    }
-    if (!tooltipAtlas_) {
-        tooltipAtlas_ = std::make_unique<jk::JKTextAtlas>();
-        // 셀 메트릭 진실원 (docs/63 §6 text.font_scale).
-        const jk::text::CellMetrics m = jk::text::GetCellMetrics();
-        const std::string fp = jk::text::ResolveDesktopFontPath();
-        if (fp.empty()) {
-            std::fprintf(stderr,
-                         "[shell] tooltip: no vector font configured, staying "
-                         "on bitmap glyphs\n");
-        } else if (!tooltipAtlas_->Init(fp, m.engW, m.cellH, m.hanW)) {
-            std::fprintf(stderr,
-                         "[shell] tooltip: vector font init failed (%s), "
-                         "staying on bitmap glyphs\n",
-                         fp.c_str());
-        } else {
-            const std::string fb = jk::text::ResolveDesktopFallbackPath();
-            if (!fb.empty() && !tooltipAtlas_->InitFallback(fb)) {
-                std::fprintf(stderr,
-                             "[shell] tooltip: fallback font init failed (%s), "
-                             "glyph chain disabled\n",
-                             fb.c_str());
-            }
-        }
-    }
+    // 렌더 지연 부품 = text/JKTextParts 번들(docs/106 §3 통합). 초기화
+    // 파라미터(셀 메트릭·폴백 체인)가 한 곳에 있고, 실패 = 비트맵 폴백.
+    (void)textParts_.Ensure(host_.renderer);
     // 크롬 타이틀 LegacyFontTitle 선례: KSSM 변환이 빈 결과면 원문을 쓴다.
     std::string kssm = Utf8ToKssm(utf8.c_str());
     if (kssm.empty()) {
@@ -1251,13 +1211,7 @@ SDL_Texture* JKDesktopShell::TextTextureEx(const std::string& utf8, int* w,
     }
     JKSDLRenderBackend backend(host_.renderer);
     JKDC dc(&backend);
-    if (tooltipFont_) {
-        dc.SetHangulManager(tooltipFont_.get());
-    }
-    // 벡터 글리프 장착 — Init 실패(IsLoaded()==false)면 비트맵 폴백이 그대로.
-    if (tooltipAtlas_ && tooltipAtlas_->IsLoaded() && tooltipCache_) {
-        dc.SetTextAtlas(tooltipAtlas_.get(), tooltipCache_.get());
-    }
+    textParts_.AttachTo(dc);   // 벡터 글리프(없으면 비트맵 폴백 그대로)
     dc.SetTextColor(textColor.r, textColor.g, textColor.b);
     dc.TextOut(JKPoint{kPad, kPad}, kssm.c_str());
     SDL_SetRenderTarget(host_.renderer, prev);

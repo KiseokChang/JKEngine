@@ -2,6 +2,7 @@
 #define JKDESKTOPSHELL_H
 
 #include <JKTypes.h>
+#include <text/JKTextParts.h>  // 벡터 텍스트 부품 번들(docs/106 §3)
 #include <SDL.h>
 
 #include <functional>
@@ -173,10 +174,8 @@ private:
     int clockH_ = 0;
     SDL_Rect clockLastRect_{0, 0, 0, 0};
     std::map<std::string, TooltipTex> tooltipTexs_;
-    std::unique_ptr<JKTextAtlas> tooltipAtlas_;
-    std::unique_ptr<JKResourceCache> tooltipCache_;
-    std::unique_ptr<JKSDLRenderBackend> tooltipBackend_;
-    std::unique_ptr<HangulManager> tooltipFont_;
+    // 벡터 텍스트 지연 부품 = text/JKTextParts 번들(docs/106 §3 통합).
+    jk::text::FontParts textParts_;
 };
 
 } // namespace desktop
