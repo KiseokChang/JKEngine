@@ -2213,6 +2213,19 @@ void JKWindowServer::HandleSDLEvent(const SDL_Event& ev) {
         }
         if (!client) client = HitTestClient(mx, my);
         if (!client && ev.type == SDL_MOUSEBUTTONDOWN) {
+            // [UI v2 — 2026-11-13] 바탕화면 우클릭 메뉴: 우클릭 = 메뉴 열기,
+            // 메뉴가 열려 있으면 좌클릭은 메뉴가 소비(밖 클릭 = 닫기만).
+            // 셸이 아이콘 테이블을 소유하므로 메뉴 상태도 셸 소관.
+            if (shell_) {
+                if (ev.button.button == SDL_BUTTON_RIGHT) {
+                    shell_->OpenDesktopMenu(mx, my);
+                    return;
+                }
+                if (shell_->IsMenuOpen()) {
+                    (void)shell_->HandleMenuClick(mx, my);
+                    return;   // 메뉴 열림 중 데스크톱 클릭 = 메뉴 소비
+                }
+            }
             // Launcher icons live in the desktop shell (P1 ③): LaunchAt
             // hit-tests in physical pixels and dispatches the spawn through
             // the ShellHost launch callback (this server's SpawnClient, so

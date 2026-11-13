@@ -76,6 +76,15 @@ public:
     // when an icon was hit — the icon table is shell-private, so the server
     // never sees the index.
     bool LaunchAt(int x, int y);
+    // [UI v2 — 2026-11-13] 바탕화면 우클릭 메뉴(docs/106 §3 후속). 아이콘
+    // 히트가 아닌 빈 데스크톱에서 열린다. 항목 = 새로고침 / 테마 순환 /
+    // 닫기. 메뉴는 Draw()가 마지막에 그리고, 열림/닫힘 자리는 onDynamicDraw로
+    // 서버에 사건을 흘린다(더티 스킵 봉합 계약 동형).
+    void OpenDesktopMenu(int x, int y);
+    bool IsMenuOpen() const { return menuOpen_; }
+    // 좌클릭 좌표가 메뉴 안이면 항목 실행 후 true(서버가 소비). 밖이면 닫고 false.
+    bool HandleMenuClick(int x, int y);
+    void CloseDesktopMenu();
 
     // 콘솔 앱 조회 (P4 SDK §5): 설치된 매니페스트 앱의 스폰 cmd/디렉토리/
     // cmd 지문을 돌려준다. 매니페스트 앱이 아니면 false. 에이전트
@@ -152,6 +161,10 @@ private:
     ShellHost host_;
     std::vector<LauncherIcon> launcherIcons_;
     SDL_Texture* backgroundTexture_ = nullptr;
+    // 우클릭 메뉴 상태(물리 픽셀).
+    bool menuOpen_ = false;
+    SDL_Rect menuRect_{0, 0, 0, 0};
+    int menuHover_ = -1;
 
     // 호버 상태: hoverIndex_는 최근 모션의 런처 히트 인덱스(-1 = 런처 밖).
     // 같은 아이콘에 kTooltipHoverDelayMs 이상 머무르면 hoverActive_가 서고

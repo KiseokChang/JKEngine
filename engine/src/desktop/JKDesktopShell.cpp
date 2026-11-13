@@ -855,6 +855,19 @@ void JKDesktopShell::ScanConsoleApps() {
 
 // Frame background painter (formerly DrawLauncherBackground): this only
 // draws — the compositor calls SDL_RenderPresent once per frame.
+// [UI v2 — 2026-11-13] 바탕화면 우클릭 메뉴. 항목 3종(새로고침·테마 순환·
+// 닫기). 텍스트는 라벨 텍스처(투명 배경) 재사용 — 새 래스터 경로 0.
+namespace {
+constexpr int kMenuItemCount = 3;
+const char* MenuItemLabel(int i) {
+    switch (i) {
+        case 0: return "새로고침";
+        case 1: return "테마 바꾸기";
+        default: return "닫기";
+    }
+}
+}  // namespace
+
 void JKDesktopShell::Draw(SDL_Renderer* renderer) {
     if (!renderer || launcherIcons_.empty()) return;
 
@@ -1047,6 +1060,33 @@ void JKDesktopShell::Draw(SDL_Renderer* renderer) {
         } else if (tooltipShownLast_) {
             host_.onDynamicDraw(tooltipLastRect_);  // on→off — 배경 재칠 사건
             tooltipShownLast_ = false;
+        }
+    }
+
+    // [UI v2 — 2026-11-13] 바탕화면 우클릭 메뉴 — 최상위(툴팁 뒤).
+    if (menuOpen_ && menuRect_.w > 0) {
+        const auto& th = jk::theme::current();
+        SDL_Rect panel = menuRect_;
+        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderDrawColor(renderer, th.taskbarBg.r, th.taskbarBg.g,
+                               th.taskbarBg.b, 245);
+        SDL_RenderFillRect(renderer, &panel);
+        SDL_SetRenderDrawColor(renderer, th.taskbarBorderInactive.r,
+                               th.taskbarBorderInactive.g,
+                               th.taskbarBorderInactive.b, 255);
+        SDL_RenderDrawRect(renderer, &panel);
+        const int itemH = static_cast<int>(26 * s);
+        const int pad = static_cast<int>(4 * s);
+        for (int i = 0; i < kMenuItemCount; ++i) {
+            const char* label = MenuItemLabel(i);
+            int lw = 0;
+            int lh = 0;
+            SDL_Texture* tex = LabelTexture(label, &lw, &lh);
+            if (!tex || lw <= 0) continue;
+            SDL_Rect dst{ panel.x + pad * 2,
+                          panel.y + pad + i * itemH + (itemH - lh) / 2,
+                          static_cast<int>(lw * s), static_cast<int>(lh * s) };
+            SDL_RenderCopy(renderer, tex, nullptr, &dst);
         }
     }
 }
@@ -1269,6 +1309,71 @@ SDL_Rect JKDesktopShell::DrawTooltip(SDL_Renderer* renderer,
     SDL_Rect dst{ px, py, dw, dh };
     SDL_RenderCopy(renderer, tex, nullptr, &dst);
     return dst;
+}
+
+void JKDesktopShell::OpenDesktopMenu(int x, int y) {
+    const float s = host_.outputScale ? host_.outputScale() : 1.0f;
+    const int itemH = static_cast<int>(26 * s);
+    const int w = static_cast<int>(150 * s);
+    const int h = itemH * kMenuItemCount + static_cast<int>(8 * s);
+    int px = x;
+    int py = y;
+    int pw = 0;
+    int ph = 0;
+    if (host_.renderer) SDL_GetRendererOutputSize(host_.renderer, &pw, &ph);
+    if (pw > 0 && px + w > pw) px = pw - w;
+    if (ph > 0 && py + h > ph) py = ph - h;
+    if (px < 0) px = 0;
+    if (py < 0) py = 0;
+    if (menuOpen_ && host_.onDynamicDraw && menuRect_.w > 0) {
+        host_.onDynamicDraw(menuRect_);   // 이전 자리 소거
+    }
+    menuRect_ = SDL_Rect{ px, py, w, h };
+    menuOpen_ = true;
+    menuHover_ = -1;
+    if (host_.onDynamicDraw) host_.onDynamicDraw(menuRect_);
+    ClearHover();   // 툴팁과 겹치지 않게
+}
+
+void JKDesktopShell::CloseDesktopMenu() {
+    if (!menuOpen_) return;
+    menuOpen_ = false;
+    menuHover_ = -1;
+    if (host_.onDynamicDraw && menuRect_.w > 0) host_.onDynamicDraw(menuRect_);
+    menuRect_ = SDL_Rect{ 0, 0, 0, 0 };
+}
+
+bool JKDesktopShell::HandleMenuClick(int x, int y) {
+    if (!menuOpen_) return false;
+    const bool inside = x >= menuRect_.x && x < menuRect_.x + menuRect_.w &&
+                        y >= menuRect_.y && y < menuRect_.y + menuRect_.h;
+    if (!inside) {
+        CloseDesktopMenu();
+        return false;
+    }
+    const float s = host_.outputScale ? host_.outputScale() : 1.0f;
+    const int itemH = static_cast<int>(26 * s);
+    const int pad = static_cast<int>(4 * s);
+    const int idx = (y - menuRect_.y - pad) / (itemH > 0 ? itemH : 1);
+    CloseDesktopMenu();
+    switch (idx) {
+        case 0: {   // 새로고침 — 그리드 재계산 + 재그리기
+            RelayoutLauncherIcons();
+            if (host_.renderer) Draw(host_.renderer);
+            break;
+        }
+        case 1: {   // 테마 순환: 다크 → 라이트 → 클래식 → 다크
+            const jk::theme::JKTheme* cur = &jk::theme::current();
+            const jk::theme::JKTheme* next = &jk::theme::kDefault;
+            if (cur == &jk::theme::kDefault) next = &jk::theme::kLight;
+            else if (cur == &jk::theme::kLight) next = &jk::theme::kClassic;
+            jk::theme::setTheme(next);
+            break;
+        }
+        default:
+            break;  // 닫기
+    }
+    return true;
 }
 
 bool JKDesktopShell::LaunchAt(int x, int y) {
