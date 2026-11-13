@@ -1245,15 +1245,41 @@ SDL_Texture* JKDesktopShell::TextTextureEx(const std::string& utf8, int* w,
     // 렌더 지연 부품 = text/JKTextParts 번들(docs/106 §3 통합). 초기화
     // 파라미터(셀 메트릭·폴백 체인)가 한 곳에 있고, 실패 = 비트맵 폴백.
     (void)textParts_.Ensure(host_.renderer);
-    // 크롬 타이틀 LegacyFontTitle 선례: KSSM 변환이 빈 결과면 원문을 쓴다.
-    std::string kssm = Utf8ToKssm(utf8.c_str());
-    if (kssm.empty()) {
-        kssm = utf8;
-    }
-    const JKPoint m = JKDC::MeasureText(kssm.c_str());
+    // [실측 원존 2026-11-14 "한글 라벨 깨짐"] 종전 경로 = UTF-8을 **KSSM
+    // 완성형 코드로 변환해 TextOut** — 아틀라스는 유니코드 글리프 표라서
+    // KSSM 코드를 유니코드로 오인하고 엉뚱한 글리프를 그린다(ASCII 라벨은
+    // 우연히 일치해 드러나지 않았다). 비ASCII + 아틀라스 준비 = 유니코드
+    // 직행(태스크바 네비 셀과 같은 수형), 그 외 = 종전 KSSM/비트맵 평태.
     constexpr int kPad = 5;
-    const int texW = m.x + kPad * 2;
-    const int texH = (m.y > 0 ? m.y : 16) + kPad * 2;
+    bool nonAscii = false;
+    for (unsigned char c : utf8) {
+        if (c >= 0x80) { nonAscii = true; break; }
+    }
+    const bool useUnicode = nonAscii && textParts_.Ready();
+    std::string kssm;
+    int texW = 0;
+    int texH = 0;
+    jk::text::CellMetrics cm{};
+    if (useUnicode) {
+        cm = jk::text::GetCellMetrics();
+        int drawW = 0;
+        for (size_t i = 0; i < utf8.size();) {
+            const unsigned char c = static_cast<unsigned char>(utf8[i]);
+            const int len = (c < 0x80) ? 1 : (c >= 0xF0 ? 4 : (c >= 0xE0 ? 3 : 2));
+            drawW += (len == 1) ? cm.engW : cm.hanW;
+            i += static_cast<size_t>(len);
+        }
+        texW = drawW + kPad * 2;
+        texH = static_cast<int>(cm.cellH) + kPad * 2;
+    } else {
+        kssm = Utf8ToKssm(utf8.c_str());
+        if (kssm.empty()) {
+            kssm = utf8;
+        }
+        const JKPoint m = JKDC::MeasureText(kssm.c_str());
+        texW = m.x + kPad * 2;
+        texH = (m.y > 0 ? m.y : 16) + kPad * 2;
+    }
     SDL_Texture* tex = SDL_CreateTexture(host_.renderer, SDL_PIXELFORMAT_RGBA8888,
                                          SDL_TEXTUREACCESS_TARGET, texW, texH);
     if (!tex) {
@@ -1283,7 +1309,26 @@ SDL_Texture* JKDesktopShell::TextTextureEx(const std::string& utf8, int* w,
     JKDC dc(&backend);
     textParts_.AttachTo(dc);   // 벡터 글리프(없으면 비트맵 폴백 그대로)
     dc.SetTextColor(textColor.r, textColor.g, textColor.b);
-    dc.TextOut(JKPoint{kPad, kPad}, kssm.c_str());
+    if (useUnicode) {
+        int x = kPad;
+        for (size_t i = 0; i < utf8.size();) {
+            const unsigned char c = static_cast<unsigned char>(utf8[i]);
+            uint32_t cp = c;
+            int len = 1;
+            if (c >= 0xF0) { cp = c & 0x07; len = 4; }
+            else if (c >= 0xE0) { cp = c & 0x0F; len = 3; }
+            else if (c >= 0xC0) { cp = c & 0x1F; len = 2; }
+            for (int k = 1; k < len && i + static_cast<size_t>(k) < utf8.size(); ++k) {
+                cp = (cp << 6) | (utf8[i + static_cast<size_t>(k)] & 0x3F);
+            }
+            const int adv = (len == 1) ? cm.engW : cm.hanW;
+            (void)dc.DrawUnicodeGlyph(JKPoint{x, kPad}, cp, adv);
+            x += adv;
+            i += static_cast<size_t>(len);
+        }
+    } else {
+        dc.TextOut(JKPoint{kPad, kPad}, kssm.c_str());
+    }
     SDL_SetRenderTarget(host_.renderer, prev);
     tooltipTexs_[ckey] = TooltipTex{tex, texW, texH};
     // 프로브 단정 지점: 표시명별 텍스처는 1회만 렌더되므로 로그에도 1회만
