@@ -1118,6 +1118,7 @@ void JKDesktopShell::Draw(SDL_Renderer* renderer) {
                 k += static_cast<size_t>(len);
             }
         }
+        textParts_.FlushUploads();   // 화면 직행 글리프도 업로드 반영 보장
     }
 }
 
@@ -1329,6 +1330,10 @@ SDL_Texture* JKDesktopShell::TextTextureEx(const std::string& utf8, int* w,
     } else {
         dc.TextOut(JKPoint{kPad, kPad}, kssm.c_str());
     }
+    // [실측 원존 2026-11-14 "새로고침 후 글자 사라짐"] 아틀라스 업로드 플러시
+    // 없이 타겟을 읽으면 방금 만든 글리프가 빈 텍스처로 남는다(태스크바 미니
+    // 텍스처 실측 원존 동형). 타겟 전환 **전에** 반영.
+    textParts_.FlushUploads();
     SDL_SetRenderTarget(host_.renderer, prev);
     tooltipTexs_[ckey] = TooltipTex{tex, texW, texH};
     // 프로브 단정 지점: 표시명별 텍스처는 1회만 렌더되므로 로그에도 1회만
@@ -1432,9 +1437,19 @@ bool JKDesktopShell::HandleMenuClick(int x, int y) {
     const int idx = (y - menuRect_.y - pad) / (itemH > 0 ? itemH : 1);
     CloseDesktopMenu();
     switch (idx) {
-        case 0: {   // 새로고침 — 그리드 재계산 + 재그리기
+        case 0: {   // 새로고침 — 그리드 재계산. **직접 Draw 금지**: 합성기 밖
+            // (이 콜은 마우스 이벤트 처리 중)에서 그리면 잘못된 타겟에 그려져
+            // 다른 표면의 글자가 통째로 사라진다(2026-11-14 "새로고침 실행
+            // 후 글자 사라짐" 실측). 다음 컴포지트 프레임에 다시 그리도록
+            // 화면 전체 rect 사건만 흘린다.
             RelayoutLauncherIcons();
-            if (host_.renderer) Draw(host_.renderer);
+            ClearHover();
+            int pw = 0;
+            int ph = 0;
+            if (host_.renderer) SDL_GetRendererOutputSize(host_.renderer, &pw, &ph);
+            if (host_.onDynamicDraw && pw > 0 && ph > 0) {
+                host_.onDynamicDraw(SDL_Rect{ 0, 0, pw, ph });
+            }
             break;
         }
         case 1: {   // 테마 순환: 다크 → 라이트 → 클래식 → 다크

@@ -51,6 +51,10 @@ void FontParts::AttachTo(JKDC& dc) const {
 
 bool FontParts::Ready() const { return atlas && atlas->IsLoaded(); }
 
+void FontParts::FlushUploads() {
+    if (cache && backend) cache->FlushUploads(backend.get());
+}
+
 void FontParts::Reset() {
     if (cache && backend) {
         cache->UnloadAllImages();
