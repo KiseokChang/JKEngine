@@ -76,12 +76,6 @@ public:
     // when an icon was hit — the icon table is shell-private, so the server
     // never sees the index.
     bool LaunchAt(int x, int y);
-    // [2026-11-14 사용자 판정] 바탕(사용자 사진)은 테마가 건드리지 않는다 —
-    // **시스템이 그리는 글자가 배경 명암에 적응**한다. 배경 휘도 격자(부팅 1회)
-    // 를 두고, 라벨/시계의 자리 밝기를 보고 흑/백 글자색을 고른다.
-    void LoadBackgroundLuma();
-    int LumaAt(const SDL_Rect& logicalRect) const;   // -1 = 격자 없음
-    SDL_Color AdaptiveLabelColor(const SDL_Rect& logicalRect) const;
     // [UI v2 — 2026-11-13] 바탕화면 우클릭 메뉴(docs/106 §3 후속). 아이콘
     // 히트가 아닌 빈 데스크톱에서 열린다. 항목 = 새로고침 / 테마 순환 /
     // 닫기. 메뉴는 Draw()가 마지막에 그리고, 열림/닫힘 자리는 onDynamicDraw로
@@ -167,10 +161,6 @@ private:
     ShellHost host_;
     std::vector<LauncherIcon> launcherIcons_;
     SDL_Texture* backgroundTexture_ = nullptr;
-    // 배경 휘도 격자(정규화 64x36) — 글자색 대비 판정.
-    std::vector<uint8_t> bgLuma_;
-    int bgLumaW_ = 0;
-    int bgLumaH_ = 0;
     // 우클릭 메뉴 상태(물리 픽셀).
     bool menuOpen_ = false;
     SDL_Rect menuRect_{0, 0, 0, 0};

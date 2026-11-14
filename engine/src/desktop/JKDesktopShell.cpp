@@ -219,83 +219,6 @@ void EnsureTrustRecord(const std::string& fingerprint, const std::string& name) 
 // Load a PNG asset pair ("<base>@1x.png" / "@2x.png") — @2x when the
 // output scale is >= 1.5 — into a blended SDL texture. Returns nullptr
 // when the asset is missing (callers fall back to flat drawing).
-// [2026-11-14 사용자 판정] 바탕은 테마가 건드리지 않는다 — 시스템 글자가
-// 배경 명암에 적응한다. 부팅 1회 배경 픽셀에서 64x36 휘도 격자를 만든다.
-void JKDesktopShell::LoadBackgroundLuma() {
-    const float s = host_.outputScale ? host_.outputScale() : 1.0f;
-    char path[512];
-    std::snprintf(path, sizeof(path), "%s@%s.png", "assets/backgrounds/desktop",
-                  s >= 1.5f ? "2x" : "1x");
-    jk::LoadedImage img;
-    if (!jk::LoadImageFile(jk::ResolveAssetPath(path), img) || img.w <= 0 ||
-        img.h <= 0) {
-        bgLuma_.clear();
-        bgLumaW_ = bgLumaH_ = 0;
-        return;
-    }
-    constexpr int kGw = 64;
-    constexpr int kGh = 36;
-    bgLumaW_ = kGw;
-    bgLumaH_ = kGh;
-    bgLuma_.assign(static_cast<size_t>(kGw) * kGh, 128);
-    for (int gy = 0; gy < kGh; ++gy) {
-        for (int gx = 0; gx < kGw; ++gx) {
-            const int x0 = gx * img.w / kGw;
-            const int x1 = (gx + 1) * img.w / kGw;
-            const int y0 = gy * img.h / kGh;
-            const int y1 = (gy + 1) * img.h / kGh;
-            uint64_t sum = 0;
-            uint32_t n = 0;
-            for (int y = y0; y < y1; y += 2) {
-                for (int x = x0; x < x1; x += 2) {
-                    const uint8_t* px =
-                        &img.rgba[(static_cast<size_t>(y) * img.w + x) * 4];
-                    sum += (static_cast<uint32_t>(px[0]) * 299 +
-                            static_cast<uint32_t>(px[1]) * 587 +
-                            static_cast<uint32_t>(px[2]) * 114) / 1000;
-                    ++n;
-                }
-            }
-            bgLuma_[static_cast<size_t>(gy) * kGw + gx] =
-                n ? static_cast<uint8_t>(sum / n) : 128;
-        }
-    }
-}
-
-int JKDesktopShell::LumaAt(const SDL_Rect& logicalRect) const {
-    if (bgLuma_.empty() || bgLumaW_ <= 0 || bgLumaH_ <= 0) return -1;
-    if (!host_.renderer) return -1;
-    int pw = 0;
-    int ph = 0;
-    SDL_GetRendererOutputSize(host_.renderer, &pw, &ph);
-    if (pw <= 0 || ph <= 0) return -1;
-    const float s = host_.outputScale ? host_.outputScale() : 1.0f;
-    auto clampI = [](int v, int hi) { return v < 0 ? 0 : (v > hi ? hi : v); };
-    const int gx0 = clampI(static_cast<int>(logicalRect.x * s * bgLumaW_ / pw), bgLumaW_ - 1);
-    const int gx1 = clampI(static_cast<int>((logicalRect.x + logicalRect.w) * s *
-                                            bgLumaW_ / pw), bgLumaW_ - 1);
-    const int gy0 = clampI(static_cast<int>(logicalRect.y * s * bgLumaH_ / ph), bgLumaH_ - 1);
-    const int gy1 = clampI(static_cast<int>((logicalRect.y + logicalRect.h) * s *
-                                            bgLumaH_ / ph), bgLumaH_ - 1);
-    uint32_t sum = 0;
-    uint32_t n = 0;
-    for (int gy = gy0; gy <= gy1; ++gy) {
-        for (int gx = gx0; gx <= gx1; ++gx) {
-            sum += bgLuma_[static_cast<size_t>(gy) * bgLumaW_ + gx];
-            ++n;
-        }
-    }
-    return n ? static_cast<int>(sum / n) : -1;
-}
-
-SDL_Color JKDesktopShell::AdaptiveLabelColor(const SDL_Rect& logicalRect) const {
-    const int luma = LumaAt(logicalRect);
-    if (luma < 0) return jk::theme::current().launcherLabelText;
-    // 밝은 바탕 = 어두운 글자, 어두운 바탕 = 밝은 글자(프리셋과 무관).
-    if (luma >= 140) return SDL_Color{ 24, 24, 28, 255 };
-    return SDL_Color{ 235, 235, 240, 255 };
-}
-
 SDL_Texture* JKDesktopShell::LoadTextureScaled(const char* assetBase) {
     if (!host_.renderer) return nullptr;
 
@@ -426,7 +349,6 @@ void JKDesktopShell::Init(const ShellHost& host) {
         backgroundTexture_ = nullptr;
     }
     backgroundTexture_ = LoadTextureScaled("assets/backgrounds/desktop");
-    LoadBackgroundLuma();   // 글자색 대비 판정용(테마가 바탕을 덮지 않는다)
 
     for (auto& icon : launcherIcons_) {
         if (icon.texture) continue;   // .jkx apps carry their own icon texture
@@ -992,9 +914,9 @@ void JKDesktopShell::Draw(SDL_Renderer* renderer) {
         SDL_GetRendererOutputSize(renderer, &pw, &ph);
         SDL_Rect dst{ 0, 0, pw, ph };
         SDL_RenderCopy(renderer, backgroundTexture_, nullptr, &dst);
-        // [2026-11-14 사용자 판정] 바탕(사용자 사진)은 테마가 건드리지 않는다.
-        // 가독성은 **시스템이 그리는 글자의 색**이 배경 명암에 적응해서 해결한다
-        // (AdaptiveLabelColor — 라벨/시계가 자기 자리 밝기를 보고 흑/백 선택).
+        // [2026-11-14 사용자 판정] 바탕(사용자 사진)은 테마가 건드리지 않는다 —
+        // 글자색은 테마 팔레트를 따르고, 가독성은 렌더 쪽 **대비 외곽선**이
+        // 보장한다(TextTextureEx 비ASCII 경로).
     }
 
     for (auto& icon : launcherIcons_) {
@@ -1036,14 +958,11 @@ void JKDesktopShell::Draw(SDL_Renderer* renderer) {
                 int lh = 0;
                 // [2026-11-14] 라벨 색 = 그 자리 배경 명암 적응(테마 색 고정 금지 —
                 // 라이트 프리셋의 어두운 글자가 어두운 사진 위에서 사라졌다).
-                // [실측 원존 2026-11-14 "라벨 일부만 먹힘"] icon.rect는 **논리
-                // 좌표**인데 밴드에 s를 곱한 물리 값을 더해, 아이콘 아트(밝은
-                // 영역)를 샘플링하는 라벨이 생겼다 → 그 라벨만 색 판정이 어긋남.
-                // 밴드는 논리 단위로 계산(LumaAt가 내부에서 s를 곱한다).
-                const SDL_Rect band{ icon.rect.x, icon.rect.y + 100,
-                                     icon.rect.w, 24 };
+                // [2026-11-14 사용자 판정 2] 라벨 색은 **테마 팔레트를 따른다**
+                // (테마를 바꿨는데 글자색이 그대로면 테마가 반쪽이다). 가독성은
+                // 배경 적응색이 아니라 **대비 외곽선**(TextTextureEx)이 보장한다.
                 icon.labelTex = LabelTextureColored(
-                    label, AdaptiveLabelColor(band), &lw, &lh);
+                    label, jk::theme::current().launcherLabelText, &lw, &lh);
                 icon.labelTexW = lw;
                 icon.labelTexH = lh;
             }
@@ -1092,16 +1011,9 @@ void JKDesktopShell::Draw(SDL_Renderer* renderer) {
             std::snprintf(buf, sizeof(buf), "%02d:%02d", lt.tm_hour, lt.tm_min);
             int cw = 0;
             int ch = 0;
-            // [2026-11-14] 시계 글자색 = 우상단 영역 배경 명암 적응(프리셋 색
-            // 고정 금지 — 밝은 사진 위 흰 글씨가 사라지는 결함 봉합).
-            int rpw = 0;
-            int rph = 0;
-            SDL_GetRendererOutputSize(renderer, &rpw, &rph);
-            const int logicalRight = s > 0 ? static_cast<int>(rpw / s) : rpw;
-            const SDL_Rect clockBand{
-                logicalRight > 400 ? logicalRight - 400 : 0, 0, 400, 160 };
+            // 시계 글자색 = 테마 팔레트(가독성은 외곽선이 보장).
             clockTex_ = LabelTextureColored(
-                buf, AdaptiveLabelColor(clockBand), &cw, &ch);
+                buf, jk::theme::current().desktopClockText, &cw, &ch);
             clockW_ = cw;
             clockH_ = ch;
         }
@@ -1443,6 +1355,18 @@ SDL_Texture* JKDesktopShell::TextTextureEx(const std::string& utf8, int* w,
         glyphPass(0, 1, halo);
         glyphPass(0, 0, textColor);
     } else {
+        // 같은 대비 외곽선을 ASCII/KSSM 경로에도 적용 — 여기 빠뜨리면
+        // 라이트 테마에서 영문 라벨이 어두운 사진 위에 묻힌다(2026-11-14).
+        const bool darkText =
+            textColor.r < 128 && textColor.g < 128 && textColor.b < 128;
+        const SDL_Color halo = darkText ? SDL_Color{ 245, 245, 245, 255 }
+                                        : SDL_Color{ 12, 12, 14, 255 };
+        dc.SetTextColor(halo.r, halo.g, halo.b);
+        dc.TextOut(JKPoint{ kPad - 1, kPad }, kssm.c_str());
+        dc.TextOut(JKPoint{ kPad + 1, kPad }, kssm.c_str());
+        dc.TextOut(JKPoint{ kPad, kPad - 1 }, kssm.c_str());
+        dc.TextOut(JKPoint{ kPad, kPad + 1 }, kssm.c_str());
+        dc.SetTextColor(textColor.r, textColor.g, textColor.b);
         dc.TextOut(JKPoint{kPad, kPad}, kssm.c_str());
     }
     // [실측 원존 2026-11-14 "새로고침 후 글자 사라짐"] 아틀라스 업로드 플러시
