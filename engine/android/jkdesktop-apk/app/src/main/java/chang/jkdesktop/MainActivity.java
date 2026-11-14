@@ -27,7 +27,6 @@ import android.provider.MediaStore;
 
 public class MainActivity extends SDLActivity {
     private final Handler exporter = new Handler(Looper.getMainLooper());
-    private long exportSeq = 0;
 
     @Override
     protected String[] getLibraries() {
@@ -72,17 +71,43 @@ public class MainActivity extends SDLActivity {
         super.onPause();
     }
 
+    // [2026-11-13 실측 원존] 종전 = MediaStore insert/update에 "jk-err-N.log"
+    // 고정 이름 → MediaStore가 text/plain에 .txt를 덧붙여 "jk-err-1.log.txt"를
+    // 만들고, exportSeq가 부팅마다 1로 리셋돼 같은 이름과 충돌 →
+    // "Failed to build unique file" + update 예외가 매 내보내기마다 반복됐다
+    // (로그 수출 채널 자체가 죽어 있었음). 수형 = Downloads에 **고정 파일로
+    // 직접 덮어쓰기**(MANAGE_EXTERNAL_STORAGE 보유 — 최신 1개만 유지, 충돌
+    // 원천 소각) + 권한/경로 실패 시 MediaStore 폴백(이름에 타임스탬프 = 유일).
     private void exportSrvLog() {
-        // stdout(srv.log)+stderr(srv.err) — r11 분리 수체 규약
-        exportOne(new File(getFilesDir(), "srv.err"), "jk-err-" + (++exportSeq) + ".log");
-        exportOne(new File(getFilesDir(), "srv.log"), "jk-out-" + (++exportSeq) + ".log");
+        exportFile(new File(getFilesDir(), "srv.err"), "jk_srv.err.log");
+        exportFile(new File(getFilesDir(), "srv.log"), "jk_srv.out.log");
     }
 
-    private void exportOne(File src, String name) {
+    private void exportFile(File src, String name) {
+        if (!src.isFile() || src.length() == 0) return;
         try {
-            if (!src.isFile() || src.length() == 0) return;
+            File dir = android.os.Environment.getExternalStoragePublicDirectory(
+                    android.os.Environment.DIRECTORY_DOWNLOADS);
+            File dst = new File(dir, name);
+            try (FileInputStream in = new FileInputStream(src);
+                 FileOutputStream out = new FileOutputStream(dst, false)) {
+                byte[] buf = new byte[64 * 1024];
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            }
+            android.media.MediaScannerConnection.scanFile(
+                    this, new String[] { dst.getAbsolutePath() }, null, null);
+            return;
+        } catch (Exception directErr) {
+            android.util.Log.w("jkdesk", "direct download write failed: " + directErr);
+        }
+        // 폴백 — MediaStore(타임스탬프 이름 = 충돌 불가).
+        try {
+            String stamp = new java.text.SimpleDateFormat("MMdd-HHmmss",
+                    java.util.Locale.US).format(new java.util.Date());
             ContentValues cv = new ContentValues();
-            cv.put(MediaStore.Downloads.DISPLAY_NAME, name);
+            cv.put(MediaStore.Downloads.DISPLAY_NAME,
+                   name.replace(".log", "-" + stamp + ".log"));
             cv.put(MediaStore.Downloads.MIME_TYPE, "text/plain");
             cv.put(MediaStore.Downloads.IS_PENDING, 1);
             Uri uri = getContentResolver().insert(
@@ -92,13 +117,13 @@ public class MainActivity extends SDLActivity {
                  OutputStream out = getContentResolver().openOutputStream(uri)) {
                 byte[] buf = new byte[64 * 1024];
                 int n;
-                while (in != null && out != null && (n = in.read(buf)) > 0) out.write(buf, 0, n);
+                while (out != null && (n = in.read(buf)) > 0) out.write(buf, 0, n);
             }
             ContentValues done = new ContentValues();
             done.put(MediaStore.Downloads.IS_PENDING, 0);
             getContentResolver().update(uri, done, null, null);
         } catch (Exception e) {
-            android.util.Log.e("jkdesk", "exportSrvLog failed", e);
+            android.util.Log.e("jkdesk", "exportSrvLog fallback failed", e);
         }
     }
 
@@ -135,6 +160,22 @@ public class MainActivity extends SDLActivity {
                 // 아이콘을 영원히 교체하지 않았다**(스탬프가 불일치해 전체 추출을
                 // 돌아도 기존 파일은 옛 세대 유지). 스탬프 불일치 경로 = 전체
                 // 덮어쓰기가 계약 — 이 분기에 도달했다는 것 자체가 재추출 신호다.
+                // [2026-11-14 성능] 단 **크기가 같은 파일은 복사 생략**(비압축
+                // 자산만 openFd로 확인 — 압축 자산/실패 = 종전대로 복사). 매
+                // 업데이트마다 수십 MB를 UI 스레드로 다시 쓰던 비용을 실제 변경분
+                // 으로 줄인다.
+                try {
+                    long assetLen = -1;
+                    try {
+                        assetLen = getAssets().openFd(path).getLength();
+                    } catch (Exception notFd) {
+                        assetLen = -1;   // 압축 자산 — 크기 조회 불가
+                    }
+                    if (assetLen >= 0 && dst.isFile() && dst.length() == assetLen) {
+                        continue;
+                    }
+                } catch (Exception ignored) {
+                }
                 // [P0] 파일당 try/catch — 1건 실패가 전체를 쓰러뜼리지 않게.
                 try {
                     dst.getParentFile().mkdirs();

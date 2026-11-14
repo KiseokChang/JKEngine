@@ -28,6 +28,10 @@ JK_WEAK_HOOK int JKAndroidVoiceBegin();
 JK_WEAK_HOOK int JKTtsSpeak(const char* text);
 JK_WEAK_HOOK int JkTtsStopAll(void);
 JK_WEAK_HOOK int JKVoiceAutoturnStart();
+
+// UI v2 MVP — 시스템 오버레이 JK 버튼(다른 앱 위에서 jkdesktop 복귀).
+// 반환 = 토글 후 표시 중 여부(권한 없음 = 설정 화면만 열고 0).
+JK_WEAK_HOOK int JkToggleOverlayButton();
 }
 
 #endif  // JK_HOOKS_ANDROID_H

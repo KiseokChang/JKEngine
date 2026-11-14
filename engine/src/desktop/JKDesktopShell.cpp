@@ -3,6 +3,7 @@
 #include <fs/JKFileRead.h>  // 파일 읽기 정본(docs/106 §2-5)
 
 #include "theme/JKTheme.h"
+#include <jkhooks_android.h>  // JNI 훅 단일 ABI(음성 메뉴)
 
 #include <JKDC.h>
 #include <fs/JKFs.h>
@@ -806,7 +807,7 @@ void JKDesktopShell::ScanConsoleApps() {
 // [UI v2 — 2026-11-13] 바탕화면 우클릭 메뉴. 항목 3종(새로고침·테마 순환·
 // 닫기). 텍스트는 라벨 텍스처(투명 배경) 재사용 — 새 래스터 경로 0.
 namespace {
-constexpr int kMenuItemCount = 3;
+constexpr int kMenuItemCount = 5;
 // [실측 원존 2026-11-14 "메뉴 글자 깨짐"] 종전 항목 높이 = 고정 26×s —
 // 라벨 텍스처 높이(셀 메트릭 + 패드)가 더 크면 세로로 잘려 글자가 깨졌다.
 // 항목 높이는 항상 라벨이 들어가는 크기(셀높이+12pt 하한 26pt).
@@ -828,6 +829,8 @@ std::string MenuItemLabel(int i) {
         case 0: return "새로고침";
         case 1: return std::string("테마: ") +
                        ThemePresetLabelKo(&jk::theme::current()) + " ▸";
+        case 2: return "음성으로 말하기";
+        case 3: return "오버레이 버튼";
         default: return "닫기";
     }
 }
@@ -1464,6 +1467,20 @@ bool JKDesktopShell::HandleMenuClick(int x, int y) {
             if (host_.renderer) SDL_GetRendererOutputSize(host_.renderer, &pw, &ph);
             if (host_.onDynamicDraw && pw > 0 && ph > 0) {
                 host_.onDynamicDraw(SDL_Rect{ 0, 0, pw, ph });
+            }
+            break;
+        }
+        case 2: {   // 음성으로 말하기 — 기존 JNI 훅 재사용(상시 청취는 보류:
+            // 배터리·프라이버시 판정 전. docs/106 §3 UI v2 잔여 참조).
+            if (JKAndroidVoiceBegin) {
+                (void)JKAndroidVoiceBegin();
+            }
+            break;
+        }
+        case 3: {   // UI v2 MVP — 다른 앱 위에 뜨는 JK 버튼 토글.
+            // 권한(SYSTEM_ALERT_WINDOW) 없으면 Java 쪽이 설정 화면만 연다.
+            if (JkToggleOverlayButton) {
+                (void)JkToggleOverlayButton();
             }
             break;
         }

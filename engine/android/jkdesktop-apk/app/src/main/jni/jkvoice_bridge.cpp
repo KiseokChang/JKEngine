@@ -486,3 +486,33 @@ extern "C" int JKVoiceAutoturnStart() {
     }).detach();
     return 0;
 }
+
+// --- 오버레이 버튼(UI v2 MVP) ---
+// Java OverlayButton.toggle(Context)를 호출한다. 반환 = 토글 후 표시 여부
+// (권한 없음 = 설정 화면을 열고 0 — 자동 부여 없음).
+extern "C" int JkToggleOverlayButton() {
+    JNIEnv* env = static_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
+    jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
+    if (!env || !activity) return 0;
+    jclass cls = env->FindClass("chang/jkdesktop/OverlayButton");
+    if (!cls) {
+        env->ExceptionClear();
+        env->DeleteLocalRef(activity);
+        return 0;
+    }
+    jmethodID mid = env->GetStaticMethodID(cls, "toggle",
+        "(Landroid/content/Context;)Z");
+    if (!mid) {
+        env->ExceptionClear();
+        env->DeleteLocalRef(cls);
+        env->DeleteLocalRef(activity);
+        return 0;
+    }
+    jboolean shown = env->CallStaticBooleanMethod(cls, mid, activity);
+    env->ExceptionClear();
+    env->DeleteLocalRef(cls);
+    env->DeleteLocalRef(activity);
+    std::fprintf(stderr, "[jkdesk] overlay toggle -> %d
+", shown ? 1 : 0);
+    return shown ? 1 : 0;
+}
