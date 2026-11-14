@@ -21,10 +21,6 @@ struct JKTheme {
     SDL_Color chromeCloseHover;     // 닫기 버튼 호버 (Win11 빨강)
     // 데스크탑/런처 — JKDesktopShell
     SDL_Color desktopBgFallback;    // 배경 애셔 부재 시 클리어색
-    // [2026-11-14 "테마 바꾸기 후 글자 사라짐" 원존] 바탕 사진 위에 덧칠하는
-    // 스크림. 라이트 테마의 라벨 색(32,32,32)은 어두운 사진 위에서 보이지
-    // 않는다 — 프리셋이 배경 밝기까지 책임진다. a==0 = 덧칠 없음(다크/클래식).
-    SDL_Color desktopPhotoScrim;
     SDL_Color launcherCellFace;     // 런처 셀 면 (폴백)
     SDL_Color launcherCellOutline;  // 런처 셀 윤곽
     SDL_Color launcherCellPlaceholder; // 앱별 플레이스홀더 폴백(제너릭)
@@ -73,7 +69,6 @@ inline constexpr JKTheme kDefault = {
     .chromeButtonGlyph     = {240, 240, 240, 255},
     .chromeCloseHover      = {196, 43, 28, 255},    // Win11 close red
     .desktopBgFallback     = {28, 28, 30, 255},     // #1C1C1E (구: 96,96,96)
-    .desktopPhotoScrim     = {0, 0, 0, 0},          // 다크 = 사진 그대로
     .launcherCellFace      = {44, 44, 46, 255},     // (구: 100,100,100)
     .launcherCellOutline   = {255, 255, 255, 255},  // 불변
     .launcherCellPlaceholder = {80, 80, 84, 255},   // 제너릭 폴백 (구: 128,128,128)
@@ -122,7 +117,6 @@ inline constexpr JKTheme kLight = {
     .chromeButtonGlyph     = {0, 0, 0, 255},
     .chromeCloseHover      = {196, 43, 28, 255},
     .desktopBgFallback     = {243, 243, 243, 255},
-    .desktopPhotoScrim     = {246, 246, 250, 210},  // 라이트 = 밝은 스크림
     .launcherCellFace      = {249, 249, 249, 255},
     .launcherCellOutline   = {200, 200, 200, 255},
     .launcherCellPlaceholder = {204, 204, 208, 255},
@@ -168,7 +162,6 @@ inline constexpr JKTheme kClassic = {
     .chromeButtonGlyph     = {255, 255, 255, 255},
     .chromeCloseHover      = {196, 43, 28, 255},    // 호버 페인트 구현 (I4 소박)
     .desktopBgFallback     = {96, 96, 96, 255},
-    .desktopPhotoScrim     = {70, 74, 92, 120},     // 클래식 = 푸른 회색 톤
     .launcherCellFace      = {100, 100, 100, 255},
     .launcherCellOutline   = {255, 255, 255, 255},
     .launcherCellPlaceholder = {128, 128, 128, 255},
