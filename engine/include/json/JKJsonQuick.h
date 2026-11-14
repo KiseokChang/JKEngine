@@ -24,6 +24,20 @@ namespace json {
 
 enum class QuickParseStatus { Ok, SyntaxError, RuntimeFail };
 
+// 앱 매니페스트(manifest.json) 평면 문자열 4필드 — 셸·라이브러리 카탈로그가
+// 같은 스키마를 각자 파싱하던 복제(3곳)의 정본. ok = 파싱 성공(문법/형 오류
+// 포함 아님: 필드 부재는 빈 문자열 — 호출자가 name/cmd 필수 게이트를 건다).
+struct ManifestFields {
+    std::string name;
+    std::string cmd;
+    std::string desc;
+    std::string cmdPosix;
+    bool ok = false;
+};
+
+ManifestFields ParseManifest(const std::vector<uint8_t>& nulTerminated,
+                             const char* label);
+
 QuickParseStatus ParseOnce(
     const std::vector<uint8_t>& nulTerminated, const char* label,
     const std::function<void(JSContext*, JSValue)>& extract, std::string* error);

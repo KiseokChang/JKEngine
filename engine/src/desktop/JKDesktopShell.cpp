@@ -1,4 +1,5 @@
 #include <desktop/JKDesktopShell.h>
+#include <json/JKJsonQuick.h>  // 매니페스트/일회용 JSON 파싱 정본
 #include <fs/JKFileRead.h>  // 파일 읽기 정본(docs/106 §2-5)
 
 #include "theme/JKTheme.h"
@@ -626,38 +627,12 @@ void JKDesktopShell::ScanConsoleApps() {
         std::vector<uint8_t> bytes;
         if (!ReadFileBytes(manifestPath, bytes)) continue;  // no manifest → not a console app
 
-        // Throwaway runtime — parse + field extraction, then it's gone.
-        JSRuntime* rt = JS_NewRuntime();
-        if (!rt) continue;
-        JSContext* ctx = JS_NewContext(rt);
-        if (!ctx) {
-            JS_FreeRuntime(rt);
-            continue;
-        }
-        JSValue root = JS_ParseJSON(ctx, reinterpret_cast<const char*>(bytes.data()),
-                                    bytes.size() - 1, "manifest.json");
-        std::string name, cmd, desc;
-        if (!JS_IsException(root) && JS_IsObject(root)) {
-            auto getString = [&](const char* key, std::string* field) {
-                JSValue v = JS_GetPropertyStr(ctx, root, key);
-                if (JS_IsString(v)) {
-                    size_t len = 0;
-                    const char* s = JS_ToCStringLen(ctx, &len, v);
-                    if (s) {
-                        *field = std::string(s, len);
-                        JS_FreeCString(ctx, s);
-                    }
-                }
-                JS_FreeValue(ctx, v);
-            };
-            getString("name", &name);
-            getString("cmd", &cmd);
-            getString("desc", &desc);
-        }
-        JS_FreeValue(ctx, root);
-        if (ctx) JS_FreeContext(ctx);
-        JS_FreeRuntime(rt);
-        if (name.empty() || cmd.empty()) continue;
+        // [docs/106 §2-5] 매니페스트 파싱 = json/JKJsonQuick 정본.
+        const auto mf = jk::json::ParseManifest(bytes, "manifest.json");
+        std::string name = mf.name;
+        std::string cmd = mf.cmd;
+        std::string desc = mf.desc;
+        if (!mf.ok || name.empty() || cmd.empty()) continue;
 
         // .jkx 우선: 같은 이름의 컨테이너가 이미 있으면 매니페스트 앱은 스킵.
         bool taken = false;
@@ -755,40 +730,13 @@ void JKDesktopShell::ScanConsoleApps() {
         std::vector<uint8_t> bytes;
         if (!ReadFileBytes(manifestPath, bytes)) continue;  // no manifest → not a console app
 
-        // Throwaway runtime — parse + field extraction, then it's gone.
-        // (win32 원문 동형 — cmd_posix까지만 추가 필드.)
-        JSRuntime* rt = JS_NewRuntime();
-        if (!rt) continue;
-        JSContext* ctx = JS_NewContext(rt);
-        if (!ctx) {
-            JS_FreeRuntime(rt);
-            continue;
-        }
-        JSValue root = JS_ParseJSON(ctx, reinterpret_cast<const char*>(bytes.data()),
-                                    bytes.size() - 1, "manifest.json");
-        std::string name, cmd, desc, cmdPosix;
-        if (!JS_IsException(root) && JS_IsObject(root)) {
-            auto getString = [&](const char* key, std::string* field) {
-                JSValue v = JS_GetPropertyStr(ctx, root, key);
-                if (JS_IsString(v)) {
-                    size_t len = 0;
-                    const char* sval = JS_ToCStringLen(ctx, &len, v);
-                    if (sval) {
-                        *field = std::string(sval, len);
-                        JS_FreeCString(ctx, sval);
-                    }
-                }
-                JS_FreeValue(ctx, v);
-            };
-            getString("name", &name);
-            getString("cmd", &cmd);
-            getString("desc", &desc);
-            getString("cmd_posix", &cmdPosix);
-        }
-        JS_FreeValue(ctx, root);
-        if (ctx) JS_FreeContext(ctx);
-        JS_FreeRuntime(rt);
-        if (name.empty() || cmd.empty()) continue;
+        // [docs/106 §2-5] 매니페스트 파싱 = json/JKJsonQuick 정본(win32 동형).
+        const auto mf = jk::json::ParseManifest(bytes, "manifest.json");
+        std::string name = mf.name;
+        std::string cmd = mf.cmd;
+        std::string desc = mf.desc;
+        std::string cmdPosix = mf.cmdPosix;
+        if (!mf.ok || name.empty() || cmd.empty()) continue;
 
         // posix 스폰 키 — (M-1 fix r1) 절대키 해상: cmd_posix는 exe-dir 상대
         // 규약(JKLibraryCatalog 계약)이므로 basePath 결합해 cwd 무관 절대키로

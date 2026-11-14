@@ -46,5 +46,34 @@ QuickParseStatus ParseOnce(
     return QuickParseStatus::Ok;
 }
 
+ManifestFields ParseManifest(const std::vector<uint8_t>& nulTerminated,
+                             const char* label) {
+    ManifestFields out;
+    const auto status = ParseOnce(
+        nulTerminated, label,
+        [&out](JSContext* ctx, JSValue root) {
+            if (!JS_IsObject(root)) return;
+            auto getString = [&](const char* key, std::string* field) {
+                JSValue v = JS_GetPropertyStr(ctx, root, key);
+                if (JS_IsString(v)) {
+                    size_t len = 0;
+                    const char* s = JS_ToCStringLen(ctx, &len, v);
+                    if (s) {
+                        field->assign(s, len);
+                        JS_FreeCString(ctx, s);
+                    }
+                }
+                JS_FreeValue(ctx, v);
+            };
+            getString("name", &out.name);
+            getString("cmd", &out.cmd);
+            getString("desc", &out.desc);
+            getString("cmd_posix", &out.cmdPosix);
+        },
+        nullptr);
+    out.ok = (status == QuickParseStatus::Ok);
+    return out;
+}
+
 }  // namespace json
 }  // namespace jk

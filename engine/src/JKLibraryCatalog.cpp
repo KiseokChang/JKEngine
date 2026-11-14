@@ -13,6 +13,7 @@
 // try/catch 규약(launch_app fileExistsFn 주석 review r1 HIGH 계약).
 
 #include <JKLibraryCatalog.h>
+#include <json/JKJsonQuick.h>  // 매니페스트 파싱 정본
 
 #include <JKJkxFile.h>
 
@@ -132,40 +133,13 @@ int LibraryScan(const std::string& basePath, std::vector<LibraryEntry>& out) {
         std::vector<uint8_t> bytes;
         if (!ReadManifestBytes(manifestPath, bytes)) continue;  // 무매니페스트=앱 아님
 
-        // Throwaway runtime — parse + field extraction, then it's gone.
-        // (ScanConsoleApps :448-479 본사 복사 — getString 람다 포함.)
-        JSRuntime* rt = JS_NewRuntime();
-        if (!rt) continue;
-        JSContext* ctx = JS_NewContext(rt);
-        if (!ctx) {
-            JS_FreeRuntime(rt);
-            continue;
-        }
-        JSValue root = JS_ParseJSON(ctx, reinterpret_cast<const char*>(bytes.data()),
-                                    bytes.size() - 1, "manifest.json");
-        std::string name, cmd, desc, cmdPosix;
-        if (!JS_IsException(root) && JS_IsObject(root)) {
-            auto getString = [&](const char* key, std::string* field) {
-                JSValue v = JS_GetPropertyStr(ctx, root, key);
-                if (JS_IsString(v)) {
-                    size_t len = 0;
-                    const char* s = JS_ToCStringLen(ctx, &len, v);
-                    if (s) {
-                        *field = std::string(s, len);
-                        JS_FreeCString(ctx, s);
-                    }
-                }
-                JS_FreeValue(ctx, v);
-            };
-            getString("name", &name);
-            getString("cmd", &cmd);
-            getString("desc", &desc);
-            getString("cmd_posix", &cmdPosix);
-        }
-        JS_FreeValue(ctx, root);
-        if (ctx) JS_FreeContext(ctx);
-        JS_FreeRuntime(rt);
-        if (name.empty() || cmd.empty()) continue;
+        // [docs/106 §2-5] 매니페스트 파싱 = json/JKJsonQuick 정본.
+        const auto mf = jk::json::ParseManifest(bytes, "manifest.json");
+        std::string name = mf.name;
+        std::string cmd = mf.cmd;
+        std::string desc = mf.desc;
+        std::string cmdPosix = mf.cmdPosix;
+        if (!mf.ok || name.empty() || cmd.empty()) continue;
 
         // .jkx 우선: 같은 이름의 컨테이너가 이미 있으면 매니페스트 앱은 스킵
         // (런처 동일 문구 — 로그 행까지).
