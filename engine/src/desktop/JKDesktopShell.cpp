@@ -1036,10 +1036,12 @@ void JKDesktopShell::Draw(SDL_Renderer* renderer) {
                 int lh = 0;
                 // [2026-11-14] 라벨 색 = 그 자리 배경 명암 적응(테마 색 고정 금지 —
                 // 라이트 프리셋의 어두운 글자가 어두운 사진 위에서 사라졌다).
-                const SDL_Rect band{ icon.rect.x,
-                                     icon.rect.y + static_cast<int>(100 * s),
-                                     icon.rect.w,
-                                     static_cast<int>(24 * s) };
+                // [실측 원존 2026-11-14 "라벨 일부만 먹힘"] icon.rect는 **논리
+                // 좌표**인데 밴드에 s를 곱한 물리 값을 더해, 아이콘 아트(밝은
+                // 영역)를 샘플링하는 라벨이 생겼다 → 그 라벨만 색 판정이 어긋남.
+                // 밴드는 논리 단위로 계산(LumaAt가 내부에서 s를 곱한다).
+                const SDL_Rect band{ icon.rect.x, icon.rect.y + 100,
+                                     icon.rect.w, 24 };
                 icon.labelTex = LabelTextureColored(
                     label, AdaptiveLabelColor(band), &lw, &lh);
                 icon.labelTexW = lw;
@@ -1407,22 +1409,39 @@ SDL_Texture* JKDesktopShell::TextTextureEx(const std::string& utf8, int* w,
     textParts_.AttachTo(dc);   // 벡터 글리프(없으면 비트맵 폴백 그대로)
     dc.SetTextColor(textColor.r, textColor.g, textColor.b);
     if (useUnicode) {
-        int x = kPad;
-        for (size_t i = 0; i < utf8.size();) {
-            const unsigned char c = static_cast<unsigned char>(utf8[i]);
-            uint32_t cp = c;
-            int len = 1;
-            if (c >= 0xF0) { cp = c & 0x07; len = 4; }
-            else if (c >= 0xE0) { cp = c & 0x0F; len = 3; }
-            else if (c >= 0xC0) { cp = c & 0x1F; len = 2; }
-            for (int k = 1; k < len && i + static_cast<size_t>(k) < utf8.size(); ++k) {
-                cp = (cp << 6) | (utf8[i + static_cast<size_t>(k)] & 0x3F);
+        // [2026-11-14 보강] 적응색만으로는 사진의 밝기 경계(얼룩)에서 일부
+        // 라벨이 배경에 묻힌다(사용자 "일부만 먹힘"). 대비색 1px 외곽선을
+        // 먼저 깔고 본문을 올린다 — 어떤 배경 조각 위에서도 읽힌다.
+        auto glyphPass = [&](int ox, int oy, SDL_Color col) {
+            dc.SetTextColor(col.r, col.g, col.b);
+            int x = kPad;
+            for (size_t i = 0; i < utf8.size();) {
+                const unsigned char c = static_cast<unsigned char>(utf8[i]);
+                uint32_t cp = c;
+                int len = 1;
+                if (c >= 0xF0) { cp = c & 0x07; len = 4; }
+                else if (c >= 0xE0) { cp = c & 0x0F; len = 3; }
+                else if (c >= 0xC0) { cp = c & 0x1F; len = 2; }
+                for (int k = 1;
+                     k < len && i + static_cast<size_t>(k) < utf8.size(); ++k) {
+                    cp = (cp << 6) | (utf8[i + static_cast<size_t>(k)] & 0x3F);
+                }
+                const int adv = (len == 1) ? cm.engW : cm.hanW;
+                (void)dc.DrawUnicodeGlyph(JKPoint{ x + ox, kPad + oy }, cp, adv);
+                x += adv;
+                i += static_cast<size_t>(len);
             }
-            const int adv = (len == 1) ? cm.engW : cm.hanW;
-            (void)dc.DrawUnicodeGlyph(JKPoint{x, kPad}, cp, adv);
-            x += adv;
-            i += static_cast<size_t>(len);
-        }
+        };
+        // 본문이 밝은 글자면 검은 외곽선, 어두운 글자면 흰 외곽선.
+        const bool darkText =
+            textColor.r < 128 && textColor.g < 128 && textColor.b < 128;
+        const SDL_Color halo = darkText ? SDL_Color{ 245, 245, 245, 255 }
+                                        : SDL_Color{ 12, 12, 14, 255 };
+        glyphPass(-1, 0, halo);
+        glyphPass(1, 0, halo);
+        glyphPass(0, -1, halo);
+        glyphPass(0, 1, halo);
+        glyphPass(0, 0, textColor);
     } else {
         dc.TextOut(JKPoint{kPad, kPad}, kssm.c_str());
     }
