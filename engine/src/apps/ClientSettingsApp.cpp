@@ -3,6 +3,7 @@
 // are static data). Single scroll, 5 sections — theme / triggers / data /
 // permissions (summary + route to agentmgr) / devices.
 #include <apps/ClientSettingsApp.h>
+#include <text/JKImGuiFont.h>  // ImGui 한글 폰트 정본
 #include <json/JKJson.h>  // JSON 이스케이프 정본(docs/106 §2-5)
 
 #include <agent/JKAgentJson.h>
@@ -52,13 +53,7 @@ void ClientSettingsApp::OnInit() {
     ImGuiIO& io = ImGui::GetIO();
     // 한국어 폰트 리졸러 계약(docs/63 §4.1) 승계 — 빈 해석은 커스텀 폰트
     // 스킵(내장 기본 글리프; 하드코딩 malgun은 리눅스 AddFont assert 사망).
-    const std::string fontPath = jk::text::ResolveDesktopFontPath();
-    if (!fontPath.empty() &&
-        io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 16.0f,
-                                     nullptr,
-                                     io.Fonts->GetGlyphRangesKorean())) {
-        koreanFont_ = true;
-    }
+    koreanFont_ = jk::text::AddImGuiKoreanFont(io.Fonts);
     SendQuery("settings_read", "{}", Query::Read);
     SendQuery("agent_permissions", "{}", Query::Perms);
 }

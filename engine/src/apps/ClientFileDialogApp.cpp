@@ -10,6 +10,7 @@
 // transport convenience, design D3) and applies filter/start; at the end it
 // sends `file_open_result {ok, path?}` exactly once on every exit path.
 #include <apps/ClientFileDialogApp.h>
+#include <text/JKImGuiFont.h>  // ImGui 한글 폰트 정본
 #include <text/JKTextUtil.h>  // Trim 정본(docs/106 §2-5)
 #include <json/JKJson.h>
 
@@ -128,11 +129,7 @@ void ClientFileDialogApp::OnInit() {
     // (docs/63 §4.1, notify/snap/shot 동일): 빈 해석은 커스텀 폰트 스킵
     // (내장 기본 글리프 — AddFont 시점 assert 사망 대신 열화).
     ImGuiIO& io = ImGui::GetIO();
-    const std::string fontPath = jk::text::ResolveDesktopFontPath();
-    if (!fontPath.empty())
-        io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 16.0f,
-                                     nullptr,
-                                     io.Fonts->GetGlyphRangesKorean());
+    (void)jk::text::AddImGuiKoreanFont(io.Fonts);
 
     // Defaults until the params reply lands: process cwd + everything. The
     // params reply (below) overrides both when the server slot answers.

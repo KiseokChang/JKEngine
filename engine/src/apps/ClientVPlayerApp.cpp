@@ -1,4 +1,5 @@
 #include <apps/ClientVPlayerApp.h>
+#include <text/JKImGuiFont.h>  // ImGui 한글 폰트 정본
 #include <json/JKJson.h>  // JSON 이스케이프 정본(docs/106 §2-5)
 
 #include <apps/ClientIdlePolicy.h>
@@ -2277,11 +2278,7 @@ void ClientVPlayerApp::OnInit() {
     // 글리프) — 하드코딩 malgun은 리눅스에서 AddFont 시점 assert 사망
     // (vplayer WSL 부팅 실측, docs/70 §6 #6 선행 블록).
     ImGuiIO& io = ImGui::GetIO();
-    const std::string fontPath = jk::text::ResolveDesktopFontPath();
-    if (!fontPath.empty())
-        io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 16.0f,
-                                     nullptr,
-                                     io.Fonts->GetGlyphRangesKorean());
+    (void)jk::text::AddImGuiKoreanFont(io.Fonts);
     lastFrame_ = std::chrono::steady_clock::now();
 
     // 앱 도구 허브 (스펙 2026-09-19-app-tool-hub §8.1): 자기 도구 선언 — 연결

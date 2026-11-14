@@ -5,6 +5,7 @@
 // dim rectangle is the only thing the desktop sees through — and the app's
 // lifetime is one drag: mouse-up sends capture_region, the reply closes it.
 #include <apps/ClientSnapApp.h>
+#include <text/JKImGuiFont.h>  // ImGui 한글 폰트 정본
 
 #include <client/JKClientSurface.h>
 #include <imgui_impl_jkwindow.h>
@@ -57,11 +58,7 @@ void ClientSnapApp::OnInit() {
     // the ImGui default font — the hardcoded-malgun path aborted ImGui apps
     // at AddFontFromFileTTF's load assert on Linux (vplayer WSL boot 실측).
     ImGuiIO& io = ImGui::GetIO();
-    const std::string fontPath = jk::text::ResolveDesktopFontPath();
-    if (!fontPath.empty())
-        io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 16.0f,
-                                     nullptr,
-                                     io.Fonts->GetGlyphRangesKorean());
+    (void)jk::text::AddImGuiKoreanFont(io.Fonts);
 }
 
 void ClientSnapApp::OnClose() {

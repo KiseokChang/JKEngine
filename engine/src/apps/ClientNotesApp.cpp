@@ -4,6 +4,7 @@
 // Two tabs: 코멘트 (margin comments, newest-first, optional window link) and
 // 백로그 (대기/진행/완료 board).
 #include <apps/ClientNotesApp.h>
+#include <text/JKImGuiFont.h>  // ImGui 한글 폰트 정본
 #include <json/JKJson.h>  // JSON 이스케이프 정본(docs/106 §2-5)
 
 #include <agent/JKAgentJson.h>
@@ -65,13 +66,7 @@ void ClientNotesApp::OnInit() {
     ImGuiIO& io = ImGui::GetIO();
     // 한국어 폰트 리졸러 계약(docs/63 §4.1) 승계 — 빈 해석은 커스텀 폰트
     // 스킵(내장 기본 글리프; 하드코딩 malgun은 리눅스 AddFont assert 사망).
-    const std::string fontPath = jk::text::ResolveDesktopFontPath();
-    if (!fontPath.empty() &&
-        io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 16.0f,
-                                     nullptr,
-                                     io.Fonts->GetGlyphRangesKorean())) {
-        koreanFont_ = true;
-    }
+    koreanFont_ = jk::text::AddImGuiKoreanFont(io.Fonts);
     SendQuery("notes_read", "{}", Query::Read);
     SendQuery("list_windows", "{}", Query::Windows);
 }

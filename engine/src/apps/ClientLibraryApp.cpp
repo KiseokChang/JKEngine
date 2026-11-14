@@ -2,6 +2,7 @@
 // 멤버, ClientSettingsApp 패턴: 요청-응답 폴링, 이벤트 구독 없음). 읽기 전용 —
 // uninstall 없음(uninstall 스킵 결제 2026-10-07), 스캔은 카탈로그 몫(Task 1).
 #include <apps/ClientLibraryApp.h>
+#include <text/JKImGuiFont.h>  // ImGui 한글 폰트 정본
 #include <json/JKJson.h>  // JSON 이스케이프 정본(docs/106 §2-5)
 
 #include <apps/ClientScriptApp.h>
@@ -66,13 +67,7 @@ void ClientLibraryApp::OnInit() {
     ImGuiIO& io = ImGui::GetIO();
     // 한국어 폰트 리졸러 계약(docs/63 §4.1) 승계 — 빈 해석은 커스텀 폰트
     // 스킵(내장 기본 글리프; 하드코딩 malgun은 리눅스 AddFont assert 사망).
-    const std::string fontPath = jk::text::ResolveDesktopFontPath();
-    if (!fontPath.empty() &&
-        io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 16.0f,
-                                     nullptr,
-                                     io.Fonts->GetGlyphRangesKorean())) {
-        koreanFont_ = true;
-    }
+    koreanFont_ = jk::text::AddImGuiKoreanFont(io.Fonts);
 
     // 카탈로그 스캔 — exe-dir 규약은 launch_app 존재 검증
     // (JKWindowServer.cpp:4420-4426) 본사 복사(뒤 구분자 없음, 추출 실패 빈값).

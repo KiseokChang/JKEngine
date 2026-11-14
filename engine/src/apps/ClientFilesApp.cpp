@@ -4,6 +4,7 @@
 // preview run on this app's own window connection, which the server's
 // files gate treats as the user source (no approval — the user's own files).
 #include <apps/ClientFilesApp.h>
+#include <text/JKImGuiFont.h>  // ImGui 한글 폰트 정본
 #include <json/JKJson.h>  // JSON 이스케이프 정본(docs/106 §2-5)
 
 #include <agent/JKAgentJson.h>
@@ -79,13 +80,7 @@ void ClientFilesApp::OnInit() {
     ImGuiIO& io = ImGui::GetIO();
     // 한국어 폰트 리졸러 계약(docs/63 §4.1) 승계 — 빈 해석은 커스텀 폰트
     // 스킵(내장 기본 글리프; 하드코딩 malgun은 리눅스 AddFont assert 사망).
-    const std::string fontPath = jk::text::ResolveDesktopFontPath();
-    if (!fontPath.empty() &&
-        io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 16.0f,
-                                     nullptr,
-                                     io.Fonts->GetGlyphRangesKorean())) {
-        koreanFont_ = true;
-    }
+    koreanFont_ = jk::text::AddImGuiKoreanFont(io.Fonts);
     // 초기 경로: C 드라이브 루트(스펙 §2.3 — 절대 경로 필수).
     std::snprintf(pathBuf_, sizeof(pathBuf_), "C:\\");
     SendQuery("files_list", "{\"path\":\"C:\\\\\"}", Query::List);

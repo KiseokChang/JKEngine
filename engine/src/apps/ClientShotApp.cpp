@@ -3,6 +3,7 @@
 // decoded-image display; the 영역 캡처 button spawns the rubber-band overlay
 // (launch_app snap) — one API, many faces.
 #include <apps/ClientShotApp.h>
+#include <text/JKImGuiFont.h>  // ImGui 한글 폰트 정본
 
 #include <client/JKClientSurface.h>
 #include <imgui_impl_jkwindow.h>
@@ -62,11 +63,7 @@ void ClientShotApp::OnInit() {
     // (docs/63 §4.1, notify 동일): 빈 해석은 커스텀 폰트 스킵(내장 기본
     // 글리프 — AddFont 시점 assert 사망 대신 열화).
     ImGuiIO& io = ImGui::GetIO();
-    const std::string fontPath = jk::text::ResolveDesktopFontPath();
-    if (!fontPath.empty())
-        io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 16.0f,
-                                     nullptr,
-                                     io.Fonts->GetGlyphRangesKorean());
+    (void)jk::text::AddImGuiKoreanFont(io.Fonts);
 
     RefreshList();
 }

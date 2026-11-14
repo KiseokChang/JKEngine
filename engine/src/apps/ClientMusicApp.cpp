@@ -53,6 +53,7 @@
 // frameDirty_, 도착 완료 = 마지막 프레임). A failed read is terminal until
 // the next re-scan generation (failedGen — placeholder keeps the gray face).
 #include <apps/ClientMusicApp.h>
+#include <text/JKImGuiFont.h>  // ImGui 한글 폰트 정본
 #include <json/JKJson.h>  // JSON 이스케이프 정본(docs/106 §2-5)
 
 #include <imgui_impl_jkwindow.h>
@@ -375,11 +376,7 @@ void ClientMusicApp::OnInit() {
     // Korean UI (필터 힌트·빈 상태 문구) — desktop font resolver
     // (docs/63 §4.1, gallery 동일): 빈 해석은 커스텀 폰트 스킵.
     ImGuiIO& io = ImGui::GetIO();
-    const std::string fontPath = jk::text::ResolveDesktopFontPath();
-    if (!fontPath.empty())
-        io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 16.0f,
-                                     nullptr,
-                                     io.Fonts->GetGlyphRangesKorean());
+    (void)jk::text::AddImGuiKoreanFont(io.Fonts);
 
     // 스캔 워커 — 단일 상시 스레드(생성 주기 원문 계약). 이후의 스캔은
     // RequestScan의 우편함 1발만 만든다(스레드 재창설 없음).

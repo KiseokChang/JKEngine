@@ -7,6 +7,7 @@
 // 백엔드를 고르는 형태로 이 호출 자리를 갈아끼우면 된다 — 앱 나머지(기록·
 // 입력·송신)는 백엔드 무관. 배선 실장=백로그(docs/80 §3 명단).
 #include <apps/ClientChatApp.h>
+#include <text/JKImGuiFont.h>  // ImGui 한글 폰트 정본
 #include <json/JKJson.h>  // JSON 이스케이프 정본(docs/106 §2-5)
 
 #include <agent/JKLlmEngine.h>  // LoadChatConfig — 구두 턴 접점 인자(#112 T4)
@@ -256,13 +257,7 @@ void ClientChatApp::OnInit() {
     ImGuiIO& io = ImGui::GetIO();
     // 한국어 폰트 리졸러 계약(docs/63 §4.1) 승계 — 빈 해석은 커스텀 폰트
     // 스킵(내장 기본 글리프; 하드코딩 malgun은 리눅스 AddFont assert 사망).
-    const std::string fontPath = jk::text::ResolveDesktopFontPath();
-    if (!fontPath.empty() &&
-        io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 16.0f,
-                                     nullptr,
-                                     io.Fonts->GetGlyphRangesKorean())) {
-        koreanFont_ = true;
-    }
+    koreanFont_ = jk::text::AddImGuiKoreanFont(io.Fonts);
 }
 
 void ClientChatApp::OnClose() {

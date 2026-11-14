@@ -3,6 +3,7 @@
 // re-apply hook. No event subscription — request/response only (palette
 // idiom: PollAgentReply drains the window connection's reply queue).
 #include <apps/ClientAgentMgrApp.h>
+#include <text/JKImGuiFont.h>  // ImGui 한글 폰트 정본
 #include <json/JKJson.h>  // JSON 이스케이프 정본(docs/106 §2-5)
 
 #include <agent/JKAgentJson.h>
@@ -51,13 +52,7 @@ void ClientAgentMgrApp::OnInit() {
     // 한국어 폰트도 리졸러 계약(docs/63 §4.1) 승계 — 빈 해석은 커스텀 폰트
     // 스킵(내장 기본 글리프 열화; 하드코딩 malgun은 리눅스에서 AddFont 시점
     // assert 사망이 실측됐다).
-    const std::string fontPath = jk::text::ResolveDesktopFontPath();
-    if (!fontPath.empty() &&
-        io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 16.0f,
-                                     nullptr,
-                                     io.Fonts->GetGlyphRangesKorean())) {
-        koreanFont_ = true;
-    }
+    koreanFont_ = jk::text::AddImGuiKoreanFont(io.Fonts);
     Refresh(0);   // 첫 탭 데이터
 }
 

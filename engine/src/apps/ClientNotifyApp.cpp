@@ -3,6 +3,7 @@
 // frame gate, every event feeds the ImGui backend before NewFrame, the root
 // paints the dark clear color.
 #include <apps/ClientNotifyApp.h>
+#include <text/JKImGuiFont.h>  // ImGui 한글 폰트 정본
 #include <json/JKJson.h>
 
 #include <apps/ClientIdlePolicy.h>
@@ -60,13 +61,7 @@ void ClientNotifyApp::OnInit() {
     ImGuiIO& io = ImGui::GetIO();
     // 한국어 폰트 리졸러 계약(docs/63 §4.1) 승계 — 빈 해석은 커스텀 폰트
     // 스킵(내장 기본 글리프; 하드코딩 malgun은 리눅스 AddFont assert 사망).
-    const std::string fontPath = jk::text::ResolveDesktopFontPath();
-    if (!fontPath.empty() &&
-        io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 16.0f,
-                                     nullptr,
-                                     io.Fonts->GetGlyphRangesKorean())) {
-        koreanFont_ = true;
-    }
+    koreanFont_ = jk::text::AddImGuiKoreanFont(io.Fonts);
     // Opt into desktop events on the window connection (M2a relaxed push —
     // the palette set the precedent for a regular client subscriber).
     if (jk::client::JKClientSurface* surface = Surface()) {

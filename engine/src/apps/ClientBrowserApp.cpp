@@ -10,6 +10,7 @@
 #include <imgui.h>
 #include "theme/JKThemeImGui.h"
 #include <agent/JKAgentJson.h>
+#include <text/JKImGuiFont.h>  // ImGui 한글 폰트 정본
 #include <JKTextAtlas.h>
 #include <JKWindow.h>
 #include <fs/JKFs.h>
@@ -487,10 +488,7 @@ void ClientBrowserApp::OnInit() {
             0xFF00, 0xFFDC, // halfwidth/fullwidth forms
             0,
         };
-        const std::string fontPath = jk::text::ResolveDesktopFontPath();
-        if (!fontPath.empty())
-            io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 16.0f,
-                                         nullptr, koreanWithStar);
+        (void)jk::text::AddImGuiKoreanFont(io.Fonts, 16.0f, koreanWithStar);
     }
 
     LoadBookmarks(); // task 2 step 4: one-shot restore at startup
