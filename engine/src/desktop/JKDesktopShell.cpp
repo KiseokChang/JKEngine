@@ -914,6 +914,16 @@ void JKDesktopShell::Draw(SDL_Renderer* renderer) {
         SDL_GetRendererOutputSize(renderer, &pw, &ph);
         SDL_Rect dst{ 0, 0, pw, ph };
         SDL_RenderCopy(renderer, backgroundTexture_, nullptr, &dst);
+        // [2026-11-14 원존] 프리셋 스크림 — 라이트 테마 라벨(32,32,32)이 어두운
+        // 사진 위에서 사라지던 결함의 봉합. 프리셋이 배경 밝기까지 책임진다
+        // (다크 = a 0 = 사진 그대로).
+        if (t.desktopPhotoScrim.a > 0) {
+            SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+            SDL_SetRenderDrawColor(renderer, t.desktopPhotoScrim.r,
+                                   t.desktopPhotoScrim.g, t.desktopPhotoScrim.b,
+                                   t.desktopPhotoScrim.a);
+            SDL_RenderFillRect(renderer, &dst);
+        }
     }
 
     for (auto& icon : launcherIcons_) {
