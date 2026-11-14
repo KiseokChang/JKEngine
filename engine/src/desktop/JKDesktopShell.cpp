@@ -867,10 +867,19 @@ inline int MenuItemHeightPx(float s) {
     const int logical = std::max(26, cellH + 12);
     return static_cast<int>(logical * s);
 }
-const char* MenuItemLabel(int i) {
+// [2026-11-14] 테마 항목에 **현재 프리셋**을 표시 — "테마 바꾸기"만 있으면
+// 무엇에서 무엇으로 가는지 알 수 없다(사용자 피드백). 표기 = 한글 프리셋명.
+const char* ThemePresetLabelKo(const jk::theme::JKTheme* t) {
+    if (t == &jk::theme::kLight) return "라이트";
+    if (t == &jk::theme::kClassic) return "클래식";
+    return "다크";
+}
+
+std::string MenuItemLabel(int i) {
     switch (i) {
         case 0: return "새로고침";
-        case 1: return "테마 바꾸기";
+        case 1: return std::string("테마: ") +
+                       ThemePresetLabelKo(&jk::theme::current()) + " ▸";
         default: return "닫기";
     }
 }
