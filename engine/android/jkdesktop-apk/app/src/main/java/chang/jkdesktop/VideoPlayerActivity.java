@@ -66,8 +66,67 @@ public final class VideoPlayerActivity extends Activity {
 
         setContentView(root);
 
-        String path = getIntent() != null ? getIntent().getStringExtra("path") : null;
-        if (path == null || path.isEmpty()) path = pickLatestVideo();
+        pendingPath = getIntent() != null ? getIntent().getStringExtra("path") : null;
+        if (pendingPath == null || pendingPath.isEmpty()) pendingPath = null;
+        // [권한 UX 2026-11-15] 외부 저장소 접근이 없으면 MediaPlayer가 what=1로
+        // 조용히 죽는다 → 이유와 설정 이동을 보여주고, 허용 후 돌아오면 자동 재시도.
+        if (!hasStorageAccess()) {
+            askStorageAccess();
+            return;
+        }
+        startPending();
+    }
+
+    // 재생 대기 경로(null = 최근 동영상 자동) / 설정 왕복 표식.
+    private String pendingPath;
+    private boolean resumeTried;
+
+    private boolean hasStorageAccess() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            return android.os.Environment.isExternalStorageManager();
+        }
+        return checkSelfPermission(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+                == android.content.pm.PackageManager.PERMISSION_GRANTED;
+    }
+
+    private void askStorageAccess() {
+        hint.setText("동영상을 열려면 파일 접근 권한이 필요합니다.");
+        android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(this);
+        b.setTitle("파일 접근 권한");
+        b.setMessage("동영상을 읽으려면 \"모든 파일 접근\" 권한이 필요합니다.\n"
+                + "설정에서 Jkdesktop을 허용한 뒤 이 화면으로 돌아오면 자동으로 재생합니다.");
+        b.setPositiveButton("설정 열기", (d, w) -> {
+            resumeTried = true;
+            try {
+                startActivity(new android.content.Intent(
+                        android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                        Uri.parse("package:" + getPackageName())));
+            } catch (Exception e) {
+                try {
+                    startActivity(new android.content.Intent(
+                            android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
+                } catch (Exception e2) {
+                    android.util.Log.e("jkdesk", "storage settings failed", e2);
+                }
+            }
+        });
+        b.setNegativeButton("닫기", (d, w) -> finish());
+        b.show();
+        android.util.Log.i("jkdesk", "video: storage permission required");
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // 설정에서 허용하고 돌아오면 자동 재시도 — 사용자가 같은 화면에 다시 오게.
+        if (resumeTried && hasStorageAccess()) {
+            resumeTried = false;
+            startPending();
+        }
+    }
+
+    private void startPending() {
+        String path = pendingPath != null ? pendingPath : pickLatestVideo();
         if (path == null) {
             hint.setText("재생할 동영상이 없습니다\n(Download/Movies 폴더에 영상을 넣어 주세요)");
             return;
