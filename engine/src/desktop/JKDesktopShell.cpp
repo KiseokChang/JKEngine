@@ -575,8 +575,14 @@ void JKDesktopShell::LoadDesktopWidgets() {
     const bool haveFile = ReadFileBytes("state/desktop.json", bytes);
     const std::string text =
         haveFile ? std::string(reinterpret_cast<const char*>(bytes.data())) : "";
-    const bool wants =
-        text.find("\"widgets\"") != std::string::npos ? true : !haveFile;
+    // [docs/112 §5] 파일이 없거나 widgets 키가 없으면 **기본 세트(clock 1개)**.
+    // 명시적 빈 배열("widgets":[])만 "위젯 없음"이다.
+    // (실측 2026-11-16: 종전 = 파일만 있으면 위젯 0 — showDev만 써 둔
+    //  desktop.json 때문에 clock이 안 떴다.)
+    const bool explicitlyEmpty =
+        text.find("\"widgets\":[]") != std::string::npos ||
+        text.find("\"widgets\": []") != std::string::npos;
+    const bool wants = !explicitlyEmpty;
     if (wants) {
         // v1: 항목 1개(clock)만 해석 — 다중 위젯 파서는 v2(스펙 §7 비목표).
         DesktopWidget w;
