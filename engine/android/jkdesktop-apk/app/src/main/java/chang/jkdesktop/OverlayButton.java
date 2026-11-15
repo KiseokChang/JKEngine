@@ -6,7 +6,9 @@
 //
 // 권한: SYSTEM_ALERT_WINDOW — 없으면 설정 화면(ACTION_MANAGE_OVERLAY_PERMISSION)만
 // 연다(자동 부여 금지 — 사용자가 직접 허용).
-// 동작(2026-11-15 사용자 판정 반영 — "실행 말고 다른 기능"):
+// 동작(2026-11-15 사용자 판정 반영 — "실행 말고 다른 기능", 전략 docs/111 P2):
+//   더블탭    = 상태 브리핑 — /talk "창 목록 보여줘" 회신을 TTS로 읽는다
+//              (폰 = 조종간 + 상태판. 명령 채널은 /talk 단일)
 //   탭        = 음성 듣기 시작(JkVoice.begin) — 다른 앱을 쓰다 바로 말로 조작
 //   길게 누름 = jkdesktop을 **DeX(외부) 디스플레이**로 전면 복귀
 //              (종전엔 폰 화면(display 0)에 떠서 사용자 의도와 어긋났다)
@@ -45,6 +47,23 @@ public final class OverlayButton {
     private static int startParamY;
     private static boolean moved;
     private static long downAt;
+    private static long lastTapMs;
+    private static final android.os.Handler UI =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+    private static Runnable pendingTap;
+
+    private static void queueSingleTap(final Context app) {
+        cancelPendingTap();
+        pendingTap = () -> { startVoice(app); pendingTap = null; };
+        UI.postDelayed(pendingTap, 300);
+    }
+
+    private static void cancelPendingTap() {
+        if (pendingTap != null) {
+            UI.removeCallbacks(pendingTap);
+            pendingTap = null;
+        }
+    }
 
     private OverlayButton() {}
 
@@ -145,12 +164,23 @@ public final class OverlayButton {
                     case MotionEvent.ACTION_UP:
                         dragging = false;
                         if (!moved) {
-                            final long heldMs = android.os.SystemClock.uptimeMillis()
-                                    - downAt;
+                            final long heldMs =
+                                    android.os.SystemClock.uptimeMillis() - downAt;
                             if (heldMs >= 500) {
+                                cancelPendingTap();
                                 bringAppToFront(app);   // 길게 = DeX로 복귀
+                                return true;
+                            }
+                            // 탭/더블탭 구분 — 단일 탭 동작(음성)을 300ms 지연해
+                            // 두 번째 탭이 오면 취소하고 상태 브리핑으로 승격한다.
+                            final long nowMs = android.os.SystemClock.uptimeMillis();
+                            if (nowMs - lastTapMs < 300) {
+                                cancelPendingTap();
+                                lastTapMs = 0;
+                                statusBriefing(app);    // 더블탭 = 상태 브리핑
                             } else {
-                                startVoice(app);        // 탭 = 음성 듣기
+                                lastTapMs = nowMs;
+                                queueSingleTap(app);    // 탭 = 음성(300ms 유예)
                             }
                         } else {
                             app.getSharedPreferences("overlay", 0).edit()
@@ -214,6 +244,54 @@ public final class OverlayButton {
         } catch (Exception e) {
             android.util.Log.e("jkdesk", "overlay bring-to-front failed", e);
         }
+    }
+
+    // 더블탭 = 상태 브리핑 — 전략 docs/111 P2 "폰 = 조종간 + 상태판".
+    // 명령은 /talk 단일 채널로 보내고 회신을 TTS로 읽는다(별도 상태 API 없음).
+    static void statusBriefing(Context app) {
+        new Thread(() -> {
+            try {
+                java.net.URL u = new java.net.URL("http://127.0.0.1:8091/talk");
+                java.net.HttpURLConnection c =
+                        (java.net.HttpURLConnection) u.openConnection();
+                c.setRequestMethod("POST");
+                c.setDoOutput(true);
+                c.setConnectTimeout(3000);
+                c.setReadTimeout(8000);
+                c.setRequestProperty("Content-Type", "application/json");
+                byte[] body = "{\"text\":\"창 목록 보여줘\"}"
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                c.getOutputStream().write(body);
+                java.io.InputStream in = c.getInputStream();
+                java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+                byte[] buf = new byte[4096];
+                int n;
+                while ((n = in.read(buf)) > 0) bo.write(buf, 0, n);
+                in.close();
+                String json = new String(bo.toByteArray(),
+                        java.nio.charset.StandardCharsets.UTF_8);
+                String reply = extractJsonString(json, "reply");
+                android.util.Log.i("jkdesk", "overlay status -> " + reply);
+                if (reply != null && !reply.isEmpty()) JkTts.speak(reply);
+            } catch (Exception e) {
+                android.util.Log.e("jkdesk", "overlay status failed", e);
+            }
+        }, "jk-overlay-status").start();
+    }
+
+    // 최소 JSON 문자열 추출 — {"reply":"..."} 한 키면 충분(이스케이프 해제).
+    private static String extractJsonString(String json, String key) {
+        String needle = "\"" + key + "\":\"";
+        int at = json.indexOf(needle);
+        if (at < 0) return null;
+        StringBuilder sb = new StringBuilder();
+        for (int i = at + needle.length(); i < json.length(); i++) {
+            char ch = json.charAt(i);
+            if (ch == '\\') { i++; if (i < json.length()) sb.append(json.charAt(i)); }
+            else if (ch == '"') break;
+            else sb.append(ch);
+        }
+        return sb.toString();
     }
 
     // 탭 = 음성 듣기 시작(푸시투토크) — 다른 앱 위에서도 말로 조작.

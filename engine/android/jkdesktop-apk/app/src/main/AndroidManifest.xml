@@ -19,6 +19,7 @@
         android:resizeableActivity="true"
         android:supportsPictureInPicture="false"
         android:allowBackup="false"
+        android:usesCleartextTraffic="true"
         android:fullBackupContent="false"
         android:dataExtractionRules="@xml/data_extraction_rules">
         <!-- [P0 — docs/106 §3] allowBackup 미설정 → cloud API 키(state/chat.json)가

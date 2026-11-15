@@ -60,6 +60,10 @@ public class MainActivity extends SDLActivity {
             boolean shown = OverlayButton.toggle(this);
             android.util.Log.i("jkdesk", "overlay toggle via intent -> " + shown);
         }
+        if (intent.getBooleanExtra("status_briefing", false)) {
+            intent.removeExtra("status_briefing");   // 1회 소비(중복 토글 원존 동형)
+            OverlayButton.statusBriefing(this);
+        }
     }
 
     @Override
