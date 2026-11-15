@@ -253,16 +253,14 @@ bool IsDevOnlyApp(const std::string& name) {
     }
     return false;
 }
-// 메뉴에서 쓰는 상태/토글 — state/desktop.json {"showDev":true} 기록.
-// (셸 Init이 이 파일을 읽어 필터를 적용한다.)
+// 메뉴에서 쓰는 상태/토글 — state/desktop.json {"showDev":true}.
+// [실측 원존 2026-11-15] 종전 exe-dir 기준 경로 = Android에서 쓰기 불가(lib
+// 디렉터리) → 토글이 조용히 실패하고 라벨도 그대로였다("눌러도 반응 없음"
+// 사용자 원문). 자산과 같은 **CWD 상대** 규약으로 통일.
 namespace {
-std::string DesktopStatePath() {
-    std::string exe = jk::fs::GetExecutablePath();
-    const size_t slash = exe.find_last_of("\/");
-    if (slash != std::string::npos) exe.resize(slash + 1);
-    return exe + "state/desktop.json";
-}
-bool ReadShowDev() {
+std::string DesktopStatePath() { return "state/desktop.json"; }
+
+bool ReadShowDevFromDisk() {
     std::vector<uint8_t> bytes;
     if (!ReadFileBytes(DesktopStatePath(), bytes)) return false;
     const std::string text(reinterpret_cast<const char*>(bytes.data()));
@@ -270,19 +268,23 @@ bool ReadShowDev() {
            text.find("\"showDev\": true") != std::string::npos;
 }
 }  // namespace
-bool ShellShowDevApps() { return ReadShowDev(); }
-void ShellToggleShowDevApps() {
-    const bool next = !ReadShowDev();
+
+bool ShellShowDevApps() { return ReadShowDevFromDisk(); }
+
+bool ShellWriteShowDev(bool show) {
     const std::string path = DesktopStatePath();
     std::error_code ec;
     std::filesystem::create_directories(
         std::filesystem::path(path).parent_path(), ec);
-    if (std::FILE* f = std::fopen(path.c_str(), "wb")) {
-        std::fprintf(f, "{\"showDev\":%s}\n", next ? "true" : "false");
-        std::fclose(f);
-        std::fprintf(stderr, "[shell] showDev -> %s (다음 실행 적용)\n",
-                     next ? "true" : "false");
+    std::FILE* f = std::fopen(path.c_str(), "wb");
+    if (!f) {
+        std::fprintf(stderr, "[shell] showDev write failed (%s)\n", path.c_str());
+        return false;
     }
+    std::fprintf(f, "{\"showDev\":%s}\n", show ? "true" : "false");
+    std::fclose(f);
+    std::fprintf(stderr, "[shell] showDev -> %s\n", show ? "true" : "false");
+    return true;
 }
 
 void JKDesktopShell::Init(const ShellHost& host) {
@@ -460,30 +462,21 @@ void JKDesktopShell::Init(const ShellHost& host) {
         }
     }
 
-    // 개발자 앱 표시 여부(기본 숨김) — state/desktop.json {"showDev":true}.
+    // 개발자 앱 표시 여부(기본 숨김) — 자산과 같은 CWD 상대 규약
+    // (state/desktop.json, 폰=files/, PC=build/). **셀은 지우지 않고 표시만
+    // 거른다** — 메뉴 토글이 재시작 없이 즉시 반영되게 하기 위함
+    // (실측 2026-11-15: exe-dir 경로 쓰기 실패 + 다음 실행 적용 = "눌러도
+    //  반응 없음" 사용자 원문).
     {
-        std::string exe = jk::fs::GetExecutablePath();
-        const size_t slash = exe.find_last_of("\/");
-        if (slash != std::string::npos) exe.resize(slash + 1);
-        const std::string path = exe + "state/desktop.json";
         std::vector<uint8_t> bytes;
-        if (ReadFileBytes(path, bytes)) {
+        if (ReadFileBytes("state/desktop.json", bytes)) {
             const std::string text(reinterpret_cast<const char*>(bytes.data()));
             showDevApps_ = text.find("\"showDev\":true") != std::string::npos ||
                            text.find("\"showDev\": true") != std::string::npos;
         }
-        if (!showDevApps_) {
-            const size_t before = launcherIcons_.size();
-            launcherIcons_.erase(
-                std::remove_if(launcherIcons_.begin(), launcherIcons_.end(),
-                               [](const LauncherIcon& ic) {
-                                   return IsDevOnlyApp(ic.appName);
-                               }),
-                launcherIcons_.end());
-            std::fprintf(stderr,
-                         "[shell] dev-only apps hidden: %d (showDev off)\n",
-                         static_cast<int>(before - launcherIcons_.size()));
-        }
+        std::fprintf(stderr, "[shell] showDev=%d (dev-only apps %s)\n",
+                     showDevApps_ ? 1 : 0,
+                     showDevApps_ ? "shown" : "hidden");
     }
 
     // [2026-11-13] 같은 앱 셀 중복 제거(첫 셀 유지) — lf/hx 이중 등록 사고의
@@ -531,10 +524,17 @@ void JKDesktopShell::RelayoutLauncherIcons() {
     // [docs/106 §3] cols=0 UB 봉합 — 좁은 표면(DeX 분할·폰 세로)에서도 최소
     // 1열(0으로 나누기 = 모듈로 0 크래시 원존).
     const int cols = std::max(1, (logicalW - 50) / 150);
-    for (size_t i = 0; i < launcherIcons_.size(); ++i) {
-        const int col = static_cast<int>(i) % cols;
-        const int row = static_cast<int>(i) / cols;
-        launcherIcons_[i].rect = JKRect{ 50 + col * 150, 50 + row * 150, 96, 130 };
+    // [2026-11-15] 표시 대상만 그리드에 참여 — 개발자 앱 숨김/보임이 즉시 반영.
+    int slot = 0;
+    for (auto& icon : launcherIcons_) {
+        if (!showDevApps_ && IsDevOnlyApp(icon.appName)) {
+            icon.rect = JKRect{ 0, 0, 0, 0 };   // 히트·드로잉 제외(rect 0 = 불가시)
+            continue;
+        }
+        const int col = slot % cols;
+        const int row = slot / cols;
+        icon.rect = JKRect{ 50 + col * 150, 50 + row * 150, 96, 130 };
+        ++slot;
     }
 }
 
@@ -958,6 +958,7 @@ void JKDesktopShell::Draw(SDL_Renderer* renderer) {
     }
 
     for (auto& icon : launcherIcons_) {
+        if (icon.rect.w <= 0) continue;   // 숨김 셀(개발자 앱) — 그리드 밖
         SDL_Rect rc{
             static_cast<int>(icon.rect.x * s),
             static_cast<int>(icon.rect.y * s),
@@ -1560,10 +1561,18 @@ bool JKDesktopShell::HandleMenuClick(int x, int y) {
             }
             break;
         }
-        case 4: {   // 개발자 앱 표시 토글 — 파일에 기록, 다음 실행부터 적용
-            // (셸 재초기화는 자산 스캔·텍스처 재생성을 동반해 클릭 처리 중에
-            //  하면 위험 — 정직하게 "다음 실행" 계약으로 둔다).
-            jk::desktop::ShellToggleShowDevApps();
+        case 4: {   // 개발자 앱 표시 토글 — **즉시 반영**(셀은 지우지 않고 표시만
+            // 거르므로 재스캔·텍스처 재생성 없이 안전하게 다시 배치할 수 있다).
+            showDevApps_ = !showDevApps_;
+            (void)jk::desktop::ShellWriteShowDev(showDevApps_);
+            RelayoutLauncherIcons();
+            InvalidateThemeTextCaches();   // 숨김/보임이 바뀌면 라벨 캐시도 정리
+            int pw = 0;
+            int ph = 0;
+            if (host_.renderer) SDL_GetRendererOutputSize(host_.renderer, &pw, &ph);
+            if (host_.onDynamicDraw && pw > 0 && ph > 0) {
+                host_.onDynamicDraw(SDL_Rect{ 0, 0, pw, ph });
+            }
             break;
         }
         case 3: {   // UI v2 MVP — 다른 앱 위에 뜨는 JK 버튼 토글.
