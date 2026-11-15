@@ -166,6 +166,24 @@ private:
     ShellHost host_;
     std::vector<LauncherIcon> launcherIcons_;
     SDL_Texture* backgroundTexture_ = nullptr;
+    // [docs/112] 데스크톱 위젯 — 바탕에 상주하는 자기갱신 패널(앱/아이콘 아님).
+    struct DesktopWidget {
+        std::string type;       // "clock" (v1)
+        std::string anchor;     // "top-right" | "top-left" | "bottom-right"
+        int dx = 20, dy = 20;   // 앵커로부터의 오프셋(논리 pt)
+        int w = 220, h = 96;    // 논리 크기
+        int lastMin = -1;       // 갱신 판정(1분)
+        SDL_Texture* tex = nullptr;   // HH:MM
+        int texW = 0, texH = 0;
+        SDL_Texture* subTex = nullptr;  // 날짜/요일
+        int subW = 0, subH = 0;
+    };
+    std::vector<DesktopWidget> desktopWidgets_;
+    void LoadDesktopWidgets();
+    SDL_Rect DesktopWidgetRect(const DesktopWidget& w, int logicalW,
+                               int logicalH) const;
+    SDL_Rect AnyWidgetRectLogical(int logicalW, int logicalH) const;
+
     // 우클릭 메뉴 상태(물리 픽셀).
     bool menuOpen_ = false;
     SDL_Rect menuRect_{0, 0, 0, 0};

@@ -490,6 +490,8 @@ void JKDesktopShell::Init(const ShellHost& host) {
                      showDevApps_ ? "shown" : "hidden");
     }
 
+    LoadDesktopWidgets();   // [docs/112] 위젯 로드(기본 clock 1개)
+
     // [2026-11-13] 같은 앱 셀 중복 제거(첫 셀 유지) — lf/hx 이중 등록 사고의
     // 재발 방지. 셀 생성 경로가 늘어날 때(플랫폼 분기·모듈 스캔·내장 폴백)
     // 같은 appName이 두 번 들어가면 런처에 같은 아이콘이 두 개 뜬다.
@@ -532,6 +534,7 @@ void JKDesktopShell::RelayoutLauncherIcons() {
     int ph = 720;
     SDL_GetRendererOutputSize(host_.renderer, &pw, &ph);
     const int logicalW = static_cast<int>(pw / s);
+    const int logicalH = static_cast<int>(ph / s);
     // [docs/106 §3] cols=0 UB 봉합 — 좁은 표면(DeX 분할·폰 세로)에서도 최소
     // 1열(0으로 나누기 = 모듈로 0 크래시 원존).
     const int cols = std::max(1, (logicalW - 50) / 150);
@@ -543,9 +546,62 @@ void JKDesktopShell::RelayoutLauncherIcons() {
         }
         const int col = slot % cols;
         const int row = slot / cols;
-        icon.rect = JKRect{ 50 + col * 150, 50 + row * 150, 96, 130 };
+        const JKRect cell{ 50 + col * 150, 50 + row * 150, 96, 130 };
+        // [docs/112 P-W1] 위젯은 자기 자리를 소유 — 겹치는 셀은 비우고 다음
+        // 아이콘이 당겨진다(슬롯 소비 없음).
+        bool hitWidget = false;
+        for (const auto& w : desktopWidgets_) {
+            const SDL_Rect wr = DesktopWidgetRect(w, logicalW, logicalH);
+            if (cell.x < wr.x + wr.w && wr.x < cell.x + cell.w &&
+                cell.y < wr.y + wr.h && wr.y < cell.y + cell.h) {
+                hitWidget = true;
+                break;
+            }
+        }
+        if (hitWidget) {
+            icon.rect = JKRect{ 0, 0, 0, 0 };
+            continue;
+        }
+        icon.rect = cell;
         ++slot;
     }
+}
+
+// [docs/112] 데스크톱 위젯 — v1은 clock 1종. state/desktop.json의 widgets 배열을
+// 최소 스캔으로 읽고(없으면 기본 clock), 앵커 정규화 좌표로 배치한다.
+void JKDesktopShell::LoadDesktopWidgets() {
+    desktopWidgets_.clear();
+    std::vector<uint8_t> bytes;
+    const bool haveFile = ReadFileBytes("state/desktop.json", bytes);
+    const std::string text =
+        haveFile ? std::string(reinterpret_cast<const char*>(bytes.data())) : "";
+    const bool wants =
+        text.find("\"widgets\"") != std::string::npos ? true : !haveFile;
+    if (wants) {
+        // v1: 항목 1개(clock)만 해석 — 다중 위젯 파서는 v2(스펙 §7 비목표).
+        DesktopWidget w;
+        w.type = "clock";
+        w.anchor = text.find("\"anchor\":\"top-left\"") != std::string::npos
+                       ? "top-left"
+                       : "top-right";
+        desktopWidgets_.push_back(w);
+        std::fprintf(stderr, "[shell] widget: %s (%s)\n", w.type.c_str(),
+                     w.anchor.c_str());
+    }
+}
+
+SDL_Rect JKDesktopShell::DesktopWidgetRect(const DesktopWidget& w, int logicalW,
+                                           int logicalH) const {
+    int x = logicalW - w.w - w.dx;
+    int y = w.dy;
+    if (w.anchor == "top-left") x = w.dx;
+    else if (w.anchor == "bottom-right") y = logicalH - w.h - w.dy;
+    return SDL_Rect{ x, y, w.w, w.h };
+}
+
+SDL_Rect JKDesktopShell::AnyWidgetRectLogical(int logicalW, int logicalH) const {
+    if (desktopWidgets_.empty()) return SDL_Rect{ 0, 0, 0, 0 };
+    return DesktopWidgetRect(desktopWidgets_.front(), logicalW, logicalH);
 }
 
 void JKDesktopShell::ScanJkxApps() {
@@ -1043,6 +1099,72 @@ void JKDesktopShell::Draw(SDL_Renderer* renderer) {
     // 텍스처 재렌더(자기 자리의 리렌더 = LabelTexture 캐시 미적용 — 본체가
     // [2026-11-16 사용자 판정] 우상단 대형 시계 위젯 제거 — 작업표시줄 트레이에
     // 이미 시계가 있고, 그 시계를 누르면 **시계 앱**이 열린다(중복 표면 소각).
+    // [docs/112] 데스크톱 위젯 그리기 — 자기 갱신 주기(1분)로만 텍스처를 갱신하고,
+    // 갱신 시 그 사각형만 더티 처리한다(onDynamicDraw).
+    for (auto& w : desktopWidgets_) {
+        int pw = 0;
+        int ph = 0;
+        SDL_GetRendererOutputSize(renderer, &pw, &ph);
+        const int lw = static_cast<int>(pw / (s > 0 ? s : 1.0f));
+        const int lh = static_cast<int>(ph / (s > 0 ? s : 1.0f));
+        const SDL_Rect lr = DesktopWidgetRect(w, lw, lh);
+        const SDL_Rect rect{ static_cast<int>(lr.x * s), static_cast<int>(lr.y * s),
+                             static_cast<int>(lr.w * s), static_cast<int>(lr.h * s) };
+
+        const auto& tw = jk::theme::current();
+        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderDrawColor(renderer, tw.desktopWidgetBg.r, tw.desktopWidgetBg.g,
+                               tw.desktopWidgetBg.b, tw.desktopWidgetBg.a);
+        SDL_RenderFillRect(renderer, &rect);
+        SDL_SetRenderDrawColor(renderer, tw.tooltipBorder.r, tw.tooltipBorder.g,
+                               tw.tooltipBorder.b, 120);
+        SDL_RenderDrawRect(renderer, &rect);
+
+        if (w.type != "clock") continue;
+        time_t nowt = time(nullptr);
+        tm lt{};
+#ifdef _WIN32
+        localtime_s(&lt, &nowt);
+#else
+        tm* pp = std::localtime(&nowt);
+        if (pp) lt = *pp;
+#endif
+        if (lt.tm_min != w.lastMin || !w.tex) {
+            w.lastMin = lt.tm_min;
+            char hh[8];
+            std::snprintf(hh, sizeof(hh), "%02d:%02d", lt.tm_hour, lt.tm_min);
+            if (w.tex) SDL_DestroyTexture(w.tex);
+            if (w.subTex) SDL_DestroyTexture(w.subTex);
+            int tw2 = 0;
+            int th2 = 0;
+            w.tex = LabelTextureColored(hh, tw.desktopWidgetText, &tw2, &th2);
+            w.texW = tw2;
+            w.texH = th2;
+            static const char* kw[] = {"일", "월", "화", "수", "목", "금", "토"};
+            char sub[64];
+            std::snprintf(sub, sizeof(sub), "%d월 %d일 (%s)", lt.tm_mon + 1,
+                          lt.tm_mday, kw[(lt.tm_wday + 7) % 7]);
+            w.subTex = LabelTextureColored(sub, tw.desktopWidgetText, &tw2, &th2);
+            w.subW = tw2;
+            w.subH = th2;
+            if (host_.onDynamicDraw) host_.onDynamicDraw(rect);
+        }
+        if (w.tex && w.texW > 0) {
+            const int scale = 3;
+            SDL_Rect dst{ rect.x + static_cast<int>(14 * s),
+                          rect.y + static_cast<int>(10 * s),
+                          w.texW * scale, w.texH * scale };
+            SDL_RenderCopy(renderer, w.tex, nullptr, &dst);
+        }
+        if (w.subTex && w.subW > 0) {
+            SDL_Rect dst{ rect.x + static_cast<int>(14 * s),
+                          rect.y + static_cast<int>(16 * s) +
+                              (w.texH > 0 ? w.texH * 3 : 0),
+                          w.subW, w.subH };
+            SDL_RenderCopy(renderer, w.subTex, nullptr, &dst);
+        }
+    }
+
     // 호버 툴팁 (docs/67 후속): 300ms 머문 아이콘 셀 위에 마지막으로 얹는다 —
     // 아이콘·배경 위에 항상 깔리도록 그리기 순서상 맨 뒤. 활성화 판정은 여기서
     // (정지 커서 승격 — UpdateHover 주석 참조).
@@ -1145,6 +1267,11 @@ void JKDesktopShell::Destroy() {
     if (clockTex_) {
         SDL_DestroyTexture(clockTex_);
         clockTex_ = nullptr;
+    }
+    for (auto& w : desktopWidgets_) {   // [docs/112] 위젯 텍스처도 색 베이크 대상
+        if (w.tex) { SDL_DestroyTexture(w.tex); w.tex = nullptr; }
+        if (w.subTex) { SDL_DestroyTexture(w.subTex); w.subTex = nullptr; }
+        w.lastMin = -1;
     }
     // 툴팁 텍스처 캐시 + 렌더 지연 부품 (캐시가 소유 백엔드에 의존하므로
     // 텍스처 파괴 후 플러시 순 — 승인 배너 정리 경로 선례).
@@ -1548,6 +1675,29 @@ bool JKDesktopShell::HandleMenuClick(int x, int y) {
 }
 
 bool JKDesktopShell::LaunchAt(int x, int y) {
+    // [docs/112 §6] 위젯 히트가 아이콘보다 먼저 — 위젯 클릭이 아이콘 실행으로
+    // 새지 않게. clock 위젯 = 시계 앱 개봉(트레이 시계 클릭과 같은 채널).
+    if (!desktopWidgets_.empty() && host_.renderer) {
+        const float ws = host_.outputScale ? host_.outputScale() : 1.0f;
+        int pw = 0;
+        int ph = 0;
+        SDL_GetRendererOutputSize(host_.renderer, &pw, &ph);
+        const int lw = static_cast<int>(pw / (ws > 0 ? ws : 1.0f));
+        const int lh = static_cast<int>(ph / (ws > 0 ? ws : 1.0f));
+        for (const auto& w : desktopWidgets_) {
+            const SDL_Rect lr = DesktopWidgetRect(w, lw, lh);
+            const int rx = static_cast<int>(lr.x * ws);
+            const int ry = static_cast<int>(lr.y * ws);
+            const int rw = static_cast<int>(lr.w * ws);
+            const int rh = static_cast<int>(lr.h * ws);
+            if (x >= rx && x < rx + rw && y >= ry && y < ry + rh) {
+                if (w.type == "clock" && host_.launch) {
+                    host_.launch("clock", false);
+                }
+                return true;
+            }
+        }
+    }
     const int icon = HitTest(x, y);
     if (icon < 0) return false;
     ClearHover();  // 실행 직후 툴팁 즉시 숨김

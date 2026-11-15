@@ -31,7 +31,10 @@ struct JKTheme {
     SDL_Color tooltipText;          // 툴팁 박스 텍스트
     SDL_Color tooltipBg;            // 툴팁 박스 면
     SDL_Color tooltipBorder;        // 툴팁 박스 테두리
-    SDL_Color desktopClockText;     // 데스크톱 시계 위젯 숫자
+    SDL_Color desktopClockText;
+    // [docs/112] 데스크톱 위젯 토큰(ImGui widgetText와 별개 — 바탕화면 상주 패널).
+    SDL_Color desktopWidgetText;
+    SDL_Color desktopWidgetBg;     // 데스크톱 시계 위젯 숫자
     // 태스크바 — ClientTaskbarApp (값 = 기존 리터럴 그대로)
     SDL_Color taskbarBg;
     SDL_Color taskbarFaceNormal, taskbarFaceActive, taskbarFaceMinimized;
@@ -77,6 +80,8 @@ inline constexpr JKTheme kDefault = {
     .tooltipBg             = {26, 26, 30, 255},
     .tooltipBorder         = {130, 130, 140, 255},
     .desktopClockText      = {235, 235, 240, 255},
+    .desktopWidgetText     = {235, 235, 240, 255},
+    .desktopWidgetBg       = {26, 27, 31, 180},
     .taskbarBg             = {24, 26, 32, 255},
     .taskbarFaceNormal     = {56, 58, 68, 255},
     .taskbarFaceActive     = {92, 98, 122, 255},
@@ -125,6 +130,8 @@ inline constexpr JKTheme kLight = {
     .tooltipBg             = {250, 250, 250, 255},
     .tooltipBorder         = {160, 160, 165, 255},
     .desktopClockText      = {32, 32, 32, 255},
+    .desktopWidgetText     = {28, 28, 32, 255},
+    .desktopWidgetBg       = {250, 250, 252, 200},
     .taskbarBg             = {243, 243, 243, 255},
     .taskbarFaceNormal     = {229, 229, 229, 255},
     .taskbarFaceActive     = {204, 204, 204, 255},
@@ -171,6 +178,8 @@ inline constexpr JKTheme kClassic = {
     .tooltipBg             = {26, 26, 30, 255},
     .tooltipBorder         = {130, 130, 140, 255},
     .desktopClockText      = {235, 235, 240, 255},
+    .desktopWidgetText     = {230, 232, 240, 255},
+    .desktopWidgetBg       = {70, 74, 92, 170},
     .taskbarBg             = {24, 26, 32, 255},     // 이하 taskbar 9필드 = kDefault와 동일 (값 불변 토큰화)
     .taskbarFaceNormal     = {56, 58, 68, 255},
     .taskbarFaceActive     = {92, 98, 122, 255},
