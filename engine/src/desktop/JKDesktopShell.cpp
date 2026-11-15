@@ -237,6 +237,52 @@ SDL_Texture* JKDesktopShell::LoadTextureScaled(const char* assetBase) {
     return host_.makeTexture(img, path);
 }
 
+// [2026-11-15 사용자 판정 "바탕화면이 후진 앱 서랍"] 제품/개발 경계(P1).
+// 아래는 개발·검증용 앱 — 기본 숨김, 메뉴 "개발자 앱" 토글로만 표시한다.
+// 파일 = exe 옆 state/desktop.json {"showDev":true} (전 표면 공통 규약).
+const char* const kDevOnlyApps[] = {
+    "imguidemo", "jango",      "occ",        "pcx",        "recog",
+    "vector",    "vfont",      "vpres",      "testwin",    "sampletodo",
+    "passworddemo", "scriptdemo", "lf",      "helix",
+};
+bool IsDevOnlyApp(const std::string& name) {
+    for (const char* d : kDevOnlyApps) {
+        if (name == d) return true;
+    }
+    return false;
+}
+// 메뉴에서 쓰는 상태/토글 — state/desktop.json {"showDev":true} 기록.
+// (셸 Init이 이 파일을 읽어 필터를 적용한다.)
+namespace {
+std::string DesktopStatePath() {
+    std::string exe = jk::fs::GetExecutablePath();
+    const size_t slash = exe.find_last_of("\/");
+    if (slash != std::string::npos) exe.resize(slash + 1);
+    return exe + "state/desktop.json";
+}
+bool ReadShowDev() {
+    std::vector<uint8_t> bytes;
+    if (!ReadFileBytes(DesktopStatePath(), bytes)) return false;
+    const std::string text(reinterpret_cast<const char*>(bytes.data()));
+    return text.find("\"showDev\":true") != std::string::npos ||
+           text.find("\"showDev\": true") != std::string::npos;
+}
+}  // namespace
+bool ShellShowDevApps() { return ReadShowDev(); }
+void ShellToggleShowDevApps() {
+    const bool next = !ReadShowDev();
+    const std::string path = DesktopStatePath();
+    std::error_code ec;
+    std::filesystem::create_directories(
+        std::filesystem::path(path).parent_path(), ec);
+    if (std::FILE* f = std::fopen(path.c_str(), "wb")) {
+        std::fprintf(f, "{\"showDev\":%s}\n", next ? "true" : "false");
+        std::fclose(f);
+        std::fprintf(stderr, "[shell] showDev -> %s (다음 실행 적용)\n",
+                     next ? "true" : "false");
+    }
+}
+
 void JKDesktopShell::Init(const ShellHost& host) {
     host_ = host;
     if (!host_.renderer) return;
@@ -409,6 +455,32 @@ void JKDesktopShell::Init(const ShellHost& host) {
         }
         if (icon.texture) {
             std::fprintf(stderr, "JKWindowServer: launcher icon '%s' loaded\n", base);
+        }
+    }
+
+    // 개발자 앱 표시 여부(기본 숨김) — state/desktop.json {"showDev":true}.
+    {
+        std::string exe = jk::fs::GetExecutablePath();
+        const size_t slash = exe.find_last_of("\/");
+        if (slash != std::string::npos) exe.resize(slash + 1);
+        const std::string path = exe + "state/desktop.json";
+        std::vector<uint8_t> bytes;
+        if (ReadFileBytes(path, bytes)) {
+            const std::string text(reinterpret_cast<const char*>(bytes.data()));
+            showDevApps_ = text.find("\"showDev\":true") != std::string::npos ||
+                           text.find("\"showDev\": true") != std::string::npos;
+        }
+        if (!showDevApps_) {
+            const size_t before = launcherIcons_.size();
+            launcherIcons_.erase(
+                std::remove_if(launcherIcons_.begin(), launcherIcons_.end(),
+                               [](const LauncherIcon& ic) {
+                                   return IsDevOnlyApp(ic.appName);
+                               }),
+                launcherIcons_.end());
+            std::fprintf(stderr,
+                         "[shell] dev-only apps hidden: %d (showDev off)\n",
+                         static_cast<int>(before - launcherIcons_.size()));
         }
     }
 
@@ -807,7 +879,9 @@ void JKDesktopShell::ScanConsoleApps() {
 // [UI v2 — 2026-11-13] 바탕화면 우클릭 메뉴. 항목 3종(새로고침·테마 순환·
 // 닫기). 텍스트는 라벨 텍스처(투명 배경) 재사용 — 새 래스터 경로 0.
 namespace {
-constexpr int kMenuItemCount = 5;
+constexpr int kMenuItemCount = 6;
+
+
 // [실측 원존 2026-11-14 "메뉴 글자 깨짐"] 종전 항목 높이 = 고정 26×s —
 // 라벨 텍스처 높이(셀 메트릭 + 패드)가 더 크면 세로로 잘려 글자가 깨졌다.
 // 항목 높이는 항상 라벨이 들어가는 크기(셀높이+12pt 하한 26pt).
@@ -831,6 +905,8 @@ std::string MenuItemLabel(int i) {
                        ThemePresetLabelKo(&jk::theme::current()) + " ▸";
         case 2: return "음성으로 말하기";
         case 3: return "오버레이 버튼";
+        case 4: return std::string("개발자 앱: ") +
+                       (jk::desktop::ShellShowDevApps() ? "보임" : "숨김");
         default: return "닫기";
     }
 }
@@ -1475,6 +1551,12 @@ bool JKDesktopShell::HandleMenuClick(int x, int y) {
             if (JKAndroidVoiceBegin) {
                 (void)JKAndroidVoiceBegin();
             }
+            break;
+        }
+        case 4: {   // 개발자 앱 표시 토글 — 파일에 기록, 다음 실행부터 적용
+            // (셸 재초기화는 자산 스캔·텍스처 재생성을 동반해 클릭 처리 중에
+            //  하면 위험 — 정직하게 "다음 실행" 계약으로 둔다).
+            jk::desktop::ShellToggleShowDevApps();
             break;
         }
         case 3: {   // UI v2 MVP — 다른 앱 위에 뜨는 JK 버튼 토글.

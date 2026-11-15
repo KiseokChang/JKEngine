@@ -23,6 +23,11 @@ class HangulManager;
 namespace jk {
 namespace desktop {
 
+// 개발자 앱 표시 상태/토글 — state/desktop.json {"showDev":bool}.
+// 셸 Init이 이 값을 읽어 데모 앱 셀을 숨긴다(P1 제품/개발 경계).
+bool ShellShowDevApps();
+void ShellToggleShowDevApps();
+
 // In-process privileged shell (P1 ③, spec D7): the launcher desktop. Owns
 // the icon grid, the background photo and the .jkx scan. Every service it
 // needs from the server arrives through the injected ShellHost callbacks —
@@ -164,6 +169,7 @@ private:
     // 우클릭 메뉴 상태(물리 픽셀).
     bool menuOpen_ = false;
     SDL_Rect menuRect_{0, 0, 0, 0};
+    bool showDevApps_ = false;   // 개발자 앱 표시(state/desktop.json)
     int menuHover_ = -1;
 
     // 호버 상태: hoverIndex_는 최근 모션의 런처 히트 인덱스(-1 = 런처 밖).
