@@ -32,6 +32,9 @@ JK_WEAK_HOOK int JKVoiceAutoturnStart();
 // UI v2 MVP — 시스템 오버레이 JK 버튼(다른 앱 위에서 jkdesktop 복귀).
 // 반환 = 토글 후 표시 중 여부(권한 없음 = 설정 화면만 열고 0).
 JK_WEAK_HOOK int JkToggleOverlayButton();
+
+// 동영상 재생(MVP) — path 빈 문자열 = 최근 동영상. 정의 = jkvoice_bridge.
+JK_WEAK_HOOK int JkPlayVideo(const char* path);
 }
 
 #endif  // JK_HOOKS_ANDROID_H

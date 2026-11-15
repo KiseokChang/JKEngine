@@ -512,7 +512,37 @@ extern "C" int JkToggleOverlayButton() {
     env->ExceptionClear();
     env->DeleteLocalRef(cls);
     env->DeleteLocalRef(activity);
-    std::fprintf(stderr, "[jkdesk] overlay toggle -> %d
-", shown ? 1 : 0);
+    std::fprintf(stderr, "[jkdesk] overlay toggle -> %d\n", shown ? 1 : 0);
     return shown ? 1 : 0;
+}
+
+// --- 동영상 재생(MVP) ---
+// Java VideoPlayerActivity.launchFrom(Context, path)로 위임한다. path 빈 문자열
+// = 최근 동영상 자동 선택. 반환 = 1(전달됨).
+extern "C" int JkPlayVideo(const char* path) {
+    JNIEnv* env = static_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
+    jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
+    if (!env || !activity) return 0;
+    jclass cls = env->FindClass("chang/jkdesktop/VideoPlayerActivity");
+    if (!cls) {
+        env->ExceptionClear();
+        env->DeleteLocalRef(activity);
+        return 0;
+    }
+    jmethodID mid = env->GetStaticMethodID(cls, "launchFrom",
+        "(Landroid/content/Context;Ljava/lang/String;)V");
+    if (!mid) {
+        env->ExceptionClear();
+        env->DeleteLocalRef(cls);
+        env->DeleteLocalRef(activity);
+        return 0;
+    }
+    jstring jp = env->NewStringUTF(path ? path : "");
+    env->CallStaticVoidMethod(cls, mid, activity, jp);
+    env->ExceptionClear();
+    env->DeleteLocalRef(jp);
+    env->DeleteLocalRef(cls);
+    env->DeleteLocalRef(activity);
+    std::fprintf(stderr, "[jkdesk] play video -> %s\n", path ? path : "(latest)");
+    return 1;
 }

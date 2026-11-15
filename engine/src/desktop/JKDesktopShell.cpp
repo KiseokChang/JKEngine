@@ -349,6 +349,17 @@ void JKDesktopShell::Init(const ShellHost& host) {
     }
     #endif
     #if defined(__ANDROID__)
+#if defined(__ANDROID__)
+    // [2026-11-15 동영상 MVP] 플랫폼 재생기 위임 셀 — 모듈(jkapp_vplayer)은
+    // FFmpeg 의존이라 Android 빌드에 없으므로, 셀은 훅을 부른다(아이콘은
+    // 기존 launcher_vplayer 자산 재사용 — appName을 vplayer로 둔다).
+    if (!hasJkx("vplayer")) {
+        LauncherIcon icon;
+        icon.appName = "vplayer";
+        icon.title = "비디오";
+        launcherIcons_.push_back(icon);
+    }
+#endif
     // [lf/helix 폰 조달 leg — Termux 바이오닉 빌드(11-07 실측: 단독 실행 원문
     // lf r42·hx 25.07.1)] — jksrv_main이 PATH seed+HELIX_RUNTIME을 심어
     // 무접미 명령으로 해석. grammars 193MB는 무장애 제외(기본 편집 leg).
@@ -1599,6 +1610,15 @@ bool JKDesktopShell::LaunchAt(int x, int y) {
             host_.spawnConsole(item.consoleCmd, item.consoleDir, item.appName);
         }
         return true;
+    }
+    // [2026-11-15 동영상 MVP] vplayer 셀 = 모듈이 아니라 플랫폼 재생기 위임
+    // (Android: VideoPlayerActivity). PC 데스크톱에는 jkapp_vplayer 모듈이 있으니
+    // 이 분기는 Android 훅이 있을 때만 유효(weak 심볼 null 체크).
+    if (item.appName == "vplayer") {
+        if (JkPlayVideo) {
+            (void)JkPlayVideo("");   // 빈 문자열 = 최근 동영상
+            return true;
+        }
     }
     if (item.jkxPath.empty()) {
         if (host_.launch) host_.launch(item.appName.c_str(), false);
