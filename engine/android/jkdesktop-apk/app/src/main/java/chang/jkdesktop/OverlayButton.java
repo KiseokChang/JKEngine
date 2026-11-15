@@ -142,20 +142,32 @@ public final class OverlayButton {
     private static void show(Context ctx) {
         try {
             Context app = ctx.getApplicationContext();
-            wm = (WindowManager) app.getSystemService(Context.WINDOW_SERVICE);
+            // [실측 원존 2026-11-16] 앱 리소스는 **DeX 표면 밀도(1.0)** 를 물고 있어
+            // 44dp가 44px로 계산됐다 → 폰 화면에서 칩이 손톱만 하고 터치도 어긋남
+            // ("버튼 이동도 안 되고"). 오버레이가 붙는 **디스플레이의 컨텍스트**로
+            // 치수를 계산한다(폰 기본 디스플레이 = 2.625 배율).
+            Context uiCtx = app;
+            try {
+                DisplayManager dm0 = (DisplayManager) app.getSystemService(
+                        Context.DISPLAY_SERVICE);
+                Display def = dm0 != null ? dm0.getDisplay(Display.DEFAULT_DISPLAY) : null;
+                if (def != null) uiCtx = app.createDisplayContext(def);
+            } catch (Exception ignored) {
+            }
+            wm = (WindowManager) uiCtx.getSystemService(Context.WINDOW_SERVICE);
             if (wm == null) return;
 
             int size = Math.round(TypedValue.applyDimension(
                     TypedValue.COMPLEX_UNIT_DIP, 44,
-                    app.getResources().getDisplayMetrics()));
+                    uiCtx.getResources().getDisplayMetrics()));
             // [2026-11-16 사용자 실측 2건] 더블탭 = 폰 화면 잠금, 길게 = 시스템
             // 앱 선택 창 — 두 제스처 모두 OS가 선점한다. 그래서 **버튼을 둘로**
             // 나눈다: JK(탭=음성), ≡(탭=상태판). 제스처는 탭/드래그뿐.
-            android.widget.LinearLayout bar = new android.widget.LinearLayout(app);
+            android.widget.LinearLayout bar = new android.widget.LinearLayout(uiCtx);
             bar.setOrientation(android.widget.LinearLayout.HORIZONTAL);
 
-            TextView mic = makeChip(app, size, "JK", 0xE61565C0);
-            TextView stat = makeChip(app, size, "≡", 0xE63F4754);
+            TextView mic = makeChip(uiCtx, size, "JK", 0xE61565C0);
+            TextView stat = makeChip(uiCtx, size, "≡", 0xE63F4754);
             android.widget.LinearLayout.LayoutParams c1 =
                     new android.widget.LinearLayout.LayoutParams(size, size);
             c1.rightMargin = Math.round(size * 0.18f);
@@ -166,11 +178,16 @@ public final class OverlayButton {
             mic.setTag("mic");
             stat.setTag("status");
             params = new WindowManager.LayoutParams(
-                    size, size,
+                    // [실측 원존 2026-11-16 "버튼 이동도 안 되고"] 두 칩을 담는
+                    // 컨테이너인데 창 폭을 **칩 1개 크기(size)**로 고정해 잘렸다
+                    // (≡가 크롭돼 안 보이고 터치도 어긋남) → 양방향 WRAP_CONTENT.
+                    WindowManager.LayoutParams.WRAP_CONTENT,
+                    WindowManager.LayoutParams.WRAP_CONTENT,
                     Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                             ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                             : WindowManager.LayoutParams.TYPE_PHONE,
                     WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                            | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
                             | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                     android.graphics.PixelFormat.TRANSLUCENT);
             params.gravity = Gravity.TOP | Gravity.START;
@@ -181,6 +198,9 @@ public final class OverlayButton {
             final View.OnTouchListener handler = (cv, ev) -> {
                 switch (ev.getActionMasked()) {
                     case MotionEvent.ACTION_DOWN:
+                        android.util.Log.i("jkdesk", "overlay touch down @" +
+                                (int) ev.getRawX() + "," + (int) ev.getRawY() +
+                                " tag=" + (cv != null ? cv.getTag() : "?"));
                         dragging = true;
                         moved = false;
                         downAt = android.os.SystemClock.uptimeMillis();
@@ -202,6 +222,8 @@ public final class OverlayButton {
                         }
                         return true;
                     case MotionEvent.ACTION_UP:
+                        android.util.Log.i("jkdesk", "overlay touch up moved=" +
+                                moved + " tag=" + (cv != null ? cv.getTag() : "?"));
                         dragging = false;
                         if (!moved) {
                             if (cv != null && cv.getTag() != null &&
@@ -227,6 +249,10 @@ public final class OverlayButton {
 
             view = v;
             wm.addView(v, params);
+            // 진단: 창이 실제로 어떤 크기로 붙었는지 1회 기록(터치 불능 신고 대응).
+            v.post(() -> android.util.Log.i("jkdesk",
+                    "overlay added w=" + v.getWidth() + " h=" + v.getHeight() +
+                    " at=" + params.x + "," + params.y));
         } catch (Exception e) {
             android.util.Log.e("jkdesk", "overlay add failed", e);
             view = null;
