@@ -357,15 +357,22 @@ public final class OverlayButton {
             for (int i = 0; i < Math.min(titles.size(), 12); i++) {
                 sb.append(i + 1).append(". ").append(titles.get(i)).append('\n');
             }
-            sb.append("\n탭하면 닫힙니다");
+            sb.append("\n(탭하면 닫힙니다)");
             tv.setText(sb.toString());
             tv.setTextColor(0xFFF0F0F5);
-            tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 16);
-            tv.setPadding(36, 28, 36, 28);
+            // [실측 2026-11-15 "상태창 글씨 작아서 못 읽겠다"] TV 거리 가독 —
+            // 표면 높이의 비례(≈3%)로 키우고 최소 22sp를 보장한다.
+            final android.util.DisplayMetrics dm = app.getResources().getDisplayMetrics();
+            float sp = Math.max(22f, (dm.heightPixels / dm.density) * 0.030f);
+            tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, sp);
+            tv.setLineSpacing(0f, 1.25f);
+            final int padPx = Math.round(sp * dm.density * 0.9f);
+            tv.setPadding(padPx, Math.round(padPx * 0.75f), padPx,
+                          Math.round(padPx * 0.75f));
 
             GradientDrawable bg = new GradientDrawable();
             bg.setColor(0xF016171A);
-            bg.setCornerRadius(24);
+            bg.setCornerRadius(padPx);
             bg.setStroke(2, 0x60FFFFFF);
             tv.setBackground(bg);
 
@@ -378,7 +385,9 @@ public final class OverlayButton {
                     WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
                     android.graphics.PixelFormat.TRANSLUCENT);
             lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-            lp.y = 180;
+            lp.y = Math.round(dm.heightPixels * 0.10f);
+            // 긴 제목이 화면을 넘지 않게 폭 상한(80%).
+            lp.width = Math.round(dm.widthPixels * 0.80f);
             tv.setOnClickListener(v -> dismissStatusPanel());
             mgr.addView(tv, lp);
             statusPanel = tv;
