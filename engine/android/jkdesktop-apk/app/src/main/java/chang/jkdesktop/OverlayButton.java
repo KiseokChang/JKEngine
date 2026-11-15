@@ -347,10 +347,30 @@ public final class OverlayButton {
         try {
             dismissStatusPanel();
             Context app = ctx.getApplicationContext();
-            WindowManager mgr = (WindowManager) app.getSystemService(Context.WINDOW_SERVICE);
+            // [2026-11-15] 상태판은 **DeX(외부) 디스플레이 우선**에 띄운다 —
+            // TV로 보는 사용자에게 폰 화면 패널은 보이지 않는다(눈확인 원문).
+            // 외부 화면이 없으면 기본 디스플레이(폰).
+            Context panelCtx = app;
+            try {
+                DisplayManager dm = (DisplayManager) app.getSystemService(
+                        Context.DISPLAY_SERVICE);
+                if (dm != null) {
+                    for (Display d : dm.getDisplays()) {
+                        if (d.getDisplayId() != Display.DEFAULT_DISPLAY) {
+                            panelCtx = app.createDisplayContext(d);
+                            android.util.Log.i("jkdesk",
+                                    "status panel display=" + d.getDisplayId());
+                            break;
+                        }
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+            WindowManager mgr = (WindowManager) panelCtx.getSystemService(
+                    Context.WINDOW_SERVICE);
             if (mgr == null) return;
 
-            TextView tv = new TextView(app);
+            TextView tv = new TextView(panelCtx);
             StringBuilder sb = new StringBuilder();
             sb.append("떠 있는 창 ").append(titles.size()).append("개\n\n");
             if (titles.isEmpty()) sb.append("(없음)");
@@ -362,7 +382,7 @@ public final class OverlayButton {
             tv.setTextColor(0xFFF0F0F5);
             // [실측 2026-11-15 "상태창 글씨 작아서 못 읽겠다"] TV 거리 가독 —
             // 표면 높이의 비례(≈3%)로 키우고 최소 22sp를 보장한다.
-            final android.util.DisplayMetrics dm = app.getResources().getDisplayMetrics();
+            final android.util.DisplayMetrics dm = panelCtx.getResources().getDisplayMetrics();
             float sp = Math.max(22f, (dm.heightPixels / dm.density) * 0.030f);
             tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, sp);
             tv.setLineSpacing(0f, 1.25f);
