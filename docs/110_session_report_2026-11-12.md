@@ -84,3 +84,17 @@ icons 74장 추출, jk_srv.err.log 생성(로그 수출 복구). 셀프테스트
   수형), 그 외 = 종전 KSSM/비트맵 평태 보존. 메뉴 항목 높이 = max(26, cellH+12).
 - 영향 범위: 툴팁·런처 라벨·시계 등 셸의 모든 텍스트(한글 표시명 전부).
 - 게이트: 빌드 RC=0, 1,013 PASS 0 FAIL. (da3c568, c1c3a6a)
+
+## 8. 2026-11-15 — 오버레이 버튼 · 전체 창 닫기
+
+- **오버레이 MVP**: 다른 앱 위 JK 버튼(탭=음성 듣기, 길게=DeX 복귀, 드래그=이동).
+  원존 2건: (a) 복귀가 display 0(폰)으로 가던 것 → ActivityOptions.setLaunchDisplayId
+  (외부 디스플레이), (b) 같은 인텐트가 onPostCreate/onNewIntent에 이중 도달해
+  켰다 꺼지던 것 → extra 1회 소비. adb 입구 = `am start --ez toggle_overlay true`.
+- **"열려있는 창 다 닫아줘" 미동작**: 수량 한정어(다/모두/전부)가 대상 단어로
+  오인 → `ChatAction::CloseAll` 신설(라우터) + jkweb이 list_windows→창별
+  close_window(서버 새 도구 0). 셀프테스트 1n-8a~c.
+- **실측 함정**: close_window의 에이전트 기본값 = deny(승인 필요) → /talk 경유
+  닫기가 `permission_denied`. 해소 = 기기 `files/permissions.json`
+  `{"close_window":"allow"}`(문서화된 자동화 스위치 — 코드 기본값은 보안상 deny
+  유지). 실기기 검증: 창 3개 닫힘(ok:true).
