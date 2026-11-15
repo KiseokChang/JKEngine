@@ -126,6 +126,7 @@ const char* KindName(jk::ChatAction::Kind kind) {
         case jk::ChatAction::AmpkBack:       return "AmpkBack";   // 네비 체계
         case jk::ChatAction::AmpkFwd:        return "AmpkFwd";
         case jk::ChatAction::LayoutSave:     return "LayoutSave";  // 셸 2.0 S5
+        case jk::ChatAction::CloseAll:       return "CloseAll";    // 전체 닫기
     }
     return "?";
 }
@@ -565,6 +566,52 @@ std::string HandleTalk(const std::string& body, int& code) {
 #endif
             return "{\"ok\":true,\"reply\":\"" + JsonEsc(guide) + "\""
                    ",\"kind\":\"AmpkFwd\",\"app\":\"\"}";
+        case jk::ChatAction::CloseAll: {
+            // [2026-11-15] 전체 창 닫기 — list_windows로 id를 모아 창별
+            // close_window(서버 새 도구 0 = 기존 도구 재용). 닫은 개수를 그대로
+            // 회신하고 마지막 실패 원문은 server 필드로 승계(숨김 없음).
+            std::string windowsJson;
+            std::string last;
+            int closed = 0;
+            int seen = 0;
+            bool listed = false;
+            {
+                const std::lock_guard<std::mutex> lock(g_turnMtx);
+                listed = SendServerQuery("list_windows", "{}", windowsJson);
+            }
+            if (!listed) {
+                code = 500;
+                return "{\"ok\":false,\"reply\":\"데스크톱 창 서버 파이프에 연결할 "
+                       "수 없습니다 — jkdesktop --server 기동을 확인하세요.\""
+                       ",\"kind\":\"Error\",\"app\":\"\"}";
+            }
+            size_t pos = 0;
+            while ((pos = windowsJson.find("\"id\":", pos)) != std::string::npos) {
+                pos += 5;
+                const int id = std::atoi(windowsJson.c_str() + pos);
+                ++seen;
+                std::string r;
+                {
+                    const std::lock_guard<std::mutex> lock(g_turnMtx);
+                    if (!SendServerQuery(
+                            "close_window",
+                            "{\"id\":" + std::to_string(id) + "}", r) ||
+                        r.find("\"ok\":true") == std::string::npos) {
+                        last = r;
+                        continue;
+                    }
+                }
+                ++closed;
+            }
+            code = 200;
+            const std::string msg =
+                seen == 0 ? std::string("닫을 창이 없습니다.")
+                          : "창 " + std::to_string(closed) + "개를 닫았습니다.";
+            return "{\"ok\":true,\"reply\":\"" + JsonEsc(msg) +
+                   "\",\"kind\":\"CloseAll\",\"app\":\"\",\"server\":\"" +
+                   JsonEsc(last.empty() ? std::string("{\"ok\":true}") : last) +
+                   "\"}";
+        }
         case jk::ChatAction::LayoutSave:
             // 레이아웃 정리(셸 2.0 S5) — 기존 서버 도구 save_layout 위임
             // (args empty — 서버 계약 "none"). 태스크바 정리 셀·구두 동일 지시.

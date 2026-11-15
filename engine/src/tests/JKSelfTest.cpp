@@ -2499,6 +2499,17 @@ int RunAppSelfTest() {
             (void)jk::ChatRouterRoute("테트리스 닫아줘", a);
             check(a.kind == jk::ChatAction::Close && a.app == "tetris",
                   "1n-8 Close 앱어+별명 해소");
+            // [2026-11-15 사용자 실측 "열려있는 창 다 닫아줘" 미동작] 전체 닫기
+            // — 수량 한정어(다/모두/전부)는 앱명이 아니라 CloseAll.
+            (void)jk::ChatRouterRoute("열려있는 창 다 닫아줘", a);
+            check(a.kind == jk::ChatAction::CloseAll && a.app.empty(),
+                  "1n-8a 전체 닫기(창 다 닫아줘) = CloseAll");
+            (void)jk::ChatRouterRoute("모두 닫아줘", a);
+            check(a.kind == jk::ChatAction::CloseAll,
+                  "1n-8b 전체 닫기(모두 닫아줘) = CloseAll");
+            (void)jk::ChatRouterRoute("전부 종료해줘", a);
+            check(a.kind == jk::ChatAction::CloseAll,
+                  "1n-8c 전체 닫기(전부 종료) = CloseAll");
             // Focus 2형 — 트리거 긴 형이 짧은 형에 잡아먹히지 않음(표 순서)
             (void)jk::ChatRouterRoute("창 포커스", a);
             check(a.kind == jk::ChatAction::Focus && a.app.empty(),

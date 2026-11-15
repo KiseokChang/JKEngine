@@ -58,7 +58,12 @@ struct ChatAction {
                 // upgrade §3): 창 배치 저장(save_layout 서버 도구 — 기존 도구
                 // 재용 — 새 서버 도구 0). AmpkFwd 뒤 추가(기존 kind 수치
                 // 계보 보존 — 2y-⑲ 동형).
-                LayoutSave };
+                LayoutSave,
+                // 전체 창 닫기(사용자 실측 2026-11-15 — "열려있는 창 다 닫아줘"
+                // 미동작): "다/모두/전부" 한정어가 붙은 닫기. jkweb이
+                // list_windows → 창별 close_window로 실행(창 서버 새 도구 0).
+                // LayoutSave 뒤 추가(기존 kind 수치 계보 보존 — 2y-⑲ 동형).
+                CloseAll };
     Kind kind = Info;   // 도구 지시 종류 — Info만 "지시 없음"의미.
     std::string app;    // Launch·Close의 앱 키(라이브러리 appName 규약 —
                         // alias표 해소). Close 미지정 = ""(포커스 창).

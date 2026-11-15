@@ -808,6 +808,22 @@ std::string RouteExact(const std::string& text, ChatAction& out) {
                 return "화면을 바탕화면으로 돌립니다.";
             return "브라우저 창을 닫습니다.";
         case ChatAction::Close: {
+            // [2026-11-15 사용자 실측 "열려있는 창 다 닫아줘" 미동작] 수량
+            // 한정어(다/모두/전부)가 있으면 전체 닫기 — 종전에는 "다"가 대상
+            // 단어로 오인돼 1창 닫기(또는 허무 앱명)로 샜다.
+            const bool allWindows =
+                norm.find("다 닫") != std::string::npos ||
+                norm.find("모두 닫") != std::string::npos ||
+                norm.find("전부 닫") != std::string::npos ||
+                norm.find("창 다") != std::string::npos ||
+                norm.find("다 종료") != std::string::npos ||
+                norm.find("모두 종료") != std::string::npos ||
+                norm.find("전부 종료") != std::string::npos;
+            if (allWindows) {
+                out.kind = ChatAction::CloseAll;
+                out.app.clear();
+                return "모든 창을 닫습니다.";
+            }
             const std::string word = ExtractTargetWord(norm, hit->trigger);
             out.kind = ChatAction::Close;
             if (!word.empty()) {
