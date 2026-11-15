@@ -26,7 +26,13 @@ namespace jk {
 namespace {
 // Bar/button geometry (logical points).
 constexpr int kButtonHeight = 44;   // 셸 2.0 S2 — 바 56px(SendShellRegister 갱신).
-constexpr int kTrayW = 90;          // [트레이 시계] 셀(우측 고정).
+constexpr int kTrayW = 90;          // [트레이 시계] 셀 최소 폭(우측 고정).
+// [실측 원존 2026-11-16 "트레이 시계가 잘려 십분 단위가 안 보임"] 고정 90px에
+// 글자 폭이 커지면(font_scale) 오른쪽이 클립된다 → 글자 폭 기반 동적 폭.
+inline int TrayWidthPx() {
+    const jk::text::CellMetrics m = jk::text::GetCellMetrics();
+    return std::max(kTrayW, m.engW * 6 + 24);   // "HH:MM" 5자 + 여백
+}
 constexpr int kButtonGap = 4;
 constexpr int kBarMargin = 4;
 constexpr int kButtonMaxWidth = 180;   // Windows-style cap
@@ -371,9 +377,10 @@ void ClientTaskbarApp::Relayout() {
         x += kNavW + kButtonGap;
     }
     // [트레이] 우측 고정 — 시계(텍스트 중앙 — 나비 글리프 계열과 경계 분리).
-    const int trayLeft = client.w - kBarMargin - kTrayW;
+    const int trayW = TrayWidthPx();
+    const int trayLeft = client.w - kBarMargin - trayW;
     if (clockCell_) {
-        clockCell_->SetRect(JKRect{ trayLeft, y, kTrayW, kButtonHeight });
+        clockCell_->SetRect(JKRect{ trayLeft, y, trayW, kButtonHeight });
         clockCell_->Show();
     }
     // 창 버튼 — 시계를 피해 배치.

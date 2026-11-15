@@ -535,6 +535,13 @@ void JKDesktopShell::RelayoutLauncherIcons() {
     // [docs/106 §3] cols=0 UB 봉합 — 좁은 표면(DeX 분할·폰 세로)에서도 최소
     // 1열(0으로 나누기 = 모듈로 0 크래시 원존).
     const int cols = std::max(1, (logicalW - 50) / 150);
+    // [실측 원존 2026-11-16 "시계가 아이콘을 가림"] 시계는 우상단에 크게(×4)
+    // 그려지는데 그리드가 y=50부터 시작해 첫 줄과 겹쳤다 → 시계 높이만큼
+    // 상단을 비워 둔다(시계 텍스처가 아직 없으면 기본 예약값).
+    const int clockReserveLogical =
+        clockH_ > 0 ? (clockH_ * 4 + 40) / static_cast<int>(s > 0 ? s : 1.0f)
+                    : 120;
+    const int gridTop = 50 + clockReserveLogical;
     // [2026-11-15] 표시 대상만 그리드에 참여 — 개발자 앱 숨김/보임이 즉시 반영.
     int slot = 0;
     for (auto& icon : launcherIcons_) {
@@ -544,7 +551,7 @@ void JKDesktopShell::RelayoutLauncherIcons() {
         }
         const int col = slot % cols;
         const int row = slot / cols;
-        icon.rect = JKRect{ 50 + col * 150, 50 + row * 150, 96, 130 };
+        icon.rect = JKRect{ 50 + col * 150, gridTop + row * 150, 96, 130 };
         ++slot;
     }
 }
