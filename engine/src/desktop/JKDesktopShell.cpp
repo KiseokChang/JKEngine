@@ -535,14 +535,13 @@ void JKDesktopShell::RelayoutLauncherIcons() {
     // [docs/106 §3] cols=0 UB 봉합 — 좁은 표면(DeX 분할·폰 세로)에서도 최소
     // 1열(0으로 나누기 = 모듈로 0 크래시 원존).
     const int cols = std::max(1, (logicalW - 50) / 150);
-    // [실측 원존 2026-11-16 "시계가 아이콘을 가림"] 시계는 우상단에 크게(×4)
-    // 그려지는데 그리드가 y=50부터 시작해 첫 줄과 겹쳤다 → 시계 높이만큼
-    // 상단을 비워 둔다(시계 텍스처가 아직 없으면 기본 예약값).
-    const int clockReserveLogical =
-        clockH_ > 0 ? (clockH_ * 4 + 40) / static_cast<int>(s > 0 ? s : 1.0f)
-                    : 120;
-    const int gridTop = 50 + clockReserveLogical;
-    // [2026-11-15] 표시 대상만 그리드에 참여 — 개발자 앱 숨김/보임이 즉시 반영.
+    // [2026-11-16 사용자 판정 "아이콘 위치만 바뀜"] 전폭 밴드 예약은 아이콘을
+    // 통째로 밀어내 과했다 → **시계 사각형만** 피한다: 우상단 시계 영역과
+    // 겹치는 셀만 건너뛰고 나머지는 종전 위치(50,50)를 유지.
+    const float scale = (s > 0 ? s : 1.0f);
+    const int clockWl = clockW_ > 0 ? static_cast<int>(clockW_ * 4 / scale) : 70;
+    const int clockHl = clockH_ > 0 ? static_cast<int>(clockH_ * 4 / scale) : 34;
+    const JKRect clockRect{ logicalW - clockWl - 20, 20, clockWl, clockHl };
     int slot = 0;
     for (auto& icon : launcherIcons_) {
         if (!showDevApps_ && IsDevOnlyApp(icon.appName)) {
@@ -551,7 +550,16 @@ void JKDesktopShell::RelayoutLauncherIcons() {
         }
         const int col = slot % cols;
         const int row = slot / cols;
-        icon.rect = JKRect{ 50 + col * 150, gridTop + row * 150, 96, 130 };
+        const JKRect cell{ 50 + col * 150, 50 + row * 150, 96, 130 };
+        // 시계와 겹치는 셀은 비운다(슬롯 소비 안 함 → 다음 아이콘이 당겨짐).
+        const bool overlapsClock =
+            cell.x < clockRect.x + clockRect.w && clockRect.x < cell.x + cell.w &&
+            cell.y < clockRect.y + clockRect.h && clockRect.y < cell.y + cell.h;
+        if (overlapsClock) {
+            icon.rect = JKRect{ 0, 0, 0, 0 };
+            continue;
+        }
+        icon.rect = cell;
         ++slot;
     }
 }
