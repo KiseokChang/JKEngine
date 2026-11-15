@@ -77,6 +77,9 @@ public class MainActivity extends SDLActivity {
     protected void onPostCreate(Bundle savedInstanceState) {
         super.onPostCreate(savedInstanceState);
         handleOverlayIntent(getIntent());   // 기동 인텐트의 오버레이 요청
+        // [2026-11-15] 켜져 있던 오버레이는 앱 재기동 후에도 되살린다
+        // (실측 "탭했더니 사라졌어요" — 의도가 메모리에만 있던 결함).
+        OverlayButton.restoreIfWanted(this);
         // 수명 계약(스펙 §3): 데스크탑 서비스 — Back 이후 서버·음성 유지.
         try {
             startForegroundService(new android.content.Intent(this, ForegroundService.class));

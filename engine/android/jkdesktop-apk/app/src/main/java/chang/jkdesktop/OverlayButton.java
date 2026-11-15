@@ -89,7 +89,8 @@ public final class OverlayButton {
     // 반환 = 토글 후 표시 중 여부.
     public static boolean toggle(Context ctx) {
         if (view != null) {
-            remove();
+            remove("toggle-off");
+            setWanted(ctx, false);
             return false;
         }
         if (!canDraw(ctx)) {
@@ -97,7 +98,39 @@ public final class OverlayButton {
             return false;
         }
         show(ctx);
+        setWanted(ctx, view != null);
         return view != null;
+    }
+
+    // [2026-11-15 실측 "탭했더니 사라졌어요"] 의도 저장 — 액티비티가 재생성되거나
+    // 프로세스가 새로 뜰 때 **원래 켜져 있었으면 다시 띄운다**. 종전엔 켜짐 상태가
+    // 메모리에만 있어 조용히 사라진 것처럼 보였다.
+    private static void setWanted(Context ctx, boolean wanted) {
+        try {
+            ctx.getApplicationContext().getSharedPreferences("overlay", 0)
+                    .edit().putBoolean("wanted", wanted).apply();
+        } catch (Exception ignored) {
+        }
+    }
+
+    public static boolean wanted(Context ctx) {
+        try {
+            return ctx.getApplicationContext().getSharedPreferences("overlay", 0)
+                    .getBoolean("wanted", false);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    // 앱 기동 시 호출 — 켜져 있었으면 복원(권한 상실 시엔 조용히 포기).
+    public static void restoreIfWanted(Context ctx) {
+        if (view != null || !wanted(ctx)) return;
+        if (!canDraw(ctx)) {
+            android.util.Log.i("jkdesk", "overlay restore skipped (no permission)");
+            return;
+        }
+        show(ctx);
+        android.util.Log.i("jkdesk", "overlay restored -> " + (view != null));
     }
 
     public static boolean isShowing() {
@@ -202,7 +235,8 @@ public final class OverlayButton {
         }
     }
 
-    private static void remove() {
+    private static void remove(String reason) {
+        android.util.Log.i("jkdesk", "overlay remove: " + reason);
         try {
             if (wm != null && view != null) wm.removeView(view);
         } catch (Exception ignored) {
