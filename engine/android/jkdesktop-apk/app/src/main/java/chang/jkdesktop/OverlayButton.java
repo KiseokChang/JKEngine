@@ -213,7 +213,10 @@ public final class OverlayButton {
                         if (!dragging) return false;
                         int dx = (int) (ev.getRawX() - dragStartX);
                         int dy = (int) (ev.getRawY() - dragStartY);
-                        if (Math.abs(dx) > 8 || Math.abs(dy) > 8) moved = true;
+                        // [실측 원존 2026-11-16] 임계 8px는 폰 실제 탭의 손떨림에도
+                        // 걸려 **모든 탭이 드래그로 판정**됐다(로그: tap → moved=true,
+                        // 상태판·음성 미실행). 손가락 탭 허용 오차 = 24px.
+                        if (Math.abs(dx) > 24 || Math.abs(dy) > 24) moved = true;
                         params.x = Math.max(0, startParamX + dx);
                         params.y = Math.max(0, startParamY + dy);
                         try {
