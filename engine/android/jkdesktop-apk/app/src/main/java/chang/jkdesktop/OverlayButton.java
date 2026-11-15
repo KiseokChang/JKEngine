@@ -7,11 +7,12 @@
 // 권한: SYSTEM_ALERT_WINDOW — 없으면 설정 화면(ACTION_MANAGE_OVERLAY_PERMISSION)만
 // 연다(자동 부여 금지 — 사용자가 직접 허용).
 // 동작(2026-11-15 사용자 판정 반영 — "실행 말고 다른 기능", 전략 docs/111 P2):
-//   더블탭    = 상태 브리핑 — /talk "창 목록 보여줘" 회신을 TTS로 읽는다
-//              (폰 = 조종간 + 상태판. 명령 채널은 /talk 단일)
+//   길게      = 상태판 — /talk "창 목록 보여줘" 회신을 화면 패널 + TTS로.
+//              (더블탭은 폰 기본 제스처인 **화면 잠금**과 충돌해 폐기 — 사용자
+//               실측 2026-11-16. 명령 채널은 /talk 단일.)
 //   탭        = 음성 듣기 시작(JkVoice.begin) — 다른 앱을 쓰다 바로 말로 조작
-//   길게 누름 = jkdesktop을 **DeX(외부) 디스플레이**로 전면 복귀
-//              (종전엔 폰 화면(display 0)에 떠서 사용자 의도와 어긋났다)
+//   (DeX 복귀 = TV의 jkdesktop 아이콘 탭 — 버튼에서 제거: 같은 제스처를
+//    상태판에 양보했다)
 //   드래그    = 위치 이동(위치는 재시작 후에도 복원)
 
 package chang.jkdesktop;
@@ -47,23 +48,8 @@ public final class OverlayButton {
     private static int startParamY;
     private static boolean moved;
     private static long downAt;
-    private static long lastTapMs;
     private static final android.os.Handler UI =
             new android.os.Handler(android.os.Looper.getMainLooper());
-    private static Runnable pendingTap;
-
-    private static void queueSingleTap(final Context app) {
-        cancelPendingTap();
-        pendingTap = () -> { startVoice(app); pendingTap = null; };
-        UI.postDelayed(pendingTap, 300);
-    }
-
-    private static void cancelPendingTap() {
-        if (pendingTap != null) {
-            UI.removeCallbacks(pendingTap);
-            pendingTap = null;
-        }
-    }
 
     private OverlayButton() {}
 
@@ -200,20 +186,12 @@ public final class OverlayButton {
                             final long heldMs =
                                     android.os.SystemClock.uptimeMillis() - downAt;
                             if (heldMs >= 500) {
-                                cancelPendingTap();
-                                bringAppToFront(app);   // 길게 = DeX로 복귀
-                                return true;
-                            }
-                            // 탭/더블탭 구분 — 단일 탭 동작(음성)을 300ms 지연해
-                            // 두 번째 탭이 오면 취소하고 상태 브리핑으로 승격한다.
-                            final long nowMs = android.os.SystemClock.uptimeMillis();
-                            if (nowMs - lastTapMs < 300) {
-                                cancelPendingTap();
-                                lastTapMs = 0;
-                                statusBriefing(app);    // 더블탭 = 상태 브리핑
+                                // 길게 = 상태판. **더블탭 폐기**(사용자 실측
+                                // 2026-11-16: 폰 더블탭 = 화면 잠금이라 인터페이스로
+                                // 부적합). 탭은 즉시 실행되므로 지연도 사라졌다.
+                                statusBriefing(app);
                             } else {
-                                lastTapMs = nowMs;
-                                queueSingleTap(app);    // 탭 = 음성(300ms 유예)
+                                startVoice(app);        // 탭 = 음성(즉시)
                             }
                         } else {
                             app.getSharedPreferences("overlay", 0).edit()
@@ -246,41 +224,7 @@ public final class OverlayButton {
         params = null;
     }
 
-    // 외부(DeX) 디스플레이 찾기 — 없으면 기본 디스플레이.
-    private static int externalDisplayId(Context ctx) {
-        try {
-            DisplayManager dm = (DisplayManager) ctx.getSystemService(
-                    Context.DISPLAY_SERVICE);
-            if (dm == null) return Display.DEFAULT_DISPLAY;
-            for (Display d : dm.getDisplays()) {
-                if (d.getDisplayId() != Display.DEFAULT_DISPLAY) {
-                    return d.getDisplayId();   // DeX/HDMI 등 첫 외부 화면
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        return Display.DEFAULT_DISPLAY;
-    }
-
-    private static void bringAppToFront(Context app) {
-        try {
-            Intent i = app.getPackageManager()
-                    .getLaunchIntentForPackage(app.getPackageName());
-            if (i == null) return;
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
-                    | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
-            final int displayId = externalDisplayId(app);
-            ActivityOptions opts =
-                    ActivityOptions.makeBasic().setLaunchDisplayId(displayId);
-            app.startActivity(i, opts.toBundle());
-            android.util.Log.i("jkdesk",
-                    "overlay bring-to-front display=" + displayId);
-        } catch (Exception e) {
-            android.util.Log.e("jkdesk", "overlay bring-to-front failed", e);
-        }
-    }
-
-    // 더블탭 = 상태 브리핑 — 전략 docs/111 P2 "폰 = 조종간 + 상태판".
+    // 길게 = 상태판 — 전략 docs/111 P2 "폰 = 조종간 + 상태판"(더블탭 폐기).
     // 명령은 /talk 단일 채널로 보내고 회신을 TTS로 읽는다(별도 상태 API 없음).
     static void statusBriefing(Context app) {
         new Thread(() -> {
