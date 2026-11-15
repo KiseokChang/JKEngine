@@ -271,12 +271,100 @@ public final class OverlayButton {
                 String json = new String(bo.toByteArray(),
                         java.nio.charset.StandardCharsets.UTF_8);
                 String reply = extractJsonString(json, "reply");
-                android.util.Log.i("jkdesk", "overlay status -> " + reply);
+                final java.util.List<String> titles = extractTitles(json);
+                android.util.Log.i("jkdesk", "overlay status -> " + reply +
+                        " / windows=" + titles.size());
+                // [P2 상태판] 눈으로 보는 목록 + 귀로 듣는 요약(둘 다 같은 회신 기반).
+                UI.post(() -> showStatusPanel(app, titles));
                 if (reply != null && !reply.isEmpty()) JkTts.speak(reply);
             } catch (Exception e) {
                 android.util.Log.e("jkdesk", "overlay status failed", e);
             }
         }, "jk-overlay-status").start();
+    }
+
+    // list_windows 회신에서 창 제목만 뽑는다(스키마: {"windows":[{"title":..}]}).
+    private static java.util.List<String> extractTitles(String json) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        // /talk 회신은 server 필드 안에 JSON을 **한 번 더 이스케이프**해 담는다
+        // (\"title\":\"...\"). 먼저 풀지 않으면 제목을 0건으로 센다(실측
+        // 2026-11-15: 창 2개인데 windows=0).
+        json = json.replace("\\\"", "\"").replace("\\\\", "\\");
+        int at = 0;
+        final String key = "\"title\":\"";
+        while ((at = json.indexOf(key, at)) != -1) {
+            at += key.length();
+            StringBuilder sb = new StringBuilder();
+            for (int i = at; i < json.length(); i++) {
+                char ch = json.charAt(i);
+                if (ch == '\\') { i++; if (i < json.length()) sb.append(json.charAt(i)); }
+                else if (ch == '"') break;
+                else sb.append(ch);
+            }
+            if (sb.length() > 0) out.add(sb.toString());
+        }
+        return out;
+    }
+
+    // [P2 상태판] 다른 앱 위에 뜨는 목록 패널 — 탭하면 닫힌다.
+    private static View statusPanel;
+
+    private static void showStatusPanel(Context ctx, java.util.List<String> titles) {
+        try {
+            dismissStatusPanel();
+            Context app = ctx.getApplicationContext();
+            WindowManager mgr = (WindowManager) app.getSystemService(Context.WINDOW_SERVICE);
+            if (mgr == null) return;
+
+            TextView tv = new TextView(app);
+            StringBuilder sb = new StringBuilder();
+            sb.append("떠 있는 창 ").append(titles.size()).append("개\n\n");
+            if (titles.isEmpty()) sb.append("(없음)");
+            for (int i = 0; i < Math.min(titles.size(), 12); i++) {
+                sb.append(i + 1).append(". ").append(titles.get(i)).append('\n');
+            }
+            sb.append("\n탭하면 닫힙니다");
+            tv.setText(sb.toString());
+            tv.setTextColor(0xFFF0F0F5);
+            tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 16);
+            tv.setPadding(36, 28, 36, 28);
+
+            GradientDrawable bg = new GradientDrawable();
+            bg.setColor(0xF016171A);
+            bg.setCornerRadius(24);
+            bg.setStroke(2, 0x60FFFFFF);
+            tv.setBackground(bg);
+
+            WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
+                    WindowManager.LayoutParams.WRAP_CONTENT,
+                    WindowManager.LayoutParams.WRAP_CONTENT,
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                            ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                            : WindowManager.LayoutParams.TYPE_PHONE,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                    android.graphics.PixelFormat.TRANSLUCENT);
+            lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+            lp.y = 180;
+            tv.setOnClickListener(v -> dismissStatusPanel());
+            mgr.addView(tv, lp);
+            statusPanel = tv;
+            statusPanelMgr = mgr;
+        } catch (Exception e) {
+            android.util.Log.e("jkdesk", "status panel failed", e);
+        }
+    }
+
+    private static WindowManager statusPanelMgr;
+
+    private static void dismissStatusPanel() {
+        if (statusPanel != null && statusPanelMgr != null) {
+            try {
+                statusPanelMgr.removeView(statusPanel);
+            } catch (Exception ignored) {
+            }
+        }
+        statusPanel = null;
+        statusPanelMgr = null;
     }
 
     // 최소 JSON 문자열 추출 — {"reply":"..."} 한 키면 충분(이스케이프 해제).
