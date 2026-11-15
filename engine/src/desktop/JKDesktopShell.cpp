@@ -244,6 +244,8 @@ const char* const kDevOnlyApps[] = {
     "imguidemo", "jango",      "occ",        "pcx",        "recog",
     "vector",    "vfont",      "vpres",      "testwin",    "sampletodo",
     "passworddemo", "scriptdemo", "lf",      "helix",
+    // TUI 런처 셀은 "terminal:<cmd>" 키를 쓴다(위 lf/helix는 폴백 이름).
+    "terminal:lf", "terminal:hx",
 };
 bool IsDevOnlyApp(const std::string& name) {
     for (const char* d : kDevOnlyApps) {
