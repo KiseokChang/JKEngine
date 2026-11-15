@@ -5,8 +5,12 @@
 // 미니 프리뷰)는 후속: 네이티브 셸 렌더를 오버레이 서피스에 합성해야 한다.
 //
 // 권한: SYSTEM_ALERT_WINDOW — 없으면 설정 화면(ACTION_MANAGE_OVERLAY_PERMISSION)만
-// 연다(자동 부여 금지 — 사용자가 직접 허용). 탭 = jkdesktop 전면 복귀,
-// 드래그 = 위치 이동(가장자리 클램프), 탭 위치는 재시작 후에도 복원.
+// 연다(자동 부여 금지 — 사용자가 직접 허용).
+// 동작(2026-11-15 사용자 판정 반영 — "실행 말고 다른 기능"):
+//   탭        = 음성 듣기 시작(JkVoice.begin) — 다른 앱을 쓰다 바로 말로 조작
+//   길게 누름 = jkdesktop을 **DeX(외부) 디스플레이**로 전면 복귀
+//              (종전엔 폰 화면(display 0)에 떠서 사용자 의도와 어긋났다)
+//   드래그    = 위치 이동(위치는 재시작 후에도 복원)
 
 package chang.jkdesktop;
 
@@ -24,6 +28,9 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
+import android.hardware.display.DisplayManager;
+import android.view.Display;
+import android.app.ActivityOptions;
 import android.widget.TextView;
 
 public final class OverlayButton {
@@ -37,6 +44,7 @@ public final class OverlayButton {
     private static int startParamX;
     private static int startParamY;
     private static boolean moved;
+    private static long downAt;
 
     private OverlayButton() {}
 
@@ -116,6 +124,7 @@ public final class OverlayButton {
                     case MotionEvent.ACTION_DOWN:
                         dragging = true;
                         moved = false;
+                        downAt = android.os.SystemClock.uptimeMillis();
                         dragStartX = ev.getRawX();
                         dragStartY = ev.getRawY();
                         startParamX = params.x;
@@ -136,7 +145,13 @@ public final class OverlayButton {
                     case MotionEvent.ACTION_UP:
                         dragging = false;
                         if (!moved) {
-                            bringAppToFront(app);
+                            final long heldMs = android.os.SystemClock.uptimeMillis()
+                                    - downAt;
+                            if (heldMs >= 500) {
+                                bringAppToFront(app);   // 길게 = DeX로 복귀
+                            } else {
+                                startVoice(app);        // 탭 = 음성 듣기
+                            }
                         } else {
                             app.getSharedPreferences("overlay", 0).edit()
                                     .putInt("x", params.x)
@@ -167,6 +182,22 @@ public final class OverlayButton {
         params = null;
     }
 
+    // 외부(DeX) 디스플레이 찾기 — 없으면 기본 디스플레이.
+    private static int externalDisplayId(Context ctx) {
+        try {
+            DisplayManager dm = (DisplayManager) ctx.getSystemService(
+                    Context.DISPLAY_SERVICE);
+            if (dm == null) return Display.DEFAULT_DISPLAY;
+            for (Display d : dm.getDisplays()) {
+                if (d.getDisplayId() != Display.DEFAULT_DISPLAY) {
+                    return d.getDisplayId();   // DeX/HDMI 등 첫 외부 화면
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return Display.DEFAULT_DISPLAY;
+    }
+
     private static void bringAppToFront(Context app) {
         try {
             Intent i = app.getPackageManager()
@@ -174,9 +205,24 @@ public final class OverlayButton {
             if (i == null) return;
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
                     | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
-            app.startActivity(i);
+            final int displayId = externalDisplayId(app);
+            ActivityOptions opts =
+                    ActivityOptions.makeBasic().setLaunchDisplayId(displayId);
+            app.startActivity(i, opts.toBundle());
+            android.util.Log.i("jkdesk",
+                    "overlay bring-to-front display=" + displayId);
         } catch (Exception e) {
             android.util.Log.e("jkdesk", "overlay bring-to-front failed", e);
+        }
+    }
+
+    // 탭 = 음성 듣기 시작(푸시투토크) — 다른 앱 위에서도 말로 조작.
+    private static void startVoice(Context app) {
+        try {
+            boolean started = JkVoice.begin(app);
+            android.util.Log.i("jkdesk", "overlay voice begin -> " + started);
+        } catch (Exception e) {
+            android.util.Log.e("jkdesk", "overlay voice begin failed", e);
         }
     }
 }

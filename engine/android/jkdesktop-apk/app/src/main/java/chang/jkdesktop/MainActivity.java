@@ -48,9 +48,31 @@ public class MainActivity extends SDLActivity {
         super.onStart();
     }
 
+    // [UI v2 MVP] 외부에서 오버레이를 켜고 끄는 입구 — adb/인텐트/딥링크 공용.
+    // 계약: extra "toggle_overlay"=true 이면 토글(권한 없으면 설정 화면만 연다).
+    private void handleOverlayIntent(android.content.Intent intent) {
+        if (intent == null) return;
+        if (intent.getBooleanExtra("toggle_overlay", false)) {
+            // [실측 원존 2026-11-15] 같은 인텐트가 onPostCreate와 onNewIntent에
+            // 연달아 도착해 **켰다가 곧바로 꺼졌다**(addView 20초 뒤 removeView).
+            // extra를 즉시 소비해 1회만 토글한다.
+            intent.removeExtra("toggle_overlay");
+            boolean shown = OverlayButton.toggle(this);
+            android.util.Log.i("jkdesk", "overlay toggle via intent -> " + shown);
+        }
+    }
+
+    @Override
+    protected void onNewIntent(android.content.Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleOverlayIntent(intent);
+    }
+
     @Override
     protected void onPostCreate(Bundle savedInstanceState) {
         super.onPostCreate(savedInstanceState);
+        handleOverlayIntent(getIntent());   // 기동 인텐트의 오버레이 요청
         // 수명 계약(스펙 §3): 데스크탑 서비스 — Back 이후 서버·음성 유지.
         try {
             startForegroundService(new android.content.Intent(this, ForegroundService.class));
