@@ -123,6 +123,22 @@ public final class OverlayButton {
         return view != null;
     }
 
+    // 칩(원형) 하나 만들기 — 색만 다르고 규격 동일.
+    private static TextView makeChip(Context app, int size, String label, int color) {
+        TextView t = new TextView(app);
+        t.setText(label);
+        t.setTextColor(Color.WHITE);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        t.setGravity(Gravity.CENTER);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setShape(GradientDrawable.OVAL);
+        bg.setColor(color);
+        bg.setStroke(2, 0xFFFFFFFF);
+        t.setBackground(bg);
+        t.setAlpha(0.92f);
+        return t;
+    }
+
     private static void show(Context ctx) {
         try {
             Context app = ctx.getApplicationContext();
@@ -132,18 +148,23 @@ public final class OverlayButton {
             int size = Math.round(TypedValue.applyDimension(
                     TypedValue.COMPLEX_UNIT_DIP, 44,
                     app.getResources().getDisplayMetrics()));
-            TextView v = new TextView(app);
-            v.setText("JK");
-            v.setTextColor(Color.WHITE);
-            v.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-            v.setGravity(Gravity.CENTER);
-            GradientDrawable bg = new GradientDrawable();
-            bg.setShape(GradientDrawable.OVAL);
-            bg.setColor(0xE61565C0);   // 반투명 파랑 — 어디서나 보이게
-            bg.setStroke(2, 0xFFFFFFFF);
-            v.setBackground(bg);
-            v.setAlpha(0.92f);
+            // [2026-11-16 사용자 실측 2건] 더블탭 = 폰 화면 잠금, 길게 = 시스템
+            // 앱 선택 창 — 두 제스처 모두 OS가 선점한다. 그래서 **버튼을 둘로**
+            // 나눈다: JK(탭=음성), ≡(탭=상태판). 제스처는 탭/드래그뿐.
+            android.widget.LinearLayout bar = new android.widget.LinearLayout(app);
+            bar.setOrientation(android.widget.LinearLayout.HORIZONTAL);
 
+            TextView mic = makeChip(app, size, "JK", 0xE61565C0);
+            TextView stat = makeChip(app, size, "≡", 0xE63F4754);
+            android.widget.LinearLayout.LayoutParams c1 =
+                    new android.widget.LinearLayout.LayoutParams(size, size);
+            c1.rightMargin = Math.round(size * 0.18f);
+            bar.addView(mic, c1);
+            bar.addView(stat, new android.widget.LinearLayout.LayoutParams(size, size));
+
+            View v = bar;
+            mic.setTag("mic");
+            stat.setTag("status");
             params = new WindowManager.LayoutParams(
                     size, size,
                     Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
@@ -157,7 +178,7 @@ public final class OverlayButton {
             params.x = sp.getInt("x", 24);
             params.y = sp.getInt("y", 240);
 
-            v.setOnTouchListener((cv, ev) -> {
+            final View.OnTouchListener handler = (cv, ev) -> {
                 switch (ev.getActionMasked()) {
                     case MotionEvent.ACTION_DOWN:
                         dragging = true;
@@ -183,15 +204,11 @@ public final class OverlayButton {
                     case MotionEvent.ACTION_UP:
                         dragging = false;
                         if (!moved) {
-                            final long heldMs =
-                                    android.os.SystemClock.uptimeMillis() - downAt;
-                            if (heldMs >= 500) {
-                                // 길게 = 상태판. **더블탭 폐기**(사용자 실측
-                                // 2026-11-16: 폰 더블탭 = 화면 잠금이라 인터페이스로
-                                // 부적합). 탭은 즉시 실행되므로 지연도 사라졌다.
-                                statusBriefing(app);
+                            if (cv != null && cv.getTag() != null &&
+                                "status".equals(cv.getTag().toString())) {
+                                statusBriefing(app);    // ≡ 탭 = 상태판
                             } else {
-                                startVoice(app);        // 탭 = 음성(즉시)
+                                startVoice(app);        // JK 탭 = 음성
                             }
                         } else {
                             app.getSharedPreferences("overlay", 0).edit()
@@ -203,7 +220,10 @@ public final class OverlayButton {
                     default:
                         return false;
                 }
-            });
+            };
+
+            mic.setOnTouchListener(handler);
+            stat.setOnTouchListener(handler);
 
             view = v;
             wm.addView(v, params);
