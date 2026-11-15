@@ -1302,7 +1302,12 @@ SDL_Texture* JKDesktopShell::TextTextureEx(const std::string& utf8, int* w,
     for (unsigned char c : utf8) {
         if (c >= 0x80) { nonAscii = true; break; }
     }
-    const bool useUnicode = nonAscii && textParts_.Ready();
+    // [2026-11-15 P1/A1 — 텍스트 경로 단일화] 아틀라스가 준비돼 있으면 **ASCII도
+    // 유니코드 직행**으로 그린다. 종전엔 한글만 직행/영문은 KSSM 경로라 같은
+    // 라벨도 두 파이프라인을 탔다(깨짐·사라짐이 표면별로 다르게 나타난 원인).
+    // KSSM/비트맵 경로는 아틀라스 부재(폰트 없음) 폴백으로만 남긴다.
+    (void)nonAscii;
+    const bool useUnicode = textParts_.Ready();
     std::string kssm;
     int texW = 0;
     int texH = 0;
