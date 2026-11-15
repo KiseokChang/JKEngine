@@ -701,6 +701,15 @@ set_target_properties(jkapp_chat PROPERTIES PREFIX "")
 # rubber-band fullscreen layer behind /shot and the viewer's 영역 캡처
 # button. A launcher .jkx too (no icon — the packer treats icons as
 # optional and the launcher falls back to flat drawing).
+# 시계 앱 (2026-11-16 — 트레이 시계 클릭 leg): 순수 클라이언트, 서버 접촉 0.
+add_library(jkapp_clock SHARED
+    src/apps/JKAppModule_clock.cpp
+    src/apps/ClientClockApp.cpp
+)
+target_compile_definitions(jkapp_clock PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_clock PRIVATE jkclient imgui)
+set_target_properties(jkapp_clock PROPERTIES PREFIX "")
+
 add_library(jkapp_snap SHARED
     src/apps/JKAppModule_snap.cpp
     src/apps/ClientSnapApp.cpp
@@ -1097,7 +1106,7 @@ if(WIN32)
                       jkapp_jango jkapp_occ jkapp_pcx jkapp_vector
                       jkapp_iconedit jkapp_recog jkapp_vfont jkapp_vpres
                       jkapp_terminal jkapp_script jkapp_taskbar
-                      jkapp_imguidemo jkapp_taskmgr jkapp_vplayer)
+                      jkapp_imguidemo jkapp_taskmgr jkapp_vplayer jkapp_clock)
         target_link_options(${jkapp_mod} PRIVATE -static-libstdc++ -static-libgcc)
     endforeach()
 endif()

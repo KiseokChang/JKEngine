@@ -535,13 +535,6 @@ void JKDesktopShell::RelayoutLauncherIcons() {
     // [docs/106 §3] cols=0 UB 봉합 — 좁은 표면(DeX 분할·폰 세로)에서도 최소
     // 1열(0으로 나누기 = 모듈로 0 크래시 원존).
     const int cols = std::max(1, (logicalW - 50) / 150);
-    // [2026-11-16 사용자 판정 "아이콘 위치만 바뀜"] 전폭 밴드 예약은 아이콘을
-    // 통째로 밀어내 과했다 → **시계 사각형만** 피한다: 우상단 시계 영역과
-    // 겹치는 셀만 건너뛰고 나머지는 종전 위치(50,50)를 유지.
-    const float scale = (s > 0 ? s : 1.0f);
-    const int clockWl = clockW_ > 0 ? static_cast<int>(clockW_ * 4 / scale) : 70;
-    const int clockHl = clockH_ > 0 ? static_cast<int>(clockH_ * 4 / scale) : 34;
-    const JKRect clockRect{ logicalW - clockWl - 20, 20, clockWl, clockHl };
     int slot = 0;
     for (auto& icon : launcherIcons_) {
         if (!showDevApps_ && IsDevOnlyApp(icon.appName)) {
@@ -550,16 +543,7 @@ void JKDesktopShell::RelayoutLauncherIcons() {
         }
         const int col = slot % cols;
         const int row = slot / cols;
-        const JKRect cell{ 50 + col * 150, 50 + row * 150, 96, 130 };
-        // 시계와 겹치는 셀은 비운다(슬롯 소비 안 함 → 다음 아이콘이 당겨짐).
-        const bool overlapsClock =
-            cell.x < clockRect.x + clockRect.w && clockRect.x < cell.x + cell.w &&
-            cell.y < clockRect.y + clockRect.h && clockRect.y < cell.y + cell.h;
-        if (overlapsClock) {
-            icon.rect = JKRect{ 0, 0, 0, 0 };
-            continue;
-        }
-        icon.rect = cell;
+        icon.rect = JKRect{ 50 + col * 150, 50 + row * 150, 96, 130 };
         ++slot;
     }
 }
@@ -1057,59 +1041,8 @@ void JKDesktopShell::Draw(SDL_Renderer* renderer) {
 
     // [셸 2.0 S4 — 시계 위젯] 바탕화면 우상단 큰 HH:MM — 분이 바뀔 때만
     // 텍스처 재렌더(자기 자리의 리렌더 = LabelTexture 캐시 미적용 — 본체가
-    // 자기 파괴). 토큰 = onDynamicDraw(분 교차 시 자리 재발행).
-    {
-        time_t nowt = time(nullptr);
-        tm lt{};
-#ifdef _WIN32
-        localtime_s(&lt, &nowt);
-#else
-        tm* pp = std::localtime(&nowt);
-        if (pp) lt = *pp;
-#endif
-        bool clockRedrawn = false;
-        if (lt.tm_min != clockMinute_ || !clockTex_) {
-            clockRedrawn = true;
-            clockMinute_ = lt.tm_min;
-            if (clockTex_) SDL_DestroyTexture(clockTex_);
-            char buf[8];
-            std::snprintf(buf, sizeof(buf), "%02d:%02d", lt.tm_hour, lt.tm_min);
-            int cw = 0;
-            int ch = 0;
-            // 시계 글자색 = 테마 팔레트(가독성은 외곽선이 보장).
-            clockTex_ = LabelTextureColored(
-                buf, jk::theme::current().desktopClockText, &cw, &ch);
-            clockW_ = cw;
-            clockH_ = ch;
-        }
-        if (clockTex_ && clockW_ > 0) {
-            int pw = 0;
-            int ph = 0;
-            SDL_GetRendererOutputSize(renderer, &pw, &ph);
-            // [docs/109 §2.2] 시계 배율 = 명명 상수(토큰 아님 — 의도된 확대).
-            constexpr int kClockScale = 4;
-            const int scale = kClockScale;
-            SDL_Rect dst{ pw - clockW_ * scale - static_cast<int>(20 * s),
-                          static_cast<int>(20 * s), clockW_ * scale,
-                          clockH_ * scale };
-            SDL_RenderCopy(renderer, clockTex_, nullptr, &dst);
-            // [docs/106 §3] 사건 판정 = 자리 이동/첫 착지/분 교차(내용 갱신).
-            // 구 수형 = clockLastRect_ 영원히 0 → 매 프레임 사건(더티 스킵 무력화).
-            if (host_.onDynamicDraw) {
-                const bool moved =
-                    clockLastRect_.x != dst.x || clockLastRect_.y != dst.y ||
-                    clockLastRect_.w != dst.w || clockLastRect_.h != dst.h;
-                if (moved) {
-                    if (clockLastRect_.w > 0) host_.onDynamicDraw(clockLastRect_);
-                    host_.onDynamicDraw(dst);   // 첫 착지 / 자리 이동
-                } else if (clockRedrawn) {
-                    host_.onDynamicDraw(dst);   // 같은 자리·새 분(텍스처 교체)
-                }
-            }
-            clockLastRect_ = dst;
-        }
-    }
-
+    // [2026-11-16 사용자 판정] 우상단 대형 시계 위젯 제거 — 작업표시줄 트레이에
+    // 이미 시계가 있고, 그 시계를 누르면 **시계 앱**이 열린다(중복 표면 소각).
     // 호버 툴팁 (docs/67 후속): 300ms 머문 아이콘 셀 위에 마지막으로 얹는다 —
     // 아이콘·배경 위에 항상 깔리도록 그리기 순서상 맨 뒤. 활성화 판정은 여기서
     // (정지 커서 승격 — UpdateHover 주석 참조).

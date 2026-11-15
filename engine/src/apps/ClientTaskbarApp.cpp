@@ -261,6 +261,11 @@ void ClientTaskbarApp::OnInit() {
         btn->SetText(CurrentClockText());
         btn->SetNavGlyph(TaskbarButton::NavGlyph::Clock);
         clockCell_ = btn.get();
+        // [2026-11-16 사용자 판정] 트레이 시계를 누르면 **시계 앱**이 열린다
+        // (데스크톱 우상단 대형 시계 위젯은 제거 — 중복 표면 소각).
+        clockCell_->SetOnClickWindow([](uint32_t, bool) {
+            PostTalkAsync("시계 켜줘");
+        });
         main->AddControl(std::move(btn));
     }
     SetTimerInterval(10000);  // [트레이] 시계 갱신(1분 해상도·10초 틱).

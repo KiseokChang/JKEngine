@@ -310,6 +310,15 @@ set_target_properties(implot PROPERTIES PREFIX "lib")
 # ------------------------------------------------- 모듈 (lib*.so 패키징) --
 # 엔진 30 모듈 흡수(vplayer 제외 — 스펙 §6 v2). jniLibs 규약 lib 접두 —
 # ClientModulePath lib 접두 판정(docs/103)과 짝.
+# 시계 앱 (2026-11-16 트레이 시계 클릭 leg) — 순수 클라이언트.
+add_library(jkapp_clock SHARED
+    ${ENG}/src/apps/JKAppModule_clock.cpp
+    ${ENG}/src/apps/ClientClockApp.cpp
+)
+target_compile_definitions(jkapp_clock PRIVATE JKAPP_MODULE_BUILD)
+target_link_libraries(jkapp_clock PRIVATE jkclient imgui)
+set_target_properties(jkapp_clock PROPERTIES PREFIX "lib")
+
 add_library(jkapp_minesweeper SHARED
     ${ENG}/src/apps/JKAppModule_minesweeper.cpp
     ${ENG}/src/apps/ClientMineSweeperApp.cpp

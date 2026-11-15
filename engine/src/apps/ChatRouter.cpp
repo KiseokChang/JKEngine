@@ -199,6 +199,9 @@ constexpr AliasEntry kAliasTable[] = {
     {"브라우저",     "browser"},
     {"메모장",       "notes"},   // STT 공용 호칭("메모" 대등 계열)
     {"노트",         "notes"},
+    // [2026-11-16] 트레이 시계 클릭 leg: "시계 켜줘" → clock 앱.
+    {"시계",         "clock"},
+    {"clock",       "clock"},
 };
 
 // #124 r4 — 발음→도메인 복원 표 (2026-11-01 폰 실측 원존: "youtube.com 열어줘"
