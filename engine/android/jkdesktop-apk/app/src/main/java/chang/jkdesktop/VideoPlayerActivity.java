@@ -185,12 +185,15 @@ public final class VideoPlayerActivity extends Activity {
                 DisplayManager dm = (DisplayManager) ctx.getSystemService(
                         Context.DISPLAY_SERVICE);
                 int displayId = Display.DEFAULT_DISPLAY;
+                // [실측 원존 2026-11-17 "앱은 안 뜨고 소리만 남"] 종전 = 첫 비기본
+                // 디스플레이. 이 기기는 그 첫 항목이 **가상 Desktop 표면**(TV 아님,
+                // 보이지 않음)이라 영상이 사라지고 소리만 남았다.
+                // 화면에 실제로 붙는 외부 표면 = PRESENTATION 범주(HDMI/TV)만 고른다.
                 if (dm != null) {
-                    for (Display d : dm.getDisplays()) {
-                        if (d.getDisplayId() != Display.DEFAULT_DISPLAY) {
-                            displayId = d.getDisplayId();
-                            break;
-                        }
+                    Display[] pres = dm.getDisplays(
+                            DisplayManager.DISPLAY_CATEGORY_PRESENTATION);
+                    if (pres != null && pres.length > 0) {
+                        displayId = pres[0].getDisplayId();
                     }
                 }
                 opts = ActivityOptions.makeBasic()

@@ -348,13 +348,14 @@ public final class OverlayButton {
                 DisplayManager dm = (DisplayManager) app.getSystemService(
                         Context.DISPLAY_SERVICE);
                 if (dm != null) {
-                    for (Display d : dm.getDisplays()) {
-                        if (d.getDisplayId() != Display.DEFAULT_DISPLAY) {
-                            panelCtx = app.createDisplayContext(d);
-                            android.util.Log.i("jkdesk",
-                                    "status panel display=" + d.getDisplayId());
-                            break;
-                        }
+                    // [2026-11-17] 첫 비기본 표면은 **가상 Desktop**(비가시)일 수
+                    // 있다 — 실제로 보이는 외부 화면(PRESENTATION)만 고른다.
+                    Display[] pres = dm.getDisplays(
+                            DisplayManager.DISPLAY_CATEGORY_PRESENTATION);
+                    if (pres != null && pres.length > 0) {
+                        panelCtx = app.createDisplayContext(pres[0]);
+                        android.util.Log.i("jkdesk", "status panel display=" +
+                                pres[0].getDisplayId());
                     }
                 }
             } catch (Exception ignored) {
