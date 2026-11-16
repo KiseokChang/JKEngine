@@ -31,7 +31,7 @@ constexpr int kTrayW = 90;          // [트레이 시계] 셀 최소 폭(우측 
 // 글자 폭이 커지면(font_scale) 오른쪽이 클립된다 → 글자 폭 기반 동적 폭.
 inline int TrayWidthPx() {
     const jk::text::CellMetrics m = jk::text::GetCellMetrics();
-    return std::max(kTrayW, m.engW * 6 + 24);   // "HH:MM" 5자 + 여백
+    return std::max(kTrayW, m.engW * 5 + 20);   // "HH:MM" 실폭 + 좌우 여백
 }
 constexpr int kButtonGap = 4;
 constexpr int kBarMargin = 4;
@@ -481,43 +481,24 @@ void TaskbarButton::OnPaintClient(JKDC& dc) {
             dc.FillRect(JKRect{ cx + 2, cy - 6, 3, 12 });
             break;
         case NavGlyph::Clock: {
-            // [S3 시계 — 트레이 결정판] 7세그먼트 기하(FillRect만 — 자식 텍
-            // 스트 전 경로 불발 실측 봉합). 세그 인덱스 A=1 B=2 C=4 D=8
-            // E=16 F=32 G=64 — 표준 7세그 비트맵.
-            // 비트 정의: A(위)=1 B(우상)=2 C(우하)=4 D(아래)=8 E(좌하)=16
-            // F(좌상)=32 G(중)=64 — 표준 7세그 숫자 비트맵.
-            static constexpr uint8_t SEG[10] = {
-                63, 6, 91, 79, 102, 109, 125, 7, 127, 111 };
-            (void)SEG;
-            int digit[4];
-            digit[0] = label[0] - '0';
-            digit[1] = label[1] - '0';
-            digit[2] = label[3] - '0';
-            digit[3] = label[4] - '0';
-            // [폭 정리 — 2026-11-09 실측: 셀 90px에 7세그가 넘쳐 우측 절단]
-            // gw12·gap4·콜론폭 6 — 총폭 62(< 셀 내부 82) — 중앙 정렬·클램프.
-            const int gw = 12, hh = 20, gap = 4;
-            const int totalW = gw * 4 + gap * 2 + 6;
-            int px = client.x + std::max(4, (client.w - totalW) / 2);
-            for (int di = 0; di < 4; ++di) {
-                const int d = digit[di];
-                if (di == 2) {
-                    dc.FillRect(JKRect{ px + 1, cy - 7, 4, 4 });
-                    dc.FillRect(JKRect{ px + 1, cy + 3, 4, 4 });
-                    px += gap + 6;
-                    continue;
-                }
-                const uint8_t segs = SEG[d & 0x0f];
-                // 6획: A(위) D(아래) F(좌상) E(좌하) B(우상) C(우하) G(중).
-                if (segs & 1) dc.FillRect(JKRect{ px, cy - hh / 2, gw, 3 });
-                if (segs & 8) dc.FillRect(JKRect{ px, cy + hh / 2 - 3, gw, 3 });
-                if (segs & 32) dc.FillRect(JKRect{ px, cy - hh / 2, 3, hh / 2 });
-                if (segs & 16) dc.FillRect(JKRect{ px, cy, 3, hh / 2 });
-                if (segs & 2) dc.FillRect(JKRect{ px + gw - 3, cy - hh / 2, 3, hh / 2 });
-                if (segs & 4) dc.FillRect(JKRect{ px + gw - 3, cy, 3, hh / 2 });
-                if (segs & 64) dc.FillRect(JKRect{ px, cy - 1, gw, 3 });
-                px += gw + gap;
+            // [2026-11-16 사용자 판정 "십분 자리가 안 보이고 무엇보다 안 이뻐요"]
+            // 7세그 기하는 셀 폭/높이에 묶여 자릿수가 잘리고, 하단 라벨 밴드와
+            // 겹쳐 촌스러웠다 → 시계 셀은 **큰 텍스트 한 줄**로 그린다(다른 네비
+            // 셀과 같은 아틀라스 경로라 폰트 스케일·테마를 그대로 승계).
+            const jk::text::CellMetrics cm2 = jk::text::GetCellMetrics();
+            const int textH = static_cast<int>(cm2.cellH);
+            const JKRect box{ client.x + 4, client.y + (client.h - textH) / 2,
+                              client.w - 8, textH };
+            if (MiniKit().r && EnsureMiniAtlas(MiniKit().r)) {
+                MiniKit().parts.AttachTo(dc);
+                DrawUnicodeCentered(dc, box, label);
+            } else {
+                const std::string kssm = Utf8ToKssm(label.c_str());
+                dc.TextOutX(box, kssm.empty() ? label.c_str() : kssm.c_str(),
+                            ADJ_YCENTER, false);
             }
+            return;
+        }
             return;
         }
         case NavGlyph::None:

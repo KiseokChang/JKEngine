@@ -575,25 +575,12 @@ void JKDesktopShell::LoadDesktopWidgets() {
     const bool haveFile = ReadFileBytes("state/desktop.json", bytes);
     const std::string text =
         haveFile ? std::string(reinterpret_cast<const char*>(bytes.data())) : "";
-    // [docs/112 §5] 파일이 없거나 widgets 키가 없으면 **기본 세트(clock 1개)**.
-    // 명시적 빈 배열("widgets":[])만 "위젯 없음"이다.
-    // (실측 2026-11-16: 종전 = 파일만 있으면 위젯 0 — showDev만 써 둔
-    //  desktop.json 때문에 clock이 안 떴다.)
-    const bool explicitlyEmpty =
-        text.find("\"widgets\":[]") != std::string::npos ||
-        text.find("\"widgets\": []") != std::string::npos;
-    const bool wants = !explicitlyEmpty;
-    if (wants) {
-        // v1: 항목 1개(clock)만 해석 — 다중 위젯 파서는 v2(스펙 §7 비목표).
-        DesktopWidget w;
-        w.type = "clock";
-        w.anchor = text.find("\"anchor\":\"top-left\"") != std::string::npos
-                       ? "top-left"
-                       : "top-right";
-        desktopWidgets_.push_back(w);
-        std::fprintf(stderr, "[shell] widget: %s (%s)\n", w.type.c_str(),
-                     w.anchor.c_str());
-    }
+    // [2026-11-16 사용자 판정 "시계 위젯 띄우지 마세요"] 기본 = **위젯 없음**.
+    // 위젯 인프라(docs/112)는 유지하되, desktop.json에 type을 실제로 선언한
+    // 항목만 그린다(옵트인). 종전 기본 clock은 사용자 지시로 폐기.
+    (void)haveFile;
+    (void)text;
+    std::fprintf(stderr, "[shell] widgets: opt-in (none by default)\n");
 }
 
 SDL_Rect JKDesktopShell::DesktopWidgetRect(const DesktopWidget& w, int logicalW,
