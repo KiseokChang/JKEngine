@@ -481,22 +481,15 @@ void TaskbarButton::OnPaintClient(JKDC& dc) {
             dc.FillRect(JKRect{ cx + 2, cy - 6, 3, 12 });
             break;
         case NavGlyph::Clock: {
-            // [2026-11-16 사용자 판정 "십분 자리가 안 보이고 무엇보다 안 이뻐요"]
-            // 7세그 기하는 셀 폭/높이에 묶여 자릿수가 잘리고, 하단 라벨 밴드와
-            // 겹쳐 촌스러웠다 → 시계 셀은 **큰 텍스트 한 줄**로 그린다(다른 네비
-            // 셀과 같은 아틀라스 경로라 폰트 스케일·테마를 그대로 승계).
+            // [2026-11-16 사용자 판정 2차 "트레이 시계에 글자 안 보임"] 자식은
+            // 소프트웨어 렌더러라 **미니 아틀라스(렌더 타겟 텍스처) 경로가 화면에
+            // 도달하지 않는다**(이 파일 540행 주석의 실측 그대로). 시계 셀은 dc
+            // 직접 그리기(TextOutX)만 사용 — 7세그 폐기, 자릿수 잘림 없음.
             const jk::text::CellMetrics cm2 = jk::text::GetCellMetrics();
-            const int textH = static_cast<int>(cm2.cellH);
-            const JKRect box{ client.x + 4, client.y + (client.h - textH) / 2,
-                              client.w - 8, textH };
-            if (MiniKit().r && EnsureMiniAtlas(MiniKit().r)) {
-                MiniKit().parts.AttachTo(dc);
-                DrawUnicodeCentered(dc, box, label);
-            } else {
-                const std::string kssm = Utf8ToKssm(label.c_str());
-                dc.TextOutX(box, kssm.empty() ? label.c_str() : kssm.c_str(),
-                            ADJ_YCENTER, false);
-            }
+            const int tw = static_cast<int>(label.size()) * static_cast<int>(cm2.engW);
+            const JKRect box{ client.x + std::max(2, (client.w - tw) / 2),
+                              client.y, std::max(tw, 1), client.h };
+            dc.TextOutX(box, label.c_str(), ADJ_YCENTER, false);
             return;
         }
         case NavGlyph::None:
