@@ -36,6 +36,7 @@ import java.util.Comparator;
 
 public final class VideoPlayerActivity extends Activity {
     private VideoView video;
+    private FrameLayout rootView;   // 완료 후 '다시 재생' 탭 대상(필드 승격)
     private TextView hint;
 
     @Override
@@ -44,6 +45,7 @@ public final class VideoPlayerActivity extends Activity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         FrameLayout root = new FrameLayout(this);
+        rootView = root;
         root.setBackgroundColor(Color.BLACK);
 
         video = new VideoView(this);
@@ -137,7 +139,9 @@ public final class VideoPlayerActivity extends Activity {
         video.setOnPreparedListener((MediaPlayer mp) -> {
             hint.setVisibility(View.GONE);
             video.start();
-            android.util.Log.i("jkdesk", "video playing: " + shown);
+            android.util.Log.i("jkdesk", "video playing: " + shown +
+                    " size=" + mp.getVideoWidth() + "x" + mp.getVideoHeight() +
+                    " dur=" + mp.getDuration() + "ms");
         });
         video.setOnErrorListener((mp, what, extra) -> {
             hint.setText("재생 실패 (code " + what + "/" + extra + ")\n" + shown);
@@ -145,7 +149,21 @@ public final class VideoPlayerActivity extends Activity {
                     "video error what=" + what + " extra=" + extra + " " + shown);
             return true;
         });
-        video.setOnCompletionListener(mp -> finish());
+        // [2026-11-17 사용자 실측 "화면 안 떠요"] 종전 = 6초 클립이 끝나면 창이
+        // 스스로 닫혀 "앱이 안 뜬다"로 보였다. 완료 시 **창을 유지**하고 안내를
+        // 띄운 뒤, 화면을 누르면 처음부터 다시 재생한다.
+        video.setOnCompletionListener(mp -> {
+            android.util.Log.i("jkdesk", "video ended: " + shown);
+            hint.setText("재생이 끝났습니다\n화면을 누르면 다시 재생합니다");
+            hint.setVisibility(View.VISIBLE);
+        });
+        rootView.setOnClickListener(v -> {
+            if (!video.isPlaying() && video.getDuration() > 0) {
+                hint.setVisibility(View.GONE);
+                video.seekTo(0);
+                video.start();
+            }
+        });
     }
 
     // 최근 동영상 자동 선택 — Movies/Download/DCIM 순, 디렉터리별 최신.
