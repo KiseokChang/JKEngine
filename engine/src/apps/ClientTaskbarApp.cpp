@@ -499,8 +499,6 @@ void TaskbarButton::OnPaintClient(JKDC& dc) {
             }
             return;
         }
-            return;
-        }
         case NavGlyph::None:
             break;
         }
