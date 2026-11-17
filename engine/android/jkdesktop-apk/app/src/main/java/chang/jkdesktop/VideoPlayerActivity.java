@@ -193,34 +193,43 @@ public final class VideoPlayerActivity extends Activity {
 
     // 외부(셸 런처/JNI 훅/오버레이)에서 부르는 진입점. path 빈 문자열 = 최신 동영상.
     // 외부(DeX) 디스플레이가 있으면 그쪽에 띄운다 — "TV에서 봐야 한다"는 목적.
+    // [2026-11-18 사용자 지적] "폰 화면에는 일부러 안 띄웁니다"는 잘못된 설명이었다.
+    // 실제 동작은 첫 비기본/PRESENTATION 후보로 **가상 Desktop(display 16)** 을 골라
+    // 아무도 안 보는 화면에 그리는 것이었다(실측 로그: video launch display=16).
+    // 정본 = **사용자가 누른 화면과 같은 디스플레이**(셸 액티비티의 디스플레이).
+    private static int pickDisplayId(Context ctx) {
+        try {
+            if (ctx instanceof Activity) {
+                android.view.Display d = ((Activity) ctx).getWindowManager()
+                        .getDefaultDisplay();
+                if (d != null) return d.getDisplayId();
+            }
+        } catch (Throwable ignored) {
+        }
+        try {
+            DisplayManager dm = (DisplayManager) ctx.getSystemService(
+                    Context.DISPLAY_SERVICE);
+            if (dm != null) {
+                Display[] pres = dm.getDisplays(
+                        DisplayManager.DISPLAY_CATEGORY_PRESENTATION);
+                if (pres != null && pres.length > 0) return pres[0].getDisplayId();
+            }
+        } catch (Throwable ignored) {
+        }
+        return Display.DEFAULT_DISPLAY;
+    }
+
+    // 외부(셸 런처/JNI 훅/오버레이)에서 부르는 진입점. path 빈 문자열 = 최신 동영상.
     static void launchFrom(Context ctx, String path) {
         try {
             Intent i = new Intent(ctx, VideoPlayerActivity.class);
             i.putExtra("path", path == null ? "" : path);
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            Bundle opts = null;
-            try {
-                DisplayManager dm = (DisplayManager) ctx.getSystemService(
-                        Context.DISPLAY_SERVICE);
-                int displayId = Display.DEFAULT_DISPLAY;
-                // [실측 원존 2026-11-17 "앱은 안 뜨고 소리만 남"] 종전 = 첫 비기본
-                // 디스플레이. 이 기기는 그 첫 항목이 **가상 Desktop 표면**(TV 아님,
-                // 보이지 않음)이라 영상이 사라지고 소리만 남았다.
-                // 화면에 실제로 붙는 외부 표면 = PRESENTATION 범주(HDMI/TV)만 고른다.
-                if (dm != null) {
-                    Display[] pres = dm.getDisplays(
-                            DisplayManager.DISPLAY_CATEGORY_PRESENTATION);
-                    if (pres != null && pres.length > 0) {
-                        displayId = pres[0].getDisplayId();
-                    }
-                }
-                opts = ActivityOptions.makeBasic()
-                        .setLaunchDisplayId(displayId).toBundle();
-                android.util.Log.i("jkdesk", "video launch display=" + displayId);
-            } catch (Exception ignored) {
-            }
-            if (opts != null) ctx.startActivity(i, opts);
-            else ctx.startActivity(i);
+            final int displayId = pickDisplayId(ctx);
+            android.util.Log.i("jkdesk", "video launch display=" + displayId);
+            Bundle opts = ActivityOptions.makeBasic()
+                    .setLaunchDisplayId(displayId).toBundle();
+            ctx.startActivity(i, opts);
         } catch (Exception e) {
             android.util.Log.e("jkdesk", "video launch failed", e);
         }
