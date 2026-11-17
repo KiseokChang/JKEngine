@@ -309,11 +309,15 @@ public final class VideoPlayerActivity extends Activity {
     }
 
     private void open(String path) {
-        final String shown = path;
-        hint.setText("여는 중: " + new File(path).getName());
+        openUri(Uri.fromFile(new File(path)), new File(path).getName());
+    }
+
+    private void openUri(Uri uri, String displayName) {
+        final String shown = displayName;
+        hint.setText("여는 중: " + displayName);
         hint.setVisibility(View.VISIBLE);
-        if (titleView != null) titleView.setText(new File(path).getName());
-        video.setVideoURI(Uri.fromFile(new File(path)));
+        if (titleView != null) titleView.setText(displayName);
+        video.setVideoURI(uri);
         video.setOnPreparedListener((MediaPlayer mp) -> {
             hint.setVisibility(View.GONE);
             video.start();
@@ -340,21 +344,56 @@ public final class VideoPlayerActivity extends Activity {
         });
     }
 
-    // 목록 — Movies/Download/DCIM의 동영상(최신순) 중 고르기.
+    // [2026-11-18 사용자 판정 "목록 기능에서 파일 선택해야 하는 거 아닌가요?"]
+    // 목록 = ① 기기 파일 선택(시스템 문서 선택기, video/*) + ② 최근 동영상 빠른 선택.
+    private static final int REQ_PICK_FILE = 1001;
+
     private void showPickDialog() {
         final List<File> files = listVideos();
-        if (files.isEmpty()) {
-            hint.setText("동영상이 없습니다\n(Download/Movies 폴더에 넣어 주세요)");
-            hint.setVisibility(View.VISIBLE);
-            return;
+        final String[] names = new String[files.size() + 1];
+        names[0] = "다른 파일 선택… (기기 둘러보기)";
+        for (int i = 0; i < files.size(); ++i) {
+            names[i + 1] = files.get(i).getName();
         }
-        final String[] names = new String[files.size()];
-        for (int i = 0; i < files.size(); ++i) names[i] = files.get(i).getName();
         new AlertDialog.Builder(this)
                 .setTitle("동영상 선택")
-                .setItems(names, (d, which) -> open(files.get(which).getAbsolutePath()))
+                .setItems(names, (d, which) -> {
+                    if (which == 0) pickWithSystemChooser();
+                    else open(files.get(which - 1).getAbsolutePath());
+                })
                 .setNegativeButton("닫기", null)
                 .show();
+    }
+
+    // 시스템 문서 선택기 — 다운로드/드라이브/문서 앱 포함. content:// URI 그대로 재생.
+    private void pickWithSystemChooser() {
+        try {
+            Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            i.addCategory(Intent.CATEGORY_OPENABLE);
+            i.setType("video/*");
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivityForResult(i, REQ_PICK_FILE);
+        } catch (Exception e) {
+            android.util.Log.e("jkdesk", "file chooser failed", e);
+            hint.setText("파일 선택기를 열 수 없습니다");
+            hint.setVisibility(View.VISIBLE);
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQ_PICK_FILE || resultCode != RESULT_OK || data == null) return;
+        final Uri uri = data.getData();
+        if (uri == null) return;
+        try {
+            getContentResolver().takePersistableUriPermission(
+                    uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        } catch (Exception ignored) {
+        }
+        String name = uri.getLastPathSegment();
+        if (name == null || name.isEmpty()) name = "선택한 동영상";
+        openUri(uri, name);
     }
 
     private List<File> listVideos() {
