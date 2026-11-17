@@ -1,58 +1,77 @@
-// VideoPlayerActivity.java — 폰/DeX 동영상 재생 MVP (2026-11-15 사용자 판정)
+// VideoPlayerActivity.java — 폰/DeX 동영상 재생기 (2026-11-15 시작, 2026-11-18 완성)
 //
 // 왜 이 방식인가: 데스크톱 vplayer(jkapp_vplayer)는 FFmpeg 의존이라 Android NDK
-// 빌드에 아직 없다(CMake 주석 "vplayer 제외 — 스펙 §6 v2"). 그동안 "TV에서
-// 영상이 안 나온다"를 없애기 위해 **Android 기본 재생기(MediaPlayer/VideoView)**
-// 로 위임한다 — 오디오·코덱·자막을 플랫폼이 처리하고, 우리는 **어느 화면(DeX)에
-// 띄울지**만 책임진다. FFmpeg 탑재는 후속(인앱 재생·OSD 통합).
+// 빌드에 아직 없다(CMake 주석 "vplayer 제외 — 스펙 §6 v2"). 그동안 "영상이 안
+// 나온다"를 없애기 위해 **Android 기본 재생기(MediaPlayer/VideoView)** 로 위임한다
+// — 오디오·코덱·자막을 플랫폼이 처리하고, 우리는 **어느 화면에 띄울지**와
+// **조작 UI**를 책임진다.
 //
-// 계약:
+// 계약(2026-11-18 사용자 판정 "재생화면만 있네요" 반영 — 컨트롤 신설):
 //  - intent extra "path" = 재생할 파일(비었으면 최근 동영상 자동 선택)
-//  - 기동 표면 = **외부(DeX) 디스플레이** 우선(없으면 폰 화면)
-//  - 화면 꺼짐 방지 + 전체화면 + 하단 기본 컨트롤(탭하면 나타남)
+//  - 기동 표면 = **셸이 떠 있는 디스플레이**(사용자가 누른 화면) → PRESENTATION → 기본
+//  - 화면 꺼짐 방지 + 전체화면
+//  - 상단 바: 파일명 · [목록] · [✕ 닫기]
+//  - 하단 바: [▶/⏸] · 진행 바(드래그 탐색) · "00:03 / 00:06"
+//  - 화면 탭 = 하단 바 표시/숨김, 끝나면 "다시 재생" 안내(창은 유지)
 package chang.jkdesktop;
 
 import android.app.Activity;
 import android.app.ActivityOptions;
+import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
 import android.hardware.display.DisplayManager;
 import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.Display;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
+import android.widget.Button;
 import android.widget.FrameLayout;
-import android.widget.MediaController;
+import android.widget.LinearLayout;
+import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.VideoView;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.List;
+import java.util.Locale;
 
 public final class VideoPlayerActivity extends Activity {
     private VideoView video;
-    private FrameLayout rootView;   // 완료 후 '다시 재생' 탭 대상(필드 승격)
+    private FrameLayout rootView;
     private TextView hint;
+    private TextView titleView;
+    private TextView timeView;
+    private Button playPause;
+    private SeekBar seek;
+    private LinearLayout bottomBar;
+    private LinearLayout topBar;
+
+    private String pendingPath;
+    private boolean resumeTried;
+    private boolean userSeeking = false;   // 드래그 중에는 진행 바를 덮어쓰지 않는다
+    private final Handler ui = new Handler(Looper.getMainLooper());
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
-        FrameLayout root = new FrameLayout(this);
-        rootView = root;
-        root.setBackgroundColor(Color.BLACK);
+        rootView = new FrameLayout(this);
+        rootView.setBackgroundColor(Color.BLACK);
 
         video = new VideoView(this);
-        MediaController ctl = new MediaController(this);
-        ctl.setAnchorView(video);
-        video.setMediaController(ctl);
-        root.addView(video, new FrameLayout.LayoutParams(
+        rootView.addView(video, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT));
 
@@ -60,13 +79,96 @@ public final class VideoPlayerActivity extends Activity {
         hint.setTextColor(Color.WHITE);
         hint.setTextSize(18f);
         hint.setGravity(Gravity.CENTER);
-        FrameLayout.LayoutParams hp = new FrameLayout.LayoutParams(
+        rootView.addView(hint, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT);
-        hp.gravity = Gravity.CENTER;
-        root.addView(hint, hp);
+                FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER));
 
-        setContentView(root);
+        // 상단 바 — 파일명 · 목록 · 닫기
+        topBar = new LinearLayout(this);
+        topBar.setOrientation(LinearLayout.HORIZONTAL);
+        topBar.setBackgroundColor(0xAA000000);
+        topBar.setPadding(dp(16), dp(10), dp(16), dp(10));
+
+        titleView = new TextView(this);
+        titleView.setTextColor(Color.WHITE);
+        titleView.setTextSize(16f);
+        titleView.setSingleLine(true);
+        titleView.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+        topBar.addView(titleView, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        Button listBtn = barButton("목록");
+        listBtn.setOnClickListener(v -> showPickDialog());
+        topBar.addView(listBtn);
+
+        Button close = barButton("닫기");
+        close.setOnClickListener(v -> finish());
+        topBar.addView(close);
+
+        FrameLayout.LayoutParams tp = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP);
+        rootView.addView(topBar, tp);
+
+        // 하단 바 — 재생/일시정지 · 진행 바 · 시간
+        bottomBar = new LinearLayout(this);
+        bottomBar.setOrientation(LinearLayout.HORIZONTAL);
+        bottomBar.setGravity(Gravity.CENTER_VERTICAL);
+        bottomBar.setBackgroundColor(0xAA000000);
+        bottomBar.setPadding(dp(12), dp(8), dp(16), dp(8));
+
+        playPause = barButton("일시정지");
+        playPause.setOnClickListener(v -> togglePlay());
+        bottomBar.addView(playPause);
+
+        seek = new SeekBar(this);
+        seek.setMax(1000);
+        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
+                if (!fromUser) return;
+                final int dur = video.getDuration();
+                if (dur > 0) {
+                    video.seekTo((int) ((long) dur * progress / 1000));
+                    updateTime();
+                }
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar sb) { userSeeking = true; }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar sb) { userSeeking = false; }
+        });
+        bottomBar.addView(seek, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        timeView = new TextView(this);
+        timeView.setTextColor(Color.WHITE);
+        timeView.setTextSize(14f);
+        timeView.setPadding(dp(12), 0, 0, 0);
+        timeView.setText("00:00 / 00:00");
+        bottomBar.addView(timeView);
+
+        FrameLayout.LayoutParams bp = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM);
+        rootView.addView(bottomBar, bp);
+
+        // 화면 탭 = 컨트롤 표시/숨김(끝난 뒤에는 다시 재생).
+        rootView.setOnClickListener(v -> {
+            if (!video.isPlaying() && video.getDuration() > 0
+                    && hint.getVisibility() == View.VISIBLE) {
+                hint.setVisibility(View.GONE);
+                video.seekTo(0);
+                video.start();
+                syncPlayButton();
+                return;
+            }
+            toggleBars();
+        });
+
+        setContentView(rootView);
 
         pendingPath = getIntent() != null ? getIntent().getStringExtra("path") : null;
         if (pendingPath == null || pendingPath.isEmpty()) pendingPath = null;
@@ -79,9 +181,69 @@ public final class VideoPlayerActivity extends Activity {
         startPending();
     }
 
-    // 재생 대기 경로(null = 최근 동영상 자동) / 설정 왕복 표식.
-    private String pendingPath;
-    private boolean resumeTried;
+    private int dp(int v) {
+        return (int) (v * getResources().getDisplayMetrics().density);
+    }
+
+    private Button barButton(String label) {
+        Button b = new Button(this);
+        b.setText(label);
+        b.setTextSize(15f);
+        b.setAllCaps(false);
+        b.setTextColor(Color.WHITE);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(0x33FFFFFF);
+        bg.setCornerRadius(dp(10));
+        b.setBackground(bg);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, dp(40));
+        lp.setMargins(dp(6), 0, 0, 0);
+        b.setLayoutParams(lp);
+        return b;
+    }
+
+    private void toggleBars() {
+        final boolean show = topBar.getVisibility() != View.VISIBLE;
+        topBar.setVisibility(show ? View.VISIBLE : View.GONE);
+        bottomBar.setVisibility(show ? View.VISIBLE : View.GONE);
+    }
+
+    private void togglePlay() {
+        if (video.isPlaying()) video.pause();
+        else video.start();
+        syncPlayButton();
+    }
+
+    private void syncPlayButton() {
+        if (playPause != null) playPause.setText(video.isPlaying() ? "일시정지" : "재생");
+    }
+
+    private static String fmt(int ms) {
+        final int s = Math.max(0, ms / 1000);
+        return String.format(Locale.US, "%02d:%02d", s / 60, s % 60);
+    }
+
+    private void updateTime() {
+        if (timeView == null) return;
+        final int dur = video.getDuration();
+        timeView.setText(fmt(video.getCurrentPosition()) + " / " + fmt(dur));
+        if (!userSeeking && dur > 0) {
+            final int p = (int) ((long) video.getCurrentPosition() * 1000 / dur);
+            seek.setProgress(Math.max(0, Math.min(1000, p)));
+        }
+    }
+
+    // 0.5초 틱 — 진행 바·시간 갱신(정지 상태면 갱신만, 비용 국소).
+    private final Runnable tick = new Runnable() {
+        @Override
+        public void run() {
+            if (!isFinishing()) {
+                updateTime();
+                syncPlayButton();
+                ui.postDelayed(this, 500);
+            }
+        }
+    };
 
     private boolean hasStorageAccess() {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
@@ -93,19 +255,19 @@ public final class VideoPlayerActivity extends Activity {
 
     private void askStorageAccess() {
         hint.setText("동영상을 열려면 파일 접근 권한이 필요합니다.");
-        android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(this);
+        AlertDialog.Builder b = new AlertDialog.Builder(this);
         b.setTitle("파일 접근 권한");
         b.setMessage("동영상을 읽으려면 \"모든 파일 접근\" 권한이 필요합니다.\n"
                 + "설정에서 Jkdesktop을 허용한 뒤 이 화면으로 돌아오면 자동으로 재생합니다.");
         b.setPositiveButton("설정 열기", (d, w) -> {
             resumeTried = true;
             try {
-                startActivity(new android.content.Intent(
+                startActivity(new Intent(
                         android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
                         Uri.parse("package:" + getPackageName())));
             } catch (Exception e) {
                 try {
-                    startActivity(new android.content.Intent(
+                    startActivity(new Intent(
                             android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
                 } catch (Exception e2) {
                     android.util.Log.e("jkdesk", "storage settings failed", e2);
@@ -120,11 +282,20 @@ public final class VideoPlayerActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        // 설정에서 허용하고 돌아오면 자동 재시도 — 사용자가 같은 화면에 다시 오게.
         if (resumeTried && hasStorageAccess()) {
             resumeTried = false;
             startPending();
         }
+        ui.removeCallbacks(tick);
+        ui.post(tick);
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        ui.removeCallbacks(tick);
+        if (video != null && video.isPlaying()) video.pause();
+        syncPlayButton();
     }
 
     private void startPending() {
@@ -133,66 +304,93 @@ public final class VideoPlayerActivity extends Activity {
             hint.setText("재생할 동영상이 없습니다\n(Download/Movies 폴더에 영상을 넣어 주세요)");
             return;
         }
+        pendingPath = path;
+        open(path);
+    }
+
+    private void open(String path) {
         final String shown = path;
         hint.setText("여는 중: " + new File(path).getName());
+        hint.setVisibility(View.VISIBLE);
+        if (titleView != null) titleView.setText(new File(path).getName());
         video.setVideoURI(Uri.fromFile(new File(path)));
         video.setOnPreparedListener((MediaPlayer mp) -> {
             hint.setVisibility(View.GONE);
             video.start();
+            syncPlayButton();
+            updateTime();
             android.util.Log.i("jkdesk", "video playing: " + shown +
                     " size=" + mp.getVideoWidth() + "x" + mp.getVideoHeight() +
                     " dur=" + mp.getDuration() + "ms");
         });
         video.setOnErrorListener((mp, what, extra) -> {
             hint.setText("재생 실패 (code " + what + "/" + extra + ")\n" + shown);
+            hint.setVisibility(View.VISIBLE);
             android.util.Log.e("jkdesk",
                     "video error what=" + what + " extra=" + extra + " " + shown);
             return true;
         });
-        // [2026-11-17 사용자 실측 "화면 안 떠요"] 종전 = 6초 클립이 끝나면 창이
-        // 스스로 닫혀 "앱이 안 뜬다"로 보였다. 완료 시 **창을 유지**하고 안내를
-        // 띄운 뒤, 화면을 누르면 처음부터 다시 재생한다.
+        // [2026-11-18] 완료 = 창 유지 + 안내(탭하면 처음부터). 컨트롤은 그대로 남는다.
         video.setOnCompletionListener(mp -> {
             android.util.Log.i("jkdesk", "video ended: " + shown);
             hint.setText("재생이 끝났습니다\n화면을 누르면 다시 재생합니다");
             hint.setVisibility(View.VISIBLE);
+            syncPlayButton();
+            updateTime();
         });
-        rootView.setOnClickListener(v -> {
-            if (!video.isPlaying() && video.getDuration() > 0) {
-                hint.setVisibility(View.GONE);
-                video.seekTo(0);
-                video.start();
+    }
+
+    // 목록 — Movies/Download/DCIM의 동영상(최신순) 중 고르기.
+    private void showPickDialog() {
+        final List<File> files = listVideos();
+        if (files.isEmpty()) {
+            hint.setText("동영상이 없습니다\n(Download/Movies 폴더에 넣어 주세요)");
+            hint.setVisibility(View.VISIBLE);
+            return;
+        }
+        final String[] names = new String[files.size()];
+        for (int i = 0; i < files.size(); ++i) names[i] = files.get(i).getName();
+        new AlertDialog.Builder(this)
+                .setTitle("동영상 선택")
+                .setItems(names, (d, which) -> open(files.get(which).getAbsolutePath()))
+                .setNegativeButton("닫기", null)
+                .show();
+    }
+
+    private List<File> listVideos() {
+        String[] dirs = { "/sdcard/Movies", "/sdcard/Download", "/sdcard/DCIM/Camera" };
+        String[] exts = { ".mp4", ".mkv", ".webm", ".m4v", ".3gp" };
+        List<File> out = new ArrayList<>();
+        for (String d : dirs) {
+            File[] files = new File(d).listFiles();
+            if (files == null) continue;
+            for (File f : files) {
+                if (!f.isFile()) continue;
+                String n = f.getName().toLowerCase(Locale.US);
+                for (String e : exts) {
+                    if (n.endsWith(e)) {
+                        out.add(f);
+                        break;
+                    }
+                }
             }
-        });
+        }
+        out.sort(Comparator.comparingLong(File::lastModified).reversed());
+        return out;
     }
 
     // 최근 동영상 자동 선택 — Movies/Download/DCIM 순, 디렉터리별 최신.
     private String pickLatestVideo() {
-        String[] dirs = { "/sdcard/Movies", "/sdcard/Download", "/sdcard/DCIM/Camera" };
-        String[] exts = { ".mp4", ".mkv", ".webm", ".m4v", ".3gp" };
-        File best = null;
-        for (String d : dirs) {
-            File dir = new File(d);
-            File[] files = dir.listFiles();
-            if (files == null || files.length == 0) continue;
-            Arrays.sort(files, Comparator.comparingLong(File::lastModified));
-            for (int i = files.length - 1; i >= 0; i--) {
-                File f = files[i];
-                String n = f.getName().toLowerCase();
-                boolean isVideo = false;
-                for (String e : exts) {
-                    if (n.endsWith(e)) { isVideo = true; break; }
-                }
-                if (!isVideo || !f.isFile()) continue;
-                if (best == null || f.lastModified() > best.lastModified()) best = f;
-                break;
-            }
-        }
-        return best != null ? best.getAbsolutePath() : null;
+        List<File> all = listVideos();
+        return all.isEmpty() ? null : all.get(0).getAbsolutePath();
     }
 
-    // 외부(셸 런처/JNI 훅/오버레이)에서 부르는 진입점. path 빈 문자열 = 최신 동영상.
-    // 외부(DeX) 디스플레이가 있으면 그쪽에 띄운다 — "TV에서 봐야 한다"는 목적.
+    @Override
+    protected void onDestroy() {
+        ui.removeCallbacksAndMessages(null);
+        super.onDestroy();
+    }
+
     // [2026-11-18 사용자 지적] "폰 화면에는 일부러 안 띄웁니다"는 잘못된 설명이었다.
     // 실제 동작은 첫 비기본/PRESENTATION 후보로 **가상 Desktop(display 16)** 을 골라
     // 아무도 안 보는 화면에 그리는 것이었다(실측 로그: video launch display=16).
@@ -200,8 +398,7 @@ public final class VideoPlayerActivity extends Activity {
     private static int pickDisplayId(Context ctx) {
         try {
             if (ctx instanceof Activity) {
-                android.view.Display d = ((Activity) ctx).getWindowManager()
-                        .getDefaultDisplay();
+                Display d = ((Activity) ctx).getWindowManager().getDefaultDisplay();
                 if (d != null) return d.getDisplayId();
             }
         } catch (Throwable ignored) {
