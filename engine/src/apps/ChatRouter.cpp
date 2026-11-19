@@ -201,6 +201,12 @@ constexpr AliasEntry kAliasTable[] = {
     {"노트",         "notes"},
     // [2026-11-16] 트레이 시계 클릭 leg: "시계 켜줘" → clock 앱.
     {"시계",         "clock"},
+    // [2026-11-20] 동영상 leg — 폰 실측 "비디오 플레이어 켜줘"가 '플레이어'로
+    // 새어 unknown_app. 시청자 어휘 3종을 vplayer로 모은다(안드로이드는 서버가
+    // 플랫폼 재생기로 위임).
+    {"비디오",       "vplayer"},
+    {"플레이어",     "vplayer"},
+    {"영상",         "vplayer"},
     {"clock",       "clock"},
 };
 

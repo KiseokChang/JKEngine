@@ -57,6 +57,11 @@ public final class VideoPlayerActivity extends Activity {
     private LinearLayout bottomBar;
     private LinearLayout topBar;
 
+    private MediaPlayer player;          // 배속 적용용(준비 시 확보)
+    private Button speedBtn;
+    private float speed = 1.0f;
+    private static final float[] SPEEDS = {1.0f, 1.25f, 1.5f, 2.0f};
+    private String resumeKey;            // 이어보기 키(경로/URI)
     private String pendingPath;
     private boolean resumeTried;
     private boolean userSeeking = false;   // 드래그 중에는 진행 바를 덮어쓰지 않는다
@@ -120,6 +125,10 @@ public final class VideoPlayerActivity extends Activity {
         playPause = barButton("일시정지");
         playPause.setOnClickListener(v -> togglePlay());
         bottomBar.addView(playPause);
+
+        speedBtn = barButton("1.0x");
+        speedBtn.setOnClickListener(v -> cycleSpeed());
+        bottomBar.addView(speedBtn);
 
         seek = new SeekBar(this);
         seek.setMax(1000);
@@ -294,6 +303,7 @@ public final class VideoPlayerActivity extends Activity {
     protected void onPause() {
         super.onPause();
         ui.removeCallbacks(tick);
+        saveResume();
         if (video != null && video.isPlaying()) video.pause();
         syncPlayButton();
     }
@@ -314,13 +324,22 @@ public final class VideoPlayerActivity extends Activity {
 
     private void openUri(Uri uri, String displayName) {
         final String shown = displayName;
+        saveResume();                 // 이전 영상 위치 보존(전환)
+        resumeKey = uri.toString();
         hint.setText("여는 중: " + displayName);
         hint.setVisibility(View.VISIBLE);
         if (titleView != null) titleView.setText(displayName);
         video.setVideoURI(uri);
         video.setOnPreparedListener((MediaPlayer mp) -> {
+            player = mp;
             hint.setVisibility(View.GONE);
+            final int resumeAt = loadResume();
+            if (resumeAt > 3000) {
+                video.seekTo(resumeAt);
+                android.util.Log.i("jkdesk", "video resume at " + resumeAt + "ms");
+            }
             video.start();
+            applySpeed();
             syncPlayButton();
             updateTime();
             android.util.Log.i("jkdesk", "video playing: " + shown +
@@ -337,6 +356,7 @@ public final class VideoPlayerActivity extends Activity {
         // [2026-11-18] 완료 = 창 유지 + 안내(탭하면 처음부터). 컨트롤은 그대로 남는다.
         video.setOnCompletionListener(mp -> {
             android.util.Log.i("jkdesk", "video ended: " + shown);
+            prefs().edit().remove("pos:" + resumeKey).apply();   // 끝 = 처음부터
             hint.setText("재생이 끝났습니다\n화면을 누르면 다시 재생합니다");
             hint.setVisibility(View.VISIBLE);
             syncPlayButton();
@@ -363,6 +383,51 @@ public final class VideoPlayerActivity extends Activity {
                 })
                 .setNegativeButton("닫기", null)
                 .show();
+    }
+
+    // [2026-11-20] 이어보기 — 영상별 마지막 위치(3초~끝-5초 구간만) 기억.
+    private android.content.SharedPreferences prefs() {
+        return getSharedPreferences("video", MODE_PRIVATE);
+    }
+
+    private void saveResume() {
+        if (resumeKey == null || video == null) return;
+        final int pos = video.getCurrentPosition();
+        final int dur = video.getDuration();
+        if (dur > 0 && pos > 3000 && pos < dur - 5000) {
+            prefs().edit().putInt("pos:" + resumeKey, pos).apply();
+        } else if (dur > 0 && pos >= dur - 5000) {
+            prefs().edit().remove("pos:" + resumeKey).apply();   // 끝까지 봤다
+        }
+    }
+
+    private int loadResume() {
+        return resumeKey == null ? 0 : prefs().getInt("pos:" + resumeKey, 0);
+    }
+
+    // [2026-11-20] 배속 — 1.0 → 1.25 → 1.5 → 2.0 순환(MediaPlayer.setPlaybackParams).
+    private void cycleSpeed() {
+        int idx = 0;
+        for (int i = 0; i < SPEEDS.length; ++i) {
+            if (Math.abs(SPEEDS[i] - speed) < 0.01f) { idx = i; break; }
+        }
+        speed = SPEEDS[(idx + 1) % SPEEDS.length];
+        applySpeed();
+    }
+
+    private void applySpeed() {
+        speedBtn.setText(String.format(Locale.US, "%.2fx", speed)
+                .replace(".00x", ".0x").replace("0x", "x"));
+        if (player == null) return;
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+            try {
+                android.media.PlaybackParams pp = player.getPlaybackParams();
+                pp.setSpeed(speed);
+                player.setPlaybackParams(pp);
+            } catch (Exception e) {
+                android.util.Log.w("jkdesk", "speed apply failed: " + e);
+            }
+        }
     }
 
     // 시스템 문서 선택기 — 다운로드/드라이브/문서 앱 포함. content:// URI 그대로 재생.

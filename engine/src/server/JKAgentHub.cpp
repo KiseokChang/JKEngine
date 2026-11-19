@@ -1554,7 +1554,24 @@ void JKWindowServer::HandleAgentQuery(JKClientConnection& client,
 #else
                 exeDir + "/jkapp_" + app + AppModuleSuffix();
 #endif
-            if (prefixed || exeDir.empty() || fileExistsFn(dllPath)) {
+            // [2026-11-20] 구두 "비디오 틀어줘" leg — 엔진 vplayer 모듈은 FFmpeg
+            // 의존이라 APK에 없다. 플랫폼 재생기(Activity)로 위임하고 정직하게
+            // ok:true(via=platform)를 돌려준다(종전 = unknown_app).
+            // 주의: 함수 말미에 저널 append + 실제 회신 송신이 있으므로 **조기
+            // return 금지**(회신 유실) — 분기로만 스폰을 건너뛴다.
+            bool platformHandled = false;
+#if defined(__ANDROID__)
+            if (app == "vplayer" || app == "video") {
+                if (JkPlayVideo) {
+                    (void)JkPlayVideo("");
+                    reply = "{\"ok\":true,\"via\":\"platform\"}";
+                    platformHandled = true;
+                }
+            }
+#endif
+            if (platformHandled) {
+                // 재생기 위임 완료 — 모듈 스폰/폴백 생략(reply 확정).
+            } else if (prefixed || exeDir.empty() || fileExistsFn(dllPath)) {
                 // docs/35: pair the capture overlay with the client that asked
                 // for it (see overlaySpawner_ member comment).
                 pendingSnapSpawnerConnId_ = (app == "snap") ? client.Id() : 0;
