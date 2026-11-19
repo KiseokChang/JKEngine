@@ -489,6 +489,39 @@ public final class VideoPlayerActivity extends Activity {
         return all.isEmpty() ? null : all.get(0).getAbsolutePath();
     }
 
+    // [2026-11-20] TV 리모컨(D-패드) 지원 — 선택 포커스 없이도 조작되게.
+    //   중앙/확인 = 재생·일시정지, 좌/우 = ∓10초, 미디어 키 = 재생·일시정지.
+    private void seekBy(int deltaMs) {
+        if (video == null) return;
+        final int dur = video.getDuration();
+        if (dur <= 0) return;
+        int pos = video.getCurrentPosition() + deltaMs;
+        pos = Math.max(0, Math.min(dur - 1000, pos));
+        video.seekTo(pos);
+        updateTime();
+    }
+
+    @Override
+    public boolean onKeyDown(int keyCode, android.view.KeyEvent event) {
+        switch (keyCode) {
+            case android.view.KeyEvent.KEYCODE_DPAD_CENTER:
+            case android.view.KeyEvent.KEYCODE_ENTER:
+            case android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
+                togglePlay();
+                return true;
+            case android.view.KeyEvent.KEYCODE_DPAD_LEFT:
+            case android.view.KeyEvent.KEYCODE_MEDIA_REWIND:
+                seekBy(-10000);
+                return true;
+            case android.view.KeyEvent.KEYCODE_DPAD_RIGHT:
+            case android.view.KeyEvent.KEYCODE_MEDIA_FAST_FORWARD:
+                seekBy(10000);
+                return true;
+            default:
+                return super.onKeyDown(keyCode, event);
+        }
+    }
+
     @Override
     protected void onDestroy() {
         ui.removeCallbacksAndMessages(null);
