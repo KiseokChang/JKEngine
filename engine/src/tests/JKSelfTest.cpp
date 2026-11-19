@@ -2476,6 +2476,17 @@ int RunAppSelfTest() {
                   "1n-3 영문 키 런치(tetris 항목 그대로)");
             check(resp.find("tetris") != std::string::npos,
                   "1n-3b 런치 응답에 영문 키 전승");
+            // [2026-11-20] 동영상 어휘 3종 → vplayer (폰 실측 갭: "비디오
+            // 플레이어 켜줘"가 '플레이어'로 새어 unknown_app이었다).
+            {
+                jk::ChatAction v;
+                (void)jk::ChatRouterRoute("비디오 켜줘", v);
+                check(v.kind == jk::ChatAction::Launch && v.app == "vplayer",
+                      "1n-v1 별명 런치(비디오→vplayer)");
+                (void)jk::ChatRouterRoute("영상 틀어줘", v);
+                check(v.kind == jk::ChatAction::Launch && v.app == "vplayer",
+                      "1n-v2 별명 런치(영상→vplayer)");
+            }
             // (c) 조사+무공백 접어체 — 조사 절단과 byte 접미 매핑
             (void)jk::ChatRouterRoute("테트리스를 켜줘", a);
             check(a.kind == jk::ChatAction::Launch && a.app == "tetris",
