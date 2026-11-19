@@ -442,9 +442,13 @@ void TaskbarButton::OnPaintClient(JKDC& dc) {
     // 사용자 원존 "그림도 없고 설명도 없고 → 의미 있게 그려주세요").
     if (navMode_) {
         const auto& t = jk::theme::current();
-        dc.SetColor(t.taskbarBorderActive.r, t.taskbarBorderActive.g,
-                    t.taskbarBorderActive.b, 255);
-        dc.DrawRect(client);
+        // [2026-11-20 사용자 "무엇보다 안 이뻐요"] 시계 셀은 버튼 테두리를 빼서
+        // 시스템 트레이 시계처럼 보이게 한다(네비 셀만 테두리 유지).
+        if (GetNavGlyph() != NavGlyph::Clock) {
+            dc.SetColor(t.taskbarBorderActive.r, t.taskbarBorderActive.g,
+                        t.taskbarBorderActive.b, 255);
+            dc.DrawRect(client);
+        }
         dc.SetColor(t.taskbarTextActive.r, t.taskbarTextActive.g,
                     t.taskbarTextActive.b, 255);
         dc.SetTextColor(t.taskbarTextActive.r, t.taskbarTextActive.g,
