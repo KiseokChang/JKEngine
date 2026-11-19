@@ -41,7 +41,24 @@
   문서 선택기, `content://` 그대로 재생) + ② Movies/Download/DCIM 최신순
 - 글리프(⏸▶✕) 대신 **한글 라벨** — 폰트 미탑재 시 두부(□) 방지
 
-## 4. 남은 일
+## 4. 구두 진입 (2026-11-20)
 
-- 재생 위치 기억(이어보기), 배속/볼륨, 자막
+폰 실측: *"비디오 플레이어 켜줘"* → `unknown_app: "플레이어"`.
+- `ChatRouter` 별명 3종: **비디오 · 플레이어 · 영상 → vplayer** (셀프테스트 1n-v1/v2)
+- `launch_app` 안드로이드 분기: `vplayer`/`video` = `JkPlayVideo("")` 위임 →
+  `{"ok":true,"via":"platform"}` (종전 unknown_app).
+  **주의**: `HandleAgentQuery`는 함수 말미에 저널 append + 회신 송신이 있으므로
+  조기 `return` 금지 — `platformHandled` 분기로 스폰만 건너뛴다.
+
+## 5. 이어보기 · 배속 (2026-11-20)
+
+- **이어보기**: 영상별 마지막 위치를 SharedPreferences(`video`)에 기억.
+  3초 미만/끝-5초 이내는 저장하지 않고, 끝까지 보면 키를 삭제. 전환·일시정지·
+  onPause에서 저장, onPrepared에서 `seekTo`.
+- **배속**: 하단 바 버튼 = 1.0x → 1.25x → 1.5x → 2.0x 순환
+  (`MediaPlayer.setPlaybackParams`, API 23+; 실패는 경고 로그로 열화).
+
+## 6. 남은 일
+
+- 자막(외부 .srt/.vtt, `addTimedTextSource`), 볼륨 제스처
 - 엔진 vplayer(FFmpeg) 탑재 시 이 액티비티로 대체
