@@ -62,6 +62,9 @@ public final class VideoPlayerActivity extends Activity {
     private float speed = 1.0f;
     private static final float[] SPEEDS = {1.0f, 1.25f, 1.5f, 2.0f};
     private String resumeKey;            // 이어보기 키(경로/URI)
+    private TextView subtitleView;       // 외부 자막(.srt) 표시
+    private final List<long[]> cueSpan = new ArrayList<>();   // [start,end]
+    private final List<String> cueText = new ArrayList<>();
     private String pendingPath;
     private boolean resumeTried;
     private boolean userSeeking = false;   // 드래그 중에는 진행 바를 덮어쓰지 않는다
@@ -87,6 +90,19 @@ public final class VideoPlayerActivity extends Activity {
         rootView.addView(hint, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER));
+
+        subtitleView = new TextView(this);
+        subtitleView.setTextColor(Color.WHITE);
+        subtitleView.setTextSize(20f);
+        subtitleView.setGravity(Gravity.CENTER);
+        subtitleView.setShadowLayer(6f, 0f, 2f, Color.BLACK);
+        FrameLayout.LayoutParams sp = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM);
+        sp.bottomMargin = dp(72);
+        sp.leftMargin = dp(24);
+        sp.rightMargin = dp(24);
+        rootView.addView(subtitleView, sp);
 
         // 상단 바 — 파일명 · 목록 · 닫기
         topBar = new LinearLayout(this);
@@ -218,9 +234,15 @@ public final class VideoPlayerActivity extends Activity {
     }
 
     private void togglePlay() {
-        if (video.isPlaying()) video.pause();
-        else video.start();
+        if (video.isPlaying()) {
+            video.pause();
+            saveResume();   // [실측 2026-11-20] 일시정지 시점 저장 누락 — 재실행이 0ms로 떴다
+        } else {
+            video.start();
+        }
         syncPlayButton();
+        android.util.Log.i("jkdesk", "video " + (video.isPlaying() ? "play" : "pause") +
+                " at " + video.getCurrentPosition() + "ms");
     }
 
     private void syncPlayButton() {
@@ -248,6 +270,7 @@ public final class VideoPlayerActivity extends Activity {
         public void run() {
             if (!isFinishing()) {
                 updateTime();
+                updateSubtitle();
                 syncPlayButton();
                 ui.postDelayed(this, 500);
             }
@@ -286,6 +309,18 @@ public final class VideoPlayerActivity extends Activity {
         b.setNegativeButton("닫기", (d, w) -> finish());
         b.show();
         android.util.Log.i("jkdesk", "video: storage permission required");
+    }
+
+    // [2026-11-20] 단일 인스턴스 계약 — 재실행은 새 액티비티가 아니라 **경로 전환**.
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        String p = intent != null ? intent.getStringExtra("path") : null;
+        if (p == null || p.isEmpty()) p = null;
+        pendingPath = p;
+        if (hasStorageAccess()) startPending();
+        android.util.Log.i("jkdesk", "video new intent: " + (p == null ? "(latest)" : p));
     }
 
     @Override
@@ -329,6 +364,7 @@ public final class VideoPlayerActivity extends Activity {
         hint.setText("여는 중: " + displayName);
         hint.setVisibility(View.VISIBLE);
         if (titleView != null) titleView.setText(displayName);
+        loadSubtitlesFor(uri);
         video.setVideoURI(uri);
         video.setOnPreparedListener((MediaPlayer mp) -> {
             player = mp;
@@ -383,6 +419,89 @@ public final class VideoPlayerActivity extends Activity {
                 })
                 .setNegativeButton("닫기", null)
                 .show();
+    }
+
+    // [2026-11-20] 외부 자막(.srt) — 영상과 같은 이름의 파일을 자동으로 읽는다.
+    // SRT 파서는 최소 구현(번호/타임코드/본문, 빈 줄 구분) — 실패는 조용히 무시.
+    private void loadSubtitlesFor(Uri uri) {
+        cueSpan.clear();
+        cueText.clear();
+        if (subtitleView != null) subtitleView.setText("");
+        if (uri == null || !"file".equals(uri.getScheme())) return;
+        final String path = uri.getPath();
+        if (path == null) return;
+        final String base = path.contains(".") ? path.substring(0, path.lastIndexOf('.')) : path;
+        File f = new File(base + ".srt");
+        if (!f.isFile()) f = new File(base + ".vtt");
+        if (!f.isFile()) return;
+        try {
+            java.io.BufferedReader r = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(new java.io.FileInputStream(f), "UTF-8"));
+            String line;
+            long start = -1, end = -1;
+            StringBuilder body = new StringBuilder();
+            while ((line = r.readLine()) != null) {
+                line = line.trim();
+                if (line.isEmpty() || line.equals("WEBVTT")) {
+                    if (start >= 0 && end > start && body.length() > 0) {
+                        cueSpan.add(new long[]{start, end});
+                        cueText.add(body.toString().trim());
+                    }
+                    start = end = -1;
+                    body.setLength(0);
+                    continue;
+                }
+                if (line.matches("\\d+")) continue;          // SRT 번호 행
+                if (line.contains("-->")) {
+                    String[] parts = line.split("-->");
+                    start = parseCueTime(parts[0].trim());
+                    end = parseCueTime(parts[1].trim().split(" ")[0]);
+                    continue;
+                }
+                if (start >= 0) {
+                    if (body.length() > 0) body.append(' ');
+                    body.append(line);
+                }
+            }
+            if (start >= 0 && end > start && body.length() > 0) {
+                cueSpan.add(new long[]{start, end});
+                cueText.add(body.toString().trim());
+            }
+            r.close();
+            android.util.Log.i("jkdesk", "subtitles loaded: " + f.getName() +
+                    " cues=" + cueText.size());
+        } catch (Exception e) {
+            android.util.Log.w("jkdesk", "subtitle load failed: " + e);
+        }
+    }
+
+    private static long parseCueTime(String hms) {
+        // "00:00:01,500" / "00:00:01.500"
+        try {
+            String t = hms.replace(',', '.').replace(';', '.');
+            String[] a = t.split(":");
+            if (a.length != 3) return -1;
+            double h = Double.parseDouble(a[0]);
+            double m = Double.parseDouble(a[1]);
+            double sec = Double.parseDouble(a[2]);
+            return (long) ((h * 3600 + m * 60 + sec) * 1000.0);
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    private void updateSubtitle() {
+        if (subtitleView == null || cueText.isEmpty()) return;
+        final int pos = video.getCurrentPosition();
+        String show = "";
+        for (int i = 0; i < cueSpan.size(); ++i) {
+            long[] sp = cueSpan.get(i);
+            if (pos >= sp[0] && pos <= sp[1]) {
+                show = cueText.get(i);
+                break;
+            }
+        }
+        if (!subtitleView.getText().toString().equals(show)) subtitleView.setText(show);
     }
 
     // [2026-11-20] 이어보기 — 영상별 마지막 위치(3초~끝-5초 구간만) 기억.
@@ -558,7 +677,9 @@ public final class VideoPlayerActivity extends Activity {
         try {
             Intent i = new Intent(ctx, VideoPlayerActivity.class);
             i.putExtra("path", path == null ? "" : path);
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                    | Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    | Intent.FLAG_ACTIVITY_CLEAR_TOP);
             final int displayId = pickDisplayId(ctx);
             android.util.Log.i("jkdesk", "video launch display=" + displayId);
             Bundle opts = ActivityOptions.makeBasic()
