@@ -513,9 +513,11 @@ public final class VideoPlayerActivity extends Activity {
         if (resumeKey == null || video == null) return;
         final int pos = video.getCurrentPosition();
         final int dur = video.getDuration();
-        if (dur > 0 && pos > 3000 && pos < dur - 5000) {
+        // [실측 2026-11-20] 종전 끝 경계 dur-5000은 6초 클립에서 창이 비어
+        // (저장 구간 3s..dur-5s = 1s) 아무것도 저장되지 않았다 → 끝 1초만 제외.
+        if (dur > 0 && pos > 3000 && pos < dur - 1000) {
             prefs().edit().putInt("pos:" + resumeKey, pos).apply();
-        } else if (dur > 0 && pos >= dur - 5000) {
+        } else if (dur > 0 && pos >= dur - 1000) {
             prefs().edit().remove("pos:" + resumeKey).apply();   // 끝까지 봤다
         }
     }
