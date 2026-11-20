@@ -58,7 +58,23 @@
 - **배속**: 하단 바 버튼 = 1.0x → 1.25x → 1.5x → 2.0x 순환
   (`MediaPlayer.setPlaybackParams`, API 23+; 실패는 경고 로그로 열화).
 
-## 6. 남은 일
+## 6. 자막 · 단일 인스턴스 · 리모컨 (2026-11-20 후반)
 
-- 자막(외부 .srt/.vtt, `addTimedTextSource`), 볼륨 제스처
+- **자막**: 영상과 같은 이름의 `.srt`/`.vtt` 자동 로드(최소 SRT 파서 — 번호/
+  타임코드/본문, 빈 줄 구분). 0.5초 틱에서 현재 큐를 찾아 하단 바 위에 표시.
+  로드 실패·파일 없음 = 조용한 열화(영상은 정상 재생).
+- **단일 인스턴스**: `launchFrom`에 `SINGLE_TOP | CLEAR_TOP`, `onNewIntent`에서
+  경로 전환. 실측 원존: 반복 실행이 액티비티를 쌓아 **두 번째 실행이 0ms**로
+  보였다.
+- **이어보기 저장 누락 봉합**: `togglePlay`의 pause에서 `saveResume()` 호출
+  (3.8초에서 멈춰도 저장이 안 되던 실측).
+- **TV 리모컨(D-패드)**: 중앙/확인 = 재생·일시정지, 좌우 = ∓10초,
+  미디어 키(PLAY_PAUSE/REWIND/FAST_FORWARD) 동일 매핑.
+- **진단 로그**: `video play/pause at <ms>`, `subtitles loaded: … cues=N`,
+  `video resume at <ms>`, `video launch display=<id>` — 실기기 검증 시 이 4줄로
+  상태를 판정한다.
+
+## 7. 남은 일
+
+- 볼륨 제스처, 자막 언어/크기 설정
 - 엔진 vplayer(FFmpeg) 탑재 시 이 액티비티로 대체
